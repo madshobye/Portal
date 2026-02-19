@@ -41,6 +41,36 @@ const LIBRARIES = [
 ];
 
 function resolveSketchURL() {
+  const toEditorSketchUrl = (u) => {
+    if (u.hostname.includes("editor.p5js.org")) return u.href;
+
+    if (!u.hostname.includes("preview.p5js.org")) return null;
+
+    // Common preview shape: /<user>/sketches/<id>
+    if (u.pathname.includes("/sketches/")) {
+      return `https://editor.p5js.org${u.pathname}`;
+    }
+
+    // Fallback if preview uses query params
+    const user = u.searchParams.get("user") || u.searchParams.get("username");
+    const sketch =
+      u.searchParams.get("sketch") ||
+      u.searchParams.get("project") ||
+      u.searchParams.get("id");
+    if (user && sketch) {
+      return `https://editor.p5js.org/${user}/sketches/${sketch}`;
+    }
+
+    // Some runners keep the useful route in hash
+    const hash = (u.hash || "").replace(/^#/, "");
+    if (hash.includes("/sketches/")) {
+      const route = hash.startsWith("/") ? hash : `/${hash}`;
+      return `https://editor.p5js.org${route}`;
+    }
+
+    return null;
+  };
+
   const candidates = [window.location?.href, document.referrer];
   try { candidates.push(window.parent?.location?.href); } catch {}
   try { candidates.push(window.top?.location?.href); } catch {}
@@ -57,8 +87,8 @@ function resolveSketchURL() {
       const u = new URL(raw);
       if (!/^https?:$/.test(u.protocol)) continue;
 
-      // p5 editor routes that can be converted to /full/
-      if (u.hostname.includes("editor.p5js.org")) return u.href;
+      const p5EditorUrl = toEditorSketchUrl(u);
+      if (p5EditorUrl) return p5EditorUrl;
 
       // Generic hosted sketch URLs
       return u.href;
