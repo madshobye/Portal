@@ -41,6 +41,21 @@ const LIBRARIES = [
 ];
 
 function resolveSketchURL() {
+  const fromExplicitOverride = () => {
+    try {
+      const qp = new URLSearchParams(window.location.search);
+      const fromQuery = qp.get("portalSketch");
+      if (fromQuery) return fromQuery;
+    } catch {}
+    if (typeof window.PORTAL_SKETCH_URL === "string" && window.PORTAL_SKETCH_URL) {
+      return window.PORTAL_SKETCH_URL;
+    }
+    if (typeof window.urlToSketch === "string" && window.urlToSketch) {
+      return window.urlToSketch;
+    }
+    return null;
+  };
+
   const toEditorSketchUrl = (u) => {
     if (u.hostname.includes("editor.p5js.org")) return u.href;
 
@@ -71,6 +86,36 @@ function resolveSketchURL() {
     return null;
   };
 
+  const scanObjectForEditorUrl = (obj, depth = 0, seen = new Set()) => {
+    if (!obj || depth > 1 || seen.has(obj)) return null;
+    seen.add(obj);
+
+    const isEditorPath = (s) =>
+      typeof s === "string" && /https?:\/\/editor\.p5js\.org\/[^/]+\/sketches\/[^/?#]+/i.test(s);
+
+    const normalize = (s) => {
+      const m = s.match(/https?:\/\/editor\.p5js\.org\/[^/]+\/sketches\/[^/?#]+/i);
+      return m ? m[0] : null;
+    };
+
+    try {
+      const keys = Object.keys(obj).slice(0, 200);
+      for (const k of keys) {
+        let v;
+        try { v = obj[k]; } catch { continue; }
+        if (isEditorPath(v)) return normalize(v);
+        if (v && typeof v === "object") {
+          const nested = scanObjectForEditorUrl(v, depth + 1, seen);
+          if (nested) return nested;
+        }
+      }
+    } catch {}
+    return null;
+  };
+
+  const explicit = fromExplicitOverride();
+  if (explicit) return explicit;
+
   const candidates = [window.location?.href, document.referrer];
   try { candidates.push(window.parent?.location?.href); } catch {}
   try { candidates.push(window.top?.location?.href); } catch {}
@@ -94,6 +139,10 @@ function resolveSketchURL() {
       return u.href;
     } catch {}
   }
+
+  const scanned = scanObjectForEditorUrl(window);
+  if (scanned) return scanned;
+
   return "";
 }
 
@@ -115,8 +164,7 @@ async function pSetup() {
   if (typeof urlToSketch === "undefined" || !urlToSketch) {
     window.urlToSketch = resolveSketchURL();
   }
-  print(urlToSketch);
-  print(window.urlToSketch)
+
   if (typeof urlToSketch !== "undefined" && urlToSketch != "") {
     const fullUrl = urlToSketch
       .replace("/sketches/", "/full/")
