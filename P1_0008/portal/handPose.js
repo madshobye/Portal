@@ -28,11 +28,8 @@ class HandPose {
     this._hasNew = false;
     this._raf = null;
     this._reinitInFlight = null;
-    this._ml5Options = {
-      runtime: "mediapipe",
-      solutionPath: "https://cdn.jsdelivr.net/npm/@mediapipe/hands",
-      // optional: modelType: 'lite' | 'full' | 'heavy'
-    };
+    this._runtimeOrder = ["mediapipe", "tfjs"];
+    this._runtimeIndex = 0;
 
     // MediaPipe/TFJS hand landmark names in index order
     this._names = [
@@ -71,8 +68,7 @@ class HandPose {
       }
     }
 
-    // Pass explicit solutionPath so ml5 doesn’t try to inject its own
-    this.detector = await ml5.handPose(this._ml5Options);
+    this.detector = await this._createDetector();
 
     // 🔴 IMPORTANT: wait until detector is actually ready
     await this._waitDetectorReady(this.detector);
@@ -110,7 +106,7 @@ class HandPose {
       } catch (e) {
         const msg = String(e?.message || e);
         if (msg.includes("estimateHands") || msg.includes("null")) {
-          await this._recoverDetector();
+          await this._recoverDetector(true);
         }
       }
       this._raf = requestAnimationFrame(loop);
@@ -125,16 +121,19 @@ class HandPose {
     this.running = false;
   }
 
-  async _recoverDetector() {
+  async _recoverDetector(tryNextRuntime = false) {
     if (this._reinitInFlight) return this._reinitInFlight;
     this._reinitInFlight = (async () => {
       try {
+        if (tryNextRuntime && this._runtimeIndex < this._runtimeOrder.length - 1) {
+          this._runtimeIndex += 1;
+        }
         if (this.detector && typeof this.detector.detectStop === "function") {
           try {
             this.detector.detectStop();
           } catch {}
         }
-        this.detector = await ml5.handPose(this._ml5Options);
+        this.detector = await this._createDetector();
         await this._waitDetectorReady(this.detector);
         this.ready = true;
       } finally {
@@ -142,6 +141,20 @@ class HandPose {
       }
     })();
     return this._reinitInFlight;
+  }
+
+  _getMl5Options() {
+    const runtime = this._runtimeOrder[this._runtimeIndex] || "mediapipe";
+    if (runtime === "tfjs") return { runtime: "tfjs" };
+    return {
+      runtime: "mediapipe",
+      solutionPath: "https://cdn.jsdelivr.net/npm/@mediapipe/hands",
+    };
+  }
+
+  async _createDetector() {
+    const detector = await ml5.handPose(this._getMl5Options());
+    return detector;
   }
 
   // -------- Public API --------
