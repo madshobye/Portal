@@ -8,7 +8,7 @@ async function setup() {
 
   canvas = createCanvas(windowWidth, windowHeight);
 
-  await loadPortal("P1_0008");
+
 
   await pSetup();
 

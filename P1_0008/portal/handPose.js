@@ -86,23 +86,8 @@ class HandPose {
     const loop = async () => {
       if (!this.running) return;
       try {
-        await new Promise((resolve, reject) => {
-          this.detector.detect(this.video, (...args) => {
-            const [first, second] = args;
-            const isResultOnlyCallback =
-              args.length === 1 ||
-              (second === undefined &&
-                (Array.isArray(first) ||
-                  (first && typeof first === "object")));
-
-            const err = isResultOnlyCallback ? null : first;
-            const res = isResultOnlyCallback ? first : second;
-
-            if (err) return reject(err);
-            this._handle(res || []);
-            resolve();
-          });
-        });
+        const res = await this._detectOnce();
+        this._handle(res || []);
       } catch (e) {
         const msg = String(e?.message || e);
         if (msg.includes("estimateHands") || msg.includes("null")) {
@@ -112,6 +97,37 @@ class HandPose {
       this._raf = requestAnimationFrame(loop);
     };
     loop();
+  }
+
+  async _detectOnce() {
+    if (!this.detector || typeof this.detector.detect !== "function") {
+      throw new Error("HandPose detector not ready");
+    }
+
+    try {
+      const maybePromise = this.detector.detect(this.video);
+      if (maybePromise && typeof maybePromise.then === "function") {
+        return await maybePromise;
+      }
+    } catch (e) {
+      throw e;
+    }
+
+    return await new Promise((resolve, reject) => {
+      this.detector.detect(this.video, (...args) => {
+        const [first, second] = args;
+        const isResultOnlyCallback =
+          args.length === 1 ||
+          (second === undefined &&
+            (Array.isArray(first) || (first && typeof first === "object")));
+
+        const err = isResultOnlyCallback ? null : first;
+        const res = isResultOnlyCallback ? first : second;
+
+        if (err) return reject(err);
+        resolve(res || []);
+      });
+    });
   }
 
   stop() {
