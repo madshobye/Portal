@@ -26,6 +26,13 @@ class HandPose {
 
     this._hasResult = false;
     this._hasNew = false;
+    this._raf = null;
+    this._reinitInFlight = null;
+    this._ml5Options = {
+      runtime: "mediapipe",
+      solutionPath: "https://cdn.jsdelivr.net/npm/@mediapipe/hands",
+      // optional: modelType: 'lite' | 'full' | 'heavy'
+    };
 
     // MediaPipe/TFJS hand landmark names in index order
     this._names = [
@@ -65,11 +72,7 @@ class HandPose {
     }
 
     // Pass explicit solutionPath so ml5 doesn’t try to inject its own
-    this.detector = await ml5.handPose({
-      runtime: "mediapipe",
-      solutionPath: "https://cdn.jsdelivr.net/npm/@mediapipe/hands",
-      // optional: modelType: 'lite' | 'full' | 'heavy'
-    });
+    this.detector = await ml5.handPose(this._ml5Options);
 
     // 🔴 IMPORTANT: wait until detector is actually ready
     await this._waitDetectorReady(this.detector);
@@ -84,32 +87,61 @@ class HandPose {
     if (this.running) return;
     this.running = true;
     await this._waitForVideoReady(this.video);
+    const loop = async () => {
+      if (!this.running) return;
+      try {
+        await new Promise((resolve, reject) => {
+          this.detector.detect(this.video, (...args) => {
+            const [first, second] = args;
+            const isResultOnlyCallback =
+              args.length === 1 ||
+              (second === undefined &&
+                (Array.isArray(first) ||
+                  (first && typeof first === "object")));
 
-    if (typeof this.detector.detectStart === "function") {
-      this.detector.detectStart(this.video, (res) => this._handle(res));
-    } else {
-      const loop = async () => {
-        if (!this.running) return;
-        try {
-          this.detector.detect(
-            this.video,
-            (err, res) => !err && this._handle(res)
-          );
-        } catch (e) {
-          console.warn(e);
+            const err = isResultOnlyCallback ? null : first;
+            const res = isResultOnlyCallback ? first : second;
+
+            if (err) return reject(err);
+            this._handle(res || []);
+            resolve();
+          });
+        });
+      } catch (e) {
+        const msg = String(e?.message || e);
+        if (msg.includes("estimateHands") || msg.includes("null")) {
+          await this._recoverDetector();
         }
-        requestAnimationFrame(loop);
-      };
-      loop();
-    }
+      }
+      this._raf = requestAnimationFrame(loop);
+    };
+    loop();
   }
 
   stop() {
-    if (!this.detector || !this.running) return;
-    if (typeof this.detector.detectStop === "function")
+    if (this.detector && typeof this.detector.detectStop === "function")
       this.detector.detectStop();
-    if (this._raf) cancelAnimationFrame(this._raf), (this._raf = null); // add this line
+    if (this._raf) cancelAnimationFrame(this._raf), (this._raf = null);
     this.running = false;
+  }
+
+  async _recoverDetector() {
+    if (this._reinitInFlight) return this._reinitInFlight;
+    this._reinitInFlight = (async () => {
+      try {
+        if (this.detector && typeof this.detector.detectStop === "function") {
+          try {
+            this.detector.detectStop();
+          } catch {}
+        }
+        this.detector = await ml5.handPose(this._ml5Options);
+        await this._waitDetectorReady(this.detector);
+        this.ready = true;
+      } finally {
+        this._reinitInFlight = null;
+      }
+    })();
+    return this._reinitInFlight;
   }
 
   // -------- Public API --------
@@ -328,6 +360,11 @@ class HandPose {
   // wait until the detector is actually usable
   async _waitDetectorReady(detector, timeoutMs = 10000) {
     const start = performance.now();
+    const isReady = () =>
+      !!detector?.model ||
+      !!detector?.handpose ||
+      !!detector?.handPose ||
+      !!detector?.predictor;
 
     // Some ml5 models expose a ready/loaded event; use if available.
     if (typeof detector?.on === "function") {
@@ -347,7 +384,7 @@ class HandPose {
         } catch {}
         // Safety: also poll in case no event fires
         const id = setInterval(() => {
-          if (detector?.model || typeof detector?.detectStart === "function") {
+          if (isReady()) {
             clearInterval(id);
             done();
           }
@@ -362,8 +399,7 @@ class HandPose {
 
     // Fallback: poll for model/detectStart
     while (performance.now() - start < timeoutMs) {
-      if (detector?.model || typeof detector?.detectStart === "function")
-        return;
+      if (isReady()) return;
       await new Promise((r) => setTimeout(r, 50));
     }
   }

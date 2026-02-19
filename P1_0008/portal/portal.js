@@ -2,7 +2,20 @@ let pVersion = "v1_0008";
 let baseFont;
 let simplexNoise;
 
-let baseURL = "https://madshobye.github.io/Portal/P1_0008/"
+const currentHost = window.location.hostname;
+const isPrivateHost =
+  /^10\./.test(currentHost) ||
+  /^192\.168\./.test(currentHost) ||
+  /^172\.(1[6-9]|2\d|3[0-1])\./.test(currentHost);
+const runningLocal =
+  window.location.protocol === "file:" ||
+  ["localhost", "127.0.0.1", "::1", "0.0.0.0"].includes(currentHost) ||
+  currentHost.endsWith(".local") ||
+  isPrivateHost;
+
+let baseURL = runningLocal
+  ? "/P1_0008/"
+  : "https://madshobye.github.io/Portal/P1_0008/";
 
 const LIBRARIES = [
   "https://cdnjs.cloudflare.com/ajax/libs/webfont/1.6.28/webfontloader.js",
@@ -81,10 +94,27 @@ async function loadLibraries() {
 function loadScript(url) {
   return new Promise((resolve, reject) => {
     if (url.startsWith("portal/")) url = baseURL + url;
-    // If the same URL was already inserted, resolve immediately
-    if ([...document.scripts].some((s) => s.src === url)) return resolve(url);
-    
-  if (isLocal(url)) url = url + "?" + random(2000);
+
+    const normalizeSrc = (src) => {
+      try {
+        const u = new URL(src, window.location.origin);
+        u.search = "";
+        u.hash = "";
+        return u.href;
+      } catch {
+        return src;
+      }
+    };
+
+    const normalizedUrl = normalizeSrc(url);
+    if ([...document.scripts].some((s) => normalizeSrc(s.src) === normalizedUrl))
+      return resolve(url);
+
+    if (isLocal(url)) {
+      const bust = `_cb=${Date.now()}`;
+      url += url.includes("?") ? `&${bust}` : `?${bust}`;
+    }
+
     const s = document.createElement("script");
     s.src = url;
     s.async = true;
