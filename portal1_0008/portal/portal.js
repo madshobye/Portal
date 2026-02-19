@@ -20,7 +20,7 @@ async function pSetup() {
  // print("## Portal v: " + pVersion);
   print("## https://learn.hobye.dk/portal");
   await loadLibraries();
-  baseFont = await loadFont("portal/assets/Rubik-Light.ttf");
+  baseFont = await loadFont(baseURL + "portal/assets/Rubik-Light.ttf");
   textFont(baseFont);
   const originalDraw = draw;
   draw = function() {
