@@ -1,5 +1,5 @@
 let v_major = 1;
-let v_minor = 12
+let v_minor = 13
 let pVersion =v_major + "." +v_minor
 let baseFont;
 let simplexNoise;
