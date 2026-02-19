@@ -2,13 +2,15 @@ let pVersion = "v1_0008";
 let baseFont;
 let simplexNoise;
 
+let baseURL = "https://madshobye.github.io/Portal/portal1_0008/"
+
 const LIBRARIES = [
   "https://cdnjs.cloudflare.com/ajax/libs/webfont/1.6.28/webfontloader.js",
   "https://cdnjs.cloudflare.com/ajax/libs/crypto-js/3.1.2/rollups/aes.js",
-  "portal/pNoise.js",
-  "portal/uiSlim2.js",
-  "portal/qrCodeGen.js",
-  "portal/SoundFile.js"
+  baseURL + "portal/pNoise.js",
+ baseURL + "portal/uiSlim2.js",
+  baseURL +"portal/qrCodeGen.js",
+  baseURL +"portal/SoundFile.js"
 ];
 
 //let urlToSketch ="";
