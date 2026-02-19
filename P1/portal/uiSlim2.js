@@ -505,14 +505,19 @@ function _uiDrawHUD(rgbUnder = [0,0,0,0]) {
   rect(swX, swY, swW, swH, 4);*/
   const qrSize = 100;
   const qrPadding = 5;
-  if(typeof urlToSketch !== 'undefined' && urlToSketch != ""   && uiSWidth >barLength+qrSize+qrPadding*3)
-  {
-    translate(uiSWidth-qrSize-qrPadding*5,-qrPadding);
-    
+  if (typeof sketchQRCode !== "undefined" && sketchQRCode) {
+    const boxW = qrSize + qrPadding * 2;
+    const fitsRight = uiSWidth > barLength + boxW + qrPadding * 3;
+    const qx = fitsRight ? uiSWidth - boxW - qrPadding * 3 : qrPadding;
+    const qy = fitsRight ? 0 : barH + qrPadding;
+
+    push();
+    translate(qx, qy);
     fill("white");
     noStroke();
-    rect(0,0,qrSize+qrPadding*2,qrSize+qrPadding*2,3,3,3,3);
-  drawQRCode(sketchQRCode, qrPadding, qrPadding, qrSize);
+    rect(0, 0, boxW, boxW, 3, 3, 3, 3);
+    drawQRCode(sketchQRCode, qrPadding, qrPadding, qrSize);
+    pop();
   }
   pop();
 }
