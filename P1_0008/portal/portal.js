@@ -31,7 +31,7 @@ let sketchQRCode;
 
 async function pSetup() {
  // print("## Portal v: " + pVersion);
-  print("## https://learn.hobye.dk/portal");
+  print("## https://learn.hobye.dk/portal v:" + pVersion);
   await loadLibraries();
   baseFont = await loadFont(baseURL + "assets/Rubik-Light.ttf");
   textFont(baseFont);
