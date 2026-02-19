@@ -44,4 +44,4 @@ function loadPortal(version, refresh = false) {
   return loadPromise;
 }
 
-loadPortal("P1_0008");
+loadPortal("P1");

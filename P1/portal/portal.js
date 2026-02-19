@@ -1,32 +1,62 @@
 let v_major = 1;
-let v_minor = 8
+let v_minor = 9
 let pVersion =v_major + "." +v_minor
 let baseFont;
 let simplexNoise;
 
-const currentHost = window.location.hostname;
-const isPrivateHost =
-  /^10\./.test(currentHost) ||
-  /^192\.168\./.test(currentHost) ||
-  /^172\.(1[6-9]|2\d|3[0-1])\./.test(currentHost);
-const runningLocal =
-  window.location.protocol === "file:" ||
-  ["localhost", "127.0.0.1", "::1", "0.0.0.0"].includes(currentHost) ||
-  currentHost.endsWith(".local") ||
-  isPrivateHost;
+function resolveBaseURL() {
+  const fromScriptSrc = (src) => {
+    try {
+      const u = new URL(src, window.location.href);
+      const marker = "/portal/portal.js";
+      const idx = u.pathname.lastIndexOf(marker);
+      if (idx === -1) return null;
+      const basePath = u.pathname.slice(0, idx + 1);
+      return `${u.origin}${basePath}`;
+    } catch {
+      return null;
+    }
+  };
 
-let baseURL = runningLocal
-  ? "/P1_0008/"
-  : "https://madshobye.github.io/Portal/P1_0008/";
+  const current = fromScriptSrc(document.currentScript?.src);
+  if (current) return current;
+
+  const loaded = [...document.scripts]
+    .map((s) => fromScriptSrc(s.src))
+    .find(Boolean);
+  if (loaded) return loaded;
+
+  return new URL("./", window.location.href).href;
+}
+
+let baseURL = resolveBaseURL();
 
 const LIBRARIES = [
   "https://cdnjs.cloudflare.com/ajax/libs/webfont/1.6.28/webfontloader.js",
   "https://cdnjs.cloudflare.com/ajax/libs/crypto-js/3.1.2/rollups/aes.js",
-  baseURL + "portal/pNoise.js",
- baseURL + "portal/uiSlim2.js",
-  baseURL +"portal/qrCodeGen.js",
-  baseURL +"portal/SoundFile.js"
+ "portal/pNoise.js",
+  "portal/uiSlim2.js",
+ "portal/qrCodeGen.js",
+ "portal/SoundFile.js"
 ];
+
+function resolveSketchURL() {
+  const candidates = [window.location?.href, document.referrer];
+  for (const raw of candidates) {
+    if (!raw) continue;
+    try {
+      const u = new URL(raw);
+      if (!/^https?:$/.test(u.protocol)) continue;
+
+      // p5 editor routes that can be converted to /full/
+      if (u.hostname.includes("editor.p5js.org")) return u.href;
+
+      // Generic hosted sketch URLs
+      return u.href;
+    } catch {}
+  }
+  return "";
+}
 
 //let urlToSketch ="";
 let sketchQRCode;
@@ -43,11 +73,15 @@ async function pSetup() {
     originalDraw();
     if(uiShowInfo)uiShowInfo();
   };
-  if(typeof urlToSketch !== 'undefined' && urlToSketch != "")
-  {
-    
-   sketchQRCode = createQRCode(urlToSketch.replace("/sketches/","/full/"));
- 
+  if (typeof urlToSketch === "undefined" || !urlToSketch) {
+    window.urlToSketch = resolveSketchURL();
+  }
+
+  if (typeof urlToSketch !== "undefined" && urlToSketch != "") {
+    const fullUrl = urlToSketch
+      .replace("/sketches/", "/full/")
+      .replace("/present/", "/full/");
+    sketchQRCode = createQRCode(fullUrl);
   }
 }
 
