@@ -1,4 +1,6 @@
-let pVersion = "v1_0008";
+let v_major = 1;
+let v_minor = 8
+let pVersion =v_major + "." +v_minor
 let baseFont;
 let simplexNoise;
 
