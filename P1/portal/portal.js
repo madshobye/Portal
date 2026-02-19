@@ -1,5 +1,5 @@
 let v_major = 1;
-let v_minor = 9
+let v_minor = 10
 let pVersion =v_major + "." +v_minor
 let baseFont;
 let simplexNoise;
@@ -76,7 +76,8 @@ async function pSetup() {
   if (typeof urlToSketch === "undefined" || !urlToSketch) {
     window.urlToSketch = resolveSketchURL();
   }
-
+  print(urlToSketch);
+  print(window.urlToSketch)
   if (typeof urlToSketch !== "undefined" && urlToSketch != "") {
     const fullUrl = urlToSketch
       .replace("/sketches/", "/full/")
