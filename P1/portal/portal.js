@@ -42,6 +42,15 @@ const LIBRARIES = [
 
 function resolveSketchURL() {
   const candidates = [window.location?.href, document.referrer];
+  try { candidates.push(window.parent?.location?.href); } catch {}
+  try { candidates.push(window.top?.location?.href); } catch {}
+
+  // Chrome-specific hint; often only origin, but include it as a last-resort signal.
+  try {
+    const ao = window.location?.ancestorOrigins;
+    if (ao && ao.length) candidates.push(...ao);
+  } catch {}
+
   for (const raw of candidates) {
     if (!raw) continue;
     try {
