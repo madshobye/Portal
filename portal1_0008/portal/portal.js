@@ -80,7 +80,7 @@ async function loadLibraries() {
 // 2) Tiny loader that returns a Promise for each script
 function loadScript(url) {
   return new Promise((resolve, reject) => {
-	  url = baseURL + url;
+    if (url.startsWith("portal/")) url = baseURL + url;
     // If the same URL was already inserted, resolve immediately
     if ([...document.scripts].some((s) => s.src === url)) return resolve(url);
     
