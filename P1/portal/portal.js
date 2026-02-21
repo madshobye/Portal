@@ -1,5 +1,5 @@
 let v_major = 1;
-let v_minor = 15;
+let v_minor = 16;
 let pVersion =v_major + "." +v_minor
 let baseFont;
 let baseMonoFont;
@@ -147,6 +147,24 @@ function resolveSketchURL() {
   return "";
 }
 
+function isShareableSketchURL(raw) {
+  if (!raw || typeof raw !== "string") return false;
+  try {
+    const u = new URL(raw);
+    if (!/^https?:$/.test(u.protocol)) return false;
+    if (u.hostname.includes("preview.p5js.org")) return false;
+    if (u.protocol === "blob:") return false;
+
+    // For p5 editor, only allow canonical sketch URLs.
+    if (u.hostname.includes("editor.p5js.org")) {
+      return /\/[^/]+\/sketches\/[^/?#]+/.test(u.pathname);
+    }
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 //let urlToSketch ="";
 let sketchQRCode;
 
@@ -180,11 +198,15 @@ async function pSetup() {
     window.urlToSketch = resolveSketchURL();
   }
 
-  if (typeof urlToSketch !== "undefined" && urlToSketch != "") {
-    const fullUrl = urlToSketch
+  if (isShareableSketchURL(window.urlToSketch || urlToSketch)) {
+    const sourceUrl = window.urlToSketch || urlToSketch;
+    window.urlToSketch = sourceUrl;
+    const fullUrl = sourceUrl
       .replace("/sketches/", "/full/")
       .replace("/present/", "/full/");
     sketchQRCode = createQRCode(fullUrl);
+  } else {
+    sketchQRCode = undefined;
   }
 }
 

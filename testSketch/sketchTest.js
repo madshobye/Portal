@@ -17,25 +17,34 @@ async function setup() {
   
   await loadScript("https://unpkg.com/mappa-mundi@0.0.4/dist/mappa.min.js");
   await loadScript("portal/location.js");
- 
+
+  curLocation = await getLocation();
+  options.lat = curLocation.latitude;
+  options.lng = curLocation.longitude;
 
   // Create a tile map with the options declared
   mappa = new Mappa("Leaflet");
   myMap = await mappa.tileMap(options);
   myMap.overlay(canvas);
+ 
 }
 
 function draw() {
   clear();
 
+  
   fill("red");
- 
+  var pixelLocation = myMap.latLngToPixel(
+    curLocation.latitude,
+    curLocation.longitude
+  );
+
   // Using that position, draw an ellipse
   ellipse(pixelLocation.x, pixelLocation.y, 20, 20);
 
   var mapDistance = getDistanceFromLatLonInKm(
-    55.375,
-    10.396268,
+    curLocation.latitude,
+    curLocation.longitude,
     55.375,
     10.396268
   );
