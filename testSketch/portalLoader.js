@@ -14,7 +14,7 @@ const local =
 const portalLoadPromises = (window.__portalLoadPromises ??= {});
 const loadedPortalScripts = (window.__loadedPortalScripts ??= new Set());
 
-function loadPortal(version, refresh = false) {
+async function loadPortal(version, refresh = false) {
   let baseSrc = "";
   if (local) {
     baseSrc = `/${version}/portal/portal.js`;
@@ -34,7 +34,15 @@ function loadPortal(version, refresh = false) {
     s.src = src;
     s.onload = () => {
       loadedPortalScripts.add(baseSrc);
+      const originalSetup = setup;
+
+      setup = async function() {
+        await pSetup();
+        await originalSetup();
+      };
+  
       resolve();
+	  
     };
     s.onerror = () => reject(new Error(`Failed to load: ${src}`));
     document.head.appendChild(s);

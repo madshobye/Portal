@@ -7,7 +7,7 @@ async function setup() {
 
   canvas = createCanvas(windowWidth, windowHeight);
 
-  await pSetup();
+
   textSize(20);
   fill(255);
 }
@@ -20,11 +20,4 @@ function draw() {
 
 
 
-function keyPressed() {
 
-  if (key == "f") {
-
-    fullScreenToggle();
-
-  }
-}

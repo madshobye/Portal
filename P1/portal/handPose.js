@@ -28,7 +28,7 @@ class HandPose {
     this._hasNew = false;
     this._raf = null;
     this._reinitInFlight = null;
-    this._runtimeOrder = ["mediapipe", "tfjs"];
+    this._runtimeOrder = ["tfjs", "mediapipe"];
     this._runtimeIndex = 0;
 
     // MediaPipe/TFJS hand landmark names in index order
@@ -373,16 +373,26 @@ class HandPose {
       });
     }
 
-    // 2) Preload MediaPipe Hands (prevents ml5 from racing to load it later)
-    if (!window.Hands) {
-      await new Promise((resolve, reject) => {
-        const s = document.createElement("script");
-        s.src = "https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js";
-        s.async = false;
-        s.onload = resolve;
-        s.onerror = reject;
-        document.head.appendChild(s);
-      });
+    // 2) Preload MediaPipe Hands only when using mediapipe runtime
+    const wantsMediapipe =
+      (this._runtimeOrder[this._runtimeIndex] || "tfjs") === "mediapipe";
+    if (wantsMediapipe && !window.Hands) {
+      try {
+        await new Promise((resolve, reject) => {
+          const s = document.createElement("script");
+          s.src = "https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js";
+          s.async = false;
+          s.onload = resolve;
+          s.onerror = reject;
+          document.head.appendChild(s);
+        });
+      } catch (e) {
+        // p5 v2 can expose a readonly global VERSION that breaks MediaPipe hands.js
+        // Fall back to tfjs runtime instead of failing init.
+        if (this._runtimeIndex < this._runtimeOrder.length - 1) {
+          this._runtimeIndex = 0;
+        }
+      }
     }
   }
 

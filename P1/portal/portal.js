@@ -1,5 +1,5 @@
 let v_major = 1;
-let v_minor = 13
+let v_minor = 14
 let pVersion =v_major + "." +v_minor
 let baseFont;
 let simplexNoise;
@@ -149,9 +149,18 @@ function resolveSketchURL() {
 //let urlToSketch ="";
 let sketchQRCode;
 
+let pSetupRun = false;
+
 async function pSetup() {
+	if(pSetupRun)
+	{
+		console.log("pSetup called twice");
+		return;
+	}
+	pSetupRun = true;
  // print("## Portal v: " + pVersion);
   print("## https://learn.hobye.dk/portal v:" + pVersion);
+  print(baseURL);
   await loadLibraries();
   baseFont = await loadFont(baseURL + "assets/Rubik-Light.ttf");
   textFont(baseFont);
@@ -161,6 +170,9 @@ async function pSetup() {
     originalDraw();
     if(uiShowInfo)uiShowInfo();
   };
+  
+  
+  
   if (typeof urlToSketch === "undefined" || !urlToSketch) {
     window.urlToSketch = resolveSketchURL();
   }
@@ -172,6 +184,7 @@ async function pSetup() {
     sketchQRCode = createQRCode(fullUrl);
   }
 }
+
 
 function sNoise(step) {
   simplexNoise.noise2D(0, millis() / 1000);
@@ -504,4 +517,20 @@ function getData(url) {
     .catch((err) => {
       throw err;
     });
+}
+
+
+function getP5Instance() {
+  if (window.p5?.instance) return window.p5.instance;
+  if (window._globalP5Instance) return window._globalP5Instance;
+
+  for (const v of Object.values(window)) {
+    if (
+      v &&
+      window.p5 &&
+      v instanceof window.p5 &&
+      typeof v._setProperty === "function"
+    ) return v;
+  }
+  return null;
 }

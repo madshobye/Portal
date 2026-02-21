@@ -27,9 +27,11 @@ let _uiHoveringAny = false;
 // -------------------------
 // Core IO state
 // -------------------------
+let uiKeyPressed = false, uiKeyPressedOld = false;
 let uiMX=0, uiMY=0, uiMXOld=0, uiMYOld=0;
 let uiMP=false, uiMPOld=false;
 let uiKey=undefined;
+let uiKeyOld=undefined;
 let uiSWidth=0, uiSHeight=0;
 let uiStack=[];
 
@@ -89,18 +91,35 @@ function uiApplyStyle(style){
 function uiUpdateSimple() {
  cursor('default');
   
-  uiUpdate(mouseX, mouseY, mouseIsPressed, key, width, height);
+  uiUpdate(mouseX, mouseY, mouseIsPressed, key, width, height,keyIsPressed);
  
  
 }
 
 
-function uiUpdate(_mx,_my,_mp,_key,_w,_h){
+function uiUpdate(_mx,_my,_mp,_key,_w,_h,_keyPressed){
+  uiKeyOld = uiKey;
   uiSWidth=_w; uiSHeight=_h; uiKey=_key;
   uiMXOld=uiMX; uiMYOld=uiMY; uiMPOld=uiMP;
   uiMX=_mx; uiMY=_my; uiMP=_mp;
+  uiKeyPressedOld = uiKeyPressed;
+  uiKeyPressed = _keyPressed;
   if(uiStack.length===0) uiListStart(); // ensure a root list for flow layout
+  
+
+  if (!uiKeyPressedOld && uiKeyPressed)
+  {
+   
+    if (uiKey == "f") {
+      //  bug in p5js where full screen key pressed is stuck 
+      fullScreenToggle();
+      window.dispatchEvent(new KeyboardEvent("keyup", { key: "f", code: "KeyF", bubbles: true }));
+    
+      
+    }
+  }
 }
+
 
 function uiHit(x, y, w, h) {
   const hoverOld = uiMXOld > x && uiMYOld > y && uiMXOld < x + w && uiMYOld < y + h;
