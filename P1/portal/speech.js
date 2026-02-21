@@ -4,18 +4,36 @@
 //   speech.setLanguage('da-DK');
 //   await speech.speak('Hello world', 'en-US');
 //   const sentence = await speech.listen('en-US');
-//   speech.listenRecurring((sentence) => { ... }, { language: 'en-US' });
+//   speech.listenRecurring((sentence) => { ... });
 //   speech.stopListening();
 
 class PortalSpeech {
-  constructor({ language = "en-US" } = {}) {
+  constructor({
+    language = "en-US",
+    voice = null,
+    pitch = 1,
+    rate = 1,
+    volume = 1,
+  } = {}) {
     this.language = language;
     this.synth = null;
     this.rec = null;
+    this._voice = null;
+    this.voiceName = voice;
+    this.pitch = pitch;
+    this.rate = rate;
+    this.volume = volume;
 
     this.ready = false;
+    this.listening = false;
     this._listeningRecurring = false;
     this._listenHandler = null;
+    this._listenResultHandler = null;
+    this._listenStateHandler = null;
+    this._listenPromise = null;
+    this._recurringLanguage = null;
+    this._recurringInterimResults = false;
+    this._resumeRecurringRequested = false;
   }
 
   async init() {
@@ -28,7 +46,12 @@ class PortalSpeech {
     this.synth = new p5.Speech();
     this.rec = new p5.SpeechRec();
 
+    await this._waitVoices();
     this.setLanguage(this.language);
+    if (this.voiceName) this.setVoice(this.voiceName);
+    this.setPitch(this.pitch);
+    this.setRate(this.rate);
+    this.setVolume(this.volume);
 
     this.ready = true;
     return this;
@@ -48,42 +71,216 @@ class PortalSpeech {
       this.rec.lang = language;
     }
 
+    this._voice = this._pickVoice(language);
+
     return this.language;
+  }
+
+  setVoice(voiceName) {
+    this.voiceName = voiceName || null;
+    const synth = window.speechSynthesis;
+    if (synth?.getVoices && this.voiceName) {
+      const voices = synth.getVoices() || [];
+      const byName = voices.find((v) => (v.name || "").toLowerCase() === this.voiceName.toLowerCase());
+      if (byName) this._voice = byName;
+    }
+    if (this.synth && typeof this.synth.setVoice === "function" && this.voiceName) {
+      try {
+        this.synth.setVoice(this.voiceName);
+      } catch {}
+    }
+  }
+
+  setPitch(pitch = 1) {
+    this.pitch = Number.isFinite(Number(pitch)) ? Number(pitch) : 1;
+    if (this.synth && typeof this.synth.setPitch === "function") {
+      try {
+        this.synth.setPitch(this.pitch);
+      } catch {}
+    }
+  }
+
+  setRate(rate = 1) {
+    this.rate = Number.isFinite(Number(rate)) ? Number(rate) : 1;
+    if (this.synth && typeof this.synth.setRate === "function") {
+      try {
+        this.synth.setRate(this.rate);
+      } catch {}
+    }
+  }
+
+  setVolume(volume = 1) {
+    const v = Number(volume);
+    this.volume = Number.isFinite(v) ? Math.max(0, Math.min(1, v)) : 1;
+    if (this.synth && typeof this.synth.setVolume === "function") {
+      try {
+        this.synth.setVolume(this.volume);
+      } catch {}
+    }
+  }
+
+  onResult(handler) {
+    if (typeof handler !== "function") {
+      throw new Error("onResult(handler): handler must be a function");
+    }
+    this._listenResultHandler = handler;
+  }
+
+  setResultHandler(handler) {
+    return this.onResult(handler);
+  }
+
+  onListeningChange(handler) {
+    if (typeof handler !== "function") {
+      throw new Error("onListeningChange(handler): handler must be a function");
+    }
+    this._listenStateHandler = handler;
+  }
+
+  isListening() {
+    return !!this.listening;
+  }
+
+  _setListeningState(value) {
+    const next = !!value;
+    if (this.listening === next) return;
+    this.listening = next;
+    if (typeof this._listenStateHandler === "function") {
+      try {
+        this._listenStateHandler(this.listening);
+      } catch (e) {
+        console.warn("PortalSpeech onListeningChange callback error:", e);
+      }
+    }
   }
 
   async speak(text, language = null) {
     if (!this.ready || !this.synth) throw new Error("Call init() before speak()");
     if (language) this.setLanguage(language);
 
-    return await new Promise((resolve, reject) => {
+    const shouldResumeRecurring = this._listeningRecurring && typeof this._listenHandler === "function";
+    const wasListening = this.isListening();
+    if (shouldResumeRecurring) this._resumeRecurringRequested = true;
+    if (wasListening) this.stopListening(true);
+
+    try {
+      // Prefer native speech synthesis for reliability across browsers.
+      const nativeSynth = window.speechSynthesis;
+      if (nativeSynth && typeof SpeechSynthesisUtterance !== "undefined") {
+        return await new Promise((resolve, reject) => {
+          let done = false;
+          let timeoutId = null;
+
+          const finish = () => {
+            if (done) return;
+            done = true;
+            if (timeoutId) clearTimeout(timeoutId);
+            resolve();
+          };
+
+          try {
+            nativeSynth.cancel();
+            nativeSynth.resume();
+
+            const u = new SpeechSynthesisUtterance(String(text ?? ""));
+            u.lang = this.language || "en-US";
+            if (this._voice) u.voice = this._voice;
+            u.pitch = this.pitch;
+            u.rate = this.rate;
+            u.volume = this.volume;
+            u.onend = finish;
+            u.onerror = (e) => {
+              if (done) return;
+              done = true;
+              if (timeoutId) clearTimeout(timeoutId);
+              reject(e || new Error("Native speech synthesis failed"));
+            };
+
+            timeoutId = setTimeout(finish, 8000);
+            nativeSynth.speak(u);
+          } catch (e) {
+            if (done) return;
+            done = true;
+            if (timeoutId) clearTimeout(timeoutId);
+            reject(e);
+          }
+        });
+      }
+
+      // Fallback to p5.Speech
+      return await new Promise((resolve, reject) => {
+        let done = false;
+        let timeoutId = null;
+        const finish = () => {
+          if (done) return;
+          done = true;
+          if (timeoutId) clearTimeout(timeoutId);
+          resolve();
+        };
+
+        this.synth.onEnd = finish;
+        this.synth.onError = (e) => {
+          if (done) return;
+          done = true;
+          if (timeoutId) clearTimeout(timeoutId);
+          reject(e || new Error("Speech synthesis failed"));
+        };
+
+        // Some browser/voice combos never fire onEnd; avoid hanging awaits.
+        timeoutId = setTimeout(finish, 8000);
+
+        try {
+          this.synth.speak(String(text ?? ""));
+        } catch (e) {
+          if (done) return;
+          done = true;
+          if (timeoutId) clearTimeout(timeoutId);
+          reject(e);
+        }
+      });
+    } finally {
+      if (shouldResumeRecurring && this._resumeRecurringRequested && this._listenHandler) {
+        try {
+          this.listenRecurring(this._listenHandler, {
+            language: this._recurringLanguage || this.language,
+            interimResults: this._recurringInterimResults,
+          });
+        } catch (e) {
+          console.warn("PortalSpeech could not resume recurring listening after speak:", e);
+        }
+      }
+      this._resumeRecurringRequested = false;
+    }
+  }
+
+  _pickVoice(language) {
+    const synth = window.speechSynthesis;
+    if (!synth?.getVoices) return null;
+    const voices = synth.getVoices() || [];
+    if (!voices.length) return null;
+    const lang = (language || "").toLowerCase();
+    return (
+      voices.find((v) => (v.lang || "").toLowerCase() === lang) ||
+      voices.find((v) => (v.lang || "").toLowerCase().startsWith(lang.split("-")[0])) ||
+      voices[0]
+    );
+  }
+
+  async _waitVoices(timeoutMs = 1500) {
+    const synth = window.speechSynthesis;
+    if (!synth?.getVoices) return;
+    if ((synth.getVoices() || []).length) return;
+
+    await new Promise((resolve) => {
       let done = false;
-      let timeoutId = null;
       const finish = () => {
         if (done) return;
         done = true;
-        if (timeoutId) clearTimeout(timeoutId);
+        synth.onvoiceschanged = null;
         resolve();
       };
-
-      this.synth.onEnd = finish;
-      this.synth.onError = (e) => {
-        if (done) return;
-        done = true;
-        if (timeoutId) clearTimeout(timeoutId);
-        reject(e || new Error("Speech synthesis failed"));
-      };
-
-      // Some browser/voice combos never fire onEnd; avoid hanging awaits.
-      timeoutId = setTimeout(finish, 8000);
-
-      try {
-        this.synth.speak(String(text ?? ""));
-      } catch (e) {
-        if (done) return;
-        done = true;
-        if (timeoutId) clearTimeout(timeoutId);
-        reject(e);
-      }
+      synth.onvoiceschanged = finish;
+      setTimeout(finish, timeoutMs);
     });
   }
 
@@ -91,46 +288,100 @@ class PortalSpeech {
   async listen(language = null) {
     if (!this.ready || !this.rec) throw new Error("Call init() before listen()");
     if (language) this.setLanguage(language);
+    if (this._listenPromise) return this._listenPromise;
 
-    return await new Promise((resolve, reject) => {
+    this._listenPromise = new Promise((resolve, reject) => {
       let resolved = false;
+      let lastText = "";
+      this._setListeningState(true);
 
       const finish = (value, isErr = false) => {
         if (resolved) return;
         resolved = true;
         try { this.rec.stop(); } catch {}
-        if (isErr) reject(value);
-        else resolve(value);
-      };
-
-      this.rec.onResult = () => {
-        if (this.rec.resultValue) {
-          const txt = String(this.rec.resultString || "").trim();
-          if (txt) finish(txt, false);
+        this._setListeningState(false);
+        this._listenPromise = null;
+        if (isErr) {
+          reject(value);
+        } else {
+          if (typeof this._listenResultHandler === "function") {
+            try {
+              this._listenResultHandler(value);
+            } catch (e) {
+              console.warn("PortalSpeech onResult callback error:", e);
+            }
+          }
+          resolve(value);
         }
       };
 
-      this.rec.onError = (e) => finish(e || new Error("Speech recognition failed"), true);
+      this.rec.onResult = () => {
+        const txt = String(this.rec.resultString || "").trim();
+        if (txt) lastText = txt;
+        // In non-interim mode this should already be a full sentence.
+        if (this.rec.resultValue && txt) finish(txt, false);
+      };
 
-      try {
-        // non-continuous, with interim enabled for browser robustness.
-        this.rec.start(false, true);
-      } catch (e) {
-        finish(e, true);
-      }
+      this.rec.onEnd = () => {
+        if (resolved) return;
+        if (lastText) finish(lastText, false);
+        else finish("", false);
+      };
+
+      this.rec.onError = (e) => {
+        // Treat silence as an empty sentence, not an exception.
+        if (e?.error === "no-speech") {
+          finish("", false);
+          return;
+        }
+        finish(e || new Error("Speech recognition failed"), true);
+      };
+
+      const startOnce = () => {
+        // non-continuous + no interim gives more complete sentence results.
+        this.rec.start(false, false);
+      };
+
+      const startSafe = () => {
+        try {
+          startOnce();
+        } catch (e) {
+          const msg = String(e?.message || e);
+          if (msg.includes("already started") || e?.name === "InvalidStateError") {
+            try { this.rec.stop(); } catch {}
+            setTimeout(() => {
+              try {
+                startOnce();
+              } catch (err) {
+                finish(err, true);
+              }
+            }, 120);
+          } else {
+            finish(e, true);
+          }
+        }
+      };
+
+      startSafe();
     });
+
+    return await this._listenPromise;
   }
 
-  // Continuous mode: callback called on each final sentence.
-  listenRecurring(onSentence, { language = null, continuous = true, interimResults = true } = {}) {
+  // Recurring mode: continuously listens and calls callback for each final sentence.
+  listenRecurring(onSentence, { language = null, interimResults = false } = {}) {
     if (!this.ready || !this.rec) throw new Error("Call init() before listenRecurring()");
     if (typeof onSentence !== "function") {
       throw new Error("listenRecurring(onSentence): onSentence must be a function");
     }
     if (language) this.setLanguage(language);
+    const continuous = true;
 
     this._listeningRecurring = true;
+    this._setListeningState(true);
     this._listenHandler = onSentence;
+    this._recurringLanguage = language || this.language;
+    this._recurringInterimResults = !!interimResults;
 
     this.rec.onResult = () => {
       if (!this._listeningRecurring) return;
@@ -169,8 +420,10 @@ class PortalSpeech {
     }
   }
 
-  stopListening() {
+  stopListening(internal = false) {
+    if (!internal) this._resumeRecurringRequested = false;
     this._listeningRecurring = false;
+    this._setListeningState(false);
     try {
       this.rec?.stop();
     } catch {}
