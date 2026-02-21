@@ -4,7 +4,7 @@
 //   speech.setLanguage('da-DK');
 //   await speech.speak('Hello world', 'en-US');
 //   const sentence = await speech.listen('en-US');
-//   speech.listenRecurring((sentence) => { ... });
+//   speech.listenRecurring((sentence) => { ... }); // callback optional
 //   speech.stopListening();
 
 class PortalSpeech {
@@ -34,6 +34,9 @@ class PortalSpeech {
     this._recurringLanguage = null;
     this._recurringInterimResults = false;
     this._resumeRecurringRequested = false;
+    this._hasResult = false;
+    this._hasNew = false;
+    this._resultText = "";
   }
 
   async init() {
@@ -141,6 +144,151 @@ class PortalSpeech {
     return !!this.listening;
   }
 
+  hasResult() {
+    return this._hasResult;
+  }
+
+  hasNewResult() {
+    return this._hasNew;
+  }
+
+  hasnewresult() {
+    return this.hasNewResult();
+  }
+
+  resetNewFlag() {
+    this._hasNew = false;
+  }
+
+  consumeNew() {
+    const wasNew = this._hasNew;
+    this._hasNew = false;
+    return { wasNew, text: this._resultText };
+  }
+
+  consumenew() {
+    return this.consumeNew();
+  }
+
+  getResult() {
+    return this._resultText;
+  }
+
+  getresult() {
+    return this.getResult();
+  }
+
+  getText() {
+    return this._resultText;
+  }
+
+  // Flexible matcher against latest recognized sentence.
+  // Examples:
+  //   speech.isMatch("red")
+  //   speech.isMatch(["red", "blue"])               // any by default
+  //   speech.isMatch(["background", "red"], { all: true })
+  //   speech.isMatch("red", { wholeWord: true })
+  //   speech.isMatch(/^where is/i)
+  isMatch(query, options = {}) {
+    const {
+      text = null,
+      all = false,
+      exact = false,
+      wholeWord = false,
+      caseSensitive = false,
+      normalize = true,
+      ignorePunctuation = true,
+      collapseWhitespace = true,
+    } = options || {};
+
+    const source = String(text ?? this._resultText ?? "");
+    if (!source) return false;
+
+    if (typeof query === "function") {
+      try {
+        return !!query(source);
+      } catch {
+        return false;
+      }
+    }
+
+    const textNorm = this._normalizeForMatch(source, {
+      caseSensitive,
+      normalize,
+      ignorePunctuation,
+      collapseWhitespace,
+    });
+
+    const testOne = (q) => {
+      if (q == null) return false;
+
+      if (q instanceof RegExp) {
+        const flags = caseSensitive
+          ? q.flags.replace(/i/g, "")
+          : q.flags.includes("i")
+            ? q.flags
+            : q.flags + "i";
+        const re = new RegExp(q.source, flags);
+        return re.test(source);
+      }
+
+      const qNorm = this._normalizeForMatch(String(q), {
+        caseSensitive,
+        normalize,
+        ignorePunctuation,
+        collapseWhitespace,
+      });
+      if (!qNorm) return false;
+
+      if (exact) return textNorm === qNorm;
+
+      if (wholeWord) {
+        const escaped = this._escapeRegex(qNorm);
+        return new RegExp(`\\b${escaped}\\b`).test(textNorm);
+      }
+
+      return textNorm.includes(qNorm);
+    };
+
+    if (Array.isArray(query)) {
+      if (!query.length) return false;
+      return all ? query.every(testOne) : query.some(testOne);
+    }
+
+    return testOne(query);
+  }
+
+  ismatch(query, options = {}) {
+    return this.isMatch(query, options);
+  }
+
+  _normalizeForMatch(text, options = {}) {
+    const {
+      caseSensitive = false,
+      normalize = true,
+      ignorePunctuation = true,
+      collapseWhitespace = true,
+    } = options;
+
+    let out = String(text ?? "");
+
+    if (normalize) {
+      try {
+        out = out.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+      } catch {}
+    }
+
+    if (!caseSensitive) out = out.toLowerCase();
+    if (ignorePunctuation) out = out.replace(/[^\w\s]/g, " ");
+    if (collapseWhitespace) out = out.replace(/\s+/g, " ").trim();
+
+    return out;
+  }
+
+  _escapeRegex(text) {
+    return String(text).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  }
+
   _setListeningState(value) {
     const next = !!value;
     if (this.listening === next) return;
@@ -154,11 +302,30 @@ class PortalSpeech {
     }
   }
 
+  _commitResult(text) {
+    const txt = String(text || "").trim();
+    if (!txt) return false;
+
+    this._resultText = txt;
+    this._hasResult = true;
+    this._hasNew = true;
+
+    if (typeof this._listenResultHandler === "function") {
+      try {
+        this._listenResultHandler(txt);
+      } catch (e) {
+        console.warn("PortalSpeech onResult callback error:", e);
+      }
+    }
+
+    return true;
+  }
+
   async speak(text, language = null) {
     if (!this.ready || !this.synth) throw new Error("Call init() before speak()");
     if (language) this.setLanguage(language);
 
-    const shouldResumeRecurring = this._listeningRecurring && typeof this._listenHandler === "function";
+    const shouldResumeRecurring = this._listeningRecurring;
     const wasListening = this.isListening();
     if (shouldResumeRecurring) this._resumeRecurringRequested = true;
     if (wasListening) this.stopListening(true);
@@ -239,9 +406,9 @@ class PortalSpeech {
         }
       });
     } finally {
-      if (shouldResumeRecurring && this._resumeRecurringRequested && this._listenHandler) {
+      if (shouldResumeRecurring && this._resumeRecurringRequested) {
         try {
-          this.listenRecurring(this._listenHandler, {
+          this.listenRecurring(this._listenHandler ?? null, {
             language: this._recurringLanguage || this.language,
             interimResults: this._recurringInterimResults,
           });
@@ -304,13 +471,6 @@ class PortalSpeech {
         if (isErr) {
           reject(value);
         } else {
-          if (typeof this._listenResultHandler === "function") {
-            try {
-              this._listenResultHandler(value);
-            } catch (e) {
-              console.warn("PortalSpeech onResult callback error:", e);
-            }
-          }
           resolve(value);
         }
       };
@@ -319,12 +479,18 @@ class PortalSpeech {
         const txt = String(this.rec.resultString || "").trim();
         if (txt) lastText = txt;
         // In non-interim mode this should already be a full sentence.
-        if (this.rec.resultValue && txt) finish(txt, false);
+        if (this.rec.resultValue && txt) {
+          this._commitResult(txt);
+          finish(txt, false);
+        }
       };
 
       this.rec.onEnd = () => {
         if (resolved) return;
-        if (lastText) finish(lastText, false);
+        if (lastText) {
+          this._commitResult(lastText);
+          finish(lastText, false);
+        }
         else finish("", false);
       };
 
@@ -369,9 +535,9 @@ class PortalSpeech {
   }
 
   // Recurring mode: continuously listens and calls callback for each final sentence.
-  listenRecurring(onSentence, { language = null, interimResults = false } = {}) {
+  listenRecurring(onSentence = null, { language = null, interimResults = false } = {}) {
     if (!this.ready || !this.rec) throw new Error("Call init() before listenRecurring()");
-    if (typeof onSentence !== "function") {
+    if (onSentence != null && typeof onSentence !== "function") {
       throw new Error("listenRecurring(onSentence): onSentence must be a function");
     }
     if (language) this.setLanguage(language);
@@ -388,6 +554,8 @@ class PortalSpeech {
       if (!this.rec.resultValue) return;
       const txt = String(this.rec.resultString || "").trim();
       if (!txt) return;
+      this._commitResult(txt);
+      if (typeof this._listenHandler !== "function") return;
       try {
         this._listenHandler(txt);
       } catch (e) {

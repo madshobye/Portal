@@ -1,25 +1,15 @@
+// Student-friendly PortalSpeech example.
+// Click button to start/stop recurring listening.
+
 let speech;
+
+let heardRed = false;
 let heardSentence = "";
-let recurring = false;
-let reply = "";
-
-async function onHeardSentence(sentence) {
-  heardSentence = sentence;
-  print("heard: " + sentence);
-
-  const txt = String(sentence || "").toLowerCase();
-  if (txt.includes("red")) {
-    reply = "i like blue";
-    await speech.speak(reply);
-  } else {
-    reply = "";
-  }
-}
 
 async function setup() {
   createCanvas(windowWidth, windowHeight);
-  await loadScript("portal/speech.js");
 
+  await loadScript("portal/speech.js");
   speech = await new PortalSpeech({
     language: "en-GB",
     rate: 1,
@@ -30,14 +20,16 @@ async function setup() {
 
 function draw() {
   background(20);
+  if (heardRed) {
+    background("red");
+  }
+
   fill(255);
   textSize(22);
   text("Recurring speech listener", 30, 50);
-
   textSize(16);
-  text(`Listening: ${speech?.isListening() ? "yes" : "no"}`, 30, 90);
+  text("Listening: " + (speech?.isListening() ? "yes" : "no"), 30, 90);
   text(`Heard: ${heardSentence || "-"}`, 30, 120);
-  text(`Reply: ${reply || "-"}`, 30, 150);
 
   const btnStyle = {
     fontSize: 26,
@@ -48,15 +40,32 @@ function draw() {
     rounding: 12,
   };
 
-  const label = recurring ? "Stop Listening" : "Start Listening";
+  const label = speech?.isListening() ? "Stop Listening" : "Start Listening";
   if (uiButton(label, btnStyle).clicked) {
-    if (!speech) return;
-    if (!speech.isListening()) {
-      recurring = true;
-      speech.listenRecurring(onHeardSentence);
+    if (!speech?.isListening()) {
+      speech.listenRecurring();
     } else {
-      recurring = false;
       speech.stopListening();
     }
   }
+
+  if (speech?.hasNewResult()) {
+    const { text } = speech.consumeNew();
+    heardSentence = text || "";
+    print("heard: " + heardSentence);
+    if(speech.isMatch("no red background") )
+    {
+      heardRed = false;
+      speech.speak("fine no red");
+    } else if (speech.isMatch("red")) {
+      heardRed = true;
+      speech.speak("i also like red");
+    }
+  
+    
+  }
+}
+
+function windowResized() {
+  resizeCanvas(windowWidth, windowHeight);
 }
