@@ -6,6 +6,38 @@ let baseMonoFont;
 let simplexNoise;
 
 function resolveBaseURL() {
+  const normalizeDirURL = (raw) => {
+    try {
+      const u = new URL(raw, window.location.href);
+      return u.href.endsWith("/") ? u.href : `${u.href}/`;
+    } catch {
+      return null;
+    }
+  };
+
+  const isLocalDevHost = (hostname) => {
+    if (!hostname) return false;
+    return (
+      hostname === "localhost" ||
+      hostname === "127.0.0.1" ||
+      hostname === "::1" ||
+      hostname.endsWith(".local") ||
+      hostname.endsWith(".localdomain")
+    );
+  };
+
+  const fromExplicitOverride = () => {
+    try {
+      const qp = new URLSearchParams(window.location.search);
+      const fromQuery = qp.get("portalBaseURL");
+      if (fromQuery) return normalizeDirURL(fromQuery);
+    } catch {}
+    if (typeof window.PORTAL_BASE_URL === "string" && window.PORTAL_BASE_URL) {
+      return normalizeDirURL(window.PORTAL_BASE_URL);
+    }
+    return null;
+  };
+
   const fromScriptSrc = (src) => {
     try {
       const u = new URL(src, window.location.href);
@@ -19,13 +51,34 @@ function resolveBaseURL() {
     }
   };
 
+  const explicit = fromExplicitOverride();
+  if (explicit) return explicit;
+
   const current = fromScriptSrc(document.currentScript?.src);
-  if (current) return current;
+  if (current) {
+    try {
+      const scriptURL = new URL(current);
+      const pageURL = new URL(window.location.href);
+      if (isLocalDevHost(pageURL.hostname) && scriptURL.origin !== pageURL.origin) {
+        return `${pageURL.origin}${scriptURL.pathname}`;
+      }
+    } catch {}
+    return current;
+  }
 
   const loaded = [...document.scripts]
     .map((s) => fromScriptSrc(s.src))
     .find(Boolean);
-  if (loaded) return loaded;
+  if (loaded) {
+    try {
+      const scriptURL = new URL(loaded);
+      const pageURL = new URL(window.location.href);
+      if (isLocalDevHost(pageURL.hostname) && scriptURL.origin !== pageURL.origin) {
+        return `${pageURL.origin}${scriptURL.pathname}`;
+      }
+    } catch {}
+    return loaded;
+  }
 
   return new URL("./", window.location.href).href;
 }
@@ -349,13 +402,16 @@ function isLocal(url) {
   try {
     const parsedUrl = new URL(url, window.location.origin);
     const { hostname, origin } = parsedUrl;
+    const isMdnsLikeHost =
+      hostname.endsWith(".local") || hostname.endsWith(".localdomain");
 
     // Local if it's same-origin or localhost/127.x.x.x
     return (
       origin === window.location.origin ||
       hostname === "localhost" ||
       hostname === "127.0.0.1" ||
-      hostname === "::1"
+      hostname === "::1" ||
+      isMdnsLikeHost
     );
   } catch (e) {
     console.error("Invalid URL:", e);

@@ -335,6 +335,75 @@ if (mq.hasNewResult()) {
 }
 ```
 
+## `PortalTransformer` (`portal/transformer.js`)
+
+Client-side LLM helper built on Transformers.js.
+
+### Constructor
+```js
+new PortalTransformer({
+  task: "question-answering",
+  model: "Xenova/distilbert-base-cased-distilled-squad",
+  quantized: true,
+  dtype: null,
+  device: null,
+  context: "",
+  maxNewTokens: 96,
+  temperature: 0.2,
+  topK: 40,
+  onResult: null,
+  onProgress: null,
+})
+```
+
+### Lifecycle + model loading
+- `await init()`
+- `await loadModel({ task, model, quantized, dtype, device })`
+- `setContext(text)`
+
+### Q/A API (structured)
+- `await ask(question, { context })`
+- `await askStructured(question, { context })`
+
+Structured result:
+```js
+{
+  type: "qa",
+  task: "...",
+  model: "...",
+  question: "...",
+  answer: "...",
+  confidence: 0.0-1.0,
+  // optional:
+  reason: "...",
+  raw: ...
+}
+```
+
+### Polling helpers
+- `hasResult()`
+- `hasNewResult()` / `hasnewresult()`
+- `resetNewFlag()`
+- `consumeNew()` / `consumenew()`
+- `getResult()` / `getresult()`
+- `getAnswer()`
+- `getConfidence()`
+
+### Suggested small browser models
+- `Xenova/distilbert-base-cased-distilled-squad` (`question-answering`)
+- `Xenova/flan-t5-small` (`text2text-generation`)
+- `Xenova/distilgpt2` (`text-generation`)
+
+### Minimal example
+```js
+await loadScript("portal/transformer.js");
+const t = await new PortalTransformer().init();
+const r = await t.ask("What is Denmark's capital?", {
+  context: "Denmark's capital is Copenhagen.",
+});
+print(r.answer, r.confidence);
+```
+
 ## `HandPose` (`portal/handPose.js`)
 
 ### Constructor

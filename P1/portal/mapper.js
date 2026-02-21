@@ -35,10 +35,15 @@ Nice debug checker pattern
 // =============================
 
 class ProjectionMapper {
-  constructor(p5ctx) {
+  constructor(p5ctxOrOptions, options = {}) {
     
     // p5 context (optional in global mode, but helps in instance mode)
-    this.p = p5ctx || null;
+    const hasP5Methods =
+      p5ctxOrOptions &&
+      typeof p5ctxOrOptions === "object" &&
+      typeof p5ctxOrOptions.createGraphics === "function";
+    this.p = hasP5Methods ? p5ctxOrOptions : null;
+    const opts = hasP5Methods ? options : (p5ctxOrOptions || {});
 
     this.surfaces = []; // { name, w, h, pg, corners:[p5.Vector*4], hoverIndex, dragging, storageKey }
     this.shader = null; // homography fragment shader (per-pixel inverse mapping)
@@ -52,6 +57,14 @@ class ProjectionMapper {
     // optional overlay font for labels (set via setFont)
     this._overlayFont = null;
     print("Mapper: save (s), calibrate (c), reset (r)");
+
+    if (Number.isFinite(opts.pixelDensity)) {
+      if (this.p && typeof this.p.pixelDensity === "function") {
+        this.p.pixelDensity(opts.pixelDensity);
+      } else if (typeof pixelDensity === "function") {
+        pixelDensity(opts.pixelDensity);
+      }
+    }
     
   }
 
@@ -254,7 +267,10 @@ class ProjectionMapper {
     // For each surface: compute H (unit square -> screen), invert, send COLUMN-MAJOR
     shader(this.shader);
     this.surfaces.forEach((s) => {
-      const H = this._computeHomographyDLT(s.corners);
+      const dpr = this._currentPixelDensity();
+ 
+      const scaledCorners = s.corners.map((c) => createVector(c.x * dpr, c.y * dpr));
+      const H = this._computeHomographyDLT(scaledCorners);
       const Hinv = this._invert3x3(H);
       if (!Hinv) return; // skip degenerate
       const Hc = [
@@ -269,7 +285,7 @@ class ProjectionMapper {
         Hinv[8],
       ];
       this.shader.setUniform("tex", s.pg);
-      this.shader.setUniform("uResolution", [width, height]);
+      this.shader.setUniform("uResolution", [width * dpr, height * dpr]);
       this.shader.setUniform("uHinv", Hc);
       this.shader.setUniform("uPassthrough", this.debugPassthrough);
       this._drawFullScreenStrip();
@@ -354,6 +370,24 @@ class ProjectionMapper {
     endShape();
   }
 
+  _currentPixelDensity() {
+    const gl = drawingContext;
+    if (
+      gl &&
+      Number.isFinite(gl.drawingBufferWidth) &&
+      Number.isFinite(width) &&
+      width > 0
+    ) {
+      const dpr = gl.drawingBufferWidth / width;
+      if (Number.isFinite(dpr) && dpr > 0) return dpr;
+    }
+    if (typeof pixelDensity === "function") {
+      const dpr = pixelDensity();
+      if (Number.isFinite(dpr) && dpr > 0) return dpr;
+    }
+    return 1;
+  }
+
   _drawOverlays() {
     // Update hover indices
     const pick = this._pickCorner(mouseX, mouseY);
@@ -392,11 +426,13 @@ class ProjectionMapper {
         );
         fill(isActive ? 255 : 210);
         circle(sx, sy, 16);
-        fill(255);
-        if (this._overlayFont) textFont(this._overlayFont);
-        textSize(13);
-        textAlign(LEFT, BOTTOM);
-        text(`${s.name} #${i}`, sx + 14, sy - 8);
+        if (this._overlayFont) {
+          fill(255);
+          textFont(this._overlayFont);
+          textSize(13);
+          textAlign(LEFT, BOTTOM);
+          text(`${s.name} #${i}`, sx + 14, sy - 8);
+        }
       }
     });
     pop();
