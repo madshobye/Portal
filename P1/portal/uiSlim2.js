@@ -76,7 +76,8 @@ function uiMergeDeep(target, ...sources){
   }} return target;
 }
 function uiApplyStyle(style){
-  if(style.font) textFont(style.font);
+ 
+  if(style.font) {textFont(style.font)} else { textFont(baseFont)};
   if(style.fontSize!==undefined) textSize(style.fontSize);
   if(style.textColor) fill(style.textColor);
   if(style.stroke && style.stroke.weight>0){
@@ -195,6 +196,7 @@ function uiDrawLabel(textStr, box, s){
   if(vy===TOP) ty = box.y + pad;
   else if(vy===CENTER) ty = box.y + box.height/2;
   else ty = box.y + box.height - pad;
+ 
   text(textStr, tx, ty);
   pop();
 }
@@ -204,6 +206,7 @@ function uiDrawLabel(textStr, box, s){
 // -------------------------
 function uiText(txt, style={}){
   push();
+  const overlay2d = _uiOverlayStart();
   const s = uiMergeDeep({}, uiBaseStyle.common, uiBaseStyle.text, style);
   const h = (s.height!==undefined)?s.height:22;
   const box = (s.x!==undefined && s.y!==undefined && s.width!==undefined)
@@ -211,12 +214,14 @@ function uiText(txt, style={}){
     : uiPlace(s.width||uiGetList().width, h);
   if(s.bgColor){ fill(s.bgColor); noStroke(); rect(box.x, box.y, box.width, box.height, s.rounding); }
   uiDrawLabel(txt, box, s);
+  _uiOverlayEnd(overlay2d);
   pop();
   return { x:box.x, y:box.y, width:box.width, height:box.height };
 }
 
 function uiButton(label, style={}){
   push();
+  const overlay2d = _uiOverlayStart();
   const s = uiMergeDeep({}, uiBaseStyle.common, uiBaseStyle.button, style);
   const h = s.height;
   const box = (s.x!==undefined && s.y!==undefined && s.width!==undefined && s.height!==undefined)
@@ -231,6 +236,7 @@ function uiButton(label, style={}){
   if(cur.stroke && cur.stroke.weight>0){ stroke(cur.stroke.color||0, cur.stroke.alpha??255); strokeWeight(cur.stroke.weight); } else noStroke();
   rect(box.x, box.y, box.width, box.height, cur.rounding!==undefined?cur.rounding:s.rounding);
   uiDrawLabel(label, box, cur);
+  _uiOverlayEnd(overlay2d);
   pop();
   return { clicked: hit.clicked, hover: hit.hover, pressed: hit.pressed, x:box.x, y:box.y, width:box.width, height:box.height };
 }
@@ -245,6 +251,8 @@ function uiPromptText(id, label, style={}){
 }
 
 function uiSlider(id, label, opts={}, style={}){
+  push();
+  const overlay2d = _uiOverlayStart();
   const s = uiMergeDeep({}, uiBaseStyle.common, uiBaseStyle.slider, style);
   const min = (opts.min!==undefined)?opts.min:s.min;
   const max = (opts.max!==undefined)?opts.max:s.max;
@@ -261,11 +269,14 @@ function uiSlider(id, label, opts={}, style={}){
   const tnow = (val-min)/(max-min); fill(s.fillColor); rect(box.x, box.y, box.width*tnow, box.height, s.rounding, 0, 0, s.rounding);
   // label
   uiDrawLabel(label+" ("+nf(val,1,2)+")", box, s);
+  _uiOverlayEnd(overlay2d);
+  pop();
   return { value: val, changed: hit.pressed, x:box.x, y:box.y, width:box.width, height:box.height };
 }
 
 function uiToggle(id, label, style={}){
   push();
+  const overlay2d = _uiOverlayStart();
   // Full-width button-like toggle with text and changing background
   const s = uiMergeDeep({}, uiBaseStyle.common, uiBaseStyle.button, uiBaseStyle.toggle, style);
   const h = s.height;
@@ -282,6 +293,7 @@ function uiToggle(id, label, style={}){
   if(cur.stroke && cur.stroke.weight>0){ stroke(cur.stroke.color||0, cur.stroke.alpha??255); strokeWeight(cur.stroke.weight); } else noStroke();
   rect(box.x, box.y, box.width, box.height, cur.rounding!==undefined?cur.rounding:s.rounding);
   uiDrawLabel((v?label+' : ON':label+' : OFF'), box, cur);
+  _uiOverlayEnd(overlay2d);
   pop();
   return { value: v, toggled: hit.clicked, x:box.x, y:box.y, width:box.width, height:box.height };
 }
@@ -291,10 +303,12 @@ function uiToggle(id, label, style={}){
 // -------------------------
 function uiRect(x,y,w,h, style={}){
   push();
+  const overlay2d = _uiOverlayStart();
   const s = uiMergeDeep({}, uiBaseStyle.common, style);
   if(s.bgColor){ fill(s.bgColor); } else noFill();
   if(s.stroke && s.stroke.weight>0){ stroke(s.stroke.color||0, s.stroke.alpha??255); strokeWeight(s.stroke.weight); } else noStroke();
   rect(x,y,w,h, s.rounding);
+  _uiOverlayEnd(overlay2d);
   pop();
 }
 
@@ -401,6 +415,39 @@ _uiInfo.comboPrev = ctrlDown;
 // -------------------------
 // Internals
 // -------------------------
+function _uiIsWebGLContext() {
+  return (
+    (typeof WebGLRenderingContext !== "undefined" &&
+      drawingContext instanceof WebGLRenderingContext) ||
+    (typeof WebGL2RenderingContext !== "undefined" &&
+      drawingContext instanceof WebGL2RenderingContext)
+  );
+}
+
+
+
+function _uiOverlaySpace() {
+  if (!_uiIsWebGLContext()) return;
+  resetMatrix();
+  translate(-width / 2, -height / 2);
+}
+
+function _uiOverlayStart() {
+  if (!_uiIsWebGLContext()) return false;
+  _uiOverlaySpace();
+  if (drawingContext?.disable && drawingContext?.DEPTH_TEST !== undefined) {
+    drawingContext.disable(drawingContext.DEPTH_TEST);
+  }
+  return true;
+}
+
+function _uiOverlayEnd(active) {
+  if (!active) return;
+  if (drawingContext?.enable && drawingContext?.DEPTH_TEST !== undefined) {
+    drawingContext.enable(drawingContext.DEPTH_TEST);
+  }
+}
+
 function _uiDrawGrid(opt) {
    const s50 = uiMergeDeep({}, {
     color: { r: 120, g: 120, b: 120, a: 80 },   // lighter gray, very transparent
@@ -413,6 +460,7 @@ function _uiDrawGrid(opt) {
   }, opt.grid100);
 
   push();
+  const overlay2d = _uiOverlayStart();
   noFill();
 
   // 50px lines
@@ -427,6 +475,7 @@ function _uiDrawGrid(opt) {
   for (let x = 0; x <= uiSWidth; x += 100) line(x, 0, x, uiSHeight);
   for (let y = 0; y <= uiSHeight; y += 100) line(0, y, uiSWidth, y);
 
+  _uiOverlayEnd(overlay2d);
   pop();
 }
 
@@ -450,6 +499,7 @@ function _uiHandleMeasure() {
   const dd = sqrt(dx*dx + dy*dy);
 
   push();
+  const overlay2d = _uiOverlayStart();
   // main line
   stroke(120, 120, 120, 255); strokeWeight(2); line(x0, y0, x1, y1);
   stroke(255, 255, 255, 160); strokeWeight(1); line(x0, y0, x1, y1);
@@ -474,6 +524,7 @@ function _uiHandleMeasure() {
   textAlign(CENTER, TOP);
   _uiTextWithChip(`${Math.round(dd)} px`, (x0+x1)/2, (y0+y1)/2);
 
+  _uiOverlayEnd(overlay2d);
   pop();
 }
 function _uiDrawHUD(rgbUnder = [0,0,0,0]) {
@@ -502,6 +553,7 @@ function _uiDrawHUD(rgbUnder = [0,0,0,0]) {
     `Portal: ${pVersion}  x:${mxStr}  y:${myStr}   fps:${fpsStr}   mem:${memStr}MB   rgb: ${rStr},${gStr},${bStr}`;
 
   push();
+  const overlay2d = _uiOverlayStart();
   translate(10,10);
   noStroke();
   const barLength = 545;
@@ -510,7 +562,8 @@ function _uiDrawHUD(rgbUnder = [0,0,0,0]) {
 
   fill(255);
   textAlign(LEFT, CENTER);
-  textFont('monospace');       // fixed-width so spaces hold the layout
+   textFont(baseMonoFont);
+  //textFont('monospace');       // fixed-width so spaces hold the layout
   textSize(12);
   text(textStr, padX, barH / 2);
 
@@ -538,6 +591,7 @@ function _uiDrawHUD(rgbUnder = [0,0,0,0]) {
     drawQRCode(sketchQRCode, qrPadding, qrPadding, qrSize);
     pop();
   }
+  _uiOverlayEnd(overlay2d);
   pop();
 }
 
@@ -550,6 +604,8 @@ function _uiDrawDebugConsole() {
   const x = pad, y = uiSHeight - h - pad;
 
   push();
+  const overlay2d = _uiOverlayStart();
+   textFont(baseMonoFont);
   noStroke();
   fill(0, 150); rect(x, y, w, h, 8);
   fill(255, 230); rect(x, y, w, 22, 8, 8, 0, 0);
@@ -560,6 +616,7 @@ function _uiDrawDebugConsole() {
   for (let i=0; i<_uiDebugList.length; i++) {
     text(_uiDebugList[i], x+8, y+22 + (i+0.5)*lineH);
   }
+  _uiOverlayEnd(overlay2d);
   pop();
 }
 
@@ -572,6 +629,7 @@ function _uiTextWithOutline(t, x, y) {
 function _uiTextWithChip(t, x, y) {
   const padX = 6, padY = 3;
   push();
+   textFont(baseMonoFont);
   textSize(12); textAlign(CENTER, CENTER);
   const tw = textWidth(t);
   noStroke(); fill(0, 160); rect(x - (tw/2 + padX), y - (8+padY), tw + padX*2, 16 + padY*2, 6);

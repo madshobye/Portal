@@ -2,6 +2,7 @@ let v_major = 1;
 let v_minor = 14
 let pVersion =v_major + "." +v_minor
 let baseFont;
+let baseMonoFont;
 let simplexNoise;
 
 function resolveBaseURL() {
@@ -163,6 +164,8 @@ async function pSetup() {
   print(baseURL);
   await loadLibraries();
   baseFont = await loadFont(baseURL + "assets/Rubik-Light.ttf");
+  baseMonoFont = await loadFont(baseURL + "assets/RobotoMono-Regular.ttf");
+  
   textFont(baseFont);
   const originalDraw = draw;
   draw = function() {

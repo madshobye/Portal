@@ -210,9 +210,9 @@ class ProjectionMapper {
       this._dragSurf = pick.si;
       this._dragCorner = pick.ci;
       this.surfaces[pick.si].dragging = pick.ci;
-      console.log(
+     /* console.log(
         `Drag start ${this.surfaces[pick.si].name} corner #${pick.ci}`
-      );
+      );*/
     }
   }
 
@@ -341,8 +341,8 @@ class ProjectionMapper {
         }
       }
     });
-    if (best)
-      console.log(`Hover ${this.surfaces[best.si].name} corner #${best.ci}`);
+  //  if (best)
+  //    console.log(`Hover ${this.surfaces[best.si].name} corner #${best.ci}`);
     return best;
   }
 
