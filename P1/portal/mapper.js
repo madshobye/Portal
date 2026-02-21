@@ -120,6 +120,83 @@ class ProjectionMapper {
     });
   }
 
+  exportConfig() {
+    return {
+      type: "ProjectionMapper",
+      version: 1,
+      surfaces: this.surfaces.map((s) => ({
+        name: s.name,
+        corners: s.corners.map((v) => ({ x: v.x, y: v.y })),
+      })),
+    };
+  }
+
+  exportData() {
+    return this.exportConfig();
+  }
+
+  downloadExport(filename = "projection_mapper_config.json") {
+    const payload = this.exportConfig();
+    const json = JSON.stringify(payload, null, 2);
+    const blob = new Blob([json], { type: "application/json" });
+    const href = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = href;
+    a.download = String(filename || "projection_mapper_config.json");
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(href);
+    return true;
+  }
+
+  importConfig(config, { replace = true } = {}) {
+    if (!config || typeof config !== "object") {
+      throw new Error("ProjectionMapper importConfig requires an object");
+    }
+    const surfaces = Array.isArray(config.surfaces) ? config.surfaces : [];
+    const byName = new Map(surfaces.map((s) => [s?.name, s]));
+
+    this.surfaces.forEach((s) => {
+      const incoming = byName.get(s.name);
+      if (!incoming || !Array.isArray(incoming.corners)) {
+        if (replace) return;
+        return;
+      }
+      if (incoming.corners.length !== 4) return;
+      s.corners = incoming.corners.map((p) => createVector(p.x, p.y));
+    });
+  }
+
+  saveToStorage(key = "pm_config") {
+    localStorage.setItem(String(key), JSON.stringify(this.exportConfig()));
+    return true;
+  }
+
+  loadFromStorage(key = "pm_config", opts = {}) {
+    const raw = localStorage.getItem(String(key));
+    if (!raw) return false;
+    const cfg = JSON.parse(raw);
+    this.importConfig(cfg, opts);
+    return true;
+  }
+
+  async loadFromURL(url, opts = {}) {
+    if (!url) throw new Error("ProjectionMapper loadFromURL(url): url is required");
+    const cfg = await fetch(String(url)).then((r) => {
+      if (!r.ok) throw new Error(`HTTP ${r.status} while loading ${url}`);
+      return r.json();
+    });
+    this.importConfig(cfg, opts);
+    return true;
+  }
+
+  savetostorage(key = "pm_config") { return this.saveToStorage(key); }
+  loadfromstorage(key = "pm_config", opts = {}) { return this.loadFromStorage(key, opts); }
+  loadfromurl(url, opts = {}) { return this.loadFromURL(url, opts); }
+  exportdata() { return this.exportData(); }
+  downloadexport(filename = "projection_mapper_config.json") { return this.downloadExport(filename); }
+
   loadAll() {
     this.surfaces.forEach((s) => {
       try {

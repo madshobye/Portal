@@ -1,71 +1,31 @@
-// Student-friendly PortalSpeech example.
-// Click button to start/stop recurring listening.
-
-let speech;
-
-let heardRed = false;
-let heardSentence = "";
+let canvas;
+let apiKeyEncryptedGpt12 =
+  "U2FsdGVkX18ufo+Jv5eV1uiVVu23Jjvr8SaHfqG2rnsUq75hmr1av/B4KStyhTJtJwMgyyM6CP9gKXuUEu8F2m52Ey+wyLSiuI34pcMYOnPOVrngAAE3EMJg1Sx52sdns3JzqQHJgma6chold+TcfgeYqG/4O8wdRiKLz64Ic+v9uB+xDrzxJ2Cazu4En9yWPTKskgvccEn3ls0+zVGacW1zLaNyJXmzm+yHE0mkro+a/5lWzZFRT6UX6+HVEgqi";
+let apiKey = "";
+let gpt;
 
 async function setup() {
-  createCanvas(windowWidth, windowHeight);
+  canvas = createCanvas(windowWidth, windowHeight);
 
-  await loadScript("portal/speech.js");
-  speech = await new PortalSpeech({
-    language: "en-GB",
-    rate: 1,
-    pitch: 1,
-    volume: 1,
-  }).init();
+  await loadScript("portal/GptClient.js");
+
+   apiKey = storedDecrypt({ apiKeyEncryptedGpt12 });
+   gpt = new GptClient({
+     apiKey,
+     model: "gpt-4o-mini",
+     instructions:
+       "You answer questions clearly and as simple as possible. preferably one word.",
+   });
+
+   await gpt.ask("What is the capital of Argentina?");
+   // 4. Now read result from the client
+   if (gpt.error) {
+     console.log("Error:", gpt.error);
+   } else if (gpt.latestObject) {
+     console.log("Answer text:", gpt.latestObject.text);
+   }
 }
 
 function draw() {
-  background(20);
-  if (heardRed) {
-    background("red");
-  }
-
-  fill(255);
-  textSize(22);
-  text("Recurring speech listener", 30, 50);
-  textSize(16);
-  text("Listening: " + (speech?.isListening() ? "yes" : "no"), 30, 90);
-  text(`Heard: ${heardSentence || "-"}`, 30, 120);
-
-  const btnStyle = {
-    fontSize: 26,
-    x: 30,
-    y: 190,
-    width: 280,
-    height: 64,
-    rounding: 12,
-  };
-
-  const label = speech?.isListening() ? "Stop Listening" : "Start Listening";
-  if (uiButton(label, btnStyle).clicked) {
-    if (!speech?.isListening()) {
-      speech.listenRecurring();
-    } else {
-      speech.stopListening();
-    }
-  }
-
-  if (speech?.hasNewResult()) {
-    const { text } = speech.consumeNew();
-    heardSentence = text || "";
-    print("heard: " + heardSentence);
-    if(speech.isMatch("no red background") )
-    {
-      heardRed = false;
-      speech.speak("fine no red");
-    } else if (speech.isMatch("red")) {
-      heardRed = true;
-      speech.speak("i also like red");
-    }
   
-    
-  }
-}
-
-function windowResized() {
-  resizeCanvas(windowWidth, windowHeight);
 }

@@ -119,7 +119,34 @@ function draw() {
 }
 ```
 
-## 4) Tracking + ML Modules
+## 4) Projection Mapper (`mapper.js`)
+
+`ProjectionMapper` lets you warp one or more p5 graphics surfaces to calibrated screen corners.
+
+Core setup:
+- `mapper = new ProjectionMapper()`
+- `surface = mapper.add(w, h, name?)`
+- `mapper.render()`
+
+Persistence:
+- `saveAll()` / `loadAll()` (legacy per-surface localStorage keys)
+- `exportConfig()` / `importConfig(config, { replace=true })`
+- `exportData()` (alias for `exportConfig()`)
+- `downloadExport(filename?)`
+- `saveToStorage(key?)`
+- `loadFromStorage(key?, opts?)`
+- `loadFromURL(url, opts?)`
+- lowercase aliases: `savetostorage`, `loadfromstorage`, `loadfromurl`
+
+Example:
+```js
+mapper.saveToStorage("my_mapping");
+mapper.loadFromStorage("my_mapping");
+await mapper.loadFromURL("assets/mapping.json");
+mapper.downloadExport("my_mapping.json");
+```
+
+## 5) Tracking + ML Modules
 
 ## Shared result pattern
 Many modules expose:
@@ -129,6 +156,184 @@ Many modules expose:
 - `consumeNew()` (when implemented)
 
 This supports easy `draw()` polling instead of callback-only code.
+
+## `NeuralLearner` (`portal/neuralLearner.js`)
+
+Student-friendly wrapper around `ml5.neuralNetwork` for both tasks:
+- classification
+- regression
+
+### Constructor
+```js
+new NeuralLearner({
+  task: "classification", // or "regression"
+  backend: "webgl",
+  nnOptions: {},          // forwarded to ml5.neuralNetwork
+  trainingOptions: { epochs: 40, batchSize: 12 },
+  autoTrain: true,
+  retrainDebounceMs: 250,
+  onResults: null,
+  onTrained: null,
+  onEpoch: null,
+})
+```
+
+### Lifecycle
+- `await init()`
+- `await train(trainingOptions?)`
+
+### Core recurring-learning API
+- `learn(input, output)`  ← main student call
+- `learnMany(items)`
+- `clearData()`
+- `sampleCount()`
+- `saveToStorage(key?)`
+- `loadFromStorage(key?, { train=true, replace=true })`
+- `loadFromURL(url, { train=true, replace=true })`
+- `exportData()`
+- `downloadExport(filename?)`
+
+### Prediction
+- `await predict(input)`
+- `await classify(input)` alias
+- `await regress(input)` alias
+
+### State + polling helpers
+- `isTrained()`
+- `hasResult()`
+- `hasNewResult()`
+- `resetNewFlag()`
+- `consumeNew()`
+- `getResult()`
+- lowercase aliases: `istrained()`, `hasnewresult()`, `consumenew()`, `getresult()`
+
+### Task-specific helpers
+- Classification: `getBestLabel()` -> `{ label, confidence }`
+- Regression: `getValue()` -> numeric value
+
+### Minimal examples
+
+Classification:
+```js
+learner.learn([mouseX / width, mouseY / height], "left");
+await learner.predict([mouseX / width, mouseY / height]);
+const best = learner.getBestLabel();
+```
+
+Regression:
+```js
+learner.learn([mouseX / width], mouseY / height);
+await learner.predict([mouseX / width]);
+const y = learner.getValue();
+```
+
+Object-style regression (student friendly):
+```js
+learner.learn({ temp: 21 }, { mood: 2 });
+learner.learn({ temp: 10 }, { mood: 1 });
+learner.learn({ temp: 30 }, { mood: 4 });
+
+await learner.predict({ temp: 25 });
+const mood = learner.getValue("mood");
+```
+
+## `KnnLearner` (`portal/knnLearner.js`)
+
+Student-friendly wrapper around `ml5.KNNClassifier` (classification only).
+
+### Constructor
+```js
+new KnnLearner({
+  backend: "webgl",
+  onResults: null,
+})
+```
+
+### Lifecycle
+- `await init()`
+
+### Core API
+- `learn(input, label)`  ← main student call
+- `learnMany(items)`
+- `predict(input)` / `classify(input)`
+- `clearData()`
+- `load(url)` / `save(filename?)`
+- `saveToStorage(key?)`
+- `loadFromStorage(key?, { replace=true })`
+- `loadFromURL(url, { replace=true })`
+- `exportData()`
+- `downloadExport(filename?)`
+
+### Helpers
+- `sampleCount()` / `samplecount()`
+- `labelCount()`
+- `getCountsByLabel()`
+- `getBestLabel()` -> `{ label, confidence }`
+- `getConfidences()`
+
+### Polling state
+- `hasResult()`
+- `hasNewResult()` / `hasnewresult()`
+- `resetNewFlag()`
+- `consumeNew()` / `consumenew()`
+- `getResult()` / `getresult()`
+
+### Minimal example
+```js
+const learner = await new KnnLearner().init();
+learner.learn([x, y], "left");
+await learner.predict([x, y]);
+const best = learner.getBestLabel();
+```
+
+Use **KNN** when students should quickly prototype with small, interactive datasets.
+Use **NeuralLearner** when students need trainable weight-based models (classification or regression).
+
+## `PortalMqtt` (`portal/mqtt.js`)
+
+Simple MQTT wrapper for browser sketches.
+
+### Constructor
+```js
+new PortalMqtt({
+  broker: "wss://public:public@public.cloud.shiftr.io",
+  clientId: "p5jsids",
+  options: {},
+  autoConnect: true,
+  onConnect: null,
+  onMessage: null,
+  onDisconnect: null,
+  onError: null,
+})
+```
+
+### Lifecycle + network
+- `await init()`
+- `await connect()`
+- `disconnect(force?)`
+- `await subscribe(topic, options?)`
+- `await unsubscribe(topic)`
+- `await publish(topic, message, options?)`
+
+### Polling helpers
+- `hasResult()`
+- `hasNewResult()` / `hasnewresult()`
+- `resetNewFlag()`
+- `consumeNew()` / `consumenew()`
+- `getResult()` / `getresult()`
+
+### Minimal example
+```js
+await loadScript("portal/mqtt.js");
+const mq = await new PortalMqtt().init();
+await mq.subscribe("/idsesp32");
+await mq.publish("/idsp5js", "on");
+
+if (mq.hasNewResult()) {
+  const { result } = mq.consumeNew();
+  print(result.topic + ": " + result.message);
+}
+```
 
 ## `HandPose` (`portal/handPose.js`)
 
