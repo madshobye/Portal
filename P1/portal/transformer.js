@@ -130,7 +130,7 @@ class PortalTransformer {
           top_k: this.topK,
           do_sample: this.temperature > 0,
         });
-        const text = this._extractGeneratedText(raw);
+        const text = this._extractGeneratedText(raw, prompt);
         const parsed = this._parseStructuredText(text);
 
         result = {
@@ -167,6 +167,64 @@ class PortalTransformer {
 
   async askStructured(question, opts = {}) {
     return await this.ask(question, opts);
+  }
+
+  async askJSON({
+    instructions = "",
+    prompt = "",
+    schema = {},
+    context = "",
+    maxAttempts = 2,
+  } = {}) {
+    if (!this.ready || !this.pipeline) throw new Error("Call init() before askJSON()");
+
+    const schemaObj = this._normalizeSchema(schema);
+    const requiredKeys = Object.keys(schemaObj);
+    if (requiredKeys.length === 0) {
+      throw new Error("askJSON requires a non-empty schema object");
+    }
+
+    this.running = true;
+    try {
+      const basePrompt = this._buildCustomJSONPrompt({
+        instructions,
+        prompt,
+        context,
+        schema: schemaObj,
+      });
+
+      let attemptText = "";
+      let lastRaw = null;
+
+      for (let i = 0; i < Math.max(1, Number(maxAttempts) || 1); i++) {
+        const runPrompt =
+          i === 0 ? basePrompt : this._buildRepairJSONPrompt(attemptText, schemaObj);
+        const raw = await this.pipeline(runPrompt, {
+          max_new_tokens: this.maxNewTokens,
+          temperature: i === 0 ? this.temperature : 0,
+          top_k: i === 0 ? this.topK : 1,
+          do_sample: i === 0 ? this.temperature > 0 : false,
+        });
+        lastRaw = raw;
+        attemptText = this._extractGeneratedText(raw, runPrompt);
+        const obj = this._parseAnyJSONObject(attemptText);
+        if (obj) {
+          const normalized = this._coerceToSchema(obj, schemaObj);
+          if (this._hasAllKeys(normalized, requiredKeys)) {
+            return normalized;
+          }
+        }
+      }
+
+      // Final fallback: return object with required keys present.
+      const fallback = this._coerceToSchema(this._parseAnyJSONObject(attemptText) || {}, schemaObj);
+      if (!this._hasAllKeys(fallback, requiredKeys)) {
+        throw new Error("askJSON: failed to produce JSON with required keys");
+      }
+      return fallback;
+    } finally {
+      this.running = false;
+    }
   }
 
   hasResult() {
@@ -233,22 +291,74 @@ class PortalTransformer {
 
   _buildStructuredPrompt(question, context) {
     return (
-      "Answer the question and return ONLY compact JSON with keys: answer, confidence, reason. " +
-      "confidence must be a number between 0 and 1.\n" +
+      "You are a strict JSON API. Return ONLY one minified JSON object and nothing else.\n" +
+      'Schema: {"answer":"string","confidence":number,"reason":"string"}\n' +
+      "Rules:\n" +
+      "- confidence must be between 0 and 1\n" +
+      "- answer must be short (max 25 words)\n" +
+      "- reason must be short (max 35 words)\n" +
+      "- no markdown, no explanations outside JSON\n" +
       `Question: ${question}\n` +
-      `Context: ${context || "No additional context."}`
+      `Context: ${context || "No additional context."}\n` +
+      'Output JSON:'
     );
   }
 
-  _extractGeneratedText(raw) {
+  _normalizeSchema(schema) {
+    if (!schema || typeof schema !== "object" || Array.isArray(schema)) return {};
+    return schema;
+  }
+
+  _buildCustomJSONPrompt({ instructions, prompt, context, schema }) {
+    const schemaStr = JSON.stringify(schema);
+    return (
+      "You are a strict JSON API. Return ONLY one minified JSON object and nothing else.\n" +
+      `Schema: ${schemaStr}\n` +
+      "Rules:\n" +
+      "- output must be valid JSON\n" +
+      "- include all schema keys\n" +
+      "- no markdown, no code fences, no prose outside JSON\n" +
+      `Instructions: ${String(instructions || "Follow schema exactly.")}\n` +
+      `Prompt: ${String(prompt || "")}\n` +
+      `Context: ${String(context || "")}\n` +
+      "Output JSON:"
+    );
+  }
+
+  _buildRepairJSONPrompt(previousText, schema) {
+    return (
+      "Fix the text below into ONLY one valid minified JSON object.\n" +
+      `Schema: ${JSON.stringify(schema)}\n` +
+      "Rules:\n" +
+      "- include all schema keys\n" +
+      "- output JSON only\n" +
+      `Text: ${String(previousText || "")}\n` +
+      "Output JSON:"
+    );
+  }
+
+  _extractGeneratedText(raw, prompt = "") {
+    const promptText = String(prompt || "");
+    const stripPromptPrefix = (txt) => {
+      const src = String(txt || "");
+      if (!src) return src;
+      if (promptText && src.startsWith(promptText)) {
+        return src.slice(promptText.length).trimStart();
+      }
+      return src;
+    };
+
     if (Array.isArray(raw) && raw.length > 0) {
       const item = raw[0];
-      if (typeof item?.generated_text === "string") return item.generated_text;
-      if (typeof item?.summary_text === "string") return item.summary_text;
-      if (typeof item?.text === "string") return item.text;
+      if (typeof item?.generated_text === "string")
+        return stripPromptPrefix(item.generated_text);
+      if (typeof item?.summary_text === "string")
+        return stripPromptPrefix(item.summary_text);
+      if (typeof item?.text === "string")
+        return stripPromptPrefix(item.text);
     }
-    if (typeof raw === "string") return raw;
-    return JSON.stringify(raw || "");
+    if (typeof raw === "string") return stripPromptPrefix(raw);
+    return stripPromptPrefix(JSON.stringify(raw || ""));
   }
 
   _parseStructuredText(text) {
@@ -266,11 +376,88 @@ class PortalTransformer {
         };
       } catch {}
     }
+    // Fallback: try line-based extraction if model ignored JSON.
+    const answerLine = src.match(/(?:^|\n)\s*answer\s*[:=]\s*(.+)/i)?.[1] || "";
+    const confidenceLine =
+      src.match(/(?:^|\n)\s*confidence\s*[:=]\s*([0-9]*\.?[0-9]+)/i)?.[1] || "";
+    const reasonLine = src.match(/(?:^|\n)\s*reason\s*[:=]\s*(.+)/i)?.[1] || "";
+    if (answerLine || confidenceLine || reasonLine) {
+      return {
+        answer: answerLine.trim(),
+        confidence: confidenceLine.trim(),
+        reason: reasonLine.trim(),
+      };
+    }
+
+    // Last resort: keep output concise instead of dumping long prose.
+    const oneLine = src.replace(/\s+/g, " ").trim();
+    const clipped = oneLine.length > 180 ? oneLine.slice(0, 177) + "..." : oneLine;
     return {
-      answer: src,
+      answer: clipped,
       confidence: 0,
-      reason: "",
+      reason: "Model did not return structured JSON.",
     };
+  }
+
+  _parseAnyJSONObject(text) {
+    const src = String(text || "");
+    for (let start = src.lastIndexOf("{"); start >= 0; start = src.lastIndexOf("{", start - 1)) {
+      for (let end = src.indexOf("}", start + 1); end >= 0; end = src.indexOf("}", end + 1)) {
+        const block = src.slice(start, end + 1);
+        try {
+          const parsed = JSON.parse(block);
+          if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) return parsed;
+        } catch {}
+      }
+    }
+    return null;
+  }
+
+  _hasAllKeys(obj, keys) {
+    return keys.every((k) => Object.prototype.hasOwnProperty.call(obj, k));
+  }
+
+  _coerceToSchema(obj, schema) {
+    const out = {};
+    for (const key of Object.keys(schema)) {
+      const expected = schema[key];
+      const value = obj?.[key];
+      if (value === undefined || value === null) {
+        out[key] = this._defaultForType(expected);
+        continue;
+      }
+      out[key] = this._coerceValue(value, expected);
+    }
+    return out;
+  }
+
+  _defaultForType(typeName) {
+    const t = String(typeName || "").toLowerCase();
+    if (t === "number") return 0;
+    if (t === "boolean") return false;
+    if (t === "array") return [];
+    if (t === "object") return {};
+    return "";
+  }
+
+  _coerceValue(value, typeName) {
+    const t = String(typeName || "").toLowerCase();
+    if (t === "number") {
+      const n = Number(value);
+      return Number.isFinite(n) ? n : 0;
+    }
+    if (t === "boolean") {
+      if (typeof value === "boolean") return value;
+      if (typeof value === "string") {
+        const s = value.trim().toLowerCase();
+        if (s === "true") return true;
+        if (s === "false") return false;
+      }
+      return Boolean(value);
+    }
+    if (t === "array") return Array.isArray(value) ? value : [value];
+    if (t === "object") return value && typeof value === "object" ? value : {};
+    return String(value);
   }
 
   _to01(v) {
