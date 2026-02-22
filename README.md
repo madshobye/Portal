@@ -159,7 +159,7 @@ This supports easy `draw()` polling instead of callback-only code.
 
 ## `NeuralLearner` (`portal/neuralLearner.js`)
 
-Student-friendly wrapper around `ml5.neuralNetwork` for both tasks:
+Wrapper around `ml5.neuralNetwork` for both tasks:
 - classification
 - regression
 
@@ -183,7 +183,7 @@ new NeuralLearner({
 - `await train(trainingOptions?)`
 
 ### Core recurring-learning API
-- `learn(input, output)`  ← main student call
+- `learn(input, output)`  ← primary training call
 - `learnMany(items)`
 - `clearData()`
 - `sampleCount()`
@@ -227,7 +227,7 @@ await learner.predict([mouseX / width]);
 const y = learner.getValue();
 ```
 
-Object-style regression (student friendly):
+Object-style regression:
 ```js
 learner.learn({ temp: 21 }, { mood: 2 });
 learner.learn({ temp: 10 }, { mood: 1 });
@@ -239,7 +239,7 @@ const mood = learner.getValue("mood");
 
 ## `KnnLearner` (`portal/knnLearner.js`)
 
-Student-friendly wrapper around `ml5.KNNClassifier` (classification only).
+Wrapper around `ml5.KNNClassifier` (classification only).
 
 ### Constructor
 ```js
@@ -253,7 +253,7 @@ new KnnLearner({
 - `await init()`
 
 ### Core API
-- `learn(input, label)`  ← main student call
+- `learn(input, label)`  ← primary training call
 - `learnMany(items)`
 - `predict(input)` / `classify(input)`
 - `clearData()`
@@ -286,8 +286,8 @@ await learner.predict([x, y]);
 const best = learner.getBestLabel();
 ```
 
-Use **KNN** when students should quickly prototype with small, interactive datasets.
-Use **NeuralLearner** when students need trainable weight-based models (classification or regression).
+Use **KNN** for quick prototypes with small, interactive datasets.
+Use **NeuralLearner** for trainable weight-based models (classification or regression).
 
 ## `PortalMqtt` (`portal/mqtt.js`)
 
@@ -746,5 +746,5 @@ function draw() {
 ## 9) Notes
 
 - Portal is designed for **fast sketching first**: simple constructor + `init/start` + polling in `draw()`.
-- Prefer polling (`hasNewResult()` + `consumeNew()`) for teaching and beginner readability.
+- Prefer polling (`hasNewResult()` + `consumeNew()`) for readability in sketch loops.
 - Callback style is still supported in most modules when you want event-driven behavior.
