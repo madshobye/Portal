@@ -1,7 +1,9 @@
 // FaceMesh aligned to the HandPose/BodyPose helper style
 // - drawKeypoints(x=0,y=0,w=?,h=?) defaults to video native size
+// - drawImage(x=0,y=0,w=?,h=?) draws video aligned to the same mapping as landmarks
 // - getFaces() => VIDEO space, flipped only (NO scaling)
 // - getFacesInRect(x,y,w,h) => flipped + scaled to that rect
+// - scaleTo(w,h[,x=0,y=0]) => centered "cover" mapping (fills rect, keeps aspect ratio)
 
 class FaceMesh {
   constructor({
@@ -13,6 +15,7 @@ class FaceMesh {
   } = {}) {
     if (!video) throw new Error("FaceMesh: video is required");
 
+    this.videoP5 = video.elt ? video : null;
     this.video = video.elt ? video.elt : video;
     this.videoIsFlipped = !!videoIsFlipped;
     this.backend = backend;
@@ -36,6 +39,7 @@ class FaceMesh {
 
     this._raf = null;
     this._reinitInFlight = null;
+    this._scaleToRect = null;
   }
 
   async init() {
@@ -196,6 +200,66 @@ class FaceMesh {
     return this._mapFacesToRect(this.facesRaw, x, y, w, h);
   }
 
+  scaleTo(w, h, x = 0, y = 0) {
+    const v = this.video?.elt ? this.video.elt : this.video;
+    const vw = Math.max(1, v?.videoWidth || v?.width || width || 1);
+    const vh = Math.max(1, v?.videoHeight || v?.height || height || 1);
+
+    let W = Number.isFinite(Number(w)) ? Number(w) : null;
+    let H = Number.isFinite(Number(h)) ? Number(h) : null;
+    if (W != null && H == null) H = W * (vh / vw);
+    if (H != null && W == null) W = H * (vw / vh);
+
+    const rect = this._computeCoverRect(x, y, W, H);
+    this._scaleToRect = rect;
+    return rect;
+  }
+
+  clearScaleTo() {
+    this._scaleToRect = null;
+  }
+
+  getScaleToRect() {
+    return this._scaleToRect;
+  }
+
+  getFacesScaled() {
+    if (!this._scaleToRect) return this.getFaces();
+    const r = this._scaleToRect;
+    return this._mapFacesToCoverRect(this.facesRaw, r.x, r.y, r.w, r.h);
+  }
+
+  drawImage(...args) {
+    if (typeof image !== "function") return;
+    const v = this.video?.elt ? this.video.elt : this.video;
+    const drawSource = this.videoP5 || this.video;
+    if (!drawSource) return;
+    const vw = v?.videoWidth || v?.width || width;
+    const vh = v?.videoHeight || v?.height || height;
+    const rect = this._resolveRectArgs(args, vw, vh);
+
+    if (rect.w == null && rect.h == null && this._scaleToRect) {
+      let r = this._scaleToRect;
+      if ((args?.length || 0) >= 2) {
+        r = this._computeCoverRect(rect.x, rect.y, r.w, r.h);
+        this._scaleToRect = r;
+      }
+      if (typeof drawingContext?.save === "function") {
+        drawingContext.save();
+        drawingContext.beginPath();
+        drawingContext.rect(r.x, r.y, r.w, r.h);
+        drawingContext.clip();
+        image(drawSource, r.offsetX, r.offsetY, vw * r.scale, vh * r.scale);
+        drawingContext.restore();
+      } else {
+        image(drawSource, r.offsetX, r.offsetY, vw * r.scale, vh * r.scale);
+      }
+      return;
+    }
+
+    image(drawSource, rect.x, rect.y, rect.w ?? vw, rect.h ?? vh);
+  }
+
   getBest() {
     return this.facesVideo?.[0] || null;
   }
@@ -211,13 +275,15 @@ class FaceMesh {
       color = [0, 255, 0],
     } = {}
   ) {
-    const v = this.video?.elt ? this.video.elt : this.video;
-    const vw = v?.videoWidth || v?.width || width;
-    const vh = v?.videoHeight || v?.height || height;
-    const W = w ?? vw;
-    const H = h ?? vh;
-
-    const faces = this.getFacesInRect(x, y, W, H);
+    const faces =
+      w == null && h == null && this._scaleToRect
+        ? this.getFacesScaled()
+        : this.getFacesInRect(
+            x,
+            y,
+            w ?? (this.video?.videoWidth || this.video?.width || width),
+            h ?? (this.video?.videoHeight || this.video?.height || height)
+          );
     if (!faces?.length || typeof circle !== "function") return;
 
     push();
@@ -255,7 +321,9 @@ class FaceMesh {
 
     if (this._onResults) {
       try {
-        this._onResults(this.getFacesInRect(0, 0, width, height));
+        this._onResults(
+          this._scaleToRect ? this.getFacesScaled() : this.getFacesInRect(0, 0, width, height)
+        );
       } catch (e) {
         console.warn("FaceMesh onResults threw:", e);
       }
@@ -299,6 +367,72 @@ class FaceMesh {
       });
       return this._buildFaceObject(face, pts);
     });
+  }
+
+  _mapFacesToCoverRect(faces, x, y, w, h) {
+    if (!faces?.length) return [];
+
+    const rect = this._computeCoverRect(x, y, w, h);
+    const v = this.video?.elt ? this.video.elt : this.video;
+    const vw = v?.videoWidth || v?.width || width;
+
+    return faces.map((face) => {
+      const base = this._extractKeypoints(face);
+      const pts = base.map((p) => {
+        const q = this._safePoint(p);
+        let px = q.x;
+        if (this.videoIsFlipped) px = vw - px;
+        return {
+          x: rect.offsetX + px * rect.scale,
+          y: rect.offsetY + q.y * rect.scale,
+          c: q.c,
+        };
+      });
+      return this._buildFaceObject(face, pts);
+    });
+  }
+
+  _computeCoverRect(x, y, w, h) {
+    const v = this.video?.elt ? this.video.elt : this.video;
+    const vw = Math.max(1, v?.videoWidth || v?.width || width || 1);
+    const vh = Math.max(1, v?.videoHeight || v?.height || height || 1);
+    const W = Math.max(1, Number(w) || vw);
+    const H = Math.max(1, Number(h) || vh);
+    const X = Number(x) || 0;
+    const Y = Number(y) || 0;
+
+    const scale = Math.max(W / vw, H / vh);
+    const drawW = vw * scale;
+    const drawH = vh * scale;
+    const offsetX = X + (W - drawW) * 0.5;
+    const offsetY = Y + (H - drawH) * 0.5;
+
+    return { x: X, y: Y, w: W, h: H, scale, offsetX, offsetY };
+  }
+
+  _resolveRectArgs(args, defaultW, defaultH) {
+    const a = Array.isArray(args) ? args : [];
+    if (!a.length) return { x: 0, y: 0, w: null, h: null };
+    const toSize = (v) => {
+      if (v === null || v === undefined || v === "") return null;
+      const n = Number(v);
+      return Number.isFinite(n) ? n : null;
+    };
+    if (a.length === 1 && a[0] && typeof a[0] === "object") {
+      const o = a[0];
+      return {
+        x: Number(o.x) || 0,
+        y: Number(o.y) || 0,
+        w: toSize(o.w),
+        h: toSize(o.h),
+      };
+    }
+    return {
+      x: Number(a[0]) || 0,
+      y: Number(a[1]) || 0,
+      w: toSize(a[2]),
+      h: toSize(a[3]),
+    };
   }
 
   _buildFaceObject(face, pts) {

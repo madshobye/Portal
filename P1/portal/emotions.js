@@ -10,6 +10,7 @@ class EmotionTracker {
   } = {}) {
     if (!video) throw new Error("EmotionTracker: video is required");
 
+    this.videoP5 = video.elt ? video : null;
     this.video = video.elt ? video.elt : video;
     this.videoIsFlipped = !!videoIsFlipped;
     this._onResults = typeof onResults === "function" ? onResults : null;
@@ -27,6 +28,7 @@ class EmotionTracker {
     this._hasResult = false;
     this._hasNew = false;
     this._raf = null;
+    this._scaleToRect = null;
   }
 
   async init() {
@@ -100,7 +102,7 @@ class EmotionTracker {
     if (this._onResults) {
       try {
         this._onResults({
-          positions: this.getPositions(),
+          positions: this._scaleToRect ? this.getPositionsScaled() : this.getPositions(),
           emotions: this.getEmotions(),
         });
       } catch (e) {
@@ -133,14 +135,76 @@ class EmotionTracker {
     return this._mapPointsToRect(this.positionsRaw, x, y, w, h);
   }
 
-  getPoint(index = 0, x = 0, y = 0, w = null, h = null) {
+  scaleTo(w, h, x = 0, y = 0) {
     const v = this.video?.elt ? this.video.elt : this.video;
+    const vw = Math.max(1, v?.videoWidth || v?.width || width || 1);
+    const vh = Math.max(1, v?.videoHeight || v?.height || height || 1);
+
+    let W = Number.isFinite(Number(w)) ? Number(w) : null;
+    let H = Number.isFinite(Number(h)) ? Number(h) : null;
+    if (W != null && H == null) H = W * (vh / vw);
+    if (H != null && W == null) W = H * (vw / vh);
+
+    const rect = this._computeCoverRect(x, y, W, H);
+    this._scaleToRect = rect;
+    return rect;
+  }
+
+  clearScaleTo() {
+    this._scaleToRect = null;
+  }
+
+  getScaleToRect() {
+    return this._scaleToRect;
+  }
+
+  getPositionsScaled() {
+    if (!this._scaleToRect) return this.getPositions();
+    const r = this._scaleToRect;
+    return this._mapPointsToCoverRect(this.positionsRaw, r.x, r.y, r.w, r.h);
+  }
+
+  drawImage(...args) {
+    if (typeof image !== "function") return;
+    const v = this.video?.elt ? this.video.elt : this.video;
+    const drawSource = this.videoP5 || this.video;
+    if (!drawSource) return;
     const vw = v?.videoWidth || v?.width || width;
     const vh = v?.videoHeight || v?.height || height;
-    const W = w ?? vw;
-    const H = h ?? vh;
+    const rect = this._resolveRectArgs(args, vw, vh);
 
-    const pts = this.getPositionsInRect(x, y, W, H);
+    if (rect.w == null && rect.h == null && this._scaleToRect) {
+      let r = this._scaleToRect;
+      if ((args?.length || 0) >= 2) {
+        r = this._computeCoverRect(rect.x, rect.y, r.w, r.h);
+        this._scaleToRect = r;
+      }
+      if (typeof drawingContext?.save === "function") {
+        drawingContext.save();
+        drawingContext.beginPath();
+        drawingContext.rect(r.x, r.y, r.w, r.h);
+        drawingContext.clip();
+        image(drawSource, r.offsetX, r.offsetY, vw * r.scale, vh * r.scale);
+        drawingContext.restore();
+      } else {
+        image(drawSource, r.offsetX, r.offsetY, vw * r.scale, vh * r.scale);
+      }
+      return;
+    }
+
+    image(drawSource, rect.x, rect.y, rect.w ?? vw, rect.h ?? vh);
+  }
+
+  getPoint(index = 0, x = 0, y = 0, w = null, h = null) {
+    const pts =
+      w == null && h == null && this._scaleToRect
+        ? this.getPositionsScaled()
+        : this.getPositionsInRect(
+            x,
+            y,
+            w ?? (this.video?.videoWidth || this.video?.width || width),
+            h ?? (this.video?.videoHeight || this.video?.height || height)
+          );
     const p = pts[index];
     if (!p) return { x: 0, y: 0 };
     return { x: p[0], y: p[1] };
@@ -167,12 +231,15 @@ class EmotionTracker {
 
   // Useful for quick experimentation: returns N landmarks in mapped space.
   getLandmarks(x = 0, y = 0, w = null, h = null, limit = null) {
-    const v = this.video?.elt ? this.video.elt : this.video;
-    const vw = v?.videoWidth || v?.width || width;
-    const vh = v?.videoHeight || v?.height || height;
-    const W = w ?? vw;
-    const H = h ?? vh;
-    const pts = this.getPositionsInRect(x, y, W, H);
+    const pts =
+      w == null && h == null && this._scaleToRect
+        ? this.getPositionsScaled()
+        : this.getPositionsInRect(
+            x,
+            y,
+            w ?? (this.video?.videoWidth || this.video?.width || width),
+            h ?? (this.video?.videoHeight || this.video?.height || height)
+          );
     if (limit == null) return pts;
     return pts.slice(0, Math.max(0, limit));
   }
@@ -203,13 +270,15 @@ class EmotionTracker {
       maxPoints = null,
     } = {}
   ) {
-    const v = this.video?.elt ? this.video.elt : this.video;
-    const vw = v?.videoWidth || v?.width || width;
-    const vh = v?.videoHeight || v?.height || height;
-    const W = w ?? vw;
-    const H = h ?? vh;
-
-    const pts = this.getPositionsInRect(x, y, W, H);
+    const pts =
+      w == null && h == null && this._scaleToRect
+        ? this.getPositionsScaled()
+        : this.getPositionsInRect(
+            x,
+            y,
+            w ?? (this.video?.videoWidth || this.video?.width || width),
+            h ?? (this.video?.videoHeight || this.video?.height || height)
+          );
     if (!pts?.length || typeof ellipse !== "function") return;
 
     const n = maxPoints == null ? pts.length : Math.min(pts.length, maxPoints);
@@ -288,6 +357,65 @@ class EmotionTracker {
       if (this.videoIsFlipped) px = vw - px;
       return [x + px * sx, y + py * sy];
     });
+  }
+
+  _mapPointsToCoverRect(points, x, y, w, h) {
+    if (!points?.length) return [];
+
+    const rect = this._computeCoverRect(x, y, w, h);
+    const v = this.video?.elt ? this.video.elt : this.video;
+    const vw = v?.videoWidth || v?.width || width;
+
+    return points.map((p) => {
+      let px = Number(p?.[0] ?? NaN);
+      const py = Number(p?.[1] ?? NaN);
+      if (!Number.isFinite(px) || !Number.isFinite(py)) return [NaN, NaN];
+      if (this.videoIsFlipped) px = vw - px;
+      return [rect.offsetX + px * rect.scale, rect.offsetY + py * rect.scale];
+    });
+  }
+
+  _computeCoverRect(x, y, w, h) {
+    const v = this.video?.elt ? this.video.elt : this.video;
+    const vw = Math.max(1, v?.videoWidth || v?.width || width || 1);
+    const vh = Math.max(1, v?.videoHeight || v?.height || height || 1);
+    const W = Math.max(1, Number(w) || vw);
+    const H = Math.max(1, Number(h) || vh);
+    const X = Number(x) || 0;
+    const Y = Number(y) || 0;
+
+    const scale = Math.max(W / vw, H / vh);
+    const drawW = vw * scale;
+    const drawH = vh * scale;
+    const offsetX = X + (W - drawW) * 0.5;
+    const offsetY = Y + (H - drawH) * 0.5;
+
+    return { x: X, y: Y, w: W, h: H, scale, offsetX, offsetY };
+  }
+
+  _resolveRectArgs(args, defaultW, defaultH) {
+    const a = Array.isArray(args) ? args : [];
+    if (!a.length) return { x: 0, y: 0, w: null, h: null };
+    const toSize = (v) => {
+      if (v === null || v === undefined || v === "") return null;
+      const n = Number(v);
+      return Number.isFinite(n) ? n : null;
+    };
+    if (a.length === 1 && a[0] && typeof a[0] === "object") {
+      const o = a[0];
+      return {
+        x: Number(o.x) || 0,
+        y: Number(o.y) || 0,
+        w: toSize(o.w),
+        h: toSize(o.h),
+      };
+    }
+    return {
+      x: Number(a[0]) || 0,
+      y: Number(a[1]) || 0,
+      w: toSize(a[2]),
+      h: toSize(a[3]),
+    };
   }
 
   _resolvePortalRoot() {

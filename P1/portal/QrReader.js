@@ -30,6 +30,7 @@ function ensureZXingOnce() {
 class QrReader {
   constructor({ video, videoIsFlipped = false, onResult = null, cooldownMs = 5000 } = {}) {
     this.video = video;
+    this.videoP5 = video?.elt ? video : null;
     this.videoIsFlipped = videoIsFlipped;
     this._onResult = (typeof onResult === "function") ? onResult : null;
 
@@ -47,6 +48,7 @@ class QrReader {
     this.running = false;
     this.ready = false;
     this._stopFn = null;
+    this._scaleToRect = null;
   }
 
   _nowMs() {
@@ -193,6 +195,60 @@ class QrReader {
   getText()          { return this._text; }
   getResult()        { return this._result; }
 
+  scaleTo(w, h, x = 0, y = 0) {
+    const vidEl = this.video?.elt;
+    const vw = Math.max(1, vidEl?.videoWidth || this.video?.width || width || 1);
+    const vh = Math.max(1, vidEl?.videoHeight || this.video?.height || height || 1);
+
+    let W = Number.isFinite(Number(w)) ? Number(w) : null;
+    let H = Number.isFinite(Number(h)) ? Number(h) : null;
+    if (W != null && H == null) H = W * (vh / vw);
+    if (H != null && W == null) W = H * (vw / vh);
+
+    const rect = this._computeCoverRect(x, y, W, H);
+    this._scaleToRect = rect;
+    return rect;
+  }
+
+  clearScaleTo() {
+    this._scaleToRect = null;
+  }
+
+  getScaleToRect() {
+    return this._scaleToRect;
+  }
+
+  drawImage(...args) {
+    if (typeof image !== "function") return;
+    const vidEl = this.video?.elt;
+    const drawSource = this.videoP5 || this.video;
+    if (!drawSource || !vidEl) return;
+    const vw = vidEl?.videoWidth || this.video?.width || width;
+    const vh = vidEl?.videoHeight || this.video?.height || height;
+    const rect = this._resolveRectArgs(args, vw, vh);
+
+    if (rect.w == null && rect.h == null && this._scaleToRect) {
+      let r = this._scaleToRect;
+      if ((args?.length || 0) >= 2) {
+        r = this._computeCoverRect(rect.x, rect.y, r.w, r.h);
+        this._scaleToRect = r;
+      }
+      if (typeof drawingContext?.save === "function") {
+        drawingContext.save();
+        drawingContext.beginPath();
+        drawingContext.rect(r.x, r.y, r.w, r.h);
+        drawingContext.clip();
+        image(drawSource, r.offsetX, r.offsetY, vw * r.scale, vh * r.scale);
+        drawingContext.restore();
+      } else {
+        image(drawSource, r.offsetX, r.offsetY, vw * r.scale, vh * r.scale);
+      }
+      return;
+    }
+
+    image(drawSource, rect.x, rect.y, rect.w ?? vw, rect.h ?? vh);
+  }
+
   drawOverlay(x = 0, y = 0, w = null, h = null) {
     if (!this._result || typeof line !== "function") return;
 
@@ -200,26 +256,14 @@ class QrReader {
     const vw = vidEl?.videoWidth  || this.video?.width  || width;
     const vh = vidEl?.videoHeight || this.video?.height || height;
 
-    const W = (w ?? vw);
-    const H = (h ?? vh);
-
-    const sx = W / vw;
-    const sy = H / vh;
-
     const pts = Array.isArray(this._result.resultPoints)
       ? this._result.resultPoints
       : [];
 
-    const mapped = pts
-      .map((p) => {
-        if (!p || p.x == null || p.y == null) return null;
-        const px = this.videoIsFlipped ? (vw - p.x) : p.x;
-        return {
-          x: x + px * sx,
-          y: y + p.y * sy
-        };
-      })
-      .filter(Boolean);
+    const mapped =
+      w == null && h == null && this._scaleToRect
+        ? this._mapResultPointsToCover(pts, this._scaleToRect)
+        : this._mapResultPointsToRect(pts, x, y, w ?? vw, h ?? vh, vw, vh);
 
     if (mapped.length < 2) return;
 
@@ -243,6 +287,76 @@ class QrReader {
     }
 
     pop();
+  }
+
+  _mapResultPointsToRect(points, x, y, w, h, vw, vh) {
+    const sx = w / vw;
+    const sy = h / vh;
+    return points
+      .map((p) => {
+        if (!p || p.x == null || p.y == null) return null;
+        const px = this.videoIsFlipped ? vw - p.x : p.x;
+        return { x: x + px * sx, y: y + p.y * sy };
+      })
+      .filter(Boolean);
+  }
+
+  _mapResultPointsToCover(points, rect) {
+    const vidEl = this.video?.elt;
+    const vw = vidEl?.videoWidth || this.video?.width || width;
+    return points
+      .map((p) => {
+        if (!p || p.x == null || p.y == null) return null;
+        const px = this.videoIsFlipped ? vw - p.x : p.x;
+        return {
+          x: rect.offsetX + px * rect.scale,
+          y: rect.offsetY + p.y * rect.scale,
+        };
+      })
+      .filter(Boolean);
+  }
+
+  _computeCoverRect(x, y, w, h) {
+    const vidEl = this.video?.elt;
+    const vw = Math.max(1, vidEl?.videoWidth || this.video?.width || width || 1);
+    const vh = Math.max(1, vidEl?.videoHeight || this.video?.height || height || 1);
+    const W = Math.max(1, Number(w) || vw);
+    const H = Math.max(1, Number(h) || vh);
+    const X = Number(x) || 0;
+    const Y = Number(y) || 0;
+
+    const scale = Math.max(W / vw, H / vh);
+    const drawW = vw * scale;
+    const drawH = vh * scale;
+    const offsetX = X + (W - drawW) * 0.5;
+    const offsetY = Y + (H - drawH) * 0.5;
+
+    return { x: X, y: Y, w: W, h: H, scale, offsetX, offsetY };
+  }
+
+  _resolveRectArgs(args, defaultW, defaultH) {
+    const a = Array.isArray(args) ? args : [];
+    if (!a.length) return { x: 0, y: 0, w: null, h: null };
+    const toSize = (v) => {
+      if (v === null || v === undefined || v === "") return null;
+      const n = Number(v);
+      return Number.isFinite(n) ? n : null;
+    };
+    if (a.length === 1 && a[0] && typeof a[0] === "object") {
+      const o = a[0];
+      return {
+        x: Number(o.x) || 0,
+        y: Number(o.y) || 0,
+        w: toSize(o.w),
+        h: toSize(o.h),
+      };
+    }
+    return {
+      x: Number(a[0]) || 0,
+      y: Number(a[1]) || 0,
+      w: toSize(a[2]),
+      h: toSize(a[3]),
+    };
   }
 
   async _waitForVideoReady(videoEl) {

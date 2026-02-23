@@ -1,5 +1,5 @@
 let v_major = 1;
-let v_minor = 18;
+let v_minor = 28;
 let pVersion =v_major + "." +v_minor
 let baseFont;
 let baseMonoFont;
@@ -84,6 +84,38 @@ function resolveBaseURL() {
 }
 
 let baseURL = resolveBaseURL();
+const PORTAL_VERSION_STORAGE_KEY = "portal.version.lastLoaded";
+
+const portalVersionCacheState = (() => {
+  let changed = false;
+  try {
+    const last = localStorage.getItem(PORTAL_VERSION_STORAGE_KEY);
+    changed = last !== pVersion;
+    if (changed) localStorage.setItem(PORTAL_VERSION_STORAGE_KEY, pVersion);
+  } catch {}
+  return {
+    changed,
+    token: `_pv=${encodeURIComponent(pVersion)}`,
+  };
+})();
+
+function shouldBustByVersion(url) {
+  if (!portalVersionCacheState.changed) return false;
+  try {
+    const u = new URL(url, window.location.origin);
+    if (u.searchParams.has("_pv")) return false;
+
+    const portalBase = new URL(baseURL, window.location.href);
+    const samePortalOrigin = u.origin === portalBase.origin;
+    const underPortalPath =
+      u.pathname.startsWith(portalBase.pathname) ||
+      u.pathname.includes("/Portal/");
+
+    return samePortalOrigin && underPortalPath;
+  } catch {
+    return false;
+  }
+}
 
 const LIBRARIES = [
   "https://cdnjs.cloudflare.com/ajax/libs/webfont/1.6.28/webfontloader.js",
@@ -325,9 +357,10 @@ function loadScript(url) {
     if ([...document.scripts].some((s) => normalizeSrc(s.src) === normalizedUrl))
       return resolve(url);
 
-    if (isLocal(url)) {
-      const bust = `_cb=${Date.now()}`;
-      url += url.includes("?") ? `&${bust}` : `?${bust}`;
+    if (shouldBustByVersion(url)) {
+      url += url.includes("?")
+        ? `&${portalVersionCacheState.token}`
+        : `?${portalVersionCacheState.token}`;
     }
 
     const s = document.createElement("script");

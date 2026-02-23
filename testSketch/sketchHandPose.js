@@ -28,9 +28,19 @@ function draw() {
   handPose.drawHands();
 
   if (handPose?.hasResult()) {
-    const leftHand = handPose.getLeftHand();
-    const tipPos = leftHand?.index_finger_tip;
-    if (tipPos) ellipse(tipPos.x, tipPos.y, 20, 20);
+    const firstHand = handPose.getFirstHand();
+    const secondHand = handPose.getSecondHand();
+
+    const tipFirst = firstHand?.index_finger_tip;
+    if (tipFirst) {
+      fill("yellow");
+      ellipse(tipFirst.x, tipFirst.y, 20, 20);
+    }
+
+    const tipSecond = secondHand?.index_finger_tip;
+    if (tipSecond) {
+      fill("cyan");
+      ellipse(tipSecond.x, tipSecond.y, 16, 16);
+    }
   }
 }
-

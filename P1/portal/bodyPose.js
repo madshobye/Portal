@@ -1,7 +1,9 @@
 // BodyPose aligned to the HandPose helper style
 // - drawPoses(x=0,y=0,w=?,h=?) defaults to video native size
+// - drawImage(x=0,y=0,w=?,h=?) draws video aligned to the same mapping as landmarks
 // - getPoses() => VIDEO space, flipped only (NO scaling)
 // - getPosesInRect(x,y,w,h) => flipped + scaled to that rect
+// - scaleTo(w,h[,x=0,y=0]) => centered "cover" mapping (fills rect, keeps aspect ratio)
 
 class BodyPose {
   constructor({
@@ -13,6 +15,7 @@ class BodyPose {
   } = {}) {
     if (!video) throw new Error("BodyPose: video is required");
 
+    this.videoP5 = video.elt ? video : null;
     this.video = video.elt ? video.elt : video;
     this.videoIsFlipped = !!videoIsFlipped;
     this.backend = backend;
@@ -33,6 +36,7 @@ class BodyPose {
     this._reinitInFlight = null;
     this._runtimeOrder = ["tfjs", "mediapipe"];
     this._runtimeIndex = 0;
+    this._scaleToRect = null;
 
     // Canonical MediaPipe Pose keypoint names (33)
     this._names = [
@@ -60,7 +64,7 @@ class BodyPose {
       [12, 14], [14, 16], [16, 18], [16, 20], [16, 22],
       [23, 25], [25, 27], [27, 29], [27, 31],
       [24, 26], [26, 28], [28, 30], [28, 32],
-      [0, 1], [1, 2], [2, 3], [0, 4], [4, 5], [5, 6], [2, 7], [5, 8], [9, 10],
+      [0, 1], [1, 2], [2, 3], [0, 4], [4, 5], [5, 6], [9, 10],
     ];
   }
 
@@ -217,6 +221,66 @@ class BodyPose {
     return this._mapPosesToRect(this.posesRaw, x, y, w, h);
   }
 
+  scaleTo(w, h, x = 0, y = 0) {
+    const v = this.video?.elt ? this.video.elt : this.video;
+    const vw = Math.max(1, v?.videoWidth || v?.width || width || 1);
+    const vh = Math.max(1, v?.videoHeight || v?.height || height || 1);
+
+    let W = Number.isFinite(Number(w)) ? Number(w) : null;
+    let H = Number.isFinite(Number(h)) ? Number(h) : null;
+    if (W != null && H == null) H = W * (vh / vw);
+    if (H != null && W == null) W = H * (vw / vh);
+
+    const rect = this._computeCoverRect(x, y, W, H);
+    this._scaleToRect = rect;
+    return rect;
+  }
+
+  clearScaleTo() {
+    this._scaleToRect = null;
+  }
+
+  getScaleToRect() {
+    return this._scaleToRect;
+  }
+
+  getPosesScaled() {
+    if (!this._scaleToRect) return this.getPoses();
+    const r = this._scaleToRect;
+    return this._mapPosesToCoverRect(this.posesRaw, r.x, r.y, r.w, r.h);
+  }
+
+  drawImage(...args) {
+    if (typeof image !== "function") return;
+    const v = this.video?.elt ? this.video.elt : this.video;
+    const drawSource = this.videoP5 || this.video;
+    if (!drawSource) return;
+    const vw = v?.videoWidth || v?.width || width;
+    const vh = v?.videoHeight || v?.height || height;
+    const rect = this._resolveRectArgs(args, vw, vh);
+
+    if (rect.w == null && rect.h == null && this._scaleToRect) {
+      let r = this._scaleToRect;
+      if ((args?.length || 0) >= 2) {
+        r = this._computeCoverRect(rect.x, rect.y, r.w, r.h);
+        this._scaleToRect = r;
+      }
+      if (typeof drawingContext?.save === "function") {
+        drawingContext.save();
+        drawingContext.beginPath();
+        drawingContext.rect(r.x, r.y, r.w, r.h);
+        drawingContext.clip();
+        image(drawSource, r.offsetX, r.offsetY, vw * r.scale, vh * r.scale);
+        drawingContext.restore();
+      } else {
+        image(drawSource, r.offsetX, r.offsetY, vw * r.scale, vh * r.scale);
+      }
+      return;
+    }
+
+    image(drawSource, rect.x, rect.y, rect.w ?? vw, rect.h ?? vh);
+  }
+
   getBest() {
     const arr = this.posesVideo || [];
     return arr.slice().sort((a, b) => (b.score ?? 0) - (a.score ?? 0))[0] || null;
@@ -228,13 +292,15 @@ class BodyPose {
 
   // Returns mapped keypoint position in the same rect as draw/image usage.
   getLimbPosition(person = 0, id = 0, x = 0, y = 0, w = null, h = null) {
-    const v = this.video?.elt ? this.video.elt : this.video;
-    const vw = v?.videoWidth || v?.width || width;
-    const vh = v?.videoHeight || v?.height || height;
-    const W = w ?? vw;
-    const H = h ?? vh;
-
-    const poses = this.getPosesInRect(x, y, W, H);
+    const poses =
+      w == null && h == null && this._scaleToRect
+        ? this.getPosesScaled()
+        : this.getPosesInRect(
+            x,
+            y,
+            w ?? (this.video?.videoWidth || this.video?.width || width),
+            h ?? (this.video?.videoHeight || this.video?.height || height)
+          );
     const pose = poses?.[person];
     if (!pose) return { x: 0, y: 0 };
 
@@ -263,13 +329,15 @@ class BodyPose {
       minPoseScore = 0,
     } = {}
   ) {
-    const v = this.video?.elt ? this.video.elt : this.video;
-    const vw = v?.videoWidth || v?.width || width;
-    const vh = v?.videoHeight || v?.height || height;
-    const W = w ?? vw;
-    const H = h ?? vh;
-
-    const poses = this.getPosesInRect(x, y, W, H);
+    const poses =
+      w == null && h == null && this._scaleToRect
+        ? this.getPosesScaled()
+        : this.getPosesInRect(
+            x,
+            y,
+            w ?? (this.video?.videoWidth || this.video?.width || width),
+            h ?? (this.video?.videoHeight || this.video?.height || height)
+          );
     if (!poses?.length || typeof ellipse !== "function") return;
 
     push();
@@ -328,7 +396,9 @@ class BodyPose {
 
     if (this._onResults) {
       try {
-        this._onResults(this.getPosesInRect(0, 0, width, height));
+        this._onResults(
+          this._scaleToRect ? this.getPosesScaled() : this.getPosesInRect(0, 0, width, height)
+        );
       } catch (e) {
         console.warn("BodyPose onResults threw:", e);
       }
@@ -371,6 +441,72 @@ class BodyPose {
       });
       return this._buildPoseObject(pose, pts);
     });
+  }
+
+  _mapPosesToCoverRect(poses, x, y, w, h) {
+    if (!poses?.length) return [];
+
+    const rect = this._computeCoverRect(x, y, w, h);
+    const v = this.video?.elt ? this.video.elt : this.video;
+    const vw = v?.videoWidth || v?.width || width;
+
+    return poses.map((pose) => {
+      const base = this._extractKeypoints(pose);
+      const pts = base.map((p) => {
+        const q = this._safePoint(p);
+        let px = q.x;
+        if (this.videoIsFlipped) px = vw - px;
+        return {
+          x: rect.offsetX + px * rect.scale,
+          y: rect.offsetY + q.y * rect.scale,
+          c: q.c,
+        };
+      });
+      return this._buildPoseObject(pose, pts);
+    });
+  }
+
+  _computeCoverRect(x, y, w, h) {
+    const v = this.video?.elt ? this.video.elt : this.video;
+    const vw = Math.max(1, v?.videoWidth || v?.width || width || 1);
+    const vh = Math.max(1, v?.videoHeight || v?.height || height || 1);
+    const W = Math.max(1, Number(w) || vw);
+    const H = Math.max(1, Number(h) || vh);
+    const X = Number(x) || 0;
+    const Y = Number(y) || 0;
+
+    const scale = Math.max(W / vw, H / vh);
+    const drawW = vw * scale;
+    const drawH = vh * scale;
+    const offsetX = X + (W - drawW) * 0.5;
+    const offsetY = Y + (H - drawH) * 0.5;
+
+    return { x: X, y: Y, w: W, h: H, scale, offsetX, offsetY };
+  }
+
+  _resolveRectArgs(args, defaultW, defaultH) {
+    const a = Array.isArray(args) ? args : [];
+    if (!a.length) return { x: 0, y: 0, w: null, h: null };
+    const toSize = (v) => {
+      if (v === null || v === undefined || v === "") return null;
+      const n = Number(v);
+      return Number.isFinite(n) ? n : null;
+    };
+    if (a.length === 1 && a[0] && typeof a[0] === "object") {
+      const o = a[0];
+      return {
+        x: Number(o.x) || 0,
+        y: Number(o.y) || 0,
+        w: toSize(o.w),
+        h: toSize(o.h),
+      };
+    }
+    return {
+      x: Number(a[0]) || 0,
+      y: Number(a[1]) || 0,
+      w: toSize(a[2]),
+      h: toSize(a[3]),
+    };
   }
 
   _buildPoseObject(pose, pts) {

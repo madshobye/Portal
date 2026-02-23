@@ -24,11 +24,11 @@ async function setup() {
 
 function draw() {
   background(200);
-  if (!cam) return;
 
-  image(cam, 0, 0);
+  emotions.scaleTo(width, height);
+  emotions.drawImage();
 
-  emotions?.drawPoints(0, 0, cam.width, cam.height, {
+  emotions?.drawPoints(0, 0, null, null, {
     pointSize: 2,
     color: [255, 255, 255],
     maxPoints: null,

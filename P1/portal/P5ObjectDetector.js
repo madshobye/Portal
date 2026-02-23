@@ -9,6 +9,7 @@ class P5ObjectDetector {
    * @param {Object} opts
    * @param {string} [opts.model='cocossd']     // 'cocossd' or a TFJS model URL ending with model.json
    * @param {p5.MediaElement|HTMLVideoElement} opts.video
+   * @param {boolean} [opts.videoIsFlipped=false]
    * @param {'webgl'|'cpu'} [opts.backend='webgl']
    * @param {number} [opts.scoreThreshold=0.5]  // filter for draw/best helpers (detector may also support options)
    * @param {function(Array)} [opts.onDetections] // optional callback(detections)
@@ -16,13 +17,16 @@ class P5ObjectDetector {
   constructor({
     model = 'cocossd',
     video,
+    videoIsFlipped = false,
     backend = 'webgl',
     scoreThreshold = 0.5,
     onDetections = null
   } = {}) {
     if (!video) throw new Error('P5ObjectDetector: video is required');
     this.modelInput = model;
+    this.videoP5 = video.elt ? video : null;
     this.video = video.elt ? video.elt : video;
+    this.videoIsFlipped = !!videoIsFlipped;
     this.backend = backend;
     this.scoreThreshold = scoreThreshold;
     this.onDetections = onDetections;
@@ -37,6 +41,7 @@ class P5ObjectDetector {
     // flags for your needs
     this._hasResult = false; // have we ever produced a result?
     this._hasNew = false;    // new result since your last check/reset?
+    this._scaleToRect = null;
   }
 
   async init() {
@@ -105,8 +110,70 @@ class P5ObjectDetector {
   /** @returns {Array|null} last detections array */
   getDetections() { return this.detections; }
 
+  getDetectionsInRect(x, y, w, h) {
+    return this._mapDetectionsToRect(this.detections || [], x, y, w, h);
+  }
+
+  getDetectionsScaled() {
+    if (!this._scaleToRect) return this.detections || [];
+    const r = this._scaleToRect;
+    return this._mapDetectionsToCoverRect(this.detections || [], r.x, r.y, r.w, r.h);
+  }
+
   /** @returns {Object|null} top detection by confidence (>= scoreThreshold if possible) */
   getBest() { return this.best; }
+
+  scaleTo(w, h, x = 0, y = 0) {
+    const vw = Math.max(1, this.video?.videoWidth || this.video?.width || width || 1);
+    const vh = Math.max(1, this.video?.videoHeight || this.video?.height || height || 1);
+
+    let W = Number.isFinite(Number(w)) ? Number(w) : null;
+    let H = Number.isFinite(Number(h)) ? Number(h) : null;
+    if (W != null && H == null) H = W * (vh / vw);
+    if (H != null && W == null) W = H * (vw / vh);
+
+    const rect = this._computeCoverRect(x, y, W, H);
+    this._scaleToRect = rect;
+    return rect;
+  }
+
+  clearScaleTo() {
+    this._scaleToRect = null;
+  }
+
+  getScaleToRect() {
+    return this._scaleToRect;
+  }
+
+  drawImage(...args) {
+    if (typeof image !== "function") return;
+    const drawSource = this.videoP5 || this.video;
+    if (!drawSource) return;
+    const vw = this.video?.videoWidth || this.video?.width || width;
+    const vh = this.video?.videoHeight || this.video?.height || height;
+    const rect = this._resolveRectArgs(args, vw, vh);
+
+    if (rect.w == null && rect.h == null && this._scaleToRect) {
+      let r = this._scaleToRect;
+      if ((args?.length || 0) >= 2) {
+        r = this._computeCoverRect(rect.x, rect.y, r.w, r.h);
+        this._scaleToRect = r;
+      }
+      if (typeof drawingContext?.save === "function") {
+        drawingContext.save();
+        drawingContext.beginPath();
+        drawingContext.rect(r.x, r.y, r.w, r.h);
+        drawingContext.clip();
+        image(drawSource, r.offsetX, r.offsetY, vw * r.scale, vh * r.scale);
+        drawingContext.restore();
+      } else {
+        image(drawSource, r.offsetX, r.offsetY, vw * r.scale, vh * r.scale);
+      }
+      return;
+    }
+
+    image(drawSource, rect.x, rect.y, rect.w ?? vw, rect.h ?? vh);
+  }
 
   /**
    * Optional on-canvas renderer (p5.js)
@@ -115,19 +182,24 @@ class P5ObjectDetector {
    * @param {number} [yOffset=0] apply a y translation when drawing
    * @param {boolean} [showScore=true] whether to append the score in the label
    */
-  drawDetections(xOffset = 0, yOffset = 0, showScore = true) {
+  drawDetections(...args) {
     if (!this.detections || typeof rect !== 'function') return;
+    const parsed = this._resolveDrawArgs(args);
+    const showScore = parsed.showScore;
+    const items = parsed.mode === "scaled"
+      ? this.getDetectionsScaled()
+      : this.getDetectionsInRect(parsed.x, parsed.y, parsed.w, parsed.h);
+
     push();
     noFill();
     stroke(0);
     strokeWeight(2);
-    for (const d of this.detections) {
+    for (const d of items) {
       const conf = d.confidence ?? d.score ?? 0;
       if (conf < this.scoreThreshold) continue;
 
-      // ml5 coco-ssd returns: { label, confidence, x, y, width, height }
-      const x = (d.x ?? d.left ?? 0) + xOffset;
-      const y = (d.y ?? d.top ?? 0) + yOffset;
+      const x = d.x ?? d.left ?? 0;
+      const y = d.y ?? d.top ?? 0;
       const w = d.width ?? d.w ?? (d.right && d.left ? d.right - d.left : 0);
       const h = d.height ?? d.h ?? (d.bottom && d.top ? d.bottom - d.top : 0);
 
@@ -146,6 +218,115 @@ class P5ObjectDetector {
       pop();
     }
     pop();
+  }
+
+  _resolveDrawArgs(args) {
+    const a = Array.isArray(args) ? args : [];
+    const vw = this.video?.videoWidth || this.video?.width || width;
+    const vh = this.video?.videoHeight || this.video?.height || height;
+
+    // legacy: drawDetections(xOffset, yOffset, showScore)
+    if (a.length <= 3 && typeof a[2] === "boolean") {
+      const x = Number(a[0]) || 0;
+      const y = Number(a[1]) || 0;
+      if (a.length === 0 && this._scaleToRect) {
+        return { mode: "scaled", showScore: true };
+      }
+      return { mode: "rect", x, y, w: vw, h: vh, showScore: a[2] };
+    }
+
+    const rect = this._resolveRectArgs(a, vw, vh);
+    const showScore = typeof a[4] === "boolean" ? a[4] : true;
+    if (rect.w == null && rect.h == null && this._scaleToRect) {
+      return { mode: "scaled", showScore };
+    }
+    return { mode: "rect", x: rect.x, y: rect.y, w: rect.w ?? vw, h: rect.h ?? vh, showScore };
+  }
+
+  _mapDetectionsToRect(detections, x, y, w, h) {
+    const vw = this.video?.videoWidth || this.video?.width || width;
+    const vh = this.video?.videoHeight || this.video?.height || height;
+    const sx = w / vw;
+    const sy = h / vh;
+
+    return (detections || []).map((d) => {
+      const rawX = Number(d.x ?? d.left ?? 0);
+      const rawY = Number(d.y ?? d.top ?? 0);
+      const rawW = Number(d.width ?? d.w ?? ((d.right && d.left) ? d.right - d.left : 0));
+      const rawH = Number(d.height ?? d.h ?? ((d.bottom && d.top) ? d.bottom - d.top : 0));
+      const xFlipped = this.videoIsFlipped ? (vw - rawX - rawW) : rawX;
+
+      return {
+        ...d,
+        x: x + xFlipped * sx,
+        y: y + rawY * sy,
+        width: rawW * sx,
+        height: rawH * sy,
+      };
+    });
+  }
+
+  _mapDetectionsToCoverRect(detections, x, y, w, h) {
+    const rect = this._computeCoverRect(x, y, w, h);
+    const vw = this.video?.videoWidth || this.video?.width || width;
+
+    return (detections || []).map((d) => {
+      const rawX = Number(d.x ?? d.left ?? 0);
+      const rawY = Number(d.y ?? d.top ?? 0);
+      const rawW = Number(d.width ?? d.w ?? ((d.right && d.left) ? d.right - d.left : 0));
+      const rawH = Number(d.height ?? d.h ?? ((d.bottom && d.top) ? d.bottom - d.top : 0));
+      const xFlipped = this.videoIsFlipped ? (vw - rawX - rawW) : rawX;
+
+      return {
+        ...d,
+        x: rect.offsetX + xFlipped * rect.scale,
+        y: rect.offsetY + rawY * rect.scale,
+        width: rawW * rect.scale,
+        height: rawH * rect.scale,
+      };
+    });
+  }
+
+  _computeCoverRect(x, y, w, h) {
+    const vw = Math.max(1, this.video?.videoWidth || this.video?.width || width || 1);
+    const vh = Math.max(1, this.video?.videoHeight || this.video?.height || height || 1);
+    const W = Math.max(1, Number(w) || vw);
+    const H = Math.max(1, Number(h) || vh);
+    const X = Number(x) || 0;
+    const Y = Number(y) || 0;
+
+    const scale = Math.max(W / vw, H / vh);
+    const drawW = vw * scale;
+    const drawH = vh * scale;
+    const offsetX = X + (W - drawW) * 0.5;
+    const offsetY = Y + (H - drawH) * 0.5;
+
+    return { x: X, y: Y, w: W, h: H, scale, offsetX, offsetY };
+  }
+
+  _resolveRectArgs(args, defaultW, defaultH) {
+    const a = Array.isArray(args) ? args : [];
+    if (!a.length) return { x: 0, y: 0, w: null, h: null };
+    const toSize = (v) => {
+      if (v === null || v === undefined || v === "") return null;
+      const n = Number(v);
+      return Number.isFinite(n) ? n : null;
+    };
+    if (a.length === 1 && a[0] && typeof a[0] === "object") {
+      const o = a[0];
+      return {
+        x: Number(o.x) || 0,
+        y: Number(o.y) || 0,
+        w: toSize(o.w),
+        h: toSize(o.h),
+      };
+    }
+    return {
+      x: Number(a[0]) || 0,
+      y: Number(a[1]) || 0,
+      w: toSize(a[2]),
+      h: toSize(a[3]),
+    };
   }
 
   // —— private ——

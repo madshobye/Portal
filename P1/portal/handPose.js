@@ -34,6 +34,7 @@ class HandPose {
     this._runtimeOrder = ["tfjs", "mediapipe"];
     this._runtimeIndex = 0;
     this._scaleToRect = null; // { x,y,w,h,scale,offsetX,offsetY }
+    this._firstHandSide = null; // "Left" | "Right" | null for current tracking session
 
     // MediaPipe/TFJS hand landmark names in index order
     this._names = [
@@ -209,7 +210,17 @@ class HandPose {
    * Call on resize or every draw if canvas size can change.
    */
   scaleTo(w, h, x = 0, y = 0) {
-    const rect = this._computeCoverRect(x, y, w, h);
+    const v = this.video?.elt ? this.video.elt : this.video;
+    const vw = Math.max(1, v?.videoWidth || v?.width || width || 1);
+    const vh = Math.max(1, v?.videoHeight || v?.height || height || 1);
+
+    let W = Number.isFinite(Number(w)) ? Number(w) : null;
+    let H = Number.isFinite(Number(h)) ? Number(h) : null;
+
+    if (W != null && H == null) H = W * (vh / vw);
+    if (H != null && W == null) W = H * (vw / vh);
+
+    const rect = this._computeCoverRect(x, y, W, H);
     this._scaleToRect = rect;
     return rect;
   }
@@ -229,6 +240,25 @@ class HandPose {
     return this._mapHandsToCoverRect(this.handsRaw, r.x, r.y, r.w, r.h);
   }
 
+  getDistance(a, b) {
+    const ax = Number(a?.x ?? a?.[0]);
+    const ay = Number(a?.y ?? a?.[1]);
+    const bx = Number(b?.x ?? b?.[0]);
+    const by = Number(b?.y ?? b?.[1]);
+
+    if (
+      !Number.isFinite(ax) ||
+      !Number.isFinite(ay) ||
+      !Number.isFinite(bx) ||
+      !Number.isFinite(by)
+    ) {
+      return NaN;
+    }
+    const dx = bx - ax;
+    const dy = by - ay;
+    return Math.hypot(dx, dy);
+  }
+
   /**
    * Draw the source video aligned with current landmark mapping.
    * - If scaleTo(...) is active and w/h are omitted, uses centered "cover" draw.
@@ -245,8 +275,21 @@ class HandPose {
     const rect = this._resolveRectArgs(args, vw, vh);
 
     if (rect.w == null && rect.h == null && this._scaleToRect) {
-      const r = this._scaleToRect;
-      image(drawSource, r.offsetX, r.offsetY, vw * r.scale, vh * r.scale);
+      let r = this._scaleToRect;
+      if ((args?.length || 0) >= 2) {
+        r = this._computeCoverRect(rect.x, rect.y, r.w, r.h);
+        this._scaleToRect = r;
+      }
+      if (typeof drawingContext?.save === "function") {
+        drawingContext.save();
+        drawingContext.beginPath();
+        drawingContext.rect(r.x, r.y, r.w, r.h);
+        drawingContext.clip();
+        image(drawSource, r.offsetX, r.offsetY, vw * r.scale, vh * r.scale);
+        drawingContext.restore();
+      } else {
+        image(drawSource, r.offsetX, r.offsetY, vw * r.scale, vh * r.scale);
+      }
       return;
     }
 
@@ -309,6 +352,7 @@ class HandPose {
 
     this._hasResult = this.handsRaw.length > 0;
     this._hasNew = true;
+    this._syncFirstHandSide();
 
     if (this._onResults) {
       try {
@@ -439,22 +483,27 @@ class HandPose {
   _resolveRectArgs(args, defaultW, defaultH) {
     const a = Array.isArray(args) ? args : [];
     if (!a.length) return { x: 0, y: 0, w: null, h: null };
+    const toSize = (v) => {
+      if (v === null || v === undefined || v === "") return null;
+      const n = Number(v);
+      return Number.isFinite(n) ? n : null;
+    };
 
     if (a.length === 1 && a[0] && typeof a[0] === "object") {
       const o = a[0];
       return {
         x: Number(o.x) || 0,
         y: Number(o.y) || 0,
-        w: Number.isFinite(Number(o.w)) ? Number(o.w) : null,
-        h: Number.isFinite(Number(o.h)) ? Number(o.h) : null,
+        w: toSize(o.w),
+        h: toSize(o.h),
       };
     }
 
     return {
       x: Number(a[0]) || 0,
       y: Number(a[1]) || 0,
-      w: Number.isFinite(Number(a[2])) ? Number(a[2]) : null,
-      h: Number.isFinite(Number(a[3])) ? Number(a[3]) : null,
+      w: toSize(a[2]),
+      h: toSize(a[3]),
     };
   }
 
@@ -633,6 +682,26 @@ class HandPose {
     return this._getHandBySide("Right", /*rect*/ null);
   }
 
+  /**
+   * First/second hand accessors with stable ordering:
+   * - if session starts with one hand, that side becomes "first"
+   * - if session starts with two hands, right is "first", left is "second"
+   * - order stays stable while at least one hand is tracked
+   */
+  getFirstHand() {
+    return this._getOrderedHands(/*rect*/ null).first;
+  }
+  getSecondHand() {
+    return this._getOrderedHands(/*rect*/ null).second;
+  }
+
+  getFirstHandInRect(x, y, w, h) {
+    return this._getOrderedHands({ x, y, w, h }).first;
+  }
+  getSecondHandInRect(x, y, w, h) {
+    return this._getOrderedHands({ x, y, w, h }).second;
+  }
+
   /** Rect-mapped (flipped + scaled to the given image rect) */
   getLeftHandInRect(x, y, w, h) {
     return this._getHandBySide("Left", { x, y, w, h });
@@ -680,5 +749,83 @@ class HandPose {
       // right hand in the IMAGE -> larger x
       return withWrist.reduce((a, b) => (a.wrist.x > b.wrist.x ? a : b)).hand;
     }
+  }
+
+  _syncFirstHandSide() {
+    const list = this.getHands();
+    if (!list.length) {
+      this._firstHandSide = null;
+      return;
+    }
+    if (this._firstHandSide) return;
+
+    // New tracking session: pick a stable "first" side.
+    const first = this._pickDefaultFirstHand(list);
+    this._firstHandSide = this._sideForHand(first, list);
+  }
+
+  _getOrderedHands(rect) {
+    const list = rect
+      ? this.getHandsInRect(rect.x, rect.y, rect.w, rect.h)
+      : this._scaleToRect
+      ? this.getHandsScaled()
+      : this.getHands();
+
+    if (!list?.length) return { first: null, second: null };
+
+    const firstSide = this._firstHandSide;
+    if (firstSide === "Left" || firstSide === "Right") {
+      const otherSide = firstSide === "Right" ? "Left" : "Right";
+      let first = list.find((h) => this._extractHandedness(h) === firstSide) || null;
+      let second = list.find((h) => this._extractHandedness(h) === otherSide) || null;
+
+      // Fallback when handedness label is missing/inconsistent on current frame.
+      if (!first) first = this._fallbackBySideFromPosition(list, firstSide);
+      if (!second) second = this._fallbackBySideFromPosition(list, otherSide, first);
+
+      if (!first) first = list[0] || null;
+      if (!second) second = list.find((h) => h !== first) || null;
+      return { first, second };
+    }
+
+    const first = this._pickDefaultFirstHand(list);
+    const second = list.find((h) => h !== first) || null;
+    return { first, second };
+  }
+
+  _pickDefaultFirstHand(list) {
+    if (!list?.length) return null;
+    if (list.length >= 2) {
+      const right = list.find((h) => this._extractHandedness(h) === "Right");
+      if (right) return right;
+      const left = list.find((h) => this._extractHandedness(h) === "Left");
+      if (left) return left;
+      return this._fallbackBySideFromPosition(list, "Right");
+    }
+    return list[0];
+  }
+
+  _sideForHand(hand, listContext = null) {
+    if (!hand) return null;
+    const labeled = this._extractHandedness(hand);
+    if (labeled) return labeled;
+
+    const list = listContext && listContext.length ? listContext : [hand];
+    const right = this._fallbackBySideFromPosition(list, "Right");
+    if (right === hand) return "Right";
+    return "Left";
+  }
+
+  _fallbackBySideFromPosition(list, side, exclude = null) {
+    const withWrist = (list || [])
+      .filter((h) => h && h !== exclude)
+      .map((h) => ({ hand: h, wrist: this._extractKeypoints(h)?.[0] }))
+      .filter((o) => o.wrist && Number.isFinite(o.wrist.x));
+
+    if (!withWrist.length) return null;
+    if (side === "Right") {
+      return withWrist.reduce((a, b) => (a.wrist.x > b.wrist.x ? a : b)).hand;
+    }
+    return withWrist.reduce((a, b) => (a.wrist.x < b.wrist.x ? a : b)).hand;
   }
 }
