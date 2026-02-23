@@ -1,7 +1,9 @@
 // HandPose aligned to p5 v2 createCapture(...,{ flipped })
 // - drawHands(x=0,y=0,w=?,h=?) default w,h = video native size (to match image(cam,0,0))
+// - drawImage(x=0,y=0,w=?,h=?) draws video aligned to the same mapping as landmarks
 // - getHands() => VIDEO space, flipped only (NO scaling), with named joints
 // - getHandsInRect(x,y,w,h) => flipped + scaled to that rect (for image(cam,x,y,w,h))
+// - scaleTo(w,h[,x=0,y=0]) => centered "cover" mapping (fills rect, keeps aspect ratio)
 
 class HandPose {
   constructor({
@@ -11,7 +13,8 @@ class HandPose {
     onResults = null,
   } = {}) {
     if (!video) throw new Error("HandPose: video is required");
-    this.video = video.elt ? video.elt : video;
+    this.videoP5 = video.elt ? video : null; // for p5 image(...)
+    this.video = video.elt ? video.elt : video; // DOM element for detector
     this.videoIsFlipped = !!videoIsFlipped;
     this.backend = backend;
     this._onResults = typeof onResults === "function" ? onResults : null;
@@ -30,6 +33,7 @@ class HandPose {
     this._reinitInFlight = null;
     this._runtimeOrder = ["tfjs", "mediapipe"];
     this._runtimeIndex = 0;
+    this._scaleToRect = null; // { x,y,w,h,scale,offsetX,offsetY }
 
     // MediaPipe/TFJS hand landmark names in index order
     this._names = [
@@ -199,24 +203,75 @@ class HandPose {
     return this._mapHandsToRect(this.handsRaw, x, y, w, h);
   }
 
+  /**
+   * Enable centered "cover" mapping into target rect.
+   * Keeps camera aspect, fills target, crops center on the overflowing axis.
+   * Call on resize or every draw if canvas size can change.
+   */
+  scaleTo(w, h, x = 0, y = 0) {
+    const rect = this._computeCoverRect(x, y, w, h);
+    this._scaleToRect = rect;
+    return rect;
+  }
+
+  clearScaleTo() {
+    this._scaleToRect = null;
+  }
+
+  getScaleToRect() {
+    return this._scaleToRect;
+  }
+
+  /** Hands mapped with centered cover mode from the latest scaleTo(...) call */
+  getHandsScaled() {
+    if (!this._scaleToRect) return this.getHands();
+    const r = this._scaleToRect;
+    return this._mapHandsToCoverRect(this.handsRaw, r.x, r.y, r.w, r.h);
+  }
+
+  /**
+   * Draw the source video aligned with current landmark mapping.
+   * - If scaleTo(...) is active and w/h are omitted, uses centered "cover" draw.
+   * - Otherwise draws into the provided rect (or native video size).
+   */
+  drawImage(...args) {
+    if (typeof image !== "function") return;
+
+    const v = this.video?.elt ? this.video.elt : this.video;
+    const drawSource = this.videoP5 || this.video;
+    if (!drawSource) return;
+    const vw = v?.videoWidth || v?.width || width;
+    const vh = v?.videoHeight || v?.height || height;
+    const rect = this._resolveRectArgs(args, vw, vh);
+
+    if (rect.w == null && rect.h == null && this._scaleToRect) {
+      const r = this._scaleToRect;
+      image(drawSource, r.offsetX, r.offsetY, vw * r.scale, vh * r.scale);
+      return;
+    }
+
+    image(drawSource, rect.x, rect.y, rect.w ?? vw, rect.h ?? vh);
+  }
+
   /** Draw into rect; defaults to the video’s native size so it matches image(cam, 0, 0) */
-  drawHands(
-    x = 0,
-    y = 0,
-    w = null,
-    h = null,
-    ptSize = 6,
-    drawSkeleton = true,
-    showLabels = false
-  ) {
+  drawHands(x = 0, y = 0, w = null, h = null, ptSize = 6, drawSkeleton = true, showLabels = false) {
     const v = this.video?.elt ? this.video.elt : this.video;
     const vw = v?.videoWidth || v?.width || width;
     const vh = v?.videoHeight || v?.height || height;
+    const rect = this._resolveRectArgs([x, y, w, h], vw, vh);
 
-    const W = w ?? vw;
-    const H = h ?? vh;
+    let hands = null;
+    if (rect.w == null && rect.h == null && this._scaleToRect) {
+      hands = this.getHandsScaled();
+    } else {
+      hands = this.getHandsInRect(
+        rect.x,
+        rect.y,
+        rect.w ?? vw,
+        rect.h ?? vh
+      ); // flipped + scaled to rect
+    }
 
-    const hands = this.getHandsInRect(x, y, W, H); // flipped + scaled to rect
     if (!hands || !hands.length || typeof ellipse !== "function") return;
 
     push();
@@ -257,8 +312,12 @@ class HandPose {
 
     if (this._onResults) {
       try {
-        // Default onResults gets full-canvas rect mapping, but you can ignore it if unused
-        this._onResults(this.getHandsInRect(0, 0, width, height));
+        // Default callback follows current mapping mode.
+        this._onResults(
+          this._scaleToRect
+            ? this.getHandsScaled()
+            : this.getHandsInRect(0, 0, width, height)
+        );
       } catch (e) {
         console.warn("onResults threw:", e);
       }
@@ -325,6 +384,78 @@ class HandPose {
       });
       return mapPts(h, pts); // rect-space with named joints
     });
+  }
+
+  _mapHandsToCoverRect(hands, x, y, w, h) {
+    if (!hands || !hands.length) return [];
+    const rect = this._computeCoverRect(x, y, w, h);
+    const v = this.video?.elt ? this.video.elt : this.video;
+    const vw = v?.videoWidth || v?.width || width;
+    const flipX = this.videoIsFlipped;
+
+    const mapPts = (hand, pts) => {
+      const keypoints = pts.map((p) => ({ x: p.x, y: p.y }));
+      const landmarks = pts.map((p) => [p.x, p.y, 0]);
+      const named = {};
+      for (let i = 0; i < Math.min(this._names.length, pts.length); i++) {
+        named[this._names[i]] = { x: pts[i].x, y: pts[i].y };
+      }
+      return { ...hand, keypoints, landmarks, ...named };
+    };
+
+    return hands.map((hand) => {
+      const base = this._extractKeypoints(hand); // VIDEO space, unflipped
+      const pts = base.map((p) => {
+        let px = p.x;
+        const py = p.y;
+        if (flipX) px = vw - px;
+        return {
+          x: rect.offsetX + px * rect.scale,
+          y: rect.offsetY + py * rect.scale,
+        };
+      });
+      return mapPts(hand, pts);
+    });
+  }
+
+  _computeCoverRect(x, y, w, h) {
+    const v = this.video?.elt ? this.video.elt : this.video;
+    const vw = Math.max(1, v?.videoWidth || v?.width || width || 1);
+    const vh = Math.max(1, v?.videoHeight || v?.height || height || 1);
+    const W = Math.max(1, Number(w) || vw);
+    const H = Math.max(1, Number(h) || vh);
+    const X = Number(x) || 0;
+    const Y = Number(y) || 0;
+
+    const scale = Math.max(W / vw, H / vh);
+    const drawW = vw * scale;
+    const drawH = vh * scale;
+    const offsetX = X + (W - drawW) * 0.5;
+    const offsetY = Y + (H - drawH) * 0.5;
+
+    return { x: X, y: Y, w: W, h: H, scale, offsetX, offsetY };
+  }
+
+  _resolveRectArgs(args, defaultW, defaultH) {
+    const a = Array.isArray(args) ? args : [];
+    if (!a.length) return { x: 0, y: 0, w: null, h: null };
+
+    if (a.length === 1 && a[0] && typeof a[0] === "object") {
+      const o = a[0];
+      return {
+        x: Number(o.x) || 0,
+        y: Number(o.y) || 0,
+        w: Number.isFinite(Number(o.w)) ? Number(o.w) : null,
+        h: Number.isFinite(Number(o.h)) ? Number(o.h) : null,
+      };
+    }
+
+    return {
+      x: Number(a[0]) || 0,
+      y: Number(a[1]) || 0,
+      w: Number.isFinite(Number(a[2])) ? Number(a[2]) : null,
+      h: Number.isFinite(Number(a[3])) ? Number(a[3]) : null,
+    };
   }
 
   _extractKeypoints(hand) {
@@ -520,7 +651,9 @@ class HandPose {
   _getHandBySide(target, rect) {
     const list = rect
       ? this.getHandsInRect(rect.x, rect.y, rect.w, rect.h)
-      : this.getHands(); // flipped video-space, no scaling
+      : this._scaleToRect
+      ? this.getHandsScaled()
+      : this.getHands();
 
     if (!list || !list.length) return null;
 

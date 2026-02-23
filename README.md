@@ -335,6 +335,65 @@ if (mq.hasNewResult()) {
 }
 ```
 
+## `HeartRateBLE` (`portal/heartRateBLE.js`)
+
+Web Bluetooth helper for heart-rate monitors using the standard `heart_rate` service.
+
+It is built for sketch stability:
+- reconnects automatically if BLE disconnects
+- attempts auto-reconnect after page refresh (for previously granted devices)
+
+### Constructor
+```js
+new HeartRateBLE({
+  autoReconnect: true,
+  autoReconnectOnRefresh: true,
+  reconnectDelayMs: 1200,
+  reconnectMaxDelayMs: 30000,
+  reconnectJitterMs: 350,
+  storageKey: "portal.heartRateBLE.deviceId",
+  onReading: null,
+  onConnect: null,
+  onDisconnect: null,
+  onError: null,
+  onState: null,
+})
+```
+
+### Lifecycle + connection
+- `await init()`
+- `await connect()` / `await connectWithPicker()` (user gesture required first time)
+- `await tryReconnectKnown()` (no picker, previously granted device only)
+- `disconnect()`
+- `enableAutoReconnect(enabled?)`
+
+### Reading + polling
+- `hasResult()`
+- `hasNewResult()` / `hasnewresult()`
+- `resetNewFlag()`
+- `consumeNew()` / `consumenew()`
+- `getResult()` / `getresult()`
+- `getBPM()`
+- `getRRIntervals()`
+- `getConnectionState()`
+- `await resetEnergyExpended()`
+
+### Minimal example
+```js
+await loadScript("portal/heartRateBLE.js");
+
+const hr = await new HeartRateBLE().init();
+
+// First time must be called from a user gesture:
+// if (uiButton("pulse", ...).clicked) await hr.connect();
+
+if (hr.hasNewResult()) {
+  const { result } = hr.consumeNew();
+  const bpm = result.heartRate;
+  const rr = result.rrIntervals || [];
+}
+```
+
 ## `PortalTransformer` (`portal/transformer.js`)
 
 Client-side LLM helper built on Transformers.js.

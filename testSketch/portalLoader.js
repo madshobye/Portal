@@ -9,30 +9,14 @@ const local =
   window.location.protocol === "file:" ||
   ["localhost", "127.0.0.1", "::1", "0.0.0.0"].includes(hostname) ||
   hostname.endsWith(".local") ||
-  hostname.endsWith(".localdomain") ||
   isPrivateIpv4;
 
 const portalLoadPromises = (window.__portalLoadPromises ??= {});
 const loadedPortalScripts = (window.__loadedPortalScripts ??= new Set());
 
 async function loadPortal(version, refresh = false) {
-  const query = new URLSearchParams(window.location.search);
-  const explicitScript =
-    query.get("portalScriptURL") ||
-    window.PORTAL_SCRIPT_URL ||
-    "";
-  const explicitBase =
-    query.get("portalBaseURL") ||
-    window.PORTAL_BASE_URL ||
-    "";
-
   let baseSrc = "";
-  if (explicitScript) {
-    baseSrc = explicitScript;
-  } else if (explicitBase) {
-    const base = explicitBase.endsWith("/") ? explicitBase : `${explicitBase}/`;
-    baseSrc = `${base}${version}/portal/portal.js`;
-  } else if (local) {
+  if (local) {
     baseSrc = `/${version}/portal/portal.js`;
   } else {
     baseSrc = `https://madshobye.github.io/Portal/${version}/portal/portal.js`;
