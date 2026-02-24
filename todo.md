@@ -5,7 +5,7 @@ Test
 Todo
 - Make unit testing
 - clean up library loading recurrent helpers
-- go through at extract
+- go through an extract recurring functions
 - clean up uislim with more consistent architecture
 - debug - watching varialbes realtime.
 - Gesture activiation when neede - gps / etc - especially on phone
@@ -22,6 +22,7 @@ New components
 - peer js
 - webnotifications
 - dmx
+- edgellm
 
 Precooked:
 - handtracker info display

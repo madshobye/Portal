@@ -21,8 +21,6 @@ async function setup() {
 
 function draw() {
   background(0);
-
-
   handPose.scaleTo(width, height);
   handPose.drawImage();
   handPose.drawHands();
