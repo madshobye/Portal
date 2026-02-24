@@ -19,6 +19,7 @@ async function setup() {
     otherLabel: "other",
     storageKey: "portal_hand_gesture_knn_demo",
     predictionThreshold: 0.62,
+    gestureHoldMs: 320,
     cooldownMs: 1200,
     noGestureHoldMs: 220,
     trainMirrored: true,

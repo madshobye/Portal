@@ -19,6 +19,7 @@ class HandGestureKnn {
     autoLoadFromStorage = true,
     autoSaveOnLearn = true,
     predictionThreshold = 0.65,
+    gestureHoldMs = 280,
     cooldownMs = 1200,
     noGestureHoldMs = 220,
     trainMirrored = true,
@@ -46,6 +47,7 @@ class HandGestureKnn {
     this.autoSaveOnLearn = !!autoSaveOnLearn;
 
     this.predictionThreshold = Number(predictionThreshold) || 0.65;
+    this.gestureHoldMs = Math.max(0, Number(gestureHoldMs) || 280);
     this.cooldownMs = Math.max(0, Number(cooldownMs) || 1200);
     this.noGestureHoldMs = Math.max(0, Number(noGestureHoldMs) || 220);
 
@@ -80,6 +82,8 @@ class HandGestureKnn {
     this._lastNewAt = 0;
     this._noneSince = null;
     this._sawNoGestureSinceLastNew = true;
+    this._candidateLabel = null;
+    this._candidateSince = null;
 
     this._uiStatusText = "Ready";
     this._uiIdPrefix = "hgk_" + this.storageKey.replace(/[^a-zA-Z0-9_]/g, "_");
@@ -423,6 +427,14 @@ class HandGestureKnn {
 
     this._noneSince = null;
 
+    if (label !== this._candidateLabel) {
+      this._candidateLabel = label;
+      this._candidateSince = now;
+      return;
+    }
+    const stableForMs = now - (this._candidateSince ?? now);
+    if (stableForMs < this.gestureHoldMs) return;
+
     let isNew = false;
     if (!this._lastGestureLabel) {
       isNew = true;
@@ -460,6 +472,8 @@ class HandGestureKnn {
     if (this._noneSince == null) this._noneSince = now;
     if (now - this._noneSince >= this.noGestureHoldMs) {
       this._sawNoGestureSinceLastNew = true;
+      this._candidateLabel = null;
+      this._candidateSince = null;
     }
   }
 
