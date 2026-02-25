@@ -190,6 +190,230 @@ class GptClient {
       totalMs: this._elapsedMs(t0),
     }); // ✅ Return text result directly + meta
   }
+
+  /**
+   * Generate an image from a text prompt.
+   * Returns:
+   * {
+   *   imageUrl,   // remote URL if API returns one
+   *   dataUrl,    // base64 data URL if API returns b64
+   *   image,      // p5.Image when possible (else null)
+   *   prompt, model, size, text, meta
+   * }
+   */
+  async generateImage(prompt, {
+    model = "gpt-image-1",
+    size = "1024x1024",
+    n = 1,
+    quality = "auto",
+    output_format = "png",
+    output_compression = null,
+    background = "auto",
+    moderation = "auto",
+    preferB64 = true,
+    loadAsP5Image = true,
+  } = {}) {
+    const t0 =
+      typeof performance !== "undefined" && performance.now
+        ? performance.now()
+        : Date.now();
+
+    this.error = null;
+    this.hasNew = false;
+    this.latestObject = null;
+    this.lastRaw = null;
+
+    let apiMs = 0;
+    const userPrompt = String(prompt || "").trim();
+    if (!userPrompt) {
+      this.error = "Missing prompt";
+      return this._attachMeta({ error: this.error }, {
+        data: null,
+        userPrompt: "",
+        img: null,
+        apiMs,
+        totalMs: this._elapsedMs(t0),
+      });
+    }
+
+    if (!this.apiKey) {
+      this.error = "Missing API key";
+      console.error("[GptClient] Missing API key");
+      return this._attachMeta({ error: this.error }, {
+        data: null,
+        userPrompt,
+        img: null,
+        apiMs,
+        totalMs: this._elapsedMs(t0),
+      });
+    }
+
+    const body = {
+      model,
+      prompt: userPrompt,
+      n: Math.max(1, Number(n) || 1),
+    };
+    if (size != null) body.size = size;
+    if (quality != null) body.quality = quality;
+    if (output_format != null) body.output_format = output_format;
+    if (background != null) body.background = background;
+    if (moderation != null) body.moderation = moderation;
+    if (
+      output_compression != null &&
+      Number.isFinite(Number(output_compression))
+    ) {
+      body.output_compression = Math.max(
+        0,
+        Math.min(100, Number(output_compression))
+      );
+    }
+
+    let data;
+    try {
+      const apiStart =
+        typeof performance !== "undefined" && performance.now
+          ? performance.now()
+          : Date.now();
+      let resp = await fetch("https://api.openai.com/v1/images/generations", {
+        method: "POST",
+        headers: {
+          Authorization: "Bearer " + this.apiKey,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(body),
+      });
+
+      // Fallback retry with minimum payload when strict params are rejected.
+      if (!resp.ok) {
+        let errData = null;
+        try {
+          errData = await resp.json();
+        } catch {}
+
+        const minimalBody = {
+          model,
+          prompt: userPrompt,
+        };
+        resp = await fetch("https://api.openai.com/v1/images/generations", {
+          method: "POST",
+          headers: {
+            Authorization: "Bearer " + this.apiKey,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify(minimalBody),
+        });
+
+        if (!resp.ok) {
+          data = errData;
+          try {
+            const retryErr = await resp.json();
+            if (retryErr) data = retryErr;
+          } catch {}
+        } else {
+          data = await resp.json();
+        }
+      } else {
+        data = await resp.json();
+      }
+      const apiEnd =
+        typeof performance !== "undefined" && performance.now
+          ? performance.now()
+          : Date.now();
+      apiMs = Math.max(0, apiEnd - apiStart);
+    } catch (e) {
+      this.error = "Network error: " + e;
+      return this._attachMeta({ error: this.error }, {
+        data: null,
+        userPrompt,
+        img: null,
+        apiMs,
+        totalMs: this._elapsedMs(t0),
+      });
+    }
+
+    this.lastRaw = data;
+
+    if (data?.error) {
+      const em = data?.error?.message || "Unknown API error";
+      const et = data?.error?.type ? ` (${data.error.type})` : "";
+      const ep = data?.error?.param ? ` [param: ${data.error.param}]` : "";
+      this.error = "API error: " + em + et + ep;
+      return this._attachMeta({ error: this.error }, {
+        data,
+        userPrompt,
+        img: null,
+        apiMs,
+        totalMs: this._elapsedMs(t0),
+      });
+    }
+
+    const first = data?.data?.[0] || null;
+    if (!first) {
+      this.error = "No image in response";
+      return this._attachMeta({ error: this.error }, {
+        data,
+        userPrompt,
+        img: null,
+        apiMs,
+        totalMs: this._elapsedMs(t0),
+      });
+    }
+
+    const imageUrl = first?.url || null;
+    const b64 = first?.b64_json || null;
+    const dataUrl = b64 ? `data:image/${output_format || "png"};base64,${b64}` : null;
+    const source = dataUrl || imageUrl || null;
+
+    let p5Img = null;
+    if (loadAsP5Image && source && typeof loadImage === "function") {
+      try {
+        p5Img = await this._loadP5Image(source);
+      } catch (e) {
+        console.warn("[GptClient] loadImage warning:", e);
+      }
+    }
+
+    const result = {
+      prompt: userPrompt,
+      model,
+      size,
+      imageUrl,
+      dataUrl,
+      image: p5Img,
+      text: "Image generated",
+    };
+
+    this.latestObject = result;
+    this.hasNew = true;
+
+    const out = this._attachMeta(result, {
+      data,
+      userPrompt,
+      img: null,
+      apiMs,
+      totalMs: this._elapsedMs(t0),
+    });
+
+    if (out?.meta || out?._meta) {
+      const mk = out.meta ? "meta" : "_meta";
+      out[mk].settings = {
+        ...out[mk].settings,
+        imageGeneration: {
+          model,
+          size,
+          n: Math.max(1, Number(n) || 1),
+          quality,
+          output_format,
+          output_compression,
+          background,
+          moderation,
+          preferB64,
+        },
+      };
+    }
+
+    return out;
+  }
   async _makeImageBlock(img) {
   // Case 1: p5.Graphics (from createGraphics())
   if (img && img.elt && img.elt.toDataURL) {
@@ -270,5 +494,15 @@ class GptClient {
         ? performance.now()
         : Date.now();
     return Math.max(0, t1 - t0);
+  }
+
+  _loadP5Image(src) {
+    return new Promise((resolve, reject) => {
+      try {
+        loadImage(src, (img) => resolve(img), (e) => reject(e));
+      } catch (e) {
+        reject(e);
+      }
+    });
   }
 }
