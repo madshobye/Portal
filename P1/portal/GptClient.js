@@ -32,15 +32,27 @@ class GptClient {
    * or { error: "..." }         if something failed
    */
   async ask(userPrompt, img = null) {
+    const t0 =
+      typeof performance !== "undefined" && performance.now
+        ? performance.now()
+        : Date.now();
     this.error = null;
     this.hasNew = false;
     this.latestObject = null;
     this.lastRaw = null;
 
+    let apiMs = 0;
+
     if (!this.apiKey) {
       this.error = "Missing API key";
       console.error("[GptClient] Missing API key");
-      return { error: this.error };
+      return this._attachMeta({ error: this.error }, {
+        data: null,
+        userPrompt,
+        img,
+        apiMs,
+        totalMs: this._elapsedMs(t0),
+      });
     }
 
     // --- Build multimodal user content ---
@@ -76,6 +88,10 @@ class GptClient {
     // --- Call OpenAI ---
     let data;
     try {
+      const apiStart =
+        typeof performance !== "undefined" && performance.now
+          ? performance.now()
+          : Date.now();
       const resp = await fetch("https://api.openai.com/v1/chat/completions", {
         method: "POST",
         headers: {
@@ -85,10 +101,21 @@ class GptClient {
         body: JSON.stringify(body),
       });
       data = await resp.json();
+      const apiEnd =
+        typeof performance !== "undefined" && performance.now
+          ? performance.now()
+          : Date.now();
+      apiMs = Math.max(0, apiEnd - apiStart);
     } catch (e) {
       this.error = "Network error: " + e;
       console.error("[GptClient] fetch failed:", e);
-      return { error: this.error };
+      return this._attachMeta({ error: this.error }, {
+        data: null,
+        userPrompt,
+        img,
+        apiMs,
+        totalMs: this._elapsedMs(t0),
+      });
     }
 
     this.lastRaw = data;
@@ -96,14 +123,26 @@ class GptClient {
     if (data.error) {
       this.error = "API error: " + data.error.message;
       console.warn("[GptClient] API error:", data.error);
-      return { error: this.error };
+      return this._attachMeta({ error: this.error }, {
+        data,
+        userPrompt,
+        img,
+        apiMs,
+        totalMs: this._elapsedMs(t0),
+      });
     }
 
     const msg = data?.choices?.[0]?.message;
     if (!msg) {
       this.error = "No message in response";
       console.warn("[GptClient] Unexpected response:", data);
-      return { error: this.error };
+      return this._attachMeta({ error: this.error }, {
+        data,
+        userPrompt,
+        img,
+        apiMs,
+        totalMs: this._elapsedMs(t0),
+      });
     }
 
     // --- Parse structured function_call if present ---
@@ -112,11 +151,23 @@ class GptClient {
         const parsed = JSON.parse(msg.function_call.arguments);
         this.latestObject = parsed;
         this.hasNew = true;
-        return parsed; // ✅ Return structured object directly
+        return this._attachMeta(parsed, {
+          data,
+          userPrompt,
+          img,
+          apiMs,
+          totalMs: this._elapsedMs(t0),
+        }); // ✅ Return structured object directly + meta
       } catch (e) {
         this.error = "Bad JSON in function_call";
         console.warn("[GptClient] Could not parse function_call:", msg.function_call);
-        return { error: this.error };
+        return this._attachMeta({ error: this.error }, {
+          data,
+          userPrompt,
+          img,
+          apiMs,
+          totalMs: this._elapsedMs(t0),
+        });
       }
     }
 
@@ -131,7 +182,13 @@ class GptClient {
     const result = { text: resultText };
     this.latestObject = result;
     this.hasNew = true;
-    return result; // ✅ Return text result directly
+    return this._attachMeta(result, {
+      data,
+      userPrompt,
+      img,
+      apiMs,
+      totalMs: this._elapsedMs(t0),
+    }); // ✅ Return text result directly + meta
   }
   async _makeImageBlock(img) {
   // Case 1: p5.Graphics (from createGraphics())
@@ -179,4 +236,39 @@ class GptClient {
 
 
 
+  _attachMeta(resultObj, { data, userPrompt, img, apiMs, totalMs }) {
+    const base = resultObj && typeof resultObj === "object" ? resultObj : { text: String(resultObj ?? "") };
+    const key = Object.prototype.hasOwnProperty.call(base, "meta") ? "_meta" : "meta";
+
+    base[key] = {
+      instructions: this.instructions,
+      prompt: userPrompt,
+      model: data?.model || this.model,
+      settings: {
+        temperature: this.temperature,
+        max_tokens: this.max_tokens,
+        functionName: this.functionName,
+        hasFunctionSchema: Array.isArray(this.functionSchemas) && this.functionSchemas.length > 0,
+        imageIncluded: !!img,
+      },
+      tokens: {
+        prompt: Number(data?.usage?.prompt_tokens ?? 0),
+        completion: Number(data?.usage?.completion_tokens ?? 0),
+        total: Number(data?.usage?.total_tokens ?? 0),
+      },
+      timingMs: {
+        api: Math.round(Number(apiMs || 0)),
+        total: Math.round(Number(totalMs || 0)),
+      },
+    };
+    return base;
+  }
+
+  _elapsedMs(t0) {
+    const t1 =
+      typeof performance !== "undefined" && performance.now
+        ? performance.now()
+        : Date.now();
+    return Math.max(0, t1 - t0);
+  }
 }

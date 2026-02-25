@@ -1,14 +1,17 @@
 let cam;
 let gestureKnn;
-
+let newGesture = false;
 let gestures = ["ok", "no", "up", "down", "other"];
 let lastDetected = "";
+let posY = 400;
+let dirY = 1;
+let sentence = "";
 
 async function setup() {
   createCanvas(windowWidth, windowHeight);
   await loadScript("portal/handGestureKnn.js");
 
-  cam = await setupWebcamera(false, 640, 480, true);
+  cam = await setupWebcamera(false, 320, 240, true);
 
   gestureKnn = await new HandGestureKnn({
     video: cam,
@@ -17,9 +20,9 @@ async function setup() {
     gestureLabels: gestures,
     includeOtherLabel: true,
     otherLabel: "other",
+    gestureHoldMs: 220,
     storageKey: "portal_hand_gesture_knn_demo",
     predictionThreshold: 0.62,
-    gestureHoldMs: 320,
     cooldownMs: 1200,
     noGestureHoldMs: 220,
     trainMirrored: true,
@@ -34,7 +37,59 @@ async function setup() {
 
 function draw() {
   background(0);
+  handleGestures();
 
+  // interactive code
+  
+  if(newGesture == true)
+  {
+    //background("white");
+    print(lastDetected);
+    sentence = sentence + " " + lastDetected;
+    print(sentence);
+  }
+  
+  
+  textSize(50);
+  text(sentence,300,300);
+  if(lastDetected == "ok")
+  {
+     fill("green");
+    textSize(50);
+    text("HEJ",300,300);
+  }
+  
+  if(lastDetected == "no")
+  {
+    fill("red");
+  }
+  
+  if(lastDetected == "up")
+  {
+    dirY = -1;
+  }
+  
+  if(lastDetected == "down")
+  {
+    dirY = 1;
+  }
+    
+  // bold elleipse
+  posY = posY + dirY;
+  ellipse(500,posY,20,20);
+  
+  // color ellipse
+  noStroke();
+  ellipse(width-100,100,200,200);
+  
+  // interactive code end
+}
+
+
+function handleGestures()
+{
+  textSize(20);
+  newGesture = false;
   gestureKnn.scaleTo(width, height);
   gestureKnn.drawImage();
   gestureKnn.drawHands();
@@ -60,10 +115,14 @@ function draw() {
     const { result } = gestureKnn.consumeNew();
     if (result?.label) {
       lastDetected = result.label;
+        newGesture = true;
     }
   }
   fill(255);
   text("Mode: " + ui.mode, 24, 182);
   text("Selected: " + ui.selectedLabel, 24, 206);
   text(ui.statusText, 24, 230);
+  
+  
+  
 }
