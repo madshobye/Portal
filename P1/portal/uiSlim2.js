@@ -34,6 +34,21 @@ let uiKey=undefined;
 let uiKeyOld=undefined;
 let uiSWidth=0, uiSHeight=0;
 let uiStack=[];
+let _uiAltFFullscreenRequested = false;
+
+if (!window.__uiAltFListenerInstalled) {
+  window.__uiAltFListenerInstalled = true;
+  window.addEventListener("keydown", (e) => {
+    if (!e) return;
+    if (e.repeat) return;
+    const isAlt = !!(e.altKey || (e.getModifierState && e.getModifierState("Alt")));
+    const isF = e.code === "KeyF";
+    if (isAlt && isF) {
+      e.preventDefault();
+      _uiAltFFullscreenRequested = true;
+    }
+  }, { capture: true });
+}
 
 // -------------------------
 // State store (ID-based)
@@ -110,14 +125,23 @@ function uiUpdate(_mx,_my,_mp,_key,_w,_h,_keyPressed){
 
   if (!uiKeyPressedOld && uiKeyPressed)
   {
-   
-    if (uiKey == "f") {
-      //  bug in p5js where full screen key pressed is stuck 
-      fullScreenToggle();
-      window.dispatchEvent(new KeyboardEvent("keyup", { key: "f", code: "KeyF", bubbles: true }));
-    
-      
+    const k = String(uiKey || "").toLowerCase();
+    const altDown =
+      (typeof keyIsDown === "function") &&
+      (
+        (typeof ALT !== "undefined" && keyIsDown(ALT)) ||
+        keyIsDown(18)
+      );
+
+    if (k === "f" && altDown) {
+      _uiAltFFullscreenRequested = true;
     }
+  }
+
+  if (_uiAltFFullscreenRequested) {
+    _uiAltFFullscreenRequested = false;
+    fullScreenToggle();
+    window.dispatchEvent(new KeyboardEvent("keyup", { key: "f", code: "KeyF", altKey: true, bubbles: true }));
   }
 }
 
