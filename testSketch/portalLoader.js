@@ -34,12 +34,20 @@ async function loadPortal(version, refresh = false) {
     s.src = src;
     s.onload = () => {
       loadedPortalScripts.add(baseSrc);
-      const originalSetup = setup;
+      
+      if (typeof window.setup === "function") {
 
-      setup = async function() {
-        await pSetup();
-        await originalSetup();
-      };
+        const originalSetup = setup;
+
+        setup = async function() {
+          await pSetup();
+          await originalSetup();
+        };
+      }
+      else
+      {
+        pSetup();
+      }
   
       resolve();
 	  

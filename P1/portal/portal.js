@@ -1,5 +1,5 @@
 let v_major = 1;
-let v_minor = 44;
+let v_minor = 45;
 let pVersion =v_major + "." +v_minor
 let baseFont;
 let baseMonoFont;
@@ -270,12 +270,14 @@ async function pSetup() {
   baseMonoFont = await loadFont(baseURL + "assets/RobotoMono-Regular.ttf");
   
   textFont(baseFont);
-  const originalDraw = draw;
-  draw = function() {
-    uiUpdateSimple();
-    originalDraw();
-    if(uiShowInfo)uiShowInfo();
-  };
+  if (typeof window.draw === "function") {
+    const originalDraw = window.draw;
+    window.draw = function() {
+      uiUpdateSimple();
+      originalDraw();
+      if(uiShowInfo)uiShowInfo();
+    };
+  }
   
   
   
