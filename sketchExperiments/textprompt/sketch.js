@@ -1,18 +1,30 @@
 const TAB_WIDTH = 4;
+const showOverlay = false;
+
+// Resize behavior switch:
+// false = Ctrl/Cmd +/- changes all lines globally
+// true  = Ctrl/Cmd +/- changes only the logical line where the caret is
+const RESIZE_APPLIES_TO_CURRENT_LINE = true;
 
 const PREF_NS = "vgaedit";
 const PREF_KEY = "text";
 const STORAGE_KEY = `${PREF_NS}:${PREF_KEY}`;
 const STORAGE_KEY_FONT_SIZE = `${PREF_NS}:fontSize`;
+const STORAGE_KEY_LINE_FONTS = `${PREF_NS}:lineFontSizes`;
 
 const SAVE_DEBOUNCE_MS = 700;
 const SAVE_MIN_GAP_MS = 1500;
 const ESC_WINDOW_MS = 1200;
 
+const DEFAULT_FONT_SIZE = 20;
+const MIN_FONT_SIZE = 10;
+const MAX_FONT_SIZE = 288;
+const FONT_SIZE_STEP = 3;
+
 let textBuf = "";
 let caretIndex = 0;
 let preferredX = -1;
-let viewTopLine = 0;
+let viewTopY = 0;
 
 let escCount = 0;
 let escFirstMs = 0;
@@ -20,8 +32,7 @@ let escFirstMs = 0;
 let lastEditMs = 0;
 let lastSaveMs = 0;
 
-let editorFontSize = 20;
-let lineHeight = 26;
+let editorFontSize = DEFAULT_FONT_SIZE;
 let leftPad = 16;
 let topPad = 16;
 let blinkOn = true;
@@ -29,7 +40,10 @@ let lastBlinkMs = 0;
 
 let layoutRows = [];
 let innerWidth = 0;
-let visibleRows = 0;
+let viewportHeight = 0;
+let totalContentHeight = 0;
+
+let lineFontSizes = {}; // key: logical line index (0-based), value: font size
 
 function setup() {
   createCanvas(windowWidth, windowHeight);
@@ -37,10 +51,11 @@ function setup() {
   loadGoogleFont("Roboto Mono");
   textFont("Roboto Mono");
 
-  loadText();
+  loadTextAndStyle();
   caretIndex = textBuf.length;
 
-  document.addEventListener("keydown", onDomKeyDown, { passive: false });
+  // Use window-level capture so key handling survives focus quirks after Esc/fullscreen changes.
+  window.addEventListener("keydown", onDomKeyDown, { passive: false, capture: true });
 }
 
 function draw() {
@@ -61,34 +76,43 @@ function draw() {
   }
 }
 
-function adjustFontSize(delta) {
-  editorFontSize = clampi(editorFontSize + delta, 10, 72);
-  localStorage.setItem(STORAGE_KEY_FONT_SIZE, String(editorFontSize));
-  preferredX = -1;
-}
-
 function updateMetrics() {
-  lineHeight = max(18, (textAscent() + textDescent()) * 1.35);
-  textLeading(lineHeight);
   innerWidth = max(40, width - leftPad * 2);
-  visibleRows = max(1, floor((height - topPad) / lineHeight));
+  viewportHeight = max(1, height - topPad);
 }
 
-function loadText() {
+function loadTextAndStyle() {
   const saved = localStorage.getItem(STORAGE_KEY);
   textBuf = saved == null ? "" : saved;
+
   const savedFontSize = Number(localStorage.getItem(STORAGE_KEY_FONT_SIZE));
   if (Number.isFinite(savedFontSize)) {
-    editorFontSize = clampi(round(savedFontSize), 10, 72);
+    editorFontSize = clampi(round(savedFontSize), MIN_FONT_SIZE, MAX_FONT_SIZE);
   }
+
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY_LINE_FONTS);
+    const parsed = raw ? JSON.parse(raw) : {};
+    if (parsed && typeof parsed === "object") {
+      lineFontSizes = parsed;
+    }
+  } catch {
+    lineFontSizes = {};
+  }
+
   caretIndex = textBuf.length;
   preferredX = -1;
-  viewTopLine = 0;
+  viewTopY = 0;
 }
 
 function saveTextNow() {
   localStorage.setItem(STORAGE_KEY, textBuf);
   lastSaveMs = millis();
+}
+
+function saveFontSettings() {
+  localStorage.setItem(STORAGE_KEY_FONT_SIZE, String(editorFontSize));
+  localStorage.setItem(STORAGE_KEY_LINE_FONTS, JSON.stringify(lineFontSizes));
 }
 
 function markEdited() {
@@ -124,53 +148,140 @@ function measureRunWidth(str) {
   return textWidth(str);
 }
 
-function makeRow(rawStart, text) {
+function lineHeightForFontSize(fs) {
+  textSize(fs);
+  return max(12, (textAscent() + textDescent()) * 1.02);
+}
+
+function getLineIndexAtRaw(raw) {
+  const idx = clampi(raw, 0, textBuf.length);
+  let n = 0;
+  for (let i = 0; i < idx; i++) {
+    if (textBuf[i] === "\n") n++;
+  }
+  return n;
+}
+
+function getLineFontSize(lineIndex) {
+  const v = Number(lineFontSizes[lineIndex]);
+  if (Number.isFinite(v)) return clampi(round(v), MIN_FONT_SIZE, MAX_FONT_SIZE);
+  return editorFontSize;
+}
+
+function setLineFontSize(lineIndex, fs) {
+  lineFontSizes[lineIndex] = clampi(round(fs), MIN_FONT_SIZE, MAX_FONT_SIZE);
+}
+
+function shiftLineFontIndices(startIndex, delta) {
+  if (delta === 0) return;
+  const out = {};
+  const keys = Object.keys(lineFontSizes)
+    .map((k) => Number(k))
+    .filter((k) => Number.isInteger(k) && k >= 0)
+    .sort((a, b) => a - b);
+
+  for (const k of keys) {
+    const v = lineFontSizes[k];
+    if (k >= startIndex) out[k + delta] = v;
+    else out[k] = v;
+  }
+  lineFontSizes = out;
+}
+
+function removeLineFontAndShiftDown(removedIndex) {
+  const out = {};
+  const keys = Object.keys(lineFontSizes)
+    .map((k) => Number(k))
+    .filter((k) => Number.isInteger(k) && k >= 0)
+    .sort((a, b) => a - b);
+
+  for (const k of keys) {
+    if (k === removedIndex) continue;
+    if (k > removedIndex) out[k - 1] = lineFontSizes[k];
+    else out[k] = lineFontSizes[k];
+  }
+  lineFontSizes = out;
+}
+
+function makeRow(rawStart, text, fs, lineIndex) {
+  textSize(fs);
   const prefix = [0];
   for (let i = 1; i <= text.length; i++) {
     prefix.push(measureRunWidth(text.slice(0, i)));
   }
+
   return {
     rawStart,
     rawEnd: rawStart + text.length,
     text,
     prefix,
+    fontSize: fs,
+    rowHeight: lineHeightForFontSize(fs),
+    lineIndex,
+    yTop: 0,
   };
+}
+
+function pushWrappedRowsForLine(rows, lineText, lineRawStart, lineIndex, fs) {
+  textSize(fs);
+
+  if (lineText.length === 0) {
+    rows.push(makeRow(lineRawStart, "", fs, lineIndex));
+    return;
+  }
+
+  let segStart = 0;
+  let seg = "";
+
+  for (let i = 0; i < lineText.length; i++) {
+    const ch = lineText[i];
+    const candidate = seg + ch;
+
+    if (seg.length > 0 && measureRunWidth(candidate) > innerWidth) {
+      rows.push(makeRow(lineRawStart + segStart, seg, fs, lineIndex));
+      segStart = i;
+      seg = ch;
+    } else {
+      seg = candidate;
+    }
+  }
+
+  rows.push(makeRow(lineRawStart + segStart, seg, fs, lineIndex));
 }
 
 function rebuildLayout() {
   const rows = [];
 
   if (textBuf.length === 0) {
-    rows.push(makeRow(0, ""));
-    layoutRows = rows;
-    return;
-  }
+    rows.push(makeRow(0, "", getLineFontSize(0), 0));
+  } else {
+    let lineStart = 0;
+    let lineIndex = 0;
 
-  let rowStart = 0;
-  let rowText = "";
+    while (lineStart <= textBuf.length) {
+      const nl = textBuf.indexOf("\n", lineStart);
+      const lineEnd = nl === -1 ? textBuf.length : nl;
+      const lineText = textBuf.slice(lineStart, lineEnd);
+      const fs = getLineFontSize(lineIndex);
 
-  for (let i = 0; i < textBuf.length; i++) {
-    const ch = textBuf[i];
+      pushWrappedRowsForLine(rows, lineText, lineStart, lineIndex, fs);
 
-    if (ch === "\n") {
-      rows.push(makeRow(rowStart, rowText));
-      rowStart = i + 1;
-      rowText = "";
-      continue;
-    }
-
-    const candidate = rowText + ch;
-    if (rowText.length > 0 && textWidth(candidate) > innerWidth) {
-      rows.push(makeRow(rowStart, rowText));
-      rowStart = i;
-      rowText = ch;
-    } else {
-      rowText = candidate;
+      if (nl === -1) break;
+      lineStart = nl + 1;
+      lineIndex++;
     }
   }
 
-  rows.push(makeRow(rowStart, rowText));
+  let y = 0;
+  for (const r of rows) {
+    r.yTop = y;
+    y += r.rowHeight;
+  }
+
   layoutRows = rows;
+  totalContentHeight = y;
+
+  textSize(editorFontSize);
 }
 
 function findRowIndexByRaw(rawIdx) {
@@ -209,55 +320,80 @@ function rawAtXInRow(row, x) {
 
 function ensureCaretVisible() {
   const cur = rawToVisual(caretIndex);
+  const row = layoutRows[cur.rowIdx];
+  const y0 = row.yTop;
+  const y1 = row.yTop + row.rowHeight;
 
-  if (cur.rowIdx < viewTopLine) viewTopLine = cur.rowIdx;
-  if (cur.rowIdx >= viewTopLine + visibleRows) viewTopLine = cur.rowIdx - visibleRows + 1;
+  if (y0 < viewTopY) viewTopY = y0;
+  if (y1 > viewTopY + viewportHeight) viewTopY = y1 - viewportHeight;
 
-  const maxTop = max(0, layoutRows.length - visibleRows);
-  viewTopLine = clampi(viewTopLine, 0, maxTop);
+  const maxTopY = max(0, totalContentHeight - viewportHeight);
+  viewTopY = clampi(round(viewTopY), 0, round(maxTopY));
 }
 
 function redrawEditor() {
   clampCaret();
   ensureCaretVisible();
 
-  fill(255);
   noStroke();
   textAlign(LEFT, TOP);
 
-  for (let vr = 0; vr < visibleRows; vr++) {
-    const idx = viewTopLine + vr;
-    if (idx >= layoutRows.length) break;
-    text(layoutRows[idx].text, leftPad, topPad + vr * lineHeight);
+  const viewBottom = viewTopY + viewportHeight;
+  for (let i = 0; i < layoutRows.length; i++) {
+    const row = layoutRows[i];
+    const rowBottom = row.yTop + row.rowHeight;
+    if (rowBottom < viewTopY) continue;
+    if (row.yTop > viewBottom) break;
+
+    textSize(row.fontSize);
+    textLeading(row.rowHeight);
+    fill(255);
+    const y = topPad + (row.yTop - viewTopY);
+    text(row.text, leftPad, y);
   }
 
   const cur = rawToVisual(caretIndex);
-  const visRow = cur.rowIdx - viewTopLine;
-  if (visRow >= 0 && visRow < visibleRows && blinkOn) {
-    const cx = leftPad + cur.x;
-    const cy = topPad + visRow * lineHeight;
+  const row = layoutRows[cur.rowIdx];
+  const cy = topPad + (row.yTop - viewTopY);
+  const caretVisible = cy + row.rowHeight >= topPad && cy <= height;
+
+  if (caretVisible && blinkOn) {
+    textSize(row.fontSize);
     const desc = textDescent();
     const glyphH = textAscent() + desc;
-    const overscan = max(1, round(editorFontSize * 0.06));
+    const overscan = max(1, round(row.fontSize * 0.06));
     const balanceUp = desc * 0.2;
     const caretY = cy - overscan - balanceUp;
     const caretH = max(2, glyphH + overscan * 2);
-    const caretW = max(2, floor(editorFontSize * 0.12));
+    const caretW = max(2, floor(row.fontSize * 0.12));
+    const cx = leftPad + cur.x;
+
     noStroke();
-    fill(255, 255, 255, 220);
+    fill(255);
     rect(cx, caretY, caretW, caretH);
-    stroke(255);
-    line(cx + caretW + 1, caretY, cx + caretW + 1, caretY + caretH);
-    noStroke();
   }
+
+  textSize(editorFontSize);
 }
 
 function clearAll(alsoPersist = true) {
   textBuf = "";
   caretIndex = 0;
   preferredX = -1;
-  viewTopLine = 0;
+  viewTopY = 0;
+  blinkOn = true;
+  lastBlinkMs = millis();
+  escCount = 0;
+  lineFontSizes = {};
+  saveFontSettings();
   if (alsoPersist) saveTextNow();
+}
+
+function mousePressed() {
+  // Recover keyboard input quickly if browser focus shifted.
+  try { window.focus(); } catch {}
+  blinkOn = true;
+  lastBlinkMs = millis();
 }
 
 function insertAtCaret(ch) {
@@ -269,12 +405,27 @@ function insertAtCaret(ch) {
 }
 
 function insertNewlineAtCaret() {
+  const lineIndex = getLineIndexAtRaw(caretIndex);
+  const inheritSize = getLineFontSize(lineIndex);
+
+  shiftLineFontIndices(lineIndex + 1, +1);
+  setLineFontSize(lineIndex + 1, inheritSize);
+  saveFontSettings();
+
   insertAtCaret("\n");
 }
 
 function backspaceAtCaret() {
   clampCaret();
   if (caretIndex === 0) return;
+
+  const removed = textBuf[caretIndex - 1];
+  if (removed === "\n") {
+    const currentLine = getLineIndexAtRaw(caretIndex);
+    removeLineFontAndShiftDown(currentLine);
+    saveFontSettings();
+  }
+
   textBuf = textBuf.slice(0, caretIndex - 1) + textBuf.slice(caretIndex);
   caretIndex--;
   preferredX = -1;
@@ -284,6 +435,14 @@ function backspaceAtCaret() {
 function deleteAtCaret() {
   clampCaret();
   if (caretIndex >= textBuf.length) return;
+
+  const removed = textBuf[caretIndex];
+  if (removed === "\n") {
+    const lineIndex = getLineIndexAtRaw(caretIndex);
+    removeLineFontAndShiftDown(lineIndex + 1);
+    saveFontSettings();
+  }
+
   textBuf = textBuf.slice(0, caretIndex) + textBuf.slice(caretIndex + 1);
   preferredX = -1;
   markEdited();
@@ -322,6 +481,19 @@ function insertTabAtCaret() {
   insertAtCaret(" ".repeat(spaces));
 }
 
+function adjustFontSize(delta) {
+  if (RESIZE_APPLIES_TO_CURRENT_LINE) {
+    const lineIndex = getLineIndexAtRaw(caretIndex);
+    const next = clampi(getLineFontSize(lineIndex) + delta, MIN_FONT_SIZE, MAX_FONT_SIZE);
+    setLineFontSize(lineIndex, next);
+    saveFontSettings();
+  } else {
+    editorFontSize = clampi(editorFontSize + delta, MIN_FONT_SIZE, MAX_FONT_SIZE);
+    saveFontSettings();
+  }
+  preferredX = -1;
+}
+
 function handleEscTripleClear(ev) {
   if (ev.key !== "Escape") {
     if (escCount > 0 && millis() - escFirstMs > ESC_WINDOW_MS) escCount = 0;
@@ -344,6 +516,7 @@ function handleEscTripleClear(ev) {
   if (escCount >= 3) {
     escCount = 0;
     clearAll(true);
+    try { window.focus(); } catch {}
   }
   return true;
 }
@@ -363,19 +536,27 @@ function onDomKeyDown(ev) {
   }
 
   const mod = !!(ev.ctrlKey || ev.metaKey);
-  if (mod && (ev.key === "+" || ev.key === "=" || ev.code === "NumpadAdd")) {
-    adjustFontSize(+1);
+  const keyStr = String(ev.key || "");
+  const isIncrease = mod && (ev.code === "NumpadAdd" || keyStr === "+" || keyStr === "=");
+  const isDecrease = mod && (ev.code === "NumpadSubtract" || keyStr === "-");
+
+  if (isIncrease) {
+    adjustFontSize(+FONT_SIZE_STEP);
     ev.preventDefault();
     return;
   }
-  if (mod && (ev.key === "-" || ev.code === "NumpadSubtract")) {
-    adjustFontSize(-1);
+  if (isDecrease) {
+    adjustFontSize(-FONT_SIZE_STEP);
     ev.preventDefault();
     return;
   }
-  if (mod && ev.key === "0") {
-    editorFontSize = 20;
-    localStorage.setItem(STORAGE_KEY_FONT_SIZE, String(editorFontSize));
+  if (mod && (ev.code === "Digit0" || ev.key === "0")) {
+    if (RESIZE_APPLIES_TO_CURRENT_LINE) {
+      setLineFontSize(getLineIndexAtRaw(caretIndex), DEFAULT_FONT_SIZE);
+    } else {
+      editorFontSize = DEFAULT_FONT_SIZE;
+    }
+    saveFontSettings();
     preferredX = -1;
     ev.preventDefault();
     return;

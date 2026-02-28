@@ -1,9 +1,24 @@
 let v_major = 1;
-let v_minor = 48;
+let v_minor = 50;
 let pVersion =v_major + "." +v_minor
 let baseFont;
 let baseMonoFont;
 let simplexNoise;
+
+function portalOverlayEnabled() {
+  // Support both:
+  //   const showOverlay = false;   // global lexical
+  //   window.showOverlay = false;  // window property
+  let lexicalValue;
+  try {
+    lexicalValue = (typeof showOverlay !== "undefined") ? showOverlay : undefined;
+  } catch {
+    lexicalValue = undefined;
+  }
+  if (typeof lexicalValue !== "undefined") return !!lexicalValue;
+  if (typeof window.showOverlay !== "undefined") return !!window.showOverlay;
+  return true;
+}
 
 function resolveBaseURL() {
   const normalizeDirURL = (raw) => {
@@ -275,7 +290,7 @@ async function pSetup() {
     window.draw = function() {
       uiUpdateSimple();
       originalDraw();
-      if(uiShowInfo)uiShowInfo();
+      if (portalOverlayEnabled() && uiShowInfo) uiShowInfo();
     };
   }
   
