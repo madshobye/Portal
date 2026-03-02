@@ -34,8 +34,10 @@ let uiKey=undefined;
 let uiKeyOld=undefined;
 let uiSWidth=0, uiSHeight=0;
 let uiStack=[];
-let _uiAltFFullscreenRequested = false;
-let _uiOverlayToggleRequested = false;
+const _uiShortcutState = (window.__uiShortcutState ??= {
+  altFFullscreenRequested: false,
+  overlayToggleRequested: false,
+});
 
 if (!window.__uiKeyShortcutListenerInstalled) {
   window.__uiKeyShortcutListenerInstalled = true;
@@ -49,14 +51,14 @@ if (!window.__uiKeyShortcutListenerInstalled) {
     // uiSlim shortcut: fullscreen (Alt/Option + F)
     if (isAlt && code === "KeyF") {
       e.preventDefault();
-      _uiAltFFullscreenRequested = true;
+      _uiShortcutState.altFFullscreenRequested = true;
       return;
     }
 
     // uiSlim shortcut: overlay toggle (Ctrl/Cmd + D)
     if (isMod && code === "KeyD") {
       e.preventDefault();
-      _uiOverlayToggleRequested = true;
+      _uiShortcutState.overlayToggleRequested = true;
     }
   }, { capture: true });
 }
@@ -134,8 +136,8 @@ function uiUpdate(_mx,_my,_mp,_key,_w,_h,_keyPressed){
   if(uiStack.length===0) uiListStart(); // ensure a root list for flow layout
   
 
-  if (_uiAltFFullscreenRequested) {
-    _uiAltFFullscreenRequested = false;
+  if (_uiShortcutState.altFFullscreenRequested) {
+    _uiShortcutState.altFFullscreenRequested = false;
     fullScreenToggle();
   }
 }
@@ -389,8 +391,8 @@ function uiDebug(msg) {
  */
 function uiShowInfo(opt = {}) {
  // --- 1) Handle explicit shortcut toggle request (Ctrl/Cmd + D) ---
-if (_uiOverlayToggleRequested) {
-  _uiOverlayToggleRequested = false;
+if (_uiShortcutState.overlayToggleRequested) {
+  _uiShortcutState.overlayToggleRequested = false;
   _uiInfo.visible = !_uiInfo.visible;
 }
   if (!_uiInfo.visible) return { visible:false };
