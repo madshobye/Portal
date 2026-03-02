@@ -19,7 +19,9 @@ const ESC_WINDOW_MS = 1200;
 const DEFAULT_FONT_SIZE = 20;
 const MIN_FONT_SIZE = 10;
 const MAX_FONT_SIZE = 288;
-const FONT_SIZE_STEP = 3;
+const TYPO_SCALE_STEPS = [
+  10, 12, 14, 16, 18, 20, 24, 28, 32, 36, 42, 48, 56, 64, 72, 84, 96, 112, 128, 160, 192, 224, 256, 288
+];
 
 let textBuf = "";
 let caretIndex = 0;
@@ -482,13 +484,30 @@ function insertTabAtCaret() {
 }
 
 function adjustFontSize(delta) {
+  const dir = delta > 0 ? 1 : (delta < 0 ? -1 : 0);
+  if (dir === 0) return;
+
+  const nextTypoSize = (current, d) => {
+    const cur = clampi(round(current), MIN_FONT_SIZE, MAX_FONT_SIZE);
+    if (d > 0) {
+      for (let i = 0; i < TYPO_SCALE_STEPS.length; i++) {
+        if (TYPO_SCALE_STEPS[i] > cur) return TYPO_SCALE_STEPS[i];
+      }
+      return MAX_FONT_SIZE;
+    }
+    for (let i = TYPO_SCALE_STEPS.length - 1; i >= 0; i--) {
+      if (TYPO_SCALE_STEPS[i] < cur) return TYPO_SCALE_STEPS[i];
+    }
+    return MIN_FONT_SIZE;
+  };
+
   if (RESIZE_APPLIES_TO_CURRENT_LINE) {
     const lineIndex = getLineIndexAtRaw(caretIndex);
-    const next = clampi(getLineFontSize(lineIndex) + delta, MIN_FONT_SIZE, MAX_FONT_SIZE);
+    const next = nextTypoSize(getLineFontSize(lineIndex), dir);
     setLineFontSize(lineIndex, next);
     saveFontSettings();
   } else {
-    editorFontSize = clampi(editorFontSize + delta, MIN_FONT_SIZE, MAX_FONT_SIZE);
+    editorFontSize = nextTypoSize(editorFontSize, dir);
     saveFontSettings();
   }
   preferredX = -1;
@@ -541,12 +560,12 @@ function onDomKeyDown(ev) {
   const isDecrease = mod && (ev.code === "NumpadSubtract" || keyStr === "-");
 
   if (isIncrease) {
-    adjustFontSize(+FONT_SIZE_STEP);
+    adjustFontSize(+1);
     ev.preventDefault();
     return;
   }
   if (isDecrease) {
-    adjustFontSize(-FONT_SIZE_STEP);
+    adjustFontSize(-1);
     ev.preventDefault();
     return;
   }
