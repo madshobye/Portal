@@ -34,8 +34,30 @@ let uiKey=undefined;
 let uiKeyOld=undefined;
 let uiSWidth=0, uiSHeight=0;
 let uiStack=[];
-let _uiFullscreenLatch = false;
-let _uiOverlayToggleLatch = false;
+const _uiShortcutState = (window.__uiShortcutState ??= {
+  fullscreenRequested: false,
+  overlayToggleRequested: false,
+});
+
+if (!window.__uiSlimShortcutListenerInstalled) {
+  window.__uiSlimShortcutListenerInstalled = true;
+  window.addEventListener("keydown", (e) => {
+    if (!e || e.repeat) return;
+    const code = String(e.code || "");
+    const alt = !!(e.altKey || (e.getModifierState && e.getModifierState("Alt")));
+    if (!alt) return;
+
+    if (code === "KeyF") {
+      e.preventDefault();
+      _uiShortcutState.fullscreenRequested = true;
+      return;
+    }
+    if (code === "KeyD") {
+      e.preventDefault();
+      _uiShortcutState.overlayToggleRequested = true;
+    }
+  }, { capture: true });
+}
 
 // -------------------------
 // State store (ID-based)
@@ -113,38 +135,18 @@ function uiUpdate(_mx,_my,_mp,_key,_w,_h,_keyPressed){
   uiKeyPressedOld = uiKeyPressed;
   uiKeyPressed = _keyPressed;
   if(uiStack.length===0) uiListStart(); // ensure a root list for flow layout
-  
-  // Handle uiSlim global shortcuts from p5 key state only.
-  // Use combo latches so order (modifier first vs key first) does not matter.
-  const k = String(uiKey || "").toLowerCase();
-  const hasKeyDown = typeof keyIsDown === "function";
-  const altDown = hasKeyDown && (
-    (typeof ALT !== "undefined" && keyIsDown(ALT)) ||
-    keyIsDown(18)
-  );
-  const modDown = hasKeyDown && (
-    (typeof CONTROL !== "undefined" && keyIsDown(CONTROL)) ||
-    keyIsDown(17) || keyIsDown(91) || keyIsDown(93) || keyIsDown(224)
-  );
 
-  const keyCodeF =
-    (typeof keyCode !== "undefined" && keyCode === 70) ||
-    (hasKeyDown && keyIsDown(70));
-  const fullscreenCombo = uiKeyPressed && altDown && (k === "f" || keyCodeF);
-  if (fullscreenCombo && !_uiFullscreenLatch) {
-    _uiFullscreenLatch = true;
-    uiShortcutDebugLog("trigger fullscreen", { key: uiKey, keyCodeF, altDown });
+  // Handle uiSlim global shortcuts from shared keydown flags.
+  if (_uiShortcutState.fullscreenRequested) {
+    _uiShortcutState.fullscreenRequested = false;
+    uiShortcutDebugLog("trigger fullscreen", { key: uiKey });
     fullScreenToggle();
   }
-  if (!fullscreenCombo) _uiFullscreenLatch = false;
-
-  const overlayCombo = uiKeyPressed && modDown && k === "d";
-  if (overlayCombo && !_uiOverlayToggleLatch) {
-    _uiOverlayToggleLatch = true;
+  if (_uiShortcutState.overlayToggleRequested) {
+    _uiShortcutState.overlayToggleRequested = false;
     _uiInfo.visible = !_uiInfo.visible;
-    uiShortcutDebugLog("toggle overlay", { key: uiKey, modDown, visible: _uiInfo.visible });
+    uiShortcutDebugLog("toggle overlay", { key: uiKey, visible: _uiInfo.visible });
   }
-  if (!overlayCombo) _uiOverlayToggleLatch = false;
 }
 
 
@@ -389,7 +391,7 @@ function uiDebug(msg) {
 
 /**
  * Draw the coordinate grid, HUD, measurement, and debug console.
- * - Toggle visibility: Cmd/Ctrl + D
+ * - Toggle visibility: Alt/Option + D
  * - Drag to measure: press and drag to draw dx, dy, and distance.
  * - Shows mouse (x,y), fps, heap (if available), and RGB under cursor.
  * Call this once per frame (typically at the end of draw()).
