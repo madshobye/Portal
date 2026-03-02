@@ -34,34 +34,8 @@ let uiKey=undefined;
 let uiKeyOld=undefined;
 let uiSWidth=0, uiSHeight=0;
 let uiStack=[];
-const _uiShortcutState = (window.__uiShortcutState ??= {
-  altFFullscreenRequested: false,
-  overlayToggleRequested: false,
-});
-
-if (!window.__uiKeyShortcutListenerInstalled) {
-  window.__uiKeyShortcutListenerInstalled = true;
-  window.addEventListener("keydown", (e) => {
-    if (!e) return;
-    if (e.repeat) return;
-    const code = String(e.code || "");
-    const isAlt = !!(e.altKey || (e.getModifierState && e.getModifierState("Alt")));
-    const isMod = !!(e.ctrlKey || e.metaKey);
-
-    // uiSlim shortcut: fullscreen (Alt/Option + F)
-    if (isAlt && code === "KeyF") {
-      e.preventDefault();
-      _uiShortcutState.altFFullscreenRequested = true;
-      return;
-    }
-
-    // uiSlim shortcut: overlay toggle (Ctrl/Cmd + D)
-    if (isMod && code === "KeyD") {
-      e.preventDefault();
-      _uiShortcutState.overlayToggleRequested = true;
-    }
-  }, { capture: true });
-}
+let _uiFullscreenLatch = false;
+let _uiOverlayToggleLatch = false;
 
 // -------------------------
 // State store (ID-based)
@@ -117,6 +91,11 @@ function uiApplyStyle(style){
 // -------------------------
 // Frame update & input
 // -------------------------
+function uiShortcutDebugLog(...args) {
+  if (typeof window !== "undefined" && window.uiSlimDebugShortcuts === false) return;
+  console.log("[uiSlim shortcuts]", ...args);
+}
+
 function uiUpdateSimple() {
  cursor('default');
   
@@ -135,11 +114,37 @@ function uiUpdate(_mx,_my,_mp,_key,_w,_h,_keyPressed){
   uiKeyPressed = _keyPressed;
   if(uiStack.length===0) uiListStart(); // ensure a root list for flow layout
   
+  // Handle uiSlim global shortcuts from p5 key state only.
+  // Use combo latches so order (modifier first vs key first) does not matter.
+  const k = String(uiKey || "").toLowerCase();
+  const hasKeyDown = typeof keyIsDown === "function";
+  const altDown = hasKeyDown && (
+    (typeof ALT !== "undefined" && keyIsDown(ALT)) ||
+    keyIsDown(18)
+  );
+  const modDown = hasKeyDown && (
+    (typeof CONTROL !== "undefined" && keyIsDown(CONTROL)) ||
+    keyIsDown(17) || keyIsDown(91) || keyIsDown(93) || keyIsDown(224)
+  );
 
-  if (_uiShortcutState.altFFullscreenRequested) {
-    _uiShortcutState.altFFullscreenRequested = false;
+  const keyCodeF =
+    (typeof keyCode !== "undefined" && keyCode === 70) ||
+    (hasKeyDown && keyIsDown(70));
+  const fullscreenCombo = uiKeyPressed && altDown && (k === "f" || keyCodeF);
+  if (fullscreenCombo && !_uiFullscreenLatch) {
+    _uiFullscreenLatch = true;
+    uiShortcutDebugLog("trigger fullscreen", { key: uiKey, keyCodeF, altDown });
     fullScreenToggle();
   }
+  if (!fullscreenCombo) _uiFullscreenLatch = false;
+
+  const overlayCombo = uiKeyPressed && modDown && k === "d";
+  if (overlayCombo && !_uiOverlayToggleLatch) {
+    _uiOverlayToggleLatch = true;
+    _uiInfo.visible = !_uiInfo.visible;
+    uiShortcutDebugLog("toggle overlay", { key: uiKey, modDown, visible: _uiInfo.visible });
+  }
+  if (!overlayCombo) _uiOverlayToggleLatch = false;
 }
 
 
@@ -390,20 +395,17 @@ function uiDebug(msg) {
  * Call this once per frame (typically at the end of draw()).
  */
 function uiShowInfo(opt = {}) {
- // --- 1) Handle explicit shortcut toggle request (Ctrl/Cmd + D) ---
-if (_uiShortcutState.overlayToggleRequested) {
-  _uiShortcutState.overlayToggleRequested = false;
-  _uiInfo.visible = !_uiInfo.visible;
-}
   if (!_uiInfo.visible) return { visible:false };
 
-  // --- (NEW) Sample color UNDER the mouse BEFORE drawing the grid ---
+  // --- Optional: sample color under mouse (expensive in some browsers) ---
   let rgbUnder = [0,0,0,0];
-  try {
-    const gx = constrain(floor(uiMX), 0, uiSWidth-1);
-    const gy = constrain(floor(uiMY), 0, uiSHeight-1);
-    rgbUnder = get(gx, gy); // [r,g,b,a] from your scene, not the grid
-  } catch(e){}
+  if (opt.sampleColor === true) {
+    try {
+      const gx = constrain(floor(uiMX), 0, uiSWidth-1);
+      const gy = constrain(floor(uiMY), 0, uiSHeight-1);
+      rgbUnder = get(gx, gy); // [r,g,b,a] from your scene, not the grid
+    } catch(e){}
+  }
 
   // --- 2) Draw semi-transparent grid ---
   _uiDrawGrid(opt);
