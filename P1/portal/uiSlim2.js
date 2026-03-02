@@ -35,17 +35,28 @@ let uiKeyOld=undefined;
 let uiSWidth=0, uiSHeight=0;
 let uiStack=[];
 let _uiAltFFullscreenRequested = false;
+let _uiOverlayToggleRequested = false;
 
-if (!window.__uiAltFListenerInstalled) {
-  window.__uiAltFListenerInstalled = true;
+if (!window.__uiKeyShortcutListenerInstalled) {
+  window.__uiKeyShortcutListenerInstalled = true;
   window.addEventListener("keydown", (e) => {
     if (!e) return;
     if (e.repeat) return;
+    const code = String(e.code || "");
     const isAlt = !!(e.altKey || (e.getModifierState && e.getModifierState("Alt")));
-    const isF = e.code === "KeyF";
-    if (isAlt && isF) {
+    const isMod = !!(e.ctrlKey || e.metaKey);
+
+    // uiSlim shortcut: fullscreen (Alt/Option + F)
+    if (isAlt && code === "KeyF") {
       e.preventDefault();
       _uiAltFFullscreenRequested = true;
+      return;
+    }
+
+    // uiSlim shortcut: overlay toggle (Ctrl/Cmd + D)
+    if (isMod && code === "KeyD") {
+      e.preventDefault();
+      _uiOverlayToggleRequested = true;
     }
   }, { capture: true });
 }
@@ -123,25 +134,9 @@ function uiUpdate(_mx,_my,_mp,_key,_w,_h,_keyPressed){
   if(uiStack.length===0) uiListStart(); // ensure a root list for flow layout
   
 
-  if (!uiKeyPressedOld && uiKeyPressed)
-  {
-    const k = String(uiKey || "").toLowerCase();
-    const altDown =
-      (typeof keyIsDown === "function") &&
-      (
-        (typeof ALT !== "undefined" && keyIsDown(ALT)) ||
-        keyIsDown(18)
-      );
-
-    if (k === "f" && altDown) {
-      _uiAltFFullscreenRequested = true;
-    }
-  }
-
   if (_uiAltFFullscreenRequested) {
     _uiAltFFullscreenRequested = false;
     fullScreenToggle();
-    window.dispatchEvent(new KeyboardEvent("keyup", { key: "f", code: "KeyF", altKey: true, bubbles: true }));
   }
 }
 
@@ -369,7 +364,6 @@ function uiUpdateCursor(){
 // =========================
 let _uiInfo = {
   visible: false,
-  comboPrev: false,      // previous state of Ctrl/Cmd+D combo
   measuring: false,
   sx: 0, sy: 0
 };
@@ -394,14 +388,11 @@ function uiDebug(msg) {
  * Call this once per frame (typically at the end of draw()).
  */
 function uiShowInfo(opt = {}) {
- // --- 1) Handle plain Control key toggle (press & release) ---
-const ctrlDown = (typeof keyIsDown === 'function') ? keyIsDown(CONTROL) : false;
-
-// Toggle ON key down (edge detection)
-if (ctrlDown && !_uiInfo.comboPrev) {
+ // --- 1) Handle explicit shortcut toggle request (Ctrl/Cmd + D) ---
+if (_uiOverlayToggleRequested) {
+  _uiOverlayToggleRequested = false;
   _uiInfo.visible = !_uiInfo.visible;
 }
-_uiInfo.comboPrev = ctrlDown;
   if (!_uiInfo.visible) return { visible:false };
 
   // --- (NEW) Sample color UNDER the mouse BEFORE drawing the grid ---
