@@ -68,22 +68,25 @@ class HandGestureKnn {
 
     this._prediction = {
       label: null,
+      hand: null,
       confidence: 0,
       confidences: {},
       timestamp: 0,
       isGesture: false,
+      byHand: {
+        first: null,
+        second: null,
+      },
     };
 
     this._hasResult = false;
     this._hasNew = false;
     this._lastGestureResult = null;
 
-    this._lastGestureLabel = null;
-    this._lastNewAt = 0;
-    this._noneSince = null;
-    this._sawNoGestureSinceLastNew = true;
-    this._candidateLabel = null;
-    this._candidateSince = null;
+    this._handStates = {
+      first: this._makeHandState(),
+      second: this._makeHandState(),
+    };
 
     this._uiStatusText = "Ready";
     this._uiIdPrefix = "hgk_" + this.storageKey.replace(/[^a-zA-Z0-9_]/g, "_");
@@ -244,6 +247,15 @@ class HandGestureKnn {
     return this._prediction;
   }
 
+  getPredictionForHand(hand = "first") {
+    const key = hand === "second" ? "second" : "first";
+    return this._prediction?.byHand?.[key] || null;
+  }
+
+  getPredictions() {
+    return this._prediction?.byHand || { first: null, second: null };
+  }
+
   hasResult() {
     return this._hasResult;
   }
@@ -268,6 +280,13 @@ class HandGestureKnn {
 
   getTrackedHand() {
     return this.handPose?.getFirstHand?.() || null;
+  }
+
+  getTrackedHands() {
+    return {
+      first: this.handPose?.getFirstHand?.() || null,
+      second: this.handPose?.getSecondHand?.() || null,
+    };
   }
 
   getStatusText() {
@@ -374,43 +393,93 @@ class HandGestureKnn {
     if (this.mode !== "run") return;
     if (!this.knn || this.knn.labelCount() <= 0) return;
 
-    const hand = this.getTrackedHand();
-    if (!hand) {
-      this._handleNoGesture();
-      return;
-    }
-
-    const feat = this._extractFeature(hand);
-    if (!feat) {
-      this._handleNoGesture();
-      return;
-    }
-
-    let pred;
-    try {
-      pred = await this.knn.predict(feat);
-    } catch {
-      return;
-    }
-    const best = this._bestFromPrediction(pred);
     const now = this._nowMs();
+    const tracked = this.getTrackedHands();
 
-    let label = best.label;
-    const confidence = best.confidence;
+    for (const handKey of ["first", "second"]) {
+      const hand = tracked[handKey];
+      if (!hand) {
+        this._setPredictionForHand(handKey, null, 0, {}, now, false);
+        this._handleNoGesture(handKey, now);
+        continue;
+      }
 
-    let isGesture = !!label && confidence >= this.predictionThreshold;
-    if (isGesture && this.treatOtherAsNoGesture && label === this.otherLabel) {
-      isGesture = false;
-      label = null;
+      const feat = this._extractFeature(hand);
+      if (!feat) {
+        this._setPredictionForHand(handKey, null, 0, {}, now, false);
+        this._handleNoGesture(handKey, now);
+        continue;
+      }
+
+      let pred;
+      try {
+        pred = await this.knn.predict(feat);
+      } catch {
+        continue;
+      }
+      const best = this._bestFromPrediction(pred);
+
+      let label = best.label;
+      const confidence = best.confidence;
+
+      let isGesture = !!label && confidence >= this.predictionThreshold;
+      if (isGesture && this.treatOtherAsNoGesture && label === this.otherLabel) {
+        isGesture = false;
+        label = null;
+      }
+
+      this._setPredictionForHand(handKey, label, confidence, best.confidences, now, isGesture);
+
+      if (!isGesture) {
+        this._handleNoGesture(handKey, now);
+        continue;
+      }
+
+      const hs = this._handStates[handKey];
+      hs.noneSince = null;
+
+      if (label !== hs.candidateLabel) {
+        hs.candidateLabel = label;
+        hs.candidateSince = now;
+        continue;
+      }
+      const stableForMs = now - (hs.candidateSince ?? now);
+      if (stableForMs < this.gestureHoldMs) continue;
+
+      let isNew = false;
+      if (!hs.lastGestureLabel) {
+        isNew = true;
+      } else if (label !== hs.lastGestureLabel) {
+        const cooldownOk = now - hs.lastNewAt >= this.cooldownMs;
+        if (hs.sawNoGestureSinceLastNew || cooldownOk) isNew = true;
+      }
+
+      if (isNew) {
+        const event = {
+          label,
+          hand: handKey,
+          confidence,
+          confidences: best.confidences,
+          timestamp: now,
+        };
+        this._lastGestureResult = event;
+        this._hasResult = true;
+        this._hasNew = true;
+        hs.lastGestureLabel = label;
+        hs.lastNewAt = now;
+        hs.sawNoGestureSinceLastNew = false;
+
+        if (this._onGesture) {
+          try {
+            this._onGesture(event);
+          } catch (e) {
+            console.warn("HandGestureKnn onGesture callback error:", e);
+          }
+        }
+      }
     }
 
-    this._prediction = {
-      label,
-      confidence,
-      confidences: best.confidences,
-      timestamp: now,
-      isGesture,
-    };
+    this._prediction = this._composePrediction(now);
 
     if (this._onPrediction) {
       try {
@@ -419,62 +488,75 @@ class HandGestureKnn {
         console.warn("HandGestureKnn onPrediction callback error:", e);
       }
     }
+  }
 
-    if (!isGesture) {
-      this._handleNoGesture();
-      return;
-    }
-
-    this._noneSince = null;
-
-    if (label !== this._candidateLabel) {
-      this._candidateLabel = label;
-      this._candidateSince = now;
-      return;
-    }
-    const stableForMs = now - (this._candidateSince ?? now);
-    if (stableForMs < this.gestureHoldMs) return;
-
-    let isNew = false;
-    if (!this._lastGestureLabel) {
-      isNew = true;
-    } else if (label !== this._lastGestureLabel) {
-      const cooldownOk = now - this._lastNewAt >= this.cooldownMs;
-      if (this._sawNoGestureSinceLastNew || cooldownOk) isNew = true;
-    }
-
-    if (isNew) {
-      const event = {
-        label,
-        confidence,
-        confidences: best.confidences,
-        timestamp: now,
-      };
-      this._lastGestureResult = event;
-      this._hasResult = true;
-      this._hasNew = true;
-      this._lastGestureLabel = label;
-      this._lastNewAt = now;
-      this._sawNoGestureSinceLastNew = false;
-
-      if (this._onGesture) {
-        try {
-          this._onGesture(event);
-        } catch (e) {
-          console.warn("HandGestureKnn onGesture callback error:", e);
-        }
-      }
+  _handleNoGesture(handKey, now = this._nowMs()) {
+    const hs = this._handStates[handKey];
+    if (!hs) return;
+    if (hs.noneSince == null) hs.noneSince = now;
+    if (now - hs.noneSince >= this.noGestureHoldMs) {
+      hs.sawNoGestureSinceLastNew = true;
+      hs.candidateLabel = null;
+      hs.candidateSince = null;
     }
   }
 
-  _handleNoGesture() {
-    const now = this._nowMs();
-    if (this._noneSince == null) this._noneSince = now;
-    if (now - this._noneSince >= this.noGestureHoldMs) {
-      this._sawNoGestureSinceLastNew = true;
-      this._candidateLabel = null;
-      this._candidateSince = null;
+  _setPredictionForHand(handKey, label, confidence, confidences, timestamp, isGesture) {
+    if (!this._prediction.byHand) this._prediction.byHand = {};
+    this._prediction.byHand[handKey] = {
+      label: label || null,
+      hand: handKey,
+      confidence: Number(confidence) || 0,
+      confidences: confidences || {},
+      timestamp: Number(timestamp) || 0,
+      isGesture: !!isGesture,
+    };
+  }
+
+  _composePrediction(timestamp) {
+    const byHand = {
+      first: this._prediction?.byHand?.first || null,
+      second: this._prediction?.byHand?.second || null,
+    };
+    const pick =
+      (byHand.first?.isGesture && byHand.first) ||
+      (byHand.second?.isGesture && byHand.second) ||
+      byHand.first ||
+      byHand.second ||
+      null;
+
+    if (!pick) {
+      return {
+        label: null,
+        hand: null,
+        confidence: 0,
+        confidences: {},
+        timestamp: Number(timestamp) || this._nowMs(),
+        isGesture: false,
+        byHand,
+      };
     }
+
+    return {
+      label: pick.label || null,
+      hand: pick.hand || null,
+      confidence: Number(pick.confidence) || 0,
+      confidences: pick.confidences || {},
+      timestamp: Number(pick.timestamp) || Number(timestamp) || this._nowMs(),
+      isGesture: !!pick.isGesture,
+      byHand,
+    };
+  }
+
+  _makeHandState() {
+    return {
+      lastGestureLabel: null,
+      lastNewAt: 0,
+      noneSince: null,
+      sawNoGestureSinceLastNew: true,
+      candidateLabel: null,
+      candidateSince: null,
+    };
   }
 
   _extractFeature(hand) {
