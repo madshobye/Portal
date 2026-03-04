@@ -278,8 +278,10 @@ async function pSetup() {
 	}
 	pSetupRun = true;
  // print("## Portal v: " + pVersion);
-  print("## https://learn.hobye.dk/portal v:" + pVersion);
-  print(baseURL);
+ 
+  console.log("## https://learn.hobye.dk/portal v:" + pVersion);
+  console.log(baseURL);
+
   await loadLibraries();
   baseFont = await loadFont(baseURL + "assets/Rubik-Light.ttf");
   baseMonoFont = await loadFont(baseURL + "assets/RobotoMono-Regular.ttf");

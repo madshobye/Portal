@@ -14,7 +14,7 @@ async function setup() {
 
 
 
-function draw() {
+function draw() 
   background(0);
 }
 
