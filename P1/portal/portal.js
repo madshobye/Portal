@@ -1,5 +1,5 @@
 let v_major = 1;
-let v_minor = 72;
+let v_minor = 73;
 let pVersion =v_major + "." +v_minor
 let baseFont;
 let baseMonoFont;

@@ -69,6 +69,7 @@ class HandGestureKnn {
     this._prediction = {
       label: null,
       hand: null,
+      handedness: "unknown",
       confidence: 0,
       confidences: {},
       timestamp: 0,
@@ -428,7 +429,16 @@ class HandGestureKnn {
         label = null;
       }
 
-      this._setPredictionForHand(handKey, label, confidence, best.confidences, now, isGesture);
+      this._setPredictionForHand(
+        handKey,
+        label,
+        confidence,
+        best.confidences,
+        now,
+        isGesture,
+        hand,
+        tracked
+      );
 
       if (!isGesture) {
         this._handleNoGesture(handKey, now);
@@ -455,9 +465,12 @@ class HandGestureKnn {
       }
 
       if (isNew) {
+        const handedness =
+          this._prediction?.byHand?.[handKey]?.handedness || "unknown";
         const event = {
           label,
           hand: handKey,
+          handedness,
           confidence,
           confidences: best.confidences,
           timestamp: now,
@@ -501,11 +514,22 @@ class HandGestureKnn {
     }
   }
 
-  _setPredictionForHand(handKey, label, confidence, confidences, timestamp, isGesture) {
+  _setPredictionForHand(
+    handKey,
+    label,
+    confidence,
+    confidences,
+    timestamp,
+    isGesture,
+    handObj = null,
+    trackedHands = null
+  ) {
     if (!this._prediction.byHand) this._prediction.byHand = {};
+    const handedness = this._resolveHandedness(handKey, handObj, trackedHands);
     this._prediction.byHand[handKey] = {
       label: label || null,
       hand: handKey,
+      handedness,
       confidence: Number(confidence) || 0,
       confidences: confidences || {},
       timestamp: Number(timestamp) || 0,
@@ -529,6 +553,7 @@ class HandGestureKnn {
       return {
         label: null,
         hand: null,
+        handedness: "unknown",
         confidence: 0,
         confidences: {},
         timestamp: Number(timestamp) || this._nowMs(),
@@ -540,6 +565,7 @@ class HandGestureKnn {
     return {
       label: pick.label || null,
       hand: pick.hand || null,
+      handedness: pick.handedness || "unknown",
       confidence: Number(pick.confidence) || 0,
       confidences: pick.confidences || {},
       timestamp: Number(pick.timestamp) || Number(timestamp) || this._nowMs(),
@@ -557,6 +583,44 @@ class HandGestureKnn {
       candidateLabel: null,
       candidateSince: null,
     };
+  }
+
+  _resolveHandedness(handKey, handObj = null, trackedHands = null) {
+    const explicit = this._extractHandedness(handObj);
+    if (explicit) return explicit;
+
+    const hands = trackedHands || this.getTrackedHands();
+    const first = hands?.first || null;
+    const second = hands?.second || null;
+    if (!first || !second) return "unknown";
+
+    const w1 = this._wrist(first);
+    const w2 = this._wrist(second);
+    if (!w1 || !w2) return "unknown";
+
+    const firstIsLeftInImage = w1.x < w2.x;
+    if (handKey === "first") return firstIsLeftInImage ? "left" : "right";
+    return firstIsLeftInImage ? "right" : "left";
+  }
+
+  _extractHandedness(handObj) {
+    const raw =
+      handObj?.handedness ??
+      handObj?.handednessLabel ??
+      handObj?.handedness?.label ??
+      (Array.isArray(handObj?.handednesses) ? handObj.handednesses[0]?.label : null);
+    if (!raw) return null;
+    const s = String(raw).toLowerCase();
+    if (s.includes("left")) return "left";
+    if (s.includes("right")) return "right";
+    return null;
+  }
+
+  _wrist(handObj) {
+    const pts = this._extractKeypoints(handObj);
+    const p = pts?.[0] || null;
+    if (!p || !Number.isFinite(p.x) || !Number.isFinite(p.y)) return null;
+    return p;
   }
 
   _extractFeature(hand) {
