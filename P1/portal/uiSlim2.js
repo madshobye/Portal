@@ -377,6 +377,25 @@ let _uiInfo = {
   sx: 0, sy: 0
 };
 const _uiDebugList = [];
+let _uiRgbUnderCache = [0, 0, 0, 0];
+let _uiRgbSampleLastMs = 0;
+
+function _uiSampleRgbUnderMouse(sampleEveryMs = 80) {
+  const now = (typeof millis === "function") ? millis() : Date.now();
+  if (now - _uiRgbSampleLastMs < sampleEveryMs) return _uiRgbUnderCache;
+
+  try {
+    const gx = constrain(floor(uiMX), 0, uiSWidth - 1);
+    const gy = constrain(floor(uiMY), 0, uiSHeight - 1);
+    const px = get(gx, gy);
+    if (Array.isArray(px) && px.length >= 3) {
+      _uiRgbUnderCache = [px[0] | 0, px[1] | 0, px[2] | 0, px[3] ?? 255];
+    }
+  } catch {}
+
+  _uiRgbSampleLastMs = now;
+  return _uiRgbUnderCache;
+}
 
 /**
  * Add a debug line to the overlay console (max 10).
@@ -399,15 +418,12 @@ function uiDebug(msg) {
 function uiShowInfo(opt = {}) {
   if (!_uiInfo.visible) return { visible:false };
 
-  // --- Optional: sample color under mouse (expensive in some browsers) ---
-  let rgbUnder = [0,0,0,0];
-  if (opt.sampleColor === true) {
-    try {
-      const gx = constrain(floor(uiMX), 0, uiSWidth-1);
-      const gy = constrain(floor(uiMY), 0, uiSHeight-1);
-      rgbUnder = get(gx, gy); // [r,g,b,a] from your scene, not the grid
-    } catch(e){}
-  }
+  // --- Optional (default ON): sample color under mouse with throttling ---
+  const sampleColor = (opt.sampleColor !== false);
+  const sampleEveryMs = Number(opt.sampleEveryMs) || 80;
+  const rgbUnder = sampleColor
+    ? _uiSampleRgbUnderMouse(sampleEveryMs)
+    : _uiRgbUnderCache;
 
   // --- 2) Draw semi-transparent grid ---
   _uiDrawGrid(opt);
@@ -598,14 +614,29 @@ function _uiDrawHUD(rgbUnder = [0,0,0,0]) {
   rect(swX, swY, swW, swH, 4);*/
   const qrSize = 100;
   const qrPadding = 5;
-  if(typeof urlToSketch !== 'undefined' && urlToSketch != ""   && uiSWidth >barLength+qrSize+qrPadding*3)
+  const canShowQR =
+    typeof urlToSketch !== "undefined" &&
+    urlToSketch !== "" &&
+    typeof sketchQRCode !== "undefined" &&
+    !!sketchQRCode &&
+    Number.isFinite(Number(sketchQRCode.size)) &&
+    Number(sketchQRCode.size) > 0 &&
+    typeof drawQRCode === "function" &&
+    (typeof sketchQRCodeValid === "undefined" || !!sketchQRCodeValid) &&
+    uiSWidth > barLength + qrSize + qrPadding * 3;
+
+  if (canShowQR)
   {
     translate(uiSWidth-qrSize-qrPadding*5,-qrPadding);
     
     fill("white");
     noStroke();
     rect(0,0,qrSize+qrPadding*2,qrSize+qrPadding*2,3,3,3,3);
-  drawQRCode(sketchQRCode, qrPadding, qrPadding, qrSize);
+    try {
+      drawQRCode(sketchQRCode, qrPadding, qrPadding, qrSize);
+    } catch (e) {
+      console.warn("uiShowInfo: QR draw skipped (invalid QR object)", e);
+    }
   }
   _uiOverlayEnd(overlay2d);
   pop();

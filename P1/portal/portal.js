@@ -1,5 +1,5 @@
 let v_major = 1;
-let v_minor = 73;
+let v_minor = 75;
 let pVersion =v_major + "." +v_minor
 let baseFont;
 let baseMonoFont;
@@ -267,6 +267,16 @@ function isShareableSketchURL(raw) {
 
 //let urlToSketch ="";
 let sketchQRCode;
+let sketchQRCodeValid = false;
+
+function isValidQRCodeObject(qr) {
+  return !!(
+    qr &&
+    Number.isFinite(Number(qr.size)) &&
+    Number(qr.size) > 0 &&
+    typeof qr.getModule === "function"
+  );
+}
 
 let pSetupRun = false;
 
@@ -308,9 +318,18 @@ async function pSetup() {
     const fullUrl = sourceUrl
       .replace("/sketches/", "/full/")
       .replace("/present/", "/full/");
-    sketchQRCode = createQRCode(fullUrl);
+    try {
+      const qr = createQRCode(fullUrl);
+      sketchQRCode = isValidQRCodeObject(qr) ? qr : undefined;
+      sketchQRCodeValid = !!sketchQRCode;
+    } catch (e) {
+      console.warn("Portal QR generation failed:", e);
+      sketchQRCode = undefined;
+      sketchQRCodeValid = false;
+    }
   } else {
     sketchQRCode = undefined;
+    sketchQRCodeValid = false;
   }
 }
 
