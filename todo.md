@@ -1,3 +1,13 @@
+Attach:
+- move sketch experiments into p1 folder
+- move sketch examples into p1 folder
+- model portalloader into portal folder
+- change portal loader so that it checks if a local portal js is present
+- change index.html to refer to the relative or to github
+- make an individual sketch example folder.
+- Make a wwww folder with documentation, examples and source codes.
+
+
 Test
 - Mqtt
 - pulse sensing
@@ -29,3 +39,8 @@ Precooked:
 - qr code
 - gps audio walk
 - usb serial neopixel bridge
+
+Sketch references:
+- p5.js sketch: https://editor.p5js.org/hobyedk/sketches/NR3XhRnuB
+- p5.js sketch: https://editor.p5js.org/hobyedk/sketches/DWn-mfi04
+- p5.js sketch: https://editor.p5js.org/hobyedk/sketches/4jia4qyf3

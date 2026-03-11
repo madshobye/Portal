@@ -15,8 +15,11 @@ const loadedPortalScripts = (window.__loadedPortalScripts ??= new Set());
 
 async function loadPortal(version, refresh = false) {
   let baseSrc = "";
-  if (local) baseSrc = `/${version}/portal/portal.js`;
-  else baseSrc = `https://madshobye.github.io/Portal/${version}/portal/portal.js`;
+  if (local) {
+    baseSrc = `/${version}/portal/portal.js`;
+  } else {
+    baseSrc = `https://madshobye.github.io/Portal/${version}/portal/portal.js`;
+  }
 
   if (portalLoadPromises[baseSrc]) return portalLoadPromises[baseSrc];
   if (loadedPortalScripts.has(baseSrc) && typeof window.pSetup === "function") {
@@ -43,7 +46,6 @@ async function loadPortal(version, refresh = false) {
 
       resolve();
     };
-
     s.onerror = () => reject(new Error(`Failed to load: ${src}`));
     document.head.appendChild(s);
   });

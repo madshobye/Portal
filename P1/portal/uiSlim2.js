@@ -34,9 +34,17 @@ let uiKey=undefined;
 let uiKeyOld=undefined;
 let uiSWidth=0, uiSHeight=0;
 let uiStack=[];
+let uiPointerSource = "mouse";
+let uiMultiTouch = null;
+let uiActiveTouchId = null;
+const UI_CORNER_GESTURE_HOLD_MS = 10000;
 const _uiShortcutState = (window.__uiShortcutState ??= {
   fullscreenRequested: false,
   overlayToggleRequested: false,
+  cornerGestureRequested: false,
+  cornerGestureStartMs: 0,
+  cornerGestureFired: false,
+  cornerGestureCorners: [],
 });
 
 if (!window.__uiSlimShortcutListenerInstalled) {
@@ -120,10 +128,150 @@ function uiShortcutDebugLog(...args) {
 
 function uiUpdateSimple() {
  cursor('default');
-  
-  uiUpdate(mouseX, mouseY, mouseIsPressed, key, width, height,keyIsPressed);
+
+  const pointer = uiResolvePointerInput();
+  uiUpdate(pointer.x, pointer.y, pointer.pressed, key, width, height, keyIsPressed);
  
  
+}
+
+function uiUseMultiTouch(instance = null) {
+  uiMultiTouch = instance || null;
+  if (!uiMultiTouch) {
+    uiActiveTouchId = null;
+    uiPointerSource = "mouse";
+  }
+  return uiMultiTouch;
+}
+
+function uiClearMultiTouch() {
+  uiUseMultiTouch(null);
+}
+
+function uiGetPointerSource() {
+  return uiPointerSource;
+}
+
+function uiResolvePointerInput() {
+  const mt = uiResolveMultiTouchInstance();
+  const fallback = {
+    x: mouseX,
+    y: mouseY,
+    pressed: mouseIsPressed,
+    source: "mouse",
+  };
+
+  if (!mt || typeof mt.getTouchesRaw !== "function") {
+    uiResetCornerGesture();
+    uiPointerSource = fallback.source;
+    return fallback;
+  }
+
+  const touches = mt.getTouchesRaw();
+  uiUpdateCornerGesture(touches);
+  if (!Array.isArray(touches) || touches.length === 0) {
+    uiActiveTouchId = null;
+    uiPointerSource = fallback.source;
+    return fallback;
+  }
+
+  let active = null;
+  if (uiActiveTouchId != null) {
+    active = touches.find((t) => Number(t?.id) === Number(uiActiveTouchId)) || null;
+  }
+  if (!active) {
+    active = touches[0] || null;
+    uiActiveTouchId = active ? Number(active.id) : null;
+  }
+
+  if (!active) {
+    uiPointerSource = fallback.source;
+    return fallback;
+  }
+
+  uiPointerSource = "touch";
+  return {
+    x: Number(active.x ?? fallback.x),
+    y: Number(active.y ?? fallback.y),
+    pressed: true,
+    source: "touch",
+    touchId: uiActiveTouchId,
+    touchCount: touches.length,
+  };
+}
+
+function uiResolveMultiTouchInstance() {
+  if (uiMultiTouch) return uiMultiTouch;
+  if (typeof multiTouch !== "undefined" && multiTouch) return multiTouch;
+  if (typeof window !== "undefined" && window.multiTouch) return window.multiTouch;
+  return null;
+}
+
+function uiUpdateCornerGesture(touches) {
+  const list = Array.isArray(touches) ? touches : [];
+  const w = Number(width) > 0 ? Number(width) : uiSWidth;
+  const h = Number(height) > 0 ? Number(height) : uiSHeight;
+  if (list.length < 2 || w <= 0 || h <= 0) {
+    uiResetCornerGesture();
+    return;
+  }
+
+  const matched = [];
+  const usedCorners = new Set();
+  for (const touch of list) {
+    const corner = uiTouchCorner(touch.x, touch.y, w, h);
+    if (!corner || usedCorners.has(corner)) continue;
+    usedCorners.add(corner);
+    matched.push({ id: Number(touch.id), corner });
+    if (matched.length >= 2) break;
+  }
+
+  if (matched.length < 2) {
+    uiResetCornerGesture();
+    return;
+  }
+
+  const cornerKey = matched
+    .map((m) => m.corner)
+    .sort()
+    .join("|");
+  const now = (typeof millis === "function") ? millis() : Date.now();
+  const currentKey = (_uiShortcutState.cornerGestureCorners || []).slice().sort().join("|");
+
+  if (cornerKey !== currentKey) {
+    _uiShortcutState.cornerGestureStartMs = now;
+    _uiShortcutState.cornerGestureCorners = matched.map((m) => m.corner);
+    _uiShortcutState.cornerGestureFired = false;
+  }
+
+  if (
+    !_uiShortcutState.cornerGestureFired &&
+    now - _uiShortcutState.cornerGestureStartMs >= UI_CORNER_GESTURE_HOLD_MS
+  ) {
+    _uiShortcutState.cornerGestureRequested = true;
+    _uiShortcutState.cornerGestureFired = true;
+    uiShortcutDebugLog("corner gesture fullscreen", { corners: _uiShortcutState.cornerGestureCorners });
+  }
+}
+
+function uiResetCornerGesture() {
+  _uiShortcutState.cornerGestureStartMs = 0;
+  _uiShortcutState.cornerGestureCorners = [];
+  _uiShortcutState.cornerGestureFired = false;
+}
+
+function uiTouchCorner(x, y, w, h) {
+  const hitSize = min(max(48, min(w, h) * 0.14), 140);
+  const left = x >= 0 && x <= hitSize;
+  const right = x >= w - hitSize && x <= w;
+  const top = y >= 0 && y <= hitSize;
+  const bottom = y >= h - hitSize && y <= h;
+
+  if (left && top) return "top-left";
+  if (right && top) return "top-right";
+  if (left && bottom) return "bottom-left";
+  if (right && bottom) return "bottom-right";
+  return null;
 }
 
 
@@ -146,6 +294,10 @@ function uiUpdate(_mx,_my,_mp,_key,_w,_h,_keyPressed){
     _uiShortcutState.overlayToggleRequested = false;
     _uiInfo.visible = !_uiInfo.visible;
     uiShortcutDebugLog("toggle overlay", { key: uiKey, visible: _uiInfo.visible });
+  }
+  if (_uiShortcutState.cornerGestureRequested) {
+    _uiShortcutState.cornerGestureRequested = false;
+    fullScreenToggle();
   }
 }
 
@@ -581,13 +733,14 @@ function _uiDrawHUD(rgbUnder = [0,0,0,0]) {
 
   const mxStr = pad((uiMX|0), 4);
   const myStr = pad((uiMY|0), 4);
+  const pointerStr = String(uiPointerSource || "mouse").padEnd(5, ' ');
 
   const rStr = pad((rgbUnder[0]|0), 3);
   const gStr = pad((rgbUnder[1]|0), 3);
   const bStr = pad((rgbUnder[2]|0), 3);
 
   const textStr =
-    `Portal: ${pVersion}  x:${mxStr}  y:${myStr}   fps:${fpsStr}   mem:${memStr}MB   rgb: ${rStr},${gStr},${bStr}`;
+    `Portal: ${pVersion}  x:${mxStr}  y:${myStr}  ptr:${pointerStr}  fps:${fpsStr}   mem:${memStr}MB   rgb: ${rStr},${gStr},${bStr}`;
 
   push();
   const overlay2d = _uiOverlayStart();
