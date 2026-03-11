@@ -1,5 +1,5 @@
 let v_major = 1;
-let v_minor = 76;
+let v_minor = 94;
 let pVersion =v_major + "." +v_minor
 let baseFont;
 let baseMonoFont;
@@ -254,6 +254,13 @@ function isShareableSketchURL(raw) {
     if (!/^https?:$/.test(u.protocol)) return false;
     if (u.hostname.includes("preview.p5js.org")) return false;
     if (u.protocol === "blob:") return false;
+    if (
+      u.hostname === "localhost" ||
+      u.hostname === "127.0.0.1" ||
+      u.hostname === "::1" ||
+      u.hostname.endsWith(".local") ||
+      u.hostname.endsWith(".localdomain")
+    ) return false;
 
     // For p5 editor, only allow canonical sketch URLs.
     if (u.hostname.includes("editor.p5js.org")) {

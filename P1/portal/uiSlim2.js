@@ -37,7 +37,9 @@ let uiStack=[];
 let uiPointerSource = "mouse";
 let uiMultiTouch = null;
 let uiActiveTouchId = null;
+let uiGraphicsTarget = null;
 const UI_CORNER_GESTURE_HOLD_MS = 10000;
+const UI_DEBUG_OVERLAY_STORAGE_KEY = "uiSlim2.debugOverlay.visible";
 const _uiShortcutState = (window.__uiShortcutState ??= {
   fullscreenRequested: false,
   overlayToggleRequested: false,
@@ -73,6 +75,33 @@ if (!window.__uiSlimShortcutListenerInstalled) {
 const uiStore = new Map();
 function uiGet(id, init){ if(!uiStore.has(id)) uiStore.set(id, init); return uiStore.get(id); }
 function uiSet(id, v){ uiStore.set(id, v); }
+function uiStorageKey(id) { return `uiSlim2:${String(id)}`; }
+function uiShouldPersist(style = {}) { return style?.persist !== false; }
+function uiGetPersisted(id, fallback) {
+  try {
+    const raw = localStorage.getItem(uiStorageKey(id));
+    if (raw == null) return fallback;
+    return JSON.parse(raw);
+  } catch {
+    return fallback;
+  }
+}
+function uiSetPersisted(id, value, style = {}) {
+  if (!uiShouldPersist(style)) return;
+  try {
+    localStorage.setItem(uiStorageKey(id), JSON.stringify(value));
+  } catch {}
+}
+function uiGetState(id, init, style = {}) {
+  if (uiStore.has(id)) return uiStore.get(id);
+  const value = uiShouldPersist(style) ? uiGetPersisted(id, init) : init;
+  uiStore.set(id, value);
+  return value;
+}
+function uiSetState(id, value, style = {}) {
+  uiSet(id, value);
+  uiSetPersisted(id, value, style);
+}
 
 // -------------------------
 // Style system
@@ -107,8 +136,32 @@ function uiMergeDeep(target, ...sources){
     else target[k] = v;
   }} return target;
 }
-function uiApplyStyle(style){
- 
+function uiUseGraphics(target = null) {
+  uiGraphicsTarget = target || null;
+  return uiGraphicsTarget;
+}
+
+function uiEndUseGraphics() {
+  uiGraphicsTarget = null;
+}
+
+function uiGetGraphicsTarget() {
+  return uiGraphicsTarget;
+}
+
+function uiApplyStyle(style, target = null){
+  const g = target || uiGraphicsTarget;
+  if (g) {
+    if(style.font) { g.textFont(style.font); } else { g.textFont(baseFont); }
+    if(style.fontSize!==undefined) g.textSize(style.fontSize);
+    if(style.textColor) g.fill(style.textColor);
+    if(style.stroke && style.stroke.weight>0){
+      g.stroke(style.stroke.color||0, style.stroke.alpha??255);
+      g.strokeWeight(style.stroke.weight);
+    } else g.noStroke();
+    return;
+  }
+
   if(style.font) {textFont(style.font)} else { textFont(baseFont)};
   if(style.fontSize!==undefined) textSize(style.fontSize);
   if(style.textColor) fill(style.textColor);
@@ -293,6 +346,9 @@ function uiUpdate(_mx,_my,_mp,_key,_w,_h,_keyPressed){
   if (_uiShortcutState.overlayToggleRequested) {
     _uiShortcutState.overlayToggleRequested = false;
     _uiInfo.visible = !_uiInfo.visible;
+    try {
+      localStorage.setItem(UI_DEBUG_OVERLAY_STORAGE_KEY, _uiInfo.visible ? "true" : "false");
+    } catch {}
     uiShortcutDebugLog("toggle overlay", { key: uiKey, visible: _uiInfo.visible });
   }
   if (_uiShortcutState.cornerGestureRequested) {
@@ -364,6 +420,25 @@ function uiTextAlignFromStyle(s){
   return { hx, vy };
 }
 function uiDrawLabel(textStr, box, s){
+ const g = uiGraphicsTarget;
+ if (g) {
+  g.push();
+  uiApplyStyle(s, g);
+  g.fill(s.textColor||0);
+  const pad = (s.padding!==undefined)?s.padding:8;
+  const {hx,vy} = uiTextAlignFromStyle(s);
+  g.textAlign(hx, vy);
+  let tx = box.x + pad, ty;
+  if(hx===CENTER) tx = box.x + box.width/2;
+  else if(hx===RIGHT) tx = box.x + box.width - pad;
+  if(vy===TOP) ty = box.y + pad;
+  else if(vy===CENTER) ty = box.y + box.height/2;
+  else ty = box.y + box.height - pad;
+  g.text(textStr, tx, ty);
+  g.pop();
+  return;
+ }
+
  push();
   uiApplyStyle(s);
   fill(s.textColor||0);
@@ -385,23 +460,32 @@ function uiDrawLabel(textStr, box, s){
 // Widgets
 // -------------------------
 function uiText(txt, style={}){
-  push();
-  const overlay2d = _uiOverlayStart();
+  const g = uiGraphicsTarget;
+  if (g) {
+    g.push();
+  } else {
+    push();
+  }
+  const overlay2d = g ? false : _uiOverlayStart();
   const s = uiMergeDeep({}, uiBaseStyle.common, uiBaseStyle.text, style);
   const h = (s.height!==undefined)?s.height:22;
   const box = (s.x!==undefined && s.y!==undefined && s.width!==undefined)
     ? { x:s.x, y:s.y, width:s.width, height:h }
     : uiPlace(s.width||uiGetList().width, h);
-  if(s.bgColor){ fill(s.bgColor); noStroke(); rect(box.x, box.y, box.width, box.height, s.rounding); }
+  if(s.bgColor){
+    if (g) { g.fill(s.bgColor); g.noStroke(); g.rect(box.x, box.y, box.width, box.height, s.rounding); }
+    else { fill(s.bgColor); noStroke(); rect(box.x, box.y, box.width, box.height, s.rounding); }
+  }
   uiDrawLabel(txt, box, s);
   _uiOverlayEnd(overlay2d);
-  pop();
+  if (g) g.pop(); else pop();
   return { x:box.x, y:box.y, width:box.width, height:box.height };
 }
 
 function uiButton(label, style={}){
-  push();
-  const overlay2d = _uiOverlayStart();
+  const g = uiGraphicsTarget;
+  if (g) g.push(); else push();
+  const overlay2d = g ? false : _uiOverlayStart();
   const s = uiMergeDeep({}, uiBaseStyle.common, uiBaseStyle.button, style);
   const h = s.height;
   const box = (s.x!==undefined && s.y!==undefined && s.width!==undefined && s.height!==undefined)
@@ -412,27 +496,44 @@ function uiButton(label, style={}){
   let cur = uiMergeDeep({}, s);
   const hit = uiHit(box.x, box.y, box.width, box.height);
   if(hit.pressed) cur = uiMergeDeep(cur, s.pressed); else if(hit.hover) cur = uiMergeDeep(cur, s.hover);
-  if(cur.bgColor){ fill(cur.bgColor); } else noFill();
-  if(cur.stroke && cur.stroke.weight>0){ stroke(cur.stroke.color||0, cur.stroke.alpha??255); strokeWeight(cur.stroke.weight); } else noStroke();
-  rect(box.x, box.y, box.width, box.height, cur.rounding!==undefined?cur.rounding:s.rounding);
+  if (g) {
+    if(cur.bgColor){ g.fill(cur.bgColor); } else g.noFill();
+    if(cur.stroke && cur.stroke.weight>0){ g.stroke(cur.stroke.color||0, cur.stroke.alpha??255); g.strokeWeight(cur.stroke.weight); } else g.noStroke();
+    g.rect(box.x, box.y, box.width, box.height, cur.rounding!==undefined?cur.rounding:s.rounding);
+  } else {
+    if(cur.bgColor){ fill(cur.bgColor); } else noFill();
+    if(cur.stroke && cur.stroke.weight>0){ stroke(cur.stroke.color||0, cur.stroke.alpha??255); strokeWeight(cur.stroke.weight); } else noStroke();
+    rect(box.x, box.y, box.width, box.height, cur.rounding!==undefined?cur.rounding:s.rounding);
+  }
   uiDrawLabel(label, box, cur);
   _uiOverlayEnd(overlay2d);
-  pop();
-  return { clicked: hit.clicked, hover: hit.hover, pressed: hit.pressed, x:box.x, y:box.y, width:box.width, height:box.height };
+  if (g) g.pop(); else pop();
+  return {
+    clicked: hit.clicked,
+    pressedDown: hit.pressedDown,
+    pressedUp: hit.pressedUp,
+    hover: hit.hover,
+    pressed: hit.pressed,
+    x:box.x,
+    y:box.y,
+    width:box.width,
+    height:box.height
+  };
 }
 
 function uiPromptText(id, label, style={}){
-  const currentValue = uiGet(id, '');
+  const currentValue = uiGetState(id, '', style);
   const shown = currentValue!=='' ? (label+': '+currentValue) : label;
   const res = uiButton(shown, uiMergeDeep({}, uiBaseStyle.promptText, style));
   let changed=false, value=currentValue;
-  if(res.clicked){ const nv = window.prompt(label, currentValue??''); if(nv!==null){ value=nv; changed=true; uiSet(id,value); } }
+  if(res.clicked){ const nv = window.prompt(label, currentValue??''); if(nv!==null){ value=nv; changed=true; uiSetState(id, value, style); } }
   return { ...res, changed, value };
 }
 
 function uiSlider(id, label, opts={}, style={}){
-  push();
-  const overlay2d = _uiOverlayStart();
+  const g = uiGraphicsTarget;
+  if (g) g.push(); else push();
+  const overlay2d = g ? false : _uiOverlayStart();
   const s = uiMergeDeep({}, uiBaseStyle.common, uiBaseStyle.slider, style);
   const min = (opts.min!==undefined)?opts.min:s.min;
   const max = (opts.max!==undefined)?opts.max:s.max;
@@ -440,41 +541,57 @@ function uiSlider(id, label, opts={}, style={}){
   const box = (s.x!==undefined && s.y!==undefined && s.width!==undefined)
     ? { x:s.x, y:s.y, width:s.width, height:h }
     : uiPlace(s.width||uiGetList().width, h);
-  let val = uiGet(id, (opts.init!==undefined?opts.init:min));
+  let val = uiGetState(id, (opts.init!==undefined?opts.init:min), style);
   const hit = uiHit(box.x, box.y, box.width, box.height);
-  if(hit.pressed){ const t = constrain((hit.mX)/(box.width), 0, 1); val = lerp(min, max, t); uiSet(id, val); }
+  if(hit.pressed){ const t = constrain((hit.mX)/(box.width), 0, 1); val = lerp(min, max, t); uiSetState(id, val, style); }
   // track
-  noStroke(); fill(s.trackColor); rect(box.x, box.y, box.width, box.height, s.rounding);
+  if (g) {
+    g.noStroke(); g.fill(s.trackColor); g.rect(box.x, box.y, box.width, box.height, s.rounding);
+  } else {
+    noStroke(); fill(s.trackColor); rect(box.x, box.y, box.width, box.height, s.rounding);
+  }
   // fill
-  const tnow = (val-min)/(max-min); fill(s.fillColor); rect(box.x, box.y, box.width*tnow, box.height, s.rounding, 0, 0, s.rounding);
+  const tnow = (val-min)/(max-min);
+  if (g) {
+    g.fill(s.fillColor); g.rect(box.x, box.y, box.width*tnow, box.height, s.rounding, 0, 0, s.rounding);
+  } else {
+    fill(s.fillColor); rect(box.x, box.y, box.width*tnow, box.height, s.rounding, 0, 0, s.rounding);
+  }
   // label
   uiDrawLabel(label+" ("+nf(val,1,2)+")", box, s);
   _uiOverlayEnd(overlay2d);
-  pop();
+  if (g) g.pop(); else pop();
   return { value: val, changed: hit.pressed, x:box.x, y:box.y, width:box.width, height:box.height };
 }
 
 function uiToggle(id, label, style={}){
-  push();
-  const overlay2d = _uiOverlayStart();
+  const g = uiGraphicsTarget;
+  if (g) g.push(); else push();
+  const overlay2d = g ? false : _uiOverlayStart();
   // Full-width button-like toggle with text and changing background
   const s = uiMergeDeep({}, uiBaseStyle.common, uiBaseStyle.button, uiBaseStyle.toggle, style);
   const h = s.height;
   const box = (s.x!==undefined && s.y!==undefined && s.width!==undefined)
     ? { x:s.x, y:s.y, width:s.width, height:h }
     : uiPlace(s.width||uiGetList().width, h);
-  let v = !!uiGet(id, false);
+  let v = !!uiGetState(id, false, style);
   const hit = uiHit(box.x, box.y, box.width, box.height);
-  if(hit.clicked){ v = !v; uiSet(id, v); }
+  if(hit.clicked){ v = !v; uiSetState(id, v, style); }
   let cur = uiMergeDeep({}, s, { bgColor: v ? s.onBgColor : s.offBgColor });
   if(!v && hit.hover) cur = uiMergeDeep(cur, s.hover);
   if(!v && hit.pressed) cur = uiMergeDeep(cur, s.pressed);
-  if(cur.bgColor){ fill(cur.bgColor); } else noFill();
-  if(cur.stroke && cur.stroke.weight>0){ stroke(cur.stroke.color||0, cur.stroke.alpha??255); strokeWeight(cur.stroke.weight); } else noStroke();
-  rect(box.x, box.y, box.width, box.height, cur.rounding!==undefined?cur.rounding:s.rounding);
+  if (g) {
+    if(cur.bgColor){ g.fill(cur.bgColor); } else g.noFill();
+    if(cur.stroke && cur.stroke.weight>0){ g.stroke(cur.stroke.color||0, cur.stroke.alpha??255); g.strokeWeight(cur.stroke.weight); } else g.noStroke();
+    g.rect(box.x, box.y, box.width, box.height, cur.rounding!==undefined?cur.rounding:s.rounding);
+  } else {
+    if(cur.bgColor){ fill(cur.bgColor); } else noFill();
+    if(cur.stroke && cur.stroke.weight>0){ stroke(cur.stroke.color||0, cur.stroke.alpha??255); strokeWeight(cur.stroke.weight); } else noStroke();
+    rect(box.x, box.y, box.width, box.height, cur.rounding!==undefined?cur.rounding:s.rounding);
+  }
   uiDrawLabel((v?label+' : ON':label+' : OFF'), box, cur);
   _uiOverlayEnd(overlay2d);
-  pop();
+  if (g) g.pop(); else pop();
   return { value: v, toggled: hit.clicked, x:box.x, y:box.y, width:box.width, height:box.height };
 }
 
@@ -482,14 +599,21 @@ function uiToggle(id, label, style={}){
 // Decorative rect utility
 // -------------------------
 function uiRect(x,y,w,h, style={}){
-  push();
-  const overlay2d = _uiOverlayStart();
+  const g = uiGraphicsTarget;
+  if (g) g.push(); else push();
+  const overlay2d = g ? false : _uiOverlayStart();
   const s = uiMergeDeep({}, uiBaseStyle.common, style);
-  if(s.bgColor){ fill(s.bgColor); } else noFill();
-  if(s.stroke && s.stroke.weight>0){ stroke(s.stroke.color||0, s.stroke.alpha??255); strokeWeight(s.stroke.weight); } else noStroke();
-  rect(x,y,w,h, s.rounding);
+  if (g) {
+    if(s.bgColor){ g.fill(s.bgColor); } else g.noFill();
+    if(s.stroke && s.stroke.weight>0){ g.stroke(s.stroke.color||0, s.stroke.alpha??255); g.strokeWeight(s.stroke.weight); } else g.noStroke();
+    g.rect(x,y,w,h, s.rounding);
+  } else {
+    if(s.bgColor){ fill(s.bgColor); } else noFill();
+    if(s.stroke && s.stroke.weight>0){ stroke(s.stroke.color||0, s.stroke.alpha??255); strokeWeight(s.stroke.weight); } else noStroke();
+    rect(x,y,w,h, s.rounding);
+  }
   _uiOverlayEnd(overlay2d);
-  pop();
+  if (g) g.pop(); else pop();
 }
 
 // -------------------------
@@ -528,9 +652,15 @@ let _uiInfo = {
   measuring: false,
   sx: 0, sy: 0
 };
+let debugOverlay = null;
+const _uiDebugOverlayDrawFns = [];
 const _uiDebugList = [];
 let _uiRgbUnderCache = [0, 0, 0, 0];
 let _uiRgbSampleLastMs = 0;
+
+try {
+  _uiInfo.visible = localStorage.getItem(UI_DEBUG_OVERLAY_STORAGE_KEY) === "true";
+} catch {}
 
 function _uiSampleRgbUnderMouse(sampleEveryMs = 80) {
   const now = (typeof millis === "function") ? millis() : Date.now();
@@ -569,6 +699,8 @@ function uiDebug(msg) {
  */
 function uiShowInfo(opt = {}) {
   if (!_uiInfo.visible) return { visible:false };
+  const target = _uiEnsureDebugOverlay();
+  _uiClearDebugOverlay(target);
 
   // --- Optional (default ON): sample color under mouse with throttling ---
   const sampleColor = (opt.sampleColor !== false);
@@ -578,16 +710,19 @@ function uiShowInfo(opt = {}) {
     : _uiRgbUnderCache;
 
   // --- 2) Draw semi-transparent grid ---
-  _uiDrawGrid(opt);
+  _uiDrawGrid(target, opt);
 
   // --- 3) Measurement: press & drag to show line and distances ---
-  _uiHandleMeasure();
+  if (opt.measure !== false) _uiHandleMeasure(target);
+  else _uiInfo.measuring = false;
 
   // --- 4) HUD: compact top bar (pass rgbUnder) ---
-  _uiDrawHUD(rgbUnder);
+  _uiDrawHUD(target, rgbUnder);
 
   // --- 5) Debug console overlay ---
-  _uiDrawDebugConsole();
+  _uiDrawDebugConsole(target);
+  _uiRunDebugOverlayDrawFns(target);
+  _uiCompositeDebugOverlay(target);
 
   return {
     visible: true,
@@ -637,7 +772,50 @@ function _uiOverlayEnd(active) {
   }
 }
 
-function _uiDrawGrid(opt) {
+function _uiEnsureDebugOverlay() {
+  const w = Math.max(1, Number(uiSWidth) || Number(width) || 1);
+  const h = Math.max(1, Number(uiSHeight) || Number(height) || 1);
+  if (!debugOverlay || debugOverlay.width !== w || debugOverlay.height !== h) {
+    debugOverlay = createGraphics(w, h);
+    if (typeof debugOverlay.pixelDensity === "function") debugOverlay.pixelDensity(1);
+    if (typeof window !== "undefined") window.debugOverlay = debugOverlay;
+  }
+  return debugOverlay;
+}
+
+function _uiClearDebugOverlay(target) {
+  if (!target) return;
+  target.clear();
+  if (typeof target.resetMatrix === "function") target.resetMatrix();
+}
+
+function _uiCompositeDebugOverlay(target) {
+  if (!target) return;
+  push();
+  const overlay2d = _uiOverlayStart();
+  imageMode(CORNER);
+  image(target, 0, 0, uiSWidth, uiSHeight);
+  _uiOverlayEnd(overlay2d);
+  pop();
+}
+
+function uiDrawOnDebugOverlay(fn) {
+  if (typeof fn === "function") _uiDebugOverlayDrawFns.push(fn);
+}
+
+function _uiRunDebugOverlayDrawFns(target) {
+  if (!_uiDebugOverlayDrawFns.length) return;
+  while (_uiDebugOverlayDrawFns.length) {
+    const fn = _uiDebugOverlayDrawFns.shift();
+    try {
+      fn(target);
+    } catch (err) {
+      console.warn("uiDrawOnDebugOverlay callback failed:", err);
+    }
+  }
+}
+
+function _uiDrawGrid(target, opt) {
    const s50 = uiMergeDeep({}, {
     color: { r: 120, g: 120, b: 120, a: 80 },   // lighter gray, very transparent
     weight: 1
@@ -648,28 +826,26 @@ function _uiDrawGrid(opt) {
     weight: 1
   }, opt.grid100);
 
-  push();
-  const overlay2d = _uiOverlayStart();
-  noFill();
+  target.push();
+  target.noFill();
 
   // 50px lines
-  stroke(s50.color.r, s50.color.g, s50.color.b, s50.color.a);
-  strokeWeight(s50.weight);
-  for (let x = 0; x <= uiSWidth; x += 50) line(x, 0, x, uiSHeight);
-  for (let y = 0; y <= uiSHeight; y += 50) line(0, y, uiSWidth, y);
+  target.stroke(s50.color.r, s50.color.g, s50.color.b, s50.color.a);
+  target.strokeWeight(s50.weight);
+  for (let x = 0; x <= uiSWidth; x += 50) target.line(x, 0, x, uiSHeight);
+  for (let y = 0; y <= uiSHeight; y += 50) target.line(0, y, uiSWidth, y);
 
   // 100px lines
-  stroke(s100.color.r, s100.color.g, s100.color.b, s100.color.a);
-  strokeWeight(s100.weight);
-  for (let x = 0; x <= uiSWidth; x += 100) line(x, 0, x, uiSHeight);
-  for (let y = 0; y <= uiSHeight; y += 100) line(0, y, uiSWidth, y);
+  target.stroke(s100.color.r, s100.color.g, s100.color.b, s100.color.a);
+  target.strokeWeight(s100.weight);
+  for (let x = 0; x <= uiSWidth; x += 100) target.line(x, 0, x, uiSHeight);
+  for (let y = 0; y <= uiSHeight; y += 100) target.line(0, y, uiSWidth, y);
 
-  _uiOverlayEnd(overlay2d);
-  pop();
+  target.pop();
 }
 
 
-function _uiHandleMeasure() {
+function _uiHandleMeasure(target) {
   const mp = uiMP;
   if (mp && !_uiInfo.measuring) { // press -> start
     _uiInfo.measuring = true;
@@ -687,36 +863,34 @@ function _uiHandleMeasure() {
   const dx = x1 - x0,     dy = y1 - y0;
   const dd = sqrt(dx*dx + dy*dy);
 
-  push();
-  const overlay2d = _uiOverlayStart();
+  target.push();
   // main line
-  stroke(120, 120, 120, 255); strokeWeight(2); line(x0, y0, x1, y1);
-  stroke(255, 255, 255, 160); strokeWeight(1); line(x0, y0, x1, y1);
+  target.stroke(120, 120, 120, 255); target.strokeWeight(2); target.line(x0, y0, x1, y1);
+  target.stroke(255, 255, 255, 160); target.strokeWeight(1); target.line(x0, y0, x1, y1);
 
   // projections
-    stroke(120, 120, 120, 255); strokeWeight(1);
-  line(x0, y0, x1, y0); // horizontal projection
-  line(x1, y0, x1, y1); // vertical projection
-  noFill();
+  target.stroke(120, 120, 120, 255); target.strokeWeight(1);
+  target.line(x0, y0, x1, y0); // horizontal projection
+  target.line(x1, y0, x1, y1); // vertical projection
+  target.noFill();
  // ellipse(x0, y0,dd*2,dd*2);
   // little endpoints
-  noStroke(); fill(0, 160); circle(x0, y0, 6); circle(x1, y1, 6);
-  fill(200); circle(x0, y0, 3); circle(x1, y1, 3);
+  target.noStroke(); target.fill(0, 160); target.circle(x0, y0, 6); target.circle(x1, y1, 6);
+  target.fill(200); target.circle(x0, y0, 3); target.circle(x1, y1, 3);
 
   // labels
-  textAlign(CENTER, BOTTOM);
-  textSize(12); noStroke();
-  _uiTextWithChip(`${Math.round(dx)} px`, x0 + dx/2, y0 - 6);
-  textAlign(LEFT, CENTER);
-  _uiTextWithChip(`${Math.round(dy)} px`, x1 + 6, y0 + dy/2);
+  target.textAlign(CENTER, BOTTOM);
+  target.textSize(12); target.noStroke();
+  _uiTextWithChip(target, `${Math.round(dx)} px`, x0 + dx/2, y0 - 6);
+  target.textAlign(LEFT, CENTER);
+  _uiTextWithChip(target, `${Math.round(dy)} px`, x1 + 6, y0 + dy/2);
 
-  textAlign(CENTER, TOP);
-  _uiTextWithChip(`${Math.round(dd)} px`, (x0+x1)/2, (y0+y1)/2);
+  target.textAlign(CENTER, TOP);
+  _uiTextWithChip(target, `${Math.round(dd)} px`, (x0+x1)/2, (y0+y1)/2);
 
-  _uiOverlayEnd(overlay2d);
-  pop();
+  target.pop();
 }
-function _uiDrawHUD(rgbUnder = [0,0,0,0]) {
+function _uiDrawHUD(target, rgbUnder = [0,0,0,0]) {
   const padX = 8;
   const barH = 26;
 
@@ -742,20 +916,19 @@ function _uiDrawHUD(rgbUnder = [0,0,0,0]) {
   const textStr =
     `Portal: ${pVersion}  x:${mxStr}  y:${myStr}  ptr:${pointerStr}  fps:${fpsStr}   mem:${memStr}MB   rgb: ${rStr},${gStr},${bStr}`;
 
-  push();
-  const overlay2d = _uiOverlayStart();
-  translate(10,10);
-  noStroke();
-  const barLength = 545;
-  fill(80);                // translucent black bar
-  rect(0, -1, 545, barH,5,5,5,5);  // full width
+  target.push();
+  target.translate(10,10);
+  target.noStroke();
+  const barLength = 620;
+  target.fill(80);                // translucent black bar
+  target.rect(0, -1, barLength, barH, 5, 5, 5, 5);
 
-  fill(255);
-  textAlign(LEFT, CENTER);
-   textFont(baseMonoFont);
+  target.fill(255);
+  target.textAlign(LEFT, CENTER);
+  target.textFont(baseMonoFont);
   //textFont('monospace');       // fixed-width so spaces hold the layout
-  textSize(12);
-  text(textStr, padX, barH / 2);
+  target.textSize(12);
+  target.text(textStr, padX, barH / 2);
 
   // Color swatch at right
   const swW = 22, swH = barH - 10;
@@ -769,7 +942,8 @@ function _uiDrawHUD(rgbUnder = [0,0,0,0]) {
   const qrPadding = 5;
   const canShowQR =
     typeof urlToSketch !== "undefined" &&
-    urlToSketch !== "" &&
+    typeof urlToSketch === "string" &&
+    urlToSketch.trim() !== "" &&
     typeof sketchQRCode !== "undefined" &&
     !!sketchQRCode &&
     Number.isFinite(Number(sketchQRCode.size)) &&
@@ -780,44 +954,36 @@ function _uiDrawHUD(rgbUnder = [0,0,0,0]) {
 
   if (canShowQR)
   {
-    translate(uiSWidth-qrSize-qrPadding*5,-qrPadding);
+    target.translate(uiSWidth-qrSize-qrPadding*5,-qrPadding);
     
-    fill("white");
-    noStroke();
-    rect(0,0,qrSize+qrPadding*2,qrSize+qrPadding*2,3,3,3,3);
-    try {
-      drawQRCode(sketchQRCode, qrPadding, qrPadding, qrSize);
-    } catch (e) {
-      console.warn("uiShowInfo: QR draw skipped (invalid QR object)", e);
-    }
+    target.fill("white");
+    target.noStroke();
+    target.rect(0,0,qrSize+qrPadding*2,qrSize+qrPadding*2,3,3,3,3);
   }
-  _uiOverlayEnd(overlay2d);
-  pop();
+  target.pop();
 }
 
 
 
-function _uiDrawDebugConsole() {
+function _uiDrawDebugConsole(target) {
   if (_uiDebugList.length === 0) return;
   const pad = 8, lineH = 16, w = uiSWidth * 0.6;
   const h = pad*2 + lineH * _uiDebugList.length;
   const x = pad, y = uiSHeight - h - pad;
 
-  push();
-  const overlay2d = _uiOverlayStart();
-   textFont(baseMonoFont);
-  noStroke();
-  fill(0, 150); rect(x, y, w, h, 8);
-  fill(255, 230); rect(x, y, w, 22, 8, 8, 0, 0);
-  fill(0); textAlign(LEFT, CENTER); textSize(12);
-  text('DEBUG', x+8, y+11);
+  target.push();
+  target.textFont(baseMonoFont);
+  target.noStroke();
+  target.fill(0, 150); target.rect(x, y, w, h, 8);
+  target.fill(255, 230); target.rect(x, y, w, 22, 8, 8, 0, 0);
+  target.fill(0); target.textAlign(LEFT, CENTER); target.textSize(12);
+  target.text('DEBUG', x+8, y+11);
 
-  fill(255);
+  target.fill(255);
   for (let i=0; i<_uiDebugList.length; i++) {
-    text(_uiDebugList[i], x+8, y+22 + (i+0.5)*lineH);
+    target.text(_uiDebugList[i], x+8, y+22 + (i+0.5)*lineH);
   }
-  _uiOverlayEnd(overlay2d);
-  pop();
+  target.pop();
 }
 
 function _uiTextWithOutline(t, x, y) {
@@ -826,15 +992,15 @@ function _uiTextWithOutline(t, x, y) {
   fill(255); text(t, x, y);
   pop();
 }
-function _uiTextWithChip(t, x, y) {
+function _uiTextWithChip(target, t, x, y) {
   const padX = 6, padY = 3;
-  push();
-   textFont(baseMonoFont);
-  textSize(12); textAlign(CENTER, CENTER);
-  const tw = textWidth(t);
-  noStroke(); fill(0, 160); rect(x - (tw/2 + padX), y - (8+padY), tw + padX*2, 16 + padY*2, 6);
-  fill(255); text(t, x, y);
-  pop();
+  target.push();
+  target.textFont(baseMonoFont);
+  target.textSize(12); target.textAlign(CENTER, CENTER);
+  const tw = target.textWidth(t);
+  target.noStroke(); target.fill(0, 160); target.rect(x - (tw/2 + padX), y - (8+padY), tw + padX*2, 16 + padY*2, 6);
+  target.fill(255); target.text(t, x, y);
+  target.pop();
 }
 function _uiGetMemoryMB() {
   try {
@@ -870,6 +1036,14 @@ window.uiRect = uiRect;
 window.uiSetBaseStyle = uiSetBaseStyle;
 window.uiGet = uiGet;
 window.uiSet = uiSet;
+window.uiGetState = uiGetState;
+window.uiSetState = uiSetState;
+window.uiUseGraphics = uiUseGraphics;
+window.uiEndUseGraphics = uiEndUseGraphics;
+window.uiGetGraphicsTarget = uiGetGraphicsTarget;
+window.uiGetDebugOverlay = _uiEnsureDebugOverlay;
+window.uiDrawOnDebugOverlay = uiDrawOnDebugOverlay;
+window.debugOverlay = debugOverlay;
 
 // Example p5 usage:
 // function setup(){ createCanvas(900, 600); }

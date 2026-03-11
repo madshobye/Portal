@@ -108,6 +108,16 @@ class HeartRateBLE {
     if (this.connected && this.server?.connected) return true;
     if (this.connecting) return await this._connectPromise;
 
+    // Reuse the current device object for same-session reconnects.
+    if (this.device?.gatt) {
+      try {
+        this._rememberDeviceId(this.device.id);
+        return await this._connectDevice(this.device, "known");
+      } catch {}
+    }
+
+    if (typeof navigator.bluetooth.getDevices !== "function") return false;
+
     const devices = await navigator.bluetooth.getDevices();
     if (!devices || !devices.length) return false;
 
