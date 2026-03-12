@@ -1,4 +1,5 @@
 let ink;
+const INK_RECIPES = ["calligraphy", "fine_liner", "splatter_marker", "spray_paint"];
 
 async function setup() {
   createCanvas(windowWidth, windowHeight);
@@ -6,7 +7,7 @@ async function setup() {
   await loadScript("portal/multiTouch.js");
 
   ink = await new InkDrawing({
-    mode: "flowy",
+    recipe: INK_RECIPES[0],
     background: 0,
     foreground: 255,
   }).init();
@@ -33,15 +34,15 @@ function draw() {
 
   fill(255);
   textSize(16);
-  text(`mode: ${ink.mode}`, 18, 28);
-  text("keys: 1 flowy, 2 inky, 3 marker, 4 wash, c clear", 18, 50);
+  text(`recipe: ${ink.getRecipe()?.label || ""}`, 18, 28);
+  text("keys: 1 calligraphy, 2 fine liner, 3 splatter, 4 spray, c clear", 18, 50);
 }
 
 function keyPressed() {
-  if (key === "1") ink.setMode("flowy");
-  if (key === "2") ink.setMode("inky");
-  if (key === "3") ink.setMode("marker");
-  if (key === "4") ink.setMode("wash");
+  if (key === "1") ink.setRecipe(INK_RECIPES[0]);
+  if (key === "2") ink.setRecipe(INK_RECIPES[1]);
+  if (key === "3") ink.setRecipe(INK_RECIPES[2]);
+  if (key === "4") ink.setRecipe(INK_RECIPES[3]);
   if (key === "c" || key === "C") ink.clear();
 }
 

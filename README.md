@@ -101,6 +101,9 @@ Primary UI functions:
 - `uiText(text, style)`
 - `uiPromptText(id, label, style)`
 - `uiSlider(id, label, opts, style)`
+  - slider options live in `opts`: `min`, `max`, `init`
+  - style keys can be passed either in `opts` or in `style`
+  - example: `uiSlider("speed", "Speed", { min: 0, max: 100, init: 35, fontSize: 12, height: 24 })`
 - `uiToggle(id, label, style)`
 - `uiRect(x, y, w, h, style)`
 - `uiListStart(opts)` / `uiListEnd()`
@@ -126,7 +129,9 @@ function draw() {
 Core setup:
 - `mapper = new ProjectionMapper()`
 - `surface = mapper.add(w, h, name?)`
+- `mapper.removeLastSurface({ clearStorage=true })`
 - `mapper.render()`
+- bottom-right `100x100` hold for `3s` toggles mapper corner markers by default
 
 Persistence:
 - `saveAll()` / `loadAll()` (legacy per-surface localStorage keys)

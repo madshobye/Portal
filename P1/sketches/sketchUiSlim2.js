@@ -7,13 +7,14 @@ function setup() {
 
 function draw() {
   background(240);
+  const compact = { height: 24, fontSize: 12, padding: 5, margin: 5 };
 
   uiListStart({ x: 24, y: 24, width: 300, dir: "vertical" });
   uiText("uiSlim2 demo", { fontSize: 20, hAlign: "center", bgColor: "#dfe8ff" });
 
-  if (uiButton("Click me").clicked) clickCount++;
-  const speed = uiSlider("speed", "Speed", { min: 0, max: 100, init: 35 }).value;
-  const enabled = uiToggle("enabled", "Enabled").value;
+  if (uiButton("Click me", compact).clicked) clickCount++;
+  const speed = uiSlider("speed", "Speed", { min: 0, max: 100, init: 35, ...compact }).value;
+  const enabled = uiToggle("enabled", "Enabled", compact).value;
   const name = uiPromptText("name", "Name").value;
   uiListEnd();
 

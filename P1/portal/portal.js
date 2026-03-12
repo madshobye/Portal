@@ -1,5 +1,5 @@
 let v_major = 1;
-let v_minor = 94;
+let v_minor = 164;
 let pVersion =v_major + "." +v_minor
 let baseFont;
 let baseMonoFont;
@@ -287,6 +287,40 @@ function isValidQRCodeObject(qr) {
 
 let pSetupRun = false;
 
+function installLegacyUiAutopatchGuard() {
+  const state = (window.__portalLegacyUiAutopatchGuard ??= {
+    installed: false,
+    inSketchDraw: false,
+    warned: new Set(),
+  });
+  if (state.installed) return state;
+
+  const wrap = (name) => {
+    const original = window[name];
+    if (typeof original !== "function") return;
+    if (original.__portalLegacyGuardWrapped) return;
+
+    const wrapped = function(...args) {
+      if (state.inSketchDraw && !state.warned.has(name)) {
+        state.warned.add(name);
+        const err = new Error(
+          `Legacy Portal UI call detected: ${name}() was called inside sketch draw(). ` +
+          `Portal now auto-calls this from pSetup(), so remove the manual call from the sketch.`
+        );
+        console.error(err);
+      }
+      return original.apply(this, args);
+    };
+    wrapped.__portalLegacyGuardWrapped = true;
+    window[name] = wrapped;
+  };
+
+  wrap("uiUpdateSimple");
+  wrap("uiShowInfo");
+  state.installed = true;
+  return state;
+}
+
 async function pSetup() {
 	if(pSetupRun)
 	{
@@ -302,13 +336,19 @@ async function pSetup() {
   await loadLibraries();
   baseFont = await loadFont(baseURL + "assets/Rubik-Light.ttf");
   baseMonoFont = await loadFont(baseURL + "assets/RobotoMono-Regular.ttf");
+  const legacyUiGuard = installLegacyUiAutopatchGuard();
   
   textFont(baseFont);
   if (typeof window.draw === "function") {
     const originalDraw = window.draw;
     window.draw = function() {
       uiUpdateSimple();
-      originalDraw();
+      legacyUiGuard.inSketchDraw = true;
+      try {
+        originalDraw();
+      } finally {
+        legacyUiGuard.inSketchDraw = false;
+      }
       if (portalOverlayEnabled() && uiShowInfo) uiShowInfo();
     };
   }
@@ -420,40 +460,52 @@ function loadScript(url) {
   });
 }
 // ✅ Works with p5.js v2+
-// Example: const cam = setupWebcamera(320, 240, true, true);
+// Example: const cam = await setupWebcamera(false, 640, 480, true, false);
 
-function setupWebcamera(front = true, w = 640, h = 480,flipped = false) {
-  // Choose the facing mode
-   /* mandatory: {
-        minWidth: 1280,
-        minHeight: 720
-      },*/
-  
-  
+async function setupWebcamera(
+  front = true,
+  w = 640,
+  h = 480,
+  flipped = false,
+  maxTarget = false
+) {
+  const requestedW = Math.max(1, Number(w) || 640);
+  const requestedH = Math.max(1, Number(h) || 480);
+  const useMaxTarget = !!maxTarget;
+
   const constraints = {
     video: {
-    
-      width:   w ,
-      height:  h ,
-     
-      facingMode: front ? { ideal: "user" } : { ideal: "environment" }
-    
+      width: { ideal: requestedW },
+      height: { ideal: requestedH },
+      facingMode: front ? { ideal: "user" } : { ideal: "environment" },
     },
-    audio: false
+    audio: false,
   };
- print(constraints);
+  print(constraints);
 
-  // Use p5.js v2 `flipped` option directly
   const video = createCapture(constraints, { flipped });
- // print(video.getCapabilities());
-  // Configure the video element
-  video.size(w, h);
-  video.attribute("playsinline", "");  // iOS support
+  video.size(requestedW, requestedH);
+  video.attribute("playsinline", "");
   video.elt.muted = true;
   video.elt.autoplay = true;
-  video.hide();                        // Hide the DOM element (draw with image())
+  video.hide();
 
-  return video; // return the p5.MediaElement
+  await _waitForWebcameraReady(video);
+  await _applyTargetResolution(video, {
+    requestedW,
+    requestedH,
+    maxTarget: useMaxTarget,
+  });
+  syncVideoDimensions(video);
+  _dispatchWebcameraReady(video, {
+    front,
+    flipped,
+    requestedW,
+    requestedH,
+    maxTarget: useMaxTarget,
+  });
+
+  return video;
 }
 
 function syncVideoDimensions(p5Vid) {
@@ -473,6 +525,140 @@ function syncVideoDimensions(p5Vid) {
     // this sets CSS width/height for the <video>, doesn't affect pixels in draw()
     p5Vid.size(realW, realH);
   }
+}
+
+async function _waitForWebcameraReady(p5Vid, timeoutMs = 4000) {
+  const el = p5Vid?.elt;
+  if (!el) return;
+
+  const isReady = () =>
+    el.readyState >= 2 &&
+    Number(el.videoWidth) > 0 &&
+    Number(el.videoHeight) > 0;
+
+  try {
+    el.setAttribute?.("playsinline", "");
+    await el.play?.();
+  } catch {}
+
+  if (isReady()) {
+    syncVideoDimensions(p5Vid);
+    return;
+  }
+
+  await new Promise((resolve) => {
+    let done = false;
+    const finish = () => {
+      if (done) return;
+      done = true;
+      el.removeEventListener?.("loadeddata", onReady);
+      el.removeEventListener?.("loadedmetadata", onReady);
+      el.removeEventListener?.("playing", onReady);
+      clearTimeout(timer);
+      resolve();
+    };
+    const onReady = () => {
+      if (isReady()) finish();
+    };
+    const timer = setTimeout(finish, timeoutMs);
+
+    el.addEventListener?.("loadeddata", onReady);
+    el.addEventListener?.("loadedmetadata", onReady);
+    el.addEventListener?.("playing", onReady);
+  });
+
+  syncVideoDimensions(p5Vid);
+}
+
+async function _applyTargetResolution(
+  p5Vid,
+  { requestedW = 640, requestedH = 480, maxTarget = false } = {}
+) {
+  const track = p5Vid?.elt?.srcObject?.getVideoTracks?.()?.[0];
+  if (!track || typeof track.getCapabilities !== "function") return;
+
+  const caps = track.getCapabilities() || {};
+  const targetW = maxTarget
+    ? _pickMaxCapabilityValue(caps.width, requestedW)
+    : _pickClosestCapabilityValue(caps.width, requestedW);
+  const targetH = maxTarget
+    ? _pickMaxCapabilityValue(caps.height, requestedH)
+    : _pickClosestCapabilityValue(caps.height, requestedH);
+
+  if (!(targetW > 0 && targetH > 0) || typeof track.applyConstraints !== "function") return;
+
+  try {
+    await track.applyConstraints({
+      width: { ideal: targetW },
+      height: { ideal: targetH },
+    });
+    await _waitForWebcameraReady(p5Vid, 2500);
+  } catch (err) {
+    console.warn("setupWebcamera: could not apply target resolution constraints", err);
+  }
+}
+
+function _pickClosestCapabilityValue(capability, requestedValue) {
+  const requested = Math.max(1, Number(requestedValue) || 1);
+  if (capability == null) return requested;
+
+  const min = Number(capability.min);
+  const max = Number(capability.max);
+  const stepRaw = Number(capability.step);
+
+  if (!Number.isFinite(min) || !Number.isFinite(max) || max <= 0) {
+    return requested;
+  }
+
+  const clamped = constrain(requested, min, max);
+  if (!Number.isFinite(stepRaw) || stepRaw <= 0) {
+    return Math.round(clamped);
+  }
+
+  const offset = clamped - min;
+  const steps = offset / stepRaw;
+  const lower = min + Math.floor(steps) * stepRaw;
+  const upper = min + Math.ceil(steps) * stepRaw;
+  const closest = Math.abs(lower - clamped) <= Math.abs(upper - clamped) ? lower : upper;
+  return constrain(Math.round(closest), Math.round(min), Math.round(max));
+}
+
+function _pickMaxCapabilityValue(capability, fallbackValue) {
+  if (capability == null) return Math.max(1, Number(fallbackValue) || 1);
+  const max = Number(capability.max);
+  if (!Number.isFinite(max) || max <= 0) {
+    return Math.max(1, Number(fallbackValue) || 1);
+  }
+  return Math.round(max);
+}
+
+function _dispatchWebcameraReady(
+  p5Vid,
+  {
+    front = true,
+    flipped = false,
+    requestedW = 0,
+    requestedH = 0,
+    maxTarget = false,
+  } = {}
+) {
+  const el = p5Vid?.elt;
+  if (!el) return;
+
+  const detail = {
+    video: p5Vid,
+    width: Number(el.videoWidth || p5Vid.width || 0),
+    height: Number(el.videoHeight || p5Vid.height || 0),
+    requestedWidth: Number(requestedW || 0),
+    requestedHeight: Number(requestedH || 0),
+    front: !!front,
+    flipped: !!flipped,
+    maxTarget: !!maxTarget,
+  };
+
+  const ev = new CustomEvent("portal:webcamera-ready", { detail });
+  window.dispatchEvent(ev);
+  el.dispatchEvent(new CustomEvent("portal:webcamera-ready", { detail }));
 }
 
 

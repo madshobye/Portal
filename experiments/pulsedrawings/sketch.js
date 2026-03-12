@@ -8,6 +8,12 @@ const STEP_MAX = 110;
 const PULSE_INTERVAL_MS = 60 * 1000;
 const HEARTBEAT_TRIGGER_OFFSET_SEC = 0.01;
 const USE_SILENT_BLUETOOTH_KEEPALIVE = true;
+const SURFACE_W = 1920;
+const SURFACE_H = 1080;
+const PLANE_COUNT_STORAGE_KEY = "pulsedrawings:planeCount";
+const MIN_PLANES = 1;
+const MAX_PLANES = 8;
+
 let heartRate;
 let heartRateStatus = "idle";
 let bpm = 0;
@@ -16,14 +22,13 @@ let rr = [];
 
 let pulseSound = null;
 let pulseImages = [];
-let sceneLayer;
+let planes = [];
+let mapper;
 let imagesReady = false;
 let invertFilterEnabled = false;
 
 let autoPulseEnabled = false;
 let heartbeatEnabled = true;
-let currentImageIndex = 0;
-let previousImageIndex = -1;
 let rotationValue = 0;
 let stepCounter = 0;
 let numSteps = 50;
@@ -34,18 +39,30 @@ let audioUnlocked = false;
 let heartbeatVolume = 0.8;
 
 async function setup() {
-  createCanvas(windowWidth, windowHeight);
+  createCanvas(windowWidth, windowHeight, WEBGL);
   frameRate(30);
   noStroke();
   imageMode(CENTER);
-
-  loadGoogleFont("Roboto Mono");
-  textFont("Roboto Mono");
-
-  sceneLayer = createGraphics(windowWidth, windowHeight);
-  sceneLayer.imageMode(CENTER);
+  if (typeof baseMonoFont !== "undefined" && baseMonoFont) {
+    textFont(baseMonoFont);
+  } else if (typeof baseFont !== "undefined" && baseFont) {
+    textFont(baseFont);
+  }
 
   await loadScript("portal/heartRateBLE.js");
+  await loadScript("portal/mapper.js");
+
+  mapper = new ProjectionMapper();
+  mapper.followDebugOverlayVisibility(true);
+  if (typeof baseMonoFont !== "undefined" && baseMonoFont) {
+    mapper.setFont(baseMonoFont);
+  } else if (typeof baseFont !== "undefined" && baseFont) {
+    mapper.setFont(baseFont);
+  }
+
+  const storedPlaneCount = getStoredPlaneCount();
+  for (let i = 0; i < storedPlaneCount; i++) addPlane(false);
+  mapper.loadAll();
 
   heartRate = await new HeartRateBLE({
     autoReconnect: true,
@@ -60,7 +77,7 @@ async function setup() {
   setupAudioUnlock();
   pulseImages = await loadPulseImages();
   imagesReady = pulseImages.length > 0;
-  currentImageIndex = floor(random(max(1, pulseImages.length)));
+  randomizeAllPlaneImages();
   heartbeatEnabled = !!uiGetState("pulse.heartbeat", heartbeatEnabled);
   numSteps = round(uiGetState("pulse.steps", numSteps));
   invertFilterEnabled = !!uiGetState("pulse.invert", invertFilterEnabled);
@@ -75,6 +92,8 @@ function draw() {
   consumeHeartRate();
   updatePulseEngine();
   renderScene();
+  background(invertFilterEnabled ? 0 : 255);
+  mapper?.render();
   uiDrawOnDebugOverlay((overlay) => {
     uiUseGraphics(overlay);
     renderUi();
@@ -84,8 +103,6 @@ function draw() {
 
 function windowResized() {
   resizeCanvas(windowWidth, windowHeight);
-  sceneLayer = createGraphics(windowWidth, windowHeight);
-  sceneLayer.imageMode(CENTER);
 }
 
 function keyReleased() {
@@ -109,6 +126,68 @@ async function loadPulseImages() {
     } catch {}
   }
   return out;
+}
+
+function getStoredPlaneCount() {
+  try {
+    const raw = Number(localStorage.getItem(PLANE_COUNT_STORAGE_KEY));
+    if (Number.isFinite(raw)) return constrain(round(raw), MIN_PLANES, MAX_PLANES);
+  } catch {}
+  return MIN_PLANES;
+}
+
+function setStoredPlaneCount(count) {
+  try {
+    localStorage.setItem(
+      PLANE_COUNT_STORAGE_KEY,
+      String(constrain(round(count), MIN_PLANES, MAX_PLANES))
+    );
+  } catch {}
+}
+
+function planeName(index) {
+  return `pulse_drawings_surface_${index + 1}`;
+}
+
+function randomImageIndex() {
+  return floor(random(max(1, pulseImages.length)));
+}
+
+function createPlane(index) {
+  const surface = mapper.add(SURFACE_W, SURFACE_H, planeName(index));
+  surface.imageMode(CENTER);
+  const buffer = createGraphics(SURFACE_W, SURFACE_H);
+  buffer.imageMode(CENTER);
+  return {
+    name: planeName(index),
+    surface,
+    buffer,
+    currentImageIndex: randomImageIndex(),
+    previousImageIndex: -1,
+  };
+}
+
+function addPlane(persist = true) {
+  if (!mapper || planes.length >= MAX_PLANES) return false;
+  const plane = createPlane(planes.length);
+  planes.push(plane);
+  if (persist) setStoredPlaneCount(planes.length);
+  return true;
+}
+
+function removePlane(persist = true) {
+  if (!mapper || planes.length <= MIN_PLANES) return false;
+  mapper.removeLastSurface({ clearStorage: true });
+  planes.pop();
+  if (persist) setStoredPlaneCount(planes.length);
+  return true;
+}
+
+function randomizeAllPlaneImages() {
+  for (const plane of planes) {
+    plane.currentImageIndex = randomImageIndex();
+    plane.previousImageIndex = -1;
+  }
 }
 
 function consumeHeartRate() {
@@ -193,15 +272,17 @@ function nextStep() {
 
   if (stepCounter === 0) {
     rotationValue = rotationValue % TWO_PI;
-    chooseNextImage();
+    chooseNextImages();
   }
 }
 
-function chooseNextImage() {
+function chooseNextImages() {
   if (pulseImages.length <= 1) return;
-  previousImageIndex = currentImageIndex;
-  while (currentImageIndex === previousImageIndex) {
-    currentImageIndex = floor(random(pulseImages.length));
+  for (const plane of planes) {
+    plane.previousImageIndex = plane.currentImageIndex;
+    while (plane.currentImageIndex === plane.previousImageIndex) {
+      plane.currentImageIndex = floor(random(pulseImages.length));
+    }
   }
 }
 
@@ -211,40 +292,54 @@ function resetPulseClock() {
 }
 
 function renderScene() {
-  sceneLayer.background(255);
+  if (!planes.length) return;
 
-  if (!imagesReady || !pulseImages.length) {
-    background(invertFilterEnabled ? 0 : 255);
-    fill(invertFilterEnabled ? 255 : 0);
-    textAlign(CENTER, CENTER);
-    textSize(22);
-    text("Loading pulse drawings...", width * 0.5, height * 0.5);
-    return;
-  }
+  for (const plane of planes) {
+    plane.buffer.clear();
 
-  const img = pulseImages[currentImageIndex];
-  if (img) {
-    const fitScale = min(
-      sceneLayer.width / max(1, img.width),
-      sceneLayer.height / max(1, img.height)
-    );
-    const drawW = img.width * fitScale;
-    const drawH = img.height * fitScale;
+    if (!imagesReady || !pulseImages.length) {
+      plane.buffer.push();
+      plane.buffer.fill(0);
+      plane.buffer.noStroke();
+      plane.buffer.textAlign(CENTER, CENTER);
+      plane.buffer.textSize(22);
+      plane.buffer.text("Loading pulse drawings...", plane.buffer.width * 0.5, plane.buffer.height * 0.5);
+      plane.buffer.pop();
+      plane.surface.clear();
+      if (invertFilterEnabled) {
+        const filtered = plane.buffer.get();
+        filtered.filter(INVERT);
+        plane.surface.image(filtered, plane.surface.width * 0.5, plane.surface.height * 0.5);
+      } else {
+        plane.surface.image(plane.buffer, plane.surface.width * 0.5, plane.surface.height * 0.5);
+      }
+      continue;
+    }
 
-    sceneLayer.push();
-    sceneLayer.translate(sceneLayer.width * 0.5, sceneLayer.height * 0.5);
-    sceneLayer.rotate(rotationValue);
-    sceneLayer.image(img, 0, 0, drawW, drawH);
-    sceneLayer.pop();
-  }
+    const img = pulseImages[plane.currentImageIndex];
+    if (img) {
+      const fitScale = min(
+        plane.buffer.width / max(1, img.width),
+        plane.buffer.height / max(1, img.height)
+      );
+      const drawW = img.width * fitScale;
+      const drawH = img.height * fitScale;
 
-  background(invertFilterEnabled ? 0 : 255);
-  if (invertFilterEnabled) {
-    const filtered = sceneLayer.get();
-    filtered.filter(INVERT);
-    image(filtered, width * 0.5, height * 0.5);
-  } else {
-    image(sceneLayer, width * 0.5, height * 0.5);
+      plane.buffer.push();
+      plane.buffer.translate(plane.buffer.width * 0.5, plane.buffer.height * 0.5);
+      plane.buffer.rotate(rotationValue);
+      plane.buffer.image(img, 0, 0, drawW, drawH);
+      plane.buffer.pop();
+    }
+
+    plane.surface.clear();
+    if (invertFilterEnabled) {
+      const filtered = plane.buffer.get();
+      filtered.filter(INVERT);
+      plane.surface.image(filtered, plane.surface.width * 0.5, plane.surface.height * 0.5);
+    } else {
+      plane.surface.image(plane.buffer, plane.surface.width * 0.5, plane.surface.height * 0.5);
+    }
   }
 }
 
@@ -253,11 +348,17 @@ function renderUi() {
   const isConnected = !!connection.connected;
   const isConnecting = !!connection.connecting;
   const canRefreshReconnect = typeof navigator?.bluetooth?.getDevices === "function";
+  const compactControlStyle = { height: 24, fontSize: 12, padding: 5, margin: 5, rounding: 4 };
 
-  uiListStart({ x: 20, y: 20, width: 260, dir: "vertical" });
-  uiText("Pulse Drawings", { fontSize: 20, hAlign: "center", bgColor: "#eaeaea" });
+  uiListStart({ x: 30, y: 40, width: 156, dir: "vertical" });
 
-  const connectButton = uiButton("Connect Pulse");
+  const connectLabel = isConnecting
+    ? "Pulse connecting..."
+    : `Connect Pulse${isConnected ? " (con)" : ""}`;
+  const connectButton = uiButton(connectLabel, {
+    ...compactControlStyle,
+    bgColor: isConnecting ? "#fff1cc" : (isConnected ? "#dcefd9" : "#d0d0d0"),
+  });
   if (connectButton.clicked) {
     ensureAudioUnlocked().catch(() => {});
     heartRate.connect().catch((err) => {
@@ -265,21 +366,8 @@ function renderUi() {
     });
   }
 
-  if (isConnecting) {
-    uiText("Pulse: connecting...", { bgColor: "#fff1cc", hAlign: "center" });
-  } else if (isConnected) {
-    uiText(`Pulse connected${connection.deviceName ? `: ${connection.deviceName}` : ""}`, {
-      bgColor: "#dcefd9",
-      hAlign: "center",
-    });
-  } else if (!canRefreshReconnect) {
-    uiText("Refresh reconnect unsupported here", {
-      bgColor: "#f2e3bf",
-      hAlign: "center",
-    });
-  }
-
-  const nextAutoPulseEnabled = uiToggle("pulse.autoPulse", "Start Pulse", {
+  const nextAutoPulseEnabled = uiToggle("pulse.autoPulse", "Play / Pause", {
+    ...compactControlStyle,
     onBgColor: "#dcefd9",
     offBgColor: "#d0d0d0",
   }).value;
@@ -289,15 +377,23 @@ function renderUi() {
     resetPulseClock();
   }
 
-  const pulseOnceButton = uiButton("Pulse Once");
-  if (pulseOnceButton.clicked) {
-    ensureAudioUnlocked().catch(() => {});
-    triggerPulseStep();
-    nextStep();
-    resetPulseClock();
+  const addPlaneButton = uiButton("Add Plane", compactControlStyle);
+  if (addPlaneButton.clicked) {
+    addPlane(true);
+  }
+
+  const removePlaneButton = uiButton("Remove Plane", compactControlStyle);
+  if (removePlaneButton.clicked) {
+    removePlane(true);
+  }
+
+  const clearMappingButton = uiButton("Clear Mapping", compactControlStyle);
+  if (clearMappingButton.clicked) {
+    mapper?.resetAll();
   }
 
   heartbeatEnabled = uiToggle("pulse.heartbeat", "Heartbeat Audio", {
+    ...compactControlStyle,
     onBgColor: "#dcefd9",
     offBgColor: "#d0d0d0",
   }).value;
@@ -306,10 +402,12 @@ function renderUi() {
     min: 0,
     max: 1,
     init: heartbeatVolume,
+    ...compactControlStyle,
   }).value;
   if (pulseSound) pulseSound.setVolume(heartbeatVolume);
 
   invertFilterEnabled = uiToggle("pulse.invert", "Invert Drawing", {
+    ...compactControlStyle,
     onBgColor: "#d7e7ff",
     offBgColor: "#d0d0d0",
   }).value;
@@ -318,18 +416,20 @@ function renderUi() {
     min: -20,
     max: 20,
     init: bpmOffset,
+    ...compactControlStyle,
   }).value);
 
   numSteps = round(uiSlider("pulse.steps", "Steps", {
     min: STEP_MIN,
     max: STEP_MAX,
     init: numSteps,
+    ...compactControlStyle,
   }).value);
 
   uiListEnd();
 
   fill(0);
-  textSize(15);
+  textSize(12);
   textAlign(LEFT, TOP);
   text(`status: ${heartRateStatus}`, 300, 20);
   text(`connection: ${isConnected ? "connected" : isConnecting ? "connecting" : "disconnected"}`, 300, 42);
@@ -339,8 +439,10 @@ function renderUi() {
   text(`offset: ${bpmOffset >= 0 ? "+" : ""}${bpmOffset}`, 300, 130);
   text(`audio: ${audioUnlocked ? "unlocked" : "tap a control after refresh"}`, 300, 152);
   text(`volume: ${nf(heartbeatVolume, 1, 2)}`, 300, 174);
-  text(`rr count: ${rr.length}`, 300, 196);
-  text(`frame: ${currentImageIndex + 1}/${pulseImages.length}`, 300, 218);
-  text(`step: ${stepCounter}/${numSteps}`, 300, 240);
-  text(`invert: ${invertFilterEnabled ? "on" : "off"}`, 300, 262);
+  text(`mapper: ${typeof uiIsDebugOverlayVisible === "function" && uiIsDebugOverlayVisible() ? "adjusting" : "locked"}`, 300, 196);
+  text(`planes: ${planes.length}`, 300, 218);
+  text(`rr count: ${rr.length}`, 300, 240);
+  text(`frame: ${planes[0] ? planes[0].currentImageIndex + 1 : "-"}${pulseImages.length ? `/${pulseImages.length}` : ""}`, 300, 262);
+  text(`step: ${stepCounter}/${numSteps}`, 300, 284);
+  text(`invert: ${invertFilterEnabled ? "on" : "off"}`, 300, 306);
 }

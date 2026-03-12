@@ -115,20 +115,7 @@ function drawHud() {
   pop();
 }
 
-function mousePressed() {
-  mapper?.mousePressed(mouseX, mouseY);
-}
-
-function mouseDragged() {
-  mapper?.mouseDragged(mouseX, mouseY);
-}
-
-function mouseReleased() {
-  mapper?.mouseReleased();
-}
-
 function keyPressed() {
-  mapper?.keyPressed(key);
   if (key === "f" || key === "F") {
     fullScreenToggle();
   }

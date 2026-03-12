@@ -51,8 +51,20 @@ class ProjectionMapper {
     this.debugPassthrough = false; // shader on, but no homography
     this.pickRadius = 60;
     this.calibrate = true; // draw & interact with corner handles
+    this.followDebugOverlay = false;
+    this._onDebugOverlayChange = null;
+    this.bottomLeftToggleEnabled = true;
+    this.bottomLeftToggleHoldMs = 3000;
+    this.bottomLeftToggleSize = 100;
+    this._bottomLeftHoldStartMs = 0;
+    this._bottomLeftHoldFired = false;
+    this.autoSave = true;
+    this.autoSaveDelayMs = 0;
+    this._autoSaveTimer = null;
+    this._overlayLabelLayer = null;
     this._dragSurf = -1; // index of surface being dragged
     this._dragCorner = -1; // which corner in that surface
+    this.defaultMargin = 60;
 
     // optional overlay font for labels (set via setFont)
     this._overlayFont = null;
@@ -65,17 +77,73 @@ class ProjectionMapper {
         pixelDensity(opts.pixelDensity);
       }
     }
-    
   }
 
   setFont(font) {
     this._overlayFont = font;
+    this.surfaces.forEach((s) => {
+      if (s?.pg && typeof s.pg.textFont === "function") {
+        s.pg.textFont(font);
+      }
+    });
   }
   setCalibrate(on) {
     this.calibrate = !!on;
   }
+  setShowCorners(on) {
+    this.setCalibrate(on);
+  }
   toggleCalibrate() {
     this.calibrate = !this.calibrate;
+  }
+  toggleShowCorners() {
+    this.toggleCalibrate();
+  }
+  isCalibrating() {
+    return !!this.calibrate;
+  }
+  isActive() {
+    return this._dragSurf !== -1 && this._dragCorner !== -1;
+  }
+  screenToSurface(mx, my, { surface = null, padding = 0 } = {}) {
+    const touchX = Number(mx);
+    const touchY = Number(my);
+    if (!Number.isFinite(touchX) || !Number.isFinite(touchY)) return null;
+
+    const candidates =
+      surface == null
+        ? this.surfaces.map((s, index) => ({ s, index })).reverse()
+        : this._resolveSurfaceRefs(surface);
+
+    for (const entry of candidates) {
+      const hit = this._screenToSurfaceOn(entry.s, entry.index, touchX, touchY, padding);
+      if (hit) return hit;
+    }
+    return null;
+  }
+  followDebugOverlayVisibility(on = true) {
+    const next = !!on;
+    if (this.followDebugOverlay === next) return;
+    this.followDebugOverlay = next;
+
+    if (this._onDebugOverlayChange) {
+      window.removeEventListener("uiSlim:debugOverlayChange", this._onDebugOverlayChange);
+      this._onDebugOverlayChange = null;
+    }
+
+    if (this.followDebugOverlay) {
+      this._onDebugOverlayChange = (event) => {
+        this.calibrate = !!event?.detail?.visible;
+      };
+      window.addEventListener("uiSlim:debugOverlayChange", this._onDebugOverlayChange);
+      if (typeof uiIsDebugOverlayVisible === "function") {
+        this.calibrate = !!uiIsDebugOverlayVisible();
+      }
+    }
+  }
+  setAutoSave(on = true, delayMs = this.autoSaveDelayMs) {
+    this.autoSave = !!on;
+    this.autoSaveDelayMs = Math.max(0, Number(delayMs) || 0);
   }
   setPickRadius(px) {
     this.pickRadius = px;
@@ -87,24 +155,34 @@ class ProjectionMapper {
     this.debugBypass = !!bypass;
     this.debugPassthrough = !!passthrough;
   }
+  setBottomLeftToggle({
+    enabled = this.bottomLeftToggleEnabled,
+    holdMs = this.bottomLeftToggleHoldMs,
+    size = this.bottomLeftToggleSize,
+  } = {}) {
+    this.bottomLeftToggleEnabled = !!enabled;
+    this.bottomLeftToggleHoldMs = Math.max(0, Number(holdMs) || 0);
+    this.bottomLeftToggleSize = Math.max(16, Number(size) || 100);
+  }
 
   // Add a new mapped surface; returns its p5.Graphics so the user can draw on it.
   // name: unique string; w/h: texture resolution in pixels (rectangles supported)
   add(w, h, name = `surface_${this.surfaces.length + 1}`) {
     const pg = createGraphics(w, h);
     pg.pixelDensity(1);
+    if (this._overlayFont && typeof pg.textFont === "function") {
+      pg.textFont(this._overlayFont);
+    }
 
     const W = width,
       H = height;
-    const margin = Math.min(W, H) * 0.15;
-    // default corners: centered rectangle scaled to ~70% of canvas, offset for each surface
-    const dx = (this.surfaces.length % 2) * 40; // slight offset to avoid overlap on adds
-    const dy = Math.floor(this.surfaces.length / 2) * 40;
+    const m = this.defaultMargin;
+    // default corners: inset rectangle
     const corners = [
-      createVector(margin + dx, margin + dy),
-      createVector(W - margin + dx, margin + dy),
-      createVector(W - margin + dx, H - margin + dy),
-      createVector(margin + dx, H - margin + dy),
+      createVector(m, m),
+      createVector(W - m, m),
+      createVector(W - m, H - m),
+      createVector(m, H - m),
     ];
 
     const storageKey = `pm_surface_${name}`;
@@ -122,12 +200,24 @@ class ProjectionMapper {
     return pg; // So the caller can draw: pg = mapper.add(...)
   }
 
+  removeLastSurface({ clearStorage = true } = {}) {
+    if (!this.surfaces.length) return null;
+    const removed = this.surfaces.pop();
+    if (clearStorage && removed?.storageKey) {
+      try {
+        localStorage.removeItem(removed.storageKey);
+      } catch {}
+    }
+    return removed || null;
+  }
+
   saveAll() {
     this.surfaces.forEach((s) => {
       try {
+        const payload = s.corners.map((v) => ({ x: v.x, y: v.y }));
         localStorage.setItem(
           s.storageKey,
-          JSON.stringify(s.corners.map((v) => ({ x: v.x, y: v.y })))
+          JSON.stringify(payload)
         );
       } catch (e) {}
     });
@@ -226,21 +316,23 @@ class ProjectionMapper {
   resetAll() {
     const W = width,
       H = height;
-    const margin = Math.min(W, H) * 0.15;
-    this.surfaces.forEach((s, idx) => {
-      const dx = (idx % 2) * 40;
-      const dy = Math.floor(idx / 2) * 40;
+    const m = this.defaultMargin;
+    this.surfaces.forEach((s) => {
       s.corners = [
-        createVector(margin + dx, margin + dy),
-        createVector(W - margin + dx, margin + dy),
-        createVector(W - margin + dx, H - margin + dy),
-        createVector(margin + dx, H - margin + dy),
+        createVector(m, m),
+        createVector(W - m, m),
+        createVector(W - m, H - m),
+        createVector(m, H - m),
       ];
     });
+    this._saveNow();
   }
 
   // Call in draw(): renders all surfaces with inverse-homography per-pixel mapping.
   render() {
+    this._syncUiSlimInput();
+    this._handleBottomLeftToggle();
+
     if (this.debugBypass) {
       // Draw each texture directly tiled; helpful sanity check
       const W2 = width * 0.5,
@@ -319,6 +411,7 @@ class ProjectionMapper {
   mouseReleased() {
     if (this._dragSurf !== -1) {
       this.surfaces[this._dragSurf].dragging = -1;
+      this.saveAll();
     }
     this._dragSurf = -1;
     this._dragCorner = -1;
@@ -390,7 +483,9 @@ class ProjectionMapper {
 
   _drawOverlays() {
     // Update hover indices
-    const pick = this._pickCorner(mouseX, mouseY);
+    const px = typeof uiMX !== "undefined" ? uiMX : mouseX;
+    const py = typeof uiMY !== "undefined" ? uiMY : mouseY;
+    const pick = this._pickCorner(px, py);
     this.surfaces.forEach((s, si) => {
       s.hoverIndex = pick && pick.si === si ? pick.ci : -1;
     });
@@ -402,6 +497,16 @@ class ProjectionMapper {
     push();
     const W2 = width * 0.5,
       H2 = height * 0.5;
+    const labelLayer = this._overlayFont ? this._getOverlayLabelLayer() : null;
+    if (labelLayer) {
+      labelLayer.clear();
+      labelLayer.push();
+      labelLayer.fill(255);
+      labelLayer.noStroke();
+      labelLayer.textFont(this._overlayFont);
+      labelLayer.textSize(13);
+      labelLayer.textAlign(LEFT, BOTTOM);
+    }
     this.surfaces.forEach((s) => {
       // outline
       stroke(0, 255, 255);
@@ -426,18 +531,77 @@ class ProjectionMapper {
         );
         fill(isActive ? 255 : 210);
         circle(sx, sy, 16);
-        if (this._overlayFont) {
-          fill(255);
-          textFont(this._overlayFont);
-          textSize(13);
-          textAlign(LEFT, BOTTOM);
-          text(`${s.name} #${i}`, sx + 14, sy - 8);
+        if (labelLayer) {
+          labelLayer.text(`${s.name} #${i}`, s.corners[i].x + 14, s.corners[i].y - 8);
         }
       }
     });
     pop();
 
+    if (labelLayer) {
+      labelLayer.pop();
+      push();
+      imageMode(CORNER);
+      image(labelLayer, -W2, -H2, width, height);
+      pop();
+    }
+
     if (gl && gl.enable) gl.enable(gl.DEPTH_TEST);
+  }
+
+  _getOverlayLabelLayer() {
+    if (
+      !this._overlayLabelLayer ||
+      this._overlayLabelLayer.width !== width ||
+      this._overlayLabelLayer.height !== height
+    ) {
+      this._overlayLabelLayer = createGraphics(width, height);
+      this._overlayLabelLayer.pixelDensity(1);
+    }
+    return this._overlayLabelLayer;
+  }
+
+  _resolveSurfaceRefs(surface) {
+    if (Number.isInteger(surface)) {
+      const s = this.surfaces[surface];
+      return s ? [{ s, index: surface }] : [];
+    }
+    if (typeof surface === "string") {
+      const index = this.surfaces.findIndex((s) => s.name === surface);
+      return index >= 0 ? [{ s: this.surfaces[index], index }] : [];
+    }
+    const index = this.surfaces.indexOf(surface);
+    return index >= 0 ? [{ s: this.surfaces[index], index }] : [];
+  }
+
+  _screenToSurfaceOn(surface, surfaceIndex, mx, my, padding = 0) {
+    if (!surface || !Array.isArray(surface.corners) || surface.corners.length !== 4) {
+      return null;
+    }
+    const H = this._computeHomographyDLT(surface.corners);
+    const Hinv = this._invert3x3(H);
+    if (!Hinv) return null;
+
+    const qx = Hinv[0] * mx + Hinv[1] * my + Hinv[2];
+    const qy = Hinv[3] * mx + Hinv[4] * my + Hinv[5];
+    const qz = Hinv[6] * mx + Hinv[7] * my + Hinv[8];
+    if (!Number.isFinite(qz) || Math.abs(qz) < 1e-9) return null;
+
+    const u = qx / qz;
+    const v = qy / qz;
+    if (u < -padding || u > 1 + padding || v < -padding || v > 1 + padding) {
+      return null;
+    }
+
+    return {
+      surface,
+      surfaceIndex,
+      name: surface.name,
+      u,
+      v,
+      x: u * surface.w,
+      y: v * surface.h,
+    };
   }
 
   _pickCorner(mx, my) {
@@ -578,17 +742,119 @@ class ProjectionMapper {
     ];
   }
 
+  _queueAutoSave() {
+    if (!this.autoSave) return;
+    if (this.autoSaveDelayMs <= 0) {
+      this._persistAutoSave();
+      return;
+    }
+    if (this._autoSaveTimer) clearTimeout(this._autoSaveTimer);
+    this._autoSaveTimer = setTimeout(() => {
+      this._autoSaveTimer = null;
+      this._persistAutoSave();
+    }, this.autoSaveDelayMs);
+  }
+
+  _saveNow() {
+    if (this._autoSaveTimer) {
+      clearTimeout(this._autoSaveTimer);
+      this._autoSaveTimer = null;
+    }
+    if (!this.autoSave) return;
+    this._persistAutoSave();
+  }
+
+  _persistAutoSave() {
+    this.saveAll();
+  }
+
+  _handleBottomLeftToggle() {
+    if (!this.bottomLeftToggleEnabled) return;
+    const pointer = this._getActivePointer();
+    if (!pointer) {
+      this._bottomLeftHoldStartMs = 0;
+      this._bottomLeftHoldFired = false;
+      return;
+    }
+
+    if (!this._isInBottomLeftToggleZone(pointer.x, pointer.y)) {
+      this._bottomLeftHoldStartMs = 0;
+      this._bottomLeftHoldFired = false;
+      return;
+    }
+
+    const now = (typeof millis === "function") ? millis() : Date.now();
+    if (!this._bottomLeftHoldStartMs) {
+      this._bottomLeftHoldStartMs = now;
+      this._bottomLeftHoldFired = false;
+    }
+
+    if (
+      !this._bottomLeftHoldFired &&
+      now - this._bottomLeftHoldStartMs >= this.bottomLeftToggleHoldMs
+    ) {
+      this.calibrate = !this.calibrate;
+      this._bottomLeftHoldFired = true;
+    }
+  }
+
+  _getActivePointer() {
+    if (Array.isArray(globalThis.touches) && globalThis.touches.length > 0) {
+      const t = globalThis.touches[0];
+      return { x: Number(t.x), y: Number(t.y) };
+    }
+    if (typeof mouseIsPressed !== "undefined" && mouseIsPressed) {
+      return { x: Number(mouseX), y: Number(mouseY) };
+    }
+    return null;
+  }
+
+  _isInBottomLeftToggleZone(x, y) {
+    return (
+      x >= width - this.bottomLeftToggleSize &&
+      x <= width &&
+      y >= height - this.bottomLeftToggleSize &&
+      y <= height
+    );
+  }
+
+  _syncUiSlimInput() {
+    if (typeof uiMP === "undefined") return;
+
+    const px = typeof uiMX !== "undefined" ? uiMX : mouseX;
+    const py = typeof uiMY !== "undefined" ? uiMY : mouseY;
+    const pxOld = typeof uiMXOld !== "undefined" ? uiMXOld : px;
+    const pyOld = typeof uiMYOld !== "undefined" ? uiMYOld : py;
+    const pressed = !!uiMP;
+    const pressedOld = !!uiMPOld;
+    const moved = px !== pxOld || py !== pyOld;
+
+    if (pressed && !pressedOld) {
+      this.mousePressed(px, py);
+    } else if (pressed && moved) {
+      this.mouseDragged(px, py);
+    } else if (!pressed && pressedOld) {
+      this.mouseReleased();
+    }
+
+    if (typeof uiKeyPressed !== "undefined" && typeof uiKeyPressedOld !== "undefined") {
+      if (uiKeyPressed && !uiKeyPressedOld && typeof uiKey !== "undefined") {
+        this.keyPressed(uiKey);
+      }
+    }
+  }
+
   keyPressed(key) {
-    if (key === "c" || key === "C") mapper.toggleCalibrate();
-    if (key === "s" || key === "S") mapper.saveAll();
-    if (key === "l" || key === "L") mapper.loadAll();
-    if (key === "r" || key === "R") mapper.resetAll();
+    if (key === "c" || key === "C") this.toggleCalibrate();
+    if (key === "s" || key === "S") this.saveAll();
+    if (key === "l" || key === "L") this.loadAll();
+    if (key === "r" || key === "R") this.resetAll();
     if (key === "d" || key === "D")
-      mapper.setDebug({ bypass: !mapper.debugBypass });
+      this.setDebug({ bypass: !this.debugBypass });
     if (key === "g" || key === "G")
-      mapper.setDebug({
-        bypass: mapper.debugBypass,
-        passthrough: !mapper.debugPassthrough,
+      this.setDebug({
+        bypass: this.debugBypass,
+        passthrough: !this.debugPassthrough,
       });
   }
 }

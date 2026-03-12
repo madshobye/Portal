@@ -38,7 +38,13 @@ let uiPointerSource = "mouse";
 let uiMultiTouch = null;
 let uiActiveTouchId = null;
 let uiGraphicsTarget = null;
-const UI_CORNER_GESTURE_HOLD_MS = 10000;
+const _uiSliderDragState = {
+  id: null,
+};
+const UI_CORNER_GESTURE_HOLD_MS = 3000;
+const UI_DEBUG_HOLD_MS = 3000;
+const UI_DEBUG_HOLD_INSET_PX = 0;
+const UI_DEBUG_HOLD_SIZE_PX = 100;
 const UI_DEBUG_OVERLAY_STORAGE_KEY = "uiSlim2.debugOverlay.visible";
 const _uiShortcutState = (window.__uiShortcutState ??= {
   fullscreenRequested: false,
@@ -47,6 +53,9 @@ const _uiShortcutState = (window.__uiShortcutState ??= {
   cornerGestureStartMs: 0,
   cornerGestureFired: false,
   cornerGestureCorners: [],
+  debugHoldRequested: false,
+  debugHoldStartMs: 0,
+  debugHoldFired: false,
 });
 
 if (!window.__uiSlimShortcutListenerInstalled) {
@@ -110,6 +119,7 @@ let uiBaseStyle = {
   common: {
     font: undefined,      // p5.Font or undefined
     fontSize: 15,
+    height: 32,
     textColor: '#000000',
     padding: 8,
     margin: 8,
@@ -121,18 +131,23 @@ let uiBaseStyle = {
     hAlign: 'left',   // 'left' | 'center' | 'right'
     vAlign: 'middle', // 'top' | 'middle' | 'bottom'
   },
-  button: { height: 32 },
-  slider: { height: 28, trackColor: '#f2f2f2', fillColor: '#7aa7ff', min: 0, max: 1 },
-  toggle: { height: 32, onBgColor: '#d7f7de', offBgColor: 'gray' },
-  text: { height: 32 },
-  promptText: { height: 32 },
+  button: { },
+  slider: { trackColor: '#f2f2f2', fillColor: '#7aa7ff', min: 0, max: 1 },
+  toggle: { onBgColor: '#d7f7de', offBgColor: 'gray' },
+  text: { },
+  promptText: { },
   list: { dir: 'vertical', width: 220, x: 0, y: 0 }
 };
 function uiSetBaseStyle(newBase={}){ uiBaseStyle = uiMergeDeep({}, uiBaseStyle, newBase); }
+function uiIsPlainObject(value){
+  if (!value || typeof value !== 'object') return false;
+  const proto = Object.getPrototypeOf(value);
+  return proto === Object.prototype || proto === null;
+}
 function uiMergeDeep(target, ...sources){
   for(const src of sources){ if(!src) continue; for(const k of Object.keys(src)){
     const v = src[k];
-    if(v && typeof v==='object' && !Array.isArray(v)) target[k] = uiMergeDeep(target[k]||{}, v);
+    if(uiIsPlainObject(v)) target[k] = uiMergeDeep(uiIsPlainObject(target[k]) ? target[k] : {}, v);
     else target[k] = v;
   }} return target;
 }
@@ -216,6 +231,7 @@ function uiResolvePointerInput() {
 
   if (!mt || typeof mt.getTouchesRaw !== "function") {
     uiResetCornerGesture();
+    uiUpdateDebugHoldGesture(fallback.x, fallback.y, fallback.pressed, fallback.source);
     uiPointerSource = fallback.source;
     return fallback;
   }
@@ -224,6 +240,7 @@ function uiResolvePointerInput() {
   uiUpdateCornerGesture(touches);
   if (!Array.isArray(touches) || touches.length === 0) {
     uiActiveTouchId = null;
+    uiUpdateDebugHoldGesture(fallback.x, fallback.y, fallback.pressed, fallback.source);
     uiPointerSource = fallback.source;
     return fallback;
   }
@@ -238,12 +255,13 @@ function uiResolvePointerInput() {
   }
 
   if (!active) {
+    uiUpdateDebugHoldGesture(fallback.x, fallback.y, fallback.pressed, fallback.source);
     uiPointerSource = fallback.source;
     return fallback;
   }
 
   uiPointerSource = "touch";
-  return {
+  const pointer = {
     x: Number(active.x ?? fallback.x),
     y: Number(active.y ?? fallback.y),
     pressed: true,
@@ -251,6 +269,8 @@ function uiResolvePointerInput() {
     touchId: uiActiveTouchId,
     touchCount: touches.length,
   };
+  uiUpdateDebugHoldGesture(pointer.x, pointer.y, pointer.pressed, pointer.source);
+  return pointer;
 }
 
 function uiResolveMultiTouchInstance() {
@@ -313,8 +333,48 @@ function uiResetCornerGesture() {
   _uiShortcutState.cornerGestureFired = false;
 }
 
+function uiResetDebugHoldGesture() {
+  _uiShortcutState.debugHoldRequested = false;
+  _uiShortcutState.debugHoldStartMs = 0;
+  _uiShortcutState.debugHoldFired = false;
+}
+
+function uiUpdateDebugHoldGesture(x, y, pressed, source = "mouse") {
+  const w = Number(width) > 0 ? Number(width) : uiSWidth;
+  const h = Number(height) > 0 ? Number(height) : uiSHeight;
+  if (!pressed || w <= 0 || h <= 0 || !uiInDebugHoldZone(x, y, w, h)) {
+    uiResetDebugHoldGesture();
+    return;
+  }
+
+  const now = (typeof millis === "function") ? millis() : Date.now();
+  if (!_uiShortcutState.debugHoldStartMs) {
+    _uiShortcutState.debugHoldStartMs = now;
+    _uiShortcutState.debugHoldFired = false;
+  }
+
+  if (
+    !_uiShortcutState.debugHoldFired &&
+    now - _uiShortcutState.debugHoldStartMs >= UI_DEBUG_HOLD_MS
+  ) {
+    _uiShortcutState.debugHoldRequested = true;
+    _uiShortcutState.debugHoldFired = true;
+    uiShortcutDebugLog("bottom-left hold overlay", { source });
+  }
+}
+
+function uiInDebugHoldZone(x, y, w, h) {
+  const size = UI_DEBUG_HOLD_SIZE_PX;
+  const inset = UI_DEBUG_HOLD_INSET_PX;
+  const left = inset;
+  const right = inset + size;
+  const top = h - inset - size;
+  const bottom = h - inset;
+  return x >= left && x <= right && y >= top && y <= bottom;
+}
+
 function uiTouchCorner(x, y, w, h) {
-  const hitSize = min(max(48, min(w, h) * 0.14), 140);
+  const hitSize = 100;
   const left = x >= 0 && x <= hitSize;
   const right = x >= w - hitSize && x <= w;
   const top = y >= 0 && y <= hitSize;
@@ -327,6 +387,19 @@ function uiTouchCorner(x, y, w, h) {
   return null;
 }
 
+function uiSetDebugOverlayVisible(nextVisible) {
+  const visible = !!nextVisible;
+  _uiInfo.visible = visible;
+  try {
+    localStorage.setItem(UI_DEBUG_OVERLAY_STORAGE_KEY, visible ? "true" : "false");
+  } catch {}
+  try {
+    window.dispatchEvent(new CustomEvent("uiSlim:debugOverlayChange", {
+      detail: { visible }
+    }));
+  } catch {}
+  return visible;
+}
 
 function uiUpdate(_mx,_my,_mp,_key,_w,_h,_keyPressed){
   uiKeyOld = uiKey;
@@ -345,15 +418,16 @@ function uiUpdate(_mx,_my,_mp,_key,_w,_h,_keyPressed){
   }
   if (_uiShortcutState.overlayToggleRequested) {
     _uiShortcutState.overlayToggleRequested = false;
-    _uiInfo.visible = !_uiInfo.visible;
-    try {
-      localStorage.setItem(UI_DEBUG_OVERLAY_STORAGE_KEY, _uiInfo.visible ? "true" : "false");
-    } catch {}
+    uiSetDebugOverlayVisible(!_uiInfo.visible);
     uiShortcutDebugLog("toggle overlay", { key: uiKey, visible: _uiInfo.visible });
   }
   if (_uiShortcutState.cornerGestureRequested) {
     _uiShortcutState.cornerGestureRequested = false;
     fullScreenToggle();
+  }
+  if (_uiShortcutState.debugHoldRequested) {
+    _uiShortcutState.debugHoldRequested = false;
+    uiSetDebugOverlayVisible(!_uiInfo.visible);
   }
 }
 
@@ -387,10 +461,17 @@ function uiListStart(opt={}){
   let x,y,width,dir;
   if(parent){
     dir = base.dir;
-    if(parent.dir==='vertical'){ x=parent.x; y=parent.curY; width=parent.width; }
-    else { x=parent.curX; y=parent.y; width=base.width; }
+    if(parent.dir==='vertical'){
+      x = (opt.x!==undefined) ? parent.x + opt.x : parent.x;
+      y = (opt.y!==undefined) ? parent.y + opt.y : parent.curY;
+      width = (opt.width!==undefined) ? opt.width : parent.width;
+    }
+    else {
+      x = (opt.x!==undefined) ? parent.x + opt.x : parent.curX;
+      y = (opt.y!==undefined) ? parent.y + opt.y : parent.y;
+      width = (opt.width!==undefined) ? opt.width : base.width;
+    }
   } else {
-    // Respect caller-provided x/y. Otherwise use base defaults.
     x = (opt.x!==undefined)?opt.x:base.x;
     y = (opt.y!==undefined)?opt.y:base.y;
     width = (opt.width!==undefined)?opt.width:base.width;
@@ -468,7 +549,7 @@ function uiText(txt, style={}){
   }
   const overlay2d = g ? false : _uiOverlayStart();
   const s = uiMergeDeep({}, uiBaseStyle.common, uiBaseStyle.text, style);
-  const h = (s.height!==undefined)?s.height:22;
+  const h = s.height;
   const box = (s.x!==undefined && s.y!==undefined && s.width!==undefined)
     ? { x:s.x, y:s.y, width:s.width, height:h }
     : uiPlace(s.width||uiGetList().width, h);
@@ -531,19 +612,49 @@ function uiPromptText(id, label, style={}){
 }
 
 function uiSlider(id, label, opts={}, style={}){
+  const sliderOptionKeys = new Set(["min", "max", "init"]);
+  const optsStyle = {};
+  for (const key of Object.keys(opts || {})) {
+    if (!sliderOptionKeys.has(key)) optsStyle[key] = opts[key];
+  }
   const g = uiGraphicsTarget;
   if (g) g.push(); else push();
   const overlay2d = g ? false : _uiOverlayStart();
-  const s = uiMergeDeep({}, uiBaseStyle.common, uiBaseStyle.slider, style);
+  const s = uiMergeDeep({}, uiBaseStyle.common, uiBaseStyle.slider, optsStyle, style);
   const min = (opts.min!==undefined)?opts.min:s.min;
   const max = (opts.max!==undefined)?opts.max:s.max;
   const h = s.height;
   const box = (s.x!==undefined && s.y!==undefined && s.width!==undefined)
     ? { x:s.x, y:s.y, width:s.width, height:h }
     : uiPlace(s.width||uiGetList().width, h);
-  let val = uiGetState(id, (opts.init!==undefined?opts.init:min), style);
+  let val = uiGetState(id, (opts.init!==undefined?opts.init:min), s);
   const hit = uiHit(box.x, box.y, box.width, box.height);
-  if(hit.pressed){ const t = constrain((hit.mX)/(box.width), 0, 1); val = lerp(min, max, t); uiSetState(id, val, style); }
+  const safeRange = (max-min) || 1;
+  const vertical = !!s.vertical;
+  const isActive = _uiSliderDragState.id === id;
+  let changed = false;
+
+  if (hit.pressedDown) {
+    _uiSliderDragState.id = id;
+  }
+
+  if (_uiSliderDragState.id === id && uiMP) {
+    const currentT = constrain((val - min) / safeRange, 0, 1);
+    const deltaT = vertical
+      ? ((uiMYOld - uiMY) / Math.max(1, box.height))
+      : ((uiMX - uiMXOld) / Math.max(1, box.width));
+    const nextT = constrain(currentT + deltaT, 0, 1);
+    const nextVal = lerp(min, max, nextT);
+    if (Math.abs(nextVal - val) > 1e-9) {
+      val = nextVal;
+      uiSetState(id, val, s);
+      changed = true;
+    }
+  }
+
+  if (isActive && !uiMP) {
+    _uiSliderDragState.id = null;
+  }
   // track
   if (g) {
     g.noStroke(); g.fill(s.trackColor); g.rect(box.x, box.y, box.width, box.height, s.rounding);
@@ -551,17 +662,32 @@ function uiSlider(id, label, opts={}, style={}){
     noStroke(); fill(s.trackColor); rect(box.x, box.y, box.width, box.height, s.rounding);
   }
   // fill
-  const tnow = (val-min)/(max-min);
+  const tnow = constrain((val-min)/safeRange, 0, 1);
   if (g) {
-    g.fill(s.fillColor); g.rect(box.x, box.y, box.width*tnow, box.height, s.rounding, 0, 0, s.rounding);
+    g.fill(s.fillColor);
+    if (vertical) {
+      const fillH = box.height * tnow;
+      g.rect(box.x, box.y + box.height - fillH, box.width, fillH, s.rounding);
+    } else {
+      g.rect(box.x, box.y, box.width*tnow, box.height, s.rounding, 0, 0, s.rounding);
+    }
   } else {
-    fill(s.fillColor); rect(box.x, box.y, box.width*tnow, box.height, s.rounding, 0, 0, s.rounding);
+    fill(s.fillColor);
+    if (vertical) {
+      const fillH = box.height * tnow;
+      rect(box.x, box.y + box.height - fillH, box.width, fillH, s.rounding);
+    } else {
+      rect(box.x, box.y, box.width*tnow, box.height, s.rounding, 0, 0, s.rounding);
+    }
   }
   // label
-  uiDrawLabel(label+" ("+nf(val,1,2)+")", box, s);
+  if (!s.hideText) {
+    const labelText = s.hideValue ? String(label || "") : label+" ("+nf(val,1,2)+")";
+    if (labelText) uiDrawLabel(labelText, box, s);
+  }
   _uiOverlayEnd(overlay2d);
   if (g) g.pop(); else pop();
-  return { value: val, changed: hit.pressed, x:box.x, y:box.y, width:box.width, height:box.height };
+  return { value: val, changed, x:box.x, y:box.y, width:box.width, height:box.height };
 }
 
 function uiToggle(id, label, style={}){
@@ -589,7 +715,8 @@ function uiToggle(id, label, style={}){
     if(cur.stroke && cur.stroke.weight>0){ stroke(cur.stroke.color||0, cur.stroke.alpha??255); strokeWeight(cur.stroke.weight); } else noStroke();
     rect(box.x, box.y, box.width, box.height, cur.rounding!==undefined?cur.rounding:s.rounding);
   }
-  uiDrawLabel((v?label+' : ON':label+' : OFF'), box, cur);
+  const showStateText = !!s.showStateText;
+  uiDrawLabel(showStateText ? (v ? label+' : ON' : label+' : OFF') : label, box, cur);
   _uiOverlayEnd(overlay2d);
   if (g) g.pop(); else pop();
   return { value: v, toggled: hit.clicked, x:box.x, y:box.y, width:box.width, height:box.height };
@@ -650,6 +777,8 @@ function uiUpdateCursor(){
 let _uiInfo = {
   visible: false,
   measuring: false,
+  measureEnabled: false,
+  gridEnabled: false,
   sx: 0, sy: 0
 };
 let debugOverlay = null;
@@ -710,10 +839,10 @@ function uiShowInfo(opt = {}) {
     : _uiRgbUnderCache;
 
   // --- 2) Draw semi-transparent grid ---
-  _uiDrawGrid(target, opt);
+  if (_uiInfo.gridEnabled) _uiDrawGrid(target, opt);
 
   // --- 3) Measurement: press & drag to show line and distances ---
-  if (opt.measure !== false) _uiHandleMeasure(target);
+  if (opt.measure !== false && _uiInfo.measureEnabled) _uiHandleMeasure(target);
   else _uiInfo.measuring = false;
 
   // --- 4) HUD: compact top bar (pass rgbUnder) ---
@@ -727,12 +856,18 @@ function uiShowInfo(opt = {}) {
   return {
     visible: true,
     measuring: _uiInfo.measuring,
+    measureEnabled: _uiInfo.measureEnabled,
+    gridEnabled: _uiInfo.gridEnabled,
     start: { x:_uiInfo.sx, y:_uiInfo.sy },
     end: { x: uiMX, y: uiMY },
     dx: uiMX - _uiInfo.sx,
     dy: uiMY - _uiInfo.sy,
     dist: dist(_uiInfo.sx, _uiInfo.sy, uiMX, uiMY)
   };
+}
+
+function uiIsDebugOverlayVisible() {
+  return !!_uiInfo.visible;
 }
 
 
@@ -917,18 +1052,56 @@ function _uiDrawHUD(target, rgbUnder = [0,0,0,0]) {
     `Portal: ${pVersion}  x:${mxStr}  y:${myStr}  ptr:${pointerStr}  fps:${fpsStr}   mem:${memStr}MB   rgb: ${rStr},${gStr},${bStr}`;
 
   target.push();
-  target.translate(10,10);
-  target.noStroke();
-  const barLength = 620;
-  target.fill(80);                // translucent black bar
-  target.rect(0, -1, barLength, barH, 5, 5, 5, 5);
+  const barX = 10;
+  const barY = 9;
+  const toggleW = 86;
+  const gap = 6;
+  const textPad = 16;
 
-  target.fill(255);
-  target.textAlign(LEFT, CENTER);
-  target.textFont(baseMonoFont);
-  //textFont('monospace');       // fixed-width so spaces hold the layout
-  target.textSize(12);
-  target.text(textStr, padX, barH / 2);
+  uiUseGraphics(target);
+  if (baseMonoFont && typeof target.textFont === "function") target.textFont(baseMonoFont);
+  if (typeof target.textSize === "function") target.textSize(12);
+  const textW = Math.ceil(target.textWidth(textStr) + textPad);
+  uiText(textStr, {
+    x: barX,
+    y: barY,
+    width: textW,
+    height: barH,
+    bgColor: "#505050",
+    textColor: "#ffffff",
+    hAlign: "left",
+    vAlign: "middle",
+    padding: 8,
+    radius: 5,
+    fontSize: 12,
+  });
+
+  _uiInfo.measureEnabled = !!uiToggle("ui_debug_measure_toggle", "measure", {
+    x: barX + textW + gap,
+    y: barY,
+    width: toggleW,
+    height: barH,
+    bgColor: "#707070",
+    offBgColor: "#707070",
+    onBgColor: "#8c8c8c",
+    textColor: "#ffffff",
+    radius: 5,
+    fontSize: 12,
+  }).value;
+
+  _uiInfo.gridEnabled = !!uiToggle("ui_debug_grid_toggle", "grid", {
+    x: barX + textW + gap + toggleW + gap,
+    y: barY,
+    width: toggleW,
+    height: barH,
+    bgColor: "#707070",
+    offBgColor: "#707070",
+    onBgColor: "#8c8c8c",
+    textColor: "#ffffff",
+    radius: 5,
+    fontSize: 12,
+  }).value;
+  uiEndUseGraphics();
 
   // Color swatch at right
   const swW = 22, swH = barH - 10;
@@ -954,7 +1127,7 @@ function _uiDrawHUD(target, rgbUnder = [0,0,0,0]) {
 
   if (canShowQR)
   {
-    target.translate(uiSWidth-qrSize-qrPadding*5,-qrPadding);
+    target.translate(uiSWidth-qrSize-qrPadding*5,10-qrPadding);
     
     target.fill("white");
     target.noStroke();
@@ -1022,6 +1195,7 @@ function _uiGetMemoryMB() {
 // Exports
 // -------------------------
 window.uiShowInfo = uiShowInfo;
+window.uiIsDebugOverlayVisible = uiIsDebugOverlayVisible;
 window.uiDebug = uiDebug;
 window.uiUpdate = uiUpdate;
 window.uiUpdateSimple = uiUpdateSimple;
