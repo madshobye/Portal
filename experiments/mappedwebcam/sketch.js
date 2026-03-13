@@ -32,7 +32,7 @@ async function setup() {
   mapper.loadAll();
 
   window.addEventListener("portal:webcamera-ready", handleCameraReady);
-  cam = await setupWebcamera(false, 1920, 1080, false, true);
+  cam = await setupWebcamera(false, 1280, 720, false, false);
 }
 
 function draw() {

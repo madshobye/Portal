@@ -68,7 +68,7 @@ class ProjectionMapper {
 
     // optional overlay font for labels (set via setFont)
     this._overlayFont = null;
-    print("Mapper: save (s), calibrate (c), reset (r)");
+    print("Mapper: Option+S save, Option+C calibrate, Option+R reset");
 
     if (Number.isFinite(opts.pixelDensity)) {
       if (this.p && typeof this.p.pixelDensity === "function") {
@@ -838,7 +838,13 @@ class ProjectionMapper {
     }
 
     if (typeof uiKeyPressed !== "undefined" && typeof uiKeyPressedOld !== "undefined") {
-      if (uiKeyPressed && !uiKeyPressedOld && typeof uiKey !== "undefined") {
+      if (
+        uiKeyPressed &&
+        !uiKeyPressedOld &&
+        typeof uiKey !== "undefined" &&
+        typeof uiAltPressed !== "undefined" &&
+        uiAltPressed
+      ) {
         this.keyPressed(uiKey);
       }
     }

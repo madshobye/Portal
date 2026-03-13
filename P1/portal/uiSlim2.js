@@ -28,6 +28,7 @@ let _uiHoveringAny = false;
 // Core IO state
 // -------------------------
 let uiKeyPressed = false, uiKeyPressedOld = false;
+let uiAltPressed = false;
 let uiMX=0, uiMY=0, uiMXOld=0, uiMYOld=0;
 let uiMP=false, uiMPOld=false;
 let uiKey=undefined;
@@ -64,6 +65,7 @@ if (!window.__uiSlimShortcutListenerInstalled) {
     if (!e || e.repeat) return;
     const code = String(e.code || "");
     const alt = !!(e.altKey || (e.getModifierState && e.getModifierState("Alt")));
+    uiAltPressed = alt;
     if (!alt) return;
 
     if (code === "KeyF") {
@@ -76,6 +78,13 @@ if (!window.__uiSlimShortcutListenerInstalled) {
       _uiShortcutState.overlayToggleRequested = true;
     }
   }, { capture: true });
+  window.addEventListener("keyup", (e) => {
+    const alt = !!(e && (e.altKey || (e.getModifierState && e.getModifierState("Alt"))));
+    uiAltPressed = alt;
+  }, { capture: true });
+  window.addEventListener("blur", () => {
+    uiAltPressed = false;
+  });
 }
 
 // -------------------------
@@ -431,6 +440,9 @@ function uiUpdate(_mx,_my,_mp,_key,_w,_h,_keyPressed){
   uiMX=_mx; uiMY=_my; uiMP=_mp;
   uiKeyPressedOld = uiKeyPressed;
   uiKeyPressed = _keyPressed;
+  if (typeof keyIsDown === "function") {
+    uiAltPressed = !!keyIsDown(18);
+  }
   if(uiStack.length===0) uiListStart(); // ensure a root list for flow layout
 
   // Handle uiSlim global shortcuts from shared keydown flags.
