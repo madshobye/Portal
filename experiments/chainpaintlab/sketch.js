@@ -108,7 +108,6 @@ function draw() {
     renderUi();
     uiEndUseGraphics();
   });
-  uiShowInfo();
 }
 
 async function addPlane(persist = true) {

@@ -141,15 +141,38 @@ let uiBaseStyle = {
 function uiSetBaseStyle(newBase={}){ uiBaseStyle = uiMergeDeep({}, uiBaseStyle, newBase); }
 function uiIsPlainObject(value){
   if (!value || typeof value !== 'object') return false;
-  const proto = Object.getPrototypeOf(value);
+  let proto;
+  try {
+    proto = Object.getPrototypeOf(value);
+  } catch {
+    return false;
+  }
   return proto === Object.prototype || proto === null;
 }
 function uiMergeDeep(target, ...sources){
-  for(const src of sources){ if(!src) continue; for(const k of Object.keys(src)){
-    const v = src[k];
-    if(uiIsPlainObject(v)) target[k] = uiMergeDeep(uiIsPlainObject(target[k]) ? target[k] : {}, v);
-    else target[k] = v;
-  }} return target;
+  for (const src of sources) {
+    if (!src) continue;
+    if (!uiIsPlainObject(src)) {
+      continue;
+    }
+    let keys;
+    try {
+      keys = Object.keys(src);
+    } catch {
+      continue;
+    }
+    for (const k of keys) {
+      let v;
+      try {
+        v = src[k];
+      } catch {
+        continue;
+      }
+      if (uiIsPlainObject(v)) target[k] = uiMergeDeep(uiIsPlainObject(target[k]) ? target[k] : {}, v);
+      else target[k] = v;
+    }
+  }
+  return target;
 }
 function uiUseGraphics(target = null) {
   uiGraphicsTarget = target || null;

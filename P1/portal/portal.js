@@ -1,5 +1,5 @@
 let v_major = 1;
-let v_minor = 164;
+let v_minor = 167;
 let pVersion =v_major + "." +v_minor
 let baseFont;
 let baseMonoFont;
@@ -401,8 +401,19 @@ function windowResized() {
 }
 
 function fullScreenToggle() {
-  var fs = fullscreen();
-  fullscreen(!fs);
+  try {
+    const fs = fullscreen();
+    const result = fullscreen(!fs);
+    if (result && typeof result.catch === "function") {
+      result.catch((err) => {
+        const msg = err?.message || String(err || "fullscreen failed");
+        console.warn("fullScreenToggle failed:", msg);
+      });
+    }
+  } catch (err) {
+    const msg = err?.message || String(err || "fullscreen failed");
+    console.warn("fullScreenToggle failed:", msg);
+  }
 }
 
 async function loadLibraries() {

@@ -177,7 +177,7 @@ class ChainBrush {
       return;
     }
     state.started = true;
-    const steps = constrain(Math.ceil(rawMove / 10), 1, 6);
+    const steps = constrain(Math.ceil(rawMove / 12), 1, 4);
 
     for (let i = 1; i <= steps; i++) {
       const t = i / steps;
@@ -270,11 +270,11 @@ class ChainBrush {
         const prev = chain.points[i - 1];
         const p = chain.points[i];
         const t = i / Math.max(1, chain.points.length - 1);
-        const segSpring = this._sample(recipe.chain.spring, t, dyn.wildCurve);
-        const segDrag = this._sample(recipe.chain.drag, t, dyn.wildCurve);
-        const segSlip = this._sample(recipe.chain.slip, t, dyn.wildCurve);
+        const segSpring = this._sample(recipe.chain.spring, t, dyn.wildCurve) * dyn.springTighten;
+        const segDrag = constrain(this._sample(recipe.chain.drag, t, dyn.wildCurve) - dyn.dragTighten, 0.35, 0.96);
+        const segSlip = this._sample(recipe.chain.slip, t, dyn.wildCurve) * dyn.slipScale;
         const straighten = this._sample(recipe.chain.straighten, t, dyn.wildCurve);
-        const rest = dyn.restLength * this._sample(recipe.chain.restBias, t, dyn.wildCurve);
+        const rest = dyn.restLength * dyn.restScale * this._sample(recipe.chain.restBias, t, dyn.wildCurve);
 
         const straightX = prev.x - dyn.dirX * rest;
         const straightY = prev.y - dyn.dirY * rest;
@@ -312,17 +312,19 @@ class ChainBrush {
     const move = Math.hypot(point.x - point.px, point.y - point.py);
     const moveThreshold = Math.max(0.12, width * 0.08);
     if (move < moveThreshold) return;
-    const steps = constrain(Math.ceil(move / dyn.spacing), 1, 6);
-    const dotAlpha = alpha * dyn.dotAlpha;
-    const bridgeAlpha = alpha * dyn.bridgeAlpha;
-    const smearAlpha = alpha * dyn.smearAlpha;
+    const moveGain = constrain((move - moveThreshold) / Math.max(0.35, dyn.spacing * 1.8), 0, 1);
+    if (moveGain < 0.03) return;
+    const steps = constrain(Math.ceil(move / Math.max(0.8, dyn.spacing * 1.6)), 1, 4);
+    const dotAlpha = alpha * dyn.dotAlpha * moveGain;
+    const bridgeAlpha = alpha * dyn.bridgeAlpha * moveGain;
+    const smearAlpha = alpha * dyn.smearAlpha * moveGain;
 
     if (
       (paint.mode === "bridge" || paint.mode === "hybrid") &&
       bridgeAlpha > 0.0001 &&
       move <= dyn.maxBridgeSpan
     ) {
-      g.stroke(this._colorWithAlpha(this.foreground, bridgeAlpha * 255));
+      this._applyStrokeAlpha(g, this.foreground, bridgeAlpha * 255);
       g.strokeWeight(Math.max(0.5, width * dyn.bridgeWeight));
       g.line(point.px, point.py, point.x, point.y);
     }
@@ -342,18 +344,18 @@ class ChainBrush {
         }
 
         if (dotAlpha > 0.0001) {
-          g.fill(this._colorWithAlpha(this.foreground, dotAlpha * 255));
+          this._applyFillAlpha(g, this.foreground, dotAlpha * 255);
           g.circle(sx, sy, Math.max(0.45, width));
         }
 
         if (smearAlpha > 0.0001 && dyn.smearLength > 0.0001) {
           const tx = sx - state.vx * dyn.smearLength;
           const ty = sy - state.vy * dyn.smearLength;
-          g.fill(this._colorWithAlpha(this.foreground, smearAlpha * 255));
+          this._applyFillAlpha(g, this.foreground, smearAlpha * 255);
           g.circle(lerp(sx, tx, 0.5), lerp(sy, ty, 0.5), Math.max(0.45, width * dyn.smearSize));
         }
 
-        if (dyn.splashChance > 0.0001) {
+        if (dyn.splashChance > 0.0001 && moveGain > 0.45) {
           const splash = (this._noise3(
             chainIndex * 0.23 + pointIndex * 0.11,
             u * 8 + this.time,
@@ -362,7 +364,7 @@ class ChainBrush {
           if (splash > 1 - dyn.splashChance) {
             const ang = splash * TWO_PI * 6;
             const rad = dyn.splashRadius * (0.3 + splash * 0.7);
-            g.fill(this._colorWithAlpha(this.foreground, alpha * dyn.splashAlpha * 255));
+            this._applyFillAlpha(g, this.foreground, alpha * dyn.splashAlpha * 255);
             g.circle(sx + Math.cos(ang) * rad, sy + Math.sin(ang) * rad, Math.max(0.4, width * 0.42));
           }
         }
@@ -430,20 +432,24 @@ class ChainBrush {
       radiusWarp: recipe.shape.radiusWarp * wildScale * wildBoost * (0.35 + turn01 * 0.65) * constrain((state.age - 2) / 10, 0, 1),
       rootJitter: recipe.shape.rootJitter * wildScale * wildBoost * (0.3 + speed01 * 0.7) * constrain((state.age - 2) / 10, 0, 1),
       restLength: recipe.chain.restLength * sizeScale * lerp(1.0, recipe.chain.speedRestScale, speed01),
-      headSpring: recipe.chain.head.spring * (0.85 + speed01 * 0.3),
-      headDrag: constrain(recipe.chain.head.drag - wetScale * 0.08 + wildScale * 0.04, 0.3, 0.98),
+      restScale: 0.72,
+      headSpring: recipe.chain.head.spring * (1.08 + speed01 * 0.18),
+      headDrag: constrain(recipe.chain.head.drag - 0.08 - wetScale * 0.03 + wildScale * 0.02, 0.28, 0.9),
+      springTighten: 1.18,
+      dragTighten: 0.08,
+      slipScale: 0.24,
       startFade: constrain(state.age / 10, 0, 1),
       depositDelaySteps: recipe.paint.depositDelaySteps ?? 4,
       rootSpreadFade: constrain((state.age - 4) / 18, 0, 1),
       leadX: constrain(
-        state.vx * recipe.motion.lead * wildScale * constrain(state.age / 10, 0, 1),
-        -(recipe.motion.maxLead ?? 6),
-        recipe.motion.maxLead ?? 6
+        state.vx * recipe.motion.lead * wildScale * 0.28 * constrain(state.age / 10, 0, 1),
+        -(recipe.motion.maxLead ?? 6) * 0.35,
+        (recipe.motion.maxLead ?? 6) * 0.35
       ),
       leadY: constrain(
-        state.vy * recipe.motion.lead * wildScale * constrain(state.age / 10, 0, 1),
-        -(recipe.motion.maxLead ?? 6),
-        recipe.motion.maxLead ?? 6
+        state.vy * recipe.motion.lead * wildScale * 0.28 * constrain(state.age / 10, 0, 1),
+        -(recipe.motion.maxLead ?? 6) * 0.35,
+        (recipe.motion.maxLead ?? 6) * 0.35
       ),
       strokeSize: recipe.paint.strokeSize * sizeScale * speedWidthScale * lerp(1, 1 + recipe.paint.turnWidthGain, turn01),
       spacing: Math.max(0.4, recipe.paint.spacing * lerp(1, recipe.paint.fastSpacing, speed01) * lerp(1, 0.72, wetness)),
@@ -526,10 +532,38 @@ class ChainBrush {
     };
   }
 
-  _colorWithAlpha(colorValue, alpha) {
-    if (Array.isArray(colorValue)) return color(colorValue[0], colorValue[1], colorValue[2], alpha);
-    if (typeof colorValue === "number") return color(colorValue, alpha);
-    return color(colorValue || 0, alpha);
+  _applyFillAlpha(target, colorValue, alpha) {
+    if (Array.isArray(colorValue)) {
+      target.fill(colorValue[0] ?? 0, colorValue[1] ?? colorValue[0] ?? 0, colorValue[2] ?? colorValue[0] ?? 0, alpha);
+      return;
+    }
+    if (typeof colorValue === "number") {
+      target.fill(colorValue, alpha);
+      return;
+    }
+    if (typeof colorValue === "string") {
+      const c = color(colorValue);
+      target.fill(red(c), green(c), blue(c), alpha);
+      return;
+    }
+    target.fill(0, alpha);
+  }
+
+  _applyStrokeAlpha(target, colorValue, alpha) {
+    if (Array.isArray(colorValue)) {
+      target.stroke(colorValue[0] ?? 0, colorValue[1] ?? colorValue[0] ?? 0, colorValue[2] ?? colorValue[0] ?? 0, alpha);
+      return;
+    }
+    if (typeof colorValue === "number") {
+      target.stroke(colorValue, alpha);
+      return;
+    }
+    if (typeof colorValue === "string") {
+      const c = color(colorValue);
+      target.stroke(red(c), green(c), blue(c), alpha);
+      return;
+    }
+    target.stroke(0, alpha);
   }
 
   _noise2(x, y) {

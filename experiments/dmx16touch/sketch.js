@@ -3,11 +3,11 @@ const DMX_CHANNELS = 16;
 let dmx;
 let dmxState = "idle";
 let dmxError = "";
-let frameIntervalMs = 33;
+let frameIntervalMs = 25;
 
 async function setup() {
   createCanvas(windowWidth, windowHeight);
-  frameRate(30);
+  frameRate(40);
   noStroke();
 
   await loadScript("portal/dmxSerial.js");
