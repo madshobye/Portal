@@ -1,0 +1,240 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Portal Index</title>
+    <style>
+      :root {
+        --bg: #0b1320;
+        --panel: #132238;
+        --panel-2: #1a2f4d;
+        --text: #f3f6fb;
+        --muted: #a8b5c7;
+        --accent: #ffd60a;
+        --accent-2: #ffc300;
+        --line: rgba(255, 255, 255, 0.08);
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        min-height: 100vh;
+        font-family: "Avenir Next", Avenir, "Segoe UI", sans-serif;
+        background: linear-gradient(160deg, #08111d 0%, var(--bg) 45%, #050b14 100%);
+        color: var(--text);
+      }
+
+      main {
+        width: 100%;
+      }
+
+      h1 {
+        margin: 0 0 8px;
+        font-size: clamp(2rem, 4vw, 3.4rem);
+        line-height: 1;
+      }
+
+      p {
+        margin: 0;
+        color: var(--muted);
+      }
+
+      .launcher {
+        min-height: 100vh;
+        background: #000;
+        display: flex;
+        align-items: center;
+      }
+
+      .launcher-inner,
+      .docs-inner {
+        width: min(1100px, calc(100vw - 32px));
+        margin: 0 auto;
+      }
+
+      .launcher-inner {
+        padding: 42px 0 56px;
+      }
+
+      .launcher h1 {
+        margin-bottom: 12px;
+      }
+
+      .launcher-copy {
+        max-width: 720px;
+        margin-bottom: 28px;
+      }
+
+      .experiment-list {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+        gap: 12px;
+      }
+
+      .experiment-link {
+        display: block;
+        padding: 16px 18px;
+        border-radius: 14px;
+        text-decoration: none;
+        color: var(--text);
+        background: rgba(255, 255, 255, 0.04);
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        transition: transform 120ms ease, border-color 120ms ease, background 120ms ease;
+      }
+
+      .experiment-link:hover {
+        transform: translateY(-1px);
+        background: rgba(255, 255, 255, 0.08);
+        border-color: rgba(255, 214, 10, 0.5);
+      }
+
+      .docs {
+        padding: 36px 0 56px;
+      }
+
+      .grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+        gap: 18px;
+      }
+
+      .panel {
+        padding: 20px;
+        border: 1px solid var(--line);
+        border-radius: 20px;
+        background: linear-gradient(180deg, rgba(26, 47, 77, 0.78), rgba(19, 34, 56, 0.78));
+      }
+
+      .panel h2 {
+        margin: 0 0 14px;
+        font-size: 1.1rem;
+        letter-spacing: 0.03em;
+        text-transform: uppercase;
+        color: var(--accent);
+      }
+
+      .list {
+        display: grid;
+        gap: 10px;
+      }
+
+      a.card {
+        display: block;
+        padding: 14px 16px;
+        border-radius: 14px;
+        text-decoration: none;
+        color: var(--text);
+        background: rgba(255, 255, 255, 0.03);
+        border: 1px solid rgba(255, 255, 255, 0.05);
+        transition: transform 120ms ease, border-color 120ms ease, background 120ms ease;
+      }
+
+      a.card:hover {
+        transform: translateY(-1px);
+        background: rgba(255, 255, 255, 0.06);
+        border-color: rgba(255, 195, 0, 0.45);
+      }
+
+      .title {
+        display: block;
+        font-weight: 700;
+      }
+
+      .path {
+        display: block;
+        margin-top: 3px;
+        font-size: 0.9rem;
+        color: var(--muted);
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <section class="launcher">
+        <div class="launcher-inner">
+          <h1>Portal</h1>
+          <p class="launcher-copy">Experiments at the top for fast access. Documentation and example links stay below.</p>
+
+          <div class="experiment-list">
+            <a class="experiment-link" href="./experiments/chainpaintlab/">chainpaintlab</a>
+            <a class="experiment-link" href="./experiments/chainsimple/">chainsimple</a>
+            <a class="experiment-link" href="./experiments/dmx16touch/">dmx16touch</a>
+            <a class="experiment-link" href="./experiments/mappedwebcam/">mappedwebcam</a>
+            <a class="experiment-link" href="./experiments/mappertest/">mappertest</a>
+            <a class="experiment-link" href="./experiments/multitouchdrawing/">multitouchdrawing</a>
+            <a class="experiment-link" href="./experiments/multitouchlight/">multitouchlight</a>
+            <a class="experiment-link" href="./experiments/pulsedrawings/">pulsedrawings</a>
+            <a class="experiment-link" href="./experiments/textprompt/">textprompt</a>
+            <a class="experiment-link" href="./experiments/textprompt_2/">textprompt_2</a>
+          </div>
+        </div>
+      </section>
+
+      <section class="docs">
+        <div class="docs-inner">
+          <section class="grid">
+            <article class="panel">
+              <h2>Examples</h2>
+              <div class="list">
+                <a class="card" href="./P1/sketches/">
+                  <span class="title">P1 Sketches</span>
+                  <span class="path">./P1/sketches/</span>
+                </a>
+              </div>
+            </article>
+
+            <article class="panel">
+              <h2>Experiments</h2>
+              <div class="list">
+                <a class="card" href="./experiments/chainpaintlab/">
+                  <span class="title">chainpaintlab</span>
+                  <span class="path">./experiments/chainpaintlab/</span>
+                </a>
+                <a class="card" href="./experiments/chainsimple/">
+                  <span class="title">chainsimple</span>
+                  <span class="path">./experiments/chainsimple/</span>
+                </a>
+                <a class="card" href="./experiments/dmx16touch/">
+                  <span class="title">dmx16touch</span>
+                  <span class="path">./experiments/dmx16touch/</span>
+                </a>
+                <a class="card" href="./experiments/mappedwebcam/">
+                  <span class="title">mappedwebcam</span>
+                  <span class="path">./experiments/mappedwebcam/</span>
+                </a>
+                <a class="card" href="./experiments/mappertest/">
+                  <span class="title">mappertest</span>
+                  <span class="path">./experiments/mappertest/</span>
+                </a>
+                <a class="card" href="./experiments/multitouchdrawing/">
+                  <span class="title">multitouchdrawing</span>
+                  <span class="path">./experiments/multitouchdrawing/</span>
+                </a>
+                <a class="card" href="./experiments/multitouchlight/">
+                  <span class="title">multitouchlight</span>
+                  <span class="path">./experiments/multitouchlight/</span>
+                </a>
+                <a class="card" href="./experiments/pulsedrawings/">
+                  <span class="title">pulsedrawings</span>
+                  <span class="path">./experiments/pulsedrawings/</span>
+                </a>
+                <a class="card" href="./experiments/textprompt/">
+                  <span class="title">textprompt</span>
+                  <span class="path">./experiments/textprompt/</span>
+                </a>
+                <a class="card" href="./experiments/textprompt_2/">
+                  <span class="title">textprompt_2</span>
+                  <span class="path">./experiments/textprompt_2/</span>
+                </a>
+              </div>
+            </article>
+          </section>
+        </div>
+      </section>
+    </main>
+  </body>
+</html>

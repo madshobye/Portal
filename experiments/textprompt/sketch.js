@@ -1,5 +1,11 @@
 const TAB_WIDTH = 4;
-const showOverlay = false;
+// const showOverlay = false;
+
+const SURFACE_W = 1920;
+const SURFACE_H = 1080;
+const MIN_PLANES = 1;
+const MAX_PLANES = 8;
+const PLANE_COUNT_STORAGE_KEY = "textprompt:planeCount";
 
 // Resize behavior switch:
 // false = Ctrl/Cmd +/- changes all lines globally
@@ -46,15 +52,38 @@ let viewportHeight = 0;
 let totalContentHeight = 0;
 
 let lineFontSizes = {}; // key: logical line index (0-based), value: font size
+let mapper;
+let planes = [];
+let editorSurface;
 
-function setup() {
-  createCanvas(windowWidth, windowHeight);
+async function setup() {
+  createCanvas(windowWidth, windowHeight, WEBGL);
   noStroke();
   loadGoogleFont("Roboto Mono");
   textFont("Roboto Mono");
+  imageMode(CENTER);
+
+  await loadScript("portal/uiSlim2.js");
+  await loadScript("portal/mapper.js");
 
   loadTextAndStyle();
   caretIndex = textBuf.length;
+
+  editorSurface = createGraphics(SURFACE_W, SURFACE_H);
+  editorSurface.pixelDensity(1);
+  editorSurface.noStroke();
+
+  mapper = new ProjectionMapper();
+  mapper.followDebugOverlayVisibility(true);
+  if (typeof baseMonoFont !== "undefined" && baseMonoFont) {
+    mapper.setFont(baseMonoFont);
+  } else if (typeof baseFont !== "undefined" && baseFont) {
+    mapper.setFont(baseFont);
+  }
+
+  const storedPlaneCount = getStoredPlaneCount();
+  for (let i = 0; i < storedPlaneCount; i++) addPlane(false);
+  mapper.loadAll();
 
   // Use window-level capture so key handling survives focus quirks after Esc/fullscreen changes.
   window.addEventListener("keydown", onDomKeyDown, { passive: false, capture: true });
@@ -62,7 +91,6 @@ function setup() {
 
 function draw() {
   background(0);
-  fill(255);
 
   textFont("Roboto Mono");
   textSize(editorFontSize);
@@ -70,7 +98,15 @@ function draw() {
 
   handleAutosave();
   rebuildLayout();
-  redrawEditor();
+  redrawEditor(editorSurface);
+  renderPlanes();
+  mapper?.render();
+
+  uiDrawOnDebugOverlay((overlay) => {
+    uiUseGraphics(overlay);
+    renderMapperUi();
+    uiEndUseGraphics();
+  });
 
   if (millis() - lastBlinkMs > 530) {
     blinkOn = !blinkOn;
@@ -79,8 +115,10 @@ function draw() {
 }
 
 function updateMetrics() {
-  innerWidth = max(40, width - leftPad * 2);
-  viewportHeight = max(1, height - topPad);
+  const targetW = editorSurface?.width || width;
+  const targetH = editorSurface?.height || height;
+  innerWidth = max(40, targetW - leftPad * 2);
+  viewportHeight = max(1, targetH - topPad);
 }
 
 function loadTextAndStyle() {
@@ -333,12 +371,18 @@ function ensureCaretVisible() {
   viewTopY = clampi(round(viewTopY), 0, round(maxTopY));
 }
 
-function redrawEditor() {
+function redrawEditor(target) {
+  if (!target) return;
   clampCaret();
   ensureCaretVisible();
 
-  noStroke();
-  textAlign(LEFT, TOP);
+  target.push();
+  target.background(0);
+  target.noStroke();
+  target.textAlign(LEFT, TOP);
+  if (typeof baseMonoFont !== "undefined" && baseMonoFont) {
+    target.textFont(baseMonoFont);
+  }
 
   const viewBottom = viewTopY + viewportHeight;
   for (let i = 0; i < layoutRows.length; i++) {
@@ -347,11 +391,11 @@ function redrawEditor() {
     if (rowBottom < viewTopY) continue;
     if (row.yTop > viewBottom) break;
 
-    textSize(row.fontSize);
-    textLeading(row.rowHeight);
-    fill(255);
+    target.textSize(row.fontSize);
+    target.textLeading(row.rowHeight);
+    target.fill(255);
     const y = topPad + (row.yTop - viewTopY);
-    text(row.text, leftPad, y);
+    target.text(row.text, leftPad, y);
   }
 
   const cur = rawToVisual(caretIndex);
@@ -370,12 +414,13 @@ function redrawEditor() {
     const caretW = max(2, floor(row.fontSize * 0.12));
     const cx = leftPad + cur.x;
 
-    noStroke();
-    fill(255);
-    rect(cx, caretY, caretW, caretH);
+    target.noStroke();
+    target.fill(255);
+    target.rect(cx, caretY, caretW, caretH);
   }
 
   textSize(editorFontSize);
+  target.pop();
 }
 
 function clearAll(alsoPersist = true) {
@@ -594,4 +639,86 @@ function onDomKeyDown(ev) {
     insertAtCaret(ev.key);
     ev.preventDefault();
   }
+}
+
+function windowResized() {
+  resizeCanvas(windowWidth, windowHeight);
+}
+
+function getStoredPlaneCount() {
+  try {
+    const raw = Number(localStorage.getItem(PLANE_COUNT_STORAGE_KEY));
+    if (Number.isFinite(raw)) return constrain(round(raw), MIN_PLANES, MAX_PLANES);
+  } catch {}
+  return MIN_PLANES;
+}
+
+function setStoredPlaneCount(count) {
+  try {
+    localStorage.setItem(
+      PLANE_COUNT_STORAGE_KEY,
+      String(constrain(round(count), MIN_PLANES, MAX_PLANES))
+    );
+  } catch {}
+}
+
+function planeName(index) {
+  return `textprompt_surface_${index + 1}`;
+}
+
+function addPlane(persist = true) {
+  if (!mapper || planes.length >= MAX_PLANES) return false;
+  const name = planeName(planes.length);
+  const surface = mapper.add(SURFACE_W, SURFACE_H, name);
+  surface.imageMode(CORNER);
+  planes.push({ name, surface });
+  if (persist) setStoredPlaneCount(planes.length);
+  return true;
+}
+
+function removePlane(persist = true) {
+  if (!mapper || planes.length <= MIN_PLANES) return false;
+  mapper.removeLastSurface({ clearStorage: true });
+  planes.pop();
+  if (persist) setStoredPlaneCount(planes.length);
+  return true;
+}
+
+function renderPlanes() {
+  for (const plane of planes) {
+    plane.surface.push();
+    plane.surface.background(0);
+    plane.surface.image(editorSurface, 0, 0, plane.surface.width, plane.surface.height);
+    plane.surface.pop();
+  }
+}
+
+function renderMapperUi() {
+  const compact = {
+    width: 220,
+    height: 22,
+    fontSize: 11,
+    padding: 5,
+    margin: 3,
+    rounding: 4,
+    bgColor: "#d8d8d8",
+  };
+
+  uiListStart({ x: 24, y: 24, width: 220, dir: "vertical" });
+  uiText("Text Prompt Mapper", {
+    ...compact,
+    height: 24,
+    bgColor: "#ececec",
+    hAlign: "center",
+  });
+
+  if (uiButton("Add Plane", compact).clicked) addPlane(true);
+  if (uiButton("Remove Plane", compact).clicked) removePlane(true);
+  if (uiButton("Clear Mapping", compact).clicked) mapper?.resetAll();
+
+  uiText(`planes: ${planes.length}`, compact);
+  uiText(`chars: ${textBuf.length}`, compact);
+  uiText("same text on every plane", compact);
+
+  uiListEnd();
 }
