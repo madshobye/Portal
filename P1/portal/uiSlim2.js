@@ -1135,6 +1135,7 @@ function _uiDrawHUD(target, rgbUnder = [0,0,0,0]) {
   strokeWeight(1);
   fill(rgbUnder[0]||0, rgbUnder[1]||0, rgbUnder[2]||0);
   rect(swX, swY, swW, swH, 4);*/
+  /*
   const qrSize = 100;
   const qrPadding = 5;
   const canShowQR =
@@ -1157,6 +1158,7 @@ function _uiDrawHUD(target, rgbUnder = [0,0,0,0]) {
     target.noStroke();
     target.rect(0,0,qrSize+qrPadding*2,qrSize+qrPadding*2,3,3,3,3);
   }
+  */
   target.pop();
 }
 
