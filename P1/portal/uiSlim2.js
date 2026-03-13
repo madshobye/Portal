@@ -1127,6 +1127,7 @@ function _uiDrawHUD(target, rgbUnder = [0,0,0,0]) {
   uiEndUseGraphics();
 
   // Color swatch at right
+  const hudRightEdge = barX + textW + gap + toggleW + gap + toggleW;
   const swW = 22, swH = barH - 10;
   const swX = uiSWidth - swW - padX;
   const swY = (barH - swH)/2;
@@ -1146,7 +1147,7 @@ function _uiDrawHUD(target, rgbUnder = [0,0,0,0]) {
     Number(sketchQRCode.size) > 0 &&
     typeof drawQRCode === "function" &&
     (typeof sketchQRCodeValid === "undefined" || !!sketchQRCodeValid) &&
-    uiSWidth > barLength + qrSize + qrPadding * 3;
+    uiSWidth > hudRightEdge + qrSize + qrPadding * 3;
 
   if (canShowQR)
   {
