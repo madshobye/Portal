@@ -410,6 +410,11 @@ function renderUi() {
 
   uiListEnd();
 
+  if (typeof baseMonoFont !== "undefined" && baseMonoFont) {
+    textFont(baseMonoFont);
+  } else if (typeof baseFont !== "undefined" && baseFont) {
+    textFont(baseFont);
+  }
   fill(0);
   textSize(12);
   textAlign(LEFT, TOP);
