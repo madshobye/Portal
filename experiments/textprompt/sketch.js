@@ -17,6 +17,7 @@ const PREF_KEY = "text";
 const STORAGE_KEY = `${PREF_NS}:${PREF_KEY}`;
 const STORAGE_KEY_FONT_SIZE = `${PREF_NS}:fontSize`;
 const STORAGE_KEY_LINE_FONTS = `${PREF_NS}:lineFontSizes`;
+const STORAGE_KEY_EDITOR_FONT_MODE = `${PREF_NS}:editorFontMode`;
 
 const SAVE_DEBOUNCE_MS = 700;
 const SAVE_MIN_GAP_MS = 1500;
@@ -55,16 +56,20 @@ let lineFontSizes = {}; // key: logical line index (0-based), value: font size
 let mapper;
 let planes = [];
 let editorSurface;
+let terminusFont;
+let perfectDosFont;
+let editorFontMode = "terminus";
 
 async function setup() {
+  terminusFont = await loadFont("Terminus.ttf");
+  perfectDosFont = await loadFont("PerfectDOSVGA437.ttf");
   createCanvas(windowWidth, windowHeight, WEBGL);
   noStroke();
-  loadGoogleFont("Roboto Mono");
-  textFont("Roboto Mono");
   imageMode(CENTER);
 
   await loadScript("portal/uiSlim2.js");
   await loadScript("portal/mapper.js");
+  await loadGoogleFont(["VT323", "Roboto Mono"]);
 
   loadTextAndStyle();
   caretIndex = textBuf.length;
@@ -75,11 +80,6 @@ async function setup() {
 
   mapper = new ProjectionMapper();
   mapper.followDebugOverlayVisibility(true);
-  if (typeof baseMonoFont !== "undefined" && baseMonoFont) {
-    mapper.setFont(baseMonoFont);
-  } else if (typeof baseFont !== "undefined" && baseFont) {
-    mapper.setFont(baseFont);
-  }
 
   const storedPlaneCount = getStoredPlaneCount();
   for (let i = 0; i < storedPlaneCount; i++) addPlane(false);
@@ -92,7 +92,6 @@ async function setup() {
 function draw() {
   background(0);
 
-  textFont("Roboto Mono");
   textSize(editorFontSize);
   updateMetrics();
 
@@ -140,6 +139,18 @@ function loadTextAndStyle() {
     lineFontSizes = {};
   }
 
+  try {
+    const savedMode = String(localStorage.getItem(STORAGE_KEY_EDITOR_FONT_MODE) || "terminus");
+    if (
+      savedMode === "terminus" ||
+      savedMode === "perfectdos" ||
+      savedMode === "vt323" ||
+      savedMode === "robotomono"
+    ) {
+      editorFontMode = savedMode;
+    }
+  } catch {}
+
   caretIndex = textBuf.length;
   preferredX = -1;
   viewTopY = 0;
@@ -153,6 +164,7 @@ function saveTextNow() {
 function saveFontSettings() {
   localStorage.setItem(STORAGE_KEY_FONT_SIZE, String(editorFontSize));
   localStorage.setItem(STORAGE_KEY_LINE_FONTS, JSON.stringify(lineFontSizes));
+  localStorage.setItem(STORAGE_KEY_EDITOR_FONT_MODE, editorFontMode);
 }
 
 function markEdited() {
@@ -180,15 +192,47 @@ function isPrintableChar(ch) {
   return typeof ch === "string" && ch.length === 1 && ch >= " ";
 }
 
+function applyEditorTextStyle(target, fs = editorFontSize) {
+  if (!target) return;
+  if (editorFontMode === "perfectdos" && perfectDosFont && typeof target.textFont === "function") {
+    target.textFont(perfectDosFont);
+  } else if (editorFontMode === "vt323" && typeof target.textFont === "function") {
+    target.textFont("VT323");
+  } else if (editorFontMode === "robotomono" && typeof target.textFont === "function") {
+    target.textFont("Roboto Mono");
+  } else if (terminusFont && typeof target.textFont === "function") {
+    target.textFont(terminusFont);
+  } else if (typeof baseMonoFont !== "undefined" && baseMonoFont && typeof target.textFont === "function") {
+    target.textFont(baseMonoFont);
+  }
+  if (typeof target.textSize === "function") {
+    target.textSize(fs);
+  }
+}
+
 function measureRunWidth(str) {
-  const ctx = drawingContext;
-  if (ctx && typeof ctx.measureText === "function") {
-    return ctx.measureText(str).width;
+  const target = editorSurface;
+  if (target) {
+    applyEditorTextStyle(target);
+    if (typeof target.textWidth === "function") {
+      return target.textWidth(str);
+    }
+    const ctx = target.drawingContext;
+    if (ctx && typeof ctx.measureText === "function") {
+      return ctx.measureText(str).width;
+    }
   }
   return textWidth(str);
 }
 
 function lineHeightForFontSize(fs) {
+  const target = editorSurface;
+  if (target) {
+    applyEditorTextStyle(target, fs);
+    if (typeof target.textAscent === "function" && typeof target.textDescent === "function") {
+      return max(12, (target.textAscent() + target.textDescent()) * 1.02);
+    }
+  }
   textSize(fs);
   return max(12, (textAscent() + textDescent()) * 1.02);
 }
@@ -210,6 +254,20 @@ function getLineFontSize(lineIndex) {
 
 function setLineFontSize(lineIndex, fs) {
   lineFontSizes[lineIndex] = clampi(round(fs), MIN_FONT_SIZE, MAX_FONT_SIZE);
+}
+
+function getEditorFontLabel() {
+  if (editorFontMode === "perfectdos") return "Perfect DOS";
+  if (editorFontMode === "vt323") return "VT323";
+  if (editorFontMode === "robotomono") return "Roboto Mono";
+  return "Terminus";
+}
+
+function cycleEditorFontMode() {
+  const order = ["terminus", "perfectdos", "vt323", "robotomono"];
+  const currentIndex = order.indexOf(editorFontMode);
+  editorFontMode = order[(currentIndex + 1 + order.length) % order.length];
+  saveFontSettings();
 }
 
 function shiftLineFontIndices(startIndex, delta) {
@@ -244,7 +302,6 @@ function removeLineFontAndShiftDown(removedIndex) {
 }
 
 function makeRow(rawStart, text, fs, lineIndex) {
-  textSize(fs);
   const prefix = [0];
   for (let i = 1; i <= text.length; i++) {
     prefix.push(measureRunWidth(text.slice(0, i)));
@@ -263,8 +320,6 @@ function makeRow(rawStart, text, fs, lineIndex) {
 }
 
 function pushWrappedRowsForLine(rows, lineText, lineRawStart, lineIndex, fs) {
-  textSize(fs);
-
   if (lineText.length === 0) {
     rows.push(makeRow(lineRawStart, "", fs, lineIndex));
     return;
@@ -380,9 +435,7 @@ function redrawEditor(target) {
   target.background(0);
   target.noStroke();
   target.textAlign(LEFT, TOP);
-  if (typeof baseMonoFont !== "undefined" && baseMonoFont) {
-    target.textFont(baseMonoFont);
-  }
+  applyEditorTextStyle(target);
 
   const viewBottom = viewTopY + viewportHeight;
   for (let i = 0; i < layoutRows.length; i++) {
@@ -404,15 +457,23 @@ function redrawEditor(target) {
   const caretVisible = cy + row.rowHeight >= topPad && cy <= height;
 
   if (caretVisible && blinkOn) {
-    textSize(row.fontSize);
-    const desc = textDescent();
-    const glyphH = textAscent() + desc;
+    applyEditorTextStyle(target, row.fontSize);
+    const caretText = row.text.slice(0, cur.offset);
+    const desc =
+      typeof target.textDescent === "function" ? target.textDescent() : textDescent();
+    const glyphH =
+      (typeof target.textAscent === "function" ? target.textAscent() : textAscent()) + desc;
     const overscan = max(1, round(row.fontSize * 0.06));
     const balanceUp = desc * 0.2;
     const caretY = cy - overscan - balanceUp;
     const caretH = max(2, glyphH + overscan * 2);
     const caretW = max(2, floor(row.fontSize * 0.12));
-    const cx = leftPad + cur.x;
+    const ctx = target.drawingContext;
+    const caretX =
+      ctx && typeof ctx.measureText === "function"
+        ? ctx.measureText(caretText).width
+        : (typeof target.textWidth === "function" ? target.textWidth(caretText) : cur.x);
+    const cx = leftPad + caretX;
 
     target.noStroke();
     target.fill(255);
@@ -436,11 +497,15 @@ function clearAll(alsoPersist = true) {
   if (alsoPersist) saveTextNow();
 }
 
+function showCaretSteady() {
+  blinkOn = true;
+  lastBlinkMs = millis();
+}
+
 function mousePressed() {
   // Recover keyboard input quickly if browser focus shifted.
   try { window.focus(); } catch {}
-  blinkOn = true;
-  lastBlinkMs = millis();
+  showCaretSteady();
 }
 
 function insertAtCaret(ch) {
@@ -448,6 +513,7 @@ function insertAtCaret(ch) {
   textBuf = textBuf.slice(0, caretIndex) + ch + textBuf.slice(caretIndex);
   caretIndex += ch.length;
   preferredX = -1;
+  showCaretSteady();
   markEdited();
 }
 
@@ -476,6 +542,7 @@ function backspaceAtCaret() {
   textBuf = textBuf.slice(0, caretIndex - 1) + textBuf.slice(caretIndex);
   caretIndex--;
   preferredX = -1;
+  showCaretSteady();
   markEdited();
 }
 
@@ -492,6 +559,7 @@ function deleteAtCaret() {
 
   textBuf = textBuf.slice(0, caretIndex) + textBuf.slice(caretIndex + 1);
   preferredX = -1;
+  showCaretSteady();
   markEdited();
 }
 
@@ -499,12 +567,14 @@ function moveLeft() {
   clampCaret();
   if (caretIndex > 0) caretIndex--;
   preferredX = -1;
+  showCaretSteady();
 }
 
 function moveRight() {
   clampCaret();
   if (caretIndex < textBuf.length) caretIndex++;
   preferredX = -1;
+  showCaretSteady();
 }
 
 function moveUp() {
@@ -512,6 +582,7 @@ function moveUp() {
   if (preferredX < 0) preferredX = cur.x;
   if (cur.rowIdx <= 0) return;
   caretIndex = rawAtXInRow(layoutRows[cur.rowIdx - 1], preferredX);
+  showCaretSteady();
 }
 
 function moveDown() {
@@ -519,6 +590,7 @@ function moveDown() {
   if (preferredX < 0) preferredX = cur.x;
   if (cur.rowIdx >= layoutRows.length - 1) return;
   caretIndex = rawAtXInRow(layoutRows[cur.rowIdx + 1], preferredX);
+  showCaretSteady();
 }
 
 function insertTabAtCaret() {
@@ -599,10 +671,43 @@ function onDomKeyDown(ev) {
     return;
   }
 
+  const altMod = !!(
+    ev.altKey ||
+    (typeof ev.getModifierState === "function" && (
+      ev.getModifierState("Alt") ||
+      ev.getModifierState("AltGraph")
+    ))
+  );
   const mod = !!(ev.ctrlKey || ev.metaKey);
   const keyStr = String(ev.key || "");
-  const isIncrease = mod && (ev.code === "NumpadAdd" || keyStr === "+" || keyStr === "=");
-  const isDecrease = mod && (ev.code === "NumpadSubtract" || keyStr === "-");
+  const isAltIncrease = altMod && (
+    ev.code === "NumpadAdd" ||
+    ev.code === "Equal" ||
+    keyStr === "±" ||
+    keyStr === "+"
+  );
+  const isAltDecrease = altMod && (
+    ev.code === "NumpadSubtract" ||
+    ev.code === "Minus" ||
+    keyStr === "–" ||
+    keyStr === "—" ||
+    keyStr === "-"
+  );
+  const isAltReset = altMod && ev.code === "Digit0";
+  const isModIncrease = mod && (
+    ev.code === "NumpadAdd" ||
+    ev.code === "Equal" ||
+    keyStr === "+" ||
+    keyStr === "="
+  );
+  const isModDecrease = mod && (
+    ev.code === "NumpadSubtract" ||
+    ev.code === "Minus" ||
+    keyStr === "-"
+  );
+  const isIncrease = isAltIncrease || isModIncrease;
+  const isDecrease = isAltDecrease || isModDecrease;
+  const isReset = isAltReset || (mod && (ev.code === "Digit0" || ev.key === "0"));
 
   if (isIncrease) {
     adjustFontSize(+1);
@@ -614,7 +719,7 @@ function onDomKeyDown(ev) {
     ev.preventDefault();
     return;
   }
-  if (mod && (ev.code === "Digit0" || ev.key === "0")) {
+  if (isReset) {
     if (RESIZE_APPLIES_TO_CURRENT_LINE) {
       setLineFontSize(getLineIndexAtRaw(caretIndex), DEFAULT_FONT_SIZE);
     } else {
@@ -715,6 +820,7 @@ function renderMapperUi() {
   if (uiButton("Add Plane", compact).clicked) addPlane(true);
   if (uiButton("Remove Plane", compact).clicked) removePlane(true);
   if (uiButton("Clear Mapping", compact).clicked) mapper?.resetAll();
+  if (uiButton(`Font: ${getEditorFontLabel()}`, compact).clicked) cycleEditorFontMode();
 
   uiText(`planes: ${planes.length}`, compact);
   uiText(`chars: ${textBuf.length}`, compact);

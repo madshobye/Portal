@@ -29,6 +29,7 @@ let _uiHoveringAny = false;
 // -------------------------
 let uiKeyPressed = false, uiKeyPressedOld = false;
 let uiAltPressed = false;
+let uiKeyCode = undefined;
 let uiMX=0, uiMY=0, uiMXOld=0, uiMYOld=0;
 let uiMP=false, uiMPOld=false;
 let uiKey=undefined;
@@ -42,8 +43,8 @@ let uiGraphicsTarget = null;
 const _uiSliderDragState = {
   id: null,
 };
-const UI_CORNER_GESTURE_HOLD_MS = 3000;
-const UI_DEBUG_HOLD_MS = 3000;
+const UI_CORNER_GESTURE_HOLD_MS = 1500;
+const UI_DEBUG_HOLD_MS = 1500;
 const UI_DEBUG_HOLD_INSET_PX = 0;
 const UI_DEBUG_HOLD_SIZE_PX = 100;
 const UI_DEBUG_OVERLAY_STORAGE_KEY = "uiSlim2.debugOverlay.visible";
@@ -64,6 +65,7 @@ if (!window.__uiSlimShortcutListenerInstalled) {
   window.addEventListener("keydown", (e) => {
     if (!e || e.repeat) return;
     const code = String(e.code || "");
+    uiKeyCode = code || undefined;
     const alt = !!(e.altKey || (e.getModifierState && e.getModifierState("Alt")));
     uiAltPressed = alt;
     if (!alt) return;
@@ -79,11 +81,13 @@ if (!window.__uiSlimShortcutListenerInstalled) {
     }
   }, { capture: true });
   window.addEventListener("keyup", (e) => {
+    uiKeyCode = undefined;
     const alt = !!(e && (e.altKey || (e.getModifierState && e.getModifierState("Alt"))));
     uiAltPressed = alt;
   }, { capture: true });
   window.addEventListener("blur", () => {
     uiAltPressed = false;
+    uiKeyCode = undefined;
   });
 }
 
@@ -876,12 +880,12 @@ function uiShowInfo(opt = {}) {
   // --- 2) Draw semi-transparent grid ---
   if (_uiInfo.gridEnabled) _uiDrawGrid(target, opt);
 
-  // --- 3) Measurement: press & drag to show line and distances ---
+  // --- 3) HUD: compact top bar (pass rgbUnder) ---
+  _uiDrawHUD(target, rgbUnder);
+
+  // --- 4) Measurement: press & drag to show line and distances ---
   if (opt.measure !== false && _uiInfo.measureEnabled) _uiHandleMeasure(target);
   else _uiInfo.measuring = false;
-
-  // --- 4) HUD: compact top bar (pass rgbUnder) ---
-  _uiDrawHUD(target, rgbUnder);
 
   // --- 5) Debug console overlay ---
   _uiDrawDebugConsole(target);
@@ -1089,9 +1093,9 @@ function _uiDrawHUD(target, rgbUnder = [0,0,0,0]) {
   target.push();
   const barX = 10;
   const barY = 9;
-  const toggleW = 86;
+  const toggleW = 70;
   const gap = 6;
-  const textPad = 16;
+  const textPad = 17;
 
   uiUseGraphics(target);
   if (baseMonoFont && typeof target.textFont === "function") target.textFont(baseMonoFont);
@@ -1102,16 +1106,17 @@ function _uiDrawHUD(target, rgbUnder = [0,0,0,0]) {
     y: barY,
     width: textW,
     height: barH,
-    bgColor: "#505050",
+    bgColor: "#707070",
     textColor: "#ffffff",
-    hAlign: "left",
+    font: baseMonoFont,
+    hAlign: "center",
     vAlign: "middle",
-    padding: 8,
+    padding: 0,
     radius: 5,
     fontSize: 12,
   });
 
-  _uiInfo.measureEnabled = !!uiToggle("ui_debug_measure_toggle", "measure", {
+  _uiInfo.gridEnabled = !!uiToggle("ui_debug_grid_toggle", "Grid", {
     x: barX + textW + gap,
     y: barY,
     width: toggleW,
@@ -1120,26 +1125,17 @@ function _uiDrawHUD(target, rgbUnder = [0,0,0,0]) {
     offBgColor: "#707070",
     onBgColor: "#8c8c8c",
     textColor: "#ffffff",
+    font: baseMonoFont,
+    hAlign: "center",
+    padding: 0,
     radius: 5,
     fontSize: 12,
   }).value;
-
-  _uiInfo.gridEnabled = !!uiToggle("ui_debug_grid_toggle", "grid", {
-    x: barX + textW + gap + toggleW + gap,
-    y: barY,
-    width: toggleW,
-    height: barH,
-    bgColor: "#707070",
-    offBgColor: "#707070",
-    onBgColor: "#8c8c8c",
-    textColor: "#ffffff",
-    radius: 5,
-    fontSize: 12,
-  }).value;
+  _uiInfo.measureEnabled = _uiInfo.gridEnabled;
   uiEndUseGraphics();
 
   // Color swatch at right
-  const hudRightEdge = barX + textW + gap + toggleW + gap + toggleW;
+  const hudRightEdge = barX + textW + gap + toggleW;
   const swW = 22, swH = barH - 10;
   const swX = uiSWidth - swW - padX;
   const swY = (barH - swH)/2;

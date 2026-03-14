@@ -54,7 +54,7 @@ class ProjectionMapper {
     this.followDebugOverlay = false;
     this._onDebugOverlayChange = null;
     this.bottomLeftToggleEnabled = true;
-    this.bottomLeftToggleHoldMs = 3000;
+    this.bottomLeftToggleHoldMs = 1500;
     this.bottomLeftToggleSize = 100;
     this._bottomLeftHoldStartMs = 0;
     this._bottomLeftHoldFired = false;
@@ -841,23 +841,25 @@ class ProjectionMapper {
       if (
         uiKeyPressed &&
         !uiKeyPressedOld &&
-        typeof uiKey !== "undefined" &&
         typeof uiAltPressed !== "undefined" &&
         uiAltPressed
       ) {
-        this.keyPressed(uiKey);
+        const mapperKey = (typeof uiKeyCode !== "undefined" && uiKeyCode) ? uiKeyCode : uiKey;
+        if (typeof mapperKey !== "undefined") {
+          this.keyPressed(mapperKey);
+        }
       }
     }
   }
 
   keyPressed(key) {
-    if (key === "c" || key === "C") this.toggleCalibrate();
-    if (key === "s" || key === "S") this.saveAll();
-    if (key === "l" || key === "L") this.loadAll();
-    if (key === "r" || key === "R") this.resetAll();
-    if (key === "d" || key === "D")
+    if (key === "c" || key === "C" || key === "KeyC") this.toggleCalibrate();
+    if (key === "s" || key === "S" || key === "KeyS") this.saveAll();
+    if (key === "l" || key === "L" || key === "KeyL") this.loadAll();
+    if (key === "r" || key === "R" || key === "KeyR") this.resetAll();
+    if (key === "d" || key === "D" || key === "KeyD")
       this.setDebug({ bypass: !this.debugBypass });
-    if (key === "g" || key === "G")
+    if (key === "g" || key === "G" || key === "KeyG")
       this.setDebug({
         bypass: this.debugBypass,
         passthrough: !this.debugPassthrough,
