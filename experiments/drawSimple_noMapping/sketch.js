@@ -1,7 +1,7 @@
 const SURFACE_W = 1920;
 const SURFACE_H = 1080;
 const MIN_PLANES = 1;
-const MAX_PLANES = 8;
+const MAX_PLANES = 1;
 const PLANE_COUNT_STORAGE_KEY = "drawSimple:planeCount";
 const BRUSH_SIZE_KEY = "drawSimple.brushSize";
 const BRUSH_OPACITY_KEY = "drawSimple.brushOpacity";
@@ -58,14 +58,14 @@ const BLEND_MODES = [
 ];
 
 async function setup() {
-  createCanvas(windowWidth, windowHeight, WEBGL);
+  createCanvas(windowWidth, windowHeight);
   frameRate(60);
   noStroke();
   imageMode(CENTER);
 
   await loadScript("portal/uiSlim2.js");
   await loadScript("portal/multiTouch.js");
-  await loadScript("portal/mapper.js");
+  await loadScript("portal/noMappingMapper.js");
   await loadScript("portal/simplexNoise.js");
   await loadScript("portal/paintPath.js");
 
@@ -245,8 +245,8 @@ function getMousePointer() {
 
   return {
     id: "mouse",
-    x: Number(mouseX) + width * 0.5,
-    y: Number(mouseY) + height * 0.5,
+    x: Number(mouseX),
+    y: Number(mouseY),
   };
 }
 
