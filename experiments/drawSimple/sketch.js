@@ -514,6 +514,9 @@ function deriveBrushDynamics(chunk, rawPoints, size = brushSize, opacity = brush
   const speedSpreadScale = brushSpeedSpread >= 0
     ? lerp(1, 1 + brushSpeedSpread * 2.6, speed01)
     : lerp(1, max(0.08, 1 + brushSpeedSpread * 1.65), speed01);
+  const speedAlphaScale = brushSpeedSpread >= 0
+    ? lerp(1, 1 + brushSpeedSpread * 1.05, speed01)
+    : lerp(1, max(0.18, 1 + brushSpeedSpread * 0.85), speed01);
 
   const turnWidthScale = brushTurnSize >= 0
     ? lerp(1, 1 + brushTurnSize * 1.8, turn01)
@@ -533,7 +536,7 @@ function deriveBrushDynamics(chunk, rawPoints, size = brushSize, opacity = brush
     lerp(1, 1.24, accel01 * 0.7);
   const spread = radius * (0.18 + brushHairs * 0.1) * speedSpreadScale;
   const noiseAmp = brushNoise * radius * (0.5 + 1.35 * speed01 + 0.9 * turn01 + 0.45 * accel01);
-  const alpha = getEffectiveOpacity(opacity) * lerp(0.9, 1.15, speed01 * 0.45);
+  const alpha = getEffectiveOpacity(opacity) * lerp(0.9, 1.15, speed01 * 0.45) * speedAlphaScale;
   const holeRadius = brushHole * radius * (0.22 + speed01 * 0.6 + turn01 * 0.45 + accel01 * 0.25);
   const holeJitter = holeRadius * (0.25 + brushNoise * 0.7 + turn01 * 0.35);
   const holeOffset = radius * (0.08 + turn01 * 0.2 + accel01 * 0.12);
@@ -1104,25 +1107,26 @@ function updateFireflies() {
     const plane = planes[planeIndex];
     for (let i = 0; i < fireflyState.length; i++) {
       const fly = fireflyState[i];
+      const dynamicSizeScale = fly.sizeScale * getFireflySizeScale(fly, i, t);
       const px = constrain(fly.x, 0, 1) * plane.surface.width;
       const py = constrain(fly.y, 0, 1) * plane.surface.height;
       let trail = fly.trails[planeIndex];
       if (!(trail?.path instanceof PortalPaintPath)) {
-        trail = createFireflyTrail(px, py, fly.sizeScale);
+        trail = createFireflyTrail(px, py, dynamicSizeScale);
         fly.trails[planeIndex] = trail;
         continue;
       }
 
       const lastPoint = trail.rawPoints?.[trail.rawPoints.length - 1];
-      const jumpLimit = max(32, brushSize * fly.sizeScale * 1.8);
+      const jumpLimit = max(32, brushSize * dynamicSizeScale * 1.8);
       if (lastPoint && dist(lastPoint.x, lastPoint.y, px, py) > jumpLimit) {
-        fly.trails[planeIndex] = createFireflyTrail(px, py, fly.sizeScale);
+        fly.trails[planeIndex] = createFireflyTrail(px, py, dynamicSizeScale);
         continue;
       }
 
       trail.path.setOptions({
-        rawSpacing: max(2, brushSize * fly.sizeScale * 0.05),
-        sampleSpacing: getFireflySampleSpacing(fly.sizeScale),
+        rawSpacing: max(2, brushSize * dynamicSizeScale * 0.05),
+        sampleSpacing: getFireflySampleSpacing(dynamicSizeScale),
         curveSegmentLength: 8,
         maxRawPoints: 0,
       });
@@ -1136,7 +1140,7 @@ function updateFireflies() {
             plane.surface,
             trail,
             trail.drawnCount || 0,
-            brushSize * fly.sizeScale,
+            brushSize * dynamicSizeScale,
             brushOpacity * fly.opacityScale
           );
         });
@@ -1228,6 +1232,11 @@ function updateFireflyFlock(targets) {
     fly.x = constrain(lerp(target.x, fly.x + fly.vx, 1 - targetFollow), 0.02, 0.98);
     fly.y = constrain(lerp(target.y, fly.y + fly.vy, 1 - targetFollow), 0.02, 0.98);
   }
+}
+
+function getFireflySizeScale(fly, index, timeSec) {
+  const n = 0.5 + 0.5 * noise2DSafe(fly.seedC + 620, timeSec * 0.14 + index * 0.08);
+  return 0.12 + n * 2.8;
 }
 
 function advanceFireflyTime(fly, index, timeSec) {
@@ -1467,7 +1476,7 @@ function renderUi() {
     }, compact).value
   );
   brushSpeedSpread = Number(
-    uiSlider(BRUSH_SPEED_SPREAD_KEY, "Speed Spread", {
+    uiSlider(BRUSH_SPEED_SPREAD_KEY, "Speed Dynamics", {
       min: -1,
       max: 1,
       init: brushSpeedSpread,
