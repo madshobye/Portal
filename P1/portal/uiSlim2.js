@@ -320,36 +320,25 @@ function uiUpdateCornerGesture(touches) {
   const list = Array.isArray(touches) ? touches : [];
   const w = Number(width) > 0 ? Number(width) : uiSWidth;
   const h = Number(height) > 0 ? Number(height) : uiSHeight;
-  if (list.length < 2 || w <= 0 || h <= 0) {
+  if (list.length !== 1 || w <= 0 || h <= 0) {
     uiResetCornerGesture();
     return;
   }
 
-  const matched = [];
-  const usedCorners = new Set();
-  for (const touch of list) {
-    const corner = uiTouchCorner(touch.x, touch.y, w, h);
-    if (!corner || usedCorners.has(corner)) continue;
-    usedCorners.add(corner);
-    matched.push({ id: Number(touch.id), corner });
-    if (matched.length >= 2) break;
-  }
-
-  if (matched.length < 2) {
+  const touch = list[0];
+  const corner = uiTouchCorner(touch?.x, touch?.y, w, h);
+  if (corner !== "top_right") {
     uiResetCornerGesture();
     return;
   }
 
-  const cornerKey = matched
-    .map((m) => m.corner)
-    .sort()
-    .join("|");
+  const cornerKey = corner;
   const now = (typeof millis === "function") ? millis() : Date.now();
   const currentKey = (_uiShortcutState.cornerGestureCorners || []).slice().sort().join("|");
 
   if (cornerKey !== currentKey) {
     _uiShortcutState.cornerGestureStartMs = now;
-    _uiShortcutState.cornerGestureCorners = matched.map((m) => m.corner);
+    _uiShortcutState.cornerGestureCorners = [corner];
     _uiShortcutState.cornerGestureFired = false;
   }
 
@@ -359,7 +348,7 @@ function uiUpdateCornerGesture(touches) {
   ) {
     _uiShortcutState.cornerGestureRequested = true;
     _uiShortcutState.cornerGestureFired = true;
-    uiShortcutDebugLog("corner gesture fullscreen", { corners: _uiShortcutState.cornerGestureCorners });
+    uiShortcutDebugLog("corner hold fullscreen", { corner });
   }
 }
 
