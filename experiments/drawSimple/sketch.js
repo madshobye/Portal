@@ -1430,7 +1430,7 @@ function getEffectiveFadeout(value) {
 
 function renderUi() {
   const compact = {
-    width: 228,
+    width: 112,
     height: 22,
     fontSize: 11,
     padding: 5,
@@ -1438,6 +1438,8 @@ function renderUi() {
     rounding: 4,
     bgColor: "#d8d8d8",
   };
+  const colGap = 12;
+  const col2X = 24 + compact.width + colGap;
 
   uiListStart({ x: 24, y: 24, width: compact.width, dir: "vertical" });
   uiText("Draw Simple", {
@@ -1505,6 +1507,15 @@ function renderUi() {
       init: brushHole,
     }, compact).value
   );
+  uiListEnd();
+
+  uiListStart({ x: col2X, y: 24, width: compact.width, dir: "vertical" });
+  uiText(" ", {
+    ...compact,
+    height: 24,
+    bgColor: "#ececec",
+    hAlign: "center",
+  });
   brushSplatter = Number(
     uiSlider(BRUSH_SPLATTER_KEY, "Splatter", {
       min: 0,
