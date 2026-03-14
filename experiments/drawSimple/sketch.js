@@ -1582,6 +1582,9 @@ function renderUi() {
   if (uiButton("Clear", compact).clicked) {
     clearAll();
   }
+  if (uiButton("Fullscreen", compact).clicked) {
+    fullScreenToggle();
+  }
   if (uiButton("Add Plane", compact).clicked) {
     addPlane(true);
   }
