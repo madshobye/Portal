@@ -396,8 +396,49 @@ function pDebugDash(show) {
   }
 }
 
+function _portalResolveCanvasResizeTarget() {
+  if (typeof window.PORTAL_CANVAS_RESIZE_MODE === "string") {
+    const mode = window.PORTAL_CANVAS_RESIZE_MODE.toLowerCase();
+    if (mode === "none") return null;
+    if (mode === "window") {
+      return { width: windowWidth, height: windowHeight };
+    }
+  }
+
+  const canvasEl =
+    (typeof document !== "undefined" && document.querySelector("canvas")) || null;
+  if (!canvasEl) {
+    return { width: windowWidth, height: windowHeight };
+  }
+
+  const parent = canvasEl.parentElement;
+  if (!parent || parent === document.body) {
+    return { width: windowWidth, height: windowHeight };
+  }
+
+  const rect = parent.getBoundingClientRect?.();
+  const parentWidth = Math.floor(rect?.width || 0);
+  const parentHeight = Math.floor(rect?.height || 0);
+
+  const fillsWindowWidth = Math.abs(parentWidth - window.innerWidth) <= 4;
+  const fillsWindowHeight = Math.abs(parentHeight - window.innerHeight) <= 4;
+
+  if (fillsWindowWidth && fillsWindowHeight) {
+    return { width: windowWidth, height: windowHeight };
+  }
+
+  if (parentWidth > 0 && parentHeight > 0) {
+    return { width: parentWidth, height: parentHeight };
+  }
+
+  return { width: windowWidth, height: windowHeight };
+}
+
 function windowResized() {
-  resizeCanvas(windowWidth, windowHeight);
+  if (typeof resizeCanvas !== "function") return;
+  const target = _portalResolveCanvasResizeTarget();
+  if (!target) return;
+  resizeCanvas(target.width, target.height);
 }
 
 function fullScreenToggle() {

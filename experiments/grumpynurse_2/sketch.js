@@ -10,15 +10,25 @@ const STORAGE_PREFIX = "grumpynurse";
 const MODEL_KEY = `${STORAGE_PREFIX}.model`;
 const SESSION_LANGUAGE_KEY = `${STORAGE_PREFIX}.sessionLanguage`;
 const VOICE_KEY = `${STORAGE_PREFIX}.voice`;
+const LISTENING_WANTED_KEY = `${STORAGE_PREFIX}.listeningWanted`;
 const DEBUG_EXPORTS_KEY = `${STORAGE_PREFIX}.debugExports`;
 const ADMIN_PANEL_HIDDEN_KEY = `${STORAGE_PREFIX}.adminHidden`; 
-const DOC_CACHE_KEY = `${STORAGE_PREFIX}.promptDoc`;
-const DOC_CACHE_TS_KEY = `${STORAGE_PREFIX}.promptDoc.cachedAt`;
-const DOC_CACHE_TTL_MS = 20 * 60 * 1000;
 const CHAT_HISTORY_LIMIT = 16;
 const ADMIN_LOG_LIMIT = 120;
+const SILENCE_PROMPT_DELAYS_MS = [8000, 15000, 24000];
+const SILENCE_PROMPT_RETRY_MS = 1200;
+const VOICE_RECOGNITION_RESTART_DELAY_MS = 450;
+const VOICE_ECHO_SUPPRESSION_MS = 900;
+const SILENCE_READY_MS = 900;
 const GPT_TEMPERATURE = 0.8;
 const GPT_MAX_TOKENS = 500;
+const DEFAULT_MOOD = {
+  label: "grumpy",
+  valence: -0.22,
+  arousal: 0.2,
+  dominance: 0.46,
+  tension: 0.58,
+};
 const SESSION_LANGUAGE_OPTIONS = [
   { id: "en-GB", label: "English", promptLabel: "English" },
   { id: "da-DK", label: "Danish", promptLabel: "Danish" },
@@ -183,12 +193,17 @@ let promptDocMd = "";
 let appRoot;
 let shellEl;
 let adminEl;
+let canvasColumnEl;
+let canvasHostEl;
 let mainEl;
+let conversationEl;
+let introEl;
 let taskEl;
 let chatEl;
 let optionsEl;
 let inputEl;
-let reloadPromptButton;
+let startConversationButton;
+let listeningIndicatorBubble = null;
 let debugButton;
 let adminToggleButton;
 let statusEl;
@@ -206,9 +221,20 @@ let adminPanelHidden = false;
 let chatHistory = [];
 let currentTask = "";
 let currentOptions = [];
+let currentSilencePrompts = [];
+let silencePromptTimeouts = [];
+let lastAssistantTurnEndedAt = 0;
+let currentMood = { ...DEFAULT_MOOD };
 let speech;
 let heardSentence = "";
 let voicesChangedHandler = null;
+let suppressRecognitionUntil = 0;
+let listeningWanted = true;
+let listeningRestartTimeout = null;
+let conversationStarted = false;
+let faceAnimation = null;
+let canvasDebugVisible = false;
+let faceDebugState = null;
 
 const structuredSchemas = [
   {
@@ -226,33 +252,60 @@ const structuredSchemas = [
           type: "array",
           items: { type: "string" },
         },
+        mood: {
+          type: "object",
+          properties: {
+            label: { type: "string" },
+            valence: { type: "number" },
+            arousal: { type: "number" },
+            dominance: { type: "number" },
+            tension: { type: "number" },
+          },
+          required: ["label", "valence", "arousal", "dominance", "tension"],
+        },
+        silence_prompts: {
+          type: "array",
+          items: { type: "string" },
+        },
       },
-      required: ["reply", "trainee_assessment", "next_focus", "cleaned_trainee_message", "task", "options"],
+      required: [
+        "reply",
+        "trainee_assessment",
+        "next_focus",
+        "cleaned_trainee_message",
+        "task",
+        "options",
+        "mood",
+        "silence_prompts",
+      ],
     },
   },
 ];
 
 async function setup() {
-  noCanvas();
-
   await loadScript("portal/GptClient.js");
   await loadScript("portal/speech.js");
+  await loadScript("portal/faceAnimation.js");
 
   apiKey = storedDecrypt({ apiKeyEncryptedGpt222 });
   selectedModel = loadSelectedModel();
   selectedSessionLanguage = loadSelectedSessionLanguage();
   selectedVoice = loadSelectedVoice();
+  listeningWanted = loadListeningWanted();
   debugExportsEnabled = loadDebugExportsEnabled();
   adminPanelHidden = loadAdminPanelHidden();
 
   buildUi();
+  createMiddleCanvas();
+  createFaceAnimation();
   refreshVoiceOptions();
   setStatus("Loading prompt doc...");
 
   try {
+    const initialVoiceName = pickVoiceNameForProfile(selectedVoice) || null;
     speech = await new PortalSpeech({
       language: selectedSessionLanguage,
-      voice: selectedVoice || null,
+      voice: initialVoiceName,
       rate: 1,
       pitch: 1,
       volume: 1,
@@ -274,25 +327,51 @@ async function setup() {
       ? "Prompt doc loaded."
       : "Prompt doc is empty or unavailable. Using the built-in fallback prompt."
   );
-  await appendNurseGreeting();
   setStatus(apiKey ? "Ready" : "Missing API key");
 }
 
 function draw() {
+  drawMiddleCanvas();
   if (listenButton) {
     listenButton.html(
-      speech?.isListening() || isSpeechOutputActive() ? "Stop Listening" : "Start Listening"
+      listeningWanted || speech?.isListening() || isSpeechOutputActive()
+        ? "Stop Listening"
+        : "Start Listening"
     );
   }
+  syncListeningIndicator();
   if (!speech) return;
   if (speech.hasNewResult()) {
     const { text } = speech.consumeNew();
+    if (Date.now() < suppressRecognitionUntil) {
+      appendAdminLog("Recognition: ignored self-echo during cooldown");
+      return;
+    }
+    if (!conversationStarted) {
+      appendAdminLog("Recognition: ignored before conversation start");
+      return;
+    }
     heardSentence = String(text || "").trim();
     if (heardSentence) {
       askFromText(heardSentence, false);
     }
     return;
   }
+}
+
+function drawMiddleCanvas() {
+  background(216, 31, 38);
+  updateFaceAnimation();
+  if (faceAnimation) {
+    faceAnimation.update(deltaTime / 1000);
+    faceAnimation.render({
+      x: 0,
+      y: 0,
+      w: width,
+      h: height,
+    });
+  }
+  drawCanvasDebugOverlay();
 }
 
 function buildUi() {
@@ -372,17 +451,12 @@ function buildUi() {
   voiceSelectEl.parent(toolbar);
   voiceSelectEl.class("gn-btn gn-btn-secondary");
   populateVoiceSelect();
-    voiceSelectEl.changed(() => {
-      selectedVoice = voiceSelectEl.value();
-      persistSelectedVoice();
-      applySelectedVoice();
-      appendSystemMessage(`Voice changed to ${selectedVoice || "auto"}.`);
-    });
-
-  reloadPromptButton = createButton("Reload Prompt");
-  reloadPromptButton.parent(toolbar);
-  reloadPromptButton.class("gn-btn gn-btn-secondary");
-  reloadPromptButton.mousePressed(reloadPromptDoc);
+  voiceSelectEl.changed(() => {
+    selectedVoice = voiceSelectEl.value();
+    persistSelectedVoice();
+    applySelectedVoice();
+    appendSystemMessage(`Voice changed to ${selectedVoice || "auto"}.`);
+  });
 
   debugButton = createButton(debugExportsEnabled ? "Debug: ON" : "Debug: OFF");
   debugButton.parent(toolbar);
@@ -394,9 +468,36 @@ function buildUi() {
   listenButton.class("gn-btn gn-btn-secondary");
   listenButton.mousePressed(toggleListening);
 
+  canvasColumnEl = createDiv("");
+  canvasColumnEl.class("gn-canvas-column");
+  canvasColumnEl.parent(shellEl);
+
+  canvasHostEl = createDiv("");
+  canvasHostEl.class("gn-canvas-host");
+  canvasHostEl.parent(canvasColumnEl);
+
   mainEl = createDiv("");
   mainEl.class("gn-main");
   mainEl.parent(shellEl);
+
+  introEl = createDiv("");
+  introEl.class("gn-intro");
+  introEl.parent(mainEl);
+
+  const introTitle = createDiv("Ready when you are.");
+  introTitle.class("gn-intro-title");
+  introTitle.parent(introEl);
+
+  const introText = createDiv("Start a new scenario when you want the nurse to begin.");
+  introText.class("gn-intro-text");
+  introText.parent(introEl);
+
+  startConversationButton = createButton("Start Conversation");
+  startConversationButton.parent(introEl);
+  startConversationButton.class("gn-btn gn-btn-primary gn-start-btn");
+  startConversationButton.mousePressed(() => {
+    startConversation(true);
+  });
 
   const consoleTitle = createDiv("Console");
   consoleTitle.class("gn-console-title");
@@ -411,18 +512,22 @@ function buildUi() {
   taskEl.parent(mainEl);
   renderTask();
 
+  conversationEl = createDiv("");
+  conversationEl.class("gn-conversation");
+  conversationEl.parent(mainEl);
+
   chatEl = createDiv("");
   chatEl.class("gn-chat");
-  chatEl.parent(mainEl);
+  chatEl.parent(conversationEl);
 
   optionsEl = createDiv("");
   optionsEl.class("gn-options-tray");
-  optionsEl.parent(mainEl);
+  optionsEl.parent(conversationEl);
   renderOptions();
 
   const compose = createDiv("");
   compose.class("gn-compose");
-  compose.parent(mainEl);
+  compose.parent(conversationEl);
 
   inputEl = createElement("textarea");
   inputEl.class("gn-input");
@@ -436,6 +541,171 @@ function buildUi() {
   });
 
   applyAdminPanelVisibility();
+  applyConversationVisibility();
+}
+
+function createMiddleCanvas() {
+  if (!canvasHostEl) return;
+  const rect = canvasHostEl.elt.getBoundingClientRect();
+  const canvasWidth = Math.max(220, Math.floor(rect.width || 320));
+  const canvasHeight = Math.max(240, Math.floor(rect.height || windowHeight || 240));
+  const c = createCanvas(canvasWidth, canvasHeight);
+  if (canvasHostEl?.elt && c?.elt) {
+    canvasHostEl.elt.appendChild(c.elt);
+    c.elt.addEventListener("click", toggleCanvasDebugOverlay);
+  }
+  if (c?.elt) c.elt.className = "gn-p5-canvas";
+}
+
+function createFaceAnimation() {
+  if (!window.PortalFaceAnimation) return;
+  faceAnimation = new PortalFaceAnimation({
+    skinTone: [240, 228, 214],
+    paperTone: [236, 233, 225],
+    inkTone: [17, 17, 17],
+    accentTone: [216, 31, 38],
+    hairTone: [18, 20, 24],
+  });
+}
+
+function updateFaceAnimation() {
+  if (!faceAnimation) return;
+
+  const speaking = isSpeechOutputActive() ? 1 : 0;
+  const listening = speech?.isListening?.() ? 1 : 0;
+  const thinking = askInFlight ? 1 : 0;
+  const waitingForUser =
+    conversationStarted &&
+    !thinking &&
+    !speaking &&
+    !!chatHistory.length &&
+    chatHistory[chatHistory.length - 1]?.role === "assistant";
+
+  let valence = currentMood.valence;
+  let arousal = currentMood.arousal;
+  let dominance = currentMood.dominance;
+  let tension = currentMood.tension;
+  let gazeX = 0;
+  let gazeY = -0.05;
+  let headTurn = 0;
+  let headTilt = 0;
+  let headPitch = 0;
+
+  if (!conversationStarted) {
+    valence = currentMood.valence * 0.5;
+    arousal = Math.min(0.05, currentMood.arousal * 0.3);
+    dominance = currentMood.dominance * 0.35;
+    tension = currentMood.tension * 0.45;
+    gazeY = -0.15;
+  } else if (thinking) {
+    arousal += 0.08;
+    tension += 0.12;
+    gazeX = -0.38;
+    gazeY = -0.18;
+    headTurn = -0.18;
+  } else if (speaking) {
+    arousal += 0.14;
+    dominance += 0.12;
+    tension += 0.12;
+    gazeY = -0.02;
+    headPitch = 0.06;
+  } else if (waitingForUser || listening) {
+    gazeX = 0.06 * Math.sin(frameCount * 0.02);
+    gazeY = 0.02;
+    headTilt = 0.04 * Math.sin(frameCount * 0.018);
+  }
+
+  valence = constrain(valence, -1, 1);
+  arousal = constrain(arousal, -1, 1);
+  dominance = constrain(dominance, -1, 1);
+  tension = constrain(tension, 0, 1);
+
+  faceAnimation.setTarget({
+    valence,
+    arousal,
+    dominance,
+    tension,
+    speaking,
+    listening: listening ? 1 : waitingForUser ? 0.5 : 0,
+    thinking,
+    gazeX,
+    gazeY,
+    headTurn,
+    headTilt,
+    headPitch,
+  });
+
+  faceDebugState = {
+    currentMood: { ...currentMood },
+    applied: {
+      valence,
+      arousal,
+      dominance,
+      tension,
+      speaking,
+      listening: listening ? 1 : waitingForUser ? 0.5 : 0,
+      thinking,
+      gazeX,
+      gazeY,
+      headTurn,
+      headTilt,
+      headPitch,
+    },
+    status: {
+      conversationStarted,
+      waitingForUser,
+      speechListening: !!listening,
+      speechOutput: !!speaking,
+      askInFlight,
+    },
+  };
+}
+
+function toggleCanvasDebugOverlay() {
+  canvasDebugVisible = !canvasDebugVisible;
+}
+
+function drawCanvasDebugOverlay() {
+  if (!canvasDebugVisible) return;
+  const mood = faceDebugState?.currentMood || currentMood || DEFAULT_MOOD;
+  const applied = faceDebugState?.applied || {};
+  const status = faceDebugState?.status || {};
+  const lines = [
+    "Face Debug",
+    `mood: ${String(mood.label || "grumpy")}`,
+    `valence: ${Number(mood.valence || 0).toFixed(2)}`,
+    `arousal: ${Number(mood.arousal || 0).toFixed(2)}`,
+    `dominance: ${Number(mood.dominance || 0).toFixed(2)}`,
+    `tension: ${Number(mood.tension || 0).toFixed(2)}`,
+    "",
+    `applied speaking: ${Number(applied.speaking || 0).toFixed(2)}`,
+    `applied listening: ${Number(applied.listening || 0).toFixed(2)}`,
+    `applied thinking: ${Number(applied.thinking || 0).toFixed(2)}`,
+    `gaze: ${Number(applied.gazeX || 0).toFixed(2)}, ${Number(applied.gazeY || 0).toFixed(2)}`,
+    `head: ${Number(applied.headTurn || 0).toFixed(2)}, ${Number(applied.headTilt || 0).toFixed(2)}, ${Number(applied.headPitch || 0).toFixed(2)}`,
+    "",
+    `started: ${status.conversationStarted ? "yes" : "no"}`,
+    `waiting: ${status.waitingForUser ? "yes" : "no"}`,
+    `listening: ${status.speechListening ? "yes" : "no"}`,
+    `speaking: ${status.speechOutput ? "yes" : "no"}`,
+    `thinking: ${status.askInFlight ? "yes" : "no"}`,
+  ];
+
+  push();
+  noStroke();
+  fill(17, 17, 17, 210);
+  rect(18, 18, Math.min(280, width - 36), Math.min(288, height - 36), 12);
+  fill(247, 245, 239);
+  textAlign(LEFT, TOP);
+  textFont("Helvetica Neue");
+  textSize(12);
+  textLeading(16);
+  text(lines.join("\n"), 32, 32, Math.min(248, width - 64), Math.min(256, height - 64));
+  pop();
+}
+
+function describeFaceState() {
+  return currentMood?.label || "grumpy";
 }
 
 function createClient() {
@@ -454,25 +724,40 @@ function createClient() {
 async function appendNurseGreeting() {
   const opening = await generateOpeningNurseMessage();
   const greeting = opening.reply;
-  appendMessage("nurse", greeting);
-  chatHistory.push({ role: "assistant", text: greeting });
   updateTask(opening.task);
   updateOptions(opening.options);
+  updateMood(opening.mood);
+  updateSilencePrompts(opening.silencePrompts, false);
+  appendMessage("nurse", greeting);
+  chatHistory.push({ role: "assistant", text: greeting });
+  if (speech) {
+    setStatus("Speaking...");
+    appendAdminLog("Voice: speaking opening prompt");
+    cancelListeningRestart();
+    speech.stopListening();
+    suppressRecognitionUntil = Date.now() + VOICE_ECHO_SUPPRESSION_MS;
+    try {
+      await speech.speak(greeting, selectedSessionLanguage);
+    } catch (err) {
+      appendAdminLog(`Voice opening prompt error: ${err?.message || String(err)}`);
+    }
+    suppressRecognitionUntil = Date.now() + VOICE_ECHO_SUPPRESSION_MS;
+    if (listeningWanted) {
+      scheduleListeningRestart(VOICE_RECOGNITION_RESTART_DELAY_MS);
+    }
+    lastAssistantTurnEndedAt = Date.now();
+    setStatus("Ready");
+  } else {
+    lastAssistantTurnEndedAt = Date.now();
+  }
+  scheduleSilencePrompts();
   appendAdminLog("Assessment: Session start");
   appendAdminLog("Next focus: Initial assessment and prioritization");
 }
 
 async function generateOpeningNurseMessage() {
-  const fallbackGreeting =
-    "Right. You're on with me now. Don't waffle. Tell me what you'd do first when you enter a patient's room and something feels off.";
-  const fallbackTask = "Establish what is wrong with the patient, prioritize the immediate risk, and explain your first action clearly.";
-  const fallbackOptions = [
-    "I assess the patient first and look for immediate danger.",
-    "I check what feels off and ask the patient what is wrong.",
-    "I pause, observe, and decide the most urgent next step.",
-  ];
   if (!gpt || !apiKey) {
-    return { reply: fallbackGreeting, task: fallbackTask, options: fallbackOptions };
+    throw new Error("Missing API key.");
   }
 
   try {
@@ -487,22 +772,67 @@ async function generateOpeningNurseMessage() {
     const reply = String(res?.reply || "").trim();
     const task = String(res?.task || "").trim();
     const options = sanitizeResponseOptions(res?.options);
+    const mood = sanitizeMood(res?.mood, currentMood);
+    const silencePrompts = sanitizeSilencePrompts(res?.silence_prompts, []);
     if (reply) {
       appendAdminLog("Opening line generated from prompt doc");
       return {
         reply,
-        task: task || fallbackTask,
-        options: options.length ? options : fallbackOptions,
+        task,
+        options,
+        mood,
+        silencePrompts,
       };
     }
   } catch (err) {
-    appendAdminLog(`Opening line fallback: ${err?.message || String(err)}`);
+    appendAdminLog(`Opening line error: ${err?.message || String(err)}`);
+    throw err;
   }
-  return { reply: fallbackGreeting, task: fallbackTask, options: fallbackOptions };
+  throw new Error("No structured opening reply returned.");
 }
 
 async function sendCurrentInput() {
   await askFromText(String(inputEl.value() || "").trim(), true);
+}
+
+async function startConversation(resetExisting = false) {
+  if (askInFlight) return;
+
+  clearSilencePromptTimers();
+  cancelListeningRestart();
+
+  if (speech) {
+    speech.stopSpeaking();
+    speech.stopListening();
+  }
+
+  suppressRecognitionUntil = 0;
+  heardSentence = "";
+
+  if (resetExisting) {
+    chatHistory = [];
+    currentTask = "";
+    currentOptions = [];
+    currentSilencePrompts = [];
+    lastAssistantTurnEndedAt = 0;
+    currentMood = { ...DEFAULT_MOOD };
+    if (chatEl) chatEl.html("");
+    if (inputEl) inputEl.value("");
+    renderTask();
+    renderOptions();
+    appendAdminLog("Conversation restarted");
+  }
+
+  conversationStarted = true;
+  applyConversationVisibility();
+  try {
+    await appendNurseGreeting();
+  } catch (err) {
+    conversationStarted = false;
+    applyConversationVisibility();
+    appendSystemMessage(err?.message || String(err));
+    setStatus("Missing API key");
+  }
 }
 
 async function askFromText(text, clearInput = false) {
@@ -513,6 +843,8 @@ async function askFromText(text, clearInput = false) {
   if (clearInput && inputEl) {
     inputEl.value("");
   }
+
+  clearSilencePromptTimers();
 
   const userBubble = appendMessage("user", input, {
     raw_trainee_message: input,
@@ -564,6 +896,8 @@ async function askFromText(text, clearInput = false) {
     );
     const task = String(res?.task || "").trim();
     const options = sanitizeResponseOptions(res?.options);
+    const mood = sanitizeMood(res?.mood, currentMood);
+    const silencePrompts = sanitizeSilencePrompts(res?.silence_prompts);
 
     if (!reply) {
       appendSystemMessage("No structured reply returned.");
@@ -581,20 +915,35 @@ async function askFromText(text, clearInput = false) {
     }
     updateTask(task);
     updateOptions(options);
+    updateMood(mood);
     appendAdminLog(`Assessment: ${traineeAssessment || "-"}`);
     appendAdminLog(`Next focus: ${nextFocus || "-"}`);
 
     appendMessage("nurse", reply);
     chatHistory.push({ role: "assistant", text: reply });
     trimChatHistory();
-    if (speech?.isListening()) {
+    if (listeningWanted && speech) {
       setStatus("Speaking...");
       appendAdminLog("Voice: speaking reply");
-      speech.speak(reply, selectedSessionLanguage);
+      cancelListeningRestart();
+      speech.stopListening();
+      suppressRecognitionUntil = Date.now() + VOICE_ECHO_SUPPRESSION_MS;
+      try {
+        await speech.speak(reply, selectedSessionLanguage);
+      } catch (err) {
+        appendAdminLog(`Voice reply error: ${err?.message || String(err)}`);
+      }
+      suppressRecognitionUntil = Date.now() + VOICE_ECHO_SUPPRESSION_MS;
+      scheduleListeningRestart(VOICE_RECOGNITION_RESTART_DELAY_MS);
+      setStatus("Ready");
+      lastAssistantTurnEndedAt = Date.now();
     } else {
       setStatus("Ready");
       appendAdminLog("Voice: output skipped because listening is off");
+      lastAssistantTurnEndedAt = Date.now();
     }
+    updateSilencePrompts(silencePrompts, false);
+    scheduleSilencePrompts();
   } catch (err) {
     appendSystemMessage(err?.message || String(err));
     setStatus("Error");
@@ -606,18 +955,26 @@ async function askFromText(text, clearInput = false) {
 
 function toggleListening() {
   if (!speech) return;
-  if (speech.isListening() || isSpeechOutputActive()) {
+  if (listeningWanted || speech.isListening() || isSpeechOutputActive()) {
+    listeningWanted = false;
+    persistListeningWanted();
+    cancelListeningRestart();
     speech.stopSpeaking();
     speech.stopListening();
     setStatus("Ready");
     appendAdminLog("Voice: listening/speaking stopped");
   } else {
+    listeningWanted = true;
+    persistListeningWanted();
+    cancelListeningRestart();
     speech.listenRecurring(null, { language: selectedSessionLanguage });
     appendAdminLog("Voice: listening started");
   }
   if (listenButton) {
     listenButton.html(
-      speech?.isListening() || isSpeechOutputActive() ? "Stop Listening" : "Start Listening"
+      listeningWanted || speech?.isListening() || isSpeechOutputActive()
+        ? "Stop Listening"
+        : "Start Listening"
     );
   }
 }
@@ -653,6 +1010,7 @@ function buildConversationPrompt(latestUserMessage) {
   const docText = injectPromptPlaceholders(baseDocText, {
     conversation_history: historyText || "(none)",
     current_task: currentTask || "(not set yet)",
+    current_mood: `${currentMood.label} | valence ${currentMood.valence.toFixed(2)} | arousal ${currentMood.arousal.toFixed(2)} | dominance ${currentMood.dominance.toFixed(2)} | tension ${currentMood.tension.toFixed(2)}`,
     latest_user_message: latestUserMessage || "(none)",
     session_language: getSessionLanguageLabel(),
     session_summary: sessionSummary || "No clear pattern yet. Keep assessing the trainee.",
@@ -678,6 +1036,8 @@ function buildConversationPrompt(latestUserMessage) {
     "cleaned_trainee_message: rewrite the trainee's latest message into a short, clean version that preserves intent and fixes obvious speech-to-text mistakes, dropped words, and garbled phrasing. If the message is already clear, return it with only light cleanup.",
     "task: a short mission for the trainee to solve in this scenario. Keep updating it if the situation develops or the trainee solves part of it.",
     "options: optional short trainee reply choices as a list of 0 to 4 strings. Use them when the trainee is at a decision point.",
+    "mood: assess the nurse avatar mood and return label, valence (-1 to 1), arousal (-1 to 1), dominance (-1 to 1), and tension (0 to 1). Keep the nurse generally stern, but let the mood evolve with the trainee.",
+    "silence_prompts: exactly 3 short nurse follow-up lines that become more pressing if the trainee stays silent. Keep them brief, in character, and suitable for pacing delays.",
   ].join("\n");
 }
 
@@ -706,6 +1066,7 @@ function buildOpeningPrompt() {
   const docText = injectPromptPlaceholders(baseDocText, {
     conversation_history: "(none)",
     current_task: "(not set yet)",
+    current_mood: `${currentMood.label} | valence ${currentMood.valence.toFixed(2)} | arousal ${currentMood.arousal.toFixed(2)} | dominance ${currentMood.dominance.toFixed(2)} | tension ${currentMood.tension.toFixed(2)}`,
     latest_user_message: "(none)",
     session_language: getSessionLanguageLabel(),
     session_summary: "Session start. Begin with a concrete, realistic opening situation.",
@@ -731,6 +1092,8 @@ function buildOpeningPrompt() {
     "cleaned_trainee_message: return '(none)' because there is no trainee message yet.",
     "task: define the trainee's mission for this scenario in one or two short sentences.",
     "options: provide 2 to 4 short possible trainee responses or actions to choose from.",
+    "mood: set the initial nurse avatar mood with label, valence (-1 to 1), arousal (-1 to 1), dominance (-1 to 1), and tension (0 to 1).",
+    "silence_prompts: provide exactly 3 escalating short lines to push the trainee if they stay silent.",
   ].join("\n");
 }
 
@@ -772,50 +1135,13 @@ function injectPromptPlaceholders(docText, replacements = {}) {
   return out;
 }
 
-async function fetchPromptMarkdown(force = false) {
-  const cached = force ? "" : loadCachedPromptDoc();
-  if (cached) return cached;
-
+async function fetchPromptMarkdown() {
   try {
     const res = await fetch(DOC_MD_URL, { method: "GET" });
     if (!res.ok) throw new Error(`Prompt doc fetch failed: HTTP ${res.status}`);
-    const md = await res.text();
-    cachePromptDoc(md);
-    return md;
+    return await res.text();
   } catch (err) {
     appendSystemMessage(err?.message || "Could not load prompt doc.");
-    return "";
-  }
-}
-
-async function reloadPromptDoc() {
-  if (askInFlight) return;
-  setStatus("Reloading prompt...");
-  const md = await fetchPromptMarkdown(true);
-  promptDocMd = md;
-  appendSystemMessage(
-    md
-      ? "Prompt doc reloaded."
-      : "Prompt doc still empty or unavailable. Using fallback prompt."
-  );
-  setStatus("Ready");
-}
-
-function cachePromptDoc(md) {
-  try {
-    window.localStorage.setItem(DOC_CACHE_KEY, String(md || ""));
-    window.localStorage.setItem(DOC_CACHE_TS_KEY, String(Date.now()));
-  } catch {}
-}
-
-function loadCachedPromptDoc() {
-  try {
-    const md = window.localStorage.getItem(DOC_CACHE_KEY) || "";
-    const ts = Number(window.localStorage.getItem(DOC_CACHE_TS_KEY) || 0);
-    if (!md || !Number.isFinite(ts)) return "";
-    if (Date.now() - ts > DOC_CACHE_TTL_MS) return "";
-    return md;
-  } catch {
     return "";
   }
 }
@@ -828,9 +1154,18 @@ function trimChatHistory() {
 
 function appendSystemMessage(text) {
   appendAdminLog(text);
+  if (introEl && !conversationStarted) {
+    const introTextEl = introEl.elt.querySelector(".gn-intro-text");
+    if (introTextEl) {
+      introTextEl.textContent = String(text || "");
+    }
+  }
 }
 
 function appendMessage(kind, text, meta = null) {
+  if (kind === "nurse" || kind === "user") {
+    removeListeningIndicator();
+  }
   const bubble = createDiv("");
   bubble.parent(chatEl);
   bubble.class(`gn-bubble gn-bubble-${kind}`);
@@ -845,8 +1180,8 @@ function appendMessage(kind, text, meta = null) {
 
 function updateBusyState() {
   const busy = !!askInFlight;
-  if (reloadPromptButton) reloadPromptButton.attribute(busy ? "disabled" : "data-enabled", busy ? "" : "1");
-  if (reloadPromptButton && !busy) reloadPromptButton.removeAttribute("disabled");
+  if (startConversationButton) startConversationButton.attribute(busy ? "disabled" : "data-enabled", busy ? "" : "1");
+  if (startConversationButton && !busy) startConversationButton.removeAttribute("disabled");
   if (debugButton) debugButton.attribute(busy ? "disabled" : "data-enabled", busy ? "" : "1");
   if (debugButton && !busy) debugButton.removeAttribute("disabled");
   if (listenButton) listenButton.attribute(busy ? "disabled" : "data-enabled", busy ? "" : "1");
@@ -858,6 +1193,54 @@ function updateBusyState() {
 function setStatus(text) {
   if (!statusEl) return;
   statusEl.html(String(text || ""));
+}
+
+function applyConversationVisibility() {
+  if (introEl) introEl.style("display", conversationStarted ? "none" : "flex");
+  if (taskEl) taskEl.style("display", conversationStarted ? "block" : "none");
+  if (chatEl) chatEl.style("display", conversationStarted ? "flex" : "none");
+  if (optionsEl) optionsEl.style("display", conversationStarted && currentOptions.length ? "flex" : "none");
+  if (inputEl?.elt?.parentElement) {
+    inputEl.elt.parentElement.style.display = conversationStarted ? "flex" : "none";
+  }
+  if (!conversationStarted) removeListeningIndicator();
+}
+
+function shouldShowListeningIndicator() {
+  if (!conversationStarted) return false;
+  if (!speech) return false;
+  if (askInFlight) return false;
+  if (isSpeechOutputActive()) return false;
+  if (!speech.isListening()) return false;
+  const lastRole = chatHistory[chatHistory.length - 1]?.role || "";
+  return lastRole === "assistant";
+}
+
+function syncListeningIndicator() {
+  if (!shouldShowListeningIndicator()) {
+    removeListeningIndicator();
+    return;
+  }
+  if (listeningIndicatorBubble?.elt?.isConnected) return;
+
+  listeningIndicatorBubble = createDiv("");
+  listeningIndicatorBubble.parent(chatEl);
+  listeningIndicatorBubble.class("gn-bubble gn-bubble-user gn-bubble-listening");
+  listeningIndicatorBubble.html(
+    `<span class="gn-recording-dot" aria-hidden="true"></span><span>Listening...</span>`
+  );
+
+  requestAnimationFrame(() => {
+    if (chatEl?.elt) chatEl.elt.scrollTop = chatEl.elt.scrollHeight;
+  });
+}
+
+function removeListeningIndicator() {
+  if (!listeningIndicatorBubble) return;
+  try {
+    listeningIndicatorBubble.remove();
+  } catch {}
+  listeningIndicatorBubble = null;
 }
 
 function loadSelectedModel() {
@@ -890,9 +1273,9 @@ function persistSelectedSessionLanguage() {
 
 function loadSelectedVoice() {
   try {
-    return window.localStorage.getItem(VOICE_KEY) || "";
+    return window.localStorage.getItem(VOICE_KEY) || "en_female_flo";
   } catch {}
-  return "";
+  return "en_female_flo";
 }
 
 function persistSelectedVoice() {
@@ -901,11 +1284,28 @@ function persistSelectedVoice() {
   } catch {}
 }
 
+function loadListeningWanted() {
+  try {
+    const saved = window.localStorage.getItem(LISTENING_WANTED_KEY);
+    if (saved === null) return true;
+    return saved === "1";
+  } catch {}
+  return true;
+}
+
+function persistListeningWanted() {
+  try {
+    window.localStorage.setItem(LISTENING_WANTED_KEY, listeningWanted ? "1" : "0");
+  } catch {}
+}
+
 function loadAdminPanelHidden() {
   try {
-    return window.localStorage.getItem(ADMIN_PANEL_HIDDEN_KEY) === "1";
+    const saved = window.localStorage.getItem(ADMIN_PANEL_HIDDEN_KEY);
+    if (saved === null) return true;
+    return saved === "1";
   } catch {}
-  return false;
+  return true;
 }
 
 function persistAdminPanelHidden() {
@@ -974,7 +1374,8 @@ function populateVoiceSelect() {
   }
 
   const hasSelected = availableProfileIds.has(selectedVoice) || selectedVoice === "auto";
-  voiceSelectEl.selected(hasSelected ? selectedVoice || "auto" : "auto");
+  const nextValue = hasSelected ? selectedVoice || "auto" : "auto";
+  voiceSelectEl.selected(nextValue);
 }
 
 function refreshVoiceOptions() {
@@ -984,6 +1385,9 @@ function refreshVoiceOptions() {
     appendAdminLog("Voice list: only auto available so far");
   } else {
     appendAdminLog(`Voice list: ${optionCount - 1} voices loaded`);
+  }
+  if (speech) {
+    applySelectedVoice(false);
   }
 }
 
@@ -1000,15 +1404,14 @@ function setupVoiceRefresh() {
   synth.onvoiceschanged = voicesChangedHandler;
 }
 
-function applySelectedVoice() {
+function applySelectedVoice(shouldLog = true) {
   if (!speech) return;
   speech.setLanguage(selectedSessionLanguage);
   const voiceName = pickVoiceNameForProfile(selectedVoice);
+  speech.setVoice(voiceName || null);
+  if (!shouldLog) return;
   if (voiceName) {
-    speech.setVoice(voiceName);
-    appendAdminLog(
-      `Voice setup: ${selectedVoice} -> ${voiceName} (${getSessionLanguageLabel()})`
-    );
+    appendAdminLog(`Voice setup: ${selectedVoice} -> ${voiceName} (${getSessionLanguageLabel()})`);
   } else {
     appendAdminLog(`Voice setup: auto ${getSessionLanguageLabel()}`);
   }
@@ -1017,12 +1420,17 @@ function applySelectedVoice() {
 function applySessionLanguage() {
   if (!speech) return;
   speech.setLanguage(selectedSessionLanguage);
+  refreshVoiceOptions();
+  applySelectedVoice();
   appendAdminLog(`Recognition language: ${getSessionLanguageLabel()}`);
-  if (speech.isListening()) {
+  if (listeningWanted || speech.isListening()) {
     try {
+      cancelListeningRestart();
       speech.stopListening();
-      speech.listenRecurring(null, { language: selectedSessionLanguage });
-      appendAdminLog("Voice: listening restarted for new session language");
+      if (listeningWanted) {
+        speech.listenRecurring(null, { language: selectedSessionLanguage });
+        appendAdminLog("Voice: listening restarted for new session language");
+      }
     } catch (err) {
       appendAdminLog(`Voice restart error: ${err?.message || String(err)}`);
     }
@@ -1046,10 +1454,24 @@ function pickVoiceNameForProfile(profileId) {
   const profile = CURATED_VOICE_PROFILES.find((item) => item.id === profileId);
   if (!profile) return "";
   const voices = getAvailableSpeechVoices();
-  const match = profile.candidates.find((candidate) =>
-    voices.some((voice) => voice.name === candidate)
+  for (const candidate of profile.candidates) {
+    const exact = voices.find((voice) => voice.name === candidate);
+    if (exact) return exact.name;
+  }
+
+  for (const candidate of profile.candidates) {
+    const lowerCandidate = String(candidate || "").toLowerCase();
+    const partial = voices.find((voice) =>
+      String(voice.name || "").toLowerCase().includes(lowerCandidate)
+    );
+    if (partial) return partial.name;
+  }
+
+  const languagePrefix = String(selectedSessionLanguage || "").split("-")[0].toLowerCase();
+  const sameLanguage = voices.find((voice) =>
+    String(voice.lang || "").toLowerCase().startsWith(languagePrefix)
   );
-  return match || "";
+  return sameLanguage?.name || "";
 }
 
 function getAvailableSpeechVoices() {
@@ -1075,6 +1497,158 @@ function sanitizeResponseOptions(value) {
     .map((item) => String(item || "").trim())
     .filter(Boolean)
     .slice(0, 4);
+}
+
+function sanitizeMood(value, fallback = currentMood) {
+  const next = value && typeof value === "object" ? value : {};
+  return {
+    label: String(next.label || fallback?.label || "grumpy").trim() || "grumpy",
+    valence: constrain(Number.isFinite(Number(next.valence)) ? Number(next.valence) : Number(fallback?.valence || -0.2), -1, 1),
+    arousal: constrain(Number.isFinite(Number(next.arousal)) ? Number(next.arousal) : Number(fallback?.arousal || 0.2), -1, 1),
+    dominance: constrain(Number.isFinite(Number(next.dominance)) ? Number(next.dominance) : Number(fallback?.dominance || 0.45), -1, 1),
+    tension: constrain(Number.isFinite(Number(next.tension)) ? Number(next.tension) : Number(fallback?.tension || 0.55), 0, 1),
+  };
+}
+
+function updateMood(nextMood) {
+  currentMood = sanitizeMood(nextMood, currentMood);
+  appendAdminLog(
+    `Mood: ${currentMood.label} v:${currentMood.valence.toFixed(2)} a:${currentMood.arousal.toFixed(2)} d:${currentMood.dominance.toFixed(2)} t:${currentMood.tension.toFixed(2)}`
+  );
+}
+
+function sanitizeSilencePrompts(value, fallback = []) {
+  const prompts = Array.isArray(value)
+    ? value.map((item) => String(item || "").trim()).filter(Boolean).slice(0, 3)
+    : [];
+  if (prompts.length === 3) return prompts;
+  const normalizedFallback = Array.isArray(fallback)
+    ? fallback.map((item) => String(item || "").trim()).filter(Boolean).slice(0, 3)
+    : [];
+  return normalizedFallback;
+}
+
+function updateSilencePrompts(nextPrompts, scheduleNow = true) {
+  currentSilencePrompts = Array.isArray(nextPrompts) ? nextPrompts.slice(0, 3) : [];
+  clearSilencePromptTimers();
+  if (scheduleNow) scheduleSilencePrompts();
+}
+
+function clearSilencePromptTimers() {
+  for (const timeoutId of silencePromptTimeouts) {
+    clearTimeout(timeoutId);
+  }
+  silencePromptTimeouts = [];
+}
+
+function scheduleSilencePrompts() {
+  clearSilencePromptTimers();
+  if (!currentSilencePrompts.length) return;
+
+  scheduleNextSilencePrompt(0);
+}
+
+function scheduleNextSilencePrompt(index) {
+  if (index >= currentSilencePrompts.length) return;
+  const expectedAssistantCount = chatHistory.filter((item) => item.role === "assistant").length;
+  const baseTime = Math.max(Date.now(), Number(lastAssistantTurnEndedAt) || 0);
+  const delay =
+    SILENCE_PROMPT_DELAYS_MS[index] ||
+    SILENCE_PROMPT_DELAYS_MS[SILENCE_PROMPT_DELAYS_MS.length - 1];
+  const fireIn = Math.max(0, baseTime + delay - Date.now());
+  const timeoutId = window.setTimeout(() => {
+    maybeFireSilencePrompt(currentSilencePrompts[index], expectedAssistantCount, index);
+  }, fireIn);
+  silencePromptTimeouts.push(timeoutId);
+}
+
+function retrySilencePrompt(index, expectedAssistantCount, delayMs = SILENCE_PROMPT_RETRY_MS) {
+  const timeoutId = window.setTimeout(() => {
+    maybeFireSilencePrompt(currentSilencePrompts[index], expectedAssistantCount, index);
+  }, Math.max(250, Number(delayMs) || SILENCE_PROMPT_RETRY_MS));
+  silencePromptTimeouts.push(timeoutId);
+}
+
+function maybeFireSilencePrompt(line, expectedAssistantCount, index) {
+  const currentAssistantCount = chatHistory.filter((item) => item.role === "assistant").length;
+  const hasPendingUserReply = chatHistory.length && chatHistory[chatHistory.length - 1]?.role === "assistant";
+  const silenceReady =
+    !speech ||
+    (!speech.isListening() && !isSpeechOutputActive()) ||
+    speech.isSilentFor(SILENCE_READY_MS);
+
+  if (!hasPendingUserReply) return;
+  if (currentAssistantCount !== expectedAssistantCount) return;
+  if (askInFlight) return;
+  if (isSpeechOutputActive()) {
+    retrySilencePrompt(index, expectedAssistantCount, 900);
+    return;
+  }
+  if (Date.now() < suppressRecognitionUntil) {
+    retrySilencePrompt(index, expectedAssistantCount, suppressRecognitionUntil - Date.now() + 250);
+    return;
+  }
+  if (!silenceReady) {
+    retrySilencePrompt(index, expectedAssistantCount);
+    return;
+  }
+
+  appendMessage("nurse", line);
+  chatHistory.push({ role: "assistant", text: line });
+  trimChatHistory();
+  appendAdminLog(`Silence prompt: ${line}`);
+  if (listeningWanted && speech) {
+    cancelListeningRestart();
+    speech.stopListening();
+    suppressRecognitionUntil = Date.now() + VOICE_ECHO_SUPPRESSION_MS;
+    setStatus("Speaking...");
+    appendAdminLog("Voice: speaking silence prompt");
+    speech
+      .speak(line, selectedSessionLanguage)
+      .then(() => {
+        suppressRecognitionUntil = Date.now() + VOICE_ECHO_SUPPRESSION_MS;
+        setStatus("Ready");
+        lastAssistantTurnEndedAt = Date.now();
+        scheduleListeningRestart(VOICE_RECOGNITION_RESTART_DELAY_MS);
+        scheduleNextSilencePrompt(index + 1);
+      })
+      .catch((err) => {
+        appendAdminLog(`Voice silence prompt error: ${err?.message || String(err)}`);
+        setStatus("Ready");
+        lastAssistantTurnEndedAt = Date.now();
+        scheduleListeningRestart(VOICE_RECOGNITION_RESTART_DELAY_MS);
+        scheduleNextSilencePrompt(index + 1);
+      });
+  } else {
+    lastAssistantTurnEndedAt = Date.now();
+    scheduleNextSilencePrompt(index + 1);
+  }
+}
+
+function scheduleListeningRestart(delayMs = VOICE_RECOGNITION_RESTART_DELAY_MS) {
+  if (!speech || !listeningWanted) return;
+  cancelListeningRestart();
+  listeningRestartTimeout = window.setTimeout(() => {
+    listeningRestartTimeout = null;
+    if (!speech || !listeningWanted) return;
+    if (isSpeechOutputActive()) {
+      scheduleListeningRestart(delayMs);
+      return;
+    }
+    try {
+      speech.listenRecurring(null, { language: selectedSessionLanguage });
+      appendAdminLog("Voice: listening resumed after speech");
+    } catch (err) {
+      appendAdminLog(`Voice resume error: ${err?.message || String(err)}`);
+    }
+  }, delayMs);
+}
+
+function cancelListeningRestart() {
+  if (listeningRestartTimeout !== null) {
+    clearTimeout(listeningRestartTimeout);
+    listeningRestartTimeout = null;
+  }
 }
 
 function exportDebugTurn({ latestUserMessage, prompt, result, phase }) {
@@ -1133,6 +1707,7 @@ function appendAdminLog(text) {
 }
 
 function isSpeechOutputActive() {
+  if (speech?.isSpeaking?.()) return true;
   const synth = window.speechSynthesis;
   return !!(synth && (synth.speaking || synth.pending));
 }
@@ -1158,6 +1733,7 @@ function renderTask() {
 function updateOptions(nextOptions) {
   currentOptions = Array.isArray(nextOptions) ? nextOptions.slice(0, 4) : [];
   renderOptions();
+  applyConversationVisibility();
 }
 
 function renderOptions() {

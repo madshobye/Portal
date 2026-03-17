@@ -6,6 +6,10 @@
 //   const sentence = await speech.listen('en-US');
 //   speech.listenRecurring((sentence) => { ... }); // callback optional
 //   speech.stopListening();
+//   speech.onInterimResult((partial) => { ... });
+//   speech.getInterimText();
+//   speech.hasInterimResult();
+//   speech.isSilentFor(800);
 
 class PortalSpeech {
   constructor({
@@ -26,10 +30,12 @@ class PortalSpeech {
 
     this.ready = false;
     this.listening = false;
+    this.speaking = false;
     this._listeningRecurring = false;
     this._listenHandler = null;
     this._listenResultHandler = null;
     this._listenStateHandler = null;
+    this._speakStateHandler = null;
     this._listenPromise = null;
     this._recurringLanguage = null;
     this._recurringInterimResults = false;
@@ -37,6 +43,11 @@ class PortalSpeech {
     this._hasResult = false;
     this._hasNew = false;
     this._resultText = "";
+    this._hasInterim = false;
+    this._interimText = "";
+    this._interimResultHandler = null;
+    this._lastInterimAt = 0;
+    this._lastFinalAt = 0;
   }
 
   async init() {
@@ -72,15 +83,29 @@ class PortalSpeech {
     if (this.rec) {
       // p5.SpeechRec forwards this to underlying SpeechRecognition lang.
       this.rec.lang = language;
+      try {
+        if (this.rec.rec) this.rec.rec.lang = language;
+      } catch {}
+      try {
+        if (this.rec.recognition) this.rec.recognition.lang = language;
+      } catch {}
     }
 
-    this._voice = this._pickVoice(language);
+    if (this.voiceName) {
+      this.setVoice(this.voiceName);
+    } else {
+      this._voice = this._pickVoice(language);
+    }
 
     return this.language;
   }
 
   setVoice(voiceName) {
     this.voiceName = voiceName || null;
+    if (!this.voiceName) {
+      this._voice = this._pickVoice(this.language);
+      return;
+    }
     const synth = window.speechSynthesis;
     if (synth?.getVoices && this.voiceName) {
       const voices = synth.getVoices() || [];
@@ -140,12 +165,42 @@ class PortalSpeech {
     this._listenStateHandler = handler;
   }
 
+  onSpeakingChange(handler) {
+    if (typeof handler !== "function") {
+      throw new Error("onSpeakingChange(handler): handler must be a function");
+    }
+    this._speakStateHandler = handler;
+  }
+
+  onInterimResult(handler) {
+    if (typeof handler !== "function") {
+      throw new Error("onInterimResult(handler): handler must be a function");
+    }
+    this._interimResultHandler = handler;
+  }
+
+  setInterimResultHandler(handler) {
+    return this.onInterimResult(handler);
+  }
+
   isListening() {
     return !!this.listening;
   }
 
+  isSpeaking() {
+    return !!this.speaking;
+  }
+
   hasResult() {
     return this._hasResult;
+  }
+
+  hasInterimResult() {
+    return this._hasInterim;
+  }
+
+  hasinterimresult() {
+    return this.hasInterimResult();
   }
 
   hasNewResult() {
@@ -174,12 +229,53 @@ class PortalSpeech {
     return this._resultText;
   }
 
+  getInterimText() {
+    return this._interimText;
+  }
+
+  getinterimtext() {
+    return this.getInterimText();
+  }
+
   getresult() {
     return this.getResult();
   }
 
   getText() {
     return this._resultText;
+  }
+
+  clearInterimResult() {
+    this._hasInterim = false;
+    this._interimText = "";
+  }
+
+  msSinceSpeech(nowMs = Date.now()) {
+    const last = Math.max(Number(this._lastInterimAt) || 0, Number(this._lastFinalAt) || 0);
+    if (!last) return Infinity;
+    return Math.max(0, Number(nowMs) - last);
+  }
+
+  issincespeech(nowMs = Date.now()) {
+    return this.msSinceSpeech(nowMs);
+  }
+
+  isSilentFor(ms, nowMs = Date.now()) {
+    const threshold = Math.max(0, Number(ms) || 0);
+    return this.msSinceSpeech(nowMs) >= threshold;
+  }
+
+  issilentfor(ms, nowMs = Date.now()) {
+    return this.isSilentFor(ms, nowMs);
+  }
+
+  isReceivingSpeech(recentMs = 700, nowMs = Date.now()) {
+    const threshold = Math.max(0, Number(recentMs) || 0);
+    return this.msSinceSpeech(nowMs) <= threshold;
+  }
+
+  isreceivingspeech(recentMs = 700, nowMs = Date.now()) {
+    return this.isReceivingSpeech(recentMs, nowMs);
   }
 
   // Flexible matcher against latest recognized sentence.
@@ -302,6 +398,19 @@ class PortalSpeech {
     }
   }
 
+  _setSpeakingState(value) {
+    const next = !!value;
+    if (this.speaking === next) return;
+    this.speaking = next;
+    if (typeof this._speakStateHandler === "function") {
+      try {
+        this._speakStateHandler(this.speaking);
+      } catch (e) {
+        console.warn("PortalSpeech onSpeakingChange callback error:", e);
+      }
+    }
+  }
+
   _commitResult(text) {
     const txt = String(text || "").trim();
     if (!txt) return false;
@@ -309,12 +418,33 @@ class PortalSpeech {
     this._resultText = txt;
     this._hasResult = true;
     this._hasNew = true;
+    this._lastFinalAt = Date.now();
+    this.clearInterimResult();
 
     if (typeof this._listenResultHandler === "function") {
       try {
         this._listenResultHandler(txt);
       } catch (e) {
         console.warn("PortalSpeech onResult callback error:", e);
+      }
+    }
+
+    return true;
+  }
+
+  _commitInterim(text) {
+    const txt = String(text || "").trim();
+    if (!txt) return false;
+
+    this._interimText = txt;
+    this._hasInterim = true;
+    this._lastInterimAt = Date.now();
+
+    if (typeof this._interimResultHandler === "function") {
+      try {
+        this._interimResultHandler(txt);
+      } catch (e) {
+        console.warn("PortalSpeech onInterimResult callback error:", e);
       }
     }
 
@@ -329,6 +459,7 @@ class PortalSpeech {
     const wasListening = this.isListening();
     if (shouldResumeRecurring) this._resumeRecurringRequested = true;
     if (wasListening) this.stopListening(true);
+    this._setSpeakingState(true);
 
     try {
       // Prefer native speech synthesis for reliability across browsers.
@@ -406,6 +537,7 @@ class PortalSpeech {
         }
       });
     } finally {
+      this._setSpeakingState(false);
       if (shouldResumeRecurring && this._resumeRecurringRequested) {
         try {
           this.listenRecurring(this._listenHandler ?? null, {
@@ -467,6 +599,7 @@ class PortalSpeech {
         resolved = true;
         try { this.rec.stop(); } catch {}
         this._setListeningState(false);
+        this.clearInterimResult();
         this._listenPromise = null;
         if (isErr) {
           reject(value);
@@ -482,7 +615,9 @@ class PortalSpeech {
         if (this.rec.resultValue && txt) {
           this._commitResult(txt);
           finish(txt, false);
+          return;
         }
+        this._commitInterim(txt);
       };
 
       this.rec.onEnd = () => {
@@ -551,9 +686,12 @@ class PortalSpeech {
 
     this.rec.onResult = () => {
       if (!this._listeningRecurring) return;
-      if (!this.rec.resultValue) return;
       const txt = String(this.rec.resultString || "").trim();
       if (!txt) return;
+      if (!this.rec.resultValue) {
+        this._commitInterim(txt);
+        return;
+      }
       this._commitResult(txt);
       if (typeof this._listenHandler !== "function") return;
       try {
@@ -592,6 +730,7 @@ class PortalSpeech {
     if (!internal) this._resumeRecurringRequested = false;
     this._listeningRecurring = false;
     this._setListeningState(false);
+    this.clearInterimResult();
     try {
       this.rec?.stop();
     } catch {}
@@ -599,8 +738,12 @@ class PortalSpeech {
 
   stopSpeaking() {
     try {
+      window.speechSynthesis?.cancel?.();
+    } catch {}
+    try {
       this.synth?.stop();
     } catch {}
+    this._setSpeakingState(false);
   }
 
   static async _ensureP5Speech() {
