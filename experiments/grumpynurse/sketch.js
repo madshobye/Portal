@@ -1,8 +1,6 @@
 window.showOverlay = false;
 
-let apiKeyEncryptedGpt22 =
-  "U2FsdGVkX18009lW4clpttBLCMAsuBYgQZRiEWcsqhqoPwnEL0ka5JbJOwVlkKco88ToU9L42cPy5j++dtaCm1KgO8vV/dMe6bpMDrWs0IXjElBPml1tj8jUIj+oeLXzZuMTtYgGQfyPW+PxU+VtINE4kAvccUD2vXYgym3SYYUm0rD2RNguEmSzU+660DXYPix5qEnRFAHRUSnDdISYulwc8WNBF3gUQl1VEpUg7Ku9G2gCG6dTZ/JoJ6ZELr8W";
-
+let apiKeyEncryptedGpt222 ="U2FsdGVkX1/p9uf1wlE+/3dCyCS4rAqGptmHuLBLHho2qru9AlVgzkisqsfwUFT7AMAfoMzStNzJWmKuuzW2Tnh77Z7EeCl9eBPaBr0dwVlfEoOVXLmAo1tWJgx+PPR9YeScgTJbnUiUiGECMNkA75gA1VIg1qvv8MlbcqWB5brnBC5ScsXMHiHxxJcT6k7y8cT3hS2KzKAD2AJWlL43kTX3MwIx+nh+QadZNxGnKPEd3WJowq+qDdHEH6FvE7tM"
 const DOC_MD_URL =
   "https://docs.google.com/document/d/1STeaNBuavGIx1TkRN86tqxEmbuVepys5Y5lBRhs4KyM/export?format=md&tab=t.0";
 const MODEL_OPTIONS = ["gpt-4o-mini", "gpt-4.1-mini", "gpt-4o"];
@@ -50,7 +48,7 @@ async function setup() {
 
   await loadScript("portal/GptClient.js");
 
-  apiKey = storedDecrypt({ apiKeyEncryptedGpt22 });
+  apiKey = storedDecrypt({ apiKeyEncryptedGpt222 });
   selectedModel = loadSelectedModel();
 
   buildUi();

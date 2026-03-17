@@ -1,6 +1,7 @@
 window.showOverlay = false;
 
 let apiKeyEncryptedGpt222 ="U2FsdGVkX1/p9uf1wlE+/3dCyCS4rAqGptmHuLBLHho2qru9AlVgzkisqsfwUFT7AMAfoMzStNzJWmKuuzW2Tnh77Z7EeCl9eBPaBr0dwVlfEoOVXLmAo1tWJgx+PPR9YeScgTJbnUiUiGECMNkA75gA1VIg1qvv8MlbcqWB5brnBC5ScsXMHiHxxJcT6k7y8cT3hS2KzKAD2AJWlL43kTX3MwIx+nh+QadZNxGnKPEd3WJowq+qDdHEH6FvE7tM"
+
 const DOC_MD_URL =
   "https://docs.google.com/document/d/1STeaNBuavGIx1TkRN86tqxEmbuVepys5Y5lBRhs4KyM/export?format=md&tab=t.0";
 const MODEL_OPTIONS = ["gpt-4o-mini", "gpt-4.1-mini", "gpt-4o"];
@@ -10,7 +11,7 @@ const MODEL_KEY = `${STORAGE_PREFIX}.model`;
 const SESSION_LANGUAGE_KEY = `${STORAGE_PREFIX}.sessionLanguage`;
 const VOICE_KEY = `${STORAGE_PREFIX}.voice`;
 const DEBUG_EXPORTS_KEY = `${STORAGE_PREFIX}.debugExports`;
-const ADMIN_PANEL_HIDDEN_KEY = `${STORAGE_PREFIX}.adminHidden`;
+const ADMIN_PANEL_HIDDEN_KEY = `${STORAGE_PREFIX}.adminHidden`; 
 const DOC_CACHE_KEY = `${STORAGE_PREFIX}.promptDoc`;
 const DOC_CACHE_TS_KEY = `${STORAGE_PREFIX}.promptDoc.cachedAt`;
 const DOC_CACHE_TTL_MS = 20 * 60 * 1000;
@@ -183,7 +184,9 @@ let appRoot;
 let shellEl;
 let adminEl;
 let mainEl;
+let taskEl;
 let chatEl;
+let optionsEl;
 let inputEl;
 let reloadPromptButton;
 let debugButton;
@@ -201,6 +204,8 @@ let selectedVoice = "";
 let debugExportsEnabled = false;
 let adminPanelHidden = false;
 let chatHistory = [];
+let currentTask = "";
+let currentOptions = [];
 let speech;
 let heardSentence = "";
 let voicesChangedHandler = null;
@@ -216,8 +221,13 @@ const structuredSchemas = [
         trainee_assessment: { type: "string" },
         next_focus: { type: "string" },
         cleaned_trainee_message: { type: "string" },
+        task: { type: "string" },
+        options: {
+          type: "array",
+          items: { type: "string" },
+        },
       },
-      required: ["reply", "trainee_assessment", "next_focus", "cleaned_trainee_message"],
+      required: ["reply", "trainee_assessment", "next_focus", "cleaned_trainee_message", "task", "options"],
     },
   },
 ];
@@ -391,9 +401,19 @@ function buildUi() {
   adminConsoleEl.class("gn-console");
   adminConsoleEl.parent(adminEl);
 
+  taskEl = createDiv("");
+  taskEl.class("gn-task");
+  taskEl.parent(mainEl);
+  renderTask();
+
   chatEl = createDiv("");
   chatEl.class("gn-chat");
   chatEl.parent(mainEl);
+
+  optionsEl = createDiv("");
+  optionsEl.class("gn-options-tray");
+  optionsEl.parent(mainEl);
+  renderOptions();
 
   const compose = createDiv("");
   compose.class("gn-compose");
@@ -427,9 +447,12 @@ function createClient() {
 }
 
 async function appendNurseGreeting() {
-  const greeting = await generateOpeningNurseMessage();
+  const opening = await generateOpeningNurseMessage();
+  const greeting = opening.reply;
   appendMessage("nurse", greeting);
   chatHistory.push({ role: "assistant", text: greeting });
+  updateTask(opening.task);
+  updateOptions(opening.options);
   appendAdminLog("Assessment: Session start");
   appendAdminLog("Next focus: Initial assessment and prioritization");
 }
@@ -437,7 +460,15 @@ async function appendNurseGreeting() {
 async function generateOpeningNurseMessage() {
   const fallbackGreeting =
     "Right. You're on with me now. Don't waffle. Tell me what you'd do first when you enter a patient's room and something feels off.";
-  if (!gpt || !apiKey) return fallbackGreeting;
+  const fallbackTask = "Establish what is wrong with the patient, prioritize the immediate risk, and explain your first action clearly.";
+  const fallbackOptions = [
+    "I assess the patient first and look for immediate danger.",
+    "I check what feels off and ask the patient what is wrong.",
+    "I pause, observe, and decide the most urgent next step.",
+  ];
+  if (!gpt || !apiKey) {
+    return { reply: fallbackGreeting, task: fallbackTask, options: fallbackOptions };
+  }
 
   try {
     const prompt = buildOpeningPrompt();
@@ -449,14 +480,20 @@ async function generateOpeningNurseMessage() {
       phase: "opening_turn",
     });
     const reply = String(res?.reply || "").trim();
+    const task = String(res?.task || "").trim();
+    const options = sanitizeResponseOptions(res?.options);
     if (reply) {
       appendAdminLog("Opening line generated from prompt doc");
-      return reply;
+      return {
+        reply,
+        task: task || fallbackTask,
+        options: options.length ? options : fallbackOptions,
+      };
     }
   } catch (err) {
     appendAdminLog(`Opening line fallback: ${err?.message || String(err)}`);
   }
-  return fallbackGreeting;
+  return { reply: fallbackGreeting, task: fallbackTask, options: fallbackOptions };
 }
 
 async function sendCurrentInput() {
@@ -520,6 +557,8 @@ async function askFromText(text, clearInput = false) {
       res?.cleaned_trainee_message,
       input
     );
+    const task = String(res?.task || "").trim();
+    const options = sanitizeResponseOptions(res?.options);
 
     if (!reply) {
       appendSystemMessage("No structured reply returned.");
@@ -535,15 +574,22 @@ async function askFromText(text, clearInput = false) {
       appendAdminLog(`Raw trainee: ${input}`);
       appendAdminLog(`Cleaned trainee: ${cleanedTraineeMessage}`);
     }
+    updateTask(task);
+    updateOptions(options);
     appendAdminLog(`Assessment: ${traineeAssessment || "-"}`);
     appendAdminLog(`Next focus: ${nextFocus || "-"}`);
 
     appendMessage("nurse", reply);
     chatHistory.push({ role: "assistant", text: reply });
     trimChatHistory();
-    setStatus("Speaking...");
-    appendAdminLog("Voice: speaking reply");
-    speech?.speak(reply, selectedSessionLanguage);
+    if (speech?.isListening()) {
+      setStatus("Speaking...");
+      appendAdminLog("Voice: speaking reply");
+      speech.speak(reply, selectedSessionLanguage);
+    } else {
+      setStatus("Ready");
+      appendAdminLog("Voice: output skipped because listening is off");
+    }
   } catch (err) {
     appendSystemMessage(err?.message || String(err));
     setStatus("Error");
@@ -582,6 +628,9 @@ function buildConversationPrompt(latestUserMessage) {
     "## Session summary",
     "[session_summary]",
     "",
+    "## Current task",
+    "[current_task]",
+    "",
     "## Conversation so far",
     "[conversation_history]",
     "",
@@ -594,6 +643,7 @@ function buildConversationPrompt(latestUserMessage) {
   const sessionSummary = buildSessionSummary();
   const docText = injectPromptPlaceholders(baseDocText, {
     conversation_history: historyText || "(none)",
+    current_task: currentTask || "(not set yet)",
     latest_user_message: latestUserMessage || "(none)",
     session_language: getSessionLanguageLabel(),
     session_summary: sessionSummary || "No clear pattern yet. Keep assessing the trainee.",
@@ -617,6 +667,8 @@ function buildConversationPrompt(latestUserMessage) {
     "trainee_assessment: a short judgment of the trainee response.",
     "next_focus: one short phrase describing what the trainee should focus on next.",
     "cleaned_trainee_message: rewrite the trainee's latest message into a short, clean version that preserves intent and fixes obvious speech-to-text mistakes, dropped words, and garbled phrasing. If the message is already clear, return it with only light cleanup.",
+    "task: a short mission for the trainee to solve in this scenario. Keep updating it if the situation develops or the trainee solves part of it.",
+    "options: optional short trainee reply choices as a list of 0 to 4 strings. Use them when the trainee is at a decision point.",
   ].join("\n");
 }
 
@@ -631,6 +683,9 @@ function buildOpeningPrompt() {
     "## Session summary",
     "Session start.",
     "",
+    "## Current task",
+    "(not set yet)",
+    "",
     "## Conversation so far",
     "(none)",
     "",
@@ -641,6 +696,7 @@ function buildOpeningPrompt() {
   const baseDocText = String(promptDocMd || "").trim() || fallbackPrompt;
   const docText = injectPromptPlaceholders(baseDocText, {
     conversation_history: "(none)",
+    current_task: "(not set yet)",
     latest_user_message: "(none)",
     session_language: getSessionLanguageLabel(),
     session_summary: "Session start. Begin with a concrete, realistic opening situation.",
@@ -664,6 +720,8 @@ function buildOpeningPrompt() {
     "trainee_assessment: use 'Session start'.",
     "next_focus: use a short phrase for the first thing the trainee should focus on.",
     "cleaned_trainee_message: return '(none)' because there is no trainee message yet.",
+    "task: define the trainee's mission for this scenario in one or two short sentences.",
+    "options: provide 2 to 4 short possible trainee responses or actions to choose from.",
   ].join("\n");
 }
 
@@ -1002,6 +1060,14 @@ function sanitizeCleanedTraineeMessage(value, fallback) {
   return String(fallback || "").replace(/\s+/g, " ").trim();
 }
 
+function sanitizeResponseOptions(value) {
+  if (!Array.isArray(value)) return [];
+  return value
+    .map((item) => String(item || "").trim())
+    .filter(Boolean)
+    .slice(0, 4);
+}
+
 function exportDebugTurn({ latestUserMessage, prompt, result, phase }) {
   if (!debugExportsEnabled) return;
 
@@ -1055,4 +1121,56 @@ function appendAdminLog(text) {
   const trimmed = lines.slice(-ADMIN_LOG_LIMIT);
   adminConsoleEl.html(trimmed.join("\n"));
   adminConsoleEl.elt.scrollTop = adminConsoleEl.elt.scrollHeight;
+}
+
+function updateTask(nextTask) {
+  const task = String(nextTask || "").trim();
+  if (!task) return;
+  if (task === currentTask) return;
+  currentTask = task;
+  renderTask();
+  appendAdminLog(`Task updated: ${task}`);
+}
+
+function renderTask() {
+  if (!taskEl) return;
+  taskEl.html(
+    currentTask
+      ? `<div class="gn-task-label">Task</div><div class="gn-task-text">${escapeHtml(currentTask)}</div>`
+      : `<div class="gn-task-label">Task</div><div class="gn-task-text gn-task-empty">Awaiting scenario...</div>`
+  );
+}
+
+function updateOptions(nextOptions) {
+  currentOptions = Array.isArray(nextOptions) ? nextOptions.slice(0, 4) : [];
+  renderOptions();
+}
+
+function renderOptions() {
+  if (!optionsEl) return;
+  optionsEl.html("");
+  if (!currentOptions.length) {
+    optionsEl.elt.style.display = "none";
+    return;
+  }
+
+  optionsEl.elt.style.display = "flex";
+  for (const optionText of currentOptions) {
+    const optionButton = createButton(optionText);
+    optionButton.parent(optionsEl);
+    optionButton.class("gn-option-btn");
+    optionButton.mousePressed(() => {
+      if (askInFlight) return;
+      askFromText(optionText, false);
+    });
+  }
+}
+
+function escapeHtml(value) {
+  return String(value || "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
 }
