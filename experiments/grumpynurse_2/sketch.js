@@ -322,11 +322,9 @@ async function setup() {
   promptDocMd = await fetchPromptMarkdown();
   gpt = createClient();
 
-  appendSystemMessage(
-    promptDocMd
-      ? "Prompt doc loaded."
-      : "Prompt doc is empty or unavailable. Using the built-in fallback prompt."
-  );
+  if (!promptDocMd) {
+    appendSystemMessage("Prompt doc is empty or unavailable.");
+  }
   setStatus(apiKey ? "Ready" : "Missing API key");
 }
 
@@ -1154,12 +1152,25 @@ function trimChatHistory() {
 
 function appendSystemMessage(text) {
   appendAdminLog(text);
-  if (introEl && !conversationStarted) {
+  if (introEl && !conversationStarted && isSystemErrorMessage(text)) {
     const introTextEl = introEl.elt.querySelector(".gn-intro-text");
     if (introTextEl) {
       introTextEl.textContent = String(text || "");
     }
   }
+}
+
+function isSystemErrorMessage(text) {
+  const value = String(text || "").toLowerCase();
+  if (!value) return false;
+  return (
+    value.includes("error") ||
+    value.includes("missing") ||
+    value.includes("unavailable") ||
+    value.includes("failed") ||
+    value.includes("could not") ||
+    value.includes("no structured")
+  );
 }
 
 function appendMessage(kind, text, meta = null) {
