@@ -9,36 +9,195 @@ const MODEL_OPTIONS = ["gpt-4o-mini", "gpt-4.1-mini", "gpt-4o"];
 const DEFAULT_MODEL = "gpt-4o-mini";
 const STORAGE_PREFIX = "grumpynurse";
 const MODEL_KEY = `${STORAGE_PREFIX}.model`;
+const VOICE_KEY = `${STORAGE_PREFIX}.voice`;
 const DEBUG_EXPORTS_KEY = `${STORAGE_PREFIX}.debugExports`;
+const ADMIN_PANEL_HIDDEN_KEY = `${STORAGE_PREFIX}.adminHidden`;
 const DOC_CACHE_KEY = `${STORAGE_PREFIX}.promptDoc`;
 const DOC_CACHE_TS_KEY = `${STORAGE_PREFIX}.promptDoc.cachedAt`;
 const DOC_CACHE_TTL_MS = 20 * 60 * 1000;
 const CHAT_HISTORY_LIMIT = 16;
+const ADMIN_LOG_LIMIT = 120;
 const GPT_TEMPERATURE = 0.8;
 const GPT_MAX_TOKENS = 500;
+const CURATED_VOICE_PROFILES = [
+  {
+    id: "auto",
+    label: "Auto",
+    candidates: [],
+  },
+  {
+    id: "en_female_flo",
+    label: "English Female: Flo",
+    candidates: [
+      "Google UK English Female",
+      "Google US English",
+      "Flo (English (United Kingdom))",
+      "Flo (English (United States))",
+      "Flo",
+    ],
+  },
+  {
+    id: "en_male_eddy",
+    label: "English Male: Eddy",
+    candidates: [
+      "Google UK English Male",
+      "Eddy (English (United Kingdom))",
+      "Eddy (English (United States))",
+      "Eddy",
+    ],
+  },
+  {
+    id: "de_female_flo",
+    label: "German Female: Flo",
+    candidates: [
+      "Google Deutsch",
+      "Flo (German (Germany))",
+      "Anna",
+      "Helena",
+    ],
+  },
+  {
+    id: "de_male_eddy",
+    label: "German Male: Eddy",
+    candidates: [
+      "Google Deutsch",
+      "Eddy (German (Germany))",
+      "Grandpa (German (Germany))",
+    ],
+  },
+  {
+    id: "da_female_flo",
+    label: "Danish Female: Flo",
+    candidates: [
+      "Google dansk",
+      "Flo (Danish (Denmark))",
+      "Sara",
+      "Alva",
+    ],
+  },
+  {
+    id: "da_male_eddy",
+    label: "Danish Male: Eddy",
+    candidates: [
+      "Google dansk",
+      "Eddy (Danish (Denmark))",
+      "Magnus",
+      "Grandpa (Danish (Denmark))",
+    ],
+  },
+  {
+    id: "chrome_en_female",
+    label: "Chrome English Female",
+    candidates: [
+      "Google UK English Female",
+      "Google US English",
+      "Flo (English (United Kingdom))",
+      "Samantha",
+    ],
+  },
+  {
+    id: "chrome_en_male",
+    label: "Chrome English Male",
+    candidates: [
+      "Google UK English Male",
+      "Daniel (English (United Kingdom))",
+      "Arthur",
+      "Eddy (English (United Kingdom))",
+    ],
+  },
+  {
+    id: "chrome_de",
+    label: "Chrome German",
+    candidates: [
+      "Google Deutsch",
+      "Flo (German (Germany))",
+      "Eddy (German (Germany))",
+      "Anna",
+    ],
+  },
+  {
+    id: "chrome_da",
+    label: "Chrome Danish",
+    candidates: [
+      "Google dansk",
+      "Flo (Danish (Denmark))",
+      "Eddy (Danish (Denmark))",
+      "Sara",
+    ],
+  },
+  {
+    id: "en_male_daniel",
+    label: "English Male: Daniel",
+    candidates: ["Daniel (English (United Kingdom))", "Arthur"],
+  },
+  {
+    id: "en_female_samantha",
+    label: "English Female: Samantha",
+    candidates: ["Samantha", "Flo (English (United States))"],
+  },
+  {
+    id: "de_female_anna",
+    label: "German Female: Anna",
+    candidates: ["Anna", "Helena", "Flo (German (Germany))"],
+  },
+  {
+    id: "de_female_helena",
+    label: "German Female: Helena",
+    candidates: ["Helena", "Anna"],
+  },
+  {
+    id: "older_female_grandma_en",
+    label: "Interesting: Grandma EN",
+    candidates: ["Grandma (English (United Kingdom))", "Grandma (English (United States))"],
+  },
+  {
+    id: "older_male_grandpa_en",
+    label: "Interesting: Grandpa EN",
+    candidates: ["Grandpa (English (United Kingdom))", "Grandpa (English (United States))"],
+  },
+  {
+    id: "interesting_arthur",
+    label: "Interesting: Arthur",
+    candidates: ["Arthur", "Daniel (English (United Kingdom))"],
+  },
+  {
+    id: "interesting_fred",
+    label: "Interesting: Fred",
+    candidates: ["Fred", "Eddy (English (United States))"],
+  },
+  {
+    id: "interesting_kathy",
+    label: "Interesting: Kathy",
+    candidates: ["Kathy", "Samantha"],
+  },
+];
 
 let apiKey = "";
 let gpt;
 let promptDocMd = "";
 let appRoot;
+let shellEl;
+let adminEl;
+let mainEl;
 let chatEl;
 let inputEl;
-let sendButton;
-let clearButton;
 let reloadPromptButton;
 let debugButton;
+let adminToggleButton;
 let statusEl;
 let modelSelectEl;
-let voiceBarEl;
-let heardEl;
+let voiceSelectEl;
 let listenButton;
-let askHeardButton;
+let adminConsoleEl;
 let askInFlight = false;
 let selectedModel = DEFAULT_MODEL;
+let selectedVoice = "";
 let debugExportsEnabled = false;
+let adminPanelHidden = false;
 let chatHistory = [];
 let speech;
 let heardSentence = "";
+let voicesChangedHandler = null;
 
 const structuredSchemas = [
   {
@@ -65,16 +224,30 @@ async function setup() {
 
   apiKey = storedDecrypt({ apiKeyEncryptedGpt22 });
   selectedModel = loadSelectedModel();
+  selectedVoice = loadSelectedVoice();
   debugExportsEnabled = loadDebugExportsEnabled();
-  speech = await new PortalSpeech({
-    language: "en-GB",
-    rate: 1,
-    pitch: 1,
-    volume: 1,
-  }).init();
+  adminPanelHidden = loadAdminPanelHidden();
 
   buildUi();
+  refreshVoiceOptions();
   setStatus("Loading prompt doc...");
+
+  try {
+    speech = await new PortalSpeech({
+      language: "en-GB",
+      voice: selectedVoice || null,
+      rate: 1,
+      pitch: 1,
+      volume: 1,
+    }).init();
+    applySelectedVoice();
+    appendAdminLog("Voice setup: ready");
+  } catch (err) {
+    speech = null;
+    appendAdminLog(`Voice setup error: ${err?.message || String(err)}`);
+  }
+
+  setupVoiceRefresh();
 
   promptDocMd = await fetchPromptMarkdown();
   gpt = createClient();
@@ -93,22 +266,33 @@ function draw() {
   if (speech.hasNewResult()) {
     const { text } = speech.consumeNew();
     heardSentence = String(text || "").trim();
-    syncVoiceUi();
     if (heardSentence) {
       askFromText(heardSentence, false);
     }
     return;
   }
-  syncVoiceUi();
 }
 
 function buildUi() {
   appRoot = createDiv("");
   appRoot.id("grumpy-nurse-app");
 
+  shellEl = createDiv("");
+  shellEl.class("gn-shell");
+  shellEl.parent(appRoot);
+
+  adminEl = createDiv("");
+  adminEl.class("gn-admin");
+  adminEl.parent(shellEl);
+
+  adminToggleButton = createButton("");
+  adminToggleButton.parent(adminEl);
+  adminToggleButton.class("gn-admin-toggle");
+  adminToggleButton.mousePressed(toggleAdminPanel);
+
   const header = createDiv("");
   header.class("gn-header");
-  header.parent(appRoot);
+  header.parent(adminEl);
 
   const titleWrap = createDiv("");
   titleWrap.parent(header);
@@ -147,6 +331,17 @@ function buildUi() {
     appendSystemMessage(`Model changed to ${selectedModel}.`);
   });
 
+  voiceSelectEl = createSelect();
+  voiceSelectEl.parent(toolbar);
+  voiceSelectEl.class("gn-btn gn-btn-secondary");
+  populateVoiceSelect();
+    voiceSelectEl.changed(() => {
+      selectedVoice = voiceSelectEl.value();
+      persistSelectedVoice();
+      applySelectedVoice();
+      appendSystemMessage(`Voice changed to ${selectedVoice || "auto"}.`);
+    });
+
   reloadPromptButton = createButton("Reload Prompt");
   reloadPromptButton.parent(toolbar);
   reloadPromptButton.class("gn-btn gn-btn-secondary");
@@ -157,31 +352,30 @@ function buildUi() {
   debugButton.class("gn-btn gn-btn-secondary");
   debugButton.mousePressed(toggleDebugExports);
 
-  voiceBarEl = createDiv("");
-  voiceBarEl.class("gn-voicebar");
-  voiceBarEl.parent(appRoot);
-
-  heardEl = createDiv("Heard: -");
-  heardEl.class("gn-heard");
-  heardEl.parent(voiceBarEl);
-
   listenButton = createButton("Start Listening");
-  listenButton.parent(voiceBarEl);
+  listenButton.parent(toolbar);
   listenButton.class("gn-btn gn-btn-secondary");
   listenButton.mousePressed(toggleListening);
 
-  askHeardButton = createButton("Ask Heard");
-  askHeardButton.parent(voiceBarEl);
-  askHeardButton.class("gn-btn gn-btn-secondary");
-  askHeardButton.mousePressed(() => askFromText(heardSentence, false));
+  mainEl = createDiv("");
+  mainEl.class("gn-main");
+  mainEl.parent(shellEl);
+
+  const consoleTitle = createDiv("Console");
+  consoleTitle.class("gn-console-title");
+  consoleTitle.parent(adminEl);
+
+  adminConsoleEl = createDiv("");
+  adminConsoleEl.class("gn-console");
+  adminConsoleEl.parent(adminEl);
 
   chatEl = createDiv("");
   chatEl.class("gn-chat");
-  chatEl.parent(appRoot);
+  chatEl.parent(mainEl);
 
   const compose = createDiv("");
   compose.class("gn-compose");
-  compose.parent(appRoot);
+  compose.parent(mainEl);
 
   inputEl = createElement("textarea");
   inputEl.class("gn-input");
@@ -194,19 +388,7 @@ function buildUi() {
     }
   });
 
-  const actions = createDiv("");
-  actions.class("gn-actions");
-  actions.parent(compose);
-
-  sendButton = createButton("Send");
-  sendButton.parent(actions);
-  sendButton.class("gn-btn");
-  sendButton.mousePressed(sendCurrentInput);
-
-  clearButton = createButton("Clear");
-  clearButton.parent(actions);
-  clearButton.class("gn-btn gn-btn-secondary");
-  clearButton.mousePressed(clearConversation);
+  applyAdminPanelVisibility();
 }
 
 function createClient() {
@@ -225,11 +407,10 @@ function createClient() {
 function appendNurseGreeting() {
   const greeting =
     "Right. You're on with me now. Don't waffle. Tell me what you'd do first when you enter a patient's room and something feels off.";
-  appendMessage("nurse", greeting, {
-    trainee_assessment: "Session start",
-    next_focus: "Initial assessment and prioritization",
-  });
+  appendMessage("nurse", greeting);
   chatHistory.push({ role: "assistant", text: greeting });
+  appendAdminLog("Assessment: Session start");
+  appendAdminLog("Next focus: Initial assessment and prioritization");
 }
 
 async function sendCurrentInput() {
@@ -248,6 +429,7 @@ async function askFromText(text, clearInput = false) {
   const userBubble = appendMessage("user", input, {
     raw_trainee_message: input,
   });
+  appendAdminLog(`Raw trainee: ${input}`);
   const userHistoryIndex =
     chatHistory.push({
       role: "user",
@@ -303,20 +485,20 @@ async function askFromText(text, clearInput = false) {
     if (chatHistory[userHistoryIndex]) {
       chatHistory[userHistoryIndex].text = cleanedTraineeMessage;
       chatHistory[userHistoryIndex].cleanedText = cleanedTraineeMessage;
-      updateUserBubbleCleanedMessage(
-        chatHistory[userHistoryIndex].bubble,
-        chatHistory[userHistoryIndex].rawText || input,
-        cleanedTraineeMessage
-      );
     }
+    appendAdminLog(
+      cleanedTraineeMessage === input
+        ? `Cleaned trainee: ${cleanedTraineeMessage} (unchanged)`
+        : `Cleaned trainee: ${cleanedTraineeMessage}`
+    );
+    appendAdminLog(`Assessment: ${traineeAssessment || "-"}`);
+    appendAdminLog(`Next focus: ${nextFocus || "-"}`);
 
-    appendMessage("nurse", reply, {
-      trainee_assessment: traineeAssessment,
-      next_focus: nextFocus,
-    });
+    appendMessage("nurse", reply);
     chatHistory.push({ role: "assistant", text: reply });
     trimChatHistory();
     setStatus("Speaking...");
+    appendAdminLog("Voice: speaking reply");
     speech?.speak(reply);
   } catch (err) {
     appendSystemMessage(err?.message || String(err));
@@ -331,15 +513,10 @@ function toggleListening() {
   if (!speech) return;
   if (speech.isListening()) {
     speech.stopListening();
+    appendAdminLog("Voice: listening stopped");
   } else {
     speech.listenRecurring();
-  }
-  syncVoiceUi();
-}
-
-function syncVoiceUi() {
-  if (heardEl) {
-    heardEl.html(`Heard: ${heardSentence || "-"}`);
+    appendAdminLog("Voice: listening started");
   }
   if (listenButton) {
     listenButton.html(speech?.isListening() ? "Stop Listening" : "Start Listening");
@@ -490,15 +667,8 @@ function trimChatHistory() {
   }
 }
 
-function clearConversation() {
-  chatHistory = [];
-  chatEl.html("");
-  appendSystemMessage("Conversation cleared.");
-  appendNurseGreeting();
-}
-
 function appendSystemMessage(text) {
-  appendMessage("system", text);
+  appendAdminLog(text);
 }
 
 function appendMessage(kind, text, meta = null) {
@@ -506,25 +676,6 @@ function appendMessage(kind, text, meta = null) {
   bubble.parent(chatEl);
   bubble.class(`gn-bubble gn-bubble-${kind}`);
   bubble.elt.textContent = String(text || "");
-
-  if (meta && (meta.trainee_assessment || meta.next_focus)) {
-    const metaEl = createDiv(
-      [
-        meta.trainee_assessment ? `Assessment: ${meta.trainee_assessment}` : "",
-        meta.next_focus ? `Next: ${meta.next_focus}` : "",
-      ]
-        .filter(Boolean)
-        .join(" | ")
-    );
-    metaEl.parent(bubble);
-    metaEl.class("gn-meta");
-  }
-
-  if (meta && meta.raw_trainee_message) {
-    const metaEl = createDiv(`Raw: ${meta.raw_trainee_message}`);
-    metaEl.parent(bubble);
-    metaEl.class("gn-meta");
-  }
 
   requestAnimationFrame(() => {
     chatEl.elt.scrollTop = chatEl.elt.scrollHeight;
@@ -535,16 +686,12 @@ function appendMessage(kind, text, meta = null) {
 
 function updateBusyState() {
   const busy = !!askInFlight;
-  if (sendButton) sendButton.attribute(busy ? "disabled" : "data-enabled", busy ? "" : "1");
-  if (sendButton && !busy) sendButton.removeAttribute("disabled");
-  if (clearButton) clearButton.attribute(busy ? "disabled" : "data-enabled", busy ? "" : "1");
-  if (clearButton && !busy) clearButton.removeAttribute("disabled");
   if (reloadPromptButton) reloadPromptButton.attribute(busy ? "disabled" : "data-enabled", busy ? "" : "1");
   if (reloadPromptButton && !busy) reloadPromptButton.removeAttribute("disabled");
   if (debugButton) debugButton.attribute(busy ? "disabled" : "data-enabled", busy ? "" : "1");
   if (debugButton && !busy) debugButton.removeAttribute("disabled");
-  if (askHeardButton) askHeardButton.attribute(busy ? "disabled" : "data-enabled", busy ? "" : "1");
-  if (askHeardButton && !busy) askHeardButton.removeAttribute("disabled");
+  if (listenButton) listenButton.attribute(busy ? "disabled" : "data-enabled", busy ? "" : "1");
+  if (listenButton && !busy) listenButton.removeAttribute("disabled");
   if (inputEl?.elt) inputEl.elt.disabled = busy;
   if (modelSelectEl?.elt) modelSelectEl.elt.disabled = busy;
 }
@@ -568,6 +715,32 @@ function persistSelectedModel() {
   } catch {}
 }
 
+function loadSelectedVoice() {
+  try {
+    return window.localStorage.getItem(VOICE_KEY) || "";
+  } catch {}
+  return "";
+}
+
+function persistSelectedVoice() {
+  try {
+    window.localStorage.setItem(VOICE_KEY, selectedVoice || "");
+  } catch {}
+}
+
+function loadAdminPanelHidden() {
+  try {
+    return window.localStorage.getItem(ADMIN_PANEL_HIDDEN_KEY) === "1";
+  } catch {}
+  return false;
+}
+
+function persistAdminPanelHidden() {
+  try {
+    window.localStorage.setItem(ADMIN_PANEL_HIDDEN_KEY, adminPanelHidden ? "1" : "0");
+  } catch {}
+}
+
 function loadDebugExportsEnabled() {
   try {
     return window.localStorage.getItem(DEBUG_EXPORTS_KEY) === "1";
@@ -587,39 +760,116 @@ function toggleDebugExports() {
   if (debugButton) {
     debugButton.html(debugExportsEnabled ? "Debug: ON" : "Debug: OFF");
   }
-  appendSystemMessage(
+  appendAdminLog(
     debugExportsEnabled
       ? "Debug exports enabled. Each GPT pass will download a JSON trace."
       : "Debug exports disabled."
   );
 }
 
+function toggleAdminPanel() {
+  adminPanelHidden = !adminPanelHidden;
+  persistAdminPanelHidden();
+  applyAdminPanelVisibility();
+}
+
+function applyAdminPanelVisibility() {
+  if (!shellEl?.elt || !adminEl?.elt || !adminToggleButton) return;
+  shellEl.elt.classList.toggle("is-admin-hidden", !!adminPanelHidden);
+  adminEl.elt.classList.toggle("is-hidden", !!adminPanelHidden);
+  adminToggleButton.html(adminPanelHidden ? ">" : "<");
+  adminToggleButton.attribute(
+    "title",
+    adminPanelHidden ? "Show admin panel" : "Hide admin panel"
+  );
+}
+
+function populateVoiceSelect() {
+  if (!voiceSelectEl?.elt) return;
+  voiceSelectEl.elt.innerHTML = "";
+  const availableProfileIds = getAvailableVoiceProfileIds();
+  for (const profile of CURATED_VOICE_PROFILES) {
+    if (profile.id !== "auto" && !availableProfileIds.has(profile.id)) continue;
+    voiceSelectEl.option(profile.label, profile.id);
+  }
+
+  const hasSelected = availableProfileIds.has(selectedVoice) || selectedVoice === "auto";
+  voiceSelectEl.selected(hasSelected ? selectedVoice || "auto" : "auto");
+}
+
+function refreshVoiceOptions() {
+  populateVoiceSelect();
+  const optionCount = voiceSelectEl?.elt?.options?.length || 0;
+  if (optionCount <= 1) {
+    appendAdminLog("Voice list: only auto available so far");
+  } else {
+    appendAdminLog(`Voice list: ${optionCount - 1} voices loaded`);
+  }
+}
+
+function setupVoiceRefresh() {
+  const synth = window.speechSynthesis;
+  if (!synth) return;
+
+  refreshVoiceOptions();
+  window.setTimeout(refreshVoiceOptions, 150);
+  window.setTimeout(refreshVoiceOptions, 800);
+
+  voicesChangedHandler = () => refreshVoiceOptions();
+  synth.addEventListener?.("voiceschanged", voicesChangedHandler);
+  synth.onvoiceschanged = voicesChangedHandler;
+}
+
+function applySelectedVoice() {
+  if (!speech) return;
+  const voiceName = pickVoiceNameForProfile(selectedVoice);
+  if (voiceName) {
+    speech.setVoice(voiceName);
+    appendAdminLog(`Voice setup: ${selectedVoice} -> ${voiceName}`);
+  } else {
+    speech.setLanguage("en-GB");
+    appendAdminLog("Voice setup: auto en-GB");
+  }
+}
+
+function getAvailableVoiceProfileIds() {
+  const voices = getAvailableSpeechVoices();
+  const ids = new Set(["auto"]);
+  for (const profile of CURATED_VOICE_PROFILES) {
+    if (profile.id === "auto") continue;
+    if (profile.candidates.some((candidate) => voices.some((voice) => voice.name === candidate))) {
+      ids.add(profile.id);
+    }
+  }
+  return ids;
+}
+
+function pickVoiceNameForProfile(profileId) {
+  if (!profileId || profileId === "auto") return "";
+  const profile = CURATED_VOICE_PROFILES.find((item) => item.id === profileId);
+  if (!profile) return "";
+  const voices = getAvailableSpeechVoices();
+  const match = profile.candidates.find((candidate) =>
+    voices.some((voice) => voice.name === candidate)
+  );
+  return match || "";
+}
+
+function getAvailableSpeechVoices() {
+  const synth = window.speechSynthesis;
+  const voices = synth?.getVoices ? synth.getVoices() || [] : [];
+  return voices
+    .map((voice) => ({
+      name: voice?.name || "",
+      lang: voice?.lang || "",
+    }))
+    .filter((voice) => voice.name);
+}
+
 function sanitizeCleanedTraineeMessage(value, fallback) {
   const cleaned = String(value || "").replace(/\s+/g, " ").trim();
   if (cleaned) return cleaned;
   return String(fallback || "").replace(/\s+/g, " ").trim();
-}
-
-function updateUserBubbleCleanedMessage(bubble, rawText, cleanedText) {
-  if (!bubble?.elt) return;
-  const raw = String(rawText || "").trim();
-  const cleaned = String(cleanedText || "").trim();
-  if (!cleaned) return;
-
-  let cleanedEl = bubble.elt.querySelector(".gn-meta-cleaned");
-  if (!cleanedEl) {
-    const div = document.createElement("div");
-    div.className = "gn-meta gn-meta-cleaned";
-    bubble.elt.appendChild(div);
-    cleanedEl = div;
-  }
-
-  cleanedEl.textContent =
-    cleaned === raw ? `Cleaned: ${cleaned} (unchanged)` : `Cleaned: ${cleaned}`;
-
-  requestAnimationFrame(() => {
-    chatEl.elt.scrollTop = chatEl.elt.scrollHeight;
-  });
 }
 
 function exportDebugTurn({ latestUserMessage, prompt, result, phase }) {
@@ -664,4 +914,15 @@ function downloadBrowserFile(filename, content, mimeType = "text/plain;charset=u
 
 function debugTimestampSlug() {
   return new Date().toISOString().replace(/[:.]/g, "-");
+}
+
+function appendAdminLog(text) {
+  if (!adminConsoleEl) return;
+  const current = adminConsoleEl.html();
+  const lines = current ? current.split("\n") : [];
+  const nextLine = `[${new Date().toLocaleTimeString("en-GB", { hour12: false })}] ${String(text || "")}`;
+  lines.push(nextLine);
+  const trimmed = lines.slice(-ADMIN_LOG_LIMIT);
+  adminConsoleEl.html(trimmed.join("\n"));
+  adminConsoleEl.elt.scrollTop = adminConsoleEl.elt.scrollHeight;
 }

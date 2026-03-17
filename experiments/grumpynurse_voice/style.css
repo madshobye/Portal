@@ -19,8 +19,6 @@ body {
 #grumpy-nurse-app {
   position: fixed;
   inset: 0;
-  display: flex;
-  flex-direction: column;
   width: 100vw;
   height: 100vh;
   overflow: hidden;
@@ -29,16 +27,84 @@ body {
     linear-gradient(180deg, #171313 0%, #0d0d0d 100%);
 }
 
+.gn-shell {
+  display: flex;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+}
+
+.gn-admin {
+  position: relative;
+  display: flex;
+  flex: 0 0 276px;
+  flex-direction: column;
+  width: 276px;
+  min-width: 276px;
+  padding: 18px 16px 16px;
+  border-right: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(0, 0, 0, 0.24);
+  overflow: hidden;
+}
+
+.gn-admin.is-hidden {
+  overflow: visible;
+}
+
+.gn-admin-toggle {
+  position: absolute;
+  top: 12px;
+  right: -14px;
+  z-index: 4;
+  width: 28px;
+  height: 56px;
+  border: 0;
+  border-radius: 10px;
+  background: #4a1f1f;
+  color: #fff7f3;
+  font-family: "Courier New", monospace;
+  font-size: 16px;
+  cursor: pointer;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.28);
+}
+
+.gn-shell.is-admin-hidden .gn-admin {
+  flex-basis: 0;
+  width: 0;
+  min-width: 0;
+  padding: 0;
+  border-right: 0;
+}
+
+.gn-shell.is-admin-hidden .gn-header {
+  display: none;
+}
+
+.gn-shell.is-admin-hidden .gn-admin > :not(.gn-admin-toggle) {
+  display: none;
+}
+
+.gn-shell.is-admin-hidden .gn-admin-toggle {
+  right: -28px;
+}
+
+.gn-main {
+  display: flex;
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+  flex-direction: column;
+}
+
+.gn-shell.is-admin-hidden .gn-main {
+  padding-left: 36px;
+}
+
 .gn-header {
   display: flex;
   flex: 0 0 auto;
-  flex-wrap: wrap;
-  justify-content: space-between;
-  gap: 16px;
-  align-items: flex-start;
-  padding: 18px 20px 14px;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
-  background: rgba(0, 0, 0, 0.22);
+  flex-direction: column;
+  gap: 14px;
 }
 
 .gn-header > * {
@@ -62,38 +128,41 @@ body {
 .gn-header-right {
   display: flex;
   flex-direction: column;
-  align-items: flex-end;
+  align-items: stretch;
   gap: 8px;
   min-width: 0;
 }
 
 .gn-toolbar {
   display: flex;
-  flex-wrap: wrap;
+  flex-direction: column;
   gap: 8px;
-  justify-content: flex-end;
+  align-items: stretch;
 }
 
-.gn-voicebar {
-  display: flex;
-  flex: 0 0 auto;
-  align-items: center;
-  gap: 10px;
-  padding: 10px 16px;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
-  background: rgba(38, 12, 12, 0.32);
-}
-
-.gn-heard {
-  flex: 1 1 auto;
-  min-width: 0;
-  padding: 10px 12px;
-  border-radius: 12px;
-  background: rgba(255, 255, 255, 0.05);
-  color: rgba(255, 255, 255, 0.82);
+.gn-console-title {
+  margin-top: 14px;
+  margin-bottom: 8px;
   font-family: "Courier New", monospace;
-  font-size: 12px;
-  line-height: 1.35;
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, 0.55);
+}
+
+.gn-console {
+  flex: 1 1 auto;
+  min-height: 140px;
+  padding: 12px;
+  border-radius: 14px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.04);
+  overflow-y: auto;
+  white-space: pre-wrap;
+  font-family: "Courier New", monospace;
+  font-size: 11px;
+  line-height: 1.45;
+  color: rgba(255, 255, 255, 0.78);
 }
 
 .gn-chat {
@@ -130,22 +199,6 @@ body {
   border-bottom-left-radius: 6px;
 }
 
-.gn-bubble-system {
-  align-self: center;
-  background: rgba(255, 255, 255, 0.06);
-  color: rgba(255, 255, 255, 0.78);
-  border-radius: 12px;
-  font-family: "Courier New", monospace;
-  font-size: 12px;
-}
-
-.gn-meta {
-  margin-top: 8px;
-  font-family: "Courier New", monospace;
-  font-size: 11px;
-  opacity: 0.68;
-}
-
 .gn-compose {
   display: flex;
   flex: 0 0 auto;
@@ -176,23 +229,19 @@ body {
   border-color: rgba(196, 147, 147, 0.48);
 }
 
-.gn-actions {
-  display: flex;
-  flex-direction: column;
-  flex: 0 0 140px;
-  gap: 8px;
-}
-
 .gn-btn {
   appearance: none;
+  display: block;
   border: 0;
   border-radius: 12px;
   padding: 12px 14px;
-  min-width: 132px;
+  min-width: 0;
+  width: 100%;
   background: #7a2525;
   color: #fff7f3;
   font-family: "Courier New", monospace;
   font-size: 13px;
+  text-align: left;
   cursor: pointer;
 }
 
@@ -206,27 +255,42 @@ body {
 }
 
 @media (max-width: 720px) {
-  .gn-header {
+  .gn-shell {
     flex-direction: column;
-    align-items: stretch;
   }
 
-  .gn-header-right {
-    align-items: stretch;
+  .gn-admin {
+    flex: 0 0 auto;
+    width: 100%;
+    min-width: 0;
+    padding: 16px;
+    border-right: 0;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  }
+
+  .gn-admin-toggle {
+    top: auto;
+    bottom: -14px;
+    right: 12px;
+    width: 56px;
+    height: 28px;
+  }
+
+  .gn-shell.is-admin-hidden .gn-admin {
+    flex-basis: 0;
+    width: 100%;
+    min-width: 0;
+    padding: 0;
+    border-bottom: 0;
+  }
+
+  .gn-shell.is-admin-hidden .gn-main {
+    padding-left: 0;
+    padding-top: 36px;
   }
 
   .gn-compose {
     flex-direction: column;
-  }
-
-  .gn-voicebar {
-    flex-direction: column;
-    align-items: stretch;
-  }
-
-  .gn-actions {
-    flex-direction: row;
-    flex: 0 0 auto;
   }
 
   .gn-btn {
