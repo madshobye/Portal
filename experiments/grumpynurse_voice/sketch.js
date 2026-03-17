@@ -257,7 +257,7 @@ async function setup() {
       ? "Prompt doc loaded."
       : "Prompt doc is empty or unavailable. Using the built-in fallback prompt."
   );
-  appendNurseGreeting();
+  await appendNurseGreeting();
   setStatus(apiKey ? "Ready" : "Missing API key");
 }
 
@@ -404,13 +404,37 @@ function createClient() {
   });
 }
 
-function appendNurseGreeting() {
-  const greeting =
-    "Right. You're on with me now. Don't waffle. Tell me what you'd do first when you enter a patient's room and something feels off.";
+async function appendNurseGreeting() {
+  const greeting = await generateOpeningNurseMessage();
   appendMessage("nurse", greeting);
   chatHistory.push({ role: "assistant", text: greeting });
   appendAdminLog("Assessment: Session start");
   appendAdminLog("Next focus: Initial assessment and prioritization");
+}
+
+async function generateOpeningNurseMessage() {
+  const fallbackGreeting =
+    "Right. You're on with me now. Don't waffle. Tell me what you'd do first when you enter a patient's room and something feels off.";
+  if (!gpt || !apiKey) return fallbackGreeting;
+
+  try {
+    const prompt = buildOpeningPrompt();
+    const res = await gpt.ask(prompt);
+    exportDebugTurn({
+      latestUserMessage: "",
+      prompt,
+      result: res,
+      phase: "opening_turn",
+    });
+    const reply = String(res?.reply || "").trim();
+    if (reply) {
+      appendAdminLog("Opening line generated from prompt doc");
+      return reply;
+    }
+  } catch (err) {
+    appendAdminLog(`Opening line fallback: ${err?.message || String(err)}`);
+  }
+  return fallbackGreeting;
 }
 
 async function sendCurrentInput() {
@@ -429,7 +453,6 @@ async function askFromText(text, clearInput = false) {
   const userBubble = appendMessage("user", input, {
     raw_trainee_message: input,
   });
-  appendAdminLog(`Raw trainee: ${input}`);
   const userHistoryIndex =
     chatHistory.push({
       role: "user",
@@ -486,11 +509,10 @@ async function askFromText(text, clearInput = false) {
       chatHistory[userHistoryIndex].text = cleanedTraineeMessage;
       chatHistory[userHistoryIndex].cleanedText = cleanedTraineeMessage;
     }
-    appendAdminLog(
-      cleanedTraineeMessage === input
-        ? `Cleaned trainee: ${cleanedTraineeMessage} (unchanged)`
-        : `Cleaned trainee: ${cleanedTraineeMessage}`
-    );
+    if (cleanedTraineeMessage !== input) {
+      appendAdminLog(`Raw trainee: ${input}`);
+      appendAdminLog(`Cleaned trainee: ${cleanedTraineeMessage}`);
+    }
     appendAdminLog(`Assessment: ${traineeAssessment || "-"}`);
     appendAdminLog(`Next focus: ${nextFocus || "-"}`);
 
@@ -572,6 +594,52 @@ function buildConversationPrompt(latestUserMessage) {
     "trainee_assessment: a short judgment of the trainee response.",
     "next_focus: one short phrase describing what the trainee should focus on next.",
     "cleaned_trainee_message: rewrite the trainee's latest message into a short, clean version that preserves intent and fixes obvious speech-to-text mistakes, dropped words, and garbled phrasing. If the message is already clear, return it with only light cleanup.",
+  ].join("\n");
+}
+
+function buildOpeningPrompt() {
+  const fallbackPrompt = [
+    "# Grumpy Nurse",
+    "",
+    "You are an experienced senior nurse training a nurse trainee in realistic hospital situations.",
+    "Start the session with one short in-character opening line and one concrete first question.",
+    "Do not wait for a trainee message before starting.",
+    "",
+    "## Session summary",
+    "Session start.",
+    "",
+    "## Conversation so far",
+    "(none)",
+    "",
+    "## Latest trainee message",
+    "(none)",
+  ].join("\n");
+
+  const baseDocText = String(promptDocMd || "").trim() || fallbackPrompt;
+  const docText = injectPromptPlaceholders(baseDocText, {
+    conversation_history: "(none)",
+    latest_user_message: "(none)",
+    session_summary: "Session start. Begin with a concrete, realistic opening situation.",
+  });
+
+  return [
+    "Use the following markdown as the authoritative roleplay prompt.",
+    "Follow it closely and stay in character.",
+    "",
+    "PROMPT DOC:",
+    "```md",
+    docText,
+    "```",
+    "",
+    "Start the roleplay now.",
+    "Introduce one concrete scenario immediately and ask the trainee one direct first question.",
+    "Do not mention metadata or explain the rules.",
+    "",
+    "Respond as the nurse using the nurse_reply function.",
+    "reply: the nurse's in-character opening line only.",
+    "trainee_assessment: use 'Session start'.",
+    "next_focus: use a short phrase for the first thing the trainee should focus on.",
+    "cleaned_trainee_message: return '(none)' because there is no trainee message yet.",
   ].join("\n");
 }
 
