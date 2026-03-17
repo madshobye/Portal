@@ -9,6 +9,7 @@ const MODEL_OPTIONS = ["gpt-4o-mini", "gpt-4.1-mini", "gpt-4o"];
 const DEFAULT_MODEL = "gpt-4o-mini";
 const STORAGE_PREFIX = "grumpynurse";
 const MODEL_KEY = `${STORAGE_PREFIX}.model`;
+const SESSION_LANGUAGE_KEY = `${STORAGE_PREFIX}.sessionLanguage`;
 const VOICE_KEY = `${STORAGE_PREFIX}.voice`;
 const DEBUG_EXPORTS_KEY = `${STORAGE_PREFIX}.debugExports`;
 const ADMIN_PANEL_HIDDEN_KEY = `${STORAGE_PREFIX}.adminHidden`;
@@ -19,6 +20,11 @@ const CHAT_HISTORY_LIMIT = 16;
 const ADMIN_LOG_LIMIT = 120;
 const GPT_TEMPERATURE = 0.8;
 const GPT_MAX_TOKENS = 500;
+const SESSION_LANGUAGE_OPTIONS = [
+  { id: "en-GB", label: "English", promptLabel: "English" },
+  { id: "da-DK", label: "Danish", promptLabel: "Danish" },
+  { id: "de-DE", label: "German", promptLabel: "German" },
+];
 const CURATED_VOICE_PROFILES = [
   {
     id: "auto",
@@ -186,11 +192,13 @@ let debugButton;
 let adminToggleButton;
 let statusEl;
 let modelSelectEl;
+let languageSelectEl;
 let voiceSelectEl;
 let listenButton;
 let adminConsoleEl;
 let askInFlight = false;
 let selectedModel = DEFAULT_MODEL;
+let selectedSessionLanguage = "en-GB";
 let selectedVoice = "";
 let debugExportsEnabled = false;
 let adminPanelHidden = false;
@@ -224,6 +232,7 @@ async function setup() {
 
   apiKey = storedDecrypt({ apiKeyEncryptedGpt22 });
   selectedModel = loadSelectedModel();
+  selectedSessionLanguage = loadSelectedSessionLanguage();
   selectedVoice = loadSelectedVoice();
   debugExportsEnabled = loadDebugExportsEnabled();
   adminPanelHidden = loadAdminPanelHidden();
@@ -234,7 +243,7 @@ async function setup() {
 
   try {
     speech = await new PortalSpeech({
-      language: "en-GB",
+      language: selectedSessionLanguage,
       voice: selectedVoice || null,
       rate: 1,
       pitch: 1,
@@ -329,6 +338,21 @@ function buildUi() {
     persistSelectedModel();
     gpt = createClient();
     appendSystemMessage(`Model changed to ${selectedModel}.`);
+  });
+
+  languageSelectEl = createSelect();
+  languageSelectEl.parent(toolbar);
+  languageSelectEl.class("gn-btn gn-btn-secondary");
+  for (const option of SESSION_LANGUAGE_OPTIONS) {
+    languageSelectEl.option(`Language: ${option.label}`, option.id);
+  }
+  languageSelectEl.selected(selectedSessionLanguage);
+  languageSelectEl.changed(() => {
+    selectedSessionLanguage = languageSelectEl.value();
+    persistSelectedSessionLanguage();
+    applySessionLanguage();
+    applySelectedVoice();
+    appendSystemMessage(`Session language changed to ${getSessionLanguageLabel()}.`);
   });
 
   voiceSelectEl = createSelect();
@@ -521,7 +545,7 @@ async function askFromText(text, clearInput = false) {
     trimChatHistory();
     setStatus("Speaking...");
     appendAdminLog("Voice: speaking reply");
-    speech?.speak(reply);
+    speech?.speak(reply, selectedSessionLanguage);
   } catch (err) {
     appendSystemMessage(err?.message || String(err));
     setStatus("Error");
@@ -537,7 +561,7 @@ function toggleListening() {
     speech.stopListening();
     appendAdminLog("Voice: listening stopped");
   } else {
-    speech.listenRecurring();
+    speech.listenRecurring(null, { language: selectedSessionLanguage });
     appendAdminLog("Voice: listening started");
   }
   if (listenButton) {
@@ -573,6 +597,7 @@ function buildConversationPrompt(latestUserMessage) {
   const docText = injectPromptPlaceholders(baseDocText, {
     conversation_history: historyText || "(none)",
     latest_user_message: latestUserMessage || "(none)",
+    session_language: getSessionLanguageLabel(),
     session_summary: sessionSummary || "No clear pattern yet. Keep assessing the trainee.",
   });
 
@@ -619,6 +644,7 @@ function buildOpeningPrompt() {
   const docText = injectPromptPlaceholders(baseDocText, {
     conversation_history: "(none)",
     latest_user_message: "(none)",
+    session_language: getSessionLanguageLabel(),
     session_summary: "Session start. Begin with a concrete, realistic opening situation.",
   });
 
@@ -783,6 +809,20 @@ function persistSelectedModel() {
   } catch {}
 }
 
+function loadSelectedSessionLanguage() {
+  try {
+    const saved = window.localStorage.getItem(SESSION_LANGUAGE_KEY);
+    if (SESSION_LANGUAGE_OPTIONS.some((option) => option.id === saved)) return saved;
+  } catch {}
+  return "en-GB";
+}
+
+function persistSelectedSessionLanguage() {
+  try {
+    window.localStorage.setItem(SESSION_LANGUAGE_KEY, selectedSessionLanguage);
+  } catch {}
+}
+
 function loadSelectedVoice() {
   try {
     return window.localStorage.getItem(VOICE_KEY) || "";
@@ -852,6 +892,13 @@ function applyAdminPanelVisibility() {
   );
 }
 
+function getSessionLanguageLabel() {
+  return (
+    SESSION_LANGUAGE_OPTIONS.find((option) => option.id === selectedSessionLanguage)?.promptLabel ||
+    "English"
+  );
+}
+
 function populateVoiceSelect() {
   if (!voiceSelectEl?.elt) return;
   voiceSelectEl.elt.innerHTML = "";
@@ -890,13 +937,30 @@ function setupVoiceRefresh() {
 
 function applySelectedVoice() {
   if (!speech) return;
+  speech.setLanguage(selectedSessionLanguage);
   const voiceName = pickVoiceNameForProfile(selectedVoice);
   if (voiceName) {
     speech.setVoice(voiceName);
-    appendAdminLog(`Voice setup: ${selectedVoice} -> ${voiceName}`);
+    appendAdminLog(
+      `Voice setup: ${selectedVoice} -> ${voiceName} (${getSessionLanguageLabel()})`
+    );
   } else {
-    speech.setLanguage("en-GB");
-    appendAdminLog("Voice setup: auto en-GB");
+    appendAdminLog(`Voice setup: auto ${getSessionLanguageLabel()}`);
+  }
+}
+
+function applySessionLanguage() {
+  if (!speech) return;
+  speech.setLanguage(selectedSessionLanguage);
+  appendAdminLog(`Recognition language: ${getSessionLanguageLabel()}`);
+  if (speech.isListening()) {
+    try {
+      speech.stopListening();
+      speech.listenRecurring(null, { language: selectedSessionLanguage });
+      appendAdminLog("Voice: listening restarted for new session language");
+    } catch (err) {
+      appendAdminLog(`Voice restart error: ${err?.message || String(err)}`);
+    }
   }
 }
 
