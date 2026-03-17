@@ -279,6 +279,11 @@ async function setup() {
 }
 
 function draw() {
+  if (listenButton) {
+    listenButton.html(
+      speech?.isListening() || isSpeechOutputActive() ? "Stop Listening" : "Start Listening"
+    );
+  }
   if (!speech) return;
   if (speech.hasNewResult()) {
     const { text } = speech.consumeNew();
@@ -601,15 +606,19 @@ async function askFromText(text, clearInput = false) {
 
 function toggleListening() {
   if (!speech) return;
-  if (speech.isListening()) {
+  if (speech.isListening() || isSpeechOutputActive()) {
+    speech.stopSpeaking();
     speech.stopListening();
-    appendAdminLog("Voice: listening stopped");
+    setStatus("Ready");
+    appendAdminLog("Voice: listening/speaking stopped");
   } else {
     speech.listenRecurring(null, { language: selectedSessionLanguage });
     appendAdminLog("Voice: listening started");
   }
   if (listenButton) {
-    listenButton.html(speech?.isListening() ? "Stop Listening" : "Start Listening");
+    listenButton.html(
+      speech?.isListening() || isSpeechOutputActive() ? "Stop Listening" : "Start Listening"
+    );
   }
 }
 
@@ -1121,6 +1130,11 @@ function appendAdminLog(text) {
   const trimmed = lines.slice(-ADMIN_LOG_LIMIT);
   adminConsoleEl.html(trimmed.join("\n"));
   adminConsoleEl.elt.scrollTop = adminConsoleEl.elt.scrollHeight;
+}
+
+function isSpeechOutputActive() {
+  const synth = window.speechSynthesis;
+  return !!(synth && (synth.speaking || synth.pending));
 }
 
 function updateTask(nextTask) {
