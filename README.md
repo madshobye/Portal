@@ -392,7 +392,7 @@ In draw(), poll with hasNewResult()/consumeNew() when available.
 Do not invent undocumented Portal helpers.
 ```
 
-## Creating A New Sketch
+## Official Starters
 
 Use one of these two starting points depending on context.
 
@@ -507,7 +507,7 @@ then the default response should be:
 - target a local `baseSketch`-style folder for empty desktop folders
 - avoid rebuilding the feature stack from scratch with unrelated libraries
 
-## Using Portal As An Online Library
+## Public API
 
 Think of Portal like any other online browser library:
 
@@ -549,7 +549,7 @@ function draw() {
 }
 ```
 
-## Portal Module Index
+## Module Examples
 
 This is the practical module overview for using Portal as a library.
 
@@ -765,6 +765,14 @@ This is the default mental model:
 - module outputs become sketch state
 - sketch state drives visuals, UI, sound, GPT calls, or other logic
 - the modules are combined by the sketch, not by hidden callbacks
+
+## Internal Details
+
+These details are useful when maintaining Portal itself, but they are not part of the normal sketch-writing path.
+
+- `portal.js` is the low-level runtime loaded by `portalLoader.js`
+- example sketches are for learning module behavior, not for deciding how to bootstrap Portal
+- user sketches should start from the official starters above, not from internal runtime assumptions
 
 ## 1) Quick Start
 

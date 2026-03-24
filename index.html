@@ -380,7 +380,7 @@
 
       <section class="section grid-2">
         <article class="panel">
-          <span class="eyebrow">New Sketch</span>
+          <span class="eyebrow">Official Starters</span>
           <h2>How To Start A Portal Sketch</h2>
           <ul class="plain">
             <li>Scenario 1, cloud editor: write a single copy-paste-friendly `sketch.js` for the base sketch.</li>
@@ -394,7 +394,7 @@
         </article>
 
         <article class="panel">
-          <span class="eyebrow">LLM Behavior</span>
+          <span class="eyebrow">Official Starters</span>
           <h2>What A Model Should Assume</h2>
           <ul class="plain">
             <li>If a user references `madshobye.github.io/Portal`, assume they want a Portal-native sketch, not plain p5.js plus custom libraries.</li>
@@ -408,7 +408,7 @@
 
       <section class="section grid-2">
         <article class="panel">
-          <span class="eyebrow">System Model</span>
+          <span class="eyebrow">Public API</span>
           <h2>How Portal Fits Together</h2>
           <ul class="plain">
             <li>`index.html` loads p5, Portal base CSS, `portalLoader.js`, and your `sketch.js`.</li>
@@ -420,7 +420,7 @@
         </article>
 
         <article class="panel">
-          <span class="eyebrow">Hard Rules</span>
+          <span class="eyebrow">Public API</span>
           <h2>How To Use Portal Correctly</h2>
           <ul class="plain">
             <li>Use the hosted `portalLoader.js` or the cloud base sketch.</li>
@@ -482,7 +482,7 @@ function draw() {
       </section>
 
       <section class="section panel">
-        <span class="eyebrow">Create A Sketch</span>
+        <span class="eyebrow">Official Starters</span>
         <h2>Minimal Portal Starter</h2>
         <p>
           This is the default pattern an LLM should generate when asked to make a new
@@ -546,7 +546,7 @@ function draw() {
       </section>
 
       <section class="section panel">
-        <span class="eyebrow">Runtime URLs</span>
+        <span class="eyebrow">Public API</span>
         <h2>Use These Hosted Portal Files</h2>
         <ul class="plain">
           <li>`https://madshobye.github.io/Portal/P1/portalLoader.js` is the runtime entry point for standalone sketches.</li>
@@ -558,7 +558,7 @@ function draw() {
       </section>
 
       <section class="section panel">
-        <span class="eyebrow">Online Library</span>
+        <span class="eyebrow">Public API</span>
         <h2>Use Portal Like A Normal Browser Library</h2>
         <ul class="plain">
           <li>Load p5, `portalBaseStyle.css`, and `portalLoader.js` in `index.html`.</li>
@@ -588,7 +588,7 @@ function draw() {
       </section>
 
       <section class="section panel">
-        <span class="eyebrow">Combining Modules</span>
+        <span class="eyebrow">Module Examples</span>
         <h2>How To Combine Portal Elements</h2>
         <div class="grid-2" style="margin-top: 16px">
           <div class="mini-card">
@@ -635,7 +635,7 @@ function draw() {
       </section>
 
       <section class="section panel">
-        <span class="eyebrow">Module Index</span>
+        <span class="eyebrow">Module Examples</span>
         <h2>All Core Modules And Entry Points</h2>
         <div class="grid-2" style="margin-top: 16px">
           <div class="mini-card">
@@ -671,16 +671,11 @@ function draw() {
             <p>`ProjectionMapper`, `InkDrawing`, `PortalFaceAnimation`, `ChainBrush`, `PortalPaintPath`, `pNoise1D/2D/3D`, `simplexNoise.js`</p>
           </div>
         </div>
-        <p style="margin-top: 12px">
-          The README has the fuller library-style module overview with categories and
-          function names. Use this page for navigation, and the README for the longer
-          API map.
-        </p>
       </section>
 
       <section class="section grid-2">
         <article class="panel">
-          <span class="eyebrow">Choosing Modules</span>
+          <span class="eyebrow">Module Examples</span>
           <h2>How To Pick The Right One</h2>
           <ul class="plain">
             <li>Need webcam landmarks: `HandPose`, `BodyPose`, `FaceMesh`.</li>
@@ -693,7 +688,7 @@ function draw() {
         </article>
 
         <article class="panel">
-          <span class="eyebrow">Safe Defaults</span>
+          <span class="eyebrow">Public API</span>
           <h2>What Usually Works Best</h2>
           <ul class="plain">
             <li>Use `async setup()`.</li>
@@ -708,7 +703,7 @@ function draw() {
 
       <section class="section grid-2">
         <article class="panel">
-          <span class="eyebrow">Debugging</span>
+          <span class="eyebrow">Internal Details</span>
           <h2>What To Check First</h2>
           <ul class="plain">
             <li>Make sure `index.html` loads the hosted `portalLoader.js` and `portalBaseStyle.css`.</li>
@@ -720,7 +715,7 @@ function draw() {
         </article>
 
         <article class="panel">
-          <span class="eyebrow">Visible Errors</span>
+          <span class="eyebrow">Internal Details</span>
           <h2>Keep Debugging Simple</h2>
           <ul class="plain">
             <li>Use `print(...)`, `console.log(...)`, or a short on-canvas status message.</li>
