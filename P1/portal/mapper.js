@@ -65,10 +65,12 @@ class ProjectionMapper {
     this._dragSurf = -1; // index of surface being dragged
     this._dragCorner = -1; // which corner in that surface
     this.defaultMargin = 60;
+    this._shortcutHandler = null;
 
     // optional overlay font for labels (set via setFont)
     this._overlayFont = null;
     print("Mapper: Option+S save, Option+C calibrate, Option+R reset");
+    this._installShortcutHandler();
 
     if (Number.isFinite(opts.pixelDensity)) {
       if (this.p && typeof this.p.pixelDensity === "function") {
@@ -862,6 +864,25 @@ class ProjectionMapper {
 
     if (lastFrame === currentFrame) return;
     uiUpdateSimple();
+  }
+
+  _installShortcutHandler() {
+    if (typeof window === "undefined" || this._shortcutHandler) return;
+
+    this._shortcutHandler = (e) => {
+      if (!e || e.repeat) return;
+
+      const alt = !!(e.altKey || (e.getModifierState && e.getModifierState("Alt")));
+      if (!alt) return;
+
+      const code = String(e.code || "");
+      if (!/^Key[CSLRDG]$/.test(code)) return;
+
+      e.preventDefault();
+      this.keyPressed(code);
+    };
+
+    window.addEventListener("keydown", this._shortcutHandler, { capture: true });
   }
 
   keyPressed(key) {
