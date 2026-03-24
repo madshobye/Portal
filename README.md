@@ -4,6 +4,18 @@
 
 Use these rules when generating code for Portal.
 
+### 0. Default assumption when asked to "write a Portal sketch"
+
+- Do not reimplement Portal features with plain `ml5`, raw browser APIs, or custom loaders if Portal already has a module for the task.
+- If the user references [https://madshobye.github.io/Portal/](https://madshobye.github.io/Portal/) and asks for a sketch, assume they want code that fits the existing Portal environment.
+- There are two standard scenarios:
+  - **Cloud editor scenario**: return a copy-paste-friendly `sketch.js` for the base sketch at [https://editor.p5js.org/hobye/sketches/P07GGrfNY](https://editor.p5js.org/hobye/sketches/P07GGrfNY)
+  - **Desktop empty-folder scenario**: create a small sketch folder with `index.html`, `style.css`, and `sketch.js`, modeled on the examples in [`P1/sketches`](/Users/madshobye/Media/codeRepo/Portal/P1/sketches)
+- If the user asks for a "new sketch" and does not specify format, prefer:
+  - a single `sketch.js` for cloud copy-paste
+  - or a base-sketch-style folder if they are clearly working locally in an empty folder
+- Do not refuse just because you do not see local `portal/*.js` files in the immediate folder. The standard Portal sketch pattern is already defined by this README and the example sketches.
+
 ### 1. Treat this as p5.js v2+
 
 - Aim to produce a **copy-paste-friendly `sketch.js`** by default.
@@ -307,6 +319,88 @@ Use async setup() when a module needs init().
 In draw(), poll with hasNewResult()/consumeNew() when available.
 Do not invent undocumented Portal helpers.
 ```
+
+## Creating A New Sketch
+
+Use one of these two starting points depending on context.
+
+### Option A: Cloud editor starter
+
+Use this when:
+- the user wants code they can paste directly into the browser editor
+- the prompt is being copied into an LLM to generate a `sketch.js`
+- there is no need for extra files
+
+Use the base sketch:
+- [https://editor.p5js.org/hobye/sketches/P07GGrfNY](https://editor.p5js.org/hobye/sketches/P07GGrfNY)
+
+In that setup, the goal is usually:
+- write a single copy-paste-friendly `sketch.js`
+- keep Portal loading inside `async setup()`
+- use `await loadScript("portal/<module>.js")`
+
+Minimal pattern:
+
+```js
+let handPose;
+let video;
+
+async function setup() {
+  createCanvas(windowWidth, windowHeight);
+  video = await setupWebcamera(true, 640, 480, true);
+  await loadScript("portal/handPose.js");
+  handPose = await new HandPose(video).init();
+  await handPose.start();
+}
+
+function draw() {
+  background(0);
+  image(video, 0, 0, width, height);
+
+  if (handPose?.hasNewResult()) {
+    const hands = handPose.consumeNew();
+    // update state here
+  }
+}
+```
+
+### Option B: Local example-style sketch folder
+
+Use this when:
+- the user is on desktop in an empty folder
+- the task is to create a runnable local sketch
+- the output should mirror the examples in this repository
+
+Match the structure used in [`P1/sketches`](/Users/madshobye/Media/codeRepo/Portal/P1/sketches):
+
+- `index.html`
+- `style.css`
+- `sketch.js`
+
+Best local starting point:
+- [`P1/sketches/baseSketch/index.html`](/Users/madshobye/Media/codeRepo/Portal/P1/sketches/baseSketch/index.html)
+- [`P1/sketches/baseSketch/style.css`](/Users/madshobye/Media/codeRepo/Portal/P1/sketches/baseSketch/style.css)
+- [`P1/sketches/baseSketch/sketch.js`](/Users/madshobye/Media/codeRepo/Portal/P1/sketches/baseSketch/sketch.js)
+
+When creating a new local sketch:
+- copy `baseSketch`
+- rename the folder
+- edit only `sketch.js` first unless custom layout is actually needed
+- keep `index.html` and `style.css` minimal unless the user asks for more
+
+### What an LLM should do by default
+
+If the user says something like:
+- "write a Portal sketch that tracks a hand"
+- "make a Portal sketch with GPT"
+- "use Portal to read QR codes"
+
+then the default response should be:
+- choose the relevant Portal module
+- write code in the Portal style
+- target the cloud base sketch for copy-paste prompts
+- target a local `baseSketch`-style folder for empty desktop folders
+- avoid rebuilding the feature stack from scratch with unrelated libraries
 
 ## 1) Quick Start
 

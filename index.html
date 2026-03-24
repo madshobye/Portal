@@ -372,6 +372,34 @@
 
       <section class="section grid-2">
         <article class="panel">
+          <span class="eyebrow">New Sketch</span>
+          <h2>How To Start A Portal Sketch</h2>
+          <ul class="plain">
+            <li>Scenario 1, cloud editor: write a single copy-paste-friendly `sketch.js` for the base sketch.</li>
+            <li>Cloud base sketch: <a href="https://editor.p5js.org/hobye/sketches/P07GGrfNY">editor.p5js.org/hobye/sketches/P07GGrfNY</a></li>
+            <li>Scenario 2, empty local folder on desktop: create a small sketch folder with `index.html`, `style.css`, and `sketch.js`.</li>
+            <li>Local base sketch: <a href="./P1/sketches/baseSketch/">P1/sketches/baseSketch</a></li>
+            <li>If you need a local multi-file example, copy the `baseSketch` folder and rename it.</li>
+            <li>Use Portal modules with `await loadScript("portal/&lt;module&gt;.js")` instead of rebuilding the feature with unrelated libraries.</li>
+            <li>If Portal already has the feature, stay inside the Portal ecosystem.</li>
+          </ul>
+        </article>
+
+        <article class="panel">
+          <span class="eyebrow">LLM Behavior</span>
+          <h2>What A Model Should Assume</h2>
+          <ul class="plain">
+            <li>If a user references `madshobye.github.io/Portal`, assume they want a Portal-native sketch, not plain p5.js plus custom libraries.</li>
+            <li>Do not refuse because the local folder is empty. In that case, create a `baseSketch`-style folder with `index.html`, `style.css`, and `sketch.js`.</li>
+            <li>Do not refuse because the prompt is only being pasted into an online LLM. In that case, output a single `sketch.js` for the cloud base sketch.</li>
+            <li>Pick the matching Portal module first, then write the sketch around it.</li>
+            <li>Prefer one-file `sketch.js` output unless the user explicitly asks for `index.html` and `style.css` too.</li>
+          </ul>
+        </article>
+      </section>
+
+      <section class="section grid-2">
+        <article class="panel">
           <span class="eyebrow">Instructions For LLMs</span>
           <h2>Write Beginner-Friendly Portal Code</h2>
           <div class="card-list">
@@ -417,6 +445,43 @@ function draw() {
   }
 }</div>
         </article>
+      </section>
+
+      <section class="section panel">
+        <span class="eyebrow">Create A Sketch</span>
+        <h2>Minimal Portal Starter</h2>
+        <p>
+          This is the default pattern an LLM should generate when asked to make a new
+          Portal sketch. It assumes the standard Portal base sketch or a local sketch
+          folder that already loads `portalLoader.js`.
+        </p>
+        <div class="code">let video;
+let handPose;
+let pinchDown = false;
+
+async function setup() {
+  createCanvas(windowWidth, windowHeight);
+  video = await setupWebcamera(true, 640, 480, true);
+  await loadScript("portal/handPose.js");
+  handPose = await new HandPose(video).init();
+  await handPose.start();
+}
+
+function draw() {
+  background(0);
+  image(video, 0, 0, width, height);
+
+  if (handPose?.hasNewResult()) {
+    const hands = handPose.consumeNew();
+    // read landmarks and update state
+  }
+
+  if (pinchDown) {
+    fill(0, 255, 0);
+    noStroke();
+    ellipse(width * 0.5, height * 0.5, 60, 60);
+  }
+}</div>
       </section>
 
       <section class="section grid-2">
