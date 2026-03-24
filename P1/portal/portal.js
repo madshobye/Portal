@@ -6,6 +6,8 @@ let baseMonoFont;
 let simplexNoise;
 let portalFontGuardInstalled = false;
 let portalUserSetTextFont = false;
+let portalResizeListenersInstalled = false;
+let portalResizeSettleTimers = [];
 
 function portalOverlayEnabled() {
   // Support both:
@@ -340,6 +342,7 @@ async function pSetup() {
   baseMonoFont = await loadFont(baseURL + "assets/RobotoMono-Regular.ttf");
   const legacyUiGuard = installLegacyUiAutopatchGuard();
   installPortalFontGuard();
+  installPortalResizeListeners();
   
   textFont(baseFont);
   if (typeof window.draw === "function") {
@@ -400,48 +403,131 @@ function pDebugDash(show) {
 }
 
 function _portalResolveCanvasResizeTarget() {
+  const viewportWidth = Math.round(Math.max(
+    Number(window.visualViewport?.width || 0),
+    Number(window.innerWidth || 0),
+    Number(document.documentElement?.clientWidth || 0),
+    Number(document.body?.clientWidth || 0),
+    Number(windowWidth || 0)
+  ));
+  const viewportHeight = Math.round(Math.max(
+    Number(window.visualViewport?.height || 0),
+    Number(window.innerHeight || 0),
+    Number(document.documentElement?.clientHeight || 0),
+    Number(document.body?.clientHeight || 0),
+    Number(windowHeight || 0)
+  ));
+
   if (typeof window.PORTAL_CANVAS_RESIZE_MODE === "string") {
     const mode = window.PORTAL_CANVAS_RESIZE_MODE.toLowerCase();
     if (mode === "none") return null;
     if (mode === "window") {
-      return { width: windowWidth, height: windowHeight };
+      return { width: viewportWidth, height: viewportHeight };
     }
   }
 
   const canvasEl =
     (typeof document !== "undefined" && document.querySelector("canvas")) || null;
   if (!canvasEl) {
-    return { width: windowWidth, height: windowHeight };
+    return { width: viewportWidth, height: viewportHeight };
   }
 
   const parent = canvasEl.parentElement;
-  if (!parent || parent === document.body) {
-    return { width: windowWidth, height: windowHeight };
+  if (!parent || parent === document.body || parent.tagName === "MAIN") {
+    return { width: viewportWidth, height: viewportHeight };
   }
 
   const rect = parent.getBoundingClientRect?.();
   const parentWidth = Math.floor(rect?.width || 0);
   const parentHeight = Math.floor(rect?.height || 0);
 
-  const fillsWindowWidth = Math.abs(parentWidth - window.innerWidth) <= 4;
-  const fillsWindowHeight = Math.abs(parentHeight - window.innerHeight) <= 4;
+  const fillsWindowWidth = Math.abs(parentWidth - viewportWidth) <= 4;
+  const fillsWindowHeight = Math.abs(parentHeight - viewportHeight) <= 4;
 
   if (fillsWindowWidth && fillsWindowHeight) {
-    return { width: windowWidth, height: windowHeight };
+    return { width: viewportWidth, height: viewportHeight };
   }
 
   if (parentWidth > 0 && parentHeight > 0) {
     return { width: parentWidth, height: parentHeight };
   }
 
-  return { width: windowWidth, height: windowHeight };
+  return { width: viewportWidth, height: viewportHeight };
 }
 
-function windowResized() {
+function _portalShouldUseVisualViewportResize() {
+  if (typeof window.PORTAL_CANVAS_RESIZE_MODE === "string") {
+    const mode = window.PORTAL_CANVAS_RESIZE_MODE.toLowerCase();
+    if (mode === "none") return false;
+    if (mode === "window") return true;
+  }
+
+  const canvasEl =
+    (typeof document !== "undefined" && document.querySelector("canvas")) || null;
+  if (!canvasEl) return true;
+
+  const parent = canvasEl.parentElement;
+  if (!parent || parent === document.body) return true;
+  if (parent.tagName === "MAIN") return true;
+
+  const rect = parent.getBoundingClientRect?.();
+  const parentWidth = Math.floor(rect?.width || 0);
+  const parentHeight = Math.floor(rect?.height || 0);
+  const viewportWidth = Math.round(window.visualViewport?.width || window.innerWidth || 0);
+  const viewportHeight = Math.round(window.visualViewport?.height || window.innerHeight || 0);
+
+  const fillsWindowWidth = Math.abs(parentWidth - viewportWidth) <= 4;
+  const fillsWindowHeight = Math.abs(parentHeight - viewportHeight) <= 4;
+  return fillsWindowWidth && fillsWindowHeight;
+}
+
+function _portalClearResizeSettleTimers() {
+  for (const id of portalResizeSettleTimers) {
+    try {
+      window.clearTimeout(id);
+    } catch {}
+  }
+  portalResizeSettleTimers = [];
+}
+
+function _portalApplyResolvedCanvasResizeOnce() {
   if (typeof resizeCanvas !== "function") return;
   const target = _portalResolveCanvasResizeTarget();
   if (!target) return;
   resizeCanvas(target.width, target.height);
+}
+
+function _portalApplyResolvedCanvasResize() {
+  _portalClearResizeSettleTimers();
+  _portalApplyResolvedCanvasResizeOnce();
+  for (const delay of [120, 300]) {
+    const id = window.setTimeout(() => {
+      _portalApplyResolvedCanvasResizeOnce();
+    }, delay);
+    portalResizeSettleTimers.push(id);
+  }
+}
+
+function windowResized() {
+  _portalApplyResolvedCanvasResize();
+}
+
+function installPortalResizeListeners() {
+  if (portalResizeListenersInstalled) return;
+  portalResizeListenersInstalled = true;
+
+  if (typeof document !== "undefined") {
+    document.addEventListener("fullscreenchange", () => {
+      _portalApplyResolvedCanvasResize();
+    });
+  }
+
+  if (window.visualViewport && typeof window.visualViewport.addEventListener === "function") {
+    window.visualViewport.addEventListener("resize", () => {
+      if (!_portalShouldUseVisualViewportResize()) return;
+      _portalApplyResolvedCanvasResize();
+    });
+  }
 }
 
 function fullScreenToggle() {
