@@ -4,6 +4,8 @@ let pVersion =v_major + "." +v_minor
 let baseFont;
 let baseMonoFont;
 let simplexNoise;
+let portalFontGuardInstalled = false;
+let portalUserSetTextFont = false;
 
 function portalOverlayEnabled() {
   // Support both:
@@ -337,6 +339,7 @@ async function pSetup() {
   baseFont = await loadFont(baseURL + "assets/Rubik-Light.ttf");
   baseMonoFont = await loadFont(baseURL + "assets/RobotoMono-Regular.ttf");
   const legacyUiGuard = installLegacyUiAutopatchGuard();
+  installPortalFontGuard();
   
   textFont(baseFont);
   if (typeof window.draw === "function") {
@@ -930,4 +933,42 @@ function getP5Instance() {
     ) return v;
   }
   return null;
+}
+
+function installPortalFontGuard() {
+  if (portalFontGuardInstalled) return;
+  portalFontGuardInstalled = true;
+
+  const originalTextFont = window.textFont;
+  if (typeof originalTextFont === "function") {
+    window.textFont = function(...args) {
+      if (args.length > 0 && args[0]) {
+        portalUserSetTextFont = true;
+      }
+      return originalTextFont.apply(this, args);
+    };
+    window.textFont.__portalOriginal = originalTextFont;
+  }
+}
+
+function portalEnsureWebglDefaultFontAfterSetup() {
+  const p = getP5Instance();
+  if (!p || !baseFont) return;
+
+  const renderer = p?._renderer;
+  const isWebgl = !!(renderer && renderer.isP3D);
+  if (!isWebgl) return;
+  if (portalUserSetTextFont) return;
+
+  const applyTextFont =
+    window.textFont?.__portalOriginal ||
+    window.textFont;
+  if (typeof applyTextFont !== "function") return;
+
+  try {
+    applyTextFont.call(window, baseFont);
+    console.warn("Error no font for WEBGL - Portal set the default");
+  } catch (err) {
+    console.warn("Portal could not apply default WEBGL font:", err);
+  }
 }

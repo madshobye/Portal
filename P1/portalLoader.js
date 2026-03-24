@@ -39,6 +39,9 @@ async function loadPortal(version, refresh = false) {
         setup = async function () {
           await pSetup();
           await originalSetup();
+          if (typeof window.portalEnsureWebglDefaultFontAfterSetup === "function") {
+            window.portalEnsureWebglDefaultFontAfterSetup();
+          }
         };
       } else {
         pSetup();
