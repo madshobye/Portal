@@ -188,6 +188,60 @@
         margin-bottom: 16px;
       }
 
+      .module-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+        gap: 14px;
+      }
+
+      .module-card {
+        display: grid;
+        gap: 10px;
+        padding: 16px;
+        border: 1px solid var(--line);
+        border-radius: 14px;
+        background: #fffefb;
+      }
+
+      .module-top {
+        display: flex;
+        justify-content: space-between;
+        gap: 12px;
+        align-items: baseline;
+      }
+
+      .module-path {
+        font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+        font-size: 0.82rem;
+        color: rgba(17, 17, 17, 0.52);
+      }
+
+      .module-list {
+        margin: 0;
+        padding-left: 18px;
+        color: var(--muted);
+        font-size: 0.95rem;
+      }
+
+      .module-list li + li {
+        margin-top: 4px;
+      }
+
+      .recipe-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+        gap: 14px;
+      }
+
+      .recipe-card {
+        display: grid;
+        gap: 10px;
+        padding: 16px;
+        border: 1px solid var(--line);
+        border-radius: 14px;
+        background: #fffefb;
+      }
+
       .example-grid {
         display: grid;
         grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
@@ -394,6 +448,27 @@ function draw() {
       </section>
 
       <section class="section panel">
+        <span class="eyebrow">Module Overview</span>
+        <h2>Detailed Portal Modules</h2>
+        <p>
+          This section is intended to be copyable reference for LLMs and beginners.
+          Each module card summarizes what it is for, how to load it, and the safest
+          current usage pattern.
+        </p>
+        <div id="module-grid" class="module-grid" style="margin-top: 16px"></div>
+      </section>
+
+      <section class="section panel">
+        <span class="eyebrow">Code Recipes</span>
+        <h2>Copy-Paste-Friendly Examples</h2>
+        <p>
+          These are short recipes designed to match the Portal README guidance: async
+          setup, `await`, simple draw-loop polling, and minimal event-driven behavior.
+        </p>
+        <div id="recipe-grid" class="recipe-grid" style="margin-top: 16px"></div>
+      </section>
+
+      <section class="section panel">
         <div class="example-toolbar">
           <div>
             <span class="eyebrow">Example Sketches</span>
@@ -458,6 +533,226 @@ function draw() {
         ["test", "Test", "General-purpose test sketch used for quick checks."]
       ];
 
+      const modules = [
+        {
+          title: "Core Runtime",
+          path: "portal/portal.js",
+          description: "Base Portal layer loaded by pSetup(). It provides script loading, camera helpers, key storage helpers, fullscreen, geometry helpers, and shared canvas resize behavior.",
+          bullets: [
+            "Use async setup() and await pSetup().",
+            "Use loadScript(...) for extra Portal modules.",
+            "Do not add windowResized() unless the sketch has extra resize work.",
+            "Use storedDecrypt(...) for encrypted browser-side keys."
+          ]
+        },
+        {
+          title: "UI Slim 2",
+          path: "portal/uiSlim2.js",
+          description: "Immediate-mode UI helpers for buttons, sliders, text, toggles, prompt inputs, list layout, and debug overlays.",
+          bullets: [
+            "Prefer Portal UI before building custom DOM for simple controls.",
+            "Use uiListStart(...) / uiListEnd() for easy layout.",
+            "Use uiDebug(...) for visible debug output.",
+            "Style with JSON objects and uiSetBaseStyle(...)."
+          ]
+        },
+        {
+          title: "PortalSpeech",
+          path: "portal/speech.js",
+          description: "Speech recognition and text-to-speech wrapper around p5 speech and browser speech APIs with polling helpers, interim text support, and silence detection.",
+          bullets: [
+            "Initialize with await new PortalSpeech(...).init().",
+            "Use listenRecurring(...) for conversational sketches.",
+            "Prefer hasNewResult() + consumeNew() in draw().",
+            "Stop listening before speaking if echo is a problem."
+          ]
+        },
+        {
+          title: "GptClient",
+          path: "portal/GptClient.js",
+          description: "Browser-side GPT helper for text, structured responses, and image input.",
+          bullets: [
+            "Load with await loadScript(\"portal/GptClient.js\").",
+            "Use structured output when your sketch needs predictable fields.",
+            "Pass a p5.Graphics or image as the second argument to ask(..., img).",
+            "Check gpt.error, gpt.latestObject, and gpt.lastRaw when debugging."
+          ]
+        },
+        {
+          title: "ProjectionMapper",
+          path: "portal/mapper.js",
+          description: "Projection mapping helper that lets you render multiple warped surfaces and persist calibration.",
+          bullets: [
+            "Use WEBGL sketches for mapping workflows.",
+            "Draw into mapper.add(...) surfaces, not directly to the main canvas.",
+            "Call mapper.render() every frame.",
+            "Forward mouse/key events only if the sketch needs manual calibration interaction."
+          ]
+        },
+        {
+          title: "PortalFaceAnimation",
+          path: "portal/faceAnimation.js",
+          description: "Reusable portrait/avatar renderer driven by neutral-centered mood and interaction parameters.",
+          bullets: [
+            "Drive it with valence, arousal, dominance, and tension.",
+            "Layer speaking/listening/thinking on top of mood.",
+            "Call update(dt) every frame before render(...).",
+            "It scales to fit a box without stretching."
+          ]
+        },
+        {
+          title: "SoundFile",
+          path: "portal/SoundFile.js",
+          description: "Portal-provided sound loader and wrapper for p5.js v2+ environments.",
+          bullets: [
+            "Use await loadScript(\"portal/SoundFile.js\").",
+            "Then use let sound = await loadSoundFile(url).",
+            "Do not rely on old p5 sound loading assumptions here.",
+            "Good default for student sketches that need simple playback."
+          ]
+        },
+        {
+          title: "Location",
+          path: "portal/location.js",
+          description: "Browser geolocation helpers plus distance and direction utilities.",
+          bullets: [
+            "Use getLocation() for current coordinates.",
+            "Use getDistanceFromLatLonInKm(...) for distance.",
+            "Use drawArrow(...) for directional display.",
+            "Works well with map overlays."
+          ]
+        },
+        {
+          title: "Gamepad",
+          path: "portal/gamepad.js",
+          description: "Simple gamepad state support for sticks, face buttons, and shoulder buttons.",
+          bullets: [
+            "Use await loadScript(\"portal/gamepad.js\") and await setupGamepad().",
+            "Read values from gamePads[0].state[...] in draw().",
+            "Good for physical interaction sketches with minimal UI."
+          ]
+        },
+        {
+          title: "QR Modules",
+          path: "portal/qrCodeGen.js + portal/QrReader.js",
+          description: "Generate QR codes or read them from the webcam.",
+          bullets: [
+            "Use createQRCode(...) and drawQRCode(...) for output.",
+            "Use QrReader with setupWebcamera(...) for input.",
+            "Prefer polling getText() / hasNewResult() in draw()."
+          ]
+        },
+        {
+          title: "Tracking Modules",
+          path: "portal/handPose.js, bodyPose.js, faceMesh.js, emotions.js",
+          description: "Camera-driven tracking for hands, body skeletons, face landmarks, and emotion estimates.",
+          bullets: [
+            "Use await setupWebcamera(...) first.",
+            "Pass the video into the module constructor.",
+            "Initialize with await new Module(...).init().",
+            "Start with await module.start() when required, then draw results in draw()."
+          ]
+        },
+        {
+          title: "ML Helpers",
+          path: "portal/neuralLearner.js, knnLearner.js, P5ImageClassifier.js, P5ObjectDetector.js",
+          description: "Trainable and pretrained machine-learning helpers for classification, regression, image classification, and object detection.",
+          bullets: [
+            "Use NeuralLearner for regression or trainable classification.",
+            "Use KnnLearner for simpler classification workflows.",
+            "Use P5ImageClassifier and P5ObjectDetector for pretrained webcam inference.",
+            "Prefer clear examples with one model and one visible result."
+          ]
+        }
+      ];
+
+      const recipes = [
+        {
+          title: "Minimal Portal Base",
+          code: `async function setup() {
+  createCanvas(windowWidth, windowHeight);
+  await pSetup();
+}
+
+function draw() {
+  background(0);
+}`
+        },
+        {
+          title: "Speech Recognition",
+          code: `let speech;
+let heard = "";
+
+async function setup() {
+  createCanvas(windowWidth, windowHeight);
+  await pSetup();
+  await loadScript("portal/speech.js");
+  speech = await new PortalSpeech({ language: "en-GB" }).init();
+  speech.listenRecurring(null, { language: "en-GB" });
+}
+
+function draw() {
+  background(20);
+  if (speech?.hasNewResult()) {
+    const { text } = speech.consumeNew();
+    heard = text || "";
+  }
+  fill(255);
+  text(heard, 20, 40);
+}`
+        },
+        {
+          title: "Structured GPT",
+          code: `let apiKey = "";
+let gpt;
+
+async function setup() {
+  createCanvas(windowWidth, windowHeight);
+  await pSetup();
+  await loadScript("portal/GptClient.js");
+  apiKey = storedDecrypt({ apiKeyEncryptedGpt12 });
+
+  gpt = new GptClient({
+    apiKey,
+    model: "gpt-4o-mini",
+    instructions: "Extract the color.",
+    functionSchemas: [{
+      name: "color_response",
+      description: "Return the color mentioned in the text.",
+      parameters: {
+        type: "object",
+        properties: { color: { type: "string" } },
+        required: ["color"]
+      }
+    }],
+    functionName: "color_response"
+  });
+
+  const res = await gpt.ask("I like blue.");
+  print(res.color);
+}`
+        },
+        {
+          title: "Sound File",
+          code: `let sound;
+
+async function setup() {
+  createCanvas(windowWidth, windowHeight);
+  await pSetup();
+  await loadScript("portal/SoundFile.js");
+  sound = await loadSoundFile(baseURL + "assets/testsound.mp3");
+}
+
+function mousePressed() {
+  sound?.play();
+}
+
+function draw() {
+  background(0);
+}`
+        }
+      ];
+
       const experiments = [
         "chainpaintlab",
         "chainpaintlab_noMapping",
@@ -498,6 +793,36 @@ function draw() {
           </div>
         `;
         exampleGrid.appendChild(card);
+      }
+
+      const moduleGrid = document.getElementById("module-grid");
+      for (const module of modules) {
+        const card = document.createElement("article");
+        card.className = "module-card";
+        const bullets = module.bullets.map((item) => `<li>${item}</li>`).join("");
+        card.innerHTML = `
+          <div class="module-top">
+            <h3>${module.title}</h3>
+            <span class="module-path">${module.path}</span>
+          </div>
+          <p>${module.description}</p>
+          <ul class="module-list">${bullets}</ul>
+        `;
+        moduleGrid.appendChild(card);
+      }
+
+      const recipeGrid = document.getElementById("recipe-grid");
+      for (const recipe of recipes) {
+        const card = document.createElement("article");
+        card.className = "recipe-card";
+        card.innerHTML = `
+          <h3>${recipe.title}</h3>
+          <div class="code">${recipe.code
+            .replaceAll("&", "&amp;")
+            .replaceAll("<", "&lt;")
+            .replaceAll(">", "&gt;")}</div>
+        `;
+        recipeGrid.appendChild(card);
       }
 
       const experimentsGrid = document.getElementById("experiments-grid");
