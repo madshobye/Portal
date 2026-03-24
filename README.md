@@ -388,6 +388,29 @@ When creating a new local sketch:
 - edit only `sketch.js` first unless custom layout is actually needed
 - keep `index.html` and `style.css` minimal unless the user asks for more
 
+Minimal local `index.html`:
+
+```html
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>My Portal Sketch</title>
+    <link rel="stylesheet" href="./style.css" />
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/2.0.5/p5.js"></script>
+    <script src="../portalLoader.js"></script>
+    <script src="./sketch.js"></script>
+  </head>
+  <body></body>
+</html>
+```
+
+Notes:
+- keep the `portalLoader.js` path correct relative to the sketch location
+- in the standard `P1/sketches/<name>/` structure, `../portalLoader.js` is the right path
+- once that loader is present, `sketch.js` can use Portal helpers like `loadScript(...)` directly
+
 ### What an LLM should do by default
 
 If the user says something like:
