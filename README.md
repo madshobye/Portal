@@ -16,6 +16,43 @@ Use these rules when generating code for Portal.
   - or a base-sketch-style folder if they are clearly working locally in an empty folder
 - Do not refuse just because you do not see local `portal/*.js` files in the immediate folder. The standard Portal sketch pattern is already defined by this README and the example sketches.
 
+### 0a. Portal system model
+
+Portal is a system, not just a collection of unrelated scripts.
+
+A normal Portal sketch is made from these layers:
+
+1. `index.html`
+   - loads p5
+   - loads Portal base CSS
+   - loads `portalLoader.js`
+   - loads your `sketch.js`
+2. `portalLoader.js`
+   - bootstraps the Portal runtime
+3. `sketch.js`
+   - creates the canvas
+   - loads Portal modules with `await loadScript("portal/<module>.js")`
+   - initializes modules in `async setup()`
+   - combines them through simple state and a polling `draw()` loop
+
+If an LLM writes a Portal sketch correctly, it should preserve that structure instead of inventing:
+- a custom script loader
+- raw `ml5` replacements
+- raw browser camera setup when `setupWebcamera(...)` exists
+- separate runtime conventions unrelated to Portal
+
+### 0b. Canonical entry points
+
+These are the supported entry points an LLM should assume:
+
+- Public guide: [https://madshobye.github.io/Portal/](https://madshobye.github.io/Portal/)
+- GitHub source: [https://github.com/madshobye/Portal](https://github.com/madshobye/Portal)
+- Cloud base sketch: [https://editor.p5js.org/hobye/sketches/P07GGrfNY](https://editor.p5js.org/hobye/sketches/P07GGrfNY)
+- Hosted runtime loader: `https://madshobye.github.io/Portal/P1/portalLoader.js`
+- Hosted base stylesheet: `https://madshobye.github.io/Portal/P1/portalBaseStyle.css`
+
+If only the public guide is available, that is still enough to build a real Portal sketch. Use the hosted loader and base stylesheet.
+
 ### 1. Treat this as p5.js v2+
 
 - Aim to produce a **copy-paste-friendly `sketch.js`** by default.
@@ -69,6 +106,7 @@ If an LLM only has the public Portal guide and needs a runnable standalone local
 
 - `https://madshobye.github.io/Portal/P1/portalLoader.js`
 - `https://madshobye.github.io/Portal/P1/portalBaseStyle.css`
+- GitHub source: [https://github.com/madshobye/Portal](https://github.com/madshobye/Portal)
 
 Use them in `index.html`, then in `sketch.js` load modules with:
 
@@ -79,6 +117,23 @@ await loadScript("portal/speech.js");
 ```
 
 Do not treat the Portal site as documentation-only. The hosted `portalLoader.js` is the runtime entry point for standalone sketches.
+
+### 2b. Hard rules for Portal sketches
+
+In normal Portal sketches:
+
+- do use `portalLoader.js`
+- do use `await loadScript("portal/<module>.js")`
+- do use `async setup()`
+- do use `setupWebcamera(...)` when a Portal camera workflow needs video
+- do combine modules through simple shared state in `draw()`
+
+Do not:
+
+- write a custom external script loader when `loadScript(...)` already exists
+- swap in `ml5` or another library if Portal already has the needed module
+- use `createCapture(VIDEO)` as the default for Portal camera/tracking sketches when `setupWebcamera(...)` is the Portal path
+- guess undocumented module APIs if an example or README section already defines the pattern
 
 ### 3. Prefer simple, state-based sketches
 
@@ -452,33 +507,278 @@ then the default response should be:
 - target a local `baseSketch`-style folder for empty desktop folders
 - avoid rebuilding the feature stack from scratch with unrelated libraries
 
+## Using Portal As An Online Library
+
+Think of Portal like any other online browser library:
+
+1. load the runtime in `index.html`
+2. write your sketch in `sketch.js`
+3. load extra modules with `await loadScript("portal/<module>.js")`
+4. initialize the module in `async setup()`
+5. read results in `draw()`
+
+Minimal mental model:
+
+- `index.html` gives you p5 + Portal runtime
+- `sketch.js` gives you your application logic
+- Portal modules are loaded on demand
+- most modules expose either:
+  - a class with `init()` and often `start()`
+  - or a small set of helper functions
+
+General pattern:
+
+```js
+let module;
+
+async function setup() {
+  createCanvas(windowWidth, windowHeight);
+  await loadScript("portal/<module>.js");
+  module = await new SomeModule(...).init();
+  if (typeof module.start === "function") {
+    await module.start();
+  }
+}
+
+function draw() {
+  background(0);
+  if (module?.hasNewResult?.()) {
+    const result = module.consumeNew ? module.consumeNew() : module.getResult?.();
+    // use result
+  }
+}
+```
+
+## Portal Module Index
+
+This is the practical module overview for using Portal as a library.
+
+### Runtime and setup
+
+- `portal/portal.js`
+  - entry point through `portalLoader.js`
+  - important functions:
+    - `loadScript(url)`
+    - `loadAllLibraries(urls)`
+    - `setupWebcamera(front, w, h, flipped)`
+    - `syncVideoDimensions(p5Video)`
+    - `fullScreenToggle()`
+    - `storedDecrypt(...)`
+    - `storeKey(...)`
+    - `getKey(...)`
+    - `getData(url)`
+    - `getP5Instance()`
+
+### UI
+
+- `portal/uiSlim2.js`
+  - important functions:
+    - `uiButton(...)`
+    - `uiText(...)`
+    - `uiPromptText(...)`
+    - `uiSlider(...)`
+    - `uiToggle(...)`
+    - `uiRect(...)`
+    - `uiListStart(...)`
+    - `uiListEnd()`
+    - `uiDebug(...)`
+    - `uiGet(...)`
+    - `uiSet(...)`
+    - `uiSetBaseStyle(...)`
+
+### GPT and language
+
+- `portal/GptClient.js`
+  - class: `GptClient`
+- `portal/speech.js`
+  - class: `PortalSpeech`
+- `portal/transformer.js`
+  - class: `PortalTransformer`
+
+### Camera, tracking, and perception
+
+- `portal/handPose.js`
+  - class: `HandPose`
+- `portal/bodyPose.js`
+  - class: `BodyPose`
+- `portal/faceMesh.js`
+  - class: `FaceMesh`
+- `portal/emotions.js`
+  - classes:
+    - `EmotionTracker`
+    - `Emotions`
+- `portal/P5ImageClassifier.js`
+  - class: `P5ImageClassifier`
+  - helper:
+    - `setupImageClassifier(model, video)`
+- `portal/P5ObjectDetector.js`
+  - class: `P5ObjectDetector`
+- `portal/handGestureKnn.js`
+  - class: `HandGestureKnn`
+
+### Learning modules
+
+- `portal/neuralLearner.js`
+  - class: `NeuralLearner`
+- `portal/knnLearner.js`
+  - class: `KnnLearner`
+
+### Sound, input, and devices
+
+- `portal/SoundFile.js`
+  - function:
+    - `loadSoundFile(url)`
+- `portal/gamepad.js`
+  - function:
+    - `setupGamepad()`
+- `portal/multiTouch.js`
+  - class: `MultiTouch`
+- `portal/heartRateBLE.js`
+  - class: `HeartRateBLE`
+- `portal/dmxSerial.js`
+  - class: `DmxSerial`
+- `portal/mqtt.js`
+  - class: `PortalMqtt`
+
+### QR, maps, and location
+
+- `portal/QrReader.js`
+  - class: `QrReader`
+- `portal/qrCodeGen.js`
+  - functions:
+    - `createQRCode(text)`
+    - `drawQRCode(qr, x, y, size)`
+- `portal/location.js`
+  - functions:
+    - `getLocation()`
+    - `getDistanceFromLatLonInKm(...)`
+    - `bearingToTarget(...)`
+    - `getArrowDirection(...)`
+    - `drawArrow(...)`
+- `portal/map.js`
+  - map overlay helper module used by the map examples
+
+### Drawing, mapping, and visuals
+
+- `portal/mapper.js`
+  - class: `ProjectionMapper`
+- `portal/noMappingMapper.js`
+  - class: `ProjectionMapper`
+  - simplified no-mapping variant
+- `portal/ink.js`
+  - class: `InkDrawing`
+- `portal/faceAnimation.js`
+  - class: `PortalFaceAnimation`
+- `portal/chainBrush.js`
+  - class: `ChainBrush`
+- `portal/paintPath.js`
+  - class: `PortalPaintPath`
+- `portal/pNoise.js`
+  - functions:
+    - `pSetNoiseSeed(...)`
+    - `pSetNoiseRange(...)`
+    - `pNoise1D(...)`
+    - `pNoise2D(...)`
+    - `pNoise3D(...)`
+- `portal/simplexNoise.js`
+  - simplex-noise utility module used by the simplex examples
+
+### How to choose a module
+
+- Need webcam landmarks:
+  - `HandPose`, `BodyPose`, `FaceMesh`
+- Need classification:
+  - `P5ImageClassifier`, `P5ObjectDetector`, `KnnLearner`, `NeuralLearner`
+- Need GPT or language:
+  - `GptClient`, `PortalSpeech`, `PortalTransformer`
+- Need interaction UI:
+  - `uiSlim2.js`
+- Need hardware or external IO:
+  - `PortalMqtt`, `DmxSerial`, `HeartRateBLE`, `setupGamepad()`
+- Need drawing or presentation:
+  - `ProjectionMapper`, `InkDrawing`, `PortalFaceAnimation`, `ChainBrush`
+
+## Combining Portal Elements
+
+Portal sketches usually work best when they are built by combining a few stable parts.
+
+### Common combinations
+
+1. Camera + tracking
+   - `setupWebcamera(...)`
+   - one tracking module like `HandPose`, `BodyPose`, `FaceMesh`, `P5ImageClassifier`, or `P5ObjectDetector`
+   - render video first, then overlays
+
+2. Tracking + UI
+   - tracking module in `setup()` / `draw()`
+   - `uiSlim2.js` controls for thresholds, labels, modes, debugging
+
+3. Speech + GPT
+   - `PortalSpeech`
+   - `GptClient`
+   - speech recognition feeds text into GPT
+   - GPT output is drawn and optionally spoken back
+
+4. Tracking + GPT
+   - tracking result updates sketch state
+   - state is summarized into text or images
+   - `GptClient` interprets that higher-level state
+
+5. Sound + interaction
+   - interaction state from UI, tracking, BLE, MQTT, or keyboard
+   - playback via `SoundFile.js`
+
+### Combination pattern
+
+The safest pattern is:
+
+```js
+let video;
+let tracker;
+let uiState = {};
+let derivedState = {};
+
+async function setup() {
+  createCanvas(windowWidth, windowHeight);
+  video = await setupWebcamera(true, 640, 480, true);
+  await loadScript("portal/<module>.js");
+  tracker = await new SomeModule(video).init();
+  await tracker.start();
+}
+
+function draw() {
+  background(0);
+  image(video, 0, 0, width, height);
+
+  if (tracker?.hasNewResult()) {
+    const result = tracker.consumeNew ? tracker.consumeNew() : tracker.getResult?.();
+    derivedState = result || {};
+  }
+
+  // draw state
+  // draw UI
+  // optionally trigger other modules from state
+}
+```
+
+This is the default mental model:
+- module outputs become sketch state
+- sketch state drives visuals, UI, sound, GPT calls, or other logic
+- the modules are combined by the sketch, not by hidden callbacks
+
 ## 1) Quick Start
 
 ### Load Portal from a sketch
 
-Use `portalLoader.js` like this:
+For normal sketches, use one of these:
 
-```js
-// portalLoader.js
-async function loadPortal(version = "P1") {
-  const s = document.createElement("script");
-  s.src = `https://madshobye.github.io/Portal/${version}/portal/portal.js`;
-  document.head.appendChild(s);
+- cloud editor base sketch:
+  - [https://editor.p5js.org/hobye/sketches/P07GGrfNY](https://editor.p5js.org/hobye/sketches/P07GGrfNY)
+- standalone local `index.html`:
+  - include `https://madshobye.github.io/Portal/P1/portalLoader.js`
+  - include `https://madshobye.github.io/Portal/P1/portalBaseStyle.css`
 
-  await new Promise((resolve, reject) => {
-    s.onload = resolve;
-    s.onerror = reject;
-  });
-
-  const originalSetup = setup;
-  setup = async function () {
-    await pSetup();
-    await originalSetup();
-  };
-}
-
-loadPortal("P1");
-```
+In other words: use the existing Portal entry points, not a custom bootstrap.
 
 ### Typical module lifecycle
 
