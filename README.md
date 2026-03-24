@@ -16,9 +16,9 @@ Use these rules when generating code for Portal.
   - only introduce extra files when the task clearly benefits from it
 
 - Use `async function setup()` when loading Portal modules or assets.
-- Do not rely on `preload()` for Portal workflows.
+- In p5.js v2+, do not rely on `preload()` for typical asset or module loading. Prefer `async setup()` with `await`.
+- If the sketch already loads `portalLoader.js`, do not call `await pSetup()` manually inside the sketch. The loader already does that.
 - Prefer `await` inside `setup()` for:
-  - `pSetup()`
   - `loadScript(...)`
   - `new Module(...).init()`
   - Portal-provided async helpers
@@ -30,7 +30,6 @@ let module;
 
 async function setup() {
   createCanvas(windowWidth, windowHeight);
-  await pSetup();
   await loadScript("portal/speech.js");
   module = await new PortalSpeech({ language: "en-GB" }).init();
 }
@@ -40,7 +39,7 @@ Avoid:
 
 ```js
 function preload() {
-  // avoid Portal setup/loading here
+  // avoid putting normal Portal or asset loading here in p5.js v2+
 }
 ```
 
@@ -79,7 +78,6 @@ let heard = "";
 
 async function setup() {
   createCanvas(windowWidth, windowHeight);
-  await pSetup();
   await loadScript("portal/speech.js");
   speech = await new PortalSpeech({ language: "en-GB" }).init();
 }
@@ -118,7 +116,6 @@ let module;
 
 async function setup() {
   createCanvas(windowWidth, windowHeight);
-  await pSetup();
   await loadScript("portal/<module>.js");
   module = await new SomeModule({...}).init();
   if (typeof module.start === "function") {
@@ -228,7 +225,7 @@ Do not hide errors inside deep promise chains if a beginner would benefit from s
 
 If unsure, generate code with these defaults:
 - `async setup()`
-- `await pSetup()`
+- use `portalLoader.js` so `pSetup()` is handled automatically
 - load one Portal module
 - one canvas
 - one draw loop
@@ -246,7 +243,6 @@ let statusText = "Loading...";
 
 async function setup() {
   createCanvas(windowWidth, windowHeight);
-  await pSetup();
   await loadScript("portal/<module>.js");
 
   module = await new SomeModule({
@@ -364,7 +360,7 @@ function draw() {
 ### Beginner checklist
 
 Before debugging a sketch, verify:
-- you called `await pSetup()` before using Portal helpers loaded by `portal.js`
+- the page loads `portalLoader.js`, or you otherwise ensured `pSetup()` runs before Portal helpers are used
 - every extra module is loaded with `await loadScript("portal/<module>.js")`
 - modules that need async setup are initialized with `await new Module(...).init()`
 - modules that stream results are started with `await module.start()` when required
@@ -377,7 +373,6 @@ let module;
 
 async function setup() {
   createCanvas(windowWidth, windowHeight);
-  await pSetup();
   await loadScript("portal/<module>.js");
 
   module = await new SomeModule({
@@ -401,10 +396,10 @@ function draw() {
 
 ## 2) Core Runtime (`portal.js`)
 
-`portal.js` is the base layer loaded by `pSetup()`.
+`portal.js` is the base layer. In the standard Portal setup it is loaded through `portalLoader.js`, which runs `pSetup()` before your sketch's `setup()`.
 
 ### Setup and loading
-- `await pSetup()`
+- `pSetup()` (handled automatically by `portalLoader.js` in normal sketches)
 - `loadScript(url)`
 - `loadAllLibraries(urls)`
 - `loadGoogleFont(nameOrArray)`

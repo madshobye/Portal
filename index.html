@@ -360,11 +360,11 @@
           <h2>Best Default Workflow</h2>
           <ul class="plain">
             <li>Start from the cloud base sketch or the local `baseSketch` example.</li>
-            <li>Use `async setup()` and `await pSetup()`.</li>
+            <li>Use `async setup()` and let `portalLoader.js` handle `pSetup()`.</li>
             <li>Load Portal modules with `await loadScript("portal/&lt;module&gt;.js")`.</li>
             <li>Prefer a single copy-paste-friendly `sketch.js` unless multi-file output is requested.</li>
             <li>Use simple `draw()` polling with `hasNewResult()` / `consumeNew()`.</li>
-            <li>Avoid `preload()` for Portal workflows in p5.js v2+.</li>
+            <li>In p5.js v2+, prefer `async setup()` with `await` for normal asset and module loading instead of `preload()`.</li>
             <li>Use Portal’s `SoundFile` helper instead of old p5 sound-loading patterns.</li>
           </ul>
         </aside>
@@ -377,7 +377,7 @@
           <div class="card-list">
             <div class="mini-card">
               <h3>Use p5.js v2+ patterns</h3>
-              <p>Write `async setup()`, use `await`, and do not rely on `preload()` for Portal assets or modules.</p>
+              <p>Write `async setup()`, use `await`, and in p5.js v2+ load normal assets and modules there instead of relying on `preload()`.</p>
             </div>
             <div class="mini-card">
               <h3>Prefer simple state</h3>
@@ -401,7 +401,6 @@
 
 async function setup() {
   createCanvas(windowWidth, windowHeight);
-  await pSetup();
   await loadScript("portal/&lt;module&gt;.js");
   module = await new SomeModule({}).init();
   if (typeof module.start === "function") {
@@ -438,7 +437,7 @@ function draw() {
           <span class="eyebrow">Common Pitfalls</span>
           <h2>What To Avoid</h2>
           <ul class="plain">
-            <li>Using `preload()` for Portal module loading.</li>
+            <li>Using `preload()` for normal asset loading in p5.js v2+ instead of `async setup()` with `await`.</li>
             <li>Mixing many unrelated technologies in one beginner sketch.</li>
             <li>Adding event-driven complexity when a simple polling loop is enough.</li>
             <li>Using old p5 sound-loading patterns instead of `portal/SoundFile.js`.</li>
@@ -491,8 +490,6 @@ function draw() {
     <script>
       const examples = [
         ["baseSketch", "Base Sketch", "Minimal black canvas starter for Portal sketches."],
-        ["starter-sketch", "Starter Sketch", "Simple baseline example copied from the original sketch.js starter."],
-        ["debug-sketch", "Debug Sketch", "Basic debug-oriented sketch for quick Portal sanity checks."],
         ["ui-slim2", "UI Slim 2", "Shows Portal UI widgets like buttons, sliders, toggles, and prompt fields."],
         ["sound-file", "Sound File", "Loads and plays audio using Portal’s SoundFile helper for p5.js v2+."],
         ["gpt-chat-simple", "GPT Chat Simple", "Minimal browser GPT text chat with Portal’s GptClient."],
@@ -528,18 +525,16 @@ function draw() {
         ["neural-classification", "Neural Classification", "Simple neural classification teaching example."],
         ["neural-temp-mood", "Neural Temp Mood", "Regression-style mapping from temperature to mood."],
         ["knn-learner", "KNN Learner", "Minimal KNN classifier training and prediction example."],
-        ["heart-rate-ble", "Heart Rate BLE", "Read heart rate data over BLE."],
-        ["projection-gpt-food-poem", "Projection GPT Food Poem", "Projection mapping sketch combined with GPT-generated text."],
-        ["test", "Test", "General-purpose test sketch used for quick checks."]
+        ["heart-rate-ble", "Heart Rate BLE", "Read heart rate data over BLE."]
       ];
 
       const modules = [
         {
           title: "Core Runtime",
           path: "portal/portal.js",
-          description: "Base Portal layer loaded by pSetup(). It provides script loading, camera helpers, key storage helpers, fullscreen, geometry helpers, and shared canvas resize behavior.",
+          description: "Base Portal runtime. In standard sketches it is loaded through portalLoader.js, which runs pSetup() before your sketch setup executes. It provides script loading, camera helpers, key storage helpers, fullscreen, geometry helpers, and shared canvas resize behavior.",
           bullets: [
-            "Use async setup() and await pSetup().",
+            "Use async setup(); standard Portal pages let portalLoader.js run pSetup() for you.",
             "Use loadScript(...) for extra Portal modules.",
             "Do not add windowResized() unless the sketch has extra resize work.",
             "Use storedDecrypt(...) for encrypted browser-side keys."
@@ -671,7 +666,6 @@ function draw() {
           title: "Minimal Portal Base",
           code: `async function setup() {
   createCanvas(windowWidth, windowHeight);
-  await pSetup();
 }
 
 function draw() {
@@ -685,7 +679,6 @@ let heard = "";
 
 async function setup() {
   createCanvas(windowWidth, windowHeight);
-  await pSetup();
   await loadScript("portal/speech.js");
   speech = await new PortalSpeech({ language: "en-GB" }).init();
   speech.listenRecurring(null, { language: "en-GB" });
@@ -708,7 +701,6 @@ let gpt;
 
 async function setup() {
   createCanvas(windowWidth, windowHeight);
-  await pSetup();
   await loadScript("portal/GptClient.js");
   apiKey = storedDecrypt({ apiKeyEncryptedGpt12 });
 
@@ -738,7 +730,6 @@ async function setup() {
 
 async function setup() {
   createCanvas(windowWidth, windowHeight);
-  await pSetup();
   await loadScript("portal/SoundFile.js");
   sound = await loadSoundFile(baseURL + "assets/testsound.mp3");
 }
@@ -771,6 +762,7 @@ function draw() {
         "multitouchdrawing_noMapping",
         "multitouchlight",
         "multitouchlight_noMapping",
+        "projection-gpt-food-poem",
         "pulsedrawings",
         "pulsedrawings_noMapping",
         "textprompt",

@@ -1,6 +1,5 @@
 async function setup() {
   createCanvas(windowWidth, windowHeight);
-  await pSetup();
 }
 
 function draw() {
