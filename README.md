@@ -66,7 +66,7 @@ If only the public guide is available, that is still enough to build a real Port
 
 - Use `async function setup()` when loading Portal modules or assets.
 - In p5.js v2+, do not rely on `preload()` for typical asset or module loading. Prefer `async setup()` with `await`.
-- Do not call `await pSetup()` manually in normal sketches. Use `portalLoader.js` instead.
+- Use `portalLoader.js` as the normal runtime entry point.
 - Prefer `await` inside `setup()` for:
   - `loadScript(...)`
   - `new Module(...).init()`
@@ -309,7 +309,7 @@ Do not hide errors inside deep promise chains if a beginner would benefit from s
 
 If unsure, generate code with these defaults:
 - `async setup()`
-- use `portalLoader.js`
+- use `portalLoader.js` as the entry point
 - load one Portal module
 - one canvas
 - one draw loop
