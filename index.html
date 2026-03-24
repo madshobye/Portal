@@ -3,39 +3,95 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Portal Index</title>
+    <title>Portal Guide</title>
     <style>
       :root {
-        --bg: #0b1320;
-        --panel: #132238;
-        --panel-2: #1a2f4d;
-        --text: #f3f6fb;
-        --muted: #a8b5c7;
-        --accent: #ffd60a;
-        --accent-2: #ffc300;
-        --line: rgba(255, 255, 255, 0.08);
+        --bg: #f4f0e8;
+        --paper: #fffdf8;
+        --ink: #111111;
+        --muted: rgba(17, 17, 17, 0.68);
+        --line: rgba(17, 17, 17, 0.12);
+        --accent: #d81f26;
+        --accent-dark: #b1191f;
       }
 
       * {
         box-sizing: border-box;
       }
 
+      html,
       body {
         margin: 0;
-        min-height: 100vh;
-        font-family: "Avenir Next", Avenir, "Segoe UI", sans-serif;
-        background: linear-gradient(160deg, #08111d 0%, var(--bg) 45%, #050b14 100%);
-        color: var(--text);
+        padding: 0;
+        background: var(--bg);
+        color: var(--ink);
+        font-family: "Helvetica Neue", Helvetica, Arial, sans-serif;
       }
 
-      main {
-        width: 100%;
+      body {
+        line-height: 1.45;
+      }
+
+      a {
+        color: inherit;
+      }
+
+      .page {
+        width: min(1200px, calc(100vw - 32px));
+        margin: 0 auto;
+        padding: 28px 0 64px;
+      }
+
+      .hero {
+        display: grid;
+        grid-template-columns: minmax(0, 1.4fr) minmax(280px, 0.9fr);
+        gap: 20px;
+        align-items: stretch;
+      }
+
+      .panel {
+        background: var(--paper);
+        border: 1px solid var(--line);
+        border-radius: 16px;
+        padding: 22px;
+      }
+
+      .hero-main {
+        min-height: 320px;
+      }
+
+      .eyebrow {
+        display: inline-block;
+        margin-bottom: 10px;
+        font-size: 11px;
+        font-weight: 700;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        color: var(--accent);
+      }
+
+      h1,
+      h2,
+      h3 {
+        margin: 0;
+        line-height: 1;
       }
 
       h1 {
-        margin: 0 0 8px;
-        font-size: clamp(2rem, 4vw, 3.4rem);
-        line-height: 1;
+        font-size: clamp(2.4rem, 6vw, 4.6rem);
+        letter-spacing: -0.05em;
+        margin-bottom: 14px;
+      }
+
+      h2 {
+        font-size: 1.5rem;
+        letter-spacing: -0.03em;
+        margin-bottom: 12px;
+      }
+
+      h3 {
+        font-size: 1rem;
+        letter-spacing: -0.02em;
       }
 
       p {
@@ -43,253 +99,414 @@
         color: var(--muted);
       }
 
-      .launcher {
-        min-height: 100vh;
-        background: #000;
+      .hero-copy {
+        max-width: 760px;
+        font-size: 1.02rem;
+      }
+
+      .cta-row,
+      .link-row {
         display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+        margin-top: 18px;
+      }
+
+      .btn,
+      .link-chip {
+        display: inline-flex;
         align-items: center;
-      }
-
-      .launcher-inner,
-      .docs-inner {
-        width: min(1100px, calc(100vw - 32px));
-        margin: 0 auto;
-      }
-
-      .launcher-inner {
-        padding: 42px 0 56px;
-      }
-
-      .launcher h1 {
-        margin-bottom: 12px;
-      }
-
-      .launcher-copy {
-        max-width: 720px;
-        margin-bottom: 28px;
-      }
-
-      .experiment-list {
-        display: grid;
-        grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-        gap: 12px;
-      }
-
-      .experiment-link {
-        display: block;
-        padding: 16px 18px;
-        border-radius: 14px;
+        gap: 8px;
+        min-height: 42px;
+        padding: 10px 14px;
+        border: 1px solid var(--ink);
+        border-radius: 12px;
         text-decoration: none;
-        color: var(--text);
-        background: rgba(255, 255, 255, 0.04);
-        border: 1px solid rgba(255, 255, 255, 0.1);
-        transition: transform 120ms ease, border-color 120ms ease, background 120ms ease;
+        font-weight: 700;
       }
 
-      .experiment-link:hover {
-        transform: translateY(-1px);
-        background: rgba(255, 255, 255, 0.08);
-        border-color: rgba(255, 214, 10, 0.5);
+      .btn-primary {
+        background: var(--accent);
+        border-color: var(--accent);
+        color: #fffdf8;
       }
 
-      .docs {
-        padding: 36px 0 56px;
+      .btn-primary:hover {
+        background: var(--accent-dark);
+        border-color: var(--accent-dark);
       }
 
-      .grid {
+      .btn-secondary,
+      .link-chip {
+        background: var(--paper);
+      }
+
+      .section {
+        margin-top: 22px;
+      }
+
+      .grid-2 {
         display: grid;
-        grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+        grid-template-columns: repeat(2, minmax(0, 1fr));
         gap: 18px;
       }
 
-      .panel {
-        padding: 20px;
-        border: 1px solid var(--line);
-        border-radius: 20px;
-        background: linear-gradient(180deg, rgba(26, 47, 77, 0.78), rgba(19, 34, 56, 0.78));
-      }
-
-      .panel h2 {
-        margin: 0 0 14px;
-        font-size: 1.1rem;
-        letter-spacing: 0.03em;
-        text-transform: uppercase;
-        color: var(--accent);
-      }
-
-      .list {
+      .card-list {
         display: grid;
         gap: 10px;
       }
 
-      a.card {
-        display: block;
-        padding: 14px 16px;
+      .mini-card {
+        border: 1px solid var(--line);
+        border-radius: 12px;
+        padding: 14px;
+        background: #fffefb;
+      }
+
+      .mini-card p {
+        margin-top: 6px;
+        font-size: 0.95rem;
+      }
+
+      .code {
+        margin-top: 10px;
+        padding: 14px;
+        border-radius: 12px;
+        background: #111111;
+        color: #f7f5ef;
+        border: 1px solid #111111;
+        font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+        font-size: 0.92rem;
+        white-space: pre-wrap;
+      }
+
+      .example-toolbar {
+        display: flex;
+        flex-wrap: wrap;
+        justify-content: space-between;
+        gap: 12px;
+        margin-bottom: 16px;
+      }
+
+      .example-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+        gap: 14px;
+      }
+
+      .example-card {
+        display: grid;
+        gap: 10px;
+        min-height: 176px;
+        padding: 16px;
+        border: 1px solid var(--line);
         border-radius: 14px;
+        background: #fffefb;
+      }
+
+      .example-title {
+        display: flex;
+        justify-content: space-between;
+        gap: 12px;
+        align-items: baseline;
+      }
+
+      .example-slug {
+        font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+        font-size: 0.82rem;
+        color: rgba(17, 17, 17, 0.5);
+      }
+
+      .example-actions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        margin-top: auto;
+      }
+
+      .example-actions a {
+        display: inline-flex;
+        align-items: center;
+        min-height: 36px;
+        padding: 8px 12px;
+        border: 1px solid var(--line);
+        border-radius: 10px;
         text-decoration: none;
-        color: var(--text);
-        background: rgba(255, 255, 255, 0.03);
-        border: 1px solid rgba(255, 255, 255, 0.05);
-        transition: transform 120ms ease, border-color 120ms ease, background 120ms ease;
-      }
-
-      a.card:hover {
-        transform: translateY(-1px);
-        background: rgba(255, 255, 255, 0.06);
-        border-color: rgba(255, 195, 0, 0.45);
-      }
-
-      .title {
-        display: block;
+        background: var(--paper);
         font-weight: 700;
       }
 
-      .path {
+      .example-actions a.primary {
+        background: #111111;
+        color: #fffdf8;
+        border-color: #111111;
+      }
+
+      .experiments-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+        gap: 10px;
+      }
+
+      .experiments-grid a {
         display: block;
-        margin-top: 3px;
-        font-size: 0.9rem;
+        padding: 12px 14px;
+        border-radius: 12px;
+        border: 1px solid var(--line);
+        background: var(--paper);
+        text-decoration: none;
+        font-weight: 700;
+      }
+
+      ul.plain {
+        margin: 0;
+        padding-left: 18px;
         color: var(--muted);
+      }
+
+      ul.plain li + li {
+        margin-top: 6px;
+      }
+
+      @media (max-width: 920px) {
+        .hero,
+        .grid-2 {
+          grid-template-columns: 1fr;
+        }
       }
     </style>
   </head>
   <body>
-    <main>
-      <section class="launcher">
-        <div class="launcher-inner">
-          <h1>Portal</h1>
-          <p class="launcher-copy">Experiments at the top for fast access. `_noMapping` variants are plain 2D versions for lower-power machines. Documentation and example links stay below.</p>
-
-          <div class="experiment-list">
-            <a class="experiment-link" href="./experiments/chainpaintlab/">chainpaintlab</a>
-            <a class="experiment-link" href="./experiments/chainpaintlab_noMapping/">chainpaintlab_noMapping</a>
-            <a class="experiment-link" href="./experiments/chainsimple/">chainsimple</a>
-            <a class="experiment-link" href="./experiments/drawSimple/">drawSimple</a>
-            <a class="experiment-link" href="./experiments/drawSimple_noMapping/">drawSimple_noMapping</a>
-            <a class="experiment-link" href="./experiments/dmx16touch/">dmx16touch</a>
-            <a class="experiment-link" href="./experiments/grumpynurse/">grumpynurse</a>
-            <a class="experiment-link" href="./experiments/grumpynurse_2/">grumpynurse_2</a>
-            <a class="experiment-link" href="./experiments/grumpynurse_voice/">grumpynurse_voice</a>
-            <a class="experiment-link" href="./experiments/mappedwebcam/">mappedwebcam</a>
-            <a class="experiment-link" href="./experiments/mappedwebcam_noMapping/">mappedwebcam_noMapping</a>
-            <a class="experiment-link" href="./experiments/mappertest/">mappertest</a>
-            <a class="experiment-link" href="./experiments/mappertest_noMapping/">mappertest_noMapping</a>
-            <a class="experiment-link" href="./experiments/multitouchdrawing/">multitouchdrawing</a>
-            <a class="experiment-link" href="./experiments/multitouchdrawing_noMapping/">multitouchdrawing_noMapping</a>
-            <a class="experiment-link" href="./experiments/multitouchlight/">multitouchlight</a>
-            <a class="experiment-link" href="./experiments/multitouchlight_noMapping/">multitouchlight_noMapping</a>
-            <a class="experiment-link" href="./experiments/pulsedrawings/">pulsedrawings</a>
-            <a class="experiment-link" href="./experiments/pulsedrawings_noMapping/">pulsedrawings_noMapping</a>
-            <a class="experiment-link" href="./experiments/textprompt/">textprompt</a>
-            <a class="experiment-link" href="./experiments/textprompt_noMapping/">textprompt_noMapping</a>
+    <main class="page">
+      <section class="hero">
+        <article class="panel hero-main">
+          <span class="eyebrow">Portal P1</span>
+          <h1>Guide for Using Portal</h1>
+          <p class="hero-copy">
+            Portal is a p5.js v2+ helper layer for rapid sketch prototyping with camera,
+            speech, GPT, tracking, UI, mapping, QR, and machine learning modules. This
+            page is a practical guide based on the README, with direct links to live
+            examples and source code.
+          </p>
+          <div class="cta-row">
+            <a class="btn btn-primary" href="./P1/sketches/baseSketch/">Open Base Sketch</a>
+            <a class="btn btn-secondary" href="https://editor.p5js.org/hobye/sketches/P07GGrfNY">Open Cloud Base Sketch</a>
+            <a class="btn btn-secondary" href="./README.md">Read README</a>
           </div>
-        </div>
+          <div class="link-row">
+            <a class="link-chip" href="https://learn.hobye.dk/portal">Portal overview</a>
+            <a class="link-chip" href="https://learn.hobye.dk/portal/machine-learning">Machine learning</a>
+            <a class="link-chip" href="https://learn.hobye.dk/portal/maps-gps">Maps &amp; GPS</a>
+            <a class="link-chip" href="https://learn.hobye.dk/portal/iot-com">IoT &amp; communication</a>
+          </div>
+        </article>
+
+        <aside class="panel">
+          <span class="eyebrow">Quick Start</span>
+          <h2>Best Default Workflow</h2>
+          <ul class="plain">
+            <li>Start from the cloud base sketch or the local `baseSketch` example.</li>
+            <li>Use `async setup()` and `await pSetup()`.</li>
+            <li>Load Portal modules with `await loadScript("portal/&lt;module&gt;.js")`.</li>
+            <li>Prefer a single copy-paste-friendly `sketch.js` unless multi-file output is requested.</li>
+            <li>Use simple `draw()` polling with `hasNewResult()` / `consumeNew()`.</li>
+            <li>Avoid `preload()` for Portal workflows in p5.js v2+.</li>
+            <li>Use Portal’s `SoundFile` helper instead of old p5 sound-loading patterns.</li>
+          </ul>
+        </aside>
       </section>
 
-      <section class="docs">
-        <div class="docs-inner">
-          <section class="grid">
-            <article class="panel">
-              <h2>Examples</h2>
-              <div class="list">
-                <a class="card" href="./P1/sketches/">
-                  <span class="title">P1 Sketches</span>
-                  <span class="path">./P1/sketches/</span>
-                </a>
-              </div>
-            </article>
+      <section class="section grid-2">
+        <article class="panel">
+          <span class="eyebrow">Instructions For LLMs</span>
+          <h2>Write Beginner-Friendly Portal Code</h2>
+          <div class="card-list">
+            <div class="mini-card">
+              <h3>Use p5.js v2+ patterns</h3>
+              <p>Write `async setup()`, use `await`, and do not rely on `preload()` for Portal assets or modules.</p>
+            </div>
+            <div class="mini-card">
+              <h3>Prefer simple state</h3>
+              <p>Use a few top-level variables, a clear `draw()` loop, and polling instead of deeply nested callbacks.</p>
+            </div>
+            <div class="mini-card">
+              <h3>Use Portal modules directly</h3>
+              <p>Load `portal/speech.js`, `portal/GptClient.js`, `portal/mapper.js`, and other modules with `loadScript(...)` instead of reimplementing loaders.</p>
+            </div>
+            <div class="mini-card">
+              <h3>Skip redundant resize/fullscreen code</h3>
+              <p>Portal already covers common canvas resize behavior. Only add `windowResized()` or `f` fullscreen shortcuts if the sketch truly needs them.</p>
+            </div>
+          </div>
+        </article>
 
-            <article class="panel">
-              <h2>Experiments</h2>
-              <div class="list">
-                <a class="card" href="./experiments/chainpaintlab/">
-                  <span class="title">chainpaintlab</span>
-                  <span class="path">./experiments/chainpaintlab/</span>
-                </a>
-                <a class="card" href="./experiments/chainpaintlab_noMapping/">
-                  <span class="title">chainpaintlab_noMapping</span>
-                  <span class="path">./experiments/chainpaintlab_noMapping/</span>
-                </a>
-                <a class="card" href="./experiments/chainsimple/">
-                  <span class="title">chainsimple</span>
-                  <span class="path">./experiments/chainsimple/</span>
-                </a>
-                <a class="card" href="./experiments/drawSimple/">
-                  <span class="title">drawSimple</span>
-                  <span class="path">./experiments/drawSimple/</span>
-                </a>
-                <a class="card" href="./experiments/drawSimple_noMapping/">
-                  <span class="title">drawSimple_noMapping</span>
-                  <span class="path">./experiments/drawSimple_noMapping/</span>
-                </a>
-                <a class="card" href="./experiments/dmx16touch/">
-                  <span class="title">dmx16touch</span>
-                  <span class="path">./experiments/dmx16touch/</span>
-                </a>
-                <a class="card" href="./experiments/grumpynurse/">
-                  <span class="title">grumpynurse</span>
-                  <span class="path">./experiments/grumpynurse/</span>
-                </a>
-                <a class="card" href="./experiments/grumpynurse_2/">
-                  <span class="title">grumpynurse_2</span>
-                  <span class="path">./experiments/grumpynurse_2/</span>
-                </a>
-                <a class="card" href="./experiments/grumpynurse_voice/">
-                  <span class="title">grumpynurse_voice</span>
-                  <span class="path">./experiments/grumpynurse_voice/</span>
-                </a>
-                <a class="card" href="./experiments/mappedwebcam/">
-                  <span class="title">mappedwebcam</span>
-                  <span class="path">./experiments/mappedwebcam/</span>
-                </a>
-                <a class="card" href="./experiments/mappedwebcam_noMapping/">
-                  <span class="title">mappedwebcam_noMapping</span>
-                  <span class="path">./experiments/mappedwebcam_noMapping/</span>
-                </a>
-                <a class="card" href="./experiments/mappertest/">
-                  <span class="title">mappertest</span>
-                  <span class="path">./experiments/mappertest/</span>
-                </a>
-                <a class="card" href="./experiments/mappertest_noMapping/">
-                  <span class="title">mappertest_noMapping</span>
-                  <span class="path">./experiments/mappertest_noMapping/</span>
-                </a>
-                <a class="card" href="./experiments/multitouchdrawing/">
-                  <span class="title">multitouchdrawing</span>
-                  <span class="path">./experiments/multitouchdrawing/</span>
-                </a>
-                <a class="card" href="./experiments/multitouchdrawing_noMapping/">
-                  <span class="title">multitouchdrawing_noMapping</span>
-                  <span class="path">./experiments/multitouchdrawing_noMapping/</span>
-                </a>
-                <a class="card" href="./experiments/multitouchlight/">
-                  <span class="title">multitouchlight</span>
-                  <span class="path">./experiments/multitouchlight/</span>
-                </a>
-                <a class="card" href="./experiments/multitouchlight_noMapping/">
-                  <span class="title">multitouchlight_noMapping</span>
-                  <span class="path">./experiments/multitouchlight_noMapping/</span>
-                </a>
-                <a class="card" href="./experiments/pulsedrawings/">
-                  <span class="title">pulsedrawings</span>
-                  <span class="path">./experiments/pulsedrawings/</span>
-                </a>
-                <a class="card" href="./experiments/pulsedrawings_noMapping/">
-                  <span class="title">pulsedrawings_noMapping</span>
-                  <span class="path">./experiments/pulsedrawings_noMapping/</span>
-                </a>
-                <a class="card" href="./experiments/textprompt/">
-                  <span class="title">textprompt</span>
-                  <span class="path">./experiments/textprompt/</span>
-                </a>
-                <a class="card" href="./experiments/textprompt_noMapping/">
-                  <span class="title">textprompt_noMapping</span>
-                  <span class="path">./experiments/textprompt_noMapping/</span>
-                </a>
-              </div>
-            </article>
-          </section>
+        <article class="panel">
+          <span class="eyebrow">Starter Pattern</span>
+          <h2>Copy-Paste-Friendly Base</h2>
+          <div class="code">let module;
+
+async function setup() {
+  createCanvas(windowWidth, windowHeight);
+  await pSetup();
+  await loadScript("portal/&lt;module&gt;.js");
+  module = await new SomeModule({}).init();
+  if (typeof module.start === "function") {
+    await module.start();
+  }
+}
+
+function draw() {
+  background(0);
+
+  if (module?.hasNewResult?.()) {
+    const result = module.consumeNew ? module.consumeNew() : module.getResult?.();
+    // update sketch state here
+  }
+}</div>
+        </article>
+      </section>
+
+      <section class="section grid-2">
+        <article class="panel">
+          <span class="eyebrow">Best Practices</span>
+          <h2>What Usually Works Well</h2>
+          <ul class="plain">
+            <li>One clear idea per sketch.</li>
+            <li>Render first, then draw overlays or detections on top.</li>
+            <li>Use Portal UI helpers for simple controls before building custom DOM.</li>
+            <li>Use structured GPT output when a sketch depends on predictable fields.</li>
+            <li>Stop speech recognition before speech output if self-echo is a risk.</li>
+            <li>Use visible status text or `uiDebug(...)` for errors.</li>
+          </ul>
+        </article>
+
+        <article class="panel">
+          <span class="eyebrow">Common Pitfalls</span>
+          <h2>What To Avoid</h2>
+          <ul class="plain">
+            <li>Using `preload()` for Portal module loading.</li>
+            <li>Mixing many unrelated technologies in one beginner sketch.</li>
+            <li>Adding event-driven complexity when a simple polling loop is enough.</li>
+            <li>Using old p5 sound-loading patterns instead of `portal/SoundFile.js`.</li>
+            <li>Adding sketch-local resize handlers that only duplicate Portal behavior.</li>
+          </ul>
+        </article>
+      </section>
+
+      <section class="section panel">
+        <div class="example-toolbar">
+          <div>
+            <span class="eyebrow">Example Sketches</span>
+            <h2>P1 Examples</h2>
+            <p>Each example has its own folder with `index.html`, `style.css`, and `sketch.js`. Use the live link to run it, and the source link to inspect the code.</p>
+          </div>
+          <a class="btn btn-secondary" href="./P1/sketches/">Open Sketches Index</a>
         </div>
+        <div id="example-grid" class="example-grid"></div>
+      </section>
+
+      <section class="section panel">
+        <span class="eyebrow">Experiments</span>
+        <h2>Related Experiments</h2>
+        <p>These are larger or more exploratory sketches in the repository.</p>
+        <div class="experiments-grid" id="experiments-grid"></div>
       </section>
     </main>
+
+    <script>
+      const examples = [
+        ["baseSketch", "Base Sketch", "Minimal black canvas starter for Portal sketches."],
+        ["starter-sketch", "Starter Sketch", "Simple baseline example copied from the original sketch.js starter."],
+        ["debug-sketch", "Debug Sketch", "Basic debug-oriented sketch for quick Portal sanity checks."],
+        ["ui-slim2", "UI Slim 2", "Shows Portal UI widgets like buttons, sliders, toggles, and prompt fields."],
+        ["sound-file", "Sound File", "Loads and plays audio using Portal’s SoundFile helper for p5.js v2+."],
+        ["gpt-chat-simple", "GPT Chat Simple", "Minimal browser GPT text chat with Portal’s GptClient."],
+        ["gpt-color-camera", "GPT Color Camera", "Structured GPT response example with image input from the camera."],
+        ["gpt-image-gen", "GPT Image Gen", "Generative image-related GPT workflow example."],
+        ["transformer-chat-simple", "Transformer Chat Simple", "Local transformer text chat example."],
+        ["transformer-custom-schema", "Transformer Custom Schema", "Structured output example using the local transformer wrapper."],
+        ["transformer-qa", "Transformer QA", "Question-answer style transformer example."],
+        ["transformer-structured", "Transformer Structured", "Structured local language model output demo."],
+        ["transformer-voice-chat", "Transformer Voice Chat", "Voice conversation loop using speech recognition, local LLM, and speech output."],
+        ["mqtt", "MQTT", "Publish and subscribe messaging example using Portal MQTT helpers."],
+        ["dmx-serial", "DMX Serial", "Serial DMX output example for lighting/control workflows."],
+        ["gamepad", "Gamepad", "Read controller state from a connected gamepad."],
+        ["multi-touch", "Multi Touch", "Track multiple touch points and draw them on screen."],
+        ["location", "Location", "Get browser GPS position and show coordinates."],
+        ["map", "Map", "Display a map overlay and place location data on it."],
+        ["qr-code-gen", "QR Code Generator", "Generate and draw QR codes."],
+        ["qr-reader", "QR Reader", "Read QR codes from the webcam."],
+        ["p-noise", "P Noise", "Organic motion example using Portal p-noise helpers."],
+        ["simplex-noise", "Simplex Noise", "Noise-based generative motion and pattern example."],
+        ["ink", "Ink", "Expressive digital ink/brush drawing with Portal’s ink module."],
+        ["body-pose", "Body Pose", "Track a full body skeleton from the webcam."],
+        ["body-pose-tracking", "Body Pose Tracking", "Body pose example focused on reading tracked points."],
+        ["body-pose-gesture-style", "Body Pose Gesture Style", "Body pose interaction with a more styled visual output."],
+        ["hand-pose", "Hand Pose", "Detect and draw a tracked hand."],
+        ["hand-gesture-knn", "Hand Gesture KNN", "Use hand pose landmarks together with KNN classification."],
+        ["face-mesh", "Face Mesh", "Track and draw facial landmarks."],
+        ["face-mesh-mood-knn", "Face Mesh Mood KNN", "Use facial landmarks with a KNN-based mood/gesture workflow."],
+        ["emotions", "Emotions", "Track landmark positions and estimated emotion values."],
+        ["image-classifier", "Image Classifier", "Run image classification on webcam input."],
+        ["object-detector", "Object Detector", "Run object detection and draw detections on webcam input."],
+        ["neural-learner", "Neural Learner", "Portal neural-network learner example for classification/regression."],
+        ["neural-classification", "Neural Classification", "Simple neural classification teaching example."],
+        ["neural-temp-mood", "Neural Temp Mood", "Regression-style mapping from temperature to mood."],
+        ["knn-learner", "KNN Learner", "Minimal KNN classifier training and prediction example."],
+        ["heart-rate-ble", "Heart Rate BLE", "Read heart rate data over BLE."],
+        ["projection-gpt-food-poem", "Projection GPT Food Poem", "Projection mapping sketch combined with GPT-generated text."],
+        ["test", "Test", "General-purpose test sketch used for quick checks."]
+      ];
+
+      const experiments = [
+        "chainpaintlab",
+        "chainpaintlab_noMapping",
+        "chainsimple",
+        "drawSimple",
+        "drawSimple_noMapping",
+        "dmx16touch",
+        "grumpynurse",
+        "grumpynurse_2",
+        "grumpynurse_voice",
+        "mappedwebcam",
+        "mappedwebcam_noMapping",
+        "mappertest",
+        "mappertest_noMapping",
+        "multitouchdrawing",
+        "multitouchdrawing_noMapping",
+        "multitouchlight",
+        "multitouchlight_noMapping",
+        "pulsedrawings",
+        "pulsedrawings_noMapping",
+        "textprompt",
+        "textprompt_noMapping"
+      ];
+
+      const exampleGrid = document.getElementById("example-grid");
+      for (const [slug, title, description] of examples) {
+        const card = document.createElement("article");
+        card.className = "example-card";
+        card.innerHTML = `
+          <div class="example-title">
+            <h3>${title}</h3>
+            <span class="example-slug">${slug}</span>
+          </div>
+          <p>${description}</p>
+          <div class="example-actions">
+            <a class="primary" href="./P1/sketches/${slug}/">Live example</a>
+            <a href="./P1/sketches/${slug}/sketch.js">Source</a>
+          </div>
+        `;
+        exampleGrid.appendChild(card);
+      }
+
+      const experimentsGrid = document.getElementById("experiments-grid");
+      for (const slug of experiments) {
+        const link = document.createElement("a");
+        link.href = `./experiments/${slug}/`;
+        link.textContent = slug;
+        experimentsGrid.appendChild(link);
+      }
+    </script>
   </body>
 </html>

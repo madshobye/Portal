@@ -1,13 +1,316 @@
 # Portal (P1) API Reference
 
-Portal is a p5.js helper layer for rapid sketch prototyping with camera, tracking, speech, UI, QR, and utility modules.
+## Instructions For LLM To Use This Library
 
-This README focuses on **detailed API usage**.
+Use these rules when generating code for Portal.
+
+### 1. Treat this as p5.js v2+
+
+- Aim to produce a **copy-paste-friendly `sketch.js`** by default.
+- The default target is the Portal base sketch in the p5 cloud editor:
+  - [https://editor.p5js.org/hobye/sketches/P07GGrfNY](https://editor.p5js.org/hobye/sketches/P07GGrfNY)
+- Unless the user explicitly asks for a multi-file structure, prefer code that can be pasted directly into that base sketch’s `sketch.js`.
+- That means:
+  - keep required code in one file when practical
+  - avoid unnecessary extra assets or helper files
+  - only introduce extra files when the task clearly benefits from it
+
+- Use `async function setup()` when loading Portal modules or assets.
+- Do not rely on `preload()` for Portal workflows.
+- Prefer `await` inside `setup()` for:
+  - `pSetup()`
+  - `loadScript(...)`
+  - `new Module(...).init()`
+  - Portal-provided async helpers
+
+Correct pattern:
+
+```js
+let module;
+
+async function setup() {
+  createCanvas(windowWidth, windowHeight);
+  await pSetup();
+  await loadScript("portal/speech.js");
+  module = await new PortalSpeech({ language: "en-GB" }).init();
+}
+```
+
+Avoid:
+
+```js
+function preload() {
+  // avoid Portal setup/loading here
+}
+```
+
+### 2. Prefer Portal helpers over generic p5 workarounds
+
+- If Portal has a module for a task, use that module instead of inventing a custom loader.
+- For sound loading in p5 v2+, use Portal’s sound helper:
+  - `await loadScript("portal/SoundFile.js")`
+  - `let sound = await loadSoundFile(url)`
+- Do not assume old p5 sound-loading patterns are reliable in this setup.
+
+### 3. Prefer simple, state-based sketches
+
+Write code in this style:
+- a few top-level state variables
+- `async setup()` for loading
+- `draw()` for rendering and polling
+- small helper functions for rendering or state updates
+
+Prefer:
+- `if (module?.hasNewResult()) { ... }`
+- `if (speech?.hasNewResult()) { ... }`
+- explicit booleans like `isListening`, `showPanel`, `mode`
+
+Avoid when possible:
+- many nested callbacks
+- many interdependent event listeners
+- complex class hierarchies inside a beginner sketch
+- hidden state spread across many closures
+
+Good pattern:
+
+```js
+let speech;
+let heard = "";
+
+async function setup() {
+  createCanvas(windowWidth, windowHeight);
+  await pSetup();
+  await loadScript("portal/speech.js");
+  speech = await new PortalSpeech({ language: "en-GB" }).init();
+}
+
+function draw() {
+  background(0);
+
+  if (speech?.hasNewResult()) {
+    const { text } = speech.consumeNew();
+    heard = text || "";
+  }
+
+  fill(255);
+  text(heard, 20, 40);
+}
+```
+
+### 4. Use polling in `draw()` instead of advanced event choreography
+
+Portal is easiest to use when the sketch polls state each frame.
+
+Prefer:
+- `hasResult()`
+- `hasNewResult()`
+- `consumeNew()`
+- `getResult()`
+
+Only use callbacks when they are clearly simpler than polling.
+
+### 5. Use the standard Portal lifecycle
+
+For most modules, use:
+
+```js
+let module;
+
+async function setup() {
+  createCanvas(windowWidth, windowHeight);
+  await pSetup();
+  await loadScript("portal/<module>.js");
+  module = await new SomeModule({...}).init();
+  if (typeof module.start === "function") {
+    await module.start();
+  }
+}
+```
+
+### 6. Keep sketches beginner-readable
+
+When writing examples for students:
+- choose descriptive variable names
+- keep the number of moving parts low
+- make one idea visible per sketch
+- use comments sparingly, only when they explain intent
+- avoid overly abstract helpers for tiny examples
+
+Good:
+- one module
+- one visible output
+- one interaction loop
+
+Less good:
+- multiple unrelated technologies in one starter sketch
+- highly optimized code
+- advanced patterns that hide the logic
+
+### 7. Prefer Portal UI for controls
+
+If the sketch needs simple controls, prefer `uiSlim2.js`:
+- `uiButton(...)`
+- `uiText(...)`
+- `uiSlider(...)`
+- `uiToggle(...)`
+- `uiPromptText(...)`
+- `uiListStart(...)` / `uiListEnd()`
+
+This is usually better than creating custom DOM unless the sketch specifically needs a more complex interface.
+
+### 8. Resize behavior
+
+- Portal already provides shared canvas resize handling in `portal.js`.
+- Do not add `windowResized()` unless the sketch has extra state that must also resize.
+- If you do add `windowResized()`, only do it because the sketch needs additional resize logic, not just `resizeCanvas(windowWidth, windowHeight)`.
+
+### 9. Fullscreen behavior
+
+- Portal provides `fullScreenToggle()`.
+- Do not add a sketch-local `f` key handler unless the sketch specifically needs that shortcut.
+- Prefer fewer hidden keyboard shortcuts in beginner examples.
+
+### 10. GPT usage
+
+When using `GptClient`:
+- load it with `await loadScript("portal/GptClient.js")`
+- use `storedDecrypt(...)` for encrypted API keys
+- prefer structured responses when the sketch depends on predictable fields
+- keep prompts short and explicit
+- inspect `gpt.error`, `gpt.latestObject`, and `gpt.lastRaw` when debugging
+
+For image input:
+- create a `p5.Graphics` or other supported image source
+- pass it as the second argument to `gpt.ask(prompt, img)`
+
+### 11. Speech usage
+
+When using `PortalSpeech`:
+- initialize it in `async setup()`
+- use `listenRecurring(...)` for conversation-like flows
+- use `hasNewResult()` + `consumeNew()` in `draw()` for simple architectures
+- stop listening before speaking if echo is a problem
+- use `interimResults: true` only when the sketch benefits from partial transcripts
+
+### 12. Camera / ML usage
+
+For camera-based modules:
+- use `await setupWebcamera(...)`
+- then pass the video into the relevant module
+- initialize the module with `await new Module(...).init()`
+- call `await module.start()` when required
+- in `draw()`, render the video first, then draw results on top
+
+### 13. Visual style guidance for beginner sketches
+
+Prefer:
+- one strong visual idea
+- a limited color palette
+- clear typography
+- a simple layout
+
+Avoid:
+- mixing too many visual languages
+- combining photo, vector, and code-drawn styles without intent
+- large amounts of UI and ML logic in the same first example
+
+### 14. Error handling
+
+Use simple visible error handling:
+- `print(...)`
+- `console.log(...)`
+- `uiDebug(...)`
+- a short on-canvas status string
+
+Do not hide errors inside deep promise chains if a beginner would benefit from seeing them.
+
+### 15. Safe defaults
+
+If unsure, generate code with these defaults:
+- `async setup()`
+- `await pSetup()`
+- load one Portal module
+- one canvas
+- one draw loop
+- one state object or a few top-level variables
+- polling instead of nested callbacks
+- no `preload()`
+- no custom resize handler unless necessary
+- no fullscreen shortcut unless requested
+
+### 16. Good default template for LLM-generated Portal sketches
+
+```js
+let module;
+let statusText = "Loading...";
+
+async function setup() {
+  createCanvas(windowWidth, windowHeight);
+  await pSetup();
+  await loadScript("portal/<module>.js");
+
+  module = await new SomeModule({
+    // config
+  }).init();
+
+  if (typeof module.start === "function") {
+    await module.start();
+  }
+
+  statusText = "Ready";
+}
+
+function draw() {
+  background(0);
+
+  if (module?.hasNewResult?.()) {
+    const result = module.consumeNew ? module.consumeNew() : module.getResult?.();
+    // update sketch state
+  }
+
+  fill(255);
+  text(statusText, 20, 30);
+}
+```
+
+Portal is a p5.js helper layer for rapid sketch prototyping with camera, tracking, speech, UI, QR, GPT, projection mapping, and utility modules.
+
+This README focuses on **detailed API usage**, but it now also includes a more beginner-friendly structure so both students and LLMs can navigate the library quickly.
 For walkthrough-style teaching material, use:
 - [Portal overview](https://learn.hobye.dk/portal)
 - [IoT & communication](https://learn.hobye.dk/portal/iot-com)
 - [Machine learning](https://learn.hobye.dk/portal/machine-learning)
 - [Maps & GPS](https://learn.hobye.dk/portal/maps-gps)
+
+## How To Use This README
+
+If you are new to Portal, use this reading order:
+
+1. Quick Start
+2. Core Runtime (`portal.js`)
+3. UI Layer (`uiSlim2.js`)
+4. One focused module:
+   - speech -> `portal/speech.js`
+   - GPT -> `portal/GptClient.js`
+   - camera / tracking -> `setupWebcamera(...)` plus one ML module
+   - mapping -> `portal/mapper.js`
+
+If you are using an LLM to write Portal code, give it:
+- the module name you want to use
+- the lifecycle you expect: `init()`, `start()`, `draw()`, polling
+- whether the sketch is fullscreen or inside a layout
+- whether you want plain text output or structured GPT output
+
+Recommended prompt framing for an LLM:
+
+```txt
+Use Portal P1 APIs only.
+Load needed scripts with loadScript(...).
+Prefer current methods from the README.
+Use async setup() when a module needs init().
+In draw(), poll with hasNewResult()/consumeNew() when available.
+Do not invent undocumented Portal helpers.
+```
 
 ## 1) Quick Start
 
@@ -58,6 +361,44 @@ function draw() {
 }
 ```
 
+### Beginner checklist
+
+Before debugging a sketch, verify:
+- you called `await pSetup()` before using Portal helpers loaded by `portal.js`
+- every extra module is loaded with `await loadScript("portal/<module>.js")`
+- modules that need async setup are initialized with `await new Module(...).init()`
+- modules that stream results are started with `await module.start()` when required
+- your `draw()` loop checks `hasNewResult()` or `hasResult()` before reading data
+
+### Common sketch template
+
+```js
+let module;
+
+async function setup() {
+  createCanvas(windowWidth, windowHeight);
+  await pSetup();
+  await loadScript("portal/<module>.js");
+
+  module = await new SomeModule({
+    // config here
+  }).init();
+
+  if (typeof module.start === "function") {
+    await module.start();
+  }
+}
+
+function draw() {
+  background(0);
+
+  if (module?.hasNewResult?.()) {
+    const data = module.consumeNew ? module.consumeNew() : module.getResult?.();
+    // react to data
+  }
+}
+```
+
 ## 2) Core Runtime (`portal.js`)
 
 `portal.js` is the base layer loaded by `pSetup()`.
@@ -76,6 +417,10 @@ function draw() {
 - `fullScreenToggle()`
 - `pointFromAngle(x0, y0, length, degrees)`
 - `generateID()`
+- automatic `windowResized()` canvas handling:
+  - resizes to the canvas parent container when the sketch is embedded in a layout
+  - falls back to full-window resize when the canvas is effectively fullscreen
+  - can be overridden with `window.PORTAL_CANVAS_RESIZE_MODE = "window"` or `"none"`
 
 ### URL/QR helpers used internally
 - `resolveBaseURL()`
@@ -92,6 +437,19 @@ function draw() {
 
 ### p5 instance helper
 - `getP5Instance()`
+
+### Canvas resize behavior
+
+Portal now resolves resize targets a bit more intelligently than a simple `resizeCanvas(windowWidth, windowHeight)`.
+
+- Default behavior:
+  - if the canvas parent is a layout container, resize to that parent
+  - if the canvas fills the viewport, resize to the window
+- Overrides:
+  - `window.PORTAL_CANVAS_RESIZE_MODE = "window"` forces full-window resizing
+  - `window.PORTAL_CANVAS_RESIZE_MODE = "none"` disables Portal’s automatic resize handling
+
+This is useful for multi-column layouts where a p5 canvas lives inside part of the page instead of owning the whole viewport.
 
 ## 3) UI Layer (`uiSlim2.js`)
 
@@ -110,6 +468,9 @@ Primary UI functions:
 
 Low-level / debug helpers:
 - `uiUpdate(...)`, `uiHit(...)`, `uiShowInfo(...)`, `_uiDrawHUD(...)`, `_uiDrawGrid(...)`
+- `uiDebug(message)` for on-screen debug output
+- `uiGet(id, init?)`
+- `uiSetBaseStyle({...})`
 
 Example:
 
@@ -121,6 +482,322 @@ function draw() {
   }
 }
 ```
+
+### UI styling notes
+
+Portal UI uses a simple JSON style model rather than CSS classes.
+
+Good beginner strategy:
+- define one base style for your sketch with `uiSetBaseStyle(...)`
+- override only the values you need per widget
+- use `uiListStart(...)` / `uiListEnd()` to keep layout simple before doing manual positioning
+
+Example:
+
+```js
+uiSetBaseStyle({
+  common: {
+    fontSize: 16,
+    padding: 10,
+    rounding: 8,
+    bgColor: "#f2f2f2",
+    textColor: "#111111",
+  },
+  button: { height: 40 },
+});
+```
+
+## 3.5) Speech (`portal/speech.js`)
+
+`PortalSpeech` wraps `p5.Speech`, `p5.SpeechRec`, and native browser speech synthesis into one higher-level helper.
+
+### Constructor
+```js
+new PortalSpeech({
+  language: "en-US",
+  voice: null,   // browser voice name
+  pitch: 1,
+  rate: 1,
+  volume: 1,
+})
+```
+
+### Lifecycle
+- `await init()`
+
+### Voice + language
+- `setLanguage(language)`
+- `setVoice(voiceName)`
+- `setPitch(pitch)`
+- `setRate(rate)`
+- `setVolume(volume)`
+
+If an explicit voice has been selected, `setLanguage(...)` preserves it instead of replacing it with a generic fallback voice.
+
+### Speaking
+- `await speak(text, language?)`
+- `isSpeaking()`
+- `onSpeakingChange(handler)`
+- `stopSpeaking()`
+
+### Listening
+- `await listen(language?)`
+- `listenRecurring(onSentence = null, { language = null, interimResults = false } = {})`
+- `stopListening()`
+- `isListening()`
+- `onListeningChange(handler)`
+- `onResult(handler)`
+- `setResultHandler(handler)`
+
+### Result polling helpers
+- `hasResult()`
+- `hasNewResult()`
+- `resetNewFlag()`
+- `consumeNew()`
+- `getResult()`
+- `getText()`
+
+### Interim / silence helpers
+- `onInterimResult(handler)`
+- `setInterimResultHandler(handler)`
+- `hasInterimResult()`
+- `getInterimText()`
+- `clearInterimResult()`
+- `msSinceSpeech()`
+- `isSilentFor(ms)`
+- `isReceivingSpeech(recentMs = 700)`
+
+### Example
+```js
+let speech;
+
+async function setup() {
+  await loadScript("portal/speech.js");
+  speech = await new PortalSpeech({
+    language: "en-GB",
+    voice: "Flo (English (United Kingdom))",
+  }).init();
+
+  speech.onInterimResult((partial) => {
+    print("partial:", partial);
+  });
+
+  speech.listenRecurring(null, {
+    language: "en-GB",
+    interimResults: true,
+  });
+}
+
+function draw() {
+  if (speech?.hasNewResult()) {
+    const { text } = speech.consumeNew();
+    print("final:", text);
+  }
+}
+```
+
+### Practical speech notes
+
+- Speech recognition quality depends heavily on browser, OS, microphone, and selected language.
+- `listenRecurring(...)` is good for conversation-like sketches.
+- `interimResults: true` is useful when you want live partial transcripts.
+- `isSilentFor(ms)` and `isReceivingSpeech(...)` are useful for pacing voice interfaces.
+- If you are doing both speech-to-text and text-to-speech in the same sketch, stop listening before speaking to avoid self-echo.
+
+## 3.6) Face Animation (`portal/faceAnimation.js`)
+
+`PortalFaceAnimation` is a reusable portrait/avatar renderer for p5 sketches.
+
+It is designed around a neutral-centered pose model:
+- mood dimensions:
+  - `valence`
+  - `arousal`
+  - `dominance`
+  - `tension`
+- interaction state:
+  - `speaking`
+  - `listening`
+  - `thinking`
+- orientation:
+  - `gazeX`, `gazeY`
+  - `headTurn`, `headTilt`, `headPitch`
+
+### Constructor
+```js
+new PortalFaceAnimation({
+  seed: Math.random() * 1000,
+  skinTone: [240, 228, 214],
+  paperTone: [236, 233, 225],
+  inkTone: [17, 17, 17],
+  accentTone: [216, 31, 38],
+  hairTone: [20, 22, 28],
+})
+```
+
+### Core API
+- `setTarget(nextPose)`
+- `setState(nextPose)` alias
+- `update(dt = 1 / 60)`
+- `render({ p = null, x = 0, y = 0, w = 300, h = 420 } = {})`
+
+The renderer preserves portrait proportions and scales to fit the destination box instead of stretching to fill it.
+
+### Example
+```js
+let face;
+
+async function setup() {
+  createCanvas(480, 640);
+  await loadScript("portal/faceAnimation.js");
+  face = new PortalFaceAnimation();
+}
+
+function draw() {
+  background(216, 31, 38);
+
+  face.setTarget({
+    valence: -0.3,
+    arousal: 0.2,
+    dominance: 0.5,
+    tension: 0.6,
+    speaking: mouseIsPressed ? 1 : 0,
+    listening: mouseIsPressed ? 0 : 1,
+  });
+
+  face.update(deltaTime / 1000);
+  face.render({ p: window, x: 0, y: 0, w: width, h: height });
+}
+```
+
+## 3.7) GPT (`portal/GptClient.js`)
+
+`GptClient` is the shared browser-side helper for plain-text and structured GPT responses.
+
+### Constructor
+```js
+new GptClient({
+  apiKey,
+  model: "gpt-4o-mini",
+  instructions: "You answer clearly and briefly.",
+  functionSchemas: [],   // optional structured schema list
+  functionName: null,    // optional forced function/tool name
+  temperature: 0.7,
+  max_tokens: 400,
+})
+```
+
+### Core API
+- `await ask(userPrompt, img = null)`
+- `latestObject`
+- `lastRaw`
+- `error`
+
+### Plain-text example
+```js
+let gpt;
+let apiKey = "";
+
+async function setup() {
+  await loadScript("portal/GptClient.js");
+  apiKey = storedDecrypt({ apiKeyEncryptedGpt12 });
+
+  gpt = new GptClient({
+    apiKey,
+    model: "gpt-4o-mini",
+    instructions: "Answer clearly and simply.",
+  });
+
+  await gpt.ask("What is the capital of France?");
+
+  if (gpt.error) {
+    print("Error:", gpt.error);
+  } else if (gpt.latestObject?.text) {
+    print(gpt.latestObject.text);
+  }
+}
+```
+
+### Structured-response example
+```js
+let gpt;
+let apiKey = "";
+
+async function setup() {
+  await loadScript("portal/GptClient.js");
+  apiKey = storedDecrypt({ apiKeyEncryptedGpt12 });
+
+  const schema = [
+    {
+      name: "color_response",
+      description: "Return the color mentioned in the text.",
+      parameters: {
+        type: "object",
+        properties: {
+          color: { type: "string" },
+        },
+        required: ["color"],
+      },
+    },
+  ];
+
+  gpt = new GptClient({
+    apiKey,
+    model: "gpt-4o-mini",
+    instructions: "Extract the color mentioned in the user's sentence.",
+    functionSchemas: schema,
+    functionName: "color_response",
+  });
+
+  const res = await gpt.ask("I like the color blue.");
+  print(res.color);
+}
+```
+
+### Image input example
+```js
+let gpt;
+let img;
+
+async function setup() {
+  createCanvas(300, 300);
+  await loadScript("portal/GptClient.js");
+  apiKey = storedDecrypt({ apiKeyEncryptedGpt12 });
+
+  gpt = new GptClient({
+    apiKey,
+    model: "gpt-4o-mini",
+    instructions: "Return the dominant color of the image.",
+    functionSchemas: [
+      {
+        name: "color_response",
+        description: "Return the dominant color as a word.",
+        parameters: {
+          type: "object",
+          properties: {
+            color: { type: "string" },
+          },
+          required: ["color"],
+        },
+      },
+    ],
+    functionName: "color_response",
+  });
+
+  img = createGraphics(128, 128);
+  img.background(255, 0, 0);
+
+  const res = await gpt.ask("What color is this image?", img);
+  print(res.color);
+}
+```
+
+### GPT notes
+
+- `storedDecrypt(...)` is the intended helper for encrypted browser-side API keys.
+- Structured mode uses `functionSchemas` + `functionName`.
+- `ask(prompt, img)` supports image input.
+- `lastRaw` is useful for debugging raw API responses.
+- If you are building production systems, do not assume browser-side keys are enough security on their own.
 
 ## 4) Projection Mapper (`mapper.js`)
 
@@ -150,6 +827,15 @@ mapper.loadFromStorage("my_mapping");
 await mapper.loadFromURL("assets/mapping.json");
 mapper.downloadExport("my_mapping.json");
 ```
+
+### Beginner mapper checklist
+
+When mapping is not working, check:
+- you created the sketch with `WEBGL`
+- you loaded `portal/mapper.js`
+- you draw into the returned `p5.Graphics` surfaces, not directly onto the main canvas
+- you call `mapper.render()` every frame
+- your mouse/key handlers forward events to the mapper when using manual calibration
 
 ## 5) Tracking + ML Modules
 

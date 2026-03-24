@@ -1,61 +1,110 @@
 <!DOCTYPE html>
-<html lang="en"><head>
-  <script src="https://cdn.jsdelivr.net/npm/p5@2.2.0/lib/p5.js"></script>
-  
-   
-    <link rel="stylesheet" type="text/css" href="https://madshobye.github.io/Portal/P1/portalBaseStyle.css">
-    <link rel="stylesheet" type="text/css" href="style.css">
-   <meta charset="utf-8">
- 
-     <meta name="mobile-web-app-capable" content="yes">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=0">
-  
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=0" />
+    <title>Portal Sketches</title>
+    <link rel="stylesheet" type="text/css" href="../portalBaseStyle.css" />
+    <style>
+      body {
+        margin: 0;
+        font-family: Helvetica, Arial, sans-serif;
+        background: #f5f3ee;
+        color: #111;
+      }
+      main {
+        max-width: 960px;
+        margin: 0 auto;
+        padding: 32px 20px 48px;
+      }
+      h1 {
+        margin: 0 0 8px;
+        font-size: 40px;
+        line-height: 1;
+      }
+      p {
+        margin: 0 0 24px;
+        color: rgba(17,17,17,0.7);
+      }
+      ul {
+        list-style: none;
+        margin: 0;
+        padding: 0;
+        display: grid;
+        gap: 10px;
+      }
+      li {
+        display: flex;
+        justify-content: space-between;
+        gap: 16px;
+        padding: 12px 14px;
+        border: 1px solid #111;
+        background: #fffdf8;
+      }
+      a {
+        color: inherit;
+        text-decoration: none;
+        font-weight: 700;
+      }
+      span {
+        color: rgba(17,17,17,0.6);
+        font-family: monospace;
+      }
+      @media (max-width: 720px) {
+        li {
+          flex-direction: column;
+          gap: 4px;
+        }
+      }
+    </style>
   </head>
   <body>
     <main>
+      <h1>Portal Sketches</h1>
+      <p>Each example now has its own folder with <code>index.html</code>, <code>style.css</code>, and <code>sketch.js</code>.</p>
+      <ul>
+      <li><a href="baseSketch/">Base Sketch</a> <span>minimal black canvas</span></li>
+      <li><a href="body-pose/">Body Pose</a> <span>sketchBodyPose.js</span></li>
+      <li><a href="body-pose-gesture-style/">Body Pose Gesture Style</a> <span>sketchBodyPoseGestureStyle.js</span></li>
+      <li><a href="body-pose-tracking/">Body Pose Tracking</a> <span>sketchBodyPoseTracking.js</span></li>
+      <li><a href="debug-sketch/">Debug Sketch</a> <span>debugSketch.js</span></li>
+      <li><a href="dmx-serial/">Dmx Serial</a> <span>sketchDmxSerial.js</span></li>
+      <li><a href="emotions/">Emotions</a> <span>sketchEmotions.js</span></li>
+      <li><a href="face-mesh/">Face Mesh</a> <span>sketchFaceMesh.js</span></li>
+      <li><a href="face-mesh-mood-knn/">Face Mesh Mood Knn</a> <span>sketchFaceMeshMoodKnn.js</span></li>
+      <li><a href="gamepad/">Gamepad</a> <span>sketchGamepad.js</span></li>
+      <li><a href="gpt-chat-simple/">GPT Chat Simple</a> <span>sketchGptChatSimple.js</span></li>
+      <li><a href="gpt-color-camera/">GPT Color Camera</a> <span>sketchGptColorCamera.js</span></li>
+      <li><a href="gpt-image-gen/">GPT Image Gen</a> <span>sketchGptImageGen.js</span></li>
+      <li><a href="hand-gesture-knn/">Hand Gesture Knn</a> <span>sketchHandGestureKnn.js</span></li>
+      <li><a href="hand-pose/">Hand Pose</a> <span>sketchHandPose.js</span></li>
+      <li><a href="heart-rate-ble/">Heart Rate Ble</a> <span>sketchHeartRateBLE.js</span></li>
+      <li><a href="image-classifier/">Image Classifier</a> <span>sketchImageClassifier.js</span></li>
+      <li><a href="ink/">Ink</a> <span>sketchInk.js</span></li>
+      <li><a href="knn-learner/">Knn Learner</a> <span>sketchKnnLearner.js</span></li>
+      <li><a href="location/">Location</a> <span>sketchLocation.js</span></li>
+      <li><a href="map/">Map</a> <span>sketchMap.js</span></li>
+      <li><a href="mqtt/">Mqtt</a> <span>sketchMqtt.js</span></li>
+      <li><a href="multi-touch/">Multi Touch</a> <span>sketchMultiTouch.js</span></li>
+      <li><a href="neural-classification/">Neural Classification</a> <span>sketchNeuralClassification.js</span></li>
+      <li><a href="neural-learner/">Neural Learner</a> <span>sketchNeuralLearner.js</span></li>
+      <li><a href="neural-temp-mood/">Neural Temp Mood</a> <span>sketchNeuralTempMood.js</span></li>
+      <li><a href="object-detector/">Object Detector</a> <span>sketchObjectDetector.js</span></li>
+      <li><a href="p-noise/">P Noise</a> <span>sketchPNoise.js</span></li>
+      <li><a href="projection-gpt-food-poem/">Projection GPT Food Poem</a> <span>sketchProjectionGptFoodPoem.js</span></li>
+      <li><a href="qr-code-gen/">Qr Code Gen</a> <span>sketchQrCodeGen.js</span></li>
+      <li><a href="qr-reader/">Qr Reader</a> <span>sketchQrReader.js</span></li>
+      <li><a href="simplex-noise/">Simplex Noise</a> <span>sketchSimplexNoise.js</span></li>
+      <li><a href="sound-file/">Sound File</a> <span>sketchSoundFile.js</span></li>
+      <li><a href="starter-sketch/">Starter Sketch</a> <span>sketch.js</span></li>
+      <li><a href="test/">Test</a> <span>sketchTest.js</span></li>
+      <li><a href="transformer-chat-simple/">Transformer Chat Simple</a> <span>sketchTransformerChatSimple.js</span></li>
+      <li><a href="transformer-custom-schema/">Transformer Custom Schema</a> <span>sketchTransformerCustomSchema.js</span></li>
+      <li><a href="transformer-qa/">Transformer Qa</a> <span>sketchTransformerQA.js</span></li>
+      <li><a href="transformer-structured/">Transformer Structured</a> <span>sketchTransformerStructured.js</span></li>
+      <li><a href="transformer-voice-chat/">Transformer Voice Chat</a> <span>sketchTransformerVoiceChat.js</span></li>
+      <li><a href="ui-slim2/">UI Slim2</a> <span>sketchUiSlim2.js</span></li>
+      </ul>
     </main>
-    <!--
-      Available sketches:
-      sketch.js
-      debugSketch.js
-      sketchBodyPose.js
-      sketchBodyPoseTracking.js
-      sketchBodyPoseGestureStyle.js
-      sketchEmotions.js
-      sketchDmxSerial.js
-      sketchFaceMesh.js
-      sketchFaceMeshMoodKnn.js
-      sketchGptColorCamera.js
-      sketchGptChatSimple.js
-      sketchGptImageGen.js
-      sketchHandPose.js
-      sketchImageClassifier.js
-      sketchKnnLearner.js
-      sketchLocation.js
-      sketchMap.js
-      sketchMqtt.js
-      sketchNeuralClassification.js
-      sketchNeuralLearner.js
-      sketchNeuralTempMood.js
-      sketchObjectDetector.js
-      sketchPNoise.js
-      sketchProjectionGptFoodPoem.js
-      sketchQrCodeGen.js
-      sketchQrReader.js
-      sketchSimplexNoise.js
-      sketchSoundFile.js
-      sketchTest.js
-      sketchTransformerChatSimple.js
-      sketchTransformerCustomSchema.js
-      sketchTransformerQA.js
-      sketchTransformerStructured.js
-      sketchTransformerVoiceChat.js
-      sketchGamepad.js
-      sketchHandGestureKnn.js
-      sketchHeartRateBLE.js
-      sketchUiSlim2.js
-    -->
-    <script src="debugSketch.js"></script>
-   <script src="https://madshobye.github.io/Portal/P1/portalLoader.js"></script>
-
-</body></html>
+  </body>
+</html>
