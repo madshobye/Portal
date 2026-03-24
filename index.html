@@ -377,7 +377,7 @@
           <ul class="plain">
             <li>Scenario 1, cloud editor: write a single copy-paste-friendly `sketch.js` for the base sketch.</li>
             <li>Cloud base sketch: <a href="https://editor.p5js.org/hobye/sketches/P07GGrfNY">editor.p5js.org/hobye/sketches/P07GGrfNY</a></li>
-            <li>Scenario 2, empty local folder on desktop: create a small sketch folder with `index.html`, `style.css`, and `sketch.js`.</li>
+            <li>Scenario 2, empty local folder on desktop: create a small sketch folder with `index.html`, `style.css`, and `sketch.js`, and load Portal from GitHub-hosted files.</li>
             <li>Local base sketch: <a href="./P1/sketches/baseSketch/">P1/sketches/baseSketch</a></li>
             <li>If you need a local multi-file example, copy the `baseSketch` folder and rename it.</li>
             <li>Use Portal modules with `await loadScript("portal/&lt;module&gt;.js")` instead of rebuilding the feature with unrelated libraries.</li>
@@ -482,23 +482,32 @@ function draw() {
     ellipse(width * 0.5, height * 0.5, 60, 60);
   }
 }</div>
-        <div class="code" style="margin-top: 12px"><!doctype html>
-<html lang="en">
-  <head>
-    <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>My Portal Sketch</title>
-    <link rel="stylesheet" href="./style.css" />
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/2.0.5/p5.js"></script>
-    <script src="../portalLoader.js"></script>
-    <script src="./sketch.js"></script>
-  </head>
-  <body></body>
-</html></div>
+        <div class="code" style="margin-top: 12px">&lt;!DOCTYPE html&gt;
+&lt;html lang="en"&gt;
+  &lt;head&gt;
+    &lt;meta charset="utf-8" /&gt;
+    &lt;meta name="mobile-web-app-capable" content="yes" /&gt;
+    &lt;meta
+      name="viewport"
+      content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=0"
+    /&gt;
+    &lt;title&gt;My Portal Sketch&lt;/title&gt;
+    &lt;script src="https://cdn.jsdelivr.net/npm/p5@2.2.0/lib/p5.js"&gt;&lt;/script&gt;
+    &lt;link rel="stylesheet" type="text/css" href="https://madshobye.github.io/Portal/P1/portalBaseStyle.css" /&gt;
+    &lt;link rel="stylesheet" type="text/css" href="./style.css" /&gt;
+  &lt;/head&gt;
+  &lt;body&gt;
+    &lt;main&gt;&lt;/main&gt;
+    &lt;script src="./sketch.js"&gt;&lt;/script&gt;
+    &lt;script src="https://madshobye.github.io/Portal/P1/portalLoader.js"&gt;&lt;/script&gt;
+  &lt;/body&gt;
+&lt;/html&gt;</div>
         <p style="margin-top: 10px">
-          For a local sketch folder inside `P1/sketches/&lt;name&gt;/`, use
-          `../portalLoader.js` in `index.html`. For cloud-editor sketches, you
-          usually only need to replace `sketch.js` in the base sketch.
+          For a standalone local sketch, use the GitHub-hosted `portalLoader.js`
+          and `portalBaseStyle.css` shown above. Inside this repository’s
+          `P1/sketches/&lt;name&gt;/` folders, the local paths are
+          `../../portalLoader.js` and `../../portalBaseStyle.css`. For cloud-editor
+          sketches, you usually only need to replace `sketch.js` in the base sketch.
         </p>
       </section>
 

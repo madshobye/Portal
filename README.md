@@ -383,32 +383,42 @@ Best local starting point:
 - [`P1/sketches/baseSketch/sketch.js`](/Users/madshobye/Media/codeRepo/Portal/P1/sketches/baseSketch/sketch.js)
 
 When creating a new local sketch:
-- copy `baseSketch`
-- rename the folder
+- if you are inside this repository, you can copy `baseSketch`
+- if you are in an empty standalone folder, use the GitHub-hosted Portal files in `index.html`
 - edit only `sketch.js` first unless custom layout is actually needed
 - keep `index.html` and `style.css` minimal unless the user asks for more
 
 Minimal local `index.html`:
 
 ```html
-<!doctype html>
+<!DOCTYPE html>
 <html lang="en">
   <head>
     <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=0"
+    />
     <title>My Portal Sketch</title>
-    <link rel="stylesheet" href="./style.css" />
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/2.0.5/p5.js"></script>
-    <script src="../portalLoader.js"></script>
-    <script src="./sketch.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/p5@2.2.0/lib/p5.js"></script>
+    <link rel="stylesheet" type="text/css" href="https://madshobye.github.io/Portal/P1/portalBaseStyle.css" />
+    <link rel="stylesheet" type="text/css" href="./style.css" />
   </head>
-  <body></body>
+  <body>
+    <main></main>
+    <script src="./sketch.js"></script>
+    <script src="https://madshobye.github.io/Portal/P1/portalLoader.js"></script>
+  </body>
 </html>
 ```
 
 Notes:
-- keep the `portalLoader.js` path correct relative to the sketch location
-- in the standard `P1/sketches/<name>/` structure, `../portalLoader.js` is the right path
+- for a standalone local sketch outside this repo, use the GitHub-hosted URLs shown above
+- keep the shared `portalBaseStyle.css` link as well, unless you intentionally want to replace the default Portal page styling
+- inside this repository’s `P1/sketches/<name>/` structure, the local paths are:
+  - `../../portalLoader.js`
+  - `../../portalBaseStyle.css`
 - once that loader is present, `sketch.js` can use Portal helpers like `loadScript(...)` directly
 
 ### What an LLM should do by default
