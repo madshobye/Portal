@@ -29,7 +29,7 @@ Use these rules when generating code for Portal.
 
 - Use `async function setup()` when loading Portal modules or assets.
 - In p5.js v2+, do not rely on `preload()` for typical asset or module loading. Prefer `async setup()` with `await`.
-- If the sketch already loads `portalLoader.js`, do not call `await pSetup()` manually inside the sketch. The loader already does that.
+- Do not call `await pSetup()` manually in normal sketches. Use `portalLoader.js` instead.
 - Prefer `await` inside `setup()` for:
   - `loadScript(...)`
   - `new Module(...).init()`
@@ -62,6 +62,23 @@ function preload() {
   - `await loadScript("portal/SoundFile.js")`
   - `let sound = await loadSoundFile(url)`
 - Do not assume old p5 sound-loading patterns are reliable in this setup.
+
+### 2a. Guaranteed runtime URLs
+
+If an LLM only has the public Portal guide and needs a runnable standalone local sketch, these URLs are the supported starting point:
+
+- `https://madshobye.github.io/Portal/P1/portalLoader.js`
+- `https://madshobye.github.io/Portal/P1/portalBaseStyle.css`
+
+Use them in `index.html`, then in `sketch.js` load modules with:
+
+```js
+await loadScript("portal/handPose.js");
+await loadScript("portal/GptClient.js");
+await loadScript("portal/speech.js");
+```
+
+Do not treat the Portal site as documentation-only. The hosted `portalLoader.js` is the runtime entry point for standalone sketches.
 
 ### 3. Prefer simple, state-based sketches
 
@@ -237,7 +254,7 @@ Do not hide errors inside deep promise chains if a beginner would benefit from s
 
 If unsure, generate code with these defaults:
 - `async setup()`
-- use `portalLoader.js` so `pSetup()` is handled automatically
+- use `portalLoader.js`
 - load one Portal module
 - one canvas
 - one draw loop
@@ -439,7 +456,7 @@ then the default response should be:
 
 ### Load Portal from a sketch
 
-Use `testSketch/portalLoader.js` style:
+Use `portalLoader.js` like this:
 
 ```js
 // portalLoader.js
@@ -487,7 +504,7 @@ function draw() {
 ### Beginner checklist
 
 Before debugging a sketch, verify:
-- the page loads `portalLoader.js`, or you otherwise ensured `pSetup()` runs before Portal helpers are used
+- the page loads `portalLoader.js`
 - every extra module is loaded with `await loadScript("portal/<module>.js")`
 - modules that need async setup are initialized with `await new Module(...).init()`
 - modules that stream results are started with `await module.start()` when required
@@ -523,10 +540,10 @@ function draw() {
 
 ## 2) Core Runtime (`portal.js`)
 
-`portal.js` is the base layer. In the standard Portal setup it is loaded through `portalLoader.js`, which runs `pSetup()` before your sketch's `setup()`.
+`portal.js` is the base layer. In standard sketches you do not load it directly; `portalLoader.js` loads it for you.
 
 ### Setup and loading
-- `pSetup()` (handled automatically by `portalLoader.js` in normal sketches)
+- `portalLoader.js` (standard entry point)
 - `loadScript(url)`
 - `loadAllLibraries(urls)`
 - `loadGoogleFont(nameOrArray)`

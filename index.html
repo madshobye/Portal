@@ -360,7 +360,7 @@
           <h2>Best Default Workflow</h2>
           <ul class="plain">
             <li>Start from the cloud base sketch or the local `baseSketch` example.</li>
-            <li>Use `async setup()` and let `portalLoader.js` handle `pSetup()`.</li>
+            <li>Use `async setup()` and load Portal with `portalLoader.js`.</li>
             <li>Load Portal modules with `await loadScript("portal/&lt;module&gt;.js")`.</li>
             <li>Prefer a single copy-paste-friendly `sketch.js` unless multi-file output is requested.</li>
             <li>Use simple `draw()` polling with `hasNewResult()` / `consumeNew()`.</li>
@@ -511,6 +511,17 @@ function draw() {
         </p>
       </section>
 
+      <section class="section panel">
+        <span class="eyebrow">Runtime URLs</span>
+        <h2>Use These Hosted Portal Files</h2>
+        <ul class="plain">
+          <li>`https://madshobye.github.io/Portal/P1/portalLoader.js` is the runtime entry point for standalone sketches.</li>
+          <li>`https://madshobye.github.io/Portal/P1/portalBaseStyle.css` is the shared base stylesheet.</li>
+          <li>After `portalLoader.js` is loaded, use `await loadScript("portal/&lt;module&gt;.js")` inside `async setup()`.</li>
+          <li>Do not treat this guide as documentation-only. These hosted files are meant to be used directly.</li>
+        </ul>
+      </section>
+
       <section class="section grid-2">
         <article class="panel">
           <span class="eyebrow">Best Practices</span>
@@ -624,9 +635,9 @@ function draw() {
         {
           title: "Core Runtime",
           path: "portal/portal.js",
-          description: "Base Portal runtime. In standard sketches it is loaded through portalLoader.js, which runs pSetup() before your sketch setup executes. It provides script loading, camera helpers, key storage helpers, fullscreen, geometry helpers, and shared canvas resize behavior.",
+          description: "Base Portal runtime. In standard sketches it is loaded through portalLoader.js. It provides script loading, camera helpers, key storage helpers, fullscreen, geometry helpers, and shared canvas resize behavior.",
           bullets: [
-            "Use async setup(); standard Portal pages let portalLoader.js run pSetup() for you.",
+            "Use async setup(); standard Portal pages load Portal through portalLoader.js.",
             "Use loadScript(...) for extra Portal modules.",
             "Do not add windowResized() unless the sketch has extra resize work.",
             "Use storedDecrypt(...) for encrypted browser-side keys."
