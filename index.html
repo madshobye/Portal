@@ -373,6 +373,7 @@
             <li>Prefer a single copy-paste-friendly `sketch.js` unless multi-file output is requested.</li>
             <li>Use simple `draw()` polling with `getLatest()` for current state, or `hasNewResult()` plus `consumeNew()` for edge-triggered logic.</li>
             <li>For video-based modules, assume returned coordinates are pixels in video space unless you explicitly use an `...InRect(...)` helper.</li>
+            <li>Do not multiply tracker coordinates by canvas size unless the module explicitly says they are normalized.</li>
             <li>In p5.js v2+, prefer `async setup()` with `await` for normal asset and module loading instead of `preload()`.</li>
             <li>Use Portal’s `SoundFile` helper instead of old p5 sound-loading patterns.</li>
           </ul>
@@ -450,10 +451,6 @@
               <h3>Use Portal modules directly</h3>
               <p>Load `portal/speech.js`, `portal/GptClient.js`, `portal/mapper.js`, and other modules with `loadScript(...)` instead of reimplementing loaders.</p>
             </div>
-            <div class="mini-card">
-              <h3>Skip redundant resize/fullscreen code</h3>
-              <p>Portal already covers common canvas resize behavior. Only add `windowResized()` or `f` fullscreen shortcuts if the sketch truly needs them.</p>
-            </div>
           </div>
         </article>
 
@@ -508,8 +505,8 @@ function draw() {
   background(0);
   image(video, 0, 0, width, height);
 
-  const { first } = handPose?.getLatest?.() || {};
-  // read named landmarks like first.thumb_tip and first.index_finger_tip
+  const first = handPose?.getHandsInRect?.(0, 0, width, height)?.[0];
+  // read named landmarks like first.thumb_tip and first.index_finger_tip directly in draw-rect pixels
 
   if (pinchDown) {
     fill(0, 255, 0);
@@ -693,7 +690,7 @@ function draw() {
             <li>Load one Portal module first before combining many.</li>
             <li>Use one canvas and one `draw()` loop.</li>
             <li>Prefer polling over nested callbacks.</li>
-            <li>Avoid `preload()` and redundant resize/fullscreen handlers.</li>
+            <li>`preload()` is not compatible with p5.js v2.</li>
           </ul>
         </article>
       </section>
@@ -842,7 +839,7 @@ function draw() {
           bullets: [
             "Use async setup(); standard Portal pages load Portal through portalLoader.js.",
             "Use loadScript(...) for extra Portal modules.",
-            "Do not add windowResized() unless the sketch has extra resize work.",
+            "Add resize or fullscreen handlers only if the sketch actually needs them.",
             "Use storedDecrypt(...) for encrypted browser-side keys."
           ]
         },

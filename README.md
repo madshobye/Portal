@@ -243,19 +243,13 @@ If the sketch needs simple controls, prefer `uiSlim2.js`:
 
 This is usually better than creating custom DOM unless the sketch specifically needs a more complex interface.
 
-### 8. Resize behavior
+### 8. Resize and fullscreen behavior
 
-- Portal already provides shared canvas resize handling in `portal.js`.
-- Do not add `windowResized()` unless the sketch has extra state that must also resize.
-- If you do add `windowResized()`, only do it because the sketch needs additional resize logic, not just `resizeCanvas(windowWidth, windowHeight)`.
+- Portal provides shared helpers for resize and fullscreen behavior.
+- Add `windowResized()`, `resizeCanvas(...)`, or keyboard fullscreen shortcuts when the sketch benefits from them.
+- Keep the behavior simple and readable if you include them in a beginner-facing sketch.
 
-### 9. Fullscreen behavior
-
-- Portal provides `fullScreenToggle()`.
-- Do not add a sketch-local `f` key handler unless the sketch specifically needs that shortcut.
-- Prefer fewer hidden keyboard shortcuts in beginner examples.
-
-### 10. GPT usage
+### 9. GPT usage
 
 When using `GptClient`:
 - load it with `await loadScript("portal/GptClient.js")`
@@ -1632,6 +1626,11 @@ new HandPose({
 - `getLeftHand()` / `getRightHand()`
 - `getLeftHandInRect(...)` / `getRightHandInRect(...)`
 
+Important:
+- `thumb_tip`, `index_finger_tip`, and the other named points are pixel coordinates by default
+- do not multiply them by `width` or `height` unless a module explicitly says it returns normalized values
+- for overlays on a scaled webcam image, prefer `getHandsInRect(...)`
+
 ### Polling
 - `hasResult()`
 - `hasNewResult()`
@@ -1641,6 +1640,24 @@ new HandPose({
 
 ### Draw
 - `drawHands(x=0, y=0, w=null, h=null, ptSize=6, drawSkeleton=true, showLabels=false)`
+
+### Overlay example
+```js
+image(video, 0, 0, width, height);
+
+const first = handPose.getHandsInRect(0, 0, width, height)[0];
+const thumb = first?.thumb_tip;
+const index = first?.index_finger_tip;
+
+if (thumb && index) {
+  const d = dist(thumb.x, thumb.y, index.x, index.y);
+  if (d < 40) {
+    fill(0, 255, 0);
+    noStroke();
+    ellipse((thumb.x + index.x) * 0.5, (thumb.y + index.y) * 0.5, 60, 60);
+  }
+}
+```
 
 ## `BodyPose` (`portal/bodyPose.js`)
 
@@ -1955,6 +1972,13 @@ For video-based modules, the default assumption is:
 If you draw the camera with `image(video, x, y, w, h)`, use the matching `...InRect(x, y, w, h)` helper to get draw-rect pixels aligned to that image call.
 
 If your overlays are misaligned, it usually means you are mixing video-space pixels with draw-rect pixels.
+
+Common mistake:
+- do not treat Portal tracker coordinates as normalized `0..1`
+- this is wrong for Portal video trackers:
+  - `screenX = point.x * width`
+  - `screenY = point.y * height`
+- if you already used `image(video, 0, 0, width, height)`, then use `get...InRect(0, 0, width, height)` and draw with those values directly
 
 ## 8) Minimal End-to-End Example (Speech + UI polling)
 
