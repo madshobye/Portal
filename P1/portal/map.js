@@ -56,7 +56,13 @@ class PortalMap {
     this.tileMap = null;
     this.canvas = null;
     this.container = null;
+    this.wrapper = null;
     this.ready = false;
+    this._resizeObserver = null;
+    this._syncListenersInstalled = false;
+    this._invalidateTimers = [];
+    this._rafId = 0;
+    this._lastCanvasRectKey = "";
   }
 
   async init({ canvas = null, overlay = true } = {}) {
@@ -78,7 +84,13 @@ class PortalMap {
     });
 
     this.tileMap.overlay(this.canvasP5 || this.canvas);
+    this.container = this.tileMap?.map?.getContainer?.() || null;
+    this._ensureStackedWrapper();
     if (overlay && this.canvas) {
+      const parent = this.canvas.parentElement;
+      if (parent && getComputedStyle(parent).position === "static") {
+        parent.style.position = "relative";
+      }
       Object.assign(this.canvas.style, {
         position: "relative",
         zIndex: "1",
@@ -86,6 +98,8 @@ class PortalMap {
       });
     }
 
+    this._installPortalSync();
+    this._startCanvasRectMonitor();
     this.ready = true;
     return this;
   }
@@ -138,7 +152,132 @@ class PortalMap {
 
   invalidateSize() {
     if (!this.tileMap?.map) return;
+    this._syncContainerToCanvas();
     this.tileMap.map.invalidateSize();
+  }
+
+  _installPortalSync() {
+    if (this._syncListenersInstalled || !this.canvas) return;
+    this._syncListenersInstalled = true;
+
+    const schedule = () => this._scheduleInvalidateSequence();
+
+    window.addEventListener("resize", schedule);
+    document.addEventListener("fullscreenchange", schedule);
+
+    if (window.visualViewport) {
+      window.visualViewport.addEventListener("resize", schedule);
+    }
+
+    if (typeof ResizeObserver !== "undefined") {
+      this._resizeObserver = new ResizeObserver(() => {
+        schedule();
+      });
+      this._resizeObserver.observe(this.canvas);
+    }
+
+    schedule();
+  }
+
+  _startCanvasRectMonitor() {
+    if (!this.canvas || this._rafId) return;
+
+    const tick = () => {
+      if (!this.canvas || !this.ready) {
+        this._rafId = 0;
+        return;
+      }
+
+      const rect = this.canvas.getBoundingClientRect();
+      const key = [
+        Math.round(rect.left),
+        Math.round(rect.top),
+        Math.round(rect.width),
+        Math.round(rect.height),
+      ].join(":");
+
+      if (key !== this._lastCanvasRectKey) {
+        this._lastCanvasRectKey = key;
+        this._scheduleInvalidateSequence();
+      }
+
+      this._rafId = window.requestAnimationFrame(tick);
+    };
+
+    this._lastCanvasRectKey = "";
+    this._rafId = window.requestAnimationFrame(tick);
+  }
+
+  _scheduleInvalidateSequence() {
+    for (const timer of this._invalidateTimers) {
+      clearTimeout(timer);
+    }
+    this._invalidateTimers = [];
+
+    const run = () => {
+      this._syncContainerToCanvas();
+      this.invalidateSize();
+    };
+    run();
+    this._invalidateTimers.push(setTimeout(run, 80));
+    this._invalidateTimers.push(setTimeout(run, 240));
+    this._invalidateTimers.push(setTimeout(run, 500));
+  }
+
+  _ensureStackedWrapper() {
+    if (!this.canvas || !this.container) return;
+
+    const existingWrapper = this.canvas.parentElement;
+    if (existingWrapper?.dataset?.portalMapWrapper === "true") {
+      this.wrapper = existingWrapper;
+      return;
+    }
+
+    const host = this.canvas.parentElement;
+    if (!host) return;
+
+    const wrapper = document.createElement("div");
+    wrapper.dataset.portalMapWrapper = "true";
+    Object.assign(wrapper.style, {
+      position: "relative",
+      display: "inline-block",
+      lineHeight: "0",
+      verticalAlign: "top",
+      overflow: "hidden",
+    });
+
+    host.insertBefore(wrapper, this.canvas);
+    wrapper.appendChild(this.container);
+    wrapper.appendChild(this.canvas);
+    this.wrapper = wrapper;
+    this._syncContainerToCanvas();
+  }
+
+  _syncContainerToCanvas() {
+    if (!this.container || !this.canvas) return;
+
+    const canvasRect = this.canvas.getBoundingClientRect();
+    const parent = this.wrapper || this.canvas.parentElement || this.container.parentElement;
+
+    if (parent && getComputedStyle(parent).position === "static") {
+      parent.style.position = "relative";
+    }
+
+    if (this.wrapper) {
+      Object.assign(this.wrapper.style, {
+        width: `${canvasRect.width}px`,
+        height: `${canvasRect.height}px`,
+      });
+    }
+
+    Object.assign(this.container.style, {
+      position: "absolute",
+      left: "0px",
+      top: "0px",
+      width: `${canvasRect.width}px`,
+      height: `${canvasRect.height}px`,
+      zIndex: "0",
+    });
   }
 }
 

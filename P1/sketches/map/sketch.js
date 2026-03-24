@@ -54,12 +54,6 @@ function draw() {
   );
 }
 
-function windowResized() {
-  resizeCanvas(windowWidth, windowHeight);
-  portalMap?.invalidateSize?.();
-  setTimeout(() => portalMap?.invalidateSize?.(), 80);
-}
-
 async function requestLocationInBackground() {
   try {
     currentPos = await getLocation();
