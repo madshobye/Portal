@@ -372,6 +372,7 @@
             <li>Load Portal modules with `await loadScript("portal/&lt;module&gt;.js")`.</li>
             <li>Prefer a single copy-paste-friendly `sketch.js` unless multi-file output is requested.</li>
             <li>Use simple `draw()` polling with `getLatest()` for current state, or `hasNewResult()` plus `consumeNew()` for edge-triggered logic.</li>
+            <li>For video-based modules, assume returned coordinates are pixels in video space unless you explicitly use an `...InRect(...)` helper.</li>
             <li>In p5.js v2+, prefer `async setup()` with `await` for normal asset and module loading instead of `preload()`.</li>
             <li>Use Portal’s `SoundFile` helper instead of old p5 sound-loading patterns.</li>
           </ul>
@@ -960,7 +961,7 @@ function draw() {
             "Use await setupWebcamera(...) first.",
             "Pass the video in the module's documented constructor shape.",
             "Initialize with await new Module(...).init().",
-            "Start with await module.start() when required, then use getLatest() in draw(). Keep consumeNew() and getters for change-triggered or richer access patterns."
+            "Start with await module.start() when required, then use getLatest() in draw(). Default coordinates are video-space pixels, and ...InRect(...) helpers map them to the drawn video rectangle."
           ]
         },
         {

@@ -1625,9 +1625,9 @@ new HandPose({
 ### Data
 - `getLatest()` -> `{ hands, left, right, first, second }`
 - `consumeNew()` -> `{ wasNew, hands, left, right, first, second }`
-- `getHands()` (video-space, flipped)
+- `getHands()` (video-space pixels, flipped)
 - `getHandsRaw()`
-- `getHandsInRect(x, y, w, h)`
+- `getHandsInRect(x, y, w, h)` (mapped to the same rect as `image(video, x, y, w, h)`)
 - `getFirstHand()` / `getSecondHand()`
 - `getLeftHand()` / `getRightHand()`
 - `getLeftHandInRect(...)` / `getRightHandInRect(...)`
@@ -1663,9 +1663,9 @@ new BodyPose({
 ### Data
 - `getLatest()` -> `{ poses, best }`
 - `consumeNew()` -> `{ wasNew, poses, best }`
-- `getPoses()`
+- `getPoses()` (video-space pixels)
 - `getPosesRaw()`
-- `getPosesInRect(x, y, w, h)`
+- `getPosesInRect(x, y, w, h)` (mapped to the same rect as `image(video, x, y, w, h)`)
 - `getBest()`
 - `getPose(index=0)`
 - `getLimbPosition(person, id, x, y, w, h)`
@@ -1702,9 +1702,9 @@ new FaceMesh({
 ### Data
 - `getLatest()` -> `{ faces, best }`
 - `consumeNew()` -> `{ wasNew, faces, best }`
-- `getFaces()`
+- `getFaces()` (video-space pixels)
 - `getFacesRaw()`
-- `getFacesInRect(x, y, w, h)`
+- `getFacesInRect(x, y, w, h)` (mapped to the same rect as `image(video, x, y, w, h)`)
 - `getBest()`
 
 ### Polling
@@ -1739,7 +1739,7 @@ new EmotionTracker({
 ### Landmarks + emotions
 - `getLatest()` -> `{ positions, emotions }`
 - `consumeNew()` -> `{ wasNew, positions, emotions }`
-- `getPositions()` / `getPositionsRaw()` / `getPositionsInRect(...)`
+- `getPositions()` (video-space pixels) / `getPositionsRaw()` / `getPositionsInRect(...)` (draw-rect pixels)
 - `getPoint(index, x, y, w, h)`
 - `getLandmark(...)` / `getlandmark(...)`
 - `landmarkExists(...)` / `landmarkexists(...)`
@@ -1947,11 +1947,14 @@ When recurring listening is active, `speak()` automatically:
 
 ## 7) Coordinate-Space Rule (Important)
 
-For camera modules, data often comes in one of two spaces:
-- **video space** (`getHands()`, `getFaces()`, `getPoses()`)  
-- **draw rect space** (`get...InRect(x,y,w,h)`) matching `image(video, x, y, w, h)`
+For video-based modules, the default assumption is:
+- coordinates are pixel coordinates
+- the default getters (`getLatest()`, `getHands()`, `getFaces()`, `getPoses()`, `getPositions()`) are in video-space pixels
+- they are not normalized `0..1`
 
-If your overlays are misaligned, use the `...InRect(...)` method with the same `x,y,w,h` as your `image(...)` call.
+If you draw the camera with `image(video, x, y, w, h)`, use the matching `...InRect(x, y, w, h)` helper to get draw-rect pixels aligned to that image call.
+
+If your overlays are misaligned, it usually means you are mixing video-space pixels with draw-rect pixels.
 
 ## 8) Minimal End-to-End Example (Speech + UI polling)
 
