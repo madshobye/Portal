@@ -141,6 +141,14 @@ class PortalMqtt {
     return this.getResult();
   }
 
+  getLatest() {
+    return { result: this._lastMessage };
+  }
+
+  getlatest() {
+    return this.getLatest();
+  }
+
   consumeNew() {
     const wasNew = this._hasNew;
     this._hasNew = false;

@@ -302,6 +302,14 @@ class DmxSerial {
     return this.consumeNew();
   }
 
+  getLatest() {
+    return { result: this._result };
+  }
+
+  getlatest() {
+    return this.getLatest();
+  }
+
   getConnectionState() {
     return {
       ready: this.ready,

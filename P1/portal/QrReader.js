@@ -192,6 +192,8 @@ class QrReader {
     this._hasNew = false;
     return { wasNew, text: this._text, result: this._result };
   }
+  getLatest()        { return { text: this._text, result: this._result }; }
+  getlatest()        { return this.getLatest(); }
   getText()          { return this._text; }
   getResult()        { return this._result; }
 

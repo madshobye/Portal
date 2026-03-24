@@ -182,6 +182,14 @@ class HeartRateBLE {
     return this.consumeNew();
   }
 
+  getLatest() {
+    return { result: this._result };
+  }
+
+  getlatest() {
+    return this.getLatest();
+  }
+
   getResult() {
     return this._result;
   }

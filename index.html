@@ -371,7 +371,7 @@
             <li>Use `async setup()` and load Portal with `portalLoader.js`.</li>
             <li>Load Portal modules with `await loadScript("portal/&lt;module&gt;.js")`.</li>
             <li>Prefer a single copy-paste-friendly `sketch.js` unless multi-file output is requested.</li>
-            <li>Use simple `draw()` polling with `hasNewResult()` / `consumeNew()`.</li>
+            <li>Use simple `draw()` polling with `getLatest()` for current state, or `hasNewResult()` plus `consumeNew()` for edge-triggered logic.</li>
             <li>In p5.js v2+, prefer `async setup()` with `await` for normal asset and module loading instead of `preload()`.</li>
             <li>Use Portal’s `SoundFile` helper instead of old p5 sound-loading patterns.</li>
           </ul>
@@ -473,10 +473,8 @@ async function setup() {
 function draw() {
   background(0);
 
-  if (module?.hasNewResult?.()) {
-    const result = module.consumeNew ? module.consumeNew() : module.getResult?.();
-    // update sketch state here
-  }
+  const result = module?.getLatest?.();
+  // update sketch state here
 }</div>
         </article>
       </section>
@@ -497,7 +495,11 @@ async function setup() {
   createCanvas(windowWidth, windowHeight);
   video = await setupWebcamera(true, 640, 480, true);
   await loadScript("portal/handPose.js");
-  handPose = await new HandPose(video).init();
+  handPose = await new HandPose({
+    video,
+    videoIsFlipped: true,
+    backend: "webgl",
+  }).init();
   await handPose.start();
 }
 
@@ -505,10 +507,8 @@ function draw() {
   background(0);
   image(video, 0, 0, width, height);
 
-  if (handPose?.hasNewResult()) {
-    const hands = handPose.consumeNew();
-    // read landmarks and update state
-  }
+  const { first } = handPose?.getLatest?.() || {};
+  // read named landmarks like first.thumb_tip and first.index_finger_tip
 
   if (pinchDown) {
     fill(0, 255, 0);
@@ -565,7 +565,7 @@ function draw() {
           <li>Write your application logic in `sketch.js`.</li>
           <li>Load only the modules you need with `await loadScript("portal/&lt;module&gt;.js")`.</li>
           <li>Most modules expose either a class with `init()` and often `start()`, or a small set of helper functions.</li>
-          <li>Read module output in `draw()` using `hasNewResult()`, `consumeNew()`, `hasResult()`, or `getResult()` when available.</li>
+          <li>Read module output in `draw()` with `getLatest()` as the default pattern. Use `hasNewResult()` plus `consumeNew()` when you want to react once to fresh input, and use richer getters only when needed.</li>
         </ul>
         <div class="code" style="margin-top: 14px">let module;
 
@@ -580,10 +580,8 @@ async function setup() {
 
 function draw() {
   background(0);
-  if (module?.hasNewResult?.()) {
-    const result = module.consumeNew ? module.consumeNew() : module.getResult?.();
-    // use result here
-  }
+  const result = module?.getLatest?.();
+  // use result here
 }</div>
       </section>
 
@@ -624,9 +622,7 @@ function draw() {
   background(0);
   image(video, 0, 0, width, height);
 
-  if (tracker?.hasNewResult()) {
-    state = tracker.consumeNew ? tracker.consumeNew() : tracker.getResult?.();
-  }
+  state = tracker?.getLatest?.() || {};
 
   // draw overlays
   // draw UI
@@ -710,7 +706,7 @@ function draw() {
             <li>Make sure each needed module is loaded with `await loadScript("portal/&lt;module&gt;.js")`.</li>
             <li>Make sure async modules are initialized with `await new Module(...).init()`.</li>
             <li>Make sure streaming modules call `start()` when required.</li>
-            <li>Make sure `draw()` checks `hasNewResult()` or `hasResult()` before reading data.</li>
+            <li>Make sure `draw()` reads current state with `getLatest()`, or uses `hasNewResult()` plus `consumeNew()` when the sketch should react only once per update.</li>
           </ul>
         </article>
 
@@ -869,7 +865,7 @@ function draw() {
           bullets: [
             "Initialize with await new PortalSpeech(...).init().",
             "Use listenRecurring(...) for conversational sketches.",
-            "Prefer hasNewResult() + consumeNew() in draw().",
+            "Prefer getLatest() in draw(), and use hasNewResult() + consumeNew() only for edge-triggered logic.",
             "Stop listening before speaking if echo is a problem."
           ]
         },
@@ -952,7 +948,7 @@ function draw() {
           bullets: [
             "Use createQRCode(...) and drawQRCode(...) for output.",
             "Use QrReader with setupWebcamera(...) for input.",
-            "Prefer polling getText() / hasNewResult() in draw()."
+            "Prefer getLatest() for the current QR state, or hasNewResult() + consumeNew() for new scans only."
           ]
         },
         {
@@ -962,9 +958,9 @@ function draw() {
           description: "Camera-driven tracking for hands, body skeletons, face landmarks, and emotion estimates.",
           bullets: [
             "Use await setupWebcamera(...) first.",
-            "Pass the video into the module constructor.",
+            "Pass the video in the module's documented constructor shape.",
             "Initialize with await new Module(...).init().",
-            "Start with await module.start() when required, then draw results in draw()."
+            "Start with await module.start() when required, then use getLatest() in draw(). Keep consumeNew() and getters for change-triggered or richer access patterns."
           ]
         },
         {
@@ -1006,10 +1002,8 @@ async function setup() {
 
 function draw() {
   background(20);
-  if (speech?.hasNewResult()) {
-    const { text } = speech.consumeNew();
-    heard = text || "";
-  }
+  const { text } = speech?.getLatest?.() || {};
+  heard = text || "";
   fill(255);
   text(heard, 20, 40);
 }`

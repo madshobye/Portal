@@ -261,6 +261,14 @@ class PortalTransformer {
     return this.consumeNew();
   }
 
+  getLatest() {
+    return { result: this._lastResult };
+  }
+
+  getlatest() {
+    return this.getLatest();
+  }
+
   getAnswer() {
     return String(this._lastResult?.answer || "");
   }

@@ -225,6 +225,14 @@ class PortalSpeech {
     return this.consumeNew();
   }
 
+  getLatest() {
+    return { text: this._resultText, result: this._resultText };
+  }
+
+  getlatest() {
+    return this.getLatest();
+  }
+
   getResult() {
     return this._resultText;
   }

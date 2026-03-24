@@ -83,6 +83,29 @@ class MultiTouch {
     this._hasNew = false;
   }
 
+  consumeNew() {
+    const wasNew = this._hasNew;
+    this._hasNew = false;
+    return {
+      wasNew,
+      touches: this.getTouches(),
+      first: this.getFirstTouch(),
+      count: this.getTouchCount(),
+    };
+  }
+
+  getLatest() {
+    return {
+      touches: this.getTouches(),
+      first: this.getFirstTouch(),
+      count: this.getTouchCount(),
+    };
+  }
+
+  getlatest() {
+    return this.getLatest();
+  }
+
   getTouches() {
     return this._orderedIds
       .map((id) => this._touchMap.get(id))

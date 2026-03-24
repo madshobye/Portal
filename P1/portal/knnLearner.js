@@ -285,6 +285,8 @@ class KnnLearner {
     return { wasNew, result: this._lastResult };
   }
   consumenew() { return this.consumeNew(); }
+  getLatest() { return { result: this._lastResult }; }
+  getlatest() { return this.getLatest(); }
 
   getResult() { return this._lastResult; }
   getresult() { return this.getResult(); }

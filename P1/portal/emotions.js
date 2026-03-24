@@ -123,6 +123,27 @@ class EmotionTracker {
     this._hasNew = false;
   }
 
+  consumeNew() {
+    const wasNew = this._hasNew;
+    this._hasNew = false;
+    return {
+      wasNew,
+      positions: this.getPositions(),
+      emotions: this.getEmotions(),
+    };
+  }
+
+  getLatest() {
+    return {
+      positions: this.getPositions(),
+      emotions: this.getEmotions(),
+    };
+  }
+
+  getlatest() {
+    return this.getLatest();
+  }
+
   getPositions() {
     return this.positionsVideo;
   }

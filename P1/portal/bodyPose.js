@@ -209,6 +209,20 @@ class BodyPose {
     this._hasNew = false;
   }
 
+  consumeNew() {
+    const wasNew = this._hasNew;
+    this._hasNew = false;
+    return { wasNew, poses: this.getPoses(), best: this.getBest() };
+  }
+
+  getLatest() {
+    return { poses: this.getPoses(), best: this.getBest() };
+  }
+
+  getlatest() {
+    return this.getLatest();
+  }
+
   getPoses() {
     return this.posesVideo;
   }

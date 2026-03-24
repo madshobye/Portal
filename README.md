@@ -169,10 +169,8 @@ async function setup() {
 function draw() {
   background(0);
 
-  if (speech?.hasNewResult()) {
-    const { text } = speech.consumeNew();
-    heard = text || "";
-  }
+  const { text } = speech?.getLatest?.() || {};
+  heard = text || "";
 
   fill(255);
   text(heard, 20, 40);
@@ -186,8 +184,14 @@ Portal is easiest to use when the sketch polls state each frame.
 Prefer:
 - `hasResult()`
 - `hasNewResult()`
+- `getLatest()`
 - `consumeNew()`
 - `getResult()`
+
+Default rule:
+- use `getLatest()` when you simply want the newest state each frame
+- use `hasNewResult()` + `consumeNew()` when you want to react once to new input
+- treat named getters like `getHands()`, `getBest()`, `getLeftHand()`, or `getRightHand()` as convenience helpers for richer access patterns
 
 Only use callbacks when they are clearly simpler than polling.
 
@@ -343,10 +347,8 @@ async function setup() {
 function draw() {
   background(0);
 
-  if (module?.hasNewResult?.()) {
-    const result = module.consumeNew ? module.consumeNew() : module.getResult?.();
-    // update sketch state
-  }
+  const result = module?.getLatest?.();
+  // update sketch state
 
   fill(255);
   text(statusText, 20, 30);
@@ -388,7 +390,7 @@ Use Portal P1 APIs only.
 Load needed scripts with loadScript(...).
 Prefer current methods from the README.
 Use async setup() when a module needs init().
-In draw(), poll with hasNewResult()/consumeNew() when available.
+In draw(), poll with `hasNewResult()` and read the new state with `consumeNew()`.
 Do not invent undocumented Portal helpers.
 ```
 
@@ -421,7 +423,11 @@ async function setup() {
   createCanvas(windowWidth, windowHeight);
   video = await setupWebcamera(true, 640, 480, true);
   await loadScript("portal/handPose.js");
-  handPose = await new HandPose(video).init();
+  handPose = await new HandPose({
+    video,
+    videoIsFlipped: true,
+    backend: "webgl",
+  }).init();
   await handPose.start();
 }
 
@@ -429,10 +435,8 @@ function draw() {
   background(0);
   image(video, 0, 0, width, height);
 
-  if (handPose?.hasNewResult()) {
-    const hands = handPose.consumeNew();
-    // update state here
-  }
+  const { first: hand } = handPose?.getLatest?.() || {};
+  // update state here from named joints like hand.thumb_tip
 }
 ```
 
@@ -542,12 +546,15 @@ async function setup() {
 
 function draw() {
   background(0);
-  if (module?.hasNewResult?.()) {
-    const result = module.consumeNew ? module.consumeNew() : module.getResult?.();
-    // use result
-  }
+  const result = module?.getLatest?.();
+  // use result
 }
 ```
+
+Simple rule:
+- use `getLatest()` as the default read pattern
+- use `hasNewResult()` + `consumeNew()` when you only want to react once per update
+- keep getters like `getBest()`, `getHands()`, or `getLeftHand()` for convenience and legacy code
 
 ## Module Examples
 
@@ -750,10 +757,7 @@ function draw() {
   background(0);
   image(video, 0, 0, width, height);
 
-  if (tracker?.hasNewResult()) {
-    const result = tracker.consumeNew ? tracker.consumeNew() : tracker.getResult?.();
-    derivedState = result || {};
-  }
+  derivedState = tracker?.getLatest?.() || {};
 
   // draw state
   // draw UI
@@ -802,10 +806,8 @@ async function setup() {
 }
 
 function draw() {
-  if (module?.hasNewResult()) {
-    const data = module.consumeNew ? module.consumeNew() : null;
-    // react to new data
-  }
+  const data = module?.getLatest?.();
+  // react to new data
 }
 ```
 
@@ -839,10 +841,8 @@ async function setup() {
 function draw() {
   background(0);
 
-  if (module?.hasNewResult?.()) {
-    const data = module.consumeNew ? module.consumeNew() : module.getResult?.();
-    // react to data
-  }
+  const data = module?.getLatest?.();
+  // react to data
 }
 ```
 
@@ -1036,10 +1036,8 @@ async function setup() {
 }
 
 function draw() {
-  if (speech?.hasNewResult()) {
-    const { text } = speech.consumeNew();
-    print("final:", text);
-  }
+  const { text } = speech?.getLatest?.() || {};
+  if (text) print("final:", text);
 }
 ```
 
@@ -1290,10 +1288,11 @@ When mapping is not working, check:
 Many modules expose:
 - `hasResult()`
 - `hasNewResult()`
+- `getLatest()`
 - `resetNewFlag()`
-- `consumeNew()` (when implemented)
+- `consumeNew()`
 
-This supports easy `draw()` polling instead of callback-only code.
+Use `getLatest()` as the default beginner read method in `draw()`. Use `hasNewResult()` + `consumeNew()` when you specifically want to react once to fresh input, then reach for richer getters only when you need a more specific view of the state.
 
 ## `NeuralLearner` (`portal/neuralLearner.js`)
 
@@ -1340,6 +1339,7 @@ new NeuralLearner({
 - `isTrained()`
 - `hasResult()`
 - `hasNewResult()`
+- `getLatest()` / `getlatest()`
 - `resetNewFlag()`
 - `consumeNew()`
 - `getResult()`
@@ -1412,6 +1412,7 @@ new KnnLearner({
 ### Polling state
 - `hasResult()`
 - `hasNewResult()` / `hasnewresult()`
+- `getLatest()` / `getlatest()`
 - `resetNewFlag()`
 - `consumeNew()` / `consumenew()`
 - `getResult()` / `getresult()`
@@ -1456,6 +1457,7 @@ new PortalMqtt({
 ### Polling helpers
 - `hasResult()`
 - `hasNewResult()` / `hasnewresult()`
+- `getLatest()` / `getlatest()`
 - `resetNewFlag()`
 - `consumeNew()` / `consumenew()`
 - `getResult()` / `getresult()`
@@ -1508,6 +1510,7 @@ new HeartRateBLE({
 ### Reading + polling
 - `hasResult()`
 - `hasNewResult()` / `hasnewresult()`
+- `getLatest()` / `getlatest()`
 - `resetNewFlag()`
 - `consumeNew()` / `consumenew()`
 - `getResult()` / `getresult()`
@@ -1580,6 +1583,7 @@ Structured result:
 ### Polling helpers
 - `hasResult()`
 - `hasNewResult()` / `hasnewresult()`
+- `getLatest()` / `getlatest()`
 - `resetNewFlag()`
 - `consumeNew()` / `consumenew()`
 - `getResult()` / `getresult()`
@@ -1619,11 +1623,21 @@ new HandPose({
 - `stop()`
 
 ### Data
+- `getLatest()` -> `{ hands, left, right, first, second }`
+- `consumeNew()` -> `{ wasNew, hands, left, right, first, second }`
 - `getHands()` (video-space, flipped)
 - `getHandsRaw()`
 - `getHandsInRect(x, y, w, h)`
+- `getFirstHand()` / `getSecondHand()`
 - `getLeftHand()` / `getRightHand()`
 - `getLeftHandInRect(...)` / `getRightHandInRect(...)`
+
+### Polling
+- `hasResult()`
+- `hasNewResult()`
+- `getLatest()`
+- `resetNewFlag()`
+- `consumeNew()`
 
 ### Draw
 - `drawHands(x=0, y=0, w=null, h=null, ptSize=6, drawSkeleton=true, showLabels=false)`
@@ -1647,6 +1661,8 @@ new BodyPose({
 - `stop()`
 
 ### Data
+- `getLatest()` -> `{ poses, best }`
+- `consumeNew()` -> `{ wasNew, poses, best }`
 - `getPoses()`
 - `getPosesRaw()`
 - `getPosesInRect(x, y, w, h)`
@@ -1654,6 +1670,13 @@ new BodyPose({
 - `getPose(index=0)`
 - `getLimbPosition(person, id, x, y, w, h)`
 - `getLimpPosition(...)` (backward-compat alias)
+
+### Polling
+- `hasResult()`
+- `hasNewResult()`
+- `getLatest()`
+- `resetNewFlag()`
+- `consumeNew()`
 
 ### Draw
 - `drawPoses(x, y, w, h, options)`
@@ -1677,10 +1700,19 @@ new FaceMesh({
 - `stop()`
 
 ### Data
+- `getLatest()` -> `{ faces, best }`
+- `consumeNew()` -> `{ wasNew, faces, best }`
 - `getFaces()`
 - `getFacesRaw()`
 - `getFacesInRect(x, y, w, h)`
 - `getBest()`
+
+### Polling
+- `hasResult()`
+- `hasNewResult()`
+- `getLatest()`
+- `resetNewFlag()`
+- `consumeNew()`
 
 ### Draw
 - `drawKeypoints(x=0, y=0, w=null, h=null, { minConfidence, pointSize, color })`
@@ -1705,6 +1737,8 @@ new EmotionTracker({
 - `stop()`
 
 ### Landmarks + emotions
+- `getLatest()` -> `{ positions, emotions }`
+- `consumeNew()` -> `{ wasNew, positions, emotions }`
 - `getPositions()` / `getPositionsRaw()` / `getPositionsInRect(...)`
 - `getPoint(index, x, y, w, h)`
 - `getLandmark(...)` / `getlandmark(...)`
@@ -1713,6 +1747,13 @@ new EmotionTracker({
 - `getEmotions()`
 - `getEmotion(name)`
 - `getDominantEmotion()`
+
+### Polling
+- `hasResult()`
+- `hasNewResult()`
+- `getLatest()`
+- `resetNewFlag()`
+- `consumeNew()`
 
 ### Draw
 - `drawPoints(x, y, w, h, opts)`
@@ -1739,6 +1780,7 @@ new QrReader({
 ### Data
 - `hasResult()`
 - `hasNewResult()`
+- `getLatest()` -> `{ text, result }`
 - `resetNewFlag()`
 - `consumeNew()` -> `{ wasNew, text, result }`
 - `getText()`
@@ -1766,7 +1808,7 @@ new P5ObjectDetector({
 - `stop()`
 
 ### Data
-- `hasResult()` / `hasNewResult()` / `resetNewFlag()` / `consumeNew()`
+- `hasResult()` / `hasNewResult()` / `getLatest()` / `resetNewFlag()` / `consumeNew()`
 - `getDetections()`
 - `getBest()`
 
@@ -1792,7 +1834,7 @@ new P5ImageClassifier({
 - `stop()`
 
 ### Data
-- `hasResult()` / `hasNewResult()` / `resetNewFlag()` / `consumeNew()`
+- `hasResult()` / `hasNewResult()` / `getLatest()` / `resetNewFlag()` / `consumeNew()`
 - `getResults()`
 - `getBest()`
 
@@ -1835,6 +1877,7 @@ new PortalSpeech({
 ### Result polling
 - `hasResult()`
 - `hasNewResult()` / `hasnewresult()`
+- `getLatest()` / `getlatest()`
 - `resetNewFlag()`
 - `consumeNew()` / `consumenew()`
 - `getResult()` / `getresult()` / `getText()`
@@ -1931,8 +1974,8 @@ function draw() {
     else speech.listenRecurring();
   }
 
-  if (speech?.hasNewResult()) {
-    const { text } = speech.consumeNew();
+  const { text } = speech?.getLatest?.() || {};
+  if (text) {
     if (speech.isMatch("red")) speech.speak("i like blue", "en-GB");
     fill(255);
     text(text, 30, 130);
@@ -1943,5 +1986,5 @@ function draw() {
 ## 9) Notes
 
 - Portal is designed for **fast sketching first**: simple constructor + `init/start` + polling in `draw()`.
-- Prefer polling (`hasNewResult()` + `consumeNew()`) for readability in sketch loops.
+- Prefer polling with `getLatest()` for current state, and use `hasNewResult()` + `consumeNew()` when you need edge-triggered updates.
 - Callback style is still supported in most modules when you want event-driven behavior.

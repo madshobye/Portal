@@ -73,6 +73,9 @@ class P5ImageClassifier {
     return { wasNew, results: this.results, best: this.best };
   }
 
+  getLatest() { return { results: this.results, best: this.best }; }
+  getlatest() { return this.getLatest(); }
+
   /** @returns {Array|null} last results array */
   getResults() { return this.results; }
 

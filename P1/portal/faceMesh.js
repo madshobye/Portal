@@ -188,6 +188,20 @@ class FaceMesh {
     this._hasNew = false;
   }
 
+  consumeNew() {
+    const wasNew = this._hasNew;
+    this._hasNew = false;
+    return { wasNew, faces: this.getFaces(), best: this.getBest() };
+  }
+
+  getLatest() {
+    return { faces: this.getFaces(), best: this.getBest() };
+  }
+
+  getlatest() {
+    return this.getLatest();
+  }
+
   getFaces() {
     return this.facesVideo;
   }

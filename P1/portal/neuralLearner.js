@@ -422,6 +422,14 @@ class NeuralLearner {
     return this.consumeNew();
   }
 
+  getLatest() {
+    return { result: this._lastResult };
+  }
+
+  getlatest() {
+    return this.getLatest();
+  }
+
   getResult() {
     return this._lastResult;
   }

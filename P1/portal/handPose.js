@@ -188,6 +188,32 @@ class HandPose {
   resetNewFlag() {
     this._hasNew = false;
   }
+  consumeNew() {
+    const wasNew = this._hasNew;
+    this._hasNew = false;
+    return {
+      wasNew,
+      hands: this.getHands(),
+      left: this.getLeftHand(),
+      right: this.getRightHand(),
+      first: this.getFirstHand(),
+      second: this.getSecondHand(),
+    };
+  }
+
+  getLatest() {
+    return {
+      hands: this.getHands(),
+      left: this.getLeftHand(),
+      right: this.getRightHand(),
+      first: this.getFirstHand(),
+      second: this.getSecondHand(),
+    };
+  }
+
+  getlatest() {
+    return this.getLatest();
+  }
 
   /** VIDEO-space, flipped to match a flipped feed, NO scaling. Includes named joints. */
   getHands() {

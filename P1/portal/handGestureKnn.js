@@ -275,6 +275,18 @@ class HandGestureKnn {
     return { wasNew, result: this._lastGestureResult };
   }
 
+  getLatest() {
+    return {
+      result: this._lastGestureResult,
+      first: this.handPose?.getFirstHand?.() || null,
+      second: this.handPose?.getSecondHand?.() || null,
+    };
+  }
+
+  getlatest() {
+    return this.getLatest();
+  }
+
   getResult() {
     return this._lastGestureResult;
   }

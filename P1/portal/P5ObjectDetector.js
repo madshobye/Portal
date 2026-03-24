@@ -107,6 +107,9 @@ class P5ObjectDetector {
     return { wasNew, detections: this.detections, best: this.best };
   }
 
+  getLatest() { return { detections: this.detections, best: this.best }; }
+  getlatest() { return this.getLatest(); }
+
   /** @returns {Array|null} last detections array */
   getDetections() { return this.detections; }
 
