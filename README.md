@@ -1249,6 +1249,12 @@ Core setup:
 - `mapper.render()`
 - bottom-right `100x100` hold for `3s` toggles mapper corner markers by default
 
+Current interaction model:
+- `ProjectionMapper` reads `uiSlim2` pointer and key state internally when `uiSlim2` is loaded
+- normal sketches should call `mapper.render()` every frame and let the mapper handle corner dragging itself
+- do not add sketch-level `mousePressed()`, `mouseDragged()`, or `mouseReleased()` wrappers just to forward mapper events in the normal `uiSlim2` setup
+- the legacy `mapper.mousePressed(...)`, `mapper.mouseDragged(...)`, and `mapper.mouseReleased()` methods still exist for non-`uiSlim2` or unusual setups
+
 Persistence:
 - `saveAll()` / `loadAll()` (legacy per-surface localStorage keys)
 - `exportConfig()` / `importConfig(config, { replace=true })`
@@ -1272,9 +1278,11 @@ mapper.downloadExport("my_mapping.json");
 When mapping is not working, check:
 - you created the sketch with `WEBGL`
 - you loaded `portal/mapper.js`
+- `uiSlim2` is available so the mapper can read shared pointer state
 - you draw into the returned `p5.Graphics` surfaces, not directly onto the main canvas
 - you call `mapper.render()` every frame
-- your mouse/key handlers forward events to the mapper when using manual calibration
+- you are using `saveAll()` / `loadAll()` if you want the built-in auto-save path
+- only use sketch-level mouse forwarding if you are intentionally bypassing `uiSlim2`
 
 ## 5) Tracking + ML Modules
 

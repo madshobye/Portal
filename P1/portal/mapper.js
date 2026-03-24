@@ -330,6 +330,7 @@ class ProjectionMapper {
 
   // Call in draw(): renders all surfaces with inverse-homography per-pixel mapping.
   render() {
+    this._ensureUiSlimFrame();
     this._syncUiSlimInput();
     this._handleBottomLeftToggle();
 
@@ -387,7 +388,7 @@ class ProjectionMapper {
     if (this.calibrate) this._drawOverlays();
   }
 
-  // ---- Event forwarding (call these from sketch.js mouse handlers) ----
+  // ---- Legacy event forwarding (optional when uiSlim is active) ----
   mousePressed(mx = mouseX, my = mouseY) {
     if (!this.calibrate) return;
     const pick = this._pickCorner(mx, my);
@@ -850,6 +851,17 @@ class ProjectionMapper {
         }
       }
     }
+  }
+
+  _ensureUiSlimFrame() {
+    if (typeof uiUpdateSimple !== "function") return;
+
+    const lastFrame =
+      typeof window !== "undefined" ? window.__uiSlimLastUpdateFrame : null;
+    const currentFrame = typeof frameCount !== "undefined" ? frameCount : null;
+
+    if (lastFrame === currentFrame) return;
+    uiUpdateSimple();
   }
 
   keyPressed(key) {

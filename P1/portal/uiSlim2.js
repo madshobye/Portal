@@ -427,6 +427,9 @@ function uiSetDebugOverlayVisible(nextVisible) {
 }
 
 function uiUpdate(_mx,_my,_mp,_key,_w,_h,_keyPressed){
+  if (typeof window !== "undefined") {
+    window.__uiSlimLastUpdateFrame = typeof frameCount !== "undefined" ? frameCount : null;
+  }
   uiKeyOld = uiKey;
   uiSWidth=_w; uiSHeight=_h; uiKey=_key;
   uiMXOld=uiMX; uiMYOld=uiMY; uiMPOld=uiMP;
