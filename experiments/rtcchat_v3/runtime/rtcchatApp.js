@@ -67,6 +67,7 @@ let linkCloseBtnEl;
 let responsePasteCardEl;
 let responsePasteInputEl;
 let responsePasteBtnEl;
+let qrImageEl;
 
 let chatMessages = [];
 let canvasMode = "";
@@ -89,8 +90,11 @@ let topPanelVisible = APP_MODEL.toggles.infoVisible;
 let reconnectTimer = null;
 let reconnectAttemptInFlight = false;
 let isShuttingDown = false;
-let meshReconnectTimers = new Map();
 let view = null;
+let helpers = null;
+let bundleCodec = null;
+let meshProtocol = null;
+let onboarding = null;
 
 async function appSetup() {
   const canvas = createCanvas(windowWidth, windowHeight);
@@ -110,6 +114,137 @@ async function appSetup() {
   if (!window.RtcChatV3View) {
     await loadScript("ui/rtcchatView.js");
   }
+  if (!window.RtcChatV3Helpers) {
+    await loadScript("runtime/helpers.js");
+  }
+  if (!window.RtcChatV3BundleCodec) {
+    await loadScript("runtime/bundleCodec.js");
+  }
+  if (!window.RtcChatV3MeshProtocol) {
+    await loadScript("runtime/meshProtocol.js");
+  }
+  if (!window.RtcChatV3Onboarding) {
+    await loadScript("runtime/onboarding.js");
+  }
+
+  helpers = window.RtcChatV3Helpers.createHelpers({
+    selfPeerId: SELF_PEER_ID,
+    identity: window.RtcChatV3Identity,
+  });
+  bundleCodec = window.RtcChatV3BundleCodec;
+
+  meshProtocol = window.RtcChatV3MeshProtocol.createMeshProtocol({
+    SELF_PEER_ID,
+    MESH_RETRY_DELAY_MS,
+    getState: () => ({
+      role,
+      phase,
+      statusText,
+      roomId,
+      hostPeerId,
+      activeInvite,
+      shareLink,
+      qrCode,
+      connections,
+      knownPeerIds,
+      onboarderMqttClient,
+      isShuttingDown,
+    }),
+    setState: (patch) => {
+      if (Object.prototype.hasOwnProperty.call(patch, "role")) role = patch.role;
+      if (Object.prototype.hasOwnProperty.call(patch, "phase")) phase = patch.phase;
+      if (Object.prototype.hasOwnProperty.call(patch, "statusText")) statusText = patch.statusText;
+      if (Object.prototype.hasOwnProperty.call(patch, "activeInvite")) activeInvite = patch.activeInvite;
+      if (Object.prototype.hasOwnProperty.call(patch, "shareLink")) shareLink = patch.shareLink;
+      if (Object.prototype.hasOwnProperty.call(patch, "qrCode")) qrCode = patch.qrCode;
+    },
+    renderUi,
+    debugLog,
+    stopReconnectLoop,
+    updateOnboarderSubscription,
+    scheduleReconnectAttempt,
+    clearActiveInviteForEntry,
+    cleanupEntryMqttSignal,
+    publishOnboarderPresence,
+    createSignalBundle,
+    buildSdpFromBundle,
+    candidateToInit,
+    sendJson,
+    addSystemMessage,
+    handleIncomingChat,
+  });
+
+  onboarding = window.RtcChatV3Onboarding.createOnboardingRuntime({
+    DEFAULT_ROOM_NAME,
+    RECONNECT_RETRY_DELAY_MS,
+    LOCAL_RESPONSE_CHANNEL,
+    LOCAL_RESPONSE_KEY,
+    getState: () => ({
+      SELF_PEER_ID,
+      role,
+      phase,
+      statusText,
+      roomId,
+      hostPeerId,
+      activeInvite,
+      qrCode,
+      shareLink,
+      connections,
+      knownPeerIds,
+      appliedResponseSignatures,
+      applyingResponseInviteIds,
+      onboarderMqttClient,
+      onboarderReplyTopic,
+      onboarderWaiters,
+      onboarderEnabled,
+      localResponseChannel,
+      responsePasteInputEl,
+    }),
+    setState: (patch) => {
+      if (Object.prototype.hasOwnProperty.call(patch, "role")) role = patch.role;
+      if (Object.prototype.hasOwnProperty.call(patch, "phase")) phase = patch.phase;
+      if (Object.prototype.hasOwnProperty.call(patch, "statusText")) statusText = patch.statusText;
+      if (Object.prototype.hasOwnProperty.call(patch, "roomId")) roomId = patch.roomId;
+      if (Object.prototype.hasOwnProperty.call(patch, "hostPeerId")) hostPeerId = patch.hostPeerId;
+      if (Object.prototype.hasOwnProperty.call(patch, "activeInvite")) activeInvite = patch.activeInvite;
+      if (Object.prototype.hasOwnProperty.call(patch, "qrCode")) qrCode = patch.qrCode;
+      if (Object.prototype.hasOwnProperty.call(patch, "shareLink")) shareLink = patch.shareLink;
+      if (Object.prototype.hasOwnProperty.call(patch, "knownPeerIds")) knownPeerIds = patch.knownPeerIds;
+      if (Object.prototype.hasOwnProperty.call(patch, "localResponseChannel")) localResponseChannel = patch.localResponseChannel;
+    },
+    renderUi,
+    renderMessages,
+    debugLog,
+    scheduleReconnectAttempt,
+    stopReconnectLoop,
+    clearDiscoveredOnboarders,
+    waitForAvailableOnboarder,
+    publishOnboarderPresence,
+    updateOnboarderSubscription,
+    getConnectedPeerIds,
+    closeAllConnections,
+    createConnectionEntry,
+    wireDataChannel,
+    cleanupEntryMqttSignal,
+    clearActiveInviteForEntry,
+    waitForIceReady,
+    waitForInitialCandidates,
+    createSignalBundle,
+    toBundleString,
+    fromBundleString,
+    buildSdpFromBundle,
+    logBundle,
+    logParsedBundle,
+    tryCreateQrCode,
+    makeInviteId,
+    subscribeMqttTopic,
+    addInitialMqttCandidates,
+    extractResponseValue,
+    buildInviteLink,
+    buildResponseLink,
+    clearIncomingParams,
+    handleInviteMqttSignal,
+  });
 
   initLocalResponseRelay();
   buildUi(canvas);
@@ -125,9 +260,7 @@ async function appSetup() {
 function appDraw() {
   background("#0b0b0d");
 
-  if ((phase === "show-invite" || phase === "show-response") && qrCode) {
-    drawQrScreen();
-  } else if (phase === "connected" || phase === "hosting" || phase === "joining" || phase === "reconnecting") {
+  if (phase === "connected" || phase === "hosting" || phase === "joining" || phase === "reconnecting") {
     drawConnectedBackdrop();
   } else {
     clear();
@@ -182,6 +315,7 @@ function buildUi(canvas) {
     responsePasteCardEl,
     responsePasteInputEl,
     responsePasteBtnEl,
+    qrImageEl,
   } = view.refs);
 
   composerInputEl.addEventListener("focus", () => {
@@ -197,6 +331,7 @@ function renderUi() {
   const showInviteLink = phase === "show-invite" || phase === "show-response";
   const showResponsePaste = !!activeInvite && phase === "awaiting-response";
   const knownList = [SELF_PEER_ID, ...[...knownPeerIds].filter((id) => id !== SELF_PEER_ID)];
+  const qrImageSrc = hasRoomUi ? bundleCodec.qrCodeToSvgDataUrl(qrCode) : "";
 
   const actions = [
     { label: onboarderEnabled ? "Onboarder: On" : "Onboarder: Off", onClick: toggleOnboarderMode, secondary: true },
@@ -227,7 +362,9 @@ function renderUi() {
     shareLink,
     showResponsePaste,
     showChat: connectedPeers.length > 0,
-    showCanvas: hasRoomUi,
+    showCanvas: false,
+    showQrImage: hasRoomUi,
+    qrImageSrc,
     actions,
   });
 
@@ -260,23 +397,6 @@ function drawConnectedBackdrop() {
   circle(width * 0.78, height * 0.72, width * 0.46);
 }
 
-function drawQrScreen() {
-  background("#f6f7fb");
-  if (qrCode) {
-    const size = min(width, height) - 24;
-    const x = (width - size) * 0.5;
-    const y = (height - size) * 0.5;
-    drawQRCode(qrCode, x, y, size);
-  } else {
-    fill(180, 40, 40);
-    noStroke();
-    textSize(18);
-    textAlign(CENTER, CENTER);
-    text("QR not available", width * 0.5, height * 0.5);
-    textAlign(LEFT, BASELINE);
-  }
-}
-
 function syncCanvasMode() {
   if (!canvasEl || !stageCardEl) return;
   const stageMode = !!shareLink;
@@ -288,11 +408,11 @@ function syncCanvasMode() {
     const stageSize = Math.max(1, Math.round(Math.min(panelWidth, availableHeight, 560)));
     stageCardEl.style.width = `${stageSize}px`;
     stageCardEl.style.height = `${stageSize}px`;
-    if (canvasMode !== "stage" || Math.abs(stageSize - lastStageSize) > 1) {
+    if (!qrCode && (canvasMode !== "stage" || Math.abs(stageSize - lastStageSize) > 1)) {
       resizeCanvas(stageSize, stageSize);
       lastStageSize = stageSize;
-      canvasMode = "stage";
     }
+    canvasMode = "stage";
   } else if (canvasMode !== "window") {
     stageCardEl.style.width = "";
     stageCardEl.style.height = "";
@@ -303,157 +423,15 @@ function syncCanvasMode() {
 }
 
 async function handleIncomingLink() {
-  const params = new URLSearchParams(window.location.search);
-  const connectValue = params.get("connect");
-  const responseValue = params.get("response");
-  const room = params.get("room");
-  const inviteId = params.get("invite");
-  const host = params.get("host");
-
-  if (connectValue && inviteId && host) {
-    await startAsJoinerFromLink(connectValue, room, inviteId, host);
-    return;
-  }
-
-  if (responseValue && inviteId) {
-    forwardResponseToLocalInviter({
-      type: "rtcchat-v3-response",
-      inviteId,
-      responseValue,
-      roomId: room || DEFAULT_ROOM_NAME,
-      sentAt: Date.now(),
-    });
-    return;
-  }
-
-  role = "idle";
-  phase = "reconnecting";
-  statusText = "Connecting...";
-  renderUi();
-  scheduleReconnectAttempt("startup", 0);
+  return onboarding.handleIncomingLink();
 }
 
 async function tryJoinViaOnboarder(timeoutMs = 4000) {
-  if (!onboarderMqttClient?.connected) return false;
-
-  statusText = "Connecting...";
-  renderUi();
-
-  const onboarder = await waitForAvailableOnboarder(timeoutMs);
-  if (!onboarder?.requestTopic) {
-    statusText = "Connecting...";
-    renderUi();
-    return false;
-  }
-
-  const requestId = `req-${Math.random().toString(36).slice(2, 10)}`;
-  debugLog("onboarder_pick", {
-    onboarderId: onboarder.peerId,
-    roomId: onboarder.roomId,
-  });
-
-  const response = await new Promise((resolve) => {
-    const timer = setTimeout(() => {
-      onboarderWaiters.delete(requestId);
-      resolve(null);
-    }, timeoutMs);
-
-    onboarderWaiters.set(requestId, (payload) => {
-      clearTimeout(timer);
-      onboarderWaiters.delete(requestId);
-      resolve(payload);
-    });
-
-    onboarderMqttClient.publish(
-      onboarder.requestTopic,
-      JSON.stringify({
-        requesterId: SELF_PEER_ID,
-        requestId,
-        replyTopic: onboarderReplyTopic,
-        targetOnboarderId: onboarder.peerId,
-      })
-    ).catch(() => {
-      clearTimeout(timer);
-      onboarderWaiters.delete(requestId);
-      resolve(null);
-    });
-  });
-
-  if (response?.offerSdp && response?.peerSignalTopic && response?.hostSignalTopic) {
-    try {
-      debugLog("onboarder_join", {
-        hostId: response.hostId || "",
-        inviteId: response.inviteId || "",
-        roomId: response.roomId || "",
-        mode: "mqtt",
-      });
-      await startAsJoinerViaMqtt(response);
-      return true;
-    } catch (error) {
-      debugLog("onboarder_join_error", { mode: "mqtt", msg: String(error?.message || error) });
-      statusText = `Onboarder error: ${error?.message || error}`;
-      renderUi();
-      return false;
-    }
-  }
-
-  if (!response?.link) {
-    statusText = "Connecting...";
-    renderUi();
-    return false;
-  }
-
-  try {
-    const url = new URL(response.link);
-    const connectValue = url.searchParams.get("connect");
-    const room = url.searchParams.get("room") || response.roomId || DEFAULT_ROOM_NAME;
-    const inviteId = url.searchParams.get("invite") || response.inviteId || "";
-    const host = url.searchParams.get("host") || response.hostId || "";
-    if (!connectValue || !inviteId || !host) {
-      throw new Error("Onboarder response was missing connect details.");
-    }
-    debugLog("onboarder_join", { hostId: host, inviteId, roomId: room });
-    await startAsJoinerFromLink(connectValue, room, inviteId, host, {
-      mqttResponseTopic: response.responseTopic || "",
-      viaOnboarder: true,
-    });
-    return true;
-  } catch (error) {
-    debugLog("onboarder_join_error", { msg: String(error?.message || error) });
-    statusText = `Onboarder error: ${error?.message || error}`;
-    renderUi();
-    return false;
-  }
+  return onboarding.tryJoinViaOnboarder(timeoutMs);
 }
 
 async function initializeHostRoom(options = {}) {
-  const forceManualInvite = !!options.forceManualInvite;
-  stopReconnectLoop();
-  clearDiscoveredOnboarders();
-  closeAllConnections();
-  connections.clear();
-  knownPeerIds = new Set([SELF_PEER_ID]);
-  role = "host";
-  phase = "hosting";
-  roomId = DEFAULT_ROOM_NAME;
-  hostPeerId = SELF_PEER_ID;
-  shareLink = "";
-  qrCode = null;
-  activeInvite = null;
-  appliedResponseSignatures.clear();
-  applyingResponseInviteIds.clear();
-  statusText = onboarderEnabled && !forceManualInvite ? "Network ready. Waiting for MQTT onboarding..." : "Creating lounge invite...";
-  renderMessages();
-  renderUi();
-  debugLog("room_init", { role, roomId });
-  updateOnboarderSubscription();
-  if (onboarderEnabled && !forceManualInvite) {
-    phase = "hosting";
-    renderUi();
-    publishOnboarderPresence().catch(() => {});
-    return;
-  }
-  await createHostInvite();
+  return onboarding.initializeHostRoom(options);
 }
 
 function closeAllConnections() {
@@ -539,47 +517,18 @@ function stopReconnectLoop() {
 }
 
 function clearMeshReconnect(peerId) {
-  const timer = meshReconnectTimers.get(peerId);
-  if (!timer) return;
-  clearTimeout(timer);
-  meshReconnectTimers.delete(peerId);
+  if (!meshProtocol) return;
+  meshProtocol.clearMeshReconnect(peerId);
 }
 
 function clearAllMeshReconnects() {
-  for (const peerId of meshReconnectTimers.keys()) {
-    clearMeshReconnect(peerId);
-  }
+  if (!meshProtocol) return;
+  meshProtocol.clearAllMeshReconnects();
 }
 
 function scheduleMeshReconnect(peerId, relayPeerId, shouldInitiate, reason = "mesh-failed", delayMs = MESH_RETRY_DELAY_MS) {
-  if (isShuttingDown) return;
-  if (!peerId || peerId === SELF_PEER_ID) return;
-  if (!knownPeerIds.has(peerId)) return;
-  if (meshReconnectTimers.has(peerId)) return;
-
-  debugLog("mesh_reconnect_scheduled", {
-    peerId,
-    broker: relayPeerId || hostPeerId,
-    init: !!shouldInitiate,
-    reason,
-    delayMs,
-  });
-
-  const timer = setTimeout(() => {
-    meshReconnectTimers.delete(peerId);
-    if (isShuttingDown) return;
-    if (!knownPeerIds.has(peerId)) return;
-
-    debugLog("mesh_reconnect_attempt", {
-      peerId,
-      broker: relayPeerId || hostPeerId,
-      init: !!shouldInitiate,
-      reason,
-    });
-    maybeStartMeshConnection(peerId, relayPeerId || hostPeerId, shouldInitiate);
-  }, delayMs);
-
-  meshReconnectTimers.set(peerId, timer);
+  if (!meshProtocol) return;
+  meshProtocol.scheduleMeshReconnect(peerId, relayPeerId, shouldInitiate, reason, delayMs);
 }
 
 function shouldAutoReconnect() {
@@ -657,891 +606,91 @@ function useQrMode() {
 }
 
 function clearInviteView() {
-  shareLink = "";
-  qrCode = null;
-  if (activeInvite) {
-    phase = activeInvite ? "awaiting-response" : getConnectedPeerIds().length > 0 ? "connected" : "hosting";
-    statusText = activeInvite ? "Awaiting peer response..." : "Network ready.";
-  } else if (role === "peer") {
-    phase = "joining";
-    statusText = "Waiting for the network to accept response.";
-  }
-  renderUi();
+  return onboarding.clearInviteView();
 }
 
 async function createHostInvite(options = {}) {
-  const silent = !!options.silent;
-  if (role !== "host" && role !== "peer") return;
-  if (activeInvite?.entryKey) {
-    const stale = connections.get(activeInvite.entryKey);
-    if (stale && !stale.connectedIdentity) {
-      try {
-        stale.dc?.close?.();
-      } catch {}
-      try {
-        stale.pc?.close?.();
-      } catch {}
-      connections.delete(activeInvite.entryKey);
-    }
-  }
-
-  const inviteId = makeInviteId();
-  const entryKey = `invite:${inviteId}`;
-  const entry = createConnectionEntry({
-    key: entryKey,
-    peerId: entryKey,
-    kind: "bootstrap",
-    initiator: true,
-  });
-  entry.inviteId = inviteId;
-  entry.dc = entry.pc.createDataChannel("rtchat-room");
-  wireDataChannel(entry, entry.dc);
-  connections.set(entryKey, entry);
-  activeInvite = { inviteId, entryKey };
-  publishOnboarderPresence().catch(() => {});
-
-  const previousPhase = phase;
-  const previousStatus = statusText;
-
-  if (!silent) {
-    phase = "hosting";
-    statusText = "Creating invite link...";
-    renderUi();
-  }
-
-  try {
-    const offer = await entry.pc.createOffer();
-    await entry.pc.setLocalDescription(offer);
-    await waitForIceReady(entry);
-
-    const bundle = createSignalBundle("OB", entry.pc.localDescription.sdp, entry.localCandidates);
-    const bundleString = toBundleString(bundle);
-    shareLink = buildInviteLink(bundleString, roomId, inviteId, SELF_PEER_ID);
-    qrCode = tryCreateQrCode(shareLink);
-    logBundle("HOST INVITE", bundleString, bundle);
-    debugLog("invite_ready", {
-      inviteId,
-      roomId,
-      role,
-      len: shareLink.length,
-      cand: bundle.c.length,
-    });
-
-    if (silent) {
-      phase = previousPhase;
-      statusText = "Onboarder invite ready.";
-    } else {
-      phase = "show-invite";
-      statusText = qrCode
-        ? "Invite ready. Share it with the next peer."
-        : "Invite ready. QR unavailable for this link, use copy/share.";
-    }
-    renderUi();
-  } catch (error) {
-    console.error("[rtcchat_v3] host invite error", error);
-    debugLog("invite_error", { msg: String(error?.message || error) });
-    statusText = silent ? previousStatus : `Invite error: ${error?.message || error}`;
-    renderUi();
-  }
+  return onboarding.createHostInvite(options);
 }
 
 async function startAsJoinerFromLink(linkValue, room, inviteId, hostId, options = {}) {
-  stopReconnectLoop();
-  clearDiscoveredOnboarders();
-  const mqttResponseTopic = options.mqttResponseTopic || "";
-  const viaOnboarder = !!options.viaOnboarder;
-  closeAllConnections();
-  connections.clear();
-  knownPeerIds = new Set([SELF_PEER_ID, hostId]);
-  role = "peer";
-  phase = "joining";
-  roomId = room || DEFAULT_ROOM_NAME;
-  hostPeerId = hostId;
-  shareLink = "";
-  qrCode = null;
-  activeInvite = null;
-  statusText = "Applying invite link and building response...";
-  renderMessages();
-  renderUi();
-  debugLog("join_start", { inviteId, roomId, hostId });
-  updateOnboarderSubscription();
-
-  const hostEntry = createConnectionEntry({
-    key: hostPeerId,
-    peerId: hostPeerId,
-    kind: "host",
-    initiator: false,
-  });
-  connections.set(hostPeerId, hostEntry);
-
-  try {
-    const bundle = fromBundleString(linkValue);
-    logParsedBundle("JOIN OFFER", linkValue, bundle);
-
-    await hostEntry.pc.setRemoteDescription({ type: "offer", sdp: buildSdpFromBundle(bundle) });
-    for (const candidate of bundle.c || []) {
-      await hostEntry.pc.addIceCandidate({ candidate, sdpMLineIndex: 0 });
-      hostEntry.remoteCandidatesAdded += 1;
-    }
-
-    const answer = await hostEntry.pc.createAnswer();
-    await hostEntry.pc.setLocalDescription(answer);
-    await waitForIceReady(hostEntry);
-
-    const answerBundle = createSignalBundle("AB", hostEntry.pc.localDescription.sdp, hostEntry.localCandidates);
-    const answerString = toBundleString(answerBundle);
-    shareLink = buildResponseLink(answerString, roomId, inviteId, hostPeerId);
-    qrCode = tryCreateQrCode(shareLink);
-    logBundle("JOIN ANSWER", answerString, answerBundle);
-    debugLog("response_ready", {
-      inviteId,
-      roomId,
-      hostId,
-      len: shareLink.length,
-      cand: answerBundle.c.length,
-    });
-
-    if (mqttResponseTopic && onboarderMqttClient?.connected) {
-      await onboarderMqttClient.publish(
-        mqttResponseTopic,
-        JSON.stringify({
-          type: "rtcchat-v3-onboarder-response",
-          inviteId,
-          responseValue: answerString,
-          roomId,
-          fromPeerId: SELF_PEER_ID,
-        })
-      );
-      shareLink = "";
-      qrCode = null;
-      phase = "joining";
-      statusText = "Response sent to onboarder. Waiting for host...";
-      debugLog("response_forwarded_mqtt", {
-        inviteId,
-        roomId,
-        hostId,
-        viaOnboarder,
-      });
-    } else {
-      phase = "show-response";
-      statusText = qrCode
-        ? "Response ready. Paste it into the host tab."
-        : "Response ready. QR unavailable for this link, use copy/share.";
-    }
-    renderUi();
-  } catch (error) {
-    console.error("[rtcchat_v3] join error", error);
-    debugLog("join_error", { inviteId, msg: String(error?.message || error) });
-    statusText = `Join error: ${error?.message || error}`;
-    renderUi();
-  }
+  return onboarding.startAsJoinerFromLink(linkValue, room, inviteId, hostId, options);
 }
 
 async function startAsJoinerViaMqtt(response) {
-  stopReconnectLoop();
-  clearDiscoveredOnboarders();
-  closeAllConnections();
-  connections.clear();
-  knownPeerIds = new Set([SELF_PEER_ID, response.hostId]);
-  role = "peer";
-  phase = "joining";
-  roomId = response.roomId || DEFAULT_ROOM_NAME;
-  hostPeerId = response.hostId || "";
-  shareLink = "";
-  qrCode = null;
-  activeInvite = null;
-  statusText = "Applying onboarder offer...";
-  renderMessages();
-  renderUi();
-  debugLog("join_start", { inviteId: response.inviteId, roomId, hostId: hostPeerId, mode: "mqtt" });
-  updateOnboarderSubscription();
-
-  const hostEntry = createConnectionEntry({
-    key: hostPeerId,
-    peerId: hostPeerId,
-    kind: "host",
-    initiator: false,
-  });
-  hostEntry.inviteId = response.inviteId || "";
-  hostEntry.mqttSignal = {
-    role: "peer",
-    publishTopic: response.hostSignalTopic,
-    subscribeTopic: response.peerSignalTopic,
-  };
-  connections.set(hostPeerId, hostEntry);
-  await subscribeMqttTopic(response.peerSignalTopic, (result) => handleInviteMqttSignal(hostEntry, result));
-
-  try {
-    await hostEntry.pc.setRemoteDescription({ type: "offer", sdp: response.offerSdp });
-    await addInitialMqttCandidates(hostEntry, response.candidates || []);
-    const answer = await hostEntry.pc.createAnswer();
-    await hostEntry.pc.setLocalDescription(answer);
-    await waitForInitialCandidates(hostEntry, 350, 1);
-
-    await onboarderMqttClient.publish(
-      response.hostSignalTopic,
-      JSON.stringify({
-        type: "answer",
-        inviteId: response.inviteId,
-        fromPeerId: SELF_PEER_ID,
-        sdp: hostEntry.pc.localDescription.sdp,
-        candidates: hostEntry.localCandidateInits.slice(),
-      })
-    );
-    debugLog("mqtt_answer_sent", {
-      inviteId: response.inviteId,
-      to: response.hostSignalTopic,
-      cand: hostEntry.localCandidateInits.length,
-      sdpLen: hostEntry.pc.localDescription.sdp.length,
-    });
-
-    phase = "joining";
-    statusText = "Response sent to onboarder. Waiting for host...";
-    debugLog("response_forwarded_mqtt", {
-      inviteId: response.inviteId,
-      roomId,
-      hostId: hostPeerId,
-      cand: hostEntry.localCandidateInits.length,
-    });
-    renderUi();
-  } catch (error) {
-    console.error("[rtcchat_v3] join mqtt error", error);
-    debugLog("join_error", { inviteId: response.inviteId, mode: "mqtt", msg: String(error?.message || error) });
-    statusText = `Join error: ${error?.message || error}`;
-    renderUi();
-  }
+  return onboarding.startAsJoinerViaMqtt(response);
 }
 
 async function applyPastedResponseLink() {
-  if (!activeInvite) return;
-  const raw = String(responsePasteInputEl?.value || "").trim();
-  if (!raw) {
-    statusText = "Paste a response link first.";
-    renderUi();
-    return;
-  }
-
-  const entry = connections.get(activeInvite.entryKey);
-  if (!entry) {
-    statusText = "No pending invite is waiting for a response.";
-    renderUi();
-    return;
-  }
-
-  try {
-    const responseValue = extractResponseValue(raw);
-    await applyInviteResponse(activeInvite.inviteId, responseValue);
-    responsePasteInputEl.value = "";
-  } catch (error) {
-    console.error("[rtcchat_v3] apply response error", error);
-    statusText = `Response error: ${error?.message || error}`;
-    renderUi();
-  }
+  return onboarding.applyPastedResponseLink();
 }
 
 function initLocalResponseRelay() {
-  if (typeof BroadcastChannel !== "undefined") {
-    localResponseChannel = new BroadcastChannel(LOCAL_RESPONSE_CHANNEL);
-    localResponseChannel.onmessage = (event) => {
-      handleLocalResponseSignal(event?.data);
-    };
-  }
-
-  window.addEventListener("storage", (event) => {
-    if (event.key !== LOCAL_RESPONSE_KEY || !event.newValue) return;
-    try {
-      handleLocalResponseSignal(JSON.parse(event.newValue));
-    } catch {}
-  });
+  return onboarding.initLocalResponseRelay();
 }
 
 function forwardResponseToLocalInviter(payload) {
-  try {
-    localResponseChannel?.postMessage?.(payload);
-  } catch {}
-
-  try {
-    localStorage.setItem(LOCAL_RESPONSE_KEY, JSON.stringify(payload));
-    setTimeout(() => {
-      try {
-        localStorage.removeItem(LOCAL_RESPONSE_KEY);
-      } catch {}
-    }, 50);
-  } catch {}
-
-  role = "peer";
-  phase = "joining";
-  statusText = "Response forwarded to the inviter tab. You can close this tab.";
-  shareLink = "";
-  qrCode = null;
-  clearIncomingParams();
-  debugLog("response_forwarded", { inviteId: payload.inviteId, roomId: payload.roomId || roomId });
-  renderUi();
+  return onboarding.forwardResponseToLocalInviter(payload);
 }
 
 async function handleLocalResponseSignal(data) {
-  if (!data || data.type !== "rtcchat-v3-response") return;
-  if (!activeInvite || data.inviteId !== activeInvite.inviteId) return;
-
-  try {
-    await applyInviteResponse(data.inviteId, data.responseValue);
-  } catch (error) {
-    console.error("[rtcchat_v3] local response relay error", error);
-    debugLog("response_relay_error", {
-      inviteId: data.inviteId,
-      msg: String(error?.message || error),
-    });
-    statusText = `Response relay error: ${error?.message || error}`;
-    renderUi();
-  }
+  return onboarding.handleLocalResponseSignal(data);
 }
 
 async function applyInviteResponse(inviteId, responseValue) {
-  if (!activeInvite || activeInvite.inviteId !== inviteId) {
-    throw new Error("No matching pending invite for that response.");
-  }
-  if (applyingResponseInviteIds.has(inviteId)) {
-    return;
-  }
-
-  const entry = connections.get(activeInvite.entryKey);
-  if (!entry) {
-    throw new Error("No pending invite is waiting for a response.");
-  }
-
-  const bundle = fromBundleString(responseValue);
-  const responseSignature = `${inviteId}:${JSON.stringify(bundle)}`;
-  if (appliedResponseSignatures.has(responseSignature)) {
-    return;
-  }
-  logParsedBundle("HOST RESPONSE", responseValue, bundle);
-
-  applyingResponseInviteIds.add(inviteId);
-
-  statusText = "Applying response...";
-  renderUi();
-
-  const signalingState = entry.pc?.signalingState || "";
-  if (signalingState !== "have-local-offer") {
-    if (signalingState === "stable") {
-      appliedResponseSignatures.add(responseSignature);
-      applyingResponseInviteIds.delete(inviteId);
-      return;
-    }
-    applyingResponseInviteIds.delete(inviteId);
-    throw new Error(`Invite is not waiting for an answer (state: ${signalingState})`);
-  }
-
-  try {
-    await entry.pc.setRemoteDescription({ type: "answer", sdp: buildSdpFromBundle(bundle) });
-    appliedResponseSignatures.add(responseSignature);
-    entry.remoteCandidatesAdded = 0;
-    for (const candidate of bundle.c || []) {
-      await entry.pc.addIceCandidate({ candidate, sdpMLineIndex: 0 });
-      entry.remoteCandidatesAdded += 1;
-    }
-
-    shareLink = "";
-    qrCode = null;
-    phase = "joining";
-    statusText = "Response accepted. Waiting for peer hello...";
-    debugLog("response_applied", {
-      inviteId,
-      peerId: entry.peerId,
-      cand: entry.remoteCandidatesAdded,
-    });
-    renderUi();
-  } finally {
-    applyingResponseInviteIds.delete(inviteId);
-  }
+  return onboarding.applyInviteResponse(inviteId, responseValue);
 }
 
 function createConnectionEntry({ key, peerId, kind, initiator }) {
-  const entry = {
-    key,
-    peerId,
-    kind,
-    initiator,
-    pc: new RTCPeerConnection({
-      iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
-    }),
-    dc: null,
-    localCandidates: [],
-    remoteCandidatesAdded: 0,
-    state: "new",
-    connectedIdentity: kind !== "bootstrap",
-    meshTargets: new Set(),
-    introducedPeers: new Set(),
-    inviteId: "",
-    relayPeerId: "",
-    mqttSignal: null,
-    localCandidateInits: [],
-    pendingRemoteCandidates: [],
-    seenRemoteCandidateKeys: new Set(),
-  };
-
-  entry.pc.onicecandidate = (event) => {
-    if (event.candidate?.candidate) {
-      entry.localCandidates.push(event.candidate.candidate);
-      const candidateInit = candidateToInit(event.candidate);
-      entry.localCandidateInits.push(candidateInit);
-      if (entry.mqttSignal?.publishTopic && onboarderMqttClient?.connected) {
-        debugLog("mqtt_candidate_sent", {
-          inviteId: entry.inviteId,
-          peerId: entry.peerId,
-          to: entry.mqttSignal.publishTopic,
-          total: entry.localCandidateInits.length,
-        });
-        onboarderMqttClient.publish(
-          entry.mqttSignal.publishTopic,
-          JSON.stringify({
-            type: "candidate",
-            inviteId: entry.inviteId,
-            fromPeerId: SELF_PEER_ID,
-            candidate: candidateInit,
-          })
-        ).catch(() => {});
-      }
-    }
-  };
-
-  entry.pc.onconnectionstatechange = () => {
-    entry.state = entry.pc.connectionState || "unknown";
-    if (entry.state === "failed") {
-      const failedPeerId = entry.peerId;
-      const failedRelayPeerId = entry.relayPeerId || hostPeerId;
-      const failedInitiator = entry.initiator;
-      const failedKind = entry.kind;
-      addSystemMessage(`Connection failed for ${entry.peerId}.`);
-      debugLog("pc_failed", { peerId: entry.peerId, kind: entry.kind });
-      clearActiveInviteForEntry(entry, "failed");
-      cleanupEntryMqttSignal(entry);
-      connections.delete(entry.key);
-      updateOnboarderSubscription();
-      statusText = `Connection failed for ${entry.peerId}.`;
-      if (failedKind === "mesh") {
-        scheduleMeshReconnect(failedPeerId, failedRelayPeerId, failedInitiator, "pc-failed");
-      }
-      scheduleReconnectAttempt("pc-failed");
-      renderUi();
-    } else if (entry.state === "connected") {
-      stopReconnectLoop();
-      updateOnboarderSubscription();
-      if (entry.kind === "mesh") {
-        clearMeshReconnect(entry.peerId);
-      }
-      if (entry.mqttSignal) {
-        cleanupEntryMqttSignal(entry);
-      }
-      if (entry.kind === "mesh") {
-        statusText = `Mesh connected to ${entry.peerId}.`;
-        debugLog("mesh_connected", { peerId: entry.peerId });
-      } else if (entry.kind === "host" && role === "peer") {
-        phase = "connected";
-        statusText = "Connected to the network.";
-        debugLog("host_connected", { peerId: entry.peerId });
-      }
-      renderUi();
-    }
-  };
-
-  entry.pc.ondatachannel = (event) => {
-    wireDataChannel(entry, event.channel);
-  };
-
-  return entry;
+  return meshProtocol.createConnectionEntry({ key, peerId, kind, initiator });
 }
 
 function wireDataChannel(entry, channel) {
-  entry.dc = channel;
-  channel.onopen = () => {
-    stopReconnectLoop();
-    updateOnboarderSubscription();
-    if (entry.kind === "mesh") {
-      clearMeshReconnect(entry.peerId);
-    }
-    if (role === "peer" && entry.peerId === hostPeerId && entry.kind === "host") {
-      sendHelloToHost();
-    }
-
-    if (entry.kind === "mesh") {
-      knownPeerIds.add(entry.peerId);
-      addSystemMessage(`Direct network link open with ${entry.peerId}.`);
-      debugLog("dc_open", { peerId: entry.peerId, kind: entry.kind });
-    }
-
-    renderUi();
-  };
-
-  channel.onmessage = (event) => {
-    handleChannelMessage(entry, event.data);
-  };
-
-  channel.onclose = () => {
-    const closedPeerId = entry.peerId;
-    const closedRelayPeerId = entry.relayPeerId || hostPeerId;
-    const closedInitiator = entry.initiator;
-    const closedKind = entry.kind;
-    if (entry.kind === "bootstrap") {
-      clearActiveInviteForEntry(entry, "channel-close");
-      cleanupEntryMqttSignal(entry);
-      connections.delete(entry.key);
-    } else if (connections.get(entry.key) === entry) {
-      connections.delete(entry.key);
-    }
-    updateOnboarderSubscription();
-    if (closedKind === "mesh") {
-      scheduleMeshReconnect(closedPeerId, closedRelayPeerId, closedInitiator, "channel-close");
-    }
-    scheduleReconnectAttempt("channel-close");
-    renderUi();
-  };
-
-  channel.onerror = (event) => {
-    console.error("[rtcchat_v3] datachannel error", event);
-  };
+  return meshProtocol.wireDataChannel(entry, channel);
 }
 
 function sendHelloToHost() {
-  const hostEntry = connections.get(hostPeerId);
-  if (!hostEntry?.dc || hostEntry.dc.readyState !== "open") return;
-  debugLog("hello_sent", { to: hostPeerId, roomId });
-  sendJson(hostEntry.dc, {
-    type: "hello",
-    peerId: SELF_PEER_ID,
-    roomId,
-  });
+  return meshProtocol.sendHelloToHost();
 }
 
 function handleChannelMessage(entry, raw) {
-  let message = null;
-  try {
-    message = JSON.parse(raw);
-  } catch {
-    return;
-  }
-
-  if (message.type === "hello" && entry.kind === "bootstrap") {
-    debugLog("hello_recv", { from: message.peerId, via: entry.peerId });
-    finalizeBootstrapPeer(entry, message);
-    return;
-  }
-
-  if (message.type === "network-peers") {
-    debugLog("network_peers_recv", {
-      from: entry.peerId,
-      count: (message.peers || []).length,
-    });
-    handleRoomPeers(message.peers || [], entry.peerId);
-    return;
-  }
-
-  if (message.type === "mesh-connect") {
-    debugLog("mesh_connect_recv", {
-      from: entry.peerId,
-      peerId: message.peerId,
-      broker: message.brokerPeerId || entry.peerId,
-      init: typeof message.shouldInitiate === "boolean" ? message.shouldInitiate : "auto",
-    });
-    maybeStartMeshConnection(
-      message.peerId,
-      message.brokerPeerId || entry.peerId,
-      typeof message.shouldInitiate === "boolean" ? message.shouldInitiate : null
-    );
-    return;
-  }
-
-  if (message.type === "relay-signal") {
-    if (message.targetPeerId) {
-      forwardRelaySignal(entry, message);
-    } else {
-      handleRelayedSignal(message);
-    }
-    return;
-  }
-
-  if (message.type === "chat") {
-    handleIncomingChat(message);
-    return;
-  }
-
-  if (message.type === "peer-leaving") {
-    handlePeerLeaving(entry, message);
-  }
+  return meshProtocol.handleChannelMessage(entry, raw);
 }
 
 function handlePeerLeaving(entry, message) {
-  const peerId = String(message.peerId || entry.peerId || "").trim();
-  if (!peerId || peerId === SELF_PEER_ID) return;
-  removePeer(peerId, message.reason || "left");
-  debugLog("peer_left", { peerId, reason: message.reason || "left" });
-  statusText = `${peerId} left the room.`;
-  renderUi();
+  return meshProtocol.handlePeerLeaving(entry, message);
 }
 
 function removePeer(peerId, reason = "left") {
-  clearMeshReconnect(peerId);
-  const entry = connections.get(peerId);
-  if (entry) {
-    clearActiveInviteForEntry(entry, reason);
-    cleanupEntryMqttSignal(entry);
-    try {
-      entry.dc?.close?.();
-    } catch {}
-    try {
-      entry.pc?.close?.();
-    } catch {}
-    connections.delete(peerId);
-  }
-  knownPeerIds.delete(peerId);
-  addSystemMessage(`${peerId} ${reason}.`);
-  updateOnboarderSubscription();
-  scheduleReconnectAttempt(`peer-${reason}`);
+  return meshProtocol.removePeer(peerId, reason);
 }
 
 function finalizeBootstrapPeer(entry, message) {
-  const peerId = String(message.peerId || "").trim();
-  if (!peerId || peerId === SELF_PEER_ID) return;
-
-  const oldKey = entry.key;
-  connections.delete(oldKey);
-
-  entry.key = peerId;
-  entry.peerId = peerId;
-  entry.kind = "host";
-  entry.connectedIdentity = true;
-  connections.set(peerId, entry);
-
-  knownPeerIds.add(peerId);
-  addSystemMessage(`${peerId} joined the network.`);
-
-  const existingMeshPeers = [...connections.values()]
-    .filter((candidate) => candidate.peerId !== peerId && candidate.peerId !== SELF_PEER_ID && candidate.kind !== "bootstrap")
-    .map((candidate) => candidate.peerId);
-
-  debugLog("peer_joined", {
-    peerId,
-    existing: existingMeshPeers.length,
-    broker: SELF_PEER_ID,
-  });
-
-  sendJson(entry.dc, {
-    type: "network-peers",
-    peers: existingMeshPeers,
-  });
-  debugLog("network_peers_sent", {
-    to: peerId,
-    count: existingMeshPeers.length,
-  });
-
-  for (const otherPeerId of existingMeshPeers) {
-    if (entry.dc?.readyState === "open") {
-      debugLog("mesh_connect_sent", {
-        to: peerId,
-        peerId: otherPeerId,
-        broker: SELF_PEER_ID,
-        init: true,
-      });
-      sendJson(entry.dc, {
-        type: "mesh-connect",
-        peerId: otherPeerId,
-        brokerPeerId: SELF_PEER_ID,
-        shouldInitiate: true,
-      });
-    }
-  }
-
-  if (activeInvite?.entryKey === oldKey) {
-    activeInvite = null;
-    shareLink = "";
-    qrCode = null;
-    phase = "connected";
-    statusText = `Peer ${peerId} connected. Network is ready.`;
-    publishOnboarderPresence().catch(() => {});
-    renderUi();
-  } else {
-    renderUi();
-  }
+  return meshProtocol.finalizeBootstrapPeer(entry, message);
 }
 
 function handleRoomPeers(peerIds, relayPeerId = hostPeerId) {
-  for (const peerId of peerIds) {
-    knownPeerIds.add(peerId);
-    const entry = connections.get(peerId);
-    if (entry && relayPeerId) {
-      entry.relayPeerId = relayPeerId;
-    }
-  }
-  renderUi();
+  return meshProtocol.handleRoomPeers(peerIds, relayPeerId);
 }
 
 function maybeStartMeshConnection(peerId, relayPeerId = hostPeerId, shouldInitiate = null) {
-  if (!peerId || peerId === SELF_PEER_ID || peerId === hostPeerId) return;
-  knownPeerIds.add(peerId);
-  let entry = connections.get(peerId);
-  if (entry && entry.kind === "mesh") {
-    if (relayPeerId) entry.relayPeerId = relayPeerId;
-    if (typeof shouldInitiate === "boolean") {
-      entry.initiator = shouldInitiate;
-      if (shouldInitiate && !entry.dc) {
-        debugLog("mesh_plan", { peerId, broker: relayPeerId, init: true, existing: true });
-        startMeshOffer(entry);
-      }
-    }
-    return;
-  }
-
-  entry = createConnectionEntry({
-    key: peerId,
-    peerId,
-    kind: "mesh",
-    initiator: typeof shouldInitiate === "boolean" ? shouldInitiate : SELF_PEER_ID < peerId,
-  });
-  entry.relayPeerId = relayPeerId;
-  connections.set(peerId, entry);
-
-  if (entry.initiator) {
-    debugLog("mesh_plan", { peerId, broker: relayPeerId, init: true, existing: false });
-    startMeshOffer(entry);
-  } else {
-    debugLog("mesh_plan", { peerId, broker: relayPeerId, init: false, existing: false });
-    statusText = `Waiting for ${peerId} to initiate mesh link.`;
-    renderUi();
-  }
+  return meshProtocol.maybeStartMeshConnection(peerId, relayPeerId, shouldInitiate);
 }
 
 async function startMeshOffer(entry) {
-  if (!entry || entry.dc) return;
-  entry.dc = entry.pc.createDataChannel(`mesh-${entry.peerId}`);
-  wireDataChannel(entry, entry.dc);
-
-  try {
-    const offer = await entry.pc.createOffer();
-    await entry.pc.setLocalDescription(offer);
-    await waitForIceReady(entry);
-
-    const bundle = createSignalBundle("OB", entry.pc.localDescription.sdp, entry.localCandidates);
-    sendRelayToPeer(entry.peerId, {
-      signalKind: "offer",
-      bundle,
-    }, entry.relayPeerId || hostPeerId);
-    debugLog("mesh_offer_sent", {
-      peerId: entry.peerId,
-      broker: entry.relayPeerId || hostPeerId,
-      cand: bundle.c.length,
-    });
-    statusText = `Brokering offer to ${entry.peerId}.`;
-    renderUi();
-  } catch (error) {
-    console.error("[rtcchat_v3] mesh offer error", error);
-    debugLog("mesh_offer_error", { peerId: entry.peerId, msg: String(error?.message || error) });
-    statusText = `Mesh offer error for ${entry.peerId}: ${error?.message || error}`;
-    scheduleMeshReconnect(entry.peerId, entry.relayPeerId || hostPeerId, entry.initiator, "offer-error");
-    renderUi();
-  }
+  return meshProtocol.startMeshOffer(entry);
 }
 
 function sendRelayToPeer(targetPeerId, signal, relayPeerId = hostPeerId) {
-  const relayEntry = connections.get(relayPeerId);
-  if (!relayEntry?.dc || relayEntry.dc.readyState !== "open") {
-    throw new Error("Relay channel is not open");
-  }
-  sendJson(relayEntry.dc, {
-    type: "relay-signal",
-    targetPeerId,
-    fromPeerId: SELF_PEER_ID,
-    signalKind: signal.signalKind,
-    bundle: signal.bundle,
-    brokerPeerId: relayPeerId,
-  });
+  return meshProtocol.sendRelayToPeer(targetPeerId, signal, relayPeerId);
 }
 
 function forwardRelaySignal(fromEntry, message) {
-  const targetPeerId = String(message.targetPeerId || "").trim();
-  if (!targetPeerId) return;
-  const targetEntry = connections.get(targetPeerId);
-  if (!targetEntry?.dc || targetEntry.dc.readyState !== "open") return;
-
-  sendJson(targetEntry.dc, {
-    type: "relay-signal",
-    fromPeerId: message.fromPeerId,
-    signalKind: message.signalKind,
-    bundle: message.bundle,
-    brokerPeerId: SELF_PEER_ID,
-  });
-
-  knownPeerIds.add(targetPeerId);
-  if (message.fromPeerId) {
-    knownPeerIds.add(message.fromPeerId);
-  }
-  renderUi();
+  return meshProtocol.forwardRelaySignal(fromEntry, message);
 }
 
 async function handleRelayedSignal(message) {
-  const fromPeerId = String(message.fromPeerId || "").trim();
-  if (!fromPeerId || fromPeerId === SELF_PEER_ID) return;
-  knownPeerIds.add(fromPeerId);
-
-  let entry = connections.get(fromPeerId);
-  if (!entry) {
-    entry = createConnectionEntry({
-      key: fromPeerId,
-      peerId: fromPeerId,
-      kind: "mesh",
-      initiator: false,
-    });
-    connections.set(fromPeerId, entry);
-  }
-  entry.relayPeerId = message.brokerPeerId || entry.relayPeerId || hostPeerId;
-
-  try {
-    if (message.signalKind === "offer") {
-      await entry.pc.setRemoteDescription({ type: "offer", sdp: buildSdpFromBundle(message.bundle) });
-      for (const candidate of message.bundle.c || []) {
-        await entry.pc.addIceCandidate({ candidate, sdpMLineIndex: 0 });
-        entry.remoteCandidatesAdded += 1;
-      }
-
-      const answer = await entry.pc.createAnswer();
-      await entry.pc.setLocalDescription(answer);
-      await waitForIceReady(entry);
-
-      const bundle = createSignalBundle("AB", entry.pc.localDescription.sdp, entry.localCandidates);
-      sendRelayToPeer(fromPeerId, {
-        signalKind: "answer",
-        bundle,
-      }, entry.relayPeerId || hostPeerId);
-      debugLog("mesh_answer_sent", {
-        peerId: fromPeerId,
-        broker: entry.relayPeerId || hostPeerId,
-        cand: bundle.c.length,
-      });
-      statusText = `Answer brokered back to ${fromPeerId}.`;
-      renderUi();
-      return;
-    }
-
-    if (message.signalKind === "answer") {
-      await entry.pc.setRemoteDescription({ type: "answer", sdp: buildSdpFromBundle(message.bundle) });
-      for (const candidate of message.bundle.c || []) {
-        await entry.pc.addIceCandidate({ candidate, sdpMLineIndex: 0 });
-        entry.remoteCandidatesAdded += 1;
-      }
-      debugLog("mesh_answer_applied", { peerId: fromPeerId, cand: entry.remoteCandidatesAdded });
-      statusText = `Mesh answer applied from ${fromPeerId}.`;
-      renderUi();
-    }
-  } catch (error) {
-    console.error("[rtcchat_v3] relayed signal error", error);
-    debugLog("mesh_signal_error", {
-      peerId: fromPeerId,
-      kind: message.signalKind,
-      msg: String(error?.message || error),
-    });
-    statusText = `Signal error with ${fromPeerId}: ${error?.message || error}`;
-    scheduleMeshReconnect(fromPeerId, entry.relayPeerId || hostPeerId, entry.initiator, "signal-error");
-    renderUi();
-  }
+  return meshProtocol.handleRelayedSignal(message);
 }
 
 function sendMessage() {
@@ -1583,7 +732,7 @@ function handleIncomingChat(message) {
 }
 
 function sendJson(channel, value) {
-  channel.send(JSON.stringify(value));
+  return helpers.sendJson(channel, value);
 }
 
 function getConnectedPeerIds() {
@@ -1612,217 +761,55 @@ function renderMessages() {
 }
 
 function formatPeerList(peerIds) {
-  return peerIds.map((peerId) => {
-    const profile = getPeerProfile(peerId);
-    return `${profile.name}`;
-  }).join(", ");
+  return helpers.formatPeerList(peerIds);
 }
 
 function getPeerInitial(name) {
-  return window.RtcChatV3Identity.getUserInitial(name);
+  return helpers.getPeerInitial(name);
 }
 
 function getPeerProfile(peerId) {
-  const presentUser = window.RtcChatV3Identity.getPresentUserForClient(peerId);
-  return {
-    id: peerId,
-    name: presentUser.displayName,
-    color: presentUser.color,
-  };
+  return helpers.getPeerProfile(peerId);
 }
 
 function waitForIceReady(entry, timeoutMs = 1800, minCandidates = 2) {
-  return new Promise((resolve) => {
-    if (entry.pc.iceGatheringState === "complete" || entry.localCandidates.length >= minCandidates) {
-      resolve();
-      return;
-    }
-
-    let finished = false;
-    const finish = () => {
-      if (finished) return;
-      finished = true;
-      entry.pc.removeEventListener("icegatheringstatechange", onChange);
-      clearTimeout(timer);
-      resolve();
-    };
-
-    const onChange = () => {
-      if (entry.pc.iceGatheringState === "complete" || entry.localCandidates.length >= minCandidates) {
-        finish();
-      }
-    };
-
-    const timer = setTimeout(finish, timeoutMs);
-    entry.pc.addEventListener("icegatheringstatechange", onChange);
-  });
+  return meshProtocol.waitForIceReady(entry, timeoutMs, minCandidates);
 }
 
 function createSignalBundle(type, sdp, candidates) {
-  const fields = extractNegotiationFields(sdp, type);
-  return {
-    t: type,
-    u: fields.iceUfrag,
-    p: fields.icePwd,
-    f: fields.fingerprint,
-    a: fields.setup,
-    c: pickCandidates(candidates),
-  };
-}
-
-function extractNegotiationFields(sdp, type) {
-  const lines = String(sdp || "").split(/\r?\n/).filter(Boolean);
-  const findValue = (prefix) => {
-    const line = lines.find((entry) => entry.startsWith(prefix));
-    return line ? line.slice(prefix.length).trim() : "";
-  };
-
-  return {
-    iceUfrag: findValue("a=ice-ufrag:"),
-    icePwd: findValue("a=ice-pwd:"),
-    fingerprint: findValue("a=fingerprint:"),
-    setup: findValue("a=setup:") || (type === "AB" ? "active" : "actpass"),
-  };
-}
-
-function pickCandidates(candidates) {
-  const list = Array.isArray(candidates) ? candidates.filter(Boolean) : [];
-  const selected = [];
-
-  const host = list.find((candidate) => /\styp host(\s|$)/.test(candidate));
-  if (host) selected.push(host);
-
-  const srflx = list.find((candidate) => /\styp srflx(\s|$)/.test(candidate));
-  if (srflx && !selected.includes(srflx)) selected.push(srflx);
-
-  for (const candidate of list) {
-    if (selected.length >= 3) break;
-    if (!selected.includes(candidate)) selected.push(candidate);
-  }
-
-  return selected;
+  return bundleCodec.createSignalBundle(type, sdp, candidates);
 }
 
 function buildSdpFromBundle(bundle) {
-  const type = bundle?.t === "AB" ? "AB" : "OB";
-  const setup = bundle?.a || (type === "AB" ? "active" : "actpass");
-  const sessionId = makeSessionId(type, bundle?.f || "", bundle?.u || "", bundle?.p || "");
-
-  return [
-    "v=0",
-    `o=- ${sessionId} 2 IN IP4 127.0.0.1`,
-    "s=-",
-    "t=0 0",
-    "a=group:BUNDLE 0",
-    "a=msid-semantic: WMS",
-    "m=application 9 DTLS/SCTP 5000",
-    "c=IN IP4 0.0.0.0",
-    `a=ice-ufrag:${bundle?.u || ""}`,
-    `a=ice-pwd:${bundle?.p || ""}`,
-    "a=ice-options:trickle",
-    `a=fingerprint:${bundle?.f || ""}`,
-    `a=setup:${setup}`,
-    "a=mid:0",
-    "a=sctpmap:5000 webrtc-datachannel 1024",
-    "",
-  ].join("\r\n");
+  return bundleCodec.buildSdpFromBundle(bundle);
 }
 
 function toBundleString(bundle) {
-  const json = JSON.stringify(bundle);
-  const raw = new TextEncoder().encode(json);
-  const bytes = globalThis.fflate?.zlibSync ? globalThis.fflate.zlibSync(raw, { level: 9 }) : raw;
-  const compressed = !!globalThis.fflate?.zlibSync;
-  const b64 = btoa(bytesToBinary(bytes)).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "");
-  return `${bundle.t}${compressed ? "Z" : ""}-` + b64;
+  return bundleCodec.toBundleString(bundle);
 }
 
 function fromBundleString(value) {
-  const trimmed = String(value || "").trim();
-  const type = trimmed.slice(0, 2).toUpperCase();
-  const compressionFlag = trimmed[2];
-  let compressed = false;
-  let offset = 3;
-
-  if (type !== "OB" && type !== "AB") {
-    throw new Error('Expected "OB-..." / "AB-..." or compressed "OBZ-..." / "ABZ-..."');
-  }
-  if (compressionFlag === "-") {
-    compressed = false;
-    offset = 3;
-  } else if (compressionFlag === "Z" && trimmed[3] === "-") {
-    compressed = true;
-    offset = 4;
-  } else {
-    throw new Error('Expected "OB-..." / "AB-..." or compressed "OBZ-..." / "ABZ-..."');
-  }
-
-  const b64 = trimmed.slice(offset).replace(/-/g, "+").replace(/_/g, "/");
-  const bytes = binaryToBytes(atob(b64));
-  const out = compressed && globalThis.fflate?.unzlibSync ? globalThis.fflate.unzlibSync(bytes) : bytes;
-  const json = new TextDecoder().decode(out);
-  const bundle = JSON.parse(json);
-  if (bundle.t !== type) throw new Error("Bundle type mismatch");
-  return bundle;
+  return bundleCodec.fromBundleString(value);
 }
 
 function buildInviteLink(bundleString, room, inviteId, hostId) {
-  const url = new URL(window.location.href);
-  url.search = "";
-  url.hash = "";
-  url.searchParams.set("connect", bundleString);
-  url.searchParams.set("room", room);
-  url.searchParams.set("invite", inviteId);
-  url.searchParams.set("host", hostId);
-  return url.toString();
+  return bundleCodec.buildInviteLink(bundleString, room, inviteId, hostId);
 }
 
 function buildResponseLink(bundleString, room, inviteId, hostId) {
-  const url = new URL(window.location.href);
-  url.search = "";
-  url.hash = "";
-  url.searchParams.set("response", bundleString);
-  url.searchParams.set("room", room);
-  url.searchParams.set("invite", inviteId);
-  url.searchParams.set("host", hostId);
-  return url.toString();
+  return bundleCodec.buildResponseLink(bundleString, room, inviteId, hostId);
 }
 
 function tryCreateQrCode(value) {
-  try {
-    return value ? createQRCode(value) : null;
-  } catch (error) {
-    console.warn("[rtcchat_v3] QR generation unavailable for current link", error);
-    return null;
-  }
+  return bundleCodec.tryCreateQrCode(value);
 }
 
 function extractBundleFromPossibleUrl(raw, paramName) {
-  if (/^https?:\/\//i.test(raw)) {
-    const url = new URL(raw);
-    const value = url.searchParams.get(paramName);
-    if (!value) throw new Error(`Missing ${paramName} in link`);
-    return value;
-  }
-  return raw;
+  return bundleCodec.extractBundleFromPossibleUrl(raw, paramName);
 }
 
 function extractResponseValue(raw) {
-  if (!/^https?:\/\//i.test(raw)) {
-    return raw;
-  }
-
-  const url = new URL(raw);
-  const responseValue = url.searchParams.get("response");
-  if (responseValue) {
-    return responseValue;
-  }
-
-  if (url.searchParams.get("connect")) {
-    throw new Error("That looks like an invite link, not a response link.");
-  }
-
-  throw new Error("No response was found in that link.");
+  return bundleCodec.extractResponseValue(raw);
 }
 
 function resetRoom() {
@@ -1831,99 +818,31 @@ function resetRoom() {
 }
 
 function clearIncomingParams() {
-  const url = new URL(window.location.href);
-  if (url.search) {
-    url.search = "";
-    window.history.replaceState({}, "", url.toString());
-  }
+  return bundleCodec.clearIncomingParams();
 }
 
 function copyShareLink() {
-  if (!shareLink) return;
-  navigator.clipboard?.writeText?.(shareLink).catch(() => {});
-  advanceInviteFlow(true);
+  return onboarding.copyShareLink();
 }
 
 function advanceInviteFlow(fromCopy = false) {
-  if (!shareLink) return;
-  if (activeInvite) {
-    phase = "awaiting-response";
-    shareLink = "";
-    qrCode = null;
-    statusText = fromCopy
-      ? "Invite copied. Waiting for peer response..."
-      : "Waiting for peer response...";
-  } else {
-    phase = "joining";
-    shareLink = "";
-    qrCode = null;
-    statusText = fromCopy
-      ? "Response copied. Send it back to the host tab."
-      : "Waiting for host to accept response.";
-  }
-  renderUi();
+  return onboarding.advanceInviteFlow(fromCopy);
 }
 
 function logBundle(label, payload, bundle) {
-  console.log(`[rtcchat_v3] ${label} string`);
-  console.log(payload);
-  console.log(`[rtcchat_v3] ${label} json`);
-  console.log(JSON.stringify(bundleSummary(bundle), null, 2));
+  return bundleCodec.logBundle(label, payload, bundle);
 }
 
 function logParsedBundle(label, payload, bundle) {
-  console.log(`[rtcchat_v3] ${label} string`);
-  console.log(payload);
-  console.log(`[rtcchat_v3] ${label} parsed json`);
-  console.log(JSON.stringify(bundleSummary(bundle), null, 2));
-}
-
-function bundleSummary(bundle) {
-  const sdp = buildSdpFromBundle(bundle);
-  return {
-    type: bundle.t === "OB" ? "offer-bundle" : "answer-bundle",
-    mode: "compact-lounge",
-    payloadLength: JSON.stringify(bundle).length,
-    sdpType: bundle.t === "OB" ? "offer" : "answer",
-    sdpLength: sdp.length,
-    candidateCount: Array.isArray(bundle.c) ? bundle.c.length : 0,
-    candidates: Array.isArray(bundle.c) ? bundle.c : [],
-    sdpPreview: sdp.split("\n").slice(0, 12),
-  };
+  return bundleCodec.logParsedBundle(label, payload, bundle);
 }
 
 function makeInviteId() {
-  return `invite-${Math.random().toString(36).slice(2, 8)}`;
+  return helpers.makeInviteId();
 }
 
 function makeMessageId() {
-  return `${SELF_PEER_ID}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
-}
-
-function makeSessionId(type, fingerprint, iceUfrag, icePwd) {
-  const seed = `${type}|${fingerprint}|${iceUfrag}|${icePwd}`;
-  let hash = 0;
-  for (let i = 0; i < seed.length; i++) {
-    hash = (hash * 33 + seed.charCodeAt(i)) >>> 0;
-  }
-  return `1${String(hash).padStart(9, "0")}23456789`;
-}
-
-function bytesToBinary(bytes) {
-  let binary = "";
-  const chunkSize = 0x8000;
-  for (let i = 0; i < bytes.length; i += chunkSize) {
-    binary += String.fromCharCode(...bytes.subarray(i, i + chunkSize));
-  }
-  return binary;
-}
-
-function binaryToBytes(binary) {
-  const bytes = new Uint8Array(binary.length);
-  for (let i = 0; i < binary.length; i++) {
-    bytes[i] = binary.charCodeAt(i);
-  }
-  return bytes;
+  return helpers.makeMessageId();
 }
 
 function installViewportTracking() {
@@ -2445,11 +1364,7 @@ async function applyMqttAnswerToEntry(entry, payload) {
 }
 
 function candidateToInit(candidate) {
-  return {
-    candidate: candidate.candidate,
-    sdpMid: candidate.sdpMid ?? "0",
-    sdpMLineIndex: candidate.sdpMLineIndex ?? 0,
-  };
+  return helpers.candidateToInit(candidate);
 }
 
 async function addInitialMqttCandidates(entry, candidates) {

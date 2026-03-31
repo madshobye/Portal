@@ -78,7 +78,12 @@
     refs.responsePasteCardEl.append(refs.responsePasteInputEl, refs.responsePasteBtnEl);
 
     refs.stageEl = el("section", { className: "rtcchat-stage" });
-    refs.stageCardEl = el("div", { className: "rtcchat-stage-card" }, [canvasEl]);
+    refs.qrImageEl = el("img", {
+      className: "rtcchat-qr-image",
+      hidden: true,
+      attrs: { alt: "QR code", decoding: "async" },
+    });
+    refs.stageCardEl = el("div", { className: "rtcchat-stage-card" }, [refs.qrImageEl, canvasEl]);
     refs.stageEl.append(refs.stageCardEl);
 
     refs.chatCardEl = el("section", { className: "rtcchat-card rtcchat-chat", hidden: true });
@@ -133,6 +138,8 @@
       refs.linkCardEl.hidden = !(model.showInviteLink && model.shareLink);
       refs.responsePasteCardEl.hidden = !model.showResponsePaste;
       refs.stageEl.classList.toggle("active", model.qrMode);
+      refs.qrImageEl.hidden = !model.showQrImage;
+      refs.qrImageEl.src = model.qrImageSrc || "";
 
       refs.linkTitleEl.hidden = true;
       refs.linkAnchorEl.hidden = true;
