@@ -1,5 +1,6 @@
 let pc = null;
 let dc = null;
+const RTCCHAT_VERSION = 2;
 
 let role = "idle";
 let phase = "idle";
@@ -208,7 +209,7 @@ function buildUi(canvas) {
 function renderUi() {
   if (!statusTextEl || !actionsEl || !chatCardEl || !panelEl || !statusCardEl || !titleEl || !stageEl) return;
 
-  statusTextEl.textContent = `${statusText}  Role: ${role}  ICE: ${localCandidates.length}/${remoteCandidatesAdded}`;
+  statusTextEl.textContent = `v${RTCCHAT_VERSION}  ${statusText}  Role: ${role}  ICE: ${localCandidates.length}/${remoteCandidatesAdded}`;
 
   const qrMode = phase === "show-offer" || phase === "show-answer";
   const stageMode = qrMode;
@@ -241,7 +242,6 @@ function renderUi() {
   actionsEl.innerHTML = "";
 
   if (phase === "idle") {
-    appendAction("Connect", startAsStarter);
   } else if (phase === "forwarded") {
   } else if (phase === "failed") {
     appendAction("Reconnect Now", reconnectNow);
@@ -404,7 +404,10 @@ async function handleIncomingLink() {
 
   if (responseValue && sessionId) {
     await forwardResponseLinkToStarter(responseValue, sessionId);
+    return;
   }
+
+  await startAsStarter();
 }
 
 async function startAsJoinerFromLink(linkValue, sessionId) {
