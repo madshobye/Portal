@@ -8,6 +8,8 @@ const {
   DEBUG_TOPIC,
   ONBOARDER_DISCOVERY_TOPIC,
   ONBOARDER_REQUEST_TOPIC_PREFIX,
+  RECONNECT_INITIAL_DELAY_MS,
+  RECONNECT_RETRY_DELAY_MS,
 } = window.RtcChatV3Config;
 
 const APP_MODEL = window.RtcChatV3State.createAppState({
@@ -22,7 +24,7 @@ const SELF_USER = APP_MODEL.identity.currentUser;
 
 let role = "idle";
 let phase = "idle";
-let statusText = "Starting room...";
+let statusText = "Connecting...";
 
 let roomId = "";
 let hostPeerId = "";
@@ -80,6 +82,9 @@ let onboarderPresenceTimer = null;
 let onboarderEnabled = APP_MODEL.toggles.onboarderEnabled;
 const SELF_PROFILE = SELF_USER;
 let topPanelVisible = APP_MODEL.toggles.infoVisible;
+let reconnectTimer = null;
+let reconnectAttemptInFlight = false;
+let isShuttingDown = false;
 
 async function appSetup() {
   const canvas = createCanvas(windowWidth, windowHeight);
@@ -107,7 +112,7 @@ function appDraw() {
 
   if ((phase === "show-invite" || phase === "show-response") && qrCode) {
     drawQrScreen();
-  } else if (phase === "connected" || phase === "hosting" || phase === "joining") {
+  } else if (phase === "connected" || phase === "hosting" || phase === "joining" || phase === "reconnecting") {
     drawConnectedBackdrop();
   } else {
     clear();
@@ -316,6 +321,9 @@ function renderUi() {
 
   actionsEl.innerHTML = "";
   appendAction(onboarderEnabled ? "Onboarder: On" : "Onboarder: Off", toggleOnboarderMode, true);
+  if ((role === "idle" || phase === "reconnecting") && connectedPeers.length === 0 && !activeInvite) {
+    appendAction("Use QR", useQrMode, true);
+  }
   if (role === "host") {
     if (connectedPeers.length > 0 && !activeInvite) {
       appendAction("+", createHostInvite);
@@ -413,26 +421,22 @@ async function handleIncomingLink() {
     return;
   }
 
-  statusText = "Checking onboarder...";
+  role = "idle";
+  phase = "reconnecting";
+  statusText = "Connecting...";
   renderUi();
-  if (await tryJoinViaOnboarder()) {
-    return;
-  }
-
-  statusText = "Starting room...";
-  renderUi();
-  await initializeHostRoom();
+  scheduleReconnectAttempt("startup", 0);
 }
 
 async function tryJoinViaOnboarder(timeoutMs = 4000) {
   if (!onboarderMqttClient?.connected) return false;
 
-  statusText = "Looking for onboarder...";
+  statusText = "Connecting...";
   renderUi();
 
   const onboarder = await waitForAvailableOnboarder(timeoutMs);
   if (!onboarder?.requestTopic) {
-    statusText = "No onboarder answered. Falling back to manual invite.";
+    statusText = "Connecting...";
     renderUi();
     return false;
   }
@@ -489,7 +493,7 @@ async function tryJoinViaOnboarder(timeoutMs = 4000) {
   }
 
   if (!response?.link) {
-    statusText = "No onboarder answered. Falling back to manual invite.";
+    statusText = "Connecting...";
     renderUi();
     return false;
   }
@@ -517,7 +521,9 @@ async function tryJoinViaOnboarder(timeoutMs = 4000) {
   }
 }
 
-async function initializeHostRoom() {
+async function initializeHostRoom(options = {}) {
+  const forceManualInvite = !!options.forceManualInvite;
+  stopReconnectLoop();
   clearDiscoveredOnboarders();
   closeAllConnections();
   connections.clear();
@@ -531,11 +537,12 @@ async function initializeHostRoom() {
   activeInvite = null;
   appliedResponseSignatures.clear();
   applyingResponseInviteIds.clear();
-  statusText = onboarderEnabled ? "Room ready. Waiting for MQTT onboarding..." : "Creating room invite...";
+  statusText = onboarderEnabled && !forceManualInvite ? "Room ready. Waiting for MQTT onboarding..." : "Creating room invite...";
   renderMessages();
   renderUi();
   debugLog("room_init", { role, roomId });
-  if (onboarderEnabled) {
+  updateOnboarderSubscription();
+  if (onboarderEnabled && !forceManualInvite) {
     phase = "hosting";
     renderUi();
     publishOnboarderPresence().catch(() => {});
@@ -567,6 +574,7 @@ function clearActiveInviteForEntry(entry, reason = "cleared") {
   activeInvite = null;
   shareLink = "";
   qrCode = null;
+  updateOnboarderSubscription();
   publishOnboarderPresence().catch(() => {});
 }
 
@@ -575,6 +583,18 @@ function cleanupEntryMqttSignal(entry) {
     unsubscribeMqttTopic(entry.mqttSignal.subscribeTopic);
   }
   entry.mqttSignal = null;
+}
+
+function canAdvertiseOnboarder() {
+  if (!onboarderEnabled) return false;
+  if (!roomId) return false;
+  const connectedPeerIds = getConnectedPeerIds();
+  return (
+    role === "host" ||
+    connectedPeerIds.length > 0 ||
+    phase === "hosting" ||
+    phase === "connected"
+  );
 }
 
 function installDisconnectHandlers() {
@@ -586,6 +606,8 @@ function installDisconnectHandlers() {
 }
 
 function gracefulDisconnect(reason = "manual") {
+  isShuttingDown = true;
+  stopReconnectLoop();
   try {
     const payload = {
       type: "peer-leaving",
@@ -600,6 +622,89 @@ function gracefulDisconnect(reason = "manual") {
     }
     debugLog("peer_leaving", { reason, peers: getConnectedPeerIds().length });
   } catch {}
+}
+
+function stopReconnectLoop() {
+  if (reconnectTimer) {
+    clearTimeout(reconnectTimer);
+    reconnectTimer = null;
+  }
+  reconnectAttemptInFlight = false;
+}
+
+function shouldAutoReconnect() {
+  if (isShuttingDown) return false;
+  if (role !== "peer" && role !== "idle") return false;
+  if (!onboarderMqttClient?.connected) return false;
+  if (activeInvite) return false;
+  return getConnectedPeerIds().length === 0;
+}
+
+function shouldSelfSeedNetwork() {
+  if (isShuttingDown) return false;
+  if (!onboarderEnabled) return false;
+  if (role !== "idle") return false;
+  if (roomId) return false;
+  if (activeInvite) return false;
+  return getConnectedPeerIds().length === 0;
+}
+
+function scheduleReconnectAttempt(reason = "lost-peers", delayMs = RECONNECT_INITIAL_DELAY_MS) {
+  if (!shouldAutoReconnect()) return;
+  if (reconnectTimer || reconnectAttemptInFlight) return;
+
+  phase = "reconnecting";
+  statusText = "Connecting...";
+  debugLog("reconnect_scheduled", { reason, delayMs });
+  renderUi();
+
+  reconnectTimer = setTimeout(async () => {
+    reconnectTimer = null;
+    if (!shouldAutoReconnect()) return;
+
+    reconnectAttemptInFlight = true;
+    clearDiscoveredOnboarders();
+    phase = "reconnecting";
+    statusText = "Connecting...";
+    debugLog("reconnect_attempt", { reason });
+    renderUi();
+
+    try {
+      const joined = await tryJoinViaOnboarder(RECONNECT_RETRY_DELAY_MS);
+      if (joined) {
+        stopReconnectLoop();
+        debugLog("reconnect_success", { reason });
+        return;
+      }
+      if (shouldSelfSeedNetwork()) {
+        stopReconnectLoop();
+        debugLog("network_seed_start", { reason });
+        await initializeHostRoom();
+        debugLog("network_seed_ready", { roomId });
+        return;
+      }
+    } catch (error) {
+      debugLog("reconnect_error", { reason, msg: String(error?.message || error) });
+    } finally {
+      reconnectAttemptInFlight = false;
+    }
+
+    if (shouldAutoReconnect()) {
+      statusText = "Connecting...";
+      renderUi();
+      scheduleReconnectAttempt("retry", RECONNECT_RETRY_DELAY_MS);
+    }
+  }, delayMs);
+}
+
+function useQrMode() {
+  statusText = "Preparing QR invite...";
+  renderUi();
+  initializeHostRoom({ forceManualInvite: true }).catch((error) => {
+    debugLog("manual_qr_error", { msg: String(error?.message || error) });
+    statusText = `QR error: ${error?.message || error}`;
+    renderUi();
+  });
 }
 
 function clearInviteView() {
@@ -692,6 +797,7 @@ async function createHostInvite(options = {}) {
 }
 
 async function startAsJoinerFromLink(linkValue, room, inviteId, hostId, options = {}) {
+  stopReconnectLoop();
   clearDiscoveredOnboarders();
   const mqttResponseTopic = options.mqttResponseTopic || "";
   const viaOnboarder = !!options.viaOnboarder;
@@ -709,6 +815,7 @@ async function startAsJoinerFromLink(linkValue, room, inviteId, hostId, options 
   renderMessages();
   renderUi();
   debugLog("join_start", { inviteId, roomId, hostId });
+  updateOnboarderSubscription();
 
   const hostEntry = createConnectionEntry({
     key: hostPeerId,
@@ -782,6 +889,7 @@ async function startAsJoinerFromLink(linkValue, room, inviteId, hostId, options 
 }
 
 async function startAsJoinerViaMqtt(response) {
+  stopReconnectLoop();
   clearDiscoveredOnboarders();
   closeAllConnections();
   connections.clear();
@@ -797,6 +905,7 @@ async function startAsJoinerViaMqtt(response) {
   renderMessages();
   renderUi();
   debugLog("join_start", { inviteId: response.inviteId, roomId, hostId: hostPeerId, mode: "mqtt" });
+  updateOnboarderSubscription();
 
   const hostEntry = createConnectionEntry({
     key: hostPeerId,
@@ -1055,9 +1164,13 @@ function createConnectionEntry({ key, peerId, kind, initiator }) {
       clearActiveInviteForEntry(entry, "failed");
       cleanupEntryMqttSignal(entry);
       connections.delete(entry.key);
+      updateOnboarderSubscription();
       statusText = `Connection failed for ${entry.peerId}.`;
+      scheduleReconnectAttempt("pc-failed");
       renderUi();
     } else if (entry.state === "connected") {
+      stopReconnectLoop();
+      updateOnboarderSubscription();
       if (entry.mqttSignal) {
         cleanupEntryMqttSignal(entry);
       }
@@ -1083,6 +1196,8 @@ function createConnectionEntry({ key, peerId, kind, initiator }) {
 function wireDataChannel(entry, channel) {
   entry.dc = channel;
   channel.onopen = () => {
+    stopReconnectLoop();
+    updateOnboarderSubscription();
     if (role === "peer" && entry.peerId === hostPeerId && entry.kind === "host") {
       sendHelloToHost();
     }
@@ -1106,6 +1221,8 @@ function wireDataChannel(entry, channel) {
       cleanupEntryMqttSignal(entry);
       connections.delete(entry.key);
     }
+    updateOnboarderSubscription();
+    scheduleReconnectAttempt("channel-close");
     renderUi();
   };
 
@@ -1206,6 +1323,8 @@ function removePeer(peerId, reason = "left") {
   }
   knownPeerIds.delete(peerId);
   addSystemMessage(`${peerId} ${reason}.`);
+  updateOnboarderSubscription();
+  scheduleReconnectAttempt(`peer-${reason}`);
 }
 
 function finalizeBootstrapPeer(entry, message) {
@@ -1979,7 +2098,7 @@ function handleOnboarderPresenceMessage(result) {
   } catch {
     return;
   }
-  if (role !== "idle") return;
+  if (role !== "idle" && phase !== "reconnecting") return;
   if (!payload?.peerId || payload.peerId === SELF_PEER_ID) return;
   discoveredOnboarders.set(payload.peerId, {
     ...payload,
@@ -2037,8 +2156,9 @@ function handleOnboarderResponseMessage(result) {
 
 async function updateOnboarderSubscription() {
   if (!onboarderMqttClient?.connected) return;
+  const shouldServe = canAdvertiseOnboarder();
   try {
-    if (onboarderEnabled) {
+    if (shouldServe) {
       await onboarderMqttClient.subscribe(onboarderRequestTopic);
       startOnboarderPresence();
       await publishOnboarderPresence();
@@ -2069,9 +2189,13 @@ function toggleOnboarderMode() {
   });
   renderUi();
   updateOnboarderSubscription();
+  if (onboarderEnabled && role === "idle" && !roomId && getConnectedPeerIds().length === 0) {
+    scheduleReconnectAttempt("onboarder-enabled", 0);
+  }
 }
 
 function startOnboarderPresence() {
+  if (!canAdvertiseOnboarder()) return;
   stopOnboarderPresence();
   onboarderPresenceTimer = setInterval(() => {
     publishOnboarderPresence().catch(() => {});
@@ -2086,6 +2210,7 @@ function stopOnboarderPresence() {
 }
 
 async function publishOnboarderPresence() {
+  if (!canAdvertiseOnboarder()) return;
   if (!onboarderMqttClient?.connected) return;
   const available = !!roomId && !(activeInvite && !shareLink);
   const payload = {

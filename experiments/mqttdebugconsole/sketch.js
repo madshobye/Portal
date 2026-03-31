@@ -1,4 +1,4 @@
-const MQTTDEBUG_VERSION = 1;
+const MQTTDEBUG_VERSION = 2;
 const MQTT_BROKER = "wss://public:public@public.cloud.shiftr.io";
 const DEBUG_TOPIC = "portal/rtcchat/debug";
 
@@ -78,6 +78,7 @@ function renderUi() {
   statusTextEl.textContent = `v${MQTTDEBUG_VERSION}  ${statusText}  Messages: ${lines.length}`;
 
   actionsEl.innerHTML = "";
+  appendAction("Copy Console", copyConsole, true);
   appendAction("Clear", clearMessages, true);
 }
 
@@ -92,6 +93,35 @@ function appendAction(label, onClick, secondary = false) {
 function clearMessages() {
   lines = [];
   renderLines();
+  renderUi();
+}
+
+async function copyConsole() {
+  const text = lines.join("\n");
+  if (!text) {
+    statusText = "Nothing to copy yet.";
+    renderUi();
+    return;
+  }
+
+  try {
+    if (navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(text);
+    } else {
+      const temp = document.createElement("textarea");
+      temp.value = text;
+      temp.setAttribute("readonly", "true");
+      temp.style.position = "absolute";
+      temp.style.left = "-9999px";
+      document.body.appendChild(temp);
+      temp.select();
+      document.execCommand("copy");
+      document.body.removeChild(temp);
+    }
+    statusText = `Copied ${lines.length} console lines.`;
+  } catch (error) {
+    statusText = `Copy failed: ${error?.message || error}`;
+  }
   renderUi();
 }
 
