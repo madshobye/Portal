@@ -14,6 +14,10 @@ canvas {
 }
 
 .rtcchat-app {
+  position: fixed;
+  top: var(--rtcchat-app-top, 0px);
+  left: 0;
+  right: 0;
   height: var(--rtcchat-app-height, 100dvh);
   display: flex;
   align-items: flex-start;
@@ -25,6 +29,7 @@ canvas {
 .rtcchat-panel {
   width: min(920px, 100vw);
   height: var(--rtcchat-app-height, 100dvh);
+  max-height: var(--rtcchat-app-height, 100dvh);
   display: flex;
   flex-direction: column;
   align-items: stretch;

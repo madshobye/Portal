@@ -184,9 +184,7 @@ function buildUi(canvas) {
     if (event.key === "Enter") sendMessage();
   });
   composerInputEl.addEventListener("focus", () => {
-    setTimeout(() => {
-      keepChatVisible();
-    }, 60);
+    requestViewportRefresh();
   });
   composer.appendChild(composerInputEl);
 
@@ -1037,11 +1035,24 @@ function handleViewportChange() {
 }
 
 function updateViewportHeight() {
+  const top = window.visualViewport?.offsetTop || 0;
   const height = window.visualViewport?.height || window.innerHeight;
+  document.documentElement.style.setProperty("--rtcchat-app-top", `${Math.round(top)}px`);
   document.documentElement.style.setProperty("--rtcchat-app-height", `${Math.round(height)}px`);
 }
 
 function keepChatVisible() {
   if (!messagesEl) return;
   messagesEl.scrollTop = messagesEl.scrollHeight;
+}
+
+function requestViewportRefresh() {
+  const delays = [0, 80, 180, 320];
+  for (const delay of delays) {
+    setTimeout(() => {
+      updateViewportHeight();
+      keepChatVisible();
+      syncCanvasMode();
+    }, delay);
+  }
 }
