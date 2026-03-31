@@ -10,6 +10,7 @@ const {
   ONBOARDER_REQUEST_TOPIC_PREFIX,
   RECONNECT_INITIAL_DELAY_MS,
   RECONNECT_RETRY_DELAY_MS,
+  MESH_RETRY_DELAY_MS,
 } = window.RtcChatV3Config;
 
 const APP_MODEL = window.RtcChatV3State.createAppState({
@@ -85,6 +86,7 @@ let topPanelVisible = APP_MODEL.toggles.infoVisible;
 let reconnectTimer = null;
 let reconnectAttemptInFlight = false;
 let isShuttingDown = false;
+let meshReconnectTimers = new Map();
 
 async function appSetup() {
   const canvas = createCanvas(windowWidth, windowHeight);
@@ -608,6 +610,7 @@ function installDisconnectHandlers() {
 function gracefulDisconnect(reason = "manual") {
   isShuttingDown = true;
   stopReconnectLoop();
+  clearAllMeshReconnects();
   try {
     const payload = {
       type: "peer-leaving",
@@ -630,6 +633,50 @@ function stopReconnectLoop() {
     reconnectTimer = null;
   }
   reconnectAttemptInFlight = false;
+}
+
+function clearMeshReconnect(peerId) {
+  const timer = meshReconnectTimers.get(peerId);
+  if (!timer) return;
+  clearTimeout(timer);
+  meshReconnectTimers.delete(peerId);
+}
+
+function clearAllMeshReconnects() {
+  for (const peerId of meshReconnectTimers.keys()) {
+    clearMeshReconnect(peerId);
+  }
+}
+
+function scheduleMeshReconnect(peerId, relayPeerId, shouldInitiate, reason = "mesh-failed", delayMs = MESH_RETRY_DELAY_MS) {
+  if (isShuttingDown) return;
+  if (!peerId || peerId === SELF_PEER_ID) return;
+  if (!knownPeerIds.has(peerId)) return;
+  if (meshReconnectTimers.has(peerId)) return;
+
+  debugLog("mesh_reconnect_scheduled", {
+    peerId,
+    broker: relayPeerId || hostPeerId,
+    init: !!shouldInitiate,
+    reason,
+    delayMs,
+  });
+
+  const timer = setTimeout(() => {
+    meshReconnectTimers.delete(peerId);
+    if (isShuttingDown) return;
+    if (!knownPeerIds.has(peerId)) return;
+
+    debugLog("mesh_reconnect_attempt", {
+      peerId,
+      broker: relayPeerId || hostPeerId,
+      init: !!shouldInitiate,
+      reason,
+    });
+    maybeStartMeshConnection(peerId, relayPeerId || hostPeerId, shouldInitiate);
+  }, delayMs);
+
+  meshReconnectTimers.set(peerId, timer);
 }
 
 function shouldAutoReconnect() {
@@ -1159,6 +1206,10 @@ function createConnectionEntry({ key, peerId, kind, initiator }) {
   entry.pc.onconnectionstatechange = () => {
     entry.state = entry.pc.connectionState || "unknown";
     if (entry.state === "failed") {
+      const failedPeerId = entry.peerId;
+      const failedRelayPeerId = entry.relayPeerId || hostPeerId;
+      const failedInitiator = entry.initiator;
+      const failedKind = entry.kind;
       addSystemMessage(`Connection failed for ${entry.peerId}.`);
       debugLog("pc_failed", { peerId: entry.peerId, kind: entry.kind });
       clearActiveInviteForEntry(entry, "failed");
@@ -1166,11 +1217,17 @@ function createConnectionEntry({ key, peerId, kind, initiator }) {
       connections.delete(entry.key);
       updateOnboarderSubscription();
       statusText = `Connection failed for ${entry.peerId}.`;
+      if (failedKind === "mesh") {
+        scheduleMeshReconnect(failedPeerId, failedRelayPeerId, failedInitiator, "pc-failed");
+      }
       scheduleReconnectAttempt("pc-failed");
       renderUi();
     } else if (entry.state === "connected") {
       stopReconnectLoop();
       updateOnboarderSubscription();
+      if (entry.kind === "mesh") {
+        clearMeshReconnect(entry.peerId);
+      }
       if (entry.mqttSignal) {
         cleanupEntryMqttSignal(entry);
       }
@@ -1198,6 +1255,9 @@ function wireDataChannel(entry, channel) {
   channel.onopen = () => {
     stopReconnectLoop();
     updateOnboarderSubscription();
+    if (entry.kind === "mesh") {
+      clearMeshReconnect(entry.peerId);
+    }
     if (role === "peer" && entry.peerId === hostPeerId && entry.kind === "host") {
       sendHelloToHost();
     }
@@ -1216,12 +1276,21 @@ function wireDataChannel(entry, channel) {
   };
 
   channel.onclose = () => {
+    const closedPeerId = entry.peerId;
+    const closedRelayPeerId = entry.relayPeerId || hostPeerId;
+    const closedInitiator = entry.initiator;
+    const closedKind = entry.kind;
     if (entry.kind === "bootstrap") {
       clearActiveInviteForEntry(entry, "channel-close");
       cleanupEntryMqttSignal(entry);
       connections.delete(entry.key);
+    } else if (connections.get(entry.key) === entry) {
+      connections.delete(entry.key);
     }
     updateOnboarderSubscription();
+    if (closedKind === "mesh") {
+      scheduleMeshReconnect(closedPeerId, closedRelayPeerId, closedInitiator, "channel-close");
+    }
     scheduleReconnectAttempt("channel-close");
     renderUi();
   };
@@ -1309,6 +1378,7 @@ function handlePeerLeaving(entry, message) {
 }
 
 function removePeer(peerId, reason = "left") {
+  clearMeshReconnect(peerId);
   const entry = connections.get(peerId);
   if (entry) {
     clearActiveInviteForEntry(entry, reason);
@@ -1464,6 +1534,7 @@ async function startMeshOffer(entry) {
     console.error("[rtcchat_v3] mesh offer error", error);
     debugLog("mesh_offer_error", { peerId: entry.peerId, msg: String(error?.message || error) });
     statusText = `Mesh offer error for ${entry.peerId}: ${error?.message || error}`;
+    scheduleMeshReconnect(entry.peerId, entry.relayPeerId || hostPeerId, entry.initiator, "offer-error");
     renderUi();
   }
 }
@@ -1566,6 +1637,7 @@ async function handleRelayedSignal(message) {
       msg: String(error?.message || error),
     });
     statusText = `Signal error with ${fromPeerId}: ${error?.message || error}`;
+    scheduleMeshReconnect(fromPeerId, entry.relayPeerId || hostPeerId, entry.initiator, "signal-error");
     renderUi();
   }
 }
