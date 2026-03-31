@@ -44,6 +44,8 @@ const LOCAL_SIGNAL_CHANNEL = "rtcchat-local-answer";
 let localSignalChannel = null;
 let currentStarterSessionId = "";
 let appliedAnswerSignature = "";
+let autoReconnectTimer = null;
+const AUTO_RECONNECT_DELAY_MS = 30000;
 
 async function setup() {
   const canvas = createCanvas(windowWidth, windowHeight);
@@ -243,6 +245,9 @@ function renderUi() {
   if (phase === "idle") {
     appendAction("Connect", startAsStarter);
   } else if (phase === "forwarded") {
+  } else if (phase === "failed") {
+    appendAction("Reconnect Now", reconnectNow);
+    appendAction("Reset", resetConnection, true);
   } else if (phase === "show-offer") {
   } else if (phase === "show-answer") {
   } else if (phase === "awaiting-answer" || phase === "waiting-peer") {
@@ -324,6 +329,7 @@ function syncCanvasMode() {
 }
 
 function resetConnection() {
+  clearAutoReconnect();
   try {
     dc?.close?.();
   } catch {}
@@ -353,6 +359,7 @@ function resetConnection() {
 async function startAsStarter() {
   if (pc) return;
 
+  clearAutoReconnect();
   role = "starter";
   phase = "connecting";
   statusText = "Creating offer link...";
@@ -456,6 +463,56 @@ function copyShareLink() {
   renderUi();
 }
 
+async function reconnectNow() {
+  clearAutoReconnect();
+
+  if (role !== "starter") {
+    resetConnection();
+    return;
+  }
+
+  try {
+    dc?.close?.();
+  } catch {}
+  try {
+    pc?.close?.();
+  } catch {}
+
+  pc = null;
+  dc = null;
+  localCandidates = [];
+  remoteCandidatesAdded = 0;
+  qrValue = "";
+  qrCode = null;
+  shareLink = "";
+  appliedAnswerSignature = "";
+  currentStarterSessionId = "";
+
+  phase = "connecting";
+  statusText = "Reconnecting...";
+  renderUi();
+  await startAsStarter();
+}
+
+function scheduleAutoReconnect() {
+  clearAutoReconnect();
+  if (role !== "starter") return;
+
+  autoReconnectTimer = setTimeout(() => {
+    autoReconnectTimer = null;
+    if (role === "starter" && phase === "failed") {
+      reconnectNow();
+    }
+  }, AUTO_RECONNECT_DELAY_MS);
+}
+
+function clearAutoReconnect() {
+  if (autoReconnectTimer) {
+    clearTimeout(autoReconnectTimer);
+    autoReconnectTimer = null;
+  }
+}
+
 async function applyPastedResponseLink() {
   const raw = String(responsePasteInputEl?.value || "").trim();
   if (!raw) {
@@ -554,9 +611,19 @@ function newPeerConnection() {
   pc.onconnectionstatechange = () => {
     const state = pc?.connectionState || "unknown";
     if (state === "connected") {
+      clearAutoReconnect();
       phase = "connected";
       statusText = "Connected. Chat is ready.";
       addSystemMessage("Peer connection established.");
+      renderUi();
+    } else if (state === "failed") {
+      phase = "failed";
+      statusText =
+        role === "starter"
+          ? "PeerConnection failed. Reconnecting in 30s..."
+          : "PeerConnection failed.";
+      addSystemMessage("Peer connection failed.");
+      scheduleAutoReconnect();
       renderUi();
     } else if (phase !== "idle") {
       statusText = `PeerConnection: ${state}`;
@@ -572,6 +639,7 @@ function newPeerConnection() {
 function wireDataChannel(channel) {
   dc = channel;
   dc.onopen = () => {
+    clearAutoReconnect();
     phase = "connected";
     statusText = "Data channel open.";
     addSystemMessage("Data channel open.");
