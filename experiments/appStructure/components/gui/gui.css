@@ -1,1 +1,4 @@
-.gui-shell {}
+.gui-subtitle,
+.gui-status {
+  margin-top: 2px;
+}

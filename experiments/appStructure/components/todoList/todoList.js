@@ -39,6 +39,11 @@
       return card;
     }
 
+    function update({ items: nextItems = todoItems } = {}) {
+      todoItems = copyItems(nextItems);
+      syncUi();
+    }
+
     function handleSubmit(value) {
       const label = value.trim();
       if (!label) return;
@@ -111,6 +116,7 @@
 
     return {
       create,
+      update,
     };
   }
 
