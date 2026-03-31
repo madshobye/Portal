@@ -115,6 +115,9 @@ class PortalPeerJs {
   }
 
   _attachConnection(conn) {
+    if (!conn || typeof conn.on !== "function") {
+      throw new Error("PortalPeerJs: invalid connection object");
+    }
     this.connections.set(conn.peer, conn);
     this.conn = conn;
 
@@ -180,8 +183,29 @@ class PortalPeerJs {
     if (!targetPeerId) {
       throw new Error("PortalPeerJs.connect(targetPeerId): targetPeerId is required");
     }
+    if (!this.open) {
+      await new Promise((resolve, reject) => {
+        const onOpen = () => {
+          cleanup();
+          resolve(true);
+        };
+        const onError = (err) => {
+          cleanup();
+          reject(err || new Error("PeerJS did not open"));
+        };
+        const cleanup = () => {
+          this.peer?.off?.("open", onOpen);
+          this.peer?.off?.("error", onError);
+        };
+        this.peer?.on?.("open", onOpen);
+        this.peer?.on?.("error", onError);
+      });
+    }
 
     const conn = this.peer.connect(targetPeerId, options);
+    if (!conn) {
+      throw new Error(`PeerJS could not create a connection to ${targetPeerId}`);
+    }
     this._attachConnection(conn);
 
     return await new Promise((resolve, reject) => {
