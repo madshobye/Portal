@@ -287,15 +287,15 @@ function renderUi() {
   const hasRoomUi = (phase === "show-invite" || phase === "show-response") && !!qrCode;
   const showInviteLink = phase === "show-invite" || phase === "show-response";
   const showResponsePaste = !!activeInvite && phase === "awaiting-response";
+  const knownList = [SELF_PEER_ID, ...[...knownPeerIds].filter((id) => id !== SELF_PEER_ID)];
 
-  topToggleEl.textContent = topPanelVisible ? "Hide Info" : "Show Info";
+  topToggleEl.textContent = topPanelVisible ? "Hide Info" : getInfoToggleLabel(connectedPeers.length, knownList.length);
   statusCardEl.style.display = topPanelVisible ? "block" : "none";
 
   titleEl.textContent = `${SELF_PROFILE.displayName}`;
   titleEl.style.color = SELF_PROFILE.color;
   statusTextEl.textContent =
     `v${RTCCHAT_V3_VERSION}  ${statusText}  Role: ${role}  Name: ${SELF_PROFILE.displayName}  Net: ${NETWORK_NAME}  Lounge: ${roomId || DEFAULT_ROOM_NAME}`;
-  const knownList = [SELF_PEER_ID, ...[...knownPeerIds].filter((id) => id !== SELF_PEER_ID)];
   peersTextEl.textContent = `Known peers (${knownList.length}): ${formatPeerList(knownList)}`;
   connectionsTextEl.textContent = `Connected peers (${connectedPeers.length}): ${connectedPeers.length ? formatPeerList(connectedPeers) : "-"}`;
 
@@ -340,6 +340,22 @@ function renderUi() {
   }
 
   syncCanvasMode();
+}
+
+function getInfoToggleLabel(connectedPeerCount, knownPeerCount) {
+  if (phase === "awaiting-response") return "Waiting for QR Response";
+  if (phase === "show-invite") return "QR Invite Ready";
+  if (phase === "show-response") return "QR Response Ready";
+  if (phase === "reconnecting") return "Disconnected";
+  if (phase === "joining") return "Connecting";
+
+  if (connectedPeerCount > 0) {
+    const otherKnownPeers = Math.max(knownPeerCount - 1, connectedPeerCount);
+    return `${connectedPeerCount}/${otherKnownPeers} Connected`;
+  }
+
+  if (role === "host" || phase === "hosting") return "Waiting for Peers";
+  return "Connection";
 }
 
 function appendAction(label, onClick, secondary = false) {
