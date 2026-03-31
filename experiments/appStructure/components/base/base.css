@@ -1,0 +1,101 @@
+.ui-card {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 16px;
+}
+
+.ui-title {
+  margin: 0;
+  line-height: 1.1;
+}
+
+.ui-meta {
+  margin: 0;
+  color: #666;
+  font-size: 0.9rem;
+}
+
+.ui-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.ui-title-group {
+  display: grid;
+  gap: 4px;
+}
+
+.ui-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.ui-form-row {
+  display: flex;
+  gap: 8px;
+}
+
+.ui-input {
+  flex: 1;
+  min-width: 0;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  font: inherit;
+  color: inherit;
+  background: var(--surface);
+}
+
+.ui-button {
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--ink);
+  font: inherit;
+  cursor: pointer;
+}
+
+.ui-button-primary {
+  border-color: var(--accent);
+}
+
+.ui-list {
+  display: grid;
+  gap: 8px;
+}
+
+.ui-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 40px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+}
+
+.ui-row input {
+  width: 16px;
+  height: 16px;
+  accent-color: var(--accent);
+}
+
+.ui-label {
+  line-height: 1.4;
+}
+
+.ui-label-done {
+  color: #666;
+  text-decoration: line-through;
+}
+
+.ui-empty {
+  margin: 0;
+  color: #666;
+  padding: 8px 0;
+}

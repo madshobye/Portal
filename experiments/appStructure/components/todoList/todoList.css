@@ -1,0 +1,19 @@
+.todo-list {
+  display: grid;
+  gap: 12px;
+}
+
+.todo-title {
+  font-size: 1.125rem;
+}
+
+.todo-label-done {
+  color: #666;
+  text-decoration: line-through;
+}
+
+.todo-empty {
+  margin: 0;
+  color: #666;
+  padding: 8px 0;
+}
