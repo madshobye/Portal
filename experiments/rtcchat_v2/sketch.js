@@ -1,7 +1,13 @@
-const RTCCHAT_V2_VERSION = 2;
+const RTCCHAT_V2_VERSION = 4;
 
 const SELF_PEER_ID = `peer-${Math.random().toString(36).slice(2, 10)}`;
 const ROOM_SIGNAL_CHANNEL = "rtchat-v2-room";
+const LOCAL_RESPONSE_CHANNEL = "rtcchat-v2-local-response";
+const LOCAL_RESPONSE_KEY = "rtcchat-v2-local-response";
+const ONBOARDER_ENABLED_KEY = "rtcchat-v2-onboarder-enabled";
+const MQTT_BROKER = "wss://public:public@public.cloud.shiftr.io";
+const DEBUG_TOPIC = "portal/rtcchat/debug";
+const ONBOARDER_REQUEST_TOPIC = "portal/rtcchat_v2/onboarder/request";
 
 let role = "idle";
 let phase = "idle";
@@ -38,6 +44,7 @@ let linkTitleEl;
 let linkAnchorEl;
 let linkTextEl;
 let linkCopyBtnEl;
+let linkNextBtnEl;
 let linkCloseBtnEl;
 let responsePasteCardEl;
 let responsePasteInputEl;
@@ -46,6 +53,15 @@ let responsePasteBtnEl;
 let chatMessages = [];
 let canvasMode = "";
 let lastStageSize = 0;
+let localResponseChannel = null;
+let appliedResponseSignatures = new Set();
+let applyingResponseInviteIds = new Set();
+let debugMqttClient = null;
+let onboarderMqttClient = null;
+let onboarderReplyTopic = `portal/rtcchat_v2/onboarder/reply/${SELF_PEER_ID}`;
+let onboarderResponseTopic = `portal/rtcchat_v2/onboarder/response/${SELF_PEER_ID}`;
+let onboarderWaiters = new Map();
+let onboarderEnabled = localStorage.getItem(ONBOARDER_ENABLED_KEY) === "1";
 
 async function setup() {
   const canvas = createCanvas(windowWidth, windowHeight);
@@ -55,11 +71,15 @@ async function setup() {
 
   await loadScript("https://unpkg.com/fflate@0.8.2/umd/index.js");
   await loadScript("portal/qrCodeGen.js");
+  await loadScript("portal/mqtt.js");
 
+  initLocalResponseRelay();
   buildUi(canvas);
   installViewportTracking();
   renderMessages();
   renderUi();
+  await initDebugMqtt();
+  await initOnboarderMqtt();
   await handleIncomingLink();
 }
 
@@ -149,6 +169,12 @@ function buildUi(canvas) {
   linkCopyBtnEl.textContent = "Copy Link";
   linkCopyBtnEl.addEventListener("click", copyShareLink);
   linkCardEl.appendChild(linkCopyBtnEl);
+
+  linkNextBtnEl = document.createElement("button");
+  linkNextBtnEl.className = "rtcchat-btn secondary";
+  linkNextBtnEl.textContent = "Next";
+  linkNextBtnEl.addEventListener("click", advanceInviteFlow);
+  linkCardEl.appendChild(linkNextBtnEl);
 
   responsePasteCardEl = document.createElement("section");
   responsePasteCardEl.className = "rtcchat-card rtcchat-link-card rtcchat-response-card";
@@ -245,6 +271,7 @@ function renderUi() {
   linkTextEl.value = shareLink || "";
   linkAnchorEl.href = shareLink || "#";
   linkCopyBtnEl.disabled = !shareLink;
+  linkNextBtnEl.disabled = !shareLink;
 
   chatCardEl.style.display = connectedPeers.length > 0 ? "flex" : "none";
   composerInputEl.disabled = connectedPeers.length === 0;
@@ -255,6 +282,7 @@ function renderUi() {
   }
 
   actionsEl.innerHTML = "";
+  appendAction(onboarderEnabled ? "Onboarder: On" : "Onboarder: Off", toggleOnboarderMode, true);
   if (role === "host") {
     if (connectedPeers.length > 0 && !activeInvite) {
       appendAction("+", createHostInvite);
@@ -331,6 +359,7 @@ function syncCanvasMode() {
 async function handleIncomingLink() {
   const params = new URLSearchParams(window.location.search);
   const connectValue = params.get("connect");
+  const responseValue = params.get("response");
   const room = params.get("room");
   const inviteId = params.get("invite");
   const host = params.get("host");
@@ -340,7 +369,88 @@ async function handleIncomingLink() {
     return;
   }
 
+  if (responseValue && inviteId) {
+    forwardResponseToLocalInviter({
+      type: "rtcchat-v2-response",
+      inviteId,
+      responseValue,
+      roomId: room || "",
+      sentAt: Date.now(),
+    });
+    return;
+  }
+
+  statusText = "Checking onboarder...";
+  renderUi();
+  if (await tryJoinViaOnboarder()) {
+    return;
+  }
+
+  statusText = "Starting room...";
+  renderUi();
   await initializeHostRoom();
+}
+
+async function tryJoinViaOnboarder(timeoutMs = 4000) {
+  if (!onboarderMqttClient?.connected) return false;
+
+  const requestId = `req-${Math.random().toString(36).slice(2, 10)}`;
+  statusText = "Looking for onboarder...";
+  renderUi();
+
+  const response = await new Promise((resolve) => {
+    const timer = setTimeout(() => {
+      onboarderWaiters.delete(requestId);
+      resolve(null);
+    }, timeoutMs);
+
+    onboarderWaiters.set(requestId, (payload) => {
+      clearTimeout(timer);
+      onboarderWaiters.delete(requestId);
+      resolve(payload);
+    });
+
+    onboarderMqttClient.publish(
+      ONBOARDER_REQUEST_TOPIC,
+      JSON.stringify({
+        requesterId: SELF_PEER_ID,
+        requestId,
+        replyTopic: onboarderReplyTopic,
+      })
+    ).catch(() => {
+      clearTimeout(timer);
+      onboarderWaiters.delete(requestId);
+      resolve(null);
+    });
+  });
+
+  if (!response?.link) {
+    statusText = "No onboarder answered. Falling back to manual invite.";
+    renderUi();
+    return false;
+  }
+
+  try {
+    const url = new URL(response.link);
+    const connectValue = url.searchParams.get("connect");
+    const room = url.searchParams.get("room") || response.roomId || "";
+    const inviteId = url.searchParams.get("invite") || response.inviteId || "";
+    const host = url.searchParams.get("host") || response.hostId || "";
+    if (!connectValue || !inviteId || !host) {
+      throw new Error("Onboarder response was missing connect details.");
+    }
+    debugLog("onboarder_join", { hostId: host, inviteId, roomId: room });
+    await startAsJoinerFromLink(connectValue, room, inviteId, host, {
+      mqttResponseTopic: response.responseTopic || "",
+      viaOnboarder: true,
+    });
+    return true;
+  } catch (error) {
+    debugLog("onboarder_join_error", { msg: String(error?.message || error) });
+    statusText = `Onboarder error: ${error?.message || error}`;
+    renderUi();
+    return false;
+  }
 }
 
 async function initializeHostRoom() {
@@ -354,9 +464,17 @@ async function initializeHostRoom() {
   shareLink = "";
   qrCode = null;
   activeInvite = null;
-  statusText = "Creating room invite...";
+  appliedResponseSignatures.clear();
+  applyingResponseInviteIds.clear();
+  statusText = onboarderEnabled ? "Room ready. Waiting for MQTT onboarding..." : "Creating room invite...";
   renderMessages();
   renderUi();
+  debugLog("room_init", { role, roomId });
+  if (onboarderEnabled) {
+    phase = "hosting";
+    renderUi();
+    return;
+  }
   await createHostInvite();
 }
 
@@ -384,7 +502,8 @@ function clearInviteView() {
   renderUi();
 }
 
-async function createHostInvite() {
+async function createHostInvite(options = {}) {
+  const silent = !!options.silent;
   if (role !== "host" && role !== "peer") return;
   if (activeInvite?.entryKey) {
     const stale = connections.get(activeInvite.entryKey);
@@ -413,9 +532,14 @@ async function createHostInvite() {
   connections.set(entryKey, entry);
   activeInvite = { inviteId, entryKey };
 
-  phase = "hosting";
-  statusText = "Creating invite link...";
-  renderUi();
+  const previousPhase = phase;
+  const previousStatus = statusText;
+
+  if (!silent) {
+    phase = "hosting";
+    statusText = "Creating invite link...";
+    renderUi();
+  }
 
   try {
     const offer = await entry.pc.createOffer();
@@ -427,20 +551,35 @@ async function createHostInvite() {
     shareLink = buildInviteLink(bundleString, roomId, inviteId, SELF_PEER_ID);
     qrCode = tryCreateQrCode(shareLink);
     logBundle("HOST INVITE", bundleString, bundle);
+    debugLog("invite_ready", {
+      inviteId,
+      roomId,
+      role,
+      len: shareLink.length,
+      cand: bundle.c.length,
+    });
 
-    phase = "show-invite";
-    statusText = qrCode
-      ? "Invite ready. Share it with the next peer."
-      : "Invite ready. QR unavailable for this link, use copy/share.";
+    if (silent) {
+      phase = previousPhase;
+      statusText = "Onboarder invite ready.";
+    } else {
+      phase = "show-invite";
+      statusText = qrCode
+        ? "Invite ready. Share it with the next peer."
+        : "Invite ready. QR unavailable for this link, use copy/share.";
+    }
     renderUi();
   } catch (error) {
     console.error("[rtcchat_v2] host invite error", error);
-    statusText = `Invite error: ${error?.message || error}`;
+    debugLog("invite_error", { msg: String(error?.message || error) });
+    statusText = silent ? previousStatus : `Invite error: ${error?.message || error}`;
     renderUi();
   }
 }
 
-async function startAsJoinerFromLink(linkValue, room, inviteId, hostId) {
+async function startAsJoinerFromLink(linkValue, room, inviteId, hostId, options = {}) {
+  const mqttResponseTopic = options.mqttResponseTopic || "";
+  const viaOnboarder = !!options.viaOnboarder;
   closeAllConnections();
   connections.clear();
   knownPeerIds = new Set([SELF_PEER_ID, hostId]);
@@ -454,6 +593,7 @@ async function startAsJoinerFromLink(linkValue, room, inviteId, hostId) {
   statusText = "Applying invite link and building response...";
   renderMessages();
   renderUi();
+  debugLog("join_start", { inviteId, roomId, hostId });
 
   const hostEntry = createConnectionEntry({
     key: hostPeerId,
@@ -482,14 +622,45 @@ async function startAsJoinerFromLink(linkValue, room, inviteId, hostId) {
     shareLink = buildResponseLink(answerString, roomId, inviteId, hostPeerId);
     qrCode = tryCreateQrCode(shareLink);
     logBundle("JOIN ANSWER", answerString, answerBundle);
+    debugLog("response_ready", {
+      inviteId,
+      roomId,
+      hostId,
+      len: shareLink.length,
+      cand: answerBundle.c.length,
+    });
 
-    phase = "show-response";
-    statusText = qrCode
-      ? "Response ready. Paste it into the host tab."
-      : "Response ready. QR unavailable for this link, use copy/share.";
+    if (mqttResponseTopic && onboarderMqttClient?.connected) {
+      await onboarderMqttClient.publish(
+        mqttResponseTopic,
+        JSON.stringify({
+          type: "rtcchat-v2-onboarder-response",
+          inviteId,
+          responseValue: answerString,
+          roomId,
+          fromPeerId: SELF_PEER_ID,
+        })
+      );
+      shareLink = "";
+      qrCode = null;
+      phase = "joining";
+      statusText = "Response sent to onboarder. Waiting for host...";
+      debugLog("response_forwarded_mqtt", {
+        inviteId,
+        roomId,
+        hostId,
+        viaOnboarder,
+      });
+    } else {
+      phase = "show-response";
+      statusText = qrCode
+        ? "Response ready. Paste it into the host tab."
+        : "Response ready. QR unavailable for this link, use copy/share.";
+    }
     renderUi();
   } catch (error) {
     console.error("[rtcchat_v2] join error", error);
+    debugLog("join_error", { inviteId, msg: String(error?.message || error) });
     statusText = `Join error: ${error?.message || error}`;
     renderUi();
   }
@@ -504,7 +675,6 @@ async function applyPastedResponseLink() {
     return;
   }
 
-  const responseValue = extractBundleFromPossibleUrl(raw, "response");
   const entry = connections.get(activeInvite.entryKey);
   if (!entry) {
     statusText = "No pending invite is waiting for a response.";
@@ -513,29 +683,130 @@ async function applyPastedResponseLink() {
   }
 
   try {
-    const bundle = fromBundleString(responseValue);
-    logParsedBundle("HOST RESPONSE", responseValue, bundle);
-
-    statusText = "Applying response...";
+    const responseValue = extractResponseValue(raw);
+    await applyInviteResponse(activeInvite.inviteId, responseValue);
+    responsePasteInputEl.value = "";
+  } catch (error) {
+    console.error("[rtcchat_v2] apply response error", error);
+    statusText = `Response error: ${error?.message || error}`;
     renderUi();
+  }
+}
 
+function initLocalResponseRelay() {
+  if (typeof BroadcastChannel !== "undefined") {
+    localResponseChannel = new BroadcastChannel(LOCAL_RESPONSE_CHANNEL);
+    localResponseChannel.onmessage = (event) => {
+      handleLocalResponseSignal(event?.data);
+    };
+  }
+
+  window.addEventListener("storage", (event) => {
+    if (event.key !== LOCAL_RESPONSE_KEY || !event.newValue) return;
+    try {
+      handleLocalResponseSignal(JSON.parse(event.newValue));
+    } catch {}
+  });
+}
+
+function forwardResponseToLocalInviter(payload) {
+  try {
+    localResponseChannel?.postMessage?.(payload);
+  } catch {}
+
+  try {
+    localStorage.setItem(LOCAL_RESPONSE_KEY, JSON.stringify(payload));
+    setTimeout(() => {
+      try {
+        localStorage.removeItem(LOCAL_RESPONSE_KEY);
+      } catch {}
+    }, 50);
+  } catch {}
+
+  role = "peer";
+  phase = "joining";
+  statusText = "Response forwarded to the inviter tab. You can close this tab.";
+  shareLink = "";
+  qrCode = null;
+  clearIncomingParams();
+  debugLog("response_forwarded", { inviteId: payload.inviteId, roomId: payload.roomId || roomId });
+  renderUi();
+}
+
+async function handleLocalResponseSignal(data) {
+  if (!data || data.type !== "rtcchat-v2-response") return;
+  if (!activeInvite || data.inviteId !== activeInvite.inviteId) return;
+
+  try {
+    await applyInviteResponse(data.inviteId, data.responseValue);
+  } catch (error) {
+    console.error("[rtcchat_v2] local response relay error", error);
+    debugLog("response_relay_error", {
+      inviteId: data.inviteId,
+      msg: String(error?.message || error),
+    });
+    statusText = `Response relay error: ${error?.message || error}`;
+    renderUi();
+  }
+}
+
+async function applyInviteResponse(inviteId, responseValue) {
+  if (!activeInvite || activeInvite.inviteId !== inviteId) {
+    throw new Error("No matching pending invite for that response.");
+  }
+  if (applyingResponseInviteIds.has(inviteId)) {
+    return;
+  }
+
+  const entry = connections.get(activeInvite.entryKey);
+  if (!entry) {
+    throw new Error("No pending invite is waiting for a response.");
+  }
+
+  const bundle = fromBundleString(responseValue);
+  const responseSignature = `${inviteId}:${JSON.stringify(bundle)}`;
+  if (appliedResponseSignatures.has(responseSignature)) {
+    return;
+  }
+  logParsedBundle("HOST RESPONSE", responseValue, bundle);
+
+  applyingResponseInviteIds.add(inviteId);
+
+  statusText = "Applying response...";
+  renderUi();
+
+  const signalingState = entry.pc?.signalingState || "";
+  if (signalingState !== "have-local-offer") {
+    if (signalingState === "stable") {
+      appliedResponseSignatures.add(responseSignature);
+      applyingResponseInviteIds.delete(inviteId);
+      return;
+    }
+    applyingResponseInviteIds.delete(inviteId);
+    throw new Error(`Invite is not waiting for an answer (state: ${signalingState})`);
+  }
+
+  try {
     await entry.pc.setRemoteDescription({ type: "answer", sdp: buildSdpFromBundle(bundle) });
+    appliedResponseSignatures.add(responseSignature);
     entry.remoteCandidatesAdded = 0;
     for (const candidate of bundle.c || []) {
       await entry.pc.addIceCandidate({ candidate, sdpMLineIndex: 0 });
       entry.remoteCandidatesAdded += 1;
     }
 
-    responsePasteInputEl.value = "";
     shareLink = "";
     qrCode = null;
     phase = "joining";
     statusText = "Response accepted. Waiting for peer hello...";
+    debugLog("response_applied", {
+      inviteId,
+      peerId: entry.peerId,
+      cand: entry.remoteCandidatesAdded,
+    });
     renderUi();
-  } catch (error) {
-    console.error("[rtcchat_v2] apply response error", error);
-    statusText = `Response error: ${error?.message || error}`;
-    renderUi();
+  } finally {
+    applyingResponseInviteIds.delete(inviteId);
   }
 }
 
@@ -557,7 +828,6 @@ function createConnectionEntry({ key, peerId, kind, initiator }) {
     introducedPeers: new Set(),
     inviteId: "",
     relayPeerId: "",
-    meshWaitTimer: null,
   };
 
   entry.pc.onicecandidate = (event) => {
@@ -570,14 +840,17 @@ function createConnectionEntry({ key, peerId, kind, initiator }) {
     entry.state = entry.pc.connectionState || "unknown";
     if (entry.state === "failed") {
       addSystemMessage(`Connection failed for ${entry.peerId}.`);
+      debugLog("pc_failed", { peerId: entry.peerId, kind: entry.kind });
       statusText = `Connection failed for ${entry.peerId}.`;
       renderUi();
     } else if (entry.state === "connected") {
       if (entry.kind === "mesh") {
         statusText = `Mesh connected to ${entry.peerId}.`;
+        debugLog("mesh_connected", { peerId: entry.peerId });
       } else if (entry.kind === "host" && role === "peer") {
         phase = "connected";
         statusText = "Connected to room host.";
+        debugLog("host_connected", { peerId: entry.peerId });
       }
       renderUi();
     }
@@ -600,6 +873,7 @@ function wireDataChannel(entry, channel) {
     if (entry.kind === "mesh") {
       knownPeerIds.add(entry.peerId);
       addSystemMessage(`Direct room link open with ${entry.peerId}.`);
+      debugLog("dc_open", { peerId: entry.peerId, kind: entry.kind });
     }
 
     renderUi();
@@ -621,6 +895,7 @@ function wireDataChannel(entry, channel) {
 function sendHelloToHost() {
   const hostEntry = connections.get(hostPeerId);
   if (!hostEntry?.dc || hostEntry.dc.readyState !== "open") return;
+  debugLog("hello_sent", { to: hostPeerId, roomId });
   sendJson(hostEntry.dc, {
     type: "hello",
     peerId: SELF_PEER_ID,
@@ -637,22 +912,37 @@ function handleChannelMessage(entry, raw) {
   }
 
   if (message.type === "hello" && entry.kind === "bootstrap") {
+    debugLog("hello_recv", { from: message.peerId, via: entry.peerId });
     finalizeBootstrapPeer(entry, message);
     return;
   }
 
   if (message.type === "room-peers") {
+    debugLog("room_peers_recv", {
+      from: entry.peerId,
+      count: (message.peers || []).length,
+    });
     handleRoomPeers(message.peers || [], entry.peerId);
     return;
   }
 
   if (message.type === "mesh-connect") {
-    maybeStartMeshConnection(message.peerId, message.brokerPeerId || entry.peerId);
+    debugLog("mesh_connect_recv", {
+      from: entry.peerId,
+      peerId: message.peerId,
+      broker: message.brokerPeerId || entry.peerId,
+      init: typeof message.shouldInitiate === "boolean" ? message.shouldInitiate : "auto",
+    });
+    maybeStartMeshConnection(
+      message.peerId,
+      message.brokerPeerId || entry.peerId,
+      typeof message.shouldInitiate === "boolean" ? message.shouldInitiate : null
+    );
     return;
   }
 
   if (message.type === "relay-signal") {
-    if (entry.kind === "host" || entry.kind === "bootstrap") {
+    if (message.targetPeerId) {
       forwardRelaySignal(entry, message);
     } else {
       handleRelayedSignal(message);
@@ -685,25 +975,34 @@ function finalizeBootstrapPeer(entry, message) {
     .filter((candidate) => candidate.peerId !== peerId && candidate.peerId !== SELF_PEER_ID && candidate.kind !== "bootstrap")
     .map((candidate) => candidate.peerId);
 
+  debugLog("peer_joined", {
+    peerId,
+    existing: existingMeshPeers.length,
+    broker: SELF_PEER_ID,
+  });
+
   sendJson(entry.dc, {
     type: "room-peers",
     peers: existingMeshPeers,
   });
+  debugLog("room_peers_sent", {
+    to: peerId,
+    count: existingMeshPeers.length,
+  });
 
   for (const otherPeerId of existingMeshPeers) {
-    const other = connections.get(otherPeerId);
-    if (other?.dc?.readyState === "open") {
-      sendJson(other.dc, {
-        type: "mesh-connect",
-        peerId,
-        brokerPeerId: SELF_PEER_ID,
-      });
-    }
     if (entry.dc?.readyState === "open") {
+      debugLog("mesh_connect_sent", {
+        to: peerId,
+        peerId: otherPeerId,
+        broker: SELF_PEER_ID,
+        init: true,
+      });
       sendJson(entry.dc, {
         type: "mesh-connect",
         peerId: otherPeerId,
         brokerPeerId: SELF_PEER_ID,
+        shouldInitiate: true,
       });
     }
   }
@@ -723,17 +1022,27 @@ function finalizeBootstrapPeer(entry, message) {
 function handleRoomPeers(peerIds, relayPeerId = hostPeerId) {
   for (const peerId of peerIds) {
     knownPeerIds.add(peerId);
-    maybeStartMeshConnection(peerId, relayPeerId);
+    const entry = connections.get(peerId);
+    if (entry && relayPeerId) {
+      entry.relayPeerId = relayPeerId;
+    }
   }
   renderUi();
 }
 
-function maybeStartMeshConnection(peerId, relayPeerId = hostPeerId) {
+function maybeStartMeshConnection(peerId, relayPeerId = hostPeerId, shouldInitiate = null) {
   if (!peerId || peerId === SELF_PEER_ID || peerId === hostPeerId) return;
   knownPeerIds.add(peerId);
   let entry = connections.get(peerId);
   if (entry && entry.kind === "mesh") {
     if (relayPeerId) entry.relayPeerId = relayPeerId;
+    if (typeof shouldInitiate === "boolean") {
+      entry.initiator = shouldInitiate;
+      if (shouldInitiate && !entry.dc) {
+        debugLog("mesh_plan", { peerId, broker: relayPeerId, init: true, existing: true });
+        startMeshOffer(entry);
+      }
+    }
     return;
   }
 
@@ -741,15 +1050,16 @@ function maybeStartMeshConnection(peerId, relayPeerId = hostPeerId) {
     key: peerId,
     peerId,
     kind: "mesh",
-    initiator: SELF_PEER_ID < peerId,
+    initiator: typeof shouldInitiate === "boolean" ? shouldInitiate : SELF_PEER_ID < peerId,
   });
   entry.relayPeerId = relayPeerId;
   connections.set(peerId, entry);
 
   if (entry.initiator) {
+    debugLog("mesh_plan", { peerId, broker: relayPeerId, init: true, existing: false });
     startMeshOffer(entry);
   } else {
-    scheduleMeshOfferFallback(entry);
+    debugLog("mesh_plan", { peerId, broker: relayPeerId, init: false, existing: false });
     statusText = `Waiting for ${peerId} to initiate mesh link.`;
     renderUi();
   }
@@ -757,7 +1067,6 @@ function maybeStartMeshConnection(peerId, relayPeerId = hostPeerId) {
 
 async function startMeshOffer(entry) {
   if (!entry || entry.dc) return;
-  clearMeshOfferFallback(entry);
   entry.dc = entry.pc.createDataChannel(`mesh-${entry.peerId}`);
   wireDataChannel(entry, entry.dc);
 
@@ -771,10 +1080,16 @@ async function startMeshOffer(entry) {
       signalKind: "offer",
       bundle,
     }, entry.relayPeerId || hostPeerId);
+    debugLog("mesh_offer_sent", {
+      peerId: entry.peerId,
+      broker: entry.relayPeerId || hostPeerId,
+      cand: bundle.c.length,
+    });
     statusText = `Brokering offer to ${entry.peerId}.`;
     renderUi();
   } catch (error) {
     console.error("[rtcchat_v2] mesh offer error", error);
+    debugLog("mesh_offer_error", { peerId: entry.peerId, msg: String(error?.message || error) });
     statusText = `Mesh offer error for ${entry.peerId}: ${error?.message || error}`;
     renderUi();
   }
@@ -793,25 +1108,6 @@ function sendRelayToPeer(targetPeerId, signal, relayPeerId = hostPeerId) {
     bundle: signal.bundle,
     brokerPeerId: relayPeerId,
   });
-}
-
-function scheduleMeshOfferFallback(entry, delayMs = 1800) {
-  clearMeshOfferFallback(entry);
-  entry.meshWaitTimer = setTimeout(() => {
-    entry.meshWaitTimer = null;
-    if (!entry.dc && entry.pc?.signalingState === "stable") {
-      statusText = `Fallback: initiating mesh link to ${entry.peerId}.`;
-      renderUi();
-      startMeshOffer(entry);
-    }
-  }, delayMs);
-}
-
-function clearMeshOfferFallback(entry) {
-  if (entry?.meshWaitTimer) {
-    clearTimeout(entry.meshWaitTimer);
-    entry.meshWaitTimer = null;
-  }
 }
 
 function forwardRelaySignal(fromEntry, message) {
@@ -851,7 +1147,6 @@ async function handleRelayedSignal(message) {
     connections.set(fromPeerId, entry);
   }
   entry.relayPeerId = message.brokerPeerId || entry.relayPeerId || hostPeerId;
-  clearMeshOfferFallback(entry);
 
   try {
     if (message.signalKind === "offer") {
@@ -870,6 +1165,11 @@ async function handleRelayedSignal(message) {
         signalKind: "answer",
         bundle,
       }, entry.relayPeerId || hostPeerId);
+      debugLog("mesh_answer_sent", {
+        peerId: fromPeerId,
+        broker: entry.relayPeerId || hostPeerId,
+        cand: bundle.c.length,
+      });
       statusText = `Answer brokered back to ${fromPeerId}.`;
       renderUi();
       return;
@@ -881,11 +1181,17 @@ async function handleRelayedSignal(message) {
         await entry.pc.addIceCandidate({ candidate, sdpMLineIndex: 0 });
         entry.remoteCandidatesAdded += 1;
       }
+      debugLog("mesh_answer_applied", { peerId: fromPeerId, cand: entry.remoteCandidatesAdded });
       statusText = `Mesh answer applied from ${fromPeerId}.`;
       renderUi();
     }
   } catch (error) {
     console.error("[rtcchat_v2] relayed signal error", error);
+    debugLog("mesh_signal_error", {
+      peerId: fromPeerId,
+      kind: message.signalKind,
+      msg: String(error?.message || error),
+    });
     statusText = `Signal error with ${fromPeerId}: ${error?.message || error}`;
     renderUi();
   }
@@ -914,6 +1220,7 @@ function sendMessage() {
     seenChatIds.add(msg.id);
     addChatMessage("self", text);
     composerInputEl.value = "";
+    debugLog("chat_send", { sent, len: text.length });
     statusText = `Sent to ${sent} peer${sent === 1 ? "" : "s"}.`;
     renderUi();
   }
@@ -922,6 +1229,7 @@ function sendMessage() {
 function handleIncomingChat(message) {
   if (!message.id || seenChatIds.has(message.id)) return;
   seenChatIds.add(message.id);
+  debugLog("chat_recv", { from: message.from, len: String(message.text || "").length });
   addChatMessage("peer", `${message.from}: ${message.text}`);
 }
 
@@ -1133,6 +1441,24 @@ function extractBundleFromPossibleUrl(raw, paramName) {
   return raw;
 }
 
+function extractResponseValue(raw) {
+  if (!/^https?:\/\//i.test(raw)) {
+    return raw;
+  }
+
+  const url = new URL(raw);
+  const responseValue = url.searchParams.get("response");
+  if (responseValue) {
+    return responseValue;
+  }
+
+  if (url.searchParams.get("connect")) {
+    throw new Error("That looks like an invite link, not a response link.");
+  }
+
+  throw new Error("No response was found in that link.");
+}
+
 function resetRoom() {
   clearIncomingParams();
   initializeHostRoom();
@@ -1149,16 +1475,25 @@ function clearIncomingParams() {
 function copyShareLink() {
   if (!shareLink) return;
   navigator.clipboard?.writeText?.(shareLink).catch(() => {});
+  advanceInviteFlow(true);
+}
+
+function advanceInviteFlow(fromCopy = false) {
+  if (!shareLink) return;
   if (activeInvite) {
     phase = "awaiting-response";
     shareLink = "";
     qrCode = null;
-    statusText = "Invite copied. Waiting for peer response...";
+    statusText = fromCopy
+      ? "Invite copied. Waiting for peer response..."
+      : "Waiting for peer response...";
   } else {
     phase = "joining";
     shareLink = "";
     qrCode = null;
-    statusText = "Response copied. Send it back to the host tab.";
+    statusText = fromCopy
+      ? "Response copied. Send it back to the host tab."
+      : "Waiting for host to accept response.";
   }
   renderUi();
 }
@@ -1264,4 +1599,237 @@ function requestViewportRefresh() {
       syncCanvasMode();
     }, delay);
   }
+}
+
+async function initDebugMqtt() {
+  try {
+    debugMqttClient = await new PortalMqtt({
+      broker: MQTT_BROKER,
+      clientId: `${SELF_PEER_ID}-debug`,
+      autoConnect: false,
+    }).init();
+    await debugMqttClient.connect();
+    debugLog("debug_online", { roomId, role });
+  } catch (error) {
+    console.warn("[rtcchat_v2] debug mqtt unavailable", error);
+  }
+}
+
+async function initOnboarderMqtt() {
+  try {
+    onboarderMqttClient = await new PortalMqtt({
+      broker: MQTT_BROKER,
+      clientId: `${SELF_PEER_ID}-onboard`,
+      autoConnect: false,
+      onMessage: (result) => {
+        handleOnboarderMqttMessage(result);
+      },
+    }).init();
+    await onboarderMqttClient.connect();
+    await onboarderMqttClient.subscribe(onboarderReplyTopic);
+    await onboarderMqttClient.subscribe(onboarderResponseTopic);
+    await updateOnboarderSubscription();
+  } catch (error) {
+    console.warn("[rtcchat_v2] onboarder mqtt unavailable", error);
+  }
+}
+
+function handleOnboarderMqttMessage(result) {
+  if (result?.topic === ONBOARDER_REQUEST_TOPIC) {
+    if (onboarderEnabled) {
+      answerOnboarderRequest(result).catch((error) => {
+        console.error("[rtcchat_v2] onboarder request error", error);
+        debugLog("onboarder_error", {
+          msg: error?.message || String(error),
+        });
+      });
+    }
+    return;
+  }
+  if (result?.topic === onboarderResponseTopic) {
+    handleOnboarderResponseMessage(result);
+    return;
+  }
+  if (!result?.message) return;
+  let payload;
+  try {
+    payload = JSON.parse(result.message);
+  } catch {
+    return;
+  }
+  const waiter = onboarderWaiters.get(payload.requestId);
+  if (waiter) {
+    waiter(payload);
+  }
+}
+
+function handleOnboarderResponseMessage(result) {
+  if (!result?.message) return;
+  let payload;
+  try {
+    payload = JSON.parse(result.message);
+  } catch {
+    return;
+  }
+  if (payload?.type !== "rtcchat-v2-onboarder-response") return;
+  applyInviteResponse(payload.inviteId, payload.responseValue).catch((error) => {
+    console.error("[rtcchat_v2] onboarder response error", error);
+    debugLog("onboarder_response_error", {
+      inviteId: payload?.inviteId,
+      from: payload?.fromPeerId,
+      msg: String(error?.message || error),
+    });
+    statusText = `Onboarder response error: ${error?.message || error}`;
+    renderUi();
+  });
+}
+
+async function updateOnboarderSubscription() {
+  if (!onboarderMqttClient?.connected) return;
+  try {
+    if (onboarderEnabled) {
+      await onboarderMqttClient.subscribe(ONBOARDER_REQUEST_TOPIC);
+      debugLog("onboarder_service_online", { topic: ONBOARDER_REQUEST_TOPIC });
+    } else {
+      await onboarderMqttClient.unsubscribe(ONBOARDER_REQUEST_TOPIC);
+      debugLog("onboarder_service_offline", { topic: ONBOARDER_REQUEST_TOPIC });
+    }
+  } catch (error) {
+    console.warn("[rtcchat_v2] onboarder subscription update failed", error);
+  }
+}
+
+function toggleOnboarderMode() {
+  onboarderEnabled = !onboarderEnabled;
+  localStorage.setItem(ONBOARDER_ENABLED_KEY, onboarderEnabled ? "1" : "0");
+  if (onboarderEnabled && activeInvite && phase === "show-invite") {
+    clearInviteView();
+    statusText = "Onboarder mode enabled. Waiting for MQTT onboarding...";
+  } else {
+    statusText = onboarderEnabled ? "Onboarder mode enabled." : "Onboarder mode disabled.";
+  }
+  debugLog(onboarderEnabled ? "onboarder_enabled" : "onboarder_disabled", {
+    roomId,
+    activeInvite: !!activeInvite,
+  });
+  renderUi();
+  updateOnboarderSubscription();
+}
+
+async function answerOnboarderRequest(result) {
+  if (!result?.message || !onboarderMqttClient?.connected) return;
+  let payload;
+  try {
+    payload = JSON.parse(result.message);
+  } catch {
+    return;
+  }
+
+  const requestId = payload?.requestId;
+  const replyTopic = payload?.replyTopic;
+  if (!requestId || !replyTopic) return;
+
+  debugLog("onboarder_request", {
+    requestId,
+    from: payload.requesterId || "-",
+    replyTopic,
+  });
+
+  if (!roomId) {
+    await publishOnboarderReply(replyTopic, requestId, { available: false, reason: "no-room" });
+    return;
+  }
+
+  const connectedPeerIds = getConnectedPeerIds();
+  const canBroker =
+    role === "host" ||
+    connectedPeerIds.length > 0 ||
+    phase === "hosting" ||
+    phase === "connected";
+
+  if (!canBroker) {
+    await publishOnboarderReply(replyTopic, requestId, {
+      available: false,
+      reason: "not-connected",
+      roomId,
+    });
+    return;
+  }
+
+  if (activeInvite && !shareLink) {
+    await publishOnboarderReply(replyTopic, requestId, {
+      available: false,
+      reason: "busy",
+      roomId,
+      inviteId: activeInvite.inviteId,
+    });
+    return;
+  }
+
+  if (!activeInvite || !shareLink) {
+    statusText = "Preparing onboarder invite...";
+    renderUi();
+    await createHostInvite({ silent: true });
+  }
+
+  if (!activeInvite || !shareLink) {
+    await publishOnboarderReply(replyTopic, requestId, {
+      available: false,
+      reason: "invite-unavailable",
+      roomId,
+    });
+    return;
+  }
+
+  await publishOnboarderReply(replyTopic, requestId, {
+    available: true,
+    link: shareLink,
+    roomId,
+    inviteId: activeInvite.inviteId,
+    hostId: SELF_PEER_ID,
+    responseTopic: onboarderResponseTopic,
+  });
+}
+
+async function publishOnboarderReply(replyTopic, requestId, extra = {}) {
+  const payload = {
+    requestId,
+    fromPeerId: SELF_PEER_ID,
+    ...extra,
+  };
+  await onboarderMqttClient.publish(replyTopic, JSON.stringify(payload));
+  debugLog(extra.available ? "onboarder_reply" : "onboarder_unavailable", {
+    requestId,
+    to: replyTopic,
+    inviteId: extra.inviteId,
+    roomId: extra.roomId,
+    reason: extra.reason,
+  });
+}
+
+function debugLog(event, details = {}) {
+  const payload = {
+    t: new Date().toISOString(),
+    event,
+    self: SELF_PEER_ID,
+    role,
+    room: roomId || "-",
+    ...compactDebugDetails(details),
+  };
+  console.log("[rtcchat_v2:debug]", payload);
+  if (!debugMqttClient?.connected) return;
+  debugMqttClient.publish(DEBUG_TOPIC, JSON.stringify(payload)).catch(() => {});
+}
+
+function compactDebugDetails(details) {
+  const compact = {};
+  for (const [key, value] of Object.entries(details || {})) {
+    if (value == null || value === "") continue;
+    if (typeof value === "string" && value.length > 80) {
+      compact[key] = value.slice(0, 77) + "...";
+    } else {
+      compact[key] = value;
+    }
+  }
+  return compact;
 }
