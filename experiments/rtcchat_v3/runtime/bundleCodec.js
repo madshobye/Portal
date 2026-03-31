@@ -157,7 +157,7 @@
 
   function tryCreateQrCode(value) {
     try {
-      return value ? createQRCode(value) : null;
+      return value ? window.RtcChatV3Qr.encodeQr(value) : null;
     } catch (error) {
       console.warn("[rtcchat_v3] QR generation unavailable for current link", error);
       return null;

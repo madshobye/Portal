@@ -1,5 +1,5 @@
 window.RtcChatV3Config = {
-  VERSION: 23,
+  VERSION: 30,
   NETWORK_NAME: "liminalNet",
   DEFAULT_ROOM_NAME: "theLounge",
   MQTT_TOPIC_PREFIX: "portal/liminalNet",

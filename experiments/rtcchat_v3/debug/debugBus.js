@@ -12,12 +12,12 @@
     return compact;
   }
 
-  async function createDebugBus({ PortalMqtt, broker, topic, clientId, contextProvider, onUnavailable }) {
+  async function createDebugBus({ MqttClient, broker, topic, clientId, contextProvider, onUnavailable }) {
     let mqttClient = null;
 
     async function init() {
       try {
-        mqttClient = await new PortalMqtt({
+        mqttClient = await new MqttClient({
           broker,
           clientId,
           autoConnect: false,

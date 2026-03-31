@@ -55,7 +55,6 @@ let chatCardEl;
 let messagesEl;
 let composerInputEl;
 let sendBtnEl;
-let canvasEl;
 let linkCardEl;
 let linkTopRowEl;
 let linkTitleEl;
@@ -70,8 +69,6 @@ let responsePasteBtnEl;
 let qrImageEl;
 
 let chatMessages = [];
-let canvasMode = "";
-let lastStageSize = 0;
 let localResponseChannel = null;
 let appliedResponseSignatures = new Set();
 let applyingResponseInviteIds = new Set();
@@ -94,37 +91,17 @@ let view = null;
 let helpers = null;
 let bundleCodec = null;
 let meshProtocol = null;
+let globalChat = null;
+let viewport = null;
+let onboarderService = null;
 let onboarding = null;
 
 async function appSetup() {
-  const canvas = createCanvas(windowWidth, windowHeight);
-  canvasEl = canvas.elt;
-  textFont("monospace");
-  textSize(16);
-
-  await loadScript("https://unpkg.com/fflate@0.8.2/umd/index.js");
-  await loadScript("portal/qrCodeGen.js");
-  await loadScript("portal/mqtt.js");
-  if (!window.RtcChatV3DebugBus) {
-    await loadScript("debug/debugBus.js");
-  }
-  if (!window.RtcChatV3DomUi) {
-    await loadScript("ui/domUi.js");
-  }
-  if (!window.RtcChatV3View) {
-    await loadScript("ui/rtcchatView.js");
-  }
-  if (!window.RtcChatV3Helpers) {
-    await loadScript("runtime/helpers.js");
-  }
-  if (!window.RtcChatV3BundleCodec) {
-    await loadScript("runtime/bundleCodec.js");
-  }
-  if (!window.RtcChatV3MeshProtocol) {
-    await loadScript("runtime/meshProtocol.js");
-  }
-  if (!window.RtcChatV3Onboarding) {
-    await loadScript("runtime/onboarding.js");
+  if (!window.RtcChatV3DebugBus || !window.RtcChatV3DomUi || !window.RtcChatV3View ||
+    !window.RtcChatV3Viewport || !window.RtcChatV3GlobalChat || !window.RtcChatV3Helpers ||
+    !window.RtcChatV3BundleCodec || !window.RtcChatV3MeshProtocol || !window.RtcChatV3OnboarderService ||
+    !window.RtcChatV3Onboarding || !window.RtcChatV3MqttClient || !window.RtcChatV3Qr) {
+    throw new Error("rtcchat_v3 dependencies are missing from index.html");
   }
 
   helpers = window.RtcChatV3Helpers.createHelpers({
@@ -132,6 +109,24 @@ async function appSetup() {
     identity: window.RtcChatV3Identity,
   });
   bundleCodec = window.RtcChatV3BundleCodec;
+  globalChat = window.RtcChatV3GlobalChat.createGlobalChatRuntime({
+    SELF_PEER_ID,
+    SELF_PROFILE,
+    getState: () => ({
+      connections,
+      composerInputEl,
+      setStatusText: (text) => { statusText = text; },
+    }),
+    renderMessages,
+    renderUi,
+    debugLog,
+    makeMessageId,
+    sendJson,
+  });
+  viewport = window.RtcChatV3Viewport.createViewportRuntime({
+    getMessagesEl: () => messagesEl,
+    onLayout: syncStageLayout,
+  });
 
   meshProtocol = window.RtcChatV3MeshProtocol.createMeshProtocol({
     SELF_PEER_ID,
@@ -172,6 +167,62 @@ async function appSetup() {
     sendJson,
     addSystemMessage,
     handleIncomingChat,
+  });
+
+  onboarderService = window.RtcChatV3OnboarderService.createOnboarderService({
+    SELF_PEER_ID,
+    NETWORK_NAME,
+    MQTT_TOPIC_PREFIX,
+    ONBOARDER_DISCOVERY_TOPIC,
+    MQTT_BROKER,
+    getState: () => ({
+      role,
+      phase,
+      roomId,
+      hostPeerId,
+      activeInvite,
+      shareLink,
+      qrCode,
+      connections,
+      onboarderMqttClient,
+      onboarderReplyTopic,
+      onboarderResponseTopic,
+      onboarderRequestTopic,
+      onboarderWaiters,
+      discoveredOnboarders,
+      mqttTopicHandlers,
+      onboarderEnabled,
+      onboarderPresenceTimer,
+      applyInviteResponse,
+      persistOnboarderEnabled: (value) => {
+        APP_MODEL.toggles.onboarderEnabled = value;
+        localStorage.setItem(ONBOARDER_ENABLED_KEY, value ? "1" : "0");
+      },
+    }),
+    setState: (patch) => {
+      if (Object.prototype.hasOwnProperty.call(patch, "statusText")) statusText = patch.statusText;
+      if (Object.prototype.hasOwnProperty.call(patch, "phase")) phase = patch.phase;
+      if (Object.prototype.hasOwnProperty.call(patch, "activeInvite")) activeInvite = patch.activeInvite;
+      if (Object.prototype.hasOwnProperty.call(patch, "shareLink")) shareLink = patch.shareLink;
+      if (Object.prototype.hasOwnProperty.call(patch, "qrCode")) qrCode = patch.qrCode;
+      if (Object.prototype.hasOwnProperty.call(patch, "onboarderMqttClient")) onboarderMqttClient = patch.onboarderMqttClient;
+      if (Object.prototype.hasOwnProperty.call(patch, "onboarderEnabled")) onboarderEnabled = patch.onboarderEnabled;
+      if (Object.prototype.hasOwnProperty.call(patch, "onboarderPresenceTimer")) onboarderPresenceTimer = patch.onboarderPresenceTimer;
+    },
+    debugLog,
+    renderUi,
+    scheduleReconnectAttempt,
+    clearInviteView,
+    createConnectionEntry,
+    wireDataChannel,
+    cleanupEntryMqttSignal,
+    clearActiveInviteForEntry,
+    waitForInitialCandidatesRef: waitForInitialCandidates,
+    subscribeMqttTopic,
+    waitForIceReady,
+    getConnectedPeerIds,
+    makeInviteId,
+    canAdvertiseOnboarder,
   });
 
   onboarding = window.RtcChatV3Onboarding.createOnboardingRuntime({
@@ -247,7 +298,7 @@ async function appSetup() {
   });
 
   initLocalResponseRelay();
-  buildUi(canvas);
+  buildUi();
   installViewportTracking();
   renderMessages();
   renderUi();
@@ -258,23 +309,16 @@ async function appSetup() {
 }
 
 function appDraw() {
-  background("#0b0b0d");
-
-  if (phase === "connected" || phase === "hosting" || phase === "joining" || phase === "reconnecting") {
-    drawConnectedBackdrop();
-  } else {
-    clear();
-  }
+  return;
 }
 
 function appWindowResized() {
   updateViewportHeight();
-  syncCanvasMode();
+  syncStageLayout();
 }
 
-function buildUi(canvas) {
+function buildUi() {
   view = window.RtcChatV3View.createRtcChatView({
-    canvasEl: canvas.elt,
     defaultRoomName: DEFAULT_ROOM_NAME,
     onToggleInfo: () => {
       topPanelVisible = !topPanelVisible;
@@ -362,13 +406,12 @@ function renderUi() {
     shareLink,
     showResponsePaste,
     showChat: connectedPeers.length > 0,
-    showCanvas: false,
     showQrImage: hasRoomUi,
     qrImageSrc,
     actions,
   });
 
-  syncCanvasMode();
+  syncStageLayout();
 }
 
 function getInfoToggleLabel(connectedPeerCount, knownPeerCount) {
@@ -387,18 +430,8 @@ function getInfoToggleLabel(connectedPeerCount, knownPeerCount) {
   return "Connection";
 }
 
-function drawConnectedBackdrop() {
-  clear();
-  background("#111217");
-  noStroke();
-  fill(40, 64, 140, 80);
-  circle(width * 0.22, height * 0.28, width * 0.4);
-  fill(20, 140, 120, 80);
-  circle(width * 0.78, height * 0.72, width * 0.46);
-}
-
-function syncCanvasMode() {
-  if (!canvasEl || !stageCardEl) return;
+function syncStageLayout() {
+  if (!stageCardEl) return;
   const stageMode = !!shareLink;
 
   if (stageMode) {
@@ -408,17 +441,9 @@ function syncCanvasMode() {
     const stageSize = Math.max(1, Math.round(Math.min(panelWidth, availableHeight, 560)));
     stageCardEl.style.width = `${stageSize}px`;
     stageCardEl.style.height = `${stageSize}px`;
-    if (!qrCode && (canvasMode !== "stage" || Math.abs(stageSize - lastStageSize) > 1)) {
-      resizeCanvas(stageSize, stageSize);
-      lastStageSize = stageSize;
-    }
-    canvasMode = "stage";
-  } else if (canvasMode !== "window") {
+  } else {
     stageCardEl.style.width = "";
     stageCardEl.style.height = "";
-    resizeCanvas(windowWidth, windowHeight);
-    canvasMode = "window";
-    lastStageSize = 0;
   }
 }
 
@@ -694,41 +719,11 @@ async function handleRelayedSignal(message) {
 }
 
 function sendMessage() {
-  const text = String(composerInputEl.value || "").trim();
-  if (!text) return;
-
-  const msg = {
-    type: "chat",
-    id: makeMessageId(),
-    from: SELF_PEER_ID,
-    fromName: SELF_PROFILE.displayName,
-    fromColor: SELF_PROFILE.color,
-    text,
-  };
-
-  let sent = 0;
-  for (const entry of connections.values()) {
-    if (entry.dc?.readyState === "open") {
-      sendJson(entry.dc, msg);
-      sent += 1;
-    }
-  }
-
-  if (sent > 0) {
-    seenChatIds.add(msg.id);
-    addChatMessage("self", text, SELF_PEER_ID);
-    composerInputEl.value = "";
-    debugLog("chat_send", { sent, len: text.length });
-    statusText = `Sent to ${sent} peer${sent === 1 ? "" : "s"}.`;
-    renderUi();
-  }
+  return globalChat.sendMessage();
 }
 
 function handleIncomingChat(message) {
-  if (!message.id || seenChatIds.has(message.id)) return;
-  seenChatIds.add(message.id);
-  debugLog("chat_recv", { from: message.from, len: String(message.text || "").length });
-  addChatMessage("peer", message.text, message.from);
+  return globalChat.handleIncomingChat(message);
 }
 
 function sendJson(channel, value) {
@@ -742,18 +737,16 @@ function getConnectedPeerIds() {
 }
 
 function addSystemMessage(text) {
-  chatMessages.push({ type: "system", text });
-  renderMessages();
+  return globalChat.addSystemMessage(text);
 }
 
 function addChatMessage(type, text, authorId = SELF_PEER_ID) {
-  chatMessages.push({ type, text, authorId });
-  renderMessages();
+  return globalChat.addChatMessage(type, text, authorId);
 }
 
 function renderMessages() {
   if (!view) return;
-  view.renderMessages(chatMessages, {
+  view.renderMessages(globalChat.getMessages(), {
     getPeerProfile: (authorId) => getPeerProfile(authorId || SELF_PEER_ID),
     getPeerInitial,
     onRendered: keepChatVisible,
@@ -846,45 +839,28 @@ function makeMessageId() {
 }
 
 function installViewportTracking() {
-  updateViewportHeight();
-  if (window.visualViewport) {
-    window.visualViewport.addEventListener("resize", handleViewportChange);
-    window.visualViewport.addEventListener("scroll", handleViewportChange);
-  }
+  return viewport.installViewportTracking();
 }
 
 function handleViewportChange() {
-  updateViewportHeight();
-  keepChatVisible();
-  syncCanvasMode();
+  return viewport.handleViewportChange();
 }
 
 function updateViewportHeight() {
-  const top = window.visualViewport?.offsetTop || 0;
-  const height = window.visualViewport?.height || window.innerHeight;
-  document.documentElement.style.setProperty("--rtcchat-app-top", `${Math.round(top)}px`);
-  document.documentElement.style.setProperty("--rtcchat-app-height", `${Math.round(height)}px`);
+  return viewport.updateViewportHeight();
 }
 
 function keepChatVisible() {
-  if (!messagesEl) return;
-  messagesEl.scrollTop = messagesEl.scrollHeight;
+  return viewport.keepChatVisible();
 }
 
 function requestViewportRefresh() {
-  const delays = [0, 80, 180, 320];
-  for (const delay of delays) {
-    setTimeout(() => {
-      updateViewportHeight();
-      keepChatVisible();
-      syncCanvasMode();
-    }, delay);
-  }
+  return viewport.requestViewportRefresh();
 }
 
 async function initDebugMqtt() {
   debugBus = await window.RtcChatV3DebugBus.createDebugBus({
-    PortalMqtt,
+    MqttClient: window.RtcChatV3MqttClient,
     broker: MQTT_BROKER,
     topic: DEBUG_TOPIC,
     clientId: `${SELF_PEER_ID}-debug`,
@@ -899,82 +875,19 @@ async function initDebugMqtt() {
 }
 
 async function initOnboarderMqtt() {
-  try {
-    onboarderMqttClient = await new PortalMqtt({
-      broker: MQTT_BROKER,
-      clientId: `${SELF_PEER_ID}-onboard`,
-      autoConnect: false,
-      onMessage: (result) => {
-        handleOnboarderMqttMessage(result);
-      },
-    }).init();
-    await onboarderMqttClient.connect();
-    await subscribeMqttTopic(ONBOARDER_DISCOVERY_TOPIC, handleOnboarderPresenceMessage);
-    await subscribeMqttTopic(onboarderReplyTopic, (result) => {
-      let payload;
-      try {
-        payload = JSON.parse(result.message);
-      } catch {
-        return;
-      }
-      const waiter = onboarderWaiters.get(payload.requestId);
-      if (waiter) waiter(payload);
-    });
-    await subscribeMqttTopic(onboarderResponseTopic, handleOnboarderResponseMessage);
-    await updateOnboarderSubscription();
-  } catch (error) {
-    console.warn("[rtcchat_v3] onboarder mqtt unavailable", error);
-  }
+  return onboarderService.initOnboarderMqtt();
 }
 
 function handleOnboarderMqttMessage(result) {
-  const topicHandler = mqttTopicHandlers.get(result?.topic);
-  if (topicHandler) {
-    topicHandler(result);
-    return;
-  }
-  if (result?.topic === onboarderRequestTopic) {
-    if (onboarderEnabled) {
-      answerOnboarderRequest(result).catch((error) => {
-        console.error("[rtcchat_v3] onboarder request error", error);
-        debugLog("onboarder_error", {
-          msg: error?.message || String(error),
-        });
-      });
-    }
-    return;
-  }
-  if (result?.topic === onboarderResponseTopic) {
-    handleOnboarderResponseMessage(result);
-    return;
-  }
+  return onboarderService.handleOnboarderMqttMessage(result);
 }
 
 function handleOnboarderPresenceMessage(result) {
-  if (!result?.message) return;
-  let payload;
-  try {
-    payload = JSON.parse(result.message);
-  } catch {
-    return;
-  }
-  if (role !== "idle" && phase !== "reconnecting") return;
-  if (!payload?.peerId || payload.peerId === SELF_PEER_ID) return;
-  discoveredOnboarders.set(payload.peerId, {
-    ...payload,
-    seenAt: Date.now(),
-  });
-  debugLog("onboarder_presence_seen", {
-    onboarderId: payload.peerId,
-    available: payload.available,
-    roomId: payload.roomId,
-  });
+  return onboarderService.handleOnboarderPresenceMessage(result);
 }
 
 function clearDiscoveredOnboarders() {
-  if (discoveredOnboarders.size === 0) return;
-  discoveredOnboarders.clear();
-  debugLog("onboarder_presence_cleared");
+  return onboarderService.clearDiscoveredOnboarders();
 }
 
 async function subscribeMqttTopic(topic, handler) {
@@ -994,373 +907,59 @@ async function unsubscribeMqttTopic(topic) {
 }
 
 function handleOnboarderResponseMessage(result) {
-  if (!result?.message) return;
-  let payload;
-  try {
-    payload = JSON.parse(result.message);
-  } catch {
-    return;
-  }
-  if (payload?.type !== "rtcchat-v3-onboarder-response") return;
-  applyInviteResponse(payload.inviteId, payload.responseValue).catch((error) => {
-    console.error("[rtcchat_v3] onboarder response error", error);
-    debugLog("onboarder_response_error", {
-      inviteId: payload?.inviteId,
-      from: payload?.fromPeerId,
-      msg: String(error?.message || error),
-    });
-    statusText = `Onboarder response error: ${error?.message || error}`;
-    renderUi();
-  });
+  return onboarderService.handleOnboarderResponseMessage(result);
 }
 
 async function updateOnboarderSubscription() {
-  if (!onboarderMqttClient?.connected) return;
-  const shouldServe = canAdvertiseOnboarder();
-  try {
-    if (shouldServe) {
-      await onboarderMqttClient.subscribe(onboarderRequestTopic);
-      startOnboarderPresence();
-      await publishOnboarderPresence();
-      debugLog("onboarder_service_online", { topic: onboarderRequestTopic });
-    } else {
-      stopOnboarderPresence();
-      await onboarderMqttClient.unsubscribe(onboarderRequestTopic);
-      debugLog("onboarder_service_offline", { topic: onboarderRequestTopic });
-    }
-  } catch (error) {
-    console.warn("[rtcchat_v3] onboarder subscription update failed", error);
-  }
+  return onboarderService.updateOnboarderSubscription();
 }
 
 function toggleOnboarderMode() {
-  onboarderEnabled = !onboarderEnabled;
-  APP_MODEL.toggles.onboarderEnabled = onboarderEnabled;
-  localStorage.setItem(ONBOARDER_ENABLED_KEY, onboarderEnabled ? "1" : "0");
-  if (onboarderEnabled && activeInvite && phase === "show-invite") {
-    clearInviteView();
-    statusText = "Onboarder mode enabled. Waiting for MQTT onboarding...";
-  } else {
-    statusText = onboarderEnabled ? "Onboarder mode enabled." : "Onboarder mode disabled.";
-  }
-  debugLog(onboarderEnabled ? "onboarder_enabled" : "onboarder_disabled", {
-    roomId,
-    activeInvite: !!activeInvite,
-  });
-  renderUi();
-  updateOnboarderSubscription();
-  if (onboarderEnabled && role === "idle" && getConnectedPeerIds().length === 0 && !activeInvite) {
-    scheduleReconnectAttempt("onboarder-enabled", 0);
-  }
+  return onboarderService.toggleOnboarderMode();
 }
 
 function startOnboarderPresence() {
-  if (!canAdvertiseOnboarder()) return;
-  stopOnboarderPresence();
-  onboarderPresenceTimer = setInterval(() => {
-    publishOnboarderPresence().catch(() => {});
-  }, 3000);
+  return onboarderService.startOnboarderPresence();
 }
 
 function stopOnboarderPresence() {
-  if (onboarderPresenceTimer) {
-    clearInterval(onboarderPresenceTimer);
-    onboarderPresenceTimer = null;
-  }
+  return onboarderService.stopOnboarderPresence();
 }
 
 async function publishOnboarderPresence() {
-  if (!canAdvertiseOnboarder()) return;
-  if (!onboarderMqttClient?.connected) return;
-  const available = !(activeInvite && !shareLink);
-  const payload = {
-    type: "onboarder-presence",
-    peerId: SELF_PEER_ID,
-    network: NETWORK_NAME,
-    roomId,
-    available,
-    requestTopic: onboarderRequestTopic,
-    ts: Date.now(),
-  };
-  await onboarderMqttClient.publish(ONBOARDER_DISCOVERY_TOPIC, JSON.stringify(payload));
-  debugLog("onboarder_presence_pub", { available, roomId, topic: onboarderRequestTopic });
+  return onboarderService.publishOnboarderPresence();
 }
 
 function pruneOnboarders() {
-  const now = Date.now();
-  for (const [peerId, info] of discoveredOnboarders.entries()) {
-    if (now - (info.seenAt || 0) > 10000) {
-      discoveredOnboarders.delete(peerId);
-    }
-  }
+  return onboarderService.pruneOnboarders();
 }
 
 function getAvailableOnboarders() {
-  pruneOnboarders();
-  return [...discoveredOnboarders.values()].filter((info) => info.available && info.requestTopic);
+  return onboarderService.getAvailableOnboarders();
 }
 
 async function waitForAvailableOnboarder(timeoutMs = 2500) {
-  const immediate = getAvailableOnboarders()[0];
-  if (immediate) return immediate;
-
-  const start = Date.now();
-  while (Date.now() - start < timeoutMs) {
-    await new Promise((resolve) => setTimeout(resolve, 150));
-    const candidate = getAvailableOnboarders()[0];
-    if (candidate) return candidate;
-  }
-  return null;
+  return onboarderService.waitForAvailableOnboarder(timeoutMs);
 }
 
 async function answerOnboarderRequest(result) {
-  if (!result?.message || !onboarderMqttClient?.connected) return;
-  let payload;
-  try {
-    payload = JSON.parse(result.message);
-  } catch {
-    return;
-  }
-
-  const requestId = payload?.requestId;
-  const replyTopic = payload?.replyTopic;
-  if (!requestId || !replyTopic) return;
-
-  debugLog("onboarder_request", {
-    requestId,
-    from: payload.requesterId || "-",
-    replyTopic,
-  });
-
-  const connectedPeerIds = getConnectedPeerIds();
-  const canBroker =
-    role === "host" ||
-    connectedPeerIds.length > 0 ||
-    phase === "hosting" ||
-    phase === "connected";
-
-  if (!canBroker) {
-    await publishOnboarderReply(replyTopic, requestId, {
-      available: false,
-      reason: "not-connected",
-      roomId,
-    });
-    return;
-  }
-
-  if (activeInvite && !shareLink) {
-    await publishOnboarderReply(replyTopic, requestId, {
-      available: false,
-      reason: "busy",
-      roomId,
-      inviteId: activeInvite.inviteId,
-    });
-    return;
-  }
-
-  if (activeInvite && activeInvite.mqttOnly && activeInvite.offerSdp) {
-    await publishOnboarderReply(replyTopic, requestId, {
-      available: true,
-      roomId,
-      inviteId: activeInvite.inviteId,
-      hostId: SELF_PEER_ID,
-      responseTopic: onboarderResponseTopic,
-      offerSdp: activeInvite.offerSdp,
-      candidates: activeInvite.initialCandidates || [],
-      peerSignalTopic: activeInvite.peerSignalTopic,
-      hostSignalTopic: activeInvite.hostSignalTopic,
-    });
-    return;
-  }
-
-  statusText = "Preparing onboarder invite...";
-  renderUi();
-  const mqttInvite = await createMqttOnboarderInvite();
-
-  if (!mqttInvite) {
-    await publishOnboarderReply(replyTopic, requestId, {
-      available: false,
-      reason: "invite-unavailable",
-      roomId,
-    });
-    return;
-  }
-
-  await publishOnboarderReply(replyTopic, requestId, {
-    available: true,
-    roomId,
-    inviteId: mqttInvite.inviteId,
-    hostId: SELF_PEER_ID,
-    responseTopic: onboarderResponseTopic,
-    offerSdp: mqttInvite.offerSdp,
-    candidates: mqttInvite.initialCandidates,
-    peerSignalTopic: mqttInvite.peerSignalTopic,
-    hostSignalTopic: mqttInvite.hostSignalTopic,
-  });
+  return onboarderService.answerOnboarderRequest(result);
 }
 
 async function publishOnboarderReply(replyTopic, requestId, extra = {}) {
-  const payload = {
-    requestId,
-    fromPeerId: SELF_PEER_ID,
-    ...extra,
-  };
-  await onboarderMqttClient.publish(replyTopic, JSON.stringify(payload));
-  debugLog(extra.available ? "onboarder_reply" : "onboarder_unavailable", {
-    requestId,
-    to: replyTopic,
-    inviteId: extra.inviteId,
-    roomId: extra.roomId,
-    reason: extra.reason,
-    mode: extra.offerSdp ? "mqtt" : extra.link ? "link" : undefined,
-  });
+  return onboarderService.publishOnboarderReply(replyTopic, requestId, extra);
 }
 
 async function createMqttOnboarderInvite() {
-  if (role !== "host" && role !== "peer") return null;
-  if (activeInvite?.entryKey) {
-    const stale = connections.get(activeInvite.entryKey);
-    if (stale && !stale.connectedIdentity) {
-      clearActiveInviteForEntry(stale, "replaced");
-      cleanupEntryMqttSignal(stale);
-      try {
-        stale.dc?.close?.();
-      } catch {}
-      try {
-        stale.pc?.close?.();
-      } catch {}
-      connections.delete(activeInvite.entryKey);
-    }
-  }
-
-  const inviteId = makeInviteId();
-  const entryKey = `invite:${inviteId}`;
-  const hostSignalTopic = `${MQTT_TOPIC_PREFIX}/signal/${inviteId}/host`;
-  const peerSignalTopic = `${MQTT_TOPIC_PREFIX}/signal/${inviteId}/peer`;
-
-  const entry = createConnectionEntry({
-    key: entryKey,
-    peerId: entryKey,
-    kind: "bootstrap",
-    initiator: true,
-  });
-  entry.inviteId = inviteId;
-  entry.mqttSignal = {
-    role: "host",
-    publishTopic: peerSignalTopic,
-    subscribeTopic: hostSignalTopic,
-  };
-  entry.dc = entry.pc.createDataChannel("rtchat-room");
-  wireDataChannel(entry, entry.dc);
-  connections.set(entryKey, entry);
-  activeInvite = {
-    inviteId,
-    entryKey,
-    mqttOnly: true,
-    hostSignalTopic,
-    peerSignalTopic,
-  };
-  publishOnboarderPresence().catch(() => {});
-
-  await subscribeMqttTopic(hostSignalTopic, (result) => handleInviteMqttSignal(entry, result));
-  debugLog("mqtt_invite_topics_ready", {
-    inviteId,
-    hostTopic: hostSignalTopic,
-    peerTopic: peerSignalTopic,
-  });
-
-  try {
-    const offer = await entry.pc.createOffer();
-    await entry.pc.setLocalDescription(offer);
-    await waitForInitialCandidates(entry, 350, 1);
-
-    activeInvite.offerSdp = entry.pc.localDescription.sdp;
-    activeInvite.initialCandidates = entry.localCandidateInits.slice();
-
-    debugLog("invite_ready", {
-      inviteId,
-      roomId,
-      role,
-      mode: "mqtt",
-      cand: activeInvite.initialCandidates.length,
-      sdpLen: activeInvite.offerSdp.length,
-    });
-
-    return {
-      inviteId,
-      offerSdp: activeInvite.offerSdp,
-      initialCandidates: activeInvite.initialCandidates,
-      hostSignalTopic,
-      peerSignalTopic,
-    };
-  } catch (error) {
-    console.error("[rtcchat_v3] mqtt invite error", error);
-    debugLog("invite_error", { mode: "mqtt", msg: String(error?.message || error) });
-    cleanupEntryMqttSignal(entry);
-    connections.delete(entryKey);
-    activeInvite = null;
-    return null;
-  }
+  return onboarderService.createMqttOnboarderInvite();
 }
 
 function handleInviteMqttSignal(entry, result) {
-  if (!result?.message || !entry) return;
-  let payload;
-  try {
-    payload = JSON.parse(result.message);
-  } catch {
-    return;
-  }
-  debugLog("mqtt_signal_recv", {
-    inviteId: payload.inviteId || entry.inviteId,
-    sig: payload.type,
-    topic: result.topic,
-    from: payload.fromPeerId,
-    cand: payload.candidates?.length,
-    hasSdp: !!payload.sdp,
-  });
-
-  if (payload.type === "answer" && entry.initiator) {
-    applyMqttAnswerToEntry(entry, payload).catch((error) => {
-      console.error("[rtcchat_v3] mqtt answer error", error);
-      debugLog("response_relay_error", {
-        inviteId: payload.inviteId,
-        mode: "mqtt",
-        msg: String(error?.message || error),
-      });
-    });
-    return;
-  }
-
-  if (payload.type === "candidate") {
-    addRemoteCandidateToEntry(entry, payload.candidate).catch(() => {});
-  }
+  return onboarderService.handleInviteMqttSignal(entry, result);
 }
 
 async function applyMqttAnswerToEntry(entry, payload) {
-  if (!payload?.sdp) return;
-  if (entry.pc.signalingState === "stable") return;
-  debugLog("mqtt_answer_apply_start", {
-    inviteId: payload.inviteId,
-    from: payload.fromPeerId,
-    cand: payload.candidates?.length || 0,
-    sdpLen: payload.sdp.length,
-  });
-  await entry.pc.setRemoteDescription({ type: "answer", sdp: payload.sdp });
-  await flushPendingRemoteCandidates(entry);
-  await addInitialMqttCandidates(entry, payload.candidates || []);
-
-  shareLink = "";
-  qrCode = null;
-  phase = "joining";
-  statusText = "Response accepted. Waiting for peer hello...";
-  debugLog("response_applied", {
-    inviteId: payload.inviteId,
-    peerId: entry.peerId,
-    mode: "mqtt",
-    cand: entry.remoteCandidatesAdded,
-  });
-  renderUi();
+  return onboarderService.applyMqttAnswerToEntry(entry, payload);
 }
 
 function candidateToInit(candidate) {
@@ -1368,65 +967,19 @@ function candidateToInit(candidate) {
 }
 
 async function addInitialMqttCandidates(entry, candidates) {
-  if (candidates?.length) {
-    debugLog("mqtt_initial_candidates", {
-      inviteId: entry.inviteId,
-      peerId: entry.peerId,
-      count: candidates.length,
-    });
-  }
-  for (const candidate of candidates || []) {
-    await addRemoteCandidateToEntry(entry, candidate);
-  }
+  return onboarderService.addInitialMqttCandidates(entry, candidates);
 }
 
 async function addRemoteCandidateToEntry(entry, candidate) {
-  if (!entry || !candidate?.candidate) return;
-  const key = JSON.stringify(candidate);
-  if (entry.seenRemoteCandidateKeys.has(key)) return;
-  entry.seenRemoteCandidateKeys.add(key);
-
-  if (!entry.pc.remoteDescription) {
-    entry.pendingRemoteCandidates.push(candidate);
-    debugLog("mqtt_candidate_queued", {
-      inviteId: entry.inviteId,
-      peerId: entry.peerId,
-      pending: entry.pendingRemoteCandidates.length,
-    });
-    return;
-  }
-
-  await entry.pc.addIceCandidate(candidate);
-  entry.remoteCandidatesAdded += 1;
-  debugLog("mqtt_candidate_applied", {
-    inviteId: entry.inviteId,
-    peerId: entry.peerId,
-    total: entry.remoteCandidatesAdded,
-  });
+  return onboarderService.addRemoteCandidateToEntry(entry, candidate);
 }
 
 async function flushPendingRemoteCandidates(entry) {
-  if (!entry?.pc.remoteDescription || !entry.pendingRemoteCandidates.length) return;
-  const pending = entry.pendingRemoteCandidates.splice(0);
-  debugLog("mqtt_candidate_flush", {
-    inviteId: entry.inviteId,
-    peerId: entry.peerId,
-    count: pending.length,
-  });
-  for (const candidate of pending) {
-    await entry.pc.addIceCandidate(candidate);
-    entry.remoteCandidatesAdded += 1;
-  }
+  return onboarderService.flushPendingRemoteCandidates(entry);
 }
 
 function waitForInitialCandidates(entry, timeoutMs = 350, minCandidates = 1) {
-  return new Promise((resolve) => {
-    if (entry.localCandidateInits.length >= minCandidates) {
-      resolve();
-      return;
-    }
-    setTimeout(resolve, timeoutMs);
-  });
+  return onboarderService.waitForInitialCandidates(entry, timeoutMs, minCandidates);
 }
 
 function debugLog(event, details = {}) {

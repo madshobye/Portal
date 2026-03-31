@@ -1,11 +1,9 @@
-async function setup() {
-  return window.RtcChatV3App.setup();
-}
+window.addEventListener("DOMContentLoaded", () => {
+  window.RtcChatV3App.setup().catch((error) => {
+    console.error("[rtcchat_v3] setup error", error);
+  });
+});
 
-function draw() {
-  return window.RtcChatV3App.draw();
-}
-
-function windowResized() {
-  return window.RtcChatV3App.windowResized();
-}
+window.addEventListener("resize", () => {
+  window.RtcChatV3App.windowResized();
+});

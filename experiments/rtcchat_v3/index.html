@@ -7,12 +7,9 @@
       content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=0"
     />
     <title>RTC Chat</title>
-    <link
-      rel="stylesheet"
-      href="https://madshobye.github.io/Portal/P1/portalBaseStyle.css"
-    />
     <link rel="stylesheet" href="style.css" />
-    <script src="https://cdn.jsdelivr.net/npm/p5@2.2.0/lib/p5.js"></script>
+    <script src="https://unpkg.com/mqtt/dist/mqtt.min.js"></script>
+    <script src="https://unpkg.com/fflate@0.8.2/umd/index.js"></script>
   </head>
   <body>
     <main></main>
@@ -22,12 +19,17 @@
     <script src="debug/debugBus.js"></script>
     <script src="ui/domUi.js"></script>
     <script src="ui/rtcchatView.js"></script>
+    <script src="ui/viewport.js"></script>
+    <script src="apps/globalChat.js"></script>
+    <script src="runtime/mqttClient.js"></script>
+    <script src="runtime/qrcodegen-local.js"></script>
+    <script src="runtime/qr.js"></script>
     <script src="runtime/helpers.js"></script>
     <script src="runtime/bundleCodec.js"></script>
     <script src="runtime/meshProtocol.js"></script>
+    <script src="runtime/onboarderService.js"></script>
     <script src="runtime/onboarding.js"></script>
     <script src="runtime/rtcchatApp.js"></script>
     <script src="sketch.js"></script>
-    <script src="https://madshobye.github.io/Portal/P1/portalLoader.js"></script>
   </body>
 </html>

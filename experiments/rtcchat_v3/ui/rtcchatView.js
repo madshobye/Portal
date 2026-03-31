@@ -1,7 +1,7 @@
 (() => {
   const { el } = window.RtcChatV3DomUi;
 
-  function createRtcChatView({ canvasEl, defaultRoomName, onToggleInfo, onClearInvite, onCopyLink, onAdvanceInvite, onApplyResponse, onSendMessage }) {
+  function createRtcChatView({ defaultRoomName, onToggleInfo, onClearInvite, onCopyLink, onAdvanceInvite, onApplyResponse, onSendMessage }) {
     const refs = {};
 
     refs.appEl = el("div", { className: "rtcchat-app" });
@@ -59,6 +59,15 @@
       className: "rtcchat-card rtcchat-link-card rtcchat-response-card",
       hidden: true,
     });
+    refs.responseTopRowEl = el("div", { className: "rtcchat-link-toprow" });
+    refs.responseCloseBtnEl = el("button", {
+      className: "rtcchat-link-close",
+      props: { type: "button" },
+      text: "×",
+      attrs: { "aria-label": "Close response panel" },
+      on: { click: onClearInvite },
+    });
+    refs.responseTopRowEl.append(refs.responseCloseBtnEl);
     refs.responsePasteInputEl = el("input", {
       className: "rtcchat-link",
       props: { type: "text", spellcheck: false },
@@ -75,7 +84,7 @@
       text: "Apply Response",
       on: { click: onApplyResponse },
     });
-    refs.responsePasteCardEl.append(refs.responsePasteInputEl, refs.responsePasteBtnEl);
+    refs.responsePasteCardEl.append(refs.responseTopRowEl, refs.responsePasteInputEl, refs.responsePasteBtnEl);
 
     refs.stageEl = el("section", { className: "rtcchat-stage" });
     refs.qrImageEl = el("img", {
@@ -83,7 +92,7 @@
       hidden: true,
       attrs: { alt: "QR code", decoding: "async" },
     });
-    refs.stageCardEl = el("div", { className: "rtcchat-stage-card" }, [refs.qrImageEl, canvasEl]);
+    refs.stageCardEl = el("div", { className: "rtcchat-stage-card" }, [refs.qrImageEl]);
     refs.stageEl.append(refs.stageCardEl);
 
     refs.chatCardEl = el("section", { className: "rtcchat-card rtcchat-chat", hidden: true });
@@ -151,8 +160,6 @@
       refs.chatCardEl.hidden = !model.showChat;
       refs.composerInputEl.disabled = !model.showChat;
       refs.sendBtnEl.disabled = !model.showChat;
-      canvasEl.hidden = !model.showCanvas;
-
       refs.actionsEl.replaceChildren(...model.actions.map((action) => {
         return el("button", {
           className: action.secondary ? "rtcchat-btn secondary" : "rtcchat-btn",
