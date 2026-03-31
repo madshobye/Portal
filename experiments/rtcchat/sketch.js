@@ -3,14 +3,13 @@ let dc = null;
 
 let role = "idle";
 let phase = "idle";
-let statusText = "Choose Connect on one device or Scan Offer on the other.";
+let statusText = "Press Connect on one device. Open that link on the other device.";
 let localCandidates = [];
 let remoteCandidatesAdded = 0;
 
 let qrValue = "";
 let qrCode = null;
-let scannerVideo = null;
-let qrScanner = null;
+let shareLink = "";
 
 let appEl;
 let panelEl;
@@ -25,13 +24,23 @@ let messagesEl;
 let composerInputEl;
 let sendBtnEl;
 let canvasEl;
+let linkCardEl;
+let linkTopRowEl;
+let linkTitleEl;
+let linkAnchorEl;
+let linkTextEl;
+let linkCopyBtnEl;
+let linkCloseBtnEl;
 
 let chatMessages = [];
-let useSimpleTestQr = false;
-const SIMPLE_TEST_QR = "RTCCHAT-TEST";
-let scannerDebugText = "";
 let canvasMode = "";
 let lastStageSize = 0;
+const STARTER_SESSION_KEY = "rtcchat-starter-session";
+const ANSWER_SIGNAL_KEY = "rtcchat-answer-signal";
+const LOCAL_SIGNAL_CHANNEL = "rtcchat-local-answer";
+let localSignalChannel = null;
+let currentStarterSessionId = "";
+let appliedAnswerSignature = "";
 
 async function setup() {
   const canvas = createCanvas(windowWidth, windowHeight);
@@ -41,10 +50,12 @@ async function setup() {
 
   await loadScript("https://unpkg.com/fflate@0.8.2/umd/index.js");
   await loadScript("portal/qrCodeGen.js");
-  await loadScript("portal/QrScannerNimiq.js");
 
+  initLocalAnswerRelay();
   buildUi(canvas);
+  installViewportTracking();
   renderUi();
+  await handleIncomingLink();
 }
 
 function draw() {
@@ -52,8 +63,6 @@ function draw() {
 
   if (phase === "show-offer" || phase === "show-answer") {
     drawQrScreen();
-  } else if (phase === "scan-offer" || phase === "scan-answer") {
-    drawScannerScreen();
   } else if (phase === "connected" || phase === "connecting") {
     drawConnectedBackdrop();
   } else {
@@ -62,6 +71,7 @@ function draw() {
 }
 
 function windowResized() {
+  updateViewportHeight();
   syncCanvasMode();
 }
 
@@ -77,7 +87,7 @@ function buildUi(canvas) {
 
   titleEl = document.createElement("h1");
   titleEl.className = "rtcchat-title";
-  titleEl.textContent = "RTC Chat";
+  titleEl.textContent = "";
   statusCardEl.appendChild(titleEl);
 
   statusTextEl = document.createElement("p");
@@ -87,6 +97,45 @@ function buildUi(canvas) {
   actionsEl = document.createElement("div");
   actionsEl.className = "rtcchat-actions";
   statusCardEl.appendChild(actionsEl);
+
+  linkCardEl = document.createElement("section");
+  linkCardEl.className = "rtcchat-card rtcchat-link-card";
+
+  linkTopRowEl = document.createElement("div");
+  linkTopRowEl.className = "rtcchat-link-toprow";
+  linkCardEl.appendChild(linkTopRowEl);
+
+  linkTitleEl = document.createElement("div");
+  linkTitleEl.className = "rtcchat-link-title";
+  linkTopRowEl.appendChild(linkTitleEl);
+
+  linkAnchorEl = document.createElement("a");
+  linkAnchorEl.className = "rtcchat-share-anchor";
+  linkAnchorEl.href = "#";
+  linkAnchorEl.target = "_blank";
+  linkAnchorEl.rel = "noreferrer";
+  linkTopRowEl.appendChild(linkAnchorEl);
+
+  linkCloseBtnEl = document.createElement("button");
+  linkCloseBtnEl.className = "rtcchat-link-close";
+  linkCloseBtnEl.type = "button";
+  linkCloseBtnEl.textContent = "×";
+  linkCloseBtnEl.setAttribute("aria-label", "Close link panel");
+  linkCloseBtnEl.addEventListener("click", resetConnection);
+  linkTopRowEl.appendChild(linkCloseBtnEl);
+
+  linkTextEl = document.createElement("input");
+  linkTextEl.className = "rtcchat-link";
+  linkTextEl.type = "text";
+  linkTextEl.readOnly = true;
+  linkTextEl.spellcheck = false;
+  linkCardEl.appendChild(linkTextEl);
+
+  linkCopyBtnEl = document.createElement("button");
+  linkCopyBtnEl.className = "rtcchat-btn";
+  linkCopyBtnEl.textContent = "Copy Link";
+  linkCopyBtnEl.addEventListener("click", copyShareLink);
+  linkCardEl.appendChild(linkCopyBtnEl);
 
   stageEl = document.createElement("section");
   stageEl.className = "rtcchat-stage";
@@ -113,6 +162,11 @@ function buildUi(canvas) {
   composerInputEl.addEventListener("keydown", (event) => {
     if (event.key === "Enter") sendMessage();
   });
+  composerInputEl.addEventListener("focus", () => {
+    setTimeout(() => {
+      keepChatVisible();
+    }, 60);
+  });
   composer.appendChild(composerInputEl);
 
   sendBtnEl = document.createElement("button");
@@ -124,6 +178,7 @@ function buildUi(canvas) {
   chatCardEl.appendChild(composer);
 
   panelEl.appendChild(statusCardEl);
+  panelEl.appendChild(linkCardEl);
   panelEl.appendChild(stageEl);
   panelEl.appendChild(chatCardEl);
   appEl.appendChild(panelEl);
@@ -134,8 +189,11 @@ function renderUi() {
   if (!statusTextEl || !actionsEl || !chatCardEl || !panelEl || !statusCardEl || !titleEl || !stageEl) return;
 
   statusTextEl.textContent = `${statusText}  Role: ${role}  ICE: ${localCandidates.length}/${remoteCandidatesAdded}`;
+
   const qrMode = phase === "show-offer" || phase === "show-answer";
-  const stageMode = qrMode || phase === "scan-offer" || phase === "scan-answer";
+  const stageMode = qrMode;
+  const showLink = phase === "show-offer" || phase === "show-answer";
+  const connected = phase === "connected";
 
   panelEl.classList.toggle("qr-mode", qrMode);
   statusCardEl.classList.toggle("qr-mode", qrMode);
@@ -143,24 +201,29 @@ function renderUi() {
   statusTextEl.classList.toggle("qr-mode", qrMode);
   actionsEl.classList.toggle("qr-mode", qrMode);
   stageEl.classList.toggle("active", stageMode);
+  linkCardEl.style.display = showLink ? "flex" : "none";
+  linkTopRowEl.style.display = showLink ? "flex" : "none";
+  linkTitleEl.style.display = "none";
+  linkAnchorEl.style.display = "none";
+
+  linkTextEl.value = shareLink || "";
+  linkAnchorEl.href = shareLink || "#";
+  linkCopyBtnEl.disabled = !shareLink;
+  chatCardEl.style.display = connected ? "flex" : "none";
+  composerInputEl.disabled = !connected;
+  sendBtnEl.disabled = !connected;
+  if (canvasEl) {
+    canvasEl.style.display = stageMode ? "block" : "none";
+  }
 
   actionsEl.innerHTML = "";
 
   if (phase === "idle") {
     appendAction("Connect", startAsStarter);
-    appendAction("Scan Offer", prepareJoinerScan);
+  } else if (phase === "forwarded") {
   } else if (phase === "show-offer") {
-    appendAction("Scan Answer", startScanAnswer);
-    appendAction(useSimpleTestQr ? "Use Real QR" : "Use Simple Test QR", toggleSimpleQr, true);
-    appendAction("Reset", resetConnection, true);
-  } else if (phase === "scan-offer") {
-    appendAction("Cancel Scan", resetScannerToIdle, true);
-    appendAction("Reset", resetConnection, true);
   } else if (phase === "show-answer") {
-    appendAction(useSimpleTestQr ? "Use Real QR" : "Use Simple Test QR", toggleSimpleQr, true);
-    appendAction("Reset", resetConnection, true);
-  } else if (phase === "scan-answer") {
-    appendAction("Cancel Scan", cancelScanAnswer, true);
+  } else if (phase === "awaiting-answer" || phase === "waiting-peer") {
     appendAction("Reset", resetConnection, true);
   } else if (phase === "connecting") {
     appendAction("Reset", resetConnection, true);
@@ -168,13 +231,6 @@ function renderUi() {
     appendAction("Reset", resetConnection, true);
   }
 
-  const connected = phase === "connected";
-  chatCardEl.style.display = connected ? "flex" : "none";
-  composerInputEl.disabled = !connected;
-  sendBtnEl.disabled = !connected;
-  if (canvasEl) {
-    canvasEl.style.display = stageMode ? "block" : "none";
-  }
   syncCanvasMode();
 }
 
@@ -217,53 +273,28 @@ function drawQrScreen() {
   }
 }
 
-function drawScannerScreen() {
-  background(0);
-  if (qrScanner && scannerVideo) {
-    const size = min(width, height) - 24;
-    const x = (width - size) * 0.5;
-    const y = (height - size) * 0.5;
-    drawVideoCover(scannerVideo, x, y, size, size);
-    qrScanner.scaleTo(size, size, x, y);
-    qrScanner.drawOverlay();
-  }
-
-  const guideSize = min(width, height) - 24;
-  const guideX = (width - guideSize) * 0.5;
-  const guideY = (height - guideSize) * 0.5;
-
-  noFill();
-  stroke(255, 255, 255, 220);
-  strokeWeight(3);
-  rect(guideX, guideY, guideSize, guideSize, 22);
-
-  noStroke();
-  fill(0, 150);
-  rect(12, height - 76, width - 24, 64, 12);
-  fill(255);
-  textSize(13);
-  text(`scanner: ${scannerVideo ? `${scannerVideo.width}x${scannerVideo.height}` : "-"}`, 24, height - 48);
-  text(`last result: ${scannerDebugText || "none"}`, 24, height - 28, width - 48, 32);
-}
-
 function syncCanvasMode() {
   if (!canvasEl || !stageCardEl) return;
-
-  const stageMode =
-    phase === "show-offer" ||
-    phase === "show-answer" ||
-    phase === "scan-offer" ||
-    phase === "scan-answer";
+  const stageMode = phase === "show-offer" || phase === "show-answer";
 
   if (stageMode) {
     const rect = stageCardEl.getBoundingClientRect();
-    const stageSize = Math.max(1, Math.round(Math.min(rect.width, rect.height)));
+    const availableHeight = window.innerHeight - rect.top - 12;
+    const panelWidth = stageEl?.getBoundingClientRect?.().width || rect.width;
+    const stageSize = Math.max(
+      1,
+      Math.round(Math.min(panelWidth, availableHeight, 560))
+    );
+    stageCardEl.style.width = `${stageSize}px`;
+    stageCardEl.style.height = `${stageSize}px`;
     if (canvasMode !== "stage" || Math.abs(stageSize - lastStageSize) > 1) {
       resizeCanvas(stageSize, stageSize);
       lastStageSize = stageSize;
       canvasMode = "stage";
     }
   } else if (canvasMode !== "window") {
+    stageCardEl.style.width = "";
+    stageCardEl.style.height = "";
     resizeCanvas(windowWidth, windowHeight);
     canvasMode = "window";
     lastStageSize = 0;
@@ -271,8 +302,6 @@ function syncCanvasMode() {
 }
 
 function resetConnection() {
-  stopQrScanner();
-  stopCamera();
   try {
     dc?.close?.();
   } catch {}
@@ -284,39 +313,173 @@ function resetConnection() {
   dc = null;
   role = "idle";
   phase = "idle";
-  statusText = "Choose Connect on one device or Scan Offer on the other.";
+  statusText = "Press Connect on one device. Open that link on the other device.";
   localCandidates = [];
   remoteCandidatesAdded = 0;
   qrValue = "";
   qrCode = null;
-  useSimpleTestQr = false;
-  scannerDebugText = "";
+  shareLink = "";
   chatMessages = [];
+  currentStarterSessionId = "";
+  appliedAnswerSignature = "";
+  clearStarterSession();
   renderMessages();
+  clearIncomingParams();
   renderUi();
 }
 
-function resetScannerToIdle() {
-  stopQrScanner();
-  stopCamera();
-  role = "idle";
-  phase = "idle";
-  statusText = "Choose Connect on one device or Scan Offer on the other.";
+async function startAsStarter() {
+  if (pc) return;
+
+  role = "starter";
+  phase = "connecting";
+  statusText = "Creating offer link...";
+  renderUi();
+
+  newPeerConnection();
+  wireDataChannel(pc.createDataChannel("rtcchat"));
+
+  try {
+    const offer = await pc.createOffer();
+    await pc.setLocalDescription(offer);
+    await waitForIceReady(pc);
+
+    currentStarterSessionId = makeStarterSessionId();
+    const bundle = createQrBundle("OB", pc.localDescription.sdp, localCandidates);
+    qrValue = toBundleString(bundle);
+    shareLink = buildShareLink("connect", qrValue, currentStarterSessionId);
+    saveStarterSession({
+      sessionId: currentStarterSessionId,
+    });
+    rebuildDisplayedQr();
+    logBundle("COPY OFFER", qrValue, bundle);
+
+    phase = "show-offer";
+    statusText = "Offer ready.";
+    renderUi();
+  } catch (error) {
+    console.error("[rtcchat] starter error", error);
+    statusText = `Starter error: ${error?.message || error}`;
+    renderUi();
+  }
+}
+
+async function handleIncomingLink() {
+  const params = new URLSearchParams(window.location.search);
+  const connectValue = params.get("connect");
+  const responseValue = params.get("response");
+  const sessionId = params.get("sid");
+
+  if (connectValue) {
+    await startAsJoinerFromLink(connectValue, sessionId);
+    return;
+  }
+
+  if (responseValue && sessionId) {
+    await forwardResponseLinkToStarter(responseValue, sessionId);
+  }
+}
+
+async function startAsJoinerFromLink(linkValue, sessionId) {
+  if (pc) return;
+  role = "joiner";
+  phase = "connecting";
+  statusText = "Applying connect link and building response link...";
+  renderUi();
+
+  newPeerConnection();
+
+  try {
+    const bundle = fromBundleString(linkValue);
+    logParsedBundle("PASTED OFFER", linkValue, bundle);
+
+    await pc.setRemoteDescription({ type: "offer", sdp: buildSdpFromBundle(bundle) });
+    for (const candidate of bundle.c) {
+      await pc.addIceCandidate({ candidate, sdpMLineIndex: 0 });
+      remoteCandidatesAdded += 1;
+    }
+
+    const answer = await pc.createAnswer();
+    await pc.setLocalDescription(answer);
+    await waitForIceReady(pc);
+
+    const answerBundle = createQrBundle("AB", pc.localDescription.sdp, localCandidates);
+    qrValue = toBundleString(answerBundle);
+    shareLink = buildShareLink("response", qrValue, sessionId);
+    rebuildDisplayedQr();
+    logBundle("COPY ANSWER", qrValue, answerBundle);
+
+    phase = "show-answer";
+    statusText = "Response link ready. Send it back to the original Connect tab.";
+    renderUi();
+  } catch (error) {
+    console.error("[rtcchat] connect link error", error);
+    statusText = `Connect link error: ${error?.message || error}`;
+    renderUi();
+  }
+}
+
+function copyShareLink() {
+  if (!shareLink) return;
+  navigator.clipboard?.writeText?.(shareLink).catch(() => {});
+  if (phase === "show-offer") {
+    phase = "awaiting-answer";
+    statusText = "Awaiting connection...";
+  } else if (phase === "show-answer") {
+    phase = "waiting-peer";
+    statusText = "Response copied. Open it on the original device/browser.";
+  } else {
+    statusText = "Link copied.";
+  }
   renderUi();
 }
 
-function cancelScanAnswer() {
-  stopQrScanner();
-  stopCamera();
-  phase = "show-offer";
-  statusText = "Offer QR ready. Scan the answer when the other device shows it.";
-  renderUi();
+function saveStarterSession(session) {
+  try {
+    localStorage.setItem(
+      STARTER_SESSION_KEY,
+      JSON.stringify({
+        ...session,
+        savedAt: Date.now(),
+      })
+    );
+  } catch {}
 }
 
-function toggleSimpleQr() {
-  useSimpleTestQr = !useSimpleTestQr;
-  rebuildDisplayedQr();
-  renderUi();
+function clearStarterSession() {
+  try {
+    localStorage.removeItem(STARTER_SESSION_KEY);
+  } catch {}
+}
+
+function sendMessage() {
+  const text = String(composerInputEl.value || "").trim();
+  if (!text || !dc || dc.readyState !== "open") return;
+  dc.send(text);
+  addChatMessage("self", text);
+  composerInputEl.value = "";
+}
+
+function addSystemMessage(text) {
+  chatMessages.push({ type: "system", text });
+  renderMessages();
+}
+
+function addChatMessage(type, text) {
+  chatMessages.push({ type, text });
+  renderMessages();
+}
+
+function renderMessages() {
+  if (!messagesEl) return;
+  messagesEl.innerHTML = "";
+  for (const msg of chatMessages) {
+    const bubble = document.createElement("div");
+    bubble.className = `rtcchat-bubble ${msg.type}`;
+    bubble.textContent = msg.text;
+    messagesEl.appendChild(bubble);
+  }
+  keepChatVisible();
 }
 
 function newPeerConnection() {
@@ -411,191 +574,6 @@ function waitForIceReady(connection, timeoutMs = 1800, minCandidates = 2) {
 
     connection.addEventListener("icegatheringstatechange", onChange);
   });
-}
-
-async function startAsStarter() {
-  if (pc) return;
-
-  role = "starter";
-  phase = "connecting";
-  statusText = "Creating offer...";
-  renderUi();
-
-  newPeerConnection();
-  wireDataChannel(pc.createDataChannel("rtcchat"));
-
-  try {
-    const offer = await pc.createOffer();
-    await pc.setLocalDescription(offer);
-    await waitForIceReady(pc);
-
-    const bundle = createQrBundle("OB", pc.localDescription.sdp, localCandidates);
-    qrValue = toBundleString(bundle);
-    rebuildDisplayedQr();
-    logBundle("COPY OFFER", qrValue, bundle);
-
-    phase = "show-offer";
-    statusText = "Offer QR ready. The other device should scan it.";
-    renderUi();
-  } catch (error) {
-    console.error("[rtcchat] starter error", error);
-    statusText = `Starter error: ${error?.message || error}`;
-    renderUi();
-  }
-}
-
-async function prepareJoinerScan() {
-  if (pc) return;
-  role = "joiner";
-  phase = "scan-offer";
-  statusText = "Opening camera for offer QR...";
-  renderUi();
-
-  newPeerConnection();
-  await startQrScanner(handleOfferScan);
-}
-
-async function startScanAnswer() {
-  if (!pc || role !== "starter") return;
-  phase = "scan-answer";
-  statusText = "Opening camera for answer QR...";
-  renderUi();
-  await startQrScanner(handleAnswerScan);
-}
-
-async function handleOfferScan(qrText) {
-  try {
-    const bundle = fromBundleString(qrText);
-    logParsedBundle("PASTED OFFER", qrText, bundle);
-    phase = "connecting";
-    statusText = "Offer scanned. Applying offer and building answer...";
-    renderUi();
-    stopQrScanner();
-    stopCamera();
-
-    await pc.setRemoteDescription({ type: "offer", sdp: buildSdpFromBundle(bundle) });
-    for (const candidate of bundle.c) {
-      await pc.addIceCandidate({ candidate, sdpMLineIndex: 0 });
-      remoteCandidatesAdded += 1;
-    }
-
-    const answer = await pc.createAnswer();
-    await pc.setLocalDescription(answer);
-    await waitForIceReady(pc);
-
-    const answerBundle = createQrBundle("AB", pc.localDescription.sdp, localCandidates);
-    qrValue = toBundleString(answerBundle);
-    rebuildDisplayedQr();
-    logBundle("COPY ANSWER", qrValue, answerBundle);
-
-    phase = "show-answer";
-    statusText = "Answer QR ready. Show it to the starter device.";
-    renderUi();
-  } catch (error) {
-    console.error("[rtcchat] offer scan error", error);
-    statusText = `Offer scan error: ${error?.message || error}`;
-    renderUi();
-  }
-}
-
-async function handleAnswerScan(qrText) {
-  try {
-    const bundle = fromBundleString(qrText);
-    logParsedBundle("PASTED ANSWER", qrText, bundle);
-    phase = "connecting";
-    statusText = "Answer scanned. Applying answer...";
-    renderUi();
-    stopQrScanner();
-    stopCamera();
-
-    await pc.setRemoteDescription({ type: "answer", sdp: buildSdpFromBundle(bundle) });
-    for (const candidate of bundle.c) {
-      await pc.addIceCandidate({ candidate, sdpMLineIndex: 0 });
-      remoteCandidatesAdded += 1;
-    }
-
-    phase = "connecting";
-    statusText = "Answer accepted. Waiting for data channel...";
-    renderUi();
-  } catch (error) {
-    console.error("[rtcchat] answer scan error", error);
-    statusText = `Answer scan error: ${error?.message || error}`;
-    renderUi();
-  }
-}
-
-async function startQrScanner(onScan) {
-  stopQrScanner();
-  stopCamera();
-
-  scannerVideo = await setupWebcamera(false, 1920, 1080, false, true);
-  qrScanner = await new QrScannerNimiq({
-    video: scannerVideo,
-    videoIsFlipped: false,
-    maxScansPerSecond: 12,
-    onResult: (result) => {
-      const text = result?.data || result?.text || "";
-      if (!text) return;
-      scannerDebugText = text;
-      onScan(text);
-    },
-  }).init();
-
-  await qrScanner.start();
-}
-
-function stopQrScanner() {
-  try {
-    qrScanner?.stop?.();
-  } catch {}
-  try {
-    qrScanner?.destroy?.();
-  } catch {}
-  qrScanner = null;
-}
-
-function stopCamera() {
-  const videoEl = scannerVideo?.elt;
-  try {
-    const stream = videoEl?.srcObject;
-    if (stream?.getTracks) {
-      for (const track of stream.getTracks()) track.stop();
-    }
-  } catch {}
-  try {
-    scannerVideo?.remove?.();
-  } catch {}
-  scannerVideo = null;
-}
-
-function sendMessage() {
-  const text = String(composerInputEl.value || "").trim();
-  if (!text || !dc || dc.readyState !== "open") return;
-  dc.send(text);
-  addChatMessage("self", text);
-  composerInputEl.value = "";
-}
-
-function addSystemMessage(text) {
-  chatMessages.push({ type: "system", text });
-  renderMessages();
-}
-
-function addChatMessage(type, text) {
-  chatMessages.push({ type, text });
-  renderMessages();
-}
-
-function renderMessages() {
-  if (!messagesEl) return;
-  messagesEl.innerHTML = "";
-  for (const msg of chatMessages) {
-    const bubble = document.createElement("div");
-    bubble.className = `rtcchat-bubble ${msg.type}`;
-    bubble.textContent = msg.text;
-    messagesEl.appendChild(bubble);
-  }
-  messagesEl.scrollTop = messagesEl.scrollHeight;
 }
 
 function toBundleString(bundle) {
@@ -751,19 +729,137 @@ function makeSessionId(type, fingerprint, iceUfrag, icePwd) {
   return `1${String(hash).padStart(9, "0")}23456789`;
 }
 
-function getDisplayedQrValue() {
-  return useSimpleTestQr ? SIMPLE_TEST_QR : qrValue;
-}
-
 function rebuildDisplayedQr() {
-  const value = getDisplayedQrValue();
   try {
-    qrCode = value ? createQRCode(value) : null;
-    console.log(`[rtcchat] QR payload length: ${value.length}`);
+    qrCode = shareLink ? createQRCode(shareLink) : null;
+    console.log(`[rtcchat] QR payload length: ${shareLink.length}`);
   } catch (error) {
     console.error("[rtcchat] QR generation failed", error);
     qrCode = null;
     statusText = `QR generation failed: ${error?.message || error}`;
+  }
+}
+
+function initLocalAnswerRelay() {
+  if (typeof BroadcastChannel !== "undefined") {
+    localSignalChannel = new BroadcastChannel(LOCAL_SIGNAL_CHANNEL);
+    localSignalChannel.onmessage = (event) => {
+      handleLocalAnswerSignal(event?.data);
+    };
+  }
+
+  window.addEventListener("storage", (event) => {
+    if (event.key !== ANSWER_SIGNAL_KEY || !event.newValue) return;
+    try {
+      handleLocalAnswerSignal(JSON.parse(event.newValue));
+    } catch {}
+  });
+}
+
+async function forwardResponseLinkToStarter(responseValue, sessionId) {
+  const payload = {
+    type: "rtc-answer",
+    sessionId,
+    responseValue,
+    sentAt: Date.now(),
+  };
+
+  try {
+    localSignalChannel?.postMessage?.(payload);
+  } catch {}
+
+  try {
+    localStorage.setItem(ANSWER_SIGNAL_KEY, JSON.stringify(payload));
+    setTimeout(() => {
+      try {
+        localStorage.removeItem(ANSWER_SIGNAL_KEY);
+      } catch {}
+    }, 50);
+  } catch {}
+
+  role = "idle";
+  phase = "forwarded";
+  statusText = "Response forwarded to the original Connect tab. You can close this tab.";
+  clearIncomingParams();
+  renderUi();
+}
+
+async function handleLocalAnswerSignal(data) {
+  if (!data || data.type !== "rtc-answer") return;
+  if (!currentStarterSessionId || data.sessionId !== currentStarterSessionId) return;
+  if (!pc || role !== "starter") return;
+
+  try {
+    const bundle = fromBundleString(data.responseValue);
+    const answerSignature = JSON.stringify(bundle);
+    if (answerSignature === appliedAnswerSignature) {
+      return;
+    }
+
+    const signalingState = pc?.signalingState || "";
+    if (signalingState !== "have-local-offer") {
+      if (signalingState === "stable") {
+        return;
+      }
+      throw new Error(`Starter is not waiting for an answer (state: ${signalingState})`);
+    }
+
+    logParsedBundle("PASTED ANSWER", data.responseValue, bundle);
+    phase = "connecting";
+    statusText = "Applying response link...";
+    renderUi();
+
+    await pc.setRemoteDescription({ type: "answer", sdp: buildSdpFromBundle(bundle) });
+    appliedAnswerSignature = answerSignature;
+    remoteCandidatesAdded = 0;
+    for (const candidate of bundle.c) {
+      await pc.addIceCandidate({ candidate, sdpMLineIndex: 0 });
+      remoteCandidatesAdded += 1;
+    }
+
+    clearIncomingParams();
+    clearStarterSession();
+    statusText = "Response accepted. Waiting for data channel...";
+    renderUi();
+  } catch (error) {
+    console.error("[rtcchat] answer relay error", error);
+    statusText = `Response relay error: ${error?.message || error}`;
+    renderUi();
+  }
+}
+
+function makeStarterSessionId() {
+  return `rtc-${Math.random().toString(36).slice(2, 10)}`;
+}
+
+function buildShareLink(paramName, value, sessionId = "") {
+  const url = new URL(window.location.href);
+  url.search = "";
+  url.hash = "";
+  url.searchParams.set(paramName, value);
+  if (sessionId) {
+    url.searchParams.set("sid", sessionId);
+  }
+  return url.toString();
+}
+
+function extractBundleFromPossibleUrl(raw, paramName) {
+  if (/^https?:\/\//i.test(raw)) {
+    const url = new URL(raw);
+    const value = url.searchParams.get(paramName);
+    if (!value) {
+      throw new Error(`Missing ${paramName} in link`);
+    }
+    return value;
+  }
+  return raw;
+}
+
+function clearIncomingParams() {
+  const url = new URL(window.location.href);
+  if (url.search) {
+    url.search = "";
+    window.history.replaceState({}, "", url.toString());
   }
 }
 
@@ -803,24 +899,26 @@ function binaryToBytes(binary) {
   return bytes;
 }
 
-function drawVideoCover(video, x, y, w, h) {
-  const vidEl = video?.elt;
-  const vw = vidEl?.videoWidth || video?.width || w;
-  const vh = vidEl?.videoHeight || video?.height || h;
-  if (!(vw > 0 && vh > 0)) return;
+function installViewportTracking() {
+  updateViewportHeight();
+  if (window.visualViewport) {
+    window.visualViewport.addEventListener("resize", handleViewportChange);
+    window.visualViewport.addEventListener("scroll", handleViewportChange);
+  }
+}
 
-  const scale = Math.max(w / vw, h / vh);
-  const drawW = vw * scale;
-  const drawH = vh * scale;
-  const offsetX = x + (w - drawW) * 0.5;
-  const offsetY = y + (h - drawH) * 0.5;
+function handleViewportChange() {
+  updateViewportHeight();
+  keepChatVisible();
+  syncCanvasMode();
+}
 
-  push();
-  drawingContext.save();
-  drawingContext.beginPath();
-  drawingContext.rect(x, y, w, h);
-  drawingContext.clip();
-  image(video, offsetX, offsetY, drawW, drawH);
-  drawingContext.restore();
-  pop();
+function updateViewportHeight() {
+  const height = window.visualViewport?.height || window.innerHeight;
+  document.documentElement.style.setProperty("--rtcchat-app-height", `${Math.round(height)}px`);
+}
+
+function keepChatVisible() {
+  if (!messagesEl) return;
+  messagesEl.scrollTop = messagesEl.scrollHeight;
 }

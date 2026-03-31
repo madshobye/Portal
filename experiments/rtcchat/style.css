@@ -2,7 +2,8 @@ html,
 body {
   margin: 0;
   padding: 0;
-  overflow: hidden;
+  overflow-x: hidden;
+  overflow-y: hidden;
   background: #0b0b0d;
   color: #f5f5f5;
   font-family: "Helvetica Neue", Helvetica, Arial, sans-serif;
@@ -13,22 +14,25 @@ canvas {
 }
 
 .rtcchat-app {
-  position: fixed;
-  inset: 0;
+  height: var(--rtcchat-app-height, 100dvh);
   display: flex;
-  align-items: stretch;
+  align-items: flex-start;
   justify-content: center;
   pointer-events: none;
+  overflow: hidden;
 }
 
 .rtcchat-panel {
   width: min(920px, 100vw);
-  min-height: 100dvh;
+  height: var(--rtcchat-app-height, 100dvh);
   display: flex;
   flex-direction: column;
+  align-items: stretch;
   justify-content: flex-start;
   padding: 12px;
   gap: 10px;
+  box-sizing: border-box;
+  overflow: hidden;
 }
 
 .rtcchat-panel.qr-mode {
@@ -44,6 +48,70 @@ canvas {
   border-radius: 18px;
   box-shadow: 0 16px 40px rgba(0, 0, 0, 0.28);
   backdrop-filter: blur(14px);
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.rtcchat-link-card {
+  display: none;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px;
+}
+
+.rtcchat-link-toprow {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  min-height: 20px;
+}
+
+.rtcchat-link-title {
+  font-size: 0.82rem;
+  font-weight: 700;
+  color: rgba(255, 255, 255, 0.92);
+}
+
+.rtcchat-share-anchor {
+  color: #8cc7ff;
+  font-size: 0.84rem;
+  font-weight: 700;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.rtcchat-share-anchor:hover {
+  color: #b5dbff;
+}
+
+.rtcchat-link-close {
+  appearance: none;
+  border: 0;
+  background: transparent;
+  color: rgba(255, 255, 255, 0.78);
+  font: inherit;
+  font-size: 1.3rem;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0;
+}
+
+.rtcchat-link-close:hover {
+  color: #ffffff;
+}
+
+.rtcchat-link {
+  width: 100%;
+  border: 0;
+  border-radius: 12px;
+  height: 42px;
+  padding: 0 12px;
+  font: inherit;
+  font-size: 0.82rem;
+  line-height: 42px;
+  background: rgba(255, 255, 255, 0.96);
+  color: #111;
+  box-sizing: border-box;
 }
 
 .rtcchat-status {
@@ -51,7 +119,6 @@ canvas {
 }
 
 .rtcchat-status.qr-mode {
-  max-width: min(680px, calc(100vw - 24px));
   padding: 10px 12px;
 }
 
@@ -127,6 +194,7 @@ canvas {
   display: flex;
   flex-direction: column;
   gap: 12px;
+  overflow: hidden;
 }
 
 .rtcchat-messages {
@@ -171,6 +239,7 @@ canvas {
   display: flex;
   gap: 10px;
   padding: 12px;
+  flex: 0 0 auto;
 }
 
 .rtcchat-input {
@@ -193,18 +262,18 @@ canvas {
   display: none;
   align-items: center;
   justify-content: center;
-  min-height: 0;
+  flex: 0 0 auto;
+  width: 100%;
 }
 
 .rtcchat-stage.active {
   display: flex;
-  flex: 1;
 }
 
 .rtcchat-stage-card {
   pointer-events: auto;
-  width: min(92vw, 560px);
-  aspect-ratio: 1 / 1;
+  width: 100%;
+  height: auto;
   background: rgba(255, 255, 255, 0.96);
   border-radius: 24px;
   overflow: hidden;
@@ -212,6 +281,8 @@ canvas {
   display: flex;
   align-items: center;
   justify-content: center;
+  flex: 0 0 auto;
+  margin: 0 auto;
 }
 
 .rtcchat-stage-card canvas {
@@ -244,8 +315,8 @@ canvas {
   }
 
   .rtcchat-stage-card {
-    width: calc(100vw - 24px);
-    aspect-ratio: 1 / 1;
+    width: 100%;
+    max-width: calc(100vw - 24px);
     border-radius: 18px;
   }
 }
