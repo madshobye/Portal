@@ -10,7 +10,7 @@ let remoteCandidatesAdded = 0;
 let qrValue = "";
 let qrCode = null;
 let scannerVideo = null;
-let qrReader = null;
+let qrScanner = null;
 
 let appEl;
 let panelEl;
@@ -41,7 +41,7 @@ async function setup() {
 
   await loadScript("https://unpkg.com/fflate@0.8.2/umd/index.js");
   await loadScript("portal/qrCodeGen.js");
-  await loadScript("portal/QrReader.js");
+  await loadScript("portal/QrScannerNimiq.js");
 
   buildUi(canvas);
   renderUi();
@@ -219,13 +219,13 @@ function drawQrScreen() {
 
 function drawScannerScreen() {
   background(0);
-  if (qrReader) {
+  if (qrScanner && scannerVideo) {
     const size = min(width, height) - 24;
     const x = (width - size) * 0.5;
     const y = (height - size) * 0.5;
-    qrReader.scaleTo(size, size, x, y);
-    qrReader.drawImage();
-    qrReader.drawOverlay();
+    drawVideoCover(scannerVideo, x, y, size, size);
+    qrScanner.scaleTo(size, size, x, y);
+    qrScanner.drawOverlay();
   }
 
   const guideSize = min(width, height) - 24;
@@ -529,26 +529,29 @@ async function startQrScanner(onScan) {
   stopCamera();
 
   scannerVideo = await setupWebcamera(false, 1920, 1080, false, true);
-  qrReader = await new QrReader({
+  qrScanner = await new QrScannerNimiq({
     video: scannerVideo,
     videoIsFlipped: false,
-    cooldownMs: 2000,
+    maxScansPerSecond: 12,
     onResult: (result) => {
-      const text = result?.text || "";
+      const text = result?.data || result?.text || "";
       if (!text) return;
       scannerDebugText = text;
       onScan(text);
     },
   }).init();
 
-  qrReader.start();
+  await qrScanner.start();
 }
 
 function stopQrScanner() {
   try {
-    qrReader?.stop?.();
+    qrScanner?.stop?.();
   } catch {}
-  qrReader = null;
+  try {
+    qrScanner?.destroy?.();
+  } catch {}
+  qrScanner = null;
 }
 
 function stopCamera() {
@@ -798,4 +801,26 @@ function binaryToBytes(binary) {
     bytes[i] = binary.charCodeAt(i);
   }
   return bytes;
+}
+
+function drawVideoCover(video, x, y, w, h) {
+  const vidEl = video?.elt;
+  const vw = vidEl?.videoWidth || video?.width || w;
+  const vh = vidEl?.videoHeight || video?.height || h;
+  if (!(vw > 0 && vh > 0)) return;
+
+  const scale = Math.max(w / vw, h / vh);
+  const drawW = vw * scale;
+  const drawH = vh * scale;
+  const offsetX = x + (w - drawW) * 0.5;
+  const offsetY = y + (h - drawH) * 0.5;
+
+  push();
+  drawingContext.save();
+  drawingContext.beginPath();
+  drawingContext.rect(x, y, w, h);
+  drawingContext.clip();
+  image(video, offsetX, offsetY, drawW, drawH);
+  drawingContext.restore();
+  pop();
 }

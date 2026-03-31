@@ -34,6 +34,8 @@ class QrScannerNimiq {
     this.running = false;
     this._scanTimer = null;
     this._scanIntervalMs = Math.max(50, Math.round(1000 / Math.max(1, maxScansPerSecond)));
+    this._scanCanvas = null;
+    this._scanContext = null;
 
     this._result = null;
     this._text = "";
@@ -50,7 +52,6 @@ class QrScannerNimiq {
     }
 
     const videoEl = this.video.elt;
-    this._ensureScannableVideoElement(videoEl);
     console.log("[QrScannerNimiq] waiting for video readiness...");
     await this._waitForVideoReady(videoEl);
     console.log("[QrScannerNimiq] video ready", {
@@ -225,7 +226,16 @@ class QrScannerNimiq {
     }
 
     try {
-      const result = await window.QrScanner.scanImage(videoEl, {
+      const scanCanvas = this._getScanCanvas(videoEl);
+      const scanContext = this._scanContext;
+      if (!scanCanvas || !scanContext) {
+        this._scheduleNextScan();
+        return;
+      }
+
+      scanContext.drawImage(videoEl, 0, 0, scanCanvas.width, scanCanvas.height);
+
+      const result = await window.QrScanner.scanImage(scanCanvas, {
         returnDetailedScanResult: true,
       });
       if (result) this._handleResult(result);
@@ -237,6 +247,32 @@ class QrScannerNimiq {
     }
 
     this._scheduleNextScan();
+  }
+
+  _getScanCanvas(videoEl) {
+    const vw = Math.max(1, videoEl?.videoWidth || 0);
+    const vh = Math.max(1, videoEl?.videoHeight || 0);
+    if (!(vw > 0 && vh > 0)) return null;
+
+    const maxDim = 960;
+    const scale = Math.min(1, maxDim / Math.max(vw, vh));
+    const targetW = Math.max(1, Math.round(vw * scale));
+    const targetH = Math.max(1, Math.round(vh * scale));
+
+    if (!this._scanCanvas) {
+      this._scanCanvas = document.createElement("canvas");
+      this._scanContext = this._scanCanvas.getContext("2d", { willReadFrequently: true });
+    }
+
+    if (
+      this._scanCanvas.width !== targetW ||
+      this._scanCanvas.height !== targetH
+    ) {
+      this._scanCanvas.width = targetW;
+      this._scanCanvas.height = targetH;
+    }
+
+    return this._scanCanvas;
   }
 
   _mapResultPointsToRect(points, x, y, w, h, vw, vh) {
@@ -333,29 +369,6 @@ class QrScannerNimiq {
     });
   }
 
-  _ensureScannableVideoElement(videoEl) {
-    if (!videoEl) return;
-
-    if (!videoEl.parentElement) {
-      document.body.appendChild(videoEl);
-    }
-
-    videoEl.setAttribute("playsinline", "");
-    videoEl.muted = true;
-    videoEl.autoplay = true;
-
-    const style = videoEl.style;
-    style.display = "block";
-    style.position = "fixed";
-    style.left = "-9999px";
-    style.top = "0";
-    style.width = "160px";
-    style.height = "auto";
-    style.opacity = "0.01";
-    style.pointerEvents = "none";
-    style.visibility = "visible";
-    style.zIndex = "-1";
-  }
 }
 
 window.QrScannerNimiq = QrScannerNimiq;
