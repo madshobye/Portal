@@ -1,0 +1,384 @@
+html,
+body {
+  margin: 0;
+  padding: 0;
+  overflow-x: hidden;
+  overflow-y: hidden;
+  background: #0b0b0d;
+  color: #f5f5f5;
+  font-family: "Helvetica Neue", Helvetica, Arial, sans-serif;
+}
+
+canvas {
+  display: block;
+}
+
+.rtcchat-app {
+  position: fixed;
+  top: var(--rtcchat-app-top, 0px);
+  left: 0;
+  right: 0;
+  height: var(--rtcchat-app-height, 100dvh);
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  pointer-events: none;
+  overflow: hidden;
+}
+
+.rtcchat-panel {
+  width: min(920px, 100vw);
+  height: var(--rtcchat-app-height, 100dvh);
+  max-height: var(--rtcchat-app-height, 100dvh);
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  justify-content: flex-start;
+  padding: 12px;
+  gap: 10px;
+  box-sizing: border-box;
+  overflow: hidden;
+}
+
+.rtcchat-top-toggle {
+  pointer-events: auto;
+  appearance: none;
+  border: 0;
+  border-radius: 999px;
+  padding: 8px 12px;
+  font: inherit;
+  font-size: 0.78rem;
+  font-weight: 700;
+  background: rgba(10, 10, 14, 0.82);
+  color: rgba(255, 255, 255, 0.92);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.24);
+  backdrop-filter: blur(14px);
+  align-self: flex-start;
+}
+
+.rtcchat-panel.qr-mode {
+  justify-content: flex-start;
+  padding-top: 12px;
+  gap: 10px;
+}
+
+.rtcchat-card {
+  pointer-events: auto;
+  background: rgba(10, 10, 14, 0.82);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 18px;
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.28);
+  backdrop-filter: blur(14px);
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.rtcchat-link-card {
+  display: none;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px;
+}
+
+.rtcchat-response-card {
+  display: none;
+}
+
+.rtcchat-link-toprow {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  min-height: 20px;
+}
+
+.rtcchat-link-title {
+  font-size: 0.82rem;
+  font-weight: 700;
+  color: rgba(255, 255, 255, 0.92);
+}
+
+.rtcchat-share-anchor {
+  color: #8cc7ff;
+  font-size: 0.84rem;
+  font-weight: 700;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.rtcchat-share-anchor:hover {
+  color: #b5dbff;
+}
+
+.rtcchat-link-close {
+  appearance: none;
+  border: 0;
+  background: transparent;
+  color: rgba(255, 255, 255, 0.78);
+  font: inherit;
+  font-size: 1.3rem;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0;
+}
+
+.rtcchat-link-close:hover {
+  color: #ffffff;
+}
+
+.rtcchat-link {
+  width: 100%;
+  border: 0;
+  border-radius: 12px;
+  height: 42px;
+  padding: 0 12px;
+  font: inherit;
+  font-size: 0.82rem;
+  line-height: 42px;
+  background: rgba(255, 255, 255, 0.96);
+  color: #111;
+  box-sizing: border-box;
+}
+
+.rtcchat-status {
+  padding: 10px 12px;
+}
+
+.rtcchat-status.qr-mode {
+  padding: 10px 12px;
+}
+
+.rtcchat-title {
+  margin: 0 0 4px;
+  font-size: 0.92rem;
+  font-weight: 700;
+}
+
+.rtcchat-title.qr-mode {
+  margin-bottom: 4px;
+  font-size: 0.95rem;
+}
+
+.rtcchat-text {
+  margin: 0;
+  color: rgba(255, 255, 255, 0.82);
+  line-height: 1.3;
+  font-size: 0.82rem;
+}
+
+.rtcchat-text.qr-mode {
+  font-size: 0.82rem;
+  line-height: 1.3;
+}
+
+.rtcchat-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.rtcchat-actions.qr-mode {
+  gap: 8px;
+  margin-top: 8px;
+}
+
+
+.rtcchat-btn {
+  appearance: none;
+  border: 0;
+  border-radius: 10px;
+  padding: 9px 12px;
+  font: inherit;
+  font-weight: 700;
+  cursor: pointer;
+  background: #1f6fff;
+  color: #fff;
+  font-size: 0.84rem;
+}
+
+.rtcchat-btn.qr-mode {
+  padding: 9px 12px;
+  border-radius: 10px;
+  font-size: 0.88rem;
+}
+
+.rtcchat-btn.secondary {
+  background: rgba(255, 255, 255, 0.12);
+  color: #fff;
+}
+
+.rtcchat-btn:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.rtcchat-chat {
+  pointer-events: auto;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  overflow: hidden;
+}
+
+.rtcchat-messages {
+  flex: 1;
+  min-height: 220px;
+  overflow-y: auto;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.rtcchat-message {
+  display: flex;
+  align-items: flex-end;
+  gap: 10px;
+}
+
+.rtcchat-message.self {
+  align-self: flex-end;
+  flex-direction: row-reverse;
+}
+
+.rtcchat-message.peer {
+  align-self: flex-start;
+}
+
+.rtcchat-avatar {
+  width: 34px;
+  height: 34px;
+  border-radius: 999px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 34px;
+  color: #fff;
+  font-weight: 800;
+  font-size: 0.94rem;
+  box-shadow: 0 8px 18px rgba(0, 0, 0, 0.22);
+}
+
+.rtcchat-bubble {
+  max-width: min(78%, 520px);
+  padding: 10px 12px;
+  border-radius: 14px;
+  line-height: 1.4;
+  font-size: 0.96rem;
+  word-break: break-word;
+}
+
+.rtcchat-bubble.self {
+  align-self: flex-end;
+  background: #1f6fff;
+  color: #fff;
+}
+
+.rtcchat-bubble.peer {
+  align-self: flex-start;
+  background: rgba(255, 255, 255, 0.12);
+  color: #fff;
+}
+
+.rtcchat-meta {
+  margin: 0 0 5px;
+  font-size: 0.74rem;
+  line-height: 1.2;
+  color: rgba(255, 255, 255, 0.7);
+}
+
+.rtcchat-bubble.system {
+  align-self: center;
+  background: rgba(255, 255, 255, 0.08);
+  color: rgba(255, 255, 255, 0.74);
+  font-size: 0.88rem;
+}
+
+.rtcchat-composer {
+  display: flex;
+  gap: 10px;
+  padding: 12px;
+  flex: 0 0 auto;
+}
+
+.rtcchat-input {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  border-radius: 12px;
+  padding: 14px 16px;
+  font: inherit;
+  background: rgba(255, 255, 255, 0.94);
+  color: #111;
+}
+
+.rtcchat-input:disabled {
+  opacity: 0.6;
+}
+
+.rtcchat-stage {
+  pointer-events: none;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  width: 100%;
+}
+
+.rtcchat-stage.active {
+  display: flex;
+}
+
+.rtcchat-stage-card {
+  pointer-events: auto;
+  width: 100%;
+  height: auto;
+  background: rgba(255, 255, 255, 0.96);
+  border-radius: 24px;
+  overflow: hidden;
+  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.28);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  margin: 0 auto;
+}
+
+.rtcchat-stage-card canvas {
+  width: 100% !important;
+  height: 100% !important;
+}
+
+@media (max-width: 640px) {
+  .rtcchat-panel {
+    padding: 12px;
+    gap: 10px;
+  }
+
+  .rtcchat-status {
+    padding: 10px;
+  }
+
+  .rtcchat-messages {
+    min-height: 180px;
+    padding: 12px;
+  }
+
+  .rtcchat-bubble {
+    max-width: 88%;
+    font-size: 0.93rem;
+  }
+
+  .rtcchat-composer {
+    padding: 10px;
+  }
+
+  .rtcchat-stage-card {
+    width: 100%;
+    max-width: calc(100vw - 24px);
+    border-radius: 18px;
+  }
+}
