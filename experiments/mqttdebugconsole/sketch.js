@@ -1,6 +1,6 @@
-const MQTTDEBUG_VERSION = 2;
+const MQTTDEBUG_VERSION = 3;
 const MQTT_BROKER = "wss://public:public@public.cloud.shiftr.io";
-const DEBUG_TOPIC = "portal/rtcchat/debug";
+const DEBUG_TOPIC = "portal/liminalNet/debug";
 
 let mqttClient = null;
 let statusText = "Booting debug console...";
@@ -25,7 +25,7 @@ async function setup() {
     clientId: `mqttdebug-${Math.random().toString(36).slice(2, 10)}`,
     autoConnect: false,
     onConnect: () => {
-      statusText = "MQTT connected. Listening for rtcchat debug.";
+      statusText = "MQTT connected. Listening for liminalNet debug.";
       renderUi();
     },
     onDisconnect: () => {

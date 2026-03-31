@@ -1,5 +1,8 @@
 const {
   VERSION: RTCCHAT_V3_VERSION,
+  NETWORK_NAME,
+  DEFAULT_ROOM_NAME,
+  MQTT_TOPIC_PREFIX,
   ROOM_SIGNAL_CHANNEL,
   LOCAL_RESPONSE_CHANNEL,
   LOCAL_RESPONSE_KEY,
@@ -27,7 +30,7 @@ let role = "idle";
 let phase = "idle";
 let statusText = "Connecting...";
 
-let roomId = "";
+let roomId = DEFAULT_ROOM_NAME;
 let hostPeerId = "";
 let activeInvite = null;
 let qrCode = null;
@@ -74,8 +77,8 @@ let applyingResponseInviteIds = new Set();
 let debugMqttClient = null;
 let onboarderMqttClient = null;
 let onboarderRequestTopic = `${ONBOARDER_REQUEST_TOPIC_PREFIX}/${SELF_CLIENT_ID}`;
-let onboarderReplyTopic = `portal/rtcchat_v3/onboarder/reply/${SELF_CLIENT_ID}`;
-let onboarderResponseTopic = `portal/rtcchat_v3/onboarder/response/${SELF_CLIENT_ID}`;
+let onboarderReplyTopic = `${MQTT_TOPIC_PREFIX}/onboarder/reply/${SELF_CLIENT_ID}`;
+let onboarderResponseTopic = `${MQTT_TOPIC_PREFIX}/onboarder/response/${SELF_CLIENT_ID}`;
 let onboarderWaiters = new Map();
 let mqttTopicHandlers = new Map();
 let discoveredOnboarders = new Map();
@@ -250,7 +253,7 @@ function buildUi(canvas) {
   composerInputEl = document.createElement("input");
   composerInputEl.className = "rtcchat-input";
   composerInputEl.type = "text";
-  composerInputEl.placeholder = "Type a room message…";
+  composerInputEl.placeholder = `Type into ${DEFAULT_ROOM_NAME}…`;
   composerInputEl.addEventListener("keydown", (event) => {
     if (event.key === "Enter") sendMessage();
   });
@@ -291,7 +294,7 @@ function renderUi() {
   titleEl.textContent = `${SELF_PROFILE.displayName}`;
   titleEl.style.color = SELF_PROFILE.color;
   statusTextEl.textContent =
-    `v${RTCCHAT_V3_VERSION}  ${statusText}  Role: ${role}  Name: ${SELF_PROFILE.displayName}  Room: ${roomId || "-"}`;
+    `v${RTCCHAT_V3_VERSION}  ${statusText}  Role: ${role}  Name: ${SELF_PROFILE.displayName}  Net: ${NETWORK_NAME}  Lounge: ${roomId || DEFAULT_ROOM_NAME}`;
   const knownList = [SELF_PEER_ID, ...[...knownPeerIds].filter((id) => id !== SELF_PEER_ID)];
   peersTextEl.textContent = `Known peers (${knownList.length}): ${formatPeerList(knownList)}`;
   connectionsTextEl.textContent = `Connected peers (${connectedPeers.length}): ${connectedPeers.length ? formatPeerList(connectedPeers) : "-"}`;
@@ -417,7 +420,7 @@ async function handleIncomingLink() {
       type: "rtcchat-v3-response",
       inviteId,
       responseValue,
-      roomId: room || "",
+      roomId: room || DEFAULT_ROOM_NAME,
       sentAt: Date.now(),
     });
     return;
@@ -503,7 +506,7 @@ async function tryJoinViaOnboarder(timeoutMs = 4000) {
   try {
     const url = new URL(response.link);
     const connectValue = url.searchParams.get("connect");
-    const room = url.searchParams.get("room") || response.roomId || "";
+    const room = url.searchParams.get("room") || response.roomId || DEFAULT_ROOM_NAME;
     const inviteId = url.searchParams.get("invite") || response.inviteId || "";
     const host = url.searchParams.get("host") || response.hostId || "";
     if (!connectValue || !inviteId || !host) {
@@ -532,14 +535,14 @@ async function initializeHostRoom(options = {}) {
   knownPeerIds = new Set([SELF_PEER_ID]);
   role = "host";
   phase = "hosting";
-  roomId = makeRoomId();
+  roomId = DEFAULT_ROOM_NAME;
   hostPeerId = SELF_PEER_ID;
   shareLink = "";
   qrCode = null;
   activeInvite = null;
   appliedResponseSignatures.clear();
   applyingResponseInviteIds.clear();
-  statusText = onboarderEnabled && !forceManualInvite ? "Room ready. Waiting for MQTT onboarding..." : "Creating room invite...";
+  statusText = onboarderEnabled && !forceManualInvite ? "Network ready. Waiting for MQTT onboarding..." : "Creating lounge invite...";
   renderMessages();
   renderUi();
   debugLog("room_init", { role, roomId });
@@ -691,7 +694,6 @@ function shouldSelfSeedNetwork() {
   if (isShuttingDown) return false;
   if (!onboarderEnabled) return false;
   if (role !== "idle") return false;
-  if (roomId) return false;
   if (activeInvite) return false;
   return getConnectedPeerIds().length === 0;
 }
@@ -759,10 +761,10 @@ function clearInviteView() {
   qrCode = null;
   if (activeInvite) {
     phase = activeInvite ? "awaiting-response" : getConnectedPeerIds().length > 0 ? "connected" : "hosting";
-    statusText = activeInvite ? "Awaiting peer response..." : "Room ready.";
+    statusText = activeInvite ? "Awaiting peer response..." : "Network ready.";
   } else if (role === "peer") {
     phase = "joining";
-    statusText = "Waiting for host to accept response.";
+    statusText = "Waiting for the network to accept response.";
   }
   renderUi();
 }
@@ -853,7 +855,7 @@ async function startAsJoinerFromLink(linkValue, room, inviteId, hostId, options 
   knownPeerIds = new Set([SELF_PEER_ID, hostId]);
   role = "peer";
   phase = "joining";
-  roomId = room || "";
+  roomId = room || DEFAULT_ROOM_NAME;
   hostPeerId = hostId;
   shareLink = "";
   qrCode = null;
@@ -943,7 +945,7 @@ async function startAsJoinerViaMqtt(response) {
   knownPeerIds = new Set([SELF_PEER_ID, response.hostId]);
   role = "peer";
   phase = "joining";
-  roomId = response.roomId || "";
+  roomId = response.roomId || DEFAULT_ROOM_NAME;
   hostPeerId = response.hostId || "";
   shareLink = "";
   qrCode = null;
@@ -1236,7 +1238,7 @@ function createConnectionEntry({ key, peerId, kind, initiator }) {
         debugLog("mesh_connected", { peerId: entry.peerId });
       } else if (entry.kind === "host" && role === "peer") {
         phase = "connected";
-        statusText = "Connected to room host.";
+        statusText = "Connected to the network.";
         debugLog("host_connected", { peerId: entry.peerId });
       }
       renderUi();
@@ -1264,7 +1266,7 @@ function wireDataChannel(entry, channel) {
 
     if (entry.kind === "mesh") {
       knownPeerIds.add(entry.peerId);
-      addSystemMessage(`Direct room link open with ${entry.peerId}.`);
+      addSystemMessage(`Direct network link open with ${entry.peerId}.`);
       debugLog("dc_open", { peerId: entry.peerId, kind: entry.kind });
     }
 
@@ -1325,8 +1327,8 @@ function handleChannelMessage(entry, raw) {
     return;
   }
 
-  if (message.type === "room-peers") {
-    debugLog("room_peers_recv", {
+  if (message.type === "network-peers") {
+    debugLog("network_peers_recv", {
       from: entry.peerId,
       count: (message.peers || []).length,
     });
@@ -1411,7 +1413,7 @@ function finalizeBootstrapPeer(entry, message) {
   connections.set(peerId, entry);
 
   knownPeerIds.add(peerId);
-  addSystemMessage(`${peerId} joined the room.`);
+  addSystemMessage(`${peerId} joined the network.`);
 
   const existingMeshPeers = [...connections.values()]
     .filter((candidate) => candidate.peerId !== peerId && candidate.peerId !== SELF_PEER_ID && candidate.kind !== "bootstrap")
@@ -1424,10 +1426,10 @@ function finalizeBootstrapPeer(entry, message) {
   });
 
   sendJson(entry.dc, {
-    type: "room-peers",
+    type: "network-peers",
     peers: existingMeshPeers,
   });
-  debugLog("room_peers_sent", {
+  debugLog("network_peers_sent", {
     to: peerId,
     count: existingMeshPeers.length,
   });
@@ -1454,7 +1456,7 @@ function finalizeBootstrapPeer(entry, message) {
     shareLink = "";
     qrCode = null;
     phase = "connected";
-    statusText = `Peer ${peerId} connected. Room is ready.`;
+    statusText = `Peer ${peerId} connected. Network is ready.`;
     publishOnboarderPresence().catch(() => {});
     renderUi();
   } else {
@@ -2011,7 +2013,7 @@ function bundleSummary(bundle) {
   const sdp = buildSdpFromBundle(bundle);
   return {
     type: bundle.t === "OB" ? "offer-bundle" : "answer-bundle",
-    mode: "compact-room",
+    mode: "compact-lounge",
     payloadLength: JSON.stringify(bundle).length,
     sdpType: bundle.t === "OB" ? "offer" : "answer",
     sdpLength: sdp.length,
@@ -2019,10 +2021,6 @@ function bundleSummary(bundle) {
     candidates: Array.isArray(bundle.c) ? bundle.c : [],
     sdpPreview: sdp.split("\n").slice(0, 12),
   };
-}
-
-function makeRoomId() {
-  return `room-${Math.random().toString(36).slice(2, 8)}`;
 }
 
 function makeInviteId() {
@@ -2104,7 +2102,7 @@ async function initDebugMqtt() {
       autoConnect: false,
     }).init();
     await debugMqttClient.connect();
-    debugLog("debug_online", { roomId, role });
+    debugLog("debug_online", { network: NETWORK_NAME, roomId, role });
   } catch (error) {
     console.warn("[rtcchat_v3] debug mqtt unavailable", error);
   }
@@ -2261,7 +2259,7 @@ function toggleOnboarderMode() {
   });
   renderUi();
   updateOnboarderSubscription();
-  if (onboarderEnabled && role === "idle" && !roomId && getConnectedPeerIds().length === 0) {
+  if (onboarderEnabled && role === "idle" && getConnectedPeerIds().length === 0 && !activeInvite) {
     scheduleReconnectAttempt("onboarder-enabled", 0);
   }
 }
@@ -2284,10 +2282,11 @@ function stopOnboarderPresence() {
 async function publishOnboarderPresence() {
   if (!canAdvertiseOnboarder()) return;
   if (!onboarderMqttClient?.connected) return;
-  const available = !!roomId && !(activeInvite && !shareLink);
+  const available = !(activeInvite && !shareLink);
   const payload = {
     type: "onboarder-presence",
     peerId: SELF_PEER_ID,
+    network: NETWORK_NAME,
     roomId,
     available,
     requestTopic: onboarderRequestTopic,
@@ -2342,11 +2341,6 @@ async function answerOnboarderRequest(result) {
     from: payload.requesterId || "-",
     replyTopic,
   });
-
-  if (!roomId) {
-    await publishOnboarderReply(replyTopic, requestId, { available: false, reason: "no-room" });
-    return;
-  }
 
   const connectedPeerIds = getConnectedPeerIds();
   const canBroker =
@@ -2451,8 +2445,8 @@ async function createMqttOnboarderInvite() {
 
   const inviteId = makeInviteId();
   const entryKey = `invite:${inviteId}`;
-  const hostSignalTopic = `portal/rtcchat_v3/signal/${inviteId}/host`;
-  const peerSignalTopic = `portal/rtcchat_v3/signal/${inviteId}/peer`;
+  const hostSignalTopic = `${MQTT_TOPIC_PREFIX}/signal/${inviteId}/host`;
+  const peerSignalTopic = `${MQTT_TOPIC_PREFIX}/signal/${inviteId}/peer`;
 
   const entry = createConnectionEntry({
     key: entryKey,
@@ -2655,7 +2649,8 @@ function debugLog(event, details = {}) {
     event,
     self: SELF_PEER_ID,
     role,
-    room: roomId || "-",
+    network: NETWORK_NAME,
+    room: roomId || DEFAULT_ROOM_NAME,
     ...compactDebugDetails(details),
   };
   console.log("[rtcchat_v3:debug]", payload);
