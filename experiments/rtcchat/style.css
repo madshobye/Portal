@@ -59,6 +59,10 @@ canvas {
   padding: 12px;
 }
 
+.rtcchat-response-card {
+  display: none;
+}
+
 .rtcchat-link-toprow {
   display: flex;
   align-items: center;

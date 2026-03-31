@@ -31,6 +31,9 @@ let linkAnchorEl;
 let linkTextEl;
 let linkCopyBtnEl;
 let linkCloseBtnEl;
+let responsePasteCardEl;
+let responsePasteInputEl;
+let responsePasteBtnEl;
 
 let chatMessages = [];
 let canvasMode = "";
@@ -137,6 +140,22 @@ function buildUi(canvas) {
   linkCopyBtnEl.addEventListener("click", copyShareLink);
   linkCardEl.appendChild(linkCopyBtnEl);
 
+  responsePasteCardEl = document.createElement("section");
+  responsePasteCardEl.className = "rtcchat-card rtcchat-link-card rtcchat-response-card";
+
+  responsePasteInputEl = document.createElement("input");
+  responsePasteInputEl.className = "rtcchat-link";
+  responsePasteInputEl.type = "text";
+  responsePasteInputEl.placeholder = "Paste response link here…";
+  responsePasteInputEl.spellcheck = false;
+  responsePasteCardEl.appendChild(responsePasteInputEl);
+
+  responsePasteBtnEl = document.createElement("button");
+  responsePasteBtnEl.className = "rtcchat-btn";
+  responsePasteBtnEl.textContent = "Apply Response";
+  responsePasteBtnEl.addEventListener("click", applyPastedResponseLink);
+  responsePasteCardEl.appendChild(responsePasteBtnEl);
+
   stageEl = document.createElement("section");
   stageEl.className = "rtcchat-stage";
 
@@ -179,6 +198,7 @@ function buildUi(canvas) {
 
   panelEl.appendChild(statusCardEl);
   panelEl.appendChild(linkCardEl);
+  panelEl.appendChild(responsePasteCardEl);
   panelEl.appendChild(stageEl);
   panelEl.appendChild(chatCardEl);
   appEl.appendChild(panelEl);
@@ -193,6 +213,7 @@ function renderUi() {
   const qrMode = phase === "show-offer" || phase === "show-answer";
   const stageMode = qrMode;
   const showLink = phase === "show-offer" || phase === "show-answer";
+  const showResponsePaste = phase === "awaiting-answer";
   const connected = phase === "connected";
 
   panelEl.classList.toggle("qr-mode", qrMode);
@@ -202,6 +223,7 @@ function renderUi() {
   actionsEl.classList.toggle("qr-mode", qrMode);
   stageEl.classList.toggle("active", stageMode);
   linkCardEl.style.display = showLink ? "flex" : "none";
+  responsePasteCardEl.style.display = showResponsePaste ? "flex" : "none";
   linkTopRowEl.style.display = showLink ? "flex" : "none";
   linkTitleEl.style.display = "none";
   linkAnchorEl.style.display = "none";
@@ -434,6 +456,30 @@ function copyShareLink() {
   renderUi();
 }
 
+async function applyPastedResponseLink() {
+  const raw = String(responsePasteInputEl?.value || "").trim();
+  if (!raw) {
+    statusText = "Paste a response link first.";
+    renderUi();
+    return;
+  }
+
+  const sessionId = currentStarterSessionId || loadStarterSession()?.sessionId || "";
+  if (!sessionId) {
+    statusText = "No pending starter session found.";
+    renderUi();
+    return;
+  }
+
+  const responseValue = extractBundleFromPossibleUrl(raw, "response");
+  await handleLocalAnswerSignal({
+    type: "rtc-answer",
+    sessionId,
+    responseValue,
+    sentAt: Date.now(),
+  });
+}
+
 function saveStarterSession(session) {
   try {
     localStorage.setItem(
@@ -450,6 +496,15 @@ function clearStarterSession() {
   try {
     localStorage.removeItem(STARTER_SESSION_KEY);
   } catch {}
+}
+
+function loadStarterSession() {
+  try {
+    const raw = localStorage.getItem(STARTER_SESSION_KEY);
+    return raw ? JSON.parse(raw) : null;
+  } catch {
+    return null;
+  }
 }
 
 function sendMessage() {
