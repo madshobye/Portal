@@ -23,7 +23,7 @@
       userId: `user-${clientId}`,
       presentAtClientId: clientId,
       displayName: `${adjective} ${noun}`,
-      color: `hsl(${hue} 72% 56%)`,
+      color: `hsl(${hue}, 72%, 56%)`,
     };
   }
 

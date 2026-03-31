@@ -74,7 +74,7 @@ let lastStageSize = 0;
 let localResponseChannel = null;
 let appliedResponseSignatures = new Set();
 let applyingResponseInviteIds = new Set();
-let debugMqttClient = null;
+let debugBus = null;
 let onboarderMqttClient = null;
 let onboarderRequestTopic = `${ONBOARDER_REQUEST_TOPIC_PREFIX}/${SELF_CLIENT_ID}`;
 let onboarderReplyTopic = `${MQTT_TOPIC_PREFIX}/onboarder/reply/${SELF_CLIENT_ID}`;
@@ -90,6 +90,7 @@ let reconnectTimer = null;
 let reconnectAttemptInFlight = false;
 let isShuttingDown = false;
 let meshReconnectTimers = new Map();
+let view = null;
 
 async function appSetup() {
   const canvas = createCanvas(windowWidth, windowHeight);
@@ -100,6 +101,15 @@ async function appSetup() {
   await loadScript("https://unpkg.com/fflate@0.8.2/umd/index.js");
   await loadScript("portal/qrCodeGen.js");
   await loadScript("portal/mqtt.js");
+  if (!window.RtcChatV3DebugBus) {
+    await loadScript("debug/debugBus.js");
+  }
+  if (!window.RtcChatV3DomUi) {
+    await loadScript("ui/domUi.js");
+  }
+  if (!window.RtcChatV3View) {
+    await loadScript("ui/rtcchatView.js");
+  }
 
   initLocalResponseRelay();
   buildUi(canvas);
@@ -130,158 +140,57 @@ function appWindowResized() {
 }
 
 function buildUi(canvas) {
-  appEl = document.createElement("div");
-  appEl.className = "rtcchat-app";
-
-  panelEl = document.createElement("div");
-  panelEl.className = "rtcchat-panel";
-
-  topToggleEl = document.createElement("button");
-  topToggleEl.className = "rtcchat-top-toggle";
-  topToggleEl.type = "button";
-  topToggleEl.addEventListener("click", () => {
-    topPanelVisible = !topPanelVisible;
-    APP_MODEL.toggles.infoVisible = topPanelVisible;
-    renderUi();
+  view = window.RtcChatV3View.createRtcChatView({
+    canvasEl: canvas.elt,
+    defaultRoomName: DEFAULT_ROOM_NAME,
+    onToggleInfo: () => {
+      topPanelVisible = !topPanelVisible;
+      APP_MODEL.toggles.infoVisible = topPanelVisible;
+      renderUi();
+    },
+    onClearInvite: clearInviteView,
+    onCopyLink: copyShareLink,
+    onAdvanceInvite: advanceInviteFlow,
+    onApplyResponse: applyPastedResponseLink,
+    onSendMessage: sendMessage,
   });
-  statusCardEl = document.createElement("section");
-  statusCardEl.className = "rtcchat-card rtcchat-status";
 
-  titleEl = document.createElement("h1");
-  titleEl.className = "rtcchat-title";
-  titleEl.textContent = "";
-  statusCardEl.appendChild(titleEl);
+  ({
+    appEl,
+    panelEl,
+    topToggleEl,
+    statusCardEl,
+    titleEl,
+    statusTextEl,
+    peersTextEl,
+    connectionsTextEl,
+    actionsEl,
+    stageEl,
+    stageCardEl,
+    chatCardEl,
+    messagesEl,
+    composerInputEl,
+    sendBtnEl,
+    linkCardEl,
+    linkTopRowEl,
+    linkTitleEl,
+    linkAnchorEl,
+    linkTextEl,
+    linkCopyBtnEl,
+    linkNextBtnEl,
+    linkCloseBtnEl,
+    responsePasteCardEl,
+    responsePasteInputEl,
+    responsePasteBtnEl,
+  } = view.refs);
 
-  statusTextEl = document.createElement("p");
-  statusTextEl.className = "rtcchat-text";
-  statusCardEl.appendChild(statusTextEl);
-
-  peersTextEl = document.createElement("p");
-  peersTextEl.className = "rtcchat-text";
-  statusCardEl.appendChild(peersTextEl);
-
-  connectionsTextEl = document.createElement("p");
-  connectionsTextEl.className = "rtcchat-text";
-  statusCardEl.appendChild(connectionsTextEl);
-
-  actionsEl = document.createElement("div");
-  actionsEl.className = "rtcchat-actions";
-  statusCardEl.appendChild(actionsEl);
-
-  linkCardEl = document.createElement("section");
-  linkCardEl.className = "rtcchat-card rtcchat-link-card";
-
-  linkTopRowEl = document.createElement("div");
-  linkTopRowEl.className = "rtcchat-link-toprow";
-  linkCardEl.appendChild(linkTopRowEl);
-
-  linkTitleEl = document.createElement("div");
-  linkTitleEl.className = "rtcchat-link-title";
-  linkTopRowEl.appendChild(linkTitleEl);
-
-  linkAnchorEl = document.createElement("a");
-  linkAnchorEl.className = "rtcchat-share-anchor";
-  linkAnchorEl.href = "#";
-  linkAnchorEl.target = "_blank";
-  linkAnchorEl.rel = "noreferrer";
-  linkTopRowEl.appendChild(linkAnchorEl);
-
-  linkCloseBtnEl = document.createElement("button");
-  linkCloseBtnEl.className = "rtcchat-link-close";
-  linkCloseBtnEl.type = "button";
-  linkCloseBtnEl.textContent = "×";
-  linkCloseBtnEl.setAttribute("aria-label", "Close link panel");
-  linkCloseBtnEl.addEventListener("click", clearInviteView);
-  linkTopRowEl.appendChild(linkCloseBtnEl);
-
-  linkTextEl = document.createElement("input");
-  linkTextEl.className = "rtcchat-link";
-  linkTextEl.type = "text";
-  linkTextEl.readOnly = true;
-  linkTextEl.spellcheck = false;
-  linkCardEl.appendChild(linkTextEl);
-
-  linkCopyBtnEl = document.createElement("button");
-  linkCopyBtnEl.className = "rtcchat-btn";
-  linkCopyBtnEl.textContent = "Copy Link";
-  linkCopyBtnEl.addEventListener("click", copyShareLink);
-  linkCardEl.appendChild(linkCopyBtnEl);
-
-  linkNextBtnEl = document.createElement("button");
-  linkNextBtnEl.className = "rtcchat-btn secondary";
-  linkNextBtnEl.textContent = "Next";
-  linkNextBtnEl.addEventListener("click", advanceInviteFlow);
-  linkCardEl.appendChild(linkNextBtnEl);
-
-  responsePasteCardEl = document.createElement("section");
-  responsePasteCardEl.className = "rtcchat-card rtcchat-link-card rtcchat-response-card";
-
-  responsePasteInputEl = document.createElement("input");
-  responsePasteInputEl.className = "rtcchat-link";
-  responsePasteInputEl.type = "text";
-  responsePasteInputEl.placeholder = "Paste response link here…";
-  responsePasteInputEl.spellcheck = false;
-  responsePasteInputEl.addEventListener("keydown", (event) => {
-    if (event.key === "Enter") applyPastedResponseLink();
-  });
-  responsePasteCardEl.appendChild(responsePasteInputEl);
-
-  responsePasteBtnEl = document.createElement("button");
-  responsePasteBtnEl.className = "rtcchat-btn";
-  responsePasteBtnEl.textContent = "Apply Response";
-  responsePasteBtnEl.addEventListener("click", applyPastedResponseLink);
-  responsePasteCardEl.appendChild(responsePasteBtnEl);
-
-  stageEl = document.createElement("section");
-  stageEl.className = "rtcchat-stage";
-
-  stageCardEl = document.createElement("div");
-  stageCardEl.className = "rtcchat-stage-card";
-  stageCardEl.appendChild(canvas.elt);
-  stageEl.appendChild(stageCardEl);
-
-  chatCardEl = document.createElement("section");
-  chatCardEl.className = "rtcchat-card rtcchat-chat";
-
-  messagesEl = document.createElement("div");
-  messagesEl.className = "rtcchat-messages";
-  chatCardEl.appendChild(messagesEl);
-
-  const composer = document.createElement("div");
-  composer.className = "rtcchat-composer";
-
-  composerInputEl = document.createElement("input");
-  composerInputEl.className = "rtcchat-input";
-  composerInputEl.type = "text";
-  composerInputEl.placeholder = `Type into ${DEFAULT_ROOM_NAME}…`;
-  composerInputEl.addEventListener("keydown", (event) => {
-    if (event.key === "Enter") sendMessage();
-  });
   composerInputEl.addEventListener("focus", () => {
     requestViewportRefresh();
   });
-  composer.appendChild(composerInputEl);
-
-  sendBtnEl = document.createElement("button");
-  sendBtnEl.className = "rtcchat-btn";
-  sendBtnEl.textContent = "Send";
-  sendBtnEl.addEventListener("click", sendMessage);
-  composer.appendChild(sendBtnEl);
-
-  chatCardEl.appendChild(composer);
-
-  panelEl.appendChild(topToggleEl);
-  panelEl.appendChild(statusCardEl);
-  panelEl.appendChild(linkCardEl);
-  panelEl.appendChild(responsePasteCardEl);
-  panelEl.appendChild(stageEl);
-  panelEl.appendChild(chatCardEl);
-  appEl.appendChild(panelEl);
-  document.body.appendChild(appEl);
 }
 
 function renderUi() {
-  if (!statusTextEl || !actionsEl || !chatCardEl || !panelEl || !statusCardEl || !titleEl || !stageEl) return;
+  if (!view || !statusTextEl || !actionsEl || !chatCardEl || !panelEl || !statusCardEl || !titleEl || !stageEl) return;
 
   const connectedPeers = getConnectedPeerIds();
   const hasRoomUi = (phase === "show-invite" || phase === "show-response") && !!qrCode;
@@ -289,55 +198,38 @@ function renderUi() {
   const showResponsePaste = !!activeInvite && phase === "awaiting-response";
   const knownList = [SELF_PEER_ID, ...[...knownPeerIds].filter((id) => id !== SELF_PEER_ID)];
 
-  topToggleEl.textContent = topPanelVisible ? "Hide Info" : getInfoToggleLabel(connectedPeers.length, knownList.length);
-  statusCardEl.style.display = topPanelVisible ? "block" : "none";
-
-  titleEl.textContent = `${SELF_PROFILE.displayName}`;
-  titleEl.style.color = SELF_PROFILE.color;
-  statusTextEl.textContent =
-    `v${RTCCHAT_V3_VERSION}  ${statusText}  Role: ${role}  Name: ${SELF_PROFILE.displayName}  Net: ${NETWORK_NAME}  Lounge: ${roomId || DEFAULT_ROOM_NAME}`;
-  peersTextEl.textContent = `Known peers (${knownList.length}): ${formatPeerList(knownList)}`;
-  connectionsTextEl.textContent = `Connected peers (${connectedPeers.length}): ${connectedPeers.length ? formatPeerList(connectedPeers) : "-"}`;
-
-  panelEl.classList.toggle("qr-mode", hasRoomUi);
-  statusCardEl.classList.toggle("qr-mode", hasRoomUi);
-  titleEl.classList.toggle("qr-mode", hasRoomUi);
-  statusTextEl.classList.toggle("qr-mode", hasRoomUi);
-  actionsEl.classList.toggle("qr-mode", hasRoomUi);
-
-  linkCardEl.style.display = showInviteLink && shareLink ? "flex" : "none";
-  responsePasteCardEl.style.display = showResponsePaste ? "flex" : "none";
-  stageEl.classList.toggle("active", hasRoomUi);
-
-  linkTitleEl.style.display = "none";
-  linkAnchorEl.style.display = "none";
-  linkTextEl.value = shareLink || "";
-  linkAnchorEl.href = shareLink || "#";
-  linkCopyBtnEl.disabled = !shareLink;
-  linkNextBtnEl.disabled = !shareLink;
-
-  chatCardEl.style.display = connectedPeers.length > 0 ? "flex" : "none";
-  composerInputEl.disabled = connectedPeers.length === 0;
-  sendBtnEl.disabled = connectedPeers.length === 0;
-
-  if (canvasEl) {
-    canvasEl.style.display = hasRoomUi ? "block" : "none";
-  }
-
-  actionsEl.innerHTML = "";
-  appendAction(onboarderEnabled ? "Onboarder: On" : "Onboarder: Off", toggleOnboarderMode, true);
+  const actions = [
+    { label: onboarderEnabled ? "Onboarder: On" : "Onboarder: Off", onClick: toggleOnboarderMode, secondary: true },
+  ];
   if ((role === "idle" || phase === "reconnecting") && connectedPeers.length === 0 && !activeInvite) {
-    appendAction("Use QR", useQrMode, true);
+    actions.push({ label: "Use QR", onClick: useQrMode, secondary: true });
   }
   if (role === "host") {
     if (connectedPeers.length > 0 && !activeInvite) {
-      appendAction("+", createHostInvite);
+      actions.push({ label: "+", onClick: createHostInvite });
     }
   } else if (role === "peer") {
     if (connectedPeers.length > 0 && !activeInvite) {
-      appendAction("+", createHostInvite);
+      actions.push({ label: "+", onClick: createHostInvite });
     }
   }
+
+  view.renderChrome({
+    topPanelVisible,
+    topToggleLabel: topPanelVisible ? "Hide Info" : getInfoToggleLabel(connectedPeers.length, knownList.length),
+    titleText: `${SELF_PROFILE.displayName}`,
+    titleColor: SELF_PROFILE.color,
+    statusText: `v${RTCCHAT_V3_VERSION}  ${statusText}  Role: ${role}  Name: ${SELF_PROFILE.displayName}  Net: ${NETWORK_NAME}  Lounge: ${roomId || DEFAULT_ROOM_NAME}`,
+    peersText: `Known peers (${knownList.length}): ${formatPeerList(knownList)}`,
+    connectionsText: `Connected peers (${connectedPeers.length}): ${connectedPeers.length ? formatPeerList(connectedPeers) : "-"}`,
+    qrMode: hasRoomUi,
+    showInviteLink,
+    shareLink,
+    showResponsePaste,
+    showChat: connectedPeers.length > 0,
+    showCanvas: hasRoomUi,
+    actions,
+  });
 
   syncCanvasMode();
 }
@@ -356,14 +248,6 @@ function getInfoToggleLabel(connectedPeerCount, knownPeerCount) {
 
   if (role === "host" || phase === "hosting") return "Waiting for Peers";
   return "Connection";
-}
-
-function appendAction(label, onClick, secondary = false) {
-  const button = document.createElement("button");
-  button.className = secondary ? "rtcchat-btn secondary" : "rtcchat-btn";
-  button.textContent = label;
-  button.addEventListener("click", onClick);
-  actionsEl.appendChild(button);
 }
 
 function drawConnectedBackdrop() {
@@ -1719,43 +1603,12 @@ function addChatMessage(type, text, authorId = SELF_PEER_ID) {
 }
 
 function renderMessages() {
-  if (!messagesEl) return;
-  messagesEl.innerHTML = "";
-  for (const msg of chatMessages) {
-    if (msg.type === "system") {
-      const bubble = document.createElement("div");
-      bubble.className = "rtcchat-bubble system";
-      bubble.textContent = msg.text;
-      messagesEl.appendChild(bubble);
-      continue;
-    }
-
-    const profile = getPeerProfile(msg.authorId || SELF_PEER_ID);
-    const row = document.createElement("div");
-    row.className = `rtcchat-message ${msg.type}`;
-
-    const avatar = document.createElement("div");
-    avatar.className = "rtcchat-avatar";
-    avatar.textContent = getPeerInitial(profile.name);
-    avatar.style.background = profile.color;
-    row.appendChild(avatar);
-
-    const bubble = document.createElement("div");
-    bubble.className = `rtcchat-bubble ${msg.type}`;
-
-    const meta = document.createElement("div");
-    meta.className = "rtcchat-meta";
-    meta.textContent = `${profile.name}`;
-    bubble.appendChild(meta);
-
-    const body = document.createElement("div");
-    body.textContent = msg.text;
-    bubble.appendChild(body);
-
-    row.appendChild(bubble);
-    messagesEl.appendChild(row);
-  }
-  keepChatVisible();
+  if (!view) return;
+  view.renderMessages(chatMessages, {
+    getPeerProfile: (authorId) => getPeerProfile(authorId || SELF_PEER_ID),
+    getPeerInitial,
+    onRendered: keepChatVisible,
+  });
 }
 
 function formatPeerList(peerIds) {
@@ -2111,17 +1964,19 @@ function requestViewportRefresh() {
 }
 
 async function initDebugMqtt() {
-  try {
-    debugMqttClient = await new PortalMqtt({
-      broker: MQTT_BROKER,
-      clientId: `${SELF_PEER_ID}-debug`,
-      autoConnect: false,
-    }).init();
-    await debugMqttClient.connect();
-    debugLog("debug_online", { network: NETWORK_NAME, roomId, role });
-  } catch (error) {
-    console.warn("[rtcchat_v3] debug mqtt unavailable", error);
-  }
+  debugBus = await window.RtcChatV3DebugBus.createDebugBus({
+    PortalMqtt,
+    broker: MQTT_BROKER,
+    topic: DEBUG_TOPIC,
+    clientId: `${SELF_PEER_ID}-debug`,
+    contextProvider: () => ({
+      self: SELF_PEER_ID,
+      role,
+      network: NETWORK_NAME,
+      room: roomId || DEFAULT_ROOM_NAME,
+    }),
+  });
+  await debugBus.init();
 }
 
 async function initOnboarderMqtt() {
@@ -2660,31 +2515,8 @@ function waitForInitialCandidates(entry, timeoutMs = 350, minCandidates = 1) {
 }
 
 function debugLog(event, details = {}) {
-  const payload = {
-    t: new Date().toISOString(),
-    event,
-    self: SELF_PEER_ID,
-    role,
-    network: NETWORK_NAME,
-    room: roomId || DEFAULT_ROOM_NAME,
-    ...compactDebugDetails(details),
-  };
-  console.log("[rtcchat_v3:debug]", payload);
-  if (!debugMqttClient?.connected) return;
-  debugMqttClient.publish(DEBUG_TOPIC, JSON.stringify(payload)).catch(() => {});
-}
-
-function compactDebugDetails(details) {
-  const compact = {};
-  for (const [key, value] of Object.entries(details || {})) {
-    if (value == null || value === "") continue;
-    if (typeof value === "string" && value.length > 80) {
-      compact[key] = value.slice(0, 77) + "...";
-    } else {
-      compact[key] = value;
-    }
-  }
-  return compact;
+  if (!debugBus) return;
+  debugBus.publish(event, details);
 }
 
 window.RtcChatV3App = {
