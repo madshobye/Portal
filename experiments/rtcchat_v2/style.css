@@ -40,6 +40,23 @@ canvas {
   overflow: hidden;
 }
 
+.rtcchat-top-toggle {
+  pointer-events: auto;
+  appearance: none;
+  border: 0;
+  border-radius: 999px;
+  padding: 8px 12px;
+  font: inherit;
+  font-size: 0.78rem;
+  font-weight: 700;
+  background: rgba(10, 10, 14, 0.82);
+  color: rgba(255, 255, 255, 0.92);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.24);
+  backdrop-filter: blur(14px);
+  align-self: flex-start;
+}
+
 .rtcchat-panel.qr-mode {
   justify-content: flex-start;
   padding-top: 12px;
@@ -216,6 +233,35 @@ canvas {
   gap: 10px;
 }
 
+.rtcchat-message {
+  display: flex;
+  align-items: flex-end;
+  gap: 10px;
+}
+
+.rtcchat-message.self {
+  align-self: flex-end;
+  flex-direction: row-reverse;
+}
+
+.rtcchat-message.peer {
+  align-self: flex-start;
+}
+
+.rtcchat-avatar {
+  width: 34px;
+  height: 34px;
+  border-radius: 999px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 34px;
+  color: #fff;
+  font-weight: 800;
+  font-size: 0.94rem;
+  box-shadow: 0 8px 18px rgba(0, 0, 0, 0.22);
+}
+
 .rtcchat-bubble {
   max-width: min(78%, 520px);
   padding: 10px 12px;
@@ -235,6 +281,13 @@ canvas {
   align-self: flex-start;
   background: rgba(255, 255, 255, 0.12);
   color: #fff;
+}
+
+.rtcchat-meta {
+  margin: 0 0 5px;
+  font-size: 0.74rem;
+  line-height: 1.2;
+  color: rgba(255, 255, 255, 0.7);
 }
 
 .rtcchat-bubble.system {

@@ -9,6 +9,18 @@ const MQTT_BROKER = "wss://public:public@public.cloud.shiftr.io";
 const DEBUG_TOPIC = "portal/rtcchat/debug";
 const ONBOARDER_REQUEST_TOPIC = "portal/rtcchat_v2/onboarder/request";
 
+const NAME_ADJECTIVES = [
+  "Amber", "Brisk", "Calm", "Daring", "Echo", "Frost", "Golden", "Harbor",
+  "Indigo", "Jolly", "Kind", "Lively", "Mellow", "North", "Opal", "Pine",
+  "Quiet", "River", "Solar", "Tidal",
+];
+
+const NAME_NOUNS = [
+  "Badger", "Comet", "Drift", "Falcon", "Field", "Finch", "Forest", "Harbor",
+  "Leaf", "Lynx", "Meadow", "Otter", "Peak", "Quartz", "Reef", "Sparrow",
+  "Stone", "Vale", "Willow", "Wren",
+];
+
 let role = "idle";
 let phase = "idle";
 let statusText = "Starting room...";
@@ -25,6 +37,7 @@ let seenChatIds = new Set();
 
 let appEl;
 let panelEl;
+let topToggleEl;
 let statusCardEl;
 let titleEl;
 let statusTextEl;
@@ -62,6 +75,8 @@ let onboarderReplyTopic = `portal/rtcchat_v2/onboarder/reply/${SELF_PEER_ID}`;
 let onboarderResponseTopic = `portal/rtcchat_v2/onboarder/response/${SELF_PEER_ID}`;
 let onboarderWaiters = new Map();
 let onboarderEnabled = localStorage.getItem(ONBOARDER_ENABLED_KEY) === "1";
+const SELF_PROFILE = getPeerProfile(SELF_PEER_ID);
+let topPanelVisible = false;
 
 async function setup() {
   const canvas = createCanvas(windowWidth, windowHeight);
@@ -80,6 +95,7 @@ async function setup() {
   renderUi();
   await initDebugMqtt();
   await initOnboarderMqtt();
+  installDisconnectHandlers();
   await handleIncomingLink();
 }
 
@@ -107,6 +123,13 @@ function buildUi(canvas) {
   panelEl = document.createElement("div");
   panelEl.className = "rtcchat-panel";
 
+  topToggleEl = document.createElement("button");
+  topToggleEl.className = "rtcchat-top-toggle";
+  topToggleEl.type = "button";
+  topToggleEl.addEventListener("click", () => {
+    topPanelVisible = !topPanelVisible;
+    renderUi();
+  });
   statusCardEl = document.createElement("section");
   statusCardEl.className = "rtcchat-card rtcchat-status";
 
@@ -233,6 +256,7 @@ function buildUi(canvas) {
 
   chatCardEl.appendChild(composer);
 
+  panelEl.appendChild(topToggleEl);
   panelEl.appendChild(statusCardEl);
   panelEl.appendChild(linkCardEl);
   panelEl.appendChild(responsePasteCardEl);
@@ -250,11 +274,16 @@ function renderUi() {
   const showInviteLink = phase === "show-invite" || phase === "show-response";
   const showResponsePaste = !!activeInvite && phase === "awaiting-response";
 
+  topToggleEl.textContent = topPanelVisible ? "Hide Info" : "Show Info";
+  statusCardEl.style.display = topPanelVisible ? "block" : "none";
+
+  titleEl.textContent = `${SELF_PROFILE.name}`;
+  titleEl.style.color = SELF_PROFILE.color;
   statusTextEl.textContent =
-    `v${RTCCHAT_V2_VERSION}  ${statusText}  Role: ${role}  Self: ${SELF_PEER_ID}  Room: ${roomId || "-"}`;
+    `v${RTCCHAT_V2_VERSION}  ${statusText}  Role: ${role}  Name: ${SELF_PROFILE.name}  Room: ${roomId || "-"}`;
   const knownList = [SELF_PEER_ID, ...[...knownPeerIds].filter((id) => id !== SELF_PEER_ID)];
-  peersTextEl.textContent = `Known peers (${knownList.length}): ${knownList.join(", ")}`;
-  connectionsTextEl.textContent = `Connected peers (${connectedPeers.length}): ${connectedPeers.length ? connectedPeers.join(", ") : "-"}`;
+  peersTextEl.textContent = `Known peers (${knownList.length}): ${formatPeerList(knownList)}`;
+  connectionsTextEl.textContent = `Connected peers (${connectedPeers.length}): ${connectedPeers.length ? formatPeerList(connectedPeers) : "-"}`;
 
   panelEl.classList.toggle("qr-mode", hasRoomUi);
   statusCardEl.classList.toggle("qr-mode", hasRoomUi);
@@ -487,6 +516,31 @@ function closeAllConnections() {
       entry.pc?.close?.();
     } catch {}
   }
+}
+
+function installDisconnectHandlers() {
+  const handler = () => {
+    gracefulDisconnect("page-close");
+  };
+  window.addEventListener("pagehide", handler);
+  window.addEventListener("beforeunload", handler);
+}
+
+function gracefulDisconnect(reason = "manual") {
+  try {
+    const payload = {
+      type: "peer-leaving",
+      peerId: SELF_PEER_ID,
+      roomId,
+      reason,
+    };
+    for (const entry of connections.values()) {
+      if (entry.dc?.readyState === "open") {
+        sendJson(entry.dc, payload);
+      }
+    }
+    debugLog("peer_leaving", { reason, peers: getConnectedPeerIds().length });
+  } catch {}
 }
 
 function clearInviteView() {
@@ -952,7 +1006,36 @@ function handleChannelMessage(entry, raw) {
 
   if (message.type === "chat") {
     handleIncomingChat(message);
+    return;
   }
+
+  if (message.type === "peer-leaving") {
+    handlePeerLeaving(entry, message);
+  }
+}
+
+function handlePeerLeaving(entry, message) {
+  const peerId = String(message.peerId || entry.peerId || "").trim();
+  if (!peerId || peerId === SELF_PEER_ID) return;
+  removePeer(peerId, message.reason || "left");
+  debugLog("peer_left", { peerId, reason: message.reason || "left" });
+  statusText = `${peerId} left the room.`;
+  renderUi();
+}
+
+function removePeer(peerId, reason = "left") {
+  const entry = connections.get(peerId);
+  if (entry) {
+    try {
+      entry.dc?.close?.();
+    } catch {}
+    try {
+      entry.pc?.close?.();
+    } catch {}
+    connections.delete(peerId);
+  }
+  knownPeerIds.delete(peerId);
+  addSystemMessage(`${peerId} ${reason}.`);
 }
 
 function finalizeBootstrapPeer(entry, message) {
@@ -1205,6 +1288,8 @@ function sendMessage() {
     type: "chat",
     id: makeMessageId(),
     from: SELF_PEER_ID,
+    fromName: SELF_PROFILE.name,
+    fromColor: SELF_PROFILE.color,
     text,
   };
 
@@ -1218,7 +1303,7 @@ function sendMessage() {
 
   if (sent > 0) {
     seenChatIds.add(msg.id);
-    addChatMessage("self", text);
+    addChatMessage("self", text, SELF_PEER_ID);
     composerInputEl.value = "";
     debugLog("chat_send", { sent, len: text.length });
     statusText = `Sent to ${sent} peer${sent === 1 ? "" : "s"}.`;
@@ -1230,7 +1315,7 @@ function handleIncomingChat(message) {
   if (!message.id || seenChatIds.has(message.id)) return;
   seenChatIds.add(message.id);
   debugLog("chat_recv", { from: message.from, len: String(message.text || "").length });
-  addChatMessage("peer", `${message.from}: ${message.text}`);
+  addChatMessage("peer", message.text, message.from);
 }
 
 function sendJson(channel, value) {
@@ -1248,8 +1333,8 @@ function addSystemMessage(text) {
   renderMessages();
 }
 
-function addChatMessage(type, text) {
-  chatMessages.push({ type, text });
+function addChatMessage(type, text, authorId = SELF_PEER_ID) {
+  chatMessages.push({ type, text, authorId });
   renderMessages();
 }
 
@@ -1257,12 +1342,72 @@ function renderMessages() {
   if (!messagesEl) return;
   messagesEl.innerHTML = "";
   for (const msg of chatMessages) {
+    if (msg.type === "system") {
+      const bubble = document.createElement("div");
+      bubble.className = "rtcchat-bubble system";
+      bubble.textContent = msg.text;
+      messagesEl.appendChild(bubble);
+      continue;
+    }
+
+    const profile = getPeerProfile(msg.authorId || SELF_PEER_ID);
+    const row = document.createElement("div");
+    row.className = `rtcchat-message ${msg.type}`;
+
+    const avatar = document.createElement("div");
+    avatar.className = "rtcchat-avatar";
+    avatar.textContent = getPeerInitial(profile.name);
+    avatar.style.background = profile.color;
+    row.appendChild(avatar);
+
     const bubble = document.createElement("div");
     bubble.className = `rtcchat-bubble ${msg.type}`;
-    bubble.textContent = msg.text;
-    messagesEl.appendChild(bubble);
+
+    const meta = document.createElement("div");
+    meta.className = "rtcchat-meta";
+    meta.textContent = `${profile.name}`;
+    bubble.appendChild(meta);
+
+    const body = document.createElement("div");
+    body.textContent = msg.text;
+    bubble.appendChild(body);
+
+    row.appendChild(bubble);
+    messagesEl.appendChild(row);
   }
   keepChatVisible();
+}
+
+function formatPeerList(peerIds) {
+  return peerIds.map((peerId) => {
+    const profile = getPeerProfile(peerId);
+    return `${profile.name}`;
+  }).join(", ");
+}
+
+function getPeerInitial(name) {
+  return String(name || "?").trim().charAt(0).toUpperCase() || "?";
+}
+
+function getPeerProfile(peerId) {
+  const hash = hashString(peerId);
+  const adjective = NAME_ADJECTIVES[hash % NAME_ADJECTIVES.length];
+  const noun = NAME_NOUNS[Math.floor(hash / NAME_ADJECTIVES.length) % NAME_NOUNS.length];
+  const hue = hash % 360;
+  return {
+    id: peerId,
+    name: `${adjective} ${noun}`,
+    color: `hsl(${hue} 72% 56%)`,
+  };
+}
+
+function hashString(value) {
+  let hash = 2166136261;
+  for (let i = 0; i < value.length; i += 1) {
+    hash ^= value.charCodeAt(i);
+    hash = Math.imul(hash, 16777619);
+  }
+  return Math.abs(hash >>> 0);
 }
 
 function waitForIceReady(entry, timeoutMs = 1800, minCandidates = 2) {
