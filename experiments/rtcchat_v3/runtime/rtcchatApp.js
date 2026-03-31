@@ -72,6 +72,7 @@ let onboarderMqttClient = null;
 let onboarderReplyTopic = `portal/rtcchat_v3/onboarder/reply/${SELF_CLIENT_ID}`;
 let onboarderResponseTopic = `portal/rtcchat_v3/onboarder/response/${SELF_CLIENT_ID}`;
 let onboarderWaiters = new Map();
+let mqttTopicHandlers = new Map();
 let onboarderEnabled = APP_MODEL.toggles.onboarderEnabled;
 const SELF_PROFILE = SELF_USER;
 let topPanelVisible = APP_MODEL.toggles.infoVisible;
@@ -452,6 +453,24 @@ async function tryJoinViaOnboarder(timeoutMs = 4000) {
     });
   });
 
+  if (response?.offerSdp && response?.peerSignalTopic && response?.hostSignalTopic) {
+    try {
+      debugLog("onboarder_join", {
+        hostId: response.hostId || "",
+        inviteId: response.inviteId || "",
+        roomId: response.roomId || "",
+        mode: "mqtt",
+      });
+      await startAsJoinerViaMqtt(response);
+      return true;
+    } catch (error) {
+      debugLog("onboarder_join_error", { mode: "mqtt", msg: String(error?.message || error) });
+      statusText = `Onboarder error: ${error?.message || error}`;
+      renderUi();
+      return false;
+    }
+  }
+
   if (!response?.link) {
     statusText = "No onboarder answered. Falling back to manual invite.";
     renderUi();
@@ -508,6 +527,7 @@ async function initializeHostRoom() {
 
 function closeAllConnections() {
   for (const entry of connections.values()) {
+    cleanupEntryMqttSignal(entry);
     try {
       entry.dc?.close?.();
     } catch {}
@@ -515,6 +535,13 @@ function closeAllConnections() {
       entry.pc?.close?.();
     } catch {}
   }
+}
+
+function cleanupEntryMqttSignal(entry) {
+  if (entry?.mqttSignal?.subscribeTopic) {
+    unsubscribeMqttTopic(entry.mqttSignal.subscribeTopic);
+  }
+  entry.mqttSignal = null;
 }
 
 function installDisconnectHandlers() {
@@ -719,6 +746,72 @@ async function startAsJoinerFromLink(linkValue, room, inviteId, hostId, options 
   }
 }
 
+async function startAsJoinerViaMqtt(response) {
+  closeAllConnections();
+  connections.clear();
+  knownPeerIds = new Set([SELF_PEER_ID, response.hostId]);
+  role = "peer";
+  phase = "joining";
+  roomId = response.roomId || "";
+  hostPeerId = response.hostId || "";
+  shareLink = "";
+  qrCode = null;
+  activeInvite = null;
+  statusText = "Applying onboarder offer...";
+  renderMessages();
+  renderUi();
+  debugLog("join_start", { inviteId: response.inviteId, roomId, hostId: hostPeerId, mode: "mqtt" });
+
+  const hostEntry = createConnectionEntry({
+    key: hostPeerId,
+    peerId: hostPeerId,
+    kind: "host",
+    initiator: false,
+  });
+  hostEntry.inviteId = response.inviteId || "";
+  hostEntry.mqttSignal = {
+    role: "peer",
+    publishTopic: response.hostSignalTopic,
+    subscribeTopic: response.peerSignalTopic,
+  };
+  connections.set(hostPeerId, hostEntry);
+  await subscribeMqttTopic(response.peerSignalTopic, (result) => handleInviteMqttSignal(hostEntry, result));
+
+  try {
+    await hostEntry.pc.setRemoteDescription({ type: "offer", sdp: response.offerSdp });
+    await addInitialMqttCandidates(hostEntry, response.candidates || []);
+    const answer = await hostEntry.pc.createAnswer();
+    await hostEntry.pc.setLocalDescription(answer);
+    await waitForInitialCandidates(hostEntry, 350, 1);
+
+    await onboarderMqttClient.publish(
+      response.hostSignalTopic,
+      JSON.stringify({
+        type: "answer",
+        inviteId: response.inviteId,
+        fromPeerId: SELF_PEER_ID,
+        sdp: hostEntry.pc.localDescription.sdp,
+        candidates: hostEntry.localCandidateInits.slice(),
+      })
+    );
+
+    phase = "joining";
+    statusText = "Response sent to onboarder. Waiting for host...";
+    debugLog("response_forwarded_mqtt", {
+      inviteId: response.inviteId,
+      roomId,
+      hostId: hostPeerId,
+      cand: hostEntry.localCandidateInits.length,
+    });
+    renderUi();
+  } catch (error) {
+    console.error("[rtcchat_v3] join mqtt error", error);
+    debugLog("join_error", { inviteId: response.inviteId, mode: "mqtt", msg: String(error?.message || error) });
+    statusText = `Join error: ${error?.message || error}`;
+    renderUi();
+  }
+}
+
 async function applyPastedResponseLink() {
   if (!activeInvite) return;
   const raw = String(responsePasteInputEl?.value || "").trim();
@@ -881,11 +974,28 @@ function createConnectionEntry({ key, peerId, kind, initiator }) {
     introducedPeers: new Set(),
     inviteId: "",
     relayPeerId: "",
+    mqttSignal: null,
+    localCandidateInits: [],
+    pendingRemoteCandidates: [],
+    seenRemoteCandidateKeys: new Set(),
   };
 
   entry.pc.onicecandidate = (event) => {
     if (event.candidate?.candidate) {
       entry.localCandidates.push(event.candidate.candidate);
+      const candidateInit = candidateToInit(event.candidate);
+      entry.localCandidateInits.push(candidateInit);
+      if (entry.mqttSignal?.publishTopic && onboarderMqttClient?.connected) {
+        onboarderMqttClient.publish(
+          entry.mqttSignal.publishTopic,
+          JSON.stringify({
+            type: "candidate",
+            inviteId: entry.inviteId,
+            fromPeerId: SELF_PEER_ID,
+            candidate: candidateInit,
+          })
+        ).catch(() => {});
+      }
     }
   };
 
@@ -897,6 +1007,9 @@ function createConnectionEntry({ key, peerId, kind, initiator }) {
       statusText = `Connection failed for ${entry.peerId}.`;
       renderUi();
     } else if (entry.state === "connected") {
+      if (entry.mqttSignal) {
+        cleanupEntryMqttSignal(entry);
+      }
       if (entry.kind === "mesh") {
         statusText = `Mesh connected to ${entry.peerId}.`;
         debugLog("mesh_connected", { peerId: entry.peerId });
@@ -1758,8 +1871,17 @@ async function initOnboarderMqtt() {
       },
     }).init();
     await onboarderMqttClient.connect();
-    await onboarderMqttClient.subscribe(onboarderReplyTopic);
-    await onboarderMqttClient.subscribe(onboarderResponseTopic);
+    await subscribeMqttTopic(onboarderReplyTopic, (result) => {
+      let payload;
+      try {
+        payload = JSON.parse(result.message);
+      } catch {
+        return;
+      }
+      const waiter = onboarderWaiters.get(payload.requestId);
+      if (waiter) waiter(payload);
+    });
+    await subscribeMqttTopic(onboarderResponseTopic, handleOnboarderResponseMessage);
     await updateOnboarderSubscription();
   } catch (error) {
     console.warn("[rtcchat_v3] onboarder mqtt unavailable", error);
@@ -1767,6 +1889,11 @@ async function initOnboarderMqtt() {
 }
 
 function handleOnboarderMqttMessage(result) {
+  const topicHandler = mqttTopicHandlers.get(result?.topic);
+  if (topicHandler) {
+    topicHandler(result);
+    return;
+  }
   if (result?.topic === ONBOARDER_REQUEST_TOPIC) {
     if (onboarderEnabled) {
       answerOnboarderRequest(result).catch((error) => {
@@ -1782,17 +1909,20 @@ function handleOnboarderMqttMessage(result) {
     handleOnboarderResponseMessage(result);
     return;
   }
-  if (!result?.message) return;
-  let payload;
+}
+
+async function subscribeMqttTopic(topic, handler) {
+  if (!topic || !onboarderMqttClient?.connected) return;
+  mqttTopicHandlers.set(topic, handler);
+  await onboarderMqttClient.subscribe(topic);
+}
+
+async function unsubscribeMqttTopic(topic) {
+  if (!topic || !onboarderMqttClient?.connected) return;
+  mqttTopicHandlers.delete(topic);
   try {
-    payload = JSON.parse(result.message);
-  } catch {
-    return;
-  }
-  const waiter = onboarderWaiters.get(payload.requestId);
-  if (waiter) {
-    waiter(payload);
-  }
+    await onboarderMqttClient.unsubscribe(topic);
+  } catch {}
 }
 
 function handleOnboarderResponseMessage(result) {
@@ -1899,13 +2029,26 @@ async function answerOnboarderRequest(result) {
     return;
   }
 
-  if (!activeInvite || !shareLink) {
-    statusText = "Preparing onboarder invite...";
-    renderUi();
-    await createHostInvite({ silent: true });
+  if (activeInvite && activeInvite.mqttOnly && activeInvite.offerSdp) {
+    await publishOnboarderReply(replyTopic, requestId, {
+      available: true,
+      roomId,
+      inviteId: activeInvite.inviteId,
+      hostId: SELF_PEER_ID,
+      responseTopic: onboarderResponseTopic,
+      offerSdp: activeInvite.offerSdp,
+      candidates: activeInvite.initialCandidates || [],
+      peerSignalTopic: activeInvite.peerSignalTopic,
+      hostSignalTopic: activeInvite.hostSignalTopic,
+    });
+    return;
   }
 
-  if (!activeInvite || !shareLink) {
+  statusText = "Preparing onboarder invite...";
+  renderUi();
+  const mqttInvite = await createMqttOnboarderInvite();
+
+  if (!mqttInvite) {
     await publishOnboarderReply(replyTopic, requestId, {
       available: false,
       reason: "invite-unavailable",
@@ -1916,11 +2059,14 @@ async function answerOnboarderRequest(result) {
 
   await publishOnboarderReply(replyTopic, requestId, {
     available: true,
-    link: shareLink,
     roomId,
-    inviteId: activeInvite.inviteId,
+    inviteId: mqttInvite.inviteId,
     hostId: SELF_PEER_ID,
     responseTopic: onboarderResponseTopic,
+    offerSdp: mqttInvite.offerSdp,
+    candidates: mqttInvite.initialCandidates,
+    peerSignalTopic: mqttInvite.peerSignalTopic,
+    hostSignalTopic: mqttInvite.hostSignalTopic,
   });
 }
 
@@ -1937,6 +2083,179 @@ async function publishOnboarderReply(replyTopic, requestId, extra = {}) {
     inviteId: extra.inviteId,
     roomId: extra.roomId,
     reason: extra.reason,
+  });
+}
+
+async function createMqttOnboarderInvite() {
+  if (role !== "host" && role !== "peer") return null;
+  if (activeInvite?.entryKey) {
+    const stale = connections.get(activeInvite.entryKey);
+    if (stale && !stale.connectedIdentity) {
+      cleanupEntryMqttSignal(stale);
+      try {
+        stale.dc?.close?.();
+      } catch {}
+      try {
+        stale.pc?.close?.();
+      } catch {}
+      connections.delete(activeInvite.entryKey);
+    }
+  }
+
+  const inviteId = makeInviteId();
+  const entryKey = `invite:${inviteId}`;
+  const hostSignalTopic = `portal/rtcchat_v3/signal/${inviteId}/host`;
+  const peerSignalTopic = `portal/rtcchat_v3/signal/${inviteId}/peer`;
+
+  const entry = createConnectionEntry({
+    key: entryKey,
+    peerId: entryKey,
+    kind: "bootstrap",
+    initiator: true,
+  });
+  entry.inviteId = inviteId;
+  entry.mqttSignal = {
+    role: "host",
+    publishTopic: peerSignalTopic,
+    subscribeTopic: hostSignalTopic,
+  };
+  entry.dc = entry.pc.createDataChannel("rtchat-room");
+  wireDataChannel(entry, entry.dc);
+  connections.set(entryKey, entry);
+  activeInvite = {
+    inviteId,
+    entryKey,
+    mqttOnly: true,
+    hostSignalTopic,
+    peerSignalTopic,
+  };
+
+  await subscribeMqttTopic(hostSignalTopic, (result) => handleInviteMqttSignal(entry, result));
+
+  try {
+    const offer = await entry.pc.createOffer();
+    await entry.pc.setLocalDescription(offer);
+    await waitForInitialCandidates(entry, 350, 1);
+
+    activeInvite.offerSdp = entry.pc.localDescription.sdp;
+    activeInvite.initialCandidates = entry.localCandidateInits.slice();
+
+    debugLog("invite_ready", {
+      inviteId,
+      roomId,
+      role,
+      mode: "mqtt",
+      cand: activeInvite.initialCandidates.length,
+    });
+
+    return {
+      inviteId,
+      offerSdp: activeInvite.offerSdp,
+      initialCandidates: activeInvite.initialCandidates,
+      hostSignalTopic,
+      peerSignalTopic,
+    };
+  } catch (error) {
+    console.error("[rtcchat_v3] mqtt invite error", error);
+    debugLog("invite_error", { mode: "mqtt", msg: String(error?.message || error) });
+    cleanupEntryMqttSignal(entry);
+    connections.delete(entryKey);
+    activeInvite = null;
+    return null;
+  }
+}
+
+function handleInviteMqttSignal(entry, result) {
+  if (!result?.message || !entry) return;
+  let payload;
+  try {
+    payload = JSON.parse(result.message);
+  } catch {
+    return;
+  }
+
+  if (payload.type === "answer" && entry.initiator) {
+    applyMqttAnswerToEntry(entry, payload).catch((error) => {
+      console.error("[rtcchat_v3] mqtt answer error", error);
+      debugLog("response_relay_error", {
+        inviteId: payload.inviteId,
+        mode: "mqtt",
+        msg: String(error?.message || error),
+      });
+    });
+    return;
+  }
+
+  if (payload.type === "candidate") {
+    addRemoteCandidateToEntry(entry, payload.candidate).catch(() => {});
+  }
+}
+
+async function applyMqttAnswerToEntry(entry, payload) {
+  if (!payload?.sdp) return;
+  if (entry.pc.signalingState === "stable") return;
+  await entry.pc.setRemoteDescription({ type: "answer", sdp: payload.sdp });
+  await flushPendingRemoteCandidates(entry);
+  await addInitialMqttCandidates(entry, payload.candidates || []);
+
+  shareLink = "";
+  qrCode = null;
+  phase = "joining";
+  statusText = "Response accepted. Waiting for peer hello...";
+  debugLog("response_applied", {
+    inviteId: payload.inviteId,
+    peerId: entry.peerId,
+    mode: "mqtt",
+    cand: entry.remoteCandidatesAdded,
+  });
+  renderUi();
+}
+
+function candidateToInit(candidate) {
+  return {
+    candidate: candidate.candidate,
+    sdpMid: candidate.sdpMid ?? "0",
+    sdpMLineIndex: candidate.sdpMLineIndex ?? 0,
+  };
+}
+
+async function addInitialMqttCandidates(entry, candidates) {
+  for (const candidate of candidates || []) {
+    await addRemoteCandidateToEntry(entry, candidate);
+  }
+}
+
+async function addRemoteCandidateToEntry(entry, candidate) {
+  if (!entry || !candidate?.candidate) return;
+  const key = JSON.stringify(candidate);
+  if (entry.seenRemoteCandidateKeys.has(key)) return;
+  entry.seenRemoteCandidateKeys.add(key);
+
+  if (!entry.pc.remoteDescription) {
+    entry.pendingRemoteCandidates.push(candidate);
+    return;
+  }
+
+  await entry.pc.addIceCandidate(candidate);
+  entry.remoteCandidatesAdded += 1;
+}
+
+async function flushPendingRemoteCandidates(entry) {
+  if (!entry?.pc.remoteDescription || !entry.pendingRemoteCandidates.length) return;
+  const pending = entry.pendingRemoteCandidates.splice(0);
+  for (const candidate of pending) {
+    await entry.pc.addIceCandidate(candidate);
+    entry.remoteCandidatesAdded += 1;
+  }
+}
+
+function waitForInitialCandidates(entry, timeoutMs = 350, minCandidates = 1) {
+  return new Promise((resolve) => {
+    if (entry.localCandidateInits.length >= minCandidates) {
+      resolve();
+      return;
+    }
+    setTimeout(resolve, timeoutMs);
   });
 }
 
