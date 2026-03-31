@@ -1,5 +1,5 @@
 window.RtcChatV3Config = {
-  VERSION: 4,
+  VERSION: 5,
   ROOM_SIGNAL_CHANNEL: "rtchat-v3-room",
   LOCAL_RESPONSE_CHANNEL: "rtcchat-v3-local-response",
   LOCAL_RESPONSE_KEY: "rtcchat-v3-local-response",

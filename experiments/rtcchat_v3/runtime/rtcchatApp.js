@@ -518,6 +518,7 @@ async function tryJoinViaOnboarder(timeoutMs = 4000) {
 }
 
 async function initializeHostRoom() {
+  clearDiscoveredOnboarders();
   closeAllConnections();
   connections.clear();
   knownPeerIds = new Set([SELF_PEER_ID]);
@@ -691,6 +692,7 @@ async function createHostInvite(options = {}) {
 }
 
 async function startAsJoinerFromLink(linkValue, room, inviteId, hostId, options = {}) {
+  clearDiscoveredOnboarders();
   const mqttResponseTopic = options.mqttResponseTopic || "";
   const viaOnboarder = !!options.viaOnboarder;
   closeAllConnections();
@@ -780,6 +782,7 @@ async function startAsJoinerFromLink(linkValue, room, inviteId, hostId, options 
 }
 
 async function startAsJoinerViaMqtt(response) {
+  clearDiscoveredOnboarders();
   closeAllConnections();
   connections.clear();
   knownPeerIds = new Set([SELF_PEER_ID, response.hostId]);
@@ -1976,6 +1979,7 @@ function handleOnboarderPresenceMessage(result) {
   } catch {
     return;
   }
+  if (role !== "idle") return;
   if (!payload?.peerId || payload.peerId === SELF_PEER_ID) return;
   discoveredOnboarders.set(payload.peerId, {
     ...payload,
@@ -1986,6 +1990,12 @@ function handleOnboarderPresenceMessage(result) {
     available: payload.available,
     roomId: payload.roomId,
   });
+}
+
+function clearDiscoveredOnboarders() {
+  if (discoveredOnboarders.size === 0) return;
+  discoveredOnboarders.clear();
+  debugLog("onboarder_presence_cleared");
 }
 
 async function subscribeMqttTopic(topic, handler) {
