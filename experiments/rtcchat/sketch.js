@@ -1,6 +1,6 @@
 let pc = null;
 let dc = null;
-const RTCCHAT_VERSION = 2;
+const RTCCHAT_VERSION = 5;
 
 let role = "idle";
 let phase = "idle";
@@ -339,7 +339,7 @@ function resetConnection() {
   dc = null;
   role = "idle";
   phase = "idle";
-  statusText = "Press Connect on one device. Open that link on the other device.";
+  statusText = "Preparing new session...";
   localCandidates = [];
   remoteCandidatesAdded = 0;
   qrValue = "";
@@ -352,15 +352,16 @@ function resetConnection() {
   renderMessages();
   clearIncomingParams();
   renderUi();
+  startAsStarter();
 }
 
-async function startAsStarter() {
+async function startAsStarter({ sessionId = null, reconnect = false } = {}) {
   if (pc) return;
 
   clearAutoReconnect();
   role = "starter";
   phase = "connecting";
-  statusText = "Creating offer link...";
+  statusText = reconnect ? "Refreshing connection for current session..." : "Creating offer link...";
   renderUi();
 
   newPeerConnection();
@@ -371,7 +372,7 @@ async function startAsStarter() {
     await pc.setLocalDescription(offer);
     await waitForIceReady(pc);
 
-    currentStarterSessionId = makeStarterSessionId();
+    currentStarterSessionId = sessionId || currentStarterSessionId || makeStarterSessionId();
     const bundle = createQrBundle("OB", pc.localDescription.sdp, localCandidates);
     qrValue = toBundleString(bundle);
     shareLink = buildShareLink("connect", qrValue, currentStarterSessionId);
@@ -382,7 +383,7 @@ async function startAsStarter() {
     logBundle("COPY OFFER", qrValue, bundle);
 
     phase = "show-offer";
-    statusText = "Offer ready.";
+    statusText = reconnect ? "Reconnect link ready." : "Offer ready.";
     renderUi();
   } catch (error) {
     console.error("[rtcchat] starter error", error);
@@ -472,27 +473,52 @@ async function reconnectNow() {
     return;
   }
 
-  try {
-    dc?.close?.();
-  } catch {}
-  try {
-    pc?.close?.();
-  } catch {}
+  const sessionId = currentStarterSessionId || loadStarterSession()?.sessionId || makeStarterSessionId();
+  currentStarterSessionId = sessionId;
 
-  pc = null;
-  dc = null;
+  if (!pc) {
+    phase = "connecting";
+    statusText = "Reconnecting current session...";
+    renderUi();
+    await startAsStarter({ sessionId, reconnect: true });
+    return;
+  }
+
+  phase = "connecting";
+  statusText = "Trying to reinitiate current session...";
+  renderUi();
+  appliedAnswerSignature = "";
   localCandidates = [];
   remoteCandidatesAdded = 0;
   qrValue = "";
   qrCode = null;
   shareLink = "";
-  appliedAnswerSignature = "";
-  currentStarterSessionId = "";
 
-  phase = "connecting";
-  statusText = "Reconnecting...";
-  renderUi();
-  await startAsStarter();
+  try {
+    if (typeof pc.restartIce === "function") {
+      pc.restartIce();
+    }
+    const offer = await pc.createOffer({ iceRestart: true });
+    await pc.setLocalDescription(offer);
+    await waitForIceReady(pc);
+
+    const bundle = createQrBundle("OB", pc.localDescription.sdp, localCandidates);
+    qrValue = toBundleString(bundle);
+    shareLink = buildShareLink("connect", qrValue, currentStarterSessionId);
+    saveStarterSession({
+      sessionId: currentStarterSessionId,
+    });
+    rebuildDisplayedQr();
+    logBundle("COPY RECONNECT OFFER", qrValue, bundle);
+
+    phase = "show-offer";
+    statusText = "Reconnect link ready.";
+    renderUi();
+  } catch (error) {
+    console.error("[rtcchat] reconnect error", error);
+    statusText = `Reconnect error: ${error?.message || error}`;
+    renderUi();
+  }
 }
 
 function scheduleAutoReconnect() {
