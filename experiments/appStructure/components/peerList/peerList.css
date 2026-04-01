@@ -1,0 +1,22 @@
+.peer-list {
+  display: grid;
+  gap: 12px;
+}
+
+.peer-list-title {
+  font-size: 1.125rem;
+}
+
+.peer-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.peer-name {
+  font-weight: 600;
+}
+
+.peer-status {
+  color: #666;
+}

@@ -117,6 +117,9 @@
     return {
       create,
       update,
+      destroy() {
+        list?.element?.closest(".todo-list")?.remove();
+      },
     };
   }
 

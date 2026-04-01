@@ -23,6 +23,11 @@
     return {
       create,
       update,
+      destroy() {
+        if (card?.element) {
+          card.element.remove();
+        }
+      },
     };
   }
 

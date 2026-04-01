@@ -31,6 +31,34 @@
     }
   }
 
+  class UiSection {
+    constructor(element) {
+      this.element = element;
+    }
+
+    addText(text = "", className = "") {
+      const node = el("p", {
+        className: ["ui-meta", className].filter(Boolean).join(" "),
+        text,
+      });
+      this.element.append(node);
+      return new UiText(node);
+    }
+
+    addList(className = "") {
+      const list = el("div", {
+        className: ["ui-list", className].filter(Boolean).join(" "),
+      });
+      this.element.append(list);
+      return new UiList(list);
+    }
+
+    append(node) {
+      this.element.append(node);
+      return this;
+    }
+  }
+
   class UiButton {
     constructor(element) {
       this.element = element;
@@ -119,6 +147,14 @@
       const item = new UiCheckboxRow(row, checkbox, text);
       item.setDone(checked);
       return item;
+    }
+
+    addRow(options = {}) {
+      const row = el("div", {
+        className: ["ui-row", options.className].filter(Boolean).join(" "),
+      });
+      this.element.append(row);
+      return new UiSection(row);
     }
   }
 
@@ -242,6 +278,14 @@
       const list = el("div", { className: "ui-list" });
       this.element.append(list);
       return new UiList(list);
+    }
+
+    addSection(className = "") {
+      const section = el("div", {
+        className: ["ui-section", className].filter(Boolean).join(" "),
+      });
+      this.element.append(section);
+      return new UiSection(section);
     }
 
     append(node) {

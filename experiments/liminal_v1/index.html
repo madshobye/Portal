@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=0"
+    />
+    <title>liminal_v1</title>
+    <link rel="stylesheet" href="style.css" />
+    <link rel="stylesheet" href="components/peerList/peerList.css" />
+    <link rel="stylesheet" href="components/eventLog/eventLog.css" />
+    <link rel="stylesheet" href="components/manualOnboarding/manualOnboarding.css" />
+    <link rel="stylesheet" href="apps/theLounge/components/messageChannel/messageChannel.css" />
+  </head>
+  <body>
+    <main id="app"></main>
+    <script src="https://unpkg.com/mqtt/dist/mqtt.min.js"></script>
+    <script src="core/config.js"></script>
+    <script src="models/appState.js"></script>
+    <script src="models/identity.js"></script>
+    <script src="actions/appActions.js"></script>
+    <script src="components/base/base.js"></script>
+    <script src="components/debugToggle/debugToggle.js"></script>
+    <script src="components/peerList/peerList.js"></script>
+    <script src="components/eventLog/eventLog.js"></script>
+    <script src="components/manualOnboarding/manualOnboarding.js"></script>
+    <script src="apps/appStore.js"></script>
+    <script src="apps/theLounge/components/messageChannel/messageChannel.js"></script>
+    <script src="apps/theLounge/services/channelMessages.js"></script>
+    <script src="apps/theLounge/app.js"></script>
+    <script src="runtime/qrcodegen-local.js"></script>
+    <script src="runtime/qr.js"></script>
+    <script src="runtime/mqttClient.js"></script>
+    <script src="services/manualCodec.js"></script>
+    <script src="services/onboarding.js"></script>
+    <script src="services/manualOnboarding.js"></script>
+    <script src="services/meshNetwork.js"></script>
+    <script src="runtime/runtime.js"></script>
+    <script src="selectors/selectors.js"></script>
+    <script src="view/view.js"></script>
+    <script src="runtime/appController.js"></script>
+    <script src="app.js"></script>
+  </body>
+</html>

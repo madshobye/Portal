@@ -1,0 +1,21 @@
+.message-list {
+  display: grid;
+  gap: 12px;
+}
+
+.message-list-title {
+  font-size: 1.125rem;
+}
+
+.message-row {
+  display: grid;
+  gap: 2px;
+}
+
+.message-author {
+  font-weight: 600;
+}
+
+.message-text {
+  color: #444;
+}

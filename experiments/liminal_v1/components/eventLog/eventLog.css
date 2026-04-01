@@ -1,0 +1,28 @@
+.rtcchat-event-log {
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.rtcchat-event-items {
+  display: grid;
+  gap: 8px;
+}
+
+.rtcchat-event-row {
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.rtcchat-event-title {
+  font-size: 0.8rem;
+  font-weight: 700;
+}
+
+.rtcchat-event-meta {
+  margin-top: 2px;
+  font-size: 0.74rem;
+  color: rgba(255, 255, 255, 0.66);
+}

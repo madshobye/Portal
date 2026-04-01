@@ -1,0 +1,25 @@
+.liminal-manual-card {
+  gap: 10px;
+  padding: 12px;
+}
+
+.liminal-qr-image {
+  display: block;
+  width: min(100%, 320px);
+  aspect-ratio: 1;
+  margin: 0 auto;
+  border-radius: 18px;
+  background: #fff;
+}
+
+.liminal-link-row,
+.liminal-response-row {
+  display: flex;
+  gap: 8px;
+}
+
+.liminal-link-row .rtcchat-link,
+.liminal-response-row .rtcchat-link {
+  flex: 1;
+  min-width: 0;
+}

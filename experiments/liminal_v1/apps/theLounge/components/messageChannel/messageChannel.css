@@ -1,0 +1,97 @@
+.rtcchat-channel {
+  display: flex;
+  flex-direction: column;
+  min-height: 420px;
+  flex: 1;
+  padding: 12px;
+  gap: 10px;
+  overflow: hidden;
+}
+
+.rtcchat-channel-messages {
+  flex: 1;
+  min-height: 220px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 4px 2px 0;
+}
+
+.rtcchat-channel-empty {
+  opacity: 0.7;
+}
+
+.rtcchat-channel-message {
+  display: flex;
+  align-items: flex-end;
+  gap: 10px;
+  align-self: flex-start;
+}
+
+.rtcchat-channel-message.self {
+  align-self: flex-end;
+  flex-direction: row-reverse;
+}
+
+.rtcchat-channel-bubble {
+  max-width: min(78%, 520px);
+  border-radius: 14px;
+  padding: 10px 12px;
+  line-height: 1.4;
+  font-size: 0.96rem;
+  color: #fff;
+  background: rgba(255, 255, 255, 0.12);
+}
+
+.rtcchat-channel-message.self .rtcchat-channel-bubble {
+  background: #1f6fff;
+}
+
+.rtcchat-channel-meta {
+  margin: 0 0 5px;
+  font-size: 0.74rem;
+  line-height: 1.2;
+  color: rgba(255, 255, 255, 0.7);
+}
+
+.rtcchat-channel-text {
+  word-break: break-word;
+}
+
+.rtcchat-channel-form {
+  display: flex;
+  gap: 8px;
+  margin-top: auto;
+  padding-top: 4px;
+}
+
+.rtcchat-channel-input {
+  flex: 1;
+  min-width: 0;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.06);
+  color: #fff;
+  padding: 10px 12px;
+  font: inherit;
+}
+
+.rtcchat-channel-input:disabled {
+  opacity: 0.45;
+}
+
+.rtcchat-avatar {
+  width: 34px;
+  height: 34px;
+  border-radius: 999px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 34px;
+  color: #fff;
+  font-weight: 800;
+  font-size: 0.94rem;
+  box-shadow: 0 8px 18px rgba(0, 0, 0, 0.22);
+  background: var(--rtcchat-avatar-bg, #1f6fff);
+}

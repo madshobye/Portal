@@ -3,16 +3,9 @@
     return JSON.parse(JSON.stringify(value));
   }
 
-  function createAppState({ defaultState, persistence }) {
-    let state = persistence.load(defaultState);
+  function createAppState(defaultState) {
+    let state = clone(defaultState);
     const listeners = new Set();
-
-    function notify() {
-      const snapshot = clone(state);
-      for (const listener of listeners) {
-        listener(snapshot);
-      }
-    }
 
     function getState() {
       return clone(state);
@@ -20,19 +13,24 @@
 
     function setState(nextState) {
       state = clone(nextState);
-      persistence.save(state);
       notify();
     }
 
     function update(updater) {
-      const nextState = updater(clone(state));
-      setState(nextState);
+      setState(updater(getState()));
     }
 
     function subscribe(listener) {
       listeners.add(listener);
       listener(getState());
       return () => listeners.delete(listener);
+    }
+
+    function notify() {
+      const snapshot = getState();
+      for (const listener of listeners) {
+        listener(snapshot);
+      }
     }
 
     return {
@@ -43,7 +41,7 @@
     };
   }
 
-  window.AppStructureModel = {
+  window.LiminalV1Model = {
     createAppState,
   };
 })();

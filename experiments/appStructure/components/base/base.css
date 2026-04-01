@@ -5,6 +5,11 @@
   padding: 16px;
 }
 
+.ui-section {
+  display: grid;
+  gap: 8px;
+}
+
 .ui-title {
   margin: 0;
   line-height: 1.1;
