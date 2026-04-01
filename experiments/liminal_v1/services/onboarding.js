@@ -2,6 +2,7 @@
   function createOnboardingService({
     config,
     clientId,
+    servingEnabled = false,
     onMqttStateChange = () => {},
     onPeerSeen = () => {},
     onPeerLeft = () => {},
@@ -20,6 +21,7 @@
     let reconnectTimer = null;
     let stopped = false;
     let suspended = false;
+    let onboarderServingEnabled = !!servingEnabled;
 
     function getSignalTopic(targetId) {
       return `${config.SIGNAL_TOPIC_PREFIX}/${targetId}`;
@@ -106,8 +108,7 @@
       onMqttStateChange(true);
       await mqttClient.subscribe(config.PRESENCE_TOPIC);
       await mqttClient.subscribe(getSignalTopic(clientId));
-      startHeartbeatLoop();
-      await publishPresence();
+      await syncServingState();
     }
 
     function handleMqttDisconnect() {
@@ -131,10 +132,26 @@
       }, config.HEARTBEAT_INTERVAL_MS);
     }
 
+    async function stopHeartbeatLoop() {
+      clearInterval(heartbeatTimer);
+      heartbeatTimer = null;
+    }
+
+    async function syncServingState() {
+      if (!mqttClient.connected) {
+        await stopHeartbeatLoop();
+        return;
+      }
+
+      startHeartbeatLoop();
+      await publishPresence();
+    }
+
     async function publishPresence() {
       await mqttClient.publish(config.PRESENCE_TOPIC, {
         type: "presence",
         clientId,
+        serving: onboarderServingEnabled,
         timestamp: Date.now(),
       });
     }
@@ -177,6 +194,7 @@
 
       onPeerSeen({
         id: message.clientId,
+        serving: !!message.serving,
         lastSeenAt: Date.now(),
       });
     }
@@ -194,6 +212,11 @@
       }, config.RECONNECT_DELAY_MS);
     }
 
+    function setServingEnabled(nextEnabled) {
+      onboarderServingEnabled = !!nextEnabled;
+      syncServingState().catch(() => {});
+    }
+
     return {
       start,
       stop,
@@ -201,11 +224,15 @@
       suspend,
       resume,
       sendSignal,
+      setServingEnabled,
       isConnected() {
         return mqttClient.connected;
       },
       isSuspended() {
         return suspended;
+      },
+      isServingEnabled() {
+        return onboarderServingEnabled;
       },
     };
   }

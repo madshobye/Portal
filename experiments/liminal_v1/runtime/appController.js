@@ -2,6 +2,8 @@
   function createAppController({ mount }) {
     const config = window.LiminalV1Config;
     const clientId = `client-${Math.random().toString(16).slice(2, 10)}`;
+    const storageKey = `${config.APP_NAME}:onboarderEnabled`;
+    const initialOnboarderEnabled = readStoredOnboarderEnabled();
     const appStore = window.LiminalV1Apps.createAppStore();
     const appState = window.LiminalV1Model.createAppState({
       network: {
@@ -31,7 +33,7 @@
       },
       ui: {
         debugOpen: false,
-        onboarderEnabled: false,
+        onboarderEnabled: initialOnboarderEnabled,
       },
     });
     const actions = window.LiminalV1Actions.createAppActions(appState);
@@ -94,6 +96,7 @@
     }
 
     function start() {
+      runtime.setOnboarderEnabled(initialOnboarderEnabled);
       app = appStore.createApp(config.DEFAULT_APP_ID, {
         config,
         clientId,
@@ -144,6 +147,7 @@
       appState.update((state) => {
         const nextEnabled = !state.ui.onboarderEnabled;
         runtime.setOnboarderEnabled(nextEnabled);
+        storeOnboarderEnabled(nextEnabled);
         return {
           ...state,
           ui: {
@@ -168,6 +172,20 @@
       },
       toggleDebug,
     };
+
+    function readStoredOnboarderEnabled() {
+      try {
+        return window.localStorage.getItem(storageKey) === "true";
+      } catch {
+        return false;
+      }
+    }
+
+    function storeOnboarderEnabled(value) {
+      try {
+        window.localStorage.setItem(storageKey, value ? "true" : "false");
+      } catch {}
+    }
   }
 
   window.LiminalV1Runtime = {

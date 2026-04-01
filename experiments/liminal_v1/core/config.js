@@ -1,6 +1,6 @@
 (() => {
   window.LiminalV1Config = {
-    VERSION: 13,
+    VERSION: 17,
     APP_NAME: "liminal_v1",
     NETWORK_NAME: "liminalNet",
     DEFAULT_APP_ID: "theLounge",

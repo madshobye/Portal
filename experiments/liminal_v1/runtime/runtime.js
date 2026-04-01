@@ -69,6 +69,7 @@
       onboarding = window.LiminalV1Onboarding.createOnboardingService({
         config,
         clientId,
+        servingEnabled: onboarderEnabled,
         onMqttStateChange(connected) {
           actions.setMqttConnected(connected);
           actions.addEvent({
@@ -134,7 +135,7 @@
         detail: "Repairing onboarding and missing edges",
       });
 
-      if (onboarderEnabled && (!onboarding?.isConnected() || onboarding?.isSuspended?.())) {
+      if (!onboarding?.isConnected() || onboarding?.isSuspended?.()) {
         onboarding?.resume?.().catch((error) => {
           console.warn("[liminal_v1] reconnect failed", error);
           actions.addEvent({
@@ -163,38 +164,28 @@
         return;
       }
 
-      if (!onboarding) {
-        if (onboarderEnabled) {
-          ensureOnboarding();
-        } else {
-          return;
-        }
-      }
-
-      if (!onboarderEnabled) {
-        if (onboarding) {
-          const activeOnboarding = onboarding;
-          onboarding = null;
-          onboardingTransitionLocked = true;
-          try {
-            activeOnboarding.stop?.();
-            actions.setMqttConnected(false);
-          } finally {
-            onboardingTransitionLocked = false;
-          }
-        }
-        return;
-      }
+      const activeOnboarding = ensureOnboarding();
+      activeOnboarding.setServingEnabled?.(onboarderEnabled);
 
       if (nextNetworkState.connectedPeerCount > 0) {
-        onboarding.suspend?.().catch((error) => {
-          console.warn("[liminal_v1] suspend onboarding failed", error);
-        });
+        if (!onboarderEnabled) {
+          activeOnboarding.suspend?.().catch((error) => {
+            console.warn("[liminal_v1] suspend onboarding failed", error);
+          });
+        } else if (activeOnboarding.isSuspended?.() || !activeOnboarding.isConnected?.()) {
+          activeOnboarding.resume?.().catch((error) => {
+            console.warn("[liminal_v1] resume onboarding while serving failed", error);
+            actions.addEvent({
+              label: "MQTT serve resume failed",
+              detail: String(error?.message || error),
+            });
+          });
+        }
         return;
       }
 
-      if (nextNetworkState.connectedPeerCount === 0 && (onboarding.isSuspended?.() || !onboarding.isConnected?.())) {
-        const starter = onboarding.isSuspended?.() ? onboarding.resume?.bind(onboarding) : onboarding.start?.bind(onboarding);
+      if (nextNetworkState.connectedPeerCount === 0 && (activeOnboarding.isSuspended?.() || !activeOnboarding.isConnected?.())) {
+        const starter = activeOnboarding.isSuspended?.() ? activeOnboarding.resume?.bind(activeOnboarding) : activeOnboarding.start?.bind(activeOnboarding);
         starter?.().catch((error) => {
           console.warn("[liminal_v1] resume onboarding failed", error);
           actions.addEvent({
@@ -207,6 +198,7 @@
 
     function setOnboarderEnabled(nextEnabled) {
       onboarderEnabled = !!nextEnabled;
+      ensureOnboarding().setServingEnabled?.(onboarderEnabled);
       syncOnboardingMode({
         connectedPeerCount: meshNetwork ? actions.getState().network.connectedPeerCount : 0,
       });
