@@ -28,7 +28,7 @@ var gamePads;
 
 
 async function setupGamepad() {
-  await loadScript("libs/gamepadLib.js");
+  await loadScript(baseURL + "libs/gamepadLib.js");
  
   // Attach it to the window so it can be inspected at the console.
   window.gamepad = new Gamepad();

@@ -8,10 +8,12 @@ async function setup() {
 }
 
 function draw() {
-  background(250);
-  fill(0);
-
   const pad = gamePads?.[0];
+  const face1Pressed = Number(pad?.state?.FACE_1 || 0) > 0.5;
+
+  background(face1Pressed ? color(255, 105, 180) : 250);
+  fill(face1Pressed ? 255 : 0);
+
   if (pad) {
     padStatus = "Controller connected";
   }

@@ -4,6 +4,7 @@
     clientId,
     sendSignal = async () => {},
     isTransportConnected = () => false,
+    isClientServing = () => false,
     onStateChange = () => {},
     onData = () => {},
     onEvent = () => {},
@@ -42,10 +43,11 @@
       emitState("disconnected");
     }
 
-    function handlePeerSeen({ id, lastSeenAt }) {
+    function handlePeerSeen({ id, serving = false, lastSeenAt }) {
       const entry = ensurePeer(id);
       entry.lastSeenAt = lastSeenAt;
       entry.presence = "online";
+      entry.serving = !!serving;
       if (entry.connectionState === "failed" || entry.connectionState === "closed") {
         entry.retrying = true;
       }
@@ -118,6 +120,7 @@
         id: peerId,
         lastSeenAt: Date.now(),
         presence: "online",
+        serving: false,
         connectionState: "known",
         pc: null,
         dc: null,
@@ -133,7 +136,9 @@
 
     async function maybeInitiateConnection(entry) {
       if (clientId > entry.id) {
-        return;
+        if (!(entry.serving && !isClientServing())) {
+          return;
+        }
       }
 
       if (entry.pc && entry.connectionState !== "failed" && entry.connectionState !== "closed") {
@@ -339,6 +344,7 @@
           id: entry.id,
           connectionState: entry.connectionState,
           presence: entry.presence,
+          serving: entry.serving,
           connected: entry.dc?.readyState === "open",
           retrying: entry.retrying,
         }));

@@ -19,6 +19,9 @@
       isTransportConnected() {
         return onboarding?.isConnected?.() || false;
       },
+      isClientServing() {
+        return onboarderEnabled;
+      },
       onStateChange: handleNetworkStateChange,
       onData(payload, fromPeerId) {
         onData(payload, fromPeerId);
