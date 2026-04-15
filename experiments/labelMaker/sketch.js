@@ -9,6 +9,7 @@ let caretVisible = true;
 let lastCaretToggleMs = 0;
 let lineFontSizes = {};
 let lineTextStyles = {};
+let textInputEl = null;
 const storageKey = "portal.tsplTextLabel.state";
 let labelFormat = "10x15";
 let orientation = "portrait";
@@ -23,13 +24,14 @@ const pagePadding = 72;
 const minFontSize = 24;
 const maxFontSize = 320;
 const defaultFontSize = 96;
-const fontSizeScale = [24, 32, 40, 52, 68, 88, 112, 144, 184, 232, 280, 320];
+const fontSizeScale = [24, 28, 32, 36, 40, 46, 52, 60, 68, 78, 88, 100, 112, 128, 144, 164, 184, 208, 232, 256, 280, 300, 320];
 const lineHeightFactor = 1.16;
 const fontFamily = "Helvetica";
 
 async function setup() {
   createCanvas(windowWidth, windowHeight);
   pixelDensity(1);
+  installTextInputBridge();
   installKeyCapture();
   await loadScript("portal/labelPrinterProtocol.js");
   await loadScript("portal/bleLabelPrinter.js");
@@ -285,18 +287,28 @@ function getPreviewRect() {
 }
 
 function mousePressed() {
+  return handlePointerPlacement(mouseX, mouseY);
+}
+
+function touchStarted() {
+  return handlePointerPlacement(mouseX, mouseY);
+}
+
+function handlePointerPlacement(pointerX, pointerY) {
   if (busy || !labelGraphic) return;
 
   const preview = getPreviewRect();
   const insidePreview = (
-    mouseX >= preview.x &&
-    mouseX <= preview.x + preview.width &&
-    mouseY >= preview.y &&
-    mouseY <= preview.y + preview.height
+    pointerX >= preview.x &&
+    pointerX <= preview.x + preview.width &&
+    pointerY >= preview.y &&
+    pointerY <= preview.y + preview.height
   );
   if (!insidePreview) return;
 
-  placeCursorFromPreviewPoint(mouseX, mouseY, preview);
+  placeCursorFromPreviewPoint(pointerX, pointerY, preview);
+  focusEditorInput();
+  return false;
 }
 
 function placeCursorFromPreviewPoint(pointerX, pointerY, preview) {
@@ -344,6 +356,7 @@ function findNearestLineIndex(layout, localY) {
 
 function keyTyped() {
   if (busy) return false;
+  if (document.activeElement === textInputEl) return false;
   if (key.length === 1 && !keyIsDown(CONTROL) && !keyIsDown(ALT)) {
     insertTextAtCursor(key);
     detailText = "Typing into the label.";
@@ -353,6 +366,7 @@ function keyTyped() {
 
 function keyPressed() {
   if (busy) return false;
+  if (document.activeElement === textInputEl) return false;
   if (
     keyCode === BACKSPACE ||
     keyCode === DELETE ||
@@ -368,129 +382,203 @@ function keyPressed() {
   }
 }
 
+function installTextInputBridge() {
+  textInputEl = document.createElement("textarea");
+  textInputEl.className = "labelmaker-text-input";
+  textInputEl.setAttribute("autocapitalize", "off");
+  textInputEl.setAttribute("autocomplete", "off");
+  textInputEl.setAttribute("autocorrect", "off");
+  textInputEl.setAttribute("spellcheck", "false");
+  textInputEl.setAttribute("inputmode", "text");
+  textInputEl.setAttribute("aria-label", "Label text input");
+  document.body.appendChild(textInputEl);
+
+  textInputEl.addEventListener("beforeinput", handleTextInputBeforeInput, { passive: false });
+  textInputEl.addEventListener("keydown", handleEditorKeydown, { passive: false });
+  textInputEl.addEventListener("input", () => {
+    if (textInputEl.value) {
+      insertTextAtCursor(textInputEl.value);
+      textInputEl.value = "";
+    }
+  });
+}
+
+function focusEditorInput() {
+  if (!textInputEl) return;
+  textInputEl.focus({ preventScroll: true });
+  textInputEl.value = "";
+  textInputEl.setSelectionRange(0, 0);
+}
+
+function handleTextInputBeforeInput(event) {
+  if (busy) {
+    event.preventDefault();
+    return;
+  }
+
+  if (event.isComposing) return;
+
+  if (event.inputType === "insertText" && event.data) {
+    event.preventDefault();
+    insertTextAtCursor(event.data);
+    textInputEl.value = "";
+    return;
+  }
+  if (event.inputType === "insertParagraph" || event.inputType === "insertLineBreak") {
+    event.preventDefault();
+    insertTextAtCursor("\n");
+    textInputEl.value = "";
+    return;
+  }
+  if (event.inputType === "deleteContentBackward") {
+    event.preventDefault();
+    deleteBackward();
+    textInputEl.value = "";
+    return;
+  }
+  if (event.inputType === "deleteContentForward") {
+    event.preventDefault();
+    deleteForward();
+    textInputEl.value = "";
+  }
+}
+
 function installKeyCapture() {
   window.addEventListener("keydown", (event) => {
-    const altMod = !!(
-      event.altKey ||
-      (typeof event.getModifierState === "function" && (
-        event.getModifierState("Alt") ||
-        event.getModifierState("AltGraph")
-      ))
-    );
-    const mod = !!(event.ctrlKey || event.metaKey);
-    const keyStr = String(event.key || "");
-    const isAltIncrease = altMod && (
-      event.code === "NumpadAdd" ||
-      event.code === "Equal" ||
-      keyStr === "±" ||
-      keyStr === "+"
-    );
-    const isAltDecrease = altMod && (
-      event.code === "NumpadSubtract" ||
-      event.code === "Minus" ||
-      keyStr === "–" ||
-      keyStr === "—" ||
-      keyStr === "-"
-    );
-    const isAltReset = altMod && event.code === "Digit0";
-    const isModIncrease = mod && (
-      event.code === "NumpadAdd" ||
-      event.code === "Equal" ||
-      keyStr === "+" ||
-      keyStr === "="
-    );
-    const isModDecrease = mod && (
-      event.code === "NumpadSubtract" ||
-      event.code === "Minus" ||
-      keyStr === "-"
-    );
-    const isIncrease = isAltIncrease || isModIncrease;
-    const isDecrease = isAltDecrease || isModDecrease;
-    const isReset = isAltReset || (mod && (event.code === "Digit0" || event.key === "0"));
-
-    if (isIncrease) {
-      event.preventDefault();
-      if (busy) return;
-      adjustCurrentLineFontSize(+1);
-      return;
-    }
-    if (isDecrease) {
-      event.preventDefault();
-      if (busy) return;
-      adjustCurrentLineFontSize(-1);
-      return;
-    }
-    if (isReset) {
-      event.preventDefault();
-      if (busy) return;
-      resetCurrentLineFontSize();
-      return;
-    }
-    if (mod && (keyStr === "b" || keyStr === "B")) {
-      event.preventDefault();
-      if (busy) return;
-      toggleCurrentLineStyle("bold");
-      return;
-    }
-    if (mod && (keyStr === "i" || keyStr === "I")) {
-      event.preventDefault();
-      if (busy) return;
-      toggleCurrentLineStyle("italic");
-      return;
-    }
-    if (mod && (keyStr === "u" || keyStr === "U")) {
-      event.preventDefault();
-      if (busy) return;
-      toggleCurrentLineStyle("underline");
-      return;
-    }
-
-    if (event.key === "Backspace") {
-      event.preventDefault();
-      if (busy) return;
-      deleteBackward();
-    }
-    if (event.key === "Delete") {
-      event.preventDefault();
-      if (busy) return;
-      deleteForward();
-    }
-    if (event.key === "Tab") {
-      event.preventDefault();
-      if (busy) return;
-      insertTextAtCursor("    ");
-    }
-    if (event.key === "Enter") {
-      event.preventDefault();
-      if (busy) return;
-      insertTextAtCursor("\n");
-    }
-    if (event.key === " ") {
-      event.preventDefault();
-      if (busy) return;
-      insertTextAtCursor(" ");
-    }
-    if (event.key === "ArrowLeft") {
-      event.preventDefault();
-      if (busy) return;
-      moveCursorHorizontal(-1);
-    }
-    if (event.key === "ArrowRight") {
-      event.preventDefault();
-      if (busy) return;
-      moveCursorHorizontal(1);
-    }
-    if (event.key === "ArrowUp") {
-      event.preventDefault();
-      if (busy) return;
-      moveCursorVertical(-1);
-    }
-    if (event.key === "ArrowDown") {
-      event.preventDefault();
-      if (busy) return;
-      moveCursorVertical(1);
-    }
+    if (event.target === textInputEl) return;
+    handleEditorKeydown(event);
   }, { passive: false });
+}
+
+function handleEditorKeydown(event) {
+  const altMod = !!(
+    event.altKey ||
+    (typeof event.getModifierState === "function" && (
+      event.getModifierState("Alt") ||
+      event.getModifierState("AltGraph")
+    ))
+  );
+  const mod = !!(event.ctrlKey || event.metaKey);
+  const keyStr = String(event.key || "");
+  const isAltIncrease = altMod && (
+    event.code === "NumpadAdd" ||
+    event.code === "Equal" ||
+    keyStr === "±" ||
+    keyStr === "+"
+  );
+  const isAltDecrease = altMod && (
+    event.code === "NumpadSubtract" ||
+    event.code === "Minus" ||
+    keyStr === "–" ||
+    keyStr === "—" ||
+    keyStr === "-"
+  );
+  const isAltReset = altMod && event.code === "Digit0";
+  const isModIncrease = mod && (
+    event.code === "NumpadAdd" ||
+    event.code === "Equal" ||
+    keyStr === "+" ||
+    keyStr === "="
+  );
+  const isModDecrease = mod && (
+    event.code === "NumpadSubtract" ||
+    event.code === "Minus" ||
+    keyStr === "-"
+  );
+  const isIncrease = isAltIncrease || isModIncrease;
+  const isDecrease = isAltDecrease || isModDecrease;
+  const isReset = isAltReset || (mod && (event.code === "Digit0" || event.key === "0"));
+
+  if (isIncrease) {
+    event.preventDefault();
+    if (busy) return;
+    adjustCurrentLineFontSize(+1);
+    return;
+  }
+  if (isDecrease) {
+    event.preventDefault();
+    if (busy) return;
+    adjustCurrentLineFontSize(-1);
+    return;
+  }
+  if (isReset) {
+    event.preventDefault();
+    if (busy) return;
+    resetCurrentLineFontSize();
+    return;
+  }
+  if (mod && (keyStr === "b" || keyStr === "B")) {
+    event.preventDefault();
+    if (busy) return;
+    toggleCurrentLineStyle("bold");
+    return;
+  }
+  if (mod && (keyStr === "i" || keyStr === "I")) {
+    event.preventDefault();
+    if (busy) return;
+    toggleCurrentLineStyle("italic");
+    return;
+  }
+  if (mod && (keyStr === "u" || keyStr === "U")) {
+    event.preventDefault();
+    if (busy) return;
+    toggleCurrentLineStyle("underline");
+    return;
+  }
+
+  if (event.key === "Backspace") {
+    event.preventDefault();
+    if (busy) return;
+    deleteBackward();
+    return;
+  }
+  if (event.key === "Delete") {
+    event.preventDefault();
+    if (busy) return;
+    deleteForward();
+    return;
+  }
+  if (event.key === "Tab") {
+    event.preventDefault();
+    if (busy) return;
+    insertTextAtCursor("    ");
+    return;
+  }
+  if (event.key === "Enter") {
+    event.preventDefault();
+    if (busy) return;
+    insertTextAtCursor("\n");
+    return;
+  }
+  if (event.key === " " && event.target !== textInputEl) {
+    event.preventDefault();
+    if (busy) return;
+    insertTextAtCursor(" ");
+    return;
+  }
+  if (event.key === "ArrowLeft") {
+    event.preventDefault();
+    if (busy) return;
+    moveCursorHorizontal(-1);
+    return;
+  }
+  if (event.key === "ArrowRight") {
+    event.preventDefault();
+    if (busy) return;
+    moveCursorHorizontal(1);
+    return;
+  }
+  if (event.key === "ArrowUp") {
+    event.preventDefault();
+    if (busy) return;
+    moveCursorVertical(-1);
+    return;
+  }
+  if (event.key === "ArrowDown") {
+    event.preventDefault();
+    if (busy) return;
+    moveCursorVertical(1);
+  }
 }
 
 function wrapTextToLines(textValue, maxWidth) {
