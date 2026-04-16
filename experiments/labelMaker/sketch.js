@@ -8,11 +8,23 @@ let cursorIndex = 0;
 let caretVisible = true;
 let lastCaretToggleMs = 0;
 let lineFontSizes = {};
-let lineTextStyles = {};
+let textStyleRanges = {
+  bold: [],
+  italic: [],
+  underline: [],
+};
+let pendingTextStyle = {
+  bold: false,
+  italic: false,
+  underline: false,
+};
 let textInputEl = null;
+let terminusFont = null;
+let perfectDosFont = null;
 const storageKey = "portal.tsplTextLabel.state";
 let labelFormat = "10x15";
 let orientation = "portrait";
+let editorFontMode = "helvetica";
 
 const labelFormats = {
   "10x10": { widthCm: 10, heightCm: 10 },
@@ -26,13 +38,39 @@ const maxFontSize = 320;
 const defaultFontSize = 96;
 const fontSizeScale = [24, 28, 32, 36, 40, 46, 52, 60, 68, 78, 88, 100, 112, 128, 144, 164, 184, 208, 232, 256, 280, 300, 320];
 const lineHeightFactor = 1.16;
-const fontFamily = "Helvetica";
+const fallbackFontFamily = "Helvetica";
+const googleFontFamilies = [
+  "Bebas Neue",
+  "Oswald",
+  "Space Mono",
+  "Special Elite",
+  "IBM Plex Sans Condensed",
+];
+const fontOptions = [
+  { key: "helvetica", label: "Helv", kind: "system", family: "Helvetica" },
+  { key: "terminus", label: "Term", kind: "local" },
+  { key: "perfectdos", label: "DOS", kind: "local" },
+  { key: "bebas", label: "Bebas", kind: "google", family: "Bebas Neue" },
+  { key: "oswald", label: "Oswald", kind: "google", family: "Oswald" },
+  { key: "spacemono", label: "Mono", kind: "google", family: "Space Mono" },
+  { key: "specialelite", label: "Elite", kind: "google", family: "Special Elite" },
+  { key: "ibmplexcondensed", label: "Plex", kind: "google", family: "IBM Plex Sans Condensed" },
+];
 
 async function setup() {
   createCanvas(windowWidth, windowHeight);
   pixelDensity(1);
   installTextInputBridge();
   installKeyCapture();
+  terminusFont = await loadFont("../textprompt/Terminus.ttf");
+  perfectDosFont = await loadFont("../textprompt/PerfectDOSVGA437.ttf");
+  if (typeof loadGoogleFont === "function") {
+    try {
+      await loadGoogleFont(googleFontFamilies);
+    } catch (error) {
+      console.warn("[labelMaker] Google font load failed", error);
+    }
+  }
   await loadScript("portal/labelPrinterProtocol.js");
   await loadScript("portal/bleLabelPrinter.js");
 
@@ -54,8 +92,8 @@ async function setup() {
     },
   }).init();
 
-  textFont(fontFamily);
   loadEditorState();
+  applyEditorFont();
   rebuildLabelGraphic();
 }
 
@@ -71,6 +109,10 @@ function draw() {
     : (printer?.getConnectionState().connected ? "Print" : "+");
   const buttonWidth = 56;
   const clearButtonWidth = 72;
+  const leftControlsEndX = preview.x + 164;
+  const rightControlsStartX = preview.x + preview.width - buttonWidth - 12 - clearButtonWidth - 12;
+  const fontButtonX = leftControlsEndX;
+  const fontButtonWidth = Math.max(64, rightControlsStartX - fontButtonX);
   const button = uiButton(buttonLabel, {
     x: preview.x + preview.width - buttonWidth,
     y: preview.y - 62,
@@ -129,6 +171,21 @@ function draw() {
   });
   if (!busy && orientationButton.clicked) {
     toggleOrientation();
+  }
+
+  const fontButton = uiButton(getEditorFontLabel(), {
+    x: fontButtonX,
+    y: preview.y - 62,
+    width: fontButtonWidth,
+    height: 46,
+    fontSize: 15,
+    fillBg: busy ? "#1f1f1f" : "#ffffff",
+    fillBgHover: busy ? "#1f1f1f" : "#f1f1f1",
+    stroke: busy ? "#2c2c2c" : "#ffffff",
+    textFill: busy ? "#5a5a5a" : "#000000",
+  });
+  if (!busy && fontButton.clicked) {
+    toggleEditorFont();
   }
 
   drawPreviewCard(preview);
@@ -203,16 +260,12 @@ function renderLabelGraphic({ includeCaret = true } = {}) {
   labelGraphic.rectMode(CORNER);
 
   const layout = fitTextLayout(labelText, labelGraphic.width - pagePadding * 2, labelGraphic.height - pagePadding * 2);
-  labelGraphic.textFont(fontFamily);
+  applyEditorFont(labelGraphic);
   labelGraphic.textAlign(LEFT, TOP);
 
   let y = pagePadding;
   for (const line of layout.lines) {
-    applyLineTextStyle(line.style);
-    labelGraphic.textSize(line.fontSize);
-    labelGraphic.textLeading(line.lineHeight);
-    labelGraphic.text(line.text || " ", pagePadding, y);
-    drawLineUnderline(line, y);
+    drawStyledLine(line, y);
     y += line.lineHeight;
   }
   labelGraphic.noStroke();
@@ -232,6 +285,7 @@ function fitTextLayout(textValue, maxWidth, maxHeight) {
 
 function buildLayout(textValue, maxWidth, maxHeight) {
   const lines = wrapTextToLines(String(textValue || ""), maxWidth);
+  applyNaturalLineHeights(lines);
   let totalHeight = lines.reduce((sum, line) => sum + line.lineHeight, 0);
 
   if (totalHeight > maxHeight) {
@@ -239,8 +293,8 @@ function buildLayout(textValue, maxWidth, maxHeight) {
     for (const line of lines) {
       const nextFontSize = constrain(Math.floor(line.fontSize * scale), minFontSize, maxFontSize);
       line.fontSize = nextFontSize;
-      line.lineHeight = nextFontSize * lineHeightFactor;
     }
+    applyNaturalLineHeights(lines);
     totalHeight = lines.reduce((sum, line) => sum + line.lineHeight, 0);
   }
 
@@ -250,9 +304,30 @@ function buildLayout(textValue, maxWidth, maxHeight) {
   };
 }
 
+function applyNaturalLineHeights(lines) {
+  for (let index = 0; index < lines.length; index += 1) {
+    const line = lines[index];
+    const nextLine = lines[index + 1] || null;
+    if (!nextLine) {
+      line.lineHeight = Math.max(line.fontSize * 1.002, line.fontSize + 1);
+      continue;
+    }
+
+    const smaller = Math.min(line.fontSize, nextLine.fontSize);
+    const gap = Math.max(1, smaller * 0.08);
+    line.lineHeight = line.fontSize + gap;
+  }
+}
+
 function getCaretPosition(layout) {
   const info = findCursorLocation(layout);
-  const x = pagePadding + measureTextWidth(info.prefix, info.line.fontSize);
+  const previousChar = info.prefix.length > 0 ? info.prefix.slice(-1) : "";
+  const nextChar = info.line.text.slice(info.prefix.length, info.prefix.length + 1);
+  const previousIsSpace = previousChar === " " || previousChar === "\u00A0";
+  const nextIsSpace = nextChar === " " || nextChar === "\u00A0";
+  const pairIsSpaced = previousIsSpace || nextIsSpace;
+  const caretOffset = pairIsSpaced ? 0 : Math.max(1.5, info.line.fontSize * 0.018);
+  const x = pagePadding + measureStyledRangeWidth(info.line.start, clampCursorIndex(cursorIndex), info.line.fontSize) - caretOffset;
   let y = pagePadding;
   for (let index = 0; index < info.lineIndex; index += 1) {
     y += layout.lines[index].lineHeight;
@@ -323,7 +398,7 @@ function placeCursorFromPreviewPoint(pointerX, pointerY, preview) {
   let bestDistance = Infinity;
   for (let offset = 0; offset <= line.text.length; offset += 1) {
     const distance = Math.abs(
-      measureTextWidth(line.text.slice(0, offset), line.fontSize) - textX
+      measureStyledRangeWidth(line.start, line.start + offset, line.fontSize) - textX
     );
     if (distance < bestDistance) {
       bestDistance = distance;
@@ -662,6 +737,8 @@ function insertTextAtCursor(value) {
   const next = String(value || "");
   const index = clampCursorIndex(cursorIndex);
   labelText = labelText.slice(0, index) + next + labelText.slice(index);
+  shiftStyleRangesForInsert(index, next.length);
+  applyPendingStyleToInsertedText(index, next.length);
   cursorIndex = index + next.length;
   detailText = next === "\n" ? "Inserted a new line." : "Typing into the label.";
   saveEditorState();
@@ -670,6 +747,7 @@ function insertTextAtCursor(value) {
 function deleteBackward() {
   const index = clampCursorIndex(cursorIndex);
   if (index <= 0) return;
+  shiftStyleRangesForDelete(index - 1, index);
   labelText = labelText.slice(0, index - 1) + labelText.slice(index);
   cursorIndex = index - 1;
   detailText = "Deleted one character.";
@@ -679,6 +757,7 @@ function deleteBackward() {
 function deleteForward() {
   const index = clampCursorIndex(cursorIndex);
   if (index >= labelText.length) return;
+  shiftStyleRangesForDelete(index, index + 1);
   labelText = labelText.slice(0, index) + labelText.slice(index + 1);
   detailText = "Deleted one character.";
   saveEditorState();
@@ -696,13 +775,13 @@ function moveCursorVertical(direction) {
   const targetLineIndex = constrain(current.lineIndex + direction, 0, layout.lines.length - 1);
   if (targetLineIndex === current.lineIndex) return;
 
-  const currentX = measureTextWidth(current.prefix, current.line.fontSize);
+  const currentX = measureStyledRangeWidth(current.line.start, clampCursorIndex(cursorIndex), current.line.fontSize);
   const targetLine = layout.lines[targetLineIndex];
   let bestOffset = 0;
   let bestDistance = Infinity;
   for (let offset = 0; offset <= targetLine.text.length; offset += 1) {
     const distance = Math.abs(
-      measureTextWidth(targetLine.text.slice(0, offset), targetLine.fontSize) - currentX
+      measureStyledRangeWidth(targetLine.start, targetLine.start + offset, targetLine.fontSize) - currentX
     );
     if (distance < bestDistance) {
       bestDistance = distance;
@@ -731,22 +810,20 @@ function resetCurrentLineFontSize() {
 }
 
 function toggleCurrentLineStyle(styleKey) {
-  const logicalLineIndex = getLogicalLineIndexAtCursor();
-  const style = getLineTextStyle(logicalLineIndex);
-  const nextStyle = {
-    bold: style.bold,
-    italic: style.italic,
-    underline: style.underline,
-  };
-  nextStyle[styleKey] = !nextStyle[styleKey];
+  const target = getStyleToggleTarget();
+  if (!target) return;
 
-  if (!nextStyle.bold && !nextStyle.italic && !nextStyle.underline) {
-    delete lineTextStyles[logicalLineIndex];
-  } else {
-    lineTextStyles[logicalLineIndex] = nextStyle;
+  const styleLabel = styleKey === "underline" ? "underline" : styleKey;
+  if (target.mode === "pending") {
+    pendingTextStyle[styleKey] = !pendingTextStyle[styleKey];
+    detailText = `${pendingTextStyle[styleKey] ? "Armed" : "Stopped"} ${styleLabel}.`;
+    saveEditorState();
+    return;
   }
 
-  detailText = `Line ${logicalLineIndex + 1}: ${describeLineStyle(nextStyle)}`;
+  const active = isRangeFullyStyled(styleKey, target.start, target.end);
+  setStyleForRange(styleKey, target.start, target.end, !active);
+  detailText = `${active ? "Removed" : "Applied"} ${styleLabel}.`;
   saveEditorState();
 }
 
@@ -764,12 +841,50 @@ function getLineFontSize(logicalLineIndex) {
 }
 
 function getLineTextStyle(logicalLineIndex) {
-  const style = lineTextStyles[logicalLineIndex];
   return {
-    bold: !!style?.bold,
-    italic: !!style?.italic,
-    underline: !!style?.underline,
+    bold: false,
+    italic: false,
+    underline: false,
   };
+}
+
+function getEditorFontOption() {
+  return fontOptions.find((option) => option.key === editorFontMode) || fontOptions[0];
+}
+
+function getEditorFontLabel() {
+  return getEditorFontOption().label;
+}
+
+function getEditorFontResource() {
+  const option = getEditorFontOption();
+  if (option.key === "helvetica") return "Helvetica";
+  if (option.key === "terminus") return terminusFont || fallbackFontFamily;
+  if (option.key === "perfectdos") return perfectDosFont || fallbackFontFamily;
+  return option.family || fallbackFontFamily;
+}
+
+function applyEditorFont(target = window, fontSize = null) {
+  const resource = getEditorFontResource();
+  if (typeof target?.textFont === "function" && resource) {
+    target.textFont(resource);
+  }
+  if (fontSize != null && typeof target?.textSize === "function") {
+    target.textSize(fontSize);
+  }
+  if (target?.drawingContext) {
+    target.drawingContext.fontKerning = "none";
+  }
+}
+
+function toggleEditorFont() {
+  const currentIndex = fontOptions.findIndex((option) => option.key === editorFontMode);
+  const nextIndex = currentIndex >= 0 ? (currentIndex + 1) % fontOptions.length : 0;
+  editorFontMode = fontOptions[nextIndex].key;
+  applyEditorFont();
+  rebuildLabelGraphic();
+  detailText = `Font: ${getEditorFontLabel()}`;
+  saveEditorState();
 }
 
 function getSteppedFontSize(currentSize, direction) {
@@ -787,11 +902,52 @@ function getSteppedFontSize(currentSize, direction) {
 }
 
 function applyLabelFontSize(fontSize) {
-  labelGraphic.textFont(fontFamily);
-  labelGraphic.textSize(fontSize);
+  applyEditorFont(labelGraphic, fontSize);
 }
 
 function applyLineTextStyle(style) {
+  labelGraphic.textStyle(NORMAL);
+}
+
+function drawStyledLine(line, y) {
+  const segments = getLineSegments(line.start, line.end, line.text);
+  let x = pagePadding;
+
+  for (const segment of segments) {
+    const textValue = segment.text || " ";
+    const style = segment.style || {};
+    const whitespaceOnly = isWhitespaceOnly(textValue);
+    const renderStyle = whitespaceOnly
+      ? { bold: false, italic: false, underline: false }
+      : style;
+    const widthValue = whitespaceOnly
+      ? measureWhitespaceWidth(textValue, line.fontSize)
+      : measureTextWidth(textValue, line.fontSize, renderStyle);
+
+    labelGraphic.push();
+    applyEditorFont(labelGraphic, line.fontSize);
+    labelGraphic.textLeading(line.lineHeight);
+    applySegmentTextStyle(renderStyle);
+    labelGraphic.fill(0);
+    labelGraphic.noStroke();
+    if (!whitespaceOnly) {
+      labelGraphic.text(textValue, x, y);
+    }
+    labelGraphic.pop();
+
+    if (style.underline) {
+      const underlineY = y + line.fontSize * 0.9;
+      labelGraphic.stroke(0);
+      labelGraphic.strokeWeight(Math.max(1, line.fontSize * 0.03));
+      labelGraphic.line(x, underlineY, x + widthValue, underlineY);
+      labelGraphic.noStroke();
+    }
+
+    x += widthValue;
+  }
+}
+
+function applySegmentTextStyle(style) {
   if (style?.bold && style?.italic) {
     labelGraphic.textStyle(BOLDITALIC);
     return;
@@ -807,18 +963,9 @@ function applyLineTextStyle(style) {
   labelGraphic.textStyle(NORMAL);
 }
 
-function drawLineUnderline(line, y) {
-  if (!line?.style?.underline) return;
-  const textValue = line.text || " ";
-  const lineWidth = measureTextWidth(textValue, line.fontSize);
-  const underlineY = y + line.fontSize * 1.04;
-  labelGraphic.stroke(0);
-  labelGraphic.strokeWeight(Math.max(2, line.fontSize * 0.045));
-  labelGraphic.line(pagePadding, underlineY, pagePadding + lineWidth, underlineY);
-}
-
-function measureTextWidth(text, fontSize = defaultFontSize) {
+function measureTextWidth(text, fontSize = defaultFontSize, style = null) {
   applyLabelFontSize(fontSize);
+  applySegmentTextStyle(style);
   const safeText = String(text ?? "").replace(/ /g, "\u00A0");
   const sentinel = "|";
   return labelGraphic.textWidth(safeText + sentinel) - labelGraphic.textWidth(sentinel);
@@ -831,7 +978,6 @@ function makeLine(text, start, end, logicalLineIndex, fontSize) {
     end,
     logicalLineIndex,
     fontSize,
-    style: getLineTextStyle(logicalLineIndex),
     lineHeight: fontSize * lineHeightFactor,
   };
 }
@@ -858,9 +1004,11 @@ function saveEditorState() {
       text: labelText,
       cursorIndex,
       lineFontSizes,
-      lineTextStyles,
+      textStyleRanges,
+      pendingTextStyle,
       labelFormat,
       orientation,
+      editorFontMode,
     }));
   } catch {}
 }
@@ -873,9 +1021,13 @@ function loadEditorState() {
     labelText = typeof data.text === "string" ? data.text : "";
     cursorIndex = clampCursorIndex(Number.isFinite(data.cursorIndex) ? data.cursorIndex : labelText.length);
     lineFontSizes = data.lineFontSizes && typeof data.lineFontSizes === "object" ? data.lineFontSizes : {};
-    lineTextStyles = data.lineTextStyles && typeof data.lineTextStyles === "object" ? data.lineTextStyles : {};
+    textStyleRanges = sanitizeTextStyleRanges(data.textStyleRanges);
+    pendingTextStyle = sanitizePendingTextStyle(data.pendingTextStyle);
     labelFormat = labelFormats[data.labelFormat] ? data.labelFormat : "10x15";
     orientation = data.orientation === "landscape" ? "landscape" : "portrait";
+    editorFontMode = fontOptions.some((option) => option.key === data.editorFontMode)
+      ? data.editorFontMode
+      : "helvetica";
   } catch {}
 }
 
@@ -883,7 +1035,16 @@ function clearEditor() {
   labelText = "";
   cursorIndex = 0;
   lineFontSizes = {};
-  lineTextStyles = {};
+  textStyleRanges = {
+    bold: [],
+    italic: [],
+    underline: [],
+  };
+  pendingTextStyle = {
+    bold: false,
+    italic: false,
+    underline: false,
+  };
   detailText = "Cleared label.";
   saveEditorState();
 }
@@ -908,11 +1069,227 @@ function rebuildLabelGraphic() {
   const labelPixelHeight = Math.round(heightCm * 10 * dotsPerMm);
   labelGraphic = createGraphics(labelPixelWidth, labelPixelHeight);
   labelGraphic.pixelDensity(1);
-  labelGraphic.textFont(fontFamily);
+  applyEditorFont(labelGraphic);
 }
 
 function getCurrentLabelFormat() {
   return labelFormats[labelFormat] || labelFormats["10x15"];
+}
+
+function sanitizeTextStyleRanges(raw) {
+  const source = raw && typeof raw === "object" ? raw : {};
+  return {
+    bold: normalizeStyleRanges(Array.isArray(source.bold) ? source.bold : []),
+    italic: normalizeStyleRanges(Array.isArray(source.italic) ? source.italic : []),
+    underline: normalizeStyleRanges(Array.isArray(source.underline) ? source.underline : []),
+  };
+}
+
+function sanitizePendingTextStyle(raw) {
+  const source = raw && typeof raw === "object" ? raw : {};
+  return {
+    bold: !!source.bold,
+    italic: !!source.italic,
+    underline: !!source.underline,
+  };
+}
+
+function normalizeStyleRanges(ranges) {
+  const cleaned = ranges
+    .map((range) => ({
+      start: clampCursorIndex(Math.round(Number(range?.start) || 0)),
+      end: clampCursorIndex(Math.round(Number(range?.end) || 0)),
+    }))
+    .filter((range) => range.end > range.start)
+    .sort((a, b) => a.start - b.start || a.end - b.end);
+
+  const merged = [];
+  for (const range of cleaned) {
+    const last = merged[merged.length - 1];
+    if (last && range.start <= last.end) {
+      last.end = Math.max(last.end, range.end);
+    } else {
+      merged.push({ start: range.start, end: range.end });
+    }
+  }
+  return merged;
+}
+
+function getStyleAtIndex(index) {
+  return {
+    bold: isStyleActiveAt("bold", index),
+    italic: isStyleActiveAt("italic", index),
+    underline: isStyleActiveAt("underline", index),
+  };
+}
+
+function isStyleActiveAt(styleKey, index) {
+  const ranges = textStyleRanges[styleKey] || [];
+  return ranges.some((range) => index >= range.start && index < range.end);
+}
+
+function getLineSegments(start, end, text) {
+  if (start >= end) {
+    return [{ text: text || "", style: getStyleAtIndex(start) }];
+  }
+
+  const breakpoints = new Set([start, end]);
+  for (const styleKey of ["bold", "italic", "underline"]) {
+    for (const range of textStyleRanges[styleKey] || []) {
+      if (range.end <= start || range.start >= end) continue;
+      breakpoints.add(Math.max(start, range.start));
+      breakpoints.add(Math.min(end, range.end));
+    }
+  }
+
+  const points = Array.from(breakpoints).sort((a, b) => a - b);
+  const segments = [];
+  for (let index = 0; index < points.length - 1; index += 1) {
+    const segStart = points[index];
+    const segEnd = points[index + 1];
+    if (segEnd <= segStart) continue;
+    segments.push({
+      text: labelText.slice(segStart, segEnd),
+      style: getStyleAtIndex(segStart),
+    });
+  }
+  return segments.length ? segments : [{ text: text || "", style: getStyleAtIndex(start) }];
+}
+
+function isWhitespaceOnly(text) {
+  return /^\s+$/.test(String(text || ""));
+}
+
+function measureWhitespaceWidth(text, fontSize) {
+  const raw = String(text || "");
+  const measured = measureTextWidth(raw, fontSize, null);
+  const spaceCount = raw.length;
+  const minimumPerChar = Math.max(6, fontSize * 0.24);
+  return Math.max(measured, minimumPerChar * spaceCount);
+}
+
+function measureStyledRangeWidth(start, end, fontSize) {
+  if (end <= start) return 0;
+  const segments = getLineSegments(start, end, labelText.slice(start, end));
+  let widthValue = 0;
+  for (const segment of segments) {
+    const whitespaceOnly = isWhitespaceOnly(segment.text);
+    widthValue += whitespaceOnly
+      ? measureWhitespaceWidth(segment.text, fontSize)
+      : measureTextWidth(segment.text, fontSize, segment.style);
+  }
+  return widthValue;
+}
+
+function shiftStyleRangesForInsert(index, amount) {
+  if (!amount) return;
+  for (const styleKey of ["bold", "italic", "underline"]) {
+    const ranges = textStyleRanges[styleKey] || [];
+    for (const range of ranges) {
+      if (index < range.start) {
+        range.start += amount;
+        range.end += amount;
+        continue;
+      }
+      if (index >= range.start && index <= range.end) {
+        range.end += amount;
+      }
+    }
+    textStyleRanges[styleKey] = normalizeStyleRanges(ranges);
+  }
+}
+
+function shiftStyleRangesForDelete(start, end) {
+  if (end <= start) return;
+  const delta = end - start;
+  const mapIndex = (value) => {
+    if (value <= start) return value;
+    if (value >= end) return value - delta;
+    return start;
+  };
+
+  for (const styleKey of ["bold", "italic", "underline"]) {
+    const ranges = textStyleRanges[styleKey] || [];
+    textStyleRanges[styleKey] = normalizeStyleRanges(
+      ranges.map((range) => ({
+        start: mapIndex(range.start),
+        end: mapIndex(range.end),
+      }))
+    );
+  }
+}
+
+function applyPendingStyleToInsertedText(start, length) {
+  if (length <= 0) return;
+  const end = start + length;
+  for (const styleKey of ["bold", "italic", "underline"]) {
+    if (!pendingTextStyle[styleKey]) continue;
+    setStyleForRange(styleKey, start, end, true);
+  }
+}
+
+function getStyleToggleTarget() {
+  const index = clampCursorIndex(cursorIndex);
+  const prevChar = labelText[index - 1] || "";
+  const nextChar = labelText[index] || "";
+  const prevIsWord = isWordChar(prevChar);
+  const nextIsWord = isWordChar(nextChar);
+
+  if (prevIsWord && nextIsWord) {
+    return {
+      mode: "word",
+      ...getWordRangeAroundCursor(index),
+    };
+  }
+
+  return {
+    mode: "pending",
+    start: index,
+    end: index,
+  };
+}
+
+function isRangeFullyStyled(styleKey, start, end) {
+  const ranges = textStyleRanges[styleKey] || [];
+  return ranges.some((range) => start >= range.start && end <= range.end);
+}
+
+function setStyleForRange(styleKey, start, end, enabled) {
+  if (end <= start) return;
+  const ranges = textStyleRanges[styleKey] || [];
+  if (enabled) {
+    ranges.push({ start, end });
+    textStyleRanges[styleKey] = normalizeStyleRanges(ranges);
+    return;
+  }
+
+  const next = [];
+  for (const range of ranges) {
+    if (range.end <= start || range.start >= end) {
+      next.push(range);
+      continue;
+    }
+    if (range.start < start) {
+      next.push({ start: range.start, end: start });
+    }
+    if (range.end > end) {
+      next.push({ start: end, end: range.end });
+    }
+  }
+  textStyleRanges[styleKey] = normalizeStyleRanges(next);
+}
+
+function getWordRangeAroundCursor(index) {
+  let start = index;
+  let end = index;
+
+  while (start > 0 && isWordChar(labelText[start - 1])) start -= 1;
+  while (end < labelText.length && isWordChar(labelText[end])) end += 1;
+  return { start, end };
+}
+
+function isWordChar(char) {
+  return !!char && !/\s/.test(char);
 }
 
 function windowResized() {
