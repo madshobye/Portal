@@ -76,11 +76,12 @@ const APP_STATUS_LABELS = {
 const APP_STATUS_TEXT_SIZE = 58;
 const BLINK_LOG_COOLDOWN_MS = 260;
 const BLINK_BASELINE_EMA = 0.14;
-const BLINK_TRIGGER_RATIO = 0.72;
+const BLINK_TRIGGER_RATIO = 0.82;
 const BLINK_REARM_RATIO = 0.9;
 const BLINK_MIN_OPEN_EAR = 0.18;
 const BLINK_MIN_TRIGGER_EAR = 0.11;
 const BLINK_MAX_TRIGGER_EAR = 0.34;
+const BLINK_RING_MARGIN_PX = -10;
 const SCAN_SWEEP_DURATION_MS = 1200;
 const SCAN_EFFECT_HOLD_MS = 900;
 const SCAN_VIBRATE_PX = 3.5;
@@ -97,8 +98,8 @@ const RESULT_LIST_BG = [8, 18, 26, 175];
 const RESULT_LIST_STROKE = [90, 225, 255, 120];
 const RESULT_LIST_TEXT = [216, 245, 255, 230];
 const RESULT_LIST_LABEL = [120, 225, 255, 235];
-const ANALYSIS_CALLOUT_BOX_W = 290;
-const ANALYSIS_CALLOUT_BOX_H = 76;
+const ANALYSIS_CALLOUT_BOX_W = 174;
+const ANALYSIS_CALLOUT_BOX_H = 62;
 const ANALYSIS_CALLOUT_MARGIN = 18;
 const ANALYSIS_CALLOUT_RADIUS_X_EXTRA = 200;
 const ANALYSIS_CALLOUT_RADIUS_Y_EXTRA = 150;
@@ -483,8 +484,7 @@ function createClient() {
                nutrient_sufficiency:  { type: "string" },
                bmi: { type: "number" },
                civil_status: { type: "string" },
-               
-               commmon_challanges_this_demographic: { type: "string" },
+               demographic_challanges: { type: "string" },
                life_advice: { type: "string" },
              },
 
@@ -501,9 +501,7 @@ function createClient() {
       "Do your best guess with no expectation of a perfect result. " +
       "It is better to provide a useful estimate than to refuse. " +
       "Focus on visible, non-sensitive cues: scene, lighting, mood, colors, and context hints. " +
-      "Do not infer sensitive personal traits (health, religion, politics, sexuality, criminality, mental state). " +
-      "Make the advice practical and specific to what can reasonably be inferred from visible context. " +
-      "Do not frame it around appearance. Keep it short. Respond using the provided image_response tool.",
+      "except for life advice only one word og number per element",
     functionSchemas,
     functionName: "image_response",
     temperature: 0.2,
@@ -569,8 +567,14 @@ function draw() {
 }
 
 function processBlinkFromFaceMesh(mesh, renderFrame = null, analysisVisible = false) {
-  if (!mesh?.hasNewResult?.()) return;
-  const { faces } = mesh.consumeNew();
+  if (!mesh) return;
+  let faces = null;
+  if (mesh?.hasNewResult?.()) {
+    const packet = mesh.consumeNew();
+    faces = packet?.faces || null;
+  } else {
+    faces = mesh?.getFacesRaw?.() || null;
+  }
   if (requestInFlight || analysisVisible) {
     blinkArmed = true;
     return;
@@ -668,15 +672,8 @@ function isFaceInsideScanRing(face, renderFrame = null) {
   const points = mappedFace?.keypoints || [];
   const bounds = getBoundsFromPoints(points);
   if (!bounds) return false;
-
-  const faceCenterX = bounds.x + bounds.w * 0.5;
-  const faceCenterY = bounds.y + bounds.h * 0.5;
-  const dx = faceCenterX - width * 0.5;
-  const dy = faceCenterY - height * 0.5;
-  const distance = Math.hypot(dx, dy);
-  const radius = Math.min(width, height) * 0.64 * 0.5;
-
-  return distance <= radius;
+  const circleDiameter = Math.min(width, height) * 0.64;
+  return isBoundsInsideRing(bounds, circleDiameter, BLINK_RING_MARGIN_PX);
 }
 
 function triggerBlinkAnalysis(renderFrame = null) {
@@ -1101,19 +1098,45 @@ function updateAppStatusFromFace(mesh, renderFrame, circleDiameter) {
     setAppStatus(APP_STATUS_MODES.DETECTING);
     return;
   }
-
-  const faceCenterX = bounds.x + bounds.w * 0.5;
-  const faceCenterY = bounds.y + bounds.h * 0.5;
-  const dx = faceCenterX - width * 0.5;
-  const dy = faceCenterY - height * 0.5;
-  const distance = Math.sqrt(dx * dx + dy * dy);
-  const radius = (Number(circleDiameter) || Math.min(width, height) * 0.64) * 0.5;
-
-  if (distance <= radius) {
+  if (isBoundsInsideRing(bounds, circleDiameter, 6)) {
     setAppStatus(APP_STATUS_MODES.LOCKED);
   } else {
     setAppStatus(APP_STATUS_MODES.CENTER_FACE);
   }
+}
+
+function isBoundsInsideRing(bounds, circleDiameter, ringMarginPx = 0) {
+  if (!bounds) return false;
+  const cx = width * 0.5;
+  const cy = height * 0.5;
+  const radius = (Number(circleDiameter) || Math.min(width, height) * 0.64) * 0.5 - ringMarginPx;
+  if (!Number.isFinite(radius) || radius <= 0) return false;
+
+  const x0 = bounds.x;
+  const y0 = bounds.y;
+  const x1 = bounds.x + bounds.w;
+  const y1 = bounds.y + bounds.h;
+  const xm = (x0 + x1) * 0.5;
+  const ym = (y0 + y1) * 0.5;
+
+  const testPoints = [
+    [x0, y0],
+    [x1, y0],
+    [x0, y1],
+    [x1, y1],
+    [xm, y0],
+    [xm, y1],
+    [x0, ym],
+    [x1, ym],
+  ];
+
+  for (const point of testPoints) {
+    const dx = point[0] - cx;
+    const dy = point[1] - cy;
+    if (Math.hypot(dx, dy) > radius) return false;
+  }
+
+  return true;
 }
 
 function drawAppStatusLabel(circleDiameter) {
@@ -1256,17 +1279,7 @@ function drawAnalysisCallouts(mesh, renderFrame = null, analysisVisible = false)
       ANALYSIS_CALLOUT_BG[2] ?? 26,
       (ANALYSIS_CALLOUT_BG[3] ?? 175) * panelEase * itemEase
     );
-    rect(boxX, boxY, boxW, boxH, 8);
-
-    stroke(
-      ANALYSIS_CALLOUT_STROKE[0] ?? 90,
-      ANALYSIS_CALLOUT_STROKE[1] ?? 225,
-      ANALYSIS_CALLOUT_STROKE[2] ?? 255,
-      (ANALYSIS_CALLOUT_STROKE[3] ?? 120) * panelEase * itemEase
-    );
-    strokeWeight(1.1);
-    noFill();
-    rect(boxX, boxY, boxW, boxH, 8);
+    rect(boxX, boxY, boxW, boxH, 4);
 
     noStroke();
     fill(
@@ -1276,8 +1289,8 @@ function drawAnalysisCallouts(mesh, renderFrame = null, analysisVisible = false)
       (ANALYSIS_CALLOUT_LABEL[3] ?? 235) * panelEase * itemEase
     );
     textStyle(BOLD);
-    textSize(14);
-    text(item.label, boxX + 11, boxY + 9, boxW - 22, 18);
+    textSize(12);
+    text(`${item.label}:`, boxX + 10, boxY + 7);
 
     fill(
       ANALYSIS_CALLOUT_VALUE[0] ?? 255,
@@ -1286,8 +1299,8 @@ function drawAnalysisCallouts(mesh, renderFrame = null, analysisVisible = false)
       (ANALYSIS_CALLOUT_VALUE[3] ?? 235) * panelEase * itemEase
     );
     textStyle(NORMAL);
-    textSize(13);
-    text(item.value, boxX + 11, boxY + 30, boxW - 22, boxH - 38);
+    textSize(12);
+    text(item.value, boxX + 10, boxY + 24, boxW - 20, boxH - 30);
   }
 
   pop();
