@@ -70,7 +70,7 @@ const APP_STATUS_MODES = {
 const APP_STATUS_LABELS = {
   [APP_STATUS_MODES.DETECTING]: "DETECTING",
   [APP_STATUS_MODES.CENTER_FACE]: "CENTER FACE",
-  [APP_STATUS_MODES.LOCKED]: "LOCKED",
+  [APP_STATUS_MODES.LOCKED]: "Blink to analyse",
   [APP_STATUS_MODES.ANALYSING]: "ANALYSING",
 };
 const APP_STATUS_TEXT_SIZE = 58;
@@ -99,7 +99,7 @@ const RESULT_LIST_STROKE = [90, 225, 255, 120];
 const RESULT_LIST_TEXT = [216, 245, 255, 230];
 const RESULT_LIST_LABEL = [120, 225, 255, 235];
 const ANALYSIS_CALLOUT_BOX_W = 174;
-const ANALYSIS_CALLOUT_BOX_H = 62;
+const ANALYSIS_CALLOUT_BOX_H = 50;
 const ANALYSIS_CALLOUT_MARGIN = 18;
 const ANALYSIS_CALLOUT_RADIUS_X_EXTRA = 200;
 const ANALYSIS_CALLOUT_RADIUS_Y_EXTRA = 150;
@@ -463,8 +463,8 @@ function createClient() {
   const functionSchemas = [
     {
       name: "image_response",
-      description: "Return a concise, non-sensitive visual read of the image. Make your best gues. Do not write unclear or unknown.",
-      parameters: {
+          description: " Make your best gues. Do not write unclear or unknown.",
+        parameters: {
              type: "object",
 
              properties: {
@@ -526,10 +526,10 @@ function draw() {
       faceMesh.drawImage();
     }
 
-    if (SHOW_FACEMESH_LINES) {
+    if (SHOW_FACEMESH_LINES && !analysisVisible) {
       drawFaceMeshConnections(faceMesh, renderFrame);
     }
-    if (SHOW_FACEMESH_POINTS) {
+    if (SHOW_FACEMESH_POINTS && !analysisVisible) {
       if (renderFrame) {
         drawFaceMeshPoints(faceMesh, renderFrame);
       } else {
@@ -1255,23 +1255,6 @@ function drawAnalysisCallouts(mesh, renderFrame = null, analysisVisible = false)
     const boxX = constrain(tx - boxW * 0.5, ANALYSIS_CALLOUT_MARGIN, width - ANALYSIS_CALLOUT_MARGIN - boxW);
     const boxY = constrain(ty - boxH * 0.5, ANALYSIS_CALLOUT_MARGIN, height - ANALYSIS_CALLOUT_MARGIN - boxH);
 
-    const anchorIndex = ANALYSIS_CALLOUT_ANCHOR_INDICES[i % ANALYSIS_CALLOUT_ANCHOR_INDICES.length];
-    const anchorPoint = points[anchorIndex] || points[10] || points[0];
-    const ax = Number(anchorPoint?.x);
-    const ay = Number(anchorPoint?.y);
-    if (Number.isFinite(ax) && Number.isFinite(ay)) {
-      const edgeX = ax < boxX ? boxX : ax > boxX + boxW ? boxX + boxW : ax;
-      const edgeY = constrain(ay, boxY + 8, boxY + boxH - 8);
-      stroke(
-        ANALYSIS_CALLOUT_CONNECTOR[0] ?? 90,
-        ANALYSIS_CALLOUT_CONNECTOR[1] ?? 225,
-        ANALYSIS_CALLOUT_CONNECTOR[2] ?? 255,
-        (ANALYSIS_CALLOUT_CONNECTOR[3] ?? 165) * panelEase * itemEase
-      );
-      strokeWeight(1.4);
-      line(ax, ay, edgeX, edgeY);
-    }
-
     noStroke();
     fill(
       ANALYSIS_CALLOUT_BG[0] ?? 8,
@@ -1300,7 +1283,7 @@ function drawAnalysisCallouts(mesh, renderFrame = null, analysisVisible = false)
     );
     textStyle(NORMAL);
     textSize(12);
-    text(item.value, boxX + 10, boxY + 24, boxW - 20, boxH - 30);
+    text(item.value, boxX + 10, boxY + 22, boxW - 20, boxH - 24);
   }
 
   pop();
