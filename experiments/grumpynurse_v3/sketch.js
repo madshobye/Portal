@@ -761,16 +761,18 @@ function measureStageBubbleLayout(entry, columnX, columnWidth) {
   textFont("Helvetica Neue");
   textStyle(NORMAL);
   const fontSize = isNurse
-    ? Math.max(20, Math.min(34, width * 0.024))
-    : Math.max(18, Math.min(30, width * 0.021));
+    ? Math.max(16, Math.min(26, width * 0.019))
+    : Math.max(15, Math.min(24, width * 0.017));
   const leading = isNurse
-    ? Math.max(24, Math.min(40, width * 0.03))
-    : Math.max(22, Math.min(36, width * 0.026));
+    ? Math.max(20, Math.min(30, width * 0.023))
+    : Math.max(19, Math.min(28, width * 0.021));
   textSize(fontSize);
   textLeading(leading);
 
-  const bubbleW = Math.min(columnWidth, isNurse ? columnWidth : columnWidth * 0.9);
-  const bubbleX = isNurse ? columnX : columnX + (columnWidth - bubbleW);
+  const bubbleW = Math.min(columnWidth, isNurse ? columnWidth * 0.92 : columnWidth * 0.86);
+  const baseBubbleX = isNurse ? columnX : columnX + (columnWidth - bubbleW);
+  const roleOffsetX = isNurse ? -20 : 12;
+  const bubbleX = constrain(baseBubbleX + roleOffsetX, 12, width - bubbleW - 12);
   const paddingX = isNurse ? 22 : 20;
   const paddingY = isNurse ? 18 : 16;
   const iconOffset = isRecording ? 24 : 0;
@@ -819,6 +821,7 @@ function drawStageBubbleLayout(layout, y, options = {}) {
   textStyle(NORMAL);
   textSize(layout.fontSize);
   textLeading(layout.leading);
+  textAlign(LEFT, TOP);
   fill(247, 245, 239, 255);
 
   let textX = layout.bubbleX + layout.paddingX;
@@ -838,30 +841,41 @@ function drawStageBubbleLayout(layout, y, options = {}) {
 }
 
 function drawUserBubbleTail(layout, y) {
-  const baseX = layout.bubbleX + layout.bubbleW - 8;
-  const baseY = y + layout.bubbleH * 0.58;
-  const tipX = Math.min(width - 4, baseX + 52);
-  const tipY = baseY + 24;
+  const cornerRadius = 24;
+  const usableMinY = y + cornerRadius + 2;
+  const usableMaxY = y + layout.bubbleH - cornerRadius - 2;
+  const baseY = constrain(y + layout.bubbleH * 0.58, usableMinY, usableMaxY);
+  const availableHalfSpan = Math.max(10, (usableMaxY - usableMinY) * 0.5);
+  const halfSpan = Math.min(26, availableHalfSpan);
+  const edgeX = layout.bubbleX + layout.bubbleW - 1;
+  const tipX = Math.min(width - 4, edgeX + 64);
+  const tipY = baseY + 2;
   noStroke();
   fill(0, 0, 0, 196);
   beginShape();
-  vertex(baseX - 34, baseY - 16);
+  vertex(edgeX, baseY - halfSpan);
   vertex(tipX, tipY);
-  vertex(baseX - 36, baseY + 16);
+  vertex(edgeX, baseY + halfSpan);
   endShape(CLOSE);
 }
 
 function drawNurseBubbleTail(layout, y, mouth) {
-  const baseX = layout.bubbleX + 16;
-  const baseY = y + layout.bubbleH * 0.7;
-  const tipX = constrain(mouth.x + 12, layout.bubbleX - 56, layout.bubbleX + 28);
-  const tipY = constrain(mouth.y - 4, baseY + 10, baseY + 78);
+  const cornerRadius = 28;
+  const usableMinY = y + cornerRadius + 2;
+  const usableMaxY = y + layout.bubbleH - cornerRadius - 2;
+  if (usableMaxY <= usableMinY) return;
+  const baseY = constrain(y + layout.bubbleH * 0.64, usableMinY, usableMaxY);
+  const availableHalfSpan = Math.max(8, (usableMaxY - usableMinY) * 0.5);
+  const halfSpan = Math.min(22, availableHalfSpan);
+  const edgeX = layout.bubbleX + 1;
+  const tipX = constrain(mouth.x + 12, layout.bubbleX - 68, layout.bubbleX + 30);
+  const tipY = constrain(mouth.y - 4, baseY + 8, baseY + 78);
   noStroke();
   fill(0, 0, 0, 208);
   beginShape();
-  vertex(baseX + 34, baseY - 16);
+  vertex(edgeX, baseY - halfSpan);
   vertex(tipX, tipY);
-  vertex(baseX + 36, baseY + 16);
+  vertex(edgeX, baseY + halfSpan);
   endShape(CLOSE);
 }
 
