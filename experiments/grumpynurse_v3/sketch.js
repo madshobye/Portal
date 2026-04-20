@@ -259,6 +259,8 @@ let chatHistory = [];
 let currentTask = "";
 let currentOptions = [];
 let currentTipText = "";
+let currentTipAssistantTurn = 0;
+let assistantTurnCounter = 0;
 let currentSilencePrompts = [];
 let silencePromptTimeouts = [];
 let lastAssistantTurnEndedAt = 0;
@@ -660,8 +662,8 @@ function drawStageUi() {
 }
 
 function drawTaskBanner() {
-  const assistantTurns = chatHistory.filter((item) => item.role === "assistant").length;
-  if (assistantTurns < MIN_ASSISTANT_TURNS_FOR_TIP) return;
+  if (assistantTurnCounter < MIN_ASSISTANT_TURNS_FOR_TIP) return;
+  if (assistantTurnCounter !== currentTipAssistantTurn) return;
 
   const tipText = String(currentTipText || "").trim();
   if (!tipText) return;
@@ -1563,6 +1565,9 @@ function appendMessage(kind, text, meta = null) {
   if (stageBubbleList.length > STAGE_BUBBLE_LIMIT) {
     stageBubbleList = stageBubbleList.slice(-STAGE_BUBBLE_LIMIT);
   }
+  if (kind === "nurse") {
+    assistantTurnCounter += 1;
+  }
   return nextBubble;
 }
 
@@ -1597,6 +1602,8 @@ function resetScenarioState() {
   currentTask = "";
   currentOptions = [];
   currentTipText = "";
+  currentTipAssistantTurn = 0;
+  assistantTurnCounter = 0;
   currentSilencePrompts = [];
   lastAssistantTurnEndedAt = 0;
   currentMood = { ...DEFAULT_MOOD };
@@ -2259,8 +2266,13 @@ function renderTask() {
 function updateOptions(nextOptions) {
   currentOptions = Array.isArray(nextOptions) ? nextOptions.slice(0, 4) : [];
   const nextTip = String(currentOptions?.[0] || "").trim();
+  const nextAssistantTurn = assistantTurnCounter + 1;
   if (nextTip) {
     currentTipText = nextTip;
+    currentTipAssistantTurn = nextAssistantTurn;
+  } else if (currentTipAssistantTurn === nextAssistantTurn) {
+    currentTipText = "";
+    currentTipAssistantTurn = 0;
   }
   renderOptions();
   applyConversationVisibility();
