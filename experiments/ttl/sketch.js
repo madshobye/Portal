@@ -627,13 +627,12 @@ function handleToggleLabelFormat() {
   updateInfo();
 }
 
-async function maybeAutoPrintAnalysis(response) {
+async function maybeAutoPrintAnalysis(response, faceMeshSnapshot = null) {
   if (!response || response.error) return;
   if (!labelPrinter) return;
   try {
-    const faceMeshPoints = getCurrentNormalizedFacePoints(activeFaceFrame || null);
     const result = await labelPrinter.printAnalysisReceipt(response, {
-      faceMeshPoints,
+      faceMeshPoints: faceMeshSnapshot,
     });
     if (result?.printed) {
       appendDebugLog("[printer] analysis receipt printed");
@@ -646,7 +645,7 @@ async function maybeAutoPrintAnalysis(response) {
   }
 }
 
-function getCurrentNormalizedFacePoints(renderFrame = null) {
+function getCurrentFaceMeshSnapshot(renderFrame = null) {
   const faces = getFacesInCanvasSpace(faceMesh, renderFrame);
   const points = faces?.[0]?.keypoints || [];
   if (!points.length) return null;
@@ -877,7 +876,8 @@ function triggerBlinkAnalysis(renderFrame = null) {
   appendDebugLog("blink action: capture + analyse");
 
   const snapshot = captureCurrentSnapshot(renderFrame);
-  requestAnalysisWithImage(snapshot, "blink");
+  const faceMeshSnapshot = getCurrentFaceMeshSnapshot(renderFrame || activeFaceFrame || null);
+  requestAnalysisWithImage(snapshot, "blink", { faceMeshSnapshot });
 }
 
 function captureCurrentSnapshot(renderFrame = null) {
@@ -907,11 +907,15 @@ function captureCurrentSnapshot(renderFrame = null) {
 
 async function requestAnalysis() {
   if (!gpt || !cam || requestInFlight) return;
-  await requestAnalysisWithImage(cam, "manual");
+  await requestAnalysisWithImage(cam, "manual", {
+    faceMeshSnapshot: getCurrentFaceMeshSnapshot(activeFaceFrame || null),
+  });
 }
 
-async function requestAnalysisWithImage(imageSource, reason = "manual") {
+async function requestAnalysisWithImage(imageSource, reason = "manual", options = {}) {
   if (!gpt || !imageSource || requestInFlight) return;
+  const capturedFaceMeshSnapshot =
+    options.faceMeshSnapshot ?? getCurrentFaceMeshSnapshot(activeFaceFrame || null);
   requestInFlight = true;
   if (runBtn?.elt) runBtn.elt.disabled = true;
   if (reason === "blink") {
@@ -945,7 +949,7 @@ async function requestAnalysisWithImage(imageSource, reason = "manual") {
       setResultListFromResponse(res);
       appendDebugLog("analysis:success");
       console.log(JSON.stringify(res, null, 2));
-      void maybeAutoPrintAnalysis(res);
+      void maybeAutoPrintAnalysis(res, capturedFaceMeshSnapshot);
       setStatus("Ready");
     }
   } catch (error) {
