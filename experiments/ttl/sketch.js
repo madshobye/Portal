@@ -76,9 +76,9 @@ const APP_STATUS_MODES = {
   ANALYSING: "analysing",
 };
 const APP_STATUS_LABELS = {
-  [APP_STATUS_MODES.DETECTING]: "DETECTING",
+  [APP_STATUS_MODES.DETECTING]: "STANDBY",
   [APP_STATUS_MODES.CENTER_FACE]: "CENTER FACE",
-  [APP_STATUS_MODES.LOCKED]: "Blink to analyse",
+  [APP_STATUS_MODES.LOCKED]: "BLINK TO ANALYSE",
   [APP_STATUS_MODES.ANALYSING]: "ANALYSING",
 };
 const APP_STATUS_TEXT_SIZE = 58;
@@ -98,7 +98,9 @@ const SCAN_EFFECT_HOLD_MS = 900;
 const SCAN_VIBRATE_PX = 3.5;
 const SCAN_GLOW_BAND_PX = 110;
 const SCAN_GLOW_STROKE_BOOST = 1.7;
-const SCAN_SNAPSHOT_SIZE = 896;
+const SCAN_SNAPSHOT_SIZE = 1152;
+const CAMERA_CAPTURE_WIDTH = 960;
+const CAMERA_CAPTURE_HEIGHT = 720;
 const RESULT_LIST_MAX_ITEMS = 14;
 const RESULT_LIST_WIDTH = 460;
 const RESULT_LIST_MARGIN = 26;
@@ -494,7 +496,13 @@ async function setup() {
     }
   }
 
-  cam = await setupWebcamera(false, 640, 480, false, false);
+  cam = await setupWebcamera(
+    false,
+    CAMERA_CAPTURE_WIDTH,
+    CAMERA_CAPTURE_HEIGHT,
+    false,
+    false
+  );
   if (typeof syncVideoDimensions === "function") {
     syncVideoDimensions(cam);
   }
@@ -880,6 +888,13 @@ function triggerBlinkAnalysis(renderFrame = null) {
   requestAnalysisWithImage(snapshot, "blink", { faceMeshSnapshot });
 }
 
+function resetLockCountdownState() {
+  lockedSinceMs = 0;
+  lastInsideRingMs = 0;
+  latestFaceInsideRing = false;
+  blinkArmed = true;
+}
+
 function captureCurrentSnapshot(renderFrame = null) {
   const sourceW = Math.max(1, Number(cam?.width) || Number(cam?.elt?.videoWidth) || 640);
   const sourceH = Math.max(1, Number(cam?.height) || Number(cam?.elt?.videoHeight) || 480);
@@ -917,6 +932,7 @@ async function requestAnalysisWithImage(imageSource, reason = "manual", options 
   const capturedFaceMeshSnapshot =
     options.faceMeshSnapshot ?? getCurrentFaceMeshSnapshot(activeFaceFrame || null);
   requestInFlight = true;
+  resetLockCountdownState();
   if (runBtn?.elt) runBtn.elt.disabled = true;
   if (reason === "blink") {
     setAppStatus(APP_STATUS_MODES.ANALYSING);
@@ -960,6 +976,7 @@ async function requestAnalysisWithImage(imageSource, reason = "manual", options 
     setStatus("Error");
   } finally {
     requestInFlight = false;
+    resetLockCountdownState();
     scanEffectUntilMs = Math.max(scanEffectUntilMs, millis() + 220);
     if (runBtn?.elt) runBtn.elt.disabled = false;
   }
