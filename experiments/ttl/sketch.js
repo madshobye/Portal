@@ -202,9 +202,11 @@ const MODEL_OPTIONS = [
 
 function loadDebugHidden() {
   try {
-    return window.localStorage.getItem(DEBUG_HIDDEN_KEY) === "1";
+    const value = window.localStorage.getItem(DEBUG_HIDDEN_KEY);
+    if (value === null) return true;
+    return value === "1";
   } catch {
-    return false;
+    return true;
   }
 }
 
