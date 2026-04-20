@@ -42,7 +42,6 @@ const LISTENING_BRIDGE_MS = 700;
 const GPT_TEMPERATURE = 0.8;
 const GPT_MAX_TOKENS = 500;
 const STAGE_BUBBLE_LIMIT = 14;
-const MIN_ASSISTANT_TURNS_FOR_TIP = 2;
 const START_VOICE_PATTERNS = [
   /\bi am ready\b/,
   /\bim ready\b/,
@@ -259,8 +258,7 @@ let chatHistory = [];
 let currentTask = "";
 let currentOptions = [];
 let currentTipText = "";
-let currentTipAssistantTurn = 0;
-let assistantTurnCounter = 0;
+let pendingTipText = "";
 let currentSilencePrompts = [];
 let silencePromptTimeouts = [];
 let lastAssistantTurnEndedAt = 0;
@@ -450,6 +448,7 @@ function draw() {
     }
     heardSentence = String(text || "").trim();
     if (heardSentence) {
+      currentTipText = "";
       pendingRecognizedSentence = heardSentence;
       pendingRecognizedAt = Date.now();
       listeningBridgeUntil = Date.now() + LISTENING_BRIDGE_MS;
@@ -662,9 +661,6 @@ function drawStageUi() {
 }
 
 function drawTaskBanner() {
-  if (assistantTurnCounter < MIN_ASSISTANT_TURNS_FOR_TIP) return;
-  if (assistantTurnCounter !== currentTipAssistantTurn) return;
-
   const tipText = String(currentTipText || "").trim();
   if (!tipText) return;
 
@@ -769,9 +765,9 @@ function measureStageBubbleLayout(entry, columnX, columnWidth) {
   textSize(fontSize);
   textLeading(leading);
 
-  const bubbleW = Math.min(columnWidth, isNurse ? columnWidth * 0.92 : columnWidth * 0.86);
+  const bubbleW = Math.min(columnWidth, isNurse ? columnWidth * 0.91 : columnWidth * 0.88);
   const baseBubbleX = isNurse ? columnX : columnX + (columnWidth - bubbleW);
-  const roleOffsetX = isNurse ? -20 : 12;
+  const roleOffsetX = isNurse ? -10 : 6;
   const bubbleX = constrain(baseBubbleX + roleOffsetX, 12, width - bubbleW - 12);
   const paddingX = isNurse ? 22 : 20;
   const paddingY = isNurse ? 18 : 16;
@@ -808,7 +804,7 @@ function drawStageBubbleLayout(layout, y, options = {}) {
   drawingContext.globalAlpha = 1;
   noStroke();
   fill(0, 0, 0, layout.isNurse ? 208 : 196);
-  rect(layout.bubbleX, y, layout.bubbleW, layout.bubbleH, layout.isNurse ? 28 : 24);
+  rect(layout.bubbleX, y, layout.bubbleW, layout.bubbleH, layout.isNurse ? 14 : 12);
   if (showTail) {
     if (layout.isUser) {
       drawUserBubbleTail(layout, y);
@@ -841,15 +837,15 @@ function drawStageBubbleLayout(layout, y, options = {}) {
 }
 
 function drawUserBubbleTail(layout, y) {
-  const cornerRadius = 24;
+  const cornerRadius = 12;
   const usableMinY = y + cornerRadius + 2;
   const usableMaxY = y + layout.bubbleH - cornerRadius - 2;
   const baseY = constrain(y + layout.bubbleH * 0.58, usableMinY, usableMaxY);
-  const availableHalfSpan = Math.max(10, (usableMaxY - usableMinY) * 0.5);
-  const halfSpan = Math.min(26, availableHalfSpan);
+  const availableHalfSpan = Math.max(14, (usableMaxY - usableMinY) * 0.5);
+  const halfSpan = Math.min(32, availableHalfSpan);
   const edgeX = layout.bubbleX + layout.bubbleW - 1;
-  const tipX = Math.min(width - 4, edgeX + 64);
-  const tipY = baseY + 2;
+  const tipX = Math.min(width - 4, edgeX + 74);
+  const tipY = baseY + 3;
   noStroke();
   fill(0, 0, 0, 196);
   beginShape();
@@ -860,7 +856,7 @@ function drawUserBubbleTail(layout, y) {
 }
 
 function drawNurseBubbleTail(layout, y, mouth) {
-  const cornerRadius = 28;
+  const cornerRadius = 14;
   const usableMinY = y + cornerRadius + 2;
   const usableMaxY = y + layout.bubbleH - cornerRadius - 2;
   if (usableMaxY <= usableMinY) return;
@@ -1579,9 +1575,6 @@ function appendMessage(kind, text, meta = null) {
   if (stageBubbleList.length > STAGE_BUBBLE_LIMIT) {
     stageBubbleList = stageBubbleList.slice(-STAGE_BUBBLE_LIMIT);
   }
-  if (kind === "nurse") {
-    assistantTurnCounter += 1;
-  }
   return nextBubble;
 }
 
@@ -1616,8 +1609,7 @@ function resetScenarioState() {
   currentTask = "";
   currentOptions = [];
   currentTipText = "";
-  currentTipAssistantTurn = 0;
-  assistantTurnCounter = 0;
+  pendingTipText = "";
   currentSilencePrompts = [];
   lastAssistantTurnEndedAt = 0;
   currentMood = { ...DEFAULT_MOOD };
@@ -2107,6 +2099,11 @@ function maybeFireSilencePrompt(line, expectedAssistantCount, index) {
     return;
   }
 
+  if (index === 0) {
+    const tip = String(pendingTipText || "").trim();
+    currentTipText = tip;
+  }
+
   appendMessage("nurse", line);
   chatHistory.push({ role: "assistant", text: line });
   trimChatHistory();
@@ -2280,14 +2277,8 @@ function renderTask() {
 function updateOptions(nextOptions) {
   currentOptions = Array.isArray(nextOptions) ? nextOptions.slice(0, 4) : [];
   const nextTip = String(currentOptions?.[0] || "").trim();
-  const nextAssistantTurn = assistantTurnCounter + 1;
-  if (nextTip) {
-    currentTipText = nextTip;
-    currentTipAssistantTurn = nextAssistantTurn;
-  } else if (currentTipAssistantTurn === nextAssistantTurn) {
-    currentTipText = "";
-    currentTipAssistantTurn = 0;
-  }
+  // Tip becomes visible only when first silence prompt is spoken.
+  pendingTipText = nextTip;
   renderOptions();
   applyConversationVisibility();
 }
