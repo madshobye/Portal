@@ -534,12 +534,11 @@ function createClient() {
           age: { type: "number" },
           gender: { type: "string" },
           ethnicity: { type: "string" },
-          education: { type: "string" },
           education_level: { type: "string" },
           lifespan: { type: "number" },
           political_position: { type: "string" },
           Religion: { type: "string" },
-          professional_field: { type: "string" },
+          profession: { type: "string" },
           kids: { type: "number" },
           exercise_regime: { type: "string" },
           diet: { type: "string" },
@@ -915,7 +914,7 @@ async function requestAnalysisWithImage(imageSource, reason = "manual") {
     } else {
       setResultListFromResponse(res);
       appendDebugLog("analysis:success");
-      console.log("GPT result:", res);
+      console.log(JSON.stringify(res, null, 2));
       void maybeAutoPrintAnalysis(res);
       setStatus("Ready");
     }
