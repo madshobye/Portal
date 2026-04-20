@@ -547,7 +547,7 @@ function createClient() {
           bmi: { type: "number" },
           civil_status: { type: "string" },
           commmon_challanges_this_demographic: { type: "string" },
-          life_advice: { type: "string" },
+          life_advice: { type: "string", maxLength: 1500 },
         },
         required: ["mood", "country", "age", "gender", "education", "lifespan", "life_advice"],
       },
@@ -562,12 +562,14 @@ function createClient() {
       "Do your best guess with no expectation of a perfect result. " +
       "It is better to provide a useful estimate than to refuse. " +
       "Focus on visible, non-sensitive cues: scene, lighting, mood, colors, and context hints. " +
-      "except for life advice only one word og number per element" + 
-    "Finally, make an evaluation based on the data and general knowledge of this profile and give a life advice. Make sure that it is not a generic horoscope that everyone can relate to but to the point for this person. Make sure to start the life advice with specific facts that you are confident about so the advice feels about the person. Do not specifically mention what you see in the image, but phrase it more generally. Your style should be formal as getting feedback from a proffessional coach, doctor and therapist. don't frame it around appearance. Make it short. Respond using the provided person_response tool.",
-  
+      "Except for life_advice, every field should be one short word or number. " +
+      "life_advice must be up to ten short plain sentences, no line breaks, no quotes. " +
+      "Finally, make an evaluation based on the data and general knowledge of this profile and give a life advice. Make sure that it is not a generic horoscope that everyone can relate to but to the point for this person. Make sure to start the life advice with specific facts that you are confident about so the advice feels about the person. Do not specifically mention what you see in the image, but phrase it more generally. Your style should be formal as getting feedback from a proffessional coach, doctor and therapist. don't frame it around appearance. Make it short. Respond using the provided person_response tool."+
+      "Respond using the provided image_response tool.",
     functionSchemas,
     functionName: "image_response",
     temperature: 0.2,
+    max_tokens: 700,
   });
 }
 
@@ -892,14 +894,15 @@ async function requestAnalysisWithImage(imageSource, reason = "manual") {
     const prompt =
       "Analyse the image and give the best possible answer to the information fields in image_response. " +
       "It is more important to give a useful answer than to be perfectly correct. " +
-      "Use only non-sensitive visible clues from the scene and background. " +
-      "Keep values short (max 10 words each).";
+      "Keep values short one word or number each except for life advice";
     res = await gpt.ask(prompt, imageSource);
 
     if (res?.error === "Bad JSON in function_call") {
       appendDebugLog("analysis:retry due to bad function JSON");
       res = await gpt.ask(
-        "Return image_response with very short values (max 6 words per field). Strictly fill all required fields.",
+        "Return image_response now. Strict JSON function args only. " +
+        "All fields one short token/number except life_advice. " +
+        "life_advice max 18 words, one line, no quotes.",
         imageSource
       );
     }
