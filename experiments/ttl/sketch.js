@@ -10,6 +10,8 @@ let consoleEl;
 let runBtn;
 let toggleBtn;
 let modelSelectEl;
+let canvasHostResizeObserver = null;
+window.PORTAL_CANVAS_RESIZE_MODE = "none";
 
 let urlToSketch = "https://editor.p5js.org/hobye/sketches/XOYHX3qgV";
 
@@ -33,11 +35,12 @@ let scanSweepStartMs = 0;
 let scanEffectUntilMs = 0;
 let resultListItems = [];
 let resultListAnimStartMs = 0;
+let terminalFontFamily = "Share Tech Mono";
 
 const DEBUG_HIDDEN_KEY = "ttl.debugHidden";
 const MODEL_KEY = "ttl.selectedModel";
 const DEBUG_LOG_LIMIT = 160;
-const CAMERA_FLIPPED = false;
+const CAMERA_FLIPPED = true;
 const SHOW_CANVAS_OVERLAY_UI = false;
 const SHOW_FACEMESH_LINES = true;
 const SHOW_FACEMESH_POINTS = false;
@@ -94,6 +97,19 @@ const RESULT_LIST_BG = [8, 18, 26, 175];
 const RESULT_LIST_STROKE = [90, 225, 255, 120];
 const RESULT_LIST_TEXT = [216, 245, 255, 230];
 const RESULT_LIST_LABEL = [120, 225, 255, 235];
+const ANALYSIS_CALLOUT_BOX_W = 290;
+const ANALYSIS_CALLOUT_BOX_H = 76;
+const ANALYSIS_CALLOUT_MARGIN = 18;
+const ANALYSIS_CALLOUT_RADIUS_X_EXTRA = 200;
+const ANALYSIS_CALLOUT_RADIUS_Y_EXTRA = 150;
+const ANALYSIS_CALLOUT_BG = [8, 18, 26, 175];
+const ANALYSIS_CALLOUT_STROKE = [90, 225, 255, 120];
+const ANALYSIS_CALLOUT_CONNECTOR = [90, 225, 255, 165];
+const ANALYSIS_CALLOUT_LABEL = [126, 255, 140, 235];
+const ANALYSIS_CALLOUT_VALUE = [255, 255, 255, 235];
+const ANALYSIS_CALLOUT_ANCHOR_INDICES = [
+  10, 338, 297, 332, 284, 251, 389, 356, 454, 323, 361, 288, 397, 152,
+];
 const FACEMESH_LIP_INDICES = new Set([
   0, 13, 14, 17, 37, 39, 40, 61, 78, 80, 81, 82, 84, 87, 88, 91, 95,
   146, 178, 181, 185, 191, 267, 269, 270, 291, 308, 310, 311, 312, 314,
@@ -366,6 +382,17 @@ function resizeCanvasToHost() {
   resizeCanvas(cw, ch);
 }
 
+function installManualCanvasResizeSync() {
+  if (!canvasHostEl?.elt) return;
+  if (canvasHostResizeObserver) return;
+  if (typeof ResizeObserver === "undefined") return;
+
+  canvasHostResizeObserver = new ResizeObserver(() => {
+    resizeCanvasToHost();
+  });
+  canvasHostResizeObserver.observe(canvasHostEl.elt);
+}
+
 async function setup() {
   debugHidden = loadDebugHidden();
   selectedModel = loadSelectedModel();
@@ -381,6 +408,7 @@ async function setup() {
   });
   applyDebugVisibility();
   createCanvasInHost();
+  installManualCanvasResizeSync();
 
   setStatus("Loading...");
   appendDebugLog("setup:start");
@@ -389,6 +417,14 @@ async function setup() {
   appendDebugLog("portal/GptClient.js loaded");
   await loadScript("portal/faceMesh.js");
   appendDebugLog("portal/faceMesh.js loaded");
+  if (typeof loadGoogleFont === "function") {
+    try {
+      loadGoogleFont(terminalFontFamily);
+      appendDebugLog(`font loaded: ${terminalFontFamily}`);
+    } catch (error) {
+      appendDebugLog(`font load failed: ${error?.message || error}`);
+    }
+  }
 
   cam = await setupWebcamera(false, 640, 480, false, false);
   if (typeof syncVideoDimensions === "function") {
@@ -400,7 +436,7 @@ async function setup() {
     faceMesh = await new FaceMesh({
       video: cam,
       backend: "webgl",
-      videoIsFlipped: false,
+      videoIsFlipped: true,
       onResults: () => {},
     }).init();
     await faceMesh.start();
@@ -416,7 +452,7 @@ async function setup() {
   gpt = createClient();
 
   fill(255);
-  textFont("Helvetica");
+  textFont(terminalFontFamily);
   setStatus("Ready");
   appendDebugLog("setup:done");
   updateInfo();
@@ -436,7 +472,7 @@ function createClient() {
                age: { type: "number" },
                gender: { type: "string" },
                ethnicity: { type: "string" },
-               educational_level: { type: "string" },
+               education_level: { type: "string" },
                lifespan: { type: "number" },
                political_position: { type: "string" },
                Religion: { type: "string" },
@@ -471,7 +507,6 @@ function createClient() {
     functionSchemas,
     functionName: "image_response",
     temperature: 0.2,
-    max_tokens: 320,
   });
 }
 
@@ -479,10 +514,12 @@ function draw() {
   background(0);
 
   if (faceMesh?.running) {
+    syncAnalysisVisibilityWithFace(faceMesh);
+    const analysisVisible = isAnalysisVisible(faceMesh);
     const renderFrame = DYNAMIC_FACE_FRAMING
       ? updateFaceFrame(faceMesh, cam, width, height)
       : null;
-    processBlinkFromFaceMesh(faceMesh, renderFrame);
+    processBlinkFromFaceMesh(faceMesh, renderFrame, analysisVisible);
 
     if (renderFrame) {
       drawCameraFrame(cam, renderFrame);
@@ -505,14 +542,16 @@ function draw() {
         });
       }
     }
-    if (SHOW_CENTER_FACE_CIRCLE) {
+    if (SHOW_CENTER_FACE_CIRCLE && !analysisVisible) {
       const circleDiameter = drawCenterFaceCircle(faceMesh, renderFrame);
       updateAppStatusFromFace(faceMesh, renderFrame, circleDiameter);
       drawAppStatusLabel(circleDiameter);
     }
+    drawAnalysisCallouts(faceMesh, renderFrame, analysisVisible);
   } else if (cam) {
     drawCameraCover(cam, 0, 0, width, height);
     setAppStatus(APP_STATUS_MODES.DETECTING);
+    clearAnalysisResults();
     if (SHOW_CENTER_FACE_CIRCLE) {
       const circleDiameter = Math.min(width, height) * 0.64;
       drawAppStatusLabel(circleDiameter);
@@ -526,13 +565,16 @@ function draw() {
     }
     drawResultPanel();
   }
-  drawAnimatedResultList();
   updateInfo();
 }
 
-function processBlinkFromFaceMesh(mesh, renderFrame = null) {
+function processBlinkFromFaceMesh(mesh, renderFrame = null, analysisVisible = false) {
   if (!mesh?.hasNewResult?.()) return;
   const { faces } = mesh.consumeNew();
+  if (requestInFlight || analysisVisible) {
+    blinkArmed = true;
+    return;
+  }
   const face = Array.isArray(faces) ? faces[0] : null;
   if (!face) {
     blinkArmed = true;
@@ -1093,6 +1135,25 @@ function isScanActive() {
   return requestInFlight || millis() < scanEffectUntilMs;
 }
 
+function syncAnalysisVisibilityWithFace(mesh) {
+  if (!resultListItems.length) return;
+  const faceCount = mesh?.getFacesRaw?.()?.length || 0;
+  if (faceCount <= 0) {
+    clearAnalysisResults();
+  }
+}
+
+function isAnalysisVisible(mesh) {
+  if (!resultListItems.length) return false;
+  const faceCount = mesh?.getFacesRaw?.()?.length || 0;
+  return faceCount > 0;
+}
+
+function clearAnalysisResults() {
+  resultListItems = [];
+  resultListAnimStartMs = 0;
+}
+
 function setResultListFromResponse(response) {
   resultListItems = buildResultListItems(response);
   if (resultListItems.length > 0) {
@@ -1132,82 +1193,101 @@ function formatResultValue(value) {
   return String(value);
 }
 
-function drawAnimatedResultList() {
-  if (!resultListItems.length) return;
+function drawAnalysisCallouts(mesh, renderFrame = null, analysisVisible = false) {
+  if (!analysisVisible || !resultListItems.length) return;
+
+  const faces = getFacesInCanvasSpace(mesh, renderFrame);
+  const points = faces?.[0]?.keypoints || [];
+  const bounds = getBoundsFromPoints(points);
+  if (!bounds) return;
 
   const elapsed = Math.max(0, millis() - resultListAnimStartMs);
   const panelT = constrain(elapsed / RESULT_LIST_PANEL_IN_MS, 0, 1);
   const panelEase = 1 - Math.pow(1 - panelT, 3);
-  const panelW = Math.min(RESULT_LIST_WIDTH, Math.max(290, width * 0.36));
-  const headerH = 44;
-  const rowH = 26;
-  const panelH = headerH + resultListItems.length * rowH + 22;
-  const panelY = RESULT_LIST_MARGIN;
-  const panelXBase = width - RESULT_LIST_MARGIN - panelW;
-  const panelX = panelXBase + (1 - panelEase) * (panelW * 0.35);
+  const cx = bounds.x + bounds.w * 0.5;
+  const cy = bounds.y + bounds.h * 0.5;
+  const radiusX = bounds.w * 0.5 + ANALYSIS_CALLOUT_RADIUS_X_EXTRA;
+  const radiusY = bounds.h * 0.5 + ANALYSIS_CALLOUT_RADIUS_Y_EXTRA;
+  const maxItems = Math.min(resultListItems.length, RESULT_LIST_MAX_ITEMS);
 
   push();
-  noStroke();
-  fill(
-    RESULT_LIST_BG[0] ?? 8,
-    RESULT_LIST_BG[1] ?? 18,
-    RESULT_LIST_BG[2] ?? 26,
-    (RESULT_LIST_BG[3] ?? 175) * panelEase
-  );
-  rect(panelX, panelY, panelW, panelH, 12);
-
-  stroke(
-    RESULT_LIST_STROKE[0] ?? 90,
-    RESULT_LIST_STROKE[1] ?? 225,
-    RESULT_LIST_STROKE[2] ?? 255,
-    (RESULT_LIST_STROKE[3] ?? 120) * panelEase
-  );
-  strokeWeight(1.2);
-  line(panelX + 16, panelY + headerH - 8, panelX + panelW - 16, panelY + headerH - 8);
-
-  noStroke();
-  fill(
-    RESULT_LIST_LABEL[0] ?? 120,
-    RESULT_LIST_LABEL[1] ?? 225,
-    RESULT_LIST_LABEL[2] ?? 255,
-    (RESULT_LIST_LABEL[3] ?? 235) * panelEase
-  );
   textAlign(LEFT, TOP);
-  textStyle(BOLD);
-  textSize(20);
-  text("Analysis", panelX + 16, panelY + 12);
-
   textStyle(NORMAL);
-  textSize(15);
+  textFont(terminalFontFamily);
 
-  for (let i = 0; i < resultListItems.length; i += 1) {
+  for (let i = 0; i < maxItems; i += 1) {
     const item = resultListItems[i];
     const itemElapsed = elapsed - i * RESULT_LIST_ITEM_STAGGER_MS;
     const itemT = constrain(itemElapsed / RESULT_LIST_ITEM_IN_MS, 0, 1);
     if (itemT <= 0) continue;
     const itemEase = 1 - Math.pow(1 - itemT, 2.4);
+    const alpha = 245 * panelEase * itemEase;
 
-    const baseY = panelY + headerH + 8 + i * rowH;
-    const y = baseY + (1 - itemEase) * 10;
-    const alpha = 230 * panelEase * itemEase;
+    const angle = map(i, 0, Math.max(1, maxItems - 1), -155, 155);
+    const tx = cx + Math.cos(radians(angle)) * radiusX;
+    const ty = cy + Math.sin(radians(angle)) * radiusY;
 
+    const boxW = ANALYSIS_CALLOUT_BOX_W;
+    const boxH = ANALYSIS_CALLOUT_BOX_H;
+    const boxX = constrain(tx - boxW * 0.5, ANALYSIS_CALLOUT_MARGIN, width - ANALYSIS_CALLOUT_MARGIN - boxW);
+    const boxY = constrain(ty - boxH * 0.5, ANALYSIS_CALLOUT_MARGIN, height - ANALYSIS_CALLOUT_MARGIN - boxH);
+
+    const anchorIndex = ANALYSIS_CALLOUT_ANCHOR_INDICES[i % ANALYSIS_CALLOUT_ANCHOR_INDICES.length];
+    const anchorPoint = points[anchorIndex] || points[10] || points[0];
+    const ax = Number(anchorPoint?.x);
+    const ay = Number(anchorPoint?.y);
+    if (Number.isFinite(ax) && Number.isFinite(ay)) {
+      const edgeX = ax < boxX ? boxX : ax > boxX + boxW ? boxX + boxW : ax;
+      const edgeY = constrain(ay, boxY + 8, boxY + boxH - 8);
+      stroke(
+        ANALYSIS_CALLOUT_CONNECTOR[0] ?? 90,
+        ANALYSIS_CALLOUT_CONNECTOR[1] ?? 225,
+        ANALYSIS_CALLOUT_CONNECTOR[2] ?? 255,
+        (ANALYSIS_CALLOUT_CONNECTOR[3] ?? 165) * panelEase * itemEase
+      );
+      strokeWeight(1.4);
+      line(ax, ay, edgeX, edgeY);
+    }
+
+    noStroke();
     fill(
-      RESULT_LIST_LABEL[0] ?? 120,
-      RESULT_LIST_LABEL[1] ?? 225,
-      RESULT_LIST_LABEL[2] ?? 255,
-      alpha
+      ANALYSIS_CALLOUT_BG[0] ?? 8,
+      ANALYSIS_CALLOUT_BG[1] ?? 18,
+      ANALYSIS_CALLOUT_BG[2] ?? 26,
+      (ANALYSIS_CALLOUT_BG[3] ?? 175) * panelEase * itemEase
+    );
+    rect(boxX, boxY, boxW, boxH, 8);
+
+    stroke(
+      ANALYSIS_CALLOUT_STROKE[0] ?? 90,
+      ANALYSIS_CALLOUT_STROKE[1] ?? 225,
+      ANALYSIS_CALLOUT_STROKE[2] ?? 255,
+      (ANALYSIS_CALLOUT_STROKE[3] ?? 120) * panelEase * itemEase
+    );
+    strokeWeight(1.1);
+    noFill();
+    rect(boxX, boxY, boxW, boxH, 8);
+
+    noStroke();
+    fill(
+      ANALYSIS_CALLOUT_LABEL[0] ?? 126,
+      ANALYSIS_CALLOUT_LABEL[1] ?? 255,
+      ANALYSIS_CALLOUT_LABEL[2] ?? 140,
+      (ANALYSIS_CALLOUT_LABEL[3] ?? 235) * panelEase * itemEase
     );
     textStyle(BOLD);
-    text(`${i + 1}. ${item.label}:`, panelX + 16, y);
+    textSize(14);
+    text(item.label, boxX + 11, boxY + 9, boxW - 22, 18);
 
     fill(
-      RESULT_LIST_TEXT[0] ?? 216,
-      RESULT_LIST_TEXT[1] ?? 245,
-      RESULT_LIST_TEXT[2] ?? 255,
-      alpha
+      ANALYSIS_CALLOUT_VALUE[0] ?? 255,
+      ANALYSIS_CALLOUT_VALUE[1] ?? 255,
+      ANALYSIS_CALLOUT_VALUE[2] ?? 255,
+      (ANALYSIS_CALLOUT_VALUE[3] ?? 235) * panelEase * itemEase
     );
     textStyle(NORMAL);
-    text(item.value, panelX + 190, y, panelW - 206, rowH * 1.2);
+    textSize(13);
+    text(item.value, boxX + 11, boxY + 30, boxW - 22, boxH - 38);
   }
 
   pop();
@@ -1223,6 +1303,14 @@ function getFacesInCanvasSpace(mesh, renderFrame = null) {
 
 function drawCameraFrame(video, frame) {
   if (!video || !frame) return;
+  if (CAMERA_FLIPPED) {
+    push();
+    translate(width, 0);
+    scale(-1, 1);
+    image(video, 0, 0, width, height, frame.sx, frame.sy, frame.sw, frame.sh);
+    pop();
+    return;
+  }
   image(video, 0, 0, width, height, frame.sx, frame.sy, frame.sw, frame.sh);
 }
 
