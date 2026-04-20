@@ -838,14 +838,14 @@ function drawStageBubbleLayout(layout, y, options = {}) {
 
 function drawUserBubbleTail(layout, y) {
   const cornerRadius = 12;
-  const usableMinY = y + cornerRadius + 2;
-  const usableMaxY = y + layout.bubbleH - cornerRadius - 2;
-  const baseY = constrain(y + layout.bubbleH * 0.58, usableMinY, usableMaxY);
-  const availableHalfSpan = Math.max(14, (usableMaxY - usableMinY) * 0.5);
-  const halfSpan = Math.min(32, availableHalfSpan);
+  const halfSpan = 12;
+  const usableMinY = y + cornerRadius + halfSpan + 1;
+  const usableMaxY = y + layout.bubbleH - cornerRadius - halfSpan - 1;
+  if (usableMaxY <= usableMinY) return;
+  const baseY = constrain(y + layout.bubbleH * 0.5, usableMinY, usableMaxY);
   const edgeX = layout.bubbleX + layout.bubbleW - 1;
-  const tipX = Math.min(width - 4, edgeX + 74);
-  const tipY = baseY + 3;
+  const tipX = Math.min(width - 4, edgeX + 48);
+  const tipY = baseY + 1;
   noStroke();
   fill(0, 0, 0, 196);
   beginShape();
@@ -857,15 +857,14 @@ function drawUserBubbleTail(layout, y) {
 
 function drawNurseBubbleTail(layout, y, mouth) {
   const cornerRadius = 14;
-  const usableMinY = y + cornerRadius + 2;
-  const usableMaxY = y + layout.bubbleH - cornerRadius - 2;
+  const halfSpan = 10;
+  const usableMinY = y + cornerRadius + halfSpan + 1;
+  const usableMaxY = y + layout.bubbleH - cornerRadius - halfSpan - 1;
   if (usableMaxY <= usableMinY) return;
-  const baseY = constrain(y + layout.bubbleH * 0.64, usableMinY, usableMaxY);
-  const availableHalfSpan = Math.max(8, (usableMaxY - usableMinY) * 0.5);
-  const halfSpan = Math.min(22, availableHalfSpan);
+  const baseY = constrain(y + layout.bubbleH * 0.5, usableMinY, usableMaxY);
   const edgeX = layout.bubbleX + 1;
-  const tipX = constrain(mouth.x + 12, layout.bubbleX - 68, layout.bubbleX + 30);
-  const tipY = constrain(mouth.y - 4, baseY + 8, baseY + 78);
+  const tipX = constrain(mouth.x + 12, layout.bubbleX - 56, layout.bubbleX + 24);
+  const tipY = constrain(mouth.y - 4, baseY + 6, baseY + 62);
   noStroke();
   fill(0, 0, 0, 208);
   beginShape();
