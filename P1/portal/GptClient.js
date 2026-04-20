@@ -24,6 +24,20 @@ class GptClient {
     this.lastRaw = null;       // debug: raw server response
   }
 
+  _buildTokenLimitField() {
+    const value = Number(this.max_tokens);
+    if (!Number.isFinite(value) || value <= 0) return {};
+    if (this._usesMaxCompletionTokens()) {
+      return { max_completion_tokens: value };
+    }
+    return { max_tokens: value };
+  }
+
+  _usesMaxCompletionTokens() {
+    const model = String(this.model || "").toLowerCase();
+    return model.startsWith("gpt-5");
+  }
+
      /**
    * Ask the model something and get the result directly.
    * Returns an object:
@@ -76,7 +90,7 @@ class GptClient {
       model: this.model,
       messages,
       temperature: this.temperature,
-      max_tokens: this.max_tokens,
+      ...this._buildTokenLimitField(),
     };
 
     // Structured JSON output

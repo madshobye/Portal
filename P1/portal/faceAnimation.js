@@ -299,7 +299,7 @@ class PortalFaceAnimation {
     g.push();
     g.fill(232, 218, 202);
     g.noStroke();
-    g.quad(-7, 61, 7, 61, 11, 88, -11, 88);
+    g.quad(-7, 61, 7, 61, 10, 102, -10, 102);
     g.pop();
   }
 
@@ -309,14 +309,14 @@ class PortalFaceAnimation {
     g.stroke(this.inkTone[0], this.inkTone[1], this.inkTone[2]);
     g.strokeWeight(1.8);
     g.beginShape();
-    g.vertex(-26, 102);
-    g.vertex(-10, 86);
-    g.vertex(-2, 100);
+    g.vertex(-26, 116);
+    g.vertex(-10, 98);
+    g.vertex(-2, 114);
     g.endShape();
     g.beginShape();
-    g.vertex(26, 102);
-    g.vertex(10, 86);
-    g.vertex(2, 100);
+    g.vertex(26, 116);
+    g.vertex(10, 98);
+    g.vertex(2, 114);
     g.endShape();
     g.pop();
   }

@@ -199,6 +199,22 @@ class PortalSpeech {
     return this._hasInterim;
   }
 
+  isInterim() {
+    return this._hasInterim;
+  }
+
+  isinterim() {
+    return this.isInterim();
+  }
+
+  getInterimFlag() {
+    return this._hasInterim;
+  }
+
+  getinterimflag() {
+    return this.getInterimFlag();
+  }
+
   hasinterimresult() {
     return this.hasInterimResult();
   }
