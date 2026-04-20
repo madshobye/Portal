@@ -19,7 +19,7 @@ const MODEL_OPTIONS = [
   "gpt-4o-mini",
   "gpt-4o",
 ];
-const DEFAULT_MODEL = "gpt-5.4-nano";
+const DEFAULT_MODEL = "gpt-5.4-mini";
 const STORAGE_PREFIX = "grumpynurse_v3";
 const MODEL_KEY = `${STORAGE_PREFIX}.model`;
 const SESSION_LANGUAGE_KEY = `${STORAGE_PREFIX}.sessionLanguage`;
@@ -27,7 +27,7 @@ const VOICE_KEY = `${STORAGE_PREFIX}.voice`;
 const LISTENING_WANTED_KEY = `${STORAGE_PREFIX}.listeningWanted`;
 const DEBUG_EXPORTS_KEY = `${STORAGE_PREFIX}.debugExports`;
 const ADMIN_PANEL_HIDDEN_KEY = `${STORAGE_PREFIX}.adminHidden`; 
-const CHAT_HISTORY_LIMIT = 16;
+const CHAT_HISTORY_LIMIT = 30;
 const ADMIN_LOG_LIMIT = 120;
 const SILENCE_PROMPT_DELAYS_MS = [8000, 15000, 24000];
 const SILENCE_PROMPT_RETRY_MS = 1200;
@@ -42,6 +42,7 @@ const LISTENING_BRIDGE_MS = 700;
 const GPT_TEMPERATURE = 0.8;
 const GPT_MAX_TOKENS = 500;
 const STAGE_BUBBLE_LIMIT = 14;
+const MIN_ASSISTANT_TURNS_FOR_TIP = 2;
 const START_VOICE_PATTERNS = [
   /\bi am ready\b/,
   /\bim ready\b/,
@@ -257,6 +258,7 @@ let adminPanelHidden = false;
 let chatHistory = [];
 let currentTask = "";
 let currentOptions = [];
+let currentTipText = "";
 let currentSilencePrompts = [];
 let silencePromptTimeouts = [];
 let lastAssistantTurnEndedAt = 0;
@@ -459,7 +461,7 @@ function drawMiddleCanvas() {
   updateFaceAnimation();
   if (faceView) {
     const nurseXOffset = -width * 0.2;
-    const nurseYOffset = -height * 0.16;
+    const nurseYOffset = -height * 0.08;
     faceView.render({
       deltaSeconds: deltaTime / 1000,
       x: nurseXOffset,
@@ -658,33 +660,21 @@ function drawStageUi() {
 }
 
 function drawTaskBanner() {
-  const taskText = String(currentTask || "").trim();
-  if (!taskText) return;
-  const tipText = String(currentOptions?.[0] || "").trim();
-  const hasTip = !!tipText;
+  const assistantTurns = chatHistory.filter((item) => item.role === "assistant").length;
+  if (assistantTurns < MIN_ASSISTANT_TURNS_FOR_TIP) return;
+
+  const tipText = String(currentTipText || "").trim();
+  if (!tipText) return;
 
   const labelY = 12;
   const textY = 30;
   const contentWidth = width - 48;
   textFont("Helvetica Neue");
   textStyle(NORMAL);
-  textSize(Math.max(16, Math.min(24, width * 0.02)));
-  textLeading(Math.max(18, Math.min(28, width * 0.024)));
-  const taskTextHeight = textBoundsHeight(taskText, contentWidth);
-
-  let contentBottom = textY + taskTextHeight;
-  let tipLabelY = 0;
-  let tipTextY = 0;
-  let tipTextHeight = 0;
-  if (hasTip) {
-    tipLabelY = contentBottom + 10;
-    tipTextY = tipLabelY + 14;
-    textStyle(NORMAL);
-    textSize(Math.max(14, Math.min(20, width * 0.017)));
-    textLeading(Math.max(16, Math.min(24, width * 0.02)));
-    tipTextHeight = textBoundsHeight(tipText, contentWidth);
-    contentBottom = tipTextY + tipTextHeight;
-  }
+  textSize(Math.max(14, Math.min(20, width * 0.017)));
+  textLeading(Math.max(16, Math.min(24, width * 0.02)));
+  const tipTextHeight = textBoundsHeight(tipText, contentWidth);
+  const contentBottom = textY + tipTextHeight;
 
   const bannerH = Math.max(72, Math.min(240, contentBottom + 14));
   const bannerY = height - bannerH;
@@ -698,26 +688,13 @@ function drawTaskBanner() {
   textFont("Helvetica Neue");
   textStyle(BOLD);
   textSize(11);
-  text("TASK", 24, bannerY + labelY);
+  text("TIP", 24, bannerY + labelY);
 
-  fill(247, 245, 239);
+  fill(247, 245, 239, 230);
   textStyle(NORMAL);
-  textSize(Math.max(16, Math.min(24, width * 0.02)));
-  textLeading(Math.max(18, Math.min(28, width * 0.024)));
-  text(taskText, 24, bannerY + textY, contentWidth, taskTextHeight + 8);
-
-  if (hasTip) {
-    fill(247, 245, 239, 150);
-    textStyle(BOLD);
-    textSize(11);
-    text("TIP", 24, bannerY + tipLabelY);
-
-    fill(247, 245, 239, 230);
-    textStyle(NORMAL);
-    textSize(Math.max(14, Math.min(20, width * 0.017)));
-    textLeading(Math.max(16, Math.min(24, width * 0.02)));
-    text(tipText, 24, bannerY + tipTextY, contentWidth, tipTextHeight + 8);
-  }
+  textSize(Math.max(14, Math.min(20, width * 0.017)));
+  textLeading(Math.max(16, Math.min(24, width * 0.02)));
+  text(tipText, 24, bannerY + textY, contentWidth, tipTextHeight + 8);
 }
 
 function drawBubbleOverlay() {
@@ -889,17 +866,17 @@ function drawNurseBubbleTail(layout, y, mouth) {
 function getBubbleTextForEntry(entry) {
   if (entry.kind === "recording" && typeof speech?.getInterimText === "function") {
     const interimText = String(speech.getInterimText() || "").trim();
-    return interimText || "Listening...";
+    return interimText || "";
   }
   if (entry.kind === "processing") {
-    return "Processing...";
+    return "";
   }
   return String(entry?.text || "");
 }
 
 function getNurseRenderFrame() {
   const x = -width * 0.2;
-  const y = -height * 0.16;
+  const y = -height * 0.08;
   const w = width;
   const h = height;
   const portraitW = 108;
@@ -1619,6 +1596,7 @@ function resetScenarioState() {
   chatHistory = [];
   currentTask = "";
   currentOptions = [];
+  currentTipText = "";
   currentSilencePrompts = [];
   lastAssistantTurnEndedAt = 0;
   currentMood = { ...DEFAULT_MOOD };
@@ -2280,6 +2258,10 @@ function renderTask() {
 
 function updateOptions(nextOptions) {
   currentOptions = Array.isArray(nextOptions) ? nextOptions.slice(0, 4) : [];
+  const nextTip = String(currentOptions?.[0] || "").trim();
+  if (nextTip) {
+    currentTipText = nextTip;
+  }
   renderOptions();
   applyConversationVisibility();
 }
