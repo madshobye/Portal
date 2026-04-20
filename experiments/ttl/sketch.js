@@ -8,6 +8,8 @@ let statusEl;
 let infoEl;
 let consoleEl;
 let runBtn;
+let pairBtn;
+let labelFormatBtn;
 let toggleBtn;
 let modelSelectEl;
 let canvasHostResizeObserver = null;
@@ -36,6 +38,7 @@ let scanEffectUntilMs = 0;
 let resultListItems = [];
 let resultListAnimStartMs = 0;
 let terminalFontFamily = "Share Tech Mono";
+let labelPrinter = null;
 
 const DEBUG_HIDDEN_KEY = "ttl.debugHidden";
 const MODEL_KEY = "ttl.selectedModel";
@@ -111,6 +114,7 @@ const ANALYSIS_CALLOUT_VALUE = [255, 255, 255, 235];
 const ANALYSIS_CALLOUT_ANCHOR_INDICES = [
   10, 338, 297, 332, 284, 251, 389, 356, 454, 323, 361, 288, 397, 152,
 ];
+const SHOW_PRINTER_DEBUG_PREVIEW = true;
 const FACEMESH_LIP_INDICES = new Set([
   0, 13, 14, 17, 37, 39, 40, 61, 78, 80, 81, 82, 84, 87, 88, 91, 95,
   146, 178, 181, 185, 191, 267, 269, 270, 291, 308, 310, 311, 312, 314,
@@ -265,6 +269,20 @@ function buildUi() {
     requestAnalysis();
   });
 
+  pairBtn = createButton("+ Pair Printer");
+  pairBtn.class("ttl-btn");
+  pairBtn.parent(toolbar);
+  pairBtn.mousePressed(() => {
+    void handlePairPrinter();
+  });
+
+  labelFormatBtn = createButton("Label 10x15");
+  labelFormatBtn.class("ttl-btn");
+  labelFormatBtn.parent(toolbar);
+  labelFormatBtn.mousePressed(() => {
+    handleToggleLabelFormat();
+  });
+
   const clearBtn = createButton("Clear Log");
   clearBtn.class("ttl-btn");
   clearBtn.parent(toolbar);
@@ -342,9 +360,42 @@ async function copyDebugLog() {
   }
 }
 
+function getPrinterState() {
+  return labelPrinter?.getState?.() || {
+    ready: false,
+    busy: false,
+    connected: false,
+    connecting: false,
+    state: "unavailable",
+    deviceName: "",
+  };
+}
+
+function refreshPrinterButton() {
+  if (!pairBtn) return;
+  const state = getPrinterState();
+  let label = "+ Pair Printer";
+  if (state.busy || state.connecting || state.state.startsWith("connecting")) {
+    label = "Pairing...";
+  } else if (state.connected) {
+    label = "Printer Paired";
+  } else if (state.ready) {
+    label = "+ Pair Printer";
+  }
+  pairBtn.html(label);
+  if (pairBtn.elt) pairBtn.elt.disabled = !!state.busy;
+
+  if (labelFormatBtn) {
+    const format = state.labelFormat || "10x15";
+    labelFormatBtn.html(`Label ${format}`);
+    if (labelFormatBtn.elt) labelFormatBtn.elt.disabled = !!state.busy;
+  }
+}
+
 function updateInfo() {
   if (!infoEl) return;
   const faceCount = faceMesh?.getFaces?.()?.length || 0;
+  const printerState = getPrinterState();
   const lines = [
     `Model: ${gpt?.model || "-"}`,
     `Camera: ${cam ? "ready" : "loading"}`,
@@ -360,8 +411,18 @@ function updateInfo() {
     `Request: ${requestInFlight ? "in-flight" : "idle"}`,
     `Result: ${res ? "available" : "none"}`,
     `Status: ${appStatus?.label || "-"}`,
+    `Printer: ${
+      printerState.connected
+        ? `paired (${printerState.deviceName || "device"})`
+        : printerState.ready
+          ? printerState.state
+          : "unavailable"
+    }`,
+    `Label: ${printerState.labelFormat || "10x15"}`,
+    `Preview: ${printerState.hasPreview ? "ready" : "none"}`,
   ];
   infoEl.html(lines.join("\n"));
+  refreshPrinterButton();
 }
 
 function createCanvasInHost() {
@@ -451,6 +512,7 @@ async function setup() {
   appendDebugLog(`api key ${apiKey ? "loaded" : "missing"}`);
 
   gpt = createClient();
+  await initLabelPrinter();
 
   fill(255);
   textFont(terminalFontFamily);
@@ -463,33 +525,32 @@ function createClient() {
   const functionSchemas = [
     {
       name: "image_response",
-          description: " Make your best gues. Do not write unclear or unknown.",
-        parameters: {
-             type: "object",
-
-             properties: {
-               mood: { type: "string" },
-               country: { type: "string" },
-               age: { type: "number" },
-               gender: { type: "string" },
-               ethnicity: { type: "string" },
-               education_level: { type: "string" },
-               lifespan: { type: "number" },
-               political_position: { type: "string" },
-               Religion: { type: "string" },
-               professional_field: { type: "string" },
-               kids: { type: "number" },
-               exercise_regime: { type: "string" },
-               diet: { type: "string" },
-               nutrient_sufficiency:  { type: "string" },
-               bmi: { type: "number" },
-               civil_status: { type: "string" },
-               demographic_challanges: { type: "string" },
-               life_advice: { type: "string" },
-             },
-
-             required: ["mood", "country", "age", "gender", "education_level", "lifespan"],
-           },
+      description: "Make your best guess. Do not write unclear or unknown.",
+      parameters: {
+        type: "object",
+        properties: {
+          mood: { type: "string" },
+          country: { type: "string" },
+          age: { type: "number" },
+          gender: { type: "string" },
+          ethnicity: { type: "string" },
+          education: { type: "string" },
+          education_level: { type: "string" },
+          lifespan: { type: "number" },
+          political_position: { type: "string" },
+          Religion: { type: "string" },
+          professional_field: { type: "string" },
+          kids: { type: "number" },
+          exercise_regime: { type: "string" },
+          diet: { type: "string" },
+          nutrient_sufficiency: { type: "string" },
+          bmi: { type: "number" },
+          civil_status: { type: "string" },
+          commmon_challanges_this_demographic: { type: "string" },
+          life_advice: { type: "string" },
+        },
+        required: ["mood", "country", "age", "gender", "education", "lifespan", "life_advice"],
+      },
     },
   ];
 
@@ -501,11 +562,78 @@ function createClient() {
       "Do your best guess with no expectation of a perfect result. " +
       "It is better to provide a useful estimate than to refuse. " +
       "Focus on visible, non-sensitive cues: scene, lighting, mood, colors, and context hints. " +
-      "except for life advice only one word og number per element",
+      "except for life advice only one word og number per element" + 
+    "Finally, make an evaluation based on the data and general knowledge of this profile and give a life advice. Make sure that it is not a generic horoscope that everyone can relate to but to the point for this person. Make sure to start the life advice with specific facts that you are confident about so the advice feels about the person. Do not specifically mention what you see in the image, but phrase it more generally. Your style should be formal as getting feedback from a proffessional coach, doctor and therapist. don't frame it around appearance. Make it short. Respond using the provided person_response tool.",
+  
     functionSchemas,
     functionName: "image_response",
     temperature: 0.2,
   });
+}
+
+async function initLabelPrinter() {
+  if (!window.TtlLabelPrint?.create) {
+    appendDebugLog("label printer helper unavailable");
+    refreshPrinterButton();
+    return;
+  }
+  try {
+    labelPrinter = window.TtlLabelPrint.create({
+      onLog: (line) => appendDebugLog(`[printer] ${line}`),
+      onState: () => {
+        refreshPrinterButton();
+        updateInfo();
+      },
+    });
+    await labelPrinter.ensureReady();
+    refreshPrinterButton();
+  } catch (error) {
+    appendDebugLog(`[printer] init failed: ${error?.message || error}`);
+    refreshPrinterButton();
+  }
+}
+
+async function handlePairPrinter() {
+  if (!labelPrinter) {
+    await initLabelPrinter();
+  }
+  if (!labelPrinter) return;
+  try {
+    setStatus("Pairing printer...");
+    await labelPrinter.pairAndConnect();
+    setStatus("Ready");
+    appendDebugLog("[printer] paired and connected");
+  } catch (error) {
+    appendDebugLog(`[printer] pairing failed: ${error?.message || error}`);
+    setStatus("Ready");
+  } finally {
+    refreshPrinterButton();
+    updateInfo();
+  }
+}
+
+function handleToggleLabelFormat() {
+  if (!labelPrinter?.toggleLabelFormat) return;
+  const next = labelPrinter.toggleLabelFormat();
+  appendDebugLog(`[printer] label format set: ${next}`);
+  refreshPrinterButton();
+  updateInfo();
+}
+
+async function maybeAutoPrintAnalysis(response) {
+  if (!response || response.error) return;
+  if (!labelPrinter) return;
+  try {
+    const result = await labelPrinter.printAnalysisReceipt(response);
+    if (result?.printed) {
+      appendDebugLog("[printer] analysis receipt printed");
+    }
+  } catch (error) {
+    appendDebugLog(`[printer] auto print failed: ${error?.message || error}`);
+  } finally {
+    refreshPrinterButton();
+    updateInfo();
+  }
 }
 
 function draw() {
@@ -563,7 +691,40 @@ function draw() {
     }
     drawResultPanel();
   }
+  drawPrinterDebugPreview();
   updateInfo();
+}
+
+function drawPrinterDebugPreview() {
+  if (!SHOW_PRINTER_DEBUG_PREVIEW) return;
+  const preview = labelPrinter?.getDebugPreview?.();
+  const graphic = preview?.graphic;
+  if (!graphic) return;
+
+  const margin = 18;
+  const targetW = Math.max(160, width * 0.22);
+  const aspect = graphic.height / Math.max(1, graphic.width);
+  const targetH = targetW * aspect;
+  const x = width - margin - targetW;
+  const y = height - margin - targetH;
+
+  push();
+  noStroke();
+  fill(8, 18, 26, 200);
+  rect(x - 10, y - 34, targetW + 20, targetH + 44, 8);
+
+  fill(126, 255, 140, 220);
+  textAlign(LEFT, TOP);
+  textStyle(BOLD);
+  textSize(12);
+  text(`PRINT PREVIEW ${preview.labelFormat || ""}`, x - 2, y - 26);
+
+  image(graphic, x, y, targetW, targetH);
+  noFill();
+  stroke(255, 255, 255, 180);
+  strokeWeight(1);
+  rect(x, y, targetW, targetH, 4);
+  pop();
 }
 
 function processBlinkFromFaceMesh(mesh, renderFrame = null, analysisVisible = false) {
@@ -752,6 +913,7 @@ async function requestAnalysisWithImage(imageSource, reason = "manual") {
       setResultListFromResponse(res);
       appendDebugLog("analysis:success");
       console.log("GPT result:", res);
+      void maybeAutoPrintAnalysis(res);
       setStatus("Ready");
     }
   } catch (error) {
