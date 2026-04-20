@@ -33,6 +33,11 @@ let appStatus = { mode: "detecting", label: "DETECTING" };
 let blinkBaselineEar = null;
 let blinkLastDetectedMs = 0;
 let blinkArmed = true;
+let lockedSinceMs = 0;
+let lastInsideRingMs = 0;
+let latestFaceDetected = false;
+let latestFaceInsideRing = false;
+let latestFaceSampleMs = 0;
 let scanSweepStartMs = 0;
 let scanEffectUntilMs = 0;
 let resultListItems = [];
@@ -77,14 +82,17 @@ const APP_STATUS_LABELS = {
   [APP_STATUS_MODES.ANALYSING]: "ANALYSING",
 };
 const APP_STATUS_TEXT_SIZE = 58;
-const BLINK_LOG_COOLDOWN_MS = 260;
+const BLINK_LOG_COOLDOWN_MS = 420;
 const BLINK_BASELINE_EMA = 0.14;
-const BLINK_TRIGGER_RATIO = 0.82;
-const BLINK_REARM_RATIO = 0.9;
+const BLINK_TRIGGER_RATIO = 0.68;
+const BLINK_REARM_RATIO = 0.94;
 const BLINK_MIN_OPEN_EAR = 0.18;
-const BLINK_MIN_TRIGGER_EAR = 0.11;
+const BLINK_MIN_TRIGGER_EAR = 0.08;
 const BLINK_MAX_TRIGGER_EAR = 0.34;
 const BLINK_RING_MARGIN_PX = -10;
+const LOCK_TO_BLINK_DELAY_MS = 5000;
+const LOCK_EXIT_GRACE_MS = 650;
+const FACE_SAMPLE_STALE_MS = 500;
 const SCAN_SWEEP_DURATION_MS = 1200;
 const SCAN_EFFECT_HOLD_MS = 900;
 const SCAN_VIBRATE_PX = 3.5;
@@ -114,7 +122,6 @@ const ANALYSIS_CALLOUT_VALUE = [255, 255, 255, 235];
 const ANALYSIS_CALLOUT_ANCHOR_INDICES = [
   10, 338, 297, 332, 284, 251, 389, 356, 454, 323, 361, 288, 397, 152,
 ];
-const SHOW_PRINTER_DEBUG_PREVIEW = true;
 const FACEMESH_LIP_INDICES = new Set([
   0, 13, 14, 17, 37, 39, 40, 61, 78, 80, 81, 82, 84, 87, 88, 91, 95,
   146, 178, 181, 185, 191, 267, 269, 270, 291, 308, 310, 311, 312, 314,
@@ -419,7 +426,6 @@ function updateInfo() {
           : "unavailable"
     }`,
     `Label: ${printerState.labelFormat || "10x15"}`,
-    `Preview: ${printerState.hasPreview ? "ready" : "none"}`,
   ];
   infoEl.html(lines.join("\n"));
   refreshPrinterButton();
@@ -625,7 +631,10 @@ async function maybeAutoPrintAnalysis(response) {
   if (!response || response.error) return;
   if (!labelPrinter) return;
   try {
-    const result = await labelPrinter.printAnalysisReceipt(response);
+    const faceMeshPoints = getCurrentNormalizedFacePoints(activeFaceFrame || null);
+    const result = await labelPrinter.printAnalysisReceipt(response, {
+      faceMeshPoints,
+    });
     if (result?.printed) {
       appendDebugLog("[printer] analysis receipt printed");
     }
@@ -635,6 +644,22 @@ async function maybeAutoPrintAnalysis(response) {
     refreshPrinterButton();
     updateInfo();
   }
+}
+
+function getCurrentNormalizedFacePoints(renderFrame = null) {
+  const faces = getFacesInCanvasSpace(faceMesh, renderFrame);
+  const points = faces?.[0]?.keypoints || [];
+  if (!points.length) return null;
+
+  return points.map((point) => {
+    const x = Number(point?.x);
+    const y = Number(point?.y);
+    if (!Number.isFinite(x) || !Number.isFinite(y)) return null;
+    return {
+      x,
+      y,
+    };
+  });
 }
 
 function draw() {
@@ -671,12 +696,17 @@ function draw() {
     }
     if (SHOW_CENTER_FACE_CIRCLE && !analysisVisible) {
       const circleDiameter = drawCenterFaceCircle(faceMesh, renderFrame);
-      updateAppStatusFromFace(faceMesh, renderFrame, circleDiameter);
+      updateAppStatusFromFace(circleDiameter);
       drawAppStatusLabel(circleDiameter);
     }
     drawAnalysisCallouts(faceMesh, renderFrame, analysisVisible);
   } else if (cam) {
     drawCameraCover(cam, 0, 0, width, height);
+    lockedSinceMs = 0;
+    lastInsideRingMs = 0;
+    latestFaceDetected = false;
+    latestFaceInsideRing = false;
+    latestFaceSampleMs = 0;
     setAppStatus(APP_STATUS_MODES.DETECTING);
     clearAnalysisResults();
     if (SHOW_CENTER_FACE_CIRCLE) {
@@ -692,62 +722,53 @@ function draw() {
     }
     drawResultPanel();
   }
-  drawPrinterDebugPreview();
   updateInfo();
 }
 
-function drawPrinterDebugPreview() {
-  if (!SHOW_PRINTER_DEBUG_PREVIEW) return;
-  const preview = labelPrinter?.getDebugPreview?.();
-  const graphic = preview?.graphic;
-  if (!graphic) return;
-
-  const margin = 18;
-  const targetW = Math.max(160, width * 0.22);
-  const aspect = graphic.height / Math.max(1, graphic.width);
-  const targetH = targetW * aspect;
-  const x = width - margin - targetW;
-  const y = height - margin - targetH;
-
-  push();
-  noStroke();
-  fill(8, 18, 26, 200);
-  rect(x - 10, y - 34, targetW + 20, targetH + 44, 8);
-
-  fill(126, 255, 140, 220);
-  textAlign(LEFT, TOP);
-  textStyle(BOLD);
-  textSize(12);
-  text(`PRINT PREVIEW ${preview.labelFormat || ""}`, x - 2, y - 26);
-
-  image(graphic, x, y, targetW, targetH);
-  noFill();
-  stroke(255, 255, 255, 180);
-  strokeWeight(1);
-  rect(x, y, targetW, targetH, 4);
-  pop();
-}
-
 function processBlinkFromFaceMesh(mesh, renderFrame = null, analysisVisible = false) {
-  if (!mesh) return;
-  let faces = null;
-  if (mesh?.hasNewResult?.()) {
-    const packet = mesh.consumeNew();
-    faces = packet?.faces || null;
+  if (!mesh?.hasNewResult?.()) return;
+  const packet = mesh.consumeNew();
+  const faces = packet?.faces || null;
+  const now = millis();
+
+  latestFaceSampleMs = now;
+
+  const packetFace = Array.isArray(faces) ? faces[0] : null;
+  const mappedFace = getFacesInCanvasSpace(mesh, renderFrame)?.[0] || null;
+  const face = packetFace || mappedFace;
+  latestFaceDetected = !!(packetFace || mappedFace);
+
+  if (mappedFace) {
+    latestFaceInsideRing = isMappedFaceInsideScanRing(mappedFace);
+  } else if (packetFace) {
+    latestFaceInsideRing = isFaceInsideScanRing(packetFace, renderFrame);
   } else {
-    faces = mesh?.getFacesRaw?.() || null;
+    latestFaceInsideRing = false;
   }
+
+  if (latestFaceInsideRing) {
+    lastInsideRingMs = now;
+    if (!lockedSinceMs) lockedSinceMs = now;
+  } else if (!lastInsideRingMs || now - lastInsideRingMs > LOCK_EXIT_GRACE_MS) {
+    lockedSinceMs = 0;
+    lastInsideRingMs = 0;
+  }
+
   if (requestInFlight || analysisVisible) {
     blinkArmed = true;
     return;
   }
-  const face = Array.isArray(faces) ? faces[0] : null;
   if (!face) {
     blinkArmed = true;
     return;
   }
 
-  if (!isFaceInsideScanRing(face, renderFrame)) {
+  if (!latestFaceInsideRing) {
+    blinkArmed = true;
+    return;
+  }
+
+  if (!isBlinkUnlocked()) {
     blinkArmed = true;
     return;
   }
@@ -831,6 +852,15 @@ function isFaceInsideScanRing(face, renderFrame = null) {
   const sourceH = Math.max(1, Number(cam?.height) || Number(cam?.elt?.videoHeight) || 480);
   const frame = renderFrame || { sx: 0, sy: 0, sw: sourceW, sh: sourceH };
   const mappedFace = mapFacesToCanvas([face], frame)?.[0];
+  const points = mappedFace?.keypoints || [];
+  const bounds = getBoundsFromPoints(points);
+  if (!bounds) return false;
+  const circleDiameter = Math.min(width, height) * 0.64;
+  return isBoundsInsideRing(bounds, circleDiameter, BLINK_RING_MARGIN_PX);
+}
+
+function isMappedFaceInsideScanRing(mappedFace) {
+  if (!mappedFace) return false;
   const points = mappedFace?.keypoints || [];
   const bounds = getBoundsFromPoints(points);
   if (!bounds) return false;
@@ -1249,22 +1279,31 @@ function setAppStatus(mode) {
   };
 }
 
-function updateAppStatusFromFace(mesh, renderFrame, circleDiameter) {
+function updateAppStatusFromFace(circleDiameter) {
   if (requestInFlight) {
     setAppStatus(APP_STATUS_MODES.ANALYSING);
     return;
   }
 
-  const faces = getFacesInCanvasSpace(mesh, renderFrame);
-  const points = faces?.[0]?.keypoints || [];
-  const bounds = getBoundsFromPoints(points);
-  if (!bounds) {
+  const now = millis();
+  const sampleFresh = latestFaceSampleMs > 0 && now - latestFaceSampleMs <= FACE_SAMPLE_STALE_MS;
+  if (!sampleFresh || !latestFaceDetected) {
+    if (!lastInsideRingMs || now - lastInsideRingMs > LOCK_EXIT_GRACE_MS) {
+      lockedSinceMs = 0;
+      lastInsideRingMs = 0;
+    }
     setAppStatus(APP_STATUS_MODES.DETECTING);
     return;
   }
-  if (isBoundsInsideRing(bounds, circleDiameter, 6)) {
+
+  if (latestFaceInsideRing) {
     setAppStatus(APP_STATUS_MODES.LOCKED);
   } else {
+    const recentlyInside = !!lastInsideRingMs && now - lastInsideRingMs <= LOCK_EXIT_GRACE_MS;
+    if (!recentlyInside) {
+      lockedSinceMs = 0;
+      lastInsideRingMs = 0;
+    }
     setAppStatus(APP_STATUS_MODES.CENTER_FACE);
   }
 }
@@ -1314,8 +1353,22 @@ function drawAppStatusLabel(circleDiameter) {
   textSize(APP_STATUS_TEXT_SIZE);
   fill(color[0] ?? 220, color[1] ?? 245, color[2] ?? 255, color[3] ?? 235);
   noStroke();
-  text(appStatus?.label || APP_STATUS_LABELS[APP_STATUS_MODES.DETECTING], width * 0.5, y);
+  text(getAppStatusLabel(), width * 0.5, y);
   pop();
+}
+
+function isBlinkUnlocked() {
+  if (!lockedSinceMs) return false;
+  return millis() - lockedSinceMs >= LOCK_TO_BLINK_DELAY_MS;
+}
+
+function getAppStatusLabel() {
+  if (appStatus?.mode === APP_STATUS_MODES.LOCKED && !isBlinkUnlocked()) {
+    const remainingMs = Math.max(0, LOCK_TO_BLINK_DELAY_MS - (millis() - lockedSinceMs));
+    const seconds = Math.max(1, Math.ceil(remainingMs / 1000));
+    return `WAIT ${seconds}`;
+  }
+  return appStatus?.label || APP_STATUS_LABELS[APP_STATUS_MODES.DETECTING];
 }
 
 function isScanActive() {

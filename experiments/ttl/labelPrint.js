@@ -5,12 +5,64 @@
     "10x10": { widthCm: 10, heightCm: 10 },
     "10x15": { widthCm: 10, heightCm: 15 },
   };
-  const PAGE_PADDING = 18;
+  const TEXT_MARGIN_MM = 8;
+  const TEXT_TOP_MARGIN_MM = 2.5;
   const BASE_WIDTH_MM = 58;
   const TITLE_FONT = 22;
   const META_FONT = 14;
   const BODY_FONT = 14;
   const LINE_GAP = 6;
+  const FACEMESH_LABEL_PATHS = [
+    {
+      closed: true,
+      indices: [
+        10, 338, 297, 332, 284, 251, 389, 356, 454, 323, 361, 288,
+        397, 365, 379, 378, 400, 377, 152, 148, 176, 149, 150, 136,
+        172, 58, 132, 93, 234, 127, 162, 21, 54, 103, 67, 109,
+      ],
+    },
+    {
+      closed: true,
+      indices: [33, 7, 163, 144, 145, 153, 154, 155, 133, 173, 157, 158, 159, 160, 161, 246],
+    },
+    {
+      closed: true,
+      indices: [263, 249, 390, 373, 374, 380, 381, 382, 362, 398, 384, 385, 386, 387, 388, 466],
+    },
+    {
+      closed: false,
+      indices: [70, 63, 105, 66, 107, 55, 65, 52, 53, 46],
+    },
+    {
+      closed: false,
+      indices: [300, 293, 334, 296, 336, 285, 295, 282, 283, 276],
+    },
+    {
+      closed: true,
+      indices: [
+        61, 146, 91, 181, 84, 17, 314, 405, 321, 375, 291, 308,
+        324, 318, 402, 317, 14, 87, 178, 88, 95, 185, 40, 39, 37, 0,
+        267, 269, 270, 409, 415, 310, 311, 312, 13, 82, 81, 80, 191, 78,
+      ],
+    },
+    {
+      closed: true,
+      indices: [78, 95, 88, 178, 87, 14, 317, 402, 318, 324, 308, 415, 310, 311, 312, 13, 82, 81, 80, 191],
+    },
+    {
+      closed: false,
+      indices: [168, 6, 197, 195, 5, 4],
+    },
+    {
+      closed: true,
+      indices: [2, 97, 326, 327, 98],
+    },
+  ];
+  const FACEMESH_LABEL_LINE_WEIGHT = 2.8;
+  const FACEMESH_LABEL_DENSE_ENABLED = true;
+  const FACEMESH_LABEL_DENSE_NEIGHBORS = 5;
+  const FACEMESH_LABEL_DENSE_MAX_DIST_RATIO = 0.18;
+  const FACEMESH_LABEL_DENSE_WEIGHT = 1.6;
 
   function create({ onLog = () => {}, onState = () => {} } = {}) {
     let printer = null;
@@ -137,7 +189,7 @@
           const text = String(value).trim();
           if (text) return text;
         }
-        return "-";
+        return "";
       };
       return {
         age: pick("age"),
@@ -175,15 +227,153 @@
       return wrapped;
     }
 
-    function createReceiptImageData(response) {
+    function drawFaceMeshOnLabel(gfx, normalizedFacePoints, box) {
+      if (!Array.isArray(normalizedFacePoints) || normalizedFacePoints.length === 0) return;
+      const left = box.x;
+      const top = box.y;
+      const w = box.w;
+      const h = box.h;
+      if (w <= 0 || h <= 0) return;
+
+      gfx.push();
+      gfx.noFill();
+      gfx.stroke(0);
+      gfx.strokeCap(ROUND);
+      gfx.strokeJoin(ROUND);
+
+      let minX = Infinity;
+      let minY = Infinity;
+      let maxX = -Infinity;
+      let maxY = -Infinity;
+      for (const point of normalizedFacePoints) {
+        const x = Number(point?.x);
+        const y = Number(point?.y);
+        if (!Number.isFinite(x) || !Number.isFinite(y)) continue;
+        if (x < minX) minX = x;
+        if (y < minY) minY = y;
+        if (x > maxX) maxX = x;
+        if (y > maxY) maxY = y;
+      }
+      if (!Number.isFinite(minX) || !Number.isFinite(minY) || !Number.isFinite(maxX) || !Number.isFinite(maxY)) {
+        gfx.pop();
+        return;
+      }
+
+      const sourceW = Math.max(1e-5, maxX - minX);
+      const sourceH = Math.max(1e-5, maxY - minY);
+      const scale = Math.min(w / sourceW, h / sourceH);
+      const drawW = sourceW * scale;
+      const drawH = sourceH * scale;
+      const offsetX = left + (w - drawW) * 0.5 - minX * scale;
+      const offsetY = top + (h - drawH) * 0.5 - minY * scale;
+
+      const mappedPoints = normalizedFacePoints.map((point) => {
+        const x = Number(point?.x);
+        const y = Number(point?.y);
+        if (!Number.isFinite(x) || !Number.isFinite(y)) return null;
+        return {
+          x: offsetX + x * scale,
+          y: offsetY + y * scale,
+        };
+      });
+
+      if (FACEMESH_LABEL_DENSE_ENABLED) {
+        const denseEdges = buildDenseEdges(mappedPoints);
+        gfx.strokeWeight(FACEMESH_LABEL_DENSE_WEIGHT);
+        for (const edge of denseEdges) {
+          const a = mappedPoints[edge[0]];
+          const b = mappedPoints[edge[1]];
+          if (!a || !b) continue;
+          gfx.line(a.x, a.y, b.x, b.y);
+        }
+      }
+
+      gfx.strokeWeight(FACEMESH_LABEL_LINE_WEIGHT);
+      for (const path of FACEMESH_LABEL_PATHS) {
+        const indices = path?.indices || [];
+        if (indices.length < 2) continue;
+        for (let i = 0; i < indices.length - 1; i += 1) {
+          const a = mappedPoints[indices[i]];
+          const b = mappedPoints[indices[i + 1]];
+          if (!a || !b) continue;
+          gfx.line(a.x, a.y, b.x, b.y);
+        }
+        if (path.closed) {
+          const a = mappedPoints[indices[indices.length - 1]];
+          const b = mappedPoints[indices[0]];
+          if (!a || !b) continue;
+          gfx.line(a.x, a.y, b.x, b.y);
+        }
+      }
+
+      gfx.pop();
+    }
+
+    function buildDenseEdges(points) {
+      const validIndices = [];
+      for (let i = 0; i < points.length; i += 1) {
+        if (points[i]) validIndices.push(i);
+      }
+      if (validIndices.length < 4) return [];
+
+      let minX = Infinity;
+      let minY = Infinity;
+      let maxX = -Infinity;
+      let maxY = -Infinity;
+      for (const index of validIndices) {
+        const point = points[index];
+        if (point.x < minX) minX = point.x;
+        if (point.y < minY) minY = point.y;
+        if (point.x > maxX) maxX = point.x;
+        if (point.y > maxY) maxY = point.y;
+      }
+      const diagonal = Math.hypot(maxX - minX, maxY - minY);
+      const maxDist = diagonal * FACEMESH_LABEL_DENSE_MAX_DIST_RATIO;
+      if (!Number.isFinite(maxDist) || maxDist <= 0) return [];
+
+      const edgeSet = new Set();
+      const edges = [];
+
+      for (const sourceIndex of validIndices) {
+        const source = points[sourceIndex];
+        const nearest = [];
+
+        for (const targetIndex of validIndices) {
+          if (targetIndex === sourceIndex) continue;
+          const target = points[targetIndex];
+          const distance = Math.hypot(target.x - source.x, target.y - source.y);
+          if (!Number.isFinite(distance) || distance > maxDist) continue;
+
+          nearest.push({ targetIndex, distance });
+        }
+
+        nearest.sort((a, b) => a.distance - b.distance);
+        const count = Math.min(FACEMESH_LABEL_DENSE_NEIGHBORS, nearest.length);
+
+        for (let i = 0; i < count; i += 1) {
+          const targetIndex = nearest[i].targetIndex;
+          const a = Math.min(sourceIndex, targetIndex);
+          const b = Math.max(sourceIndex, targetIndex);
+          const key = `${a}-${b}`;
+          if (edgeSet.has(key)) continue;
+          edgeSet.add(key);
+          edges.push([a, b]);
+        }
+      }
+
+      return edges;
+    }
+
+    function createReceiptImageData(response, { faceMeshPoints = null } = {}) {
       const data = pickAnalysisValues(response);
       const format = getActiveFormat();
       const widthMm = format.widthCm * 10;
       const heightMm = format.heightCm * 10;
       const widthPx = Math.round(widthMm * DOTS_PER_MM);
       const heightPx = Math.round(heightMm * DOTS_PER_MM);
-      const contentWidth = widthPx - PAGE_PADDING * 2;
-      const contentHeight = heightPx - PAGE_PADDING * 2;
+      const pagePadding = Math.round(TEXT_MARGIN_MM * DOTS_PER_MM);
+      const topPadding = Math.round(TEXT_TOP_MARGIN_MM * DOTS_PER_MM);
+      const contentWidth = widthPx - pagePadding * 2;
       const scale = Math.max(1, widthMm / BASE_WIDTH_MM);
       const titleFont = Math.round(TITLE_FONT * scale);
       const metaFont = Math.round(META_FONT * scale);
@@ -198,19 +388,11 @@
       measure.textSize(bodyFont);
       const adviceLines = wrapText(measure, data.lifeAdvice, contentWidth);
 
-      const metaLineHeight = metaFont + Math.round(3 * scale);
+      const metaLineHeight = metaFont + Math.round(5 * scale);
       const bodyLineHeight = bodyFont + Math.round(4 * scale);
       const titleHeight = titleFont + Math.round(2 * scale);
       const separatorHeight = Math.round(8 * scale);
-      const metaRows = 6;
-      const calculatedHeight =
-        PAGE_PADDING * 2 +
-        titleHeight +
-        lineGap +
-        separatorHeight +
-        metaRows * metaLineHeight +
-        lineGap +
-        Math.max(1, adviceLines.length) * bodyLineHeight;
+      const profileHeaderHeight = metaFont + Math.round(4 * scale);
       const labelHeightMm = heightMm;
 
       const gfx = createGraphics(widthPx, heightPx);
@@ -220,48 +402,61 @@
       gfx.textAlign(LEFT, TOP);
       gfx.textFont("Helvetica");
 
-      let y = PAGE_PADDING;
+      let y = topPadding;
       gfx.textStyle(BOLD);
       gfx.textSize(titleFont);
-      gfx.text("TTL ANALYSIS", PAGE_PADDING, y, contentWidth, titleHeight);
+      gfx.text("TTL ANALYSIS", pagePadding, y, contentWidth, titleHeight);
       y += titleHeight + lineGap;
 
       gfx.stroke(0);
       gfx.strokeWeight(1);
-      gfx.line(PAGE_PADDING, y, widthPx - PAGE_PADDING, y);
+      gfx.line(pagePadding, y, widthPx - pagePadding, y);
       y += separatorHeight;
 
       gfx.noStroke();
-      gfx.textStyle(NORMAL);
+      gfx.textStyle(BOLD);
       gfx.textSize(metaFont);
+      gfx.text("PROFILE", pagePadding, y, contentWidth, profileHeaderHeight);
+      y += profileHeaderHeight + lineGap;
+
       const rows = [
-        `Age: ${data.age}`,
-        `Gender: ${data.gender}`,
-        `Ethnicity: ${data.ethnicity}`,
-        `Country: ${data.country}`,
-        `Education: ${data.education}`,
-        `Lifespan: ${data.lifespan}`,
+        ["AGE", data.age],
+        ["GENDER", data.gender],
+        ["ETHNICITY", data.ethnicity],
+        ["COUNTRY", data.country],
+        ["EDUCATION", data.education],
+        ["LIFESPAN", data.lifespan],
       ];
+      const labelColWidth = Math.max(120, Math.round(contentWidth * 0.34));
       for (const row of rows) {
-        gfx.text(row, PAGE_PADDING, y, contentWidth, metaLineHeight);
+        const label = `${row[0]}:`;
+        const value = row[1] || "";
+        gfx.textStyle(BOLD);
+        gfx.text(label, pagePadding, y, labelColWidth, metaLineHeight);
+        gfx.textStyle(NORMAL);
+        gfx.text(value, pagePadding + labelColWidth, y, contentWidth - labelColWidth, metaLineHeight);
         y += metaLineHeight;
       }
 
       y += lineGap;
       gfx.textStyle(BOLD);
-      gfx.text("Life advice:", PAGE_PADDING, y, contentWidth, bodyLineHeight);
+      gfx.text("Life advice:", pagePadding, y, contentWidth, bodyLineHeight);
       y += bodyLineHeight;
       gfx.textStyle(NORMAL);
       gfx.textSize(bodyFont);
       for (const line of adviceLines) {
-        if (y + bodyLineHeight > PAGE_PADDING + contentHeight) break;
-        gfx.text(line, PAGE_PADDING, y, contentWidth, bodyLineHeight);
+        gfx.text(line, pagePadding, y, contentWidth, bodyLineHeight);
         y += bodyLineHeight;
       }
 
-      if (calculatedHeight > heightPx) {
-        onLog("receipt content truncated to fit selected label size");
-      }
+      const meshTop = Math.floor(heightPx * (2 / 3));
+      const meshBox = {
+        x: pagePadding,
+        y: meshTop + Math.round(pagePadding * 0.5),
+        w: widthPx - pagePadding * 2,
+        h: Math.max(1, heightPx - meshTop - Math.round(pagePadding * 1.5)),
+      };
+      drawFaceMeshOnLabel(gfx, faceMeshPoints, meshBox);
 
       const imageData = gfx.drawingContext.getImageData(0, 0, gfx.width, gfx.height);
       return {
@@ -282,9 +477,9 @@
       };
     }
 
-    async function printAnalysisReceipt(response) {
+    async function printAnalysisReceipt(response, options = {}) {
       await ensureReady();
-      const payload = createReceiptImageData(response);
+      const payload = createReceiptImageData(response, options);
       lastPreviewGraphic = payload.graphic;
       lastPreviewMeta = {
         labelWidthMm: payload.labelWidthMm,
