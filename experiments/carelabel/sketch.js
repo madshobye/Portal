@@ -25,6 +25,8 @@ const storageKey = "portal.carelabel.state";
 let labelFormat = "10x15";
 let orientation = "landscape";
 let editorFontMode = "helvetica";
+let autoSizingEnabled = true;
+let useSoftKeyboardInput = false;
 
 const labelFormats = {
   "10x10": { widthCm: 10, heightCm: 10 },
@@ -60,6 +62,7 @@ const fontOptions = [
 async function setup() {
   createCanvas(windowWidth, windowHeight);
   pixelDensity(1);
+  useSoftKeyboardInput = detectSoftKeyboardMode();
   installTextInputBridge();
   installKeyCapture();
   terminusFont = await loadFont("../textprompt/Terminus.ttf");
@@ -95,6 +98,9 @@ async function setup() {
   loadEditorState();
   applyEditorFont();
   rebuildLabelGraphic();
+  if (useSoftKeyboardInput) {
+    focusEditorInput();
+  }
 }
 
 function draw() {
@@ -152,7 +158,10 @@ function draw() {
   }
 
   if (!isConnected) {
-    const leftControlsEndX = preview.x + 164;
+    const autoButtonWidth = 96;
+    const orientationX = preview.x + 96;
+    const autoButtonX = orientationX + 56 + 12;
+    const leftControlsEndX = autoButtonX + autoButtonWidth + 12;
     const rightControlsStartX = preview.x + preview.width - buttonWidth - 12 - clearButtonWidth - 12;
     const fontButtonX = leftControlsEndX;
     const fontButtonWidth = Math.max(64, rightControlsStartX - fontButtonX);
@@ -173,7 +182,7 @@ function draw() {
     }
 
     const orientationButton = uiButton(orientation === "portrait" ? "P" : "L", {
-      x: preview.x + 96,
+      x: orientationX,
       y: controlsY,
       width: 56,
       height: 46,
@@ -185,6 +194,23 @@ function draw() {
     });
     if (!busy && orientationButton.clicked) {
       toggleOrientation();
+    }
+
+    const autoButton = uiButton(autoSizingEnabled ? "Auto On" : "Auto Off", {
+      x: autoButtonX,
+      y: controlsY,
+      width: autoButtonWidth,
+      height: 46,
+      fontSize: 15,
+      fillBg: busy ? "#1f1f1f" : "#ffffff",
+      fillBgHover: busy ? "#1f1f1f" : "#f1f1f1",
+      stroke: busy ? "#2c2c2c" : "#ffffff",
+      textFill: busy ? "#5a5a5a" : "#000000",
+    });
+    if (!busy && autoButton.clicked) {
+      autoSizingEnabled = !autoSizingEnabled;
+      detailText = autoSizingEnabled ? "Auto sizing on." : "Auto sizing off.";
+      saveEditorState();
     }
 
     const fontButton = uiButton(getEditorFontLabel(), {
@@ -342,7 +368,12 @@ function getCaretPosition(layout) {
   const nextIsSpace = nextChar === " " || nextChar === "\u00A0";
   const pairIsSpaced = previousIsSpace || nextIsSpace;
   const caretOffset = pairIsSpaced ? 0 : Math.max(1.5, info.line.fontSize * 0.018);
-  const x = pagePadding + measureStyledRangeWidth(info.line.start, clampCursorIndex(cursorIndex), info.line.fontSize) - caretOffset;
+  const x = pagePadding + measureStyledRangeWidth(
+    info.line.start,
+    clampCursorIndex(cursorIndex),
+    info.line.fontSize,
+    info.line.text
+  ) - caretOffset;
   let y = pagePadding;
   for (let index = 0; index < info.lineIndex; index += 1) {
     y += layout.lines[index].lineHeight;
@@ -397,7 +428,9 @@ function handlePointerPlacement(pointerX, pointerY) {
   if (!insidePreview) return;
 
   placeCursorFromPreviewPoint(pointerX, pointerY, preview);
-  focusEditorInput();
+  if (useSoftKeyboardInput) {
+    focusEditorInput();
+  }
   return false;
 }
 
@@ -413,7 +446,7 @@ function placeCursorFromPreviewPoint(pointerX, pointerY, preview) {
   let bestDistance = Infinity;
   for (let offset = 0; offset <= line.text.length; offset += 1) {
     const distance = Math.abs(
-      measureStyledRangeWidth(line.start, line.start + offset, line.fontSize) - textX
+      measureStyledRangeWidth(line.start, line.start + offset, line.fontSize, line.text) - textX
     );
     if (distance < bestDistance) {
       bestDistance = distance;
@@ -446,7 +479,7 @@ function findNearestLineIndex(layout, localY) {
 
 function keyTyped() {
   if (busy) return false;
-  if (document.activeElement === textInputEl) return false;
+  if (useSoftKeyboardInput && document.activeElement === textInputEl) return false;
   if (key.length === 1 && !keyIsDown(CONTROL) && !keyIsDown(ALT)) {
     insertTextAtCursor(key);
     detailText = "Typing into the label.";
@@ -456,7 +489,7 @@ function keyTyped() {
 
 function keyPressed() {
   if (busy) return false;
-  if (document.activeElement === textInputEl) return false;
+  if (useSoftKeyboardInput && document.activeElement === textInputEl) return false;
   if (
     keyCode === BACKSPACE ||
     keyCode === DELETE ||
@@ -498,6 +531,18 @@ function focusEditorInput() {
   textInputEl.focus({ preventScroll: true });
   textInputEl.value = "";
   textInputEl.setSelectionRange(0, 0);
+}
+
+function detectSoftKeyboardMode() {
+  try {
+    const coarsePointer = typeof window.matchMedia === "function"
+      ? window.matchMedia("(pointer: coarse)").matches
+      : false;
+    const touchPoints = Number(window.navigator?.maxTouchPoints || 0);
+    return coarsePointer || touchPoints > 0;
+  } catch {
+    return false;
+  }
 }
 
 function handleTextInputBeforeInput(event) {
@@ -678,7 +723,7 @@ function wrapTextToLines(textValue, maxWidth) {
   let lineStart = 0;
   let index = 0;
   let logicalLineIndex = 0;
-  let currentFontSize = getLineFontSize(logicalLineIndex);
+  let currentFontSize = resolveLineFontSize(logicalLineIndex, "");
   applyLabelFontSize(currentFontSize);
 
   while (index < text.length) {
@@ -689,13 +734,15 @@ function wrapTextToLines(textValue, maxWidth) {
       lineStart = index + 1;
       index += 1;
       logicalLineIndex += 1;
-      currentFontSize = getLineFontSize(logicalLineIndex);
+      currentFontSize = resolveLineFontSize(logicalLineIndex, "");
       applyLabelFontSize(currentFontSize);
       continue;
     }
 
     const candidate = currentText + character;
-    if (currentText.length > 0 && measureTextWidth(candidate, currentFontSize) > maxWidth) {
+    const candidateFontSize = resolveLineFontSize(logicalLineIndex, candidate, maxWidth);
+    const candidateWidth = measureStyledRangeWidth(lineStart, index + 1, candidateFontSize, candidate);
+    if (currentText.length > 0 && candidateWidth > maxWidth) {
       const breakAt = findBreakIndex(currentText);
       if (breakAt < currentText.length) {
         const lineText = currentText.slice(0, breakAt);
@@ -714,11 +761,46 @@ function wrapTextToLines(textValue, maxWidth) {
     }
 
     currentText = candidate;
+    currentFontSize = candidateFontSize;
     index += 1;
   }
 
   lines.push(makeLine(currentText, lineStart, text.length, logicalLineIndex, currentFontSize));
   return lines.length ? lines : [makeLine("", 0, 0, 0, getLineFontSize(0))];
+}
+
+function resolveLineFontSize(logicalLineIndex, textValue, maxWidth = null) {
+  const baseSize = getLineFontSize(logicalLineIndex);
+  if (!autoSizingEnabled || !Number.isFinite(maxWidth) || maxWidth <= 0) return baseSize;
+  const hasManualSize = Object.prototype.hasOwnProperty.call(lineFontSizes, logicalLineIndex);
+  const preferredSize = hasManualSize ? baseSize : maxFontSize;
+  const autoStyle = isAutoLineBold(textValue) ? { bold: true, italic: false, underline: false } : null;
+  return fitFontSizeToWidth(textValue, maxWidth, preferredSize, autoStyle);
+}
+
+function fitFontSizeToWidth(textValue, maxWidth, preferredSize, style = null) {
+  const text = String(textValue || "");
+  const size = constrain(preferredSize, minFontSize, maxFontSize);
+  if (!text.length) return size;
+
+  let low = 0;
+  let high = 0;
+  for (let i = 0; i < fontSizeScale.length; i += 1) {
+    if (fontSizeScale[i] <= size) high = i;
+  }
+  let best = fontSizeScale[0];
+  while (low <= high) {
+    const mid = Math.floor((low + high) * 0.5);
+    const candidateSize = fontSizeScale[mid];
+    const widthValue = measureTextWidth(text, candidateSize, style);
+    if (widthValue <= maxWidth) {
+      best = candidateSize;
+      low = mid + 1;
+    } else {
+      high = mid - 1;
+    }
+  }
+  return best;
 }
 
 function findBreakIndex(text) {
@@ -790,13 +872,23 @@ function moveCursorVertical(direction) {
   const targetLineIndex = constrain(current.lineIndex + direction, 0, layout.lines.length - 1);
   if (targetLineIndex === current.lineIndex) return;
 
-  const currentX = measureStyledRangeWidth(current.line.start, clampCursorIndex(cursorIndex), current.line.fontSize);
+  const currentX = measureStyledRangeWidth(
+    current.line.start,
+    clampCursorIndex(cursorIndex),
+    current.line.fontSize,
+    current.line.text
+  );
   const targetLine = layout.lines[targetLineIndex];
   let bestOffset = 0;
   let bestDistance = Infinity;
   for (let offset = 0; offset <= targetLine.text.length; offset += 1) {
     const distance = Math.abs(
-      measureStyledRangeWidth(targetLine.start, targetLine.start + offset, targetLine.fontSize) - currentX
+      measureStyledRangeWidth(
+        targetLine.start,
+        targetLine.start + offset,
+        targetLine.fontSize,
+        targetLine.text
+      ) - currentX
     );
     if (distance < bestDistance) {
       bestDistance = distance;
@@ -924,17 +1016,29 @@ function applyLineTextStyle(style) {
   labelGraphic.textStyle(NORMAL);
 }
 
+function isAutoLineBold(textValue) {
+  if (!autoSizingEnabled) return false;
+  const normalized = String(textValue || "").trim();
+  return normalized.length > 0 && normalized.length < 10;
+}
+
 function drawStyledLine(line, y) {
   const segments = getLineSegments(line.start, line.end, line.text);
+  const autoLineBold = isAutoLineBold(line.text);
   let x = pagePadding;
 
   for (const segment of segments) {
     const textValue = segment.text || " ";
     const style = segment.style || {};
+    const mergedStyle = {
+      bold: !!(style.bold || autoLineBold),
+      italic: !!style.italic,
+      underline: !!style.underline,
+    };
     const whitespaceOnly = isWhitespaceOnly(textValue);
     const renderStyle = whitespaceOnly
       ? { bold: false, italic: false, underline: false }
-      : style;
+      : mergedStyle;
     const widthValue = whitespaceOnly
       ? measureWhitespaceWidth(textValue, line.fontSize)
       : measureTextWidth(textValue, line.fontSize, renderStyle);
@@ -950,7 +1054,7 @@ function drawStyledLine(line, y) {
     }
     labelGraphic.pop();
 
-    if (style.underline) {
+    if (mergedStyle.underline) {
       const underlineY = y + line.fontSize * 0.9;
       labelGraphic.stroke(0);
       labelGraphic.strokeWeight(Math.max(1, line.fontSize * 0.03));
@@ -1024,6 +1128,7 @@ function saveEditorState() {
       labelFormat,
       orientation,
       editorFontMode,
+      autoSizingEnabled,
     }));
   } catch {}
 }
@@ -1043,12 +1148,13 @@ function loadEditorState() {
     editorFontMode = fontOptions.some((option) => option.key === data.editorFontMode)
       ? data.editorFontMode
       : "helvetica";
+    autoSizingEnabled = data.autoSizingEnabled !== false;
   } catch {}
 }
 
 function clearEditor() {
-  labelText = "";
-  cursorIndex = 0;
+  labelText = "Care is...";
+  cursorIndex = labelText.length;
   lineFontSizes = {};
   textStyleRanges = {
     bold: [],
@@ -1060,7 +1166,8 @@ function clearEditor() {
     italic: false,
     underline: false,
   };
-  detailText = "Cleared label.";
+  autoSizingEnabled = true;
+  detailText = "Reset label text.";
   saveEditorState();
 }
 
@@ -1183,15 +1290,21 @@ function measureWhitespaceWidth(text, fontSize) {
   return Math.max(measured, minimumPerChar * spaceCount);
 }
 
-function measureStyledRangeWidth(start, end, fontSize) {
+function measureStyledRangeWidth(start, end, fontSize, lineText = "") {
   if (end <= start) return 0;
+  const autoLineBold = isAutoLineBold(lineText || labelText.slice(start, end));
   const segments = getLineSegments(start, end, labelText.slice(start, end));
   let widthValue = 0;
   for (const segment of segments) {
     const whitespaceOnly = isWhitespaceOnly(segment.text);
+    const mergedStyle = {
+      bold: !!(segment.style?.bold || autoLineBold),
+      italic: !!segment.style?.italic,
+      underline: !!segment.style?.underline,
+    };
     widthValue += whitespaceOnly
       ? measureWhitespaceWidth(segment.text, fontSize)
-      : measureTextWidth(segment.text, fontSize, segment.style);
+      : measureTextWidth(segment.text, fontSize, mergedStyle);
   }
   return widthValue;
 }
