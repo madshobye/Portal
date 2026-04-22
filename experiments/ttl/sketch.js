@@ -10,6 +10,7 @@ let consoleEl;
 let runBtn;
 let pairBtn;
 let labelFormatBtn;
+let denseLinesBtn;
 let toggleBtn;
 let modelSelectEl;
 let canvasHostResizeObserver = null;
@@ -44,10 +45,13 @@ let resultListItems = [];
 let resultListAnimStartMs = 0;
 let terminalFontFamily = "Share Tech Mono";
 let labelPrinter = null;
+let lastInfoUpdateMs = 0;
+let showFacemeshDenseLines = false;
 
 const DEBUG_HIDDEN_KEY = "ttl.debugHidden";
 const MODEL_KEY = "ttl.selectedModel";
 const DEBUG_LOG_LIMIT = 160;
+const INFO_UPDATE_INTERVAL_MS = 250;
 const CAMERA_FLIPPED = true;
 const SHOW_CANVAS_OVERLAY_UI = false;
 const SHOW_FACEMESH_LINES = true;
@@ -56,7 +60,6 @@ const FACEMESH_LINE_WEIGHT = 2.4;
 const FACEMESH_LINE_COLOR = [90, 225, 255, 210];
 const FACEMESH_POINT_COLOR = [90, 225, 255, 180];
 const FACEMESH_POINT_SIZE = 2.4;
-const SHOW_FACEMESH_DENSE_LINES = true;
 const FACEMESH_DENSE_LINE_WEIGHT = 1.3;
 const FACEMESH_DENSE_LINE_COLOR = [90, 225, 255, 120];
 const FACEMESH_DENSE_NEIGHBORS = 5;
@@ -99,8 +102,8 @@ const SCAN_VIBRATE_PX = 3.5;
 const SCAN_GLOW_BAND_PX = 110;
 const SCAN_GLOW_STROKE_BOOST = 1.7;
 const SCAN_SNAPSHOT_SIZE = 1152;
-const CAMERA_CAPTURE_WIDTH = 960;
-const CAMERA_CAPTURE_HEIGHT = 720;
+const CAMERA_CAPTURE_WIDTH = 640;
+const CAMERA_CAPTURE_HEIGHT = 480;
 const RESULT_LIST_MAX_ITEMS = 14;
 const RESULT_LIST_WIDTH = 460;
 const RESULT_LIST_MARGIN = 26;
@@ -294,6 +297,17 @@ function buildUi() {
     handleToggleLabelFormat();
   });
 
+  denseLinesBtn = createButton("Dense Off");
+  denseLinesBtn.class("ttl-btn");
+  denseLinesBtn.parent(toolbar);
+  denseLinesBtn.mousePressed(() => {
+    showFacemeshDenseLines = !showFacemeshDenseLines;
+    facemeshDenseEdges = null;
+    facemeshDenseEdgePointCount = 0;
+    refreshDenseLinesButton();
+    updateInfo(true);
+  });
+
   const clearBtn = createButton("Clear Log");
   clearBtn.class("ttl-btn");
   clearBtn.parent(toolbar);
@@ -327,6 +341,9 @@ function buildUi() {
     debugHidden = !debugHidden;
     persistDebugHidden();
     applyDebugVisibility();
+    if (!debugHidden) {
+      updateInfo(true);
+    }
     requestAnimationFrame(resizeCanvasToHost);
   });
 
@@ -403,8 +420,17 @@ function refreshPrinterButton() {
   }
 }
 
-function updateInfo() {
+function refreshDenseLinesButton() {
+  if (!denseLinesBtn) return;
+  denseLinesBtn.html(showFacemeshDenseLines ? "Dense On" : "Dense Off");
+}
+
+function updateInfo(force = false) {
   if (!infoEl) return;
+  if (debugHidden && !force) return;
+  const now = typeof millis === "function" ? millis() : Date.now();
+  if (!force && now - lastInfoUpdateMs < INFO_UPDATE_INTERVAL_MS) return;
+  lastInfoUpdateMs = now;
   const faceCount = faceMesh?.getFaces?.()?.length || 0;
   const printerState = getPrinterState();
   const lines = [
@@ -430,9 +456,11 @@ function updateInfo() {
           : "unavailable"
     }`,
     `Label: ${printerState.labelFormat || "10x15"}`,
+    `Dense Lines: ${showFacemeshDenseLines ? "on" : "off"}`,
   ];
   infoEl.html(lines.join("\n"));
   refreshPrinterButton();
+  refreshDenseLinesButton();
 }
 
 function createCanvasInHost() {
@@ -1117,7 +1145,7 @@ function drawFaceMeshConnections(mesh, renderFrame = null) {
     const points = face?.keypoints || [];
     if (!points.length) continue;
 
-    if (SHOW_FACEMESH_DENSE_LINES) {
+    if (showFacemeshDenseLines) {
       const denseEdges = getDenseEdges(points);
       stroke(
         FACEMESH_DENSE_LINE_COLOR[0] ?? 90,
