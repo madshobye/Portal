@@ -18,6 +18,8 @@ class BleLabelPrinter {
     chunkDelayMs = 8,
     debug = true,
     connectTimeoutMs = 12000,
+    gattConnectAttempts = 1,
+    gattConnectRetryDelayMs = 500,
     operationTimeoutMs = 6000,
     autoReconnectOnRefresh = true,
     reconnectDelayMs = 1200,
@@ -63,6 +65,8 @@ class BleLabelPrinter {
     this.chunkDelayMs = Math.max(0, Number(chunkDelayMs) || 8);
     this.debug = debug !== false;
     this.connectTimeoutMs = Math.max(2000, Number(connectTimeoutMs) || 12000);
+    this.gattConnectAttempts = Math.max(1, Math.round(Number(gattConnectAttempts) || 1));
+    this.gattConnectRetryDelayMs = Math.max(0, Number(gattConnectRetryDelayMs) || 500);
     this.operationTimeoutMs = Math.max(1000, Number(operationTimeoutMs) || 6000);
     this.autoReconnectOnRefresh = !!autoReconnectOnRefresh;
     this.reconnectDelayMs = Math.max(300, Number(reconnectDelayMs) || 1200);
@@ -93,6 +97,7 @@ class BleLabelPrinter {
     this._autoReconnectPromise = null;
     this._writeQueue = Promise.resolve();
     this._encoder = new TextEncoder();
+    this._effectiveChunkSize = this.chunkSize;
     this._boundOnDisconnected = this._handleDisconnected.bind(this);
     this._boundOnCharacteristicValueChanged = this._handleCharacteristicValueChanged.bind(this);
     this._rxBytes = [];
@@ -668,14 +673,37 @@ class BleLabelPrinter {
     this._ensureConnected();
     this._setState("printing");
 
-    for (let offset = 0; offset < payload.length; offset += this.chunkSize) {
-      const chunk = payload.slice(offset, offset + this.chunkSize);
+    let offset = 0;
+    let activeChunkSize = Math.max(20, Math.min(this.chunkSize, this._effectiveChunkSize || this.chunkSize));
+
+    while (offset < payload.length) {
+      const chunk = payload.slice(offset, offset + activeChunkSize);
       this._debug("write chunk", {
         offset,
         bytes: chunk.length,
+        requestedChunkSize: this.chunkSize,
+        activeChunkSize,
         characteristic: this.characteristic?.uuid || "",
       });
-      await this._writeChunk(chunk);
+      try {
+        await this._writeChunk(chunk);
+      } catch (error) {
+        if (activeChunkSize <= 20) throw error;
+        const nextChunkSize = Math.max(20, Math.floor(activeChunkSize * 0.5));
+        this._debug("write chunk fallback", {
+          offset,
+          failedBytes: chunk.length,
+          activeChunkSize,
+          nextChunkSize,
+          error: error?.message || String(error),
+        });
+        activeChunkSize = nextChunkSize;
+        this._effectiveChunkSize = nextChunkSize;
+        continue;
+      }
+
+      this._effectiveChunkSize = activeChunkSize;
+      offset += chunk.length;
       if (this.chunkDelayMs > 0) {
         await this._sleep(this.chunkDelayMs);
       }
@@ -807,28 +835,42 @@ class BleLabelPrinter {
   }
 
   async _connectGattWithTimeout(device) {
-    let timeoutId = null;
-    try {
-      return await Promise.race([
-        device.gatt.connect(),
-        new Promise((_, reject) => {
-          timeoutId = setTimeout(() => {
-            reject(new Error(`BleLabelPrinter: GATT connect timed out after ${this.connectTimeoutMs}ms`));
-          }, this.connectTimeoutMs);
-        }),
-      ]);
-    } catch (error) {
-      this._debug("gatt connect failed", {
-        error: error?.message || String(error),
-        connected: !!device?.gatt?.connected,
-      });
+    let lastError = null;
+    for (let attempt = 1; attempt <= this.gattConnectAttempts; attempt += 1) {
+      let timeoutId = null;
       try {
-        if (device?.gatt?.connected) device.gatt.disconnect();
-      } catch {}
-      throw error;
-    } finally {
-      if (timeoutId) clearTimeout(timeoutId);
+        this._debug("gatt connect attempt", {
+          attempt,
+          attempts: this.gattConnectAttempts,
+          timeoutMs: this.connectTimeoutMs,
+        });
+        return await Promise.race([
+          device.gatt.connect(),
+          new Promise((_, reject) => {
+            timeoutId = setTimeout(() => {
+              reject(new Error(`BleLabelPrinter: GATT connect timed out after ${this.connectTimeoutMs}ms`));
+            }, this.connectTimeoutMs);
+          }),
+        ]);
+      } catch (error) {
+        lastError = error;
+        this._debug("gatt connect failed", {
+          attempt,
+          attempts: this.gattConnectAttempts,
+          error: error?.message || String(error),
+          connected: !!device?.gatt?.connected,
+        });
+        try {
+          if (device?.gatt?.connected) device.gatt.disconnect();
+        } catch {}
+        if (attempt < this.gattConnectAttempts && this.gattConnectRetryDelayMs > 0) {
+          await this._sleep(this.gattConnectRetryDelayMs);
+        }
+      } finally {
+        if (timeoutId) clearTimeout(timeoutId);
+      }
     }
+    throw lastError || new Error("BleLabelPrinter: GATT connect failed");
   }
 
   _getRequestDeviceOptions({ acceptAllDevices = false } = {}) {
