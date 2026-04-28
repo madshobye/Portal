@@ -49,11 +49,15 @@ let terminalFontFamily = "Share Tech Mono";
 let labelPrinter = null;
 let lastInfoUpdateMs = 0;
 let denseLineMode = "off";
+let lastKnownLocation = null;
+let lastKnownLocationMs = 0;
 
 const DEBUG_HIDDEN_KEY = "ttl.debugHidden";
 const MODEL_KEY = "ttl.selectedModel";
 const DEBUG_LOG_LIMIT = 160;
 const INFO_UPDATE_INTERVAL_MS = 250;
+const LOCATION_CACHE_MS = 5 * 60 * 1000;
+const LOCATION_REQUEST_TIMEOUT_MS = 7000;
 const CAMERA_FLIPPED = true;
 const SHOW_CANVAS_OVERLAY_UI = false;
 const SHOW_FACEMESH_LINES = true;
@@ -132,7 +136,7 @@ const RESULT_LIST_BG = [8, 18, 26, 175];
 const RESULT_LIST_STROKE = [90, 225, 255, 120];
 const RESULT_LIST_TEXT = [216, 245, 255, 230];
 const RESULT_LIST_LABEL = [120, 225, 255, 235];
-const ANALYSIS_HOLD_AFTER_TRACK_LOSS_MS = 5 * 1000;
+const ANALYSIS_HOLD_AFTER_TRACK_LOSS_MS = 3 * 1000;
 const ANALYSIS_SIDE_MARGIN = 24;
 const ANALYSIS_SIDE_GAP = 12;
 const ANALYSIS_SIDE_TOP = 28;
@@ -553,6 +557,8 @@ async function setup() {
   appendDebugLog("portal/GptClient.js loaded");
   await loadScript("portal/faceMesh.js");
   appendDebugLog("portal/faceMesh.js loaded");
+  await loadScript("portal/location.js");
+  appendDebugLog("portal/location.js loaded");
   if (typeof loadGoogleFont === "function") {
     try {
       loadGoogleFont(terminalFontFamily);
@@ -640,6 +646,7 @@ function createClient() {
       "Look carefully at the user's image and describe the overall situation. " +
       "Do your best guess with no expectation of a perfect result. " +
       "It is better to provide a useful estimate than to refuse. " +
+      "If device GPS coordinates are included in the prompt, you may use them as soft contextual information about place and likely demographic context, but do not treat them as exact proof of identity or biography. " +
       "Focus on visible, non-sensitive cues: scene, lighting, mood, colors, and context hints. " +
       "Except for life_advice, every field should be one short word or number. " +
       "life_advice must be up to ten short plain sentences, no line breaks, no quotes. " +
@@ -1041,6 +1048,57 @@ async function requestAnalysis() {
   });
 }
 
+async function getLocationForPrompt() {
+  const now = Date.now();
+  if (lastKnownLocation && now - lastKnownLocationMs <= LOCATION_CACHE_MS) {
+    return lastKnownLocation;
+  }
+  if (typeof getLocation !== "function") {
+    return null;
+  }
+  try {
+    const loc = await promiseWithTimeout(getLocation(), LOCATION_REQUEST_TIMEOUT_MS, "Location timeout");
+    const latitude = Number(loc?.latitude);
+    const longitude = Number(loc?.longitude);
+    if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) {
+      return null;
+    }
+    lastKnownLocation = { latitude, longitude };
+    lastKnownLocationMs = now;
+    appendDebugLog(`[location] ${latitude.toFixed(5)}, ${longitude.toFixed(5)}`);
+    return lastKnownLocation;
+  } catch (error) {
+    appendDebugLog(`[location] unavailable: ${error?.message || error}`);
+    return null;
+  }
+}
+
+function buildLocationPromptContext(location) {
+  if (!location) return "";
+  return (
+    ` Device GPS location for this scan: latitude ${location.latitude.toFixed(5)}, ` +
+    `longitude ${location.longitude.toFixed(5)}. ` +
+    "You may use this as soft contextual information when estimating likely background and regional context."
+  );
+}
+
+function promiseWithTimeout(promise, timeoutMs, message = "Timeout") {
+  return new Promise((resolve, reject) => {
+    const timeoutId = window.setTimeout(() => {
+      reject(new Error(message));
+    }, timeoutMs);
+    Promise.resolve(promise)
+      .then((value) => {
+        window.clearTimeout(timeoutId);
+        resolve(value);
+      })
+      .catch((error) => {
+        window.clearTimeout(timeoutId);
+        reject(error);
+      });
+  });
+}
+
 async function requestAnalysisWithImage(imageSource, reason = "manual", options = {}) {
   if (!gpt || !imageSource || requestInFlight) return;
   const capturedFaceMeshSnapshot =
@@ -1054,10 +1112,12 @@ async function requestAnalysisWithImage(imageSource, reason = "manual", options 
   setStatus("Analysing...");
   appendDebugLog(`analysis:start (${reason})`);
   try {
+    const location = await getLocationForPrompt();
     const prompt =
       "Analyse the image and give the best possible answer to the information fields in image_response. " +
       "It is more important to give a useful answer than to be perfectly correct. " +
-      "Keep values short one word or number each except for life advice";
+      "Keep values short one word or number each except for life advice." +
+      buildLocationPromptContext(location);
     res = await gpt.ask(prompt, imageSource);
 
     if (res?.error === "Bad JSON in function_call") {
@@ -1065,7 +1125,8 @@ async function requestAnalysisWithImage(imageSource, reason = "manual", options 
       res = await gpt.ask(
         "Return image_response now. Strict JSON function args only. " +
         "All fields one short token/number except life_advice. " +
-        "life_advice max 18 words, one line, no quotes.",
+        "life_advice max 18 words, one line, no quotes." +
+        buildLocationPromptContext(location),
         imageSource
       );
     }
@@ -1586,16 +1647,22 @@ function prettifyKeyLabel(key) {
 
 function formatResultValue(value) {
   if (typeof value === "number") return Number.isFinite(value) ? String(value) : "";
-  if (typeof value === "boolean") return value ? "true" : "false";
-  if (Array.isArray(value)) return value.map((v) => `${v}`).join(", ");
+  if (typeof value === "boolean") return capitalizeFirstLetter(value ? "true" : "false");
+  if (Array.isArray(value)) return capitalizeFirstLetter(value.map((v) => `${v}`).join(", "));
   if (typeof value === "object") {
     try {
-      return JSON.stringify(value);
+      return capitalizeFirstLetter(JSON.stringify(value));
     } catch {
-      return String(value);
+      return capitalizeFirstLetter(String(value));
     }
   }
-  return String(value);
+  return capitalizeFirstLetter(String(value));
+}
+
+function capitalizeFirstLetter(value) {
+  const text = String(value || "");
+  if (!text) return "";
+  return text.charAt(0).toUpperCase() + text.slice(1);
 }
 
 function drawAnalysisCallouts(mesh, renderFrame = null, analysisVisible = false) {

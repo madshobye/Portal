@@ -187,7 +187,7 @@
           const value = safe[key];
           if (value === undefined || value === null) continue;
           const text = String(value).trim();
-          if (text) return text;
+          if (text) return capitalizeFirstLetter(text);
         }
         return "";
       };
@@ -198,8 +198,18 @@
         country: pick("country"),
         education: pick("education_level", "educational_level", "education"),
         lifespan: pick("lifespan"),
+        politicalPosition: pick("political_position"),
+        profession: pick("profession"),
+        kids: pick("kids"),
+        exerciseRegime: pick("exercise_regime"),
         lifeAdvice: pick("life_advice"),
       };
+    }
+
+    function capitalizeFirstLetter(value) {
+      const text = String(value || "");
+      if (!text) return "";
+      return text.charAt(0).toUpperCase() + text.slice(1);
     }
 
     function wrapText(gfx, text, maxWidth) {
@@ -429,6 +439,10 @@
         ["COUNTRY", data.country],
         ["EDUCATION", data.education],
         ["LIFESPAN", data.lifespan],
+        ["POLITICAL", data.politicalPosition],
+        ["PROFESSION", data.profession],
+        ["KIDS", data.kids],
+        ["EXERCISE", data.exerciseRegime],
       ];
       const labelColWidth = Math.max(88, Math.round(profileWidth * 0.42));
       const meshBox = {
