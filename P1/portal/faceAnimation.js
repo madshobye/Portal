@@ -118,6 +118,7 @@ class PortalFaceAnimation {
     g.rotate(headTilt);
     g.translate(headTurn, chinDrop);
 
+    this._drawUpperBody(g, s);
     this._drawNeck(g);
     this._drawCollar(g);
     this._drawHat(g);
@@ -128,6 +129,89 @@ class PortalFaceAnimation {
     this._drawBrows(g, browPinch, s);
     this._drawNose(g, s);
     this._drawMouth(g, mouthCurve, mouthOpen, s);
+
+    g.pop();
+  }
+
+  _drawUpperBody(g, s) {
+    g.push();
+
+    const torsoShift = s.headTurn * 1.4;
+    const shoulderLift = -1.1 * Math.max(0, s.tension - 0.2);
+    const chestRise = 1.2 * Math.max(0, s.arousal);
+
+    g.translate(torsoShift, shoulderLift + chestRise);
+
+    const coatFill = [235, 238, 242];
+    const coatShadow = [219, 224, 231];
+    const shirtFill = [247, 245, 240];
+
+    g.noStroke();
+    g.fill(coatShadow[0], coatShadow[1], coatShadow[2], 255);
+    this._filledBezierShape(g, [
+      [-46, 114],
+      [-55, 116, -63, 126, -66, 144],
+      [-69, 166, -63, 204, -49, 246],
+      [-38, 276, -24, 301, -8, 320],
+      [0, 329, 0, 329, 8, 320],
+      [24, 301, 38, 276, 49, 246],
+      [63, 204, 69, 166, 66, 144],
+      [63, 126, 55, 116, 46, 114],
+      [29, 107, 13, 102, 0, 101],
+      [-13, 102, -29, 107, -46, 114],
+    ]);
+
+    g.fill(coatFill[0], coatFill[1], coatFill[2], 255);
+    this._filledBezierShape(g, [
+      [-42, 114],
+      [-52, 116, -60, 126, -63, 146],
+      [-66, 170, -58, 213, -42, 262],
+      [-31, 293, -17, 316, -4, 334],
+      [0, 339, 0, 339, 4, 334],
+      [17, 316, 31, 293, 42, 262],
+      [58, 213, 66, 170, 63, 146],
+      [60, 126, 52, 116, 42, 114],
+      [27, 109, 12, 105, 0, 104],
+      [-12, 105, -27, 109, -42, 114],
+    ]);
+
+    g.fill(shirtFill[0], shirtFill[1], shirtFill[2], 252);
+    this._filledBezierShape(g, [
+      [-15, 118],
+      [-21, 135, -19, 183, -14, 233],
+      [-10, 273, -5, 307, 0, 334],
+      [5, 307, 10, 273, 14, 233],
+      [19, 183, 21, 135, 15, 118],
+      [9, 114, 4, 112, 0, 112],
+      [-4, 112, -9, 114, -15, 118],
+    ]);
+
+    g.stroke(this.inkTone[0], this.inkTone[1], this.inkTone[2], 170);
+    g.strokeWeight(1.6);
+    g.noFill();
+    this._openBezier(g, -42, 114, -52, 116, -60, 126, -63, 146);
+    this._openBezier(g, -63, 146, -66, 170, -58, 213, -42, 262);
+    this._openBezier(g, -42, 262, -31, 293, -17, 316, -4, 334);
+    this._openBezier(g, 4, 334, 17, 316, 31, 293, 42, 262);
+    this._openBezier(g, 42, 262, 58, 213, 66, 170, 63, 146);
+    this._openBezier(g, 63, 146, 60, 126, 52, 116, 42, 114);
+    this._openBezier(g, -30, 111, -18, 107, -8, 105, 0, 105);
+    this._openBezier(g, 0, 105, 8, 105, 18, 107, 30, 111);
+
+    g.strokeWeight(1.2);
+    g.stroke(this.inkTone[0], this.inkTone[1], this.inkTone[2], 110);
+    this._openBezier(g, 0, 125, 0, 181, 0, 244, 0, 325);
+    this._openBezier(g, -50, 128, -58, 142, -57, 164, -51, 181);
+    this._openBezier(g, 50, 128, 58, 142, 57, 164, 51, 181);
+
+    g.strokeWeight(1.4);
+    g.stroke(this.inkTone[0], this.inkTone[1], this.inkTone[2], 155);
+    this._openBezier(g, -26, 121, -24, 150, -21, 188, -17, 238);
+    this._openBezier(g, 26, 121, 24, 150, 21, 188, 17, 238);
+
+    g.noFill();
+    this._openBezier(g, -11, 122, -18, 133, -20, 150, -18, 166);
+    this._openBezier(g, 11, 122, 18, 133, 20, 150, 18, 166);
 
     g.pop();
   }
@@ -309,14 +393,14 @@ class PortalFaceAnimation {
     g.stroke(this.inkTone[0], this.inkTone[1], this.inkTone[2]);
     g.strokeWeight(1.8);
     g.beginShape();
-    g.vertex(-26, 116);
-    g.vertex(-10, 98);
-    g.vertex(-2, 114);
+    g.vertex(-24, 116);
+    g.vertex(-10, 99);
+    g.vertex(-2, 122);
     g.endShape();
     g.beginShape();
-    g.vertex(26, 116);
-    g.vertex(10, 98);
-    g.vertex(2, 114);
+    g.vertex(24, 116);
+    g.vertex(10, 99);
+    g.vertex(2, 122);
     g.endShape();
     g.pop();
   }

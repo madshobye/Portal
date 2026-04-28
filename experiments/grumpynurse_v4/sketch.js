@@ -723,21 +723,38 @@ function drawBubbleOverlay() {
   if (!conversationStarted) return;
   const entries = getStageBubbleEntriesForRender();
   if (!entries.length) return;
+  const hasLiveListeningBubble =
+    listeningIndicatorBubble?.kind === "recording" || listeningIndicatorBubble?.kind === "processing";
 
   const gap = 12;
+  const shoulderY = getNurseShoulderAnchorY();
   const topY = 26;
   const bottomLimit = Math.max(topY + 80, stageTaskTopY - 14);
   const columnWidth = Math.min(560, width * 0.44);
   const columnX = width - columnWidth - 24;
-  const mouth = getNurseMouthAnchor();
-  const bottomAnchorY = constrain(mouth.y + 14, topY + 80, bottomLimit);
+  const mouth = getNurseMouthTailAnchor();
+  const bottomAnchorY = constrain(shoulderY - 14, topY + 80, bottomLimit);
   const availableHeight = Math.max(0, bottomAnchorY - topY);
 
-  let layouts = entries.map((entry) => measureStageBubbleLayout(entry, columnX, columnWidth));
+  let fitScale = 1;
+  let layouts = entries.map((entry) => measureStageBubbleLayout(entry, columnX, columnWidth, fitScale));
   let totalHeight = getTotalBubbleLayoutsHeight(layouts, gap);
-  while (layouts.length > 1 && totalHeight > availableHeight) {
+  while (totalHeight > availableHeight && fitScale > 0.44) {
+    fitScale = Math.max(0.44, fitScale - 0.06);
+    layouts = entries.map((entry) => measureStageBubbleLayout(entry, columnX, columnWidth, fitScale));
+    totalHeight = getTotalBubbleLayoutsHeight(layouts, gap);
+  }
+  const minLayoutsToKeep = hasLiveListeningBubble ? 2 : 1;
+  while (layouts.length > minLayoutsToKeep && totalHeight > availableHeight) {
     layouts.shift();
     totalHeight = getTotalBubbleLayoutsHeight(layouts, gap);
+  }
+  if (hasLiveListeningBubble && layouts.length >= 2 && totalHeight > availableHeight) {
+    const lastLayout = layouts[layouts.length - 1];
+    if (lastLayout?.isRecording || lastLayout?.isProcessing) {
+      layouts = layouts.slice(0, -1);
+      totalHeight = getTotalBubbleLayoutsHeight(layouts, gap);
+    }
   }
 
   let latestNurseIndex = -1;
@@ -771,7 +788,7 @@ function getTotalBubbleLayoutsHeight(layouts, gap = 12) {
   return layouts.reduce((sum, layout) => sum + layout.bubbleH, 0) + gap * (layouts.length - 1);
 }
 
-function measureStageBubbleLayout(entry, columnX, columnWidth) {
+function measureStageBubbleLayout(entry, columnX, columnWidth, fitScale = 1) {
   const isNurse = entry.kind === "nurse";
   const isUser = entry.kind === "user" || entry.kind === "recording" || entry.kind === "processing";
   const isRecording = entry.kind === "recording";
@@ -781,12 +798,14 @@ function measureStageBubbleLayout(entry, columnX, columnWidth) {
   push();
   textFont("Helvetica Neue");
   textStyle(NORMAL);
-  const fontSize = isNurse
+  const baseFontSize = isNurse
     ? Math.max(16, Math.min(26, width * 0.019))
     : Math.max(15, Math.min(24, width * 0.017));
-  const leading = isNurse
+  const baseLeading = isNurse
     ? Math.max(20, Math.min(30, width * 0.023))
     : Math.max(19, Math.min(28, width * 0.021));
+  const fontSize = Math.max(isNurse ? 12 : 11, baseFontSize * fitScale);
+  const leading = Math.max(isNurse ? 16 : 15, baseLeading * fitScale);
   textSize(fontSize);
   textLeading(leading);
 
@@ -794,13 +813,13 @@ function measureStageBubbleLayout(entry, columnX, columnWidth) {
   const baseBubbleX = isNurse ? columnX : columnX + (columnWidth - bubbleW);
   const roleOffsetX = isNurse ? -10 : 6;
   const bubbleX = constrain(baseBubbleX + roleOffsetX, 12, width - bubbleW - 12);
-  const paddingX = isNurse ? 22 : 20;
-  const paddingY = isNurse ? 18 : 16;
-  const iconOffset = isRecording ? 36 : (isProcessing ? 34 : 0);
+  const paddingX = Math.max(14, (isNurse ? 22 : 20) * fitScale);
+  const paddingY = Math.max(12, (isNurse ? 18 : 16) * fitScale);
+  const iconOffset = isRecording ? Math.max(28, 36 * fitScale) : (isProcessing ? Math.max(26, 34 * fitScale) : 0);
   const lineH = textLeading();
   const textW = bubbleW - paddingX * 2 - iconOffset;
   const textH = Math.max(lineH, textBoundsHeight(bubbleText, textW));
-  const bubbleH = Math.max(textH + paddingY * 2, isRecording ? 74 : (isProcessing ? 64 : 0));
+  const bubbleH = Math.max(textH + paddingY * 2, isRecording ? Math.max(58, 74 * fitScale) : (isProcessing ? Math.max(52, 64 * fitScale) : 0));
   pop();
 
   return {
@@ -902,8 +921,8 @@ function drawNurseBubbleTail(layout, y, mouth) {
   if (usableMaxY <= usableMinY) return;
   const baseY = constrain(y + layout.bubbleH * 0.5, usableMinY, usableMaxY);
   const edgeX = layout.bubbleX + 1;
-  const tipX = constrain(mouth.x + 12, layout.bubbleX - 56, layout.bubbleX + 24);
-  const tipY = constrain(mouth.y - 4, baseY + 6, baseY + 62);
+  const tipX = constrain(lerp(edgeX, mouth.x, 0.5), layout.bubbleX - 44, layout.bubbleX + 12);
+  const tipY = constrain(lerp(baseY, mouth.y, 0.5), 8, height - 8);
   noStroke();
   fill(0, 0, 0, 208);
   beginShape();
@@ -951,6 +970,20 @@ function getNurseMouthAnchor() {
     x: frame.centerX,
     y: frame.centerY + 56 * frame.scale,
   };
+}
+
+function getNurseMouthTailAnchor() {
+  const mouth = getNurseMouthAnchor();
+  const frame = getNurseRenderFrame();
+  return {
+    x: mouth.x + 13 * frame.scale,
+    y: mouth.y - frame.scale,
+  };
+}
+
+function getNurseShoulderAnchorY() {
+  const frame = getNurseRenderFrame();
+  return frame.centerY + 112 * frame.scale;
 }
 
 function drawRecordingIndicator(cx, cy) {
@@ -1002,10 +1035,15 @@ function drawStageStartOverlay() {
   fill(17, 17, 17, 52);
   rect(0, 0, width, height);
 
-  const buttonW = 260;
-  const buttonH = 62;
+  const shoulderY = getNurseShoulderAnchorY();
+  const buttonW = Math.min(width - 72, 520);
+  const buttonH = Math.max(104, Math.min(146, height * 0.14));
   const buttonX = width * 0.5 - buttonW * 0.5;
-  const buttonY = height - buttonH - 34;
+  const buttonY = constrain(
+    shoulderY - buttonH - 42,
+    86,
+    height - buttonH - 120
+  );
   stageUiHitTargets.startButton = {
     x: buttonX,
     y: buttonY,
@@ -1014,10 +1052,10 @@ function drawStageStartOverlay() {
   };
 
   if (listeningWanted && !prestartVoiceReady && !hasSessionInteraction) {
-    const initButtonW = 220;
-    const initButtonH = 48;
+    const initButtonW = Math.min(width - 120, 340);
+    const initButtonH = 54;
     const initButtonX = width * 0.5 - initButtonW * 0.5;
-    const initButtonY = buttonY - initButtonH - 52;
+    const initButtonY = Math.max(24, buttonY - initButtonH - 28);
     stageUiHitTargets.voiceInitButton = {
       x: initButtonX,
       y: initButtonY,
@@ -1028,19 +1066,21 @@ function drawStageStartOverlay() {
     fill(0, 0, 0, 188);
     rect(initButtonX, initButtonY, initButtonW, initButtonH, 14);
     fill(255, 253, 248);
+    textAlign(CENTER, CENTER);
+    textFont("Helvetica Neue");
     textStyle(BOLD);
-    textSize(14);
+    textSize(Math.max(16, Math.min(22, width * 0.018)));
     text("Enable Voice Start", width * 0.5, initButtonY + initButtonH * 0.5);
   }
 
   fill(17, 17, 17);
-  rect(buttonX, buttonY, buttonW, buttonH, 16);
+  rect(buttonX, buttonY, buttonW, buttonH, 22);
   fill(255, 253, 248);
   textAlign(CENTER, CENTER);
   textFont("Helvetica Neue");
   textStyle(BOLD);
-  textSize(14);
-  text('Say "I am ready" to start', buttonX + 16, buttonY + 10, buttonW - 32, buttonH - 20);
+  textSize(Math.max(28, Math.min(46, width * 0.04)));
+  text('Say "I am ready" to start', buttonX + 28, buttonY + 14, buttonW - 56, buttonH - 28);
 }
 
 function matchesVoiceStartCommand(value) {
