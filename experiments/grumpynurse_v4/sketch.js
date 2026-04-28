@@ -4,6 +4,8 @@ let apiKeyEncryptedGpt222 ="U2FsdGVkX1/p9uf1wlE+/3dCyCS4rAqGptmHuLBLHho2qru9AlVg
 
 const DOC_MD_URL =
   "https://docs.google.com/document/d/1STeaNBuavGIx1TkRN86tqxEmbuVepys5Y5lBRhs4KyM/export?format=md&tab=t.0";
+const ALT_DOC_MD_URL =
+  "https://docs.google.com/document/d/1dYu1NB4vbV1-fX_aYIwnXMVG-ghQaMoTNt-jDq49n-I/export?format=md&tab=t.0";
 const MODEL_OPTIONS = [
   "gpt-5.4",
   "gpt-5.4-pro",
@@ -231,6 +233,7 @@ const CURATED_VOICE_PROFILES = [
 let apiKey = "";
 let gpt;
 let promptDocMd = "";
+let promptDocUrl = DOC_MD_URL;
 let appRoot;
 let shellEl;
 let adminEl;
@@ -362,6 +365,7 @@ async function setup() {
   });
 
   apiKey = storedDecrypt({ apiKeyEncryptedGpt222 });
+  promptDocUrl = resolvePromptDocUrl();
   selectedModel = loadSelectedModel();
   selectedSessionLanguage = loadSelectedSessionLanguage();
   selectedVoice = loadSelectedVoice();
@@ -377,6 +381,7 @@ async function setup() {
     listeningWanted,
     debugExportsEnabled,
     adminPanelHidden,
+    promptDocUrl,
   });
 
   buildUi();
@@ -1080,7 +1085,43 @@ function drawStageStartOverlay() {
   textFont("Helvetica Neue");
   textStyle(BOLD);
   textSize(Math.max(28, Math.min(46, width * 0.04)));
-  text('Say "I am ready" to start', buttonX + 28, buttonY + 14, buttonW - 56, buttonH - 28);
+  text('Say "I am ready"', buttonX + 28, buttonY + 14, buttonW - 56, buttonH - 28);
+}
+
+function resolvePromptDocUrl() {
+  try {
+    const params = new URLSearchParams(window.location.search || "");
+    const named = String(params.get("promptDoc") || "").trim().toLowerCase();
+    if (named === "alt" || named === "v4b" || named === "ward") {
+      return ALT_DOC_MD_URL;
+    }
+
+    const rawUrl = String(params.get("promptDocUrl") || "").trim();
+    if (!rawUrl) return DOC_MD_URL;
+    const normalized = normalizeGoogleDocMarkdownUrl(rawUrl);
+    return normalized || DOC_MD_URL;
+  } catch {}
+  return DOC_MD_URL;
+}
+
+function normalizeGoogleDocMarkdownUrl(value) {
+  const raw = String(value || "").trim();
+  if (!raw) return "";
+
+  try {
+    const url = new URL(raw);
+    if (!/docs\.google\.com$/i.test(url.hostname)) return raw;
+    const match = url.pathname.match(/\/document\/d\/([^/]+)/i);
+    if (!match?.[1]) return raw;
+    const docId = match[1];
+    const tab = url.searchParams.get("tab");
+    const exportUrl = new URL(`https://docs.google.com/document/d/${docId}/export`);
+    exportUrl.searchParams.set("format", "md");
+    if (tab) exportUrl.searchParams.set("tab", tab);
+    return exportUrl.toString();
+  } catch {}
+
+  return raw;
 }
 
 function matchesVoiceStartCommand(value) {
@@ -1614,8 +1655,8 @@ function injectPromptPlaceholders(docText, replacements = {}) {
 
 async function fetchPromptMarkdown() {
   try {
-    debugInit("fetchPromptMarkdown:start", { url: DOC_MD_URL });
-    const res = await fetch(DOC_MD_URL, { method: "GET" });
+    debugInit("fetchPromptMarkdown:start", { url: promptDocUrl });
+    const res = await fetch(promptDocUrl, { method: "GET" });
     debugInit("fetchPromptMarkdown:response", {
       ok: res.ok,
       status: res.status,
