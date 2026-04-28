@@ -43,10 +43,11 @@ let scanSweepStartMs = 0;
 let scanEffectUntilMs = 0;
 let resultListItems = [];
 let resultListAnimStartMs = 0;
+let analysisLastTrackedMs = 0;
 let terminalFontFamily = "Share Tech Mono";
 let labelPrinter = null;
 let lastInfoUpdateMs = 0;
-let showFacemeshDenseLines = false;
+let denseLineMode = "off";
 
 const DEBUG_HIDDEN_KEY = "ttl.debugHidden";
 const MODEL_KEY = "ttl.selectedModel";
@@ -64,6 +65,17 @@ const FACEMESH_DENSE_LINE_WEIGHT = 1.3;
 const FACEMESH_DENSE_LINE_COLOR = [90, 225, 255, 120];
 const FACEMESH_DENSE_NEIGHBORS = 5;
 const FACEMESH_DENSE_MAX_DIST_RATIO = 0.18;
+const FACEMESH_DENSE_MODES = ["off", "partial", "full"];
+const FACEMESH_DENSE_CONFIG = {
+  partial: {
+    neighbors: 2,
+    maxDistRatio: 0.12,
+  },
+  full: {
+    neighbors: FACEMESH_DENSE_NEIGHBORS,
+    maxDistRatio: FACEMESH_DENSE_MAX_DIST_RATIO,
+  },
+};
 const SHOW_CENTER_FACE_CIRCLE = true;
 const CENTER_FACE_CIRCLE_SCALE = 1.416;
 const CENTER_FACE_CIRCLE_COLOR = [90, 225, 255, 170];
@@ -114,19 +126,21 @@ const RESULT_LIST_BG = [8, 18, 26, 175];
 const RESULT_LIST_STROKE = [90, 225, 255, 120];
 const RESULT_LIST_TEXT = [216, 245, 255, 230];
 const RESULT_LIST_LABEL = [120, 225, 255, 235];
-const ANALYSIS_CALLOUT_BOX_W = 174;
-const ANALYSIS_CALLOUT_BOX_H = 50;
-const ANALYSIS_CALLOUT_MARGIN = 18;
-const ANALYSIS_CALLOUT_RADIUS_X_EXTRA = 200;
-const ANALYSIS_CALLOUT_RADIUS_Y_EXTRA = 150;
+const ANALYSIS_HOLD_AFTER_TRACK_LOSS_MS = 20 * 1000;
+const ANALYSIS_SIDE_MARGIN = 24;
+const ANALYSIS_SIDE_GAP = 12;
+const ANALYSIS_SIDE_TOP = 28;
+const ANALYSIS_BOX_W = 320;
+const ANALYSIS_BOX_MIN_H = 74;
+const ANALYSIS_BOX_RADIUS = 4;
+const ANALYSIS_LABEL_SIZE = 18;
+const ANALYSIS_VALUE_SIZE = 20;
+const ANALYSIS_LABEL_LEADING = 20;
+const ANALYSIS_VALUE_LEADING = 24;
 const ANALYSIS_CALLOUT_BG = [8, 18, 26, 175];
 const ANALYSIS_CALLOUT_STROKE = [90, 225, 255, 120];
-const ANALYSIS_CALLOUT_CONNECTOR = [90, 225, 255, 165];
 const ANALYSIS_CALLOUT_LABEL = [126, 255, 140, 235];
 const ANALYSIS_CALLOUT_VALUE = [255, 255, 255, 235];
-const ANALYSIS_CALLOUT_ANCHOR_INDICES = [
-  10, 338, 297, 332, 284, 251, 389, 356, 454, 323, 361, 288, 397, 152,
-];
 const FACEMESH_LIP_INDICES = new Set([
   0, 13, 14, 17, 37, 39, 40, 61, 78, 80, 81, 82, 84, 87, 88, 91, 95,
   146, 178, 181, 185, 191, 267, 269, 270, 291, 308, 310, 311, 312, 314,
@@ -301,7 +315,7 @@ function buildUi() {
   denseLinesBtn.class("ttl-btn");
   denseLinesBtn.parent(toolbar);
   denseLinesBtn.mousePressed(() => {
-    showFacemeshDenseLines = !showFacemeshDenseLines;
+    denseLineMode = getNextDenseLineMode(denseLineMode);
     facemeshDenseEdges = null;
     facemeshDenseEdgePointCount = 0;
     refreshDenseLinesButton();
@@ -422,7 +436,20 @@ function refreshPrinterButton() {
 
 function refreshDenseLinesButton() {
   if (!denseLinesBtn) return;
-  denseLinesBtn.html(showFacemeshDenseLines ? "Dense On" : "Dense Off");
+  const labelMap = {
+    off: "Dense Off",
+    partial: "Dense Mid",
+    full: "Dense Full",
+  };
+  denseLinesBtn.html(labelMap[denseLineMode] || "Dense Off");
+}
+
+function getNextDenseLineMode(currentMode) {
+  const currentIndex = FACEMESH_DENSE_MODES.indexOf(currentMode);
+  const nextIndex = currentIndex >= 0
+    ? (currentIndex + 1) % FACEMESH_DENSE_MODES.length
+    : 0;
+  return FACEMESH_DENSE_MODES[nextIndex];
 }
 
 function updateInfo(force = false) {
@@ -456,7 +483,7 @@ function updateInfo(force = false) {
           : "unavailable"
     }`,
     `Label: ${printerState.labelFormat || "10x15"}`,
-    `Dense Lines: ${showFacemeshDenseLines ? "on" : "off"}`,
+    `Dense Lines: ${denseLineMode}`,
   ];
   infoEl.html(lines.join("\n"));
   refreshPrinterButton();
@@ -1145,8 +1172,8 @@ function drawFaceMeshConnections(mesh, renderFrame = null) {
     const points = face?.keypoints || [];
     if (!points.length) continue;
 
-    if (showFacemeshDenseLines) {
-      const denseEdges = getDenseEdges(points);
+    if (denseLineMode !== "off") {
+      const denseEdges = getDenseEdges(points, denseLineMode);
       stroke(
         FACEMESH_DENSE_LINE_COLOR[0] ?? 90,
         FACEMESH_DENSE_LINE_COLOR[1] ?? 225,
@@ -1429,7 +1456,11 @@ function isScanActive() {
 function syncAnalysisVisibilityWithFace(mesh) {
   if (!resultListItems.length) return;
   const faceCount = mesh?.getFacesRaw?.()?.length || 0;
-  if (faceCount <= 0) {
+  if (faceCount > 0) {
+    analysisLastTrackedMs = millis();
+    return;
+  }
+  if (millis() - analysisLastTrackedMs > ANALYSIS_HOLD_AFTER_TRACK_LOSS_MS) {
     clearAnalysisResults();
   }
 }
@@ -1437,18 +1468,21 @@ function syncAnalysisVisibilityWithFace(mesh) {
 function isAnalysisVisible(mesh) {
   if (!resultListItems.length) return false;
   const faceCount = mesh?.getFacesRaw?.()?.length || 0;
-  return faceCount > 0;
+  if (faceCount > 0) return true;
+  return millis() - analysisLastTrackedMs <= ANALYSIS_HOLD_AFTER_TRACK_LOSS_MS;
 }
 
 function clearAnalysisResults() {
   resultListItems = [];
   resultListAnimStartMs = 0;
+  analysisLastTrackedMs = 0;
 }
 
 function setResultListFromResponse(response) {
   resultListItems = buildResultListItems(response);
   if (resultListItems.length > 0) {
     resultListAnimStartMs = millis();
+    analysisLastTrackedMs = resultListAnimStartMs;
   }
 }
 
@@ -1487,41 +1521,56 @@ function formatResultValue(value) {
 function drawAnalysisCallouts(mesh, renderFrame = null, analysisVisible = false) {
   if (!analysisVisible || !resultListItems.length) return;
 
-  const faces = getFacesInCanvasSpace(mesh, renderFrame);
-  const points = faces?.[0]?.keypoints || [];
-  const bounds = getBoundsFromPoints(points);
-  if (!bounds) return;
-
   const elapsed = Math.max(0, millis() - resultListAnimStartMs);
   const panelT = constrain(elapsed / RESULT_LIST_PANEL_IN_MS, 0, 1);
   const panelEase = 1 - Math.pow(1 - panelT, 3);
-  const cx = bounds.x + bounds.w * 0.5;
-  const cy = bounds.y + bounds.h * 0.5;
-  const radiusX = bounds.w * 0.5 + ANALYSIS_CALLOUT_RADIUS_X_EXTRA;
-  const radiusY = bounds.h * 0.5 + ANALYSIS_CALLOUT_RADIUS_Y_EXTRA;
   const maxItems = Math.min(resultListItems.length, RESULT_LIST_MAX_ITEMS);
+  const leftItems = [];
+  const rightItems = [];
+  for (let i = 0; i < maxItems; i += 1) {
+    if (i % 2 === 0) {
+      leftItems.push({ item: resultListItems[i], index: i });
+    } else {
+      rightItems.push({ item: resultListItems[i], index: i });
+    }
+  }
 
   push();
   textAlign(LEFT, TOP);
   textStyle(NORMAL);
   textFont(terminalFontFamily);
+  const boxW = Math.min(ANALYSIS_BOX_W, Math.max(220, width * 0.24));
+  const leftX = ANALYSIS_SIDE_MARGIN;
+  const rightX = width - ANALYSIS_SIDE_MARGIN - boxW;
+  drawAnalysisColumn(leftItems, leftX, boxW, elapsed, panelEase);
+  drawAnalysisColumn(rightItems, rightX, boxW, elapsed, panelEase);
 
-  for (let i = 0; i < maxItems; i += 1) {
-    const item = resultListItems[i];
-    const itemElapsed = elapsed - i * RESULT_LIST_ITEM_STAGGER_MS;
+  pop();
+}
+
+function drawAnalysisColumn(entries, boxX, boxW, elapsed, panelEase) {
+  let y = ANALYSIS_SIDE_TOP;
+  for (const entry of entries) {
+    const item = entry.item;
+    const itemElapsed = elapsed - entry.index * RESULT_LIST_ITEM_STAGGER_MS;
     const itemT = constrain(itemElapsed / RESULT_LIST_ITEM_IN_MS, 0, 1);
     if (itemT <= 0) continue;
     const itemEase = 1 - Math.pow(1 - itemT, 2.4);
-    const alpha = 245 * panelEase * itemEase;
 
-    const angle = map(i, 0, Math.max(1, maxItems - 1), -155, 155);
-    const tx = cx + Math.cos(radians(angle)) * radiusX;
-    const ty = cy + Math.sin(radians(angle)) * radiusY;
+    textStyle(BOLD);
+    textSize(ANALYSIS_LABEL_SIZE);
+    textLeading(ANALYSIS_LABEL_LEADING);
+    const labelH = textBoundsHeight(`${item.label}`, boxW - 24);
 
-    const boxW = ANALYSIS_CALLOUT_BOX_W;
-    const boxH = ANALYSIS_CALLOUT_BOX_H;
-    const boxX = constrain(tx - boxW * 0.5, ANALYSIS_CALLOUT_MARGIN, width - ANALYSIS_CALLOUT_MARGIN - boxW);
-    const boxY = constrain(ty - boxH * 0.5, ANALYSIS_CALLOUT_MARGIN, height - ANALYSIS_CALLOUT_MARGIN - boxH);
+    textStyle(NORMAL);
+    textSize(ANALYSIS_VALUE_SIZE);
+    textLeading(ANALYSIS_VALUE_LEADING);
+    const valueH = textBoundsHeight(item.value, boxW - 24);
+
+    const boxH = Math.max(
+      ANALYSIS_BOX_MIN_H,
+      12 + labelH + 8 + valueH + 12
+    );
 
     noStroke();
     fill(
@@ -1530,9 +1579,8 @@ function drawAnalysisCallouts(mesh, renderFrame = null, analysisVisible = false)
       ANALYSIS_CALLOUT_BG[2] ?? 26,
       (ANALYSIS_CALLOUT_BG[3] ?? 175) * panelEase * itemEase
     );
-    rect(boxX, boxY, boxW, boxH, 4);
+    rect(boxX, y, boxW, boxH, ANALYSIS_BOX_RADIUS);
 
-    noStroke();
     fill(
       ANALYSIS_CALLOUT_LABEL[0] ?? 126,
       ANALYSIS_CALLOUT_LABEL[1] ?? 255,
@@ -1540,8 +1588,9 @@ function drawAnalysisCallouts(mesh, renderFrame = null, analysisVisible = false)
       (ANALYSIS_CALLOUT_LABEL[3] ?? 235) * panelEase * itemEase
     );
     textStyle(BOLD);
-    textSize(12);
-    text(`${item.label}:`, boxX + 10, boxY + 7);
+    textSize(ANALYSIS_LABEL_SIZE);
+    textLeading(ANALYSIS_LABEL_LEADING);
+    text(item.label, boxX + 12, y + 10, boxW - 24, labelH + 4);
 
     fill(
       ANALYSIS_CALLOUT_VALUE[0] ?? 255,
@@ -1550,11 +1599,13 @@ function drawAnalysisCallouts(mesh, renderFrame = null, analysisVisible = false)
       (ANALYSIS_CALLOUT_VALUE[3] ?? 235) * panelEase * itemEase
     );
     textStyle(NORMAL);
-    textSize(12);
-    text(item.value, boxX + 10, boxY + 22, boxW - 20, boxH - 24);
-  }
+    textSize(ANALYSIS_VALUE_SIZE);
+    textLeading(ANALYSIS_VALUE_LEADING);
+    text(item.value, boxX + 12, y + 18 + labelH, boxW - 24, valueH + 4);
 
-  pop();
+    y += boxH + ANALYSIS_SIDE_GAP;
+    if (y > height - 24) break;
+  }
 }
 
 function getFacesInCanvasSpace(mesh, renderFrame = null) {
@@ -1785,19 +1836,24 @@ function finalizeFrame(frame, sourceW, sourceH, aspect) {
   };
 }
 
-function getDenseEdges(points) {
+function getDenseEdges(points, mode = "full") {
+  if (mode === "off") return [];
   if (
-    !Array.isArray(facemeshDenseEdges) ||
+    !facemeshDenseEdges ||
     facemeshDenseEdgePointCount !== points.length
   ) {
-    facemeshDenseEdges = buildDenseEdges(points);
+    facemeshDenseEdges = {};
     facemeshDenseEdgePointCount = points.length;
   }
-  return facemeshDenseEdges;
+  if (!Array.isArray(facemeshDenseEdges[mode])) {
+    facemeshDenseEdges[mode] = buildDenseEdges(points, mode);
+  }
+  return facemeshDenseEdges[mode];
 }
 
-function buildDenseEdges(points) {
+function buildDenseEdges(points, mode = "full") {
   if (!Array.isArray(points) || points.length < 4) return [];
+  const config = FACEMESH_DENSE_CONFIG[mode] || FACEMESH_DENSE_CONFIG.full;
 
   let minX = Infinity;
   let minY = Infinity;
@@ -1816,7 +1872,7 @@ function buildDenseEdges(points) {
   const dx = maxX - minX;
   const dy = maxY - minY;
   const diag = Math.sqrt(dx * dx + dy * dy);
-  const maxDist = Math.max(8, diag * FACEMESH_DENSE_MAX_DIST_RATIO);
+  const maxDist = Math.max(8, diag * config.maxDistRatio);
 
   const edgeSet = new Set();
   for (let i = 0; i < points.length; i += 1) {
@@ -1841,7 +1897,7 @@ function buildDenseEdges(points) {
     }
 
     nearby.sort((u, v) => u.dist - v.dist);
-    const limit = Math.min(FACEMESH_DENSE_NEIGHBORS, nearby.length);
+    const limit = Math.min(config.neighbors, nearby.length);
     for (let k = 0; k < limit; k += 1) {
       const j = nearby[k].j;
       if (FACEMESH_LIP_INDICES.has(i) && FACEMESH_LIP_INDICES.has(j)) {
@@ -1857,6 +1913,24 @@ function buildDenseEdges(points) {
     const [from, to] = entry.split(":");
     return [Number(from), Number(to)];
   });
+}
+
+function textBoundsHeight(value, maxWidth) {
+  const safe = String(value || "");
+  if (!safe) return textLeading();
+  const words = safe.split(/\s+/);
+  let line = "";
+  let lines = 1;
+  for (const word of words) {
+    const next = line ? `${line} ${word}` : word;
+    if (textWidth(next) > maxWidth && line) {
+      line = word;
+      lines += 1;
+    } else {
+      line = next;
+    }
+  }
+  return lines * textLeading();
 }
 
 function keyPressed() {
