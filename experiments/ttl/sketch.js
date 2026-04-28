@@ -26,12 +26,13 @@ let gpt;
 let res;
 let requestInFlight = false;
 let debugHidden = false;
-let selectedModel = "gpt-5.1";
+let selectedModel = "gpt-5.4-mini";
 let facemeshDenseEdges = null;
 let facemeshDenseEdgePointCount = 0;
 let activeFaceFrame = null;
 let appStatus = { mode: "detecting", label: "DETECTING" };
 let blinkBaselineEar = null;
+let blinkSmoothedEar = null;
 let blinkLastDetectedMs = 0;
 let blinkArmed = true;
 let lockedSinceMs = 0;
@@ -99,11 +100,13 @@ const APP_STATUS_LABELS = {
 const APP_STATUS_TEXT_SIZE = 58;
 const BLINK_LOG_COOLDOWN_MS = 420;
 const BLINK_BASELINE_EMA = 0.14;
-const BLINK_TRIGGER_RATIO = 0.68;
-const BLINK_REARM_RATIO = 0.94;
+const BLINK_TRIGGER_RATIO = 0.76;
+const BLINK_REARM_RATIO = 0.97;
 const BLINK_MIN_OPEN_EAR = 0.18;
-const BLINK_MIN_TRIGGER_EAR = 0.08;
-const BLINK_MAX_TRIGGER_EAR = 0.34;
+const BLINK_MIN_TRIGGER_EAR = 0.1;
+const BLINK_MAX_TRIGGER_EAR = 0.36;
+const BLINK_SMOOTHING = 0.42;
+const BLINK_SINGLE_EYE_RATIO = 0.9;
 const BLINK_RING_MARGIN_PX = -10;
 const LOCK_TO_BLINK_DELAY_MS = 5000;
 const LOCK_EXIT_GRACE_MS = 650;
@@ -126,7 +129,7 @@ const RESULT_LIST_BG = [8, 18, 26, 175];
 const RESULT_LIST_STROKE = [90, 225, 255, 120];
 const RESULT_LIST_TEXT = [216, 245, 255, 230];
 const RESULT_LIST_LABEL = [120, 225, 255, 235];
-const ANALYSIS_HOLD_AFTER_TRACK_LOSS_MS = 20 * 1000;
+const ANALYSIS_HOLD_AFTER_TRACK_LOSS_MS = 5 * 1000;
 const ANALYSIS_SIDE_MARGIN = 24;
 const ANALYSIS_SIDE_GAP = 12;
 const ANALYSIS_SIDE_TOP = 28;
@@ -137,6 +140,9 @@ const ANALYSIS_LABEL_SIZE = 18;
 const ANALYSIS_VALUE_SIZE = 20;
 const ANALYSIS_LABEL_LEADING = 20;
 const ANALYSIS_VALUE_LEADING = 24;
+const ANALYSIS_DEBUG_MARGIN = 18;
+const ANALYSIS_DEBUG_BOX_W = 220;
+const ANALYSIS_DEBUG_BOX_H = 72;
 const ANALYSIS_CALLOUT_BG = [8, 18, 26, 175];
 const ANALYSIS_CALLOUT_STROKE = [90, 225, 255, 120];
 const ANALYSIS_CALLOUT_LABEL = [126, 255, 140, 235];
@@ -238,7 +244,7 @@ function loadSelectedModel() {
     const value = window.localStorage.getItem(MODEL_KEY) || "";
     if (MODEL_OPTIONS.includes(value)) return value;
   } catch {}
-  return "gpt-5.1";
+  return "gpt-5.4-mini";
 }
 
 function persistSelectedModel() {
@@ -764,6 +770,7 @@ function draw() {
       drawAppStatusLabel(circleDiameter);
     }
     drawAnalysisCallouts(faceMesh, renderFrame, analysisVisible);
+    drawAnalysisDebugInfo(faceMesh);
   } else if (cam) {
     drawCameraCover(cam, 0, 0, width, height);
     lockedSinceMs = 0;
@@ -777,6 +784,7 @@ function draw() {
       const circleDiameter = Math.min(width, height) * 0.64;
       drawAppStatusLabel(circleDiameter);
     }
+    drawAnalysisDebugInfo(null);
   }
 
   if (SHOW_CANVAS_OVERLAY_UI) {
@@ -819,65 +827,109 @@ function processBlinkFromFaceMesh(mesh, renderFrame = null, analysisVisible = fa
   }
 
   if (requestInFlight || analysisVisible) {
+    blinkSmoothedEar = null;
     blinkArmed = true;
     return;
   }
   if (!face) {
+    blinkBaselineEar = null;
+    blinkSmoothedEar = null;
     blinkArmed = true;
     return;
   }
 
   if (!latestFaceInsideRing) {
+    blinkSmoothedEar = null;
     blinkArmed = true;
     return;
   }
 
   if (!isBlinkUnlocked()) {
+    blinkSmoothedEar = null;
     blinkArmed = true;
     return;
   }
 
-  const ear = computeFaceEar(face);
+  const earState = computeFaceEarState(face);
+  const ear = earState.avg;
   if (!Number.isFinite(ear)) return;
+  blinkSmoothedEar = blinkSmoothedEar == null
+    ? ear
+    : lerp(blinkSmoothedEar, ear, BLINK_SMOOTHING);
 
   if (blinkBaselineEar == null) {
-    blinkBaselineEar = ear;
+    blinkBaselineEar = blinkSmoothedEar;
   } else if (ear >= BLINK_MIN_OPEN_EAR) {
-    blinkBaselineEar = lerp(blinkBaselineEar, ear, BLINK_BASELINE_EMA);
+    blinkBaselineEar = lerp(blinkBaselineEar, blinkSmoothedEar, BLINK_BASELINE_EMA);
   }
 
   const dynamicTrigger = constrain(
-    (blinkBaselineEar || ear) * BLINK_TRIGGER_RATIO,
+    (blinkBaselineEar || blinkSmoothedEar || ear) * BLINK_TRIGGER_RATIO,
     BLINK_MIN_TRIGGER_EAR,
     BLINK_MAX_TRIGGER_EAR
   );
-  const dynamicRearm = Math.max(dynamicTrigger + 0.015, (blinkBaselineEar || ear) * BLINK_REARM_RATIO);
+  const dynamicRearm = Math.max(
+    dynamicTrigger + 0.015,
+    (blinkBaselineEar || blinkSmoothedEar || ear) * BLINK_REARM_RATIO
+  );
+  const singleEyeTrigger = dynamicTrigger * BLINK_SINGLE_EYE_RATIO;
 
-  if (blinkArmed && ear < dynamicTrigger) {
+  if (
+    blinkArmed &&
+    (
+      blinkSmoothedEar < dynamicTrigger ||
+      earState.left < singleEyeTrigger ||
+      earState.right < singleEyeTrigger
+    )
+  ) {
     const now = millis();
     if (now - blinkLastDetectedMs > BLINK_LOG_COOLDOWN_MS) {
       blinkLastDetectedMs = now;
       blinkArmed = false;
-      appendDebugLog(`blink detected ear=${ear.toFixed(3)} threshold=${dynamicTrigger.toFixed(3)}`);
+      appendDebugLog(
+        `blink detected avg=${ear.toFixed(3)} smooth=${blinkSmoothedEar.toFixed(3)} ` +
+        `L=${earState.left.toFixed(3)} R=${earState.right.toFixed(3)} threshold=${dynamicTrigger.toFixed(3)}`
+      );
       triggerBlinkAnalysis(renderFrame);
     }
-  } else if (!blinkArmed && ear > dynamicRearm) {
+  } else if (!blinkArmed && blinkSmoothedEar > dynamicRearm) {
     blinkArmed = true;
   }
 }
 
-function computeFaceEar(face) {
+function computeFaceEarState(face) {
   const points = face?.keypoints || [];
-  if (!points.length) return NaN;
+  if (!points.length) {
+    return {
+      left: NaN,
+      right: NaN,
+      avg: NaN,
+      min: NaN,
+    };
+  }
 
   // MediaPipe FaceMesh eye landmarks (EAR style pairs)
   const leftEar = computeEyeEar(points, [33, 160, 158, 133, 153, 144]);
   const rightEar = computeEyeEar(points, [362, 385, 387, 263, 373, 380]);
 
-  if (!Number.isFinite(leftEar) && !Number.isFinite(rightEar)) return NaN;
-  if (!Number.isFinite(leftEar)) return rightEar;
-  if (!Number.isFinite(rightEar)) return leftEar;
-  return (leftEar + rightEar) * 0.5;
+  let avg = NaN;
+  if (Number.isFinite(leftEar) && Number.isFinite(rightEar)) {
+    avg = (leftEar + rightEar) * 0.5;
+  } else if (Number.isFinite(leftEar)) {
+    avg = leftEar;
+  } else if (Number.isFinite(rightEar)) {
+    avg = rightEar;
+  }
+
+  return {
+    left: leftEar,
+    right: rightEar,
+    avg,
+    min: Math.min(
+      Number.isFinite(leftEar) ? leftEar : Infinity,
+      Number.isFinite(rightEar) ? rightEar : Infinity
+    ),
+  };
 }
 
 function computeEyeEar(points, ids) {
@@ -1472,6 +1524,13 @@ function isAnalysisVisible(mesh) {
   return millis() - analysisLastTrackedMs <= ANALYSIS_HOLD_AFTER_TRACK_LOSS_MS;
 }
 
+function getAnalysisHoldRemainingMs(mesh) {
+  if (!resultListItems.length) return 0;
+  const faceCount = mesh?.getFacesRaw?.()?.length || 0;
+  if (faceCount > 0) return ANALYSIS_HOLD_AFTER_TRACK_LOSS_MS;
+  return Math.max(0, ANALYSIS_HOLD_AFTER_TRACK_LOSS_MS - (millis() - analysisLastTrackedMs));
+}
+
 function clearAnalysisResults() {
   resultListItems = [];
   resultListAnimStartMs = 0;
@@ -1606,6 +1665,42 @@ function drawAnalysisColumn(entries, boxX, boxW, elapsed, panelEase) {
     y += boxH + ANALYSIS_SIDE_GAP;
     if (y > height - 24) break;
   }
+}
+
+function drawAnalysisDebugInfo(mesh) {
+  if (debugHidden) return;
+  const faceCount = mesh?.getFacesRaw?.()?.length || 0;
+  const holdRemainingMs = getAnalysisHoldRemainingMs(mesh);
+  const isHolding = faceCount <= 0 && holdRemainingMs > 0;
+
+  push();
+  noStroke();
+  fill(8, 18, 26, 188);
+  rect(
+    ANALYSIS_DEBUG_MARGIN,
+    ANALYSIS_DEBUG_MARGIN,
+    ANALYSIS_DEBUG_BOX_W,
+    ANALYSIS_DEBUG_BOX_H,
+    4
+  );
+
+  fill(126, 255, 140, 235);
+  textAlign(LEFT, TOP);
+  textFont(terminalFontFamily);
+  textStyle(BOLD);
+  textSize(15);
+  text("TRACKING", ANALYSIS_DEBUG_MARGIN + 12, ANALYSIS_DEBUG_MARGIN + 10);
+
+  fill(255, 255, 255, 235);
+  textStyle(NORMAL);
+  textSize(18);
+  text(`Faces: ${faceCount}`, ANALYSIS_DEBUG_MARGIN + 12, ANALYSIS_DEBUG_MARGIN + 30);
+
+  const holdText = isHolding
+    ? `Hold: ${(holdRemainingMs / 1000).toFixed(1)}s`
+    : (resultListItems.length ? "Hold: tracking" : "Hold: inactive");
+  text(holdText, ANALYSIS_DEBUG_MARGIN + 12, ANALYSIS_DEBUG_MARGIN + 50);
+  pop();
 }
 
 function getFacesInCanvasSpace(mesh, renderFrame = null) {
