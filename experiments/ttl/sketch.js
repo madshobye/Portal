@@ -80,6 +80,9 @@ const FACEMESH_DENSE_CONFIG = {
 const SHOW_CENTER_FACE_CIRCLE = true;
 const CENTER_FACE_CIRCLE_SCALE = 1.416;
 const CENTER_FACE_CIRCLE_COLOR = [90, 225, 255, 170];
+const CENTER_FACE_TOP_MARGIN = 16;
+const CENTER_FACE_STATUS_GAP = 46;
+const CENTER_FACE_STATUS_RESERVE = 140;
 const CENTER_FACE_CIRCLE_RINGS = [
   { scale: 1.0, stroke: 3.1, alpha: 195 },
   { scale: 0.94, stroke: 1.8, alpha: 155 },
@@ -770,6 +773,7 @@ function draw() {
       drawAppStatusLabel(circleDiameter);
     }
     drawAnalysisCallouts(faceMesh, renderFrame, analysisVisible);
+    drawLabelDebugPreview();
     drawAnalysisDebugInfo(faceMesh);
   } else if (cam) {
     drawCameraCover(cam, 0, 0, width, height);
@@ -781,9 +785,10 @@ function draw() {
     setAppStatus(APP_STATUS_MODES.DETECTING);
     clearAnalysisResults();
     if (SHOW_CENTER_FACE_CIRCLE) {
-      const circleDiameter = Math.min(width, height) * 0.64;
+      const circleDiameter = getScanCircleLayout().diameter;
       drawAppStatusLabel(circleDiameter);
     }
+    drawLabelDebugPreview();
     drawAnalysisDebugInfo(null);
   }
 
@@ -971,7 +976,7 @@ function isFaceInsideScanRing(face, renderFrame = null) {
   const points = mappedFace?.keypoints || [];
   const bounds = getBoundsFromPoints(points);
   if (!bounds) return false;
-  const circleDiameter = Math.min(width, height) * 0.64;
+  const circleDiameter = getScanCircleLayout().diameter;
   return isBoundsInsideRing(bounds, circleDiameter, BLINK_RING_MARGIN_PX);
 }
 
@@ -980,7 +985,7 @@ function isMappedFaceInsideScanRing(mappedFace) {
   const points = mappedFace?.keypoints || [];
   const bounds = getBoundsFromPoints(points);
   if (!bounds) return false;
-  const circleDiameter = Math.min(width, height) * 0.64;
+  const circleDiameter = getScanCircleLayout().diameter;
   return isBoundsInsideRing(bounds, circleDiameter, BLINK_RING_MARGIN_PX);
 }
 
@@ -1370,7 +1375,8 @@ function drawFaceMeshPoints(mesh, renderFrame) {
 }
 
 function drawCenterFaceCircle(mesh, renderFrame = null) {
-  const diameter = Math.min(width, height) * 0.64;
+  const circleLayout = getScanCircleLayout();
+  const diameter = circleLayout.diameter;
   if (!Number.isFinite(diameter) || diameter <= 0) return;
   const scanActive = isScanActive();
   const t = millis() * 0.03;
@@ -1395,7 +1401,7 @@ function drawCenterFaceCircle(mesh, renderFrame = null) {
       ringAlpha
     );
     strokeWeight(scanActive ? ringStroke + 0.4 : ringStroke);
-    circle(width * 0.5, height * 0.5, diameter * ringScale + ringJitter);
+    circle(circleLayout.cx, circleLayout.cy, diameter * ringScale + ringJitter);
   }
   pop();
   return diameter;
@@ -1440,9 +1446,10 @@ function updateAppStatusFromFace(circleDiameter) {
 
 function isBoundsInsideRing(bounds, circleDiameter, ringMarginPx = 0) {
   if (!bounds) return false;
-  const cx = width * 0.5;
-  const cy = height * 0.5;
-  const radius = (Number(circleDiameter) || Math.min(width, height) * 0.64) * 0.5 - ringMarginPx;
+  const circleLayout = getScanCircleLayout();
+  const cx = circleLayout.cx;
+  const cy = circleLayout.cy;
+  const radius = (Number(circleDiameter) || circleLayout.diameter) * 0.5 - ringMarginPx;
   if (!Number.isFinite(radius) || radius <= 0) return false;
 
   const x0 = bounds.x;
@@ -1473,8 +1480,9 @@ function isBoundsInsideRing(bounds, circleDiameter, ringMarginPx = 0) {
 }
 
 function drawAppStatusLabel(circleDiameter) {
-  const diameter = Number(circleDiameter) || Math.min(width, height) * 0.64;
-  const y = height * 0.5 + diameter * 0.5 + Math.max(42, APP_STATUS_TEXT_SIZE * 0.9);
+  const circleLayout = getScanCircleLayout();
+  const diameter = Number(circleDiameter) || circleLayout.diameter;
+  const y = circleLayout.cy + diameter * 0.5 + Math.max(CENTER_FACE_STATUS_GAP, APP_STATUS_TEXT_SIZE * 0.9);
   const color = CENTER_FACE_CIRCLE_COLOR;
 
   push();
@@ -1483,8 +1491,21 @@ function drawAppStatusLabel(circleDiameter) {
   textSize(APP_STATUS_TEXT_SIZE);
   fill(color[0] ?? 220, color[1] ?? 245, color[2] ?? 255, color[3] ?? 235);
   noStroke();
-  text(getAppStatusLabel(), width * 0.5, y);
+  text(getAppStatusLabel(), circleLayout.cx, y);
   pop();
+}
+
+function getScanCircleLayout() {
+  const statusReserve = Math.max(CENTER_FACE_STATUS_RESERVE, APP_STATUS_TEXT_SIZE * 1.75);
+  const diameter = Math.max(
+    120,
+    Math.min(width * 0.9, height - statusReserve - CENTER_FACE_TOP_MARGIN)
+  );
+  return {
+    cx: width * 0.5,
+    cy: CENTER_FACE_TOP_MARGIN + diameter * 0.5,
+    diameter,
+  };
 }
 
 function isBlinkUnlocked() {
@@ -1700,6 +1721,28 @@ function drawAnalysisDebugInfo(mesh) {
     ? `Hold: ${(holdRemainingMs / 1000).toFixed(1)}s`
     : (resultListItems.length ? "Hold: tracking" : "Hold: inactive");
   text(holdText, ANALYSIS_DEBUG_MARGIN + 12, ANALYSIS_DEBUG_MARGIN + 50);
+  pop();
+}
+
+function drawLabelDebugPreview() {
+  if (debugHidden) return;
+  const preview = labelPrinter?.getDebugPreview?.();
+  const graphic = preview?.graphic;
+  if (!graphic) return;
+
+  const margin = 18;
+  const maxW = Math.min(width * 0.28, 260);
+  const aspect = graphic.height > 0 ? graphic.width / graphic.height : 1;
+  const previewW = Math.max(120, maxW);
+  const previewH = previewW / Math.max(0.1, aspect);
+  const x = width - margin - previewW;
+  const y = height - margin - previewH;
+
+  push();
+  noStroke();
+  fill(255, 255, 255, 248);
+  rect(x - 8, y - 8, previewW + 16, previewH + 16, 4);
+  image(graphic, x, y, previewW, previewH);
   pop();
 }
 

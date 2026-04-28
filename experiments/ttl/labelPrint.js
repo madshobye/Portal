@@ -394,6 +394,9 @@
       const separatorHeight = Math.round(8 * scale);
       const profileHeaderHeight = metaFont + Math.round(4 * scale);
       const labelHeightMm = heightMm;
+      const meshColumnGap = Math.round(10 * scale);
+      const meshBoxWidth = Math.max(Math.round(contentWidth * 0.34), Math.round(128 * scale));
+      const profileWidth = Math.max(140, contentWidth - meshBoxWidth - meshColumnGap);
 
       const gfx = createGraphics(widthPx, heightPx);
       gfx.pixelDensity(1);
@@ -416,7 +419,7 @@
       gfx.noStroke();
       gfx.textStyle(BOLD);
       gfx.textSize(metaFont);
-      gfx.text("PROFILE", pagePadding, y, contentWidth, profileHeaderHeight);
+      gfx.text("PROFILE", pagePadding, y, profileWidth, profileHeaderHeight);
       y += profileHeaderHeight + lineGap;
 
       const rows = [
@@ -427,16 +430,28 @@
         ["EDUCATION", data.education],
         ["LIFESPAN", data.lifespan],
       ];
-      const labelColWidth = Math.max(120, Math.round(contentWidth * 0.34));
+      const labelColWidth = Math.max(88, Math.round(profileWidth * 0.42));
+      const meshBox = {
+        x: pagePadding + profileWidth + meshColumnGap,
+        y: y - profileHeaderHeight - lineGap,
+        w: meshBoxWidth,
+        h: Math.max(
+          Math.round(heightPx * 0.22),
+          rows.length * metaLineHeight + profileHeaderHeight + lineGap
+        ),
+      };
       for (const row of rows) {
         const label = `${row[0]}:`;
         const value = row[1] || "";
         gfx.textStyle(BOLD);
         gfx.text(label, pagePadding, y, labelColWidth, metaLineHeight);
         gfx.textStyle(NORMAL);
-        gfx.text(value, pagePadding + labelColWidth, y, contentWidth - labelColWidth, metaLineHeight);
+        gfx.text(value, pagePadding + labelColWidth, y, profileWidth - labelColWidth, metaLineHeight);
         y += metaLineHeight;
       }
+
+      drawFaceMeshOnLabel(gfx, faceMeshPoints, meshBox);
+      y = Math.max(y, meshBox.y + meshBox.h);
 
       y += lineGap;
       gfx.textStyle(BOLD);
@@ -448,15 +463,6 @@
         gfx.text(line, pagePadding, y, contentWidth, bodyLineHeight);
         y += bodyLineHeight;
       }
-
-      const meshTop = Math.floor(heightPx * (2 / 3));
-      const meshBox = {
-        x: pagePadding,
-        y: meshTop + Math.round(pagePadding * 0.5),
-        w: widthPx - pagePadding * 2,
-        h: Math.max(1, heightPx - meshTop - Math.round(pagePadding * 1.5)),
-      };
-      drawFaceMeshOnLabel(gfx, faceMeshPoints, meshBox);
 
       const imageData = gfx.drawingContext.getImageData(0, 0, gfx.width, gfx.height);
       return {
