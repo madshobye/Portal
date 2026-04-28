@@ -987,8 +987,8 @@ function getNurseShoulderAnchorY() {
 }
 
 function drawRecordingIndicator(cx, cy) {
-  const pulse = 0.72 + 0.28 * (0.5 + 0.5 * Math.sin(millis() * 0.012));
-  const glow = 0.4 + 0.6 * (0.5 + 0.5 * Math.sin(millis() * 0.018));
+  const pulse = 0.72 + 0.28 * (0.5 + 0.5 * Math.sin(millis() * 0.0052));
+  const glow = 0.4 + 0.6 * (0.5 + 0.5 * Math.sin(millis() * 0.0074));
   noStroke();
   fill(216, 31, 38, 18 + 40 * glow);
   circle(cx, cy, 34 * pulse);
