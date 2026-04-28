@@ -47,13 +47,18 @@ class PortalSpeech2 {
   }
 
   async init() {
-    const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-    if (!SR) throw new Error("PortalSpeech2: SpeechRecognition is not available");
-    this.rec = new SR();
+    this._createRecognition();
     this.setLanguage(this.language);
     if (this.voiceName) this.setVoice(this.voiceName);
     this.ready = true;
     return this;
+  }
+
+  _createRecognition() {
+    const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SR) throw new Error("PortalSpeech2: SpeechRecognition is not available");
+    this.rec = new SR();
+    return this.rec;
   }
 
   setLanguage(language = "en-US") {
@@ -449,6 +454,41 @@ class PortalSpeech2 {
     this._startRecurringCycle(0);
   }
 
+  async reinitializeRecognition({ restartIfNeeded = true } = {}) {
+    const wasRecurring = !!this._listeningRecurring;
+    const recurringLanguage = this._recurringLanguage || this.language;
+    const recurringInterimResults = !!this._recurringInterimResults;
+    const recurringHandler = this._listenHandler ?? null;
+
+    if (this._restartTimer !== null) {
+      clearTimeout(this._restartTimer);
+      this._restartTimer = null;
+    }
+
+    try { this.rec?.stop?.(); } catch {}
+    if (this.rec) {
+      this.rec.onresult = null;
+      this.rec.onend = null;
+      this.rec.onerror = null;
+    }
+
+    this._listenPromise = null;
+    this._setListeningState(false);
+    this.clearInterimResult();
+    this._createRecognition();
+    this.setLanguage(this.language);
+    if (this.voiceName) this.setVoice(this.voiceName);
+
+    if (restartIfNeeded && wasRecurring) {
+      this.listenRecurring(recurringHandler, {
+        language: recurringLanguage,
+        interimResults: recurringInterimResults,
+      });
+    }
+
+    return this;
+  }
+
   _attachRecurringHandlers() {
     if (!this.rec) return;
     this.rec.onresult = (event) => {
@@ -554,4 +594,3 @@ class PortalSpeech2 {
 }
 
 window.PortalSpeech2 = PortalSpeech2;
-
