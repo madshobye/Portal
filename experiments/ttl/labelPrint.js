@@ -197,6 +197,10 @@
         ethnicity: pick("ethnicity"),
         country: pick("country"),
         education: pick("education_level", "educational_level", "education"),
+        smoker: pick("smoker"),
+        relationshipStatus: pick("relationship_status"),
+        height: pick("height"),
+        weight: pick("weight"),
         lifespan: pick("lifespan"),
         politicalPosition: pick("political_position"),
         profession: pick("profession"),
@@ -432,15 +436,19 @@
       gfx.text("PROFILE", pagePadding, y, profileWidth, profileHeaderHeight);
       y += profileHeaderHeight + lineGap;
 
-      const rows = [
-        ["AGE", data.age],
-        ["GENDER", data.gender],
-        ["ETHNICITY", data.ethnicity],
-        ["COUNTRY", data.country],
-        ["EDUCATION", data.education],
-        ["LIFESPAN", data.lifespan],
-        ["POLITICAL", data.politicalPosition],
-        ["PROFESSION", data.profession],
+        const rows = [
+          ["AGE", data.age],
+          ["GENDER", data.gender],
+          ["ETHNICITY", data.ethnicity],
+          ["COUNTRY", data.country],
+          ["EDUCATION", data.education],
+          ["SMOKER", data.smoker],
+          ["RELATIONSHIP", data.relationshipStatus],
+          ["HEIGHT", data.height],
+          ["WEIGHT", data.weight],
+          ["LIFESPAN", data.lifespan],
+          ["POLITICAL", data.politicalPosition],
+          ["PROFESSION", data.profession],
         ["KIDS", data.kids],
         ["EXERCISE", data.exerciseRegime],
       ];

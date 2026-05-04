@@ -126,7 +126,7 @@ const SCAN_GLOW_STROKE_BOOST = 1.7;
 const SCAN_SNAPSHOT_SIZE = 1152;
 const CAMERA_CAPTURE_WIDTH = 640;
 const CAMERA_CAPTURE_HEIGHT = 480;
-const RESULT_LIST_MAX_ITEMS = 14;
+const RESULT_LIST_MAX_ITEMS = 18;
 const RESULT_LIST_WIDTH = 460;
 const RESULT_LIST_MARGIN = 26;
 const RESULT_LIST_PANEL_IN_MS = 420;
@@ -627,6 +627,10 @@ function createClient() {
           profession: { type: "string" },
           kids: { type: "number" },
           exercise_regime: { type: "string" },
+          smoker: { type: "string" },
+          relationship_status: { type: "string" },
+          height: { type: "number" },
+          weight: { type: "number" },
           diet: { type: "string" },
           nutrient_sufficiency: { type: "string" },
           bmi: { type: "number" },
@@ -1629,9 +1633,48 @@ function setResultListFromResponse(response) {
 
 function buildResultListItems(response) {
   if (!response || typeof response !== "object" || response.error) return [];
-  const entries = Object.entries(response)
-    .filter(([_, value]) => value !== undefined && value !== null && `${value}`.trim() !== "")
-    .slice(0, RESULT_LIST_MAX_ITEMS);
+  const preferredOrder = [
+    "mood",
+    "country",
+    "age",
+    "gender",
+    "ethnicity",
+    "education_level",
+    "height",
+    "weight",
+    "smoker",
+    "relationship_status",
+    "lifespan",
+    "political_position",
+    "Religion",
+    "profession",
+    "kids",
+    "exercise_regime",
+    "diet",
+    "nutrient_sufficiency",
+    "bmi",
+    "civil_status",
+    "commmon_challanges_this_demographic",
+    "life_advice",
+  ];
+
+  const orderedEntries = [];
+  const seen = new Set();
+  for (const key of preferredOrder) {
+    if (!(key in response)) continue;
+    const value = response[key];
+    if (value === undefined || value === null || `${value}`.trim() === "") continue;
+    orderedEntries.push([key, value]);
+    seen.add(key);
+  }
+
+  for (const [key, value] of Object.entries(response)) {
+    if (seen.has(key)) continue;
+    if (value === undefined || value === null || `${value}`.trim() === "") continue;
+    orderedEntries.push([key, value]);
+  }
+
+  const entries = orderedEntries.slice(0, RESULT_LIST_MAX_ITEMS);
 
   return entries.map(([key, value]) => ({
     label: prettifyKeyLabel(key),
