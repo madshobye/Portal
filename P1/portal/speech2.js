@@ -400,6 +400,9 @@ class PortalSpeech2 {
       this.rec.lang = this.language;
       this.rec.continuous = false;
       this.rec.interimResults = true;
+      this.rec.onstart = () => {
+        this._setListeningState(true);
+      };
 
       this.rec.onresult = (event) => {
         for (let i = event.resultIndex; i < event.results.length; i += 1) {
@@ -491,6 +494,9 @@ class PortalSpeech2 {
 
   _attachRecurringHandlers() {
     if (!this.rec) return;
+    this.rec.onstart = () => {
+      this._setListeningState(true);
+    };
     this.rec.onresult = (event) => {
       if (!this._listeningRecurring) return;
       for (let i = event.resultIndex; i < event.results.length; i += 1) {
@@ -538,7 +544,6 @@ class PortalSpeech2 {
       this.rec.lang = this._recurringLanguage || this.language;
       this.rec.continuous = false;
       this.rec.interimResults = !!this._recurringInterimResults;
-      this._setListeningState(true);
       try {
         this.rec.start();
       } catch (e) {

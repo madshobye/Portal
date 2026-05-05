@@ -445,11 +445,7 @@ async function setup() {
 function draw() {
   drawMiddleCanvas();
   if (listenButton) {
-    listenButton.html(
-      listeningWanted || speech?.isListening() || isSpeechOutputActive()
-        ? "Stop Listening"
-        : "Start Listening"
-    );
+    listenButton.html(getListenButtonLabel());
   }
   syncListeningIndicator();
   if (!speech) return;
@@ -1435,11 +1431,7 @@ function toggleListening() {
     }
   }
   if (listenButton) {
-    listenButton.html(
-      listeningWanted || speech?.isListening() || isSpeechOutputActive()
-        ? "Stop Listening"
-        : "Start Listening"
-    );
+    listenButton.html(getListenButtonLabel());
   }
 }
 
@@ -1727,7 +1719,7 @@ function shouldShowListeningIndicator() {
   if (!speech) return false;
   if (askInFlight) return false;
   if (isSpeechOutputActive()) return false;
-  if (!speech.isListening()) return false;
+  if (!isMicListeningActive()) return false;
   const lastRole = chatHistory[chatHistory.length - 1]?.role || "";
   return lastRole === "assistant";
 }
@@ -1757,6 +1749,24 @@ function syncListeningIndicator() {
 function removeListeningIndicator() {
   listeningIndicatorBubble = null;
   listeningBridgeUntil = 0;
+}
+
+function isMicListeningActive() {
+  return !!speech?.isListening?.();
+}
+
+function isMicListeningPending() {
+  if (!speech) return false;
+  if (!listeningWanted) return false;
+  if (isMicListeningActive()) return false;
+  if (isSpeechOutputActive()) return false;
+  return true;
+}
+
+function getListenButtonLabel() {
+  if (isSpeechOutputActive() || isMicListeningActive()) return "Stop Listening";
+  if (isMicListeningPending()) return "Starting...";
+  return "Start Listening";
 }
 
 function loadSelectedModel() {
