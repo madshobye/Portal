@@ -2736,9 +2736,6 @@ async function runPackageStyleP1ReadProbe(channelId) {
   protocolMode = 1;
   const readDefs = [
     ["rBattery", REG_CTRL_BATTERY, 2],
-    ["rBlePwd", REG_BLE_PASSWORD, 6],
-    ["rBleV", REG_BLE_VERSION, 2],
-    ["rSN", REG_SERIAL, 14],
   ];
   const probes = [];
   for (const [modelLabel, target] of NINEBOT_S_PROTO1_TARGETS) {
@@ -3236,6 +3233,7 @@ async function runAutoTest2() {
     bestPreComm: null,
     bestProtocol: null,
     bestControlTarget: null,
+    batteryResult: null,
     authHint: null,
     needs: [],
   };
@@ -3262,13 +3260,17 @@ async function runAutoTest2() {
     const channels = remote.writeChannels.length
       ? remote.writeChannels
       : [{ id: "write-0002", label: "write-0002", characteristic: remote.writeCharacteristic }];
+    let stopAfterBattery = false;
     for (const channel of channels) {
+      if (stopAfterBattery) break;
       remote.setActiveWriteChannel(channel.id);
       for (const mode of supportedWriteModes(channel)) {
+        if (stopAfterBattery) break;
         writeMode = mode;
         protocolMode = 1;
         refreshDebugInfo();
         for (const [probeName, target, index, size] of AUTO_TEST2_PRIMARY_ROUTE_PROBES) {
+          if (stopAfterBattery) break;
           const label = `${channel.label}/${mode} ${probeName} ${probeLabelFor(target, index, size)}`;
           const result = await runObservedProbe(
             label,
@@ -3284,6 +3286,14 @@ async function runAutoTest2() {
           result.target = target;
           result.index = index;
           context.routeResults.push(result);
+          if (result.status === "match") {
+            context.readResults.push(result);
+            context.readMatches.push(result);
+            if (index === REG_CTRL_BATTERY) {
+              context.batteryResult = result;
+              stopAfterBattery = true;
+            }
+          }
           addLog(`auto2 route ${describeAutoTest2Result(result)}`);
           await sleep(AUTO_TEST2_INTER_STEP_MS);
         }
@@ -3295,14 +3305,21 @@ async function runAutoTest2() {
       writeMode = context.bestRoute.writeMode;
     }
 
-    ensureStillConnected("before package-style P1 read probes");
-    context.packageReadResults = await runPackageStyleP1ReadProbe(
-      remote.activeWriteChannelId || context.bestRoute?.channelId
-    );
-    context.bestPackageRead = pickBestAutoTest2Result(context.packageReadResults);
-    for (const result of context.packageReadResults) {
-      context.readResults.push(result);
-      if (result.status === "match") context.readMatches.push(result);
+    if (!context.batteryResult) {
+      ensureStillConnected("before package-style P1 battery probe");
+      context.packageReadResults = await runPackageStyleP1ReadProbe(
+        remote.activeWriteChannelId || context.bestRoute?.channelId
+      );
+      context.bestPackageRead = pickBestAutoTest2Result(context.packageReadResults);
+      for (const result of context.packageReadResults) {
+        context.readResults.push(result);
+        if (result.status === "match") {
+          context.readMatches.push(result);
+          if (result.index === REG_CTRL_BATTERY && !context.batteryResult) {
+            context.batteryResult = result;
+          }
+        }
+      }
     }
 
     if (!context.readMatches.length) {
@@ -3325,7 +3342,7 @@ async function runAutoTest2() {
       context.bestPreComm = pickBestAutoTest2Result(context.preCommResults);
     }
 
-    context.bestProtocol = context.bestPackageRead;
+    context.bestProtocol = context.batteryResult || context.bestPackageRead;
     if (context.bestPackageRead) protocolMode = context.bestPackageRead.protocolMode || 1;
 
     if (context.readMatches.length && AUTO_TEST2_ENABLE_CONTROL_PROBES) {
@@ -3368,6 +3385,8 @@ async function runAutoTest2() {
           `Read response target 0x${toHexByte(candidateControlTarget)} looks like an app/BLE/auth target, so Auto Test 2 did not send control writes to it.`
         );
       }
+    } else if (context.batteryResult) {
+      context.needs.push("Battery state read successfully. Auto Test 2 stopped without sending password, serial, auth, or control probes.");
     } else if (context.readMatches.length) {
       context.needs.push("Auto Test 2 is in read-only battery mode, so it did not send any remote-control writes after reads succeeded.");
     } else {
@@ -3377,25 +3396,25 @@ async function runAutoTest2() {
     if (!context.bestRoute || scoreAutoTest2Result(context.bestRoute) <= 2) {
       context.needs.push("The app-discovered 0x0A route is still silent; GATT write succeeds, but no application-level reply is coming back.");
     }
-    if (!context.bestProtocol || context.bestProtocol.status !== "match") {
+    if (!context.batteryResult && (!context.bestProtocol || context.bestProtocol.status !== "match")) {
       context.needs.push("No docs-faithful P1 read produced a confirmed response, so keep control writes disabled until the session precondition is understood.");
     }
-    if (!context.readMatches.length && context.bestPackageRead?.status !== "match") {
+    if (!context.batteryResult && !context.readMatches.length && context.bestPackageRead?.status !== "match") {
       context.needs.push("The Proto1 target sweep now starts with the official app's 0x0A BLE/auth target, then falls back to 0x03 and 0x21; all stayed silent.");
     }
-    if (!context.readMatches.length && context.bestBmsSerial?.status !== "match") {
+    if (!context.batteryResult && !context.readMatches.length && context.bestBmsSerial?.status !== "match") {
       context.needs.push("The exact internet BMS UART packets for target 0x22 also stayed silent, so that serial-port path is probably not bridged through this BLE session.");
     }
     if (context.bestBmsSerial?.status === "match") {
       context.needs.push("The BMS serial-format probe got a response. Treat this as a separate read-only BMS path before attempting any control logic.");
     }
-    if (!context.readMatches.length && context.bestPreComm?.status === "match") {
+    if (!context.batteryResult && !context.readMatches.length && context.bestPreComm?.status === "match") {
       context.needs.push("Encryption2 PRE_COMM received an encrypted response. Next step is a deliberate SET_PWD/AUTH flow with physical button confirmation, not register guessing.");
     }
-    if (!context.readMatches.length && context.bestPreComm?.status !== "match") {
+    if (!context.batteryResult && !context.readMatches.length && context.bestPreComm?.status !== "match") {
       context.needs.push("Both Encryption2 PRE_COMM openers (C++ 0x21 and docs 0x04) stayed silent with the current BLE name, so this is likely app pairing/bonding/state rather than frame bytes.");
     }
-    if (!context.readMatches.length) {
+    if (!context.batteryResult && !context.readMatches.length) {
       context.needs.push("Power-off broadcasts prove notifications work. Use Boot Listen next to see whether boot emits a seed/state frame before any request writes.");
     }
     if (
