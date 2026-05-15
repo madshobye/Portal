@@ -31,6 +31,7 @@ let autoTest2Report = "";
 let autoTest2Running = false;
 let activeBeepProbeLabel = "";
 let gamepadController = null;
+let lastLimitSpeed1Raw = null;
 const pressedControlKeys = new Set();
 
 const BUTTON_RADIUS = 20;
@@ -66,6 +67,13 @@ const MAX_REMOTE_SPEED_PRESETS = [
   ["2 km/h", 2000],
   ["3 km/h", 3000],
   ["6 km/h", 6000],
+];
+const RIDE_SPEED_PRESETS = [
+  ["Off", 0],
+  ["4 km/h", 4000],
+  ["7 km/h", 7000],
+  ["10 km/h", 10000],
+  ["20 km/h", 20000],
 ];
 const REMOTE_PAYLOAD_MODES = [
   "hybrid-2b-drive-4b-turn",
@@ -144,6 +152,8 @@ const REG_SET_REMOTE_SPEED = 0x7b;
 const REG_REMOTE_INFO = 0xb2;
 const REG_MAX_REMOTE_SPEED = 0x7d;
 const REG_LIMIT_SPEED = 0x74;
+const REG_SPEED_MODE = 0x72;
+const REG_LIMIT_SPEED_SWITCH = 0x7c;
 const REG_SERIAL = 0x10;
 const REG_RANGE = 0x25;
 const REG_ODOMETER = 0xb7;
@@ -380,15 +390,15 @@ class NinebotBleRemote {
     this._emitState(`max remote speed raw=${raw} on 0x${toHexByte(selectedControlTargetId)}`);
   }
 
-  async setLimitSpeed(tenths) {
+  async setLimitSpeed(rawValue) {
     this._ensureConnected();
-    const limited = Math.max(0, Math.min(600, Math.round(Number(tenths) || 0)));
+    const limited = Math.max(0, Math.min(20000, Math.round(Number(rawValue) || 0)));
     const payload = this._u16le(limited);
     await this.writeRegisterNR(selectedControlTargetId, REG_LIMIT_SPEED, payload);
     this._emitState(
       limited === 0
         ? `speed limit disabled on 0x${toHexByte(selectedControlTargetId)}`
-        : `speed limit ${(limited / 10).toFixed(1)} km/h on 0x${toHexByte(selectedControlTargetId)}`
+        : `speed limit ${(limited / 1000).toFixed(1)} km/h raw=${limited} on 0x${toHexByte(selectedControlTargetId)}`
     );
   }
 
@@ -1244,9 +1254,19 @@ async function setup() {
     } else if (frame.index === REG_CTRL_BATTERY) {
       addLog(`battery target=0x${toHexByte(frame.target)} ${u16le(frame.payload)} raw`);
     } else if (frame.index === REG_MAX_REMOTE_SPEED) {
-      addLog(`max remote speed target=0x${toHexByte(frame.target)} ${(u16le(frame.payload) / 1000).toFixed(1)} km/h raw=${u16le(frame.payload)}`);
+      const raw = u16le(frame.payload);
+      lastLimitSpeed1Raw = raw;
+      addLog(`max remote speed target=0x${toHexByte(frame.target)} ${(raw / 1000).toFixed(1)} km/h raw=${raw}`);
     } else if (frame.index === REG_LIMIT_SPEED) {
-      addLog(`limit/mode target=0x${toHexByte(frame.target)} raw=${u16le(frame.payload)} bytes=${formatBytes(frame.payload)}`);
+      const raw = u16le(frame.payload);
+      addLog(`limit/mode target=0x${toHexByte(frame.target)} ${(raw / 1000).toFixed(1)} km/h raw=${raw} bytes=${formatBytes(frame.payload)}`);
+    } else if (frame.index === REG_SPEED_MODE) {
+      addLog(`speed mode target=0x${toHexByte(frame.target)} raw=${u16le(frame.payload)} bytes=${formatBytes(frame.payload)}`);
+    } else if (frame.index === REG_LIMIT_SPEED_SWITCH) {
+      addLog(`limit switch target=0x${toHexByte(frame.target)} raw=${u16le(frame.payload)} bytes=${formatBytes(frame.payload)}`);
+    } else if ([0x7e, 0x7f].includes(frame.index)) {
+      const raw = u16le(frame.payload);
+      addLog(`speed preset idx=0x${toHexByte(frame.index)} target=0x${toHexByte(frame.target)} ${(raw / 1000).toFixed(1)} km/h raw=${raw} bytes=${formatBytes(frame.payload)}`);
     } else if (frame.index === REG_BLE_PASSWORD) {
       addLog(`ble password target=0x${toHexByte(frame.target)} ${formatBytes(frame.payload)}`);
     } else {
@@ -1358,6 +1378,40 @@ function buildUi() {
       () => setMaxRemoteSpeedPreset(label, raw),
     ]),
     ["Read Max", readMaxRemoteSpeed],
+  ]);
+  const rideSpeedPresetLabel = createDiv("Ride speed");
+  rideSpeedPresetLabel.class("nb-section");
+  rideSpeedPresetLabel.parent(adminEl);
+  buildButtonRow(adminEl, [
+    ...RIDE_SPEED_PRESETS.map(([label, raw]) => [
+      label,
+      () => setRideSpeedPreset(label, raw),
+    ]),
+    ["Read Ride", readLimitModeState],
+  ]);
+  const modeReadLabel = createDiv("Mode reads");
+  modeReadLabel.class("nb-section");
+  modeReadLabel.parent(adminEl);
+  buildButtonRow(adminEl, [
+    ["Read 0x72", () => readModeRegister(REG_SPEED_MODE, 2, "speed mode")],
+    ["Read 0x7C", () => readModeRegister(REG_LIMIT_SPEED_SWITCH, 2, "limit switch")],
+    ["Read 0x7D", () => readModeRegister(REG_MAX_REMOTE_SPEED, 2, "speed preset 1")],
+    ["Read 0x7E", () => readModeRegister(0x7e, 2, "speed preset 2")],
+    ["Read 0x7F", () => readModeRegister(0x7f, 2, "speed preset 3")],
+  ]);
+  const modeWriteLabel = createDiv("0x7C test");
+  modeWriteLabel.class("nb-section");
+  modeWriteLabel.parent(adminEl);
+  buildButtonRow(adminEl, [
+    ["7C=0", () => writeLimitSpeedSwitch(0)],
+    ["7C=1", () => writeLimitSpeedSwitch(1)],
+    ["Read 7C", () => readModeRegister(REG_LIMIT_SPEED_SWITCH, 2, "limit switch")],
+  ]);
+  const limitSpeedTestLabel = createDiv("LimitSpeed1 test");
+  limitSpeedTestLabel.class("nb-section");
+  limitSpeedTestLabel.parent(adminEl);
+  buildButtonRow(adminEl, [
+    ["7D -> 35", testLimitSpeed1To35],
   ]);
 
   infoEl = createDiv("");
@@ -1814,6 +1868,18 @@ async function setMaxRemoteSpeedPreset(label, rawValue) {
   }
 }
 
+async function setRideSpeedPreset(label, rawValue) {
+  if (!remote?.connected) {
+    addLog(`ride speed ${label} skipped: not connected`);
+    return;
+  }
+  try {
+    await remote.setLimitSpeed(rawValue);
+  } catch (error) {
+    addLog(`ride speed ${label} failed: ${error?.message || error}`);
+  }
+}
+
 async function applyMaxRemoteSpeed() {
   if (!remote?.connected) {
     addLog("apply max remote speed skipped: not connected");
@@ -1854,6 +1920,68 @@ async function readLimitModeState() {
   } finally {
     selectedControlTargetId = previousTarget;
     refreshDebugInfo();
+  }
+}
+
+async function readModeRegister(index, size = 2, label = "mode register") {
+  if (!remote?.connected) {
+    addLog(`${label} read skipped: not connected`);
+    return;
+  }
+  try {
+    addLog(`${label} read idx=0x${toHexByte(index)} target=0x${toHexByte(APP_DISCOVERED_BLE_TARGET_ID)}`);
+    await remote.readRegister(APP_DISCOVERED_BLE_TARGET_ID, index, size);
+  } catch (error) {
+    addLog(`${label} read failed: ${error?.message || error}`);
+  }
+}
+
+async function writeLimitSpeedSwitch(value) {
+  if (!remote?.connected) {
+    addLog(`0x7C write ${value} skipped: not connected`);
+    return;
+  }
+  const switchValue = value ? 1 : 0;
+  try {
+    addLog(`writing 0x7C limit switch=${switchValue} target=0x${toHexByte(APP_DISCOVERED_BLE_TARGET_ID)}`);
+    await remote.writeRegisterNR(APP_DISCOVERED_BLE_TARGET_ID, REG_LIMIT_SPEED_SWITCH, remote._u16le(switchValue));
+    await sleep(160);
+    await readModeRegister(REG_LIMIT_SPEED_SWITCH, 2, "limit switch");
+  } catch (error) {
+    addLog(`0x7C write ${switchValue} failed: ${error?.message || error}`);
+  }
+}
+
+async function testLimitSpeed1To35() {
+  if (!remote?.connected) {
+    addLog("LimitSpeed1 35 km/h test skipped: not connected");
+    return;
+  }
+  const testRaw = 35000;
+  try {
+    lastLimitSpeed1Raw = null;
+    addLog("LimitSpeed1 test: read 0x7D before write");
+    await readModeRegister(REG_MAX_REMOTE_SPEED, 2, "LimitSpeed1 before");
+    await sleep(180);
+    const originalRaw = lastLimitSpeed1Raw;
+    if (originalRaw == null) {
+      addLog("LimitSpeed1 test aborted: original 0x7D value was not read");
+      return;
+    }
+    addLog(`LimitSpeed1 test: original raw=${originalRaw} (${(originalRaw / 1000).toFixed(1)} km/h)`);
+    addLog(`LimitSpeed1 test: writing 0x7D raw=${testRaw} (${(testRaw / 1000).toFixed(1)} km/h)`);
+    await remote.writeRegisterNR(APP_DISCOVERED_BLE_TARGET_ID, REG_MAX_REMOTE_SPEED, remote._u16le(testRaw));
+    await sleep(240);
+    addLog("LimitSpeed1 test: read 0x7D after write");
+    await readModeRegister(REG_MAX_REMOTE_SPEED, 2, "LimitSpeed1 after");
+    await sleep(240);
+    addLog(`LimitSpeed1 test: restoring original raw=${originalRaw} (${(originalRaw / 1000).toFixed(1)} km/h)`);
+    await remote.writeRegisterNR(APP_DISCOVERED_BLE_TARGET_ID, REG_MAX_REMOTE_SPEED, remote._u16le(originalRaw));
+    await sleep(240);
+    addLog("LimitSpeed1 test: read 0x7D after restore");
+    await readModeRegister(REG_MAX_REMOTE_SPEED, 2, "LimitSpeed1 restored");
+  } catch (error) {
+    addLog(`LimitSpeed1 test failed: ${error?.message || error}`);
   }
 }
 
