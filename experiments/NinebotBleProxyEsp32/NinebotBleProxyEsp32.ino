@@ -26,6 +26,7 @@ static const bool FAKE_INCLUDE_NINEBOT_CUSTOM_SERVICE = false;
 static const bool FAKE_ADVERTISE_NUS_SERVICE = true;
 static const bool FAKE_INCLUDE_NINEBOT_MANUFACTURER_DATA = true;
 static const bool FAKE_MANUFACTURER_USE_ESP32_BT_ADDRESS = true;
+static const bool FAKE_AUTO_RESPOND_P1_READS = true;
 static const uint16_t FAKE_APPEARANCE = 0x0000;
 static const uint32_t REAL_SCAN_SECONDS = 12;
 static const bool USE_CUSTOM_CONNECT_PARAMS = false;
@@ -73,6 +74,20 @@ static const uint8_t FAKE_NINEBOT_MANUFACTURER_FALLBACK[] = {
 static const uint8_t PROBE_P1_NINEBOT_S_BLE_PWD[] = {0x55, 0xaa, 0x03, 0x03, 0x01, 0x17, 0x06, 0xdb, 0xff};
 static const uint8_t PROBE_P1_NINEBOT_S_SERIAL[] = {0x55, 0xaa, 0x03, 0x03, 0x01, 0x10, 0x0e, 0xda, 0xff};
 static const uint8_t PROBE_P1_NINEBOT_S2_SERIAL[] = {0x55, 0xaa, 0x03, 0x21, 0x01, 0x10, 0x0e, 0xbc, 0xff};
+static const uint8_t FAKE_P1_REQUEST_TARGET = 0x0a;
+static const uint8_t FAKE_P1_REPLY_TARGET = 0x0d;
+static const uint8_t CMD_P1_READ = 0x01;
+static const uint8_t CMD_P1_WRITE_NR = 0x03;
+static const uint8_t REG_SERIAL = 0x10;
+static const uint8_t REG_BLE_PASSWORD = 0x17;
+static const uint8_t REG_BATTERY = 0x22;
+static const uint8_t REG_BLE_VERSION = 0x68;
+static const uint8_t REG_ENABLE_REMOTE = 0x7a;
+static const uint8_t REG_SET_REMOTE_SPEED = 0x7b;
+static const uint8_t FAKE_BATTERY_PERCENT = 93;
+static const uint8_t FAKE_BLE_PASSWORD[] = {'0', '0', '0', '0', '0', '0'};
+static const uint8_t FAKE_BLE_VERSION[] = {0x09, 0x01};
+static const uint8_t FAKE_SERIAL[] = {'2', '0', '0', '4', '8', '/', '0', '0', '0', '1', '2', '6', '7', '4'};
 
 NimBLECharacteristic *fakeTx = nullptr;
 NimBLECharacteristic *fakeNinebotTx = nullptr;
@@ -189,6 +204,119 @@ void notifyApp(const uint8_t *data, size_t len) {
   }
 }
 
+void notifyAppChunked(const uint8_t *data, size_t len) {
+  const size_t chunkSize = 20;
+  for (size_t offset = 0; offset < len; offset += chunkSize) {
+    const size_t remaining = len - offset;
+    const size_t partLen = remaining < chunkSize ? remaining : chunkSize;
+    notifyApp(data + offset, partLen);
+    if (offset + partLen < len) delay(20);
+  }
+}
+
+uint16_t p1Checksum(const uint8_t *body, size_t len) {
+  uint16_t sum = 0;
+  for (size_t i = 0; i < len; i++) {
+    sum += body[i];
+  }
+  return static_cast<uint16_t>(~sum);
+}
+
+int16_t leInt16(const uint8_t *data) {
+  return static_cast<int16_t>(static_cast<uint16_t>(data[0]) | (static_cast<uint16_t>(data[1]) << 8));
+}
+
+void sendFakeP1ReadResponse(uint8_t index, const uint8_t *payload, size_t payloadLen) {
+  if (payloadLen > 240) return;
+  uint8_t frame[260] = {0};
+  const uint8_t lengthByte = static_cast<uint8_t>(payloadLen + 2);
+  frame[0] = 0x55;
+  frame[1] = 0xaa;
+  frame[2] = lengthByte;
+  frame[3] = FAKE_P1_REPLY_TARGET;
+  frame[4] = CMD_P1_READ;
+  frame[5] = index;
+  for (size_t i = 0; i < payloadLen; i++) {
+    frame[6 + i] = payload[i];
+  }
+  const uint16_t crc = p1Checksum(frame + 2, 4 + payloadLen);
+  frame[6 + payloadLen] = crc & 0xff;
+  frame[7 + payloadLen] = (crc >> 8) & 0xff;
+  const size_t frameLen = 8 + payloadLen;
+  logBytes("ESP32->APP fake P1", frame, frameLen);
+  notifyAppChunked(frame, frameLen);
+}
+
+bool handleFakeP1Request(const uint8_t *data, size_t len) {
+  if (!FAKE_AUTO_RESPOND_P1_READS) return false;
+  if (len < 8 || data[0] != 0x55 || data[1] != 0xaa) return false;
+
+  const uint8_t target = data[3];
+  const uint8_t cmd = data[4];
+  const uint8_t index = data[5];
+  const uint8_t *payload = data + 6;
+  const size_t payloadLen = len > 8 ? len - 8 : 0;
+
+  Serial.print("APP P1 decoded target=0x");
+  Serial.print(target, HEX);
+  Serial.print(" cmd=0x");
+  Serial.print(cmd, HEX);
+  Serial.print(" idx=0x");
+  Serial.print(index, HEX);
+  Serial.print(" payload=");
+  if (payloadLen) {
+    Serial.println(hexBytes(payload, payloadLen));
+  } else {
+    Serial.println("-");
+  }
+
+  if (cmd == CMD_P1_WRITE_NR && index == REG_ENABLE_REMOTE && payloadLen >= 1) {
+    Serial.print("APP RC enable value=");
+    Serial.println(payload[0]);
+    return false;
+  }
+
+  if (cmd == CMD_P1_WRITE_NR && index == REG_SET_REMOTE_SPEED && payloadLen > 0) {
+    Serial.print("APP RC speed payload ");
+    Serial.println(hexBytes(payload, payloadLen));
+    if (payloadLen >= 2) {
+      Serial.print("  as 2B turn=");
+      Serial.print(static_cast<int8_t>(payload[0]));
+      Serial.print(" speed=");
+      Serial.println(static_cast<int8_t>(payload[1]));
+    }
+    if (payloadLen >= 4) {
+      Serial.print("  as 4B pitch/speed16=");
+      Serial.print(leInt16(payload));
+      Serial.print(" turn16=");
+      Serial.println(leInt16(payload + 2));
+    }
+    return false;
+  }
+
+  if (target != FAKE_P1_REQUEST_TARGET || cmd != CMD_P1_READ) return false;
+
+  if (index == REG_BATTERY) {
+    const uint8_t battery[] = {FAKE_BATTERY_PERCENT, 0x00};
+    sendFakeP1ReadResponse(index, battery, sizeof(battery));
+    return true;
+  }
+  if (index == REG_BLE_PASSWORD) {
+    sendFakeP1ReadResponse(index, FAKE_BLE_PASSWORD, sizeof(FAKE_BLE_PASSWORD));
+    return true;
+  }
+  if (index == REG_BLE_VERSION) {
+    sendFakeP1ReadResponse(index, FAKE_BLE_VERSION, sizeof(FAKE_BLE_VERSION));
+    return true;
+  }
+  if (index == REG_SERIAL) {
+    sendFakeP1ReadResponse(index, FAKE_SERIAL, sizeof(FAKE_SERIAL));
+    return true;
+  }
+
+  return false;
+}
+
 class FakeServerCallbacks : public NimBLEServerCallbacks {
   void onConnect(NimBLEServer *server, NimBLEConnInfo &connInfo) override {
     appConnected = true;
@@ -212,6 +340,10 @@ class FakeRxCallbacks : public NimBLECharacteristicCallbacks {
     const size_t len = value.size();
 
     logBytes("APP->ESP32", data, len);
+
+    if (handleFakeP1Request(data, len)) {
+      return;
+    }
 
     if (!FORWARD_APP_TO_NINEBOT) {
       Serial.println("APP->Ninebot forwarding disabled");

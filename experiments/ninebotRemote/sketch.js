@@ -15,10 +15,15 @@ let logLines = [];
 let activePointerControl = null;
 let currentVector = null;
 let lastSendAt = 0;
-let forwardByte = 24;
-let steerByte = 24;
-let maxRemoteSpeedTenths = 30;
-let selectedControlTargetId = 0x03;
+let lastRemoteEnableAt = 0;
+let forwardByte = 2048;
+let backwardByte = 2048;
+let steerByte = 2048;
+let straightTurnBias = 0;
+let maxRemoteSpeedRaw = 7000;
+let selectedControlTargetId = 0x0a;
+let remotePayloadMode = "p1-i16-speed-turn";
+let reversePayloadMode = "negative-forward";
 let protocolMode = 1;
 let writeMode = "response";
 let autoTest2Report = "";
@@ -27,15 +32,71 @@ let activeBeepProbeLabel = "";
 
 const BUTTON_RADIUS = 20;
 const LOG_LIMIT = 240;
-const SEND_INTERVAL_MS = 120;
+const SEND_INTERVAL_MS = 50;
+const REMOTE_ENABLE_KEEPALIVE_MS = 900;
+const REMOTE_COMMAND_WORD_MIN = 256;
+const REMOTE_COMMAND_WORD_MAX = 32767;
+const REMOTE_COMMAND_WORD_STEP = 256;
+const REMOTE_PAYLOAD_LOG_MS = 600;
+const ALLOW_EXTENDED_REMOTE_SPEED_PAYLOADS = false;
+const SAFE_REMOTE_PAYLOAD_MODES = ["p1-i16-speed-turn", "p1-i16-turn-speed"];
+const REMOTE_PAYLOAD_MODES = [
+  "hybrid-2b-drive-4b-turn",
+  "p1-i16-pitch-turn-forward",
+  "p1-i16-zero-turn-forward",
+  "p1-turn-speed",
+  "p1-speed-turn",
+  "p1-3b-turn-speed-zero",
+  "p1-3b-speed-turn-zero",
+  "p1-3b-zero-turn-speed",
+  "p1-i16-speed-turn",
+  "p1-i16-turn-speed",
+  "p1-i16-speed-turn-zero",
+  "p1-i16-speed-zero-turn",
+  "p1-i16-zero-speed-turn",
+  "p1-i16-turn-speed-zero",
+];
+const REMOTE_PAYLOAD_MODE_LABELS = {
+  "hybrid-2b-drive-4b-turn": "Hybrid: 2B drive, 4B turn",
+  "p1-i16-pitch-turn-forward": "6B [pitch16,turn16,forward16]",
+  "p1-i16-zero-turn-forward": "6B [0,turn16,forward16]",
+  "p1-turn-speed": "2B [turn,speed]",
+  "p1-speed-turn": "2B [speed,turn]",
+  "p1-3b-turn-speed-zero": "3B [turn,speed,0]",
+  "p1-3b-speed-turn-zero": "3B [speed,turn,0]",
+  "p1-3b-zero-turn-speed": "3B [0,turn,speed]",
+  "p1-i16-speed-turn": "4B [forward16,turn16]",
+  "p1-i16-turn-speed": "4B [turn16,forward16]",
+  "p1-i16-speed-turn-zero": "6B [forward16,turn16,0]",
+  "p1-i16-speed-zero-turn": "6B [forward16,0,turn16]",
+  "p1-i16-zero-speed-turn": "6B [0,forward16,turn16]",
+  "p1-i16-turn-speed-zero": "6B [turn16,forward16,0]",
+};
+const REVERSE_PAYLOAD_MODES = [
+  "negative-forward",
+  "positive-forward",
+  "third-word-negative",
+  "third-word-positive",
+];
+const REVERSE_PAYLOAD_MODE_LABELS = {
+  "negative-forward": "reverse: -forward16",
+  "positive-forward": "reverse: +forward16 probe",
+  "third-word-negative": "reverse: third word -",
+  "third-word-positive": "reverse: third word +",
+};
 const AUTO_PASSIVE_LISTEN_MS = 12000;
 const AUTO_TEST2_PASSIVE_LISTEN_MS = 2500;
 const AUTO_TEST2_RESPONSE_WAIT_MS = 520;
 const AUTO_TEST2_INTER_STEP_MS = 120;
 const AUTO_TEST2_ENABLE_CONTROL_PROBES = false;
+const AUTO_TEST2_ENABLE_TINY_REMOTE_TEST = false;
+const AUTO_TEST2_TINY_REMOTE_FORWARD_BYTE = 2048;
+const AUTO_TEST2_TINY_REMOTE_PULSE_MS = 350;
+const AUTO_TEST2_TINY_REMOTE_VARIANT_INDEX = 0;
 const DIS_TARGET_ID = 0x01;
 const APP_DISCOVERED_BLE_TARGET_ID = 0x0a;
 const APP_DISCOVERED_REPLY_TARGET_ID = 0x0d;
+const AUTO_TEST2_TINY_REMOTE_TARGET = APP_DISCOVERED_BLE_TARGET_ID;
 const NINEBOT_S_SERVER_ID = 0x03;
 const NINEBOT_S2_SERVER_ID = 0x21;
 const NINEBOT_S_PROTO1_TARGETS = [
@@ -67,7 +128,7 @@ const REG_CTRL_VERSION = 0x1a;
 const REG_BMS_VERSION = 0x67;
 const REG_DRV_VOLT = 0x47;
 const REG_ERROR_CODE = 0xb0;
-const CANDIDATE_CONTROL_TARGETS = [0x03, 0x21, 0x01, 0x02, 0x04, 0x09, 0x20];
+const CANDIDATE_CONTROL_TARGETS = [APP_DISCOVERED_BLE_TARGET_ID, 0x03, 0x21, 0x01, 0x02, 0x04, 0x09, 0x20];
 const CANDIDATE_READ_TARGETS = [APP_DISCOVERED_BLE_TARGET_ID, 0x03, 0x21, 0x01, 0x02, 0x04, 0x09, 0x10, 0x13, 0x20, 0xff];
 const BLE_TARGET_ID = 0x04;
 const BMS_TARGET_ID = 0x22;
@@ -161,6 +222,8 @@ class NinebotBleRemote {
     this.lastRxHex = "";
     this.lastNotifyHex = "";
     this.lastRemoteInfo = null;
+    this.lastRemotePayloadHex = "";
+    this.lastRemotePayloadLogAt = 0;
     this.lastError = "";
     this.rxFrameCount = 0;
     this.echoFrameCount = 0;
@@ -191,6 +254,15 @@ class NinebotBleRemote {
   }
 
   async disconnect() {
+    if (this.connected && this._getActiveWriteCharacteristic()) {
+      try {
+        await this.stopRemote();
+        await sleep(80);
+        await this.enableRemoteControl(false);
+      } catch (error) {
+        this._emitState(`disconnect RC-off best effort failed: ${error?.message || error}`);
+      }
+    }
     this.remoteEnabled = false;
     if (this.notifyCharacteristic) {
       try {
@@ -273,13 +345,12 @@ class NinebotBleRemote {
     );
   }
 
-  async setMaxRemoteSpeed(tenths = maxRemoteSpeedTenths) {
+  async setMaxRemoteSpeed(rawValue = maxRemoteSpeedRaw) {
     this._ensureConnected();
-    const payload = this._u16le(Math.max(0, Math.min(300, Math.round(tenths))));
+    const raw = Math.max(1000, Math.min(10000, Math.round(rawValue)));
+    const payload = this._u16le(raw);
     await this.writeRegisterNR(selectedControlTargetId, REG_MAX_REMOTE_SPEED, payload);
-    this._emitState(
-      `max remote speed ${tenths / 10} km/h on 0x${toHexByte(selectedControlTargetId)}`
-    );
+    this._emitState(`max remote speed raw=${raw} on 0x${toHexByte(selectedControlTargetId)}`);
   }
 
   async setLimitSpeed(tenths) {
@@ -296,7 +367,17 @@ class NinebotBleRemote {
 
   async setRemoteSpeed(forward, steer) {
     this._ensureConnected();
-    const payload = [this._toSignedByte(forward), this._toSignedByte(steer)];
+    const payload = this._remoteSpeedPayload(forward, steer);
+    const payloadHex = this._bytesToHex(payload);
+    const now = Date.now();
+    if (
+      payloadHex !== this.lastRemotePayloadHex ||
+      now - this.lastRemotePayloadLogAt >= REMOTE_PAYLOAD_LOG_MS
+    ) {
+      this.lastRemotePayloadHex = payloadHex;
+      this.lastRemotePayloadLogAt = now;
+      this._emitState(`remote speed payload ${remotePayloadMode}=${payloadHex}`);
+    }
     await this.writeRegisterNR(selectedControlTargetId, REG_SET_REMOTE_SPEED, payload);
   }
 
@@ -307,6 +388,10 @@ class NinebotBleRemote {
 
   async readRemoteInfo() {
     return await this.readRegister(selectedControlTargetId, REG_REMOTE_INFO, 8);
+  }
+
+  async readMaxRemoteSpeed() {
+    return await this.readRegister(selectedControlTargetId, REG_MAX_REMOTE_SPEED, 2);
   }
 
   async readSpeed() {
@@ -843,6 +928,96 @@ class NinebotBleRemote {
     return [value & 0xff, (value >> 8) & 0xff];
   }
 
+  _i16le(value) {
+    const clipped = Math.max(-32767, Math.min(32767, Math.round(Number(value) || 0)));
+    const word = clipped < 0 ? 0x10000 + clipped : clipped;
+    return [word & 0xff, (word >> 8) & 0xff];
+  }
+
+  _raw16le(value) {
+    const word = Math.round(Number(value) || 0) & 0xffff;
+    return [word & 0xff, (word >> 8) & 0xff];
+  }
+
+  _remoteCommandWord(value) {
+    return Math.max(-32767, Math.min(32767, Math.round(Number(value) || 0)));
+  }
+
+  _remoteSpeedPayload(forward, steer) {
+    const speedByte = this._toSignedByte(forward / REMOTE_COMMAND_WORD_STEP);
+    const turnByte = this._toSignedByte(steer / REMOTE_COMMAND_WORD_STEP);
+    const pitchWord = this._remoteCommandWord(forward);
+    const turnWord = this._remoteCommandWord(steer);
+    if (!ALLOW_EXTENDED_REMOTE_SPEED_PAYLOADS) {
+      return remotePayloadMode === "p1-i16-turn-speed"
+        ? [...this._i16le(turnWord), ...this._i16le(pitchWord)]
+        : [...this._i16le(pitchWord), ...this._i16le(turnWord)];
+    }
+    const forwardWord = this._remoteCommandWord(forward);
+    const zeroWord = 0;
+    const reverseWord = this._remoteCommandWord(-Math.abs(forward));
+    const reverseProbeWord = this._remoteCommandWord(Math.abs(forward));
+
+    if (forward < 0 && remotePayloadMode === "p1-i16-speed-turn-zero") {
+      if (reversePayloadMode === "positive-forward") {
+        return [...this._i16le(reverseProbeWord), ...this._i16le(turnWord), ...this._i16le(zeroWord)];
+      }
+      if (reversePayloadMode === "third-word-negative") {
+        return [...this._i16le(zeroWord), ...this._i16le(turnWord), ...this._i16le(reverseWord)];
+      }
+      if (reversePayloadMode === "third-word-positive") {
+        return [...this._i16le(zeroWord), ...this._i16le(turnWord), ...this._i16le(reverseProbeWord)];
+      }
+    }
+
+    if (remotePayloadMode === "hybrid-2b-drive-4b-turn") {
+      // Replay the known forward-moving 2B command for straight drive; use 4B for clean yaw.
+      if (!steer) return [0, speedByte];
+      return [...this._i16le(pitchWord), ...this._i16le(turnWord)];
+    }
+    if (remotePayloadMode === "p1-i16-pitch-turn-forward") {
+      return [...this._i16le(pitchWord), ...this._i16le(turnWord), ...this._i16le(forwardWord)];
+    }
+    if (remotePayloadMode === "p1-i16-zero-turn-forward") {
+      return [...this._i16le(zeroWord), ...this._i16le(turnWord), ...this._i16le(forwardWord)];
+    }
+    if (remotePayloadMode === "p1-3b-turn-speed-zero") {
+      return [turnByte, speedByte, 0];
+    }
+    if (remotePayloadMode === "p1-3b-speed-turn-zero") {
+      return [speedByte, turnByte, 0];
+    }
+    if (remotePayloadMode === "p1-3b-zero-turn-speed") {
+      return [0, turnByte, speedByte];
+    }
+    if (remotePayloadMode === "p1-i16-speed-turn") {
+      // Word 0 behaves as pitch/lean on the balancing board; word 1 is clean yaw/turn.
+      return [...this._i16le(pitchWord), ...this._i16le(turnWord)];
+    }
+    if (remotePayloadMode === "p1-i16-turn-speed") {
+      // Experimental inverse mapping. Your hardware turns when "forward" lands in word 0.
+      return [...this._i16le(turnWord), ...this._i16le(pitchWord)];
+    }
+    if (remotePayloadMode === "p1-i16-speed-turn-zero") {
+      return [...this._i16le(pitchWord), ...this._i16le(turnWord), ...this._i16le(zeroWord)];
+    }
+    if (remotePayloadMode === "p1-i16-speed-zero-turn") {
+      return [...this._i16le(pitchWord), ...this._i16le(zeroWord), ...this._i16le(turnWord)];
+    }
+    if (remotePayloadMode === "p1-i16-zero-speed-turn") {
+      return [...this._i16le(zeroWord), ...this._i16le(pitchWord), ...this._i16le(turnWord)];
+    }
+    if (remotePayloadMode === "p1-i16-turn-speed-zero") {
+      return [...this._i16le(turnWord), ...this._i16le(pitchWord), ...this._i16le(zeroWord)];
+    }
+    if (remotePayloadMode === "p1-speed-turn") {
+      return [speedByte, turnByte];
+    }
+    // Generated Ninebot-S docs and the official app capture both match 2B writes:
+    // byte 0 = turn, byte 1 = forward/back, signed as two's complement.
+    return [turnByte, speedByte];
+  }
+
   _bytesToHex(bytes) {
     return Array.from(bytes, (value) => value.toString(16).padStart(2, "0")).join(" ");
   }
@@ -913,6 +1088,10 @@ async function setup() {
       );
     } else if (frame.index === REG_CTRL_BATTERY) {
       addLog(`battery target=0x${toHexByte(frame.target)} ${u16le(frame.payload)} raw`);
+    } else if (frame.index === REG_MAX_REMOTE_SPEED) {
+      addLog(`max remote speed target=0x${toHexByte(frame.target)} ${(u16le(frame.payload) / 1000).toFixed(1)} km/h raw=${u16le(frame.payload)}`);
+    } else if (frame.index === REG_LIMIT_SPEED) {
+      addLog(`limit/mode target=0x${toHexByte(frame.target)} raw=${u16le(frame.payload)} bytes=${formatBytes(frame.payload)}`);
     } else if (frame.index === REG_BLE_PASSWORD) {
       addLog(`ble password target=0x${toHexByte(frame.target)} ${formatBytes(frame.payload)}`);
     } else {
@@ -977,8 +1156,7 @@ function buildUi() {
     }],
     ["Enable RC", async () => {
       try {
-        await remote.enableRemoteControl(true);
-        await remote.setMaxRemoteSpeed(maxRemoteSpeedTenths);
+        await armRemoteControl();
       } catch (error) {
         addLog(`enable failed: ${error?.message || error}`);
       }
@@ -990,6 +1168,7 @@ function buildUi() {
         addLog(`stop failed: ${error?.message || error}`);
       }
     }],
+    ["RC Off", safeRemoteOff],
     ["Write Mode", () => {
       writeMode = writeMode === "response" ? "no-response" : "response";
       addLog(`write mode ${writeMode}`);
@@ -1103,23 +1282,29 @@ function buildUi() {
   section4.class("nb-section");
   section4.parent(adminEl);
   buildButtonRow(adminEl, [
-    ["-F", () => { forwardByte = max(4, forwardByte - 4); refreshDebugInfo(); }],
-    ["+F", () => { forwardByte = min(80, forwardByte + 4); refreshDebugInfo(); }],
-    ["-T", () => { steerByte = max(4, steerByte - 4); refreshDebugInfo(); }],
-    ["+T", () => { steerByte = min(80, steerByte + 4); refreshDebugInfo(); }],
-    ["-M", () => { maxRemoteSpeedTenths = max(10, maxRemoteSpeedTenths - 10); refreshDebugInfo(); }],
-    ["+M", () => { maxRemoteSpeedTenths = min(80, maxRemoteSpeedTenths + 10); refreshDebugInfo(); }],
+    ["-F", () => adjustForwardByte(-REMOTE_COMMAND_WORD_STEP)],
+    ["+F", () => adjustForwardByte(REMOTE_COMMAND_WORD_STEP)],
+    ["-R", () => adjustBackwardByte(-REMOTE_COMMAND_WORD_STEP)],
+    ["+R", () => adjustBackwardByte(REMOTE_COMMAND_WORD_STEP)],
+    ["-T", () => adjustSteerByte(-REMOTE_COMMAND_WORD_STEP)],
+    ["+T", () => adjustSteerByte(REMOTE_COMMAND_WORD_STEP)],
+    ["-B", () => adjustStraightTurnBias(-1)],
+    ["+B", () => adjustStraightTurnBias(1)],
+    ["-M", () => adjustMaxRemoteSpeedRaw(-1000)],
+    ["+M", () => adjustMaxRemoteSpeedRaw(1000)],
+    ["Apply M", applyMaxRemoteSpeed],
+    ["Read M", readMaxRemoteSpeed],
+    ["Mode", cycleRemotePayloadMode],
+    ["RevMap", cycleReversePayloadMode],
   ]);
 
-  const section5 = createDiv("Speed Limit Tests");
+  const section5 = createDiv("Persistent State Checks");
   section5.class("nb-section");
   section5.parent(adminEl);
   buildButtonRow(adminEl, [
-    ["No limit", async () => { await setDocumentedLimitSpeed(0); }],
-    ["25 km/h", async () => { await setDocumentedLimitSpeed(250); }],
-    ["35 km/h", async () => { await setDocumentedLimitSpeed(350); }],
-    ["45 km/h", async () => { await setDocumentedLimitSpeed(450); }],
-    ["60 km/h", async () => { await setDocumentedLimitSpeed(600); }],
+    ["Read 0x74", readLimitModeState],
+    ["Read 0x7D", readMaxRemoteSpeed],
+    ["RC Off", safeRemoteOff],
   ]);
 
   infoEl = createDiv("");
@@ -1315,9 +1500,13 @@ function refreshDebugInfo() {
       `GATT model: ${remote?.deviceInfo?.model || "-"}`,
       `GATT fw/hw: ${remote?.deviceInfo?.firmware || "-"} / ${remote?.deviceInfo?.hardware || "-"}`,
       `Remote enabled: ${remote?.remoteEnabled ? "yes" : "no"}`,
-      `Forward byte: ${forwardByte}`,
-      `Steer byte: ${steerByte}`,
-      `Max remote speed: ${(maxRemoteSpeedTenths / 10).toFixed(1)} km/h`,
+      `Forward word: ${forwardByte}`,
+      `Backward word: ${backwardByte}`,
+      `Steer word: ${steerByte}`,
+      `Straight turn bias: ${straightTurnBias}`,
+      `Payload mode: ${remotePayloadModeLabel()}`,
+      `Reverse map: ${reversePayloadModeLabel()}`,
+      `Max remote speed: ${(maxRemoteSpeedRaw / 1000).toFixed(1)} km/h raw=${maxRemoteSpeedRaw}`,
       `RX frames: ${remote?.rxFrameCount || 0}`,
       `Real RX frames: ${remote?.realRxFrameCount || 0}`,
       `Echo frames: ${remote?.echoFrameCount || 0}`,
@@ -1419,19 +1608,12 @@ function drawTransportCard() {
   });
   drawActionButton("Enable RC", x + 246, lowerButtonY, 94, 36, async () => {
     try {
-      await remote.enableRemoteControl(true);
-      await remote.setMaxRemoteSpeed(maxRemoteSpeedTenths);
+      await armRemoteControl();
     } catch (error) {
       addLog(`enable failed: ${error?.message || error}`);
     }
   });
-  drawActionButton("Stop", x + 350, lowerButtonY, 72, 36, async () => {
-    try {
-      await remote.stopRemote();
-    } catch (error) {
-      addLog(`stop failed: ${error?.message || error}`);
-    }
-  });
+  drawActionButton("RC Off", x + 350, lowerButtonY, 72, 36, safeRemoteOff);
 }
 
 function drawRemoteButtons() {
@@ -1439,10 +1621,20 @@ function drawRemoteButtons() {
   const centerY = height * 0.44;
   const size = min(width, height) * 0.12;
   const gap = size * 0.12;
+  const diagonalSize = size * 0.62;
+  const diagonalOffset = size * 0.86;
 
   drawHoldButton("forward", centerX, centerY - size - gap, size, size, "▲", {
     x: forwardByte,
-    y: 0,
+    y: straightTurnBias,
+  });
+  drawHoldButton("forward-left", centerX - diagonalOffset, centerY - diagonalOffset, diagonalSize, diagonalSize, "↖", {
+    x: forwardByte,
+    y: -steerByte,
+  });
+  drawHoldButton("forward-right", centerX + diagonalOffset, centerY - diagonalOffset, diagonalSize, diagonalSize, "↗", {
+    x: forwardByte,
+    y: steerByte,
   });
   drawHoldButton("left", centerX - size - gap, centerY, size, size, "◀", {
     x: 0,
@@ -1453,8 +1645,16 @@ function drawRemoteButtons() {
     y: steerByte,
   });
   drawHoldButton("back", centerX, centerY + size + gap, size, size, "▼", {
-    x: -forwardByte,
-    y: 0,
+    x: -backwardByte,
+    y: -straightTurnBias,
+  });
+  drawHoldButton("back-left", centerX - diagonalOffset, centerY + diagonalOffset, diagonalSize, diagonalSize, "↙", {
+    x: -backwardByte,
+    y: -steerByte,
+  });
+  drawHoldButton("back-right", centerX + diagonalOffset, centerY + diagonalOffset, diagonalSize, diagonalSize, "↘", {
+    x: -backwardByte,
+    y: steerByte,
   });
   drawHoldButton("halt", centerX, centerY, size * 0.94, size * 0.94, "■", {
     x: 0,
@@ -1465,21 +1665,188 @@ function drawRemoteButtons() {
   noStroke();
   textAlign(CENTER, CENTER);
   textSize(18);
-  text("Hold buttons or use arrow keys / WASD", centerX, centerY + size * 2.2);
+  text("Hold buttons or use arrow keys / WASD. Bias is optional; 0 keeps straight commands pure.", centerX, centerY + size * 2.2);
   textSize(14);
   fill(126, 162, 170);
   text(
-    `Target 0x${toHexByte(selectedControlTargetId)}  •  F ${forwardByte}  •  T ${steerByte}  •  M ${(maxRemoteSpeedTenths / 10).toFixed(1)} km/h`,
+    `Target 0x${toHexByte(selectedControlTargetId)}  •  ${remotePayloadModeLabel()}  •  ${reversePayloadModeLabel()}  •  F/R/T [${forwardByte},${backwardByte},${steerByte}]`,
     centerX,
     centerY + size * 2.65
   );
+}
+
+function adjustForwardByte(delta) {
+  forwardByte = max(REMOTE_COMMAND_WORD_MIN, min(REMOTE_COMMAND_WORD_MAX, forwardByte + delta));
+  addLog(`forward word now ${forwardByte}`);
+  refreshDebugInfo();
+}
+
+function adjustBackwardByte(delta) {
+  backwardByte = max(REMOTE_COMMAND_WORD_MIN, min(REMOTE_COMMAND_WORD_MAX, backwardByte + delta));
+  addLog(`backward word now ${backwardByte}`);
+  refreshDebugInfo();
+}
+
+function adjustSteerByte(delta) {
+  steerByte = max(REMOTE_COMMAND_WORD_MIN, min(REMOTE_COMMAND_WORD_MAX, steerByte + delta));
+  addLog(`steer word now ${steerByte}`);
+  refreshDebugInfo();
+}
+
+function adjustStraightTurnBias(delta) {
+  straightTurnBias = max(0, min(16, straightTurnBias + delta));
+  addLog(`straight turn bias now ${straightTurnBias}`);
+  refreshDebugInfo();
+}
+
+function remotePayloadModeLabel() {
+  return REMOTE_PAYLOAD_MODE_LABELS[remotePayloadMode] || remotePayloadMode;
+}
+
+function reversePayloadModeLabel() {
+  return REVERSE_PAYLOAD_MODE_LABELS[reversePayloadMode] || reversePayloadMode;
+}
+
+function cycleRemotePayloadMode() {
+  const modes = ALLOW_EXTENDED_REMOTE_SPEED_PAYLOADS
+    ? REMOTE_PAYLOAD_MODES
+    : SAFE_REMOTE_PAYLOAD_MODES;
+  const currentIndex = modes.indexOf(remotePayloadMode);
+  const nextIndex = (currentIndex + 1) % modes.length;
+  remotePayloadMode = modes[nextIndex];
+  if (remote) {
+    remote.lastRemotePayloadHex = "";
+    remote.lastRemotePayloadLogAt = 0;
+  }
+  addLog(`remote payload mode now ${remotePayloadModeLabel()}`);
+  refreshDebugInfo();
+}
+
+function cycleReversePayloadMode() {
+  const currentIndex = REVERSE_PAYLOAD_MODES.indexOf(reversePayloadMode);
+  const nextIndex = (currentIndex + 1) % REVERSE_PAYLOAD_MODES.length;
+  reversePayloadMode = REVERSE_PAYLOAD_MODES[nextIndex];
+  if (remote) {
+    remote.lastRemotePayloadHex = "";
+    remote.lastRemotePayloadLogAt = 0;
+  }
+  addLog(`reverse payload mode now ${reversePayloadModeLabel()}`);
+  refreshDebugInfo();
+}
+
+async function adjustMaxRemoteSpeedRaw(delta) {
+  maxRemoteSpeedRaw = max(1000, min(10000, maxRemoteSpeedRaw + delta));
+  addLog(`max remote speed value now ${(maxRemoteSpeedRaw / 1000).toFixed(1)} km/h raw=${maxRemoteSpeedRaw}; press Apply M to write 0x7D`);
+  refreshDebugInfo();
+}
+
+async function applyMaxRemoteSpeed() {
+  if (!remote?.connected) {
+    addLog("apply max remote speed skipped: not connected");
+    return;
+  }
+  try {
+    await remote.setMaxRemoteSpeed(maxRemoteSpeedRaw);
+  } catch (error) {
+    addLog(`max speed apply failed: ${error?.message || error}`);
+  }
+}
+
+async function readMaxRemoteSpeed() {
+  if (!remote?.connected) {
+    addLog("read max remote speed skipped: not connected");
+    return;
+  }
+  try {
+    await remote.readMaxRemoteSpeed();
+  } catch (error) {
+    addLog(`max speed read failed: ${error?.message || error}`);
+  }
+}
+
+async function readLimitModeState() {
+  if (!remote?.connected) {
+    addLog("read limit/mode skipped: not connected");
+    return;
+  }
+  const previousTarget = selectedControlTargetId;
+  try {
+    selectedControlTargetId = APP_DISCOVERED_BLE_TARGET_ID;
+    await remote.readLimitSpeed();
+    await sleep(120);
+    await remote.readRegister(DIS_TARGET_ID, REG_LIMIT_SPEED, 2);
+  } catch (error) {
+    addLog(`limit/mode read failed: ${error?.message || error}`);
+  } finally {
+    selectedControlTargetId = previousTarget;
+    refreshDebugInfo();
+  }
+}
+
+async function safeRemoteOff() {
+  if (!remote?.connected) {
+    addLog("RC off skipped: not connected");
+    return;
+  }
+  const previousWriteMode = writeMode;
+  const previousProtocolMode = protocolMode;
+  const previousTarget = selectedControlTargetId;
+  writeMode = "no-response";
+  protocolMode = 1;
+  selectedControlTargetId = APP_DISCOVERED_BLE_TARGET_ID;
+  refreshDebugInfo();
+  try {
+    await remote.stopRemote();
+    await sleep(160);
+    await remote.enableRemoteControl(false);
+    lastRemoteEnableAt = 0;
+    addLog("RC off sent: stop + disable on target 0x0A");
+  } catch (error) {
+    addLog(`RC off failed: ${error?.message || error}`);
+  } finally {
+    selectedControlTargetId = previousTarget;
+    writeMode = previousWriteMode;
+    protocolMode = previousProtocolMode;
+    refreshDebugInfo();
+  }
+}
+
+async function armRemoteControl() {
+  if (!remote?.connected) {
+    addLog("enable skipped: not connected");
+    return;
+  }
+  const previousWriteMode = writeMode;
+  const previousProtocolMode = protocolMode;
+  if (selectedControlTargetId !== APP_DISCOVERED_BLE_TARGET_ID) {
+    selectedControlTargetId = APP_DISCOVERED_BLE_TARGET_ID;
+    refreshTargetButtons();
+  }
+  writeMode = "no-response";
+  protocolMode = 1;
+  refreshDebugInfo();
+  addLog(
+    `arming RC on target 0x${toHexByte(selectedControlTargetId)}: stop -> disable -> enable; max speed is not auto-written`
+  );
+  try {
+    await remote.stopRemote();
+    await sleep(140);
+    await remote.enableRemoteControl(false);
+    await sleep(260);
+    await remote.enableRemoteControl(true);
+    lastRemoteEnableAt = millis();
+  } finally {
+    writeMode = previousWriteMode;
+    protocolMode = previousProtocolMode;
+    refreshDebugInfo();
+  }
 }
 
 function drawTuningCard() {
   const w = min(width - 56, min(width * 0.42, 460));
   const x = 28;
   const y = 430;
-  const h = 250;
+  const h = 386;
   drawCard(x, y, w, h);
 
   fill(255);
@@ -1489,54 +1856,76 @@ function drawTuningCard() {
   fill(172, 204, 212);
   textSize(14);
   textLeading(8);
-  text(`Forward byte: ${forwardByte}`, x + 18, y + 54);
-  text(`Steer byte: ${steerByte}`, x + 18, y + 82);
-  text(`Max remote speed: ${(maxRemoteSpeedTenths / 10).toFixed(1)} km/h`, x + 18, y + 110);
+  text(`Forward command word: ${forwardByte}`, x + 18, y + 54);
+  text(`Backward command word: ${backwardByte}`, x + 18, y + 82);
+  text(`Steer command word: ${steerByte}`, x + 18, y + 110);
+  text(`Payload mode: ${remotePayloadModeLabel()}`, x + 18, y + 138);
+  text(`Reverse map: ${reversePayloadModeLabel()}`, x + 18, y + 166);
+  text(`Max remote speed: ${(maxRemoteSpeedRaw / 1000).toFixed(1)} km/h raw=${maxRemoteSpeedRaw}`, x + 18, y + 194);
   text(
     `Read target ids:\nSelected 0x${toHexByte(selectedControlTargetId)}  DIS 0x${toHexByte(DIS_TARGET_ID)}`,
     x + 18,
-    y + 138,
+    y + 222,
     w - 36,
     34
   );
 
-  text("Target test:", x + 18, y + 182);
+  text("Target test:", x + 18, y + 250);
   let tx = x + 98;
   for (const targetId of CANDIDATE_CONTROL_TARGETS) {
     const isSelected = selectedControlTargetId === targetId;
-    drawActionButton(`0x${toHexByte(targetId)}`, tx, y + 174, 58, 28, () => {
+    drawActionButton(`0x${toHexByte(targetId)}`, tx, y + 242, 58, 28, () => {
       selectedControlTargetId = targetId;
       addLog(`selected control target 0x${toHexByte(targetId)}`);
     }, isSelected);
     tx += 64;
   }
 
-  drawActionButton("Probe", x + 18, y + 208, 82, 30, async () => {
+  drawActionButton("Probe", x + 18, y + 274, 82, 30, async () => {
     await probeCandidateTargets();
   });
-  drawActionButton("Enable All", x + 108, y + 208, 92, 30, async () => {
+  drawActionButton("Enable All", x + 108, y + 274, 92, 30, async () => {
     await enableRemoteOnAllCandidates();
   });
 
-  const rowY = y + 208;
-  const controls = [
+  const row1 = [
     ["-F", 48, () => {
-      forwardByte = max(4, forwardByte - 4);
+      adjustForwardByte(-REMOTE_COMMAND_WORD_STEP);
     }],
     ["+F", 48, () => {
-      forwardByte = min(80, forwardByte + 4);
+      adjustForwardByte(REMOTE_COMMAND_WORD_STEP);
+    }],
+    ["-R", 48, () => {
+      adjustBackwardByte(-REMOTE_COMMAND_WORD_STEP);
+    }],
+    ["+R", 48, () => {
+      adjustBackwardByte(REMOTE_COMMAND_WORD_STEP);
     }],
     ["-T", 48, () => {
-      steerByte = max(4, steerByte - 4);
+      adjustSteerByte(-REMOTE_COMMAND_WORD_STEP);
     }],
     ["+T", 48, () => {
-      steerByte = min(80, steerByte + 4);
+      adjustSteerByte(REMOTE_COMMAND_WORD_STEP);
+    }],
+  ];
+  const row2 = [
+    ["-B", 48, () => {
+      adjustStraightTurnBias(-1);
+    }],
+    ["+B", 48, () => {
+      adjustStraightTurnBias(1);
     }],
     ["-M", 48, () => {
-      maxRemoteSpeedTenths = max(10, maxRemoteSpeedTenths - 10);
+      adjustMaxRemoteSpeedRaw(-1000);
     }],
     ["+M", 48, () => {
-      maxRemoteSpeedTenths = min(80, maxRemoteSpeedTenths + 10);
+      adjustMaxRemoteSpeedRaw(1000);
+    }],
+    ["Mode", 58, () => {
+      cycleRemotePayloadMode();
+    }],
+    ["Rev", 48, () => {
+      cycleReversePayloadMode();
     }],
     ["Read", 52, async () => {
       try {
@@ -1548,46 +1937,30 @@ function drawTuningCard() {
       }
     }],
   ];
-  const gap = max(6, floor((w - 36 - controls.reduce((sum, entry) => sum + entry[1], 0)) / 6));
-  let cx = x + 18;
-  for (const [label, bw, action] of controls) {
-    drawActionButton(label, cx, rowY, bw, 32, action);
-    cx += bw + gap;
-  }
+  drawControlRow(row1, x + 18, y + 314, w - 36);
+  drawControlRow(row2, x + 18, y + 352, w - 36);
 }
 
 function drawSpeedLimitCard() {
   const w = min(width - 56, min(width * 0.42, 460));
   const x = 28;
-  const y = 694;
+  const y = 830;
   const h = 136;
   drawCard(x, y, w, h);
 
   fill(255);
   textSize(20);
   textAlign(LEFT, TOP);
-  text("Speed Limit Tests", x + 18, y + 18);
+  text("Persistent State Checks", x + 18, y + 18);
   fill(172, 204, 212);
   textSize(14);
   textLeading(8);
-  text("Documented 0.1 km/h values for setLimitSpeed (0x74).", x + 18, y + 50);
+  text("Read-only checks. 0x74 writes are disabled because they can affect ride mode/limits.", x + 18, y + 50, w - 36, 38);
 
   const buttons = [
-    ["No limit", 82, async () => {
-      await setDocumentedLimitSpeed(0);
-    }],
-    ["25 km/h", 82, async () => {
-      await setDocumentedLimitSpeed(250);
-    }],
-    ["35 km/h", 82, async () => {
-      await setDocumentedLimitSpeed(350);
-    }],
-    ["45 km/h", 82, async () => {
-      await setDocumentedLimitSpeed(450);
-    }],
-    ["60 km/h", 82, async () => {
-      await setDocumentedLimitSpeed(600);
-    }],
+    ["Read 0x74", 92, readLimitModeState],
+    ["Read 0x7D", 92, readMaxRemoteSpeed],
+    ["RC Off", 82, safeRemoteOff],
   ];
   const rowY = y + 78;
   const speedGap = max(4, floor((w - 36 - buttons.reduce((sum, entry) => sum + entry[1], 0)) / 4));
@@ -1599,12 +1972,7 @@ function drawSpeedLimitCard() {
 }
 
 async function setDocumentedLimitSpeed(tenths) {
-  try {
-    await remote.setLimitSpeed(tenths);
-    await remote.readLimitSpeed();
-  } catch (error) {
-    addLog(`limit speed failed: ${error?.message || error}`);
-  }
+  addLog(`blocked 0x74 write request (${tenths}); use official app for ride/limit settings`);
 }
 
 function drawLogCard() {
@@ -1631,6 +1999,18 @@ function drawCard(x, y, w, h) {
   stroke(72, 104, 112, 140);
   noFill();
   rect(x, y, w, h, 20);
+}
+
+function drawControlRow(controls, x, y, availableWidth) {
+  const totalButtonWidth = controls.reduce((sum, entry) => sum + entry[1], 0);
+  const gap = controls.length > 1
+    ? max(6, floor((availableWidth - totalButtonWidth) / (controls.length - 1)))
+    : 0;
+  let cx = x;
+  for (const [label, bw, action] of controls) {
+    drawActionButton(label, cx, y, bw, 32, action);
+    cx += bw + gap;
+  }
 }
 
 function drawActionButton(label, x, y, w, h, action) {
@@ -1681,6 +2061,10 @@ function updateHeldControl() {
     (active && !currentVector);
 
   if (active) {
+    if (now - lastRemoteEnableAt >= REMOTE_ENABLE_KEEPALIVE_MS) {
+      sendRemoteEnableKeepalive();
+      lastRemoteEnableAt = now;
+    }
     if (vectorChanged || now - lastSendAt >= SEND_INTERVAL_MS) {
       sendRemoteVector(active);
       currentVector = { ...active };
@@ -1705,9 +2089,10 @@ function getKeyboardVector() {
   let drive = 0;
   let steer = 0;
   if (keyIsDown(UP_ARROW) || keyIsDown(87)) drive += forwardByte;
-  if (keyIsDown(DOWN_ARROW) || keyIsDown(83)) drive -= forwardByte;
+  if (keyIsDown(DOWN_ARROW) || keyIsDown(83)) drive -= backwardByte;
   if (keyIsDown(LEFT_ARROW) || keyIsDown(65)) steer -= steerByte;
   if (keyIsDown(RIGHT_ARROW) || keyIsDown(68)) steer += steerByte;
+  if (drive && !steer && straightTurnBias) steer = drive > 0 ? straightTurnBias : -straightTurnBias;
   if (!drive && !steer) return null;
   return { x: drive, y: steer };
 }
@@ -1717,6 +2102,10 @@ function isKeyboardControlActive(id) {
   if (id === "back") return keyIsDown(DOWN_ARROW) || keyIsDown(83);
   if (id === "left") return keyIsDown(LEFT_ARROW) || keyIsDown(65);
   if (id === "right") return keyIsDown(RIGHT_ARROW) || keyIsDown(68);
+  if (id === "forward-left") return (keyIsDown(UP_ARROW) || keyIsDown(87)) && (keyIsDown(LEFT_ARROW) || keyIsDown(65));
+  if (id === "forward-right") return (keyIsDown(UP_ARROW) || keyIsDown(87)) && (keyIsDown(RIGHT_ARROW) || keyIsDown(68));
+  if (id === "back-left") return (keyIsDown(DOWN_ARROW) || keyIsDown(83)) && (keyIsDown(LEFT_ARROW) || keyIsDown(65));
+  if (id === "back-right") return (keyIsDown(DOWN_ARROW) || keyIsDown(83)) && (keyIsDown(RIGHT_ARROW) || keyIsDown(68));
   if (id === "halt") return keyIsDown(32);
   return false;
 }
@@ -1726,6 +2115,14 @@ async function sendRemoteVector(vector) {
     await remote.setRemoteSpeed(vector.x, vector.y);
   } catch (error) {
     addLog(`remote write failed: ${error?.message || error}`);
+  }
+}
+
+async function sendRemoteEnableKeepalive() {
+  try {
+    await remote.writeRegisterNR(selectedControlTargetId, REG_ENABLE_REMOTE, [1]);
+  } catch (error) {
+    addLog(`remote keepalive failed: ${error?.message || error}`);
   }
 }
 
@@ -1777,8 +2174,7 @@ function keyPressed(event) {
   if (key === "e" || key === "E") {
     (async () => {
       try {
-        await remote.enableRemoteControl(true);
-        await remote.setMaxRemoteSpeed(maxRemoteSpeedTenths);
+        await armRemoteControl();
       } catch (error) {
         addLog(`enable failed: ${error?.message || error}`);
       }
@@ -1793,6 +2189,10 @@ function keyPressed(event) {
         addLog(`read failed: ${error?.message || error}`);
       }
     })();
+    return false;
+  }
+  if (key === "p" || key === "P") {
+    cycleRemotePayloadMode();
     return false;
   }
   if (key === "f") {
@@ -2323,17 +2723,12 @@ async function runAutoTest() {
       selectedControlTargetId = targetId;
       refreshDebugInfo();
       await remote.writeRegisterNR(targetId, REG_ENABLE_REMOTE, [1]);
-      await sleep(160);
-      await remote.writeRegisterNR(targetId, REG_MAX_REMOTE_SPEED, [
-        maxRemoteSpeedTenths & 0xff,
-        (maxRemoteSpeedTenths >> 8) & 0xff,
-      ]);
       await sleep(220);
     }
 
     addLog("auto 12/12 stop remote on candidates");
     for (const targetId of CANDIDATE_CONTROL_TARGETS) {
-      await remote.writeRegisterNR(targetId, REG_SET_REMOTE_SPEED, [0, 0]);
+      await remote.writeRegisterNR(targetId, REG_SET_REMOTE_SPEED, [0, 0, 0, 0]);
       await sleep(140);
     }
     const realRxDelta = (remote.realRxFrameCount || 0) - realRxStart;
@@ -2554,6 +2949,11 @@ function buildAutoTest2Summary(context) {
   if (context.bestProtocol) {
     lines.push(`Protocol: ${describeAutoTest2Result(context.bestProtocol)}`);
   }
+  if (context.tinyControlSent) {
+    lines.push(
+      `Tiny RC: target 0x${toHexByte(context.bestControlTarget)} variant=${AUTO_TEST2_TINY_REMOTE_VARIANT_INDEX} pulse=${AUTO_TEST2_TINY_REMOTE_FORWARD_BYTE} duration=${AUTO_TEST2_TINY_REMOTE_PULSE_MS}ms`
+    );
+  }
   if (context.readMatches.length) {
     lines.push(
       `Reads: ${context.readMatches
@@ -2767,6 +3167,119 @@ async function runPackageStyleP1ReadProbe(channelId) {
       await sleep(180);
     }
   }
+  return results;
+}
+
+async function runTinyRemoteControlTest(channelId) {
+  if (channelId) remote.setActiveWriteChannel(channelId);
+  writeMode = "no-response";
+  protocolMode = 1;
+  const target = AUTO_TEST2_TINY_REMOTE_TARGET;
+  const pulse = Math.max(
+    REMOTE_COMMAND_WORD_MIN,
+    Math.min(REMOTE_COMMAND_WORD_MAX, AUTO_TEST2_TINY_REMOTE_FORWARD_BYTE | 0)
+  );
+  const pulseByte = Math.max(
+    -127,
+    Math.min(127, Math.round(pulse / REMOTE_COMMAND_WORD_STEP))
+  );
+  const pulseMs = AUTO_TEST2_TINY_REMOTE_PULSE_MS;
+  const i16le = (value) => {
+    const clipped = Math.max(-32767, Math.min(32767, Math.round(Number(value) || 0)));
+    const word = clipped < 0 ? 0x10000 + clipped : clipped;
+    return [word & 0xff, (word >> 8) & 0xff];
+  };
+  const word = (value) => Math.max(-32767, Math.min(32767, Math.round(Number(value) || 0)));
+  const speedTurn = (speed, turn) => [...i16le(word(speed)), ...i16le(word(turn))];
+  const speedTurnZero = (speed, turn) => [...i16le(word(speed)), ...i16le(word(turn)), ...i16le(0)];
+  const pitchTurnForward = (pitch, turn, forward) => [
+    ...i16le(word(pitch)),
+    ...i16le(word(turn)),
+    ...i16le(word(forward)),
+  ];
+  const variants = [
+    {
+      label: `safe four-byte [speed16=${pulse},turn16=0]`,
+      payload: speedTurn(pulse, 0),
+      stopPayload: speedTurn(0, 0),
+    },
+  ];
+  if (ALLOW_EXTENDED_REMOTE_SPEED_PAYLOADS) {
+    variants.push(
+      {
+        label: `3x2 forward16/turn16/zero [${pulse},0,0]`,
+        payload: speedTurnZero(pulse, 0),
+        stopPayload: speedTurnZero(0, 0),
+      },
+      {
+        label: `3x2 pitch16/turn16/forward16 [${pulse},0,${pulse}]`,
+        payload: pitchTurnForward(pulse, 0, pulse),
+        stopPayload: pitchTurnForward(0, 0, 0),
+      },
+      {
+        label: `3x2 no-pitch turn16/forward16 [0,0,${pulse}]`,
+        payload: pitchTurnForward(0, 0, pulse),
+        stopPayload: pitchTurnForward(0, 0, 0),
+      },
+      {
+        label: `doc i16 speed forward speed=${pulse} turn=0`,
+        payload: speedTurn(pulse, 0),
+        stopPayload: speedTurn(0, 0),
+      },
+      {
+        label: `doc i16 speed reverse speed=-${pulse} turn=0`,
+        payload: speedTurn(-pulse, 0),
+        stopPayload: speedTurn(0, 0),
+      },
+      {
+        label: `doc i16 turn positive speed=0 turn=${pulse}`,
+        payload: speedTurn(0, pulse),
+        stopPayload: speedTurn(0, 0),
+      },
+      {
+        label: `doc i16 turn negative speed=0 turn=-${pulse}`,
+        payload: speedTurn(0, -pulse),
+        stopPayload: speedTurn(0, 0),
+      }
+    );
+  }
+  const variantIndex = Math.max(
+    0,
+    Math.min(variants.length - 1, AUTO_TEST2_TINY_REMOTE_VARIANT_INDEX | 0)
+  );
+  const variant = variants[variantIndex];
+  const steps = [
+    ["pre-stop", () => remote.writeRegisterNR(target, REG_SET_REMOTE_SPEED, variant.stopPayload), 240],
+    ["enable", () => remote.writeRegisterNR(target, REG_ENABLE_REMOTE, [1]), 260],
+    [
+      `${variant.label} ${pulseMs}ms`,
+      () => remote.writeRegisterNR(target, REG_SET_REMOTE_SPEED, variant.payload),
+      pulseMs,
+    ],
+    [
+      `post-stop after ${variant.label}`,
+      () => remote.writeRegisterNR(target, REG_SET_REMOTE_SPEED, variant.stopPayload),
+      320,
+    ],
+    ["disable", () => remote.writeRegisterNR(target, REG_ENABLE_REMOTE, [0]), 260],
+  ];
+  const results = [];
+  addLog(
+    `auto2 tiny-rc single start target=0x${toHexByte(target)} variant=${variantIndex} ${variant.label} payload=${formatBytes(variant.payload)} duration=${pulseMs}ms`
+  );
+  for (const [label, action, waitMs] of steps) {
+    const result = await runObservedProbe(
+      `tiny-rc ${label} target=0x${toHexByte(target)}`,
+      action,
+      { waitMs }
+    );
+    result.target = target;
+    result.probeLabel = label;
+    results.push(result);
+    addLog(`auto2 tiny-rc ${describeAutoTest2Result(result)}`);
+    await sleep(40);
+  }
+  addLog("auto2 tiny-rc single complete; final command was stop/disable");
   return results;
 }
 
@@ -3234,13 +3747,18 @@ async function runAutoTest2() {
     bestProtocol: null,
     bestControlTarget: null,
     batteryResult: null,
+    tinyControlSent: false,
     authHint: null,
     needs: [],
   };
 
   try {
     addLog(`auto test 2 start authKey="${activeAuthKey || "-"}"`);
-    addLog("auto2 read-only battery mode: no remote-control writes will be sent");
+    addLog(
+      AUTO_TEST2_ENABLE_TINY_REMOTE_TEST
+        ? `auto2 battery first, then tiny RC single-variant probe target=0x${toHexByte(AUTO_TEST2_TINY_REMOTE_TARGET)} variant=${AUTO_TEST2_TINY_REMOTE_VARIANT_INDEX} pulse=${AUTO_TEST2_TINY_REMOTE_FORWARD_BYTE}`
+        : "auto2 read-only battery mode: no remote-control writes will be sent"
+    );
     addLog("auto2 if the Ninebot beeps during this run, click Beep Mark immediately");
     await remote.refreshNotifications();
     await remote.readGattDeviceInfo();
@@ -3345,6 +3863,15 @@ async function runAutoTest2() {
     context.bestProtocol = context.batteryResult || context.bestPackageRead;
     if (context.bestPackageRead) protocolMode = context.bestPackageRead.protocolMode || 1;
 
+    if (context.batteryResult && AUTO_TEST2_ENABLE_TINY_REMOTE_TEST) {
+      ensureStillConnected("before tiny remote-control test");
+      context.bestControlTarget = AUTO_TEST2_TINY_REMOTE_TARGET;
+      context.controlResults = await runTinyRemoteControlTest(
+        remote.activeWriteChannelId || context.bestRoute?.channelId
+      );
+      context.tinyControlSent = true;
+    }
+
     if (context.readMatches.length && AUTO_TEST2_ENABLE_CONTROL_PROBES) {
       const targetScores = new Map();
       for (const result of context.readMatches) {
@@ -3365,9 +3892,8 @@ async function runAutoTest2() {
         const controlPlan = [
           ["enable RC", async () => remote.writeRegisterNR(controlTarget, REG_ENABLE_REMOTE, [1]), null],
           ["read remote info", async () => remote.readRegister(controlTarget, REG_REMOTE_INFO, 8), isReadResponseMatch(controlTarget, REG_REMOTE_INFO)],
-          ["set max remote speed", async () => remote.writeRegisterNR(controlTarget, REG_MAX_REMOTE_SPEED, [maxRemoteSpeedTenths & 0xff, (maxRemoteSpeedTenths >> 8) & 0xff]), null],
           ["read max remote speed", async () => remote.readRegister(controlTarget, REG_MAX_REMOTE_SPEED, 2), isReadResponseMatch(controlTarget, REG_MAX_REMOTE_SPEED)],
-          ["stop remote", async () => remote.writeRegisterNR(controlTarget, REG_SET_REMOTE_SPEED, [0, 0]), null],
+          ["stop remote", async () => remote.writeRegisterNR(controlTarget, REG_SET_REMOTE_SPEED, [0, 0, 0, 0]), null],
         ];
         for (const [label, action, matcher] of controlPlan) {
           const result = await runObservedProbe(
@@ -3385,8 +3911,10 @@ async function runAutoTest2() {
           `Read response target 0x${toHexByte(candidateControlTarget)} looks like an app/BLE/auth target, so Auto Test 2 did not send control writes to it.`
         );
       }
+    } else if (context.tinyControlSent) {
+      context.needs.push("Battery state read successfully. Tiny RC test sent stop, enable, one tiny pulse, stop, then disable.");
     } else if (context.batteryResult) {
-      context.needs.push("Battery state read successfully. Auto Test 2 stopped without sending password, serial, auth, or control probes.");
+      context.needs.push("Battery state read successfully. Auto Test 2 stopped without sending password, serial, or auth probes.");
     } else if (context.readMatches.length) {
       context.needs.push("Auto Test 2 is in read-only battery mode, so it did not send any remote-control writes after reads succeeded.");
     } else {
@@ -3455,7 +3983,9 @@ function addSourceExpectation() {
     `app info: ${SCREENSHOT_DEVICE_FACTS.model} serial=${SCREENSHOT_DEVICE_FACTS.serial} master=${SCREENSHOT_DEVICE_FACTS.masterControlVersion} battery=${SCREENSHOT_DEVICE_FACTS.batteryVersion} ble=${SCREENSHOT_DEVICE_FACTS.bluetoothVersion}`
   );
   addLog(
-    "source map: Auto Test 2 is read-only and battery-first: rBattery=0x22, then BLE pwd/version/serial if needed"
+    AUTO_TEST2_ENABLE_TINY_REMOTE_TEST
+      ? `source map: Auto Test 2 reads battery, then tiny RC single-variant probe target 0x${toHexByte(AUTO_TEST2_TINY_REMOTE_TARGET)} variant=${AUTO_TEST2_TINY_REMOTE_VARIANT_INDEX} pulse=${AUTO_TEST2_TINY_REMOTE_FORWARD_BYTE}`
+      : "source map: Auto Test 2 is read-only battery mode: rBattery=0x22 only"
   );
 }
 
@@ -3573,7 +4103,6 @@ async function enableRemoteOnAllCandidates() {
     try {
       addLog(`enable rc target 0x${toHexByte(targetId)}`);
       await remote.writeRegisterNR(targetId, REG_ENABLE_REMOTE, [1]);
-      await remote.writeRegisterNR(targetId, REG_MAX_REMOTE_SPEED, [maxRemoteSpeedTenths & 0xff, (maxRemoteSpeedTenths >> 8) & 0xff]);
     } catch (error) {
       addLog(`enable-all 0x${toHexByte(targetId)} failed: ${error?.message || error}`);
     }
