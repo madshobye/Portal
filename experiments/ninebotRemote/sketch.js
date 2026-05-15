@@ -3,6 +3,7 @@ let canvas;
 let shellEl;
 let adminEl;
 let canvasHostEl;
+let canvasHostResizeObserver = null;
 let statusEl;
 let infoEl;
 let consoleEl;
@@ -16,11 +17,11 @@ let activePointerControl = null;
 let currentVector = null;
 let lastSendAt = 0;
 let lastRemoteEnableAt = 0;
-let forwardByte = 2048;
-let backwardByte = 2048;
-let steerByte = 2048;
+let forwardByte = 32767;
+let backwardByte = 32767;
+let steerByte = 8192;
 let straightTurnBias = 0;
-let maxRemoteSpeedRaw = 7000;
+let maxRemoteSpeedRaw = 3000;
 let selectedControlTargetId = 0x0a;
 let remotePayloadMode = "p1-i16-speed-turn";
 let reversePayloadMode = "negative-forward";
@@ -29,17 +30,43 @@ let writeMode = "response";
 let autoTest2Report = "";
 let autoTest2Running = false;
 let activeBeepProbeLabel = "";
+let gamepadController = null;
+const pressedControlKeys = new Set();
 
 const BUTTON_RADIUS = 20;
 const LOG_LIMIT = 240;
-const SEND_INTERVAL_MS = 50;
+const SEND_INTERVAL_MS = 80;
 const REMOTE_ENABLE_KEEPALIVE_MS = 900;
+const GAMEPAD_DEADZONE = 0.12;
+const GAMEPAD_ANALOG_CURVE = 1.35;
+const KEYBOARD_CONTROL_KEYS = new Set([
+  "arrowup",
+  "arrowdown",
+  "arrowleft",
+  "arrowright",
+  "w",
+  "a",
+  "s",
+  "d",
+  " ",
+]);
 const REMOTE_COMMAND_WORD_MIN = 256;
 const REMOTE_COMMAND_WORD_MAX = 32767;
 const REMOTE_COMMAND_WORD_STEP = 256;
 const REMOTE_PAYLOAD_LOG_MS = 600;
 const ALLOW_EXTENDED_REMOTE_SPEED_PAYLOADS = false;
 const SAFE_REMOTE_PAYLOAD_MODES = ["p1-i16-speed-turn", "p1-i16-turn-speed"];
+const REMOTE_COMMAND_PRESETS = [
+  ["Slow", 2048],
+  ["Medium", 8192],
+  ["Fast", 16384],
+  ["Max", 32767],
+];
+const MAX_REMOTE_SPEED_PRESETS = [
+  ["2 km/h", 2000],
+  ["3 km/h", 3000],
+  ["6 km/h", 6000],
+];
 const REMOTE_PAYLOAD_MODES = [
   "hybrid-2b-drive-4b-turn",
   "p1-i16-pitch-turn-forward",
@@ -944,10 +971,11 @@ class NinebotBleRemote {
   }
 
   _remoteSpeedPayload(forward, steer) {
+    const deviceSteer = -steer;
     const speedByte = this._toSignedByte(forward / REMOTE_COMMAND_WORD_STEP);
-    const turnByte = this._toSignedByte(steer / REMOTE_COMMAND_WORD_STEP);
+    const turnByte = this._toSignedByte(deviceSteer / REMOTE_COMMAND_WORD_STEP);
     const pitchWord = this._remoteCommandWord(forward);
-    const turnWord = this._remoteCommandWord(steer);
+    const turnWord = this._remoteCommandWord(deviceSteer);
     if (!ALLOW_EXTENDED_REMOTE_SPEED_PAYLOADS) {
       return remotePayloadMode === "p1-i16-turn-speed"
         ? [...this._i16le(turnWord), ...this._i16le(pitchWord)]
@@ -1052,10 +1080,137 @@ function addLog(text) {
   print(text);
 }
 
+class GamepadController {
+  constructor() {
+    this.enabled = true;
+    this.index = null;
+    this.id = "";
+    this.lastConnected = false;
+    this.lastVector = null;
+  }
+
+  install() {
+    window.addEventListener("gamepadconnected", (event) => {
+      this.index = event.gamepad.index;
+      this.id = event.gamepad.id || `Gamepad ${event.gamepad.index}`;
+      this.lastConnected = true;
+      addLog(`gamepad connected: ${this.id}`);
+      refreshDebugInfo();
+    });
+    window.addEventListener("gamepaddisconnected", (event) => {
+      if (this.index === event.gamepad.index) {
+        this.index = null;
+        this.lastVector = null;
+      }
+      this.lastConnected = false;
+      addLog(`gamepad disconnected: ${event.gamepad.id || event.gamepad.index}`);
+      refreshDebugInfo();
+    });
+  }
+
+  get label() {
+    return this.id || (this.connected ? "gamepad" : "-");
+  }
+
+  get connected() {
+    return !!this._currentGamepad();
+  }
+
+  pollVector() {
+    if (!this.enabled) return null;
+    const gamepad = this._currentGamepad();
+    if (!gamepad) {
+      this.lastVector = null;
+      return null;
+    }
+
+    this.id = gamepad.id || this.id || `Gamepad ${gamepad.index}`;
+    const leftX = this._axis(gamepad, 0);
+    const leftY = this._axis(gamepad, 1);
+    const rightX = this._axis(gamepad, 2);
+    const triggerReverse = this._button(gamepad, 6);
+    const triggerForward = this._button(gamepad, 7);
+    const dpadX = this._button(gamepad, 15) - this._button(gamepad, 14);
+    const dpadY = this._button(gamepad, 13) - this._button(gamepad, 12);
+
+    let driveUnit = this._shape(-leftY);
+    let steerUnit = this._shape(leftX);
+    if (!steerUnit) steerUnit = this._shape(rightX);
+    const triggerDrive = triggerForward - triggerReverse;
+    if (Math.abs(triggerDrive) > Math.abs(driveUnit)) driveUnit = this._shape(triggerDrive);
+    if (!driveUnit && dpadY) driveUnit = -Math.sign(dpadY);
+    if (!steerUnit && dpadX) steerUnit = Math.sign(dpadX);
+
+    const vector = this._unitsToVector(driveUnit, steerUnit);
+    this.lastVector = vector;
+    return vector;
+  }
+
+  _currentGamepad() {
+    const gamepads = navigator.getGamepads?.();
+    if (!gamepads) return null;
+    if (this.index != null && gamepads[this.index]?.connected) return gamepads[this.index];
+    const first = Array.from(gamepads).find((entry) => entry?.connected);
+    if (!first) return null;
+    this.index = first.index;
+    this.id = first.id || `Gamepad ${first.index}`;
+    return first;
+  }
+
+  _axis(gamepad, index) {
+    return Number(gamepad.axes?.[index] || 0);
+  }
+
+  _button(gamepad, index) {
+    return Number(gamepad.buttons?.[index]?.value || 0);
+  }
+
+  _shape(value) {
+    const clipped = Math.max(-1, Math.min(1, Number(value) || 0));
+    const absValue = Math.abs(clipped);
+    if (absValue < GAMEPAD_DEADZONE) return 0;
+    const normalized = (absValue - GAMEPAD_DEADZONE) / (1 - GAMEPAD_DEADZONE);
+    return Math.sign(clipped) * Math.pow(normalized, GAMEPAD_ANALOG_CURVE);
+  }
+
+  _unitsToVector(driveUnit, steerUnit) {
+    const drive = driveUnit >= 0
+      ? driveUnit * forwardByte
+      : driveUnit * backwardByte;
+    const steer = steerUnit * steerByte;
+    const x = Math.round(drive);
+    const y = Math.round(steer);
+    if (!x && !y) return null;
+    return { x, y, source: "gamepad" };
+  }
+}
+
+function installKeyboardControlTracker() {
+  window.addEventListener("keydown", (event) => {
+    if (event.metaKey || event.ctrlKey || event.altKey) return;
+    const keyName = String(event.key || "").toLowerCase();
+    if (!KEYBOARD_CONTROL_KEYS.has(keyName)) return;
+    pressedControlKeys.add(keyName);
+    event.preventDefault();
+  });
+  window.addEventListener("keyup", (event) => {
+    const keyName = String(event.key || "").toLowerCase();
+    if (KEYBOARD_CONTROL_KEYS.has(keyName)) pressedControlKeys.delete(keyName);
+  });
+  window.addEventListener("blur", () => {
+    pressedControlKeys.clear();
+  });
+}
+
 async function setup() {
   buildUi();
   createCanvasInHost();
+  observeCanvasHost();
+  requestAnimationFrame(resizeCanvasToHost);
   textFont("Helvetica");
+  installKeyboardControlTracker();
+  gamepadController = new GamepadController();
+  gamepadController.install();
   remote = new NinebotBleRemote();
   remote.onState = (text) => addLog(text);
   remote.onFrame = (frame) => {
@@ -1122,7 +1277,7 @@ function buildUi() {
   title.class("nb-title");
   title.parent(adminEl);
 
-  const subtitle = createDiv("Protocol1 / BLE debug panel");
+  const subtitle = createDiv("4-byte RC control / safe max-speed recovery");
   subtitle.class("nb-subtitle");
   subtitle.parent(adminEl);
 
@@ -1142,11 +1297,6 @@ function buildUi() {
         addLog(`connect failed: ${error?.message || error}`);
       }
     }],
-    ["Auto Test 2", runAutoTest2],
-    ["Listen 60s", () => runPassiveListen(60000, "manual passive listen")],
-    ["Boot Listen", () => runBootPassiveListen()],
-    ["Beep Find", runBeepFinder],
-    ["Beep Mark", markPhysicalBeep],
     ["Disconnect", async () => {
       try {
         await remote.disconnect();
@@ -1161,150 +1311,53 @@ function buildUi() {
         addLog(`enable failed: ${error?.message || error}`);
       }
     }],
-    ["Stop", async () => {
-      try {
-        await remote.stopRemote();
-      } catch (error) {
-        addLog(`stop failed: ${error?.message || error}`);
-      }
-    }],
     ["RC Off", safeRemoteOff],
-    ["Write Mode", () => {
-      writeMode = writeMode === "response" ? "no-response" : "response";
-      addLog(`write mode ${writeMode}`);
-      refreshDebugInfo();
-    }],
-    ["BLE Info", async () => {
-      try {
-        await remote.readGattDeviceInfo();
-        await remote.logGattOverview();
-      } catch (error) {
-        addLog(`BLE info failed: ${error?.message || error}`);
-      }
-    }],
   ]);
-  authKeyInputEl = createInput("");
-  authKeyInputEl.class("nb-input");
-  authKeyInputEl.attribute("placeholder", "Exact BLE name, auto-filled after connect");
-  authKeyInputEl.parent(adminEl);
 
-  const section2 = createDiv("Read Tests");
+  const section2 = createDiv("Status");
   section2.class("nb-section");
   section2.parent(adminEl);
   buildButtonRow(adminEl, [
-    ["P1 Test", async () => {
-      protocolMode = 1;
-      refreshDebugInfo();
-      await runBasicCommTest("P1 csum16");
-    }],
-    ["P2 Test", async () => {
-      protocolMode = 2;
-      refreshDebugInfo();
-      await runBasicCommTest("P2");
-    }],
-    ["P2 Doc", async () => {
-      protocolMode = 3;
-      refreshDebugInfo();
-      await runBasicCommTest("P2 doc-len");
-    }],
-    ["P1 Len4", async () => {
-      protocolMode = 4;
-      refreshDebugInfo();
-      await runBasicCommTest("P1 len+index");
-    }],
-    ["P1 FFFF", async () => {
-      protocolMode = 5;
-      refreshDebugInfo();
-      await runBasicCommTest("P1 len+index csum16");
-    }],
-    ["P1 7FFF", async () => {
-      protocolMode = 7;
-      refreshDebugInfo();
-      await runBasicCommTest("P1 csum15 legacy");
-    }],
-    ["P1 NoLen", runP1NoSizeReadTest],
-    ["Wake", wakeP1Session],
-    ["Wake+Read", async () => {
-      await wakeP1Session();
-      await sleep(300);
-      await runBasicCommTest("after wake");
-    }],
-    ["Auth Probe", runEncryptedPreCommProbe],
-    ["Auto test", runAutoTest],
-    ["P1 Scan", scanP1Targets],
-    ["Read SN", async () => {
+    ["Read Battery", async () => {
       try {
-        await remote.readDisSerial();
+        await remote.readRegister(APP_DISCOVERED_BLE_TARGET_ID, REG_CTRL_BATTERY, 2);
       } catch (error) {
-        addLog(`serial read failed: ${error?.message || error}`);
+        addLog(`battery read failed: ${error?.message || error}`);
       }
     }],
-    ["Read Range", async () => {
-      try {
-        await remote.readDisRange();
-      } catch (error) {
-        addLog(`range read failed: ${error?.message || error}`);
-      }
-    }],
-    ["Read Odo", async () => {
-      try {
-        await remote.readDisOdometer();
-      } catch (error) {
-        addLog(`odometer read failed: ${error?.message || error}`);
-      }
-    }],
-  ]);
-
-  const section3 = createDiv("Control Target");
-  section3.class("nb-section");
-  section3.parent(adminEl);
-  const targetWrap = createDiv("");
-  targetWrap.class("nb-button-grid");
-  targetWrap.parent(adminEl);
-  targetButtons = [];
-  for (const targetId of CANDIDATE_CONTROL_TARGETS) {
-    const btn = createButton(`0x${toHexByte(targetId)}`);
-    btn.class("nb-btn");
-    btn.parent(targetWrap);
-    btn.mousePressed(() => {
-      selectedControlTargetId = targetId;
-      addLog(`selected control target 0x${toHexByte(targetId)}`);
-      refreshTargetButtons();
-    });
-    targetButtons.push({ targetId, btn });
-  }
-  buildButtonRow(adminEl, [
-    ["Probe", probeCandidateTargets],
-    ["Enable All", enableRemoteOnAllCandidates],
+    ["Read Max", readMaxRemoteSpeed],
   ]);
 
   const section4 = createDiv("Remote Params");
   section4.class("nb-section");
   section4.parent(adminEl);
+  const drivePresetLabel = createDiv("Drive word");
+  drivePresetLabel.class("nb-section");
+  drivePresetLabel.parent(adminEl);
   buildButtonRow(adminEl, [
-    ["-F", () => adjustForwardByte(-REMOTE_COMMAND_WORD_STEP)],
-    ["+F", () => adjustForwardByte(REMOTE_COMMAND_WORD_STEP)],
-    ["-R", () => adjustBackwardByte(-REMOTE_COMMAND_WORD_STEP)],
-    ["+R", () => adjustBackwardByte(REMOTE_COMMAND_WORD_STEP)],
-    ["-T", () => adjustSteerByte(-REMOTE_COMMAND_WORD_STEP)],
-    ["+T", () => adjustSteerByte(REMOTE_COMMAND_WORD_STEP)],
-    ["-B", () => adjustStraightTurnBias(-1)],
-    ["+B", () => adjustStraightTurnBias(1)],
-    ["-M", () => adjustMaxRemoteSpeedRaw(-1000)],
-    ["+M", () => adjustMaxRemoteSpeedRaw(1000)],
-    ["Apply M", applyMaxRemoteSpeed],
-    ["Read M", readMaxRemoteSpeed],
-    ["Mode", cycleRemotePayloadMode],
-    ["RevMap", cycleReversePayloadMode],
+    ...REMOTE_COMMAND_PRESETS.map(([label, value]) => [
+      label,
+      () => setDriveCommandPreset(label, value),
+    ]),
   ]);
-
-  const section5 = createDiv("Persistent State Checks");
-  section5.class("nb-section");
-  section5.parent(adminEl);
+  const turnPresetLabel = createDiv("Turn word");
+  turnPresetLabel.class("nb-section");
+  turnPresetLabel.parent(adminEl);
   buildButtonRow(adminEl, [
-    ["Read 0x74", readLimitModeState],
-    ["Read 0x7D", readMaxRemoteSpeed],
-    ["RC Off", safeRemoteOff],
+    ...REMOTE_COMMAND_PRESETS.map(([label, value]) => [
+      label,
+      () => setTurnCommandPreset(label, value),
+    ]),
+  ]);
+  const maxPresetLabel = createDiv("Max RC speed");
+  maxPresetLabel.class("nb-section");
+  maxPresetLabel.parent(adminEl);
+  buildButtonRow(adminEl, [
+    ...MAX_REMOTE_SPEED_PRESETS.map(([label, raw]) => [
+      label,
+      () => setMaxRemoteSpeedPreset(label, raw),
+    ]),
+    ["Read Max", readMaxRemoteSpeed],
   ]);
 
   infoEl = createDiv("");
@@ -1333,7 +1386,10 @@ function buildUi() {
   toggleBtn.mousePressed(() => {
     panelHidden = !panelHidden;
     applyPanelVisibility();
-    requestAnimationFrame(resizeCanvasToHost);
+    requestAnimationFrame(() => {
+      resizeCanvasToHost();
+      requestAnimationFrame(resizeCanvasToHost);
+    });
   });
 
   canvasHostEl = createDiv("");
@@ -1466,6 +1522,7 @@ function createCanvasInHost() {
   if (canvasHostEl?.elt && canvas?.elt) {
     canvasHostEl.elt.appendChild(canvas.elt);
   }
+  requestAnimationFrame(resizeCanvasToHost);
 }
 
 function resizeCanvasToHost() {
@@ -1474,6 +1531,17 @@ function resizeCanvasToHost() {
   const cw = Math.max(260, Math.floor(rect.width || width || 260));
   const ch = Math.max(260, Math.floor(rect.height || height || 260));
   if (cw !== width || ch !== height) resizeCanvas(cw, ch);
+}
+
+function observeCanvasHost() {
+  if (!canvasHostEl?.elt) return;
+  if (canvasHostResizeObserver) return;
+  if (typeof ResizeObserver === "undefined") return;
+
+  canvasHostResizeObserver = new ResizeObserver(() => {
+    resizeCanvasToHost();
+  });
+  canvasHostResizeObserver.observe(canvasHostEl.elt);
 }
 
 function refreshTargetButtons() {
@@ -1485,40 +1553,22 @@ function refreshTargetButtons() {
 function refreshDebugInfo() {
   if (statusEl) {
     const status = remote?.connected
-      ? `Connected via ${remote.profile?.name || "-"}`
+      ? `Connected: ${remote.device?.name || "Ninebot"}`
       : "Not connected";
     statusEl.html(status);
   }
   if (infoEl) {
     const lines = [
-      `Protocol: ${getProtocolLabel()}`,
-      `Write mode: ${writeMode}`,
-      `Write channel: ${remote?.getActiveWriteChannel()?.label || "-"}`,
-      `Write options: ${remote?.writeChannels?.map((entry) => entry.label).join(", ") || "-"}`,
-      `Control target: 0x${toHexByte(selectedControlTargetId)}`,
       `Device: ${remote?.device?.name || "-"}`,
-      `GATT model: ${remote?.deviceInfo?.model || "-"}`,
-      `GATT fw/hw: ${remote?.deviceInfo?.firmware || "-"} / ${remote?.deviceInfo?.hardware || "-"}`,
       `Remote enabled: ${remote?.remoteEnabled ? "yes" : "no"}`,
       `Forward word: ${forwardByte}`,
       `Backward word: ${backwardByte}`,
       `Steer word: ${steerByte}`,
-      `Straight turn bias: ${straightTurnBias}`,
-      `Payload mode: ${remotePayloadModeLabel()}`,
-      `Reverse map: ${reversePayloadModeLabel()}`,
+      `Payload: 4B forward16/turn16`,
       `Max remote speed: ${(maxRemoteSpeedRaw / 1000).toFixed(1)} km/h raw=${maxRemoteSpeedRaw}`,
-      `RX frames: ${remote?.rxFrameCount || 0}`,
-      `Real RX frames: ${remote?.realRxFrameCount || 0}`,
-      `Echo frames: ${remote?.echoFrameCount || 0}`,
-      `Last TX: ${remote?.lastTxHex || "-"}`,
-      `Last notify: ${remote?.lastNotifyHex || "-"}`,
-      `Last RX frame: ${remote?.lastRxHex || "-"}`,
+      `Gamepad: ${gamepadController?.connected ? gamepadController.label : "-"}`,
+      `Last event: ${logLines.at(-1) || "-"}`,
     ];
-    if (autoTest2Running) {
-      lines.push("", "Auto Test 2: running...");
-    } else if (autoTest2Report) {
-      lines.push("", "Auto Test 2", autoTest2Report);
-    }
     infoEl.html(lines.join("\n"));
   }
   refreshTargetButtons();
@@ -1617,7 +1667,7 @@ function drawTransportCard() {
 }
 
 function drawRemoteButtons() {
-  const centerX = width * 0.68;
+  const centerX = width * 0.5;
   const centerY = height * 0.44;
   const size = min(width, height) * 0.12;
   const gap = size * 0.12;
@@ -1626,7 +1676,7 @@ function drawRemoteButtons() {
 
   drawHoldButton("forward", centerX, centerY - size - gap, size, size, "▲", {
     x: forwardByte,
-    y: straightTurnBias,
+    y: 0,
   });
   drawHoldButton("forward-left", centerX - diagonalOffset, centerY - diagonalOffset, diagonalSize, diagonalSize, "↖", {
     x: forwardByte,
@@ -1646,7 +1696,7 @@ function drawRemoteButtons() {
   });
   drawHoldButton("back", centerX, centerY + size + gap, size, size, "▼", {
     x: -backwardByte,
-    y: -straightTurnBias,
+    y: 0,
   });
   drawHoldButton("back-left", centerX - diagonalOffset, centerY + diagonalOffset, diagonalSize, diagonalSize, "↙", {
     x: -backwardByte,
@@ -1665,11 +1715,11 @@ function drawRemoteButtons() {
   noStroke();
   textAlign(CENTER, CENTER);
   textSize(18);
-  text("Hold buttons or use arrow keys / WASD. Bias is optional; 0 keeps straight commands pure.", centerX, centerY + size * 2.2);
+  text("Hold buttons or use arrow keys / WASD.", centerX, centerY + size * 2.2);
   textSize(14);
   fill(126, 162, 170);
   text(
-    `Target 0x${toHexByte(selectedControlTargetId)}  •  ${remotePayloadModeLabel()}  •  ${reversePayloadModeLabel()}  •  F/R/T [${forwardByte},${backwardByte},${steerByte}]`,
+    `4B RC payload  •  F/R/T [${forwardByte},${backwardByte},${steerByte}]  •  max ${(maxRemoteSpeedRaw / 1000).toFixed(1)} km/h`,
     centerX,
     centerY + size * 2.65
   );
@@ -1690,6 +1740,21 @@ function adjustBackwardByte(delta) {
 function adjustSteerByte(delta) {
   steerByte = max(REMOTE_COMMAND_WORD_MIN, min(REMOTE_COMMAND_WORD_MAX, steerByte + delta));
   addLog(`steer word now ${steerByte}`);
+  refreshDebugInfo();
+}
+
+function setDriveCommandPreset(label, value) {
+  const word = max(REMOTE_COMMAND_WORD_MIN, min(REMOTE_COMMAND_WORD_MAX, Math.round(value)));
+  forwardByte = word;
+  backwardByte = word;
+  addLog(`drive preset ${label}: forward/reverse word=${word}`);
+  refreshDebugInfo();
+}
+
+function setTurnCommandPreset(label, value) {
+  const word = max(REMOTE_COMMAND_WORD_MIN, min(REMOTE_COMMAND_WORD_MAX, Math.round(value)));
+  steerByte = word;
+  addLog(`turn preset ${label}: turn word=${word}`);
   refreshDebugInfo();
 }
 
@@ -1738,6 +1803,15 @@ async function adjustMaxRemoteSpeedRaw(delta) {
   maxRemoteSpeedRaw = max(1000, min(10000, maxRemoteSpeedRaw + delta));
   addLog(`max remote speed value now ${(maxRemoteSpeedRaw / 1000).toFixed(1)} km/h raw=${maxRemoteSpeedRaw}; press Apply M to write 0x7D`);
   refreshDebugInfo();
+}
+
+async function setMaxRemoteSpeedPreset(label, rawValue) {
+  maxRemoteSpeedRaw = max(1000, min(10000, Math.round(rawValue)));
+  addLog(`max remote speed preset ${label}: raw=${maxRemoteSpeedRaw}`);
+  refreshDebugInfo();
+  if (remote?.connected) {
+    await applyMaxRemoteSpeed();
+  }
 }
 
 async function applyMaxRemoteSpeed() {
@@ -2080,33 +2154,42 @@ function updateHeldControl() {
 function getDesiredVector() {
   const keyVector = getKeyboardVector();
   if (keyVector) return keyVector;
-  if (!activePointerControl) return null;
-  const region = hitRegions.find((entry) => entry.type === "hold" && entry.id === activePointerControl);
-  return region?.vector || null;
+  if (activePointerControl) {
+    const region = hitRegions.find((entry) => entry.type === "hold" && entry.id === activePointerControl);
+    if (region?.vector) return region.vector;
+  }
+  return gamepadController?.pollVector() || null;
 }
 
 function getKeyboardVector() {
   let drive = 0;
   let steer = 0;
-  if (keyIsDown(UP_ARROW) || keyIsDown(87)) drive += forwardByte;
-  if (keyIsDown(DOWN_ARROW) || keyIsDown(83)) drive -= backwardByte;
-  if (keyIsDown(LEFT_ARROW) || keyIsDown(65)) steer -= steerByte;
-  if (keyIsDown(RIGHT_ARROW) || keyIsDown(68)) steer += steerByte;
-  if (drive && !steer && straightTurnBias) steer = drive > 0 ? straightTurnBias : -straightTurnBias;
+  if (isControlKeyDown("arrowup", UP_ARROW, "w")) drive += forwardByte;
+  if (isControlKeyDown("arrowdown", DOWN_ARROW, "s")) drive -= backwardByte;
+  if (isControlKeyDown("arrowleft", LEFT_ARROW, "a")) steer -= steerByte;
+  if (isControlKeyDown("arrowright", RIGHT_ARROW, "d")) steer += steerByte;
   if (!drive && !steer) return null;
   return { x: drive, y: steer };
 }
 
+function isControlKeyDown(keyName, keyCodeValue, letterName = keyName) {
+  return pressedControlKeys.has(keyName) || pressedControlKeys.has(letterName) || keyIsDown(keyCodeValue);
+}
+
 function isKeyboardControlActive(id) {
-  if (id === "forward") return keyIsDown(UP_ARROW) || keyIsDown(87);
-  if (id === "back") return keyIsDown(DOWN_ARROW) || keyIsDown(83);
-  if (id === "left") return keyIsDown(LEFT_ARROW) || keyIsDown(65);
-  if (id === "right") return keyIsDown(RIGHT_ARROW) || keyIsDown(68);
-  if (id === "forward-left") return (keyIsDown(UP_ARROW) || keyIsDown(87)) && (keyIsDown(LEFT_ARROW) || keyIsDown(65));
-  if (id === "forward-right") return (keyIsDown(UP_ARROW) || keyIsDown(87)) && (keyIsDown(RIGHT_ARROW) || keyIsDown(68));
-  if (id === "back-left") return (keyIsDown(DOWN_ARROW) || keyIsDown(83)) && (keyIsDown(LEFT_ARROW) || keyIsDown(65));
-  if (id === "back-right") return (keyIsDown(DOWN_ARROW) || keyIsDown(83)) && (keyIsDown(RIGHT_ARROW) || keyIsDown(68));
-  if (id === "halt") return keyIsDown(32);
+  const up = isControlKeyDown("arrowup", UP_ARROW, "w");
+  const down = isControlKeyDown("arrowdown", DOWN_ARROW, "s");
+  const left = isControlKeyDown("arrowleft", LEFT_ARROW, "a");
+  const right = isControlKeyDown("arrowright", RIGHT_ARROW, "d");
+  if (id === "forward") return up;
+  if (id === "back") return down;
+  if (id === "left") return left;
+  if (id === "right") return right;
+  if (id === "forward-left") return up && left;
+  if (id === "forward-right") return up && right;
+  if (id === "back-left") return down && left;
+  if (id === "back-right") return down && right;
+  if (id === "halt") return pressedControlKeys.has(" ") || keyIsDown(32);
   return false;
 }
 
@@ -2179,20 +2262,6 @@ function keyPressed(event) {
         addLog(`enable failed: ${error?.message || error}`);
       }
     })();
-    return false;
-  }
-  if (key === "i" || key === "I") {
-    (async () => {
-      try {
-        await remote.readRemoteInfo();
-      } catch (error) {
-        addLog(`read failed: ${error?.message || error}`);
-      }
-    })();
-    return false;
-  }
-  if (key === "p" || key === "P") {
-    cycleRemotePayloadMode();
     return false;
   }
   if (key === "f") {
