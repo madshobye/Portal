@@ -21,6 +21,13 @@ function buildHopModel(rows, timeBucket = "week") {
     buyerPatterns,
     activityNetwork,
     userNetwork,
+    anonymizeNames: false,
+    setAnonymizeNames(value) {
+      this.anonymizeNames = !!value;
+    },
+    getName(entity) {
+      return getModelName(entity, this.anonymizeNames);
+    },
   };
 }
 
@@ -31,7 +38,9 @@ function normalizeSalesRow(row) {
   const customerEmail = cleanEmail(row["Customer email"]);
   const grossTotalPrice = parseHopNumber(row["Total price"]);
   const vatAmount = parseHopNumber(row["VAT amount"]);
+  const customerKey = customerId || customerEmail || customerName || "unknown";
 
+  const realLabel = customerName || customerEmail || customerId || "Unknown customer";
   return {
     date,
     invoiceId: cleanValue(row["Invoice #"]),
@@ -39,7 +48,10 @@ function normalizeSalesRow(row) {
     customerId,
     customerName,
     customerEmail,
-    customerKey: customerId || customerEmail || customerName || "unknown",
+    customerKey,
+    label: realLabel,
+    realLabel,
+    anonymousLabel: anonymousCustomerName(customerKey),
     text: cleanValue(row.Text),
     itemType: cleanValue(row["Item type"]),
     itemId: cleanValue(row["Item ID"]),
@@ -51,6 +63,14 @@ function normalizeSalesRow(row) {
     vatPercent: parseHopNumber(row["VAT %"]),
     paymentMethod: cleanValue(row["Payment method"]),
   };
+}
+
+function getModelName(entity, anonymizeNames = false) {
+  if (!entity) return "Unknown customer";
+  if (anonymizeNames) {
+    return entity.anonymousLabel || anonymousCustomerName(entity.customerKey || entity.key || entity.customerId || entity.realLabel || entity.label);
+  }
+  return entity.realLabel || entity.label || entity.customerName || entity.customerEmail || entity.customerId || "Unknown customer";
 }
 
 function applyTransactionDiscountNetting(rows) {
@@ -96,6 +116,9 @@ function groupInvoices(rows) {
         customerId: row.customerId,
         customerName: row.customerName,
         customerEmail: row.customerEmail,
+        label: row.realLabel,
+        realLabel: row.realLabel,
+        anonymousLabel: row.anonymousLabel,
         totalPrice: 0,
         lines: [],
         itemTypes: new Set(),
@@ -118,6 +141,9 @@ function groupCustomers(invoices) {
         customerId: invoice.customerId,
         customerName: invoice.customerName,
         customerEmail: invoice.customerEmail,
+        label: invoice.realLabel,
+        realLabel: invoice.realLabel,
+        anonymousLabel: invoice.anonymousLabel,
         firstDate: invoice.date,
         lastDate: invoice.date,
         revenue: 0,
@@ -308,7 +334,9 @@ function groupTicketBuyers(rows, timeBucket) {
     if (!byCustomer.has(row.customerKey)) {
       byCustomer.set(row.customerKey, {
         customerKey: row.customerKey,
-        label: row.customerName || row.customerEmail || row.customerId || "Unknown customer",
+        label: row.realLabel,
+        realLabel: row.realLabel,
+        anonymousLabel: row.anonymousLabel,
         totalTickets: 0,
         revenue: 0,
         periods: new Map(),
@@ -465,7 +493,9 @@ function groupUserNetwork(rows) {
     if (!usersByKey.has(row.customerKey)) {
       usersByKey.set(row.customerKey, {
         key: row.customerKey,
-        label: row.customerName || row.customerEmail || row.customerId || "Unknown customer",
+        label: row.realLabel,
+        realLabel: row.realLabel,
+        anonymousLabel: row.anonymousLabel,
         revenue: 0,
         tickets: 0,
         activities: new Set(),
@@ -526,7 +556,9 @@ function groupBuyerPatterns(rows, timeBucket) {
     if (!byCustomer.has(row.customerKey)) {
       byCustomer.set(row.customerKey, {
         customerKey: row.customerKey,
-        label: row.customerName || row.customerEmail || row.customerId || "Unknown customer",
+        label: row.realLabel,
+        realLabel: row.realLabel,
+        anonymousLabel: row.anonymousLabel,
         firstDate: row.date,
         lastDate: row.date,
         events: [],
@@ -776,6 +808,23 @@ function cleanEmail(value) {
   const email = cleanValue(value);
   if (!email || email.toLowerCase() === "null@yogo.dk") return "";
   return email;
+}
+
+function anonymousCustomerName(key) {
+  const first = ["Aster", "Birch", "Cedar", "Dune", "Elm", "Fern", "Grove", "Hazel", "Iris", "Juniper", "Kite", "Lark", "Moss", "Nova", "Oak", "Pebble"];
+  const last = ["River", "Cloud", "Stone", "Meadow", "Moon", "Harbor", "Valley", "Field", "Comet", "Bridge", "Reef", "Forest", "Rain", "Spark", "Hill", "Bloom"];
+  const hash = stableHash(key);
+  return `${first[hash % first.length]} ${last[Math.floor(hash / first.length) % last.length]}`;
+}
+
+function stableHash(value) {
+  const text = String(value || "");
+  let hash = 2166136261;
+  for (let i = 0; i < text.length; i += 1) {
+    hash ^= text.charCodeAt(i);
+    hash = Math.imul(hash, 16777619);
+  }
+  return hash >>> 0;
 }
 
 function periodKey(date, timeBucket) {

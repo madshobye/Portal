@@ -3,6 +3,11 @@ let activityNetworkBounds = null;
 let userNetworkState = null;
 let userNetworkBounds = null;
 let userNetworkVisible = null;
+let activeHopModel = null;
+
+function displayPersonName(entity) {
+  return activeHopModel?.getName ? activeHopModel.getName(entity) : entity?.label || "Unknown customer";
+}
 
 function drawCenteredMessage(message) {
   background(0);
@@ -13,7 +18,11 @@ function drawCenteredMessage(message) {
   text(message, width * 0.5, height * 0.5);
 }
 
-function drawHopOverview(model, fileName = "", currentView = "overview", navItems = []) {
+function drawHopOverview(model, fileName = "", currentView = "overview", navItems = [], options = {}) {
+  activeHopModel = model;
+  if (Object.prototype.hasOwnProperty.call(options, "anonymizeNames")) {
+    model?.setAnonymizeNames?.(options.anonymizeNames);
+  }
   background(0);
   const pad = 32;
   const revenue = sum(model.invoices, "totalPrice");
@@ -494,13 +503,13 @@ function drawUserNetwork(plotX, plotY, plotW, plotH, network, totalNodeCount) {
   }
 
   if (hovered) {
-    drawNetworkNeighborLabels(network.nodes, states, highlightKeys, hovered.node.key, (node) => map(sqrt(node.tickets), 0, sqrt(network.maxTickets || 1), 3, 18));
+    drawNetworkNeighborLabels(network.nodes, states, highlightKeys, hovered.node.key, (node) => map(sqrt(node.tickets), 0, sqrt(network.maxTickets || 1), 3, 18), displayPersonName);
     fill(20);
     textSize(12);
     textAlign(CENTER, BOTTOM);
-    text(trimText(hovered.node.label, 34), hovered.state.x, hovered.state.y - hovered.radius - 8);
+    text(trimText(displayPersonName(hovered.node), 34), hovered.state.x, hovered.state.y - hovered.radius - 8);
     drawTooltip(mouseX, mouseY, [
-      hovered.node.label,
+      displayPersonName(hovered.node),
       `Type: ${hovered.node.type}`,
       `Tickets: ${formatInteger(hovered.node.tickets)}`,
       `Revenue: ${formatDkk(hovered.node.revenue)}`,
@@ -519,7 +528,7 @@ function connectedNodeKeys(nodeKey, links) {
   return keys;
 }
 
-function drawNetworkNeighborLabels(nodes, states, highlightKeys, hoveredKey, radiusForNode) {
+function drawNetworkNeighborLabels(nodes, states, highlightKeys, hoveredKey, radiusForNode, nameForNode = (node) => node.label) {
   if (!highlightKeys) return;
   fill(20);
   noStroke();
@@ -530,7 +539,7 @@ function drawNetworkNeighborLabels(nodes, states, highlightKeys, hoveredKey, rad
     const state = states.get(node.key);
     if (!state) continue;
     const radius = radiusForNode(node);
-    text(trimText(node.label, 24), state.x, state.y - radius - 6);
+    text(trimText(nameForNode(node), 24), state.x, state.y - radius - 6);
   }
 }
 
@@ -760,11 +769,11 @@ function drawTicketBuyerHeatmap(x, y, w, h, buyers, periods) {
 
   fill(90);
   textAlign(RIGHT, TOP);
-  text(`showing all ${buyers.length} anonymized buyers`, x + w - 18, y + 18);
+  text(`showing all ${buyers.length} buyers`, x + w - 18, y + 18);
 
   if (hovered) {
     drawTooltip(mouseX, mouseY, [
-      hovered.buyer.label,
+      displayPersonName(hovered.buyer),
       `Buyer #${hovered.rowIndex + 1}`,
       `Segment: ${hovered.buyer.segment}`,
       `Period: ${hovered.period.period}`,
@@ -969,7 +978,7 @@ function drawBuyerJourneyMap(x, y, w, h, journeys) {
     let cumulativeRevenue = 0;
     return {
       id: journey.customerKey,
-      label: journey.label,
+      label: displayPersonName(journey),
       span: journey.span,
       color: buyerJourneyColor(journey),
       source: journey,
@@ -1002,7 +1011,7 @@ function drawBuyerJourneyMap(x, y, w, h, journeys) {
       const journey = normalizedJourney.source;
       const lastPeriod = journey.periods.at(-1);
       return [
-        journey.label,
+        displayPersonName(journey),
         `Pattern: ${journey.pattern}`,
         `Span: ${formatInteger(journey.span)} ${timeBucketLabel(timeBucket).toLowerCase()}s`,
         `Total tickets: ${formatInteger(journey.totalTickets)}`,
@@ -1071,6 +1080,17 @@ function drawTimeBucketToggle(activeBucket) {
   text(timeBucketLabel(activeBucket), item.x + item.w / 2, item.y + item.h / 2);
 }
 
+function drawAnonymizeToggle(active) {
+  const item = getAnonymizeButton();
+  fill(active ? 30 : 110);
+  noStroke();
+  rect(item.x, item.y, item.w, item.h, 4);
+  fill(active ? 245 : 35);
+  textSize(14);
+  textAlign(CENTER, CENTER);
+  text(active ? "Anon" : "Names", item.x + item.w / 2, item.y + item.h / 2);
+}
+
 function getTimeBucketButton() {
   const y = 24;
   const w = 76;
@@ -1078,6 +1098,14 @@ function getTimeBucketButton() {
   const gap = 8;
   const x = width - 124 - gap - w;
   return { x, y, w, h };
+}
+
+function getAnonymizeButton() {
+  const bucket = getTimeBucketButton();
+  const w = 76;
+  const h = 34;
+  const gap = 8;
+  return { x: bucket.x - gap - w, y: bucket.y, w, h };
 }
 
 function timeBucketLabel(bucket) {

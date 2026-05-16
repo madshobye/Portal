@@ -10,6 +10,7 @@ let selectedEndMs = 0;
 let timeBucket = "week";
 let buyerPatternWindowIndex = 0;
 let revenueGroupCount = 8;
+let anonymizeNames = true;
 let storedSliderState = {};
 let draggedNetworkNode = null;
 let chartToggleHits = [];
@@ -46,8 +47,9 @@ function setup() {
 function draw() {
   if (hopModel) {
     chartToggleHits = [];
-    drawHopOverview(hopModel, droppedFileName, currentView, NAV_ITEMS);
+    drawHopOverview(hopModel, droppedFileName, currentView, NAV_ITEMS, { anonymizeNames });
     drawTimeBucketToggle(timeBucket);
+    drawAnonymizeToggle(anonymizeNames);
     drawPortalRangeControls();
   } else {
     drawCenteredMessage(statusMessage);
@@ -175,6 +177,7 @@ function applyDateRange() {
     return time >= selectedStartMs && time <= selectedEndMs;
   });
   hopModel = buildHopModel(filteredRows, timeBucket);
+  hopModel.setAnonymizeNames(anonymizeNames);
 }
 
 function syncPortalControlState() {
@@ -257,6 +260,14 @@ function mousePressed() {
     timeBucket = nextTimeBucket(timeBucket);
     buyerPatternWindowIndex = 0;
     applyDateRange();
+    return false;
+  }
+
+  const anonymizeHit = getAnonymizeHit(mouseX, mouseY);
+  if (anonymizeHit) {
+    anonymizeNames = !anonymizeNames;
+    hopModel?.setAnonymizeNames?.(anonymizeNames);
+    saveSliderState();
     return false;
   }
 
@@ -377,6 +388,11 @@ function restoreStoredTimelineVisibility() {
 
 function getTimeBucketHit(x, y) {
   const item = getTimeBucketButton();
+  return x >= item.x && x <= item.x + item.w && y >= item.y && y <= item.y + item.h;
+}
+
+function getAnonymizeHit(x, y) {
+  const item = getAnonymizeButton();
   return x >= item.x && x <= item.x + item.w && y >= item.y && y <= item.y + item.h;
 }
 
