@@ -21,6 +21,8 @@ let chartToggleHits = [];
 let pendingChartToggle = null;
 let pendingChartToggleStartedAt = 0;
 let draggedDateRangeHandle = null;
+let draggedDateRangeOffsetMs = 0;
+let draggedDateRangeLengthMs = 0;
 const hiddenSeriesKeys = new Set();
 const hiddenTimelineLabelTypes = new Set();
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -193,7 +195,7 @@ function drawDateRangeSlider() {
   strokeWeight(1);
   line(item.x, trackY, item.x + item.w, trackY);
   stroke(35);
-  strokeWeight(3);
+  strokeWeight(draggedDateRangeHandle === "range" ? 5 : 3);
   line(startX, trackY, endX, trackY);
 
   drawDateRangeHandle(startX, trackY, draggedDateRangeHandle === "start");
@@ -287,7 +289,12 @@ function mousePressed() {
   const dateHandle = getDateRangeHandleHit(mouseX, mouseY);
   if (dateHandle) {
     draggedDateRangeHandle = dateHandle;
-    setDateRangeHandle(draggedDateRangeHandle, mouseX);
+    if (dateHandle === "range") {
+      draggedDateRangeOffsetMs = dateRangeValueFromX(mouseX) - selectedStartMs;
+      draggedDateRangeLengthMs = selectedEndMs - selectedStartMs;
+    } else {
+      setDateRangeHandle(draggedDateRangeHandle, mouseX);
+    }
     return false;
   }
 
@@ -382,6 +389,8 @@ function mousePressed() {
 function mouseReleased() {
   if (draggedDateRangeHandle) {
     draggedDateRangeHandle = null;
+    draggedDateRangeOffsetMs = 0;
+    draggedDateRangeLengthMs = 0;
     return false;
   }
 
@@ -411,7 +420,8 @@ function mouseReleased() {
 
 function mouseDragged() {
   if (draggedDateRangeHandle) {
-    setDateRangeHandle(draggedDateRangeHandle, mouseX);
+    if (draggedDateRangeHandle === "range") setDateRangeWindow(mouseX);
+    else setDateRangeHandle(draggedDateRangeHandle, mouseX);
     return false;
   }
 
@@ -533,6 +543,7 @@ function getDateRangeHandleHit(x, y) {
   const startDistance = dist(x, y, startX, trackY);
   const endDistance = dist(x, y, endX, trackY);
   if (startDistance <= 14 || endDistance <= 14) return startDistance <= endDistance ? "start" : "end";
+  if (abs(y - trackY) <= 12 && x > startX && x < endX) return "range";
   if (abs(y - trackY) <= 12 && x >= item.x && x <= item.x + item.w) return abs(x - startX) <= abs(x - endX) ? "start" : "end";
   return null;
 }
@@ -553,6 +564,24 @@ function setDateRangeHandle(handle, x) {
   const value = dateRangeValueFromX(x);
   if (handle === "start") selectedStartMs = min(value, selectedEndMs);
   if (handle === "end") selectedEndMs = max(value, selectedStartMs);
+  saveSliderState();
+  applyDateRange();
+}
+
+function setDateRangeWindow(x) {
+  const length = draggedDateRangeLengthMs || selectedEndMs - selectedStartMs;
+  let start = snapDay(dateRangeValueFromX(x) - draggedDateRangeOffsetMs);
+  let end = start + length;
+  if (start < fullStartMs) {
+    start = fullStartMs;
+    end = start + length;
+  }
+  if (end > fullEndMs) {
+    end = fullEndMs;
+    start = end - length;
+  }
+  selectedStartMs = constrain(start, fullStartMs, fullEndMs);
+  selectedEndMs = constrain(end, fullStartMs, fullEndMs);
   saveSliderState();
   applyDateRange();
 }

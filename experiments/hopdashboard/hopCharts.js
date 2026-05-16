@@ -1683,10 +1683,10 @@ function drawCustomerSegmentsView(customerSegments, pad, top) {
     fill(35);
     textSize(13);
     textAlign(LEFT, TOP);
-    text(segment.label, tableX + 18, y + 10);
+    drawWrappedLabel(segment.label, tableX + 18, y + 8, nameW - 26, 2, 12);
     fill(85);
     textSize(10);
-    text(`avg ${formatDkk(segment.avgRevenue)} · ${segment.avgTickets.toFixed(1)} tickets`, tableX + 18, y + 30);
+    text(`avg ${formatDkk(segment.avgRevenue)} · ${segment.avgTickets.toFixed(1)} tickets`, tableX + 18, y + 36);
 
     fill(20, 70);
     rect(countX, y + 16, map(segment.count, 0, maxCount, 0, 105), 8, 1);
@@ -1705,9 +1705,9 @@ function drawCustomerSegmentsView(customerSegments, pad, top) {
     fill(55);
     textSize(11);
     textAlign(LEFT, TOP);
-    text(trimText(favorite, 58), infoX, y + 10);
+    drawWrappedLabel(favorite, infoX, y + 8, max(120, tableX + tableW - infoX - 10), 2, 12);
     fill(90);
-    text(trimText(journey, 58), infoX, y + 30);
+    drawWrappedLabel(journey, infoX, y + 34, max(120, tableX + tableW - infoX - 10), 1, 12);
   }
 
   if (hovered) {
@@ -1758,7 +1758,7 @@ function drawExitPointsView(exitPoints, pad, top) {
   drawExitTypeSummary(exitPoints.types || [], pad + 18, top + 68, width - pad * 2 - 36);
 
   const tableY = top + 118;
-  const rowH = 26;
+  const rowH = 34;
   const maxRows = max(1, floor((height - tableY - pad - 18) / rowH));
   const rows = points.slice(0, min(22, maxRows));
   const tableX = pad + 18;
@@ -1796,7 +1796,8 @@ function drawExitPointsView(exitPoints, pad, top) {
 
     fill(35);
     textSize(11);
-    text(trimText(point.label, 58), nameX, y + rowH * 0.5);
+    textAlign(LEFT, TOP);
+    drawWrappedLabel(point.label, nameX, y + 5, max(120, countX - nameX - 12), 2, 12);
 
     fill(20, 70);
     rect(countX, y + rowH * 0.5 - 5, map(point.count, 0, exitPoints.maxCount || 1, 0, 150), 10, 1);
@@ -1816,7 +1817,7 @@ function drawExitPointsView(exitPoints, pad, top) {
       `People ending here: ${formatInteger(hovered.count)}`,
       `Revenue on final touchpoint: ${formatDkk(hovered.revenue)}`,
       `Avg full journey revenue: ${formatDkk(hovered.avgJourneyRevenue)}`,
-      `Example customers: ${hovered.sampleCustomers.join(", ") || "none"}`,
+      `Example customers: ${hovered.sampleCustomers.map(displayPersonName).join(", ") || "none"}`,
     ], 340);
   }
 }
@@ -2464,8 +2465,9 @@ function drawCategoryBars(x, y, w, h, categories) {
 
 function drawTooltip(x, y, lines, maxWidth = 360) {
   textSize(12);
-  const tooltipW = min(maxWidth, max(...lines.map((line) => textWidth(line))) + 24);
-  const tooltipH = lines.length * 18 + 14;
+  const wrappedLines = wrapTooltipLines(lines, maxWidth - 24);
+  const tooltipW = min(maxWidth, max(...wrappedLines.map((line) => textWidth(line))) + 24);
+  const tooltipH = wrappedLines.length * 18 + 14;
   const tx = min(x + 14, width - tooltipW - 8);
   const ty = min(y + 14, height - tooltipH - 8);
 
@@ -2474,7 +2476,36 @@ function drawTooltip(x, y, lines, maxWidth = 360) {
   rect(tx, ty, tooltipW, tooltipH, 3);
   fill(245);
   textAlign(LEFT, TOP);
-  lines.forEach((line, index) => text(line, tx + 12, ty + 8 + index * 18));
+  wrappedLines.forEach((line, index) => text(line, tx + 12, ty + 8 + index * 18));
+}
+
+function wrapTooltipLines(lines, maxWidth) {
+  return (lines || []).flatMap((line) => wrapTextByWidth(line, maxWidth));
+}
+
+function drawWrappedLabel(value, x, y, maxWidth, maxLines = 2, lineHeight = 12) {
+  const lines = wrapTextByWidth(value, maxWidth).slice(0, maxLines);
+  for (let index = 0; index < lines.length; index += 1) {
+    const suffix = index === maxLines - 1 && wrapTextByWidth(value, maxWidth).length > maxLines ? "..." : "";
+    text(`${lines[index]}${suffix}`, x, y + index * lineHeight);
+  }
+}
+
+function wrapTextByWidth(value, maxWidth) {
+  const words = String(value || "").split(/\s+/).filter(Boolean);
+  const lines = [];
+  let line = "";
+  for (const word of words) {
+    const candidate = line ? `${line} ${word}` : word;
+    if (line && textWidth(candidate) > maxWidth) {
+      lines.push(line);
+      line = word;
+    } else {
+      line = candidate;
+    }
+  }
+  if (line) lines.push(line);
+  return lines.length ? lines : [""];
 }
 
 function wrapText(value, maxChars) {

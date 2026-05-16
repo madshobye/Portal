@@ -732,7 +732,9 @@ function groupExitPoints(rows) {
     if (!byCustomer.has(row.customerKey)) {
       byCustomer.set(row.customerKey, {
         customerKey: row.customerKey,
-        label: row.customerName || row.customerEmail || row.customerKey,
+        label: row.realLabel,
+        realLabel: row.realLabel,
+        anonymousLabel: row.anonymousLabel,
         rows: [],
         revenue: 0,
       });
@@ -761,7 +763,14 @@ function groupExitPoints(rows) {
     entry.people.add(customer.customerKey);
     entry.revenue += last.totalPrice;
     entry.totalJourneyRevenue += customer.revenue;
-    if (entry.sampleCustomers.length < 5) entry.sampleCustomers.push(customer.label);
+    if (entry.sampleCustomers.length < 5) {
+      entry.sampleCustomers.push({
+        customerKey: customer.customerKey,
+        label: customer.label,
+        realLabel: customer.realLabel,
+        anonymousLabel: customer.anonymousLabel,
+      });
+    }
 
     if (!typeTotals.has(exit.type)) typeTotals.set(exit.type, { type: exit.type, people: new Set(), revenue: 0 });
     const type = typeTotals.get(exit.type);
