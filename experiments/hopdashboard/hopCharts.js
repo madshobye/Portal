@@ -1757,11 +1757,12 @@ function drawExitPointsView(exitPoints, pad, top) {
 
   drawExitTypeSummary(exitPoints.types || [], pad + 18, top + 68, width - pad * 2 - 36);
 
-  const rows = points.slice(0, 22);
+  const tableY = top + 118;
+  const rowH = 26;
+  const maxRows = max(1, floor((height - tableY - pad - 18) / rowH));
+  const rows = points.slice(0, min(22, maxRows));
   const tableX = pad + 18;
-  const tableY = top + 132;
   const tableW = width - pad * 2 - 36;
-  const rowH = min(42, max(28, (height - tableY - pad - 16) / max(1, rows.length)));
   const typeX = tableX;
   const nameX = tableX + 86;
   const countX = tableX + min(460, tableW * 0.48);
@@ -1822,17 +1823,25 @@ function drawExitPointsView(exitPoints, pad, top) {
 
 function drawExitTypeSummary(types, x, y, w) {
   const total = max(1, types.reduce((acc, item) => acc + item.count, 0));
+  const gap = 8;
+  const compactW = min(w, 520);
+  const segmentW = max(46, (compactW - gap * max(0, types.length - 1)) / max(1, types.length));
   let cursor = x;
   for (const type of types) {
-    const segmentW = max(48, (type.count / total) * w);
+    const fillW = map(type.count, 0, total, 0, segmentW);
     fill(exitTypeColor(type.type));
     noStroke();
-    rect(cursor, y, segmentW - 4, 18, 2);
+    rect(cursor, y, fillW, 14, 2);
+    stroke(210);
+    strokeWeight(1);
+    noFill();
+    rect(cursor, y, segmentW, 14, 2);
+    noStroke();
     fill(35);
     textSize(10);
     textAlign(LEFT, TOP);
-    text(`${type.type} ${formatInteger(type.count)}`, cursor, y + 24);
-    cursor += segmentW;
+    text(`${type.type} ${formatInteger(type.count)}`, cursor, y + 18);
+    cursor += segmentW + gap;
   }
 }
 
