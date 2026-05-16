@@ -41,6 +41,7 @@ function drawHopTimelineChart(x, y, w, h, points, title, series, labels = [], st
 
   drawTimelineYAxis(plotX, plotY, plotW, plotH, leftScaleKey, maxByScale[leftScaleKey] || 1, false);
   if (rightScaleKey) drawTimelineYAxis(plotX, plotY, plotW, plotH, rightScaleKey, maxByScale[rightScaleKey] || 1, true);
+  drawTimelineMissingDataEdges(plotX, plotY, plotW, plotH, state);
 
   stroke(210);
   strokeWeight(1);
@@ -126,6 +127,34 @@ function timelineMaxByScale(points, visibleSeries) {
     maxByScale[scaleKey] = Math.max(maxByScale[scaleKey] || 1, ...points.map((point) => abs(point[item.key] || 0)));
   }
   return maxByScale;
+}
+
+function drawTimelineMissingDataEdges(plotX, plotY, plotW, plotH, state) {
+  if (!state.showMissingDataEdges || !state.dataStartMs || !state.dataEndMs) return;
+  const bucket = state.timeBucket || "week";
+  const firstBucketStart = timelineBucketStartDate(new Date(state.dataStartMs), bucket).getTime();
+  const lastBucketStart = timelineBucketStartDate(new Date(state.dataEndMs), bucket);
+  const lastBucketEnd = timelinePeriodEndMs(timelineBucketKey(lastBucketStart, bucket));
+  fill(120, 120, 120, 90);
+  noStroke();
+  drawTimelineMissingStartEdge(plotX, plotY, plotW, plotH, firstBucketStart, state);
+  drawTimelineMissingEndEdge(plotX, plotY, plotW, plotH, lastBucketEnd, state);
+}
+
+function drawTimelineMissingStartEdge(plotX, plotY, plotW, plotH, firstBucketStart, state) {
+  if (state.dataStartMs <= firstBucketStart || state.rangeStartMs > state.dataStartMs) return;
+  const bucketEnd = timelinePeriodEndMs(timelineBucketKey(new Date(firstBucketStart), state.timeBucket || "week"));
+  const markerEnd = timelineMsToX(plotX, plotW, bucketEnd, state, true);
+  const markerW = max(10, min(42, markerEnd - plotX));
+  rect(plotX, plotY, markerW, plotH);
+}
+
+function drawTimelineMissingEndEdge(plotX, plotY, plotW, plotH, lastBucketEnd, state) {
+  if (state.dataEndMs >= lastBucketEnd || state.rangeEndMs < state.dataEndMs) return;
+  const bucketStart = timelineBucketStartDate(new Date(state.dataEndMs), state.timeBucket || "week").getTime();
+  const markerStart = timelineMsToX(plotX, plotW, bucketStart, state, true);
+  const markerW = max(10, min(42, plotX + plotW - markerStart));
+  rect(plotX + plotW - markerW, plotY, markerW, plotH);
 }
 
 function stackedTimelineMaxByScale(points, visibleSeries) {

@@ -246,7 +246,7 @@ function drawActivityView(activity, ticketSales, pad, top) {
     { key: "eventRevenue", label: "Event revenue", color: [135, 85, 170], formatter: formatDkk, scale: moneyScale },
   ];
   const labels = ticketItemsToTimelineLabels(ticketSales?.items || []);
-  drawHopTimelineChart(pad, top, width - pad * 2, height - top - pad, months, visibleActivityTitle(series, labels), series, labels, { ...timelineChartState(), infoKey: "activity" });
+  drawHopTimelineChart(pad, top, width - pad * 2, height - top - pad, months, visibleActivityTitle(series, labels), series, labels, { ...timelineChartState(), infoKey: "activity", showMissingDataEdges: true });
 }
 
 function visibleActivityTitle(series, labels) {
@@ -793,6 +793,8 @@ function timelineChartState() {
     timeBucket,
     rangeStartMs: typeof selectedStartMs === "number" ? selectedStartMs : 0,
     rangeEndMs: typeof selectedEndMs === "number" ? selectedEndMs : 0,
+    dataStartMs: typeof fullStartMs === "number" ? fullStartMs : 0,
+    dataEndMs: typeof fullEndMs === "number" ? fullEndMs : 0,
     smoothTimelineCurves: !!timelineSmoothCurves,
     stackedTimelineLines: !!timelineStackedLines,
   };
