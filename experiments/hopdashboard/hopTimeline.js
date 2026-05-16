@@ -3,6 +3,8 @@ let timelineLegendHoverStartedAt = 0;
 const TIMELINE_LEGEND_INFO_DELAY_MS = 1500;
 
 function drawHopTimelineChart(x, y, w, h, points, title, series, labels = [], state = {}) {
+  const timelinePoints = addSyntheticPreviousTimelinePoint(points, state);
+  points = filterTimelinePointsForState(timelinePoints, state);
   const hiddenSeries = state.hiddenSeriesKeys || new Set();
   const hiddenLabels = state.hiddenLabelTypes || new Set();
   const toggleHits = state.toggleHits || [];
@@ -43,26 +45,28 @@ function drawHopTimelineChart(x, y, w, h, points, title, series, labels = [], st
   strokeWeight(1);
   line(plotX, plotY + plotH, plotX + plotW, plotY + plotH);
 
+  drawingContext.save();
+  drawingContext.beginPath();
+  drawingContext.rect(plotX, plotY, plotW, plotH);
+  drawingContext.clip();
   for (const item of visibleSeries) {
+    const linePoints = lineTimelinePointsForState(timelinePoints, state);
     noFill();
     const alpha = legend.hoveredSeriesKey && legend.hoveredSeriesKey !== item.key ? 35 : 255;
     stroke(item.color[0], item.color[1], item.color[2], alpha);
     strokeWeight(legend.hoveredSeriesKey === item.key ? 3.5 : 2.5);
     beginShape();
-    points.forEach((point, index) => {
-      const px = plotX + (points.length <= 1 ? 0 : (index / (points.length - 1)) * plotW);
-      const py = plotY + plotH - ((point[item.key] || 0) / (maxByScale[item.scale || item.key] || 1)) * plotH;
-      vertex(px, py);
-    });
+    drawTimelineSeriesVertices(linePoints, item, plotX, plotW, plotY, plotH, maxByScale[item.scale || item.key] || 1, state);
     endShape();
   }
+  drawingContext.restore();
 
-  const labelHovered = drawTimelineLabels(plotX, plotY, plotW, plotH, points, labels, hiddenLabels, toggleHits);
+  const labelHovered = drawTimelineLabels(plotX, plotY, plotW, plotH, points, labels, hiddenLabels, toggleHits, state);
 
-  const hoverIndex = getTimelineNearestPointIndex(mouseX, plotX, plotW, points.length);
+  const hoverIndex = getTimelineNearestTimelineIndex(mouseX, plotX, plotW, points, state);
   if (!labelHovered && hoverIndex >= 0 && mouseY >= plotY - 24 && mouseY <= plotY + plotH + 24) {
     const point = points[hoverIndex];
-    const px = plotX + (points.length <= 1 ? 0 : (hoverIndex / (points.length - 1)) * plotW);
+    const px = timelinePointXForState(plotX, plotW, points, hoverIndex, state);
     stroke(90);
     strokeWeight(1);
     line(px, plotY, px, plotY + plotH);
@@ -76,11 +80,12 @@ function drawHopTimelineChart(x, y, w, h, points, title, series, labels = [], st
   fill(35);
   noStroke();
   textSize(12);
+  const axisPeriods = timelineBandPeriods(points, state);
   textAlign(LEFT, BOTTOM);
-  text(points[0]?.month || "", plotX, y + h - 40);
+  text(axisPeriods[0]?.month || points[0]?.month || "", plotX, y + h - 40);
   textAlign(RIGHT, BOTTOM);
-  text(points.at(-1)?.month || "", plotX + plotW, y + h - 40);
-  drawTimelineSeasonBand(plotX, y + h - 30, plotW, points);
+  text(axisPeriods.at(-1)?.month || points.at(-1)?.month || "", plotX + plotW, y + h - 40);
+  drawTimelineSeasonBand(plotX, y + h - 30, plotW, points, state);
   drawDelayedTimelineLegendInfo(legend.hoveredEntry);
 }
 
@@ -133,25 +138,137 @@ function getTimelineNearestPointIndex(mx, plotX, plotW, count) {
   return constrain(round(((mx - plotX) / plotW) * (count - 1)), 0, count - 1);
 }
 
-function drawTimelineSeasonBand(x, y, w, points) {
-  if (!points.length) return;
+function getTimelineNearestPeriodEndIndex(mx, plotX, plotW, count) {
+  if (!count || mx < plotX - 16 || mx > plotX + plotW + 16) return -1;
+  if (count === 1) return 0;
+  return constrain(round(((mx - plotX) / plotW) * count - 1), 0, count - 1);
+}
+
+function getTimelineNearestTimelineIndex(mx, plotX, plotW, points, state) {
+  if (!points.length || mx < plotX - 16 || mx > plotX + plotW + 16) return -1;
+  let bestIndex = 0;
+  let bestDistance = Infinity;
+  points.forEach((point, index) => {
+    const px = timelinePointXForState(plotX, plotW, points, index, state);
+    const distance = abs(mx - px);
+    if (distance < bestDistance) {
+      bestDistance = distance;
+      bestIndex = index;
+    }
+  });
+  return bestIndex;
+}
+
+function filterTimelinePointsForState(points, state) {
+  if (!state?.rangeStartMs || !state?.rangeEndMs || state.rangeEndMs <= state.rangeStartMs) return points;
+  return points.filter((point) => {
+    const startMs = timelinePeriodStartMs(point.month);
+    const endMs = timelinePeriodEndMs(point.month);
+    return endMs >= state.rangeStartMs && startMs <= state.rangeEndMs;
+  });
+}
+
+function addSyntheticPreviousTimelinePoint(points, state) {
+  if (!points.length) return points;
+  const bucket = state?.timeBucket || "week";
+  const firstStart = dateFromTimelinePeriodKey(points[0].month);
+  const previousStart = timelinePreviousBucketStart(firstStart, bucket);
+  const previousKey = timelineBucketKey(previousStart, bucket);
+  if (previousKey === points[0].month) return points;
+  return [{ month: previousKey, synthetic: true }, ...points];
+}
+
+function lineTimelinePointsForState(points, state) {
+  if (!state?.rangeStartMs || !state?.rangeEndMs || state.rangeEndMs <= state.rangeStartMs) return points;
+  const visible = [];
+  let before = null;
+  let after = null;
+  for (const point of points) {
+    const startMs = timelinePeriodStartMs(point.month);
+    const endMs = timelinePeriodEndMs(point.month);
+    if (endMs < state.rangeStartMs) before = point;
+    else if (startMs > state.rangeEndMs) {
+      after = point;
+      break;
+    } else {
+      visible.push(point);
+    }
+  }
+  return [
+    ...(before ? [before] : []),
+    ...visible,
+    ...(after ? [after] : []),
+  ];
+}
+
+function drawTimelineSeriesVertices(points, item, plotX, plotW, plotY, plotH, maxValue, state) {
+  let previousYear = "";
+  points.forEach((point, index) => {
+    const year = String(point.month || "").slice(0, 4);
+    if (item.key === "yearTotalRevenue" && index > 0 && year && previousYear && year !== previousYear) {
+      const resetX = timelineMsToX(plotX, plotW, timelinePeriodStartMs(point.month), state, false);
+      vertex(resetX, plotY + plotH);
+    }
+    const px = timelinePointXForPoint(plotX, plotW, point, state, false);
+    const py = plotY + plotH - ((point[item.key] || 0) / maxValue) * plotH;
+    vertex(px, py);
+    if (year) previousYear = year;
+  });
+}
+
+function timelinePeriodSlot(plotX, plotW, count, index) {
+  if (count <= 1) return { x0: plotX, x1: plotX + plotW };
+  const slotW = plotW / count;
+  return {
+    x0: plotX + index * slotW,
+    x1: plotX + (index + 1) * slotW,
+  };
+}
+
+function timelinePeriodCenterX(plotX, plotW, count, index) {
+  const slot = timelinePeriodSlot(plotX, plotW, count, index);
+  return (slot.x0 + slot.x1) * 0.5;
+}
+
+function timelinePeriodEndX(plotX, plotW, count, index) {
+  return timelinePeriodSlot(plotX, plotW, count, index).x1;
+}
+
+function timelinePointX(plotX, plotW, count, index) {
+  if (count <= 1) return plotX;
+  return plotX + (index / (count - 1)) * plotW;
+}
+
+function timelinePointXForState(plotX, plotW, points, index, state) {
+  return timelinePointXForPoint(plotX, plotW, points[index], state, true);
+}
+
+function timelinePointXForPoint(plotX, plotW, point, state, clampToRange = true) {
+  const endMs = timelinePeriodEndMs(point?.month);
+  return timelineMsToX(plotX, plotW, endMs, state, clampToRange);
+}
+
+function drawTimelineSeasonBand(x, y, w, points, state = {}) {
+  if (!points.length && !state?.rangeStartMs) return;
+  const bandPeriods = timelineBandPeriods(points, state);
   const bandH = 8;
   const labelY = y + 14;
   noStroke();
-  for (let index = 0; index < points.length; index += 1) {
-    const date = dateFromTimelinePeriodKey(points[index].month);
-    const x0 = x + (points.length <= 1 ? 0 : (index / points.length) * w);
-    const x1 = x + ((index + 1) / points.length) * w;
-    fill(...timelineSeasonColor(date.getMonth()));
-    rect(x0, y, max(1, x1 - x0), bandH);
+  for (let index = 0; index < bandPeriods.length; index += 1) {
+    const period = bandPeriods[index];
+    const date = dateFromTimelinePeriodKey(period.month);
+    const x0 = timelineMsToX(x, w, timelinePeriodStartMs(period.month), state, true);
+    const x1 = timelineMsToX(x, w, timelinePeriodEndMs(period.month), state, true);
+    const cx = (x0 + x1) * 0.5;
+    drawTimelinePeriodSeasonSegments(x0, x1, y, bandH, date, period.month);
 
-    if (isTimelineMonthStart(points, index, date)) {
+    if (isTimelineMonthStart(bandPeriods, index, date)) {
       fill(20);
       textSize(9);
       textAlign(CENTER, TOP);
-      text(timelineMonthInitial(date.getMonth()), x0, labelY);
+      text(timelineMonthInitial(date.getMonth()), cx, labelY);
     }
-    if (index > 0 && date.getMonth() === 0 && isTimelineMonthStart(points, index, date)) {
+    if (isTimelineYearStart(bandPeriods, index, date, state)) {
       stroke(20, 170);
       strokeWeight(1);
       line(x0, y - 4, x0, y + bandH + 12);
@@ -159,15 +276,139 @@ function drawTimelineSeasonBand(x, y, w, points) {
       fill(20);
       textSize(9);
       textAlign(LEFT, TOP);
-      text(String(date.getFullYear()), x0 + 3, y - 16);
+      text(timelineYearLabel(period.month, date, state), x0 + 3, y - 16);
     }
   }
+}
+
+function timelineBandPeriods(points, state) {
+  if (!state?.rangeStartMs || !state?.rangeEndMs || state.rangeEndMs <= state.rangeStartMs || !points.length) return points;
+  const bucket = state.timeBucket || "week";
+  const periods = [];
+  let cursor = timelineBucketStartDate(new Date(state.rangeStartMs), bucket);
+  const endMs = state.rangeEndMs;
+  while (cursor.getTime() <= endMs) {
+    periods.push({ month: timelineBucketKey(cursor, bucket) });
+    cursor = timelineNextBucketStart(cursor, bucket);
+  }
+  return periods;
+}
+
+function timelineMsToX(plotX, plotW, ms, state, clampToRange = true) {
+  if (!state?.rangeStartMs || !state?.rangeEndMs || state.rangeEndMs <= state.rangeStartMs) return plotX;
+  const xMs = clampToRange ? constrain(ms, state.rangeStartMs, state.rangeEndMs) : ms;
+  return plotX + ((xMs - state.rangeStartMs) / (state.rangeEndMs - state.rangeStartMs)) * plotW;
+}
+
+function timelineBucketStartDate(date, bucket) {
+  const result = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+  if (bucket === "week") return startOfTimelineWeek(result);
+  if (bucket === "month") return new Date(result.getFullYear(), result.getMonth(), 1);
+  if (bucket === "quarter") return new Date(result.getFullYear(), floor(result.getMonth() / 3) * 3, 1);
+  if (bucket === "halfyear") return new Date(result.getFullYear(), result.getMonth() < 6 ? 0 : 6, 1);
+  if (bucket === "year") return new Date(result.getFullYear(), 0, 1);
+  return result;
+}
+
+function timelineNextBucketStart(date, bucket) {
+  const result = new Date(date);
+  if (bucket === "week") result.setDate(result.getDate() + 7);
+  else if (bucket === "month") result.setMonth(result.getMonth() + 1);
+  else if (bucket === "quarter") result.setMonth(result.getMonth() + 3);
+  else if (bucket === "halfyear") result.setMonth(result.getMonth() + 6);
+  else if (bucket === "year") result.setFullYear(result.getFullYear() + 1);
+  else result.setDate(result.getDate() + 1);
+  return result;
+}
+
+function timelinePreviousBucketStart(date, bucket) {
+  const result = new Date(date);
+  if (bucket === "week") result.setDate(result.getDate() - 7);
+  else if (bucket === "month") result.setMonth(result.getMonth() - 1);
+  else if (bucket === "quarter") result.setMonth(result.getMonth() - 3);
+  else if (bucket === "halfyear") result.setMonth(result.getMonth() - 6);
+  else if (bucket === "year") result.setFullYear(result.getFullYear() - 1);
+  else result.setDate(result.getDate() - 1);
+  return result;
+}
+
+function timelineBucketKey(date, bucket) {
+  const year = date.getFullYear();
+  if (bucket === "week") {
+    const iso = timelineIsoWeekInfo(date);
+    return `${iso.year}-W${String(iso.week).padStart(2, "0")}`;
+  }
+  if (bucket === "month") return `${year}-${String(date.getMonth() + 1).padStart(2, "0")}`;
+  if (bucket === "quarter") return `${year}-Q${floor(date.getMonth() / 3) + 1}`;
+  if (bucket === "halfyear") return `${year}-H${date.getMonth() < 6 ? 1 : 2}`;
+  if (bucket === "year") return String(year);
+  return `${year}-${String(date.getMonth() + 1).padStart(2, "0")}`;
+}
+
+function startOfTimelineWeek(date) {
+  const result = new Date(date);
+  const day = result.getDay() || 7;
+  result.setDate(result.getDate() - day + 1);
+  return result;
+}
+
+function timelineIsoWeekNumber(date) {
+  return timelineIsoWeekInfo(date).week;
+}
+
+function timelineIsoWeekInfo(date) {
+  const target = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()));
+  const day = target.getUTCDay() || 7;
+  target.setUTCDate(target.getUTCDate() + 4 - day);
+  const yearStart = new Date(Date.UTC(target.getUTCFullYear(), 0, 1));
+  return {
+    year: target.getUTCFullYear(),
+    week: ceil((((target - yearStart) / 86400000) + 1) / 7),
+  };
+}
+
+function drawTimelinePeriodSeasonSegments(x0, x1, y, h, date, key) {
+  const months = timelinePeriodMonthCount(key);
+  for (let offset = 0; offset < months; offset += 1) {
+    const monthIndex = (date.getMonth() + offset) % 12;
+    const sx0 = lerp(x0, x1, offset / months);
+    const sx1 = lerp(x0, x1, (offset + 1) / months);
+    fill(...timelineSeasonColor(monthIndex));
+    noStroke();
+    rect(sx0, y, max(1, sx1 - sx0), h);
+  }
+}
+
+function timelinePeriodMonthCount(key) {
+  const text = String(key || "");
+  if (/^\d{4}$/.test(text)) return 12;
+  if (/^\d{4}-H[12]$/.test(text)) return 6;
+  if (/^\d{4}-Q\d$/.test(text)) return 3;
+  return 1;
 }
 
 function isTimelineMonthStart(points, index, date) {
   if (index === 0) return true;
   const prev = dateFromTimelinePeriodKey(points[index - 1].month);
   return prev.getMonth() !== date.getMonth() || prev.getFullYear() !== date.getFullYear();
+}
+
+function isTimelineYearStart(points, index, date, state = {}) {
+  if (index === 0) return false;
+  if (state.timeBucket === "week") {
+    return timelineWeekYear(points[index - 1].month) !== timelineWeekYear(points[index].month);
+  }
+  return date.getMonth() === 0 && isTimelineMonthStart(points, index, date);
+}
+
+function timelineWeekYear(key) {
+  const match = String(key || "").match(/^(\d{4})-W\d{2}$/);
+  return match ? match[1] : "";
+}
+
+function timelineYearLabel(key, date, state = {}) {
+  if (state.timeBucket === "week") return timelineWeekYear(key) || String(date.getFullYear());
+  return String(date.getFullYear());
 }
 
 function dateFromTimelinePeriodKey(key) {
@@ -178,13 +419,28 @@ function dateFromTimelinePeriodKey(key) {
   if (monthMatch) return new Date(Number(monthMatch[1]), Number(monthMatch[2]) - 1, 1);
   const quarterMatch = text.match(/^(\d{4})-Q(\d)$/);
   if (quarterMatch) return new Date(Number(quarterMatch[1]), (Number(quarterMatch[2]) - 1) * 3, 1);
+  const halfyearMatch = text.match(/^(\d{4})-H([12])$/);
+  if (halfyearMatch) return new Date(Number(halfyearMatch[1]), (Number(halfyearMatch[2]) - 1) * 6, 1);
   const yearMatch = text.match(/^(\d{4})$/);
   if (yearMatch) return new Date(Number(yearMatch[1]), 0, 1);
   return new Date();
 }
 
+function timelinePeriodEndMs(key) {
+  const start = dateFromTimelinePeriodKey(key);
+  const text = String(key || "");
+  const end = new Date(start);
+  if (/^\d{4}-W\d{2}$/.test(text)) end.setDate(end.getDate() + 6);
+  else end.setMonth(end.getMonth() + timelinePeriodMonthCount(text), 0);
+  return end.getTime();
+}
+
+function timelinePeriodStartMs(key) {
+  return dateFromTimelinePeriodKey(key).getTime();
+}
+
 function dateFromTimelineIsoWeek(year, week) {
-  const date = new Date(year, 0, 1 + (week - 1) * 7);
+  const date = new Date(year, 0, 4 + (week - 1) * 7);
   const day = date.getDay() || 7;
   date.setDate(date.getDate() - day + 1);
   return date;
@@ -201,7 +457,7 @@ function timelineMonthInitial(monthIndex) {
   return "JFMAMJJASOND"[monthIndex] || "";
 }
 
-function drawTimelineLabels(plotX, plotY, plotW, plotH, points, labels, hiddenLabels, toggleHits) {
+function drawTimelineLabels(plotX, plotY, plotW, plotH, points, labels, hiddenLabels, toggleHits, state = {}) {
   if (!labels.length || !points.length) return false;
   const periodIndex = new Map(points.map((point, index) => [point.month, index]));
   const visibleLabels = labels.filter((label) => periodIndex.has(label.period) && label.value > 0 && !hiddenLabels.has(label.type));
@@ -211,7 +467,7 @@ function drawTimelineLabels(plotX, plotY, plotW, plotH, points, labels, hiddenLa
   let hoveredLabel = null;
   for (const label of visibleLabels) {
     const index = periodIndex.get(label.period);
-    const px = plotX + (points.length <= 1 ? 0 : (index / (points.length - 1)) * plotW);
+    const px = timelinePointXForState(plotX, plotW, points, index, state);
     const lane = laneByLabel.get(label.label) ?? 0.5;
     const py = plotY + 18 + lane * max(1, plotH - 36);
     const radius = map(sqrt(label.value), 0, sqrt(maxValue), 8, 34);
@@ -332,6 +588,9 @@ function timelineLegendDescription(entry) {
     totalRevenue: "All net revenue in the selected period, after VAT has been removed and discounts have been netted by transaction.",
     yearTotalRevenue: "Running accumulated net revenue within each calendar year. It resets when the visible year changes.",
     revenue: "Revenue from paid memberships only, spread across the active membership period.",
+    firstTouchpoints: "People whose true first paid touchpoint happens in this period, measured from the full loaded CSV. Single ticket buyers and fully discounted crew memberships are excluded.",
+    lastTouchpoints: "People whose true last paid touchpoint happens in this period, measured from the full loaded CSV. Single ticket buyers and fully discounted crew memberships are excluded.",
+    singleTicketBuyers: "People who have exactly one paid activity/event ticket and no paid membership anywhere in the full loaded CSV, shown in the period where that ticket happened.",
     newMemberships: "People whose first paid membership starts in this period.",
     endedMemberships: "Estimated membership endings when no renewal appears within the expected renewal window.",
     memberCount: "Estimated active paid members in this period. Crew/free memberships are excluded.",

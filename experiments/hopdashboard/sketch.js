@@ -216,8 +216,11 @@ function applyDateRange() {
     return time >= selectedStartMs && time <= selectedEndMs;
   });
   hopModel = buildHopModel(filteredRows, timeBucket, {
+    timelineRows: sourceRows,
     activityPathRows: sourceRows,
     retentionRows: sourceRows,
+    membershipLengthRows: sourceRows,
+    firstTouchpointRows: sourceRows,
     activityPathMode,
     rangeStartMs: selectedStartMs,
     rangeEndMs: selectedEndMs,
@@ -262,7 +265,7 @@ function restoreStoredSliders() {
   storedSliderState = loadHopSliders();
   buyerPatternWindowIndex = constrain(Number(storedSliderState.buyerPatternWindowIndex) || 0, 0, 999999);
   revenueGroupCount = constrain(Number(storedSliderState.revenueGroupCount) || revenueGroupCount, 3, 100);
-  if (["week", "month", "quarter", "year"].includes(storedSliderState.timeBucket)) {
+  if (["week", "month", "quarter", "halfyear", "year"].includes(storedSliderState.timeBucket)) {
     timeBucket = storedSliderState.timeBucket;
   }
   if (["ever", "range"].includes(storedSliderState.activityPathMode)) {
@@ -631,7 +634,8 @@ function getGraphSnapshotBounds() {
 function nextTimeBucket(bucket) {
   if (bucket === "week") return "month";
   if (bucket === "month") return "quarter";
-  if (bucket === "quarter") return "year";
+  if (bucket === "quarter") return "halfyear";
+  if (bucket === "halfyear") return "year";
   return "week";
 }
 

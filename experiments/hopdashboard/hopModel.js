@@ -6,11 +6,23 @@ function buildHopModel(rows, timeBucket = "week", options = {}) {
   const retentionRows = options.retentionRows
     ? applyTransactionDiscountNetting(options.retentionRows.map(normalizeSalesRow).filter((row) => row.date))
     : normalizedRows;
+  const membershipLengthRows = options.membershipLengthRows
+    ? applyTransactionDiscountNetting(options.membershipLengthRows.map(normalizeSalesRow).filter((row) => row.date))
+    : normalizedRows;
+  const firstTouchpointRows = options.firstTouchpointRows
+    ? applyTransactionDiscountNetting(options.firstTouchpointRows.map(normalizeSalesRow).filter((row) => row.date))
+    : normalizedRows;
+  const timelineRows = options.timelineRows
+    ? applyTransactionDiscountNetting(options.timelineRows.map(normalizeSalesRow).filter((row) => row.date))
+    : normalizedRows;
   const invoices = groupInvoices(normalizedRows);
   const customers = groupCustomers(invoices);
   const months = groupMonths(invoices, timeBucket);
-  const activity = groupActivity(normalizedRows, timeBucket);
+  const activity = groupActivity(timelineRows, timeBucket, {
+    firstTouchpointRows,
+  });
   const ticketSales = groupTicketSales(normalizedRows, timeBucket);
+  const ticketSalesTimeline = groupTicketSales(timelineRows, timeBucket);
   const ticketBuyers = groupTicketBuyers(normalizedRows, timeBucket);
   const buyerPatterns = groupBuyerPatterns(normalizedRows, timeBucket);
   const activityNetwork = groupActivityNetwork(normalizedRows);
@@ -28,7 +40,10 @@ function buildHopModel(rows, timeBucket = "week", options = {}) {
   const productHealth = groupProductHealth(normalizedRows);
   const customerSegments = groupCustomerSegments(normalizedRows);
   const exitPoints = groupExitPoints(normalizedRows);
-  const membershipLength = groupMembershipLength(normalizedRows);
+  const membershipLength = groupMembershipLength(membershipLengthRows, {
+    rangeStartMs: options.rangeStartMs,
+    rangeEndMs: options.rangeEndMs,
+  });
 
   return {
     rows: normalizedRows,
@@ -37,6 +52,7 @@ function buildHopModel(rows, timeBucket = "week", options = {}) {
     months,
     activity,
     ticketSales,
+    ticketSalesTimeline,
     ticketBuyers,
     buyerPatterns,
     activityNetwork,
@@ -173,6 +189,14 @@ function groupCustomers(invoices) {
         anonymousLabel: invoice.anonymousLabel,
         firstDate: invoice.date,
         lastDate: invoice.date,
+        firstTouchpointDate: null,
+        firstTouchpointType: "unknown",
+        firstTouchpointLabel: "Unknown",
+        firstTouchpointText: "",
+        lastTouchpointDate: null,
+        lastTouchpointType: "unknown",
+        lastTouchpointLabel: "Unknown",
+        lastTouchpointText: "",
         revenue: 0,
         activityRevenue: 0,
         eventRevenue: 0,
@@ -196,6 +220,20 @@ function groupCustomers(invoices) {
     }
     customer.ticketRevenue = customer.activityRevenue + customer.eventRevenue;
     customer.invoiceCount += 1;
+    const firstTouchpoint = firstPaidTouchpointForInvoice(invoice);
+    if (firstTouchpoint && (!customer.firstTouchpointDate || invoice.date < customer.firstTouchpointDate)) {
+      customer.firstTouchpointDate = invoice.date;
+      customer.firstTouchpointType = firstTouchpoint.type;
+      customer.firstTouchpointLabel = firstTouchpoint.label;
+      customer.firstTouchpointText = firstTouchpoint.text;
+    }
+    const lastTouchpoint = paidTouchpointForInvoice(invoice);
+    if (lastTouchpoint && (!customer.lastTouchpointDate || invoice.date > customer.lastTouchpointDate)) {
+      customer.lastTouchpointDate = invoice.date;
+      customer.lastTouchpointType = lastTouchpoint.type;
+      customer.lastTouchpointLabel = lastTouchpoint.label;
+      customer.lastTouchpointText = lastTouchpoint.text;
+    }
     if (invoice.itemTypes.has("class_pass_type")) customer.classPassCount += 1;
     if (invoice.itemTypes.has("event")) customer.eventCount += 1;
     if (invoice.lines.some((row) => isMembershipSubscriptionRow(row) && !isCrewMembershipRow(row))) {
@@ -204,6 +242,43 @@ function groupCustomers(invoices) {
     if (invoice.lines.some((row) => isCrewMembershipRow(row))) customer.crewMembershipCount += 1;
   }
   return Array.from(byCustomer.values()).sort((a, b) => b.revenue - a.revenue);
+}
+
+function firstPaidTouchpointForInvoice(invoice) {
+  const rows = (invoice.lines || [])
+    .filter(isPaidTouchpointRow)
+    .sort((a, b) => touchpointPriority(a) - touchpointPriority(b));
+  return rows.length ? paidTouchpointInfo(rows[0]) : null;
+}
+
+function paidTouchpointForInvoice(invoice) {
+  const rows = (invoice.lines || [])
+    .filter(isPaidTouchpointRow)
+    .sort((a, b) => touchpointPriority(a) - touchpointPriority(b));
+  return rows.length ? paidTouchpointInfo(rows[0]) : null;
+}
+
+function isPaidTouchpointRow(row) {
+  return row.totalPrice > 0.0001 && (
+    row.itemType === "class_pass_type" ||
+    row.itemType === "event" ||
+    (isMembershipSubscriptionRow(row) && !isCrewMembershipRow(row))
+  );
+}
+
+function paidTouchpointInfo(row) {
+  if (isCrewMembershipRow(row)) return { type: "crew", label: "Crew", text: row.text || "" };
+  if (isPaidMembershipRow(row)) return { type: "membership", label: "Membership", text: row.text || "" };
+  if (row.itemType === "event") return { type: "event", label: "Event ticket", text: row.text || "" };
+  if (row.itemType === "class_pass_type") return { type: "activity", label: "Activity ticket", text: row.text || "" };
+  return { type: "other", label: row.itemType || "Other", text: row.text || "" };
+}
+
+function touchpointPriority(row) {
+  if (row.itemType === "class_pass_type" || row.itemType === "event") return 0;
+  if (isPaidMembershipRow(row)) return 1;
+  if (isCrewMembershipRow(row)) return 2;
+  return 3;
 }
 
 function groupMonths(invoices, timeBucket) {
@@ -231,7 +306,7 @@ function groupMonths(invoices, timeBucket) {
   }));
 }
 
-function groupActivity(rows, timeBucket) {
+function groupActivity(rows, timeBucket, options = {}) {
   const crewMembershipRows = rows.filter(isCrewMembershipRow);
   const rawMembershipRows = rows.filter((row) => isMembershipSubscriptionRow(row) && !isCrewMembershipRow(row));
   const paidMemberKeys = new Set(
@@ -280,6 +355,9 @@ function groupActivity(rows, timeBucket) {
 
   addActiveMemberWeeks(byMonth, membershipRowsByCustomer, getLastRowDate(rows), timeBucket);
   addActiveCrewWeeks(byMonth, crewRowsByCustomer, getLastRowDate(rows), timeBucket);
+  addFirstTouchpointPeriods(byMonth, options.firstTouchpointRows || rows, timeBucket, options.rangeStartMs, options.rangeEndMs);
+  addLastTouchpointPeriods(byMonth, options.firstTouchpointRows || rows, timeBucket, options.rangeStartMs, options.rangeEndMs);
+  addSingleTicketBuyerPeriods(byMonth, options.firstTouchpointRows || rows, timeBucket, options.rangeStartMs, options.rangeEndMs);
 
   return {
     months: Array.from(byMonth.values()).map((month) => ({
@@ -291,9 +369,131 @@ function groupActivity(rows, timeBucket) {
       crewCount: month.crewKeys?.size || 0,
       newMemberships: month.newCustomerKeys.size,
       endedMemberships: month.endedCustomerKeys?.size || 0,
+      firstTouchpoints: month.firstTouchpointKeys?.size || 0,
+      lastTouchpoints: month.lastTouchpointKeys?.size || 0,
+      singleTicketBuyers: month.singleTicketBuyerKeys?.size || 0,
     })),
     membershipTypes: Array.from(membershipTypes.entries()).map(([key, label]) => ({ key, label })),
   };
+}
+
+function addFirstTouchpointPeriods(byMonth, rows, timeBucket, rangeStartMs, rangeEndMs) {
+  const byCustomer = new Map();
+  const singleTicketKeys = singleTicketBuyerKeys(rows);
+  const touchpointRows = rows
+    .filter(isPaidTouchpointRow)
+    .sort((a, b) => a.date - b.date || touchpointPriority(a) - touchpointPriority(b));
+
+  for (const row of touchpointRows) {
+    if (singleTicketKeys.has(row.customerKey)) continue;
+    if (byCustomer.has(row.customerKey)) continue;
+    byCustomer.set(row.customerKey, row);
+  }
+
+  for (const row of byCustomer.values()) {
+    const time = startOfHopDayMs(row.date);
+    if (rangeStartMs && time < rangeStartMs) continue;
+    if (rangeEndMs && time > rangeEndMs) continue;
+    const month = periodKey(row.date, timeBucket);
+    if (!byMonth.has(month)) {
+      byMonth.set(month, {
+        month,
+        revenue: 0,
+        customerKeys: new Set(),
+        newCustomerKeys: new Set(),
+        endedCustomerKeys: new Set(),
+      });
+    }
+    const entry = byMonth.get(month);
+    entry.firstTouchpointKeys = entry.firstTouchpointKeys || new Set();
+    entry.firstTouchpointKeys.add(row.customerKey);
+  }
+}
+
+function addLastTouchpointPeriods(byMonth, rows, timeBucket, rangeStartMs, rangeEndMs) {
+  const byCustomer = new Map();
+  const singleTicketKeys = singleTicketBuyerKeys(rows);
+  const touchpointRows = rows
+    .filter(isPaidTouchpointRow)
+    .sort((a, b) => b.date - a.date || touchpointPriority(a) - touchpointPriority(b));
+
+  for (const row of touchpointRows) {
+    if (singleTicketKeys.has(row.customerKey)) continue;
+    if (byCustomer.has(row.customerKey)) continue;
+    byCustomer.set(row.customerKey, row);
+  }
+
+  for (const row of byCustomer.values()) {
+    const time = startOfHopDayMs(row.date);
+    if (rangeStartMs && time < rangeStartMs) continue;
+    if (rangeEndMs && time > rangeEndMs) continue;
+    const month = periodKey(row.date, timeBucket);
+    if (!byMonth.has(month)) {
+      byMonth.set(month, {
+        month,
+        revenue: 0,
+        customerKeys: new Set(),
+        newCustomerKeys: new Set(),
+        endedCustomerKeys: new Set(),
+      });
+    }
+    const entry = byMonth.get(month);
+    entry.lastTouchpointKeys = entry.lastTouchpointKeys || new Set();
+    entry.lastTouchpointKeys.add(row.customerKey);
+  }
+}
+
+function addSingleTicketBuyerPeriods(byMonth, rows, timeBucket, rangeStartMs, rangeEndMs) {
+  const singleTicketKeys = singleTicketBuyerKeys(rows);
+  const ticketRows = rows
+    .filter((row) => row.totalPrice > 0.0001)
+    .filter((row) => row.itemType === "class_pass_type" || row.itemType === "event")
+    .sort((a, b) => a.date - b.date);
+  const byCustomer = new Map();
+
+  for (const row of ticketRows) {
+    if (!singleTicketKeys.has(row.customerKey)) continue;
+    if (!byCustomer.has(row.customerKey)) byCustomer.set(row.customerKey, []);
+    byCustomer.get(row.customerKey).push(row);
+  }
+
+  for (const [customerKey, customerRows] of byCustomer.entries()) {
+    if (customerRows.length !== 1) continue;
+    const row = customerRows[0];
+    const time = startOfHopDayMs(row.date);
+    if (rangeStartMs && time < rangeStartMs) continue;
+    if (rangeEndMs && time > rangeEndMs) continue;
+    const month = periodKey(row.date, timeBucket);
+    if (!byMonth.has(month)) {
+      byMonth.set(month, {
+        month,
+        revenue: 0,
+        customerKeys: new Set(),
+        newCustomerKeys: new Set(),
+        endedCustomerKeys: new Set(),
+      });
+    }
+    const entry = byMonth.get(month);
+    entry.singleTicketBuyerKeys = entry.singleTicketBuyerKeys || new Set();
+    entry.singleTicketBuyerKeys.add(customerKey);
+  }
+}
+
+function singleTicketBuyerKeys(rows) {
+  const ticketCounts = new Map();
+  const membershipKeys = new Set();
+  for (const row of rows) {
+    if (row.totalPrice <= 0.0001) continue;
+    if (row.itemType === "class_pass_type" || row.itemType === "event") {
+      ticketCounts.set(row.customerKey, (ticketCounts.get(row.customerKey) || 0) + 1);
+    }
+    if (isMembershipSubscriptionRow(row) && !isCrewMembershipRow(row)) {
+      membershipKeys.add(row.customerKey);
+    }
+  }
+  return new Set(Array.from(ticketCounts.entries())
+    .filter(([customerKey, count]) => count === 1 && !membershipKeys.has(customerKey))
+    .map(([customerKey]) => customerKey));
 }
 
 function groupTicketSales(rows, timeBucket) {
@@ -817,10 +1017,12 @@ function exitPointForRow(row) {
   };
 }
 
-function groupMembershipLength(rows) {
+function groupMembershipLength(rows, options = {}) {
   const defaultCoverageDays = 35;
   const continuousRenewalDays = 62;
   const dataEndDate = getLastRowDate(rows);
+  const rangeStartMs = Number(options.rangeStartMs) || null;
+  const rangeEndMs = Number(options.rangeEndMs) || null;
   const paidMembershipRows = rows
     .filter(isPaidMembershipRow)
     .sort((a, b) => a.date - b.date);
@@ -879,18 +1081,19 @@ function groupMembershipLength(rows) {
     }
   }
 
-  const buckets = membershipLengthBuckets(spans);
-  const activeSpans = spans.filter((span) => span.active);
-  const endedSpans = spans.filter((span) => !span.active);
-  const avgMonths = spans.length ? spans.reduce((total, span) => total + span.months, 0) / spans.length : 0;
-  const medianMonths = median(spans.map((span) => span.months));
-  const types = membershipLengthTypes(spans);
+  const visibleSpans = membershipSpansInRange(spans, rangeStartMs, rangeEndMs);
+  const buckets = membershipLengthBuckets(visibleSpans);
+  const activeSpans = visibleSpans.filter((span) => span.active);
+  const endedSpans = visibleSpans.filter((span) => !span.active);
+  const avgMonths = visibleSpans.length ? visibleSpans.reduce((total, span) => total + span.months, 0) / visibleSpans.length : 0;
+  const medianMonths = median(visibleSpans.map((span) => span.months));
+  const types = membershipLengthTypes(visibleSpans);
 
   return {
-    spans: spans.sort((a, b) => b.months - a.months),
+    spans: visibleSpans.sort((a, b) => b.months - a.months),
     buckets,
     types,
-    spanCount: spans.length,
+    spanCount: visibleSpans.length,
     activeCount: activeSpans.length,
     endedCount: endedSpans.length,
     avgMonths,
@@ -898,6 +1101,23 @@ function groupMembershipLength(rows) {
     maxBucketCount: Math.max(1, ...buckets.map((bucket) => bucket.total)),
     maxTypeCount: Math.max(1, ...types.map((type) => type.count)),
   };
+}
+
+function membershipSpansInRange(spans, rangeStartMs, rangeEndMs) {
+  if (!rangeStartMs || !rangeEndMs) return spans;
+  return spans
+    .filter((span) => startOfHopDayMs(span.startDate) <= rangeEndMs && startOfHopDayMs(span.endDate) >= rangeStartMs)
+    .map((span) => {
+      const measurementDate = new Date(Math.min(startOfHopDayMs(span.endDate), rangeEndMs));
+      const daysAtSlice = Math.max(1, (measurementDate - span.startDate) / 86400000);
+      return {
+        ...span,
+        visibleInRange: true,
+        measurementDate,
+        days: daysAtSlice,
+        months: daysAtSlice / 30.4375,
+      };
+    });
 }
 
 function membershipLengthBuckets(spans) {
@@ -1020,10 +1240,32 @@ function groupBuyerPatterns(rows, timeBucket) {
         anonymousLabel: row.anonymousLabel,
         firstDate: row.date,
         lastDate: row.date,
+        firstTouchpointDate: row.date,
+        firstTouchpointType: "unknown",
+        firstTouchpointLabel: "Unknown",
+        firstTouchpointText: "",
+        lastTouchpointDate: row.date,
+        lastTouchpointType: "unknown",
+        lastTouchpointLabel: "Unknown",
+        lastTouchpointText: "",
         events: [],
       });
     }
     const buyer = byCustomer.get(row.customerKey);
+    if (row.date <= buyer.firstDate) {
+      const touchpoint = paidTouchpointInfo(row);
+      buyer.firstTouchpointDate = row.date;
+      buyer.firstTouchpointType = touchpoint.type;
+      buyer.firstTouchpointLabel = touchpoint.label;
+      buyer.firstTouchpointText = touchpoint.text;
+    }
+    if (row.date >= buyer.lastDate) {
+      const touchpoint = paidTouchpointInfo(row);
+      buyer.lastTouchpointDate = row.date;
+      buyer.lastTouchpointType = touchpoint.type;
+      buyer.lastTouchpointLabel = touchpoint.label;
+      buyer.lastTouchpointText = touchpoint.text;
+    }
     buyer.firstDate = minDate(buyer.firstDate, row.date);
     buyer.lastDate = maxDate(buyer.lastDate, row.date);
     const isCrew = isCrewMembershipRow(row);
@@ -1420,6 +1662,10 @@ function addPeriods(date, offset, timeBucket) {
     copy.setMonth(copy.getMonth() + offset);
     return copy;
   }
+  if (timeBucket === "halfyear") {
+    copy.setMonth(copy.getMonth() + offset * 6);
+    return copy;
+  }
   if (timeBucket === "quarter") {
     copy.setMonth(copy.getMonth() + offset * 3);
     return copy;
@@ -1436,6 +1682,8 @@ function dateFromPeriodKey(key, timeBucket) {
   if (monthMatch) return new Date(Number(monthMatch[1]), Number(monthMatch[2]) - 1, 1);
   const quarterMatch = text.match(/^(\d{4})-Q(\d)$/);
   if (quarterMatch) return new Date(Number(quarterMatch[1]), (Number(quarterMatch[2]) - 1) * 3, 1);
+  const halfyearMatch = text.match(/^(\d{4})-H([12])$/);
+  if (halfyearMatch) return new Date(Number(halfyearMatch[1]), (Number(halfyearMatch[2]) - 1) * 6, 1);
   const yearMatch = text.match(/^(\d{4})$/);
   if (yearMatch) return new Date(Number(yearMatch[1]), 0, 1);
   return new Date();
@@ -1458,6 +1706,9 @@ function journeyOffset(firstDate, date, timeBucket) {
   }
   if (timeBucket === "quarter") {
     return Math.floor(((date.getFullYear() - firstDate.getFullYear()) * 12 + date.getMonth() - firstDate.getMonth()) / 3);
+  }
+  if (timeBucket === "halfyear") {
+    return Math.floor(((date.getFullYear() - firstDate.getFullYear()) * 12 + date.getMonth() - firstDate.getMonth()) / 6);
   }
   return Math.floor((startOfIsoWeek(date) - startOfIsoWeek(firstDate)) / (7 * 86400000));
 }
@@ -1646,6 +1897,7 @@ function periodKey(date, timeBucket) {
   if (timeBucket === "year") return yearKey(date);
   if (timeBucket === "month") return monthKey(date);
   if (timeBucket === "quarter") return quarterKey(date);
+  if (timeBucket === "halfyear") return halfyearKey(date);
   return weekKey(date);
 }
 
@@ -1662,9 +1914,15 @@ function quarterKey(date) {
   return `${date.getFullYear()}-Q${quarter}`;
 }
 
+function halfyearKey(date) {
+  const half = date.getMonth() < 6 ? 1 : 2;
+  return `${date.getFullYear()}-H${half}`;
+}
+
 function weekKey(date) {
   const weekStart = startOfIsoWeek(date);
-  return `${weekStart.getFullYear()}-W${String(getIsoWeek(weekStart)).padStart(2, "0")}`;
+  const iso = getIsoWeekInfo(weekStart);
+  return `${iso.year}-W${String(iso.week).padStart(2, "0")}`;
 }
 
 function startOfIsoWeek(date) {
@@ -1676,11 +1934,18 @@ function startOfIsoWeek(date) {
 }
 
 function getIsoWeek(date) {
+  return getIsoWeekInfo(date).week;
+}
+
+function getIsoWeekInfo(date) {
   const copy = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()));
   const day = copy.getUTCDay() || 7;
   copy.setUTCDate(copy.getUTCDate() + 4 - day);
   const yearStart = new Date(Date.UTC(copy.getUTCFullYear(), 0, 1));
-  return Math.ceil(((copy - yearStart) / 86400000 + 1) / 7);
+  return {
+    year: copy.getUTCFullYear(),
+    week: Math.ceil(((copy - yearStart) / 86400000 + 1) / 7),
+  };
 }
 
 function addDays(date, days) {

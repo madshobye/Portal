@@ -107,7 +107,7 @@ function drawHopOverview(model, fileName = "", currentView = "overview", navItem
   const contentTop = 112;
 
   if (currentView === "activity") {
-    drawActivityView(model.activity, model.ticketSales, pad, contentTop);
+    drawActivityView(model.activity, model.ticketSalesTimeline || model.ticketSales, pad, contentTop);
     return;
   }
 
@@ -230,6 +230,9 @@ function drawActivityView(activity, ticketSales, pad, top) {
     { key: "totalRevenue", label: "Revenue", color: [0, 0, 0], formatter: formatDkk, scale: moneyScale },
     { key: "yearTotalRevenue", label: "Year accumulated revenue", color: [90, 90, 90], formatter: formatDkk, scale: moneyScale },
     { key: "revenue", label: "Member revenue", color: [20, 20, 20], formatter: formatDkk, scale: moneyScale },
+    { key: "firstTouchpoints", label: "First touchpoints", color: [30, 170, 190], formatter: formatInteger, scale: countScale },
+    { key: "lastTouchpoints", label: "Last touchpoints", color: [220, 95, 95], formatter: formatInteger, scale: countScale },
+    { key: "singleTicketBuyers", label: "Single ticket", color: [255, 165, 45], formatter: formatInteger, scale: countScale },
     { key: "newMemberships", label: "New memberships", color: [26, 105, 180], formatter: formatInteger, scale: countScale },
     { key: "endedMemberships", label: "Ended memberships", color: [210, 55, 55], formatter: formatInteger, scale: countScale },
     { key: "memberCount", label: "Member count", color: [190, 90, 35], formatter: formatInteger, scale: countScale },
@@ -783,6 +786,9 @@ function timelineChartState() {
     toggleHits: chartToggleHits,
     hiddenSeriesKeys,
     hiddenLabelTypes: hiddenTimelineLabelTypes,
+    timeBucket,
+    rangeStartMs: typeof selectedStartMs === "number" ? selectedStartMs : 0,
+    rangeEndMs: typeof selectedEndMs === "number" ? selectedEndMs : 0,
   };
 }
 
@@ -2375,6 +2381,7 @@ function getRevenueGroupsMembershipButton(overridePosition) {
 
 function timeBucketLabel(bucket) {
   if (bucket === "year") return "Year";
+  if (bucket === "halfyear") return "1/2 Year";
   if (bucket === "month") return "Month";
   if (bucket === "quarter") return "3 Mon";
   return "Week";
