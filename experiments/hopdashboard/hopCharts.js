@@ -793,6 +793,7 @@ function timelineChartState() {
     timeBucket,
     rangeStartMs: typeof selectedStartMs === "number" ? selectedStartMs : 0,
     rangeEndMs: typeof selectedEndMs === "number" ? selectedEndMs : 0,
+    smoothTimelineCurves: !!timelineSmoothCurves,
   };
 }
 
@@ -2298,6 +2299,17 @@ function drawStorageToggle(active) {
   text("s", item.x + item.w / 2, item.y + item.h / 2);
 }
 
+function drawTimelineCurveToggle(active) {
+  const item = getTimelineCurveButton();
+  fill(active ? 30 : 110);
+  noStroke();
+  rect(item.x, item.y, item.w, item.h, 3);
+  fill(active ? 245 : 35);
+  textSize(11);
+  textAlign(CENTER, CENTER);
+  text(active ? "Curve" : "Line", item.x + item.w / 2, item.y + item.h / 2);
+}
+
 function drawCaptureButton() {
   const item = getCaptureButton();
   fill(110);
@@ -2366,12 +2378,20 @@ function getCaptureButton() {
   return { x: storage.x - gap - w, y: storage.y, w, h };
 }
 
-function getActivityPathModeButton() {
+function getTimelineCurveButton() {
   const capture = getCaptureButton();
-  const w = 92;
+  const w = 48;
   const h = 26;
   const gap = 6;
   return { x: capture.x - gap - w, y: capture.y, w, h };
+}
+
+function getActivityPathModeButton() {
+  const curve = getTimelineCurveButton();
+  const w = 92;
+  const h = 26;
+  const gap = 6;
+  return { x: curve.x - gap - w, y: curve.y, w, h };
 }
 
 function getRevenueGroupsMembershipButton(overridePosition) {

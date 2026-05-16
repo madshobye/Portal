@@ -15,6 +15,7 @@ let activityPathMode = "ever";
 let anonymizeNames = true;
 let storeDataInBrowser = false;
 let revenueGroupsExcludeMembership = false;
+let timelineSmoothCurves = false;
 let fullTimelineCacheByBucket = new Map();
 let storedSliderState = {};
 let draggedNetworkNode = null;
@@ -69,6 +70,7 @@ function draw() {
     drawTimeBucketToggle(timeBucket);
     drawAnonymizeToggle(anonymizeNames);
     drawStorageToggle(storeDataInBrowser);
+    drawTimelineCurveToggle(timelineSmoothCurves);
     drawCaptureButton();
     drawActivityPathModeToggle(activityPathMode, currentView === "activitypath");
     drawPortalRangeControls();
@@ -269,6 +271,7 @@ function saveSliderState() {
     timeBucket,
     activityPathMode,
     revenueGroupsExcludeMembership,
+    timelineSmoothCurves,
   };
   saveHopSliders(storedSliderState);
 }
@@ -284,6 +287,7 @@ function restoreStoredSliders() {
     activityPathMode = storedSliderState.activityPathMode;
   }
   revenueGroupsExcludeMembership = !!storedSliderState.revenueGroupsExcludeMembership;
+  timelineSmoothCurves = !!storedSliderState.timelineSmoothCurves;
 }
 
 function restoreStorePreference() {
@@ -363,6 +367,13 @@ function mousePressed() {
     saveHopStorePreference(storeDataInBrowser);
     if (storeDataInBrowser && sourceCsvText) saveHopCsv(sourceCsvText, droppedFileName);
     if (!storeDataInBrowser) clearHopCsv();
+    return false;
+  }
+
+  const curveHit = getTimelineCurveHit(mouseX, mouseY);
+  if (curveHit) {
+    timelineSmoothCurves = !timelineSmoothCurves;
+    saveSliderState();
     return false;
   }
 
@@ -535,6 +546,11 @@ function getAnonymizeHit(x, y) {
 
 function getStorageHit(x, y) {
   const item = getStorageButton();
+  return x >= item.x && x <= item.x + item.w && y >= item.y && y <= item.y + item.h;
+}
+
+function getTimelineCurveHit(x, y) {
+  const item = getTimelineCurveButton();
   return x >= item.x && x <= item.x + item.w && y >= item.y && y <= item.y + item.h;
 }
 

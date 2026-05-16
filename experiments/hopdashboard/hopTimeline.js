@@ -35,7 +35,7 @@ function drawHopTimelineChart(x, y, w, h, points, title, series, labels = [], st
   const maxByScale = {};
   for (const item of visibleSeries) {
     const scaleKey = item.scale || item.key;
-    maxByScale[scaleKey] = max(maxByScale[scaleKey] || 1, ...points.map((point) => abs(point[item.key] || 0)));
+    maxByScale[scaleKey] = Math.max(maxByScale[scaleKey] || 1, ...points.map((point) => abs(point[item.key] || 0)));
   }
   for (const scaleKey of Object.keys(maxByScale)) {
     maxByScale[scaleKey] *= 1.08;
@@ -58,9 +58,7 @@ function drawHopTimelineChart(x, y, w, h, points, title, series, labels = [], st
     const alpha = legend.hoveredSeriesKey && legend.hoveredSeriesKey !== item.key ? 35 : 255;
     stroke(item.color[0], item.color[1], item.color[2], alpha);
     strokeWeight(legend.hoveredSeriesKey === item.key ? 3.5 : 2.5);
-    beginShape();
-    drawTimelineSeriesVertices(linePoints, item, plotX, plotW, plotY, plotH, maxByScale[item.scale || item.key] || 1, state);
-    endShape();
+    drawTimelineSeriesLine(linePoints, item, plotX, plotW, plotY, plotH, maxByScale[item.scale || item.key] || 1, state);
   }
   drawingContext.restore();
 
@@ -204,19 +202,60 @@ function lineTimelinePointsForState(points, state) {
   ];
 }
 
-function drawTimelineSeriesVertices(points, item, plotX, plotW, plotY, plotH, maxValue, state) {
+function drawTimelineSeriesLine(points, item, plotX, plotW, plotY, plotH, maxValue, state) {
+  if (state.smoothTimelineCurves) {
+    drawTimelineSeriesCurve(points, item, plotX, plotW, plotY, plotH, maxValue, state);
+    return;
+  }
+  const linePoints = timelineSeriesCurvePoints(points, item, plotX, plotW, plotY, plotH, maxValue, state);
+  beginShape();
+  for (const point of linePoints) {
+    vertex(point.x, point.y);
+  }
+  endShape();
+}
+
+function drawTimelineSeriesCurve(points, item, plotX, plotW, plotY, plotH, maxValue, state) {
+  const curvePoints = timelineSeriesCurvePoints(points, item, plotX, plotW, plotY, plotH, maxValue, state);
+  if (!curvePoints.length) return;
+  if (curvePoints.length === 1) {
+    point(curvePoints[0].x, curvePoints[0].y);
+    return;
+  }
+  drawingContext.beginPath();
+  drawingContext.moveTo(curvePoints[0].x, curvePoints[0].y);
+  for (let index = 0; index < curvePoints.length - 1; index += 1) {
+    const p0 = curvePoints[Math.max(0, index - 1)];
+    const p1 = curvePoints[index];
+    const p2 = curvePoints[index + 1];
+    const p3 = curvePoints[Math.min(curvePoints.length - 1, index + 2)];
+    drawingContext.bezierCurveTo(
+      p1.x + (p2.x - p0.x) / 6,
+      p1.y + (p2.y - p0.y) / 6,
+      p2.x - (p3.x - p1.x) / 6,
+      p2.y - (p3.y - p1.y) / 6,
+      p2.x,
+      p2.y
+    );
+  }
+  drawingContext.stroke();
+}
+
+function timelineSeriesCurvePoints(points, item, plotX, plotW, plotY, plotH, maxValue, state) {
+  const result = [];
   let previousYear = "";
   points.forEach((point, index) => {
     const year = String(point.month || "").slice(0, 4);
     if (item.key === "yearTotalRevenue" && index > 0 && year && previousYear && year !== previousYear) {
       const resetX = timelineMsToX(plotX, plotW, timelinePeriodStartMs(point.month), state, false);
-      vertex(resetX, plotY + plotH);
+      result.push({ x: resetX, y: plotY + plotH });
     }
     const px = timelinePointXForPoint(plotX, plotW, point, state, false);
     const py = plotY + plotH - ((point[item.key] || 0) / maxValue) * plotH;
-    vertex(px, py);
+    result.push({ x: px, y: py });
     if (year) previousYear = year;
   });
+  return result;
 }
 
 function timelinePeriodSlot(plotX, plotW, count, index) {
@@ -378,7 +417,7 @@ function drawTimelinePeriodSeasonSegments(x0, x1, y, h, date, key) {
     const sx1 = lerp(x0, x1, (offset + 1) / months);
     fill(...timelineSeasonColor(monthIndex));
     noStroke();
-    rect(sx0, y, max(1, sx1 - sx0), h);
+    rect(sx0, y, Math.max(1, sx1 - sx0), h);
   }
 }
 
@@ -464,7 +503,7 @@ function drawTimelineLabels(plotX, plotY, plotW, plotH, points, labels, hiddenLa
   if (!labels.length || !points.length) return false;
   const periodIndex = new Map(points.map((point, index) => [point.month, index]));
   const visibleLabels = labels.filter((label) => periodIndex.has(label.period) && label.value > 0 && !hiddenLabels.has(label.type));
-  const maxValue = max(1, ...visibleLabels.map((label) => label.value));
+  const maxValue = Math.max(1, ...visibleLabels.map((label) => label.value));
   const laneByLabel = buildTimelineLabelLanes(visibleLabels);
 
   let hoveredLabel = null;
@@ -472,7 +511,7 @@ function drawTimelineLabels(plotX, plotY, plotW, plotH, points, labels, hiddenLa
     const index = periodIndex.get(label.period);
     const px = timelinePointXForState(plotX, plotW, points, index, state);
     const lane = laneByLabel.get(label.label) ?? 0.5;
-    const py = plotY + 18 + lane * max(1, plotH - 36);
+    const py = plotY + 18 + lane * Math.max(1, plotH - 36);
     const radius = map(sqrt(label.value), 0, sqrt(maxValue), 8, 34);
     const color = label.color || (label.type === "Event" ? [135, 85, 170] : [60, 140, 85]);
     const focusedType = getHoveredTimelineLabelType(toggleHits, hiddenLabels);
@@ -683,10 +722,10 @@ function drawNormalizedJourneyTimeline(x, y, w, h, journeys, options = {}) {
   const plotW = w - 56;
   const plotH = h - 98;
   const visibleJourneys = journeys.slice(0, visibleLimit);
-  const maxOffset = max(1, ...visibleJourneys.map((journey) => journey.span || 0));
+  const maxOffset = Math.max(1, ...visibleJourneys.map((journey) => journey.span || 0));
   const cumulative = options.mode === "cumulative";
   const maxValue = cumulative
-    ? max(1, ...visibleJourneys.flatMap((journey) => journey.periods.map((period) => period.cumulativeValue || 0)))
+    ? Math.max(1, ...visibleJourneys.flatMap((journey) => journey.periods.map((period) => period.cumulativeValue || 0)))
     : 1;
   const hoveredJourneys = [];
   let hoveredDot = null;
@@ -698,7 +737,7 @@ function drawNormalizedJourneyTimeline(x, y, w, h, journeys, options = {}) {
 
   for (const journey of visibleJourneys) {
     const lane = normalizedJourneyLane(journey);
-    const baseY = plotY + 16 + lane * max(1, plotH - 32);
+    const baseY = plotY + 16 + lane * Math.max(1, plotH - 32);
     const lineColor = journey.color || [26, 105, 180];
     const points = journey.periods.map((period) => ({
       period,
@@ -721,7 +760,7 @@ function drawNormalizedJourneyTimeline(x, y, w, h, journeys, options = {}) {
       const dotDistance = dist(mouseX, mouseY, point.x, point.y);
       fill(color[0], color[1], color[2], isHover ? 230 : 110);
       circle(point.x, point.y, radius * 2);
-      if (dotDistance <= max(9, radius + 5) && (!hoveredDot || dotDistance < hoveredDot.distance)) {
+      if (dotDistance <= Math.max(9, radius + 5) && (!hoveredDot || dotDistance < hoveredDot.distance)) {
         hoveredDot = { journey, point, color, distance: dotDistance };
       }
       if (markerColor) {
@@ -805,7 +844,7 @@ function drawHoveredJourneyLabels(plotX, plotY, plotW, hoveredJourneys, options)
   const gap = 8;
   const boxW = options.hoverBoxWidth || 170;
   const boxH = 96;
-  const columns = max(1, floor((plotW + gap) / (boxW + gap)));
+  const columns = Math.max(1, floor((plotW + gap) / (boxW + gap)));
   const rows = ceil(items.length / columns);
   const labelY = plotY + 8;
   textSize(11);
@@ -887,8 +926,8 @@ function distanceToNormalizedJourney(mx, my, points) {
   if (!points.length) return Infinity;
   let best = Infinity;
   for (let index = 0; index < points.length; index += 1) {
-    best = min(best, dist(mx, my, points[index].x, points[index].y));
-    if (index > 0) best = min(best, distanceToTimelineSegment(mx, my, points[index - 1], points[index]));
+    best = Math.min(best, dist(mx, my, points[index].x, points[index].y));
+    if (index > 0) best = Math.min(best, distanceToTimelineSegment(mx, my, points[index - 1], points[index]));
   }
   return best;
 }
