@@ -1,5 +1,6 @@
 let hopModel = null;
 let sourceRows = [];
+let sourceCsvText = "";
 let droppedFileName = "";
 let statusMessage = "Drop HOP sales CSV onto the canvas";
 let currentView = "overview";
@@ -12,6 +13,8 @@ let buyerPatternWindowIndex = 0;
 let revenueGroupCount = 8;
 let activityPathMode = "ever";
 let anonymizeNames = true;
+let storeDataInBrowser = false;
+let revenueGroupsExcludeMembership = false;
 let storedSliderState = {};
 let draggedNetworkNode = null;
 let chartToggleHits = [];
@@ -38,6 +41,8 @@ const NAV_ITEMS = [
   { id: "pipeline", label: "Pipeline", shortLabel: "Pipe" },
   { id: "producthealth", label: "Product Health", shortLabel: "Health" },
   { id: "segments", label: "Segments", shortLabel: "Seg" },
+  { id: "exitpoints", label: "Exit Points", shortLabel: "Exit" },
+  { id: "memberlength", label: "Member Length", shortLabel: "Length" },
   { id: "activity", label: "Activity" },
 ];
 
@@ -49,6 +54,7 @@ function setup() {
   restoreStoredView();
   restoreStoredTimelineVisibility();
   restoreStoredSliders();
+  restoreStorePreference();
   restoreStoredCsv();
 }
 
@@ -59,6 +65,7 @@ function draw() {
     drawGraphPeriodLabel(currentView);
     drawTimeBucketToggle(timeBucket);
     drawAnonymizeToggle(anonymizeNames);
+    drawStorageToggle(storeDataInBrowser);
     drawCaptureButton();
     drawActivityPathModeToggle(activityPathMode, currentView === "activitypath");
     drawPortalRangeControls();
@@ -80,7 +87,8 @@ function handleCsvDrop(file) {
   }
   try {
     loadCsvText(file.data, file.name || "CSV");
-    saveHopCsv(file.data, droppedFileName);
+    if (storeDataInBrowser) saveHopCsv(file.data, droppedFileName);
+    else clearHopCsv();
   } catch (error) {
     console.error(error);
     statusMessage = `CSV parse failed: ${error?.message || error}`;
@@ -88,6 +96,10 @@ function handleCsvDrop(file) {
 }
 
 function restoreStoredCsv() {
+  if (!storeDataInBrowser) {
+    clearHopCsv();
+    return;
+  }
   const stored = loadHopCsv();
   if (!stored?.text) return;
   try {
@@ -100,6 +112,7 @@ function restoreStoredCsv() {
 }
 
 function loadCsvText(text, fileName) {
+  sourceCsvText = String(text || "");
   const parsed = parseCsvText(text);
   sourceRows = parsed.rows;
   const fullModel = buildHopModel(sourceRows, timeBucket);
@@ -149,11 +162,13 @@ function drawPortalRangeControls() {
   }
 
   if (currentView === "revenuegroups") {
+    const groupSliderX = 32;
     const groupSlider = uiSlider("hop_revenue_group_count", `${revenueGroupCount} groups`, {
       min: 3,
       max: 100,
       init: revenueGroupCount,
-    }, { ...style, x: max(32, dateBounds.x - sliderW - 14), y: controlY, width: sliderW });
+    }, { ...style, x: groupSliderX, y: controlY, width: sliderW });
+    drawRevenueGroupsMembershipToggle(revenueGroupsExcludeMembership, true, getRevenueGroupsMembershipButtonPosition());
     const nextGroupCount = constrain(round(groupSlider.value), 3, 100);
     if (nextGroupCount !== revenueGroupCount) {
       revenueGroupCount = nextGroupCount;
@@ -235,6 +250,7 @@ function saveSliderState() {
     revenueGroupCount,
     timeBucket,
     activityPathMode,
+    revenueGroupsExcludeMembership,
   };
   saveHopSliders(storedSliderState);
 }
@@ -243,12 +259,17 @@ function restoreStoredSliders() {
   storedSliderState = loadHopSliders();
   buyerPatternWindowIndex = constrain(Number(storedSliderState.buyerPatternWindowIndex) || 0, 0, 999999);
   revenueGroupCount = constrain(Number(storedSliderState.revenueGroupCount) || revenueGroupCount, 3, 100);
-  if (["week", "month", "quarter"].includes(storedSliderState.timeBucket)) {
+  if (["week", "month", "quarter", "year"].includes(storedSliderState.timeBucket)) {
     timeBucket = storedSliderState.timeBucket;
   }
   if (["ever", "range"].includes(storedSliderState.activityPathMode)) {
     activityPathMode = storedSliderState.activityPathMode;
   }
+  revenueGroupsExcludeMembership = !!storedSliderState.revenueGroupsExcludeMembership;
+}
+
+function restoreStorePreference() {
+  storeDataInBrowser = loadHopStorePreference();
 }
 
 function snapDay(value) {
@@ -312,6 +333,15 @@ function mousePressed() {
     return false;
   }
 
+  const storageHit = getStorageHit(mouseX, mouseY);
+  if (storageHit) {
+    storeDataInBrowser = !storeDataInBrowser;
+    saveHopStorePreference(storeDataInBrowser);
+    if (storeDataInBrowser && sourceCsvText) saveHopCsv(sourceCsvText, droppedFileName);
+    if (!storeDataInBrowser) clearHopCsv();
+    return false;
+  }
+
   const captureHit = getCaptureHit(mouseX, mouseY);
   if (captureHit) {
     saveGraphSnapshot();
@@ -323,6 +353,13 @@ function mousePressed() {
     activityPathMode = activityPathMode === "ever" ? "range" : "ever";
     saveSliderState();
     applyDateRange();
+    return false;
+  }
+
+  const revenueMembershipHit = getRevenueGroupsMembershipHit(mouseX, mouseY);
+  if (revenueMembershipHit) {
+    revenueGroupsExcludeMembership = !revenueGroupsExcludeMembership;
+    saveSliderState();
     return false;
   }
 
@@ -469,6 +506,11 @@ function getAnonymizeHit(x, y) {
   return x >= item.x && x <= item.x + item.w && y >= item.y && y <= item.y + item.h;
 }
 
+function getStorageHit(x, y) {
+  const item = getStorageButton();
+  return x >= item.x && x <= item.x + item.w && y >= item.y && y <= item.y + item.h;
+}
+
 function getCaptureHit(x, y) {
   const item = getCaptureButton();
   return x >= item.x && x <= item.x + item.w && y >= item.y && y <= item.y + item.h;
@@ -521,6 +563,18 @@ function getActivityPathModeHit(x, y) {
   return x >= item.x && x <= item.x + item.w && y >= item.y && y <= item.y + item.h;
 }
 
+function getRevenueGroupsMembershipHit(x, y) {
+  if (currentView !== "revenuegroups") return false;
+  const item = getRevenueGroupsMembershipButton(getRevenueGroupsMembershipButtonPosition());
+  return x >= item.x && x <= item.x + item.w && y >= item.y && y <= item.y + item.h;
+}
+
+function getRevenueGroupsMembershipButtonPosition() {
+  const dateBounds = getDateRangeSliderBounds();
+  const sliderW = min(220, max(150, (dateBounds.x - 46) / 2));
+  return { x: 32 + sliderW + 10, y: 66 };
+}
+
 function saveGraphSnapshot() {
   draw();
   const bounds = getGraphSnapshotBounds();
@@ -547,6 +601,7 @@ function getGraphSnapshotBounds() {
 function nextTimeBucket(bucket) {
   if (bucket === "week") return "month";
   if (bucket === "month") return "quarter";
+  if (bucket === "quarter") return "year";
   return "week";
 }
 

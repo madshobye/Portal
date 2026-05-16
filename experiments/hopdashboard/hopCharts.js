@@ -72,6 +72,8 @@ function viewInfoDescription(infoKey) {
     pipeline: "Funnel from ticket buyers to recurring ticket buyers, members, and crew/long-term members, with first activities that feed membership.",
     productHealth: "One row per activity or event product, showing revenue, buyers, repeat buyers, first-timer share, member share, and recent trend.",
     segments: "Behavioral customer clusters: one-timers, seasonal returners, recurring ticket buyers, members, crew, and high-value supporters.",
+    exitPoints: "Shows each customer's last meaningful paid touchpoint in the selected period, grouped by activity, event, membership, or crew.",
+    memberLength: "Distribution of paid membership spans, estimating continuous membership from recurring payments and separating active from ended spans.",
     overview: "High-level summary of revenue, customers, invoices, active customers, and invoice mix for the selected date range.",
     ticketItems: "Largest activity and event products by net revenue and ticket count in the selected date range.",
     activityMix: "Count of invoice item types in the selected date range.",
@@ -130,7 +132,7 @@ function drawHopOverview(model, fileName = "", currentView = "overview", navItem
   }
 
   if (currentView === "revenuegroups") {
-    drawRevenueGroupsView(model.customers, pad, contentTop, revenueGroupCount || 8);
+    drawRevenueGroupsView(model.customers, pad, contentTop, revenueGroupCount || 8, !!revenueGroupsExcludeMembership);
     return;
   }
 
@@ -166,6 +168,16 @@ function drawHopOverview(model, fileName = "", currentView = "overview", navItem
 
   if (currentView === "segments") {
     drawCustomerSegmentsView(model.customerSegments, pad, contentTop);
+    return;
+  }
+
+  if (currentView === "exitpoints") {
+    drawExitPointsView(model.exitPoints, pad, contentTop);
+    return;
+  }
+
+  if (currentView === "memberlength") {
+    drawMembershipLengthView(model.membershipLength, pad, contentTop);
     return;
   }
 
@@ -926,13 +938,15 @@ function drawTicketBuyerSegmentLabels(plotX, plotY, plotH, buyers) {
   }
 }
 
-function drawRevenueGroupsView(customers, pad, top, groupCount) {
+function drawRevenueGroupsView(customers, pad, top, groupCount, excludeMembershipRevenue = false) {
+  const revenueKey = excludeMembershipRevenue ? "ticketRevenue" : "revenue";
+  const revenueLabel = excludeMembershipRevenue ? "Ticket/event revenue" : "Revenue";
   const payingCustomers = (customers || [])
-    .filter((customer) => customer.revenue > 0)
+    .filter((customer) => customer[revenueKey] > 0)
     .sort((a, b) => {
       const aTickets = a.classPassCount + a.eventCount;
       const bTickets = b.classPassCount + b.eventCount;
-      return bTickets - aTickets || b.membershipCount - a.membershipCount || b.revenue - a.revenue;
+      return bTickets - aTickets || b.membershipCount - a.membershipCount || b[revenueKey] - a[revenueKey];
     });
 
   fill(238);
@@ -947,7 +961,7 @@ function drawRevenueGroupsView(customers, pad, top, groupCount) {
     return;
   }
 
-  const groups = buildRevenueFrequencyGroups(payingCustomers, groupCount);
+  const groups = buildRevenueFrequencyGroups(payingCustomers, groupCount, revenueKey);
   const totalRevenue = sum(groups, "revenue");
   const maxRevenue = max(1, ...groups.map((group) => group.revenue));
   const maxPeople = max(1, ...groups.map((group) => group.people));
@@ -965,7 +979,7 @@ function drawRevenueGroupsView(customers, pad, top, groupCount) {
   textAlign(RIGHT, TOP);
   text(`${groupCount}+ activities`, plotX + plotW, plotY - 22);
 
-  drawRevenueGroupLegend(plotX, top + 44);
+  drawRevenueGroupLegend(plotX, top + 44, revenueLabel);
 
   fill(80);
   textSize(12);
@@ -1015,7 +1029,7 @@ function drawRevenueGroupsView(customers, pad, top, groupCount) {
   if (hovered) {
     drawTooltip(mouseX, mouseY, [
       `${hovered.group.label} activities/tickets`,
-      `Revenue: ${formatDkk(hovered.group.revenue)} (${Math.round((hovered.group.revenue / totalRevenue) * 100)}%)`,
+      `${revenueLabel}: ${formatDkk(hovered.group.revenue)} (${Math.round((hovered.group.revenue / totalRevenue) * 100)}%)`,
       `People: ${formatInteger(hovered.group.people)}`,
       `Avg revenue/person: ${formatDkk(hovered.group.avgRevenue)}`,
       `Avg activities/person: ${hovered.group.avgActivities.toFixed(1)}`,
@@ -1025,7 +1039,7 @@ function drawRevenueGroupsView(customers, pad, top, groupCount) {
   }
 }
 
-function buildRevenueFrequencyGroups(customers, maxSingleBucket) {
+function buildRevenueFrequencyGroups(customers, maxSingleBucket, revenueKey = "revenue") {
   const byActivityCount = new Map();
   for (const customer of customers) {
     const activityCount = customer.classPassCount + customer.eventCount;
@@ -1039,7 +1053,7 @@ function buildRevenueFrequencyGroups(customers, maxSingleBucket) {
     const label = count === maxSingleBucket ? `${maxSingleBucket}+` : String(count);
     const entries = byActivityCount.get(label) || [];
     if (!entries.length) continue;
-    const revenue = sum(entries, "revenue");
+    const revenue = sum(entries, revenueKey);
     const activities = entries.reduce((total, customer) => total + customer.classPassCount + customer.eventCount, 0);
     const singleTicketBuyers = entries.filter((customer) => customer.classPassCount + customer.eventCount === 1 && customer.membershipCount === 0).length;
     const recurringBuyers = entries.filter((customer) => customer.classPassCount + customer.eventCount > 1 || customer.membershipCount > 0).length;
@@ -1056,9 +1070,9 @@ function buildRevenueFrequencyGroups(customers, maxSingleBucket) {
   return groups;
 }
 
-function drawRevenueGroupLegend(x, y) {
+function drawRevenueGroupLegend(x, y, revenueLabel = "Revenue") {
   const items = [
-    { label: "Revenue", color: [68, 145, 255] },
+    { label: revenueLabel, color: [68, 145, 255] },
     { label: "People", color: [20, 20, 20] },
   ];
   let lx = x + 180;
@@ -1634,6 +1648,261 @@ function customerSegmentColor(key) {
   return colors[key] || color(90);
 }
 
+function drawExitPointsView(exitPoints, pad, top) {
+  const points = exitPoints?.points || [];
+  fill(238);
+  noStroke();
+  rect(pad, top, width - pad * 2, height - top - pad, 4);
+  drawViewHeader("Exit Points", pad + 18, top + 16, "exitPoints");
+
+  if (!points.length) {
+    fill(80);
+    textSize(14);
+    textAlign(LEFT, TOP);
+    text("No exit points in this range.", pad + 18, top + 54);
+    return;
+  }
+
+  fill(85);
+  textSize(12);
+  textAlign(LEFT, TOP);
+  text(`${formatInteger(exitPoints.customerCount || 0)} people grouped by their last meaningful paid touchpoint`, pad + 18, top + 44);
+
+  drawExitTypeSummary(exitPoints.types || [], pad + 18, top + 68, width - pad * 2 - 36);
+
+  const rows = points.slice(0, 22);
+  const tableX = pad + 18;
+  const tableY = top + 132;
+  const tableW = width - pad * 2 - 36;
+  const rowH = min(42, max(28, (height - tableY - pad - 16) / max(1, rows.length)));
+  const typeX = tableX;
+  const nameX = tableX + 86;
+  const countX = tableX + min(460, tableW * 0.48);
+  const revenueX = countX + min(210, tableW * 0.22);
+  let hovered = null;
+
+  fill(75);
+  textSize(10);
+  textAlign(LEFT, BOTTOM);
+  text("type", typeX, tableY - 8);
+  text("last touchpoint", nameX, tableY - 8);
+  text("people ending here", countX, tableY - 8);
+  text("exit revenue", revenueX, tableY - 8);
+
+  for (let index = 0; index < rows.length; index += 1) {
+    const point = rows[index];
+    const y = tableY + index * rowH;
+    const isHover = mouseX >= tableX && mouseX <= tableX + tableW && mouseY >= y && mouseY <= y + rowH;
+    if (isHover) hovered = point;
+
+    fill(isHover ? 225 : index % 2 ? 244 : 238);
+    noStroke();
+    rect(tableX - 6, y, tableW + 12, rowH - 3, 2);
+
+    fill(exitTypeColor(point.type));
+    rect(typeX, y + 9, 10, rowH - 18, 1);
+    fill(50);
+    textSize(11);
+    textAlign(LEFT, CENTER);
+    text(point.type, typeX + 16, y + rowH * 0.5);
+
+    fill(35);
+    textSize(11);
+    text(trimText(point.label, 58), nameX, y + rowH * 0.5);
+
+    fill(20, 70);
+    rect(countX, y + rowH * 0.5 - 5, map(point.count, 0, exitPoints.maxCount || 1, 0, 150), 10, 1);
+    fill(45);
+    text(formatInteger(point.count), countX + 158, y + rowH * 0.5);
+
+    fill(20, 70);
+    rect(revenueX, y + rowH * 0.5 - 5, map(point.revenue, 0, exitPoints.maxRevenue || 1, 0, 130), 10, 1);
+    fill(45);
+    text(formatDkk(point.revenue), revenueX + 138, y + rowH * 0.5);
+  }
+
+  if (hovered) {
+    drawTooltip(mouseX, mouseY, [
+      hovered.label,
+      `Type: ${hovered.type}`,
+      `People ending here: ${formatInteger(hovered.count)}`,
+      `Revenue on final touchpoint: ${formatDkk(hovered.revenue)}`,
+      `Avg full journey revenue: ${formatDkk(hovered.avgJourneyRevenue)}`,
+      `Example customers: ${hovered.sampleCustomers.join(", ") || "none"}`,
+    ], 340);
+  }
+}
+
+function drawExitTypeSummary(types, x, y, w) {
+  const total = max(1, types.reduce((acc, item) => acc + item.count, 0));
+  let cursor = x;
+  for (const type of types) {
+    const segmentW = max(48, (type.count / total) * w);
+    fill(exitTypeColor(type.type));
+    noStroke();
+    rect(cursor, y, segmentW - 4, 18, 2);
+    fill(35);
+    textSize(10);
+    textAlign(LEFT, TOP);
+    text(`${type.type} ${formatInteger(type.count)}`, cursor, y + 24);
+    cursor += segmentW;
+  }
+}
+
+function exitTypeColor(type) {
+  const colors = {
+    Activity: color(60, 140, 85),
+    Event: color(135, 85, 170),
+    Membership: color(230, 130, 55),
+    Crew: color(120, 95, 180),
+  };
+  return colors[type] || color(100);
+}
+
+function drawMembershipLengthView(membershipLength, pad, top) {
+  const buckets = membershipLength?.buckets || [];
+  fill(238);
+  noStroke();
+  rect(pad, top, width - pad * 2, height - top - pad, 4);
+  drawViewHeader("Membership Length", pad + 18, top + 16, "memberLength");
+
+  if (!buckets.length) {
+    fill(80);
+    textSize(14);
+    textAlign(LEFT, TOP);
+    text("No paid membership spans in this range.", pad + 18, top + 54);
+    return;
+  }
+
+  const cardGap = 12;
+  const cardX = pad + 18;
+  const cardW = (width - pad * 2 - 36 - cardGap * 3) / 4;
+  drawStatCard(cardX, top + 48, cardW, 72, "Spans", formatInteger(membershipLength.spanCount || 0));
+  drawStatCard(cardX + (cardW + cardGap), top + 48, cardW, 72, "Still active", formatInteger(membershipLength.activeCount || 0));
+  drawStatCard(cardX + (cardW + cardGap) * 2, top + 48, cardW, 72, "Median length", formatMembershipMonths(membershipLength.medianMonths || 0));
+  drawStatCard(cardX + (cardW + cardGap) * 3, top + 48, cardW, 72, "Avg length", formatMembershipMonths(membershipLength.avgMonths || 0));
+
+  const chartX = pad + 32;
+  const chartY = top + 170;
+  const chartW = width - pad * 2 - 64;
+  const chartH = min(260, max(170, (height - chartY - pad) * 0.52));
+  drawMembershipLengthDistribution(chartX, chartY, chartW, chartH, buckets, membershipLength.maxBucketCount || 1);
+  drawMembershipLengthTypes(chartX, chartY + chartH + 46, chartW, height - chartY - chartH - pad - 58, membershipLength.types || [], membershipLength.maxTypeCount || 1);
+}
+
+function drawMembershipLengthDistribution(x, y, w, h, buckets, maxCount) {
+  fill(248);
+  noStroke();
+  rect(x - 14, y - 28, w + 28, h + 66, 3);
+  fill(35);
+  textSize(15);
+  textAlign(LEFT, TOP);
+  text("Distribution of membership spans", x, y - 20);
+
+  const gap = 12;
+  const barW = (w - gap * (buckets.length - 1)) / buckets.length;
+  let hovered = null;
+  stroke(210);
+  strokeWeight(1);
+  line(x, y + h, x + w, y + h);
+
+  for (let index = 0; index < buckets.length; index += 1) {
+    const bucket = buckets[index];
+    const barX = x + index * (barW + gap);
+    const totalH = map(bucket.total, 0, maxCount, 0, h * 0.82);
+    const activeH = bucket.total ? totalH * (bucket.active / bucket.total) : 0;
+    const endedH = max(0, totalH - activeH);
+    const isHover = mouseX >= barX && mouseX <= barX + barW && mouseY >= y && mouseY <= y + h;
+    if (isHover) hovered = bucket;
+
+    fill(80, 130, 210, isHover ? 245 : 210);
+    noStroke();
+    rect(barX, y + h - endedH, barW, endedH, 2);
+    fill(45, 185, 125, isHover ? 245 : 210);
+    rect(barX, y + h - totalH, barW, activeH, 2);
+
+    fill(55);
+    textSize(11);
+    textAlign(CENTER, TOP);
+    text(bucket.label, barX + barW / 2, y + h + 10);
+    text(formatInteger(bucket.total), barX + barW / 2, y + h - totalH - 18);
+  }
+
+  drawMembershipLengthLegend(x + w - 180, y - 20);
+
+  if (hovered) {
+    drawTooltip(mouseX, mouseY, [
+      hovered.label,
+      `Total spans: ${formatInteger(hovered.total)}`,
+      `Still active: ${formatInteger(hovered.active)}`,
+      `Ended: ${formatInteger(hovered.ended)}`,
+    ], 220);
+  }
+}
+
+function drawMembershipLengthLegend(x, y) {
+  const items = [
+    { label: "ended", color: color(80, 130, 210) },
+    { label: "still active", color: color(45, 185, 125) },
+  ];
+  let cursor = x;
+  for (const item of items) {
+    fill(item.color);
+    noStroke();
+    rect(cursor, y + 3, 10, 10, 1);
+    fill(80);
+    textSize(10);
+    textAlign(LEFT, TOP);
+    text(item.label, cursor + 14, y);
+    cursor += textWidth(item.label) + 48;
+  }
+}
+
+function drawMembershipLengthTypes(x, y, w, h, types, maxCount) {
+  if (!types.length || h < 60) return;
+  fill(35);
+  textSize(15);
+  textAlign(LEFT, TOP);
+  text("Membership types", x, y);
+
+  const rows = types.slice(0, 8);
+  const rowH = min(28, max(20, (h - 32) / rows.length));
+  let hovered = null;
+  for (let index = 0; index < rows.length; index += 1) {
+    const type = rows[index];
+    const rowY = y + 32 + index * rowH;
+    const isHover = mouseX >= x && mouseX <= x + w && mouseY >= rowY && mouseY <= rowY + rowH;
+    if (isHover) hovered = type;
+    fill(isHover ? 225 : 238);
+    noStroke();
+    rect(x - 6, rowY, w + 12, rowH - 3, 2);
+    fill(35);
+    textSize(11);
+    textAlign(LEFT, CENTER);
+    text(trimText(type.label, 56), x, rowY + rowH * 0.5);
+    fill(45, 185, 125, 180);
+    rect(x + w * 0.48, rowY + rowH * 0.5 - 5, map(type.count, 0, maxCount, 0, w * 0.28), 10, 1);
+    fill(70);
+    textAlign(LEFT, CENTER);
+    text(`${formatInteger(type.count)} spans · avg ${formatMembershipMonths(type.avgMonths)} · ${formatInteger(type.active)} active`, x + w * 0.8, rowY + rowH * 0.5);
+  }
+
+  if (hovered) {
+    drawTooltip(mouseX, mouseY, [
+      hovered.label,
+      `Spans: ${formatInteger(hovered.count)}`,
+      `Still active: ${formatInteger(hovered.active)}`,
+      `Average length: ${formatMembershipMonths(hovered.avgMonths)}`,
+    ], 280);
+  }
+}
+
+function formatMembershipMonths(months) {
+  if (months >= 24) return `${(months / 12).toFixed(1)} yr`;
+  if (months >= 10) return `${months.toFixed(0)} mo`;
+  return `${months.toFixed(1)} mo`;
+}
+
 function activityPathVisibleColumns(columns, limit) {
   const special = columns.filter((column) => column.key.startsWith("__"));
   const regular = columns.filter((column) => !column.key.startsWith("__"));
@@ -1898,6 +2167,17 @@ function drawAnonymizeToggle(active) {
   text(active ? "Anon" : "Names", item.x + item.w / 2, item.y + item.h / 2);
 }
 
+function drawStorageToggle(active) {
+  const item = getStorageButton();
+  fill(active ? 30 : 110);
+  noStroke();
+  rect(item.x, item.y, item.w, item.h, 3);
+  fill(active ? 245 : 35);
+  textSize(11);
+  textAlign(CENTER, CENTER);
+  text("s", item.x + item.w / 2, item.y + item.h / 2);
+}
+
 function drawCaptureButton() {
   const item = getCaptureButton();
   fill(110);
@@ -1921,6 +2201,18 @@ function drawActivityPathModeToggle(mode, visible) {
   text(mode === "range" ? "First in range" : "First ever", item.x + item.w / 2, item.y + item.h / 2);
 }
 
+function drawRevenueGroupsMembershipToggle(excludeMembership, visible, overridePosition) {
+  if (!visible) return;
+  const item = getRevenueGroupsMembershipButton(overridePosition);
+  fill(excludeMembership ? 30 : 110);
+  noStroke();
+  rect(item.x, item.y, item.w, item.h, 3);
+  fill(excludeMembership ? 245 : 35);
+  textSize(11);
+  textAlign(CENTER, CENTER);
+  text(excludeMembership ? "No members" : "All rev", item.x + item.w / 2, item.y + item.h / 2);
+}
+
 function getTimeBucketButton() {
   const y = 24;
   const w = 58;
@@ -1938,12 +2230,20 @@ function getAnonymizeButton() {
   return { x: bucket.x - gap - w, y: bucket.y, w, h };
 }
 
-function getCaptureButton() {
+function getStorageButton() {
   const anonymize = getAnonymizeButton();
   const w = 26;
   const h = 26;
   const gap = 6;
   return { x: anonymize.x - gap - w, y: anonymize.y, w, h };
+}
+
+function getCaptureButton() {
+  const storage = getStorageButton();
+  const w = 26;
+  const h = 26;
+  const gap = 6;
+  return { x: storage.x - gap - w, y: storage.y, w, h };
 }
 
 function getActivityPathModeButton() {
@@ -1954,7 +2254,17 @@ function getActivityPathModeButton() {
   return { x: capture.x - gap - w, y: capture.y, w, h };
 }
 
+function getRevenueGroupsMembershipButton(overridePosition) {
+  if (overridePosition) return { x: overridePosition.x, y: overridePosition.y, w: 86, h: 26 };
+  const capture = getCaptureButton();
+  const w = 86;
+  const h = 26;
+  const gap = 6;
+  return { x: capture.x - gap - w, y: capture.y, w, h };
+}
+
 function timeBucketLabel(bucket) {
+  if (bucket === "year") return "Year";
   if (bucket === "month") return "Month";
   if (bucket === "quarter") return "3 Mon";
   return "Week";

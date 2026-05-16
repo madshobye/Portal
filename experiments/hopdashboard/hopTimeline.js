@@ -19,23 +19,31 @@ function drawHopTimelineChart(x, y, w, h, points, title, series, labels = [], st
   }
 
   const legend = drawTimelineLegend(x + 18, y + 42, w - 36, series, labels, hiddenSeries, hiddenLabels, toggleHits);
-  const plotX = x + 18;
+  const visibleSeries = series.filter((item) => !hiddenSeries.has(item.key));
+  const visibleScaleKeys = [...new Set(visibleSeries.map((item) => item.scale || item.key))];
+  const hasDualAxis = visibleScaleKeys.includes("money") && visibleScaleKeys.includes("count");
+  const leftScaleKey = visibleScaleKeys.includes("money") ? "money" : visibleScaleKeys[0];
+  const rightScaleKey = hasDualAxis ? "count" : "";
+  const leftAxisW = visibleScaleKeys.length ? 58 : 0;
+  const rightAxisW = rightScaleKey ? 44 : 0;
+  const plotX = x + 18 + leftAxisW;
   const plotY = max(y + 72, legend.bottom + 14);
-  const plotW = w - 36;
+  const plotW = w - 36 - leftAxisW - rightAxisW;
   const plotH = max(80, h - (plotY - y) - 70);
   const maxByScale = {};
-  for (const item of series) {
-    if (hiddenSeries.has(item.key)) continue;
+  for (const item of visibleSeries) {
     const scaleKey = item.scale || item.key;
     maxByScale[scaleKey] = max(maxByScale[scaleKey] || 1, ...points.map((point) => abs(point[item.key] || 0)));
   }
+
+  drawTimelineYAxis(plotX, plotY, plotW, plotH, leftScaleKey, maxByScale[leftScaleKey] || 1, false);
+  if (rightScaleKey) drawTimelineYAxis(plotX, plotY, plotW, plotH, rightScaleKey, maxByScale[rightScaleKey] || 1, true);
 
   stroke(210);
   strokeWeight(1);
   line(plotX, plotY + plotH, plotX + plotW, plotY + plotH);
 
-  for (const item of series) {
-    if (hiddenSeries.has(item.key)) continue;
+  for (const item of visibleSeries) {
     noFill();
     const alpha = legend.hoveredSeriesKey && legend.hoveredSeriesKey !== item.key ? 35 : 255;
     stroke(item.color[0], item.color[1], item.color[2], alpha);
@@ -59,8 +67,7 @@ function drawHopTimelineChart(x, y, w, h, points, title, series, labels = [], st
     strokeWeight(1);
     line(px, plotY, px, plotY + plotH);
     const lines = [point.month];
-    for (const item of series) {
-      if (hiddenSeries.has(item.key)) continue;
+    for (const item of visibleSeries) {
       lines.push(`${item.label}: ${item.formatter(point[item.key] || 0)}`);
     }
     drawTooltip(mouseX, mouseY, lines);
@@ -75,6 +82,49 @@ function drawHopTimelineChart(x, y, w, h, points, title, series, labels = [], st
   text(points.at(-1)?.month || "", plotX + plotW, y + h - 40);
   drawTimelineSeasonBand(plotX, y + h - 30, plotW, points);
   drawDelayedTimelineLegendInfo(legend.hoveredEntry);
+}
+
+function drawTimelineYAxis(plotX, plotY, plotW, plotH, scaleKey, maxValue, rightSide) {
+  if (!scaleKey) return;
+  const ticks = 4;
+  const axisX = rightSide ? plotX + plotW : plotX;
+  stroke(150);
+  strokeWeight(1);
+  line(axisX, plotY, axisX, plotY + plotH);
+  textSize(10);
+  textAlign(rightSide ? LEFT : RIGHT, CENTER);
+  fill(65);
+
+  for (let index = 0; index <= ticks; index += 1) {
+    const value = (maxValue / ticks) * index;
+    const y = plotY + plotH - (index / ticks) * plotH;
+    stroke(index === 0 ? 190 : 220, index === 0 ? 180 : 110);
+    strokeWeight(1);
+    if (!rightSide) line(plotX, y, plotX + plotW, y);
+    stroke(150);
+    line(axisX + (rightSide ? 0 : -4), y, axisX + (rightSide ? 4 : 0), y);
+    noStroke();
+    text(formatTimelineAxisValue(value, scaleKey), axisX + (rightSide ? 8 : -8), y);
+  }
+}
+
+function formatTimelineAxisValue(value, scaleKey) {
+  if (scaleKey === "money") return formatCompactMoney(value);
+  if (scaleKey === "count") return formatCompactCount(value);
+  return formatCompactCount(value);
+}
+
+function formatCompactMoney(value) {
+  const amount = Math.round(value);
+  if (Math.abs(amount) >= 1000000) return `${(amount / 1000000).toFixed(1)}m`;
+  if (Math.abs(amount) >= 1000) return `${Math.round(amount / 1000)}k`;
+  return String(amount);
+}
+
+function formatCompactCount(value) {
+  const amount = Math.round(value);
+  if (Math.abs(amount) >= 1000) return `${(amount / 1000).toFixed(1)}k`;
+  return String(amount);
 }
 
 function getTimelineNearestPointIndex(mx, plotX, plotW, count) {
@@ -128,6 +178,8 @@ function dateFromTimelinePeriodKey(key) {
   if (monthMatch) return new Date(Number(monthMatch[1]), Number(monthMatch[2]) - 1, 1);
   const quarterMatch = text.match(/^(\d{4})-Q(\d)$/);
   if (quarterMatch) return new Date(Number(quarterMatch[1]), (Number(quarterMatch[2]) - 1) * 3, 1);
+  const yearMatch = text.match(/^(\d{4})$/);
+  if (yearMatch) return new Date(Number(yearMatch[1]), 0, 1);
   return new Date();
 }
 

@@ -21,6 +21,8 @@ function buildHopModel(rows, timeBucket = "week", options = {}) {
   const membershipPipeline = groupMembershipPipeline(normalizedRows);
   const productHealth = groupProductHealth(normalizedRows);
   const customerSegments = groupCustomerSegments(normalizedRows);
+  const exitPoints = groupExitPoints(normalizedRows);
+  const membershipLength = groupMembershipLength(normalizedRows);
 
   return {
     rows: normalizedRows,
@@ -38,6 +40,8 @@ function buildHopModel(rows, timeBucket = "week", options = {}) {
     membershipPipeline,
     productHealth,
     customerSegments,
+    exitPoints,
+    membershipLength,
     anonymizeNames: false,
     setAnonymizeNames(value) {
       this.anonymizeNames = !!value;
@@ -164,6 +168,7 @@ function groupCustomers(invoices) {
         firstDate: invoice.date,
         lastDate: invoice.date,
         revenue: 0,
+        ticketRevenue: 0,
         invoiceCount: 0,
         classPassCount: 0,
         eventCount: 0,
@@ -175,6 +180,9 @@ function groupCustomers(invoices) {
     customer.firstDate = minDate(customer.firstDate, invoice.date);
     customer.lastDate = maxDate(customer.lastDate, invoice.date);
     customer.revenue += invoice.totalPrice;
+    customer.ticketRevenue += invoice.lines
+      .filter((row) => isActivityOrEventRow(row))
+      .reduce((total, row) => total + row.totalPrice, 0);
     customer.invoiceCount += 1;
     if (invoice.itemTypes.has("class_pass_type")) customer.classPassCount += 1;
     if (invoice.itemTypes.has("event")) customer.eventCount += 1;
@@ -707,6 +715,211 @@ function customerJourneyPattern(customer) {
   }).join(" -> ");
 }
 
+function groupExitPoints(rows) {
+  const journeyRows = rows
+    .filter((row) => row.totalPrice > 0.0001 || isCrewMembershipRow(row))
+    .filter((row) => isActivityOrEventRow(row) || isMembershipSubscriptionRow(row) || isCrewMembershipRow(row))
+    .sort((a, b) => a.date - b.date);
+  const byCustomer = new Map();
+
+  for (const row of journeyRows) {
+    if (!byCustomer.has(row.customerKey)) {
+      byCustomer.set(row.customerKey, {
+        customerKey: row.customerKey,
+        label: row.customerName || row.customerEmail || row.customerKey,
+        rows: [],
+        revenue: 0,
+      });
+    }
+    const customer = byCustomer.get(row.customerKey);
+    customer.rows.push(row);
+    customer.revenue += row.totalPrice;
+  }
+
+  const exits = new Map();
+  const typeTotals = new Map();
+  for (const customer of byCustomer.values()) {
+    const last = customer.rows.at(-1);
+    if (!last) continue;
+    const exit = exitPointForRow(last);
+    if (!exits.has(exit.key)) {
+      exits.set(exit.key, {
+        ...exit,
+        people: new Set(),
+        revenue: 0,
+        totalJourneyRevenue: 0,
+        sampleCustomers: [],
+      });
+    }
+    const entry = exits.get(exit.key);
+    entry.people.add(customer.customerKey);
+    entry.revenue += last.totalPrice;
+    entry.totalJourneyRevenue += customer.revenue;
+    if (entry.sampleCustomers.length < 5) entry.sampleCustomers.push(customer.label);
+
+    if (!typeTotals.has(exit.type)) typeTotals.set(exit.type, { type: exit.type, people: new Set(), revenue: 0 });
+    const type = typeTotals.get(exit.type);
+    type.people.add(customer.customerKey);
+    type.revenue += last.totalPrice;
+  }
+
+  const points = Array.from(exits.values()).map((entry) => ({
+    ...entry,
+    count: entry.people.size,
+    people: undefined,
+    avgJourneyRevenue: entry.people.size ? entry.totalJourneyRevenue / entry.people.size : 0,
+  })).sort((a, b) => b.count - a.count || b.revenue - a.revenue || a.label.localeCompare(b.label));
+
+  const types = Array.from(typeTotals.values()).map((entry) => ({
+    type: entry.type,
+    count: entry.people.size,
+    revenue: entry.revenue,
+  })).sort((a, b) => b.count - a.count || a.type.localeCompare(b.type));
+
+  return {
+    points,
+    types,
+    customerCount: byCustomer.size,
+    maxCount: Math.max(1, ...points.map((point) => point.count)),
+    maxRevenue: Math.max(1, ...points.map((point) => point.revenue)),
+  };
+}
+
+function exitPointForRow(row) {
+  if (isCrewMembershipRow(row)) return { key: "__crew", label: "Crew membership", type: "Crew" };
+  if (isPaidMembershipRow(row)) return { key: "__membership", label: "Membership", type: "Membership" };
+  const key = activityNodeKey(row.text) || "unknown exit";
+  return {
+    key,
+    label: cleanValue(row.text) || "Unknown exit",
+    type: row.itemType === "event" ? "Event" : "Activity",
+  };
+}
+
+function groupMembershipLength(rows) {
+  const defaultCoverageDays = 35;
+  const continuousRenewalDays = 62;
+  const dataEndDate = getLastRowDate(rows);
+  const paidMembershipRows = rows
+    .filter(isPaidMembershipRow)
+    .sort((a, b) => a.date - b.date);
+  const rowsByCustomer = new Map();
+
+  for (const row of paidMembershipRows) {
+    if (!rowsByCustomer.has(row.customerKey)) rowsByCustomer.set(row.customerKey, []);
+    rowsByCustomer.get(row.customerKey).push(row);
+  }
+
+  const spans = [];
+  for (const [customerKey, customerRows] of rowsByCustomer.entries()) {
+    const sortedRows = customerRows.sort((a, b) => a.date - b.date);
+    let spanStart = sortedRows[0]?.date;
+    let spanEnd = null;
+    let paymentCount = 0;
+    let revenue = 0;
+    let typeCounts = new Map();
+
+    for (let index = 0; index < sortedRows.length; index += 1) {
+      const row = sortedRows[index];
+      const nextDate = sortedRows[index + 1]?.date;
+      const daysUntilNext = nextDate ? (nextDate - row.date) / 86400000 : Infinity;
+      const coverageEndDate = nextDate && daysUntilNext <= continuousRenewalDays
+        ? nextDate
+        : addDays(row.date, defaultCoverageDays);
+      const stillActive = !nextDate && dataEndDate && coverageEndDate >= dataEndDate;
+      const type = membershipTypeInfo(row.text);
+
+      paymentCount += 1;
+      revenue += row.totalPrice;
+      typeCounts.set(type.label, (typeCounts.get(type.label) || 0) + 1);
+      spanEnd = stillActive ? dataEndDate : coverageEndDate;
+
+      const spanBreaks = !nextDate || daysUntilNext > continuousRenewalDays;
+      if (spanBreaks) {
+        const days = Math.max(1, (spanEnd - spanStart) / 86400000);
+        const primaryType = Array.from(typeCounts.entries()).sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))[0]?.[0] || "Membership";
+        spans.push({
+          customerKey,
+          label: row.customerName || row.customerEmail || customerKey,
+          startDate: spanStart,
+          endDate: spanEnd,
+          days,
+          months: days / 30.4375,
+          paymentCount,
+          revenue,
+          primaryType,
+          active: stillActive,
+        });
+        spanStart = nextDate;
+        paymentCount = 0;
+        revenue = 0;
+        typeCounts = new Map();
+      }
+    }
+  }
+
+  const buckets = membershipLengthBuckets(spans);
+  const activeSpans = spans.filter((span) => span.active);
+  const endedSpans = spans.filter((span) => !span.active);
+  const avgMonths = spans.length ? spans.reduce((total, span) => total + span.months, 0) / spans.length : 0;
+  const medianMonths = median(spans.map((span) => span.months));
+  const types = membershipLengthTypes(spans);
+
+  return {
+    spans: spans.sort((a, b) => b.months - a.months),
+    buckets,
+    types,
+    spanCount: spans.length,
+    activeCount: activeSpans.length,
+    endedCount: endedSpans.length,
+    avgMonths,
+    medianMonths,
+    maxBucketCount: Math.max(1, ...buckets.map((bucket) => bucket.total)),
+    maxTypeCount: Math.max(1, ...types.map((type) => type.count)),
+  };
+}
+
+function membershipLengthBuckets(spans) {
+  const buckets = [
+    { key: "0-1", label: "<1 mo", min: 0, max: 1 },
+    { key: "1-3", label: "1-3 mo", min: 1, max: 3 },
+    { key: "3-6", label: "3-6 mo", min: 3, max: 6 },
+    { key: "6-12", label: "6-12 mo", min: 6, max: 12 },
+    { key: "12-24", label: "1-2 yr", min: 12, max: 24 },
+    { key: "24+", label: "2+ yr", min: 24, max: Infinity },
+  ].map((bucket) => ({ ...bucket, total: 0, active: 0, ended: 0 }));
+
+  for (const span of spans) {
+    const bucket = buckets.find((item) => span.months >= item.min && span.months < item.max) || buckets.at(-1);
+    bucket.total += 1;
+    if (span.active) bucket.active += 1;
+    else bucket.ended += 1;
+  }
+  return buckets;
+}
+
+function membershipLengthTypes(spans) {
+  const byType = new Map();
+  for (const span of spans) {
+    if (!byType.has(span.primaryType)) byType.set(span.primaryType, { label: span.primaryType, count: 0, months: 0, active: 0 });
+    const entry = byType.get(span.primaryType);
+    entry.count += 1;
+    entry.months += span.months;
+    if (span.active) entry.active += 1;
+  }
+  return Array.from(byType.values()).map((entry) => ({
+    ...entry,
+    avgMonths: entry.count ? entry.months / entry.count : 0,
+  })).sort((a, b) => b.count - a.count || a.label.localeCompare(b.label));
+}
+
+function median(values) {
+  const sorted = values.filter((value) => Number.isFinite(value)).sort((a, b) => a - b);
+  if (!sorted.length) return 0;
+  const mid = Math.floor(sorted.length / 2);
+  return sorted.length % 2 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
+}
+
 function groupUserNetwork(rows) {
   const ticketRows = rows
     .filter((row) => row.itemType === "class_pass_type" || row.itemType === "event")
@@ -1170,6 +1383,10 @@ function isRetentionOffsetPossible(cohortStartDate, offset, dataEndDate, timeBuc
 
 function addPeriods(date, offset, timeBucket) {
   const copy = new Date(date);
+  if (timeBucket === "year") {
+    copy.setFullYear(copy.getFullYear() + offset);
+    return copy;
+  }
   if (timeBucket === "month") {
     copy.setMonth(copy.getMonth() + offset);
     return copy;
@@ -1190,6 +1407,8 @@ function dateFromPeriodKey(key, timeBucket) {
   if (monthMatch) return new Date(Number(monthMatch[1]), Number(monthMatch[2]) - 1, 1);
   const quarterMatch = text.match(/^(\d{4})-Q(\d)$/);
   if (quarterMatch) return new Date(Number(quarterMatch[1]), (Number(quarterMatch[2]) - 1) * 3, 1);
+  const yearMatch = text.match(/^(\d{4})$/);
+  if (yearMatch) return new Date(Number(yearMatch[1]), 0, 1);
   return new Date();
 }
 
@@ -1202,6 +1421,9 @@ function dateFromRetentionIsoWeek(year, week) {
 }
 
 function journeyOffset(firstDate, date, timeBucket) {
+  if (timeBucket === "year") {
+    return date.getFullYear() - firstDate.getFullYear();
+  }
   if (timeBucket === "month") {
     return (date.getFullYear() - firstDate.getFullYear()) * 12 + date.getMonth() - firstDate.getMonth();
   }
@@ -1392,9 +1614,14 @@ function stableHash(value) {
 }
 
 function periodKey(date, timeBucket) {
+  if (timeBucket === "year") return yearKey(date);
   if (timeBucket === "month") return monthKey(date);
   if (timeBucket === "quarter") return quarterKey(date);
   return weekKey(date);
+}
+
+function yearKey(date) {
+  return String(date.getFullYear());
 }
 
 function monthKey(date) {
