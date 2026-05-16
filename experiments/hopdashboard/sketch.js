@@ -217,6 +217,7 @@ function applyDateRange() {
   });
   hopModel = buildHopModel(filteredRows, timeBucket, {
     activityPathRows: sourceRows,
+    retentionRows: sourceRows,
     activityPathMode,
     rangeStartMs: selectedStartMs,
     rangeEndMs: selectedEndMs,

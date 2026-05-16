@@ -66,7 +66,7 @@ function viewInfoDescription(infoKey) {
     ticketBuyers: "Heatmap of ticket-buying people over time, showing single, occasional, and recurring buyers.",
     revenueGroups: "Groups paying customers by how many activities or tickets they bought in the selected period, then compares revenue and people count.",
     buyerPattern: "Normalized customer journeys from first purchase onward, showing transitions between ticket-only, membership, and crew patterns.",
-    retention: "Cohort heatmap showing whether first-time paid buyers came back in later periods. White cells are future periods that cannot be measured yet.",
+    retention: "Cohort heatmap showing whether first-time paid buyers came back in later periods. Bordered cells are outside the selected slider range but measured from the loaded CSV.",
     activityPath: "Shows where people go after their first paid activity or event. Rows are first activities; columns are the next paid step, membership, or no return.",
     gateway: "Ranks first activities by how well they create follow-up behavior: return rate, membership conversion, later revenue, and no-return rate.",
     pipeline: "Funnel from ticket buyers to recurring ticket buyers, members, and crew/long-term members, with first activities that feed membership.",
@@ -2082,7 +2082,8 @@ function drawRetentionView(retention, pad, top) {
       const cell = cohort.cells[offset] || { rate: 0, retained: 0, revenue: 0 };
       const x = plotX + offset * cellW;
       const rate = offset === 0 && cohort.size ? 1 : cell.rate;
-      fill(cell.possible === false ? 255 : retentionRateColor(rate));
+      fill(cell.possible === false ? 255 : retentionCellColor(rate, cell.outOfScope));
+      noStroke();
       rect(x + 1, y + 1, max(1, cellW - 2), max(1, cellH - 2), 1);
       if (cell.possible !== false && cellW > 38 && cellH > 17) {
         fill(rate > 0.55 ? 245 : 35);
@@ -2107,6 +2108,7 @@ function drawRetentionView(retention, pad, top) {
       `Cohort size: ${formatInteger(hovered.cohort.size)}`,
       `Offset: ${hovered.offset === 0 ? "start" : `+${hovered.offset} ${unit}s`}`,
       hovered.cell.possible === false ? "Not possible yet" : `Retained: ${formatInteger(hovered.cell.retained)} (${formatPercent(hovered.rate)})`,
+      hovered.cell.outOfScope ? "Outside selected range, measured from full loaded data" : "",
       hovered.cell.possible === false ? "" : `Revenue in cell: ${formatDkk(hovered.cell.revenue)}`,
     ], 280);
   }
@@ -2121,6 +2123,17 @@ function retentionRateColor(rate) {
     return interpolateRgb(low, mid, clamped / 0.5);
   }
   return interpolateRgb(mid, high, (clamped - 0.5) / 0.5);
+}
+
+function retentionCellColor(rate, outOfScope = false) {
+  const base = retentionRateColor(rate);
+  if (!outOfScope) return base;
+  return [
+    lerp(base[0], 255, 0.58),
+    lerp(base[1], 255, 0.58),
+    lerp(base[2], 255, 0.58),
+    210,
+  ];
 }
 
 function interpolateRgb(a, b, t) {
@@ -2138,7 +2151,7 @@ function retentionSummaryAt(cohorts, offset) {
   let total = 0;
   for (const cohort of cohorts) {
     const cell = cohort.cells[offset];
-    if (!cell) continue;
+    if (!cell || cell.possible === false) continue;
     retained += cell.retained;
     total += cohort.size;
   }

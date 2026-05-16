@@ -3,6 +3,9 @@ function buildHopModel(rows, timeBucket = "week", options = {}) {
   const activityPathRows = options.activityPathRows
     ? applyTransactionDiscountNetting(options.activityPathRows.map(normalizeSalesRow).filter((row) => row.date))
     : normalizedRows;
+  const retentionRows = options.retentionRows
+    ? applyTransactionDiscountNetting(options.retentionRows.map(normalizeSalesRow).filter((row) => row.date))
+    : normalizedRows;
   const invoices = groupInvoices(normalizedRows);
   const customers = groupCustomers(invoices);
   const months = groupMonths(invoices, timeBucket);
@@ -12,7 +15,10 @@ function buildHopModel(rows, timeBucket = "week", options = {}) {
   const buyerPatterns = groupBuyerPatterns(normalizedRows, timeBucket);
   const activityNetwork = groupActivityNetwork(normalizedRows);
   const userNetwork = groupUserNetwork(normalizedRows);
-  const retention = groupRetention(normalizedRows, timeBucket);
+  const retention = groupRetention(retentionRows, timeBucket, {
+    rangeStartMs: options.rangeStartMs,
+    rangeEndMs: options.rangeEndMs,
+  });
   const activityPath = groupActivityPath(activityPathRows, {
     mode: options.activityPathMode || "ever",
     rangeStartMs: options.rangeStartMs,
@@ -1090,13 +1096,15 @@ function groupBuyerPatterns(rows, timeBucket) {
   };
 }
 
-function groupRetention(rows, timeBucket) {
+function groupRetention(rows, timeBucket, options = {}) {
   const activeRows = rows
     .filter((row) => row.totalPrice > 0.0001)
     .filter((row) => row.itemType === "class_pass_type" || row.itemType === "event" || (isMembershipSubscriptionRow(row) && !isCrewMembershipRow(row)))
     .sort((a, b) => a.date - b.date);
   const byCustomer = new Map();
   const dataEndDate = getLastRowDate(activeRows);
+  const rangeStartMs = Number(options.rangeStartMs) || null;
+  const rangeEndMs = Number(options.rangeEndMs) || null;
 
   for (const row of activeRows) {
     if (!byCustomer.has(row.customerKey)) {
@@ -1114,6 +1122,9 @@ function groupRetention(rows, timeBucket) {
   const cohorts = new Map();
   let maxOffset = 0;
   for (const customer of byCustomer.values()) {
+    const firstTime = startOfHopDayMs(customer.firstDate);
+    if (rangeStartMs && firstTime < rangeStartMs) continue;
+    if (rangeEndMs && firstTime > rangeEndMs) continue;
     const cohortKey = periodKey(customer.firstDate, timeBucket);
     if (!cohorts.has(cohortKey)) {
       cohorts.set(cohortKey, {
@@ -1151,10 +1162,13 @@ function groupRetention(rows, timeBucket) {
     for (let offset = 0; offset <= maxOffset; offset += 1) {
       const cell = cohort.offsets.get(offset);
       const retained = cell?.customers.size || 0;
+      const periodDate = addPeriods(cohortStartDate, offset, timeBucket);
       const possible = isRetentionOffsetPossible(cohortStartDate, offset, dataEndDate, timeBucket);
+      const outOfScope = possible && rangeEndMs ? startOfHopDayMs(periodDate) > rangeEndMs : false;
       cells.push({
         offset,
         possible,
+        outOfScope,
         retained,
         revenue: cell?.revenue || 0,
         rate: possible && size ? retained / size : 0,
@@ -1170,7 +1184,7 @@ function groupRetention(rows, timeBucket) {
   return {
     cohorts: rowsOut,
     maxOffset,
-    customerCount: byCustomer.size,
+    customerCount: rowsOut.reduce((sum, cohort) => sum + cohort.size, 0),
   };
 }
 
