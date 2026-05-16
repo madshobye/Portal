@@ -1,3 +1,7 @@
+let timelineLegendHoverKey = "";
+let timelineLegendHoverStartedAt = 0;
+const TIMELINE_LEGEND_INFO_DELAY_MS = 1500;
+
 function drawHopTimelineChart(x, y, w, h, points, title, series, labels = [], state = {}) {
   const hiddenSeries = state.hiddenSeriesKeys || new Set();
   const hiddenLabels = state.hiddenLabelTypes || new Set();
@@ -10,12 +14,15 @@ function drawHopTimelineChart(x, y, w, h, points, title, series, labels = [], st
   textSize(18);
   textAlign(LEFT, TOP);
   text(title, x + 18, y + 16);
+  if (state.infoKey && typeof drawViewInfoIcon === "function") {
+    drawViewInfoIcon(x + 18 + textWidth(title) + 14, y + 26, state.infoKey);
+  }
 
   const legend = drawTimelineLegend(x + 18, y + 42, w - 36, series, labels, hiddenSeries, hiddenLabels, toggleHits);
   const plotX = x + 18;
   const plotY = max(y + 72, legend.bottom + 14);
   const plotW = w - 36;
-  const plotH = max(80, h - (plotY - y) - 40);
+  const plotH = max(80, h - (plotY - y) - 70);
   const maxByScale = {};
   for (const item of series) {
     if (hiddenSeries.has(item.key)) continue;
@@ -59,14 +66,15 @@ function drawHopTimelineChart(x, y, w, h, points, title, series, labels = [], st
     drawTooltip(mouseX, mouseY, lines);
   }
 
-  fill(70);
+  fill(35);
   noStroke();
   textSize(12);
   textAlign(LEFT, BOTTOM);
-  text(points[0]?.month || "", plotX, y + h - 14);
+  text(points[0]?.month || "", plotX, y + h - 40);
   textAlign(RIGHT, BOTTOM);
-  text(points.at(-1)?.month || "", plotX + plotW, y + h - 14);
-  drawTimelineSeasonBand(plotX, y + h - 8, plotW, points);
+  text(points.at(-1)?.month || "", plotX + plotW, y + h - 40);
+  drawTimelineSeasonBand(plotX, y + h - 30, plotW, points);
+  drawDelayedTimelineLegendInfo(legend.hoveredEntry);
 }
 
 function getTimelineNearestPointIndex(mx, plotX, plotW, count) {
@@ -88,17 +96,17 @@ function drawTimelineSeasonBand(x, y, w, points) {
     rect(x0, y, max(1, x1 - x0), bandH);
 
     if (isTimelineMonthStart(points, index, date)) {
-      fill(245);
+      fill(20);
       textSize(9);
       textAlign(CENTER, TOP);
       text(timelineMonthInitial(date.getMonth()), x0, labelY);
     }
-    if (date.getMonth() === 0 && isTimelineMonthStart(points, index, date)) {
-      stroke(245);
+    if (index > 0 && date.getMonth() === 0 && isTimelineMonthStart(points, index, date)) {
+      stroke(20, 170);
       strokeWeight(1);
       line(x0, y - 4, x0, y + bandH + 12);
       noStroke();
-      fill(245);
+      fill(20);
       textSize(9);
       textAlign(LEFT, TOP);
       text(String(date.getFullYear()), x0 + 3, y - 16);
@@ -204,6 +212,7 @@ function drawTimelineLegend(x, y, w, series, labels, hiddenSeries, hiddenLabels,
   let cursorY = y;
   let hoveredSeriesKey = "";
   let hoveredLabelType = "";
+  let hoveredEntry = null;
   const rowH = 24;
 
   textSize(12);
@@ -219,6 +228,7 @@ function drawTimelineLegend(x, y, w, series, labels, hiddenSeries, hiddenLabels,
     const hit = { kind: entry.kind, key: entry.key, x: cursorX - 2, y: cursorY - 12, w: itemW - 12, h: 24 };
     const hovered = mouseX >= hit.x && mouseX <= hit.x + hit.w && mouseY >= hit.y && mouseY <= hit.y + hit.h;
     toggleHits.push(hit);
+    if (hovered) hoveredEntry = { ...entry, hit };
 
     if (entry.kind === "series") {
       const hidden = hiddenSeries.has(entry.key);
@@ -241,7 +251,51 @@ function drawTimelineLegend(x, y, w, series, labels, hiddenSeries, hiddenLabels,
     cursorX += itemW;
   }
 
-  return { hoveredSeriesKey, bottom: cursorY + 12 };
+  return { hoveredSeriesKey, hoveredEntry, bottom: cursorY + 12 };
+}
+
+function drawDelayedTimelineLegendInfo(entry) {
+  if (!entry) {
+    timelineLegendHoverKey = "";
+    timelineLegendHoverStartedAt = 0;
+    return;
+  }
+  const key = `${entry.kind}:${entry.key}`;
+  if (timelineLegendHoverKey !== key) {
+    timelineLegendHoverKey = key;
+    timelineLegendHoverStartedAt = millis();
+    return;
+  }
+  if (millis() - timelineLegendHoverStartedAt < TIMELINE_LEGEND_INFO_DELAY_MS) return;
+  const description = timelineLegendDescription(entry);
+  if (!description) return;
+  drawTooltip(mouseX, mouseY, [
+    entry.text,
+    ...wrapTimelineText(description, 42),
+  ], 300);
+}
+
+function timelineLegendDescription(entry) {
+  const byKey = {
+    totalRevenue: "All net revenue in the selected period, after VAT has been removed and discounts have been netted by transaction.",
+    yearTotalRevenue: "Running accumulated net revenue within each calendar year. It resets when the visible year changes.",
+    revenue: "Revenue from paid memberships only, spread across the active membership period.",
+    newMemberships: "People whose first paid membership starts in this period.",
+    endedMemberships: "Estimated membership endings when no renewal appears within the expected renewal window.",
+    memberCount: "Estimated active paid members in this period. Crew/free memberships are excluded.",
+    crewCount: "Estimated active crew members from fully discounted membership transactions.",
+    activeTicketUsersWithMembership: "People who bought activity or event tickets in this period and were also active members.",
+    activeTicketUsersWithoutMembership: "People who bought activity or event tickets in this period without being active members.",
+    classRevenue: "Net revenue from activity/class ticket sales in this period.",
+    eventRevenue: "Net revenue from event ticket sales in this period.",
+    classTickets: "Number of activity/class tickets sold in this period.",
+    eventTickets: "Number of event tickets sold in this period.",
+  };
+  if (byKey[entry.key]) return byKey[entry.key];
+  if (String(entry.key).startsWith("membershipType:")) return "Estimated active member count for this specific membership subscription type.";
+  if (entry.kind === "labelType" && entry.key === "Activity") return "Revenue blobs for recurring activity ticket products. Size indicates revenue; position is based on the last ticket sale period.";
+  if (entry.kind === "labelType" && entry.key === "Event") return "Revenue blobs for event ticket products. Size indicates revenue; position is based on the last ticket sale period.";
+  return "";
 }
 
 function buildTimelineLabelLanes(labels) {

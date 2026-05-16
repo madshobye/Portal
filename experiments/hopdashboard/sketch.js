@@ -10,12 +10,14 @@ let selectedEndMs = 0;
 let timeBucket = "week";
 let buyerPatternWindowIndex = 0;
 let revenueGroupCount = 8;
+let activityPathMode = "ever";
 let anonymizeNames = true;
 let storedSliderState = {};
 let draggedNetworkNode = null;
 let chartToggleHits = [];
 let pendingChartToggle = null;
 let pendingChartToggleStartedAt = 0;
+let draggedDateRangeHandle = null;
 const hiddenSeriesKeys = new Set();
 const hiddenTimelineLabelTypes = new Set();
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -24,12 +26,18 @@ const NODE_PIN_HOLD_MS = 650;
 
 const NAV_ITEMS = [
   { id: "overview", label: "Overview" },
-  { id: "ticketsales", label: "Ticket Sales" },
-  { id: "ticketbuyers", label: "Ticket Buyers" },
-  { id: "revenuegroups", label: "Revenue Groups" },
-  { id: "buyerpattern", label: "Buyer Pattern" },
-  { id: "activitynetwork", label: "Activity Network" },
-  { id: "usernetwork", label: "User Network" },
+  { id: "ticketsales", label: "Ticket Sales", shortLabel: "Tickets" },
+  { id: "ticketbuyers", label: "Ticket Buyers", shortLabel: "Buyers" },
+  { id: "revenuegroups", label: "Revenue Groups", shortLabel: "Revenue" },
+  { id: "buyerpattern", label: "Buyer Pattern", shortLabel: "Pattern" },
+  { id: "activitynetwork", label: "Activity Network", shortLabel: "Act Net" },
+  { id: "usernetwork", label: "User Network", shortLabel: "User Net" },
+  { id: "retention", label: "Retention" },
+  { id: "activitypath", label: "Activity Path", shortLabel: "Path" },
+  { id: "gateway", label: "Gateway", shortLabel: "Gate" },
+  { id: "pipeline", label: "Pipeline", shortLabel: "Pipe" },
+  { id: "producthealth", label: "Product Health", shortLabel: "Health" },
+  { id: "segments", label: "Segments", shortLabel: "Seg" },
   { id: "activity", label: "Activity" },
 ];
 
@@ -47,10 +55,15 @@ function setup() {
 function draw() {
   if (hopModel) {
     chartToggleHits = [];
-    drawHopOverview(hopModel, droppedFileName, currentView, NAV_ITEMS, { anonymizeNames });
+    drawHopOverview(hopModel, droppedFileName, currentView, NAV_ITEMS, { anonymizeNames, periodLabel: selectedPeriodLabel() });
+    drawGraphPeriodLabel(currentView);
     drawTimeBucketToggle(timeBucket);
     drawAnonymizeToggle(anonymizeNames);
+    drawCaptureButton();
+    drawActivityPathModeToggle(activityPathMode, currentView === "activitypath");
     drawPortalRangeControls();
+    drawDateRangeSlider();
+    drawPendingViewInfoTooltip();
   } else {
     drawCenteredMessage(statusMessage);
   }
@@ -104,7 +117,8 @@ function loadCsvText(text, fileName) {
 function drawPortalRangeControls() {
   if (typeof uiSlider !== "function") return;
   const controlY = 66;
-  const sliderW = min(220, max(150, (width - 96) / 4));
+  const dateBounds = getDateRangeSliderBounds();
+  const sliderW = min(220, max(150, (dateBounds.x - 46) / 2));
   const style = {
     height: 24,
     fontSize: 11,
@@ -117,28 +131,6 @@ function drawPortalRangeControls() {
     hideValue: true,
   };
 
-  const startSlider = uiSlider("hop_date_start", `From ${formatDate(new Date(selectedStartMs))}`, {
-    min: fullStartMs,
-    max: fullEndMs,
-    init: selectedStartMs,
-  }, { ...style, x: 32, y: controlY, width: sliderW });
-  const endSlider = uiSlider("hop_date_end", `To ${formatDate(new Date(selectedEndMs))}`, {
-    min: fullStartMs,
-    max: fullEndMs,
-    init: selectedEndMs,
-  }, { ...style, x: 32 + sliderW + 14, y: controlY, width: sliderW });
-
-  let nextStart = snapDay(startSlider.value);
-  let nextEnd = snapDay(endSlider.value);
-  if (nextStart > nextEnd) nextEnd = nextStart;
-  if (nextStart !== selectedStartMs || nextEnd !== selectedEndMs) {
-    selectedStartMs = nextStart;
-    selectedEndMs = nextEnd;
-    syncPortalDateSliders();
-    saveSliderState();
-    applyDateRange();
-  }
-
   if (currentView === "buyerpattern") {
     const journeyCount = hopModel.buyerPatterns?.journeys?.length || 0;
     const maxWindow = max(0, ceil(journeyCount / 200) - 1);
@@ -147,7 +139,7 @@ function drawPortalRangeControls() {
       min: 0,
       max: maxWindow,
       init: buyerPatternWindowIndex,
-    }, { ...style, x: 32 + (sliderW + 14) * 2, y: controlY, width: sliderW });
+    }, { ...style, x: max(32, dateBounds.x - sliderW - 14), y: controlY, width: sliderW });
     const nextWindow = constrain(round(windowSlider.value), 0, maxWindow);
     if (nextWindow !== buyerPatternWindowIndex) {
       buyerPatternWindowIndex = nextWindow;
@@ -161,7 +153,7 @@ function drawPortalRangeControls() {
       min: 3,
       max: 100,
       init: revenueGroupCount,
-    }, { ...style, x: 32 + (sliderW + 14) * 2, y: controlY, width: sliderW });
+    }, { ...style, x: max(32, dateBounds.x - sliderW - 14), y: controlY, width: sliderW });
     const nextGroupCount = constrain(round(groupSlider.value), 3, 100);
     if (nextGroupCount !== revenueGroupCount) {
       revenueGroupCount = nextGroupCount;
@@ -170,13 +162,48 @@ function drawPortalRangeControls() {
   }
 }
 
+function drawDateRangeSlider() {
+  const item = getDateRangeSliderBounds();
+  const trackY = item.y + 25;
+  const startX = dateRangeHandleX(selectedStartMs, item);
+  const endX = dateRangeHandleX(selectedEndMs, item);
+
+  fill(245);
+  noStroke();
+  textSize(11);
+  textAlign(RIGHT, CENTER);
+  text(`${formatDate(new Date(selectedStartMs))} - ${formatDate(new Date(selectedEndMs))}`, item.x + item.w, item.y + 7);
+
+  stroke(210);
+  strokeWeight(1);
+  line(item.x, trackY, item.x + item.w, trackY);
+  stroke(35);
+  strokeWeight(3);
+  line(startX, trackY, endX, trackY);
+
+  drawDateRangeHandle(startX, trackY, draggedDateRangeHandle === "start");
+  drawDateRangeHandle(endX, trackY, draggedDateRangeHandle === "end");
+}
+
+function drawDateRangeHandle(x, y, active) {
+  fill(active ? 35 : 245);
+  stroke(active ? 245 : 35);
+  strokeWeight(1.5);
+  circle(x, y, 14);
+}
+
 function applyDateRange() {
   const filteredRows = sourceRows.filter((row) => {
     const date = parseHopDate(row["Invoice date/time"]);
     const time = startOfDayMs(date);
     return time >= selectedStartMs && time <= selectedEndMs;
   });
-  hopModel = buildHopModel(filteredRows, timeBucket);
+  hopModel = buildHopModel(filteredRows, timeBucket, {
+    activityPathRows: sourceRows,
+    activityPathMode,
+    rangeStartMs: selectedStartMs,
+    rangeEndMs: selectedEndMs,
+  });
   hopModel.setAnonymizeNames(anonymizeNames);
 }
 
@@ -187,9 +214,7 @@ function syncPortalControlState() {
 }
 
 function syncPortalDateSliders() {
-  if (typeof uiSetState !== "function") return;
-  uiSetState("hop_date_start", selectedStartMs, { persist: false });
-  uiSetState("hop_date_end", selectedEndMs, { persist: false });
+  return;
 }
 
 function syncPortalBuyerWindowSlider() {
@@ -208,6 +233,8 @@ function saveSliderState() {
     selectedEndMs,
     buyerPatternWindowIndex,
     revenueGroupCount,
+    timeBucket,
+    activityPathMode,
   };
   saveHopSliders(storedSliderState);
 }
@@ -216,6 +243,12 @@ function restoreStoredSliders() {
   storedSliderState = loadHopSliders();
   buyerPatternWindowIndex = constrain(Number(storedSliderState.buyerPatternWindowIndex) || 0, 0, 999999);
   revenueGroupCount = constrain(Number(storedSliderState.revenueGroupCount) || revenueGroupCount, 3, 100);
+  if (["week", "month", "quarter"].includes(storedSliderState.timeBucket)) {
+    timeBucket = storedSliderState.timeBucket;
+  }
+  if (["ever", "range"].includes(storedSliderState.activityPathMode)) {
+    activityPathMode = storedSliderState.activityPathMode;
+  }
 }
 
 function snapDay(value) {
@@ -230,6 +263,13 @@ function startOfDayMs(date) {
 }
 
 function mousePressed() {
+  const dateHandle = getDateRangeHandleHit(mouseX, mouseY);
+  if (dateHandle) {
+    draggedDateRangeHandle = dateHandle;
+    setDateRangeHandle(draggedDateRangeHandle, mouseX);
+    return false;
+  }
+
   const networkHit = getNetworkNodeHitForCurrentView();
   if (networkHit) {
     draggedNetworkNode = {
@@ -259,6 +299,7 @@ function mousePressed() {
   if (bucketHit) {
     timeBucket = nextTimeBucket(timeBucket);
     buyerPatternWindowIndex = 0;
+    saveSliderState();
     applyDateRange();
     return false;
   }
@@ -268,6 +309,20 @@ function mousePressed() {
     anonymizeNames = !anonymizeNames;
     hopModel?.setAnonymizeNames?.(anonymizeNames);
     saveSliderState();
+    return false;
+  }
+
+  const captureHit = getCaptureHit(mouseX, mouseY);
+  if (captureHit) {
+    saveGraphSnapshot();
+    return false;
+  }
+
+  const activityPathModeHit = getActivityPathModeHit(mouseX, mouseY);
+  if (activityPathModeHit) {
+    activityPathMode = activityPathMode === "ever" ? "range" : "ever";
+    saveSliderState();
+    applyDateRange();
     return false;
   }
 
@@ -288,6 +343,11 @@ function mousePressed() {
 }
 
 function mouseReleased() {
+  if (draggedDateRangeHandle) {
+    draggedDateRangeHandle = null;
+    return false;
+  }
+
   if (draggedNetworkNode) {
     const state = getNetworkNodeState(draggedNetworkNode);
     if (state) {
@@ -313,6 +373,11 @@ function mouseReleased() {
 }
 
 function mouseDragged() {
+  if (draggedDateRangeHandle) {
+    setDateRangeHandle(draggedDateRangeHandle, mouseX);
+    return false;
+  }
+
   if (!draggedNetworkNode) return true;
   const state = getNetworkNodeState(draggedNetworkNode);
   const bounds = getNetworkBounds(draggedNetworkNode.kind);
@@ -323,6 +388,14 @@ function mouseDragged() {
     state.vy = 0;
   }
   return false;
+}
+
+function keyPressed() {
+  if ((key === "p" || key === "P") && hopModel) {
+    saveGraphSnapshot();
+    return false;
+  }
+  return true;
 }
 
 function getNetworkNodeHitForCurrentView() {
@@ -396,6 +469,81 @@ function getAnonymizeHit(x, y) {
   return x >= item.x && x <= item.x + item.w && y >= item.y && y <= item.y + item.h;
 }
 
+function getCaptureHit(x, y) {
+  const item = getCaptureButton();
+  return x >= item.x && x <= item.x + item.w && y >= item.y && y <= item.y + item.h;
+}
+
+function getDateRangeSliderBounds() {
+  const right = width - 32;
+  const w = min(460, max(300, width * 0.34));
+  return { x: right - w, y: 62, w, h: 34 };
+}
+
+function getDateRangeHandleHit(x, y) {
+  if (!hopModel) return null;
+  const item = getDateRangeSliderBounds();
+  const trackY = item.y + 25;
+  const isInside = x >= item.x - 10 && x <= item.x + item.w + 10 && y >= item.y && y <= item.y + item.h + 8;
+  if (!isInside) return null;
+  const startX = dateRangeHandleX(selectedStartMs, item);
+  const endX = dateRangeHandleX(selectedEndMs, item);
+  const startDistance = dist(x, y, startX, trackY);
+  const endDistance = dist(x, y, endX, trackY);
+  if (startDistance <= 14 || endDistance <= 14) return startDistance <= endDistance ? "start" : "end";
+  if (abs(y - trackY) <= 12 && x >= item.x && x <= item.x + item.w) return abs(x - startX) <= abs(x - endX) ? "start" : "end";
+  return null;
+}
+
+function dateRangeHandleX(value, item) {
+  if (fullEndMs <= fullStartMs) return item.x;
+  const t = (value - fullStartMs) / (fullEndMs - fullStartMs);
+  return item.x + constrain(t, 0, 1) * item.w;
+}
+
+function dateRangeValueFromX(x) {
+  const item = getDateRangeSliderBounds();
+  const t = constrain((x - item.x) / item.w, 0, 1);
+  return snapDay(fullStartMs + t * (fullEndMs - fullStartMs));
+}
+
+function setDateRangeHandle(handle, x) {
+  const value = dateRangeValueFromX(x);
+  if (handle === "start") selectedStartMs = min(value, selectedEndMs);
+  if (handle === "end") selectedEndMs = max(value, selectedStartMs);
+  saveSliderState();
+  applyDateRange();
+}
+
+function getActivityPathModeHit(x, y) {
+  if (currentView !== "activitypath") return false;
+  const item = getActivityPathModeButton();
+  return x >= item.x && x <= item.x + item.w && y >= item.y && y <= item.y + item.h;
+}
+
+function saveGraphSnapshot() {
+  draw();
+  const bounds = getGraphSnapshotBounds();
+  const image = get(bounds.x, bounds.y, bounds.w, bounds.h);
+  image.save(`hop-${currentView}-${new Date().toISOString().slice(0, 10)}`, "png");
+}
+
+function selectedPeriodLabel() {
+  if (!selectedStartMs || !selectedEndMs) return "";
+  return `${formatDate(new Date(selectedStartMs))} - ${formatDate(new Date(selectedEndMs))}`;
+}
+
+function getGraphSnapshotBounds() {
+  const pad = 32;
+  const top = 112;
+  return {
+    x: pad,
+    y: top,
+    w: width - pad * 2,
+    h: height - top - pad,
+  };
+}
+
 function nextTimeBucket(bucket) {
   if (bucket === "week") return "month";
   if (bucket === "month") return "quarter";
@@ -418,11 +566,12 @@ function restoreStoredView() {
 function getNavHit(x, y) {
   const navY = 24;
   let navX = 32;
-  textSize(14);
+  textSize(11);
   for (const item of NAV_ITEMS) {
-    const w = textWidth(item.label) + 28;
-    if (x >= navX && x <= navX + w && y >= navY && y <= navY + 34) return item.id;
-    navX += w + 10;
+    const label = item.shortLabel || item.label;
+    const w = textWidth(label) + 18;
+    if (x >= navX && x <= navX + w && y >= navY && y <= navY + 26) return item.id;
+    navX += w + 6;
   }
   return null;
 }
