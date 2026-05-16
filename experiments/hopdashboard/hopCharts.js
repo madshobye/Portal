@@ -240,6 +240,8 @@ function drawActivityView(activity, ticketSales, pad, top) {
     { key: "crewCount", label: "Crew count", color: [190, 112, 255], formatter: formatInteger, scale: countScale },
     { key: "activeTicketUsersWithMembership", label: "Ticket users (w.m)", color: [34, 190, 125], formatter: formatInteger, scale: countScale },
     { key: "activeTicketUsersWithoutMembership", label: "Ticket users (wo.m)", color: [68, 145, 255], formatter: formatInteger, scale: countScale },
+    { key: "classTickets", label: "Activity tickets", color: [90, 165, 90], formatter: formatInteger, scale: countScale },
+    { key: "eventTickets", label: "Event tickets", color: [155, 105, 190], formatter: formatInteger, scale: countScale },
     { key: "classRevenue", label: "Activity revenue", color: [60, 140, 85], formatter: formatDkk, scale: moneyScale },
     { key: "eventRevenue", label: "Event revenue", color: [135, 85, 170], formatter: formatDkk, scale: moneyScale },
   ];
@@ -721,6 +723,8 @@ function mergeActivityTimeline(activityWeeks, ticketWeeks) {
     const merged = byWeek.get(week.month) || { month: week.month, revenue: 0, newMemberships: 0, endedMemberships: 0, memberCount: 0 };
     merged.classRevenue = week.classRevenue || 0;
     merged.eventRevenue = week.eventRevenue || 0;
+    merged.classTickets = week.classTickets || 0;
+    merged.eventTickets = week.eventTickets || 0;
     merged.activeTicketUsers = week.activeTicketUsers || 0;
     merged.activeTicketUsersWithMembership = countSetIntersection(week.customerKeys || new Set(), merged.customerKeys || new Set());
     merged.activeTicketUsersWithoutMembership = (week.customerKeys?.size || 0) - merged.activeTicketUsersWithMembership;

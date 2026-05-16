@@ -1756,12 +1756,14 @@ function addActiveMemberWeeks(byMonth, rowsByCustomer, dataEndDate, timeBucket) 
           });
         }
         const weekEntry = byMonth.get(week);
-        weekEntry.customerKeys.add(customerKey);
         const typeKey = row.membershipTypeKey || membershipTypeKey(row.text);
-        weekEntry.membershipTypeKeys = weekEntry.membershipTypeKeys || new Map();
-        if (!weekEntry.membershipTypeKeys.has(typeKey)) weekEntry.membershipTypeKeys.set(typeKey, new Set());
-        weekEntry.membershipTypeKeys.get(typeKey).add(customerKey);
         weekEntry.revenue += weeklyRevenue;
+        if (isActiveAtPeriodSnapshot(row.date, endDate, week, timeBucket, dataEndDate)) {
+          weekEntry.customerKeys.add(customerKey);
+          weekEntry.membershipTypeKeys = weekEntry.membershipTypeKeys || new Map();
+          if (!weekEntry.membershipTypeKeys.has(typeKey)) weekEntry.membershipTypeKeys.set(typeKey, new Set());
+          weekEntry.membershipTypeKeys.get(typeKey).add(customerKey);
+        }
       }
 
       if (endsWithoutRenewal) {
@@ -1804,11 +1806,32 @@ function addActiveCrewWeeks(byMonth, rowsByCustomer, dataEndDate, timeBucket) {
           });
         }
         const weekEntry = byMonth.get(week);
-        weekEntry.crewKeys = weekEntry.crewKeys || new Set();
-        weekEntry.crewKeys.add(customerKey);
+        if (isActiveAtPeriodSnapshot(row.date, endDate, week, timeBucket, dataEndDate)) {
+          weekEntry.crewKeys = weekEntry.crewKeys || new Set();
+          weekEntry.crewKeys.add(customerKey);
+        }
       }
     }
   }
+}
+
+function isActiveAtPeriodSnapshot(startDate, endDate, period, timeBucket, dataEndDate) {
+  const snapshot = periodSnapshotDate(period, timeBucket, dataEndDate);
+  return startOfHopDayMs(startDate) <= snapshot.getTime() && startOfHopDayMs(endDate) >= snapshot.getTime();
+}
+
+function periodSnapshotDate(period, timeBucket, dataEndDate) {
+  const periodEnd = periodEndDate(period, timeBucket);
+  if (dataEndDate && periodEnd > dataEndDate) return new Date(startOfHopDayMs(dataEndDate));
+  return periodEnd;
+}
+
+function periodEndDate(period, timeBucket) {
+  const start = dateFromPeriodKey(period, timeBucket);
+  if (timeBucket === "week") return addDays(start, 6);
+  const end = addPeriods(start, 1, timeBucket);
+  end.setDate(end.getDate() - 1);
+  return end;
 }
 
 function isMembershipRow(row) {

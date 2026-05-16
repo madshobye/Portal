@@ -193,8 +193,8 @@ function drawDateRangeSlider() {
   textAlign(RIGHT, CENTER);
   text(`${formatDate(new Date(selectedStartMs))} - ${formatDate(new Date(selectedEndMs))}`, item.x + item.w, item.y + 7);
 
-  stroke(60);
-  strokeWeight(1);
+  stroke(150);
+  strokeWeight(3);
   line(item.x, trackY, item.x + item.w, trackY);
   stroke(245);
   strokeWeight(draggedDateRangeHandle === "range" ? 7 : 5);

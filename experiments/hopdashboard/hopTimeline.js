@@ -37,6 +37,9 @@ function drawHopTimelineChart(x, y, w, h, points, title, series, labels = [], st
     const scaleKey = item.scale || item.key;
     maxByScale[scaleKey] = max(maxByScale[scaleKey] || 1, ...points.map((point) => abs(point[item.key] || 0)));
   }
+  for (const scaleKey of Object.keys(maxByScale)) {
+    maxByScale[scaleKey] *= 1.08;
+  }
 
   drawTimelineYAxis(plotX, plotY, plotW, plotH, leftScaleKey, maxByScale[leftScaleKey] || 1, false);
   if (rightScaleKey) drawTimelineYAxis(plotX, plotY, plotW, plotH, rightScaleKey, maxByScale[rightScaleKey] || 1, true);
