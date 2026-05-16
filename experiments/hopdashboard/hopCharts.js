@@ -82,7 +82,7 @@ function viewInfoDescription(infoKey) {
 }
 
 function drawCenteredMessage(message) {
-  background(0);
+  background(52);
   fill(245);
   noStroke();
   textAlign(CENTER, CENTER);
@@ -97,7 +97,7 @@ function drawHopOverview(model, fileName = "", currentView = "overview", navItem
   if (Object.prototype.hasOwnProperty.call(options, "anonymizeNames")) {
     model?.setAnonymizeNames?.(options.anonymizeNames);
   }
-  background(0);
+  background(52);
   const pad = 32;
   const revenue = sum(model.invoices, "totalPrice");
   const typeCounts = countInvoiceTypes(model.invoices);
