@@ -1282,15 +1282,17 @@ function drawActivityPathView(activityPath, pad, top) {
     rect(barX, y + cellH * 0.28, map(row.size, 0, maxRowSize, 0, barW), cellH * 0.44, 1);
 
     const targetMap = targetByRow.get(row.key);
+    const maxTargetCount = max(1, ...row.targets.map((target) => target.count || 0));
     for (let colIndex = 0; colIndex < visibleColumns.length; colIndex += 1) {
       const column = visibleColumns[colIndex];
       const target = targetMap.get(column.key);
       const x = plotX + colIndex * cellW;
       const rate = target?.rate || 0;
-      fill(target ? activityPathCellColor(rate, column.type) : 248);
+      const amount = target ? (target.count || 0) / maxTargetCount : 0;
+      fill(target ? activityPathCellColor(amount, column.type) : 248);
       rect(x + 1, y + 1, max(1, cellW - 2), max(1, cellH - 2), 1);
       if (target && cellW > 34 && cellH > 18) {
-        fill(rate > 0.5 && column.type !== "No return" ? 245 : 45);
+        fill(amount > 0.65 && column.type !== "No return" ? 245 : 45);
         textSize(9);
         textAlign(CENTER, CENTER);
         text(formatInteger(target.count), x + cellW * 0.5, y + cellH * 0.5);
@@ -2024,11 +2026,8 @@ function activityPathCellColor(rate, type) {
     const amount = constrain(rate, 0, 1);
     return [180, 180, 180, 70 + amount * 150];
   }
-  if (type === "Membership") {
-    const amount = constrain(rate, 0, 1);
-    return [48, 168, 112, 70 + amount * 160];
-  }
-  return retentionRateColor(rate);
+  const amount = constrain(rate, 0, 1);
+  return interpolateRgb([255, 255, 255], [35, 155, 95], amount);
 }
 
 function drawRetentionView(retention, pad, top) {
@@ -2128,13 +2127,10 @@ function drawRetentionView(retention, pad, top) {
 
 function retentionRateColor(rate) {
   const clamped = constrain(Number(rate) || 0, 0, 1);
-  const low = [232, 92, 79];
-  const mid = [242, 201, 76];
-  const high = [48, 168, 112];
-  if (clamped < 0.5) {
-    return interpolateRgb(low, mid, clamped / 0.5);
-  }
-  return interpolateRgb(mid, high, (clamped - 0.5) / 0.5);
+  const curved = constrain((clamped - 0.08) / 0.22, 0, 1);
+  const low = [255, 255, 255];
+  const high = [35, 155, 95];
+  return interpolateRgb(low, high, curved);
 }
 
 function retentionCellColor(rate, outOfScope = false) {
@@ -2383,11 +2379,11 @@ function getStorageButton() {
 }
 
 function getCaptureButton() {
-  const anonymize = getAnonymizeButton();
+  const bucket = getTimeBucketButton();
   const w = 26;
   const h = 26;
   const gap = 6;
-  return { x: anonymize.x - gap - w, y: anonymize.y, w, h };
+  return { x: bucket.x - gap - w, y: bucket.y, w, h };
 }
 
 function getTimelineCurveButton() {
