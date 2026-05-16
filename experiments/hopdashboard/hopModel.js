@@ -168,6 +168,9 @@ function groupCustomers(invoices) {
         firstDate: invoice.date,
         lastDate: invoice.date,
         revenue: 0,
+        activityRevenue: 0,
+        eventRevenue: 0,
+        membershipRevenue: 0,
         ticketRevenue: 0,
         invoiceCount: 0,
         classPassCount: 0,
@@ -180,9 +183,12 @@ function groupCustomers(invoices) {
     customer.firstDate = minDate(customer.firstDate, invoice.date);
     customer.lastDate = maxDate(customer.lastDate, invoice.date);
     customer.revenue += invoice.totalPrice;
-    customer.ticketRevenue += invoice.lines
-      .filter((row) => isActivityOrEventRow(row))
-      .reduce((total, row) => total + row.totalPrice, 0);
+    for (const row of invoice.lines) {
+      if (row.itemType === "class_pass_type") customer.activityRevenue += row.totalPrice;
+      if (row.itemType === "event") customer.eventRevenue += row.totalPrice;
+      if (isPaidMembershipRow(row)) customer.membershipRevenue += row.totalPrice;
+    }
+    customer.ticketRevenue = customer.activityRevenue + customer.eventRevenue;
     customer.invoiceCount += 1;
     if (invoice.itemTypes.has("class_pass_type")) customer.classPassCount += 1;
     if (invoice.itemTypes.has("event")) customer.eventCount += 1;

@@ -939,14 +939,15 @@ function drawTicketBuyerSegmentLabels(plotX, plotY, plotH, buyers) {
 }
 
 function drawRevenueGroupsView(customers, pad, top, groupCount, excludeMembershipRevenue = false) {
-  const revenueKey = excludeMembershipRevenue ? "ticketRevenue" : "revenue";
-  const revenueLabel = excludeMembershipRevenue ? "Ticket/event revenue" : "Revenue";
+  const revenueLabel = excludeMembershipRevenue ? "Activity + event revenue" : "Stacked revenue";
   const payingCustomers = (customers || [])
-    .filter((customer) => customer[revenueKey] > 0)
+    .filter((customer) => customer.ticketRevenue + (excludeMembershipRevenue ? 0 : customer.membershipRevenue) > 0)
     .sort((a, b) => {
       const aTickets = a.classPassCount + a.eventCount;
       const bTickets = b.classPassCount + b.eventCount;
-      return bTickets - aTickets || b.membershipCount - a.membershipCount || b[revenueKey] - a[revenueKey];
+      const aRevenue = a.ticketRevenue + (excludeMembershipRevenue ? 0 : a.membershipRevenue);
+      const bRevenue = b.ticketRevenue + (excludeMembershipRevenue ? 0 : b.membershipRevenue);
+      return bTickets - aTickets || b.membershipCount - a.membershipCount || bRevenue - aRevenue;
     });
 
   fill(238);
@@ -961,7 +962,7 @@ function drawRevenueGroupsView(customers, pad, top, groupCount, excludeMembershi
     return;
   }
 
-  const groups = buildRevenueFrequencyGroups(payingCustomers, groupCount, revenueKey);
+  const groups = buildRevenueFrequencyGroups(payingCustomers, groupCount, excludeMembershipRevenue);
   const totalRevenue = sum(groups, "revenue");
   const maxRevenue = max(1, ...groups.map((group) => group.revenue));
   const maxPeople = max(1, ...groups.map((group) => group.people));
@@ -969,8 +970,11 @@ function drawRevenueGroupsView(customers, pad, top, groupCount, excludeMembershi
   const plotY = top + 86;
   const plotW = width - pad * 2 - 56;
   const plotH = height - top - pad - 122;
+  const innerPadX = 54;
+  const barPlotX = plotX + innerPadX;
+  const barPlotW = max(1, plotW - innerPadX * 2);
   const barGap = 8;
-  const barW = max(4, (plotW - barGap * (groups.length - 1)) / groups.length);
+  const barW = max(4, (barPlotW - barGap * (groups.length - 1)) / groups.length);
 
   fill(85);
   textSize(11);
@@ -989,19 +993,19 @@ function drawRevenueGroupsView(customers, pad, top, groupCount, excludeMembershi
   stroke(210);
   strokeWeight(1);
   line(plotX, plotY + plotH, plotX + plotW, plotY + plotH);
+  drawRevenueGroupYAxis(plotX, plotY, plotW, plotH, maxRevenue, maxPeople);
+  drawRevenueGroupXAxis(plotX, plotY + plotH, plotW);
 
   let hovered = null;
   const peoplePoints = [];
   noStroke();
   for (let i = 0; i < groups.length; i += 1) {
     const group = groups[i];
-    const x = plotX + i * (barW + barGap);
+    const x = barPlotX + i * (barW + barGap);
     const h = map(group.revenue, 0, maxRevenue, 0, plotH * 0.86);
-    const y = plotY + plotH - h;
     const isHover = mouseX >= x && mouseX <= x + barW && mouseY >= plotY && mouseY <= plotY + plotH;
 
-    fill(68, 145, 255, isHover ? 230 : 170);
-    rect(x, y, barW, h, 1);
+    drawRevenueGroupStackedBar(x, plotY + plotH, barW, h, group, isHover, excludeMembershipRevenue);
 
     const peopleY = plotY + plotH - map(group.people, 0, maxPeople, 0, plotH * 0.86);
     peoplePoints.push({ x: x + barW * 0.5, y: peopleY });
@@ -1013,7 +1017,7 @@ function drawRevenueGroupsView(customers, pad, top, groupCount, excludeMembershi
     textAlign(CENTER, TOP);
     text(group.label, x + barW * 0.5, plotY + plotH + 8);
 
-    if (isHover) hovered = { group, x, y, h };
+    if (isHover) hovered = { group, x, h };
   }
 
   noFill();
@@ -1030,6 +1034,9 @@ function drawRevenueGroupsView(customers, pad, top, groupCount, excludeMembershi
     drawTooltip(mouseX, mouseY, [
       `${hovered.group.label} activities/tickets`,
       `${revenueLabel}: ${formatDkk(hovered.group.revenue)} (${Math.round((hovered.group.revenue / totalRevenue) * 100)}%)`,
+      `Activities: ${formatDkk(hovered.group.activityRevenue)}`,
+      `Events: ${formatDkk(hovered.group.eventRevenue)}`,
+      ...(excludeMembershipRevenue ? [] : [`Memberships: ${formatDkk(hovered.group.membershipRevenue)}`]),
       `People: ${formatInteger(hovered.group.people)}`,
       `Avg revenue/person: ${formatDkk(hovered.group.avgRevenue)}`,
       `Avg activities/person: ${hovered.group.avgActivities.toFixed(1)}`,
@@ -1039,7 +1046,79 @@ function drawRevenueGroupsView(customers, pad, top, groupCount, excludeMembershi
   }
 }
 
-function buildRevenueFrequencyGroups(customers, maxSingleBucket, revenueKey = "revenue") {
+function drawRevenueGroupYAxis(plotX, plotY, plotW, plotH, maxRevenue, maxPeople) {
+  const ticks = 4;
+  const leftLabelX = plotX + 6;
+  const rightLabelX = plotX + plotW - 6;
+  const leftTickX = plotX + 42;
+  const rightTickX = plotX + plotW - 42;
+  textSize(10);
+  for (let index = 0; index <= ticks; index += 1) {
+    const y = plotY + plotH - (index / ticks) * plotH * 0.86;
+    const revenue = (maxRevenue / ticks) * index;
+    const people = (maxPeople / ticks) * index;
+
+    stroke(index === 0 ? 160 : 220, index === 0 ? 180 : 100);
+    strokeWeight(1);
+    line(plotX, y, plotX + plotW, y);
+    stroke(145);
+    line(leftTickX - 6, y, leftTickX, y);
+    line(rightTickX, y, rightTickX + 6, y);
+
+    noStroke();
+    fill(70);
+    textAlign(LEFT, CENTER);
+    text(formatCompactDkk(revenue), leftLabelX, y);
+    textAlign(RIGHT, CENTER);
+    text(formatInteger(round(people)), rightLabelX, y);
+  }
+
+  fill(70);
+  textSize(10);
+  textAlign(LEFT, TOP);
+  text("revenue", leftLabelX, plotY + 6);
+  textAlign(RIGHT, TOP);
+  text("people", rightLabelX, plotY + 6);
+}
+
+function formatCompactDkk(value) {
+  const amount = Math.round(value);
+  if (Math.abs(amount) >= 1000000) return `${(amount / 1000000).toFixed(1)}m`;
+  if (Math.abs(amount) >= 1000) return `${Math.round(amount / 1000)}k`;
+  return String(amount);
+}
+
+function drawRevenueGroupXAxis(x, y, w) {
+  stroke(145);
+  strokeWeight(1);
+  line(x, y, x + w, y);
+  line(x, y, x, y + 5);
+  line(x + w, y, x + w, y + 5);
+  noStroke();
+  fill(70);
+  textSize(10);
+  textAlign(CENTER, TOP);
+  text("activity/event purchases per person", x + w * 0.5, y + 20);
+}
+
+function drawRevenueGroupStackedBar(x, baseY, w, totalH, group, isHover, excludeMembershipRevenue) {
+  const parts = [
+    { key: "activityRevenue", color: [60, 140, 85] },
+    { key: "eventRevenue", color: [135, 85, 170] },
+    ...(excludeMembershipRevenue ? [] : [{ key: "membershipRevenue", color: [230, 130, 55] }]),
+  ];
+  let cursorY = baseY;
+  for (const part of parts) {
+    const value = group[part.key] || 0;
+    const h = group.revenue ? totalH * (value / group.revenue) : 0;
+    cursorY -= h;
+    fill(part.color[0], part.color[1], part.color[2], isHover ? 235 : 180);
+    noStroke();
+    rect(x, cursorY, w, h, 1);
+  }
+}
+
+function buildRevenueFrequencyGroups(customers, maxSingleBucket, excludeMembershipRevenue = false) {
   const byActivityCount = new Map();
   for (const customer of customers) {
     const activityCount = customer.classPassCount + customer.eventCount;
@@ -1053,7 +1132,10 @@ function buildRevenueFrequencyGroups(customers, maxSingleBucket, revenueKey = "r
     const label = count === maxSingleBucket ? `${maxSingleBucket}+` : String(count);
     const entries = byActivityCount.get(label) || [];
     if (!entries.length) continue;
-    const revenue = sum(entries, revenueKey);
+    const activityRevenue = sum(entries, "activityRevenue");
+    const eventRevenue = sum(entries, "eventRevenue");
+    const membershipRevenue = excludeMembershipRevenue ? 0 : sum(entries, "membershipRevenue");
+    const revenue = activityRevenue + eventRevenue + membershipRevenue;
     const activities = entries.reduce((total, customer) => total + customer.classPassCount + customer.eventCount, 0);
     const singleTicketBuyers = entries.filter((customer) => customer.classPassCount + customer.eventCount === 1 && customer.membershipCount === 0).length;
     const recurringBuyers = entries.filter((customer) => customer.classPassCount + customer.eventCount > 1 || customer.membershipCount > 0).length;
@@ -1061,6 +1143,9 @@ function buildRevenueFrequencyGroups(customers, maxSingleBucket, revenueKey = "r
       label,
       people: entries.length,
       revenue,
+      activityRevenue,
+      eventRevenue,
+      membershipRevenue,
       avgRevenue: revenue / entries.length,
       avgActivities: activities / entries.length,
       singleTicketBuyers,
@@ -1072,7 +1157,9 @@ function buildRevenueFrequencyGroups(customers, maxSingleBucket, revenueKey = "r
 
 function drawRevenueGroupLegend(x, y, revenueLabel = "Revenue") {
   const items = [
-    { label: revenueLabel, color: [68, 145, 255] },
+    { label: "Activities", color: [60, 140, 85] },
+    { label: "Events", color: [135, 85, 170] },
+    ...(revenueLabel === "Stacked revenue" ? [{ label: "Memberships", color: [230, 130, 55] }] : []),
     { label: "People", color: [20, 20, 20] },
   ];
   let lx = x + 180;
