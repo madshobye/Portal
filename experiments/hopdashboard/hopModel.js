@@ -9,20 +9,20 @@ function buildHopModel(rows, timeBucket = "week", options = {}) {
   const membershipLengthRows = options.membershipLengthRows
     ? applyTransactionDiscountNetting(options.membershipLengthRows.map(normalizeSalesRow).filter((row) => row.date))
     : normalizedRows;
-  const firstTouchpointRows = options.firstTouchpointRows
+  const firstTouchpointRows = options.firstTouchpointRows && !options.timelineActivity
     ? applyTransactionDiscountNetting(options.firstTouchpointRows.map(normalizeSalesRow).filter((row) => row.date))
     : normalizedRows;
-  const timelineRows = options.timelineRows
+  const timelineRows = options.timelineRows && (!options.timelineActivity || !options.ticketSalesTimeline)
     ? applyTransactionDiscountNetting(options.timelineRows.map(normalizeSalesRow).filter((row) => row.date))
     : normalizedRows;
   const invoices = groupInvoices(normalizedRows);
   const customers = groupCustomers(invoices);
   const months = groupMonths(invoices, timeBucket);
-  const activity = groupActivity(timelineRows, timeBucket, {
+  const activity = options.timelineActivity || groupActivity(timelineRows, timeBucket, {
     firstTouchpointRows,
   });
   const ticketSales = groupTicketSales(normalizedRows, timeBucket);
-  const ticketSalesTimeline = groupTicketSales(timelineRows, timeBucket);
+  const ticketSalesTimeline = options.ticketSalesTimeline || groupTicketSales(timelineRows, timeBucket);
   const ticketBuyers = groupTicketBuyers(normalizedRows, timeBucket);
   const buyerPatterns = groupBuyerPatterns(normalizedRows, timeBucket);
   const activityNetwork = groupActivityNetwork(normalizedRows);
@@ -71,6 +71,16 @@ function buildHopModel(rows, timeBucket = "week", options = {}) {
     getName(entity) {
       return getModelName(entity, this.anonymizeNames);
     },
+  };
+}
+
+function buildHopTimelineCache(rows, timeBucket = "week") {
+  const normalizedRows = applyTransactionDiscountNetting(rows.map(normalizeSalesRow).filter((row) => row.date));
+  return {
+    activity: groupActivity(normalizedRows, timeBucket, {
+      firstTouchpointRows: normalizedRows,
+    }),
+    ticketSalesTimeline: groupTicketSales(normalizedRows, timeBucket),
   };
 }
 

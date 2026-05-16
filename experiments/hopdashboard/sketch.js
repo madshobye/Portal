@@ -15,6 +15,7 @@ let activityPathMode = "ever";
 let anonymizeNames = true;
 let storeDataInBrowser = false;
 let revenueGroupsExcludeMembership = false;
+let fullTimelineCacheByBucket = new Map();
 let storedSliderState = {};
 let draggedNetworkNode = null;
 let chartToggleHits = [];
@@ -117,6 +118,7 @@ function loadCsvText(text, fileName) {
   sourceCsvText = String(text || "");
   const parsed = parseCsvText(text);
   sourceRows = parsed.rows;
+  fullTimelineCacheByBucket = new Map();
   const fullModel = buildHopModel(sourceRows, timeBucket);
   fullStartMs = startOfDayMs(fullModel.invoices[0]?.date);
   fullEndMs = startOfDayMs(fullModel.invoices.at(-1)?.date);
@@ -210,12 +212,15 @@ function drawDateRangeHandle(x, y, active) {
 }
 
 function applyDateRange() {
+  const fullTimeline = getFullTimelineCache(timeBucket);
   const filteredRows = sourceRows.filter((row) => {
     const date = parseHopDate(row["Invoice date/time"]);
     const time = startOfDayMs(date);
     return time >= selectedStartMs && time <= selectedEndMs;
   });
   hopModel = buildHopModel(filteredRows, timeBucket, {
+    timelineActivity: fullTimeline.activity,
+    ticketSalesTimeline: fullTimeline.ticketSalesTimeline,
     timelineRows: sourceRows,
     activityPathRows: sourceRows,
     retentionRows: sourceRows,
@@ -226,6 +231,13 @@ function applyDateRange() {
     rangeEndMs: selectedEndMs,
   });
   hopModel.setAnonymizeNames(anonymizeNames);
+}
+
+function getFullTimelineCache(bucket) {
+  if (!fullTimelineCacheByBucket.has(bucket)) {
+    fullTimelineCacheByBucket.set(bucket, buildHopTimelineCache(sourceRows, bucket));
+  }
+  return fullTimelineCacheByBucket.get(bucket);
 }
 
 function syncPortalControlState() {
@@ -322,6 +334,7 @@ function mousePressed() {
     clearHopCsv();
     hopModel = null;
     sourceRows = [];
+    fullTimelineCacheByBucket = new Map();
     droppedFileName = "";
     statusMessage = "Drop HOP sales CSV onto the canvas";
     return false;
