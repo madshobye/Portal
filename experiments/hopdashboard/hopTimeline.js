@@ -32,11 +32,9 @@ function drawHopTimelineChart(x, y, w, h, points, title, series, labels = [], st
   const plotY = max(y + 72, legend.bottom + 14);
   const plotW = w - 36 - leftAxisW - rightAxisW;
   const plotH = max(80, h - (plotY - y) - 70);
-  const maxByScale = {};
-  for (const item of visibleSeries) {
-    const scaleKey = item.scale || item.key;
-    maxByScale[scaleKey] = Math.max(maxByScale[scaleKey] || 1, ...points.map((point) => abs(point[item.key] || 0)));
-  }
+  const maxByScale = state.stackedTimelineLines
+    ? stackedTimelineMaxByScale(points, visibleSeries)
+    : timelineMaxByScale(points, visibleSeries);
   for (const scaleKey of Object.keys(maxByScale)) {
     maxByScale[scaleKey] *= 1.08;
   }
@@ -52,13 +50,20 @@ function drawHopTimelineChart(x, y, w, h, points, title, series, labels = [], st
   drawingContext.beginPath();
   drawingContext.rect(plotX, plotY, plotW, plotH);
   drawingContext.clip();
+  const stackByScale = new Map();
   for (const item of visibleSeries) {
     const linePoints = lineTimelinePointsForState(timelinePoints, state);
-    noFill();
     const alpha = legend.hoveredSeriesKey && legend.hoveredSeriesKey !== item.key ? 35 : 255;
+    if (state.stackedTimelineLines) {
+      noStroke();
+      fill(item.color[0], item.color[1], item.color[2], alpha * 0.22);
+      drawTimelineStackFill(linePoints, item, plotX, plotW, plotY, plotH, maxByScale[item.scale || item.key] || 1, state, stackByScale);
+    }
+    noFill();
     stroke(item.color[0], item.color[1], item.color[2], alpha);
     strokeWeight(legend.hoveredSeriesKey === item.key ? 3.5 : 2.5);
-    drawTimelineSeriesLine(linePoints, item, plotX, plotW, plotY, plotH, maxByScale[item.scale || item.key] || 1, state);
+    drawTimelineSeriesLine(linePoints, item, plotX, plotW, plotY, plotH, maxByScale[item.scale || item.key] || 1, state, state.stackedTimelineLines ? stackByScale : null);
+    if (state.stackedTimelineLines) addTimelineSeriesToStack(linePoints, item, stackByScale);
   }
   drawingContext.restore();
 
@@ -112,6 +117,27 @@ function drawTimelineYAxis(plotX, plotY, plotW, plotH, scaleKey, maxValue, right
     noStroke();
     text(formatTimelineAxisValue(value, scaleKey), axisX + (rightSide ? 8 : -8), y);
   }
+}
+
+function timelineMaxByScale(points, visibleSeries) {
+  const maxByScale = {};
+  for (const item of visibleSeries) {
+    const scaleKey = item.scale || item.key;
+    maxByScale[scaleKey] = Math.max(maxByScale[scaleKey] || 1, ...points.map((point) => abs(point[item.key] || 0)));
+  }
+  return maxByScale;
+}
+
+function stackedTimelineMaxByScale(points, visibleSeries) {
+  const maxByScale = {};
+  const scaleKeys = [...new Set(visibleSeries.map((item) => item.scale || item.key))];
+  for (const scaleKey of scaleKeys) {
+    const scaleSeries = visibleSeries.filter((item) => (item.scale || item.key) === scaleKey);
+    maxByScale[scaleKey] = Math.max(1, ...points.map((point) => {
+      return scaleSeries.reduce((total, item) => total + max(0, point[item.key] || 0), 0);
+    }));
+  }
+  return maxByScale;
 }
 
 function formatTimelineAxisValue(value, scaleKey) {
@@ -202,12 +228,12 @@ function lineTimelinePointsForState(points, state) {
   ];
 }
 
-function drawTimelineSeriesLine(points, item, plotX, plotW, plotY, plotH, maxValue, state) {
+function drawTimelineSeriesLine(points, item, plotX, plotW, plotY, plotH, maxValue, state, stackByScale) {
   if (state.smoothTimelineCurves) {
-    drawTimelineSeriesCurve(points, item, plotX, plotW, plotY, plotH, maxValue, state);
+    drawTimelineSeriesCurve(points, item, plotX, plotW, plotY, plotH, maxValue, state, stackByScale);
     return;
   }
-  const linePoints = timelineSeriesCurvePoints(points, item, plotX, plotW, plotY, plotH, maxValue, state);
+  const linePoints = timelineSeriesCurvePoints(points, item, plotX, plotW, plotY, plotH, maxValue, state, stackByScale);
   beginShape();
   for (const point of linePoints) {
     vertex(point.x, point.y);
@@ -215,25 +241,25 @@ function drawTimelineSeriesLine(points, item, plotX, plotW, plotY, plotH, maxVal
   endShape();
 }
 
-function drawTimelineSeriesCurve(points, item, plotX, plotW, plotY, plotH, maxValue, state) {
-  const curvePoints = timelineSeriesCurvePoints(points, item, plotX, plotW, plotY, plotH, maxValue, state);
+function drawTimelineSeriesCurve(points, item, plotX, plotW, plotY, plotH, maxValue, state, stackByScale) {
+  const curvePoints = timelineSeriesCurvePoints(points, item, plotX, plotW, plotY, plotH, maxValue, state, stackByScale);
   if (!curvePoints.length) return;
   if (curvePoints.length === 1) {
     point(curvePoints[0].x, curvePoints[0].y);
     return;
   }
+  const slopes = monotoneTimelineSlopes(curvePoints);
   drawingContext.beginPath();
   drawingContext.moveTo(curvePoints[0].x, curvePoints[0].y);
   for (let index = 0; index < curvePoints.length - 1; index += 1) {
-    const p0 = curvePoints[Math.max(0, index - 1)];
     const p1 = curvePoints[index];
     const p2 = curvePoints[index + 1];
-    const p3 = curvePoints[Math.min(curvePoints.length - 1, index + 2)];
+    const dx = p2.x - p1.x;
     drawingContext.bezierCurveTo(
-      p1.x + (p2.x - p0.x) / 6,
-      p1.y + (p2.y - p0.y) / 6,
-      p2.x - (p3.x - p1.x) / 6,
-      p2.y - (p3.y - p1.y) / 6,
+      p1.x + dx / 3,
+      p1.y + (slopes[index] * dx) / 3,
+      p2.x - dx / 3,
+      p2.y - (slopes[index + 1] * dx) / 3,
       p2.x,
       p2.y
     );
@@ -241,21 +267,95 @@ function drawTimelineSeriesCurve(points, item, plotX, plotW, plotY, plotH, maxVa
   drawingContext.stroke();
 }
 
-function timelineSeriesCurvePoints(points, item, plotX, plotW, plotY, plotH, maxValue, state) {
+function drawTimelineStackFill(points, item, plotX, plotW, plotY, plotH, maxValue, state, stackByScale) {
+  const topPoints = timelineSeriesCurvePoints(points, item, plotX, plotW, plotY, plotH, maxValue, state, stackByScale);
+  const bottomPoints = timelineStackBasePoints(points, item, plotX, plotW, plotY, plotH, maxValue, state, stackByScale);
+  if (!topPoints.length || topPoints.length !== bottomPoints.length) return;
+  beginShape();
+  for (const point of topPoints) vertex(point.x, point.y);
+  for (let index = bottomPoints.length - 1; index >= 0; index -= 1) {
+    vertex(bottomPoints[index].x, bottomPoints[index].y);
+  }
+  endShape(CLOSE);
+}
+
+function monotoneTimelineSlopes(points) {
+  const count = points.length;
+  const deltas = [];
+  for (let index = 0; index < count - 1; index += 1) {
+    const dx = points[index + 1].x - points[index].x;
+    deltas.push(dx === 0 ? 0 : (points[index + 1].y - points[index].y) / dx);
+  }
+
+  const slopes = new Array(count).fill(0);
+  slopes[0] = deltas[0] || 0;
+  slopes[count - 1] = deltas[count - 2] || 0;
+  for (let index = 1; index < count - 1; index += 1) {
+    slopes[index] = deltas[index - 1] * deltas[index] <= 0 ? 0 : (deltas[index - 1] + deltas[index]) / 2;
+  }
+
+  for (let index = 0; index < count - 1; index += 1) {
+    const delta = deltas[index];
+    if (delta === 0) {
+      slopes[index] = 0;
+      slopes[index + 1] = 0;
+      continue;
+    }
+    const a = slopes[index] / delta;
+    const b = slopes[index + 1] / delta;
+    const sum = a * a + b * b;
+    if (sum > 9) {
+      const t = 3 / sqrt(sum);
+      slopes[index] = t * a * delta;
+      slopes[index + 1] = t * b * delta;
+    }
+  }
+  return slopes;
+}
+
+function timelineSeriesCurvePoints(points, item, plotX, plotW, plotY, plotH, maxValue, state, stackByScale) {
   const result = [];
   let previousYear = "";
   points.forEach((point, index) => {
     const year = String(point.month || "").slice(0, 4);
-    if (item.key === "yearTotalRevenue" && index > 0 && year && previousYear && year !== previousYear) {
+    if (!state.stackedTimelineLines && item.key === "yearTotalRevenue" && index > 0 && year && previousYear && year !== previousYear) {
       const resetX = timelineMsToX(plotX, plotW, timelinePeriodStartMs(point.month), state, false);
       result.push({ x: resetX, y: plotY + plotH });
     }
     const px = timelinePointXForPoint(plotX, plotW, point, state, false);
-    const py = plotY + plotH - ((point[item.key] || 0) / maxValue) * plotH;
+    const value = timelineSeriesDrawValue(point, item, stackByScale);
+    const py = plotY + plotH - (value / maxValue) * plotH;
     result.push({ x: px, y: py });
     if (year) previousYear = year;
   });
   return result;
+}
+
+function timelineStackBasePoints(points, item, plotX, plotW, plotY, plotH, maxValue, state, stackByScale) {
+  return points.map((point) => {
+    const px = timelinePointXForPoint(plotX, plotW, point, state, false);
+    const scaleStack = stackByScale.get(item.scale || item.key);
+    const base = scaleStack?.get(point.month) || 0;
+    const py = plotY + plotH - (base / maxValue) * plotH;
+    return { x: px, y: py };
+  });
+}
+
+function timelineSeriesDrawValue(point, item, stackByScale) {
+  const value = point[item.key] || 0;
+  if (!stackByScale) return value;
+  const scaleStack = stackByScale.get(item.scale || item.key);
+  const base = scaleStack?.get(point.month) || 0;
+  return base + max(0, value);
+}
+
+function addTimelineSeriesToStack(points, item, stackByScale) {
+  const scaleKey = item.scale || item.key;
+  if (!stackByScale.has(scaleKey)) stackByScale.set(scaleKey, new Map());
+  const scaleStack = stackByScale.get(scaleKey);
+  for (const point of points) {
+    scaleStack.set(point.month, (scaleStack.get(point.month) || 0) + max(0, point[item.key] || 0));
+  }
 }
 
 function timelinePeriodSlot(plotX, plotW, count, index) {

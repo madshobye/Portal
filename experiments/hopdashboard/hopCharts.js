@@ -794,6 +794,7 @@ function timelineChartState() {
     rangeStartMs: typeof selectedStartMs === "number" ? selectedStartMs : 0,
     rangeEndMs: typeof selectedEndMs === "number" ? selectedEndMs : 0,
     smoothTimelineCurves: !!timelineSmoothCurves,
+    stackedTimelineLines: !!timelineStackedLines,
   };
 }
 
@@ -2263,7 +2264,10 @@ function drawClearDataButton() {
 }
 
 function getClearDataButtonBounds() {
-  return { x: width - 100, y: 24, w: 68, h: 26 };
+  const anonymize = getAnonymizeButton();
+  const gap = 6;
+  const w = 68;
+  return { x: anonymize.x - gap - w, y: 24, w, h: 26 };
 }
 
 function drawTimeBucketToggle(activeBucket) {
@@ -2307,7 +2311,18 @@ function drawTimelineCurveToggle(active) {
   fill(active ? 245 : 35);
   textSize(11);
   textAlign(CENTER, CENTER);
-  text(active ? "Curve" : "Line", item.x + item.w / 2, item.y + item.h / 2);
+  text(active ? "C" : "L", item.x + item.w / 2, item.y + item.h / 2);
+}
+
+function drawTimelineStackToggle(active) {
+  const item = getTimelineStackButton();
+  fill(active ? 30 : 110);
+  noStroke();
+  rect(item.x, item.y, item.w, item.h, 3);
+  fill(active ? 245 : 35);
+  textSize(11);
+  textAlign(CENTER, CENTER);
+  text(active ? "S" : "F", item.x + item.w / 2, item.y + item.h / 2);
 }
 
 function drawCaptureButton() {
@@ -2346,36 +2361,33 @@ function drawRevenueGroupsMembershipToggle(excludeMembership, visible, overrideP
 }
 
 function getTimeBucketButton() {
-  const y = 24;
+  const storage = getStorageButton();
   const w = 58;
   const h = 26;
   const gap = 6;
-  const x = width - 100 - gap - w;
-  return { x, y, w, h };
+  return { x: storage.x - gap - w, y: storage.y, w, h };
 }
 
 function getAnonymizeButton() {
-  const bucket = getTimeBucketButton();
   const w = 58;
   const h = 26;
-  const gap = 6;
-  return { x: bucket.x - gap - w, y: bucket.y, w, h };
+  return { x: width - 32 - w, y: 24, w, h };
 }
 
 function getStorageButton() {
+  const clear = getClearDataButtonBounds();
+  const w = 26;
+  const h = 26;
+  const gap = 6;
+  return { x: clear.x - gap - w, y: clear.y, w, h };
+}
+
+function getCaptureButton() {
   const anonymize = getAnonymizeButton();
   const w = 26;
   const h = 26;
   const gap = 6;
   return { x: anonymize.x - gap - w, y: anonymize.y, w, h };
-}
-
-function getCaptureButton() {
-  const storage = getStorageButton();
-  const w = 26;
-  const h = 26;
-  const gap = 6;
-  return { x: storage.x - gap - w, y: storage.y, w, h };
 }
 
 function getTimelineCurveButton() {
@@ -2386,12 +2398,20 @@ function getTimelineCurveButton() {
   return { x: capture.x - gap - w, y: capture.y, w, h };
 }
 
-function getActivityPathModeButton() {
+function getTimelineStackButton() {
   const curve = getTimelineCurveButton();
-  const w = 92;
+  const w = 48;
   const h = 26;
   const gap = 6;
   return { x: curve.x - gap - w, y: curve.y, w, h };
+}
+
+function getActivityPathModeButton() {
+  const stack = getTimelineStackButton();
+  const w = 92;
+  const h = 26;
+  const gap = 6;
+  return { x: stack.x - gap - w, y: stack.y, w, h };
 }
 
 function getRevenueGroupsMembershipButton(overridePosition) {
