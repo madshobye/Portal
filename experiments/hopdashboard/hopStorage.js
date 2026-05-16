@@ -1,6 +1,7 @@
 const HOP_STORAGE_KEY = "hopdashboard:lastCsv";
 const HOP_VIEW_STORAGE_KEY = "hopdashboard:currentView";
 const HOP_VISIBILITY_STORAGE_KEY = "hopdashboard:timelineVisibility";
+const HOP_SLIDER_STORAGE_KEY = "hopdashboard:sliders";
 
 function saveHopCsv(text, fileName = "CSV") {
   const payload = {
@@ -52,5 +53,20 @@ function loadHopTimelineVisibility() {
     };
   } catch (_error) {
     return { series: [], labels: [] };
+  }
+}
+
+function saveHopSliders(sliders) {
+  localStorage.setItem(HOP_SLIDER_STORAGE_KEY, JSON.stringify(sliders || {}));
+}
+
+function loadHopSliders() {
+  const stored = localStorage.getItem(HOP_SLIDER_STORAGE_KEY);
+  if (!stored) return {};
+  try {
+    const payload = JSON.parse(stored);
+    return payload && typeof payload === "object" ? payload : {};
+  } catch (_error) {
+    return {};
   }
 }

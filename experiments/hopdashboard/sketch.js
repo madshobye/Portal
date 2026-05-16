@@ -9,6 +9,8 @@ let selectedStartMs = 0;
 let selectedEndMs = 0;
 let timeBucket = "week";
 let buyerPatternWindowIndex = 0;
+let revenueGroupCount = 8;
+let storedSliderState = {};
 let draggedNetworkNode = null;
 let chartToggleHits = [];
 let pendingChartToggle = null;
@@ -23,6 +25,7 @@ const NAV_ITEMS = [
   { id: "overview", label: "Overview" },
   { id: "ticketsales", label: "Ticket Sales" },
   { id: "ticketbuyers", label: "Ticket Buyers" },
+  { id: "revenuegroups", label: "Revenue Groups" },
   { id: "buyerpattern", label: "Buyer Pattern" },
   { id: "activitynetwork", label: "Activity Network" },
   { id: "usernetwork", label: "User Network" },
@@ -36,6 +39,7 @@ function setup() {
   canvas.drop(handleCsvDrop);
   restoreStoredView();
   restoreStoredTimelineVisibility();
+  restoreStoredSliders();
   restoreStoredCsv();
 }
 
@@ -86,8 +90,9 @@ function loadCsvText(text, fileName) {
   const fullModel = buildHopModel(sourceRows, timeBucket);
   fullStartMs = startOfDayMs(fullModel.invoices[0]?.date);
   fullEndMs = startOfDayMs(fullModel.invoices.at(-1)?.date);
-  selectedStartMs = fullStartMs;
-  selectedEndMs = fullEndMs;
+  selectedStartMs = constrain(Number(storedSliderState.selectedStartMs) || fullStartMs, fullStartMs, fullEndMs);
+  selectedEndMs = constrain(Number(storedSliderState.selectedEndMs) || fullEndMs, fullStartMs, fullEndMs);
+  if (selectedStartMs > selectedEndMs) selectedStartMs = selectedEndMs;
   syncPortalControlState();
   applyDateRange();
   droppedFileName = fileName;
@@ -128,6 +133,7 @@ function drawPortalRangeControls() {
     selectedStartMs = nextStart;
     selectedEndMs = nextEnd;
     syncPortalDateSliders();
+    saveSliderState();
     applyDateRange();
   }
 
@@ -144,6 +150,20 @@ function drawPortalRangeControls() {
     if (nextWindow !== buyerPatternWindowIndex) {
       buyerPatternWindowIndex = nextWindow;
       syncPortalBuyerWindowSlider();
+      saveSliderState();
+    }
+  }
+
+  if (currentView === "revenuegroups") {
+    const groupSlider = uiSlider("hop_revenue_group_count", `${revenueGroupCount} groups`, {
+      min: 3,
+      max: 100,
+      init: revenueGroupCount,
+    }, { ...style, x: 32 + (sliderW + 14) * 2, y: controlY, width: sliderW });
+    const nextGroupCount = constrain(round(groupSlider.value), 3, 100);
+    if (nextGroupCount !== revenueGroupCount) {
+      revenueGroupCount = nextGroupCount;
+      saveSliderState();
     }
   }
 }
@@ -160,6 +180,7 @@ function applyDateRange() {
 function syncPortalControlState() {
   syncPortalDateSliders();
   syncPortalBuyerWindowSlider();
+  syncPortalRevenueGroupSlider();
 }
 
 function syncPortalDateSliders() {
@@ -171,6 +192,27 @@ function syncPortalDateSliders() {
 function syncPortalBuyerWindowSlider() {
   if (typeof uiSetState !== "function") return;
   uiSetState("hop_buyer_pattern_window", buyerPatternWindowIndex, { persist: false });
+}
+
+function syncPortalRevenueGroupSlider() {
+  if (typeof uiSetState !== "function") return;
+  uiSetState("hop_revenue_group_count", revenueGroupCount, { persist: false });
+}
+
+function saveSliderState() {
+  storedSliderState = {
+    selectedStartMs,
+    selectedEndMs,
+    buyerPatternWindowIndex,
+    revenueGroupCount,
+  };
+  saveHopSliders(storedSliderState);
+}
+
+function restoreStoredSliders() {
+  storedSliderState = loadHopSliders();
+  buyerPatternWindowIndex = constrain(Number(storedSliderState.buyerPatternWindowIndex) || 0, 0, 999999);
+  revenueGroupCount = constrain(Number(storedSliderState.revenueGroupCount) || revenueGroupCount, 3, 100);
 }
 
 function snapDay(value) {

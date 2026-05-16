@@ -16,9 +16,11 @@ function drawHopTimelineChart(x, y, w, h, points, title, series, labels = [], st
   const plotY = max(y + 72, legend.bottom + 14);
   const plotW = w - 36;
   const plotH = max(80, h - (plotY - y) - 40);
-  const maxByKey = {};
+  const maxByScale = {};
   for (const item of series) {
-    maxByKey[item.key] = max(1, ...points.map((point) => abs(point[item.key] || 0)));
+    if (hiddenSeries.has(item.key)) continue;
+    const scaleKey = item.scale || item.key;
+    maxByScale[scaleKey] = max(maxByScale[scaleKey] || 1, ...points.map((point) => abs(point[item.key] || 0)));
   }
 
   stroke(210);
@@ -34,7 +36,7 @@ function drawHopTimelineChart(x, y, w, h, points, title, series, labels = [], st
     beginShape();
     points.forEach((point, index) => {
       const px = plotX + (points.length <= 1 ? 0 : (index / (points.length - 1)) * plotW);
-      const py = plotY + plotH - ((point[item.key] || 0) / maxByKey[item.key]) * plotH;
+      const py = plotY + plotH - ((point[item.key] || 0) / (maxByScale[item.scale || item.key] || 1)) * plotH;
       vertex(px, py);
     });
     endShape();

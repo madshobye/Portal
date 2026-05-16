@@ -48,6 +48,11 @@ function drawHopOverview(model, fileName = "", currentView = "overview", navItem
     return;
   }
 
+  if (currentView === "revenuegroups") {
+    drawRevenueGroupsView(model.customers, pad, contentTop, revenueGroupCount || 8);
+    return;
+  }
+
   if (currentView === "buyerpattern") {
     drawBuyerPatternView(model.buyerPatterns, pad, contentTop);
     return;
@@ -95,18 +100,40 @@ function drawPlaceholderView(currentView, x, y) {
 
 function drawActivityView(activity, ticketSales, pad, top) {
   const months = mergeActivityTimeline(activity?.months || [], ticketSales?.weeks || []);
+  const membershipSeries = membershipTypeSeries(activity?.membershipTypes || []);
+  const moneyScale = "money";
+  const countScale = "count";
   drawHopTimelineChart(pad, top, width - pad * 2, height - top - pad, months, "Activity", [
-    { key: "totalRevenue", label: "Revenue", color: [0, 0, 0], formatter: formatDkk },
-    { key: "yearTotalRevenue", label: "Year accumulated revenue", color: [90, 90, 90], formatter: formatDkk },
-    { key: "revenue", label: "Member revenue", color: [20, 20, 20], formatter: formatDkk },
-    { key: "newMemberships", label: "New memberships", color: [26, 105, 180], formatter: formatInteger },
-    { key: "endedMemberships", label: "Ended memberships", color: [210, 55, 55], formatter: formatInteger },
-    { key: "memberCount", label: "Member count", color: [190, 90, 35], formatter: formatInteger },
-    { key: "activeTicketUsersWithMembership", label: "Active ticket users (w.m)", color: [34, 190, 125], formatter: formatInteger },
-    { key: "activeTicketUsersWithoutMembership", label: "Active ticket users (wo.m)", color: [68, 145, 255], formatter: formatInteger },
-    { key: "classRevenue", label: "Activity ticket revenue", color: [60, 140, 85], formatter: formatDkk },
-    { key: "eventRevenue", label: "Event ticket revenue", color: [135, 85, 170], formatter: formatDkk },
+    { key: "totalRevenue", label: "Revenue", color: [0, 0, 0], formatter: formatDkk, scale: moneyScale },
+    { key: "yearTotalRevenue", label: "Year accumulated revenue", color: [90, 90, 90], formatter: formatDkk, scale: moneyScale },
+    { key: "revenue", label: "Member revenue", color: [20, 20, 20], formatter: formatDkk, scale: moneyScale },
+    { key: "newMemberships", label: "New memberships", color: [26, 105, 180], formatter: formatInteger, scale: countScale },
+    { key: "endedMemberships", label: "Ended memberships", color: [210, 55, 55], formatter: formatInteger, scale: countScale },
+    { key: "memberCount", label: "Member count", color: [190, 90, 35], formatter: formatInteger, scale: countScale },
+    ...membershipSeries,
+    { key: "crewCount", label: "Crew count", color: [190, 112, 255], formatter: formatInteger, scale: countScale },
+    { key: "activeTicketUsersWithMembership", label: "Active ticket users (w.m)", color: [34, 190, 125], formatter: formatInteger, scale: countScale },
+    { key: "activeTicketUsersWithoutMembership", label: "Active ticket users (wo.m)", color: [68, 145, 255], formatter: formatInteger, scale: countScale },
+    { key: "classRevenue", label: "Activity ticket revenue", color: [60, 140, 85], formatter: formatDkk, scale: moneyScale },
+    { key: "eventRevenue", label: "Event ticket revenue", color: [135, 85, 170], formatter: formatDkk, scale: moneyScale },
   ], ticketItemsToTimelineLabels(ticketSales?.items || []), timelineChartState());
+}
+
+function membershipTypeSeries(membershipTypes) {
+  const colors = [
+    [230, 130, 55],
+    [210, 95, 60],
+    [175, 120, 45],
+    [235, 165, 80],
+    [155, 90, 35],
+  ];
+  return membershipTypes.slice(0, 8).map((type, index) => ({
+    key: `membershipType:${type.key}`,
+    label: trimText(type.label, 22),
+    color: colors[index % colors.length],
+    formatter: formatInteger,
+    scale: "count",
+  }));
 }
 
 function drawActivityNetworkView(network, pad, top) {
@@ -532,7 +559,13 @@ function getUserNetworkBounds() {
 
 function mergeActivityTimeline(activityWeeks, ticketWeeks) {
   const byWeek = new Map();
-  for (const week of activityWeeks) byWeek.set(week.month, { ...week });
+  for (const week of activityWeeks) {
+    const mergedWeek = { ...week };
+    for (const [typeKey, count] of Object.entries(week.membershipTypeCounts || {})) {
+      mergedWeek[`membershipType:${typeKey}`] = count;
+    }
+    byWeek.set(week.month, mergedWeek);
+  }
   for (const week of ticketWeeks) {
     const merged = byWeek.get(week.month) || { month: week.month, revenue: 0, newMemberships: 0, endedMemberships: 0, memberCount: 0 };
     merged.classRevenue = week.classRevenue || 0;
@@ -756,6 +789,157 @@ function drawTicketBuyerSegmentLabels(plotX, plotY, plotH, buyers) {
     const color = segment === "Recurring" ? [26, 105, 180] : segment === "Single" ? [95, 95, 95] : [190, 90, 35];
     fill(color[0], color[1], color[2], 180);
     text(segment, plotX, y);
+  }
+}
+
+function drawRevenueGroupsView(customers, pad, top, groupCount) {
+  const payingCustomers = (customers || [])
+    .filter((customer) => customer.revenue > 0)
+    .sort((a, b) => {
+      const aTickets = a.classPassCount + a.eventCount;
+      const bTickets = b.classPassCount + b.eventCount;
+      return bTickets - aTickets || b.membershipCount - a.membershipCount || b.revenue - a.revenue;
+    });
+
+  fill(238);
+  noStroke();
+  rect(pad, top, width - pad * 2, height - top - pad, 4);
+  fill(30);
+  textSize(18);
+  textAlign(LEFT, TOP);
+  text("Revenue groups", pad + 18, top + 16);
+
+  if (!payingCustomers.length) {
+    fill(80);
+    textSize(14);
+    text("No paying customers in this range.", pad + 18, top + 54);
+    return;
+  }
+
+  const groups = buildRevenueFrequencyGroups(payingCustomers, groupCount);
+  const totalRevenue = sum(groups, "revenue");
+  const maxRevenue = max(1, ...groups.map((group) => group.revenue));
+  const maxPeople = max(1, ...groups.map((group) => group.people));
+  const plotX = pad + 28;
+  const plotY = top + 86;
+  const plotW = width - pad * 2 - 56;
+  const plotH = height - top - pad - 122;
+  const barGap = 8;
+  const barW = max(4, (plotW - barGap * (groups.length - 1)) / groups.length);
+
+  fill(85);
+  textSize(11);
+  textAlign(LEFT, TOP);
+  text("one-time buyers", plotX, plotY - 22);
+  textAlign(RIGHT, TOP);
+  text(`${groupCount}+ activities`, plotX + plotW, plotY - 22);
+
+  drawRevenueGroupLegend(plotX, top + 44);
+
+  fill(80);
+  textSize(12);
+  textAlign(RIGHT, TOP);
+  text(`${formatInteger(payingCustomers.length)} paying people grouped by ticket/activity frequency`, plotX + plotW, top + 16);
+
+  stroke(210);
+  strokeWeight(1);
+  line(plotX, plotY + plotH, plotX + plotW, plotY + plotH);
+
+  let hovered = null;
+  const peoplePoints = [];
+  noStroke();
+  for (let i = 0; i < groups.length; i += 1) {
+    const group = groups[i];
+    const x = plotX + i * (barW + barGap);
+    const h = map(group.revenue, 0, maxRevenue, 0, plotH * 0.86);
+    const y = plotY + plotH - h;
+    const isHover = mouseX >= x && mouseX <= x + barW && mouseY >= plotY && mouseY <= plotY + plotH;
+
+    fill(68, 145, 255, isHover ? 230 : 170);
+    rect(x, y, barW, h, 1);
+
+    const peopleY = plotY + plotH - map(group.people, 0, maxPeople, 0, plotH * 0.86);
+    peoplePoints.push({ x: x + barW * 0.5, y: peopleY });
+    fill(20, isHover ? 245 : 150);
+    circle(x + barW * 0.5, peopleY, isHover ? 8 : 5);
+
+    fill(70);
+    textSize(10);
+    textAlign(CENTER, TOP);
+    text(group.label, x + barW * 0.5, plotY + plotH + 8);
+
+    if (isHover) hovered = { group, x, y, h };
+  }
+
+  noFill();
+  stroke(20, 160);
+  strokeWeight(1.5);
+  beginShape();
+  for (const point of peoplePoints) vertex(point.x, point.y);
+  endShape();
+  noStroke();
+  fill(20, 180);
+  for (const point of peoplePoints) circle(point.x, point.y, 5);
+
+  if (hovered) {
+    drawTooltip(mouseX, mouseY, [
+      `${hovered.group.label} activities/tickets`,
+      `Revenue: ${formatDkk(hovered.group.revenue)} (${Math.round((hovered.group.revenue / totalRevenue) * 100)}%)`,
+      `People: ${formatInteger(hovered.group.people)}`,
+      `Avg revenue/person: ${formatDkk(hovered.group.avgRevenue)}`,
+      `Avg activities/person: ${hovered.group.avgActivities.toFixed(1)}`,
+      `One-time ticket buyers: ${formatInteger(hovered.group.singleTicketBuyers)}`,
+      `Recurring/member buyers: ${formatInteger(hovered.group.recurringBuyers)}`,
+    ], 320);
+  }
+}
+
+function buildRevenueFrequencyGroups(customers, maxSingleBucket) {
+  const byActivityCount = new Map();
+  for (const customer of customers) {
+    const activityCount = customer.classPassCount + customer.eventCount;
+    const bucket = activityCount >= maxSingleBucket ? `${maxSingleBucket}+` : String(activityCount);
+    if (!byActivityCount.has(bucket)) byActivityCount.set(bucket, []);
+    byActivityCount.get(bucket).push(customer);
+  }
+
+  const groups = [];
+  for (let count = 1; count <= maxSingleBucket; count += 1) {
+    const label = count === maxSingleBucket ? `${maxSingleBucket}+` : String(count);
+    const entries = byActivityCount.get(label) || [];
+    if (!entries.length) continue;
+    const revenue = sum(entries, "revenue");
+    const activities = entries.reduce((total, customer) => total + customer.classPassCount + customer.eventCount, 0);
+    const singleTicketBuyers = entries.filter((customer) => customer.classPassCount + customer.eventCount === 1 && customer.membershipCount === 0).length;
+    const recurringBuyers = entries.filter((customer) => customer.classPassCount + customer.eventCount > 1 || customer.membershipCount > 0).length;
+    groups.push({
+      label,
+      people: entries.length,
+      revenue,
+      avgRevenue: revenue / entries.length,
+      avgActivities: activities / entries.length,
+      singleTicketBuyers,
+      recurringBuyers,
+    });
+  }
+  return groups;
+}
+
+function drawRevenueGroupLegend(x, y) {
+  const items = [
+    { label: "Revenue", color: [68, 145, 255] },
+    { label: "People", color: [20, 20, 20] },
+  ];
+  let lx = x + 180;
+  textSize(11);
+  textAlign(LEFT, CENTER);
+  for (const item of items) {
+    fill(item.color[0], item.color[1], item.color[2], 190);
+    noStroke();
+    circle(lx, y + 7, 8);
+    fill(65);
+    text(item.label, lx + 8, y + 7);
+    lx += textWidth(item.label) + 34;
   }
 }
 

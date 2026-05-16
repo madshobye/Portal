@@ -125,6 +125,7 @@ function groupCustomers(invoices) {
         classPassCount: 0,
         eventCount: 0,
         membershipCount: 0,
+        crewMembershipCount: 0,
       });
     }
     const customer = byCustomer.get(invoice.customerKey);
@@ -134,9 +135,10 @@ function groupCustomers(invoices) {
     customer.invoiceCount += 1;
     if (invoice.itemTypes.has("class_pass_type")) customer.classPassCount += 1;
     if (invoice.itemTypes.has("event")) customer.eventCount += 1;
-    if (Array.from(invoice.itemTypes).some((type) => type.startsWith("membership"))) {
+    if (invoice.lines.some((row) => isMembershipSubscriptionRow(row) && !isCrewMembershipRow(row))) {
       customer.membershipCount += 1;
     }
+    if (invoice.lines.some((row) => isCrewMembershipRow(row))) customer.crewMembershipCount += 1;
   }
   return Array.from(byCustomer.values()).sort((a, b) => b.revenue - a.revenue);
 }
@@ -167,8 +169,8 @@ function groupMonths(invoices, timeBucket) {
 }
 
 function groupActivity(rows, timeBucket) {
-  const staffCompInvoiceIds = findStaffCompInvoiceIds(rows);
-  const rawMembershipRows = rows.filter((row) => isMembershipRow(row) && !staffCompInvoiceIds.has(row.invoiceId));
+  const crewMembershipRows = rows.filter(isCrewMembershipRow);
+  const rawMembershipRows = rows.filter((row) => isMembershipSubscriptionRow(row) && !isCrewMembershipRow(row));
   const paidMemberKeys = new Set(
     rawMembershipRows
       .filter((row) => row.totalPrice > 0)
@@ -178,8 +180,13 @@ function groupActivity(rows, timeBucket) {
   const byMonth = new Map();
   const firstMembershipByCustomer = new Map();
   const membershipRowsByCustomer = new Map();
+  const crewRowsByCustomer = new Map();
+  const membershipTypes = new Map();
 
   for (const row of membershipRows) {
+    const type = membershipTypeInfo(row.text);
+    const typeKey = type.key;
+    if (!membershipTypes.has(typeKey)) membershipTypes.set(typeKey, type.label);
     const month = periodKey(row.date, timeBucket);
     if (!byMonth.has(month)) {
         byMonth.set(month, {
@@ -198,20 +205,31 @@ function groupActivity(rows, timeBucket) {
     if (!membershipRowsByCustomer.has(row.customerKey)) {
       membershipRowsByCustomer.set(row.customerKey, []);
     }
-    membershipRowsByCustomer.get(row.customerKey).push(row);
+    membershipRowsByCustomer.get(row.customerKey).push({ ...row, membershipTypeKey: typeKey });
+  }
+
+  for (const row of crewMembershipRows) {
+    if (!crewRowsByCustomer.has(row.customerKey)) {
+      crewRowsByCustomer.set(row.customerKey, []);
+    }
+    crewRowsByCustomer.get(row.customerKey).push(row);
   }
 
   addActiveMemberWeeks(byMonth, membershipRowsByCustomer, getLastRowDate(rows), timeBucket);
+  addActiveCrewWeeks(byMonth, crewRowsByCustomer, getLastRowDate(rows), timeBucket);
 
   return {
     months: Array.from(byMonth.values()).map((month) => ({
       month: month.month,
       revenue: month.revenue,
       memberCount: month.customerKeys.size,
+      membershipTypeCounts: Object.fromEntries(Array.from(month.membershipTypeKeys || new Map()).map(([key, customerKeys]) => [key, customerKeys.size])),
       customerKeys: month.customerKeys,
+      crewCount: month.crewKeys?.size || 0,
       newMemberships: month.newCustomerKeys.size,
       endedMemberships: month.endedCustomerKeys?.size || 0,
     })),
+    membershipTypes: Array.from(membershipTypes.entries()).map(([key, label]) => ({ key, label })),
   };
 }
 
@@ -501,8 +519,7 @@ function groupUserNetwork(rows) {
 }
 
 function groupBuyerPatterns(rows, timeBucket) {
-  const staffCompInvoiceIds = findStaffCompInvoiceIds(rows);
-  const journeyRows = rows.filter((row) => row.itemType === "class_pass_type" || row.itemType === "event" || isMembershipRow(row));
+  const journeyRows = rows.filter((row) => row.itemType === "class_pass_type" || row.itemType === "event" || isMembershipSubscriptionRow(row) || isCrewMembershipRow(row));
   const byCustomer = new Map();
 
   for (const row of journeyRows) {
@@ -518,10 +535,10 @@ function groupBuyerPatterns(rows, timeBucket) {
     const buyer = byCustomer.get(row.customerKey);
     buyer.firstDate = minDate(buyer.firstDate, row.date);
     buyer.lastDate = maxDate(buyer.lastDate, row.date);
-    const isCrew = isCrewMembershipRow(row, staffCompInvoiceIds);
+    const isCrew = isCrewMembershipRow(row);
     buyer.events.push({
       date: row.date,
-      kind: isCrew ? "crew" : isMembershipRow(row) ? "membership" : "ticket",
+      kind: isCrew ? "crew" : isMembershipSubscriptionRow(row) ? "membership" : "ticket",
       item: row.text || row.itemType,
       revenue: row.totalPrice,
       tickets: row.itemType === "class_pass_type" || row.itemType === "event" ? row.quantity || 1 : 0,
@@ -632,6 +649,10 @@ function addActiveMemberWeeks(byMonth, rowsByCustomer, dataEndDate, timeBucket) 
         }
         const weekEntry = byMonth.get(week);
         weekEntry.customerKeys.add(customerKey);
+        const typeKey = row.membershipTypeKey || membershipTypeKey(row.text);
+        weekEntry.membershipTypeKeys = weekEntry.membershipTypeKeys || new Map();
+        if (!weekEntry.membershipTypeKeys.has(typeKey)) weekEntry.membershipTypeKeys.set(typeKey, new Set());
+        weekEntry.membershipTypeKeys.get(typeKey).add(customerKey);
         weekEntry.revenue += weeklyRevenue;
       }
 
@@ -645,13 +666,78 @@ function addActiveMemberWeeks(byMonth, rowsByCustomer, dataEndDate, timeBucket) 
   }
 }
 
+function addActiveCrewWeeks(byMonth, rowsByCustomer, dataEndDate, timeBucket) {
+  const defaultCoverageDays = 35;
+  const continuousRenewalDays = 62;
+
+  for (const [customerKey, rows] of rowsByCustomer.entries()) {
+    const sortedRows = rows.sort((a, b) => a.date - b.date);
+    for (let index = 0; index < sortedRows.length; index += 1) {
+      const row = sortedRows[index];
+      const start = startOfIsoWeek(row.date);
+      const nextDate = sortedRows[index + 1]?.date;
+      const daysUntilNext = nextDate ? (nextDate - row.date) / 86400000 : Infinity;
+      const coverageEndDate = nextDate && daysUntilNext <= continuousRenewalDays
+        ? nextDate
+        : addDays(row.date, defaultCoverageDays);
+      const stillActiveAtDataEnd = !nextDate && dataEndDate && coverageEndDate >= dataEndDate;
+      const endDate = stillActiveAtDataEnd ? dataEndDate : coverageEndDate;
+      const end = startOfIsoWeek(endDate);
+
+      for (let cursor = new Date(start); cursor <= end; cursor = addDays(cursor, 7)) {
+        const week = periodKey(cursor, timeBucket);
+        if (!byMonth.has(week)) {
+          byMonth.set(week, {
+            month: week,
+            revenue: 0,
+            customerKeys: new Set(),
+            newCustomerKeys: new Set(),
+            endedCustomerKeys: new Set(),
+          });
+        }
+        const weekEntry = byMonth.get(week);
+        weekEntry.crewKeys = weekEntry.crewKeys || new Set();
+        weekEntry.crewKeys.add(customerKey);
+      }
+    }
+  }
+}
+
 function isMembershipRow(row) {
   return row.itemType.startsWith("membership");
 }
 
-function isCrewMembershipRow(row, staffCompInvoiceIds) {
-  const crewTerms = /volunteer|crew|staff|admin|teacher|instructor|ambassador|frivillig/i;
-  return isMembershipRow(row) && (staffCompInvoiceIds.has(row.invoiceId) || crewTerms.test(row.text));
+function isMembershipSubscriptionRow(row) {
+  const feeTerms = /late cancel|no-show|pause fee|admin fee|fee for/i;
+  return isMembershipRow(row) && !feeTerms.test(row.text);
+}
+
+function membershipTypeKey(text) {
+  return membershipTypeInfo(text).key;
+}
+
+function membershipTypeInfo(text) {
+  const label = cleanMembershipTypeLabel(text);
+  return {
+    key: label.toLowerCase(),
+    label,
+  };
+}
+
+function cleanMembershipTypeLabel(text) {
+  let label = cleanValue(text) || "Membership";
+  label = label
+    .replace(/\s+-\s+.*$/i, "")
+    .replace(/\.\s*payment for.*$/i, "")
+    .replace(/\s*\(monthly\)/ig, "")
+    .replace(/\s*\([^)]*(free|discount|rabat|trial|january|february|march|april|may|june|july|august|september|october|november|december)[^)]*\)/ig, "")
+    .replace(/\s+/g, " ")
+    .trim();
+  return label || "Membership";
+}
+
+function isCrewMembershipRow(row) {
+  return isMembershipRow(row) && row.fullyDiscounted;
 }
 
 function getLastRowDate(rows) {
