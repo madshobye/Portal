@@ -1,6 +1,12 @@
+let activityNetworkState = null;
+let activityNetworkBounds = null;
+let userNetworkState = null;
+let userNetworkBounds = null;
+let userNetworkVisible = null;
+
 function drawCenteredMessage(message) {
-  background(128);
-  fill(30);
+  background(0);
+  fill(245);
   noStroke();
   textAlign(CENTER, CENTER);
   textSize(24);
@@ -8,50 +14,70 @@ function drawCenteredMessage(message) {
 }
 
 function drawHopOverview(model, fileName = "", currentView = "overview", navItems = []) {
-  background(128);
+  background(0);
   const pad = 32;
   const revenue = sum(model.invoices, "totalPrice");
-  const vat = sum(model.invoices, "vatAmount");
   const typeCounts = countInvoiceTypes(model.invoices);
 
   drawHopNav(pad, 24, navItems, currentView);
   drawClearDataButton();
+  const contentTop = 112;
 
   if (currentView === "activity") {
-    drawActivityView(model.activity, model.ticketSales, pad, 78);
+    drawActivityView(model.activity, model.ticketSales, pad, contentTop);
+    return;
+  }
+
+  if (currentView === "activitynetwork") {
+    drawActivityNetworkView(model.activityNetwork, pad, contentTop);
+    return;
+  }
+
+  if (currentView === "usernetwork") {
+    drawUserNetworkView(model.userNetwork, pad, contentTop);
     return;
   }
 
   if (currentView === "ticketsales") {
-    drawTicketSalesView(model.ticketSales, pad, 78);
+    drawTicketSalesView(model.ticketSales, pad, contentTop);
     return;
   }
 
-  if (currentView !== "testview") {
-    drawPlaceholderView(currentView, pad + 16, 92);
+  if (currentView === "ticketbuyers") {
+    drawTicketBuyersView(model.ticketBuyers, pad, contentTop);
     return;
   }
 
-  const cardY = 78;
-  const cardW = (width - pad * 2 - 48) / 4;
+  if (currentView === "buyerpattern") {
+    drawBuyerPatternView(model.buyerPatterns, pad, contentTop);
+    return;
+  }
+
+  if (currentView !== "overview") {
+    drawPlaceholderView(currentView, pad + 16, contentTop + 14);
+    return;
+  }
+
+  const cardY = contentTop;
+  const cardW = (width - pad * 2 - 32) / 3;
   drawStatCard(pad, cardY, cardW, 96, "Revenue", formatDkk(revenue));
-  drawStatCard(pad + (cardW + 16), cardY, cardW, 96, "VAT", formatDkk(vat));
-  drawStatCard(pad + (cardW + 16) * 2, cardY, cardW, 96, "Customers", formatInteger(model.customers.length));
-  drawStatCard(pad + (cardW + 16) * 3, cardY, cardW, 96, "Invoices", formatInteger(model.invoices.length));
+  drawStatCard(pad + (cardW + 16), cardY, cardW, 96, "Customers", formatInteger(model.customers.length));
+  drawStatCard(pad + (cardW + 16) * 2, cardY, cardW, 96, "Invoices", formatInteger(model.invoices.length));
 
   const chartTop = cardY + 132;
   const chartH = max(180, (height - chartTop - pad * 1.5) * 0.52);
-  drawLineChart(pad, chartTop, width - pad * 2, chartH, model.months, "Weekly revenue", "revenue", formatDkk);
+  const bucketLabel = timeBucketLabel(timeBucket).toLowerCase();
+  drawLineChart(pad, chartTop, width - pad * 2, chartH, model.months, `${bucketLabel} revenue`, "revenue", formatDkk);
 
   const lowerY = chartTop + chartH + 28;
   const lowerH = height - lowerY - pad;
-  drawLineChart(pad, lowerY, (width - pad * 3) * 0.58, lowerH, model.months, "Active customers by week", "customerCount", formatInteger);
+  drawLineChart(pad, lowerY, (width - pad * 3) * 0.58, lowerH, model.months, `Active customers by ${bucketLabel}`, "customerCount", formatInteger);
   drawCategoryBars(pad * 2 + (width - pad * 3) * 0.58, lowerY, (width - pad * 3) * 0.42, lowerH, typeCounts);
 
   fill(40);
   textAlign(LEFT, TOP);
   textSize(13);
-  text(`testview: ${currentView}`, pad, height - 26);
+  text(`overview: ${currentView}`, pad, height - 26);
 }
 
 function drawPlaceholderView(currentView, x, y) {
@@ -69,15 +95,439 @@ function drawPlaceholderView(currentView, x, y) {
 
 function drawActivityView(activity, ticketSales, pad, top) {
   const months = mergeActivityTimeline(activity?.months || [], ticketSales?.weeks || []);
-  drawMultiLineChart(pad, top, width - pad * 2, height - top - pad, months, "Activity", [
-    { key: "totalRevenue", label: "Total revenue", color: [0, 0, 0], formatter: formatDkk },
+  drawHopTimelineChart(pad, top, width - pad * 2, height - top - pad, months, "Activity", [
+    { key: "totalRevenue", label: "Revenue", color: [0, 0, 0], formatter: formatDkk },
+    { key: "yearTotalRevenue", label: "Year accumulated revenue", color: [90, 90, 90], formatter: formatDkk },
     { key: "revenue", label: "Member revenue", color: [20, 20, 20], formatter: formatDkk },
     { key: "newMemberships", label: "New memberships", color: [26, 105, 180], formatter: formatInteger },
     { key: "endedMemberships", label: "Ended memberships", color: [210, 55, 55], formatter: formatInteger },
     { key: "memberCount", label: "Member count", color: [190, 90, 35], formatter: formatInteger },
+    { key: "activeTicketUsersWithMembership", label: "Active ticket users (w.m)", color: [34, 190, 125], formatter: formatInteger },
+    { key: "activeTicketUsersWithoutMembership", label: "Active ticket users (wo.m)", color: [68, 145, 255], formatter: formatInteger },
     { key: "classRevenue", label: "Activity ticket revenue", color: [60, 140, 85], formatter: formatDkk },
     { key: "eventRevenue", label: "Event ticket revenue", color: [135, 85, 170], formatter: formatDkk },
-  ], ticketSales?.items || []);
+  ], ticketItemsToTimelineLabels(ticketSales?.items || []), timelineChartState());
+}
+
+function drawActivityNetworkView(network, pad, top) {
+  fill(238);
+  noStroke();
+  rect(pad, top, width - pad * 2, height - top - pad, 4);
+  fill(30);
+  textSize(18);
+  textAlign(LEFT, TOP);
+  text("Activity Network", pad + 18, top + 16);
+
+  if (!network?.nodes?.length) {
+    fill(80);
+    textSize(14);
+    text("No activity or event tickets in this range.", pad + 18, top + 54);
+    return;
+  }
+
+  const plotX = pad + 28;
+  const plotY = top + 62;
+  const plotW = width - pad * 2 - 56;
+  const plotH = height - top - pad - 96;
+  activityNetworkBounds = { x: plotX, y: plotY, w: plotW, h: plotH };
+  syncActivityNetworkState(network, plotX, plotY, plotW, plotH);
+  stepActivityNetwork(network, plotX, plotY, plotW, plotH);
+  drawActivityNetwork(plotX, plotY, plotW, plotH, network);
+}
+
+function syncActivityNetworkState(network, plotX, plotY, plotW, plotH) {
+  const key = `${network.nodes.length}:${network.links.length}:${network.nodes.map((node) => `${node.key}:${node.tickets}`).join("|")}`;
+  if (activityNetworkState?.key === key) return;
+  activityNetworkState = {
+    key,
+    nodes: new Map(network.nodes.map((node, index) => {
+      const x = plotX + map(node.avgExperience || 0, 0, network.maxExperience || 1, 40, plotW - 40);
+      const y = plotY + 40 + ((hashText(node.key) % 1000) / 1000) * max(1, plotH - 80);
+      return [node.key, { x, y, vx: 0, vy: 0, index }];
+    })),
+  };
+}
+
+function stepActivityNetwork(network, plotX, plotY, plotW, plotH) {
+  const states = activityNetworkState.nodes;
+  const nodeList = network.nodes;
+  for (let iteration = 0; iteration < 2; iteration += 1) {
+    for (const link of network.links.slice(0, 900)) {
+      const a = states.get(link.source);
+      const b = states.get(link.target);
+      if (!a || !b) continue;
+      const dx = b.x - a.x;
+      const dy = b.y - a.y;
+      const distance = max(1, sqrt(dx * dx + dy * dy));
+      const desired = 70 + 140 / sqrt(max(1, link.weight));
+      const force = (distance - desired) * 0.0014 * min(7, sqrt(link.weight));
+      const fx = (dx / distance) * force;
+      const fy = (dy / distance) * force;
+      a.vx += fx;
+      a.vy += fy;
+      b.vx -= fx;
+      b.vy -= fy;
+    }
+
+    for (let i = 0; i < nodeList.length; i += 1) {
+      const a = states.get(nodeList[i].key);
+      if (!a) continue;
+      for (let j = i + 1; j < nodeList.length; j += 1) {
+        const b = states.get(nodeList[j].key);
+        if (!b) continue;
+        const dx = b.x - a.x;
+        const dy = b.y - a.y;
+        const distanceSq = max(25, dx * dx + dy * dy);
+        const distance = sqrt(distanceSq);
+        const minDistance = 34;
+        const closePush = distance < minDistance ? (minDistance - distance) * 0.035 : 0;
+        const force = min(2.3, 220 / distanceSq) + closePush;
+        const fx = (dx / distance) * force;
+        const fy = (dy / distance) * force;
+        a.vx -= fx;
+        a.vy -= fy;
+        b.vx += fx;
+        b.vy += fy;
+      }
+    }
+
+    for (const node of nodeList) {
+    const state = states.get(node.key);
+    if (!state) continue;
+    if (state.pinned) continue;
+      const targetX = plotX + map(node.avgExperience || 0, 0, network.maxExperience || 1, 40, plotW - 40);
+      const targetY = plotY + plotH * 0.5;
+      state.vx += (targetX - state.x) * 0.012;
+      state.vy += (targetY - state.y) * 0.002;
+      state.vx *= 0.82;
+      state.vy *= 0.82;
+      state.x = constrain(state.x + state.vx, plotX + 10, plotX + plotW - 10);
+      state.y = constrain(state.y + state.vy, plotY + 10, plotY + plotH - 10);
+    }
+  }
+}
+
+function drawActivityNetwork(plotX, plotY, plotW, plotH, network) {
+  const states = activityNetworkState.nodes;
+  fill(85);
+  textSize(11);
+  textAlign(LEFT, TOP);
+  text("first-timer nodes", plotX, plotY - 22);
+  textAlign(RIGHT, TOP);
+  text("higher-experience nodes", plotX + plotW, plotY - 22);
+
+  stroke(210);
+  strokeWeight(1);
+  line(plotX, plotY + plotH + 8, plotX + plotW, plotY + plotH + 8);
+
+  const visibleLinks = network.links.slice(0, 900);
+  const hoverInfo = getActivityNetworkNodeHit(mouseX, mouseY);
+  const highlightKeys = hoverInfo ? connectedNodeKeys(hoverInfo.node.key, visibleLinks) : null;
+
+  for (const link of visibleLinks) {
+    const a = states.get(link.source);
+    const b = states.get(link.target);
+    if (!a || !b) continue;
+    const strength = sqrt(min(link.weight, 40));
+    const isHighlighted = highlightKeys?.has(link.source) && highlightKeys?.has(link.target);
+    const alpha = hoverInfo ? isHighlighted ? map(strength, 1, sqrt(40), 90, 220) : 8 : map(strength, 1, sqrt(40), 18, 165);
+    stroke(20, 20, 20, alpha);
+    strokeWeight(map(strength, 1, sqrt(40), isHighlighted ? 1.5 : 0.5, isHighlighted ? 10 : 8));
+    line(a.x, a.y, b.x, b.y);
+  }
+
+  let hovered = hoverInfo;
+  noStroke();
+  for (const node of network.nodes) {
+    const state = states.get(node.key);
+    if (!state) continue;
+    const radius = map(sqrt(node.revenue), 0, sqrt(network.maxRevenue || 1), 5, 28);
+    const color = node.type === "Event" ? [135, 85, 170] : [60, 140, 85];
+    const isHover = hovered?.node.key === node.key;
+    const isHighlighted = !highlightKeys || highlightKeys.has(node.key);
+    fill(color[0], color[1], color[2], isHover ? 245 : isHighlighted ? 190 : 28);
+    circle(state.x, state.y, radius * 2);
+    if (state.pinned) {
+      noFill();
+      stroke(20, 190);
+      strokeWeight(2);
+      circle(state.x, state.y, radius * 2 + 8);
+      noStroke();
+    }
+    fill(255, isHover ? 220 : isHighlighted ? 120 : 25);
+    circle(state.x, state.y, max(3, radius * (node.firstTimerPurchases / max(1, node.purchaseCount))));
+  }
+
+  if (hovered) {
+    drawNetworkNeighborLabels(network.nodes, states, highlightKeys, hovered.node.key, (node) => map(sqrt(node.revenue), 0, sqrt(network.maxRevenue || 1), 5, 28));
+    fill(20);
+    textSize(12);
+    textAlign(CENTER, BOTTOM);
+    text(trimText(hovered.node.label, 34), hovered.state.x, hovered.state.y - hovered.radius - 8);
+    drawTooltip(mouseX, mouseY, [
+      hovered.node.label,
+      `Type: ${hovered.node.type}`,
+      `Buyers: ${formatInteger(hovered.node.buyerCount)}`,
+      `Tickets: ${formatInteger(hovered.node.tickets)}`,
+      `Revenue: ${formatDkk(hovered.node.revenue)}`,
+      `Avg prior tickets: ${hovered.node.avgExperience.toFixed(1)}`,
+      `First-timer purchases: ${formatInteger(hovered.node.firstTimerPurchases)}`,
+    ], 300);
+  }
+}
+
+function getActivityNetworkNodeHit(x, y) {
+  if (!activityNetworkState?.nodes || !hopModel?.activityNetwork?.nodes) return null;
+  let best = null;
+  for (const node of hopModel.activityNetwork.nodes) {
+    const state = activityNetworkState.nodes.get(node.key);
+    if (!state) continue;
+    const radius = map(sqrt(node.revenue), 0, sqrt(hopModel.activityNetwork.maxRevenue || 1), 5, 28);
+    const distance = dist(x, y, state.x, state.y);
+    if (distance <= radius + 6 && (!best || distance < best.distance)) {
+      best = { node, state, radius, distance };
+    }
+  }
+  return best;
+}
+
+function getActivityNetworkNodeState(key) {
+  return activityNetworkState?.nodes?.get(key) || null;
+}
+
+function getActivityNetworkBounds() {
+  return activityNetworkBounds;
+}
+
+function drawUserNetworkView(network, pad, top) {
+  fill(238);
+  noStroke();
+  rect(pad, top, width - pad * 2, height - top - pad, 4);
+  fill(30);
+  textSize(18);
+  textAlign(LEFT, TOP);
+  text("User Network", pad + 18, top + 16);
+
+  if (!network?.nodes?.length) {
+    fill(80);
+    textSize(14);
+    text("No ticket buyers in this range.", pad + 18, top + 54);
+    return;
+  }
+
+  const visibleNetwork = limitUserNetwork(network, 450);
+  userNetworkVisible = visibleNetwork;
+  const plotX = pad + 28;
+  const plotY = top + 62;
+  const plotW = width - pad * 2 - 56;
+  const plotH = height - top - pad - 96;
+  userNetworkBounds = { x: plotX, y: plotY, w: plotW, h: plotH };
+  syncUserNetworkState(visibleNetwork, plotX, plotY, plotW, plotH);
+  stepUserNetwork(visibleNetwork, plotX, plotY, plotW, plotH);
+  drawUserNetwork(plotX, plotY, plotW, plotH, visibleNetwork, network.nodes.length);
+}
+
+function limitUserNetwork(network, maxNodes) {
+  const nodes = network.nodes.slice(0, maxNodes);
+  const nodeKeys = new Set(nodes.map((node) => node.key));
+  const links = network.links.filter((link) => nodeKeys.has(link.source) && nodeKeys.has(link.target));
+  return {
+    ...network,
+    nodes,
+    links,
+    maxRevenue: Math.max(1, ...nodes.map((node) => node.revenue)),
+    maxTickets: Math.max(1, ...nodes.map((node) => node.tickets)),
+    maxExperience: Math.max(1, ...nodes.map((node) => node.avgExperience)),
+  };
+}
+
+function syncUserNetworkState(network, plotX, plotY, plotW, plotH) {
+  const key = `${network.nodes.length}:${network.links.length}:${network.nodes.map((node) => `${node.key}:${node.tickets}:${node.activityCount}:${node.eventCount}`).join("|")}`;
+  if (userNetworkState?.key === key) return;
+  userNetworkState = {
+    key,
+    nodes: new Map(network.nodes.map((node, index) => {
+      const x = plotX + map(node.avgExperience || 0, 0, network.maxExperience || 1, 40, plotW - 40);
+      const y = plotY + 40 + ((hashText(node.key) % 1000) / 1000) * max(1, plotH - 80);
+      return [node.key, { x, y, vx: 0, vy: 0, index }];
+    })),
+  };
+}
+
+function stepUserNetwork(network, plotX, plotY, plotW, plotH) {
+  const states = userNetworkState.nodes;
+  const nodeList = network.nodes;
+  for (let iteration = 0; iteration < 2; iteration += 1) {
+    for (const link of network.links.slice(0, 1200)) {
+      const a = states.get(link.source);
+      const b = states.get(link.target);
+      if (!a || !b) continue;
+      const dx = b.x - a.x;
+      const dy = b.y - a.y;
+      const distance = max(1, sqrt(dx * dx + dy * dy));
+      const desired = 65 + 120 / sqrt(max(1, link.weight));
+      const force = (distance - desired) * 0.0012 * min(6, sqrt(link.weight));
+      const fx = (dx / distance) * force;
+      const fy = (dy / distance) * force;
+      a.vx += fx;
+      a.vy += fy;
+      b.vx -= fx;
+      b.vy -= fy;
+    }
+
+    for (let i = 0; i < nodeList.length; i += 1) {
+      const a = states.get(nodeList[i].key);
+      if (!a) continue;
+      for (let j = i + 1; j < nodeList.length; j += 1) {
+        const b = states.get(nodeList[j].key);
+        if (!b) continue;
+        const dx = b.x - a.x;
+        const dy = b.y - a.y;
+        const distanceSq = max(36, dx * dx + dy * dy);
+        const distance = sqrt(distanceSq);
+        const minDistance = 18;
+        const closePush = distance < minDistance ? (minDistance - distance) * 0.02 : 0;
+        const force = min(1.7, 150 / distanceSq) + closePush;
+        const fx = (dx / distance) * force;
+        const fy = (dy / distance) * force;
+        a.vx -= fx;
+        a.vy -= fy;
+        b.vx += fx;
+        b.vy += fy;
+      }
+    }
+
+    for (const node of nodeList) {
+      const state = states.get(node.key);
+      if (!state) continue;
+      if (state.pinned) continue;
+      const targetX = plotX + map(node.avgExperience || 0, 0, network.maxExperience || 1, 40, plotW - 40);
+      const targetY = plotY + plotH * 0.5;
+      state.vx += (targetX - state.x) * 0.01;
+      state.vy += (targetY - state.y) * 0.0018;
+      state.vx *= 0.84;
+      state.vy *= 0.84;
+      state.x = constrain(state.x + state.vx, plotX + 8, plotX + plotW - 8);
+      state.y = constrain(state.y + state.vy, plotY + 8, plotY + plotH - 8);
+    }
+  }
+}
+
+function drawUserNetwork(plotX, plotY, plotW, plotH, network, totalNodeCount) {
+  const states = userNetworkState.nodes;
+  fill(85);
+  textSize(11);
+  textAlign(LEFT, TOP);
+  text("few shared activities", plotX, plotY - 22);
+  textAlign(RIGHT, TOP);
+  text("broader activity history", plotX + plotW, plotY - 22);
+  fill(90);
+  textAlign(RIGHT, TOP);
+  text(`showing top ${network.nodes.length}/${totalNodeCount} buyers`, plotX + plotW, plotY - 38);
+
+  stroke(210);
+  strokeWeight(1);
+  line(plotX, plotY + plotH + 8, plotX + plotW, plotY + plotH + 8);
+
+  const visibleLinks = network.links.slice(0, 1200);
+  const hoverInfo = getUserNetworkNodeHit(mouseX, mouseY);
+  const highlightKeys = hoverInfo ? connectedNodeKeys(hoverInfo.node.key, visibleLinks) : null;
+
+  for (const link of visibleLinks) {
+    const a = states.get(link.source);
+    const b = states.get(link.target);
+    if (!a || !b) continue;
+    const strength = sqrt(min(link.weight, 50));
+    const isHighlighted = highlightKeys?.has(link.source) && highlightKeys?.has(link.target);
+    stroke(20, 20, 20, hoverInfo ? isHighlighted ? map(strength, 1, sqrt(50), 85, 210) : 6 : map(strength, 1, sqrt(50), 10, 130));
+    strokeWeight(map(strength, 1, sqrt(50), isHighlighted ? 1.4 : 0.4, isHighlighted ? 7 : 5));
+    line(a.x, a.y, b.x, b.y);
+  }
+
+  let hovered = hoverInfo;
+  noStroke();
+  for (const node of network.nodes) {
+    const state = states.get(node.key);
+    if (!state) continue;
+    const radius = map(sqrt(node.tickets), 0, sqrt(network.maxTickets || 1), 3, 18);
+    const color = node.type === "Recurring" ? [68, 145, 255] : [120, 120, 120];
+    const isHover = hovered?.node.key === node.key;
+    const isHighlighted = !highlightKeys || highlightKeys.has(node.key);
+    fill(color[0], color[1], color[2], isHover ? 245 : isHighlighted ? 190 : 26);
+    circle(state.x, state.y, radius * 2);
+    if (state.pinned) {
+      noFill();
+      stroke(20, 190);
+      strokeWeight(2);
+      circle(state.x, state.y, radius * 2 + 7);
+      noStroke();
+    }
+    fill(255, isHover ? 220 : isHighlighted ? 115 : 24);
+    circle(state.x, state.y, max(3, radius * (node.eventCount / max(1, node.activityCount + node.eventCount))));
+  }
+
+  if (hovered) {
+    drawNetworkNeighborLabels(network.nodes, states, highlightKeys, hovered.node.key, (node) => map(sqrt(node.tickets), 0, sqrt(network.maxTickets || 1), 3, 18));
+    fill(20);
+    textSize(12);
+    textAlign(CENTER, BOTTOM);
+    text(trimText(hovered.node.label, 34), hovered.state.x, hovered.state.y - hovered.radius - 8);
+    drawTooltip(mouseX, mouseY, [
+      hovered.node.label,
+      `Type: ${hovered.node.type}`,
+      `Tickets: ${formatInteger(hovered.node.tickets)}`,
+      `Revenue: ${formatDkk(hovered.node.revenue)}`,
+      `Activities: ${formatInteger(hovered.node.activityCount)}`,
+      `Events: ${formatInteger(hovered.node.eventCount)}`,
+    ], 280);
+  }
+}
+
+function connectedNodeKeys(nodeKey, links) {
+  const keys = new Set([nodeKey]);
+  for (const link of links) {
+    if (link.source === nodeKey) keys.add(link.target);
+    if (link.target === nodeKey) keys.add(link.source);
+  }
+  return keys;
+}
+
+function drawNetworkNeighborLabels(nodes, states, highlightKeys, hoveredKey, radiusForNode) {
+  if (!highlightKeys) return;
+  fill(20);
+  noStroke();
+  textSize(10);
+  textAlign(CENTER, BOTTOM);
+  for (const node of nodes) {
+    if (node.key === hoveredKey || !highlightKeys.has(node.key)) continue;
+    const state = states.get(node.key);
+    if (!state) continue;
+    const radius = radiusForNode(node);
+    text(trimText(node.label, 24), state.x, state.y - radius - 6);
+  }
+}
+
+function getUserNetworkNodeHit(x, y) {
+  if (!userNetworkState?.nodes || !userNetworkVisible?.nodes) return null;
+  let best = null;
+  for (const node of userNetworkVisible.nodes) {
+    const state = userNetworkState.nodes.get(node.key);
+    if (!state) continue;
+    const radius = map(sqrt(node.tickets), 0, sqrt(userNetworkVisible.maxTickets || 1), 3, 18);
+    const distance = dist(x, y, state.x, state.y);
+    if (distance <= radius + 7 && (!best || distance < best.distance)) {
+      best = { node, state, radius, distance };
+    }
+  }
+  return best;
+}
+
+function getUserNetworkNodeState(key) {
+  return userNetworkState?.nodes?.get(key) || null;
+}
+
+function getUserNetworkBounds() {
+  return userNetworkBounds;
 }
 
 function mergeActivityTimeline(activityWeeks, ticketWeeks) {
@@ -87,26 +537,72 @@ function mergeActivityTimeline(activityWeeks, ticketWeeks) {
     const merged = byWeek.get(week.month) || { month: week.month, revenue: 0, newMemberships: 0, endedMemberships: 0, memberCount: 0 };
     merged.classRevenue = week.classRevenue || 0;
     merged.eventRevenue = week.eventRevenue || 0;
+    merged.activeTicketUsers = week.activeTicketUsers || 0;
+    merged.activeTicketUsersWithMembership = countSetIntersection(week.customerKeys || new Set(), merged.customerKeys || new Set());
+    merged.activeTicketUsersWithoutMembership = (week.customerKeys?.size || 0) - merged.activeTicketUsersWithMembership;
     byWeek.set(week.month, merged);
   }
+  let activeYear = "";
+  let yearTotalRevenue = 0;
   return Array.from(byWeek.values()).map((week) => ({
     ...week,
     totalRevenue: (week.revenue || 0) + (week.classRevenue || 0) + (week.eventRevenue || 0),
-  })).sort((a, b) => a.month.localeCompare(b.month));
+  })).sort((a, b) => a.month.localeCompare(b.month)).map((week) => {
+    const year = String(week.month).slice(0, 4);
+    if (year !== activeYear) {
+      activeYear = year;
+      yearTotalRevenue = 0;
+    }
+    yearTotalRevenue += week.totalRevenue || 0;
+    return { ...week, yearTotalRevenue };
+  });
+}
+
+function countSetIntersection(a, b) {
+  let count = 0;
+  for (const value of a) {
+    if (b.has(value)) count += 1;
+  }
+  return count;
 }
 
 function drawTicketSalesView(ticketSales, pad, top) {
   const weeks = ticketSales?.weeks || [];
   const items = ticketSales?.items || [];
   const chartH = max(220, (height - top - pad * 2) * 0.62);
-  drawMultiLineChart(pad, top, width - pad * 2, chartH, weeks, "Ticket sales", [
+  drawHopTimelineChart(pad, top, width - pad * 2, chartH, weeks, "Ticket sales", [
     { key: "classRevenue", label: "Activity revenue", color: [20, 20, 20], formatter: formatDkk },
     { key: "eventRevenue", label: "Event revenue", color: [26, 105, 180], formatter: formatDkk },
     { key: "classTickets", label: "Activity tickets", color: [190, 90, 35], formatter: formatInteger },
     { key: "eventTickets", label: "Event tickets", color: [60, 140, 85], formatter: formatInteger },
-  ]);
+  ], [], timelineChartState());
 
   drawTicketItemBars(pad, top + chartH + 28, width - pad * 2, height - top - chartH - pad - 28, items);
+}
+
+function ticketItemsToTimelineLabels(items) {
+  return items.map((item) => ({
+    type: item.type,
+    legendLabel: item.type === "Event" ? "Events" : "Activities",
+    label: item.label,
+    period: item.lastWeek,
+    periodLabel: "Last sold",
+    value: item.revenue,
+    valueLabel: "Revenue",
+    valueFormatter: formatDkk,
+    count: item.tickets,
+    countLabel: "Tickets",
+    countFormatter: formatInteger,
+    color: item.type === "Event" ? [135, 85, 170] : [60, 140, 85],
+  }));
+}
+
+function timelineChartState() {
+  return {
+    toggleHits: chartToggleHits,
+    hiddenSeriesKeys,
+    hiddenLabelTypes: hiddenTimelineLabelTypes,
+  };
 }
 
 function drawTicketItemBars(x, y, w, h, items) {
@@ -142,6 +638,212 @@ function drawTicketItemBars(x, y, w, h, items) {
     }
     by += 40;
   }
+}
+
+function drawTicketBuyersView(ticketBuyers, pad, top) {
+  const summary = ticketBuyers?.summary || {};
+  const buyers = ticketBuyers?.buyers || [];
+  const periods = ticketBuyers?.periods || [];
+  const cardW = (width - pad * 2 - 48) / 4;
+  drawStatCard(pad, top, cardW, 82, "Ticket buyers", formatInteger(summary.total || 0));
+  drawStatCard(pad + (cardW + 16), top, cardW, 82, "Single buyers", formatInteger(summary.single || 0));
+  drawStatCard(pad + (cardW + 16) * 2, top, cardW, 82, "Recurring active", formatInteger(summary.activeRecurring || 0));
+  drawStatCard(pad + (cardW + 16) * 3, top, cardW, 82, "Ticket revenue", formatDkk(summary.revenue || 0));
+  drawTicketBuyerHeatmap(pad, top + 110, width - pad * 2, height - top - pad - 110, buyers, periods);
+}
+
+function drawTicketBuyerHeatmap(x, y, w, h, buyers, periods) {
+  fill(238);
+  noStroke();
+  rect(x, y, w, h, 4);
+  fill(30);
+  textSize(18);
+  textAlign(LEFT, TOP);
+  text("Ticket buyer activity", x + 18, y + 16);
+
+  if (!buyers.length || !periods.length) {
+    fill(80);
+    textSize(14);
+    text("No ticket buyer data in this range.", x + 18, y + 54);
+    return;
+  }
+
+  const plotX = x + 18;
+  const plotY = y + 58;
+  const plotW = w - 36;
+  const plotH = h - 92;
+  const rowH = plotH / max(1, buyers.length);
+  const maxTickets = max(1, ...buyers.flatMap((buyer) => buyer.periods.map((period) => period.tickets)));
+  const maxRevenue = max(1, ...buyers.flatMap((buyer) => buyer.periods.map((period) => period.revenue)));
+  const periodIndex = new Map(periods.map((period, index) => [period, index]));
+
+  stroke(215, 80);
+  strokeWeight(1);
+  line(plotX, plotY + plotH + 8, plotX + plotW, plotY + plotH + 8);
+
+  let hovered = null;
+  noStroke();
+  for (let rowIndex = 0; rowIndex < buyers.length; rowIndex += 1) {
+    const buyer = buyers[rowIndex];
+    const py = plotY + rowH * (rowIndex + 0.5);
+    const rowColor = buyer.segment === "Recurring" ? [26, 105, 180] : buyer.segment === "Single" ? [95, 95, 95] : [190, 90, 35];
+    const rowIndexes = buyer.periods
+      .map((period) => periodIndex.get(period.period))
+      .filter((index) => index !== undefined);
+    const firstIndex = rowIndexes.length ? min(...rowIndexes) : 0;
+    const lastIndex = rowIndexes.length ? max(...rowIndexes) : 0;
+    const startX = plotX + (periods.length <= 1 ? 0 : (firstIndex / (periods.length - 1)) * plotW);
+    const endX = plotX + (periods.length <= 1 ? 0 : (lastIndex / (periods.length - 1)) * plotW);
+    for (const period of buyer.periods) {
+      const index = periodIndex.get(period.period);
+      if (index === undefined) continue;
+      const px = plotX + (periods.length <= 1 ? 0 : (index / (periods.length - 1)) * plotW);
+      const ticketRadius = map(sqrt(period.tickets), 0, sqrt(maxTickets), 1.2, min(8, max(1.4, rowH * 0.72)));
+      const revenueBoost = map(sqrt(max(0, period.revenue)), 0, sqrt(maxRevenue), 0, min(3, rowH * 0.25));
+      const radius = ticketRadius + revenueBoost;
+      const color = rowColor;
+      const isHover = dist(mouseX, mouseY, px, py) <= max(8, radius + 4);
+      fill(color[0], color[1], color[2], isHover ? 235 : buyer.segment === "Single" ? 70 : 120);
+      circle(px, py, radius * 2);
+      if (isHover) hovered = { buyer, period, rowIndex, py, color, startX, endX };
+    }
+  }
+
+  if (hovered) {
+    stroke(hovered.color[0], hovered.color[1], hovered.color[2], 210);
+    strokeWeight(2.2);
+    line(hovered.startX, hovered.py, hovered.endX, hovered.py);
+    noStroke();
+  }
+
+  drawTicketBuyerSegmentLabels(plotX, plotY, plotH, buyers);
+
+  fill(80);
+  textSize(11);
+  textAlign(LEFT, TOP);
+  text(periods[0] || "", plotX, y + h - 24);
+  textAlign(RIGHT, TOP);
+  text(periods.at(-1) || "", plotX + plotW, y + h - 24);
+
+  fill(90);
+  textAlign(RIGHT, TOP);
+  text(`showing all ${buyers.length} anonymized buyers`, x + w - 18, y + 18);
+
+  if (hovered) {
+    drawTooltip(mouseX, mouseY, [
+      hovered.buyer.label,
+      `Buyer #${hovered.rowIndex + 1}`,
+      `Segment: ${hovered.buyer.segment}`,
+      `Period: ${hovered.period.period}`,
+      `Tickets: ${formatInteger(hovered.period.tickets)}`,
+      `Revenue: ${formatDkk(hovered.period.revenue)}`,
+      `Total tickets: ${formatInteger(hovered.buyer.totalTickets)}`,
+    ]);
+  }
+}
+
+function drawTicketBuyerSegmentLabels(plotX, plotY, plotH, buyers) {
+  const firstBySegment = new Map();
+  buyers.forEach((buyer, index) => {
+    if (!firstBySegment.has(buyer.segment)) firstBySegment.set(buyer.segment, index);
+  });
+  const rowH = plotH / max(1, buyers.length);
+  textSize(10);
+  textAlign(LEFT, CENTER);
+  noStroke();
+  for (const [segment, index] of firstBySegment.entries()) {
+    const y = plotY + rowH * (index + 0.5);
+    const color = segment === "Recurring" ? [26, 105, 180] : segment === "Single" ? [95, 95, 95] : [190, 90, 35];
+    fill(color[0], color[1], color[2], 180);
+    text(segment, plotX, y);
+  }
+}
+
+function drawBuyerPatternView(buyerPatterns, pad, top) {
+  const summary = buyerPatterns?.summary || {};
+  const journeys = buyerPatterns?.journeys || [];
+  const windowSize = 200;
+  const windowCount = max(1, ceil(journeys.length / windowSize));
+  const windowIndex = constrain(buyerPatternWindowIndex || 0, 0, windowCount - 1);
+  const windowStart = windowIndex * windowSize;
+  const visibleJourneys = journeys.slice(windowStart, windowStart + 200);
+  const cardW = (width - pad * 2 - 48) / 4;
+  drawStatCard(pad, top, cardW, 82, "Journeys", formatInteger(summary.total || 0));
+  drawStatCard(pad + (cardW + 16), top, cardW, 82, "Ticket only", formatInteger(summary.ticketOnly || 0));
+  drawStatCard(pad + (cardW + 16) * 2, top, cardW, 82, "Ticket to member", formatInteger(summary.ticketToMembership || 0));
+  drawStatCard(pad + (cardW + 16) * 3, top, cardW, 82, "Crew", formatInteger(summary.crew || 0));
+  fill(210);
+  noStroke();
+  textSize(12);
+  textAlign(LEFT, TOP);
+  text(`Window ${windowIndex + 1}/${windowCount}: showing ${windowStart + 1}-${windowStart + visibleJourneys.length} sorted by cumulative revenue`, pad, top + 88);
+  drawBuyerJourneyMap(pad, top + 110, width - pad * 2, height - top - pad - 110, visibleJourneys);
+}
+
+function drawBuyerJourneyMap(x, y, w, h, journeys) {
+  const normalizedJourneys = journeys.map((journey) => {
+    let cumulativeRevenue = 0;
+    return {
+      id: journey.customerKey,
+      label: journey.label,
+      span: journey.span,
+      color: buyerJourneyColor(journey),
+      source: journey,
+      periods: journey.periods.map((period) => {
+        cumulativeRevenue += period.revenue || 0;
+        return {
+          ...period,
+          color: buyerPatternColor(period),
+          isMembershipStart: period.offset === journey.firstMembership,
+          isCrewStart: period.offset === journey.firstCrew,
+          cumulativeValue: cumulativeRevenue,
+        };
+      }),
+    };
+  });
+  drawNormalizedJourneyTimeline(x, y, w, h, normalizedJourneys, {
+    title: "Buyer pattern cumulative revenue from first purchase",
+    mode: "cumulative",
+    unitLabel: timeBucketLabel(timeBucket).toLowerCase(),
+    valueFormatter: formatDkk,
+    emptyText: "No ticket or membership journeys in this range.",
+    legend: [
+      { label: "Ticket only", color: [68, 145, 255] },
+      { label: "Membership", color: [34, 190, 125] },
+      { label: "Crew", color: [190, 112, 255] },
+      { label: "Ticket + membership", color: [255, 174, 66] },
+      { label: "First membership", color: [255, 245, 120] },
+    ],
+    tooltipLines: (normalizedJourney) => {
+      const journey = normalizedJourney.source;
+      const lastPeriod = journey.periods.at(-1);
+      return [
+        journey.label,
+        `Pattern: ${journey.pattern}`,
+        `Span: ${formatInteger(journey.span)} ${timeBucketLabel(timeBucket).toLowerCase()}s`,
+        `Total tickets: ${formatInteger(journey.totalTickets)}`,
+        `Revenue: ${formatDkk(journey.revenue)}`,
+        lastPeriod ? `Last activity offset: ${lastPeriod.offset}` : "",
+      ];
+    },
+  });
+}
+
+function buyerPatternColor(period) {
+  if (period.hasCrew && period.hasMembership) return [245, 120, 255];
+  if (period.hasCrew && period.hasTicket) return [195, 150, 255];
+  if (period.hasCrew) return [190, 112, 255];
+  if (period.hasTicket && period.hasMembership) return [255, 174, 66];
+  if (period.hasMembership) return [34, 190, 125];
+  return [68, 145, 255];
+}
+
+function buyerJourneyColor(journey) {
+  if (journey.pattern.includes("Crew")) return [190, 112, 255];
+  if (journey.pattern === "Ticket to membership") return [255, 245, 120];
+  if (journey.pattern === "Membership plus tickets") return [255, 174, 66];
+  if (journey.pattern === "Membership only") return [34, 190, 125];
+  return [68, 145, 255];
 }
 
 function drawHopNav(x, y, navItems, currentView) {
@@ -192,28 +894,6 @@ function getTimeBucketButton() {
   const gap = 8;
   const x = width - 124 - gap - w;
   return { x, y, w, h };
-}
-
-function drawBlobLegend(x, y) {
-  textSize(12);
-  textAlign(LEFT, CENTER);
-  const activityHidden = hiddenBlobTypes.has("Activity");
-  const eventHidden = hiddenBlobTypes.has("Event");
-  const activityHit = { kind: "blobType", key: "Activity", x: x - 8, y: y - 12, w: 78, h: 24 };
-  const eventHit = { kind: "blobType", key: "Event", x: x + 84, y: y - 12, w: 58, h: 24 };
-  const activityHovered = mouseX >= activityHit.x && mouseX <= activityHit.x + activityHit.w && mouseY >= activityHit.y && mouseY <= activityHit.y + activityHit.h;
-  const eventHovered = mouseX >= eventHit.x && mouseX <= eventHit.x + eventHit.w && mouseY >= eventHit.y && mouseY <= eventHit.y + eventHit.h;
-  chartToggleHits.push(activityHit);
-  chartToggleHits.push(eventHit);
-  fill(60, 140, 85, activityHidden || eventHovered ? 20 : activityHovered ? 120 : 70);
-  noStroke();
-  circle(x, y, 12);
-  fill(activityHidden || eventHovered ? 150 : activityHovered ? 15 : 55);
-  text("Activities", x + 12, y);
-  fill(135, 85, 170, eventHidden || activityHovered ? 20 : eventHovered ? 120 : 70);
-  circle(x + 92, y, 12);
-  fill(eventHidden || activityHovered ? 150 : eventHovered ? 15 : 55);
-  text("Events", x + 104, y);
 }
 
 function timeBucketLabel(bucket) {
@@ -289,234 +969,7 @@ function drawLineChart(x, y, w, h, points, title, key, formatter) {
   text(points.at(-1)?.month || "", plotX + plotW, y + h - 14);
   textAlign(RIGHT, TOP);
   text(formatter(maxValue), plotX + plotW, plotY);
-  drawSeasonBand(plotX, y + h - 8, plotW, points);
-}
-
-function drawMultiLineChart(x, y, w, h, points, title, series, blobs = []) {
-  fill(238);
-  noStroke();
-  rect(x, y, w, h, 4);
-  fill(30);
-  textSize(18);
-  textAlign(LEFT, TOP);
-  text(title, x + 18, y + 16);
-
-  const plotX = x + 18;
-  const plotY = y + 72;
-  const plotW = w - 36;
-  const plotH = h - 112;
-  const maxByKey = {};
-  for (const item of series) {
-    maxByKey[item.key] = max(1, ...points.map((point) => abs(point[item.key] || 0)));
-  }
-
-  let legendX = x + 18;
-  let hoveredLegendKey = "";
-  textSize(12);
-  textAlign(LEFT, CENTER);
-  for (const item of series) {
-    const labelW = textWidth(item.label);
-    const hovered = mouseX >= legendX && mouseX <= legendX + labelW + 28 && mouseY >= y + 36 && mouseY <= y + 60;
-    const hidden = hiddenSeriesKeys.has(item.key);
-    chartToggleHits.push({ kind: "series", key: item.key, x: legendX, y: y + 36, w: labelW + 28, h: 24 });
-    if (hovered) hoveredLegendKey = item.key;
-    fill(item.color[0], item.color[1], item.color[2], hidden ? 55 : 255);
-    rect(legendX, y + 47, 16, 3, 1);
-    fill(hidden ? 150 : hovered ? 15 : 55);
-    text(item.label, legendX + 22, y + 48);
-    legendX += labelW + 54;
-  }
-  if (blobs.length) drawBlobLegend(x + w - 190, y + 48);
-
-  stroke(210);
-  strokeWeight(1);
-  line(plotX, plotY + plotH, plotX + plotW, plotY + plotH);
-
-  for (const item of series) {
-    if (hiddenSeriesKeys.has(item.key)) continue;
-    noFill();
-    const alpha = hoveredLegendKey && hoveredLegendKey !== item.key ? 35 : 255;
-    stroke(item.color[0], item.color[1], item.color[2], alpha);
-    strokeWeight(hoveredLegendKey === item.key ? 3.5 : 2.5);
-    beginShape();
-    points.forEach((point, index) => {
-      const px = plotX + (points.length <= 1 ? 0 : (index / (points.length - 1)) * plotW);
-      const py = plotY + plotH - ((point[item.key] || 0) / maxByKey[item.key]) * plotH;
-      vertex(px, py);
-    });
-    endShape();
-  }
-
-  const blobHovered = drawTimelineBlobs(plotX, plotY, plotW, plotH, points, blobs);
-
-  const hoverIndex = getNearestPointIndex(mouseX, plotX, plotW, points.length);
-  if (!blobHovered && hoverIndex >= 0 && mouseY >= plotY - 24 && mouseY <= plotY + plotH + 24) {
-    const point = points[hoverIndex];
-    const px = plotX + (points.length <= 1 ? 0 : (hoverIndex / (points.length - 1)) * plotW);
-    stroke(90);
-    strokeWeight(1);
-    line(px, plotY, px, plotY + plotH);
-    const lines = [point.month];
-    for (const item of series) {
-      if (hiddenSeriesKeys.has(item.key)) continue;
-      lines.push(`${item.label}: ${item.formatter(point[item.key] || 0)}`);
-    }
-    drawTooltip(mouseX, mouseY, lines);
-  }
-
-  fill(70);
-  noStroke();
-  textSize(12);
-  textAlign(LEFT, BOTTOM);
-  text(points[0]?.month || "", plotX, y + h - 14);
-  textAlign(RIGHT, BOTTOM);
-  text(points.at(-1)?.month || "", plotX + plotW, y + h - 14);
-  drawSeasonBand(plotX, y + h - 8, plotW, points);
-}
-
-function getNearestPointIndex(mx, plotX, plotW, count) {
-  if (!count || mx < plotX - 16 || mx > plotX + plotW + 16) return -1;
-  if (count === 1) return 0;
-  return constrain(round(((mx - plotX) / plotW) * (count - 1)), 0, count - 1);
-}
-
-function drawSeasonBand(x, y, w, points) {
-  if (!points.length) return;
-  const bandH = 8;
-  const labelY = y + 14;
-  noStroke();
-  for (let index = 0; index < points.length; index += 1) {
-    const date = dateFromPeriodKey(points[index].month);
-    const x0 = x + (points.length <= 1 ? 0 : (index / points.length) * w);
-    const x1 = x + ((index + 1) / points.length) * w;
-    fill(...seasonColor(date.getMonth()));
-    rect(x0, y, max(1, x1 - x0), bandH);
-
-    if (isMonthStart(points, index, date)) {
-      fill(55);
-      textSize(9);
-      textAlign(CENTER, TOP);
-      text(monthInitial(date.getMonth()), x0, labelY);
-    }
-    if (date.getMonth() === 0 && isMonthStart(points, index, date)) {
-      stroke(35);
-      strokeWeight(1);
-      line(x0, y - 4, x0, y + bandH + 12);
-      noStroke();
-      fill(35);
-      textSize(9);
-      textAlign(LEFT, TOP);
-      text(String(date.getFullYear()), x0 + 3, y - 16);
-    }
-  }
-}
-
-function isMonthStart(points, index, date) {
-  if (index === 0) return true;
-  const prev = dateFromPeriodKey(points[index - 1].month);
-  return prev.getMonth() !== date.getMonth() || prev.getFullYear() !== date.getFullYear();
-}
-
-function dateFromPeriodKey(key) {
-  const text = String(key || "");
-  const weekMatch = text.match(/^(\d{4})-W(\d{2})$/);
-  if (weekMatch) return dateFromIsoWeek(Number(weekMatch[1]), Number(weekMatch[2]));
-  const monthMatch = text.match(/^(\d{4})-(\d{2})$/);
-  if (monthMatch) return new Date(Number(monthMatch[1]), Number(monthMatch[2]) - 1, 1);
-  const quarterMatch = text.match(/^(\d{4})-Q(\d)$/);
-  if (quarterMatch) return new Date(Number(quarterMatch[1]), (Number(quarterMatch[2]) - 1) * 3, 1);
-  return new Date();
-}
-
-function dateFromIsoWeek(year, week) {
-  const date = new Date(year, 0, 1 + (week - 1) * 7);
-  const day = date.getDay() || 7;
-  date.setDate(date.getDate() - day + 1);
-  return date;
-}
-
-function seasonColor(monthIndex) {
-  if (monthIndex >= 2 && monthIndex <= 4) return [123, 201, 111];
-  if (monthIndex >= 5 && monthIndex <= 7) return [242, 201, 76];
-  if (monthIndex >= 8 && monthIndex <= 10) return [217, 130, 43];
-  return [93, 173, 236];
-}
-
-function monthInitial(monthIndex) {
-  return "JFMAMJJASOND"[monthIndex] || "";
-}
-
-function drawTimelineBlobs(plotX, plotY, plotW, plotH, points, blobs) {
-  if (!blobs.length || !points.length) return false;
-  const weekIndex = new Map(points.map((point, index) => [point.month, index]));
-  const visibleBlobs = blobs.filter((blob) => weekIndex.has(blob.lastWeek) && blob.revenue > 0 && !hiddenBlobTypes.has(blob.type));
-  const maxRevenue = max(1, ...visibleBlobs.map((blob) => blob.revenue));
-  const laneByLabel = buildBlobLanes(visibleBlobs);
-
-  let hoveredBlob = null;
-  for (const blob of visibleBlobs) {
-    const index = weekIndex.get(blob.lastWeek);
-    const px = plotX + (points.length <= 1 ? 0 : (index / (points.length - 1)) * plotW);
-    const lane = laneByLabel.get(blob.label) ?? 0.5;
-    const py = plotY + 18 + lane * max(1, plotH - 36);
-    const radius = map(sqrt(blob.revenue), 0, sqrt(maxRevenue), 8, 34);
-    const color = blob.type === "Event" ? [135, 85, 170] : [60, 140, 85];
-    const legendFocusedType = getHoveredBlobLegendType();
-    const dimmedByLegend = legendFocusedType && legendFocusedType !== blob.type;
-    const distance = dist(mouseX, mouseY, px, py);
-    const hovered = distance <= radius * 0.65;
-
-    fill(color[0], color[1], color[2], dimmedByLegend ? 12 : hovered || legendFocusedType === blob.type ? 90 : 42);
-    noStroke();
-    circle(px, py, radius);
-
-    if (hovered && (!hoveredBlob || distance < hoveredBlob.distance)) {
-      hoveredBlob = { blob, px, py, radius, color, distance };
-    }
-  }
-
-  if (hoveredBlob) {
-    fill(hoveredBlob.color[0], hoveredBlob.color[1], hoveredBlob.color[2], 120);
-    noStroke();
-    circle(hoveredBlob.px, hoveredBlob.py, hoveredBlob.radius);
-    drawTooltip(mouseX, mouseY, [
-      ...wrapText(`${hoveredBlob.blob.type}: ${hoveredBlob.blob.label}`, 28),
-      `Last sold: ${hoveredBlob.blob.lastWeek}`,
-      `Revenue: ${formatDkk(hoveredBlob.blob.revenue)}`,
-      `Tickets: ${formatInteger(hoveredBlob.blob.tickets)}`,
-    ], 200);
-    return true;
-  }
-  return false;
-}
-
-function buildBlobLanes(blobs) {
-  const labels = [...new Set(blobs.map((blob) => blob.label))]
-    .sort((a, b) => hashText(a) - hashText(b));
-  const lanes = new Map();
-  labels.forEach((label, index) => {
-    const lane = labels.length <= 1 ? 0.5 : index / (labels.length - 1);
-    lanes.set(label, lane);
-  });
-  return lanes;
-}
-
-function getHoveredBlobLegendType() {
-  for (const hit of chartToggleHits) {
-    if (hit.kind !== "blobType") continue;
-    if (hiddenBlobTypes.has(hit.key)) continue;
-    if (mouseX >= hit.x && mouseX <= hit.x + hit.w && mouseY >= hit.y && mouseY <= hit.y + hit.h) return hit.key;
-  }
-  return "";
-}
-
-function hashText(value) {
-  const text = String(value || "");
-  let hash = 0;
-  for (let index = 0; index < text.length; index += 1) {
-    hash = (hash * 31 + text.charCodeAt(index)) >>> 0;
-  }
-  return hash;
+  drawTimelineSeasonBand(plotX, y + h - 8, plotW, points);
 }
 
 function drawCategoryBars(x, y, w, h, categories) {
@@ -555,7 +1008,7 @@ function drawTooltip(x, y, lines, maxWidth = 360) {
   const tx = min(x + 14, width - tooltipW - 8);
   const ty = min(y + 14, height - tooltipH - 8);
 
-  fill(20);
+  fill(20, 175);
   noStroke();
   rect(tx, ty, tooltipW, tooltipH, 3);
   fill(245);
@@ -610,4 +1063,13 @@ function formatDate(date) {
 function trimText(value, maxLength) {
   const text = String(value || "");
   return text.length > maxLength ? `${text.slice(0, maxLength - 1)}…` : text;
+}
+
+function hashText(value) {
+  const text = String(value || "");
+  let hash = 0;
+  for (let index = 0; index < text.length; index += 1) {
+    hash = (hash * 31 + text.charCodeAt(index)) >>> 0;
+  }
+  return hash;
 }

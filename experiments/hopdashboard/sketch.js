@@ -2,23 +2,30 @@ let hopModel = null;
 let sourceRows = [];
 let droppedFileName = "";
 let statusMessage = "Drop HOP sales CSV onto the canvas";
-let currentView = "testview";
-let dateStartSlider = null;
-let dateEndSlider = null;
+let currentView = "overview";
 let fullStartMs = 0;
 let fullEndMs = 0;
 let selectedStartMs = 0;
 let selectedEndMs = 0;
 let timeBucket = "week";
+let buyerPatternWindowIndex = 0;
+let draggedNetworkNode = null;
 let chartToggleHits = [];
+let pendingChartToggle = null;
+let pendingChartToggleStartedAt = 0;
 const hiddenSeriesKeys = new Set();
-const hiddenBlobTypes = new Set();
+const hiddenTimelineLabelTypes = new Set();
 const DAY_MS = 24 * 60 * 60 * 1000;
+const LABEL_HOLD_MS = 450;
+const NODE_PIN_HOLD_MS = 650;
 
 const NAV_ITEMS = [
-  { id: "testview", label: "Test View" },
   { id: "overview", label: "Overview" },
   { id: "ticketsales", label: "Ticket Sales" },
+  { id: "ticketbuyers", label: "Ticket Buyers" },
+  { id: "buyerpattern", label: "Buyer Pattern" },
+  { id: "activitynetwork", label: "Activity Network" },
+  { id: "usernetwork", label: "User Network" },
   { id: "activity", label: "Activity" },
 ];
 
@@ -28,6 +35,7 @@ function setup() {
   frameRate(60);
   canvas.drop(handleCsvDrop);
   restoreStoredView();
+  restoreStoredTimelineVisibility();
   restoreStoredCsv();
 }
 
@@ -36,17 +44,14 @@ function draw() {
     chartToggleHits = [];
     drawHopOverview(hopModel, droppedFileName, currentView, NAV_ITEMS);
     drawTimeBucketToggle(timeBucket);
-    drawDateRangeLabels();
-    positionDateSliders();
+    drawPortalRangeControls();
   } else {
-    hideDateSliders();
     drawCenteredMessage(statusMessage);
   }
 }
 
 function windowResized() {
   resizeCanvas(windowWidth, windowHeight);
-  positionDateSliders();
 }
 
 function handleCsvDrop(file) {
@@ -83,69 +88,64 @@ function loadCsvText(text, fileName) {
   fullEndMs = startOfDayMs(fullModel.invoices.at(-1)?.date);
   selectedStartMs = fullStartMs;
   selectedEndMs = fullEndMs;
-  createDateSliders();
+  syncPortalControlState();
   applyDateRange();
   droppedFileName = fileName;
   statusMessage = "";
 }
 
-function createDateSliders() {
-  if (!dateStartSlider) {
-    dateStartSlider = createSlider(0, 1, 0, DAY_MS);
-    dateStartSlider.input(handleStartDateSliderInput);
-  }
-  if (!dateEndSlider) {
-    dateEndSlider = createSlider(0, 1, 1, DAY_MS);
-    dateEndSlider.input(handleEndDateSliderInput);
-  }
-  dateStartSlider.attribute("min", fullStartMs);
-  dateStartSlider.attribute("max", fullEndMs);
-  dateStartSlider.attribute("step", DAY_MS);
-  dateStartSlider.value(selectedStartMs);
-  dateEndSlider.attribute("min", fullStartMs);
-  dateEndSlider.attribute("max", fullEndMs);
-  dateEndSlider.attribute("step", DAY_MS);
-  dateEndSlider.value(selectedEndMs);
-  positionDateSliders();
-}
+function drawPortalRangeControls() {
+  if (typeof uiSlider !== "function") return;
+  const controlY = 66;
+  const sliderW = min(220, max(150, (width - 96) / 4));
+  const style = {
+    height: 24,
+    fontSize: 11,
+    rounding: 2,
+    trackColor: "#242424",
+    fillColor: "#5778ff",
+    bgColor: "#111",
+    textColor: "#f5f5f5",
+    persist: false,
+    hideValue: true,
+  };
 
-function positionDateSliders() {
-  if (!dateStartSlider || !dateEndSlider) return;
-  const sliderW = min(220, max(120, width * 0.18));
-  const startX = width - 300 - sliderW * 2;
-  dateStartSlider.position(startX, 26);
-  dateEndSlider.position(startX + sliderW + 18, 26);
-  dateStartSlider.size(sliderW);
-  dateEndSlider.size(sliderW);
-  dateStartSlider.show();
-  dateEndSlider.show();
-}
+  const startSlider = uiSlider("hop_date_start", `From ${formatDate(new Date(selectedStartMs))}`, {
+    min: fullStartMs,
+    max: fullEndMs,
+    init: selectedStartMs,
+  }, { ...style, x: 32, y: controlY, width: sliderW });
+  const endSlider = uiSlider("hop_date_end", `To ${formatDate(new Date(selectedEndMs))}`, {
+    min: fullStartMs,
+    max: fullEndMs,
+    init: selectedEndMs,
+  }, { ...style, x: 32 + sliderW + 14, y: controlY, width: sliderW });
 
-function hideDateSliders() {
-  dateStartSlider?.hide();
-  dateEndSlider?.hide();
-}
-
-function handleStartDateSliderInput() {
-  selectedStartMs = Number(dateStartSlider.value());
-  selectedEndMs = Number(dateEndSlider.value());
-  if (selectedStartMs > selectedEndMs) {
-    selectedEndMs = selectedStartMs;
-    dateStartSlider.value(selectedStartMs);
-    dateEndSlider.value(selectedEndMs);
+  let nextStart = snapDay(startSlider.value);
+  let nextEnd = snapDay(endSlider.value);
+  if (nextStart > nextEnd) nextEnd = nextStart;
+  if (nextStart !== selectedStartMs || nextEnd !== selectedEndMs) {
+    selectedStartMs = nextStart;
+    selectedEndMs = nextEnd;
+    syncPortalDateSliders();
+    applyDateRange();
   }
-  applyDateRange();
-}
 
-function handleEndDateSliderInput() {
-  selectedStartMs = Number(dateStartSlider.value());
-  selectedEndMs = Number(dateEndSlider.value());
-  if (selectedEndMs < selectedStartMs) {
-    selectedStartMs = selectedEndMs;
-    dateStartSlider.value(selectedStartMs);
-    dateEndSlider.value(selectedEndMs);
+  if (currentView === "buyerpattern") {
+    const journeyCount = hopModel.buyerPatterns?.journeys?.length || 0;
+    const maxWindow = max(0, ceil(journeyCount / 200) - 1);
+    buyerPatternWindowIndex = constrain(buyerPatternWindowIndex, 0, maxWindow);
+    const windowSlider = uiSlider("hop_buyer_pattern_window", `Window ${buyerPatternWindowIndex + 1}/${maxWindow + 1}`, {
+      min: 0,
+      max: maxWindow,
+      init: buyerPatternWindowIndex,
+    }, { ...style, x: 32 + (sliderW + 14) * 2, y: controlY, width: sliderW });
+    const nextWindow = constrain(round(windowSlider.value), 0, maxWindow);
+    if (nextWindow !== buyerPatternWindowIndex) {
+      buyerPatternWindowIndex = nextWindow;
+      syncPortalBuyerWindowSlider();
+    }
   }
-  applyDateRange();
 }
 
 function applyDateRange() {
@@ -157,15 +157,24 @@ function applyDateRange() {
   hopModel = buildHopModel(filteredRows, timeBucket);
 }
 
-function drawDateRangeLabels() {
-  fill(40);
-  noStroke();
-  textSize(11);
-  textAlign(LEFT, CENTER);
-  const sliderW = min(220, max(120, width * 0.18));
-  const startX = width - 300 - sliderW * 2;
-  text(formatDate(new Date(selectedStartMs)), startX, 18);
-  text(formatDate(new Date(selectedEndMs)), startX + sliderW + 18, 18);
+function syncPortalControlState() {
+  syncPortalDateSliders();
+  syncPortalBuyerWindowSlider();
+}
+
+function syncPortalDateSliders() {
+  if (typeof uiSetState !== "function") return;
+  uiSetState("hop_date_start", selectedStartMs, { persist: false });
+  uiSetState("hop_date_end", selectedEndMs, { persist: false });
+}
+
+function syncPortalBuyerWindowSlider() {
+  if (typeof uiSetState !== "function") return;
+  uiSetState("hop_buyer_pattern_window", buyerPatternWindowIndex, { persist: false });
+}
+
+function snapDay(value) {
+  return constrain(Math.round(Number(value) / DAY_MS) * DAY_MS, fullStartMs, fullEndMs);
 }
 
 function startOfDayMs(date) {
@@ -176,26 +185,43 @@ function startOfDayMs(date) {
 }
 
 function mousePressed() {
+  const networkHit = getNetworkNodeHitForCurrentView();
+  if (networkHit) {
+    draggedNetworkNode = {
+      kind: currentView,
+      key: networkHit.node.key,
+      offsetX: networkHit.state.x - mouseX,
+      offsetY: networkHit.state.y - mouseY,
+      startedAt: millis(),
+      wasPinned: !!networkHit.state.pinned,
+    };
+    networkHit.state.pinned = true;
+    networkHit.state.vx = 0;
+    networkHit.state.vy = 0;
+    return false;
+  }
+
   if (hopModel && isClearDataHit(mouseX, mouseY)) {
     clearHopCsv();
     hopModel = null;
     sourceRows = [];
     droppedFileName = "";
     statusMessage = "Drop HOP sales CSV onto the canvas";
-    hideDateSliders();
     return false;
   }
 
   const bucketHit = getTimeBucketHit(mouseX, mouseY);
   if (bucketHit) {
     timeBucket = nextTimeBucket(timeBucket);
+    buyerPatternWindowIndex = 0;
     applyDateRange();
     return false;
   }
 
   const chartToggle = getChartToggleHit(mouseX, mouseY);
   if (chartToggle) {
-    toggleChartVisibility(chartToggle);
+    pendingChartToggle = chartToggle;
+    pendingChartToggleStartedAt = millis();
     return false;
   }
 
@@ -208,14 +234,103 @@ function mousePressed() {
   return true;
 }
 
+function mouseReleased() {
+  if (draggedNetworkNode) {
+    const state = getNetworkNodeState(draggedNetworkNode);
+    if (state) {
+      const heldLongEnough = millis() - draggedNetworkNode.startedAt >= NODE_PIN_HOLD_MS;
+      state.pinned = draggedNetworkNode.wasPinned || heldLongEnough;
+    }
+    draggedNetworkNode = null;
+    return false;
+  }
+
+  if (!pendingChartToggle) return true;
+  const releaseHit = getChartToggleHit(mouseX, mouseY);
+  const isSameHit = releaseHit?.kind === pendingChartToggle.kind && releaseHit?.key === pendingChartToggle.key;
+  if (isSameHit) {
+    const heldLongEnough = millis() - pendingChartToggleStartedAt >= LABEL_HOLD_MS;
+    if (heldLongEnough) isolateChartVisibility(pendingChartToggle);
+    else toggleChartVisibility(pendingChartToggle);
+    saveTimelineVisibility();
+  }
+  pendingChartToggle = null;
+  pendingChartToggleStartedAt = 0;
+  return false;
+}
+
+function mouseDragged() {
+  if (!draggedNetworkNode) return true;
+  const state = getNetworkNodeState(draggedNetworkNode);
+  const bounds = getNetworkBounds(draggedNetworkNode.kind);
+  if (state && bounds) {
+    state.x = constrain(mouseX + draggedNetworkNode.offsetX, bounds.x + 10, bounds.x + bounds.w - 10);
+    state.y = constrain(mouseY + draggedNetworkNode.offsetY, bounds.y + 10, bounds.y + bounds.h - 10);
+    state.vx = 0;
+    state.vy = 0;
+  }
+  return false;
+}
+
+function getNetworkNodeHitForCurrentView() {
+  if (currentView === "activitynetwork") return getActivityNetworkNodeHit?.(mouseX, mouseY);
+  if (currentView === "usernetwork") return getUserNetworkNodeHit?.(mouseX, mouseY);
+  return null;
+}
+
+function getNetworkNodeState(draggedNode) {
+  if (draggedNode.kind === "activitynetwork") return getActivityNetworkNodeState?.(draggedNode.key);
+  if (draggedNode.kind === "usernetwork") return getUserNetworkNodeState?.(draggedNode.key);
+  return null;
+}
+
+function getNetworkBounds(kind) {
+  if (kind === "activitynetwork") return getActivityNetworkBounds?.();
+  if (kind === "usernetwork") return getUserNetworkBounds?.();
+  return null;
+}
+
 function getChartToggleHit(x, y) {
   return chartToggleHits.find((hit) => x >= hit.x && x <= hit.x + hit.w && y >= hit.y && y <= hit.y + hit.h);
 }
 
 function toggleChartVisibility(hit) {
-  const set = hit.kind === "blobType" ? hiddenBlobTypes : hiddenSeriesKeys;
+  const set = hit.kind === "labelType" ? hiddenTimelineLabelTypes : hiddenSeriesKeys;
   if (set.has(hit.key)) set.delete(hit.key);
   else set.add(hit.key);
+}
+
+function isolateChartVisibility(hit) {
+  const uniqueHits = [...new Map(chartToggleHits.map((candidate) => [`${candidate.kind}:${candidate.key}`, candidate])).values()];
+  const alreadyIsolated = uniqueHits.every((candidate) => {
+    const set = candidate.kind === "labelType" ? hiddenTimelineLabelTypes : hiddenSeriesKeys;
+    const isSelected = candidate.kind === hit.kind && candidate.key === hit.key;
+    return isSelected ? !set.has(candidate.key) : set.has(candidate.key);
+  });
+  if (alreadyIsolated) {
+    for (const candidate of uniqueHits) {
+      const set = candidate.kind === "labelType" ? hiddenTimelineLabelTypes : hiddenSeriesKeys;
+      set.delete(candidate.key);
+    }
+    return;
+  }
+  for (const candidate of uniqueHits) {
+    const set = candidate.kind === "labelType" ? hiddenTimelineLabelTypes : hiddenSeriesKeys;
+    if (candidate.kind === hit.kind && candidate.key === hit.key) set.delete(candidate.key);
+    else set.add(candidate.key);
+  }
+}
+
+function saveTimelineVisibility() {
+  saveHopTimelineVisibility(hiddenSeriesKeys, hiddenTimelineLabelTypes);
+}
+
+function restoreStoredTimelineVisibility() {
+  const stored = loadHopTimelineVisibility();
+  hiddenSeriesKeys.clear();
+  hiddenTimelineLabelTypes.clear();
+  for (const key of stored.series || []) hiddenSeriesKeys.add(key);
+  for (const key of stored.labels || []) hiddenTimelineLabelTypes.add(key);
 }
 
 function getTimeBucketHit(x, y) {
@@ -236,7 +351,7 @@ function isClearDataHit(x, y) {
 
 function restoreStoredView() {
   const savedView = loadHopView();
-  const storedView = savedView === "memberships" ? "activity" : savedView;
+  const storedView = savedView === "memberships" ? "activity" : savedView === "testview" ? "overview" : savedView;
   if (NAV_ITEMS.some((item) => item.id === storedView)) {
     currentView = storedView;
   }
