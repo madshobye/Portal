@@ -31,6 +31,21 @@ const hiddenTimelineLabelTypes = new Set();
 const DAY_MS = 24 * 60 * 60 * 1000;
 const LABEL_HOLD_MS = 450;
 const NODE_PIN_HOLD_MS = 650;
+const URL_TIME_BUCKETS = ["week", "month", "quarter", "halfyear", "year"];
+const URL_DASHBOARD_PARAMS = [
+  "view",
+  "from",
+  "to",
+  "period",
+  "buyerWindow",
+  "revenueGroups",
+  "revenueNoMembership",
+  "pathMode",
+  "curves",
+  "stacked",
+  "hiddenSeries",
+  "hiddenLabels",
+];
 
 const NAV_ITEMS = [
   { id: "overview", label: "Overview", icon: "dashboard" },
@@ -66,9 +81,10 @@ async function setup() {
     }
   }
   canvas.drop(handleCsvDrop);
-  restoreStoredView();
-  restoreStoredTimelineVisibility();
-  restoreStoredSliders();
+  const dashboardUrlState = loadDashboardUrlState();
+  restoreStoredView(dashboardUrlState);
+  restoreStoredTimelineVisibility(dashboardUrlState);
+  restoreStoredSliders(dashboardUrlState);
   restoreStoredCsv();
 }
 
@@ -146,6 +162,7 @@ function loadCsvText(text, fileName) {
   applyDateRange();
   droppedFileName = fileName;
   statusMessage = "";
+  updateDashboardUrl();
 }
 
 function drawPortalRangeControls() {
@@ -293,13 +310,14 @@ function saveSliderState() {
     timelineStackedLines,
   };
   saveHopSliders(storedSliderState);
+  updateDashboardUrl();
 }
 
-function restoreStoredSliders() {
-  storedSliderState = loadHopSliders();
+function restoreStoredSliders(urlState = null) {
+  storedSliderState = { ...loadHopSliders(), ...(urlState?.sliders || {}) };
   buyerPatternWindowIndex = constrain(Number(storedSliderState.buyerPatternWindowIndex) || 0, 0, 999999);
   revenueGroupCount = constrain(Number(storedSliderState.revenueGroupCount) || revenueGroupCount, 3, 100);
-  if (["week", "month", "quarter", "halfyear", "year"].includes(storedSliderState.timeBucket)) {
+  if (URL_TIME_BUCKETS.includes(storedSliderState.timeBucket)) {
     timeBucket = storedSliderState.timeBucket;
   }
   if (["ever", "range"].includes(storedSliderState.activityPathMode)) {
@@ -470,14 +488,17 @@ function isolateChartVisibility(hit) {
 
 function saveTimelineVisibility() {
   saveHopTimelineVisibility(hiddenSeriesKeys, hiddenTimelineLabelTypes);
+  updateDashboardUrl();
 }
 
-function restoreStoredTimelineVisibility() {
+function restoreStoredTimelineVisibility(urlState = null) {
   const stored = loadHopTimelineVisibility();
   hiddenSeriesKeys.clear();
   hiddenTimelineLabelTypes.clear();
-  for (const key of stored.series || []) hiddenSeriesKeys.add(key);
-  for (const key of stored.labels || []) hiddenTimelineLabelTypes.add(key);
+  const series = urlState?.visibility?.series || stored.series || [];
+  const labels = urlState?.visibility?.labels || stored.labels || [];
+  for (const key of series) hiddenSeriesKeys.add(key);
+  for (const key of labels) hiddenTimelineLabelTypes.add(key);
 }
 
 function getDateRangeSliderBounds() {
@@ -555,6 +576,7 @@ function clearDashboardData() {
   fullTimelineCacheByBucket = new Map();
   droppedFileName = "";
   statusMessage = "Drop HOP sales CSV onto the canvas";
+  clearDashboardUrl();
 }
 
 function confirmClearDashboardData() {
@@ -604,6 +626,7 @@ function setCurrentView(view) {
   if (!view || view === currentView) return;
   currentView = view;
   saveHopView(currentView);
+  updateDashboardUrl();
 }
 
 function saveGraphSnapshot() {
@@ -619,13 +642,12 @@ function selectedPeriodLabel() {
 }
 
 function getGraphSnapshotBounds() {
-  const pad = 32;
   const top = 112;
   return {
-    x: pad,
+    x: 0,
     y: top,
-    w: width - pad * 2,
-    h: height - top - pad,
+    w: width,
+    h: height - top,
   };
 }
 
@@ -637,10 +659,126 @@ function nextTimeBucket(bucket) {
   return "week";
 }
 
-function restoreStoredView() {
-  const savedView = loadHopView();
+function restoreStoredView(urlState = null) {
+  const savedView = urlState?.view || loadHopView();
   const storedView = savedView === "memberships" ? "activity" : savedView === "testview" ? "overview" : savedView;
   if (NAV_ITEMS.some((item) => item.id === storedView)) {
     currentView = storedView;
   }
+}
+
+function loadDashboardUrlState() {
+  if (typeof window === "undefined") return null;
+  const params = new URLSearchParams(window.location.search || "");
+  if (!URL_DASHBOARD_PARAMS.some((key) => params.has(key))) return null;
+
+  const view = normalizeUrlView(params.get("view"));
+  const sliders = {};
+  const fromMs = parseUrlDateMs(params.get("from"));
+  const toMs = parseUrlDateMs(params.get("to"));
+  if (fromMs) sliders.selectedStartMs = fromMs;
+  if (toMs) sliders.selectedEndMs = toMs;
+
+  const period = params.get("period");
+  if (URL_TIME_BUCKETS.includes(period)) sliders.timeBucket = period;
+
+  const buyerWindow = parseUrlInteger(params.get("buyerWindow"));
+  if (buyerWindow !== null) sliders.buyerPatternWindowIndex = buyerWindow;
+
+  const revenueGroups = parseUrlInteger(params.get("revenueGroups"));
+  if (revenueGroups !== null) sliders.revenueGroupCount = revenueGroups;
+
+  const pathMode = params.get("pathMode");
+  if (["ever", "range"].includes(pathMode)) sliders.activityPathMode = pathMode;
+
+  const revenueNoMembership = parseUrlBoolean(params.get("revenueNoMembership"));
+  if (revenueNoMembership !== null) sliders.revenueGroupsExcludeMembership = revenueNoMembership;
+
+  const curves = parseUrlBoolean(params.get("curves"));
+  if (curves !== null) sliders.timelineSmoothCurves = curves;
+
+  const stacked = parseUrlBoolean(params.get("stacked"));
+  if (stacked !== null) sliders.timelineStackedLines = stacked;
+
+  return {
+    view,
+    sliders,
+    visibility: {
+      series: parseUrlList(params.get("hiddenSeries")),
+      labels: parseUrlList(params.get("hiddenLabels")),
+    },
+  };
+}
+
+function normalizeUrlView(view) {
+  if (!view) return "";
+  if (view === "memberships") return "activity";
+  if (view === "testview") return "overview";
+  return NAV_ITEMS.some((item) => item.id === view) ? view : "";
+}
+
+function parseUrlInteger(value) {
+  if (value === null || value === "") return null;
+  const parsed = Number.parseInt(value, 10);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function parseUrlBoolean(value) {
+  if (value === null || value === "") return null;
+  if (["1", "true", "yes", "on"].includes(String(value).toLowerCase())) return true;
+  if (["0", "false", "no", "off"].includes(String(value).toLowerCase())) return false;
+  return null;
+}
+
+function parseUrlList(value) {
+  if (!value) return [];
+  return String(value).split(",").map((item) => item.trim()).filter(Boolean);
+}
+
+function parseUrlDateMs(value) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(String(value || ""))) return 0;
+  const [year, month, day] = value.split("-").map(Number);
+  const date = new Date(year, month - 1, day);
+  date.setHours(0, 0, 0, 0);
+  return date.getTime();
+}
+
+function formatUrlDate(ms) {
+  const date = new Date(ms);
+  if (!(date instanceof Date) || Number.isNaN(date.getTime())) return "";
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+function updateDashboardUrl() {
+  if (typeof window === "undefined" || !window.history?.replaceState) return;
+  const url = new URL(window.location.href);
+  url.searchParams.set("view", currentView);
+  if (selectedStartMs) url.searchParams.set("from", formatUrlDate(selectedStartMs));
+  if (selectedEndMs) url.searchParams.set("to", formatUrlDate(selectedEndMs));
+  url.searchParams.set("period", timeBucket);
+  url.searchParams.set("buyerWindow", String(constrain(Math.round(Number(buyerPatternWindowIndex) || 0), 0, 999999)));
+  url.searchParams.set("revenueGroups", String(constrain(Math.round(Number(revenueGroupCount) || 8), 3, 100)));
+  url.searchParams.set("revenueNoMembership", revenueGroupsExcludeMembership ? "1" : "0");
+  url.searchParams.set("pathMode", activityPathMode);
+  url.searchParams.set("curves", timelineSmoothCurves ? "1" : "0");
+  url.searchParams.set("stacked", timelineStackedLines ? "1" : "0");
+  setOptionalUrlList(url.searchParams, "hiddenSeries", hiddenSeriesKeys);
+  setOptionalUrlList(url.searchParams, "hiddenLabels", hiddenTimelineLabelTypes);
+  window.history.replaceState(null, "", url.toString());
+}
+
+function setOptionalUrlList(params, key, values) {
+  const list = Array.from(values || []).filter(Boolean);
+  if (list.length) params.set(key, list.join(","));
+  else params.delete(key);
+}
+
+function clearDashboardUrl() {
+  if (typeof window === "undefined" || !window.history?.replaceState) return;
+  const url = new URL(window.location.href);
+  for (const key of URL_DASHBOARD_PARAMS) url.searchParams.delete(key);
+  window.history.replaceState(null, "", url.toString());
 }
