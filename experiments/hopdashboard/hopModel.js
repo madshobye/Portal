@@ -43,6 +43,7 @@ function buildHopModel(rows, timeBucket = "week", options = {}) {
   const membershipLength = groupMembershipLength(membershipLengthRows, {
     rangeStartMs: options.rangeStartMs,
     rangeEndMs: options.rangeEndMs,
+    timeBucket,
   });
 
   return {
@@ -1033,6 +1034,7 @@ function groupMembershipLength(rows, options = {}) {
   const dataEndDate = getLastRowDate(rows);
   const rangeStartMs = Number(options.rangeStartMs) || null;
   const rangeEndMs = Number(options.rangeEndMs) || null;
+  const timeBucket = options.timeBucket || "week";
   const paidMembershipRows = rows
     .filter(isPaidMembershipRow)
     .sort((a, b) => a.date - b.date);
@@ -1093,6 +1095,7 @@ function groupMembershipLength(rows, options = {}) {
 
   const visibleSpans = membershipSpansInRange(spans, rangeStartMs, rangeEndMs);
   const buckets = membershipLengthBuckets(visibleSpans);
+  const distribution = membershipDistributionTimeline(spans, rangeStartMs, rangeEndMs, timeBucket, dataEndDate);
   const activeSpans = visibleSpans.filter((span) => span.active);
   const endedSpans = visibleSpans.filter((span) => !span.active);
   const avgMonths = visibleSpans.length ? visibleSpans.reduce((total, span) => total + span.months, 0) / visibleSpans.length : 0;
@@ -1102,6 +1105,7 @@ function groupMembershipLength(rows, options = {}) {
   return {
     spans: visibleSpans.sort((a, b) => b.months - a.months),
     buckets,
+    distribution,
     types,
     spanCount: visibleSpans.length,
     activeCount: activeSpans.length,
@@ -1111,6 +1115,57 @@ function groupMembershipLength(rows, options = {}) {
     maxBucketCount: Math.max(1, ...buckets.map((bucket) => bucket.total)),
     maxTypeCount: Math.max(1, ...types.map((type) => type.count)),
   };
+}
+
+function membershipDistributionTimeline(spans, rangeStartMs, rangeEndMs, timeBucket, dataEndDate) {
+  if (!rangeStartMs || !rangeEndMs || rangeEndMs < rangeStartMs) return { months: [], buckets: membershipDistributionBuckets(), maxTotal: 1 };
+  const buckets = membershipDistributionBuckets();
+  const months = [];
+  let cursor = dateFromPeriodKey(periodKey(new Date(rangeStartMs), timeBucket), timeBucket);
+
+  while (cursor.getTime() <= rangeEndMs) {
+    const key = periodKey(cursor, timeBucket);
+    const snapshot = periodSnapshotDate(key, timeBucket, dataEndDate);
+    const snapshotMs = Math.min(snapshot.getTime(), rangeEndMs);
+    const entry = { month: key, total: 0 };
+    for (const bucket of buckets) entry[bucket.key] = 0;
+
+    for (const span of spans) {
+      if (startOfHopDayMs(span.startDate) > snapshotMs || startOfHopDayMs(span.endDate) < snapshotMs) continue;
+      const monthsActive = Math.max(0, (snapshotMs - span.startDate) / 86400000 / 30.4375);
+      const bucket = buckets.find((item) => monthsActive > item.min && monthsActive <= item.max) || buckets.at(0);
+      entry[bucket.key] += 1;
+      entry.total += 1;
+    }
+
+    months.push(entry);
+    cursor = addPeriods(cursor, 1, timeBucket);
+  }
+
+  return {
+    months,
+    buckets,
+    maxTotal: Math.max(1, ...months.map((month) => month.total)),
+  };
+}
+
+function membershipDistributionBuckets() {
+  return [
+    { key: "m1", label: "1m", min: -Infinity, max: 1 },
+    { key: "m2", label: "2m", min: 1, max: 2 },
+    { key: "m5", label: "5m", min: 2, max: 5 },
+    { key: "m7", label: "7m", min: 5, max: 7 },
+    { key: "m10", label: "10m", min: 7, max: 10 },
+    { key: "m14", label: "14m", min: 10, max: 14 },
+    { key: "m22", label: "22m", min: 14, max: 22 },
+    { key: "m22plus", label: "22m+", min: 22, max: Infinity },
+  ];
+}
+
+function periodEndMsForKey(key, timeBucket) {
+  const start = dateFromPeriodKey(key, timeBucket);
+  const end = addPeriods(start, 1, timeBucket);
+  return end.getTime() - 1;
 }
 
 function membershipSpansInRange(spans, rangeStartMs, rangeEndMs) {

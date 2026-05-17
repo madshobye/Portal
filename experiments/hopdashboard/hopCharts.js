@@ -6,6 +6,10 @@ let userNetworkVisible = null;
 let activeHopModel = null;
 let activePeriodLabel = "";
 let pendingViewInfoTooltip = null;
+const HOP_TOP_BUTTON_Y = 12;
+const HOP_TOP_BUTTON_H = 26;
+const HOP_CONTENT_TOP = 112;
+const HOP_PANEL_BG = 238;
 
 function displayPersonName(entity) {
   return activeHopModel?.getName ? activeHopModel.getName(entity) : entity?.label || "Unknown customer";
@@ -74,6 +78,7 @@ function viewInfoDescription(infoKey) {
     segments: "Behavioral customer clusters: one-timers, seasonal returners, recurring ticket buyers, members, crew, and high-value supporters.",
     exitPoints: "Shows each customer's last meaningful paid touchpoint in the selected period, grouped by activity, event, membership, or crew.",
     memberLength: "Distribution of paid membership spans, estimating continuous membership from recurring payments and separating active from ended spans.",
+    memberDistribution: "Stacked timeline showing active paid members by tenure: how long they have continuously been members at each period end.",
     overview: "High-level summary of revenue, customers, invoices, active customers, and invoice mix for the selected date range.",
     ticketItems: "Largest activity and event products by net revenue and ticket count in the selected date range.",
     activityMix: "Count of invoice item types in the selected date range.",
@@ -99,91 +104,100 @@ function drawHopOverview(model, fileName = "", currentView = "overview", navItem
   }
   background(52);
   const pad = 32;
+  const contentPad = 0;
   const revenue = sum(model.invoices, "totalPrice");
   const typeCounts = countInvoiceTypes(model.invoices);
 
-  drawHopNav(pad, 24, navItems, currentView);
-  drawClearDataButton();
-  const contentTop = 112;
+  const uiState = {
+    navView: drawHopNav(pad, HOP_TOP_BUTTON_Y, navItems, currentView),
+    clearClicked: drawClearDataButton(),
+  };
+  const contentTop = HOP_CONTENT_TOP;
+  drawViewPanelBackground(contentTop);
 
   if (currentView === "activity") {
-    drawActivityView(model.activity, model.ticketSalesTimeline || model.ticketSales, pad, contentTop);
-    return;
+    drawActivityView(model.activity, model.ticketSalesTimeline || model.ticketSales, contentPad, contentTop);
+    return uiState;
   }
 
   if (currentView === "activitynetwork") {
-    drawActivityNetworkView(model.activityNetwork, pad, contentTop);
-    return;
+    drawActivityNetworkView(model.activityNetwork, contentPad, contentTop);
+    return uiState;
   }
 
   if (currentView === "usernetwork") {
-    drawUserNetworkView(model.userNetwork, pad, contentTop);
-    return;
+    drawUserNetworkView(model.userNetwork, contentPad, contentTop);
+    return uiState;
   }
 
   if (currentView === "ticketsales") {
-    drawTicketSalesView(model.ticketSales, pad, contentTop);
-    return;
+    drawTicketSalesView(model.ticketSales, contentPad, contentTop);
+    return uiState;
   }
 
   if (currentView === "ticketbuyers") {
-    drawTicketBuyersView(model.ticketBuyers, pad, contentTop);
-    return;
+    drawTicketBuyersView(model.ticketBuyers, contentPad, contentTop);
+    return uiState;
   }
 
   if (currentView === "revenuegroups") {
-    drawRevenueGroupsView(model.customers, pad, contentTop, revenueGroupCount || 8, !!revenueGroupsExcludeMembership);
-    return;
+    drawRevenueGroupsView(model.customers, contentPad, contentTop, revenueGroupCount || 8, !!revenueGroupsExcludeMembership);
+    return uiState;
   }
 
   if (currentView === "buyerpattern") {
-    drawBuyerPatternView(model.buyerPatterns, pad, contentTop);
-    return;
+    drawBuyerPatternView(model.buyerPatterns, contentPad, contentTop);
+    return uiState;
   }
 
   if (currentView === "retention") {
-    drawRetentionView(model.retention, pad, contentTop);
-    return;
+    drawRetentionView(model.retention, contentPad, contentTop);
+    return uiState;
   }
 
   if (currentView === "activitypath") {
-    drawActivityPathView(model.activityPath, pad, contentTop);
-    return;
+    drawActivityPathView(model.activityPath, contentPad, contentTop);
+    return uiState;
   }
 
   if (currentView === "gateway") {
-    drawGatewayView(model.activityPath, pad, contentTop);
-    return;
+    drawGatewayView(model.activityPath, contentPad, contentTop);
+    return uiState;
   }
 
   if (currentView === "pipeline") {
-    drawMembershipPipelineView(model.membershipPipeline, pad, contentTop);
-    return;
+    drawMembershipPipelineView(model.membershipPipeline, contentPad, contentTop);
+    return uiState;
   }
 
   if (currentView === "producthealth") {
-    drawProductHealthView(model.productHealth, pad, contentTop);
-    return;
+    drawProductHealthView(model.productHealth, contentPad, contentTop);
+    return uiState;
   }
 
   if (currentView === "segments") {
-    drawCustomerSegmentsView(model.customerSegments, pad, contentTop);
-    return;
+    drawCustomerSegmentsView(model.customerSegments, contentPad, contentTop);
+    return uiState;
   }
 
   if (currentView === "exitpoints") {
-    drawExitPointsView(model.exitPoints, pad, contentTop);
-    return;
+    drawExitPointsView(model.exitPoints, contentPad, contentTop);
+    return uiState;
   }
 
   if (currentView === "memberlength") {
-    drawMembershipLengthView(model.membershipLength, pad, contentTop);
-    return;
+    drawMembershipLengthView(model.membershipLength, contentPad, contentTop);
+    return uiState;
+  }
+
+  if (currentView === "memberdistribution") {
+    drawMemberDistributionView(model.membershipLength?.distribution, contentPad, contentTop);
+    return uiState;
   }
 
   if (currentView !== "overview") {
-    drawPlaceholderView(currentView, pad + 16, contentTop + 14);
-    return;
+    drawPlaceholderView(currentView, contentPad + 16, contentTop + 14);
+    return uiState;
   }
 
   const cardY = contentTop;
@@ -206,12 +220,10 @@ function drawHopOverview(model, fileName = "", currentView = "overview", navItem
   textAlign(LEFT, TOP);
   textSize(13);
   text(`overview: ${currentView}`, pad, height - 26);
+  return uiState;
 }
 
 function drawPlaceholderView(currentView, x, y) {
-  fill(238);
-  noStroke();
-  rect(32, 76, width - 64, height - 108, 4);
   fill(35);
   textAlign(LEFT, TOP);
   textSize(28);
@@ -219,6 +231,12 @@ function drawPlaceholderView(currentView, x, y) {
   textSize(16);
   fill(80);
   text("This view is ready for its own analysis.", x, y + 44);
+}
+
+function drawViewPanelBackground(top = HOP_CONTENT_TOP) {
+  fill(HOP_PANEL_BG);
+  noStroke();
+  rect(0, top, width, height - top);
 }
 
 function drawActivityView(activity, ticketSales, pad, top) {
@@ -2010,6 +2028,48 @@ function drawMembershipLengthTypes(x, y, w, h, types, maxCount) {
   }
 }
 
+function drawMemberDistributionView(distribution, pad, top) {
+  const months = distribution?.months || [];
+  const buckets = distribution?.buckets || [];
+  if (!months.length || !buckets.length) {
+    fill(238);
+    noStroke();
+    rect(pad, top, width - pad * 2, height - top - pad, 4);
+    drawViewHeader("Member Tenure Distribution", pad + 18, top + 16, "memberDistribution");
+    fill(80);
+    textSize(14);
+    textAlign(LEFT, TOP);
+    text("No paid membership distribution in this range.", pad + 18, top + 54);
+    return;
+  }
+
+  const colors = memberDistributionColors();
+  const series = buckets.map((bucket, index) => ({
+    key: bucket.key,
+    label: bucket.label,
+    color: colors[index % colors.length],
+    formatter: formatInteger,
+    scale: "count",
+  })).reverse();
+  drawHopTimelineChart(pad, top, width - pad * 2, height - top - pad, months, "Member Tenure Distribution", series, [], {
+    ...timelineChartState(),
+    infoKey: "memberDistribution",
+  });
+}
+
+function memberDistributionColors() {
+  return [
+    [210, 210, 210],
+    [185, 205, 230],
+    [130, 185, 220],
+    [75, 175, 190],
+    [70, 180, 130],
+    [225, 165, 65],
+    [220, 95, 55],
+    [135, 65, 170],
+  ];
+}
+
 function formatMembershipMonths(months) {
   if (months >= 24) return `${(months / 12).toFixed(1)} yr`;
   if (months >= 10) return `${months.toFixed(0)} mo`;
@@ -2236,189 +2296,182 @@ function buyerJourneyColor(journey) {
 
 function drawHopNav(x, y, navItems, currentView) {
   let navX = x;
-  textSize(11);
-  textAlign(LEFT, CENTER);
+  let clickedView = null;
   for (const item of navItems) {
-    const label = item.shortLabel || item.label;
-    const w = textWidth(label) + 18;
-    fill(item.id === currentView ? 30 : 110);
-    noStroke();
-    rect(navX, y, w, 26, 3);
-    fill(item.id === currentView ? 245 : 35);
-    text(label, navX + 9, y + 13);
+    const w = 30;
+    if (drawTopIconButton({ x: navX, y, w, h: HOP_TOP_BUTTON_H }, item.id === currentView, item.icon || "circle")) clickedView = item.id;
     navX += w + 6;
   }
+  return clickedView;
 }
 
 function drawClearDataButton() {
-  const box = getClearDataButtonBounds();
-  fill(110);
-  noStroke();
-  rect(box.x, box.y, box.w, box.h, 3);
-  fill(35);
-  textSize(11);
-  textAlign(CENTER, CENTER);
-  text("Clear Data", box.x + box.w / 2, box.y + box.h / 2);
+  return drawTopIconButton(getClearDataButtonBounds(), false, "delete");
 }
 
 function getClearDataButtonBounds() {
   const anonymize = getAnonymizeButton();
   const gap = 6;
-  const w = 68;
-  return { x: anonymize.x - gap - w, y: 24, w, h: 26 };
+  const w = 30;
+  return { x: anonymize.x - gap - w, y: HOP_TOP_BUTTON_Y, w, h: HOP_TOP_BUTTON_H };
 }
 
 function drawTimeBucketToggle(activeBucket) {
   const item = getTimeBucketButton();
-  fill(30);
-  noStroke();
-  rect(item.x, item.y, item.w, item.h, 3);
-  fill(245);
-  textSize(11);
-  textAlign(CENTER, CENTER);
-  text(timeBucketLabel(activeBucket), item.x + item.w / 2, item.y + item.h / 2);
+  return drawSlimButton(timeBucketLabel(activeBucket).toUpperCase(), item, true);
 }
 
 function drawAnonymizeToggle(active) {
-  const item = getAnonymizeButton();
-  fill(active ? 30 : 110);
-  noStroke();
-  rect(item.x, item.y, item.w, item.h, 3);
-  fill(active ? 245 : 35);
-  textSize(11);
-  textAlign(CENTER, CENTER);
-  text(active ? "Anon" : "Names", item.x + item.w / 2, item.y + item.h / 2);
+  return drawTopIconButton(getAnonymizeButton(), active, active ? "visibility_off" : "visibility");
 }
 
-function drawStorageToggle(active) {
-  const item = getStorageButton();
-  fill(active ? 30 : 110);
-  noStroke();
-  rect(item.x, item.y, item.w, item.h, 3);
-  fill(active ? 245 : 35);
-  textSize(11);
-  textAlign(CENTER, CENTER);
-  text("s", item.x + item.w / 2, item.y + item.h / 2);
+function drawStorageToggle() {
+  return drawTopIconButton(getStorageButton(), false, "save");
 }
 
 function drawTimelineCurveToggle(active) {
-  const item = getTimelineCurveButton();
-  fill(active ? 30 : 110);
-  noStroke();
-  rect(item.x, item.y, item.w, item.h, 3);
-  fill(active ? 245 : 35);
-  textSize(11);
-  textAlign(CENTER, CENTER);
-  text(active ? "C" : "L", item.x + item.w / 2, item.y + item.h / 2);
+  return drawTopIconButton(getTimelineCurveButton(), active, active ? "timeline" : "show_chart");
 }
 
 function drawTimelineStackToggle(active) {
-  const item = getTimelineStackButton();
+  return drawTopIconButton(getTimelineStackButton(), active, active ? "stacked_line_chart" : "area_chart");
+}
+
+function drawCaptureButton() {
+  return drawTopIconButton(getCaptureButton(), false, "photo_camera");
+}
+
+function drawTopIconButton(item, active, icon) {
+  if (typeof uiButton === "function") {
+    const result = uiButton("", {
+      x: item.x,
+      y: item.y,
+      width: item.w,
+      height: item.h,
+      fontSize: 11,
+      padding: 0,
+      rounding: 3,
+      hAlign: "center",
+      vAlign: "middle",
+      bgColor: active ? "#1e1e1e" : "#6e6e6e",
+      textColor: active ? "#f5f5f5" : "#232323",
+      hover: { bgColor: active ? "#343434" : "#909090", cursor: "pointer" },
+      pressed: { bgColor: "#111111", cursor: "pointer" },
+      persist: false,
+    });
+    push();
+    textFont("Material Symbols Rounded");
+    textSize(19);
+    textAlign(CENTER, CENTER);
+    fill(active ? "#f5f5f5" : "#232323");
+    noStroke();
+    text(icon, item.x + item.w / 2, item.y + item.h / 2 + 2);
+    pop();
+    return result.clicked;
+  }
+  return drawSlimButton(icon, item, active, {
+    font: "Material Symbols Rounded",
+    fontSize: 19,
+    padding: 0,
+  });
+}
+
+function drawSlimButton(label, item, active, style = {}) {
+  if (typeof uiButton === "function") {
+    return uiButton(label, {
+      x: item.x,
+      y: item.y,
+      width: item.w,
+      height: item.h,
+      fontSize: 11,
+      padding: 0,
+      rounding: 3,
+      hAlign: "center",
+      vAlign: "middle",
+      bgColor: active ? "#1e1e1e" : "#6e6e6e",
+      textColor: active ? "#f5f5f5" : "#232323",
+      hover: { bgColor: active ? "#343434" : "#909090", cursor: "pointer" },
+      pressed: { bgColor: "#111111", cursor: "pointer" },
+      persist: false,
+      ...style,
+    }).clicked;
+  }
   fill(active ? 30 : 110);
   noStroke();
   rect(item.x, item.y, item.w, item.h, 3);
   fill(active ? 245 : 35);
-  textSize(11);
+  if (style.font) textFont(style.font);
+  textSize(style.fontSize || 11);
   textAlign(CENTER, CENTER);
-  text(active ? "S" : "F", item.x + item.w / 2, item.y + item.h / 2);
-}
-
-function drawCaptureButton() {
-  const item = getCaptureButton();
-  fill(110);
-  noStroke();
-  rect(item.x, item.y, item.w, item.h, 3);
-  fill(35);
-  textSize(11);
-  textAlign(CENTER, CENTER);
-  text("P", item.x + item.w / 2, item.y + item.h / 2);
+  text(label, item.x + item.w / 2, item.y + item.h / 2 + 1);
+  return false;
 }
 
 function drawActivityPathModeToggle(mode, visible) {
-  if (!visible) return;
+  if (!visible) return false;
   const item = getActivityPathModeButton();
-  fill(30);
-  noStroke();
-  rect(item.x, item.y, item.w, item.h, 3);
-  fill(245);
-  textSize(11);
-  textAlign(CENTER, CENTER);
-  text(mode === "range" ? "First in range" : "First ever", item.x + item.w / 2, item.y + item.h / 2);
+  return drawSlimButton(mode === "range" ? "First in range" : "First ever", item, true);
 }
 
 function drawRevenueGroupsMembershipToggle(excludeMembership, visible, overridePosition) {
-  if (!visible) return;
+  if (!visible) return false;
   const item = getRevenueGroupsMembershipButton(overridePosition);
-  fill(excludeMembership ? 30 : 110);
-  noStroke();
-  rect(item.x, item.y, item.w, item.h, 3);
-  fill(excludeMembership ? 245 : 35);
-  textSize(11);
-  textAlign(CENTER, CENTER);
-  text(excludeMembership ? "No members" : "All rev", item.x + item.w / 2, item.y + item.h / 2);
+  return drawSlimButton(excludeMembership ? "No members" : "All rev", item, excludeMembership);
 }
 
 function getTimeBucketButton() {
-  const storage = getStorageButton();
+  const capture = getCaptureButton();
   const w = 58;
-  const h = 26;
-  const gap = 6;
-  return { x: storage.x - gap - w, y: storage.y, w, h };
+  const gap = 16;
+  return { x: capture.x - gap - w, y: capture.y, w, h: HOP_TOP_BUTTON_H };
 }
 
 function getAnonymizeButton() {
-  const w = 58;
-  const h = 26;
-  return { x: width - 32 - w, y: 24, w, h };
+  const w = 30;
+  return { x: width - 32 - w, y: HOP_TOP_BUTTON_Y, w, h: HOP_TOP_BUTTON_H };
 }
 
 function getStorageButton() {
   const clear = getClearDataButtonBounds();
   const w = 26;
-  const h = 26;
   const gap = 6;
-  return { x: clear.x - gap - w, y: clear.y, w, h };
+  return { x: clear.x - gap - w, y: clear.y, w, h: HOP_TOP_BUTTON_H };
 }
 
 function getCaptureButton() {
-  const bucket = getTimeBucketButton();
+  const storage = getStorageButton();
   const w = 26;
-  const h = 26;
   const gap = 6;
-  return { x: bucket.x - gap - w, y: bucket.y, w, h };
+  return { x: storage.x - gap - w, y: storage.y, w, h: HOP_TOP_BUTTON_H };
 }
 
 function getTimelineCurveButton() {
-  const capture = getCaptureButton();
-  const w = 48;
-  const h = 26;
+  const bucket = getTimeBucketButton();
+  const w = 30;
   const gap = 6;
-  return { x: capture.x - gap - w, y: capture.y, w, h };
+  return { x: bucket.x - gap - w, y: bucket.y, w, h: HOP_TOP_BUTTON_H };
 }
 
 function getTimelineStackButton() {
   const curve = getTimelineCurveButton();
-  const w = 48;
-  const h = 26;
+  const w = 30;
   const gap = 6;
-  return { x: curve.x - gap - w, y: curve.y, w, h };
+  return { x: curve.x - gap - w, y: curve.y, w, h: HOP_TOP_BUTTON_H };
 }
 
 function getActivityPathModeButton() {
   const stack = getTimelineStackButton();
   const w = 92;
-  const h = 26;
   const gap = 6;
-  return { x: stack.x - gap - w, y: stack.y, w, h };
+  return { x: stack.x - gap - w, y: stack.y, w, h: HOP_TOP_BUTTON_H };
 }
 
 function getRevenueGroupsMembershipButton(overridePosition) {
-  if (overridePosition) return { x: overridePosition.x, y: overridePosition.y, w: 86, h: 26 };
+  if (overridePosition) return { x: overridePosition.x, y: overridePosition.y, w: 86, h: HOP_TOP_BUTTON_H };
   const capture = getCaptureButton();
   const w = 86;
-  const h = 26;
   const gap = 6;
-  return { x: capture.x - gap - w, y: capture.y, w, h };
+  return { x: capture.x - gap - w, y: capture.y, w, h: HOP_TOP_BUTTON_H };
 }
 
 function timeBucketLabel(bucket) {

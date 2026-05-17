@@ -13,7 +13,6 @@ let buyerPatternWindowIndex = 0;
 let revenueGroupCount = 8;
 let activityPathMode = "ever";
 let anonymizeNames = true;
-let storeDataInBrowser = false;
 let revenueGroupsExcludeMembership = false;
 let timelineSmoothCurves = false;
 let timelineStackedLines = false;
@@ -33,48 +32,66 @@ const LABEL_HOLD_MS = 450;
 const NODE_PIN_HOLD_MS = 650;
 
 const NAV_ITEMS = [
-  { id: "overview", label: "Overview" },
-  { id: "ticketsales", label: "Ticket Sales", shortLabel: "Tickets" },
-  { id: "ticketbuyers", label: "Ticket Buyers", shortLabel: "Buyers" },
-  { id: "revenuegroups", label: "Revenue Groups", shortLabel: "Revenue" },
-  { id: "buyerpattern", label: "Buyer Pattern", shortLabel: "Pattern" },
-  { id: "activitynetwork", label: "Activity Network", shortLabel: "Act Net" },
-  { id: "usernetwork", label: "User Network", shortLabel: "User Net" },
-  { id: "retention", label: "Retention" },
-  { id: "activitypath", label: "Activity Path", shortLabel: "Path" },
-  { id: "gateway", label: "Gateway", shortLabel: "Gate" },
-  { id: "pipeline", label: "Pipeline", shortLabel: "Pipe" },
-  { id: "producthealth", label: "Product Health", shortLabel: "Health" },
-  { id: "segments", label: "Segments", shortLabel: "Seg" },
-  { id: "exitpoints", label: "Exit Points", shortLabel: "Exit" },
-  { id: "memberlength", label: "Member Length", shortLabel: "Length" },
-  { id: "activity", label: "Activity" },
+  { id: "overview", label: "Overview", icon: "dashboard" },
+  { id: "ticketsales", label: "Ticket Sales", shortLabel: "Tickets", icon: "confirmation_number" },
+  { id: "ticketbuyers", label: "Ticket Buyers", shortLabel: "Buyers", icon: "group" },
+  { id: "revenuegroups", label: "Revenue Groups", shortLabel: "Revenue", icon: "paid" },
+  { id: "buyerpattern", label: "Buyer Pattern", shortLabel: "Pattern", icon: "polyline" },
+  { id: "activitynetwork", label: "Activity Network", shortLabel: "Act Net", icon: "hub" },
+  { id: "usernetwork", label: "User Network", shortLabel: "User Net", icon: "share" },
+  { id: "retention", label: "Retention", icon: "calendar_month" },
+  { id: "activitypath", label: "Activity Path", shortLabel: "Path", icon: "route" },
+  { id: "gateway", label: "Gateway", shortLabel: "Gate", icon: "login" },
+  { id: "pipeline", label: "Pipeline", shortLabel: "Pipe", icon: "filter_alt" },
+  { id: "producthealth", label: "Product Health", shortLabel: "Health", icon: "monitor_heart" },
+  { id: "segments", label: "Segments", shortLabel: "Seg", icon: "donut_large" },
+  { id: "exitpoints", label: "Exit Points", shortLabel: "Exit", icon: "logout" },
+  { id: "memberlength", label: "Member Length", shortLabel: "Length", icon: "linear_scale" },
+  { id: "memberdistribution", label: "Member Tenure Distribution", shortLabel: "Tenure", icon: "stacked_bar_chart" },
+  { id: "activity", label: "Activity", icon: "timeline" },
 ];
 
-function setup() {
+async function setup() {
   const canvas = createCanvas(windowWidth, windowHeight);
   pixelDensity(1);
   frameRate(60);
+  if (typeof loadScript === "function") {
+    await loadScript("portal/uiSlim2.js");
+  }
+  if (typeof loadGoogleFont === "function") {
+    try {
+      await loadGoogleFont("Material Symbols Rounded");
+    } catch (error) {
+      console.warn("[hopdashboard] icon font load failed", error);
+    }
+  }
   canvas.drop(handleCsvDrop);
   restoreStoredView();
   restoreStoredTimelineVisibility();
   restoreStoredSliders();
-  restoreStorePreference();
   restoreStoredCsv();
 }
 
 function draw() {
   if (hopModel) {
     chartToggleHits = [];
-    drawHopOverview(hopModel, droppedFileName, currentView, NAV_ITEMS, { anonymizeNames, periodLabel: selectedPeriodLabel() });
+    const hopUi = drawHopOverview(hopModel, droppedFileName, currentView, NAV_ITEMS, { anonymizeNames, periodLabel: selectedPeriodLabel() });
+    if (hopUi?.clearClicked) {
+      clearDashboardData();
+      return;
+    }
+    if (hopUi?.navView) {
+      setCurrentView(hopUi.navView);
+      return;
+    }
     drawGraphPeriodLabel(currentView);
-    drawTimeBucketToggle(timeBucket);
-    drawAnonymizeToggle(anonymizeNames);
-    drawStorageToggle(storeDataInBrowser);
-    drawTimelineCurveToggle(timelineSmoothCurves);
-    drawTimelineStackToggle(timelineStackedLines);
-    drawCaptureButton();
-    drawActivityPathModeToggle(activityPathMode, currentView === "activitypath");
+    if (drawTimeBucketToggle(timeBucket)) cycleTimeBucket();
+    if (drawAnonymizeToggle(anonymizeNames)) toggleAnonymizeNames();
+    if (drawStorageToggle()) saveCurrentCsvToBrowser();
+    if (drawTimelineCurveToggle(timelineSmoothCurves)) toggleTimelineCurves();
+    if (drawTimelineStackToggle(timelineStackedLines)) toggleTimelineStacking();
+    if (drawCaptureButton()) setTimeout(saveGraphSnapshot, 0);
+    if (drawActivityPathModeToggle(activityPathMode, currentView === "activitypath")) toggleActivityPathMode();
     drawPortalRangeControls();
     drawDateRangeSlider();
     drawPendingViewInfoTooltip();
@@ -94,8 +111,6 @@ function handleCsvDrop(file) {
   }
   try {
     loadCsvText(file.data, file.name || "CSV");
-    if (storeDataInBrowser) saveHopCsv(file.data, droppedFileName);
-    else clearHopCsv();
   } catch (error) {
     console.error(error);
     statusMessage = `CSV parse failed: ${error?.message || error}`;
@@ -103,10 +118,6 @@ function handleCsvDrop(file) {
 }
 
 function restoreStoredCsv() {
-  if (!storeDataInBrowser) {
-    clearHopCsv();
-    return;
-  }
   const stored = loadHopCsv();
   if (!stored?.text) return;
   try {
@@ -137,11 +148,11 @@ function loadCsvText(text, fileName) {
 
 function drawPortalRangeControls() {
   if (typeof uiSlider !== "function") return;
-  const controlY = 66;
+  const controlY = 65;
   const dateBounds = getDateRangeSliderBounds();
   const sliderW = min(220, max(150, (dateBounds.x - 46) / 2));
   const style = {
-    height: 24,
+    height: 26,
     fontSize: 11,
     rounding: 2,
     trackColor: "#242424",
@@ -176,7 +187,10 @@ function drawPortalRangeControls() {
       max: 100,
       init: revenueGroupCount,
     }, { ...style, x: groupSliderX, y: controlY, width: sliderW });
-    drawRevenueGroupsMembershipToggle(revenueGroupsExcludeMembership, true, getRevenueGroupsMembershipButtonPosition());
+    if (drawRevenueGroupsMembershipToggle(revenueGroupsExcludeMembership, true, getRevenueGroupsMembershipButtonPosition())) {
+      revenueGroupsExcludeMembership = !revenueGroupsExcludeMembership;
+      saveSliderState();
+    }
     const nextGroupCount = constrain(round(groupSlider.value), 3, 100);
     if (nextGroupCount !== revenueGroupCount) {
       revenueGroupCount = nextGroupCount;
@@ -294,10 +308,6 @@ function restoreStoredSliders() {
   timelineStackedLines = !!storedSliderState.timelineStackedLines;
 }
 
-function restoreStorePreference() {
-  storeDataInBrowser = loadHopStorePreference();
-}
-
 function snapDay(value) {
   return constrain(Math.round(Number(value) / DAY_MS) * DAY_MS, fullStartMs, fullEndMs);
 }
@@ -338,77 +348,6 @@ function mousePressed() {
     return false;
   }
 
-  if (hopModel && isClearDataHit(mouseX, mouseY)) {
-    clearHopCsv();
-    hopModel = null;
-    sourceRows = [];
-    fullTimelineCacheByBucket = new Map();
-    droppedFileName = "";
-    statusMessage = "Drop HOP sales CSV onto the canvas";
-    return false;
-  }
-
-  const bucketHit = getTimeBucketHit(mouseX, mouseY);
-  if (bucketHit) {
-    timeBucket = nextTimeBucket(timeBucket);
-    buyerPatternWindowIndex = 0;
-    saveSliderState();
-    applyDateRange();
-    return false;
-  }
-
-  const anonymizeHit = getAnonymizeHit(mouseX, mouseY);
-  if (anonymizeHit) {
-    anonymizeNames = !anonymizeNames;
-    hopModel?.setAnonymizeNames?.(anonymizeNames);
-    saveSliderState();
-    return false;
-  }
-
-  const storageHit = getStorageHit(mouseX, mouseY);
-  if (storageHit) {
-    storeDataInBrowser = !storeDataInBrowser;
-    saveHopStorePreference(storeDataInBrowser);
-    if (storeDataInBrowser && sourceCsvText) saveHopCsv(sourceCsvText, droppedFileName);
-    if (!storeDataInBrowser) clearHopCsv();
-    return false;
-  }
-
-  const curveHit = getTimelineCurveHit(mouseX, mouseY);
-  if (curveHit) {
-    timelineSmoothCurves = !timelineSmoothCurves;
-    saveSliderState();
-    return false;
-  }
-
-  const stackHit = getTimelineStackHit(mouseX, mouseY);
-  if (stackHit) {
-    timelineStackedLines = !timelineStackedLines;
-    saveSliderState();
-    return false;
-  }
-
-  const captureHit = getCaptureHit(mouseX, mouseY);
-  if (captureHit) {
-    saveGraphSnapshot();
-    return false;
-  }
-
-  const activityPathModeHit = getActivityPathModeHit(mouseX, mouseY);
-  if (activityPathModeHit) {
-    activityPathMode = activityPathMode === "ever" ? "range" : "ever";
-    saveSliderState();
-    applyDateRange();
-    return false;
-  }
-
-  const revenueMembershipHit = getRevenueGroupsMembershipHit(mouseX, mouseY);
-  if (revenueMembershipHit) {
-    revenueGroupsExcludeMembership = !revenueGroupsExcludeMembership;
-    saveSliderState();
-    return false;
-  }
-
   const chartToggle = getChartToggleHit(mouseX, mouseY);
   if (chartToggle) {
     pendingChartToggle = chartToggle;
@@ -416,12 +355,6 @@ function mousePressed() {
     return false;
   }
 
-  const hit = getNavHit(mouseX, mouseY);
-  if (hit) {
-    currentView = hit;
-    saveHopView(currentView);
-    return false;
-  }
   return true;
 }
 
@@ -545,36 +478,6 @@ function restoreStoredTimelineVisibility() {
   for (const key of stored.labels || []) hiddenTimelineLabelTypes.add(key);
 }
 
-function getTimeBucketHit(x, y) {
-  const item = getTimeBucketButton();
-  return x >= item.x && x <= item.x + item.w && y >= item.y && y <= item.y + item.h;
-}
-
-function getAnonymizeHit(x, y) {
-  const item = getAnonymizeButton();
-  return x >= item.x && x <= item.x + item.w && y >= item.y && y <= item.y + item.h;
-}
-
-function getStorageHit(x, y) {
-  const item = getStorageButton();
-  return x >= item.x && x <= item.x + item.w && y >= item.y && y <= item.y + item.h;
-}
-
-function getTimelineCurveHit(x, y) {
-  const item = getTimelineCurveButton();
-  return x >= item.x && x <= item.x + item.w && y >= item.y && y <= item.y + item.h;
-}
-
-function getTimelineStackHit(x, y) {
-  const item = getTimelineStackButton();
-  return x >= item.x && x <= item.x + item.w && y >= item.y && y <= item.y + item.h;
-}
-
-function getCaptureHit(x, y) {
-  const item = getCaptureButton();
-  return x >= item.x && x <= item.x + item.w && y >= item.y && y <= item.y + item.h;
-}
-
 function getDateRangeSliderBounds() {
   const right = width - 32;
   const w = min(460, max(300, width * 0.34));
@@ -635,22 +538,62 @@ function setDateRangeWindow(x) {
   applyDateRange();
 }
 
-function getActivityPathModeHit(x, y) {
-  if (currentView !== "activitypath") return false;
-  const item = getActivityPathModeButton();
-  return x >= item.x && x <= item.x + item.w && y >= item.y && y <= item.y + item.h;
-}
-
-function getRevenueGroupsMembershipHit(x, y) {
-  if (currentView !== "revenuegroups") return false;
-  const item = getRevenueGroupsMembershipButton(getRevenueGroupsMembershipButtonPosition());
-  return x >= item.x && x <= item.x + item.w && y >= item.y && y <= item.y + item.h;
-}
-
 function getRevenueGroupsMembershipButtonPosition() {
   const dateBounds = getDateRangeSliderBounds();
   const sliderW = min(220, max(150, (dateBounds.x - 46) / 2));
   return { x: 32 + sliderW + 10, y: 66 };
+}
+
+function clearDashboardData() {
+  clearHopCsv();
+  hopModel = null;
+  sourceRows = [];
+  fullTimelineCacheByBucket = new Map();
+  droppedFileName = "";
+  statusMessage = "Drop HOP sales CSV onto the canvas";
+}
+
+function cycleTimeBucket() {
+  timeBucket = nextTimeBucket(timeBucket);
+  buyerPatternWindowIndex = 0;
+  saveSliderState();
+  applyDateRange();
+}
+
+function toggleAnonymizeNames() {
+  anonymizeNames = !anonymizeNames;
+  hopModel?.setAnonymizeNames?.(anonymizeNames);
+  saveSliderState();
+}
+
+function saveCurrentCsvToBrowser() {
+  if (!sourceCsvText) {
+    statusMessage = "Drop HOP sales CSV before saving";
+    return;
+  }
+  saveHopCsv(sourceCsvText, droppedFileName || "CSV");
+}
+
+function toggleTimelineCurves() {
+  timelineSmoothCurves = !timelineSmoothCurves;
+  saveSliderState();
+}
+
+function toggleTimelineStacking() {
+  timelineStackedLines = !timelineStackedLines;
+  saveSliderState();
+}
+
+function toggleActivityPathMode() {
+  activityPathMode = activityPathMode === "ever" ? "range" : "ever";
+  saveSliderState();
+  applyDateRange();
+}
+
+function setCurrentView(view) {
+  if (!view || view === currentView) return;
+  currentView = view;
+  saveHopView(currentView);
 }
 
 function saveGraphSnapshot() {
@@ -684,28 +627,10 @@ function nextTimeBucket(bucket) {
   return "week";
 }
 
-function isClearDataHit(x, y) {
-  const box = getClearDataButtonBounds();
-  return x >= box.x && x <= box.x + box.w && y >= box.y && y <= box.y + box.h;
-}
-
 function restoreStoredView() {
   const savedView = loadHopView();
   const storedView = savedView === "memberships" ? "activity" : savedView === "testview" ? "overview" : savedView;
   if (NAV_ITEMS.some((item) => item.id === storedView)) {
     currentView = storedView;
   }
-}
-
-function getNavHit(x, y) {
-  const navY = 24;
-  let navX = 32;
-  textSize(11);
-  for (const item of NAV_ITEMS) {
-    const label = item.shortLabel || item.label;
-    const w = textWidth(label) + 18;
-    if (x >= navX && x <= navX + w && y >= navY && y <= navY + 26) return item.id;
-    navX += w + 6;
-  }
-  return null;
 }
