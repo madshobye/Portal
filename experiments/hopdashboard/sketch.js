@@ -2,6 +2,7 @@ let hopModel = null;
 let sourceRows = [];
 let sourceCsvText = "";
 let droppedFileName = "";
+let csvSavePending = false;
 let statusMessage = "Drop HOP sales CSV onto the canvas";
 let currentView = "overview";
 let fullStartMs = 0;
@@ -34,7 +35,6 @@ const NODE_PIN_HOLD_MS = 650;
 const NAV_ITEMS = [
   { id: "overview", label: "Overview", icon: "dashboard" },
   { id: "ticketsales", label: "Ticket Sales", shortLabel: "Tickets", icon: "confirmation_number" },
-  { id: "ticketbuyers", label: "Ticket Buyers", shortLabel: "Buyers", icon: "group" },
   { id: "revenuegroups", label: "Revenue Groups", shortLabel: "Revenue", icon: "paid" },
   { id: "buyerpattern", label: "Buyer Pattern", shortLabel: "Pattern", icon: "polyline" },
   { id: "activitynetwork", label: "Activity Network", shortLabel: "Act Net", icon: "hub" },
@@ -47,7 +47,7 @@ const NAV_ITEMS = [
   { id: "segments", label: "Segments", shortLabel: "Seg", icon: "donut_large" },
   { id: "exitpoints", label: "Exit Points", shortLabel: "Exit", icon: "logout" },
   { id: "memberlength", label: "Member Length", shortLabel: "Length", icon: "linear_scale" },
-  { id: "memberdistribution", label: "Member Tenure Distribution", shortLabel: "Tenure", icon: "stacked_bar_chart" },
+  { id: "memberdistribution", label: "Member Tenure Distribution", shortLabel: "Tenure", icon: "workspace_premium" },
   { id: "activity", label: "Activity", icon: "timeline" },
 ];
 
@@ -75,9 +75,9 @@ async function setup() {
 function draw() {
   if (hopModel) {
     chartToggleHits = [];
-    const hopUi = drawHopOverview(hopModel, droppedFileName, currentView, NAV_ITEMS, { anonymizeNames, periodLabel: selectedPeriodLabel() });
+    const hopUi = drawHopOverview(hopModel, droppedFileName, currentView, NAV_ITEMS, { anonymizeNames, periodLabel: selectedPeriodLabel(), showSaveButton: csvSavePending });
     if (hopUi?.clearClicked) {
-      clearDashboardData();
+      confirmClearDashboardData();
       return;
     }
     if (hopUi?.navView) {
@@ -85,13 +85,13 @@ function draw() {
       return;
     }
     drawGraphPeriodLabel(currentView);
-    if (drawTimeBucketToggle(timeBucket)) cycleTimeBucket();
+    if (drawTimeBucketToggle(timeBucket, csvSavePending)) cycleTimeBucket();
     if (drawAnonymizeToggle(anonymizeNames)) toggleAnonymizeNames();
-    if (drawStorageToggle()) saveCurrentCsvToBrowser();
-    if (drawTimelineCurveToggle(timelineSmoothCurves)) toggleTimelineCurves();
-    if (drawTimelineStackToggle(timelineStackedLines)) toggleTimelineStacking();
-    if (drawCaptureButton()) setTimeout(saveGraphSnapshot, 0);
-    if (drawActivityPathModeToggle(activityPathMode, currentView === "activitypath")) toggleActivityPathMode();
+    if (csvSavePending && drawStorageToggle()) saveCurrentCsvToBrowser();
+    if (drawTimelineCurveToggle(timelineSmoothCurves, csvSavePending)) toggleTimelineCurves();
+    if (drawTimelineStackToggle(timelineStackedLines, csvSavePending)) toggleTimelineStacking();
+    if (drawCaptureButton(csvSavePending)) setTimeout(saveGraphSnapshot, 0);
+    if (drawActivityPathModeToggle(activityPathMode, currentView === "activitypath", csvSavePending)) toggleActivityPathMode();
     drawPortalRangeControls();
     drawDateRangeSlider();
     drawPendingViewInfoTooltip();
@@ -111,6 +111,7 @@ function handleCsvDrop(file) {
   }
   try {
     loadCsvText(file.data, file.name || "CSV");
+    csvSavePending = true;
   } catch (error) {
     console.error(error);
     statusMessage = `CSV parse failed: ${error?.message || error}`;
@@ -122,6 +123,7 @@ function restoreStoredCsv() {
   if (!stored?.text) return;
   try {
     loadCsvText(stored.text, stored.fileName || "Stored CSV");
+    csvSavePending = false;
   } catch (error) {
     console.error(error);
     clearHopCsv();
@@ -171,7 +173,7 @@ function drawPortalRangeControls() {
       min: 0,
       max: maxWindow,
       init: buyerPatternWindowIndex,
-    }, { ...style, x: max(32, dateBounds.x - sliderW - 14), y: controlY, width: sliderW });
+    }, { ...style, fillColor: "#8a8a8a", x: 32, y: controlY, width: sliderW });
     const nextWindow = constrain(round(windowSlider.value), 0, maxWindow);
     if (nextWindow !== buyerPatternWindowIndex) {
       buyerPatternWindowIndex = nextWindow;
@@ -186,7 +188,7 @@ function drawPortalRangeControls() {
       min: 3,
       max: 100,
       init: revenueGroupCount,
-    }, { ...style, x: groupSliderX, y: controlY, width: sliderW });
+    }, { ...style, fillColor: "#8a8a8a", x: groupSliderX, y: controlY, width: sliderW });
     if (drawRevenueGroupsMembershipToggle(revenueGroupsExcludeMembership, true, getRevenueGroupsMembershipButtonPosition())) {
       revenueGroupsExcludeMembership = !revenueGroupsExcludeMembership;
       saveSliderState();
@@ -548,9 +550,16 @@ function clearDashboardData() {
   clearHopCsv();
   hopModel = null;
   sourceRows = [];
+  sourceCsvText = "";
+  csvSavePending = false;
   fullTimelineCacheByBucket = new Map();
   droppedFileName = "";
   statusMessage = "Drop HOP sales CSV onto the canvas";
+}
+
+function confirmClearDashboardData() {
+  if (!window.confirm("Delete the loaded CSV and clear saved dashboard data?")) return;
+  clearDashboardData();
 }
 
 function cycleTimeBucket() {
@@ -572,6 +581,7 @@ function saveCurrentCsvToBrowser() {
     return;
   }
   saveHopCsv(sourceCsvText, droppedFileName || "CSV");
+  csvSavePending = false;
 }
 
 function toggleTimelineCurves() {

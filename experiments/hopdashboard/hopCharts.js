@@ -8,8 +8,11 @@ let activePeriodLabel = "";
 let pendingViewInfoTooltip = null;
 const HOP_TOP_BUTTON_Y = 12;
 const HOP_TOP_BUTTON_H = 26;
+const HOP_DETAIL_TOP = 52;
 const HOP_CONTENT_TOP = 112;
 const HOP_PANEL_BG = 238;
+const HOP_CARD_BG = 248;
+const HOP_CARD_STROKE = 222;
 
 function displayPersonName(entity) {
   return activeHopModel?.getName ? activeHopModel.getName(entity) : entity?.label || "Unknown customer";
@@ -113,6 +116,7 @@ function drawHopOverview(model, fileName = "", currentView = "overview", navItem
     clearClicked: drawClearDataButton(),
   };
   const contentTop = HOP_CONTENT_TOP;
+  drawTopDetailBackground();
   drawViewPanelBackground(contentTop);
 
   if (currentView === "activity") {
@@ -200,7 +204,7 @@ function drawHopOverview(model, fileName = "", currentView = "overview", navItem
     return uiState;
   }
 
-  const cardY = contentTop;
+  const cardY = contentTop + 14;
   const cardW = (width - pad * 2 - 32) / 3;
   drawStatCard(pad, cardY, cardW, 96, "Revenue", formatDkk(revenue));
   drawStatCard(pad + (cardW + 16), cardY, cardW, 96, "Customers", formatInteger(model.customers.length));
@@ -239,31 +243,54 @@ function drawViewPanelBackground(top = HOP_CONTENT_TOP) {
   rect(0, top, width, height - top);
 }
 
+function drawTopDetailBackground() {
+  fill(44);
+  noStroke();
+  rect(0, HOP_DETAIL_TOP, width, HOP_CONTENT_TOP - HOP_DETAIL_TOP);
+  stroke(68);
+  strokeWeight(1);
+  line(0, HOP_DETAIL_TOP, width, HOP_DETAIL_TOP);
+  stroke(34);
+  line(0, HOP_CONTENT_TOP - 0.5, width, HOP_CONTENT_TOP - 0.5);
+  noStroke();
+}
+
+function drawSoftPanel(x, y, w, h, radius = 4) {
+  fill(HOP_CARD_BG);
+  stroke(HOP_CARD_STROKE);
+  strokeWeight(1);
+  rect(x, y, w, h, radius);
+  noStroke();
+}
+
 function drawActivityView(activity, ticketSales, pad, top) {
   const months = mergeActivityTimeline(activity?.months || [], ticketSales?.weeks || []);
   const membershipSeries = membershipTypeSeries(activity?.membershipTypes || []);
   const moneyScale = "money";
   const countScale = "count";
   const series = [
-    { key: "totalRevenue", label: "Revenue", color: [0, 0, 0], formatter: formatDkk, scale: moneyScale },
-    { key: "yearTotalRevenue", label: "Year accumulated revenue", color: [90, 90, 90], formatter: formatDkk, scale: moneyScale },
-    { key: "revenue", label: "Member revenue", color: [20, 20, 20], formatter: formatDkk, scale: moneyScale },
-    { key: "firstTouchpoints", label: "First touchpoints", color: [30, 170, 190], formatter: formatInteger, scale: countScale },
-    { key: "lastTouchpoints", label: "Last touchpoints", color: [220, 95, 95], formatter: formatInteger, scale: countScale },
-    { key: "singleTicketBuyers", label: "Single ticket", color: [255, 165, 45], formatter: formatInteger, scale: countScale },
-    { key: "newMemberships", label: "New memberships", color: [26, 105, 180], formatter: formatInteger, scale: countScale },
-    { key: "endedMemberships", label: "Ended memberships", color: [210, 55, 55], formatter: formatInteger, scale: countScale },
-    { key: "memberCount", label: "Member count", color: [190, 90, 35], formatter: formatInteger, scale: countScale },
+    { key: "totalRevenue", label: "Revenue", color: [0, 0, 0], formatter: formatDkk, scale: moneyScale, legendOrder: 10 },
+    { key: "yearTotalRevenue", label: "Year accumulated revenue", color: [90, 90, 90], formatter: formatDkk, scale: moneyScale, legendOrder: 11 },
+    { key: "revenue", label: "Member revenue", color: [20, 20, 20], formatter: formatDkk, scale: moneyScale, legendOrder: 12 },
+    { key: "classRevenue", label: "Activity revenue", color: [60, 140, 85], formatter: formatDkk, scale: moneyScale, legendOrder: 13 },
+    { key: "eventRevenue", label: "Event revenue", color: [135, 85, 170], formatter: formatDkk, scale: moneyScale, legendOrder: 14 },
+    { key: "classTickets", label: "Activity tickets", color: [90, 165, 90], formatter: formatInteger, scale: countScale, legendOrder: 30 },
+    { key: "eventTickets", label: "Event tickets", color: [155, 105, 190], formatter: formatInteger, scale: countScale, legendOrder: 31 },
+    { key: "activeTicketUsersWithMembership", label: "Ticket users (w.m)", color: [34, 190, 125], formatter: formatInteger, scale: countScale, legendOrder: 40 },
+    { key: "activeTicketUsersWithoutMembership", label: "Ticket users (wo.m)", color: [68, 145, 255], formatter: formatInteger, scale: countScale, legendOrder: 41 },
+    { key: "singleTicketBuyers", label: "Single ticket", color: [255, 165, 45], formatter: formatInteger, scale: countScale, legendOrder: 42 },
+    { key: "firstTouchpoints", label: "First touchpoints", color: [30, 170, 190], formatter: formatInteger, scale: countScale, legendOrder: 50 },
+    { key: "lastTouchpoints", label: "Last touchpoints", color: [220, 95, 95], formatter: formatInteger, scale: countScale, legendOrder: 51 },
+    { key: "memberCount", label: "Member count", color: [190, 90, 35], formatter: formatInteger, scale: countScale, legendOrder: 60 },
+    { key: "newMemberships", label: "New memberships", color: [26, 105, 180], formatter: formatInteger, scale: countScale, legendOrder: 61 },
+    { key: "endedMemberships", label: "Ended memberships", color: [210, 55, 55], formatter: formatInteger, scale: countScale, legendOrder: 62 },
     ...membershipSeries,
-    { key: "crewCount", label: "Crew count", color: [190, 112, 255], formatter: formatInteger, scale: countScale },
-    { key: "activeTicketUsersWithMembership", label: "Ticket users (w.m)", color: [34, 190, 125], formatter: formatInteger, scale: countScale },
-    { key: "activeTicketUsersWithoutMembership", label: "Ticket users (wo.m)", color: [68, 145, 255], formatter: formatInteger, scale: countScale },
-    { key: "classTickets", label: "Activity tickets", color: [90, 165, 90], formatter: formatInteger, scale: countScale },
-    { key: "eventTickets", label: "Event tickets", color: [155, 105, 190], formatter: formatInteger, scale: countScale },
-    { key: "classRevenue", label: "Activity revenue", color: [60, 140, 85], formatter: formatDkk, scale: moneyScale },
-    { key: "eventRevenue", label: "Event revenue", color: [135, 85, 170], formatter: formatDkk, scale: moneyScale },
+    { key: "crewCount", label: "Crew count", color: [190, 112, 255], formatter: formatInteger, scale: countScale, legendOrder: 80 },
   ];
-  const labels = ticketItemsToTimelineLabels(ticketSales?.items || []);
+  const labels = ticketItemsToTimelineLabels(ticketSales?.items || []).map((label) => ({
+    ...label,
+    legendOrder: label.type === "Event" ? 101 : 100,
+  }));
   drawHopTimelineChart(pad, top, width - pad * 2, height - top - pad, months, visibleActivityTitle(series, labels), series, labels, { ...timelineChartState(), infoKey: "activity", showMissingDataEdges: true });
 }
 
@@ -293,6 +320,7 @@ function membershipTypeSeries(membershipTypes) {
     color: colors[index % colors.length],
     formatter: formatInteger,
     scale: "count",
+    legendOrder: 70 + index,
   }));
 }
 
@@ -1208,6 +1236,7 @@ function drawRevenueGroupLegend(x, y, revenueLabel = "Revenue") {
 }
 
 function drawBuyerPatternView(buyerPatterns, pad, top) {
+  pad = max(pad, 32);
   const summary = buyerPatterns?.summary || {};
   const journeys = buyerPatterns?.journeys || [];
   const windowSize = 200;
@@ -1216,9 +1245,7 @@ function drawBuyerPatternView(buyerPatterns, pad, top) {
   const windowStart = windowIndex * windowSize;
   const visibleJourneys = journeys.slice(windowStart, windowStart + 200);
   const cardW = (width - pad * 2 - 48) / 4;
-  fill(238);
-  noStroke();
-  rect(pad, top, width - pad * 2, 36, 4);
+  drawSoftPanel(pad, top, width - pad * 2, 36, 4);
   drawViewHeader("Buyer Pattern", pad + 18, top + 16, "buyerPattern");
   drawStatCard(pad, top + 38, cardW, 82, "Journeys", formatInteger(summary.total || 0));
   drawStatCard(pad + (cardW + 16), top + 38, cardW, 82, "Ticket only", formatInteger(summary.ticketOnly || 0));
@@ -1233,6 +1260,7 @@ function drawBuyerPatternView(buyerPatterns, pad, top) {
 }
 
 function drawActivityPathView(activityPath, pad, top) {
+  pad = max(pad, 32);
   const allRows = activityPath?.rows || [];
   const allColumns = activityPath?.columns || [];
   fill(238);
@@ -1250,7 +1278,7 @@ function drawActivityPathView(activityPath, pad, top) {
 
   const visibleRows = allRows.slice(0, 24);
   const visibleColumns = activityPathVisibleColumns(allColumns, 24);
-  const labelX = pad + 18;
+  const labelX = pad + 24;
   const rowLabelW = min(230, max(150, width * 0.2));
   const barX = labelX + rowLabelW + 10;
   const barW = 44;
@@ -1269,10 +1297,10 @@ function drawActivityPathView(activityPath, pad, top) {
 
   fill(85);
   textSize(12);
-  textAlign(LEFT, TOP);
+  textAlign(LEFT, CENTER);
   const modeLabel = activityPath.mode === "range" ? "first in selected range" : "first ever";
-  text(`${formatInteger(activityPath.customerCount || 0)} buyers · rows are ${modeLabel} paid activity/event · columns are next paid step`, pad + 18, top + 44);
-  text(`showing ${visibleRows.length}/${allRows.length} first activities and ${visibleColumns.length}/${allColumns.length} next steps`, pad + 18, top + 62);
+  const headerDetail = `${formatInteger(activityPath.customerCount || 0)} buyers · ${modeLabel} · columns are next paid step · showing ${visibleRows.length}/${allRows.length} activities and ${visibleColumns.length}/${allColumns.length} next steps`;
+  text(trimText(headerDetail, 140), pad + 176, top + 26);
 
   fill(80);
   textSize(10);
@@ -1446,9 +1474,7 @@ function gatewayRows(activityPath) {
 function drawMembershipPipelineView(pipeline, pad, top) {
   const stages = pipeline?.stages || [];
   const feeders = pipeline?.feeders || [];
-  fill(238);
-  noStroke();
-  rect(pad, top, width - pad * 2, height - top - pad, 4);
+  drawSoftPanel(pad, top, width - pad * 2, height - top - pad, 4);
   drawViewHeader("Membership Pipeline", pad + 18, top + 16, "pipeline");
 
   if (!stages.length) {
@@ -1892,9 +1918,7 @@ function exitTypeColor(type) {
 
 function drawMembershipLengthView(membershipLength, pad, top) {
   const buckets = membershipLength?.buckets || [];
-  fill(238);
-  noStroke();
-  rect(pad, top, width - pad * 2, height - top - pad, 4);
+  drawSoftPanel(pad, top, width - pad * 2, height - top - pad, 4);
   drawViewHeader("Membership Length", pad + 18, top + 16, "memberLength");
 
   if (!buckets.length) {
@@ -2107,12 +2131,24 @@ function drawRetentionView(retention, pad, top) {
   }
 
   const unit = timeBucketLabel(timeBucket).toLowerCase();
-  const offset1 = retentionSummaryAt(cohorts, 1);
-  const offset3 = retentionSummaryAt(cohorts, 3);
+  const maxOffset = min(retention.maxOffset || 0, 24);
+  const completeCohorts = retentionCompleteCohorts(cohorts, maxOffset);
+  if (!completeCohorts.length) {
+    fill(80);
+    textSize(14);
+    text("No complete retention groups in this slider range.", pad + 18, top + 54);
+    fill(110);
+    textSize(12);
+    text("Move the slider to include full periods before and after each cohort.", pad + 18, top + 78);
+    return;
+  }
+  const offset1 = retentionSummaryAt(completeCohorts, 1);
+  const offset3 = retentionSummaryAt(completeCohorts, 3);
+  const completeCustomerCount = completeCohorts.reduce((total, cohort) => total + cohort.size, 0);
   fill(85);
   textSize(12);
   textAlign(LEFT, TOP);
-  text(`${formatInteger(retention.customerCount || 0)} people · rows are first paid ${unit} · columns are ${unit}s after first purchase`, pad + 18, top + 44);
+  text(`${formatInteger(completeCustomerCount)} people · rows are complete first paid ${unit}s · columns are ${unit}s after first purchase`, pad + 18, top + 44);
   text(`+1 ${unit}: ${formatPercent(offset1)} · +3 ${unit}s: ${formatPercent(offset3)}`, pad + 18, top + 62);
 
   const labelX = pad + 18;
@@ -2121,11 +2157,10 @@ function drawRetentionView(retention, pad, top) {
   const plotY = top + 96;
   const plotW = width - plotX - pad - 18;
   const plotH = height - top - pad - 132;
-  const maxOffset = min(retention.maxOffset || 0, 24);
   const cellW = plotW / max(1, maxOffset + 1);
-  const cellH = min(26, plotH / max(1, cohorts.length));
-  const visibleRows = min(cohorts.length, floor(plotH / max(1, cellH)));
-  const visibleCohorts = cohorts.slice(0, visibleRows);
+  const cellH = min(26, plotH / max(1, completeCohorts.length));
+  const visibleRows = min(completeCohorts.length, floor(plotH / max(1, cellH)));
+  const visibleCohorts = completeCohorts.slice(0, visibleRows);
   const maxCohortSize = max(1, ...visibleCohorts.map((cohort) => cohort.size));
   let hovered = null;
 
@@ -2155,7 +2190,7 @@ function drawRetentionView(retention, pad, top) {
       const cell = cohort.cells[offset] || { rate: 0, retained: 0, revenue: 0 };
       const x = plotX + offset * cellW;
       const rate = offset === 0 && cohort.size ? 1 : cell.rate;
-      fill(cell.possible === false ? 255 : retentionCellColor(rate, cell.outOfScope));
+      fill(cell.possible === false ? 255 : retentionRateColor(rate));
       noStroke();
       rect(x + 1, y + 1, max(1, cellW - 2), max(1, cellH - 2), 1);
       if (cell.possible !== false && cellW > 38 && cellH > 17) {
@@ -2173,7 +2208,7 @@ function drawRetentionView(retention, pad, top) {
   fill(90);
   textSize(11);
   textAlign(RIGHT, TOP);
-  text(`showing ${visibleCohorts.length}/${cohorts.length} groups`, plotX + plotW, top + 62);
+  text(`showing ${visibleCohorts.length}/${completeCohorts.length} complete groups`, plotX + plotW, top + 62);
 
   if (hovered) {
     drawTooltip(mouseX, mouseY, [
@@ -2187,23 +2222,27 @@ function drawRetentionView(retention, pad, top) {
   }
 }
 
+function retentionCompleteCohorts(cohorts, maxOffset) {
+  const rangeStart = typeof selectedStartMs === "number" ? selectedStartMs : 0;
+  const rangeEnd = typeof selectedEndMs === "number" ? selectedEndMs : 0;
+  return (cohorts || []).filter((cohort) => {
+    const cohortStart = startOfHopDayMs(dateFromPeriodKey(cohort.period, timeBucket));
+    const cohortEnd = startOfHopDayMs(periodEndDate(cohort.period, timeBucket));
+    if (rangeStart && cohortStart < rangeStart) return false;
+    if (rangeEnd && cohortEnd > rangeEnd) return false;
+    for (let offset = 0; offset <= maxOffset; offset += 1) {
+      if (cohort.cells[offset]?.possible === false) return false;
+    }
+    return true;
+  });
+}
+
 function retentionRateColor(rate) {
   const clamped = constrain(Number(rate) || 0, 0, 1);
   const curved = constrain((clamped - 0.08) / 0.22, 0, 1);
   const low = [255, 255, 255];
   const high = [35, 155, 95];
   return interpolateRgb(low, high, curved);
-}
-
-function retentionCellColor(rate, outOfScope = false) {
-  const base = retentionRateColor(rate);
-  if (!outOfScope) return base;
-  return [
-    lerp(base[0], 255, 0.58),
-    lerp(base[1], 255, 0.58),
-    lerp(base[2], 255, 0.58),
-    210,
-  ];
 }
 
 function interpolateRgb(a, b, t) {
@@ -2299,10 +2338,41 @@ function drawHopNav(x, y, navItems, currentView) {
   let clickedView = null;
   for (const item of navItems) {
     const w = 30;
-    if (drawTopIconButton({ x: navX, y, w, h: HOP_TOP_BUTTON_H }, item.id === currentView, item.icon || "circle")) clickedView = item.id;
+    if (drawNavIconButton({ x: navX, y, w, h: HOP_TOP_BUTTON_H }, item.id === currentView, item.icon || "circle")) clickedView = item.id;
     navX += w + 6;
   }
   return clickedView;
+}
+
+function drawNavIconButton(item, selected, icon) {
+  if (typeof uiButton === "function") {
+    const result = uiButton("", {
+      x: item.x,
+      y: item.y,
+      width: item.w,
+      height: item.h,
+      fontSize: 11,
+      padding: 0,
+      rounding: 3,
+      hAlign: "center",
+      vAlign: "middle",
+      bgColor: selected ? "#8a8a8a" : "#1e1e1e",
+      textColor: selected ? "#232323" : "#8a8a8a",
+      hover: { bgColor: selected ? "#a0a0a0" : "#343434", cursor: "pointer" },
+      pressed: { bgColor: "#111111", cursor: "pointer" },
+      persist: false,
+    });
+    push();
+    textFont("Material Symbols Rounded");
+    textSize(19);
+    textAlign(CENTER, CENTER);
+    fill(selected ? "#232323" : "#8a8a8a");
+    noStroke();
+    text(icon, item.x + item.w / 2, item.y + item.h / 2 + 2);
+    pop();
+    return result.clicked;
+  }
+  return drawTopIconButton(item, !selected, icon);
 }
 
 function drawClearDataButton() {
@@ -2310,14 +2380,12 @@ function drawClearDataButton() {
 }
 
 function getClearDataButtonBounds() {
-  const anonymize = getAnonymizeButton();
-  const gap = 6;
   const w = 30;
-  return { x: anonymize.x - gap - w, y: HOP_TOP_BUTTON_Y, w, h: HOP_TOP_BUTTON_H };
+  return { x: width - 32 - w, y: HOP_TOP_BUTTON_Y, w, h: HOP_TOP_BUTTON_H };
 }
 
-function drawTimeBucketToggle(activeBucket) {
-  const item = getTimeBucketButton();
+function drawTimeBucketToggle(activeBucket, showSaveButton = false) {
+  const item = getTimeBucketButton(showSaveButton);
   return drawSlimButton(timeBucketLabel(activeBucket).toUpperCase(), item, true);
 }
 
@@ -2329,16 +2397,16 @@ function drawStorageToggle() {
   return drawTopIconButton(getStorageButton(), false, "save");
 }
 
-function drawTimelineCurveToggle(active) {
-  return drawTopIconButton(getTimelineCurveButton(), active, active ? "timeline" : "show_chart");
+function drawTimelineCurveToggle(active, showSaveButton = false) {
+  return drawTopIconButton(getTimelineCurveButton(showSaveButton), !active, active ? "timeline" : "show_chart");
 }
 
-function drawTimelineStackToggle(active) {
-  return drawTopIconButton(getTimelineStackButton(), active, active ? "stacked_line_chart" : "area_chart");
+function drawTimelineStackToggle(active, showSaveButton = false) {
+  return drawTopIconButton(getTimelineStackButton(showSaveButton), !active, active ? "stacked_line_chart" : "area_chart");
 }
 
-function drawCaptureButton() {
-  return drawTopIconButton(getCaptureButton(), false, "photo_camera");
+function drawCaptureButton(showSaveButton = false) {
+  return drawTopIconButton(getCaptureButton(showSaveButton), false, "photo_camera");
 }
 
 function drawTopIconButton(item, active, icon) {
@@ -2407,9 +2475,9 @@ function drawSlimButton(label, item, active, style = {}) {
   return false;
 }
 
-function drawActivityPathModeToggle(mode, visible) {
+function drawActivityPathModeToggle(mode, visible, showSaveButton = false) {
   if (!visible) return false;
-  const item = getActivityPathModeButton();
+  const item = getActivityPathModeButton(showSaveButton);
   return drawSlimButton(mode === "range" ? "First in range" : "First ever", item, true);
 }
 
@@ -2419,48 +2487,50 @@ function drawRevenueGroupsMembershipToggle(excludeMembership, visible, overrideP
   return drawSlimButton(excludeMembership ? "No members" : "All rev", item, excludeMembership);
 }
 
-function getTimeBucketButton() {
-  const capture = getCaptureButton();
+function getTimeBucketButton(showSaveButton = false) {
+  const capture = getCaptureButton(showSaveButton);
   const w = 58;
   const gap = 16;
   return { x: capture.x - gap - w, y: capture.y, w, h: HOP_TOP_BUTTON_H };
 }
 
 function getAnonymizeButton() {
+  const clear = getClearDataButtonBounds();
   const w = 30;
-  return { x: width - 32 - w, y: HOP_TOP_BUTTON_Y, w, h: HOP_TOP_BUTTON_H };
+  const gap = 6;
+  return { x: clear.x - gap - w, y: HOP_TOP_BUTTON_Y, w, h: HOP_TOP_BUTTON_H };
 }
 
 function getStorageButton() {
-  const clear = getClearDataButtonBounds();
+  const anonymize = getAnonymizeButton();
   const w = 26;
   const gap = 6;
-  return { x: clear.x - gap - w, y: clear.y, w, h: HOP_TOP_BUTTON_H };
+  return { x: anonymize.x - gap - w, y: anonymize.y, w, h: HOP_TOP_BUTTON_H };
 }
 
-function getCaptureButton() {
-  const storage = getStorageButton();
+function getCaptureButton(showSaveButton = false) {
+  const storage = showSaveButton ? getStorageButton() : getAnonymizeButton();
   const w = 26;
   const gap = 6;
   return { x: storage.x - gap - w, y: storage.y, w, h: HOP_TOP_BUTTON_H };
 }
 
-function getTimelineCurveButton() {
-  const bucket = getTimeBucketButton();
+function getTimelineCurveButton(showSaveButton = false) {
+  const bucket = getTimeBucketButton(showSaveButton);
   const w = 30;
   const gap = 6;
   return { x: bucket.x - gap - w, y: bucket.y, w, h: HOP_TOP_BUTTON_H };
 }
 
-function getTimelineStackButton() {
-  const curve = getTimelineCurveButton();
+function getTimelineStackButton(showSaveButton = false) {
+  const curve = getTimelineCurveButton(showSaveButton);
   const w = 30;
   const gap = 6;
   return { x: curve.x - gap - w, y: curve.y, w, h: HOP_TOP_BUTTON_H };
 }
 
-function getActivityPathModeButton() {
-  const stack = getTimelineStackButton();
+function getActivityPathModeButton(showSaveButton = false) {
+  const stack = getTimelineStackButton(showSaveButton);
   const w = 92;
   const gap = 6;
   return { x: stack.x - gap - w, y: stack.y, w, h: HOP_TOP_BUTTON_H };
@@ -2483,9 +2553,9 @@ function timeBucketLabel(bucket) {
 }
 
 function drawStatCard(x, y, w, h, label, value) {
-  fill(238);
-  rect(x, y, w, h, 4);
+  drawSoftPanel(x, y, w, h, 4);
   fill(80);
+  noStroke();
   textSize(13);
   textAlign(LEFT, TOP);
   text(label.toUpperCase(), x + 16, y + 16);
@@ -2495,10 +2565,9 @@ function drawStatCard(x, y, w, h, label, value) {
 }
 
 function drawLineChart(x, y, w, h, points, title, key, formatter) {
-  fill(238);
-  noStroke();
-  rect(x, y, w, h, 4);
+  drawSoftPanel(x, y, w, h, 4);
   fill(30);
+  noStroke();
   textSize(18);
   textAlign(LEFT, TOP);
   text(title, x + 18, y + 16);
@@ -2553,9 +2622,7 @@ function drawLineChart(x, y, w, h, points, title, key, formatter) {
 }
 
 function drawCategoryBars(x, y, w, h, categories) {
-  fill(238);
-  noStroke();
-  rect(x, y, w, h, 4);
+  drawSoftPanel(x, y, w, h, 4);
   drawViewHeader("Activity mix", x + 18, y + 16, "activityMix");
 
   const entries = Object.entries(categories).sort((a, b) => b[1] - a[1]).slice(0, 6);

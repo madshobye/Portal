@@ -715,14 +715,16 @@ function timelineFormatValue(value, formatter) {
 function drawTimelineLegend(x, y, w, series, labels, hiddenSeries, hiddenLabels, toggleHits) {
   const labelTypes = [...new Map(labels.map((label) => [label.type, label])).values()];
   const entries = [
-    ...series.map((item) => ({ kind: "series", key: item.key, text: item.label, color: item.color })),
+    ...series.map((item, index) => ({ kind: "series", key: item.key, text: item.label, color: item.color, order: item.legendOrder ?? index })),
     ...labelTypes.map((label) => ({
       kind: "labelType",
       key: label.type,
       text: label.legendLabel || `${label.type}s`,
       color: label.color || (label.type === "Event" ? [135, 85, 170] : [60, 140, 85]),
+      order: label.legendOrder ?? 1000,
     })),
-  ];
+  ].map((entry, index) => ({ ...entry, index }))
+    .sort((a, b) => a.order - b.order || a.index - b.index);
   let cursorX = x;
   let cursorY = y;
   let hoveredSeriesKey = "";
