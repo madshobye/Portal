@@ -56,7 +56,8 @@ function drawHopTimelineChart(x, y, w, h, points, title, series, labels = [], st
   for (const item of visibleSeries) {
     const linePoints = lineTimelinePointsForState(timelinePoints, state);
     const alpha = legend.hoveredSeriesKey && legend.hoveredSeriesKey !== item.key ? 35 : 255;
-    if (isStacked) {
+    const stacks = isStacked && item.stack !== false;
+    if (stacks) {
       noStroke();
       fill(item.color[0], item.color[1], item.color[2], alpha * 0.22);
       drawTimelineStackFill(linePoints, item, plotX, plotW, plotY, plotH, maxByScale[item.scale || item.key] || 1, state, stackByScale);
@@ -64,8 +65,8 @@ function drawHopTimelineChart(x, y, w, h, points, title, series, labels = [], st
     noFill();
     stroke(item.color[0], item.color[1], item.color[2], alpha);
     strokeWeight(legend.hoveredSeriesKey === item.key ? 3.5 : 2.5);
-    drawTimelineSeriesLine(linePoints, item, plotX, plotW, plotY, plotH, maxByScale[item.scale || item.key] || 1, state, isStacked ? stackByScale : null);
-    if (isStacked) addTimelineSeriesToStack(linePoints, item, stackByScale);
+    drawTimelineSeriesLine(linePoints, item, plotX, plotW, plotY, plotH, maxByScale[item.scale || item.key] || 1, state, stacks ? stackByScale : null);
+    if (stacks) addTimelineSeriesToStack(linePoints, item, stackByScale);
   }
   drawingContext.restore();
 
@@ -182,9 +183,12 @@ function stackedTimelineMaxByScale(points, visibleSeries) {
   const maxByScale = {};
   const scaleKeys = [...new Set(visibleSeries.map((item) => item.scale || item.key))];
   for (const scaleKey of scaleKeys) {
-    const scaleSeries = visibleSeries.filter((item) => (item.scale || item.key) === scaleKey);
+    const scaleSeries = visibleSeries.filter((item) => (item.scale || item.key) === scaleKey && item.stack !== false);
+    const overlaySeries = visibleSeries.filter((item) => (item.scale || item.key) === scaleKey && item.stack === false);
     maxByScale[scaleKey] = Math.max(1, ...points.map((point) => {
-      return scaleSeries.reduce((total, item) => total + max(0, point[item.key] || 0), 0);
+      const stackTotal = scaleSeries.reduce((total, item) => total + max(0, point[item.key] || 0), 0);
+      const overlayMax = Math.max(0, ...overlaySeries.map((item) => max(0, point[item.key] || 0)));
+      return Math.max(stackTotal, overlayMax);
     }));
   }
   return maxByScale;

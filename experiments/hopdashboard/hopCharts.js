@@ -282,8 +282,8 @@ function drawActivityView(activity, ticketSales, pad, top) {
     { key: "firstTouchpoints", label: "First touchpoints", color: [30, 170, 190], formatter: formatInteger, scale: countScale, legendOrder: 50 },
     { key: "lastTouchpoints", label: "Last touchpoints", color: [220, 95, 95], formatter: formatInteger, scale: countScale, legendOrder: 51 },
     { key: "memberCount", label: "Member count", color: [190, 90, 35], formatter: formatInteger, scale: countScale, legendOrder: 60 },
-    { key: "newMemberships", label: "New memberships", color: [26, 105, 180], formatter: formatInteger, scale: countScale, legendOrder: 61 },
-    { key: "endedMemberships", label: "Ended memberships", color: [210, 55, 55], formatter: formatInteger, scale: countScale, legendOrder: 62 },
+    { key: "newMemberships", label: "New memberships", color: [26, 105, 180], formatter: formatInteger, scale: countScale, legendOrder: 61, stack: false },
+    { key: "endedMemberships", label: "Ended memberships", color: [210, 55, 55], formatter: formatInteger, scale: countScale, legendOrder: 62, stack: false },
     ...membershipSeries,
     { key: "crewCount", label: "Crew count", color: [190, 112, 255], formatter: formatInteger, scale: countScale, legendOrder: 80 },
   ];
@@ -2132,7 +2132,8 @@ function drawRetentionView(retention, pad, top) {
 
   const unit = timeBucketLabel(timeBucket).toLowerCase();
   const maxOffset = min(retention.maxOffset || 0, 24);
-  const completeCohorts = retentionCompleteCohorts(cohorts, maxOffset);
+  const requiredOffset = min(maxOffset, 3);
+  const completeCohorts = retentionCompleteCohorts(cohorts, requiredOffset);
   if (!completeCohorts.length) {
     fill(80);
     textSize(14);
@@ -2193,9 +2194,9 @@ function drawRetentionView(retention, pad, top) {
       fill(cell.possible === false ? 255 : retentionRateColor(rate));
       noStroke();
       rect(x + 1, y + 1, max(1, cellW - 2), max(1, cellH - 2), 1);
-      if (cell.possible !== false && cellW > 38 && cellH > 17) {
+      if (cell.possible !== false && cellW > 24 && cellH > 13) {
         fill(rate > 0.55 ? 245 : 35);
-        textSize(9);
+        textSize(cellW > 34 && cellH > 16 ? 9 : 7);
         textAlign(CENTER, CENTER);
         text(`${Math.round(rate * 100)}%`, x + cellW * 0.5, y + cellH * 0.5);
       }
@@ -2222,7 +2223,7 @@ function drawRetentionView(retention, pad, top) {
   }
 }
 
-function retentionCompleteCohorts(cohorts, maxOffset) {
+function retentionCompleteCohorts(cohorts, requiredOffset) {
   const rangeStart = typeof selectedStartMs === "number" ? selectedStartMs : 0;
   const rangeEnd = typeof selectedEndMs === "number" ? selectedEndMs : 0;
   return (cohorts || []).filter((cohort) => {
@@ -2230,7 +2231,7 @@ function retentionCompleteCohorts(cohorts, maxOffset) {
     const cohortEnd = startOfHopDayMs(periodEndDate(cohort.period, timeBucket));
     if (rangeStart && cohortStart < rangeStart) return false;
     if (rangeEnd && cohortEnd > rangeEnd) return false;
-    for (let offset = 0; offset <= maxOffset; offset += 1) {
+    for (let offset = 0; offset <= requiredOffset; offset += 1) {
       if (cohort.cells[offset]?.possible === false) return false;
     }
     return true;
