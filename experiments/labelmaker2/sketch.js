@@ -506,28 +506,26 @@ function renderLabelGraphic({ includeCaret = true } = {}) {
   labelGraphic.noStroke();
   labelGraphic.rectMode(CORNER);
 
-  const draftBlock = getLabelTextBlockRect();
-  const draftLayout = fitTextLayout(labelText, draftBlock.width, draftBlock.height);
-  const textBlock = getLabelTextBlockRect(draftLayout);
+  const textBlock = getLabelTextBlockRect();
   const layout = fitTextLayout(labelText, textBlock.width, textBlock.height);
-  const finalTextBlock = getLabelTextBlockRect(layout);
-  drawLabelQrCode(getLabelQrBox(layout));
+  drawLabelQrCode(getLabelQrBox());
   applyEditorFont(labelGraphic);
   labelGraphic.textAlign(LEFT, TOP);
 
-  let y = getLabelTextOriginY(layout, finalTextBlock);
+  const textOriginY = getLabelTextOriginY(layout, textBlock);
+  let y = textOriginY;
   for (const line of layout.lines) {
-    drawStyledLine(line, y, finalTextBlock.x);
+    drawStyledLine(line, y, textBlock.x);
     y += line.lineHeight;
   }
   labelGraphic.noStroke();
   labelGraphic.textStyle(NORMAL);
 
   if (includeCaret && caretVisible) {
-    const caret = getCaretPosition(layout);
+    const caret = getCaretPosition(layout, textBlock, textOriginY);
     labelGraphic.stroke(0);
     labelGraphic.strokeWeight(Math.max(2, caret.fontSize * 0.04));
-    labelGraphic.line(caret.x, caret.y, caret.x, caret.y + caret.fontSize);
+    labelGraphic.line(caret.x, caret.y, caret.x, caret.y + caret.height);
   }
 }
 
@@ -557,117 +555,130 @@ function getLabelContentHeight() {
   return getLabelContentRect().height;
 }
 
-function getLabelQrBox(layout = null) {
-  if (!labelQrCode) return null;
+function getLabelLayout() {
   const content = getLabelContentRect();
+  if (!labelQrCode) {
+    return {
+      content,
+      qrBox: null,
+      textArea: content,
+      textBlock: content,
+    };
+  }
+
   const baseGap = Math.max(8, Math.round(Math.min(labelGraphic.width, labelGraphic.height) * 0.01));
   const stackedGap = Math.max(56, Math.round(Math.min(labelGraphic.width, labelGraphic.height) * 0.055));
   const isSquare = labelFormat === "10x10";
+
   if (isSquare) {
-    const textHeight = content.height * 0.3;
+    const textAreaHeight = content.height * 0.32;
     const size = Math.max(1, Math.min(
-      content.width * 0.72,
+      content.width * 0.78,
       content.height * 0.66,
-      content.height - stackedGap - textHeight
+      content.height - stackedGap - textAreaHeight
     ));
-    const groupHeight = size + stackedGap + textHeight;
+    const groupHeight = size + stackedGap + textAreaHeight;
     const groupY = content.y + Math.max(0, (content.height - groupHeight) * 0.5);
-    return {
+    const qrBox = {
       x: content.x + (content.width - size) * 0.5,
       y: groupY,
       size,
       placement: "top",
       gap: stackedGap,
     };
+    const textArea = {
+      x: content.x,
+      y: qrBox.y + qrBox.size + qrBox.gap,
+      width: content.width,
+      height: Math.max(1, textAreaHeight),
+    };
+    const blockWidth = Math.max(1, Math.min(content.width, Math.max(qrBox.size, content.width * 0.78)));
+    const blockHeight = textArea.height;
+    return {
+      content,
+      qrBox,
+      textArea,
+      textBlock: {
+        x: content.x + (content.width - blockWidth) * 0.5,
+        y: textArea.y,
+        width: blockWidth,
+        height: blockHeight,
+      },
+    };
   }
 
   if (orientation === "landscape") {
     const size = Math.max(1, Math.min(content.height, content.width * 0.38));
-    return {
+    const qrBox = {
       x: content.x + content.width - size,
       y: content.y + (content.height - size) * 0.5,
       size,
       placement: "right",
       gap: baseGap,
     };
+    const textArea = {
+      x: content.x,
+      y: content.y,
+      width: Math.max(1, qrBox.x - qrBox.gap - content.x),
+      height: content.height,
+    };
+    return {
+      content,
+      qrBox,
+      textArea,
+      textBlock: textArea,
+    };
   }
 
-  const size = Math.max(1, Math.min(content.width, content.height * 0.48));
-  const blockHeight = Math.max(1, content.height - size - stackedGap);
-  const groupHeight = size + stackedGap + blockHeight;
+  const textAreaHeight = content.height * 0.38;
+  const size = Math.max(1, Math.min(
+    content.width * 0.78,
+    content.height * 0.48,
+    content.height - stackedGap - textAreaHeight
+  ));
+  const groupHeight = size + stackedGap + textAreaHeight;
   const groupY = content.y + Math.max(0, (content.height - groupHeight) * 0.5);
-  return {
+  const qrBox = {
     x: content.x + (content.width - size) * 0.5,
     y: groupY,
     size,
     placement: "top",
     gap: stackedGap,
   };
-}
-
-function getLabelTextRect(layout = null) {
-  const content = getLabelContentRect();
-  const qrBox = getLabelQrBox(layout);
-  if (!qrBox) return content;
-
-  if (qrBox.placement === "right") {
-    const rightEdge = Math.max(content.x, qrBox.x - qrBox.gap);
-    return {
-      x: content.x,
-      y: content.y,
-      width: Math.max(1, rightEdge - content.x),
-      height: content.height,
-    };
-  }
-
-  const textY = qrBox.y + qrBox.size + qrBox.gap;
-  return {
+  const textArea = {
     x: content.x,
-    y: textY,
+    y: qrBox.y + qrBox.size + qrBox.gap,
     width: content.width,
-    height: Math.max(1, content.y + content.height - textY),
+    height: Math.max(1, textAreaHeight),
   };
-}
-
-function getLabelTextBlockRect(layout = null) {
-  const area = getLabelTextRect(layout);
-  if (!labelQrCode) return area;
-
-  const qrBox = getLabelQrBox(layout);
-  const widthScale = qrBox?.placement === "top" ? 0.96 : 1;
-  const blockWidth = Math.max(1, area.width * widthScale);
-  const blockHeight = area.height;
-  const centeredX = area.x + (area.width - blockWidth) * 0.5;
-  const centeredY = area.y + Math.max(0, (area.height - blockHeight) * 0.5);
-
-  if (qrBox?.placement === "right") {
-    return {
-      x: area.x,
-      y: centeredY,
-      width: blockWidth,
-      height: blockHeight,
-    };
-  }
-
-  if (labelFormat !== "10x10" && orientation === "portrait") {
-    return {
-      x: centeredX,
-      y: area.y,
-      width: blockWidth,
-      height: blockHeight,
-    };
-  }
-
+  const blockWidth = Math.max(1, Math.min(content.width, Math.max(qrBox.size, content.width * 0.82)));
   return {
-    x: centeredX,
-    y: centeredY,
-    width: blockWidth,
-    height: blockHeight,
+    content,
+    qrBox,
+    textArea,
+    textBlock: {
+      x: content.x + (content.width - blockWidth) * 0.5,
+      y: textArea.y,
+      width: blockWidth,
+      height: textArea.height,
+    },
   };
 }
 
-function getLabelTextOriginY(layout, textRect = getLabelTextBlockRect(layout)) {
-  const qrBox = getLabelQrBox(layout);
+function getLabelQrBox() {
+  return getLabelLayout().qrBox;
+}
+
+function getLabelTextRect() {
+  return getLabelLayout().textArea;
+}
+
+function getLabelTextBlockRect() {
+  return getLabelLayout().textBlock;
+}
+
+function getLabelTextOriginY(layout, textRect = getLabelTextBlockRect()) {
+  const qrBox = getLabelQrBox();
   if (qrBox?.placement === "top" && labelFormat !== "10x10" && orientation === "portrait") return textRect.y;
   const blockHeight = Math.min(textRect.height, Math.max(1, layout?.height || 1));
   return textRect.y + Math.max(0, (textRect.height - blockHeight) * 0.5);
@@ -739,7 +750,7 @@ function applyNaturalLineHeights(lines) {
 
 function getCaretPosition(layout) {
   const info = findCursorLocation(layout);
-  const textBlock = getLabelTextBlockRect(layout);
+  const textBlock = getLabelTextBlockRect();
   const previousChar = info.prefix.length > 0 ? info.prefix.slice(-1) : "";
   const nextChar = info.line.text.slice(info.prefix.length, info.prefix.length + 1);
   const previousIsSpace = previousChar === " " || previousChar === "\u00A0";
@@ -752,7 +763,7 @@ function getCaretPosition(layout) {
     info.line.fontSize,
     info.line.text
   ) - caretOffset;
-  let y = textBlock.y;
+  let y = getLabelTextOriginY(layout, textBlock);
   for (let index = 0; index < info.lineIndex; index += 1) {
     y += layout.lines[index].lineHeight;
   }
@@ -820,13 +831,10 @@ function placeCursorFromPreviewPoint(pointerX, pointerY, preview) {
   const localX = ((pointerX - preview.x) / preview.width) * labelGraphic.width;
   const localY = ((pointerY - preview.y) / preview.height) * labelGraphic.height;
   const draftBlock = getLabelTextBlockRect();
-  const draftLayout = fitTextLayout(labelText, draftBlock.width, draftBlock.height);
-  const textBlock = getLabelTextBlockRect(draftLayout);
-  const layout = fitTextLayout(labelText, textBlock.width, textBlock.height);
+  const layout = fitTextLayout(labelText, draftBlock.width, draftBlock.height);
   const lineIndex = findNearestLineIndex(layout, localY);
   const line = layout.lines[lineIndex];
-  const finalTextBlock = getLabelTextBlockRect(layout);
-  const textX = constrain(localX - finalTextBlock.x, 0, finalTextBlock.width);
+  const textX = constrain(localX - draftBlock.x, 0, draftBlock.width);
 
   let bestOffset = 0;
   let bestDistance = Infinity;
@@ -848,7 +856,7 @@ function placeCursorFromPreviewPoint(pointerX, pointerY, preview) {
 }
 
 function findNearestLineIndex(layout, localY) {
-  const textBlock = getLabelTextBlockRect(layout);
+  const textBlock = getLabelTextBlockRect();
   const contentY = localY - textBlock.y;
   let y = 0;
 
@@ -1255,9 +1263,7 @@ function moveCursorHorizontal(delta) {
 
 function moveCursorVertical(direction) {
   const draftBlock = getLabelTextBlockRect();
-  const draftLayout = fitTextLayout(labelText, draftBlock.width, draftBlock.height);
-  const textBlock = getLabelTextBlockRect(draftLayout);
-  const layout = fitTextLayout(labelText, textBlock.width, textBlock.height);
+  const layout = fitTextLayout(labelText, draftBlock.width, draftBlock.height);
   const current = findCursorLocation(layout);
   const targetLineIndex = constrain(current.lineIndex + direction, 0, layout.lines.length - 1);
   if (targetLineIndex === current.lineIndex) return;
