@@ -888,21 +888,9 @@ function drawQrCodeToGraphics(target, qr, x, y, size) {
 function buildManualLayout(textValue, maxWidth, maxHeight) {
   const lines = wrapTextToLines(String(textValue || ""), maxWidth);
   applyNaturalLineHeights(lines);
-  let totalHeight = lines.reduce((sum, line) => sum + line.lineHeight, 0);
-
-  if (totalHeight > maxHeight) {
-    const scale = maxHeight / Math.max(1, totalHeight);
-    for (const line of lines) {
-      const nextFontSize = constrain(Math.floor(line.fontSize * scale), minFontSize, maxFontSize);
-      line.fontSize = nextFontSize;
-    }
-    applyNaturalLineHeights(lines);
-    totalHeight = lines.reduce((sum, line) => sum + line.lineHeight, 0);
-  }
-
   return {
     lines,
-    height: totalHeight,
+    height: lines.reduce((sum, line) => sum + line.lineHeight, 0),
   };
 }
 
