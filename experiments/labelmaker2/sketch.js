@@ -3,6 +3,9 @@ let statusText = "loading";
 let detailText = "Type on the keyboard. Return inserts a new line.";
 let busy = false;
 let labelGraphic;
+let labelPhotoGraphic;
+let cam = null;
+let photoCameraStarting = false;
 let labelText = "";
 let cursorIndex = 0;
 let caretVisible = true;
@@ -32,6 +35,8 @@ let outputModeAuto = true;
 let labelPaddingMode = "minimal";
 let labelQrText = "";
 let labelQrCode = null;
+let photoEnabled = false;
+let photoMergeMode = "below";
 const debugCharacterBounds = false;
 
 const labelFormats = {
@@ -61,6 +66,7 @@ const labelPaddingPresets = {
   },
 };
 const labelPaddingModes = ["minimal", "some", "lot"];
+const photoMergeModes = ["below", "white", "stencil"];
 const minFontSize = 24;
 const maxFontSize = 1280;
 const defaultFontSize = 96;
@@ -160,7 +166,7 @@ function draw() {
   const clearButtonWidth = squareButtonWidth;
   const modeButtonWidth = squareButtonWidth;
   const rightControlsWidth = buttonWidth + toolbarGap + clearButtonWidth;
-  const leftMainButtons = 6;
+  const leftMainButtons = photoEnabled ? 8 : 7;
   const leftMainWidth = leftMainButtons * squareButtonWidth + (leftMainButtons - 1) * toolbarGap;
   const styleButtonWidth = toolbarButtonHeight;
   const styleButtonGap = toolbarGap;
@@ -221,6 +227,8 @@ function draw() {
   const autoButtonX = orientationX + squareButtonWidth + toolbarGap;
   const paddingButtonX = autoButtonX + autoButtonWidth + toolbarGap;
   const qrButtonX = paddingButtonX + squareButtonWidth + toolbarGap;
+  const photoButtonX = qrButtonX + squareButtonWidth + toolbarGap;
+  const photoModeButtonX = photoButtonX + squareButtonWidth + toolbarGap;
 
   const toggleButton = drawIconButton(labelFormat === "10x10" ? "crop_square" : "aspect_ratio", {
     x: formatX,
@@ -281,6 +289,33 @@ function draw() {
   });
   if (!busy && qrButton.clicked) {
     promptForQrCode();
+  }
+
+  const photoButton = drawIconButton(photoEnabled ? "videocam" : "photo_camera", {
+    x: photoButtonX,
+    y: controlsY,
+    width: squareButtonWidth,
+    height: toolbarButtonHeight,
+    active: photoEnabled,
+    disabled: busy || photoCameraStarting,
+  });
+  if (!busy && !photoCameraStarting && photoButton.clicked) {
+    togglePhotoCamera();
+  }
+
+  if (photoEnabled) {
+    const photoModeButton = drawIconButton(getPhotoMergeModeIcon(), {
+      x: photoModeButtonX,
+      y: controlsY,
+      width: squareButtonWidth,
+      height: toolbarButtonHeight,
+      active: true,
+      disabled: busy,
+      iconSize: 22,
+    });
+    if (!busy && photoModeButton.clicked) {
+      cyclePhotoMergeMode();
+    }
   }
 
   if (showStyleControls) {
@@ -534,6 +569,112 @@ function renderLabelGraphic({ includeCaret = true } = {}) {
     labelGraphic.strokeWeight(Math.max(2, caret.fontSize * 0.04));
     labelGraphic.line(caret.x, caret.y, caret.x, caret.y + caret.height);
   }
+
+  if (photoEnabled && isCameraReady()) {
+    composePhotoWithCurrentLabelMask();
+  }
+}
+
+function composePhotoWithCurrentLabelMask() {
+  ensurePhotoGraphic();
+  drawGrayscaleCover(labelPhotoGraphic, cam, 0, 0, labelPhotoGraphic.width, labelPhotoGraphic.height);
+
+  const mask = labelGraphic.drawingContext.getImageData(0, 0, labelGraphic.width, labelGraphic.height);
+  labelPhotoGraphic.loadPixels();
+  labelGraphic.loadPixels();
+
+  for (let index = 0; index < labelGraphic.pixels.length; index += 4) {
+    const ink = mask.data[index] < 245 || mask.data[index + 1] < 245 || mask.data[index + 2] < 245;
+    const photoR = labelPhotoGraphic.pixels[index];
+    const photoG = labelPhotoGraphic.pixels[index + 1];
+    const photoB = labelPhotoGraphic.pixels[index + 2];
+
+    if (photoMergeMode === "stencil") {
+      labelGraphic.pixels[index] = ink ? photoR : 255;
+      labelGraphic.pixels[index + 1] = ink ? photoG : 255;
+      labelGraphic.pixels[index + 2] = ink ? photoB : 255;
+    } else {
+      labelGraphic.pixels[index] = photoR;
+      labelGraphic.pixels[index + 1] = photoG;
+      labelGraphic.pixels[index + 2] = photoB;
+      if (ink) {
+        const value = photoMergeMode === "white" ? 255 : 0;
+        labelGraphic.pixels[index] = value;
+        labelGraphic.pixels[index + 1] = value;
+        labelGraphic.pixels[index + 2] = value;
+      }
+    }
+    labelGraphic.pixels[index + 3] = 255;
+  }
+
+  labelGraphic.updatePixels();
+}
+
+function ensurePhotoGraphic() {
+  if (
+    labelPhotoGraphic &&
+    labelPhotoGraphic.width === labelGraphic.width &&
+    labelPhotoGraphic.height === labelGraphic.height
+  ) {
+    return;
+  }
+  labelPhotoGraphic = createGraphics(labelGraphic.width, labelGraphic.height);
+  labelPhotoGraphic.pixelDensity(1);
+}
+
+function drawGrayscaleCover(target, source, dx, dy, dw, dh) {
+  drawImageCover(target, source, dx, dy, dw, dh);
+  applyPrintGrayscaleConversion(target);
+}
+
+function applyPrintGrayscaleConversion(target) {
+  target.loadPixels();
+  for (let index = 0; index < target.pixels.length; index += 4) {
+    const alpha = target.pixels[index + 3];
+    const luminance = alpha <= 20
+      ? 255
+      : 0.2126 * target.pixels[index] + 0.7152 * target.pixels[index + 1] + 0.0722 * target.pixels[index + 2];
+    target.pixels[index] = luminance;
+    target.pixels[index + 1] = luminance;
+    target.pixels[index + 2] = luminance;
+    target.pixels[index + 3] = 255;
+  }
+  target.updatePixels();
+}
+
+function drawImageCover(target, source, dx, dy, dw, dh) {
+  const sourceSize = getSourceSize(source);
+  if (!sourceSize) return;
+  const { width: sw, height: sh } = sourceSize;
+  if (sw <= 0 || sh <= 0) return;
+
+  const scale = Math.max(dw / sw, dh / sh);
+  const cropW = dw / scale;
+  const cropH = dh / scale;
+  const sx = (sw - cropW) * 0.5;
+  const sy = (sh - cropH) * 0.5;
+
+  target.image(source, dx, dy, dw, dh, sx, sy, cropW, cropH);
+}
+
+function getSourceSize(source) {
+  if (!source) return null;
+  const videoW = Number(source?.elt?.videoWidth);
+  const videoH = Number(source?.elt?.videoHeight);
+  if (videoW > 0 && videoH > 0) {
+    return { width: videoW, height: videoH };
+  }
+
+  const w = Number(source.width);
+  const h = Number(source.height);
+  if (w > 0 && h > 0) {
+    return { width: w, height: h };
+  }
+  return null;
+}
+
+function isCameraReady() {
+  return !!(cam && getSourceSize(cam));
 }
 
 function fitTextLayout(textValue, maxWidth, maxHeight) {
@@ -1774,6 +1915,7 @@ function saveEditorState() {
       outputModeAuto,
       labelPaddingMode,
       labelQrText,
+      photoMergeMode,
     }));
   } catch {}
 }
@@ -1799,6 +1941,7 @@ function loadEditorState() {
     labelPaddingMode = labelPaddingModes.includes(data.labelPaddingMode) ? data.labelPaddingMode : "minimal";
     labelQrText = typeof data.labelQrText === "string" ? data.labelQrText : "";
     labelQrCode = labelQrText ? createQRCode(labelQrText) : null;
+    photoMergeMode = photoMergeModes.includes(data.photoMergeMode) ? data.photoMergeMode : "below";
   } catch {}
 }
 
@@ -1875,6 +2018,63 @@ function promptForQrCode() {
   }
 }
 
+async function togglePhotoCamera() {
+  if (photoEnabled) {
+    stopPhotoCamera();
+    photoEnabled = false;
+    detailText = "Photo mode off.";
+    return;
+  }
+
+  photoCameraStarting = true;
+  detailText = "Starting camera...";
+  try {
+    cam = await setupWebcamera(false, 1280, 720, false, false);
+    photoEnabled = true;
+    detailText = "Photo mode on. Press Print to capture the live view.";
+  } catch (error) {
+    console.error("[labelmaker2] camera failed", error);
+    detailText = error?.message || "Could not start camera.";
+    photoEnabled = false;
+  } finally {
+    photoCameraStarting = false;
+  }
+}
+
+function stopPhotoCamera() {
+  try {
+    const stream = cam?.elt?.srcObject;
+    if (stream && typeof stream.getTracks === "function") {
+      for (const track of stream.getTracks()) {
+        track.stop();
+      }
+    }
+    if (typeof cam?.remove === "function") {
+      cam.remove();
+    }
+  } catch {}
+  cam = null;
+}
+
+function cyclePhotoMergeMode() {
+  const currentIndex = Math.max(0, photoMergeModes.indexOf(photoMergeMode));
+  photoMergeMode = photoMergeModes[(currentIndex + 1) % photoMergeModes.length];
+  detailText = `Photo merge: ${getPhotoMergeModeLabel()}.`;
+  saveEditorState();
+}
+
+function getPhotoMergeModeIcon() {
+  if (photoMergeMode === "white") return "invert_colors";
+  if (photoMergeMode === "stencil") return "texture";
+  return "vertical_align_bottom";
+}
+
+function getPhotoMergeModeLabel() {
+  if (photoMergeMode === "white") return "white";
+  if (photoMergeMode === "stencil") return "mask";
+  return "under";
+}
+
 function rebuildLabelGraphic() {
   const format = getCurrentLabelFormat();
   const widthCm = orientation === "landscape" ? format.heightCm : format.widthCm;
@@ -1883,6 +2083,7 @@ function rebuildLabelGraphic() {
   const labelPixelHeight = Math.round(heightCm * 10 * dotsPerMm);
   labelGraphic = createGraphics(labelPixelWidth, labelPixelHeight);
   labelGraphic.pixelDensity(1);
+  labelPhotoGraphic = null;
   applyEditorFont(labelGraphic);
 }
 
