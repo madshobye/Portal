@@ -229,6 +229,7 @@ class LabelPrinterProtocol {
   static makeEscposRasterBitmap(imageData, {
     widthDots = 384,
     threshold = 190,
+    dither = false,
     initialize = true,
     feedLines = 4,
   } = {}) {
@@ -240,6 +241,9 @@ class LabelPrinterProtocol {
     const scale = targetWidth / imageData.width;
     const targetHeight = Math.max(1, Math.round(imageData.height * scale));
     const luminance = LabelPrinterProtocol.resampleImageDataToLuminance(imageData, targetWidth, targetHeight);
+    if (dither) {
+      LabelPrinterProtocol.applyFloydSteinbergDither(luminance, targetWidth, targetHeight, threshold);
+    }
     const rows = LabelPrinterProtocol.packMonochromeRows(luminance, targetWidth, targetHeight, {
       threshold,
       invert: false,

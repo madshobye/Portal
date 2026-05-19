@@ -9,6 +9,8 @@ let busy = false;
 
 let labelFormat = "10x15";
 let orientation = "landscape";
+let outputMode = "label";
+let outputModeAuto = true;
 
 const storageKey = "portal.photoboothlabel.state";
 
@@ -34,6 +36,7 @@ async function setup() {
     protocol: "tspl",
     chunkSize: 488,
     chunkDelayMs: 0,
+    preferWriteWithResponse: true,
     connectTimeoutMs: 20000,
     gattConnectAttempts: 3,
     gattConnectRetryDelayMs: 900,
@@ -43,8 +46,12 @@ async function setup() {
     reconnectDelayMs: 700,
     onState: (state) => {
       statusText = state.state || statusText;
+      if (state.connected && outputModeAuto) {
+        outputMode = state.suggestedOutputMode || "label";
+        saveState();
+      }
       if (state.connected && !busy) {
-        detailText = "Live grayscale preview. Press Print any time.";
+        detailText = `Live grayscale preview. Press Print for ${outputMode}.`;
       }
       if (!state.connected && !busy) {
         detailText = "Press + to connect printer.";
@@ -102,6 +109,22 @@ function drawControls(preview) {
   const primaryLabel = busy ? "..." : (isConnected ? "Print" : "+");
   const primaryWidth = isConnected ? 104 : 56;
   const controlsY = preview.y + preview.height + 12;
+  const modeButtonWidth = 104;
+
+  const modeButton = uiButton(outputModeAuto ? `Auto ${outputMode}` : outputMode, {
+    x: preview.x,
+    y: controlsY,
+    width: modeButtonWidth,
+    height: 46,
+    fontSize: 15,
+    fillBg: busy ? "#1f1f1f" : "#ffffff",
+    fillBgHover: busy ? "#1f1f1f" : "#f1f1f1",
+    stroke: busy ? "#2c2c2c" : "#ffffff",
+    textFill: busy ? "#5a5a5a" : "#000000",
+  });
+  if (!busy && modeButton.clicked) {
+    toggleOutputMode();
+  }
 
   const primaryButton = uiButton(primaryLabel, {
     x: preview.x + preview.width - primaryWidth,
@@ -119,7 +142,7 @@ function drawControls(preview) {
   }
 
   const formatButton = uiButton(labelFormat, {
-    x: preview.x,
+    x: preview.x + modeButtonWidth + 12,
     y: controlsY,
     width: 84,
     height: 46,
@@ -134,7 +157,7 @@ function drawControls(preview) {
   }
 
   const orientationButton = uiButton(orientation === "portrait" ? "P" : "L", {
-    x: preview.x + 96,
+    x: preview.x + modeButtonWidth + 108,
     y: controlsY,
     width: 56,
     height: 46,
@@ -252,6 +275,13 @@ async function handlePrimaryButton() {
     labelGraphic.loadPixels();
 
     const imageData = getPrintableImageData();
+    if (outputMode === "receipt") {
+      await printReceiptPreview(imageData);
+      statusText = "printed";
+      detailText = "Printed the frozen frame on the receipt printer.";
+      return;
+    }
+
     const format = getCurrentLabelFormat();
     await printer.printTsplBitmap(imageData, {
       labelWidthMm: format.widthCm * 10,
@@ -271,6 +301,21 @@ async function handlePrimaryButton() {
   } finally {
     busy = false;
   }
+}
+
+async function printReceiptPreview(imageData) {
+  await printer.withWriteSettings({
+    chunkSize: 300,
+    chunkDelayMs: 0,
+  }, async () => {
+    await printer.printEscposBitmap(imageData, {
+      widthDots: 384,
+      threshold: 180,
+      dither: true,
+      initialize: true,
+      feedLines: 4,
+    });
+  });
 }
 
 function freezeLatestFrame() {
@@ -327,6 +372,15 @@ function toggleOrientation() {
   saveState();
 }
 
+function toggleOutputMode() {
+  outputModeAuto = false;
+  outputMode = outputMode === "receipt" ? "label" : "receipt";
+  detailText = outputMode === "receipt"
+    ? "Manual receipt mode. Press Print to send ESC/POS raster."
+    : "Manual label mode. Press Print to send TSPL bitmap.";
+  saveState();
+}
+
 function rebuildLabelGraphic() {
   const format = getCurrentLabelFormat();
   const widthCm = orientation === "landscape" ? format.heightCm : format.widthCm;
@@ -347,6 +401,8 @@ function saveState() {
     localStorage.setItem(storageKey, JSON.stringify({
       labelFormat,
       orientation,
+      outputMode,
+      outputModeAuto,
     }));
   } catch {}
 }
@@ -358,6 +414,8 @@ function loadState() {
     const data = JSON.parse(raw);
     labelFormat = labelFormats[data.labelFormat] ? data.labelFormat : "10x15";
     orientation = data.orientation === "portrait" ? "portrait" : "landscape";
+    outputMode = data.outputMode === "receipt" ? "receipt" : "label";
+    outputModeAuto = data.outputModeAuto !== false;
   } catch {}
 }
 

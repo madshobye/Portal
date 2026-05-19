@@ -7,7 +7,7 @@ body {
   touch-action: manipulation;
 }
 
-.carelabel-text-input {
+.labelmaker-text-input {
   position: fixed;
   left: -9999px;
   top: 0;

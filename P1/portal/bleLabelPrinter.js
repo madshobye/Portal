@@ -518,18 +518,67 @@ class BleLabelPrinter {
     await this._writeQueue;
   }
 
+  async withWriteSettings({
+    chunkSize = null,
+    chunkDelayMs = null,
+    preferWriteWithResponse = null,
+  } = {}, callback) {
+    if (typeof callback !== "function") {
+      throw new Error("BleLabelPrinter: withWriteSettings needs a callback");
+    }
+
+    const previousChunkSize = this.chunkSize;
+    const previousChunkDelayMs = this.chunkDelayMs;
+    const previousEffectiveChunkSize = this._effectiveChunkSize;
+    const previousPreferWriteWithResponse = this.preferWriteWithResponse;
+
+    if (chunkSize != null) {
+      const nextChunkSize = Math.max(20, Math.min(512, Math.round(Number(chunkSize) || previousChunkSize)));
+      this.chunkSize = nextChunkSize;
+      this._effectiveChunkSize = nextChunkSize;
+    }
+    if (chunkDelayMs != null) {
+      this.chunkDelayMs = Math.max(0, Number(chunkDelayMs) || 0);
+    }
+    if (preferWriteWithResponse != null) {
+      this.preferWriteWithResponse = !!preferWriteWithResponse;
+    }
+
+    try {
+      return await callback();
+    } finally {
+      this.chunkSize = previousChunkSize;
+      this.chunkDelayMs = previousChunkDelayMs;
+      this._effectiveChunkSize = previousEffectiveChunkSize;
+      this.preferWriteWithResponse = previousPreferWriteWithResponse;
+    }
+  }
+
   getConnectionState() {
+    const deviceName = this.device?.name || "";
+    const serviceUuid = this.service?.uuid || this.serviceUuid || null;
+    const characteristicUuid = this.characteristic?.uuid || this.characteristicUuid || null;
     return {
       ready: this.ready,
       connecting: this.connecting,
       connected: this.connected,
       state: this.state,
       protocol: this.protocol,
-      deviceName: this.device?.name || "",
+      deviceName,
       deviceId: this.device?.id || this._knownDeviceId || null,
-      serviceUuid: this.service?.uuid || this.serviceUuid || null,
-      characteristicUuid: this.characteristic?.uuid || this.characteristicUuid || null,
+      serviceUuid,
+      characteristicUuid,
+      suggestedOutputMode: BleLabelPrinter.inferOutputMode({
+        deviceName,
+        serviceUuid,
+        characteristicUuid,
+        protocol: this.protocol,
+      }),
     };
+  }
+
+  getSuggestedOutputMode() {
+    return this.getConnectionState().suggestedOutputMode;
   }
 
   async _connectDevice(device, source = "unknown") {
@@ -1390,6 +1439,31 @@ class BleLabelPrinter {
     const bytes = new Uint8Array(count);
     bytes.fill(0x0a);
     return bytes;
+  }
+
+  static inferOutputMode({
+    deviceName = "",
+    serviceUuid = "",
+    characteristicUuid = "",
+    protocol = "",
+  } = {}) {
+    const name = String(deviceName || "").toLowerCase();
+    const service = String(serviceUuid || "").toLowerCase();
+    const characteristic = String(characteristicUuid || "").toLowerCase();
+    const protocolKey = String(protocol || "").toLowerCase();
+
+    if (
+      protocolKey === "escpos" ||
+      name.includes("jk") ||
+      name.includes("receipt") ||
+      name.includes("pos") ||
+      service.includes("49535343") ||
+      characteristic.includes("49535343")
+    ) {
+      return "receipt";
+    }
+
+    return "label";
   }
 
   static escapeZplText(text) {

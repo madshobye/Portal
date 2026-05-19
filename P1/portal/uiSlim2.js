@@ -202,8 +202,11 @@ function uiGetGraphicsTarget() {
 
 function uiApplyStyle(style, target = null){
   const g = target || uiGraphicsTarget;
+  const font = style.materialSymbol || style.materialSymbols
+    ? (style.symbolFont || "Material Symbols Rounded")
+    : style.font;
   if (g) {
-    if(style.font) { g.textFont(style.font); } else { g.textFont(baseFont); }
+    if(font) { g.textFont(font); } else { g.textFont(baseFont); }
     if(style.fontSize!==undefined) g.textSize(style.fontSize);
     if(style.textColor) g.fill(style.textColor);
     if(style.stroke && style.stroke.weight>0){
@@ -213,7 +216,7 @@ function uiApplyStyle(style, target = null){
     return;
   }
 
-  if(style.font) {textFont(style.font)} else { textFont(baseFont)};
+  if(font) {textFont(font)} else { textFont(baseFont)};
   if(style.fontSize!==undefined) textSize(style.fontSize);
   if(style.textColor) fill(style.textColor);
   if(style.stroke && style.stroke.weight>0){
@@ -546,6 +549,8 @@ function uiDrawLabel(textStr, box, s){
   if(vy===TOP) ty = box.y + pad;
   else if(vy===CENTER) ty = box.y + box.height/2;
   else ty = box.y + box.height - pad;
+  tx += s.textOffsetX || 0;
+  ty += s.textOffsetY || 0;
   g.text(textStr, tx, ty);
   g.pop();
   return;
@@ -563,6 +568,8 @@ function uiDrawLabel(textStr, box, s){
   if(vy===TOP) ty = box.y + pad;
   else if(vy===CENTER) ty = box.y + box.height/2;
   else ty = box.y + box.height - pad;
+  tx += s.textOffsetX || 0;
+  ty += s.textOffsetY || 0;
  
   text(textStr, tx, ty);
   pop();

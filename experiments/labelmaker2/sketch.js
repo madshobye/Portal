@@ -28,6 +28,7 @@ let editorFontMode = "helvetica";
 let autoSizingEnabled = true;
 let useSoftKeyboardInput = false;
 let outputMode = "label";
+let outputModeAuto = true;
 
 const labelFormats = {
   "10x10": { widthCm: 10, heightCm: 10 },
@@ -37,14 +38,17 @@ const labelDpi = 203;
 const dotsPerMm = labelDpi / 25.4;
 const pagePadding = 72;
 const minFontSize = 24;
-const maxFontSize = 320;
+const maxFontSize = 1280;
 const defaultFontSize = 96;
-const fontSizeScale = [24, 28, 32, 36, 40, 46, 52, 60, 68, 78, 88, 100, 112, 128, 144, 164, 184, 208, 232, 256, 280, 300, 320];
+const fontSizeScale = [24, 28, 32, 36, 40, 46, 52, 60, 68, 78, 88, 100, 112, 128, 144, 164, 184, 208, 232, 256, 280, 300, 320, 360, 400, 448, 512, 576, 640, 720, 800, 896, 1024, 1152, 1280];
 const lineHeightFactor = 1.16;
+const toolbarButtonHeight = 38;
 const fallbackFontFamily = "Helvetica";
 const googleFontFamilies = [
+  "Material Symbols Rounded",
   "Bebas Neue",
   "Oswald",
+  "Rubik Mono One",
   "Space Mono",
   "Special Elite",
   "IBM Plex Sans Condensed",
@@ -55,6 +59,7 @@ const fontOptions = [
   { key: "perfectdos", label: "DOS", kind: "local" },
   { key: "bebas", label: "Bebas", kind: "google", family: "Bebas Neue" },
   { key: "oswald", label: "Oswald", kind: "google", family: "Oswald" },
+  { key: "rubikmonoone", label: "Rubik", kind: "google", family: "Rubik Mono One" },
   { key: "spacemono", label: "Mono", kind: "google", family: "Space Mono" },
   { key: "specialelite", label: "Elite", kind: "google", family: "Special Elite" },
   { key: "ibmplexcondensed", label: "Plex", kind: "google", family: "IBM Plex Sans Condensed" },
@@ -86,12 +91,16 @@ async function setup() {
     reconnectDelayMs: 700,
     onState: (state) => {
       statusText = state.state;
+      if (state.connected && outputModeAuto) {
+        outputMode = state.suggestedOutputMode || "label";
+        saveEditorState();
+      }
       detailText = state.connected
-        ? "Connected. Press Print to send the preview."
+        ? `Connected. Press Print for ${outputMode}.`
         : "Type on the keyboard. Return inserts a new line.";
     },
     onError: (error) => {
-      console.error("[tspl-text-label] printer error", error);
+      console.error("[labelmaker2] printer error", error);
       statusText = "error";
       detailText = error?.message || String(error);
     },
@@ -115,131 +124,233 @@ function draw() {
   const connectionState = printer?.getConnectionState?.() || {};
   const isConnected = !!connectionState.connected;
   const buttonLabel = busy
-    ? "..."
-    : (isConnected ? "Print" : "+");
-  const buttonWidth = isConnected ? 92 : 56;
-  const clearButtonWidth = 72;
+    ? "progress_activity"
+    : (isConnected ? "print" : "bluetooth");
   const controlsY = preview.y + preview.height + 16;
-  const modeButtonWidth = 104;
-  const modeButton = uiButton(outputMode === "receipt" ? "Receipt" : "Label", {
+  const squareButtonWidth = toolbarButtonHeight;
+  const buttonWidth = isConnected ? 92 : squareButtonWidth;
+  const clearButtonWidth = squareButtonWidth;
+  const modeButtonWidth = squareButtonWidth;
+  const modeButton = drawIconButton(outputMode === "receipt" ? "receipt_long" : "label", {
     x: preview.x,
     y: controlsY,
     width: modeButtonWidth,
-    height: 46,
-    fontSize: 15,
-    fillBg: busy ? "#1f1f1f" : "#ffffff",
-    fillBgHover: busy ? "#1f1f1f" : "#f1f1f1",
-    stroke: busy ? "#2c2c2c" : "#ffffff",
-    textFill: busy ? "#5a5a5a" : "#000000",
+    height: toolbarButtonHeight,
+    active: !outputModeAuto,
+    disabled: busy,
+    marker: outputModeAuto ? "autorenew" : "",
   });
   if (!busy && modeButton.clicked) {
     toggleOutputMode();
   }
 
-  const button = uiButton(buttonLabel, {
+  const button = drawIconButton(buttonLabel, {
     x: preview.x + preview.width - buttonWidth,
     y: controlsY,
     width: buttonWidth,
-    height: 46,
-    fontSize: buttonLabel === "+" ? 28 : 18,
-    fillBg: busy ? "#3a3a3a" : "#ff9f1a",
-    fillBgHover: busy ? "#3a3a3a" : "#ffb347",
-    stroke: busy ? "#4a4a4a" : "#ff9f1a",
-    textFill: busy ? "#9a9a9a" : "#000000",
+    height: toolbarButtonHeight,
+    primary: true,
+    disabled: busy,
+    spin: busy,
   });
   if (!busy && button.clicked) {
     handlePrimaryButton();
   }
 
-  const clearButton = uiButton("Clear", {
+  const clearButton = drawIconButton("delete", {
     x: preview.x + preview.width - buttonWidth - 12 - clearButtonWidth,
     y: controlsY,
     width: clearButtonWidth,
-    height: 46,
-    fontSize: 16,
-    fillBg: busy ? "#1f1f1f" : "#ffffff",
-    fillBgHover: busy ? "#1f1f1f" : "#f1f1f1",
-    stroke: busy ? "#2c2c2c" : "#ffffff",
-    textFill: busy ? "#5a5a5a" : "#000000",
+    height: toolbarButtonHeight,
+    disabled: busy,
   });
   if (!busy && clearButton.clicked) {
     clearEditor();
   }
 
-  if (!isConnected) {
-    const autoButtonWidth = 96;
-    const formatX = preview.x + modeButtonWidth + 12;
-    const orientationX = formatX + 96;
-    const autoButtonX = orientationX + 56 + 12;
-    const leftControlsEndX = autoButtonX + autoButtonWidth + 12;
-    const rightControlsStartX = preview.x + preview.width - buttonWidth - 12 - clearButtonWidth - 12;
-    const fontButtonX = leftControlsEndX;
-    const fontButtonWidth = Math.max(64, rightControlsStartX - fontButtonX);
+  const autoButtonWidth = squareButtonWidth;
+  const formatX = preview.x + modeButtonWidth + 12;
+  const orientationX = formatX + squareButtonWidth + 12;
+  const autoButtonX = orientationX + squareButtonWidth + 12;
+  const leftControlsEndX = autoButtonX + autoButtonWidth + 12;
+  const rightControlsStartX = preview.x + preview.width - buttonWidth - 12 - clearButtonWidth - 12;
+  const styleButtonGap = 6;
+  const availableStyleFontWidth = Math.max(0, rightControlsStartX - leftControlsEndX);
+  const styleButtonWidth = toolbarButtonHeight;
+  const styleControlsWidth = styleButtonWidth * 6 + styleButtonGap * 5;
+  const fontButtonX = leftControlsEndX + styleControlsWidth + 12;
+  const fontButtonWidth = Math.min(92, Math.max(squareButtonWidth, rightControlsStartX - fontButtonX));
 
-    const toggleButton = uiButton(labelFormat, {
-      x: formatX,
-      y: controlsY,
-      width: 84,
-      height: 46,
-      fontSize: 16,
-      fillBg: busy ? "#1f1f1f" : "#ffffff",
-      fillBgHover: busy ? "#1f1f1f" : "#f1f1f1",
-      stroke: busy ? "#2c2c2c" : "#ffffff",
-      textFill: busy ? "#5a5a5a" : "#000000",
-    });
-    if (!busy && toggleButton.clicked) {
-      toggleLabelFormat();
-    }
+  const toggleButton = drawIconButton(labelFormat === "10x10" ? "crop_square" : "aspect_ratio", {
+    x: formatX,
+    y: controlsY,
+    width: squareButtonWidth,
+    height: toolbarButtonHeight,
+    disabled: busy,
+  });
+  if (!busy && toggleButton.clicked) {
+    toggleLabelFormat();
+  }
 
-    const orientationButton = uiButton(orientation === "portrait" ? "P" : "L", {
-      x: orientationX,
-      y: controlsY,
-      width: 56,
-      height: 46,
-      fontSize: 16,
-      fillBg: busy ? "#1f1f1f" : "#ffffff",
-      fillBgHover: busy ? "#1f1f1f" : "#f1f1f1",
-      stroke: busy ? "#2c2c2c" : "#ffffff",
-      textFill: busy ? "#5a5a5a" : "#000000",
-    });
-    if (!busy && orientationButton.clicked) {
-      toggleOrientation();
-    }
+  const orientationButton = drawIconButton(orientation === "portrait" ? "stay_current_portrait" : "stay_current_landscape", {
+    x: orientationX,
+    y: controlsY,
+    width: squareButtonWidth,
+    height: toolbarButtonHeight,
+    disabled: busy,
+  });
+  if (!busy && orientationButton.clicked) {
+    toggleOrientation();
+  }
 
-    const autoButton = uiButton(autoSizingEnabled ? "Auto On" : "Auto Off", {
-      x: autoButtonX,
-      y: controlsY,
-      width: autoButtonWidth,
-      height: 46,
-      fontSize: 15,
-      fillBg: busy ? "#1f1f1f" : "#ffffff",
-      fillBgHover: busy ? "#1f1f1f" : "#f1f1f1",
-      stroke: busy ? "#2c2c2c" : "#ffffff",
-      textFill: busy ? "#5a5a5a" : "#000000",
-    });
-    if (!busy && autoButton.clicked) {
-      autoSizingEnabled = !autoSizingEnabled;
-      detailText = autoSizingEnabled ? "Auto sizing on." : "Auto sizing off.";
-      saveEditorState();
-    }
+  const autoButton = drawIconButton(autoSizingEnabled ? "autorenew" : "sync_disabled", {
+    x: autoButtonX,
+    y: controlsY,
+    width: autoButtonWidth,
+    height: toolbarButtonHeight,
+    active: autoSizingEnabled,
+    disabled: busy,
+  });
+  if (!busy && autoButton.clicked) {
+    autoSizingEnabled = !autoSizingEnabled;
+    detailText = autoSizingEnabled ? "Auto sizing on." : "Auto sizing off.";
+    saveEditorState();
+  }
 
-    const fontButton = uiButton(getEditorFontLabel(), {
-      x: fontButtonX,
-      y: controlsY,
-      width: fontButtonWidth,
-      height: 46,
-      fontSize: 15,
-      fillBg: busy ? "#1f1f1f" : "#ffffff",
-      fillBgHover: busy ? "#1f1f1f" : "#f1f1f1",
-      stroke: busy ? "#2c2c2c" : "#ffffff",
-      textFill: busy ? "#5a5a5a" : "#000000",
-    });
-    if (!busy && fontButton.clicked) {
-      toggleEditorFont();
-    }
+  drawTextStyleControls(leftControlsEndX, controlsY, busy, {
+    buttonWidth: styleButtonWidth,
+    buttonHeight: toolbarButtonHeight,
+    gap: styleButtonGap,
+  });
+
+  const fontButton = uiButton(getEditorFontLabel(), {
+    x: fontButtonX,
+    y: controlsY,
+    width: fontButtonWidth,
+    height: toolbarButtonHeight,
+    fontSize: 15,
+    hAlign: "left",
+    vAlign: "middle",
+    padding: 12,
+    bgColor: busy ? "#1f1f1f" : "#ffffff",
+    hover: { bgColor: busy ? "#1f1f1f" : "#f1f1f1", cursor: busy ? "default" : "pointer" },
+    pressed: { bgColor: busy ? "#1f1f1f" : "#d0d0d0", cursor: busy ? "default" : "pointer" },
+    stroke: { weight: 0 },
+    textColor: busy ? "#5a5a5a" : "#000000",
+  });
+  if (!busy && fontButton.clicked) {
+    toggleEditorFont();
   }
 
   drawPreviewCard(preview);
+}
+
+function drawTextStyleControls(x, y, disabled = false, options = {}) {
+  const buttonWidth = options.buttonWidth || 38;
+  const buttonHeight = options.buttonHeight || 46;
+  const gap = options.gap || 8;
+  const buttons = [
+    { icon: "format_bold", active: isTextStyleControlActive("bold"), action: () => toggleCurrentLineStyle("bold") },
+    { icon: "format_italic", active: isTextStyleControlActive("italic"), action: () => toggleCurrentLineStyle("italic") },
+    { icon: "format_underlined", active: isTextStyleControlActive("underline"), action: () => toggleCurrentLineStyle("underline") },
+    { icon: "text_decrease", action: () => adjustCurrentLineFontSize(-1) },
+    { icon: "restart_alt", action: () => resetCurrentLineFontSize() },
+    { icon: "text_increase", action: () => adjustCurrentLineFontSize(+1) },
+  ];
+
+  for (let index = 0; index < buttons.length; index += 1) {
+    const item = buttons[index];
+    const result = drawIconButton(item.icon, {
+      x: x + index * (buttonWidth + gap),
+      y,
+      width: buttonWidth,
+      height: buttonHeight,
+      active: !!item.active,
+      disabled,
+      iconSize: 22,
+    });
+    if (!disabled && result.clicked) {
+      item.action();
+    }
+  }
+}
+
+function isTextStyleControlActive(styleKey) {
+  const target = getStyleToggleTarget();
+  if (!target) return false;
+  if (target.mode === "pending") return !!pendingTextStyle[styleKey];
+  return isRangeFullyStyled(styleKey, target.start, target.end);
+}
+
+function drawIconButton(icon, options = {}) {
+  const disabled = !!options.disabled;
+  const primary = !!options.primary;
+  const active = !!options.active;
+  const bg = disabled
+    ? (primary ? "#3a3a3a" : "#1f1f1f")
+    : primary
+      ? "#ff9f1a"
+      : active
+        ? "#1e1e1e"
+        : "#ffffff";
+  const hoverBg = disabled
+    ? bg
+    : primary
+      ? "#ffb347"
+      : active
+        ? "#343434"
+        : "#f1f1f1";
+  const textColor = disabled
+    ? (primary ? "#9a9a9a" : "#5a5a5a")
+    : primary || !active
+      ? "#000000"
+      : "#ffffff";
+  const result = uiButton(icon, {
+    x: options.x,
+    y: options.y,
+    width: options.width,
+    height: options.height,
+    padding: 0,
+    rounding: 6,
+    hAlign: "center",
+    vAlign: "middle",
+    bgColor: bg,
+    textColor,
+    materialSymbol: true,
+    fontSize: options.iconSize || 25,
+    textOffsetY: options.textOffsetY ?? 4,
+    stroke: { weight: 0 },
+    hover: { bgColor: hoverBg, cursor: disabled ? "default" : "pointer" },
+    pressed: { bgColor: disabled ? bg : (primary ? "#e88800" : "#d0d0d0"), cursor: disabled ? "default" : "pointer" },
+    persist: false,
+  });
+
+  push();
+  textAlign(CENTER, CENTER);
+  noStroke();
+  textStyle(NORMAL);
+
+  if (options.marker) {
+    textFont("Material Symbols Rounded");
+    textSize(12);
+    fill(primary ? "#000000" : (active ? "#ffffff" : "#000000"));
+    text(options.marker, options.x + options.width - 12, options.y + 13);
+  }
+
+  if (options.markerText) {
+    textFont(fallbackFontFamily);
+    textSize(10);
+    fill(textColor);
+    text(options.markerText, options.x + options.width / 2, options.y + options.height - 8);
+  }
+  pop();
+
+  if (disabled) {
+    result.clicked = false;
+    result.pressedDown = false;
+    result.pressedUp = false;
+  }
+  return result;
 }
 
 async function handlePrimaryButton() {
@@ -276,7 +387,7 @@ async function handlePrimaryButton() {
     statusText = "printed";
     detailText = "Printed the current label preview.";
   } catch (error) {
-    console.error("[tspl-text-label] action failed", error);
+    console.error("[labelmaker2] action failed", error);
     statusText = "action failed";
     detailText = error?.message || String(error);
   } finally {
@@ -291,7 +402,7 @@ function getPrintableImageData() {
 }
 
 async function printReceiptPreview(imageData) {
-  await withTemporaryPrinterWriteSettings({
+  await printer.withWriteSettings({
     chunkSize: 300,
     chunkDelayMs: 0,
   }, async () => {
@@ -302,39 +413,6 @@ async function printReceiptPreview(imageData) {
       feedLines: 4,
     });
   });
-}
-
-async function withTemporaryPrinterWriteSettings({
-  chunkSize = null,
-  chunkDelayMs = null,
-} = {}, callback) {
-  const previousChunkSize = printer?.chunkSize;
-  const previousChunkDelayMs = printer?.chunkDelayMs;
-  const previousEffectiveChunkSize = printer?._effectiveChunkSize;
-  if (typeof previousChunkSize === "number" && chunkSize != null) {
-    const nextChunkSize = Math.max(20, Math.min(512, Math.round(Number(chunkSize) || previousChunkSize)));
-    printer.chunkSize = nextChunkSize;
-    if (typeof printer._effectiveChunkSize === "number") {
-      printer._effectiveChunkSize = nextChunkSize;
-    }
-  }
-  if (typeof previousChunkDelayMs === "number" && chunkDelayMs != null) {
-    printer.chunkDelayMs = Math.max(0, Number(chunkDelayMs) || 0);
-  }
-
-  try {
-    return await callback();
-  } finally {
-    if (typeof previousChunkSize === "number") {
-      printer.chunkSize = previousChunkSize;
-    }
-    if (typeof previousChunkDelayMs === "number") {
-      printer.chunkDelayMs = previousChunkDelayMs;
-    }
-    if (typeof previousEffectiveChunkSize === "number") {
-      printer._effectiveChunkSize = previousEffectiveChunkSize;
-    }
-  }
 }
 
 function rotateImageDataClockwise(imageData) {
@@ -458,14 +536,18 @@ function drawPreviewCard(preview = getPreviewRect()) {
 }
 
 function getPreviewRect() {
+  const topMargin = 28;
+  const controlsGap = 16;
+  const controlsHeight = toolbarButtonHeight;
+  const bottomMargin = 18;
   const availableWidth = width - 120;
-  const availableHeight = height - 180;
+  const availableHeight = height - topMargin - controlsGap - controlsHeight - bottomMargin;
   const scale = Math.min(availableWidth / labelGraphic.width, availableHeight / labelGraphic.height);
   const previewWidth = labelGraphic.width * scale;
   const previewHeight = labelGraphic.height * scale;
   return {
     x: (width - previewWidth) * 0.5,
-    y: 100,
+    y: topMargin,
     width: previewWidth,
     height: previewHeight,
   };
@@ -571,7 +653,7 @@ function keyPressed() {
 
 function installTextInputBridge() {
   textInputEl = document.createElement("textarea");
-  textInputEl.className = "carelabel-text-input";
+  textInputEl.className = "labelmaker-text-input";
   textInputEl.setAttribute("autocapitalize", "off");
   textInputEl.setAttribute("autocomplete", "off");
   textInputEl.setAttribute("autocorrect", "off");
@@ -1194,6 +1276,7 @@ function saveEditorState() {
       editorFontMode,
       autoSizingEnabled,
       outputMode,
+      outputModeAuto,
     }));
   } catch {}
 }
@@ -1215,11 +1298,12 @@ function loadEditorState() {
       : "helvetica";
     autoSizingEnabled = data.autoSizingEnabled !== false;
     outputMode = data.outputMode === "receipt" ? "receipt" : "label";
+    outputModeAuto = data.outputModeAuto !== false;
   } catch {}
 }
 
 function clearEditor() {
-  labelText = "Care is...";
+  labelText = "";
   cursorIndex = labelText.length;
   lineFontSizes = {};
   textStyleRanges = {
@@ -1233,7 +1317,7 @@ function clearEditor() {
     underline: false,
   };
   autoSizingEnabled = true;
-  detailText = "Reset label text.";
+  detailText = "Cleared label text.";
   saveEditorState();
 }
 
@@ -1250,10 +1334,11 @@ function toggleOrientation() {
 }
 
 function toggleOutputMode() {
+  outputModeAuto = false;
   outputMode = outputMode === "receipt" ? "label" : "receipt";
   detailText = outputMode === "receipt"
-    ? "Receipt printer mode. Press Print to send ESC/POS raster."
-    : "Label printer mode. Press Print to send TSPL bitmap.";
+    ? "Manual receipt mode. Press Print to send ESC/POS raster."
+    : "Manual label mode. Press Print to send TSPL bitmap.";
   saveEditorState();
 }
 
