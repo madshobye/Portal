@@ -37,6 +37,7 @@ let labelQrText = "";
 let labelQrCode = null;
 let photoEnabled = false;
 let photoMergeMode = "below";
+let labelInverted = false;
 const debugCharacterBounds = false;
 
 const labelFormats = {
@@ -66,7 +67,7 @@ const labelPaddingPresets = {
   },
 };
 const labelPaddingModes = ["minimal", "some", "lot"];
-const photoMergeModes = ["below", "white", "stencil"];
+const photoMergeModes = ["below", "white", "stencil", "black"];
 const minFontSize = 24;
 const maxFontSize = 1280;
 const defaultFontSize = 96;
@@ -166,7 +167,7 @@ function draw() {
   const clearButtonWidth = squareButtonWidth;
   const modeButtonWidth = squareButtonWidth;
   const rightControlsWidth = buttonWidth + toolbarGap + clearButtonWidth;
-  const leftMainButtons = photoEnabled ? 8 : 7;
+  const leftMainButtons = 8;
   const leftMainWidth = leftMainButtons * squareButtonWidth + (leftMainButtons - 1) * toolbarGap;
   const styleButtonWidth = toolbarButtonHeight;
   const styleButtonGap = toolbarGap;
@@ -228,7 +229,7 @@ function draw() {
   const paddingButtonX = autoButtonX + autoButtonWidth + toolbarGap;
   const qrButtonX = paddingButtonX + squareButtonWidth + toolbarGap;
   const photoButtonX = qrButtonX + squareButtonWidth + toolbarGap;
-  const photoModeButtonX = photoButtonX + squareButtonWidth + toolbarGap;
+  const blendButtonX = photoButtonX + squareButtonWidth + toolbarGap;
 
   const toggleButton = drawIconButton(labelFormat === "10x10" ? "crop_square" : "aspect_ratio", {
     x: formatX,
@@ -303,19 +304,17 @@ function draw() {
     togglePhotoCamera();
   }
 
-  if (photoEnabled) {
-    const photoModeButton = drawIconButton(getPhotoMergeModeIcon(), {
-      x: photoModeButtonX,
-      y: controlsY,
-      width: squareButtonWidth,
-      height: toolbarButtonHeight,
-      active: true,
-      disabled: busy,
-      iconSize: 22,
-    });
-    if (!busy && photoModeButton.clicked) {
-      cyclePhotoMergeMode();
-    }
+  const blendButton = drawIconButton(getBlendModeIcon(), {
+    x: blendButtonX,
+    y: controlsY,
+    width: squareButtonWidth,
+    height: toolbarButtonHeight,
+    active: photoEnabled || labelInverted,
+    disabled: busy,
+    iconSize: 22,
+  });
+  if (!busy && blendButton.clicked) {
+    toggleBlendMode();
   }
 
   if (showStyleControls) {
@@ -512,6 +511,7 @@ async function printReceiptPreview(imageData) {
     await printer.printEscposBitmap(imageData, {
       widthDots: 384,
       threshold: 190,
+      dither: true,
       initialize: true,
       feedLines: 4,
     });
@@ -572,6 +572,8 @@ function renderLabelGraphic({ includeCaret = true } = {}) {
 
   if (photoEnabled && isCameraReady()) {
     composePhotoWithCurrentLabelMask();
+  } else if (labelInverted) {
+    invertLabelGraphic();
   }
 }
 
@@ -589,10 +591,11 @@ function composePhotoWithCurrentLabelMask() {
     const photoG = labelPhotoGraphic.pixels[index + 1];
     const photoB = labelPhotoGraphic.pixels[index + 2];
 
-    if (photoMergeMode === "stencil") {
-      labelGraphic.pixels[index] = ink ? photoR : 255;
-      labelGraphic.pixels[index + 1] = ink ? photoG : 255;
-      labelGraphic.pixels[index + 2] = ink ? photoB : 255;
+    if (photoMergeMode === "stencil" || photoMergeMode === "black") {
+      const backgroundValue = photoMergeMode === "black" ? 0 : 255;
+      labelGraphic.pixels[index] = ink ? photoR : backgroundValue;
+      labelGraphic.pixels[index + 1] = ink ? photoG : backgroundValue;
+      labelGraphic.pixels[index + 2] = ink ? photoB : backgroundValue;
     } else {
       labelGraphic.pixels[index] = photoR;
       labelGraphic.pixels[index + 1] = photoG;
@@ -607,6 +610,17 @@ function composePhotoWithCurrentLabelMask() {
     labelGraphic.pixels[index + 3] = 255;
   }
 
+  labelGraphic.updatePixels();
+}
+
+function invertLabelGraphic() {
+  labelGraphic.loadPixels();
+  for (let index = 0; index < labelGraphic.pixels.length; index += 4) {
+    labelGraphic.pixels[index] = 255 - labelGraphic.pixels[index];
+    labelGraphic.pixels[index + 1] = 255 - labelGraphic.pixels[index + 1];
+    labelGraphic.pixels[index + 2] = 255 - labelGraphic.pixels[index + 2];
+    labelGraphic.pixels[index + 3] = 255;
+  }
   labelGraphic.updatePixels();
 }
 
@@ -1916,6 +1930,7 @@ function saveEditorState() {
       labelPaddingMode,
       labelQrText,
       photoMergeMode,
+      labelInverted,
     }));
   } catch {}
 }
@@ -1942,6 +1957,7 @@ function loadEditorState() {
     labelQrText = typeof data.labelQrText === "string" ? data.labelQrText : "";
     labelQrCode = labelQrText ? createQRCode(labelQrText) : null;
     photoMergeMode = photoMergeModes.includes(data.photoMergeMode) ? data.photoMergeMode : "below";
+    labelInverted = !!data.labelInverted;
   } catch {}
 }
 
@@ -2056,22 +2072,32 @@ function stopPhotoCamera() {
   cam = null;
 }
 
-function cyclePhotoMergeMode() {
-  const currentIndex = Math.max(0, photoMergeModes.indexOf(photoMergeMode));
-  photoMergeMode = photoMergeModes[(currentIndex + 1) % photoMergeModes.length];
-  detailText = `Photo merge: ${getPhotoMergeModeLabel()}.`;
+function toggleBlendMode() {
+  if (photoEnabled) {
+    const currentIndex = Math.max(0, photoMergeModes.indexOf(photoMergeMode));
+    photoMergeMode = photoMergeModes[(currentIndex + 1) % photoMergeModes.length];
+    detailText = `Photo merge: ${getPhotoMergeModeLabel()}.`;
+    saveEditorState();
+    return;
+  }
+
+  labelInverted = !labelInverted;
+  detailText = labelInverted ? "Inverted label." : "Normal label.";
   saveEditorState();
 }
 
-function getPhotoMergeModeIcon() {
+function getBlendModeIcon() {
+  if (!photoEnabled) return labelInverted ? "invert_colors_off" : "invert_colors";
   if (photoMergeMode === "white") return "invert_colors";
   if (photoMergeMode === "stencil") return "texture";
+  if (photoMergeMode === "black") return "contrast";
   return "vertical_align_bottom";
 }
 
 function getPhotoMergeModeLabel() {
   if (photoMergeMode === "white") return "white";
   if (photoMergeMode === "stencil") return "mask";
+  if (photoMergeMode === "black") return "black";
   return "under";
 }
 
