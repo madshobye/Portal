@@ -107,6 +107,7 @@ class BleLabelPrinter {
     this._writeQueue = Promise.resolve();
     this._encoder = new TextEncoder();
     this._effectiveChunkSize = this.chunkSize;
+    this._debugCounters = {};
     this._boundOnDisconnected = this._handleDisconnected.bind(this);
     this._boundOnCharacteristicValueChanged = this._handleCharacteristicValueChanged.bind(this);
     this._rxBytes = [];
@@ -1131,11 +1132,39 @@ class BleLabelPrinter {
 
   _debug(label, payload = "") {
     if (!this.debug) return;
+    if (this._isNoisyDebugLabel(label)) {
+      this._debugThrottled(label, payload);
+      return;
+    }
     if (payload === "") {
       console.log(`[BleLabelPrinter] ${label}`);
       return;
     }
     console.log(`[BleLabelPrinter] ${label}`, payload);
+  }
+
+  _debugThrottled(label, payload = "") {
+    const counter = this._debugCounters[label] || {
+      seen: 0,
+      lastPayload: "",
+    };
+    counter.seen += 1;
+    counter.lastPayload = payload;
+    this._debugCounters[label] = counter;
+
+    const shouldPrint = counter.seen <= 3 || counter.seen % 100 === 0;
+    if (!shouldPrint) return;
+
+    const summary = {
+      sample: counter.seen,
+      suppressed: Math.max(0, counter.seen - 3),
+      latest: payload,
+    };
+    console.log(`[BleLabelPrinter] ${label}`, summary);
+  }
+
+  _isNoisyDebugLabel(label) {
+    return label === "write chunk" || label === "notification";
   }
 
   static makeZplTextLabel(text, {

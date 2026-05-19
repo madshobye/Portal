@@ -29,6 +29,7 @@ async function setup() {
     chunkDelayMs: 0,
     operationTimeoutMs: 3000,
     parallelServiceLookup: true,
+    debug: true,
     autoReconnectOnRefresh: false,
     autoReconnectOnDisconnect: false,
     waitForAutoReconnect: false,
@@ -42,6 +43,7 @@ async function setup() {
     usbPrinter = await new UsbLabelPrinter({
       protocol: "tspl",
       autoReconnectOnRefresh: false,
+      debug: true,
       onState: (state) => handlePrinterState("usb", state),
       onError: (error) => handlePrinterError("usb", error),
     }).init();
@@ -324,10 +326,12 @@ async function promptAndPrintRotatedReceiptText() {
       widthDots: 384,
       fontFamily: getReceiptFontFamily(),
       fontSize: 330,
-      paddingDots: 28,
-      stripWidth: 48,
-      chunkDelayMs: 6,
-      lineDelayMs: 8,
+      paddingDots: 12,
+      stripWidth: 24,
+      chunkDelayMs: 12,
+      lineDelayMs: 18,
+      restEveryRows: 72,
+      restMs: 300,
       threshold: 210,
     });
     statusText = "printed long text";
@@ -345,10 +349,12 @@ async function printRotatedReceiptText(textToPrint, {
   widthDots = 384,
   fontFamily = "serif",
   fontSize = 330,
-  paddingDots = 28,
-  stripWidth = 48,
-  chunkDelayMs = 6,
-  lineDelayMs = 8,
+  paddingDots = 12,
+  stripWidth = 24,
+  chunkDelayMs = 12,
+  lineDelayMs = 18,
+  restEveryRows = 72,
+  restMs = 300,
   threshold = 210,
 } = {}) {
   const metrics = measureReceiptText(textToPrint, {
@@ -377,11 +383,12 @@ async function printRotatedReceiptText(textToPrint, {
         widthDots,
         threshold,
         lineDelayMs,
+        restEveryRows,
+        restMs,
       });
       stripGraphic.remove();
     }
     await printer.writeBytes(new Uint8Array([
-      0x1b, 0x32,
       0x0a, 0x0a, 0x0a, 0x0a,
     ]));
   });
@@ -432,10 +439,13 @@ function makeReceiptTextSourceStrip(textToPrint, {
 async function printReceiptTextSourceStripAsRows(graphic, {
   widthDots = 384,
   threshold = 210,
-  lineDelayMs = 8,
+  lineDelayMs = 18,
+  restEveryRows = 72,
+  restMs = 300,
 } = {}) {
   graphic.loadPixels();
   const widthBytes = Math.ceil(widthDots / 8);
+  let printedRows = 0;
   for (let sourceX = 0; sourceX < graphic.width; sourceX += 1) {
     const rowBytes = packReceiptTextColumnAsRasterRow(graphic, {
       sourceX,
@@ -443,8 +453,13 @@ async function printReceiptTextSourceStripAsRows(graphic, {
       threshold,
     });
     await printer.writeBytes(makeEscposRasterPayload(widthBytes, 1, rowBytes));
+    printedRows += 1;
     if (lineDelayMs > 0) {
       await waitMs(lineDelayMs);
+    }
+    if (restEveryRows > 0 && printedRows % restEveryRows === 0 && restMs > 0) {
+      statusText = "cooling printer";
+      await waitMs(restMs);
     }
   }
 }

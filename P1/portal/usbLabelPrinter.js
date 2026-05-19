@@ -47,6 +47,7 @@ class UsbLabelPrinter {
     this._encoder = new TextEncoder();
     this._protocol = new LabelPrinterProtocol();
     this._deviceHint = this._loadDeviceHint();
+    this._debugCounters = {};
     this._boundDisconnect = this._handlePortDisconnected.bind(this);
     this._boundConnect = this._handlePortConnected.bind(this);
   }
@@ -371,11 +372,39 @@ class UsbLabelPrinter {
 
   _debug(label, payload = "") {
     if (!this.debug) return;
+    if (this._isNoisyDebugLabel(label)) {
+      this._debugThrottled(label, payload);
+      return;
+    }
     if (payload === "") {
       console.log(`[UsbLabelPrinter] ${label}`);
       return;
     }
     console.log(`[UsbLabelPrinter] ${label}`, payload);
+  }
+
+  _debugThrottled(label, payload = "") {
+    const counter = this._debugCounters[label] || {
+      seen: 0,
+      lastPayload: "",
+    };
+    counter.seen += 1;
+    counter.lastPayload = payload;
+    this._debugCounters[label] = counter;
+
+    const shouldPrint = counter.seen <= 3 || counter.seen % 100 === 0;
+    if (!shouldPrint) return;
+
+    const summary = {
+      sample: counter.seen,
+      suppressed: Math.max(0, counter.seen - 3),
+      latest: payload,
+    };
+    console.log(`[UsbLabelPrinter] ${label}`, summary);
+  }
+
+  _isNoisyDebugLabel(label) {
+    return label === "write chunk";
   }
 }
 
