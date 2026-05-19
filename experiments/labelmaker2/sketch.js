@@ -1084,13 +1084,16 @@ function findNearestCharacterOffset(line, localX) {
 }
 
 function getCaretVisualOffset(fontSize) {
-  if (editorFontMode === "rubikmonoone") return fontSize * 0.14;
-  return fontSize * 0.08;
+  if (editorFontMode === "rubikmonoone") return fontSize * 0.04;
+  if (editorFontMode === "bebas") return -fontSize * 0.06;
+  if (editorFontMode === "oswald") return -fontSize * 0.03;
+  return -fontSize * 0.02;
 }
 
 function getCaretVisualHeight(fontSize) {
   if (editorFontMode === "rubikmonoone") return fontSize * 0.68;
-  return fontSize * 0.82;
+  if (editorFontMode === "bebas") return fontSize * 0.72;
+  return fontSize * 0.78;
 }
 
 function drawPreviewCard(preview = getPreviewRect()) {
@@ -1792,8 +1795,8 @@ function drawCharacterBoundaryDebug(line, y, startX = getLabelTextRect().x) {
   labelGraphic.noFill();
 
   const renderedStartX = startX - getLineLeadingInkOffset(line);
-  const top = y;
-  const bottom = y + Math.max(1, line.lineHeight);
+  const top = y + getCaretVisualOffset(line.fontSize);
+  const bottom = top + getCaretVisualHeight(line.fontSize);
   for (const boundary of getCharacterBoundaryOffsets(line)) {
     const x = renderedStartX + boundary.x;
     labelGraphic.line(x, top, x, bottom);
