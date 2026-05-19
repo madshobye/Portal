@@ -16,6 +16,7 @@ class BleLabelPrinter {
     namePrefixes = null,
     chunkSize = 180,
     chunkDelayMs = 8,
+    preferWriteWithResponse = false,
     parallelServiceLookup = false,
     debug = true,
     connectTimeoutMs = 12000,
@@ -70,6 +71,7 @@ class BleLabelPrinter {
     this.chunkDelayMs = chunkDelayMs == null || Number.isNaN(parsedChunkDelayMs)
       ? 8
       : Math.max(0, parsedChunkDelayMs);
+    this.preferWriteWithResponse = !!preferWriteWithResponse;
     this.parallelServiceLookup = !!parallelServiceLookup;
     this.debug = debug !== false;
     this.connectTimeoutMs = Math.max(2000, Number(connectTimeoutMs) || 12000);
@@ -778,14 +780,36 @@ class BleLabelPrinter {
   }
 
   async _writeChunk(chunk) {
-    if (typeof this.characteristic.writeValueWithoutResponse === "function") {
+    this._ensureConnected();
+    const characteristic = this.characteristic;
+    if (!characteristic) {
+      throw new Error("BleLabelPrinter: BLE writable characteristic is no longer available");
+    }
+
+    if (this.preferWriteWithResponse) {
+      if (typeof characteristic.writeValueWithResponse === "function") {
+        await characteristic.writeValueWithResponse(chunk);
+        return;
+      }
+      if (typeof characteristic.writeValue === "function") {
+        await characteristic.writeValue(chunk);
+        return;
+      }
+    }
+
+    if (typeof characteristic.writeValueWithoutResponse === "function") {
       try {
-        await this.characteristic.writeValueWithoutResponse(chunk);
+        await characteristic.writeValueWithoutResponse(chunk);
         return;
       } catch {}
     }
 
-    await this.characteristic.writeValue(chunk);
+    if (typeof characteristic.writeValueWithResponse === "function") {
+      await characteristic.writeValueWithResponse(chunk);
+      return;
+    }
+
+    await characteristic.writeValue(chunk);
   }
 
   _handleCharacteristicValueChanged(event) {
@@ -1152,7 +1176,7 @@ class BleLabelPrinter {
     counter.lastPayload = payload;
     this._debugCounters[label] = counter;
 
-    const shouldPrint = counter.seen <= 3 || counter.seen % 100 === 0;
+    const shouldPrint = counter.seen <= 3 || counter.seen % 1000 === 0;
     if (!shouldPrint) return;
 
     const summary = {
@@ -1164,7 +1188,7 @@ class BleLabelPrinter {
   }
 
   _isNoisyDebugLabel(label) {
-    return label === "write chunk" || label === "notification";
+    return label === "write chunk" || label === "write complete" || label === "notification";
   }
 
   static makeZplTextLabel(text, {

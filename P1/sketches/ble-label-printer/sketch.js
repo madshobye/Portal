@@ -27,6 +27,7 @@ async function setup() {
     protocol: "zpl",
     chunkSize: 20,
     chunkDelayMs: 0,
+    preferWriteWithResponse: true,
     operationTimeoutMs: 3000,
     parallelServiceLookup: true,
     debug: true,
@@ -135,7 +136,11 @@ function draw() {
   }
 
   if (debugButton("Long Text", 1, 2).clicked) {
-    promptAndPrintRotatedReceiptText();
+    promptAndPrintRotatedReceiptText("safe");
+  }
+
+  if (debugButton("Long Fast", 2, 2).clicked) {
+    promptAndPrintRotatedReceiptText("fast");
   }
 
   fill(15);
@@ -309,7 +314,7 @@ async function printEscposBlackBar() {
   }
 }
 
-async function promptAndPrintRotatedReceiptText() {
+async function promptAndPrintRotatedReceiptText(speedMode = "safe") {
   if (busy) return;
   const input = window.prompt("Text to print sideways across the receipt width:", "PORTAL");
   const textToPrint = String(input || "").trim();
@@ -322,18 +327,7 @@ async function promptAndPrintRotatedReceiptText() {
   try {
     statusText = "rendering long text";
     await ensurePrinterConnected();
-    const result = await printRotatedReceiptText(textToPrint, {
-      widthDots: 384,
-      fontFamily: getReceiptFontFamily(),
-      fontSize: 330,
-      paddingDots: 12,
-      stripWidth: 24,
-      chunkDelayMs: 12,
-      lineDelayMs: 18,
-      restEveryRows: 72,
-      restMs: 300,
-      threshold: 210,
-    });
+    const result = await printRotatedReceiptText(textToPrint, getLongTextPrintOptions(speedMode));
     statusText = "printed long text";
     detailText = `Printed ${textToPrint.length} chars sideways (${result.rasterRows} raster rows).`;
   } catch (error) {
@@ -345,28 +339,70 @@ async function promptAndPrintRotatedReceiptText() {
   }
 }
 
+function getLongTextPrintOptions(speedMode = "safe") {
+  const shared = {
+    widthDots: 384,
+    fontFamily: getReceiptFontFamily(),
+    fontSize: 330,
+    paddingDots: 12,
+    outline: true,
+    outlineWeight: 10,
+    stripWidth: 64,
+    threshold: 170,
+  };
+
+  if (speedMode === "fast") {
+    return {
+      ...shared,
+      bandHeight: 1,
+      transportChunkSize: 300,
+      chunkDelayMs: 0,
+      bandsPerWrite: 96,
+      writeDelayMs: 0,
+      restEveryRows: 0,
+      restMs: 0,
+    };
+  }
+
+  return {
+    ...shared,
+    bandHeight: 1,
+    chunkDelayMs: 2,
+    bandsPerWrite: 12,
+    writeDelayMs: 80,
+    restEveryRows: 36,
+    restMs: 1400,
+  };
+}
+
 async function printRotatedReceiptText(textToPrint, {
   widthDots = 384,
   fontFamily = "serif",
   fontSize = 330,
   paddingDots = 12,
-  stripWidth = 24,
-  chunkDelayMs = 12,
-  lineDelayMs = 18,
-  restEveryRows = 72,
-  restMs = 300,
-  threshold = 210,
+  outline = true,
+  outlineWeight = 4,
+  stripWidth = 64,
+  bandHeight = 1,
+  transportChunkSize = null,
+  chunkDelayMs = 0,
+  bandsPerWrite = 48,
+  writeDelayMs = 0,
+  restEveryRows = 96,
+  restMs = 700,
+  threshold = 170,
 } = {}) {
   const metrics = measureReceiptText(textToPrint, {
     fontFamily,
     fontSize,
     paddingDots,
   });
-  await withTemporaryPrinterChunkDelay(chunkDelayMs, async () => {
+  await withTemporaryPrinterWriteSettings({ chunkDelayMs, chunkSize: transportChunkSize }, async () => {
     await printer.writeBytes(new Uint8Array([
       0x1b, 0x40,
       0x1b, 0x33, 0x00,
     ]));
+    const pacing = { rowsSinceRest: 0 };
     for (let sourceX = 0; sourceX < metrics.sourceWidth; sourceX += stripWidth) {
       statusText = `printing long text ${Math.round((sourceX / metrics.sourceWidth) * 100)}%`;
       const currentStripWidth = Math.min(stripWidth, metrics.sourceWidth - sourceX);
@@ -375,6 +411,8 @@ async function printRotatedReceiptText(textToPrint, {
         fontFamily,
         fontSize,
         paddingDots,
+        outline,
+        outlineWeight,
         baseline: Math.round((widthDots - metrics.ascent - metrics.descent) / 2 + metrics.ascent),
         sourceX,
         sourceWidth: currentStripWidth,
@@ -382,9 +420,12 @@ async function printRotatedReceiptText(textToPrint, {
       await printReceiptTextSourceStripAsRows(stripGraphic, {
         widthDots,
         threshold,
-        lineDelayMs,
+        bandHeight,
+        bandsPerWrite,
+        writeDelayMs,
         restEveryRows,
         restMs,
+        pacing,
       });
       stripGraphic.remove();
     }
@@ -420,6 +461,8 @@ function makeReceiptTextSourceStrip(textToPrint, {
   fontFamily = "serif",
   fontSize = 330,
   paddingDots = 28,
+  outline = true,
+  outlineWeight = 4,
   baseline = 330,
   sourceX = 0,
   sourceWidth = 512,
@@ -427,62 +470,105 @@ function makeReceiptTextSourceStrip(textToPrint, {
   const source = createGraphics(sourceWidth, widthDots);
   source.pixelDensity(1);
   source.background(255);
-  source.noStroke();
-  source.fill(0);
   source.textFont(fontFamily);
   source.textSize(fontSize);
   source.textAlign(LEFT, BASELINE);
+  if (outline) {
+    source.noFill();
+    source.stroke(0);
+    source.strokeWeight(outlineWeight);
+    source.strokeJoin(ROUND);
+  } else {
+    source.noStroke();
+    source.fill(0);
+  }
   source.text(textToPrint, paddingDots - sourceX, baseline);
   return source;
 }
 
 async function printReceiptTextSourceStripAsRows(graphic, {
   widthDots = 384,
-  threshold = 210,
-  lineDelayMs = 18,
-  restEveryRows = 72,
-  restMs = 300,
+  threshold = 170,
+  bandHeight = 1,
+  bandsPerWrite = 48,
+  writeDelayMs = 0,
+  restEveryRows = 96,
+  restMs = 700,
+  pacing = null,
 } = {}) {
   graphic.loadPixels();
   const widthBytes = Math.ceil(widthDots / 8);
-  let printedRows = 0;
-  for (let sourceX = 0; sourceX < graphic.width; sourceX += 1) {
-    const rowBytes = packReceiptTextColumnAsRasterRow(graphic, {
+  const restState = pacing || { rowsSinceRest: 0 };
+  const rowsPerBand = Math.max(1, Math.min(8, Math.round(Number(bandHeight) || 1)));
+  const maxBandsPerWrite = Math.max(1, Math.min(64, Math.round(Number(bandsPerWrite) || 1)));
+  let pendingPayloads = [];
+  for (let sourceX = 0; sourceX < graphic.width; sourceX += rowsPerBand) {
+    const currentBandHeight = Math.min(rowsPerBand, graphic.width - sourceX);
+    if (!printer?.getConnectionState?.().connected) {
+      throw new Error("Printer disconnected during long text print. It probably needs slower pacing or a shorter cooling interval.");
+    }
+    const rowBytes = packReceiptTextColumnsAsRasterRows(graphic, {
       sourceX,
       widthDots,
+      heightDots: currentBandHeight,
       threshold,
     });
-    await printer.writeBytes(makeEscposRasterPayload(widthBytes, 1, rowBytes));
-    printedRows += 1;
-    if (lineDelayMs > 0) {
-      await waitMs(lineDelayMs);
+    pendingPayloads.push(makeEscposRasterPayload(widthBytes, currentBandHeight, rowBytes));
+    restState.rowsSinceRest += currentBandHeight;
+    const shouldFlush = pendingPayloads.length >= maxBandsPerWrite || sourceX + rowsPerBand >= graphic.width;
+    if (shouldFlush) {
+      await printer.writeBytes(concatBytes(pendingPayloads));
+      pendingPayloads = [];
+      if (writeDelayMs > 0) {
+        await waitMs(writeDelayMs);
+      }
     }
-    if (restEveryRows > 0 && printedRows % restEveryRows === 0 && restMs > 0) {
+    if (restEveryRows > 0 && restState.rowsSinceRest >= restEveryRows && restMs > 0) {
+      if (pendingPayloads.length) {
+        await printer.writeBytes(concatBytes(pendingPayloads));
+        pendingPayloads = [];
+      }
       statusText = "cooling printer";
+      restState.rowsSinceRest = 0;
       await waitMs(restMs);
     }
   }
 }
 
-function packReceiptTextColumnAsRasterRow(graphic, {
+function concatBytes(chunks) {
+  const total = chunks.reduce((sum, chunk) => sum + chunk.length, 0);
+  const output = new Uint8Array(total);
+  let offset = 0;
+  for (const chunk of chunks) {
+    output.set(chunk, offset);
+    offset += chunk.length;
+  }
+  return output;
+}
+
+function packReceiptTextColumnsAsRasterRows(graphic, {
   sourceX = 0,
   widthDots = 384,
+  heightDots = 1,
   threshold = 210,
 } = {}) {
   const widthBytes = Math.ceil(widthDots / 8);
-  const output = new Uint8Array(widthBytes);
+  const output = new Uint8Array(widthBytes * heightDots);
   const pixels = graphic.pixels;
-  for (let dot = 0; dot < widthDots; dot += 1) {
-    const sourceY = widthDots - 1 - dot;
-    const pixelIndex = (sourceY * graphic.width + sourceX) * 4;
-    const alpha = pixels[pixelIndex + 3];
-    if (alpha <= 20) continue;
-    const red = pixels[pixelIndex];
-    const green = pixels[pixelIndex + 1];
-    const blue = pixels[pixelIndex + 2];
-    const luminance = red * 0.299 + green * 0.587 + blue * 0.114;
-    if (luminance >= threshold) continue;
-    output[dot >> 3] |= 0x80 >> (dot & 7);
+  for (let row = 0; row < heightDots; row += 1) {
+    const currentSourceX = sourceX + row;
+    for (let dot = 0; dot < widthDots; dot += 1) {
+      const sourceY = widthDots - 1 - dot;
+      const pixelIndex = (sourceY * graphic.width + currentSourceX) * 4;
+      const alpha = pixels[pixelIndex + 3];
+      if (alpha <= 20) continue;
+      const red = pixels[pixelIndex];
+      const green = pixels[pixelIndex + 1];
+      const blue = pixels[pixelIndex + 2];
+      const luminance = red * 0.299 + green * 0.587 + blue * 0.114;
+      if (luminance >= threshold) continue;
+      output[row * widthBytes + (dot >> 3)] |= 0x80 >> (dot & 7);
+    }
   }
   return output;
 }
@@ -633,16 +719,34 @@ function getReceiptFontFamily() {
   return '"Rubik Mono One", monospace';
 }
 
-async function withTemporaryPrinterChunkDelay(chunkDelayMs, callback) {
+async function withTemporaryPrinterWriteSettings({
+  chunkDelayMs = null,
+  chunkSize = null,
+} = {}, callback) {
   const previousChunkDelayMs = printer?.chunkDelayMs;
+  const previousChunkSize = printer?.chunkSize;
+  const previousEffectiveChunkSize = printer?._effectiveChunkSize;
   if (typeof previousChunkDelayMs === "number") {
     printer.chunkDelayMs = Math.max(0, Number(chunkDelayMs) || 0);
+  }
+  if (typeof previousChunkSize === "number" && chunkSize != null) {
+    const nextChunkSize = Math.max(20, Math.min(512, Math.round(Number(chunkSize) || previousChunkSize)));
+    printer.chunkSize = nextChunkSize;
+    if (typeof printer._effectiveChunkSize === "number") {
+      printer._effectiveChunkSize = nextChunkSize;
+    }
   }
   try {
     return await callback();
   } finally {
     if (typeof previousChunkDelayMs === "number") {
       printer.chunkDelayMs = previousChunkDelayMs;
+    }
+    if (typeof previousChunkSize === "number") {
+      printer.chunkSize = previousChunkSize;
+    }
+    if (typeof previousEffectiveChunkSize === "number") {
+      printer._effectiveChunkSize = previousEffectiveChunkSize;
     }
   }
 }

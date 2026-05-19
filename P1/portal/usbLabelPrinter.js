@@ -392,7 +392,7 @@ class UsbLabelPrinter {
     counter.lastPayload = payload;
     this._debugCounters[label] = counter;
 
-    const shouldPrint = counter.seen <= 3 || counter.seen % 100 === 0;
+    const shouldPrint = counter.seen <= 3 || counter.seen % 1000 === 0;
     if (!shouldPrint) return;
 
     const summary = {
@@ -404,7 +404,7 @@ class UsbLabelPrinter {
   }
 
   _isNoisyDebugLabel(label) {
-    return label === "write chunk";
+    return label === "write chunk" || label === "write complete";
   }
 }
 
