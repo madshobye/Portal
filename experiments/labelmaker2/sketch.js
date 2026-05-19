@@ -29,6 +29,9 @@ let autoSizingEnabled = true;
 let useSoftKeyboardInput = false;
 let outputMode = "label";
 let outputModeAuto = true;
+let labelPaddingMode = "minimal";
+let labelQrText = "";
+let labelQrCode = null;
 
 const labelFormats = {
   "10x10": { widthCm: 10, heightCm: 10 },
@@ -36,13 +39,35 @@ const labelFormats = {
 };
 const labelDpi = 203;
 const dotsPerMm = labelDpi / 25.4;
-const pagePadding = 72;
+const labelPaddingPresets = {
+  minimal: {
+    left: 24,
+    right: 17,
+    top: 24,
+    bottom: 24,
+  },
+  some: {
+    left: 48,
+    right: 34,
+    top: 48,
+    bottom: 48,
+  },
+  lot: {
+    left: 72,
+    right: 50,
+    top: 72,
+    bottom: 72,
+  },
+};
+const labelPaddingModes = ["minimal", "some", "lot"];
 const minFontSize = 24;
 const maxFontSize = 1280;
 const defaultFontSize = 96;
 const fontSizeScale = [24, 28, 32, 36, 40, 46, 52, 60, 68, 78, 88, 100, 112, 128, 144, 164, 184, 208, 232, 256, 280, 300, 320, 360, 400, 448, 512, 576, 640, 720, 800, 896, 1024, 1152, 1280];
 const lineHeightFactor = 1.16;
 const toolbarButtonHeight = 38;
+const toolbarGap = 6;
+const toolbarRowGap = 8;
 const fallbackFontFamily = "Helvetica";
 const googleFontFamilies = [
   "Material Symbols Rounded",
@@ -82,6 +107,7 @@ async function setup() {
   }
   await loadScript("portal/labelPrinterProtocol.js");
   await loadScript("portal/bleLabelPrinter.js");
+  await loadScript("portal/qrCodeGen.js");
 
   printer = await new BleLabelPrinter({
     protocol: "tspl",
@@ -128,9 +154,28 @@ function draw() {
     : (isConnected ? "print" : "bluetooth");
   const controlsY = preview.y + preview.height + 16;
   const squareButtonWidth = toolbarButtonHeight;
-  const buttonWidth = isConnected ? 92 : squareButtonWidth;
+  const buttonWidth = squareButtonWidth;
   const clearButtonWidth = squareButtonWidth;
   const modeButtonWidth = squareButtonWidth;
+  const rightControlsWidth = buttonWidth + toolbarGap + clearButtonWidth;
+  const leftMainButtons = 6;
+  const leftMainWidth = leftMainButtons * squareButtonWidth + (leftMainButtons - 1) * toolbarGap;
+  const styleButtonWidth = toolbarButtonHeight;
+  const styleButtonGap = toolbarGap;
+  const styleControlsWidth = styleButtonWidth * 6 + styleButtonGap * 5;
+  const minFontButtonWidth = 58;
+  const rightControlsStartX = preview.x + preview.width - rightControlsWidth;
+  const oneRowControlsWidth = leftMainWidth + toolbarGap + styleControlsWidth + toolbarGap + minFontButtonWidth + toolbarGap + rightControlsWidth;
+  const useTwoToolbarRows = oneRowControlsWidth > preview.width;
+  const styleControlsX = useTwoToolbarRows ? preview.x : preview.x + leftMainWidth + toolbarGap;
+  const styleControlsY = useTwoToolbarRows ? controlsY + toolbarButtonHeight + toolbarRowGap : controlsY;
+  const fontButtonX = useTwoToolbarRows
+    ? styleControlsX + styleControlsWidth + toolbarGap
+    : styleControlsX + styleControlsWidth + toolbarGap;
+  const fontButtonY = useTwoToolbarRows ? styleControlsY : controlsY;
+  const fontButtonRightEdge = useTwoToolbarRows ? preview.x + preview.width : rightControlsStartX - toolbarGap;
+  const fontButtonWidth = Math.max(minFontButtonWidth, fontButtonRightEdge - fontButtonX);
+  const rightButtonY = controlsY;
   const modeButton = drawIconButton(outputMode === "receipt" ? "receipt_long" : "label", {
     x: preview.x,
     y: controlsY,
@@ -146,7 +191,7 @@ function draw() {
 
   const button = drawIconButton(buttonLabel, {
     x: preview.x + preview.width - buttonWidth,
-    y: controlsY,
+    y: rightButtonY,
     width: buttonWidth,
     height: toolbarButtonHeight,
     primary: true,
@@ -158,8 +203,8 @@ function draw() {
   }
 
   const clearButton = drawIconButton("delete", {
-    x: preview.x + preview.width - buttonWidth - 12 - clearButtonWidth,
-    y: controlsY,
+    x: preview.x + preview.width - buttonWidth - toolbarGap - clearButtonWidth,
+    y: rightButtonY,
     width: clearButtonWidth,
     height: toolbarButtonHeight,
     disabled: busy,
@@ -169,17 +214,11 @@ function draw() {
   }
 
   const autoButtonWidth = squareButtonWidth;
-  const formatX = preview.x + modeButtonWidth + 12;
-  const orientationX = formatX + squareButtonWidth + 12;
-  const autoButtonX = orientationX + squareButtonWidth + 12;
-  const leftControlsEndX = autoButtonX + autoButtonWidth + 12;
-  const rightControlsStartX = preview.x + preview.width - buttonWidth - 12 - clearButtonWidth - 12;
-  const styleButtonGap = 6;
-  const availableStyleFontWidth = Math.max(0, rightControlsStartX - leftControlsEndX);
-  const styleButtonWidth = toolbarButtonHeight;
-  const styleControlsWidth = styleButtonWidth * 6 + styleButtonGap * 5;
-  const fontButtonX = leftControlsEndX + styleControlsWidth + 12;
-  const fontButtonWidth = Math.min(92, Math.max(squareButtonWidth, rightControlsStartX - fontButtonX));
+  const formatX = preview.x + modeButtonWidth + toolbarGap;
+  const orientationX = formatX + squareButtonWidth + toolbarGap;
+  const autoButtonX = orientationX + squareButtonWidth + toolbarGap;
+  const paddingButtonX = autoButtonX + autoButtonWidth + toolbarGap;
+  const qrButtonX = paddingButtonX + squareButtonWidth + toolbarGap;
 
   const toggleButton = drawIconButton(labelFormat === "10x10" ? "crop_square" : "aspect_ratio", {
     x: formatX,
@@ -217,7 +256,32 @@ function draw() {
     saveEditorState();
   }
 
-  drawTextStyleControls(leftControlsEndX, controlsY, busy, {
+  const paddingButton = drawIconButton("padding", {
+    x: paddingButtonX,
+    y: controlsY,
+    width: squareButtonWidth,
+    height: toolbarButtonHeight,
+    active: labelPaddingMode !== "minimal",
+    disabled: busy,
+    markerText: labelPaddingMode === "minimal" ? "min" : (labelPaddingMode === "some" ? "mid" : "max"),
+  });
+  if (!busy && paddingButton.clicked) {
+    toggleLabelPadding();
+  }
+
+  const qrButton = drawIconButton(labelQrText ? "qr_code_2" : "qr_code", {
+    x: qrButtonX,
+    y: controlsY,
+    width: squareButtonWidth,
+    height: toolbarButtonHeight,
+    active: !!labelQrText,
+    disabled: busy,
+  });
+  if (!busy && qrButton.clicked) {
+    promptForQrCode();
+  }
+
+  drawTextStyleControls(styleControlsX, styleControlsY, busy, {
     buttonWidth: styleButtonWidth,
     buttonHeight: toolbarButtonHeight,
     gap: styleButtonGap,
@@ -225,7 +289,7 @@ function draw() {
 
   const fontButton = uiButton(getEditorFontLabel(), {
     x: fontButtonX,
-    y: controlsY,
+    y: fontButtonY,
     width: fontButtonWidth,
     height: toolbarButtonHeight,
     fontSize: 15,
@@ -442,13 +506,18 @@ function renderLabelGraphic({ includeCaret = true } = {}) {
   labelGraphic.noStroke();
   labelGraphic.rectMode(CORNER);
 
-  const layout = fitTextLayout(labelText, labelGraphic.width - pagePadding * 2, labelGraphic.height - pagePadding * 2);
+  const draftBlock = getLabelTextBlockRect();
+  const draftLayout = fitTextLayout(labelText, draftBlock.width, draftBlock.height);
+  const textBlock = getLabelTextBlockRect(draftLayout);
+  const layout = fitTextLayout(labelText, textBlock.width, textBlock.height);
+  const finalTextBlock = getLabelTextBlockRect(layout);
+  drawLabelQrCode(getLabelQrBox(layout));
   applyEditorFont(labelGraphic);
   labelGraphic.textAlign(LEFT, TOP);
 
-  let y = pagePadding;
+  let y = getLabelTextOriginY(layout, finalTextBlock);
   for (const line of layout.lines) {
-    drawStyledLine(line, y);
+    drawStyledLine(line, y, finalTextBlock.x);
     y += line.lineHeight;
   }
   labelGraphic.noStroke();
@@ -464,6 +533,172 @@ function renderLabelGraphic({ includeCaret = true } = {}) {
 
 function fitTextLayout(textValue, maxWidth, maxHeight) {
   return buildLayout(String(textValue || ""), maxWidth, maxHeight);
+}
+
+function getLabelPadding() {
+  return labelPaddingPresets[labelPaddingMode] || labelPaddingPresets.minimal;
+}
+
+function getLabelContentRect() {
+  const padding = getLabelPadding();
+  return {
+    x: padding.left,
+    y: padding.top,
+    width: Math.max(1, labelGraphic.width - padding.left - padding.right),
+    height: Math.max(1, labelGraphic.height - padding.top - padding.bottom),
+  };
+}
+
+function getLabelContentWidth() {
+  return getLabelContentRect().width;
+}
+
+function getLabelContentHeight() {
+  return getLabelContentRect().height;
+}
+
+function getLabelQrBox(layout = null) {
+  if (!labelQrCode) return null;
+  const content = getLabelContentRect();
+  const baseGap = Math.max(8, Math.round(Math.min(labelGraphic.width, labelGraphic.height) * 0.01));
+  const stackedGap = Math.max(56, Math.round(Math.min(labelGraphic.width, labelGraphic.height) * 0.055));
+  const isSquare = labelFormat === "10x10";
+  if (isSquare) {
+    const textHeight = content.height * 0.3;
+    const size = Math.max(1, Math.min(
+      content.width * 0.72,
+      content.height * 0.66,
+      content.height - stackedGap - textHeight
+    ));
+    const groupHeight = size + stackedGap + textHeight;
+    const groupY = content.y + Math.max(0, (content.height - groupHeight) * 0.5);
+    return {
+      x: content.x + (content.width - size) * 0.5,
+      y: groupY,
+      size,
+      placement: "top",
+      gap: stackedGap,
+    };
+  }
+
+  if (orientation === "landscape") {
+    const size = Math.max(1, Math.min(content.height, content.width * 0.38));
+    return {
+      x: content.x + content.width - size,
+      y: content.y + (content.height - size) * 0.5,
+      size,
+      placement: "right",
+      gap: baseGap,
+    };
+  }
+
+  const size = Math.max(1, Math.min(content.width, content.height * 0.48));
+  const blockHeight = Math.max(1, content.height - size - stackedGap);
+  const groupHeight = size + stackedGap + blockHeight;
+  const groupY = content.y + Math.max(0, (content.height - groupHeight) * 0.5);
+  return {
+    x: content.x + (content.width - size) * 0.5,
+    y: groupY,
+    size,
+    placement: "top",
+    gap: stackedGap,
+  };
+}
+
+function getLabelTextRect(layout = null) {
+  const content = getLabelContentRect();
+  const qrBox = getLabelQrBox(layout);
+  if (!qrBox) return content;
+
+  if (qrBox.placement === "right") {
+    const rightEdge = Math.max(content.x, qrBox.x - qrBox.gap);
+    return {
+      x: content.x,
+      y: content.y,
+      width: Math.max(1, rightEdge - content.x),
+      height: content.height,
+    };
+  }
+
+  const textY = qrBox.y + qrBox.size + qrBox.gap;
+  return {
+    x: content.x,
+    y: textY,
+    width: content.width,
+    height: Math.max(1, content.y + content.height - textY),
+  };
+}
+
+function getLabelTextBlockRect(layout = null) {
+  const area = getLabelTextRect(layout);
+  if (!labelQrCode) return area;
+
+  const qrBox = getLabelQrBox(layout);
+  const widthScale = qrBox?.placement === "top" ? 0.96 : 1;
+  const blockWidth = Math.max(1, area.width * widthScale);
+  const blockHeight = area.height;
+  const centeredX = area.x + (area.width - blockWidth) * 0.5;
+  const centeredY = area.y + Math.max(0, (area.height - blockHeight) * 0.5);
+
+  if (qrBox?.placement === "right") {
+    return {
+      x: area.x,
+      y: centeredY,
+      width: blockWidth,
+      height: blockHeight,
+    };
+  }
+
+  if (labelFormat !== "10x10" && orientation === "portrait") {
+    return {
+      x: centeredX,
+      y: area.y,
+      width: blockWidth,
+      height: blockHeight,
+    };
+  }
+
+  return {
+    x: centeredX,
+    y: centeredY,
+    width: blockWidth,
+    height: blockHeight,
+  };
+}
+
+function getLabelTextOriginY(layout, textRect = getLabelTextBlockRect(layout)) {
+  const qrBox = getLabelQrBox(layout);
+  if (qrBox?.placement === "top" && labelFormat !== "10x10" && orientation === "portrait") return textRect.y;
+  const blockHeight = Math.min(textRect.height, Math.max(1, layout?.height || 1));
+  return textRect.y + Math.max(0, (textRect.height - blockHeight) * 0.5);
+}
+
+function drawLabelQrCode(qrBox = getLabelQrBox()) {
+  if (!qrBox) return;
+  drawQrCodeToGraphics(labelGraphic, labelQrCode, qrBox.x, qrBox.y, qrBox.size);
+}
+
+function drawQrCodeToGraphics(target, qr, x, y, size) {
+  if (!qr || !Number.isFinite(Number(qr.size)) || typeof qr.getModule !== "function") return;
+  const moduleCount = Number(qr.size);
+  const moduleSize = size / moduleCount;
+  target.push();
+  target.noStroke();
+  target.fill(255);
+  target.rect(x, y, size, size);
+  target.fill(0);
+  for (let row = 0; row < moduleCount; row += 1) {
+    for (let col = 0; col < moduleCount; col += 1) {
+      if (!qr.getModule(col, row)) continue;
+      target.rect(
+        x + col * moduleSize,
+        y + row * moduleSize,
+        Math.ceil(moduleSize) + 0.5,
+        Math.ceil(moduleSize) + 0.5
+      );
+    }
+  }
+  target.pop();
 }
 
 function buildLayout(textValue, maxWidth, maxHeight) {
@@ -504,19 +739,20 @@ function applyNaturalLineHeights(lines) {
 
 function getCaretPosition(layout) {
   const info = findCursorLocation(layout);
+  const textBlock = getLabelTextBlockRect(layout);
   const previousChar = info.prefix.length > 0 ? info.prefix.slice(-1) : "";
   const nextChar = info.line.text.slice(info.prefix.length, info.prefix.length + 1);
   const previousIsSpace = previousChar === " " || previousChar === "\u00A0";
   const nextIsSpace = nextChar === " " || nextChar === "\u00A0";
   const pairIsSpaced = previousIsSpace || nextIsSpace;
   const caretOffset = pairIsSpaced ? 0 : Math.max(1.5, info.line.fontSize * 0.018);
-  const x = pagePadding + measureStyledRangeWidth(
+  const x = textBlock.x + measureStyledRangeWidth(
     info.line.start,
     clampCursorIndex(cursorIndex),
     info.line.fontSize,
     info.line.text
   ) - caretOffset;
-  let y = pagePadding;
+  let y = textBlock.y;
   for (let index = 0; index < info.lineIndex; index += 1) {
     y += layout.lines[index].lineHeight;
   }
@@ -538,7 +774,7 @@ function drawPreviewCard(preview = getPreviewRect()) {
 function getPreviewRect() {
   const topMargin = 28;
   const controlsGap = 16;
-  const controlsHeight = toolbarButtonHeight;
+  const controlsHeight = toolbarButtonHeight * 2 + toolbarRowGap;
   const bottomMargin = 18;
   const availableWidth = width - 120;
   const availableHeight = height - topMargin - controlsGap - controlsHeight - bottomMargin;
@@ -583,10 +819,14 @@ function handlePointerPlacement(pointerX, pointerY) {
 function placeCursorFromPreviewPoint(pointerX, pointerY, preview) {
   const localX = ((pointerX - preview.x) / preview.width) * labelGraphic.width;
   const localY = ((pointerY - preview.y) / preview.height) * labelGraphic.height;
-  const layout = fitTextLayout(labelText, labelGraphic.width - pagePadding * 2, labelGraphic.height - pagePadding * 2);
+  const draftBlock = getLabelTextBlockRect();
+  const draftLayout = fitTextLayout(labelText, draftBlock.width, draftBlock.height);
+  const textBlock = getLabelTextBlockRect(draftLayout);
+  const layout = fitTextLayout(labelText, textBlock.width, textBlock.height);
   const lineIndex = findNearestLineIndex(layout, localY);
   const line = layout.lines[lineIndex];
-  const textX = constrain(localX - pagePadding, 0, Math.max(0, labelGraphic.width - pagePadding * 2));
+  const finalTextBlock = getLabelTextBlockRect(layout);
+  const textX = constrain(localX - finalTextBlock.x, 0, finalTextBlock.width);
 
   let bestOffset = 0;
   let bestDistance = Infinity;
@@ -608,7 +848,8 @@ function placeCursorFromPreviewPoint(pointerX, pointerY, preview) {
 }
 
 function findNearestLineIndex(layout, localY) {
-  const contentY = localY - pagePadding;
+  const textBlock = getLabelTextBlockRect(layout);
+  const contentY = localY - textBlock.y;
   let y = 0;
 
   for (let index = 0; index < layout.lines.length; index += 1) {
@@ -1013,7 +1254,10 @@ function moveCursorHorizontal(delta) {
 }
 
 function moveCursorVertical(direction) {
-  const layout = fitTextLayout(labelText, labelGraphic.width - pagePadding * 2, labelGraphic.height - pagePadding * 2);
+  const draftBlock = getLabelTextBlockRect();
+  const draftLayout = fitTextLayout(labelText, draftBlock.width, draftBlock.height);
+  const textBlock = getLabelTextBlockRect(draftLayout);
+  const layout = fitTextLayout(labelText, textBlock.width, textBlock.height);
   const current = findCursorLocation(layout);
   const targetLineIndex = constrain(current.lineIndex + direction, 0, layout.lines.length - 1);
   if (targetLineIndex === current.lineIndex) return;
@@ -1168,10 +1412,10 @@ function isAutoLineBold(textValue) {
   return normalized.length > 0 && normalized.length < 10;
 }
 
-function drawStyledLine(line, y) {
+function drawStyledLine(line, y, startX = getLabelTextRect().x) {
   const segments = getLineSegments(line.start, line.end, line.text);
   const autoLineBold = isAutoLineBold(line.text);
-  let x = pagePadding;
+  let x = startX;
 
   for (const segment of segments) {
     const textValue = segment.text || " ";
@@ -1277,6 +1521,8 @@ function saveEditorState() {
       autoSizingEnabled,
       outputMode,
       outputModeAuto,
+      labelPaddingMode,
+      labelQrText,
     }));
   } catch {}
 }
@@ -1299,6 +1545,9 @@ function loadEditorState() {
     autoSizingEnabled = data.autoSizingEnabled !== false;
     outputMode = data.outputMode === "receipt" ? "receipt" : "label";
     outputModeAuto = data.outputModeAuto !== false;
+    labelPaddingMode = labelPaddingModes.includes(data.labelPaddingMode) ? data.labelPaddingMode : "minimal";
+    labelQrText = typeof data.labelQrText === "string" ? data.labelQrText : "";
+    labelQrCode = labelQrText ? createQRCode(labelQrText) : null;
   } catch {}
 }
 
@@ -1316,8 +1565,10 @@ function clearEditor() {
     italic: false,
     underline: false,
   };
+  labelQrText = "";
+  labelQrCode = null;
   autoSizingEnabled = true;
-  detailText = "Cleared label text.";
+  detailText = "Cleared label.";
   saveEditorState();
 }
 
@@ -1340,6 +1591,37 @@ function toggleOutputMode() {
     ? "Manual receipt mode. Press Print to send ESC/POS raster."
     : "Manual label mode. Press Print to send TSPL bitmap.";
   saveEditorState();
+}
+
+function toggleLabelPadding() {
+  const currentIndex = Math.max(0, labelPaddingModes.indexOf(labelPaddingMode));
+  labelPaddingMode = labelPaddingModes[(currentIndex + 1) % labelPaddingModes.length];
+  detailText = `Padding: ${labelPaddingMode}.`;
+  saveEditorState();
+}
+
+function promptForQrCode() {
+  if (labelQrText) {
+    labelQrText = "";
+    labelQrCode = null;
+    detailText = "Removed QR code.";
+    saveEditorState();
+    return;
+  }
+
+  const value = window.prompt("QR code text or URL", "");
+  if (value === null) return;
+  const trimmed = String(value).trim();
+  if (!trimmed) return;
+  try {
+    labelQrCode = createQRCode(trimmed);
+    labelQrText = trimmed;
+    detailText = "Added QR code.";
+    saveEditorState();
+  } catch (error) {
+    console.error("[labelmaker2] QR code failed", error);
+    detailText = error?.message || "Could not create QR code.";
+  }
 }
 
 function rebuildLabelGraphic() {
