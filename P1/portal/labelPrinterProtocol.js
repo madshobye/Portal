@@ -34,6 +34,14 @@ class LabelPrinterProtocol {
     return LabelPrinterProtocol.makeCpclTextLabel(text, options);
   }
 
+  makeEscposTextReceipt(text, options = {}) {
+    return LabelPrinterProtocol.makeEscposTextReceipt(text, options, this._encoder);
+  }
+
+  makeEscposFeed(lines = 4) {
+    return LabelPrinterProtocol.makeEscposFeed(lines);
+  }
+
   static makeZplTextLabel(text, {
     widthDots = 609,
     heightDots = 203,
@@ -187,6 +195,31 @@ class LabelPrinterProtocol {
       "PRINT",
       "",
     ].join("\r\n");
+  }
+
+  static makeEscposTextReceipt(text, {
+    title = "Portal ESC/POS",
+    feedLines = 4,
+    align = "center",
+  } = {}, encoder = new TextEncoder()) {
+    const alignValue = align === "right" ? 2 : align === "left" ? 0 : 1;
+    const chunks = [
+      new Uint8Array([0x1b, 0x40]), // Initialize printer
+      new Uint8Array([0x1b, 0x61, alignValue]), // Alignment
+      new Uint8Array([0x1b, 0x45, 0x01]), // Bold on
+      encoder.encode(`${LabelPrinterProtocol.escapeLineText(title)}\n`),
+      new Uint8Array([0x1b, 0x45, 0x00]), // Bold off
+      encoder.encode(`${String(text ?? "").replace(/\r?\n/g, "\n")}\n`),
+      LabelPrinterProtocol.makeEscposFeed(feedLines),
+    ];
+    return LabelPrinterProtocol.concatBytes(chunks);
+  }
+
+  static makeEscposFeed(lines = 4) {
+    const count = Math.max(1, Math.min(12, Math.round(Number(lines) || 4)));
+    const bytes = new Uint8Array(count);
+    bytes.fill(0x0a);
+    return bytes;
   }
 
   static makeNiimbotB1BitmapPrint(imageData, {
@@ -370,6 +403,11 @@ LabelPrinterProtocol.PROTOCOLS = {
     },
   },
   cpcl: {
+    encode(data, encoder) {
+      return encoder.encode(String(data || ""));
+    },
+  },
+  escpos: {
     encode(data, encoder) {
       return encoder.encode(String(data || ""));
     },

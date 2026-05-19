@@ -70,6 +70,7 @@ function viewInfoDescription(infoKey) {
     activityNetwork: "Network of activities and events. Nodes connect when the same buyers bought both, with first-timer activities pulled left and experienced activities pulled right.",
     userNetwork: "Network of ticket buyers. People connect when they have bought tickets for the same activities or events.",
     ticketSales: "Timeline and ranking of activity and event ticket sales, split by revenue and ticket count.",
+    purchaseTiming: "Shows when people buy within the selected date range, grouped by day of month and month of year, with colors for activity, event, and membership purchases.",
     ticketBuyers: "Heatmap of ticket-buying people over time, showing single, occasional, and recurring buyers.",
     revenueGroups: "Groups paying customers by how many activities or tickets they bought in the selected period, then compares revenue and people count.",
     buyerPattern: "Normalized customer journeys from first purchase onward, showing transitions between ticket-only, membership, and crew patterns.",
@@ -136,6 +137,11 @@ function drawHopOverview(model, fileName = "", currentView = "overview", navItem
 
   if (currentView === "ticketsales") {
     drawTicketSalesView(model.ticketSales, contentPad, contentTop);
+    return uiState;
+  }
+
+  if (currentView === "purchasetiming") {
+    drawPurchaseTimingView(model.rows, contentPad, contentTop, model.purchaseTimingMembershipSignupKeys);
     return uiState;
   }
 
@@ -812,6 +818,206 @@ function drawTicketSalesView(ticketSales, pad, top) {
   ], [], { ...timelineChartState(), infoKey: "ticketSales" });
 
   drawTicketItemBars(pad, top + chartH + 28, width - pad * 2, height - top - chartH - pad - 28, items);
+}
+
+function drawPurchaseTimingView(rows, pad, top, membershipSignupKeys = new Set()) {
+  const chartPad = max(pad, 32);
+  const panelX = chartPad;
+  const panelY = top + 14;
+  const panelW = width - chartPad * 2;
+  const panelH = height - top - chartPad - 14;
+  drawSoftPanel(panelX, panelY, panelW, panelH, 4);
+  drawViewHeader("Purchase Timing", panelX + 18, panelY + 16, "purchaseTiming");
+
+  const purchaseRows = purchaseTimingRows(rows || [], !!purchaseTimingExcludeMembership, membershipSignupKeys);
+  fill(80);
+  noStroke();
+  textSize(12);
+  textAlign(LEFT, TOP);
+  const membershipNote = purchaseTimingExcludeMembership ? "membership signups hidden" : "memberships are signups only";
+  text(`${formatInteger(purchaseRows.reduce((total, row) => total + row.units, 0))} purchase units in selected range · tickets use quantity, ${membershipNote}`, panelX + 18, panelY + 44);
+  drawPurchaseTimingLegend(panelX + panelW - 340, panelY + 20, !!purchaseTimingExcludeMembership);
+
+  if (!purchaseRows.length) {
+    fill(80);
+    textSize(14);
+    textAlign(LEFT, TOP);
+    text("No activity, event, or membership purchases in this range.", panelX + 18, panelY + 76);
+    return;
+  }
+
+  const dayBins = purchaseTimingDayBins(purchaseRows);
+  const weekBins = purchaseTimingMonthCycleWeekBins(purchaseRows);
+  const monthBins = purchaseTimingMonthBins(purchaseRows);
+  const gap = 18;
+  const chartY = panelY + 86;
+  const chartH = max(112, (panelH - 126 - gap * 2) / 3);
+  drawPurchaseTimingStackedBars(panelX + 18, chartY, panelW - 36, chartH, "Day of month", dayBins, (bin) => bin.label);
+  drawPurchaseTimingStackedBars(panelX + 18, chartY + chartH + gap, panelW - 36, chartH, "Week of month", weekBins, (bin) => bin.label);
+  drawPurchaseTimingStackedBars(panelX + 18, chartY + (chartH + gap) * 2, panelW - 36, chartH, "Month of year", monthBins, (bin) => bin.label);
+}
+
+function purchaseTimingRows(rows, excludeMembership = false, membershipSignupKeys = new Set()) {
+  return rows
+    .map((row) => {
+      const type = purchaseTimingType(row);
+      if (excludeMembership && type === "membership") return null;
+      if (type === "membership" && !membershipSignupKeys.has(purchaseTimingRowKey(row))) return null;
+      if (!type || !(row.date instanceof Date) || row.totalPrice <= 0.0001) return null;
+      return {
+        type,
+        date: row.date,
+        units: type === "membership" ? 1 : max(1, row.quantity || 1),
+        revenue: row.totalPrice,
+      };
+    })
+    .filter(Boolean);
+}
+
+function purchaseTimingType(row) {
+  if (row.itemType === "class_pass_type") return "activity";
+  if (row.itemType === "event") return "event";
+  if (typeof isPaidMembershipRow === "function" && isPaidMembershipRow(row)) return "membership";
+  return "";
+}
+
+function purchaseTimingRowKey(row) {
+  return [
+    row.invoiceId || "",
+    row.customerKey || "",
+    row.date?.getTime?.() || "",
+    row.itemType || "",
+    row.itemId || "",
+    row.text || "",
+  ].join("|");
+}
+
+function purchaseTimingDayBins(rows) {
+  const bins = Array.from({ length: 31 }, (_value, index) => purchaseTimingEmptyBin(String(index + 1)));
+  for (const row of rows) addPurchaseTimingRow(bins[row.date.getDate() - 1], row);
+  return bins;
+}
+
+function purchaseTimingMonthBins(rows) {
+  const labels = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+  const bins = labels.map((label) => purchaseTimingEmptyBin(label));
+  for (const row of rows) addPurchaseTimingRow(bins[row.date.getMonth()], row);
+  return bins;
+}
+
+function purchaseTimingMonthCycleWeekBins(rows) {
+  const bins = Array.from({ length: 5 }, (_value, index) => purchaseTimingEmptyBin(`Week ${index + 1}`));
+  for (const row of rows) {
+    const week = Math.ceil(row.date.getDate() / 7);
+    addPurchaseTimingRow(bins[constrain(week, 1, 5) - 1], row);
+  }
+  return bins;
+}
+
+function purchaseTimingEmptyBin(label) {
+  return {
+    label,
+    activity: 0,
+    event: 0,
+    membership: 0,
+    activityRevenue: 0,
+    eventRevenue: 0,
+    membershipRevenue: 0,
+    total: 0,
+    revenue: 0,
+  };
+}
+
+function addPurchaseTimingRow(bin, row) {
+  bin[row.type] += row.units;
+  bin[`${row.type}Revenue`] += row.revenue;
+  bin.total += row.units;
+  bin.revenue += row.revenue;
+}
+
+function drawPurchaseTimingLegend(x, y, excludeMembership = false) {
+  let lx = x;
+  for (const entry of purchaseTimingSeries(excludeMembership)) {
+    fill(...entry.color);
+    noStroke();
+    rect(lx, y + 2, 10, 10, 2);
+    fill(60);
+    textSize(11);
+    textAlign(LEFT, TOP);
+    text(entry.label, lx + 14, y);
+    lx += textWidth(entry.label) + 34;
+  }
+}
+
+function drawPurchaseTimingStackedBars(x, y, w, h, title, bins, labelForBin) {
+  drawSoftPanel(x, y, w, h, 4);
+  fill(30);
+  noStroke();
+  textSize(16);
+  textAlign(LEFT, TOP);
+  text(title, x + 16, y + 14);
+
+  const maxTotal = Math.max(1, ...bins.map((bin) => bin.total));
+  const plotX = x + 36;
+  const plotY = y + 50;
+  const plotW = w - 58;
+  const plotH = h - 88;
+  const barGap = bins.length > 20 ? 3 : 8;
+  const barW = max(4, (plotW - barGap * (bins.length - 1)) / bins.length);
+  const series = purchaseTimingSeries(!!purchaseTimingExcludeMembership);
+  let hovered = null;
+
+  stroke(218);
+  strokeWeight(1);
+  line(plotX, plotY + plotH, plotX + plotW, plotY + plotH);
+  noStroke();
+
+  for (let index = 0; index < bins.length; index += 1) {
+    const bin = bins[index];
+    const bx = plotX + index * (barW + barGap);
+    let by = plotY + plotH;
+    for (const entry of series) {
+      const value = bin[entry.key] || 0;
+      const bh = (value / maxTotal) * plotH;
+      const isHover = value > 0 && mouseX >= bx && mouseX <= bx + barW && mouseY >= by - bh && mouseY <= by;
+      fill(...entry.color);
+      rect(bx, by - bh, barW, bh, 1);
+      if (isHover) hovered = { bin, entry, value };
+      by -= bh;
+    }
+
+    const shouldLabel = bins.length <= 12 || index % 5 === 0 || index === bins.length - 1;
+    if (shouldLabel) {
+      fill(75);
+      textSize(10);
+      textAlign(CENTER, TOP);
+      text(labelForBin(bin), bx + barW / 2, plotY + plotH + 8);
+    }
+  }
+
+  fill(85);
+  textSize(11);
+  textAlign(RIGHT, TOP);
+  text(formatInteger(maxTotal), plotX + plotW, plotY);
+
+  if (hovered) {
+    const revenueKey = `${hovered.entry.key}Revenue`;
+    drawTooltip(mouseX, mouseY, [
+      `${title}: ${hovered.bin.label}`,
+      `${hovered.entry.label}: ${formatInteger(hovered.value)}`,
+      `Revenue: ${formatDkk(hovered.bin[revenueKey] || 0)}`,
+      `Total: ${formatInteger(hovered.bin.total)}`,
+    ]);
+  }
+}
+
+function purchaseTimingSeries(excludeMembership = false) {
+  const series = [
+    { key: "activity", label: "Activity", color: [70, 150, 90] },
+    { key: "event", label: "Event", color: [135, 85, 170] },
+    { key: "membership", label: "Membership", color: [220, 125, 45] },
+  ];
+  return excludeMembership ? series.filter((entry) => entry.key !== "membership") : series;
 }
 
 function ticketItemsToTimelineLabels(items) {
@@ -2482,6 +2688,12 @@ function drawActivityPathModeToggle(mode, visible, showSaveButton = false) {
   return drawSlimButton(mode === "range" ? "First in range" : "First ever", item, true);
 }
 
+function drawPurchaseTimingMembershipToggle(excludeMembership, visible, showSaveButton = false) {
+  if (!visible) return false;
+  const item = getPurchaseTimingMembershipButton(showSaveButton);
+  return drawSlimButton(excludeMembership ? "No members" : "All types", item, excludeMembership);
+}
+
 function drawRevenueGroupsMembershipToggle(excludeMembership, visible, overridePosition) {
   if (!visible) return false;
   const item = getRevenueGroupsMembershipButton(overridePosition);
@@ -2533,6 +2745,13 @@ function getTimelineStackButton(showSaveButton = false) {
 function getActivityPathModeButton(showSaveButton = false) {
   const stack = getTimelineStackButton(showSaveButton);
   const w = 92;
+  const gap = 6;
+  return { x: stack.x - gap - w, y: stack.y, w, h: HOP_TOP_BUTTON_H };
+}
+
+function getPurchaseTimingMembershipButton(showSaveButton = false) {
+  const stack = getTimelineStackButton(showSaveButton);
+  const w = 86;
   const gap = 6;
   return { x: stack.x - gap - w, y: stack.y, w, h: HOP_TOP_BUTTON_H };
 }

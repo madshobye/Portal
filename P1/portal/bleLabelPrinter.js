@@ -16,12 +16,14 @@ class BleLabelPrinter {
     namePrefixes = null,
     chunkSize = 180,
     chunkDelayMs = 8,
+    parallelServiceLookup = false,
     debug = true,
     connectTimeoutMs = 12000,
     gattConnectAttempts = 1,
     gattConnectRetryDelayMs = 500,
     operationTimeoutMs = 6000,
     autoReconnectOnRefresh = true,
+    autoReconnectOnDisconnect = true,
     reconnectDelayMs = 1200,
     autoReconnectAttempts = 5,
     waitForAutoReconnect = false,
@@ -48,6 +50,8 @@ class BleLabelPrinter {
       "GK",
       "GX",
       "LP",
+      "JK",
+      "JK-",
       "BLE",
       "NIIMBOT",
       "Niimbot",
@@ -62,13 +66,18 @@ class BleLabelPrinter {
       "JingChen",
     ];
     this.chunkSize = Math.max(20, Math.min(512, Number(chunkSize) || 180));
-    this.chunkDelayMs = Math.max(0, Number(chunkDelayMs) || 8);
+    const parsedChunkDelayMs = Number(chunkDelayMs);
+    this.chunkDelayMs = chunkDelayMs == null || Number.isNaN(parsedChunkDelayMs)
+      ? 8
+      : Math.max(0, parsedChunkDelayMs);
+    this.parallelServiceLookup = !!parallelServiceLookup;
     this.debug = debug !== false;
     this.connectTimeoutMs = Math.max(2000, Number(connectTimeoutMs) || 12000);
     this.gattConnectAttempts = Math.max(1, Math.round(Number(gattConnectAttempts) || 1));
     this.gattConnectRetryDelayMs = Math.max(0, Number(gattConnectRetryDelayMs) || 500);
     this.operationTimeoutMs = Math.max(1000, Number(operationTimeoutMs) || 6000);
     this.autoReconnectOnRefresh = !!autoReconnectOnRefresh;
+    this.autoReconnectOnDisconnect = !!autoReconnectOnDisconnect;
     this.reconnectDelayMs = Math.max(300, Number(reconnectDelayMs) || 1200);
     this.autoReconnectAttempts = Math.max(1, Math.round(Number(autoReconnectAttempts) || 5));
     this.waitForAutoReconnect = !!waitForAutoReconnect;
@@ -450,6 +459,28 @@ class BleLabelPrinter {
     await this.printCpcl(BleLabelPrinter.makeCpclTextLabel(text, options));
   }
 
+  async printEscposText(text, options = {}) {
+    const bytes = window.LabelPrinterProtocol
+      ? LabelPrinterProtocol.makeEscposTextReceipt(text, options, this._encoder)
+      : BleLabelPrinter.makeEscposTextReceipt(text, options, this._encoder);
+    this._debug("print escpos text", {
+      bytes: bytes.length,
+      preview: String(text || "").slice(0, 160),
+    });
+    await this.writeBytes(bytes);
+  }
+
+  async feedEscpos(lines = 4) {
+    const bytes = window.LabelPrinterProtocol
+      ? LabelPrinterProtocol.makeEscposFeed(lines)
+      : BleLabelPrinter.makeEscposFeed(lines);
+    this._debug("feed escpos", {
+      lines,
+      bytes: bytes.length,
+    });
+    await this.writeBytes(bytes);
+  }
+
   encode(data, { protocol = this.protocol } = {}) {
     const encoder = BleLabelPrinter.PROTOCOLS[String(protocol || "").toLowerCase()];
     if (!encoder) {
@@ -573,6 +604,27 @@ class BleLabelPrinter {
       return [await this.server.getPrimaryService(this.serviceUuid)];
     }
 
+    if (this.parallelServiceLookup) {
+      const results = await Promise.all(this.optionalServices.map(async (serviceUuid) => {
+        try {
+          this._debug("service lookup", serviceUuid);
+          const service = await this._withTimeout(
+            this.server.getPrimaryService(serviceUuid),
+            `service lookup timed out: ${serviceUuid}`
+          );
+          this._debug("service found", service.uuid);
+          return service;
+        } catch (error) {
+          this._debug("service unavailable", {
+            serviceUuid,
+            error: error?.message || String(error),
+          });
+          return null;
+        }
+      }));
+      return results.filter(Boolean);
+    }
+
     const services = [];
     for (const serviceUuid of this.optionalServices) {
       try {
@@ -621,7 +673,15 @@ class BleLabelPrinter {
     }
 
     return (
-      characteristics.find((entry) => this._isWritableCharacteristic(entry) && entry?.properties?.notify) ||
+      characteristics.find((entry) => (
+        this._isWritableCharacteristic(entry) &&
+        !entry?.properties?.read &&
+        !entry?.properties?.notify
+      )) ||
+      characteristics.find((entry) => (
+        this._isWritableCharacteristic(entry) &&
+        !entry?.properties?.read
+      )) ||
       characteristics.find((entry) => this._isWritableCharacteristic(entry)) ||
       null
     );
@@ -949,7 +1009,7 @@ class BleLabelPrinter {
     this._setState("disconnected");
     this._onDisconnect?.(this);
 
-    if (!this._disconnectRequested) {
+    if (!this._disconnectRequested && this.autoReconnectOnDisconnect) {
       this._scheduleReconnect();
     }
   }
@@ -1233,6 +1293,38 @@ class BleLabelPrinter {
     ].join("\r\n");
   }
 
+  static makeEscposTextReceipt(text, {
+    title = "Portal ESC/POS",
+    feedLines = 4,
+    align = "center",
+  } = {}, encoder = new TextEncoder()) {
+    const alignValue = align === "right" ? 2 : align === "left" ? 0 : 1;
+    const chunks = [
+      new Uint8Array([0x1b, 0x40]),
+      new Uint8Array([0x1b, 0x61, alignValue]),
+      new Uint8Array([0x1b, 0x45, 0x01]),
+      encoder.encode(`${BleLabelPrinter.escapeLineText(title)}\n`),
+      new Uint8Array([0x1b, 0x45, 0x00]),
+      encoder.encode(`${String(text ?? "").replace(/\r?\n/g, "\n")}\n`),
+      BleLabelPrinter.makeEscposFeed(feedLines),
+    ];
+    const total = chunks.reduce((sum, chunk) => sum + chunk.length, 0);
+    const bytes = new Uint8Array(total);
+    let offset = 0;
+    for (const chunk of chunks) {
+      bytes.set(chunk, offset);
+      offset += chunk.length;
+    }
+    return bytes;
+  }
+
+  static makeEscposFeed(lines = 4) {
+    const count = Math.max(1, Math.min(12, Math.round(Number(lines) || 4)));
+    const bytes = new Uint8Array(count);
+    bytes.fill(0x0a);
+    return bytes;
+  }
+
   static escapeZplText(text) {
     return String(text ?? "")
       .replace(/\^/g, " ")
@@ -1275,6 +1367,11 @@ BleLabelPrinter.PROTOCOLS = {
     },
   },
   cpcl: {
+    encode(data, encoder) {
+      return encoder.encode(String(data || ""));
+    },
+  },
+  escpos: {
     encode(data, encoder) {
       return encoder.encode(String(data || ""));
     },

@@ -15,6 +15,7 @@ let revenueGroupCount = 8;
 let activityPathMode = "ever";
 let anonymizeNames = true;
 let revenueGroupsExcludeMembership = false;
+let purchaseTimingExcludeMembership = false;
 let timelineSmoothCurves = false;
 let timelineStackedLines = false;
 let fullTimelineCacheByBucket = new Map();
@@ -40,6 +41,7 @@ const URL_DASHBOARD_PARAMS = [
   "buyerWindow",
   "revenueGroups",
   "revenueNoMembership",
+  "purchaseNoMembership",
   "pathMode",
   "curves",
   "stacked",
@@ -50,6 +52,7 @@ const URL_DASHBOARD_PARAMS = [
 const NAV_ITEMS = [
   { id: "overview", label: "Overview", icon: "dashboard" },
   { id: "ticketsales", label: "Ticket Sales", shortLabel: "Tickets", icon: "confirmation_number" },
+  { id: "purchasetiming", label: "Purchase Timing", shortLabel: "Timing", icon: "calendar_view_month" },
   { id: "revenuegroups", label: "Revenue Groups", shortLabel: "Revenue", icon: "paid" },
   { id: "buyerpattern", label: "Buyer Pattern", shortLabel: "Pattern", icon: "polyline" },
   { id: "activitynetwork", label: "Activity Network", shortLabel: "Act Net", icon: "hub" },
@@ -108,6 +111,7 @@ function draw() {
     if (drawTimelineStackToggle(timelineStackedLines, csvSavePending)) toggleTimelineStacking();
     if (drawCaptureButton(csvSavePending)) setTimeout(saveGraphSnapshot, 0);
     if (drawActivityPathModeToggle(activityPathMode, currentView === "activitypath", csvSavePending)) toggleActivityPathMode();
+    if (drawPurchaseTimingMembershipToggle(purchaseTimingExcludeMembership, currentView === "purchasetiming", csvSavePending)) togglePurchaseTimingMembership();
     drawPortalRangeControls();
     drawDateRangeSlider();
     drawPendingViewInfoTooltip();
@@ -262,6 +266,7 @@ function applyDateRange() {
     activityPathRows: sourceRows,
     retentionRows: sourceRows,
     membershipLengthRows: sourceRows,
+    purchaseTimingRows: sourceRows,
     firstTouchpointRows: sourceRows,
     activityPathMode,
     rangeStartMs: selectedStartMs,
@@ -306,6 +311,7 @@ function saveSliderState() {
     timeBucket,
     activityPathMode,
     revenueGroupsExcludeMembership,
+    purchaseTimingExcludeMembership,
     timelineSmoothCurves,
     timelineStackedLines,
   };
@@ -324,6 +330,7 @@ function restoreStoredSliders(urlState = null) {
     activityPathMode = storedSliderState.activityPathMode;
   }
   revenueGroupsExcludeMembership = !!storedSliderState.revenueGroupsExcludeMembership;
+  purchaseTimingExcludeMembership = !!storedSliderState.purchaseTimingExcludeMembership;
   timelineSmoothCurves = !!storedSliderState.timelineSmoothCurves;
   timelineStackedLines = !!storedSliderState.timelineStackedLines;
 }
@@ -622,6 +629,11 @@ function toggleActivityPathMode() {
   applyDateRange();
 }
 
+function togglePurchaseTimingMembership() {
+  purchaseTimingExcludeMembership = !purchaseTimingExcludeMembership;
+  saveSliderState();
+}
+
 function setCurrentView(view) {
   if (!view || view === currentView) return;
   currentView = view;
@@ -694,6 +706,9 @@ function loadDashboardUrlState() {
   const revenueNoMembership = parseUrlBoolean(params.get("revenueNoMembership"));
   if (revenueNoMembership !== null) sliders.revenueGroupsExcludeMembership = revenueNoMembership;
 
+  const purchaseNoMembership = parseUrlBoolean(params.get("purchaseNoMembership"));
+  if (purchaseNoMembership !== null) sliders.purchaseTimingExcludeMembership = purchaseNoMembership;
+
   const curves = parseUrlBoolean(params.get("curves"));
   if (curves !== null) sliders.timelineSmoothCurves = curves;
 
@@ -762,6 +777,7 @@ function updateDashboardUrl() {
   url.searchParams.set("buyerWindow", String(constrain(Math.round(Number(buyerPatternWindowIndex) || 0), 0, 999999)));
   url.searchParams.set("revenueGroups", String(constrain(Math.round(Number(revenueGroupCount) || 8), 3, 100)));
   url.searchParams.set("revenueNoMembership", revenueGroupsExcludeMembership ? "1" : "0");
+  url.searchParams.set("purchaseNoMembership", purchaseTimingExcludeMembership ? "1" : "0");
   url.searchParams.set("pathMode", activityPathMode);
   url.searchParams.set("curves", timelineSmoothCurves ? "1" : "0");
   url.searchParams.set("stacked", timelineStackedLines ? "1" : "0");

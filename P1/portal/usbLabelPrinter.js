@@ -185,6 +185,24 @@ class UsbLabelPrinter {
     await this.printCpcl(LabelPrinterProtocol.makeCpclTextLabel(text, options));
   }
 
+  async printEscposText(text, options = {}) {
+    const bytes = LabelPrinterProtocol.makeEscposTextReceipt(text, options, this._encoder);
+    this._debug("print escpos text", {
+      bytes: bytes.length,
+      preview: String(text || "").slice(0, 160),
+    });
+    await this.writeBytes(bytes);
+  }
+
+  async feedEscpos(lines = 4) {
+    const bytes = LabelPrinterProtocol.makeEscposFeed(lines);
+    this._debug("feed escpos", {
+      lines,
+      bytes: bytes.length,
+    });
+    await this.writeBytes(bytes);
+  }
+
   async writeText(text) {
     await this.writeBytes(this._encoder.encode(String(text || "")));
   }

@@ -4,7 +4,7 @@ let usbPrinter;
 let activeTransport = "ble";
 let usbAvailable = false;
 let statusText = "loading";
-let detailText = "Connect to a BLE label printer, then print a TSPL bitmap label.";
+let detailText = "Connect to a BLE printer, then test label or ESC/POS receipt commands.";
 let busy = false;
 let labelGraphic;
 const labelWidthCm = 10;
@@ -25,8 +25,14 @@ async function setup() {
 
   blePrinter = await new BleLabelPrinter({
     protocol: "zpl",
-    waitForAutoReconnect: true,
-    autoReconnectAttempts: 3,
+    chunkSize: 20,
+    chunkDelayMs: 0,
+    operationTimeoutMs: 3000,
+    parallelServiceLookup: true,
+    autoReconnectOnRefresh: false,
+    autoReconnectOnDisconnect: false,
+    waitForAutoReconnect: false,
+    autoReconnectAttempts: 1,
     reconnectDelayMs: 700,
     onState: (state) => handlePrinterState("ble", state),
     onError: (error) => handlePrinterError("ble", error),
@@ -35,6 +41,7 @@ async function setup() {
   try {
     usbPrinter = await new UsbLabelPrinter({
       protocol: "tspl",
+      autoReconnectOnRefresh: false,
       onState: (state) => handlePrinterState("usb", state),
       onError: (error) => handlePrinterError("usb", error),
     }).init();
@@ -53,69 +60,93 @@ async function setup() {
 function draw() {
   background(245, 243, 238);
 
-  if (uiButton("BLE Connect", { x: 24, y: 24, width: 160, height: 44, fontSize: 18 }).clicked) {
+  if (debugButton("BLE Connect", 0, 0).clicked) {
     connectPrinter("ble", { acceptAllDevices: false });
   }
 
-  if (uiButton("BLE All", { x: 200, y: 24, width: 130, height: 44, fontSize: 18 }).clicked) {
+  if (debugButton("BLE All", 1, 0).clicked) {
     connectPrinter("ble", { acceptAllDevices: true });
   }
 
-  if (uiButton("USB Connect", { x: 346, y: 24, width: 160, height: 44, fontSize: 18 }).clicked) {
+  if (debugButton("USB Connect", 2, 0).clicked) {
     connectPrinter("usb");
   }
 
-  if (uiButton("Reconnect", { x: 522, y: 24, width: 160, height: 44, fontSize: 18 }).clicked) {
+  if (debugButton("Reconnect", 3, 0).clicked) {
     reconnectSavedPrinter();
   }
 
-  if (uiButton("Print ZPL", { x: 698, y: 24, width: 150, height: 44, fontSize: 18 }).clicked) {
+  if (debugButton("Print ZPL", 4, 0).clicked) {
     printTestLabel("zpl");
   }
 
-  if (uiButton("Print TSPL", { x: 864, y: 24, width: 150, height: 44, fontSize: 18 }).clicked) {
+  if (debugButton("Print TSPL", 5, 0).clicked) {
     printTestLabel("tspl");
   }
 
-  if (uiButton("Print CPCL", { x: 1030, y: 24, width: 150, height: 44, fontSize: 18 }).clicked) {
+  if (debugButton("Print CPCL", 6, 0).clicked) {
     printTestLabel("cpcl");
   }
 
-  if (uiButton("Disconnect", { x: 1196, y: 24, width: 150, height: 44, fontSize: 18 }).clicked) {
+  if (debugButton("Disconnect", 7, 0).clicked) {
     printer?.disconnect();
   }
 
-  if (uiButton("Forget BLE", { x: 1362, y: 24, width: 140, height: 44, fontSize: 18 }).clicked) {
+  if (debugButton("Forget BLE", 8, 0).clicked) {
     forgetPrinter();
   }
 
-  if (uiButton("New Image", { x: 24, y: 82, width: 150, height: 44, fontSize: 18 }).clicked) {
+  if (debugButton("New Image", 0, 1).clicked) {
     generateRandomLabelGraphic();
   }
 
-  if (uiButton("Print Image", { x: 190, y: 82, width: 150, height: 44, fontSize: 18 }).clicked) {
+  if (debugButton("Print Image", 1, 1).clicked) {
     printRandomImageLabel();
   }
 
-  if (uiButton("Print B1", { x: 356, y: 82, width: 140, height: 44, fontSize: 18 }).clicked) {
+  if (debugButton("Print B1", 2, 1).clicked) {
     printNiimbotB1ImageLabel();
   }
 
-  if (uiButton("Query B1", { x: 512, y: 82, width: 140, height: 44, fontSize: 18 }).clicked) {
+  if (debugButton("Query B1", 3, 1).clicked) {
     queryNiimbotB1();
+  }
+
+  if (debugButton("ESC Text", 4, 1).clicked) {
+    printEscposTextReceipt();
+  }
+
+  if (debugButton("ESC Feed", 5, 1).clicked) {
+    feedEscposReceipt();
+  }
+
+  if (debugButton("Raw Text", 6, 1).clicked) {
+    printRawReceiptText("lf");
+  }
+
+  if (debugButton("Raw CRLF", 7, 1).clicked) {
+    printRawReceiptText("crlf");
+  }
+
+  if (debugButton("Black Bar", 0, 2).clicked) {
+    printEscposBlackBar();
+  }
+
+  if (debugButton("Long Text", 1, 2).clicked) {
+    promptAndPrintRotatedReceiptText();
   }
 
   fill(15);
   noStroke();
   textSize(28);
-  text("BLE Label Printer", 24, 172);
+  text("BLE Label Printer", 24, 142);
 
   textSize(18);
-  text(`status: ${formatStatus(statusText)}`, 24, 212);
-  text(`transport: ${activeTransport.toUpperCase()} | protocols: zpl / tspl / cpcl`, 24, 242);
-  text(detailText, 24, 282);
+  text(`status: ${formatStatus(statusText)}`, 24, 182);
+  text(`transport: ${activeTransport.toUpperCase()} | protocols: zpl / tspl / cpcl / escpos`, 24, 212);
+  text(detailText, 24, 252);
 
-  drawLabelPreview(520, 120, 240);
+  drawLabelPreview(520, 310, min(260, height - 360));
 
   textSize(14);
   fill(80);
@@ -124,6 +155,20 @@ function draw() {
     24,
     height - 36
   );
+}
+
+function debugButton(label, column, row) {
+  const margin = 16;
+  const gap = 6;
+  const buttonW = max(82, min(112, (width - margin * 2 - gap * 8) / 9));
+  const buttonH = 34;
+  return uiButton(label, {
+    x: margin + column * (buttonW + gap),
+    y: 16 + row * (buttonH + gap),
+    width: buttonW,
+    height: buttonH,
+    fontSize: 12,
+  });
 }
 
 async function connectPrinter(transport = activeTransport, options = {}) {
@@ -193,6 +238,443 @@ async function printTestLabel(protocol) {
   } catch (error) {
     console.error("[ble-label-printer] print failed", error);
     statusText = "print failed";
+    detailText = error?.message || String(error);
+  } finally {
+    busy = false;
+  }
+}
+
+async function printEscposTextReceipt() {
+  if (busy) return;
+  busy = true;
+  try {
+    statusText = "printing escpos text";
+    await ensurePrinterConnected();
+    await printer.printEscposText([
+      "Receipt printer test",
+      new Date().toLocaleString(),
+      "",
+      "If you can read this,",
+      "ESC/POS text works.",
+    ].join("\n"), {
+      title: "Portal BLE",
+      feedLines: 4,
+      align: "center",
+    });
+    statusText = "printed escpos text";
+    detailText = "ESC/POS text command sent.";
+  } catch (error) {
+    console.error("[ble-label-printer] escpos text failed", error);
+    statusText = "escpos text failed";
+    detailText = error?.message || String(error);
+  } finally {
+    busy = false;
+  }
+}
+
+async function printEscposBlackBar() {
+  if (busy) return;
+  busy = true;
+  try {
+    statusText = "printing black bar";
+    await ensurePrinterConnected();
+    const widthBytes = 48; // JK-5803P: 384 dots / 8 = 48 bytes.
+    const heightDots = 16;
+    const imageBytes = new Uint8Array(widthBytes * heightDots);
+    imageBytes.fill(0xff);
+    const header = new Uint8Array([
+      0x1b, 0x40,
+      0x1d, 0x76, 0x30, 0x00,
+      widthBytes & 0xff,
+      (widthBytes >> 8) & 0xff,
+      heightDots & 0xff,
+      (heightDots >> 8) & 0xff,
+    ]);
+    const feed = new Uint8Array([0x0a, 0x0a, 0x0a, 0x0a]);
+    const payload = new Uint8Array(header.length + imageBytes.length + feed.length);
+    payload.set(header, 0);
+    payload.set(imageBytes, header.length);
+    payload.set(feed, header.length + imageBytes.length);
+    await printer.writeBytes(payload);
+    statusText = "printed black bar";
+    detailText = "Black raster bar sent.";
+  } catch (error) {
+    console.error("[ble-label-printer] black bar failed", error);
+    statusText = "black bar failed";
+    detailText = error?.message || String(error);
+  } finally {
+    busy = false;
+  }
+}
+
+async function promptAndPrintRotatedReceiptText() {
+  if (busy) return;
+  const input = window.prompt("Text to print sideways across the receipt width:", "PORTAL");
+  const textToPrint = String(input || "").trim();
+  if (!textToPrint) {
+    detailText = "Long text print cancelled.";
+    return;
+  }
+
+  busy = true;
+  try {
+    statusText = "rendering long text";
+    await ensurePrinterConnected();
+    const result = await printRotatedReceiptText(textToPrint, {
+      widthDots: 384,
+      fontFamily: getReceiptFontFamily(),
+      fontSize: 330,
+      paddingDots: 28,
+      stripWidth: 48,
+      chunkDelayMs: 6,
+      lineDelayMs: 8,
+      threshold: 210,
+    });
+    statusText = "printed long text";
+    detailText = `Printed ${textToPrint.length} chars sideways (${result.rasterRows} raster rows).`;
+  } catch (error) {
+    console.error("[ble-label-printer] long text failed", error);
+    statusText = "long text failed";
+    detailText = error?.message || String(error);
+  } finally {
+    busy = false;
+  }
+}
+
+async function printRotatedReceiptText(textToPrint, {
+  widthDots = 384,
+  fontFamily = "serif",
+  fontSize = 330,
+  paddingDots = 28,
+  stripWidth = 48,
+  chunkDelayMs = 6,
+  lineDelayMs = 8,
+  threshold = 210,
+} = {}) {
+  const metrics = measureReceiptText(textToPrint, {
+    fontFamily,
+    fontSize,
+    paddingDots,
+  });
+  await withTemporaryPrinterChunkDelay(chunkDelayMs, async () => {
+    await printer.writeBytes(new Uint8Array([
+      0x1b, 0x40,
+      0x1b, 0x33, 0x00,
+    ]));
+    for (let sourceX = 0; sourceX < metrics.sourceWidth; sourceX += stripWidth) {
+      statusText = `printing long text ${Math.round((sourceX / metrics.sourceWidth) * 100)}%`;
+      const currentStripWidth = Math.min(stripWidth, metrics.sourceWidth - sourceX);
+      const stripGraphic = makeReceiptTextSourceStrip(textToPrint, {
+        widthDots,
+        fontFamily,
+        fontSize,
+        paddingDots,
+        baseline: Math.round((widthDots - metrics.ascent - metrics.descent) / 2 + metrics.ascent),
+        sourceX,
+        sourceWidth: currentStripWidth,
+      });
+      await printReceiptTextSourceStripAsRows(stripGraphic, {
+        widthDots,
+        threshold,
+        lineDelayMs,
+      });
+      stripGraphic.remove();
+    }
+    await printer.writeBytes(new Uint8Array([
+      0x1b, 0x32,
+      0x0a, 0x0a, 0x0a, 0x0a,
+    ]));
+  });
+  return { rasterRows: metrics.sourceWidth };
+}
+
+function measureReceiptText(textToPrint, {
+  fontFamily = "serif",
+  fontSize = 330,
+  paddingDots = 28,
+} = {}) {
+  const measurer = createGraphics(16, 16);
+  measurer.pixelDensity(1);
+  measurer.textFont(fontFamily);
+  measurer.textSize(fontSize);
+  const textWidthDots = Math.ceil(measurer.textWidth(textToPrint));
+  const ascent = measurer.textAscent();
+  const descent = measurer.textDescent();
+  measurer.remove();
+  return {
+    ascent,
+    descent,
+    sourceWidth: Math.max(1, textWidthDots + paddingDots * 2),
+  };
+}
+
+function makeReceiptTextSourceStrip(textToPrint, {
+  widthDots = 384,
+  fontFamily = "serif",
+  fontSize = 330,
+  paddingDots = 28,
+  baseline = 330,
+  sourceX = 0,
+  sourceWidth = 512,
+} = {}) {
+  const source = createGraphics(sourceWidth, widthDots);
+  source.pixelDensity(1);
+  source.background(255);
+  source.noStroke();
+  source.fill(0);
+  source.textFont(fontFamily);
+  source.textSize(fontSize);
+  source.textAlign(LEFT, BASELINE);
+  source.text(textToPrint, paddingDots - sourceX, baseline);
+  return source;
+}
+
+async function printReceiptTextSourceStripAsRows(graphic, {
+  widthDots = 384,
+  threshold = 210,
+  lineDelayMs = 8,
+} = {}) {
+  graphic.loadPixels();
+  const widthBytes = Math.ceil(widthDots / 8);
+  for (let sourceX = 0; sourceX < graphic.width; sourceX += 1) {
+    const rowBytes = packReceiptTextColumnAsRasterRow(graphic, {
+      sourceX,
+      widthDots,
+      threshold,
+    });
+    await printer.writeBytes(makeEscposRasterPayload(widthBytes, 1, rowBytes));
+    if (lineDelayMs > 0) {
+      await waitMs(lineDelayMs);
+    }
+  }
+}
+
+function packReceiptTextColumnAsRasterRow(graphic, {
+  sourceX = 0,
+  widthDots = 384,
+  threshold = 210,
+} = {}) {
+  const widthBytes = Math.ceil(widthDots / 8);
+  const output = new Uint8Array(widthBytes);
+  const pixels = graphic.pixels;
+  for (let dot = 0; dot < widthDots; dot += 1) {
+    const sourceY = widthDots - 1 - dot;
+    const pixelIndex = (sourceY * graphic.width + sourceX) * 4;
+    const alpha = pixels[pixelIndex + 3];
+    if (alpha <= 20) continue;
+    const red = pixels[pixelIndex];
+    const green = pixels[pixelIndex + 1];
+    const blue = pixels[pixelIndex + 2];
+    const luminance = red * 0.299 + green * 0.587 + blue * 0.114;
+    if (luminance >= threshold) continue;
+    output[dot >> 3] |= 0x80 >> (dot & 7);
+  }
+  return output;
+}
+
+async function printEscposRasterGraphic(graphic, {
+  widthDots = 384,
+  bandHeight = 16,
+  threshold = 210,
+  initialize = true,
+  feed = true,
+} = {}) {
+  const widthBytes = Math.ceil(widthDots / 8);
+  if (initialize) {
+    await printer.writeBytes(new Uint8Array([0x1b, 0x40]));
+  }
+  graphic.loadPixels();
+  for (let y = 0; y < graphic.height; y += bandHeight) {
+    const currentHeight = Math.min(bandHeight, graphic.height - y);
+    const imageBytes = packEscposRasterBand(graphic, {
+      x: 0,
+      y,
+      widthDots,
+      heightDots: currentHeight,
+      threshold,
+    });
+    const payload = makeEscposRasterPayload(widthBytes, currentHeight, imageBytes);
+    await printer.writeBytes(payload);
+  }
+  if (feed) {
+    await printer.writeBytes(new Uint8Array([0x0a, 0x0a, 0x0a, 0x0a]));
+  }
+}
+
+async function printEscposBitImageGraphic(graphic, {
+  widthDots = 384,
+  threshold = 210,
+  initialize = true,
+  feed = true,
+  lineDelayMs = 25,
+} = {}) {
+  if (initialize) {
+    await printer.writeBytes(new Uint8Array([0x1b, 0x40]));
+  }
+  graphic.loadPixels();
+  for (let y = 0; y < graphic.height; y += 8) {
+    const currentHeight = Math.min(8, graphic.height - y);
+    const imageBytes = packEscposBitImageBand(graphic, {
+      x: 0,
+      y,
+      widthDots,
+      heightDots: currentHeight,
+      threshold,
+    });
+    const payload = makeEscposBitImagePayload(widthDots, imageBytes);
+    await printer.writeBytes(payload);
+    if (lineDelayMs > 0) {
+      await waitMs(lineDelayMs);
+    }
+  }
+  if (feed) {
+    await printer.writeBytes(new Uint8Array([0x0a, 0x0a, 0x0a, 0x0a]));
+  }
+}
+
+function packEscposBitImageBand(graphic, {
+  x = 0,
+  y = 0,
+  widthDots = 384,
+  heightDots = 8,
+  threshold = 210,
+} = {}) {
+  const output = new Uint8Array(widthDots);
+  const pixels = graphic.pixels;
+  for (let column = 0; column < widthDots; column += 1) {
+    let packed = 0;
+    for (let row = 0; row < 8; row += 1) {
+      if (row >= heightDots) continue;
+      const pixelIndex = ((y + row) * graphic.width + x + column) * 4;
+      const alpha = pixels[pixelIndex + 3];
+      if (alpha <= 20) continue;
+      const red = pixels[pixelIndex];
+      const green = pixels[pixelIndex + 1];
+      const blue = pixels[pixelIndex + 2];
+      const luminance = red * 0.299 + green * 0.587 + blue * 0.114;
+      if (luminance < threshold) {
+        packed |= 0x80 >> row;
+      }
+    }
+    output[column] = packed;
+  }
+  return output;
+}
+
+function makeEscposBitImagePayload(widthDots, imageBytes) {
+  const header = new Uint8Array([
+    0x1b, 0x2a, 0x00,
+    widthDots & 0xff,
+    (widthDots >> 8) & 0xff,
+  ]);
+  const payload = new Uint8Array(header.length + imageBytes.length + 1);
+  payload.set(header, 0);
+  payload.set(imageBytes, header.length);
+  payload[payload.length - 1] = 0x0a;
+  return payload;
+}
+
+function packEscposRasterBand(graphic, {
+  x = 0,
+  y = 0,
+  widthDots = 384,
+  heightDots = 16,
+  threshold = 210,
+} = {}) {
+  const widthBytes = Math.ceil(widthDots / 8);
+  const output = new Uint8Array(widthBytes * heightDots);
+  const pixels = graphic.pixels;
+  for (let row = 0; row < heightDots; row += 1) {
+    for (let column = 0; column < widthDots; column += 1) {
+      const pixelIndex = ((y + row) * graphic.width + x + column) * 4;
+      const alpha = pixels[pixelIndex + 3];
+      if (alpha <= 20) continue;
+      const red = pixels[pixelIndex];
+      const green = pixels[pixelIndex + 1];
+      const blue = pixels[pixelIndex + 2];
+      const luminance = red * 0.299 + green * 0.587 + blue * 0.114;
+      if (luminance >= threshold) continue;
+      output[row * widthBytes + (column >> 3)] |= 0x80 >> (column & 7);
+    }
+  }
+  return output;
+}
+
+function makeEscposRasterPayload(widthBytes, heightDots, imageBytes) {
+  const header = new Uint8Array([
+    0x1d, 0x76, 0x30, 0x00,
+    widthBytes & 0xff,
+    (widthBytes >> 8) & 0xff,
+    heightDots & 0xff,
+    (heightDots >> 8) & 0xff,
+  ]);
+  const payload = new Uint8Array(header.length + imageBytes.length);
+  payload.set(header, 0);
+  payload.set(imageBytes, header.length);
+  return payload;
+}
+
+function getReceiptFontFamily() {
+  return '"Rubik Mono One", monospace';
+}
+
+async function withTemporaryPrinterChunkDelay(chunkDelayMs, callback) {
+  const previousChunkDelayMs = printer?.chunkDelayMs;
+  if (typeof previousChunkDelayMs === "number") {
+    printer.chunkDelayMs = Math.max(0, Number(chunkDelayMs) || 0);
+  }
+  try {
+    return await callback();
+  } finally {
+    if (typeof previousChunkDelayMs === "number") {
+      printer.chunkDelayMs = previousChunkDelayMs;
+    }
+  }
+}
+
+function waitMs(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function feedEscposReceipt() {
+  if (busy) return;
+  busy = true;
+  try {
+    statusText = "feeding escpos";
+    await ensurePrinterConnected();
+    await printer.feedEscpos(5);
+    statusText = "fed escpos";
+    detailText = "ESC/POS feed command sent.";
+  } catch (error) {
+    console.error("[ble-label-printer] escpos feed failed", error);
+    statusText = "escpos feed failed";
+    detailText = error?.message || String(error);
+  } finally {
+    busy = false;
+  }
+}
+
+async function printRawReceiptText(lineEnding = "lf") {
+  if (busy) return;
+  busy = true;
+  try {
+    statusText = `printing raw ${lineEnding}`;
+    await ensurePrinterConnected();
+    const newline = lineEnding === "crlf" ? "\r\n" : "\n";
+    const text = [
+      "PORTAL RAW TEXT TEST",
+      new Date().toLocaleString(),
+      "No ESC/POS formatting.",
+      "",
+      "",
+      "",
+    ].join(newline);
+    await printer.writeText(text);
+    statusText = `printed raw ${lineEnding}`;
+    detailText = `Raw ${lineEnding.toUpperCase()} text sent in 20-byte chunks.`;
+  } catch (error) {
+    console.error("[ble-label-printer] raw text failed", error);
+    statusText = "raw text failed";
     detailText = error?.message || String(error);
   } finally {
     busy = false;

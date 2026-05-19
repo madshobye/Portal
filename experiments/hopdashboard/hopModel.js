@@ -9,6 +9,9 @@ function buildHopModel(rows, timeBucket = "week", options = {}) {
   const membershipLengthRows = options.membershipLengthRows
     ? applyTransactionDiscountNetting(options.membershipLengthRows.map(normalizeSalesRow).filter((row) => row.date))
     : normalizedRows;
+  const purchaseTimingRows = options.purchaseTimingRows
+    ? applyTransactionDiscountNetting(options.purchaseTimingRows.map(normalizeSalesRow).filter((row) => row.date))
+    : normalizedRows;
   const firstTouchpointRows = options.firstTouchpointRows && !options.timelineActivity
     ? applyTransactionDiscountNetting(options.firstTouchpointRows.map(normalizeSalesRow).filter((row) => row.date))
     : normalizedRows;
@@ -65,6 +68,7 @@ function buildHopModel(rows, timeBucket = "week", options = {}) {
     customerSegments,
     exitPoints,
     membershipLength,
+    purchaseTimingMembershipSignupKeys: firstMembershipSignupRowKeys(purchaseTimingRows),
     anonymizeNames: false,
     setAnonymizeNames(value) {
       this.anonymizeNames = !!value;
@@ -1694,6 +1698,26 @@ function isActivityOrEventRow(row) {
 
 function isPaidMembershipRow(row) {
   return isMembershipSubscriptionRow(row) && !isCrewMembershipRow(row) && row.totalPrice > 0.0001;
+}
+
+function firstMembershipSignupRowKeys(rows) {
+  const byCustomer = new Map();
+  for (const row of rows.filter(isPaidMembershipRow).sort((a, b) => a.date - b.date)) {
+    if (byCustomer.has(row.customerKey)) continue;
+    byCustomer.set(row.customerKey, purchaseTimingRowKey(row));
+  }
+  return new Set(byCustomer.values());
+}
+
+function purchaseTimingRowKey(row) {
+  return [
+    row.invoiceId || "",
+    row.customerKey || "",
+    row.date?.getTime?.() || "",
+    row.itemType || "",
+    row.itemId || "",
+    row.text || "",
+  ].join("|");
 }
 
 function activityPathTarget(row) {
