@@ -6,6 +6,8 @@ let labelGraphic;
 let labelPhotoGraphic;
 let cam = null;
 let photoCameraStarting = false;
+let droppedPhotoImage = null;
+let droppedPhotoName = "";
 let labelText = "";
 let cursorIndex = 0;
 let caretVisible = true;
@@ -100,8 +102,9 @@ const fontOptions = [
 ];
 
 async function setup() {
-  createCanvas(windowWidth, windowHeight);
+  const canvas = createCanvas(windowWidth, windowHeight);
   pixelDensity(1);
+  canvas.drop(handlePhotoDrop);
   useSoftKeyboardInput = detectSoftKeyboardMode();
   installTextInputBridge();
   installKeyCapture();
@@ -309,7 +312,7 @@ function draw() {
     y: controlsY,
     width: squareButtonWidth,
     height: toolbarButtonHeight,
-    active: photoEnabled || labelInverted,
+    active: hasPhotoSource() || labelInverted,
     disabled: busy,
     iconSize: 22,
   });
@@ -570,7 +573,7 @@ function renderLabelGraphic({ includeCaret = true } = {}) {
     labelGraphic.line(caret.x, caret.y, caret.x, caret.y + caret.height);
   }
 
-  if (photoEnabled && isCameraReady()) {
+  if (hasPhotoSource()) {
     composePhotoWithCurrentLabelMask();
   } else if (labelInverted) {
     invertLabelGraphic();
@@ -578,8 +581,10 @@ function renderLabelGraphic({ includeCaret = true } = {}) {
 }
 
 function composePhotoWithCurrentLabelMask() {
+  const source = getPhotoSource();
+  if (!source) return;
   ensurePhotoGraphic();
-  drawGrayscaleCover(labelPhotoGraphic, cam, 0, 0, labelPhotoGraphic.width, labelPhotoGraphic.height);
+  drawGrayscaleCover(labelPhotoGraphic, source, 0, 0, labelPhotoGraphic.width, labelPhotoGraphic.height);
 
   const mask = labelGraphic.drawingContext.getImageData(0, 0, labelGraphic.width, labelGraphic.height);
   labelPhotoGraphic.loadPixels();
@@ -689,6 +694,14 @@ function getSourceSize(source) {
 
 function isCameraReady() {
   return !!(cam && getSourceSize(cam));
+}
+
+function hasPhotoSource() {
+  return !!(droppedPhotoImage || (photoEnabled && isCameraReady()));
+}
+
+function getPhotoSource() {
+  return droppedPhotoImage || (photoEnabled && isCameraReady() ? cam : null);
 }
 
 function fitTextLayout(textValue, maxWidth, maxHeight) {
@@ -1968,6 +1981,8 @@ function clearEditor() {
   };
   labelQrText = "";
   labelQrCode = null;
+  droppedPhotoImage = null;
+  droppedPhotoName = "";
   autoSizingEnabled = true;
   detailText = "Cleared label.";
   saveEditorState();
@@ -2025,6 +2040,32 @@ function promptForQrCode() {
   }
 }
 
+function handlePhotoDrop(file) {
+  if (!file?.data || !isDroppedImageFile(file)) {
+    detailText = "Drop an image file to use it as the photo.";
+    return;
+  }
+
+  loadImage(
+    file.data,
+    (imageValue) => {
+      droppedPhotoImage = imageValue;
+      droppedPhotoName = file.name || "Dropped photo";
+      detailText = `Photo loaded: ${droppedPhotoName}.`;
+    },
+    (error) => {
+      console.error("[labelmaker2] dropped photo failed", error);
+      detailText = "Could not load dropped photo.";
+    }
+  );
+}
+
+function isDroppedImageFile(file) {
+  const type = String(file.type || "").toLowerCase();
+  const name = String(file.name || "").toLowerCase();
+  return type.startsWith("image") || /\.(png|jpe?g|gif|webp|bmp)$/i.test(name);
+}
+
 async function togglePhotoCamera() {
   if (photoEnabled) {
     stopPhotoCamera();
@@ -2064,7 +2105,7 @@ function stopPhotoCamera() {
 }
 
 function toggleBlendMode() {
-  if (photoEnabled) {
+  if (hasPhotoSource()) {
     const currentIndex = Math.max(0, photoMergeModes.indexOf(photoMergeMode));
     photoMergeMode = photoMergeModes[(currentIndex + 1) % photoMergeModes.length];
     detailText = `Photo merge: ${getPhotoMergeModeLabel()}.`;
@@ -2078,7 +2119,7 @@ function toggleBlendMode() {
 }
 
 function getBlendModeIcon() {
-  if (!photoEnabled) return labelInverted ? "invert_colors_off" : "invert_colors";
+  if (!hasPhotoSource()) return labelInverted ? "invert_colors_off" : "invert_colors";
   if (photoMergeMode === "white") return "invert_colors";
   if (photoMergeMode === "stencil") return "texture";
   if (photoMergeMode === "black") return "contrast";
