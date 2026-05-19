@@ -143,6 +143,18 @@ function draw() {
     promptAndPrintRotatedReceiptText("fast");
   }
 
+  if (debugButton("Fast 90", 3, 2).clicked) {
+    promptAndPrintVerticalReceiptText();
+  }
+
+  if (debugButton("Fast Fill", 4, 2).clicked) {
+    promptAndPrintRotatedReceiptText("fastFill");
+  }
+
+  if (debugButton("Big ASCII", 5, 2).clicked) {
+    promptAndPrintBigAsciiText();
+  }
+
   fill(15);
   noStroke();
   textSize(28);
@@ -314,6 +326,54 @@ async function printEscposBlackBar() {
   }
 }
 
+async function promptAndPrintBigAsciiText() {
+  if (busy) return;
+  const input = window.prompt("Text to print in large ESC/POS text mode:", "PORTAL\nTEST");
+  const textToPrint = String(input || "").trim();
+  if (!textToPrint) {
+    detailText = "Big ASCII print cancelled.";
+    return;
+  }
+
+  busy = true;
+  try {
+    statusText = "printing big ascii";
+    await ensurePrinterConnected();
+    await printer.writeBytes(makeEscposBigAsciiPayload(textToPrint));
+    statusText = "printed big ascii";
+    detailText = "Large ESC/POS text sent.";
+  } catch (error) {
+    console.error("[ble-label-printer] big ascii failed", error);
+    statusText = "big ascii failed";
+    detailText = error?.message || String(error);
+  } finally {
+    busy = false;
+  }
+}
+
+function makeEscposBigAsciiPayload(textToPrint) {
+  const encoder = new TextEncoder();
+  const normalizedText = String(textToPrint || "")
+    .replace(/\r\n/g, "\n")
+    .replace(/\r/g, "\n")
+    .replace(/[^\x09\x0a\x0d\x20-\x7e]/g, "?");
+  return concatBytes([
+    new Uint8Array([
+      0x1b, 0x40,
+      0x1b, 0x61, 0x01,
+      0x1d, 0x21, 0x22,
+      0x1b, 0x45, 0x01,
+    ]),
+    encoder.encode(`${normalizedText}\n`),
+    new Uint8Array([
+      0x1b, 0x45, 0x00,
+      0x1d, 0x21, 0x00,
+      0x1b, 0x61, 0x00,
+      0x0a, 0x0a, 0x0a,
+    ]),
+  ]);
+}
+
 async function promptAndPrintRotatedReceiptText(speedMode = "safe") {
   if (busy) return;
   const input = window.prompt("Text to print sideways across the receipt width:", "PORTAL");
@@ -339,6 +399,31 @@ async function promptAndPrintRotatedReceiptText(speedMode = "safe") {
   }
 }
 
+async function promptAndPrintVerticalReceiptText() {
+  if (busy) return;
+  const input = window.prompt("Text to print upright down the receipt:", "PORTAL");
+  const textToPrint = String(input || "").trim();
+  if (!textToPrint) {
+    detailText = "Fast 90 print cancelled.";
+    return;
+  }
+
+  busy = true;
+  try {
+    statusText = "rendering vertical text";
+    await ensurePrinterConnected();
+    const result = await printVerticalReceiptText(textToPrint, getVerticalTextPrintOptions());
+    statusText = "printed vertical text";
+    detailText = `Printed ${textToPrint.length} upright chars (${result.rasterRows} raster rows).`;
+  } catch (error) {
+    console.error("[ble-label-printer] vertical text failed", error);
+    statusText = "vertical text failed";
+    detailText = error?.message || String(error);
+  } finally {
+    busy = false;
+  }
+}
+
 function getLongTextPrintOptions(speedMode = "safe") {
   const shared = {
     widthDots: 384,
@@ -348,10 +433,28 @@ function getLongTextPrintOptions(speedMode = "safe") {
     outline: true,
     outlineWeight: 10,
     stripWidth: 64,
+    heatProfile: "normal",
     threshold: 170,
   };
 
-  if (speedMode === "fast") {
+  if (speedMode === "fastFill") {
+    return {
+      ...shared,
+      outline: false,
+      outlineWeight: 0,
+      heatProfile: "low",
+      bandHeight: 1,
+      transportChunkSize: 300,
+      chunkDelayMs: 0,
+      bandsPerWrite: 96,
+      writeDelayMs: 0,
+      restEveryRows: 0,
+      restMs: 0,
+      rotation: speedMode === "fast90" ? "clockwise" : "counterclockwise",
+    };
+  }
+
+  if (speedMode === "fast" || speedMode === "fast90") {
     return {
       ...shared,
       bandHeight: 1,
@@ -361,18 +464,237 @@ function getLongTextPrintOptions(speedMode = "safe") {
       writeDelayMs: 0,
       restEveryRows: 0,
       restMs: 0,
+      rotation: speedMode === "fast90" ? "clockwise" : "counterclockwise",
     };
   }
 
   return {
     ...shared,
+    outline: false,
+    outlineWeight: 0,
     bandHeight: 1,
     chunkDelayMs: 2,
     bandsPerWrite: 12,
     writeDelayMs: 80,
     restEveryRows: 36,
     restMs: 1400,
+    rotation: "counterclockwise",
   };
+}
+
+function getVerticalTextPrintOptions() {
+  return {
+    widthDots: 384,
+    fontFamily: getReceiptFontFamily(),
+    fontSize: 330,
+    paddingDots: 12,
+    outline: true,
+    outlineWeight: 10,
+    letterGapRows: 8,
+    wordGapRows: 96,
+    reverseCharacters: true,
+    flipCharacters: true,
+    heatProfile: "normal",
+    transportChunkSize: 300,
+    chunkDelayMs: 0,
+    bandHeight: 8,
+    bandsPerWrite: 10,
+    writeDelayMs: 0,
+    threshold: 170,
+  };
+}
+
+async function printVerticalReceiptText(textToPrint, {
+  widthDots = 384,
+  fontFamily = "serif",
+  fontSize = 330,
+  paddingDots = 12,
+  outline = true,
+  outlineWeight = 10,
+  letterGapRows = 8,
+  wordGapRows = 96,
+  reverseCharacters = true,
+  flipCharacters = true,
+  heatProfile = "low",
+  transportChunkSize = null,
+  chunkDelayMs = 0,
+  bandHeight = 8,
+  bandsPerWrite = 10,
+  writeDelayMs = 0,
+  threshold = 170,
+} = {}) {
+  const metrics = measureReceiptText("M", {
+    fontFamily,
+    fontSize,
+    paddingDots,
+  });
+  const renderHeight = Math.max(1, Math.ceil(metrics.ascent + metrics.descent + paddingDots * 4));
+  const baseline = Math.round(paddingDots * 2 + metrics.ascent);
+  const chars = Array.from(textToPrint);
+  if (reverseCharacters) {
+    chars.reverse();
+  }
+  let rasterRows = 0;
+
+  await withTemporaryPrinterWriteSettings({ chunkDelayMs, chunkSize: transportChunkSize }, async () => {
+    await printer.writeBytes(new Uint8Array([
+      0x1b, 0x40,
+      0x1b, 0x33, 0x00,
+    ]));
+    await applyEscposHeatProfile(heatProfile);
+    for (let index = 0; index < chars.length; index += 1) {
+      statusText = `printing vertical text ${Math.round((index / chars.length) * 100)}%`;
+      const charGraphic = makeReceiptCharacterGraphic(chars[index], {
+        widthDots,
+        heightDots: renderHeight,
+        fontFamily,
+        fontSize,
+        outline,
+        outlineWeight,
+        baseline,
+        flipCharacters,
+      });
+      const croppedGraphic = trimGraphicVerticalWhitespace(charGraphic, {
+        paddingRows: letterGapRows,
+        blankRows: chars[index] === " " ? wordGapRows : null,
+        threshold,
+      });
+      charGraphic.remove();
+      await printGraphicRasterBatched(croppedGraphic, {
+        widthDots,
+        bandHeight,
+        bandsPerWrite,
+        writeDelayMs,
+        threshold,
+      });
+      rasterRows += croppedGraphic.height;
+      croppedGraphic.remove();
+    }
+    await printer.writeBytes(new Uint8Array([
+      0x0a, 0x0a, 0x0a, 0x0a,
+    ]));
+  });
+
+  return { rasterRows };
+}
+
+function trimGraphicVerticalWhitespace(graphic, {
+  paddingRows = 8,
+  blankRows = null,
+  threshold = 170,
+} = {}) {
+  graphic.loadPixels();
+  let top = graphic.height;
+  let bottom = -1;
+  for (let y = 0; y < graphic.height; y += 1) {
+    for (let x = 0; x < graphic.width; x += 1) {
+      const pixelIndex = (y * graphic.width + x) * 4;
+      const alpha = graphic.pixels[pixelIndex + 3];
+      if (alpha <= 20) continue;
+      const red = graphic.pixels[pixelIndex];
+      const green = graphic.pixels[pixelIndex + 1];
+      const blue = graphic.pixels[pixelIndex + 2];
+      const luminance = red * 0.299 + green * 0.587 + blue * 0.114;
+      if (luminance >= threshold) continue;
+      top = Math.min(top, y);
+      bottom = Math.max(bottom, y);
+    }
+  }
+
+  if (bottom < top) {
+    return makeBlankReceiptGraphic(graphic.width, Math.max(1, blankRows ?? paddingRows));
+  }
+
+  const cropTop = Math.max(0, top - paddingRows);
+  const cropBottom = Math.min(graphic.height - 1, bottom + paddingRows);
+  const height = Math.max(1, cropBottom - cropTop + 1);
+  const cropped = createGraphics(graphic.width, height);
+  cropped.pixelDensity(1);
+  cropped.background(255);
+  cropped.image(graphic, 0, -cropTop);
+  return cropped;
+}
+
+function makeBlankReceiptGraphic(widthDots, heightDots) {
+  const graphic = createGraphics(widthDots, heightDots);
+  graphic.pixelDensity(1);
+  graphic.background(255);
+  return graphic;
+}
+
+function makeReceiptCharacterGraphic(character, {
+  widthDots = 384,
+  heightDots = 384,
+  fontFamily = "serif",
+  fontSize = 330,
+  outline = true,
+  outlineWeight = 10,
+  baseline = 330,
+  flipCharacters = false,
+} = {}) {
+  const graphic = createGraphics(widthDots, heightDots);
+  graphic.pixelDensity(1);
+  graphic.background(255);
+  graphic.textFont(fontFamily);
+  graphic.textSize(fontSize);
+  graphic.textAlign(CENTER, BASELINE);
+  if (outline) {
+    graphic.noFill();
+    graphic.stroke(0);
+    graphic.strokeWeight(outlineWeight);
+    graphic.strokeJoin(ROUND);
+  } else {
+    graphic.noStroke();
+    graphic.fill(0);
+  }
+  if (character !== " ") {
+    if (flipCharacters) {
+      graphic.push();
+      graphic.translate(widthDots, heightDots);
+      graphic.rotate(PI);
+      graphic.text(character, widthDots / 2, baseline);
+      graphic.pop();
+      return graphic;
+    }
+    graphic.text(character, widthDots / 2, baseline);
+  }
+  return graphic;
+}
+
+async function printGraphicRasterBatched(graphic, {
+  widthDots = 384,
+  bandHeight = 8,
+  bandsPerWrite = 10,
+  writeDelayMs = 0,
+  threshold = 170,
+} = {}) {
+  graphic.loadPixels();
+  const widthBytes = Math.ceil(widthDots / 8);
+  const rowsPerBand = Math.max(1, Math.min(64, Math.round(Number(bandHeight) || 1)));
+  const maxBandsPerWrite = Math.max(1, Math.min(64, Math.round(Number(bandsPerWrite) || 1)));
+  let pendingPayloads = [];
+
+  for (let y = 0; y < graphic.height; y += rowsPerBand) {
+    if (!printer?.getConnectionState?.().connected) {
+      throw new Error("Printer disconnected during vertical text print.");
+    }
+    const currentHeight = Math.min(rowsPerBand, graphic.height - y);
+    const imageBytes = packEscposRasterBand(graphic, {
+      x: 0,
+      y,
+      widthDots,
+      heightDots: currentHeight,
+      threshold,
+    });
+    pendingPayloads.push(makeEscposRasterPayload(widthBytes, currentHeight, imageBytes));
+    const shouldFlush = pendingPayloads.length >= maxBandsPerWrite || y + rowsPerBand >= graphic.height;
+    if (!shouldFlush) continue;
+    await printer.writeBytes(concatBytes(pendingPayloads));
+    pendingPayloads = [];
+    if (writeDelayMs > 0) {
+      await waitMs(writeDelayMs);
+    }
+  }
 }
 
 async function printRotatedReceiptText(textToPrint, {
@@ -390,6 +712,8 @@ async function printRotatedReceiptText(textToPrint, {
   writeDelayMs = 0,
   restEveryRows = 96,
   restMs = 700,
+  rotation = "counterclockwise",
+  heatProfile = "low",
   threshold = 170,
 } = {}) {
   const metrics = measureReceiptText(textToPrint, {
@@ -402,6 +726,7 @@ async function printRotatedReceiptText(textToPrint, {
       0x1b, 0x40,
       0x1b, 0x33, 0x00,
     ]));
+    await applyEscposHeatProfile(heatProfile);
     const pacing = { rowsSinceRest: 0 };
     for (let sourceX = 0; sourceX < metrics.sourceWidth; sourceX += stripWidth) {
       statusText = `printing long text ${Math.round((sourceX / metrics.sourceWidth) * 100)}%`;
@@ -425,6 +750,7 @@ async function printRotatedReceiptText(textToPrint, {
         writeDelayMs,
         restEveryRows,
         restMs,
+        rotation,
         pacing,
       });
       stripGraphic.remove();
@@ -494,6 +820,7 @@ async function printReceiptTextSourceStripAsRows(graphic, {
   writeDelayMs = 0,
   restEveryRows = 96,
   restMs = 700,
+  rotation = "counterclockwise",
   pacing = null,
 } = {}) {
   graphic.loadPixels();
@@ -511,6 +838,7 @@ async function printReceiptTextSourceStripAsRows(graphic, {
       sourceX,
       widthDots,
       heightDots: currentBandHeight,
+      rotation,
       threshold,
     });
     pendingPayloads.push(makeEscposRasterPayload(widthBytes, currentBandHeight, rowBytes));
@@ -550,15 +878,18 @@ function packReceiptTextColumnsAsRasterRows(graphic, {
   sourceX = 0,
   widthDots = 384,
   heightDots = 1,
+  rotation = "counterclockwise",
   threshold = 210,
 } = {}) {
   const widthBytes = Math.ceil(widthDots / 8);
   const output = new Uint8Array(widthBytes * heightDots);
   const pixels = graphic.pixels;
   for (let row = 0; row < heightDots; row += 1) {
-    const currentSourceX = sourceX + row;
+    const currentSourceX = rotation === "clockwise"
+      ? graphic.width - 1 - sourceX - row
+      : sourceX + row;
     for (let dot = 0; dot < widthDots; dot += 1) {
-      const sourceY = widthDots - 1 - dot;
+      const sourceY = rotation === "clockwise" ? dot : widthDots - 1 - dot;
       const pixelIndex = (sourceY * graphic.width + currentSourceX) * 4;
       const alpha = pixels[pixelIndex + 3];
       if (alpha <= 20) continue;
@@ -717,6 +1048,20 @@ function makeEscposRasterPayload(widthBytes, heightDots, imageBytes) {
 
 function getReceiptFontFamily() {
   return '"Rubik Mono One", monospace';
+}
+
+async function applyEscposHeatProfile(profile = "low") {
+  if (profile !== "low") return;
+  const heatDots = 7;
+  const heatTime = 55;
+  const heatInterval = 90;
+  const printDensity = 4;
+  const printBreakTime = 4;
+  const densityByte = ((printBreakTime & 0x07) << 5) | (printDensity & 0x1f);
+  await printer.writeBytes(new Uint8Array([
+    0x1b, 0x37, heatDots, heatTime, heatInterval,
+    0x12, 0x23, densityByte,
+  ]));
 }
 
 async function withTemporaryPrinterWriteSettings({
