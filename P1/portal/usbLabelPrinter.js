@@ -195,6 +195,17 @@ class UsbLabelPrinter {
     await this.writeBytes(bytes);
   }
 
+  async printEscposBitmap(imageData, options = {}) {
+    const bytes = LabelPrinterProtocol.makeEscposRasterBitmap(imageData, options);
+    this._debug("print escpos bitmap", {
+      bytes: bytes.length,
+      width: imageData?.width || 0,
+      height: imageData?.height || 0,
+      widthDots: options?.widthDots || 384,
+    });
+    await this.writeBytes(bytes);
+  }
+
   async feedEscpos(lines = 4) {
     const bytes = LabelPrinterProtocol.makeEscposFeed(lines);
     this._debug("feed escpos", {

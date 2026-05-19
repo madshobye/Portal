@@ -42,6 +42,10 @@ class LabelPrinterProtocol {
     return LabelPrinterProtocol.makeEscposFeed(lines);
   }
 
+  makeEscposRasterBitmap(imageData, options = {}) {
+    return LabelPrinterProtocol.makeEscposRasterBitmap(imageData, options);
+  }
+
   static makeZplTextLabel(text, {
     widthDots = 609,
     heightDots = 203,
@@ -220,6 +224,51 @@ class LabelPrinterProtocol {
     const bytes = new Uint8Array(count);
     bytes.fill(0x0a);
     return bytes;
+  }
+
+  static makeEscposRasterBitmap(imageData, {
+    widthDots = 384,
+    threshold = 190,
+    initialize = true,
+    feedLines = 4,
+  } = {}) {
+    if (!imageData?.data || !imageData.width || !imageData.height) {
+      throw new Error("LabelPrinterProtocol: makeEscposRasterBitmap needs ImageData");
+    }
+
+    const targetWidth = Math.max(8, Math.round(Number(widthDots) || 384));
+    const scale = targetWidth / imageData.width;
+    const targetHeight = Math.max(1, Math.round(imageData.height * scale));
+    const luminance = LabelPrinterProtocol.resampleImageDataToLuminance(imageData, targetWidth, targetHeight);
+    const rows = LabelPrinterProtocol.packMonochromeRows(luminance, targetWidth, targetHeight, {
+      threshold,
+      invert: false,
+    });
+    const widthBytes = Math.ceil(targetWidth / 8);
+    const imageBytes = LabelPrinterProtocol.concatBytes(rows);
+    const chunks = [];
+    if (initialize) {
+      chunks.push(new Uint8Array([
+        0x1b, 0x40,
+        0x1b, 0x33, 0x00,
+      ]));
+    }
+    chunks.push(LabelPrinterProtocol.makeEscposRasterPayload(widthBytes, targetHeight, imageBytes));
+    if (feedLines > 0) {
+      chunks.push(LabelPrinterProtocol.makeEscposFeed(feedLines));
+    }
+    return LabelPrinterProtocol.concatBytes(chunks);
+  }
+
+  static makeEscposRasterPayload(widthBytes, heightDots, imageBytes) {
+    const header = new Uint8Array([
+      0x1d, 0x76, 0x30, 0x00,
+      widthBytes & 0xff,
+      (widthBytes >> 8) & 0xff,
+      heightDots & 0xff,
+      (heightDots >> 8) & 0xff,
+    ]);
+    return LabelPrinterProtocol.concatBytes([header, imageBytes]);
   }
 
   static makeNiimbotB1BitmapPrint(imageData, {
