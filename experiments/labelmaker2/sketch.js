@@ -93,9 +93,9 @@ const labelPaddingModes = ["minimal", "some", "lot"];
 const photoMergeModes = ["below", "stencil", "hardblack"];
 const textOutlineModes = ["none", "outline", "opposite"];
 const minFontSize = 24;
-const maxFontSize = 1280;
+const maxFontSize = 2560;
 const defaultFontSize = 96;
-const fontSizeScale = [24, 28, 32, 36, 40, 46, 52, 60, 68, 78, 88, 100, 112, 128, 144, 164, 184, 208, 232, 256, 280, 300, 320, 360, 400, 448, 512, 576, 640, 720, 800, 896, 1024, 1152, 1280];
+const fontSizeScale = [24, 28, 32, 36, 40, 46, 52, 60, 68, 78, 88, 100, 112, 128, 144, 164, 184, 208, 232, 256, 280, 300, 320, 360, 400, 448, 512, 576, 640, 720, 800, 896, 1024, 1152, 1280, 1440, 1600, 1792, 2048, 2304, 2560];
 const lineHeightFactor = 1.16;
 const toolbarButtonHeight = 38;
 const toolbarGap = 6;
@@ -230,16 +230,21 @@ function draw() {
   const showStyleControls = !autoSizingEnabled;
   const activeStyleControlsWidth = showStyleControls ? styleControlsWidth : 0;
   const fontButtonWidth = 104;
-  const rightControlsStartX = preview.x + preview.width - rightControlsWidth;
   const oneRowControlsWidth = leftMainWidth + toolbarGap + activeStyleControlsWidth + (showStyleControls ? toolbarGap : 0) + fontButtonWidth + toolbarGap + rightControlsWidth;
   const useTwoToolbarRows = oneRowControlsWidth > preview.width;
+  const mainRowNeedsRightWrap = leftMainWidth + toolbarGap + rightControlsWidth > preview.width;
+  const secondRowRightWidth = (useTwoToolbarRows || mainRowNeedsRightWrap) ? rightControlsWidth + toolbarGap : 0;
+  const secondRowAvailableWidth = Math.max(fontButtonWidth, preview.width - secondRowRightWidth);
   const styleControlsX = useTwoToolbarRows ? preview.x : preview.x + leftMainWidth + toolbarGap;
   const styleControlsY = useTwoToolbarRows ? controlsY + toolbarButtonHeight + toolbarRowGap : controlsY;
   const fontButtonX = showStyleControls
-    ? styleControlsX + styleControlsWidth + toolbarGap
+    ? Math.min(
+      styleControlsX + styleControlsWidth + toolbarGap,
+      preview.x + secondRowAvailableWidth - fontButtonWidth
+    )
     : (useTwoToolbarRows ? preview.x : preview.x + leftMainWidth + toolbarGap);
   const fontButtonY = useTwoToolbarRows ? styleControlsY : controlsY;
-  const rightButtonY = controlsY;
+  const rightButtonY = (useTwoToolbarRows || mainRowNeedsRightWrap) ? controlsY + toolbarButtonHeight + toolbarRowGap : controlsY;
   drawPrintHistorySlider(preview);
   const modeButton = drawIconButton(outputMode === "receipt" ? "receipt_long" : "label", {
     x: preview.x,
@@ -905,11 +910,11 @@ function getLabelRenderKey() {
 }
 
 function renderPhotoBelowText(source) {
-  labelGraphic.background(255);
+  labelGraphic.background(getPaperColor());
   drawGrayscaleCover(labelGraphic, source, 0, 0, labelGraphic.width, labelGraphic.height);
   labelGraphic.image(labelTextGraphic, 0, 0);
   if (photoMergeMode === "hardblack") {
-    applyMonochromeThresholdPreview(labelGraphic, outputMode === "receipt" ? 190 : 210);
+    applyMonochromeThresholdPreview(labelGraphic, outputMode === "receipt" ? 190 : 150);
   }
 }
 
@@ -926,36 +931,147 @@ function composePhotoWithCurrentLabelMask() {
 
   labelPhotoGraphic.clear();
   labelPhotoGraphic.background(getPaperColor());
-
-  const ctx = labelPhotoGraphic.drawingContext;
-  const previousComposite = ctx.globalCompositeOperation || "source-over";
-  ctx.save();
-  ctx.globalCompositeOperation = "destination-out";
-  drawStencilCutouts(labelPhotoGraphic);
-  ctx.restore();
-  ctx.globalCompositeOperation = previousComposite;
+  if (textOutlineMode === "outline") {
+    labelPhotoGraphic.blendMode(REMOVE);
+    drawStencilFillCutouts(labelPhotoGraphic);
+    labelPhotoGraphic.blendMode(BLEND);
+    drawStencilOutlineText(labelPhotoGraphic, getInkColor());
+  } else if (textOutlineMode === "opposite") {
+    labelPhotoGraphic.blendMode(REMOVE);
+    drawStencilOutlineCutouts(labelPhotoGraphic);
+  } else {
+    labelPhotoGraphic.blendMode(REMOVE);
+    drawStencilFillCutouts(labelPhotoGraphic);
+  }
+  labelPhotoGraphic.blendMode(BLEND);
 
   labelGraphic.image(labelPhotoGraphic, 0, 0);
 }
 
-function drawStencilCutouts(target) {
+function drawStencilFillCutouts(target) {
   const labelLayout = getLabelLayout();
   const layout = cachedLabelLayout || fitTextLayout(labelText, labelLayout.textArea.width, labelLayout.textArea.height);
   const textOrigin = cachedTextOrigin || getTextRenderOrigin(layout, labelLayout);
 
-  drawLabelQrCode(labelLayout.qrBox, target, { drawPaper: false });
+  drawLabelQrCode(labelLayout.qrBox, target, { drawPaper: false, inkColor: 255 });
   applyEditorFont(target);
   target.textAlign(LEFT, TOP);
-  target.fill(0);
-  target.stroke(0);
 
   let y = textOrigin.y;
   for (const line of layout.lines) {
-    drawStyledLine(line, y, textOrigin.x, target);
+    drawStyledLineFillOnly(line, y, textOrigin.x, target);
     y += line.lineHeight;
   }
   target.noStroke();
   target.textStyle(NORMAL);
+}
+
+function drawStencilOutlineCutouts(target) {
+  const labelLayout = getLabelLayout();
+  const layout = cachedLabelLayout || fitTextLayout(labelText, labelLayout.textArea.width, labelLayout.textArea.height);
+  const textOrigin = cachedTextOrigin || getTextRenderOrigin(layout, labelLayout);
+
+  drawLabelQrCode(labelLayout.qrBox, target, { drawPaper: false, inkColor: 255 });
+  applyEditorFont(target);
+  target.textAlign(LEFT, TOP);
+
+  let y = textOrigin.y;
+  for (const line of layout.lines) {
+    drawStyledLineOutlineOnly(line, y, textOrigin.x, target, 255);
+    y += line.lineHeight;
+  }
+  target.noStroke();
+  target.textStyle(NORMAL);
+}
+
+function drawStencilOutlineText(target, colorValue) {
+  const labelLayout = getLabelLayout();
+  const layout = cachedLabelLayout || fitTextLayout(labelText, labelLayout.textArea.width, labelLayout.textArea.height);
+  const textOrigin = cachedTextOrigin || getTextRenderOrigin(layout, labelLayout);
+
+  applyEditorFont(target);
+  target.textAlign(LEFT, TOP);
+
+  let y = textOrigin.y;
+  for (const line of layout.lines) {
+    drawStyledLineOutlineOnly(line, y, textOrigin.x, target, colorValue);
+    y += line.lineHeight;
+  }
+  target.noStroke();
+  target.textStyle(NORMAL);
+}
+
+function drawStyledLineFillOnly(line, y, startX = getLabelTextRect().x, target = labelGraphic) {
+  const segments = getLineSegments(line.start, line.end, line.text);
+  const autoLineBold = isAutoLineBold(line.text);
+  let x = startX - getLineLeadingInkOffset(line);
+
+  for (const segment of segments) {
+    const textValue = segment.text || " ";
+    const style = segment.style || {};
+    const mergedStyle = {
+      bold: !!(style.bold || autoLineBold),
+      italic: !!style.italic,
+      underline: false,
+    };
+    const whitespaceOnly = isWhitespaceOnly(textValue);
+    const renderStyle = whitespaceOnly
+      ? { bold: false, italic: false, underline: false }
+      : mergedStyle;
+    const widthValue = whitespaceOnly
+      ? measureWhitespaceWidth(textValue, line.fontSize)
+      : measureTextWidth(textValue, line.fontSize, renderStyle);
+
+    if (!whitespaceOnly) {
+      target.push();
+      applyEditorFont(target, line.fontSize);
+      target.textLeading(line.lineHeight);
+      applySegmentTextStyle(renderStyle, target);
+      target.fill(255);
+      target.noStroke();
+      target.text(textValue, x, y);
+      target.pop();
+    }
+
+    x += widthValue;
+  }
+}
+
+function drawStyledLineOutlineOnly(line, y, startX = getLabelTextRect().x, target = labelGraphic, colorValue = getInkColor()) {
+  const segments = getLineSegments(line.start, line.end, line.text);
+  const autoLineBold = isAutoLineBold(line.text);
+  let x = startX - getLineLeadingInkOffset(line);
+
+  for (const segment of segments) {
+    const textValue = segment.text || " ";
+    const style = segment.style || {};
+    const mergedStyle = {
+      bold: !!(style.bold || autoLineBold),
+      italic: !!style.italic,
+      underline: false,
+    };
+    const whitespaceOnly = isWhitespaceOnly(textValue);
+    const renderStyle = whitespaceOnly
+      ? { bold: false, italic: false, underline: false }
+      : mergedStyle;
+    const widthValue = whitespaceOnly
+      ? measureWhitespaceWidth(textValue, line.fontSize)
+      : measureTextWidth(textValue, line.fontSize, renderStyle);
+
+    if (!whitespaceOnly) {
+      target.push();
+      applyEditorFont(target, line.fontSize);
+      target.textLeading(line.lineHeight);
+      applySegmentTextStyle(renderStyle, target);
+      target.noFill();
+      target.stroke(colorValue);
+      target.strokeWeight(getTextOutlineWeight(line.fontSize));
+      target.text(textValue, x, y);
+      target.pop();
+    }
+
+    x += widthValue;
+  }
 }
 
 function applyMonochromeThresholdPreview(target, threshold = 210) {
@@ -1269,7 +1385,7 @@ function drawLabelQrCode(qrBox = getLabelQrBox(), target = labelGraphic, options
   drawQrCodeToGraphics(target, labelQrCode, qrBox.x, qrBox.y, qrBox.size, options);
 }
 
-function drawQrCodeToGraphics(target, qr, x, y, size, { drawPaper = true } = {}) {
+function drawQrCodeToGraphics(target, qr, x, y, size, { drawPaper = true, inkColor = getInkColor() } = {}) {
   if (!qr || !Number.isFinite(Number(qr.size)) || typeof qr.getModule !== "function") return;
   const moduleCount = Number(qr.size);
   const moduleSize = size / moduleCount;
@@ -1279,7 +1395,7 @@ function drawQrCodeToGraphics(target, qr, x, y, size, { drawPaper = true } = {})
     target.fill(getPaperColor());
     target.rect(x, y, size, size);
   }
-  target.fill(getInkColor());
+  target.fill(inkColor);
   for (let row = 0; row < moduleCount; row += 1) {
     for (let col = 0; col < moduleCount; col += 1) {
       if (!qr.getModule(col, row)) continue;
@@ -1303,11 +1419,11 @@ function getPaperColor() {
 }
 
 function getOppositeTextFillColor() {
-  return getInkColor();
+  return getPaperColor();
 }
 
 function getOppositeTextStrokeColor() {
-  return getPaperColor();
+  return getInkColor();
 }
 
 function buildManualLayout(textValue, maxWidth, maxHeight) {
@@ -2220,7 +2336,7 @@ function drawStyledLine(line, y, startX = getLabelTextRect().x, target = labelGr
 
 function drawTextWithOutlineMode(text, x, y, fontSize, target = labelGraphic) {
   
-  const outlineWeight = 14/850 * fontSize;//Math.max(1, Math.sqrt(fontSize) * 0.22);
+  const outlineWeight = getTextOutlineWeight(fontSize);
   if (textOutlineMode === "outline") {
     target.noFill();
     target.stroke(getInkColor());
@@ -2229,11 +2345,14 @@ function drawTextWithOutlineMode(text, x, y, fontSize, target = labelGraphic) {
     return;
   }
   if (textOutlineMode === "opposite") {
-    target.fill(getOppositeTextFillColor());
+    const fillColor = getOppositeTextFillColor();
+    const strokeColor = getOppositeTextStrokeColor();
+    target.fill(fillColor);
     target.noStroke();
     target.text(text, x, y);
+    if (fillColor === strokeColor) return;
     target.noFill();
-    target.stroke(getOppositeTextStrokeColor());
+    target.stroke(strokeColor);
     target.strokeWeight(outlineWeight);
     target.text(text, x, y);
     return;
@@ -2241,6 +2360,10 @@ function drawTextWithOutlineMode(text, x, y, fontSize, target = labelGraphic) {
   target.fill(getInkColor());
   target.noStroke();
   target.text(text, x, y);
+}
+
+function getTextOutlineWeight(fontSize) {
+  return 14 / 850 * fontSize;
 }
 
 function drawCharacterBoundaryDebug(line, y, startX = getLabelTextRect().x, target = labelGraphic) {
