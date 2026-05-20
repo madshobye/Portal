@@ -103,7 +103,7 @@ const toolbarRowGap = 8;
 const tooltipDelayMs = 450;
 const historySliderHeight = 22;
 const historySliderTop = 12;
-const maxPrintHistory = 24;
+const printHistoryStoragePressureLimit = 0.9;
 const fallbackFontFamily = "Helvetica";
 const googleFontFamilies = [
   "Material Symbols Rounded",
@@ -215,12 +215,14 @@ function draw() {
   const buttonLabel = busy
     ? "cancel"
     : (isConnected ? "print" : "bluetooth");
+  const hasPhotoControls = hasPhotoSource() || photoEnabled || photoCameraStarting;
   const controlsY = preview.y + preview.height + 16;
   const squareButtonWidth = toolbarButtonHeight;
   const buttonWidth = squareButtonWidth;
   const clearButtonWidth = squareButtonWidth;
+  const downloadButtonWidth = squareButtonWidth;
   const modeButtonWidth = squareButtonWidth;
-  const rightControlsWidth = buttonWidth + toolbarGap + clearButtonWidth;
+  const rightControlsWidth = buttonWidth + toolbarGap + clearButtonWidth + toolbarGap + downloadButtonWidth;
   const showRemovePhotoButton = hasStoredPhoto();
   const leftMainButtons = showRemovePhotoButton ? 11 : 10;
   const leftMainWidth = leftMainButtons * squareButtonWidth + (leftMainButtons - 1) * toolbarGap;
@@ -288,6 +290,18 @@ function draw() {
     clearEditor();
   }
 
+  const downloadButton = drawIconButton("download", {
+    x: preview.x + preview.width - buttonWidth - toolbarGap - clearButtonWidth - toolbarGap - downloadButtonWidth,
+    y: rightButtonY,
+    width: downloadButtonWidth,
+    height: toolbarButtonHeight,
+    disabled: busy,
+    tooltip: "Save and download",
+  });
+  if (!busy && downloadButton.clicked) {
+    downloadCurrentLabel();
+  }
+
   const autoButtonWidth = squareButtonWidth;
   const formatX = preview.x + modeButtonWidth + toolbarGap;
   const orientationX = formatX + squareButtonWidth + toolbarGap;
@@ -295,8 +309,8 @@ function draw() {
   const paddingButtonX = autoButtonX + autoButtonWidth + toolbarGap;
   const qrButtonX = paddingButtonX + squareButtonWidth + toolbarGap;
   const photoButtonX = qrButtonX + squareButtonWidth + toolbarGap;
-  const blendButtonX = photoButtonX + squareButtonWidth + toolbarGap;
-  const invertButtonX = blendButtonX + squareButtonWidth + toolbarGap;
+  const blendButtonX = hasPhotoControls ? photoButtonX + squareButtonWidth + toolbarGap : null;
+  const invertButtonX = (hasPhotoControls ? blendButtonX : photoButtonX) + squareButtonWidth + toolbarGap;
   const outlineButtonX = invertButtonX + squareButtonWidth + toolbarGap;
   const removePhotoButtonX = outlineButtonX + squareButtonWidth + toolbarGap;
 
@@ -379,18 +393,20 @@ function draw() {
     togglePhotoCamera();
   }
 
-  const blendButton = drawIconButton(getBlendModeIcon(), {
-    x: blendButtonX,
-    y: controlsY,
-    width: squareButtonWidth,
-    height: toolbarButtonHeight,
-    active: photoMergeMode !== "below",
-    disabled: busy,
-    iconSize: 22,
-    tooltip: `Photo: ${getPhotoMergeModeLabel()}`,
-  });
-  if (!busy && blendButton.clicked) {
-    togglePhotoMergeMode();
+  if (hasPhotoControls) {
+    const blendButton = drawIconButton(getBlendModeIcon(), {
+      x: blendButtonX,
+      y: controlsY,
+      width: squareButtonWidth,
+      height: toolbarButtonHeight,
+      active: photoMergeMode !== "below",
+      disabled: busy,
+      iconSize: 22,
+      tooltip: `Photo: ${getPhotoMergeModeLabel()}`,
+    });
+    if (!busy && blendButton.clicked) {
+      togglePhotoMergeMode();
+    }
   }
 
   const invertButton = drawIconButton(labelInverted ? "invert_colors_off" : "invert_colors", {
@@ -756,6 +772,49 @@ async function handlePrimaryButton() {
       printCancelRequested = false;
     }
   }
+}
+
+function downloadCurrentLabel() {
+  renderLabelGraphic();
+  recordPrintHistory();
+  const canvas = labelGraphic?.canvas || labelGraphic?.elt;
+  if (!canvas) {
+    detailText = "No label image to download.";
+    return;
+  }
+
+  const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
+  const filename = `labelmaker2-${timestamp}.png`;
+
+  const downloadBlob = (blob) => {
+    if (!blob) {
+      detailText = "Could not create label image.";
+      return;
+    }
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = filename;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+    detailText = `Saved and downloaded label ${printHistoryIndex + 1}/${printHistory.length}.`;
+  };
+
+  if (typeof canvas.toBlob === "function") {
+    canvas.toBlob(downloadBlob, "image/png");
+    return;
+  }
+
+  const dataUrl = canvas.toDataURL("image/png");
+  const link = document.createElement("a");
+  link.href = dataUrl;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  detailText = `Saved and downloaded label ${printHistoryIndex + 1}/${printHistory.length}.`;
 }
 
 function cancelActivePrint() {
@@ -2556,9 +2615,6 @@ function recordPrintHistory() {
     state: getEditorSnapshot(),
   };
   printHistory.push(entry);
-  if (printHistory.length > maxPrintHistory) {
-    printHistory = printHistory.slice(printHistory.length - maxPrintHistory);
-  }
   printHistoryIndex = printHistory.length - 1;
   savePrintHistory();
   syncPrintHistorySlider();
@@ -2595,14 +2651,42 @@ function confirmAndClearPrintHistory() {
 function savePrintHistory() {
   try {
     localStorage.setItem(printHistoryStorageKey, JSON.stringify(printHistory));
+    prunePrintHistoryIfStoragePressure();
   } catch {
-    printHistory = printHistory.slice(Math.max(0, printHistory.length - Math.ceil(maxPrintHistory / 2)));
+    prunePrintHistoryUntilWritable();
+  }
+}
+
+function prunePrintHistoryUntilWritable() {
+  while (printHistory.length > 1) {
+    const removeCount = Math.max(1, Math.ceil(printHistory.length * 0.1));
+    printHistory = printHistory.slice(removeCount);
     printHistoryIndex = printHistory.length ? printHistory.length - 1 : -1;
     syncPrintHistorySlider();
     try {
       localStorage.setItem(printHistoryStorageKey, JSON.stringify(printHistory));
+      detailText = `History trimmed to ${printHistory.length} items because storage was full.`;
+      return;
     } catch {}
   }
+}
+
+function prunePrintHistoryIfStoragePressure() {
+  if (!navigator?.storage?.estimate) return;
+  navigator.storage.estimate().then((estimate) => {
+    const usage = Number(estimate?.usage || 0);
+    const quota = Number(estimate?.quota || 0);
+    if (!quota || usage / quota < printHistoryStoragePressureLimit) return;
+    const removeCount = Math.max(1, Math.ceil(printHistory.length * 0.1));
+    printHistory = printHistory.slice(removeCount);
+    printHistoryIndex = printHistory.length ? Math.min(printHistoryIndex, printHistory.length - 1) : -1;
+    syncPrintHistorySlider();
+    try {
+      localStorage.setItem(printHistoryStorageKey, JSON.stringify(printHistory));
+    } catch {
+      prunePrintHistoryUntilWritable();
+    }
+  }).catch(() => {});
 }
 
 function loadPrintHistory() {
@@ -2611,7 +2695,7 @@ function loadPrintHistory() {
     if (!raw) return;
     const data = JSON.parse(raw);
     printHistory = Array.isArray(data)
-      ? data.filter((entry) => entry?.state).slice(-maxPrintHistory)
+      ? data.filter((entry) => entry?.state)
       : [];
     printHistoryIndex = printHistory.length ? printHistory.length - 1 : -1;
     syncPrintHistorySlider();
