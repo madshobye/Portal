@@ -90,7 +90,7 @@ const labelPaddingPresets = {
   },
 };
 const labelPaddingModes = ["minimal", "some", "lot"];
-const photoMergeModes = ["below", "white", "stencil", "black", "nodither", "noditherwhite"];
+const photoMergeModes = ["below", "stencil", "hardblack"];
 const textOutlineModes = ["none", "outline", "opposite"];
 const minFontSize = 24;
 const maxFontSize = 1280;
@@ -291,7 +291,8 @@ function draw() {
   const qrButtonX = paddingButtonX + squareButtonWidth + toolbarGap;
   const photoButtonX = qrButtonX + squareButtonWidth + toolbarGap;
   const blendButtonX = photoButtonX + squareButtonWidth + toolbarGap;
-  const outlineButtonX = blendButtonX + squareButtonWidth + toolbarGap;
+  const invertButtonX = blendButtonX + squareButtonWidth + toolbarGap;
+  const outlineButtonX = invertButtonX + squareButtonWidth + toolbarGap;
   const removePhotoButtonX = outlineButtonX + squareButtonWidth + toolbarGap;
 
   const toggleButton = drawIconButton(labelFormat === "10x10" ? "crop_square" : "aspect_ratio", {
@@ -378,13 +379,27 @@ function draw() {
     y: controlsY,
     width: squareButtonWidth,
     height: toolbarButtonHeight,
-    active: hasPhotoSource() || labelInverted,
+    active: photoMergeMode !== "below",
     disabled: busy,
     iconSize: 22,
-    tooltip: hasPhotoSource() ? `Blend: ${getPhotoMergeModeLabel()}` : (labelInverted ? "Invert off" : "Invert"),
+    tooltip: `Photo: ${getPhotoMergeModeLabel()}`,
   });
   if (!busy && blendButton.clicked) {
-    toggleBlendMode();
+    togglePhotoMergeMode();
+  }
+
+  const invertButton = drawIconButton(labelInverted ? "invert_colors_off" : "invert_colors", {
+    x: invertButtonX,
+    y: controlsY,
+    width: squareButtonWidth,
+    height: toolbarButtonHeight,
+    active: labelInverted,
+    disabled: busy,
+    iconSize: 22,
+    tooltip: labelInverted ? "Invert off" : "Invert",
+  });
+  if (!busy && invertButton.clicked) {
+    toggleInvertMode();
   }
 
   const outlineButton = drawIconButton(getTextOutlineModeIcon(), {
@@ -702,7 +717,7 @@ async function handlePrimaryButton() {
       threshold: 210,
       density: 12,
       invert: true,
-      dither: true,
+      dither: photoMergeMode !== "hardblack",
     });
     backgroundPrintStarted = true;
     activePrintJob = printJob;
@@ -771,7 +786,7 @@ async function printReceiptPreview(imageData) {
 }
 
 function shouldDitherPhotoPrint() {
-  return !(hasPhotoSource() && (photoMergeMode === "nodither" || photoMergeMode === "noditherwhite"));
+  return !(hasPhotoSource() && photoMergeMode === "hardblack");
 }
 
 function rotateImageDataClockwise(imageData) {
@@ -893,13 +908,13 @@ function renderPhotoBelowText(source) {
   labelGraphic.background(255);
   drawGrayscaleCover(labelGraphic, source, 0, 0, labelGraphic.width, labelGraphic.height);
   labelGraphic.image(labelTextGraphic, 0, 0);
-  if (photoMergeMode === "nodither" || photoMergeMode === "noditherwhite") {
+  if (photoMergeMode === "hardblack") {
     applyMonochromeThresholdPreview(labelGraphic, outputMode === "receipt" ? 190 : 210);
   }
 }
 
 function isPhotoMaskMergeMode() {
-  return photoMergeMode === "stencil" || photoMergeMode === "black";
+  return photoMergeMode === "stencil";
 }
 
 function composePhotoWithCurrentLabelMask() {
@@ -909,19 +924,38 @@ function composePhotoWithCurrentLabelMask() {
 
   drawGrayscaleCover(labelGraphic, source, 0, 0, labelGraphic.width, labelGraphic.height);
 
-  const coverValue = photoMergeMode === "black" ? 0 : 255;
   labelPhotoGraphic.clear();
-  labelPhotoGraphic.background(coverValue);
+  labelPhotoGraphic.background(getPaperColor());
 
   const ctx = labelPhotoGraphic.drawingContext;
   const previousComposite = ctx.globalCompositeOperation || "source-over";
   ctx.save();
   ctx.globalCompositeOperation = "destination-out";
-  labelPhotoGraphic.image(labelTextGraphic, 0, 0);
+  drawStencilCutouts(labelPhotoGraphic);
   ctx.restore();
   ctx.globalCompositeOperation = previousComposite;
 
   labelGraphic.image(labelPhotoGraphic, 0, 0);
+}
+
+function drawStencilCutouts(target) {
+  const labelLayout = getLabelLayout();
+  const layout = cachedLabelLayout || fitTextLayout(labelText, labelLayout.textArea.width, labelLayout.textArea.height);
+  const textOrigin = cachedTextOrigin || getTextRenderOrigin(layout, labelLayout);
+
+  drawLabelQrCode(labelLayout.qrBox, target, { drawPaper: false });
+  applyEditorFont(target);
+  target.textAlign(LEFT, TOP);
+  target.fill(0);
+  target.stroke(0);
+
+  let y = textOrigin.y;
+  for (const line of layout.lines) {
+    drawStyledLine(line, y, textOrigin.x, target);
+    y += line.lineHeight;
+  }
+  target.noStroke();
+  target.textStyle(NORMAL);
 }
 
 function applyMonochromeThresholdPreview(target, threshold = 210) {
@@ -1230,19 +1264,21 @@ function getTextRenderOrigin(layout, labelLayout = getLabelLayout()) {
   return { x, y };
 }
 
-function drawLabelQrCode(qrBox = getLabelQrBox(), target = labelGraphic) {
+function drawLabelQrCode(qrBox = getLabelQrBox(), target = labelGraphic, options = {}) {
   if (!qrBox) return;
-  drawQrCodeToGraphics(target, labelQrCode, qrBox.x, qrBox.y, qrBox.size);
+  drawQrCodeToGraphics(target, labelQrCode, qrBox.x, qrBox.y, qrBox.size, options);
 }
 
-function drawQrCodeToGraphics(target, qr, x, y, size) {
+function drawQrCodeToGraphics(target, qr, x, y, size, { drawPaper = true } = {}) {
   if (!qr || !Number.isFinite(Number(qr.size)) || typeof qr.getModule !== "function") return;
   const moduleCount = Number(qr.size);
   const moduleSize = size / moduleCount;
   target.push();
   target.noStroke();
-  target.fill(getPaperColor());
-  target.rect(x, y, size, size);
+  if (drawPaper) {
+    target.fill(getPaperColor());
+    target.rect(x, y, size, size);
+  }
   target.fill(getInkColor());
   for (let row = 0; row < moduleCount; row += 1) {
     for (let col = 0; col < moduleCount; col += 1) {
@@ -1259,13 +1295,11 @@ function drawQrCodeToGraphics(target, qr, x, y, size) {
 }
 
 function getInkColor() {
-  if (hasPhotoSource() && (photoMergeMode === "white" || photoMergeMode === "noditherwhite")) return 255;
-  return labelInverted && !hasPhotoSource() ? 255 : 0;
+  return labelInverted ? 255 : 0;
 }
 
 function getPaperColor() {
-  if (hasPhotoSource()) return 255;
-  return labelInverted && !hasPhotoSource() ? 0 : 255;
+  return labelInverted ? 0 : 255;
 }
 
 function getOppositeTextFillColor() {
@@ -2368,8 +2402,8 @@ function applyEditorSnapshot(data = {}) {
   labelPaddingMode = labelPaddingModes.includes(data.labelPaddingMode) ? data.labelPaddingMode : "minimal";
   labelQrText = typeof data.labelQrText === "string" ? data.labelQrText : "";
   labelQrCode = labelQrText ? createQRCode(labelQrText) : null;
-  photoMergeMode = photoMergeModes.includes(data.photoMergeMode) ? data.photoMergeMode : "below";
-  labelInverted = !!data.labelInverted;
+  photoMergeMode = normalizePhotoMergeMode(data.photoMergeMode);
+  labelInverted = !!data.labelInverted || data.photoMergeMode === "black" || data.photoMergeMode === "white" || data.photoMergeMode === "noditherwhite";
   textOutlineMode = textOutlineModes.includes(data.textOutlineMode) ? data.textOutlineMode : "none";
   droppedPhotoImage = null;
   droppedPhotoName = "";
@@ -2515,8 +2549,8 @@ function loadEditorState() {
     labelPaddingMode = labelPaddingModes.includes(data.labelPaddingMode) ? data.labelPaddingMode : "minimal";
     labelQrText = typeof data.labelQrText === "string" ? data.labelQrText : "";
     labelQrCode = labelQrText ? createQRCode(labelQrText) : null;
-    photoMergeMode = photoMergeModes.includes(data.photoMergeMode) ? data.photoMergeMode : "below";
-    labelInverted = !!data.labelInverted;
+    photoMergeMode = normalizePhotoMergeMode(data.photoMergeMode);
+    labelInverted = !!data.labelInverted || data.photoMergeMode === "black" || data.photoMergeMode === "white" || data.photoMergeMode === "noditherwhite";
     textOutlineMode = textOutlineModes.includes(data.textOutlineMode) ? data.textOutlineMode : "none";
     photoEnabled = false;
     photoCameraStarting = false;
@@ -2702,17 +2736,18 @@ function stopPhotoCamera() {
   cam = null;
 }
 
-function toggleBlendMode() {
-  if (hasPhotoSource()) {
-    const currentIndex = Math.max(0, photoMergeModes.indexOf(photoMergeMode));
-    photoMergeMode = photoMergeModes[(currentIndex + 1) % photoMergeModes.length];
-    detailText = `Photo merge: ${getPhotoMergeModeLabel()}.`;
-    saveEditorState();
-    return;
-  }
+function togglePhotoMergeMode() {
+  const currentIndex = Math.max(0, photoMergeModes.indexOf(photoMergeMode));
+  photoMergeMode = photoMergeModes[(currentIndex + 1) % photoMergeModes.length];
+  detailText = `Photo: ${getPhotoMergeModeLabel()}.`;
+  markLabelDirty();
+  saveEditorState();
+}
 
+function toggleInvertMode() {
   labelInverted = !labelInverted;
   detailText = labelInverted ? "Inverted label." : "Normal label.";
+  markLabelDirty();
   saveEditorState();
 }
 
@@ -2736,22 +2771,23 @@ function getTextOutlineModeLabel() {
 }
 
 function getBlendModeIcon() {
-  if (!hasPhotoSource()) return labelInverted ? "invert_colors_off" : "invert_colors";
-  if (photoMergeMode === "white") return "invert_colors";
   if (photoMergeMode === "stencil") return "texture";
-  if (photoMergeMode === "black") return "contrast";
-  if (photoMergeMode === "nodither") return "filter_b_and_w";
-  if (photoMergeMode === "noditherwhite") return "filter_b_and_w";
+  if (photoMergeMode === "hardblack") return "filter_b_and_w";
   return "vertical_align_bottom";
 }
 
 function getPhotoMergeModeLabel() {
-  if (photoMergeMode === "white") return "white";
-  if (photoMergeMode === "stencil") return "mask";
-  if (photoMergeMode === "black") return "black";
-  if (photoMergeMode === "nodither") return "bw";
-  if (photoMergeMode === "noditherwhite") return "wbw";
+  if (photoMergeMode === "stencil") return "stencil";
+  if (photoMergeMode === "hardblack") return "hard black";
   return "under";
+}
+
+function normalizePhotoMergeMode(value) {
+  if (photoMergeModes.includes(value)) return value;
+  if (value === "nodither" || value === "noditherwhite") return "hardblack";
+  if (value === "white") return "below";
+  if (value === "black") return "stencil";
+  return "below";
 }
 
 function rebuildLabelGraphic() {
