@@ -41,6 +41,12 @@ let photoEnabled = false;
 let photoMergeMode = "below";
 let labelInverted = false;
 const debugCharacterBounds = false;
+let tooltipKey = "";
+let tooltipLabel = "";
+let tooltipX = 0;
+let tooltipY = 0;
+let tooltipStartedAt = 0;
+let tooltipActiveThisFrame = false;
 
 const labelFormats = {
   "10x10": { widthCm: 10, heightCm: 10 },
@@ -78,6 +84,7 @@ const lineHeightFactor = 1.16;
 const toolbarButtonHeight = 38;
 const toolbarGap = 6;
 const toolbarRowGap = 8;
+const tooltipDelayMs = 450;
 const fallbackFontFamily = "Helvetica";
 const googleFontFamilies = [
   "Material Symbols Rounded",
@@ -157,6 +164,7 @@ function draw() {
   renderLabelGraphic({ includeCaret: true });
 
   background(0);
+  beginTooltipFrame();
 
   const preview = getPreviewRect();
   const connectionState = printer?.getConnectionState?.() || {};
@@ -196,6 +204,7 @@ function draw() {
     active: !outputModeAuto,
     disabled: busy,
     marker: outputModeAuto ? "autorenew" : "",
+    tooltip: outputModeAuto ? `Auto output: ${outputMode}` : `Output: ${outputMode}`,
   });
   if (!busy && modeButton.clicked) {
     toggleOutputMode();
@@ -209,6 +218,7 @@ function draw() {
     primary: true,
     disabled: busy,
     spin: busy,
+    tooltip: isConnected ? "Print" : "Connect printer",
   });
   if (!busy && button.clicked) {
     handlePrimaryButton();
@@ -220,6 +230,7 @@ function draw() {
     width: clearButtonWidth,
     height: toolbarButtonHeight,
     disabled: busy,
+    tooltip: "Clear",
   });
   if (!busy && clearButton.clicked) {
     clearEditor();
@@ -240,6 +251,7 @@ function draw() {
     width: squareButtonWidth,
     height: toolbarButtonHeight,
     disabled: busy,
+    tooltip: labelFormat === "10x10" ? "Use 10 x 15" : "Use square",
   });
   if (!busy && toggleButton.clicked) {
     toggleLabelFormat();
@@ -251,6 +263,7 @@ function draw() {
     width: squareButtonWidth,
     height: toolbarButtonHeight,
     disabled: busy,
+    tooltip: orientation === "portrait" ? "Portrait" : "Landscape",
   });
   if (!busy && orientationButton.clicked) {
     toggleOrientation();
@@ -263,6 +276,7 @@ function draw() {
     height: toolbarButtonHeight,
     active: autoSizingEnabled,
     disabled: busy,
+    tooltip: autoSizingEnabled ? "Auto size on" : "Auto size off",
   });
   if (!busy && autoButton.clicked) {
     autoSizingEnabled = !autoSizingEnabled;
@@ -278,6 +292,7 @@ function draw() {
     active: labelPaddingMode !== "minimal",
     disabled: busy,
     markerText: labelPaddingMode === "minimal" ? "min" : (labelPaddingMode === "some" ? "mid" : "max"),
+    tooltip: `Padding: ${labelPaddingMode}`,
   });
   if (!busy && paddingButton.clicked) {
     toggleLabelPadding();
@@ -290,6 +305,7 @@ function draw() {
     height: toolbarButtonHeight,
     active: !!labelQrText,
     disabled: busy,
+    tooltip: labelQrText ? "Remove QR" : "Add QR",
   });
   if (!busy && qrButton.clicked) {
     promptForQrCode();
@@ -302,6 +318,7 @@ function draw() {
     height: toolbarButtonHeight,
     active: photoEnabled,
     disabled: busy || photoCameraStarting,
+    tooltip: photoEnabled ? "Camera on" : "Camera off",
   });
   if (!busy && !photoCameraStarting && photoButton.clicked) {
     togglePhotoCamera();
@@ -315,6 +332,7 @@ function draw() {
     active: hasPhotoSource() || labelInverted,
     disabled: busy,
     iconSize: 22,
+    tooltip: hasPhotoSource() ? `Blend: ${getPhotoMergeModeLabel()}` : (labelInverted ? "Invert off" : "Invert"),
   });
   if (!busy && blendButton.clicked) {
     toggleBlendMode();
@@ -343,11 +361,13 @@ function draw() {
     stroke: { weight: 0 },
     textColor: busy ? "#5a5a5a" : "#000000",
   });
+  registerTooltip("font", `Font: ${getEditorFontLabel()}`, fontButtonX, fontButtonY, fontButtonWidth, toolbarButtonHeight);
   if (!busy && fontButton.clicked) {
     toggleEditorFont();
   }
 
   drawPreviewCard(preview);
+  drawPendingTooltip();
 }
 
 function drawTextStyleControls(x, y, disabled = false, options = {}) {
@@ -355,12 +375,12 @@ function drawTextStyleControls(x, y, disabled = false, options = {}) {
   const buttonHeight = options.buttonHeight || 46;
   const gap = options.gap || 8;
   const buttons = [
-    { icon: "format_bold", active: isTextStyleControlActive("bold"), action: () => toggleCurrentLineStyle("bold") },
-    { icon: "format_italic", active: isTextStyleControlActive("italic"), action: () => toggleCurrentLineStyle("italic") },
-    { icon: "format_underlined", active: isTextStyleControlActive("underline"), action: () => toggleCurrentLineStyle("underline") },
-    { icon: "text_decrease", action: () => adjustCurrentLineFontSize(-1) },
-    { icon: "restart_alt", action: () => resetCurrentLineFontSize() },
-    { icon: "text_increase", action: () => adjustCurrentLineFontSize(+1) },
+    { icon: "format_bold", tooltip: "Bold", active: isTextStyleControlActive("bold"), action: () => toggleCurrentLineStyle("bold") },
+    { icon: "format_italic", tooltip: "Italic", active: isTextStyleControlActive("italic"), action: () => toggleCurrentLineStyle("italic") },
+    { icon: "format_underlined", tooltip: "Underline", active: isTextStyleControlActive("underline"), action: () => toggleCurrentLineStyle("underline") },
+    { icon: "text_decrease", tooltip: "Smaller", action: () => adjustCurrentLineFontSize(-1) },
+    { icon: "restart_alt", tooltip: "Reset size", action: () => resetCurrentLineFontSize() },
+    { icon: "text_increase", tooltip: "Larger", action: () => adjustCurrentLineFontSize(+1) },
   ];
 
   for (let index = 0; index < buttons.length; index += 1) {
@@ -373,6 +393,7 @@ function drawTextStyleControls(x, y, disabled = false, options = {}) {
       active: !!item.active,
       disabled,
       iconSize: 22,
+      tooltip: item.tooltip,
     });
     if (!disabled && result.clicked) {
       item.action();
@@ -429,6 +450,16 @@ function drawIconButton(icon, options = {}) {
     pressed: { bgColor: disabled ? bg : (primary ? "#e88800" : "#d0d0d0"), cursor: disabled ? "default" : "pointer" },
     persist: false,
   });
+  if (options.tooltip) {
+    registerTooltip(
+      options.tooltipKey || `${icon}:${options.x}:${options.y}`,
+      options.tooltip,
+      options.x,
+      options.y,
+      options.width,
+      options.height
+    );
+  }
 
   push();
   textAlign(CENTER, CENTER);
@@ -456,6 +487,54 @@ function drawIconButton(icon, options = {}) {
     result.pressedUp = false;
   }
   return result;
+}
+
+function beginTooltipFrame() {
+  tooltipActiveThisFrame = false;
+}
+
+function registerTooltip(key, label, x, y, w, h) {
+  if (!label) return;
+  const hover = mouseX >= x && mouseX <= x + w && mouseY >= y && mouseY <= y + h;
+  if (!hover) return;
+
+  const now = millis();
+  if (tooltipKey !== key) {
+    tooltipKey = key;
+    tooltipStartedAt = now;
+  }
+  tooltipLabel = label;
+  tooltipX = x + w * 0.5;
+  tooltipY = y;
+  tooltipActiveThisFrame = true;
+}
+
+function drawPendingTooltip() {
+  if (!tooltipActiveThisFrame) {
+    tooltipKey = "";
+    return;
+  }
+  if (millis() - tooltipStartedAt < tooltipDelayMs) return;
+  drawTooltip(tooltipLabel, tooltipX, tooltipY);
+}
+
+function drawTooltip(label, anchorX, anchorY) {
+  push();
+  textFont(fallbackFontFamily);
+  textStyle(NORMAL);
+  textSize(12);
+  const paddingX = 8;
+  const tooltipW = Math.ceil(textWidth(label) + paddingX * 2);
+  const tooltipH = 24;
+  const x = constrain(anchorX - tooltipW * 0.5, 8, width - tooltipW - 8);
+  const y = Math.max(8, anchorY - tooltipH - 8);
+  noStroke();
+  fill(20, 235);
+  rect(x, y, tooltipW, tooltipH, 6);
+  fill(255);
+  textAlign(CENTER, CENTER);
+  text(label, x + tooltipW * 0.5, y + tooltipH * 0.5 + 0.5);
+  pop();
 }
 
 async function handlePrimaryButton() {
