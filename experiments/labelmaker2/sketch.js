@@ -2057,9 +2057,8 @@ function drawStyledLine(line, y, startX = getLabelTextRect().x) {
     applyEditorFont(labelGraphic, line.fontSize);
     labelGraphic.textLeading(line.lineHeight);
     applySegmentTextStyle(renderStyle);
-    applyTextOutlinePaint(line.fontSize);
     if (!whitespaceOnly) {
-      drawWeightedText(textValue, x, y, line.fontSize, renderStyle);
+      drawTextWithOutlineMode(textValue, x, y, line.fontSize);
     }
     labelGraphic.pop();
 
@@ -2075,22 +2074,26 @@ function drawStyledLine(line, y, startX = getLabelTextRect().x) {
   }
 }
 
-function applyTextOutlinePaint(fontSize) {
+function drawTextWithOutlineMode(text, x, y, fontSize) {
   const outlineWeight = Math.max(1, fontSize * 0.035);
+  const oppositeOutlineWeight = Math.max(1, fontSize * 0.012);
   if (textOutlineMode === "outline") {
     labelGraphic.noFill();
     labelGraphic.stroke(0);
     labelGraphic.strokeWeight(outlineWeight);
+    labelGraphic.text(text, x, y);
     return;
   }
   if (textOutlineMode === "opposite") {
-    labelGraphic.fill(0);
-    labelGraphic.stroke(255);
-    labelGraphic.strokeWeight(outlineWeight);
+    labelGraphic.fill(255);
+    labelGraphic.stroke(0);
+    labelGraphic.strokeWeight(oppositeOutlineWeight);
+    labelGraphic.text(text, x, y);
     return;
   }
   labelGraphic.fill(0);
   labelGraphic.noStroke();
+  labelGraphic.text(text, x, y);
 }
 
 function drawCharacterBoundaryDebug(line, y, startX = getLabelTextRect().x) {
@@ -2143,19 +2146,7 @@ function measureTextWidth(text, fontSize = defaultFontSize, style = null) {
   const safeText = String(text ?? "").replace(/ /g, "\u00A0");
   const metric = labelGraphic.drawingContext?.measureText?.(safeText);
   const widthValue = Number.isFinite(metric?.width) ? metric.width : labelGraphic.textWidth(safeText);
-  return widthValue + getSyntheticBoldOffset(fontSize, style);
-}
-
-function drawWeightedText(text, x, y, fontSize, style = null) {
-  labelGraphic.text(text, x, y);
-  const offset = getSyntheticBoldOffset(fontSize, style);
-  if (offset <= 0) return;
-  labelGraphic.text(text, x + offset, y);
-}
-
-function getSyntheticBoldOffset(fontSize, style = null) {
-  if (!style?.bold) return 0;
-  return constrain(fontSize * 0.012, 1, 8);
+  return widthValue;
 }
 
 function getLineLeadingInkOffset(line) {
