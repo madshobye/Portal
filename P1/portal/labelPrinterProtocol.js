@@ -102,6 +102,7 @@ class LabelPrinterProtocol {
     mode = 0,
     invert = true,
     dither = true,
+    density = null,
     copies = 1,
   } = {}, encoder = new TextEncoder()) {
     if (!imageData?.data || !imageData.width || !imageData.height) {
@@ -145,10 +146,14 @@ class LabelPrinterProtocol {
       }
     }
 
+    const densityValue = Number.isFinite(Number(density))
+      ? Math.max(0, Math.min(15, Math.round(Number(density))))
+      : null;
     const header = [
       `SIZE ${Number(labelWidthMm) || 10} mm,${Number(labelHeightMm) || 15} mm`,
       `GAP ${Number(gapMm) || 2} mm,0 mm`,
       "DIRECTION 1",
+      ...(densityValue === null ? [] : [`DENSITY ${densityValue}`]),
       "CLS",
       `BITMAP ${Math.round(x)},${Math.round(y)},${widthBytes},${height},${Math.round(mode)},`,
     ].join("\r\n");
