@@ -143,10 +143,11 @@ async function setup() {
 
   printer = await new BleLabelPrinter({
     protocol: "tspl",
-    preferWriteWithResponse: false,
-    autoReconnectOnRefresh: false,
-    waitForAutoReconnect: false,
-    autoReconnectAttempts: 1,
+    chunkSize: 488,
+    chunkDelayMs: 0,
+    preferWriteWithResponse: true,
+    waitForAutoReconnect: true,
+    autoReconnectAttempts: 2,
     reconnectDelayMs: 700,
     onState: (state) => {
       statusText = state.state;
@@ -690,7 +691,7 @@ async function handlePrimaryButton() {
       gapMm: 2,
       threshold: 210,
       invert: true,
-      dither: shouldDitherPhotoPrint(),
+      dither: true,
     });
     if (printId !== activePrintId) return;
     statusText = "printed";
@@ -769,8 +770,12 @@ function rotateImageDataClockwise(imageData) {
 }
 
 function renderLabelGraphic({ includeCaret = true } = {}) {
-  labelGraphic.background(255);
-  labelGraphic.fill(0);
+  if (hasPhotoSource()) {
+    labelGraphic.clear();
+  } else {
+    labelGraphic.background(getPaperColor());
+  }
+  labelGraphic.fill(getInkColor());
   labelGraphic.noStroke();
   labelGraphic.rectMode(CORNER);
 
@@ -782,12 +787,14 @@ function renderLabelGraphic({ includeCaret = true } = {}) {
   labelGraphic.textAlign(LEFT, TOP);
 
   let y = textOrigin.y;
+ 
   for (const line of layout.lines) {
     drawStyledLine(line, y, textOrigin.x);
     if (debugCharacterBounds) {
       drawCharacterBoundaryDebug(line, y, textOrigin.x);
     }
     y += line.lineHeight;
+  
   }
   labelGraphic.noStroke();
   labelGraphic.textStyle(NORMAL);
@@ -804,9 +811,8 @@ function renderLabelGraphic({ includeCaret = true } = {}) {
     if (photoMergeMode === "nodither" || photoMergeMode === "noditherwhite") {
       applyMonochromeThresholdPreview(labelGraphic, outputMode === "receipt" ? 190 : 210);
     }
-  } else if (labelInverted) {
-    invertLabelGraphic();
   }
+  
 }
 
 function composePhotoWithCurrentLabelMask() {
@@ -815,12 +821,17 @@ function composePhotoWithCurrentLabelMask() {
   ensurePhotoGraphic();
   drawGrayscaleCover(labelPhotoGraphic, source, 0, 0, labelPhotoGraphic.width, labelPhotoGraphic.height);
 
-  const mask = labelGraphic.drawingContext.getImageData(0, 0, labelGraphic.width, labelGraphic.height);
+  const labelLayer = labelGraphic.drawingContext.getImageData(0, 0, labelGraphic.width, labelGraphic.height);
   labelPhotoGraphic.loadPixels();
   labelGraphic.loadPixels();
 
   for (let index = 0; index < labelGraphic.pixels.length; index += 4) {
-    const ink = mask.data[index] < 245 || mask.data[index + 1] < 245 || mask.data[index + 2] < 245;
+    const layerAlpha = labelLayer.data[index + 3];
+    const hasLabelPixel = layerAlpha > 20;
+    const layerR = labelLayer.data[index];
+    const layerG = labelLayer.data[index + 1];
+    const layerB = labelLayer.data[index + 2];
+    const ink = hasLabelPixel && (layerR < 245 || layerG < 245 || layerB < 245);
     const photoR = labelPhotoGraphic.pixels[index];
     const photoG = labelPhotoGraphic.pixels[index + 1];
     const photoB = labelPhotoGraphic.pixels[index + 2];
@@ -834,27 +845,21 @@ function composePhotoWithCurrentLabelMask() {
       labelGraphic.pixels[index] = photoR;
       labelGraphic.pixels[index + 1] = photoG;
       labelGraphic.pixels[index + 2] = photoB;
-      if (ink) {
-        const value = (photoMergeMode === "white" || photoMergeMode === "noditherwhite") ? 255 : 0;
-        labelGraphic.pixels[index] = value;
-        labelGraphic.pixels[index + 1] = value;
-        labelGraphic.pixels[index + 2] = value;
+      if (hasLabelPixel) {
+        if (ink && (photoMergeMode === "white" || photoMergeMode === "noditherwhite")) {
+          labelGraphic.pixels[index] = 255;
+          labelGraphic.pixels[index + 1] = 255;
+          labelGraphic.pixels[index + 2] = 255;
+        } else {
+          labelGraphic.pixels[index] = layerR;
+          labelGraphic.pixels[index + 1] = layerG;
+          labelGraphic.pixels[index + 2] = layerB;
+        }
       }
     }
     labelGraphic.pixels[index + 3] = 255;
   }
 
-  labelGraphic.updatePixels();
-}
-
-function invertLabelGraphic() {
-  labelGraphic.loadPixels();
-  for (let index = 0; index < labelGraphic.pixels.length; index += 4) {
-    labelGraphic.pixels[index] = 255 - labelGraphic.pixels[index];
-    labelGraphic.pixels[index + 1] = 255 - labelGraphic.pixels[index + 1];
-    labelGraphic.pixels[index + 2] = 255 - labelGraphic.pixels[index + 2];
-    labelGraphic.pixels[index + 3] = 255;
-  }
   labelGraphic.updatePixels();
 }
 
@@ -1168,9 +1173,9 @@ function drawQrCodeToGraphics(target, qr, x, y, size) {
   const moduleSize = size / moduleCount;
   target.push();
   target.noStroke();
-  target.fill(255);
+  target.fill(getPaperColor());
   target.rect(x, y, size, size);
-  target.fill(0);
+  target.fill(getInkColor());
   for (let row = 0; row < moduleCount; row += 1) {
     for (let col = 0; col < moduleCount; col += 1) {
       if (!qr.getModule(col, row)) continue;
@@ -1183,6 +1188,22 @@ function drawQrCodeToGraphics(target, qr, x, y, size) {
     }
   }
   target.pop();
+}
+
+function getInkColor() {
+  return labelInverted && !hasPhotoSource() ? 255 : 0;
+}
+
+function getPaperColor() {
+  return labelInverted && !hasPhotoSource() ? 0 : 255;
+}
+
+function getOppositeTextFillColor() {
+  return getInkColor();
+}
+
+function getOppositeTextStrokeColor() {
+  return getPaperColor();
 }
 
 function buildManualLayout(textValue, maxWidth, maxHeight) {
@@ -2036,7 +2057,7 @@ function drawStyledLine(line, y, startX = getLabelTextRect().x) {
   const segments = getLineSegments(line.start, line.end, line.text);
   const autoLineBold = isAutoLineBold(line.text);
   let x = startX - getLineLeadingInkOffset(line);
-
+  
   for (const segment of segments) {
     const textValue = segment.text || " ";
     const style = segment.style || {};
@@ -2059,6 +2080,7 @@ function drawStyledLine(line, y, startX = getLabelTextRect().x) {
     applySegmentTextStyle(renderStyle);
     if (!whitespaceOnly) {
       drawTextWithOutlineMode(textValue, x, y, line.fontSize);
+      
     }
     labelGraphic.pop();
 
@@ -2075,23 +2097,26 @@ function drawStyledLine(line, y, startX = getLabelTextRect().x) {
 }
 
 function drawTextWithOutlineMode(text, x, y, fontSize) {
-  const outlineWeight = Math.max(1, fontSize * 0.035);
-  const oppositeOutlineWeight = Math.max(1, fontSize * 0.012);
+  
+  const outlineWeight = 14/850 * fontSize;//Math.max(1, Math.sqrt(fontSize) * 0.22);
   if (textOutlineMode === "outline") {
     labelGraphic.noFill();
-    labelGraphic.stroke(0);
+    labelGraphic.stroke(getInkColor());
     labelGraphic.strokeWeight(outlineWeight);
     labelGraphic.text(text, x, y);
     return;
   }
   if (textOutlineMode === "opposite") {
-    labelGraphic.fill(255);
-    labelGraphic.stroke(0);
-    labelGraphic.strokeWeight(oppositeOutlineWeight);
+    labelGraphic.fill(getOppositeTextFillColor());
+    labelGraphic.noStroke();
+    labelGraphic.text(text, x, y);
+    labelGraphic.noFill();
+    labelGraphic.stroke(getOppositeTextStrokeColor());
+    labelGraphic.strokeWeight(outlineWeight);
     labelGraphic.text(text, x, y);
     return;
   }
-  labelGraphic.fill(0);
+  labelGraphic.fill(getInkColor());
   labelGraphic.noStroke();
   labelGraphic.text(text, x, y);
 }
@@ -2128,7 +2153,7 @@ function applySegmentTextStyle(style) {
   } else if (style?.italic) {
     textStyleValue = ITALIC;
   }
-  labelGraphic.textStyle(textStyleValue);
+ // labelGraphic.textStyle(textStyleValue);
   applyCanvasMaxBoldWeight(style);
 }
 

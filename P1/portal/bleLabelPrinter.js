@@ -1253,7 +1253,7 @@ class BleLabelPrinter {
     counter.lastPayload = payload;
     this._debugCounters[label] = counter;
 
-    const shouldPrint = counter.seen <= 3 || counter.seen % 1000 === 0;
+    const shouldPrint = counter.seen <= 3 || counter.seen % 100 === 0;
     if (!shouldPrint) return;
 
     const summary = {
@@ -1462,17 +1462,13 @@ class BleLabelPrinter {
     protocol = "",
   } = {}) {
     const name = String(deviceName || "").toLowerCase();
-    const service = String(serviceUuid || "").toLowerCase();
-    const characteristic = String(characteristicUuid || "").toLowerCase();
     const protocolKey = String(protocol || "").toLowerCase();
 
     if (
       protocolKey === "escpos" ||
       name.includes("jk") ||
       name.includes("receipt") ||
-      name.includes("pos") ||
-      service.includes("49535343") ||
-      characteristic.includes("49535343")
+      name.includes("pos")
     ) {
       return "receipt";
     }
