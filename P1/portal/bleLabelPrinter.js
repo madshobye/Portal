@@ -378,6 +378,11 @@ class BleLabelPrinter {
   }
 
   async printTsplBitmap(imageData, options = {}) {
+    const job = this.printTsplBitmapAsync(imageData, options);
+    await job.promise;
+  }
+
+  printTsplBitmapAsync(imageData, options = {}) {
     const bytes = window.LabelPrinterProtocol
       ? LabelPrinterProtocol.makeTsplBitmapLabel(imageData, options, this._encoder)
       : BleLabelPrinter.makeTsplBitmapLabel(imageData, options, this._encoder);
@@ -387,7 +392,7 @@ class BleLabelPrinter {
       width: imageData?.width || 0,
       height: imageData?.height || 0,
     });
-    await this.writeBytes(bytes);
+    return this.writeBytesAsync(bytes);
   }
 
   async printNiimbotB1Bitmap(imageData, options = {}) {
@@ -514,14 +519,31 @@ class BleLabelPrinter {
   }
 
   async writeBytes(bytes) {
-    await this._waitForConnectionIfNeeded();
-    this._ensureConnected();
+    const job = this.writeBytesAsync(bytes);
+    await job.promise;
+  }
+
+  writeBytesAsync(bytes) {
     const payload = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes || []);
-    const queuedWrite = this._writeQueue
-      .catch(() => {})
-      .then(() => this._writeBytesNow(payload, this._writeAbortId));
-    this._writeQueue = queuedWrite.catch(() => {});
-    await queuedWrite;
+    const writeAbortId = this._writeAbortId;
+    const queuedWrite = (async () => {
+      await this._waitForConnectionIfNeeded();
+      this._ensureConnected();
+      const write = this._writeQueue
+        .catch(() => {})
+        .then(() => this._writeBytesNow(payload, writeAbortId));
+      this._writeQueue = write.catch(() => {});
+      return write;
+    })();
+    return {
+      promise: queuedWrite,
+      cancel: () => {
+        if (this._writeAbortId === writeAbortId) {
+          this._writeAbortId += 1;
+          this._debug("write cancel requested", { bytes: payload.length });
+        }
+      },
+    };
   }
 
   async withWriteSettings({

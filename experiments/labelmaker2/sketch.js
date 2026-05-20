@@ -4,6 +4,7 @@ let detailText = "Type on the keyboard. Return inserts a new line.";
 let busy = false;
 let activePrintId = 0;
 let printCancelRequested = false;
+let activePrintJob = null;
 let labelGraphic;
 let labelPhotoGraphic;
 let cam = null;
@@ -196,7 +197,9 @@ function installWillReadFrequentlyCanvasHint() {
 
 function draw() {
   updateCaretBlink();
-  renderLabelGraphic({ includeCaret: true });
+  if (!activePrintJob) {
+    renderLabelGraphic({ includeCaret: true });
+  }
 
   background(0);
   beginTooltipFrame();
@@ -661,6 +664,7 @@ async function handlePrimaryButton() {
   activePrintId = printId;
   printCancelRequested = false;
   busy = true;
+  let backgroundPrintStarted = false;
   try {
     const state = printer.getConnectionState();
     if (!state.connected) {
@@ -685,7 +689,7 @@ async function handlePrimaryButton() {
     }
 
     const format = getCurrentLabelFormat();
-    await printer.printTsplBitmap(imageData, {
+    const printJob = printer.printTsplBitmapAsync(imageData, {
       labelWidthMm: format.widthCm * 10,
       labelHeightMm: format.heightCm * 10,
       gapMm: 2,
@@ -693,16 +697,34 @@ async function handlePrimaryButton() {
       invert: true,
       dither: true,
     });
-    if (printId !== activePrintId) return;
-    statusText = "printed";
-    detailText = "Printed the current label preview.";
+    backgroundPrintStarted = true;
+    activePrintJob = printJob;
+    printJob.promise
+      .then(() => {
+        if (printId !== activePrintId) return;
+        statusText = "printed";
+        detailText = "Printed the current label preview.";
+      })
+      .catch((error) => {
+        if (printId !== activePrintId || printCancelRequested) return;
+        console.error("[labelmaker2] action failed", error);
+        statusText = "action failed";
+        detailText = error?.message || String(error);
+      })
+      .finally(() => {
+        if (printId !== activePrintId) return;
+        activePrintJob = null;
+        busy = false;
+        printCancelRequested = false;
+      });
+    return;
   } catch (error) {
     if (printId !== activePrintId || printCancelRequested) return;
     console.error("[labelmaker2] action failed", error);
     statusText = "action failed";
     detailText = error?.message || String(error);
   } finally {
-    if (printId === activePrintId) {
+    if (!backgroundPrintStarted && printId === activePrintId) {
       busy = false;
       printCancelRequested = false;
     }
@@ -712,15 +734,12 @@ async function handlePrimaryButton() {
 function cancelActivePrint() {
   if (!busy) return;
   printCancelRequested = true;
+  activePrintJob?.cancel?.();
+  activePrintJob = null;
   activePrintId += 1;
   busy = false;
   statusText = "cancelled";
-  detailText = "Cancelled print. Reconnect before printing again.";
-  try {
-    printer?.disconnect?.();
-  } catch (error) {
-    console.warn("[labelmaker2] cancel disconnect failed", error);
-  }
+  detailText = "Cancelled print.";
 }
 
 function getPrintableImageData() {
