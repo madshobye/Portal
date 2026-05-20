@@ -222,7 +222,7 @@ function draw() {
   const modeButtonWidth = squareButtonWidth;
   const rightControlsWidth = buttonWidth + toolbarGap + clearButtonWidth;
   const showRemovePhotoButton = hasStoredPhoto();
-  const leftMainButtons = showRemovePhotoButton ? 10 : 9;
+  const leftMainButtons = showRemovePhotoButton ? 11 : 10;
   const leftMainWidth = leftMainButtons * squareButtonWidth + (leftMainButtons - 1) * toolbarGap;
   const styleButtonWidth = toolbarButtonHeight;
   const styleButtonGap = toolbarGap;
