@@ -247,9 +247,9 @@ function draw() {
     width: modeButtonWidth,
     height: toolbarButtonHeight,
     active: !outputModeAuto,
-    disabled: busy,
+    disabled: true,
     marker: outputModeAuto ? "autorenew" : "",
-    tooltip: outputModeAuto ? `Auto output: ${outputMode}` : `Output: ${outputMode}`,
+    tooltip: `Auto output: ${outputMode}`,
   });
   if (!busy && modeButton.clicked) {
     toggleOutputMode();

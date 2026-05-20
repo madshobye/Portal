@@ -606,6 +606,7 @@ function uiButton(label, style={}){
   if (g) g.push(); else push();
   const overlay2d = g ? false : _uiOverlayStart();
   const s = uiMergeDeep({}, uiBaseStyle.common, uiBaseStyle.button, style);
+  const disabled = !!s.disabled;
   const h = s.height;
   const box = (s.x!==undefined && s.y!==undefined && s.width!==undefined && s.height!==undefined)
     ? { x:s.x, y:s.y, width:s.width, height:s.height }
@@ -613,7 +614,9 @@ function uiButton(label, style={}){
       ? { x:s.x, y:s.y, width:s.width, height:h }
       : uiPlace(s.width||uiGetList().width, h);
   let cur = uiMergeDeep({}, s);
-  const hit = uiHit(box.x, box.y, box.width, box.height);
+  const hit = disabled
+    ? { clicked: false, pressedDown: false, pressedUp: false, hover: false, pressed: false }
+    : uiHit(box.x, box.y, box.width, box.height);
   if(hit.pressed) cur = uiMergeDeep(cur, s.pressed); else if(hit.hover) cur = uiMergeDeep(cur, s.hover);
   if (g) {
     if(cur.bgColor){ g.fill(cur.bgColor); } else g.noFill();
