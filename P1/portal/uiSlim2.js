@@ -43,6 +43,7 @@ let uiGraphicsTarget = null;
 const _uiSliderDragState = {
   id: null,
 };
+let _uiActiveHitKey = null;
 const UI_CORNER_GESTURE_HOLD_MS = 1500;
 const UI_DEBUG_HOLD_MS = 1500;
 const UI_DEBUG_HOLD_INSET_PX = 0;
@@ -467,19 +468,31 @@ function uiUpdate(_mx,_my,_mp,_key,_w,_h,_keyPressed){
 
 
 function uiHit(x, y, w, h) {
+  const key = `${Math.round(x)}:${Math.round(y)}:${Math.round(w)}:${Math.round(h)}`;
   const hoverOld = uiMXOld > x && uiMYOld > y && uiMXOld < x + w && uiMYOld < y + h;
   const hover    = uiMX    > x && uiMY    > y && uiMX    < x + w && uiMY    < y + h;
-  const pressed     = hover && uiMP;
-  const pressedOld  = hoverOld && uiMPOld;
+  const downStartedHere = hover && uiMP && !uiMPOld;
+  if (downStartedHere) {
+    _uiActiveHitKey = key;
+  }
+
+  const activeHere = _uiActiveHitKey === key;
+  const pressed     = activeHere && uiMP;
+  const pressedOld  = activeHere && uiMPOld;
   const pressedDown = hover && uiMP && !uiMPOld;
-  const dragging    = hover && pressed && pressedOld && (uiMX !== uiMXOld || uiMY !== uiMYOld);
-  const clicked     = !dragging && hover && !uiMP && uiMPOld;
-  const pressedUp   = (!hover && hoverOld) || (hover && !pressed && uiMPOld);
+  const dragging    = pressed && pressedOld && (uiMX !== uiMXOld || uiMY !== uiMYOld);
+  const clicked     = activeHere && hover && !uiMP && uiMPOld;
+  const pressedUp   = activeHere && !uiMP && uiMPOld;
+  const persistentHover = hover || pressed;
+
+  if (activeHere && !uiMP && uiMPOld) {
+    _uiActiveHitKey = null;
+  }
 
   // If ANY widget is hovered this frame, we set pointer now.
-  if (hover) cursor('pointer');
+  if (persistentHover) cursor('pointer');
 
-  return { hover, hoverOld, pressed, pressedOld, pressedDown, pressedUp, dragging, clicked, mX: uiMX - x, mY: uiMY - y };
+  return { hover: persistentHover, hoverOld, pressed, pressedOld, pressedDown, pressedUp, dragging, clicked, mX: uiMX - x, mY: uiMY - y };
 }
 
 

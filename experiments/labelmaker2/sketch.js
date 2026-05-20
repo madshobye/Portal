@@ -212,17 +212,15 @@ function draw() {
   const preview = getPreviewRect();
   const connectionState = printer?.getConnectionState?.() || {};
   const isConnected = !!connectionState.connected;
-  const buttonLabel = busy
-    ? "cancel"
-    : (isConnected ? "print" : "bluetooth");
   const hasPhotoControls = hasPhotoSource() || photoEnabled || photoCameraStarting;
   const controlsY = preview.y + preview.height + 16;
   const squareButtonWidth = toolbarButtonHeight;
-  const buttonWidth = squareButtonWidth;
+  const printButtonWidth = isConnected || busy ? squareButtonWidth : 0;
+  const connectButtonWidth = squareButtonWidth;
   const clearButtonWidth = squareButtonWidth;
   const downloadButtonWidth = squareButtonWidth;
   const modeButtonWidth = squareButtonWidth;
-  const rightControlsWidth = buttonWidth + toolbarGap + clearButtonWidth + toolbarGap + downloadButtonWidth;
+  const rightControlsWidth = connectButtonWidth + (printButtonWidth ? toolbarGap + printButtonWidth : 0) + toolbarGap + clearButtonWidth + toolbarGap + downloadButtonWidth;
   const showRemovePhotoButton = hasStoredPhoto();
   const leftMainButtons = showRemovePhotoButton ? 11 : 10;
   const leftMainWidth = leftMainButtons * squareButtonWidth + (leftMainButtons - 1) * toolbarGap;
@@ -262,24 +260,48 @@ function draw() {
     toggleOutputMode();
   }
 
-  const button = drawIconButton(buttonLabel, {
-    x: preview.x + preview.width - buttonWidth,
+  const connectButton = drawIconButton(isConnected ? "bluetooth_disabled" : "bluetooth", {
+    x: preview.x + preview.width - connectButtonWidth,
     y: rightButtonY,
-    width: buttonWidth,
+    width: connectButtonWidth,
     height: toolbarButtonHeight,
-    primary: true,
-    disabled: false,
+    primary: !isConnected,
+    active: isConnected,
+    disabled: busy,
     spin: false,
-    tooltip: busy ? "Cancel print" : (isConnected ? "Print" : "Connect printer"),
+    tooltip: isConnected ? "Disconnect printer" : "Connect printer",
   });
-  if (button.clicked && busy) {
-    cancelActivePrint();
-  } else if (!busy && button.clicked) {
-    handlePrimaryButton();
+  if (!busy && connectButton.clicked) {
+    if (isConnected) {
+      disconnectPrinter();
+    } else {
+      connectPrinter();
+    }
   }
 
-  const clearButton = drawIconButton("delete", {
-    x: preview.x + preview.width - buttonWidth - toolbarGap - clearButtonWidth,
+  const printButtonX = preview.x + preview.width - connectButtonWidth - toolbarGap - printButtonWidth;
+  if (printButtonWidth) {
+    const printButton = drawIconButton(busy ? "cancel" : "print", {
+      x: printButtonX,
+      y: rightButtonY,
+      width: printButtonWidth,
+      height: toolbarButtonHeight,
+      primary: true,
+      disabled: false,
+      tooltip: busy ? "Cancel print" : "Print",
+    });
+    if (printButton.clicked && busy) {
+      cancelActivePrint();
+    } else if (!busy && printButton.clicked) {
+      handlePrimaryButton();
+    }
+  }
+
+  const clearButtonX = printButtonWidth
+    ? printButtonX - toolbarGap - clearButtonWidth
+    : preview.x + preview.width - connectButtonWidth - toolbarGap - clearButtonWidth;
+  const clearButton = drawIconButton("ink_eraser", {
+    x: clearButtonX,
     y: rightButtonY,
     width: clearButtonWidth,
     height: toolbarButtonHeight,
@@ -291,7 +313,7 @@ function draw() {
   }
 
   const downloadButton = drawIconButton("download", {
-    x: preview.x + preview.width - buttonWidth - toolbarGap - clearButtonWidth - toolbarGap - downloadButtonWidth,
+    x: clearButtonX - toolbarGap - downloadButtonWidth,
     y: rightButtonY,
     width: downloadButtonWidth,
     height: toolbarButtonHeight,
@@ -699,6 +721,29 @@ function drawTooltip(label, anchorX, anchorY) {
   pop();
 }
 
+async function connectPrinter() {
+  if (busy) return;
+  try {
+    statusText = "connecting";
+    detailText = "Choose a printer.";
+    await printer.connectWithPicker({ acceptAllDevices: false });
+    outputMode = printer.getSuggestedOutputMode?.() || "label";
+    statusText = "connected";
+    detailText = `Connected. Press Print for ${outputMode}.`;
+  } catch (error) {
+    console.error("[labelmaker2] connect failed", error);
+    statusText = "connect failed";
+    detailText = error?.message || String(error);
+  }
+}
+
+function disconnectPrinter() {
+  if (busy) return;
+  printer?.disconnect?.();
+  statusText = "disconnected";
+  detailText = "Disconnected printer.";
+}
+
 async function handlePrimaryButton() {
   if (busy) return;
   const printId = activePrintId + 1;
@@ -709,10 +754,8 @@ async function handlePrimaryButton() {
   try {
     const state = printer.getConnectionState();
     if (!state.connected) {
-      statusText = "connecting";
-      await printer.connectWithPicker({ acceptAllDevices: false });
-      outputMode = printer.getSuggestedOutputMode?.() || "label";
-      if (printId !== activePrintId) return;
+      statusText = "not connected";
+      detailText = "Connect a printer before printing.";
       return;
     }
 
