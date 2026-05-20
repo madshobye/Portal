@@ -27,6 +27,8 @@ let textInputEl = null;
 let terminusFont = null;
 let perfectDosFont = null;
 const storageKey = "portal.labelmaker2.state";
+const printHistoryStorageKey = "portal.labelmaker2.printHistory";
+const printHistorySliderKey = "labelmaker2.printHistoryIndex";
 let labelFormat = "10x15";
 let orientation = "landscape";
 let editorFontMode = "helvetica";
@@ -47,6 +49,9 @@ let tooltipX = 0;
 let tooltipY = 0;
 let tooltipStartedAt = 0;
 let tooltipActiveThisFrame = false;
+let printHistory = [];
+let printHistoryIndex = -1;
+let restoreLiveCameraOnSetup = false;
 
 const labelFormats = {
   "10x10": { widthCm: 10, heightCm: 10 },
@@ -85,6 +90,9 @@ const toolbarButtonHeight = 38;
 const toolbarGap = 6;
 const toolbarRowGap = 8;
 const tooltipDelayMs = 450;
+const historySliderHeight = 22;
+const historySliderTop = 12;
+const maxPrintHistory = 24;
 const fallbackFontFamily = "Helvetica";
 const googleFontFamilies = [
   "Material Symbols Rounded",
@@ -109,6 +117,7 @@ const fontOptions = [
 ];
 
 async function setup() {
+  installWillReadFrequentlyCanvasHint();
   const canvas = createCanvas(windowWidth, windowHeight);
   pixelDensity(1);
   canvas.drop(handlePhotoDrop);
@@ -130,9 +139,10 @@ async function setup() {
 
   printer = await new BleLabelPrinter({
     protocol: "tspl",
-    preferWriteWithResponse: true,
-    waitForAutoReconnect: true,
-    autoReconnectAttempts: 2,
+    preferWriteWithResponse: false,
+    autoReconnectOnRefresh: false,
+    waitForAutoReconnect: false,
+    autoReconnectAttempts: 1,
     reconnectDelayMs: 700,
     onState: (state) => {
       statusText = state.state;
@@ -152,11 +162,31 @@ async function setup() {
   }).init();
 
   loadEditorState();
+  loadPrintHistory();
   applyEditorFont();
   rebuildLabelGraphic();
+  if (restoreLiveCameraOnSetup) {
+    restoreLiveCameraOnSetup = false;
+    await startPhotoCamera({ clearStoredPhoto: false, detail: "Restoring camera..." });
+  }
   if (useSoftKeyboardInput) {
     focusEditorInput();
   }
+}
+
+function installWillReadFrequentlyCanvasHint() {
+  if (HTMLCanvasElement.prototype.__labelmakerWillReadFrequently) return;
+  const originalGetContext = HTMLCanvasElement.prototype.getContext;
+  HTMLCanvasElement.prototype.getContext = function patchedGetContext(type, attributes) {
+    if (type === "2d") {
+      return originalGetContext.call(this, type, {
+        ...(attributes || {}),
+        willReadFrequently: true,
+      });
+    }
+    return originalGetContext.call(this, type, attributes);
+  };
+  HTMLCanvasElement.prototype.__labelmakerWillReadFrequently = true;
 }
 
 function draw() {
@@ -178,7 +208,8 @@ function draw() {
   const clearButtonWidth = squareButtonWidth;
   const modeButtonWidth = squareButtonWidth;
   const rightControlsWidth = buttonWidth + toolbarGap + clearButtonWidth;
-  const leftMainButtons = 8;
+  const showRemovePhotoButton = hasStoredPhoto();
+  const leftMainButtons = showRemovePhotoButton ? 9 : 8;
   const leftMainWidth = leftMainButtons * squareButtonWidth + (leftMainButtons - 1) * toolbarGap;
   const styleButtonWidth = toolbarButtonHeight;
   const styleButtonGap = toolbarGap;
@@ -196,6 +227,7 @@ function draw() {
     : (useTwoToolbarRows ? preview.x : preview.x + leftMainWidth + toolbarGap);
   const fontButtonY = useTwoToolbarRows ? styleControlsY : controlsY;
   const rightButtonY = controlsY;
+  drawPrintHistorySlider(preview);
   const modeButton = drawIconButton(outputMode === "receipt" ? "receipt_long" : "label", {
     x: preview.x,
     y: controlsY,
@@ -244,6 +276,7 @@ function draw() {
   const qrButtonX = paddingButtonX + squareButtonWidth + toolbarGap;
   const photoButtonX = qrButtonX + squareButtonWidth + toolbarGap;
   const blendButtonX = photoButtonX + squareButtonWidth + toolbarGap;
+  const removePhotoButtonX = blendButtonX + squareButtonWidth + toolbarGap;
 
   const toggleButton = drawIconButton(labelFormat === "10x10" ? "crop_square" : "aspect_ratio", {
     x: formatX,
@@ -338,6 +371,20 @@ function draw() {
     toggleBlendMode();
   }
 
+  if (showRemovePhotoButton) {
+    const removePhotoButton = drawIconButton("hide_image", {
+      x: removePhotoButtonX,
+      y: controlsY,
+      width: squareButtonWidth,
+      height: toolbarButtonHeight,
+      disabled: busy,
+      tooltip: "Remove photo",
+    });
+    if (!busy && removePhotoButton.clicked) {
+      removeStoredPhoto();
+    }
+  }
+
   if (showStyleControls) {
     drawTextStyleControls(styleControlsX, styleControlsY, busy, {
       buttonWidth: styleButtonWidth,
@@ -398,6 +445,56 @@ function drawTextStyleControls(x, y, disabled = false, options = {}) {
     if (!disabled && result.clicked) {
       item.action();
     }
+  }
+}
+
+function drawPrintHistorySlider(preview) {
+  if (!printHistory.length) return;
+  const clearButtonSize = historySliderHeight;
+  const historyGap = 8;
+  const historyWidth = Math.min(preview.width, Math.max(80, width - 120));
+  const sliderWidth = Math.max(60, historyWidth - clearButtonSize - historyGap);
+  const sliderX = (width - historyWidth) * 0.5;
+  const sliderY = historySliderTop;
+  const clearButtonX = sliderX + sliderWidth + historyGap;
+  const activeIndex = constrain(printHistoryIndex, 0, printHistory.length - 1);
+  const label = `Print ${activeIndex + 1}/${printHistory.length}`;
+  const result = uiSlider(printHistorySliderKey, label, {
+    min: 0,
+    max: Math.max(0, printHistory.length - 1),
+    init: activeIndex,
+  }, {
+    x: sliderX,
+    y: sliderY,
+    width: sliderWidth,
+    height: historySliderHeight,
+    rounding: 6,
+    trackColor: "#1f1f1f",
+    fillColor: "#ff9f1a",
+    textColor: "#ffffff",
+    fontSize: 12,
+    hideValue: true,
+    persist: false,
+  });
+  registerTooltip("print-history", "Print history", sliderX, sliderY, sliderWidth, historySliderHeight);
+
+  const clearButton = drawIconButton("delete_sweep", {
+    x: clearButtonX,
+    y: sliderY,
+    width: clearButtonSize,
+    height: historySliderHeight,
+    disabled: busy,
+    iconSize: 18,
+    textOffsetY: 3,
+    tooltip: "Clear history",
+  });
+  if (!busy && clearButton.clicked) {
+    confirmAndClearPrintHistory();
+  }
+
+  const nextIndex = constrain(Math.round(result.value), 0, printHistory.length - 1);
+  if (!busy && result.changed && nextIndex !== printHistoryIndex) {
+    restorePrintHistoryIndex(nextIndex);
   }
 }
 
@@ -549,11 +646,13 @@ async function handlePrimaryButton() {
     }
 
     statusText = "printing";
+    freezeLiveCameraPhoto();
     renderLabelGraphic({ includeCaret: false });
     labelGraphic.loadPixels();
     const imageData = getPrintableImageData();
     if (outputMode === "receipt") {
       await printReceiptPreview(imageData);
+      recordPrintHistory();
       statusText = "printed";
       detailText = "Printed the current preview on the receipt printer.";
       return;
@@ -568,6 +667,7 @@ async function handlePrimaryButton() {
       invert: true,
       dither: shouldDitherPhotoPrint(),
     });
+    recordPrintHistory();
     statusText = "printed";
     detailText = "Printed the current label preview.";
   } catch (error) {
@@ -798,12 +898,54 @@ function isCameraReady() {
   return !!(cam && getSourceSize(cam));
 }
 
+function hasStoredPhoto() {
+  return !!droppedPhotoImage;
+}
+
 function hasPhotoSource() {
-  return !!(droppedPhotoImage || (photoEnabled && isCameraReady()));
+  return !!((photoEnabled && isCameraReady()) || droppedPhotoImage);
 }
 
 function getPhotoSource() {
-  return droppedPhotoImage || (photoEnabled && isCameraReady() ? cam : null);
+  return (photoEnabled && isCameraReady()) ? cam : droppedPhotoImage;
+}
+
+function capturePhotoSourceGraphic(source = getPhotoSource(), maxDimension = null) {
+  if (!source || !labelGraphic) return null;
+  const scale = maxDimension
+    ? Math.min(1, maxDimension / Math.max(labelGraphic.width, labelGraphic.height))
+    : 1;
+  const target = createGraphics(
+    Math.max(1, Math.round(labelGraphic.width * scale)),
+    Math.max(1, Math.round(labelGraphic.height * scale))
+  );
+  target.pixelDensity(1);
+  drawImageCover(target, source, 0, 0, target.width, target.height);
+  return target;
+}
+
+function capturePhotoSourceDataUrl(source = getPhotoSource()) {
+  const target = capturePhotoSourceGraphic(source, 720);
+  if (!target?.canvas) return "";
+  return target.canvas.toDataURL("image/jpeg", 0.86);
+}
+
+function freezeLiveCameraPhoto() {
+  if (!photoEnabled || !isCameraReady()) return;
+  const target = capturePhotoSourceGraphic(cam);
+  if (!target) return;
+  droppedPhotoImage = target.get();
+  droppedPhotoName = "Camera snapshot";
+  stopPhotoCamera();
+  photoEnabled = false;
+  saveEditorState();
+}
+
+function removeStoredPhoto() {
+  droppedPhotoImage = null;
+  droppedPhotoName = "";
+  detailText = "Removed photo.";
+  saveEditorState();
 }
 
 function fitTextLayout(textValue, maxWidth, maxHeight) {
@@ -1208,10 +1350,10 @@ function drawPreviewCard(preview = getPreviewRect()) {
 }
 
 function getPreviewRect() {
-  const topMargin = 28;
+  const topMargin = printHistory.length ? 52 : 28;
   const controlsGap = 16;
   const controlsHeight = toolbarButtonHeight * 2 + toolbarRowGap;
-  const bottomMargin = 18;
+  const bottomMargin = 6;
   const availableWidth = width - 120;
   const availableHeight = height - topMargin - controlsGap - controlsHeight - bottomMargin;
   const scale = Math.min(availableWidth / labelGraphic.width, availableHeight / labelGraphic.height);
@@ -1807,9 +1949,11 @@ function applyEditorFont(target = window, fontSize = null) {
 function toggleEditorFont() {
   const currentIndex = fontOptions.findIndex((option) => option.key === editorFontMode);
   const nextIndex = currentIndex >= 0 ? (currentIndex + 1) % fontOptions.length : 0;
+  const wasAutoSizing = autoSizingEnabled;
   editorFontMode = fontOptions[nextIndex].key;
-  lineFontSizes = {};
-  autoSizingEnabled = true;
+  if (wasAutoSizing) {
+    lineFontSizes = {};
+  }
   applyEditorFont();
   rebuildLabelGraphic();
   detailText = `Font: ${getEditorFontLabel()}`;
@@ -2019,6 +2163,150 @@ function updateCaretBlink() {
   lastCaretToggleMs = now;
 }
 
+function getEditorSnapshot() {
+  return {
+    text: labelText,
+    cursorIndex,
+    lineFontSizes: cloneJson(lineFontSizes, {}),
+    textStyleRanges: cloneJson(textStyleRanges, { bold: [], italic: [], underline: [] }),
+    pendingTextStyle: cloneJson(pendingTextStyle, { bold: false, italic: false, underline: false }),
+    labelFormat,
+    orientation,
+    editorFontMode,
+    autoSizingEnabled,
+    outputMode,
+    outputModeAuto,
+    labelPaddingMode,
+    labelQrText,
+    photoMergeMode,
+    labelInverted,
+    photoEnabled: !!photoEnabled,
+    photoDataUrl: hasStoredPhoto() ? capturePhotoSourceDataUrl(droppedPhotoImage) : "",
+    photoName: droppedPhotoName,
+  };
+}
+
+function applyEditorSnapshot(data = {}) {
+  stopPhotoCamera();
+  photoEnabled = false;
+  photoCameraStarting = false;
+  labelText = typeof data.text === "string" ? data.text : "";
+  cursorIndex = clampCursorIndex(Number.isFinite(data.cursorIndex) ? data.cursorIndex : labelText.length);
+  lineFontSizes = data.lineFontSizes && typeof data.lineFontSizes === "object" ? cloneJson(data.lineFontSizes, {}) : {};
+  textStyleRanges = sanitizeTextStyleRanges(data.textStyleRanges);
+  pendingTextStyle = sanitizePendingTextStyle(data.pendingTextStyle);
+  labelFormat = labelFormats[data.labelFormat] ? data.labelFormat : "10x15";
+  orientation = data.orientation === "portrait" ? "portrait" : "landscape";
+  editorFontMode = fontOptions.some((option) => option.key === data.editorFontMode)
+    ? data.editorFontMode
+    : "helvetica";
+  autoSizingEnabled = data.autoSizingEnabled !== false;
+  outputMode = data.outputMode === "receipt" ? "receipt" : "label";
+  outputModeAuto = data.outputModeAuto !== false;
+  labelPaddingMode = labelPaddingModes.includes(data.labelPaddingMode) ? data.labelPaddingMode : "minimal";
+  labelQrText = typeof data.labelQrText === "string" ? data.labelQrText : "";
+  labelQrCode = labelQrText ? createQRCode(labelQrText) : null;
+  photoMergeMode = photoMergeModes.includes(data.photoMergeMode) ? data.photoMergeMode : "below";
+  labelInverted = !!data.labelInverted;
+  droppedPhotoImage = null;
+  droppedPhotoName = "";
+  applyEditorFont();
+  rebuildLabelGraphic();
+
+  if (data.photoDataUrl) {
+    loadImage(
+      data.photoDataUrl,
+      (imageValue) => {
+        droppedPhotoImage = imageValue;
+        droppedPhotoName = data.photoName || "Print history photo";
+      },
+      (error) => {
+        console.error("[labelmaker2] history photo failed", error);
+      }
+    );
+  }
+}
+
+function recordPrintHistory() {
+  const entry = {
+    id: `${Date.now()}-${Math.random().toString(36).slice(2)}`,
+    printedAt: new Date().toISOString(),
+    state: getEditorSnapshot(),
+  };
+  printHistory.push(entry);
+  if (printHistory.length > maxPrintHistory) {
+    printHistory = printHistory.slice(printHistory.length - maxPrintHistory);
+  }
+  printHistoryIndex = printHistory.length - 1;
+  savePrintHistory();
+  syncPrintHistorySlider();
+}
+
+function restorePrintHistoryIndex(index) {
+  if (!printHistory.length) return;
+  const nextIndex = constrain(index, 0, printHistory.length - 1);
+  const entry = printHistory[nextIndex];
+  if (!entry?.state) return;
+  printHistoryIndex = nextIndex;
+  applyEditorSnapshot(entry.state);
+  saveEditorState();
+  syncPrintHistorySlider();
+  detailText = `Loaded print ${nextIndex + 1}/${printHistory.length}.`;
+}
+
+function syncPrintHistorySlider() {
+  if (typeof uiSetState !== "function") return;
+  uiSetState(printHistorySliderKey, Math.max(0, printHistoryIndex), { persist: false });
+}
+
+function confirmAndClearPrintHistory() {
+  if (!printHistory.length) return;
+  const ok = window.confirm(`Clear ${printHistory.length} saved print${printHistory.length === 1 ? "" : "s"}?`);
+  if (!ok) return;
+  printHistory = [];
+  printHistoryIndex = -1;
+  syncPrintHistorySlider();
+  savePrintHistory();
+  detailText = "Cleared print history.";
+}
+
+function savePrintHistory() {
+  try {
+    localStorage.setItem(printHistoryStorageKey, JSON.stringify(printHistory));
+  } catch {
+    printHistory = printHistory.slice(Math.max(0, printHistory.length - Math.ceil(maxPrintHistory / 2)));
+    printHistoryIndex = printHistory.length ? printHistory.length - 1 : -1;
+    syncPrintHistorySlider();
+    try {
+      localStorage.setItem(printHistoryStorageKey, JSON.stringify(printHistory));
+    } catch {}
+  }
+}
+
+function loadPrintHistory() {
+  try {
+    const raw = localStorage.getItem(printHistoryStorageKey);
+    if (!raw) return;
+    const data = JSON.parse(raw);
+    printHistory = Array.isArray(data)
+      ? data.filter((entry) => entry?.state).slice(-maxPrintHistory)
+      : [];
+    printHistoryIndex = printHistory.length ? printHistory.length - 1 : -1;
+    syncPrintHistorySlider();
+  } catch {
+    printHistory = [];
+    printHistoryIndex = -1;
+  }
+}
+
+function cloneJson(value, fallback) {
+  try {
+    return JSON.parse(JSON.stringify(value));
+  } catch {
+    return fallback;
+  }
+}
+
 function saveEditorState() {
   try {
     localStorage.setItem(storageKey, JSON.stringify({
@@ -2037,6 +2325,9 @@ function saveEditorState() {
       labelQrText,
       photoMergeMode,
       labelInverted,
+      photoEnabled: !!photoEnabled,
+      photoDataUrl: hasStoredPhoto() ? capturePhotoSourceDataUrl(droppedPhotoImage) : "",
+      photoName: droppedPhotoName,
     }));
   } catch {}
 }
@@ -2064,6 +2355,23 @@ function loadEditorState() {
     labelQrCode = labelQrText ? createQRCode(labelQrText) : null;
     photoMergeMode = photoMergeModes.includes(data.photoMergeMode) ? data.photoMergeMode : "below";
     labelInverted = !!data.labelInverted;
+    photoEnabled = false;
+    photoCameraStarting = false;
+    droppedPhotoImage = null;
+    droppedPhotoName = "";
+    restoreLiveCameraOnSetup = data.photoEnabled === true && !data.photoDataUrl;
+    if (data.photoDataUrl) {
+      loadImage(
+        data.photoDataUrl,
+        (imageValue) => {
+          droppedPhotoImage = imageValue;
+          droppedPhotoName = data.photoName || "Stored photo";
+        },
+        (error) => {
+          console.error("[labelmaker2] stored photo failed", error);
+        }
+      );
+    }
   } catch {}
 }
 
@@ -2083,6 +2391,9 @@ function clearEditor() {
   };
   labelQrText = "";
   labelQrCode = null;
+  stopPhotoCamera();
+  photoEnabled = false;
+  photoCameraStarting = false;
   droppedPhotoImage = null;
   droppedPhotoName = "";
   autoSizingEnabled = true;
@@ -2151,9 +2462,12 @@ function handlePhotoDrop(file) {
   loadImage(
     file.data,
     (imageValue) => {
+      stopPhotoCamera();
+      photoEnabled = false;
       droppedPhotoImage = imageValue;
       droppedPhotoName = file.name || "Dropped photo";
       detailText = `Photo loaded: ${droppedPhotoName}.`;
+      saveEditorState();
     },
     (error) => {
       console.error("[labelmaker2] dropped photo failed", error);
@@ -2173,15 +2487,25 @@ async function togglePhotoCamera() {
     stopPhotoCamera();
     photoEnabled = false;
     detailText = "Photo mode off.";
+    saveEditorState();
     return;
   }
 
+  await startPhotoCamera({ clearStoredPhoto: true, detail: "Starting camera..." });
+}
+
+async function startPhotoCamera({ clearStoredPhoto = true, detail = "Starting camera..." } = {}) {
   photoCameraStarting = true;
-  detailText = "Starting camera...";
+  detailText = detail;
   try {
     cam = await setupWebcamera(false, 1280, 720, false, false);
+    if (clearStoredPhoto) {
+      droppedPhotoImage = null;
+      droppedPhotoName = "";
+    }
     photoEnabled = true;
     detailText = "Photo mode on. Press Print to capture the live view.";
+    saveEditorState();
   } catch (error) {
     console.error("[labelmaker2] camera failed", error);
     detailText = error?.message || "Could not start camera.";
