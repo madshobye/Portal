@@ -10,7 +10,7 @@ let droppedPhotoImage = null;
 let droppedPhotoName = "";
 let labelText = "";
 let cursorIndex = 0;
-let caretVisible = true;
+let caretWhite = false;
 let lastCaretToggleMs = 0;
 let lineFontSizes = {};
 let textStyleRanges = {
@@ -69,7 +69,7 @@ const labelPaddingPresets = {
   },
 };
 const labelPaddingModes = ["minimal", "some", "lot"];
-const photoMergeModes = ["below", "white", "stencil", "black"];
+const photoMergeModes = ["below", "white", "stencil", "black", "nodither", "noditherwhite"];
 const minFontSize = 24;
 const maxFontSize = 1280;
 const defaultFontSize = 96;
@@ -487,7 +487,7 @@ async function handlePrimaryButton() {
       gapMm: 2,
       threshold: 210,
       invert: true,
-      dither: true,
+      dither: shouldDitherPhotoPrint(),
     });
     statusText = "printed";
     detailText = "Printed the current label preview.";
@@ -514,11 +514,15 @@ async function printReceiptPreview(imageData) {
     await printer.printEscposBitmap(imageData, {
       widthDots: 384,
       threshold: 190,
-      dither: true,
+      dither: shouldDitherPhotoPrint(),
       initialize: true,
       feedLines: 4,
     });
   });
+}
+
+function shouldDitherPhotoPrint() {
+  return !(hasPhotoSource() && (photoMergeMode === "nodither" || photoMergeMode === "noditherwhite"));
 }
 
 function rotateImageDataClockwise(imageData) {
@@ -566,15 +570,18 @@ function renderLabelGraphic({ includeCaret = true } = {}) {
   labelGraphic.noStroke();
   labelGraphic.textStyle(NORMAL);
 
-  if (includeCaret && caretVisible) {
+  if (includeCaret) {
     const caret = getCaretPosition(layout, textOrigin);
-    labelGraphic.stroke(0);
+    labelGraphic.stroke(caretWhite ? 255 : 0);
     labelGraphic.strokeWeight(Math.max(2, caret.fontSize * 0.04));
     labelGraphic.line(caret.x, caret.y, caret.x, caret.y + caret.height);
   }
 
   if (hasPhotoSource()) {
     composePhotoWithCurrentLabelMask();
+    if (photoMergeMode === "nodither" || photoMergeMode === "noditherwhite") {
+      applyMonochromeThresholdPreview(labelGraphic, outputMode === "receipt" ? 190 : 210);
+    }
   } else if (labelInverted) {
     invertLabelGraphic();
   }
@@ -606,7 +613,7 @@ function composePhotoWithCurrentLabelMask() {
       labelGraphic.pixels[index + 1] = photoG;
       labelGraphic.pixels[index + 2] = photoB;
       if (ink) {
-        const value = photoMergeMode === "white" ? 255 : 0;
+        const value = (photoMergeMode === "white" || photoMergeMode === "noditherwhite") ? 255 : 0;
         labelGraphic.pixels[index] = value;
         labelGraphic.pixels[index + 1] = value;
         labelGraphic.pixels[index + 2] = value;
@@ -627,6 +634,22 @@ function invertLabelGraphic() {
     labelGraphic.pixels[index + 3] = 255;
   }
   labelGraphic.updatePixels();
+}
+
+function applyMonochromeThresholdPreview(target, threshold = 210) {
+  target.loadPixels();
+  for (let index = 0; index < target.pixels.length; index += 4) {
+    const alpha = target.pixels[index + 3];
+    const luminance = alpha <= 20
+      ? 255
+      : 0.2126 * target.pixels[index] + 0.7152 * target.pixels[index + 1] + 0.0722 * target.pixels[index + 2];
+    const value = luminance < threshold ? 0 : 255;
+    target.pixels[index] = value;
+    target.pixels[index + 1] = value;
+    target.pixels[index + 2] = value;
+    target.pixels[index + 3] = 255;
+  }
+  target.updatePixels();
 }
 
 function ensurePhotoGraphic() {
@@ -1162,7 +1185,7 @@ function placeCursorFromPreviewPoint(pointerX, pointerY, preview) {
   const bestOffset = findNearestCharacterOffset(line, textX);
 
   cursorIndex = line.start + bestOffset;
-  caretVisible = true;
+  caretWhite = false;
   lastCaretToggleMs = millis();
   detailText = "Moved cursor.";
   saveEditorState();
@@ -1913,7 +1936,7 @@ function describeLineStyle(style) {
 function updateCaretBlink() {
   const now = millis();
   if (now - lastCaretToggleMs < 500) return;
-  caretVisible = !caretVisible;
+  caretWhite = !caretWhite;
   lastCaretToggleMs = now;
 }
 
@@ -2123,6 +2146,8 @@ function getBlendModeIcon() {
   if (photoMergeMode === "white") return "invert_colors";
   if (photoMergeMode === "stencil") return "texture";
   if (photoMergeMode === "black") return "contrast";
+  if (photoMergeMode === "nodither") return "filter_b_and_w";
+  if (photoMergeMode === "noditherwhite") return "filter_b_and_w";
   return "vertical_align_bottom";
 }
 
@@ -2130,6 +2155,8 @@ function getPhotoMergeModeLabel() {
   if (photoMergeMode === "white") return "white";
   if (photoMergeMode === "stencil") return "mask";
   if (photoMergeMode === "black") return "black";
+  if (photoMergeMode === "nodither") return "bw";
+  if (photoMergeMode === "noditherwhite") return "wbw";
   return "under";
 }
 
