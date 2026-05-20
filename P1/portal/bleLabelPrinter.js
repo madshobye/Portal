@@ -109,6 +109,7 @@ class BleLabelPrinter {
     this._writeQueue = Promise.resolve();
     this._encoder = new TextEncoder();
     this._effectiveChunkSize = this.chunkSize;
+    this._writeAbortId = 0;
     this._debugCounters = {};
     this._boundOnDisconnected = this._handleDisconnected.bind(this);
     this._boundOnCharacteristicValueChanged = this._handleCharacteristicValueChanged.bind(this);
@@ -289,6 +290,8 @@ class BleLabelPrinter {
 
   disconnect() {
     this._disconnectRequested = true;
+    this._writeAbortId += 1;
+    this._writeQueue = Promise.resolve();
     this._clearReconnectTimer();
     this._safeDisconnect();
     this.connected = false;
@@ -514,8 +517,11 @@ class BleLabelPrinter {
     await this._waitForConnectionIfNeeded();
     this._ensureConnected();
     const payload = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes || []);
-    this._writeQueue = this._writeQueue.then(() => this._writeBytesNow(payload));
-    await this._writeQueue;
+    const queuedWrite = this._writeQueue
+      .catch(() => {})
+      .then(() => this._writeBytesNow(payload, this._writeAbortId));
+    this._writeQueue = queuedWrite.catch(() => {});
+    await queuedWrite;
   }
 
   async withWriteSettings({
@@ -795,7 +801,7 @@ class BleLabelPrinter {
     }
   }
 
-  async _writeBytesNow(payload) {
+  async _writeBytesNow(payload, writeAbortId = this._writeAbortId) {
     this._ensureConnected();
     this._setState("printing");
 
@@ -803,6 +809,9 @@ class BleLabelPrinter {
     let activeChunkSize = Math.max(20, Math.min(this.chunkSize, this._effectiveChunkSize || this.chunkSize));
 
     while (offset < payload.length) {
+      if (writeAbortId !== this._writeAbortId) {
+        throw new Error("BleLabelPrinter: write cancelled");
+      }
       const chunk = payload.slice(offset, offset + activeChunkSize);
       this._debug("write chunk", {
         offset,
@@ -814,6 +823,9 @@ class BleLabelPrinter {
       try {
         await this._writeChunk(chunk);
       } catch (error) {
+        if (writeAbortId !== this._writeAbortId || !this.connected || !this.characteristic) {
+          throw error;
+        }
         if (activeChunkSize <= 20) throw error;
         const nextChunkSize = Math.max(20, Math.floor(activeChunkSize * 0.5));
         this._debug("write chunk fallback", {
@@ -1090,6 +1102,8 @@ class BleLabelPrinter {
 
   _handleDisconnected() {
     this._debug("disconnected");
+    this._writeAbortId += 1;
+    this._writeQueue = Promise.resolve();
     this.connected = false;
     this.connecting = false;
     this.service = null;

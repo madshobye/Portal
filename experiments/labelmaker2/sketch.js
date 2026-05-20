@@ -2,6 +2,8 @@ let printer;
 let statusText = "loading";
 let detailText = "Type on the keyboard. Return inserts a new line.";
 let busy = false;
+let activePrintId = 0;
+let printCancelRequested = false;
 let labelGraphic;
 let labelPhotoGraphic;
 let cam = null;
@@ -42,6 +44,7 @@ let labelQrCode = null;
 let photoEnabled = false;
 let photoMergeMode = "below";
 let labelInverted = false;
+let textOutlineMode = "none";
 const debugCharacterBounds = false;
 let tooltipKey = "";
 let tooltipLabel = "";
@@ -81,6 +84,7 @@ const labelPaddingPresets = {
 };
 const labelPaddingModes = ["minimal", "some", "lot"];
 const photoMergeModes = ["below", "white", "stencil", "black", "nodither", "noditherwhite"];
+const textOutlineModes = ["none", "outline", "opposite"];
 const minFontSize = 24;
 const maxFontSize = 1280;
 const defaultFontSize = 96;
@@ -200,7 +204,7 @@ function draw() {
   const connectionState = printer?.getConnectionState?.() || {};
   const isConnected = !!connectionState.connected;
   const buttonLabel = busy
-    ? "progress_activity"
+    ? "cancel"
     : (isConnected ? "print" : "bluetooth");
   const controlsY = preview.y + preview.height + 16;
   const squareButtonWidth = toolbarButtonHeight;
@@ -209,7 +213,7 @@ function draw() {
   const modeButtonWidth = squareButtonWidth;
   const rightControlsWidth = buttonWidth + toolbarGap + clearButtonWidth;
   const showRemovePhotoButton = hasStoredPhoto();
-  const leftMainButtons = showRemovePhotoButton ? 9 : 8;
+  const leftMainButtons = showRemovePhotoButton ? 10 : 9;
   const leftMainWidth = leftMainButtons * squareButtonWidth + (leftMainButtons - 1) * toolbarGap;
   const styleButtonWidth = toolbarButtonHeight;
   const styleButtonGap = toolbarGap;
@@ -248,11 +252,13 @@ function draw() {
     width: buttonWidth,
     height: toolbarButtonHeight,
     primary: true,
-    disabled: busy,
-    spin: busy,
-    tooltip: isConnected ? "Print" : "Connect printer",
+    disabled: false,
+    spin: false,
+    tooltip: busy ? "Cancel print" : (isConnected ? "Print" : "Connect printer"),
   });
-  if (!busy && button.clicked) {
+  if (button.clicked && busy) {
+    cancelActivePrint();
+  } else if (!busy && button.clicked) {
     handlePrimaryButton();
   }
 
@@ -276,7 +282,8 @@ function draw() {
   const qrButtonX = paddingButtonX + squareButtonWidth + toolbarGap;
   const photoButtonX = qrButtonX + squareButtonWidth + toolbarGap;
   const blendButtonX = photoButtonX + squareButtonWidth + toolbarGap;
-  const removePhotoButtonX = blendButtonX + squareButtonWidth + toolbarGap;
+  const outlineButtonX = blendButtonX + squareButtonWidth + toolbarGap;
+  const removePhotoButtonX = outlineButtonX + squareButtonWidth + toolbarGap;
 
   const toggleButton = drawIconButton(labelFormat === "10x10" ? "crop_square" : "aspect_ratio", {
     x: formatX,
@@ -369,6 +376,19 @@ function draw() {
   });
   if (!busy && blendButton.clicked) {
     toggleBlendMode();
+  }
+
+  const outlineButton = drawIconButton(getTextOutlineModeIcon(), {
+    x: outlineButtonX,
+    y: controlsY,
+    width: squareButtonWidth,
+    height: toolbarButtonHeight,
+    active: textOutlineMode !== "none",
+    disabled: busy,
+    tooltip: `Text: ${getTextOutlineModeLabel()}`,
+  });
+  if (!busy && outlineButton.clicked) {
+    toggleTextOutlineMode();
   }
 
   if (showRemovePhotoButton) {
@@ -636,12 +656,16 @@ function drawTooltip(label, anchorX, anchorY) {
 
 async function handlePrimaryButton() {
   if (busy) return;
+  const printId = activePrintId + 1;
+  activePrintId = printId;
+  printCancelRequested = false;
   busy = true;
   try {
     const state = printer.getConnectionState();
     if (!state.connected) {
       statusText = "connecting";
       await printer.connectWithPicker({ acceptAllDevices: false });
+      if (printId !== activePrintId) return;
       return;
     }
 
@@ -650,9 +674,10 @@ async function handlePrimaryButton() {
     renderLabelGraphic({ includeCaret: false });
     labelGraphic.loadPixels();
     const imageData = getPrintableImageData();
+    recordPrintHistory();
     if (outputMode === "receipt") {
       await printReceiptPreview(imageData);
-      recordPrintHistory();
+      if (printId !== activePrintId) return;
       statusText = "printed";
       detailText = "Printed the current preview on the receipt printer.";
       return;
@@ -667,15 +692,33 @@ async function handlePrimaryButton() {
       invert: true,
       dither: shouldDitherPhotoPrint(),
     });
-    recordPrintHistory();
+    if (printId !== activePrintId) return;
     statusText = "printed";
     detailText = "Printed the current label preview.";
   } catch (error) {
+    if (printId !== activePrintId || printCancelRequested) return;
     console.error("[labelmaker2] action failed", error);
     statusText = "action failed";
     detailText = error?.message || String(error);
   } finally {
-    busy = false;
+    if (printId === activePrintId) {
+      busy = false;
+      printCancelRequested = false;
+    }
+  }
+}
+
+function cancelActivePrint() {
+  if (!busy) return;
+  printCancelRequested = true;
+  activePrintId += 1;
+  busy = false;
+  statusText = "cancelled";
+  detailText = "Cancelled print. Reconnect before printing again.";
+  try {
+    printer?.disconnect?.();
+  } catch (error) {
+    console.warn("[labelmaker2] cancel disconnect failed", error);
   }
 }
 
@@ -1283,7 +1326,7 @@ function getLineHeightFactorForCurrentFont() {
 function getCaretPosition(layout, textOrigin = getTextRenderOrigin(layout)) {
   const info = findCursorLocation(layout);
   const boundaryOffset = clampCursorIndex(cursorIndex) - info.line.start;
-  const x = getCharacterBoundaryX(info.line, boundaryOffset, textOrigin.x);
+  const x = getCharacterBoundaryX(info.line, boundaryOffset, getRenderedLineStartX(info.line, textOrigin.x));
   let y = textOrigin.y;
   for (let index = 0; index < info.lineIndex; index += 1) {
     y += layout.lines[index].lineHeight;
@@ -1402,7 +1445,8 @@ function placeCursorFromPreviewPoint(pointerX, pointerY, preview) {
   const textOrigin = getTextRenderOrigin(layout);
   const lineIndex = findNearestLineIndex(layout, localY);
   const line = layout.lines[lineIndex];
-  const textX = constrain(localX - textOrigin.x, 0, draftBlock.width);
+  const renderedStartX = getRenderedLineStartX(line, textOrigin.x);
+  const textX = constrain(localX - renderedStartX, 0, draftBlock.width);
   const bestOffset = findNearestCharacterOffset(line, textX);
 
   cursorIndex = line.start + bestOffset;
@@ -1837,7 +1881,7 @@ function moveCursorVertical(direction) {
     clampCursorIndex(cursorIndex),
     current.line.fontSize,
     current.line.text
-  );
+  ) - getLineLeadingInkOffset(current.line);
   const targetLine = layout.lines[targetLineIndex];
   let bestOffset = 0;
   let bestDistance = Infinity;
@@ -1848,7 +1892,7 @@ function moveCursorVertical(direction) {
         targetLine.start + offset,
         targetLine.fontSize,
         targetLine.text
-      ) - currentX
+      ) - getLineLeadingInkOffset(targetLine) - currentX
     );
     if (distance < bestDistance) {
       bestDistance = distance;
@@ -2013,8 +2057,7 @@ function drawStyledLine(line, y, startX = getLabelTextRect().x) {
     applyEditorFont(labelGraphic, line.fontSize);
     labelGraphic.textLeading(line.lineHeight);
     applySegmentTextStyle(renderStyle);
-    labelGraphic.fill(0);
-    labelGraphic.noStroke();
+    applyTextOutlinePaint(line.fontSize);
     if (!whitespaceOnly) {
       drawWeightedText(textValue, x, y, line.fontSize, renderStyle);
     }
@@ -2032,6 +2075,24 @@ function drawStyledLine(line, y, startX = getLabelTextRect().x) {
   }
 }
 
+function applyTextOutlinePaint(fontSize) {
+  const outlineWeight = Math.max(1, fontSize * 0.035);
+  if (textOutlineMode === "outline") {
+    labelGraphic.noFill();
+    labelGraphic.stroke(0);
+    labelGraphic.strokeWeight(outlineWeight);
+    return;
+  }
+  if (textOutlineMode === "opposite") {
+    labelGraphic.fill(0);
+    labelGraphic.stroke(255);
+    labelGraphic.strokeWeight(outlineWeight);
+    return;
+  }
+  labelGraphic.fill(0);
+  labelGraphic.noStroke();
+}
+
 function drawCharacterBoundaryDebug(line, y, startX = getLabelTextRect().x) {
   const textValue = String(line?.text || "");
   if (!textValue.length) return;
@@ -2041,7 +2102,7 @@ function drawCharacterBoundaryDebug(line, y, startX = getLabelTextRect().x) {
   labelGraphic.strokeWeight(Math.max(1, line.fontSize * 0.012));
   labelGraphic.noFill();
 
-  const renderedStartX = startX - getLineLeadingInkOffset(line);
+  const renderedStartX = getRenderedLineStartX(line, startX);
   const top = y + getCaretVisualOffset(line.fontSize);
   const bottom = top + getCaretVisualHeight(line.fontSize);
   for (const boundary of getCharacterBoundaryOffsets(line)) {
@@ -2049,6 +2110,10 @@ function drawCharacterBoundaryDebug(line, y, startX = getLabelTextRect().x) {
     labelGraphic.line(x, top, x, bottom);
   }
   labelGraphic.pop();
+}
+
+function getRenderedLineStartX(line, startX = 0) {
+  return startX - getLineLeadingInkOffset(line);
 }
 
 function applySegmentTextStyle(style) {
@@ -2097,14 +2162,10 @@ function getLineLeadingInkOffset(line) {
   const textValue = String(line?.text || "");
   if (!textValue.length) return 0;
 
-  let x = 0;
   const autoLineBold = isAutoLineBold(textValue);
   for (let offset = 0; offset < textValue.length; offset += 1) {
     const char = textValue[offset];
-    if (isWhitespaceOnly(char)) {
-      x += measureWhitespaceWidth(char, line.fontSize);
-      continue;
-    }
+    if (isWhitespaceOnly(char)) continue;
 
     const style = getStyleAtIndex(line.start + offset);
     const mergedStyle = {
@@ -2112,7 +2173,7 @@ function getLineLeadingInkOffset(line) {
       italic: !!style.italic,
       underline: !!style.underline,
     };
-    return x + measureGlyphInkLeftOffset(char, line.fontSize, mergedStyle);
+    return measureGlyphInkLeftOffset(char, line.fontSize, mergedStyle);
   }
 
   return 0;
@@ -2180,6 +2241,7 @@ function getEditorSnapshot() {
     labelQrText,
     photoMergeMode,
     labelInverted,
+    textOutlineMode,
     photoEnabled: !!photoEnabled,
     photoDataUrl: hasStoredPhoto() ? capturePhotoSourceDataUrl(droppedPhotoImage) : "",
     photoName: droppedPhotoName,
@@ -2208,6 +2270,7 @@ function applyEditorSnapshot(data = {}) {
   labelQrCode = labelQrText ? createQRCode(labelQrText) : null;
   photoMergeMode = photoMergeModes.includes(data.photoMergeMode) ? data.photoMergeMode : "below";
   labelInverted = !!data.labelInverted;
+  textOutlineMode = textOutlineModes.includes(data.textOutlineMode) ? data.textOutlineMode : "none";
   droppedPhotoImage = null;
   droppedPhotoName = "";
   applyEditorFont();
@@ -2325,6 +2388,7 @@ function saveEditorState() {
       labelQrText,
       photoMergeMode,
       labelInverted,
+      textOutlineMode,
       photoEnabled: !!photoEnabled,
       photoDataUrl: hasStoredPhoto() ? capturePhotoSourceDataUrl(droppedPhotoImage) : "",
       photoName: droppedPhotoName,
@@ -2355,6 +2419,7 @@ function loadEditorState() {
     labelQrCode = labelQrText ? createQRCode(labelQrText) : null;
     photoMergeMode = photoMergeModes.includes(data.photoMergeMode) ? data.photoMergeMode : "below";
     labelInverted = !!data.labelInverted;
+    textOutlineMode = textOutlineModes.includes(data.textOutlineMode) ? data.textOutlineMode : "none";
     photoEnabled = false;
     photoCameraStarting = false;
     droppedPhotoImage = null;
@@ -2397,6 +2462,7 @@ function clearEditor() {
   droppedPhotoImage = null;
   droppedPhotoName = "";
   autoSizingEnabled = true;
+  textOutlineMode = "none";
   detailText = "Cleared label.";
   saveEditorState();
 }
@@ -2542,6 +2608,25 @@ function toggleBlendMode() {
   labelInverted = !labelInverted;
   detailText = labelInverted ? "Inverted label." : "Normal label.";
   saveEditorState();
+}
+
+function toggleTextOutlineMode() {
+  const currentIndex = Math.max(0, textOutlineModes.indexOf(textOutlineMode));
+  textOutlineMode = textOutlineModes[(currentIndex + 1) % textOutlineModes.length];
+  detailText = `Text: ${getTextOutlineModeLabel()}.`;
+  saveEditorState();
+}
+
+function getTextOutlineModeIcon() {
+  if (textOutlineMode === "outline") return "format_color_text";
+  if (textOutlineMode === "opposite") return "format_color_fill";
+  return "title";
+}
+
+function getTextOutlineModeLabel() {
+  if (textOutlineMode === "outline") return "outline";
+  if (textOutlineMode === "opposite") return "opposite outline";
+  return "filled";
 }
 
 function getBlendModeIcon() {
