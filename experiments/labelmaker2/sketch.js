@@ -5,6 +5,7 @@ let busy = false;
 let activePrintId = 0;
 let printCancelRequested = false;
 let activePrintJob = null;
+let printProgress = 0;
 let labelGraphic;
 let labelTextGraphic;
 let labelPhotoGraphic;
@@ -215,7 +216,7 @@ function draw() {
   const hasPhotoControls = hasPhotoSource() || photoEnabled || photoCameraStarting;
   const controlsY = preview.y + preview.height + 16;
   const squareButtonWidth = toolbarButtonHeight;
-  const printButtonWidth = isConnected || busy ? squareButtonWidth : 0;
+  const printButtonWidth = busy ? squareButtonWidth * 3 + toolbarGap * 2 : (isConnected ? squareButtonWidth : 0);
   const connectButtonWidth = squareButtonWidth;
   const clearButtonWidth = squareButtonWidth;
   const downloadButtonWidth = squareButtonWidth;
@@ -281,16 +282,24 @@ function draw() {
 
   const printButtonX = preview.x + preview.width - connectButtonWidth - toolbarGap - printButtonWidth;
   if (printButtonWidth) {
-    const printButton = drawIconButton(busy ? "cancel" : "print", {
-      x: printButtonX,
-      y: rightButtonY,
-      width: printButtonWidth,
-      height: toolbarButtonHeight,
-      primary: true,
-      disabled: false,
-      tooltip: busy ? "Cancel print" : "Print",
-    });
-    if (printButton.clicked && busy) {
+    const printButton = busy
+      ? drawPrintProgressButton({
+        x: printButtonX,
+        y: rightButtonY,
+        width: printButtonWidth,
+        height: toolbarButtonHeight,
+        progress: printProgress,
+      })
+      : drawIconButton("print", {
+        x: printButtonX,
+        y: rightButtonY,
+        width: printButtonWidth,
+        height: toolbarButtonHeight,
+        primary: true,
+        disabled: false,
+        tooltip: "Print",
+      });
+    if (busy && printButton.clicked) {
       cancelActivePrint();
     } else if (!busy && printButton.clicked) {
       handlePrimaryButton();
@@ -300,7 +309,7 @@ function draw() {
   const clearButtonX = printButtonWidth
     ? printButtonX - toolbarGap - clearButtonWidth
     : preview.x + preview.width - connectButtonWidth - toolbarGap - clearButtonWidth;
-  const clearButton = drawIconButton("ink_eraser", {
+  const clearButton = drawIconButton("backspace", {
     x: clearButtonX,
     y: rightButtonY,
     width: clearButtonWidth,
@@ -673,6 +682,47 @@ function drawIconButton(icon, options = {}) {
   return result;
 }
 
+function drawPrintProgressButton(options = {}) {
+  const x = options.x;
+  const y = options.y;
+  const w = options.width;
+  const h = options.height;
+  const progress = constrain(Number(options.progress) || 0, 0, 1);
+  const result = uiButton("", {
+    x,
+    y,
+    width: w,
+    height: h,
+    padding: 0,
+    rounding: 6,
+    bgColor: "#1e1e1e",
+    textColor: "#ffffff",
+    stroke: { weight: 0 },
+    hover: { bgColor: "#2a2a2a", cursor: "pointer" },
+    pressed: { bgColor: "#111111", cursor: "pointer" },
+    persist: false,
+  });
+
+  push();
+  noStroke();
+  fill("#ff9f1a");
+  rect(x, y, Math.max(0, w * progress), h, 6);
+  fill("#ffffff");
+  textFont(fallbackFontFamily);
+  textStyle(NORMAL);
+  textSize(12);
+  textAlign(LEFT, CENTER);
+  text(`${Math.round(progress * 100)}%`, x + 10, y + h * 0.5 + 1);
+  textFont("Material Symbols Rounded");
+  textSize(24);
+  textAlign(RIGHT, CENTER);
+  text("cancel", x + w - 10, y + h * 0.5 + 4);
+  pop();
+
+  registerTooltip("print-progress", `${Math.round(progress * 100)}% - cancel print`, x, y, w, h);
+  return result;
+}
+
 function beginTooltipFrame() {
   tooltipActiveThisFrame = false;
 }
@@ -749,6 +799,7 @@ async function handlePrimaryButton() {
   const printId = activePrintId + 1;
   activePrintId = printId;
   printCancelRequested = false;
+  printProgress = 0;
   busy = true;
   let backgroundPrintStarted = false;
   try {
@@ -782,12 +833,17 @@ async function handlePrimaryButton() {
       density: 12,
       invert: true,
       dither: photoMergeMode !== "hardblack",
+      onProgress: (progress) => {
+        if (printId !== activePrintId) return;
+        printProgress = constrain(Number(progress?.ratio) || 0, 0, 1);
+      },
     });
     backgroundPrintStarted = true;
     activePrintJob = printJob;
     printJob.promise
       .then(() => {
         if (printId !== activePrintId) return;
+        printProgress = 1;
         statusText = "printed";
         detailText = "Printed the current label preview.";
       })
@@ -802,6 +858,7 @@ async function handlePrimaryButton() {
         activePrintJob = null;
         busy = false;
         printCancelRequested = false;
+        printProgress = 0;
       });
     return;
   } catch (error) {
@@ -819,7 +876,7 @@ async function handlePrimaryButton() {
 
 function downloadCurrentLabel() {
   renderLabelGraphic();
-  recordPrintHistory();
+  const savedToHistory = recordPrintHistory();
   const canvas = labelGraphic?.canvas || labelGraphic?.elt;
   if (!canvas) {
     detailText = "No label image to download.";
@@ -842,7 +899,9 @@ function downloadCurrentLabel() {
     link.click();
     link.remove();
     setTimeout(() => URL.revokeObjectURL(url), 1000);
-    detailText = `Saved and downloaded label ${printHistoryIndex + 1}/${printHistory.length}.`;
+    detailText = savedToHistory
+      ? `Saved and downloaded label ${printHistoryIndex + 1}/${printHistory.length}.`
+      : "Downloaded current label.";
   };
 
   if (typeof canvas.toBlob === "function") {
@@ -857,7 +916,9 @@ function downloadCurrentLabel() {
   document.body.appendChild(link);
   link.click();
   link.remove();
-  detailText = `Saved and downloaded label ${printHistoryIndex + 1}/${printHistory.length}.`;
+  detailText = savedToHistory
+    ? `Saved and downloaded label ${printHistoryIndex + 1}/${printHistory.length}.`
+    : "Downloaded current label.";
 }
 
 function cancelActivePrint() {
@@ -867,6 +928,7 @@ function cancelActivePrint() {
   activePrintJob = null;
   activePrintId += 1;
   busy = false;
+  printProgress = 0;
   statusText = "cancelled";
   detailText = "Cancelled print.";
 }
@@ -1875,6 +1937,7 @@ function installTextInputBridge() {
 
   textInputEl.addEventListener("beforeinput", handleTextInputBeforeInput, { passive: false });
   textInputEl.addEventListener("keydown", handleEditorKeydown, { passive: false });
+  textInputEl.addEventListener("paste", handleEditorPaste, { passive: false });
   textInputEl.addEventListener("input", () => {
     if (textInputEl.value) {
       insertTextAtCursor(textInputEl.value);
@@ -1940,6 +2003,21 @@ function installKeyCapture() {
     if (event.target === textInputEl) return;
     handleEditorKeydown(event);
   }, { passive: false });
+  window.addEventListener("paste", handleEditorPaste, { passive: false });
+}
+
+function handleEditorPaste(event) {
+  if (busy) {
+    event.preventDefault();
+    return;
+  }
+  const pastedText = event.clipboardData?.getData("text/plain") || "";
+  if (!pastedText) return;
+  event.preventDefault();
+  event.stopPropagation();
+  insertTextAtCursor(pastedText.replace(/\r\n?/g, "\n"));
+  if (textInputEl) textInputEl.value = "";
+  detailText = "Pasted text into the label.";
 }
 
 function handleEditorKeydown(event) {
@@ -2652,15 +2730,36 @@ function applyEditorSnapshot(data = {}) {
 }
 
 function recordPrintHistory() {
+  const state = getEditorSnapshot();
+  const lastState = printHistory.length ? printHistory[printHistory.length - 1]?.state : null;
+  if (lastState && areHistoryStatesEqual(lastState, state)) {
+    printHistoryIndex = printHistory.length - 1;
+    syncPrintHistorySlider();
+    return false;
+  }
+
   const entry = {
     id: `${Date.now()}-${Math.random().toString(36).slice(2)}`,
     printedAt: new Date().toISOString(),
-    state: getEditorSnapshot(),
+    state,
   };
   printHistory.push(entry);
   printHistoryIndex = printHistory.length - 1;
   savePrintHistory();
   syncPrintHistorySlider();
+  return true;
+}
+
+function areHistoryStatesEqual(a, b) {
+  return JSON.stringify(getComparableHistoryState(a)) === JSON.stringify(getComparableHistoryState(b));
+}
+
+function getComparableHistoryState(state = {}) {
+  const comparable = cloneJson(state, {});
+  delete comparable.cursorIndex;
+  delete comparable.pendingTextStyle;
+  delete comparable.photoName;
+  return comparable;
 }
 
 function restorePrintHistoryIndex(index) {
@@ -2825,6 +2924,7 @@ function loadEditorState() {
 }
 
 function clearEditor() {
+  recordPrintHistory();
   labelText = "";
   cursorIndex = labelText.length;
   lineFontSizes = {};

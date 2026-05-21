@@ -392,7 +392,7 @@ class BleLabelPrinter {
       width: imageData?.width || 0,
       height: imageData?.height || 0,
     });
-    return this.writeBytesAsync(bytes);
+    return this.writeBytesAsync(bytes, options);
   }
 
   async printNiimbotB1Bitmap(imageData, options = {}) {
@@ -523,15 +523,18 @@ class BleLabelPrinter {
     await job.promise;
   }
 
-  writeBytesAsync(bytes) {
+  writeBytesAsync(bytes, options = {}) {
     const payload = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes || []);
+    const progressOptions = {
+      onProgress: typeof options.onProgress === "function" ? options.onProgress : null,
+    };
     const writeAbortId = this._writeAbortId;
     const queuedWrite = (async () => {
       await this._waitForConnectionIfNeeded();
       this._ensureConnected();
       const write = this._writeQueue
         .catch(() => {})
-        .then(() => this._writeBytesNow(payload, writeAbortId));
+        .then(() => this._writeBytesNow(payload, writeAbortId, progressOptions));
       this._writeQueue = write.catch(() => {});
       return write;
     })();
@@ -823,12 +826,13 @@ class BleLabelPrinter {
     }
   }
 
-  async _writeBytesNow(payload, writeAbortId = this._writeAbortId) {
+  async _writeBytesNow(payload, writeAbortId = this._writeAbortId, options = {}) {
     this._ensureConnected();
     this._setState("printing");
 
     let offset = 0;
     let activeChunkSize = Math.max(20, Math.min(this.chunkSize, this._effectiveChunkSize || this.chunkSize));
+    this._reportWriteProgress(options, offset, payload.length, activeChunkSize);
 
     while (offset < payload.length) {
       if (writeAbortId !== this._writeAbortId) {
@@ -864,6 +868,7 @@ class BleLabelPrinter {
 
       this._effectiveChunkSize = activeChunkSize;
       offset += chunk.length;
+      this._reportWriteProgress(options, offset, payload.length, activeChunkSize);
       if (this.chunkDelayMs > 0) {
         await this._sleep(this.chunkDelayMs);
       }
@@ -874,6 +879,20 @@ class BleLabelPrinter {
       bytes: payload.length,
       characteristic: this.characteristic?.uuid || "",
     });
+  }
+
+  _reportWriteProgress(options, sent, total, chunkSize) {
+    if (typeof options?.onProgress !== "function") return;
+    try {
+      options.onProgress({
+        sent,
+        total,
+        chunkSize,
+        ratio: total > 0 ? sent / total : 1,
+      });
+    } catch (error) {
+      this._debug("write progress callback failed", error?.message || String(error));
+    }
   }
 
   async _writeChunk(chunk) {
