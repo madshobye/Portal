@@ -1,0 +1,139 @@
+html,
+body {
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+  background: #101113;
+  color: #f7f7f4;
+  font-family: Helvetica, Arial, sans-serif;
+}
+
+canvas {
+  display: block;
+}
+
+.peer-panel {
+  position: fixed;
+  inset: 14px;
+  display: grid;
+  grid-template-columns: minmax(280px, 420px) 1fr;
+  gap: 14px;
+  pointer-events: none;
+}
+
+.peer-card {
+  pointer-events: auto;
+  background: rgba(18, 20, 22, 0.88);
+  border: 1px solid rgba(255, 255, 255, 0.13);
+  border-radius: 8px;
+  padding: 14px;
+  box-sizing: border-box;
+  backdrop-filter: blur(12px);
+}
+
+.peer-title {
+  margin: 0 0 10px;
+  font-size: 1rem;
+  font-weight: 700;
+}
+
+.peer-grid {
+  display: grid;
+  grid-template-columns: 92px 1fr;
+  gap: 8px;
+  align-items: center;
+}
+
+.peer-label {
+  font-size: 0.78rem;
+  color: rgba(247, 247, 244, 0.68);
+}
+
+.peer-input {
+  width: 100%;
+  min-width: 0;
+  height: 34px;
+  border: 0;
+  border-radius: 6px;
+  padding: 0 10px;
+  box-sizing: border-box;
+  font: inherit;
+  font-size: 0.84rem;
+  background: rgba(255, 255, 255, 0.95);
+  color: #121416;
+}
+
+.peer-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.peer-btn {
+  appearance: none;
+  border: 0;
+  border-radius: 6px;
+  padding: 9px 12px;
+  font: inherit;
+  font-size: 0.84rem;
+  font-weight: 700;
+  cursor: pointer;
+  color: #07100c;
+  background: #75e3a3;
+}
+
+.peer-btn.secondary {
+  color: #f7f7f4;
+  background: rgba(255, 255, 255, 0.13);
+}
+
+.peer-status {
+  display: grid;
+  gap: 10px;
+}
+
+.peer-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  width: fit-content;
+  min-height: 28px;
+  padding: 0 10px;
+  border-radius: 999px;
+  font-size: 0.82rem;
+  font-weight: 700;
+  background: rgba(255, 255, 255, 0.13);
+}
+
+.peer-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: #d65d5d;
+}
+
+.peer-pill.connected .peer-dot {
+  background: #75e3a3;
+}
+
+.peer-log {
+  height: min(42vh, 360px);
+  overflow: auto;
+  margin-top: 10px;
+  padding: 10px;
+  border-radius: 6px;
+  background: rgba(0, 0, 0, 0.28);
+  color: rgba(247, 247, 244, 0.78);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.78rem;
+  line-height: 1.45;
+  white-space: pre-wrap;
+}
+
+@media (max-width: 760px) {
+  .peer-panel {
+    grid-template-columns: 1fr;
+    overflow-y: auto;
+  }
+}

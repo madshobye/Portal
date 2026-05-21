@@ -1,7 +1,9 @@
 #include <WiFi.h>
+#include <peer.h>
 
-const char *WIFI_SSID = "your-wifi-ssid";
-const char *WIFI_PASSWORD = "your-wifi-password";
+extern const char *WIFI_SSID;
+extern const char *WIFI_PASSWORD;
+
 const char *HOSTNAME = "printhost";
 
 void peerBegin();
@@ -9,6 +11,7 @@ void peerLoop();
 
 void setup() {
   Serial.begin(115200);
+  Serial.setDebugOutput(true);
   delay(300);
 
   WiFi.mode(WIFI_STA);
