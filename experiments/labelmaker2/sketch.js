@@ -94,7 +94,7 @@ const labelPaddingPresets = {
   },
 };
 const labelPaddingModes = ["minimal", "some", "lot"];
-const photoMergeModes = ["below", "blur", "erode", "invert", "stencil", "hardblack"];
+const photoMergeModes = ["below", "blur", "erode", "invert", "invertblur", "stencil", "hardblack"];
 const textOutlineModes = ["none", "outline", "opposite"];
 const minFontSize = 24;
 const maxFontSize = 2560;
@@ -1255,6 +1255,9 @@ function applyPhotoFilterMode(target) {
     applyP5Filter(target, globalThis.ERODE);
   } else if (photoMergeMode === "invert") {
     applyP5Filter(target, globalThis.INVERT);
+  } else if (photoMergeMode === "invertblur") {
+    applyP5Filter(target, globalThis.INVERT);
+    applyP5Filter(target, globalThis.BLUR, 4);
   } else if (photoMergeMode === "hardblack") {
     const threshold = outputMode === "receipt" ? 190 : 150;
     applyP5Filter(target, globalThis.THRESHOLD, threshold / 255);
@@ -3280,6 +3283,7 @@ function getBlendModeIcon() {
   if (photoMergeMode === "blur") return "blur_on";
   if (photoMergeMode === "erode") return "grain";
   if (photoMergeMode === "invert") return "invert_colors";
+  if (photoMergeMode === "invertblur") return "blur_circular";
   if (photoMergeMode === "stencil") return "texture";
   if (photoMergeMode === "hardblack") return "filter_b_and_w";
   return "vertical_align_bottom";
@@ -3289,6 +3293,7 @@ function getPhotoMergeModeLabel() {
   if (photoMergeMode === "blur") return "blur";
   if (photoMergeMode === "erode") return "erode";
   if (photoMergeMode === "invert") return "invert photo";
+  if (photoMergeMode === "invertblur") return "invert + blur";
   if (photoMergeMode === "stencil") return "stencil";
   if (photoMergeMode === "hardblack") return "hard black";
   return "under";
