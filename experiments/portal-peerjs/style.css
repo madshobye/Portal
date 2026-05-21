@@ -42,6 +42,7 @@ canvas {
   grid-template-columns: 92px 1fr;
   gap: 8px;
   align-items: center;
+  margin-top: 12px;
 }
 
 .peer-label {
@@ -67,13 +68,14 @@ canvas {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
-  margin-top: 12px;
+  margin-top: 0;
 }
 
 .peer-btn {
   appearance: none;
   border: 0;
   border-radius: 6px;
+  min-height: 38px;
   padding: 9px 12px;
   font: inherit;
   font-size: 0.84rem;

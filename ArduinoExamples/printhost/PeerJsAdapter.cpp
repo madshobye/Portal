@@ -26,12 +26,13 @@ const char *PEERJS_HOST = "0.peerjs.com";
 const uint16_t PEERJS_PORT = 443;
 const char *PEERJS_PATH = "/";
 const char *PEERJS_KEY = "peerjs";
-const char *PEERJS_ID = "printhost-esp32";
+const char *PEERJS_ID = "printhost";
 const bool PEERJS_SECURE = true;
 const char *PEERJS_CONNECT_TO = "";
+const bool PEERJS_AUTO_SUFFIX_ID = true;
 
-// Browser PeerJS side should use raw serialization for plain text:
-// peer.connect("printhost-esp32", { serialization: "raw", reliable: true });
+// Browser PeerJS side should use raw serialization for plain text.
+// Use the exact "PeerJS open as:" ID printed in Serial Monitor.
 
 WebSocketsClient peerJsSocket;
 
@@ -43,6 +44,26 @@ bool peerJsOpen = false;
 bool peerJsWaitingForAnswer = false;
 bool peerJsWaitingForOffer = false;
 unsigned long peerJsLastHeartbeatAt = 0;
+int peerJsIdAttempt = 0;
+
+void peerJsConnect();
+void peerJsTryNextId();
+
+String peerJsBuildId(int attempt) {
+  String id = PEERJS_ID;
+  if (!PEERJS_AUTO_SUFFIX_ID || attempt <= 0 || id.length() == 0) {
+    return id;
+  }
+
+  int value = attempt;
+  String suffix = "";
+  while (value > 0) {
+    value--;
+    suffix = String(char('a' + (value % 26))) + suffix;
+    value /= 26;
+  }
+  return id + suffix;
+}
 
 String peerJsPath() {
   String path = PEERJS_PATH;
@@ -154,7 +175,33 @@ String peerJsExtractString(const String &json, const char *key, int fromIndex = 
 }
 
 String peerJsExtractType(const String &json) {
-  return peerJsExtractString(json, "type");
+  const String pattern = "\"type\":\"";
+  const int start = json.lastIndexOf(pattern);
+  if (start < 0) {
+    return "";
+  }
+
+  String value;
+  bool escaped = false;
+  for (int i = start + pattern.length(); i < json.length(); i++) {
+    const char ch = json[i];
+    if (escaped) {
+      value += '\\';
+      value += ch;
+      escaped = false;
+      continue;
+    }
+    if (ch == '\\') {
+      escaped = true;
+      continue;
+    }
+    if (ch == '"') {
+      break;
+    }
+    value += ch;
+  }
+
+  return peerJsUnescapeJson(value);
 }
 
 String peerJsExtractPayloadSdp(const String &json) {
@@ -266,7 +313,32 @@ void peerJsStartOffer(const String &dst) {
 }
 
 static void onPeerStateChange(enum PeerConnectionState state, void *userData) {
-  Serial.printf("PeerConnectionState: %d\r\n", state);
+  const char *stateName = "unknown";
+  switch (state) {
+    case PEER_CONNECTION_CLOSED:
+      stateName = "closed";
+      break;
+    case PEER_CONNECTION_NEW:
+      stateName = "new";
+      break;
+    case PEER_CONNECTION_CHECKING:
+      stateName = "checking";
+      break;
+    case PEER_CONNECTION_CONNECTED:
+      stateName = "connected";
+      break;
+    case PEER_CONNECTION_COMPLETED:
+      stateName = "completed";
+      break;
+    case PEER_CONNECTION_FAILED:
+      stateName = "failed";
+      break;
+    case PEER_CONNECTION_DISCONNECTED:
+      stateName = "disconnected";
+      break;
+  }
+
+  Serial.printf("PeerConnectionState: %d (%s)\r\n", state, stateName);
 
   peerState = state;
   if (peerState != PEER_CONNECTION_COMPLETED) {
@@ -342,7 +414,14 @@ void peerJsHandleMessage(const String &message) {
     return;
   }
 
-  if (type == "ERROR" || type == "ID-TAKEN" || type == "INVALID-KEY" || type == "EXPIRE") {
+  if (type == "ID-TAKEN") {
+    Serial.print("PeerJS id taken: ");
+    Serial.println(peerJsId);
+    peerJsTryNextId();
+    return;
+  }
+
+  if (type == "ERROR" || type == "INVALID-KEY" || type == "EXPIRE") {
     Serial.print("PeerJS signaling error: ");
     Serial.println(message);
     return;
@@ -378,8 +457,16 @@ void peerJsHandleMessage(const String &message) {
       peer_connection_set_remote_description(peerConnection, sdp.c_str(), SDP_TYPE_OFFER);
       const char *answer = peer_connection_create_answer(peerConnection);
       if (answer != NULL) {
-        peerJsSendSdp("ANSWER", "answer", String(answer));
-        peerJsWaitingForAnswer = false;
+        if (peerJsWaitingForAnswer) {
+          Serial.println("PeerJS answer SDP preview:");
+          Serial.println(String(answer).substring(0, 420));
+          peerJsSendSdp("ANSWER", "answer", String(answer));
+          peerJsWaitingForAnswer = false;
+        } else {
+          Serial.println("PeerJS answer sent from ICE callback");
+        }
+      } else {
+        Serial.println("PeerJS answer creation failed");
       }
       peerGiveConnection();
     }
@@ -407,9 +494,14 @@ void peerJsHandleMessage(const String &message) {
       Serial.println("Malformed PeerJS CANDIDATE");
       return;
     }
+    if (candidate.indexOf(" tcp ") >= 0) {
+      Serial.println("Ignoring TCP ICE candidate");
+      return;
+    }
 
     if (peerTakeConnection()) {
-      peer_connection_add_ice_candidate(peerConnection, (char *)candidate.c_str());
+      const int result = peer_connection_add_ice_candidate(peerConnection, (char *)candidate.c_str());
+      Serial.printf("Added UDP ICE candidate: %d | %s\r\n", result, candidate.substring(0, 96).c_str());
       peerGiveConnection();
     }
     return;
@@ -452,7 +544,7 @@ void peerJsSocketEvent(WStype_t type, uint8_t *payload, size_t length) {
 }
 
 void peerJsConnect() {
-  peerJsId = PEERJS_ID;
+  peerJsId = peerJsBuildId(peerJsIdAttempt);
   if (peerJsId.length() == 0) {
     peerJsId = peerJsGetGeneratedId();
   }
@@ -463,6 +555,9 @@ void peerJsConnect() {
   }
 
   peerJsToken = peerJsRandomToken();
+
+  Serial.print("PeerJS trying id: ");
+  Serial.println(peerJsId);
 
   String url = peerJsPath() + "peerjs";
   url += "?key=" + String(PEERJS_KEY);
@@ -478,6 +573,18 @@ void peerJsConnect() {
 
   peerJsSocket.onEvent(peerJsSocketEvent);
   peerJsSocket.setReconnectInterval(5000);
+}
+
+void peerJsTryNextId() {
+  if (!PEERJS_AUTO_SUFFIX_ID || String(PEERJS_ID).length() == 0) {
+    return;
+  }
+
+  peerJsOpen = false;
+  peerJsIdAttempt++;
+  peerJsSocket.disconnect();
+  delay(100);
+  peerJsConnect();
 }
 
 static void peerJsTask(void *arg) {

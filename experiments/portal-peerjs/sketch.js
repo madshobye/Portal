@@ -5,7 +5,7 @@ const DEFAULTS = {
   key: "peerjs",
   secure: "true",
   localId: `portal-${Math.floor(Math.random() * 10000)}`,
-  remoteId: "printhost-esp32",
+  remoteId: "printhost",
 };
 
 let peer = null;
@@ -20,12 +20,17 @@ let disconnectButton;
 let pingButton;
 let statusPill;
 let logEl;
+let connectionTimer = null;
+let remoteCandidates = [];
+let remoteCandidateIndex = 0;
+let scanningRemoteIds = false;
+let remoteCandidateResponded = false;
 
 function setup() {
   createCanvas(windowWidth, windowHeight);
   textFont("Helvetica");
   buildUi();
-  log("ready");
+  addLog("ready");
 }
 
 function draw() {
@@ -62,25 +67,25 @@ function buildUi() {
   title.textContent = "Portal PeerJS ESP32";
   configCard.appendChild(title);
 
+  const actions = document.createElement("div");
+  actions.className = "peer-actions";
+  configCard.appendChild(actions);
+
+  connectButton = addButton(actions, "Connect to ESP32", connectPeer);
+  disconnectButton = addButton(actions, "Disconnect", disconnectPeer, true);
+  pingButton = addButton(actions, "Ping", sendPing, true);
+
   const grid = document.createElement("div");
   grid.className = "peer-grid";
   configCard.appendChild(grid);
 
+  addField(grid, "remoteId", "ESP32 ID");
+  addField(grid, "localId", "Browser ID");
   addField(grid, "host", "Host");
   addField(grid, "port", "Port");
   addField(grid, "path", "Path");
   addField(grid, "key", "Key");
   addField(grid, "secure", "Secure");
-  addField(grid, "localId", "Browser ID");
-  addField(grid, "remoteId", "ESP32 ID");
-
-  const actions = document.createElement("div");
-  actions.className = "peer-actions";
-  configCard.appendChild(actions);
-
-  connectButton = addButton(actions, "Connect", connectPeer);
-  disconnectButton = addButton(actions, "Disconnect", disconnectPeer, true);
-  pingButton = addButton(actions, "Ping", sendPing, true);
 
   const statusCard = document.createElement("section");
   statusCard.className = "peer-card peer-status";
@@ -140,6 +145,7 @@ function connectPeer() {
   disconnectPeer();
 
   const config = getConfig();
+  addLog(`target ESP32 ID: ${config.remoteId}`);
   statusText = "connecting to PeerServer";
   peerReady = false;
   channelOpen = false;
@@ -153,12 +159,13 @@ function connectPeer() {
     secure: config.secure,
     debug: 2,
   });
+  installPeerResponseTracker(peer);
 
   peer.on("open", (id) => {
     peerReady = true;
     statusText = `browser peer open as ${id}`;
-    log(statusText);
-    openDataConnection(config.remoteId);
+    addLog(statusText);
+    startRemoteScan(config.remoteId);
     updateUi();
   });
 
@@ -167,28 +174,104 @@ function connectPeer() {
     peerReady = false;
     channelOpen = false;
     statusText = "PeerServer disconnected";
-    log(statusText);
+    addLog(statusText);
     updateUi();
   });
   peer.on("close", () => {
     peerReady = false;
     channelOpen = false;
     statusText = "peer closed";
-    log(statusText);
+    addLog(statusText);
     updateUi();
   });
   peer.on("error", (error) => {
     statusText = error.message || String(error);
-    log(`error: ${statusText}`);
+    addLog(`error: ${statusText}`);
+    if (isMissingPeerError(statusText)) {
+      tryNextRemoteCandidate();
+    } else {
+      markRemoteCandidateResponded("PeerJS got a response");
+    }
     updateUi();
   });
+}
+
+function startRemoteScan(remoteId) {
+  remoteCandidates = buildRemoteCandidates(remoteId);
+  remoteCandidateIndex = 0;
+  scanningRemoteIds = true;
+
+  if (remoteCandidates.length === 0) {
+    addLog("no ESP32 id set");
+    return;
+  }
+
+  addLog(`trying ids: ${remoteCandidates.join(", ")}`);
+  openDataConnection(remoteCandidates[remoteCandidateIndex]);
+}
+
+function buildRemoteCandidates(remoteId) {
+  const baseId = remoteId.trim();
+  if (!baseId) return [];
+
+  const candidates = [baseId];
+  for (let code = 97; code <= 122; code += 1) {
+    candidates.push(`${baseId}${String.fromCharCode(code)}`);
+  }
+  return candidates;
+}
+
+function tryNextRemoteCandidate() {
+  if (!scanningRemoteIds || channelOpen || remoteCandidateResponded) return;
+
+  clearConnectionTimer();
+  if (conn) {
+    const previousConn = conn;
+    conn = null;
+    previousConn.close();
+  }
+
+  remoteCandidateIndex += 1;
+  if (remoteCandidateIndex >= remoteCandidates.length) {
+    scanningRemoteIds = false;
+    statusText = "no ESP32 id matched";
+    addLog(statusText);
+    updateUi();
+    return;
+  }
+
+  openDataConnection(remoteCandidates[remoteCandidateIndex]);
+}
+
+function currentRemoteCandidate() {
+  return remoteCandidates[remoteCandidateIndex] || "";
+}
+
+function installPeerResponseTracker(nextPeer) {
+  if (typeof nextPeer._handleMessage !== "function") return;
+
+  const handleMessage = nextPeer._handleMessage.bind(nextPeer);
+  nextPeer._handleMessage = (message) => {
+    if (
+      scanningRemoteIds &&
+      !remoteCandidateResponded &&
+      message &&
+      message.src === currentRemoteCandidate() &&
+      (message.type === "ANSWER" || message.type === "CANDIDATE")
+    ) {
+      markRemoteCandidateResponded(`ESP32 id responded with ${message.type}`);
+    }
+
+    return handleMessage(message);
+  };
 }
 
 function openDataConnection(remoteId) {
   if (!peer || !remoteId) return;
 
+  remoteCandidateResponded = false;
   statusText = `connecting to ${remoteId}`;
-  log(statusText);
+  addLog(statusText);
   attachConnection(peer.connect(remoteId, {
     serialization: "raw",
     reliable: true,
@@ -203,33 +286,85 @@ function attachConnection(nextConn) {
 
   conn = nextConn;
   statusText = `data channel negotiating with ${conn.peer}`;
+  addLog(statusText);
+  clearConnectionTimer();
+  connectionTimer = setTimeout(() => {
+    if (conn === nextConn && !channelOpen) {
+      if (remoteCandidateResponded) {
+        addLog(`${nextConn.peer} responded, staying on this id`);
+      } else {
+        addLog(`no response from ${nextConn.peer} after 12s`);
+        tryNextRemoteCandidate();
+      }
+    }
+  }, 12000);
   updateUi();
 
   conn.on("open", () => {
+    if (conn !== nextConn) return;
+    clearConnectionTimer();
     channelOpen = true;
+    scanningRemoteIds = false;
+    remoteCandidateResponded = true;
+    fields.remoteId.value = conn.peer;
     statusText = `connected to ${conn.peer}`;
-    log(statusText);
+    addLog(statusText);
     conn.send("portal connected");
     updateUi();
   });
 
   conn.on("data", (data) => {
-    log(`esp32: ${data}`);
+    if (conn !== nextConn) return;
+    addLog(`esp32: ${data}`);
   });
 
   conn.on("close", () => {
+    if (conn !== nextConn) return;
+    clearConnectionTimer();
+    const wasScanning = scanningRemoteIds && !channelOpen;
     channelOpen = false;
     statusText = "data channel closed";
-    log(statusText);
+    addLog(statusText);
+    if (wasScanning && !remoteCandidateResponded) {
+      tryNextRemoteCandidate();
+    }
     updateUi();
   });
 
   conn.on("error", (error) => {
+    if (conn !== nextConn) return;
+    clearConnectionTimer();
     channelOpen = false;
     statusText = error.message || String(error);
-    log(`connection error: ${statusText}`);
+    addLog(`connection error: ${statusText}`);
+    if (isMissingPeerError(statusText)) {
+      tryNextRemoteCandidate();
+    } else {
+      markRemoteCandidateResponded("ESP32 id responded");
+    }
     updateUi();
   });
+}
+
+function isMissingPeerError(message) {
+  return /Could not connect to peer/.test(message);
+}
+
+function markRemoteCandidateResponded(reason) {
+  if (!scanningRemoteIds || channelOpen || remoteCandidateResponded) return;
+
+  remoteCandidateResponded = true;
+  scanningRemoteIds = false;
+  clearConnectionTimer();
+
+  if (conn) {
+    fields.remoteId.value = conn.peer;
+    statusText = `${reason}: ${conn.peer}`;
+  } else {
+    statusText = reason;
+  }
+
+  addLog(statusText);
 }
 
 function sendPing() {
@@ -237,10 +372,11 @@ function sendPing() {
 
   const message = `ping ${new Date().toLocaleTimeString()}`;
   conn.send(message);
-  log(`browser: ${message}`);
+  addLog(`browser: ${message}`);
 }
 
 function disconnectPeer() {
+  clearConnectionTimer();
   if (conn) {
     conn.close();
     conn = null;
@@ -252,8 +388,19 @@ function disconnectPeer() {
 
   peerReady = false;
   channelOpen = false;
+  scanningRemoteIds = false;
+  remoteCandidateResponded = false;
+  remoteCandidates = [];
+  remoteCandidateIndex = 0;
   statusText = "idle";
   updateUi();
+}
+
+function clearConnectionTimer() {
+  if (connectionTimer) {
+    clearTimeout(connectionTimer);
+    connectionTimer = null;
+  }
 }
 
 function updateUi() {
@@ -265,7 +412,7 @@ function updateUi() {
   if (disconnectButton) disconnectButton.disabled = !peer;
 }
 
-function log(message) {
+function addLog(message) {
   const line = `[${new Date().toLocaleTimeString()}] ${message}`;
   logLines.push(line);
   if (logLines.length > 80) logLines.shift();

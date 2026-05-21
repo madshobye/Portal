@@ -4,7 +4,7 @@
 extern const char *WIFI_SSID;
 extern const char *WIFI_PASSWORD;
 
-const char *HOSTNAME = "printhost";
+const char *HOSTNAME = "printhostsdfsdfdsf";
 
 void peerBegin();
 void peerLoop();
