@@ -2011,6 +2011,15 @@ function handleEditorPaste(event) {
     event.preventDefault();
     return;
   }
+  const pastedImage = getClipboardImageFile(event.clipboardData);
+  if (pastedImage) {
+    event.preventDefault();
+    event.stopPropagation();
+    loadPhotoFile(pastedImage, pastedImage.name || "Pasted photo");
+    if (textInputEl) textInputEl.value = "";
+    return;
+  }
+
   const pastedText = event.clipboardData?.getData("text/plain") || "";
   if (!pastedText) return;
   event.preventDefault();
@@ -2018,6 +2027,19 @@ function handleEditorPaste(event) {
   insertTextAtCursor(pastedText.replace(/\r\n?/g, "\n"));
   if (textInputEl) textInputEl.value = "";
   detailText = "Pasted text into the label.";
+}
+
+function getClipboardImageFile(clipboardData) {
+  const items = Array.from(clipboardData?.items || []);
+  for (const item of items) {
+    if (String(item.type || "").toLowerCase().startsWith("image/")) {
+      const file = item.getAsFile?.();
+      if (file) return file;
+    }
+  }
+
+  const files = Array.from(clipboardData?.files || []);
+  return files.find((file) => String(file.type || "").toLowerCase().startsWith("image/")) || null;
 }
 
 function handleEditorKeydown(event) {
@@ -3010,13 +3032,38 @@ function handlePhotoDrop(file) {
     return;
   }
 
+  loadPhotoDataUrl(file.data, file.name || "Dropped photo");
+}
+
+function loadPhotoFile(file, fallbackName = "Pasted photo") {
+  if (!file || !String(file.type || "").toLowerCase().startsWith("image/")) {
+    detailText = "Paste an image to use it as the photo.";
+    return;
+  }
+
+  const reader = new FileReader();
+  reader.onload = () => {
+    loadPhotoDataUrl(String(reader.result || ""), file.name || fallbackName);
+  };
+  reader.onerror = () => {
+    detailText = "Could not read pasted photo.";
+  };
+  reader.readAsDataURL(file);
+}
+
+function loadPhotoDataUrl(dataUrl, photoName = "Photo") {
+  if (!dataUrl) {
+    detailText = "Could not load photo.";
+    return;
+  }
+
   loadImage(
-    file.data,
+    dataUrl,
     (imageValue) => {
       stopPhotoCamera();
       photoEnabled = false;
       droppedPhotoImage = imageValue;
-      droppedPhotoName = file.name || "Dropped photo";
+      droppedPhotoName = photoName;
       photoRevision += 1;
       markLabelDirty();
       detailText = `Photo loaded: ${droppedPhotoName}.`;
@@ -3024,7 +3071,7 @@ function handlePhotoDrop(file) {
     },
     (error) => {
       console.error("[labelmaker2] dropped photo failed", error);
-      detailText = "Could not load dropped photo.";
+      detailText = "Could not load photo.";
     }
   );
 }
