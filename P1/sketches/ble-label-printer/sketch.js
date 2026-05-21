@@ -1,11 +1,14 @@
 let printer;
 let blePrinter;
 let usbPrinter;
+let webUsbPrinter;
 let activeTransport = "ble";
 let usbAvailable = false;
+let webUsbAvailable = false;
 let statusText = "loading";
-let detailText = "Connect to a BLE printer, then test label or ESC/POS receipt commands.";
+let detailText = "Connect to a BLE or USB printer, then test label or ESC/POS receipt commands.";
 let busy = false;
+let connectMenuOpen = false;
 let labelGraphic;
 const labelWidthCm = 10;
 const labelHeightCm = 15;
@@ -22,6 +25,7 @@ async function setup() {
   await loadScript("portal/labelPrinterProtocol.js");
   await loadScript("portal/bleLabelPrinter.js");
   await loadScript("portal/usbLabelPrinter.js");
+  await loadScript("portal/starUsbPrinter.js");
   await loadScript("portal/receiptTextPrinter.js");
 
   blePrinter = await new BleLabelPrinter({
@@ -44,15 +48,35 @@ async function setup() {
   try {
     usbPrinter = await new UsbLabelPrinter({
       protocol: "tspl",
-      autoReconnectOnRefresh: false,
+      autoReconnectOnRefresh: true,
       debug: true,
       onState: (state) => handlePrinterState("usb", state),
+      onConnect: () => activateReconnectedTransport("usb"),
       onError: (error) => handlePrinterError("usb", error),
     }).init();
     usbAvailable = true;
   } catch (error) {
     usbAvailable = false;
     console.warn("[usb-label-printer] unavailable", error);
+  }
+
+  try {
+    webUsbPrinter = await new StarUsbPrinter({
+      vendorId: 0x0416,
+      productId: 0x5011,
+      chunkSize: 64,
+      chunkDelayMs: 0,
+      debug: false,
+      onState: (state) => handlePrinterState("webusb", state),
+      onConnect: () => activateReconnectedTransport("webusb"),
+      onError: (error) => handlePrinterError("webusb", error),
+    }).init();
+    webUsbPrinter.chunkSize = 4096;
+    addLabelPrinterProtocolMethods(webUsbPrinter);
+    webUsbAvailable = true;
+  } catch (error) {
+    webUsbAvailable = false;
+    console.warn("[webusb-label-printer] unavailable", error);
   }
 
   printer = blePrinter;
@@ -64,16 +88,18 @@ async function setup() {
 function draw() {
   background(245, 243, 238);
 
-  if (debugButton("BLE Connect", 0, 0).clicked) {
+  if (debugButton("+", 0, 0).clicked) {
+    connectMenuOpen = !connectMenuOpen;
+  }
+
+  if (connectMenuOpen && debugButton("BLE", 1, 0).clicked) {
+    connectMenuOpen = false;
     connectPrinter("ble", { acceptAllDevices: false });
   }
 
-  if (debugButton("BLE All", 1, 0).clicked) {
-    connectPrinter("ble", { acceptAllDevices: true });
-  }
-
-  if (debugButton("USB Connect", 2, 0).clicked) {
-    connectPrinter("usb");
+  if (connectMenuOpen && debugButton("USB", 2, 0).clicked) {
+    connectMenuOpen = false;
+    connectPrinter("webusb");
   }
 
   if (debugButton("Reconnect", 3, 0).clicked) {
@@ -96,7 +122,7 @@ function draw() {
     printer?.disconnect();
   }
 
-  if (debugButton("Forget BLE", 8, 0).clicked) {
+  if (debugButton("Forget BLE", 8, 1).clicked) {
     forgetPrinter();
   }
 
@@ -105,7 +131,7 @@ function draw() {
   }
 
   if (debugButton("Print Image", 1, 1).clicked) {
-    printRandomImageLabel();
+    printLabelmakerStyleImage();
   }
 
   if (debugButton("Print B1", 2, 1).clicked) {
@@ -163,7 +189,7 @@ function draw() {
 
   textSize(18);
   text(`status: ${formatStatus(statusText)}`, 24, 182);
-  text(`transport: ${activeTransport.toUpperCase()} | protocols: zpl / tspl / cpcl / escpos`, 24, 212);
+  text(`transport: ${formatTransport(activeTransport)} | protocols: zpl / tspl / cpcl / escpos`, 24, 212);
   text(detailText, 24, 252);
 
   drawLabelPreview(520, 310, min(260, height - 360));
@@ -202,6 +228,7 @@ async function connectPrinter(transport = activeTransport, options = {}) {
     } else {
       await printer.connect();
     }
+    syncActivePrinterState();
     console.log("[label-printer] connected state", printer.getConnectionState());
   } catch (error) {
     console.error("[label-printer] connect failed", error);
@@ -214,13 +241,17 @@ async function connectPrinter(transport = activeTransport, options = {}) {
 
 async function reconnectSavedPrinter() {
   if (busy) return;
+  if (activeTransport === "ble") {
+    statusText = "needs_connection";
+    detailText = "BLE saved reconnect is disabled. Press +, then BLE to connect.";
+    return;
+  }
   busy = true;
   try {
     statusText = "reconnecting saved";
-    const connected = activeTransport === "ble"
-      ? await printer.reconnectKnown({ reason: "manual", attempts: 3, delayMs: 700 })
-      : await printer.tryReconnectKnown();
+    const connected = await printer.tryReconnectKnown();
     statusText = connected ? "connected" : "needs_connection";
+    syncActivePrinterState();
     console.log("[label-printer] reconnect saved result", {
       connected,
       state: printer.getConnectionState(),
@@ -255,6 +286,7 @@ async function printTestLabel(protocol) {
       });
     }
     statusText = `printed ${protocol}`;
+    detailText = `Sent ${protocol.toUpperCase()} test over ${formatTransport(activeTransport)}.`;
   } catch (error) {
     console.error("[ble-label-printer] print failed", error);
     statusText = "print failed";
@@ -594,7 +626,7 @@ async function forgetPrinter() {
   busy = true;
   try {
     statusText = "forgetting";
-    await printer.forgetKnownDevice();
+    await blePrinter.forgetKnownDevice();
     statusText = "forgot device";
     detailText = "Browser Bluetooth permission was cleared. Power-cycle the printer, then connect again.";
   } catch (error) {
@@ -609,11 +641,12 @@ async function forgetPrinter() {
 async function ensurePrinterConnected() {
   const state = printer.getConnectionState();
   if (state.connected) return;
-  const reconnected = activeTransport === "ble"
-    ? await printer.reconnectKnown({ reason: "print", attempts: 2, delayMs: 500 })
-    : await printer.tryReconnectKnown();
+  if (activeTransport === "ble") {
+    throw new Error("BLE reconnect is disabled. Press +, then BLE to connect once before printing.");
+  }
+  const reconnected = await printer.tryReconnectKnown();
   if (reconnected) return;
-  throw new Error(`Printer is not connected. Press ${activeTransport.toUpperCase()} Connect once, then print again.`);
+  throw new Error(`Printer is not connected. Press ${formatTransport(activeTransport)} Connect once, then print again.`);
 }
 
 async function printRandomImageLabel() {
@@ -640,6 +673,52 @@ async function printRandomImageLabel() {
   } finally {
     busy = false;
   }
+}
+
+async function printLabelmakerStyleImage() {
+  if (busy) return;
+  busy = true;
+  try {
+    statusText = "printing labelmaker image";
+    await ensurePrinterConnected();
+    labelGraphic.loadPixels();
+    const imageData = labelGraphic.drawingContext.getImageData(0, 0, labelGraphic.width, labelGraphic.height);
+    const options = {
+      labelWidthMm,
+      labelHeightMm,
+      gapMm: 2,
+      threshold: 210,
+      invert: true,
+      dither: true,
+    };
+    await printTsplBitmapWithActiveTransport(imageData, options);
+    statusText = "printed labelmaker image";
+    detailText = `Sent labelmaker-style TSPL bitmap (${imageData.width} x ${imageData.height}) over ${formatTransport(activeTransport)}.`;
+  } catch (error) {
+    console.error("[ble-label-printer] labelmaker image print failed", error);
+    statusText = "labelmaker print failed";
+    detailText = error?.message || String(error);
+  } finally {
+    busy = false;
+  }
+}
+
+async function printTsplBitmapWithActiveTransport(imageData, options = {}) {
+  if (activeTransport === "webusb") {
+    const encoder = new TextEncoder();
+    const bytes = LabelPrinterProtocol.makeTsplBitmapLabel(imageData, options, encoder);
+    detailText = `Writing ${bytes.length} TSPL bytes to USB endpoint...`;
+    console.log("[label-printer] webusb tspl bitmap bytes", {
+      bytes: bytes.length,
+      width: imageData.width,
+      height: imageData.height,
+      chunkSize: printer.chunkSize,
+      options,
+    });
+    await printer.writeBytes(bytes);
+    return;
+  }
+  await printer.printTsplBitmap(imageData, options);
 }
 
 async function printNiimbotB1ImageLabel() {
@@ -736,10 +815,11 @@ function drawLabelPreview(x, y, previewHeight) {
 
 function formatStatus(status) {
   if (status === "ready") return "starting";
-  if (status === "needs_connection") return "not connected - press Connect Printer";
-  if (status === "needs_browser_permission") return "paired, but browser permission missing - press Connect Printer";
-  if (status === "needs_picker_after_refresh") return "browser cannot list saved BLE devices - press Connect Printer";
-  if (status === "needs_port_permission") return "USB permission missing - press USB Connect";
+  if (status === "needs_connection") return "not connected - press +, then choose BLE or USB";
+  if (status === "needs_browser_permission") return "paired, but browser permission missing - press +, then BLE";
+  if (status === "needs_picker_after_refresh") return "BLE saved reconnect is disabled - press +, then BLE";
+  if (status === "needs_port_permission") return "serial permission missing - press +, then USB";
+  if (status === "needs_usb_permission") return "USB permission missing - press +, then USB";
   if (status === "connected") return "connected";
   return status;
 }
@@ -748,8 +828,24 @@ function selectTransport(transport) {
   if (transport === "usb" && !usbPrinter) {
     throw new Error("USB serial label printer is unavailable in this browser");
   }
-  activeTransport = transport === "usb" ? "usb" : "ble";
-  printer = activeTransport === "usb" ? usbPrinter : blePrinter;
+  if (transport === "webusb" && !webUsbPrinter) {
+    throw new Error("WebUSB label printer is unavailable in this browser");
+  }
+  activeTransport = transport === "usb" || transport === "webusb" ? transport : "ble";
+  printer = activeTransport === "usb"
+    ? usbPrinter
+    : activeTransport === "webusb"
+      ? webUsbPrinter
+      : blePrinter;
+}
+
+function activateReconnectedTransport(transport) {
+  try {
+    selectTransport(transport);
+    syncActivePrinterState();
+  } catch (error) {
+    console.warn("[label-printer] activate reconnected transport failed", error);
+  }
 }
 
 function handlePrinterState(transport, state) {
@@ -760,6 +856,16 @@ function handlePrinterState(transport, state) {
     detailText = [
       `port: ${formatUsbId(info.usbVendorId, info.usbProductId)}`,
       `baud: ${usbPrinter?.baudRate || ""}`,
+    ].join("\n");
+    return;
+  }
+
+  if (transport === "webusb") {
+    const device = state.device || {};
+    detailText = [
+      device.productName ? `device: ${device.productName}` : "device: POS Label Printer",
+      `usb: ${formatUsbId(device.vendorId, device.productId)}`,
+      state.endpointOut ? `endpoint: ${state.endpointOut}` : "endpoint: searching",
     ].join("\n");
     return;
   }
@@ -778,11 +884,76 @@ function handlePrinterError(transport, error) {
   detailText = error?.message || String(error);
 }
 
+function syncActivePrinterState() {
+  const state = printer?.getConnectionState?.();
+  if (!state) return;
+  handlePrinterState(activeTransport, state);
+  if (state.connected) statusText = "connected";
+}
+
 function formatUsbId(vendorId, productId) {
   if (vendorId == null && productId == null) return "none";
   const vendor = vendorId == null ? "????" : vendorId.toString(16).padStart(4, "0");
   const product = productId == null ? "????" : productId.toString(16).padStart(4, "0");
   return `${vendor}:${product}`;
+}
+
+function formatTransport(transport) {
+  if (transport === "webusb") return "USB";
+  if (transport === "usb") return "SERIAL USB";
+  return "BLE";
+}
+
+function addLabelPrinterProtocolMethods(target) {
+  if (!target) return;
+  const encoder = new TextEncoder();
+  target.printZplText = async (textToPrint, options = {}) => {
+    await target.writeBytes(LabelPrinterProtocol.makeZplTextLabel(textToPrint, options));
+  };
+  target.printTsplText = async (textToPrint, options = {}) => {
+    await target.writeBytes(LabelPrinterProtocol.makeTsplTextLabel(textToPrint, options));
+  };
+  target.printTsplBitmap = async (imageData, options = {}) => {
+    const bytes = LabelPrinterProtocol.makeTsplBitmapLabel(imageData, options, encoder);
+    console.log("[label-printer] webusb printTsplBitmap", {
+      bytes: bytes.length,
+      width: imageData?.width || 0,
+      height: imageData?.height || 0,
+      options,
+    });
+    await target.writeBytes(bytes);
+  };
+  target.printCpclText = async (textToPrint, options = {}) => {
+    await target.writeBytes(LabelPrinterProtocol.makeCpclTextLabel(textToPrint, options));
+  };
+  target.printNiimbotB1Bitmap = async (imageData, options = {}) => {
+    await target.writeBytes(LabelPrinterProtocol.makeNiimbotB1BitmapPrint(imageData, options));
+  };
+  target.printEscposText = async (textToPrint, options = {}) => {
+    await target.writeBytes(LabelPrinterProtocol.makeEscposTextReceipt(textToPrint, options, encoder));
+  };
+  target.feedEscpos = async (lines = 4) => {
+    await target.writeBytes(LabelPrinterProtocol.makeEscposFeed(lines));
+  };
+  target.writeText = async (textToPrint) => {
+    await target.writeBytes(encoder.encode(String(textToPrint || "")));
+  };
+  target.withWriteSettings = async (settings = {}, callback) => {
+    const previousChunkSize = target.chunkSize;
+    const previousChunkDelayMs = target.chunkDelayMs;
+    if (Number.isFinite(Number(settings.chunkSize))) {
+      target.chunkSize = Math.max(8, Math.min(65536, Math.round(Number(settings.chunkSize))));
+    }
+    if (Number.isFinite(Number(settings.chunkDelayMs))) {
+      target.chunkDelayMs = Math.max(0, Math.round(Number(settings.chunkDelayMs)));
+    }
+    try {
+      return await callback();
+    } finally {
+      target.chunkSize = previousChunkSize;
+      target.chunkDelayMs = previousChunkDelayMs;
+    }
+  };
 }
 
 function windowResized() {

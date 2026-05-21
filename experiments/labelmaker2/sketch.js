@@ -1,4 +1,5 @@
 let printer;
+let connectMenuOpen = false;
 let statusText = "loading";
 let detailText = "Type on the keyboard. Return inserts a new line.";
 let busy = false;
@@ -9,12 +10,19 @@ let printProgress = 0;
 let labelGraphic;
 let labelTextGraphic;
 let labelPhotoGraphic;
+let chromaticAberrationShader = null;
+let noiseShader = null;
+let noiseThresholdShader = null;
+let photoFilterShaderTarget = null;
+const disabledCustomPhotoFilters = new Set();
+const loggedPhotoFilterHits = new Set();
 let cam = null;
 let photoCameraStarting = false;
 let droppedPhotoImage = null;
 let droppedPhotoName = "";
 let photoOffsetX = 0;
 let photoOffsetY = 0;
+let storedPhotoDataUrl = "";
 let previewPointerPress = null;
 let labelText = "";
 let cursorIndex = 0;
@@ -49,6 +57,7 @@ let labelQrText = "";
 let labelQrCode = null;
 let photoEnabled = false;
 let photoMergeMode = "below";
+let photoGrayscaleEnabled = true;
 let labelInverted = false;
 let textOutlineMode = "none";
 const debugCharacterBounds = false;
@@ -94,7 +103,7 @@ const labelPaddingPresets = {
   },
 };
 const labelPaddingModes = ["minimal", "some", "lot"];
-const photoMergeModes = ["below", "blur", "erode", "invert", "invertblur", "stencil", "hardblack"];
+const photoMergeModes = ["below", "blur", "erode", "invert", "invertblur", "chromatic", "noise", "noisethreshold", "chromaticblur", "stencil", "hardblack"];
 const textOutlineModes = ["none", "outline", "opposite"];
 const minFontSize = 24;
 const maxFontSize = 2560;
@@ -135,6 +144,7 @@ async function setup() {
   installWillReadFrequentlyCanvasHint();
   const canvas = createCanvas(windowWidth, windowHeight);
   pixelDensity(1);
+  initPhotoFilterShaders();
   canvas.drop(handlePhotoDrop);
   useSoftKeyboardInput = detectSoftKeyboardMode();
   installTextInputBridge();
@@ -150,30 +160,34 @@ async function setup() {
   }
   await loadScript("portal/labelPrinterProtocol.js");
   await loadScript("portal/bleLabelPrinter.js");
+  await loadScript("portal/usbLabelPrinter.js");
+  await loadScript("portal/starUsbPrinter.js");
+  await loadScript("portal/labelPrinterTransport.js");
   await loadScript("portal/qrCodeGen.js");
 
-  printer = await new BleLabelPrinter({
-    protocol: "tspl",
-    chunkSize: 488,
-    chunkDelayMs: 0,
-    preferWriteWithResponse: true,
-    waitForAutoReconnect: true,
-    autoReconnectAttempts: 2,
-    reconnectDelayMs: 700,
-    onState: (state) => {
-      statusText = state.state;
-      if (state.connected) {
-        outputMode = state.suggestedOutputMode || "label";
-      }
-      detailText = state.connected
-        ? `Connected. Press Print for ${outputMode}.`
-        : "Type on the keyboard. Return inserts a new line.";
+  printer = await new LabelPrinterTransport({
+    ble: {
+      protocol: "tspl",
+      chunkSize: 488,
+      chunkDelayMs: 0,
+      preferWriteWithResponse: true,
     },
-    onError: (error) => {
-      console.error("[labelmaker2] printer error", error);
-      statusText = "error";
-      detailText = error?.message || String(error);
+    usb: {
+      protocol: "tspl",
+      chunkSize: 4096,
+      chunkDelayMs: 2,
+      autoReconnectOnRefresh: true,
+      debug: false,
     },
+    webusb: {
+      vendorId: 0x0416,
+      productId: 0x5011,
+      chunkSize: 4096,
+      chunkDelayMs: 0,
+      debug: false,
+    },
+    onState: handlePrinterState,
+    onError: handlePrinterError,
   }).init();
 
   loadEditorState();
@@ -223,10 +237,11 @@ function draw() {
   const connectButtonWidth = squareButtonWidth;
   const clearButtonWidth = squareButtonWidth;
   const downloadButtonWidth = squareButtonWidth;
+  const grayscaleButtonWidth = squareButtonWidth;
   const modeButtonWidth = squareButtonWidth;
   const rightControlsWidth = connectButtonWidth + (printButtonWidth ? toolbarGap + printButtonWidth : 0) + toolbarGap + clearButtonWidth + toolbarGap + downloadButtonWidth;
   const showRemovePhotoButton = hasStoredPhoto();
-  const leftMainButtons = showRemovePhotoButton ? 11 : 10;
+  const leftMainButtons = showRemovePhotoButton ? 12 : 11;
   const leftMainWidth = leftMainButtons * squareButtonWidth + (leftMainButtons - 1) * toolbarGap;
   const styleButtonWidth = toolbarButtonHeight;
   const styleButtonGap = toolbarGap;
@@ -250,8 +265,21 @@ function draw() {
   const fontButtonY = useTwoToolbarRows ? styleControlsY : controlsY;
   const rightButtonY = (useTwoToolbarRows || mainRowNeedsRightWrap) ? controlsY + toolbarButtonHeight + toolbarRowGap : controlsY;
   drawPrintHistorySlider(preview);
-  const modeButton = drawIconButton(outputMode === "receipt" ? "receipt_long" : "label", {
+  const grayscaleButton = drawIconButton(photoGrayscaleEnabled ? "filter_b_and_w" : "gradient", {
     x: preview.x,
+    y: controlsY,
+    width: grayscaleButtonWidth,
+    height: toolbarButtonHeight,
+    active: photoGrayscaleEnabled,
+    disabled: busy,
+    tooltip: photoGrayscaleEnabled ? "Grayscale on" : "Grayscale off",
+  });
+  if (!busy && grayscaleButton.clicked) {
+    togglePhotoGrayscale();
+  }
+
+  const modeButton = drawIconButton(outputMode === "receipt" ? "receipt_long" : "label", {
+    x: preview.x + grayscaleButtonWidth + toolbarGap,
     y: controlsY,
     width: modeButtonWidth,
     height: toolbarButtonHeight,
@@ -264,8 +292,9 @@ function draw() {
     toggleOutputMode();
   }
 
-  const connectButton = drawIconButton(isConnected ? "bluetooth_disabled" : "bluetooth", {
-    x: preview.x + preview.width - connectButtonWidth,
+  const connectButtonX = preview.x + preview.width - connectButtonWidth;
+  const connectButton = drawIconButton(isConnected ? "link_off" : "add", {
+    x: connectButtonX,
     y: rightButtonY,
     width: connectButtonWidth,
     height: toolbarButtonHeight,
@@ -273,13 +302,13 @@ function draw() {
     active: isConnected,
     disabled: busy,
     spin: false,
-    tooltip: isConnected ? "Disconnect printer" : "Connect printer",
+    tooltip: isConnected ? `Disconnect ${formatTransport()}` : "Connect",
   });
   if (!busy && connectButton.clicked) {
     if (isConnected) {
       disconnectPrinter();
     } else {
-      connectPrinter();
+      connectMenuOpen = !connectMenuOpen;
     }
   }
 
@@ -337,7 +366,7 @@ function draw() {
   }
 
   const autoButtonWidth = squareButtonWidth;
-  const formatX = preview.x + modeButtonWidth + toolbarGap;
+  const formatX = preview.x + grayscaleButtonWidth + toolbarGap + modeButtonWidth + toolbarGap;
   const orientationX = formatX + squareButtonWidth + toolbarGap;
   const autoButtonX = orientationX + squareButtonWidth + toolbarGap;
   const paddingButtonX = autoButtonX + autoButtonWidth + toolbarGap;
@@ -513,7 +542,59 @@ function draw() {
   }
 
   drawPreviewCard(preview);
+  if (!busy && !isConnected && connectMenuOpen) {
+    drawConnectMenu(preview, connectButtonX, connectButtonWidth);
+  }
   drawPendingTooltip();
+}
+
+function drawConnectMenu(preview, anchorX, buttonWidth) {
+  const menuWidth = Math.max(buttonWidth, 42);
+  const menuX = constrain(anchorX, preview.x + 8, preview.x + preview.width - menuWidth - 8);
+  const bleButtonY = preview.y + 8;
+  const usbButtonY = bleButtonY + toolbarButtonHeight + toolbarGap;
+  const menuPad = 5;
+  const menuHeight = toolbarButtonHeight * 2 + toolbarGap;
+
+  push();
+  noStroke();
+  fill(0, 190);
+  rect(menuX - menuPad, bleButtonY - menuPad, menuWidth + menuPad * 2, menuHeight + menuPad * 2, 8);
+  pop();
+
+  const bleButton = uiButton("BLE", {
+    x: menuX,
+    y: bleButtonY,
+    width: menuWidth,
+    height: toolbarButtonHeight,
+    fontSize: 12,
+    bgColor: "#ffffff",
+    textColor: "#000000",
+    stroke: { weight: 0 },
+  });
+  registerTooltip("connect-ble", "Connect BLE", menuX, bleButtonY, menuWidth, toolbarButtonHeight);
+  if (bleButton.clicked) {
+    connectMenuOpen = false;
+    connectPrinter("ble");
+  }
+
+  const usbTransport = printer?.canConnect?.("webusb") ? "webusb" : "usb";
+  const usbAvailable = !!printer?.canConnect?.(usbTransport);
+  const usbButton = uiButton("USB", {
+    x: menuX,
+    y: usbButtonY,
+    width: menuWidth,
+    height: toolbarButtonHeight,
+    fontSize: 12,
+    bgColor: usbAvailable ? "#ffffff" : "#1f1f1f",
+    textColor: usbAvailable ? "#000000" : "#5a5a5a",
+    stroke: { weight: 0 },
+  });
+  registerTooltip("connect-usb", usbAvailable ? "Connect USB" : "USB unavailable", menuX, usbButtonY, menuWidth, toolbarButtonHeight);
+  if (usbAvailable && usbButton.clicked) {
+    connectMenuOpen = false;
+    connectPrinter(usbTransport);
+  }
 }
 
 function drawTextStyleControls(x, y, disabled = false, options = {}) {
@@ -774,15 +855,15 @@ function drawTooltip(label, anchorX, anchorY) {
   pop();
 }
 
-async function connectPrinter() {
+async function connectPrinter(transport = "ble") {
   if (busy) return;
   try {
     statusText = "connecting";
-    detailText = "Choose a printer.";
-    await printer.connectWithPicker({ acceptAllDevices: false });
+    detailText = `Choose a ${formatTransport(transport)} printer.`;
+    await printer.connect(transport);
     outputMode = printer.getSuggestedOutputMode?.() || "label";
     statusText = "connected";
-    detailText = `Connected. Press Print for ${outputMode}.`;
+    detailText = `Connected over ${formatTransport()}. Press Print for ${outputMode}.`;
   } catch (error) {
     console.error("[labelmaker2] connect failed", error);
     statusText = "connect failed";
@@ -790,11 +871,43 @@ async function connectPrinter() {
   }
 }
 
-function disconnectPrinter() {
+async function disconnectPrinter() {
   if (busy) return;
-  printer?.disconnect?.();
+  await printer?.disconnect?.();
+  connectMenuOpen = false;
   statusText = "disconnected";
   detailText = "Disconnected printer.";
+}
+
+function handlePrinterState(state) {
+  statusText = state.state;
+  if (state.transport === "usb" || state.transport === "webusb") {
+    const device = state.device || state.portInfo || {};
+    const vendorId = device.vendorId ?? device.usbVendorId;
+    const productId = device.productId ?? device.usbProductId;
+    outputMode = "label";
+    detailText = state.connected
+      ? `Connected over USB. Press Print for label.`
+      : (vendorId ? `USB ${printer?.formatUsbId?.(vendorId, productId) || "connected"}` : "Type on the keyboard. Return inserts a new line.");
+    return;
+  }
+
+  if (state.connected) {
+    outputMode = state.suggestedOutputMode || "label";
+  }
+  detailText = state.connected
+    ? `Connected over BLE. Press Print for ${outputMode}.`
+    : "Type on the keyboard. Return inserts a new line.";
+}
+
+function handlePrinterError(error) {
+  console.error("[labelmaker2] printer error", error);
+  statusText = "error";
+  detailText = error?.message || String(error);
+}
+
+function formatTransport(transport) {
+  return printer?.formatTransport?.(transport) || (transport === "usb" || transport === "webusb" ? "USB" : "BLE");
 }
 
 async function handlePrimaryButton() {
@@ -828,7 +941,7 @@ async function handlePrimaryButton() {
     }
 
     const format = getCurrentLabelFormat();
-    const printJob = printer.printTsplBitmapAsync(imageData, {
+    const printOptions = {
       labelWidthMm: format.widthCm * 10,
       labelHeightMm: format.heightCm * 10,
       gapMm: 2,
@@ -836,6 +949,9 @@ async function handlePrimaryButton() {
       density: 12,
       invert: true,
       dither: photoMergeMode !== "hardblack",
+    };
+    const printJob = printer.printTsplBitmapAsync(imageData, {
+      ...printOptions,
       onProgress: (progress) => {
         if (printId !== activePrintId) return;
         printProgress = constrain(Number(progress?.ratio) || 0, 0, 1);
@@ -848,7 +964,7 @@ async function handlePrimaryButton() {
         if (printId !== activePrintId) return;
         printProgress = 1;
         statusText = "printed";
-        detailText = "Printed the current label preview.";
+        detailText = `Printed the current label preview over ${formatTransport()}.`;
       })
       .catch((error) => {
         if (printId !== activePrintId || printCancelRequested) return;
@@ -1067,6 +1183,7 @@ function getLabelRenderKey() {
     labelPaddingMode,
     labelQrText,
     photoMergeMode,
+    photoGrayscaleEnabled,
     labelInverted,
     textOutlineMode,
     photoOffsetX,
@@ -1117,8 +1234,7 @@ function composePhotoWithCurrentLabelMask() {
 function drawFilteredPhotoCover(target, source) {
   ensurePhotoGraphic();
   labelPhotoGraphic.clear();
-  drawGrayscaleCover(labelPhotoGraphic, source, 0, 0, labelPhotoGraphic.width, labelPhotoGraphic.height);
-  applyPhotoFilterMode(labelPhotoGraphic);
+  drawPhotoCoverForMode(labelPhotoGraphic, source, 0, 0, labelPhotoGraphic.width, labelPhotoGraphic.height);
   target.image(labelPhotoGraphic, 0, 0);
 }
 
@@ -1248,7 +1364,20 @@ function drawStyledLineOutlineOnly(line, y, startX = getLabelTextRect().x, targe
   }
 }
 
-function applyPhotoFilterMode(target) {
+function applyColorPhotoFilterMode(target) {
+  if (photoMergeMode === "chromatic" || photoMergeMode === "chromaticblur") {
+    logPhotoFilterHit(photoMergeMode);
+    applyChromaticAberration(target);
+  } else if (photoMergeMode === "noise") {
+    logPhotoFilterHit("noise");
+    applyNoiseFilter(target, "soft");
+  } else if (photoMergeMode === "noisethreshold") {
+    logPhotoFilterHit("noise + threshold");
+    applyNoiseFilter(target, "threshold");
+  }
+}
+
+function applyGrayscalePhotoFilterMode(target) {
   if (photoMergeMode === "blur") {
     applyP5Filter(target, globalThis.BLUR, 4);
   } else if (photoMergeMode === "erode") {
@@ -1257,6 +1386,10 @@ function applyPhotoFilterMode(target) {
     applyP5Filter(target, globalThis.INVERT);
   } else if (photoMergeMode === "invertblur") {
     applyP5Filter(target, globalThis.INVERT);
+    applyP5Filter(target, globalThis.BLUR, 4);
+  } else if (photoMergeMode === "noisethreshold") {
+    applyP5Filter(target, globalThis.THRESHOLD, 150 / 255);
+  } else if (photoMergeMode === "chromaticblur") {
     applyP5Filter(target, globalThis.BLUR, 4);
   } else if (photoMergeMode === "hardblack") {
     const threshold = outputMode === "receipt" ? 190 : 150;
@@ -1267,10 +1400,173 @@ function applyPhotoFilterMode(target) {
 function applyP5Filter(target, filterType, filterParam = null) {
   if (!filterType || typeof target?.filter !== "function") return;
   if (filterParam === null) {
-    target.filter(filterType, false);
+    target.filter(filterType);
     return;
   }
-  target.filter(filterType, filterParam, false);
+  target.filter(filterType, filterParam);
+}
+
+function initPhotoFilterShaders() {
+  if (!labelPhotoGraphic || typeof labelPhotoGraphic.createFilterShader !== "function") {
+    chromaticAberrationShader = null;
+    noiseShader = null;
+    noiseThresholdShader = null;
+    photoFilterShaderTarget = null;
+    return;
+  }
+
+  try {
+    chromaticAberrationShader = labelPhotoGraphic.createFilterShader(getChromaticAberrationFilterSource());
+    noiseShader = labelPhotoGraphic.createFilterShader(getNoiseFilterSource(false));
+    noiseThresholdShader = labelPhotoGraphic.createFilterShader(getNoiseFilterSource(true));
+    photoFilterShaderTarget = labelPhotoGraphic;
+    disabledCustomPhotoFilters.delete("chromatic");
+    disabledCustomPhotoFilters.delete("noise");
+    disabledCustomPhotoFilters.delete("noise threshold");
+  } catch (error) {
+    chromaticAberrationShader = null;
+    noiseShader = null;
+    noiseThresholdShader = null;
+    photoFilterShaderTarget = null;
+    console.warn("[labelmaker2] photo filter shader setup failed", error);
+  }
+}
+
+function getChromaticAberrationFilterSource() {
+  return `
+    precision highp float;
+
+    uniform sampler2D tex0;
+    uniform vec2 texelSize;
+    varying vec2 vTexCoord;
+
+    void main() {
+      vec2 offset = vec2(texelSize.x * 14.0, 0.0);
+      vec4 baseColor = texture2D(tex0, vTexCoord);
+      vec4 redColor = texture2D(tex0, vTexCoord - offset);
+      vec4 blueColor = texture2D(tex0, vTexCoord + offset);
+      gl_FragColor = vec4(redColor.r, baseColor.g, blueColor.b, baseColor.a);
+    }
+  `;
+}
+
+function getNoiseFilterSource(thresholdVariant = false) {
+  const strength = thresholdVariant ? "0.52" : "0.45";
+  const scanlineStrength = thresholdVariant ? "0.24" : "0.18";
+  return `
+    precision highp float;
+
+    uniform sampler2D tex0;
+    varying vec2 vTexCoord;
+
+    float hash(vec2 p) {
+      return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453123);
+    }
+
+    void main() {
+      vec4 color = texture2D(tex0, vTexCoord);
+      float fine = hash(vTexCoord * vec2(16000.0, 12000.0));
+      float rough = hash(vTexCoord * vec2(1700.0, 2100.0) + vec2(19.0, 73.0));
+      float grain = ((fine - 0.5) * 0.75 + (rough - 0.5) * 0.55) * ${strength};
+      float scanline = step(0.82, fract(vTexCoord.y * 900.0)) * ${scanlineStrength};
+      vec3 nextColor = color.rgb + vec3(grain) - vec3(scanline);
+      gl_FragColor = vec4(clamp(nextColor, 0.0, 1.0), color.a);
+    }
+  `;
+}
+
+function chromaticAberrationShaderCallback() {
+  filterColor.begin();
+  let result = getTexture(filterColor.canvasContent, filterColor.texCoord);
+  let redCoord = filterColor.texCoord + [-0.004, 0];
+  let blueCoord = filterColor.texCoord + [0.004, 0];
+  let redResult = getTexture(filterColor.canvasContent, redCoord);
+  let blueResult = getTexture(filterColor.canvasContent, blueCoord);
+  result.r = redResult.r;
+  result.b = blueResult.b;
+  filterColor.set(result);
+  filterColor.end();
+}
+
+function noiseShaderCallback() {
+  filterColor.begin();
+  let result = getTexture(filterColor.canvasContent, filterColor.texCoord);
+  let coord = filterColor.texCoord;
+  let fineGrain = fract(sin(dot(coord * 14000, [12.9898, 78.233])) * 43758.5453) - 0.5;
+  let roughGrain = fract(sin(dot(coord * 1800 + [19, 73], [39.3468, 11.135])) * 24634.6345) - 0.5;
+  let grain = fineGrain * 0.8 + roughGrain * 0.45;
+  result.r = clamp(result.r + grain * 0.9, 0, 1);
+  result.g = clamp(result.g + grain * 0.9, 0, 1);
+  result.b = clamp(result.b + grain * 0.9, 0, 1);
+  if (fract(coord.y * 8) < 0.18) {
+    result.r = 0;
+    result.g = 0;
+    result.b = 0;
+  }
+  filterColor.set(result);
+  filterColor.end();
+}
+
+function noiseThresholdShaderCallback() {
+  filterColor.begin();
+  let result = getTexture(filterColor.canvasContent, filterColor.texCoord);
+  let coord = filterColor.texCoord;
+  let fineGrain = fract(sin(dot(coord * 16000, [12.9898, 78.233])) * 43758.5453) - 0.5;
+  let roughGrain = fract(sin(dot(coord * 2200 + [37, 91], [39.3468, 11.135])) * 24634.6345) - 0.5;
+  let grain = fineGrain * 0.9 + roughGrain * 0.55;
+  result.r = clamp(result.r + grain * 1.15, 0, 1);
+  result.g = clamp(result.g + grain * 1.15, 0, 1);
+  result.b = clamp(result.b + grain * 1.15, 0, 1);
+  if (fract(coord.y * 8) < 0.18) {
+    result.r = 0;
+    result.g = 0;
+    result.b = 0;
+  }
+  filterColor.set(result);
+  filterColor.end();
+}
+
+function disableCustomPhotoFilter(key, error) {
+  if (!disabledCustomPhotoFilters.has(key)) {
+    console.warn(`[labelmaker2] ${key} shader failed; ignoring that filter`, error);
+  }
+  disabledCustomPhotoFilters.add(key);
+}
+
+function logPhotoFilterHit(key) {
+  if (loggedPhotoFilterHits.has(key)) return;
+  console.log(`[labelmaker2] photo filter active: ${key}`);
+  loggedPhotoFilterHits.add(key);
+}
+
+function applyChromaticAberration(target) {
+  if (
+    !chromaticAberrationShader ||
+    disabledCustomPhotoFilters.has("chromatic") ||
+    typeof target?.filter !== "function"
+  ) {
+    return false;
+  }
+  try {
+    target.filter(chromaticAberrationShader);
+    return true;
+  } catch (error) {
+    disableCustomPhotoFilter("chromatic", error);
+    return false;
+  }
+}
+
+function applyNoiseFilter(target, variant = "soft") {
+  const key = variant === "threshold" ? "noise threshold" : "noise";
+  const shader = variant === "threshold" ? noiseThresholdShader : noiseShader;
+  if (!shader || disabledCustomPhotoFilters.has(key) || typeof target?.filter !== "function") return false;
+  try {
+    target.filter(shader);
+    return true;
+  } catch (error) {
+    disableCustomPhotoFilter(key, error);
+    return false;
+  }
 }
 
 function ensurePhotoGraphic() {
@@ -1279,21 +1575,34 @@ function ensurePhotoGraphic() {
     labelPhotoGraphic.width === labelGraphic.width &&
     labelPhotoGraphic.height === labelGraphic.height
   ) {
+    if (photoFilterShaderTarget !== labelPhotoGraphic) {
+      initPhotoFilterShaders();
+    }
     return;
   }
   labelPhotoGraphic = createGraphics(labelGraphic.width, labelGraphic.height);
   labelPhotoGraphic.pixelDensity(1);
+  initPhotoFilterShaders();
 }
 
-function drawGrayscaleCover(target, source, dx, dy, dw, dh) {
-  const ctx = target.drawingContext;
-  const previousFilter = ctx.filter || "none";
-  ctx.filter = "grayscale(100%)";
+function drawPhotoCoverForMode(target, source, dx, dy, dw, dh) {
   drawImageCover(target, source, dx, dy, dw, dh, {
     offsetX: photoOffsetX,
     offsetY: photoOffsetY,
   });
-  ctx.filter = previousFilter;
+  if (photoMergeMode === "chromatic" || photoMergeMode === "chromaticblur") {
+    applyColorPhotoFilterMode(target);
+    if (photoGrayscaleEnabled) {
+      applyP5Filter(target, globalThis.GRAY);
+    }
+    applyGrayscalePhotoFilterMode(target);
+    return;
+  }
+  if (photoGrayscaleEnabled) {
+    applyP5Filter(target, globalThis.GRAY);
+  }
+  applyColorPhotoFilterMode(target);
+  applyGrayscalePhotoFilterMode(target);
 }
 
 function applyPrintGrayscaleConversion(target) {
@@ -1318,21 +1627,17 @@ function drawImageCover(target, source, dx, dy, dw, dh, options = {}) {
   if (sw <= 0 || sh <= 0) return;
 
   const scale = Math.max(dw / sw, dh / sh);
-  const cropW = dw / scale;
-  const cropH = dh / scale;
-  const sx = (sw - cropW) * 0.5;
-  const sy = (sh - cropH) * 0.5;
+  const fittedW = sw * scale;
+  const fittedH = sh * scale;
+  const fittedX = dx + (dw - fittedW) * 0.5 + (Number(options.offsetX) || 0);
+  const fittedY = dy + (dh - fittedH) * 0.5 + (Number(options.offsetY) || 0);
 
   target.image(
     source,
-    dx + (Number(options.offsetX) || 0),
-    dy + (Number(options.offsetY) || 0),
-    dw,
-    dh,
-    sx,
-    sy,
-    cropW,
-    cropH
+    fittedX,
+    fittedY,
+    fittedW,
+    fittedH
   );
 }
 
@@ -1386,9 +1691,20 @@ function capturePhotoSourceGraphic(source = getPhotoSource(), maxDimension = nul
 }
 
 function capturePhotoSourceDataUrl(source = getPhotoSource()) {
-  const target = capturePhotoSourceGraphic(source, 720);
+  const target = capturePhotoSourceGraphic(source, 480);
   if (!target?.canvas) return "";
-  return target.canvas.toDataURL("image/jpeg", 0.86);
+  return target.canvas.toDataURL("image/jpeg", 0.76);
+}
+
+function getStoredPhotoDataUrl() {
+  if (storedPhotoDataUrl) return storedPhotoDataUrl;
+  try {
+    storedPhotoDataUrl = capturePhotoSourceDataUrl(droppedPhotoImage);
+  } catch (error) {
+    console.warn("[labelmaker2] photo snapshot save failed", error);
+    storedPhotoDataUrl = "";
+  }
+  return storedPhotoDataUrl;
 }
 
 function freezeLiveCameraPhoto() {
@@ -1397,6 +1713,7 @@ function freezeLiveCameraPhoto() {
   if (!target) return;
   droppedPhotoImage = target.get();
   droppedPhotoName = "Camera snapshot";
+  storedPhotoDataUrl = capturePhotoSourceDataUrl(droppedPhotoImage);
   photoOffsetX = 0;
   photoOffsetY = 0;
   photoRevision += 1;
@@ -1409,6 +1726,7 @@ function freezeLiveCameraPhoto() {
 function removeStoredPhoto() {
   droppedPhotoImage = null;
   droppedPhotoName = "";
+  storedPhotoDataUrl = "";
   photoOffsetX = 0;
   photoOffsetY = 0;
   photoRevision += 1;
@@ -2799,12 +3117,13 @@ function getEditorSnapshot() {
     labelPaddingMode,
     labelQrText,
     photoMergeMode,
+    photoGrayscaleEnabled,
     labelInverted,
     textOutlineMode,
     photoOffsetX,
     photoOffsetY,
     photoEnabled: !!photoEnabled,
-    photoDataUrl: hasStoredPhoto() ? capturePhotoSourceDataUrl(droppedPhotoImage) : "",
+    photoDataUrl: hasStoredPhoto() ? getStoredPhotoDataUrl() : "",
     photoName: droppedPhotoName,
   };
 }
@@ -2828,12 +3147,14 @@ function applyEditorSnapshot(data = {}) {
   labelQrText = typeof data.labelQrText === "string" ? data.labelQrText : "";
   labelQrCode = labelQrText ? createQRCode(labelQrText) : null;
   photoMergeMode = normalizePhotoMergeMode(data.photoMergeMode);
+  photoGrayscaleEnabled = data.photoGrayscaleEnabled !== false;
   labelInverted = !!data.labelInverted || data.photoMergeMode === "black" || data.photoMergeMode === "white" || data.photoMergeMode === "noditherwhite";
   textOutlineMode = textOutlineModes.includes(data.textOutlineMode) ? data.textOutlineMode : "none";
   photoOffsetX = Number.isFinite(data.photoOffsetX) ? data.photoOffsetX : 0;
   photoOffsetY = Number.isFinite(data.photoOffsetY) ? data.photoOffsetY : 0;
   droppedPhotoImage = null;
   droppedPhotoName = "";
+  storedPhotoDataUrl = "";
   applyEditorFont();
   rebuildLabelGraphic();
 
@@ -2843,6 +3164,7 @@ function applyEditorSnapshot(data = {}) {
       (imageValue) => {
         droppedPhotoImage = imageValue;
         droppedPhotoName = data.photoName || "Print history photo";
+        storedPhotoDataUrl = data.photoDataUrl;
         photoRevision += 1;
         markLabelDirty();
       },
@@ -2994,15 +3316,18 @@ function saveEditorState() {
       labelPaddingMode,
       labelQrText,
       photoMergeMode,
+      photoGrayscaleEnabled,
       labelInverted,
       textOutlineMode,
       photoOffsetX,
       photoOffsetY,
       photoEnabled: !!photoEnabled,
-      photoDataUrl: hasStoredPhoto() ? capturePhotoSourceDataUrl(droppedPhotoImage) : "",
+      photoDataUrl: hasStoredPhoto() ? getStoredPhotoDataUrl() : "",
       photoName: droppedPhotoName,
     }));
-  } catch {}
+  } catch (error) {
+    console.warn("[labelmaker2] editor state save failed", error);
+  }
 }
 
 function loadEditorState() {
@@ -3025,6 +3350,7 @@ function loadEditorState() {
     labelQrText = typeof data.labelQrText === "string" ? data.labelQrText : "";
     labelQrCode = labelQrText ? createQRCode(labelQrText) : null;
     photoMergeMode = normalizePhotoMergeMode(data.photoMergeMode);
+    photoGrayscaleEnabled = data.photoGrayscaleEnabled !== false;
     labelInverted = !!data.labelInverted || data.photoMergeMode === "black" || data.photoMergeMode === "white" || data.photoMergeMode === "noditherwhite";
     textOutlineMode = textOutlineModes.includes(data.textOutlineMode) ? data.textOutlineMode : "none";
     photoOffsetX = Number.isFinite(data.photoOffsetX) ? data.photoOffsetX : 0;
@@ -3033,6 +3359,7 @@ function loadEditorState() {
     photoCameraStarting = false;
     droppedPhotoImage = null;
     droppedPhotoName = "";
+    storedPhotoDataUrl = "";
     restoreLiveCameraOnSetup = data.photoEnabled === true && !data.photoDataUrl;
     if (data.photoDataUrl) {
       loadImage(
@@ -3040,6 +3367,7 @@ function loadEditorState() {
         (imageValue) => {
           droppedPhotoImage = imageValue;
           droppedPhotoName = data.photoName || "Stored photo";
+          storedPhotoDataUrl = data.photoDataUrl;
           photoRevision += 1;
           markLabelDirty();
         },
@@ -3073,10 +3401,12 @@ function clearEditor() {
   photoCameraStarting = false;
   droppedPhotoImage = null;
   droppedPhotoName = "";
+  storedPhotoDataUrl = "";
   photoOffsetX = 0;
   photoOffsetY = 0;
   photoRevision += 1;
   autoSizingEnabled = true;
+  photoGrayscaleEnabled = true;
   textOutlineMode = "none";
   markLabelDirty();
   detailText = "Cleared label.";
@@ -3172,6 +3502,7 @@ function loadPhotoDataUrl(dataUrl, photoName = "Photo") {
       photoEnabled = false;
       droppedPhotoImage = imageValue;
       droppedPhotoName = photoName;
+      storedPhotoDataUrl = dataUrl;
       photoOffsetX = 0;
       photoOffsetY = 0;
       photoRevision += 1;
@@ -3213,6 +3544,7 @@ async function startPhotoCamera({ clearStoredPhoto = true, detail = "Starting ca
     if (clearStoredPhoto) {
       droppedPhotoImage = null;
       droppedPhotoName = "";
+      storedPhotoDataUrl = "";
       photoOffsetX = 0;
       photoOffsetY = 0;
       photoRevision += 1;
@@ -3253,6 +3585,13 @@ function togglePhotoMergeMode() {
   saveEditorState();
 }
 
+function togglePhotoGrayscale() {
+  photoGrayscaleEnabled = !photoGrayscaleEnabled;
+  detailText = photoGrayscaleEnabled ? "Photo grayscale on." : "Photo grayscale off.";
+  markLabelDirty();
+  saveEditorState();
+}
+
 function toggleInvertMode() {
   labelInverted = !labelInverted;
   detailText = labelInverted ? "Inverted label." : "Normal label.";
@@ -3284,6 +3623,10 @@ function getBlendModeIcon() {
   if (photoMergeMode === "erode") return "grain";
   if (photoMergeMode === "invert") return "invert_colors";
   if (photoMergeMode === "invertblur") return "blur_circular";
+  if (photoMergeMode === "chromatic") return "hdr_strong";
+  if (photoMergeMode === "noise") return "graphic_eq";
+  if (photoMergeMode === "noisethreshold") return "gradient";
+  if (photoMergeMode === "chromaticblur") return "vibration";
   if (photoMergeMode === "stencil") return "texture";
   if (photoMergeMode === "hardblack") return "filter_b_and_w";
   return "vertical_align_bottom";
@@ -3294,6 +3637,10 @@ function getPhotoMergeModeLabel() {
   if (photoMergeMode === "erode") return "erode";
   if (photoMergeMode === "invert") return "invert photo";
   if (photoMergeMode === "invertblur") return "invert + blur";
+  if (photoMergeMode === "chromatic") return "chromatic";
+  if (photoMergeMode === "noise") return "noise";
+  if (photoMergeMode === "noisethreshold") return "noise + threshold";
+  if (photoMergeMode === "chromaticblur") return "chromatic + blur";
   if (photoMergeMode === "stencil") return "stencil";
   if (photoMergeMode === "hardblack") return "hard black";
   return "under";
