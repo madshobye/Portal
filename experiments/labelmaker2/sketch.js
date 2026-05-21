@@ -13,6 +13,9 @@ let cam = null;
 let photoCameraStarting = false;
 let droppedPhotoImage = null;
 let droppedPhotoName = "";
+let photoOffsetX = 0;
+let photoOffsetY = 0;
+let previewPointerPress = null;
 let labelText = "";
 let cursorIndex = 0;
 let caretWhite = false;
@@ -91,7 +94,7 @@ const labelPaddingPresets = {
   },
 };
 const labelPaddingModes = ["minimal", "some", "lot"];
-const photoMergeModes = ["below", "stencil", "hardblack"];
+const photoMergeModes = ["below", "blur", "erode", "invert", "stencil", "hardblack"];
 const textOutlineModes = ["none", "outline", "opposite"];
 const minFontSize = 24;
 const maxFontSize = 2560;
@@ -1066,6 +1069,8 @@ function getLabelRenderKey() {
     photoMergeMode,
     labelInverted,
     textOutlineMode,
+    photoOffsetX,
+    photoOffsetY,
     photoSource: hasPhotoSource() ? (photoEnabled && isCameraReady() ? "camera" : "stored") : "none",
     photoRevision,
     width: labelGraphic?.width || 0,
@@ -1075,11 +1080,8 @@ function getLabelRenderKey() {
 
 function renderPhotoBelowText(source) {
   labelGraphic.background(getPaperColor());
-  drawGrayscaleCover(labelGraphic, source, 0, 0, labelGraphic.width, labelGraphic.height);
+  drawFilteredPhotoCover(labelGraphic, source);
   labelGraphic.image(labelTextGraphic, 0, 0);
-  if (photoMergeMode === "hardblack") {
-    applyMonochromeThresholdPreview(labelGraphic, outputMode === "receipt" ? 190 : 150);
-  }
 }
 
 function isPhotoMaskMergeMode() {
@@ -1089,9 +1091,9 @@ function isPhotoMaskMergeMode() {
 function composePhotoWithCurrentLabelMask() {
   const source = getPhotoSource();
   if (!source) return;
-  ensurePhotoGraphic();
 
-  drawGrayscaleCover(labelGraphic, source, 0, 0, labelGraphic.width, labelGraphic.height);
+  labelGraphic.background(getPaperColor());
+  drawFilteredPhotoCover(labelGraphic, source);
 
   labelPhotoGraphic.clear();
   labelPhotoGraphic.background(getPaperColor());
@@ -1110,6 +1112,14 @@ function composePhotoWithCurrentLabelMask() {
   labelPhotoGraphic.blendMode(BLEND);
 
   labelGraphic.image(labelPhotoGraphic, 0, 0);
+}
+
+function drawFilteredPhotoCover(target, source) {
+  ensurePhotoGraphic();
+  labelPhotoGraphic.clear();
+  drawGrayscaleCover(labelPhotoGraphic, source, 0, 0, labelPhotoGraphic.width, labelPhotoGraphic.height);
+  applyPhotoFilterMode(labelPhotoGraphic);
+  target.image(labelPhotoGraphic, 0, 0);
 }
 
 function drawStencilFillCutouts(target) {
@@ -1238,20 +1248,26 @@ function drawStyledLineOutlineOnly(line, y, startX = getLabelTextRect().x, targe
   }
 }
 
-function applyMonochromeThresholdPreview(target, threshold = 210) {
-  target.loadPixels();
-  for (let index = 0; index < target.pixels.length; index += 4) {
-    const alpha = target.pixels[index + 3];
-    const luminance = alpha <= 20
-      ? 255
-      : 0.2126 * target.pixels[index] + 0.7152 * target.pixels[index + 1] + 0.0722 * target.pixels[index + 2];
-    const value = luminance < threshold ? 0 : 255;
-    target.pixels[index] = value;
-    target.pixels[index + 1] = value;
-    target.pixels[index + 2] = value;
-    target.pixels[index + 3] = 255;
+function applyPhotoFilterMode(target) {
+  if (photoMergeMode === "blur") {
+    applyP5Filter(target, globalThis.BLUR, 4);
+  } else if (photoMergeMode === "erode") {
+    applyP5Filter(target, globalThis.ERODE);
+  } else if (photoMergeMode === "invert") {
+    applyP5Filter(target, globalThis.INVERT);
+  } else if (photoMergeMode === "hardblack") {
+    const threshold = outputMode === "receipt" ? 190 : 150;
+    applyP5Filter(target, globalThis.THRESHOLD, threshold / 255);
   }
-  target.updatePixels();
+}
+
+function applyP5Filter(target, filterType, filterParam = null) {
+  if (!filterType || typeof target?.filter !== "function") return;
+  if (filterParam === null) {
+    target.filter(filterType, false);
+    return;
+  }
+  target.filter(filterType, filterParam, false);
 }
 
 function ensurePhotoGraphic() {
@@ -1270,7 +1286,10 @@ function drawGrayscaleCover(target, source, dx, dy, dw, dh) {
   const ctx = target.drawingContext;
   const previousFilter = ctx.filter || "none";
   ctx.filter = "grayscale(100%)";
-  drawImageCover(target, source, dx, dy, dw, dh);
+  drawImageCover(target, source, dx, dy, dw, dh, {
+    offsetX: photoOffsetX,
+    offsetY: photoOffsetY,
+  });
   ctx.filter = previousFilter;
 }
 
@@ -1289,7 +1308,7 @@ function applyPrintGrayscaleConversion(target) {
   target.updatePixels();
 }
 
-function drawImageCover(target, source, dx, dy, dw, dh) {
+function drawImageCover(target, source, dx, dy, dw, dh, options = {}) {
   const sourceSize = getSourceSize(source);
   if (!sourceSize) return;
   const { width: sw, height: sh } = sourceSize;
@@ -1301,7 +1320,17 @@ function drawImageCover(target, source, dx, dy, dw, dh) {
   const sx = (sw - cropW) * 0.5;
   const sy = (sh - cropH) * 0.5;
 
-  target.image(source, dx, dy, dw, dh, sx, sy, cropW, cropH);
+  target.image(
+    source,
+    dx + (Number(options.offsetX) || 0),
+    dy + (Number(options.offsetY) || 0),
+    dw,
+    dh,
+    sx,
+    sy,
+    cropW,
+    cropH
+  );
 }
 
 function getSourceSize(source) {
@@ -1336,7 +1365,7 @@ function getPhotoSource() {
   return (photoEnabled && isCameraReady()) ? cam : droppedPhotoImage;
 }
 
-function capturePhotoSourceGraphic(source = getPhotoSource(), maxDimension = null) {
+function capturePhotoSourceGraphic(source = getPhotoSource(), maxDimension = null, options = {}) {
   if (!source || !labelGraphic) return null;
   const scale = maxDimension
     ? Math.min(1, maxDimension / Math.max(labelGraphic.width, labelGraphic.height))
@@ -1346,7 +1375,10 @@ function capturePhotoSourceGraphic(source = getPhotoSource(), maxDimension = nul
     Math.max(1, Math.round(labelGraphic.height * scale))
   );
   target.pixelDensity(1);
-  drawImageCover(target, source, 0, 0, target.width, target.height);
+  drawImageCover(target, source, 0, 0, target.width, target.height, {
+    offsetX: options.includeOffset ? photoOffsetX * scale : 0,
+    offsetY: options.includeOffset ? photoOffsetY * scale : 0,
+  });
   return target;
 }
 
@@ -1358,10 +1390,12 @@ function capturePhotoSourceDataUrl(source = getPhotoSource()) {
 
 function freezeLiveCameraPhoto() {
   if (!photoEnabled || !isCameraReady()) return;
-  const target = capturePhotoSourceGraphic(cam);
+  const target = capturePhotoSourceGraphic(cam, null, { includeOffset: true });
   if (!target) return;
   droppedPhotoImage = target.get();
   droppedPhotoName = "Camera snapshot";
+  photoOffsetX = 0;
+  photoOffsetY = 0;
   photoRevision += 1;
   stopPhotoCamera();
   photoEnabled = false;
@@ -1372,6 +1406,8 @@ function freezeLiveCameraPhoto() {
 function removeStoredPhoto() {
   droppedPhotoImage = null;
   droppedPhotoName = "";
+  photoOffsetX = 0;
+  photoOffsetY = 0;
   photoRevision += 1;
   markLabelDirty();
   detailText = "Removed photo.";
@@ -1834,30 +1870,89 @@ function getPreviewRect() {
 }
 
 function mousePressed() {
-  return handlePointerPlacement(mouseX, mouseY);
+  return handlePreviewPointerPress(mouseX, mouseY);
+}
+
+function mouseDragged() {
+  return handlePreviewPointerDrag(mouseX, mouseY);
+}
+
+function mouseReleased() {
+  return handlePreviewPointerRelease(mouseX, mouseY);
 }
 
 function touchStarted() {
-  return handlePointerPlacement(mouseX, mouseY);
+  return handlePreviewPointerPress(mouseX, mouseY);
 }
 
-function handlePointerPlacement(pointerX, pointerY) {
-  if (busy || !labelGraphic) return;
+function touchMoved() {
+  return handlePreviewPointerDrag(mouseX, mouseY);
+}
 
+function touchEnded() {
+  return handlePreviewPointerRelease(mouseX, mouseY);
+}
+
+function handlePreviewPointerPress(pointerX, pointerY) {
+  if (busy || !labelGraphic) return;
   const preview = getPreviewRect();
-  const insidePreview = (
-    pointerX >= preview.x &&
-    pointerX <= preview.x + preview.width &&
-    pointerY >= preview.y &&
-    pointerY <= preview.y + preview.height
-  );
-  if (!insidePreview) return;
+  if (!isPointInsidePreview(pointerX, pointerY, preview)) return;
+
+  previewPointerPress = {
+    x: pointerX,
+    y: pointerY,
+    startPhotoOffsetX: photoOffsetX,
+    startPhotoOffsetY: photoOffsetY,
+    dragged: false,
+    preview,
+  };
+  return false;
+}
+
+function handlePreviewPointerDrag(pointerX, pointerY) {
+  if (busy || !previewPointerPress || !hasPhotoSource()) return;
+
+  const preview = previewPointerPress.preview || getPreviewRect();
+  const deltaX = ((pointerX - previewPointerPress.x) / preview.width) * labelGraphic.width;
+  const deltaY = ((pointerY - previewPointerPress.y) / preview.height) * labelGraphic.height;
+  const movedEnough = Math.hypot(pointerX - previewPointerPress.x, pointerY - previewPointerPress.y) > 3;
+  if (!movedEnough && !previewPointerPress.dragged) return false;
+
+  previewPointerPress.dragged = true;
+  photoOffsetX = previewPointerPress.startPhotoOffsetX + deltaX;
+  photoOffsetY = previewPointerPress.startPhotoOffsetY + deltaY;
+  markLabelDirty();
+  detailText = "Moved photo.";
+  return false;
+}
+
+function handlePreviewPointerRelease(pointerX, pointerY) {
+  if (busy || !previewPointerPress || !labelGraphic) return;
+
+  const press = previewPointerPress;
+  previewPointerPress = null;
+  if (press.dragged) {
+    saveEditorState();
+    return false;
+  }
+
+  const preview = press.preview || getPreviewRect();
+  if (!isPointInsidePreview(pointerX, pointerY, preview)) return false;
 
   placeCursorFromPreviewPoint(pointerX, pointerY, preview);
   if (useSoftKeyboardInput) {
     focusEditorInput();
   }
   return false;
+}
+
+function isPointInsidePreview(pointerX, pointerY, preview = getPreviewRect()) {
+  return (
+    pointerX >= preview.x &&
+    pointerX <= preview.x + preview.width &&
+    pointerY >= preview.y &&
+    pointerY <= preview.y + preview.height
+  );
 }
 
 function placeCursorFromPreviewPoint(pointerX, pointerY, preview) {
@@ -2703,6 +2798,8 @@ function getEditorSnapshot() {
     photoMergeMode,
     labelInverted,
     textOutlineMode,
+    photoOffsetX,
+    photoOffsetY,
     photoEnabled: !!photoEnabled,
     photoDataUrl: hasStoredPhoto() ? capturePhotoSourceDataUrl(droppedPhotoImage) : "",
     photoName: droppedPhotoName,
@@ -2730,6 +2827,8 @@ function applyEditorSnapshot(data = {}) {
   photoMergeMode = normalizePhotoMergeMode(data.photoMergeMode);
   labelInverted = !!data.labelInverted || data.photoMergeMode === "black" || data.photoMergeMode === "white" || data.photoMergeMode === "noditherwhite";
   textOutlineMode = textOutlineModes.includes(data.textOutlineMode) ? data.textOutlineMode : "none";
+  photoOffsetX = Number.isFinite(data.photoOffsetX) ? data.photoOffsetX : 0;
+  photoOffsetY = Number.isFinite(data.photoOffsetY) ? data.photoOffsetY : 0;
   droppedPhotoImage = null;
   droppedPhotoName = "";
   applyEditorFont();
@@ -2894,6 +2993,8 @@ function saveEditorState() {
       photoMergeMode,
       labelInverted,
       textOutlineMode,
+      photoOffsetX,
+      photoOffsetY,
       photoEnabled: !!photoEnabled,
       photoDataUrl: hasStoredPhoto() ? capturePhotoSourceDataUrl(droppedPhotoImage) : "",
       photoName: droppedPhotoName,
@@ -2923,6 +3024,8 @@ function loadEditorState() {
     photoMergeMode = normalizePhotoMergeMode(data.photoMergeMode);
     labelInverted = !!data.labelInverted || data.photoMergeMode === "black" || data.photoMergeMode === "white" || data.photoMergeMode === "noditherwhite";
     textOutlineMode = textOutlineModes.includes(data.textOutlineMode) ? data.textOutlineMode : "none";
+    photoOffsetX = Number.isFinite(data.photoOffsetX) ? data.photoOffsetX : 0;
+    photoOffsetY = Number.isFinite(data.photoOffsetY) ? data.photoOffsetY : 0;
     photoEnabled = false;
     photoCameraStarting = false;
     droppedPhotoImage = null;
@@ -2967,6 +3070,8 @@ function clearEditor() {
   photoCameraStarting = false;
   droppedPhotoImage = null;
   droppedPhotoName = "";
+  photoOffsetX = 0;
+  photoOffsetY = 0;
   photoRevision += 1;
   autoSizingEnabled = true;
   textOutlineMode = "none";
@@ -3064,6 +3169,8 @@ function loadPhotoDataUrl(dataUrl, photoName = "Photo") {
       photoEnabled = false;
       droppedPhotoImage = imageValue;
       droppedPhotoName = photoName;
+      photoOffsetX = 0;
+      photoOffsetY = 0;
       photoRevision += 1;
       markLabelDirty();
       detailText = `Photo loaded: ${droppedPhotoName}.`;
@@ -3103,6 +3210,8 @@ async function startPhotoCamera({ clearStoredPhoto = true, detail = "Starting ca
     if (clearStoredPhoto) {
       droppedPhotoImage = null;
       droppedPhotoName = "";
+      photoOffsetX = 0;
+      photoOffsetY = 0;
       photoRevision += 1;
     }
     photoEnabled = true;
@@ -3168,12 +3277,18 @@ function getTextOutlineModeLabel() {
 }
 
 function getBlendModeIcon() {
+  if (photoMergeMode === "blur") return "blur_on";
+  if (photoMergeMode === "erode") return "grain";
+  if (photoMergeMode === "invert") return "invert_colors";
   if (photoMergeMode === "stencil") return "texture";
   if (photoMergeMode === "hardblack") return "filter_b_and_w";
   return "vertical_align_bottom";
 }
 
 function getPhotoMergeModeLabel() {
+  if (photoMergeMode === "blur") return "blur";
+  if (photoMergeMode === "erode") return "erode";
+  if (photoMergeMode === "invert") return "invert photo";
   if (photoMergeMode === "stencil") return "stencil";
   if (photoMergeMode === "hardblack") return "hard black";
   return "under";
