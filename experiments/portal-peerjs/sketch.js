@@ -306,7 +306,6 @@ function attachConnection(nextConn) {
     channelOpen = true;
     scanningRemoteIds = false;
     remoteCandidateResponded = true;
-    fields.remoteId.value = conn.peer;
     statusText = `connected to ${conn.peer}`;
     addLog(statusText);
     conn.send("portal connected");
@@ -358,7 +357,6 @@ function markRemoteCandidateResponded(reason) {
   clearConnectionTimer();
 
   if (conn) {
-    fields.remoteId.value = conn.peer;
     statusText = `${reason}: ${conn.peer}`;
   } else {
     statusText = reason;
