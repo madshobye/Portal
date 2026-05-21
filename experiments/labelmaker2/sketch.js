@@ -13,7 +13,11 @@ let labelPhotoGraphic;
 let chromaticAberrationShader = null;
 let noiseShader = null;
 let noiseThresholdShader = null;
+let textChromaticAberrationShader = null;
+let textNoiseShader = null;
+let textNoiseThresholdShader = null;
 let photoFilterShaderTarget = null;
+let textFilterShaderTarget = null;
 const disabledCustomPhotoFilters = new Set();
 const loggedPhotoFilterHits = new Set();
 let cam = null;
@@ -45,6 +49,9 @@ let perfectDosFont = null;
 const storageKey = "portal.labelmaker2.state";
 const printHistoryStorageKey = "portal.labelmaker2.printHistory";
 const printHistorySliderKey = "labelmaker2.printHistoryIndex";
+const editorPhotoDbName = "portal.labelmaker2.photos";
+const editorPhotoStoreName = "photos";
+const editorPhotoStorageId = "current";
 let labelFormat = "10x15";
 let orientation = "landscape";
 let editorFontMode = "helvetica";
@@ -60,6 +67,7 @@ let photoMergeMode = "below";
 let photoGrayscaleEnabled = true;
 let labelInverted = false;
 let textOutlineMode = "none";
+let textEffectMode = "none";
 const debugCharacterBounds = false;
 let tooltipKey = "";
 let tooltipLabel = "";
@@ -70,11 +78,15 @@ let tooltipActiveThisFrame = false;
 let printHistory = [];
 let printHistoryIndex = -1;
 let restoreLiveCameraOnSetup = false;
+let editorStatePhotoStorageDropped = false;
 let labelRenderDirty = true;
 let labelRenderKey = "";
 let cachedLabelLayout = null;
 let cachedTextOrigin = null;
 let photoRevision = 0;
+let photoLoadToken = 0;
+let historyRestoreToken = 0;
+let pendingPhotoRestore = false;
 
 const labelFormats = {
   "10x10": { widthCm: 10, heightCm: 10 },
@@ -105,6 +117,7 @@ const labelPaddingPresets = {
 const labelPaddingModes = ["minimal", "some", "lot"];
 const photoMergeModes = ["below", "blur", "erode", "invert", "invertblur", "chromatic", "noise", "noisethreshold", "chromaticblur", "stencil", "hardblack"];
 const textOutlineModes = ["none", "outline", "opposite"];
+const textEffectModes = ["none", "chromatic", "noise", "noisethreshold", "blur", "chromaticblur"];
 const minFontSize = 24;
 const maxFontSize = 2560;
 const defaultFontSize = 96;
@@ -117,6 +130,10 @@ const tooltipDelayMs = 450;
 const historySliderHeight = 22;
 const historySliderTop = 12;
 const printHistoryStoragePressureLimit = 0.9;
+const tsplTextPrintDensity = 6;
+const tsplPhotoPrintDensity = 3;
+const tsplHardBlackPhotoPrintDensity = 5;
+const storedPhotoJpegQuality = 0.92;
 const fallbackFontFamily = "Helvetica";
 const googleFontFamilies = [
   "Material Symbols Rounded",
@@ -241,7 +258,7 @@ function draw() {
   const modeButtonWidth = squareButtonWidth;
   const rightControlsWidth = connectButtonWidth + (printButtonWidth ? toolbarGap + printButtonWidth : 0) + toolbarGap + clearButtonWidth + toolbarGap + downloadButtonWidth;
   const showRemovePhotoButton = hasStoredPhoto();
-  const leftMainButtons = showRemovePhotoButton ? 12 : 11;
+  const leftMainButtons = showRemovePhotoButton ? 13 : 12;
   const leftMainWidth = leftMainButtons * squareButtonWidth + (leftMainButtons - 1) * toolbarGap;
   const styleButtonWidth = toolbarButtonHeight;
   const styleButtonGap = toolbarGap;
@@ -375,7 +392,8 @@ function draw() {
   const blendButtonX = hasPhotoControls ? photoButtonX + squareButtonWidth + toolbarGap : null;
   const invertButtonX = (hasPhotoControls ? blendButtonX : photoButtonX) + squareButtonWidth + toolbarGap;
   const outlineButtonX = invertButtonX + squareButtonWidth + toolbarGap;
-  const removePhotoButtonX = outlineButtonX + squareButtonWidth + toolbarGap;
+  const textEffectButtonX = outlineButtonX + squareButtonWidth + toolbarGap;
+  const removePhotoButtonX = textEffectButtonX + squareButtonWidth + toolbarGap;
 
   const toggleButton = drawIconButton(labelFormat === "10x10" ? "crop_square" : "aspect_ratio", {
     x: formatX,
@@ -497,6 +515,20 @@ function draw() {
   });
   if (!busy && outlineButton.clicked) {
     toggleTextOutlineMode();
+  }
+
+  const textEffectButton = drawIconButton(getTextEffectModeIcon(), {
+    x: textEffectButtonX,
+    y: controlsY,
+    width: squareButtonWidth,
+    height: toolbarButtonHeight,
+    active: textEffectMode !== "none",
+    disabled: busy,
+    iconSize: 22,
+    tooltip: `Text FX: ${getTextEffectModeLabel()}`,
+  });
+  if (!busy && textEffectButton.clicked) {
+    toggleTextEffectMode();
   }
 
   if (showRemovePhotoButton) {
@@ -940,16 +972,7 @@ async function handlePrimaryButton() {
       return;
     }
 
-    const format = getCurrentLabelFormat();
-    const printOptions = {
-      labelWidthMm: format.widthCm * 10,
-      labelHeightMm: format.heightCm * 10,
-      gapMm: 2,
-      threshold: 210,
-      density: 12,
-      invert: true,
-      dither: photoMergeMode !== "hardblack",
-    };
+    const printOptions = getTsplPrintOptions();
     const printJob = printer.printTsplBitmapAsync(imageData, {
       ...printOptions,
       onProgress: (progress) => {
@@ -1058,6 +1081,21 @@ function getPrintableImageData() {
   return rotateImageDataClockwise(source);
 }
 
+function getTsplPrintOptions() {
+  const format = getCurrentLabelFormat();
+  const hasPhoto = hasPhotoSource();
+  const hardBlackPhoto = hasPhoto && photoMergeMode === "hardblack";
+  return {
+    labelWidthMm: format.widthCm * 10,
+    labelHeightMm: format.heightCm * 10,
+    gapMm: 2,
+    threshold: hasPhoto ? 145 : 190,
+    density: hasPhoto ? (hardBlackPhoto ? tsplHardBlackPhotoPrintDensity : tsplPhotoPrintDensity) : tsplTextPrintDensity,
+    invert: true,
+    dither: !hardBlackPhoto,
+  };
+}
+
 async function printReceiptPreview(imageData) {
   await printer.withWriteSettings({
     chunkSize: 300,
@@ -1065,7 +1103,7 @@ async function printReceiptPreview(imageData) {
   }, async () => {
     await printer.printEscposBitmap(imageData, {
       widthDots: 384,
-      threshold: 190,
+      threshold: hasPhotoSource() ? 145 : 190,
       dither: shouldDitherPhotoPrint(),
       initialize: true,
       feedLines: 4,
@@ -1154,6 +1192,7 @@ function renderLabelTextLayer() {
   }
   labelTextGraphic.noStroke();
   labelTextGraphic.textStyle(NORMAL);
+  applyTextEffectMode(labelTextGraphic);
 }
 
 function ensureTextGraphic() {
@@ -1162,11 +1201,20 @@ function ensureTextGraphic() {
     labelTextGraphic.width === labelGraphic.width &&
     labelTextGraphic.height === labelGraphic.height
   ) {
+    if (textFilterShaderTarget !== labelTextGraphic) {
+      initTextEffectShaders();
+    }
     return;
   }
+  disposeGraphic(labelTextGraphic);
+  textChromaticAberrationShader = null;
+  textNoiseShader = null;
+  textNoiseThresholdShader = null;
+  textFilterShaderTarget = null;
   labelTextGraphic = createGraphics(labelGraphic.width, labelGraphic.height);
   labelTextGraphic.pixelDensity(1);
   applyEditorFont(labelTextGraphic);
+  initTextEffectShaders();
   labelRenderDirty = true;
 }
 
@@ -1186,6 +1234,7 @@ function getLabelRenderKey() {
     photoGrayscaleEnabled,
     labelInverted,
     textOutlineMode,
+    textEffectMode,
     photoOffsetX,
     photoOffsetY,
     photoSource: hasPhotoSource() ? (photoEnabled && isCameraReady() ? "camera" : "stored") : "none",
@@ -1397,6 +1446,26 @@ function applyGrayscalePhotoFilterMode(target) {
   }
 }
 
+function applyTextEffectMode(target) {
+  if (textEffectMode === "none") return;
+  if (textEffectMode === "chromatic" || textEffectMode === "chromaticblur") {
+    applyTextChromaticAberration(target);
+    if (photoGrayscaleEnabled) {
+      applyP5Filter(target, globalThis.GRAY);
+    }
+  } else if (textEffectMode === "noise") {
+    applyTextNoiseFilter(target, "soft");
+  } else if (textEffectMode === "noisethreshold") {
+    applyTextNoiseFilter(target, "threshold");
+  } else if (textEffectMode === "blur") {
+    applyP5Filter(target, globalThis.BLUR, 2);
+  }
+
+  if (textEffectMode === "chromaticblur") {
+    applyP5Filter(target, globalThis.BLUR, 2);
+  }
+}
+
 function applyP5Filter(target, filterType, filterParam = null) {
   if (!filterType || typeof target?.filter !== "function") return;
   if (filterParam === null) {
@@ -1429,6 +1498,32 @@ function initPhotoFilterShaders() {
     noiseThresholdShader = null;
     photoFilterShaderTarget = null;
     console.warn("[labelmaker2] photo filter shader setup failed", error);
+  }
+}
+
+function initTextEffectShaders() {
+  if (!labelTextGraphic || typeof labelTextGraphic.createFilterShader !== "function") {
+    textChromaticAberrationShader = null;
+    textNoiseShader = null;
+    textNoiseThresholdShader = null;
+    textFilterShaderTarget = null;
+    return;
+  }
+
+  try {
+    textChromaticAberrationShader = labelTextGraphic.createFilterShader(getChromaticAberrationFilterSource());
+    textNoiseShader = labelTextGraphic.createFilterShader(getTextNoiseFilterSource(false));
+    textNoiseThresholdShader = labelTextGraphic.createFilterShader(getTextNoiseFilterSource(true));
+    textFilterShaderTarget = labelTextGraphic;
+    disabledCustomPhotoFilters.delete("text chromatic");
+    disabledCustomPhotoFilters.delete("text noise");
+    disabledCustomPhotoFilters.delete("text noise threshold");
+  } catch (error) {
+    textChromaticAberrationShader = null;
+    textNoiseShader = null;
+    textNoiseThresholdShader = null;
+    textFilterShaderTarget = null;
+    console.warn("[labelmaker2] text effect shader setup failed", error);
   }
 }
 
@@ -1471,6 +1566,32 @@ function getNoiseFilterSource(thresholdVariant = false) {
       float scanline = step(0.82, fract(vTexCoord.y * 900.0)) * ${scanlineStrength};
       vec3 nextColor = color.rgb + vec3(grain) - vec3(scanline);
       gl_FragColor = vec4(clamp(nextColor, 0.0, 1.0), color.a);
+    }
+  `;
+}
+
+function getTextNoiseFilterSource(thresholdVariant = false) {
+  const alphaDrop = thresholdVariant ? "0.42" : "0.18";
+  const speckleScale = thresholdVariant ? "2200.0" : "1300.0";
+  const grainStrength = thresholdVariant ? "0.85" : "0.45";
+  return `
+    precision highp float;
+
+    uniform sampler2D tex0;
+    varying vec2 vTexCoord;
+
+    float hash(vec2 p) {
+      return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453123);
+    }
+
+    void main() {
+      vec4 color = texture2D(tex0, vTexCoord);
+      float fine = hash(vTexCoord * vec2(16000.0, 12000.0));
+      float speckle = hash(vTexCoord * vec2(${speckleScale}, ${speckleScale}) + vec2(19.0, 73.0));
+      float grain = (fine - 0.5) * ${grainStrength};
+      float keep = step(${alphaDrop}, speckle);
+      vec3 nextColor = clamp(color.rgb + vec3(grain), 0.0, 1.0);
+      gl_FragColor = vec4(nextColor, color.a * keep);
     }
   `;
 }
@@ -1569,6 +1690,44 @@ function applyNoiseFilter(target, variant = "soft") {
   }
 }
 
+function disposeGraphic(graphic) {
+  if (!graphic || typeof graphic.remove !== "function") return;
+  try {
+    graphic.remove();
+  } catch {}
+}
+
+function applyTextChromaticAberration(target) {
+  const key = "text chromatic";
+  if (
+    !textChromaticAberrationShader ||
+    disabledCustomPhotoFilters.has(key) ||
+    typeof target?.filter !== "function"
+  ) {
+    return false;
+  }
+  try {
+    target.filter(textChromaticAberrationShader);
+    return true;
+  } catch (error) {
+    disableCustomPhotoFilter(key, error);
+    return false;
+  }
+}
+
+function applyTextNoiseFilter(target, variant = "soft") {
+  const key = variant === "threshold" ? "text noise threshold" : "text noise";
+  const shader = variant === "threshold" ? textNoiseThresholdShader : textNoiseShader;
+  if (!shader || disabledCustomPhotoFilters.has(key) || typeof target?.filter !== "function") return false;
+  try {
+    target.filter(shader);
+    return true;
+  } catch (error) {
+    disableCustomPhotoFilter(key, error);
+    return false;
+  }
+}
+
 function ensurePhotoGraphic() {
   if (
     labelPhotoGraphic &&
@@ -1580,6 +1739,11 @@ function ensurePhotoGraphic() {
     }
     return;
   }
+  disposeGraphic(labelPhotoGraphic);
+  chromaticAberrationShader = null;
+  noiseShader = null;
+  noiseThresholdShader = null;
+  photoFilterShaderTarget = null;
   labelPhotoGraphic = createGraphics(labelGraphic.width, labelGraphic.height);
   labelPhotoGraphic.pixelDensity(1);
   initPhotoFilterShaders();
@@ -1690,14 +1854,37 @@ function capturePhotoSourceGraphic(source = getPhotoSource(), maxDimension = nul
   return target;
 }
 
+function resizePhotoImageToLabelLimit(source) {
+  const size = getSourceSize(source);
+  if (!source || !size || !labelGraphic) return source;
+
+  const maxWidth = Math.max(1, labelGraphic.width * 2);
+  const maxHeight = Math.max(1, labelGraphic.height * 2);
+  const scale = Math.min(1, maxWidth / size.width, maxHeight / size.height);
+  if (scale >= 1) return source;
+
+  const targetWidth = Math.max(1, Math.round(size.width * scale));
+  const targetHeight = Math.max(1, Math.round(size.height * scale));
+  const target = createGraphics(targetWidth, targetHeight);
+  target.pixelDensity(1);
+  target.image(source, 0, 0, targetWidth, targetHeight);
+  return target.get();
+}
+
 function capturePhotoSourceDataUrl(source = getPhotoSource()) {
-  const target = capturePhotoSourceGraphic(source, 480);
-  if (!target?.canvas) return "";
-  return target.canvas.toDataURL("image/jpeg", 0.76);
+  const resized = resizePhotoImageToLabelLimit(source);
+  const size = getSourceSize(resized);
+  if (!resized || !size) return "";
+  const target = createGraphics(size.width, size.height);
+  target.pixelDensity(1);
+  target.image(resized, 0, 0, size.width, size.height);
+  const dataUrl = target.canvas.toDataURL("image/jpeg", storedPhotoJpegQuality);
+  disposeGraphic(target);
+  return dataUrl;
 }
 
 function getStoredPhotoDataUrl() {
-  if (storedPhotoDataUrl) return storedPhotoDataUrl;
+  if (storedPhotoDataUrl && storedPhotoDataUrl.length < 5000000) return storedPhotoDataUrl;
   try {
     storedPhotoDataUrl = capturePhotoSourceDataUrl(droppedPhotoImage);
   } catch (error) {
@@ -1711,7 +1898,7 @@ function freezeLiveCameraPhoto() {
   if (!photoEnabled || !isCameraReady()) return;
   const target = capturePhotoSourceGraphic(cam, null, { includeOffset: true });
   if (!target) return;
-  droppedPhotoImage = target.get();
+  droppedPhotoImage = resizePhotoImageToLabelLimit(target.get());
   droppedPhotoName = "Camera snapshot";
   storedPhotoDataUrl = capturePhotoSourceDataUrl(droppedPhotoImage);
   photoOffsetX = 0;
@@ -1724,9 +1911,11 @@ function freezeLiveCameraPhoto() {
 }
 
 function removeStoredPhoto() {
+  photoLoadToken += 1;
   droppedPhotoImage = null;
   droppedPhotoName = "";
   storedPhotoDataUrl = "";
+  deleteEditorPhotoDataUrl();
   photoOffsetX = 0;
   photoOffsetY = 0;
   photoRevision += 1;
@@ -3120,15 +3309,19 @@ function getEditorSnapshot() {
     photoGrayscaleEnabled,
     labelInverted,
     textOutlineMode,
+    textEffectMode,
     photoOffsetX,
     photoOffsetY,
     photoEnabled: !!photoEnabled,
     photoDataUrl: hasStoredPhoto() ? getStoredPhotoDataUrl() : "",
+    photoDataRef: hasStoredPhoto() ? editorPhotoStorageId : "",
     photoName: droppedPhotoName,
   };
 }
 
-function applyEditorSnapshot(data = {}) {
+function applyEditorSnapshot(data = {}, options = {}) {
+  photoLoadToken += 1;
+  const snapshotToken = photoLoadToken;
   stopPhotoCamera();
   photoEnabled = false;
   photoCameraStarting = false;
@@ -3150,6 +3343,7 @@ function applyEditorSnapshot(data = {}) {
   photoGrayscaleEnabled = data.photoGrayscaleEnabled !== false;
   labelInverted = !!data.labelInverted || data.photoMergeMode === "black" || data.photoMergeMode === "white" || data.photoMergeMode === "noditherwhite";
   textOutlineMode = textOutlineModes.includes(data.textOutlineMode) ? data.textOutlineMode : "none";
+  textEffectMode = normalizeTextEffectMode(data.textEffectMode);
   photoOffsetX = Number.isFinite(data.photoOffsetX) ? data.photoOffsetX : 0;
   photoOffsetY = Number.isFinite(data.photoOffsetY) ? data.photoOffsetY : 0;
   droppedPhotoImage = null;
@@ -3158,20 +3352,33 @@ function applyEditorSnapshot(data = {}) {
   applyEditorFont();
   rebuildLabelGraphic();
 
-  if (data.photoDataUrl) {
-    loadImage(
-      data.photoDataUrl,
-      (imageValue) => {
-        droppedPhotoImage = imageValue;
-        droppedPhotoName = data.photoName || "Print history photo";
-        storedPhotoDataUrl = data.photoDataUrl;
-        photoRevision += 1;
-        markLabelDirty();
-      },
-      (error) => {
-        console.error("[labelmaker2] history photo failed", error);
+  if (options.preloadedPhoto?.image) {
+    applyLoadedPhotoImage(
+      options.preloadedPhoto.image,
+      options.preloadedPhoto.name || data.photoName || "Print history photo",
+      {
+        saveAfterLoad: !!options.saveAfterLoad,
       }
     );
+  } else if (data.photoDataUrl) {
+    restorePhotoDataUrl(data.photoDataUrl, data.photoName || "Print history photo", "history photo", { saveAfterLoad: true });
+  } else if (data.photoDataRef) {
+    pendingPhotoRestore = true;
+    loadEditorPhotoDataUrl(data.photoDataRef)
+      .then((dataUrl) => {
+        if (snapshotToken !== photoLoadToken) return;
+        if (dataUrl) {
+          restorePhotoDataUrl(dataUrl, data.photoName || "Print history photo", "history photo", { saveAfterLoad: true });
+        } else {
+          pendingPhotoRestore = false;
+        }
+      })
+      .catch((error) => {
+        if (snapshotToken === photoLoadToken) pendingPhotoRestore = false;
+        console.warn(`[labelmaker2] history photo sidecar failed: ${formatErrorMessage(error)}`);
+      });
+  } else {
+    pendingPhotoRestore = false;
   }
 }
 
@@ -3189,6 +3396,15 @@ function recordPrintHistory() {
     printedAt: new Date().toISOString(),
     state,
   };
+  if (entry.state.photoDataUrl) {
+    const photoRef = `history:${entry.id}`;
+    storeEditorPhotoDataUrl(entry.state.photoDataUrl, photoRef);
+    entry.state = {
+      ...entry.state,
+      photoDataUrl: "",
+      photoDataRef: photoRef,
+    };
+  }
   printHistory.push(entry);
   printHistoryIndex = printHistory.length - 1;
   savePrintHistory();
@@ -3213,8 +3429,35 @@ function restorePrintHistoryIndex(index) {
   const nextIndex = constrain(index, 0, printHistory.length - 1);
   const entry = printHistory[nextIndex];
   if (!entry?.state) return;
+  const state = entry.state;
+  if (state.photoDataUrl || state.photoDataRef) {
+    const restoreToken = ++historyRestoreToken;
+    detailText = `Loading print ${nextIndex + 1}/${printHistory.length}...`;
+    loadHistoryPhotoDataUrl(state)
+      .then((dataUrl) => loadPhotoImageFromDataUrl(dataUrl, "history photo"))
+      .then((imageValue) => {
+        if (restoreToken !== historyRestoreToken) return;
+        applyEditorSnapshot(state, {
+          preloadedPhoto: {
+            image: imageValue,
+            name: state.photoName || "Print history photo",
+          },
+          saveAfterLoad: true,
+        });
+        printHistoryIndex = nextIndex;
+        syncPrintHistorySlider();
+        detailText = `Loaded print ${nextIndex + 1}/${printHistory.length}.`;
+      })
+      .catch((error) => {
+        if (restoreToken !== historyRestoreToken) return;
+        detailText = `Could not load print ${nextIndex + 1}/${printHistory.length}.`;
+        console.warn(`[labelmaker2] history photo load failed: ${formatErrorMessage(error)}`);
+      });
+    return;
+  }
   printHistoryIndex = nextIndex;
-  applyEditorSnapshot(entry.state);
+  historyRestoreToken += 1;
+  applyEditorSnapshot(state);
   saveEditorState();
   syncPrintHistorySlider();
   detailText = `Loaded print ${nextIndex + 1}/${printHistory.length}.`;
@@ -3229,6 +3472,11 @@ function confirmAndClearPrintHistory() {
   if (!printHistory.length) return;
   const ok = window.confirm(`Clear ${printHistory.length} saved print${printHistory.length === 1 ? "" : "s"}?`);
   if (!ok) return;
+  for (const entry of printHistory) {
+    if (entry?.state?.photoDataRef && entry.state.photoDataRef !== editorPhotoStorageId) {
+      deleteEditorPhotoDataUrl(entry.state.photoDataRef);
+    }
+  }
   printHistory = [];
   printHistoryIndex = -1;
   syncPrintHistorySlider();
@@ -3248,6 +3496,12 @@ function savePrintHistory() {
 function prunePrintHistoryUntilWritable() {
   while (printHistory.length > 1) {
     const removeCount = Math.max(1, Math.ceil(printHistory.length * 0.1));
+    const removed = printHistory.slice(0, removeCount);
+    for (const entry of removed) {
+      if (entry?.state?.photoDataRef && entry.state.photoDataRef !== editorPhotoStorageId) {
+        deleteEditorPhotoDataUrl(entry.state.photoDataRef);
+      }
+    }
     printHistory = printHistory.slice(removeCount);
     printHistoryIndex = printHistory.length ? printHistory.length - 1 : -1;
     syncPrintHistorySlider();
@@ -3266,6 +3520,12 @@ function prunePrintHistoryIfStoragePressure() {
     const quota = Number(estimate?.quota || 0);
     if (!quota || usage / quota < printHistoryStoragePressureLimit) return;
     const removeCount = Math.max(1, Math.ceil(printHistory.length * 0.1));
+    const removed = printHistory.slice(0, removeCount);
+    for (const entry of removed) {
+      if (entry?.state?.photoDataRef && entry.state.photoDataRef !== editorPhotoStorageId) {
+        deleteEditorPhotoDataUrl(entry.state.photoDataRef);
+      }
+    }
     printHistory = printHistory.slice(removeCount);
     printHistoryIndex = printHistory.length ? Math.min(printHistoryIndex, printHistory.length - 1) : -1;
     syncPrintHistorySlider();
@@ -3301,32 +3561,139 @@ function cloneJson(value, fallback) {
   }
 }
 
-function saveEditorState() {
+function formatErrorMessage(error) {
+  return error?.message || String(error || "");
+}
+
+function openEditorPhotoDb() {
+  return new Promise((resolve, reject) => {
+    if (!window.indexedDB) {
+      reject(new Error("IndexedDB is unavailable"));
+      return;
+    }
+    const request = indexedDB.open(editorPhotoDbName, 1);
+    request.onupgradeneeded = () => {
+      if (!request.result.objectStoreNames.contains(editorPhotoStoreName)) {
+        request.result.createObjectStore(editorPhotoStoreName);
+      }
+    };
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error || new Error("Could not open photo store"));
+  });
+}
+
+async function withEditorPhotoStore(mode, callback) {
+  const db = await openEditorPhotoDb();
   try {
-    localStorage.setItem(storageKey, JSON.stringify({
-      text: labelText,
-      cursorIndex,
-      lineFontSizes,
-      textStyleRanges,
-      pendingTextStyle,
-      labelFormat,
-      orientation,
-      editorFontMode,
-      autoSizingEnabled,
-      labelPaddingMode,
-      labelQrText,
-      photoMergeMode,
-      photoGrayscaleEnabled,
-      labelInverted,
-      textOutlineMode,
-      photoOffsetX,
-      photoOffsetY,
-      photoEnabled: !!photoEnabled,
-      photoDataUrl: hasStoredPhoto() ? getStoredPhotoDataUrl() : "",
-      photoName: droppedPhotoName,
-    }));
+    return await new Promise((resolve, reject) => {
+      const transaction = db.transaction(editorPhotoStoreName, mode);
+      const store = transaction.objectStore(editorPhotoStoreName);
+      const request = callback(store);
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error || transaction.error || new Error("Photo store request failed"));
+    });
+  } finally {
+    db.close();
+  }
+}
+
+function storeEditorPhotoDataUrl(dataUrl, id = editorPhotoStorageId) {
+  if (!dataUrl) return deleteEditorPhotoDataUrl(id);
+  return withEditorPhotoStore("readwrite", (store) => store.put(dataUrl, id))
+    .catch((error) => console.warn(`[labelmaker2] photo sidecar save failed: ${formatErrorMessage(error)}`));
+}
+
+function loadEditorPhotoDataUrl(id = editorPhotoStorageId) {
+  return withEditorPhotoStore("readonly", (store) => store.get(id));
+}
+
+function deleteEditorPhotoDataUrl(id = editorPhotoStorageId) {
+  return withEditorPhotoStore("readwrite", (store) => store.delete(id))
+    .catch(() => {});
+}
+
+async function loadHistoryPhotoDataUrl(state = {}) {
+  if (state.photoDataUrl) return state.photoDataUrl;
+  if (!state.photoDataRef) throw new Error("History entry has no photo reference");
+  const dataUrl = await loadEditorPhotoDataUrl(state.photoDataRef);
+  if (!dataUrl) throw new Error("History photo sidecar is missing");
+  return dataUrl;
+}
+
+function loadPhotoImageFromDataUrl(dataUrl, errorLabel = "photo") {
+  return new Promise((resolve, reject) => {
+    if (!dataUrl) {
+      reject(new Error(`Missing ${errorLabel} data`));
+      return;
+    }
+    loadImage(
+      dataUrl,
+      (imageValue) => resolve(imageValue),
+      (error) => reject(error || new Error(`Could not load ${errorLabel}`))
+    );
+  });
+}
+
+function saveEditorState() {
+  const photoDataUrl = hasStoredPhoto() ? getStoredPhotoDataUrl() : "";
+  const state = {
+    text: labelText,
+    cursorIndex,
+    lineFontSizes,
+    textStyleRanges,
+    pendingTextStyle,
+    labelFormat,
+    orientation,
+    editorFontMode,
+    autoSizingEnabled,
+    labelPaddingMode,
+    labelQrText,
+    photoMergeMode,
+    photoGrayscaleEnabled,
+    labelInverted,
+    textOutlineMode,
+    textEffectMode,
+    photoOffsetX,
+    photoOffsetY,
+    photoEnabled: !!photoEnabled,
+    photoDataUrl,
+    photoDataRef: photoDataUrl ? editorPhotoStorageId : "",
+    photoName: droppedPhotoName,
+  };
+  if (photoDataUrl) {
+    storeEditorPhotoDataUrl(photoDataUrl);
+  } else if (!pendingPhotoRestore) {
+    deleteEditorPhotoDataUrl();
+  }
+
+  const localState = {
+    ...state,
+    photoDataUrl: photoDataUrl && photoDataUrl.length <= 350000 ? photoDataUrl : "",
+  };
+
+  try {
+    localStorage.setItem(storageKey, JSON.stringify(localState));
+    editorStatePhotoStorageDropped = false;
   } catch (error) {
-    console.warn("[labelmaker2] editor state save failed", error);
+    if (photoDataUrl) {
+      const compactState = {
+        ...state,
+        photoDataUrl: "",
+        photoDataRef: editorPhotoStorageId,
+      };
+      try {
+        localStorage.setItem(storageKey, JSON.stringify(compactState));
+        if (!editorStatePhotoStorageDropped) {
+          console.warn("[labelmaker2] editor state photo saved in IndexedDB sidecar");
+        }
+        editorStatePhotoStorageDropped = true;
+        return;
+      } catch (retryError) {
+        console.warn(`[labelmaker2] compact editor state save failed: ${formatErrorMessage(retryError)}`);
+        return;
+      }
+    }
+    console.warn(`[labelmaker2] editor state save failed: ${formatErrorMessage(error)}`);
   }
 }
 
@@ -3353,6 +3720,7 @@ function loadEditorState() {
     photoGrayscaleEnabled = data.photoGrayscaleEnabled !== false;
     labelInverted = !!data.labelInverted || data.photoMergeMode === "black" || data.photoMergeMode === "white" || data.photoMergeMode === "noditherwhite";
     textOutlineMode = textOutlineModes.includes(data.textOutlineMode) ? data.textOutlineMode : "none";
+    textEffectMode = normalizeTextEffectMode(data.textEffectMode);
     photoOffsetX = Number.isFinite(data.photoOffsetX) ? data.photoOffsetX : 0;
     photoOffsetY = Number.isFinite(data.photoOffsetY) ? data.photoOffsetY : 0;
     photoEnabled = false;
@@ -3360,27 +3728,66 @@ function loadEditorState() {
     droppedPhotoImage = null;
     droppedPhotoName = "";
     storedPhotoDataUrl = "";
-    restoreLiveCameraOnSetup = data.photoEnabled === true && !data.photoDataUrl;
+    restoreLiveCameraOnSetup = data.photoEnabled === true && !data.photoDataUrl && !data.photoDataRef;
     if (data.photoDataUrl) {
-      loadImage(
-        data.photoDataUrl,
-        (imageValue) => {
-          droppedPhotoImage = imageValue;
-          droppedPhotoName = data.photoName || "Stored photo";
-          storedPhotoDataUrl = data.photoDataUrl;
-          photoRevision += 1;
-          markLabelDirty();
-        },
-        (error) => {
-          console.error("[labelmaker2] stored photo failed", error);
-        }
-      );
+      restorePhotoDataUrl(data.photoDataUrl, data.photoName || "Stored photo", "stored photo");
+    } else if (data.photoDataRef) {
+      photoLoadToken += 1;
+      const restoreToken = photoLoadToken;
+      pendingPhotoRestore = true;
+      loadEditorPhotoDataUrl(data.photoDataRef)
+        .then((dataUrl) => {
+          if (restoreToken !== photoLoadToken) return;
+          if (dataUrl) {
+            restorePhotoDataUrl(dataUrl, data.photoName || "Stored photo", "stored photo");
+          } else {
+            pendingPhotoRestore = false;
+          }
+        })
+        .catch((error) => {
+          if (restoreToken === photoLoadToken) pendingPhotoRestore = false;
+          console.warn(`[labelmaker2] stored photo sidecar failed: ${formatErrorMessage(error)}`);
+        });
+    } else {
+      pendingPhotoRestore = false;
     }
   } catch {}
 }
 
+function restorePhotoDataUrl(dataUrl, photoName = "Stored photo", errorLabel = "stored photo", options = {}) {
+  const loadToken = ++photoLoadToken;
+  pendingPhotoRestore = true;
+  loadImage(
+    dataUrl,
+    (imageValue) => {
+      if (loadToken !== photoLoadToken) {
+        return;
+      }
+      applyLoadedPhotoImage(imageValue, photoName, options);
+    },
+    (error) => {
+      if (loadToken === photoLoadToken) pendingPhotoRestore = false;
+      console.error(`[labelmaker2] ${errorLabel} failed`, error);
+    }
+  );
+}
+
+function applyLoadedPhotoImage(imageValue, photoName = "Stored photo", options = {}) {
+  pendingPhotoRestore = false;
+  droppedPhotoImage = resizePhotoImageToLabelLimit(imageValue);
+  droppedPhotoName = photoName;
+  storedPhotoDataUrl = capturePhotoSourceDataUrl(droppedPhotoImage);
+  photoRevision += 1;
+  markLabelDirty();
+  if (options.saveAfterLoad) {
+    saveEditorState();
+  }
+}
+
 function clearEditor() {
   recordPrintHistory();
+  photoLoadToken += 1;
+  pendingPhotoRestore = false;
   labelText = "";
   cursorIndex = labelText.length;
   lineFontSizes = {};
@@ -3402,12 +3809,14 @@ function clearEditor() {
   droppedPhotoImage = null;
   droppedPhotoName = "";
   storedPhotoDataUrl = "";
+  deleteEditorPhotoDataUrl();
   photoOffsetX = 0;
   photoOffsetY = 0;
   photoRevision += 1;
   autoSizingEnabled = true;
   photoGrayscaleEnabled = true;
   textOutlineMode = "none";
+  textEffectMode = "none";
   markLabelDirty();
   detailText = "Cleared label.";
   saveEditorState();
@@ -3495,14 +3904,20 @@ function loadPhotoDataUrl(dataUrl, photoName = "Photo") {
     return;
   }
 
+  const loadToken = ++photoLoadToken;
+  pendingPhotoRestore = true;
   loadImage(
     dataUrl,
     (imageValue) => {
+      if (loadToken !== photoLoadToken) {
+        return;
+      }
+      pendingPhotoRestore = false;
       stopPhotoCamera();
       photoEnabled = false;
-      droppedPhotoImage = imageValue;
+      droppedPhotoImage = resizePhotoImageToLabelLimit(imageValue);
       droppedPhotoName = photoName;
-      storedPhotoDataUrl = dataUrl;
+      storedPhotoDataUrl = capturePhotoSourceDataUrl(droppedPhotoImage);
       photoOffsetX = 0;
       photoOffsetY = 0;
       photoRevision += 1;
@@ -3511,6 +3926,7 @@ function loadPhotoDataUrl(dataUrl, photoName = "Photo") {
       saveEditorState();
     },
     (error) => {
+      if (loadToken === photoLoadToken) pendingPhotoRestore = false;
       console.error("[labelmaker2] dropped photo failed", error);
       detailText = "Could not load photo.";
     }
@@ -3603,6 +4019,7 @@ function toggleTextOutlineMode() {
   const currentIndex = Math.max(0, textOutlineModes.indexOf(textOutlineMode));
   textOutlineMode = textOutlineModes[(currentIndex + 1) % textOutlineModes.length];
   detailText = `Text: ${getTextOutlineModeLabel()}.`;
+  markLabelDirty();
   saveEditorState();
 }
 
@@ -3616,6 +4033,36 @@ function getTextOutlineModeLabel() {
   if (textOutlineMode === "outline") return "outline";
   if (textOutlineMode === "opposite") return "opposite outline";
   return "filled";
+}
+
+function toggleTextEffectMode() {
+  const currentIndex = Math.max(0, textEffectModes.indexOf(textEffectMode));
+  textEffectMode = textEffectModes[(currentIndex + 1) % textEffectModes.length];
+  detailText = `Text FX: ${getTextEffectModeLabel()}.`;
+  markLabelDirty();
+  saveEditorState();
+}
+
+function normalizeTextEffectMode(mode) {
+  return textEffectModes.includes(mode) ? mode : "none";
+}
+
+function getTextEffectModeIcon() {
+  if (textEffectMode === "chromatic") return "hdr_strong";
+  if (textEffectMode === "noise") return "graphic_eq";
+  if (textEffectMode === "noisethreshold") return "gradient";
+  if (textEffectMode === "blur") return "blur_on";
+  if (textEffectMode === "chromaticblur") return "vibration";
+  return "auto_awesome";
+}
+
+function getTextEffectModeLabel() {
+  if (textEffectMode === "chromatic") return "chromatic";
+  if (textEffectMode === "noise") return "noise";
+  if (textEffectMode === "noisethreshold") return "noise + threshold";
+  if (textEffectMode === "blur") return "blur";
+  if (textEffectMode === "chromaticblur") return "chromatic blur";
+  return "none";
 }
 
 function getBlendModeIcon() {
@@ -3660,10 +4107,21 @@ function rebuildLabelGraphic() {
   const heightCm = orientation === "landscape" ? format.widthCm : format.heightCm;
   const labelPixelWidth = Math.round(widthCm * 10 * dotsPerMm);
   const labelPixelHeight = Math.round(heightCm * 10 * dotsPerMm);
+  disposeGraphic(labelGraphic);
+  disposeGraphic(labelTextGraphic);
+  disposeGraphic(labelPhotoGraphic);
   labelGraphic = createGraphics(labelPixelWidth, labelPixelHeight);
   labelGraphic.pixelDensity(1);
   labelTextGraphic = null;
   labelPhotoGraphic = null;
+  chromaticAberrationShader = null;
+  noiseShader = null;
+  noiseThresholdShader = null;
+  textChromaticAberrationShader = null;
+  textNoiseShader = null;
+  textNoiseThresholdShader = null;
+  photoFilterShaderTarget = null;
+  textFilterShaderTarget = null;
   cachedLabelLayout = null;
   cachedTextOrigin = null;
   applyEditorFont(labelGraphic);
