@@ -224,7 +224,7 @@ async function setup() {
       chunkSize: 512,
       chunkDelayMs: 12,
       progressCooldownMs: 0,
-      connectTimeoutMs: 12000,
+      connectTimeoutMs: 30000,
       dataChannelTimeoutMs: 60000,
       candidateRetryCount: 2,
       connectedSettleMs: 1000,

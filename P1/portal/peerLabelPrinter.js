@@ -16,7 +16,7 @@ class PeerLabelPrinter {
     chunkSize = 180,
     chunkDelayMs = 1,
     progressCooldownMs = 0,
-    connectTimeoutMs = 12000,
+    connectTimeoutMs = 30000,
     dataChannelTimeoutMs = 60000,
     candidateRetryCount = 0,
     scanPauseMs = 250,
@@ -42,7 +42,7 @@ class PeerLabelPrinter {
     this.chunkSize = Math.max(64, Math.min(1024, Number(chunkSize) || 180));
     this.chunkDelayMs = Math.max(0, Number.isFinite(Number(chunkDelayMs)) ? Number(chunkDelayMs) : 1);
     this.progressCooldownMs = Math.max(0, Number.isFinite(Number(progressCooldownMs)) ? Number(progressCooldownMs) : 0);
-    this.connectTimeoutMs = Math.max(2000, Number(connectTimeoutMs) || 12000);
+    this.connectTimeoutMs = Math.max(2000, Number(connectTimeoutMs) || 30000);
     this.dataChannelTimeoutMs = Math.max(this.connectTimeoutMs, Number(dataChannelTimeoutMs) || 60000);
     this.candidateRetryCount = Math.max(0, Math.min(3, Number(candidateRetryCount) || 0));
     this.scanPauseMs = Math.max(0, Number(scanPauseMs) || 250);
