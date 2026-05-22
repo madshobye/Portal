@@ -8,6 +8,75 @@ let portalFontGuardInstalled = false;
 let portalUserSetTextFont = false;
 let portalResizeListenersInstalled = false;
 let portalResizeSettleTimers = [];
+let portalConsoleFilterInstalled = false;
+
+function installPortalConsoleFilter() {
+  if (portalConsoleFilterInstalled || !window.console) return;
+  portalConsoleFilterInstalled = true;
+  const originalConsoleError = console.error?.bind(console);
+
+  const noisyStackPatterns = [
+    /^\s*at .*requestAnimationFrame/i,
+    /^\s*requestAnimationFrame\s*$/i,
+    /^\s*at .*_draw .*p5\.js/i,
+    /^\s*_draw @ .*p5\.js/i,
+    /^\s*at window\.draw .*portal\.js/i,
+    /^\s*window\.draw @ .*portal\.js/i,
+  ];
+
+  const hasNoisyStack = (stack) => (
+    typeof stack === "string" &&
+    noisyStackPatterns.some((pattern) => stack.split("\n").some((line) => pattern.test(line)))
+  );
+
+  const isFromDrawLoop = () => hasNoisyStack(new Error().stack || "");
+
+  const filterStack = (stack) => {
+    if (typeof stack !== "string" || !stack) return stack;
+    const lines = stack.split("\n");
+    const filtered = lines.filter((line) => !noisyStackPatterns.some((pattern) => pattern.test(line)));
+    return filtered.length > 0 ? filtered.join("\n") : lines[0];
+  };
+
+  const formatError = (error) => {
+    if (!(error instanceof Error)) return error;
+    const stack = filterStack(error.stack || "");
+    return stack || `${error.name || "Error"}: ${error.message || ""}`;
+  };
+
+  const wrapConsoleMethod = (name) => {
+    const original = console[name]?.bind(console);
+    if (typeof original !== "function" || original.__portalConsoleFilterWrapped) return;
+    const wrapped = function(...args) {
+      const formattedArgs = args.map(formatError);
+      if (isFromDrawLoop()) {
+        setTimeout(() => original(...formattedArgs), 0);
+        return;
+      }
+      return original(...formattedArgs);
+    };
+    wrapped.__portalConsoleFilterWrapped = true;
+    console[name] = wrapped;
+  };
+
+  wrapConsoleMethod("error");
+  wrapConsoleMethod("warn");
+
+  window.addEventListener("error", (event) => {
+    const stack = event.error?.stack || event.message || "";
+    if (!hasNoisyStack(stack)) return;
+    event.preventDefault();
+    setTimeout(() => originalConsoleError?.("[Portal uncaught]", filterStack(stack)), 0);
+  }, true);
+
+  window.addEventListener("unhandledrejection", (event) => {
+    const reason = event.reason;
+    const stack = reason instanceof Error ? reason.stack || reason.message || "" : String(reason || "");
+    if (!hasNoisyStack(stack)) return;
+    event.preventDefault();
+    setTimeout(() => originalConsoleError?.("[Portal unhandled rejection]", filterStack(stack)), 0);
+  });
+}
 
 function portalOverlayEnabled() {
   // Support both:
@@ -326,8 +395,9 @@ function installLegacyUiAutopatchGuard() {
 }
 
 async function pSetup() {
-	if(pSetupRun)
-	{
+    installPortalConsoleFilter();
+		if(pSetupRun)
+		{
 		console.log("pSetup called twice");
 		return;
 	}

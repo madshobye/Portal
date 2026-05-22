@@ -327,11 +327,17 @@ void peerSendDataChannelText(const char *message) {
     return;
   }
 
-  PeerDataChannelMessage queued = {};
-  strlcpy(queued.text, message, sizeof(queued.text));
-  queued.sid = dataChannelSid;
-  queued.hasSid = dataChannelSidKnown;
+  PeerDataChannelMessage *queued = static_cast<PeerDataChannelMessage *>(ps_malloc(sizeof(PeerDataChannelMessage)));
+  if (queued == NULL) {
+    Serial.println("PeerJS datachannel send alloc failed");
+    return;
+  }
+  memset(queued, 0, sizeof(PeerDataChannelMessage));
+  strlcpy(queued->text, message, sizeof(queued->text));
+  queued->sid = dataChannelSid;
+  queued->hasSid = dataChannelSidKnown;
   if (xQueueSend(peerDataChannelSendQueue, &queued, 0) != pdTRUE) {
+    free(queued);
     Serial.println("PeerJS datachannel send queue full");
   }
 }
@@ -341,27 +347,33 @@ static void peerFlushDataChannelSendQueue() {
     return;
   }
 
-  PeerDataChannelMessage queued = {};
+  PeerDataChannelMessage *queued = NULL;
   while (xQueueReceive(peerDataChannelSendQueue, &queued, 0) == pdTRUE) {
+    if (queued == NULL) {
+      continue;
+    }
     if (!dataChannelOpen || peerConnection == NULL) {
+      free(queued);
       break;
     }
     const bool quietMessage =
-      strcmp(queued.text, "{\"cmd\":\"peer:pong\"}") == 0 ||
-      strstr(queued.text, "\"state\":\"progress\"") != NULL;
+      strcmp(queued->text, "{\"cmd\":\"peer:pong\"}") == 0 ||
+      strstr(queued->text, "\"state\":\"progress\"") != NULL;
     if (!quietMessage) {
       Serial.print("PeerJS datachannel send: ");
-      Serial.println(queued.text);
+      Serial.println(queued->text);
     }
     int result = -1;
-    if (queued.hasSid) {
-      result = peer_connection_datachannel_send_sid(peerConnection, queued.text, strlen(queued.text), queued.sid);
+    if (queued->hasSid) {
+      result = peer_connection_datachannel_send_sid(peerConnection, queued->text, strlen(queued->text), queued->sid);
     } else {
-      result = peer_connection_datachannel_send(peerConnection, queued.text, strlen(queued.text));
+      result = peer_connection_datachannel_send(peerConnection, queued->text, strlen(queued->text));
     }
     if (!quietMessage || result <= 0) {
-      Serial.printf("PeerJS datachannel send result: %d sid=%u known=%s\r\n", result, queued.sid, queued.hasSid ? "yes" : "no");
+      Serial.printf("PeerJS datachannel send result: %d sid=%u known=%s\r\n", result, queued->sid, queued->hasSid ? "yes" : "no");
     }
+    free(queued);
+    queued = NULL;
   }
 }
 
@@ -431,7 +443,6 @@ static void onDataChannelOpen(void *userData) {
   dataChannelSid = 0;
   digitalWrite(LED_BUILTIN, HIGH);
   printBridgeHandleDataChannelOpen();
-  peerSendDataChannelText("esp32 connected");
 }
 
 static void onDataChannelClose(void *userData) {
@@ -749,7 +760,7 @@ void peerBegin() {
     return;
   }
 
-  peerDataChannelSendQueue = xQueueCreate(16, sizeof(PeerDataChannelMessage));
+  peerDataChannelSendQueue = xQueueCreate(16, sizeof(PeerDataChannelMessage *));
   if (peerDataChannelSendQueue == NULL) {
     Serial.println("Failed to create peer datachannel send queue");
     return;
@@ -764,7 +775,7 @@ void peerBegin() {
     NULL,
     5,
     &peerConnectionTaskHandle,
-    1
+    0
   );
 
   xTaskCreatePinnedToCore(
@@ -774,7 +785,7 @@ void peerBegin() {
     NULL,
     6,
     &peerJsTaskHandle,
-    1
+    0
   );
 
   Serial.println("============= PeerJS Configuration =============");

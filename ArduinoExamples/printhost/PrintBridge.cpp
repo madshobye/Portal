@@ -17,7 +17,43 @@ static size_t nextProgressAckBytes = 0;
 static bool usbHostRequested = false;
 static char printTail[121] = {};
 static size_t printTailLen = 0;
-static constexpr size_t PRINT_PROGRESS_STEP_BYTES = 2048;
+static constexpr size_t PRINT_USB_WRITE_CHUNK_BYTES = 4096;
+static constexpr size_t PRINT_BUFFER_COUNT = 2;
+static constexpr size_t PRINT_BUFFER_BYTES = 64 * 1024;
+static constexpr size_t PRINT_PROGRESS_STEP_BYTES = 8 * 1024;
+static constexpr uint32_t PRINT_BRIDGE_TASK_STACK = 4096;
+
+struct PrintBuffer {
+  uint8_t *data = NULL;
+  size_t len = 0;
+  bool last = false;
+  bool complete = false;
+  char id[40] = {};
+  size_t bytes = 0;
+  size_t chunks = 0;
+};
+
+static TaskHandle_t printTaskHandle = NULL;
+static TaskHandle_t usbReadyNotifyTaskHandle = NULL;
+static QueueHandle_t freePrintBuffers = NULL;
+static QueueHandle_t fullPrintBuffers = NULL;
+static PrintBuffer printBuffers[PRINT_BUFFER_COUNT];
+static int activeBufferIndex = -1;
+static volatile bool printTaskBusy = false;
+
+static void printBridgeTask(void *arg);
+static void printBridgeUsbReadyNotifyTask(void *arg);
+
+static void printBridgeLogHeap(const char *label) {
+  Serial.printf(
+    "PrintBridge heap %-16s free=%u min=%u maxAlloc=%u psram=%u\r\n",
+    label,
+    unsigned(ESP.getFreeHeap()),
+    unsigned(ESP.getMinFreeHeap()),
+    unsigned(ESP.getMaxAllocHeap()),
+    unsigned(ESP.getFreePsram())
+  );
+}
 
 static void resetProgressLog() {
   nextProgressBytes = PRINT_PROGRESS_STEP_BYTES;
@@ -61,9 +97,6 @@ static void logPrintProgress() {
 }
 
 static bool shouldAckProgress() {
-  if (expectedBytes > 0 && receivedBytes >= expectedBytes) {
-    return true;
-  }
   if (receivedBytes >= nextProgressAckBytes) {
     while (receivedBytes >= nextProgressAckBytes) {
       nextProgressAckBytes += PRINT_PROGRESS_STEP_BYTES;
@@ -71,6 +104,93 @@ static bool shouldAckProgress() {
     return true;
   }
   return false;
+}
+
+static void resetPrintBufferQueues() {
+  if (freePrintBuffers == NULL || fullPrintBuffers == NULL) return;
+  xQueueReset(freePrintBuffers);
+  xQueueReset(fullPrintBuffers);
+  for (uint8_t i = 0; i < PRINT_BUFFER_COUNT; i++) {
+    printBuffers[i].len = 0;
+    printBuffers[i].last = false;
+    printBuffers[i].complete = false;
+    printBuffers[i].id[0] = '\0';
+    printBuffers[i].bytes = 0;
+    printBuffers[i].chunks = 0;
+    xQueueSend(freePrintBuffers, &i, 0);
+  }
+  activeBufferIndex = -1;
+}
+
+static bool allocatePrintBuffers() {
+  for (size_t i = 0; i < PRINT_BUFFER_COUNT; i++) {
+    if (printBuffers[i].data != NULL) continue;
+    printBuffers[i].data = (uint8_t *)ps_malloc(PRINT_BUFFER_BYTES);
+    if (printBuffers[i].data == NULL) {
+      Serial.printf("PrintBridge failed to allocate PSRAM buffer %u bytes=%u\r\n", unsigned(i), unsigned(PRINT_BUFFER_BYTES));
+      return false;
+    }
+  }
+  return true;
+}
+
+static bool ensurePrintTaskStarted() {
+  if (printTaskHandle != NULL) return true;
+  const BaseType_t result = xTaskCreatePinnedToCore(
+    printBridgeTask,
+    "print_bridge",
+    PRINT_BRIDGE_TASK_STACK,
+    NULL,
+    4,
+    &printTaskHandle,
+    1
+  );
+  if (result != pdPASS) {
+    Serial.println("PrintBridge failed to start print task");
+    printTaskHandle = NULL;
+    return false;
+  }
+  return true;
+}
+
+static bool takePrintBuffer() {
+  if (activeBufferIndex >= 0) return true;
+  if (freePrintBuffers == NULL) return false;
+
+  uint8_t index = 0;
+  if (xQueueReceive(freePrintBuffers, &index, 0) != pdTRUE) {
+    return false;
+  }
+  activeBufferIndex = index;
+  if (printBuffers[index].data == NULL) {
+    activeBufferIndex = -1;
+    return false;
+  }
+  printBuffers[index].len = 0;
+  printBuffers[index].last = false;
+  printBuffers[index].complete = false;
+  printBuffers[index].id[0] = '\0';
+  printBuffers[index].bytes = 0;
+  printBuffers[index].chunks = 0;
+  return true;
+}
+
+static bool queueActivePrintBuffer(bool last, bool complete) {
+  if (activeBufferIndex < 0 || fullPrintBuffers == NULL) return false;
+
+  PrintBuffer &buffer = printBuffers[activeBufferIndex];
+  buffer.last = last;
+  buffer.complete = complete;
+  strlcpy(buffer.id, activePrintId.c_str(), sizeof(buffer.id));
+  buffer.bytes = receivedBytes;
+  buffer.chunks = receivedChunks;
+
+  const uint8_t index = uint8_t(activeBufferIndex);
+  activeBufferIndex = -1;
+  if (xQueueSend(fullPrintBuffers, &index, pdMS_TO_TICKS(5)) != pdTRUE) {
+    return false;
+  }
+  return true;
 }
 
 static int base64Value(char ch) {
@@ -161,13 +281,15 @@ static size_t extractJsonSize(const String &json, const char *key) {
   return value;
 }
 
-static void sendPrintStatus(const char *state, const String &id, size_t bytes = 0, size_t chunks = 0) {
+static void sendPrintStatus(const char *state, const String &id, size_t bytes = 0, size_t chunks = 0, const char *reason = NULL) {
   Serial.printf(
-    "PrintBridge ack state=%s id=%s bytes=%u chunks=%u\r\n",
+    "PrintBridge ack state=%s id=%s bytes=%u chunks=%u%s%s\r\n",
     state,
     id.c_str(),
     unsigned(bytes),
-    unsigned(chunks)
+    unsigned(chunks),
+    reason != NULL ? " reason=" : "",
+    reason != NULL ? reason : ""
   );
 
   String message = "{\"type\":\"print\",\"state\":\"";
@@ -178,6 +300,11 @@ static void sendPrintStatus(const char *state, const String &id, size_t bytes = 
   message += String(bytes);
   message += ",\"chunks\":";
   message += String(chunks);
+  if (reason != NULL) {
+    message += ",\"reason\":\"";
+    message += reason;
+    message += "\"";
+  }
   message += "}";
   peerSendDataChannelText(message.c_str());
 }
@@ -218,22 +345,127 @@ static bool printerSinkWrite(const uint8_t *data, size_t len) {
   return usbPrinterHostWrite(data, len);
 }
 
+static bool writePrintBufferToUsb(const PrintBuffer &buffer) {
+  for (size_t offset = 0; offset < buffer.len; offset += PRINT_USB_WRITE_CHUNK_BYTES) {
+    const size_t len = min(PRINT_USB_WRITE_CHUNK_BYTES, buffer.len - offset);
+    if (!printerSinkWrite(buffer.data + offset, len)) {
+      Serial.printf("PrintBridge USB write failed offset=%u len=%u\r\n", unsigned(offset), unsigned(len));
+      return false;
+    }
+    if (!usbPrinterHostWaitForPendingBytes(2048, 15000)) {
+      Serial.printf("PrintBridge USB drain timeout offset=%u\r\n", unsigned(offset));
+      return false;
+    }
+  }
+  return true;
+}
+
+static void printBridgeTask(void *arg) {
+  Serial.println("printBridgeTask started on core 1");
+
+  for (;;) {
+    uint8_t index = 0;
+    if (fullPrintBuffers == NULL || xQueueReceive(fullPrintBuffers, &index, portMAX_DELAY) != pdTRUE) {
+      continue;
+    }
+    if (index >= PRINT_BUFFER_COUNT) {
+      continue;
+    }
+
+    printTaskBusy = true;
+    PrintBuffer &buffer = printBuffers[index];
+    bool ok = true;
+    if (buffer.len > 0) {
+      ok = writePrintBufferToUsb(buffer);
+    }
+    if (ok && buffer.last) {
+      ok = usbPrinterHostEndJob();
+    }
+
+    if (!ok) {
+      printTaskBusy = false;
+    }
+    if (buffer.last) {
+      if (ok && buffer.complete) {
+        sendPrintStatus("done", String(buffer.id), buffer.bytes, buffer.chunks);
+      } else {
+        sendPrintStatus("error", String(buffer.id), buffer.bytes, buffer.chunks);
+      }
+      printTaskBusy = false;
+    }
+
+    buffer.len = 0;
+    buffer.last = false;
+    buffer.complete = false;
+    buffer.id[0] = '\0';
+    buffer.bytes = 0;
+    buffer.chunks = 0;
+    if (freePrintBuffers != NULL) {
+      xQueueSend(freePrintBuffers, &index, portMAX_DELAY);
+    }
+  }
+}
+
+static void printBridgeUsbReadyNotifyTask(void *arg) {
+  (void)arg;
+  if (waitForUsbPrinterReady(20000)) {
+    peerSendDataChannelText("esp32 connected");
+  } else {
+    Serial.println("PrintBridge USB printer not ready after datachannel open");
+  }
+  usbReadyNotifyTaskHandle = NULL;
+  vTaskDelete(NULL);
+}
+
 static void handlePrintStart(const String &json) {
-  if (!waitForUsbPrinterReady(6000)) {
-    const String id = extractJsonString(json, "id");
-    Serial.printf("PrintBridge cannot start id=%s: USB printer not ready\r\n", id.c_str());
-    sendPrintStatus("error", id, 0, 0);
+  const String id = extractJsonString(json, "id");
+  printBridgeLogHeap("start entry");
+  if (printActive && id == activePrintId) {
+    sendPrintStatus("started", activePrintId, expectedBytes, expectedChunks);
+    return;
+  }
+  if (printActive || printTaskBusy) {
+    Serial.printf("PrintBridge busy, cannot start id=%s active=%s taskBusy=%s\r\n", id.c_str(), printActive ? "yes" : "no", printTaskBusy ? "yes" : "no");
+    printBridgeLogHeap("start busy");
+    sendPrintStatus("error", id, 0, 0, "busy");
     return;
   }
 
-  activePrintId = extractJsonString(json, "id");
+  if (!waitForUsbPrinterReady(20000)) {
+    Serial.printf("PrintBridge cannot start id=%s: USB printer not ready\r\n", id.c_str());
+    printBridgeLogHeap("usb not ready");
+    sendPrintStatus("error", id, 0, 0, "usb_not_ready");
+    return;
+  }
+  if (!allocatePrintBuffers()) {
+    printBridgeLogHeap("buffer fail");
+    sendPrintStatus("error", id, 0, 0, "buffer_alloc_failed");
+    return;
+  }
+  if (!ensurePrintTaskStarted()) {
+    printBridgeLogHeap("task fail");
+    sendPrintStatus("error", id, 0, 0, "print_task_failed");
+    return;
+  }
+
+  activePrintId = id;
   expectedBytes = extractJsonSize(json, "bytes");
   expectedChunks = extractJsonSize(json, "chunks");
   receivedBytes = 0;
   receivedChunks = 0;
-  printActive = activePrintId.length() > 0;
+  printActive = false;
   dataChannelBuffer = "";
   resetProgressLog();
+  resetPrintBufferQueues();
+
+  if (activePrintId.length() == 0 || expectedBytes == 0) {
+    Serial.println("PrintBridge cannot start: missing id or bytes");
+    printBridgeLogHeap("invalid start");
+    sendPrintStatus("error", activePrintId, 0, 0, "invalid_start");
+    activePrintId = "";
+    return;
+  }
+  printActive = true;
 
   Serial.printf(
     "PrintBridge start id=%s bytes=%u chunks=%u\r\n",
@@ -241,7 +473,9 @@ static void handlePrintStart(const String &json) {
     unsigned(expectedBytes),
     unsigned(expectedChunks)
   );
+  printBridgeLogHeap("start ready");
   sendPrintStatus("started", activePrintId, expectedBytes, expectedChunks);
+  printBridgeLogHeap("started ack");
 }
 
 static void handleRawPrintBytes(const uint8_t *data, size_t len) {
@@ -249,60 +483,48 @@ static void handleRawPrintBytes(const uint8_t *data, size_t len) {
     Serial.println("PrintBridge ignored raw bytes without active job");
     return;
   }
-
   const size_t remaining = expectedBytes > receivedBytes ? expectedBytes - receivedBytes : 0;
-  const size_t bytesToWrite = min(len, remaining);
-  if (bytesToWrite > 0 && !printerSinkWrite(data, bytesToWrite)) {
-    Serial.printf(
-      "PrintBridge sink write failed id=%s bytes=%u/%u chunks=%u/%u\r\n",
-      activePrintId.c_str(),
-      unsigned(receivedBytes),
-      unsigned(expectedBytes),
-      unsigned(receivedChunks),
-      unsigned(expectedChunks)
-    );
-    sendPrintStatus("error", activePrintId, receivedBytes, receivedChunks);
-    printActive = false;
-    activePrintId = "";
-    resetProgressLog();
-    return;
-  }
+  size_t bytesToWrite = min(len, remaining);
+  size_t offset = 0;
 
-  if (bytesToWrite > 0) {
-    receivedBytes += bytesToWrite;
-    receivedChunks++;
-    appendPrintTail(data, bytesToWrite);
-    logPrintProgress();
-    if (shouldAckProgress()) {
-      if (!usbPrinterHostWaitForPendingBytes(2048, 15000)) {
-        sendPrintStatus("error", activePrintId, receivedBytes, receivedChunks);
-        printActive = false;
-        activePrintId = "";
-        resetProgressLog();
-        return;
-      }
-      sendPrintStatus("progress", activePrintId, receivedBytes, receivedChunks);
-    }
-  }
-
-  if (expectedBytes > 0 && receivedBytes >= expectedBytes) {
-    Serial.printf(
-      "PrintBridge done id=%s bytes=%u/%u chunks=%u/%u\r\n",
-      activePrintId.c_str(),
-      unsigned(receivedBytes),
-      unsigned(expectedBytes),
-      unsigned(receivedChunks),
-      unsigned(expectedChunks)
-    );
-    Serial.printf("PrintBridge TSPL tail: %s\r\n", printTail);
-    if (usbPrinterHostEndJob()) {
-      sendPrintStatus("done", activePrintId, receivedBytes, receivedChunks);
-    } else {
+  while (bytesToWrite > 0) {
+    if (!takePrintBuffer()) {
+      Serial.println("PrintBridge no free print buffer");
       sendPrintStatus("error", activePrintId, receivedBytes, receivedChunks);
+      printActive = false;
+      activePrintId = "";
+      resetProgressLog();
+      return;
     }
-    printActive = false;
-    activePrintId = "";
-    resetProgressLog();
+
+    PrintBuffer &buffer = printBuffers[activeBufferIndex];
+    const size_t space = PRINT_BUFFER_BYTES - buffer.len;
+    const size_t copyLen = min(bytesToWrite, space);
+    memcpy(buffer.data + buffer.len, data + offset, copyLen);
+    buffer.len += copyLen;
+    offset += copyLen;
+    bytesToWrite -= copyLen;
+
+    if (buffer.len >= PRINT_BUFFER_BYTES && !queueActivePrintBuffer(false, false)) {
+      Serial.println("PrintBridge full print queue blocked");
+      sendPrintStatus("error", activePrintId, receivedBytes, receivedChunks);
+      printActive = false;
+      activePrintId = "";
+      resetProgressLog();
+      return;
+    }
+  }
+
+  if (offset > 0) {
+    receivedBytes += offset;
+    receivedChunks++;
+    appendPrintTail(data, offset);
+    logPrintProgress();
+    if (shouldAckProgress() && receivedBytes < expectedBytes) {
+      printBridgeLogHeap("progress ack");
+      sendPrintStatus("progress", activePrintId, receivedBytes, receivedChunks);
+      printBridgeLogHeap("progress sent");
+    }
   }
 }
 
@@ -320,7 +542,10 @@ static void handlePrintChunk(const String &json) {
 
   const String data = extractJsonString(json, "data");
   const size_t bufferSize = (data.length() * 3) / 4 + 4;
-  uint8_t *buffer = (uint8_t *)malloc(bufferSize);
+  uint8_t *buffer = (uint8_t *)ps_malloc(bufferSize);
+  if (buffer == NULL) {
+    buffer = (uint8_t *)malloc(bufferSize);
+  }
   if (buffer == NULL) {
     Serial.println("PrintBridge failed to allocate chunk buffer");
     sendPrintStatus("error", activePrintId, receivedBytes, receivedChunks);
@@ -347,12 +572,22 @@ static void handlePrintEnd(const String &json) {
     unsigned(receivedChunks),
     unsigned(expectedChunks)
   );
+  printBridgeLogHeap("end received");
 
   const bool complete = receivedBytes == expectedBytes && receivedChunks == expectedChunks;
-  if (complete && !usbPrinterHostEndJob()) {
+  if (activeBufferIndex < 0 && !takePrintBuffer()) {
+    Serial.println("PrintBridge failed to take final print buffer");
+    printBridgeLogHeap("final buf fail");
     sendPrintStatus("error", activePrintId, receivedBytes, receivedChunks);
-  } else {
-    sendPrintStatus(complete ? "done" : "incomplete", activePrintId, receivedBytes, receivedChunks);
+    printActive = false;
+    activePrintId = "";
+    resetProgressLog();
+    return;
+  }
+  if (!queueActivePrintBuffer(true, complete)) {
+    Serial.println("PrintBridge failed to queue final print buffer");
+    printBridgeLogHeap("final queue fail");
+    sendPrintStatus("error", activePrintId, receivedBytes, receivedChunks);
   }
   printActive = false;
   activePrintId = "";
@@ -433,11 +668,43 @@ static bool popNextJsonObject(String &buffer, String &json) {
 
 void printBridgeBegin() {
   dataChannelBuffer.reserve(1024);
-  Serial.println("PrintBridge ready (TSPL over PeerJS; USB printer sink starts after WebRTC)");
+  if (freePrintBuffers == NULL) {
+    freePrintBuffers = xQueueCreate(PRINT_BUFFER_COUNT, sizeof(uint8_t));
+  }
+  if (fullPrintBuffers == NULL) {
+    fullPrintBuffers = xQueueCreate(PRINT_BUFFER_COUNT, sizeof(uint8_t));
+  }
+  resetPrintBufferQueues();
+  ensureUsbHostStarted();
+
+  Serial.println("PrintBridge ready (TSPL over PeerJS; double-buffered printer task starts after USB ready)");
+}
+
+bool printBridgeWaitForPrinterReady(uint32_t timeoutMs) {
+  return waitForUsbPrinterReady(timeoutMs);
+}
+
+bool printBridgePreparePrintResources() {
+  if (!allocatePrintBuffers()) {
+    return false;
+  }
+  resetPrintBufferQueues();
+  return ensurePrintTaskStarted();
 }
 
 void printBridgeHandleDataChannelOpen() {
   ensureUsbHostStarted();
+  if (usbReadyNotifyTaskHandle == NULL) {
+    xTaskCreatePinnedToCore(
+      printBridgeUsbReadyNotifyTask,
+      "usb_ready_notify",
+      4096,
+      NULL,
+      3,
+      &usbReadyNotifyTaskHandle,
+      1
+    );
+  }
 }
 
 void printBridgeHandleDataChannelClose() {
@@ -454,18 +721,31 @@ void printBridgeHandleDataChannelClose() {
     unsigned(expectedChunks),
     unsigned(dataChannelBuffer.length())
   );
-  sendPrintStatus("incomplete", activePrintId, receivedBytes, receivedChunks);
+  printBridgeLogHeap("channel close");
   printActive = false;
   activePrintId = "";
   dataChannelBuffer = "";
+  if (!printTaskBusy) {
+    resetPrintBufferQueues();
+  }
   resetProgressLog();
 }
 
 bool printBridgeHandleDataChannelMessage(const char *msg, size_t len) {
   if (msg == NULL || len == 0) return false;
 
-  const bool startsWithJson = msg[0] == '{' || dataChannelBuffer.length() > 0;
-  if (printActive && receivedBytes < expectedBytes && !startsWithJson) {
+  if (msg[0] == '{' && memmem(msg, len, "\"cmd\":\"", 7) != NULL) {
+    String json;
+    json.reserve(len + 1);
+    for (size_t i = 0; i < len; i++) {
+      json += msg[i];
+    }
+    if (processPrintBridgeJson(json)) {
+      return true;
+    }
+  }
+
+  if (printActive && receivedBytes < expectedBytes) {
     handleRawPrintBytes((const uint8_t *)msg, len);
     return true;
   }

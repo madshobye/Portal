@@ -61,6 +61,8 @@ let autoSizingEnabled = true;
 let useSoftKeyboardInput = false;
 let outputMode = "label";
 let outputModeAuto = true;
+let peerHostnames = [];
+let pendingPeerHostname = "";
 let labelPaddingMode = "minimal";
 let labelQrText = "";
 let labelQrCode = null;
@@ -131,6 +133,7 @@ const toolbarRowGap = 8;
 const tooltipDelayMs = 450;
 const historySliderHeight = 22;
 const historySliderTop = 12;
+const maxPeerHostnameMenuItems = 5;
 const printHistoryStoragePressureLimit = 0.9;
 const tsplTextPrintDensity = 6;
 const tsplPhotoPrintDensity = 3;
@@ -214,10 +217,15 @@ async function setup() {
       key: "peerjs",
       secure: true,
       remoteId: "printhost",
-      chunkSize: 200,
-      chunkDelayMs: 18,
+      chunkSize: 512,
+      chunkDelayMs: 12,
+      progressCooldownMs: 0,
+      connectTimeoutMs: 12000,
+      dataChannelTimeoutMs: 60000,
+      candidateRetryCount: 2,
+      connectedSettleMs: 1000,
       heartbeatIntervalMs: 5000,
-      heartbeatTimeoutMs: 30000,
+      heartbeatTimeoutMs: 45000,
       debug: false,
     },
     onState: handlePrinterState,
@@ -599,13 +607,15 @@ function draw() {
 }
 
 function drawConnectMenu(preview, anchorX, buttonWidth) {
-  const menuWidth = Math.max(buttonWidth, 42);
+  const menuWidth = Math.max(buttonWidth, 96);
   const menuX = constrain(anchorX, preview.x + 8, preview.x + preview.width - menuWidth - 8);
   const bleButtonY = preview.y + 8;
   const usbButtonY = bleButtonY + toolbarButtonHeight + toolbarGap;
   const peerButtonY = usbButtonY + toolbarButtonHeight + toolbarGap;
+  const peerHostnameItems = peerHostnames.slice(0, maxPeerHostnameMenuItems);
   const menuPad = 5;
-  const menuHeight = toolbarButtonHeight * 3 + toolbarGap * 2;
+  const menuItemCount = 3 + peerHostnameItems.length;
+  const menuHeight = toolbarButtonHeight * menuItemCount + toolbarGap * (menuItemCount - 1);
 
   push();
   noStroke();
@@ -648,7 +658,7 @@ function drawConnectMenu(preview, anchorX, buttonWidth) {
   }
 
   const peerAvailable = !!printer?.canConnect?.("peer");
-  const peerButton = uiButton("Peer", {
+  const peerButton = uiButton("P+", {
     x: menuX,
     y: peerButtonY,
     width: menuWidth,
@@ -658,10 +668,30 @@ function drawConnectMenu(preview, anchorX, buttonWidth) {
     textColor: peerAvailable ? "#000000" : "#5a5a5a",
     stroke: { weight: 0 },
   });
-  registerTooltip("connect-peer", peerAvailable ? "Connect PeerJS" : "PeerJS unavailable", menuX, peerButtonY, menuWidth, toolbarButtonHeight);
+  registerTooltip("connect-peer", peerAvailable ? "Add/connect PeerJS hostname" : "PeerJS unavailable", menuX, peerButtonY, menuWidth, toolbarButtonHeight);
   if (peerAvailable && peerButton.clicked) {
     connectMenuOpen = false;
-    connectPrinter("peer");
+    promptForPeerHostname();
+  }
+
+  for (let i = 0; i < peerHostnameItems.length; i++) {
+    const hostname = peerHostnameItems[i];
+    const y = peerButtonY + (toolbarButtonHeight + toolbarGap) * (i + 1);
+    const hostnameButton = uiButton(hostname, {
+      x: menuX,
+      y,
+      width: menuWidth,
+      height: toolbarButtonHeight,
+      fontSize: 11,
+      bgColor: peerAvailable ? "#ffffff" : "#1f1f1f",
+      textColor: peerAvailable ? "#000000" : "#5a5a5a",
+      stroke: { weight: 0 },
+    });
+    registerTooltip(`connect-peer-${hostname}`, peerAvailable ? `Connect ${hostname}` : "PeerJS unavailable", menuX, y, menuWidth, toolbarButtonHeight);
+    if (peerAvailable && hostnameButton.clicked) {
+      connectMenuOpen = false;
+      connectPrinter("peer", { peerHostname: hostname });
+    }
   }
 }
 
@@ -923,18 +953,26 @@ function drawTooltip(label, anchorX, anchorY) {
   pop();
 }
 
-async function connectPrinter(transport = "ble") {
+async function connectPrinter(transport = "ble", options = {}) {
   if (busy || connectingPrinter) return;
   try {
+    const peerHostname = transport === "peer" ? normalizePeerHostname(options.peerHostname) : "";
+    if (transport === "peer") {
+      setPeerRemoteId(peerHostname || "printhost");
+      pendingPeerHostname = peerHostname;
+    }
     connectingPrinter = true;
     connectMenuOpen = false;
     statusText = "connecting";
     detailText = transport === "peer"
-      ? "Connecting to ESP32 over PeerJS..."
+      ? `Connecting to ${peerHostname || "printhost"} over PeerJS...`
       : `Choose a ${formatTransport(transport)} printer.`;
     console.info(`[labelmaker2] connecting ${formatTransport(transport)}`);
     await printer.connect(transport);
     outputMode = printer.getSuggestedOutputMode?.() || "label";
+    if (transport === "peer" && pendingPeerHostname) {
+      rememberPeerHostname(pendingPeerHostname);
+    }
     statusText = "connected";
     detailText = `Connected over ${formatTransport()}. Press Print for ${outputMode}.`;
     console.info(`[labelmaker2] connected ${formatTransport()}`);
@@ -944,7 +982,56 @@ async function connectPrinter(transport = "ble") {
     detailText = error?.message || String(error);
   } finally {
     connectingPrinter = false;
+    pendingPeerHostname = "";
   }
+}
+
+function promptForPeerHostname() {
+  const fallback = peerHostnames[0] || printer?.peerPrinter?.remoteId || "printhost";
+  const value = window.prompt("PeerJS ESP32 base hostname, without a/b/c/d/e suffix", fallback);
+  if (value === null) return;
+  const hostname = normalizePeerHostname(value);
+  if (!hostname) {
+    detailText = "PeerJS hostname is empty.";
+    return;
+  }
+  connectPrinter("peer", { peerHostname: hostname });
+}
+
+function normalizePeerHostname(value) {
+  return String(value || "")
+    .trim()
+    .replace(/\s+/g, "")
+    .replace(/[./]+$/g, "");
+}
+
+function setPeerRemoteId(remoteId) {
+  if (printer?.peerPrinter) {
+    printer.peerPrinter.remoteId = remoteId;
+  }
+}
+
+function rememberPeerHostname(hostname) {
+  const normalized = normalizePeerHostname(hostname);
+  if (!normalized) return;
+  peerHostnames = [
+    normalized,
+    ...peerHostnames.filter((item) => item !== normalized),
+  ].slice(0, maxPeerHostnameMenuItems);
+  saveEditorState();
+}
+
+function sanitizePeerHostnames(value) {
+  if (!Array.isArray(value)) return [];
+  const hostnames = [];
+  for (const item of value) {
+    const hostname = normalizePeerHostname(item);
+    if (hostname && !hostnames.includes(hostname)) {
+      hostnames.push(hostname);
+    }
+    if (hostnames.length >= maxPeerHostnameMenuItems) break;
+  }
+  return hostnames;
 }
 
 async function disconnectPrinter() {
@@ -960,7 +1047,7 @@ function handlePrinterState(state) {
   if (state.transport === "peer") {
     outputMode = "label";
     const target = state.remoteId || state.candidate || "ESP32";
-    const peerStateKey = `${state.state}:${state.candidate || ""}:${state.connected ? "1" : "0"}`;
+    const peerStateKey = `${state.state}:${state.candidate || ""}:${state.responded ? "1" : "0"}:${state.connected ? "1" : "0"}`;
     if (peerStateKey !== lastPeerStateLogKey) {
       lastPeerStateLogKey = peerStateKey;
       if (state.state === "error") {
@@ -972,7 +1059,9 @@ function handlePrinterState(state) {
     detailText = state.connected
       ? `Connected to ${target} over PeerJS. Press Print for label.`
       : state.connecting
-        ? (state.candidate ? `Trying ESP32 id ${state.candidate}...` : "Connecting to PeerJS...")
+        ? (state.responded
+          ? `ESP32 ${state.candidate || target} answered. Opening data channel...`
+          : (state.candidate ? `Trying ESP32 id ${state.candidate}...` : "Connecting to PeerJS..."))
         : "Type on the keyboard. Return inserts a new line.";
     return;
   }
@@ -3367,6 +3456,7 @@ function getEditorSnapshot() {
     orientation,
     editorFontMode,
     autoSizingEnabled,
+    peerHostnames,
     labelPaddingMode,
     labelQrText,
     photoMergeMode,
@@ -3710,6 +3800,7 @@ function saveEditorState() {
     orientation,
     editorFontMode,
     autoSizingEnabled,
+    peerHostnames,
     labelPaddingMode,
     labelQrText,
     photoMergeMode,
@@ -3777,6 +3868,7 @@ function loadEditorState() {
       ? data.editorFontMode
       : "helvetica";
     autoSizingEnabled = data.autoSizingEnabled !== false;
+    peerHostnames = sanitizePeerHostnames(data.peerHostnames);
     labelPaddingMode = labelPaddingModes.includes(data.labelPaddingMode) ? data.labelPaddingMode : "minimal";
     labelQrText = typeof data.labelQrText === "string" ? data.labelQrText : "";
     labelQrCode = labelQrText ? createQRCode(labelQrText) : null;

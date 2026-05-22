@@ -3,11 +3,14 @@
 #include "esp_err.h"
 #include "usb/usb_host.h"
 
-static constexpr size_t USB_PRINTER_TRANSFER_SIZE = 4096;
+static constexpr size_t USB_PRINTER_TRANSFER_SIZE = 1024;
 static constexpr TickType_t USB_PRINTER_WRITE_TIMEOUT = pdMS_TO_TICKS(3000);
 static constexpr TickType_t USB_PRINTER_QUEUE_TIMEOUT = pdMS_TO_TICKS(5000);
 static constexpr TickType_t USB_PRINTER_DRAIN_TIMEOUT = pdMS_TO_TICKS(30000);
-static constexpr size_t USB_PRINTER_QUEUE_DEPTH = 96;
+static constexpr size_t USB_PRINTER_QUEUE_DEPTH = 8;
+static constexpr uint32_t USB_HOST_TASK_STACK = 3072;
+static constexpr uint32_t USB_PRINTER_TASK_STACK = 6144;
+static constexpr uint32_t USB_PRINTER_WRITER_TASK_STACK = 4096;
 
 static TaskHandle_t usbHostTaskHandle = NULL;
 static TaskHandle_t usbPrinterTaskHandle = NULL;
@@ -40,6 +43,28 @@ struct UsbPrintChunk {
 
 static void usbPrinterWriterTask(void *arg);
 static bool usbPrinterWriteBlocking(const uint8_t *data, size_t len);
+
+static bool ensureUsbPrinterWriterStarted() {
+  if (usbPrinterWriterTaskHandle != NULL) {
+    return true;
+  }
+
+  const BaseType_t result = xTaskCreatePinnedToCore(
+    usbPrinterWriterTask,
+    "usb_print_writer",
+    USB_PRINTER_WRITER_TASK_STACK,
+    NULL,
+    4,
+    &usbPrinterWriterTaskHandle,
+    1
+  );
+  if (result != pdPASS) {
+    Serial.println("USB printer writer task start failed");
+    usbPrinterWriterTaskHandle = NULL;
+    return false;
+  }
+  return true;
+}
 
 static void addQueuedWriteBytes(size_t len) {
   portENTER_CRITICAL(&usbQueueStatsMux);
@@ -347,9 +372,8 @@ void usbPrinterHostBegin() {
   }
 
   usbHostStarted = true;
-  xTaskCreatePinnedToCore(usbHostTask, "usb_host", 4096, NULL, 4, &usbHostTaskHandle, 0);
-  xTaskCreatePinnedToCore(usbPrinterTask, "usb_printer", 8192, NULL, 5, &usbPrinterTaskHandle, 0);
-  xTaskCreatePinnedToCore(usbPrinterWriterTask, "usb_print_writer", 6144, NULL, 4, &usbPrinterWriterTaskHandle, 0);
+  xTaskCreatePinnedToCore(usbHostTask, "usb_host", USB_HOST_TASK_STACK, NULL, 4, &usbHostTaskHandle, 1);
+  xTaskCreatePinnedToCore(usbPrinterTask, "usb_printer", USB_PRINTER_TASK_STACK, NULL, 5, &usbPrinterTaskHandle, 1);
   Serial.println("USB printer host started");
 }
 
@@ -468,6 +492,10 @@ bool usbPrinterHostWrite(const uint8_t *data, size_t len) {
 
   if (!usbPrinterHostReady() || usbPrintQueue == NULL || writerError) {
     Serial.println("USB printer enqueue failed: printer not ready");
+    return false;
+  }
+  if (!ensureUsbPrinterWriterStarted()) {
+    Serial.println("USB printer enqueue failed: writer task unavailable");
     return false;
   }
 

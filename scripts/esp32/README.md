@@ -4,14 +4,14 @@ These scripts wrap the repeated ESP32-S3 Arduino tasks for the `printhost`
 sketch. They default to:
 
 - Port: `/dev/cu.wchusbserial5B5E1092281`
-- FQBN: `esp32:esp32:esp32s3:PartitionScheme=huge_app,PSRAM=opi`
+- FQBN: `esp32:esp32:esp32s3:FlashSize=8M,PartitionScheme=default_8MB,PSRAM=opi`
 - Sketch: `ArduinoExamples/printhost`
 
 Override values with environment variables:
 
 ```sh
 ESP32_PORT=/dev/cu.other ./scripts/esp32/upload.sh
-ESP32_FQBN='esp32:esp32:esp32s3:PartitionScheme=huge_app,PSRAM=opi' ./scripts/esp32/compile.sh
+ESP32_FQBN='esp32:esp32:esp32s3:FlashSize=8M,PartitionScheme=default_8MB,PSRAM=opi' ./scripts/esp32/compile.sh
 ```
 
 Common commands:
