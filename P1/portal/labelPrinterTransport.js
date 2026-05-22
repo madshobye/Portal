@@ -33,20 +33,25 @@ class LabelPrinterTransport {
 
   async init() {
     if (this.bleOptions) {
-      this.blePrinter = await new BleLabelPrinter({
-        protocol: "tspl",
-        chunkSize: 488,
-        chunkDelayMs: 0,
-        preferWriteWithResponse: true,
-        autoReconnectOnRefresh: false,
-        autoReconnectOnDisconnect: false,
-        waitForAutoReconnect: false,
-        autoReconnectAttempts: 1,
-        reconnectDelayMs: 700,
-        ...this.bleOptions,
-        onState: (state) => this._handleState("ble", state),
-        onError: (error) => this._handleError("ble", error),
-      }).init();
+      try {
+        this.blePrinter = await new BleLabelPrinter({
+          protocol: "tspl",
+          chunkSize: 488,
+          chunkDelayMs: 0,
+          preferWriteWithResponse: true,
+          autoReconnectOnRefresh: false,
+          autoReconnectOnDisconnect: false,
+          waitForAutoReconnect: false,
+          autoReconnectAttempts: 1,
+          reconnectDelayMs: 700,
+          ...this.bleOptions,
+          onState: (state) => this._handleState("ble", state),
+          onError: (error) => this._handleError("ble", error),
+        }).init();
+      } catch (error) {
+        this.blePrinter = null;
+        this._handleError("ble", error, { passive: true });
+      }
     }
 
     if (this.usbOptions && typeof UsbLabelPrinter !== "undefined") {
@@ -115,6 +120,17 @@ class LabelPrinterTransport {
       }
     }
 
+    if (!this.canConnect(this.activeTransport)) {
+      if (this.peerPrinter) {
+        this.activeTransport = "peer";
+      } else if (this.usbPrinter) {
+        this.activeTransport = "usb";
+      } else if (this.webUsbPrinter) {
+        this.activeTransport = "webusb";
+      } else if (this.blePrinter) {
+        this.activeTransport = "ble";
+      }
+    }
     this.activate(this.activeTransport);
     this.ready = true;
     return this;

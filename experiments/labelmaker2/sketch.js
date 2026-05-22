@@ -59,6 +59,9 @@ let orientation = "landscape";
 let editorFontMode = "helvetica";
 let autoSizingEnabled = true;
 let useSoftKeyboardInput = false;
+let useP5SoftKeyboardInput = false;
+let textInputComposing = false;
+let lastBridgeInput = { time: 0, text: "", kind: "" };
 let outputMode = "label";
 let outputModeAuto = true;
 let peerHostnames = [];
@@ -127,9 +130,9 @@ const maxFontSize = 2560;
 const defaultFontSize = 96;
 const fontSizeScale = [24, 28, 32, 36, 40, 46, 52, 60, 68, 78, 88, 100, 112, 128, 144, 164, 184, 208, 232, 256, 280, 300, 320, 360, 400, 448, 512, 576, 640, 720, 800, 896, 1024, 1152, 1280, 1440, 1600, 1792, 2048, 2304, 2560];
 const lineHeightFactor = 1.16;
-const toolbarButtonHeight = 38;
-const toolbarGap = 6;
-const toolbarRowGap = 8;
+const toolbarButtonHeight = 34;
+const toolbarGap = 4;
+const toolbarRowGap = 6;
 const tooltipDelayMs = 450;
 const historySliderHeight = 22;
 const historySliderTop = 12;
@@ -169,6 +172,7 @@ async function setup() {
   initPhotoFilterShaders();
   canvas.drop(handlePhotoDrop);
   useSoftKeyboardInput = detectSoftKeyboardMode();
+  useP5SoftKeyboardInput = useSoftKeyboardInput && detectIOSLikeBrowser();
   installTextInputBridge();
   installKeyCapture();
   terminusFont = await loadFont("../textprompt/Terminus.ttf");
@@ -270,11 +274,19 @@ function draw() {
   beginTooltipFrame();
 
   const preview = getPreviewRect();
+  const toolbar = getToolbarRect(preview);
   const connectionState = printer?.getConnectionState?.() || {};
   const isConnected = !!connectionState.connected;
   const isConnecting = connectingPrinter || !!connectionState.connecting;
   const hasPhotoControls = hasPhotoSource() || photoEnabled || photoCameraStarting;
-  const controlsY = preview.y + preview.height + 16;
+  const controlsY = toolbar.y;
+  const toolbarRows = getToolbarRowCount();
+  const useSingleToolbarRow = toolbarRows === 1;
+  const useThreeToolbarRows = toolbarRows >= 3;
+  const toolbarStep = toolbarButtonHeight + toolbarRowGap;
+  const mainButtonY = controlsY;
+  const secondaryButtonY = useSingleToolbarRow ? mainButtonY : controlsY + toolbarStep;
+  const styleButtonY = useSingleToolbarRow ? mainButtonY : (useThreeToolbarRows ? controlsY + toolbarStep * 2 : secondaryButtonY);
   const squareButtonWidth = toolbarButtonHeight;
   const printButtonWidth = busy ? squareButtonWidth * 3 + toolbarGap * 2 : (isConnected ? squareButtonWidth : 0);
   const connectButtonWidth = squareButtonWidth;
@@ -290,26 +302,11 @@ function draw() {
   const styleButtonGap = toolbarGap;
   const styleControlsWidth = styleButtonWidth * 6 + styleButtonGap * 5;
   const showStyleControls = !autoSizingEnabled;
-  const activeStyleControlsWidth = showStyleControls ? styleControlsWidth : 0;
   const fontButtonWidth = 104;
-  const oneRowControlsWidth = leftMainWidth + toolbarGap + activeStyleControlsWidth + (showStyleControls ? toolbarGap : 0) + fontButtonWidth + toolbarGap + rightControlsWidth;
-  const useTwoToolbarRows = oneRowControlsWidth > preview.width;
-  const mainRowNeedsRightWrap = leftMainWidth + toolbarGap + rightControlsWidth > preview.width;
-  const secondRowRightWidth = (useTwoToolbarRows || mainRowNeedsRightWrap) ? rightControlsWidth + toolbarGap : 0;
-  const secondRowAvailableWidth = Math.max(fontButtonWidth, preview.width - secondRowRightWidth);
-  const styleControlsX = useTwoToolbarRows ? preview.x : preview.x + leftMainWidth + toolbarGap;
-  const styleControlsY = useTwoToolbarRows ? controlsY + toolbarButtonHeight + toolbarRowGap : controlsY;
-  const fontButtonX = showStyleControls
-    ? Math.min(
-      styleControlsX + styleControlsWidth + toolbarGap,
-      preview.x + secondRowAvailableWidth - fontButtonWidth
-    )
-    : (useTwoToolbarRows ? preview.x : preview.x + leftMainWidth + toolbarGap);
-  const fontButtonY = useTwoToolbarRows ? styleControlsY : controlsY;
-  const rightButtonY = (useTwoToolbarRows || mainRowNeedsRightWrap) ? controlsY + toolbarButtonHeight + toolbarRowGap : controlsY;
+  const rightButtonY = useThreeToolbarRows ? secondaryButtonY : mainButtonY;
   drawPrintHistorySlider(preview);
   const grayscaleButton = drawIconButton(photoGrayscaleEnabled ? "filter_b_and_w" : "gradient", {
-    x: preview.x,
+    x: toolbar.x,
     y: controlsY,
     width: grayscaleButtonWidth,
     height: toolbarButtonHeight,
@@ -322,8 +319,8 @@ function draw() {
   }
 
   const modeButton = drawIconButton(outputMode === "receipt" ? "receipt_long" : "label", {
-    x: preview.x + grayscaleButtonWidth + toolbarGap,
-    y: controlsY,
+    x: toolbar.x + grayscaleButtonWidth + toolbarGap,
+    y: mainButtonY,
     width: modeButtonWidth,
     height: toolbarButtonHeight,
     active: !outputModeAuto,
@@ -335,7 +332,7 @@ function draw() {
     toggleOutputMode();
   }
 
-  const connectButtonX = preview.x + preview.width - connectButtonWidth;
+  const connectButtonX = toolbar.x + toolbar.width - connectButtonWidth;
   const connectButton = drawIconButton(isConnected ? "link_off" : (isConnecting ? "sync" : "add"), {
     x: connectButtonX,
     y: rightButtonY,
@@ -355,7 +352,7 @@ function draw() {
     }
   }
 
-  const printButtonX = preview.x + preview.width - connectButtonWidth - toolbarGap - printButtonWidth;
+  const printButtonX = toolbar.x + toolbar.width - connectButtonWidth - toolbarGap - printButtonWidth;
   if (printButtonWidth) {
     const printButton = busy
       ? drawPrintProgressButton({
@@ -383,7 +380,7 @@ function draw() {
 
   const clearButtonX = printButtonWidth
     ? printButtonX - toolbarGap - clearButtonWidth
-    : preview.x + preview.width - connectButtonWidth - toolbarGap - clearButtonWidth;
+    : toolbar.x + toolbar.width - connectButtonWidth - toolbarGap - clearButtonWidth;
   const clearButton = drawIconButton("backspace", {
     x: clearButtonX,
     y: rightButtonY,
@@ -409,21 +406,35 @@ function draw() {
   }
 
   const autoButtonWidth = squareButtonWidth;
-  const formatX = preview.x + grayscaleButtonWidth + toolbarGap + modeButtonWidth + toolbarGap;
+  const formatX = toolbar.x + grayscaleButtonWidth + toolbarGap + modeButtonWidth + toolbarGap;
   const orientationX = formatX + squareButtonWidth + toolbarGap;
   const autoButtonX = orientationX + squareButtonWidth + toolbarGap;
   const paddingButtonX = autoButtonX + autoButtonWidth + toolbarGap;
   const qrButtonX = paddingButtonX + squareButtonWidth + toolbarGap;
   const photoButtonX = qrButtonX + squareButtonWidth + toolbarGap;
   const blendButtonX = hasPhotoControls ? photoButtonX + squareButtonWidth + toolbarGap : null;
-  const invertButtonX = (hasPhotoControls ? blendButtonX : photoButtonX) + squareButtonWidth + toolbarGap;
+  const invertButtonX = useSingleToolbarRow
+    ? (hasPhotoControls ? blendButtonX : photoButtonX) + squareButtonWidth + toolbarGap
+    : toolbar.x;
   const outlineButtonX = invertButtonX + squareButtonWidth + toolbarGap;
   const textEffectButtonX = outlineButtonX + squareButtonWidth + toolbarGap;
   const removePhotoButtonX = textEffectButtonX + squareButtonWidth + toolbarGap;
+  const secondaryControlsEndX = (showRemovePhotoButton ? removePhotoButtonX : textEffectButtonX) + squareButtonWidth + toolbarGap;
+  const styleControlsX = useSingleToolbarRow
+    ? secondaryControlsEndX
+    : (useThreeToolbarRows ? toolbar.x : secondaryControlsEndX);
+  const styleControlsY = styleButtonY;
+  const fontButtonX = showStyleControls
+    ? Math.min(
+      styleControlsX + styleControlsWidth + toolbarGap,
+      toolbar.x + toolbar.width - fontButtonWidth
+    )
+    : toolbar.x;
+  const fontButtonY = styleButtonY;
 
   const toggleButton = drawIconButton(labelFormat === "10x10" ? "crop_square" : "aspect_ratio", {
     x: formatX,
-    y: controlsY,
+    y: mainButtonY,
     width: squareButtonWidth,
     height: toolbarButtonHeight,
     disabled: busy,
@@ -435,7 +446,7 @@ function draw() {
 
   const orientationButton = drawIconButton(orientation === "portrait" ? "stay_current_portrait" : "stay_current_landscape", {
     x: orientationX,
-    y: controlsY,
+    y: mainButtonY,
     width: squareButtonWidth,
     height: toolbarButtonHeight,
     disabled: busy,
@@ -447,7 +458,7 @@ function draw() {
 
   const autoButton = drawIconButton(autoSizingEnabled ? "autorenew" : "sync_disabled", {
     x: autoButtonX,
-    y: controlsY,
+    y: mainButtonY,
     width: autoButtonWidth,
     height: toolbarButtonHeight,
     active: autoSizingEnabled,
@@ -462,7 +473,7 @@ function draw() {
 
   const paddingButton = drawIconButton("padding", {
     x: paddingButtonX,
-    y: controlsY,
+    y: mainButtonY,
     width: squareButtonWidth,
     height: toolbarButtonHeight,
     active: labelPaddingMode !== "minimal",
@@ -476,7 +487,7 @@ function draw() {
 
   const qrButton = drawIconButton(labelQrText ? "qr_code_2" : "qr_code", {
     x: qrButtonX,
-    y: controlsY,
+    y: mainButtonY,
     width: squareButtonWidth,
     height: toolbarButtonHeight,
     active: !!labelQrText,
@@ -489,7 +500,7 @@ function draw() {
 
   const photoButton = drawIconButton(photoEnabled ? "videocam" : "photo_camera", {
     x: photoButtonX,
-    y: controlsY,
+    y: mainButtonY,
     width: squareButtonWidth,
     height: toolbarButtonHeight,
     active: photoEnabled,
@@ -503,7 +514,7 @@ function draw() {
   if (hasPhotoControls) {
     const blendButton = drawIconButton(getBlendModeIcon(), {
       x: blendButtonX,
-      y: controlsY,
+      y: mainButtonY,
       width: squareButtonWidth,
       height: toolbarButtonHeight,
       active: photoMergeMode !== "below",
@@ -518,7 +529,7 @@ function draw() {
 
   const invertButton = drawIconButton(labelInverted ? "invert_colors_off" : "invert_colors", {
     x: invertButtonX,
-    y: controlsY,
+    y: secondaryButtonY,
     width: squareButtonWidth,
     height: toolbarButtonHeight,
     active: labelInverted,
@@ -532,7 +543,7 @@ function draw() {
 
   const outlineButton = drawIconButton(getTextOutlineModeIcon(), {
     x: outlineButtonX,
-    y: controlsY,
+    y: secondaryButtonY,
     width: squareButtonWidth,
     height: toolbarButtonHeight,
     active: textOutlineMode !== "none",
@@ -545,7 +556,7 @@ function draw() {
 
   const textEffectButton = drawIconButton(getTextEffectModeIcon(), {
     x: textEffectButtonX,
-    y: controlsY,
+    y: secondaryButtonY,
     width: squareButtonWidth,
     height: toolbarButtonHeight,
     active: textEffectMode !== "none",
@@ -560,7 +571,7 @@ function draw() {
   if (showRemovePhotoButton) {
     const removePhotoButton = drawIconButton("hide_image", {
       x: removePhotoButtonX,
-      y: controlsY,
+      y: secondaryButtonY,
       width: squareButtonWidth,
       height: toolbarButtonHeight,
       disabled: busy,
@@ -629,12 +640,12 @@ function drawConnectMenu(preview, anchorX, buttonWidth) {
     width: menuWidth,
     height: toolbarButtonHeight,
     fontSize: 12,
-    bgColor: "#ffffff",
-    textColor: "#000000",
+    bgColor: printer?.canConnect?.("ble") ? "#ffffff" : "#1f1f1f",
+    textColor: printer?.canConnect?.("ble") ? "#000000" : "#5a5a5a",
     stroke: { weight: 0 },
   });
-  registerTooltip("connect-ble", "Connect BLE", menuX, bleButtonY, menuWidth, toolbarButtonHeight);
-  if (bleButton.clicked) {
+  registerTooltip("connect-ble", printer?.canConnect?.("ble") ? "Connect BLE" : "BLE unavailable", menuX, bleButtonY, menuWidth, toolbarButtonHeight);
+  if (printer?.canConnect?.("ble") && bleButton.clicked) {
     connectMenuOpen = false;
     connectPrinter("ble");
   }
@@ -2515,11 +2526,14 @@ function drawCaretOverlay(preview) {
 }
 
 function getPreviewRect() {
-  const topMargin = printHistory.length ? 52 : 28;
+  const viewportLandscape = width > height;
+  const topMargin = printHistory.length ? (viewportLandscape ? 42 : 52) : (viewportLandscape ? 8 : 28);
   const controlsGap = 16;
-  const controlsHeight = toolbarButtonHeight * 2 + toolbarRowGap;
+  const toolbarRows = getToolbarRowCount();
+  const controlsHeight = toolbarButtonHeight * toolbarRows + toolbarRowGap * (toolbarRows - 1);
   const bottomMargin = 6;
-  const availableWidth = width - 120;
+  const sideMargin = getViewportSideMargin();
+  const availableWidth = width - sideMargin * 2;
   const availableHeight = height - topMargin - controlsGap - controlsHeight - bottomMargin;
   const scale = Math.min(availableWidth / labelGraphic.width, availableHeight / labelGraphic.height);
   const previewWidth = labelGraphic.width * scale;
@@ -2530,6 +2544,24 @@ function getPreviewRect() {
     width: previewWidth,
     height: previewHeight,
   };
+}
+
+function getToolbarRect(preview = getPreviewRect()) {
+  const sideMargin = getViewportSideMargin();
+  return {
+    x: sideMargin,
+    y: preview.y + preview.height + 16,
+    width: Math.max(1, width - sideMargin * 2),
+    height: toolbarButtonHeight * getToolbarRowCount() + toolbarRowGap * (getToolbarRowCount() - 1),
+  };
+}
+
+function getToolbarRowCount() {
+  return width > height ? 1 : 3;
+}
+
+function getViewportSideMargin() {
+  return width < 700 ? 8 : 24;
 }
 
 function mousePressed() {
@@ -2656,8 +2688,9 @@ function findNearestLineIndex(layout, localY) {
 
 function keyTyped() {
   if (busy) return false;
-  if (useSoftKeyboardInput && document.activeElement === textInputEl) return false;
+  if (useSoftKeyboardInput && document.activeElement === textInputEl && !useP5SoftKeyboardInput) return false;
   if (key.length === 1 && !keyIsDown(CONTROL) && !keyIsDown(ALT)) {
+    if (useP5SoftKeyboardInput && isRecentBridgeInput("insert", key)) return false;
     insertTextAtCursor(key);
     detailText = "Typing into the label.";
     return false;
@@ -2666,7 +2699,7 @@ function keyTyped() {
 
 function keyPressed() {
   if (busy) return false;
-  if (useSoftKeyboardInput && document.activeElement === textInputEl) return false;
+  if (useSoftKeyboardInput && document.activeElement === textInputEl && !useP5SoftKeyboardInput) return false;
   if (
     keyCode === BACKSPACE ||
     keyCode === DELETE ||
@@ -2677,7 +2710,14 @@ function keyPressed() {
     keyCode === RIGHT_ARROW ||
     keyCode === UP_ARROW ||
     keyCode === DOWN_ARROW
-  ) {
+) {
+    if (
+      useP5SoftKeyboardInput &&
+      ((keyCode === BACKSPACE && isRecentBridgeInput("delete")) ||
+        ((keyCode === ENTER || keyCode === RETURN) && isRecentBridgeInput("newline")))
+    ) {
+      return false;
+    }
     return false;
   }
 }
@@ -2694,21 +2734,24 @@ function installTextInputBridge() {
   document.body.appendChild(textInputEl);
 
   textInputEl.addEventListener("beforeinput", handleTextInputBeforeInput, { passive: false });
-  textInputEl.addEventListener("keydown", handleEditorKeydown, { passive: false });
   textInputEl.addEventListener("paste", handleEditorPaste, { passive: false });
+  textInputEl.addEventListener("compositionstart", () => {
+    textInputComposing = true;
+  });
+  textInputEl.addEventListener("compositionend", (event) => {
+    textInputComposing = false;
+    applyTextInputValue(textInputEl.value || event.data || "");
+  });
   textInputEl.addEventListener("input", () => {
-    if (textInputEl.value) {
-      insertTextAtCursor(textInputEl.value);
-      textInputEl.value = "";
-    }
+    if (textInputComposing) return;
+    applyTextInputValue(textInputEl.value);
   });
 }
 
 function focusEditorInput() {
   if (!textInputEl) return;
   textInputEl.focus({ preventScroll: true });
-  textInputEl.value = "";
-  textInputEl.setSelectionRange(0, 0);
+  syncEditorInputFromModel();
 }
 
 function detectSoftKeyboardMode() {
@@ -2723,37 +2766,76 @@ function detectSoftKeyboardMode() {
   }
 }
 
+function detectIOSLikeBrowser() {
+  try {
+    const ua = String(navigator.userAgent || "");
+    const platform = String(navigator.platform || "");
+    const touchPoints = Number(navigator.maxTouchPoints || 0);
+    return /iPad|iPhone|iPod/i.test(ua) || (platform === "MacIntel" && touchPoints > 1);
+  } catch {
+    return false;
+  }
+}
+
 function handleTextInputBeforeInput(event) {
   if (busy) {
     event.preventDefault();
+  }
+}
+
+function syncEditorInputFromModel() {
+  if (!textInputEl) return;
+  const selection = clampCursorIndex(cursorIndex);
+  if (textInputEl.value !== labelText) {
+    textInputEl.value = labelText;
+  }
+  try {
+    textInputEl.setSelectionRange(selection, selection);
+  } catch {}
+}
+
+function applyTextInputValue(nextValue) {
+  const next = String(nextValue || "");
+  const previous = labelText;
+  if (next === previous) {
+    cursorIndex = clampCursorIndex(Number(textInputEl?.selectionStart ?? cursorIndex));
     return;
   }
 
-  if (event.isComposing) return;
+  let start = 0;
+  while (start < previous.length && start < next.length && previous[start] === next[start]) {
+    start++;
+  }
 
-  if (event.inputType === "insertText" && event.data) {
-    event.preventDefault();
-    insertTextAtCursor(event.data);
-    textInputEl.value = "";
-    return;
+  let previousEnd = previous.length;
+  let nextEnd = next.length;
+  while (previousEnd > start && nextEnd > start && previous[previousEnd - 1] === next[nextEnd - 1]) {
+    previousEnd--;
+    nextEnd--;
   }
-  if (event.inputType === "insertParagraph" || event.inputType === "insertLineBreak") {
-    event.preventDefault();
-    insertTextAtCursor("\n");
-    textInputEl.value = "";
-    return;
+
+  const inserted = next.slice(start, nextEnd);
+  let inputKind = "";
+  if (previousEnd > start) {
+    shiftStyleRangesForDelete(start, previousEnd);
+    inputKind = "delete";
   }
-  if (event.inputType === "deleteContentBackward") {
-    event.preventDefault();
-    deleteBackward();
-    textInputEl.value = "";
-    return;
+  labelText = previous.slice(0, start) + inserted + previous.slice(previousEnd);
+  if (inserted.length > 0) {
+    shiftStyleRangesForInsert(start, inserted.length);
+    applyPendingStyleToInsertedText(start, inserted.length);
+    inputKind = inserted === "\n" ? "newline" : "insert";
   }
-  if (event.inputType === "deleteContentForward") {
-    event.preventDefault();
-    deleteForward();
-    textInputEl.value = "";
-  }
+  cursorIndex = clampCursorIndex(Number(textInputEl?.selectionStart ?? (start + inserted.length)));
+  detailText = inserted === "\n" ? "Inserted a new line." : "Typing into the label.";
+  lastBridgeInput = { time: performance.now(), text: inserted, kind: inputKind };
+  saveEditorState();
+}
+
+function isRecentBridgeInput(kind, text = "") {
+  if (!lastBridgeInput.kind || lastBridgeInput.kind !== kind) return false;
+  if (text && lastBridgeInput.text !== text) return false;
+  return performance.now() - lastBridgeInput.time < 160;
 }
 
 function installKeyCapture() {
@@ -3789,6 +3871,8 @@ function loadPhotoImageFromDataUrl(dataUrl, errorLabel = "photo") {
 }
 
 function saveEditorState() {
+  markLabelDirty();
+  syncEditorInputFromModel();
   const photoDataUrl = hasStoredPhoto() ? getStoredPhotoDataUrl() : "";
   const state = {
     text: labelText,
@@ -4516,5 +4600,11 @@ function isWordChar(char) {
 }
 
 function windowResized() {
-  resizeCanvas(windowWidth, windowHeight);
+  if (typeof _portalApplyResolvedCanvasResize === "function") {
+    _portalApplyResolvedCanvasResize();
+    return;
+  }
+  const w = Math.round(window.visualViewport?.width || window.innerWidth || windowWidth);
+  const h = Math.round(window.visualViewport?.height || window.innerHeight || windowHeight);
+  resizeCanvas(w, h);
 }

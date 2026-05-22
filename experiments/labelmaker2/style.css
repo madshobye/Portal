@@ -9,10 +9,18 @@ body {
 
 .labelmaker-text-input {
   position: fixed;
-  left: -9999px;
-  top: 0;
-  width: 1px;
-  height: 1px;
-  opacity: 0;
+  left: 8px;
+  top: 8px;
+  width: 2px;
+  height: 2px;
+  opacity: 0.01;
   pointer-events: none;
+  border: 0;
+  padding: 0;
+  font-size: 16px;
+  line-height: 16px;
+  background: transparent;
+  color: transparent;
+  caret-color: transparent;
+  resize: none;
 }
