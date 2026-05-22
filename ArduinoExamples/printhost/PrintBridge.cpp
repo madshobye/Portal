@@ -17,7 +17,7 @@ static size_t nextProgressAckBytes = 0;
 static bool usbHostRequested = false;
 static char printTail[121] = {};
 static size_t printTailLen = 0;
-static constexpr size_t PRINT_PROGRESS_STEP_BYTES = 4096;
+static constexpr size_t PRINT_PROGRESS_STEP_BYTES = 2048;
 
 static void resetProgressLog() {
   nextProgressBytes = PRINT_PROGRESS_STEP_BYTES;
@@ -274,7 +274,7 @@ static void handleRawPrintBytes(const uint8_t *data, size_t len) {
     appendPrintTail(data, bytesToWrite);
     logPrintProgress();
     if (shouldAckProgress()) {
-      if (!usbPrinterHostWaitForPendingBytes(4096, 15000)) {
+      if (!usbPrinterHostWaitForPendingBytes(2048, 15000)) {
         sendPrintStatus("error", activePrintId, receivedBytes, receivedChunks);
         printActive = false;
         activePrintId = "";

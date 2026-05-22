@@ -354,7 +354,7 @@ class PeerLabelPrinter {
     const totalChunks = Math.ceil(bytes.length / this.chunkSize);
     const startedPromise = this._waitForPrintState(id, "started", 10000);
     const donePromise = this._waitForPrintDone(id);
-    const progressStepBytes = 4096;
+    const progressStepBytes = 2048;
     let nextProgressBytes = progressStepBytes;
     this._stopHeartbeat();
     try {
