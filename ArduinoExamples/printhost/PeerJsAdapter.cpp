@@ -28,6 +28,8 @@ bool dataChannelOpen = false;
 static bool dataChannelSidKnown = false;
 static uint16_t dataChannelSid = 0;
 static bool peerInitialized = false;
+static volatile bool peerConnectionStale = false;
+static const char *peerConnectionStaleReason = NULL;
 
 #ifndef LED_BUILTIN
 #define LED_BUILTIN 2
@@ -70,6 +72,32 @@ static void peerLogHeap(const char *label) {
     ESP.getMaxAllocHeap(),
     ESP.getFreePsram()
   );
+}
+
+static void peerClearDataChannelSendQueue() {
+  if (peerDataChannelSendQueue == NULL) {
+    return;
+  }
+
+  PeerDataChannelMessage *queued = NULL;
+  size_t cleared = 0;
+  while (xQueueReceive(peerDataChannelSendQueue, &queued, 0) == pdTRUE) {
+    if (queued != NULL) {
+      free(queued);
+      cleared++;
+    }
+  }
+  if (cleared > 0) {
+    Serial.printf("PeerJS cleared queued datachannel messages: %u\r\n", unsigned(cleared));
+  }
+}
+
+static void peerMarkConnectionStale(const char *reason) {
+  if (peerConnection == NULL) {
+    return;
+  }
+  peerConnectionStaleReason = reason;
+  peerConnectionStale = true;
 }
 
 String peerJsBuildId(int attempt) {
@@ -425,6 +453,13 @@ static void onPeerStateChange(enum PeerConnectionState state, void *userData) {
   if (peerState != PEER_CONNECTION_COMPLETED) {
     dataChannelOpen = false;
   }
+  if (
+    peerState == PEER_CONNECTION_FAILED ||
+    peerState == PEER_CONNECTION_DISCONNECTED ||
+    peerState == PEER_CONNECTION_CLOSED
+  ) {
+    peerMarkConnectionStale(stateName);
+  }
 }
 
 static void onDataChannelMessage(char *msg, size_t len, void *userData, uint16_t sid) {
@@ -488,11 +523,46 @@ static bool peerCreateConnection() {
 }
 
 static bool peerResetConnection() {
+  peerConnectionStale = false;
+  peerConnectionStaleReason = NULL;
+  peerClearDataChannelSendQueue();
+  dataChannelOpen = false;
+  dataChannelSidKnown = false;
+  dataChannelSid = 0;
   if (peerConnection != NULL) {
     peer_connection_destroy(peerConnection);
     peerConnection = NULL;
   }
   return peerCreateConnection();
+}
+
+static void peerCleanupStaleConnection() {
+  if (!peerConnectionStale) {
+    return;
+  }
+
+  const char *reason = peerConnectionStaleReason != NULL ? peerConnectionStaleReason : "unknown";
+  Serial.printf("PeerJS cleaning stale peer connection reason=%s\r\n", reason);
+  peerLogHeap("pc cleanup before");
+
+  peerConnectionStale = false;
+  peerConnectionStaleReason = NULL;
+  printBridgeHandleDataChannelClose();
+  peerClearDataChannelSendQueue();
+  dataChannelOpen = false;
+  dataChannelSidKnown = false;
+  dataChannelSid = 0;
+  peerJsRemoteId = "";
+  peerJsConnectionId = "";
+  peerJsWaitingForAnswer = false;
+  peerJsWaitingForOffer = false;
+
+  if (peerConnection != NULL) {
+    peer_connection_destroy(peerConnection);
+    peerConnection = NULL;
+  }
+  peerState = PEER_CONNECTION_CLOSED;
+  peerLogHeap("pc cleanup after");
 }
 
 static void onPeerIceCandidate(char *sdpText, void *userData) {
@@ -525,7 +595,11 @@ static void peerConnectionTask(void *arg) {
     if (xSemaphoreTake(peerSemaphore, portMAX_DELAY)) {
       if (peerConnection != NULL) {
         peer_connection_loop(peerConnection);
-        peerFlushDataChannelSendQueue();
+        if (peerConnectionStale) {
+          peerCleanupStaleConnection();
+        } else {
+          peerFlushDataChannelSendQueue();
+        }
       }
       xSemaphoreGive(peerSemaphore);
     }
