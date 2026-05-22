@@ -84,6 +84,7 @@ let tooltipStartedAt = 0;
 let tooltipActiveThisFrame = false;
 let printHistory = [];
 let printHistoryIndex = -1;
+let peerHostnameLongPress = { hostname: "", startedAt: 0, fired: false };
 let restoreLiveCameraOnSetup = false;
 let editorStatePhotoStorageDropped = false;
 let labelRenderDirty = true;
@@ -137,6 +138,8 @@ const tooltipDelayMs = 450;
 const historySliderHeight = 22;
 const historySliderTop = 12;
 const maxPeerHostnameMenuItems = 5;
+const peerHostnameDeleteHoldMs = 3000;
+const connectMenuMinWidth = 190;
 const printHistoryStoragePressureLimit = 0.9;
 const tsplTextPrintDensity = 6;
 const tsplPhotoPrintDensity = 3;
@@ -278,347 +281,22 @@ function draw() {
   const connectionState = printer?.getConnectionState?.() || {};
   const isConnected = !!connectionState.connected;
   const isConnecting = connectingPrinter || !!connectionState.connecting;
-  const hasPhotoControls = hasPhotoSource() || photoEnabled || photoCameraStarting;
-  const controlsY = toolbar.y;
-  const toolbarRows = getToolbarRowCount();
-  const useSingleToolbarRow = toolbarRows === 1;
-  const useThreeToolbarRows = toolbarRows >= 3;
-  const toolbarStep = toolbarButtonHeight + toolbarRowGap;
-  const mainButtonY = controlsY;
-  const secondaryButtonY = useSingleToolbarRow ? mainButtonY : controlsY + toolbarStep;
-  const styleButtonY = useSingleToolbarRow ? mainButtonY : (useThreeToolbarRows ? controlsY + toolbarStep * 2 : secondaryButtonY);
   const squareButtonWidth = toolbarButtonHeight;
   const printButtonWidth = busy ? squareButtonWidth * 3 + toolbarGap * 2 : (isConnected ? squareButtonWidth : 0);
-  const connectButtonWidth = squareButtonWidth;
-  const clearButtonWidth = squareButtonWidth;
-  const downloadButtonWidth = squareButtonWidth;
-  const grayscaleButtonWidth = squareButtonWidth;
-  const modeButtonWidth = squareButtonWidth;
-  const rightControlsWidth = connectButtonWidth + (printButtonWidth ? toolbarGap + printButtonWidth : 0) + toolbarGap + clearButtonWidth + toolbarGap + downloadButtonWidth;
-  const showRemovePhotoButton = hasStoredPhoto();
-  const leftMainButtons = showRemovePhotoButton ? 13 : 12;
-  const leftMainWidth = leftMainButtons * squareButtonWidth + (leftMainButtons - 1) * toolbarGap;
-  const styleButtonWidth = toolbarButtonHeight;
-  const styleButtonGap = toolbarGap;
-  const styleControlsWidth = styleButtonWidth * 6 + styleButtonGap * 5;
-  const showStyleControls = !autoSizingEnabled;
-  const fontButtonWidth = 104;
-  const rightButtonY = useThreeToolbarRows ? secondaryButtonY : mainButtonY;
   drawPrintHistorySlider(preview);
-  const grayscaleButton = drawIconButton(photoGrayscaleEnabled ? "filter_b_and_w" : "gradient", {
-    x: toolbar.x,
-    y: controlsY,
-    width: grayscaleButtonWidth,
-    height: toolbarButtonHeight,
-    active: photoGrayscaleEnabled,
-    disabled: busy,
-    tooltip: photoGrayscaleEnabled ? "Grayscale on" : "Grayscale off",
-  });
-  if (!busy && grayscaleButton.clicked) {
-    togglePhotoGrayscale();
-  }
-
-  const modeButton = drawIconButton(outputMode === "receipt" ? "receipt_long" : "label", {
-    x: toolbar.x + grayscaleButtonWidth + toolbarGap,
-    y: mainButtonY,
-    width: modeButtonWidth,
-    height: toolbarButtonHeight,
-    active: !outputModeAuto,
-    disabled: true,
-    marker: outputModeAuto ? "autorenew" : "",
-    tooltip: `Auto output: ${outputMode}`,
-  });
-  if (!busy && modeButton.clicked) {
-    toggleOutputMode();
-  }
-
-  const connectButtonX = toolbar.x + toolbar.width - connectButtonWidth;
-  const connectButton = drawIconButton(isConnected ? "link_off" : (isConnecting ? "sync" : "add"), {
-    x: connectButtonX,
-    y: rightButtonY,
-    width: connectButtonWidth,
-    height: toolbarButtonHeight,
-    primary: !isConnected,
-    active: isConnected,
-    disabled: busy || isConnecting,
-    markerText: isConnecting ? "..." : "",
-    tooltip: isConnected ? `Disconnect ${formatTransport()}` : (isConnecting ? "Connecting" : "Connect"),
-  });
-  if (!busy && !isConnecting && connectButton.clicked) {
-    if (isConnected) {
-      disconnectPrinter();
-    } else {
-      connectMenuOpen = !connectMenuOpen;
-    }
-  }
-
-  const printButtonX = toolbar.x + toolbar.width - connectButtonWidth - toolbarGap - printButtonWidth;
-  if (printButtonWidth) {
-    const printButton = busy
-      ? drawPrintProgressButton({
-        x: printButtonX,
-        y: rightButtonY,
-        width: printButtonWidth,
-        height: toolbarButtonHeight,
-        progress: printProgress,
-      })
-      : drawIconButton("print", {
-        x: printButtonX,
-        y: rightButtonY,
-        width: printButtonWidth,
-        height: toolbarButtonHeight,
-        primary: true,
-        disabled: false,
-        tooltip: "Print",
-      });
-    if (busy && printButton.clicked) {
-      cancelActivePrint();
-    } else if (!busy && printButton.clicked) {
-      handlePrimaryButton();
-    }
-  }
-
-  const clearButtonX = printButtonWidth
-    ? printButtonX - toolbarGap - clearButtonWidth
-    : toolbar.x + toolbar.width - connectButtonWidth - toolbarGap - clearButtonWidth;
-  const clearButton = drawIconButton("backspace", {
-    x: clearButtonX,
-    y: rightButtonY,
-    width: clearButtonWidth,
-    height: toolbarButtonHeight,
-    disabled: busy,
-    tooltip: "Clear",
-  });
-  if (!busy && clearButton.clicked) {
-    clearEditor();
-  }
-
-  const downloadButton = drawIconButton("download", {
-    x: clearButtonX - toolbarGap - downloadButtonWidth,
-    y: rightButtonY,
-    width: downloadButtonWidth,
-    height: toolbarButtonHeight,
-    disabled: busy,
-    tooltip: "Save and download",
-  });
-  if (!busy && downloadButton.clicked) {
-    downloadCurrentLabel();
-  }
-
-  const autoButtonWidth = squareButtonWidth;
-  const formatX = toolbar.x + grayscaleButtonWidth + toolbarGap + modeButtonWidth + toolbarGap;
-  const orientationX = formatX + squareButtonWidth + toolbarGap;
-  const autoButtonX = orientationX + squareButtonWidth + toolbarGap;
-  const paddingButtonX = autoButtonX + autoButtonWidth + toolbarGap;
-  const qrButtonX = paddingButtonX + squareButtonWidth + toolbarGap;
-  const photoButtonX = qrButtonX + squareButtonWidth + toolbarGap;
-  const blendButtonX = hasPhotoControls ? photoButtonX + squareButtonWidth + toolbarGap : null;
-  const invertButtonX = useSingleToolbarRow
-    ? (hasPhotoControls ? blendButtonX : photoButtonX) + squareButtonWidth + toolbarGap
-    : toolbar.x;
-  const outlineButtonX = invertButtonX + squareButtonWidth + toolbarGap;
-  const textEffectButtonX = outlineButtonX + squareButtonWidth + toolbarGap;
-  const removePhotoButtonX = textEffectButtonX + squareButtonWidth + toolbarGap;
-  const secondaryControlsEndX = (showRemovePhotoButton ? removePhotoButtonX : textEffectButtonX) + squareButtonWidth + toolbarGap;
-  const styleControlsX = useSingleToolbarRow
-    ? secondaryControlsEndX
-    : (useThreeToolbarRows ? toolbar.x : secondaryControlsEndX);
-  const styleControlsY = styleButtonY;
-  const fontButtonX = showStyleControls
-    ? Math.min(
-      styleControlsX + styleControlsWidth + toolbarGap,
-      toolbar.x + toolbar.width - fontButtonWidth
-    )
-    : toolbar.x;
-  const fontButtonY = styleButtonY;
-
-  const toggleButton = drawIconButton(labelFormat === "10x10" ? "crop_square" : "aspect_ratio", {
-    x: formatX,
-    y: mainButtonY,
-    width: squareButtonWidth,
-    height: toolbarButtonHeight,
-    disabled: busy,
-    tooltip: labelFormat === "10x10" ? "Use 10 x 15" : "Use square",
-  });
-  if (!busy && toggleButton.clicked) {
-    toggleLabelFormat();
-  }
-
-  const orientationButton = drawIconButton(orientation === "portrait" ? "stay_current_portrait" : "stay_current_landscape", {
-    x: orientationX,
-    y: mainButtonY,
-    width: squareButtonWidth,
-    height: toolbarButtonHeight,
-    disabled: busy,
-    tooltip: orientation === "portrait" ? "Portrait" : "Landscape",
-  });
-  if (!busy && orientationButton.clicked) {
-    toggleOrientation();
-  }
-
-  const autoButton = drawIconButton(autoSizingEnabled ? "autorenew" : "sync_disabled", {
-    x: autoButtonX,
-    y: mainButtonY,
-    width: autoButtonWidth,
-    height: toolbarButtonHeight,
-    active: autoSizingEnabled,
-    disabled: busy,
-    tooltip: autoSizingEnabled ? "Auto size on" : "Auto size off",
-  });
-  if (!busy && autoButton.clicked) {
-    autoSizingEnabled = !autoSizingEnabled;
-    detailText = autoSizingEnabled ? "Auto sizing on." : "Auto sizing off.";
-    saveEditorState();
-  }
-
-  const paddingButton = drawIconButton("padding", {
-    x: paddingButtonX,
-    y: mainButtonY,
-    width: squareButtonWidth,
-    height: toolbarButtonHeight,
-    active: labelPaddingMode !== "minimal",
-    disabled: busy,
-    markerText: labelPaddingMode === "minimal" ? "min" : (labelPaddingMode === "some" ? "mid" : "max"),
-    tooltip: `Padding: ${labelPaddingMode}`,
-  });
-  if (!busy && paddingButton.clicked) {
-    toggleLabelPadding();
-  }
-
-  const qrButton = drawIconButton(labelQrText ? "qr_code_2" : "qr_code", {
-    x: qrButtonX,
-    y: mainButtonY,
-    width: squareButtonWidth,
-    height: toolbarButtonHeight,
-    active: !!labelQrText,
-    disabled: busy,
-    tooltip: labelQrText ? "Remove QR" : "Add QR",
-  });
-  if (!busy && qrButton.clicked) {
-    promptForQrCode();
-  }
-
-  const photoButton = drawIconButton(photoEnabled ? "videocam" : "photo_camera", {
-    x: photoButtonX,
-    y: mainButtonY,
-    width: squareButtonWidth,
-    height: toolbarButtonHeight,
-    active: photoEnabled,
-    disabled: busy || photoCameraStarting,
-    tooltip: photoEnabled ? "Camera on" : "Camera off",
-  });
-  if (!busy && !photoCameraStarting && photoButton.clicked) {
-    togglePhotoCamera();
-  }
-
-  if (hasPhotoControls) {
-    const blendButton = drawIconButton(getBlendModeIcon(), {
-      x: blendButtonX,
-      y: mainButtonY,
-      width: squareButtonWidth,
-      height: toolbarButtonHeight,
-      active: photoMergeMode !== "below",
-      disabled: busy,
-      iconSize: 22,
-      tooltip: `Photo: ${getPhotoMergeModeLabel()}`,
-    });
-    if (!busy && blendButton.clicked) {
-      togglePhotoMergeMode();
-    }
-  }
-
-  const invertButton = drawIconButton(labelInverted ? "invert_colors_off" : "invert_colors", {
-    x: invertButtonX,
-    y: secondaryButtonY,
-    width: squareButtonWidth,
-    height: toolbarButtonHeight,
-    active: labelInverted,
-    disabled: busy,
-    iconSize: 22,
-    tooltip: labelInverted ? "Invert off" : "Invert",
-  });
-  if (!busy && invertButton.clicked) {
-    toggleInvertMode();
-  }
-
-  const outlineButton = drawIconButton(getTextOutlineModeIcon(), {
-    x: outlineButtonX,
-    y: secondaryButtonY,
-    width: squareButtonWidth,
-    height: toolbarButtonHeight,
-    active: textOutlineMode !== "none",
-    disabled: busy,
-    tooltip: `Text: ${getTextOutlineModeLabel()}`,
-  });
-  if (!busy && outlineButton.clicked) {
-    toggleTextOutlineMode();
-  }
-
-  const textEffectButton = drawIconButton(getTextEffectModeIcon(), {
-    x: textEffectButtonX,
-    y: secondaryButtonY,
-    width: squareButtonWidth,
-    height: toolbarButtonHeight,
-    active: textEffectMode !== "none",
-    disabled: busy,
-    iconSize: 22,
-    tooltip: `Text FX: ${getTextEffectModeLabel()}`,
-  });
-  if (!busy && textEffectButton.clicked) {
-    toggleTextEffectMode();
-  }
-
-  if (showRemovePhotoButton) {
-    const removePhotoButton = drawIconButton("hide_image", {
-      x: removePhotoButtonX,
-      y: secondaryButtonY,
-      width: squareButtonWidth,
-      height: toolbarButtonHeight,
-      disabled: busy,
-      tooltip: "Remove photo",
-    });
-    if (!busy && removePhotoButton.clicked) {
-      removeStoredPhoto();
-    }
-  }
-
-  if (showStyleControls) {
-    drawTextStyleControls(styleControlsX, styleControlsY, busy, {
-      buttonWidth: styleButtonWidth,
-      buttonHeight: toolbarButtonHeight,
-      gap: styleButtonGap,
-    });
-  }
-
-  const fontButton = uiButton(getEditorFontLabel(), {
-    x: fontButtonX,
-    y: fontButtonY,
-    width: fontButtonWidth,
-    height: toolbarButtonHeight,
-    fontSize: 15,
-    hAlign: "left",
-    vAlign: "middle",
-    padding: 12,
-    bgColor: busy ? "#1f1f1f" : "#ffffff",
-    hover: { bgColor: busy ? "#1f1f1f" : "#f1f1f1", cursor: busy ? "default" : "pointer" },
-    pressed: { bgColor: busy ? "#1f1f1f" : "#d0d0d0", cursor: busy ? "default" : "pointer" },
-    stroke: { weight: 0 },
-    textColor: busy ? "#5a5a5a" : "#000000",
-  });
-  registerTooltip("font", `Font: ${getEditorFontLabel()}`, fontButtonX, fontButtonY, fontButtonWidth, toolbarButtonHeight);
-  if (!busy && fontButton.clicked) {
-    toggleEditorFont();
-  }
+  const toolbarLayout = createToolbarLayout(toolbar, { isConnected, isConnecting, printButtonWidth });
+  drawToolbarLayout(toolbarLayout, { isConnected, isConnecting });
+  const connectButtonRect = toolbarLayout.rects.connect || { x: toolbar.x + toolbar.width - squareButtonWidth, width: squareButtonWidth };
 
   drawPreviewCard(preview);
   if (!busy && !isConnected && connectMenuOpen) {
-    drawConnectMenu(preview, connectButtonX, connectButtonWidth);
+    drawConnectMenu(preview, connectButtonRect.x, connectButtonRect.width);
   }
   drawPendingTooltip();
 }
 
 function drawConnectMenu(preview, anchorX, buttonWidth) {
-  const menuWidth = Math.max(buttonWidth, 96);
+  const menuWidth = Math.min(Math.max(buttonWidth, connectMenuMinWidth), Math.max(96, preview.width - 16));
   const menuX = constrain(anchorX, preview.x + 8, preview.x + preview.width - menuWidth - 8);
   const bleButtonY = preview.y + 8;
   const usbButtonY = bleButtonY + toolbarButtonHeight + toolbarGap;
@@ -688,6 +366,10 @@ function drawConnectMenu(preview, anchorX, buttonWidth) {
   for (let i = 0; i < peerHostnameItems.length; i++) {
     const hostname = peerHostnameItems[i];
     const y = peerButtonY + (toolbarButtonHeight + toolbarGap) * (i + 1);
+    const deleted = handlePeerHostnameLongPress(hostname, menuX, y, menuWidth, toolbarButtonHeight, peerAvailable);
+    if (deleted) {
+      continue;
+    }
     const hostnameButton = uiButton(hostname, {
       x: menuX,
       y,
@@ -699,10 +381,418 @@ function drawConnectMenu(preview, anchorX, buttonWidth) {
       stroke: { weight: 0 },
     });
     registerTooltip(`connect-peer-${hostname}`, peerAvailable ? `Connect ${hostname}` : "PeerJS unavailable", menuX, y, menuWidth, toolbarButtonHeight);
-    if (peerAvailable && hostnameButton.clicked) {
+    if (peerAvailable && hostnameButton.clicked && !peerHostnameLongPress.fired) {
       connectMenuOpen = false;
       connectPrinter("peer", { peerHostname: hostname });
     }
+  }
+}
+
+function handlePeerHostnameLongPress(hostname, x, y, w, h, enabled = true) {
+  if (!enabled || !mouseIsPressed) {
+    if (!mouseIsPressed && peerHostnameLongPress.hostname === hostname) {
+      peerHostnameLongPress = { hostname: "", startedAt: 0, fired: false };
+    }
+    return false;
+  }
+
+  const inside = mouseX >= x && mouseX <= x + w && mouseY >= y && mouseY <= y + h;
+  if (!inside) {
+    if (peerHostnameLongPress.hostname === hostname) {
+      peerHostnameLongPress = { hostname: "", startedAt: 0, fired: false };
+    }
+    return false;
+  }
+
+  const now = millis();
+  if (peerHostnameLongPress.hostname !== hostname) {
+    peerHostnameLongPress = { hostname, startedAt: now, fired: false };
+    return false;
+  }
+
+  if (!peerHostnameLongPress.fired && now - peerHostnameLongPress.startedAt >= peerHostnameDeleteHoldMs) {
+    peerHostnameLongPress.fired = true;
+    const shouldDelete = window.confirm(`Delete PeerJS printer "${hostname}"?`);
+    if (shouldDelete) {
+      deletePeerHostname(hostname);
+      return true;
+    }
+  }
+
+  return false;
+}
+
+function createToolbarLayout(toolbar, state = {}) {
+  const square = toolbarButtonHeight;
+  const printWidth = Number(state.printButtonWidth) || 0;
+  const leftItems = buildToolbarLeftItems(square);
+  const rightItems = buildToolbarRightItems(square, printWidth, state);
+  return layoutTwoSidedToolbar(toolbar, leftItems, rightItems);
+}
+
+function buildToolbarLeftItems(square) {
+  const items = [
+    {
+      key: "grayscale",
+      width: square,
+      draw: (rect) => {
+        const result = drawIconButton(photoGrayscaleEnabled ? "filter_b_and_w" : "gradient", {
+          ...rect,
+          active: photoGrayscaleEnabled,
+          disabled: busy,
+          tooltip: photoGrayscaleEnabled ? "Grayscale on" : "Grayscale off",
+        });
+        if (!busy && result.clicked) togglePhotoGrayscale();
+      },
+    },
+    {
+      key: "format",
+      width: square,
+      draw: (rect) => {
+        const result = drawIconButton(labelFormat === "10x10" ? "crop_square" : "aspect_ratio", {
+          ...rect,
+          disabled: busy,
+          tooltip: labelFormat === "10x10" ? "Use 10 x 15" : "Use square",
+        });
+        if (!busy && result.clicked) toggleLabelFormat();
+      },
+    },
+    {
+      key: "orientation",
+      width: square,
+      draw: (rect) => {
+        const result = drawIconButton(orientation === "portrait" ? "stay_current_portrait" : "stay_current_landscape", {
+          ...rect,
+          disabled: busy,
+          tooltip: orientation === "portrait" ? "Portrait" : "Landscape",
+        });
+        if (!busy && result.clicked) toggleOrientation();
+      },
+    },
+    {
+      key: "autosize",
+      width: square,
+      draw: (rect) => {
+        const result = drawIconButton(autoSizingEnabled ? "autorenew" : "sync_disabled", {
+          ...rect,
+          active: autoSizingEnabled,
+          disabled: busy,
+          tooltip: autoSizingEnabled ? "Auto size on" : "Auto size off",
+        });
+        if (!busy && result.clicked) {
+          autoSizingEnabled = !autoSizingEnabled;
+          detailText = autoSizingEnabled ? "Auto sizing on." : "Auto sizing off.";
+          saveEditorState();
+        }
+      },
+    },
+    {
+      key: "padding",
+      width: square,
+      draw: (rect) => {
+        const result = drawIconButton("padding", {
+          ...rect,
+          active: labelPaddingMode !== "minimal",
+          disabled: busy,
+          markerText: labelPaddingMode === "minimal" ? "min" : (labelPaddingMode === "some" ? "mid" : "max"),
+          tooltip: `Padding: ${labelPaddingMode}`,
+        });
+        if (!busy && result.clicked) toggleLabelPadding();
+      },
+    },
+    {
+      key: "qr",
+      width: square,
+      draw: (rect) => {
+        const result = drawIconButton(labelQrText ? "qr_code_2" : "qr_code", {
+          ...rect,
+          active: !!labelQrText,
+          disabled: busy,
+          tooltip: labelQrText ? "Remove QR" : "Add QR",
+        });
+        if (!busy && result.clicked) promptForQrCode();
+      },
+    },
+    {
+      key: "photo",
+      width: square,
+      draw: (rect) => {
+        const result = drawIconButton(photoEnabled ? "videocam" : "photo_camera", {
+          ...rect,
+          active: photoEnabled,
+          disabled: busy || photoCameraStarting,
+          tooltip: photoEnabled ? "Camera on" : "Camera off",
+        });
+        if (!busy && !photoCameraStarting && result.clicked) togglePhotoCamera();
+      },
+    },
+  ];
+
+  if (hasPhotoSource() || photoEnabled || photoCameraStarting) {
+    items.push({
+      key: "photo-blend",
+      width: square,
+      draw: (rect) => {
+        const result = drawIconButton(getBlendModeIcon(), {
+          ...rect,
+          active: photoMergeMode !== "below",
+          disabled: busy,
+          iconSize: 22,
+          tooltip: `Photo: ${getPhotoMergeModeLabel()}`,
+        });
+        if (!busy && result.clicked) togglePhotoMergeMode();
+      },
+    });
+  }
+
+  items.push(
+    {
+      key: "invert",
+      width: square,
+      draw: (rect) => {
+        const result = drawIconButton(labelInverted ? "invert_colors_off" : "invert_colors", {
+          ...rect,
+          active: labelInverted,
+          disabled: busy,
+          iconSize: 22,
+          tooltip: labelInverted ? "Invert off" : "Invert",
+        });
+        if (!busy && result.clicked) toggleInvertMode();
+      },
+    },
+    {
+      key: "outline",
+      width: square,
+      draw: (rect) => {
+        const result = drawIconButton(getTextOutlineModeIcon(), {
+          ...rect,
+          active: textOutlineMode !== "none",
+          disabled: busy,
+          tooltip: `Text: ${getTextOutlineModeLabel()}`,
+        });
+        if (!busy && result.clicked) toggleTextOutlineMode();
+      },
+    },
+    {
+      key: "text-effect",
+      width: square,
+      draw: (rect) => {
+        const result = drawIconButton(getTextEffectModeIcon(), {
+          ...rect,
+          active: textEffectMode !== "none",
+          disabled: busy,
+          iconSize: 22,
+          tooltip: `Text FX: ${getTextEffectModeLabel()}`,
+        });
+        if (!busy && result.clicked) toggleTextEffectMode();
+      },
+    }
+  );
+
+  if (hasStoredPhoto()) {
+    items.push({
+      key: "remove-photo",
+      width: square,
+      draw: (rect) => {
+        const result = drawIconButton("hide_image", {
+          ...rect,
+          disabled: busy,
+          tooltip: "Remove photo",
+        });
+        if (!busy && result.clicked) removeStoredPhoto();
+      },
+    });
+  }
+
+  if (!autoSizingEnabled) {
+    items.push(
+      makeStyleToolbarItem("bold", "format_bold", "Bold", () => toggleCurrentLineStyle("bold"), true, square),
+      makeStyleToolbarItem("italic", "format_italic", "Italic", () => toggleCurrentLineStyle("italic"), true, square),
+      makeStyleToolbarItem("underline", "format_underlined", "Underline", () => toggleCurrentLineStyle("underline"), true, square),
+      makeStyleToolbarItem("smaller", "text_decrease", "Smaller", () => adjustCurrentLineFontSize(-1), false, square),
+      makeStyleToolbarItem("reset-size", "restart_alt", "Reset size", () => resetCurrentLineFontSize(), false, square),
+      makeStyleToolbarItem("larger", "text_increase", "Larger", () => adjustCurrentLineFontSize(+1), false, square)
+    );
+  }
+
+  items.push(
+    {
+      key: "font",
+      width: 104,
+      draw: (rect) => {
+        const result = uiButton(getEditorFontLabel(), {
+          ...rect,
+          fontSize: 15,
+          hAlign: "left",
+          vAlign: "middle",
+          padding: 12,
+          bgColor: busy ? "#1f1f1f" : "#ffffff",
+          hover: { bgColor: busy ? "#1f1f1f" : "#f1f1f1", cursor: busy ? "default" : "pointer" },
+          pressed: { bgColor: busy ? "#1f1f1f" : "#d0d0d0", cursor: busy ? "default" : "pointer" },
+          stroke: { weight: 0 },
+          textColor: busy ? "#5a5a5a" : "#000000",
+        });
+        registerTooltip("font", `Font: ${getEditorFontLabel()}`, rect.x, rect.y, rect.width, rect.height);
+        if (!busy && result.clicked) toggleEditorFont();
+      },
+    }
+  );
+
+  return items;
+}
+
+function makeStyleToolbarItem(key, icon, tooltip, action, hasActiveState, width) {
+  return {
+    key: `style-${key}`,
+    width,
+    draw: (rect) => {
+      const result = drawIconButton(icon, {
+        ...rect,
+        active: hasActiveState ? isTextStyleControlActive(key) : false,
+        disabled: busy,
+        iconSize: 22,
+        tooltip,
+      });
+      if (!busy && result.clicked) action();
+    },
+  };
+}
+
+function buildToolbarRightItems(square, printWidth, state = {}) {
+  const isConnected = !!state.isConnected;
+  const isConnecting = !!state.isConnecting;
+  const items = [
+    {
+      key: "download",
+      width: square,
+      draw: (rect) => {
+        const result = drawIconButton("download", {
+          ...rect,
+          disabled: busy,
+          tooltip: "Save and download",
+        });
+        if (!busy && result.clicked) downloadCurrentLabel();
+      },
+    },
+    {
+      key: "clear",
+      width: square,
+      draw: (rect) => {
+        const result = drawIconButton("backspace", {
+          ...rect,
+          disabled: busy,
+          tooltip: "Clear",
+        });
+        if (!busy && result.clicked) clearEditor();
+      },
+    },
+  ];
+
+  if (printWidth > 0) {
+    items.push({
+      key: "print",
+      width: printWidth,
+      draw: (rect) => {
+        const result = busy
+          ? drawPrintProgressButton({ ...rect, progress: printProgress })
+          : drawIconButton("print", {
+            ...rect,
+            primary: true,
+            disabled: false,
+            tooltip: "Print",
+          });
+        if (busy && result.clicked) {
+          cancelActivePrint();
+        } else if (!busy && result.clicked) {
+          handlePrimaryButton();
+        }
+      },
+    });
+  }
+
+  items.push({
+    key: "connect",
+    width: square,
+    draw: (rect) => {
+      const result = drawIconButton(isConnected ? "link_off" : (isConnecting ? "sync" : "add"), {
+        ...rect,
+        primary: !isConnected,
+        active: isConnected,
+        disabled: busy || isConnecting,
+        markerText: isConnecting ? "..." : "",
+        tooltip: isConnected ? `Disconnect ${formatTransport()}` : (isConnecting ? "Connecting" : "Connect"),
+      });
+      if (!busy && !isConnecting && result.clicked) {
+        if (isConnected) {
+          disconnectPrinter();
+        } else {
+          connectMenuOpen = !connectMenuOpen;
+        }
+      }
+    },
+  });
+
+  return items;
+}
+
+function layoutTwoSidedToolbar(toolbar, leftItems, rightItems) {
+  const rowHeight = toolbarButtonHeight;
+  const rows = [];
+  const placements = [];
+  const rects = {};
+
+  const ensureRow = (rowIndex) => {
+    while (rows.length <= rowIndex) {
+      rows.push({
+        leftCursor: toolbar.x,
+        rightCursor: toolbar.x + toolbar.width,
+        y: toolbar.y + rows.length * (rowHeight + toolbarRowGap),
+      });
+    }
+    return rows[rowIndex];
+  };
+
+  let rightRowIndex = 0;
+  for (let index = rightItems.length - 1; index >= 0; index -= 1) {
+    const item = rightItems[index];
+    let row = ensureRow(rightRowIndex);
+    const nextX = row.rightCursor - item.width;
+    if (nextX < toolbar.x && row.rightCursor < toolbar.x + toolbar.width) {
+      rightRowIndex++;
+      row = ensureRow(rightRowIndex);
+    }
+    const x = row.rightCursor - item.width;
+    const rect = { x, y: row.y, width: item.width, height: rowHeight };
+    row.rightCursor = x - toolbarGap;
+    placements.push({ item, rect });
+    rects[item.key] = rect;
+  }
+
+  let leftRowIndex = 0;
+  for (const item of leftItems) {
+    let row = ensureRow(leftRowIndex);
+    if (row.leftCursor + item.width > row.rightCursor) {
+      leftRowIndex++;
+      row = ensureRow(leftRowIndex);
+    }
+    const rect = { x: row.leftCursor, y: row.y, width: item.width, height: rowHeight };
+    row.leftCursor += item.width + toolbarGap;
+    placements.push({ item, rect });
+    rects[item.key] = rect;
+  }
+
+  return { rows, placements, rects };
+}
+
+function drawToolbarLayout(layout, state = {}) {
+  const rightKeys = new Set(["download", "clear", "print", "connect"]);
+  for (const placement of layout.placements) {
+    if (rightKeys.has(placement.item.key)) continue;
+    placement.item.draw(placement.rect, state);
+  }
+  for (const placement of layout.placements) {
+    if (!rightKeys.has(placement.item.key)) continue;
+    placement.item.draw(placement.rect, state);
   }
 }
 
@@ -1030,6 +1120,15 @@ function rememberPeerHostname(hostname) {
     ...peerHostnames.filter((item) => item !== normalized),
   ].slice(0, maxPeerHostnameMenuItems);
   saveEditorState();
+}
+
+function deletePeerHostname(hostname) {
+  const normalized = normalizePeerHostname(hostname);
+  if (!normalized) return;
+  peerHostnames = peerHostnames.filter((item) => normalizePeerHostname(item) !== normalized);
+  peerHostnameLongPress = { hostname: "", startedAt: 0, fired: false };
+  saveEditorState();
+  detailText = `Deleted PeerJS printer ${normalized}.`;
 }
 
 function sanitizePeerHostnames(value) {
@@ -2557,7 +2656,18 @@ function getToolbarRect(preview = getPreviewRect()) {
 }
 
 function getToolbarRowCount() {
-  return width > height ? 1 : 3;
+  const sideMargin = getViewportSideMargin();
+  const toolbar = {
+    x: sideMargin,
+    y: 0,
+    width: Math.max(1, width - sideMargin * 2),
+  };
+  const square = toolbarButtonHeight;
+  const connectionState = printer?.getConnectionState?.() || {};
+  const isConnected = !!connectionState.connected;
+  const isConnecting = connectingPrinter || !!connectionState.connecting;
+  const printButtonWidth = busy ? square * 3 + toolbarGap * 2 : (isConnected ? square : 0);
+  return createToolbarLayout(toolbar, { isConnected, isConnecting, printButtonWidth }).rows.length || 1;
 }
 
 function getViewportSideMargin() {
