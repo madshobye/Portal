@@ -12,6 +12,7 @@ class PeerLabelPrinter {
     localId = "",
     remoteId = "printhost",
     autoSuffixRemoteId = true,
+    remoteIdSuffixes = ["a", "b", "c", "d", "e"],
     chunkSize = 180,
     chunkDelayMs = 1,
     connectTimeoutMs = 12000,
@@ -33,6 +34,7 @@ class PeerLabelPrinter {
     this.localId = localId || `labelmaker-${Math.floor(Math.random() * 10000)}`;
     this.remoteId = remoteId || "printhost";
     this.autoSuffixRemoteId = autoSuffixRemoteId !== false;
+    this.remoteIdSuffixes = Array.isArray(remoteIdSuffixes) ? remoteIdSuffixes.slice(0, 5) : ["a", "b", "c", "d", "e"];
     this.chunkSize = Math.max(64, Math.min(1024, Number(chunkSize) || 180));
     this.chunkDelayMs = Math.max(0, Number.isFinite(Number(chunkDelayMs)) ? Number(chunkDelayMs) : 1);
     this.connectTimeoutMs = Math.max(2000, Number(connectTimeoutMs) || 12000);
@@ -85,6 +87,7 @@ class PeerLabelPrinter {
 
     this.connecting = true;
     const token = ++this._connectToken;
+    console.info(`[PeerLabelPrinter] connecting to PeerJS server ${this.host}:${this.port}`);
     this._setState("connecting_server");
 
     try {
@@ -92,6 +95,7 @@ class PeerLabelPrinter {
       const candidates = this._buildRemoteCandidates(this.remoteId);
       for (const candidate of candidates) {
         if (token !== this._connectToken) return false;
+        console.info(`[PeerLabelPrinter] trying ESP32 id ${candidate}`);
         this._setState("connecting_peer", { candidate });
         const result = await this._tryConnectCandidate(candidate, token);
         if (result === "connected") {
@@ -101,12 +105,15 @@ class PeerLabelPrinter {
           this._attachConnectedHandlers(this.connection);
           this._startHeartbeat();
           this._setState("connected");
+          console.info(`[PeerLabelPrinter] connected to ${candidate}`);
           this._onConnect?.();
           return true;
         }
         if (result === "responded") {
+          console.error(`[PeerLabelPrinter] ${candidate} answered signaling but data channel did not open`);
           throw new Error(`ESP32 responded as ${candidate}, but the data channel did not open`);
         }
+        console.info(`[PeerLabelPrinter] no connection for ${candidate}`);
         await this._delay(this.scanPauseMs);
       }
       throw new Error(`Could not connect to ESP32 id ${this.remoteId}`);
@@ -116,6 +123,7 @@ class PeerLabelPrinter {
       this._safeCloseConnection();
       this._safeDestroyPeer();
       this._setState("error", { error });
+      console.error("[PeerLabelPrinter] connect failed", error);
       this._handleError(error);
       throw error;
     }
@@ -191,14 +199,17 @@ class PeerLabelPrinter {
       const timer = setTimeout(() => reject(new Error("PeerJS server connection timed out")), this.connectTimeoutMs);
       this.peer.once("open", () => {
         clearTimeout(timer);
+        console.info(`[PeerLabelPrinter] browser peer open as ${this.peer?.id || this.localId}`);
         resolve();
       });
       this.peer.once("error", (error) => {
         clearTimeout(timer);
+        console.error("[PeerLabelPrinter] PeerJS server error", error);
         reject(error);
       });
       this.peer.once("disconnected", () => {
         if (token === this._connectToken && !this.connected) {
+          console.warn("[PeerLabelPrinter] PeerJS server disconnected while connecting");
           this._setState("server_disconnected");
         }
       });
@@ -508,8 +519,8 @@ class PeerLabelPrinter {
     const baseId = String(remoteId || "").trim();
     if (!baseId || !this.autoSuffixRemoteId) return baseId ? [baseId] : [];
     const candidates = [baseId];
-    for (let code = 97; code <= 122; code++) {
-      candidates.push(`${baseId}${String.fromCharCode(code)}`);
+    for (const suffix of this.remoteIdSuffixes) {
+      candidates.push(`${baseId}${suffix}`);
     }
     return candidates;
   }

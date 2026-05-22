@@ -1,5 +1,7 @@
 let printer;
 let connectMenuOpen = false;
+let connectingPrinter = false;
+let lastPeerStateLogKey = "";
 let statusText = "loading";
 let detailText = "Type on the keyboard. Return inserts a new line.";
 let busy = false;
@@ -262,6 +264,7 @@ function draw() {
   const preview = getPreviewRect();
   const connectionState = printer?.getConnectionState?.() || {};
   const isConnected = !!connectionState.connected;
+  const isConnecting = connectingPrinter || !!connectionState.connecting;
   const hasPhotoControls = hasPhotoSource() || photoEnabled || photoCameraStarting;
   const controlsY = preview.y + preview.height + 16;
   const squareButtonWidth = toolbarButtonHeight;
@@ -325,18 +328,18 @@ function draw() {
   }
 
   const connectButtonX = preview.x + preview.width - connectButtonWidth;
-  const connectButton = drawIconButton(isConnected ? "link_off" : "add", {
+  const connectButton = drawIconButton(isConnected ? "link_off" : (isConnecting ? "sync" : "add"), {
     x: connectButtonX,
     y: rightButtonY,
     width: connectButtonWidth,
     height: toolbarButtonHeight,
     primary: !isConnected,
     active: isConnected,
-    disabled: busy,
-    spin: false,
-    tooltip: isConnected ? `Disconnect ${formatTransport()}` : "Connect",
+    disabled: busy || isConnecting,
+    markerText: isConnecting ? "..." : "",
+    tooltip: isConnected ? `Disconnect ${formatTransport()}` : (isConnecting ? "Connecting" : "Connect"),
   });
-  if (!busy && connectButton.clicked) {
+  if (!busy && !isConnecting && connectButton.clicked) {
     if (isConnected) {
       disconnectPrinter();
     } else {
@@ -921,18 +924,26 @@ function drawTooltip(label, anchorX, anchorY) {
 }
 
 async function connectPrinter(transport = "ble") {
-  if (busy) return;
+  if (busy || connectingPrinter) return;
   try {
+    connectingPrinter = true;
+    connectMenuOpen = false;
     statusText = "connecting";
-    detailText = `Choose a ${formatTransport(transport)} printer.`;
+    detailText = transport === "peer"
+      ? "Connecting to ESP32 over PeerJS..."
+      : `Choose a ${formatTransport(transport)} printer.`;
+    console.info(`[labelmaker2] connecting ${formatTransport(transport)}`);
     await printer.connect(transport);
     outputMode = printer.getSuggestedOutputMode?.() || "label";
     statusText = "connected";
     detailText = `Connected over ${formatTransport()}. Press Print for ${outputMode}.`;
+    console.info(`[labelmaker2] connected ${formatTransport()}`);
   } catch (error) {
     console.error("[labelmaker2] connect failed", error);
     statusText = "connect failed";
     detailText = error?.message || String(error);
+  } finally {
+    connectingPrinter = false;
   }
 }
 
@@ -949,9 +960,20 @@ function handlePrinterState(state) {
   if (state.transport === "peer") {
     outputMode = "label";
     const target = state.remoteId || state.candidate || "ESP32";
+    const peerStateKey = `${state.state}:${state.candidate || ""}:${state.connected ? "1" : "0"}`;
+    if (peerStateKey !== lastPeerStateLogKey) {
+      lastPeerStateLogKey = peerStateKey;
+      if (state.state === "error") {
+        console.error("[labelmaker2] PeerJS state", state.state, state.error || "");
+      } else if (state.state !== "connected") {
+        console.info("[labelmaker2] PeerJS state", state.state, state.candidate || "");
+      }
+    }
     detailText = state.connected
       ? `Connected to ${target} over PeerJS. Press Print for label.`
-      : "Type on the keyboard. Return inserts a new line.";
+      : state.connecting
+        ? (state.candidate ? `Trying ESP32 id ${state.candidate}...` : "Connecting to PeerJS...")
+        : "Type on the keyboard. Return inserts a new line.";
     return;
   }
 

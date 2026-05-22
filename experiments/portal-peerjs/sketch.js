@@ -8,6 +8,8 @@ const DEFAULTS = {
   remoteId: "printhost",
 };
 
+const REMOTE_ID_SUFFIXES = ["a", "b", "c", "d", "e"];
+
 let peer = null;
 let conn = null;
 let peerReady = false;
@@ -215,8 +217,8 @@ function buildRemoteCandidates(remoteId) {
   if (!baseId) return [];
 
   const candidates = [baseId];
-  for (let code = 97; code <= 122; code += 1) {
-    candidates.push(`${baseId}${String.fromCharCode(code)}`);
+  for (const suffix of REMOTE_ID_SUFFIXES) {
+    candidates.push(`${baseId}${suffix}`);
   }
   return candidates;
 }
