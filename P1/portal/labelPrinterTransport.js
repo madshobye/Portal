@@ -7,6 +7,7 @@ class LabelPrinterTransport {
     ble = {},
     usb = {},
     webusb = false,
+    peer = false,
     defaultTransport = "ble",
     onState = null,
     onError = null,
@@ -14,13 +15,16 @@ class LabelPrinterTransport {
     this.bleOptions = ble === false ? null : (ble || {});
     this.usbOptions = usb === false ? null : (usb || {});
     this.webUsbOptions = webusb === false ? null : (webusb || {});
-    this.activeTransport = ["usb", "webusb"].includes(defaultTransport) ? defaultTransport : "ble";
+    this.peerOptions = peer === false ? null : (peer || {});
+    this.activeTransport = ["usb", "webusb", "peer"].includes(defaultTransport) ? defaultTransport : "ble";
     this.printer = null;
     this.blePrinter = null;
     this.usbPrinter = null;
     this.webUsbPrinter = null;
+    this.peerPrinter = null;
     this.usbAvailable = false;
     this.webUsbAvailable = false;
+    this.peerAvailable = false;
     this.ready = false;
     this._onState = typeof onState === "function" ? onState : null;
     this._onError = typeof onError === "function" ? onError : null;
@@ -92,6 +96,25 @@ class LabelPrinterTransport {
       }
     }
 
+    if (this.peerOptions && typeof PeerLabelPrinter !== "undefined") {
+      try {
+        this.peerPrinter = await new PeerLabelPrinter({
+          protocol: "tspl",
+          chunkSize: 1200,
+          debug: false,
+          ...this.peerOptions,
+          onState: (state) => this._handleState("peer", state),
+          onConnect: () => this.activate("peer"),
+          onError: (error) => this._handleError("peer", error),
+        }).init();
+        this.peerAvailable = true;
+      } catch (error) {
+        this.peerPrinter = null;
+        this.peerAvailable = false;
+        this._handleError("peer", error, { passive: true });
+      }
+    }
+
     this.activate(this.activeTransport);
     this.ready = true;
     return this;
@@ -104,6 +127,9 @@ class LabelPrinterTransport {
     } else if (transport === "webusb" && this.webUsbPrinter) {
       this.activeTransport = "webusb";
       this.printer = this.webUsbPrinter;
+    } else if (transport === "peer" && this.peerPrinter) {
+      this.activeTransport = "peer";
+      this.printer = this.peerPrinter;
     } else {
       this.activeTransport = "ble";
       this.printer = this.blePrinter;
@@ -114,6 +140,7 @@ class LabelPrinterTransport {
   canConnect(transport) {
     if (transport === "usb") return !!this.usbPrinter;
     if (transport === "webusb") return !!this.webUsbPrinter;
+    if (transport === "peer") return !!this.peerPrinter;
     return !!this.blePrinter;
   }
 
@@ -146,7 +173,7 @@ class LabelPrinterTransport {
   }
 
   getSuggestedOutputMode() {
-    if (this.activeTransport === "usb" || this.activeTransport === "webusb") return "label";
+    if (this.activeTransport === "usb" || this.activeTransport === "webusb" || this.activeTransport === "peer") return "label";
     return this.printer?.getSuggestedOutputMode?.() || "label";
   }
 
@@ -158,7 +185,7 @@ class LabelPrinterTransport {
     let cancelled = false;
     const promise = (async () => {
       const bytes = LabelPrinterProtocol.makeTsplBitmapLabel(imageData, options, this._encoder);
-      await this.printer.writeBytes(bytes);
+      await this.printer.writeBytes(bytes, { onProgress: options.onProgress });
       if (!cancelled) options.onProgress?.({ ratio: 1 });
     })();
 
@@ -185,6 +212,7 @@ class LabelPrinterTransport {
   }
 
   formatTransport(transport = this.activeTransport) {
+    if (transport === "peer") return "Peer";
     return transport === "usb" || transport === "webusb" ? "USB" : "BLE";
   }
 
@@ -206,7 +234,7 @@ class LabelPrinterTransport {
       ...state,
       transport,
       transportLabel: this.formatTransport(transport),
-      suggestedOutputMode: transport === "usb" || transport === "webusb" ? "label" : state?.suggestedOutputMode,
+      suggestedOutputMode: transport === "usb" || transport === "webusb" || transport === "peer" ? "label" : state?.suggestedOutputMode,
     });
   }
 

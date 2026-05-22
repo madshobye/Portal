@@ -314,7 +314,7 @@ function attachConnection(nextConn) {
 
   conn.on("data", (data) => {
     if (conn !== nextConn) return;
-    addLog(`esp32: ${data}`);
+    handleIncomingData(data);
   });
 
   conn.on("close", () => {
@@ -345,6 +345,29 @@ function attachConnection(nextConn) {
   });
 }
 
+async function handleIncomingData(data) {
+  const type = data?.constructor?.name || typeof data;
+  let message = "";
+
+  try {
+    if (typeof data === "string") {
+      message = data;
+    } else if (typeof Blob !== "undefined" && data instanceof Blob) {
+      message = await data.text();
+    } else if (data instanceof ArrayBuffer) {
+      message = new TextDecoder().decode(new Uint8Array(data));
+    } else if (data instanceof Uint8Array) {
+      message = new TextDecoder().decode(data);
+    } else {
+      message = String(data);
+    }
+  } catch (error) {
+    message = `<decode failed: ${error.message || error}>`;
+  }
+
+  addLog(`esp32 (${type}): ${message}`);
+}
+
 function isMissingPeerError(message) {
   return /Could not connect to peer/.test(message);
 }
@@ -368,7 +391,7 @@ function markRemoteCandidateResponded(reason) {
 function sendPing() {
   if (!conn || !channelOpen) return;
 
-  const message = `ping ${new Date().toLocaleTimeString()}`;
+  const message = JSON.stringify({ cmd: "peer:ping", at: Date.now() });
   conn.send(message);
   addLog(`browser: ${message}`);
 }

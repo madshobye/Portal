@@ -9,14 +9,25 @@
 #include <HTTPClient.h>
 #include <WebSockets.h>
 #include <WebSocketsClient.h>
+#include "PrintBridge.h"
 
 static TaskHandle_t peerConnectionTaskHandle = NULL;
 static TaskHandle_t peerJsTaskHandle = NULL;
 static SemaphoreHandle_t peerSemaphore = NULL;
+static QueueHandle_t peerDataChannelSendQueue = NULL;
+
+struct PeerDataChannelMessage {
+  char text[256];
+  uint16_t sid;
+  bool hasSid;
+};
 
 PeerConnection *peerConnection = NULL;
 enum PeerConnectionState peerState = PEER_CONNECTION_CLOSED;
 bool dataChannelOpen = false;
+static bool dataChannelSidKnown = false;
+static uint16_t dataChannelSid = 0;
+static bool peerInitialized = false;
 
 #ifndef LED_BUILTIN
 #define LED_BUILTIN 2
@@ -48,6 +59,18 @@ int peerJsIdAttempt = 0;
 
 void peerJsConnect();
 void peerJsTryNextId();
+static void onPeerIceCandidate(char *sdpText, void *userData);
+
+static void peerLogHeap(const char *label) {
+  Serial.printf(
+    "Heap %-18s free=%u min=%u maxAlloc=%u psram=%u\r\n",
+    label,
+    ESP.getFreeHeap(),
+    ESP.getMinFreeHeap(),
+    ESP.getMaxAllocHeap(),
+    ESP.getFreePsram()
+  );
+}
 
 String peerJsBuildId(int attempt) {
   String id = PEERJS_ID;
@@ -296,6 +319,52 @@ void peerGiveConnection() {
   xSemaphoreGive(peerSemaphore);
 }
 
+void peerSendDataChannelText(const char *message) {
+  if (!dataChannelOpen || peerConnection == NULL || message == NULL) {
+    return;
+  }
+  if (peerDataChannelSendQueue == NULL) {
+    return;
+  }
+
+  PeerDataChannelMessage queued = {};
+  strlcpy(queued.text, message, sizeof(queued.text));
+  queued.sid = dataChannelSid;
+  queued.hasSid = dataChannelSidKnown;
+  if (xQueueSend(peerDataChannelSendQueue, &queued, 0) != pdTRUE) {
+    Serial.println("PeerJS datachannel send queue full");
+  }
+}
+
+static void peerFlushDataChannelSendQueue() {
+  if (!dataChannelOpen || peerConnection == NULL || peerDataChannelSendQueue == NULL) {
+    return;
+  }
+
+  PeerDataChannelMessage queued = {};
+  while (xQueueReceive(peerDataChannelSendQueue, &queued, 0) == pdTRUE) {
+    if (!dataChannelOpen || peerConnection == NULL) {
+      break;
+    }
+    const bool quietMessage =
+      strcmp(queued.text, "{\"cmd\":\"peer:pong\"}") == 0 ||
+      strstr(queued.text, "\"state\":\"progress\"") != NULL;
+    if (!quietMessage) {
+      Serial.print("PeerJS datachannel send: ");
+      Serial.println(queued.text);
+    }
+    int result = -1;
+    if (queued.hasSid) {
+      result = peer_connection_datachannel_send_sid(peerConnection, queued.text, strlen(queued.text), queued.sid);
+    } else {
+      result = peer_connection_datachannel_send(peerConnection, queued.text, strlen(queued.text));
+    }
+    if (!quietMessage || result <= 0) {
+      Serial.printf("PeerJS datachannel send result: %d sid=%u known=%s\r\n", result, queued.sid, queued.hasSid ? "yes" : "no");
+    }
+  }
+}
+
 void peerJsStartOffer(const String &dst) {
   peerJsRemoteId = dst;
   peerJsConnectionId = peerJsRandomConnectionId();
@@ -347,20 +416,72 @@ static void onPeerStateChange(enum PeerConnectionState state, void *userData) {
 }
 
 static void onDataChannelMessage(char *msg, size_t len, void *userData, uint16_t sid) {
+  dataChannelSid = sid;
+  dataChannelSidKnown = true;
+  if (printBridgeHandleDataChannelMessage(msg, len)) {
+    return;
+  }
   Serial.printf("Datachannel message: %.*s\r\n", len, msg);
 }
 
 static void onDataChannelOpen(void *userData) {
   Serial.println("Datachannel opened");
   dataChannelOpen = true;
+  dataChannelSidKnown = false;
+  dataChannelSid = 0;
   digitalWrite(LED_BUILTIN, HIGH);
-  peer_connection_datachannel_send(peerConnection, (char *)"esp32 connected", strlen("esp32 connected"));
+  printBridgeHandleDataChannelOpen();
+  peerSendDataChannelText("esp32 connected");
 }
 
 static void onDataChannelClose(void *userData) {
   Serial.println("Datachannel closed");
+  printBridgeHandleDataChannelClose();
   dataChannelOpen = false;
+  dataChannelSidKnown = false;
+  dataChannelSid = 0;
   digitalWrite(LED_BUILTIN, LOW);
+}
+
+static bool peerCreateConnection() {
+  if (!peerInitialized) {
+    peer_init();
+    peerInitialized = true;
+    peerLogHeap("after peer_init");
+  }
+
+  PeerConfiguration config = {
+    .ice_servers = {
+      {.urls = "stun:stun.l.google.com:19302"}
+    },
+    .audio_codec = CODEC_NONE,
+    .video_codec = CODEC_NONE,
+    .datachannel = DATA_CHANNEL_STRING,
+  };
+
+  peerConnection = peer_connection_create(&config);
+  if (peerConnection == NULL) {
+    Serial.println("Failed to create peer connection");
+    return false;
+  }
+
+  peer_connection_oniceconnectionstatechange(peerConnection, onPeerStateChange);
+  peer_connection_onicecandidate(peerConnection, onPeerIceCandidate);
+  peer_connection_ondatachannel(peerConnection, onDataChannelMessage, onDataChannelOpen, onDataChannelClose);
+  peerState = PEER_CONNECTION_NEW;
+  dataChannelOpen = false;
+  dataChannelSidKnown = false;
+  dataChannelSid = 0;
+  peerLogHeap("after pc");
+  return true;
+}
+
+static bool peerResetConnection() {
+  if (peerConnection != NULL) {
+    peer_connection_destroy(peerConnection);
+    peerConnection = NULL;
+  }
+  return peerCreateConnection();
 }
 
 static void onPeerIceCandidate(char *sdpText, void *userData) {
@@ -391,7 +512,10 @@ static void peerConnectionTask(void *arg) {
 
   for (;;) {
     if (xSemaphoreTake(peerSemaphore, portMAX_DELAY)) {
-      peer_connection_loop(peerConnection);
+      if (peerConnection != NULL) {
+        peer_connection_loop(peerConnection);
+        peerFlushDataChannelSendQueue();
+      }
       xSemaphoreGive(peerSemaphore);
     }
 
@@ -454,19 +578,21 @@ void peerJsHandleMessage(const String &message) {
     Serial.println(peerJsRemoteId);
 
     if (peerTakeConnection()) {
-      peer_connection_set_remote_description(peerConnection, sdp.c_str(), SDP_TYPE_OFFER);
-      const char *answer = peer_connection_create_answer(peerConnection);
-      if (answer != NULL) {
-        if (peerJsWaitingForAnswer) {
-          Serial.println("PeerJS answer SDP preview:");
-          Serial.println(String(answer).substring(0, 420));
-          peerJsSendSdp("ANSWER", "answer", String(answer));
-          peerJsWaitingForAnswer = false;
+      if (peerResetConnection()) {
+        peer_connection_set_remote_description(peerConnection, sdp.c_str(), SDP_TYPE_OFFER);
+        const char *answer = peer_connection_create_answer(peerConnection);
+        if (answer != NULL) {
+          if (peerJsWaitingForAnswer) {
+            Serial.println("PeerJS answer SDP preview:");
+            Serial.println(String(answer).substring(0, 420));
+            peerJsSendSdp("ANSWER", "answer", String(answer));
+            peerJsWaitingForAnswer = false;
+          } else {
+            Serial.println("PeerJS answer sent from ICE callback");
+          }
         } else {
-          Serial.println("PeerJS answer sent from ICE callback");
+          Serial.println("PeerJS answer creation failed");
         }
-      } else {
-        Serial.println("PeerJS answer creation failed");
       }
       peerGiveConnection();
     }
@@ -515,11 +641,17 @@ void peerJsSocketEvent(WStype_t type, uint8_t *payload, size_t length) {
   switch (type) {
     case WStype_CONNECTED:
       Serial.println("PeerJS websocket connected");
+      peerLogHeap("ws connected");
       break;
 
     case WStype_DISCONNECTED:
       peerJsOpen = false;
-      Serial.println("PeerJS websocket disconnected");
+      if (payload && length > 0) {
+        Serial.printf("PeerJS websocket disconnected: %.*s\r\n", (int)length, (const char *)payload);
+      } else {
+        Serial.println("PeerJS websocket disconnected");
+      }
+      peerLogHeap("ws disconnected");
       break;
 
     case WStype_TEXT:
@@ -535,7 +667,12 @@ void peerJsSocketEvent(WStype_t type, uint8_t *payload, size_t length) {
 
     case WStype_ERROR:
       peerJsOpen = false;
-      Serial.println("PeerJS websocket error");
+      if (payload && length > 0) {
+        Serial.printf("PeerJS websocket error: %.*s\r\n", (int)length, (const char *)payload);
+      } else {
+        Serial.println("PeerJS websocket error");
+      }
+      peerLogHeap("ws error");
       break;
 
     default:
@@ -558,6 +695,7 @@ void peerJsConnect() {
 
   Serial.print("PeerJS trying id: ");
   Serial.println(peerJsId);
+  peerLogHeap("before ws");
 
   String url = peerJsPath() + "peerjs";
   url += "?key=" + String(PEERJS_KEY);
@@ -603,6 +741,7 @@ void peerBegin() {
   randomSeed(micros());
   pinMode(LED_BUILTIN, OUTPUT);
   digitalWrite(LED_BUILTIN, LOW);
+  peerLogHeap("peerBegin");
 
   peerSemaphore = xSemaphoreCreateMutex();
   if (peerSemaphore == NULL) {
@@ -610,26 +749,12 @@ void peerBegin() {
     return;
   }
 
-  peer_init();
-
-  PeerConfiguration config = {
-    .ice_servers = {
-      {.urls = "stun:stun.l.google.com:19302"}
-    },
-    .audio_codec = CODEC_NONE,
-    .video_codec = CODEC_NONE,
-    .datachannel = DATA_CHANNEL_BINARY,
-  };
-
-  peerConnection = peer_connection_create(&config);
-  if (peerConnection == NULL) {
-    Serial.println("Failed to create peer connection");
+  peerDataChannelSendQueue = xQueueCreate(16, sizeof(PeerDataChannelMessage));
+  if (peerDataChannelSendQueue == NULL) {
+    Serial.println("Failed to create peer datachannel send queue");
     return;
   }
 
-  peer_connection_oniceconnectionstatechange(peerConnection, onPeerStateChange);
-  peer_connection_onicecandidate(peerConnection, onPeerIceCandidate);
-  peer_connection_ondatachannel(peerConnection, onDataChannelMessage, onDataChannelOpen, onDataChannelClose);
   peerJsConnect();
 
   xTaskCreatePinnedToCore(

@@ -31,7 +31,7 @@
 #endif
 
 #ifndef CONFIG_USE_USRSCTP
-#define CONFIG_USE_USRSCTP 0
+#define CONFIG_USE_USRSCTP 1
 #endif
 
 #ifndef CONFIG_SDP_BUFFER_SIZE

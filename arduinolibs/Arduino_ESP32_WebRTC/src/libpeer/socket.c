@@ -126,6 +126,13 @@ int udp_socket_sendto(UdpSocket* udp_socket, Address* addr, const uint8_t* buf, 
   }
 
   if ((ret = sendto(udp_socket->fd, buf, len, 0, sa, sock_len)) < 0) {
+    static int sendto_nomem_count = 0;
+    if (errno == ENOMEM) {
+      sendto_nomem_count++;
+      if (sendto_nomem_count != 1 && (sendto_nomem_count % 50) != 0) {
+        return -1;
+      }
+    }
     addr_to_string(addr, addr_string, sizeof(addr_string));
     LOGE("Failed to sendto fd=%d family=%d len=%d dst=%s:%d errno=%d (%s)",
          udp_socket->fd,

@@ -179,6 +179,7 @@ async function setup() {
   await loadScript("portal/bleLabelPrinter.js");
   await loadScript("portal/usbLabelPrinter.js");
   await loadScript("portal/starUsbPrinter.js");
+  await loadScript("portal/peerLabelPrinter.js");
   await loadScript("portal/labelPrinterTransport.js");
   await loadScript("portal/qrCodeGen.js");
 
@@ -201,6 +202,20 @@ async function setup() {
       productId: 0x5011,
       chunkSize: 4096,
       chunkDelayMs: 0,
+      debug: false,
+    },
+    peer: {
+      protocol: "tspl",
+      host: "0.peerjs.com",
+      port: 443,
+      path: "/",
+      key: "peerjs",
+      secure: true,
+      remoteId: "printhost",
+      chunkSize: 180,
+      chunkDelayMs: 25,
+      heartbeatIntervalMs: 5000,
+      heartbeatTimeoutMs: 30000,
       debug: false,
     },
     onState: handlePrinterState,
@@ -585,8 +600,9 @@ function drawConnectMenu(preview, anchorX, buttonWidth) {
   const menuX = constrain(anchorX, preview.x + 8, preview.x + preview.width - menuWidth - 8);
   const bleButtonY = preview.y + 8;
   const usbButtonY = bleButtonY + toolbarButtonHeight + toolbarGap;
+  const peerButtonY = usbButtonY + toolbarButtonHeight + toolbarGap;
   const menuPad = 5;
-  const menuHeight = toolbarButtonHeight * 2 + toolbarGap;
+  const menuHeight = toolbarButtonHeight * 3 + toolbarGap * 2;
 
   push();
   noStroke();
@@ -626,6 +642,23 @@ function drawConnectMenu(preview, anchorX, buttonWidth) {
   if (usbAvailable && usbButton.clicked) {
     connectMenuOpen = false;
     connectPrinter(usbTransport);
+  }
+
+  const peerAvailable = !!printer?.canConnect?.("peer");
+  const peerButton = uiButton("Peer", {
+    x: menuX,
+    y: peerButtonY,
+    width: menuWidth,
+    height: toolbarButtonHeight,
+    fontSize: 12,
+    bgColor: peerAvailable ? "#ffffff" : "#1f1f1f",
+    textColor: peerAvailable ? "#000000" : "#5a5a5a",
+    stroke: { weight: 0 },
+  });
+  registerTooltip("connect-peer", peerAvailable ? "Connect PeerJS" : "PeerJS unavailable", menuX, peerButtonY, menuWidth, toolbarButtonHeight);
+  if (peerAvailable && peerButton.clicked) {
+    connectMenuOpen = false;
+    connectPrinter("peer");
   }
 }
 
@@ -913,6 +946,15 @@ async function disconnectPrinter() {
 
 function handlePrinterState(state) {
   statusText = state.state;
+  if (state.transport === "peer") {
+    outputMode = "label";
+    const target = state.remoteId || state.candidate || "ESP32";
+    detailText = state.connected
+      ? `Connected to ${target} over PeerJS. Press Print for label.`
+      : "Type on the keyboard. Return inserts a new line.";
+    return;
+  }
+
   if (state.transport === "usb" || state.transport === "webusb") {
     const device = state.device || state.portInfo || {};
     const vendorId = device.vendorId ?? device.usbVendorId;
@@ -939,7 +981,7 @@ function handlePrinterError(error) {
 }
 
 function formatTransport(transport) {
-  return printer?.formatTransport?.(transport) || (transport === "usb" || transport === "webusb" ? "USB" : "BLE");
+  return printer?.formatTransport?.(transport) || (transport === "peer" ? "Peer" : (transport === "usb" || transport === "webusb" ? "USB" : "BLE"));
 }
 
 async function handlePrimaryButton() {
