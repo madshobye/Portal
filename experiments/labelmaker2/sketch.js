@@ -4210,9 +4210,11 @@ function drawStyledLine(line, y, startX = getLabelTextRect().x, target = labelGr
     target.pop();
 
     if (mergedStyle.underline) {
-      const underlineY = baselineY + line.fontSize * 0.08;
+      const underlineWeight = Math.max(1, line.fontSize * 0.03);
+      const underlineOffset = Math.min(line.fontSize * 0.08, underlineWeight * 0.75 + 4);
+      const underlineY = baselineY + underlineOffset;
       target.stroke(getInkColor());
-      target.strokeWeight(Math.max(1, line.fontSize * 0.03));
+      target.strokeWeight(underlineWeight);
       target.line(x, underlineY, x + widthValue, underlineY);
       target.noStroke();
     }
