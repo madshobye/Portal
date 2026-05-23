@@ -3228,6 +3228,10 @@ function drawPreviewCard(preview = getPreviewRect()) {
 function drawCaretOverlay(preview) {
   if (busy || !cachedLabelLayout || !cachedTextOrigin) return;
   const caret = getCaretPosition(cachedLabelLayout, cachedTextOrigin);
+  const textArea = cachedLabelLayout.textArea || cachedLabelLayout.content || getLabelContentRect();
+  const caretTop = constrain(caret.y, textArea.y, textArea.y + textArea.height);
+  const caretBottom = constrain(caret.y + caret.height, textArea.y, textArea.y + textArea.height);
+  const caretHeight = Math.max(1, caretBottom - caretTop);
   const scaleX = preview.width / labelGraphic.width;
   const scaleY = preview.height / labelGraphic.height;
   push();
@@ -3235,9 +3239,9 @@ function drawCaretOverlay(preview) {
   strokeWeight(Math.max(1, Math.max(2, caret.fontSize * 0.04) * scaleX));
   line(
     preview.x + caret.x * scaleX,
-    preview.y + caret.y * scaleY,
+    preview.y + caretTop * scaleY,
     preview.x + caret.x * scaleX,
-    preview.y + (caret.y + caret.height) * scaleY
+    preview.y + (caretTop + caretHeight) * scaleY
   );
   pop();
 }
