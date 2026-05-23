@@ -55,6 +55,17 @@ const storageKey = "portal.labelmaker2.state";
 const printHistoryStorageKey = "portal.labelmaker2.printHistory";
 const printHistorySliderKey = "labelmaker2.printHistoryIndex";
 const peerPrinterUrlParam = "peerPrinter";
+const paperSizeUrlParam = "papersize";
+const orientationUrlParam = "orientation";
+const fontUrlParam = "font";
+const cameraUrlParam = "camera";
+const textUrlParam = "txt";
+const paddingUrlParam = "padding";
+const photoBlendUrlParam = "photo-blend";
+const invertUrlParam = "invert";
+const outlineUrlParam = "outline";
+const textEffectUrlParam = "text-effect";
+const simpleUiUrlParam = "simple";
 const editorPhotoDbName = "portal.labelmaker2.photos";
 const editorPhotoStoreName = "photos";
 const editorPhotoStorageId = "current";
@@ -79,6 +90,7 @@ let photoGrayscaleEnabled = true;
 let labelInverted = false;
 let textOutlineMode = "none";
 let textEffectMode = "none";
+let simpleUiMode = false;
 const debugCharacterBounds = false;
 let tooltipKey = "";
 let tooltipLabel = "";
@@ -261,6 +273,7 @@ async function setup() {
 
   loadEditorState();
   applyPeerPrinterFromUrl();
+  applyEditorSettingsFromUrl();
   loadPrintHistory();
   applyEditorFont();
   rebuildLabelGraphic();
@@ -304,7 +317,9 @@ function draw() {
   const isConnected = !!connectionState.connected;
   const isConnecting = connectingPrinter || !!connectionState.connecting;
   const squareButtonWidth = toolbarButtonHeight;
-  const printButtonWidth = busy ? squareButtonWidth * 3 + toolbarGap * 2 : (isConnected ? squareButtonWidth * 2 + toolbarGap : 0);
+  const printButtonWidth = busy
+    ? squareButtonWidth * 3 + toolbarGap * 2
+    : ((isConnected || simpleUiMode) ? squareButtonWidth * 2 + toolbarGap : 0);
   const toolbarLayout = createToolbarLayout(toolbar, { isConnected, isConnecting, printButtonWidth });
   drawToolbarLayout(toolbarLayout, { isConnected, isConnecting });
   const connectButtonRect = toolbarLayout.rects.connect || { x: toolbar.x + toolbar.width - squareButtonWidth, width: squareButtonWidth };
@@ -470,6 +485,13 @@ function buildToolbarLeftItems(square) {
       },
     },
     makeClearToolbarItem(square, { gapAfter: Math.round(square * 0.5) }),
+  ];
+
+  if (simpleUiMode) {
+    return items;
+  }
+
+  items.push(
     {
       key: "qr",
       width: square,
@@ -495,8 +517,8 @@ function buildToolbarLeftItems(square) {
         });
         if (!busy && !photoCameraStarting && result.clicked) togglePhotoCamera();
       },
-    },
-  ];
+    }
+  );
 
   appendInlineSettingsItems(items, square);
 
@@ -580,11 +602,12 @@ function buildSettingsPanelItems(square) {
   ];
 
   items.push(makeDownloadToolbarItem(square));
+  items.push(makeSimpleUiToolbarItem(square));
   if (printHistory.length) items.push(makeClearHistoryToolbarItem(square));
 
   const printServerItem = makePrintServerToolbarItem(square);
   if (printServerItem) items.push(printServerItem);
-  if (isConnected) items.push(makeConnectToolbarItem(square, { isConnected, isConnecting }));
+  items.push(makeConnectToolbarItem(square, { isConnected, isConnecting }));
 
   return items;
 }
@@ -671,7 +694,6 @@ function appendInlineSettingsItems(items, square) {
       makeStyleToolbarItem("italic", "format_italic", "Italic", () => toggleCurrentLineStyle("italic"), true, square),
       makeStyleToolbarItem("underline", "format_underlined", "Underline", () => toggleCurrentLineStyle("underline"), true, square),
       makeStyleToolbarItem("smaller", "text_decrease", "Smaller", () => adjustCurrentLineFontSize(-1), false, square),
-      makeStyleToolbarItem("reset-size", "restart_alt", "Reset size", () => resetCurrentLineFontSize(), false, square),
       makeStyleToolbarItem("larger", "text_increase", "Larger", () => adjustCurrentLineFontSize(+1), false, square)
     );
   }
@@ -732,19 +754,19 @@ function buildToolbarRightItems(square, printWidth, state = {}) {
           : drawIconButton("print", {
             ...rect,
             primary: true,
-            disabled: false,
-            tooltip: "Print",
+            disabled: !isConnected,
+            tooltip: isConnected ? "Print" : "Connect first",
           });
         if (busy && result.clicked) {
           cancelActivePrint();
-        } else if (!busy && result.clicked) {
+        } else if (!busy && isConnected && result.clicked) {
           handlePrimaryButton();
         }
       },
     });
   }
 
-  if (!isConnected) {
+  if (!simpleUiMode && !isConnected) {
     items.push(makeConnectToolbarItem(square, { isConnected, isConnecting }));
   }
 
@@ -763,6 +785,25 @@ function makeClearToolbarItem(square, options = {}) {
         tooltip: "Clear",
       });
       if (!busy && result.clicked) clearEditor();
+    },
+  };
+}
+
+function makeSimpleUiToolbarItem(square) {
+  return {
+    key: "simple-ui",
+    width: square,
+    draw: (rect) => {
+      const result = drawIconButton(simpleUiMode ? "view_headline" : "view_comfy", {
+        ...rect,
+        active: simpleUiMode,
+        disabled: busy,
+        tooltip: simpleUiMode ? "Simple UI on" : "Simple UI off",
+      });
+      if (!busy && result.clicked) {
+        simpleUiMode = !simpleUiMode;
+        saveEditorState();
+      }
     },
   };
 }
@@ -1299,6 +1340,73 @@ function getPeerPrinterFromUrl() {
   }
 }
 
+function applyEditorSettingsFromUrl() {
+  try {
+    const params = new URLSearchParams(window.location.search || "");
+
+    const paperSize = params.get(paperSizeUrlParam);
+    if (paperSize && labelFormats[paperSize]) {
+      labelFormat = paperSize;
+    }
+
+    const orientationParam = params.get(orientationUrlParam);
+    if (orientationParam === "portrait" || orientationParam === "landscape") {
+      orientation = orientationParam;
+    }
+
+    const fontParam = params.get(fontUrlParam);
+    if (fontParam && fontOptions.some((option) => option.key === fontParam)) {
+      editorFontMode = fontParam;
+    }
+
+    if (params.has(cameraUrlParam)) {
+      const cameraParam = String(params.get(cameraUrlParam) || "").toLowerCase();
+      if (cameraParam === "1" || cameraParam === "true" || cameraParam === "on" || cameraParam === "yes") {
+        restoreLiveCameraOnSetup = true;
+      }
+    }
+
+    if (params.has(textUrlParam)) {
+      labelText = String(params.get(textUrlParam) || "");
+      cursorIndex = clampCursorIndex(labelText.length);
+      syncEditorInputFromModel();
+      markLabelDirty();
+    }
+
+    const paddingParam = params.get(paddingUrlParam);
+    if (paddingParam && labelPaddingModes.includes(paddingParam)) {
+      labelPaddingMode = paddingParam;
+    }
+
+    const photoBlendParam = params.get(photoBlendUrlParam);
+    if (photoBlendParam) {
+      photoMergeMode = normalizePhotoMergeMode(photoBlendParam);
+    }
+
+    if (params.has(invertUrlParam)) {
+      const invertParam = String(params.get(invertUrlParam) || "").toLowerCase();
+      labelInverted = invertParam === "1" || invertParam === "true" || invertParam === "on" || invertParam === "yes";
+    }
+
+    const outlineParam = params.get(outlineUrlParam);
+    if (outlineParam && textOutlineModes.includes(outlineParam)) {
+      textOutlineMode = outlineParam;
+    }
+
+    const textEffectParam = params.get(textEffectUrlParam);
+    if (textEffectParam) {
+      textEffectMode = normalizeTextEffectMode(textEffectParam);
+    }
+
+    if (params.has(simpleUiUrlParam)) {
+      const simpleParam = String(params.get(simpleUiUrlParam) || "").toLowerCase();
+      simpleUiMode = simpleParam === "1" || simpleParam === "true" || simpleParam === "on" || simpleParam === "yes";
+    }
+  } catch (error) {
+    console.warn(`[labelmaker2] could not apply URL editor settings: ${formatErrorMessage(error)}`);
+  }
+}
+
 function updatePeerPrinterUrl(hostname) {
   const normalized = normalizePeerHostname(hostname);
   if (!normalized || !window.history?.replaceState) return;
@@ -1309,6 +1417,88 @@ function updatePeerPrinterUrl(hostname) {
     window.history.replaceState(window.history.state, "", url);
   } catch (error) {
     console.warn(`[labelmaker2] could not update peer printer URL: ${formatErrorMessage(error)}`);
+  }
+}
+
+function syncEditorSettingsUrl() {
+  if (!window.history?.replaceState) return;
+  try {
+    const url = new URL(window.location.href);
+    const params = url.searchParams;
+
+    if (labelFormat !== "10x15") {
+      params.set(paperSizeUrlParam, labelFormat);
+    } else {
+      params.delete(paperSizeUrlParam);
+    }
+
+    if (orientation !== "landscape") {
+      params.set(orientationUrlParam, orientation);
+    } else {
+      params.delete(orientationUrlParam);
+    }
+
+    if (editorFontMode !== "helvetica") {
+      params.set(fontUrlParam, editorFontMode);
+    } else {
+      params.delete(fontUrlParam);
+    }
+
+    if (photoEnabled) {
+      params.set(cameraUrlParam, "1");
+    } else {
+      params.delete(cameraUrlParam);
+    }
+
+    if (labelText) {
+      params.set(textUrlParam, labelText);
+    } else {
+      params.delete(textUrlParam);
+    }
+
+    if (labelPaddingMode !== "minimal") {
+      params.set(paddingUrlParam, labelPaddingMode);
+    } else {
+      params.delete(paddingUrlParam);
+    }
+
+    if (photoMergeMode !== "below") {
+      params.set(photoBlendUrlParam, photoMergeMode);
+    } else {
+      params.delete(photoBlendUrlParam);
+    }
+
+    if (labelInverted) {
+      params.set(invertUrlParam, "1");
+    } else {
+      params.delete(invertUrlParam);
+    }
+
+    if (textOutlineMode !== "none") {
+      params.set(outlineUrlParam, textOutlineMode);
+    } else {
+      params.delete(outlineUrlParam);
+    }
+
+    if (textEffectMode !== "none") {
+      params.set(textEffectUrlParam, textEffectMode);
+    } else {
+      params.delete(textEffectUrlParam);
+    }
+
+    if (simpleUiMode) {
+      params.set(simpleUiUrlParam, "1");
+    } else {
+      params.delete(simpleUiUrlParam);
+    }
+
+    const nextUrl = `${url.pathname}${url.search}${url.hash}`;
+    const currentUrl = `${window.location.pathname}${window.location.search}${window.location.hash}`;
+    if (nextUrl !== currentUrl) {
+      window.history.replaceState(window.history.state, "", url);
+    }
+  } catch (error) {
+    console.warn(`[labelmaker2] could not sync URL editor settings: ${formatErrorMessage(error)}`);
   }
 }
 
@@ -4017,6 +4207,7 @@ function getEditorSnapshot() {
     orientation,
     editorFontMode,
     autoSizingEnabled,
+    simpleUiMode,
     peerHostnames,
     labelPaddingMode,
     labelQrText,
@@ -4051,6 +4242,7 @@ function applyEditorSnapshot(data = {}, options = {}) {
     ? data.editorFontMode
     : "helvetica";
   autoSizingEnabled = data.autoSizingEnabled !== false;
+  simpleUiMode = !!data.simpleUiMode;
   labelPaddingMode = labelPaddingModes.includes(data.labelPaddingMode) ? data.labelPaddingMode : "minimal";
   labelQrText = typeof data.labelQrText === "string" ? data.labelQrText : "";
   labelQrCode = labelQrText ? createQRCode(labelQrText) : null;
@@ -4363,6 +4555,7 @@ function saveEditorState() {
     orientation,
     editorFontMode,
     autoSizingEnabled,
+    simpleUiMode,
     peerHostnames,
     labelPaddingMode,
     labelQrText,
@@ -4392,6 +4585,7 @@ function saveEditorState() {
   try {
     localStorage.setItem(storageKey, JSON.stringify(localState));
     editorStatePhotoStorageDropped = false;
+    syncEditorSettingsUrl();
   } catch (error) {
     if (photoDataUrl) {
       const compactState = {
@@ -4405,13 +4599,16 @@ function saveEditorState() {
           console.warn("[labelmaker2] editor state photo saved in IndexedDB sidecar");
         }
         editorStatePhotoStorageDropped = true;
+        syncEditorSettingsUrl();
         return;
       } catch (retryError) {
         console.warn(`[labelmaker2] compact editor state save failed: ${formatErrorMessage(retryError)}`);
+        syncEditorSettingsUrl();
         return;
       }
     }
     console.warn(`[labelmaker2] editor state save failed: ${formatErrorMessage(error)}`);
+    syncEditorSettingsUrl();
   }
 }
 
@@ -4431,6 +4628,7 @@ function loadEditorState() {
       ? data.editorFontMode
       : "helvetica";
     autoSizingEnabled = data.autoSizingEnabled !== false;
+    simpleUiMode = !!data.simpleUiMode;
     peerHostnames = sanitizePeerHostnames(data.peerHostnames);
     labelPaddingMode = labelPaddingModes.includes(data.labelPaddingMode) ? data.labelPaddingMode : "minimal";
     labelQrText = typeof data.labelQrText === "string" ? data.labelQrText : "";
