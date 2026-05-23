@@ -2712,17 +2712,16 @@ function getLabelLayout() {
     };
   }
 
-  const baseGap = Math.max(42, Math.round(Math.min(labelGraphic.width, labelGraphic.height) * 0.04));
-  const stackedGap = Math.max(56, Math.round(Math.min(labelGraphic.width, labelGraphic.height) * 0.055));
+  const baseGap = Math.max(11, Math.round(Math.min(labelGraphic.width, labelGraphic.height) * 0.01));
+  const stackedGap = Math.max(14, Math.round(Math.min(labelGraphic.width, labelGraphic.height) * 0.01375));
   const isSquare = labelFormat === "10x10";
 
-  if (isSquare) {
-    const textAreaHeight = content.height * 0.32;
-    const size = Math.max(1, Math.min(
-      content.width * 0.78,
-      content.height * 0.66,
-      content.height - stackedGap - textAreaHeight
-    ));
+	  if (isSquare) {
+	    const textAreaHeight = content.height * 0.256;
+	    const size = Math.max(1, Math.min(
+	      content.width,
+	      content.height - stackedGap - textAreaHeight
+	    ));
     const groupHeight = size + stackedGap + textAreaHeight;
     const groupY = content.y + Math.max(0, (content.height - groupHeight) * 0.5);
     const qrBox = {
@@ -2748,7 +2747,7 @@ function getLabelLayout() {
   }
 
   if (orientation === "landscape") {
-    const size = Math.max(1, Math.min(content.height, content.width * 0.38));
+    const size = Math.max(1, Math.min(content.height, content.width * 0.456));
     const qrBox = {
       x: content.x + content.width - size,
       y: content.y + (content.height - size) * 0.5,
@@ -2769,12 +2768,11 @@ function getLabelLayout() {
     };
   }
 
-  const textAreaHeight = content.height * 0.38;
-  const size = Math.max(1, Math.min(
-    content.width * 0.78,
-    content.height * 0.48,
-    content.height - stackedGap - textAreaHeight
-  ));
+	  const textAreaHeight = content.height * 0.304;
+	  const size = Math.max(1, Math.min(
+	    content.width,
+	    content.height - stackedGap - textAreaHeight
+	  ));
   const groupHeight = size + stackedGap + textAreaHeight;
   const groupY = content.y + Math.max(0, (content.height - groupHeight) * 0.5);
   const qrBox = {
