@@ -114,8 +114,8 @@ let historyRestoreToken = 0;
 let pendingPhotoRestore = false;
 
 const labelFormats = {
-  "10x10": { widthCm: 10, heightCm: 10 },
-  "10x15": { widthCm: 10, heightCm: 15 },
+  "10x10": { widthCm: 10.5, heightCm: 10.5 },
+  "10x15": { widthCm: 10.5, heightCm: 15.5 },
 };
 const labelDpi = 203;
 const dotsPerMm = labelDpi / 25.4;
@@ -138,8 +138,14 @@ const labelPaddingPresets = {
     top: 72,
     bottom: 72,
   },
+  xlot: {
+    left: 144,
+    right: 100,
+    top: 144,
+    bottom: 144,
+  },
 };
-const labelPaddingModes = ["minimal", "some", "lot"];
+const labelPaddingModes = ["minimal", "some", "lot", "xlot"];
 const photoMergeModes = ["below", "blur", "erode", "invert", "invertblur", "chromatic", "noise", "noisethreshold", "chromaticblur", "stencil", "hardblack"];
 const textOutlineModes = ["none", "outline", "opposite"];
 const textEffectModes = ["none", "chromatic", "noise", "noisethreshold", "blur", "chromaticblur"];
