@@ -4211,7 +4211,7 @@ function drawStyledLine(line, y, startX = getLabelTextRect().x, target = labelGr
 
     if (mergedStyle.underline) {
       const underlineY = baselineY + line.fontSize * 0.08;
-      target.stroke(0);
+      target.stroke(getInkColor());
       target.strokeWeight(Math.max(1, line.fontSize * 0.03));
       target.line(x, underlineY, x + widthValue, underlineY);
       target.noStroke();
@@ -4285,7 +4285,7 @@ function applySegmentTextStyle(style, target = labelGraphic) {
   } else if (style?.italic) {
     textStyleValue = ITALIC;
   }
- // target.textStyle(textStyleValue);
+  target.textStyle(textStyleValue);
   applyCanvasMaxBoldWeight(style, target);
 }
 
