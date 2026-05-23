@@ -22,6 +22,7 @@ static constexpr size_t PRINT_BUFFER_COUNT = 2;
 static constexpr size_t PRINT_BUFFER_BYTES = 64 * 1024;
 static constexpr size_t PRINT_PROGRESS_STEP_BYTES = 8 * 1024;
 static constexpr uint32_t PRINT_BRIDGE_TASK_STACK = 4096;
+static constexpr uint32_t PRINT_BUSY_STUCK_TIMEOUT_MS = 10000;
 
 struct PrintBuffer {
   uint8_t *data = NULL;
@@ -40,9 +41,19 @@ static QueueHandle_t fullPrintBuffers = NULL;
 static PrintBuffer printBuffers[PRINT_BUFFER_COUNT];
 static int activeBufferIndex = -1;
 static volatile bool printTaskBusy = false;
+static volatile uint32_t printTaskBusySinceMs = 0;
 
 static void printBridgeTask(void *arg);
 static void printBridgeUsbReadyNotifyTask(void *arg);
+static void clearBusyLatch(const char *reason);
+
+static void clearBusyLatch(const char *reason) {
+  printTaskBusy = false;
+  printTaskBusySinceMs = 0;
+  if (reason != NULL) {
+    Serial.printf("PrintBridge busy latch cleared (%s)\r\n", reason);
+  }
+}
 
 static void printBridgeLogHeap(const char *label) {
   Serial.printf(
@@ -373,6 +384,7 @@ static void printBridgeTask(void *arg) {
     }
 
     printTaskBusy = true;
+    printTaskBusySinceMs = millis();
     PrintBuffer &buffer = printBuffers[index];
     bool ok = true;
     if (buffer.len > 0) {
@@ -382,16 +394,15 @@ static void printBridgeTask(void *arg) {
       ok = usbPrinterHostEndJob();
     }
 
-    if (!ok) {
-      printTaskBusy = false;
-    }
+    // Busy should represent "currently flushing one queued buffer", not whole-job lifetime.
+    // Clearing it here avoids a stuck busy state when non-final buffers complete successfully.
+    clearBusyLatch(NULL);
     if (buffer.last) {
       if (ok && buffer.complete) {
         sendPrintStatus("done", String(buffer.id), buffer.bytes, buffer.chunks);
       } else {
         sendPrintStatus("error", String(buffer.id), buffer.bytes, buffer.chunks);
       }
-      printTaskBusy = false;
     }
 
     buffer.len = 0;
@@ -420,6 +431,14 @@ static void printBridgeUsbReadyNotifyTask(void *arg) {
 static void handlePrintStart(const String &json) {
   const String id = extractJsonString(json, "id");
   printBridgeLogHeap("start entry");
+  if (printTaskBusy && !printActive) {
+    const uint32_t nowMs = millis();
+    const uint32_t elapsedMs = nowMs - printTaskBusySinceMs;
+    if (printTaskBusySinceMs == 0 || elapsedMs >= PRINT_BUSY_STUCK_TIMEOUT_MS) {
+      clearBusyLatch(printTaskBusySinceMs == 0 ? "unknown_age" : "timeout");
+      resetPrintBufferQueues();
+    }
+  }
   if (printActive && id == activePrintId) {
     sendPrintStatus("started", activePrintId, expectedBytes, expectedChunks);
     return;
@@ -694,6 +713,12 @@ bool printBridgePreparePrintResources() {
 
 void printBridgeHandleDataChannelOpen() {
   ensureUsbHostStarted();
+  clearBusyLatch("new_connection");
+  resetPrintBufferQueues();
+  printActive = false;
+  activePrintId = "";
+  dataChannelBuffer = "";
+  resetProgressLog();
   if (usbReadyNotifyTaskHandle == NULL) {
     xTaskCreatePinnedToCore(
       printBridgeUsbReadyNotifyTask,
@@ -725,9 +750,8 @@ void printBridgeHandleDataChannelClose() {
   printActive = false;
   activePrintId = "";
   dataChannelBuffer = "";
-  if (!printTaskBusy) {
-    resetPrintBufferQueues();
-  }
+  clearBusyLatch("channel_close");
+  resetPrintBufferQueues();
   resetProgressLog();
 }
 

@@ -16,6 +16,8 @@ class PeerLabelPrinter {
     chunkSize = 180,
     chunkDelayMs = 1,
     progressCooldownMs = 0,
+    printBusyRetryCount = 2,
+    printBusyRetryDelayMs = 700,
     connectTimeoutMs = 30000,
     dataChannelTimeoutMs = 60000,
     candidateRetryCount = 0,
@@ -43,6 +45,8 @@ class PeerLabelPrinter {
     this.chunkSize = Math.max(64, Math.min(1024, Number(chunkSize) || 180));
     this.chunkDelayMs = Math.max(0, Number.isFinite(Number(chunkDelayMs)) ? Number(chunkDelayMs) : 1);
     this.progressCooldownMs = Math.max(0, Number.isFinite(Number(progressCooldownMs)) ? Number(progressCooldownMs) : 0);
+    this.printBusyRetryCount = Math.max(0, Number(printBusyRetryCount) || 0);
+    this.printBusyRetryDelayMs = Math.max(0, Number(printBusyRetryDelayMs) || 0);
     this.connectTimeoutMs = Math.max(2000, Number(connectTimeoutMs) || 30000);
     this.dataChannelTimeoutMs = Math.max(this.connectTimeoutMs, Number(dataChannelTimeoutMs) || 60000);
     this.candidateRetryCount = Math.max(0, Math.min(3, Number(candidateRetryCount) || 0));
@@ -173,7 +177,7 @@ class PeerLabelPrinter {
       throw new Error("PeerLabelPrinter: not connected");
     }
 
-    this._writeQueue = this._writeQueue.then(() => this._sendPrintJob(data, { onProgress }));
+    this._writeQueue = this._writeQueue.then(() => this._sendPrintJobWithRetry(data, { onProgress }));
     return await this._writeQueue;
   }
 
@@ -698,11 +702,32 @@ class PeerLabelPrinter {
     this._onDisconnect?.();
   }
 
+  async _sendPrintJobWithRetry(bytes, { onProgress = null } = {}) {
+    const maxAttempts = 1 + this.printBusyRetryCount;
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+      try {
+        await this._sendPrintJob(bytes, { onProgress });
+        return;
+      } catch (error) {
+        const retryableBusy = this._isBusyPrintError(error);
+        if (!retryableBusy || attempt >= maxAttempts) {
+          throw error;
+        }
+        console.info(`[PeerLabelPrinter] print busy, retrying attempt ${attempt + 1}/${maxAttempts}`);
+        if (this.printBusyRetryDelayMs > 0) {
+          await this._delay(this.printBusyRetryDelayMs);
+        }
+      }
+    }
+  }
+
   async _sendPrintJob(bytes, { onProgress = null } = {}) {
     const id = `${Date.now().toString(36)}-${Math.floor(Math.random() * 0xffff).toString(16)}`;
     const totalChunks = Math.ceil(bytes.length / this.chunkSize);
     const startedPromise = this._waitForPrintState(id, "started", 10000);
     const donePromise = this._waitForPrintDone(id);
+    startedPromise.catch(() => {});
+    donePromise.catch(() => {});
     const progressStepBytes = 8192;
     let nextProgressBytes = progressStepBytes;
     this._stopHeartbeat();
@@ -720,6 +745,7 @@ class PeerLabelPrinter {
         if (end >= nextProgressBytes && end < bytes.length) {
           expectedProgressBytes = end;
           progressPromise = this._waitForPrintBytes(id, expectedProgressBytes, 30000);
+          progressPromise.catch(() => {});
           while (nextProgressBytes <= end) {
             nextProgressBytes += progressStepBytes;
           }
@@ -750,6 +776,11 @@ class PeerLabelPrinter {
         this._startHeartbeat();
       }
     }
+  }
+
+  _isBusyPrintError(error) {
+    const message = String(error?.message || error || "").toLowerCase();
+    return message.includes("esp32 print error") && message.includes("busy");
   }
 
   _waitForPrintDone(id) {
