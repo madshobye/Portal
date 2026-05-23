@@ -101,7 +101,7 @@ let tooltipActiveThisFrame = false;
 let printHistory = [];
 let printHistoryIndex = -1;
 let peerHostnameLongPress = { hostname: "", startedAt: 0, fired: false };
-let peerAutoConnectFromUrl = "";
+let peerConnectIntent = "";
 let restoreLiveCameraOnSetup = false;
 let editorStatePhotoStorageDropped = false;
 let labelRenderDirty = true;
@@ -291,7 +291,6 @@ async function setup() {
   if (useSoftKeyboardInput) {
     focusEditorInput();
   }
-  void autoConnectPeerPrinterFromUrl();
 }
 
 function installWillReadFrequentlyCanvasHint() {
@@ -323,12 +322,13 @@ function draw() {
   const connectionState = printer?.getConnectionState?.() || {};
   const isConnected = !!connectionState.connected;
   const isConnecting = connectingPrinter || !!connectionState.connecting;
+  const hasPeerConnectIntent = !!normalizePeerHostname(peerConnectIntent);
   const squareButtonWidth = toolbarButtonHeight;
   const printButtonWidth = busy
     ? squareButtonWidth * 3 + toolbarGap * 2
-    : ((isConnected || simpleUiMode) ? squareButtonWidth * 2 + toolbarGap : 0);
-  const toolbarLayout = createToolbarLayout(toolbar, { isConnected, isConnecting, printButtonWidth });
-  drawToolbarLayout(toolbarLayout, { isConnected, isConnecting });
+    : ((isConnected || simpleUiMode || hasPeerConnectIntent) ? squareButtonWidth * 2 + toolbarGap : 0);
+  const toolbarLayout = createToolbarLayout(toolbar, { isConnected, isConnecting, hasPeerConnectIntent, printButtonWidth });
+  drawToolbarLayout(toolbarLayout, { isConnected, isConnecting, hasPeerConnectIntent });
   const connectButtonRect = toolbarLayout.rects.connect || { x: toolbar.x + toolbar.width - squareButtonWidth, width: squareButtonWidth };
 
   drawPreviewCard(preview);
@@ -749,6 +749,8 @@ function makeStyleToolbarItem(key, icon, tooltip, action, hasActiveState, width)
 function buildToolbarRightItems(square, printWidth, state = {}) {
   const isConnected = !!state.isConnected;
   const isConnecting = !!state.isConnecting;
+  const peerIntent = normalizePeerHostname(peerConnectIntent);
+  const hasPeerConnectIntent = !!state.hasPeerConnectIntent && !!peerIntent;
   const items = [];
 
   if (printWidth > 0) {
@@ -756,6 +758,20 @@ function buildToolbarRightItems(square, printWidth, state = {}) {
       key: "print",
       width: printWidth,
       draw: (rect) => {
+        if (!isConnected && hasPeerConnectIntent) {
+          const result = drawIconButton(isConnecting ? "sync" : "link", {
+            ...rect,
+            primary: true,
+            disabled: busy || isConnecting,
+            markerText: isConnecting ? "..." : "",
+            tooltip: isConnecting ? `Connecting ${peerIntent}` : `Connect ${peerIntent}`,
+          });
+          if (!busy && !isConnecting && result.clicked) {
+            connectPrinter("peer", { peerHostname: peerIntent });
+          }
+          return;
+        }
+
         const result = busy
           ? drawPrintProgressButton({ ...rect, progress: printProgress })
           : drawIconButton("print", {
@@ -773,7 +789,7 @@ function buildToolbarRightItems(square, printWidth, state = {}) {
     });
   }
 
-  if (!simpleUiMode && !isConnected) {
+  if (!simpleUiMode && !isConnected && !hasPeerConnectIntent) {
     items.push(makeConnectToolbarItem(square, { isConnected, isConnecting }));
   }
 
@@ -1271,6 +1287,7 @@ async function connectPrinter(transport = "ble", options = {}) {
     if (transport === "peer") {
       const basePeerId = normalizePeerHostname(pendingPeerHostname || peerHostname || getPeerPrinterFromUrl());
       if (basePeerId) {
+        peerConnectIntent = basePeerId;
         rememberPeerHostname(basePeerId);
         updatePeerPrinterUrl(basePeerId);
       }
@@ -1315,26 +1332,13 @@ function setPeerRemoteId(remoteId) {
 
 function applyPeerPrinterFromUrl() {
   const hostname = getPeerPrinterFromUrl();
-  peerAutoConnectFromUrl = hostname;
+  peerConnectIntent = hostname;
   if (!hostname) return;
   setPeerRemoteId(hostname);
   peerHostnames = [
     hostname,
     ...peerHostnames.filter((item) => normalizePeerHostname(item) !== hostname),
   ].slice(0, maxPeerHostnameMenuItems);
-}
-
-async function autoConnectPeerPrinterFromUrl() {
-  const hostname = normalizePeerHostname(peerAutoConnectFromUrl);
-  peerAutoConnectFromUrl = "";
-  if (!hostname || busy || connectingPrinter) return;
-  const state = printer?.getConnectionState?.() || {};
-  if (state.connected || state.connecting) return;
-  try {
-    await connectPrinter("peer", { peerHostname: hostname });
-  } catch (error) {
-    console.error("[labelmaker2] URL peer auto-connect failed", error);
-  }
 }
 
 function getPeerPrinterFromUrl() {
@@ -1672,11 +1676,16 @@ async function handlePrimaryButton() {
     }
 
     statusText = "printing";
-    freezeLiveCameraPhoto();
-    renderLabelGraphic();
-    labelGraphic.loadPixels();
-    const imageData = getPrintableImageData();
-    recordPrintHistory();
+    const restoreLiveCameraPrintSnapshot = useLiveCameraSnapshotForPrint();
+    let imageData;
+    try {
+      renderLabelGraphic();
+      labelGraphic.loadPixels();
+      imageData = getPrintableImageData();
+      recordPrintHistory();
+    } finally {
+      restoreLiveCameraPrintSnapshot?.();
+    }
     if (outputMode === "receipt") {
       await printReceiptPreview(imageData);
       if (printId !== activePrintId) return;
@@ -2660,6 +2669,43 @@ function freezeLiveCameraPhoto() {
   saveEditorState();
 }
 
+function useLiveCameraSnapshotForPrint() {
+  if (!photoEnabled || !isCameraReady()) return null;
+  const target = capturePhotoSourceGraphic(cam, null, { includeOffset: true });
+  if (!target) return null;
+
+  const previous = {
+    droppedPhotoImage,
+    droppedPhotoName,
+    storedPhotoDataUrl,
+    photoOffsetX,
+    photoOffsetY,
+    photoEnabled,
+  };
+  const snapshot = resizePhotoImageToLabelLimit(target.get());
+  disposeGraphic(target);
+  droppedPhotoImage = snapshot;
+  droppedPhotoName = "Camera snapshot";
+  storedPhotoDataUrl = capturePhotoSourceDataUrl(droppedPhotoImage);
+  photoOffsetX = 0;
+  photoOffsetY = 0;
+  photoEnabled = false;
+  photoRevision += 1;
+  markLabelDirty();
+
+  return () => {
+    droppedPhotoImage = previous.droppedPhotoImage;
+    droppedPhotoName = previous.droppedPhotoName;
+    storedPhotoDataUrl = previous.storedPhotoDataUrl;
+    photoOffsetX = previous.photoOffsetX;
+    photoOffsetY = previous.photoOffsetY;
+    photoEnabled = previous.photoEnabled;
+    photoRevision += 1;
+    markLabelDirty();
+    saveEditorState();
+  };
+}
+
 function removeStoredPhoto() {
   photoLoadToken += 1;
   droppedPhotoImage = null;
@@ -2712,8 +2758,8 @@ function getLabelLayout() {
     };
   }
 
-  const baseGap = Math.max(11, Math.round(Math.min(labelGraphic.width, labelGraphic.height) * 0.01));
-  const stackedGap = Math.max(14, Math.round(Math.min(labelGraphic.width, labelGraphic.height) * 0.01375));
+  const baseGap = Math.max(22, Math.round(Math.min(labelGraphic.width, labelGraphic.height) * 0.02));
+  const stackedGap = Math.max(28, Math.round(Math.min(labelGraphic.width, labelGraphic.height) * 0.0275));
   const isSquare = labelFormat === "10x10";
 
 	  if (isSquare) {
@@ -3238,8 +3284,11 @@ function getToolbarRowCount() {
   const connectionState = printer?.getConnectionState?.() || {};
   const isConnected = !!connectionState.connected;
   const isConnecting = connectingPrinter || !!connectionState.connecting;
-  const printButtonWidth = busy ? square * 3 + toolbarGap * 2 : (isConnected ? square * 2 + toolbarGap : 0);
-  return createToolbarLayout(toolbar, { isConnected, isConnecting, printButtonWidth }).rows.length || 1;
+  const hasPeerConnectIntent = !!normalizePeerHostname(peerConnectIntent);
+  const printButtonWidth = busy
+    ? square * 3 + toolbarGap * 2
+    : ((isConnected || simpleUiMode || hasPeerConnectIntent) ? square * 2 + toolbarGap : 0);
+  return createToolbarLayout(toolbar, { isConnected, isConnecting, hasPeerConnectIntent, printButtonWidth }).rows.length || 1;
 }
 
 function getViewportSideMargin() {
