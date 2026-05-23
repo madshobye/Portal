@@ -316,16 +316,7 @@ function draw() {
   if (!busy && !isConnected && connectMenuOpen) {
     drawConnectMenu(preview, connectButtonRect.x, connectButtonRect.width);
   }
-  drawCanvasCornerMarker();
   drawPendingTooltip();
-}
-
-function drawCanvasCornerMarker() {
-  push();
-  noStroke();
-  fill(255, 130, 0);
-  circle(18, 18, 18);
-  pop();
 }
 
 function drawConnectMenu(preview, anchorX, buttonWidth) {
