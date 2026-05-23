@@ -271,7 +271,7 @@ async function setup() {
   if (useSoftKeyboardInput) {
     focusEditorInput();
   }
-  await autoConnectPeerPrinterFromUrl();
+  void autoConnectPeerPrinterFromUrl();
 }
 
 function installWillReadFrequentlyCanvasHint() {
@@ -1283,7 +1283,11 @@ async function autoConnectPeerPrinterFromUrl() {
   if (!hostname || busy || connectingPrinter) return;
   const state = printer?.getConnectionState?.() || {};
   if (state.connected || state.connecting) return;
-  await connectPrinter("peer", { peerHostname: hostname });
+  try {
+    await connectPrinter("peer", { peerHostname: hostname });
+  } catch (error) {
+    console.error("[labelmaker2] URL peer auto-connect failed", error);
+  }
 }
 
 function getPeerPrinterFromUrl() {
