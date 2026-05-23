@@ -78,6 +78,7 @@ class PeerLabelPrinter {
     this._iceDiagTimers = new Map();
     this._iceDiagStates = new Map();
     this._forceRemoteHostCandidateStrip = false;
+    this._connectionErrorGraceMs = 350;
   }
 
   async init() {
@@ -618,10 +619,7 @@ class PeerLabelPrinter {
     this._lastSeenAt = Date.now();
     conn.on("data", (data) => this._handleIncomingData(data));
     conn.on("close", () => this._markDisconnected("disconnected"));
-    conn.on("error", (error) => {
-      this._handleError(error);
-      this._markDisconnected("error");
-    });
+    conn.on("error", (error) => this._handleConnectionError(conn, error));
   }
 
   _handleIncomingData(data) {
@@ -700,6 +698,26 @@ class PeerLabelPrinter {
     this._safeCloseConnection();
     this._setState(state);
     this._onDisconnect?.();
+  }
+
+  _handleConnectionError(conn, error) {
+    const currentAndOpen = conn === this.connection && this.connected && conn?.open;
+    if (!currentAndOpen) {
+      this._handleError(error);
+      this._markDisconnected("error");
+      return;
+    }
+
+    console.warn("[PeerLabelPrinter] PeerJS connection error while channel is open; checking before disconnect", error);
+    setTimeout(() => {
+      if (conn !== this.connection || !this.connected) return;
+      if (conn?.open) {
+        console.warn("[PeerLabelPrinter] PeerJS connection error ignored because channel stayed open", error);
+        return;
+      }
+      this._handleError(error);
+      this._markDisconnected("error");
+    }, this._connectionErrorGraceMs);
   }
 
   async _sendPrintJobWithRetry(bytes, { onProgress = null } = {}) {
