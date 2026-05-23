@@ -2,6 +2,7 @@ let printer;
 let printServer = null;
 let printServerState = { running: false, starting: false, id: "", connections: 0, queued: 0, processing: false };
 let connectMenuOpen = false;
+let settingsPanelOpen = false;
 let connectingPrinter = false;
 let lastPeerStateLogKey = "";
 let statusText = "loading";
@@ -133,12 +134,15 @@ const maxFontSize = 2560;
 const defaultFontSize = 96;
 const fontSizeScale = [24, 28, 32, 36, 40, 46, 52, 60, 68, 78, 88, 100, 112, 128, 144, 164, 184, 208, 232, 256, 280, 300, 320, 360, 400, 448, 512, 576, 640, 720, 800, 896, 1024, 1152, 1280, 1440, 1600, 1792, 2048, 2304, 2560];
 const lineHeightFactor = 1.16;
-const toolbarButtonHeight = 34;
-const toolbarGap = 4;
-const toolbarRowGap = 6;
+const toolbarButtonSize = 46;
+const toolbarButtonHeight = toolbarButtonSize;
+const toolbarIconSize = Math.round(toolbarButtonSize * 0.68);
+const toolbarSmallIconSize = Math.round(toolbarButtonSize * 0.54);
+const toolbarGap = Math.round(toolbarButtonSize * 0.14);
+const toolbarRowGap = Math.round(toolbarButtonSize * 0.18);
+const toolbarPreviewGap = 8;
 const tooltipDelayMs = 450;
-const historySliderHeight = 22;
-const historySliderTop = 12;
+const historySliderHeight = Math.round(toolbarButtonSize * 0.65);
 const maxPeerHostnameMenuItems = 5;
 const peerHostnameDeleteHoldMs = 3000;
 const connectMenuMinWidth = 190;
@@ -296,13 +300,15 @@ function draw() {
   const isConnected = !!connectionState.connected;
   const isConnecting = connectingPrinter || !!connectionState.connecting;
   const squareButtonWidth = toolbarButtonHeight;
-  const printButtonWidth = busy ? squareButtonWidth * 3 + toolbarGap * 2 : (isConnected ? squareButtonWidth : 0);
-  drawPrintHistorySlider(preview);
+  const printButtonWidth = busy ? squareButtonWidth * 3 + toolbarGap * 2 : (isConnected ? squareButtonWidth * 2 + toolbarGap : 0);
   const toolbarLayout = createToolbarLayout(toolbar, { isConnected, isConnecting, printButtonWidth });
   drawToolbarLayout(toolbarLayout, { isConnected, isConnecting });
   const connectButtonRect = toolbarLayout.rects.connect || { x: toolbar.x + toolbar.width - squareButtonWidth, width: squareButtonWidth };
 
   drawPreviewCard(preview);
+  if (settingsPanelOpen) {
+    drawSettingsPanel(preview, toolbar);
+  }
   if (!busy && !isConnected && connectMenuOpen) {
     drawConnectMenu(preview, connectButtonRect.x, connectButtonRect.width);
   }
@@ -456,6 +462,73 @@ function createToolbarLayout(toolbar, state = {}) {
 function buildToolbarLeftItems(square) {
   const items = [
     {
+      key: "settings",
+      width: square,
+      draw: (rect) => {
+        const result = drawIconButton("settings", {
+          ...rect,
+          active: settingsPanelOpen,
+          disabled: busy,
+          tooltip: settingsPanelOpen ? "Hide settings" : "Settings",
+        });
+        if (!busy && result.clicked) settingsPanelOpen = !settingsPanelOpen;
+      },
+    },
+    makeClearToolbarItem(square, { gapAfter: Math.round(square * 0.5) }),
+    {
+      key: "qr",
+      width: square,
+      draw: (rect) => {
+        const result = drawIconButton(labelQrText ? "qr_code_2" : "qr_code", {
+          ...rect,
+          active: !!labelQrText,
+          disabled: busy,
+          tooltip: labelQrText ? "Remove QR" : "Add QR",
+        });
+        if (!busy && result.clicked) promptForQrCode();
+      },
+    },
+    {
+      key: "photo",
+      width: square,
+      draw: (rect) => {
+        const result = drawIconButton(photoEnabled ? "videocam" : "photo_camera", {
+          ...rect,
+          active: photoEnabled,
+          disabled: busy || photoCameraStarting,
+          tooltip: photoEnabled ? "Camera on" : "Camera off",
+        });
+        if (!busy && !photoCameraStarting && result.clicked) togglePhotoCamera();
+      },
+    },
+  ];
+
+  appendInlineSettingsItems(items, square);
+
+  if (hasStoredPhoto()) {
+    items.push({
+      key: "remove-photo",
+      width: square,
+      draw: (rect) => {
+        const result = drawIconButton("hide_image", {
+          ...rect,
+          disabled: busy,
+          tooltip: "Remove photo",
+        });
+        if (!busy && result.clicked) removeStoredPhoto();
+      },
+    });
+  }
+
+  return items;
+}
+
+function buildSettingsPanelItems(square) {
+  const printerState = printer?.getConnectionState?.() || {};
+  const isConnected = !!printerState.connected;
+  const isConnecting = connectingPrinter || !!printerState.connecting;
+  const items = [
+    {
       key: "grayscale",
       width: square,
       draw: (rect) => {
@@ -509,47 +582,33 @@ function buildToolbarLeftItems(square) {
         }
       },
     },
-    {
-      key: "padding",
-      width: square,
-      draw: (rect) => {
-        const result = drawIconButton("padding", {
-          ...rect,
-          active: labelPaddingMode !== "minimal",
-          disabled: busy,
-          markerText: labelPaddingMode === "minimal" ? "min" : (labelPaddingMode === "some" ? "mid" : "max"),
-          tooltip: `Padding: ${labelPaddingMode}`,
-        });
-        if (!busy && result.clicked) toggleLabelPadding();
-      },
-    },
-    {
-      key: "qr",
-      width: square,
-      draw: (rect) => {
-        const result = drawIconButton(labelQrText ? "qr_code_2" : "qr_code", {
-          ...rect,
-          active: !!labelQrText,
-          disabled: busy,
-          tooltip: labelQrText ? "Remove QR" : "Add QR",
-        });
-        if (!busy && result.clicked) promptForQrCode();
-      },
-    },
-    {
-      key: "photo",
-      width: square,
-      draw: (rect) => {
-        const result = drawIconButton(photoEnabled ? "videocam" : "photo_camera", {
-          ...rect,
-          active: photoEnabled,
-          disabled: busy || photoCameraStarting,
-          tooltip: photoEnabled ? "Camera on" : "Camera off",
-        });
-        if (!busy && !photoCameraStarting && result.clicked) togglePhotoCamera();
-      },
-    },
   ];
+
+  items.push(makeDownloadToolbarItem(square));
+  if (printHistory.length) items.push(makeClearHistoryToolbarItem(square));
+
+  const printServerItem = makePrintServerToolbarItem(square);
+  if (printServerItem) items.push(printServerItem);
+  if (isConnected) items.push(makeConnectToolbarItem(square, { isConnected, isConnecting }));
+
+  return items;
+}
+
+function appendInlineSettingsItems(items, square) {
+  items.push({
+    key: "padding",
+    width: square,
+    draw: (rect) => {
+      const result = drawIconButton("padding", {
+        ...rect,
+        active: labelPaddingMode !== "minimal",
+        disabled: busy,
+        markerText: labelPaddingMode === "minimal" ? "min" : (labelPaddingMode === "some" ? "mid" : "max"),
+        tooltip: `Padding: ${labelPaddingMode}`,
+      });
+      if (!busy && result.clicked) toggleLabelPadding();
+    },
+  });
 
   if (hasPhotoSource() || photoEnabled || photoCameraStarting) {
     items.push({
@@ -560,7 +619,7 @@ function buildToolbarLeftItems(square) {
           ...rect,
           active: photoMergeMode !== "below",
           disabled: busy,
-          iconSize: 22,
+          iconSize: toolbarSmallIconSize,
           tooltip: `Photo: ${getPhotoMergeModeLabel()}`,
         });
         if (!busy && result.clicked) togglePhotoMergeMode();
@@ -577,7 +636,7 @@ function buildToolbarLeftItems(square) {
           ...rect,
           active: labelInverted,
           disabled: busy,
-          iconSize: 22,
+          iconSize: toolbarSmallIconSize,
           tooltip: labelInverted ? "Invert off" : "Invert",
         });
         if (!busy && result.clicked) toggleInvertMode();
@@ -604,28 +663,13 @@ function buildToolbarLeftItems(square) {
           ...rect,
           active: textEffectMode !== "none",
           disabled: busy,
-          iconSize: 22,
+          iconSize: toolbarSmallIconSize,
           tooltip: `Text FX: ${getTextEffectModeLabel()}`,
         });
         if (!busy && result.clicked) toggleTextEffectMode();
       },
     }
   );
-
-  if (hasStoredPhoto()) {
-    items.push({
-      key: "remove-photo",
-      width: square,
-      draw: (rect) => {
-        const result = drawIconButton("hide_image", {
-          ...rect,
-          disabled: busy,
-          tooltip: "Remove photo",
-        });
-        if (!busy && result.clicked) removeStoredPhoto();
-      },
-    });
-  }
 
   if (!autoSizingEnabled) {
     items.push(
@@ -660,8 +704,6 @@ function buildToolbarLeftItems(square) {
       },
     }
   );
-
-  return items;
 }
 
 function makeStyleToolbarItem(key, icon, tooltip, action, hasActiveState, width) {
@@ -673,7 +715,7 @@ function makeStyleToolbarItem(key, icon, tooltip, action, hasActiveState, width)
         ...rect,
         active: hasActiveState ? isTextStyleControlActive(key) : false,
         disabled: busy,
-        iconSize: 22,
+        iconSize: toolbarSmallIconSize,
         tooltip,
       });
       if (!busy && result.clicked) action();
@@ -684,32 +726,7 @@ function makeStyleToolbarItem(key, icon, tooltip, action, hasActiveState, width)
 function buildToolbarRightItems(square, printWidth, state = {}) {
   const isConnected = !!state.isConnected;
   const isConnecting = !!state.isConnecting;
-  const items = [
-    {
-      key: "download",
-      width: square,
-      draw: (rect) => {
-        const result = drawIconButton("download", {
-          ...rect,
-          disabled: busy,
-          tooltip: "Save and download",
-        });
-        if (!busy && result.clicked) downloadCurrentLabel();
-      },
-    },
-    {
-      key: "clear",
-      width: square,
-      draw: (rect) => {
-        const result = drawIconButton("backspace", {
-          ...rect,
-          disabled: busy,
-          tooltip: "Clear",
-        });
-        if (!busy && result.clicked) clearEditor();
-      },
-    },
-  ];
+  const items = [];
 
   if (printWidth > 0) {
     items.push({
@@ -733,31 +750,90 @@ function buildToolbarRightItems(square, printWidth, state = {}) {
     });
   }
 
-  const printerState = printer?.getConnectionState?.() || {};
-  const showPrintServerButton = !!printerState.connected || !!printServerState.running || !!printServerState.starting;
-  if (showPrintServerButton) {
-    items.push({
-      key: "print-server",
-      width: square,
-      draw: (rect) => {
-        const markerText = `${Number(printServerState.connections) || 0}/${Number(printServerState.queued) || 0}`;
-        const result = drawIconButton(printServerState.running || printServerState.starting ? "hub" : "lan", {
-          ...rect,
-          active: !!printServerState.running,
-          disabled: !!printServerState.starting,
-          markerText,
-          tooltip: printServerState.running
-            ? `Printserver ${printServerState.id || ""}: ${markerText}`
-            : "Start printserver",
-        });
-        if (!printServerState.starting && result.clicked) {
-          togglePrintServer();
-        }
-      },
-    });
+  if (!isConnected) {
+    items.push(makeConnectToolbarItem(square, { isConnected, isConnecting }));
   }
 
-  items.push({
+  return items;
+}
+
+function makeClearToolbarItem(square, options = {}) {
+  return {
+    key: "clear",
+    width: square,
+    gapAfter: options.gapAfter,
+    draw: (rect) => {
+      const result = drawIconButton("cancel", {
+        ...rect,
+        disabled: busy,
+        tooltip: "Clear",
+      });
+      if (!busy && result.clicked) clearEditor();
+    },
+  };
+}
+
+function makeDownloadToolbarItem(square) {
+  return {
+    key: "download",
+    width: square,
+    draw: (rect) => {
+      const result = drawIconButton("download", {
+        ...rect,
+        disabled: busy,
+        tooltip: "Save and download",
+      });
+      if (!busy && result.clicked) downloadCurrentLabel();
+    },
+  };
+}
+
+function makeClearHistoryToolbarItem(square) {
+  return {
+    key: "clear-history",
+    width: square,
+    draw: (rect) => {
+      const result = drawIconButton("delete_sweep", {
+        ...rect,
+        disabled: busy,
+        tooltip: "Clear history",
+      });
+      if (!busy && result.clicked) {
+        confirmAndClearPrintHistory();
+      }
+    },
+  };
+}
+
+function makePrintServerToolbarItem(square) {
+  const printerState = printer?.getConnectionState?.() || {};
+  const showPrintServerButton = !!printerState.connected || !!printServerState.running || !!printServerState.starting;
+  if (!showPrintServerButton) return null;
+  return {
+    key: "print-server",
+    width: square,
+    draw: (rect) => {
+      const markerText = `${Number(printServerState.connections) || 0}/${Number(printServerState.queued) || 0}`;
+      const result = drawIconButton(printServerState.running || printServerState.starting ? "hub" : "lan", {
+        ...rect,
+        active: !!printServerState.running,
+        disabled: !!printServerState.starting,
+        markerText,
+        tooltip: printServerState.running
+          ? `Printserver ${printServerState.id || ""}: ${markerText}`
+          : "Start printserver",
+      });
+      if (!printServerState.starting && result.clicked) {
+        togglePrintServer();
+      }
+    },
+  };
+}
+
+function makeConnectToolbarItem(square, state = {}) {
+  const isConnected = !!state.isConnected;
+  const isConnecting = !!state.isConnecting;
+  return {
     key: "connect",
     width: square,
     draw: (rect) => {
@@ -777,9 +853,7 @@ function buildToolbarRightItems(square, printWidth, state = {}) {
         }
       }
     },
-  });
-
-  return items;
+  };
 }
 
 function layoutTwoSidedToolbar(toolbar, leftItems, rightItems) {
@@ -810,7 +884,7 @@ function layoutTwoSidedToolbar(toolbar, leftItems, rightItems) {
     }
     const x = row.rightCursor - item.width;
     const rect = { x, y: row.y, width: item.width, height: rowHeight };
-    row.rightCursor = x - toolbarGap;
+    row.rightCursor = x - (item.gapAfter ?? toolbarGap);
     placements.push({ item, rect });
     rects[item.key] = rect;
   }
@@ -823,7 +897,7 @@ function layoutTwoSidedToolbar(toolbar, leftItems, rightItems) {
       row = ensureRow(leftRowIndex);
     }
     const rect = { x: row.leftCursor, y: row.y, width: item.width, height: rowHeight };
-    row.leftCursor += item.width + toolbarGap;
+    row.leftCursor += item.width + (item.gapAfter ?? toolbarGap);
     placements.push({ item, rect });
     rects[item.key] = rect;
   }
@@ -840,6 +914,55 @@ function drawToolbarLayout(layout, state = {}) {
   for (const placement of layout.placements) {
     if (!rightKeys.has(placement.item.key)) continue;
     placement.item.draw(placement.rect, state);
+  }
+}
+
+function drawSettingsPanel(preview, toolbar) {
+  const square = toolbarButtonHeight;
+  const items = buildSettingsPanelItems(square);
+  const panelX = toolbar.x;
+  const panelWidth = toolbar.width;
+  const hasHistory = printHistory.length > 0;
+  const rows = [];
+  let row = [];
+  let rowWidth = 0;
+
+  for (const item of items) {
+    const nextWidth = row.length ? rowWidth + toolbarGap + item.width : item.width;
+    if (row.length && nextWidth > panelWidth) {
+      rows.push({ items: row, width: rowWidth });
+      row = [];
+      rowWidth = 0;
+    }
+    row.push(item);
+    rowWidth = row.length === 1 ? item.width : rowWidth + toolbarGap + item.width;
+  }
+  if (row.length) rows.push({ items: row, width: rowWidth });
+
+  const historyHeight = hasHistory ? historySliderHeight + toolbarRowGap : 0;
+  const panelHeight = historyHeight + rows.length * toolbarButtonHeight + Math.max(0, rows.length - 1) * toolbarRowGap;
+  const y = Math.max(preview.y + 8, toolbar.y - panelHeight - toolbarRowGap);
+
+  push();
+  noStroke();
+  fill(0, 210);
+  rect(panelX - 4, y - 4, panelWidth + 8, panelHeight + 8, 8);
+  pop();
+
+  let rowsY = y;
+  if (hasHistory) {
+    drawPrintHistorySliderInRect(panelX, rowsY, panelWidth);
+    rowsY += historySliderHeight + toolbarRowGap;
+  }
+
+  for (let rowIndex = 0; rowIndex < rows.length; rowIndex += 1) {
+    const panelRow = rows[rowIndex];
+    let x = panelX;
+    const itemY = rowsY + rowIndex * (toolbarButtonHeight + toolbarRowGap);
+    for (const item of panelRow.items) {
+      item.draw({ x, y: itemY, width: item.width, height: toolbarButtonHeight });
+      x += item.width + toolbarGap;
+    }
   }
 }
 
@@ -865,7 +988,7 @@ function drawTextStyleControls(x, y, disabled = false, options = {}) {
       height: buttonHeight,
       active: !!item.active,
       disabled,
-      iconSize: 22,
+      iconSize: toolbarSmallIconSize,
       tooltip: item.tooltip,
     });
     if (!disabled && result.clicked) {
@@ -874,15 +997,11 @@ function drawTextStyleControls(x, y, disabled = false, options = {}) {
   }
 }
 
-function drawPrintHistorySlider(preview) {
+function drawPrintHistorySliderInRect(x, y, widthValue) {
   if (!printHistory.length) return;
-  const clearButtonSize = historySliderHeight;
-  const historyGap = 8;
-  const historyWidth = Math.min(preview.width, Math.max(80, width - 120));
-  const sliderWidth = Math.max(60, historyWidth - clearButtonSize - historyGap);
-  const sliderX = (width - historyWidth) * 0.5;
-  const sliderY = historySliderTop;
-  const clearButtonX = sliderX + sliderWidth + historyGap;
+  const sliderWidth = Math.max(60, widthValue);
+  const sliderX = x;
+  const sliderY = y;
   const activeIndex = constrain(printHistoryIndex, 0, printHistory.length - 1);
   const label = `Print ${activeIndex + 1}/${printHistory.length}`;
   const result = uiSlider(printHistorySliderKey, label, {
@@ -903,20 +1022,6 @@ function drawPrintHistorySlider(preview) {
     persist: false,
   });
   registerTooltip("print-history", "Print history", sliderX, sliderY, sliderWidth, historySliderHeight);
-
-  const clearButton = drawIconButton("delete_sweep", {
-    x: clearButtonX,
-    y: sliderY,
-    width: clearButtonSize,
-    height: historySliderHeight,
-    disabled: busy,
-    iconSize: 18,
-    textOffsetY: 3,
-    tooltip: "Clear history",
-  });
-  if (!busy && clearButton.clicked) {
-    confirmAndClearPrintHistory();
-  }
 
   const nextIndex = constrain(Math.round(result.value), 0, printHistory.length - 1);
   if (!busy && result.changed && nextIndex !== printHistoryIndex) {
@@ -966,8 +1071,8 @@ function drawIconButton(icon, options = {}) {
     bgColor: bg,
     textColor,
     materialSymbol: true,
-    fontSize: options.iconSize || 25,
-    textOffsetY: options.textOffsetY ?? 4,
+    fontSize: options.iconSize || toolbarIconSize,
+    textOffsetY: options.textOffsetY ?? Math.round(options.height * 0.12),
     stroke: { weight: 0 },
     hover: { bgColor: hoverBg, cursor: disabled ? "default" : "pointer" },
     pressed: { bgColor: disabled ? bg : (primary ? "#e88800" : "#d0d0d0"), cursor: disabled ? "default" : "pointer" },
@@ -991,16 +1096,16 @@ function drawIconButton(icon, options = {}) {
 
   if (options.marker) {
     textFont("Material Symbols Rounded");
-    textSize(12);
+    textSize(Math.round(options.height * 0.35));
     fill(primary ? "#000000" : (active ? "#ffffff" : "#000000"));
-    text(options.marker, options.x + options.width - 12, options.y + 13);
+    text(options.marker, options.x + options.width - options.width * 0.35, options.y + options.height * 0.38);
   }
 
   if (options.markerText) {
     textFont(fallbackFontFamily);
-    textSize(10);
+    textSize(Math.round(options.height * 0.25));
     fill(textColor);
-    text(options.markerText, options.x + options.width / 2, options.y + options.height - 8);
+    text(options.markerText, options.x + options.width / 2, options.y + options.height - options.height * 0.24);
   }
   pop();
 
@@ -1399,6 +1504,7 @@ async function downloadCurrentLabel() {
   };
 
   const tryShareImage = async (blob) => {
+    if (!detectIOSLikeBrowser()) return false;
     if (!blob || typeof navigator.share !== "function" || typeof File !== "function") return false;
     const file = new File([blob], filename, { type: "image/png" });
     if (typeof navigator.canShare === "function" && !navigator.canShare({ files: [file] })) return false;
@@ -2761,8 +2867,8 @@ function drawCaretOverlay(preview) {
 
 function getPreviewRect() {
   const viewportLandscape = width > height;
-  const topMargin = printHistory.length ? (viewportLandscape ? 42 : 52) : (viewportLandscape ? 8 : 28);
-  const controlsGap = 16;
+  const topMargin = viewportLandscape ? 8 : 28;
+  const controlsGap = toolbarPreviewGap;
   const toolbarRows = getToolbarRowCount();
   const controlsHeight = toolbarButtonHeight * toolbarRows + toolbarRowGap * (toolbarRows - 1);
   const bottomMargin = 6;
@@ -2784,7 +2890,7 @@ function getToolbarRect(preview = getPreviewRect()) {
   const sideMargin = getViewportSideMargin();
   return {
     x: sideMargin,
-    y: preview.y + preview.height + 16,
+    y: preview.y + preview.height + toolbarPreviewGap,
     width: Math.max(1, width - sideMargin * 2),
     height: toolbarButtonHeight * getToolbarRowCount() + toolbarRowGap * (getToolbarRowCount() - 1),
   };
@@ -2801,7 +2907,7 @@ function getToolbarRowCount() {
   const connectionState = printer?.getConnectionState?.() || {};
   const isConnected = !!connectionState.connected;
   const isConnecting = connectingPrinter || !!connectionState.connecting;
-  const printButtonWidth = busy ? square * 3 + toolbarGap * 2 : (isConnected ? square : 0);
+  const printButtonWidth = busy ? square * 3 + toolbarGap * 2 : (isConnected ? square * 2 + toolbarGap : 0);
   return createToolbarLayout(toolbar, { isConnected, isConnecting, printButtonWidth }).rows.length || 1;
 }
 
