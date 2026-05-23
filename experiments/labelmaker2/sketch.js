@@ -89,6 +89,7 @@ let tooltipActiveThisFrame = false;
 let printHistory = [];
 let printHistoryIndex = -1;
 let peerHostnameLongPress = { hostname: "", startedAt: 0, fired: false };
+let peerAutoConnectFromUrl = "";
 let restoreLiveCameraOnSetup = false;
 let editorStatePhotoStorageDropped = false;
 let labelRenderDirty = true;
@@ -270,6 +271,7 @@ async function setup() {
   if (useSoftKeyboardInput) {
     focusEditorInput();
   }
+  await autoConnectPeerPrinterFromUrl();
 }
 
 function installWillReadFrequentlyCanvasHint() {
@@ -612,22 +614,21 @@ function appendInlineSettingsItems(items, square) {
     },
   });
 
-  if (hasPhotoSource() || photoEnabled || photoCameraStarting) {
-    items.push({
-      key: "photo-blend",
-      width: square,
-      draw: (rect) => {
-        const result = drawIconButton(getBlendModeIcon(), {
-          ...rect,
-          active: photoMergeMode !== "below",
-          disabled: busy,
-          iconSize: toolbarSmallIconSize,
-          tooltip: `Photo: ${getPhotoMergeModeLabel()}`,
-        });
-        if (!busy && result.clicked) togglePhotoMergeMode();
-      },
-    });
-  }
+  items.push({
+    key: "photo-blend",
+    width: square,
+    draw: (rect) => {
+      const hasPhotoContext = hasPhotoSource() || photoEnabled || photoCameraStarting;
+      const result = drawIconButton(getBlendModeIcon(), {
+        ...rect,
+        active: photoMergeMode !== "below",
+        disabled: busy || !hasPhotoContext,
+        iconSize: toolbarSmallIconSize,
+        tooltip: `Photo: ${getPhotoMergeModeLabel()}`,
+      });
+      if (!busy && hasPhotoContext && result.clicked) togglePhotoMergeMode();
+    },
+  });
 
   items.push(
     {
@@ -1276,12 +1277,22 @@ function setPeerRemoteId(remoteId) {
 
 function applyPeerPrinterFromUrl() {
   const hostname = getPeerPrinterFromUrl();
+  peerAutoConnectFromUrl = hostname;
   if (!hostname) return;
   setPeerRemoteId(hostname);
   peerHostnames = [
     hostname,
     ...peerHostnames.filter((item) => normalizePeerHostname(item) !== hostname),
   ].slice(0, maxPeerHostnameMenuItems);
+}
+
+async function autoConnectPeerPrinterFromUrl() {
+  const hostname = normalizePeerHostname(peerAutoConnectFromUrl);
+  peerAutoConnectFromUrl = "";
+  if (!hostname || busy || connectingPrinter) return;
+  const state = printer?.getConnectionState?.() || {};
+  if (state.connected || state.connecting) return;
+  await connectPrinter("peer", { peerHostname: hostname });
 }
 
 function getPeerPrinterFromUrl() {
