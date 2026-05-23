@@ -227,6 +227,13 @@ class LabelPrinterTransport {
     await this.printer.printEscposBitmap(imageData, options);
   }
 
+  async writeBytes(bytes, options = {}) {
+    if (!this.printer || typeof this.printer.writeBytes !== "function") {
+      throw new Error(`${this.formatTransport(this.activeTransport)} printer is unavailable`);
+    }
+    await this.printer.writeBytes(bytes, options);
+  }
+
   formatTransport(transport = this.activeTransport) {
     if (transport === "peer") return "Peer";
     return transport === "usb" || transport === "webusb" ? "USB" : "BLE";

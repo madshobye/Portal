@@ -72,6 +72,7 @@ class PeerLabelPrinter {
     this._pendingPrints = new Map();
     this._candidateResponded = false;
     this._peerResponseTrackerInstalled = false;
+    this._iceDiagTimers = new Map();
   }
 
   async init() {
@@ -123,11 +124,6 @@ class PeerLabelPrinter {
             return true;
           }
           if (result === "responded") {
-            if (attempt < this.candidateRetryCount) {
-              console.warn(`[PeerLabelPrinter] ${candidate} answered signaling, retrying data channel`);
-              await this._delay(this.scanPauseMs);
-              continue;
-            }
             console.error(`[PeerLabelPrinter] ${candidate} answered signaling but data channel did not open`);
             throw new Error(`ESP32 responded as ${candidate}, but the data channel did not open`);
           }
@@ -265,12 +261,15 @@ class PeerLabelPrinter {
       });
       this._candidate = candidate;
       this.connection = conn;
+      this._attachIceDiagnostics(conn, candidate);
 
       const finish = (result) => {
         if (settled) return;
         settled = true;
+        this._detachIceDiagnostics(conn);
         clearTimeout(timer);
         clearTimeout(dataChannelTimer);
+        clearTimeout(openSettleTimer);
         conn.off?.("open", onOpen);
         conn.off?.("data", onData);
         conn.off?.("error", onError);
@@ -296,14 +295,13 @@ class PeerLabelPrinter {
           finish("failed");
           return;
         }
-        console.info(`[PeerLabelPrinter] ${candidate} responded, staying on this id`);
+        console.info(`[PeerLabelPrinter] ${candidate} responded, waiting for data channel on same offer`);
         this._setState("connecting_peer", { candidate, responded: true });
-        dataChannelTimer = setTimeout(() => finish("responded"), this.dataChannelTimeoutMs);
       };
       const finishConnectedIfOpen = () => {
-        clearTimeout(dataChannelTimer);
-        dataChannelTimer = setTimeout(() => {
-          finish(conn.open ? "connected" : "responded");
+        clearTimeout(openSettleTimer);
+        openSettleTimer = setTimeout(() => {
+          if (conn.open) finish("connected");
         }, this.connectedSettleMs);
       };
       const onOpen = () => {
@@ -332,7 +330,8 @@ class PeerLabelPrinter {
           finish(this._candidateResponded ? "responded" : "failed");
         }
       };
-      let dataChannelTimer = null;
+      let openSettleTimer = null;
+      const dataChannelTimer = setTimeout(() => finish(this._candidateResponded ? "responded" : "failed"), this.dataChannelTimeoutMs);
       const timer = setTimeout(waitForDataChannel, this.connectTimeoutMs);
 
       conn.on("open", onOpen);
@@ -366,6 +365,107 @@ class PeerLabelPrinter {
 
       return handleMessage(message);
     };
+  }
+
+  _getConnectionPeerConnection(conn) {
+    return (
+      conn?.peerConnection ||
+      conn?._peerConnection ||
+      conn?._pc ||
+      conn?.provider?.connections?.[conn.peer]?.[conn.connectionId]?.peerConnection ||
+      null
+    );
+  }
+
+  _attachIceDiagnostics(conn, candidate) {
+    const pc = this._getConnectionPeerConnection(conn);
+    if (!pc || typeof pc.addEventListener !== "function") {
+      console.info(`[PeerLabelPrinter] ICE diag ${candidate}: RTCPeerConnection unavailable`);
+      return;
+    }
+
+    let lastSelectedPair = "";
+    const logState = (source) => {
+      console.info(
+        `[PeerLabelPrinter] ICE diag ${candidate}: ${source} ice=${pc.iceConnectionState} gathering=${pc.iceGatheringState} signaling=${pc.signalingState}`
+      );
+    };
+
+    const logSelectedPair = async () => {
+      if (typeof pc.getStats !== "function") return;
+      try {
+        const stats = await pc.getStats();
+        let selectedPair = null;
+        const localCandidates = new Map();
+        const remoteCandidates = new Map();
+
+        stats.forEach((report) => {
+          if (report.type === "local-candidate") localCandidates.set(report.id, report);
+          if (report.type === "remote-candidate") remoteCandidates.set(report.id, report);
+          if (report.type === "candidate-pair" && report.selected) selectedPair = report;
+          if (report.type === "transport" && report.selectedCandidatePairId) {
+            const pair = stats.get(report.selectedCandidatePairId);
+            if (pair) selectedPair = pair;
+          }
+        });
+
+        if (!selectedPair) return;
+        const local = localCandidates.get(selectedPair.localCandidateId);
+        const remote = remoteCandidates.get(selectedPair.remoteCandidateId);
+        const text = [
+          local ? `${local.candidateType || "?"}/${local.protocol || "?"}/${local.address || local.ip || "?"}:${local.port || "?"}` : "local=?",
+          remote ? `${remote.candidateType || "?"}/${remote.protocol || "?"}/${remote.address || remote.ip || "?"}:${remote.port || "?"}` : "remote=?",
+          `state=${selectedPair.state || "?"}`,
+          `requests=${selectedPair.requestsSent ?? "?"}`,
+          `responses=${selectedPair.responsesReceived ?? "?"}`,
+          `rtt=${selectedPair.currentRoundTripTime ?? "?"}`,
+        ].join(" ");
+        if (text !== lastSelectedPair) {
+          lastSelectedPair = text;
+          console.info(`[PeerLabelPrinter] ICE diag ${candidate}: selected ${text}`);
+        }
+      } catch (error) {
+        console.warn(`[PeerLabelPrinter] ICE diag ${candidate}: getStats failed`, error);
+      }
+    };
+
+    const onIceState = () => {
+      logState("state");
+      logSelectedPair();
+    };
+    const onGatheringState = () => logState("gathering");
+    const onCandidate = (event) => {
+      const candidateText = event?.candidate?.candidate || "";
+      if (!candidateText) {
+        console.info(`[PeerLabelPrinter] ICE diag ${candidate}: gathering complete`);
+        return;
+      }
+      const type = candidateText.match(/\styp\s+(\S+)/)?.[1] || "?";
+      const protocol = candidateText.match(/\s(udp|tcp)\s/i)?.[1] || "?";
+      const addressPort = candidateText.match(/\s(\S+)\s(\d+)\styp\s/) || [];
+      console.info(
+        `[PeerLabelPrinter] ICE diag ${candidate}: local candidate type=${type} protocol=${protocol} addr=${addressPort[1] || "?"}:${addressPort[2] || "?"}`
+      );
+    };
+
+    pc.addEventListener("iceconnectionstatechange", onIceState);
+    pc.addEventListener("icegatheringstatechange", onGatheringState);
+    pc.addEventListener("icecandidate", onCandidate);
+    logState("attach");
+    const timer = setInterval(logSelectedPair, 2000);
+    this._iceDiagTimers.set(conn, { pc, timer, onIceState, onGatheringState, onCandidate });
+  }
+
+  _detachIceDiagnostics(conn) {
+    const diag = this._iceDiagTimers.get(conn);
+    if (!diag) return;
+    clearInterval(diag.timer);
+    try {
+      diag.pc.removeEventListener("iceconnectionstatechange", diag.onIceState);
+      diag.pc.removeEventListener("icegatheringstatechange", diag.onGatheringState);
+      diag.pc.removeEventListener("icecandidate", diag.onCandidate);
+    } catch {}
+    this._iceDiagTimers.delete(conn);
   }
 
   _attachConnectedHandlers(conn) {
@@ -543,7 +643,7 @@ class PeerLabelPrinter {
   _handlePrintStatus(status) {
     const waiters = this._pendingPrints.get(status.id);
     if (!waiters?.length) return;
-    if (status.state === "done") {
+    if (status.state === "done" || status.state === "queued") {
       this._resolvePendingPrintState(status.id, "done", status);
     } else if (status.state === "error" || status.state === "incomplete") {
       const reason = status.reason ? ` (${status.reason})` : "";

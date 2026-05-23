@@ -39,6 +39,38 @@ static int agent_candidate_pair_score(IceCandidatePair* pair) {
   return score;
 }
 
+static const char* agent_candidate_type_name(IceCandidateType type) {
+  switch (type) {
+    case ICE_CANDIDATE_TYPE_HOST:
+      return "host";
+    case ICE_CANDIDATE_TYPE_SRFLX:
+      return "srflx";
+    case ICE_CANDIDATE_TYPE_PRFLX:
+      return "prflx";
+    case ICE_CANDIDATE_TYPE_RELAY:
+      return "relay";
+    default:
+      return "unknown";
+  }
+}
+
+static const char* agent_candidate_state_name(IceCandidateState state) {
+  switch (state) {
+    case ICE_CANDIDATE_STATE_FROZEN:
+      return "frozen";
+    case ICE_CANDIDATE_STATE_WAITING:
+      return "waiting";
+    case ICE_CANDIDATE_STATE_INPROGRESS:
+      return "in-progress";
+    case ICE_CANDIDATE_STATE_SUCCEEDED:
+      return "succeeded";
+    case ICE_CANDIDATE_STATE_FAILED:
+      return "failed";
+    default:
+      return "unknown";
+  }
+}
+
 void agent_clear_candidates(Agent* agent) {
   agent->local_candidates_count = 0;
   agent->remote_candidates_count = 0;
@@ -372,14 +404,20 @@ static void agent_create_binding_request(Agent* agent, StunMessage* msg) {
 void agent_process_stun_request(Agent* agent, StunMessage* stun_msg, Address* addr) {
   StunMessage msg;
   StunHeader* header;
+  char addr_string[ADDRSTRLEN];
   switch (stun_msg->stunmethod) {
     case STUN_METHOD_BINDING:
       if (stun_msg_is_valid(stun_msg->buf, stun_msg->size, agent->local_upwd) == 0) {
         header = (StunHeader*)stun_msg->buf;
         memcpy(agent->transaction_id, header->transaction_id, sizeof(header->transaction_id));
+        addr_to_string(addr, addr_string, sizeof(addr_string));
+        LOGI("ICE diag: binding request from %s:%d", addr_string, addr->port);
         agent_create_binding_response(agent, &msg, addr);
         agent_socket_send(agent, addr, msg.buf, msg.size);
         agent->binding_request_time = ports_get_epoch_time();
+      } else {
+        addr_to_string(addr, addr_string, sizeof(addr_string));
+        LOGW("ICE diag: invalid binding request from %s:%d", addr_string, addr->port);
       }
       break;
     default:
@@ -388,10 +426,18 @@ void agent_process_stun_request(Agent* agent, StunMessage* stun_msg, Address* ad
 }
 
 void agent_process_stun_response(Agent* agent, StunMessage* stun_msg) {
+  char remote_addr[ADDRSTRLEN];
   switch (stun_msg->stunmethod) {
     case STUN_METHOD_BINDING:
       if (stun_msg_is_valid(stun_msg->buf, stun_msg->size, agent->remote_upwd) == 0) {
         agent->nominated_pair->state = ICE_CANDIDATE_STATE_SUCCEEDED;
+        addr_to_string(&agent->nominated_pair->remote->addr, remote_addr, sizeof(remote_addr));
+        LOGI("ICE diag: binding response succeeded from %s:%d after %d checks",
+             remote_addr,
+             agent->nominated_pair->remote->addr.port,
+             agent->nominated_pair->conncheck);
+      } else {
+        LOGW("ICE diag: invalid binding response");
       }
       break;
     default:
@@ -446,8 +492,19 @@ void agent_set_remote_description(Agent* agent, char* description) {
 
     } else if (strncmp(line_start, "a=candidate:", strlen("a=candidate:")) == 0) {
       if (ice_candidate_from_description(&agent->remote_candidates[agent->remote_candidates_count], line_start, line_end) == 0) {
+        char remote_addr[ADDRSTRLEN];
+        IceCandidate* candidate = &agent->remote_candidates[agent->remote_candidates_count];
+        addr_to_string(&candidate->addr, remote_addr, sizeof(remote_addr));
+        LOGI("ICE diag: accepted remote candidate foundation=%s type=%s family=%d addr=%s:%d priority=%" PRIu32,
+             candidate->foundation,
+             agent_candidate_type_name(candidate->type),
+             candidate->addr.family,
+             remote_addr,
+             candidate->addr.port,
+             candidate->priority);
         for (i = 0; i < agent->remote_candidates_count; i++) {
           if (strcmp(agent->remote_candidates[i].foundation, agent->remote_candidates[agent->remote_candidates_count].foundation) == 0) {
+            LOGI("ICE diag: duplicate remote candidate foundation=%s ignored", candidate->foundation);
             break;
           }
         }
@@ -466,6 +523,8 @@ void agent_set_remote_description(Agent* agent, char* description) {
 
 void agent_update_candidate_pairs(Agent* agent) {
   int i, j;
+  char local_addr[ADDRSTRLEN];
+  char remote_addr[ADDRSTRLEN];
   agent->candidate_pairs_num = 0;
   agent->nominated_pair = NULL;
   agent->selected_pair = NULL;
@@ -478,6 +537,17 @@ void agent_update_candidate_pairs(Agent* agent) {
         agent->candidate_pairs[agent->candidate_pairs_num].remote = &agent->remote_candidates[j];
         agent->candidate_pairs[agent->candidate_pairs_num].priority = agent->local_candidates[i].priority + agent->remote_candidates[j].priority;
         agent->candidate_pairs[agent->candidate_pairs_num].state = ICE_CANDIDATE_STATE_FROZEN;
+        addr_to_string(&agent->local_candidates[i].addr, local_addr, sizeof(local_addr));
+        addr_to_string(&agent->remote_candidates[j].addr, remote_addr, sizeof(remote_addr));
+        LOGI("ICE diag: pair %d local=%s/%s:%d remote=%s/%s:%d score=%d",
+             agent->candidate_pairs_num,
+             agent_candidate_type_name(agent->local_candidates[i].type),
+             local_addr,
+             agent->local_candidates[i].addr.port,
+             agent_candidate_type_name(agent->remote_candidates[j].type),
+             remote_addr,
+             agent->remote_candidates[j].addr.port,
+             agent_candidate_pair_score(&agent->candidate_pairs[agent->candidate_pairs_num]));
         agent->candidate_pairs_num++;
         if (agent->candidate_pairs_num >= AGENT_MAX_CANDIDATE_PAIRS) {
           LOGW("candidate pair list is full");
@@ -496,7 +566,7 @@ int agent_connectivity_check(Agent* agent) {
   StunMessage msg;
 
   if (agent->nominated_pair->state != ICE_CANDIDATE_STATE_INPROGRESS) {
-    LOGI("nominated pair is not in progress");
+    LOGI("ICE diag: nominated pair state is %s, not in progress", agent_candidate_state_name(agent->nominated_pair->state));
     return -1;
   }
 
@@ -504,7 +574,10 @@ int agent_connectivity_check(Agent* agent) {
 
   if (agent->nominated_pair->conncheck % AGENT_CONNCHECK_PERIOD == 0) {
     addr_to_string(&agent->nominated_pair->remote->addr, addr_string, sizeof(addr_string));
-    LOGD("send binding request to remote ip: %s, port: %d", addr_string, agent->nominated_pair->remote->addr.port);
+    LOGI("ICE diag: send binding request check=%d to %s:%d",
+         agent->nominated_pair->conncheck,
+         addr_string,
+         agent->nominated_pair->remote->addr.port);
     agent_create_binding_request(agent, &msg);
     agent_socket_send(agent, &agent->nominated_pair->remote->addr, msg.buf, msg.size);
   }
@@ -543,11 +616,25 @@ int agent_select_candidate_pair(Agent* agent) {
   if (inprogress_pair) {
     inprogress_pair->conncheck++;
     if (best_frozen_pair && best_frozen_score > agent_candidate_pair_score(inprogress_pair)) {
+      char remote_addr[ADDRSTRLEN];
+      addr_to_string(&inprogress_pair->remote->addr, remote_addr, sizeof(remote_addr));
+      LOGI("ICE diag: failing in-progress pair remote=%s:%d checks=%d because better frozen score=%d current=%d",
+           remote_addr,
+           inprogress_pair->remote->addr.port,
+           inprogress_pair->conncheck,
+           best_frozen_score,
+           agent_candidate_pair_score(inprogress_pair));
       inprogress_pair->state = ICE_CANDIDATE_STATE_FAILED;
       inprogress_pair = NULL;
     } else if (inprogress_pair->conncheck < AGENT_CONNCHECK_MAX) {
       return 0;
     } else {
+      char remote_addr[ADDRSTRLEN];
+      addr_to_string(&inprogress_pair->remote->addr, remote_addr, sizeof(remote_addr));
+      LOGI("ICE diag: failing in-progress pair remote=%s:%d after max checks=%d",
+           remote_addr,
+           inprogress_pair->remote->addr.port,
+           inprogress_pair->conncheck);
       inprogress_pair->state = ICE_CANDIDATE_STATE_FAILED;
       inprogress_pair = NULL;
     }

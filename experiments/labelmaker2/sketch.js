@@ -1,4 +1,6 @@
 let printer;
+let printServer = null;
+let printServerState = { running: false, starting: false, id: "", connections: 0, queued: 0, processing: false };
 let connectMenuOpen = false;
 let connectingPrinter = false;
 let lastPeerStateLogKey = "";
@@ -192,6 +194,7 @@ async function setup() {
   await loadScript("portal/usbLabelPrinter.js");
   await loadScript("portal/starUsbPrinter.js");
   await loadScript("portal/peerLabelPrinter.js");
+  await loadScript("portal/peerPrintServer.js");
   await loadScript("portal/labelPrinterTransport.js");
   await loadScript("portal/qrCodeGen.js");
 
@@ -238,6 +241,17 @@ async function setup() {
     onState: handlePrinterState,
     onError: handlePrinterError,
   }).init();
+
+  printServer = await new PeerPrintServer({
+    host: "0.peerjs.com",
+    port: 443,
+    path: "/",
+    key: "peerjs",
+    secure: true,
+    onState: handlePrintServerState,
+    onError: handlePrintServerError,
+  }).init();
+  printServer.setTransport(printer);
 
   loadEditorState();
   loadPrintHistory();
@@ -292,7 +306,16 @@ function draw() {
   if (!busy && !isConnected && connectMenuOpen) {
     drawConnectMenu(preview, connectButtonRect.x, connectButtonRect.width);
   }
+  drawCanvasCornerMarker();
   drawPendingTooltip();
+}
+
+function drawCanvasCornerMarker() {
+  push();
+  noStroke();
+  fill(255, 230, 0);
+  circle(24, 24, 32);
+  pop();
 }
 
 function drawConnectMenu(preview, anchorX, buttonWidth) {
@@ -710,6 +733,30 @@ function buildToolbarRightItems(square, printWidth, state = {}) {
     });
   }
 
+  const printerState = printer?.getConnectionState?.() || {};
+  const showPrintServerButton = !!printerState.connected || !!printServerState.running || !!printServerState.starting;
+  if (showPrintServerButton) {
+    items.push({
+      key: "print-server",
+      width: square,
+      draw: (rect) => {
+        const markerText = `${Number(printServerState.connections) || 0}/${Number(printServerState.queued) || 0}`;
+        const result = drawIconButton(printServerState.running || printServerState.starting ? "hub" : "lan", {
+          ...rect,
+          active: !!printServerState.running,
+          disabled: !!printServerState.starting,
+          markerText,
+          tooltip: printServerState.running
+            ? `Printserver ${printServerState.id || ""}: ${markerText}`
+            : "Start printserver",
+        });
+        if (!printServerState.starting && result.clicked) {
+          togglePrintServer();
+        }
+      },
+    });
+  }
+
   items.push({
     key: "connect",
     width: square,
@@ -785,7 +832,7 @@ function layoutTwoSidedToolbar(toolbar, leftItems, rightItems) {
 }
 
 function drawToolbarLayout(layout, state = {}) {
-  const rightKeys = new Set(["download", "clear", "print", "connect"]);
+  const rightKeys = new Set(["download", "clear", "print", "print-server", "connect"]);
   for (const placement of layout.placements) {
     if (rightKeys.has(placement.item.key)) continue;
     placement.item.draw(placement.rect, state);
@@ -1131,6 +1178,39 @@ function deletePeerHostname(hostname) {
   detailText = `Deleted PeerJS printer ${normalized}.`;
 }
 
+async function togglePrintServer() {
+  if (!printServer) return;
+  if (printServerState.running || printServerState.starting) {
+    await printServer.stop();
+    detailText = "Printserver stopped.";
+    return;
+  }
+  await promptAndStartPrintServer();
+}
+
+async function promptAndStartPrintServer(defaultId = "") {
+  const fallback = defaultId || printServerState.id || `labelmaker-${Math.floor(Math.random() * 10000)}`;
+  const value = window.prompt("PeerJS printserver id", fallback);
+  if (value === null) return;
+  const id = normalizePeerHostname(value);
+  if (!id) {
+    detailText = "Printserver id is empty.";
+    return;
+  }
+  try {
+    await printServer.start(id, printer);
+    detailText = `Printserver ${id} started.`;
+  } catch (error) {
+    const message = error?.message || String(error);
+    detailText = message;
+    if (message.includes("already taken")) {
+      window.setTimeout(() => promptAndStartPrintServer(id), 0);
+    } else {
+      console.error("[labelmaker2] printserver start failed", error);
+    }
+  }
+}
+
 function sanitizePeerHostnames(value) {
   if (!Array.isArray(value)) return [];
   const hostnames = [];
@@ -1147,12 +1227,14 @@ function sanitizePeerHostnames(value) {
 async function disconnectPrinter() {
   if (busy) return;
   await printer?.disconnect?.();
+  printServer?.setTransport?.(printer);
   connectMenuOpen = false;
   statusText = "disconnected";
   detailText = "Disconnected printer.";
 }
 
 function handlePrinterState(state) {
+  printServer?.setTransport?.(printer);
   statusText = state.state;
   if (state.transport === "peer") {
     outputMode = "label";
@@ -1198,6 +1280,25 @@ function handlePrinterState(state) {
 function handlePrinterError(error) {
   console.error("[labelmaker2] printer error", error);
   statusText = "error";
+  detailText = error?.message || String(error);
+}
+
+function handlePrintServerState(state) {
+  printServerState = {
+    running: !!state.running,
+    starting: !!state.starting,
+    id: state.id || printServerState.id || "",
+    connections: Number(state.connections) || 0,
+    queued: Number(state.queued) || 0,
+    processing: !!state.processing,
+  };
+  if (state.state === "waiting_for_printer") {
+    detailText = `Printserver queued ${printServerState.queued} print${printServerState.queued === 1 ? "" : "s"}; reconnect a printer.`;
+  }
+}
+
+function handlePrintServerError(error) {
+  console.error("[labelmaker2] printserver error", error);
   detailText = error?.message || String(error);
 }
 
