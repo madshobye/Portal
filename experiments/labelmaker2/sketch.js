@@ -54,6 +54,7 @@ let perfectDosFont = null;
 const storageKey = "portal.labelmaker2.state";
 const printHistoryStorageKey = "portal.labelmaker2.printHistory";
 const printHistorySliderKey = "labelmaker2.printHistoryIndex";
+const peerPrinterUrlParam = "peerPrinter";
 const editorPhotoDbName = "portal.labelmaker2.photos";
 const editorPhotoStoreName = "photos";
 const editorPhotoStorageId = "current";
@@ -258,6 +259,7 @@ async function setup() {
   printServer.setTransport(printer);
 
   loadEditorState();
+  applyPeerPrinterFromUrl();
   loadPrintHistory();
   applyEditorFont();
   rebuildLabelGraphic();
@@ -818,7 +820,6 @@ function makePrintServerToolbarItem(square) {
         ...rect,
         active: !!printServerState.running,
         disabled: !!printServerState.starting,
-        markerText,
         tooltip: printServerState.running
           ? `Printserver ${printServerState.id || ""}: ${markerText}`
           : "Start printserver",
@@ -1209,7 +1210,8 @@ function drawTooltip(label, anchorX, anchorY) {
 async function connectPrinter(transport = "ble", options = {}) {
   if (busy || connectingPrinter) return;
   try {
-    const peerHostname = transport === "peer" ? normalizePeerHostname(options.peerHostname) : "";
+    const currentPeerHostname = normalizePeerHostname(getPeerPrinterFromUrl() || printer?.peerPrinter?.remoteId || peerHostnames[0] || "printhost");
+    const peerHostname = transport === "peer" ? (normalizePeerHostname(options.peerHostname) || currentPeerHostname) : "";
     if (transport === "peer") {
       setPeerRemoteId(peerHostname || "printhost");
       pendingPeerHostname = peerHostname;
@@ -1225,6 +1227,14 @@ async function connectPrinter(transport = "ble", options = {}) {
     outputMode = printer.getSuggestedOutputMode?.() || "label";
     if (transport === "peer" && pendingPeerHostname) {
       rememberPeerHostname(pendingPeerHostname);
+    }
+    if (transport === "peer") {
+      const connectedState = printer?.getConnectionState?.() || {};
+      const connectedPeerId = normalizePeerHostname(connectedState.remoteId || pendingPeerHostname || peerHostname);
+      if (connectedPeerId) {
+        rememberPeerHostname(connectedPeerId);
+        updatePeerPrinterUrl(connectedPeerId);
+      }
     }
     statusText = "connected";
     detailText = `Connected over ${formatTransport()}. Press Print for ${outputMode}.`;
@@ -1261,6 +1271,38 @@ function normalizePeerHostname(value) {
 function setPeerRemoteId(remoteId) {
   if (printer?.peerPrinter) {
     printer.peerPrinter.remoteId = remoteId;
+  }
+}
+
+function applyPeerPrinterFromUrl() {
+  const hostname = getPeerPrinterFromUrl();
+  if (!hostname) return;
+  setPeerRemoteId(hostname);
+  peerHostnames = [
+    hostname,
+    ...peerHostnames.filter((item) => normalizePeerHostname(item) !== hostname),
+  ].slice(0, maxPeerHostnameMenuItems);
+}
+
+function getPeerPrinterFromUrl() {
+  try {
+    const params = new URLSearchParams(window.location.search || "");
+    return normalizePeerHostname(params.get(peerPrinterUrlParam));
+  } catch {
+    return "";
+  }
+}
+
+function updatePeerPrinterUrl(hostname) {
+  const normalized = normalizePeerHostname(hostname);
+  if (!normalized || !window.history?.replaceState) return;
+  try {
+    const url = new URL(window.location.href);
+    if (url.searchParams.get(peerPrinterUrlParam) === normalized) return;
+    url.searchParams.set(peerPrinterUrlParam, normalized);
+    window.history.replaceState(window.history.state, "", url);
+  } catch (error) {
+    console.warn(`[labelmaker2] could not update peer printer URL: ${formatErrorMessage(error)}`);
   }
 }
 
