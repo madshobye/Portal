@@ -98,6 +98,10 @@ static void peerMarkConnectionStale(const char *reason) {
   }
   peerConnectionStaleReason = reason;
   peerConnectionStale = true;
+  dataChannelOpen = false;
+  dataChannelSidKnown = false;
+  dataChannelSid = 0;
+  digitalWrite(LED_BUILTIN, LOW);
 }
 
 String peerJsBuildId(int attempt) {
@@ -301,11 +305,43 @@ void peerJsSendHeartbeat() {
   peerJsLastHeartbeatAt = millis();
 }
 
+void peerJsLogSdpSummary(const char *label, const String &sdp) {
+  Serial.printf("%s SDP len=%u\r\n", label, (unsigned)sdp.length());
+  int start = 0;
+  while (start < (int)sdp.length()) {
+    int end = sdp.indexOf('\n', start);
+    if (end < 0) {
+      end = sdp.length();
+    }
+    String line = sdp.substring(start, end);
+    line.trim();
+    if (line.startsWith("m=") ||
+        line.startsWith("c=") ||
+        line.startsWith("a=group:") ||
+        line.startsWith("a=mid:") ||
+        line.startsWith("a=ice-ufrag:") ||
+        line.startsWith("a=ice-pwd:") ||
+        line.startsWith("a=ice-options:") ||
+        line.startsWith("a=fingerprint:") ||
+        line.startsWith("a=setup:") ||
+        line.startsWith("a=sctp-port:") ||
+        line.startsWith("a=max-message-size:") ||
+        line.startsWith("a=candidate:") ||
+        line.startsWith("a=end-of-candidates")) {
+      Serial.print(label);
+      Serial.print(" ");
+      Serial.println(line);
+    }
+    start = end + 1;
+  }
+}
+
 void peerJsSendSdp(const char *messageType, const char *sdpType, const String &sdp) {
   if (!peerJsOpen || peerJsRemoteId.length() == 0 || peerJsConnectionId.length() == 0) {
     return;
   }
 
+  peerJsLogSdpSummary(messageType, sdp);
   String message = String("{\"type\":\"") + messageType + "\"";
   message += ",\"dst\":\"" + peerJsEscapeJson(peerJsRemoteId) + "\"";
   message += ",\"payload\":{";
@@ -329,6 +365,8 @@ void peerJsSendCandidate(const String &candidate) {
     return;
   }
 
+  Serial.print("PeerJS send candidate ");
+  Serial.println(candidate);
   String message = "{\"type\":\"CANDIDATE\"";
   message += ",\"dst\":\"" + peerJsEscapeJson(peerJsRemoteId) + "\"";
   message += ",\"payload\":{";
@@ -487,6 +525,7 @@ static void onDataChannelClose(void *userData) {
   dataChannelSidKnown = false;
   dataChannelSid = 0;
   digitalWrite(LED_BUILTIN, LOW);
+  peerMarkConnectionStale("datachannel_close");
 }
 
 static bool peerCreateConnection() {
@@ -529,6 +568,7 @@ static bool peerResetConnection() {
   dataChannelOpen = false;
   dataChannelSidKnown = false;
   dataChannelSid = 0;
+  digitalWrite(LED_BUILTIN, LOW);
   if (peerConnection != NULL) {
     peer_connection_destroy(peerConnection);
     peerConnection = NULL;
@@ -552,6 +592,7 @@ static void peerCleanupStaleConnection() {
   dataChannelOpen = false;
   dataChannelSidKnown = false;
   dataChannelSid = 0;
+  digitalWrite(LED_BUILTIN, LOW);
   peerJsRemoteId = "";
   peerJsConnectionId = "";
   peerJsWaitingForAnswer = false;
@@ -661,6 +702,7 @@ void peerJsHandleMessage(const String &message) {
     peerJsWaitingForOffer = false;
     Serial.print("PeerJS offer from: ");
     Serial.println(peerJsRemoteId);
+    peerJsLogSdpSummary("OFFER", sdp);
 
     if (peerTakeConnection()) {
       if (peerResetConnection()) {

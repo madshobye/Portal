@@ -17,6 +17,8 @@ static uint8_t ice_candidate_type_preference(IceCandidateType type) {
       return 126;
     case ICE_CANDIDATE_TYPE_SRFLX:
       return 100;
+    case ICE_CANDIDATE_TYPE_PRFLX:
+      return 110;
     case ICE_CANDIDATE_TYPE_RELAY:
       return 0;
     default:
@@ -59,6 +61,9 @@ void ice_candidate_to_description(IceCandidate* candidate, char* description, in
       break;
     case ICE_CANDIDATE_TYPE_SRFLX:
       snprintf(typ_raddr, sizeof(typ_raddr), "srflx raddr %s rport %d", addr_string, candidate->raddr.port);
+      break;
+    case ICE_CANDIDATE_TYPE_PRFLX:
+      snprintf(typ_raddr, sizeof(typ_raddr), "prflx");
       break;
     case ICE_CANDIDATE_TYPE_RELAY:
       snprintf(typ_raddr, sizeof(typ_raddr), "relay raddr %s rport %d", addr_string, candidate->raddr.port);
@@ -111,6 +116,8 @@ int ice_candidate_from_description(IceCandidate* candidate, char* description, c
     candidate->type = ICE_CANDIDATE_TYPE_HOST;
   } else if (strncmp(type, "srflx", 5) == 0) {
     candidate->type = ICE_CANDIDATE_TYPE_SRFLX;
+  } else if (strncmp(type, "prflx", 5) == 0) {
+    candidate->type = ICE_CANDIDATE_TYPE_PRFLX;
   } else if (strncmp(type, "relay", 5) == 0) {
     candidate->type = ICE_CANDIDATE_TYPE_RELAY;
   } else {

@@ -16,6 +16,84 @@
 #define AGENT_CONNCHECK_MAX 1000
 #define AGENT_CONNCHECK_PERIOD 100
 #define AGENT_STUN_RECV_MAXTIMES 1000
+#define AGENT_STUN_GATHER_ATTEMPTS 3
+
+static uint32_t agent_ipv4_addr(const Address* addr) {
+  return ntohl(addr->sin.sin_addr.s_addr);
+}
+
+static int agent_ipv4_is_private(const Address* addr) {
+  uint32_t ip;
+
+  if (addr->family != AF_INET) {
+    return 0;
+  }
+
+  ip = agent_ipv4_addr(addr);
+  return (ip >> 24) == 10 || (ip >> 20) == 0x0ac1 || (ip >> 16) == 0xc0a8 || (ip >> 16) == 0xa9fe;
+}
+
+static int agent_ipv4_same_subnet24(const Address* a, const Address* b) {
+  if (a->family != AF_INET || b->family != AF_INET) {
+    return 0;
+  }
+
+  return (agent_ipv4_addr(a) & 0xffffff00) == (agent_ipv4_addr(b) & 0xffffff00);
+}
+
+static int agent_addr_endpoint_equal(const Address* a, const Address* b) {
+  if (a->family != b->family || a->port != b->port) {
+    return 0;
+  }
+
+  if (a->family == AF_INET) {
+    return a->sin.sin_addr.s_addr == b->sin.sin_addr.s_addr;
+  }
+
+  if (a->family == AF_INET6) {
+    return memcmp(&a->sin6.sin6_addr, &b->sin6.sin6_addr, sizeof(a->sin6.sin6_addr)) == 0;
+  }
+
+  return 0;
+}
+
+static int agent_candidate_pair_exists(Agent* agent, IceCandidate* local, IceCandidate* remote) {
+  int i;
+
+  for (i = 0; i < agent->candidate_pairs_num; i++) {
+    IceCandidatePair* pair = &agent->candidate_pairs[i];
+    if (pair->local->type == local->type && pair->remote->type == remote->type &&
+        agent_addr_endpoint_equal(&pair->local->addr, &local->addr) &&
+        agent_addr_endpoint_equal(&pair->remote->addr, &remote->addr)) {
+      return 1;
+    }
+  }
+
+  return 0;
+}
+
+static int agent_local_candidate_duplicate(Agent* agent, int candidate_index) {
+  IceCandidate* candidate = &agent->local_candidates[candidate_index];
+
+  for (int i = 0; i < candidate_index; i++) {
+    IceCandidate* other = &agent->local_candidates[i];
+    if (other->type == candidate->type && agent_addr_endpoint_equal(&other->addr, &candidate->addr)) {
+      return 1;
+    }
+  }
+
+  return 0;
+}
+
+static void agent_set_related_host_addr(Agent* agent, IceCandidate* candidate) {
+  for (int i = 0; i < agent->local_candidates_count; i++) {
+    IceCandidate* host = &agent->local_candidates[i];
+    if (host->type == ICE_CANDIDATE_TYPE_HOST && host->addr.family == candidate->addr.family) {
+      memcpy(&candidate->raddr, &host->addr, sizeof(Address));
+      return;
+    }
+  }
+}
 
 static int agent_candidate_pair_score(IceCandidatePair* pair) {
   int score = 0;
@@ -24,16 +102,31 @@ static int agent_candidate_pair_score(IceCandidatePair* pair) {
     score += 40000;
   } else if (pair->local->type == ICE_CANDIDATE_TYPE_SRFLX) {
     score += 10000;
+  } else if (pair->local->type == ICE_CANDIDATE_TYPE_PRFLX) {
+    score += 35000;
   }
 
   if (pair->remote->type == ICE_CANDIDATE_TYPE_HOST) {
     score += 40000;
   } else if (pair->remote->type == ICE_CANDIDATE_TYPE_SRFLX) {
     score += 10000;
+  } else if (pair->remote->type == ICE_CANDIDATE_TYPE_PRFLX) {
+    score += 35000;
   }
 
-  if (pair->local->type == ICE_CANDIDATE_TYPE_HOST && pair->remote->type == ICE_CANDIDATE_TYPE_HOST) {
-    score += 100000;
+  if ((pair->local->type == ICE_CANDIDATE_TYPE_HOST || pair->local->type == ICE_CANDIDATE_TYPE_PRFLX) &&
+      (pair->remote->type == ICE_CANDIDATE_TYPE_HOST || pair->remote->type == ICE_CANDIDATE_TYPE_PRFLX)) {
+    if (pair->local->addr.family == AF_INET && pair->remote->addr.family == AF_INET &&
+        agent_ipv4_is_private(&pair->local->addr) && agent_ipv4_is_private(&pair->remote->addr)) {
+      score += agent_ipv4_same_subnet24(&pair->local->addr, &pair->remote->addr) ? 100000 : -60000;
+    } else {
+      score += 100000;
+    }
+  } else if (pair->local->type == ICE_CANDIDATE_TYPE_SRFLX && pair->remote->type == ICE_CANDIDATE_TYPE_SRFLX) {
+    score += 120000;
+  } else if ((pair->local->type == ICE_CANDIDATE_TYPE_HOST && agent_ipv4_is_private(&pair->local->addr)) ||
+             (pair->remote->type == ICE_CANDIDATE_TYPE_HOST && agent_ipv4_is_private(&pair->remote->addr))) {
+    score -= 30000;
   }
 
   return score;
@@ -71,6 +164,94 @@ static const char* agent_candidate_state_name(IceCandidateState state) {
   }
 }
 
+static IceCandidate* agent_find_remote_candidate_by_addr(Agent* agent, Address* addr) {
+  int i;
+
+  for (i = 0; i < agent->remote_candidates_count; i++) {
+    if (agent_addr_endpoint_equal(&agent->remote_candidates[i].addr, addr)) {
+      return &agent->remote_candidates[i];
+    }
+  }
+
+  return NULL;
+}
+
+static IceCandidate* agent_create_peer_reflexive_remote_candidate(Agent* agent, Address* addr) {
+  IceCandidate* candidate;
+  char addr_string[ADDRSTRLEN];
+
+  if (agent->remote_candidates_count >= AGENT_MAX_CANDIDATES) {
+    addr_to_string(addr, addr_string, sizeof(addr_string));
+    LOGW("ICE diag: cannot add peer-reflexive remote candidate %s:%d, candidate list full", addr_string, addr->port);
+    return NULL;
+  }
+
+  candidate = &agent->remote_candidates[agent->remote_candidates_count];
+  ice_candidate_create(candidate, agent->remote_candidates_count, ICE_CANDIDATE_TYPE_PRFLX, addr);
+  agent->remote_candidates_count++;
+
+  addr_to_string(addr, addr_string, sizeof(addr_string));
+  LOGI("ICE diag: added peer-reflexive remote candidate %s:%d", addr_string, addr->port);
+  return candidate;
+}
+
+static IceCandidatePair* agent_find_best_pair_for_remote(Agent* agent, IceCandidate* remote) {
+  IceCandidatePair* best_pair = NULL;
+  int best_score = -1;
+  int i;
+
+  for (i = 0; i < agent->candidate_pairs_num; i++) {
+    IceCandidatePair* pair = &agent->candidate_pairs[i];
+    if (pair->remote != remote) {
+      continue;
+    }
+
+    int score = agent_candidate_pair_score(pair);
+    if (score > best_score) {
+      best_score = score;
+      best_pair = pair;
+    }
+  }
+
+  return best_pair;
+}
+
+static void agent_select_incoming_binding_pair(Agent* agent, Address* addr) {
+  IceCandidate* remote;
+  IceCandidatePair* pair;
+  char local_addr[ADDRSTRLEN];
+  char remote_addr[ADDRSTRLEN];
+
+  remote = agent_find_remote_candidate_by_addr(agent, addr);
+  if (!remote) {
+    remote = agent_create_peer_reflexive_remote_candidate(agent, addr);
+    if (!remote) {
+      return;
+    }
+    agent_update_candidate_pairs(agent);
+  }
+
+  pair = agent_find_best_pair_for_remote(agent, remote);
+  if (!pair) {
+    return;
+  }
+
+  pair->state = ICE_CANDIDATE_STATE_SUCCEEDED;
+  agent->selected_pair = pair;
+  agent->nominated_pair = pair;
+
+  addr_to_string(&pair->local->addr, local_addr, sizeof(local_addr));
+  addr_to_string(&pair->remote->addr, remote_addr, sizeof(remote_addr));
+  LOGI("ICE diag: selected incoming ICE pair local=%s/%s:%d remote=%s/%s:%d score=%d",
+       agent_candidate_type_name(pair->local->type),
+       local_addr,
+       pair->local->addr.port,
+       agent_candidate_type_name(pair->remote->type),
+       remote_addr,
+       pair->remote->addr.port,
+       agent_candidate_pair_score(pair));
+}
+
 void agent_clear_candidates(Agent* agent) {
   agent->local_candidates_count = 0;
   agent->remote_candidates_count = 0;
@@ -82,6 +263,7 @@ void agent_clear_candidates(Agent* agent) {
 
 int agent_create(Agent* agent) {
   int ret;
+  LOGI("ICE diag: source build marker peer-reflexive-incoming-v1");
   if ((ret = udp_socket_open(&agent->udp_sockets[0], AF_INET, 0)) < 0) {
     LOGE("Failed to create UDP socket.");
     return ret;
@@ -219,16 +401,24 @@ static int agent_create_stun_addr(Agent* agent, Address* serv_addr) {
 
   stun_msg_create(&send_msg, STUN_CLASS_REQUEST | STUN_METHOD_BINDING);
 
-  ret = agent_socket_send(agent, serv_addr, send_msg.buf, send_msg.size);
+  for (int attempt = 0; attempt < AGENT_STUN_GATHER_ATTEMPTS; attempt++) {
+    ret = agent_socket_send(agent, serv_addr, send_msg.buf, send_msg.size);
 
-  if (ret == -1) {
-    LOGE("Failed to send STUN Binding Request.");
-    return ret;
+    if (ret == -1) {
+      LOGE("Failed to send STUN Binding Request.");
+      return ret;
+    }
+
+    ret = agent_socket_recv_attempts(agent, NULL, recv_msg.buf, sizeof(recv_msg.buf), AGENT_STUN_RECV_MAXTIMES);
+    if (ret > 0) {
+      break;
+    }
+
+    LOGW("ICE diag: STUN gather attempt %d/%d timed out", attempt + 1, AGENT_STUN_GATHER_ATTEMPTS);
   }
 
-  ret = agent_socket_recv_attempts(agent, NULL, recv_msg.buf, sizeof(recv_msg.buf), AGENT_STUN_RECV_MAXTIMES);
   if (ret <= 0) {
-    LOGD("Failed to receive STUN Binding Response.");
+    LOGW("ICE diag: STUN gather failed after %d attempts", AGENT_STUN_GATHER_ATTEMPTS);
     return ret;
   }
 
@@ -236,6 +426,7 @@ static int agent_create_stun_addr(Agent* agent, Address* serv_addr) {
   memcpy(&bind_addr, &recv_msg.mapped_addr, sizeof(Address));
   IceCandidate* ice_candidate = agent->local_candidates + agent->local_candidates_count++;
   ice_candidate_create(ice_candidate, agent->local_candidates_count, ICE_CANDIDATE_TYPE_SRFLX, &bind_addr);
+  agent_set_related_host_addr(agent, ice_candidate);
   return ret;
 }
 
@@ -353,16 +544,28 @@ void agent_create_ice_credential(Agent* agent) {
 
 void agent_get_local_description(Agent* agent, char* description, int length) {
   for (int i = 0; i < agent->local_candidates_count; i++) {
+    if (agent_local_candidate_duplicate(agent, i)) {
+      continue;
+    }
     ice_candidate_to_description(&agent->local_candidates[i], description + strlen(description), length - strlen(description));
   }
 
-  // remove last \n
-  description[strlen(description)] = '\0';
+  if ((int)strlen(description) < length - (int)strlen("a=end-of-candidates\r\n") - 1) {
+    strncat(description, "a=end-of-candidates\r\n", length - strlen(description) - 1);
+  }
+
   LOGD("local description:\n%s", description);
 }
 
 int agent_send(Agent* agent, const uint8_t* buf, int len) {
-  return agent_socket_send(agent, &agent->nominated_pair->remote->addr, buf, len);
+  IceCandidatePair* pair = agent->selected_pair ? agent->selected_pair : agent->nominated_pair;
+
+  if (!pair || !pair->remote) {
+    LOGW("ICE diag: agent_send without selected ICE pair");
+    return -1;
+  }
+
+  return agent_socket_send(agent, &pair->remote->addr, buf, len);
 }
 
 static void agent_create_binding_response(Agent* agent, StunMessage* msg, Address* addr) {
@@ -414,6 +617,7 @@ void agent_process_stun_request(Agent* agent, StunMessage* stun_msg, Address* ad
         LOGI("ICE diag: binding request from %s:%d", addr_string, addr->port);
         agent_create_binding_response(agent, &msg, addr);
         agent_socket_send(agent, addr, msg.buf, msg.size);
+        agent_select_incoming_binding_pair(agent, addr);
         agent->binding_request_time = ports_get_epoch_time();
       } else {
         addr_to_string(addr, addr_string, sizeof(addr_string));
@@ -525,14 +729,21 @@ void agent_update_candidate_pairs(Agent* agent) {
   int i, j;
   char local_addr[ADDRSTRLEN];
   char remote_addr[ADDRSTRLEN];
-  agent->candidate_pairs_num = 0;
-  agent->nominated_pair = NULL;
-  agent->selected_pair = NULL;
 
   // Please set gather candidates before set remote description
   for (i = 0; i < agent->local_candidates_count; i++) {
     for (j = 0; j < agent->remote_candidates_count; j++) {
       if (agent->local_candidates[i].addr.family == agent->remote_candidates[j].addr.family) {
+        if (agent_candidate_pair_exists(agent, &agent->local_candidates[i], &agent->remote_candidates[j])) {
+          addr_to_string(&agent->local_candidates[i].addr, local_addr, sizeof(local_addr));
+          addr_to_string(&agent->remote_candidates[j].addr, remote_addr, sizeof(remote_addr));
+          LOGI("ICE diag: duplicate pair ignored local=%s:%d remote=%s:%d",
+               local_addr,
+               agent->local_candidates[i].addr.port,
+               remote_addr,
+               agent->remote_candidates[j].addr.port);
+          continue;
+        }
         agent->candidate_pairs[agent->candidate_pairs_num].local = &agent->local_candidates[i];
         agent->candidate_pairs[agent->candidate_pairs_num].remote = &agent->remote_candidates[j];
         agent->candidate_pairs[agent->candidate_pairs_num].priority = agent->local_candidates[i].priority + agent->remote_candidates[j].priority;

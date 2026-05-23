@@ -35,7 +35,8 @@ class PeerLabelPrinter {
     this.path = path || "/";
     this.key = key || "peerjs";
     this.secure = secure !== false && secure !== "false";
-    this.localId = localId || `portal-${Math.floor(Math.random() * 10000)}`;
+    this._autoLocalId = !localId;
+    this.localId = localId || this._makeLocalId();
     this.remoteId = remoteId || "printhost";
     this.autoSuffixRemoteId = autoSuffixRemoteId !== false;
     this.remoteIdSuffixes = Array.isArray(remoteIdSuffixes) ? remoteIdSuffixes.slice(0, 5) : ["a", "b", "c", "d", "e"];
@@ -70,9 +71,9 @@ class PeerLabelPrinter {
     this._heartbeatTimer = null;
     this._lastSeenAt = 0;
     this._pendingPrints = new Map();
-    this._candidateResponded = false;
-    this._peerResponseTrackerInstalled = false;
     this._iceDiagTimers = new Map();
+    this._iceDiagStates = new Map();
+    this._forceRemoteHostCandidateStrip = false;
   }
 
   async init() {
@@ -106,10 +107,11 @@ class PeerLabelPrinter {
       const candidates = this._buildRemoteCandidates(this.remoteId);
       for (const candidate of candidates) {
         if (token !== this._connectToken) return false;
-        for (let attempt = 0; attempt <= this.candidateRetryCount; attempt++) {
+        const retrySameIdCount = this._isWebKitBrowser() ? 3 : 2;
+        for (let attempt = 0; attempt <= retrySameIdCount; attempt++) {
           if (token !== this._connectToken) return false;
-          const attemptText = attempt > 0 ? ` retry ${attempt}` : "";
-          console.info(`[PeerLabelPrinter] trying ESP32 id ${candidate}${attemptText}`);
+          const retryText = attempt > 0 ? ` retry ${attempt}` : "";
+          console.info(`[PeerLabelPrinter] trying ESP32 id ${candidate}${retryText}`);
           this._setState("connecting_peer", { candidate, attempt });
           const result = await this._tryConnectCandidate(candidate, token);
           if (result === "connected") {
@@ -123,13 +125,21 @@ class PeerLabelPrinter {
             this._onConnect?.();
             return true;
           }
-          if (result === "responded") {
-            console.error(`[PeerLabelPrinter] ${candidate} answered signaling but data channel did not open`);
+          if (result === "locked_failed") {
             throw new Error(`ESP32 responded as ${candidate}, but the data channel did not open`);
           }
-          console.info(`[PeerLabelPrinter] no connection for ${candidate}`);
-          break;
+          if (result !== "retry_same") break;
+          if (attempt < retrySameIdCount) {
+            console.info(`[PeerLabelPrinter] ${candidate} had ICE activity, refreshing browser peer and retrying same id`);
+            this._setState("connecting_server", { candidate, attempt: attempt + 1 });
+            await this._openPeer(token);
+            await this._delay(this.scanPauseMs);
+          } else {
+            console.info(`[PeerLabelPrinter] ${candidate} had ICE activity, staying on this id`);
+            throw new Error(`ESP32 responded as ${candidate}, but the data channel did not open`);
+          }
         }
+        console.info(`[PeerLabelPrinter] no connection for ${candidate}`);
         await this._delay(this.scanPauseMs);
       }
       throw new Error(`Could not connect to ESP32 id ${this.remoteId}`);
@@ -201,6 +211,9 @@ class PeerLabelPrinter {
 
   async _openPeer(token) {
     this._safeDestroyPeer();
+    if (this._autoLocalId) {
+      this.localId = this._makeLocalId();
+    }
     const peerOptions = {
       host: this.host,
       port: this.port,
@@ -209,8 +222,16 @@ class PeerLabelPrinter {
       secure: this.secure,
       debug: this.debug ? 2 : 0,
     };
+    if (this._isWebKitBrowser()) {
+      peerOptions.config = {
+        iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
+        iceTransportPolicy: "all",
+      };
+      console.info("[PeerLabelPrinter] WebKit ICE config: iceTransportPolicy=all");
+    }
 
     this.peer = new Peer(this.localId, peerOptions);
+    this._installCandidateFilter(this.peer);
     const openingPeer = this.peer;
     await new Promise((resolve, reject) => {
       let opened = false;
@@ -246,14 +267,12 @@ class PeerLabelPrinter {
         }
       });
     });
-    this._installPeerResponseTracker();
     this._setState("server_ready");
   }
 
   _tryConnectCandidate(candidate, token) {
     return new Promise((resolve) => {
       let settled = false;
-      this._candidateResponded = false;
       const conn = this.peer.connect(candidate, {
         label: "portal",
         reliable: true,
@@ -261,42 +280,33 @@ class PeerLabelPrinter {
       });
       this._candidate = candidate;
       this.connection = conn;
+      this._installRemoteDescriptionFilter(conn);
       this._attachIceDiagnostics(conn, candidate);
 
       const finish = (result) => {
         if (settled) return;
         settled = true;
+        const hadIceActivity = result !== "connected" && this._candidateHadIceActivity(conn);
+        const finalResult = hadIceActivity ? "retry_same" : result;
         this._detachIceDiagnostics(conn);
-        clearTimeout(timer);
-        clearTimeout(dataChannelTimer);
+        clearTimeout(connectTimer);
         clearTimeout(openSettleTimer);
         conn.off?.("open", onOpen);
         conn.off?.("data", onData);
         conn.off?.("error", onError);
         conn.off?.("close", onClose);
-        if (result !== "connected") {
+        if (finalResult !== "connected") {
           try {
             conn.close();
           } catch {}
           if (this.connection === conn) this.connection = null;
         }
         this.peer?.off?.("error", onPeerError);
-        resolve(result);
+        resolve(finalResult);
       };
 
-      const markResponded = () => {
-        if (this._candidateResponded) return;
-        this._candidateResponded = true;
+      const markSeen = () => {
         this._lastSeenAt = Date.now();
-        this._setState("connecting_peer", { candidate, responded: true });
-      };
-      const waitForDataChannel = () => {
-        if (!this._candidateResponded) {
-          finish("failed");
-          return;
-        }
-        console.info(`[PeerLabelPrinter] ${candidate} responded, waiting for data channel on same offer`);
-        this._setState("connecting_peer", { candidate, responded: true });
       };
       const finishConnectedIfOpen = () => {
         clearTimeout(openSettleTimer);
@@ -305,18 +315,18 @@ class PeerLabelPrinter {
         }, this.connectedSettleMs);
       };
       const onOpen = () => {
-        markResponded();
+        markSeen();
         finishConnectedIfOpen();
       };
       const onData = () => {
-        markResponded();
+        markSeen();
         if (conn.open) finish("connected");
       };
-      const onError = () => finish(this._candidateResponded ? "responded" : "failed");
+      const onError = () => finish("failed");
       const onPeerError = (error) => {
         const message = error?.message || String(error || "");
         if (message.includes("Could not connect to peer") || message.includes(candidate)) {
-          if (!this._candidateResponded) finish("failed");
+          finish("failed");
         }
       };
       const onClose = () => {
@@ -327,12 +337,11 @@ class PeerLabelPrinter {
           this._setState("disconnected");
           this._onDisconnect?.();
         } else {
-          finish(this._candidateResponded ? "responded" : "failed");
+          finish("failed");
         }
       };
       let openSettleTimer = null;
-      const dataChannelTimer = setTimeout(() => finish(this._candidateResponded ? "responded" : "failed"), this.dataChannelTimeoutMs);
-      const timer = setTimeout(waitForDataChannel, this.connectTimeoutMs);
+      const connectTimer = setTimeout(() => finish("failed"), this.dataChannelTimeoutMs);
 
       conn.on("open", onOpen);
       conn.on("data", onData);
@@ -340,31 +349,6 @@ class PeerLabelPrinter {
       conn.on("close", onClose);
       this.peer?.on?.("error", onPeerError);
     });
-  }
-
-  _installPeerResponseTracker() {
-    if (!this.peer || this._peerResponseTrackerInstalled || typeof this.peer._handleMessage !== "function") return;
-    this._peerResponseTrackerInstalled = true;
-    const handleMessage = this.peer._handleMessage.bind(this.peer);
-    this.peer._handleMessage = (message) => {
-      if (
-        this.connecting &&
-        !this.connected &&
-        this._candidate &&
-        message &&
-        message.src === this._candidate &&
-        (message.type === "ANSWER" || message.type === "CANDIDATE")
-      ) {
-        this._candidateResponded = true;
-        this._lastSeenAt = Date.now();
-        this._setState("connecting_peer", { candidate: this._candidate, responded: true });
-        if (message.type === "ANSWER") {
-          console.info(`[PeerLabelPrinter] ${this._candidate} answered signaling`);
-        }
-      }
-
-      return handleMessage(message);
-    };
   }
 
   _getConnectionPeerConnection(conn) {
@@ -377,6 +361,104 @@ class PeerLabelPrinter {
     );
   }
 
+  _isWebKitBrowser() {
+    const ua = navigator?.userAgent || "";
+    const isIos = /\b(iPad|iPhone|iPod)\b/.test(ua) || (navigator?.platform === "MacIntel" && navigator?.maxTouchPoints > 1);
+    const isSafari = /\bSafari\b/.test(ua) && !/\b(Chrome|Chromium|CriOS|FxiOS|Edg)\b/.test(ua);
+    return /\bAppleWebKit\b/.test(ua) && (isIos || isSafari);
+  }
+
+  _installCandidateFilter(peer) {
+    const socket = peer?.socket;
+    if (!socket || typeof socket.send !== "function" || socket._labelmakerCandidateFilter) return;
+    const send = socket.send.bind(socket);
+    socket._labelmakerCandidateFilter = true;
+    socket.send = (message) => {
+      const candidate = message?.payload?.candidate?.candidate || "";
+      if (message?.type === "CANDIDATE" && this._shouldDropCandidate(candidate)) {
+        console.info(`[PeerLabelPrinter] ICE filter: dropping ${this._summarizeIceCandidate(candidate)}`);
+        return;
+      }
+      return send(message);
+    };
+  }
+
+  _shouldDropCandidate(candidate) {
+    if (!candidate) return false;
+    const type = candidate.match(/\styp\s+(\S+)/)?.[1] || "";
+    const protocol = candidate.match(/\s(udp|tcp)\s/i)?.[1]?.toLowerCase() || "";
+    const address = candidate.match(/\s(\S+)\s\d+\styp\s/)?.[1] || "";
+    if (protocol === "tcp") return true;
+    if (type !== "host") return false;
+    if (this._isHotspotHostAddress(address)) {
+      this._forceRemoteHostCandidateStrip = true;
+      return true;
+    }
+    if (this._isMdnsHostAddress(address)) {
+      return true;
+    }
+    return false;
+  }
+
+  _isMdnsHostAddress(address) {
+    return /\.local$/i.test(address);
+  }
+
+  _isHotspotHostAddress(address) {
+    return /^172\.20\.10\.\d+$/.test(address);
+  }
+
+  _installRemoteDescriptionFilter(conn) {
+    if (!conn || typeof conn.handleMessage !== "function" || conn._labelmakerRemoteDescriptionFilter) return;
+    const handleMessage = conn.handleMessage.bind(conn);
+    conn._labelmakerRemoteDescriptionFilter = true;
+    conn.handleMessage = (message) => {
+      if (message?.type === "ANSWER" && this._shouldStripRemoteHostCandidates()) {
+        const sdp = message?.payload?.sdp;
+        const sdpText = sdp?.sdp || "";
+        const filteredSdp = this._stripRemoteHostCandidatesFromSdp(sdpText);
+        if (filteredSdp !== sdpText) {
+          message = {
+            ...message,
+            payload: {
+              ...message.payload,
+              sdp: {
+                ...sdp,
+                sdp: filteredSdp,
+              },
+            },
+          };
+        }
+      }
+      return handleMessage(message);
+    };
+  }
+
+  _shouldStripRemoteHostCandidates() {
+    return this._forceRemoteHostCandidateStrip;
+  }
+
+  _stripRemoteHostCandidatesFromSdp(sdp) {
+    if (!sdp) return sdp;
+    let stripped = 0;
+    const lines = sdp.split(/\r?\n/).filter((line) => {
+      const isHostCandidate = /^a=candidate:/.test(line) && /\styp\s+host(?:\s|$)/.test(line);
+      if (isHostCandidate) stripped++;
+      return !isHostCandidate;
+    });
+    if (stripped > 0) {
+      console.info(`[PeerLabelPrinter] ICE filter: stripped ${stripped} remote host candidate${stripped === 1 ? "" : "s"} from answer`);
+    }
+    return lines.join("\r\n");
+  }
+
+  _summarizeIceCandidate(candidate) {
+    const type = candidate.match(/\styp\s+(\S+)/)?.[1] || "?";
+    const protocol = candidate.match(/\s(udp|tcp)\s/i)?.[1] || "?";
+    const addressPort = candidate.match(/\s(\S+)\s(\d+)\styp\s/) || [];
+    return `candidate type=${type} protocol=${protocol} addr=${addressPort[1] || "?"}:${addressPort[2] || "?"}`;
+  }
+
   _attachIceDiagnostics(conn, candidate) {
     const pc = this._getConnectionPeerConnection(conn);
     if (!pc || typeof pc.addEventListener !== "function") {
@@ -384,45 +466,98 @@ class PeerLabelPrinter {
       return;
     }
 
-    let lastSelectedPair = "";
+    const logAllPairs = this._isWebKitBrowser();
+    const diagState = {
+      candidate,
+      sawChecking: false,
+      sawRemoteCandidate: false,
+      sawSelected: false,
+      lastIceState: pc.iceConnectionState || "",
+    };
+    this._iceDiagStates.set(conn, diagState);
+    let lastPairSummary = "";
     const logState = (source) => {
+      diagState.lastIceState = pc.iceConnectionState || "";
+      if (["checking", "connected", "completed"].includes(diagState.lastIceState)) {
+        diagState.sawChecking = true;
+      }
       console.info(
         `[PeerLabelPrinter] ICE diag ${candidate}: ${source} ice=${pc.iceConnectionState} gathering=${pc.iceGatheringState} signaling=${pc.signalingState}`
       );
     };
 
-    const logSelectedPair = async () => {
+    const formatCandidate = (candidateReport) => {
+      if (!candidateReport) return "?";
+      return [
+        candidateReport.candidateType || "?",
+        candidateReport.protocol || "?",
+        `${candidateReport.address || candidateReport.ip || "?"}:${candidateReport.port || "?"}`,
+      ].join("/");
+    };
+    const formatPair = (pair, localCandidates, remoteCandidates) => {
+      const local = localCandidates.get(pair.localCandidateId);
+      const remote = remoteCandidates.get(pair.remoteCandidateId);
+      return [
+        `${formatCandidate(local)} -> ${formatCandidate(remote)}`,
+        `state=${pair.state || "?"}`,
+        `nominated=${pair.nominated ?? "?"}`,
+        `requests=${pair.requestsSent ?? "?"}`,
+        `responses=${pair.responsesReceived ?? "?"}`,
+        `rtt=${pair.currentRoundTripTime ?? "?"}`,
+      ].join(" ");
+    };
+    const logCandidatePairs = async () => {
       if (typeof pc.getStats !== "function") return;
       try {
         const stats = await pc.getStats();
         let selectedPair = null;
+        const pairs = [];
         const localCandidates = new Map();
         const remoteCandidates = new Map();
 
         stats.forEach((report) => {
           if (report.type === "local-candidate") localCandidates.set(report.id, report);
           if (report.type === "remote-candidate") remoteCandidates.set(report.id, report);
-          if (report.type === "candidate-pair" && report.selected) selectedPair = report;
+          if (report.type === "candidate-pair") {
+            pairs.push(report);
+            if (report.remoteCandidateId) diagState.sawRemoteCandidate = true;
+            if (report.selected) selectedPair = report;
+          }
           if (report.type === "transport" && report.selectedCandidatePairId) {
             const pair = stats.get(report.selectedCandidatePairId);
             if (pair) selectedPair = pair;
           }
         });
 
-        if (!selectedPair) return;
-        const local = localCandidates.get(selectedPair.localCandidateId);
-        const remote = remoteCandidates.get(selectedPair.remoteCandidateId);
-        const text = [
-          local ? `${local.candidateType || "?"}/${local.protocol || "?"}/${local.address || local.ip || "?"}:${local.port || "?"}` : "local=?",
-          remote ? `${remote.candidateType || "?"}/${remote.protocol || "?"}/${remote.address || remote.ip || "?"}:${remote.port || "?"}` : "remote=?",
-          `state=${selectedPair.state || "?"}`,
-          `requests=${selectedPair.requestsSent ?? "?"}`,
-          `responses=${selectedPair.responsesReceived ?? "?"}`,
-          `rtt=${selectedPair.currentRoundTripTime ?? "?"}`,
-        ].join(" ");
-        if (text !== lastSelectedPair) {
-          lastSelectedPair = text;
-          console.info(`[PeerLabelPrinter] ICE diag ${candidate}: selected ${text}`);
+        if (selectedPair) {
+          diagState.sawSelected = true;
+          const text = formatPair(selectedPair, localCandidates, remoteCandidates);
+          if (text !== lastPairSummary) {
+            lastPairSummary = text;
+            console.info(`[PeerLabelPrinter] ICE diag ${candidate}: selected ${text}`);
+          }
+          return;
+        }
+
+        const pairsToLog = (logAllPairs ? pairs : pairs.filter((pair) => pair.state && pair.state !== "failed"))
+          .sort((a, b) => {
+            const aRequests = a.requestsSent || 0;
+            const bRequests = b.requestsSent || 0;
+            if (aRequests !== bRequests) return bRequests - aRequests;
+            if (a.state === b.state) return 0;
+            if (a.state === "succeeded") return -1;
+            if (b.state === "succeeded") return 1;
+            if (a.state === "failed") return 1;
+            if (b.state === "failed") return -1;
+            return 0;
+          })
+          .slice(0, logAllPairs ? 10 : 4)
+          .map((pair) => formatPair(pair, localCandidates, remoteCandidates));
+        if (!pairsToLog.length) return;
+        const text = pairsToLog.join(" | ");
+        if (text !== lastPairSummary) {
+          lastPairSummary = text;
+          console.info(`[PeerLabelPrinter] ICE diag ${candidate}: ${logAllPairs ? "all pairs" : "pairs"} ${text}`);
         }
       } catch (error) {
         console.warn(`[PeerLabelPrinter] ICE diag ${candidate}: getStats failed`, error);
@@ -431,7 +566,7 @@ class PeerLabelPrinter {
 
     const onIceState = () => {
       logState("state");
-      logSelectedPair();
+      logCandidatePairs();
     };
     const onGatheringState = () => logState("gathering");
     const onCandidate = (event) => {
@@ -452,20 +587,27 @@ class PeerLabelPrinter {
     pc.addEventListener("icegatheringstatechange", onGatheringState);
     pc.addEventListener("icecandidate", onCandidate);
     logState("attach");
-    const timer = setInterval(logSelectedPair, 2000);
+    const timer = setInterval(logCandidatePairs, 2000);
     this._iceDiagTimers.set(conn, { pc, timer, onIceState, onGatheringState, onCandidate });
+  }
+
+  _candidateHadIceActivity(conn) {
+    const state = this._iceDiagStates.get(conn);
+    return !!(state && (state.sawChecking || state.sawRemoteCandidate || state.sawSelected));
   }
 
   _detachIceDiagnostics(conn) {
     const diag = this._iceDiagTimers.get(conn);
-    if (!diag) return;
-    clearInterval(diag.timer);
-    try {
-      diag.pc.removeEventListener("iceconnectionstatechange", diag.onIceState);
-      diag.pc.removeEventListener("icegatheringstatechange", diag.onGatheringState);
-      diag.pc.removeEventListener("icecandidate", diag.onCandidate);
-    } catch {}
-    this._iceDiagTimers.delete(conn);
+    if (diag) {
+      clearInterval(diag.timer);
+      try {
+        diag.pc.removeEventListener("iceconnectionstatechange", diag.onIceState);
+        diag.pc.removeEventListener("icegatheringstatechange", diag.onGatheringState);
+        diag.pc.removeEventListener("icecandidate", diag.onCandidate);
+      } catch {}
+      this._iceDiagTimers.delete(conn);
+    }
+    this._iceDiagStates.delete(conn);
   }
 
   _attachConnectedHandlers(conn) {
@@ -744,7 +886,10 @@ class PeerLabelPrinter {
       this.peer?.destroy?.();
     } catch {}
     this.peer = null;
-    this._peerResponseTrackerInstalled = false;
+  }
+
+  _makeLocalId() {
+    return `portal-${Math.floor(Math.random() * 10000)}`;
   }
 
   _delay(ms) {

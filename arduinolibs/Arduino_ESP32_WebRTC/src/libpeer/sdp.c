@@ -70,7 +70,7 @@ void sdp_append_opus(char* sdp) {
 }
 
 void sdp_append_datachannel(char* sdp) {
-  sdp_append(sdp, "m=application 50712 UDP/DTLS/SCTP webrtc-datachannel");
+  sdp_append(sdp, "m=application 9 UDP/DTLS/SCTP webrtc-datachannel");
   sdp_append(sdp, "c=IN IP4 0.0.0.0");
   sdp_append(sdp, "a=mid:0");
   sdp_append(sdp, "a=sctp-port:5000");

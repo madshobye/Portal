@@ -232,7 +232,7 @@ async function setup() {
       progressCooldownMs: 0,
       connectTimeoutMs: 30000,
       dataChannelTimeoutMs: 60000,
-      candidateRetryCount: 2,
+      candidateRetryCount: 0,
       connectedSettleMs: 1000,
       heartbeatIntervalMs: 5000,
       heartbeatTimeoutMs: 45000,
