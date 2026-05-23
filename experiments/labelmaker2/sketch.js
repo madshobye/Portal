@@ -2758,7 +2758,7 @@ function getLabelLayout() {
     };
   }
 
-  const baseGap = Math.max(22, Math.round(Math.min(labelGraphic.width, labelGraphic.height) * 0.02));
+  const baseGap = Math.max(44, Math.round(Math.min(labelGraphic.width, labelGraphic.height) * 0.04));
   const stackedGap = Math.max(28, Math.round(Math.min(labelGraphic.width, labelGraphic.height) * 0.0275));
   const isSquare = labelFormat === "10x10";
 
@@ -2793,7 +2793,7 @@ function getLabelLayout() {
   }
 
   if (orientation === "landscape") {
-    const size = Math.max(1, Math.min(content.height, content.width * 0.456));
+    const size = Math.max(1, Math.min(content.height, content.width * 0.912));
     const qrBox = {
       x: content.x + content.width - size,
       y: content.y + (content.height - size) * 0.5,
