@@ -313,8 +313,8 @@ function draw() {
 function drawCanvasCornerMarker() {
   push();
   noStroke();
-  fill(255, 230, 0);
-  circle(24, 24, 32);
+  fill(0, 120, 255);
+  circle(18, 18, 18);
   pop();
 }
 
@@ -2987,12 +2987,12 @@ function positionEditorInputNearPointer(pointerX, pointerY) {
 function isSoftKeyboardLikelyOpen() {
   try {
     const viewport = window.visualViewport;
-    if (!viewport) return document.activeElement === textInputEl;
+    if (!viewport) return false;
     const layoutHeight = Number(window.innerHeight || height || 0);
     const viewportHeight = Number(viewport.height || 0);
-    return document.activeElement === textInputEl && layoutHeight - viewportHeight > 80;
+    return layoutHeight - viewportHeight > 80;
   } catch {
-    return document.activeElement === textInputEl;
+    return false;
   }
 }
 
