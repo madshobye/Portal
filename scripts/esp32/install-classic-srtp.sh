@@ -4,9 +4,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PORTAL_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 
-SRC="${PORTAL_ROOT}/tmp_notgit/Arduino_ESP32_WebRTC/src/esp32/libsepfy__srtp.a"
-DST_DIR="${PORTAL_ROOT}/arduinolibs/Arduino_ESP32_WebRTC/src/esp32"
-DST="${DST_DIR}/libsepfy__srtp.a"
+ARCHIVE="${PORTAL_ROOT}/arduinolibs/Arduino_ESP32_WebRTC/src/esp32/libsepfy__srtp.a"
 
 REQUIRED_SYMBOLS=(
   srtp_init
@@ -19,22 +17,19 @@ REQUIRED_SYMBOLS=(
   srtp_crypto_policy_set_rtcp_default
 )
 
-if [[ ! -f "${SRC}" ]]; then
-  echo "Missing classic ESP32 SRTP archive: ${SRC}" >&2
-  echo "Expected source comes from tmp_notgit/sepfy__libpeer ESP-IDF packaging output." >&2
+if [[ ! -f "${ARCHIVE}" ]]; then
+  echo "Missing classic ESP32 SRTP archive: ${ARCHIVE}" >&2
+  echo "Rebuild it from externallibs_modified/sepfy__libpeer/examples/esp32/managed_components/sepfy__srtp before compiling classic ESP32." >&2
   exit 1
 fi
 
-mkdir -p "${DST_DIR}"
-cp "${SRC}" "${DST}"
-
-echo "Installed classic ESP32 SRTP archive:"
-echo "  ${DST}"
+echo "Classic ESP32 SRTP archive:"
+echo "  ${ARCHIVE}"
 echo
 echo "Verifying required SRTP symbols..."
 
 for symbol in "${REQUIRED_SYMBOLS[@]}"; do
-  if ! nm -g "${DST}" | grep -q " ${symbol}$"; then
+  if ! nm -g "${ARCHIVE}" | grep -q " ${symbol}$"; then
     echo "Missing required symbol: ${symbol}" >&2
     exit 1
   fi

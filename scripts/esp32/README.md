@@ -32,7 +32,8 @@ Classic ESP32 SRTP/link smoke test:
 ./scripts/esp32/compile-classic-smoke.sh
 ```
 
-That script installs `src/esp32/libsepfy__srtp.a` from
-`tmp_notgit/Arduino_ESP32_WebRTC`, verifies the SRTP symbols needed by
-libpeer, and compiles a small classic ESP32 link test. The archive originally
-comes from the `tmp_notgit/sepfy__libpeer` ESP-IDF/component packaging path.
+That script verifies `src/esp32/libsepfy__srtp.a` exports the SRTP symbols
+needed by libpeer, then compiles a small classic ESP32 link test. The archive
+is treated as part of `arduinolibs/Arduino_ESP32_WebRTC`; if it needs to be
+rebuilt, use `externallibs_modified/sepfy__libpeer/examples/esp32/managed_components/sepfy__srtp`
+rather than the old packaged Arduino snapshot.
