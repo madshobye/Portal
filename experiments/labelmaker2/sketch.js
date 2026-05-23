@@ -975,6 +975,41 @@ function drawToolbarLayout(layout, state = {}) {
 }
 
 function drawSettingsPanel(preview, toolbar) {
+  const {
+    panelX,
+    panelWidth,
+    panelHeight,
+    y,
+    hasHistory,
+    rows,
+  } = getSettingsPanelGeometry(preview, toolbar);
+
+  if (!panelHeight) return;
+
+  push();
+  noStroke();
+  fill(0, 210);
+  rect(panelX - 4, y - 4, panelWidth + 8, panelHeight + 8, 8);
+  pop();
+
+  let rowsY = y;
+  if (hasHistory) {
+    drawPrintHistorySliderInRect(panelX, rowsY, panelWidth);
+    rowsY += historySliderHeight + toolbarRowGap;
+  }
+
+  for (let rowIndex = 0; rowIndex < rows.length; rowIndex += 1) {
+    const panelRow = rows[rowIndex];
+    let x = panelX;
+    const itemY = rowsY + rowIndex * (toolbarButtonHeight + toolbarRowGap);
+    for (const item of panelRow.items) {
+      item.draw({ x, y: itemY, width: item.width, height: toolbarButtonHeight });
+      x += item.width + toolbarGap;
+    }
+  }
+}
+
+function getSettingsPanelGeometry(preview = getPreviewRect(), toolbar = getToolbarRect(preview)) {
   const square = toolbarButtonHeight;
   const items = buildSettingsPanelItems(square);
   const panelX = toolbar.x;
@@ -999,28 +1034,7 @@ function drawSettingsPanel(preview, toolbar) {
   const historyHeight = hasHistory ? historySliderHeight + toolbarRowGap : 0;
   const panelHeight = historyHeight + rows.length * toolbarButtonHeight + Math.max(0, rows.length - 1) * toolbarRowGap;
   const y = Math.max(preview.y + 8, toolbar.y - panelHeight - toolbarRowGap);
-
-  push();
-  noStroke();
-  fill(0, 210);
-  rect(panelX - 4, y - 4, panelWidth + 8, panelHeight + 8, 8);
-  pop();
-
-  let rowsY = y;
-  if (hasHistory) {
-    drawPrintHistorySliderInRect(panelX, rowsY, panelWidth);
-    rowsY += historySliderHeight + toolbarRowGap;
-  }
-
-  for (let rowIndex = 0; rowIndex < rows.length; rowIndex += 1) {
-    const panelRow = rows[rowIndex];
-    let x = panelX;
-    const itemY = rowsY + rowIndex * (toolbarButtonHeight + toolbarRowGap);
-    for (const item of panelRow.items) {
-      item.draw({ x, y: itemY, width: item.width, height: toolbarButtonHeight });
-      x += item.width + toolbarGap;
-    }
-  }
+  return { panelX, panelWidth, panelHeight, y, hasHistory, rows };
 }
 
 function drawTextStyleControls(x, y, disabled = false, options = {}) {
@@ -3325,6 +3339,7 @@ function touchEnded() {
 
 function handlePreviewPointerPress(pointerX, pointerY) {
   if (busy || !labelGraphic) return;
+  if (isPointInsideSettingsPanel(pointerX, pointerY)) return;
   const preview = getPreviewRect();
   if (!isPointInsidePreview(pointerX, pointerY, preview)) return;
 
@@ -3389,6 +3404,20 @@ function isPointInsidePreview(pointerX, pointerY, preview = getPreviewRect()) {
     pointerX <= preview.x + preview.width &&
     pointerY >= preview.y &&
     pointerY <= preview.y + preview.height
+  );
+}
+
+function isPointInsideSettingsPanel(pointerX, pointerY) {
+  if (!settingsPanelOpen) return false;
+  const preview = getPreviewRect();
+  const toolbar = getToolbarRect(preview);
+  const panel = getSettingsPanelGeometry(preview, toolbar);
+  return (
+    panel.panelHeight > 0 &&
+    pointerX >= panel.panelX - 4 &&
+    pointerX <= panel.panelX + panel.panelWidth + 4 &&
+    pointerY >= panel.y - 4 &&
+    pointerY <= panel.y + panel.panelHeight + 4
   );
 }
 
