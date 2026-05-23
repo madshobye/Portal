@@ -154,6 +154,7 @@ const maxFontSize = 2560;
 const defaultFontSize = 96;
 const fontSizeScale = [24, 28, 32, 36, 40, 46, 52, 60, 68, 78, 88, 100, 112, 128, 144, 164, 184, 208, 232, 256, 280, 300, 320, 360, 400, 448, 512, 576, 640, 720, 800, 896, 1024, 1152, 1280, 1440, 1600, 1792, 2048, 2304, 2560];
 const lineHeightFactor = 1.16;
+const smallFontExtra = 10;
 const toolbarButtonSize = 46;
 const toolbarButtonHeight = toolbarButtonSize;
 const toolbarIconSize = Math.round(toolbarButtonSize * 0.68);
@@ -1927,7 +1928,7 @@ function renderLabelTextLayer() {
   cachedTextOrigin = textOrigin;
   drawLabelQrCode(labelLayout.qrBox, labelTextGraphic);
   applyEditorFont(labelTextGraphic);
-  labelTextGraphic.textAlign(LEFT, TOP);
+  labelTextGraphic.textAlign(LEFT, BASELINE);
 
   let y = textOrigin.y;
   for (const line of layout.lines) {
@@ -2041,7 +2042,7 @@ function drawStencilFillCutouts(target) {
 
   drawLabelQrCode(labelLayout.qrBox, target, { drawPaper: false, inkColor: 255 });
   applyEditorFont(target);
-  target.textAlign(LEFT, TOP);
+  target.textAlign(LEFT, BASELINE);
 
   let y = textOrigin.y;
   for (const line of layout.lines) {
@@ -2059,7 +2060,7 @@ function drawStencilOutlineCutouts(target) {
 
   drawLabelQrCode(labelLayout.qrBox, target, { drawPaper: false, inkColor: 255 });
   applyEditorFont(target);
-  target.textAlign(LEFT, TOP);
+  target.textAlign(LEFT, BASELINE);
 
   let y = textOrigin.y;
   for (const line of layout.lines) {
@@ -2076,7 +2077,7 @@ function drawStencilOutlineText(target, colorValue) {
   const textOrigin = cachedTextOrigin || getTextRenderOrigin(layout, labelLayout);
 
   applyEditorFont(target);
-  target.textAlign(LEFT, TOP);
+  target.textAlign(LEFT, BASELINE);
 
   let y = textOrigin.y;
   for (const line of layout.lines) {
@@ -2091,6 +2092,7 @@ function drawStyledLineFillOnly(line, y, startX = getLabelTextRect().x, target =
   const segments = getLineSegments(line.start, line.end, line.text);
   const autoLineBold = isAutoLineBold(line.text);
   let x = startX - getLineLeadingInkOffset(line);
+  const baselineY = getLineBaselineY(line, y);
 
   for (const segment of segments) {
     const textValue = segment.text || " ";
@@ -2115,7 +2117,7 @@ function drawStyledLineFillOnly(line, y, startX = getLabelTextRect().x, target =
       applySegmentTextStyle(renderStyle, target);
       target.fill(255);
       target.noStroke();
-      target.text(textValue, x, y);
+      target.text(textValue, x, baselineY);
       target.pop();
     }
 
@@ -2127,6 +2129,7 @@ function drawStyledLineOutlineOnly(line, y, startX = getLabelTextRect().x, targe
   const segments = getLineSegments(line.start, line.end, line.text);
   const autoLineBold = isAutoLineBold(line.text);
   let x = startX - getLineLeadingInkOffset(line);
+  const baselineY = getLineBaselineY(line, y);
 
   for (const segment of segments) {
     const textValue = segment.text || " ";
@@ -2152,7 +2155,7 @@ function drawStyledLineOutlineOnly(line, y, startX = getLabelTextRect().x, targe
       target.noFill();
       target.stroke(colorValue);
       target.strokeWeight(getTextOutlineWeight(line.fontSize));
-      target.text(textValue, x, y);
+      target.text(textValue, x, baselineY);
       target.pop();
     }
 
@@ -2895,7 +2898,7 @@ function buildManualLayout(textValue, maxWidth, maxHeight) {
 function buildDynamicLayout(textValue, maxWidth, maxHeight) {
   const text = String(textValue || "");
   const fontSize = findDynamicBaseFontSize(text, maxWidth, maxHeight);
-  const layout = buildExplicitLineLayout(text, fontSize);
+  const layout = buildExplicitLineLayout(text, fontSize, { autoLineHeights: true });
   scaleDynamicShortLines(layout, maxWidth, maxHeight);
   return layout;
 }
@@ -2907,7 +2910,7 @@ function findDynamicBaseFontSize(textValue, maxWidth, maxHeight) {
 
   for (let step = 0; step < 18; step += 1) {
     const candidate = (low + high) * 0.5;
-    const layout = buildExplicitLineLayout(textValue, candidate);
+    const layout = buildExplicitLineLayout(textValue, candidate, { autoLineHeights: true });
     const fitsWidth = layout.lines.every((line) => getRenderedLineWidth(line) <= maxWidth + 0.5);
     const fitsHeight = layout.height <= maxHeight + 0.5;
     if (fitsWidth && fitsHeight) {
@@ -2936,9 +2939,9 @@ function scaleDynamicShortLines(layout, maxWidth, maxHeight) {
     return fitLineFontSizeToRenderedWidth(line, targetWidth);
   });
 
-  const factor = getLineHeightFactorForCurrentFont();
-  const baseHeight = baseSizes.reduce((sum, size) => sum + size * factor, 0);
-  const desiredHeight = desiredSizes.reduce((sum, size) => sum + size * factor, 0);
+  const factor = getAutoLineHeightFactorForCurrentFont();
+  const baseHeight = baseSizes.reduce((sum, size) => sum + size * factor + smallFontExtra, 0);
+  const desiredHeight = desiredSizes.reduce((sum, size) => sum + size * factor + smallFontExtra, 0);
   const extraHeight = Math.max(0, desiredHeight - baseHeight);
   const availableExtraHeight = Math.max(0, maxHeight - baseHeight);
   const growth = extraHeight > 0 ? Math.min(1, availableExtraHeight / extraHeight) : 0;
@@ -2948,7 +2951,7 @@ function scaleDynamicShortLines(layout, maxWidth, maxHeight) {
     const desiredSize = desiredSizes[index];
     lines[index].fontSize = constrain(baseSize + (desiredSize - baseSize) * growth, minFontSize, maxFontSize);
   }
-  applyNaturalLineHeights(lines);
+  applyAutoLineHeights(lines);
   layout.height = lines.reduce((sum, line) => sum + line.lineHeight, 0);
 }
 
@@ -2975,7 +2978,7 @@ function fitLineFontSizeToRenderedWidth(line, targetWidth) {
   return constrain(best, line.fontSize, maxFontSize);
 }
 
-function buildExplicitLineLayout(textValue, fontSize) {
+function buildExplicitLineLayout(textValue, fontSize, options = {}) {
   const text = String(textValue || "");
   const lines = [];
   let lineStart = 0;
@@ -2989,7 +2992,11 @@ function buildExplicitLineLayout(textValue, fontSize) {
   }
 
   lines.push(makeLine(text.slice(lineStart), lineStart, text.length, logicalLineIndex, fontSize));
-  applyNaturalLineHeights(lines);
+  if (options.autoLineHeights) {
+    applyAutoLineHeights(lines);
+  } else {
+    applyNaturalLineHeights(lines);
+  }
   return {
     lines,
     height: lines.reduce((sum, line) => sum + line.lineHeight, 0),
@@ -3008,17 +3015,115 @@ function buildFixedFontLayout(textValue, maxWidth, fontSize) {
 }
 
 function applyNaturalLineHeights(lines) {
+  applyLineHeights(lines, getLineHeightFactorForCurrentFont());
+}
+
+function applyAutoLineHeights(lines) {
+  applyLineHeights(lines, getAutoLineHeightFactorForCurrentFont(), smallFontExtra);
+}
+
+function applyLineHeights(lines, factor, extra = 0) {
   for (let index = 0; index < lines.length; index += 1) {
     const line = lines[index];
-    const factor = getLineHeightFactorForCurrentFont();
-    line.lineHeight = Math.max(1, line.fontSize * factor);
+    line.lineHeight = Math.max(1, line.fontSize * factor + extra);
+    line.verticalMetrics = measureLineVerticalMetrics(line);
+    line.baselineOffset = getLineBaselineOffset(line, line.verticalMetrics);
   }
+}
+
+function getLineBaselineOffset(line, metrics = line?.verticalMetrics) {
+  const ascent = Math.max(0, metrics?.ascent || line.fontSize * 0.78);
+  const descent = Math.max(0, metrics?.descent || line.fontSize * 0.22);
+  const slack = Math.max(0, line.lineHeight - ascent - descent);
+  return ascent + slack * 0.5;
+}
+
+function getLineBaselineY(line, lineTop) {
+  return lineTop + (Number.isFinite(line?.baselineOffset)
+    ? line.baselineOffset
+    : getLineBaselineOffset(line));
+}
+
+function getLineInkTopY(line, lineTop) {
+  const metrics = line?.verticalMetrics || measureLineVerticalMetrics(line);
+  return getLineBaselineY(line, lineTop) - Math.max(0, metrics.ascent);
+}
+
+function getLineInkHeight(line) {
+  const metrics = line?.verticalMetrics || measureLineVerticalMetrics(line);
+  return Math.max(1, Math.max(0, metrics.ascent) + Math.max(0, metrics.descent));
 }
 
 function getLineHeightFactorForCurrentFont() {
   if (editorFontMode === "rubikmonoone") return 0.78;
   if (editorFontMode === "bebas") return 0.86;
   return 0.96;
+}
+
+function getAutoLineHeightFactorForCurrentFont() {
+  return 0.8;
+}
+
+function measureLineVerticalMetrics(line) {
+  const fallback = {
+    ascent: line.fontSize * 0.78,
+    descent: line.fontSize * 0.22,
+  };
+  const segments = getLineSegments(line.start, line.end, line.text);
+  const autoLineBold = isAutoLineBold(line.text);
+  let ascent = 0;
+  let descent = 0;
+  let measured = false;
+
+  for (const segment of segments) {
+    if (isWhitespaceOnly(segment.text)) continue;
+    const style = segment.style || {};
+    const metrics = measureTextVerticalMetrics(segment.text, line.fontSize, {
+      bold: !!(style.bold || autoLineBold),
+      italic: !!style.italic,
+      underline: !!style.underline,
+    });
+    if (!metrics) continue;
+    ascent = Math.max(ascent, metrics.ascent);
+    descent = Math.max(descent, metrics.descent);
+    measured = true;
+  }
+
+  if (!measured) {
+    return measureTextVerticalMetrics("Mg", line.fontSize, {
+      bold: !!autoLineBold,
+      italic: false,
+      underline: false,
+    }) || fallback;
+  }
+
+  return {
+    ascent: Math.max(1, ascent),
+    descent: Math.max(1, descent),
+  };
+}
+
+function measureTextVerticalMetrics(textValue, fontSize, style = null) {
+  applyLabelFontSize(fontSize);
+  applySegmentTextStyle(style);
+  const safeText = String(textValue || "Mg").replace(/ /g, "\u00A0");
+  const metric = labelGraphic.drawingContext?.measureText?.(safeText);
+  if (
+    Number.isFinite(metric?.actualBoundingBoxAscent) &&
+    Number.isFinite(metric?.actualBoundingBoxDescent)
+  ) {
+    return {
+      ascent: Math.max(1, metric.actualBoundingBoxAscent),
+      descent: Math.max(1, metric.actualBoundingBoxDescent),
+    };
+  }
+  if (typeof labelGraphic.textAscent === "function" && typeof labelGraphic.textDescent === "function") {
+    return {
+      ascent: Math.max(1, labelGraphic.textAscent()),
+      descent: Math.max(1, labelGraphic.textDescent()),
+    };
+  }
+  return null;
 }
 
 function getCaretPosition(layout, textOrigin = getTextRenderOrigin(layout)) {
@@ -3029,12 +3134,10 @@ function getCaretPosition(layout, textOrigin = getTextRenderOrigin(layout)) {
   for (let index = 0; index < info.lineIndex; index += 1) {
     y += layout.lines[index].lineHeight;
   }
-  const visualOffset = getCaretVisualOffset(info.line.fontSize);
-  const visualHeight = getCaretVisualHeight(info.line.fontSize);
   return {
     x,
-    y: y + visualOffset,
-    height: visualHeight,
+    y: getLineInkTopY(info.line, y),
+    height: getLineInkHeight(info.line),
     fontSize: info.line.fontSize,
   };
 }
@@ -3067,19 +3170,6 @@ function findNearestCharacterOffset(line, localX) {
     }
   }
   return best.offset;
-}
-
-function getCaretVisualOffset(fontSize) {
-  if (editorFontMode === "rubikmonoone") return fontSize * 0.04;
-  if (editorFontMode === "bebas") return -fontSize * 0.06;
-  if (editorFontMode === "oswald") return -fontSize * 0.03;
-  return -fontSize * 0.02;
-}
-
-function getCaretVisualHeight(fontSize) {
-  if (editorFontMode === "rubikmonoone") return fontSize * 0.68;
-  if (editorFontMode === "bebas") return fontSize * 0.72;
-  return fontSize * 0.78;
 }
 
 function drawPreviewCard(preview = getPreviewRect()) {
@@ -4011,6 +4101,7 @@ function drawStyledLine(line, y, startX = getLabelTextRect().x, target = labelGr
   const segments = getLineSegments(line.start, line.end, line.text);
   const autoLineBold = isAutoLineBold(line.text);
   let x = startX - getLineLeadingInkOffset(line);
+  const baselineY = getLineBaselineY(line, y);
   
   for (const segment of segments) {
     const textValue = segment.text || " ";
@@ -4033,13 +4124,13 @@ function drawStyledLine(line, y, startX = getLabelTextRect().x, target = labelGr
     target.textLeading(line.lineHeight);
     applySegmentTextStyle(renderStyle, target);
     if (!whitespaceOnly) {
-      drawTextWithOutlineMode(textValue, x, y, line.fontSize, target);
+      drawTextWithOutlineMode(textValue, x, baselineY, line.fontSize, target);
       
     }
     target.pop();
 
     if (mergedStyle.underline) {
-      const underlineY = y + line.fontSize * 0.9;
+      const underlineY = baselineY + line.fontSize * 0.08;
       target.stroke(0);
       target.strokeWeight(Math.max(1, line.fontSize * 0.03));
       target.line(x, underlineY, x + widthValue, underlineY);
@@ -4092,8 +4183,8 @@ function drawCharacterBoundaryDebug(line, y, startX = getLabelTextRect().x, targ
   target.noFill();
 
   const renderedStartX = getRenderedLineStartX(line, startX);
-  const top = y + getCaretVisualOffset(line.fontSize);
-  const bottom = top + getCaretVisualHeight(line.fontSize);
+  const top = getLineInkTopY(line, y);
+  const bottom = top + getLineInkHeight(line);
   for (const boundary of getCharacterBoundaryOffsets(line)) {
     const x = renderedStartX + boundary.x;
     target.line(x, top, x, bottom);
