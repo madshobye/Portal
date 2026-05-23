@@ -30,6 +30,10 @@ static uint16_t dataChannelSid = 0;
 static bool peerInitialized = false;
 static volatile bool peerConnectionStale = false;
 static const char *peerConnectionStaleReason = NULL;
+static constexpr uint32_t PEER_CONNECTION_TASK_STACK = 16 * 1024;
+static constexpr uint32_t PEERJS_TASK_STACK = 12 * 1024;
+static constexpr uint32_t PEER_STACK_LOG_INTERVAL_MS = 10000;
+static uint32_t peerLastStackLogAt = 0;
 
 #ifndef LED_BUILTIN
 #define LED_BUILTIN 2
@@ -72,6 +76,23 @@ static void peerLogHeap(const char *label) {
     ESP.getMaxAllocHeap(),
     ESP.getFreePsram()
   );
+}
+
+static void peerLogTaskStack(const char *label, TaskHandle_t handle) {
+  if (handle == NULL) {
+    return;
+  }
+  Serial.printf("Stack %-17s highWater=%u\r\n", label, unsigned(uxTaskGetStackHighWaterMark(handle)));
+}
+
+static void peerMaybeLogTaskStacks() {
+  const uint32_t now = millis();
+  if (peerLastStackLogAt != 0 && now - peerLastStackLogAt < PEER_STACK_LOG_INTERVAL_MS) {
+    return;
+  }
+  peerLastStackLogAt = now;
+  peerLogTaskStack("peer_connection", peerConnectionTaskHandle);
+  peerLogTaskStack("peerjs_signaling", peerJsTaskHandle);
 }
 
 static void peerClearDataChannelSendQueue() {
@@ -645,6 +666,7 @@ static void peerConnectionTask(void *arg) {
       xSemaphoreGive(peerSemaphore);
     }
 
+    peerMaybeLogTaskStacks();
     vTaskDelay(pdMS_TO_TICKS(1));
   }
 }
@@ -887,7 +909,7 @@ void peerBegin() {
   xTaskCreatePinnedToCore(
     peerConnectionTask,
     "peer_connection",
-    8192 * 4,
+    PEER_CONNECTION_TASK_STACK,
     NULL,
     5,
     &peerConnectionTaskHandle,
@@ -897,7 +919,7 @@ void peerBegin() {
   xTaskCreatePinnedToCore(
     peerJsTask,
     "peerjs_signaling",
-    8192 * 4,
+    PEERJS_TASK_STACK,
     NULL,
     6,
     &peerJsTaskHandle,

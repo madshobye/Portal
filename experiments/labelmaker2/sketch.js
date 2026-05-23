@@ -122,25 +122,25 @@ const dotsPerMm = labelDpi / 25.4;
 const labelPaddingPresets = {
   minimal: {
     left: 24,
-    right: 17,
+    right: 24,
     top: 24,
     bottom: 24,
   },
   some: {
     left: 48,
-    right: 34,
+    right: 48,
     top: 48,
     bottom: 48,
   },
   lot: {
     left: 72,
-    right: 50,
+    right: 72,
     top: 72,
     bottom: 72,
   },
   xlot: {
     left: 144,
-    right: 100,
+    right: 144,
     top: 144,
     bottom: 144,
   },
