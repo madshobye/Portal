@@ -4,7 +4,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PORTAL_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 
-ARCHIVE="${PORTAL_ROOT}/arduinolibs/Arduino_ESP32_WebRTC/src/esp32/libsepfy__srtp.a"
+ARCHIVE="${PORTAL_ROOT}/arduinolibs/ESP32_WebRTC/src/esp32/libsepfy__srtp.a"
 
 REQUIRED_SYMBOLS=(
   srtp_init
