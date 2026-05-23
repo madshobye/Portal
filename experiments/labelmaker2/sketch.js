@@ -313,7 +313,7 @@ function draw() {
 function drawCanvasCornerMarker() {
   push();
   noStroke();
-  fill(0, 120, 255);
+  fill(255, 130, 0);
   circle(18, 18, 18);
   pop();
 }
@@ -1380,7 +1380,7 @@ async function handlePrimaryButton() {
   }
 }
 
-function downloadCurrentLabel() {
+async function downloadCurrentLabel() {
   renderLabelGraphic();
   const savedToHistory = recordPrintHistory();
   const canvas = labelGraphic?.canvas || labelGraphic?.elt;
@@ -1391,6 +1391,34 @@ function downloadCurrentLabel() {
 
   const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
   const filename = `labelmaker2-${timestamp}.png`;
+
+  const finishDownloadMessage = () => {
+    detailText = savedToHistory
+      ? `Saved and downloaded label ${printHistoryIndex + 1}/${printHistory.length}.`
+      : "Downloaded current label.";
+  };
+
+  const tryShareImage = async (blob) => {
+    if (!blob || typeof navigator.share !== "function" || typeof File !== "function") return false;
+    const file = new File([blob], filename, { type: "image/png" });
+    if (typeof navigator.canShare === "function" && !navigator.canShare({ files: [file] })) return false;
+    try {
+      await navigator.share({
+        files: [file],
+        title: "Label image",
+        text: "Save this label image to Photos.",
+      });
+      finishDownloadMessage();
+      return true;
+    } catch (error) {
+      if (error?.name === "AbortError") {
+        detailText = "Image save cancelled.";
+        return true;
+      }
+      console.warn("[labelmaker2] image share failed", error);
+      return false;
+    }
+  };
 
   const downloadBlob = (blob) => {
     if (!blob) {
@@ -1405,26 +1433,32 @@ function downloadCurrentLabel() {
     link.click();
     link.remove();
     setTimeout(() => URL.revokeObjectURL(url), 1000);
-    detailText = savedToHistory
-      ? `Saved and downloaded label ${printHistoryIndex + 1}/${printHistory.length}.`
-      : "Downloaded current label.";
+    finishDownloadMessage();
   };
 
   if (typeof canvas.toBlob === "function") {
-    canvas.toBlob(downloadBlob, "image/png");
+    canvas.toBlob(async (blob) => {
+      if (await tryShareImage(blob)) return;
+      downloadBlob(blob);
+    }, "image/png");
     return;
   }
 
   const dataUrl = canvas.toDataURL("image/png");
+  try {
+    const blob = await (await fetch(dataUrl)).blob();
+    if (await tryShareImage(blob)) return;
+  } catch (error) {
+    console.warn("[labelmaker2] image share fallback failed", error);
+  }
+
   const link = document.createElement("a");
   link.href = dataUrl;
   link.download = filename;
   document.body.appendChild(link);
   link.click();
   link.remove();
-  detailText = savedToHistory
-    ? `Saved and downloaded label ${printHistoryIndex + 1}/${printHistory.length}.`
-    : "Downloaded current label.";
+  finishDownloadMessage();
 }
 
 function cancelActivePrint() {
