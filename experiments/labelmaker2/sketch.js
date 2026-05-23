@@ -1262,11 +1262,10 @@ async function connectPrinter(transport = "ble", options = {}) {
       rememberPeerHostname(pendingPeerHostname);
     }
     if (transport === "peer") {
-      const connectedState = printer?.getConnectionState?.() || {};
-      const connectedPeerId = normalizePeerHostname(connectedState.remoteId || pendingPeerHostname || peerHostname);
-      if (connectedPeerId) {
-        rememberPeerHostname(connectedPeerId);
-        updatePeerPrinterUrl(connectedPeerId);
+      const basePeerId = normalizePeerHostname(pendingPeerHostname || peerHostname || getPeerPrinterFromUrl());
+      if (basePeerId) {
+        rememberPeerHostname(basePeerId);
+        updatePeerPrinterUrl(basePeerId);
       }
     }
     statusText = "connected";
