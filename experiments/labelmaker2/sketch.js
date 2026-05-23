@@ -2847,6 +2847,13 @@ function handlePreviewPointerRelease(pointerX, pointerY) {
 
   placeCursorFromPreviewPoint(pointerX, pointerY, preview);
   if (useSoftKeyboardInput) {
+    if (useP5SoftKeyboardInput) {
+      positionEditorInputNearPointer(pointerX, pointerY);
+      if (isSoftKeyboardLikelyOpen()) {
+        syncEditorInputFromModel();
+        return false;
+      }
+    }
     focusEditorInput();
   }
   return false;
@@ -2945,6 +2952,7 @@ function installTextInputBridge() {
   document.body.appendChild(textInputEl);
 
   textInputEl.addEventListener("beforeinput", handleTextInputBeforeInput, { passive: false });
+  textInputEl.addEventListener("keydown", handleTextInputKeydown, { passive: false });
   textInputEl.addEventListener("paste", handleEditorPaste, { passive: false });
   textInputEl.addEventListener("compositionstart", () => {
     textInputComposing = true;
@@ -2954,7 +2962,7 @@ function installTextInputBridge() {
     applyTextInputValue(textInputEl.value || event.data || "");
   });
   textInputEl.addEventListener("input", () => {
-    if (textInputComposing) return;
+    if (textInputComposing && useP5SoftKeyboardInput) return;
     applyTextInputValue(textInputEl.value);
   });
 }
@@ -2963,6 +2971,29 @@ function focusEditorInput() {
   if (!textInputEl) return;
   textInputEl.focus({ preventScroll: true });
   syncEditorInputFromModel();
+}
+
+function positionEditorInputNearPointer(pointerX, pointerY) {
+  if (!textInputEl) return;
+  const viewport = window.visualViewport;
+  const viewportWidth = Number(viewport?.width || window.innerWidth || width || 320);
+  const viewportHeight = Number(viewport?.height || window.innerHeight || height || 480);
+  const left = Math.max(8, Math.min(viewportWidth - 32, Number(pointerX) + 18));
+  const top = Math.max(8, Math.min(viewportHeight - 80, Number(pointerY) - 18));
+  textInputEl.style.left = `${left}px`;
+  textInputEl.style.top = `${top}px`;
+}
+
+function isSoftKeyboardLikelyOpen() {
+  try {
+    const viewport = window.visualViewport;
+    if (!viewport) return document.activeElement === textInputEl;
+    const layoutHeight = Number(window.innerHeight || height || 0);
+    const viewportHeight = Number(viewport.height || 0);
+    return document.activeElement === textInputEl && layoutHeight - viewportHeight > 80;
+  } catch {
+    return document.activeElement === textInputEl;
+  }
 }
 
 function detectSoftKeyboardMode() {
@@ -2991,6 +3022,55 @@ function detectIOSLikeBrowser() {
 function handleTextInputBeforeInput(event) {
   if (busy) {
     event.preventDefault();
+    return;
+  }
+
+  if (useP5SoftKeyboardInput || event.target !== textInputEl) return;
+
+  const inputType = String(event.inputType || "");
+  if (inputType === "insertParagraph" || inputType === "insertLineBreak") {
+    event.preventDefault();
+    insertTextAtCursor("\n");
+    syncEditorInputFromModel();
+    return;
+  }
+  if (inputType === "deleteContentBackward") {
+    event.preventDefault();
+    deleteBackward();
+    syncEditorInputFromModel();
+    return;
+  }
+  if (inputType === "deleteContentForward") {
+    event.preventDefault();
+    deleteForward();
+    syncEditorInputFromModel();
+  }
+}
+
+function handleTextInputKeydown(event) {
+  if (busy) {
+    event.preventDefault();
+    return;
+  }
+
+  if (useP5SoftKeyboardInput || event.target !== textInputEl) return;
+
+  if (event.key === "Enter") {
+    event.preventDefault();
+    insertTextAtCursor("\n");
+    syncEditorInputFromModel();
+    return;
+  }
+  if (event.key === "Backspace") {
+    event.preventDefault();
+    deleteBackward();
+    syncEditorInputFromModel();
+    return;
+  }
+  if (event.key === "Delete") {
+    event.preventDefault();
+    deleteForward();
+    syncEditorInputFromModel();
   }
 }
 
