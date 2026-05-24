@@ -35,7 +35,7 @@ let storedPhotoDataUrl = "";
 let previewPointerPress = null;
 let labelText = "";
 let cursorIndex = 0;
-let caretWhite = false;
+let caretVisible = true;
 let lastCaretToggleMs = 0;
 let lineFontSizes = {};
 let textStyleRanges = {
@@ -3192,6 +3192,14 @@ function getCaretPosition(layout, textOrigin = getTextRenderOrigin(layout)) {
   for (let index = 0; index < info.lineIndex; index += 1) {
     y += layout.lines[index].lineHeight;
   }
+  if (!String(info.line.text || "").length) {
+    return {
+      x,
+      y,
+      height: Math.max(1, info.line.lineHeight),
+      fontSize: info.line.fontSize,
+    };
+  }
   return {
     x,
     y: getLineInkTopY(info.line, y),
@@ -3241,6 +3249,7 @@ function drawPreviewCard(preview = getPreviewRect()) {
 
 function drawCaretOverlay(preview) {
   if (busy || !cachedLabelLayout || !cachedTextOrigin) return;
+  if (!labelText.length) return;
   const caret = getCaretPosition(cachedLabelLayout, cachedTextOrigin);
   const textArea = cachedLabelLayout.textArea || cachedLabelLayout.content || getLabelContentRect();
   const caretTop = constrain(caret.y, textArea.y, textArea.y + textArea.height);
@@ -3249,7 +3258,11 @@ function drawCaretOverlay(preview) {
   const scaleX = preview.width / labelGraphic.width;
   const scaleY = preview.height / labelGraphic.height;
   push();
-  stroke(caretWhite ? 255 : 0);
+  if (!caretVisible) {
+    pop();
+    return;
+  }
+  stroke(getInkColor());
   strokeWeight(Math.max(1, Math.max(2, caret.fontSize * 0.04) * scaleX));
   line(
     preview.x + caret.x * scaleX,
@@ -3434,7 +3447,7 @@ function placeCursorFromPreviewPoint(pointerX, pointerY, preview) {
   const bestOffset = findNearestCharacterOffset(line, textX);
 
   cursorIndex = line.start + bestOffset;
-  caretWhite = false;
+  caretVisible = true;
   lastCaretToggleMs = millis();
   detailText = "Moved cursor.";
   saveEditorState();
@@ -4370,7 +4383,7 @@ function describeLineStyle(style) {
 function updateCaretBlink() {
   const now = millis();
   if (now - lastCaretToggleMs < 500) return;
-  caretWhite = !caretWhite;
+  caretVisible = !caretVisible;
   lastCaretToggleMs = now;
 }
 
