@@ -115,6 +115,10 @@ bool scriptErrorHasLast() {
   return g_scriptErrorHasLast;
 }
 
+String scriptErrorLastCode() {
+  return g_scriptErrorCode;
+}
+
 String scriptErrorLastJson() {
   if (!g_scriptErrorHasLast) return "{\"hasError\":false}";
   return scriptErrorBuildJson(g_scriptErrorPhase, g_scriptErrorCode, g_scriptErrorMessage, g_scriptErrorDetails);

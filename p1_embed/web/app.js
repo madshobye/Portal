@@ -84,20 +84,27 @@ function boot() {
 function bindControls() {
   els.connect.addEventListener("click", connectSelectedTransport);
   els.disconnect.addEventListener("click", disconnectTransport);
-  els.info.addEventListener("click", () => refreshInfo());
-  els.status.addEventListener("click", () => refreshStatus());
-  els.getScript.addEventListener("click", getScript);
-  els.reboot.addEventListener("click", () => sendCommand("device.reboot"));
-  els.run.addEventListener("click", () => setScript({ run: true, save: false }));
-  els.save.addEventListener("click", () => setScript({ run: false, save: true }));
-  els.saveRun.addEventListener("click", () => setScript({ run: true, save: true }));
-  els.stop.addEventListener("click", () => sendCommand("script.stop").then(refreshStatus));
-  els.restart.addEventListener("click", () => sendCommand("script.restart").then(refreshStatus));
+  els.info.addEventListener("click", () => runUiAction(() => refreshInfo()));
+  els.status.addEventListener("click", () => runUiAction(() => refreshStatus()));
+  els.getScript.addEventListener("click", () => runUiAction(getScript));
+  els.reboot.addEventListener("click", () => runUiAction(() => sendCommand("device.reboot")));
+  els.run.addEventListener("click", () => runUiAction(() => setScript({ run: true, save: false })));
+  els.save.addEventListener("click", () => runUiAction(() => setScript({ run: false, save: true })));
+  els.saveRun.addEventListener("click", () => runUiAction(() => setScript({ run: true, save: true })));
+  els.stop.addEventListener("click", () => runUiAction(() => sendCommand("script.stop").then(refreshStatus)));
+  els.restart.addEventListener("click", () => runUiAction(() => sendCommand("script.restart").then(refreshStatus)));
   els.clearConsole.addEventListener("click", clearConsole);
-  els.wifiStatus.addEventListener("click", () => sendCommand("wifi.status").then(updateWifi));
-  els.wifiSave.addEventListener("click", saveWifi);
+  els.wifiStatus.addEventListener("click", () => runUiAction(() => sendCommand("wifi.status").then(updateWifi)));
+  els.wifiSave.addEventListener("click", () => runUiAction(saveWifi));
   els.rawSend.addEventListener("click", sendRaw);
-  els.debugLevel.addEventListener("change", () => sendCommand("debug.set", { level: els.debugLevel.value }));
+  els.debugLevel.addEventListener("change", () => runUiAction(() => sendCommand("debug.set", { level: els.debugLevel.value })));
+}
+
+async function runUiAction(action) {
+  try {
+    await action();
+  } catch {
+  }
 }
 
 async function connectSelectedTransport() {
@@ -163,6 +170,13 @@ function bindClient(nextClient) {
     logLine("debug", event.detail.line);
   });
 
+  nextClient.addEventListener("response", (event) => {
+    const response = event.detail.response || {};
+    if (event.detail.late) {
+      logLine("warn", `< late response id=${response.id ?? "?"}`);
+    }
+  });
+
   nextClient.addEventListener("error", (event) => {
     logLine("error", event.detail.error?.message || "transport error");
   });
@@ -186,8 +200,8 @@ async function refreshInfo() {
   return data;
 }
 
-async function refreshStatus() {
-  const data = await sendCommand("status.get");
+async function refreshStatus(options = {}) {
+  const data = await sendCommand("status.get", {}, options);
   lastStatus = data;
   updateStatus(data);
   renderFields();
@@ -208,9 +222,9 @@ async function setScript({ run, save }) {
     code: els.code.value,
     run,
     save,
-  });
+  }, { timeoutMs: 20000 });
   updateScriptState(data);
-  await refreshStatus();
+  await refreshStatus({ timeoutMs: 20000 });
 }
 
 async function saveWifi() {
@@ -254,9 +268,14 @@ function acceptEvent(event) {
   const data = event.data || {};
   const level = data.level || (event.name?.includes("error") ? "error" : "info");
   const message = data.message || data.code || event.name;
+
+  if (event.name === "device.status" && data.status) {
+    updateStatus(data.status);
+    return;
+  }
+
   logLine(level, `${event.name}: ${message}`);
 
-  if (event.name === "device.status" && data.status) updateStatus(data.status);
   if (event.name === "wifi.status") updateWifi(data.wifi || data);
   if (event.name === "script.state") updateScriptState(data);
   if (event.name === "device.boot") {
@@ -277,10 +296,12 @@ function updateScriptState(data = {}) {
   const state = data.scriptState || data.state || "unknown";
   const stored = data.scriptStored ?? data.stored;
   const bytes = data.scriptBytes;
+  const hash = data.scriptHash;
   els.scriptState.textContent = [
     state,
     stored === true ? "stored" : "",
     Number.isFinite(bytes) ? `${bytes} bytes` : "",
+    Number.isFinite(hash) ? `#${hash.toString(16)}` : "",
   ].filter(Boolean).join(" / ");
 }
 

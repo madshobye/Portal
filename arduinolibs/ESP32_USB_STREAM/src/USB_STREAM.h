@@ -107,7 +107,7 @@ static constexpr USBStreamUVCKnownCameraProfile USBSTREAM_UVC_LOGITECH_046D_0821
     0x0821,
     640,
     480,
-    30,
+    5,
     700 * 1024,
     UVC_FORMAT_MJPEG,
     UVC_XFER_ISOC,
@@ -126,13 +126,15 @@ static inline USBStreamUVCOptions USBStreamUVCOptionsForProfile(
     USBStreamUVCOptions options;
     options.format = profile.format;
     options.xferType = profile.xferType;
-    options.formatIndex = profile.formatIndex;
-    options.frameIndex = profile.frameIndex;
-    options.interface = profile.interface;
-    options.interfaceAlt = profile.interfaceAlt;
-    options.endpointAddress = profile.endpointAddress;
-    options.endpointMps = profile.endpointMps;
-    options.flags = FLAG_UVC_FORCE_STREAM_CONFIG;
+    options.flags = 0;
+    if (options.flags & FLAG_UVC_FORCE_STREAM_CONFIG) {
+        options.formatIndex = profile.formatIndex;
+        options.frameIndex = profile.frameIndex;
+        options.interface = profile.interface;
+        options.interfaceAlt = profile.interfaceAlt;
+        options.endpointAddress = profile.endpointAddress;
+        options.endpointMps = profile.endpointMps;
+    }
     if (packetStats) {
         options.flags |= FLAG_UVC_PACKET_STATS;
     }

@@ -52,9 +52,10 @@ static String protocolStatusJson() {
   out += "\"uptimeMs\":" + String(millis());
   out += ",\"freeHeap\":" + String(ESP.getFreeHeap());
   out += ",\"minFreeHeap\":" + String(ESP.getMinFreeHeap());
+  out += ",\"maxAllocHeap\":" + String(ESP.getMaxAllocHeap());
   out += ",\"scriptState\":" + jsonString(wrenchStateName());
-  out += ",\"scriptBytes\":" + String(wrenchCurrentScript().length());
-  out += ",\"scriptHash\":" + String(fnv1a(wrenchCurrentScript()));
+  out += ",\"scriptBytes\":" + String(wrenchCurrentScriptBytes());
+  out += ",\"scriptHash\":" + String(wrenchCurrentScriptHash());
   out += ",\"hasSetup\":" + String(wrenchHasSetup() ? "true" : "false");
   out += ",\"hasLoop\":" + String(wrenchHasLoop() ? "true" : "false");
   out += ",\"wrenchTaskRunning\":" + String(wrenchTaskIsRunning() ? "true" : "false");
@@ -149,23 +150,18 @@ static String protocolScriptMetaJson(const String& code, const String& state) {
   return out;
 }
 
-static void protocolHandleScriptSet(const String& id, const char* line, bool runAfterSet, bool saveAfterSet) {
-  String code;
-  if (!jsonGetString(line, "code", code)) {
-    protocolSendResponseError(id, "missing_code", "script.set requires data.code");
-    return;
-  }
+bool protocolHandleScriptSetCode(const String& id, const String& code, bool runAfterSet, bool saveAfterSet) {
   String err;
   WrenchTransitionGuard transition("script.set");
   if (!wrenchCompileAndSet(code, err)) {
     protocolSendResponseError(id, "compile_error", err);
-    return;
+    return false;
   }
 
   if (saveAfterSet) {
     if (!scriptStoreSave(code)) {
       protocolSendResponseError(id, "storage_error", "Failed to save script to LittleFS");
-      return;
+      return false;
     }
     scriptStoreSaveRunState(runAfterSet ? P1_EMBED_SCRIPT_RUN_PENDING_NEW : P1_EMBED_SCRIPT_RUN_OK);
   }
@@ -177,6 +173,16 @@ static void protocolHandleScriptSet(const String& id, const char* line, bool run
 
   String state = runAfterSet ? "run_pending" : (saveAfterSet ? "saved" : "compiled");
   protocolSendResponseOk(id, protocolScriptMetaJson(code, state));
+  return true;
+}
+
+static void protocolHandleScriptSet(const String& id, const char* line, bool runAfterSet, bool saveAfterSet) {
+  String code;
+  if (!jsonGetString(line, "code", code)) {
+    protocolSendResponseError(id, "missing_code", "script.set requires data.code");
+    return;
+  }
+  protocolHandleScriptSetCode(id, code, runAfterSet, saveAfterSet);
 }
 
 void protocolHandleLine(const char* line) {

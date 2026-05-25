@@ -78,6 +78,107 @@ function setup() {
     assert_equal((status.get("wrenchRuntime") or {}).get("phase"), "error", "failed run compile should leave runtime phase error")
 
 
+def test_script_set_replaces_running_code_without_timeout(dev):
+    first = """
+function setup() {
+  println("replace first ready");
+}
+
+function loop() {
+  delay(40);
+}
+""".strip()
+    second = """
+function setup() {
+  println("replace second ready");
+}
+
+function loop() {
+  delay(40);
+}
+""".strip()
+    dev.command("script.set", {"code": first, "run": True, "save": False}, timeout=8.0)
+    assert_equal(dev.wait_event("script.print", timeout=4.0).get("data", {}).get("message"), "replace first ready", "first script setup print")
+    result = dev.command("script.set", {"code": second, "run": True, "save": True}, timeout=10.0)
+    assert_equal(result.get("state"), "run_pending", "replacement should be accepted for run")
+    assert_equal(result.get("scriptBytes"), len(second), "replacement byte count")
+    assert_equal(dev.wait_event("script.print", timeout=4.0).get("data", {}).get("message"), "replace second ready", "second script setup print")
+    fetched = dev.command("script.get", timeout=4.0)
+    assert_equal(fetched.get("code"), second, "script.get should read replaced running script")
+    assert_equal(fetched.get("state"), "running", "replacement should be running")
+
+
+def test_script_get_reads_source_while_running(dev):
+    code = """
+function setup() {
+  println("read source ready");
+}
+
+function loop() {
+  var i = 0;
+  while (i < 50) {
+    i = i + 1;
+  }
+  delay(20);
+}
+""".strip()
+    dev.command("script.set", {"code": code, "run": True, "save": True}, timeout=8.0)
+    assert_equal(dev.wait_event("script.print", timeout=4.0).get("data", {}).get("message"), "read source ready", "setup print")
+    for _ in range(5):
+        fetched = dev.command("script.get", timeout=4.0)
+        assert_equal(fetched.get("code"), code, "script.get should return running source")
+        assert_equal(fetched.get("stored"), True, "saved running source should report stored")
+
+
+def test_script_save_run_and_get_roundtrip(dev):
+    code = """
+function setup() {
+  println("save run roundtrip ready");
+}
+
+function loop() {
+  delay(30);
+}
+""".strip()
+    saved = dev.command("script.save", {"code": code, "autorun": False}, timeout=8.0)
+    assert_equal(saved.get("state"), "saved", "script.save should report saved")
+    assert_equal(saved.get("scriptBytes"), len(code), "saved byte count")
+    fetched = dev.command("script.get", timeout=4.0)
+    assert_equal(fetched.get("code"), code, "script.get should read saved compiled source")
+    assert_equal(fetched.get("stored"), True, "script.save should persist source")
+    result = dev.command("script.run", timeout=6.0)
+    assert_equal(result.get("state"), "run_pending", "script.run without code should run compiled source")
+    assert_equal(dev.wait_event("script.print", timeout=4.0).get("data", {}).get("message"), "save run roundtrip ready", "saved script setup print")
+    fetched = dev.command("script.get", timeout=4.0)
+    assert_equal(fetched.get("code"), code, "script.get should read source after run")
+    assert_equal(fetched.get("state"), "running", "saved script should be running")
+
+
+def test_bad_script_set_stops_running_code_before_compile(dev):
+    good_code = """
+function setup() {
+  println("bad replace guard ready");
+}
+
+function loop() {
+  delay(40);
+}
+""".strip()
+    bad_code = """
+function setup() {
+  int broken = 1;
+}
+""".strip()
+    dev.command("script.set", {"code": good_code, "run": True, "save": False}, timeout=8.0)
+    assert_equal(dev.wait_event("script.print", timeout=4.0).get("data", {}).get("message"), "bad replace guard ready", "good setup print")
+    error = dev.command_error("script.set", {"code": bad_code, "run": True, "save": False}, timeout=8.0)
+    assert_equal(error.get("code"), "compile_error", "bad replacement should fail as compile_error")
+    status = dev.command("status.get", timeout=4.0)
+    assert_equal(status.get("scriptState"), "error", "bad replacement should stop old runtime")
+    assert_equal((status.get("wrenchRuntime") or {}).get("phase"), "error", "bad replacement should leave compile error phase")
+    assert_true(dev.command("ping", timeout=3.0).get("pong"), "device should respond after bad replacement")
+
+
 def test_led_bad_strip_fails_gracefully(dev):
     code = """
 function setup() {
@@ -205,6 +306,14 @@ def test_weather_wear_example_uploads_and_runs(dev):
     assert_equal(strip.get("pin"), 4, "weather strip pin")
     assert_equal(strip.get("count"), 30, "weather strip count")
     assert_true(dev.command("ping", timeout=3.0).get("pong"), "device should respond while weather animation runs")
+    second = dev.command("script.run", {"code": code}, timeout=25.0)
+    assert_equal(second.get("state"), "run_pending", "weather replacement should be accepted while warm")
+    assert_equal(second.get("scriptBytes"), len(code), "weather replacement byte count")
+    assert_equal(dev.wait_event("script.print", timeout=6.0).get("data", {}).get("message"), "weather wear ready", "weather replacement setup print")
+    fetched = dev.command("script.get", timeout=8.0)
+    assert_equal(fetched.get("code"), code, "script.get should read large running weather source")
+    assert_equal(fetched.get("state"), "running", "weather replacement should be running")
+    assert_true(dev.command("ping", timeout=3.0).get("pong"), "device should respond after warm weather replacement")
 
 
 def test_infinite_wrench_loop_yields_to_protocol_and_stop(dev):

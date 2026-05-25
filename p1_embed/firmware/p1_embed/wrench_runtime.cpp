@@ -27,10 +27,12 @@ static WRFunction* g_fnSetup = nullptr;
 static WRFunction* g_fnLoop = nullptr;
 static unsigned char* g_bytecode = nullptr;
 static int g_bytecodeLen = 0;
-static String g_currentScript = "";
-static P1ScriptState g_scriptState = SCRIPT_EMPTY;
+static uint32_t g_currentScriptBytes = 0;
+static uint32_t g_currentScriptHash = 2166136261u;
+static volatile P1ScriptState g_scriptState = SCRIPT_EMPTY;
 static TaskHandle_t g_wrenchTaskHandle = nullptr;
 static SemaphoreHandle_t g_wrenchMutex = nullptr;
+static SemaphoreHandle_t g_scriptSourceMutex = nullptr;
 static volatile bool g_wrenchTaskRunning = false;
 static volatile uint32_t g_wrenchLoopCount = 0;
 static volatile uint32_t g_wrenchLastLoopMs = 0;
@@ -99,6 +101,43 @@ static void wrenchUnlock() {
   if (g_wrenchMutex) xSemaphoreGive(g_wrenchMutex);
 }
 
+static void wrenchSourceLock() {
+  if (g_scriptSourceMutex) xSemaphoreTake(g_scriptSourceMutex, portMAX_DELAY);
+}
+
+static void wrenchSourceUnlock() {
+  if (g_scriptSourceMutex) xSemaphoreGive(g_scriptSourceMutex);
+}
+
+static bool wrenchSourceHasCode() {
+  wrenchSourceLock();
+  bool hasCode = g_currentScriptBytes > 0;
+  wrenchSourceUnlock();
+  return hasCode;
+}
+
+static uint32_t wrenchSourceHash(const String& code) {
+  uint32_t h = 2166136261u;
+  for (size_t i = 0; i < code.length(); i++) {
+    h ^= (uint8_t)code[i];
+    h *= 16777619u;
+  }
+  return h;
+}
+
+static void wrenchSourceSet(const String& code) {
+  wrenchSourceLock();
+  if (code.length() > 0 && scriptStoreSaveCurrent(code)) {
+    g_currentScriptBytes = code.length();
+    g_currentScriptHash = wrenchSourceHash(code);
+  } else {
+    scriptStoreClearCurrent();
+    g_currentScriptBytes = 0;
+    g_currentScriptHash = 2166136261u;
+  }
+  wrenchSourceUnlock();
+}
+
 static void wrenchFreeBytecodeLocked() {
   if (g_bytecode) {
     wr_free(g_bytecode);
@@ -116,8 +155,9 @@ static void wrenchStopLocked() {
   g_ctx = nullptr;
   g_fnSetup = nullptr;
   g_fnLoop = nullptr;
-  g_scriptState = g_currentScript.length() ? SCRIPT_STOPPED : SCRIPT_EMPTY;
-  wrenchSetPhase(g_currentScript.length() ? WRENCH_PHASE_STOPPED : WRENCH_PHASE_IDLE);
+  bool hasCode = wrenchSourceHasCode();
+  g_scriptState = hasCode ? SCRIPT_STOPPED : SCRIPT_EMPTY;
+  wrenchSetPhase(hasCode ? WRENCH_PHASE_STOPPED : WRENCH_PHASE_IDLE);
   protocolEmitEvent("script.state", "\"state\":\"stopped\"");
 }
 
@@ -158,6 +198,7 @@ static void wrenchTask(void*) {
 
 void wrenchTaskBegin() {
   if (!g_wrenchMutex) g_wrenchMutex = xSemaphoreCreateMutex();
+  if (!g_scriptSourceMutex) g_scriptSourceMutex = xSemaphoreCreateMutex();
   if (g_wrenchTaskHandle) return;
 
   BaseType_t ok = xTaskCreatePinnedToCore(
@@ -194,26 +235,36 @@ String wrenchDefaultScript() {
 }
 
 String wrenchCurrentScript() {
-  if (!wrenchTryLock(P1_EMBED_WRENCH_LOCK_STATUS_TIMEOUT_MS)) return "";
-  String code = g_currentScript;
-  wrenchUnlock();
+  String code;
+  scriptStoreLoadCurrent(code);
   return code;
+}
+
+uint32_t wrenchCurrentScriptBytes() {
+  wrenchSourceLock();
+  uint32_t bytes = g_currentScriptBytes;
+  wrenchSourceUnlock();
+  return bytes;
+}
+
+uint32_t wrenchCurrentScriptHash() {
+  wrenchSourceLock();
+  uint32_t hash = g_currentScriptHash;
+  wrenchSourceUnlock();
+  return hash;
 }
 
 bool wrenchSetCurrentScript(const String& code) {
   if (code.length() > P1_EMBED_MAX_SCRIPT_BYTES) return false;
   wrenchLock();
-  g_currentScript = code;
+  wrenchSourceSet(code);
   if (g_scriptState == SCRIPT_EMPTY) g_scriptState = SCRIPT_STOPPED;
   wrenchUnlock();
   return true;
 }
 
 const char* wrenchStateName() {
-  if (!wrenchTryLock(P1_EMBED_WRENCH_LOCK_STATUS_TIMEOUT_MS)) return "busy";
-  P1ScriptState state = g_scriptState;
-  wrenchUnlock();
-  return wrenchScriptStateName(state);
+  return wrenchScriptStateName((P1ScriptState)g_scriptState);
 }
 
 bool wrenchHasSetup() {
@@ -324,6 +375,18 @@ void wrenchStop() {
   wrenchUnlock();
 }
 
+void wrenchReleaseCompiledProgram() {
+  wrenchLock();
+  g_wrenchRunPending = false;
+  wrenchStopLocked();
+  wrenchFreeBytecodeLocked();
+  wrenchSourceSet("");
+  g_scriptState = SCRIPT_EMPTY;
+  wrenchSetPhase(WRENCH_PHASE_IDLE);
+  wrenchUnlock();
+  fastLedReleaseScriptResources();
+}
+
 void wrenchBeginTransition(const String& reason) {
   if (g_wrenchTransitionDepth == 0) {
     g_wrenchTransitionStartedAt = millis();
@@ -424,6 +487,24 @@ static bool wrenchCompileSource(const String& userCode, unsigned char** bytecode
     scriptErrorSet("compile", "script_too_large", errOut, "\"scriptBytes\":" + String(userCode.length()) + ",\"maxScriptBytes\":" + String(P1_EMBED_MAX_SCRIPT_BYTES));
     return false;
   }
+  uint32_t freeHeap = ESP.getFreeHeap();
+  uint32_t maxAlloc = ESP.getMaxAllocHeap();
+  uint32_t minFreeHeap = P1_EMBED_WRENCH_COMPILE_MIN_FREE_HEAP;
+  uint32_t minMaxAlloc = P1_EMBED_WRENCH_COMPILE_MIN_MAX_ALLOC;
+  if (userCode.length() >= P1_EMBED_WRENCH_LARGE_SCRIPT_BYTES) {
+    minFreeHeap = P1_EMBED_WRENCH_LARGE_COMPILE_MIN_FREE_HEAP;
+    minMaxAlloc = P1_EMBED_WRENCH_LARGE_COMPILE_MIN_MAX_ALLOC;
+  }
+  if (freeHeap < minFreeHeap || maxAlloc < minMaxAlloc) {
+    errOut = "not enough contiguous heap to compile safely";
+    String details = "\"freeHeap\":" + String(freeHeap);
+    details += ",\"maxAllocHeap\":" + String(maxAlloc);
+    details += ",\"minFreeHeap\":" + String(minFreeHeap);
+    details += ",\"minMaxAllocHeap\":" + String(minMaxAlloc);
+    details += ",\"scriptBytes\":" + String(userCode.length());
+    scriptErrorSet("compile", "compile_memory_low", errOut, details);
+    return false;
+  }
 
   String src = wrenchPrelude();
   src += "\n";
@@ -463,6 +544,7 @@ static bool wrenchCompileSource(const String& userCode, unsigned char** bytecode
 
 bool wrenchCompileAndSet(const String& userCode, String& errOut) {
   errOut = "";
+  wrenchReleaseCompiledProgram();
   wrenchSetPhase(WRENCH_PHASE_COMPILING);
 
   unsigned char* bytecode = nullptr;
@@ -479,7 +561,7 @@ bool wrenchCompileAndSet(const String& userCode, String& errOut) {
   g_wrenchRunPending = false;
   wrenchStopLocked();
   wrenchFreeBytecodeLocked();
-  g_currentScript = userCode;
+  wrenchSourceSet(userCode);
   g_bytecode = bytecode;
   g_bytecodeLen = byteLen;
   g_scriptState = SCRIPT_COMPILED;
@@ -492,7 +574,7 @@ bool wrenchCompileAndSet(const String& userCode, String& errOut) {
 bool wrenchRunCompiled(String& errOut) {
   errOut = "";
   wrenchLock();
-  if (!g_bytecode || g_bytecodeLen <= 0 || g_currentScript.length() == 0) {
+  if (!g_bytecode || g_bytecodeLen <= 0) {
     errOut = "no compiled script";
     g_scriptState = SCRIPT_ERROR;
     wrenchSetPhase(WRENCH_PHASE_ERROR);

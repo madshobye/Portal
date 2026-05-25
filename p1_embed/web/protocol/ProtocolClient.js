@@ -1,5 +1,5 @@
 export class ProtocolClient extends EventTarget {
-  constructor(transport, { timeoutMs = 5000 } = {}) {
+  constructor(transport, { timeoutMs = 15000 } = {}) {
     super();
     this.transport = transport;
     this.timeoutMs = timeoutMs;
@@ -25,7 +25,7 @@ export class ProtocolClient extends EventTarget {
     const responsePromise = new Promise((resolve, reject) => {
       const timer = setTimeout(() => {
         this.pending.delete(id);
-        reject(new Error(`Timed out waiting for ${name}`));
+        reject(new Error(`Timed out waiting for ${name} after ${timeoutMs}ms`));
       }, timeoutMs);
       this.pending.set(id, { resolve, reject, timer, name });
     });
@@ -66,7 +66,7 @@ export class ProtocolClient extends EventTarget {
     const id = String(message.id ?? "");
     const pending = this.pending.get(id);
     if (!pending) {
-      this.emit("response", { response: message });
+      this.emit("response", { response: message, late: true });
       return;
     }
 

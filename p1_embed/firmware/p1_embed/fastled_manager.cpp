@@ -12,6 +12,7 @@ struct LedStripState {
   int count;
   int brightness;
   CRGB* pixels;
+  CLEDController* controller;
 };
 
 static LedStripState g_ledStrips[P1_EMBED_MAX_LED_STRIPS];
@@ -26,6 +27,7 @@ static void ledResetRuntimeState() {
     g_ledStrips[i].count = 0;
     g_ledStrips[i].brightness = 255;
     g_ledStrips[i].pixels = nullptr;
+    g_ledStrips[i].controller = nullptr;
   }
   g_activeStripCount = 0;
   g_totalLedCount = 0;
@@ -39,9 +41,10 @@ static bool ledValidPin(int pin) {
 }
 
 #if P1_EMBED_FASTLED_AVAILABLE
-#define P1_ADD_FASTLED_CASE(PIN) case PIN: FastLED.addLeds<WS2812B, PIN, GRB>(pixels, count); return true
+#define P1_ADD_FASTLED_CASE(PIN) case PIN: controllerOut = &FastLED.addLeds<WS2812B, PIN, GRB>(pixels, count); return controllerOut != nullptr
 
-static bool ledAddController(int pin, CRGB* pixels, int count) {
+static bool ledAddController(int pin, CRGB* pixels, int count, CLEDController*& controllerOut) {
+  controllerOut = nullptr;
   switch (pin) {
     P1_ADD_FASTLED_CASE(0);
     P1_ADD_FASTLED_CASE(1);
@@ -110,9 +113,10 @@ static bool ledStartStrip(int strip, int pin, int count, int brightness) {
     return false;
   }
 
-  if (!ledAddController(pin, s.pixels, count)) {
+  if (!ledAddController(pin, s.pixels, count, s.controller)) {
     delete[] s.pixels;
     s.pixels = nullptr;
+    s.controller = nullptr;
     scriptErrorSet("binding", "led_pin_not_enabled", "LED pin is not enabled in this firmware", "\"strip\":" + String(strip) + ",\"pin\":" + String(pin));
     return false;
   }
@@ -133,6 +137,30 @@ static bool ledStartStrip(int strip, int pin, int count, int brightness) {
 
 void fastLedManagerBegin() {
   ledResetRuntimeState();
+}
+
+void fastLedReleaseScriptResources() {
+  bool hadAny = g_activeStripCount > 0;
+  if (hadAny) {
+    ledClear(-1, true);
+  }
+  for (int i = 0; i < P1_EMBED_MAX_LED_STRIPS; i++) {
+    LedStripState& s = g_ledStrips[i];
+    if (s.controller) {
+      s.controller->removeFromDrawList();
+      s.controller->setEnabled(false);
+      s.controller->setLeds(nullptr, 0);
+      s.controller = nullptr;
+    }
+    if (s.pixels) {
+      delete[] s.pixels;
+      s.pixels = nullptr;
+    }
+  }
+  ledResetRuntimeState();
+  if (hadAny) {
+    debugEventEmit("led.status", "debug", "led", "released script LED resources");
+  }
 }
 
 bool ledConfigureStrip(int strip, int pin, int count, int brightness) {

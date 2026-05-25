@@ -153,17 +153,9 @@ void loop() {
       return;
     }
     autoPrintStarted = true;
-    Serial.println("LabelCam auto BLE connect + full test print");
-    if (printer.connect()) {
-      Serial.println("BLE printer connected; sending one full generated label");
-      runCapturePrintJob();
-      autoPrintDone = true;
-    } else {
-      Serial.printf("BLE connect failed: %s\r\n", printer.lastError());
-      autoPrintStarted = false;
-      delay(3000);
-      return;
-    }
+    Serial.println("LabelCam auto capture + BLE print");
+    runCapturePrintJob();
+    autoPrintDone = true;
   }
 
   if (captureButton.pressed()) {

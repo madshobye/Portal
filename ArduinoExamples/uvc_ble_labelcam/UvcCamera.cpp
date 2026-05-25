@@ -551,9 +551,9 @@ bool UvcCamera::beginAsciiPreview() {
 
   USBStreamUVCOptions options =
     USBStreamUVCOptionsForProfile(CAMERA_PROFILE, PRINT_UVC_PACKET_STATS);
-  s_usbStream->uvcConfiguration(CAMERA_PROFILE.width,
-                                CAMERA_PROFILE.height,
-                                FPS2INTERVAL(CAMERA_PROFILE.fps),
+  s_usbStream->uvcConfiguration(UVC_CAPTURE_WIDTH,
+                                UVC_CAPTURE_HEIGHT,
+                                FPS2INTERVAL(UVC_CAPTURE_FPS),
                                 bufferBytes,
                                 s_uvcTransferA,
                                 s_uvcTransferB,
@@ -568,7 +568,7 @@ bool UvcCamera::beginAsciiPreview() {
   _streamStarted = true;
   _lastError = "";
   Serial.printf("UVC stream started, waiting for %ux%u frames\r\n",
-                unsigned(CAMERA_PROFILE.width), unsigned(CAMERA_PROFILE.height));
+                unsigned(UVC_CAPTURE_WIDTH), unsigned(UVC_CAPTURE_HEIGHT));
   return true;
 }
 
