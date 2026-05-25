@@ -419,6 +419,50 @@ static String wrenchPrelude() {
   return pre;
 }
 
+static String wrenchRemapCompileError(const String& err, int lineOffset) {
+  if (lineOffset <= 0 || err.length() == 0) return err;
+
+  String out = err;
+  int linePos = out.indexOf("line:");
+  if (linePos >= 0) {
+    int numStart = linePos + 5;
+    while (numStart < (int)out.length() && out[numStart] == ' ') numStart++;
+    int numEnd = numStart;
+    while (numEnd < (int)out.length() && isDigit(out[numEnd])) numEnd++;
+    if (numEnd > numStart) {
+      int line = out.substring(numStart, numEnd).toInt();
+      if (line > lineOffset) {
+        out = out.substring(0, numStart) + String(line - lineOffset) + out.substring(numEnd);
+      }
+    }
+  }
+
+  int scan = 0;
+  while (scan < (int)out.length()) {
+    int lineStart = scan;
+    int lineEnd = out.indexOf('\n', lineStart);
+    if (lineEnd < 0) lineEnd = out.length();
+
+    int numStart = lineStart;
+    while (numStart < lineEnd && out[numStart] == ' ') numStart++;
+    int numEnd = numStart;
+    while (numEnd < lineEnd && isDigit(out[numEnd])) numEnd++;
+    if (numEnd > numStart && numEnd < lineEnd && out[numEnd] == ' ') {
+      int line = out.substring(numStart, numEnd).toInt();
+      if (line > lineOffset) {
+        String replacement = String(line - lineOffset);
+        out = out.substring(0, numStart) + replacement + out.substring(numEnd);
+        int delta = replacement.length() - (numEnd - numStart);
+        lineEnd += delta;
+      }
+    }
+
+    scan = lineEnd + 1;
+  }
+
+  return out;
+}
+
 struct WrenchCompileJob {
   const String* source;
   unsigned char* bytecode;
@@ -506,7 +550,12 @@ static bool wrenchCompileSource(const String& userCode, unsigned char** bytecode
     return false;
   }
 
-  String src = wrenchPrelude();
+  String prelude = wrenchPrelude();
+  int userLineOffset = 1;
+  for (size_t i = 0; i < prelude.length(); i++) {
+    if (prelude[i] == '\n') userLineOffset++;
+  }
+  String src = prelude;
   src += "\n";
   src += userCode;
 
@@ -517,6 +566,7 @@ static bool wrenchCompileSource(const String& userCode, unsigned char** bytecode
   WRError ce = wrenchCompileOnWorker(src, &bytecode, &byteLen, compileErr);
   if (ce != WR_ERR_None || !bytecode || byteLen <= 0) {
     errOut = compileErr.size() ? String(compileErr.c_str()) : String("compile failed code=") + String((int)ce);
+    errOut = wrenchRemapCompileError(errOut, userLineOffset);
     g_scriptState = SCRIPT_ERROR;
     wrenchSetPhase(WRENCH_PHASE_ERROR);
     String details = "\"wrenchError\":" + String((int)ce);

@@ -23,17 +23,28 @@ export class WebSocketTransport extends EventTarget {
     await new Promise((resolve, reject) => {
       const socket = new WebSocket(this.url);
       this.socket = socket;
+      let settled = false;
+
+      const finish = (ok, value) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        if (ok) {
+          resolve(value);
+        } else {
+          reject(value);
+        }
+      };
 
       const timer = setTimeout(() => {
         socket.close();
-        reject(new Error(`Timed out connecting to ${this.url}`));
+        finish(false, new Error(`Timed out connecting to ${this.url}`));
       }, 5000);
 
       socket.addEventListener("open", () => {
-        clearTimeout(timer);
         this.connected = true;
         this.setState("connected");
-        resolve();
+        finish(true);
       }, { once: true });
 
       socket.addEventListener("message", (event) => {
@@ -43,12 +54,16 @@ export class WebSocketTransport extends EventTarget {
       });
 
       socket.addEventListener("close", () => {
+        const wasConnecting = !settled;
         this.connected = false;
         this.setState("disconnected");
+        if (wasConnecting) finish(false, new Error(`WebSocket closed before connecting to ${this.url}`));
       });
 
       socket.addEventListener("error", () => {
-        this.emit("error", { error: new Error(`WebSocket error: ${this.url}`) });
+        const error = new Error(`WebSocket error: ${this.url}`);
+        if (settled) this.emit("error", { error });
+        finish(false, error);
       });
     });
 

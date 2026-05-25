@@ -3,123 +3,146 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>p1_embed</title>
+    <title>P1E</title>
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@24,400,0,0">
     <link rel="stylesheet" href="style.css">
   </head>
   <body>
     <main id="app">
-      <aside class="sidebar" aria-label="Device controls">
+      <header class="app-topbar">
         <div class="brand">
-          <strong>p1_embed</strong>
-          <span id="firmware-version">offline</span>
+          <strong>P1E</strong>
         </div>
+        <nav class="tabs" aria-label="Workspace">
+          <button id="coding-tab" class="tab is-active" type="button" data-tab="coding">Coding</button>
+          <button id="install-tab" class="tab" type="button" data-tab="install">Install</button>
+        </nav>
+        <div class="connection-pill" id="connection-state">not connected</div>
+      </header>
 
-        <div class="side-group">
-          <label for="transport-mode">Transport</label>
-          <select id="transport-mode">
-            <option value="websocket" selected>WebSocket</option>
-            <option value="serial">Serial</option>
-          </select>
-        </div>
-
-        <label class="ws-url-field">
-          <span>WebSocket URL</span>
-          <input id="websocket-url" type="text" autocomplete="off" spellcheck="false" value="ws://p1-embed-f7a608.local:81/">
-        </label>
-
-        <button id="connect-button" class="button primary" type="button">Connect</button>
-        <button id="disconnect-button" class="button" type="button" disabled>Disconnect</button>
-
-        <div class="side-group">
-          <label for="debug-level">Log level</label>
-          <select id="debug-level">
-            <option value="error">error</option>
-            <option value="warn">warn</option>
-            <option value="info" selected>info</option>
-            <option value="debug">debug</option>
-            <option value="trace">trace</option>
-          </select>
-        </div>
-
-        <div class="side-group">
-          <button id="info-button" class="button" type="button">Info</button>
-          <button id="status-button" class="button" type="button">Status</button>
-          <button id="get-script-button" class="button" type="button">Read Script</button>
-          <button id="reboot-button" class="button danger" type="button">Reboot</button>
-        </div>
-
-        <div class="status-stack" aria-live="polite">
-          <span id="connection-state">idle</span>
-          <span id="device-name">no device</span>
-          <span id="wifi-state">wifi unknown</span>
-        </div>
-      </aside>
-
-      <section class="workspace">
-        <section class="editor-column">
-          <header class="toolbar">
-            <div>
-              <h1>Wrench</h1>
-              <span id="script-state">not loaded</span>
-            </div>
-            <div class="toolbar-actions">
-              <button id="run-button" class="button primary" type="button">Run</button>
-              <button id="save-button" class="button" type="button">Save</button>
-              <button id="save-run-button" class="button" type="button">Save Run</button>
-              <button id="stop-button" class="button" type="button">Stop</button>
-              <button id="restart-button" class="button" type="button">Restart</button>
-            </div>
+      <section id="coding-view" class="view is-active" aria-label="Coding">
+        <section class="coding-main">
+          <header class="coding-toolbar">
+            <button id="connect-button" class="button primary icon-buttonish" type="button" title="Connect" aria-label="Connect"><span class="material-symbols-rounded">link</span></button>
+            <span class="toolbar-divider" aria-hidden="true"></span>
+            <button id="run-button" class="button primary icon-buttonish" type="button" disabled title="Save and run" aria-label="Save and run"><span class="material-symbols-rounded">play_arrow</span></button>
+            <button id="stop-button" class="button icon-buttonish" type="button" disabled title="Stop" aria-label="Stop"><span class="material-symbols-rounded">stop</span></button>
+            <button id="get-script-button" class="button icon-buttonish" type="button" disabled title="Load running script" aria-label="Load running script"><span class="material-symbols-rounded">file_open</span></button>
+            <button id="download-code-button" class="button icon-buttonish" type="button" disabled title="Download code" aria-label="Download code"><span class="material-symbols-rounded">download</span></button>
+            <select id="sketch-history" class="compact-select sketch-history" title="Recover uploaded sketch" aria-label="Recover uploaded sketch">
+              <option value="">history</option>
+            </select>
+            <span class="toolbar-divider toolbar-push" aria-hidden="true"></span>
+            <button id="rename-button" class="button icon-buttonish" type="button" disabled title="Rename board" aria-label="Rename board"><span class="material-symbols-rounded">drive_file_rename_outline</span></button>
+            <button id="wifi-button" class="button icon-buttonish" type="button" disabled title="WiFi setup" aria-label="WiFi setup"><span class="material-symbols-rounded">wifi</span></button>
+            <button id="reboot-button" class="button icon-buttonish" type="button" disabled title="Reboot device" aria-label="Reboot device"><span class="material-symbols-rounded">restart_alt</span></button>
           </header>
 
-          <textarea id="code-editor" spellcheck="false" autocomplete="off" autocapitalize="off"></textarea>
-        </section>
-
-        <section class="panel-column">
-          <section class="panel">
-            <header class="panel-header">
-              <h2>Console</h2>
-              <button id="clear-console-button" class="icon-button" type="button" title="Clear console">Clear</button>
-            </header>
-            <pre id="console-output" class="console-output"></pre>
+          <section class="editor-wrap">
+            <div id="ace-editor"></div>
+            <textarea id="code-editor" spellcheck="false" autocomplete="off" autocapitalize="off"></textarea>
           </section>
 
-          <section class="panel">
-            <header class="panel-header">
-              <h2>Device</h2>
+          <section class="lower-wrap">
+            <header class="console-header">
+              <div>
+                <nav class="lower-tabs" aria-label="Output">
+                  <button class="lower-tab is-active" type="button" data-panel="console">Console</button>
+                  <button class="lower-tab" type="button" data-panel="info">Info</button>
+                </nav>
+                <span id="script-state" class="is-hidden">not loaded</span>
+              </div>
+              <div id="console-actions" class="console-actions">
+                <select id="debug-level" class="compact-select" aria-label="Log level">
+                  <option value="error">error</option>
+                  <option value="warn">warn</option>
+                  <option value="info" selected>info</option>
+                  <option value="debug">debug</option>
+                  <option value="trace">trace</option>
+                </select>
+                <button id="copy-console-button" class="button compact icon-buttonish" type="button" title="Copy log" aria-label="Copy log"><span class="material-symbols-rounded">content_copy</span></button>
+                <button id="clear-console-button" class="button compact icon-buttonish" type="button" title="Clear console" aria-label="Clear console"><span class="material-symbols-rounded">backspace</span></button>
+              </div>
             </header>
-            <dl id="device-fields" class="fields"></dl>
-          </section>
-
-          <section class="panel">
-            <header class="panel-header">
-              <h2>WiFi</h2>
-              <button id="wifi-status-button" class="icon-button" type="button">Refresh</button>
-            </header>
-            <div class="form-grid">
-              <label>
-                <span>SSID</span>
-                <input id="wifi-ssid" type="text" autocomplete="off">
-              </label>
-              <label>
-                <span>Password</span>
-                <input id="wifi-password" type="password" autocomplete="new-password">
-              </label>
-              <button id="wifi-save-button" class="button primary" type="button">Save WiFi</button>
-            </div>
-          </section>
-
-          <section class="panel raw-panel">
-            <header class="panel-header">
-              <h2>Raw JSON</h2>
-              <button id="raw-send-button" class="icon-button" type="button">Send</button>
-            </header>
-            <textarea id="raw-input" spellcheck="false">{"type":"cmd","name":"status.get"}</textarea>
+            <section id="console-panel" class="lower-panel is-active">
+              <pre id="console-output" class="console-output"></pre>
+              <form id="raw-form" class="raw-form">
+                <input id="raw-input" type="text" spellcheck="false" autocomplete="off" value='{"type":"cmd","name":"status.get"}' disabled>
+                <button id="raw-send-button" class="button compact icon-buttonish" type="submit" disabled title="Send raw JSON" aria-label="Send raw JSON"><span class="material-symbols-rounded">send</span></button>
+              </form>
+            </section>
+            <section id="info-panel" class="lower-panel">
+              <dl id="device-fields" class="fields"></dl>
+            </section>
           </section>
         </section>
       </section>
+
+      <section id="install-view" class="view install-view" aria-label="Install">
+        <div class="install-empty"></div>
+      </section>
     </main>
 
+    <dialog id="connect-dialog" class="dialog">
+      <form method="dialog" class="dialog-panel">
+        <header class="dialog-header">
+          <strong>Connect</strong>
+          <button class="icon-button" value="cancel" type="submit" aria-label="Close" title="Close"><span class="material-symbols-rounded">close</span></button>
+        </header>
+        <div class="dialog-actions connect-options">
+          <button id="recent-ws-button" class="button suggestion-button" type="button" title="Recent WebSocket" aria-label="Recent WebSocket"><span class="material-symbols-rounded">history</span><span id="recent-ws-label">WebSocket</span></button>
+          <button id="recent-usb-button" class="button suggestion-button" type="button" title="Recent USB" aria-label="Recent USB"><span class="material-symbols-rounded">settings_input_component</span><span id="recent-usb-label">USB</span></button>
+          <button id="usb-connect-button" class="button icon-buttonish" type="button" title="New USB" aria-label="New USB"><span class="material-symbols-rounded">usb</span></button>
+          <button id="new-ws-toggle-button" class="button icon-buttonish" type="button" title="New WebSocket" aria-label="New WebSocket"><span class="material-symbols-rounded">add_link</span></button>
+        </div>
+        <label id="new-ws-field" class="field is-hidden">
+          <span>WebSocket URL or host</span>
+          <input id="websocket-url" type="text" autocomplete="off" spellcheck="false" value="ws://p1-embed-f7a608.local:81/">
+        </label>
+        <button id="new-ws-connect-button" class="button primary icon-buttonish is-hidden" type="button" title="Connect WebSocket" aria-label="Connect WebSocket"><span class="material-symbols-rounded">link</span></button>
+      </form>
+    </dialog>
+
+    <dialog id="wifi-dialog" class="dialog">
+      <form method="dialog" class="dialog-panel">
+        <header class="dialog-header">
+          <strong>WiFi</strong>
+          <button class="icon-button" value="cancel" type="submit" aria-label="Close" title="Close"><span class="material-symbols-rounded">close</span></button>
+        </header>
+        <label class="field">
+          <span>SSID</span>
+          <input id="wifi-ssid" type="text" autocomplete="off">
+        </label>
+        <label class="field">
+          <span>Password</span>
+          <input id="wifi-password" type="password" autocomplete="new-password">
+        </label>
+        <div class="dialog-actions">
+          <button id="wifi-save-button" class="button primary icon-buttonish" type="button" title="Apply WiFi settings" aria-label="Apply WiFi settings"><span class="material-symbols-rounded">wifi_protected_setup</span></button>
+        </div>
+      </form>
+    </dialog>
+
+    <dialog id="rename-dialog" class="dialog">
+      <form method="dialog" class="dialog-panel">
+        <header class="dialog-header">
+          <strong>Rename</strong>
+          <button class="icon-button" value="cancel" type="submit" aria-label="Close" title="Close"><span class="material-symbols-rounded">close</span></button>
+        </header>
+        <label class="field">
+          <span>Name</span>
+          <input id="device-name-input" type="text" autocomplete="off" spellcheck="false">
+        </label>
+        <div class="dialog-actions">
+          <button id="device-name-save-button" class="button primary icon-buttonish" type="button" title="Apply board name" aria-label="Apply board name"><span class="material-symbols-rounded">drive_file_rename_outline</span></button>
+        </div>
+      </form>
+    </dialog>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/ace/1.43.3/ace.js" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/ace/1.43.3/mode-javascript.min.js" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/ace/1.43.3/theme-chaos.min.js" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
     <script src="../../P1/portal/usbSerial.js"></script>
-    <script type="module" src="app.js?v=0.1.32-ui2"></script>
+    <script type="module" src="app.js?v=0.1.39-ui40"></script>
   </body>
 </html>

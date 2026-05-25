@@ -38,6 +38,7 @@ static String protocolBaseInfoJson() {
   out += ",\"chipModel\":" + jsonString(ESP.getChipModel());
   out += ",\"chipRevision\":" + String(ESP.getChipRevision());
   out += ",\"sdkVersion\":" + jsonString(ESP.getSdkVersion());
+  out += ",\"heapSize\":" + String(ESP.getHeapSize());
   out += ",\"capabilities\":[";
   for (int i = 0; i < P1_EMBED_CAPABILITY_COUNT; i++) {
     if (i) out += ",";
@@ -50,6 +51,7 @@ static String protocolBaseInfoJson() {
 static String protocolStatusJson() {
   String out = "{";
   out += "\"uptimeMs\":" + String(millis());
+  out += ",\"heapSize\":" + String(ESP.getHeapSize());
   out += ",\"freeHeap\":" + String(ESP.getFreeHeap());
   out += ",\"minFreeHeap\":" + String(ESP.getMinFreeHeap());
   out += ",\"maxAllocHeap\":" + String(ESP.getMaxAllocHeap());
@@ -154,6 +156,7 @@ bool protocolHandleScriptSetCode(const String& id, const String& code, bool runA
   String err;
   WrenchTransitionGuard transition("script.set");
   if (!wrenchCompileAndSet(code, err)) {
+    wrenchSetCurrentScript(code);
     protocolSendResponseError(id, "compile_error", err);
     return false;
   }

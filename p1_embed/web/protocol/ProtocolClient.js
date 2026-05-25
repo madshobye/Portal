@@ -39,10 +39,8 @@ export class ProtocolClient extends EventTarget {
   }
 
   acceptLine(line) {
-    let message;
-    try {
-      message = JSON.parse(line);
-    } catch {
+    const message = parseProtocolMessage(line);
+    if (!message) {
       this.emit("raw", { line });
       return;
     }
@@ -86,4 +84,62 @@ export class ProtocolClient extends EventTarget {
   emit(type, detail) {
     this.dispatchEvent(new CustomEvent(type, { detail }));
   }
+}
+
+function parseProtocolMessage(line) {
+  const text = String(line ?? "").trim();
+  if (!text) return null;
+
+  try {
+    return JSON.parse(text);
+  } catch {
+  }
+
+  const candidates = ['{"type":"res"', '{"type":"evt"', '{"type":"cmd"'];
+  let start = -1;
+  for (const candidate of candidates) {
+    const index = text.indexOf(candidate);
+    if (index >= 0 && (start < 0 || index < start)) start = index;
+  }
+  if (start < 0) return null;
+
+  const end = findJsonObjectEnd(text, start);
+  if (end < 0) return null;
+
+  try {
+    return JSON.parse(text.slice(start, end + 1));
+  } catch {
+    return null;
+  }
+}
+
+function findJsonObjectEnd(text, start) {
+  let depth = 0;
+  let inString = false;
+  let escaped = false;
+
+  for (let i = start; i < text.length; i += 1) {
+    const ch = text[i];
+    if (inString) {
+      if (escaped) {
+        escaped = false;
+      } else if (ch === "\\") {
+        escaped = true;
+      } else if (ch === '"') {
+        inString = false;
+      }
+      continue;
+    }
+
+    if (ch === '"') {
+      inString = true;
+    } else if (ch === "{") {
+      depth += 1;
+    } else if (ch === "}") {
+      depth -= 1;
+      if (depth === 0) return i;
+    }
+  }
+
+  return -1;
 }
