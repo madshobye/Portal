@@ -1,0 +1,103 @@
+#include <Arduino.h>
+#include <WiFi.h>
+#include "p1_embed_firmware.h"
+
+static int g_lastWifiStatus = WL_IDLE_STATUS;
+static unsigned long g_lastWifiAttemptMs = 0;
+static bool g_wifiConfigured = false;
+static int g_wifiNetworkIndex = 0;
+
+static const char* wifiStatusName(int status) {
+  switch (status) {
+    case WL_IDLE_STATUS: return "idle";
+    case WL_NO_SSID_AVAIL: return "no_ssid";
+    case WL_SCAN_COMPLETED: return "scan_completed";
+    case WL_CONNECTED: return "connected";
+    case WL_CONNECT_FAILED: return "connect_failed";
+    case WL_CONNECTION_LOST: return "connection_lost";
+    case WL_DISCONNECTED: return "disconnected";
+  }
+  return "unknown";
+}
+
+static void wifiEmitStatusIfChanged() {
+  int status = WiFi.status();
+  if (status == g_lastWifiStatus) return;
+  g_lastWifiStatus = status;
+  protocolEmitEvent("wifi.status", "\"status\":" + jsonString(wifiStatusName(status)) + ",\"ip\":" + jsonString(WiFi.localIP().toString()));
+}
+
+static void wifiTryNetwork(int index, const char* statusLabel) {
+  String ssid = configWifiSsidAt(index);
+  if (!ssid.length()) return;
+
+  g_wifiNetworkIndex = index;
+  WiFi.disconnect(false, false);
+  WiFi.begin(ssid.c_str(), configWifiPasswordAt(index).c_str());
+  g_lastWifiAttemptMs = millis();
+  protocolEmitEvent("wifi.status", "\"status\":" + jsonString(statusLabel) + ",\"ssid\":" + jsonString(ssid) + ",\"networkIndex\":" + String(index));
+}
+
+void wifiBegin() {
+  g_wifiConfigured = configWifiNetworkCount() > 0;
+  g_lastWifiStatus = WiFi.status();
+  g_wifiNetworkIndex = 0;
+
+  if (!g_wifiConfigured) {
+    WiFi.mode(WIFI_OFF);
+    return;
+  }
+
+  WiFi.mode(WIFI_STA);
+  WiFi.setAutoReconnect(true);
+  WiFi.persistent(false);
+  wifiTryNetwork(0, "connecting");
+}
+
+void wifiLoop() {
+  if (!g_wifiConfigured) return;
+  wifiEmitStatusIfChanged();
+
+  int status = WiFi.status();
+  if (status == WL_CONNECTED) return;
+  if (millis() - g_lastWifiAttemptMs < 15000) return;
+
+  int count = configWifiNetworkCount();
+  if (count <= 0) return;
+  int nextIndex = (g_wifiNetworkIndex + 1) % count;
+  wifiTryNetwork(nextIndex, nextIndex == 0 ? "reconnecting" : "fallback_connecting");
+}
+
+void wifiReconnect() {
+  WiFi.disconnect(false, false);
+  g_wifiConfigured = false;
+  wifiBegin();
+}
+
+void wifiDisconnect() {
+  WiFi.disconnect(true, false);
+  WiFi.mode(WIFI_OFF);
+  g_wifiConfigured = false;
+  g_lastWifiStatus = WL_DISCONNECTED;
+  protocolEmitEvent("wifi.status", "\"status\":\"off\"");
+}
+
+String wifiStatusJson() {
+  int status = WiFi.status();
+  String out = "{";
+  out += "\"configured\":" + String(configWifiSsid().length() ? "true" : "false");
+  out += ",\"status\":" + jsonString(wifiStatusName(status));
+  out += ",\"connected\":" + String(status == WL_CONNECTED ? "true" : "false");
+  out += ",\"networkIndex\":" + String(g_wifiNetworkIndex);
+  out += ",\"networkCount\":" + String(configWifiNetworkCount());
+  out += ",\"ssid\":" + jsonString(status == WL_CONNECTED ? configWifiSsidAt(g_wifiNetworkIndex) : String(""));
+  out += ",\"ip\":" + jsonString(status == WL_CONNECTED ? WiFi.localIP().toString() : String(""));
+  out += ",\"rssi\":" + String(status == WL_CONNECTED ? WiFi.RSSI() : 0);
+  out += ",\"mac\":" + jsonString(WiFi.macAddress());
+  out += "}";
+  return out;
+}
+
+bool wifiIsConnected() {
+  return WiFi.status() == WL_CONNECTED && WiFi.localIP() != IPAddress(0, 0, 0, 0);
+}

@@ -1,0 +1,11 @@
+function setup() {
+  pinMode(2, 1);
+  println("blink");
+}
+
+function loop() {
+  digitalWrite(2, 1);
+  delay(250);
+  digitalWrite(2, 0);
+  delay(750);
+}

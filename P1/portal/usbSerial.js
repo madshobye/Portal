@@ -19,6 +19,9 @@ class PortalUsbSerial {
     onConnect = null,
     onDisconnect = null,
     onError = null,
+    onText = null,
+    onLine = null,
+    onMessage = null,
   } = {}) {
     this.baudRate = Math.max(300, Number(baudRate) || 115200);
     this.dataBits = Number(dataBits) === 7 ? 7 : 8;
@@ -36,6 +39,9 @@ class PortalUsbSerial {
     this._onConnect = typeof onConnect === "function" ? onConnect : null;
     this._onDisconnect = typeof onDisconnect === "function" ? onDisconnect : null;
     this._onError = typeof onError === "function" ? onError : null;
+    this._onText = typeof onText === "function" ? onText : null;
+    this._onLine = typeof onLine === "function" ? onLine : null;
+    this._onMessage = typeof onMessage === "function" ? onMessage : null;
 
     this.ready = false;
     this.connected = false;
@@ -43,10 +49,14 @@ class PortalUsbSerial {
     this.state = "idle";
 
     this.port = null;
+    this.reader = null;
     this.writer = null;
     this.encoder = new TextEncoder();
+    this.decoder = new TextDecoder();
+    this._readBuffer = "";
     this._connectPromise = null;
     this._disconnectRequested = false;
+    this._readLoopActive = false;
     this._reconnectTimer = null;
     this._writeQueue = Promise.resolve();
     this._deviceHint = this._loadDeviceHint();
@@ -182,6 +192,7 @@ class PortalUsbSerial {
       this.connected = true;
       this.connecting = false;
       this._setState("connected");
+      this._startReadLoop();
       if (this._onConnect) {
         try {
           this._onConnect(this.getConnectionState(), source);
@@ -256,6 +267,18 @@ class PortalUsbSerial {
 
   _safeClosePort() {
     try {
+      if (this.reader) {
+        const promise = this.reader.cancel();
+        if (promise?.catch) promise.catch(() => {});
+      }
+    } catch {}
+    try {
+      if (this.reader) this.reader.releaseLock();
+    } catch {}
+    this.reader = null;
+    this._readLoopActive = false;
+
+    try {
       if (this.writer) this.writer.releaseLock();
     } catch {}
     this.writer = null;
@@ -267,6 +290,72 @@ class PortalUsbSerial {
       }
     } catch {}
     this.port = null;
+  }
+
+  async _startReadLoop() {
+    if (this._readLoopActive || !this.port?.readable) return;
+    this._readLoopActive = true;
+
+    while (this.connected && this.port?.readable && !this._disconnectRequested) {
+      try {
+        this.reader = this.port.readable.getReader();
+        while (this.connected && !this._disconnectRequested) {
+          const { value, done } = await this.reader.read();
+          if (done) break;
+          if (value) this._acceptReadChunk(value);
+        }
+      } catch (err) {
+        if (this.connected && !this._disconnectRequested) this._handleError(err);
+      } finally {
+        try {
+          if (this.reader) this.reader.releaseLock();
+        } catch {}
+        this.reader = null;
+      }
+    }
+
+    this._readLoopActive = false;
+    if (this.connected && !this._disconnectRequested) {
+      this._handlePortDisconnected({ port: this.port });
+    }
+  }
+
+  _acceptReadChunk(value) {
+    const text = this.decoder.decode(value, { stream: true });
+    if (!text) return;
+
+    if (this._onText) {
+      try {
+        this._onText(text);
+      } catch (e) {
+        console.warn("PortalUsbSerial onText callback error:", e);
+      }
+    }
+
+    this._readBuffer += text;
+    const lines = this._readBuffer.split(/\r?\n/);
+    this._readBuffer = lines.pop() || "";
+
+    for (const line of lines) {
+      const trimmed = line.trim();
+      if (!trimmed) continue;
+      if (this._onLine) {
+        try {
+          this._onLine(trimmed);
+        } catch (e) {
+          console.warn("PortalUsbSerial onLine callback error:", e);
+        }
+      }
+      if (this._onMessage) this._emitMessage(trimmed);
+    }
+  }
+
+  _emitMessage(line) {
+    try {
+      this._onMessage(JSON.parse(line), line);
+    } catch (err) {
+      this._handleError(err);
+    }
   }
 
   _pickPortFromHint(ports) {

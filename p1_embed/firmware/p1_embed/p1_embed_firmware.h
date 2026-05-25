@@ -1,0 +1,187 @@
+#pragma once
+
+#include <Arduino.h>
+#include "config.h"
+#include "wrench.h"
+
+void transportSerialBegin();
+void transportSerialPoll();
+void transportSendRaw(const char* data);
+void transportSendLine(const String& line);
+void webTransportBegin();
+void webTransportLoop();
+void webTransportSendLine(const String& line);
+String webTransportStatusJson();
+void webrtcTransportBegin();
+void webrtcTransportLoop();
+void webrtcTransportSendLine(const String& line);
+String webrtcTransportStatusJson();
+
+void protocolHandleLine(const char* line);
+void protocolSendResponseOk(const String& id, const String& dataJson = "{}");
+void protocolSendResponseError(const String& id, const String& code, const String& message);
+void protocolEmitEvent(const String& name, const String& dataFieldsJson);
+void protocolEmitErrorEvent(const String& name, const String& code, const String& message);
+void protocolEmitLog(const String& level, const String& message);
+void protocolEmitPrint(const String& message, bool newline);
+void protocolEmitBoot();
+void protocolEmitStatusEvent();
+
+void scriptErrorClear();
+void scriptErrorSet(const String& phase, const String& code, const String& message, const String& detailFieldsJson = "");
+void scriptErrorWarn(const String& phase, const String& code, const String& message, const String& detailFieldsJson = "");
+bool scriptErrorHasLast();
+String scriptErrorLastJson();
+String scriptErrorSummaryJson();
+const char* scriptErrorWrenchName(int code);
+
+void debugEventBegin();
+void debugEventFlush();
+void debugEventSetLevel(uint8_t level);
+bool debugEventSetLevelName(const String& level);
+uint8_t debugEventLevel();
+const char* debugLevelName(uint8_t level);
+uint32_t debugEventDrops();
+uint32_t debugEventHighWater();
+String debugEventStatusJson();
+void debugEventEmit(const String& name, const String& level, const String& category, const String& message, const String& dataFieldsJson = "");
+void debugEventSendLine(const String& line);
+void debugLog(const String& level, const String& category, const String& message);
+void debugError(const String& category, const String& code, const String& message);
+
+String jsonString(const String& s);
+String jsonPathGetRaw(const String& json, const String& path, bool* foundOut = nullptr);
+bool jsonPathHas(const String& json, const String& path);
+String jsonPairString(const String& key, const String& value);
+String jsonPairRaw(const String& key, const String& rawValue);
+String jsonPairIntValue(const String& key, int value);
+String jsonPairFloatValue(const String& key, float value, int decimals);
+String jsonPairBoolValue(const String& key, bool value);
+String jsonBuildObject(const String& fields);
+bool jsonGetString(const char* json, const char* key, String& out);
+bool jsonGetBool(const char* json, const char* key, bool& out);
+bool jsonGetInt(const char* json, const char* key, int& out);
+
+void configLoad();
+void configSave();
+void configFactoryReset();
+String configDeviceId();
+String configDeviceName();
+void configSetDeviceName(const String& value);
+void configSetWifiSsid(const String& value);
+void configSetWifiPassword(const String& value);
+String configWifiSsid();
+String configWifiPassword();
+int configWifiNetworkCount();
+String configWifiSsidAt(int index);
+String configWifiPasswordAt(int index);
+String configAsJson();
+
+void wifiBegin();
+void wifiLoop();
+void wifiReconnect();
+void wifiDisconnect();
+String wifiStatusJson();
+bool wifiIsConnected();
+
+bool scriptStoreBegin();
+bool scriptStoreLoad(String& out);
+bool scriptStoreSave(const String& code);
+bool scriptStoreClear();
+bool scriptStoreHasSaved();
+uint8_t scriptStoreLoadRunState();
+void scriptStoreSaveRunState(uint8_t state);
+const char* scriptStoreRunStateName(uint8_t state);
+bool scriptStoreVerificationArmed();
+void scriptStoreArmVerification();
+void scriptStoreVerifyIfDue();
+
+String wrenchDefaultScript();
+String wrenchCurrentScript();
+bool wrenchSetCurrentScript(const String& code);
+void wrenchTaskBegin();
+const char* wrenchStateName();
+bool wrenchHasSetup();
+bool wrenchHasLoop();
+bool wrenchTaskIsRunning();
+uint32_t wrenchLoopCount();
+uint32_t wrenchLastLoopMs();
+uint32_t wrenchCurrentLoopStartedAt();
+uint32_t wrenchSlowLoopCount();
+uint32_t wrenchHungLoopCount();
+bool wrenchLoopIsHung();
+uint32_t wrenchLockTimeoutCount();
+uint32_t wrenchTaskStackHighWater();
+void wrenchWatchdogPoll();
+void wrenchRuntimePoll();
+String wrenchRuntimeStatusJson();
+void wrenchStop();
+void wrenchBeginTransition(const String& reason);
+void wrenchEndTransition();
+bool wrenchCompileAndSet(const String& userCode, String& errOut);
+bool wrenchRunCompiled(String& errOut);
+void wrenchRequestRun();
+bool wrenchRunIsPending();
+bool wrenchCompileAndRun(const String& userCode, String& errOut);
+void wrenchRegisterBindings(WRState* wr);
+
+void wrenchInboxBegin();
+bool wrenchInboxPush(const String& channel, const String& message);
+bool wrenchInboxRead(String& channelOut, String& messageOut);
+uint32_t wrenchInboxAvailable();
+uint32_t wrenchInboxDrops();
+void wrenchInboxClear();
+
+void pwmManagerBegin();
+bool pwmAnalogWrite(int pin, int value);
+bool pwmAnalogSetResolution(int bits);
+bool pwmAnalogSetFrequency(int pin, int hz);
+bool pwmDetachPin(int pin);
+bool pwmServoAttach(int pin);
+bool pwmServoWrite(int pin, int angle);
+bool pwmServoWriteMicroseconds(int pin, int us);
+bool pwmServoDetach(int pin);
+bool pwmFanAttach(int pin);
+bool pwmFanWrite(int pin, int percent);
+bool pwmFanWriteRaw(int pin, int duty);
+bool pwmFanDetach(int pin);
+
+void uartManagerBegin();
+bool uartBegin(int uart, int rxPin, int txPin, int baud);
+bool uartEnd(int uart);
+int uartAvailable(int uart);
+int uartReadByte(int uart);
+String uartReadString(int uart, int maxLen);
+int uartWriteString(int uart, const String& value);
+int uartWriteByte(int uart, int value);
+String uartStatusJson();
+
+String httpFetchGet(const String& url, int maxBytes, int timeoutMs);
+String httpFetchPost(const String& url, const String& body, const String& contentType, int maxBytes, int timeoutMs);
+int httpFetchLastCode();
+bool httpFetchLastTruncated();
+String httpFetchLastError();
+String httpFetchStatusJson();
+
+void fastLedManagerBegin();
+bool fastLedBeginWs2812b(int pin, int count, int brightness);
+bool fastLedReady();
+int fastLedPin();
+int fastLedCount();
+bool fastLedSetPixel(int index, int r, int g, int b);
+bool fastLedFill(int r, int g, int b);
+bool fastLedClear(bool show);
+bool fastLedShow();
+bool fastLedSetBrightness(int brightness);
+String fastLedStatusJson();
+bool ledConfigureStrip(int strip, int pin, int count, int brightness);
+bool ledRebootRequiredFor(int strip, int pin, int count);
+bool ledReady(int strip);
+int ledStripCount();
+int ledPin(int strip);
+int ledCount(int strip);
+bool ledSetPixel(int strip, int index, int r, int g, int b);
+bool ledFill(int strip, int r, int g, int b);
+bool ledClear(int strip, bool show);
+bool ledSetBrightness(int strip, int brightness);
+String ledStatusJson();

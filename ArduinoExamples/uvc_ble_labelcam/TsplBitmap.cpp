@@ -82,4 +82,3 @@ bool makeTsplBitmapLabel(const GrayscaleFrame &frame, TsplBuffer &out) {
   free(lum);
   return true;
 }
-

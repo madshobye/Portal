@@ -1,0 +1,38 @@
+function paint(i, frame) {
+  var pos = (i * 9 + frame * 3) % 255;
+  if (pos < 85) {
+    ledSet(0, i, 255 - pos * 3, pos * 3, 0);
+  } else if (pos < 170) {
+    pos = pos - 85;
+    ledSet(0, i, 0, 255 - pos * 3, pos * 3);
+  } else {
+    pos = pos - 170;
+    ledSet(0, i, pos * 3, 0, 255 - pos * 3);
+  }
+}
+
+function setup() {
+  ledConfig(0, 4, 30, 72);
+  ledClear(0, 1);
+  println("sparkle celebration ready");
+}
+
+function loop() {
+  var frame = millis() / 45;
+  var i = 0;
+  while (i < 30) {
+    paint(i, frame);
+    i = i + 1;
+  }
+
+  ledSet(0, random(30), 255, 255, 255);
+  if ((frame % 5) == 0) {
+    ledSet(0, random(30), 255, 80, 190);
+  }
+  if ((frame % 7) == 0) {
+    ledSet(0, random(30), 80, 255, 220);
+  }
+
+  ledShow();
+  delay(45);
+}

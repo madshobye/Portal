@@ -1,0 +1,274 @@
+var LED_PIN = 4;
+var LED_COUNT = 30;
+var LED_BRIGHTNESS = 70;
+var USE_SAMPLE = 0;
+var WEATHER_URL = "https://api.openweathermap.org/data/2.5/weather?q=roskilde,dk&APPID=PUT_OPENWEATHER_KEY_HERE&units=metric";
+var SAMPLE_WEATHER = "{\"weather\":[{\"main\":\"Rain\",\"description\":\"light rain\"}],\"main\":{\"temp\":8.4,\"feels_like\":5.8,\"humidity\":84},\"wind\":{\"speed\":8.2},\"name\":\"Roskilde\"}";
+var REFRESH_MS = 600000;
+var ANIMATION_MS = 55;
+
+var mode = 0;
+var weatherMain = "unknown";
+var weatherDescription = "";
+var placeName = "";
+var wearAdvice = "";
+var tempC = 0;
+var feelsLikeC = 0;
+var humidityPct = 0;
+var windMs = 0;
+var windy = 0;
+var lastWeatherAt = -600000;
+var lastFrameAt = 0;
+var frame = 0;
+
+function clamp(v, lo, hi) {
+  if (v < lo) {
+    return lo;
+  }
+  if (v > hi) {
+    return hi;
+  }
+  return v;
+}
+
+function setLed(i, r, g, b) {
+  ledSet(0, i, clamp(r, 0, 255), clamp(g, 0, 255), clamp(b, 0, 255));
+}
+
+function fillAll(r, g, b) {
+  var i = 0;
+  while (i < LED_COUNT) {
+    setLed(i, r, g, b);
+    i = i + 1;
+  }
+}
+
+function sparkle(count, r, g, b) {
+  var i = 0;
+  while (i < count) {
+    setLed(random(LED_COUNT), r, g, b);
+    i = i + 1;
+  }
+}
+
+function colorWheel(pos, scale) {
+  pos = pos % 255;
+  if (pos < 85) {
+    return jsonBuild(jsonPairInt("r", (255 - pos * 3) * scale / 100), jsonPairInt("g", pos * 3 * scale / 100), jsonPairInt("b", 0));
+  }
+  if (pos < 170) {
+    pos = pos - 85;
+    return jsonBuild(jsonPairInt("r", 0), jsonPairInt("g", (255 - pos * 3) * scale / 100), jsonPairInt("b", pos * 3 * scale / 100));
+  }
+  pos = pos - 170;
+  return jsonBuild(jsonPairInt("r", pos * 3 * scale / 100), jsonPairInt("g", 0), jsonPairInt("b", (255 - pos * 3) * scale / 100));
+}
+
+function rainFrame() {
+  fillAll(0, 0, 18);
+  var i = 0;
+  while (i < LED_COUNT) {
+    var head = (frame + i * 5) % 12;
+    if (head == 0) {
+      setLed(i, 120, 190, 255);
+    } else if (head == 1) {
+      setLed(i, 30, 80, 180);
+    }
+    i = i + 1;
+  }
+  sparkle(2, 40, 120, 255);
+}
+
+function sunFrame() {
+  var i = 0;
+  while (i < LED_COUNT) {
+    var pulse = ((frame + i * 4) % 28);
+    var warm = 45 + pulse * 5;
+    setLed(i, 255, warm, 5);
+    i = i + 1;
+  }
+  sparkle(1, 255, 255, 180);
+}
+
+function cloudFrame() {
+  var i = 0;
+  while (i < LED_COUNT) {
+    var shade = 20 + ((frame + i * 3) % 35);
+    setLed(i, shade, shade + 6, shade + 14);
+    i = i + 1;
+  }
+}
+
+function snowFrame() {
+  fillAll(0, 8, 26);
+  sparkle(5, 190, 230, 255);
+  var drift = frame % LED_COUNT;
+  setLed(drift, 255, 255, 255);
+  setLed((drift + 11) % LED_COUNT, 120, 190, 255);
+}
+
+function hotFrame() {
+  var i = 0;
+  while (i < LED_COUNT) {
+    var heat = (frame * 4 + i * 9) % 120;
+    setLed(i, 180 + heat / 2, 20 + heat / 4, 0);
+    i = i + 1;
+  }
+}
+
+function coldFrame() {
+  var i = 0;
+  while (i < LED_COUNT) {
+    var ice = (frame + i * 7) % 70;
+    setLed(i, 0, 30 + ice, 110 + ice);
+    i = i + 1;
+  }
+  sparkle(2, 220, 250, 255);
+}
+
+function stormFrame() {
+  rainFrame();
+  if ((frame % 18) == 0) {
+    fillAll(180, 180, 255);
+  }
+}
+
+function windOverlay() {
+  if (windy == 0) {
+    return 0;
+  }
+  var pos = (frame * 2) % LED_COUNT;
+  setLed(pos, 230, 230, 255);
+  setLed((pos + 1) % LED_COUNT, 90, 120, 180);
+  setLed((pos + 2) % LED_COUNT, 30, 60, 120);
+  return 1;
+}
+
+function chooseMode() {
+  mode = 4;
+  if (weatherMain == "Thunderstorm") {
+    mode = 5;
+  } else if (weatherMain == "Rain") {
+    mode = 1;
+  } else if (weatherMain == "Drizzle") {
+    mode = 1;
+  } else if (weatherMain == "Snow") {
+    mode = 2;
+  } else if (weatherMain == "Clear") {
+    mode = 3;
+  } else if (weatherMain == "Clouds") {
+    mode = 4;
+  }
+
+  if (tempC <= 2) {
+    mode = 6;
+  }
+  if (tempC >= 24) {
+    mode = 7;
+  }
+
+  windy = 0;
+  if (windMs >= 8) {
+    windy = 1;
+  }
+}
+
+function chooseAdvice() {
+  wearAdvice = "normal jacket";
+  if (mode == 1) {
+    wearAdvice = "rain jacket";
+  } else if (mode == 2) {
+    wearAdvice = "warm coat and boots";
+  } else if (mode == 3) {
+    wearAdvice = "sunglasses";
+  } else if (mode == 5) {
+    wearAdvice = "waterproof layer";
+  } else if (mode == 6) {
+    wearAdvice = "warm coat";
+  } else if (mode == 7) {
+    wearAdvice = "light clothes";
+  }
+
+  if (windy == 1) {
+    wearAdvice = wearAdvice + ", wind layer";
+  }
+}
+
+function parseWeather(body) {
+  placeName = jsonGet(body, "name");
+  weatherMain = jsonGet(body, "weather.0.main");
+  weatherDescription = jsonGet(body, "weather.0.description");
+  tempC = jsonGetFloat(body, "main.temp");
+  feelsLikeC = jsonGetFloat(body, "main.feels_like");
+  humidityPct = jsonGetInt(body, "main.humidity");
+  windMs = jsonGetFloat(body, "wind.speed");
+  chooseMode();
+  chooseAdvice();
+  println("weather=" + placeName + " " + weatherMain + " wear " + wearAdvice);
+  emitJson("weather.wear", jsonPair("place", placeName), jsonPair("weather", weatherMain), jsonPair("description", weatherDescription), jsonPairFloat("tempC", tempC, 1), jsonPairFloat("feelsLikeC", feelsLikeC, 1), jsonPairInt("humidity", humidityPct), jsonPairFloat("windMs", windMs, 1), jsonPair("wear", wearAdvice), jsonPairInt("mode", mode));
+}
+
+function refreshWeather(force) {
+  if ((force == 0) && ((millis() - lastWeatherAt) < REFRESH_MS)) {
+    return 0;
+  }
+  lastWeatherAt = millis();
+
+  var body = SAMPLE_WEATHER;
+  if (USE_SAMPLE == 0) {
+    body = httpGet(WEATHER_URL, 4096, 6000);
+    if (httpCode() != 200) {
+      println("weather http error " + httpCode() + " " + httpError());
+      mode = 5;
+      wearAdvice = "check manually";
+      return 0;
+    }
+  }
+
+  if (jsonHas(body, "weather.0.main") == 0) {
+    println("weather parse error");
+    mode = 5;
+    wearAdvice = "check manually";
+    return 0;
+  }
+
+  parseWeather(body);
+  return 1;
+}
+
+function drawWeather() {
+  if (mode == 1) {
+    rainFrame();
+  } else if (mode == 2) {
+    snowFrame();
+  } else if (mode == 3) {
+    sunFrame();
+  } else if (mode == 5) {
+    stormFrame();
+  } else if (mode == 6) {
+    coldFrame();
+  } else if (mode == 7) {
+    hotFrame();
+  } else {
+    cloudFrame();
+  }
+  windOverlay();
+  ledShow();
+}
+
+function setup() {
+  ledConfig(0, LED_PIN, LED_COUNT, LED_BRIGHTNESS);
+  ledClear(0, 1);
+  println("weather wear ready");
+  refreshWeather(1);
+}
+
+function loop() {
+  refreshWeather(0);
+  if ((millis() - lastFrameAt) >= ANIMATION_MS) {
+    lastFrameAt = millis();
+    frame = frame + 1;
+    drawWeather();
+  }
+  delay(10);
+}

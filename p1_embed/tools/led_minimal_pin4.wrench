@@ -1,0 +1,11 @@
+function setup() {
+  println("minimal before");
+  ledConfig(0, 4, 1, 32);
+  ledSet(0, 0, 30, 0, 30);
+  ledShow();
+  println("minimal after");
+}
+
+function loop() {
+  delay(100);
+}

@@ -1,0 +1,125 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>p1_embed</title>
+    <link rel="stylesheet" href="style.css">
+  </head>
+  <body>
+    <main id="app">
+      <aside class="sidebar" aria-label="Device controls">
+        <div class="brand">
+          <strong>p1_embed</strong>
+          <span id="firmware-version">offline</span>
+        </div>
+
+        <div class="side-group">
+          <label for="transport-mode">Transport</label>
+          <select id="transport-mode">
+            <option value="websocket" selected>WebSocket</option>
+            <option value="serial">Serial</option>
+          </select>
+        </div>
+
+        <label class="ws-url-field">
+          <span>WebSocket URL</span>
+          <input id="websocket-url" type="text" autocomplete="off" spellcheck="false" value="ws://p1-embed-f7a608.local:81/">
+        </label>
+
+        <button id="connect-button" class="button primary" type="button">Connect</button>
+        <button id="disconnect-button" class="button" type="button" disabled>Disconnect</button>
+
+        <div class="side-group">
+          <label for="debug-level">Log level</label>
+          <select id="debug-level">
+            <option value="error">error</option>
+            <option value="warn">warn</option>
+            <option value="info" selected>info</option>
+            <option value="debug">debug</option>
+            <option value="trace">trace</option>
+          </select>
+        </div>
+
+        <div class="side-group">
+          <button id="info-button" class="button" type="button">Info</button>
+          <button id="status-button" class="button" type="button">Status</button>
+          <button id="get-script-button" class="button" type="button">Read Script</button>
+          <button id="reboot-button" class="button danger" type="button">Reboot</button>
+        </div>
+
+        <div class="status-stack" aria-live="polite">
+          <span id="connection-state">idle</span>
+          <span id="device-name">no device</span>
+          <span id="wifi-state">wifi unknown</span>
+        </div>
+      </aside>
+
+      <section class="workspace">
+        <section class="editor-column">
+          <header class="toolbar">
+            <div>
+              <h1>Wrench</h1>
+              <span id="script-state">not loaded</span>
+            </div>
+            <div class="toolbar-actions">
+              <button id="run-button" class="button primary" type="button">Run</button>
+              <button id="save-button" class="button" type="button">Save</button>
+              <button id="save-run-button" class="button" type="button">Save Run</button>
+              <button id="stop-button" class="button" type="button">Stop</button>
+              <button id="restart-button" class="button" type="button">Restart</button>
+            </div>
+          </header>
+
+          <textarea id="code-editor" spellcheck="false" autocomplete="off" autocapitalize="off"></textarea>
+        </section>
+
+        <section class="panel-column">
+          <section class="panel">
+            <header class="panel-header">
+              <h2>Console</h2>
+              <button id="clear-console-button" class="icon-button" type="button" title="Clear console">Clear</button>
+            </header>
+            <pre id="console-output" class="console-output"></pre>
+          </section>
+
+          <section class="panel">
+            <header class="panel-header">
+              <h2>Device</h2>
+            </header>
+            <dl id="device-fields" class="fields"></dl>
+          </section>
+
+          <section class="panel">
+            <header class="panel-header">
+              <h2>WiFi</h2>
+              <button id="wifi-status-button" class="icon-button" type="button">Refresh</button>
+            </header>
+            <div class="form-grid">
+              <label>
+                <span>SSID</span>
+                <input id="wifi-ssid" type="text" autocomplete="off">
+              </label>
+              <label>
+                <span>Password</span>
+                <input id="wifi-password" type="password" autocomplete="new-password">
+              </label>
+              <button id="wifi-save-button" class="button primary" type="button">Save WiFi</button>
+            </div>
+          </section>
+
+          <section class="panel raw-panel">
+            <header class="panel-header">
+              <h2>Raw JSON</h2>
+              <button id="raw-send-button" class="icon-button" type="button">Send</button>
+            </header>
+            <textarea id="raw-input" spellcheck="false">{"type":"cmd","name":"status.get"}</textarea>
+          </section>
+        </section>
+      </section>
+    </main>
+
+    <script src="../../P1/portal/usbSerial.js"></script>
+    <script type="module" src="app.js"></script>
+  </body>
+</html>
