@@ -2,13 +2,51 @@
 #include <ESP.h>
 #include "p1_embed_firmware.h"
 
-static uint32_t fnv1a(const String& s) {
+uint32_t protocolFnv1a(const String& s) {
   uint32_t h = 2166136261u;
   for (size_t i = 0; i < s.length(); i++) {
     h ^= (uint8_t)s[i];
     h *= 16777619u;
   }
   return h;
+}
+
+static bool protocolParseHexU32(const String& text, uint32_t& out) {
+  if (text.length() == 0 || text.length() > 8) return false;
+  uint32_t value = 0;
+  for (size_t i = 0; i < text.length(); i++) {
+    char c = text[i];
+    uint8_t nibble;
+    if (c >= '0' && c <= '9') nibble = c - '0';
+    else if (c >= 'a' && c <= 'f') nibble = c - 'a' + 10;
+    else if (c >= 'A' && c <= 'F') nibble = c - 'A' + 10;
+    else return false;
+    value = (value << 4) | nibble;
+  }
+  out = value;
+  return true;
+}
+
+bool protocolValidateScriptIntegrity(const String& id, const String& code, int expectedBytes, const String& expectedHashHex) {
+  if (expectedBytes >= 0 && (int)code.length() != expectedBytes) {
+    protocolSendResponseError(id, "script_integrity_error", "script.set payload length mismatch");
+    return false;
+  }
+
+  if (expectedHashHex.length()) {
+    uint32_t expectedHash;
+    if (!protocolParseHexU32(expectedHashHex, expectedHash)) {
+      protocolSendResponseError(id, "script_integrity_error", "script.set payload hash is invalid");
+      return false;
+    }
+    uint32_t actualHash = protocolFnv1a(code);
+    if (actualHash != expectedHash) {
+      protocolSendResponseError(id, "script_integrity_error", "script.set payload hash mismatch");
+      return false;
+    }
+  }
+
+  return true;
 }
 
 class WrenchTransitionGuard {
@@ -146,7 +184,7 @@ static String protocolScriptMetaJson(const String& code, const String& state) {
   String out = "{";
   out += "\"state\":" + jsonString(state);
   out += ",\"scriptBytes\":" + String(code.length());
-  out += ",\"scriptHash\":" + String(fnv1a(code));
+  out += ",\"scriptHash\":" + String(protocolFnv1a(code));
   out += ",\"stored\":" + String(scriptStoreHasSaved() ? "true" : "false");
   out += ",\"runState\":" + jsonString(scriptStoreRunStateName(scriptStoreLoadRunState()));
   out += ",\"runPending\":" + String(wrenchRunIsPending() ? "true" : "false");
@@ -201,6 +239,11 @@ static void protocolHandleScriptSet(const String& id, const char* line, bool run
     protocolSendResponseError(id, "missing_code", "script.set requires data.code");
     return;
   }
+  int expectedBytes = -1;
+  String expectedHashHex;
+  jsonGetInt(line, "codeBytes", expectedBytes);
+  jsonGetString(line, "codeHash", expectedHashHex);
+  if (!protocolValidateScriptIntegrity(id, code, expectedBytes, expectedHashHex)) return;
   protocolHandleScriptSetCode(id, code, runAfterSet, saveAfterSet);
 }
 
@@ -355,7 +398,7 @@ void protocolHandleLine(const char* line) {
       }
     }
     wrenchRequestRun();
-    protocolSendResponseOk(id, "{\"state\":\"run_pending\",\"scriptBytes\":" + String(code.length()) + ",\"scriptHash\":" + String(fnv1a(code)) + "}");
+    protocolSendResponseOk(id, "{\"state\":\"run_pending\",\"scriptBytes\":" + String(code.length()) + ",\"scriptHash\":" + String(protocolFnv1a(code)) + "}");
   } else if (name == "script.stop") {
     wrenchStop();
     protocolSendResponseOk(id, "{\"state\":\"stopped\"}");

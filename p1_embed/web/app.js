@@ -180,10 +180,6 @@ function boot() {
   autoConnectFromUrlParams().then((handled) => {
     if (!handled) autoReconnectLastConnection();
   });
-
-  if (!("serial" in navigator)) {
-    logLine("warn", "Web Serial is not available in this browser");
-  }
 }
 
 function bindLifecycle() {
@@ -484,6 +480,7 @@ async function runUiAction(action, label = "busy") {
 
 async function connectWebSocket(value) {
   const url = normalizeWebSocketUrl(value);
+  warnIfPlainWebSocketFromSecurePage(url);
   await connectTransport(new WebSocketTransport(), { url }, "websocket", wsDisplayName(url));
   els.websocketUrl.value = url;
   renderConnectionHistory();
@@ -516,6 +513,7 @@ async function autoConnectFromUrlParams() {
     try {
       const url = normalizeWebSocketUrl(value);
       els.websocketUrl.value = url;
+      warnIfPlainWebSocketFromSecurePage(url);
       await connectTransport(new WebSocketTransport(), { url }, "websocket", wsDisplayName(url), { lightStartup: true, includeScript: true });
     } catch (error) {
       logLine("error", error.message);
@@ -853,6 +851,22 @@ function wsDisplayName(url) {
   }
 }
 
+function warnIfPlainWebSocketFromSecurePage(url) {
+  if (window.location.protocol !== "https:") return;
+  try {
+    const parsed = new URL(normalizeWebSocketUrl(url));
+    if (parsed.protocol !== "ws:") return;
+    if (isLoopbackHost(parsed.hostname)) return;
+    logLine("warn", "HTTPS pages can be blocked from opening local ws:// device links on iOS/WebKit. Open this UI from an http:// page on the same network, or use WSS when the firmware supports it.");
+  } catch {
+  }
+}
+
+function isLoopbackHost(hostname) {
+  const host = String(hostname || "").toLowerCase().replace(/^\[|\]$/g, "");
+  return host === "localhost" || host === "::1" || host.startsWith("127.");
+}
+
 function sharePageUrl(kind, wsUrl = "", usbHint = null) {
   const url = new URL(window.location.href);
   url.searchParams.delete("connect");
@@ -924,6 +938,7 @@ function bindClient(nextClient) {
     if (event.detail.state === "connected") closeConnectDialog();
     if (event.detail.state === "disconnected" && !isUnloading) {
       localStorage.setItem(storage.reconnectOnLoad, "0");
+      handleTransportDropped(nextClient);
     }
   });
 
@@ -955,6 +970,18 @@ function bindClient(nextClient) {
     if (suppressConnectionLogs) return;
     logLine("error", event.detail.error?.message || "transport error");
   });
+}
+
+function handleTransportDropped(droppedClient) {
+  if (droppedClient !== client) return;
+  stopStatusPolling();
+  client = null;
+  transport = null;
+  isBusy = false;
+  busyLabel = "";
+  suppressConnectionLogs = false;
+  setConnected(false);
+  updateEnabledState();
 }
 
 async function startupRefresh({ quiet = false, includeScript = true, timeoutMs = 15000, expectedGeneration = null } = {}) {
@@ -1038,6 +1065,8 @@ async function uploadScriptCode(code, { run, save, name = "" }) {
     clearEditorError();
     data = await sendCommand("script.set", {
       code,
+      codeBytes: new TextEncoder().encode(code).length,
+      codeHash: fnv1aHex(code),
       run,
       save,
     }, { timeoutMs: 30000 });
@@ -1049,6 +1078,16 @@ async function uploadScriptCode(code, { run, save, name = "" }) {
   await rememberUploadedSketch(code, name);
   updateScriptState(data);
   await refreshStatus({ timeoutMs: 20000 });
+}
+
+function fnv1aHex(text) {
+  const bytes = new TextEncoder().encode(String(text ?? ""));
+  let hash = 0x811c9dc5;
+  for (const byte of bytes) {
+    hash ^= byte;
+    hash = Math.imul(hash, 0x01000193) >>> 0;
+  }
+  return hash.toString(16).padStart(8, "0");
 }
 
 function downloadCode() {

@@ -453,11 +453,26 @@ void wrenchEndTransition() {
 
 static String wrenchPrelude() {
   String pre;
-  pre += "var INPUT = 0;\n";
-  pre += "var OUTPUT = 1;\n";
-  pre += "var INPUT_PULLUP = 2;\n";
-  pre += "var LOW = 0;\n";
-  pre += "var HIGH = 1;\n";
+  pre += "var INPUT = ";
+  pre += String((int)INPUT);
+  pre += ";\n";
+  pre += "var OUTPUT = ";
+  pre += String((int)OUTPUT);
+  pre += ";\n";
+  pre += "var INPUT_PULLUP = ";
+  pre += String((int)INPUT_PULLUP);
+  pre += ";\n";
+#ifdef INPUT_PULLDOWN
+  pre += "var INPUT_PULLDOWN = ";
+  pre += String((int)INPUT_PULLDOWN);
+  pre += ";\n";
+#endif
+  pre += "var LOW = ";
+  pre += String((int)LOW);
+  pre += ";\n";
+  pre += "var HIGH = ";
+  pre += String((int)HIGH);
+  pre += ";\n";
   pre += "var LED_BUILTIN = ";
   pre += String(P1_EMBED_DEFAULT_LED_PIN);
   pre += ";\n";

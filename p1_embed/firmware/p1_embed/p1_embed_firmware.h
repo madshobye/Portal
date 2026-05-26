@@ -27,6 +27,8 @@ void protocolEmitLog(const String& level, const String& message);
 void protocolEmitPrint(const String& message, bool newline);
 void protocolEmitBoot();
 void protocolEmitStatusEvent();
+uint32_t protocolFnv1a(const String& s);
+bool protocolValidateScriptIntegrity(const String& id, const String& code, int expectedBytes, const String& expectedHashHex);
 
 void scriptErrorClear();
 void scriptErrorSet(const String& phase, const String& code, const String& message, const String& detailFieldsJson = "");

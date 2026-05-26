@@ -80,6 +80,34 @@ static bool wsJsonGetBool(const uint8_t* payload, size_t length, const char* key
   return false;
 }
 
+static bool wsJsonGetInt(const uint8_t* payload, size_t length, const char* key, int& out) {
+  String needle = String("\"") + key + "\"";
+  size_t keyLen = needle.length();
+  for (size_t i = 0; i + keyLen < length; i++) {
+    if (memcmp(payload + i, needle.c_str(), keyLen) != 0) continue;
+    size_t p = i + keyLen;
+    while (p < length && isspace((char)payload[p])) p++;
+    if (p >= length || payload[p] != ':') continue;
+    p++;
+    while (p < length && isspace((char)payload[p])) p++;
+    bool negative = false;
+    if (p < length && payload[p] == '-') {
+      negative = true;
+      p++;
+    }
+    if (p >= length || !isdigit((char)payload[p])) return false;
+    long value = 0;
+    while (p < length && isdigit((char)payload[p])) {
+      value = (value * 10) + (payload[p] - '0');
+      if (value > 2147483647L) return false;
+      p++;
+    }
+    out = negative ? -(int)value : (int)value;
+    return true;
+  }
+  return false;
+}
+
 static String webTransportHostName() {
   String name = configDeviceName();
   name.toLowerCase();
@@ -162,12 +190,19 @@ static void webTransportEvent(uint8_t num, int type, uint8_t* payload, size_t le
       return;
     }
     String code;
+    String expectedHashHex;
+    int expectedBytes = -1;
     bool runAfterSet = false;
     bool saveAfterSet = false;
     wsJsonGetBool(payload, length, "run", runAfterSet);
     wsJsonGetBool(payload, length, "save", saveAfterSet);
+    wsJsonGetString(payload, length, "codeHash", expectedHashHex);
+    wsJsonGetInt(payload, length, "codeBytes", expectedBytes);
     if (!wsJsonGetString(payload, length, "code", code)) {
       protocolSendResponseError(id.length() ? id : "0", "missing_code", "script.set requires data.code");
+      return;
+    }
+    if (!protocolValidateScriptIntegrity(id.length() ? id : "0", code, expectedBytes, expectedHashHex)) {
       return;
     }
     if (!scriptStoreSaveIncoming(code)) {

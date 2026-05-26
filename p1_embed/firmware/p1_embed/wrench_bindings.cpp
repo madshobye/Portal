@@ -954,6 +954,9 @@ void wrenchRegisterBindings(WRState* wr) {
   wr_registerLibraryConstant(wr, "INPUT", (int32_t)INPUT);
   wr_registerLibraryConstant(wr, "OUTPUT", (int32_t)OUTPUT);
   wr_registerLibraryConstant(wr, "INPUT_PULLUP", (int32_t)INPUT_PULLUP);
+#ifdef INPUT_PULLDOWN
+  wr_registerLibraryConstant(wr, "INPUT_PULLDOWN", (int32_t)INPUT_PULLDOWN);
+#endif
   wr_registerLibraryConstant(wr, "HIGH", (int32_t)HIGH);
   wr_registerLibraryConstant(wr, "LOW", (int32_t)LOW);
   wr_registerLibraryConstant(wr, "LED_BUILTIN", (int32_t)P1_EMBED_DEFAULT_LED_PIN);
