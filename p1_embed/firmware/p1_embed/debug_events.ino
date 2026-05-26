@@ -104,8 +104,10 @@ void debugEventFlush() {
   if (!g_debugQueue) return;
 
   DebugQueuedEvent event;
-  while (xQueueReceive(g_debugQueue, &event, 0) == pdTRUE) {
+  uint8_t sent = 0;
+  while (sent < P1_EMBED_DEBUG_FLUSH_BUDGET && xQueueReceive(g_debugQueue, &event, 0) == pdTRUE) {
     transportSendLine(String(event.line));
+    sent++;
   }
 }
 

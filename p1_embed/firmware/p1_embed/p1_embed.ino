@@ -96,11 +96,11 @@ void setup() {
 }
 
 void loop() {
-  debugEventFlush();
   transportSerialPoll();
   wifiLoop();
   webTransportLoop();
   webrtcTransportLoop();
+  debugEventFlush();
   bootPollDelayedAutorun();
   wrenchRuntimePoll();
   wrenchWatchdogPoll();

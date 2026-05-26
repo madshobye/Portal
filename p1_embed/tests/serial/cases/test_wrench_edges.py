@@ -265,6 +265,31 @@ function loop() {
     assert_true(dev.command("ping", timeout=3.0).get("pong"), "device should respond while LED script runs")
 
 
+def test_print_flood_does_not_starve_protocol(dev):
+    code = """
+function setup() {
+  println("print flood ready");
+}
+
+function loop() {
+  var i = 0;
+  while (i < 20) {
+    print("1");
+    i = i + 1;
+  }
+  delay(1);
+}
+""".strip()
+    result = dev.command("script.set", {"code": code, "run": True, "save": False}, timeout=8.0)
+    assert_equal(result.get("state"), "running", "print flood script should start")
+    dev.wait_event("script.print", timeout=4.0)
+    for _ in range(5):
+        ping = dev.command("ping", timeout=2.0)
+        assert_equal(ping.get("pong"), True, "ping should respond under print flood")
+        status = dev.command("status.get", timeout=2.0)
+        assert_true("freeHeap" in status, "status should respond under print flood")
+
+
 def test_sparkle_animation_example_uploads_and_runs(dev):
     reboot_and_wait(dev)
     path = Path(__file__).resolve().parents[3] / "tools" / "sparkle_30_pin4.wrench"
