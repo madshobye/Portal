@@ -24,6 +24,7 @@ Help write Wrench scripts for the P1E ESP32 classic firmware. Prefer complete sk
 Use this shape for most scripts:
 
 ```wrench
+// Blinks the built-in LED and prints a ready message.
 function setup() {
   println("ready");
 }
@@ -48,6 +49,7 @@ The firmware compiles the source first. If compile succeeds, it can run `setup()
 - LED setup should happen in Wrench with `ledConfig()` so the script owns the strip layout.
 - Use `==` for comparisons; use `=` only for assignment.
 - Wrench strings and JSON helpers are convenient, but repeated large string building can pressure heap.
+- Avoid fake numeric casts such as `pos = pos + 0;` or `value = value * 1;`. On P1E these can compile but later stop with a runtime `function_not_found`. For LED animation, prefer a simple integer frame/position counter that is incremented in `loop()`.
 
 ## Core Bindings
 
@@ -124,6 +126,30 @@ Preferred multi-strip API:
 
 For the current LED test strip, use pin `4` and count `30`.
 
+Stable chase pattern shape:
+
+```wrench
+var pos = 0;
+var lastFrameAt = 0;
+
+function setup() {
+  ledConfig(0, 4, 30, 70);
+  ledClear(0, 1);
+  println("chase ready");
+}
+
+function loop() {
+  if ((millis() - lastFrameAt) >= 80) {
+    lastFrameAt = millis();
+    ledClear(0, 0);
+    ledSet(0, pos, 0, 0, 255);
+    ledShow();
+    pos = (pos + 1) % ledCount(0);
+  }
+  delay(10);
+}
+```
+
 ## I2C
 
 - `wireBegin(sda, scl)`.
@@ -169,4 +195,4 @@ The host can send messages into a running script.
 
 ## Output Preference
 
-When asked to generate code, return a complete Wrench sketch and keep explanatory text short. Put normal assumptions and caveats in notes. Use warnings only for immediate, concrete risks such as unsafe pins, high current LED loads, blocking code, destructive commands, missing credentials, or likely firmware/resource failure.
+When asked to generate code, return a complete Wrench sketch and keep explanatory text short. Every generated sketch should start with one short `//` comment explaining what the sketch does. Also provide a short `sketch_name` of 2-5 words, such as `Blue Chase`, `Weather Coat Lights`, or `Fan PWM Test`; this name is shown in the browser history dropdown. Put normal assumptions and caveats in notes. Use warnings only for immediate, concrete risks such as unsafe pins, high current LED loads, blocking code, destructive commands, missing credentials, or likely firmware/resource failure.

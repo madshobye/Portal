@@ -36,6 +36,10 @@ static SemaphoreHandle_t g_scriptSourceMutex = nullptr;
 static volatile bool g_wrenchTaskRunning = false;
 static volatile uint32_t g_wrenchLoopCount = 0;
 static volatile uint32_t g_wrenchLastLoopMs = 0;
+static volatile uint32_t g_wrenchLastLoopDurationMs = 0;
+static volatile uint32_t g_wrenchFpsWindowStartedAt = 0;
+static volatile uint32_t g_wrenchFpsWindowLoopCount = 0;
+static volatile float g_wrenchLoopFps = 0.0f;
 static volatile uint32_t g_wrenchCurrentLoopStartedAt = 0;
 static volatile uint32_t g_wrenchSlowLoopCount = 0;
 static volatile uint32_t g_wrenchHungLoopCount = 0;
@@ -84,6 +88,21 @@ static void wrenchEmitRuntimeError(const char* phase, WRError error) {
   String message = String(phase) + " runtime error: " + scriptErrorWrenchName((int)error);
   String details = "\"wrenchError\":" + String((int)error);
   details += ",\"wrenchErrorName\":" + jsonString(scriptErrorWrenchName((int)error));
+  details += ",\"loopCount\":" + String(g_wrenchLoopCount);
+  details += ",\"scriptBytes\":" + String(g_currentScriptBytes);
+  details += ",\"scriptHash\":" + String(g_currentScriptHash);
+  details += ",\"freeHeap\":" + String(ESP.getFreeHeap());
+  details += ",\"maxAllocHeap\":" + String(ESP.getMaxAllocHeap());
+  if (g_wr && error == WR_ERR_function_not_found) {
+    uint32_t hash = wr_getLastMissingFunctionHash(g_wr);
+    uint8_t op = wr_getLastMissingFunctionOp(g_wr);
+    const char* bindingName = wrenchBindingNameForHash(hash);
+    details += ",\"missingFunctionHash\":" + String(hash);
+    details += ",\"missingFunctionOp\":" + String(op);
+    details += ",\"missingFunctionOpName\":";
+    details += jsonString(op == 1 ? "call_by_hash" : (op == 2 ? "call_by_hash_and_pop" : "unknown"));
+    if (bindingName && bindingName[0]) details += ",\"missingBinding\":" + jsonString(bindingName);
+  }
   scriptErrorSet(phase, "runtime_error", message, details);
 }
 
@@ -177,7 +196,20 @@ static void wrenchLoopLocked() {
   g_wrenchLoopInProgress = false;
   g_wrenchHungCounted = false;
   g_wrenchLoopCount++;
-  g_wrenchLastLoopMs = millis();
+  g_wrenchLastLoopDurationMs = elapsed;
+  uint32_t now = millis();
+  g_wrenchLastLoopMs = now;
+  if (g_wrenchFpsWindowStartedAt == 0) {
+    g_wrenchFpsWindowStartedAt = now;
+    g_wrenchFpsWindowLoopCount = 0;
+  }
+  g_wrenchFpsWindowLoopCount++;
+  uint32_t windowMs = now - g_wrenchFpsWindowStartedAt;
+  if (windowMs >= 1000) {
+    g_wrenchLoopFps = (float)g_wrenchFpsWindowLoopCount * 1000.0f / (float)windowMs;
+    g_wrenchFpsWindowStartedAt = now;
+    g_wrenchFpsWindowLoopCount = 0;
+  }
   if (elapsed >= P1_EMBED_WRENCH_LOOP_WARN_MS) {
     g_wrenchSlowLoopCount++;
     debugEventEmit("script.watchdog", "warn", "script", "", "\"state\":\"slow_loop\",\"elapsedMs\":" + String(elapsed));
@@ -296,6 +328,14 @@ uint32_t wrenchLoopCount() {
 
 uint32_t wrenchLastLoopMs() {
   return g_wrenchLastLoopMs;
+}
+
+uint32_t wrenchLastLoopDurationMs() {
+  return g_wrenchLastLoopDurationMs;
+}
+
+float wrenchLoopFps() {
+  return g_wrenchLoopFps;
 }
 
 uint32_t wrenchCurrentLoopStartedAt() {

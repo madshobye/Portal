@@ -73,7 +73,13 @@
               </form>
             </section>
             <section id="info-panel" class="lower-panel">
-              <dl id="device-fields" class="fields"></dl>
+              <div class="info-layout">
+                <dl id="device-fields" class="fields"></dl>
+                <aside id="info-share" class="info-share is-hidden" aria-label="Share WebSocket link">
+                  <div id="info-qr" class="info-qr" aria-hidden="true"></div>
+                  <button id="info-share-copy-button" class="button compact icon-buttonish" type="button" title="Copy WebSocket share link" aria-label="Copy WebSocket share link"><span class="material-symbols-rounded">content_copy</span></button>
+                </aside>
+              </div>
             </section>
           </section>
         </section>
@@ -107,9 +113,8 @@
           <strong>Connect</strong>
           <button class="icon-button" value="cancel" type="submit" aria-label="Close" title="Close"><span class="material-symbols-rounded">close</span></button>
         </header>
+        <div id="connection-history" class="connection-history is-hidden"></div>
         <div class="dialog-actions connect-options">
-          <button id="recent-ws-button" class="button suggestion-button" type="button" title="Recent WebSocket" aria-label="Recent WebSocket"><span class="material-symbols-rounded">history</span><span id="recent-ws-label">WebSocket</span></button>
-          <button id="recent-usb-button" class="button suggestion-button" type="button" title="Recent USB" aria-label="Recent USB"><span class="material-symbols-rounded">settings_input_component</span><span id="recent-usb-label">USB</span></button>
           <button id="usb-connect-button" class="button icon-buttonish" type="button" title="New USB" aria-label="New USB"><span class="material-symbols-rounded">usb</span></button>
           <button id="new-ws-toggle-button" class="button icon-buttonish" type="button" title="New WebSocket" aria-label="New WebSocket"><span class="material-symbols-rounded">add_link</span></button>
         </div>
@@ -177,6 +182,7 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/ace/1.43.3/mode-javascript.min.js" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/ace/1.43.3/theme-chaos.min.js" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
     <script src="../../P1/portal/usbSerial.js"></script>
-    <script type="module" src="app.js?v=0.1.39-ui41"></script>
+    <script src="../../P1/portal/qrCodeGen.js"></script>
+    <script type="module" src="app.js?v=0.1.39-ui48"></script>
   </body>
 </html>

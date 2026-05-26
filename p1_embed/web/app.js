@@ -18,7 +18,9 @@ const storage = {
   code: "p1_embed.editor.code",
   wsUrl: "p1_embed.websocket.url",
   wsName: "p1_embed.websocket.name",
+  wsHistory: "p1_embed.websocket.history",
   usbHint: "p1_embed.serial.hint",
+  usbHistory: "p1_embed.serial.history",
   lastConnection: "p1_embed.connection.last",
   reconnectOnLoad: "p1_embed.connection.reconnectOnLoad",
   activeTab: "p1_embed.workspace.activeTab",
@@ -46,6 +48,7 @@ const chatModelOptions = [
 const defaultChatModel = "gpt-5.4-mini";
 const chatHistoryLimit = 15;
 const sketchHistoryLimit = 50;
+const connectionHistoryLimit = 12;
 const sketchDbName = "p1_embed";
 const sketchDbVersion = 1;
 const sketchStoreName = "sketch_history";
@@ -65,10 +68,7 @@ const els = {
   connect: document.querySelector("#connect-button"),
   chatConnect: document.querySelector("#chat-connect-button"),
   connectDialog: document.querySelector("#connect-dialog"),
-  recentWs: document.querySelector("#recent-ws-button"),
-  recentWsLabel: document.querySelector("#recent-ws-label"),
-  recentUsb: document.querySelector("#recent-usb-button"),
-  recentUsbLabel: document.querySelector("#recent-usb-label"),
+  connectionHistory: document.querySelector("#connection-history"),
   usbConnect: document.querySelector("#usb-connect-button"),
   newWsToggle: document.querySelector("#new-ws-toggle-button"),
   newWsConnect: document.querySelector("#new-ws-connect-button"),
@@ -101,6 +101,9 @@ const els = {
   connection: document.querySelector("#connection-state"),
   scriptState: document.querySelector("#script-state"),
   fields: document.querySelector("#device-fields"),
+  infoShare: document.querySelector("#info-share"),
+  infoQr: document.querySelector("#info-qr"),
+  infoShareCopy: document.querySelector("#info-share-copy-button"),
   wifiSsid: document.querySelector("#wifi-ssid"),
   wifiPassword: document.querySelector("#wifi-password"),
   chatApiKey: document.querySelector("#chat-api-key-button"),
@@ -135,6 +138,7 @@ let recentPressHandled = false;
 let chatMessages = [];
 let chatBusy = false;
 let wrenchChatContext = "";
+let lastLoggedScriptErrorCount = 0;
 
 boot();
 
@@ -146,14 +150,16 @@ function boot() {
   bindControls();
   bindLifecycle();
   initChat();
-  renderRecentWebSocket();
-  renderRecentUsb();
+  migrateConnectionHistory();
+  renderConnectionHistory();
   renderSketchHistory();
   refreshKnownUsbPorts();
   setConnected(false);
   renderFields();
   restoreActiveTab();
-  autoReconnectLastConnection();
+  autoConnectFromUrlParams().then((handled) => {
+    if (!handled) autoReconnectLastConnection();
+  });
 
   if (!("serial" in navigator)) {
     logLine("warn", "Web Serial is not available in this browser");
@@ -224,20 +230,10 @@ function bindControls() {
   els.lowerTabs.forEach((tab) => tab.addEventListener("click", () => switchLowerPanel(tab.dataset.panel)));
   els.connect.addEventListener("click", toggleConnection);
   els.chatConnect.addEventListener("click", toggleConnection);
-  bindLongPressDelete(els.recentWs, forgetRecentWebSocket);
-  bindLongPressDelete(els.recentUsb, forgetRecentUsb);
-  els.recentWs.addEventListener("click", () => {
-    if (consumeRecentLongPress()) return;
-    connectWebSocket(localStorage.getItem(storage.wsUrl) || "");
-  });
-  els.recentUsb.addEventListener("click", () => {
-    if (consumeRecentLongPress()) return;
-    connectRecentUsb();
-  });
   els.usbConnect.addEventListener("click", connectUsb);
   els.newWsToggle.addEventListener("click", showNewWsField);
   els.newWsConnect.addEventListener("click", () => connectWebSocket(els.websocketUrl.value));
-  els.websocketUrl.addEventListener("input", () => renderRecentWebSocket());
+  els.websocketUrl.addEventListener("input", () => renderConnectionHistory());
   els.getScript.addEventListener("click", () => runUiAction(getScript, "reading"));
   els.reboot.addEventListener("click", () => runUiAction(() => sendCommand("device.reboot"), "rebooting"));
   els.run.addEventListener("click", () => runUiAction(() => setScript({ run: true, save: true }), "uploading"));
@@ -250,6 +246,7 @@ function bindControls() {
   els.wifi.addEventListener("click", openWifiDialog);
   els.wifiSave.addEventListener("click", () => runUiAction(saveWifi, "wifi"));
   els.copyConsole.addEventListener("click", copyConsole);
+  els.infoShareCopy.addEventListener("click", copyInfoShareLink);
   els.clearConsole.addEventListener("click", clearConsole);
   els.rawForm.addEventListener("submit", (event) => {
     event.preventDefault();
@@ -299,7 +296,7 @@ function switchLowerPanel(name) {
 }
 
 function openConnectDialog() {
-  renderRecentWebSocket();
+  renderConnectionHistory();
   refreshKnownUsbPorts();
   els.newWsField.classList.add("is-hidden");
   els.newWsConnect.classList.add("is-hidden");
@@ -325,22 +322,37 @@ function showNewWsField() {
   els.websocketUrl.select();
 }
 
-function renderRecentWebSocket() {
-  const saved = localStorage.getItem(storage.wsUrl) || "";
-  const label = localStorage.getItem(storage.wsName) || wsDisplayName(saved);
-  els.recentWsLabel.textContent = label || "WebSocket";
-  els.recentWs.title = saved ? `Recent WebSocket: ${label}` : "Recent WebSocket";
-  els.recentWs.setAttribute("aria-label", els.recentWs.title);
-  els.recentWs.disabled = !saved || Boolean(client) || isBusy;
-}
+function renderConnectionHistory() {
+  const items = [...readWebSocketHistory(), ...readUsbHistory()].sort((a, b) => (b.at || 0) - (a.at || 0));
+  els.connectionHistory.replaceChildren();
+  els.connectionHistory.classList.toggle("is-hidden", items.length === 0);
 
-function renderRecentUsb() {
-  const hint = readUsbHint();
-  const label = knownUsbLabel || (hint ? usbHintLabel(hint) : "");
-  els.recentUsbLabel.textContent = label ? `USB ${label}` : "USB";
-  els.recentUsb.title = label ? `Recent USB: ${label}` : "Recent USB";
-  els.recentUsb.setAttribute("aria-label", els.recentUsb.title);
-  els.recentUsb.disabled = (!label && knownUsbPortCount <= 0) || Boolean(client) || isBusy || !("serial" in navigator);
+  items.forEach((item) => {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "button suggestion-button";
+    button.title = `${item.kind === "usb" ? "USB" : "WebSocket"}: ${item.label}`;
+    button.setAttribute("aria-label", button.title);
+    button.disabled = Boolean(client) || isBusy || (item.kind === "usb" && !("serial" in navigator));
+
+    const icon = document.createElement("span");
+    icon.className = "material-symbols-rounded";
+    icon.textContent = item.kind === "usb" ? "settings_input_component" : "lan";
+    const label = document.createElement("span");
+    label.textContent = item.kind === "usb" ? `USB ${item.label}` : item.label;
+    button.append(icon, label);
+
+    bindLongPressDelete(button, () => forgetConnectionHistoryItem(item));
+    button.addEventListener("click", () => {
+      if (consumeRecentLongPress()) return;
+      if (item.kind === "usb") {
+        connectRecentUsb(item.hint);
+      } else {
+        connectWebSocket(item.url);
+      }
+    });
+    els.connectionHistory.append(button);
+  });
 }
 
 function bindLongPressDelete(button, onDelete) {
@@ -373,34 +385,43 @@ function consumeRecentLongPress() {
   return true;
 }
 
-function forgetRecentWebSocket() {
-  localStorage.removeItem(storage.wsUrl);
-  localStorage.removeItem(storage.wsName);
-  if (localStorage.getItem(storage.lastConnection) === "websocket") {
-    localStorage.removeItem(storage.lastConnection);
-    localStorage.setItem(storage.reconnectOnLoad, "0");
+function forgetConnectionHistoryItem(item) {
+  if (item.kind === "websocket") {
+    const url = normalizeWebSocketUrl(item.url);
+    writeWebSocketHistory(readWebSocketHistory().filter((entry) => normalizeWebSocketUrl(entry.url) !== url));
+    if (localStorage.getItem(storage.wsUrl) === url) {
+      const next = readWebSocketHistory()[0];
+      if (next) {
+        localStorage.setItem(storage.wsUrl, next.url);
+        localStorage.setItem(storage.wsName, next.label);
+      } else {
+        localStorage.removeItem(storage.wsUrl);
+        localStorage.removeItem(storage.wsName);
+      }
+    }
+  } else {
+    const key = usbHistoryKey(item.hint);
+    writeUsbHistory(readUsbHistory().filter((entry) => usbHistoryKey(entry.hint) !== key));
+    if (usbHistoryKey(readUsbHint()) === key) {
+      const next = readUsbHistory()[0];
+      if (next) localStorage.setItem(storage.usbHint, JSON.stringify(next.hint));
+      else localStorage.removeItem(storage.usbHint);
+    }
   }
-  renderRecentWebSocket();
-  logLine("info", "removed recent WebSocket");
-}
 
-function forgetRecentUsb() {
-  localStorage.removeItem(storage.usbHint);
-  if (localStorage.getItem(storage.lastConnection) === "usb") {
+  if (!readWebSocketHistory().length && !readUsbHistory().length) {
     localStorage.removeItem(storage.lastConnection);
     localStorage.setItem(storage.reconnectOnLoad, "0");
   }
-  knownUsbLabel = "";
-  knownUsbPortCount = 0;
-  renderRecentUsb();
-  logLine("info", "removed recent USB");
+  renderConnectionHistory();
+  logLine("info", "removed recent connection");
 }
 
 async function refreshKnownUsbPorts() {
   if (!("serial" in navigator)) {
     knownUsbPortCount = 0;
     knownUsbLabel = "";
-    renderRecentUsb();
+    renderConnectionHistory();
     return;
   }
   try {
@@ -413,7 +434,7 @@ async function refreshKnownUsbPorts() {
     knownUsbPortCount = 0;
     knownUsbLabel = "";
   }
-  renderRecentUsb();
+  renderConnectionHistory();
 }
 
 async function runUiAction(action, label = "busy") {
@@ -435,19 +456,62 @@ async function connectWebSocket(value) {
   const url = normalizeWebSocketUrl(value);
   await connectTransport(new WebSocketTransport(), { url }, "websocket", wsDisplayName(url));
   els.websocketUrl.value = url;
-  renderRecentWebSocket();
+  renderConnectionHistory();
 }
 
 async function connectUsb() {
   await connectTransport(new WebSerialTransport({ storageKey: storage.usbHint }), {}, "usb", "USB");
   await refreshKnownUsbPorts();
-  renderRecentUsb();
+  renderConnectionHistory();
 }
 
-async function connectRecentUsb() {
+async function connectRecentUsb(hint = null) {
+  if (hint) localStorage.setItem(storage.usbHint, JSON.stringify(hint));
   await connectTransport(new WebSerialTransport({ storageKey: storage.usbHint }), { pickPort: false }, "usb", "USB");
   await refreshKnownUsbPorts();
-  renderRecentUsb();
+  renderConnectionHistory();
+}
+
+async function autoConnectFromUrlParams() {
+  const params = new URLSearchParams(window.location.search);
+  const requested = (params.get("connect") || params.get("transport") || "").toLowerCase();
+  if (!requested) return false;
+
+  if (requested === "ws" || requested === "websocket") {
+    const value = params.get("ws") || params.get("url") || "";
+    if (!value) {
+      logLine("warn", "connect=ws is missing a ws URL");
+      return true;
+    }
+    try {
+      const url = normalizeWebSocketUrl(value);
+      els.websocketUrl.value = url;
+      await connectTransport(new WebSocketTransport(), { url }, "websocket", wsDisplayName(url), { lightStartup: true, includeScript: true });
+    } catch (error) {
+      logLine("error", error.message);
+    }
+    return true;
+  }
+
+  if (requested === "usb" || requested === "serial") {
+    if (!("serial" in navigator)) {
+      logLine("warn", "connect=usb needs Web Serial");
+      return true;
+    }
+    if (!readUsbHint()) {
+      logLine("warn", "connect=usb needs a previously approved USB device in this browser");
+      return true;
+    }
+    try {
+      await connectTransport(new WebSerialTransport({ storageKey: storage.usbHint }), { pickPort: false }, "usb", "USB", { lightStartup: true, includeScript: true });
+      await refreshKnownUsbPorts();
+    } catch (error) {
+      logLine("error", error.message);
+    }
+    return true;
+  }
+
+  return false;
 }
 
 async function autoReconnectLastConnection() {
@@ -511,8 +575,13 @@ async function connectTransport(nextTransport, options, kind, label, { quiet = f
   try {
     if (lightStartup) await settle(450);
     if (generation !== connectionGeneration) return;
-    await startupRefresh({ quiet, includeScript });
-    if (generation === connectionGeneration) rememberSuccessfulConnection(kind, label, options);
+    const verified = await startupRefresh({ quiet, includeScript });
+    if (generation === connectionGeneration && verified) {
+      rememberSuccessfulConnection(kind, label, options);
+    } else if (generation === connectionGeneration) {
+      if (!quiet) logLine("warn", `${label} connected but did not answer protocol checks`);
+      forgetUnverifiedConnection(kind, options);
+    }
   } catch (error) {
     if (generation === connectionGeneration && !quiet) logLine("error", `startup refresh: ${error.message}`);
     if (generation === connectionGeneration) forgetUnverifiedConnection(kind, options);
@@ -526,29 +595,159 @@ function rememberSuccessfulConnection(kind, label, options = {}) {
   if (kind === "websocket" && options.url) {
     const url = normalizeWebSocketUrl(options.url);
     localStorage.setItem(storage.wsUrl, url);
-    localStorage.setItem(storage.wsName, wsDisplayName(url));
+    const label = wsDisplayName(url);
+    localStorage.setItem(storage.wsName, label);
+    rememberWebSocketHistory(url, label);
     els.websocketUrl.value = url;
-    renderRecentWebSocket();
+    updateConnectionUrlParams("websocket", url);
+    renderConnectionHistory();
   }
 
   if (kind === "usb") {
+    const hint = readUsbHint();
+    if (hint) rememberUsbHistory(hint);
+    updateConnectionUrlParams("usb");
     refreshKnownUsbPorts();
-    renderRecentUsb();
+    renderConnectionHistory();
   }
 }
 
 function forgetUnverifiedConnection(kind, options = {}) {
-  if (kind !== "websocket" || !options.url) return;
-  const attempted = normalizeWebSocketUrl(options.url);
-  if (localStorage.getItem(storage.wsUrl) === attempted) {
-    localStorage.removeItem(storage.wsUrl);
-    localStorage.removeItem(storage.wsName);
-    renderRecentWebSocket();
+  if (kind === "websocket" && options.url) {
+    const attempted = normalizeWebSocketUrl(options.url);
+    writeWebSocketHistory(readWebSocketHistory().filter((entry) => normalizeWebSocketUrl(entry.url) !== attempted));
+    if (localStorage.getItem(storage.wsUrl) === attempted) {
+      const next = readWebSocketHistory()[0];
+      if (next) {
+        localStorage.setItem(storage.wsUrl, next.url);
+        localStorage.setItem(storage.wsName, next.label);
+      } else {
+        localStorage.removeItem(storage.wsUrl);
+        localStorage.removeItem(storage.wsName);
+      }
+    }
+  }
+  if (kind === "usb") {
+    const key = usbHistoryKey(readUsbHint());
+    if (key) writeUsbHistory(readUsbHistory().filter((entry) => usbHistoryKey(entry.hint) !== key));
   }
   if (localStorage.getItem(storage.lastConnection) === kind) {
     localStorage.removeItem(storage.lastConnection);
     localStorage.setItem(storage.reconnectOnLoad, "0");
   }
+  renderConnectionHistory();
+}
+
+function migrateConnectionHistory() {
+  if (!readWebSocketHistory().length) {
+    const url = localStorage.getItem(storage.wsUrl) || "";
+    if (url) {
+      try {
+        rememberWebSocketHistory(url, localStorage.getItem(storage.wsName) || wsDisplayName(url));
+      } catch {}
+    }
+  }
+
+  if (!readUsbHistory().length) {
+    const hint = readUsbHint();
+    if (hint) rememberUsbHistory(hint);
+  }
+}
+
+function readHistoryArray(key) {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(key) || "[]");
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+function writeHistoryArray(key, entries) {
+  localStorage.setItem(key, JSON.stringify(entries.slice(0, connectionHistoryLimit)));
+}
+
+function readWebSocketHistory() {
+  return readHistoryArray(storage.wsHistory)
+    .map((entry) => {
+      try {
+        const url = normalizeWebSocketUrl(entry.url || "");
+        return {
+          kind: "websocket",
+          url,
+          label: entry.label || wsDisplayName(url),
+          at: Number(entry.at) || 0,
+        };
+      } catch {
+        return null;
+      }
+    })
+    .filter(Boolean);
+}
+
+function writeWebSocketHistory(entries) {
+  writeHistoryArray(storage.wsHistory, entries.map((entry) => ({
+    kind: "websocket",
+    url: normalizeWebSocketUrl(entry.url),
+    label: entry.label || wsDisplayName(entry.url),
+    at: Number(entry.at) || Date.now(),
+  })));
+}
+
+function rememberWebSocketHistory(url, label = "") {
+  const normalized = normalizeWebSocketUrl(url);
+  const next = [
+    { kind: "websocket", url: normalized, label: label || wsDisplayName(normalized), at: Date.now() },
+    ...readWebSocketHistory().filter((entry) => normalizeWebSocketUrl(entry.url) !== normalized),
+  ];
+  writeWebSocketHistory(next);
+}
+
+function readUsbHistory() {
+  return readHistoryArray(storage.usbHistory)
+    .map((entry) => {
+      const hint = normalizeUsbHint(entry.hint || entry);
+      if (!hint) return null;
+      return {
+        kind: "usb",
+        hint,
+        label: entry.label || usbHintLabel(hint),
+        at: Number(entry.at) || 0,
+      };
+    })
+    .filter(Boolean);
+}
+
+function writeUsbHistory(entries) {
+  writeHistoryArray(storage.usbHistory, entries.map((entry) => ({
+    kind: "usb",
+    hint: normalizeUsbHint(entry.hint),
+    label: entry.label || usbHintLabel(entry.hint),
+    at: Number(entry.at) || Date.now(),
+  })).filter((entry) => entry.hint));
+}
+
+function rememberUsbHistory(hint) {
+  const normalized = normalizeUsbHint(hint);
+  if (!normalized) return;
+  const key = usbHistoryKey(normalized);
+  const next = [
+    { kind: "usb", hint: normalized, label: usbHintLabel(normalized), at: Date.now() },
+    ...readUsbHistory().filter((entry) => usbHistoryKey(entry.hint) !== key),
+  ];
+  writeUsbHistory(next);
+}
+
+function normalizeUsbHint(hint) {
+  const vendor = Number(hint?.usbVendorId);
+  const product = Number(hint?.usbProductId);
+  if (!Number.isFinite(vendor) || !Number.isFinite(product)) return null;
+  return { usbVendorId: vendor, usbProductId: product };
+}
+
+function usbHistoryKey(hint) {
+  const normalized = normalizeUsbHint(hint);
+  return normalized ? `${normalized.usbVendorId}:${normalized.usbProductId}` : "";
 }
 
 function readUsbHint() {
@@ -598,6 +797,39 @@ function wsDisplayName(url) {
   }
 }
 
+function sharePageUrl(kind, wsUrl = "") {
+  const url = new URL(window.location.href);
+  url.searchParams.delete("connect");
+  url.searchParams.delete("transport");
+  url.searchParams.delete("ws");
+  url.searchParams.delete("url");
+
+  if (kind === "websocket") {
+    url.searchParams.set("connect", "ws");
+    url.searchParams.set("ws", normalizeWebSocketUrl(wsUrl));
+  } else if (kind === "usb") {
+    url.searchParams.set("connect", "usb");
+  }
+
+  return url.toString();
+}
+
+function updateConnectionUrlParams(kind, wsUrl = "") {
+  if (!window.history?.replaceState) return;
+  const nextUrl = sharePageUrl(kind, wsUrl);
+  window.history.replaceState(null, "", nextUrl);
+}
+
+function clearConnectionUrlParams() {
+  if (!window.history?.replaceState) return;
+  const url = new URL(window.location.href);
+  url.searchParams.delete("connect");
+  url.searchParams.delete("transport");
+  url.searchParams.delete("ws");
+  url.searchParams.delete("url");
+  window.history.replaceState(null, "", url.toString());
+}
+
 async function disconnectTransport({ quiet = false, keepGeneration = false } = {}) {
   if (!keepGeneration) connectionGeneration += 1;
   try {
@@ -607,6 +839,7 @@ async function disconnectTransport({ quiet = false, keepGeneration = false } = {
     transport = null;
     stopStatusPolling();
     if (!isUnloading) localStorage.setItem(storage.reconnectOnLoad, "0");
+    if (!quiet && !keepGeneration && !isUnloading) clearConnectionUrlParams();
     setConnected(false);
     if (!quiet) logLine("info", "disconnected");
   }
@@ -657,8 +890,8 @@ function bindClient(nextClient) {
 }
 
 async function startupRefresh({ quiet = false, includeScript = true } = {}) {
-  await bestEffortStartupStep(() => refreshInfo({ quiet }), quiet);
-  await bestEffortStartupStep(() => refreshStatus({ quiet }), quiet);
+  const infoOk = await bestEffortStartupStep(() => refreshInfo({ quiet }), quiet);
+  const statusOk = await bestEffortStartupStep(() => refreshStatus({ quiet }), quiet);
   await bestEffortStartupStep(() => sendCommand("config.get", {}, { quiet }).then(updateConfig), quiet);
   await bestEffortStartupStep(async () => {
     const data = await sendCommand("debug.get", {}, { quiet });
@@ -668,13 +901,16 @@ async function startupRefresh({ quiet = false, includeScript = true } = {}) {
     await sendCommand("debug.set", { level: els.debugLevel.value }, { quiet });
   }, quiet);
   if (includeScript) await bestEffortStartupStep(() => getScript({ quiet }), quiet);
+  return infoOk || statusOk;
 }
 
 async function bestEffortStartupStep(action, quiet) {
   try {
     await action();
+    return true;
   } catch (error) {
     if (!quiet) logLine("warn", `startup: ${error.message}`);
+    return false;
   }
 }
 
@@ -718,7 +954,10 @@ async function getScript(options = {}) {
 }
 
 async function setScript({ run, save }) {
-  const code = getEditorValue();
+  await uploadScriptCode(getEditorValue(), { run, save });
+}
+
+async function uploadScriptCode(code, { run, save, name = "" }) {
   let data;
   try {
     clearEditorError();
@@ -728,11 +967,11 @@ async function setScript({ run, save }) {
       save,
     }, { timeoutMs: 30000 });
   } catch (error) {
-    await rememberUploadedSketch(code);
+    await rememberUploadedSketch(code, name);
     markEditorError(error.message);
     throw error;
   }
-  await rememberUploadedSketch(code);
+  await rememberUploadedSketch(code, name);
   updateScriptState(data);
   await refreshStatus({ timeoutMs: 20000 });
 }
@@ -816,17 +1055,26 @@ function readSketchHistoryFallback() {
   }
 }
 
-async function rememberUploadedSketch(code) {
+async function rememberUploadedSketch(code, name = "") {
   const current = String(code ?? "");
   if (!current.trim()) return;
 
+  const sketchName = normalizeSketchName(name);
   const history = await readSketchHistory();
-  if (history[0]?.code === current) return;
+  if (history[0]?.code === current) {
+    if (sketchName && history[0].name !== sketchName) {
+      history[0].name = sketchName;
+      await updateSketchHistoryEntry(history[0]);
+      await renderSketchHistory();
+    }
+    return;
+  }
 
   const entry = {
     at: new Date().toISOString(),
     bytes: new Blob([current]).size,
     code: current,
+    name: sketchName,
   };
 
   try {
@@ -862,6 +1110,28 @@ async function rememberUploadedSketch(code) {
   await renderSketchHistory();
 }
 
+async function updateSketchHistoryEntry(entry) {
+  if (entry?.id === undefined) {
+    const history = readSketchHistoryFallback();
+    if (history[0]?.code === entry?.code) {
+      history[0] = entry;
+      rememberUploadedSketchFallback(history[0], history.slice(1));
+    }
+    return;
+  }
+  try {
+    const db = await openSketchDb();
+    try {
+      const tx = db.transaction(sketchStoreName, "readwrite");
+      tx.objectStore(sketchStoreName).put(entry);
+      await sketchDbTransactionDone(tx);
+    } finally {
+      db.close();
+    }
+  } catch {
+  }
+}
+
 function rememberUploadedSketchFallback(entry, history) {
   let next = [entry, ...history].slice(0, sketchHistoryLimit);
   while (next.length) {
@@ -891,6 +1161,7 @@ async function migrateSketchHistoryToDb() {
         at: item.at || new Date().toISOString(),
         bytes: item.bytes || new Blob([item.code || ""]).size,
         code: String(item.code || ""),
+        name: normalizeSketchName(item.name || ""),
       });
     });
     await sketchDbTransactionDone(tx);
@@ -912,7 +1183,11 @@ async function renderSketchHistory() {
       hour: "2-digit",
       minute: "2-digit",
     });
-    els.sketchHistory.append(new Option(`${when} / ${formatBytes(item.bytes || item.code.length)}`, String(index)));
+    const name = normalizeSketchName(item.name || "");
+    const label = name
+      ? `${name} / ${when} / ${formatBytes(item.bytes || item.code.length)}`
+      : `${when} / ${formatBytes(item.bytes || item.code.length)}`;
+    els.sketchHistory.append(new Option(label, String(index)));
   });
   els.sketchHistory.disabled = history.length === 0;
   els.sketchHistory.value = "";
@@ -925,6 +1200,14 @@ async function recoverSketchHistory() {
   if (!entry) return;
   setEditorValue(entry.code);
   logLine("info", `recovered sketch from ${new Date(entry.at).toLocaleString()}`);
+}
+
+function normalizeSketchName(name) {
+  return String(name || "")
+    .replace(/\s+/g, " ")
+    .replace(/[^\w .:/+-]/g, "")
+    .trim()
+    .slice(0, 32);
 }
 
 function bindSketchDrop() {
@@ -1040,7 +1323,11 @@ function acceptEvent(event) {
   const message = eventMessage(event.name, data);
   logLine(level, `${event.name}: ${message}`);
 
-  if (event.name === "script.error") markEditorError(message);
+  if (event.name === "script.error") {
+    const count = Number(data.error?.count);
+    if (Number.isFinite(count)) lastLoggedScriptErrorCount = Math.max(lastLoggedScriptErrorCount, count);
+    markEditorError(message);
+  }
   if (event.name === "wifi.status") updateWifi(data.wifi || data);
   if (event.name === "script.state") updateScriptState(data);
   if (event.name === "device.boot") {
@@ -1152,10 +1439,20 @@ function findEditorLine(sourceText) {
 
 function updateStatus(status = {}) {
   lastStatus = status;
+  reportStatusScriptError(status.lastError);
   updateScriptState(status);
   updateWifi(status.wifi);
   renderConnectionState();
   renderFields();
+}
+
+function reportStatusScriptError(error = {}) {
+  const count = Number(error?.count);
+  if (!error?.hasError || !Number.isFinite(count) || count <= lastLoggedScriptErrorCount) return;
+  lastLoggedScriptErrorCount = count;
+  const message = error.message || error.code || "script error";
+  logLine("error", `script.error: ${message}`);
+  markEditorError(message);
 }
 
 function updateScriptState(data = {}) {
@@ -1192,7 +1489,8 @@ function updateConfig(config = {}) {
 function renderFields() {
   const wifi = lastStatus?.wifi || {};
   const web = lastStatus?.web || {};
-  const wsUrl = websocketUrlFromStatus(web);
+  const wsUrl = client ? websocketUrlFromStatus(web) : "";
+  const wsShareUrl = wsUrl ? sharePageUrl("websocket", wsUrl) : "";
   const rows = {
     name: lastInfo?.deviceName || lastStatus?.deviceName || "",
     id: lastInfo?.deviceId || lastStatus?.deviceId || "",
@@ -1207,9 +1505,12 @@ function renderFields() {
     wifi: wifi.connected ? wifi.ssid || "connected" : wifi.state || "offline",
     ip: wifi.ip || "",
     ws: wsUrl,
+    share: wsShareUrl,
     loop: lastStatus?.wrenchLoopCount ?? "",
     task: lastStatus?.wrenchTaskRunning === true ? "running" : lastStatus?.wrenchTaskRunning === false ? "stopped" : "",
   };
+
+  renderInfoShare(wsShareUrl);
 
   els.fields.replaceChildren(
     ...Object.entries(rows).map(([key, value]) => {
@@ -1226,6 +1527,13 @@ function renderFields() {
         button.title = "Connect WebSocket";
         button.addEventListener("click", () => connectWebSocket(String(value)));
         dd.append(button);
+      } else if (key === "share" && value) {
+        const link = document.createElement("a");
+        link.className = "info-link";
+        link.href = String(value);
+        link.textContent = String(value);
+        link.title = "Open this interface and connect to this WebSocket";
+        dd.append(link);
       } else {
         dd.textContent = String(value || "-");
       }
@@ -1233,6 +1541,69 @@ function renderFields() {
       return row;
     }),
   );
+}
+
+function renderInfoShare(shareUrl = "") {
+  const url = String(shareUrl || "");
+  els.infoShare.classList.toggle("is-hidden", !url);
+  els.infoShareCopy.disabled = !url;
+  els.infoShareCopy.dataset.url = url;
+  if (!url) {
+    els.infoQr.replaceChildren();
+    delete els.infoQr.dataset.url;
+    return;
+  }
+
+  if (els.infoQr.dataset.url === url) return;
+  els.infoQr.dataset.url = url;
+  els.infoQr.replaceChildren(renderQrCanvas(url));
+}
+
+function renderQrCanvas(text) {
+  if (typeof window.createQRCode !== "function") {
+    const fallback = document.createElement("div");
+    fallback.className = "info-qr-fallback";
+    fallback.textContent = "QR unavailable";
+    return fallback;
+  }
+
+  try {
+    const qr = window.createQRCode(text);
+    const quiet = 4;
+    const scale = Math.max(2, Math.floor(150 / (qr.size + quiet * 2)));
+    const pixels = (qr.size + quiet * 2) * scale;
+    const canvas = document.createElement("canvas");
+    canvas.width = pixels;
+    canvas.height = pixels;
+    const ctx = canvas.getContext("2d");
+    ctx.fillStyle = "#ffffff";
+    ctx.fillRect(0, 0, pixels, pixels);
+    ctx.fillStyle = "#000000";
+    for (let y = 0; y < qr.size; y += 1) {
+      for (let x = 0; x < qr.size; x += 1) {
+        if (qr.getModule(x, y)) {
+          ctx.fillRect((x + quiet) * scale, (y + quiet) * scale, scale, scale);
+        }
+      }
+    }
+    return canvas;
+  } catch (error) {
+    const fallback = document.createElement("div");
+    fallback.className = "info-qr-fallback";
+    fallback.textContent = error.message || "QR failed";
+    return fallback;
+  }
+}
+
+async function copyInfoShareLink() {
+  const url = els.infoShareCopy.dataset.url || "";
+  if (!url) return;
+  try {
+    await navigator.clipboard.writeText(url);
+    logLine("info", "share link copied");
+  } catch (error) {
+    logLine("error", error.message || "copy failed");
+  }
 }
 
 function websocketUrlFromStatus(web = {}) {
@@ -1263,9 +1634,9 @@ function formatDuration(ms) {
 }
 
 function wrenchFpsLabel() {
-  const lastLoopMs = Number(lastStatus?.wrenchLastLoopMs);
-  if (Number.isFinite(lastLoopMs) && lastLoopMs > 0) {
-    return `${(1000 / lastLoopMs).toFixed(lastLoopMs < 100 ? 1 : 2)} fps`;
+  const fps = Number(lastStatus?.wrenchLoopFps);
+  if (Number.isFinite(fps) && fps > 0) {
+    return `${fps.toFixed(fps < 10 ? 2 : 1)} fps`;
   }
 
   const loops = Number(lastStatus?.wrenchLoopCount);
@@ -1281,8 +1652,8 @@ function setConnected(isConnected) {
   els.connection.classList.toggle("is-online", isConnected);
   renderConnectionState();
   updateEnabledState();
-  renderRecentWebSocket();
-  renderRecentUsb();
+  renderConnectionHistory();
+  renderFields();
 }
 
 function renderConnectionState(transportState = "") {
@@ -1458,10 +1829,6 @@ function renderChatMessage(message, index) {
   const article = document.createElement("article");
   article.className = `chat-message chat-${message.role}`;
 
-  const header = document.createElement("header");
-  header.textContent = message.role;
-  article.append(header);
-
   if (message.content) {
     const body = document.createElement("p");
     body.textContent = message.content;
@@ -1475,29 +1842,26 @@ function renderChatMessage(message, index) {
   if (structured?.code) {
     const codeHeader = document.createElement("div");
     codeHeader.className = "chat-code-header";
-    const label = document.createElement("span");
-    label.textContent = "code hidden";
     const toggle = document.createElement("button");
     toggle.className = "button compact icon-buttonish";
     toggle.type = "button";
     toggle.title = "Show code";
     toggle.setAttribute("aria-label", "Show code");
     toggle.innerHTML = '<span class="material-symbols-rounded">code</span>';
-    const apply = document.createElement("button");
-    apply.className = "button compact icon-buttonish";
-    apply.type = "button";
-    apply.title = "Apply code";
-    apply.setAttribute("aria-label", "Apply code");
-    apply.innerHTML = '<span class="material-symbols-rounded">drive_file_move</span>';
-    apply.addEventListener("click", () => applyChatCode(index));
-    codeHeader.append(label, toggle, apply);
+    const run = document.createElement("button");
+    run.className = "button compact icon-buttonish";
+    run.type = "button";
+    run.title = "Save and run on board";
+    run.setAttribute("aria-label", "Save and run on board");
+    run.innerHTML = '<span class="material-symbols-rounded">play_arrow</span>';
+    run.addEventListener("click", () => runChatCode(index));
+    codeHeader.append(toggle, run);
 
     const pre = document.createElement("pre");
     pre.className = "chat-code is-hidden";
     pre.textContent = structured.code;
     toggle.addEventListener("click", () => {
       const hidden = pre.classList.toggle("is-hidden");
-      label.textContent = hidden ? "code hidden" : "code";
       toggle.title = hidden ? "Show code" : "Hide code";
       toggle.setAttribute("aria-label", toggle.title);
       toggle.querySelector(".material-symbols-rounded").textContent = hidden ? "code" : "code_off";
@@ -1527,15 +1891,26 @@ async function applyChatCode(index) {
   const message = chatMessages[index];
   const code = message?.structured?.code;
   if (!code) return;
-  await replaceEditorFromChat(code, "chat code applied to editor");
-  switchTab("coding");
+  await replaceEditorFromChat(code, "chat code applied to editor", message.structured?.sketch_name || "");
 }
 
-async function replaceEditorFromChat(code, message) {
+async function runChatCode(index) {
+  const message = chatMessages[index];
+  const code = message?.structured?.code;
+  if (!code) return;
+  await runUiAction(async () => {
+    const name = message.structured?.sketch_name || "";
+    await replaceEditorFromChat(code, "chat code prepared", name);
+    await uploadScriptCode(code, { run: true, save: true, name });
+    logLine("info", "chat code saved and running");
+  }, "uploading");
+}
+
+async function replaceEditorFromChat(code, message, name = "") {
   const current = getEditorValue();
   if (current.trim() && current !== code) await rememberUploadedSketch(current);
   setEditorValue(code);
-  await rememberUploadedSketch(code);
+  await rememberUploadedSketch(code, name);
   logLine("info", message);
 }
 
@@ -1554,7 +1929,7 @@ async function sendChatPrompt() {
     const result = await requestChatCompletion(prompt);
     const content = result.reply || "Done.";
     if (result.code_action === "replace" && result.code.trim()) {
-      await replaceEditorFromChat(result.code, "chat code replaced editor");
+      await replaceEditorFromChat(result.code, "chat code replaced editor", result.sketch_name);
     }
     chatMessages.push({
       role: "assistant",
@@ -1658,6 +2033,8 @@ function buildChatInstructions(context) {
     "You are the P1E Wrench coding assistant inside a browser tool for an ESP32 classic firmware.",
     "Return only JSON matching the requested schema.",
     "When producing code, provide a complete Wrench script that can replace the editor contents.",
+    "Every generated sketch must start with a short // comment explaining what the sketch does.",
+    "When producing code, also provide sketch_name: a short 2-5 word title suitable for a history dropdown.",
     "Prefer setup() and loop(). Keep loop non-blocking where reasonable. Use short delay() only when it is intentional.",
     "Avoid factory reset or destructive device actions. Do not invent firmware bindings beyond the documented P1E bindings.",
     "If the user's request is ambiguous, explain the assumption in reply and notes.",
@@ -1676,10 +2053,11 @@ function chatResponseSchema() {
       reply: { type: "string" },
       code: { type: "string" },
       code_action: { type: "string", enum: ["replace", "none"] },
+      sketch_name: { type: "string" },
       notes: { type: "array", items: { type: "string" } },
       warnings: { type: "array", items: { type: "string" } },
     },
-    required: ["reply", "code", "code_action", "notes", "warnings"],
+    required: ["reply", "code", "code_action", "sketch_name", "notes", "warnings"],
   };
 }
 
@@ -1794,13 +2172,14 @@ function parseChatStructuredText(text) {
   }
 
   if (!parsed || typeof parsed !== "object") {
-    return { reply: raw, code: "", code_action: "none", notes: [], warnings: ["Response was not structured JSON."] };
+    return { reply: raw, code: "", code_action: "none", sketch_name: "", notes: [], warnings: ["Response was not structured JSON."] };
   }
 
   return {
     reply: String(parsed.reply || ""),
     code: String(parsed.code || ""),
     code_action: parsed.code_action === "replace" ? "replace" : "none",
+    sketch_name: normalizeSketchName(parsed.sketch_name || parsed.name || parsed.title || ""),
     notes: Array.isArray(parsed.notes) ? parsed.notes.map(String) : [],
     warnings: filterChatWarnings(parsed.warnings),
   };
@@ -1849,8 +2228,7 @@ function updateEnabledState() {
     el.disabled = !connected || isBusy;
   });
   updateChatEnabledState();
-  renderRecentWebSocket();
-  renderRecentUsb();
+  renderConnectionHistory();
   renderConnectionState();
 }
 

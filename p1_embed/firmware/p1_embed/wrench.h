@@ -433,6 +433,8 @@ bool wr_getYieldInfo( WRContext* context, WRValue** args =0, int* argnum =0, WRV
 // retrieve it. This system is coarse at the moment. Re-entering the
 // interpreter clears the last error
 WRError wr_getLastError( WRState* w );
+uint32_t wr_getLastMissingFunctionHash( WRState* w );
+uint8_t wr_getLastMissingFunctionOp( WRState* w );
 
 // want direct access to a global? okay then, if the code was compiled
 // with symbols (see compile(...) suite) then this will give you a
@@ -1186,6 +1188,8 @@ struct WRState
 
 	uint32_t allocatedMemoryLimit; // WRENCH_DEFAULT_ALLOCATED_MEMORY_GC_HINT by default
 	uint16_t stackSize; // how much stack to give each context
+	uint32_t lastMissingFunctionHash;
+	uint8_t lastMissingFunctionOp;
 	uint8_t err;
 
 };

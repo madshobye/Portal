@@ -817,6 +817,42 @@ static void w_p1_clearError(WRContext*, const WRValue*, const int, WRValue& retV
   wrRetInt(retVal, 0);
 }
 
+const char* wrenchBindingNameForHash(uint32_t hash) {
+  static const char* const names[] = {
+    "print", "println",
+    "pinMode", "digitalWrite", "digitalRead", "analogRead", "touchRead",
+    "delay", "delayMicroseconds", "millis", "micros",
+    "random", "randomSeed", "freeHeap",
+    "wifiConnected", "wifiIp", "wifiRssi", "wifiSsid",
+    "wireBegin", "i2cWrite", "i2cRead",
+    "serialBegin", "serialEnd", "serialAvailable", "serialRead",
+    "serialReadString", "serialWrite", "serialWriteLine",
+    "serialWriteByte", "serialStatus",
+    "httpGet", "httpPost", "httpCode", "httpTruncated", "httpError",
+    "httpStatus",
+    "jsonGet", "jsonGetInt", "jsonGetFloat", "jsonGetBool", "jsonHas",
+    "jsonPair", "jsonPairRaw", "jsonPairInt", "jsonPairFloat",
+    "jsonPairBool", "jsonBuild", "jsonArray",
+    "analogWrite", "analogWriteResolution", "analogWriteFrequency",
+    "pwmDetach",
+    "servoAttach", "servoWrite", "servoWriteMicroseconds", "servoDetach",
+    "fanAttach", "fanWrite", "fanWriteRaw", "fanDetach",
+    "fastLedBegin", "fastLedReady", "fastLedCount", "fastLedSet",
+    "fastLedFill", "fastLedClear", "fastLedShow", "fastLedBrightness",
+    "fastLedStatus",
+    "ledConfig", "ledReady", "ledStripCount", "ledCount", "ledSet",
+    "ledFill", "ledClear", "ledShow", "ledBrightness", "ledStatus",
+    "log", "emit", "emitJson", "statusGet", "configGet", "configSet",
+    "wifiStatus", "wifiConnect", "wifiDisconnect", "reboot",
+    "inboxAvailable", "inboxRead", "inboxChannel", "inboxClear",
+    "inboxDrops", "lastError", "clearError",
+  };
+  for (size_t i = 0; i < sizeof(names) / sizeof(names[0]); i++) {
+    if ((uint32_t)wr_hashStr(names[i]) == hash) return names[i];
+  }
+  return "";
+}
+
 void wrenchRegisterBindings(WRState* wr) {
   wr_registerFunction(wr, "print", w_p1_print);
   wr_registerFunction(wr, "println", w_p1_println);

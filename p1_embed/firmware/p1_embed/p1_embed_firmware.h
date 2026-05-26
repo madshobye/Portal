@@ -118,6 +118,8 @@ bool wrenchHasLoop();
 bool wrenchTaskIsRunning();
 uint32_t wrenchLoopCount();
 uint32_t wrenchLastLoopMs();
+uint32_t wrenchLastLoopDurationMs();
+float wrenchLoopFps();
 uint32_t wrenchCurrentLoopStartedAt();
 uint32_t wrenchSlowLoopCount();
 uint32_t wrenchHungLoopCount();
@@ -137,6 +139,7 @@ void wrenchRequestRun();
 bool wrenchRunIsPending();
 bool wrenchCompileAndRun(const String& userCode, String& errOut);
 void wrenchRegisterBindings(WRState* wr);
+const char* wrenchBindingNameForHash(uint32_t hash);
 
 void wrenchInboxBegin();
 bool wrenchInboxPush(const String& channel, const String& message);

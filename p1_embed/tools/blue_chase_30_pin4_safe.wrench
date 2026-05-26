@@ -1,0 +1,25 @@
+var LED_PIN = 4;
+var LED_COUNT = 30;
+var LED_BRIGHTNESS = 70;
+var FRAME_MS = 80;
+
+var pos = 0;
+var lastFrameAt = 0;
+
+function setup() {
+  ledConfig(0, LED_PIN, LED_COUNT, LED_BRIGHTNESS);
+  ledClear(0, 1);
+  println("blue chase ready");
+}
+
+function loop() {
+  if ((millis() - lastFrameAt) >= FRAME_MS) {
+    lastFrameAt = millis();
+    ledClear(0, 0);
+    ledSet(0, pos, 0, 0, 255);
+    ledShow();
+    pos = (pos + 1) % LED_COUNT;
+  }
+
+  delay(10);
+}

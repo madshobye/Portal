@@ -11420,6 +11420,8 @@ debugReturn:
 						}
 					}
 
+					w->lastMissingFunctionHash = fhash;
+					w->lastMissingFunctionOp = 1;
 					w->err = WR_ERR_function_not_found;
 					return 0;
 				}
@@ -11483,6 +11485,8 @@ newObjOut:
 						}
 					}
 
+					w->lastMissingFunctionHash = fhash;
+					w->lastMissingFunctionOp = 2;
 					w->err = WR_ERR_function_not_found;
 					return 0;
 				}
@@ -14018,6 +14022,18 @@ bool wr_getYieldInfo( WRContext* context, WRValue** args, int* argnum, WRValue**
 WRError wr_getLastError( WRState* w )
 {
 	return (WRError)w->err;
+}
+
+//------------------------------------------------------------------------------
+uint32_t wr_getLastMissingFunctionHash( WRState* w )
+{
+	return w ? w->lastMissingFunctionHash : 0;
+}
+
+//------------------------------------------------------------------------------
+uint8_t wr_getLastMissingFunctionOp( WRState* w )
+{
+	return w ? w->lastMissingFunctionOp : 0;
 }
 
 //------------------------------------------------------------------------------

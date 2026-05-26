@@ -63,6 +63,8 @@ static String protocolStatusJson() {
   out += ",\"wrenchTaskRunning\":" + String(wrenchTaskIsRunning() ? "true" : "false");
   out += ",\"wrenchLoopCount\":" + String(wrenchLoopCount());
   out += ",\"wrenchLastLoopMs\":" + String(wrenchLastLoopMs());
+  out += ",\"wrenchLastLoopDurationMs\":" + String(wrenchLastLoopDurationMs());
+  out += ",\"wrenchLoopFps\":" + String(wrenchLoopFps(), 2);
   out += ",\"wrenchCurrentLoopStartedAt\":" + String(wrenchCurrentLoopStartedAt());
   out += ",\"wrenchLoopHung\":" + String(wrenchLoopIsHung() ? "true" : "false");
   out += ",\"wrenchSlowLoopCount\":" + String(wrenchSlowLoopCount());
@@ -155,6 +157,7 @@ static String protocolScriptMetaJson(const String& code, const String& state) {
 bool protocolHandleScriptSetCode(const String& id, const String& code, bool runAfterSet, bool saveAfterSet) {
   String err;
   WrenchTransitionGuard transition("script.set");
+  scriptErrorClear();
   debugEventEmit("script.debug", "info", "script", "script.set begin", "\"run\":" + String(runAfterSet ? "true" : "false") + ",\"save\":" + String(saveAfterSet ? "true" : "false") + ",\"scriptBytes\":" + String(code.length()));
   if (!wrenchCompileAndSet(code, err)) {
     wrenchSetCurrentScript(code);
