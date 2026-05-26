@@ -62,7 +62,7 @@ case "${ESP32_PROFILE}" in
     ESP32_PORT="${ESP32_PORT:-/dev/cu.wchusbserial58741104521}"
     ESP32_FQBN="${ESP32_FQBN:-esp32:esp32:esp32:PartitionScheme=huge_app}"
     SKETCH_DIR="${SKETCH_DIR:-${PORTAL_ROOT}/p1_embed/firmware/p1_embed}"
-    ESP32_SKIP_WEBRTC_LINK="${ESP32_SKIP_WEBRTC_LINK:-1}"
+    ESP32_SKIP_WEBRTC_LINK="${ESP32_SKIP_WEBRTC_LINK:-0}"
     ESP32_BUILD_PATH="${ESP32_BUILD_PATH:-/private/tmp/p1-embed-build}"
     ;;
   *)

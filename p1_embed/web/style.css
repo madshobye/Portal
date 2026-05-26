@@ -801,7 +801,7 @@ input {
 
 .connect-options {
   display: grid;
-  grid-template-columns: repeat(2, 44px);
+  grid-template-columns: repeat(3, 44px);
   align-items: stretch;
   justify-content: start;
 }
@@ -996,7 +996,7 @@ input {
 
 @media (max-width: 520px) {
   .connect-options {
-    grid-template-columns: 44px 44px;
+    grid-template-columns: repeat(3, 44px);
   }
 
   .info-layout {

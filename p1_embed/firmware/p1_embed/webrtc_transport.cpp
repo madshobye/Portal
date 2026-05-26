@@ -38,8 +38,10 @@ static uint32_t g_sendDrops = 0;
 static uint32_t g_recvDrops = 0;
 static uint32_t g_signalDrops = 0;
 static uint32_t g_connectFailures = 0;
+static uint32_t g_lastDisconnectEventAt = 0;
 static int g_idAttempt = 0;
 static const char* g_staleReason = nullptr;
+static char g_lastSocketReason[96] = "";
 
 static String g_peerId;
 static String g_peerToken;
@@ -582,15 +584,22 @@ static void webrtcPeerJsSocketEvent(WStype_t type, uint8_t* payload, size_t leng
     case WStype_DISCONNECTED:
       g_peerOpen = false;
       g_connectFailures++;
+      if (millis() - g_lastDisconnectEventAt < 5000) {
+        break;
+      }
+      g_lastDisconnectEventAt = millis();
       if (payload && length > 0) {
         String reason;
         reason.reserve(length);
         for (size_t i = 0; i < length; i++) reason += (char)payload[i];
-        protocolEmitEvent("webrtc.peerjs", "\"state\":\"socket_disconnected\",\"peerId\":" + jsonString(g_peerId) + ",\"reason\":" + jsonString(reason));
+        reason.toCharArray(g_lastSocketReason, sizeof(g_lastSocketReason));
+        protocolEmitEvent("webrtc.peerjs", "\"state\":\"socket_disconnected\",\"peerId\":" + jsonString(g_peerId) + ",\"failures\":" + String(g_connectFailures) + ",\"reason\":" + jsonString(reason));
       } else {
-        protocolEmitEvent("webrtc.peerjs", "\"state\":\"socket_disconnected\",\"peerId\":" + jsonString(g_peerId));
+        strlcpy(g_lastSocketReason, "disconnected", sizeof(g_lastSocketReason));
+        protocolEmitEvent("webrtc.peerjs", "\"state\":\"socket_disconnected\",\"peerId\":" + jsonString(g_peerId) + ",\"failures\":" + String(g_connectFailures));
       }
-      if (g_connectFailures >= P1_EMBED_WEBRTC_MAX_CONNECT_FAILURES) {
+      if (P1_EMBED_WEBRTC_MAX_CONNECT_FAILURES > 0 &&
+          g_connectFailures >= P1_EMBED_WEBRTC_MAX_CONNECT_FAILURES) {
         g_suspended = true;
         debugLog("warn", "webrtc", "PeerJS signaling suspended after repeated connection failures");
       }
@@ -604,7 +613,16 @@ static void webrtcPeerJsSocketEvent(WStype_t type, uint8_t* payload, size_t leng
     }
     case WStype_ERROR:
       g_peerOpen = false;
-      debugError("webrtc", "peerjs_socket_error", "PeerJS websocket error");
+      if (payload && length > 0) {
+        String reason;
+        reason.reserve(length);
+        for (size_t i = 0; i < length; i++) reason += (char)payload[i];
+        reason.toCharArray(g_lastSocketReason, sizeof(g_lastSocketReason));
+        debugError("webrtc", "peerjs_socket_error", reason);
+      } else {
+        strlcpy(g_lastSocketReason, "socket_error", sizeof(g_lastSocketReason));
+        debugError("webrtc", "peerjs_socket_error", "PeerJS websocket error");
+      }
       break;
     default:
       break;
@@ -631,10 +649,11 @@ static void webrtcConnectPeerJs() {
   url += "&token=" + g_peerToken;
   url += "&version=1.5.5";
 
+  g_peerSocket.setExtraHeaders("Origin: https://madshobye.github.io");
   if (P1_EMBED_WEBRTC_PEERJS_SECURE) {
-    g_peerSocket.beginSSL(P1_EMBED_WEBRTC_PEERJS_HOST, P1_EMBED_WEBRTC_PEERJS_PORT, url.c_str());
+    g_peerSocket.beginSSL(P1_EMBED_WEBRTC_PEERJS_HOST, P1_EMBED_WEBRTC_PEERJS_PORT, url.c_str(), "", "");
   } else {
-    g_peerSocket.begin(P1_EMBED_WEBRTC_PEERJS_HOST, P1_EMBED_WEBRTC_PEERJS_PORT, url.c_str());
+    g_peerSocket.begin(P1_EMBED_WEBRTC_PEERJS_HOST, P1_EMBED_WEBRTC_PEERJS_PORT, url.c_str(), "");
   }
   g_peerSocket.onEvent(webrtcPeerJsSocketEvent);
   g_peerSocket.setReconnectInterval(P1_EMBED_WEBRTC_RECONNECT_INTERVAL_MS);
@@ -749,7 +768,10 @@ String webrtcTransportStatusJson() {
   out += ",\"recvDrops\":" + String(g_recvDrops);
   out += ",\"signalDrops\":" + String(g_signalDrops);
   out += ",\"connectFailures\":" + String(g_connectFailures);
+  out += ",\"lastSocketReason\":" + jsonString(g_lastSocketReason);
   out += ",\"suspended\":" + String(g_suspended ? "true" : "false");
+  out += ",\"peerTaskStackHighWater\":" + String(g_peerTaskHandle ? uxTaskGetStackHighWaterMark(g_peerTaskHandle) : 0);
+  out += ",\"signalTaskStackHighWater\":" + String(g_signalTaskHandle ? uxTaskGetStackHighWaterMark(g_signalTaskHandle) : 0);
   out += ",\"outQueued\":" + String(g_outboundQueue ? uxQueueMessagesWaiting(g_outboundQueue) : 0);
   out += ",\"inQueued\":" + String(g_inboundQueue ? uxQueueMessagesWaiting(g_inboundQueue) : 0);
   out += ",\"signalQueued\":" + String(g_signalQueue ? uxQueueMessagesWaiting(g_signalQueue) : 0);

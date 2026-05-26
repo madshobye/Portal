@@ -5,6 +5,8 @@ static unsigned long g_bootMs = 0;
 static unsigned long g_lastStatusMs = 0;
 static bool g_bootAutorunWaitingForWifi = false;
 static unsigned long g_bootAutorunWaitStartedAt = 0;
+static unsigned long g_bootAutorunWifiReadyAt = 0;
+static bool g_bootAutorunReportedWebrtcSettle = false;
 static uint8_t g_bootAutorunRunState = P1_EMBED_SCRIPT_RUN_NONE;
 
 static void bootRunCompiledStoredScript(const char* reason) {
@@ -25,6 +27,19 @@ static void bootPollDelayedAutorun() {
   bool wifiReady = wifiIsConnected();
   bool waitExpired = millis() - g_bootAutorunWaitStartedAt >= P1_EMBED_BOOT_AUTORUN_WIFI_WAIT_MS;
   if (!wifiReady && !waitExpired) return;
+
+  if (wifiReady && g_bootAutorunWifiReadyAt == 0) {
+    g_bootAutorunWifiReadyAt = millis();
+  }
+
+  if (wifiReady && P1_EMBED_WEBRTC_ENABLED && P1_EMBED_BOOT_AUTORUN_WEBRTC_SETTLE_MS > 0 &&
+      millis() - g_bootAutorunWifiReadyAt < P1_EMBED_BOOT_AUTORUN_WEBRTC_SETTLE_MS) {
+    if (!g_bootAutorunReportedWebrtcSettle) {
+      g_bootAutorunReportedWebrtcSettle = true;
+      protocolEmitEvent("script.state", "\"state\":\"compiled\",\"source\":\"stored\",\"autorun\":\"waiting_for_webrtc\",\"timeoutMs\":" + String(P1_EMBED_BOOT_AUTORUN_WEBRTC_SETTLE_MS));
+    }
+    return;
+  }
 
   g_bootAutorunWaitingForWifi = false;
   bootRunCompiledStoredScript(wifiReady ? "wifi_connected" : "wifi_wait_timeout");
@@ -69,6 +84,8 @@ void setup() {
       }
       g_bootAutorunWaitingForWifi = true;
       g_bootAutorunWaitStartedAt = millis();
+      g_bootAutorunWifiReadyAt = 0;
+      g_bootAutorunReportedWebrtcSettle = false;
       g_bootAutorunRunState = runState;
       protocolEmitEvent("script.state", "\"state\":\"compiled\",\"source\":\"stored\",\"autorun\":\"waiting_for_wifi\",\"timeoutMs\":" + String(P1_EMBED_BOOT_AUTORUN_WIFI_WAIT_MS));
     } else {

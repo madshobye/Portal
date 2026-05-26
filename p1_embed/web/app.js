@@ -1,7 +1,8 @@
-import { ProtocolClient } from "./protocol/ProtocolClient.js?v=0.1.41-ui76";
-import { WebSerialTransport } from "./protocol/WebSerialTransport.js?v=0.1.41-ui76";
+import { ProtocolClient } from "./protocol/ProtocolClient.js?v=0.1.43-ui78";
+import { WebSerialTransport } from "./protocol/WebSerialTransport.js?v=0.1.43-ui78";
 import { WebSocketTransport } from "./protocol/WebSocketTransport.js";
-import { P1WebFlasher } from "./web-flasher.js?v=0.1.41-ui76";
+import { PeerJsTransport } from "./protocol/PeerJsTransport.js?v=0.1.43-ui78";
+import { P1WebFlasher } from "./web-flasher.js?v=0.1.43-ui78";
 
 const defaultCode = `function setup() {
   pinMode(2, 1);
@@ -20,6 +21,8 @@ const storage = {
   wsUrl: "p1_embed.websocket.url",
   wsName: "p1_embed.websocket.name",
   wsHistory: "p1_embed.websocket.history",
+  peerId: "p1_embed.peerjs.remoteId",
+  peerHistory: "p1_embed.peerjs.history",
   usbHint: "p1_embed.serial.hint",
   usbHistory: "p1_embed.serial.history",
   lastConnection: "p1_embed.connection.last",
@@ -77,6 +80,10 @@ const els = {
   newWsConnect: document.querySelector("#new-ws-connect-button"),
   newWsField: document.querySelector("#new-ws-field"),
   websocketUrl: document.querySelector("#websocket-url"),
+  newPeerToggle: document.querySelector("#new-peer-toggle-button"),
+  newPeerConnect: document.querySelector("#new-peer-connect-button"),
+  newPeerField: document.querySelector("#new-peer-field"),
+  peerId: document.querySelector("#peer-id"),
   getScript: document.querySelector("#get-script-button"),
   reboot: document.querySelector("#reboot-button"),
   run: document.querySelector("#run-button"),
@@ -166,6 +173,7 @@ function boot() {
   initEditor();
   setEditorValue("", { persist: false });
   els.websocketUrl.value = localStorage.getItem(storage.wsUrl) || els.websocketUrl.value;
+  els.peerId.value = localStorage.getItem(storage.peerId) || defaultPeerIdFromWebSocket(els.websocketUrl.value);
   els.debugLevel.value = localStorage.getItem(storage.logLevel) || els.debugLevel.value;
   updateConsoleTimestampButton();
   bindControls();
@@ -251,6 +259,9 @@ function bindControls() {
   els.newWsToggle.addEventListener("click", showNewWsField);
   els.newWsConnect.addEventListener("click", () => connectWebSocket(els.websocketUrl.value));
   els.websocketUrl.addEventListener("input", () => renderConnectionHistory());
+  els.newPeerToggle.addEventListener("click", showNewPeerField);
+  els.newPeerConnect.addEventListener("click", () => connectPeerJs(els.peerId.value));
+  els.peerId.addEventListener("input", () => renderConnectionHistory());
   els.getScript.addEventListener("click", () => runUiAction(getScript, "reading"));
   els.reboot.addEventListener("click", () => runUiAction(() => sendCommand("device.reboot"), "rebooting"));
   els.run.addEventListener("click", () => runUiAction(() => setScript({ run: true, save: true }), "uploading"));
@@ -327,6 +338,8 @@ function openConnectDialog() {
   refreshKnownUsbPorts();
   els.newWsField.classList.add("is-hidden");
   els.newWsConnect.classList.add("is-hidden");
+  els.newPeerField.classList.add("is-hidden");
+  els.newPeerConnect.classList.add("is-hidden");
   els.connectDialog.showModal();
 }
 
@@ -343,14 +356,25 @@ function closeConnectDialog() {
 }
 
 function showNewWsField() {
+  els.newPeerField.classList.add("is-hidden");
+  els.newPeerConnect.classList.add("is-hidden");
   els.newWsField.classList.remove("is-hidden");
   els.newWsConnect.classList.remove("is-hidden");
   els.websocketUrl.focus();
   els.websocketUrl.select();
 }
 
+function showNewPeerField() {
+  els.newWsField.classList.add("is-hidden");
+  els.newWsConnect.classList.add("is-hidden");
+  els.newPeerField.classList.remove("is-hidden");
+  els.newPeerConnect.classList.remove("is-hidden");
+  els.peerId.focus();
+  els.peerId.select();
+}
+
 function renderConnectionHistory() {
-  const items = [...readWebSocketHistory(), ...readUsbHistory()].sort((a, b) => (b.at || 0) - (a.at || 0));
+  const items = [...readPeerHistory(), ...readWebSocketHistory(), ...readUsbHistory()].sort((a, b) => (b.at || 0) - (a.at || 0));
   els.connectionHistory.replaceChildren();
   els.connectionHistory.classList.toggle("is-hidden", items.length === 0);
 
@@ -358,13 +382,13 @@ function renderConnectionHistory() {
     const button = document.createElement("button");
     button.type = "button";
     button.className = "button suggestion-button";
-    button.title = `${item.kind === "usb" ? "USB" : "WebSocket"}: ${item.label}`;
+    button.title = `${connectionKindLabel(item.kind)}: ${item.label}`;
     button.setAttribute("aria-label", button.title);
-    button.disabled = Boolean(client) || isBusy || (item.kind === "usb" && !("serial" in navigator));
+    button.disabled = Boolean(client) || isBusy || (item.kind === "usb" && !("serial" in navigator)) || (item.kind === "peerjs" && !("Peer" in window));
 
     const icon = document.createElement("span");
     icon.className = "material-symbols-rounded";
-    icon.textContent = item.kind === "usb" ? "settings_input_component" : "lan";
+    icon.textContent = connectionKindIcon(item.kind);
     const label = document.createElement("span");
     label.textContent = item.kind === "usb" ? `USB ${item.label}` : item.label;
     button.append(icon, label);
@@ -374,12 +398,26 @@ function renderConnectionHistory() {
       if (consumeRecentLongPress()) return;
       if (item.kind === "usb") {
         connectRecentUsb(item.hint);
+      } else if (item.kind === "peerjs") {
+        connectPeerJs(item.peerId);
       } else {
         connectWebSocket(item.url);
       }
     });
     els.connectionHistory.append(button);
   });
+}
+
+function connectionKindLabel(kind) {
+  if (kind === "usb") return "USB";
+  if (kind === "peerjs") return "PeerJS";
+  return "WebSocket";
+}
+
+function connectionKindIcon(kind) {
+  if (kind === "usb") return "settings_input_component";
+  if (kind === "peerjs") return "hub";
+  return "lan";
 }
 
 function bindLongPressDelete(button, onDelete) {
@@ -426,6 +464,14 @@ function forgetConnectionHistoryItem(item) {
         localStorage.removeItem(storage.wsName);
       }
     }
+  } else if (item.kind === "peerjs") {
+    const peerId = normalizePeerId(item.peerId);
+    writePeerHistory(readPeerHistory().filter((entry) => normalizePeerId(entry.peerId) !== peerId));
+    if (normalizePeerId(localStorage.getItem(storage.peerId)) === peerId) {
+      const next = readPeerHistory()[0];
+      if (next) localStorage.setItem(storage.peerId, next.peerId);
+      else localStorage.removeItem(storage.peerId);
+    }
   } else {
     const key = usbHistoryKey(item.hint);
     writeUsbHistory(readUsbHistory().filter((entry) => usbHistoryKey(entry.hint) !== key));
@@ -436,7 +482,7 @@ function forgetConnectionHistoryItem(item) {
     }
   }
 
-  if (!readWebSocketHistory().length && !readUsbHistory().length) {
+  if (!readPeerHistory().length && !readWebSocketHistory().length && !readUsbHistory().length) {
     localStorage.removeItem(storage.lastConnection);
     localStorage.setItem(storage.reconnectOnLoad, "0");
   }
@@ -487,6 +533,17 @@ async function connectWebSocket(value) {
   renderConnectionHistory();
 }
 
+async function connectPeerJs(value) {
+  const peerId = normalizePeerId(value);
+  if (!peerId) {
+    logLine("warn", "PeerJS device id is required");
+    return;
+  }
+  await connectTransport(new PeerJsTransport(), { remoteId: peerId }, "peerjs", peerId);
+  els.peerId.value = peerId;
+  renderConnectionHistory();
+}
+
 async function connectUsb() {
   await connectTransport(new WebSerialTransport({ storageKey: storage.usbHint }), {}, "usb", "USB");
   await refreshKnownUsbPorts();
@@ -516,6 +573,21 @@ async function autoConnectFromUrlParams() {
       els.websocketUrl.value = url;
       warnIfPlainWebSocketFromSecurePage(url);
       await connectTransport(new WebSocketTransport(), { url }, "websocket", wsDisplayName(url), { lightStartup: true, includeScript: true });
+    } catch (error) {
+      logLine("error", error.message);
+    }
+    return true;
+  }
+
+  if (requested === "peer" || requested === "peerjs" || requested === "webrtc") {
+    const peerId = normalizePeerId(params.get("peer") || params.get("id") || params.get("device") || "");
+    if (!peerId) {
+      logLine("warn", "connect=peer needs a PeerJS device id");
+      return true;
+    }
+    try {
+      els.peerId.value = peerId;
+      await connectTransport(new PeerJsTransport(), { remoteId: peerId }, "peerjs", peerId, { lightStartup: true, includeScript: true, startupTimeoutMs: 20000 });
     } catch (error) {
       logLine("error", error.message);
     }
@@ -557,6 +629,13 @@ async function autoReconnectLastConnection() {
     return;
   }
 
+  if (last === "peerjs") {
+    const peerId = normalizePeerId(localStorage.getItem(storage.peerId) || "");
+    if (!peerId || !("Peer" in window)) return;
+    await connectTransport(new PeerJsTransport(), { remoteId: peerId }, "peerjs", peerId, { quiet: true, lightStartup: true, includeScript: true, startupTimeoutMs: 20000 });
+    return;
+  }
+
   if (last === "usb") {
     if (!("serial" in navigator) || !readUsbHint()) return;
     await connectTransport(new WebSerialTransport({ storageKey: storage.usbHint }), { pickPort: false }, "usb", "USB", { quiet: true, lightStartup: true, includeScript: true });
@@ -587,6 +666,7 @@ async function connectTransport(nextTransport, options, kind, label, { quiet = f
     closeConnectDialog();
     setConnected(true);
     if (kind === "websocket" && options.url) updateConnectionUrlParams("websocket", options.url);
+    if (kind === "peerjs" && options.remoteId) updateConnectionUrlParams("peerjs", "", null, options.remoteId);
     if (kind === "usb") updateConnectionUrlParams("usb", "", readUsbHint());
     if (!quiet) logLine("info", `${label} connected`);
 
@@ -639,6 +719,15 @@ function rememberSuccessfulConnection(kind, label, options = {}) {
     renderConnectionHistory();
   }
 
+  if (kind === "peerjs" && options.remoteId) {
+    const peerId = normalizePeerId(options.remoteId);
+    localStorage.setItem(storage.peerId, peerId);
+    rememberPeerHistory(peerId, label || peerId);
+    els.peerId.value = peerId;
+    updateConnectionUrlParams("peerjs", "", null, peerId);
+    renderConnectionHistory();
+  }
+
   if (kind === "usb") {
     const hint = readUsbHint();
     if (hint) rememberUsbHistory(hint);
@@ -663,6 +752,15 @@ function forgetUnverifiedConnection(kind, options = {}) {
       }
     }
   }
+  if (kind === "peerjs" && options.remoteId) {
+    const attempted = normalizePeerId(options.remoteId);
+    writePeerHistory(readPeerHistory().filter((entry) => normalizePeerId(entry.peerId) !== attempted));
+    if (normalizePeerId(localStorage.getItem(storage.peerId)) === attempted) {
+      const next = readPeerHistory()[0];
+      if (next) localStorage.setItem(storage.peerId, next.peerId);
+      else localStorage.removeItem(storage.peerId);
+    }
+  }
   if (kind === "usb") {
     const key = usbHistoryKey(readUsbHint());
     if (key) writeUsbHistory(readUsbHistory().filter((entry) => usbHistoryKey(entry.hint) !== key));
@@ -682,6 +780,11 @@ function migrateConnectionHistory() {
         rememberWebSocketHistory(url, localStorage.getItem(storage.wsName) || wsDisplayName(url));
       } catch {}
     }
+  }
+
+  if (!readPeerHistory().length) {
+    const peerId = normalizePeerId(localStorage.getItem(storage.peerId) || "");
+    if (peerId) rememberPeerHistory(peerId, peerId);
   }
 
   if (!readUsbHistory().length) {
@@ -737,6 +840,56 @@ function rememberWebSocketHistory(url, label = "") {
     ...readWebSocketHistory().filter((entry) => normalizeWebSocketUrl(entry.url) !== normalized),
   ];
   writeWebSocketHistory(next);
+}
+
+function readPeerHistory() {
+  return readHistoryArray(storage.peerHistory)
+    .map((entry) => {
+      const peerId = normalizePeerId(entry.peerId || entry.id || entry);
+      if (!peerId) return null;
+      return {
+        kind: "peerjs",
+        peerId,
+        label: entry.label || peerId,
+        at: Number(entry.at) || 0,
+      };
+    })
+    .filter(Boolean);
+}
+
+function writePeerHistory(entries) {
+  writeHistoryArray(storage.peerHistory, entries.map((entry) => {
+    const peerId = normalizePeerId(entry.peerId);
+    return {
+      kind: "peerjs",
+      peerId,
+      label: entry.label || peerId,
+      at: Number(entry.at) || Date.now(),
+    };
+  }).filter((entry) => entry.peerId));
+}
+
+function rememberPeerHistory(peerId, label = "") {
+  const normalized = normalizePeerId(peerId);
+  if (!normalized) return;
+  const next = [
+    { kind: "peerjs", peerId: normalized, label: label || normalized, at: Date.now() },
+    ...readPeerHistory().filter((entry) => normalizePeerId(entry.peerId) !== normalized),
+  ];
+  writePeerHistory(next);
+}
+
+function normalizePeerId(value) {
+  return String(value || "").trim().toLowerCase();
+}
+
+function defaultPeerIdFromWebSocket(value) {
+  try {
+    const host = new URL(normalizeWebSocketUrl(value)).hostname;
+    return normalizePeerId(host.replace(/\.local$/i, ""));
+  } catch {
+    return "p1-embed-f7a608";
+  }
 }
 
 function readUsbHistory() {
@@ -868,12 +1021,15 @@ function isLoopbackHost(hostname) {
   return host === "localhost" || host === "::1" || host.startsWith("127.");
 }
 
-function sharePageUrl(kind, wsUrl = "", usbHint = null) {
+function sharePageUrl(kind, wsUrl = "", usbHint = null, peerId = "") {
   const url = new URL(window.location.href);
   url.searchParams.delete("connect");
   url.searchParams.delete("transport");
   url.searchParams.delete("ws");
   url.searchParams.delete("url");
+  url.searchParams.delete("peer");
+  url.searchParams.delete("id");
+  url.searchParams.delete("device");
   url.searchParams.delete("usb");
   url.searchParams.delete("vid");
   url.searchParams.delete("pid");
@@ -881,6 +1037,9 @@ function sharePageUrl(kind, wsUrl = "", usbHint = null) {
   if (kind === "websocket") {
     url.searchParams.set("connect", "ws");
     url.searchParams.set("ws", normalizeWebSocketUrl(wsUrl));
+  } else if (kind === "peerjs") {
+    url.searchParams.set("connect", "peer");
+    url.searchParams.set("peer", normalizePeerId(peerId));
   } else if (kind === "usb") {
     url.searchParams.set("connect", "usb");
     const hint = normalizeUsbHint(usbHint || readUsbHint());
@@ -894,9 +1053,9 @@ function sharePageUrl(kind, wsUrl = "", usbHint = null) {
   return url.toString();
 }
 
-function updateConnectionUrlParams(kind, wsUrl = "", usbHint = null) {
+function updateConnectionUrlParams(kind, wsUrl = "", usbHint = null, peerId = "") {
   if (!window.history?.replaceState) return;
-  const nextUrl = sharePageUrl(kind, wsUrl, usbHint);
+  const nextUrl = sharePageUrl(kind, wsUrl, usbHint, peerId);
   window.history.replaceState(null, "", nextUrl);
 }
 
@@ -907,6 +1066,9 @@ function clearConnectionUrlParams() {
   url.searchParams.delete("transport");
   url.searchParams.delete("ws");
   url.searchParams.delete("url");
+  url.searchParams.delete("peer");
+  url.searchParams.delete("id");
+  url.searchParams.delete("device");
   url.searchParams.delete("usb");
   url.searchParams.delete("vid");
   url.searchParams.delete("pid");
@@ -1668,11 +1830,13 @@ function updateConfig(config = {}) {
 function renderFields() {
   const wifi = lastStatus?.wifi || {};
   const web = lastStatus?.web || {};
+  const webrtc = lastStatus?.webrtc || {};
   const wsUrl = client ? activeWebSocketUrl(web) : "";
-  const wsShareUrl = wsUrl ? sharePageUrl("websocket", wsUrl) : "";
+  const peerId = client ? activePeerId(webrtc) : "";
+  const shareUrl = peerId ? sharePageUrl("peerjs", "", null, peerId) : (wsUrl ? sharePageUrl("websocket", wsUrl) : "");
   syncConnectedShareParams();
   if (els.brandVersion) {
-    els.brandVersion.textContent = lastInfo?.firmwareVersion || "0.1.41";
+    els.brandVersion.textContent = lastInfo?.firmwareVersion || "0.1.43";
   }
   const rows = {
     name: lastInfo?.deviceName || lastStatus?.deviceName || "",
@@ -1688,12 +1852,13 @@ function renderFields() {
     wifi: wifi.connected ? wifi.ssid || "connected" : wifi.state || "offline",
     ip: wifi.ip || "",
     ws: wsUrl,
-    share: wsShareUrl,
+    peer: peerId,
+    share: shareUrl,
     loop: lastStatus?.wrenchLoopCount ?? "",
     task: lastStatus?.wrenchTaskRunning === true ? "running" : lastStatus?.wrenchTaskRunning === false ? "stopped" : "",
   };
 
-  renderInfoShare(wsShareUrl);
+  renderInfoShare(shareUrl);
 
   els.fields.replaceChildren(
     ...Object.entries(rows).map(([key, value]) => {
@@ -1711,6 +1876,17 @@ function renderFields() {
         button.addEventListener("click", () => {
           updateConnectionUrlParams("websocket", String(value));
           connectWebSocket(String(value));
+        });
+        dd.append(button);
+      } else if (key === "peer" && value) {
+        const button = document.createElement("button");
+        button.className = "info-link";
+        button.type = "button";
+        button.textContent = String(value);
+        button.title = "Connect PeerJS";
+        button.addEventListener("click", () => {
+          updateConnectionUrlParams("peerjs", "", null, String(value));
+          connectPeerJs(String(value));
         });
         dd.append(button);
       } else if (key === "share" && value) {
@@ -1812,10 +1988,22 @@ function activeWebSocketUrl(web = {}) {
   return "";
 }
 
+function activePeerId(webrtc = {}) {
+  if (transport?.kind === "peerjs" && transport?.remoteId) return normalizePeerId(transport.remoteId);
+  if (transport?.kind === "usb" || transport?.kind === "websocket") {
+    return normalizePeerId(webrtc.peerId || "");
+  }
+  return "";
+}
+
 function syncConnectedShareParams() {
   if (!client || !window.history?.replaceState) return;
   if (transport?.kind === "websocket" && transport?.url) {
     updateConnectionUrlParams("websocket", transport.url);
+    return;
+  }
+  if (transport?.kind === "peerjs" && transport?.remoteId) {
+    updateConnectionUrlParams("peerjs", "", null, transport.remoteId);
     return;
   }
   if (transport?.kind === "usb") {
@@ -2670,6 +2858,7 @@ function consoleIconForLine(level, message) {
   if (message.startsWith("script.state:")) return "radio_button_checked";
   if (message.startsWith("wifi.status:")) return "wifi";
   if (message.startsWith("websocket.")) return "lan";
+  if (message.startsWith("webrtc.")) return "hub";
   return "info";
 }
 
@@ -2683,6 +2872,7 @@ function simplifyConsoleMessage(level, message) {
   if (raw.startsWith("wifi.status:")) return `WiFi ${body}`;
   if (raw.startsWith("websocket.status:")) return `WebSocket ${body}`;
   if (raw.startsWith("websocket.client:")) return `WebSocket ${body}`;
+  if (raw.startsWith("webrtc.")) return `WebRTC ${body}`;
   if (raw.startsWith("device.boot:")) return "Device boot";
   if (level === "error") return raw.startsWith("Error ") ? raw : `Error ${raw}`;
   if (level === "warn") return raw.startsWith("Warning ") ? raw : `Warning ${raw}`;
