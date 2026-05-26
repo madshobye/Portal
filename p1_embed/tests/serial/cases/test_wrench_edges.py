@@ -100,7 +100,7 @@ function loop() {
     dev.command("script.set", {"code": first, "run": True, "save": False}, timeout=8.0)
     assert_equal(dev.wait_event("script.print", timeout=4.0).get("data", {}).get("message"), "replace first ready", "first script setup print")
     result = dev.command("script.set", {"code": second, "run": True, "save": True}, timeout=10.0)
-    assert_equal(result.get("state"), "run_pending", "replacement should be accepted for run")
+    assert_equal(result.get("state"), "running", "replacement should be accepted and running")
     assert_equal(result.get("scriptBytes"), len(second), "replacement byte count")
     assert_equal(dev.wait_event("script.print", timeout=4.0).get("data", {}).get("message"), "replace second ready", "second script setup print")
     fetched = dev.command("script.get", timeout=4.0)

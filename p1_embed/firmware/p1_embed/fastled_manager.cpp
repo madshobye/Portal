@@ -18,6 +18,11 @@ struct LedStripState {
 static LedStripState g_ledStrips[P1_EMBED_MAX_LED_STRIPS];
 static int g_activeStripCount = 0;
 static int g_totalLedCount = 0;
+static uint8_t g_ledSetDebugMarkers = 0;
+static uint8_t g_ledShowDebugMarkers = 0;
+static uint32_t g_managerBeginCount = 0;
+static uint32_t g_controllerAddCount = 0;
+static uint32_t g_resourceReleaseCount = 0;
 
 static void ledResetRuntimeState() {
   for (int i = 0; i < P1_EMBED_MAX_LED_STRIPS; i++) {
@@ -31,6 +36,8 @@ static void ledResetRuntimeState() {
   }
   g_activeStripCount = 0;
   g_totalLedCount = 0;
+  g_ledSetDebugMarkers = 0;
+  g_ledShowDebugMarkers = 0;
 }
 
 static bool ledValidPin(int pin) {
@@ -41,10 +48,13 @@ static bool ledValidPin(int pin) {
 }
 
 #if P1_EMBED_FASTLED_AVAILABLE
-#define P1_ADD_FASTLED_CASE(PIN) case PIN: controllerOut = &FastLED.addLeds<WS2812B, PIN, GRB>(pixels, count); return controllerOut != nullptr
+#define P1_ADD_FASTLED_CASE(PIN) case PIN: controllerOut = &FastLED.addLeds<WS2812B, PIN, GRB>(pixels, count); break
 
 static bool ledAddController(int pin, CRGB* pixels, int count, CLEDController*& controllerOut) {
   controllerOut = nullptr;
+  g_controllerAddCount++;
+  bool matchedPin = true;
+  debugEventEmit("led.debug", "info", "led", "FastLED.addLeds begin", "\"call\":" + String(g_controllerAddCount) + ",\"pin\":" + String(pin) + ",\"count\":" + String(count));
   switch (pin) {
     P1_ADD_FASTLED_CASE(0);
     P1_ADD_FASTLED_CASE(1);
@@ -69,12 +79,23 @@ static bool ledAddController(int pin, CRGB* pixels, int count, CLEDController*& 
     P1_ADD_FASTLED_CASE(32);
     P1_ADD_FASTLED_CASE(33);
     default:
-      return false;
+      matchedPin = false;
+      break;
   }
+  if (controllerOut) {
+    if (!controllerOut->isInList()) {
+      controllerOut->addToList();
+      debugEventEmit("led.debug", "info", "led", "FastLED controller re-added", "\"call\":" + String(g_controllerAddCount));
+    }
+    controllerOut->setEnabled(true);
+  }
+  debugEventEmit("led.debug", "info", "led", "FastLED.addLeds end", "\"call\":" + String(g_controllerAddCount) + ",\"matchedPin\":" + String(matchedPin ? "true" : "false") + ",\"controller\":" + String(controllerOut ? "true" : "false") + ",\"inList\":" + String((controllerOut && controllerOut->isInList()) ? "true" : "false") + ",\"enabled\":" + String((controllerOut && controllerOut->getEnabled()) ? "true" : "false"));
+  return matchedPin && controllerOut != nullptr;
 }
 #endif
 
 static bool ledStartStrip(int strip, int pin, int count, int brightness) {
+  debugEventEmit("led.debug", "info", "led", "ledStartStrip begin", "\"strip\":" + String(strip) + ",\"pin\":" + String(pin) + ",\"count\":" + String(count) + ",\"brightness\":" + String(brightness));
   if (strip < 0 || strip >= P1_EMBED_MAX_LED_STRIPS) {
     scriptErrorSet("binding", "led_bad_strip", "LED strip index is out of range", "\"strip\":" + String(strip));
     return false;
@@ -89,6 +110,7 @@ static bool ledStartStrip(int strip, int pin, int count, int brightness) {
   LedStripState& s = g_ledStrips[strip];
 
   if (s.ready) {
+    debugEventEmit("led.debug", "info", "led", "ledStartStrip existing", "\"strip\":" + String(strip) + ",\"pin\":" + String(s.pin) + ",\"count\":" + String(s.count) + ",\"brightness\":" + String(s.brightness));
     if (pin != s.pin || count != s.count) {
       scriptErrorSet(
         "binding",
@@ -99,6 +121,8 @@ static bool ledStartStrip(int strip, int pin, int count, int brightness) {
       return false;
     }
     s.brightness = brightness;
+    FastLED.setBrightness((uint8_t)brightness);
+    debugEventEmit("led.status", "info", "led", "strip reused", "\"strip\":" + String(strip) + ",\"pin\":" + String(pin) + ",\"count\":" + String(count) + ",\"brightness\":" + String(brightness));
     return true;
   }
 
@@ -129,6 +153,8 @@ static bool ledStartStrip(int strip, int pin, int count, int brightness) {
   fill_solid(s.pixels, s.count, CRGB::Black);
   g_activeStripCount = max(g_activeStripCount, strip + 1);
   g_totalLedCount += count;
+  g_ledSetDebugMarkers = 0;
+  g_ledShowDebugMarkers = 0;
   FastLED.setBrightness((uint8_t)brightness);
   FastLED.show();
   debugEventEmit("led.status", "info", "led", "strip started", "\"strip\":" + String(strip) + ",\"pin\":" + String(pin) + ",\"count\":" + String(count));
@@ -136,17 +162,22 @@ static bool ledStartStrip(int strip, int pin, int count, int brightness) {
 }
 
 void fastLedManagerBegin() {
+  g_managerBeginCount++;
+  debugEventEmit("led.debug", "info", "led", "fastLedManagerBegin", "\"call\":" + String(g_managerBeginCount));
   ledResetRuntimeState();
 }
 
 void fastLedReleaseScriptResources() {
+  g_resourceReleaseCount++;
   bool hadAny = g_activeStripCount > 0;
+  debugEventEmit("led.debug", "info", "led", "FastLED release begin", "\"call\":" + String(g_resourceReleaseCount) + ",\"hadAny\":" + String(hadAny ? "true" : "false") + ",\"stripCount\":" + String(g_activeStripCount) + ",\"totalLeds\":" + String(g_totalLedCount));
   if (hadAny) {
     ledClear(-1, true);
   }
   for (int i = 0; i < P1_EMBED_MAX_LED_STRIPS; i++) {
     LedStripState& s = g_ledStrips[i];
     if (s.controller) {
+      debugEventEmit("led.debug", "info", "led", "FastLED controller release", "\"strip\":" + String(i) + ",\"pin\":" + String(s.pin) + ",\"count\":" + String(s.count));
       s.controller->removeFromDrawList();
       s.controller->setEnabled(false);
       s.controller->setLeds(nullptr, 0);
@@ -203,6 +234,10 @@ bool ledSetPixel(int strip, int index, int r, int g, int b) {
   LedStripState& s = g_ledStrips[strip];
   if (!s.pixels || index < 0 || index >= s.count) return false;
   s.pixels[index] = CRGB(constrain(r, 0, 255), constrain(g, 0, 255), constrain(b, 0, 255));
+  if (g_ledSetDebugMarkers < 8) {
+    debugEventEmit("led.debug", "info", "led", "ledSetPixel", "\"marker\":" + String(g_ledSetDebugMarkers + 1) + ",\"strip\":" + String(strip) + ",\"index\":" + String(index) + ",\"r\":" + String(constrain(r, 0, 255)) + ",\"g\":" + String(constrain(g, 0, 255)) + ",\"b\":" + String(constrain(b, 0, 255)));
+    g_ledSetDebugMarkers++;
+  }
   return true;
 }
 
@@ -232,6 +267,10 @@ bool ledClear(int strip, bool show) {
 
 bool fastLedShow() {
   if (g_activeStripCount <= 0) return false;
+  if (g_ledShowDebugMarkers < 8) {
+    debugEventEmit("led.debug", "info", "led", "ledShow", "\"marker\":" + String(g_ledShowDebugMarkers + 1) + ",\"stripCount\":" + String(g_activeStripCount) + ",\"totalLeds\":" + String(g_totalLedCount));
+    g_ledShowDebugMarkers++;
+  }
   FastLED.show();
   return true;
 }

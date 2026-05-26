@@ -15,6 +15,7 @@
         </div>
         <nav class="tabs" aria-label="Workspace">
           <button id="coding-tab" class="tab is-active" type="button" data-tab="coding">Coding</button>
+          <button id="chat-tab" class="tab" type="button" data-tab="chat">Chat</button>
           <button id="install-tab" class="tab" type="button" data-tab="install">Install</button>
         </nav>
         <div class="connection-pill" id="connection-state">not connected</div>
@@ -75,6 +76,23 @@
               <dl id="device-fields" class="fields"></dl>
             </section>
           </section>
+        </section>
+      </section>
+
+      <section id="chat-view" class="view chat-view" aria-label="Chat">
+        <header class="chat-toolbar">
+          <button id="chat-connect-button" class="button primary icon-buttonish" type="button" title="Connect" aria-label="Connect"><span class="material-symbols-rounded">link</span></button>
+          <span class="toolbar-divider toolbar-push" aria-hidden="true"></span>
+          <button id="chat-api-key-button" class="button icon-buttonish" type="button" title="Set API key" aria-label="Set API key"><span class="material-symbols-rounded">key</span></button>
+          <select id="chat-model" class="compact-select chat-model" title="Model" aria-label="Model"></select>
+          <button id="chat-debug-prompt-button" class="button icon-buttonish" type="button" title="Download prompt debug: off" aria-label="Download prompt debug: off"><span class="material-symbols-rounded">bug_report</span></button>
+        </header>
+        <section class="chat-shell">
+          <div id="chat-transcript" class="chat-transcript"></div>
+          <form id="chat-form" class="chat-form">
+            <textarea id="chat-input" rows="3" spellcheck="true" autocomplete="off" placeholder="Ask for a Wrench sketch, a fix, or an explanation"></textarea>
+            <button id="chat-send-button" class="button primary icon-buttonish" type="submit" disabled title="Send" aria-label="Send"><span class="material-symbols-rounded">send</span></button>
+          </form>
         </section>
       </section>
 
@@ -139,10 +157,26 @@
       </form>
     </dialog>
 
+    <dialog id="chat-api-key-dialog" class="dialog">
+      <form method="dialog" class="dialog-panel">
+        <header class="dialog-header">
+          <strong>API key</strong>
+          <button class="icon-button" value="cancel" type="submit" aria-label="Close" title="Close"><span class="material-symbols-rounded">close</span></button>
+        </header>
+        <label class="field">
+          <span>OpenAI API key</span>
+          <input id="chat-api-key-input" type="password" autocomplete="off" spellcheck="false">
+        </label>
+        <div class="dialog-actions">
+          <button id="chat-api-key-save-button" class="button primary icon-buttonish" type="button" title="Store API key" aria-label="Store API key"><span class="material-symbols-rounded">key</span></button>
+        </div>
+      </form>
+    </dialog>
+
     <script src="https://cdnjs.cloudflare.com/ajax/libs/ace/1.43.3/ace.js" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/ace/1.43.3/mode-javascript.min.js" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/ace/1.43.3/theme-chaos.min.js" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
     <script src="../../P1/portal/usbSerial.js"></script>
-    <script type="module" src="app.js?v=0.1.39-ui40"></script>
+    <script type="module" src="app.js?v=0.1.39-ui41"></script>
   </body>
 </html>

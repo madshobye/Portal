@@ -21,9 +21,34 @@ const storage = {
   usbHint: "p1_embed.serial.hint",
   lastConnection: "p1_embed.connection.last",
   reconnectOnLoad: "p1_embed.connection.reconnectOnLoad",
+  activeTab: "p1_embed.workspace.activeTab",
   logLevel: "p1_embed.console.logLevel",
   sketchHistory: "p1_embed.editor.history",
+  chatApiKey: "p1_embed.chat.apiKey",
+  chatModel: "p1_embed.chat.model",
+  chatHistory: "p1_embed.chat.history",
+  chatDebugPrompt: "p1_embed.chat.debugPrompt",
 };
+
+const chatModelOptions = [
+  "gpt-5.4",
+  "gpt-5.4-pro",
+  "gpt-5.4-nano",
+  "gpt-5.4-mini",
+  "gpt-5.2",
+  "gpt-5.2-pro",
+  "gpt-5-mini",
+  "gpt-5-nano",
+  "gpt-4.1",
+  "gpt-4.1-mini",
+];
+
+const defaultChatModel = "gpt-5.4-mini";
+const chatHistoryLimit = 15;
+const sketchHistoryLimit = 50;
+const sketchDbName = "p1_embed";
+const sketchDbVersion = 1;
+const sketchStoreName = "sketch_history";
 
 const els = {
   tabs: [...document.querySelectorAll(".tab")],
@@ -34,9 +59,11 @@ const els = {
   },
   views: {
     coding: document.querySelector("#coding-view"),
+    chat: document.querySelector("#chat-view"),
     install: document.querySelector("#install-view"),
   },
   connect: document.querySelector("#connect-button"),
+  chatConnect: document.querySelector("#chat-connect-button"),
   connectDialog: document.querySelector("#connect-dialog"),
   recentWs: document.querySelector("#recent-ws-button"),
   recentWsLabel: document.querySelector("#recent-ws-label"),
@@ -76,6 +103,16 @@ const els = {
   fields: document.querySelector("#device-fields"),
   wifiSsid: document.querySelector("#wifi-ssid"),
   wifiPassword: document.querySelector("#wifi-password"),
+  chatApiKey: document.querySelector("#chat-api-key-button"),
+  chatApiKeyDialog: document.querySelector("#chat-api-key-dialog"),
+  chatApiKeyInput: document.querySelector("#chat-api-key-input"),
+  chatApiKeySave: document.querySelector("#chat-api-key-save-button"),
+  chatModel: document.querySelector("#chat-model"),
+  chatDebugPrompt: document.querySelector("#chat-debug-prompt-button"),
+  chatTranscript: document.querySelector("#chat-transcript"),
+  chatForm: document.querySelector("#chat-form"),
+  chatInput: document.querySelector("#chat-input"),
+  chatSend: document.querySelector("#chat-send-button"),
 };
 
 let transport = null;
@@ -95,6 +132,9 @@ let connectionGeneration = 0;
 let statusTimer = null;
 let editorErrorMarker = null;
 let recentPressHandled = false;
+let chatMessages = [];
+let chatBusy = false;
+let wrenchChatContext = "";
 
 boot();
 
@@ -105,12 +145,14 @@ function boot() {
   els.debugLevel.value = localStorage.getItem(storage.logLevel) || els.debugLevel.value;
   bindControls();
   bindLifecycle();
+  initChat();
   renderRecentWebSocket();
   renderRecentUsb();
   renderSketchHistory();
   refreshKnownUsbPorts();
   setConnected(false);
   renderFields();
+  restoreActiveTab();
   autoReconnectLastConnection();
 
   if (!("serial" in navigator)) {
@@ -181,6 +223,7 @@ function bindControls() {
   els.tabs.forEach((tab) => tab.addEventListener("click", () => switchTab(tab.dataset.tab)));
   els.lowerTabs.forEach((tab) => tab.addEventListener("click", () => switchLowerPanel(tab.dataset.panel)));
   els.connect.addEventListener("click", toggleConnection);
+  els.chatConnect.addEventListener("click", toggleConnection);
   bindLongPressDelete(els.recentWs, forgetRecentWebSocket);
   bindLongPressDelete(els.recentUsb, forgetRecentUsb);
   els.recentWs.addEventListener("click", () => {
@@ -200,7 +243,7 @@ function bindControls() {
   els.run.addEventListener("click", () => runUiAction(() => setScript({ run: true, save: true }), "uploading"));
   els.stop.addEventListener("click", () => runUiAction(() => sendCommand("script.stop").then(refreshStatus), "stopping"));
   els.downloadCode.addEventListener("click", downloadCode);
-  els.sketchHistory.addEventListener("change", recoverSketchHistory);
+  els.sketchHistory.addEventListener("change", () => recoverSketchHistory());
   bindSketchDrop();
   els.rename.addEventListener("click", openRenameDialog);
   els.deviceNameSave.addEventListener("click", () => runUiAction(saveDeviceName, "rename"));
@@ -216,14 +259,37 @@ function bindControls() {
     localStorage.setItem(storage.logLevel, els.debugLevel.value);
     if (client) runUiAction(() => sendCommand("debug.set", { level: els.debugLevel.value }), "debug");
   });
+  els.chatApiKey.addEventListener("click", toggleChatApiKey);
+  els.chatApiKeySave.addEventListener("click", saveChatApiKey);
+  els.chatModel.addEventListener("change", () => {
+    localStorage.setItem(storage.chatModel, els.chatModel.value);
+  });
+  els.chatDebugPrompt.addEventListener("click", toggleChatDebugPrompt);
+  els.chatForm.addEventListener("submit", (event) => {
+    event.preventDefault();
+    sendChatPrompt();
+  });
+  els.chatInput.addEventListener("keydown", (event) => {
+    if (event.key !== "Enter" || event.altKey || event.metaKey || event.ctrlKey || event.shiftKey) return;
+    event.preventDefault();
+    sendChatPrompt();
+  });
+  els.chatInput.addEventListener("input", updateEnabledState);
 }
 
 function switchTab(name) {
+  if (!els.views[name]) name = "coding";
   els.tabs.forEach((tab) => tab.classList.toggle("is-active", tab.dataset.tab === name));
   Object.entries(els.views).forEach(([key, view]) => view.classList.toggle("is-active", key === name));
+  localStorage.setItem(storage.activeTab, name);
   if (name === "coding" && editor) {
     requestAnimationFrame(() => editor.resize());
   }
+  if (name === "chat") renderChatTranscript();
+}
+
+function restoreActiveTab() {
+  switchTab(localStorage.getItem(storage.activeTab) || "coding");
 }
 
 function switchLowerPanel(name) {
@@ -662,11 +728,11 @@ async function setScript({ run, save }) {
       save,
     }, { timeoutMs: 30000 });
   } catch (error) {
-    rememberUploadedSketch(code);
+    await rememberUploadedSketch(code);
     markEditorError(error.message);
     throw error;
   }
-  rememberUploadedSketch(code);
+  await rememberUploadedSketch(code);
   updateScriptState(data);
   await refreshStatus({ timeoutMs: 20000 });
 }
@@ -685,20 +751,76 @@ function downloadCode() {
   URL.revokeObjectURL(url);
 }
 
-function readSketchHistory() {
+function openSketchDb() {
+  return new Promise((resolve, reject) => {
+    if (!window.indexedDB) {
+      reject(new Error("IndexedDB is not available"));
+      return;
+    }
+
+    const request = indexedDB.open(sketchDbName, sketchDbVersion);
+    request.onupgradeneeded = () => {
+      const db = request.result;
+      if (!db.objectStoreNames.contains(sketchStoreName)) {
+        const store = db.createObjectStore(sketchStoreName, { keyPath: "id", autoIncrement: true });
+        store.createIndex("at", "at");
+      }
+    };
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error || new Error("Could not open sketch history database"));
+  });
+}
+
+function sketchDbRequest(request) {
+  return new Promise((resolve, reject) => {
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error || new Error("IndexedDB request failed"));
+  });
+}
+
+function sketchDbTransactionDone(transaction) {
+  return new Promise((resolve, reject) => {
+    transaction.oncomplete = () => resolve();
+    transaction.onerror = () => reject(transaction.error || new Error("IndexedDB transaction failed"));
+    transaction.onabort = () => reject(transaction.error || new Error("IndexedDB transaction aborted"));
+  });
+}
+
+async function readSketchHistory() {
+  try {
+    await migrateSketchHistoryToDb();
+    const db = await openSketchDb();
+    try {
+      const tx = db.transaction(sketchStoreName, "readonly");
+      const items = await sketchDbRequest(tx.objectStore(sketchStoreName).getAll());
+      return items
+        .filter((item) => typeof item?.code === "string")
+        .sort((a, b) => String(b.at || "").localeCompare(String(a.at || "")))
+        .slice(0, sketchHistoryLimit);
+    } finally {
+      db.close();
+    }
+  } catch {
+    return readSketchHistoryFallback();
+  }
+}
+
+function readSketchHistoryFallback() {
   try {
     const value = JSON.parse(localStorage.getItem(storage.sketchHistory) || "[]");
-    return Array.isArray(value) ? value.filter((item) => typeof item?.code === "string") : [];
+    return Array.isArray(value)
+      ? value.filter((item) => typeof item?.code === "string").slice(0, sketchHistoryLimit)
+      : [];
   } catch {
     return [];
   }
 }
 
-function rememberUploadedSketch(code) {
+async function rememberUploadedSketch(code) {
   const current = String(code ?? "");
   if (!current.trim()) return;
 
-  const history = readSketchHistory();
+  const history = await readSketchHistory();
   if (history[0]?.code === current) return;
 
   const entry = {
@@ -707,11 +829,44 @@ function rememberUploadedSketch(code) {
     code: current,
   };
 
-  let next = [entry, ...history].slice(0, 20);
+  try {
+    const db = await openSketchDb();
+    try {
+      const tx = db.transaction(sketchStoreName, "readwrite");
+      const store = tx.objectStore(sketchStoreName);
+      store.add(entry);
+      await new Promise((resolve, reject) => {
+        const request = store.getAll();
+        request.onsuccess = () => {
+          const stale = request.result
+            .filter((item) => typeof item?.code === "string")
+            .sort((a, b) => String(b.at || "").localeCompare(String(a.at || "")))
+            .slice(sketchHistoryLimit);
+          stale.forEach((item) => {
+            if (item.id !== undefined) store.delete(item.id);
+          });
+          resolve();
+        };
+        request.onerror = () => reject(request.error || new Error("Could not trim sketch history"));
+      });
+      await sketchDbTransactionDone(tx);
+    } finally {
+      db.close();
+    }
+    await renderSketchHistory();
+    return;
+  } catch {
+  }
+
+  rememberUploadedSketchFallback(entry, history);
+  await renderSketchHistory();
+}
+
+function rememberUploadedSketchFallback(entry, history) {
+  let next = [entry, ...history].slice(0, sketchHistoryLimit);
   while (next.length) {
     try {
       localStorage.setItem(storage.sketchHistory, JSON.stringify(next));
-      renderSketchHistory();
       return;
     } catch {
       next = next.slice(0, -1);
@@ -719,8 +874,35 @@ function rememberUploadedSketch(code) {
   }
 }
 
-function renderSketchHistory() {
-  const history = readSketchHistory();
+async function migrateSketchHistoryToDb() {
+  if (localStorage.getItem(`${storage.sketchHistory}.migrated`) === "1") return;
+  const oldHistory = readSketchHistoryFallback();
+  if (!oldHistory.length) {
+    localStorage.setItem(`${storage.sketchHistory}.migrated`, "1");
+    return;
+  }
+
+  const db = await openSketchDb();
+  try {
+    const tx = db.transaction(sketchStoreName, "readwrite");
+    const store = tx.objectStore(sketchStoreName);
+    oldHistory.slice().reverse().forEach((item) => {
+      store.add({
+        at: item.at || new Date().toISOString(),
+        bytes: item.bytes || new Blob([item.code || ""]).size,
+        code: String(item.code || ""),
+      });
+    });
+    await sketchDbTransactionDone(tx);
+    localStorage.removeItem(storage.sketchHistory);
+    localStorage.setItem(`${storage.sketchHistory}.migrated`, "1");
+  } finally {
+    db.close();
+  }
+}
+
+async function renderSketchHistory() {
+  const history = await readSketchHistory();
   els.sketchHistory.replaceChildren(new Option("history", ""));
   history.forEach((item, index) => {
     const date = new Date(item.at);
@@ -736,9 +918,9 @@ function renderSketchHistory() {
   els.sketchHistory.value = "";
 }
 
-function recoverSketchHistory() {
+async function recoverSketchHistory() {
   const index = Number(els.sketchHistory.value);
-  const entry = readSketchHistory()[index];
+  const entry = (await readSketchHistory())[index];
   els.sketchHistory.value = "";
   if (!entry) return;
   setEditorValue(entry.code);
@@ -1155,14 +1337,502 @@ function memoryStatusLabel() {
   return "";
 }
 
+function initChat() {
+  els.chatModel.replaceChildren(...chatModelOptions.map((model) => new Option(model, model)));
+  const savedModel = localStorage.getItem(storage.chatModel);
+  els.chatModel.value = chatModelOptions.includes(savedModel) ? savedModel : defaultChatModel;
+  if (!els.chatModel.value) els.chatModel.value = chatModelOptions[0] || "";
+  chatMessages = readChatHistory();
+  renderChatTranscript();
+  updateChatKeyButton();
+  updateChatDebugPromptButton();
+  updateChatEnabledState();
+}
+
+function readChatHistory() {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(storage.chatHistory) || "[]");
+    if (!Array.isArray(parsed)) return [];
+    return parsed
+      .filter((item) => ["user", "assistant", "error"].includes(item?.role) && typeof item?.content === "string")
+      .slice(-60);
+  } catch {
+    return [];
+  }
+}
+
+function saveChatHistory() {
+  localStorage.setItem(storage.chatHistory, JSON.stringify(chatMessages.slice(-60)));
+}
+
+function hasChatApiKey() {
+  return Boolean(localStorage.getItem(storage.chatApiKey));
+}
+
+function chatDebugPromptEnabled() {
+  return localStorage.getItem(storage.chatDebugPrompt) === "1";
+}
+
+function toggleChatDebugPrompt() {
+  localStorage.setItem(storage.chatDebugPrompt, chatDebugPromptEnabled() ? "0" : "1");
+  updateChatDebugPromptButton();
+}
+
+function updateChatDebugPromptButton() {
+  const enabled = chatDebugPromptEnabled();
+  els.chatDebugPrompt.classList.toggle("is-active", enabled);
+  els.chatDebugPrompt.title = enabled ? "Download prompt debug: on" : "Download prompt debug: off";
+  els.chatDebugPrompt.setAttribute("aria-label", els.chatDebugPrompt.title);
+}
+
+function updateChatKeyButton() {
+  const hasKey = hasChatApiKey();
+  els.chatApiKey.title = hasKey ? "Clear API key" : "Set API key";
+  els.chatApiKey.setAttribute("aria-label", els.chatApiKey.title);
+  els.chatApiKey.querySelector(".material-symbols-rounded").textContent = hasKey ? "key_off" : "key";
+}
+
+function updateChatEnabledState() {
+  const hasKey = hasChatApiKey();
+  els.chatForm.classList.toggle("is-hidden", !hasKey);
+  els.chatInput.disabled = !hasKey || chatBusy;
+  els.chatSend.disabled = !hasKey || chatBusy || !els.chatInput.value.trim();
+  els.chatModel.disabled = chatBusy;
+  els.chatApiKey.disabled = chatBusy;
+  els.chatDebugPrompt.disabled = chatBusy;
+}
+
+function toggleChatApiKey() {
+  if (hasChatApiKey()) {
+    localStorage.removeItem(storage.chatApiKey);
+    updateChatKeyButton();
+    updateChatEnabledState();
+    renderChatTranscript();
+    logLine("info", "OpenAI API key cleared");
+    return;
+  }
+
+  els.chatApiKeyInput.value = "";
+  els.chatApiKeyDialog.showModal();
+  els.chatApiKeyInput.focus();
+}
+
+function saveChatApiKey() {
+  const apiKey = els.chatApiKeyInput.value.trim();
+  if (!apiKey) return;
+  localStorage.setItem(storage.chatApiKey, apiKey);
+  els.chatApiKeyInput.value = "";
+  if (els.chatApiKeyDialog.open) els.chatApiKeyDialog.close();
+  updateChatKeyButton();
+  updateChatEnabledState();
+  renderChatTranscript();
+  logLine("info", "OpenAI API key stored in this browser");
+}
+
+function renderChatTranscript() {
+  els.chatTranscript.replaceChildren();
+
+  if (!hasChatApiKey()) {
+    const empty = document.createElement("div");
+    empty.className = "chat-empty";
+    empty.textContent = "Set an API key to start.";
+    els.chatTranscript.append(empty);
+    return;
+  }
+
+  if (chatMessages.length === 0) {
+    const empty = document.createElement("div");
+    empty.className = "chat-empty";
+    empty.textContent = "Ready.";
+    els.chatTranscript.append(empty);
+    return;
+  }
+
+  chatMessages.forEach((message, index) => {
+    els.chatTranscript.append(renderChatMessage(message, index));
+  });
+  els.chatTranscript.scrollTop = els.chatTranscript.scrollHeight;
+}
+
+function renderChatMessage(message, index) {
+  const article = document.createElement("article");
+  article.className = `chat-message chat-${message.role}`;
+
+  const header = document.createElement("header");
+  header.textContent = message.role;
+  article.append(header);
+
+  if (message.content) {
+    const body = document.createElement("p");
+    body.textContent = message.content;
+    article.append(body);
+  }
+
+  const structured = message.structured || null;
+  if (structured?.notes?.length) article.append(renderChatList("notes", structured.notes));
+  if (structured?.warnings?.length) article.append(renderChatList("warnings", structured.warnings));
+
+  if (structured?.code) {
+    const codeHeader = document.createElement("div");
+    codeHeader.className = "chat-code-header";
+    const label = document.createElement("span");
+    label.textContent = "code hidden";
+    const toggle = document.createElement("button");
+    toggle.className = "button compact icon-buttonish";
+    toggle.type = "button";
+    toggle.title = "Show code";
+    toggle.setAttribute("aria-label", "Show code");
+    toggle.innerHTML = '<span class="material-symbols-rounded">code</span>';
+    const apply = document.createElement("button");
+    apply.className = "button compact icon-buttonish";
+    apply.type = "button";
+    apply.title = "Apply code";
+    apply.setAttribute("aria-label", "Apply code");
+    apply.innerHTML = '<span class="material-symbols-rounded">drive_file_move</span>';
+    apply.addEventListener("click", () => applyChatCode(index));
+    codeHeader.append(label, toggle, apply);
+
+    const pre = document.createElement("pre");
+    pre.className = "chat-code is-hidden";
+    pre.textContent = structured.code;
+    toggle.addEventListener("click", () => {
+      const hidden = pre.classList.toggle("is-hidden");
+      label.textContent = hidden ? "code hidden" : "code";
+      toggle.title = hidden ? "Show code" : "Hide code";
+      toggle.setAttribute("aria-label", toggle.title);
+      toggle.querySelector(".material-symbols-rounded").textContent = hidden ? "code" : "code_off";
+    });
+    article.append(codeHeader, pre);
+  }
+
+  return article;
+}
+
+function renderChatList(label, values) {
+  const wrap = document.createElement("div");
+  wrap.className = "chat-list";
+  const strong = document.createElement("strong");
+  strong.textContent = label;
+  const ul = document.createElement("ul");
+  values.slice(0, 8).forEach((value) => {
+    const li = document.createElement("li");
+    li.textContent = String(value);
+    ul.append(li);
+  });
+  wrap.append(strong, ul);
+  return wrap;
+}
+
+async function applyChatCode(index) {
+  const message = chatMessages[index];
+  const code = message?.structured?.code;
+  if (!code) return;
+  await replaceEditorFromChat(code, "chat code applied to editor");
+  switchTab("coding");
+}
+
+async function replaceEditorFromChat(code, message) {
+  const current = getEditorValue();
+  if (current.trim() && current !== code) await rememberUploadedSketch(current);
+  setEditorValue(code);
+  await rememberUploadedSketch(code);
+  logLine("info", message);
+}
+
+async function sendChatPrompt() {
+  const prompt = els.chatInput.value.trim();
+  if (!prompt || chatBusy || !hasChatApiKey()) return;
+
+  chatBusy = true;
+  updateChatEnabledState();
+  chatMessages.push({ role: "user", content: prompt, at: new Date().toISOString() });
+  els.chatInput.value = "";
+  renderChatTranscript();
+  saveChatHistory();
+
+  try {
+    const result = await requestChatCompletion(prompt);
+    const content = result.reply || "Done.";
+    if (result.code_action === "replace" && result.code.trim()) {
+      await replaceEditorFromChat(result.code, "chat code replaced editor");
+    }
+    chatMessages.push({
+      role: "assistant",
+      content,
+      structured: result,
+      at: new Date().toISOString(),
+    });
+    saveChatHistory();
+  } catch (error) {
+    chatMessages.push({ role: "error", content: error.message || String(error), at: new Date().toISOString() });
+    saveChatHistory();
+  } finally {
+    chatBusy = false;
+    renderChatTranscript();
+    updateChatEnabledState();
+  }
+}
+
+async function requestChatCompletion(prompt) {
+  const apiKey = localStorage.getItem(storage.chatApiKey) || "";
+  const model = els.chatModel.value || defaultChatModel;
+  const context = await getWrenchChatContext();
+  const conversation = chatMessages.slice(-chatHistoryLimit).map((message) => ({
+    role: message.role,
+    content: message.content,
+    code: message.structured?.code ? "[code omitted from transcript; current code is provided separately]" : undefined,
+  }));
+  const payloadContext = {
+    currentCode: getEditorValue(),
+    recentLog: consoleLines.slice(-100).map((line) => line.text),
+    lastError: lastStatus?.lastError || null,
+    deviceInfo: lastInfo || {},
+    deviceStatus: lastStatus || {},
+    conversation,
+  };
+  const instructions = buildChatInstructions(context);
+  const userInputText = [
+    `User request:\n${prompt}`,
+    `P1E context JSON:\n${JSON.stringify(payloadContext)}`,
+  ].join("\n\n");
+
+  const body = {
+    model,
+    instructions,
+    input: [
+      {
+        role: "user",
+        content: [
+          {
+            type: "input_text",
+            text: userInputText,
+          },
+        ],
+      },
+    ],
+    max_output_tokens: 3200,
+    text: {
+      format: {
+        type: "json_schema",
+        name: "p1e_wrench_assistant_response",
+        strict: false,
+        schema: chatResponseSchema(),
+      },
+    },
+  };
+
+  if (chatDebugPromptEnabled()) {
+    downloadChatPromptDebug({ model, prompt, instructions, userInputText, payloadContext, body });
+  }
+
+  const response = await fetch("https://api.openai.com/v1/responses", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(body),
+  });
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok || data.error) {
+    throw new Error(data.error?.message || `OpenAI request failed (${response.status})`);
+  }
+
+  const text = extractResponseText(data);
+  return parseChatStructuredText(text);
+}
+
+async function getWrenchChatContext() {
+  if (wrenchChatContext) return wrenchChatContext;
+  try {
+    const response = await fetch("wrench_chat_context.md", { cache: "no-cache" });
+    wrenchChatContext = await response.text();
+  } catch {
+    wrenchChatContext = "P1E Wrench context unavailable.";
+  }
+  return wrenchChatContext;
+}
+
+function buildChatInstructions(context) {
+  return [
+    "You are the P1E Wrench coding assistant inside a browser tool for an ESP32 classic firmware.",
+    "Return only JSON matching the requested schema.",
+    "When producing code, provide a complete Wrench script that can replace the editor contents.",
+    "Prefer setup() and loop(). Keep loop non-blocking where reasonable. Use short delay() only when it is intentional.",
+    "Avoid factory reset or destructive device actions. Do not invent firmware bindings beyond the documented P1E bindings.",
+    "If the user's request is ambiguous, explain the assumption in reply and notes.",
+    "Use warnings only for immediate, concrete risks such as unsafe pins, high current, blocking code, destructive commands, missing credentials, or likely firmware/resource failure.",
+    "Do not include generic warnings such as code will be replaced, test before use, or backup your work. Put ordinary caveats in notes, or leave arrays empty.",
+    "",
+    context,
+  ].join("\n");
+}
+
+function chatResponseSchema() {
+  return {
+    type: "object",
+    additionalProperties: false,
+    properties: {
+      reply: { type: "string" },
+      code: { type: "string" },
+      code_action: { type: "string", enum: ["replace", "none"] },
+      notes: { type: "array", items: { type: "string" } },
+      warnings: { type: "array", items: { type: "string" } },
+    },
+    required: ["reply", "code", "code_action", "notes", "warnings"],
+  };
+}
+
+function downloadChatPromptDebug({ model, prompt, instructions, userInputText, payloadContext, body }) {
+  const code = payloadContext.currentCode || "";
+  const log = Array.isArray(payloadContext.recentLog) ? payloadContext.recentLog.join("\n") : "";
+  const conversation = Array.isArray(payloadContext.conversation)
+    ? payloadContext.conversation.map((item, index) => {
+      const content = String(item.content || "").trim();
+      return `${index + 1}. ${item.role}: ${content}`;
+    }).join("\n")
+    : "";
+  const lastError = payloadContext.lastError ? JSON.stringify(payloadContext.lastError, null, 2) : "none";
+  const md = [
+    "# P1E Chat Prompt Debug",
+    "",
+    `Time: ${new Date().toISOString()}`,
+    `Model: ${model}`,
+    "",
+    "## User Request",
+    "",
+    "```text",
+    prompt,
+    "```",
+    "",
+    "## Instructions",
+    "",
+    "```text",
+    instructions,
+    "```",
+    "",
+    "## User Input Sent To Model",
+    "",
+    "```text",
+    userInputText,
+    "```",
+    "",
+    "## Current Code",
+    "",
+    "```wrench",
+    code,
+    "```",
+    "",
+    "## Recent Chat History",
+    "",
+    conversation || "none",
+    "",
+    "## Last Device Error",
+    "",
+    "```json",
+    lastError,
+    "```",
+    "",
+    "## Recent Log",
+    "",
+    "```text",
+    log || "none",
+    "```",
+    "",
+    "## Full Request Body",
+    "",
+    "```json",
+    JSON.stringify(body, null, 2),
+    "```",
+  ].join("\n");
+
+  downloadTextFile(md, `p1e-chat-prompt-${timestampForFilename()}.md`, "text/markdown;charset=utf-8");
+}
+
+function downloadTextFile(text, filename, type) {
+  const blob = new Blob([text], { type });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  document.body.append(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+}
+
+function timestampForFilename() {
+  return new Date().toISOString().slice(0, 19).replace(/[:T]/g, "-");
+}
+
+function extractResponseText(data) {
+  if (typeof data.output_text === "string" && data.output_text.trim()) return data.output_text;
+  const parts = [];
+  for (const item of data.output || []) {
+    for (const content of item.content || []) {
+      if (typeof content.text === "string") parts.push(content.text);
+    }
+  }
+  return parts.join("\n").trim();
+}
+
+function parseChatStructuredText(text) {
+  const raw = String(text || "").trim();
+  if (!raw) throw new Error("Empty OpenAI response");
+  let parsed = null;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    const match = raw.match(/\{[\s\S]*\}/);
+    if (match) {
+      try {
+        parsed = JSON.parse(match[0]);
+      } catch {
+        parsed = null;
+      }
+    }
+  }
+
+  if (!parsed || typeof parsed !== "object") {
+    return { reply: raw, code: "", code_action: "none", notes: [], warnings: ["Response was not structured JSON."] };
+  }
+
+  return {
+    reply: String(parsed.reply || ""),
+    code: String(parsed.code || ""),
+    code_action: parsed.code_action === "replace" ? "replace" : "none",
+    notes: Array.isArray(parsed.notes) ? parsed.notes.map(String) : [],
+    warnings: filterChatWarnings(parsed.warnings),
+  };
+}
+
+function filterChatWarnings(warnings) {
+  if (!Array.isArray(warnings)) return [];
+  const generic = [
+    "code will be replaced",
+    "replace the editor",
+    "backup",
+    "back up",
+    "test before",
+    "review before",
+    "use caution",
+  ];
+  return warnings
+    .map((warning) => String(warning).trim())
+    .filter(Boolean)
+    .filter((warning) => !generic.some((needle) => warning.toLowerCase().includes(needle)));
+}
+
 function updateEnabledState() {
   const connected = Boolean(client);
-  els.connect.disabled = isBusy;
-  els.connect.classList.toggle("primary", !connected);
-  els.connect.classList.remove("danger");
-  els.connect.title = connected ? "Disconnect" : "Connect";
-  els.connect.setAttribute("aria-label", els.connect.title);
-  els.connect.querySelector(".material-symbols-rounded").textContent = connected ? "link_off" : "link";
+  [els.connect, els.chatConnect].forEach((button) => {
+    button.disabled = isBusy;
+    button.classList.toggle("primary", !connected);
+    button.classList.remove("danger");
+    button.title = connected ? "Disconnect" : "Connect";
+    button.setAttribute("aria-label", button.title);
+    button.querySelector(".material-symbols-rounded").textContent = connected ? "link_off" : "link";
+  });
   els.downloadCode.disabled = !getEditorValue().trim();
   [
     els.getScript,
@@ -1178,6 +1848,7 @@ function updateEnabledState() {
   ].forEach((el) => {
     el.disabled = !connected || isBusy;
   });
+  updateChatEnabledState();
   renderRecentWebSocket();
   renderRecentUsb();
   renderConnectionState();
