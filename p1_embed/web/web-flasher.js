@@ -139,14 +139,14 @@ function manifestToFiles(manifest, baseUrl) {
 }
 
 async function firmwareData(file) {
-  if (file.data) return toUint8Array(file.data);
+  if (file.data) return toBinaryString(toUint8Array(file.data));
   if (file.file instanceof File || file.blob instanceof Blob) {
-    return new Uint8Array(await (file.file || file.blob).arrayBuffer());
+    return toBinaryString(new Uint8Array(await (file.file || file.blob).arrayBuffer()));
   }
   if (!file.url) throw new Error("Firmware file needs data, file, blob, or url");
   const response = await fetch(file.url, { cache: "no-store" });
   if (!response.ok) throw new Error(`Could not load ${file.url}: ${response.status}`);
-  return new Uint8Array(await response.arrayBuffer());
+  return toBinaryString(new Uint8Array(await response.arrayBuffer()));
 }
 
 function toUint8Array(value) {
@@ -154,6 +154,16 @@ function toUint8Array(value) {
   if (value instanceof ArrayBuffer) return new Uint8Array(value);
   if (ArrayBuffer.isView(value)) return new Uint8Array(value.buffer, value.byteOffset, value.byteLength);
   throw new Error("Firmware data must be Uint8Array, ArrayBuffer, or typed array");
+}
+
+function toBinaryString(bytes) {
+  let out = "";
+  const chunkSize = 0x8000;
+  for (let offset = 0; offset < bytes.length; offset += chunkSize) {
+    const chunk = bytes.subarray(offset, offset + chunkSize);
+    out += String.fromCharCode(...chunk);
+  }
+  return out;
 }
 
 function parseFlashAddress(value) {

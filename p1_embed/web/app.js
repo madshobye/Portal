@@ -1,7 +1,7 @@
 import { ProtocolClient } from "./protocol/ProtocolClient.js";
 import { WebSerialTransport } from "./protocol/WebSerialTransport.js";
 import { WebSocketTransport } from "./protocol/WebSocketTransport.js";
-import { P1WebFlasher } from "./web-flasher.js";
+import { P1WebFlasher } from "./web-flasher.js?v=0.1.40-ui61";
 
 const defaultCode = `function setup() {
   pinMode(2, 1);
