@@ -1,6 +1,7 @@
 import { ProtocolClient } from "./protocol/ProtocolClient.js";
 import { WebSerialTransport } from "./protocol/WebSerialTransport.js";
 import { WebSocketTransport } from "./protocol/WebSocketTransport.js";
+import { P1WebFlasher } from "./web-flasher.js";
 
 const defaultCode = `function setup() {
   pinMode(2, 1);
@@ -118,6 +119,12 @@ const els = {
   chatForm: document.querySelector("#chat-form"),
   chatInput: document.querySelector("#chat-input"),
   chatSend: document.querySelector("#chat-send-button"),
+  installConnect: document.querySelector("#install-connect-button"),
+  installFlashManifest: document.querySelector("#install-flash-manifest-button"),
+  installManifest: document.querySelector("#install-manifest-input"),
+  installProgress: document.querySelector("#install-progress"),
+  installStatus: document.querySelector("#install-status"),
+  installLog: document.querySelector("#install-log"),
 };
 
 let transport = null;
@@ -145,6 +152,8 @@ let lastConsoleEventSignature = "";
 let lastConsoleEventAt = 0;
 let lastWifiConsoleKey = "";
 let lastWifiConsoleAt = 0;
+let flasher = null;
+let flasherBusy = false;
 
 boot();
 
@@ -276,6 +285,8 @@ function bindControls() {
   });
   els.chatDebugPrompt.addEventListener("click", toggleChatDebugPrompt);
   els.chatClear.addEventListener("click", clearChat);
+  els.installConnect.addEventListener("click", () => runInstallAction(connectFlasher));
+  els.installFlashManifest.addEventListener("click", () => runInstallAction(flashInstallManifest));
   els.chatForm.addEventListener("submit", (event) => {
     event.preventDefault();
     sendChatPrompt();
@@ -1874,6 +1885,81 @@ function clearChat() {
   updateChatEnabledState();
 }
 
+async function runInstallAction(action) {
+  if (flasherBusy) return;
+  flasherBusy = true;
+  updateInstallEnabledState();
+  try {
+    await action();
+  } catch (error) {
+    installLog(`Error: ${error.message || error}`);
+    installStatus("error");
+  } finally {
+    flasherBusy = false;
+    updateInstallEnabledState();
+  }
+}
+
+async function connectFlasher() {
+  ensureFlasher();
+  await releaseDeviceTransportForInstall();
+  const chipName = await flasher.connect();
+  installStatus(chipName ? `connected / ${chipName}` : "connected");
+}
+
+async function flashInstallManifest() {
+  ensureFlasher();
+  await releaseDeviceTransportForInstall();
+  const manifest = els.installManifest.value.trim() || "bin/p1e-firmware.json";
+  await flasher.flashManifest(manifest);
+}
+
+async function releaseDeviceTransportForInstall() {
+  localStorage.setItem(storage.reconnectOnLoad, "0");
+  if (client || transport) {
+    await disconnectTransport({ quiet: true });
+    installLog("Disconnected coding transport");
+  }
+}
+
+function ensureFlasher() {
+  if (flasher) return flasher;
+  flasher = new P1WebFlasher();
+  flasher.addEventListener("state", (event) => installStatus(event.detail.chipName ? `${event.detail.state} / ${event.detail.chipName}` : event.detail.state));
+  flasher.addEventListener("log", (event) => installLog(event.detail.message || ""));
+  flasher.addEventListener("progress", (event) => {
+    const { fileIndex, written, total } = event.detail;
+    const pct = total > 0 ? Math.round((written / total) * 100) : 0;
+    els.installProgress.value = pct;
+    installStatus(`flashing part ${Number(fileIndex) + 1} / ${pct}%`);
+  });
+  return flasher;
+}
+
+function installStatus(text) {
+  els.installStatus.textContent = text || "idle";
+  if (text === "done" || text === "erased") els.installProgress.value = 100;
+  if (text === "connecting" || text === "loading" || text === "flashing" || text === "erasing") els.installProgress.removeAttribute("value");
+}
+
+function installLog(message) {
+  const text = String(message || "").trimEnd();
+  if (!text) return;
+  els.installLog.textContent += `${text}\n`;
+  els.installLog.scrollTop = els.installLog.scrollHeight;
+}
+
+function updateInstallEnabledState() {
+  const available = "serial" in navigator;
+  [
+    els.installConnect,
+    els.installFlashManifest,
+    els.installManifest,
+  ].forEach((el) => {
+    if (el) el.disabled = flasherBusy || !available;
+  });
+}
+
 function hasChatApiKey() {
   return Boolean(localStorage.getItem(storage.chatApiKey));
 }
@@ -2369,6 +2455,7 @@ function updateEnabledState() {
   updateChatEnabledState();
   renderConnectionHistory();
   renderConnectionState();
+  updateInstallEnabledState();
 }
 
 function logLine(level, message) {

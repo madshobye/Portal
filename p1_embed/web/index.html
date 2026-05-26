@@ -104,7 +104,16 @@
       </section>
 
       <section id="install-view" class="view install-view" aria-label="Install">
-        <div class="install-empty"></div>
+        <section class="install-shell">
+          <header class="install-toolbar">
+            <button id="install-connect-button" class="button primary icon-buttonish" type="button" title="Connect flasher" aria-label="Connect flasher"><span class="material-symbols-rounded">usb</span></button>
+            <button id="install-flash-manifest-button" class="button primary icon-buttonish" type="button" title="Upload firmware" aria-label="Upload firmware"><span class="material-symbols-rounded">system_update_alt</span></button>
+          </header>
+          <input id="install-manifest-input" class="is-hidden" type="hidden" value="bin/p1e-firmware.json" aria-hidden="true">
+          <progress id="install-progress" class="install-progress" value="0" max="100"></progress>
+          <div id="install-status" class="install-status">idle</div>
+          <pre id="install-log" class="install-log"></pre>
+        </section>
       </section>
     </main>
 
@@ -184,6 +193,6 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/ace/1.43.3/theme-chaos.min.js" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
     <script src="../../P1/portal/usbSerial.js"></script>
     <script src="../../P1/portal/qrCodeGen.js"></script>
-    <script type="module" src="app.js?v=0.1.40-ui57"></script>
+    <script type="module" src="app.js?v=0.1.40-ui60"></script>
   </body>
 </html>

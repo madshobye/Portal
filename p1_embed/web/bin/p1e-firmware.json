@@ -1,0 +1,11 @@
+{
+  "name": "P1E ESP32 classic",
+  "flashMode": "dio",
+  "flashFreq": "80m",
+  "flashSize": "4MB",
+  "eraseAll": false,
+  "compress": true,
+  "files": [
+    { "address": "0x0", "url": "p1e-esp32-classic.bin" }
+  ]
+}

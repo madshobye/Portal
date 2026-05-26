@@ -1,0 +1,14 @@
+{
+  "name": "P1E",
+  "flashMode": "dio",
+  "flashFreq": "40m",
+  "flashSize": "detect",
+  "eraseAll": false,
+  "compress": true,
+  "files": [
+    { "address": "0x1000", "url": "p1e-bootloader.bin" },
+    { "address": "0x8000", "url": "p1e-partitions.bin" },
+    { "address": "0xe000", "url": "p1e-boot-app0.bin" },
+    { "address": "0x10000", "url": "p1e-app.bin" }
+  ]
+}
