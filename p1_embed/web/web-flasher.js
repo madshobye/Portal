@@ -3,7 +3,7 @@ const DEFAULT_ESPTOOL_MODULE = "https://esm.sh/esptool-js@0.5.7?bundle";
 export class P1WebFlasher extends EventTarget {
   constructor({
     esptoolModuleUrl = DEFAULT_ESPTOOL_MODULE,
-    baudrate = 115200,
+    baudrate = 921600,
     debugLogging = false,
     filters = [],
   } = {}) {
@@ -86,6 +86,9 @@ export class P1WebFlasher extends EventTarget {
         this.emit("progress", { fileIndex, written, total });
       },
     });
+    this.setState("resetting");
+    await this.loader.after("hard_reset");
+    await this.releaseBootSignals();
     this.setState("done");
   }
 
@@ -97,6 +100,7 @@ export class P1WebFlasher extends EventTarget {
   }
 
   async disconnect() {
+    await this.releaseBootSignals();
     await this.transport?.disconnect?.();
     this.loader = null;
     this.transport = null;
@@ -107,6 +111,16 @@ export class P1WebFlasher extends EventTarget {
 
   async loadEsptool() {
     return await import(this.esptoolModuleUrl);
+  }
+
+  async releaseBootSignals() {
+    try {
+      await this.port?.setSignals?.({
+        dataTerminalReady: false,
+        requestToSend: false,
+      });
+    } catch {
+    }
   }
 
   terminal() {

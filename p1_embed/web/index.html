@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>P1E</title>
     <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@24,400,0,0">
-    <link rel="stylesheet" href="style.css">
+    <link rel="stylesheet" href="style.css?v=0.1.40-ui67">
   </head>
   <body>
     <main id="app">
@@ -105,14 +105,39 @@
 
       <section id="install-view" class="view install-view" aria-label="Install">
         <section class="install-shell">
-          <header class="install-toolbar">
-            <button id="install-connect-button" class="button primary icon-buttonish" type="button" title="Connect flasher" aria-label="Connect flasher"><span class="material-symbols-rounded">usb</span></button>
-            <button id="install-flash-manifest-button" class="button primary icon-buttonish" type="button" title="Upload firmware" aria-label="Upload firmware"><span class="material-symbols-rounded">system_update_alt</span></button>
-          </header>
+          <div class="install-card">
+            <h2>Upload the P1E firmware to your ESP32 Classic board</h2>
+            <p class="install-copy">Connect the board with USB, then start the upload. Your browser will ask which serial device to use.</p>
+            <div class="install-fields" aria-label="Optional setup after upload">
+              <label class="field install-field">
+                <span>Name</span>
+                <input id="install-device-name" type="text" autocomplete="off" spellcheck="false" placeholder="optional">
+              </label>
+              <label class="field install-field">
+                <span>SSID</span>
+                <input id="install-wifi-ssid" type="text" autocomplete="off" placeholder="optional">
+              </label>
+              <label class="field install-field">
+                <span>Password</span>
+                <input id="install-wifi-password" type="password" autocomplete="new-password" placeholder="optional">
+              </label>
+            </div>
+            <button id="install-flash-manifest-button" class="button primary install-upload-button" type="button" title="Upload P1E firmware" aria-label="Upload P1E firmware">
+              <span>Upload P1E</span>
+              <span class="material-symbols-rounded">system_update_alt</span>
+            </button>
+            <progress id="install-progress" class="install-progress" value="0" max="100"></progress>
+            <div id="install-status" class="install-status"></div>
+            <button id="install-go-code-button" class="button install-go-code-button is-hidden" type="button" title="Go to Code" aria-label="Go to Code">
+              <span>Ready, go to Code</span>
+              <span class="material-symbols-rounded">arrow_forward</span>
+            </button>
+          </div>
           <input id="install-manifest-input" class="is-hidden" type="hidden" value="bin/p1e-firmware.json" aria-hidden="true">
-          <progress id="install-progress" class="install-progress" value="0" max="100"></progress>
-          <div id="install-status" class="install-status">idle</div>
-          <pre id="install-log" class="install-log"></pre>
+          <details class="install-log-panel">
+            <summary><span class="material-symbols-rounded">terminal</span><span>Details</span></summary>
+            <pre id="install-log" class="install-log"></pre>
+          </details>
         </section>
       </section>
     </main>
@@ -193,6 +218,6 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/ace/1.43.3/theme-chaos.min.js" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
     <script src="../../P1/portal/usbSerial.js"></script>
     <script src="../../P1/portal/qrCodeGen.js"></script>
-    <script type="module" src="app.js?v=0.1.40-ui61"></script>
+    <script type="module" src="app.js?v=0.1.40-ui67"></script>
   </body>
 </html>

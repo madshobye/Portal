@@ -1,7 +1,7 @@
 import { ProtocolClient } from "./protocol/ProtocolClient.js";
-import { WebSerialTransport } from "./protocol/WebSerialTransport.js";
+import { WebSerialTransport } from "./protocol/WebSerialTransport.js?v=0.1.40-ui67";
 import { WebSocketTransport } from "./protocol/WebSocketTransport.js";
-import { P1WebFlasher } from "./web-flasher.js?v=0.1.40-ui61";
+import { P1WebFlasher } from "./web-flasher.js?v=0.1.40-ui67";
 
 const defaultCode = `function setup() {
   pinMode(2, 1);
@@ -121,7 +121,11 @@ const els = {
   chatSend: document.querySelector("#chat-send-button"),
   installConnect: document.querySelector("#install-connect-button"),
   installFlashManifest: document.querySelector("#install-flash-manifest-button"),
+  installGoCode: document.querySelector("#install-go-code-button"),
   installManifest: document.querySelector("#install-manifest-input"),
+  installDeviceName: document.querySelector("#install-device-name"),
+  installWifiSsid: document.querySelector("#install-wifi-ssid"),
+  installWifiPassword: document.querySelector("#install-wifi-password"),
   installProgress: document.querySelector("#install-progress"),
   installStatus: document.querySelector("#install-status"),
   installLog: document.querySelector("#install-log"),
@@ -285,8 +289,9 @@ function bindControls() {
   });
   els.chatDebugPrompt.addEventListener("click", toggleChatDebugPrompt);
   els.chatClear.addEventListener("click", clearChat);
-  els.installConnect.addEventListener("click", () => runInstallAction(connectFlasher));
+  els.installConnect?.addEventListener("click", () => runInstallAction(connectFlasher));
   els.installFlashManifest.addEventListener("click", () => runInstallAction(flashInstallManifest));
+  els.installGoCode.addEventListener("click", () => switchTab("coding"));
   els.chatForm.addEventListener("submit", (event) => {
     event.preventDefault();
     sendChatPrompt();
@@ -560,7 +565,7 @@ async function autoReconnectLastConnection() {
   }
 }
 
-async function connectTransport(nextTransport, options, kind, label, { quiet = false, lightStartup = false, includeScript = true } = {}) {
+async function connectTransport(nextTransport, options, kind, label, { quiet = false, lightStartup = false, includeScript = true, startupTimeoutMs = 15000 } = {}) {
   const generation = connectionGeneration + 1;
   connectionGeneration = generation;
   suppressConnectionLogs = quiet;
@@ -577,21 +582,38 @@ async function connectTransport(nextTransport, options, kind, label, { quiet = f
     const ok = await transport.connect(options);
     if (generation !== connectionGeneration) {
       await nextTransport.disconnect?.();
-      return;
+      return false;
     }
     if (!ok) throw new Error(`${label} device was not available`);
     closeConnectDialog();
     setConnected(true);
     if (kind === "websocket" && options.url) updateConnectionUrlParams("websocket", options.url);
     if (kind === "usb") updateConnectionUrlParams("usb", "", readUsbHint());
-    startStatusPolling();
     if (!quiet) logLine("info", `${label} connected`);
+
+    if (lightStartup) await settle(450);
+    if (generation !== connectionGeneration) return false;
+    const verified = await startupRefresh({ quiet, includeScript, timeoutMs: startupTimeoutMs, expectedGeneration: generation });
+    if (generation === connectionGeneration && verified) {
+      rememberSuccessfulConnection(kind, label, options);
+      startStatusPolling();
+      return true;
+    } else if (generation === connectionGeneration) {
+      if (!quiet) logLine("warn", `${label} connected but did not answer protocol checks`);
+      forgetUnverifiedConnection(kind, options);
+      await disconnectTransport({ quiet: true, keepGeneration: true });
+      setConnected(false);
+      return false;
+    }
   } catch (error) {
-    if (generation !== connectionGeneration) return;
+    if (generation !== connectionGeneration) return false;
     if (!quiet) logLine("error", error.message);
-    await disconnectTransport({ quiet: true, keepGeneration: true });
+    if (transport === nextTransport) {
+      forgetUnverifiedConnection(kind, options);
+      await disconnectTransport({ quiet: true, keepGeneration: true });
+    }
     setConnected(false);
-    return;
+    return false;
   } finally {
     if (generation === connectionGeneration) {
       suppressConnectionLogs = false;
@@ -600,21 +622,7 @@ async function connectTransport(nextTransport, options, kind, label, { quiet = f
       updateEnabledState();
     }
   }
-
-  try {
-    if (lightStartup) await settle(450);
-    if (generation !== connectionGeneration) return;
-    const verified = await startupRefresh({ quiet, includeScript });
-    if (generation === connectionGeneration && verified) {
-      rememberSuccessfulConnection(kind, label, options);
-    } else if (generation === connectionGeneration) {
-      if (!quiet) logLine("warn", `${label} connected but did not answer protocol checks`);
-      forgetUnverifiedConnection(kind, options);
-    }
-  } catch (error) {
-    if (generation === connectionGeneration && !quiet) logLine("error", `startup refresh: ${error.message}`);
-    if (generation === connectionGeneration) forgetUnverifiedConnection(kind, options);
-  }
+  return false;
 }
 
 function rememberSuccessfulConnection(kind, label, options = {}) {
@@ -949,18 +957,25 @@ function bindClient(nextClient) {
   });
 }
 
-async function startupRefresh({ quiet = false, includeScript = true } = {}) {
-  const infoOk = await bestEffortStartupStep(() => refreshInfo({ quiet }), quiet);
-  const statusOk = await bestEffortStartupStep(() => refreshStatus({ quiet }), quiet);
-  await bestEffortStartupStep(() => sendCommand("config.get", {}, { quiet }).then(updateConfig), quiet);
+async function startupRefresh({ quiet = false, includeScript = true, timeoutMs = 15000, expectedGeneration = null } = {}) {
+  const stale = () => expectedGeneration !== null && expectedGeneration !== connectionGeneration;
+  if (stale()) return false;
+  const infoOk = await bestEffortStartupStep(() => refreshInfo({ quiet, timeoutMs }), quiet);
+  if (!client || stale()) return false;
+  const statusOk = await bestEffortStartupStep(() => refreshStatus({ quiet, timeoutMs }), quiet);
+  if (!client || stale()) return infoOk || statusOk;
+  if (!infoOk && !statusOk) return false;
+  await bestEffortStartupStep(() => sendCommand("config.get", {}, { quiet, timeoutMs }).then(updateConfig), quiet);
+  if (!client || stale()) return infoOk || statusOk;
   await bestEffortStartupStep(async () => {
-    const data = await sendCommand("debug.get", {}, { quiet });
+    const data = await sendCommand("debug.get", {}, { quiet, timeoutMs });
     if (data.levelName && !localStorage.getItem(storage.logLevel)) {
       els.debugLevel.value = data.levelName;
     }
-    await sendCommand("debug.set", { level: els.debugLevel.value }, { quiet });
+    await sendCommand("debug.set", { level: els.debugLevel.value }, { quiet, timeoutMs });
   }, quiet);
-  if (includeScript) await bestEffortStartupStep(() => getScript({ quiet }), quiet);
+  if (!client || stale()) return infoOk || statusOk;
+  if (includeScript) await bestEffortStartupStep(() => getScript({ quiet, timeoutMs }), quiet);
   return infoOk || statusOk;
 }
 
@@ -1892,8 +1907,9 @@ async function runInstallAction(action) {
   try {
     await action();
   } catch (error) {
-    installLog(`Error: ${error.message || error}`);
-    installStatus("error");
+    const message = `Error: ${error.message || error}`;
+    installLog(message);
+    installStatus(message);
   } finally {
     flasherBusy = false;
     updateInstallEnabledState();
@@ -1909,9 +1925,18 @@ async function connectFlasher() {
 
 async function flashInstallManifest() {
   ensureFlasher();
+  els.installLog.textContent = "";
+  els.installGoCode.classList.add("is-hidden");
   await releaseDeviceTransportForInstall();
   const manifest = els.installManifest.value.trim() || "bin/p1e-firmware.json";
+  els.installProgress.value = 0;
+  installStatus("Choose your ESP32 serial port");
   await flasher.flashManifest(manifest);
+  const hint = normalizeUsbHint(flasher.port?.getInfo?.() || null);
+  installStatus("Upload complete. Waiting for board...");
+  await flasher.disconnect();
+  await settle(1800);
+  await applyInstallSetupAfterUpload(hint);
 }
 
 async function releaseDeviceTransportForInstall() {
@@ -1925,21 +1950,100 @@ async function releaseDeviceTransportForInstall() {
 function ensureFlasher() {
   if (flasher) return flasher;
   flasher = new P1WebFlasher();
-  flasher.addEventListener("state", (event) => installStatus(event.detail.chipName ? `${event.detail.state} / ${event.detail.chipName}` : event.detail.state));
+  flasher.addEventListener("state", (event) => installStatus(formatInstallState(event.detail)));
   flasher.addEventListener("log", (event) => installLog(event.detail.message || ""));
   flasher.addEventListener("progress", (event) => {
     const { fileIndex, written, total } = event.detail;
     const pct = total > 0 ? Math.round((written / total) * 100) : 0;
     els.installProgress.value = pct;
-    installStatus(`flashing part ${Number(fileIndex) + 1} / ${pct}%`);
+    installStatus(`Uploading ${pct}%`);
   });
   return flasher;
 }
 
 function installStatus(text) {
-  els.installStatus.textContent = text || "idle";
-  if (text === "done" || text === "erased") els.installProgress.value = 100;
-  if (text === "connecting" || text === "loading" || text === "flashing" || text === "erasing") els.installProgress.removeAttribute("value");
+  els.installStatus.textContent = text || "";
+  if (text === "Upload complete" || text === "Flash erased") els.installProgress.value = 100;
+  if (text === "Connecting" || text === "Preparing firmware" || text === "Uploading" || text === "Erasing flash") els.installProgress.removeAttribute("value");
+}
+
+function formatInstallState(detail = {}) {
+  const chip = detail.chipName ? ` / ${detail.chipName}` : "";
+  const labels = {
+    connecting: "Connecting",
+    connected: `Connected${chip}`,
+    loading: "Preparing firmware",
+    flashing: "Uploading",
+    resetting: "Restarting board",
+    done: "Upload complete",
+    erasing: "Erasing flash",
+    erased: "Flash erased",
+    disconnected: "Disconnected",
+  };
+  return labels[detail.state] || detail.state || "";
+}
+
+function readInstallSetup() {
+  const deviceName = els.installDeviceName.value.trim();
+  const wifiSsid = els.installWifiSsid.value.trim();
+  const wifiPassword = els.installWifiPassword.value;
+  const data = {};
+  if (deviceName) data.deviceName = deviceName;
+  if (wifiSsid) data.wifiSsid = wifiSsid;
+  if (wifiPassword) data.wifiPassword = wifiPassword;
+  return data;
+}
+
+async function applyInstallSetupAfterUpload(hint) {
+  if (hint) localStorage.setItem(storage.usbHint, JSON.stringify(hint));
+  const setup = readInstallSetup();
+  const connected = await connectUsbAfterInstall();
+  if (!connected) {
+    installStatus("Uploaded. Open Code when the board is ready.");
+    els.installGoCode.classList.remove("is-hidden");
+    return;
+  }
+
+  if (Object.keys(setup).length) {
+    try {
+      installStatus("Applying setup");
+      const config = await sendCommand("config.set", setup, { quiet: true, timeoutMs: 12000 });
+      updateConfig(config);
+      if (setup.deviceName) {
+        lastInfo = { ...(lastInfo || {}), deviceName: setup.deviceName };
+        lastStatus = { ...(lastStatus || {}), deviceName: setup.deviceName };
+      }
+      els.installWifiPassword.value = "";
+      await refreshStatus({ quiet: true, timeoutMs: 8000 });
+    } catch (error) {
+      installLog(`Setup warning: ${error.message || error}`);
+      installStatus("Ready. Setup was not applied.");
+      els.installGoCode.classList.remove("is-hidden");
+      return;
+    }
+  }
+
+  installStatus("Ready");
+  els.installGoCode.classList.remove("is-hidden");
+}
+
+async function connectUsbAfterInstall() {
+  if (!("serial" in navigator) || !readUsbHint()) return false;
+  for (let attempt = 0; attempt < 4; attempt += 1) {
+    installStatus(attempt ? `Checking P1E (${attempt + 1}/4)` : "Checking P1E");
+    await settle(attempt ? 1600 : 800);
+    const ok = await connectTransport(
+      new WebSerialTransport({ storageKey: storage.usbHint }),
+      { pickPort: false },
+      "usb",
+      "USB",
+      { quiet: true, lightStartup: true, includeScript: false, startupTimeoutMs: 2500 },
+    );
+    await refreshKnownUsbPorts();
+    if (ok && client) return true;
+  }
+  installLog("P1E did not answer the automatic post-upload probe.");
+  return false;
 }
 
 function installLog(message) {
@@ -1954,6 +2058,7 @@ function updateInstallEnabledState() {
   [
     els.installConnect,
     els.installFlashManifest,
+    els.installGoCode,
     els.installManifest,
   ].forEach((el) => {
     if (el) el.disabled = flasherBusy || !available;

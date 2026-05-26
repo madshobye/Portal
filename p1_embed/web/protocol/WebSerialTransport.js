@@ -48,6 +48,7 @@ export class WebSerialTransport extends EventTarget {
     await this.serial.init();
     const ok = pickPort ? await this.serial.connectWithPicker() : await this.serial.tryReconnectKnown();
     this.connected = Boolean(ok);
+    if (this.connected) await releaseSerialBootSignals(this.serial.port);
     return this.connected;
   }
 
@@ -76,5 +77,15 @@ export class WebSerialTransport extends EventTarget {
 
   emit(type, detail) {
     this.dispatchEvent(new CustomEvent(type, { detail }));
+  }
+}
+
+async function releaseSerialBootSignals(port) {
+  try {
+    await port?.setSignals?.({
+      dataTerminalReady: false,
+      requestToSend: false,
+    });
+  } catch {
   }
 }
