@@ -501,6 +501,32 @@ input {
   white-space: pre-wrap;
 }
 
+.console-line {
+  display: flex;
+  align-items: baseline;
+  gap: 9px;
+  min-width: 0;
+}
+
+.console-icon {
+  flex: 0 0 16px;
+  width: 16px;
+  color: var(--muted);
+  font-size: 15px;
+  line-height: 1;
+  transform: translateY(2px);
+}
+
+.console-time {
+  flex: 0 0 auto;
+  color: var(--muted);
+}
+
+.console-text {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
 .line-error {
   color: var(--red);
 }
@@ -541,7 +567,7 @@ input {
 
 .info-share {
   display: grid;
-  grid-template-rows: minmax(0, 1fr) auto;
+  grid-template-rows: minmax(0, 1fr);
   justify-items: center;
   gap: 8px;
   min-width: 0;
@@ -557,6 +583,12 @@ input {
   place-items: center;
   width: 100%;
   min-height: 0;
+  cursor: pointer;
+  outline: none;
+}
+
+.info-qr:focus-visible {
+  box-shadow: 0 0 0 2px rgba(89, 189, 208, 0.45);
 }
 
 .info-qr canvas {

@@ -173,5 +173,5 @@ void scriptStoreVerifyIfDue() {
   if (millis() - g_scriptRunStartedAt < P1_EMBED_SCRIPT_VERIFY_MS) return;
   scriptStoreSaveRunState(P1_EMBED_SCRIPT_RUN_OK);
   g_scriptVerifyArmed = false;
-  protocolEmitEvent("script.storage", "\"state\":\"verified\",\"verifyMs\":" + String(P1_EMBED_SCRIPT_VERIFY_MS));
+  debugEventEmit("script.storage", "debug", "script", "verified", "\"verifyMs\":" + String(P1_EMBED_SCRIPT_VERIFY_MS));
 }

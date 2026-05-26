@@ -184,7 +184,7 @@ static void wrenchStopLocked() {
 static void wrenchLoopLocked() {
   if (g_scriptState != SCRIPT_RUNNING || !g_wr || !g_ctx || !g_fnLoop) return;
   if (g_wrenchLoopDebugMarkers < 5) {
-    debugEventEmit("script.debug", "info", "script", "loop call", "\"marker\":" + String(g_wrenchLoopDebugMarkers + 1) + ",\"loopCount\":" + String(g_wrenchLoopCount));
+    debugEventEmit("script.debug", "trace", "script", "loop call", "\"marker\":" + String(g_wrenchLoopDebugMarkers + 1) + ",\"loopCount\":" + String(g_wrenchLoopCount));
     g_wrenchLoopDebugMarkers++;
   }
   uint32_t startedAt = millis();
@@ -639,14 +639,14 @@ static bool wrenchCompileSource(const String& userCode, unsigned char** bytecode
 
 bool wrenchCompileAndSet(const String& userCode, String& errOut) {
   errOut = "";
-  debugEventEmit("script.debug", "info", "script", "compileAndSet begin", "\"scriptBytes\":" + String(userCode.length()));
+  debugEventEmit("script.debug", "debug", "script", "compileAndSet begin", "\"scriptBytes\":" + String(userCode.length()));
   wrenchReleaseCompiledProgram();
   wrenchSetPhase(WRENCH_PHASE_COMPILING);
 
   unsigned char* bytecode = nullptr;
   int byteLen = 0;
   if (!wrenchCompileSource(userCode, &bytecode, &byteLen, errOut)) {
-    debugEventEmit("script.debug", "info", "script", "compileAndSet compile failed", "\"error\":" + jsonString(errOut));
+    debugEventEmit("script.debug", "debug", "script", "compileAndSet compile failed", "\"error\":" + jsonString(errOut));
     wrenchLock();
     g_scriptState = SCRIPT_ERROR;
     wrenchSetPhase(WRENCH_PHASE_ERROR);
@@ -663,7 +663,7 @@ bool wrenchCompileAndSet(const String& userCode, String& errOut) {
   g_bytecodeLen = byteLen;
   g_scriptState = SCRIPT_COMPILED;
   wrenchSetPhase(WRENCH_PHASE_COMPILED);
-  debugEventEmit("script.debug", "info", "script", "compileAndSet ready", "\"scriptBytes\":" + String(userCode.length()) + ",\"bytecodeBytes\":" + String(byteLen));
+  debugEventEmit("script.debug", "debug", "script", "compileAndSet ready", "\"scriptBytes\":" + String(userCode.length()) + ",\"bytecodeBytes\":" + String(byteLen));
   protocolEmitEvent("script.state", "\"state\":\"compiled\",\"scriptBytes\":" + String(userCode.length()) + ",\"bytecodeBytes\":" + String(byteLen));
   wrenchUnlock();
   return true;
@@ -671,7 +671,7 @@ bool wrenchCompileAndSet(const String& userCode, String& errOut) {
 
 bool wrenchRunCompiled(String& errOut) {
   errOut = "";
-  debugEventEmit("script.debug", "info", "script", "runCompiled begin", "\"bytecodeBytes\":" + String(g_bytecodeLen));
+  debugEventEmit("script.debug", "debug", "script", "runCompiled begin", "\"bytecodeBytes\":" + String(g_bytecodeLen));
   wrenchLock();
   if (!g_bytecode || g_bytecodeLen <= 0) {
     errOut = "no compiled script";
@@ -683,7 +683,7 @@ bool wrenchRunCompiled(String& errOut) {
   }
 
   wrenchStopLocked();
-  debugEventEmit("script.debug", "info", "script", "runCompiled after stop");
+  debugEventEmit("script.debug", "debug", "script", "runCompiled after stop");
 
   g_wr = wr_newState();
   if (!g_wr) {
@@ -699,7 +699,7 @@ bool wrenchRunCompiled(String& errOut) {
 
   wr_loadAllLibs(g_wr);
   wrenchRegisterBindings(g_wr);
-  debugEventEmit("script.debug", "info", "script", "runCompiled state created");
+  debugEventEmit("script.debug", "debug", "script", "runCompiled state created");
 
   wrenchSetPhase(WRENCH_PHASE_LOADING);
   g_ctx = wr_newContext(g_wr, g_bytecode, g_bytecodeLen, false);
@@ -719,7 +719,7 @@ bool wrenchRunCompiled(String& errOut) {
   g_fnSetup = wr_getFunction(g_ctx, "setup");
   g_fnLoop = wr_getFunction(g_ctx, "loop");
   g_scriptState = SCRIPT_COMPILED;
-  debugEventEmit("script.debug", "info", "script", "runCompiled functions", "\"hasSetup\":" + String(g_fnSetup ? "true" : "false") + ",\"hasLoop\":" + String(g_fnLoop ? "true" : "false"));
+  debugEventEmit("script.debug", "debug", "script", "runCompiled functions", "\"hasSetup\":" + String(g_fnSetup ? "true" : "false") + ",\"hasLoop\":" + String(g_fnLoop ? "true" : "false"));
 
   WRValue* top = wr_executeContext(g_ctx);
   if (!top && wr_getLastError(g_wr) != WR_ERR_None) {
@@ -732,11 +732,11 @@ bool wrenchRunCompiled(String& errOut) {
     wrenchUnlock();
     return false;
   }
-  debugEventEmit("script.debug", "info", "script", "runCompiled global ok", "\"hasSetup\":" + String(g_fnSetup ? "true" : "false") + ",\"hasLoop\":" + String(g_fnLoop ? "true" : "false"));
+  debugEventEmit("script.debug", "debug", "script", "runCompiled global ok", "\"hasSetup\":" + String(g_fnSetup ? "true" : "false") + ",\"hasLoop\":" + String(g_fnLoop ? "true" : "false"));
 
   if (g_fnSetup) {
     wrenchSetPhase(WRENCH_PHASE_SETUP);
-    debugEventEmit("script.debug", "info", "script", "setup begin");
+    debugEventEmit("script.debug", "debug", "script", "setup begin");
     WRValue* ret = wr_callFunction(g_ctx, g_fnSetup, nullptr, 0);
     if (!ret && wr_getLastError(g_wr) != WR_ERR_None) {
       WRError error = wr_getLastError(g_wr);
@@ -748,15 +748,15 @@ bool wrenchRunCompiled(String& errOut) {
       wrenchUnlock();
       return false;
     }
-    debugEventEmit("script.debug", "info", "script", "setup ok");
+    debugEventEmit("script.debug", "debug", "script", "setup ok");
   } else {
-    debugEventEmit("script.debug", "info", "script", "setup missing");
+    debugEventEmit("script.debug", "debug", "script", "setup missing");
   }
 
   g_scriptState = SCRIPT_RUNNING;
   g_wrenchLoopDebugMarkers = 0;
   wrenchSetPhase(WRENCH_PHASE_RUNNING);
-  debugEventEmit("script.debug", "info", "script", "runCompiled running", "\"hasSetup\":" + String(g_fnSetup ? "true" : "false") + ",\"hasLoop\":" + String(g_fnLoop ? "true" : "false"));
+  debugEventEmit("script.debug", "debug", "script", "runCompiled running", "\"hasSetup\":" + String(g_fnSetup ? "true" : "false") + ",\"hasLoop\":" + String(g_fnLoop ? "true" : "false"));
   protocolEmitEvent("script.state", "\"state\":\"running\",\"hasSetup\":" + String(g_fnSetup ? "true" : "false") + ",\"hasLoop\":" + String(g_fnLoop ? "true" : "false"));
   wrenchUnlock();
   return true;

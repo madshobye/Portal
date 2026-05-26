@@ -25,6 +25,7 @@ const storage = {
   reconnectOnLoad: "p1_embed.connection.reconnectOnLoad",
   activeTab: "p1_embed.workspace.activeTab",
   logLevel: "p1_embed.console.logLevel",
+  consoleTimestamps: "p1_embed.console.timestamps",
   sketchHistory: "p1_embed.editor.history",
   chatApiKey: "p1_embed.chat.apiKey",
   chatModel: "p1_embed.chat.model",
@@ -88,6 +89,7 @@ const els = {
   wifiDialog: document.querySelector("#wifi-dialog"),
   wifiSave: document.querySelector("#wifi-save-button"),
   consoleActions: document.querySelector("#console-actions"),
+  consoleTimestamps: document.querySelector("#console-timestamps-button"),
   copyConsole: document.querySelector("#copy-console-button"),
   clearConsole: document.querySelector("#clear-console-button"),
   rawForm: document.querySelector("#raw-form"),
@@ -103,7 +105,6 @@ const els = {
   fields: document.querySelector("#device-fields"),
   infoShare: document.querySelector("#info-share"),
   infoQr: document.querySelector("#info-qr"),
-  infoShareCopy: document.querySelector("#info-share-copy-button"),
   wifiSsid: document.querySelector("#wifi-ssid"),
   wifiPassword: document.querySelector("#wifi-password"),
   chatApiKey: document.querySelector("#chat-api-key-button"),
@@ -112,6 +113,7 @@ const els = {
   chatApiKeySave: document.querySelector("#chat-api-key-save-button"),
   chatModel: document.querySelector("#chat-model"),
   chatDebugPrompt: document.querySelector("#chat-debug-prompt-button"),
+  chatClear: document.querySelector("#chat-clear-button"),
   chatTranscript: document.querySelector("#chat-transcript"),
   chatForm: document.querySelector("#chat-form"),
   chatInput: document.querySelector("#chat-input"),
@@ -139,6 +141,10 @@ let chatMessages = [];
 let chatBusy = false;
 let wrenchChatContext = "";
 let lastLoggedScriptErrorCount = 0;
+let lastConsoleEventSignature = "";
+let lastConsoleEventAt = 0;
+let lastWifiConsoleKey = "";
+let lastWifiConsoleAt = 0;
 
 boot();
 
@@ -147,6 +153,7 @@ function boot() {
   setEditorValue("", { persist: false });
   els.websocketUrl.value = localStorage.getItem(storage.wsUrl) || els.websocketUrl.value;
   els.debugLevel.value = localStorage.getItem(storage.logLevel) || els.debugLevel.value;
+  updateConsoleTimestampButton();
   bindControls();
   bindLifecycle();
   initChat();
@@ -245,8 +252,14 @@ function bindControls() {
   els.deviceNameSave.addEventListener("click", () => runUiAction(saveDeviceName, "rename"));
   els.wifi.addEventListener("click", openWifiDialog);
   els.wifiSave.addEventListener("click", () => runUiAction(saveWifi, "wifi"));
+  els.consoleTimestamps.addEventListener("click", toggleConsoleTimestamps);
   els.copyConsole.addEventListener("click", copyConsole);
-  els.infoShareCopy.addEventListener("click", copyInfoShareLink);
+  els.infoQr.addEventListener("click", copyInfoShareLink);
+  els.infoQr.addEventListener("keydown", (event) => {
+    if (event.key !== "Enter" && event.key !== " ") return;
+    event.preventDefault();
+    copyInfoShareLink();
+  });
   els.clearConsole.addEventListener("click", clearConsole);
   els.rawForm.addEventListener("submit", (event) => {
     event.preventDefault();
@@ -262,6 +275,7 @@ function bindControls() {
     localStorage.setItem(storage.chatModel, els.chatModel.value);
   });
   els.chatDebugPrompt.addEventListener("click", toggleChatDebugPrompt);
+  els.chatClear.addEventListener("click", clearChat);
   els.chatForm.addEventListener("submit", (event) => {
     event.preventDefault();
     sendChatPrompt();
@@ -286,7 +300,7 @@ function switchTab(name) {
 }
 
 function restoreActiveTab() {
-  switchTab(localStorage.getItem(storage.activeTab) || "coding");
+  switchTab(localStorage.getItem(storage.activeTab) || "chat");
 }
 
 function switchLowerPanel(name) {
@@ -1321,7 +1335,9 @@ function acceptEvent(event) {
   }
 
   const message = eventMessage(event.name, data);
-  logLine(level, `${event.name}: ${message}`);
+  if (shouldLogEvent(event.name, data, message)) {
+    logLine(level, `${event.name}: ${message}`);
+  }
 
   if (event.name === "script.error") {
     const count = Number(data.error?.count);
@@ -1348,11 +1364,7 @@ function eventMessage(name, data = {}) {
   }
 
   if (name === "wifi.status") {
-    return [
-      data.status || data.state || "unknown",
-      data.ssid || "",
-      data.ip || "",
-    ].filter(Boolean).join(" / ");
+    return wifiConsoleState(data).message;
   }
 
   if (name === "led.status") {
@@ -1360,6 +1372,67 @@ function eventMessage(name, data = {}) {
   }
 
   return data.message || data.code || data.status || data.state || name;
+}
+
+function shouldLogEvent(name, data = {}, message = "") {
+  if (name === "wifi.status") {
+    return shouldLogWifiEvent(data);
+  }
+
+  if (name === "script.state") {
+    const state = data.state || data.scriptState || "";
+    if (busyLabel === "uploading" && (state === "stopped" || state === "compiled")) return false;
+  }
+
+  const signature = `${name}:${message}`;
+  const now = Date.now();
+  if (signature === lastConsoleEventSignature && now - lastConsoleEventAt < 2500) return false;
+  lastConsoleEventSignature = signature;
+  lastConsoleEventAt = now;
+  return true;
+}
+
+function shouldLogWifiEvent(data = {}) {
+  const wifi = wifiConsoleState(data);
+  const now = Date.now();
+  const changed = wifi.key !== lastWifiConsoleKey;
+  const canRepeat = wifi.repeatMs > 0 && now - lastWifiConsoleAt >= wifi.repeatMs;
+  if (!changed && !canRepeat) return false;
+  lastWifiConsoleKey = wifi.key;
+  lastWifiConsoleAt = now;
+  return true;
+}
+
+function wifiConsoleState(data = {}) {
+  const rawStatus = String(data.status || data.state || "").toLowerCase();
+  const ssid = String(data.ssid || "").trim();
+  const ip = String(data.ip || "").trim();
+  const connected = data.connected === true || rawStatus === "connected";
+  let group = rawStatus || "unknown";
+  let label = rawStatus || "unknown";
+  let repeatMs = 0;
+
+  if (connected) {
+    group = "connected";
+    label = "connected";
+  } else if (rawStatus.includes("connecting") || rawStatus === "reconnecting") {
+    group = "connecting";
+    label = "connecting";
+    repeatMs = 30000;
+  } else if (rawStatus.includes("fail")) {
+    group = "failed";
+    label = "connect failed";
+  } else if (["disconnected", "no_ssid", "idle", "off"].includes(rawStatus)) {
+    group = "disconnected";
+    label = "disconnected";
+  }
+
+  const parts = [label, ssid, connected && ip && ip !== "0.0.0.0" ? ip : ""].filter(Boolean);
+  return {
+    key: `wifi:${group}:${ssid}:${connected ? ip : ""}`,
+    message: parts.join(" / "),
+    repeatMs,
+  };
 }
 
 function markEditorError(message) {
@@ -1546,8 +1619,7 @@ function renderFields() {
 function renderInfoShare(shareUrl = "") {
   const url = String(shareUrl || "");
   els.infoShare.classList.toggle("is-hidden", !url);
-  els.infoShareCopy.disabled = !url;
-  els.infoShareCopy.dataset.url = url;
+  els.infoQr.dataset.url = url;
   if (!url) {
     els.infoQr.replaceChildren();
     delete els.infoQr.dataset.url;
@@ -1596,7 +1668,7 @@ function renderQrCanvas(text) {
 }
 
 async function copyInfoShareLink() {
-  const url = els.infoShareCopy.dataset.url || "";
+  const url = els.infoQr.dataset.url || "";
   if (!url) return;
   try {
     await navigator.clipboard.writeText(url);
@@ -1736,6 +1808,13 @@ function saveChatHistory() {
   localStorage.setItem(storage.chatHistory, JSON.stringify(chatMessages.slice(-60)));
 }
 
+function clearChat() {
+  chatMessages = [];
+  localStorage.removeItem(storage.chatHistory);
+  renderChatTranscript();
+  updateChatEnabledState();
+}
+
 function hasChatApiKey() {
   return Boolean(localStorage.getItem(storage.chatApiKey));
 }
@@ -1771,6 +1850,7 @@ function updateChatEnabledState() {
   els.chatModel.disabled = chatBusy;
   els.chatApiKey.disabled = chatBusy;
   els.chatDebugPrompt.disabled = chatBusy;
+  els.chatClear.disabled = chatBusy || chatMessages.length === 0;
 }
 
 function toggleChatApiKey() {
@@ -1959,7 +2039,7 @@ async function requestChatCompletion(prompt) {
   }));
   const payloadContext = {
     currentCode: getEditorValue(),
-    recentLog: consoleLines.slice(-100).map((line) => line.text),
+    recentLog: consoleLines.slice(-100).map((line) => formatConsoleLine(line)),
     lastError: lastStatus?.lastError || null,
     deviceInfo: lastInfo || {},
     deviceStatus: lastStatus || {},
@@ -2233,10 +2313,18 @@ function updateEnabledState() {
 }
 
 function logLine(level, message) {
+  if (!consoleLevelVisible(level)) return;
   const stamp = new Date().toLocaleTimeString();
-  consoleLines.push({ level, text: `[${stamp}] ${level.toUpperCase()} ${message}` });
+  consoleLines.push({ level, stamp, message: String(message) });
   if (consoleLines.length > 500) consoleLines = consoleLines.slice(-500);
   renderConsole();
+}
+
+function consoleLevelVisible(level) {
+  const values = { error: 0, warn: 1, info: 2, debug: 3, trace: 4 };
+  const current = values[els.debugLevel?.value || "info"] ?? 2;
+  const value = values[level] ?? 2;
+  return value <= current;
 }
 
 function logJson(level, data) {
@@ -2247,13 +2335,88 @@ function logJson(level, data) {
 function renderConsole() {
   els.console.replaceChildren(
     ...consoleLines.map((line) => {
-      const span = document.createElement("span");
-      span.className = `line-${line.level}`;
-      span.textContent = `${line.text}\n`;
-      return span;
+      const row = document.createElement("span");
+      const icon = document.createElement("span");
+      const time = document.createElement("span");
+      const text = document.createElement("span");
+      const visual = consoleVisualLine(line);
+
+      row.className = `console-line line-${line.level}`;
+      row.title = formatConsoleLine(line);
+      icon.className = "material-symbols-rounded console-icon";
+      icon.textContent = visual.icon;
+      time.className = "console-time";
+      time.textContent = consoleTimestampsEnabled() ? line.stamp || "" : "";
+      text.className = "console-text";
+      text.textContent = `${visual.text}\n`;
+      row.append(icon, time, text);
+      return row;
     }),
   );
   els.console.scrollTop = els.console.scrollHeight;
+}
+
+function consoleVisualLine(line) {
+  const level = String(line.level || "info");
+  const message = String(line.message || "");
+  const icon = consoleIconForLine(level, message);
+  return { icon, text: simplifyConsoleMessage(level, message) };
+}
+
+function consoleIconForLine(level, message) {
+  if (level === "error") return "error";
+  if (level === "warn") return "warning";
+  if (level === "debug" || level === "trace") return "bug_report";
+  if (message.startsWith("script.print:")) return "notes";
+  if (message.startsWith("script.state:")) return "radio_button_checked";
+  if (message.startsWith("wifi.status:")) return "wifi";
+  if (message.startsWith("websocket.")) return "lan";
+  return "info";
+}
+
+function simplifyConsoleMessage(level, message) {
+  const raw = String(message || "");
+  const body = raw.replace(/^[^:]+:\s*/, "");
+
+  if (raw.startsWith("script.state:")) return titleCaseFirst(body.split(" / ")[0] || body);
+  if (raw.startsWith("script.print:")) return body;
+  if (raw.startsWith("script.error:")) return `Script error: ${body}`;
+  if (raw.startsWith("wifi.status:")) return `WiFi ${body}`;
+  if (raw.startsWith("websocket.status:")) return `WebSocket ${body}`;
+  if (raw.startsWith("websocket.client:")) return `WebSocket ${body}`;
+  if (raw.startsWith("device.boot:")) return "Device boot";
+  if (level === "error") return raw.startsWith("Error ") ? raw : `Error ${raw}`;
+  if (level === "warn") return raw.startsWith("Warning ") ? raw : `Warning ${raw}`;
+  return raw;
+}
+
+function titleCaseFirst(value) {
+  const text = String(value || "").trim();
+  if (!text) return "";
+  return `${text[0].toUpperCase()}${text.slice(1)}`;
+}
+
+function formatConsoleLine(line) {
+  if (line.text) return consoleTimestampsEnabled() ? line.text : line.text.replace(/^\[[^\]]+\]\s+/, "");
+  const prefix = consoleTimestampsEnabled() ? `[${line.stamp}] ` : "";
+  return `${prefix}${String(line.level || "info").toUpperCase()} ${line.message || ""}`;
+}
+
+function consoleTimestampsEnabled() {
+  return localStorage.getItem(storage.consoleTimestamps) !== "0";
+}
+
+function toggleConsoleTimestamps() {
+  localStorage.setItem(storage.consoleTimestamps, consoleTimestampsEnabled() ? "0" : "1");
+  updateConsoleTimestampButton();
+  renderConsole();
+}
+
+function updateConsoleTimestampButton() {
+  const enabled = consoleTimestampsEnabled();
+  els.consoleTimestamps.classList.toggle("is-active", enabled);
+  els.consoleTimestamps.title = enabled ? "Timestamps: on" : "Timestamps: off";
+  els.consoleTimestamps.setAttribute("aria-label", els.consoleTimestamps.title);
 }
 
 function clearConsole() {
@@ -2262,7 +2425,7 @@ function clearConsole() {
 }
 
 async function copyConsole() {
-  const text = consoleLines.map((line) => line.text).join("\n");
+  const text = consoleLines.map((line) => formatConsoleLine(line)).join("\n");
   try {
     await navigator.clipboard.writeText(text);
     logLine("info", "console copied");

@@ -158,39 +158,39 @@ bool protocolHandleScriptSetCode(const String& id, const String& code, bool runA
   String err;
   WrenchTransitionGuard transition("script.set");
   scriptErrorClear();
-  debugEventEmit("script.debug", "info", "script", "script.set begin", "\"run\":" + String(runAfterSet ? "true" : "false") + ",\"save\":" + String(saveAfterSet ? "true" : "false") + ",\"scriptBytes\":" + String(code.length()));
+  debugEventEmit("script.debug", "debug", "script", "script.set begin", "\"run\":" + String(runAfterSet ? "true" : "false") + ",\"save\":" + String(saveAfterSet ? "true" : "false") + ",\"scriptBytes\":" + String(code.length()));
   if (!wrenchCompileAndSet(code, err)) {
     wrenchSetCurrentScript(code);
-    debugEventEmit("script.debug", "info", "script", "script.set compile failed", "\"error\":" + jsonString(err));
+    debugEventEmit("script.debug", "debug", "script", "script.set compile failed", "\"error\":" + jsonString(err));
     protocolSendResponseError(id, "compile_error", err);
     return false;
   }
-  debugEventEmit("script.debug", "info", "script", "script.set compile ok", "\"run\":" + String(runAfterSet ? "true" : "false") + ",\"save\":" + String(saveAfterSet ? "true" : "false"));
+  debugEventEmit("script.debug", "debug", "script", "script.set compile ok", "\"run\":" + String(runAfterSet ? "true" : "false") + ",\"save\":" + String(saveAfterSet ? "true" : "false"));
 
   if (saveAfterSet) {
     if (!scriptStoreSave(code)) {
-      debugEventEmit("script.debug", "info", "script", "script.set save failed");
+      debugEventEmit("script.debug", "debug", "script", "script.set save failed");
       protocolSendResponseError(id, "storage_error", "Failed to save script to LittleFS");
       return false;
     }
     scriptStoreSaveRunState(runAfterSet ? P1_EMBED_SCRIPT_RUN_PENDING_NEW : P1_EMBED_SCRIPT_RUN_OK);
-    debugEventEmit("script.debug", "info", "script", "script.set save ok", "\"runState\":" + jsonString(scriptStoreRunStateName(scriptStoreLoadRunState())));
+    debugEventEmit("script.debug", "debug", "script", "script.set save ok", "\"runState\":" + jsonString(scriptStoreRunStateName(scriptStoreLoadRunState())));
   }
 
   if (runAfterSet) {
     String runErr;
-    debugEventEmit("script.debug", "info", "script", "script.set run begin");
+    debugEventEmit("script.debug", "debug", "script", "script.set run begin");
     if (!wrenchRunCompiled(runErr)) {
-      debugEventEmit("script.debug", "info", "script", "script.set run failed", "\"error\":" + jsonString(runErr));
+      debugEventEmit("script.debug", "debug", "script", "script.set run failed", "\"error\":" + jsonString(runErr));
       protocolSendResponseError(id, "run_error", runErr);
       return false;
     }
-    debugEventEmit("script.debug", "info", "script", "script.set run ok", "\"state\":" + jsonString(wrenchStateName()));
+    debugEventEmit("script.debug", "debug", "script", "script.set run ok", "\"state\":" + jsonString(wrenchStateName()));
     if (saveAfterSet) scriptStoreArmVerification();
   }
 
   String state = runAfterSet ? "running" : (saveAfterSet ? "saved" : "compiled");
-  debugEventEmit("script.debug", "info", "script", "script.set response", "\"state\":" + jsonString(state));
+  debugEventEmit("script.debug", "debug", "script", "script.set response", "\"state\":" + jsonString(state));
   protocolSendResponseOk(id, protocolScriptMetaJson(code, state));
   return true;
 }

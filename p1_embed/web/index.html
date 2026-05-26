@@ -14,14 +14,14 @@
           <strong>P1E</strong>
         </div>
         <nav class="tabs" aria-label="Workspace">
-          <button id="coding-tab" class="tab is-active" type="button" data-tab="coding">Coding</button>
-          <button id="chat-tab" class="tab" type="button" data-tab="chat">Chat</button>
+          <button id="chat-tab" class="tab is-active" type="button" data-tab="chat">GenAI</button>
+          <button id="coding-tab" class="tab" type="button" data-tab="coding">Code</button>
           <button id="install-tab" class="tab" type="button" data-tab="install">Install</button>
         </nav>
         <div class="connection-pill" id="connection-state">not connected</div>
       </header>
 
-      <section id="coding-view" class="view is-active" aria-label="Coding">
+      <section id="coding-view" class="view" aria-label="Code">
         <section class="coding-main">
           <header class="coding-toolbar">
             <button id="connect-button" class="button primary icon-buttonish" type="button" title="Connect" aria-label="Connect"><span class="material-symbols-rounded">link</span></button>
@@ -61,8 +61,9 @@
                   <option value="debug">debug</option>
                   <option value="trace">trace</option>
                 </select>
+                <button id="console-timestamps-button" class="button compact icon-buttonish" type="button" title="Timestamps: on" aria-label="Timestamps: on"><span class="material-symbols-rounded">schedule</span></button>
                 <button id="copy-console-button" class="button compact icon-buttonish" type="button" title="Copy log" aria-label="Copy log"><span class="material-symbols-rounded">content_copy</span></button>
-                <button id="clear-console-button" class="button compact icon-buttonish" type="button" title="Clear console" aria-label="Clear console"><span class="material-symbols-rounded">backspace</span></button>
+                <button id="clear-console-button" class="button compact icon-buttonish" type="button" title="Clear console" aria-label="Clear console"><span class="material-symbols-rounded">cancel</span></button>
               </div>
             </header>
             <section id="console-panel" class="lower-panel is-active">
@@ -76,8 +77,7 @@
               <div class="info-layout">
                 <dl id="device-fields" class="fields"></dl>
                 <aside id="info-share" class="info-share is-hidden" aria-label="Share WebSocket link">
-                  <div id="info-qr" class="info-qr" aria-hidden="true"></div>
-                  <button id="info-share-copy-button" class="button compact icon-buttonish" type="button" title="Copy WebSocket share link" aria-label="Copy WebSocket share link"><span class="material-symbols-rounded">content_copy</span></button>
+                  <div id="info-qr" class="info-qr" role="button" tabindex="0" title="Copy WebSocket share link" aria-label="Copy WebSocket share link"></div>
                 </aside>
               </div>
             </section>
@@ -85,13 +85,14 @@
         </section>
       </section>
 
-      <section id="chat-view" class="view chat-view" aria-label="Chat">
+      <section id="chat-view" class="view chat-view is-active" aria-label="GenAI">
         <header class="chat-toolbar">
           <button id="chat-connect-button" class="button primary icon-buttonish" type="button" title="Connect" aria-label="Connect"><span class="material-symbols-rounded">link</span></button>
           <span class="toolbar-divider toolbar-push" aria-hidden="true"></span>
           <button id="chat-api-key-button" class="button icon-buttonish" type="button" title="Set API key" aria-label="Set API key"><span class="material-symbols-rounded">key</span></button>
           <select id="chat-model" class="compact-select chat-model" title="Model" aria-label="Model"></select>
           <button id="chat-debug-prompt-button" class="button icon-buttonish" type="button" title="Download prompt debug: off" aria-label="Download prompt debug: off"><span class="material-symbols-rounded">bug_report</span></button>
+          <button id="chat-clear-button" class="button icon-buttonish" type="button" title="Clear chat" aria-label="Clear chat"><span class="material-symbols-rounded">cancel</span></button>
         </header>
         <section class="chat-shell">
           <div id="chat-transcript" class="chat-transcript"></div>
@@ -183,6 +184,6 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/ace/1.43.3/theme-chaos.min.js" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
     <script src="../../P1/portal/usbSerial.js"></script>
     <script src="../../P1/portal/qrCodeGen.js"></script>
-    <script type="module" src="app.js?v=0.1.39-ui48"></script>
+    <script type="module" src="app.js?v=0.1.40-ui54"></script>
   </body>
 </html>
