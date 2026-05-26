@@ -1,25 +1,7 @@
-import { ProtocolClient } from "./protocol/ProtocolClient.js?v=0.1.41-ui75";
-import { WebSerialTransport } from "./protocol/WebSerialTransport.js?v=0.1.41-ui75";
+import { ProtocolClient } from "./protocol/ProtocolClient.js?v=0.1.41-ui76";
+import { WebSerialTransport } from "./protocol/WebSerialTransport.js?v=0.1.41-ui76";
 import { WebSocketTransport } from "./protocol/WebSocketTransport.js";
-import { P1WebFlasher } from "./web-flasher.js?v=0.1.41-ui75";
-
-const P1E_APP_DEBUG = (() => {
-  try {
-    const params = new URLSearchParams(window.location.search);
-    if (params.has("debug")) localStorage.setItem("p1_embed.debug.console", "1");
-    return params.has("debug") || localStorage.getItem("p1_embed.debug.console") === "1";
-  } catch {
-    return false;
-  }
-})();
-
-function p1eAppDebug(label, data = {}) {
-  if (!P1E_APP_DEBUG) return;
-  console.debug("[P1E app]", label, {
-    at: new Date().toISOString(),
-    ...data,
-  });
-}
+import { P1WebFlasher } from "./web-flasher.js?v=0.1.41-ui76";
 
 const defaultCode = `function setup() {
   pinMode(2, 1);
@@ -164,7 +146,6 @@ let isUnloading = false;
 let busyLabel = "";
 let suppressEditorPersist = false;
 let connectionGeneration = 0;
-let protocolReady = false;
 let statusTimer = null;
 let editorErrorMarker = null;
 let recentPressHandled = false;
@@ -553,7 +534,7 @@ async function autoConnectFromUrlParams() {
       return true;
     }
     try {
-      await connectTransport(new WebSerialTransport({ storageKey: storage.usbHint }), { pickPort: false }, "usb", "USB", { lightStartup: true, includeScript: true, startupTimeoutMs: 5000 });
+      await connectTransport(new WebSerialTransport({ storageKey: storage.usbHint }), { pickPort: false }, "usb", "USB", { lightStartup: true, includeScript: true });
       await refreshKnownUsbPorts();
     } catch (error) {
       logLine("error", error.message);
@@ -578,7 +559,7 @@ async function autoReconnectLastConnection() {
 
   if (last === "usb") {
     if (!("serial" in navigator) || !readUsbHint()) return;
-    await connectTransport(new WebSerialTransport({ storageKey: storage.usbHint }), { pickPort: false }, "usb", "USB", { quiet: true, lightStartup: true, includeScript: true, startupTimeoutMs: 5000 });
+    await connectTransport(new WebSerialTransport({ storageKey: storage.usbHint }), { pickPort: false }, "usb", "USB", { quiet: true, lightStartup: true, includeScript: true });
     await refreshKnownUsbPorts();
   }
 }
@@ -586,16 +567,6 @@ async function autoReconnectLastConnection() {
 async function connectTransport(nextTransport, options, kind, label, { quiet = false, lightStartup = false, includeScript = true, startupTimeoutMs = 15000 } = {}) {
   const generation = connectionGeneration + 1;
   connectionGeneration = generation;
-  p1eAppDebug("connectTransport begin", {
-    generation,
-    kind,
-    label,
-    options,
-    quiet,
-    lightStartup,
-    includeScript,
-    startupTimeoutMs,
-  });
   suppressConnectionLogs = quiet;
   isBusy = true;
   busyLabel = "connecting";
@@ -606,21 +577,15 @@ async function connectTransport(nextTransport, options, kind, label, { quiet = f
     transport.kind = kind;
     transport.label = label;
     client = new ProtocolClient(transport);
-    protocolReady = false;
     bindClient(client);
     const ok = await transport.connect(options);
-    p1eAppDebug("transport.connect returned", {
-      generation,
-      ok,
-      transportState: transport.state,
-    });
     if (generation !== connectionGeneration) {
       await nextTransport.disconnect?.();
       return false;
     }
     if (!ok) throw new Error(`${label} device was not available`);
     closeConnectDialog();
-    setConnected(false);
+    setConnected(true);
     if (kind === "websocket" && options.url) updateConnectionUrlParams("websocket", options.url);
     if (kind === "usb") updateConnectionUrlParams("usb", "", readUsbHint());
     if (!quiet) logLine("info", `${label} connected`);
@@ -628,17 +593,7 @@ async function connectTransport(nextTransport, options, kind, label, { quiet = f
     if (lightStartup) await settle(450);
     if (generation !== connectionGeneration) return false;
     const verified = await startupRefresh({ quiet, includeScript, timeoutMs: startupTimeoutMs, expectedGeneration: generation });
-    p1eAppDebug("startupRefresh returned", {
-      generation,
-      verified,
-      protocolReady,
-      hasInfo: Boolean(lastInfo),
-      hasStatus: Boolean(lastStatus),
-      editorBytes: getEditorValue().length,
-    });
     if (generation === connectionGeneration && verified) {
-      protocolReady = true;
-      setConnected(true);
       rememberSuccessfulConnection(kind, label, options);
       startStatusPolling();
       return true;
@@ -650,11 +605,6 @@ async function connectTransport(nextTransport, options, kind, label, { quiet = f
       return false;
     }
   } catch (error) {
-    p1eAppDebug("connectTransport error", {
-      generation,
-      message: error?.message || String(error),
-      currentGeneration: connectionGeneration,
-    });
     if (generation !== connectionGeneration) return false;
     if (!quiet) logLine("error", error.message);
     if (transport === nextTransport) {
@@ -970,7 +920,6 @@ async function disconnectTransport({ quiet = false, keepGeneration = false } = {
   } finally {
     client = null;
     transport = null;
-    protocolReady = false;
     stopStatusPolling();
     if (!isUnloading) localStorage.setItem(storage.reconnectOnLoad, "0");
     if (!quiet && !keepGeneration && !isUnloading) clearConnectionUrlParams();
@@ -1029,7 +978,6 @@ function handleTransportDropped(droppedClient) {
   stopStatusPolling();
   client = null;
   transport = null;
-  protocolReady = false;
   isBusy = false;
   busyLabel = "";
   suppressConnectionLogs = false;
@@ -1040,50 +988,30 @@ function handleTransportDropped(droppedClient) {
 async function startupRefresh({ quiet = false, includeScript = true, timeoutMs = 15000, expectedGeneration = null } = {}) {
   const stale = () => expectedGeneration !== null && expectedGeneration !== connectionGeneration;
   if (stale()) return false;
-  p1eAppDebug("startupRefresh begin", {
-    quiet,
-    includeScript,
-    timeoutMs,
-    expectedGeneration,
-    connectionGeneration,
-  });
-  const startupOptions = { quiet: true, timeoutMs };
-  const infoOk = await bestEffortStartupStep("system.info", () => refreshInfo(startupOptions), quiet);
-  p1eAppDebug("startupRefresh step", { step: "system.info", ok: infoOk, stale: stale() });
+  const infoOk = await bestEffortStartupStep(() => refreshInfo({ quiet, timeoutMs }), quiet);
   if (!client || stale()) return false;
-  const statusOk = await bestEffortStartupStep("status.get", () => refreshStatus(startupOptions), quiet);
-  p1eAppDebug("startupRefresh step", { step: "status.get", ok: statusOk, stale: stale() });
+  const statusOk = await bestEffortStartupStep(() => refreshStatus({ quiet, timeoutMs }), quiet);
   if (!client || stale()) return infoOk || statusOk;
   if (!infoOk && !statusOk) return false;
-  if (includeScript) {
-    const scriptOk = await bestEffortStartupStep("script.get", () => getScript(startupOptions), quiet);
-    p1eAppDebug("startupRefresh step", { step: "script.get", ok: scriptOk, editorBytes: getEditorValue().length, stale: stale() });
-  }
+  if (includeScript) await bestEffortStartupStep(() => getScript({ quiet, timeoutMs }), quiet);
   if (!client || stale()) return infoOk || statusOk;
-  const configOk = await bestEffortStartupStep("config.get", () => sendCommand("config.get", {}, startupOptions).then(updateConfig), quiet);
-  p1eAppDebug("startupRefresh step", { step: "config.get", ok: configOk, stale: stale() });
+  await bestEffortStartupStep(() => sendCommand("config.get", {}, { quiet, timeoutMs }).then(updateConfig), quiet);
   if (!client || stale()) return infoOk || statusOk;
-  const debugOk = await bestEffortStartupStep("debug.get/set", async () => {
-    const data = await sendCommand("debug.get", {}, startupOptions);
+  await bestEffortStartupStep(async () => {
+    const data = await sendCommand("debug.get", {}, { quiet, timeoutMs });
     if (data.levelName && !localStorage.getItem(storage.logLevel)) {
       els.debugLevel.value = data.levelName;
     }
-    await sendCommand("debug.set", { level: els.debugLevel.value }, startupOptions);
+    await sendCommand("debug.set", { level: els.debugLevel.value }, { quiet, timeoutMs });
   }, quiet);
-  p1eAppDebug("startupRefresh step", { step: "debug.get/set", ok: debugOk, stale: stale() });
   return infoOk || statusOk;
 }
 
-async function bestEffortStartupStep(label, action, quiet) {
+async function bestEffortStartupStep(action, quiet) {
   try {
     await action();
-    p1eAppDebug("startup step ok", { label });
     return true;
   } catch (error) {
-    p1eAppDebug("startup step error", {
-      label,
-      message: error?.message || String(error),
-    });
     if (!quiet) logLine("warn", `startup: ${error.message}`);
     return false;
   }
@@ -1940,9 +1868,7 @@ function renderConnectionState(transportState = "") {
   }
 
   const parts = [transport?.label || "device"];
-  if (!protocolReady) {
-    parts.push(busyLabel || "probing");
-  } else if (isBusy && busyLabel) {
+  if (isBusy && busyLabel) {
     parts.push(busyLabel);
   } else {
     parts.push(scriptStatusLabel());
@@ -2655,14 +2581,14 @@ function filterChatWarnings(warnings) {
 }
 
 function updateEnabledState() {
-  const connected = Boolean(client && protocolReady);
+  const connected = Boolean(client);
   [els.connect, els.chatConnect].forEach((button) => {
-    button.disabled = isBusy && !connected && !transport;
+    button.disabled = isBusy;
     button.classList.toggle("primary", !connected);
     button.classList.remove("danger");
-    button.title = connected || transport ? "Disconnect" : "Connect";
+    button.title = connected ? "Disconnect" : "Connect";
     button.setAttribute("aria-label", button.title);
-    button.querySelector(".material-symbols-rounded").textContent = connected || transport ? "link_off" : "link";
+    button.querySelector(".material-symbols-rounded").textContent = connected ? "link_off" : "link";
   });
   els.downloadCode.disabled = !getEditorValue().trim();
   [

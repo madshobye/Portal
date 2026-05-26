@@ -1,21 +1,3 @@
-const P1E_PROTOCOL_DEBUG = (() => {
-  try {
-    const params = new URLSearchParams(window.location.search);
-    if (params.has("debug")) localStorage.setItem("p1_embed.debug.console", "1");
-    return params.has("debug") || localStorage.getItem("p1_embed.debug.console") === "1";
-  } catch {
-    return false;
-  }
-})();
-
-function p1eProtocolDebug(label, data = {}) {
-  if (!P1E_PROTOCOL_DEBUG) return;
-  console.debug("[P1E protocol]", label, {
-    at: new Date().toISOString(),
-    ...data,
-  });
-}
-
 export class ProtocolClient extends EventTarget {
   constructor(transport, { timeoutMs = 15000 } = {}) {
     super();
@@ -23,8 +5,6 @@ export class ProtocolClient extends EventTarget {
     this.timeoutMs = timeoutMs;
     this.nextId = 1;
     this.pending = new Map();
-    this.lineCount = 0;
-    this.scriptPrintCount = 0;
 
     this.transport.addEventListener("line", (event) => this.acceptLine(event.detail.line));
     this.transport.addEventListener("state", (event) => this.emit("state", event.detail));
@@ -45,27 +25,12 @@ export class ProtocolClient extends EventTarget {
     const responsePromise = new Promise((resolve, reject) => {
       const timer = setTimeout(() => {
         this.pending.delete(id);
-        p1eProtocolDebug("timeout", {
-          id,
-          name,
-          timeoutMs,
-          pending: [...this.pending.keys()],
-        });
         reject(new Error(`Timed out waiting for ${name} after ${timeoutMs}ms`));
       }, timeoutMs);
       this.pending.set(id, { resolve, reject, timer, name });
     });
 
-    const line = JSON.stringify(message);
-    p1eProtocolDebug("send", {
-      id,
-      name,
-      bytes: new TextEncoder().encode(line).length,
-      timeoutMs,
-      pending: [...this.pending.keys()],
-    });
-    await this.transport.sendLine(line);
-    p1eProtocolDebug("send-ok", { id, name });
+    await this.transport.sendLine(JSON.stringify(message));
     return await responsePromise;
   }
 
@@ -74,38 +39,10 @@ export class ProtocolClient extends EventTarget {
   }
 
   acceptLine(line) {
-    this.lineCount += 1;
     const message = parseProtocolMessage(line);
     if (!message) {
-      p1eProtocolDebug("raw", {
-        lineCount: this.lineCount,
-        sample: String(line).slice(0, 180),
-      });
       this.emit("raw", { line });
       return;
-    }
-
-    if (message.type === "evt" && message.name === "script.print") {
-      this.scriptPrintCount += 1;
-      if (this.scriptPrintCount <= 8 || this.scriptPrintCount % 25 === 0) {
-        p1eProtocolDebug("event", {
-          lineCount: this.lineCount,
-          type: message.type,
-          name: message.name,
-          scriptPrintCount: this.scriptPrintCount,
-          pending: [...this.pending.keys()],
-          message: message.data?.message,
-        });
-      }
-    } else {
-      p1eProtocolDebug("message", {
-        lineCount: this.lineCount,
-        type: message.type,
-        name: message.name,
-        id: message.id,
-        ok: message.ok,
-        pending: [...this.pending.keys()],
-      });
     }
 
     this.emit("message", { message });
@@ -127,11 +64,6 @@ export class ProtocolClient extends EventTarget {
     const id = String(message.id ?? "");
     const pending = this.pending.get(id);
     if (!pending) {
-      p1eProtocolDebug("late-response", {
-        id,
-        ok: message.ok,
-        pending: [...this.pending.keys()],
-      });
       this.emit("response", { response: message, late: true });
       return;
     }
@@ -140,10 +72,6 @@ export class ProtocolClient extends EventTarget {
     this.pending.delete(id);
 
     if (message.ok) {
-      p1eProtocolDebug("resolve", {
-        id,
-        name: pending.name,
-      });
       pending.resolve(message.data || {});
     } else {
       const error = new Error(message.error?.message || "Protocol command failed");
