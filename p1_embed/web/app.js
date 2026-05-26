@@ -512,6 +512,8 @@ async function autoConnectFromUrlParams() {
       logLine("warn", "connect=usb needs Web Serial");
       return true;
     }
+    const urlHint = usbHintFromParams(params);
+    if (urlHint) localStorage.setItem(storage.usbHint, JSON.stringify(urlHint));
     if (!readUsbHint()) {
       logLine("warn", "connect=usb needs a previously approved USB device in this browser");
       return true;
@@ -569,6 +571,8 @@ async function connectTransport(nextTransport, options, kind, label, { quiet = f
     if (!ok) throw new Error(`${label} device was not available`);
     closeConnectDialog();
     setConnected(true);
+    if (kind === "websocket" && options.url) updateConnectionUrlParams("websocket", options.url);
+    if (kind === "usb") updateConnectionUrlParams("usb", "", readUsbHint());
     startStatusPolling();
     if (!quiet) logLine("info", `${label} connected`);
   } catch (error) {
@@ -620,7 +624,7 @@ function rememberSuccessfulConnection(kind, label, options = {}) {
   if (kind === "usb") {
     const hint = readUsbHint();
     if (hint) rememberUsbHistory(hint);
-    updateConnectionUrlParams("usb");
+    updateConnectionUrlParams("usb", "", hint);
     refreshKnownUsbPorts();
     renderConnectionHistory();
   }
@@ -764,6 +768,25 @@ function usbHistoryKey(hint) {
   return normalized ? `${normalized.usbVendorId}:${normalized.usbProductId}` : "";
 }
 
+function usbHintFromParams(params) {
+  const usb = String(params.get("usb") || "").trim();
+  const usbMatch = usb.match(/^([0-9a-f]{1,4}):([0-9a-f]{1,4})$/i);
+  if (usbMatch) {
+    return normalizeUsbHint({
+      usbVendorId: parseInt(usbMatch[1], 16),
+      usbProductId: parseInt(usbMatch[2], 16),
+    });
+  }
+
+  const vid = String(params.get("vid") || "").trim();
+  const pid = String(params.get("pid") || "").trim();
+  if (!vid || !pid) return null;
+  return normalizeUsbHint({
+    usbVendorId: parseInt(vid, 16),
+    usbProductId: parseInt(pid, 16),
+  });
+}
+
 function readUsbHint() {
   try {
     const raw = localStorage.getItem(storage.usbHint);
@@ -811,26 +834,35 @@ function wsDisplayName(url) {
   }
 }
 
-function sharePageUrl(kind, wsUrl = "") {
+function sharePageUrl(kind, wsUrl = "", usbHint = null) {
   const url = new URL(window.location.href);
   url.searchParams.delete("connect");
   url.searchParams.delete("transport");
   url.searchParams.delete("ws");
   url.searchParams.delete("url");
+  url.searchParams.delete("usb");
+  url.searchParams.delete("vid");
+  url.searchParams.delete("pid");
 
   if (kind === "websocket") {
     url.searchParams.set("connect", "ws");
     url.searchParams.set("ws", normalizeWebSocketUrl(wsUrl));
   } else if (kind === "usb") {
     url.searchParams.set("connect", "usb");
+    const hint = normalizeUsbHint(usbHint || readUsbHint());
+    if (hint) {
+      const vid = hint.usbVendorId.toString(16).padStart(4, "0");
+      const pid = hint.usbProductId.toString(16).padStart(4, "0");
+      url.searchParams.set("usb", `${vid}:${pid}`);
+    }
   }
 
   return url.toString();
 }
 
-function updateConnectionUrlParams(kind, wsUrl = "") {
+function updateConnectionUrlParams(kind, wsUrl = "", usbHint = null) {
   if (!window.history?.replaceState) return;
-  const nextUrl = sharePageUrl(kind, wsUrl);
+  const nextUrl = sharePageUrl(kind, wsUrl, usbHint);
   window.history.replaceState(null, "", nextUrl);
 }
 
@@ -841,6 +873,9 @@ function clearConnectionUrlParams() {
   url.searchParams.delete("transport");
   url.searchParams.delete("ws");
   url.searchParams.delete("url");
+  url.searchParams.delete("usb");
+  url.searchParams.delete("vid");
+  url.searchParams.delete("pid");
   window.history.replaceState(null, "", url.toString());
 }
 
@@ -1562,8 +1597,9 @@ function updateConfig(config = {}) {
 function renderFields() {
   const wifi = lastStatus?.wifi || {};
   const web = lastStatus?.web || {};
-  const wsUrl = client ? websocketUrlFromStatus(web) : "";
+  const wsUrl = client ? activeWebSocketUrl(web) : "";
   const wsShareUrl = wsUrl ? sharePageUrl("websocket", wsUrl) : "";
+  syncConnectedShareParams();
   const rows = {
     name: lastInfo?.deviceName || lastStatus?.deviceName || "",
     id: lastInfo?.deviceId || lastStatus?.deviceId || "",
@@ -1598,7 +1634,10 @@ function renderFields() {
         button.type = "button";
         button.textContent = String(value);
         button.title = "Connect WebSocket";
-        button.addEventListener("click", () => connectWebSocket(String(value)));
+        button.addEventListener("click", () => {
+          updateConnectionUrlParams("websocket", String(value));
+          connectWebSocket(String(value));
+        });
         dd.append(button);
       } else if (key === "share" && value) {
         const link = document.createElement("a");
@@ -1619,7 +1658,6 @@ function renderFields() {
 function renderInfoShare(shareUrl = "") {
   const url = String(shareUrl || "");
   els.infoShare.classList.toggle("is-hidden", !url);
-  els.infoQr.dataset.url = url;
   if (!url) {
     els.infoQr.replaceChildren();
     delete els.infoQr.dataset.url;
@@ -1687,6 +1725,27 @@ function websocketUrlFromStatus(web = {}) {
     return normalizeWebSocketUrl(hostWithPort);
   } catch {
     return hostWithPort;
+  }
+}
+
+function activeWebSocketUrl(web = {}) {
+  if (transport?.kind === "websocket" && transport?.url) {
+    try {
+      return normalizeWebSocketUrl(transport.url);
+    } catch {}
+  }
+  if (transport?.kind === "usb") return websocketUrlFromStatus(web);
+  return "";
+}
+
+function syncConnectedShareParams() {
+  if (!client || !window.history?.replaceState) return;
+  if (transport?.kind === "websocket" && transport?.url) {
+    updateConnectionUrlParams("websocket", transport.url);
+    return;
+  }
+  if (transport?.kind === "usb") {
+    updateConnectionUrlParams("usb", "", readUsbHint());
   }
 }
 
