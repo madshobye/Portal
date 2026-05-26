@@ -67,6 +67,7 @@ const els = {
     chat: document.querySelector("#chat-view"),
     install: document.querySelector("#install-view"),
   },
+  brandVersion: document.querySelector("#brand-version"),
   connect: document.querySelector("#connect-button"),
   chatConnect: document.querySelector("#chat-connect-button"),
   connectDialog: document.querySelector("#connect-dialog"),
@@ -330,7 +331,7 @@ function openConnectDialog() {
 }
 
 function toggleConnection() {
-  if (client) {
+  if (client || transport) {
     disconnectTransport();
   } else {
     openConnectDialog();
@@ -992,6 +993,8 @@ async function startupRefresh({ quiet = false, includeScript = true, timeoutMs =
   const statusOk = await bestEffortStartupStep(() => refreshStatus({ quiet, timeoutMs }), quiet);
   if (!client || stale()) return infoOk || statusOk;
   if (!infoOk && !statusOk) return false;
+  if (includeScript) await bestEffortStartupStep(() => getScript({ quiet, timeoutMs }), quiet);
+  if (!client || stale()) return infoOk || statusOk;
   await bestEffortStartupStep(() => sendCommand("config.get", {}, { quiet, timeoutMs }).then(updateConfig), quiet);
   if (!client || stale()) return infoOk || statusOk;
   await bestEffortStartupStep(async () => {
@@ -1001,8 +1004,6 @@ async function startupRefresh({ quiet = false, includeScript = true, timeoutMs =
     }
     await sendCommand("debug.set", { level: els.debugLevel.value }, { quiet, timeoutMs });
   }, quiet);
-  if (!client || stale()) return infoOk || statusOk;
-  if (includeScript) await bestEffortStartupStep(() => getScript({ quiet, timeoutMs }), quiet);
   return infoOk || statusOk;
 }
 
@@ -1665,6 +1666,9 @@ function renderFields() {
   const wsUrl = client ? activeWebSocketUrl(web) : "";
   const wsShareUrl = wsUrl ? sharePageUrl("websocket", wsUrl) : "";
   syncConnectedShareParams();
+  if (els.brandVersion) {
+    els.brandVersion.textContent = lastInfo?.firmwareVersion || "0.1.40";
+  }
   const rows = {
     name: lastInfo?.deviceName || lastStatus?.deviceName || "",
     id: lastInfo?.deviceId || lastStatus?.deviceId || "",
@@ -2574,12 +2578,12 @@ function filterChatWarnings(warnings) {
 function updateEnabledState() {
   const connected = Boolean(client);
   [els.connect, els.chatConnect].forEach((button) => {
-    button.disabled = isBusy;
+    button.disabled = isBusy && !connected && !transport;
     button.classList.toggle("primary", !connected);
     button.classList.remove("danger");
-    button.title = connected ? "Disconnect" : "Connect";
+    button.title = connected || transport ? "Disconnect" : "Connect";
     button.setAttribute("aria-label", button.title);
-    button.querySelector(".material-symbols-rounded").textContent = connected ? "link_off" : "link";
+    button.querySelector(".material-symbols-rounded").textContent = connected || transport ? "link_off" : "link";
   });
   els.downloadCode.disabled = !getEditorValue().trim();
   [
