@@ -1,5 +1,7 @@
 tmpgrumpy/
 tmp_notgit/
+.DS_Store
 ArduinoExamples/printhost/pwd.ino
 /arduinolibs/FastLED
 arduinolibs/MQTT/
+p1_embed/arduino_libraries/
