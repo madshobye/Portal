@@ -1,5 +1,5 @@
 const DEFAULT_MQTT_ROOT = "p1e-lab-20260527-hobye-webrtc-signal-v1";
-export const MQTT_WEBRTC_TRANSPORT_VERSION = "0.1.87-ui118";
+export const MQTT_WEBRTC_TRANSPORT_VERSION = "0.1.87-ui119";
 
 console.info(`[P1E mqtt-webrtc] loaded ${MQTT_WEBRTC_TRANSPORT_VERSION}`);
 

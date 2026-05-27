@@ -1,10 +1,10 @@
-import { ProtocolClient } from "./protocol/ProtocolClient.js?v=0.1.87-ui118";
-import { WebSerialTransport } from "./protocol/WebSerialTransport.js?v=0.1.87-ui118";
+import { ProtocolClient } from "./protocol/ProtocolClient.js?v=0.1.87-ui119";
+import { WebSerialTransport } from "./protocol/WebSerialTransport.js?v=0.1.87-ui119";
 import { WebSocketTransport } from "./protocol/WebSocketTransport.js";
-import { MqttWebRtcTransport, MQTT_WEBRTC_TRANSPORT_VERSION } from "./protocol/MqttWebRtcTransport.js?v=0.1.87-ui118";
-import { P1WebFlasher } from "./web-flasher.js?v=0.1.87-ui118";
+import { MqttWebRtcTransport, MQTT_WEBRTC_TRANSPORT_VERSION } from "./protocol/MqttWebRtcTransport.js?v=0.1.87-ui119";
+import { P1WebFlasher } from "./web-flasher.js?v=0.1.87-ui119";
 
-const WEB_UI_VERSION = "0.1.87-ui118";
+const WEB_UI_VERSION = "0.1.87-ui119";
 console.info(`[P1E web] loaded ${WEB_UI_VERSION}`, { mqttWebRtc: MQTT_WEBRTC_TRANSPORT_VERSION });
 
 const defaultCode = `function setup() {

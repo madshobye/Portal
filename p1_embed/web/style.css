@@ -656,13 +656,13 @@ input {
 
 .fields {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(205px, 1fr));
   align-content: start;
-  gap: 9px;
+  gap: 7px;
   min-height: 0;
   margin: 0;
   overflow: auto;
-  padding: 10px;
+  padding: 7px;
   border: 1px solid var(--line);
   border-radius: 6px;
   background: var(--surface);
@@ -671,10 +671,10 @@ input {
 
 .info-card {
   display: grid;
-  grid-template-rows: 28px minmax(0, 1fr);
+  grid-template-rows: 22px minmax(0, 1fr);
   min-width: 0;
-  min-height: 104px;
-  padding: 9px;
+  min-height: 78px;
+  padding: 7px;
   border: 1px solid var(--line-soft);
   border-radius: 6px;
   background: #1a1c1d;
@@ -682,9 +682,9 @@ input {
 
 .info-card header {
   display: grid;
-  grid-template-columns: 24px minmax(0, 1fr);
+  grid-template-columns: 20px minmax(0, 1fr);
   align-items: center;
-  gap: 7px;
+  gap: 6px;
   min-width: 0;
 }
 
@@ -692,33 +692,34 @@ input {
   min-width: 0;
   overflow: hidden;
   color: var(--text);
-  font-size: 13px;
+  font-size: 12px;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 .info-card-icon {
   color: var(--muted);
-  font-size: 21px;
+  font-size: 18px;
 }
 
 .info-card-body {
   display: grid;
   align-content: start;
-  gap: 6px;
+  gap: 4px;
   min-width: 0;
 }
 
 .info-card-compact {
-  min-height: 104px;
+  min-height: 78px;
 }
 
 .info-metric {
   display: grid;
-  grid-template-columns: 74px minmax(0, 1fr);
-  gap: 8px;
+  grid-template-columns: 62px minmax(0, 1fr);
+  gap: 6px;
   min-width: 0;
-  line-height: 1.25;
+  font-size: 11px;
+  line-height: 1.15;
 }
 
 .info-metric > span {

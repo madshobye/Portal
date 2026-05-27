@@ -94,7 +94,9 @@ static uint32_t g_peerStateChangeCount = 0;
 static uint32_t g_lastDisconnectEventAt = 0;
 static uint32_t g_answerSignalWaitStartedAt = 0;
 static uint32_t g_scriptResumeRetryAt = 0;
+static uint32_t g_scriptResumeDeferredLogAt = 0;
 static uint32_t g_peerReconnectAt = 0;
+static uint16_t g_scriptResumeDeferrals = 0;
 static int g_idAttempt = 0;
 static char g_staleReason[32] = "";
 static char g_lastSocketReason[96] = "";
@@ -114,6 +116,8 @@ static void webrtcRequestScriptResume(const char* reason) {
   if (!g_wrenchSuspendedForWebRtc) return;
   g_wrenchResumePending = true;
   g_scriptResumeRetryAt = 0;
+  g_scriptResumeDeferredLogAt = 0;
+  g_scriptResumeDeferrals = 0;
   debugEventEmit("webrtc.debug", "debug", "webrtc", "script resume requested",
                  "\"reason\":" + jsonString(reason ? reason : "unknown"));
 }
@@ -141,11 +145,30 @@ static void webrtcResumeSuspendedScriptIfPending() {
 
   uint32_t freeHeap = ESP.getFreeHeap();
   uint32_t maxAlloc = ESP.getMaxAllocHeap();
-  if (freeHeap < P1_EMBED_WEBRTC_SCRIPT_RESUME_MIN_FREE_HEAP || maxAlloc < P1_EMBED_WEBRTC_SCRIPT_RESUME_MIN_MAX_ALLOC) {
-    g_scriptResumeRetryAt = millis() + 1000;
-    debugEventEmit("webrtc.debug", "debug", "webrtc", "script resume deferred",
-                   "\"freeHeap\":" + String(freeHeap) + ",\"maxAllocHeap\":" + String(maxAlloc));
+  const bool lowResumeHeap =
+    freeHeap < P1_EMBED_WEBRTC_SCRIPT_RESUME_MIN_FREE_HEAP ||
+    maxAlloc < P1_EMBED_WEBRTC_SCRIPT_RESUME_MIN_MAX_ALLOC;
+  if (lowResumeHeap && g_scriptResumeDeferrals < P1_EMBED_WEBRTC_SCRIPT_RESUME_FORCE_AFTER) {
+    g_scriptResumeDeferrals++;
+    g_scriptResumeRetryAt = millis() + 1500;
+    uint32_t now = millis();
+    if (!g_scriptResumeDeferredLogAt ||
+        (uint32_t)(now - g_scriptResumeDeferredLogAt) >= P1_EMBED_WEBRTC_SCRIPT_RESUME_LOG_MS) {
+      g_scriptResumeDeferredLogAt = now;
+      debugEventEmit("webrtc.debug", "debug", "webrtc", "script resume deferred",
+                     "\"freeHeap\":" + String(freeHeap) +
+                       ",\"maxAllocHeap\":" + String(maxAlloc) +
+                       ",\"deferrals\":" + String(g_scriptResumeDeferrals) +
+                       ",\"minFreeHeap\":" + String(P1_EMBED_WEBRTC_SCRIPT_RESUME_MIN_FREE_HEAP) +
+                       ",\"minMaxAllocHeap\":" + String(P1_EMBED_WEBRTC_SCRIPT_RESUME_MIN_MAX_ALLOC));
+    }
     return;
+  }
+  if (lowResumeHeap) {
+    debugEventEmit("webrtc.debug", "debug", "webrtc", "script resume trying low heap",
+                   "\"freeHeap\":" + String(freeHeap) +
+                     ",\"maxAllocHeap\":" + String(maxAlloc) +
+                     ",\"deferrals\":" + String(g_scriptResumeDeferrals));
   }
 
   String err;
@@ -157,6 +180,8 @@ static void webrtcResumeSuspendedScriptIfPending() {
   g_wrenchResumePending = false;
   g_wrenchSuspendedForWebRtc = false;
   g_scriptResumeRetryAt = 0;
+  g_scriptResumeDeferredLogAt = 0;
+  g_scriptResumeDeferrals = 0;
   debugEventEmit("webrtc.debug", "debug", "webrtc", "script resumed after negotiation",
                  "\"freeHeap\":" + String(ESP.getFreeHeap()) + ",\"maxAllocHeap\":" + String(ESP.getMaxAllocHeap()));
 }
