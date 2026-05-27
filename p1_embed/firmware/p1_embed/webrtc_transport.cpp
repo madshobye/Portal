@@ -35,8 +35,11 @@ extern "C" void peer_log(char* levelTag, const char* fileName, int lineNumber, c
 
   const char* file = strrchr(fileName ? fileName : "", '/');
   file = file ? file + 1 : (fileName ? fileName : "");
-  String fields = "\"file\":" + jsonString(file) + ",\"line\":" + String(lineNumber);
-  debugEventEmit("webrtc.libpeer", level, "webrtc", String(message), fields);
+  P1EventField fields[] = {
+    p1FieldString("file", file),
+    p1FieldInt("line", lineNumber),
+  };
+  debugEventEmitFields("webrtc.libpeer", level, "webrtc", String(message), fields, 2);
 }
 
 struct WebRtcMessage {
@@ -113,28 +116,58 @@ static void webrtcSetTrace(const char* trace) {
   strlcpy(g_lastTrace, trace && trace[0] ? trace : "", sizeof(g_lastTrace));
 }
 
+static void webrtcDebugHeap(const char* message) {
+  P1EventField fields[] = {
+    p1FieldUInt("freeHeap", ESP.getFreeHeap()),
+    p1FieldUInt("maxAllocHeap", ESP.getMaxAllocHeap()),
+  };
+  debugEventEmitFields("webrtc.debug", "debug", "webrtc", message, fields, 2);
+}
+
+static void webrtcDebugBytes(const char* message, uint32_t bytes) {
+  P1EventField fields[] = {
+    p1FieldUInt("bytes", bytes),
+  };
+  debugEventEmitFields("webrtc.debug", "debug", "webrtc", message, fields, 1);
+}
+
+static void webrtcEmitState(const char* name, const String& state) {
+  P1EventField fields[] = {
+    p1FieldString("state", state),
+  };
+  protocolEmitEventFields(name, fields, 1);
+}
+
+static void webrtcEmitPeerState(const char* name, const String& state) {
+  P1EventField fields[] = {
+    p1FieldString("state", state),
+    p1FieldString("peerId", g_peerId),
+  };
+  protocolEmitEventFields(name, fields, 2);
+}
+
 static void webrtcRequestScriptResume(const char* reason) {
   if (!g_wrenchSuspendedForWebRtc) return;
   g_wrenchResumePending = true;
   g_scriptResumeRetryAt = 0;
   g_scriptResumeDeferredLogAt = 0;
   g_scriptResumeDeferrals = 0;
-  debugEventEmit("webrtc.debug", "debug", "webrtc", "script resume requested",
-                 "\"reason\":" + jsonString(reason ? reason : "unknown"));
+  P1EventField fields[] = {
+    p1FieldString("reason", reason ? reason : "unknown"),
+  };
+  debugEventEmitFields("webrtc.debug", "debug", "webrtc", "script resume requested", fields, 1);
 }
 
 static bool webrtcSuspendScriptForNegotiation() {
   if (g_wrenchSuspendedForWebRtc) return true;
   if (strcmp(wrenchStateName(), "running") != 0) return false;
 
-  debugEventEmit("webrtc.debug", "debug", "webrtc", "suspending script for negotiation",
-                 "\"freeHeap\":" + String(ESP.getFreeHeap()) + ",\"maxAllocHeap\":" + String(ESP.getMaxAllocHeap()));
+  webrtcDebugHeap("suspending script for negotiation");
   g_wrenchSuspendedForWebRtc = true;
   g_wrenchResumePending = false;
   wrenchStop();
   fastLedReleaseScriptResources();
-  debugEventEmit("webrtc.debug", "debug", "webrtc", "script suspended for negotiation",
-                 "\"freeHeap\":" + String(ESP.getFreeHeap()) + ",\"maxAllocHeap\":" + String(ESP.getMaxAllocHeap()));
+  webrtcDebugHeap("script suspended for negotiation");
   return true;
 }
 
@@ -156,20 +189,24 @@ static void webrtcResumeSuspendedScriptIfPending() {
     if (!g_scriptResumeDeferredLogAt ||
         (uint32_t)(now - g_scriptResumeDeferredLogAt) >= P1_EMBED_WEBRTC_SCRIPT_RESUME_LOG_MS) {
       g_scriptResumeDeferredLogAt = now;
-      debugEventEmit("webrtc.debug", "debug", "webrtc", "script resume deferred",
-                     "\"freeHeap\":" + String(freeHeap) +
-                       ",\"maxAllocHeap\":" + String(maxAlloc) +
-                       ",\"deferrals\":" + String(g_scriptResumeDeferrals) +
-                       ",\"minFreeHeap\":" + String(P1_EMBED_WEBRTC_SCRIPT_RESUME_MIN_FREE_HEAP) +
-                       ",\"minMaxAllocHeap\":" + String(P1_EMBED_WEBRTC_SCRIPT_RESUME_MIN_MAX_ALLOC));
+      P1EventField fields[] = {
+        p1FieldUInt("freeHeap", freeHeap),
+        p1FieldUInt("maxAllocHeap", maxAlloc),
+        p1FieldUInt("deferrals", g_scriptResumeDeferrals),
+        p1FieldUInt("minFreeHeap", P1_EMBED_WEBRTC_SCRIPT_RESUME_MIN_FREE_HEAP),
+        p1FieldUInt("minMaxAllocHeap", P1_EMBED_WEBRTC_SCRIPT_RESUME_MIN_MAX_ALLOC),
+      };
+      debugEventEmitFields("webrtc.debug", "debug", "webrtc", "script resume deferred", fields, 5);
     }
     return;
   }
   if (lowResumeHeap) {
-    debugEventEmit("webrtc.debug", "debug", "webrtc", "script resume trying low heap",
-                   "\"freeHeap\":" + String(freeHeap) +
-                     ",\"maxAllocHeap\":" + String(maxAlloc) +
-                     ",\"deferrals\":" + String(g_scriptResumeDeferrals));
+    P1EventField fields[] = {
+      p1FieldUInt("freeHeap", freeHeap),
+      p1FieldUInt("maxAllocHeap", maxAlloc),
+      p1FieldUInt("deferrals", g_scriptResumeDeferrals),
+    };
+    debugEventEmitFields("webrtc.debug", "debug", "webrtc", "script resume trying low heap", fields, 3);
   }
 
   String err;
@@ -183,8 +220,7 @@ static void webrtcResumeSuspendedScriptIfPending() {
   g_scriptResumeRetryAt = 0;
   g_scriptResumeDeferredLogAt = 0;
   g_scriptResumeDeferrals = 0;
-  debugEventEmit("webrtc.debug", "debug", "webrtc", "script resumed after negotiation",
-                 "\"freeHeap\":" + String(ESP.getFreeHeap()) + ",\"maxAllocHeap\":" + String(ESP.getMaxAllocHeap()));
+  webrtcDebugHeap("script resumed after negotiation");
 }
 
 static String webrtcStateName(PeerConnectionState state) {
@@ -479,7 +515,7 @@ static bool webrtcQueueSignal(const String& message) {
     debugLog("warn", "webrtc", "PeerJS signaling queue full");
     return false;
   }
-  debugEventEmit("webrtc.debug", "debug", "webrtc", "signal queued", "\"bytes\":" + String(message.length()));
+  webrtcDebugBytes("signal queued", message.length());
   return true;
 }
 
@@ -489,7 +525,12 @@ static void webrtcQueuePeerJsMessage(const String& message) {
     g_signalDrops++;
     debugLog("warn", "webrtc", "PeerJS inbound queue full");
   } else {
-    debugEventEmit("webrtc.debug", "debug", "webrtc", "peerjs queued", "\"bytes\":" + String(message.length()) + ",\"type\":" + jsonString(webrtcExtractType(message)));
+    String type = webrtcExtractType(message);
+    P1EventField fields[] = {
+      p1FieldUInt("bytes", message.length()),
+      p1FieldString("type", type),
+    };
+    debugEventEmitFields("webrtc.debug", "debug", "webrtc", "peerjs queued", fields, 2);
   }
 }
 
@@ -507,7 +548,13 @@ static void webrtcSendHeartbeat() {
 
 static bool webrtcSendSdp(const char* messageType, const char* sdpType, const String& sdp) {
   if ((!g_peerOpen && !g_peerJsPausedForAnswer) || g_remoteId.length() == 0 || g_connectionId.length() == 0) {
-    debugEventEmit("webrtc.debug", "debug", "webrtc", "sdp not sent", "\"messageType\":" + jsonString(messageType) + ",\"peerOpen\":" + String(g_peerOpen ? "true" : "false") + ",\"remoteId\":" + jsonString(g_remoteId) + ",\"connectionId\":" + jsonString(g_connectionId));
+    P1EventField fields[] = {
+      p1FieldString("messageType", messageType),
+      p1FieldBool("peerOpen", g_peerOpen),
+      p1FieldString("remoteId", g_remoteId),
+      p1FieldString("connectionId", g_connectionId),
+    };
+    debugEventEmitFields("webrtc.debug", "debug", "webrtc", "sdp not sent", fields, 4);
     return false;
   }
 
@@ -523,13 +570,15 @@ static bool webrtcSendSdp(const char* messageType, const char* sdpType, const St
     else if (sdp.startsWith(" typ relay", searchAt)) relayCandidates++;
     searchAt += 5;
   }
-  protocolEmitEvent("webrtc.sdp",
-                    "\"type\":" + jsonString(messageType) +
-                    ",\"bytes\":" + String(sdp.length()) +
-                    ",\"host\":" + String(hostCandidates) +
-                    ",\"srflx\":" + String(srflxCandidates) +
-                    ",\"prflx\":" + String(prflxCandidates) +
-                    ",\"relay\":" + String(relayCandidates));
+  P1EventField sdpFields[] = {
+    p1FieldString("type", messageType),
+    p1FieldUInt("bytes", sdp.length()),
+    p1FieldInt("host", hostCandidates),
+    p1FieldInt("srflx", srflxCandidates),
+    p1FieldInt("prflx", prflxCandidates),
+    p1FieldInt("relay", relayCandidates),
+  };
+  protocolEmitEventFields("webrtc.sdp", sdpFields, 6);
 
   String message = String("{\"type\":\"") + messageType + "\"";
   message += ",\"dst\":\"" + webrtcEscapeJson(g_remoteId) + "\"";
@@ -544,7 +593,13 @@ static bool webrtcSendSdp(const char* messageType, const char* sdpType, const St
     message += ",\"serialization\":\"raw\"";
   }
   message += "}}";
-  debugEventEmit("webrtc.debug", "debug", "webrtc", "sdp queued", "\"messageType\":" + jsonString(messageType) + ",\"sdpBytes\":" + String(sdp.length()) + ",\"messageBytes\":" + String(message.length()) + ",\"remoteId\":" + jsonString(g_remoteId));
+  P1EventField queuedFields[] = {
+    p1FieldString("messageType", messageType),
+    p1FieldUInt("sdpBytes", sdp.length()),
+    p1FieldUInt("messageBytes", message.length()),
+    p1FieldString("remoteId", g_remoteId),
+  };
+  debugEventEmitFields("webrtc.debug", "debug", "webrtc", "sdp queued", queuedFields, 4);
   return webrtcQueueSignal(message);
 }
 
@@ -574,8 +629,7 @@ static bool webrtcPausePeerJsForAnswer() {
   g_mqtt.disconnect();
 #endif
   delay(25);
-  debugEventEmit("webrtc.debug", "debug", "webrtc", "peerjs paused for answer",
-                 "\"freeHeap\":" + String(ESP.getFreeHeap()) + ",\"maxAllocHeap\":" + String(ESP.getMaxAllocHeap()));
+  webrtcDebugHeap("peerjs paused for answer");
   return true;
 #endif
 }
@@ -586,8 +640,7 @@ static void webrtcResumePeerJsAfterAnswer(bool wasPaused) {
   g_peerSocket.setReconnectInterval(P1_EMBED_WEBRTC_ANSWER_RECONNECT_MS);
 #endif
   g_peerJsPausedForAnswer = false;
-  debugEventEmit("webrtc.debug", "debug", "webrtc", "peerjs resume after answer",
-                 "\"freeHeap\":" + String(ESP.getFreeHeap()) + ",\"maxAllocHeap\":" + String(ESP.getMaxAllocHeap()));
+  webrtcDebugHeap("peerjs resume after answer");
 }
 
 static void webrtcMarkStale(const char* reason) {
@@ -608,7 +661,12 @@ static void onWebRtcIceCandidate(char* sdpText, void* userData) {
   if (sdp.startsWith("candidate:")) {
     g_localCandidateOutCount++;
     webrtcSetTrace("local_candidate");
-    protocolEmitEvent("webrtc.trace", "\"event\":\"local_candidate\",\"count\":" + String(g_localCandidateOutCount) + ",\"remoteId\":" + jsonString(g_remoteId));
+    P1EventField fields[] = {
+      p1FieldString("event", "local_candidate"),
+      p1FieldUInt("count", g_localCandidateOutCount),
+      p1FieldString("remoteId", g_remoteId),
+    };
+    protocolEmitEventFields("webrtc.trace", fields, 3);
     webrtcSendCandidate(sdp);
   }
 }
@@ -621,7 +679,12 @@ static void onWebRtcStateChange(PeerConnectionState state, void* userData) {
   const String stateName = webrtcStateName(state);
   webrtcSetTrace(stateName.c_str());
   memoryProfileMark("webrtc.ice", stateName.c_str());
-  protocolEmitEvent("webrtc.peer", "\"state\":" + jsonString(stateName) + ",\"count\":" + String(g_peerStateChangeCount) + ",\"remoteId\":" + jsonString(g_remoteId));
+  P1EventField fields[] = {
+    p1FieldString("state", stateName),
+    p1FieldUInt("count", g_peerStateChangeCount),
+    p1FieldString("remoteId", g_remoteId),
+  };
+  protocolEmitEventFields("webrtc.peer", fields, 3);
   if (state == PEER_CONNECTION_FAILED ||
       state == PEER_CONNECTION_DISCONNECTED ||
       state == PEER_CONNECTION_CLOSED) {
@@ -650,7 +713,12 @@ static void onWebRtcDataChannelOpen(void* userData) {
   g_dataChannelSidKnown = false;
   g_dataChannelSid = 0;
   memoryProfileMark("webrtc.data", "open");
-  protocolEmitEvent("webrtc.client", "\"state\":\"connected\",\"peerId\":" + jsonString(g_peerId) + ",\"remoteId\":" + jsonString(g_remoteId));
+  P1EventField fields[] = {
+    p1FieldString("state", "connected"),
+    p1FieldString("peerId", g_peerId),
+    p1FieldString("remoteId", g_remoteId),
+  };
+  protocolEmitEventFields("webrtc.client", fields, 3);
 #if P1_EMBED_WEBRTC_PARK_SIGNALING_WHEN_CONNECTED
   if (g_peerOpen) {
     g_peerOpen = false;
@@ -662,7 +730,13 @@ static void onWebRtcDataChannelOpen(void* userData) {
     g_mqtt.disconnect();
 #endif
     memoryProfileMark("webrtc.peerjs", "parked");
-    protocolEmitEvent("webrtc.peerjs", "\"state\":\"parked\",\"reason\":\"datachannel_connected\",\"freeHeap\":" + String(ESP.getFreeHeap()) + ",\"maxAllocHeap\":" + String(ESP.getMaxAllocHeap()));
+    P1EventField parkedFields[] = {
+      p1FieldString("state", "parked"),
+      p1FieldString("reason", "datachannel_connected"),
+      p1FieldUInt("freeHeap", ESP.getFreeHeap()),
+      p1FieldUInt("maxAllocHeap", ESP.getMaxAllocHeap()),
+    };
+    protocolEmitEventFields("webrtc.peerjs", parkedFields, 4);
   }
 #endif
 }
@@ -672,7 +746,11 @@ static void onWebRtcDataChannelClose(void* userData) {
   g_dataChannelSidKnown = false;
   g_dataChannelSid = 0;
   memoryProfileMark("webrtc.data", "close");
-  protocolEmitEvent("webrtc.client", "\"state\":\"disconnected\",\"peerId\":" + jsonString(g_peerId));
+  P1EventField fields[] = {
+    p1FieldString("state", "disconnected"),
+    p1FieldString("peerId", g_peerId),
+  };
+  protocolEmitEventFields("webrtc.client", fields, 2);
   webrtcMarkStale("datachannel_close");
 }
 
@@ -782,7 +860,11 @@ static void webrtcCleanupStaleConnection() {
     g_peerState = PEER_CONNECTION_CLOSED;
     memoryProfileMark("webrtc.peer", "destroy_after");
   }
-  protocolEmitEvent("webrtc.peer", "\"state\":\"closed\",\"reason\":" + jsonString(reason));
+  P1EventField fields[] = {
+    p1FieldString("state", "closed"),
+    p1FieldString("reason", reason),
+  };
+  protocolEmitEventFields("webrtc.peer", fields, 2);
   webrtcRequestScriptResume(reason);
 }
 
@@ -882,13 +964,13 @@ static void webrtcHandlePeerJsMessage(const String& message) {
     g_peerSocket.setReconnectInterval(P1_EMBED_WEBRTC_RECONNECT_INTERVAL_MS);
 #endif
     memoryProfileMark("webrtc.peerjs", "open");
-    protocolEmitEvent("webrtc.peerjs", "\"state\":\"open\",\"peerId\":" + jsonString(g_peerId));
+    webrtcEmitPeerState("webrtc.peerjs", "open");
     return;
   }
 
   if (type == "ID-TAKEN") {
     memoryProfileMark("webrtc.peerjs", "id_taken");
-    protocolEmitEvent("webrtc.peerjs", "\"state\":\"id_taken\",\"peerId\":" + jsonString(g_peerId));
+    webrtcEmitPeerState("webrtc.peerjs", "id_taken");
     webrtcTryNextId();
     return;
   }
@@ -905,7 +987,7 @@ static void webrtcHandlePeerJsMessage(const String& message) {
       if (g_peerConnection) peer_connection_close(g_peerConnection);
       webrtcGivePeer();
     }
-    protocolEmitEvent("webrtc.client", "\"state\":\"left\"");
+    webrtcEmitState("webrtc.client", "left");
     return;
   }
 
@@ -916,8 +998,16 @@ static void webrtcHandlePeerJsMessage(const String& message) {
     g_remoteId = webrtcExtractString(message, "src");
     g_connectionId = webrtcExtractString(message, "connectionId");
     const String sdp = webrtcExtractPayloadSdp(message);
-    protocolEmitEvent("webrtc.trace", "\"event\":\"offer_received\",\"count\":" + String(g_offerInCount) + ",\"remoteId\":" + jsonString(g_remoteId) + ",\"connectionId\":" + jsonString(g_connectionId) + ",\"sdpBytes\":" + String(sdp.length()) + ",\"messageBytes\":" + String(message.length()));
-    debugEventEmit("webrtc.debug", "debug", "webrtc", "offer received", "\"remoteId\":" + jsonString(g_remoteId) + ",\"connectionId\":" + jsonString(g_connectionId) + ",\"sdpBytes\":" + String(sdp.length()) + ",\"messageBytes\":" + String(message.length()));
+    P1EventField offerFields[] = {
+      p1FieldString("event", "offer_received"),
+      p1FieldUInt("count", g_offerInCount),
+      p1FieldString("remoteId", g_remoteId),
+      p1FieldString("connectionId", g_connectionId),
+      p1FieldUInt("sdpBytes", sdp.length()),
+      p1FieldUInt("messageBytes", message.length()),
+    };
+    protocolEmitEventFields("webrtc.trace", offerFields, 6);
+    debugEventEmitFields("webrtc.debug", "debug", "webrtc", "offer received", offerFields + 2, 4);
     if (g_remoteId.length() == 0 || g_connectionId.length() == 0 || sdp.length() == 0) {
       debugError("webrtc", "bad_offer", "Malformed PeerJS offer");
       return;
@@ -935,12 +1025,25 @@ static void webrtcHandlePeerJsMessage(const String& message) {
         const char* answer = peer_connection_create_answer(g_peerConnection);
         memoryProfileMark("webrtc.signal", answer ? "answer_created" : "answer_failed");
         if (answer) {
-          debugEventEmit("webrtc.debug", "debug", "webrtc", "answer created", "\"answerBytes\":" + String(strlen(answer)) + ",\"freeHeap\":" + String(ESP.getFreeHeap()) + ",\"maxAllocHeap\":" + String(ESP.getMaxAllocHeap()));
+          P1EventField answerFields[] = {
+            p1FieldUInt("answerBytes", strlen(answer)),
+            p1FieldUInt("freeHeap", ESP.getFreeHeap()),
+            p1FieldUInt("maxAllocHeap", ESP.getMaxAllocHeap()),
+          };
+          debugEventEmitFields("webrtc.debug", "debug", "webrtc", "answer created", answerFields, 3);
           if (webrtcSendSdp("ANSWER", "answer", String(answer))) {
             memoryProfileMark("webrtc.signal", "answer_queued");
             g_answerOutCount++;
             webrtcSetTrace("answer_queued");
-            protocolEmitEvent("webrtc.trace", "\"event\":\"answer_queued\",\"count\":" + String(g_answerOutCount) + ",\"remoteId\":" + jsonString(g_remoteId) + ",\"answerBytes\":" + String(strlen(answer)) + ",\"freeHeap\":" + String(ESP.getFreeHeap()) + ",\"maxAllocHeap\":" + String(ESP.getMaxAllocHeap()));
+            P1EventField queuedFields[] = {
+              p1FieldString("event", "answer_queued"),
+              p1FieldUInt("count", g_answerOutCount),
+              p1FieldString("remoteId", g_remoteId),
+              p1FieldUInt("answerBytes", strlen(answer)),
+              p1FieldUInt("freeHeap", ESP.getFreeHeap()),
+              p1FieldUInt("maxAllocHeap", ESP.getMaxAllocHeap()),
+            };
+            protocolEmitEventFields("webrtc.trace", queuedFields, 6);
             g_waitingForAnswerSignalFlush = true;
             g_answerSignalWaitStartedAt = millis();
           }
@@ -986,10 +1089,22 @@ static void webrtcHandlePeerJsMessage(const String& message) {
       return;
     }
     if (candidate.indexOf(" tcp ") >= 0) {
-      protocolEmitEvent("webrtc.trace", "\"event\":\"candidate_dropped\",\"reason\":\"tcp\",\"count\":" + String(g_candidateInCount) + ",\"remoteId\":" + jsonString(g_remoteId));
+      P1EventField fields[] = {
+        p1FieldString("event", "candidate_dropped"),
+        p1FieldString("reason", "tcp"),
+        p1FieldUInt("count", g_candidateInCount),
+        p1FieldString("remoteId", g_remoteId),
+      };
+      protocolEmitEventFields("webrtc.trace", fields, 4);
       return;
     }
-    protocolEmitEvent("webrtc.trace", "\"event\":\"candidate_received\",\"count\":" + String(g_candidateInCount) + ",\"remoteId\":" + jsonString(g_remoteId) + ",\"bytes\":" + String(candidate.length()));
+    P1EventField fields[] = {
+      p1FieldString("event", "candidate_received"),
+      p1FieldUInt("count", g_candidateInCount),
+      p1FieldString("remoteId", g_remoteId),
+      p1FieldUInt("bytes", candidate.length()),
+    };
+    protocolEmitEventFields("webrtc.trace", fields, 4);
     if (webrtcTakePeer()) {
       if (g_peerConnection) peer_connection_add_ice_candidate(g_peerConnection, (char*)candidate.c_str());
       webrtcGivePeer();
@@ -1003,7 +1118,7 @@ static void webrtcPeerJsSocketEvent(WStype_t type, uint8_t* payload, size_t leng
     case WStype_CONNECTED:
       g_connectFailures = 0;
       memoryProfileMark("webrtc.peerjs", "socket_connected");
-      protocolEmitEvent("webrtc.peerjs", "\"state\":\"socket_connected\",\"peerId\":" + jsonString(g_peerId));
+      webrtcEmitPeerState("webrtc.peerjs", "socket_connected");
       break;
     case WStype_DISCONNECTED:
       g_peerOpen = false;
@@ -1019,15 +1134,27 @@ static void webrtcPeerJsSocketEvent(WStype_t type, uint8_t* payload, size_t leng
         break;
       }
       g_lastDisconnectEventAt = millis();
+      String state = "socket_disconnected";
       if (payload && length > 0) {
         String reason;
         reason.reserve(length);
         for (size_t i = 0; i < length; i++) reason += (char)payload[i];
         reason.toCharArray(g_lastSocketReason, sizeof(g_lastSocketReason));
-        protocolEmitEvent("webrtc.peerjs", "\"state\":\"socket_disconnected\",\"peerId\":" + jsonString(g_peerId) + ",\"failures\":" + String(g_connectFailures) + ",\"reason\":" + jsonString(reason));
+        P1EventField fields[] = {
+          p1FieldString("state", state),
+          p1FieldString("peerId", g_peerId),
+          p1FieldUInt("failures", g_connectFailures),
+          p1FieldString("reason", reason),
+        };
+        protocolEmitEventFields("webrtc.peerjs", fields, 4);
       } else {
         strlcpy(g_lastSocketReason, "disconnected", sizeof(g_lastSocketReason));
-        protocolEmitEvent("webrtc.peerjs", "\"state\":\"socket_disconnected\",\"peerId\":" + jsonString(g_peerId) + ",\"failures\":" + String(g_connectFailures));
+        P1EventField fields[] = {
+          p1FieldString("state", state),
+          p1FieldString("peerId", g_peerId),
+          p1FieldUInt("failures", g_connectFailures),
+        };
+        protocolEmitEventFields("webrtc.peerjs", fields, 3);
       }
       if (P1_EMBED_WEBRTC_MAX_CONNECT_FAILURES > 0 &&
           g_connectFailures >= P1_EMBED_WEBRTC_MAX_CONNECT_FAILURES) {
@@ -1076,7 +1203,11 @@ static void webrtcFlushSignals() {
   WebRtcMessage* queued = nullptr;
   while (xQueueReceive(g_signalQueue, &queued, 0) == pdTRUE) {
     if (!queued) continue;
-    debugEventEmit("webrtc.debug", "debug", "webrtc", "signal send", "\"bytes\":" + String(queued->len) + ",\"peerOpen\":" + String(g_peerOpen ? "true" : "false"));
+    P1EventField fields[] = {
+      p1FieldUInt("bytes", queued->len),
+      p1FieldBool("peerOpen", g_peerOpen),
+    };
+    debugEventEmitFields("webrtc.debug", "debug", "webrtc", "signal send", fields, 2);
 #if P1_EMBED_WEBRTC_SIGNALING_PEERJS
     g_peerSocket.sendTXT(webrtcMessageText(queued));
 #elif P1_EMBED_WEBRTC_SIGNALING_MQTT
@@ -1093,8 +1224,7 @@ static void webrtcFlushSignals() {
     g_waitingForAnswerSignalFlush = false;
     g_answerSignalWaitStartedAt = 0;
     memoryProfileMark("webrtc.signal", "answer_flushed");
-    debugEventEmit("webrtc.debug", "debug", "webrtc", "answer signal flushed",
-                   "\"freeHeap\":" + String(ESP.getFreeHeap()) + ",\"maxAllocHeap\":" + String(ESP.getMaxAllocHeap()));
+    webrtcDebugHeap("answer signal flushed");
   }
 }
 
@@ -1106,9 +1236,19 @@ static void webrtcMqttMessageReceived(String& topic, String& payload) {
   const String type = webrtcExtractEnvelopeType(payload);
   strlcpy(g_lastSignalType, type.c_str(), sizeof(g_lastSignalType));
   webrtcSetTrace("mqtt_signal");
-  protocolEmitEvent("webrtc.trace", "\"event\":\"mqtt_signal\",\"count\":" + String(g_signalInCount) + ",\"type\":" + jsonString(type) + ",\"bytes\":" + String(payload.length()));
-  debugEventEmit("webrtc.debug", "debug", "webrtc", "mqtt signal in",
-                 "\"topic\":" + jsonString(topic) + ",\"bytes\":" + String(payload.length()) + ",\"type\":" + jsonString(type));
+  P1EventField fields[] = {
+    p1FieldString("event", "mqtt_signal"),
+    p1FieldUInt("count", g_signalInCount),
+    p1FieldString("type", type),
+    p1FieldUInt("bytes", payload.length()),
+  };
+  protocolEmitEventFields("webrtc.trace", fields, 4);
+  P1EventField debugFields[] = {
+    p1FieldString("topic", topic),
+    p1FieldUInt("bytes", payload.length()),
+    p1FieldString("type", type),
+  };
+  debugEventEmitFields("webrtc.debug", "debug", "webrtc", "mqtt signal in", debugFields, 3);
   if (type == "OFFER" ||
       type == "ANSWER" ||
       type == "CANDIDATE" ||
@@ -1142,7 +1282,7 @@ static void webrtcConnectPeerJs() {
   g_peerSocket.onEvent(webrtcPeerJsSocketEvent);
   g_peerSocket.setReconnectInterval(P1_EMBED_WEBRTC_RECONNECT_INTERVAL_MS);
   memoryProfileMark("webrtc.peerjs", "connect_issued");
-  protocolEmitEvent("webrtc.peerjs", "\"state\":\"connecting\",\"peerId\":" + jsonString(g_peerId));
+  webrtcEmitPeerState("webrtc.peerjs", "connecting");
 #elif P1_EMBED_WEBRTC_SIGNALING_MQTT
   memoryProfileMark("webrtc.mqtt", "connect_begin");
   g_peerOpen = false;
@@ -1151,12 +1291,23 @@ static void webrtcConnectPeerJs() {
   g_mqtt.onMessage(webrtcMqttMessageReceived);
   String clientId = g_peerId;
   if (clientId.length() > 60) clientId = clientId.substring(0, 60);
-  protocolEmitEvent("webrtc.mqtt", "\"state\":\"connecting\",\"peerId\":" + jsonString(g_peerId) + ",\"host\":" + jsonString(P1_EMBED_WEBRTC_MQTT_HOST) + ",\"root\":" + jsonString(P1_EMBED_WEBRTC_MQTT_ROOT));
+  P1EventField connectingFields[] = {
+    p1FieldString("state", "connecting"),
+    p1FieldString("peerId", g_peerId),
+    p1FieldString("host", P1_EMBED_WEBRTC_MQTT_HOST),
+    p1FieldString("root", P1_EMBED_WEBRTC_MQTT_ROOT),
+  };
+  protocolEmitEventFields("webrtc.mqtt", connectingFields, 4);
   if (!g_mqtt.connect(clientId.c_str(), P1_EMBED_WEBRTC_MQTT_USER, P1_EMBED_WEBRTC_MQTT_PASS)) {
     g_connectFailures++;
     strlcpy(g_lastSocketReason, "mqtt_connect_failed", sizeof(g_lastSocketReason));
     memoryProfileMark("webrtc.mqtt", "connect_failed");
-    protocolEmitEvent("webrtc.mqtt", "\"state\":\"connect_failed\",\"peerId\":" + jsonString(g_peerId) + ",\"failures\":" + String(g_connectFailures));
+    P1EventField fields[] = {
+      p1FieldString("state", "connect_failed"),
+      p1FieldString("peerId", g_peerId),
+      p1FieldUInt("failures", g_connectFailures),
+    };
+    protocolEmitEventFields("webrtc.mqtt", fields, 3);
     g_peerReconnectAt = millis() + P1_EMBED_WEBRTC_RECONNECT_INTERVAL_MS;
     g_peerReconnectScheduled = true;
     return;
@@ -1166,7 +1317,12 @@ static void webrtcConnectPeerJs() {
     g_connectFailures++;
     strlcpy(g_lastSocketReason, "mqtt_subscribe_failed", sizeof(g_lastSocketReason));
     memoryProfileMark("webrtc.mqtt", "subscribe_failed");
-    protocolEmitEvent("webrtc.mqtt", "\"state\":\"subscribe_failed\",\"peerId\":" + jsonString(g_peerId) + ",\"topic\":" + jsonString(topic));
+    P1EventField fields[] = {
+      p1FieldString("state", "subscribe_failed"),
+      p1FieldString("peerId", g_peerId),
+      p1FieldString("topic", topic),
+    };
+    protocolEmitEventFields("webrtc.mqtt", fields, 3);
     g_mqtt.disconnect();
     g_peerReconnectAt = millis() + P1_EMBED_WEBRTC_RECONNECT_INTERVAL_MS;
     g_peerReconnectScheduled = true;
@@ -1177,8 +1333,18 @@ static void webrtcConnectPeerJs() {
   g_lastHeartbeatAt = millis();
   strlcpy(g_lastSocketReason, "", sizeof(g_lastSocketReason));
   memoryProfileMark("webrtc.mqtt", "open");
-  protocolEmitEvent("webrtc.mqtt", "\"state\":\"open\",\"peerId\":" + jsonString(g_peerId) + ",\"topic\":" + jsonString(topic));
-  protocolEmitEvent("webrtc.peerjs", "\"state\":\"open\",\"peerId\":" + jsonString(g_peerId) + ",\"signaling\":\"mqtt\"");
+  P1EventField openFields[] = {
+    p1FieldString("state", "open"),
+    p1FieldString("peerId", g_peerId),
+    p1FieldString("topic", topic),
+  };
+  protocolEmitEventFields("webrtc.mqtt", openFields, 3);
+  P1EventField peerOpenFields[] = {
+    p1FieldString("state", "open"),
+    p1FieldString("peerId", g_peerId),
+    p1FieldString("signaling", "mqtt"),
+  };
+  protocolEmitEventFields("webrtc.peerjs", peerOpenFields, 3);
   g_mqtt.publish(webrtcSignalTopicPresence(), "{\"type\":\"ONLINE\",\"src\":\"" + webrtcEscapeJson(g_peerId) + "\"}");
 #endif
 }
@@ -1204,7 +1370,12 @@ static void webrtcTryNextId() {
     delay(100);
     webrtcConnectPeerJs();
   } else {
-    protocolEmitEvent("webrtc.peerjs", "\"state\":\"id_retry_wait\",\"peerId\":" + jsonString(g_peerId) + ",\"retryMs\":" + String(P1_EMBED_WEBRTC_ID_TAKEN_RETRY_MS));
+    P1EventField fields[] = {
+      p1FieldString("state", "id_retry_wait"),
+      p1FieldString("peerId", g_peerId),
+      p1FieldUInt("retryMs", P1_EMBED_WEBRTC_ID_TAKEN_RETRY_MS),
+    };
+    protocolEmitEventFields("webrtc.peerjs", fields, 3);
   }
 }
 
@@ -1237,7 +1408,12 @@ static void webrtcSignalTask(void* arg) {
           g_connectFailures++;
           strlcpy(g_lastSocketReason, "mqtt_disconnected", sizeof(g_lastSocketReason));
           memoryProfileMark("webrtc.mqtt", "disconnected");
-          protocolEmitEvent("webrtc.mqtt", "\"state\":\"disconnected\",\"peerId\":" + jsonString(g_peerId) + ",\"failures\":" + String(g_connectFailures));
+          P1EventField fields[] = {
+            p1FieldString("state", "disconnected"),
+            p1FieldString("peerId", g_peerId),
+            p1FieldUInt("failures", g_connectFailures),
+          };
+          protocolEmitEventFields("webrtc.mqtt", fields, 3);
           g_peerReconnectAt = millis() + P1_EMBED_WEBRTC_RECONNECT_INTERVAL_MS;
           g_peerReconnectScheduled = true;
         } else if (g_mqtt.connected()) {
@@ -1316,7 +1492,11 @@ static bool webrtcStart() {
 
   g_started = true;
   memoryProfileMark("webrtc", "started");
-  protocolEmitEvent("webrtc.status", "\"state\":\"started\",\"host\":" + jsonString(P1_EMBED_WEBRTC_PEERJS_HOST));
+  P1EventField fields[] = {
+    p1FieldString("state", "started"),
+    p1FieldString("host", P1_EMBED_WEBRTC_PEERJS_HOST),
+  };
+  protocolEmitEventFields("webrtc.status", fields, 2);
   return true;
 }
 
@@ -1336,17 +1516,7 @@ void webrtcTransportLoop() {
 }
 
 void webrtcTransportSendLine(const String& line) {
-  if (!g_started || !g_dataChannelOpen || !g_outboundQueue) return;
-  if (line.length() > P1_EMBED_WEBRTC_SEND_MAX_BYTES) {
-    g_sendDrops++;
-    debugLog("warn", "webrtc", "WebRTC output line too large");
-    return;
-  }
-  WebRtcMessage* msg = webrtcAllocMessage(line.c_str(), line.length(), g_dataChannelSid, g_dataChannelSidKnown);
-  if (!msg || !webrtcQueueText(g_outboundQueue, msg)) {
-    g_sendDrops++;
-    if (msg) webrtcFreeMessage(msg);
-  }
+  (void)line;
 }
 
 void webrtcTransportSendBytes(const uint8_t* data, size_t len) {

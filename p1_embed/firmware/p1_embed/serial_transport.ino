@@ -6,12 +6,6 @@ static size_t g_serialLineLen = 0;
 static bool g_serialDiscardLine = false;
 static SemaphoreHandle_t g_transportWriteLock = nullptr;
 
-static bool transportLineHasCompactWebRtcEvent(const String& line) {
-  return line.startsWith("{\"type\":\"evt\",\"name\":\"script.") ||
-         line.startsWith("{\"type\":\"evt\",\"name\":\"debug.") ||
-         line.startsWith("{\"type\":\"evt\",\"name\":\"wifi.status\"");
-}
-
 void transportSerialBegin() {
   Serial.begin(P1_EMBED_SERIAL_BAUD);
   if (!g_transportWriteLock) {
@@ -30,9 +24,6 @@ void transportSendLine(const String& line) {
   Serial.print(line);
   if (!line.endsWith("\n")) Serial.print('\n');
   webTransportSendLine(line);
-  if (!line.startsWith("{\"type\":\"evt\",\"name\":\"device.status\"") && !transportLineHasCompactWebRtcEvent(line)) {
-    webrtcTransportSendLine(line);
-  }
   if (g_transportWriteLock) xSemaphoreGive(g_transportWriteLock);
 }
 

@@ -38,7 +38,6 @@ void protocolEmitEventFields(const char* name, const P1EventField* fields, size_
 void protocolEmitErrorEvent(const String& name, const String& code, const String& message);
 void protocolEmitLog(const String& level, const String& message);
 void protocolEmitPrint(const String& message, bool newline);
-void protocolEmitMsgPackEvent(const String& name, const String& level, const String& category, const String& message, const String& dataFieldsJson = "");
 void protocolEmitMsgPackEventFields(const char* name, const P1EventField* fields, size_t fieldCount);
 void protocolEmitMsgPackEventFields(const char* name, const char* level, const char* category, const char* message, const P1EventField* fields, size_t fieldCount);
 void protocolEmitBoot();
@@ -51,6 +50,11 @@ void scriptErrorSet(const String& phase, const String& code, const String& messa
 void scriptErrorWarn(const String& phase, const String& code, const String& message, const String& detailFieldsJson = "");
 bool scriptErrorHasLast();
 String scriptErrorLastCode();
+String scriptErrorLastPhase();
+String scriptErrorLastMessage();
+String scriptErrorLastDetails();
+uint32_t scriptErrorLastAtMs();
+uint32_t scriptErrorCount();
 String scriptErrorLastJson();
 String scriptErrorSummaryJson();
 const char* scriptErrorWrenchName(int code);

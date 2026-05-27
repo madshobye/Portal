@@ -1,4 +1,4 @@
-import { canEncodeCommand, decodeFrame, encodeCommand } from "./P1MsgPack.js?v=0.1.87-ui135";
+import { canEncodeCommand, decodeFrame, encodeCommand } from "./P1MsgPack.js?v=0.1.87-ui136";
 
 export class ProtocolClient extends EventTarget {
   constructor(transport, { timeoutMs = 15000 } = {}) {
@@ -38,7 +38,7 @@ export class ProtocolClient extends EventTarget {
   }
 
   async requestMsgPack(name, data = {}, options = {}) {
-    if (!this.transport.sendBytes) return await this.request(name, data, options);
+    if (!this.transport.sendBytes) throw new Error("Transport does not support MessagePack frames");
     if (!canEncodeCommand(name)) throw new Error(`No MessagePack opcode for ${name}`);
     const id = String(this.nextId++);
     const timeoutMs = options.timeoutMs || this.timeoutMs;

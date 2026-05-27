@@ -37,6 +37,10 @@ function loop() {
 
 The firmware compiles the source first. If compile succeeds, it can run `setup()` and then call `loop()` repeatedly from the Wrench task. A new uploaded script stops the old script before compile/run.
 
+## Transport Model
+
+P1E uses compact MessagePack frames for the WebRTC data channel. Serial and WebSocket text transports serialize the same protocol concepts as JSON lines at the transport boundary. Avoid using JSON as an internal data structure in sketches; reserve JSON helpers for parsing external JSON text such as HTTP API responses.
+
 ## Common Failure Patterns
 
 - `vasr` instead of `var` usually reports a bad expression on that line.
@@ -57,7 +61,7 @@ The firmware compiles the source first. If compile succeeds, it can run `setup()
 - `print(value...)`, `println(value...)`: emit text through the P1E transport as script print events.
 - `log(level, message)`: emit filtered log output.
 - `emit(channel, message)`: emit a transport event with a string message.
-- `emitJson(channel, pair...)`: emit a transport event with structured JSON fields.
+- `emitJson(channel, pair...)`: emit structured JSON fields on text transports. Prefer `emit(channel, message)` for WebRTC-visible script events.
 - `millis()`, `micros()`, `delay(ms)`, `delayMicroseconds(us)`.
 - `random(max)`, `random(min, max)`, `randomSeed(seed)`.
 - `freeHeap()`.

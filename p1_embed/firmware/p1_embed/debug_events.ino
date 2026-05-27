@@ -139,8 +139,10 @@ void debugEventEmit(const String& name, const String& level, const String& categ
   uint8_t value = debugLevelValue(level);
   if (value > g_debugLevel) return;
 
-  if (name.startsWith("script.") || name.startsWith("debug.") || name == "wifi.status") {
-    protocolEmitMsgPackEvent(name, level, category, message, dataFieldsJson);
+  if (!dataFieldsJson.length() &&
+      (name.startsWith("script.") || name.startsWith("debug.") || name.startsWith("led.") ||
+       name.startsWith("webrtc.") || name == "wifi.status")) {
+    protocolEmitMsgPackEventFields(name.c_str(), level.c_str(), category.c_str(), message.c_str(), nullptr, 0);
   }
 
   String out = "{\"type\":\"evt\",\"name\":" + jsonString(name) + ",\"data\":{";
@@ -156,7 +158,8 @@ void debugEventEmitFields(const String& name, const String& level, const String&
   uint8_t value = debugLevelValue(level);
   if (value > g_debugLevel) return;
 
-  if (name.startsWith("script.") || name.startsWith("debug.") || name == "wifi.status") {
+  if (name.startsWith("script.") || name.startsWith("debug.") || name.startsWith("led.") ||
+      name.startsWith("webrtc.") || name == "wifi.status") {
     protocolEmitMsgPackEventFields(name.c_str(), level.c_str(), category.c_str(), message.c_str(), fields, fieldCount);
   }
 

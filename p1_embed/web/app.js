@@ -1,11 +1,11 @@
-import { ProtocolClient } from "./protocol/ProtocolClient.js?v=0.1.87-ui135";
-import { canEncodeCommand } from "./protocol/P1MsgPack.js?v=0.1.87-ui135";
-import { WebSerialTransport } from "./protocol/WebSerialTransport.js?v=0.1.87-ui135";
+import { ProtocolClient } from "./protocol/ProtocolClient.js?v=0.1.87-ui136";
+import { canEncodeCommand } from "./protocol/P1MsgPack.js?v=0.1.87-ui136";
+import { WebSerialTransport } from "./protocol/WebSerialTransport.js?v=0.1.87-ui136";
 import { WebSocketTransport } from "./protocol/WebSocketTransport.js";
-import { MqttWebRtcTransport, MQTT_WEBRTC_TRANSPORT_VERSION } from "./protocol/MqttWebRtcTransport.js?v=0.1.87-ui135";
-import { P1WebFlasher } from "./web-flasher.js?v=0.1.87-ui135";
+import { MqttWebRtcTransport, MQTT_WEBRTC_TRANSPORT_VERSION } from "./protocol/MqttWebRtcTransport.js?v=0.1.87-ui136";
+import { P1WebFlasher } from "./web-flasher.js?v=0.1.87-ui136";
 
-const WEB_UI_VERSION = "0.1.87-ui135";
+const WEB_UI_VERSION = "0.1.87-ui136";
 console.info(`[P1E web] loaded ${WEB_UI_VERSION}`, { mqttWebRtc: MQTT_WEBRTC_TRANSPORT_VERSION });
 
 const defaultCode = `function setup() {
@@ -1925,7 +1925,10 @@ async function sendCommand(name, data = {}, options = {}) {
   if (!client) throw new Error("No device connection");
   const { quiet = false, ...requestOptions } = options;
   try {
-    const useMsgPack = isWebRtcKind(transport?.kind) && transport?.sendBytes && canEncodeCommand(name);
+    const isWebRtc = isWebRtcKind(transport?.kind);
+    if (isWebRtc && !transport?.sendBytes) throw new Error("WebRTC transport has no binary channel");
+    if (isWebRtc && !canEncodeCommand(name)) throw new Error(`No MessagePack opcode for ${name}`);
+    const useMsgPack = isWebRtc;
     let response;
     response = useMsgPack
       ? await client.requestMsgPack(name, data, requestOptions)
@@ -1954,7 +1957,8 @@ function acceptEvent(event) {
   }
 
   if (event.name === "script.error") {
-    const count = Number(data.error?.count);
+    const errorData = data.error || data;
+    const count = Number(errorData?.count);
     if (Number.isFinite(count)) lastLoggedScriptErrorCount = Math.max(lastLoggedScriptErrorCount, count);
     markEditorError(message);
   }

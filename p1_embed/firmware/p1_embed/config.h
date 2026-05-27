@@ -3,7 +3,7 @@
 #include <Arduino.h>
 
 #define P1_EMBED_FIRMWARE_NAME "p1_embed"
-#define P1_EMBED_FIRMWARE_VERSION "0.1.116"
+#define P1_EMBED_FIRMWARE_VERSION "0.1.117"
 #define P1_EMBED_PROTOCOL_VERSION "0.1"
 #define P1_EMBED_WRENCH_API_VERSION "0.1"
 #define P1_EMBED_WRENCH_UPSTREAM_REPO "https://github.com/jingoro2112/wrench"
@@ -103,7 +103,8 @@ static const char* P1_EMBED_CAPABILITIES[] = {
   "discovery.mdns",
 #endif
 #if P1_EMBED_WEBRTC_ENABLED
-  "transport.webrtc",
+  "transport.webrtc.msgpack",
+  "protocol.msgpack.v0_2",
 #if P1_EMBED_WEBRTC_SIGNALING_PEERJS
   "transport.webrtc.signaling.peerjs",
 #endif

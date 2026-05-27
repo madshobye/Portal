@@ -99,16 +99,26 @@ static void scriptErrorStore(const String& phase, const String& code, const Stri
   g_scriptErrorCount++;
 }
 
+static void scriptErrorEmit(const char* level, const String& phase, const String& code, const String& message) {
+  P1EventField fields[] = {
+    p1FieldBool("hasError", true),
+    p1FieldString("phase", phase),
+    p1FieldString("code", code),
+    p1FieldString("message", message),
+    p1FieldUInt("atMs", g_scriptErrorAtMs),
+    p1FieldUInt("count", g_scriptErrorCount),
+  };
+  debugEventEmitFields("script.error", level, "script", message, fields, 6);
+}
+
 void scriptErrorSet(const String& phase, const String& code, const String& message, const String& detailFieldsJson) {
   scriptErrorStore(phase, code, message, detailFieldsJson);
-  String fields = "\"error\":" + scriptErrorBuildJson(phase, code, message, detailFieldsJson);
-  debugEventEmit("script.error", "error", "script", message, fields);
+  scriptErrorEmit("error", phase, code, message);
 }
 
 void scriptErrorWarn(const String& phase, const String& code, const String& message, const String& detailFieldsJson) {
   scriptErrorStore(phase, code, message, detailFieldsJson);
-  String fields = "\"error\":" + scriptErrorBuildJson(phase, code, message, detailFieldsJson);
-  debugEventEmit("script.error", "warn", "script", message, fields);
+  scriptErrorEmit("warn", phase, code, message);
 }
 
 bool scriptErrorHasLast() {
@@ -122,6 +132,26 @@ String scriptErrorLastCode() {
 String scriptErrorLastJson() {
   if (!g_scriptErrorHasLast) return "{\"hasError\":false}";
   return scriptErrorBuildJson(g_scriptErrorPhase, g_scriptErrorCode, g_scriptErrorMessage, g_scriptErrorDetails);
+}
+
+String scriptErrorLastPhase() {
+  return g_scriptErrorPhase;
+}
+
+String scriptErrorLastMessage() {
+  return g_scriptErrorMessage;
+}
+
+String scriptErrorLastDetails() {
+  return g_scriptErrorDetails;
+}
+
+uint32_t scriptErrorLastAtMs() {
+  return g_scriptErrorAtMs;
+}
+
+uint32_t scriptErrorCount() {
+  return g_scriptErrorCount;
 }
 
 String scriptErrorSummaryJson() {

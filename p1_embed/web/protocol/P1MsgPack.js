@@ -1,4 +1,4 @@
-export const P1_MSGPACK_VERSION = "0.1.87-ui135";
+export const P1_MSGPACK_VERSION = "0.1.87-ui136";
 
 const FRAME_CMD = 0;
 const FRAME_RES = 1;
@@ -13,6 +13,13 @@ const OPS = {
   "debug.get": 6,
   "debug.set": 7,
   "script.get": 8,
+  "wifi.status": 9,
+  "wifi.connect": 10,
+  "wifi.disconnect": 11,
+  "script.error.get": 12,
+  "script.error.clear": 13,
+  "script.input": 14,
+  "wrench.input": 14,
   "script.chunk.begin": 19,
   "script.chunk.add": 20,
   "script.chunk.commit": 21,
@@ -30,6 +37,7 @@ export function encodeCommand(id, name, data = {}) {
   if (!op) throw new Error(`No MessagePack opcode for ${name}`);
   if (name === "config.set") return encodeConfigSet(id, op, data);
   if (name === "debug.set") return encodeDebugSet(id, op, data);
+  if (name === "script.input" || name === "wrench.input") return encodeScriptInput(id, op, data);
   if (name === "script.chunk.begin") return encodeScriptChunkBegin(id, op, data);
   if (name === "script.chunk.add") return encodeScriptChunkAdd(id, op, data);
   const writer = new MsgPackWriter(32);
@@ -62,6 +70,17 @@ function encodeDebugSet(id, op, data = {}) {
   writer.uint(Number(id));
   writer.uint(op);
   writer.string(data.level || "info");
+  return writer.bytes();
+}
+
+function encodeScriptInput(id, op, data = {}) {
+  const writer = new MsgPackWriter(256);
+  writer.array(5);
+  writer.uint(FRAME_CMD);
+  writer.uint(Number(id));
+  writer.uint(op);
+  writer.string(data.channel || "");
+  writer.string(data.message || "");
   return writer.bytes();
 }
 

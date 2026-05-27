@@ -54,7 +54,12 @@ static bool ledAddController(int pin, CRGB* pixels, int count, CLEDController*& 
   controllerOut = nullptr;
   g_controllerAddCount++;
   bool matchedPin = true;
-  debugEventEmit("led.debug", "debug", "led", "FastLED.addLeds begin", "\"call\":" + String(g_controllerAddCount) + ",\"pin\":" + String(pin) + ",\"count\":" + String(count));
+  P1EventField beginFields[] = {
+    p1FieldUInt("call", g_controllerAddCount),
+    p1FieldInt("pin", pin),
+    p1FieldInt("count", count),
+  };
+  debugEventEmitFields("led.debug", "debug", "led", "FastLED.addLeds begin", beginFields, 3);
   switch (pin) {
     P1_ADD_FASTLED_CASE(0);
     P1_ADD_FASTLED_CASE(1);
@@ -85,17 +90,33 @@ static bool ledAddController(int pin, CRGB* pixels, int count, CLEDController*& 
   if (controllerOut) {
     if (!controllerOut->isInList()) {
       controllerOut->addToList();
-      debugEventEmit("led.debug", "debug", "led", "FastLED controller re-added", "\"call\":" + String(g_controllerAddCount));
+      P1EventField fields[] = {
+        p1FieldUInt("call", g_controllerAddCount),
+      };
+      debugEventEmitFields("led.debug", "debug", "led", "FastLED controller re-added", fields, 1);
     }
     controllerOut->setEnabled(true);
   }
-  debugEventEmit("led.debug", "debug", "led", "FastLED.addLeds end", "\"call\":" + String(g_controllerAddCount) + ",\"matchedPin\":" + String(matchedPin ? "true" : "false") + ",\"controller\":" + String(controllerOut ? "true" : "false") + ",\"inList\":" + String((controllerOut && controllerOut->isInList()) ? "true" : "false") + ",\"enabled\":" + String((controllerOut && controllerOut->getEnabled()) ? "true" : "false"));
+  P1EventField endFields[] = {
+    p1FieldUInt("call", g_controllerAddCount),
+    p1FieldBool("matchedPin", matchedPin),
+    p1FieldBool("controller", controllerOut != nullptr),
+    p1FieldBool("inList", controllerOut && controllerOut->isInList()),
+    p1FieldBool("enabled", controllerOut && controllerOut->getEnabled()),
+  };
+  debugEventEmitFields("led.debug", "debug", "led", "FastLED.addLeds end", endFields, 5);
   return matchedPin && controllerOut != nullptr;
 }
 #endif
 
 static bool ledStartStrip(int strip, int pin, int count, int brightness) {
-  debugEventEmit("led.debug", "debug", "led", "ledStartStrip begin", "\"strip\":" + String(strip) + ",\"pin\":" + String(pin) + ",\"count\":" + String(count) + ",\"brightness\":" + String(brightness));
+  P1EventField startFields[] = {
+    p1FieldInt("strip", strip),
+    p1FieldInt("pin", pin),
+    p1FieldInt("count", count),
+    p1FieldInt("brightness", brightness),
+  };
+  debugEventEmitFields("led.debug", "debug", "led", "ledStartStrip begin", startFields, 4);
   if (strip < 0 || strip >= P1_EMBED_MAX_LED_STRIPS) {
     scriptErrorSet("binding", "led_bad_strip", "LED strip index is out of range", "\"strip\":" + String(strip));
     return false;
@@ -110,7 +131,13 @@ static bool ledStartStrip(int strip, int pin, int count, int brightness) {
   LedStripState& s = g_ledStrips[strip];
 
   if (s.ready) {
-    debugEventEmit("led.debug", "debug", "led", "ledStartStrip existing", "\"strip\":" + String(strip) + ",\"pin\":" + String(s.pin) + ",\"count\":" + String(s.count) + ",\"brightness\":" + String(s.brightness));
+    P1EventField existingFields[] = {
+      p1FieldInt("strip", strip),
+      p1FieldInt("pin", s.pin),
+      p1FieldInt("count", s.count),
+      p1FieldInt("brightness", s.brightness),
+    };
+    debugEventEmitFields("led.debug", "debug", "led", "ledStartStrip existing", existingFields, 4);
     if (pin != s.pin || count != s.count) {
       scriptErrorSet(
         "binding",
@@ -122,7 +149,13 @@ static bool ledStartStrip(int strip, int pin, int count, int brightness) {
     }
     s.brightness = brightness;
     FastLED.setBrightness((uint8_t)brightness);
-    debugEventEmit("led.status", "debug", "led", "strip reused", "\"strip\":" + String(strip) + ",\"pin\":" + String(pin) + ",\"count\":" + String(count) + ",\"brightness\":" + String(brightness));
+    P1EventField reusedFields[] = {
+      p1FieldInt("strip", strip),
+      p1FieldInt("pin", pin),
+      p1FieldInt("count", count),
+      p1FieldInt("brightness", brightness),
+    };
+    debugEventEmitFields("led.status", "debug", "led", "strip reused", reusedFields, 4);
     return true;
   }
 
@@ -157,22 +190,36 @@ static bool ledStartStrip(int strip, int pin, int count, int brightness) {
   g_ledShowDebugMarkers = 0;
   FastLED.setBrightness((uint8_t)brightness);
   FastLED.show();
-  debugEventEmit("led.status", "debug", "led", "strip started", "\"strip\":" + String(strip) + ",\"pin\":" + String(pin) + ",\"count\":" + String(count));
+  P1EventField startedFields[] = {
+    p1FieldInt("strip", strip),
+    p1FieldInt("pin", pin),
+    p1FieldInt("count", count),
+  };
+  debugEventEmitFields("led.status", "debug", "led", "strip started", startedFields, 3);
   return true;
 }
 
 void fastLedManagerBegin() {
   g_managerBeginCount++;
-  debugEventEmit("led.debug", "debug", "led", "fastLedManagerBegin", "\"call\":" + String(g_managerBeginCount));
+  P1EventField fields[] = {
+    p1FieldUInt("call", g_managerBeginCount),
+  };
+  debugEventEmitFields("led.debug", "debug", "led", "fastLedManagerBegin", fields, 1);
   ledResetRuntimeState();
 }
 
 void fastLedReleaseScriptResources() {
   g_resourceReleaseCount++;
   bool hadAny = g_activeStripCount > 0;
-  debugEventEmit("led.debug", "debug", "led", "FastLED release begin", "\"call\":" + String(g_resourceReleaseCount) + ",\"hadAny\":" + String(hadAny ? "true" : "false") + ",\"stripCount\":" + String(g_activeStripCount) + ",\"totalLeds\":" + String(g_totalLedCount));
+  P1EventField fields[] = {
+    p1FieldUInt("call", g_resourceReleaseCount),
+    p1FieldBool("hadAny", hadAny),
+    p1FieldInt("stripCount", g_activeStripCount),
+    p1FieldInt("totalLeds", g_totalLedCount),
+  };
+  debugEventEmitFields("led.debug", "debug", "led", "FastLED release begin", fields, 4);
   if (hadAny) {
-    debugEventEmit("led.status", "debug", "led", "kept FastLED resources for reuse", "\"call\":" + String(g_resourceReleaseCount) + ",\"stripCount\":" + String(g_activeStripCount) + ",\"totalLeds\":" + String(g_totalLedCount));
+    debugEventEmitFields("led.status", "debug", "led", "kept FastLED resources for reuse", fields, 4);
   }
 }
 
@@ -217,7 +264,15 @@ bool ledSetPixel(int strip, int index, int r, int g, int b) {
   if (!s.pixels || index < 0 || index >= s.count) return false;
   s.pixels[index] = CRGB(constrain(r, 0, 255), constrain(g, 0, 255), constrain(b, 0, 255));
   if (g_ledSetDebugMarkers < 8) {
-    debugEventEmit("led.debug", "trace", "led", "ledSetPixel", "\"marker\":" + String(g_ledSetDebugMarkers + 1) + ",\"strip\":" + String(strip) + ",\"index\":" + String(index) + ",\"r\":" + String(constrain(r, 0, 255)) + ",\"g\":" + String(constrain(g, 0, 255)) + ",\"b\":" + String(constrain(b, 0, 255)));
+    P1EventField fields[] = {
+      p1FieldUInt("marker", g_ledSetDebugMarkers + 1),
+      p1FieldInt("strip", strip),
+      p1FieldInt("index", index),
+      p1FieldInt("r", constrain(r, 0, 255)),
+      p1FieldInt("g", constrain(g, 0, 255)),
+      p1FieldInt("b", constrain(b, 0, 255)),
+    };
+    debugEventEmitFields("led.debug", "trace", "led", "ledSetPixel", fields, 6);
     g_ledSetDebugMarkers++;
   }
   return true;
@@ -250,7 +305,12 @@ bool ledClear(int strip, bool show) {
 bool fastLedShow() {
   if (g_activeStripCount <= 0) return false;
   if (g_ledShowDebugMarkers < 8) {
-    debugEventEmit("led.debug", "trace", "led", "ledShow", "\"marker\":" + String(g_ledShowDebugMarkers + 1) + ",\"stripCount\":" + String(g_activeStripCount) + ",\"totalLeds\":" + String(g_totalLedCount));
+    P1EventField fields[] = {
+      p1FieldUInt("marker", g_ledShowDebugMarkers + 1),
+      p1FieldInt("stripCount", g_activeStripCount),
+      p1FieldInt("totalLeds", g_totalLedCount),
+    };
+    debugEventEmitFields("led.debug", "trace", "led", "ledShow", fields, 3);
     g_ledShowDebugMarkers++;
   }
   FastLED.show();

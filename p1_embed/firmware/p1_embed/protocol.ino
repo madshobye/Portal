@@ -15,6 +15,12 @@ static const uint8_t P1_MP_OP_CONFIG_SET = 5;
 static const uint8_t P1_MP_OP_DEBUG_GET = 6;
 static const uint8_t P1_MP_OP_DEBUG_SET = 7;
 static const uint8_t P1_MP_OP_SCRIPT_GET = 8;
+static const uint8_t P1_MP_OP_WIFI_STATUS = 9;
+static const uint8_t P1_MP_OP_WIFI_CONNECT = 10;
+static const uint8_t P1_MP_OP_WIFI_DISCONNECT = 11;
+static const uint8_t P1_MP_OP_SCRIPT_ERROR_GET = 12;
+static const uint8_t P1_MP_OP_SCRIPT_ERROR_CLEAR = 13;
+static const uint8_t P1_MP_OP_SCRIPT_INPUT = 14;
 static const uint8_t P1_MP_OP_SCRIPT_CHUNK_BEGIN = 19;
 static const uint8_t P1_MP_OP_SCRIPT_CHUNK_ADD = 20;
 static const uint8_t P1_MP_OP_SCRIPT_CHUNK_COMMIT = 21;
@@ -316,43 +322,6 @@ void protocolSendResponseError(const String& id, const String& code, const Strin
   transportSendLine(out);
 }
 
-static String protocolEventFieldsObject(const String& dataFieldsJson) {
-  return "{" + dataFieldsJson + "}";
-}
-
-static bool protocolJsonGetIntPath(const String& json, const char* key, int32_t& out) {
-  bool found = false;
-  String raw = jsonPathGetRaw(json, key, &found);
-  if (!found || raw.length() == 0) return false;
-  char* end = nullptr;
-  long value = strtol(raw.c_str(), &end, 10);
-  if (end == raw.c_str()) return false;
-  out = (int32_t)value;
-  return true;
-}
-
-static bool protocolJsonGetBoolPath(const String& json, const char* key, bool& out) {
-  bool found = false;
-  String raw = jsonPathGetRaw(json, key, &found);
-  if (!found) return false;
-  raw.trim();
-  if (raw == "true") {
-    out = true;
-    return true;
-  }
-  if (raw == "false") {
-    out = false;
-    return true;
-  }
-  return false;
-}
-
-static bool protocolJsonGetStringPath(const String& json, const char* key, String& out) {
-  bool found = false;
-  out = jsonPathGetRaw(json, key, &found);
-  return found;
-}
-
 static void protocolMsgPackBeginEvent(P1MsgPackWriter& w, const char* name, uint32_t mapCount) {
   w.writeArray(3);
   w.writeUInt(P1_MP_FRAME_EVT);
@@ -425,7 +394,8 @@ void protocolEmitMsgPackEventFields(const char* name, const char* level, const c
     capacity += protocolEventFieldPayloadBytes(fields[i]);
   }
   capacity = min((size_t)P1_EMBED_WEBRTC_SEND_MAX_BYTES, max((size_t)160, capacity));
-  uint8_t* frame = static_cast<uint8_t*>(malloc(capacity));
+  uint8_t stackFrame[512];
+  uint8_t* frame = capacity <= sizeof(stackFrame) ? stackFrame : static_cast<uint8_t*>(malloc(capacity));
   if (!frame) return;
 
   P1MsgPackWriter w(frame, capacity);
@@ -437,132 +407,7 @@ void protocolEmitMsgPackEventFields(const char* name, const char* level, const c
     protocolMsgPackWriteEventField(w, fields[i]);
   }
   if (w.ok) webrtcTransportSendBytes(frame, w.length);
-  free(frame);
-}
-
-static void protocolMsgPackWriteJsonStringIfFound(P1MsgPackWriter& w, const String& json, const char* key, uint32_t& mapCount) {
-  String value;
-  if (!protocolJsonGetStringPath(json, key, value)) return;
-  w.writeString(key);
-  w.writeString(value);
-  mapCount++;
-}
-
-static void protocolMsgPackWriteJsonIntIfFound(P1MsgPackWriter& w, const String& json, const char* key, uint32_t& mapCount) {
-  int32_t value = 0;
-  if (!protocolJsonGetIntPath(json, key, value)) return;
-  w.writeString(key);
-  w.writeInt(value);
-  mapCount++;
-}
-
-static void protocolMsgPackWriteJsonBoolIfFound(P1MsgPackWriter& w, const String& json, const char* key, uint32_t& mapCount) {
-  bool value = false;
-  if (!protocolJsonGetBoolPath(json, key, value)) return;
-  w.writeString(key);
-  w.writeBool(value);
-  mapCount++;
-}
-
-static uint32_t protocolCountCompactEventFields(const String& json) {
-  static const char* stringKeys[] = {"state", "source", "autorun", "bootReason", "phase", "code", "status", "runState", "message", "ssid", "ip"};
-  static const char* intKeys[] = {"scriptBytes", "scriptHash", "bytecodeBytes", "timeoutMs", "elapsedMs", "freeHeap", "maxAllocHeap", "minFreeHeap", "networkIndex", "rssi"};
-  static const char* boolKeys[] = {"hasSetup", "hasLoop", "connected"};
-  uint32_t count = 0;
-  bool found = false;
-  for (const char* key : stringKeys) {
-    jsonPathGetRaw(json, key, &found);
-    if (found) count++;
-  }
-  for (const char* key : intKeys) {
-    jsonPathGetRaw(json, key, &found);
-    if (found) count++;
-  }
-  for (const char* key : boolKeys) {
-    jsonPathGetRaw(json, key, &found);
-    if (found) count++;
-  }
-  jsonPathGetRaw(json, "error", &found);
-  if (found) count++;
-  return count;
-}
-
-static void protocolMsgPackWriteCompactError(P1MsgPackWriter& w, const String& json) {
-  uint32_t errorFields = 0;
-  bool hasError = false;
-  bool boolValue = false;
-  String stringValue;
-  int32_t intValue = 0;
-  if (protocolJsonGetBoolPath(json, "error.hasError", boolValue)) errorFields++;
-  if (protocolJsonGetStringPath(json, "error.phase", stringValue)) errorFields++;
-  if (protocolJsonGetStringPath(json, "error.code", stringValue)) errorFields++;
-  if (protocolJsonGetStringPath(json, "error.message", stringValue)) errorFields++;
-  if (protocolJsonGetIntPath(json, "error.atMs", intValue)) errorFields++;
-  if (protocolJsonGetIntPath(json, "error.count", intValue)) errorFields++;
-  if (protocolJsonGetIntPath(json, "error.freeHeap", intValue)) errorFields++;
-  if (protocolJsonGetIntPath(json, "error.maxAllocHeap", intValue)) errorFields++;
-  if (protocolJsonGetIntPath(json, "error.minFreeHeap", intValue)) errorFields++;
-  if (protocolJsonGetIntPath(json, "error.scriptBytes", intValue)) errorFields++;
-  if (!errorFields) return;
-
-  w.writeString("error");
-  w.writeMap(errorFields);
-  if (protocolJsonGetBoolPath(json, "error.hasError", boolValue)) { w.writeString("hasError"); w.writeBool(boolValue); }
-  if (protocolJsonGetStringPath(json, "error.phase", stringValue)) { w.writeString("phase"); w.writeString(stringValue); }
-  if (protocolJsonGetStringPath(json, "error.code", stringValue)) { w.writeString("code"); w.writeString(stringValue); }
-  if (protocolJsonGetStringPath(json, "error.message", stringValue)) { w.writeString("message"); w.writeString(stringValue); }
-  if (protocolJsonGetIntPath(json, "error.atMs", intValue)) { w.writeString("atMs"); w.writeInt(intValue); }
-  if (protocolJsonGetIntPath(json, "error.count", intValue)) { w.writeString("count"); w.writeInt(intValue); }
-  if (protocolJsonGetIntPath(json, "error.freeHeap", intValue)) { w.writeString("freeHeap"); w.writeInt(intValue); }
-  if (protocolJsonGetIntPath(json, "error.maxAllocHeap", intValue)) { w.writeString("maxAllocHeap"); w.writeInt(intValue); }
-  if (protocolJsonGetIntPath(json, "error.minFreeHeap", intValue)) { w.writeString("minFreeHeap"); w.writeInt(intValue); }
-  if (protocolJsonGetIntPath(json, "error.scriptBytes", intValue)) { w.writeString("scriptBytes"); w.writeInt(intValue); }
-  (void)hasError;
-}
-
-void protocolEmitMsgPackEvent(const String& name, const String& level, const String& category, const String& message, const String& dataFieldsJson) {
-  String json = protocolEventFieldsObject(dataFieldsJson);
-  const uint32_t mapCount = 2 + (message.length() ? 1 : 0) + protocolCountCompactEventFields(json);
-  const size_t capacity = min((size_t)P1_EMBED_WEBRTC_SEND_MAX_BYTES, name.length() + level.length() + category.length() + message.length() + dataFieldsJson.length() + 192);
-  uint8_t* frame = static_cast<uint8_t*>(malloc(max((size_t)256, capacity)));
-  if (!frame) return;
-  P1MsgPackWriter w(frame, max((size_t)256, capacity));
-  protocolMsgPackBeginEvent(w, name.c_str(), mapCount);
-  w.writeString("level"); w.writeString(level);
-  w.writeString("category"); w.writeString(category);
-  if (message.length()) { w.writeString("message"); w.writeString(message); }
-
-  uint32_t written = 0;
-  protocolMsgPackWriteJsonStringIfFound(w, json, "state", written);
-  protocolMsgPackWriteJsonStringIfFound(w, json, "source", written);
-  protocolMsgPackWriteJsonStringIfFound(w, json, "autorun", written);
-  protocolMsgPackWriteJsonStringIfFound(w, json, "bootReason", written);
-  protocolMsgPackWriteJsonStringIfFound(w, json, "phase", written);
-  protocolMsgPackWriteJsonStringIfFound(w, json, "code", written);
-  protocolMsgPackWriteJsonStringIfFound(w, json, "status", written);
-  protocolMsgPackWriteJsonStringIfFound(w, json, "runState", written);
-  protocolMsgPackWriteJsonStringIfFound(w, json, "message", written);
-  protocolMsgPackWriteJsonStringIfFound(w, json, "ssid", written);
-  protocolMsgPackWriteJsonStringIfFound(w, json, "ip", written);
-  protocolMsgPackWriteJsonIntIfFound(w, json, "scriptBytes", written);
-  protocolMsgPackWriteJsonIntIfFound(w, json, "scriptHash", written);
-  protocolMsgPackWriteJsonIntIfFound(w, json, "bytecodeBytes", written);
-  protocolMsgPackWriteJsonIntIfFound(w, json, "timeoutMs", written);
-  protocolMsgPackWriteJsonIntIfFound(w, json, "elapsedMs", written);
-  protocolMsgPackWriteJsonIntIfFound(w, json, "freeHeap", written);
-  protocolMsgPackWriteJsonIntIfFound(w, json, "maxAllocHeap", written);
-  protocolMsgPackWriteJsonIntIfFound(w, json, "minFreeHeap", written);
-  protocolMsgPackWriteJsonIntIfFound(w, json, "networkIndex", written);
-  protocolMsgPackWriteJsonIntIfFound(w, json, "rssi", written);
-  protocolMsgPackWriteJsonBoolIfFound(w, json, "hasSetup", written);
-  protocolMsgPackWriteJsonBoolIfFound(w, json, "hasLoop", written);
-  protocolMsgPackWriteJsonBoolIfFound(w, json, "connected", written);
-  bool hasError = false;
-  jsonPathGetRaw(json, "error", &hasError);
-  if (hasError) protocolMsgPackWriteCompactError(w, json);
-
-  if (w.ok) webrtcTransportSendBytes(frame, w.length);
-  free(frame);
+  if (frame != stackFrame) free(frame);
 }
 
 void protocolEmitEventFields(const char* name, const P1EventField* fields, size_t fieldCount) {
@@ -573,7 +418,7 @@ void protocolEmitEventFields(const char* name, const P1EventField* fields, size_
     debugEventEmitFields(eventName, "info", category, "", fields, fieldCount);
     return;
   }
-  if (eventName == "webrtc.trace" || eventName == "webrtc.sdp") {
+  if (eventName.startsWith("webrtc.")) {
     int dot = eventName.indexOf('.');
     String category = dot > 0 ? eventName.substring(0, dot) : eventName;
     debugEventEmitFields(eventName, "debug", category, "", fields, fieldCount);
@@ -979,8 +824,9 @@ static void protocolSendMsgPackSystemInfo(uint32_t id) {
   w.writeString("chipModel"); w.writeString(ESP.getChipModel());
   w.writeString("sdkVersion"); w.writeString(ESP.getSdkVersion());
   w.writeString("heapSize"); w.writeUInt(ESP.getHeapSize());
-  w.writeString("capabilities"); w.writeArray(3);
+  w.writeString("capabilities"); w.writeArray(4);
   w.writeString("transport.webrtc.msgpack");
+  w.writeString("protocol.msgpack.v0_2");
   w.writeString("wrench.compile");
   w.writeString("wifi.station");
   w.writeString("wifi"); protocolMsgPackWriteWifi(w);
@@ -1001,6 +847,14 @@ static void protocolSendMsgPackConfig(uint32_t id) {
   if (w.ok) webrtcTransportSendBytes(frame, w.length);
 }
 
+static void protocolSendMsgPackWifiStatus(uint32_t id) {
+  uint8_t frame[256];
+  P1MsgPackWriter w(frame, sizeof(frame));
+  protocolMsgPackBeginResponse(w, id, true, 1);
+  w.writeString("wifi"); protocolMsgPackWriteWifi(w);
+  if (w.ok) webrtcTransportSendBytes(frame, w.length);
+}
+
 static void protocolSendMsgPackDebug(uint32_t id) {
   uint8_t frame[160];
   P1MsgPackWriter w(frame, sizeof(frame));
@@ -1010,6 +864,35 @@ static void protocolSendMsgPackDebug(uint32_t id) {
   w.writeString("levelValue"); w.writeUInt(debugEventLevel());
   w.writeString("queueDrops"); w.writeUInt(debugEventDrops());
   w.writeString("queueHighWater"); w.writeUInt(debugEventHighWater());
+  if (w.ok) webrtcTransportSendBytes(frame, w.length);
+}
+
+static void protocolSendMsgPackScriptError(uint32_t id) {
+  uint8_t frame[512];
+  P1MsgPackWriter w(frame, sizeof(frame));
+  if (!scriptErrorHasLast()) {
+    protocolMsgPackBeginResponse(w, id, true, 2);
+    w.writeString("hasError"); w.writeBool(false);
+    w.writeString("count"); w.writeUInt(scriptErrorCount());
+  } else {
+    String phase = scriptErrorLastPhase();
+    String code = scriptErrorLastCode();
+    String message = scriptErrorLastMessage();
+    String details = scriptErrorLastDetails();
+    const bool hasDetails = details.length() > 0 && details.length() < 128;
+    protocolMsgPackBeginResponse(w, id, true, hasDetails ? 8 : 7);
+    w.writeString("hasError"); w.writeBool(true);
+    w.writeString("phase"); w.writeString(phase);
+    w.writeString("code"); w.writeString(code);
+    w.writeString("message"); w.writeString(message);
+    w.writeString("atMs"); w.writeUInt(scriptErrorLastAtMs());
+    w.writeString("count"); w.writeUInt(scriptErrorCount());
+    w.writeString("detailText"); w.writeString(hasDetails ? details : "");
+    if (hasDetails) {
+      w.writeString("detailFormat");
+      w.writeString("json-fields");
+    }
+  }
   if (w.ok) webrtcTransportSendBytes(frame, w.length);
 }
 
@@ -1081,6 +964,15 @@ static void protocolSendMsgPackReceived(uint32_t id, uint32_t received) {
   w.writeMap(1);
   w.writeString("received");
   w.writeUInt(received);
+  if (w.ok) webrtcTransportSendBytes(frame, w.length);
+}
+
+static void protocolSendMsgPackInbox(uint32_t id) {
+  uint8_t frame[96];
+  P1MsgPackWriter w(frame, sizeof(frame));
+  protocolMsgPackBeginResponse(w, id, true, 2);
+  w.writeString("queued"); w.writeUInt(wrenchInboxAvailable());
+  w.writeString("drops"); w.writeUInt(wrenchInboxDrops());
   if (w.ok) webrtcTransportSendBytes(frame, w.length);
 }
 
@@ -1165,8 +1057,8 @@ static void protocolHandleMsgPackScriptChunkAdd(uint32_t id, const uint8_t* data
 
 void protocolHandleBytes(const uint8_t* data, size_t len) {
   if (!data || len == 0) return;
-  if (data[0] == '{') {
-    protocolHandleLine(reinterpret_cast<const char*>(data));
+  if (data[0] == '{' || data[0] == '[') {
+    protocolEmitErrorEvent("protocol.error", "json_on_binary_channel", "WebRTC data channel only accepts MessagePack frames");
     return;
   }
 
@@ -1223,6 +1115,31 @@ void protocolHandleBytes(const uint8_t* data, size_t len) {
       if (hasWifiSsid || hasWifiPassword) wifiReconnect();
     }
     protocolSendMsgPackConfig(id);
+  } else if (op == P1_MP_OP_WIFI_STATUS) {
+    protocolSendMsgPackWifiStatus(id);
+  } else if (op == P1_MP_OP_WIFI_CONNECT) {
+    wifiReconnect();
+    protocolSendMsgPackWifiStatus(id);
+  } else if (op == P1_MP_OP_WIFI_DISCONNECT) {
+    wifiDisconnect();
+    protocolSendMsgPackWifiStatus(id);
+  } else if (op == P1_MP_OP_SCRIPT_ERROR_GET) {
+    protocolSendMsgPackScriptError(id);
+  } else if (op == P1_MP_OP_SCRIPT_ERROR_CLEAR) {
+    scriptErrorClear();
+    protocolSendMsgPackScriptError(id);
+  } else if (op == P1_MP_OP_SCRIPT_INPUT) {
+    String channel;
+    String message;
+    if (!r.readString(channel) || !r.readString(message) || message.length() == 0) {
+      protocolSendMsgPackError(id, "missing_message", "script.input requires message");
+      return;
+    }
+    if (!wrenchInboxPush(channel, message)) {
+      protocolSendMsgPackError(id, "inbox_full", "Wrench input inbox is full");
+      return;
+    }
+    protocolSendMsgPackInbox(id);
   } else if (op == P1_MP_OP_DEBUG_GET) {
     protocolSendMsgPackDebug(id);
   } else if (op == P1_MP_OP_DEBUG_SET) {
