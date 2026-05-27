@@ -1,11 +1,11 @@
-import { ProtocolClient } from "./protocol/ProtocolClient.js?v=0.1.87-ui134";
-import { canEncodeCommand } from "./protocol/P1MsgPack.js?v=0.1.87-ui134";
-import { WebSerialTransport } from "./protocol/WebSerialTransport.js?v=0.1.87-ui134";
+import { ProtocolClient } from "./protocol/ProtocolClient.js?v=0.1.87-ui135";
+import { canEncodeCommand } from "./protocol/P1MsgPack.js?v=0.1.87-ui135";
+import { WebSerialTransport } from "./protocol/WebSerialTransport.js?v=0.1.87-ui135";
 import { WebSocketTransport } from "./protocol/WebSocketTransport.js";
-import { MqttWebRtcTransport, MQTT_WEBRTC_TRANSPORT_VERSION } from "./protocol/MqttWebRtcTransport.js?v=0.1.87-ui134";
-import { P1WebFlasher } from "./web-flasher.js?v=0.1.87-ui134";
+import { MqttWebRtcTransport, MQTT_WEBRTC_TRANSPORT_VERSION } from "./protocol/MqttWebRtcTransport.js?v=0.1.87-ui135";
+import { P1WebFlasher } from "./web-flasher.js?v=0.1.87-ui135";
 
-const WEB_UI_VERSION = "0.1.87-ui134";
+const WEB_UI_VERSION = "0.1.87-ui135";
 console.info(`[P1E web] loaded ${WEB_UI_VERSION}`, { mqttWebRtc: MQTT_WEBRTC_TRANSPORT_VERSION });
 
 const defaultCode = `function setup() {
@@ -1207,7 +1207,7 @@ function bindClient(nextClient) {
     if (nextClient !== client) return;
     const response = event.detail.response || {};
     if (event.detail.late) {
-      logLine("warn", `< late response id=${response.id ?? "?"}`);
+      logLine("debug", `< late response id=${response.id ?? "?"}`);
     }
   });
 
@@ -1245,9 +1245,9 @@ function logTransportState(detail = {}) {
   } else if (state === "connected") {
     logLine("debug", "WebRTC data channel open");
   } else if (state === "signaling_closed") {
-    logLine("warn", "WebRTC signaling closed");
+    logLine("debug", "WebRTC signaling closed");
   } else if (state === "disconnected" || state === "rtc_disconnected" || state === "rtc_failed" || state === "rtc_closed") {
-    logLine("warn", "WebRTC disconnected");
+    logLine("debug", "WebRTC disconnected");
   }
 }
 
@@ -1941,7 +1941,7 @@ async function sendCommand(name, data = {}, options = {}) {
 
 function acceptEvent(event) {
   const data = event.data || {};
-  const level = data.level || (event.name?.includes("error") ? "error" : "info");
+  const level = eventLogLevel(event.name, data);
 
   if (event.name === "device.status" && data.status) {
     updateStatus(data.status);
@@ -1969,6 +1969,21 @@ function acceptEvent(event) {
     if (data.status) updateStatus(data.status);
     renderFields();
   }
+}
+
+function eventLogLevel(name = "", data = {}) {
+  if (data.level) return data.level;
+  if (name?.includes("error")) return "error";
+  if (name === "script.upload") {
+    const state = String(data.state || data.phase || "").toLowerCase();
+    return state === "error" ? "error" : "debug";
+  }
+  if (name?.startsWith("webrtc.")) {
+    const state = String(data.state || data.status || "").toLowerCase();
+    if (state.includes("fail") || state.includes("error")) return "error";
+    return "debug";
+  }
+  return "info";
 }
 
 function eventMessage(name, data = {}) {

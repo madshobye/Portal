@@ -1,4 +1,4 @@
-export const P1_MSGPACK_VERSION = "0.1.87-ui134";
+export const P1_MSGPACK_VERSION = "0.1.87-ui135";
 
 const FRAME_CMD = 0;
 const FRAME_RES = 1;

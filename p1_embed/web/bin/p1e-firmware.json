@@ -1,5 +1,6 @@
 {
   "name": "P1E ESP32 classic",
+  "version": "0.1.116",
   "flashMode": "dio",
   "flashFreq": "80m",
   "flashSize": "4MB",
