@@ -5,6 +5,76 @@
 #include "p1_msgpack.h"
 #include "wrench.h"
 
+struct P1WifiSnapshot {
+  bool configured = false;
+  const char* status = "unknown";
+  bool connected = false;
+  int networkIndex = 0;
+  int networkCount = 0;
+  String ssid;
+  String ip;
+  int rssi = 0;
+  String mac;
+};
+
+struct P1ConfigSnapshot {
+  String deviceId;
+  String deviceName;
+  String wifiSsid;
+  bool wifiPasswordSet = false;
+  int wifiNetworkCount = 0;
+  P1WifiSnapshot wifi;
+};
+
+struct P1DebugSnapshot {
+  const char* level = "info";
+  uint8_t levelValue = 2;
+  uint32_t queueDrops = 0;
+  uint32_t queueHighWater = 0;
+};
+
+struct P1ScriptErrorSnapshot {
+  bool hasError = false;
+  String phase;
+  String code;
+  String message;
+  String details;
+  uint32_t atMs = 0;
+  uint32_t count = 0;
+};
+
+struct P1ScriptSnapshot {
+  String code;
+  const char* state = "empty";
+  bool stored = false;
+  const char* runState = "ok";
+  bool runPending = false;
+  bool verificationArmed = false;
+  uint32_t bytes = 0;
+  uint32_t hash = 0;
+  bool hasSetup = false;
+  bool hasLoop = false;
+  bool taskRunning = false;
+  uint32_t loopCount = 0;
+  float loopFps = 0.0f;
+  bool loopHung = false;
+  uint32_t taskStackHighWater = 0;
+};
+
+struct P1StatusSnapshot {
+  uint32_t uptimeMs = 0;
+  uint32_t heapSize = 0;
+  uint32_t freeHeap = 0;
+  uint32_t minFreeHeap = 0;
+  uint32_t maxAllocHeap = 0;
+  String deviceId;
+  String deviceName;
+  P1ScriptSnapshot script;
+  P1WifiSnapshot wifi;
+  P1ScriptErrorSnapshot lastError;
+  P1DebugSnapshot debug;
+};
+
 void transportSerialBegin();
 void transportSerialPoll();
 void transportSendRaw(const char* data);
@@ -49,6 +119,7 @@ void scriptErrorClear();
 void scriptErrorSet(const String& phase, const String& code, const String& message, const String& detailFieldsJson = "");
 void scriptErrorWarn(const String& phase, const String& code, const String& message, const String& detailFieldsJson = "");
 bool scriptErrorHasLast();
+P1ScriptErrorSnapshot scriptErrorSnapshot();
 String scriptErrorLastCode();
 String scriptErrorLastPhase();
 String scriptErrorLastMessage();
@@ -56,7 +127,9 @@ String scriptErrorLastDetails();
 uint32_t scriptErrorLastAtMs();
 uint32_t scriptErrorCount();
 String scriptErrorLastJson();
+String scriptErrorLastJson(const P1ScriptErrorSnapshot& snapshot);
 String scriptErrorSummaryJson();
+String scriptErrorSummaryJson(const P1ScriptErrorSnapshot& snapshot);
 const char* scriptErrorWrenchName(int code);
 
 void debugEventBegin();
@@ -67,7 +140,9 @@ uint8_t debugEventLevel();
 const char* debugLevelName(uint8_t level);
 uint32_t debugEventDrops();
 uint32_t debugEventHighWater();
+P1DebugSnapshot debugEventSnapshot();
 String debugEventStatusJson();
+String debugEventStatusJson(const P1DebugSnapshot& snapshot);
 void debugEventEmit(const String& name, const String& level, const String& category, const String& message, const String& dataFieldsJson = "");
 void debugEventEmitFields(const String& name, const String& level, const String& category, const String& message, const P1EventField* fields, size_t fieldCount);
 void debugEventSendLine(const String& line);
@@ -100,13 +175,17 @@ String configWifiPassword();
 int configWifiNetworkCount();
 String configWifiSsidAt(int index);
 String configWifiPasswordAt(int index);
+P1ConfigSnapshot configSnapshot();
 String configAsJson();
+String configAsJson(const P1ConfigSnapshot& snapshot);
 
 void wifiBegin();
 void wifiLoop();
 void wifiReconnect();
 void wifiDisconnect();
+P1WifiSnapshot wifiSnapshot();
 String wifiStatusJson();
+String wifiStatusJson(const P1WifiSnapshot& snapshot);
 bool wifiIsConnected();
 
 bool scriptStoreBegin();

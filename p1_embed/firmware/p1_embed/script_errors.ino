@@ -76,15 +76,17 @@ void scriptErrorClear() {
   g_scriptErrorAtMs = 0;
 }
 
-static String scriptErrorBuildJson(const String& phase, const String& code, const String& message, const String& detailFieldsJson) {
+static String scriptErrorBuildJson(const P1ScriptErrorSnapshot& snapshot, bool includeDetails) {
   String out = "{";
-  out += "\"hasError\":true";
-  out += ",\"phase\":" + jsonString(phase);
-  out += ",\"code\":" + jsonString(code);
-  out += ",\"message\":" + jsonString(message);
-  out += ",\"atMs\":" + String(g_scriptErrorAtMs);
-  out += ",\"count\":" + String(g_scriptErrorCount);
-  if (detailFieldsJson.length()) out += "," + detailFieldsJson;
+  out += "\"hasError\":" + String(snapshot.hasError ? "true" : "false");
+  out += ",\"count\":" + String(snapshot.count);
+  if (snapshot.hasError) {
+    out += ",\"phase\":" + jsonString(snapshot.phase);
+    out += ",\"code\":" + jsonString(snapshot.code);
+    out += ",\"message\":" + jsonString(snapshot.message);
+    out += ",\"atMs\":" + String(snapshot.atMs);
+    if (includeDetails && snapshot.details.length()) out += "," + snapshot.details;
+  }
   out += "}";
   return out;
 }
@@ -125,13 +127,28 @@ bool scriptErrorHasLast() {
   return g_scriptErrorHasLast;
 }
 
+P1ScriptErrorSnapshot scriptErrorSnapshot() {
+  P1ScriptErrorSnapshot snapshot;
+  snapshot.hasError = g_scriptErrorHasLast;
+  snapshot.phase = g_scriptErrorPhase;
+  snapshot.code = g_scriptErrorCode;
+  snapshot.message = g_scriptErrorMessage;
+  snapshot.details = g_scriptErrorDetails;
+  snapshot.atMs = g_scriptErrorAtMs;
+  snapshot.count = g_scriptErrorCount;
+  return snapshot;
+}
+
 String scriptErrorLastCode() {
   return g_scriptErrorCode;
 }
 
+String scriptErrorLastJson(const P1ScriptErrorSnapshot& snapshot) {
+  return scriptErrorBuildJson(snapshot, true);
+}
+
 String scriptErrorLastJson() {
-  if (!g_scriptErrorHasLast) return "{\"hasError\":false}";
-  return scriptErrorBuildJson(g_scriptErrorPhase, g_scriptErrorCode, g_scriptErrorMessage, g_scriptErrorDetails);
+  return scriptErrorLastJson(scriptErrorSnapshot());
 }
 
 String scriptErrorLastPhase() {
@@ -154,16 +171,10 @@ uint32_t scriptErrorCount() {
   return g_scriptErrorCount;
 }
 
+String scriptErrorSummaryJson(const P1ScriptErrorSnapshot& snapshot) {
+  return scriptErrorBuildJson(snapshot, false);
+}
+
 String scriptErrorSummaryJson() {
-  String out = "{";
-  out += "\"hasError\":" + String(g_scriptErrorHasLast ? "true" : "false");
-  out += ",\"count\":" + String(g_scriptErrorCount);
-  if (g_scriptErrorHasLast) {
-    out += ",\"phase\":" + jsonString(g_scriptErrorPhase);
-    out += ",\"code\":" + jsonString(g_scriptErrorCode);
-    out += ",\"message\":" + jsonString(g_scriptErrorMessage);
-    out += ",\"atMs\":" + String(g_scriptErrorAtMs);
-  }
-  out += "}";
-  return out;
+  return scriptErrorSummaryJson(scriptErrorSnapshot());
 }

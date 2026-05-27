@@ -277,13 +277,24 @@ String configWifiPasswordAt(int index) {
   return g_wifiPasswords[index];
 }
 
-String configAsJson() {
+P1ConfigSnapshot configSnapshot() {
+  P1ConfigSnapshot snapshot;
+  snapshot.deviceId = configDeviceId();
+  snapshot.deviceName = configDeviceName();
+  snapshot.wifiSsid = configWifiSsid();
+  snapshot.wifiPasswordSet = configWifiPassword().length() > 0;
+  snapshot.wifiNetworkCount = g_wifiNetworkCount;
+  snapshot.wifi = wifiSnapshot();
+  return snapshot;
+}
+
+String configAsJson(const P1ConfigSnapshot& snapshot) {
   String out = "{";
-  out += "\"deviceId\":" + jsonString(configDeviceId());
-  out += ",\"deviceName\":" + jsonString(configDeviceName());
-  out += ",\"wifiSsid\":" + jsonString(configWifiSsid());
-  out += ",\"wifiPasswordSet\":" + String(configWifiPassword().length() ? "true" : "false");
-  out += ",\"wifiNetworkCount\":" + String(g_wifiNetworkCount);
+  out += "\"deviceId\":" + jsonString(snapshot.deviceId);
+  out += ",\"deviceName\":" + jsonString(snapshot.deviceName);
+  out += ",\"wifiSsid\":" + jsonString(snapshot.wifiSsid);
+  out += ",\"wifiPasswordSet\":" + String(snapshot.wifiPasswordSet ? "true" : "false");
+  out += ",\"wifiNetworkCount\":" + String(snapshot.wifiNetworkCount);
   out += ",\"wifiNetworks\":[";
   for (int i = 0; i < g_wifiNetworkCount; i++) {
     if (i) out += ",";
@@ -292,7 +303,11 @@ String configAsJson() {
   }
   out += "]";
   out += ",\"storage\":\"littlefs:/config.json\"";
-  out += ",\"wifi\":" + wifiStatusJson();
+  out += ",\"wifi\":" + wifiStatusJson(snapshot.wifi);
   out += "}";
   return out;
+}
+
+String configAsJson() {
+  return configAsJson(configSnapshot());
 }

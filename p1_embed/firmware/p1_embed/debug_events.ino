@@ -69,14 +69,27 @@ uint32_t debugEventHighWater() {
   return g_debugQueueHighWater;
 }
 
-String debugEventStatusJson() {
+P1DebugSnapshot debugEventSnapshot() {
+  P1DebugSnapshot snapshot;
+  snapshot.level = debugLevelName(g_debugLevel);
+  snapshot.levelValue = g_debugLevel;
+  snapshot.queueDrops = g_debugQueueDrops;
+  snapshot.queueHighWater = g_debugQueueHighWater;
+  return snapshot;
+}
+
+String debugEventStatusJson(const P1DebugSnapshot& snapshot) {
   String out = "{";
-  out += "\"level\":" + jsonString(debugLevelName(g_debugLevel));
-  out += ",\"levelValue\":" + String(g_debugLevel);
-  out += ",\"queueDrops\":" + String(g_debugQueueDrops);
-  out += ",\"queueHighWater\":" + String(g_debugQueueHighWater);
+  out += "\"level\":" + jsonString(snapshot.level);
+  out += ",\"levelValue\":" + String(snapshot.levelValue);
+  out += ",\"queueDrops\":" + String(snapshot.queueDrops);
+  out += ",\"queueHighWater\":" + String(snapshot.queueHighWater);
   out += "}";
   return out;
+}
+
+String debugEventStatusJson() {
+  return debugEventStatusJson(debugEventSnapshot());
 }
 
 static void debugSendOrQueueLine(const String& line) {

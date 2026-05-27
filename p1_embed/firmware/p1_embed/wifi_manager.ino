@@ -104,20 +104,39 @@ void wifiDisconnect() {
   protocolEmitEventFields("wifi.status", fields, 1);
 }
 
-String wifiStatusJson() {
+P1WifiSnapshot wifiSnapshot() {
   int status = WiFi.status();
+  const bool connected = status == WL_CONNECTED;
+  P1WifiSnapshot snapshot;
+  snapshot.configured = configWifiNetworkCount() > 0;
+  snapshot.status = wifiStatusName(status);
+  snapshot.connected = connected;
+  snapshot.networkIndex = g_wifiNetworkIndex;
+  snapshot.networkCount = configWifiNetworkCount();
+  snapshot.ssid = connected ? configWifiSsidAt(g_wifiNetworkIndex) : String("");
+  snapshot.ip = connected ? WiFi.localIP().toString() : String("");
+  snapshot.rssi = connected ? WiFi.RSSI() : 0;
+  snapshot.mac = WiFi.macAddress();
+  return snapshot;
+}
+
+String wifiStatusJson(const P1WifiSnapshot& snapshot) {
   String out = "{";
-  out += "\"configured\":" + String(configWifiSsid().length() ? "true" : "false");
-  out += ",\"status\":" + jsonString(wifiStatusName(status));
-  out += ",\"connected\":" + String(status == WL_CONNECTED ? "true" : "false");
-  out += ",\"networkIndex\":" + String(g_wifiNetworkIndex);
-  out += ",\"networkCount\":" + String(configWifiNetworkCount());
-  out += ",\"ssid\":" + jsonString(status == WL_CONNECTED ? configWifiSsidAt(g_wifiNetworkIndex) : String(""));
-  out += ",\"ip\":" + jsonString(status == WL_CONNECTED ? WiFi.localIP().toString() : String(""));
-  out += ",\"rssi\":" + String(status == WL_CONNECTED ? WiFi.RSSI() : 0);
-  out += ",\"mac\":" + jsonString(WiFi.macAddress());
+  out += "\"configured\":" + String(snapshot.configured ? "true" : "false");
+  out += ",\"status\":" + jsonString(snapshot.status);
+  out += ",\"connected\":" + String(snapshot.connected ? "true" : "false");
+  out += ",\"networkIndex\":" + String(snapshot.networkIndex);
+  out += ",\"networkCount\":" + String(snapshot.networkCount);
+  out += ",\"ssid\":" + jsonString(snapshot.ssid);
+  out += ",\"ip\":" + jsonString(snapshot.ip);
+  out += ",\"rssi\":" + String(snapshot.rssi);
+  out += ",\"mac\":" + jsonString(snapshot.mac);
   out += "}";
   return out;
+}
+
+String wifiStatusJson() {
+  return wifiStatusJson(wifiSnapshot());
 }
 
 bool wifiIsConnected() {
