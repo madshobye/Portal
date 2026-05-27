@@ -1,11 +1,11 @@
-import { ProtocolClient } from "./protocol/ProtocolClient.js?v=0.1.87-ui136";
-import { canEncodeCommand } from "./protocol/P1MsgPack.js?v=0.1.87-ui136";
-import { WebSerialTransport } from "./protocol/WebSerialTransport.js?v=0.1.87-ui136";
+import { ProtocolClient } from "./protocol/ProtocolClient.js?v=0.1.87-ui137";
+import { canEncodeCommand } from "./protocol/P1MsgPack.js?v=0.1.87-ui137";
+import { WebSerialTransport } from "./protocol/WebSerialTransport.js?v=0.1.87-ui137";
 import { WebSocketTransport } from "./protocol/WebSocketTransport.js";
-import { MqttWebRtcTransport, MQTT_WEBRTC_TRANSPORT_VERSION } from "./protocol/MqttWebRtcTransport.js?v=0.1.87-ui136";
-import { P1WebFlasher } from "./web-flasher.js?v=0.1.87-ui136";
+import { MqttWebRtcTransport, MQTT_WEBRTC_TRANSPORT_VERSION } from "./protocol/MqttWebRtcTransport.js?v=0.1.87-ui137";
+import { P1WebFlasher } from "./web-flasher.js?v=0.1.87-ui137";
 
-const WEB_UI_VERSION = "0.1.87-ui136";
+const WEB_UI_VERSION = "0.1.87-ui137";
 console.info(`[P1E web] loaded ${WEB_UI_VERSION}`, { mqttWebRtc: MQTT_WEBRTC_TRANSPORT_VERSION });
 
 const defaultCode = `function setup() {
@@ -1412,11 +1412,11 @@ async function uploadScriptCodeChunked(code, { run, save }) {
     await settle(12);
   }
 
-  setUploadState("compiling", "Compiling on board", 88);
+  setUploadState("uploading", "Finalizing upload", 88);
   const response = await sendCommand("script.chunk.commit", {}, { timeoutMs: 10000 });
   if (response.state === "queued") {
-    logLine("info", "script upload received; compiling on device");
-    setUploadState("compiling", "Compiling on board", 92);
+    logLine("info", "script upload received; queued on device");
+    setUploadState("queued", "Upload received", 90);
     updateScriptState({ state: "queued", scriptBytes: response.scriptBytes });
   } else {
     logLine("info", "script upload complete");
@@ -2040,7 +2040,9 @@ function shouldLogEvent(name, data = {}, message = "") {
 
 function updateUploadFromEvent(data = {}) {
   const state = String(data.state || data.phase || "").toLowerCase();
-  if (state === "queued" || state === "compiling") {
+  if (state === "queued") {
+    setUploadState("queued", "Upload received", 90);
+  } else if (state === "compiling") {
     setUploadState("compiling", "Compiling on board", 94);
   } else if (state === "running") {
     setUploadState("running", "Running", 100, { autoClear: true });

@@ -497,6 +497,19 @@ static bool g_scriptJobSave = false;
 static int g_scriptJobExpectedBytes = -1;
 static String g_scriptJobExpectedHashHex;
 
+static void protocolQueueScriptJob(bool runAfterSet, bool saveAfterSet, int expectedBytes, const String& expectedHashHex, size_t scriptBytes) {
+  g_scriptJobPending = true;
+  g_scriptJobRun = runAfterSet;
+  g_scriptJobSave = saveAfterSet;
+  g_scriptJobExpectedBytes = expectedBytes;
+  g_scriptJobExpectedHashHex = expectedHashHex;
+  P1EventField fields[] = {
+    p1FieldString("state", "queued"),
+    p1FieldUInt("scriptBytes", scriptBytes),
+  };
+  protocolEmitEventFields("script.upload", fields, 2);
+}
+
 bool protocolHandleScriptSetCode(const String& id, const String& code, bool runAfterSet, bool saveAfterSet, bool sendResponse) {
   String err;
   WrenchTransitionGuard transition("script.set");
@@ -611,7 +624,18 @@ static void protocolHandleScriptSet(const String& id, const char* line, bool run
   jsonGetInt(line, "codeBytes", expectedBytes);
   jsonGetString(line, "codeHash", expectedHashHex);
   if (!protocolValidateScriptIntegrity(id, code, expectedBytes, expectedHashHex)) return;
-  protocolHandleScriptSetCode(id, code, runAfterSet, saveAfterSet);
+  if (!scriptStoreSaveIncoming(code)) {
+    protocolSendResponseError(id, "storage_error", "Failed to stage script upload");
+    return;
+  }
+  g_scriptChunkActive = false;
+  g_scriptChunkExpectedHashHex = "";
+  if (expectedBytes <= 0) expectedBytes = code.length();
+  String response = "{\"state\":\"queued\",\"scriptBytes\":" + String(code.length());
+  response += ",\"scriptHash\":" + String(protocolFnv1a(code));
+  response += "}";
+  protocolSendResponseOk(id, response);
+  protocolQueueScriptJob(runAfterSet, saveAfterSet, expectedBytes, expectedHashHex, code.length());
 }
 
 static void protocolHandleScriptChunkBegin(const String& id, const char* line) {
@@ -696,18 +720,11 @@ static void protocolHandleScriptChunkCommit(const String& id) {
   bool runAfterSet = g_scriptChunkRun;
   bool saveAfterSet = g_scriptChunkSave;
   g_scriptChunkActive = false;
-  g_scriptJobPending = true;
-  g_scriptJobRun = runAfterSet;
-  g_scriptJobSave = saveAfterSet;
-  g_scriptJobExpectedBytes = g_scriptChunkExpectedBytes;
-  g_scriptJobExpectedHashHex = g_scriptChunkExpectedHashHex;
+  int expectedBytes = g_scriptChunkExpectedBytes;
+  String expectedHashHex = g_scriptChunkExpectedHashHex;
   g_scriptChunkExpectedHashHex = "";
   protocolSendResponseOk(id, "{\"state\":\"queued\",\"scriptBytes\":" + String(code.length()) + "}");
-  P1EventField fields[] = {
-    p1FieldString("state", "queued"),
-    p1FieldUInt("scriptBytes", code.length()),
-  };
-  protocolEmitEventFields("script.upload", fields, 2);
+  protocolQueueScriptJob(runAfterSet, saveAfterSet, expectedBytes, expectedHashHex, code.length());
 }
 
 void protocolPollScriptJobs() {
@@ -1186,18 +1203,11 @@ void protocolHandleBytes(const uint8_t* data, size_t len) {
     bool runAfterSet = g_scriptChunkRun;
     bool saveAfterSet = g_scriptChunkSave;
     g_scriptChunkActive = false;
-    g_scriptJobPending = true;
-    g_scriptJobRun = runAfterSet;
-    g_scriptJobSave = saveAfterSet;
-    g_scriptJobExpectedBytes = g_scriptChunkExpectedBytes;
-    g_scriptJobExpectedHashHex = g_scriptChunkExpectedHashHex;
+    int expectedBytes = g_scriptChunkExpectedBytes;
+    String expectedHashHex = g_scriptChunkExpectedHashHex;
     g_scriptChunkExpectedHashHex = "";
     protocolSendMsgPackChunkCommitOk(id, code.length());
-    P1EventField fields[] = {
-      p1FieldString("state", "queued"),
-      p1FieldUInt("scriptBytes", code.length()),
-    };
-    protocolEmitEventFields("script.upload", fields, 2);
+    protocolQueueScriptJob(runAfterSet, saveAfterSet, expectedBytes, expectedHashHex, code.length());
   } else if (op == P1_MP_OP_SCRIPT_STOP) {
     wrenchStop();
     protocolSendMsgPackState(id, "stopped");
