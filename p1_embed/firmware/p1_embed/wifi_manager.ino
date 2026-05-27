@@ -25,7 +25,12 @@ static void wifiEmitStatusIfChanged() {
   if (status == g_lastWifiStatus) return;
   g_lastWifiStatus = status;
   memoryProfileMark("wifi", wifiStatusName(status));
-  protocolEmitEvent("wifi.status", "\"status\":" + jsonString(wifiStatusName(status)) + ",\"ip\":" + jsonString(WiFi.localIP().toString()));
+  String ip = WiFi.localIP().toString();
+  P1EventField fields[] = {
+    p1FieldString("status", wifiStatusName(status)),
+    p1FieldString("ip", ip),
+  };
+  protocolEmitEventFields("wifi.status", fields, 2);
 }
 
 static void wifiTryNetwork(int index, const char* statusLabel) {
@@ -39,7 +44,12 @@ static void wifiTryNetwork(int index, const char* statusLabel) {
   WiFi.begin(ssid.c_str(), configWifiPasswordAt(index).c_str());
   g_lastWifiAttemptMs = millis();
   memoryProfileMark("wifi", statusLabel);
-  protocolEmitEvent("wifi.status", "\"status\":" + jsonString(statusLabel) + ",\"ssid\":" + jsonString(ssid) + ",\"networkIndex\":" + String(index));
+  P1EventField fields[] = {
+    p1FieldString("status", statusLabel),
+    p1FieldString("ssid", ssid),
+    p1FieldInt("networkIndex", index),
+  };
+  protocolEmitEventFields("wifi.status", fields, 3);
 }
 
 void wifiBegin() {
@@ -88,7 +98,10 @@ void wifiDisconnect() {
   WiFi.mode(WIFI_OFF);
   g_wifiConfigured = false;
   g_lastWifiStatus = WL_DISCONNECTED;
-  protocolEmitEvent("wifi.status", "\"status\":\"off\"");
+  P1EventField fields[] = {
+    p1FieldString("status", "off"),
+  };
+  protocolEmitEventFields("wifi.status", fields, 1);
 }
 
 String wifiStatusJson() {

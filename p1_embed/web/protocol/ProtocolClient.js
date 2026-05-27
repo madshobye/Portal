@@ -1,3 +1,5 @@
+import { canEncodeCommand, decodeFrame, encodeCommand } from "./P1MsgPack.js?v=0.1.87-ui134";
+
 export class ProtocolClient extends EventTarget {
   constructor(transport, { timeoutMs = 15000 } = {}) {
     super();
@@ -7,6 +9,7 @@ export class ProtocolClient extends EventTarget {
     this.pending = new Map();
 
     this.transport.addEventListener("line", (event) => this.acceptLine(event.detail.line));
+    this.transport.addEventListener("frame", (event) => this.acceptFrame(event.detail.data));
     this.transport.addEventListener("state", (event) => this.emit("state", event.detail));
     this.transport.addEventListener("error", (event) => this.emit("error", event.detail));
   }
@@ -34,6 +37,25 @@ export class ProtocolClient extends EventTarget {
     return await responsePromise;
   }
 
+  async requestMsgPack(name, data = {}, options = {}) {
+    if (!this.transport.sendBytes) return await this.request(name, data, options);
+    if (!canEncodeCommand(name)) throw new Error(`No MessagePack opcode for ${name}`);
+    const id = String(this.nextId++);
+    const timeoutMs = options.timeoutMs || this.timeoutMs;
+    const frame = encodeCommand(id, name, data);
+
+    const responsePromise = new Promise((resolve, reject) => {
+      const timer = setTimeout(() => {
+        this.pending.delete(id);
+        reject(new Error(`Timed out waiting for ${name} after ${timeoutMs}ms`));
+      }, timeoutMs);
+      this.pending.set(id, { resolve, reject, timer, name });
+    });
+
+    await this.transport.sendBytes(frame);
+    return await responsePromise;
+  }
+
   async sendRaw(text) {
     await this.transport.sendLine(text);
   }
@@ -58,6 +80,20 @@ export class ProtocolClient extends EventTarget {
     }
 
     this.emit("unknown", { message });
+  }
+
+  acceptFrame(data) {
+    let message;
+    try {
+      message = decodeFrame(data);
+    } catch (error) {
+      this.emit("raw", { line: `<msgpack ${data?.byteLength || data?.length || 0} bytes>`, error });
+      return;
+    }
+    this.emit("message", { message, binary: true });
+    if (message.type === "res") this.acceptResponse(message);
+    else if (message.type === "evt") this.emit("event", { event: message, binary: true });
+    else this.emit("unknown", { message });
   }
 
   acceptResponse(message) {

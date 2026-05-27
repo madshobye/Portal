@@ -98,6 +98,12 @@ static void wrenchSetPhase(P1WrenchPhase phase) {
   g_wrenchPhase = phase;
 }
 
+static void wrenchCollectAfterCall(WRValue* ret) {
+  if (!g_ctx || !g_wr || !ret) return;
+  g_ctx->allocatedMemoryHint = g_wr->allocatedMemoryLimit;
+  g_ctx->gc(ret + 1);
+}
+
 static void wrenchEmitRuntimeError(const char* phase, WRError error) {
   String message = String(phase) + " runtime error: " + scriptErrorWrenchName((int)error);
   String details = "\"wrenchError\":" + String((int)error);
@@ -192,13 +198,20 @@ static void wrenchStopLocked() {
   bool hasCode = wrenchSourceHasCode();
   g_scriptState = hasCode ? SCRIPT_STOPPED : SCRIPT_EMPTY;
   wrenchSetPhase(hasCode ? WRENCH_PHASE_STOPPED : WRENCH_PHASE_IDLE);
-  protocolEmitEvent("script.state", "\"state\":\"stopped\"");
+  P1EventField fields[] = {
+    p1FieldString("state", "stopped"),
+  };
+  protocolEmitEventFields("script.state", fields, 1);
 }
 
 static void wrenchLoopLocked() {
   if (g_scriptState != SCRIPT_RUNNING || !g_wr || !g_ctx || !g_fnLoop) return;
   if (g_wrenchLoopDebugMarkers < 5) {
-    debugEventEmit("script.debug", "trace", "script", "loop call", "\"marker\":" + String(g_wrenchLoopDebugMarkers + 1) + ",\"loopCount\":" + String(g_wrenchLoopCount));
+    P1EventField fields[] = {
+      p1FieldUInt("marker", g_wrenchLoopDebugMarkers + 1),
+      p1FieldUInt("loopCount", g_wrenchLoopCount),
+    };
+    debugEventEmitFields("script.debug", "trace", "script", "loop call", fields, 2);
     g_wrenchLoopDebugMarkers++;
   }
   uint32_t startedAt = millis();
@@ -211,6 +224,8 @@ static void wrenchLoopLocked() {
   g_wrenchHungCounted = false;
   g_wrenchLoopCount++;
   g_wrenchLastLoopDurationMs = elapsed;
+  WRError loopError = wr_getLastError(g_wr);
+  if (ret && loopError == WR_ERR_None) wrenchCollectAfterCall(ret);
   uint32_t now = millis();
   g_wrenchLastLoopMs = now;
   if (g_wrenchFpsWindowStartedAt == 0) {
@@ -226,10 +241,14 @@ static void wrenchLoopLocked() {
   }
   if (elapsed >= P1_EMBED_WRENCH_LOOP_WARN_MS) {
     g_wrenchSlowLoopCount++;
-    debugEventEmit("script.watchdog", "warn", "script", "", "\"state\":\"slow_loop\",\"elapsedMs\":" + String(elapsed));
+    P1EventField fields[] = {
+      p1FieldString("state", "slow_loop"),
+      p1FieldUInt("elapsedMs", elapsed),
+    };
+    debugEventEmitFields("script.watchdog", "warn", "script", "", fields, 2);
   }
-  if (!ret && wr_getLastError(g_wr) != WR_ERR_None) {
-    wrenchEmitRuntimeError("loop", wr_getLastError(g_wr));
+  if (!ret && loopError != WR_ERR_None) {
+    wrenchEmitRuntimeError("loop", loopError);
     wrenchStopLocked();
     g_scriptState = SCRIPT_ERROR;
   }
@@ -379,7 +398,11 @@ void wrenchWatchdogPoll() {
   if (elapsed < P1_EMBED_WRENCH_LOOP_HUNG_MS) return;
   g_wrenchHungCounted = true;
   g_wrenchHungLoopCount++;
-  debugEventEmit("script.watchdog", "error", "script", "", "\"state\":\"hung_loop\",\"elapsedMs\":" + String(elapsed));
+  P1EventField fields[] = {
+    p1FieldString("state", "hung_loop"),
+    p1FieldUInt("elapsedMs", elapsed),
+  };
+  debugEventEmitFields("script.watchdog", "error", "script", "", fields, 2);
 }
 
 void wrenchRuntimePoll() {
@@ -389,7 +412,11 @@ void wrenchRuntimePoll() {
     if (elapsed >= P1_EMBED_WRENCH_TRANSITION_TIMEOUT_MS) {
       g_wrenchTransitionDepth = 0;
       g_wrenchTransitionRecoveries++;
-      debugEventEmit("script.runtime", "error", "script", "Recovered stale Wrench transition", "\"reason\":" + jsonString(g_wrenchTransitionReason) + ",\"elapsedMs\":" + String(elapsed));
+      P1EventField fields[] = {
+        p1FieldString("reason", g_wrenchTransitionReason),
+        p1FieldUInt("elapsedMs", elapsed),
+      };
+      debugEventEmitFields("script.runtime", "error", "script", "Recovered stale Wrench transition", fields, 2);
       g_wrenchTransitionReason[0] = '\0';
     }
     return;
@@ -613,6 +640,14 @@ static bool wrenchCompileSource(const String& userCode, unsigned char** bytecode
     minFreeHeap = P1_EMBED_WRENCH_LARGE_COMPILE_MIN_FREE_HEAP;
     minMaxAlloc = P1_EMBED_WRENCH_LARGE_COMPILE_MIN_MAX_ALLOC;
   }
+  if (webrtcTransportDataChannelOpen() && userCode.length() >= P1_EMBED_WRENCH_WEBRTC_LARGE_SCRIPT_BYTES) {
+    if (minFreeHeap < P1_EMBED_WRENCH_WEBRTC_COMPILE_MIN_FREE_HEAP) {
+      minFreeHeap = P1_EMBED_WRENCH_WEBRTC_COMPILE_MIN_FREE_HEAP;
+    }
+    if (minMaxAlloc < P1_EMBED_WRENCH_WEBRTC_COMPILE_MIN_MAX_ALLOC) {
+      minMaxAlloc = P1_EMBED_WRENCH_WEBRTC_COMPILE_MIN_MAX_ALLOC;
+    }
+  }
   if (freeHeap < minFreeHeap || maxAlloc < minMaxAlloc) {
     errOut = "not enough contiguous heap to compile safely";
     String details = "\"freeHeap\":" + String(freeHeap);
@@ -668,14 +703,22 @@ static bool wrenchCompileSource(const String& userCode, unsigned char** bytecode
 
 bool wrenchCompileAndSet(const String& userCode, String& errOut) {
   errOut = "";
-  debugEventEmit("script.debug", "debug", "script", "compileAndSet begin", "\"scriptBytes\":" + String(userCode.length()));
+  {
+    P1EventField fields[] = {
+      p1FieldUInt("scriptBytes", userCode.length()),
+    };
+    debugEventEmitFields("script.debug", "debug", "script", "compileAndSet begin", fields, 1);
+  }
   wrenchReleaseCompiledProgram();
   wrenchSetPhase(WRENCH_PHASE_COMPILING);
 
   unsigned char* bytecode = nullptr;
   int byteLen = 0;
   if (!wrenchCompileSource(userCode, &bytecode, &byteLen, errOut)) {
-    debugEventEmit("script.debug", "debug", "script", "compileAndSet compile failed", "\"error\":" + jsonString(errOut));
+    P1EventField fields[] = {
+      p1FieldString("error", errOut),
+    };
+    debugEventEmitFields("script.debug", "debug", "script", "compileAndSet compile failed", fields, 1);
     wrenchLock();
     g_scriptState = SCRIPT_ERROR;
     wrenchSetPhase(WRENCH_PHASE_ERROR);
@@ -692,8 +735,19 @@ bool wrenchCompileAndSet(const String& userCode, String& errOut) {
   g_bytecodeLen = byteLen;
   g_scriptState = SCRIPT_COMPILED;
   wrenchSetPhase(WRENCH_PHASE_COMPILED);
-  debugEventEmit("script.debug", "debug", "script", "compileAndSet ready", "\"scriptBytes\":" + String(userCode.length()) + ",\"bytecodeBytes\":" + String(byteLen));
-  protocolEmitEvent("script.state", "\"state\":\"compiled\",\"scriptBytes\":" + String(userCode.length()) + ",\"bytecodeBytes\":" + String(byteLen));
+  {
+    P1EventField fields[] = {
+      p1FieldUInt("scriptBytes", userCode.length()),
+      p1FieldUInt("bytecodeBytes", byteLen),
+    };
+    debugEventEmitFields("script.debug", "debug", "script", "compileAndSet ready", fields, 2);
+  }
+  P1EventField fields[] = {
+    p1FieldString("state", "compiled"),
+    p1FieldUInt("scriptBytes", userCode.length()),
+    p1FieldUInt("bytecodeBytes", byteLen),
+  };
+  protocolEmitEventFields("script.state", fields, 3);
   wrenchUnlock();
   return true;
 }
@@ -701,7 +755,12 @@ bool wrenchCompileAndSet(const String& userCode, String& errOut) {
 bool wrenchRunCompiled(String& errOut) {
   errOut = "";
   wrenchTaskBegin();
-  debugEventEmit("script.debug", "debug", "script", "runCompiled begin", "\"bytecodeBytes\":" + String(g_bytecodeLen));
+  {
+    P1EventField fields[] = {
+      p1FieldUInt("bytecodeBytes", g_bytecodeLen),
+    };
+    debugEventEmitFields("script.debug", "debug", "script", "runCompiled begin", fields, 1);
+  }
   wrenchLock();
   if (!g_bytecode || g_bytecodeLen <= 0) {
     errOut = "no compiled script";
@@ -713,7 +772,7 @@ bool wrenchRunCompiled(String& errOut) {
   }
 
   wrenchStopLocked();
-  debugEventEmit("script.debug", "debug", "script", "runCompiled after stop");
+  debugEventEmitFields("script.debug", "debug", "script", "runCompiled after stop", nullptr, 0);
 
   g_wr = wr_newState();
   if (!g_wr) {
@@ -726,8 +785,9 @@ bool wrenchRunCompiled(String& errOut) {
   }
 
   wr_setInstructionsPerSlice(g_wr, P1_EMBED_WRENCH_INSTRUCTIONS_PER_SLICE);
+  wr_setAllocatedMemoryGCHint(g_wr, P1_EMBED_WRENCH_GC_HINT_BYTES);
 
-  g_wr->globalRegistry.growHash(WRENCH_NULL_HASH, 192);
+  g_wr->globalRegistry.growHash(WRENCH_NULL_HASH, 256);
   if (!wrenchCheckStateError(g_wr, errOut, "wrench registry prealloc")) {
     wrenchStopLocked();
     g_scriptState = SCRIPT_ERROR;
@@ -745,7 +805,7 @@ bool wrenchRunCompiled(String& errOut) {
     wrenchUnlock();
     return false;
   }
-  debugEventEmit("script.debug", "debug", "script", "runCompiled state created");
+  debugEventEmitFields("script.debug", "debug", "script", "runCompiled state created", nullptr, 0);
 
   wrenchSetPhase(WRENCH_PHASE_LOADING);
   g_ctx = wr_newContext(g_wr, g_bytecode, g_bytecodeLen, false);
@@ -765,7 +825,13 @@ bool wrenchRunCompiled(String& errOut) {
   g_fnSetup = wr_getFunction(g_ctx, "setup");
   g_fnLoop = wr_getFunction(g_ctx, "loop");
   g_scriptState = SCRIPT_COMPILED;
-  debugEventEmit("script.debug", "debug", "script", "runCompiled functions", "\"hasSetup\":" + String(g_fnSetup ? "true" : "false") + ",\"hasLoop\":" + String(g_fnLoop ? "true" : "false"));
+  {
+    P1EventField fields[] = {
+      p1FieldBool("hasSetup", g_fnSetup != nullptr),
+      p1FieldBool("hasLoop", g_fnLoop != nullptr),
+    };
+    debugEventEmitFields("script.debug", "debug", "script", "runCompiled functions", fields, 2);
+  }
 
   WRValue* top = wr_executeContext(g_ctx);
   if (!top && wr_getLastError(g_wr) != WR_ERR_None) {
@@ -778,11 +844,18 @@ bool wrenchRunCompiled(String& errOut) {
     wrenchUnlock();
     return false;
   }
-  debugEventEmit("script.debug", "debug", "script", "runCompiled global ok", "\"hasSetup\":" + String(g_fnSetup ? "true" : "false") + ",\"hasLoop\":" + String(g_fnLoop ? "true" : "false"));
+  wrenchCollectAfterCall(top);
+  {
+    P1EventField fields[] = {
+      p1FieldBool("hasSetup", g_fnSetup != nullptr),
+      p1FieldBool("hasLoop", g_fnLoop != nullptr),
+    };
+    debugEventEmitFields("script.debug", "debug", "script", "runCompiled global ok", fields, 2);
+  }
 
   if (g_fnSetup) {
     wrenchSetPhase(WRENCH_PHASE_SETUP);
-    debugEventEmit("script.debug", "debug", "script", "setup begin");
+    debugEventEmitFields("script.debug", "debug", "script", "setup begin", nullptr, 0);
     WRValue* ret = wr_callFunction(g_ctx, g_fnSetup, nullptr, 0);
     if (!ret && wr_getLastError(g_wr) != WR_ERR_None) {
       WRError error = wr_getLastError(g_wr);
@@ -794,16 +867,28 @@ bool wrenchRunCompiled(String& errOut) {
       wrenchUnlock();
       return false;
     }
-    debugEventEmit("script.debug", "debug", "script", "setup ok");
+    wrenchCollectAfterCall(ret);
+    debugEventEmitFields("script.debug", "debug", "script", "setup ok", nullptr, 0);
   } else {
-    debugEventEmit("script.debug", "debug", "script", "setup missing");
+    debugEventEmitFields("script.debug", "debug", "script", "setup missing", nullptr, 0);
   }
 
   g_scriptState = SCRIPT_RUNNING;
   g_wrenchLoopDebugMarkers = 0;
   wrenchSetPhase(WRENCH_PHASE_RUNNING);
-  debugEventEmit("script.debug", "debug", "script", "runCompiled running", "\"hasSetup\":" + String(g_fnSetup ? "true" : "false") + ",\"hasLoop\":" + String(g_fnLoop ? "true" : "false"));
-  protocolEmitEvent("script.state", "\"state\":\"running\",\"hasSetup\":" + String(g_fnSetup ? "true" : "false") + ",\"hasLoop\":" + String(g_fnLoop ? "true" : "false"));
+  {
+    P1EventField fields[] = {
+      p1FieldBool("hasSetup", g_fnSetup != nullptr),
+      p1FieldBool("hasLoop", g_fnLoop != nullptr),
+    };
+    debugEventEmitFields("script.debug", "debug", "script", "runCompiled running", fields, 2);
+  }
+  P1EventField fields[] = {
+    p1FieldString("state", "running"),
+    p1FieldBool("hasSetup", g_fnSetup != nullptr),
+    p1FieldBool("hasLoop", g_fnLoop != nullptr),
+  };
+  protocolEmitEventFields("script.state", fields, 3);
   wrenchUnlock();
   return true;
 }

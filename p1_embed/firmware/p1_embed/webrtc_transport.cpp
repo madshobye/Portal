@@ -40,7 +40,8 @@ extern "C" void peer_log(char* levelTag, const char* fileName, int lineNumber, c
 }
 
 struct WebRtcMessage {
-  char* text;
+  uint8_t* data;
+  size_t len;
   uint16_t sid;
   bool hasSid;
 };
@@ -391,17 +392,18 @@ static String webrtcExtractCandidate(const String& json) {
   return webrtcExtractString(json, "candidate", candidateIndex);
 }
 
-static WebRtcMessage* webrtcAllocMessage(const char* text, size_t len, uint16_t sid = 0, bool hasSid = false) {
-  if (!text) return nullptr;
+static WebRtcMessage* webrtcAllocMessage(const void* data, size_t len, uint16_t sid = 0, bool hasSid = false) {
+  if (!data && len) return nullptr;
   WebRtcMessage* msg = static_cast<WebRtcMessage*>(malloc(sizeof(WebRtcMessage)));
   if (!msg) return nullptr;
-  msg->text = static_cast<char*>(malloc(len + 1));
-  if (!msg->text) {
+  msg->data = static_cast<uint8_t*>(malloc(len + 1));
+  if (!msg->data) {
     free(msg);
     return nullptr;
   }
-  memcpy(msg->text, text, len);
-  msg->text[len] = 0;
+  if (len) memcpy(msg->data, data, len);
+  msg->data[len] = 0;
+  msg->len = len;
   msg->sid = sid;
   msg->hasSid = hasSid;
   return msg;
@@ -409,8 +411,12 @@ static WebRtcMessage* webrtcAllocMessage(const char* text, size_t len, uint16_t 
 
 static void webrtcFreeMessage(WebRtcMessage* msg) {
   if (!msg) return;
-  free(msg->text);
+  free(msg->data);
   free(msg);
+}
+
+static char* webrtcMessageText(WebRtcMessage* msg) {
+  return msg && msg->data ? reinterpret_cast<char*>(msg->data) : nullptr;
 }
 
 static void webrtcClearQueue(QueueHandle_t queue);
@@ -687,7 +693,7 @@ static bool webrtcCreateConnection() {
       {.urls = "stun:stun1.l.google.com:19302", .username = nullptr, .credential = nullptr},
       {.urls = "stun:stun.cloudflare.com:3478", .username = nullptr, .credential = nullptr}
     },
-    .datachannel = DATA_CHANNEL_STRING,
+    .datachannel = DATA_CHANNEL_BINARY,
     .user_data = nullptr,
   };
 
@@ -791,9 +797,9 @@ static void webrtcFlushOutbound() {
       break;
     }
     if (queued->hasSid) {
-      peer_connection_datachannel_send_sid(g_peerConnection, queued->text, strlen(queued->text), queued->sid);
+      peer_connection_datachannel_send_sid(g_peerConnection, reinterpret_cast<char*>(queued->data), queued->len, queued->sid);
     } else {
-      peer_connection_datachannel_send(g_peerConnection, queued->text, strlen(queued->text));
+      peer_connection_datachannel_send(g_peerConnection, reinterpret_cast<char*>(queued->data), queued->len);
     }
     webrtcFreeMessage(queued);
   }
@@ -806,7 +812,7 @@ static void webrtcDrainPeerJsMessages() {
 
   WebRtcMessage* queued = nullptr;
   while (xQueueReceive(g_peerJsQueue, &queued, 0) == pdTRUE) {
-    if (queued && queued->text) webrtcHandlePeerJsMessage(String(queued->text));
+    if (queued && queued->data) webrtcHandlePeerJsMessage(String(webrtcMessageText(queued)));
     webrtcFreeMessage(queued);
   }
 }
@@ -1070,12 +1076,12 @@ static void webrtcFlushSignals() {
   WebRtcMessage* queued = nullptr;
   while (xQueueReceive(g_signalQueue, &queued, 0) == pdTRUE) {
     if (!queued) continue;
-    debugEventEmit("webrtc.debug", "debug", "webrtc", "signal send", "\"bytes\":" + String(strlen(queued->text)) + ",\"peerOpen\":" + String(g_peerOpen ? "true" : "false"));
+    debugEventEmit("webrtc.debug", "debug", "webrtc", "signal send", "\"bytes\":" + String(queued->len) + ",\"peerOpen\":" + String(g_peerOpen ? "true" : "false"));
 #if P1_EMBED_WEBRTC_SIGNALING_PEERJS
-    g_peerSocket.sendTXT(queued->text);
+    g_peerSocket.sendTXT(webrtcMessageText(queued));
 #elif P1_EMBED_WEBRTC_SIGNALING_MQTT
     if (g_remoteId.length() > 0) {
-      if (!g_mqtt.publish(webrtcSignalTopicTo(g_remoteId), queued->text)) {
+      if (!g_mqtt.publish(webrtcSignalTopicTo(g_remoteId), webrtcMessageText(queued))) {
         g_signalDrops++;
         debugLog("warn", "webrtc", "MQTT signaling publish failed");
       }
@@ -1324,7 +1330,7 @@ void webrtcTransportLoop() {
   webrtcResumeSuspendedScriptIfPending();
   WebRtcMessage* inbound = nullptr;
   while (g_inboundQueue && xQueueReceive(g_inboundQueue, &inbound, 0) == pdTRUE) {
-    if (inbound && inbound->text) protocolHandleLine(inbound->text);
+    if (inbound && inbound->data) protocolHandleBytes(inbound->data, inbound->len);
     webrtcFreeMessage(inbound);
   }
 }
@@ -1341,6 +1347,24 @@ void webrtcTransportSendLine(const String& line) {
     g_sendDrops++;
     if (msg) webrtcFreeMessage(msg);
   }
+}
+
+void webrtcTransportSendBytes(const uint8_t* data, size_t len) {
+  if (!g_started || !g_dataChannelOpen || !g_outboundQueue) return;
+  if (!data || len == 0 || len > P1_EMBED_WEBRTC_SEND_MAX_BYTES) {
+    g_sendDrops++;
+    debugLog("warn", "webrtc", "WebRTC output frame too large");
+    return;
+  }
+  WebRtcMessage* msg = webrtcAllocMessage(data, len, g_dataChannelSid, g_dataChannelSidKnown);
+  if (!msg || !webrtcQueueText(g_outboundQueue, msg)) {
+    g_sendDrops++;
+    if (msg) webrtcFreeMessage(msg);
+  }
+}
+
+bool webrtcTransportDataChannelOpen() {
+  return g_started && g_dataChannelOpen;
 }
 
 String webrtcTransportStatusJson() {
@@ -1425,6 +1449,8 @@ String webrtcTransportProbeJson() {
 void webrtcTransportBegin() {}
 void webrtcTransportLoop() {}
 void webrtcTransportSendLine(const String& line) {}
+void webrtcTransportSendBytes(const uint8_t* data, size_t len) {}
+bool webrtcTransportDataChannelOpen() { return false; }
 String webrtcTransportStatusJson() {
   return "{\"enabled\":false}";
 }

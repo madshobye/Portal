@@ -172,25 +172,7 @@ void fastLedReleaseScriptResources() {
   bool hadAny = g_activeStripCount > 0;
   debugEventEmit("led.debug", "debug", "led", "FastLED release begin", "\"call\":" + String(g_resourceReleaseCount) + ",\"hadAny\":" + String(hadAny ? "true" : "false") + ",\"stripCount\":" + String(g_activeStripCount) + ",\"totalLeds\":" + String(g_totalLedCount));
   if (hadAny) {
-    ledClear(-1, true);
-  }
-  for (int i = 0; i < P1_EMBED_MAX_LED_STRIPS; i++) {
-    LedStripState& s = g_ledStrips[i];
-    if (s.controller) {
-      debugEventEmit("led.debug", "debug", "led", "FastLED controller release", "\"strip\":" + String(i) + ",\"pin\":" + String(s.pin) + ",\"count\":" + String(s.count));
-      s.controller->removeFromDrawList();
-      s.controller->setEnabled(false);
-      s.controller->setLeds(nullptr, 0);
-      s.controller = nullptr;
-    }
-    if (s.pixels) {
-      delete[] s.pixels;
-      s.pixels = nullptr;
-    }
-  }
-  ledResetRuntimeState();
-  if (hadAny) {
-    debugEventEmit("led.status", "debug", "led", "released script LED resources");
+    debugEventEmit("led.status", "debug", "led", "kept FastLED resources for reuse", "\"call\":" + String(g_resourceReleaseCount) + ",\"stripCount\":" + String(g_activeStripCount) + ",\"totalLeds\":" + String(g_totalLedCount));
   }
 }
 
@@ -307,40 +289,4 @@ String ledStatusJson() {
   }
   out += "]}";
   return out;
-}
-
-bool fastLedBeginWs2812b(int pin, int count, int brightness) {
-  return ledConfigureStrip(0, pin, count, brightness);
-}
-
-bool fastLedReady() {
-  return ledReady(0);
-}
-
-int fastLedPin() {
-  return ledPin(0);
-}
-
-int fastLedCount() {
-  return ledCount(0);
-}
-
-bool fastLedSetPixel(int index, int r, int g, int b) {
-  return ledSetPixel(0, index, r, g, b);
-}
-
-bool fastLedFill(int r, int g, int b) {
-  return ledFill(0, r, g, b);
-}
-
-bool fastLedClear(bool show) {
-  return ledClear(0, show);
-}
-
-bool fastLedSetBrightness(int brightness) {
-  return ledSetBrightness(0, brightness);
-}
-
-String fastLedStatusJson() {
-  return ledStatusJson();
 }

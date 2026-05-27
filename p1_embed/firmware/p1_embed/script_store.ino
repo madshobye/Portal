@@ -119,13 +119,17 @@ bool scriptStoreBeginIncoming() {
 }
 
 bool scriptStoreAppendIncoming(const String& chunk) {
+  return scriptStoreAppendIncomingBytes((const uint8_t*)chunk.c_str(), chunk.length());
+}
+
+bool scriptStoreAppendIncomingBytes(const uint8_t* data, size_t len) {
   if (!scriptStoreBegin()) return false;
   File f = LittleFS.open(SCRIPT_INCOMING_PATH, "a");
   if (!f) return false;
-  size_t wrote = f.write((const uint8_t*)chunk.c_str(), chunk.length());
+  size_t wrote = f.write(data, len);
   f.flush();
   f.close();
-  return wrote == chunk.length();
+  return wrote == len;
 }
 
 bool scriptStoreClearIncoming() {
@@ -192,5 +196,8 @@ void scriptStoreVerifyIfDue() {
   if (millis() - g_scriptRunStartedAt < P1_EMBED_SCRIPT_VERIFY_MS) return;
   scriptStoreSaveRunState(P1_EMBED_SCRIPT_RUN_OK);
   g_scriptVerifyArmed = false;
-  debugEventEmit("script.storage", "debug", "script", "verified", "\"verifyMs\":" + String(P1_EMBED_SCRIPT_VERIFY_MS));
+  P1EventField fields[] = {
+    p1FieldUInt("verifyMs", P1_EMBED_SCRIPT_VERIFY_MS),
+  };
+  debugEventEmitFields("script.storage", "debug", "script", "verified", fields, 1);
 }

@@ -1,10 +1,11 @@
-import { ProtocolClient } from "./protocol/ProtocolClient.js?v=0.1.87-ui119";
-import { WebSerialTransport } from "./protocol/WebSerialTransport.js?v=0.1.87-ui119";
+import { ProtocolClient } from "./protocol/ProtocolClient.js?v=0.1.87-ui134";
+import { canEncodeCommand } from "./protocol/P1MsgPack.js?v=0.1.87-ui134";
+import { WebSerialTransport } from "./protocol/WebSerialTransport.js?v=0.1.87-ui134";
 import { WebSocketTransport } from "./protocol/WebSocketTransport.js";
-import { MqttWebRtcTransport, MQTT_WEBRTC_TRANSPORT_VERSION } from "./protocol/MqttWebRtcTransport.js?v=0.1.87-ui119";
-import { P1WebFlasher } from "./web-flasher.js?v=0.1.87-ui119";
+import { MqttWebRtcTransport, MQTT_WEBRTC_TRANSPORT_VERSION } from "./protocol/MqttWebRtcTransport.js?v=0.1.87-ui134";
+import { P1WebFlasher } from "./web-flasher.js?v=0.1.87-ui134";
 
-const WEB_UI_VERSION = "0.1.87-ui119";
+const WEB_UI_VERSION = "0.1.87-ui134";
 console.info(`[P1E web] loaded ${WEB_UI_VERSION}`, { mqttWebRtc: MQTT_WEBRTC_TRANSPORT_VERSION });
 
 const defaultCode = `function setup() {
@@ -165,6 +166,7 @@ let connectionGeneration = 0;
 let connectionVerified = false;
 let statusTimer = null;
 let editorErrorMarker = null;
+let editorErrorGutterRow = null;
 let recentPressHandled = false;
 let chatMessages = [];
 let chatBusy = false;
@@ -179,6 +181,10 @@ let flasherBusy = false;
 let wifiDraftDirty = false;
 let uploadState = { phase: "", label: "", progress: 0 };
 let uploadClearTimer = null;
+let currentSketchName = "";
+let currentSketchSource = "";
+let currentSketchVersionName = "";
+let currentSketchDirty = false;
 
 boot();
 
@@ -230,20 +236,23 @@ function initEditor() {
       wrap: false,
     });
     editor.session.on("change", () => {
-      clearEditorError();
-      if (suppressEditorPersist) return;
-      localStorage.setItem(storage.code, getEditorValue());
-      updateEnabledState();
+      handleEditorInput();
     });
     els.aceHost.classList.add("is-active");
     els.code.classList.add("is-hidden");
   } else {
     els.code.addEventListener("input", () => {
-      clearEditorError();
-      localStorage.setItem(storage.code, getEditorValue());
-      updateEnabledState();
+      handleEditorInput();
     });
   }
+}
+
+function handleEditorInput() {
+  clearEditorError();
+  if (suppressEditorPersist) return;
+  localStorage.setItem(storage.code, getEditorValue());
+  updateCurrentSketchDirty();
+  updateEnabledState();
 }
 
 function getEditorValue() {
@@ -341,7 +350,10 @@ function switchTab(name) {
   Object.entries(els.views).forEach(([key, view]) => view.classList.toggle("is-active", key === name));
   localStorage.setItem(storage.activeTab, name);
   if (name === "coding" && editor) {
-    requestAnimationFrame(() => editor.resize());
+    requestAnimationFrame(() => {
+      editor.resize(true);
+      editor.renderer?.updateFull?.();
+    });
   }
   if (name === "chat") renderChatTranscript();
 }
@@ -1170,7 +1182,7 @@ function bindClient(nextClient) {
     logTransportState(event.detail);
     renderConnectionState(event.detail.state);
     if (event.detail.state === "connected") closeConnectDialog();
-    if (["disconnected", "hub_disconnected", "hub_closed"].includes(event.detail.state) && !isUnloading) {
+    if (isDroppedTransportState(event.detail.state) && !isUnloading) {
       localStorage.setItem(storage.reconnectOnLoad, "0");
       handleTransportDropped(nextClient);
     }
@@ -1234,13 +1246,28 @@ function logTransportState(detail = {}) {
     logLine("debug", "WebRTC data channel open");
   } else if (state === "signaling_closed") {
     logLine("warn", "WebRTC signaling closed");
-  } else if (state === "disconnected") {
+  } else if (state === "disconnected" || state === "rtc_disconnected" || state === "rtc_failed" || state === "rtc_closed") {
     logLine("warn", "WebRTC disconnected");
   }
 }
 
+function isDroppedTransportState(state = "") {
+  return [
+    "disconnected",
+    "hub_disconnected",
+    "hub_closed",
+    "device_closed",
+    "data_channel_closed",
+    "rtc_disconnected",
+    "rtc_failed",
+    "rtc_closed",
+    "remote_left",
+  ].includes(state);
+}
+
 function handleTransportDropped(droppedClient) {
   if (droppedClient !== client) return;
+  const droppedTransport = droppedClient.transport;
   stopStatusPolling();
   client = null;
   transport = null;
@@ -1250,6 +1277,7 @@ function handleTransportDropped(droppedClient) {
   suppressConnectionLogs = false;
   setConnected(false);
   updateEnabledState();
+  droppedTransport?.disconnect?.();
 }
 
 async function startupRefresh({ quiet = false, includeScript = true, timeoutMs = 15000, expectedGeneration = null } = {}) {
@@ -1333,20 +1361,9 @@ async function uploadScriptCode(code, { run, save, name = "" }) {
   setUploadState("uploading", "Uploading code", 8);
   try {
     clearEditorError();
-    if (isWebRtcKind(transport?.kind)) {
-      data = await uploadScriptCodeChunked(code, { run, save });
-    } else {
-      data = await sendCommand("script.set", {
-        code,
-        codeBytes: new TextEncoder().encode(code).length,
-        codeHash: fnv1aHex(code),
-        run,
-        save,
-      }, { timeoutMs: 30000 });
-      setUploadState("running", run ? "Running" : "Saved", 100, { autoClear: true });
-    }
+    data = await uploadScriptCodeChunked(code, { run, save });
   } catch (error) {
-    setUploadState("error", "Upload failed", 100, { autoClear: true });
+    setUploadState("error", uploadErrorLabel(error.message), 100, { autoClear: true });
     await rememberUploadedSketch(code, name);
     markEditorError(error.message);
     throw error;
@@ -1362,9 +1379,13 @@ async function uploadScriptCode(code, { run, save, name = "" }) {
 }
 
 async function uploadScriptCodeChunked(code, { run, save }) {
-  const codeBytes = new TextEncoder().encode(code).length;
+  const encoder = new TextEncoder();
+  const codeData = encoder.encode(code);
+  const codeBytes = codeData.length;
   const codeHash = fnv1aHex(code);
-  const chunks = chunkScriptForWebRtc(code, 360);
+  const chunks = isWebRtcKind(transport?.kind) && transport?.sendBytes
+    ? chunkBytesForWebRtc(codeData, 320)
+    : chunkScriptForWebRtc(code, 360);
   setUploadState("uploading", "Uploading code", 5);
   logLine("info", `uploading script in ${chunks.length} chunks`);
   await sendCommand("script.chunk.begin", {
@@ -1377,12 +1398,16 @@ async function uploadScriptCodeChunked(code, { run, save }) {
   let offset = 0;
   for (let index = 0; index < chunks.length; index += 1) {
     const chunk = chunks[index];
-    const response = await sendCommand("script.chunk.add", {
+    const isBinaryChunk = chunk instanceof Uint8Array;
+    const response = await sendCommand("script.chunk.add", isBinaryChunk ? {
+      offset,
+      chunkBytes: chunk,
+    } : {
       offset,
       chunk,
     }, { quiet: true, timeoutMs: 10000 });
     const received = Number(response.received);
-    offset = Number.isFinite(received) ? received : offset + new TextEncoder().encode(chunk).length;
+    offset = Number.isFinite(received) ? received : offset + (isBinaryChunk ? chunk.length : encoder.encode(chunk).length);
     setUploadState("uploading", `Uploading ${index + 1}/${chunks.length}`, Math.round(((index + 1) / chunks.length) * 82));
     await settle(12);
   }
@@ -1415,6 +1440,14 @@ function chunkScriptForWebRtc(text, maxEnvelopeBytes) {
     current += char;
   }
   if (current) chunks.push(current);
+  return chunks;
+}
+
+function chunkBytesForWebRtc(bytes, maxBytes) {
+  const chunks = [];
+  for (let offset = 0; offset < bytes.length; offset += maxBytes) {
+    chunks.push(bytes.slice(offset, Math.min(offset + maxBytes, bytes.length)));
+  }
   return chunks;
 }
 
@@ -1523,14 +1556,36 @@ async function rememberUploadedSketch(code, name = "") {
   const current = String(code ?? "");
   if (!current.trim()) return;
 
-  const sketchName = normalizeSketchName(name);
   const history = await readSketchHistory();
+  const sketchName = resolveSketchNameForSave(current, name, history);
+  const unchangedCurrentSketch = currentSketchSource && current === currentSketchSource;
+
+  if (unchangedCurrentSketch) {
+    const existing = history.find((item) => {
+      if (item?.code !== current) return false;
+      if (!currentSketchName) return true;
+      return normalizeSketchName(item.name || "") === currentSketchName;
+    }) || history.find((item) => item?.code === current);
+
+    if (existing) {
+      const explicitName = normalizeSketchName(name);
+      const promoted = await promoteSketchHistoryEntry(existing, explicitName || existing.name || sketchName || currentSketchName);
+      setCurrentSketchIdentity(
+        normalizeSketchName(promoted.name || "") || sketchName || currentSketchName,
+        current,
+        [promoted, ...history],
+      );
+      return;
+    }
+  }
+
   if (history[0]?.code === current) {
     if (sketchName && history[0].name !== sketchName) {
       history[0].name = sketchName;
       await updateSketchHistoryEntry(history[0]);
       await renderSketchHistory();
     }
+    setCurrentSketchIdentity(sketchName || normalizeSketchName(history[0].name || ""), current, history);
     return;
   }
 
@@ -1566,20 +1621,28 @@ async function rememberUploadedSketch(code, name = "") {
       db.close();
     }
     await renderSketchHistory();
+    setCurrentSketchIdentity(entry.name, current, [entry, ...history]);
     return;
   } catch {
   }
 
   rememberUploadedSketchFallback(entry, history);
   await renderSketchHistory();
+  setCurrentSketchIdentity(entry.name, current, [entry, ...history]);
 }
 
 async function updateSketchHistoryEntry(entry) {
   if (entry?.id === undefined) {
     const history = readSketchHistoryFallback();
-    if (history[0]?.code === entry?.code) {
-      history[0] = entry;
-      rememberUploadedSketchFallback(history[0], history.slice(1));
+    const index = history.findIndex((item) => (
+      item?.code === entry?.code
+      && normalizeSketchName(item.name || "") === normalizeSketchName(entry.name || "")
+    ));
+    const fallbackIndex = index >= 0 ? index : history.findIndex((item) => item?.code === entry?.code);
+    if (fallbackIndex >= 0) {
+      const rest = history.slice();
+      rest.splice(fallbackIndex, 1);
+      rememberUploadedSketchFallback(entry, rest);
     }
     return;
   }
@@ -1594,6 +1657,20 @@ async function updateSketchHistoryEntry(entry) {
     }
   } catch {
   }
+}
+
+async function promoteSketchHistoryEntry(entry, name = "") {
+  const code = String(entry?.code || "");
+  const promoted = {
+    ...entry,
+    at: new Date().toISOString(),
+    bytes: new Blob([code]).size,
+    code,
+    name: normalizeSketchName(name || entry?.name || ""),
+  };
+  await updateSketchHistoryEntry(promoted);
+  await renderSketchHistory();
+  return promoted;
 }
 
 function rememberUploadedSketchFallback(entry, history) {
@@ -1638,7 +1715,7 @@ async function migrateSketchHistoryToDb() {
 
 async function renderSketchHistory() {
   const history = await readSketchHistory();
-  els.sketchHistory.replaceChildren(new Option("history", ""));
+  els.sketchHistory.replaceChildren(new Option(sketchHistoryPlaceholderLabel(), ""));
   history.forEach((item, index) => {
     const date = new Date(item.at);
     const when = Number.isNaN(date.getTime()) ? "unknown" : date.toLocaleString([], {
@@ -1655,15 +1732,19 @@ async function renderSketchHistory() {
   });
   els.sketchHistory.disabled = history.length === 0;
   els.sketchHistory.value = "";
+  renderCurrentSketchName();
 }
 
 async function recoverSketchHistory() {
   const index = Number(els.sketchHistory.value);
-  const entry = (await readSketchHistory())[index];
+  const history = await readSketchHistory();
+  const entry = history[index];
   els.sketchHistory.value = "";
   if (!entry) return;
   setEditorValue(entry.code);
-  logLine("info", `recovered sketch from ${new Date(entry.at).toLocaleString()}`);
+  setCurrentSketchIdentity(entry.name || "", entry.code, history);
+  const sketchName = normalizeSketchName(entry.name || "");
+  logLine("info", `recovered ${sketchName || "sketch"} from ${new Date(entry.at).toLocaleString()}`);
 }
 
 function normalizeSketchName(name) {
@@ -1672,6 +1753,70 @@ function normalizeSketchName(name) {
     .replace(/[^\w .:/+-]/g, "")
     .trim()
     .slice(0, 32);
+}
+
+function resolveSketchNameForSave(code, requestedName = "", history = []) {
+  const explicitName = normalizeSketchName(requestedName);
+  if (explicitName) return explicitName;
+  if (!currentSketchName) return "";
+  if (String(code ?? "") === currentSketchSource) return currentSketchName;
+  return currentSketchVersionName || nextSketchVersionName(currentSketchName, history);
+}
+
+function setCurrentSketchIdentity(name = "", code = "", history = []) {
+  currentSketchName = normalizeSketchName(name);
+  currentSketchSource = String(code ?? "");
+  currentSketchVersionName = currentSketchName ? nextSketchVersionName(currentSketchName, history) : "";
+  currentSketchDirty = false;
+  renderCurrentSketchName();
+}
+
+function updateCurrentSketchDirty() {
+  if (!currentSketchName) return;
+  currentSketchDirty = getEditorValue() !== currentSketchSource;
+  renderCurrentSketchName();
+}
+
+function renderCurrentSketchName() {
+  const option = els.sketchHistory.options[0];
+  if (option) option.textContent = sketchHistoryPlaceholderLabel();
+  const label = sketchHistoryPlaceholderLabel();
+  els.sketchHistory.title = currentSketchName
+    ? `Current sketch: ${label}`
+    : "Recover uploaded sketch";
+}
+
+function sketchHistoryPlaceholderLabel() {
+  if (!currentSketchName) return "history";
+  return currentSketchDirty ? (currentSketchVersionName || currentSketchName) : currentSketchName;
+}
+
+function nextSketchVersionName(name, history = []) {
+  const parts = splitSketchVersion(name);
+  if (!parts.base) return "";
+  let maxVersion = parts.version;
+  history.forEach((item) => {
+    const itemParts = splitSketchVersion(item?.name || "");
+    if (itemParts.base.toLowerCase() === parts.base.toLowerCase()) {
+      maxVersion = Math.max(maxVersion, itemParts.version);
+    }
+  });
+  return formatSketchVersion(parts.base, maxVersion + 1);
+}
+
+function splitSketchVersion(name) {
+  const normalized = normalizeSketchName(name);
+  const match = normalized.match(/^(.*?)\s+v(\d+)$/i);
+  if (!match) return { base: normalized, version: normalized ? 1 : 0 };
+  const base = normalizeSketchName(match[1]);
+  const version = Math.max(1, Number(match[2]) || 1);
+  return { base, version };
+}
+
+function formatSketchVersion(base, version) {
+  const suffix = ` v${version}`;
+  const room = Math.max(1, 32 - suffix.length);
+  return normalizeSketchName(`${normalizeSketchName(base).slice(0, room).trim()}${suffix}`);
 }
 
 function bindSketchDrop() {
@@ -1758,7 +1903,17 @@ async function saveWifi() {
 async function sendRaw() {
   try {
     const line = els.raw.value.trim();
-    JSON.parse(line);
+    const parsed = JSON.parse(line);
+    if (isWebRtcKind(transport?.kind) && parsed?.type === "cmd" && parsed.name) {
+      if (!canEncodeCommand(parsed.name)) throw new Error(`No MessagePack opcode for ${parsed.name}`);
+      const data = { ...(parsed.data || {}) };
+      for (const [key, value] of Object.entries(parsed)) {
+        if (!["type", "id", "name", "data"].includes(key)) data[key] = value;
+      }
+      await sendCommand(parsed.name, data);
+      logLine("debug", `> ${parsed.name} msgpack`);
+      return;
+    }
     await client?.sendRaw(line);
     logLine("debug", `> ${line}`);
   } catch (error) {
@@ -1770,7 +1925,12 @@ async function sendCommand(name, data = {}, options = {}) {
   if (!client) throw new Error("No device connection");
   const { quiet = false, ...requestOptions } = options;
   try {
-    const response = await client.request(name, data, requestOptions);
+    const useMsgPack = isWebRtcKind(transport?.kind) && transport?.sendBytes && canEncodeCommand(name);
+    let response;
+    response = useMsgPack
+      ? await client.requestMsgPack(name, data, requestOptions)
+      : await client.request(name, data, requestOptions);
+    if (useMsgPack && !quiet) logLine("debug", `< ${name} msgpack ok`);
     if (!quiet) logLine("debug", `< ${name} ok`);
     return response;
   } catch (error) {
@@ -1868,8 +2028,14 @@ function updateUploadFromEvent(data = {}) {
   } else if (state === "saved" || state === "stored") {
     setUploadState("saved", "Saved", 100, { autoClear: true });
   } else if (state === "error") {
-    setUploadState("error", data.message || "Upload failed", 100, { autoClear: true });
+    setUploadState("error", uploadErrorLabel(data.message || data.code), 100, { autoClear: true });
   }
+}
+
+function uploadErrorLabel(message = "") {
+  const text = String(message || "");
+  if (/not enough contiguous heap|compile_memory_low|memory_low/i.test(text)) return "No Heap";
+  return text || "Upload failed";
 }
 
 function setUploadState(phase = "", label = "", progress = 0, { autoClear = false } = {}) {
@@ -1984,7 +2150,13 @@ function markEditorError(message) {
       "wrench-error-line",
       "fullLine",
     );
+    editor.session.addGutterDecoration(row, "wrench-error-gutter");
+    editorErrorGutterRow = row;
     editor.scrollToLine(row, true, true, () => {});
+    requestAnimationFrame(() => {
+      editor.resize(true);
+      editor.renderer?.updateFull?.();
+    });
     return;
   }
 
@@ -1997,6 +2169,10 @@ function clearEditorError() {
     if (editorErrorMarker !== null) {
       editor.session.removeMarker(editorErrorMarker);
       editorErrorMarker = null;
+    }
+    if (editorErrorGutterRow !== null) {
+      editor.session.removeGutterDecoration(editorErrorGutterRow, "wrench-error-gutter");
+      editorErrorGutterRow = null;
     }
   }
   delete els.code.dataset.errorLine;
@@ -2042,12 +2218,22 @@ function findEditorLine(sourceText) {
 }
 
 function updateStatus(status = {}) {
-  lastStatus = status;
+  lastStatus = mergeStatusSnapshot(lastStatus, status);
   reportStatusScriptError(status.lastError);
-  updateScriptState(status);
-  updateWifi(status.wifi);
+  updateScriptState(lastStatus);
+  if (Object.prototype.hasOwnProperty.call(status, "wifi")) updateWifi(status.wifi, { render: false });
   renderConnectionState();
   renderFields();
+}
+
+function mergeStatusSnapshot(previous = {}, next = {}) {
+  const merged = { ...(previous || {}), ...(next || {}) };
+  for (const key of ["wifi", "web", "webrtc", "led", "memory", "lastError", "wrenchRuntime"]) {
+    if (!Object.prototype.hasOwnProperty.call(next, key) && previous?.[key]) {
+      merged[key] = previous[key];
+    }
+  }
+  return merged;
 }
 
 function reportStatusScriptError(error = {}) {
@@ -2072,9 +2258,17 @@ function updateScriptState(data = {}) {
   ].filter(Boolean).join(" / ");
 }
 
-function updateWifi(wifi = {}) {
+function updateWifi(wifi = {}, options = {}) {
   if (!wifi) return;
+  lastStatus = {
+    ...(lastStatus || {}),
+    wifi: { ...(lastStatus?.wifi || {}), ...wifi },
+  };
   setWifiSsidFromDevice(wifi.ssid);
+  if (options.render !== false) {
+    renderConnectionState();
+    renderFields();
+  }
 }
 
 function updateConfig(config = {}) {
@@ -2376,7 +2570,9 @@ function setConnected(isConnected) {
 }
 
 function renderConnectionState(transportState = "") {
-  if (!client) {
+  const transportOnline = Boolean(client && transport?.connected);
+  els.connection.classList.toggle("is-online", transportOnline);
+  if (!client || (!transportOnline && !isBusy)) {
     els.connection.textContent = "not connected";
     return;
   }
@@ -3095,7 +3291,7 @@ function filterChatWarnings(warnings) {
 }
 
 function updateEnabledState() {
-  const connected = Boolean(client);
+  const connected = Boolean(client && transport?.connected);
   const canDisconnectOrCancel = Boolean(client || transport || isBusy);
   [els.connect, els.chatConnect].forEach((button) => {
     const connecting = isBusy && !connected;

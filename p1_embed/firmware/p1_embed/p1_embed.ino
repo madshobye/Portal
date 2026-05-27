@@ -20,7 +20,12 @@ static void bootCompileAndRunStoredScript(const char* reason) {
     if (g_bootAutorunRunState != P1_EMBED_SCRIPT_RUN_OK) {
       scriptStoreArmVerification();
     }
-    protocolEmitEvent("script.state", "\"state\":\"running\",\"source\":\"stored\",\"bootReason\":" + jsonString(reason));
+    P1EventField fields[] = {
+      p1FieldString("state", "running"),
+      p1FieldString("source", "stored"),
+      p1FieldString("bootReason", reason),
+    };
+    protocolEmitEventFields("script.state", fields, 3);
   } else {
     protocolEmitErrorEvent("script.error", "boot_compile_failed", err);
   }
@@ -58,7 +63,7 @@ void setup() {
   configLoad();
   memoryProfileMark("config", "load");
   fastLedManagerBegin();
-  memoryProfileMark("fastled", "begin");
+  memoryProfileMark("led", "begin");
 #if P1_EMBED_WRENCH_ENABLED
   scriptStoreBegin();
   memoryProfileMark("script_store", "begin");
@@ -85,7 +90,14 @@ void setup() {
   bool haveStoredScript = scriptStoreHasSaved();
 
 #if !P1_EMBED_WRENCH_AUTORUN_ENABLED
-  protocolEmitEvent("script.state", "\"state\":\"compiled\",\"source\":\"stored\",\"autorun\":\"disabled_for_webrtc_lab\"");
+  {
+    P1EventField fields[] = {
+      p1FieldString("state", "compiled"),
+      p1FieldString("source", "stored"),
+      p1FieldString("autorun", "disabled_for_webrtc_lab"),
+    };
+    protocolEmitEventFields("script.state", fields, 3);
+  }
   memoryProfileMark("wrench", "autorun_disabled");
 #else
 
@@ -107,7 +119,13 @@ void setup() {
     g_bootAutorunWaitingForWifi = true;
     g_bootAutorunWaitStartedAt = millis();
     g_bootAutorunRunState = runState;
-    protocolEmitEvent("script.state", "\"state\":\"stored\",\"source\":\"stored\",\"autorun\":\"waiting_for_wifi\",\"timeoutMs\":" + String(P1_EMBED_BOOT_AUTORUN_WIFI_WAIT_MS));
+    P1EventField fields[] = {
+      p1FieldString("state", "stored"),
+      p1FieldString("source", "stored"),
+      p1FieldString("autorun", "waiting_for_wifi"),
+      p1FieldUInt("timeoutMs", P1_EMBED_BOOT_AUTORUN_WIFI_WAIT_MS),
+    };
+    protocolEmitEventFields("script.state", fields, 4);
     memoryProfileMark("wrench", "autorun_wait_wifi");
   } else {
     if (bootSource == "stored" && (!scriptStoreLoad(bootScript) || bootScript.length() == 0)) {
@@ -122,7 +140,11 @@ void setup() {
           scriptStoreArmVerification();
         }
       }
-      protocolEmitEvent("script.state", "\"state\":\"running\",\"source\":" + jsonString(bootSource));
+      P1EventField fields[] = {
+        p1FieldString("state", "running"),
+        p1FieldString("source", bootSource),
+      };
+      protocolEmitEventFields("script.state", fields, 2);
       memoryProfileMark("wrench", "autorun_running");
     } else {
       protocolEmitErrorEvent("script.error", "boot_compile_failed", err);
@@ -134,7 +156,13 @@ void setup() {
   }
 #endif
 #else
-  protocolEmitEvent("script.state", "\"state\":\"disabled\",\"source\":\"webrtc_lab\"");
+  {
+    P1EventField fields[] = {
+      p1FieldString("state", "disabled"),
+      p1FieldString("source", "webrtc_lab"),
+    };
+    protocolEmitEventFields("script.state", fields, 2);
+  }
   memoryProfileMark("wrench", "disabled");
 #endif
   memoryProfileMark("boot", "setup_done");

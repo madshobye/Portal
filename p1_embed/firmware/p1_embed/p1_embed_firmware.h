@@ -2,6 +2,7 @@
 
 #include <Arduino.h>
 #include "config.h"
+#include "p1_msgpack.h"
 #include "wrench.h"
 
 void transportSerialBegin();
@@ -15,6 +16,8 @@ String webTransportStatusJson();
 void webrtcTransportBegin();
 void webrtcTransportLoop();
 void webrtcTransportSendLine(const String& line);
+void webrtcTransportSendBytes(const uint8_t* data, size_t len);
+bool webrtcTransportDataChannelOpen();
 String webrtcTransportStatusJson();
 String webrtcTransportProbeJson();
 
@@ -25,14 +28,19 @@ String memoryProfileSummaryJson();
 String memoryProfileJson(int limit = P1_EMBED_MEMORY_PROFILE_DEFAULT_LIMIT);
 
 void protocolHandleLine(const char* line);
+void protocolHandleBytes(const uint8_t* data, size_t len);
 void protocolPollScriptJobs();
 bool protocolHandleScriptSetCode(const String& id, const String& code, bool runAfterSet, bool saveAfterSet, bool sendResponse = true);
 void protocolSendResponseOk(const String& id, const String& dataJson = "{}");
 void protocolSendResponseError(const String& id, const String& code, const String& message);
 void protocolEmitEvent(const String& name, const String& dataFieldsJson);
+void protocolEmitEventFields(const char* name, const P1EventField* fields, size_t fieldCount);
 void protocolEmitErrorEvent(const String& name, const String& code, const String& message);
 void protocolEmitLog(const String& level, const String& message);
 void protocolEmitPrint(const String& message, bool newline);
+void protocolEmitMsgPackEvent(const String& name, const String& level, const String& category, const String& message, const String& dataFieldsJson = "");
+void protocolEmitMsgPackEventFields(const char* name, const P1EventField* fields, size_t fieldCount);
+void protocolEmitMsgPackEventFields(const char* name, const char* level, const char* category, const char* message, const P1EventField* fields, size_t fieldCount);
 void protocolEmitBoot();
 void protocolEmitStatusEvent();
 uint32_t protocolFnv1a(const String& s);
@@ -57,6 +65,7 @@ uint32_t debugEventDrops();
 uint32_t debugEventHighWater();
 String debugEventStatusJson();
 void debugEventEmit(const String& name, const String& level, const String& category, const String& message, const String& dataFieldsJson = "");
+void debugEventEmitFields(const String& name, const String& level, const String& category, const String& message, const P1EventField* fields, size_t fieldCount);
 void debugEventSendLine(const String& line);
 void debugLog(const String& level, const String& category, const String& message);
 void debugError(const String& category, const String& code, const String& message);
@@ -108,6 +117,7 @@ bool scriptStoreLoadIncoming(String& out);
 bool scriptStoreSaveIncoming(const String& code);
 bool scriptStoreBeginIncoming();
 bool scriptStoreAppendIncoming(const String& chunk);
+bool scriptStoreAppendIncomingBytes(const uint8_t* data, size_t len);
 bool scriptStoreClearIncoming();
 void scriptStoreSaveIncomingRunOptions(bool runAfterSet, bool saveAfterSet);
 void scriptStoreLoadIncomingRunOptions(bool& runAfterSet, bool& saveAfterSet);
@@ -185,7 +195,16 @@ int uartWriteByte(int uart, int value);
 String uartStatusJson();
 
 String httpFetchGet(const String& url, int maxBytes, int timeoutMs);
+String httpFetchJsonGet(const String& url, const String& path, int maxBytes, int timeoutMs);
+int httpFetchJsonGetInt(const String& url, const String& path, int maxBytes, int timeoutMs);
+float httpFetchJsonGetFloat(const String& url, const String& path, int maxBytes, int timeoutMs);
+bool httpFetchJsonGetBool(const String& url, const String& path, int maxBytes, int timeoutMs);
+int httpFetchJson(const String& url, int maxBytes, int timeoutMs);
 String httpFetchPost(const String& url, const String& body, const String& contentType, int maxBytes, int timeoutMs);
+String httpFetchJsonValue(const String& path);
+int httpFetchJsonValueInt(const String& path);
+float httpFetchJsonValueFloat(const String& path);
+bool httpFetchJsonValueBool(const String& path);
 int httpFetchLastCode();
 bool httpFetchLastTruncated();
 String httpFetchLastError();
@@ -193,16 +212,7 @@ String httpFetchStatusJson();
 
 void fastLedManagerBegin();
 void fastLedReleaseScriptResources();
-bool fastLedBeginWs2812b(int pin, int count, int brightness);
-bool fastLedReady();
-int fastLedPin();
-int fastLedCount();
-bool fastLedSetPixel(int index, int r, int g, int b);
-bool fastLedFill(int r, int g, int b);
-bool fastLedClear(bool show);
 bool fastLedShow();
-bool fastLedSetBrightness(int brightness);
-String fastLedStatusJson();
 bool ledConfigureStrip(int strip, int pin, int count, int brightness);
 bool ledRebootRequiredFor(int strip, int pin, int count);
 bool ledReady(int strip);

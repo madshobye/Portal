@@ -89,6 +89,65 @@ static bool wrArgPresent(const WRValue* argv, int argn, int idx) {
   return argv && idx < argn;
 }
 
+static void hsvToRgb8(int h, int s, int v, int& r, int& g, int& b) {
+  h = constrain(h, 0, 255);
+  s = constrain(s, 0, 255);
+  v = constrain(v, 0, 255);
+
+  if (s <= 0) {
+    r = v;
+    g = v;
+    b = v;
+    return;
+  }
+
+  int region = h / 43;
+  int remainder = (h - (region * 43)) * 6;
+  int p = (v * (255 - s)) / 255;
+  int q = (v * (255 - ((s * remainder) / 255))) / 255;
+  int t = (v * (255 - ((s * (255 - remainder)) / 255))) / 255;
+
+  if (region == 0) {
+    r = v; g = t; b = p;
+  } else if (region == 1) {
+    r = q; g = v; b = p;
+  } else if (region == 2) {
+    r = p; g = v; b = t;
+  } else if (region == 3) {
+    r = p; g = q; b = v;
+  } else if (region == 4) {
+    r = t; g = p; b = v;
+  } else {
+    r = v; g = p; b = q;
+  }
+}
+
+static void rgbToHsv8(int r, int g, int b, int& h, int& s, int& v) {
+  r = constrain(r, 0, 255);
+  g = constrain(g, 0, 255);
+  b = constrain(b, 0, 255);
+
+  int maxValue = max(r, max(g, b));
+  int minValue = min(r, min(g, b));
+  int delta = maxValue - minValue;
+
+  v = maxValue;
+  s = maxValue == 0 ? 0 : (delta * 255) / maxValue;
+
+  if (delta == 0) {
+    h = 0;
+  } else if (maxValue == r) {
+    h = (43 * (g - b)) / delta;
+  } else if (maxValue == g) {
+    h = 85 + (43 * (b - r)) / delta;
+  } else {
+    h = 171 + (43 * (r - g)) / delta;
+  }
+
+  while (h < 0) h += 255;
+  while (h >= 255) h -= 255;
+}
+
 static String wrStripJsonObjectBraces(String fields) {
   fields.trim();
   if (fields.startsWith("{") && fields.endsWith("}")) {
@@ -132,7 +191,7 @@ static String wrStatusValue(const String& key) {
   if (key == "deviceId") return configDeviceId();
   if (key == "deviceName") return configDeviceName();
   if (key == "wifi") return wifiStatusJson();
-  if (key == "led" || key == "fastled") return ledStatusJson();
+  if (key == "led") return ledStatusJson();
   if (key == "uart" || key == "serial") return uartStatusJson();
   if (key == "http") return httpFetchStatusJson();
   return "";
@@ -394,6 +453,45 @@ static void w_p1_httpGet(WRContext* ctx, const WRValue* argv, const int argn, WR
   wrRetString(ctx, retVal, httpFetchGet(url, maxBytes, timeoutMs));
 }
 
+static void w_p1_httpJsonGet(WRContext* ctx, const WRValue* argv, const int argn, WRValue& retVal, void*) {
+  String url = wrArgStringValue(argv, argn, 0);
+  String path = wrArgStringValue(argv, argn, 1);
+  int maxBytes = wrArgInt(argv, argn, 2, P1_EMBED_HTTP_MAX_RESPONSE_BYTES);
+  int timeoutMs = wrArgInt(argv, argn, 3, P1_EMBED_HTTP_DEFAULT_TIMEOUT_MS);
+  wrRetString(ctx, retVal, httpFetchJsonGet(url, path, maxBytes, timeoutMs));
+}
+
+static void w_p1_httpJsonGetInt(WRContext*, const WRValue* argv, const int argn, WRValue& retVal, void*) {
+  String url = wrArgStringValue(argv, argn, 0);
+  String path = wrArgStringValue(argv, argn, 1);
+  int maxBytes = wrArgInt(argv, argn, 2, P1_EMBED_HTTP_MAX_RESPONSE_BYTES);
+  int timeoutMs = wrArgInt(argv, argn, 3, P1_EMBED_HTTP_DEFAULT_TIMEOUT_MS);
+  wrRetInt(retVal, httpFetchJsonGetInt(url, path, maxBytes, timeoutMs));
+}
+
+static void w_p1_httpJsonGetFloat(WRContext*, const WRValue* argv, const int argn, WRValue& retVal, void*) {
+  String url = wrArgStringValue(argv, argn, 0);
+  String path = wrArgStringValue(argv, argn, 1);
+  int maxBytes = wrArgInt(argv, argn, 2, P1_EMBED_HTTP_MAX_RESPONSE_BYTES);
+  int timeoutMs = wrArgInt(argv, argn, 3, P1_EMBED_HTTP_DEFAULT_TIMEOUT_MS);
+  wrRetFloat(retVal, httpFetchJsonGetFloat(url, path, maxBytes, timeoutMs));
+}
+
+static void w_p1_httpJsonGetBool(WRContext*, const WRValue* argv, const int argn, WRValue& retVal, void*) {
+  String url = wrArgStringValue(argv, argn, 0);
+  String path = wrArgStringValue(argv, argn, 1);
+  int maxBytes = wrArgInt(argv, argn, 2, P1_EMBED_HTTP_MAX_RESPONSE_BYTES);
+  int timeoutMs = wrArgInt(argv, argn, 3, P1_EMBED_HTTP_DEFAULT_TIMEOUT_MS);
+  wrRetInt(retVal, httpFetchJsonGetBool(url, path, maxBytes, timeoutMs) ? 1 : 0);
+}
+
+static void w_p1_fetchJson(WRContext*, const WRValue* argv, const int argn, WRValue& retVal, void*) {
+  String url = wrArgStringValue(argv, argn, 0);
+  int maxBytes = wrArgInt(argv, argn, 1, P1_EMBED_HTTP_MAX_RESPONSE_BYTES);
+  int timeoutMs = wrArgInt(argv, argn, 2, P1_EMBED_HTTP_DEFAULT_TIMEOUT_MS);
+  wrRetInt(retVal, httpFetchJson(url, maxBytes, timeoutMs));
+}
+
 static void w_p1_httpPost(WRContext* ctx, const WRValue* argv, const int argn, WRValue& retVal, void*) {
   String url = wrArgStringValue(argv, argn, 0);
   String body = wrArgStringValue(argv, argn, 1);
@@ -417,6 +515,22 @@ static void w_p1_httpError(WRContext* ctx, const WRValue*, const int, WRValue& r
 
 static void w_p1_httpStatus(WRContext* ctx, const WRValue*, const int, WRValue& retVal, void*) {
   wrRetString(ctx, retVal, httpFetchStatusJson());
+}
+
+static void w_p1_getJsonValue(WRContext* ctx, const WRValue* argv, const int argn, WRValue& retVal, void*) {
+  wrRetString(ctx, retVal, httpFetchJsonValue(wrArgStringValue(argv, argn, 0)));
+}
+
+static void w_p1_getJsonInt(WRContext*, const WRValue* argv, const int argn, WRValue& retVal, void*) {
+  wrRetInt(retVal, httpFetchJsonValueInt(wrArgStringValue(argv, argn, 0)));
+}
+
+static void w_p1_getJsonFloat(WRContext*, const WRValue* argv, const int argn, WRValue& retVal, void*) {
+  wrRetFloat(retVal, httpFetchJsonValueFloat(wrArgStringValue(argv, argn, 0)));
+}
+
+static void w_p1_getJsonBool(WRContext*, const WRValue* argv, const int argn, WRValue& retVal, void*) {
+  wrRetInt(retVal, httpFetchJsonValueBool(wrArgStringValue(argv, argn, 0)) ? 1 : 0);
 }
 
 static void w_p1_jsonGet(WRContext* ctx, const WRValue* argv, const int argn, WRValue& retVal, void*) {
@@ -484,18 +598,21 @@ static void w_p1_jsonBuild(WRContext* ctx, const WRValue* argv, const int argn, 
   wrRetString(ctx, retVal, jsonBuildObject(wrJsonJoinArgs(argv, argn, 0)));
 }
 
-static void w_p1_jsonArray(WRContext* ctx, const WRValue* argv, const int argn, WRValue& retVal, void*) {
-  String out = "[";
-  for (int i = 0; i < argn; i++) {
-    String part = wrArgStringValueMax(argv, argn, i, P1_EMBED_JSON_ARG_MAX_BYTES);
-    part.trim();
-    if (!part.length()) part = "null";
-    if (i) out += ",";
-    out += part;
-  }
-  out += "]";
-  wrRetString(ctx, retVal, out);
-}
+// Disabled deliberately: using JSON arrays as temporary tuples in Wrench
+// animation loops caused repeated string allocation and malloc_failed stops.
+// Keep the implementation nearby in case a future non-hot-path API needs it.
+// static void w_p1_jsonArray(WRContext* ctx, const WRValue* argv, const int argn, WRValue& retVal, void*) {
+//   String out = "[";
+//   for (int i = 0; i < argn; i++) {
+//     String part = wrArgStringValueMax(argv, argn, i, P1_EMBED_JSON_ARG_MAX_BYTES);
+//     part.trim();
+//     if (!part.length()) part = "null";
+//     if (i) out += ",";
+//     out += part;
+//   }
+//   out += "]";
+//   wrRetString(ctx, retVal, out);
+// }
 
 static void w_p1_analogWrite(WRContext*, const WRValue* argv, const int argn, WRValue& retVal, void*) {
   int pin = wrArgInt(argv, argn, 0, -1);
@@ -573,60 +690,6 @@ static void w_p1_fanDetach(WRContext*, const WRValue* argv, const int argn, WRVa
   wrRetInt(retVal, pwmFanDetach(wrArgInt(argv, argn, 0, -1)) ? 1 : 0);
 }
 
-static void w_p1_fastLedBegin(WRContext*, const WRValue* argv, const int argn, WRValue& retVal, void*) {
-  int pin = wrArgInt(argv, argn, 0, -1);
-  int count = wrArgInt(argv, argn, 1, 0);
-  int brightness = wrArgInt(argv, argn, 2, 255);
-  bool ok = fastLedBeginWs2812b(pin, count, brightness);
-  if (!ok && !scriptErrorHasLast()) scriptErrorSet("binding", "fastled_begin_failed", "fastLedBegin failed", "\"pin\":" + String(pin) + ",\"count\":" + String(count));
-  wrRetInt(retVal, ok ? 1 : 0);
-}
-
-static void w_p1_fastLedReady(WRContext*, const WRValue*, const int, WRValue& retVal, void*) {
-  wrRetInt(retVal, fastLedReady() ? 1 : 0);
-}
-
-static void w_p1_fastLedCount(WRContext*, const WRValue*, const int, WRValue& retVal, void*) {
-  wrRetInt(retVal, fastLedCount());
-}
-
-static void w_p1_fastLedSet(WRContext*, const WRValue* argv, const int argn, WRValue& retVal, void*) {
-  int index = wrArgInt(argv, argn, 0, -1);
-  bool ok = fastLedSetPixel(index, wrArgInt(argv, argn, 1, 0), wrArgInt(argv, argn, 2, 0), wrArgInt(argv, argn, 3, 0));
-  if (!ok) scriptErrorSet("binding", "fastled_set_failed", "fastLedSet failed", "\"index\":" + String(index));
-  wrRetInt(retVal, ok ? 1 : 0);
-}
-
-static void w_p1_fastLedFill(WRContext*, const WRValue* argv, const int argn, WRValue& retVal, void*) {
-  bool ok = fastLedFill(wrArgInt(argv, argn, 0, 0), wrArgInt(argv, argn, 1, 0), wrArgInt(argv, argn, 2, 0));
-  if (!ok) scriptErrorSet("binding", "fastled_fill_failed", "fastLedFill failed");
-  wrRetInt(retVal, ok ? 1 : 0);
-}
-
-static void w_p1_fastLedClear(WRContext*, const WRValue* argv, const int argn, WRValue& retVal, void*) {
-  bool show = true;
-  if (wrArgPresent(argv, argn, 0)) show = wrArgInt(argv, argn, 0, 1) != 0;
-  bool ok = fastLedClear(show);
-  if (!ok) scriptErrorSet("binding", "fastled_clear_failed", "fastLedClear failed");
-  wrRetInt(retVal, ok ? 1 : 0);
-}
-
-static void w_p1_fastLedShow(WRContext*, const WRValue*, const int, WRValue& retVal, void*) {
-  bool ok = fastLedShow();
-  if (!ok) scriptErrorSet("binding", "fastled_show_failed", "fastLedShow failed");
-  wrRetInt(retVal, ok ? 1 : 0);
-}
-
-static void w_p1_fastLedBrightness(WRContext*, const WRValue* argv, const int argn, WRValue& retVal, void*) {
-  bool ok = fastLedSetBrightness(wrArgInt(argv, argn, 0, 255));
-  if (!ok) scriptErrorSet("binding", "fastled_brightness_failed", "fastLedBrightness failed");
-  wrRetInt(retVal, ok ? 1 : 0);
-}
-
-static void w_p1_fastLedStatus(WRContext* ctx, const WRValue*, const int, WRValue& retVal, void*) {
-  wrRetString(ctx, retVal, fastLedStatusJson());
-}
-
 static void w_p1_ledConfig(WRContext*, const WRValue* argv, const int argn, WRValue& retVal, void*) {
   int strip = wrArgInt(argv, argn, 0, 0);
   int pin = wrArgInt(argv, argn, 1, -1);
@@ -655,6 +718,58 @@ static void w_p1_ledSet(WRContext*, const WRValue* argv, const int argn, WRValue
   bool ok = ledSetPixel(strip, index, wrArgInt(argv, argn, 2, 0), wrArgInt(argv, argn, 3, 0), wrArgInt(argv, argn, 4, 0));
   if (!ok) scriptErrorSet("binding", "led_set_failed", "ledSet failed", "\"strip\":" + String(strip) + ",\"index\":" + String(index));
   wrRetInt(retVal, ok ? 1 : 0);
+}
+
+static void w_p1_ledSetHsv(WRContext*, const WRValue* argv, const int argn, WRValue& retVal, void*) {
+  int strip = wrArgInt(argv, argn, 0, 0);
+  int index = wrArgInt(argv, argn, 1, -1);
+  int r = 0;
+  int g = 0;
+  int b = 0;
+  hsvToRgb8(wrArgInt(argv, argn, 2, 0), wrArgInt(argv, argn, 3, 255), wrArgInt(argv, argn, 4, 255), r, g, b);
+  bool ok = ledSetPixel(strip, index, r, g, b);
+  if (!ok) scriptErrorSet("binding", "led_set_hsv_failed", "ledSetHsv failed", "\"strip\":" + String(strip) + ",\"index\":" + String(index));
+  wrRetInt(retVal, ok ? 1 : 0);
+}
+
+static void wrRetHsvComponent(const WRValue* argv, const int argn, WRValue& retVal, int component) {
+  int r = 0;
+  int g = 0;
+  int b = 0;
+  hsvToRgb8(wrArgInt(argv, argn, 0, 0), wrArgInt(argv, argn, 1, 255), wrArgInt(argv, argn, 2, 255), r, g, b);
+  wrRetInt(retVal, component == 0 ? r : (component == 1 ? g : b));
+}
+
+static void w_p1_hsvToR(WRContext*, const WRValue* argv, const int argn, WRValue& retVal, void*) {
+  wrRetHsvComponent(argv, argn, retVal, 0);
+}
+
+static void w_p1_hsvToG(WRContext*, const WRValue* argv, const int argn, WRValue& retVal, void*) {
+  wrRetHsvComponent(argv, argn, retVal, 1);
+}
+
+static void w_p1_hsvToB(WRContext*, const WRValue* argv, const int argn, WRValue& retVal, void*) {
+  wrRetHsvComponent(argv, argn, retVal, 2);
+}
+
+static void wrRetRgbComponent(const WRValue* argv, const int argn, WRValue& retVal, int component) {
+  int h = 0;
+  int s = 0;
+  int v = 0;
+  rgbToHsv8(wrArgInt(argv, argn, 0, 0), wrArgInt(argv, argn, 1, 0), wrArgInt(argv, argn, 2, 0), h, s, v);
+  wrRetInt(retVal, component == 0 ? h : (component == 1 ? s : v));
+}
+
+static void w_p1_rgbToH(WRContext*, const WRValue* argv, const int argn, WRValue& retVal, void*) {
+  wrRetRgbComponent(argv, argn, retVal, 0);
+}
+
+static void w_p1_rgbToS(WRContext*, const WRValue* argv, const int argn, WRValue& retVal, void*) {
+  wrRetRgbComponent(argv, argn, retVal, 1);
+}
+
+static void w_p1_rgbToV(WRContext*, const WRValue* argv, const int argn, WRValue& retVal, void*) {
+  wrRetRgbComponent(argv, argn, retVal, 2);
 }
 
 static void w_p1_ledFill(WRContext*, const WRValue* argv, const int argn, WRValue& retVal, void*) {
@@ -829,18 +944,18 @@ const char* wrenchBindingNameForHash(uint32_t hash) {
     "serialReadString", "serialWrite", "serialWriteLine",
     "serialWriteByte", "serialStatus",
     "httpGet", "httpPost", "httpCode", "httpTruncated", "httpError",
-    "httpStatus",
+    "httpStatus", "httpJsonGet", "httpJsonGetInt", "httpJsonGetFloat", "httpJsonGetBool", "fetchJson",
+    "getJsonValue", "getJsonInt", "getJsonFloat", "getJsonBool",
     "jsonGet", "jsonGetInt", "jsonGetFloat", "jsonGetBool", "jsonHas",
     "jsonPair", "jsonPairRaw", "jsonPairInt", "jsonPairFloat",
-    "jsonPairBool", "jsonBuild", "jsonArray",
+    "jsonPairBool", "jsonBuild",
+    // "jsonArray",
     "analogWrite", "analogWriteResolution", "analogWriteFrequency",
     "pwmDetach",
     "servoAttach", "servoWrite", "servoWriteMicroseconds", "servoDetach",
     "fanAttach", "fanWrite", "fanWriteRaw", "fanDetach",
-    "fastLedBegin", "fastLedReady", "fastLedCount", "fastLedSet",
-    "fastLedFill", "fastLedClear", "fastLedShow", "fastLedBrightness",
-    "fastLedStatus",
-    "ledConfig", "ledReady", "ledStripCount", "ledCount", "ledSet",
+    "ledConfig", "ledReady", "ledStripCount", "ledCount", "ledSet", "ledSetHsv",
+    "hsvToR", "hsvToG", "hsvToB", "rgbToH", "rgbToS", "rgbToV",
     "ledFill", "ledClear", "ledShow", "ledBrightness", "ledStatus",
     "log", "emit", "emitJson", "statusGet", "configGet", "configSet",
     "wifiStatus", "wifiConnect", "wifiDisconnect", "reboot",
@@ -885,11 +1000,20 @@ void wrenchRegisterBindings(WRState* wr) {
   wr_registerFunction(wr, "serialWriteByte", w_p1_serialWriteByte);
   wr_registerFunction(wr, "serialStatus", w_p1_serialStatus);
   wr_registerFunction(wr, "httpGet", w_p1_httpGet);
+  wr_registerFunction(wr, "httpJsonGet", w_p1_httpJsonGet);
+  wr_registerFunction(wr, "httpJsonGetInt", w_p1_httpJsonGetInt);
+  wr_registerFunction(wr, "httpJsonGetFloat", w_p1_httpJsonGetFloat);
+  wr_registerFunction(wr, "httpJsonGetBool", w_p1_httpJsonGetBool);
+  wr_registerFunction(wr, "fetchJson", w_p1_fetchJson);
   wr_registerFunction(wr, "httpPost", w_p1_httpPost);
   wr_registerFunction(wr, "httpCode", w_p1_httpCode);
   wr_registerFunction(wr, "httpTruncated", w_p1_httpTruncated);
   wr_registerFunction(wr, "httpError", w_p1_httpError);
   wr_registerFunction(wr, "httpStatus", w_p1_httpStatus);
+  wr_registerFunction(wr, "getJsonValue", w_p1_getJsonValue);
+  wr_registerFunction(wr, "getJsonInt", w_p1_getJsonInt);
+  wr_registerFunction(wr, "getJsonFloat", w_p1_getJsonFloat);
+  wr_registerFunction(wr, "getJsonBool", w_p1_getJsonBool);
   wr_registerFunction(wr, "jsonGet", w_p1_jsonGet);
   wr_registerFunction(wr, "jsonGetInt", w_p1_jsonGetInt);
   wr_registerFunction(wr, "jsonGetFloat", w_p1_jsonGetFloat);
@@ -901,7 +1025,7 @@ void wrenchRegisterBindings(WRState* wr) {
   wr_registerFunction(wr, "jsonPairFloat", w_p1_jsonPairFloat);
   wr_registerFunction(wr, "jsonPairBool", w_p1_jsonPairBool);
   wr_registerFunction(wr, "jsonBuild", w_p1_jsonBuild);
-  wr_registerFunction(wr, "jsonArray", w_p1_jsonArray);
+  // wr_registerFunction(wr, "jsonArray", w_p1_jsonArray);
   wr_registerFunction(wr, "analogWrite", w_p1_analogWrite);
   wr_registerFunction(wr, "analogWriteResolution", w_p1_analogWriteResolution);
   wr_registerFunction(wr, "analogWriteFrequency", w_p1_analogWriteFrequency);
@@ -914,20 +1038,18 @@ void wrenchRegisterBindings(WRState* wr) {
   wr_registerFunction(wr, "fanWrite", w_p1_fanWrite);
   wr_registerFunction(wr, "fanWriteRaw", w_p1_fanWriteRaw);
   wr_registerFunction(wr, "fanDetach", w_p1_fanDetach);
-  wr_registerFunction(wr, "fastLedBegin", w_p1_fastLedBegin);
-  wr_registerFunction(wr, "fastLedReady", w_p1_fastLedReady);
-  wr_registerFunction(wr, "fastLedCount", w_p1_fastLedCount);
-  wr_registerFunction(wr, "fastLedSet", w_p1_fastLedSet);
-  wr_registerFunction(wr, "fastLedFill", w_p1_fastLedFill);
-  wr_registerFunction(wr, "fastLedClear", w_p1_fastLedClear);
-  wr_registerFunction(wr, "fastLedShow", w_p1_fastLedShow);
-  wr_registerFunction(wr, "fastLedBrightness", w_p1_fastLedBrightness);
-  wr_registerFunction(wr, "fastLedStatus", w_p1_fastLedStatus);
   wr_registerFunction(wr, "ledConfig", w_p1_ledConfig);
   wr_registerFunction(wr, "ledReady", w_p1_ledReady);
   wr_registerFunction(wr, "ledStripCount", w_p1_ledStripCount);
   wr_registerFunction(wr, "ledCount", w_p1_ledCount);
   wr_registerFunction(wr, "ledSet", w_p1_ledSet);
+  wr_registerFunction(wr, "ledSetHsv", w_p1_ledSetHsv);
+  wr_registerFunction(wr, "hsvToR", w_p1_hsvToR);
+  wr_registerFunction(wr, "hsvToG", w_p1_hsvToG);
+  wr_registerFunction(wr, "hsvToB", w_p1_hsvToB);
+  wr_registerFunction(wr, "rgbToH", w_p1_rgbToH);
+  wr_registerFunction(wr, "rgbToS", w_p1_rgbToS);
+  wr_registerFunction(wr, "rgbToV", w_p1_rgbToV);
   wr_registerFunction(wr, "ledFill", w_p1_ledFill);
   wr_registerFunction(wr, "ledClear", w_p1_ledClear);
   wr_registerFunction(wr, "ledShow", w_p1_ledShow);

@@ -1,5 +1,5 @@
 const DEFAULT_MQTT_ROOT = "p1e-lab-20260527-hobye-webrtc-signal-v1";
-export const MQTT_WEBRTC_TRANSPORT_VERSION = "0.1.87-ui119";
+export const MQTT_WEBRTC_TRANSPORT_VERSION = "0.1.87-ui134";
 
 console.info(`[P1E mqtt-webrtc] loaded ${MQTT_WEBRTC_TRANSPORT_VERSION}`);
 
@@ -187,6 +187,8 @@ export class MqttWebRtcTransport extends EventTarget {
       this.logStats("rtc");
       if (state === "connected") {
         this.clearRtcFailureTimer();
+      } else if ((state === "disconnected" || state === "failed" || state === "closed") && this.connected) {
+        this.dropConnectedRtc(state);
       } else if ((state === "failed" || state === "closed") && !this._settled) {
         this.scheduleRtcFailure(finish, state);
       }
@@ -201,8 +203,9 @@ export class MqttWebRtcTransport extends EventTarget {
 
     this.channel.onmessage = async (event) => {
       try {
-        const line = await decodeData(event.data);
-        if (line) this.emit("line", { line });
+        const message = await decodeDataMessage(event.data);
+        if (message.kind === "line" && message.line) this.emit("line", { line: message.line });
+        else if (message.kind === "frame" && message.data) this.emit("frame", { data: message.data });
       } catch (error) {
         this.emit("error", { error });
       }
@@ -317,6 +320,11 @@ export class MqttWebRtcTransport extends EventTarget {
     this.channel.send(String(line));
   }
 
+  sendBytes(data) {
+    if (!this.channel || this.channel.readyState !== "open") throw new Error("WebRTC data channel is not open");
+    this.channel.send(data);
+  }
+
   async disconnect() {
     this._closed = true;
     this.connected = false;
@@ -376,6 +384,13 @@ export class MqttWebRtcTransport extends EventTarget {
     if (!this._rtcFailureTimer) return;
     clearTimeout(this._rtcFailureTimer);
     this._rtcFailureTimer = null;
+  }
+
+  dropConnectedRtc(state) {
+    if (!this.connected || this._closed) return;
+    this.connected = false;
+    this.setState("disconnected", { reason: `rtc_${state}` });
+    this.disconnect();
   }
 
   failureSummary(state = "failed") {
@@ -607,10 +622,21 @@ function decodeMqttPayload(payload) {
   return String(payload || "");
 }
 
-async function decodeData(data) {
-  if (typeof data === "string") return data.trim();
-  if (data instanceof Blob) return (await data.text()).trim();
-  if (data instanceof ArrayBuffer) return new TextDecoder().decode(data).trim();
-  if (ArrayBuffer.isView(data)) return new TextDecoder().decode(data).trim();
-  return String(data || "").trim();
+async function decodeDataMessage(data) {
+  if (typeof data === "string") return { kind: "line", line: data.trim() };
+  if (data instanceof Blob) {
+    const buffer = await data.arrayBuffer();
+    return decodeDataBytes(new Uint8Array(buffer));
+  }
+  if (data instanceof ArrayBuffer) return decodeDataBytes(new Uint8Array(data));
+  if (ArrayBuffer.isView(data)) return decodeDataBytes(new Uint8Array(data.buffer, data.byteOffset, data.byteLength));
+  return { kind: "line", line: String(data || "").trim() };
+}
+
+function decodeDataBytes(bytes) {
+  const first = bytes[0];
+  if (first === 0x7b || first === 0x5b || first === 0x0a || first === 0x0d) {
+    return { kind: "line", line: new TextDecoder().decode(bytes).trim() };
+  }
+  return { kind: "frame", data: bytes };
 }

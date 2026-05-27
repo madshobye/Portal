@@ -15,7 +15,7 @@ Help write Wrench scripts for the P1E ESP32 classic firmware. Prefer complete sk
 - Use `return value;` from functions.
 - `if`, `else if`, `else`, `while`, and common C-style operators are supported.
 - String literals use double quotes. Escape embedded quotes in JSON strings: `"{\"ok\":true}"`.
-- Arrays can be built with `values[] = { 1, 2, 3 };` in normal Wrench syntax, but for P1E protocol JSON it is often better to use the `json*` helpers.
+- Arrays can be built with `values[] = { 1, 2, 3 };` in normal Wrench syntax. P1E JSON helpers are for JSON text fields, not temporary data structures in animation loops.
 - Single-line `//` comments and block comments are supported.
 - Wrench has a `yield()` concept in the engine, but P1E scripts should normally use `loop()` plus short delays instead of blocking forever.
 
@@ -49,6 +49,7 @@ The firmware compiles the source first. If compile succeeds, it can run `setup()
 - LED setup should happen in Wrench with `ledConfig()` so the script owns the strip layout.
 - Use `==` for comparisons; use `=` only for assignment.
 - Wrench strings and JSON helpers are convenient, but repeated large string building can pressure heap.
+- Do not use JSON helpers as temporary data structures inside animation loops. Keep hot loops numeric, especially for LED color math.
 - Avoid fake numeric casts such as `pos = pos + 0;` or `value = value * 1;`. On P1E these can compile but later stop with a runtime `function_not_found`. For LED animation, prefer a simple integer frame/position counter that is incremented in `loop()`.
 
 ## Core Bindings
@@ -85,17 +86,23 @@ The firmware compiles the source first. If compile succeeds, it can run `setup()
 ## HTTP
 
 - `httpGet(url, maxBytes, timeoutMs)`.
+- `fetchJson(url, maxBytes, timeoutMs)` fetches into firmware's last HTTP body cache and returns the HTTP status code without returning the body into Wrench heap.
+- `getJsonValue(path)`, `getJsonInt(path)`, `getJsonFloat(path)`, `getJsonBool(path)` read from the last `fetchJson()` or `httpGet()` response cache.
+- `httpJsonGet(url, path, maxBytes, timeoutMs)`, `httpJsonGetInt(...)`, `httpJsonGetFloat(...)`, `httpJsonGetBool(...)` fetch and extract one path in firmware.
 - `httpPost(url, body, contentType, maxBytes, timeoutMs)`.
 - `httpCode()`, `httpError()`, `httpTruncated()`, `httpStatus()`.
 
-Example:
+HTTP JSON field extraction:
 
 ```wrench
-var body = httpGet("https://example.com/data.json", 2048, 6000);
-if (httpCode() == 200) {
-  println(jsonGet(body, "name"));
+var code = fetchJson("https://example.com/data.json", 2048, 6000);
+if (code == 200) {
+  println(getJsonValue("name"));
+  println(getJsonFloat("main.temp"));
 }
 ```
+
+For larger API responses, `fetchJson()` keeps the response in firmware cache and `getJsonValue()` returns selected fields to Wrench. `httpGet()` returns the full body and is best suited to small responses or scripts that need the complete payload.
 
 ## JSON Helpers
 
@@ -105,19 +112,21 @@ if (httpCode() == 200) {
 - `jsonPair(key, value)`, `jsonPairRaw(key, rawJson)`.
 - `jsonPairInt(key, value)`, `jsonPairFloat(key, value, decimals)`, `jsonPairBool(key, value)`.
 - `jsonBuild(pair...)` builds an object string.
-- `jsonArray(value...)` builds an array string.
 
 Paths can address nested object/array values such as `weather.0.main` or `main.temp`.
 
 ## LED Bindings
 
-Preferred multi-strip API:
+Multi-strip API:
 
 - `ledConfig(strip, pin, count, brightness)`.
 - `ledReady(strip)`.
 - `ledStripCount()`.
 - `ledCount(strip)`.
 - `ledSet(strip, index, r, g, b)`.
+- `ledSetHsv(strip, index, h, s, v)` converts HSV to RGB in firmware without Wrench JSON/string allocation. This is the compact path for rainbow, sparkle, and chase animations.
+- `hsvToR(h, s, v)`, `hsvToG(h, s, v)`, `hsvToB(h, s, v)` return numeric RGB components without building a JSON array. Use these when a sketch needs to reuse individual color channels.
+- `rgbToH(r, g, b)`, `rgbToS(r, g, b)`, `rgbToV(r, g, b)` return numeric HSV components without building a JSON array.
 - `ledFill(strip, r, g, b)`.
 - `ledClear(strip, show)`.
 - `ledShow()`.
@@ -158,7 +167,7 @@ function loop() {
 
 ## Secondary UART
 
-UART0 is reserved for the JSON transport. Wrench can use UART1 or UART2 only.
+UART0 is reserved for the host transport. Wrench can use UART1 or UART2 only.
 
 - `serialBegin(uart, rxPin, txPin, baud)`.
 - `serialEnd(uart)`.

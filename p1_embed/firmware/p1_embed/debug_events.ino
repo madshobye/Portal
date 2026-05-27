@@ -96,6 +96,30 @@ static void debugSendOrQueueLine(const String& line) {
   if (waiting > g_debugQueueHighWater) g_debugQueueHighWater = waiting;
 }
 
+static void debugAppendJsonEventField(String& out, const P1EventField& field) {
+  if (!field.key) return;
+  out += "\"";
+  out += field.key;
+  out += "\":";
+  switch (field.type) {
+    case P1_FIELD_STRING:
+      out += jsonString(field.stringValue ? String(field.stringValue) : String(""));
+      break;
+    case P1_FIELD_INT:
+      out += String(field.intValue);
+      break;
+    case P1_FIELD_UINT:
+      out += String(field.uintValue);
+      break;
+    case P1_FIELD_BOOL:
+      out += field.boolValue ? "true" : "false";
+      break;
+    case P1_FIELD_RAW_JSON:
+      out += field.stringValue ? field.stringValue : "null";
+      break;
+  }
+}
+
 void debugEventSendLine(const String& line) {
   debugSendOrQueueLine(line);
 }
@@ -115,6 +139,10 @@ void debugEventEmit(const String& name, const String& level, const String& categ
   uint8_t value = debugLevelValue(level);
   if (value > g_debugLevel) return;
 
+  if (name.startsWith("script.") || name.startsWith("debug.") || name == "wifi.status") {
+    protocolEmitMsgPackEvent(name, level, category, message, dataFieldsJson);
+  }
+
   String out = "{\"type\":\"evt\",\"name\":" + jsonString(name) + ",\"data\":{";
   out += "\"level\":" + jsonString(level);
   out += ",\"category\":" + jsonString(category);
@@ -124,10 +152,33 @@ void debugEventEmit(const String& name, const String& level, const String& categ
   debugSendOrQueueLine(out);
 }
 
+void debugEventEmitFields(const String& name, const String& level, const String& category, const String& message, const P1EventField* fields, size_t fieldCount) {
+  uint8_t value = debugLevelValue(level);
+  if (value > g_debugLevel) return;
+
+  if (name.startsWith("script.") || name.startsWith("debug.") || name == "wifi.status") {
+    protocolEmitMsgPackEventFields(name.c_str(), level.c_str(), category.c_str(), message.c_str(), fields, fieldCount);
+  }
+
+  String out = "{\"type\":\"evt\",\"name\":" + jsonString(name) + ",\"data\":{";
+  out += "\"level\":" + jsonString(level);
+  out += ",\"category\":" + jsonString(category);
+  if (message.length()) out += ",\"message\":" + jsonString(message);
+  for (size_t i = 0; i < fieldCount; i++) {
+    out += ",";
+    debugAppendJsonEventField(out, fields[i]);
+  }
+  out += "}}";
+  debugSendOrQueueLine(out);
+}
+
 void debugLog(const String& level, const String& category, const String& message) {
-  debugEventEmit("debug.log", level, category, message, "");
+  debugEventEmitFields("debug.log", level, category, message, nullptr, 0);
 }
 
 void debugError(const String& category, const String& code, const String& message) {
-  debugEventEmit("debug.error", "error", category, message, "\"code\":" + jsonString(code));
+  P1EventField fields[] = {
+    p1FieldString("code", code),
+  };
+  debugEventEmitFields("debug.error", "error", category, message, fields, 1);
 }

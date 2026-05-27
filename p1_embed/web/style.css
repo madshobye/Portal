@@ -481,9 +481,17 @@ input {
   color: var(--accent) !important;
 }
 
+#ace-editor .ace_marker-layer .wrench-error-line,
 .wrench-error-line {
   position: absolute;
-  background: rgba(238, 102, 102, 0.18);
+  z-index: 7;
+  background: rgba(238, 102, 102, 0.28) !important;
+  box-shadow: inset 3px 0 0 var(--red);
+}
+
+#ace-editor .ace_gutter-cell.wrench-error-gutter {
+  color: var(--red) !important;
+  background: rgba(238, 102, 102, 0.12);
 }
 
 #code-editor {
