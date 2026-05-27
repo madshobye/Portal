@@ -13957,9 +13957,17 @@ WRState* wr_newState( int stackSize )
 #ifdef WRENCH_HANDLE_MALLOC_FAIL
 	if ( !w ) { return 0; }
 #endif
-																		   
+																			   
 	memset( (unsigned char*)w, 0, sizeof(WRState) );
 	w->globalRegistry.growHash( WRENCH_NULL_HASH, 0 );
+#ifdef WRENCH_HANDLE_MALLOC_FAIL
+	if ( g_mallocFailed )
+	{
+		g_mallocFailed = false;
+		g_free( w );
+		return 0;
+	}
+#endif
 
 	w->stackSize = stackSize;
 	w->allocatedMemoryLimit = WRENCH_DEFAULT_ALLOCATED_MEMORY_GC_HINT;
@@ -14337,6 +14345,19 @@ void wr_setAllocatedMemoryGCHint( WRState* state, const uint32_t bytes )
 void wr_registerFunction( WRState* w, const char* name, WR_C_CALLBACK function, void* usr )
 {
 	WRValue* V = w->globalRegistry.getAsRawValueHashTable( wr_hashStr(name) );
+#ifdef WRENCH_HANDLE_MALLOC_FAIL
+	if ( g_mallocFailed )
+	{
+		w->err = WR_ERR_malloc_failed;
+		g_mallocFailed = false;
+		return;
+	}
+#endif
+	if ( !V )
+	{
+		w->err = WR_ERR_malloc_failed;
+		return;
+	}
 	V->usr = usr;
 	V->ccb = function;
 }

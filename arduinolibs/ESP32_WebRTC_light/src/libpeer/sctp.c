@@ -124,7 +124,7 @@ int sctp_outgoing_data(Sctp* sctp, char* buf, size_t len, SctpDataPpid ppid, uin
 
   chunk->type = SCTP_DATA;
   chunk->iube = 0x06;
-  chunk->sid = htons(0);
+  chunk->sid = htons(sid);
   chunk->sqn = htons(sqn++);
   chunk->ppid = htonl(ppid);
 
@@ -261,11 +261,12 @@ void sctp_incoming_data(Sctp* sctp, char* buf, size_t len) {
 
         LOGD("SCTP_DATA. ppid = %ld, data = %.2x", ntohl(data_chunk->ppid), data_chunk->data[0]);
         if (ntohl(data_chunk->ppid) == DATA_CHANNEL_PPID_CONTROL && data_chunk->data[0] == DATA_CHANNEL_OPEN) {
+          uint16_t open_sid = data_chunk->sid;
           data_chunk = (SctpDataChunk*)sack_chunk->blocks;
           data_chunk->type = SCTP_DATA;
           data_chunk->iube = 0x03;
           data_chunk->tsn = htonl(sctp->tsn++);
-          data_chunk->sid = htons(0);
+          data_chunk->sid = open_sid;
           data_chunk->sqn = htons(0);
           data_chunk->ppid = htonl(DATA_CHANNEL_PPID_CONTROL);
           data_chunk->length = htons(1 + sizeof(SctpDataChunk));
@@ -492,13 +493,21 @@ static int sctp_incoming_data_cb(struct socket* sock, union sctp_sockstore addr,
 
 void sctp_usrsctp_init() {
 #if CONFIG_USE_USRSCTP
-  usrsctp_init(0, sctp_outgoing_data_cb, NULL);
+  usrsctp_init_nothreads(0, sctp_outgoing_data_cb, NULL);
 #endif
 }
 
 void sctp_usrsctp_deinit() {
 #if CONFIG_USE_USRSCTP
   usrsctp_finish();
+#endif
+}
+
+void sctp_usrsctp_handle_timers(uint32_t elapsed_milliseconds) {
+#if CONFIG_USE_USRSCTP
+  usrsctp_handle_timers(elapsed_milliseconds);
+#else
+  (void)elapsed_milliseconds;
 #endif
 }
 

@@ -5,14 +5,14 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>P1E</title>
     <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@24,400,0,0">
-    <link rel="stylesheet" href="style.css?v=0.1.43-ui78">
+    <link rel="stylesheet" href="style.css?v=0.1.87-ui118">
   </head>
   <body>
     <main id="app">
       <header class="app-topbar">
         <div class="brand">
           <strong>P1E</strong>
-          <span id="brand-version">0.1.43</span>
+          <span id="brand-version">0.1.87</span>
         </div>
         <nav class="tabs" aria-label="Workspace">
           <button id="chat-tab" class="tab is-active" type="button" data-tab="chat">GenAI</button>
@@ -35,6 +35,11 @@
               <option value="">history</option>
             </select>
             <span class="toolbar-divider toolbar-push" aria-hidden="true"></span>
+            <div id="upload-status" class="upload-status is-hidden" aria-live="polite">
+              <span class="material-symbols-rounded upload-status-icon">progress_activity</span>
+              <span id="upload-status-label">Uploading</span>
+              <progress id="upload-status-progress" value="0" max="100"></progress>
+            </div>
             <button id="rename-button" class="button icon-buttonish" type="button" disabled title="Rename board" aria-label="Rename board"><span class="material-symbols-rounded">drive_file_rename_outline</span></button>
             <button id="wifi-button" class="button icon-buttonish" type="button" disabled title="WiFi setup" aria-label="WiFi setup"><span class="material-symbols-rounded">wifi</span></button>
             <button id="reboot-button" class="button icon-buttonish" type="button" disabled title="Reboot device" aria-label="Reboot device"><span class="material-symbols-rounded">restart_alt</span></button>
@@ -90,6 +95,11 @@
         <header class="chat-toolbar">
           <button id="chat-connect-button" class="button primary icon-buttonish" type="button" title="Connect" aria-label="Connect"><span class="material-symbols-rounded">link</span></button>
           <span class="toolbar-divider toolbar-push" aria-hidden="true"></span>
+          <div id="chat-upload-status" class="upload-status chat-upload-status is-hidden" aria-live="polite">
+            <span class="material-symbols-rounded upload-status-icon">progress_activity</span>
+            <span id="chat-upload-status-label">Uploading</span>
+            <progress id="chat-upload-status-progress" value="0" max="100"></progress>
+          </div>
           <button id="chat-api-key-button" class="button icon-buttonish" type="button" title="Set API key" aria-label="Set API key"><span class="material-symbols-rounded">key</span></button>
           <select id="chat-model" class="compact-select chat-model" title="Model" aria-label="Model"></select>
           <button id="chat-debug-prompt-button" class="button icon-buttonish" type="button" title="Download prompt debug: off" aria-label="Download prompt debug: off"><span class="material-symbols-rounded">bug_report</span></button>
@@ -153,7 +163,7 @@
         <div class="dialog-actions connect-options">
           <button id="usb-connect-button" class="button icon-buttonish" type="button" title="New USB" aria-label="New USB"><span class="material-symbols-rounded">usb</span></button>
           <button id="new-ws-toggle-button" class="button icon-buttonish" type="button" title="New WebSocket" aria-label="New WebSocket"><span class="material-symbols-rounded">add_link</span></button>
-          <button id="new-peer-toggle-button" class="button icon-buttonish" type="button" title="New PeerJS" aria-label="New PeerJS"><span class="material-symbols-rounded">hub</span></button>
+          <button id="new-peer-toggle-button" class="button icon-buttonish" type="button" title="New WebRTC" aria-label="New WebRTC"><span class="material-symbols-rounded">hub</span></button>
         </div>
         <label id="new-ws-field" class="field is-hidden">
           <span>WebSocket URL or host</span>
@@ -161,10 +171,10 @@
         </label>
         <button id="new-ws-connect-button" class="button primary icon-buttonish is-hidden" type="button" title="Connect WebSocket" aria-label="Connect WebSocket"><span class="material-symbols-rounded">link</span></button>
         <label id="new-peer-field" class="field is-hidden">
-          <span>PeerJS device id</span>
+          <span>WebRTC device id</span>
           <input id="peer-id" type="text" autocomplete="off" spellcheck="false" value="p1-embed-f7a608">
         </label>
-        <button id="new-peer-connect-button" class="button primary icon-buttonish is-hidden" type="button" title="Connect PeerJS" aria-label="Connect PeerJS"><span class="material-symbols-rounded">hub</span></button>
+        <button id="new-peer-connect-button" class="button primary icon-buttonish is-hidden" type="button" title="Connect WebRTC" aria-label="Connect WebRTC"><span class="material-symbols-rounded">hub</span></button>
       </form>
     </dialog>
 
@@ -223,9 +233,9 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/ace/1.43.3/ace.js" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/ace/1.43.3/mode-javascript.min.js" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/ace/1.43.3/theme-chaos.min.js" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
-    <script src="https://unpkg.com/peerjs@1.5.5/dist/peerjs.min.js"></script>
+    <script src="https://unpkg.com/mqtt/dist/mqtt.min.js"></script>
     <script src="../../P1/portal/usbSerial.js"></script>
     <script src="../../P1/portal/qrCodeGen.js"></script>
-    <script type="module" src="app.js?v=0.1.43-ui78"></script>
+    <script type="module" src="app.js?v=0.1.87-ui118"></script>
   </body>
 </html>

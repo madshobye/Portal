@@ -164,6 +164,94 @@ textarea {
   min-width: 0;
 }
 
+.upload-status {
+  display: grid;
+  grid-template-columns: 20px minmax(88px, 1fr);
+  grid-template-rows: 1fr 4px;
+  column-gap: 6px;
+  row-gap: 2px;
+  align-items: center;
+  flex: 0 0 190px;
+  height: 31px;
+  min-width: 170px;
+  max-width: 220px;
+  padding: 4px 8px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  color: var(--muted);
+  background: var(--surface-2);
+  font-size: 10px;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.upload-status-icon {
+  grid-row: 1 / span 2;
+  font-size: 20px;
+  animation: p1-spin 0.9s linear infinite;
+}
+
+.upload-status progress {
+  grid-column: 2;
+  width: 100%;
+  height: 4px;
+  border: 0;
+  border-radius: 999px;
+  overflow: hidden;
+  appearance: none;
+}
+
+.upload-status progress::-webkit-progress-bar {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.upload-status progress::-webkit-progress-value {
+  background: #aeb4b7;
+}
+
+.upload-status progress::-moz-progress-bar {
+  background: #aeb4b7;
+}
+
+.upload-status.is-complete .upload-status-icon,
+.upload-status.is-error .upload-status-icon {
+  animation: none;
+}
+
+.upload-status.is-error {
+  color: var(--bad);
+  border-color: rgba(255, 110, 110, 0.45);
+  background: rgba(255, 110, 110, 0.08);
+}
+
+.chat-upload-status {
+  flex-basis: 190px;
+  min-width: 170px;
+}
+
+.material-symbols-rounded.is-spinning {
+  animation: p1-spin 0.9s linear infinite;
+}
+
+@keyframes p1-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes p1-connect-pulse {
+  0%,
+  100% {
+    border-color: #6c7275;
+    box-shadow: 0 0 0 0 rgba(255, 255, 255, 0.08);
+  }
+
+  50% {
+    border-color: #d7dadb;
+    box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.08);
+  }
+}
+
 .toolbar-divider {
   flex: 0 0 1px;
   align-self: stretch;
@@ -293,6 +381,17 @@ input:disabled {
 .button.danger {
   border-color: #6f4141;
   background: #3c2424;
+}
+
+.button.is-connecting {
+  border-color: #8b9194;
+  color: var(--text);
+  background: #2b2e30;
+  animation: p1-connect-pulse 1.15s ease-in-out infinite;
+}
+
+.button.is-connecting .material-symbols-rounded {
+  animation: p1-spin 1.8s linear infinite;
 }
 
 .icon-button {
@@ -550,11 +649,16 @@ input {
   gap: 7px;
 }
 
+#raw-input {
+  color: var(--muted);
+  font-size: 10px;
+}
+
 .fields {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
   align-content: start;
-  gap: 7px 14px;
+  gap: 9px;
   min-height: 0;
   margin: 0;
   overflow: auto;
@@ -563,6 +667,74 @@ input {
   border-radius: 6px;
   background: var(--surface);
   font-size: 12px;
+}
+
+.info-card {
+  display: grid;
+  grid-template-rows: 28px minmax(0, 1fr);
+  min-width: 0;
+  min-height: 104px;
+  padding: 9px;
+  border: 1px solid var(--line-soft);
+  border-radius: 6px;
+  background: #1a1c1d;
+}
+
+.info-card header {
+  display: grid;
+  grid-template-columns: 24px minmax(0, 1fr);
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+}
+
+.info-card header strong {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text);
+  font-size: 13px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.info-card-icon {
+  color: var(--muted);
+  font-size: 21px;
+}
+
+.info-card-body {
+  display: grid;
+  align-content: start;
+  gap: 6px;
+  min-width: 0;
+}
+
+.info-card-compact {
+  min-height: 104px;
+}
+
+.info-metric {
+  display: grid;
+  grid-template-columns: 74px minmax(0, 1fr);
+  gap: 8px;
+  min-width: 0;
+  line-height: 1.25;
+}
+
+.info-metric > span {
+  overflow: hidden;
+  color: var(--muted);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.info-metric > strong {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text);
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .info-share {

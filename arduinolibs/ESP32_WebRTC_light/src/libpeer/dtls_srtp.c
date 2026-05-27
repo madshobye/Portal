@@ -16,6 +16,55 @@
 #include "socket.h"
 #include "utils.h"
 
+#if CONFIG_DTLS_USE_STATIC_CERT
+static const unsigned char p1e_dtls_cert_der[] = {
+  0x30, 0x82, 0x01, 0x19, 0x30, 0x81, 0xc0, 0x02, 0x09, 0x00, 0xb3, 0xc4,
+  0x77, 0x0c, 0xf5, 0x2a, 0xfd, 0x28, 0x30, 0x0a, 0x06, 0x08, 0x2a, 0x86,
+  0x48, 0xce, 0x3d, 0x04, 0x03, 0x02, 0x30, 0x15, 0x31, 0x13, 0x30, 0x11,
+  0x06, 0x03, 0x55, 0x04, 0x03, 0x0c, 0x0a, 0x70, 0x31, 0x65, 0x2d, 0x77,
+  0x65, 0x62, 0x72, 0x74, 0x63, 0x30, 0x1e, 0x17, 0x0d, 0x32, 0x36, 0x30,
+  0x35, 0x32, 0x36, 0x32, 0x30, 0x33, 0x30, 0x31, 0x39, 0x5a, 0x17, 0x0d,
+  0x33, 0x36, 0x30, 0x35, 0x32, 0x33, 0x32, 0x30, 0x33, 0x30, 0x31, 0x39,
+  0x5a, 0x30, 0x15, 0x31, 0x13, 0x30, 0x11, 0x06, 0x03, 0x55, 0x04, 0x03,
+  0x0c, 0x0a, 0x70, 0x31, 0x65, 0x2d, 0x77, 0x65, 0x62, 0x72, 0x74, 0x63,
+  0x30, 0x59, 0x30, 0x13, 0x06, 0x07, 0x2a, 0x86, 0x48, 0xce, 0x3d, 0x02,
+  0x01, 0x06, 0x08, 0x2a, 0x86, 0x48, 0xce, 0x3d, 0x03, 0x01, 0x07, 0x03,
+  0x42, 0x00, 0x04, 0xb9, 0x25, 0x82, 0x6b, 0x29, 0x81, 0x7c, 0x2a, 0x80,
+  0x16, 0xce, 0x32, 0xb2, 0x94, 0x12, 0x25, 0x3c, 0xb1, 0xe5, 0x53, 0x81,
+  0x06, 0x05, 0x83, 0xef, 0xb8, 0x84, 0xa6, 0x60, 0x75, 0xf7, 0x05, 0x59,
+  0xe7, 0x89, 0x1b, 0x50, 0x24, 0xf2, 0x4c, 0x24, 0x6a, 0xa5, 0x71, 0x3b,
+  0xa6, 0x8e, 0xfa, 0x35, 0x3d, 0x03, 0x78, 0xce, 0x8c, 0x80, 0x84, 0xea,
+  0xb3, 0xdd, 0x7a, 0x50, 0xb6, 0x95, 0x79, 0x30, 0x0a, 0x06, 0x08, 0x2a,
+  0x86, 0x48, 0xce, 0x3d, 0x04, 0x03, 0x02, 0x03, 0x48, 0x00, 0x30, 0x45,
+  0x02, 0x20, 0x69, 0xe8, 0x8a, 0x37, 0xf1, 0x79, 0x6f, 0xae, 0x33, 0xf4,
+  0x7e, 0xf9, 0x6d, 0x64, 0x45, 0x40, 0x6c, 0xc5, 0x3e, 0x88, 0x23, 0xcc,
+  0x86, 0x72, 0x7d, 0xcc, 0x49, 0x21, 0x00, 0xa2, 0xe1, 0xa7, 0x02, 0x21,
+  0x00, 0x90, 0x10, 0x4c, 0xea, 0xe0, 0x64, 0xc1, 0x82, 0x28, 0xf4, 0xcc,
+  0x29, 0x96, 0xaf, 0xeb, 0xd1, 0xa2, 0x41, 0x31, 0x83, 0xae, 0x7b, 0x81,
+  0xba, 0xcb, 0xdf, 0xa5, 0x5d, 0xa0, 0xb4, 0xa0, 0x77
+};
+
+static const unsigned char p1e_dtls_key_der[] = {
+  0x30, 0x77, 0x02, 0x01, 0x01, 0x04, 0x20, 0x36, 0xcb, 0xb3, 0x77, 0xaf,
+  0x29, 0x00, 0xa1, 0x5a, 0x0c, 0x23, 0xf0, 0xfc, 0xe3, 0x9d, 0x54, 0xf4,
+  0xc2, 0x9e, 0x81, 0x6e, 0x0b, 0xee, 0x5e, 0x79, 0x1d, 0x8a, 0x62, 0x88,
+  0x40, 0x2c, 0x4e, 0xa0, 0x0a, 0x06, 0x08, 0x2a, 0x86, 0x48, 0xce, 0x3d,
+  0x03, 0x01, 0x07, 0xa1, 0x44, 0x03, 0x42, 0x00, 0x04, 0xb9, 0x25, 0x82,
+  0x6b, 0x29, 0x81, 0x7c, 0x2a, 0x80, 0x16, 0xce, 0x32, 0xb2, 0x94, 0x12,
+  0x25, 0x3c, 0xb1, 0xe5, 0x53, 0x81, 0x06, 0x05, 0x83, 0xef, 0xb8, 0x84,
+  0xa6, 0x60, 0x75, 0xf7, 0x05, 0x59, 0xe7, 0x89, 0x1b, 0x50, 0x24, 0xf2,
+  0x4c, 0x24, 0x6a, 0xa5, 0x71, 0x3b, 0xa6, 0x8e, 0xfa, 0x35, 0x3d, 0x03,
+  0x78, 0xce, 0x8c, 0x80, 0x84, 0xea, 0xb3, 0xdd, 0x7a, 0x50, 0xb6, 0x95,
+  0x79
+};
+#endif
+
+static void dtls_srtp_log_mbedtls_error(const char* label, int ret) {
+  char errbuf[128];
+  mbedtls_strerror(ret, errbuf, sizeof(errbuf));
+  LOGE("%s returned -0x%.4x (%s)", label, (unsigned int)-ret, errbuf);
+}
+
 int dtls_srtp_udp_send(void* ctx, const uint8_t* buf, size_t len) {
   DtlsSrtp* dtls_srtp = (DtlsSrtp*)ctx;
   UdpSocket* udp_socket = (UdpSocket*)dtls_srtp->user_data;
@@ -67,9 +116,55 @@ static int dtls_srtp_cert_verify(void* data, mbedtls_x509_crt* crt, int depth, u
   return 0;
 }
 
+static int dtls_srtp_seed_rng(DtlsSrtp* dtls_srtp) {
+  const char* pers = "dtls_srtp";
+  int ret = mbedtls_ctr_drbg_seed(&dtls_srtp->ctr_drbg,
+                                  mbedtls_entropy_func,
+                                  &dtls_srtp->entropy,
+                                  (const unsigned char*)pers,
+                                  strlen(pers));
+  if (ret < 0) {
+    dtls_srtp_log_mbedtls_error("mbedtls_ctr_drbg_seed", ret);
+  }
+  return ret;
+}
+
+#if CONFIG_DTLS_USE_STATIC_CERT
+static int dtls_srtp_static_cert(DtlsSrtp* dtls_srtp) {
+  int ret = dtls_srtp_seed_rng(dtls_srtp);
+  if (ret < 0) {
+    return ret;
+  }
+
+  ret = mbedtls_x509_crt_parse_der(&dtls_srtp->cert, p1e_dtls_cert_der, sizeof(p1e_dtls_cert_der));
+  if (ret < 0) {
+    dtls_srtp_log_mbedtls_error("mbedtls_x509_crt_parse_der static cert", ret);
+    return ret;
+  }
+
+#if CONFIG_MBEDTLS_2_X
+  ret = mbedtls_pk_parse_key(&dtls_srtp->pkey, p1e_dtls_key_der, sizeof(p1e_dtls_key_der), NULL, 0);
+#else
+  ret = mbedtls_pk_parse_key(&dtls_srtp->pkey,
+                             p1e_dtls_key_der,
+                             sizeof(p1e_dtls_key_der),
+                             NULL,
+                             0,
+                             mbedtls_ctr_drbg_random,
+                             &dtls_srtp->ctr_drbg);
+#endif
+  if (ret < 0) {
+    dtls_srtp_log_mbedtls_error("mbedtls_pk_parse_key static key", ret);
+    return ret;
+  }
+
+  LOGI("loaded static DTLS certificate");
+  return 0;
+}
+#endif
+
 static int dtls_srtp_selfsign_cert(DtlsSrtp* dtls_srtp) {
   int ret;
-  const char* pers = "dtls_srtp";
   mbedtls_x509write_cert crt;
   unsigned char* cert_buf = NULL;
   unsigned char serial[16];
@@ -77,9 +172,8 @@ static int dtls_srtp_selfsign_cert(DtlsSrtp* dtls_srtp) {
 
   mbedtls_x509write_crt_init(&crt);
 
-  ret = mbedtls_ctr_drbg_seed(&dtls_srtp->ctr_drbg, mbedtls_entropy_func, &dtls_srtp->entropy, (const unsigned char*)pers, strlen(pers));
+  ret = dtls_srtp_seed_rng(dtls_srtp);
   if (ret < 0) {
-    LOGE("mbedtls_ctr_drbg_seed failed -0x%.4x", (unsigned int)-ret);
     goto cleanup;
   }
 
@@ -171,12 +265,6 @@ cleanup:
   return ret;
 }
 
-static void dtls_srtp_log_mbedtls_error(const char* label, int ret) {
-  char errbuf[128];
-  mbedtls_strerror(ret, errbuf, sizeof(errbuf));
-  LOGE("%s returned -0x%.4x (%s)", label, (unsigned int)-ret, errbuf);
-}
-
 #if CONFIG_MBEDTLS_DEBUG
 static void dtls_srtp_debug(void* ctx, int level, const char* file, int line, const char* str) {
   LOGD("%s:%04d: %s", file, line, str);
@@ -208,42 +296,64 @@ int dtls_srtp_init(DtlsSrtp* dtls_srtp, DtlsSrtpRole role, void* user_data) {
   mbedtls_debug_set_threshold(3);
   mbedtls_ssl_conf_dbg(&dtls_srtp->conf, dtls_srtp_debug, NULL);
 #endif
+#if CONFIG_DTLS_USE_STATIC_CERT
+  int ret = dtls_srtp_static_cert(dtls_srtp);
+#else
   int ret = dtls_srtp_selfsign_cert(dtls_srtp);
+#endif
   if (ret < 0) {
     return ret;
   }
 
   if (dtls_srtp->role == DTLS_SRTP_ROLE_SERVER) {
-    mbedtls_ssl_config_defaults(&dtls_srtp->conf,
-                                MBEDTLS_SSL_IS_SERVER,
-                                MBEDTLS_SSL_TRANSPORT_DATAGRAM,
-                                MBEDTLS_SSL_PRESET_DEFAULT);
+    LOGI("dtls role server/passive");
+    ret = mbedtls_ssl_config_defaults(&dtls_srtp->conf,
+                                      MBEDTLS_SSL_IS_SERVER,
+                                      MBEDTLS_SSL_TRANSPORT_DATAGRAM,
+                                      MBEDTLS_SSL_PRESET_DEFAULT);
+    if (ret < 0) {
+      dtls_srtp_log_mbedtls_error("mbedtls_ssl_config_defaults server", ret);
+      return ret;
+    }
 
     mbedtls_ssl_cookie_init(&dtls_srtp->cookie_ctx);
 
-    mbedtls_ssl_cookie_setup(&dtls_srtp->cookie_ctx, mbedtls_ctr_drbg_random, &dtls_srtp->ctr_drbg);
+    ret = mbedtls_ssl_cookie_setup(&dtls_srtp->cookie_ctx, mbedtls_ctr_drbg_random, &dtls_srtp->ctr_drbg);
+    if (ret < 0) {
+      dtls_srtp_log_mbedtls_error("mbedtls_ssl_cookie_setup", ret);
+      return ret;
+    }
 
     mbedtls_ssl_conf_dtls_cookies(&dtls_srtp->conf, mbedtls_ssl_cookie_write, mbedtls_ssl_cookie_check, &dtls_srtp->cookie_ctx);
 
   } else {
-    mbedtls_ssl_config_defaults(&dtls_srtp->conf,
-                                MBEDTLS_SSL_IS_CLIENT,
-                                MBEDTLS_SSL_TRANSPORT_DATAGRAM,
-                                MBEDTLS_SSL_PRESET_DEFAULT);
+    LOGI("dtls role client/active");
+    ret = mbedtls_ssl_config_defaults(&dtls_srtp->conf,
+                                      MBEDTLS_SSL_IS_CLIENT,
+                                      MBEDTLS_SSL_TRANSPORT_DATAGRAM,
+                                      MBEDTLS_SSL_PRESET_DEFAULT);
+    if (ret < 0) {
+      dtls_srtp_log_mbedtls_error("mbedtls_ssl_config_defaults client", ret);
+      return ret;
+    }
   }
 
   mbedtls_ssl_conf_rng(&dtls_srtp->conf, mbedtls_ctr_drbg_random, &dtls_srtp->ctr_drbg);
 
   mbedtls_ssl_conf_verify(&dtls_srtp->conf, dtls_srtp_cert_verify, NULL);
 
-  // WebRTC authenticates DTLS certificates with the SDP fingerprint, not a CA
-  // chain or hostname. Keep mbedTLS certificate verification out of the way and
-  // compare the peer certificate digest after the handshake.
+  // WebRTC authenticates the device certificate with the SDP fingerprint. On
+  // ESP32 Classic, requesting a browser client certificate can trip an
+  // unavailable mbedTLS DTLS feature in the server CertificateRequest path.
   mbedtls_ssl_conf_authmode(&dtls_srtp->conf, MBEDTLS_SSL_VERIFY_NONE);
 
   mbedtls_ssl_conf_ca_chain(&dtls_srtp->conf, &dtls_srtp->cert, NULL);
 
-  mbedtls_ssl_conf_own_cert(&dtls_srtp->conf, &dtls_srtp->cert, &dtls_srtp->pkey);
+  ret = mbedtls_ssl_conf_own_cert(&dtls_srtp->conf, &dtls_srtp->cert, &dtls_srtp->pkey);
+  if (ret < 0) {
+    dtls_srtp_log_mbedtls_error("mbedtls_ssl_conf_own_cert", ret);
+    return ret;
+  }
 
   mbedtls_ssl_conf_read_timeout(&dtls_srtp->conf, 1000);
 
@@ -251,13 +361,26 @@ int dtls_srtp_init(DtlsSrtp* dtls_srtp, DtlsSrtpRole role, void* user_data) {
 
   LOGD("local fingerprint: %s", dtls_srtp->local_fingerprint);
 
+#if CONFIG_DTLS_MAX_FRAGMENT_LENGTH && defined(MBEDTLS_SSL_MAX_FRAGMENT_LENGTH)
+  ret = mbedtls_ssl_conf_max_frag_len(&dtls_srtp->conf, MBEDTLS_SSL_MAX_FRAG_LEN_1024);
+  if (ret < 0) {
+    dtls_srtp_log_mbedtls_error("mbedtls_ssl_conf_max_frag_len", ret);
+    return ret;
+  }
+  LOGI("configured DTLS max fragment length 1024");
+#endif
+
   mbedtls_ssl_conf_dtls_srtp_protection_profiles(&dtls_srtp->conf, default_profiles);
 
   mbedtls_ssl_conf_srtp_mki_value_supported(&dtls_srtp->conf, MBEDTLS_SSL_DTLS_SRTP_MKI_UNSUPPORTED);
 
   mbedtls_ssl_conf_cert_req_ca_list(&dtls_srtp->conf, MBEDTLS_SSL_CERT_REQ_CA_LIST_DISABLED);
 
-  mbedtls_ssl_setup(&dtls_srtp->ssl, &dtls_srtp->conf);
+  ret = mbedtls_ssl_setup(&dtls_srtp->ssl, &dtls_srtp->conf);
+  if (ret < 0) {
+    dtls_srtp_log_mbedtls_error("mbedtls_ssl_setup", ret);
+    return ret;
+  }
 
   return 0;
 }

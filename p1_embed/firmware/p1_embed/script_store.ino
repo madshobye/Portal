@@ -109,6 +109,25 @@ bool scriptStoreSaveIncoming(const String& code) {
   return scriptStoreSavePath(SCRIPT_INCOMING_PATH, code);
 }
 
+bool scriptStoreBeginIncoming() {
+  if (!scriptStoreBegin()) return false;
+  if (LittleFS.exists(SCRIPT_INCOMING_PATH) && !LittleFS.remove(SCRIPT_INCOMING_PATH)) return false;
+  File f = LittleFS.open(SCRIPT_INCOMING_PATH, "w");
+  if (!f) return false;
+  f.close();
+  return true;
+}
+
+bool scriptStoreAppendIncoming(const String& chunk) {
+  if (!scriptStoreBegin()) return false;
+  File f = LittleFS.open(SCRIPT_INCOMING_PATH, "a");
+  if (!f) return false;
+  size_t wrote = f.write((const uint8_t*)chunk.c_str(), chunk.length());
+  f.flush();
+  f.close();
+  return wrote == chunk.length();
+}
+
 bool scriptStoreClearIncoming() {
   if (!scriptStoreBegin()) return false;
   if (LittleFS.exists(SCRIPT_INCOMING_PATH) && !LittleFS.remove(SCRIPT_INCOMING_PATH)) return false;

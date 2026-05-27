@@ -10,7 +10,7 @@ export class PeerJsTransport extends EventTarget {
     localId = "",
     remoteId = "",
     connectTimeoutMs = 30000,
-    dataChannelTimeoutMs = 60000,
+    dataChannelTimeoutMs = 8000,
   } = {}) {
     super();
     this.host = host;
@@ -30,6 +30,7 @@ export class PeerJsTransport extends EventTarget {
     this._remoteCandidates = [];
     this._candidateIndex = 0;
     this._connectionTimer = null;
+    this._iceDiagnostics = new WeakMap();
   }
 
   get available() {
@@ -78,6 +79,9 @@ export class PeerJsTransport extends EventTarget {
       }
 
       this.peer.on("open", () => {
+        clearTimeout(openTimer);
+        this.installCandidateFilter(this.peer);
+        this.setState("hub_open", { localId: this.localId });
         this.tryCurrentCandidate(finish);
       });
 
@@ -87,15 +91,16 @@ export class PeerJsTransport extends EventTarget {
 
       this.peer.on("disconnected", () => {
         this.connected = false;
-        this.setState("disconnected");
+        this.setState("hub_disconnected");
       });
 
       this.peer.on("close", () => {
         this.connected = false;
-        this.setState("disconnected");
+        this.setState("hub_closed");
       });
 
       this.peer.on("error", (error) => {
+        this.setState("hub_error", { message: error?.message || String(error) });
         if (!this._settled && isMissingPeerError(error?.message || String(error))) {
           this.tryNextCandidate(finish);
           return;
@@ -115,17 +120,22 @@ export class PeerJsTransport extends EventTarget {
       return;
     }
 
-    this.setState(`connecting:${remoteId}`);
+    this.setState("trying_device", { remoteId, attempt: this._candidateIndex + 1, total: this._remoteCandidates.length });
     const conn = this.peer.connect(remoteId, {
       serialization: "raw",
       reliable: true,
       label: "p1e",
     });
     this.attachConnection(conn, finish);
+    this.installRemoteDescriptionFilter(conn);
+    this.attachIceDiagnostics(conn, remoteId);
 
     this.clearConnectionTimer();
     this._connectionTimer = setTimeout(() => {
-      if (this.conn === conn && !this.connected) this.tryNextCandidate(finish);
+      if (this.conn === conn && !this.connected) {
+        this.setState("device_timeout", { remoteId });
+        this.tryNextCandidate(finish);
+      }
     }, this.dataChannelTimeoutMs);
   }
 
@@ -167,12 +177,13 @@ export class PeerJsTransport extends EventTarget {
       if (this.conn !== conn) return;
       const wasConnected = this.connected;
       this.connected = false;
-      this.setState("disconnected");
+      this.setState(wasConnected ? "disconnected" : "device_closed", { remoteId: conn.peer || this.remoteId });
       if (!wasConnected && !this._settled) this.tryNextCandidate(finish);
     });
 
     conn.on("error", (error) => {
       if (this.conn !== conn) return;
+      this.setState("device_error", { remoteId: conn.peer || this.remoteId, message: error?.message || String(error) });
       if (!this.connected && !this._settled && isMissingPeerError(error?.message || String(error))) {
         this.tryNextCandidate(finish);
         return;
@@ -180,6 +191,132 @@ export class PeerJsTransport extends EventTarget {
       if (this._settled) this.emit("error", { error });
       else finish(false, error);
     });
+  }
+
+  installCandidateFilter(peer) {
+    const socket = peer?.socket;
+    if (!socket || typeof socket.send !== "function" || socket._p1eCandidateFilter) return;
+    const send = socket.send.bind(socket);
+    socket._p1eCandidateFilter = true;
+    socket.send = (message) => {
+      const candidate = message?.payload?.candidate?.candidate || "";
+      if (message?.type === "CANDIDATE" && this.shouldDropCandidate(candidate)) {
+        this.setState("ice_candidate_dropped", { summary: summarizeIceCandidate(candidate) });
+        return;
+      }
+      return send(message);
+    };
+  }
+
+  shouldDropCandidate(candidate) {
+    if (!candidate) return false;
+    const protocol = candidate.match(/\s(udp|tcp)\s/i)?.[1]?.toLowerCase() || "";
+    const type = candidate.match(/\styp\s+(\S+)/)?.[1] || "";
+    const address = candidate.match(/\s(\S+)\s\d+\styp\s/)?.[1] || "";
+    if (protocol === "tcp") return true;
+    if (type === "host" && /\.local$/i.test(address)) return true;
+    return false;
+  }
+
+  installRemoteDescriptionFilter(conn) {
+    if (!conn || typeof conn.handleMessage !== "function" || conn._p1eRemoteDescriptionFilter) return;
+    const handleMessage = conn.handleMessage.bind(conn);
+    conn._p1eRemoteDescriptionFilter = true;
+    conn.handleMessage = (message) => {
+      if (message?.type === "ANSWER") {
+        const sdp = message?.payload?.sdp;
+        const sdpText = sdp?.sdp || "";
+        const filteredSdp = stripTcpCandidatesFromSdp(sdpText);
+        if (filteredSdp !== sdpText) {
+          this.setState("ice_answer_filtered", { removed: countCandidateLines(sdpText) - countCandidateLines(filteredSdp) });
+          message = {
+            ...message,
+            payload: {
+              ...message.payload,
+              sdp: { ...sdp, sdp: filteredSdp },
+            },
+          };
+        }
+      }
+      return handleMessage(message);
+    };
+  }
+
+  attachIceDiagnostics(conn, remoteId) {
+    const pc = getConnectionPeerConnection(conn);
+    if (!pc || typeof pc.addEventListener !== "function") {
+      this.setState("ice_diag", { remoteId, message: "RTCPeerConnection unavailable" });
+      return;
+    }
+
+    const logState = (source) => {
+      this.setState("ice_diag", {
+        remoteId,
+        message: `${source} ice=${pc.iceConnectionState} gathering=${pc.iceGatheringState} signaling=${pc.signalingState}`,
+      });
+    };
+    const onIceState = () => {
+      logState("state");
+      this.logIceStats(pc, remoteId);
+    };
+    const onGatheringState = () => logState("gathering");
+    const onCandidate = (event) => {
+      const candidate = event?.candidate?.candidate || "";
+      this.setState("ice_candidate", {
+        remoteId,
+        summary: candidate ? summarizeIceCandidate(candidate) : "gathering complete",
+      });
+    };
+
+    pc.addEventListener("iceconnectionstatechange", onIceState);
+    pc.addEventListener("icegatheringstatechange", onGatheringState);
+    pc.addEventListener("icecandidate", onCandidate);
+    this._iceDiagnostics.set(conn, { pc, onIceState, onGatheringState, onCandidate });
+    logState("attach");
+  }
+
+  detachIceDiagnostics(conn) {
+    const diag = this._iceDiagnostics.get(conn);
+    if (!diag) return;
+    try {
+      diag.pc.removeEventListener("iceconnectionstatechange", diag.onIceState);
+      diag.pc.removeEventListener("icegatheringstatechange", diag.onGatheringState);
+      diag.pc.removeEventListener("icecandidate", diag.onCandidate);
+    } catch {}
+    this._iceDiagnostics.delete(conn);
+  }
+
+  async logIceStats(pc, remoteId) {
+    if (typeof pc.getStats !== "function") return;
+    try {
+      const stats = await pc.getStats();
+      const localCandidates = new Map();
+      const remoteCandidates = new Map();
+      const pairs = [];
+      let selectedPair = null;
+      stats.forEach((report) => {
+        if (report.type === "local-candidate") localCandidates.set(report.id, report);
+        if (report.type === "remote-candidate") remoteCandidates.set(report.id, report);
+        if (report.type === "candidate-pair") {
+          pairs.push(report);
+          if (report.selected) selectedPair = report;
+        }
+        if (report.type === "transport" && report.selectedCandidatePairId) {
+          const pair = stats.get(report.selectedCandidatePairId);
+          if (pair) selectedPair = pair;
+        }
+      });
+      const best = selectedPair || pairs.find((pair) => pair.state && pair.state !== "failed") || pairs[0];
+      if (!best) return;
+      const local = localCandidates.get(best.localCandidateId);
+      const remote = remoteCandidates.get(best.remoteCandidateId);
+      this.setState("ice_pair", {
+        remoteId,
+        message: `${formatCandidate(local)} -> ${formatCandidate(remote)} state=${best.state || "?"} requests=${best.requestsSent ?? "?"} responses=${best.responsesReceived ?? "?"}`,
+      });
+    } catch (error) {
+      this.setState("ice_diag", { remoteId, message: `getStats failed: ${error?.message || String(error)}` });
+    }
   }
 
   async disconnect() {
@@ -204,6 +341,7 @@ export class PeerJsTransport extends EventTarget {
 
   destroyPeer() {
     if (this.conn) {
+      this.detachIceDiagnostics(this.conn);
       this.conn.close();
       this.conn = null;
     }
@@ -213,9 +351,9 @@ export class PeerJsTransport extends EventTarget {
     }
   }
 
-  setState(state) {
+  setState(state, detail = {}) {
     this.state = state;
-    this.emit("state", { state });
+    this.emit("state", { state, ...detail });
   }
 
   emit(type, detail) {
@@ -230,10 +368,44 @@ function normalizePeerId(value) {
 function buildRemoteCandidates(remoteId) {
   const base = normalizePeerId(remoteId);
   if (!base) return [];
-  return [
-    base,
-    ...DEFAULT_REMOTE_SUFFIXES.map((suffix) => `${base}-${suffix}`),
-  ];
+  return [base];
+}
+
+function summarizeIceCandidate(candidate) {
+  const text = String(candidate || "");
+  if (!text) return "";
+  const protocol = text.match(/\s(udp|tcp)\s/i)?.[1]?.toLowerCase() || "?";
+  const type = text.match(/\styp\s+(\S+)/)?.[1] || "?";
+  const address = text.match(/\s(\S+)\s\d+\styp\s/)?.[1] || "?";
+  const port = text.match(/\s(\d+)\styp\s/)?.[1] || "?";
+  return `${type}/${protocol}/${address}:${port}`;
+}
+
+function stripTcpCandidatesFromSdp(sdp) {
+  return String(sdp || "")
+    .split(/\r?\n/)
+    .filter((line) => !/^a=candidate:/i.test(line) || !/\stcp\s/i.test(line))
+    .join("\r\n");
+}
+
+function countCandidateLines(sdp) {
+  return String(sdp || "")
+    .split(/\r?\n/)
+    .filter((line) => /^a=candidate:/i.test(line))
+    .length;
+}
+
+function getConnectionPeerConnection(conn) {
+  return conn?.peerConnection || conn?._peerConnection || conn?._pc || conn?.pc || null;
+}
+
+function formatCandidate(candidate) {
+  if (!candidate) return "?";
+  const type = candidate.candidateType || candidate.type || "?";
+  const protocol = String(candidate.protocol || "?").toLowerCase();
+  const address = candidate.address || candidate.ip || candidate.relayProtocol || "?";
+  const port = candidate.port || "?";
+  return `${type}/${protocol}/${address}:${port}`;
 }
 
 function isMissingPeerError(message) {

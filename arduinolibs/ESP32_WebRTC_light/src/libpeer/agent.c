@@ -22,6 +22,12 @@ static uint32_t agent_ipv4_addr(const Address* addr) {
   return ntohl(addr->sin.sin_addr.s_addr);
 }
 
+static uint64_t agent_htonll(uint64_t value) {
+  uint32_t high = htonl((uint32_t)(value >> 32));
+  uint32_t low = htonl((uint32_t)(value & 0xffffffff));
+  return ((uint64_t)low << 32) | high;
+}
+
 static int agent_ipv4_is_private(const Address* addr) {
   uint32_t ip;
 
@@ -300,6 +306,7 @@ static int agent_socket_recv(Agent* agent, Address* addr, uint8_t* buf, int len)
   int ret = -1;
   int i = 0;
   int maxfd = -1;
+  int socket_count = 0;
   fd_set rfds;
   struct timeval tv;
   int addr_type[] = { AF_INET,
@@ -312,7 +319,8 @@ static int agent_socket_recv(Agent* agent, Address* addr, uint8_t* buf, int len)
   tv.tv_usec = AGENT_POLL_TIMEOUT * 1000;
   FD_ZERO(&rfds);
 
-  for (i = 0; i < sizeof(addr_type) / sizeof(addr_type[0]); i++) {
+  socket_count = sizeof(addr_type) / sizeof(addr_type[0]);
+  for (i = 0; i < socket_count; i++) {
     if (agent->udp_sockets[i].fd > maxfd) {
       maxfd = agent->udp_sockets[i].fd;
     }
@@ -327,7 +335,7 @@ static int agent_socket_recv(Agent* agent, Address* addr, uint8_t* buf, int len)
   } else if (ret == 0) {
     // timeout
   } else {
-    for (i = 0; i < 2; i++) {
+    for (i = 0; i < socket_count; i++) {
       if (FD_ISSET(agent->udp_sockets[i].fd, &rfds)) {
         memset(buf, 0, len);
         ret = udp_socket_recvfrom(&agent->udp_sockets[i], addr, buf, len);
@@ -377,6 +385,10 @@ static int agent_create_host_addr(Agent* agent) {
 
   for (i = 0; i < sizeof(addr_type) / sizeof(addr_type[0]); i++) {
     for (j = 0; j < sizeof(iface_prefx) / sizeof(iface_prefx[0]); j++) {
+      if (agent->local_candidates_count >= AGENT_MAX_CANDIDATES) {
+        LOGW("ICE diag: local candidate list full before host candidate");
+        return 0;
+      }
       ice_candidate = agent->local_candidates + agent->local_candidates_count;
       // only copy port and family to addr of ice candidate
       ice_candidate_create(ice_candidate, agent->local_candidates_count, ICE_CANDIDATE_TYPE_HOST,
@@ -394,10 +406,16 @@ static int agent_create_host_addr(Agent* agent) {
 static int agent_create_stun_addr(Agent* agent, Address* serv_addr) {
   int ret = -1;
   Address bind_addr;
+  char mapped_addr[ADDRSTRLEN];
   StunMessage send_msg;
   StunMessage recv_msg;
   memset(&send_msg, 0, sizeof(send_msg));
   memset(&recv_msg, 0, sizeof(recv_msg));
+
+  if (agent->local_candidates_count >= AGENT_MAX_CANDIDATES) {
+    LOGW("ICE diag: local candidate list full before STUN gather");
+    return -1;
+  }
 
   stun_msg_create(&send_msg, STUN_CLASS_REQUEST | STUN_METHOD_BINDING);
 
@@ -422,11 +440,21 @@ static int agent_create_stun_addr(Agent* agent, Address* serv_addr) {
     return ret;
   }
 
+  recv_msg.size = ret;
   stun_parse_msg_buf(&recv_msg);
+  LOGI("ICE diag: STUN response bytes=%d class=0x%04x method=0x%04x", ret, recv_msg.stunclass, recv_msg.stunmethod);
+  if (recv_msg.mapped_addr.family != AF_INET && recv_msg.mapped_addr.family != AF_INET6) {
+    LOGW("ICE diag: STUN response did not contain mapped address");
+    return -1;
+  }
   memcpy(&bind_addr, &recv_msg.mapped_addr, sizeof(Address));
-  IceCandidate* ice_candidate = agent->local_candidates + agent->local_candidates_count++;
-  ice_candidate_create(ice_candidate, agent->local_candidates_count, ICE_CANDIDATE_TYPE_SRFLX, &bind_addr);
+  addr_to_string(&bind_addr, mapped_addr, sizeof(mapped_addr));
+  LOGI("ICE diag: STUN mapped address %s:%d", mapped_addr, bind_addr.port);
+  int candidate_index = agent->local_candidates_count;
+  IceCandidate* ice_candidate = agent->local_candidates + candidate_index;
+  ice_candidate_create(ice_candidate, candidate_index, ICE_CANDIDATE_TYPE_SRFLX, &bind_addr);
   agent_set_related_host_addr(agent, ice_candidate);
+  agent->local_candidates_count++;
   return ret;
 }
 
@@ -498,9 +526,8 @@ void agent_gather_candidate(Agent* agent, const char* urls, const char* username
   Address resolved_addr;
   memset(hostname, 0, sizeof(hostname));
 
-  agent_create_host_addr(agent);
-
   if (urls == NULL) {
+    agent_create_host_addr(agent);
     return;
   }
 
@@ -587,14 +614,15 @@ static void agent_create_binding_response(Agent* agent, StunMessage* msg, Addres
 }
 
 static void agent_create_binding_request(Agent* agent, StunMessage* msg) {
-  uint64_t tie_breaker = 0;  // always be controlled
+  uint64_t tie_breaker = agent_htonll(0x5031455752425443ULL);
+  uint32_t priority = htonl(agent->nominated_pair->priority);
   // send binding request
   stun_msg_create(msg, STUN_CLASS_REQUEST | STUN_METHOD_BINDING);
   char username[584];
   memset(username, 0, sizeof(username));
   snprintf(username, sizeof(username), "%s:%s", agent->remote_ufrag, agent->local_ufrag);
   stun_msg_write_attr(msg, STUN_ATTR_TYPE_USERNAME, strlen(username), username);
-  stun_msg_write_attr(msg, STUN_ATTR_TYPE_PRIORITY, 4, (char*)&agent->nominated_pair->priority);
+  stun_msg_write_attr(msg, STUN_ATTR_TYPE_PRIORITY, 4, (char*)&priority);
   if (agent->mode == AGENT_MODE_CONTROLLING) {
     stun_msg_write_attr(msg, STUN_ATTR_TYPE_USE_CANDIDATE, 0, NULL);
     stun_msg_write_attr(msg, STUN_ATTR_TYPE_ICE_CONTROLLING, 8, (char*)&tie_breaker);
@@ -653,7 +681,7 @@ int agent_recv(Agent* agent, uint8_t* buf, int len) {
   int ret = -1;
   StunMessage stun_msg;
   Address addr;
-  if ((ret = agent_socket_recv(agent, &addr, buf, len)) > 0 && stun_probe(buf, len) == 0) {
+  if ((ret = agent_socket_recv(agent, &addr, buf, len)) > 0 && stun_probe(buf, ret) == 0) {
     memcpy(stun_msg.buf, buf, ret);
     stun_msg.size = ret;
     stun_parse_msg_buf(&stun_msg);
@@ -775,6 +803,11 @@ int agent_connectivity_check(Agent* agent) {
   char addr_string[ADDRSTRLEN];
   uint8_t buf[1400];
   StunMessage msg;
+
+  if (agent->nominated_pair && agent->nominated_pair->state == ICE_CANDIDATE_STATE_SUCCEEDED) {
+    agent->selected_pair = agent->nominated_pair;
+    return 0;
+  }
 
   if (agent->nominated_pair->state != ICE_CANDIDATE_STATE_INPROGRESS) {
     LOGI("ICE diag: nominated pair state is %s, not in progress", agent_candidate_state_name(agent->nominated_pair->state));

@@ -137,7 +137,10 @@ class P1Serial:
         readable, _, _ = select.select([self.fd], [], [], timeout)
         if not readable:
             return messages
-        chunk = os.read(self.fd, 4096)
+        try:
+            chunk = os.read(self.fd, 4096)
+        except BlockingIOError:
+            return messages
         if not chunk:
             return messages
         self.buf += chunk
@@ -154,6 +157,23 @@ class P1Serial:
                 print("<", json.dumps(msg, separators=(",", ":")))
             messages.append(msg)
         return messages
+
+    def read_lines(self, timeout=0.2):
+        lines = []
+        readable, _, _ = select.select([self.fd], [], [], timeout)
+        if not readable:
+            return lines
+        try:
+            chunk = os.read(self.fd, 4096)
+        except BlockingIOError:
+            return lines
+        if not chunk:
+            return lines
+        self.buf += chunk
+        while b"\n" in self.buf:
+            line, self.buf = self.buf.split(b"\n", 1)
+            lines.append(line.decode(errors="replace").rstrip("\r"))
+        return lines
 
     def drain(self, seconds=0.5):
         deadline = time.time() + seconds

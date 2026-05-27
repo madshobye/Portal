@@ -16,9 +16,17 @@ void webrtcTransportBegin();
 void webrtcTransportLoop();
 void webrtcTransportSendLine(const String& line);
 String webrtcTransportStatusJson();
+String webrtcTransportProbeJson();
+
+void memoryProfileBegin();
+void memoryProfileReset();
+void memoryProfileMark(const char* component, const char* phase);
+String memoryProfileSummaryJson();
+String memoryProfileJson(int limit = P1_EMBED_MEMORY_PROFILE_DEFAULT_LIMIT);
 
 void protocolHandleLine(const char* line);
-bool protocolHandleScriptSetCode(const String& id, const String& code, bool runAfterSet, bool saveAfterSet);
+void protocolPollScriptJobs();
+bool protocolHandleScriptSetCode(const String& id, const String& code, bool runAfterSet, bool saveAfterSet, bool sendResponse = true);
 void protocolSendResponseOk(const String& id, const String& dataJson = "{}");
 void protocolSendResponseError(const String& id, const String& code, const String& message);
 void protocolEmitEvent(const String& name, const String& dataFieldsJson);
@@ -98,6 +106,8 @@ bool scriptStoreSaveCurrent(const String& code);
 bool scriptStoreClearCurrent();
 bool scriptStoreLoadIncoming(String& out);
 bool scriptStoreSaveIncoming(const String& code);
+bool scriptStoreBeginIncoming();
+bool scriptStoreAppendIncoming(const String& chunk);
 bool scriptStoreClearIncoming();
 void scriptStoreSaveIncomingRunOptions(bool runAfterSet, bool saveAfterSet);
 void scriptStoreLoadIncomingRunOptions(bool& runAfterSet, bool& saveAfterSet);

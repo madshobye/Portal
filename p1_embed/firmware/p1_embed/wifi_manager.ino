@@ -24,6 +24,7 @@ static void wifiEmitStatusIfChanged() {
   int status = WiFi.status();
   if (status == g_lastWifiStatus) return;
   g_lastWifiStatus = status;
+  memoryProfileMark("wifi", wifiStatusName(status));
   protocolEmitEvent("wifi.status", "\"status\":" + jsonString(wifiStatusName(status)) + ",\"ip\":" + jsonString(WiFi.localIP().toString()));
 }
 
@@ -32,23 +33,29 @@ static void wifiTryNetwork(int index, const char* statusLabel) {
   if (!ssid.length()) return;
 
   g_wifiNetworkIndex = index;
+  memoryProfileMark("wifi", "disconnect_before_begin");
   WiFi.disconnect(false, false);
+  memoryProfileMark("wifi", "after_disconnect");
   WiFi.begin(ssid.c_str(), configWifiPasswordAt(index).c_str());
   g_lastWifiAttemptMs = millis();
+  memoryProfileMark("wifi", statusLabel);
   protocolEmitEvent("wifi.status", "\"status\":" + jsonString(statusLabel) + ",\"ssid\":" + jsonString(ssid) + ",\"networkIndex\":" + String(index));
 }
 
 void wifiBegin() {
+  memoryProfileMark("wifi", "begin_entry");
   g_wifiConfigured = configWifiNetworkCount() > 0;
   g_lastWifiStatus = WiFi.status();
   g_wifiNetworkIndex = 0;
 
   if (!g_wifiConfigured) {
     WiFi.mode(WIFI_OFF);
+    memoryProfileMark("wifi", "off");
     return;
   }
 
   WiFi.mode(WIFI_STA);
+  memoryProfileMark("wifi", "sta_mode");
   WiFi.setAutoReconnect(true);
   WiFi.persistent(false);
   wifiTryNetwork(0, "connecting");
@@ -69,12 +76,14 @@ void wifiLoop() {
 }
 
 void wifiReconnect() {
+  memoryProfileMark("wifi", "reconnect");
   WiFi.disconnect(false, false);
   g_wifiConfigured = false;
   wifiBegin();
 }
 
 void wifiDisconnect() {
+  memoryProfileMark("wifi", "disconnect");
   WiFi.disconnect(true, false);
   WiFi.mode(WIFI_OFF);
   g_wifiConfigured = false;

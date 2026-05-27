@@ -85,9 +85,22 @@ def run_code(dev, code, save=False):
 
 def monitor(dev, seconds):
     deadline = time.time() + seconds
-    while time.time() < deadline:
-        for msg in dev.read_messages(0.25):
-            print(json.dumps(msg, separators=(",", ":")))
+    try:
+        while time.time() < deadline:
+            for msg in dev.read_messages(0.25):
+                print(json.dumps(msg, separators=(",", ":")))
+    except KeyboardInterrupt:
+        return
+
+
+def raw_monitor(dev, seconds):
+    deadline = time.time() + seconds
+    try:
+        while time.time() < deadline:
+            for line in dev.read_lines(0.25):
+                print(line, flush=True)
+    except KeyboardInterrupt:
+        return
 
 
 def handle_line(dev, line):
@@ -148,15 +161,23 @@ def main():
     parser.add_argument("--data", default="{}", help="JSON object for --cmd")
     parser.add_argument("--save", action="store_true", help="Save uploaded script when used with --run")
     parser.add_argument("--monitor", default=0, type=float, help="Monitor for N seconds after --run")
+    parser.add_argument("--listen", default=0, type=float, help="Monitor incoming protocol messages for N seconds, then exit")
+    parser.add_argument("--raw-listen", default=0, type=float, help="Monitor raw serial lines for N seconds, then exit")
     parser.add_argument("--trace", action="store_true")
     args = parser.parse_args()
 
     dev = P1Serial(args.port, baud=args.baud, trace=args.trace)
     dev.open()
     try:
+        if args.raw_listen > 0:
+            raw_monitor(dev, args.raw_listen)
+            return
         dev.wait_ready()
         if args.cmd:
             print_json(dev.command(args.cmd, parse_json_arg(args.data), timeout=20.0))
+            return
+        if args.listen > 0:
+            monitor(dev, args.listen)
             return
         if args.run:
             print_json(run_code(dev, read_file(args.run), save=args.save))

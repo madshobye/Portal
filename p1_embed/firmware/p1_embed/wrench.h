@@ -177,7 +177,7 @@ WARNING: This imposes a small if() check on EVERY INSTRUCTION so the
 malloc failure is detected on the instruction it happens and guarantees
 graceful exit
 */
-//#define WRENCH_HANDLE_MALLOC_FAIL
+#define WRENCH_HANDLE_MALLOC_FAIL
 
 /************************************************************************
 Custom allocator:

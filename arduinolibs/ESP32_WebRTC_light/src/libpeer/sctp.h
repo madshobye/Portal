@@ -140,7 +140,7 @@ typedef enum SctpDataPpid {
 
 } SctpDataPpid;
 
-#define SCTP_MAX_STREAMS 5
+#define SCTP_MAX_STREAMS 2
 
 typedef struct {
   char label[32];  // Stream label
@@ -175,6 +175,8 @@ void sctp_destroy_association(Sctp* sctp);
 void sctp_usrsctp_init();
 
 void sctp_usrsctp_deinit();
+
+void sctp_usrsctp_handle_timers(uint32_t elapsed_milliseconds);
 
 int sctp_is_connected(Sctp* sctp);
 

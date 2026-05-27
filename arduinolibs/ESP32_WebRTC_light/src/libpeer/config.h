@@ -1,12 +1,12 @@
 #ifndef CONFIG_H_
 #define CONFIG_H_
 
-// Use ECDSA certs for WebRTC DTLS. This matches browser/ESP mbedTLS builds
-// better than the RSA fallback on recent Arduino ESP32 cores.
+// Use ECDSA certs for WebRTC DTLS. The ESP32 answers browser offers as
+// DTLS client/active, matching the older Printhost/libpeer path.
 #define CONFIG_DTLS_USE_ECDSA 1
 
-#define SCTP_MTU (1200)
-#define CONFIG_MTU (1300)
+#define SCTP_MTU (800)
+#define CONFIG_MTU (900)
 
 #ifndef CONFIG_USE_LWIP
 #define CONFIG_USE_LWIP 1
@@ -30,12 +30,24 @@
 #define CONFIG_DTLS_USE_ECDSA 0
 #endif
 
+#ifndef CONFIG_DTLS_USE_STATIC_CERT
+#define CONFIG_DTLS_USE_STATIC_CERT 1
+#endif
+
+#ifndef CONFIG_DTLS_MAX_FRAGMENT_LENGTH
+#define CONFIG_DTLS_MAX_FRAGMENT_LENGTH 0
+#endif
+
+#ifndef CONFIG_STATIC_PEER_CONNECTION
+#define CONFIG_STATIC_PEER_CONNECTION 1
+#endif
+
 #ifndef CONFIG_USE_USRSCTP
-#define CONFIG_USE_USRSCTP 1
+#define CONFIG_USE_USRSCTP 0
 #endif
 
 #ifndef CONFIG_SDP_BUFFER_SIZE
-#define CONFIG_SDP_BUFFER_SIZE 2048
+#define CONFIG_SDP_BUFFER_SIZE 1536
 #endif
 
 #ifndef CONFIG_MQTT_BUFFER_SIZE
@@ -68,7 +80,7 @@
 
 // #define LOG_LEVEL LEVEL_DEBUG
 #ifndef LOG_REDIRECT
-#define LOG_REDIRECT 0
+#define LOG_REDIRECT 1
 #endif
 
 // Disable MQTT and HTTP signaling

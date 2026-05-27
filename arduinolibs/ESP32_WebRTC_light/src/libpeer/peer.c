@@ -20,3 +20,7 @@ void peer_deinit() {
   srtp_shutdown();
   sctp_usrsctp_deinit();
 }
+
+void peer_handle_timers(uint32_t elapsed_milliseconds) {
+  sctp_usrsctp_handle_timers(elapsed_milliseconds);
+}

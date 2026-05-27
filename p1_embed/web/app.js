@@ -1,8 +1,11 @@
-import { ProtocolClient } from "./protocol/ProtocolClient.js?v=0.1.43-ui78";
-import { WebSerialTransport } from "./protocol/WebSerialTransport.js?v=0.1.43-ui78";
+import { ProtocolClient } from "./protocol/ProtocolClient.js?v=0.1.87-ui118";
+import { WebSerialTransport } from "./protocol/WebSerialTransport.js?v=0.1.87-ui118";
 import { WebSocketTransport } from "./protocol/WebSocketTransport.js";
-import { PeerJsTransport } from "./protocol/PeerJsTransport.js?v=0.1.43-ui78";
-import { P1WebFlasher } from "./web-flasher.js?v=0.1.43-ui78";
+import { MqttWebRtcTransport, MQTT_WEBRTC_TRANSPORT_VERSION } from "./protocol/MqttWebRtcTransport.js?v=0.1.87-ui118";
+import { P1WebFlasher } from "./web-flasher.js?v=0.1.87-ui118";
+
+const WEB_UI_VERSION = "0.1.87-ui118";
+console.info(`[P1E web] loaded ${WEB_UI_VERSION}`, { mqttWebRtc: MQTT_WEBRTC_TRANSPORT_VERSION });
 
 const defaultCode = `function setup() {
   pinMode(2, 1);
@@ -73,6 +76,9 @@ const els = {
   brandVersion: document.querySelector("#brand-version"),
   connect: document.querySelector("#connect-button"),
   chatConnect: document.querySelector("#chat-connect-button"),
+  chatUploadStatus: document.querySelector("#chat-upload-status"),
+  chatUploadStatusLabel: document.querySelector("#chat-upload-status-label"),
+  chatUploadStatusProgress: document.querySelector("#chat-upload-status-progress"),
   connectDialog: document.querySelector("#connect-dialog"),
   connectionHistory: document.querySelector("#connection-history"),
   usbConnect: document.querySelector("#usb-connect-button"),
@@ -88,6 +94,9 @@ const els = {
   reboot: document.querySelector("#reboot-button"),
   run: document.querySelector("#run-button"),
   stop: document.querySelector("#stop-button"),
+  uploadStatus: document.querySelector("#upload-status"),
+  uploadStatusLabel: document.querySelector("#upload-status-label"),
+  uploadStatusProgress: document.querySelector("#upload-status-progress"),
   downloadCode: document.querySelector("#download-code-button"),
   sketchHistory: document.querySelector("#sketch-history"),
   rename: document.querySelector("#rename-button"),
@@ -153,6 +162,7 @@ let isUnloading = false;
 let busyLabel = "";
 let suppressEditorPersist = false;
 let connectionGeneration = 0;
+let connectionVerified = false;
 let statusTimer = null;
 let editorErrorMarker = null;
 let recentPressHandled = false;
@@ -166,6 +176,9 @@ let lastWifiConsoleKey = "";
 let lastWifiConsoleAt = 0;
 let flasher = null;
 let flasherBusy = false;
+let wifiDraftDirty = false;
+let uploadState = { phase: "", label: "", progress: 0 };
+let uploadClearTimer = null;
 
 boot();
 
@@ -182,6 +195,7 @@ function boot() {
   migrateConnectionHistory();
   renderConnectionHistory();
   renderSketchHistory();
+  logLine("info", `P1E web ${WEB_UI_VERSION} / mqtt-webrtc ${MQTT_WEBRTC_TRANSPORT_VERSION}`);
   refreshKnownUsbPorts();
   setConnected(false);
   renderFields();
@@ -194,7 +208,7 @@ function boot() {
 function bindLifecycle() {
   const markUnload = () => {
     isUnloading = true;
-    localStorage.setItem(storage.reconnectOnLoad, client && transport?.connected ? "1" : "0");
+    localStorage.setItem(storage.reconnectOnLoad, client && transport?.connected && connectionVerified ? "1" : "0");
   };
   window.addEventListener("beforeunload", markUnload);
   window.addEventListener("pagehide", markUnload);
@@ -264,7 +278,7 @@ function bindControls() {
   els.peerId.addEventListener("input", () => renderConnectionHistory());
   els.getScript.addEventListener("click", () => runUiAction(getScript, "reading"));
   els.reboot.addEventListener("click", () => runUiAction(() => sendCommand("device.reboot"), "rebooting"));
-  els.run.addEventListener("click", () => runUiAction(() => setScript({ run: true, save: true }), "uploading"));
+  els.run.addEventListener("click", runScriptFromToolbar);
   els.stop.addEventListener("click", () => runUiAction(() => sendCommand("script.stop").then(refreshStatus), "stopping"));
   els.downloadCode.addEventListener("click", downloadCode);
   els.sketchHistory.addEventListener("change", () => recoverSketchHistory());
@@ -273,6 +287,15 @@ function bindControls() {
   els.deviceNameSave.addEventListener("click", () => runUiAction(saveDeviceName, "rename"));
   els.wifi.addEventListener("click", openWifiDialog);
   els.wifiSave.addEventListener("click", () => runUiAction(saveWifi, "wifi"));
+  els.wifiSsid.addEventListener("input", () => {
+    wifiDraftDirty = true;
+  });
+  els.wifiPassword.addEventListener("input", () => {
+    wifiDraftDirty = true;
+  });
+  els.wifiDialog.addEventListener("close", () => {
+    wifiDraftDirty = false;
+  });
   els.consoleTimestamps.addEventListener("click", toggleConsoleTimestamps);
   els.copyConsole.addEventListener("click", copyConsole);
   els.infoQr.addEventListener("click", copyInfoShareLink);
@@ -346,6 +369,8 @@ function openConnectDialog() {
 function toggleConnection() {
   if (client || transport) {
     disconnectTransport();
+  } else if (isBusy) {
+    cancelConnectionAttempt();
   } else {
     openConnectDialog();
   }
@@ -384,7 +409,7 @@ function renderConnectionHistory() {
     button.className = "button suggestion-button";
     button.title = `${connectionKindLabel(item.kind)}: ${item.label}`;
     button.setAttribute("aria-label", button.title);
-    button.disabled = Boolean(client) || isBusy || (item.kind === "usb" && !("serial" in navigator)) || (item.kind === "peerjs" && !("Peer" in window));
+    button.disabled = Boolean(client) || isBusy || (item.kind === "usb" && !("serial" in navigator)) || (isWebRtcKind(item.kind) && !(("RTCPeerConnection" in window) && ("mqtt" in window)));
 
     const icon = document.createElement("span");
     icon.className = "material-symbols-rounded";
@@ -398,7 +423,7 @@ function renderConnectionHistory() {
       if (consumeRecentLongPress()) return;
       if (item.kind === "usb") {
         connectRecentUsb(item.hint);
-      } else if (item.kind === "peerjs") {
+      } else if (isWebRtcKind(item.kind)) {
         connectPeerJs(item.peerId);
       } else {
         connectWebSocket(item.url);
@@ -410,14 +435,18 @@ function renderConnectionHistory() {
 
 function connectionKindLabel(kind) {
   if (kind === "usb") return "USB";
-  if (kind === "peerjs") return "PeerJS";
+  if (isWebRtcKind(kind)) return "WebRTC";
   return "WebSocket";
 }
 
 function connectionKindIcon(kind) {
   if (kind === "usb") return "settings_input_component";
-  if (kind === "peerjs") return "hub";
+  if (isWebRtcKind(kind)) return "hub";
   return "lan";
+}
+
+function isWebRtcKind(kind) {
+  return kind === "webrtc" || kind === "peerjs";
 }
 
 function bindLongPressDelete(button, onDelete) {
@@ -464,7 +493,7 @@ function forgetConnectionHistoryItem(item) {
         localStorage.removeItem(storage.wsName);
       }
     }
-  } else if (item.kind === "peerjs") {
+  } else if (isWebRtcKind(item.kind)) {
     const peerId = normalizePeerId(item.peerId);
     writePeerHistory(readPeerHistory().filter((entry) => normalizePeerId(entry.peerId) !== peerId));
     if (normalizePeerId(localStorage.getItem(storage.peerId)) === peerId) {
@@ -511,18 +540,29 @@ async function refreshKnownUsbPorts() {
 }
 
 async function runUiAction(action, label = "busy") {
-  if (isBusy) return;
+  if (isBusy) {
+    logLine("warn", `busy: ${busyLabel || "working"}`);
+    return false;
+  }
   isBusy = true;
   busyLabel = label;
   updateEnabledState();
   try {
     await action();
-  } catch {
+    return true;
+  } catch (error) {
+    logLine("error", error.message || String(error));
+    return false;
   } finally {
     isBusy = false;
     busyLabel = "";
     updateEnabledState();
   }
+}
+
+function runScriptFromToolbar() {
+  logLine("info", "upload requested");
+  runUiAction(() => setScript({ run: true, save: true }), "uploading");
 }
 
 async function connectWebSocket(value) {
@@ -536,10 +576,10 @@ async function connectWebSocket(value) {
 async function connectPeerJs(value) {
   const peerId = normalizePeerId(value);
   if (!peerId) {
-    logLine("warn", "PeerJS device id is required");
+    logLine("warn", "WebRTC device id is required");
     return;
   }
-  await connectTransport(new PeerJsTransport(), { remoteId: peerId }, "peerjs", peerId);
+  await connectTransport(new MqttWebRtcTransport({ connectTimeoutMs: 90000 }), { remoteId: peerId }, "webrtc", peerId, { startupTimeoutMs: 30000 });
   els.peerId.value = peerId;
   renderConnectionHistory();
 }
@@ -582,12 +622,12 @@ async function autoConnectFromUrlParams() {
   if (requested === "peer" || requested === "peerjs" || requested === "webrtc") {
     const peerId = normalizePeerId(params.get("peer") || params.get("id") || params.get("device") || "");
     if (!peerId) {
-      logLine("warn", "connect=peer needs a PeerJS device id");
+      logLine("warn", "connect=webrtc needs a WebRTC device id");
       return true;
     }
     try {
       els.peerId.value = peerId;
-      await connectTransport(new PeerJsTransport(), { remoteId: peerId }, "peerjs", peerId, { lightStartup: true, includeScript: true, startupTimeoutMs: 20000 });
+      await connectTransport(new MqttWebRtcTransport({ connectTimeoutMs: 90000 }), { remoteId: peerId }, "webrtc", peerId, { lightStartup: true, includeScript: true, startupTimeoutMs: 30000 });
     } catch (error) {
       logLine("error", error.message);
     }
@@ -629,10 +669,10 @@ async function autoReconnectLastConnection() {
     return;
   }
 
-  if (last === "peerjs") {
+  if (isWebRtcKind(last)) {
     const peerId = normalizePeerId(localStorage.getItem(storage.peerId) || "");
-    if (!peerId || !("Peer" in window)) return;
-    await connectTransport(new PeerJsTransport(), { remoteId: peerId }, "peerjs", peerId, { quiet: true, lightStartup: true, includeScript: true, startupTimeoutMs: 20000 });
+    if (!peerId || !(("RTCPeerConnection" in window) && ("mqtt" in window))) return;
+    await connectTransport(new MqttWebRtcTransport({ connectTimeoutMs: 90000 }), { remoteId: peerId }, "webrtc", peerId, { quiet: true, lightStartup: true, includeScript: true, startupTimeoutMs: 30000 });
     return;
   }
 
@@ -646,6 +686,7 @@ async function autoReconnectLastConnection() {
 async function connectTransport(nextTransport, options, kind, label, { quiet = false, lightStartup = false, includeScript = true, startupTimeoutMs = 15000 } = {}) {
   const generation = connectionGeneration + 1;
   connectionGeneration = generation;
+  connectionVerified = false;
   suppressConnectionLogs = quiet;
   isBusy = true;
   busyLabel = "connecting";
@@ -666,14 +707,15 @@ async function connectTransport(nextTransport, options, kind, label, { quiet = f
     closeConnectDialog();
     setConnected(true);
     if (kind === "websocket" && options.url) updateConnectionUrlParams("websocket", options.url);
-    if (kind === "peerjs" && options.remoteId) updateConnectionUrlParams("peerjs", "", null, options.remoteId);
+    if (isWebRtcKind(kind) && options.remoteId) updateConnectionUrlParams("webrtc", "", null, options.remoteId);
     if (kind === "usb") updateConnectionUrlParams("usb", "", readUsbHint());
-    if (!quiet) logLine("info", `${label} connected`);
+    if (!quiet) logLine("info", isWebRtcKind(kind) ? `Connected to ${label}` : `${label} connected`);
 
     if (lightStartup) await settle(450);
     if (generation !== connectionGeneration) return false;
     const verified = await startupRefresh({ quiet, includeScript, timeoutMs: startupTimeoutMs, expectedGeneration: generation });
     if (generation === connectionGeneration && verified) {
+      connectionVerified = true;
       rememberSuccessfulConnection(kind, label, options);
       startStatusPolling();
       return true;
@@ -704,6 +746,27 @@ async function connectTransport(nextTransport, options, kind, label, { quiet = f
   return false;
 }
 
+async function cancelConnectionAttempt() {
+  connectionGeneration += 1;
+  localStorage.setItem(storage.reconnectOnLoad, "0");
+  clearConnectionUrlParams();
+  try {
+    await transport?.disconnect?.();
+  } finally {
+    client = null;
+    transport = null;
+    connectionVerified = false;
+    closeConnectDialog();
+    stopStatusPolling();
+    suppressConnectionLogs = false;
+    isBusy = false;
+    busyLabel = "";
+    setConnected(false);
+    logLine("info", "connection cancelled");
+    updateEnabledState();
+  }
+}
+
 function rememberSuccessfulConnection(kind, label, options = {}) {
   localStorage.setItem(storage.lastConnection, kind);
   localStorage.setItem(storage.reconnectOnLoad, "1");
@@ -719,12 +782,12 @@ function rememberSuccessfulConnection(kind, label, options = {}) {
     renderConnectionHistory();
   }
 
-  if (kind === "peerjs" && options.remoteId) {
+  if (isWebRtcKind(kind) && options.remoteId) {
     const peerId = normalizePeerId(options.remoteId);
     localStorage.setItem(storage.peerId, peerId);
     rememberPeerHistory(peerId, label || peerId);
     els.peerId.value = peerId;
-    updateConnectionUrlParams("peerjs", "", null, peerId);
+    updateConnectionUrlParams("webrtc", "", null, peerId);
     renderConnectionHistory();
   }
 
@@ -752,7 +815,7 @@ function forgetUnverifiedConnection(kind, options = {}) {
       }
     }
   }
-  if (kind === "peerjs" && options.remoteId) {
+  if (isWebRtcKind(kind) && options.remoteId) {
     const attempted = normalizePeerId(options.remoteId);
     writePeerHistory(readPeerHistory().filter((entry) => normalizePeerId(entry.peerId) !== attempted));
     if (normalizePeerId(localStorage.getItem(storage.peerId)) === attempted) {
@@ -848,7 +911,7 @@ function readPeerHistory() {
       const peerId = normalizePeerId(entry.peerId || entry.id || entry);
       if (!peerId) return null;
       return {
-        kind: "peerjs",
+        kind: "webrtc",
         peerId,
         label: entry.label || peerId,
         at: Number(entry.at) || 0,
@@ -861,7 +924,7 @@ function writePeerHistory(entries) {
   writeHistoryArray(storage.peerHistory, entries.map((entry) => {
     const peerId = normalizePeerId(entry.peerId);
     return {
-      kind: "peerjs",
+      kind: "webrtc",
       peerId,
       label: entry.label || peerId,
       at: Number(entry.at) || Date.now(),
@@ -873,7 +936,7 @@ function rememberPeerHistory(peerId, label = "") {
   const normalized = normalizePeerId(peerId);
   if (!normalized) return;
   const next = [
-    { kind: "peerjs", peerId: normalized, label: label || normalized, at: Date.now() },
+    { kind: "webrtc", peerId: normalized, label: label || normalized, at: Date.now() },
     ...readPeerHistory().filter((entry) => normalizePeerId(entry.peerId) !== normalized),
   ];
   writePeerHistory(next);
@@ -1037,8 +1100,8 @@ function sharePageUrl(kind, wsUrl = "", usbHint = null, peerId = "") {
   if (kind === "websocket") {
     url.searchParams.set("connect", "ws");
     url.searchParams.set("ws", normalizeWebSocketUrl(wsUrl));
-  } else if (kind === "peerjs") {
-    url.searchParams.set("connect", "peer");
+  } else if (isWebRtcKind(kind)) {
+    url.searchParams.set("connect", "webrtc");
     url.searchParams.set("peer", normalizePeerId(peerId));
   } else if (kind === "usb") {
     url.searchParams.set("connect", "usb");
@@ -1082,9 +1145,16 @@ async function disconnectTransport({ quiet = false, keepGeneration = false } = {
   } finally {
     client = null;
     transport = null;
+    connectionVerified = false;
+    closeConnectDialog();
     stopStatusPolling();
     if (!isUnloading) localStorage.setItem(storage.reconnectOnLoad, "0");
     if (!quiet && !keepGeneration && !isUnloading) clearConnectionUrlParams();
+    if (!keepGeneration) {
+      isBusy = false;
+      busyLabel = "";
+      suppressConnectionLogs = false;
+    }
     setConnected(false);
     if (!quiet) logLine("info", "disconnected");
   }
@@ -1097,9 +1167,10 @@ function settle(ms) {
 function bindClient(nextClient) {
   nextClient.addEventListener("state", (event) => {
     if (nextClient !== client) return;
+    logTransportState(event.detail);
     renderConnectionState(event.detail.state);
     if (event.detail.state === "connected") closeConnectDialog();
-    if (event.detail.state === "disconnected" && !isUnloading) {
+    if (["disconnected", "hub_disconnected", "hub_closed"].includes(event.detail.state) && !isUnloading) {
       localStorage.setItem(storage.reconnectOnLoad, "0");
       handleTransportDropped(nextClient);
     }
@@ -1135,11 +1206,45 @@ function bindClient(nextClient) {
   });
 }
 
+function logTransportState(detail = {}) {
+  if (suppressConnectionLogs || !isWebRtcKind(transport?.kind)) return;
+  const state = detail.state || "";
+  const target = detail.remoteId || transport?.remoteId || transport?.label || "device";
+  if (state === "signaling_connecting") {
+    logLine("info", `Connecting to ${target}`);
+    logLine("debug", "WebRTC opening MQTT signaling");
+  } else if (state === "signaling_connected") {
+    logLine("debug", "WebRTC signaling connected");
+  } else if (state === "offer_sent") {
+    logLine("debug", `WebRTC trying ${target}`);
+  } else if (state === "answer_received") {
+    logLine("info", `Got a path to ${target}`);
+    logLine("debug", "WebRTC answer received");
+  } else if (state === "diagnostic") {
+    logLine("debug", `WebRTC ${detail.message || "diagnostic"}`);
+  } else if (state === "device_timeout") {
+    logLine("warn", `WebRTC timed out ${detail.remoteId || "device"}`);
+  } else if (state === "device_closed") {
+    logLine("warn", `WebRTC closed ${detail.remoteId || "device"}`);
+  } else if (state === "device_error") {
+    logLine("error", `WebRTC ${detail.remoteId || "device"}: ${detail.message || "connection error"}`);
+  } else if (state === "signaling_error" || state === "signal_error") {
+    logLine("error", `WebRTC signaling: ${detail.message || "connection error"}`);
+  } else if (state === "connected") {
+    logLine("debug", "WebRTC data channel open");
+  } else if (state === "signaling_closed") {
+    logLine("warn", "WebRTC signaling closed");
+  } else if (state === "disconnected") {
+    logLine("warn", "WebRTC disconnected");
+  }
+}
+
 function handleTransportDropped(droppedClient) {
   if (droppedClient !== client) return;
   stopStatusPolling();
   client = null;
   transport = null;
+  connectionVerified = false;
   isBusy = false;
   busyLabel = "";
   suppressConnectionLogs = false;
@@ -1204,7 +1309,8 @@ async function refreshInfo(options = {}) {
 }
 
 async function refreshStatus(options = {}) {
-  const data = await sendCommand("status.get", {}, options);
+  const command = isWebRtcKind(transport?.kind) ? "status.light" : "status.get";
+  const data = await sendCommand(command, {}, options);
   updateStatus(data);
   renderFields();
   return data;
@@ -1224,16 +1330,23 @@ async function setScript({ run, save }) {
 
 async function uploadScriptCode(code, { run, save, name = "" }) {
   let data;
+  setUploadState("uploading", "Uploading code", 8);
   try {
     clearEditorError();
-    data = await sendCommand("script.set", {
-      code,
-      codeBytes: new TextEncoder().encode(code).length,
-      codeHash: fnv1aHex(code),
-      run,
-      save,
-    }, { timeoutMs: 30000 });
+    if (isWebRtcKind(transport?.kind)) {
+      data = await uploadScriptCodeChunked(code, { run, save });
+    } else {
+      data = await sendCommand("script.set", {
+        code,
+        codeBytes: new TextEncoder().encode(code).length,
+        codeHash: fnv1aHex(code),
+        run,
+        save,
+      }, { timeoutMs: 30000 });
+      setUploadState("running", run ? "Running" : "Saved", 100, { autoClear: true });
+    }
   } catch (error) {
+    setUploadState("error", "Upload failed", 100, { autoClear: true });
     await rememberUploadedSketch(code, name);
     markEditorError(error.message);
     throw error;
@@ -1246,6 +1359,75 @@ async function uploadScriptCode(code, { run, save, name = "" }) {
     // Status events arrive periodically; a missed post-upload poll should not
     // look like a failed upload when the script is already running.
   }
+}
+
+async function uploadScriptCodeChunked(code, { run, save }) {
+  const codeBytes = new TextEncoder().encode(code).length;
+  const codeHash = fnv1aHex(code);
+  const chunks = chunkScriptForWebRtc(code, 360);
+  setUploadState("uploading", "Uploading code", 5);
+  logLine("info", `uploading script in ${chunks.length} chunks`);
+  await sendCommand("script.chunk.begin", {
+    codeBytes,
+    codeHash,
+    run,
+    save,
+  }, { quiet: true, timeoutMs: 10000 });
+
+  let offset = 0;
+  for (let index = 0; index < chunks.length; index += 1) {
+    const chunk = chunks[index];
+    const response = await sendCommand("script.chunk.add", {
+      offset,
+      chunk,
+    }, { quiet: true, timeoutMs: 10000 });
+    const received = Number(response.received);
+    offset = Number.isFinite(received) ? received : offset + new TextEncoder().encode(chunk).length;
+    setUploadState("uploading", `Uploading ${index + 1}/${chunks.length}`, Math.round(((index + 1) / chunks.length) * 82));
+    await settle(12);
+  }
+
+  setUploadState("compiling", "Compiling on board", 88);
+  const response = await sendCommand("script.chunk.commit", {}, { timeoutMs: 10000 });
+  if (response.state === "queued") {
+    logLine("info", "script upload received; compiling on device");
+    setUploadState("compiling", "Compiling on board", 92);
+    updateScriptState({ state: "queued", scriptBytes: response.scriptBytes });
+  } else {
+    logLine("info", "script upload complete");
+    setUploadState(run ? "running" : "saved", run ? "Running" : "Saved", 100, { autoClear: true });
+  }
+  return response;
+}
+
+function chunkScriptForWebRtc(text, maxEnvelopeBytes) {
+  const encoder = new TextEncoder();
+  const chunks = [];
+  let current = "";
+  let offset = 0;
+  for (const char of String(text ?? "")) {
+    const candidate = current + char;
+    if (current && scriptChunkEnvelopeBytes(offset, candidate) > maxEnvelopeBytes) {
+      chunks.push(current);
+      offset += encoder.encode(current).length;
+      current = "";
+    }
+    current += char;
+  }
+  if (current) chunks.push(current);
+  return chunks;
+}
+
+function scriptChunkEnvelopeBytes(offset, chunk) {
+  const payload = {
+    type: "cmd",
+    id: "999",
+    name: "script.chunk.add",
+    data: { offset, chunk },
+    offset,
+    chunk,
+  };
+  return new TextEncoder().encode(JSON.stringify(payload)).length;
 }
 
 function fnv1aHex(text) {
@@ -1531,7 +1713,10 @@ function formatBytes(bytes) {
 }
 
 function openWifiDialog() {
+  wifiDraftDirty = false;
   els.wifiDialog.showModal();
+  els.wifiSsid.focus();
+  els.wifiSsid.select();
 }
 
 function openRenameDialog() {
@@ -1564,6 +1749,7 @@ async function saveWifi() {
 
   const config = await sendCommand("config.set", data, { timeoutMs: 10000 });
   els.wifiPassword.value = "";
+  wifiDraftDirty = false;
   updateConfig(config);
   await refreshStatus();
   if (els.wifiDialog.open) els.wifiDialog.close();
@@ -1614,6 +1800,10 @@ function acceptEvent(event) {
   }
   if (event.name === "wifi.status") updateWifi(data.wifi || data);
   if (event.name === "script.state") updateScriptState(data);
+  if (event.name === "script.upload") {
+    updateUploadFromEvent(data);
+    updateScriptState(data);
+  }
   if (event.name === "device.boot") {
     if (data.info) lastInfo = data.info;
     if (data.status) updateStatus(data.status);
@@ -1639,6 +1829,15 @@ function eventMessage(name, data = {}) {
     return data.status || data.message || data.code || "updated";
   }
 
+  if (name === "script.upload") {
+    return [
+      data.state || "upload",
+      data.phase ? `phase ${data.phase}` : "",
+      data.scriptBytes ? `${data.scriptBytes} bytes` : "",
+      data.message || "",
+    ].filter(Boolean).join(" / ");
+  }
+
   return data.message || data.code || data.status || data.state || name;
 }
 
@@ -1658,6 +1857,70 @@ function shouldLogEvent(name, data = {}, message = "") {
   lastConsoleEventSignature = signature;
   lastConsoleEventAt = now;
   return true;
+}
+
+function updateUploadFromEvent(data = {}) {
+  const state = String(data.state || data.phase || "").toLowerCase();
+  if (state === "queued" || state === "compiling") {
+    setUploadState("compiling", "Compiling on board", 94);
+  } else if (state === "running") {
+    setUploadState("running", "Running", 100, { autoClear: true });
+  } else if (state === "saved" || state === "stored") {
+    setUploadState("saved", "Saved", 100, { autoClear: true });
+  } else if (state === "error") {
+    setUploadState("error", data.message || "Upload failed", 100, { autoClear: true });
+  }
+}
+
+function setUploadState(phase = "", label = "", progress = 0, { autoClear = false } = {}) {
+  if (uploadClearTimer) {
+    window.clearTimeout(uploadClearTimer);
+    uploadClearTimer = null;
+  }
+
+  uploadState = {
+    phase,
+    label,
+    progress: Math.max(0, Math.min(100, Number(progress) || 0)),
+  };
+  renderUploadState();
+
+  if (autoClear) {
+    uploadClearTimer = window.setTimeout(() => {
+      uploadClearTimer = null;
+      uploadState = { phase: "", label: "", progress: 0 };
+      renderUploadState();
+    }, phase === "error" ? 5200 : 2600);
+  }
+}
+
+function renderUploadState() {
+  const active = Boolean(uploadState.phase);
+  const label = uploadState.label || uploadState.phase || "";
+  const progress = uploadState.progress || 0;
+  [
+    [els.uploadStatus, els.uploadStatusLabel, els.uploadStatusProgress],
+    [els.chatUploadStatus, els.chatUploadStatusLabel, els.chatUploadStatusProgress],
+  ].forEach(([wrap, labelEl, progressEl]) => {
+    if (!wrap) return;
+    const iconEl = wrap.querySelector(".upload-status-icon");
+    wrap.classList.toggle("is-hidden", !active);
+    wrap.classList.toggle("is-error", uploadState.phase === "error");
+    wrap.classList.toggle("is-complete", uploadState.phase === "running" || uploadState.phase === "saved");
+    wrap.classList.toggle("is-active", active && uploadState.phase !== "error");
+    if (iconEl) {
+      iconEl.textContent = uploadState.phase === "error" ? "error" : (uploadState.phase === "running" || uploadState.phase === "saved" ? "check_circle" : "progress_activity");
+    }
+    if (labelEl) labelEl.textContent = label;
+    if (progressEl) progressEl.value = progress;
+  });
+
+  const runIcon = els.run?.querySelector(".material-symbols-rounded");
+  if (runIcon) {
+    const working = active && !["running", "saved", "error"].includes(uploadState.phase);
+    runIcon.classList.toggle("is-spinning", working);
+    runIcon.textContent = working ? "progress_activity" : "play_arrow";
+  }
 }
 
 function shouldLogWifiEvent(data = {}) {
@@ -1811,7 +2074,7 @@ function updateScriptState(data = {}) {
 
 function updateWifi(wifi = {}) {
   if (!wifi) return;
-  if (wifi.ssid) els.wifiSsid.value = wifi.ssid;
+  setWifiSsidFromDevice(wifi.ssid);
 }
 
 function updateConfig(config = {}) {
@@ -1820,89 +2083,136 @@ function updateConfig(config = {}) {
     lastStatus = { ...(lastStatus || {}), deviceName: config.deviceName };
   }
   if (Array.isArray(config.wifiNetworks) && config.wifiNetworks[0]?.ssid) {
-    els.wifiSsid.value = config.wifiNetworks[0].ssid;
+    setWifiSsidFromDevice(config.wifiNetworks[0].ssid);
   } else if (config.wifiSsid) {
-    els.wifiSsid.value = config.wifiSsid;
+    setWifiSsidFromDevice(config.wifiSsid);
   }
   renderFields();
+}
+
+function setWifiSsidFromDevice(ssid) {
+  if (!ssid) return;
+  const active = document.activeElement;
+  const editingWifi =
+    els.wifiDialog.open &&
+    (wifiDraftDirty || active === els.wifiSsid || active === els.wifiPassword);
+  if (editingWifi) return;
+  els.wifiSsid.value = ssid;
 }
 
 function renderFields() {
   const wifi = lastStatus?.wifi || {};
   const web = lastStatus?.web || {};
   const webrtc = lastStatus?.webrtc || {};
+  const scriptRunning = isScriptRunning();
   const wsUrl = client ? activeWebSocketUrl(web) : "";
   const peerId = client ? activePeerId(webrtc) : "";
-  const shareUrl = peerId ? sharePageUrl("peerjs", "", null, peerId) : (wsUrl ? sharePageUrl("websocket", wsUrl) : "");
+  const shareUrl = peerId ? sharePageUrl("webrtc", "", null, peerId) : (wsUrl ? sharePageUrl("websocket", wsUrl) : "");
   syncConnectedShareParams();
   if (els.brandVersion) {
-    els.brandVersion.textContent = lastInfo?.firmwareVersion || "0.1.43";
+    els.brandVersion.textContent = lastInfo?.firmwareVersion || "0.1.87";
   }
-  const rows = {
-    name: lastInfo?.deviceName || lastStatus?.deviceName || "",
-    id: lastInfo?.deviceId || lastStatus?.deviceId || "",
-    firmware: [lastInfo?.firmwareName, lastInfo?.firmwareVersion].filter(Boolean).join(" "),
-    protocol: lastInfo?.protocolVersion || "",
-    uptime: formatDuration(lastStatus?.uptimeMs),
-    script: els.scriptState.textContent || "",
-    wrenchFps: wrenchFpsLabel(),
-    memory: memoryStatusLabel(),
-    heap: lastStatus?.freeHeap ? `${lastStatus.freeHeap} free` : "",
-    maxAlloc: lastStatus?.maxAllocHeap || "",
-    wifi: wifi.connected ? wifi.ssid || "connected" : wifi.state || "offline",
-    ip: wifi.ip || "",
-    ws: wsUrl,
-    peer: peerId,
-    share: shareUrl,
-    loop: lastStatus?.wrenchLoopCount ?? "",
-    task: lastStatus?.wrenchTaskRunning === true ? "running" : lastStatus?.wrenchTaskRunning === false ? "stopped" : "",
-  };
-
   renderInfoShare(shareUrl);
-
   els.fields.replaceChildren(
-    ...Object.entries(rows).map(([key, value]) => {
-      const row = document.createElement("div");
-      const dt = document.createElement("dt");
-      const dd = document.createElement("dd");
-      row.className = "field-row";
-      dt.textContent = key;
-      if (key === "ws" && value) {
-        const button = document.createElement("button");
-        button.className = "info-link";
-        button.type = "button";
-        button.textContent = String(value);
-        button.title = "Connect WebSocket";
-        button.addEventListener("click", () => {
-          updateConnectionUrlParams("websocket", String(value));
-          connectWebSocket(String(value));
-        });
-        dd.append(button);
-      } else if (key === "peer" && value) {
-        const button = document.createElement("button");
-        button.className = "info-link";
-        button.type = "button";
-        button.textContent = String(value);
-        button.title = "Connect PeerJS";
-        button.addEventListener("click", () => {
-          updateConnectionUrlParams("peerjs", "", null, String(value));
-          connectPeerJs(String(value));
-        });
-        dd.append(button);
-      } else if (key === "share" && value) {
-        const link = document.createElement("a");
-        link.className = "info-link";
-        link.href = String(value);
-        link.textContent = String(value);
-        link.title = "Open this interface and connect to this WebSocket";
-        dd.append(link);
-      } else {
-        dd.textContent = String(value || "-");
-      }
-      row.append(dt, dd);
-      return row;
-    }),
+    infoCard("developer_board", lastInfo?.deviceName || lastStatus?.deviceName || "P1E board", [
+      infoMetric("Firmware", [lastInfo?.firmwareName, lastInfo?.firmwareVersion].filter(Boolean).join(" ") || "-"),
+      infoMetric("Uptime", formatDuration(lastStatus?.uptimeMs) || "-"),
+    ]),
+    infoCard(wifi.connected ? "wifi" : "wifi_off", wifi.connected ? wifi.ssid || "WiFi connected" : "WiFi offline", [
+      infoMetric("IP", wifi.ip || "-"),
+      infoMetric("Signal", wifiSignalLabel(wifi)),
+    ]),
+    infoCard(scriptRunning ? "play_circle" : "stop_circle", scriptStatusLabel(), [
+      infoMetric("Script", compactScriptLabel()),
+      infoMetric("Speed", wrenchFpsLabel() || "-"),
+      infoMetric("Loop", scriptRunning ? (lastStatus?.wrenchLoopCount ?? "-") : "-"),
+    ]),
+    infoCard("memory", memoryStatusLabel() || "Memory", [
+      infoMetric("Free heap", lastStatus?.freeHeap ? `${lastStatus.freeHeap} bytes` : "-"),
+      infoMetric("Max alloc", lastStatus?.maxAllocHeap ? `${lastStatus.maxAllocHeap} bytes` : "-"),
+    ]),
+    infoCard("share", "Connect", [
+      infoMetric("WebRTC", peerId || "-"),
+      infoMetric("WebSocket", wsUrl || "-"),
+      infoMetric("Share", shareUrl || "-"),
+    ], { compact: true, links: { peerId, wsUrl, shareUrl } }),
+    infoCard("tune", "Tech details", [
+      infoMetric("Device id", lastInfo?.deviceId || lastStatus?.deviceId || "-"),
+      infoMetric("Protocol", lastInfo?.protocolVersion || "-"),
+      infoMetric("Worker", scriptRuntimeLabel() || "-"),
+      infoMetric("Web clients", web.clients ?? "-"),
+    ], { compact: true }),
   );
+}
+
+function infoCard(icon, title, metrics = [], options = {}) {
+  const card = document.createElement("section");
+  card.className = `info-card${options.compact ? " info-card-compact" : ""}`;
+  const header = document.createElement("header");
+  const iconEl = document.createElement("span");
+  iconEl.className = "material-symbols-rounded info-card-icon";
+  iconEl.textContent = icon;
+  const titleEl = document.createElement("strong");
+  titleEl.textContent = title || "-";
+  header.append(iconEl, titleEl);
+  const body = document.createElement("div");
+  body.className = "info-card-body";
+  metrics.forEach((metric) => body.append(renderInfoMetric(metric, options.links || {})));
+  card.append(header, body);
+  return card;
+}
+
+function infoMetric(label, value) {
+  return { label, value };
+}
+
+function renderInfoMetric(metric, links = {}) {
+  const row = document.createElement("div");
+  row.className = "info-metric";
+  const label = document.createElement("span");
+  label.textContent = metric.label;
+  const value = document.createElement("strong");
+  const text = String(metric.value || "-");
+  if (metric.label === "WebRTC" && links.peerId) {
+    value.append(infoActionLink(text, () => connectPeerJs(links.peerId), "Connect WebRTC"));
+  } else if (metric.label === "WebSocket" && links.wsUrl) {
+    value.append(infoActionLink(text, () => connectWebSocket(links.wsUrl), "Connect WebSocket"));
+  } else if (metric.label === "Share" && links.shareUrl) {
+    const link = document.createElement("a");
+    link.className = "info-link";
+    link.href = links.shareUrl;
+    link.textContent = links.shareUrl;
+    link.title = "Open this interface and connect to this device";
+    value.append(link);
+  } else {
+    value.textContent = text;
+  }
+  row.append(label, value);
+  return row;
+}
+
+function infoActionLink(text, action, title) {
+  const button = document.createElement("button");
+  button.className = "info-link";
+  button.type = "button";
+  button.textContent = text;
+  button.title = title;
+  button.addEventListener("click", action);
+  return button;
+}
+
+function compactScriptLabel() {
+  const state = String(els.scriptState.textContent || "");
+  return state.replace(/\s*\/\s*/g, " / ") || "-";
+}
+
+function wifiSignalLabel(wifi = {}) {
+  if (!wifi.connected) return "-";
+  const rssi = Number(wifi.rssi);
+  if (!Number.isFinite(rssi) || rssi === 0) return "connected";
+  if (rssi >= -55) return `strong (${rssi} dBm)`;
+  if (rssi >= -70) return `ok (${rssi} dBm)`;
+  return `weak (${rssi} dBm)`;
 }
 
 function renderInfoShare(shareUrl = "") {
@@ -1989,7 +2299,7 @@ function activeWebSocketUrl(web = {}) {
 }
 
 function activePeerId(webrtc = {}) {
-  if (transport?.kind === "peerjs" && transport?.remoteId) return normalizePeerId(transport.remoteId);
+  if (isWebRtcKind(transport?.kind) && transport?.remoteId) return normalizePeerId(transport.remoteId);
   if (transport?.kind === "usb" || transport?.kind === "websocket") {
     return normalizePeerId(webrtc.peerId || "");
   }
@@ -2002,8 +2312,8 @@ function syncConnectedShareParams() {
     updateConnectionUrlParams("websocket", transport.url);
     return;
   }
-  if (transport?.kind === "peerjs" && transport?.remoteId) {
-    updateConnectionUrlParams("peerjs", "", null, transport.remoteId);
+  if (isWebRtcKind(transport?.kind) && transport?.remoteId) {
+    updateConnectionUrlParams("webrtc", "", null, transport.remoteId);
     return;
   }
   if (transport?.kind === "usb") {
@@ -2026,7 +2336,23 @@ function formatDuration(ms) {
   return `${seconds}s`;
 }
 
+function isScriptRunning() {
+  return String(lastStatus?.scriptState || "").toLowerCase() === "running";
+}
+
+function scriptRuntimeLabel() {
+  const state = String(lastStatus?.scriptState || "").toLowerCase();
+  if (state === "running") return "running";
+  if (state === "compiled" || state === "stored") return "ready";
+  if (state === "error") return "error";
+  if (state === "empty") return "";
+  if (state) return "stopped";
+  return "";
+}
+
 function wrenchFpsLabel() {
+  if (!isScriptRunning()) return "";
+
   const fps = Number(lastStatus?.wrenchLoopFps);
   if (Number.isFinite(fps) && fps > 0) {
     return `${fps.toFixed(fps < 10 ? 2 : 1)} fps`;
@@ -2064,7 +2390,7 @@ function renderConnectionState(transportState = "") {
   parts.push(wifiStatusLabel());
   parts.push(memoryStatusLabel());
 
-  const state = transportState && transportState !== "connected" ? transportState : "";
+  const state = transportState && !["connected", "connecting", "hub_open", "trying_device"].includes(transportState) ? transportState : "";
   if (state) parts.push(state);
   els.connection.textContent = parts.filter(Boolean).join(" | ");
 }
@@ -2770,13 +3096,16 @@ function filterChatWarnings(warnings) {
 
 function updateEnabledState() {
   const connected = Boolean(client);
+  const canDisconnectOrCancel = Boolean(client || transport || isBusy);
   [els.connect, els.chatConnect].forEach((button) => {
-    button.disabled = isBusy;
-    button.classList.toggle("primary", !connected);
+    const connecting = isBusy && !connected;
+    button.disabled = isBusy && !canDisconnectOrCancel;
+    button.classList.toggle("primary", !connected && !isBusy);
     button.classList.remove("danger");
-    button.title = connected ? "Disconnect" : "Connect";
+    button.classList.toggle("is-connecting", connecting);
+    button.title = connected || transport ? "Disconnect" : (connecting ? "Cancel connection" : "Connect");
     button.setAttribute("aria-label", button.title);
-    button.querySelector(".material-symbols-rounded").textContent = connected ? "link_off" : "link";
+    button.querySelector(".material-symbols-rounded").textContent = connecting ? "sync" : (connected || transport ? "link_off" : "link");
   });
   els.downloadCode.disabled = !getEditorValue().trim();
   [

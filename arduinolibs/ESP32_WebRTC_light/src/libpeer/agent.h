@@ -17,11 +17,11 @@
 #endif
 
 #ifndef AGENT_MAX_CANDIDATES
-#define AGENT_MAX_CANDIDATES 10
+#define AGENT_MAX_CANDIDATES 4
 #endif
 
 #ifndef AGENT_MAX_CANDIDATE_PAIRS
-#define AGENT_MAX_CANDIDATE_PAIRS 20
+#define AGENT_MAX_CANDIDATE_PAIRS 8
 #endif
 
 typedef enum AgentState {

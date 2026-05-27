@@ -12,6 +12,8 @@ int peer_init();
 
 void peer_deinit();
 
+void peer_handle_timers(uint32_t elapsed_milliseconds);
+
 #ifdef __cplusplus
 }
 #endif

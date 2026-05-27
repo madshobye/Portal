@@ -134,7 +134,7 @@ static String webTransportHostName() {
 }
 
 static void webTransportStartMdns() {
-  if (g_mdnsStarted || !wifiIsConnected()) return;
+  if (!g_wsEnabled || g_mdnsStarted || !wifiIsConnected()) return;
 
   g_mdnsName = webTransportHostName();
   if (!MDNS.begin(g_mdnsName.c_str())) {
@@ -225,7 +225,7 @@ static void webTransportEvent(uint8_t num, int type, uint8_t* payload, size_t le
 }
 
 void webTransportBegin() {
-  g_wsEnabled = true;
+  g_wsEnabled = P1_EMBED_WS_ENABLED;
 }
 
 static void webTransportStartServer() {
@@ -271,7 +271,7 @@ void webTransportSendLine(const String& line) {
 
 String webTransportStatusJson() {
   String out = "{";
-  out += "\"enabled\":true";
+  out += "\"enabled\":" + String(P1_EMBED_WS_ENABLED ? "true" : "false");
   out += ",\"started\":" + String(g_wsStarted ? "true" : "false");
   out += ",\"port\":" + String(P1_EMBED_WS_PORT);
   out += ",\"clients\":" + String(g_wsClients);

@@ -54,6 +54,20 @@ static volatile P1WrenchPhase g_wrenchPhase = WRENCH_PHASE_IDLE;
 static char g_wrenchTransitionReason[40] = "";
 static uint8_t g_wrenchLoopDebugMarkers = 0;
 
+static bool wrenchCheckStateError(WRState* wr, String& errOut, const char* phase) {
+  if (!wr) {
+    errOut = String(phase) + " failed: no Wrench state";
+    return false;
+  }
+  WRError error = wr_getLastError(wr);
+  if (error == WR_ERR_None) return true;
+  errOut = String(phase) + " failed: " + scriptErrorWrenchName((int)error);
+  String details = "\"wrenchError\":" + String((int)error);
+  details += ",\"wrenchErrorName\":" + jsonString(scriptErrorWrenchName((int)error));
+  scriptErrorSet("run", "wrench_state_error", errOut, details);
+  return false;
+}
+
 static const char* wrenchPhaseName(P1WrenchPhase phase) {
   switch (phase) {
     case WRENCH_PHASE_IDLE: return "idle";
@@ -686,6 +700,7 @@ bool wrenchCompileAndSet(const String& userCode, String& errOut) {
 
 bool wrenchRunCompiled(String& errOut) {
   errOut = "";
+  wrenchTaskBegin();
   debugEventEmit("script.debug", "debug", "script", "runCompiled begin", "\"bytecodeBytes\":" + String(g_bytecodeLen));
   wrenchLock();
   if (!g_bytecode || g_bytecodeLen <= 0) {
@@ -712,8 +727,24 @@ bool wrenchRunCompiled(String& errOut) {
 
   wr_setInstructionsPerSlice(g_wr, P1_EMBED_WRENCH_INSTRUCTIONS_PER_SLICE);
 
+  g_wr->globalRegistry.growHash(WRENCH_NULL_HASH, 192);
+  if (!wrenchCheckStateError(g_wr, errOut, "wrench registry prealloc")) {
+    wrenchStopLocked();
+    g_scriptState = SCRIPT_ERROR;
+    wrenchSetPhase(WRENCH_PHASE_ERROR);
+    wrenchUnlock();
+    return false;
+  }
+
   wr_loadAllLibs(g_wr);
   wrenchRegisterBindings(g_wr);
+  if (!wrenchCheckStateError(g_wr, errOut, "wrench binding registration")) {
+    wrenchStopLocked();
+    g_scriptState = SCRIPT_ERROR;
+    wrenchSetPhase(WRENCH_PHASE_ERROR);
+    wrenchUnlock();
+    return false;
+  }
   debugEventEmit("script.debug", "debug", "script", "runCompiled state created");
 
   wrenchSetPhase(WRENCH_PHASE_LOADING);
