@@ -28,19 +28,6 @@ static const uint8_t P1_MP_OP_SCRIPT_STOP = 22;
 static const uint8_t P1_MP_OP_SCRIPT_RESTART = 24;
 static const uint8_t P1_MP_OP_DEVICE_REBOOT = 30;
 
-static const char* protocolWifiStatusName(int status) {
-  switch (status) {
-    case WL_IDLE_STATUS: return "idle";
-    case WL_NO_SSID_AVAIL: return "no_ssid";
-    case WL_SCAN_COMPLETED: return "scan_completed";
-    case WL_CONNECTED: return "connected";
-    case WL_CONNECT_FAILED: return "connect_failed";
-    case WL_CONNECTION_LOST: return "connection_lost";
-    case WL_DISCONNECTED: return "disconnected";
-  }
-  return "unknown";
-}
-
 uint32_t protocolFnv1a(const String& s) {
   uint32_t h = 2166136261u;
   for (size_t i = 0; i < s.length(); i++) {
@@ -124,6 +111,96 @@ class WrenchTransitionGuard {
   }
 };
 
+static P1ScriptSnapshot protocolScriptSnapshot(const String* codeOverride = nullptr, const char* stateOverride = nullptr) {
+  P1ScriptSnapshot snapshot;
+#if P1_EMBED_WRENCH_ENABLED
+  if (codeOverride) {
+    snapshot.code = *codeOverride;
+    snapshot.bytes = codeOverride->length();
+    snapshot.hash = protocolFnv1a(*codeOverride);
+  } else {
+    snapshot.bytes = wrenchCurrentScriptBytes();
+    snapshot.hash = wrenchCurrentScriptHash();
+  }
+  snapshot.state = stateOverride ? stateOverride : wrenchStateName();
+  snapshot.stored = scriptStoreHasSaved();
+  snapshot.runState = scriptStoreRunStateName(scriptStoreLoadRunState());
+  snapshot.runPending = wrenchRunIsPending();
+  snapshot.verificationArmed = scriptStoreVerificationArmed();
+  snapshot.hasSetup = wrenchHasSetup();
+  snapshot.hasLoop = wrenchHasLoop();
+  snapshot.taskRunning = wrenchTaskIsRunning();
+  snapshot.loopCount = wrenchLoopCount();
+  snapshot.loopFps = wrenchLoopFps();
+  snapshot.loopHung = wrenchLoopIsHung();
+  snapshot.taskStackHighWater = wrenchTaskStackHighWater();
+#else
+  if (codeOverride) snapshot.code = *codeOverride;
+  snapshot.state = "disabled";
+  snapshot.runState = "disabled";
+  snapshot.bytes = codeOverride ? codeOverride->length() : 0;
+  snapshot.hash = codeOverride ? protocolFnv1a(*codeOverride) : 2166136261u;
+#endif
+  return snapshot;
+}
+
+static P1StatusSnapshot protocolStatusSnapshot() {
+  P1StatusSnapshot snapshot;
+  snapshot.uptimeMs = millis();
+  snapshot.heapSize = ESP.getHeapSize();
+  snapshot.freeHeap = ESP.getFreeHeap();
+  snapshot.minFreeHeap = ESP.getMinFreeHeap();
+  snapshot.maxAllocHeap = ESP.getMaxAllocHeap();
+  snapshot.deviceId = configDeviceId();
+  snapshot.deviceName = configDeviceName();
+  snapshot.script = protocolScriptSnapshot();
+  snapshot.wifi = wifiSnapshot();
+  snapshot.lastError = scriptErrorSnapshot();
+  snapshot.debug = debugEventSnapshot();
+  return snapshot;
+}
+
+static String protocolScriptSnapshotJson(const P1ScriptSnapshot& snapshot, bool includeCode, bool includeMetrics) {
+  String out = "{";
+  bool first = true;
+  if (includeCode) {
+    out += "\"code\":" + jsonString(snapshot.code);
+    first = false;
+  }
+  if (!first) out += ",";
+  out += "\"state\":" + jsonString(snapshot.state);
+  out += ",\"stored\":" + String(snapshot.stored ? "true" : "false");
+  out += ",\"runState\":" + jsonString(snapshot.runState);
+  if (includeMetrics) {
+    out += ",\"scriptBytes\":" + String(snapshot.bytes);
+    out += ",\"scriptHash\":" + String(snapshot.hash);
+    out += ",\"runPending\":" + String(snapshot.runPending ? "true" : "false");
+  }
+  out += "}";
+  return out;
+}
+
+static void protocolAppendStatusCoreJson(String& out, const P1StatusSnapshot& snapshot) {
+  out += "\"uptimeMs\":" + String(snapshot.uptimeMs);
+  out += ",\"heapSize\":" + String(snapshot.heapSize);
+  out += ",\"freeHeap\":" + String(snapshot.freeHeap);
+  out += ",\"minFreeHeap\":" + String(snapshot.minFreeHeap);
+  out += ",\"maxAllocHeap\":" + String(snapshot.maxAllocHeap);
+  out += ",\"scriptState\":" + jsonString(snapshot.script.state);
+  out += ",\"scriptBytes\":" + String(snapshot.script.bytes);
+  out += ",\"scriptHash\":" + String(snapshot.script.hash);
+  out += ",\"hasSetup\":" + String(snapshot.script.hasSetup ? "true" : "false");
+  out += ",\"hasLoop\":" + String(snapshot.script.hasLoop ? "true" : "false");
+  out += ",\"wrenchTaskRunning\":" + String(snapshot.script.taskRunning ? "true" : "false");
+  out += ",\"wrenchLoopCount\":" + String(snapshot.script.loopCount);
+  out += ",\"wrenchLoopFps\":" + String(snapshot.script.loopFps, 2);
+  out += ",\"wrenchLoopHung\":" + String(snapshot.script.loopHung ? "true" : "false");
+  out += ",\"deviceId\":" + jsonString(snapshot.deviceId);
+  out += ",\"deviceName\":" + jsonString(snapshot.deviceName);
+  out += ",\"scriptStored\":" + String(snapshot.script.stored ? "true" : "false");
+  out += ",\"scriptRunState\":" + jsonString(snapshot.script.runState);
+}
+
 static String protocolBaseInfoJson() {
   String out = "{";
   out += "\"firmwareName\":" + jsonString(P1_EMBED_FIRMWARE_NAME);
@@ -151,157 +228,78 @@ static String protocolBaseInfoJson() {
 }
 
 static String protocolStatusFullJson() {
+  P1StatusSnapshot snapshot = protocolStatusSnapshot();
   String out = "{";
-  out += "\"uptimeMs\":" + String(millis());
-  out += ",\"heapSize\":" + String(ESP.getHeapSize());
-  out += ",\"freeHeap\":" + String(ESP.getFreeHeap());
-  out += ",\"minFreeHeap\":" + String(ESP.getMinFreeHeap());
-  out += ",\"maxAllocHeap\":" + String(ESP.getMaxAllocHeap());
-#if P1_EMBED_WRENCH_ENABLED
-  out += ",\"scriptState\":" + jsonString(wrenchStateName());
-#else
-  out += ",\"scriptState\":\"disabled\"";
-#endif
-  out += ",\"scriptBytes\":" + String(wrenchCurrentScriptBytes());
-  out += ",\"scriptHash\":" + String(wrenchCurrentScriptHash());
-  out += ",\"hasSetup\":" + String(wrenchHasSetup() ? "true" : "false");
-  out += ",\"hasLoop\":" + String(wrenchHasLoop() ? "true" : "false");
-  out += ",\"wrenchTaskRunning\":" + String(wrenchTaskIsRunning() ? "true" : "false");
-  out += ",\"wrenchLoopCount\":" + String(wrenchLoopCount());
+  protocolAppendStatusCoreJson(out, snapshot);
   out += ",\"wrenchLastLoopMs\":" + String(wrenchLastLoopMs());
   out += ",\"wrenchLastLoopDurationMs\":" + String(wrenchLastLoopDurationMs());
-  out += ",\"wrenchLoopFps\":" + String(wrenchLoopFps(), 2);
   out += ",\"wrenchCurrentLoopStartedAt\":" + String(wrenchCurrentLoopStartedAt());
-  out += ",\"wrenchLoopHung\":" + String(wrenchLoopIsHung() ? "true" : "false");
   out += ",\"wrenchSlowLoopCount\":" + String(wrenchSlowLoopCount());
   out += ",\"wrenchHungLoopCount\":" + String(wrenchHungLoopCount());
   out += ",\"wrenchLockTimeoutCount\":" + String(wrenchLockTimeoutCount());
-  out += ",\"wrenchTaskStackHighWater\":" + String(wrenchTaskStackHighWater());
+  out += ",\"wrenchTaskStackHighWater\":" + String(snapshot.script.taskStackHighWater);
   out += ",\"wrenchRuntime\":" + wrenchRuntimeStatusJson();
   out += ",\"wrenchInboxQueued\":" + String(wrenchInboxAvailable());
   out += ",\"wrenchInboxDrops\":" + String(wrenchInboxDrops());
-  out += ",\"lastError\":" + scriptErrorSummaryJson();
-  out += ",\"debug\":" + debugEventStatusJson();
+  out += ",\"lastError\":" + scriptErrorSummaryJson(snapshot.lastError);
+  out += ",\"debug\":" + debugEventStatusJson(snapshot.debug);
   out += ",\"memory\":" + memoryProfileSummaryJson();
   out += ",\"web\":" + webTransportStatusJson();
   out += ",\"webrtc\":" + webrtcTransportStatusJson();
   out += ",\"led\":" + ledStatusJson();
   out += ",\"uart\":" + uartStatusJson();
   out += ",\"http\":" + httpFetchStatusJson();
-  out += ",\"deviceId\":" + jsonString(configDeviceId());
-  out += ",\"deviceName\":" + jsonString(configDeviceName());
-#if P1_EMBED_WRENCH_ENABLED
-  out += ",\"scriptStored\":" + String(scriptStoreHasSaved() ? "true" : "false");
-  out += ",\"scriptRunState\":" + jsonString(scriptStoreRunStateName(scriptStoreLoadRunState()));
-  out += ",\"scriptVerificationArmed\":" + String(scriptStoreVerificationArmed() ? "true" : "false");
-#else
-  out += ",\"scriptStored\":false";
-  out += ",\"scriptRunState\":\"disabled\"";
-  out += ",\"scriptVerificationArmed\":false";
-#endif
-  out += ",\"wifi\":" + wifiStatusJson();
+  out += ",\"scriptVerificationArmed\":" + String(snapshot.script.verificationArmed ? "true" : "false");
+  out += ",\"wifi\":" + wifiStatusJson(snapshot.wifi);
   out += "}";
   return out;
 }
 
 static String protocolStatusJson() {
+  P1StatusSnapshot snapshot = protocolStatusSnapshot();
   String out;
   out.reserve(1800);
   out += "{";
-  out += "\"uptimeMs\":" + String(millis());
-  out += ",\"heapSize\":" + String(ESP.getHeapSize());
-  out += ",\"freeHeap\":" + String(ESP.getFreeHeap());
-  out += ",\"minFreeHeap\":" + String(ESP.getMinFreeHeap());
-  out += ",\"maxAllocHeap\":" + String(ESP.getMaxAllocHeap());
-#if P1_EMBED_WRENCH_ENABLED
-  out += ",\"scriptState\":" + jsonString(wrenchStateName());
-#else
-  out += ",\"scriptState\":\"disabled\"";
-#endif
-  out += ",\"scriptBytes\":" + String(wrenchCurrentScriptBytes());
-  out += ",\"scriptHash\":" + String(wrenchCurrentScriptHash());
-  out += ",\"hasSetup\":" + String(wrenchHasSetup() ? "true" : "false");
-  out += ",\"hasLoop\":" + String(wrenchHasLoop() ? "true" : "false");
-  out += ",\"wrenchTaskRunning\":" + String(wrenchTaskIsRunning() ? "true" : "false");
-  out += ",\"wrenchLoopCount\":" + String(wrenchLoopCount());
-  out += ",\"wrenchLoopFps\":" + String(wrenchLoopFps(), 2);
-  out += ",\"wrenchLoopHung\":" + String(wrenchLoopIsHung() ? "true" : "false");
+  protocolAppendStatusCoreJson(out, snapshot);
   out += ",\"wrenchRuntime\":" + wrenchRuntimeStatusJson();
-  out += ",\"lastError\":" + scriptErrorSummaryJson();
+  out += ",\"lastError\":" + scriptErrorSummaryJson(snapshot.lastError);
   out += ",\"memory\":" + memoryProfileSummaryJson();
   out += ",\"web\":" + webTransportStatusJson();
   out += ",\"webrtc\":" + webrtcTransportStatusJson();
   out += ",\"led\":" + ledStatusJson();
-  out += ",\"deviceId\":" + jsonString(configDeviceId());
-  out += ",\"deviceName\":" + jsonString(configDeviceName());
-#if P1_EMBED_WRENCH_ENABLED
-  out += ",\"scriptStored\":" + String(scriptStoreHasSaved() ? "true" : "false");
-  out += ",\"scriptRunState\":" + jsonString(scriptStoreRunStateName(scriptStoreLoadRunState()));
-#else
-  out += ",\"scriptStored\":false";
-  out += ",\"scriptRunState\":\"disabled\"";
-#endif
-  out += ",\"wifi\":" + wifiStatusJson();
+  out += ",\"wifi\":" + wifiStatusJson(snapshot.wifi);
   out += "}";
   return out;
 }
 
 static String protocolStatusLightJson() {
+  P1StatusSnapshot snapshot = protocolStatusSnapshot();
   String out;
   out.reserve(900);
   out += "{";
-  out += "\"uptimeMs\":" + String(millis());
-  out += ",\"heapSize\":" + String(ESP.getHeapSize());
-  out += ",\"freeHeap\":" + String(ESP.getFreeHeap());
-  out += ",\"minFreeHeap\":" + String(ESP.getMinFreeHeap());
-  out += ",\"maxAllocHeap\":" + String(ESP.getMaxAllocHeap());
-#if P1_EMBED_WRENCH_ENABLED
-  out += ",\"scriptState\":" + jsonString(wrenchStateName());
-#else
-  out += ",\"scriptState\":\"disabled\"";
-#endif
-  out += ",\"scriptBytes\":" + String(wrenchCurrentScriptBytes());
-  out += ",\"scriptHash\":" + String(wrenchCurrentScriptHash());
-  out += ",\"hasSetup\":" + String(wrenchHasSetup() ? "true" : "false");
-  out += ",\"hasLoop\":" + String(wrenchHasLoop() ? "true" : "false");
-  out += ",\"wrenchTaskRunning\":" + String(wrenchTaskIsRunning() ? "true" : "false");
-  out += ",\"wrenchLoopCount\":" + String(wrenchLoopCount());
-  out += ",\"wrenchLoopFps\":" + String(wrenchLoopFps(), 2);
-  out += ",\"wrenchLoopHung\":" + String(wrenchLoopIsHung() ? "true" : "false");
+  protocolAppendStatusCoreJson(out, snapshot);
   out += ",\"webrtc\":" + webrtcTransportStatusJson();
-  out += ",\"deviceId\":" + jsonString(configDeviceId());
-  out += ",\"deviceName\":" + jsonString(configDeviceName());
-#if P1_EMBED_WRENCH_ENABLED
-  out += ",\"scriptStored\":" + String(scriptStoreHasSaved() ? "true" : "false");
-  out += ",\"scriptRunState\":" + jsonString(scriptStoreRunStateName(scriptStoreLoadRunState()));
-#else
-  out += ",\"scriptStored\":false";
-  out += ",\"scriptRunState\":\"disabled\"";
-#endif
-  out += ",\"wifi\":" + wifiStatusJson();
+  out += ",\"wifi\":" + wifiStatusJson(snapshot.wifi);
   out += "}";
   return out;
 }
 
 static String protocolStatusEventJson() {
+  P1StatusSnapshot snapshot = protocolStatusSnapshot();
   String out;
   out.reserve(900);
   out += "{";
-  out += "\"uptimeMs\":" + String(millis());
-  out += ",\"freeHeap\":" + String(ESP.getFreeHeap());
-  out += ",\"minFreeHeap\":" + String(ESP.getMinFreeHeap());
-  out += ",\"maxAllocHeap\":" + String(ESP.getMaxAllocHeap());
-#if P1_EMBED_WRENCH_ENABLED
-  out += ",\"scriptState\":" + jsonString(wrenchStateName());
-#else
-  out += ",\"scriptState\":\"disabled\"";
-#endif
-  out += ",\"scriptBytes\":" + String(wrenchCurrentScriptBytes());
-  out += ",\"wrenchLoopFps\":" + String(wrenchLoopFps(), 2);
-  out += ",\"wrenchTaskStackHighWater\":" + String(wrenchTaskStackHighWater());
+  out += "\"uptimeMs\":" + String(snapshot.uptimeMs);
+  out += ",\"freeHeap\":" + String(snapshot.freeHeap);
+  out += ",\"minFreeHeap\":" + String(snapshot.minFreeHeap);
+  out += ",\"maxAllocHeap\":" + String(snapshot.maxAllocHeap);
+  out += ",\"scriptState\":" + jsonString(snapshot.script.state);
+  out += ",\"scriptBytes\":" + String(snapshot.script.bytes);
+  out += ",\"wrenchLoopFps\":" + String(snapshot.script.loopFps, 2);
+  out += ",\"wrenchTaskStackHighWater\":" + String(snapshot.script.taskStackHighWater);
   out += ",\"memory\":" + memoryProfileSummaryJson();
   out += ",\"webrtc\":" + webrtcTransportStatusJson();
-  out += ",\"wifi\":" + wifiStatusJson();
+  out += ",\"wifi\":" + wifiStatusJson(snapshot.wifi);
   out += ",\"led\":" + ledStatusJson();
   out += "}";
   return out;
@@ -474,15 +472,8 @@ void protocolEmitStatusEvent() {
 }
 
 static String protocolScriptMetaJson(const String& code, const String& state) {
-  String out = "{";
-  out += "\"state\":" + jsonString(state);
-  out += ",\"scriptBytes\":" + String(code.length());
-  out += ",\"scriptHash\":" + String(protocolFnv1a(code));
-  out += ",\"stored\":" + String(scriptStoreHasSaved() ? "true" : "false");
-  out += ",\"runState\":" + jsonString(scriptStoreRunStateName(scriptStoreLoadRunState()));
-  out += ",\"runPending\":" + String(wrenchRunIsPending() ? "true" : "false");
-  out += "}";
-  return out;
+  P1ScriptSnapshot snapshot = protocolScriptSnapshot(&code, state.c_str());
+  return protocolScriptSnapshotJson(snapshot, false, true);
 }
 
 static bool g_scriptChunkActive = false;
@@ -771,7 +762,10 @@ void protocolPollScriptJobs() {
   }
 }
 
+static void protocolMsgPackWriteWifi(P1MsgPackWriter& w, const P1WifiSnapshot& snapshot);
+
 static void protocolSendMsgPackStatusLight(uint32_t id) {
+  P1StatusSnapshot snapshot = protocolStatusSnapshot();
   uint8_t frame[P1_EMBED_MSGPACK_MAX_FRAME_BYTES];
   P1MsgPackWriter w(frame, sizeof(frame));
   w.writeArray(4);
@@ -779,43 +773,33 @@ static void protocolSendMsgPackStatusLight(uint32_t id) {
   w.writeUInt(id);
   w.writeBool(true);
   w.writeMap(13);
-  w.writeString("uptimeMs"); w.writeUInt(millis());
-  w.writeString("heapSize"); w.writeUInt(ESP.getHeapSize());
-  w.writeString("freeHeap"); w.writeUInt(ESP.getFreeHeap());
-  w.writeString("maxAllocHeap"); w.writeUInt(ESP.getMaxAllocHeap());
-  w.writeString("scriptState"); w.writeString(wrenchStateName());
-  w.writeString("scriptBytes"); w.writeUInt(wrenchCurrentScriptBytes());
-  w.writeString("scriptHash"); w.writeUInt(wrenchCurrentScriptHash());
-  w.writeString("wrenchLoopFps"); w.writeFloat(wrenchLoopFps());
-  w.writeString("wrenchTaskRunning"); w.writeBool(wrenchTaskIsRunning());
-  w.writeString("deviceId"); w.writeString(configDeviceId());
-  w.writeString("deviceName"); w.writeString(configDeviceName());
+  w.writeString("uptimeMs"); w.writeUInt(snapshot.uptimeMs);
+  w.writeString("heapSize"); w.writeUInt(snapshot.heapSize);
+  w.writeString("freeHeap"); w.writeUInt(snapshot.freeHeap);
+  w.writeString("maxAllocHeap"); w.writeUInt(snapshot.maxAllocHeap);
+  w.writeString("scriptState"); w.writeString(snapshot.script.state);
+  w.writeString("scriptBytes"); w.writeUInt(snapshot.script.bytes);
+  w.writeString("scriptHash"); w.writeUInt(snapshot.script.hash);
+  w.writeString("wrenchLoopFps"); w.writeFloat(snapshot.script.loopFps);
+  w.writeString("wrenchTaskRunning"); w.writeBool(snapshot.script.taskRunning);
+  w.writeString("deviceId"); w.writeString(snapshot.deviceId);
+  w.writeString("deviceName"); w.writeString(snapshot.deviceName);
   w.writeString("protocol"); w.writeString("msgpack.v0_2");
-  const int wifiStatus = WiFi.status();
-  const bool wifiConnected = wifiStatus == WL_CONNECTED;
-  w.writeString("wifi");
-  w.writeMap(7);
-  w.writeString("configured"); w.writeBool(configWifiNetworkCount() > 0);
-  w.writeString("status"); w.writeString(protocolWifiStatusName(wifiStatus));
-  w.writeString("connected"); w.writeBool(wifiConnected);
-  w.writeString("ssid"); w.writeString(wifiConnected ? WiFi.SSID() : String(""));
-  w.writeString("ip"); w.writeString(wifiConnected ? WiFi.localIP().toString() : String(""));
-  w.writeString("rssi"); w.writeInt(wifiConnected ? WiFi.RSSI() : 0);
-  w.writeString("mac"); w.writeString(WiFi.macAddress());
+  w.writeString("wifi"); protocolMsgPackWriteWifi(w, snapshot.wifi);
   if (w.ok) webrtcTransportSendBytes(frame, w.length);
 }
 
-static void protocolMsgPackWriteWifi(P1MsgPackWriter& w) {
-  const int wifiStatus = WiFi.status();
-  const bool wifiConnected = wifiStatus == WL_CONNECTED;
-  w.writeMap(7);
-  w.writeString("configured"); w.writeBool(configWifiNetworkCount() > 0);
-  w.writeString("status"); w.writeString(protocolWifiStatusName(wifiStatus));
-  w.writeString("connected"); w.writeBool(wifiConnected);
-  w.writeString("ssid"); w.writeString(wifiConnected ? WiFi.SSID() : String(""));
-  w.writeString("ip"); w.writeString(wifiConnected ? WiFi.localIP().toString() : String(""));
-  w.writeString("rssi"); w.writeInt(wifiConnected ? WiFi.RSSI() : 0);
-  w.writeString("mac"); w.writeString(WiFi.macAddress());
+static void protocolMsgPackWriteWifi(P1MsgPackWriter& w, const P1WifiSnapshot& snapshot) {
+  w.writeMap(9);
+  w.writeString("configured"); w.writeBool(snapshot.configured);
+  w.writeString("status"); w.writeString(snapshot.status);
+  w.writeString("connected"); w.writeBool(snapshot.connected);
+  w.writeString("networkIndex"); w.writeInt(snapshot.networkIndex);
+  w.writeString("networkCount"); w.writeInt(snapshot.networkCount);
+  w.writeString("ssid"); w.writeString(snapshot.ssid);
+  w.writeString("ip"); w.writeString(snapshot.ip);
+  w.writeString("rssi"); w.writeInt(snapshot.rssi);
+  w.writeString("mac"); w.writeString(snapshot.mac);
 }
 
 static void protocolMsgPackBeginResponse(P1MsgPackWriter& w, uint32_t id, bool ok, uint32_t mapCount) {
@@ -827,6 +811,7 @@ static void protocolMsgPackBeginResponse(P1MsgPackWriter& w, uint32_t id, bool o
 }
 
 static void protocolSendMsgPackSystemInfo(uint32_t id) {
+  P1ConfigSnapshot config = configSnapshot();
   uint8_t frame[P1_EMBED_MSGPACK_MAX_FRAME_BYTES];
   P1MsgPackWriter w(frame, sizeof(frame));
   protocolMsgPackBeginResponse(w, id, true, 13);
@@ -835,8 +820,8 @@ static void protocolSendMsgPackSystemInfo(uint32_t id) {
   w.writeString("buildChannel"); w.writeString(P1_EMBED_BUILD_CHANNEL);
   w.writeString("protocolVersion"); w.writeString(P1_EMBED_PROTOCOL_VERSION);
   w.writeString("wrenchApiVersion"); w.writeString(P1_EMBED_WRENCH_API_VERSION);
-  w.writeString("deviceId"); w.writeString(configDeviceId());
-  w.writeString("deviceName"); w.writeString(configDeviceName());
+  w.writeString("deviceId"); w.writeString(config.deviceId);
+  w.writeString("deviceName"); w.writeString(config.deviceName);
   w.writeString("board"); w.writeString("esp32-classic");
   w.writeString("chipModel"); w.writeString(ESP.getChipModel());
   w.writeString("sdkVersion"); w.writeString(ESP.getSdkVersion());
@@ -846,65 +831,65 @@ static void protocolSendMsgPackSystemInfo(uint32_t id) {
   w.writeString("protocol.msgpack.v0_2");
   w.writeString("wrench.compile");
   w.writeString("wifi.station");
-  w.writeString("wifi"); protocolMsgPackWriteWifi(w);
+  w.writeString("wifi"); protocolMsgPackWriteWifi(w, config.wifi);
   if (w.ok) webrtcTransportSendBytes(frame, w.length);
 }
 
 static void protocolSendMsgPackConfig(uint32_t id) {
+  P1ConfigSnapshot snapshot = configSnapshot();
   uint8_t frame[P1_EMBED_MSGPACK_MAX_FRAME_BYTES];
   P1MsgPackWriter w(frame, sizeof(frame));
   protocolMsgPackBeginResponse(w, id, true, 7);
-  w.writeString("deviceId"); w.writeString(configDeviceId());
-  w.writeString("deviceName"); w.writeString(configDeviceName());
-  w.writeString("wifiSsid"); w.writeString(configWifiSsid());
-  w.writeString("wifiPasswordSet"); w.writeBool(configWifiPassword().length() > 0);
-  w.writeString("wifiNetworkCount"); w.writeUInt(configWifiNetworkCount());
+  w.writeString("deviceId"); w.writeString(snapshot.deviceId);
+  w.writeString("deviceName"); w.writeString(snapshot.deviceName);
+  w.writeString("wifiSsid"); w.writeString(snapshot.wifiSsid);
+  w.writeString("wifiPasswordSet"); w.writeBool(snapshot.wifiPasswordSet);
+  w.writeString("wifiNetworkCount"); w.writeUInt(snapshot.wifiNetworkCount);
   w.writeString("storage"); w.writeString("littlefs:/config.json");
-  w.writeString("wifi"); protocolMsgPackWriteWifi(w);
+  w.writeString("wifi"); protocolMsgPackWriteWifi(w, snapshot.wifi);
   if (w.ok) webrtcTransportSendBytes(frame, w.length);
 }
 
 static void protocolSendMsgPackWifiStatus(uint32_t id) {
+  P1WifiSnapshot snapshot = wifiSnapshot();
   uint8_t frame[256];
   P1MsgPackWriter w(frame, sizeof(frame));
   protocolMsgPackBeginResponse(w, id, true, 1);
-  w.writeString("wifi"); protocolMsgPackWriteWifi(w);
+  w.writeString("wifi"); protocolMsgPackWriteWifi(w, snapshot);
   if (w.ok) webrtcTransportSendBytes(frame, w.length);
 }
 
 static void protocolSendMsgPackDebug(uint32_t id) {
+  P1DebugSnapshot snapshot = debugEventSnapshot();
   uint8_t frame[160];
   P1MsgPackWriter w(frame, sizeof(frame));
   protocolMsgPackBeginResponse(w, id, true, 5);
-  w.writeString("level"); w.writeString(debugLevelName(debugEventLevel()));
-  w.writeString("levelName"); w.writeString(debugLevelName(debugEventLevel()));
-  w.writeString("levelValue"); w.writeUInt(debugEventLevel());
-  w.writeString("queueDrops"); w.writeUInt(debugEventDrops());
-  w.writeString("queueHighWater"); w.writeUInt(debugEventHighWater());
+  w.writeString("level"); w.writeString(snapshot.level);
+  w.writeString("levelName"); w.writeString(snapshot.level);
+  w.writeString("levelValue"); w.writeUInt(snapshot.levelValue);
+  w.writeString("queueDrops"); w.writeUInt(snapshot.queueDrops);
+  w.writeString("queueHighWater"); w.writeUInt(snapshot.queueHighWater);
   if (w.ok) webrtcTransportSendBytes(frame, w.length);
 }
 
 static void protocolSendMsgPackScriptError(uint32_t id) {
+  P1ScriptErrorSnapshot snapshot = scriptErrorSnapshot();
   uint8_t frame[512];
   P1MsgPackWriter w(frame, sizeof(frame));
-  if (!scriptErrorHasLast()) {
+  if (!snapshot.hasError) {
     protocolMsgPackBeginResponse(w, id, true, 2);
     w.writeString("hasError"); w.writeBool(false);
-    w.writeString("count"); w.writeUInt(scriptErrorCount());
+    w.writeString("count"); w.writeUInt(snapshot.count);
   } else {
-    String phase = scriptErrorLastPhase();
-    String code = scriptErrorLastCode();
-    String message = scriptErrorLastMessage();
-    String details = scriptErrorLastDetails();
-    const bool hasDetails = details.length() > 0 && details.length() < 128;
+    const bool hasDetails = snapshot.details.length() > 0 && snapshot.details.length() < 128;
     protocolMsgPackBeginResponse(w, id, true, hasDetails ? 8 : 7);
     w.writeString("hasError"); w.writeBool(true);
-    w.writeString("phase"); w.writeString(phase);
-    w.writeString("code"); w.writeString(code);
-    w.writeString("message"); w.writeString(message);
-    w.writeString("atMs"); w.writeUInt(scriptErrorLastAtMs());
-    w.writeString("count"); w.writeUInt(scriptErrorCount());
-    w.writeString("detailText"); w.writeString(hasDetails ? details : "");
+    w.writeString("phase"); w.writeString(snapshot.phase);
+    w.writeString("code"); w.writeString(snapshot.code);
+    w.writeString("message"); w.writeString(snapshot.message);
+    w.writeString("atMs"); w.writeUInt(snapshot.atMs);
+    w.writeString("count"); w.writeUInt(snapshot.count);
+    w.writeString("detailText"); w.writeString(hasDetails ? snapshot.details : "");
     if (hasDetails) {
       w.writeString("detailFormat");
       w.writeString("json-fields");
@@ -915,6 +900,7 @@ static void protocolSendMsgPackScriptError(uint32_t id) {
 
 static void protocolSendMsgPackScriptGet(uint32_t id) {
   String code = wrenchCurrentScript();
+  P1ScriptSnapshot snapshot = protocolScriptSnapshot(&code);
   size_t capacity = code.length() + 192;
   if (capacity < 512) capacity = 512;
   if (capacity > P1_EMBED_WEBRTC_SEND_MAX_BYTES) {
@@ -928,10 +914,10 @@ static void protocolSendMsgPackScriptGet(uint32_t id) {
   }
   P1MsgPackWriter w(frame, capacity);
   protocolMsgPackBeginResponse(w, id, true, 4);
-  w.writeString("code"); w.writeString(code);
-  w.writeString("state"); w.writeString(wrenchStateName());
-  w.writeString("stored"); w.writeBool(scriptStoreHasSaved());
-  w.writeString("runState"); w.writeString(scriptStoreRunStateName(scriptStoreLoadRunState()));
+  w.writeString("code"); w.writeString(snapshot.code);
+  w.writeString("state"); w.writeString(snapshot.state);
+  w.writeString("stored"); w.writeBool(snapshot.stored);
+  w.writeString("runState"); w.writeString(snapshot.runState);
   if (w.ok) webrtcTransportSendBytes(frame, w.length);
   free(frame);
   if (!w.ok) protocolSendMsgPackError(id, "frame_too_large", "Stored script did not fit in MessagePack response");
@@ -1329,12 +1315,8 @@ void protocolHandleLine(const char* line) {
   } else if (!P1_EMBED_WRENCH_ENABLED && (name.startsWith("script.") || name == "wrench.input")) {
     protocolSendResponseError(id, "wrench_disabled", "Wrench is disabled in this WebRTC lab firmware");
   } else if (name == "script.get") {
-    String data = "{\"code\":" + jsonString(wrenchCurrentScript());
-    data += ",\"state\":" + jsonString(wrenchStateName());
-    data += ",\"stored\":" + String(scriptStoreHasSaved() ? "true" : "false");
-    data += ",\"runState\":" + jsonString(scriptStoreRunStateName(scriptStoreLoadRunState()));
-    data += "}";
-    protocolSendResponseOk(id, data);
+    String code = wrenchCurrentScript();
+    protocolSendResponseOk(id, protocolScriptSnapshotJson(protocolScriptSnapshot(&code), true, false));
   } else if (name == "script.set") {
     bool runAfterSet = false;
     bool saveAfterSet = false;
