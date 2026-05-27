@@ -2,3 +2,4 @@ tmpgrumpy/
 tmp_notgit/
 ArduinoExamples/printhost/pwd.ino
 /arduinolibs/FastLED
+arduinolibs/MQTT/
