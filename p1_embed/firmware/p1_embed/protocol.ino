@@ -410,7 +410,20 @@ void protocolEmitMsgPackEventFields(const char* name, const char* level, const c
 
 void protocolEmitEventFields(const char* name, const P1EventField* fields, size_t fieldCount) {
   String eventName = name ? String(name) : String("");
-  if (eventName.startsWith("script.") || eventName.startsWith("wifi.") || eventName.startsWith("device.")) {
+  if (eventName.startsWith("ui.")) {
+    protocolEmitMsgPackEventFields(eventName.c_str(), "info", "ui", "", fields, fieldCount);
+    String out = "{\"type\":\"evt\",\"name\":" + jsonString(eventName) + ",\"data\":{";
+    out += "\"level\":\"info\",\"category\":\"ui\"";
+    for (size_t i = 0; i < fieldCount; i++) {
+      out += ",";
+      protocolAppendJsonEventField(out, fields[i]);
+    }
+    out += "}}";
+    transportSendLine(out);
+    return;
+  }
+  if (eventName.startsWith("script.") || eventName.startsWith("wifi.") ||
+      eventName.startsWith("device.")) {
     int dot = eventName.indexOf('.');
     String category = dot > 0 ? eventName.substring(0, dot) : eventName;
     debugEventEmitFields(eventName, "info", category, "", fields, fieldCount);
@@ -433,6 +446,15 @@ void protocolEmitEventFields(const char* name, const P1EventField* fields, size_
 }
 
 void protocolEmitEvent(const String& name, const String& dataFieldsJson) {
+  if (name.startsWith("ui.")) {
+    protocolEmitMsgPackEventFields(name.c_str(), "info", "ui", "", nullptr, 0);
+    String out = "{\"type\":\"evt\",\"name\":" + jsonString(name) + ",\"data\":{";
+    out += "\"level\":\"info\",\"category\":\"ui\"";
+    if (dataFieldsJson.length()) out += "," + dataFieldsJson;
+    out += "}}";
+    transportSendLine(out);
+    return;
+  }
   if (name.startsWith("script.") || name.startsWith("wifi.") || name.startsWith("device.")) {
     debugEventEmit(name, "info", name.substring(0, name.indexOf('.')), "", dataFieldsJson);
     return;
@@ -826,10 +848,11 @@ static void protocolSendMsgPackSystemInfo(uint32_t id) {
   w.writeString("chipModel"); w.writeString(ESP.getChipModel());
   w.writeString("sdkVersion"); w.writeString(ESP.getSdkVersion());
   w.writeString("heapSize"); w.writeUInt(ESP.getHeapSize());
-  w.writeString("capabilities"); w.writeArray(4);
+  w.writeString("capabilities"); w.writeArray(5);
   w.writeString("transport.webrtc.msgpack");
   w.writeString("protocol.msgpack.v0_2");
   w.writeString("wrench.compile");
+  w.writeString("wrench.bindings.ui_guino");
   w.writeString("wifi.station");
   w.writeString("wifi"); protocolMsgPackWriteWifi(w, config.wifi);
   if (w.ok) webrtcTransportSendBytes(frame, w.length);
@@ -1138,6 +1161,10 @@ void protocolHandleBytes(const uint8_t* data, size_t len) {
       protocolSendMsgPackError(id, "missing_message", "script.input requires message");
       return;
     }
+    if (uiInputPush(channel, message)) {
+      protocolSendMsgPackInbox(id);
+      return;
+    }
     if (!wrenchInboxPush(channel, message)) {
       protocolSendMsgPackError(id, "inbox_full", "Wrench input inbox is full");
       return;
@@ -1335,6 +1362,10 @@ void protocolHandleLine(const char* line) {
     jsonGetString(line, "channel", channel);
     if (!jsonGetString(line, "message", message)) {
       protocolSendResponseError(id, "missing_message", "script.input requires data.message");
+      return;
+    }
+    if (uiInputPush(channel, message)) {
+      protocolSendResponseOk(id, "{\"ui\":true,\"queued\":" + String(uiInputQueued()) + ",\"drops\":" + String(uiInputDrops()) + "}");
       return;
     }
     if (!wrenchInboxPush(channel, message)) {

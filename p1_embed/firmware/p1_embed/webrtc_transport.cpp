@@ -158,6 +158,14 @@ static void webrtcRequestScriptResume(const char* reason) {
   debugEventEmitFields("webrtc.debug", "debug", "webrtc", "script resume requested", fields, 1);
 }
 
+static void webrtcClearScriptResumeState() {
+  g_wrenchResumePending = false;
+  g_wrenchSuspendedForWebRtc = false;
+  g_scriptResumeRetryAt = 0;
+  g_scriptResumeDeferredLogAt = 0;
+  g_scriptResumeDeferrals = 0;
+}
+
 static bool webrtcSuspendScriptForNegotiation() {
   if (g_wrenchSuspendedForWebRtc) return true;
   if (strcmp(wrenchStateName(), "running") != 0) return false;
@@ -176,6 +184,11 @@ static void webrtcResumeSuspendedScriptIfPending() {
   if (!g_wrenchResumePending || !g_wrenchSuspendedForWebRtc) return;
   if (g_dataChannelOpen) return;
   if (g_scriptResumeRetryAt && (int32_t)(millis() - g_scriptResumeRetryAt) < 0) return;
+  if (!wrenchHasCompiledProgram()) {
+    webrtcClearScriptResumeState();
+    debugEventEmitFields("webrtc.debug", "debug", "webrtc", "script resume cancelled; no compiled script", nullptr, 0);
+    return;
+  }
 
   uint32_t freeHeap = ESP.getFreeHeap();
   uint32_t maxAlloc = ESP.getMaxAllocHeap();
@@ -215,11 +228,7 @@ static void webrtcResumeSuspendedScriptIfPending() {
     debugError("webrtc", "script_resume_failed", "Failed to resume script after WebRTC negotiation: " + err);
     return;
   }
-  g_wrenchResumePending = false;
-  g_wrenchSuspendedForWebRtc = false;
-  g_scriptResumeRetryAt = 0;
-  g_scriptResumeDeferredLogAt = 0;
-  g_scriptResumeDeferrals = 0;
+  webrtcClearScriptResumeState();
   webrtcDebugHeap("script resumed after negotiation");
 }
 

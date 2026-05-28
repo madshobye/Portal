@@ -3,7 +3,7 @@
 #include <Arduino.h>
 
 #define P1_EMBED_FIRMWARE_NAME "p1_embed"
-#define P1_EMBED_FIRMWARE_VERSION "0.1.119"
+#define P1_EMBED_FIRMWARE_VERSION "0.1.123"
 #define P1_EMBED_PROTOCOL_VERSION "0.1"
 #define P1_EMBED_WRENCH_API_VERSION "0.1"
 #define P1_EMBED_WRENCH_UPSTREAM_REPO "https://github.com/jingoro2112/wrench"
@@ -31,7 +31,7 @@
 #define P1_EMBED_WRENCH_LARGE_SCRIPT_BYTES 4096
 #define P1_EMBED_WRENCH_LARGE_COMPILE_MIN_FREE_HEAP 81920
 #define P1_EMBED_WRENCH_LARGE_COMPILE_MIN_MAX_ALLOC 32768
-#define P1_EMBED_WRENCH_WEBRTC_LARGE_SCRIPT_BYTES 2048
+#define P1_EMBED_WRENCH_WEBRTC_LARGE_SCRIPT_BYTES 4096
 #define P1_EMBED_WRENCH_WEBRTC_COMPILE_MIN_FREE_HEAP 98304
 #define P1_EMBED_WRENCH_WEBRTC_COMPILE_MIN_MAX_ALLOC 40960
 #define P1_EMBED_WRENCH_TASK_DELAY_MS 1
@@ -48,6 +48,11 @@
 #define P1_EMBED_WRENCH_INBOX_DEPTH 8
 #define P1_EMBED_WRENCH_INBOX_CHANNEL_MAX 32
 #define P1_EMBED_WRENCH_INBOX_MESSAGE_MAX 256
+#define P1_EMBED_UI_EVENT_DEPTH 8
+#define P1_EMBED_UI_STATE_MAX 24
+#define P1_EMBED_UI_ID_MAX 32
+#define P1_EMBED_UI_TYPE_MAX 12
+#define P1_EMBED_UI_TEXT_MAX 48
 #define P1_EMBED_PWM_MAX_PINS 12
 #define P1_EMBED_MAX_BYTECODE_BYTES 16384
 #define P1_EMBED_WS_ENABLED 0
@@ -133,6 +138,7 @@ static const char* P1_EMBED_CAPABILITIES[] = {
   "wrench.bindings.protocol_services",
   "wrench.bindings.http_fetch",
   "wrench.bindings.json_helpers",
+  "wrench.bindings.ui_guino",
   "wrench.inbox.protocol_input",
   "wrench.bindings.esp_basic",
   "wrench.bindings.i2c_basic",

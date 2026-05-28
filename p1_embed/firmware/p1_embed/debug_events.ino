@@ -154,7 +154,7 @@ void debugEventEmit(const String& name, const String& level, const String& categ
 
   if (!dataFieldsJson.length() &&
       (name.startsWith("script.") || name.startsWith("debug.") || name.startsWith("led.") ||
-       name.startsWith("webrtc.") || name == "wifi.status")) {
+       name.startsWith("webrtc.") || name.startsWith("ui.") || name == "wifi.status")) {
     protocolEmitMsgPackEventFields(name.c_str(), level.c_str(), category.c_str(), message.c_str(), nullptr, 0);
   }
 
@@ -172,7 +172,7 @@ void debugEventEmitFields(const String& name, const String& level, const String&
   if (value > g_debugLevel) return;
 
   if (name.startsWith("script.") || name.startsWith("debug.") || name.startsWith("led.") ||
-      name.startsWith("webrtc.") || name == "wifi.status") {
+      name.startsWith("webrtc.") || name.startsWith("ui.") || name == "wifi.status") {
     protocolEmitMsgPackEventFields(name.c_str(), level.c_str(), category.c_str(), message.c_str(), fields, fieldCount);
   }
 

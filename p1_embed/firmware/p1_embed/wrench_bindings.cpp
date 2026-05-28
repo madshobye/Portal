@@ -221,6 +221,164 @@ static String wrWifiValue(const String& key) {
 }
 
 static String g_lastInboxChannel = "";
+static String g_lastUiEventId = "";
+static String g_lastUiEventType = "";
+static String g_lastUiEventText = "";
+static int g_lastUiEventValue = 0;
+
+struct P1UiInputEvent {
+  char id[P1_EMBED_UI_ID_MAX];
+  char type[P1_EMBED_UI_TYPE_MAX];
+  char text[P1_EMBED_UI_TEXT_MAX];
+  int value;
+};
+
+struct P1UiStateEntry {
+  char id[P1_EMBED_UI_ID_MAX];
+  char text[P1_EMBED_UI_TEXT_MAX];
+  int value;
+  bool used;
+  bool changed;
+};
+
+static portMUX_TYPE g_uiInputMux = portMUX_INITIALIZER_UNLOCKED;
+static P1UiInputEvent g_uiEvents[P1_EMBED_UI_EVENT_DEPTH];
+static P1UiStateEntry g_uiStates[P1_EMBED_UI_STATE_MAX];
+static uint8_t g_uiEventHead = 0;
+static uint8_t g_uiEventTail = 0;
+static uint8_t g_uiEventCount = 0;
+static uint32_t g_uiInputDrops = 0;
+
+static void uiCopy(char* dst, size_t len, const String& src) {
+  if (!dst || len == 0) return;
+  strncpy(dst, src.c_str(), len - 1);
+  dst[len - 1] = 0;
+}
+
+static bool uiParseInput(const String& channel, const String& message, P1UiInputEvent& event) {
+  if (channel != "ui" && !channel.startsWith("ui.") && !channel.startsWith("ui:")) return false;
+  String id = channel == "ui" ? String("system") : channel.substring(3);
+  id.trim();
+  if (!id.length()) id = "system";
+
+  String type = "message";
+  int value = 0;
+  if (message.startsWith("set:")) {
+    type = "set";
+    value = message.substring(4).toInt();
+  } else if (message == "press") {
+    type = "press";
+    value = 1;
+  } else if (message == "hello" || message == "refresh") {
+    type = "hello";
+  }
+
+  uiCopy(event.id, sizeof(event.id), id);
+  uiCopy(event.type, sizeof(event.type), type);
+  uiCopy(event.text, sizeof(event.text), message);
+  event.value = value;
+  return true;
+}
+
+static int uiFindStateLocked(const char* id) {
+  for (int i = 0; i < P1_EMBED_UI_STATE_MAX; i++) {
+    if (g_uiStates[i].used && strncmp(g_uiStates[i].id, id, P1_EMBED_UI_ID_MAX) == 0) return i;
+  }
+  return -1;
+}
+
+static int uiFindOrCreateStateLocked(const char* id) {
+  int index = uiFindStateLocked(id);
+  if (index >= 0) return index;
+  for (int i = 0; i < P1_EMBED_UI_STATE_MAX; i++) {
+    if (!g_uiStates[i].used) {
+      g_uiStates[i].used = true;
+      strncpy(g_uiStates[i].id, id, sizeof(g_uiStates[i].id) - 1);
+      g_uiStates[i].id[sizeof(g_uiStates[i].id) - 1] = 0;
+      g_uiStates[i].text[0] = 0;
+      g_uiStates[i].value = 0;
+      g_uiStates[i].changed = false;
+      return i;
+    }
+  }
+  return -1;
+}
+
+bool uiInputIsChannel(const String& channel) {
+  return channel == "ui" || channel.startsWith("ui.") || channel.startsWith("ui:");
+}
+
+bool uiInputPush(const String& channel, const String& message) {
+  P1UiInputEvent event;
+  if (!uiParseInput(channel, message, event)) return false;
+
+  portENTER_CRITICAL(&g_uiInputMux);
+  int stateIndex = uiFindOrCreateStateLocked(event.id);
+  if (stateIndex >= 0) {
+    if (strncmp(event.type, "set", sizeof(event.type)) == 0) {
+      g_uiStates[stateIndex].value = event.value;
+      g_uiStates[stateIndex].changed = true;
+    }
+    strncpy(g_uiStates[stateIndex].text, event.text, sizeof(g_uiStates[stateIndex].text) - 1);
+    g_uiStates[stateIndex].text[sizeof(g_uiStates[stateIndex].text) - 1] = 0;
+  }
+
+  if (g_uiEventCount >= P1_EMBED_UI_EVENT_DEPTH) {
+    g_uiEventTail = (uint8_t)((g_uiEventTail + 1) % P1_EMBED_UI_EVENT_DEPTH);
+    g_uiEventCount--;
+    g_uiInputDrops++;
+  }
+  g_uiEvents[g_uiEventHead] = event;
+  g_uiEventHead = (uint8_t)((g_uiEventHead + 1) % P1_EMBED_UI_EVENT_DEPTH);
+  g_uiEventCount++;
+  portEXIT_CRITICAL(&g_uiInputMux);
+  return true;
+}
+
+static bool uiInputPop(P1UiInputEvent& event) {
+  portENTER_CRITICAL(&g_uiInputMux);
+  if (g_uiEventCount == 0) {
+    portEXIT_CRITICAL(&g_uiInputMux);
+    return false;
+  }
+  event = g_uiEvents[g_uiEventTail];
+  g_uiEventTail = (uint8_t)((g_uiEventTail + 1) % P1_EMBED_UI_EVENT_DEPTH);
+  g_uiEventCount--;
+  portEXIT_CRITICAL(&g_uiInputMux);
+  return true;
+}
+
+uint32_t uiInputQueued() {
+  portENTER_CRITICAL(&g_uiInputMux);
+  uint32_t count = g_uiEventCount;
+  portEXIT_CRITICAL(&g_uiInputMux);
+  return count;
+}
+
+uint32_t uiInputDrops() {
+  return g_uiInputDrops;
+}
+
+static int uiInputValue(const String& id, int fallback) {
+  char idBuf[P1_EMBED_UI_ID_MAX];
+  uiCopy(idBuf, sizeof(idBuf), id);
+  portENTER_CRITICAL(&g_uiInputMux);
+  int index = uiFindStateLocked(idBuf);
+  int value = index >= 0 ? g_uiStates[index].value : fallback;
+  portEXIT_CRITICAL(&g_uiInputMux);
+  return value;
+}
+
+static bool uiInputChanged(const String& id) {
+  char idBuf[P1_EMBED_UI_ID_MAX];
+  uiCopy(idBuf, sizeof(idBuf), id);
+  portENTER_CRITICAL(&g_uiInputMux);
+  int index = uiFindStateLocked(idBuf);
+  bool changed = index >= 0 && g_uiStates[index].changed;
+  if (index >= 0) g_uiStates[index].changed = false;
+  portEXIT_CRITICAL(&g_uiInputMux);
+  return changed;
+}
 
 static void w_p1_print(WRContext*, const WRValue* argv, const int argn, WRValue& retVal, void*) {
   char buf[512];
@@ -828,6 +986,221 @@ static void w_p1_emitJson(WRContext*, const WRValue* argv, const int argn, WRVal
   wrRetInt(retVal, 0);
 }
 
+enum P1UiCommand : int {
+  P1_UI_INIT = 0,
+  P1_UI_ADD_SLIDER = 1,
+  P1_UI_ADD_BUTTON = 2,
+  P1_UI_ADD_TOGGLE = 4,
+  P1_UI_CLEAR_LABEL = 7,
+  P1_UI_ADD_WAVEFORM = 9,
+  P1_UI_ADD_COLUMN = 10,
+  P1_UI_ADD_SPACER = 11,
+  P1_UI_ADD_LABEL = 12,
+  P1_UI_ADD_MOVING_GRAPH = 13,
+  P1_UI_SET_VALUE = 20,
+  P1_UI_SET_COLOR = 21,
+};
+
+static uint16_t g_uiAutoItemCounter = 0;
+
+static String wrUiAutoId(const char* prefix) {
+  String id(prefix && prefix[0] ? prefix : "item");
+  id += String(g_uiAutoItemCounter++);
+  return id;
+}
+
+static String wrUiId(const WRValue* argv, int argn, int idx, const char* fallback) {
+  String id = wrArgStringValue(argv, argn, idx);
+  id.trim();
+  if (!id.length()) id = fallback ? fallback : "item";
+  return id;
+}
+
+static void wrUiEmitItem(int cmd, const char* type, const String& id, const String& label, int value, int minValue, int maxValue) {
+  P1EventField fields[] = {
+    p1FieldInt("cmd", cmd),
+    p1FieldString("id", id),
+    p1FieldString("type", type ? type : "value"),
+    p1FieldString("label", label.length() ? label : id),
+    p1FieldInt("value", value),
+    p1FieldInt("min", minValue),
+    p1FieldInt("max", maxValue),
+  };
+  protocolEmitEventFields("ui.item", fields, 7);
+}
+
+static void w_p1_uiBegin(WRContext*, const WRValue* argv, const int argn, WRValue& retVal, void*) {
+  String title = wrArgStringValue(argv, argn, 0);
+  if (!title.length()) title = "Live UI";
+  g_uiAutoItemCounter = 0;
+  P1EventField fields[] = {
+    p1FieldInt("cmd", P1_UI_INIT),
+    p1FieldString("title", title),
+  };
+  protocolEmitEventFields("ui.reset", fields, 2);
+  wrRetInt(retVal, 1);
+}
+
+static void w_p1_uiClear(WRContext*, const WRValue*, const int, WRValue& retVal, void*) {
+  g_uiAutoItemCounter = 0;
+  P1EventField fields[] = {
+    p1FieldInt("cmd", P1_UI_INIT),
+  };
+  protocolEmitEventFields("ui.reset", fields, 1);
+  wrRetInt(retVal, 1);
+}
+
+static void w_p1_uiLabel(WRContext*, const WRValue* argv, const int argn, WRValue& retVal, void*) {
+  String id = wrUiId(argv, argn, 0, "label");
+  String label = wrArgStringValue(argv, argn, 1);
+  if (!label.length()) label = id;
+  P1EventField fields[] = {
+    p1FieldInt("cmd", P1_UI_ADD_LABEL),
+    p1FieldString("id", id),
+    p1FieldString("type", "label"),
+    p1FieldString("label", label),
+    p1FieldString("text", label),
+  };
+  protocolEmitEventFields("ui.item", fields, 5);
+  wrRetInt(retVal, 1);
+}
+
+static void w_p1_uiButton(WRContext*, const WRValue* argv, const int argn, WRValue& retVal, void*) {
+  String id = wrUiId(argv, argn, 0, "button");
+  String label = wrArgStringValue(argv, argn, 1);
+  wrUiEmitItem(P1_UI_ADD_BUTTON, "button", id, label, 0, 0, 1);
+  wrRetInt(retVal, 1);
+}
+
+static void w_p1_uiToggle(WRContext*, const WRValue* argv, const int argn, WRValue& retVal, void*) {
+  String id = wrUiId(argv, argn, 0, "toggle");
+  String label = wrArgStringValue(argv, argn, 1);
+  int value = wrArgInt(argv, argn, 2, 0);
+  wrUiEmitItem(P1_UI_ADD_TOGGLE, "toggle", id, label, value ? 1 : 0, 0, 1);
+  wrRetInt(retVal, 1);
+}
+
+static void w_p1_uiSlider(WRContext*, const WRValue* argv, const int argn, WRValue& retVal, void*) {
+  String id = wrUiId(argv, argn, 0, "slider");
+  String label = wrArgStringValue(argv, argn, 1);
+  int value = wrArgInt(argv, argn, 2, 0);
+  int minValue = wrArgInt(argv, argn, 3, 0);
+  int maxValue = wrArgInt(argv, argn, 4, 100);
+  wrUiEmitItem(P1_UI_ADD_SLIDER, "slider", id, label, value, minValue, maxValue);
+  wrRetInt(retVal, 1);
+}
+
+static void w_p1_uiValue(WRContext*, const WRValue* argv, const int argn, WRValue& retVal, void*) {
+  String id = wrUiId(argv, argn, 0, "value");
+  String label = wrArgStringValue(argv, argn, 1);
+  int value = wrArgInt(argv, argn, 2, 0);
+  int minValue = wrArgInt(argv, argn, 3, 0);
+  int maxValue = wrArgInt(argv, argn, 4, 100);
+  wrUiEmitItem(P1_UI_SET_VALUE, "value", id, label, value, minValue, maxValue);
+  wrRetInt(retVal, 1);
+}
+
+static void w_p1_uiGraph(WRContext*, const WRValue* argv, const int argn, WRValue& retVal, void*) {
+  String id = wrUiId(argv, argn, 0, "graph");
+  String label = wrArgStringValue(argv, argn, 1);
+  int value = wrArgInt(argv, argn, 2, 0);
+  int minValue = wrArgInt(argv, argn, 3, 0);
+  int maxValue = wrArgInt(argv, argn, 4, 100);
+  wrUiEmitItem(P1_UI_ADD_MOVING_GRAPH, "graph", id, label, value, minValue, maxValue);
+  wrRetInt(retVal, 1);
+}
+
+static void w_p1_uiSpacer(WRContext*, const WRValue* argv, const int argn, WRValue& retVal, void*) {
+  String id = argn >= 2 ? wrUiId(argv, argn, 0, "spacer") : wrUiAutoId("spacer");
+  int size = constrain(wrArgInt(argv, argn, argn >= 2 ? 1 : 0, 1), 1, 3);
+  wrUiEmitItem(P1_UI_ADD_SPACER, "spacer", id, "", size, 1, 3);
+  wrRetInt(retVal, 1);
+}
+
+static void w_p1_uiColumn(WRContext*, const WRValue*, const int, WRValue& retVal, void*) {
+  String id = wrUiAutoId("column");
+  wrUiEmitItem(P1_UI_ADD_COLUMN, "column", id, "", 0, 0, 1);
+  wrRetInt(retVal, 1);
+}
+
+static void w_p1_uiColor(WRContext*, const WRValue* argv, const int argn, WRValue& retVal, void*) {
+  int r = constrain(wrArgInt(argv, argn, 0, 127), 0, 255);
+  int g = constrain(wrArgInt(argv, argn, 1, 208), 0, 255);
+  int b = constrain(wrArgInt(argv, argn, 2, 223), 0, 255);
+  P1EventField fields[] = {
+    p1FieldInt("cmd", P1_UI_SET_COLOR),
+    p1FieldInt("r", r),
+    p1FieldInt("g", g),
+    p1FieldInt("b", b),
+  };
+  protocolEmitEventFields("ui.style", fields, 4);
+  wrRetInt(retVal, 1);
+}
+
+static void w_p1_uiUpdate(WRContext*, const WRValue* argv, const int argn, WRValue& retVal, void*) {
+  String id = wrUiId(argv, argn, 0, "value");
+  int value = wrArgInt(argv, argn, 1, 0);
+  P1EventField fields[] = {
+    p1FieldInt("cmd", P1_UI_SET_VALUE),
+    p1FieldString("id", id),
+    p1FieldInt("value", value),
+  };
+  protocolEmitEventFields("ui.value", fields, 3);
+  wrRetInt(retVal, 1);
+}
+
+static void w_p1_uiText(WRContext*, const WRValue* argv, const int argn, WRValue& retVal, void*) {
+  String id = wrUiId(argv, argn, 0, "label");
+  String text = wrArgStringValue(argv, argn, 1);
+  P1EventField fields[] = {
+    p1FieldInt("cmd", P1_UI_CLEAR_LABEL),
+    p1FieldString("id", id),
+    p1FieldString("text", text),
+  };
+  protocolEmitEventFields("ui.text", fields, 3);
+  wrRetInt(retVal, 1);
+}
+
+static void w_p1_uiPoll(WRContext*, const WRValue*, const int, WRValue& retVal, void*) {
+  P1UiInputEvent event;
+  if (!uiInputPop(event)) {
+    wrRetInt(retVal, 0);
+    return;
+  }
+  g_lastUiEventId = event.id;
+  g_lastUiEventType = event.type;
+  g_lastUiEventText = event.text;
+  g_lastUiEventValue = event.value;
+  wrRetInt(retVal, 1);
+}
+
+static void w_p1_uiEventId(WRContext* ctx, const WRValue*, const int, WRValue& retVal, void*) {
+  wrRetString(ctx, retVal, g_lastUiEventId);
+}
+
+static void w_p1_uiEventType(WRContext* ctx, const WRValue*, const int, WRValue& retVal, void*) {
+  wrRetString(ctx, retVal, g_lastUiEventType);
+}
+
+static void w_p1_uiEventValue(WRContext*, const WRValue*, const int, WRValue& retVal, void*) {
+  wrRetInt(retVal, g_lastUiEventValue);
+}
+
+static void w_p1_uiEventText(WRContext* ctx, const WRValue*, const int, WRValue& retVal, void*) {
+  wrRetString(ctx, retVal, g_lastUiEventText);
+}
+
+static void w_p1_uiGet(WRContext*, const WRValue* argv, const int argn, WRValue& retVal, void*) {
+  String id = wrUiId(argv, argn, 0, "value");
+  int fallback = wrArgInt(argv, argn, 1, 0);
+  wrRetInt(retVal, uiInputValue(id, fallback));
+}
+
+static void w_p1_uiChanged(WRContext*, const WRValue* argv, const int argn, WRValue& retVal, void*) {
+  String id = wrUiId(argv, argn, 0, "value");
+  wrRetInt(retVal, uiInputChanged(id) ? 1 : 0);
+}
+
 static void w_p1_statusGet(WRContext* ctx, const WRValue* argv, const int argn, WRValue& retVal, void*) {
   wrRetString(ctx, retVal, wrStatusValue(wrArgStringValue(argv, argn, 0)));
 }
@@ -961,6 +1334,11 @@ const char* wrenchBindingNameForHash(uint32_t hash) {
     "wifiStatus", "wifiConnect", "wifiDisconnect", "reboot",
     "inboxAvailable", "inboxRead", "inboxChannel", "inboxClear",
     "inboxDrops", "lastError", "clearError",
+    "uiBegin", "uiClear", "uiLabel", "uiButton", "uiToggle", "uiSlider",
+    "uiValue", "uiGraph", "uiSpacer", "uiColumn", "uiColor",
+    "uiUpdate", "uiText", "uiPoll",
+    "uiEventId", "uiEventType", "uiEventValue", "uiEventText",
+    "uiGet", "uiChanged",
   };
   for (size_t i = 0; i < sizeof(names) / sizeof(names[0]); i++) {
     if ((uint32_t)wr_hashStr(names[i]) == hash) return names[i];
@@ -1072,6 +1450,26 @@ void wrenchRegisterBindings(WRState* wr) {
   wr_registerFunction(wr, "inboxDrops", w_p1_inboxDrops);
   wr_registerFunction(wr, "lastError", w_p1_lastError);
   wr_registerFunction(wr, "clearError", w_p1_clearError);
+  wr_registerFunction(wr, "uiBegin", w_p1_uiBegin);
+  wr_registerFunction(wr, "uiClear", w_p1_uiClear);
+  wr_registerFunction(wr, "uiLabel", w_p1_uiLabel);
+  wr_registerFunction(wr, "uiButton", w_p1_uiButton);
+  wr_registerFunction(wr, "uiToggle", w_p1_uiToggle);
+  wr_registerFunction(wr, "uiSlider", w_p1_uiSlider);
+  wr_registerFunction(wr, "uiValue", w_p1_uiValue);
+  wr_registerFunction(wr, "uiGraph", w_p1_uiGraph);
+  wr_registerFunction(wr, "uiSpacer", w_p1_uiSpacer);
+  wr_registerFunction(wr, "uiColumn", w_p1_uiColumn);
+  wr_registerFunction(wr, "uiColor", w_p1_uiColor);
+  wr_registerFunction(wr, "uiUpdate", w_p1_uiUpdate);
+  wr_registerFunction(wr, "uiText", w_p1_uiText);
+  wr_registerFunction(wr, "uiPoll", w_p1_uiPoll);
+  wr_registerFunction(wr, "uiEventId", w_p1_uiEventId);
+  wr_registerFunction(wr, "uiEventType", w_p1_uiEventType);
+  wr_registerFunction(wr, "uiEventValue", w_p1_uiEventValue);
+  wr_registerFunction(wr, "uiEventText", w_p1_uiEventText);
+  wr_registerFunction(wr, "uiGet", w_p1_uiGet);
+  wr_registerFunction(wr, "uiChanged", w_p1_uiChanged);
 
   wr_registerLibraryConstant(wr, "INPUT", (int32_t)INPUT);
   wr_registerLibraryConstant(wr, "OUTPUT", (int32_t)OUTPUT);

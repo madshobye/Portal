@@ -240,6 +240,7 @@ void wrenchBeginTransition(const String& reason);
 void wrenchEndTransition();
 bool wrenchCompileAndSet(const String& userCode, String& errOut);
 bool wrenchRunCompiled(String& errOut);
+bool wrenchHasCompiledProgram();
 void wrenchRequestRun();
 bool wrenchRunIsPending();
 bool wrenchCompileAndRun(const String& userCode, String& errOut);
@@ -252,6 +253,11 @@ bool wrenchInboxRead(String& channelOut, String& messageOut);
 uint32_t wrenchInboxAvailable();
 uint32_t wrenchInboxDrops();
 void wrenchInboxClear();
+
+bool uiInputIsChannel(const String& channel);
+bool uiInputPush(const String& channel, const String& message);
+uint32_t uiInputQueued();
+uint32_t uiInputDrops();
 
 void pwmManagerBegin();
 bool pwmAnalogWrite(int pin, int value);

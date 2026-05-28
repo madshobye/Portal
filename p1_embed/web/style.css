@@ -140,6 +140,18 @@ textarea {
   padding: 12px;
 }
 
+#circuit-view {
+  grid-template-rows: auto minmax(0, 1fr);
+  gap: 10px;
+  padding: 12px;
+}
+
+#ui-view {
+  grid-template-rows: auto minmax(0, 1fr);
+  gap: 10px;
+  padding: 12px;
+}
+
 .coding-main {
   display: grid;
   grid-template-rows: auto minmax(300px, 1fr) minmax(160px, 30vh);
@@ -162,6 +174,29 @@ textarea {
   align-items: center;
   gap: 7px;
   min-width: 0;
+}
+
+.circuit-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+}
+
+.ui-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+}
+
+.circuit-status {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .upload-status {
@@ -660,6 +695,173 @@ input {
 #raw-input {
   color: var(--muted);
   font-size: 10px;
+}
+
+.circuit-shell {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(250px, 320px);
+  gap: 10px;
+  min-width: 0;
+  min-height: 0;
+}
+
+.circuit-canvas {
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: #141516;
+  box-shadow: 0 14px 40px rgba(0, 0, 0, 0.28);
+}
+
+.circuit-canvas canvas {
+  display: block;
+}
+
+.circuit-side {
+  display: grid;
+  grid-template-rows: auto auto minmax(0, auto) minmax(120px, 1fr);
+  align-content: start;
+  gap: 9px;
+  min-width: 0;
+  min-height: 0;
+}
+
+.circuit-panel,
+.circuit-json-panel {
+  min-width: 0;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--surface);
+}
+
+.circuit-panel {
+  padding: 9px;
+}
+
+.circuit-panel header,
+.circuit-json-panel summary {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+  color: var(--text);
+  font-size: 12px;
+}
+
+.circuit-panel header {
+  margin-bottom: 7px;
+}
+
+.circuit-panel .material-symbols-rounded,
+.circuit-json-panel .material-symbols-rounded {
+  color: var(--muted);
+  font-size: 18px;
+}
+
+.circuit-list {
+  display: grid;
+  gap: 5px;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.circuit-list li {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+  min-width: 0;
+}
+
+.circuit-assumptions li {
+  display: block;
+}
+
+.circuit-list strong {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text);
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.circuit-list span {
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.circuit-pin-info {
+  min-height: 34px;
+  margin: 0;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.35;
+}
+
+.circuit-json-panel {
+  min-height: 0;
+  overflow: hidden;
+}
+
+.circuit-json-panel summary {
+  min-height: 34px;
+  padding: 7px 9px;
+  cursor: pointer;
+}
+
+.circuit-json {
+  max-height: 260px;
+  min-height: 0;
+  margin: 0;
+  overflow: auto;
+  padding: 9px;
+  border-top: 1px solid var(--line-soft);
+  color: var(--muted);
+  font-size: 10px;
+  line-height: 1.35;
+  white-space: pre-wrap;
+}
+
+.ui-shell {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  min-width: 0;
+  min-height: 0;
+}
+
+.ui-canvas-frame {
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: #111314;
+  box-shadow: 0 14px 40px rgba(0, 0, 0, 0.28);
+}
+
+.ui-view.is-disconnected .ui-canvas-frame {
+  border-color: #2a2d30;
+  background: #101112;
+  box-shadow: none;
+  filter: grayscale(1);
+  opacity: 0.74;
+}
+
+.ui-canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+  touch-action: none;
+}
+
+.ui-canvas[aria-disabled="true"] {
+  cursor: default;
 }
 
 .fields {
@@ -1173,6 +1375,25 @@ input {
   .info-layout {
     grid-template-columns: minmax(0, 1fr) minmax(104px, 124px);
   }
+
+  .circuit-shell {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: minmax(300px, 1fr) auto;
+  }
+
+  .circuit-side {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-template-rows: auto auto;
+  }
+
+  .circuit-json-panel {
+    grid-column: 1 / -1;
+  }
+
+  .ui-shell {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: minmax(300px, 1fr);
+  }
 }
 
 @media (max-width: 520px) {
@@ -1187,4 +1408,13 @@ input {
   .info-share {
     display: none;
   }
+
+  .circuit-side {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .circuit-json-panel {
+    grid-column: auto;
+  }
+
 }

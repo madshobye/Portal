@@ -206,6 +206,109 @@ The host can send messages into a running script.
 - `inboxClear()`.
 - `inboxDrops()`.
 
+## Firmware-Driven UI
+
+The browser has a UI view for Guino-style live interfaces. The sketch owns the interface: it declares controls, pumps incoming UI events, and streams live values back to the browser. The browser renders the UI on a dark canvas and sends button, toggle, and slider interactions back through the compact MessagePack transport. Serial receives the same concepts as JSON lines only at the transport boundary.
+
+Use this lifecycle:
+
+- Declare the interface in a small `drawUi()` function.
+- Call `drawUi()` from `setup()`.
+- Call `drawUi()` again only when `uiEventType() == "hello"` so a newly connected browser can rebuild the view.
+- Browser slider and toggle input is captured in the firmware background as state. Use `uiGet(id, fallback)` to read the latest value without manually polling the input queue.
+- Use `uiChanged(id)` when code should react only once to a changed slider or toggle value.
+- Use `while (uiPoll()) { ... }` when a sketch needs edge-style events such as button presses or browser `hello` redraw requests.
+- During normal runtime, stream live sensor/graph/value changes with `uiUpdate(id, value)`.
+- Do not call `uiBegin()` after every button, toggle, slider, or graph update. `uiBegin()` resets the interface; `uiUpdate()` changes values.
+
+UI layout and value bindings:
+
+- `uiBegin(title)` clears the current UI view and starts a new interface.
+- `uiClear()` clears the UI view.
+- `uiLabel(id, text)`.
+- `uiButton(id, label)`.
+- `uiToggle(id, label, value)`.
+- `uiSlider(id, label, value, min, max)`.
+- `uiValue(id, label, value, min, max)`.
+- `uiGraph(id, label, value, min, max)`.
+- `uiSpacer(size)` or `uiSpacer(id, size)` adds a visual spacer. Size is `1`, `2`, or `3`.
+- `uiColumn()` requests a column break in wider layouts.
+- `uiColor(r, g, b)` sets the UI accent color.
+- `uiUpdate(id, value)` updates a numeric value, slider, toggle, gauge, or graph.
+- `uiText(id, text)` updates label text.
+
+UI input bindings:
+
+- `uiPoll()` returns `1` when a UI input is available and loads that input into the `uiEvent...` accessors.
+- `uiEventId()` returns the control id, such as `speed` or `start`.
+- `uiEventType()` returns `set`, `press`, `hello`, or `message`.
+- `uiEventValue()` returns the numeric value for sliders and toggles.
+- `uiEventText()` returns the raw compact input text.
+- `uiGet(id, fallback)` returns the latest background value for a slider or toggle, or `fallback` when the browser has not sent a value yet.
+- `uiChanged(id)` returns `1` once after a browser slider or toggle update, then clears that changed flag.
+
+Always wrap event-style UI input handling in `while (uiPoll()) { ... }`. Calling `uiEventId()`, `uiEventType()`, or `uiEventValue()` without first calling `uiPoll()` will keep reading the previous event, or no event at all. For simple toggles and sliders, prefer `uiGet()`.
+
+```wrench
+// Streams an analog value to the UI and lets the browser control the refresh speed.
+var sensorPin = 34;
+var delayMs = 80;
+var running = 1;
+var lastUpdate = 0;
+
+function drawUi() {
+  uiBegin("Sensor Panel");
+  uiColor(127, 208, 223);
+  uiLabel("sliders", "SLIDERS");
+  uiGraph("sensor", "Analog", 0, 0, 4095);
+  uiColumn();
+  uiSlider("speed", "Delay", delayMs, 10, 300);
+  uiToggle("running", "Running", running);
+  uiButton("mark", "Mark");
+}
+
+function setup() {
+  drawUi();
+  println("ui sensor ready");
+}
+
+function loop() {
+  while (uiPoll()) {
+    if (uiEventType() == "hello") drawUi();
+    if (uiEventId() == "mark" && uiEventType() == "press") println("mark");
+  }
+
+  delayMs = uiGet("speed", delayMs);
+  running = uiGet("running", running);
+
+  if (running && (millis() - lastUpdate) >= delayMs) {
+    lastUpdate = millis();
+    uiUpdate("sensor", analogRead(sensorPin));
+  }
+  delay(10);
+}
+```
+
 ## Output Preference
 
 When asked to generate code, return a complete Wrench sketch and keep explanatory text short. Every generated sketch should start with one short `//` comment explaining what the sketch does. Also provide a short `sketch_name` of 2-5 words, such as `Blue Chase`, `Weather Coat Lights`, or `Fan PWM Test`; this name is shown in the browser history dropdown. Put normal assumptions and caveats in notes. Use warnings only for immediate, concrete risks such as unsafe pins, high current LED loads, blocking code, destructive commands, missing credentials, or likely firmware/resource failure.
+
+The browser also has a Circuit view. For generated hardware sketches, provide a `circuit_layout` object with this shape:
+
+```json
+{
+  "version": "0.1",
+  "board": { "type": "esp32-classic" },
+  "components": [
+    { "id": "button-27", "type": "button", "label": "Button", "pin": "27", "pins": { "signal": "27" }, "confidence": 0.9 }
+  ],
+  "connections": [
+    { "from": { "component": "button-27", "pin": "signal" }, "to": { "boardPin": "27" }, "label": "signal" },
+    { "from": { "component": "button-27", "pin": "gnd" }, "to": { "boardPin": "GND" }, "label": "GND" }
+  ],
+  "assumptions": ["INPUT_PULLUP means the button closes to ground."],
+  "notes": []
+}
+```
+
+Common component `type` values are `button`, `led`, `ledStrip`, `neopixelRing`, `neopixelMatrix`, `analogSensor`, `digitalSensor`, `distanceSensor`, `ultrasonicSensor`, `microphone`, `joystick`, `potentiometer`, `servo`, `fan`, `dcMotor`, `stepperMotor`, `buzzer`, `relay`, `i2cDevice`, `imu`, `uartDevice`, `mp3Player`, `touchPad`, `wifiService`, and `unknown`. Use direct wires rather than breadboard abstractions. Use `unknown` and an assumption when a connection is ambiguous. Use an empty object for `circuit_layout` when no physical wiring is involved.

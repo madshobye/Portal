@@ -1,11 +1,13 @@
-import { ProtocolClient } from "./protocol/ProtocolClient.js?v=0.1.87-ui137";
-import { canEncodeCommand } from "./protocol/P1MsgPack.js?v=0.1.87-ui137";
-import { WebSerialTransport } from "./protocol/WebSerialTransport.js?v=0.1.87-ui137";
+import { ProtocolClient } from "./protocol/ProtocolClient.js?v=0.1.87-ui147";
+import { canEncodeCommand } from "./protocol/P1MsgPack.js?v=0.1.87-ui147";
+import { WebSerialTransport } from "./protocol/WebSerialTransport.js?v=0.1.87-ui147";
 import { WebSocketTransport } from "./protocol/WebSocketTransport.js";
-import { MqttWebRtcTransport, MQTT_WEBRTC_TRANSPORT_VERSION } from "./protocol/MqttWebRtcTransport.js?v=0.1.87-ui137";
-import { P1WebFlasher } from "./web-flasher.js?v=0.1.87-ui137";
+import { MqttWebRtcTransport, MQTT_WEBRTC_TRANSPORT_VERSION } from "./protocol/MqttWebRtcTransport.js?v=0.1.87-ui147";
+import { P1WebFlasher } from "./web-flasher.js?v=0.1.87-ui147";
+import { inferCircuitLayout, initCircuitView, normalizeCircuitLayout } from "./circuit.js?v=0.1.87-ui147";
+import { initGuinoView } from "./guino.js?v=0.1.87-ui147";
 
-const WEB_UI_VERSION = "0.1.87-ui137";
+const WEB_UI_VERSION = "0.1.87-ui147";
 console.info(`[P1E web] loaded ${WEB_UI_VERSION}`, { mqttWebRtc: MQTT_WEBRTC_TRANSPORT_VERSION });
 
 const defaultCode = `function setup() {
@@ -72,6 +74,8 @@ const els = {
   views: {
     coding: document.querySelector("#coding-view"),
     chat: document.querySelector("#chat-view"),
+    circuit: document.querySelector("#circuit-view"),
+    ui: document.querySelector("#ui-view"),
     install: document.querySelector("#install-view"),
   },
   brandVersion: document.querySelector("#brand-version"),
@@ -137,6 +141,17 @@ const els = {
   chatForm: document.querySelector("#chat-form"),
   chatInput: document.querySelector("#chat-input"),
   chatSend: document.querySelector("#chat-send-button"),
+  circuitRefresh: document.querySelector("#circuit-refresh-button"),
+  circuitCopy: document.querySelector("#circuit-copy-button"),
+  circuitStatus: document.querySelector("#circuit-status"),
+  circuitCanvas: document.querySelector("#circuit-canvas"),
+  circuitComponents: document.querySelector("#circuit-components"),
+  circuitAssumptions: document.querySelector("#circuit-assumptions"),
+  circuitJson: document.querySelector("#circuit-json"),
+  circuitPinInfo: document.querySelector("#circuit-pin-info"),
+  uiConnect: document.querySelector("#ui-connect-button"),
+  uiCopyLink: document.querySelector("#ui-copy-link-button"),
+  uiCanvas: document.querySelector("#ui-canvas"),
   installConnect: document.querySelector("#install-connect-button"),
   installFlashManifest: document.querySelector("#install-flash-manifest-button"),
   installGoCode: document.querySelector("#install-go-code-button"),
@@ -185,6 +200,10 @@ let currentSketchName = "";
 let currentSketchSource = "";
 let currentSketchVersionName = "";
 let currentSketchDirty = false;
+let circuitView = null;
+let circuitChatLayout = null;
+let circuitUpdateTimer = null;
+let guinoView = null;
 
 boot();
 
@@ -198,6 +217,8 @@ function boot() {
   bindControls();
   bindLifecycle();
   initChat();
+  initCircuit();
+  initGuino();
   migrateConnectionHistory();
   renderConnectionHistory();
   renderSketchHistory();
@@ -251,6 +272,8 @@ function handleEditorInput() {
   clearEditorError();
   if (suppressEditorPersist) return;
   localStorage.setItem(storage.code, getEditorValue());
+  circuitChatLayout = null;
+  scheduleCircuitUpdate();
   updateCurrentSketchDirty();
   updateEnabledState();
 }
@@ -270,6 +293,7 @@ function setEditorValue(value, { persist = true } = {}) {
     suppressEditorPersist = false;
   }
   if (persist) localStorage.setItem(storage.code, value);
+  scheduleCircuitUpdate();
   updateEnabledState();
 }
 
@@ -329,6 +353,13 @@ function bindControls() {
   });
   els.chatDebugPrompt.addEventListener("click", toggleChatDebugPrompt);
   els.chatClear.addEventListener("click", clearChat);
+  els.circuitRefresh?.addEventListener("click", () => {
+    circuitChatLayout = null;
+    updateCircuitView("inferred from code");
+  });
+  els.circuitCopy?.addEventListener("click", copyCircuitJson);
+  els.uiConnect?.addEventListener("click", toggleConnection);
+  els.uiCopyLink?.addEventListener("click", copyGuinoLink);
   els.installConnect?.addEventListener("click", () => runInstallAction(connectFlasher));
   els.installFlashManifest.addEventListener("click", () => runInstallAction(flashInstallManifest));
   els.installGoCode.addEventListener("click", () => switchTab("coding"));
@@ -349,6 +380,7 @@ function switchTab(name) {
   els.tabs.forEach((tab) => tab.classList.toggle("is-active", tab.dataset.tab === name));
   Object.entries(els.views).forEach(([key, view]) => view.classList.toggle("is-active", key === name));
   localStorage.setItem(storage.activeTab, name);
+  updateViewUrlParam(name);
   if (name === "coding" && editor) {
     requestAnimationFrame(() => {
       editor.resize(true);
@@ -356,16 +388,111 @@ function switchTab(name) {
     });
   }
   if (name === "chat") renderChatTranscript();
+  if (name === "circuit") {
+    updateCircuitView();
+    requestAnimationFrame(() => circuitView?.resize?.());
+  }
+  if (name === "ui") {
+    requestAnimationFrame(() => guinoView?.resize?.());
+    if (isDeviceConnected()) requestGuinoRefresh({ quiet: true });
+  }
 }
 
 function restoreActiveTab() {
-  switchTab(localStorage.getItem(storage.activeTab) || "chat");
+  const params = new URLSearchParams(window.location.search);
+  const requested = params.get("view") || params.get("tab");
+  switchTab(requested || localStorage.getItem(storage.activeTab) || "chat");
+}
+
+function updateViewUrlParam(name) {
+  if (!window.history?.replaceState) return;
+  const url = new URL(window.location.href);
+  url.searchParams.set("view", name);
+  window.history.replaceState(null, "", url.toString());
 }
 
 function switchLowerPanel(name) {
   els.lowerTabs.forEach((tab) => tab.classList.toggle("is-active", tab.dataset.panel === name));
   Object.entries(els.lowerPanels).forEach(([key, panel]) => panel.classList.toggle("is-active", key === name));
   els.consoleActions.classList.toggle("is-hidden", name !== "console");
+}
+
+function initCircuit() {
+  circuitView = initCircuitView({
+    mount: els.circuitCanvas,
+    componentList: els.circuitComponents,
+    assumptions: els.circuitAssumptions,
+    json: els.circuitJson,
+    pinInfo: els.circuitPinInfo,
+  });
+  updateCircuitView("inferred from code");
+}
+
+function scheduleCircuitUpdate() {
+  window.clearTimeout(circuitUpdateTimer);
+  circuitUpdateTimer = window.setTimeout(() => {
+    if (els.views.circuit?.classList.contains("is-active")) updateCircuitView();
+  }, 360);
+}
+
+function updateCircuitView(status = "") {
+  if (!circuitView) return;
+  const model = inferCircuitLayout(getEditorValue(), circuitChatLayout);
+  circuitView.setModel(model);
+  if (els.circuitStatus) {
+    const count = model.components?.length || 0;
+    els.circuitStatus.textContent = status || `${count} part${count === 1 ? "" : "s"} inferred`;
+  }
+}
+
+async function copyCircuitJson() {
+  const text = els.circuitJson?.textContent || "";
+  if (!text) return;
+  try {
+    await navigator.clipboard.writeText(text);
+    logLine("info", "circuit JSON copied");
+  } catch {
+    downloadTextFile(text, `p1e-circuit-${timestampForFilename()}.json`, "application/json;charset=utf-8");
+  }
+}
+
+function initGuino() {
+  guinoView = initGuinoView({
+    canvas: els.uiCanvas,
+    sendInput: sendGuinoInput,
+    requestRefresh: () => requestGuinoRefresh({ quiet: false }),
+  });
+}
+
+async function sendGuinoInput({ id, type, value }) {
+  if (!isDeviceConnected()) throw new Error("UI is not connected");
+  const channel = `ui.${String(id || "system").trim() || "system"}`;
+  const message = type === "set" ? `set:${Math.round(Number(value) || 0)}` : String(type || "press");
+  await sendCommand("script.input", { channel, message }, { timeoutMs: 5000, quiet: true });
+}
+
+async function requestGuinoRefresh({ quiet = false } = {}) {
+  if (!isDeviceConnected()) return;
+  try {
+    await sendCommand("script.input", { channel: "ui.system", message: "hello" }, { timeoutMs: 5000, quiet: true });
+    if (!quiet) logLine("info", "asked sketch to redraw UI");
+  } catch (error) {
+    if (!quiet) logLine("warn", `UI refresh failed: ${error.message}`);
+  }
+}
+
+async function copyGuinoLink() {
+  try {
+    const peerId = normalizePeerId(els.peerId.value || transport?.remoteId || lastStatus?.webrtc?.peerId || "");
+    const hint = transport?.kind === "usb" ? readUsbHint() : null;
+    const kind = isWebRtcKind(transport?.kind) || peerId ? "webrtc" : transport?.kind === "usb" ? "usb" : "websocket";
+    const url = new URL(sharePageUrl(kind, transport?.url || els.websocketUrl.value, hint, peerId));
+    url.searchParams.set("view", "ui");
+    await navigator.clipboard.writeText(url.toString());
+    logLine("info", "UI link copied");
+  } catch (error) {
+    logLine("warn", `UI link not ready: ${error.message}`);
+  }
 }
 
 function openConnectDialog() {
@@ -1951,6 +2078,10 @@ function acceptEvent(event) {
     return;
   }
 
+  if (event.name?.startsWith("ui.")) {
+    guinoView?.acceptEvent(event.name, data);
+  }
+
   const message = eventMessage(event.name, data);
   if (shouldLogEvent(event.name, data, message)) {
     logLine(level, `${event.name}: ${message}`);
@@ -1976,6 +2107,7 @@ function acceptEvent(event) {
 }
 
 function eventLogLevel(name = "", data = {}) {
+  if (name?.startsWith("ui.")) return "debug";
   if (data.level) return data.level;
   if (name?.includes("error")) return "error";
   if (name === "script.upload") {
@@ -2017,6 +2149,14 @@ function eventMessage(name, data = {}) {
     ].filter(Boolean).join(" / ");
   }
 
+  if (name === "ui.item") {
+    return [data.type || "item", data.id || "", data.label || ""].filter(Boolean).join(" / ");
+  }
+
+  if (name === "ui.value") {
+    return [data.id || "", data.value ?? ""].filter((part) => part !== "").join(" = ");
+  }
+
   return data.message || data.code || data.status || data.state || name;
 }
 
@@ -2029,6 +2169,8 @@ function shouldLogEvent(name, data = {}, message = "") {
     const state = data.state || data.scriptState || "";
     if (busyLabel === "uploading" && (state === "stopped" || state === "compiled")) return false;
   }
+
+  if (name === "ui.value" || name === "ui.text") return false;
 
   const signature = `${name}:${message}`;
   const now = Date.now();
@@ -2584,10 +2726,23 @@ function wrenchFpsLabel() {
 
 function setConnected(isConnected) {
   els.connection.classList.toggle("is-online", isConnected);
+  syncGuinoConnectionState();
   renderConnectionState();
   updateEnabledState();
   renderConnectionHistory();
   renderFields();
+  if (isConnected && els.views.ui?.classList.contains("is-active")) requestGuinoRefresh({ quiet: true });
+}
+
+function isDeviceConnected() {
+  return Boolean(client && transport?.connected);
+}
+
+function syncGuinoConnectionState() {
+  const connected = isDeviceConnected();
+  els.views.ui?.classList.toggle("is-disconnected", !connected);
+  els.uiCanvas?.setAttribute("aria-disabled", connected ? "false" : "true");
+  guinoView?.setConnected(connected);
 }
 
 function renderConnectionState(transportState = "") {
@@ -2604,6 +2759,7 @@ function renderConnectionState(transportState = "") {
   } else {
     parts.push(scriptStatusLabel());
   }
+  parts.push(statusFpsLabel());
   parts.push(wifiStatusLabel());
   parts.push(memoryStatusLabel());
 
@@ -2632,6 +2788,10 @@ function wifiStatusLabel() {
   if (!wifi) return "";
   if (wifi.connected) return wifi.ssid ? `wifi ${wifi.ssid}` : "wifi ok";
   return `wifi ${wifi.state || "off"}`;
+}
+
+function statusFpsLabel() {
+  return wrenchFpsLabel();
 }
 
 function memoryStatusLabel() {
@@ -3000,7 +3160,7 @@ async function applyChatCode(index) {
   const message = chatMessages[index];
   const code = message?.structured?.code;
   if (!code) return;
-  await replaceEditorFromChat(code, "chat code applied to editor", message.structured?.sketch_name || "");
+  await replaceEditorFromChat(code, "chat code applied to editor", message.structured?.sketch_name || "", message.structured?.circuit_layout || null);
 }
 
 async function runChatCode(index) {
@@ -3009,16 +3169,18 @@ async function runChatCode(index) {
   if (!code) return;
   await runUiAction(async () => {
     const name = message.structured?.sketch_name || "";
-    await replaceEditorFromChat(code, "chat code prepared", name);
+    await replaceEditorFromChat(code, "chat code prepared", name, message.structured?.circuit_layout || null);
     await uploadScriptCode(code, { run: true, save: true, name });
     logLine("info", "chat code saved and running");
   }, "uploading");
 }
 
-async function replaceEditorFromChat(code, message, name = "") {
+async function replaceEditorFromChat(code, message, name = "", layout = null) {
   const current = getEditorValue();
   if (current.trim() && current !== code) await rememberUploadedSketch(current);
+  circuitChatLayout = normalizeCircuitLayout(layout);
   setEditorValue(code);
+  updateCircuitView(circuitChatLayout ? "chat layout + code inference" : "inferred from code");
   await rememberUploadedSketch(code, name);
   logLine("info", message);
 }
@@ -3038,7 +3200,10 @@ async function sendChatPrompt() {
     const result = await requestChatCompletion(prompt);
     const content = result.reply || "Done.";
     if (result.code_action === "replace" && result.code.trim()) {
-      await replaceEditorFromChat(result.code, "chat code replaced editor", result.sketch_name);
+      await replaceEditorFromChat(result.code, "chat code replaced editor", result.sketch_name, result.circuit_layout);
+    } else if (result.circuit_layout) {
+      circuitChatLayout = result.circuit_layout;
+      updateCircuitView("chat layout + code inference");
     }
     chatMessages.push({
       role: "assistant",
@@ -3144,6 +3309,8 @@ function buildChatInstructions(context) {
     "When producing code, provide a complete Wrench script that can replace the editor contents.",
     "Every generated sketch must start with a short // comment explaining what the sketch does.",
     "When producing code, also provide sketch_name: a short 2-5 word title suitable for a history dropdown.",
+    "Also provide circuit_layout: a best-effort JSON layout for the Circuit view with components, connections, assumptions, and notes. Use an empty object if no hardware is involved.",
+    "When the user asks for a live interface, dashboard, or controls, use the documented firmware-driven UI bindings in a Guino-style lifecycle: declare the interface in a drawUi() function from setup() and on hello, read slider/toggle state with uiGet(), use while (uiPoll()) for buttons and hello redraw events, and stream live values with uiUpdate(). Do not call uiBegin() after every control change.",
     "Prefer setup() and loop(). Keep loop non-blocking where reasonable. Use short delay() only when it is intentional.",
     "Avoid factory reset or destructive device actions. Do not invent firmware bindings beyond the documented P1E bindings.",
     "If the user's request is ambiguous, explain the assumption in reply and notes.",
@@ -3165,8 +3332,20 @@ function chatResponseSchema() {
       sketch_name: { type: "string" },
       notes: { type: "array", items: { type: "string" } },
       warnings: { type: "array", items: { type: "string" } },
+      circuit_layout: {
+        type: "object",
+        additionalProperties: true,
+        properties: {
+          version: { type: "string" },
+          board: { type: "object", additionalProperties: true },
+          components: { type: "array", items: { type: "object", additionalProperties: true } },
+          connections: { type: "array", items: { type: "object", additionalProperties: true } },
+          assumptions: { type: "array", items: { type: "string" } },
+          notes: { type: "array", items: { type: "string" } },
+        },
+      },
     },
-    required: ["reply", "code", "code_action", "sketch_name", "notes", "warnings"],
+    required: ["reply", "code", "code_action", "sketch_name", "notes", "warnings", "circuit_layout"],
   };
 }
 
@@ -3281,7 +3460,7 @@ function parseChatStructuredText(text) {
   }
 
   if (!parsed || typeof parsed !== "object") {
-    return { reply: raw, code: "", code_action: "none", sketch_name: "", notes: [], warnings: ["Response was not structured JSON."] };
+    return { reply: raw, code: "", code_action: "none", sketch_name: "", notes: [], warnings: ["Response was not structured JSON."], circuit_layout: null };
   }
 
   return {
@@ -3291,7 +3470,18 @@ function parseChatStructuredText(text) {
     sketch_name: normalizeSketchName(parsed.sketch_name || parsed.name || parsed.title || ""),
     notes: Array.isArray(parsed.notes) ? parsed.notes.map(String) : [],
     warnings: filterChatWarnings(parsed.warnings),
+    circuit_layout: hasCircuitLayoutContent(parsed.circuit_layout) ? normalizeCircuitLayout(parsed.circuit_layout) : null,
   };
+}
+
+function hasCircuitLayoutContent(layout) {
+  if (!layout || typeof layout !== "object") return false;
+  return Boolean(
+    (Array.isArray(layout.components) && layout.components.length)
+    || (Array.isArray(layout.connections) && layout.connections.length)
+    || (Array.isArray(layout.assumptions) && layout.assumptions.length)
+    || (Array.isArray(layout.notes) && layout.notes.length)
+  );
 }
 
 function filterChatWarnings(warnings) {
@@ -3312,9 +3502,11 @@ function filterChatWarnings(warnings) {
 }
 
 function updateEnabledState() {
-  const connected = Boolean(client && transport?.connected);
+  const connected = isDeviceConnected();
   const canDisconnectOrCancel = Boolean(client || transport || isBusy);
-  [els.connect, els.chatConnect].forEach((button) => {
+  syncGuinoConnectionState();
+  [els.connect, els.chatConnect, els.uiConnect].forEach((button) => {
+    if (!button) return;
     const connecting = isBusy && !connected;
     button.disabled = isBusy && !canDisconnectOrCancel;
     button.classList.toggle("primary", !connected && !isBusy);

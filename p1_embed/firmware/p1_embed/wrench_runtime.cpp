@@ -454,6 +454,10 @@ uint32_t wrenchTaskStackHighWater() {
   return (uint32_t)uxTaskGetStackHighWaterMark(g_wrenchTaskHandle);
 }
 
+bool wrenchHasCompiledProgram() {
+  return g_bytecode && g_bytecodeLen > 0;
+}
+
 void wrenchStop() {
   wrenchLock();
   g_wrenchRunPending = false;
