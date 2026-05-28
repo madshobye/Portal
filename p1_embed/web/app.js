@@ -1,13 +1,13 @@
-import { ProtocolClient } from "./protocol/ProtocolClient.js?v=0.1.87-ui147";
-import { canEncodeCommand } from "./protocol/P1MsgPack.js?v=0.1.87-ui147";
-import { WebSerialTransport } from "./protocol/WebSerialTransport.js?v=0.1.87-ui147";
+import { ProtocolClient } from "./protocol/ProtocolClient.js?v=0.1.87-ui155";
+import { canEncodeCommand } from "./protocol/P1MsgPack.js?v=0.1.87-ui155";
+import { WebSerialTransport } from "./protocol/WebSerialTransport.js?v=0.1.87-ui155";
 import { WebSocketTransport } from "./protocol/WebSocketTransport.js";
-import { MqttWebRtcTransport, MQTT_WEBRTC_TRANSPORT_VERSION } from "./protocol/MqttWebRtcTransport.js?v=0.1.87-ui147";
-import { P1WebFlasher } from "./web-flasher.js?v=0.1.87-ui147";
-import { inferCircuitLayout, initCircuitView, normalizeCircuitLayout } from "./circuit.js?v=0.1.87-ui147";
-import { initGuinoView } from "./guino.js?v=0.1.87-ui147";
+import { MqttWebRtcTransport, MQTT_WEBRTC_TRANSPORT_VERSION } from "./protocol/MqttWebRtcTransport.js?v=0.1.87-ui155";
+import { P1WebFlasher } from "./web-flasher.js?v=0.1.87-ui155";
+import { inferCircuitLayout, initCircuitView, normalizeCircuitLayout } from "./circuit.js?v=0.1.87-ui155";
+import { initGuinoView } from "./guino.js?v=0.1.87-ui155";
 
-const WEB_UI_VERSION = "0.1.87-ui147";
+const WEB_UI_VERSION = "0.1.87-ui155";
 console.info(`[P1E web] loaded ${WEB_UI_VERSION}`, { mqttWebRtc: MQTT_WEBRTC_TRANSPORT_VERSION });
 
 const defaultCode = `function setup() {
@@ -142,12 +142,11 @@ const els = {
   chatInput: document.querySelector("#chat-input"),
   chatSend: document.querySelector("#chat-send-button"),
   circuitRefresh: document.querySelector("#circuit-refresh-button"),
-  circuitCopy: document.querySelector("#circuit-copy-button"),
+  circuitDownload: document.querySelector("#circuit-download-button"),
   circuitStatus: document.querySelector("#circuit-status"),
   circuitCanvas: document.querySelector("#circuit-canvas"),
   circuitComponents: document.querySelector("#circuit-components"),
   circuitAssumptions: document.querySelector("#circuit-assumptions"),
-  circuitJson: document.querySelector("#circuit-json"),
   circuitPinInfo: document.querySelector("#circuit-pin-info"),
   uiConnect: document.querySelector("#ui-connect-button"),
   uiCopyLink: document.querySelector("#ui-copy-link-button"),
@@ -357,7 +356,7 @@ function bindControls() {
     circuitChatLayout = null;
     updateCircuitView("inferred from code");
   });
-  els.circuitCopy?.addEventListener("click", copyCircuitJson);
+  els.circuitDownload?.addEventListener("click", downloadCircuitDiagram);
   els.uiConnect?.addEventListener("click", toggleConnection);
   els.uiCopyLink?.addEventListener("click", copyGuinoLink);
   els.installConnect?.addEventListener("click", () => runInstallAction(connectFlasher));
@@ -422,7 +421,6 @@ function initCircuit() {
     mount: els.circuitCanvas,
     componentList: els.circuitComponents,
     assumptions: els.circuitAssumptions,
-    json: els.circuitJson,
     pinInfo: els.circuitPinInfo,
   });
   updateCircuitView("inferred from code");
@@ -445,15 +443,9 @@ function updateCircuitView(status = "") {
   }
 }
 
-async function copyCircuitJson() {
-  const text = els.circuitJson?.textContent || "";
-  if (!text) return;
-  try {
-    await navigator.clipboard.writeText(text);
-    logLine("info", "circuit JSON copied");
-  } catch {
-    downloadTextFile(text, `p1e-circuit-${timestampForFilename()}.json`, "application/json;charset=utf-8");
-  }
+function downloadCircuitDiagram() {
+  const ok = circuitView?.downloadPng?.(`p1e-circuit-${timestampForFilename()}.png`);
+  logLine(ok ? "info" : "warn", ok ? "circuit diagram downloaded" : "circuit diagram not ready");
 }
 
 function initGuino() {

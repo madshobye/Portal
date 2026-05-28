@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>P1E</title>
     <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@24,400,0,0">
-    <link rel="stylesheet" href="style.css?v=0.1.87-ui147">
+    <link rel="stylesheet" href="style.css?v=0.1.87-ui155">
   </head>
   <body>
     <main id="app">
@@ -121,7 +121,7 @@
           <button id="circuit-refresh-button" class="button primary icon-buttonish" type="button" title="Refresh circuit sketch" aria-label="Refresh circuit sketch"><span class="material-symbols-rounded">account_tree</span></button>
           <span id="circuit-status" class="circuit-status">inferred from code</span>
           <span class="toolbar-divider toolbar-push" aria-hidden="true"></span>
-          <button id="circuit-copy-button" class="button icon-buttonish" type="button" title="Copy circuit JSON" aria-label="Copy circuit JSON"><span class="material-symbols-rounded">content_copy</span></button>
+          <button id="circuit-download-button" class="button icon-buttonish" type="button" title="Download diagram" aria-label="Download diagram"><span class="material-symbols-rounded">download</span></button>
         </header>
         <section class="circuit-shell">
           <div id="circuit-canvas" class="circuit-canvas" aria-label="Inferred circuit drawing"></div>
@@ -138,10 +138,6 @@
               <header><span class="material-symbols-rounded">tips_and_updates</span><strong>Assumptions</strong></header>
               <ul id="circuit-assumptions" class="circuit-list circuit-assumptions"></ul>
             </section>
-            <details class="circuit-json-panel">
-              <summary><span class="material-symbols-rounded">data_object</span><span>Layout JSON</span></summary>
-              <pre id="circuit-json" class="circuit-json"></pre>
-            </details>
           </aside>
         </section>
       </section>
@@ -282,6 +278,6 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.9.4/p5.min.js" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
     <script src="../../P1/portal/usbSerial.js"></script>
     <script src="../../P1/portal/qrCodeGen.js"></script>
-    <script type="module" src="app.js?v=0.1.87-ui147"></script>
+    <script type="module" src="app.js?v=0.1.87-ui155"></script>
   </body>
 </html>

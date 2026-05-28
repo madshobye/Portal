@@ -1,39 +1,43 @@
 const CIRCUIT_VERSION = "0.1";
 const WORLD_W = 1000;
 const WORLD_H = 640;
+const CIRCUIT_BG = "#ffffff";
+const WIRE_POWER = "#e53935";
+const WIRE_GROUND = "#111111";
+const WIRE_SIGNALS = ["#f2c94c", "#27ae60", "#7e57c2", "#ff5aa5"];
 
 const pinDefs = [
-  { pin: "3V3", side: "left", power: true, desc: "3.3V power" },
-  { pin: "GND", side: "left", ground: true, desc: "Ground" },
-  { pin: "36", side: "left", adc: true, inputOnly: true, desc: "GPIO36, ADC input only" },
-  { pin: "39", side: "left", adc: true, inputOnly: true, desc: "GPIO39, ADC input only" },
-  { pin: "34", side: "left", adc: true, inputOnly: true, desc: "GPIO34, ADC input only" },
-  { pin: "35", side: "left", adc: true, inputOnly: true, desc: "GPIO35, ADC input only" },
-  { pin: "32", side: "left", adc: true, pwm: true, desc: "GPIO32, ADC, PWM" },
-  { pin: "33", side: "left", adc: true, pwm: true, desc: "GPIO33, ADC, PWM" },
-  { pin: "25", side: "left", adc: true, dac: true, pwm: true, desc: "GPIO25, ADC, DAC, PWM" },
-  { pin: "26", side: "left", adc: true, dac: true, pwm: true, desc: "GPIO26, ADC, DAC, PWM" },
-  { pin: "27", side: "left", adc: true, pwm: true, desc: "GPIO27, ADC, PWM" },
-  { pin: "14", side: "left", adc: true, pwm: true, desc: "GPIO14, ADC, PWM" },
-  { pin: "12", side: "left", adc: true, pwm: true, caution: true, desc: "GPIO12, ADC, boot strap pin" },
-  { pin: "GND2", side: "left", ground: true, label: "GND", desc: "Ground" },
   { pin: "VIN", side: "left", power: true, desc: "VIN / USB 5V" },
+  { pin: "GND", side: "left", ground: true, desc: "Ground" },
+  { pin: "13", side: "left", adc: true, pwm: true, desc: "GPIO13, ADC, PWM" },
+  { pin: "12", side: "left", adc: true, pwm: true, caution: true, desc: "GPIO12, ADC, boot strap pin" },
+  { pin: "14", side: "left", adc: true, pwm: true, desc: "GPIO14, ADC, PWM" },
+  { pin: "27", side: "left", adc: true, pwm: true, desc: "GPIO27, ADC, PWM" },
+  { pin: "26", side: "left", adc: true, dac: true, pwm: true, desc: "GPIO26, ADC, DAC, PWM" },
+  { pin: "25", side: "left", adc: true, dac: true, pwm: true, desc: "GPIO25, ADC, DAC, PWM" },
+  { pin: "33", side: "left", adc: true, pwm: true, desc: "GPIO33, ADC, PWM" },
+  { pin: "32", side: "left", adc: true, pwm: true, desc: "GPIO32, ADC, PWM" },
+  { pin: "35", side: "left", adc: true, inputOnly: true, desc: "GPIO35, ADC input only" },
+  { pin: "34", side: "left", adc: true, inputOnly: true, desc: "GPIO34, ADC input only" },
+  { pin: "39", side: "left", adc: true, inputOnly: true, desc: "GPIO39 / VN, ADC input only" },
+  { pin: "36", side: "left", adc: true, inputOnly: true, desc: "GPIO36 / VP, ADC input only" },
+  { pin: "EN", side: "left", caution: true, desc: "Enable/reset pin, not a GPIO" },
 
-  { pin: "23", side: "right", pwm: true, desc: "GPIO23, SPI MOSI capable" },
-  { pin: "22", side: "right", pwm: true, i2c: "SCL", desc: "GPIO22, common I2C SCL" },
-  { pin: "1", side: "right", serial: "TX0", caution: true, desc: "UART0 TX, USB serial transport" },
-  { pin: "3", side: "right", serial: "RX0", caution: true, desc: "UART0 RX, USB serial transport" },
-  { pin: "21", side: "right", pwm: true, i2c: "SDA", desc: "GPIO21, common I2C SDA" },
-  { pin: "19", side: "right", pwm: true, desc: "GPIO19, SPI MISO capable" },
-  { pin: "18", side: "right", pwm: true, desc: "GPIO18, SPI SCK capable" },
-  { pin: "5", side: "right", pwm: true, caution: true, desc: "GPIO5, boot strap pin" },
-  { pin: "17", side: "right", pwm: true, serial: "TX2", desc: "GPIO17, UART TX capable" },
-  { pin: "16", side: "right", pwm: true, serial: "RX2", desc: "GPIO16, UART RX capable" },
-  { pin: "4", side: "right", adc: true, pwm: true, desc: "GPIO4, ADC, PWM, common LED strip data" },
-  { pin: "2", side: "right", adc: true, pwm: true, caution: true, desc: "GPIO2, ADC, PWM, boot LED/strap" },
-  { pin: "15", side: "right", adc: true, pwm: true, caution: true, desc: "GPIO15, ADC, PWM, boot strap pin" },
+  { pin: "3V3", side: "right", power: true, desc: "3.3V power" },
   { pin: "GND3", side: "right", ground: true, label: "GND", desc: "Ground" },
-  { pin: "3V3B", side: "right", power: true, label: "3V3", desc: "3.3V power" },
+  { pin: "15", side: "right", adc: true, pwm: true, caution: true, desc: "GPIO15, ADC, PWM, boot strap pin" },
+  { pin: "2", side: "right", adc: true, pwm: true, caution: true, desc: "GPIO2, ADC, PWM, boot LED/strap" },
+  { pin: "4", side: "right", adc: true, pwm: true, desc: "GPIO4, ADC, PWM, common LED strip data" },
+  { pin: "16", side: "right", pwm: true, serial: "RX2", desc: "GPIO16, UART RX capable" },
+  { pin: "17", side: "right", pwm: true, serial: "TX2", desc: "GPIO17, UART TX capable" },
+  { pin: "5", side: "right", pwm: true, caution: true, desc: "GPIO5, boot strap pin" },
+  { pin: "18", side: "right", pwm: true, desc: "GPIO18, SPI SCK capable" },
+  { pin: "19", side: "right", pwm: true, desc: "GPIO19, SPI MISO capable" },
+  { pin: "21", side: "right", pwm: true, i2c: "SDA", desc: "GPIO21, common I2C SDA" },
+  { pin: "3", side: "right", serial: "RX0", caution: true, desc: "UART0 RX, USB serial transport" },
+  { pin: "1", side: "right", serial: "TX0", caution: true, desc: "UART0 TX, USB serial transport" },
+  { pin: "22", side: "right", pwm: true, i2c: "SCL", desc: "GPIO22, common I2C SCL" },
+  { pin: "23", side: "right", pwm: true, desc: "GPIO23, SPI MOSI capable" },
 ];
 
 const componentTypes = {
@@ -93,10 +97,10 @@ export function normalizeCircuitLayout(layout) {
   const components = Array.isArray(layout.components)
     ? layout.components.map((component, index) => normalizeComponent(component, index)).filter(Boolean)
     : [];
-  const placed = placeComponents(components);
   const connections = Array.isArray(layout.connections)
     ? layout.connections.map((connection, index) => normalizeConnection(connection, index)).filter(Boolean)
     : [];
+  const placed = placeComponents(components, connections, board);
   return {
     version: String(layout.version || CIRCUIT_VERSION),
     board,
@@ -107,7 +111,7 @@ export function normalizeCircuitLayout(layout) {
   };
 }
 
-export function initCircuitView({ mount, componentList, assumptions, json, pinInfo } = {}) {
+export function initCircuitView({ mount, componentList, assumptions, pinInfo } = {}) {
   let model = normalizeCircuitLayout({});
   let hoveredPin = null;
   let dragging = null;
@@ -127,11 +131,24 @@ export function initCircuitView({ mount, componentList, assumptions, json, pinIn
     p5Instance.redraw();
   };
 
-  if (!mount) return { setModel, resize, getModel: () => model };
+  const downloadPng = (filename = "p1e-circuit.png") => {
+    const canvas = p5Instance?.canvas;
+    if (!canvas) return false;
+    p5Instance.redraw();
+    const link = document.createElement("a");
+    link.download = filename;
+    link.href = canvas.toDataURL("image/png");
+    document.body.append(link);
+    link.click();
+    link.remove();
+    return true;
+  };
+
+  if (!mount) return { setModel, resize, downloadPng, getModel: () => model };
 
   if (!window.p5) {
     mount.textContent = "Circuit canvas unavailable.";
-    return { setModel, resize, getModel: () => model };
+    return { setModel, resize, downloadPng, getModel: () => model };
   }
 
   p5Instance = new window.p5((p) => {
@@ -141,12 +158,11 @@ export function initCircuitView({ mount, componentList, assumptions, json, pinIn
       p.noLoop();
     };
     p.draw = () => {
-      p.background("#141516");
+      p.background(CIRCUIT_BG);
       transform = computeTransform(p.width, p.height);
       p.push();
       p.translate(transform.ox, transform.oy);
       p.scale(transform.scale);
-      drawGrid(p);
       drawConnections(p, model);
       drawBoard(p, model.board, hoveredPin);
       drawComponents(p, model.components);
@@ -187,10 +203,9 @@ export function initCircuitView({ mount, componentList, assumptions, json, pinIn
   const observer = new ResizeObserver(resize);
   observer.observe(mount);
   setModel(model);
-  return { setModel, resize, getModel: () => model };
+  return { setModel, resize, downloadPng, getModel: () => model };
 
   function renderSidePanel(nextModel) {
-    if (json) json.textContent = JSON.stringify(stripVolatileModelFields(nextModel), null, 2);
     if (componentList) {
       componentList.replaceChildren();
       if (!nextModel.components.length) {
@@ -623,23 +638,45 @@ function normalizePins(pins) {
   return out;
 }
 
-function placeComponents(components) {
+function placeComponents(components, connections = [], board = null) {
   const left = [];
   const right = [];
   components.forEach((component, index) => {
-    if (component.type === "wifiService") right.push(component);
-    else if (index % 2) right.push(component);
+    const side = componentPlacementSide(component, connections, index, board);
+    if (side === "right") right.push(component);
     else left.push(component);
   });
-  const place = (items, x, y0, gap) => {
+  const boardCenter = board ? board.x + board.w / 2 : WORLD_W / 2;
+  const place = (items, x, y0) => {
+    const gap = items.length > 1 ? clamp((WORLD_H - 170) / (items.length - 1), 66, 96) : 86;
     items.forEach((component, index) => {
       if (!Number.isFinite(component.x)) component.x = x;
       if (!Number.isFinite(component.y)) component.y = y0 + index * gap;
     });
   };
-  place(left, 120, 82, 86);
-  place(right, 750, 82, 86);
+  place(left, Math.max(112, boardCenter - 360), 82);
+  place(right, Math.min(WORLD_W - 112, boardCenter + 360), 82);
   return components;
+}
+
+function componentPlacementSide(component, connections, index, board = null) {
+  const center = board ? board.x + board.w / 2 : WORLD_W / 2;
+  if (Number.isFinite(component.x)) return component.x < center ? "left" : "right";
+  const counts = { left: 0, right: 0 };
+  connections.forEach((connection) => {
+    if (connection.from?.component !== component.id) return;
+    const side = boardPinSide(connection.to?.boardPin);
+    if (side) counts[side] += 1;
+  });
+  if (counts.left !== counts.right) return counts.left > counts.right ? "left" : "right";
+  const directSide = boardPinSide(component.pin);
+  if (directSide) return directSide;
+  for (const pin of Object.values(component.pins || {})) {
+    const side = boardPinSide(pin);
+    if (side) return side;
+  }
+  if (component.type === "wifiService") return "right";
+  return index % 2 ? "right" : "left";
 }
 
 function mergeComponents(base = [], extra = []) {
@@ -663,40 +700,127 @@ function mergeConnections(base = [], extra = []) {
   return out;
 }
 
-function stripVolatileModelFields(model) {
-  return {
-    version: model.version,
-    board: model.board,
-    components: model.components,
-    connections: model.connections,
-    assumptions: model.assumptions,
-    notes: model.notes,
-  };
-}
-
-function drawGrid(p) {
-  p.stroke("#1f2224");
-  p.strokeWeight(1);
-  for (let x = 0; x <= WORLD_W; x += 40) p.line(x, 0, x, WORLD_H);
-  for (let y = 0; y <= WORLD_H; y += 40) p.line(0, y, WORLD_W, y);
-}
-
 function drawConnections(p, model) {
   const componentsById = new Map(model.components.map((component) => [component.id, component]));
+  const lanes = buildWireLanes(model);
   model.connections.forEach((connection) => {
     const component = componentsById.get(connection.from.component);
     const pin = pinPosition(model.board, connection.to.boardPin);
     if (!component || !pin) return;
-    const start = componentAnchor(component, connection.from.pin);
+    const start = componentAnchor(component, connection.from.pin, model.board);
+    const points = wireRoutePoints(connection, start, pin, component, model.board, lanes);
+    const color = wireColor(connection);
     p.noFill();
-    p.stroke(connection.color || "#8fc7d4");
+    p.stroke(color);
     p.strokeWeight(connection.label === "GND" ? 1.7 : 2.4);
-    const mid = (start.x + pin.x) / 2;
-    p.bezier(start.x, start.y, mid, start.y, mid, pin.y, pin.x, pin.y);
+    p.strokeJoin(p.ROUND);
+    p.strokeCap(p.ROUND);
+    drawPolyline(p, points);
     p.noStroke();
-    p.fill(connection.color || "#8fc7d4");
+    p.fill(color);
+    p.circle(start.x, start.y, 5);
     p.circle(pin.x, pin.y, 7);
   });
+}
+
+function buildWireLanes(model) {
+  const componentsById = new Map(model.components.map((component) => [component.id, component]));
+  const colorsBySide = { left: [], right: [] };
+  const addColor = (side, color) => {
+    if (!colorsBySide[side]?.includes(color)) colorsBySide[side].push(color);
+  };
+  model.connections.forEach((connection) => {
+    const component = componentsById.get(connection.from?.component);
+    const sourceSide = component
+      ? (component.x < model.board.x + model.board.w / 2 ? "left" : "right")
+      : "";
+    const targetSide = boardPinSide(connection.to?.boardPin) || "right";
+    const color = wireColor(connection);
+    addColor(sourceSide || targetSide, color);
+    addColor(targetSide, color);
+  });
+  return colorsBySide;
+}
+
+function wireRoutePoints(connection, start, pin, component, board, lanes) {
+  const color = wireColor(connection);
+  const targetSide = pin.side || "right";
+  const sourceSide = component.x < board.x + board.w / 2 ? "left" : "right";
+  const sourceLaneX = wireLaneX(board, sourceSide, color, lanes);
+  const targetLaneX = wireLaneX(board, targetSide, color, lanes);
+  const pinEntry = pinEntryPoint(board, pin);
+  if (sourceSide === targetSide) {
+    return [
+      start,
+      { x: targetLaneX, y: start.y },
+      { x: targetLaneX, y: pinEntry.y },
+      pinEntry,
+      pin,
+    ];
+  }
+  const bridgeY = wireBridgeY(board, color, lanes, start, pin, targetSide);
+  return [
+    start,
+    { x: sourceLaneX, y: start.y },
+    { x: sourceLaneX, y: bridgeY },
+    { x: targetLaneX, y: bridgeY },
+    { x: targetLaneX, y: pinEntry.y },
+    pinEntry,
+    pin,
+  ];
+}
+
+function pinEntryPoint(board, pin) {
+  const clearance = 10;
+  return {
+    x: pin.side === "left" ? board.x - clearance : board.x + board.w + clearance,
+    y: pin.y,
+  };
+}
+
+function wireLaneX(board, side, color, lanes) {
+  const index = wireLaneIndex(side, color, lanes);
+  const offset = 34 + index * 15;
+  return side === "left" ? board.x - offset : board.x + board.w + offset;
+}
+
+function wireBridgeY(board, color, lanes, start, pin, side) {
+  const index = wireLaneIndex(side, color, lanes);
+  const above = (start.y + pin.y) / 2 < board.y + board.h / 2;
+  const offset = 42 + index * 12;
+  return above ? board.y - offset : board.y + board.h + offset;
+}
+
+function wireLaneIndex(side, color, lanes) {
+  const list = lanes[side] || [];
+  const index = list.indexOf(color);
+  return index < 0 ? 0 : index;
+}
+
+function wireColor(connection) {
+  const parts = [
+    connection.label,
+    connection.from?.pin,
+    connection.to?.boardPin,
+  ].map((value) => String(value || "").toLowerCase());
+  const text = parts.join(" ");
+  if (/\b(g|gnd|ground)\b/.test(text)) return WIRE_GROUND;
+  if (/\b(\+|vcc|vin|3v3|3\.3v|5v|power)\b/.test(text)) return WIRE_POWER;
+  return WIRE_SIGNALS[stableHash(text) % WIRE_SIGNALS.length];
+}
+
+function stableHash(text) {
+  let hash = 0;
+  for (let i = 0; i < text.length; i += 1) {
+    hash = ((hash << 5) - hash + text.charCodeAt(i)) | 0;
+  }
+  return Math.abs(hash);
+}
+
+function drawPolyline(p, points) {
+  p.beginShape();
+  points.forEach((point) => p.vertex(point.x, point.y));
+  p.endShape();
 }
 
 function drawBoard(p, board, hovered) {
@@ -705,9 +829,15 @@ function drawBoard(p, board, hovered) {
   p.stroke("#50575c");
   p.strokeWeight(2);
   p.rect(board.x, board.y, board.w, board.h, 10);
-  p.fill("#111314");
+  p.fill("#c7ccd0");
+  p.stroke("#6f7478");
+  p.strokeWeight(1.5);
+  p.rect(board.x + board.w / 2 - 36, board.y - 42, 72, 66, 4);
   p.noStroke();
-  p.rect(board.x + 46, board.y + 24, board.w - 92, 46, 5);
+  p.fill("#33383c");
+  p.textAlign(p.CENTER, p.CENTER);
+  p.textSize(8);
+  p.text("USB", board.x + board.w / 2, board.y - 9);
   p.fill("#f3efe5");
   p.textAlign(p.CENTER, p.CENTER);
   p.textSize(18);
@@ -736,23 +866,31 @@ function drawBoard(p, board, hovered) {
 }
 
 function pinFill(pin) {
-  if (pin.power) return "#d26b5b";
-  if (pin.ground) return "#8f9699";
-  if (pin.adc) return "#d6bd62";
-  if (pin.i2c) return "#59bdd0";
+  if (pin.power) return WIRE_POWER;
+  if (pin.ground) return WIRE_GROUND;
+  if (pin.adc) return WIRE_SIGNALS[0];
+  if (pin.i2c) return WIRE_SIGNALS[1];
   if (pin.caution) return "#9b7354";
   return "#6f868c";
 }
 
 function pinPosition(board, pinName) {
-  const key = String(pinName || "");
-  const pin = pinDefs.find((item) => item.pin === key || item.label === key);
+  const pin = findPinDef(pinName);
   if (!pin) return null;
   const sidePins = pinDefs.filter((item) => item.side === pin.side);
   const index = sidePins.findIndex((item) => item.pin === pin.pin);
   const y = board.y + 96 + index * ((board.h - 132) / Math.max(1, sidePins.length - 1));
   const x = pin.side === "left" ? board.x + 15 : board.x + board.w - 15;
   return { x, y, ...pin };
+}
+
+function findPinDef(pinName) {
+  const key = String(pinName || "");
+  return pinDefs.find((item) => item.pin === key || item.label === key) || null;
+}
+
+function boardPinSide(pinName) {
+  return findPinDef(pinName)?.side || "";
 }
 
 function hitPin(world, board) {
@@ -997,9 +1135,10 @@ function drawQuestion(p) {
   p.text("?", 0, 11);
 }
 
-function componentAnchor(component, pinName) {
+function componentAnchor(component, pinName, board) {
   const w = component.type === "ledStrip" ? 170 : 138;
-  const x = component.x + (component.x < 500 ? w / 2 : -w / 2);
+  const center = board ? board.x + board.w / 2 : WORLD_W / 2;
+  const x = component.x + (component.x < center ? w / 2 : -w / 2);
   let y = component.y;
   const pin = String(pinName || "").toLowerCase();
   if (pin.includes("gnd")) y += 20;
