@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>P1E</title>
     <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@24,400,0,0">
-    <link rel="stylesheet" href="style.css?v=0.1.87-ui179">
+    <link rel="stylesheet" href="style.css?v=0.1.87-ui183">
   </head>
   <body>
     <main id="app">
@@ -247,8 +247,27 @@
           <div class="settings-subhead">Saved WiFi</div>
           <div id="wifi-network-list" class="wifi-network-list"></div>
         </section>
+        <section class="settings-access">
+          <div class="settings-subhead">Access</div>
+          <div class="settings-toggle-grid">
+            <label class="field compact-check">
+              <span>Guest UI</span>
+              <input id="access-guest-ui" type="checkbox">
+            </label>
+            <label class="field compact-check">
+              <span>Guest script</span>
+              <input id="access-guest-script" type="checkbox">
+            </label>
+          </div>
+        </section>
         <section class="settings-mqtt">
           <div class="settings-subhead">MQTT</div>
+          <div class="settings-toggle-grid settings-toggle-grid-single">
+            <label class="field compact-check">
+              <span>Enabled</span>
+              <input id="mqtt-enabled" type="checkbox">
+            </label>
+          </div>
           <div class="settings-mqtt-grid">
             <label class="field">
               <span>Host</span>
@@ -270,9 +289,42 @@
               <span>Password</span>
               <input id="mqtt-password" type="password" autocomplete="new-password">
             </label>
-            <button id="mqtt-save-button" class="button primary icon-buttonish" type="button" title="Apply MQTT settings" aria-label="Apply MQTT settings"><span class="material-symbols-rounded">hub</span></button>
+            <button id="mqtt-save-button" class="button primary settings-save-button" type="button" title="Save access and MQTT settings" aria-label="Save access and MQTT settings"><span class="material-symbols-rounded">save</span><span>Save settings</span></button>
+          </div>
+          <div class="settings-subhead">MQTT sign-in users</div>
+          <div id="mqtt-auth-list" class="wifi-network-list"></div>
+          <div class="settings-mqtt-grid">
+            <label class="field">
+              <span>Username</span>
+              <input id="mqtt-auth-username" type="text" autocomplete="username" spellcheck="false">
+            </label>
+            <label class="field">
+              <span>Password</span>
+              <input id="mqtt-auth-password" type="password" autocomplete="new-password">
+            </label>
+            <button id="mqtt-auth-add-button" class="button primary icon-buttonish" type="button" title="Add MQTT user" aria-label="Add MQTT user"><span class="material-symbols-rounded">person_add</span></button>
           </div>
         </section>
+      </form>
+    </dialog>
+
+    <dialog id="mqtt-signin-dialog" class="dialog">
+      <form method="dialog" class="dialog-panel">
+        <header class="dialog-header">
+          <strong id="mqtt-signin-title">MQTT sign in</strong>
+          <button id="mqtt-signin-cancel-button" class="icon-button" value="cancel" type="button" aria-label="Cancel" title="Cancel"><span class="material-symbols-rounded">close</span></button>
+        </header>
+        <label class="field">
+          <span>Username</span>
+          <input id="mqtt-signin-username" type="text" autocomplete="username" spellcheck="false">
+        </label>
+        <label class="field">
+          <span>Password</span>
+          <input id="mqtt-signin-password" type="password" autocomplete="current-password">
+        </label>
+        <div class="dialog-actions">
+          <button id="mqtt-signin-button" class="button primary icon-buttonish" type="button" title="Sign in" aria-label="Sign in"><span class="material-symbols-rounded">login</span></button>
+        </div>
       </form>
     </dialog>
 
@@ -299,6 +351,6 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.9.4/p5.min.js" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
     <script src="../../P1/portal/usbSerial.js"></script>
     <script src="../../P1/portal/qrCodeGen.js"></script>
-    <script type="module" src="app.js?v=0.1.87-ui179"></script>
+    <script type="module" src="app.js?v=0.1.87-ui185"></script>
   </body>
 </html>

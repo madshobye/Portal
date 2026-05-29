@@ -28,6 +28,10 @@ struct P1ConfigSnapshot {
   String mqttRoot;
   String mqttUser;
   bool mqttPasswordSet = false;
+  bool mqttEnabled = true;
+  bool mqttAllowAnonymousUi = false;
+  bool mqttAllowAnonymousScript = false;
+  int mqttAuthUserCount = 0;
   P1WifiSnapshot wifi;
 };
 
@@ -188,6 +192,17 @@ void configSetMqttPort(int value);
 void configSetMqttRoot(const String& value);
 void configSetMqttUser(const String& value);
 void configSetMqttPassword(const String& value);
+void configSetMqttEnabled(bool value);
+void configSetMqttAllowAnonymousUi(bool value);
+void configSetMqttAllowAnonymousScript(bool value);
+bool configAddMqttAuthUserKey(const String& username, const String& keyHex);
+bool configRemoveMqttAuthUser(const String& username);
+int configMqttAuthUserCount();
+String configMqttAuthUserNameAt(int index);
+bool configMqttAuthUserKey(const String& username, uint8_t outKey[32]);
+bool configMqttEnabled();
+bool configMqttAllowAnonymousUi();
+bool configMqttAllowAnonymousScript();
 String configWifiSsid();
 String configWifiPassword();
 int configWifiNetworkCount();

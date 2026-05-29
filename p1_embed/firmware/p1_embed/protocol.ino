@@ -801,8 +801,12 @@ static void protocolMsgPackWriteWifi(P1MsgPackWriter& w, const P1WifiSnapshot& s
 
 static void protocolSendMsgPackStatusLight(uint32_t id) {
   P1StatusSnapshot snapshot = protocolStatusSnapshot();
-  uint8_t frame[P1_EMBED_MSGPACK_MAX_FRAME_BYTES];
-  P1MsgPackWriter w(frame, sizeof(frame));
+  uint8_t* frame = static_cast<uint8_t*>(malloc(P1_EMBED_MSGPACK_MAX_FRAME_BYTES));
+  if (!frame) {
+    protocolSendMsgPackError(id, "no_heap", "No heap for status.light response");
+    return;
+  }
+  P1MsgPackWriter w(frame, P1_EMBED_MSGPACK_MAX_FRAME_BYTES);
   w.writeArray(4);
   w.writeUInt(P1_MP_FRAME_RES);
   w.writeUInt(id);
@@ -822,6 +826,8 @@ static void protocolSendMsgPackStatusLight(uint32_t id) {
   w.writeString("protocol"); w.writeString("msgpack.v0_2");
   w.writeString("wifi"); protocolMsgPackWriteWifi(w, snapshot.wifi);
   if (w.ok) protocolSendMsgPackBytes(frame, w.length);
+  else protocolSendMsgPackError(id, "frame_too_large", "status.light response is too large");
+  free(frame);
 }
 
 static void protocolMsgPackWriteWifi(P1MsgPackWriter& w, const P1WifiSnapshot& snapshot) {
@@ -847,8 +853,12 @@ static void protocolMsgPackBeginResponse(P1MsgPackWriter& w, uint32_t id, bool o
 
 static void protocolSendMsgPackSystemInfo(uint32_t id) {
   P1ConfigSnapshot config = configSnapshot();
-  uint8_t frame[P1_EMBED_MSGPACK_MAX_FRAME_BYTES];
-  P1MsgPackWriter w(frame, sizeof(frame));
+  uint8_t* frame = static_cast<uint8_t*>(malloc(P1_EMBED_MSGPACK_MAX_FRAME_BYTES));
+  if (!frame) {
+    protocolSendMsgPackError(id, "no_heap", "No heap for system.info response");
+    return;
+  }
+  P1MsgPackWriter w(frame, P1_EMBED_MSGPACK_MAX_FRAME_BYTES);
   protocolMsgPackBeginResponse(w, id, true, 13);
   w.writeString("firmwareName"); w.writeString(P1_EMBED_FIRMWARE_NAME);
   w.writeString("firmwareVersion"); w.writeString(P1_EMBED_FIRMWARE_VERSION);
@@ -869,13 +879,19 @@ static void protocolSendMsgPackSystemInfo(uint32_t id) {
   w.writeString("wifi.station");
   w.writeString("wifi"); protocolMsgPackWriteWifi(w, config.wifi);
   if (w.ok) protocolSendMsgPackBytes(frame, w.length);
+  else protocolSendMsgPackError(id, "frame_too_large", "system.info response is too large");
+  free(frame);
 }
 
 static void protocolSendMsgPackConfig(uint32_t id) {
   P1ConfigSnapshot snapshot = configSnapshot();
-  uint8_t frame[P1_EMBED_MSGPACK_MAX_FRAME_BYTES];
-  P1MsgPackWriter w(frame, sizeof(frame));
-  protocolMsgPackBeginResponse(w, id, true, 13);
+  uint8_t* frame = static_cast<uint8_t*>(malloc(P1_EMBED_MSGPACK_MAX_FRAME_BYTES));
+  if (!frame) {
+    protocolSendMsgPackError(id, "no_heap", "No heap for config.get response");
+    return;
+  }
+  P1MsgPackWriter w(frame, P1_EMBED_MSGPACK_MAX_FRAME_BYTES);
+  protocolMsgPackBeginResponse(w, id, true, 18);
   w.writeString("deviceId"); w.writeString(snapshot.deviceId);
   w.writeString("deviceName"); w.writeString(snapshot.deviceName);
   w.writeString("wifiSsid"); w.writeString(snapshot.wifiSsid);
@@ -886,6 +902,16 @@ static void protocolSendMsgPackConfig(uint32_t id) {
   w.writeString("mqttRoot"); w.writeString(snapshot.mqttRoot);
   w.writeString("mqttUser"); w.writeString(snapshot.mqttUser);
   w.writeString("mqttPasswordSet"); w.writeBool(snapshot.mqttPasswordSet);
+  w.writeString("mqttEnabled"); w.writeBool(snapshot.mqttEnabled);
+  w.writeString("mqttAllowAnonymousUi"); w.writeBool(snapshot.mqttAllowAnonymousUi);
+  w.writeString("mqttAllowAnonymousScript"); w.writeBool(snapshot.mqttAllowAnonymousScript);
+  w.writeString("mqttAuthUserCount"); w.writeUInt(snapshot.mqttAuthUserCount);
+  w.writeString("mqttAuthUsers");
+  w.writeArray(snapshot.mqttAuthUserCount);
+  for (int i = 0; i < snapshot.mqttAuthUserCount; i++) {
+    w.writeMap(1);
+    w.writeString("username"); w.writeString(configMqttAuthUserNameAt(i));
+  }
   w.writeString("wifiNetworks");
   w.writeArray(snapshot.wifiNetworkCount);
   for (int i = 0; i < snapshot.wifiNetworkCount; i++) {
@@ -896,6 +922,8 @@ static void protocolSendMsgPackConfig(uint32_t id) {
   w.writeString("storage"); w.writeString("littlefs:/config.json");
   w.writeString("wifi"); protocolMsgPackWriteWifi(w, snapshot.wifi);
   if (w.ok) protocolSendMsgPackBytes(frame, w.length);
+  else protocolSendMsgPackError(id, "frame_too_large", "config.get response is too large");
+  free(frame);
 }
 
 static void protocolSendMsgPackWifiStatus(uint32_t id) {
@@ -922,8 +950,12 @@ static void protocolSendMsgPackDebug(uint32_t id) {
 
 static void protocolSendMsgPackScriptError(uint32_t id) {
   P1ScriptErrorSnapshot snapshot = scriptErrorSnapshot();
-  uint8_t frame[512];
-  P1MsgPackWriter w(frame, sizeof(frame));
+  uint8_t* frame = static_cast<uint8_t*>(malloc(512));
+  if (!frame) {
+    protocolSendMsgPackError(id, "no_heap", "No heap for script.error response");
+    return;
+  }
+  P1MsgPackWriter w(frame, 512);
   if (!snapshot.hasError) {
     protocolMsgPackBeginResponse(w, id, true, 2);
     w.writeString("hasError"); w.writeBool(false);
@@ -944,6 +976,8 @@ static void protocolSendMsgPackScriptError(uint32_t id) {
     }
   }
   if (w.ok) protocolSendMsgPackBytes(frame, w.length);
+  else protocolSendMsgPackError(id, "frame_too_large", "script.error response is too large");
+  free(frame);
 }
 
 static void protocolSendMsgPackScriptGet(uint32_t id) {
@@ -1181,6 +1215,11 @@ void protocolHandleBytes(const uint8_t* data, size_t len) {
     bool hasMqttRoot = false;
     bool hasMqttUser = false;
     bool hasMqttPassword = false;
+    bool hasMqttEnabled = false;
+    bool hasMqttAllowAnonymousUi = false;
+    bool hasMqttAllowAnonymousScript = false;
+    bool hasMqttAuthUserAdd = false;
+    bool hasMqttAuthUserRemove = false;
     String deviceName;
     String wifiSsid;
     String wifiPassword;
@@ -1189,6 +1228,12 @@ void protocolHandleBytes(const uint8_t* data, size_t len) {
     String mqttRoot;
     String mqttUser;
     String mqttPassword;
+    String mqttAuthUsername;
+    String mqttAuthKeyHex;
+    String mqttAuthUserRemove;
+    bool mqttEnabled = true;
+    bool mqttAllowAnonymousUi = false;
+    bool mqttAllowAnonymousScript = false;
     if (!r.readBool(hasDeviceName) || !r.readString(deviceName) ||
         !r.readBool(hasWifiSsid) || !r.readString(wifiSsid) ||
         !r.readBool(hasWifiPassword) || !r.readString(wifiPassword)) {
@@ -1202,6 +1247,22 @@ void protocolHandleBytes(const uint8_t* data, size_t len) {
           !r.readBool(hasMqttUser) || !r.readString(mqttUser) ||
           !r.readBool(hasMqttPassword) || !r.readString(mqttPassword)) {
         protocolSendMsgPackError(id, "bad_config_frame", "config.set MQTT fields are malformed");
+        return;
+      }
+    }
+    if (count >= 25) {
+      if (!r.readBool(hasMqttEnabled) || !r.readBool(mqttEnabled) ||
+          !r.readBool(hasMqttAllowAnonymousUi) || !r.readBool(mqttAllowAnonymousUi) ||
+          !r.readBool(hasMqttAllowAnonymousScript) || !r.readBool(mqttAllowAnonymousScript)) {
+        protocolSendMsgPackError(id, "bad_config_frame", "config.set MQTT security fields are malformed");
+        return;
+      }
+    }
+    if (count >= 31) {
+      if (!r.readBool(hasMqttAuthUserAdd) || !r.readString(mqttAuthUsername) ||
+          !r.readString(mqttAuthKeyHex) ||
+          !r.readBool(hasMqttAuthUserRemove) || !r.readString(mqttAuthUserRemove)) {
+        protocolSendMsgPackError(id, "bad_config_frame", "config.set MQTT auth user fields are malformed");
         return;
       }
     }
@@ -1241,6 +1302,32 @@ void protocolHandleBytes(const uint8_t* data, size_t len) {
     }
     if (hasMqttPassword) {
       configSetMqttPassword(mqttPassword);
+      changed = true;
+      mqttChanged = true;
+    }
+    if (hasMqttEnabled) {
+      configSetMqttEnabled(mqttEnabled);
+      changed = true;
+      mqttChanged = true;
+    }
+    if (hasMqttAllowAnonymousUi) {
+      configSetMqttAllowAnonymousUi(mqttAllowAnonymousUi);
+      changed = true;
+    }
+    if (hasMqttAllowAnonymousScript) {
+      configSetMqttAllowAnonymousScript(mqttAllowAnonymousScript);
+      changed = true;
+    }
+    if (hasMqttAuthUserAdd) {
+      if (!configAddMqttAuthUserKey(mqttAuthUsername, mqttAuthKeyHex)) {
+        protocolSendMsgPackError(id, "bad_mqtt_user", "Invalid MQTT user or key");
+        return;
+      }
+      changed = true;
+      mqttChanged = true;
+    }
+    if (hasMqttAuthUserRemove) {
+      configRemoveMqttAuthUser(mqttAuthUserRemove);
       changed = true;
       mqttChanged = true;
     }
@@ -1425,7 +1512,13 @@ void protocolHandleLine(const char* line) {
     String mqttRoot;
     String mqttUser;
     String mqttPassword;
+    String mqttAuthUsername;
+    String mqttAuthKeyHex;
+    String mqttAuthUserRemove;
     int mqttPort = 0;
+    bool mqttEnabled = true;
+    bool mqttAllowAnonymousUi = false;
+    bool mqttAllowAnonymousScript = false;
     bool changed = false;
     bool mqttChanged = false;
     if (jsonGetString(line, "deviceName", deviceName)) {
@@ -1462,6 +1555,33 @@ void protocolHandleLine(const char* line) {
     }
     if (jsonGetString(line, "mqttPassword", mqttPassword)) {
       configSetMqttPassword(mqttPassword);
+      changed = true;
+      mqttChanged = true;
+    }
+    if (jsonGetBool(line, "mqttEnabled", mqttEnabled)) {
+      configSetMqttEnabled(mqttEnabled);
+      changed = true;
+      mqttChanged = true;
+    }
+    if (jsonGetBool(line, "mqttAllowAnonymousUi", mqttAllowAnonymousUi)) {
+      configSetMqttAllowAnonymousUi(mqttAllowAnonymousUi);
+      changed = true;
+    }
+    if (jsonGetBool(line, "mqttAllowAnonymousScript", mqttAllowAnonymousScript)) {
+      configSetMqttAllowAnonymousScript(mqttAllowAnonymousScript);
+      changed = true;
+    }
+    if (jsonGetString(line, "mqttAuthUsername", mqttAuthUsername) &&
+        jsonGetString(line, "mqttAuthKey", mqttAuthKeyHex)) {
+      if (!configAddMqttAuthUserKey(mqttAuthUsername, mqttAuthKeyHex)) {
+        protocolSendResponseError(id, "bad_mqtt_user", "Invalid MQTT user or key");
+        return;
+      }
+      changed = true;
+      mqttChanged = true;
+    }
+    if (jsonGetString(line, "mqttAuthUserRemove", mqttAuthUserRemove)) {
+      configRemoveMqttAuthUser(mqttAuthUserRemove);
       changed = true;
       mqttChanged = true;
     }

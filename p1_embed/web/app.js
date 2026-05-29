@@ -1,14 +1,14 @@
-import { ProtocolClient } from "./protocol/ProtocolClient.js?v=0.1.87-ui179";
-import { canEncodeCommand } from "./protocol/P1MsgPack.js?v=0.1.87-ui179";
-import { WebSerialTransport } from "./protocol/WebSerialTransport.js?v=0.1.87-ui179";
+import { ProtocolClient } from "./protocol/ProtocolClient.js?v=0.1.87-ui184";
+import { canEncodeCommand } from "./protocol/P1MsgPack.js?v=0.1.87-ui183";
+import { WebSerialTransport } from "./protocol/WebSerialTransport.js?v=0.1.87-ui183";
 import { WebSocketTransport } from "./protocol/WebSocketTransport.js";
-import { MqttWebRtcTransport, MQTT_WEBRTC_TRANSPORT_VERSION } from "./protocol/MqttWebRtcTransport.js?v=0.1.87-ui179";
-import { MqttTransport, MQTT_TRANSPORT_VERSION } from "./protocol/MqttTransport.js?v=0.1.87-ui179";
-import { P1WebFlasher } from "./web-flasher.js?v=0.1.87-ui179";
-import { inferCircuitLayout, initCircuitView, normalizeCircuitLayout } from "./circuit.js?v=0.1.87-ui179";
-import { initGuinoView } from "./guino.js?v=0.1.87-ui179";
+import { MqttWebRtcTransport, MQTT_WEBRTC_TRANSPORT_VERSION } from "./protocol/MqttWebRtcTransport.js?v=0.1.87-ui183";
+import { MqttTransport, MQTT_TRANSPORT_VERSION, clearMqttAuthKey, deriveMqttAuthKeyHex, storeMqttAuthKey } from "./protocol/MqttTransport.js?v=0.1.87-ui185";
+import { P1WebFlasher } from "./web-flasher.js?v=0.1.87-ui183";
+import { inferCircuitLayout, initCircuitView, normalizeCircuitLayout } from "./circuit.js?v=0.1.87-ui183";
+import { initGuinoView } from "./guino.js?v=0.1.87-ui183";
 
-const WEB_UI_VERSION = "0.1.87-ui179";
+const WEB_UI_VERSION = "0.1.87-ui185";
 const CHAT_MAX_OUTPUT_TOKENS = 8000;
 console.info(`[P1E web] loaded ${WEB_UI_VERSION}`, { mqtt: MQTT_TRANSPORT_VERSION, mqttWebRtc: MQTT_WEBRTC_TRANSPORT_VERSION });
 
@@ -123,6 +123,19 @@ const els = {
   mqttRoot: document.querySelector("#mqtt-root"),
   mqttUser: document.querySelector("#mqtt-user"),
   mqttPassword: document.querySelector("#mqtt-password"),
+  mqttEnabled: document.querySelector("#mqtt-enabled"),
+  accessGuestUi: document.querySelector("#access-guest-ui"),
+  accessGuestScript: document.querySelector("#access-guest-script"),
+  mqttAuthList: document.querySelector("#mqtt-auth-list"),
+  mqttAuthUsername: document.querySelector("#mqtt-auth-username"),
+  mqttAuthPassword: document.querySelector("#mqtt-auth-password"),
+  mqttAuthAdd: document.querySelector("#mqtt-auth-add-button"),
+  mqttSigninDialog: document.querySelector("#mqtt-signin-dialog"),
+  mqttSigninTitle: document.querySelector("#mqtt-signin-title"),
+  mqttSigninUsername: document.querySelector("#mqtt-signin-username"),
+  mqttSigninPassword: document.querySelector("#mqtt-signin-password"),
+  mqttSigninButton: document.querySelector("#mqtt-signin-button"),
+  mqttSigninCancel: document.querySelector("#mqtt-signin-cancel-button"),
   mqttSave: document.querySelector("#mqtt-save-button"),
   consoleActions: document.querySelector("#console-actions"),
   consoleTimestamps: document.querySelector("#console-timestamps-button"),
@@ -354,6 +367,7 @@ function bindControls() {
   els.deviceNameSave.addEventListener("click", () => runUiAction(saveDeviceName, "rename"));
   els.wifiSave.addEventListener("click", () => runUiAction(saveWifi, "wifi"));
   els.mqttSave.addEventListener("click", () => runUiAction(saveMqtt, "mqtt"));
+  els.mqttAuthAdd.addEventListener("click", () => runUiAction(addMqttAuthUser, "mqtt user"));
   els.wifiSsid.addEventListener("input", () => {
     wifiDraftDirty = true;
   });
@@ -1469,6 +1483,12 @@ function logTransportState(detail = {}) {
     logLine("debug", `${prefix} answer received`);
   } else if (state === "diagnostic") {
     logLine("debug", `${prefix} ${detail.message || "diagnostic"}`);
+  } else if (state === "auth_required") {
+    logLine("info", `Sign in to ${target}`);
+  } else if (state === "session_lost") {
+    logLine("debug", `${prefix} session expired; signing in again`);
+  } else if (state === "session_restored") {
+    logLine("debug", `${prefix} session restored`);
   } else if (state === "device_timeout") {
     logLine("warn", `${prefix} timed out ${detail.remoteId || "device"}`);
   } else if (state === "device_closed") {
@@ -1523,8 +1543,6 @@ async function startupRefresh({ quiet = false, includeScript = true, timeoutMs =
   const statusOk = await bestEffortStartupStep(() => refreshStatus({ quiet, timeoutMs }), quiet);
   if (!client || stale()) return infoOk || statusOk;
   if (!infoOk && !statusOk) return false;
-  if (includeScript) await bestEffortStartupStep(() => getScript({ quiet, timeoutMs }), quiet);
-  if (!client || stale()) return infoOk || statusOk;
   await bestEffortStartupStep(() => sendCommand("config.get", {}, { quiet, timeoutMs }).then(updateConfig), quiet);
   if (!client || stale()) return infoOk || statusOk;
   await bestEffortStartupStep(async () => {
@@ -1534,6 +1552,8 @@ async function startupRefresh({ quiet = false, includeScript = true, timeoutMs =
     }
     await sendCommand("debug.set", { level: els.debugLevel.value }, { quiet, timeoutMs });
   }, quiet);
+  if (!client || stale()) return infoOk || statusOk;
+  if (includeScript) await bestEffortStartupStep(() => getScript({ quiet, timeoutMs }), quiet);
   return infoOk || statusOk;
 }
 
@@ -2333,6 +2353,9 @@ function mqttConfigFromStorageAndDevice() {
     mqttRoot: storedRoot || deviceRoot || defaults.mqttRoot,
     mqttUser: localStorage.getItem(storage.mqttUser) || lastConfig?.mqttUser || defaults.mqttUser,
     mqttPassword: localStorage.getItem(storage.mqttPassword) || defaults.mqttPassword,
+    mqttEnabled: lastConfig?.mqttEnabled !== false,
+    mqttAllowAnonymousUi: Boolean(lastConfig?.mqttAllowAnonymousUi),
+    mqttAllowAnonymousScript: Boolean(lastConfig?.mqttAllowAnonymousScript),
   };
 }
 
@@ -2352,6 +2375,7 @@ function mqttTransportOptions() {
     username: cfg.mqttUser,
     password: cfg.mqttPassword,
     root: cfg.mqttRoot,
+    authProvider: requestMqttSignIn,
   };
 }
 
@@ -2374,6 +2398,107 @@ function populateMqttSettings() {
   els.mqttUser.value = cfg.mqttUser;
   els.mqttPassword.value = "";
   els.mqttPassword.placeholder = lastConfig?.mqttPasswordSet ? "saved" : "default";
+  els.mqttEnabled.checked = cfg.mqttEnabled;
+  els.accessGuestUi.checked = cfg.mqttAllowAnonymousUi;
+  els.accessGuestScript.checked = cfg.mqttAllowAnonymousScript;
+  renderMqttAuthUsers();
+}
+
+function mqttRemoteIdForAuth() {
+  const explicit = normalizePeerId(els.peerId?.value || "");
+  if (explicit) return explicit;
+  const deviceId = lastConfig?.deviceId || lastInfo?.deviceId || lastStatus?.deviceId || "";
+  if (deviceId && deviceId.length >= 6) return `p1-embed-${deviceId.slice(-6)}`.toLowerCase();
+  return normalizePeerId(lastConfig?.deviceName || lastInfo?.deviceName || "");
+}
+
+function requestMqttSignIn({ remoteId } = {}) {
+  return new Promise((resolve, reject) => {
+    const dialog = els.mqttSigninDialog;
+    if (!dialog) {
+      reject(new Error("MQTT sign in required"));
+      return;
+    }
+    const target = normalizePeerId(remoteId || mqttRemoteIdForAuth());
+    if (!target) {
+      reject(new Error("MQTT board id is required for sign in"));
+      return;
+    }
+
+    els.mqttSigninTitle.textContent = `MQTT sign in: ${target}`;
+    els.mqttSigninUsername.value = "";
+    els.mqttSigninPassword.value = "";
+
+    const cleanup = () => {
+      els.mqttSigninButton.removeEventListener("click", submit);
+      els.mqttSigninCancel.removeEventListener("click", cancel);
+      dialog.removeEventListener("cancel", cancel);
+      dialog.removeEventListener("close", onClose);
+    };
+    const cancel = () => {
+      cleanup();
+      if (dialog.open) dialog.close("cancel");
+      reject(new Error("MQTT sign in cancelled"));
+    };
+    const onClose = () => {
+      if (dialog.returnValue === "ok") return;
+      cleanup();
+      reject(new Error("MQTT sign in cancelled"));
+    };
+    const submit = async () => {
+      const username = els.mqttSigninUsername.value.trim();
+      const password = els.mqttSigninPassword.value;
+      if (!username || !password) return;
+      try {
+        const keyHex = await deriveMqttAuthKeyHex(target, username, password);
+        storeMqttAuthKey(target, username, keyHex);
+        cleanup();
+        if (dialog.open) dialog.close("ok");
+        resolve({ username, keyHex });
+      } catch (error) {
+        cleanup();
+        if (dialog.open) dialog.close("cancel");
+        reject(error);
+      } finally {
+        els.mqttSigninPassword.value = "";
+      }
+    };
+
+    els.mqttSigninButton.addEventListener("click", submit);
+    els.mqttSigninCancel.addEventListener("click", cancel);
+    dialog.addEventListener("cancel", cancel);
+    dialog.addEventListener("close", onClose);
+    dialog.showModal();
+    els.mqttSigninUsername.focus();
+  });
+}
+
+function renderMqttAuthUsers() {
+  if (!els.mqttAuthList) return;
+  const users = Array.isArray(lastConfig?.mqttAuthUsers) ? lastConfig.mqttAuthUsers : [];
+  els.mqttAuthList.innerHTML = "";
+  if (!users.length) {
+    const empty = document.createElement("div");
+    empty.className = "settings-muted";
+    empty.textContent = "No MQTT sign-in users";
+    els.mqttAuthList.append(empty);
+    return;
+  }
+  for (const user of users) {
+    const row = document.createElement("div");
+    row.className = "mqtt-auth-row";
+    const name = document.createElement("span");
+    name.className = "wifi-network-name";
+    name.textContent = user?.username || "user";
+    const remove = document.createElement("button");
+    remove.className = "button compact icon-buttonish";
+    remove.type = "button";
+    remove.title = "Remove MQTT user";
+    remove.innerHTML = `<span class="material-symbols-rounded">close</span>`;
+    remove.addEventListener("click", () => runUiAction(() => removeMqttAuthUser(user?.username || ""), "mqtt user"));
+    row.append(name, remove);
+    els.mqttAuthList.append(row);
+  }
 }
 
 async function saveDeviceName() {
@@ -2410,6 +2535,9 @@ async function saveMqtt() {
   const mqttUser = els.mqttUser.value.trim();
   const mqttPassword = els.mqttPassword.value;
   const data = {};
+  data.mqttEnabled = Boolean(els.mqttEnabled.checked);
+  data.mqttAllowAnonymousUi = Boolean(els.accessGuestUi.checked);
+  data.mqttAllowAnonymousScript = Boolean(els.accessGuestScript.checked);
   if (mqttHost) data.mqttHost = mqttHost;
   if (Number.isFinite(mqttPort) && mqttPort > 0) data.mqttPort = mqttPort;
   data.mqttRoot = mqttRoot;
@@ -2426,7 +2554,31 @@ async function saveMqtt() {
   els.mqttPassword.value = "";
   updateConfig(config);
   await refreshStatus({ quiet: true, timeoutMs: 6000 });
-  logLine("info", "MQTT settings saved");
+  logLine("info", "settings saved");
+}
+
+async function addMqttAuthUser() {
+  const username = els.mqttAuthUsername.value.trim();
+  const password = els.mqttAuthPassword.value;
+  if (!username || !password) return;
+  const remoteId = mqttRemoteIdForAuth();
+  if (!remoteId) throw new Error("Connect or enter a board id before adding an MQTT user");
+  const keyHex = await deriveMqttAuthKeyHex(remoteId, username, password);
+  const config = await sendCommand("config.set", { mqttAuthUsername: username, mqttAuthKey: keyHex }, { timeoutMs: 10000 });
+  storeMqttAuthKey(remoteId, username, keyHex);
+  els.mqttAuthPassword.value = "";
+  updateConfig(config);
+  renderMqttAuthUsers();
+  logLine("info", `MQTT user ${username} saved`);
+}
+
+async function removeMqttAuthUser(username) {
+  if (!username) return;
+  const config = await sendCommand("config.set", { mqttAuthUserRemove: username }, { timeoutMs: 10000 });
+  clearMqttAuthKey(mqttRemoteIdForAuth());
+  updateConfig(config);
+  renderMqttAuthUsers();
+  logLine("info", `MQTT user ${username} removed`);
 }
 
 async function forgetWifiNetwork(index) {

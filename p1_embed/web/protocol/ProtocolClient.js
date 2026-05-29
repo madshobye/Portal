@@ -1,4 +1,4 @@
-import { canEncodeCommand, decodeFrame, encodeCommand } from "./P1MsgPack.js?v=0.1.87-ui164";
+import { canEncodeCommand, decodeFrame, encodeCommand } from "./P1MsgPack.js?v=0.1.87-ui183";
 
 export class ProtocolClient extends EventTarget {
   constructor(transport, { timeoutMs = 15000 } = {}) {
@@ -10,7 +10,10 @@ export class ProtocolClient extends EventTarget {
 
     this.transport.addEventListener("line", (event) => this.acceptLine(event.detail.line));
     this.transport.addEventListener("frame", (event) => this.acceptFrame(event.detail.data));
-    this.transport.addEventListener("state", (event) => this.emit("state", event.detail));
+    this.transport.addEventListener("state", (event) => {
+      this.emit("state", event.detail);
+      if (event.detail?.state === "session_restored") this.replayPendingFrames();
+    });
     this.transport.addEventListener("error", (event) => this.emit("error", event.detail));
   }
 
@@ -30,7 +33,7 @@ export class ProtocolClient extends EventTarget {
         this.pending.delete(id);
         reject(new Error(`Timed out waiting for ${name} after ${timeoutMs}ms`));
       }, timeoutMs);
-      this.pending.set(id, { resolve, reject, timer, name });
+      this.pending.set(id, { resolve, reject, timer, name, json: JSON.stringify(message) });
     });
 
     await this.transport.sendLine(JSON.stringify(message));
@@ -49,7 +52,7 @@ export class ProtocolClient extends EventTarget {
         this.pending.delete(id);
         reject(new Error(`Timed out waiting for ${name} after ${timeoutMs}ms`));
       }, timeoutMs);
-      this.pending.set(id, { resolve, reject, timer, name });
+      this.pending.set(id, { resolve, reject, timer, name, frame, replayCount: 0 });
     });
 
     await this.transport.sendBytes(frame);
@@ -114,6 +117,20 @@ export class ProtocolClient extends EventTarget {
       error.code = message.error?.code || "command_failed";
       error.response = message;
       pending.reject(error);
+    }
+  }
+
+  replayPendingFrames() {
+    for (const [id, pending] of this.pending.entries()) {
+      if (!pending.frame || pending.replayCount >= 2) continue;
+      pending.replayCount += 1;
+      this.transport.sendBytes(pending.frame).catch((error) => {
+        const current = this.pending.get(id);
+        if (current !== pending) return;
+        clearTimeout(pending.timer);
+        this.pending.delete(id);
+        pending.reject(error);
+      });
     }
   }
 

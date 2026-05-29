@@ -1184,15 +1184,76 @@ input {
   padding-top: 2px;
 }
 
+.settings-access,
 .settings-mqtt {
   display: grid;
   gap: 8px;
   padding-top: 2px;
 }
 
+.settings-toggle-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.settings-toggle-grid-single {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.compact-check {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  min-height: 36px;
+  padding: 7px 9px;
+  border: 1px solid var(--line-soft);
+  border-radius: 6px;
+  background: var(--surface-2);
+}
+
+.compact-check span {
+  color: var(--text);
+  font-size: 12px;
+}
+
+.compact-check input[type="checkbox"] {
+  appearance: none;
+  width: 34px;
+  height: 20px;
+  margin: 0;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--surface-3);
+  position: relative;
+  cursor: pointer;
+}
+
+.compact-check input[type="checkbox"]::before {
+  content: "";
+  position: absolute;
+  width: 14px;
+  height: 14px;
+  top: 2px;
+  left: 2px;
+  border-radius: 999px;
+  background: var(--muted);
+  transition: transform 120ms ease, background 120ms ease;
+}
+
+.compact-check input[type="checkbox"]:checked {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 35%, var(--surface-3));
+}
+
+.compact-check input[type="checkbox"]:checked::before {
+  transform: translateX(14px);
+  background: var(--text);
+}
+
 .settings-mqtt-grid {
   display: grid;
-  grid-template-columns: minmax(0, 1.4fr) 88px auto;
+  grid-template-columns: minmax(0, 1.4fr) 88px minmax(0, 1fr);
   gap: 10px;
   align-items: end;
 }
@@ -1209,6 +1270,13 @@ input {
 
 .settings-mqtt-grid .button {
   min-width: 44px;
+}
+
+.settings-save-button {
+  grid-column: 1 / -1;
+  width: max-content;
+  min-height: 34px;
+  gap: 6px;
 }
 
 .settings-subhead {
@@ -1235,6 +1303,18 @@ input {
 
 .wifi-network-row .material-symbols-rounded {
   color: var(--muted);
+}
+
+.mqtt-auth-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  min-height: 34px;
+  padding: 4px 5px 4px 9px;
+  border: 1px solid var(--line-soft);
+  border-radius: 6px;
+  background: var(--surface-2);
 }
 
 .wifi-network-name {

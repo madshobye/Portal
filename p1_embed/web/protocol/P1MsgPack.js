@@ -1,4 +1,4 @@
-export const P1_MSGPACK_VERSION = "0.1.87-ui179";
+export const P1_MSGPACK_VERSION = "0.1.87-ui183";
 
 const FRAME_CMD = 0;
 const FRAME_RES = 1;
@@ -54,7 +54,7 @@ export function encodeCommand(id, name, data = {}) {
 
 function encodeConfigSet(id, op, data = {}) {
   const writer = new MsgPackWriter(512);
-  writer.array(19);
+  writer.array(31);
   writer.uint(FRAME_CMD);
   writer.uint(Number(id));
   writer.uint(op);
@@ -74,6 +74,17 @@ function encodeConfigSet(id, op, data = {}) {
   writer.string(data.mqttUser || "");
   writer.bool(Object.prototype.hasOwnProperty.call(data, "mqttPassword"));
   writer.string(data.mqttPassword || "");
+  writer.bool(Object.prototype.hasOwnProperty.call(data, "mqttEnabled"));
+  writer.bool(Boolean(data.mqttEnabled));
+  writer.bool(Object.prototype.hasOwnProperty.call(data, "mqttAllowAnonymousUi"));
+  writer.bool(Boolean(data.mqttAllowAnonymousUi));
+  writer.bool(Object.prototype.hasOwnProperty.call(data, "mqttAllowAnonymousScript"));
+  writer.bool(Boolean(data.mqttAllowAnonymousScript));
+  writer.bool(Object.prototype.hasOwnProperty.call(data, "mqttAuthUsername") && Object.prototype.hasOwnProperty.call(data, "mqttAuthKey"));
+  writer.string(data.mqttAuthUsername || "");
+  writer.string(data.mqttAuthKey || "");
+  writer.bool(Object.prototype.hasOwnProperty.call(data, "mqttAuthUserRemove"));
+  writer.string(data.mqttAuthUserRemove || "");
   return writer.bytes();
 }
 
@@ -163,7 +174,7 @@ export function decodeFrame(bytesLike) {
   return { type: "res", id, ok, data: data || {} };
 }
 
-class MsgPackWriter {
+export class MsgPackWriter {
   constructor(capacity = 128) {
     this.data = new Uint8Array(capacity);
     this.length = 0;
@@ -187,7 +198,13 @@ class MsgPackWriter {
 
   array(count) {
     if (count <= 15) this.byte(0x90 | count);
-    else throw new Error("array too large for P1 MessagePack writer");
+    else if (count <= 0xffff) {
+      this.byte(0xdc);
+      this.byte(count >> 8);
+      this.byte(count);
+    } else {
+      throw new Error("array too large for P1 MessagePack writer");
+    }
   }
 
   uint(value) {
@@ -249,7 +266,7 @@ class MsgPackWriter {
   }
 }
 
-class MsgPackReader {
+export class MsgPackReader {
   constructor(bytesLike) {
     if (bytesLike instanceof ArrayBuffer) this.data = new Uint8Array(bytesLike);
     else if (ArrayBuffer.isView(bytesLike)) this.data = new Uint8Array(bytesLike.buffer, bytesLike.byteOffset, bytesLike.byteLength);
@@ -295,6 +312,19 @@ class MsgPackReader {
     throw new Error(`Expected MessagePack bool, got 0x${b.toString(16)}`);
   }
 
+  bin() {
+    const b = this.byte();
+    let len = 0;
+    if (b === 0xc4) len = this.byte();
+    else if (b === 0xc5) len = (this.byte() << 8) | this.byte();
+    else throw new Error(`Expected MessagePack bin, got 0x${b.toString(16)}`);
+    const end = this.offset + len;
+    if (end > this.data.length) throw new Error("MessagePack bin exceeds frame");
+    const value = this.data.slice(this.offset, end);
+    this.offset = end;
+    return value;
+  }
+
   stringFromPrefix(b) {
     let len = 0;
     if ((b & 0xe0) === 0xa0) len = b & 0x1f;
@@ -332,6 +362,10 @@ class MsgPackReader {
     }
     if (b === 0xc2) return false;
     if (b === 0xc3) return true;
+    if (b === 0xc4 || b === 0xc5) {
+      this.offset -= 1;
+      return this.bin();
+    }
     if (b === 0xca) return this.float32();
     if ((b & 0xe0) === 0xa0 || b === 0xd9 || b === 0xda) return this.stringFromPrefix(b);
     if ((b & 0xf0) === 0x80 || b === 0xde) {

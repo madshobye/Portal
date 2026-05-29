@@ -1,5 +1,15 @@
+import { MsgPackReader, MsgPackWriter } from "./P1MsgPack.js?v=0.1.87-ui183";
+
 const DEFAULT_MQTT_ROOT = "";
-export const MQTT_TRANSPORT_VERSION = "0.1.87-ui179";
+const FRAME_AUTH = 3;
+const FRAME_SECURE = 4;
+const AUTH_START = 0;
+const AUTH_CHALLENGE = 1;
+const AUTH_FINISH = 2;
+const AUTH_OK = 3;
+const AUTH_ERROR = 4;
+
+export const MQTT_TRANSPORT_VERSION = "0.1.87-ui185";
 
 console.info(`[P1E mqtt] loaded ${MQTT_TRANSPORT_VERSION}`);
 
@@ -12,6 +22,7 @@ export class MqttTransport extends EventTarget {
     clientId = "",
     deviceId = "",
     connectTimeoutMs = 15000,
+    authProvider = null,
   } = {}) {
     super();
     this.mqttUrl = mqttUrl;
@@ -24,6 +35,18 @@ export class MqttTransport extends EventTarget {
     this.client = null;
     this.connected = false;
     this._closed = false;
+    this.hello = null;
+    this.authRequired = false;
+    this.auth = loadStoredAuth(this.remoteId);
+    this.sessionId = 0;
+    this.rxCounter = 0;
+    this.txCounter = 0;
+    this.clientNonce = null;
+    this.authPromise = null;
+    this.authResolve = null;
+    this.authReject = null;
+    this.authProvider = authProvider;
+    this.reauthPromise = null;
   }
 
   get available() {
@@ -34,6 +57,7 @@ export class MqttTransport extends EventTarget {
     if (!("mqtt" in window)) throw new Error("MQTT.js is not available");
     this.remoteId = normalizeTopicPart(remoteId);
     if (!this.remoteId) throw new Error("MQTT device id is required");
+    this.auth = loadStoredAuth(this.remoteId);
     this._closed = false;
     this.setState("signaling_connecting", { remoteId: this.remoteId });
 
@@ -66,6 +90,11 @@ export class MqttTransport extends EventTarget {
             await subscribe(this.client, this.responseTopic());
             await subscribe(this.client, this.eventTopic());
             await subscribe(this.client, this.helloTopic());
+            await wait(250);
+            if (this.authRequired || this.hello?.auth === "required") {
+              await this.ensureAuth();
+              await this.authenticate();
+            }
             this.setState("answer_received", { remoteId: this.remoteId });
             this.setState("connected", { remoteId: this.remoteId, localId: this.localId });
             finish(true, true);
@@ -104,13 +133,20 @@ export class MqttTransport extends EventTarget {
       });
     }
     this.client = null;
+    this.clearSession();
     this.setState("disconnected", { remoteId: this.remoteId });
   }
 
   async sendBytes(data) {
     if (!this.client || !this.connected) throw new Error("MQTT is not connected");
     const bytes = data instanceof Uint8Array ? data : new Uint8Array(data);
-    await publish(this.client, this.commandTopic(), bytes);
+    if (this.authRequired && !this.sessionId) {
+      await this.ensureAuth();
+      await this.authenticate();
+    }
+    const payload = this.sessionId ? await this.encodeSecure(bytes) : bytes;
+    if (this.authRequired && !this.sessionId) throw new Error("MQTT sign in required");
+    await publish(this.client, this.commandTopic(), payload);
   }
 
   async sendLine() {
@@ -140,11 +176,199 @@ export class MqttTransport extends EventTarget {
 
   handleMessage(topic, payload) {
     if (topic === this.helloTopic()) {
+      const text = new TextDecoder().decode(payload instanceof Uint8Array ? payload : new Uint8Array(payload));
+      try {
+        this.hello = JSON.parse(text);
+        this.authRequired = this.hello?.auth === "required";
+      } catch {
+        this.hello = null;
+      }
       this.emit("state", { state: "diagnostic", remoteId: this.remoteId, message: `hello ${payload?.length || 0} bytes` });
       return;
     }
     const bytes = payload instanceof Uint8Array ? payload : new Uint8Array(payload);
+    if (this.isAuthFrame(bytes)) {
+      this.handleAuthFrame(bytes);
+      return;
+    }
+    if (this.isSecureFrame(bytes)) {
+      this.decodeSecure(bytes).then((inner) => {
+        if (inner) this.emit("frame", { data: inner });
+      }).catch((error) => this.emit("error", { error }));
+      return;
+    }
     this.emit("frame", { data: bytes });
+  }
+
+  isAuthFrame(bytes) {
+    return bytes?.length >= 2 && (bytes[0] & 0xf0) === 0x90 && bytes[1] === FRAME_AUTH;
+  }
+
+  isSecureFrame(bytes) {
+    return bytes?.length >= 2 && (bytes[0] & 0xf0) === 0x90 && bytes[1] === FRAME_SECURE;
+  }
+
+  async authenticate() {
+    if (!this.client || !this.connected) throw new Error("MQTT is not connected");
+    if (!this.auth?.username || !this.auth?.key) throw new Error("MQTT sign in required");
+    if (this.authPromise) return this.authPromise;
+    this.clientNonce = randomBytes(16);
+    this.authPromise = new Promise((resolve, reject) => {
+      this.authResolve = resolve;
+      this.authReject = reject;
+      setTimeout(() => {
+        if (!this.authPromise) return;
+        const error = new Error("MQTT sign in timed out");
+        this.authPromise = null;
+        this.authReject = null;
+        this.authResolve = null;
+        reject(error);
+      }, 5000);
+    });
+    const writer = new MsgPackWriter(128);
+    writer.array(5);
+    writer.uint(FRAME_AUTH);
+    writer.uint(AUTH_START);
+    writer.string(this.localId);
+    writer.string(this.auth.username);
+    writer.bin(this.clientNonce);
+    await publish(this.client, this.commandTopic(), writer.bytes());
+    return this.authPromise;
+  }
+
+  async handleAuthFrame(bytes) {
+    try {
+      const reader = new MsgPackReader(bytes);
+      const count = reader.array();
+      const frameType = reader.uint();
+      const op = reader.uint();
+      if (frameType !== FRAME_AUTH) return;
+      if (op === AUTH_CHALLENGE) {
+        const serverNonce = reader.bin();
+        this.authRequired = Boolean(count >= 4 ? reader.bool() : true);
+        if (count >= 5) reader.bool();
+        if (!this.auth?.key || !this.clientNonce) throw new Error("MQTT sign in required");
+        const tag = await authProof(this.auth.key, this.localId, this.auth.username, this.clientNonce, serverNonce);
+        const writer = new MsgPackWriter(160);
+        writer.array(6);
+        writer.uint(FRAME_AUTH);
+        writer.uint(AUTH_FINISH);
+        writer.string(this.auth.username);
+        writer.bin(this.clientNonce);
+        writer.bin(serverNonce);
+        writer.bin(tag);
+        await publish(this.client, this.commandTopic(), writer.bytes());
+        return;
+      }
+      if (op === AUTH_OK) {
+        this.sessionId = reader.uint();
+        this.rxCounter = 0;
+        this.txCounter = 0;
+        const resolve = this.authResolve;
+        this.authPromise = null;
+        this.authResolve = null;
+        this.authReject = null;
+        if (resolve) resolve(true);
+        this.emit("state", { state: "diagnostic", remoteId: this.remoteId, message: `signed in as ${this.auth.username}` });
+        return;
+      }
+      if (op === AUTH_ERROR) {
+        const code = String(reader.value?.() || "auth_error");
+        if (code === "session_invalid") {
+          this.recoverSession(code).catch((error) => this.emit("error", { error }));
+          return;
+        }
+        if (code === "auth_failed" || code === "unknown_user") {
+          clearMqttAuthKey(this.remoteId);
+          this.auth = null;
+          this.clearSession();
+        }
+        const error = new Error(`MQTT sign in failed: ${code}`);
+        const reject = this.authReject;
+        this.authPromise = null;
+        this.authResolve = null;
+        this.authReject = null;
+        if (reject) reject(error);
+        else this.emit("error", { error });
+      }
+    } catch (error) {
+      if (this.authReject) this.authReject(error);
+      else this.emit("error", { error });
+      this.authPromise = null;
+      this.authResolve = null;
+      this.authReject = null;
+    }
+  }
+
+  async ensureAuth() {
+    this.auth = loadStoredAuth(this.remoteId);
+    if (this.auth?.username && this.auth?.key) return this.auth;
+    if (typeof this.authProvider === "function") {
+      const provided = await this.authProvider({ remoteId: this.remoteId, hello: this.hello });
+      if (provided?.username && provided?.keyHex) {
+        storeMqttAuthKey(this.remoteId, provided.username, provided.keyHex);
+      }
+      this.auth = loadStoredAuth(this.remoteId);
+    }
+    if (!this.auth?.username || !this.auth?.key) {
+      this.emit("state", { state: "auth_required", remoteId: this.remoteId });
+      throw new Error("MQTT sign in required");
+    }
+    return this.auth;
+  }
+
+  clearSession() {
+    this.sessionId = 0;
+    this.rxCounter = 0;
+    this.txCounter = 0;
+    this.clientNonce = null;
+  }
+
+  async recoverSession(reason = "session_invalid") {
+    if (this.reauthPromise) return this.reauthPromise;
+    this.clearSession();
+    this.emit("state", { state: "session_lost", remoteId: this.remoteId, reason });
+    this.reauthPromise = (async () => {
+      await this.ensureAuth();
+      await this.authenticate();
+      this.emit("state", { state: "session_restored", remoteId: this.remoteId, reason });
+      return true;
+    })();
+    try {
+      return await this.reauthPromise;
+    } finally {
+      this.reauthPromise = null;
+    }
+  }
+
+  async encodeSecure(payload) {
+    const counter = ++this.txCounter;
+    const cipher = await aesCtrCrypt(this.auth.key, this.sessionId, counter, 0, payload);
+    const tag = await secureTag(this.auth.key, this.sessionId, counter, cipher);
+    const writer = new MsgPackWriter(cipher.length + 96);
+    writer.array(5);
+    writer.uint(FRAME_SECURE);
+    writer.uint(this.sessionId);
+    writer.uint(counter);
+    writer.bin(cipher);
+    writer.bin(tag);
+    return writer.bytes();
+  }
+
+  async decodeSecure(bytes) {
+    const reader = new MsgPackReader(bytes);
+    const count = reader.array();
+    const frameType = reader.uint();
+    if (count < 5 || frameType !== FRAME_SECURE) throw new Error("Bad MQTT secure frame");
+    const sessionId = reader.uint();
+    const counter = reader.uint();
+    const cipher = reader.bin();
+    const tag = reader.bin();
+    if (!this.auth?.key || sessionId !== this.sessionId || counter <= this.rxCounter) throw new Error("Invalid MQTT secure session");
+    const expected = await secureTag(this.auth.key, sessionId, counter, cipher);
+    if (!constantTimeEqual(expected, tag)) throw new Error("Invalid MQTT secure signature");
+    this.rxCounter = counter;
+    return aesCtrCrypt(this.auth.key, sessionId, counter, 1, cipher);
   }
 
   setState(state, detail = {}) {
@@ -181,4 +405,128 @@ function publish(client, topic, payload) {
   return new Promise((resolve, reject) => {
     client.publish(topic, payload, { qos: 0, retain: false }, (error) => error ? reject(error) : resolve());
   });
+}
+
+function wait(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function authStorageKey(remoteId) {
+  return `p1e.mqtt.auth.${normalizeTopicPart(remoteId)}`;
+}
+
+function loadStoredAuth(remoteId) {
+  try {
+    const raw = localStorage.getItem(authStorageKey(remoteId));
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    if (!parsed?.username || !parsed?.keyHex) return null;
+    return { username: String(parsed.username), keyHex: String(parsed.keyHex), key: hexToBytes(parsed.keyHex) };
+  } catch {
+    return null;
+  }
+}
+
+export async function deriveMqttAuthKeyHex(deviceId, username, password) {
+  const text = `${normalizeTopicPart(deviceId)}:${String(username || "").trim()}:${String(password || "")}`;
+  const bytes = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text));
+  return bytesToHex(new Uint8Array(bytes));
+}
+
+export function storeMqttAuthKey(remoteId, username, keyHex) {
+  localStorage.setItem(authStorageKey(remoteId), JSON.stringify({ username: String(username || "").trim(), keyHex: String(keyHex || "").trim().toLowerCase() }));
+}
+
+export function clearMqttAuthKey(remoteId) {
+  localStorage.removeItem(authStorageKey(remoteId));
+}
+
+function randomBytes(length) {
+  const bytes = new Uint8Array(length);
+  crypto.getRandomValues(bytes);
+  return bytes;
+}
+
+function hexToBytes(hex) {
+  const text = String(hex || "").trim();
+  if (text.length % 2) throw new Error("Invalid hex key");
+  const bytes = new Uint8Array(text.length / 2);
+  for (let i = 0; i < bytes.length; i += 1) bytes[i] = Number.parseInt(text.slice(i * 2, i * 2 + 2), 16);
+  return bytes;
+}
+
+function bytesToHex(bytes) {
+  return Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("");
+}
+
+function u32be(value) {
+  return new Uint8Array([(value >>> 24) & 255, (value >>> 16) & 255, (value >>> 8) & 255, value & 255]);
+}
+
+function secureCounter(sessionId, counter, direction) {
+  const value = new Uint8Array(16);
+  value[0] = (sessionId >>> 24) & 255;
+  value[1] = (sessionId >>> 16) & 255;
+  value[2] = (sessionId >>> 8) & 255;
+  value[3] = sessionId & 255;
+  value[4] = (counter >>> 16) & 255;
+  value[5] = (counter >>> 8) & 255;
+  value[6] = counter & 255;
+  value[7] = direction & 255;
+  return value;
+}
+
+async function aesCtrCrypt(keyBytes, sessionId, counter, direction, payload) {
+  const key = await crypto.subtle.importKey("raw", keyBytes, { name: "AES-CTR" }, false, ["encrypt", "decrypt"]);
+  const result = await crypto.subtle.encrypt(
+    { name: "AES-CTR", counter: secureCounter(sessionId, counter, direction), length: 64 },
+    key,
+    payload,
+  );
+  return new Uint8Array(result);
+}
+
+async function hmacSha256(keyBytes, chunks) {
+  const key = await crypto.subtle.importKey("raw", keyBytes, { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
+  const total = chunks.reduce((sum, chunk) => sum + chunk.length, 0);
+  const data = new Uint8Array(total);
+  let offset = 0;
+  for (const chunk of chunks) {
+    data.set(chunk, offset);
+    offset += chunk.length;
+  }
+  return new Uint8Array(await crypto.subtle.sign("HMAC", key, data));
+}
+
+function stringChunk(value) {
+  const body = new TextEncoder().encode(String(value ?? ""));
+  const out = new Uint8Array(body.length + 1);
+  out.set(body);
+  return out;
+}
+
+function authProof(key, clientId, username, clientNonce, serverNonce) {
+  return hmacSha256(key, [
+    stringChunk("P1E-MQTT-AUTH-v1"),
+    stringChunk(clientId),
+    stringChunk(username),
+    clientNonce,
+    serverNonce,
+  ]);
+}
+
+function secureTag(key, sessionId, counter, payload) {
+  return hmacSha256(key, [
+    stringChunk("P1E-MQTT-SECURE-v1"),
+    u32be(sessionId),
+    u32be(counter),
+    payload,
+  ]);
+}
+
+function constantTimeEqual(a, b) {
+  if (!a || !b || a.length !== b.length) return false;
+  let diff = 0;
+  for (let i = 0; i < a.length; i += 1) diff |= a[i] ^ b[i];
+  return diff === 0;
 }

@@ -15,6 +15,12 @@ static int g_mqttPort = P1_EMBED_MQTT_PORT;
 static String g_mqttRoot = "";
 static String g_mqttUser = "";
 static String g_mqttPassword = "";
+static bool g_mqttEnabled = true;
+static bool g_mqttAllowAnonymousUi = false;
+static bool g_mqttAllowAnonymousScript = false;
+static String g_mqttAuthUsernames[P1_EMBED_MQTT_MAX_USERS];
+static String g_mqttAuthUserKeys[P1_EMBED_MQTT_MAX_USERS];
+static int g_mqttAuthUserCount = 0;
 static bool g_configFsReady = false;
 
 static bool configEnsureFs() {
@@ -111,6 +117,45 @@ static bool configJsonGetInt(const String& json, const char* key, int& out) {
   return true;
 }
 
+static bool configJsonGetBool(const String& json, const char* key, bool& out) {
+  String needle = String("\"") + key + "\"";
+  int keyPos = json.indexOf(needle);
+  if (keyPos < 0) return false;
+  int colon = json.indexOf(':', keyPos + needle.length());
+  if (colon < 0) return false;
+  int pos = colon + 1;
+  while (pos < json.length() && isspace((unsigned char)json[pos])) pos++;
+  if (json.startsWith("true", pos)) {
+    out = true;
+    return true;
+  }
+  if (json.startsWith("false", pos)) {
+    out = false;
+    return true;
+  }
+  return false;
+}
+
+static bool configHexToBytes(const String& hex, uint8_t* out, size_t outLen) {
+  if (!out || hex.length() != outLen * 2) return false;
+  for (size_t i = 0; i < outLen; i++) {
+    char hi = hex[i * 2];
+    char lo = hex[i * 2 + 1];
+    int hv = (hi >= '0' && hi <= '9') ? hi - '0' : (hi >= 'a' && hi <= 'f') ? hi - 'a' + 10 : (hi >= 'A' && hi <= 'F') ? hi - 'A' + 10 : -1;
+    int lv = (lo >= '0' && lo <= '9') ? lo - '0' : (lo >= 'a' && lo <= 'f') ? lo - 'a' + 10 : (lo >= 'A' && lo <= 'F') ? lo - 'A' + 10 : -1;
+    if (hv < 0 || lv < 0) return false;
+    out[i] = uint8_t((hv << 4) | lv);
+  }
+  return true;
+}
+
+static int configFindMqttAuthUser(const String& username) {
+  for (int i = 0; i < g_mqttAuthUserCount; i++) {
+    if (g_mqttAuthUsernames[i] == username) return i;
+  }
+  return -1;
+}
+
 static int configFindWifiSsid(const String& ssid) {
   for (int i = 0; i < g_wifiNetworkCount; i++) {
     if (g_wifiSsids[i] == ssid) return i;
@@ -179,13 +224,43 @@ static void configLoadWifiNetworks(const String& json) {
   }
 }
 
+static void configLoadMqttAuthUsers(const String& json) {
+  g_mqttAuthUserCount = 0;
+  int arrayPos = json.indexOf("\"mqttAuthUsers\"");
+  if (arrayPos < 0) return;
+
+  int arrayEnd = json.indexOf(']', arrayPos);
+  int pos = json.indexOf('{', arrayPos);
+  while (pos >= 0 && (arrayEnd < 0 || pos < arrayEnd) && g_mqttAuthUserCount < P1_EMBED_MQTT_MAX_USERS) {
+    int end = json.indexOf('}', pos);
+    if (end < 0 || (arrayEnd >= 0 && end > arrayEnd)) break;
+
+    String entry = json.substring(pos, end + 1);
+    String username;
+    String keyHex;
+    if (configJsonGetString(entry, "username", username) && configJsonGetString(entry, "key", keyHex)) {
+      username.trim();
+      keyHex.trim();
+      uint8_t key[32];
+      if (username.length() && configHexToBytes(keyHex, key, sizeof(key))) {
+        g_mqttAuthUsernames[g_mqttAuthUserCount] = username;
+        g_mqttAuthUserKeys[g_mqttAuthUserCount] = keyHex;
+        g_mqttAuthUserKeys[g_mqttAuthUserCount].toLowerCase();
+        g_mqttAuthUserCount++;
+      }
+    }
+
+    pos = json.indexOf('{', end + 1);
+  }
+}
+
 static bool configReadFile(String& out) {
   out = "";
   if (!configEnsureFs()) return false;
   File f = LittleFS.open(CONFIG_PATH, "r");
   if (!f) return false;
   size_t n = (size_t)f.size();
-  if (n > 4096) {
+  if (n > 8192) {
     f.close();
     return false;
   }
@@ -225,6 +300,7 @@ void configLoad() {
     else changed = true;
     configApplyIdentityDefaults();
     configLoadWifiNetworks(json);
+    configLoadMqttAuthUsers(json);
     int port = 0;
     if (configJsonGetString(json, "mqttHost", value)) g_mqttHost = value;
     else changed = true;
@@ -238,6 +314,9 @@ void configLoad() {
     else changed = true;
     if (configJsonGetString(json, "mqttPassword", value)) g_mqttPassword = value;
     else changed = true;
+    if (!configJsonGetBool(json, "mqttEnabled", g_mqttEnabled)) changed = true;
+    if (!configJsonGetBool(json, "mqttAllowAnonymousUi", g_mqttAllowAnonymousUi)) changed = true;
+    if (!configJsonGetBool(json, "mqttAllowAnonymousScript", g_mqttAllowAnonymousScript)) changed = true;
     configApplyMqttDefaults();
     if (changed) configSave();
     return;
@@ -262,6 +341,16 @@ void configSave() {
   json += ",\"mqttRoot\":" + jsonString(configMqttRoot());
   json += ",\"mqttUser\":" + jsonString(configMqttUser());
   json += ",\"mqttPassword\":" + jsonString(configMqttPassword());
+  json += ",\"mqttEnabled\":" + String(configMqttEnabled() ? "true" : "false");
+  json += ",\"mqttAllowAnonymousUi\":" + String(configMqttAllowAnonymousUi() ? "true" : "false");
+  json += ",\"mqttAllowAnonymousScript\":" + String(configMqttAllowAnonymousScript() ? "true" : "false");
+  json += ",\"mqttAuthUsers\":[";
+  for (int i = 0; i < g_mqttAuthUserCount; i++) {
+    if (i) json += ",";
+    json += "{\"username\":" + jsonString(g_mqttAuthUsernames[i]);
+    json += ",\"key\":" + jsonString(g_mqttAuthUserKeys[i]) + "}";
+  }
+  json += "]";
   json += ",\"wifiNetworks\":[";
   for (int i = 0; i < g_wifiNetworkCount; i++) {
     if (i) json += ",";
@@ -295,6 +384,14 @@ void configFactoryReset() {
   g_mqttRoot = P1_EMBED_MQTT_ROOT;
   g_mqttUser = P1_EMBED_MQTT_USER;
   g_mqttPassword = P1_EMBED_MQTT_PASS;
+  g_mqttEnabled = true;
+  g_mqttAllowAnonymousUi = false;
+  g_mqttAllowAnonymousScript = false;
+  g_mqttAuthUserCount = 0;
+  for (int i = 0; i < P1_EMBED_MQTT_MAX_USERS; i++) {
+    g_mqttAuthUsernames[i] = "";
+    g_mqttAuthUserKeys[i] = "";
+  }
   for (int i = 0; i < P1_EMBED_MAX_WIFI_NETWORKS; i++) {
     g_wifiSsids[i] = "";
     g_wifiPasswords[i] = "";
@@ -364,6 +461,67 @@ void configSetMqttPassword(const String& value) {
   g_mqttPassword = value.length() ? value : String(P1_EMBED_MQTT_PASS);
 }
 
+void configSetMqttEnabled(bool value) {
+  g_mqttEnabled = value;
+}
+
+void configSetMqttAllowAnonymousUi(bool value) {
+  g_mqttAllowAnonymousUi = value;
+}
+
+void configSetMqttAllowAnonymousScript(bool value) {
+  g_mqttAllowAnonymousScript = value;
+}
+
+bool configAddMqttAuthUserKey(const String& username, const String& keyHex) {
+  String user = username;
+  String key = keyHex;
+  user.trim();
+  key.trim();
+  key.toLowerCase();
+  uint8_t parsed[32];
+  if (!user.length() || !configHexToBytes(key, parsed, sizeof(parsed))) return false;
+
+  int index = configFindMqttAuthUser(user);
+  if (index < 0) {
+    if (g_mqttAuthUserCount >= P1_EMBED_MQTT_MAX_USERS) return false;
+    index = g_mqttAuthUserCount++;
+  }
+  g_mqttAuthUsernames[index] = user;
+  g_mqttAuthUserKeys[index] = key;
+  return true;
+}
+
+bool configRemoveMqttAuthUser(const String& username) {
+  String user = username;
+  user.trim();
+  int index = configFindMqttAuthUser(user);
+  if (index < 0) return false;
+  for (int i = index; i < g_mqttAuthUserCount - 1; i++) {
+    g_mqttAuthUsernames[i] = g_mqttAuthUsernames[i + 1];
+    g_mqttAuthUserKeys[i] = g_mqttAuthUserKeys[i + 1];
+  }
+  g_mqttAuthUserCount--;
+  g_mqttAuthUsernames[g_mqttAuthUserCount] = "";
+  g_mqttAuthUserKeys[g_mqttAuthUserCount] = "";
+  return true;
+}
+
+int configMqttAuthUserCount() {
+  return g_mqttAuthUserCount;
+}
+
+String configMqttAuthUserNameAt(int index) {
+  if (index < 0 || index >= g_mqttAuthUserCount) return "";
+  return g_mqttAuthUsernames[index];
+}
+
+bool configMqttAuthUserKey(const String& username, uint8_t outKey[32]) {
+  int index = configFindMqttAuthUser(username);
+  if (index < 0) return false;
+  return configHexToBytes(g_mqttAuthUserKeys[index], outKey, 32);
+}
+
 String configWifiSsid() {
   return configWifiSsidAt(0);
 }
@@ -408,6 +566,18 @@ String configMqttPassword() {
   return g_mqttPassword.length() ? g_mqttPassword : String(P1_EMBED_MQTT_PASS);
 }
 
+bool configMqttEnabled() {
+  return g_mqttEnabled;
+}
+
+bool configMqttAllowAnonymousUi() {
+  return g_mqttAllowAnonymousUi;
+}
+
+bool configMqttAllowAnonymousScript() {
+  return g_mqttAllowAnonymousScript;
+}
+
 P1ConfigSnapshot configSnapshot() {
   P1ConfigSnapshot snapshot;
   snapshot.deviceId = configDeviceId();
@@ -420,6 +590,10 @@ P1ConfigSnapshot configSnapshot() {
   snapshot.mqttRoot = configMqttRoot();
   snapshot.mqttUser = configMqttUser();
   snapshot.mqttPasswordSet = configMqttPassword().length() > 0;
+  snapshot.mqttEnabled = configMqttEnabled();
+  snapshot.mqttAllowAnonymousUi = configMqttAllowAnonymousUi();
+  snapshot.mqttAllowAnonymousScript = configMqttAllowAnonymousScript();
+  snapshot.mqttAuthUserCount = configMqttAuthUserCount();
   snapshot.wifi = wifiSnapshot();
   return snapshot;
 }
@@ -436,6 +610,16 @@ String configAsJson(const P1ConfigSnapshot& snapshot) {
   out += ",\"mqttRoot\":" + jsonString(snapshot.mqttRoot);
   out += ",\"mqttUser\":" + jsonString(snapshot.mqttUser);
   out += ",\"mqttPasswordSet\":" + String(snapshot.mqttPasswordSet ? "true" : "false");
+  out += ",\"mqttEnabled\":" + String(snapshot.mqttEnabled ? "true" : "false");
+  out += ",\"mqttAllowAnonymousUi\":" + String(snapshot.mqttAllowAnonymousUi ? "true" : "false");
+  out += ",\"mqttAllowAnonymousScript\":" + String(snapshot.mqttAllowAnonymousScript ? "true" : "false");
+  out += ",\"mqttAuthUserCount\":" + String(snapshot.mqttAuthUserCount);
+  out += ",\"mqttAuthUsers\":[";
+  for (int i = 0; i < g_mqttAuthUserCount; i++) {
+    if (i) out += ",";
+    out += "{\"username\":" + jsonString(g_mqttAuthUsernames[i]) + "}";
+  }
+  out += "]";
   out += ",\"wifiNetworks\":[";
   for (int i = 0; i < g_wifiNetworkCount; i++) {
     if (i) out += ",";
