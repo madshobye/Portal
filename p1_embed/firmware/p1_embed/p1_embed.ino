@@ -72,6 +72,8 @@ void setup() {
   memoryProfileMark("wifi", "begin");
   webTransportBegin();
   memoryProfileMark("websocket", "begin");
+  mqttTransportBegin();
+  memoryProfileMark("mqtt", "begin");
   webrtcTransportBegin();
   memoryProfileMark("webrtc", "begin");
   protocolEmitBoot();
@@ -172,6 +174,7 @@ void loop() {
   transportSerialPoll();
   wifiLoop();
   webTransportLoop();
+  mqttTransportLoop();
 #if P1_EMBED_WRENCH_ENABLED
   bootPollDelayedAutorun();
 #endif

@@ -1,4 +1,4 @@
-export const P1_MSGPACK_VERSION = "0.1.87-ui155";
+export const P1_MSGPACK_VERSION = "0.1.87-ui179";
 
 const FRAME_CMD = 0;
 const FRAME_RES = 1;
@@ -16,6 +16,7 @@ const OPS = {
   "wifi.status": 9,
   "wifi.connect": 10,
   "wifi.disconnect": 11,
+  "wifi.forget": 18,
   "script.error.get": 12,
   "script.error.clear": 13,
   "script.input": 14,
@@ -24,6 +25,7 @@ const OPS = {
   "script.chunk.add": 20,
   "script.chunk.commit": 21,
   "script.stop": 22,
+  "script.chunk.get": 23,
   "script.restart": 24,
   "device.reboot": 30,
 };
@@ -40,6 +42,8 @@ export function encodeCommand(id, name, data = {}) {
   if (name === "script.input" || name === "wrench.input") return encodeScriptInput(id, op, data);
   if (name === "script.chunk.begin") return encodeScriptChunkBegin(id, op, data);
   if (name === "script.chunk.add") return encodeScriptChunkAdd(id, op, data);
+  if (name === "script.chunk.get") return encodeScriptChunkGet(id, op, data);
+  if (name === "wifi.forget") return encodeWifiForget(id, op, data);
   const writer = new MsgPackWriter(32);
   writer.array(3);
   writer.uint(FRAME_CMD);
@@ -49,8 +53,8 @@ export function encodeCommand(id, name, data = {}) {
 }
 
 function encodeConfigSet(id, op, data = {}) {
-  const writer = new MsgPackWriter(256);
-  writer.array(9);
+  const writer = new MsgPackWriter(512);
+  writer.array(19);
   writer.uint(FRAME_CMD);
   writer.uint(Number(id));
   writer.uint(op);
@@ -60,6 +64,26 @@ function encodeConfigSet(id, op, data = {}) {
   writer.string(data.wifiSsid || "");
   writer.bool(Object.prototype.hasOwnProperty.call(data, "wifiPassword"));
   writer.string(data.wifiPassword || "");
+  writer.bool(Object.prototype.hasOwnProperty.call(data, "mqttHost"));
+  writer.string(data.mqttHost || "");
+  writer.bool(Object.prototype.hasOwnProperty.call(data, "mqttPort"));
+  writer.uint(Math.max(0, Number(data.mqttPort || 0)));
+  writer.bool(Object.prototype.hasOwnProperty.call(data, "mqttRoot"));
+  writer.string(data.mqttRoot || "");
+  writer.bool(Object.prototype.hasOwnProperty.call(data, "mqttUser"));
+  writer.string(data.mqttUser || "");
+  writer.bool(Object.prototype.hasOwnProperty.call(data, "mqttPassword"));
+  writer.string(data.mqttPassword || "");
+  return writer.bytes();
+}
+
+function encodeWifiForget(id, op, data = {}) {
+  const writer = new MsgPackWriter(24);
+  writer.array(4);
+  writer.uint(FRAME_CMD);
+  writer.uint(Number(id));
+  writer.uint(op);
+  writer.uint(Math.max(0, Number(data.index ?? 0)));
   return writer.bytes();
 }
 
@@ -106,6 +130,17 @@ function encodeScriptChunkAdd(id, op, data = {}) {
   writer.uint(op);
   writer.uint(Number(data.offset || 0));
   writer.bin(chunkBytes);
+  return writer.bytes();
+}
+
+function encodeScriptChunkGet(id, op, data = {}) {
+  const writer = new MsgPackWriter(32);
+  writer.array(5);
+  writer.uint(FRAME_CMD);
+  writer.uint(Number(id));
+  writer.uint(op);
+  writer.uint(Math.max(0, Number(data.offset || 0)));
+  writer.uint(Math.max(1, Number(data.maxBytes || 512)));
   return writer.bytes();
 }
 

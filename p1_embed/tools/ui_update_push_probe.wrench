@@ -1,0 +1,17 @@
+var n = 0;
+
+function setup() {
+  uiBegin("Update Push Probe");
+  uiValue("same", "Same", 0, 0, 10);
+  uiGraph("stream", "Stream", 0, 0, 10);
+  println("ui update push probe ready");
+}
+
+function loop() {
+  if (n < 5) {
+    uiUpdate("same", 1);
+    uiPush("stream", 1);
+    n = n + 1;
+  }
+  delay(20);
+}

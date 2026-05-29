@@ -267,14 +267,12 @@ class GuinoView {
     ctx.fillRect(0, 0, w, h);
 
     const widgets = [...this.widgets.values()].sort((a, b) => a.order - b.order);
-    this.drawHeader(ctx, w);
     this.rects.clear();
     if (!widgets.length) {
-      this.drawEmpty(ctx, w, h);
-      if (!this.connected) this.drawDisabledOverlay(ctx, w, h);
       return;
     }
 
+    this.drawHeader(ctx, w);
     const pad = 18;
     const gap = 12;
     const bodyTop = 66;
@@ -318,7 +316,6 @@ class GuinoView {
     this.contentHeight = Math.max(h, y + rowHeight + gap + this.scrollY);
     const maxScroll = Math.max(0, this.contentHeight - h);
     this.scrollY = clamp(this.scrollY, 0, maxScroll);
-    if (!this.connected) this.drawDisabledOverlay(ctx, w, h);
   }
 
   drawHeader(ctx, w) {
@@ -333,40 +330,13 @@ class GuinoView {
   }
 
   drawEmpty(ctx, w, h) {
-    roundedRect(ctx, 18, 76, w - 36, Math.max(150, h - 104), 8);
-    ctx.fillStyle = theme.panel;
-    ctx.fill();
-    ctx.strokeStyle = theme.line;
-    ctx.stroke();
-    drawText(ctx, "Waiting for firmware UI", w / 2, h / 2 - 16, { size: 16, weight: 700, align: "center" });
-    drawText(ctx, "Run a sketch that calls uiBegin() and uiButton(), uiSlider(), uiGraph(), or uiValue().", w / 2, h / 2 + 14, {
-      size: 12,
-      weight: 500,
-      color: theme.muted,
-      align: "center",
-    });
+    ctx.fillStyle = theme.bg;
+    ctx.fillRect(0, 0, w, h);
   }
 
   drawDisabledOverlay(ctx, w, h) {
     ctx.fillStyle = theme.disabledWash;
     ctx.fillRect(0, 54, w, Math.max(0, h - 54));
-    roundedRect(ctx, Math.max(18, w / 2 - 128), Math.max(92, h / 2 - 38), 256, 76, 8);
-    ctx.fillStyle = "rgba(27, 29, 31, 0.82)";
-    ctx.fill();
-    ctx.strokeStyle = "#3a3d40";
-    ctx.stroke();
-    drawText(ctx, "Not connected", w / 2, Math.max(112, h / 2 - 12), {
-      size: 15,
-      weight: 800,
-      color: theme.disabledText,
-      align: "center",
-    });
-    drawText(ctx, "Connect to use this UI", w / 2, Math.max(136, h / 2 + 13), {
-      size: 11,
-      weight: 600,
-      color: "#77736c",
-      align: "center",
-    });
   }
 
   widgetSpan(widget, colCount) {

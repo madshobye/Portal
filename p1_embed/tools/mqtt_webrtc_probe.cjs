@@ -9,7 +9,7 @@ function parseArgs(argv) {
     host: "public.cloud.shiftr.io",
     username: "public",
     password: "public",
-    root: "p1e-lab-20260527-hobye-webrtc-signal-v1",
+    root: "p1e-webrtc-v1",
     timeoutMs: 45000,
     dataTimeoutMs: 15000,
     mqttUrl: "https://unpkg.com/mqtt/dist/mqtt.min.js",

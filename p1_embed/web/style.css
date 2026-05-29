@@ -454,6 +454,13 @@ select {
   padding-block: 7px;
 }
 
+.sketch-history:focus,
+.sketch-history:focus-visible {
+  outline: none;
+  border-color: var(--line);
+  box-shadow: none;
+}
+
 .chat-model {
   min-width: 128px;
   min-height: 35px;
@@ -1136,6 +1143,10 @@ input {
   background: rgba(0, 0, 0, 0.54);
 }
 
+.settings-dialog {
+  width: min(520px, calc(100vw - 28px));
+}
+
 .dialog-panel {
   display: flex;
   flex-direction: column;
@@ -1154,6 +1165,89 @@ input {
 .dialog-actions {
   justify-content: flex-start;
   flex-wrap: wrap;
+}
+
+.settings-section {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: end;
+  gap: 10px;
+}
+
+.settings-section:has(#wifi-ssid) {
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto;
+}
+
+.settings-saved {
+  display: grid;
+  gap: 8px;
+  padding-top: 2px;
+}
+
+.settings-mqtt {
+  display: grid;
+  gap: 8px;
+  padding-top: 2px;
+}
+
+.settings-mqtt-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.4fr) 88px auto;
+  gap: 10px;
+  align-items: end;
+}
+
+.settings-mqtt-grid .field:nth-child(3),
+.settings-mqtt-grid .field:nth-child(4),
+.settings-mqtt-grid .field:nth-child(5) {
+  grid-column: span 1;
+}
+
+.settings-mqtt-grid .field:nth-child(3) {
+  grid-column: 1 / -1;
+}
+
+.settings-mqtt-grid .button {
+  min-width: 44px;
+}
+
+.settings-subhead {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.wifi-network-list {
+  display: grid;
+  gap: 6px;
+}
+
+.wifi-network-row {
+  display: grid;
+  grid-template-columns: 22px minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 8px;
+  min-height: 34px;
+  padding: 4px 5px 4px 7px;
+  border: 1px solid var(--line-soft);
+  border-radius: 6px;
+  background: var(--surface-2);
+}
+
+.wifi-network-row .material-symbols-rounded {
+  color: var(--muted);
+}
+
+.wifi-network-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.wifi-network-meta,
+.wifi-network-empty {
+  color: var(--muted);
+  font-size: 11px;
 }
 
 .connect-options {

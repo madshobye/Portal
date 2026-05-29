@@ -241,9 +241,16 @@ struct P1UiStateEntry {
   bool changed;
 };
 
+struct P1UiOutputEntry {
+  char id[P1_EMBED_UI_ID_MAX];
+  int value;
+  bool used;
+};
+
 static portMUX_TYPE g_uiInputMux = portMUX_INITIALIZER_UNLOCKED;
 static P1UiInputEvent g_uiEvents[P1_EMBED_UI_EVENT_DEPTH];
 static P1UiStateEntry g_uiStates[P1_EMBED_UI_STATE_MAX];
+static P1UiOutputEntry g_uiOutputs[P1_EMBED_UI_STATE_MAX];
 static uint8_t g_uiEventHead = 0;
 static uint8_t g_uiEventTail = 0;
 static uint8_t g_uiEventCount = 0;
@@ -376,6 +383,49 @@ static bool uiInputChanged(const String& id) {
   int index = uiFindStateLocked(idBuf);
   bool changed = index >= 0 && g_uiStates[index].changed;
   if (index >= 0) g_uiStates[index].changed = false;
+  portEXIT_CRITICAL(&g_uiInputMux);
+  return changed;
+}
+
+static int uiFindOutputLocked(const char* id) {
+  for (int i = 0; i < P1_EMBED_UI_STATE_MAX; i++) {
+    if (g_uiOutputs[i].used && strncmp(g_uiOutputs[i].id, id, P1_EMBED_UI_ID_MAX) == 0) return i;
+  }
+  return -1;
+}
+
+static int uiFindOrCreateOutputLocked(const char* id) {
+  int index = uiFindOutputLocked(id);
+  if (index >= 0) return index;
+  for (int i = 0; i < P1_EMBED_UI_STATE_MAX; i++) {
+    if (!g_uiOutputs[i].used) {
+      g_uiOutputs[i].used = true;
+      strncpy(g_uiOutputs[i].id, id, sizeof(g_uiOutputs[i].id) - 1);
+      g_uiOutputs[i].id[sizeof(g_uiOutputs[i].id) - 1] = 0;
+      g_uiOutputs[i].value = 0;
+      return i;
+    }
+  }
+  return -1;
+}
+
+static void uiClearOutputCache() {
+  portENTER_CRITICAL(&g_uiInputMux);
+  for (int i = 0; i < P1_EMBED_UI_STATE_MAX; i++) {
+    g_uiOutputs[i].used = false;
+    g_uiOutputs[i].id[0] = 0;
+    g_uiOutputs[i].value = 0;
+  }
+  portEXIT_CRITICAL(&g_uiInputMux);
+}
+
+static bool uiOutputValueChanged(const String& id, int value) {
+  char idBuf[P1_EMBED_UI_ID_MAX];
+  uiCopy(idBuf, sizeof(idBuf), id);
+  portENTER_CRITICAL(&g_uiInputMux);
+  int index = uiFindOrCreateOutputLocked(idBuf);
+  bool changed = index < 0 || g_uiOutputs[index].value != value;
+  if (index >= 0) g_uiOutputs[index].value = value;
   portEXIT_CRITICAL(&g_uiInputMux);
   return changed;
 }
@@ -1009,6 +1059,15 @@ static String wrUiAutoId(const char* prefix) {
   return id;
 }
 
+static void uiEmitValue(const String& id, int value) {
+  P1EventField fields[] = {
+    p1FieldInt("cmd", P1_UI_SET_VALUE),
+    p1FieldString("id", id),
+    p1FieldInt("value", value),
+  };
+  protocolEmitEventFields("ui.value", fields, 3);
+}
+
 static String wrUiId(const WRValue* argv, int argn, int idx, const char* fallback) {
   String id = wrArgStringValue(argv, argn, idx);
   id.trim();
@@ -1033,6 +1092,7 @@ static void w_p1_uiBegin(WRContext*, const WRValue* argv, const int argn, WRValu
   String title = wrArgStringValue(argv, argn, 0);
   if (!title.length()) title = "Live UI";
   g_uiAutoItemCounter = 0;
+  uiClearOutputCache();
   P1EventField fields[] = {
     p1FieldInt("cmd", P1_UI_INIT),
     p1FieldString("title", title),
@@ -1043,6 +1103,7 @@ static void w_p1_uiBegin(WRContext*, const WRValue* argv, const int argn, WRValu
 
 static void w_p1_uiClear(WRContext*, const WRValue*, const int, WRValue& retVal, void*) {
   g_uiAutoItemCounter = 0;
+  uiClearOutputCache();
   P1EventField fields[] = {
     p1FieldInt("cmd", P1_UI_INIT),
   };
@@ -1140,12 +1201,19 @@ static void w_p1_uiColor(WRContext*, const WRValue* argv, const int argn, WRValu
 static void w_p1_uiUpdate(WRContext*, const WRValue* argv, const int argn, WRValue& retVal, void*) {
   String id = wrUiId(argv, argn, 0, "value");
   int value = wrArgInt(argv, argn, 1, 0);
-  P1EventField fields[] = {
-    p1FieldInt("cmd", P1_UI_SET_VALUE),
-    p1FieldString("id", id),
-    p1FieldInt("value", value),
-  };
-  protocolEmitEventFields("ui.value", fields, 3);
+  if (uiOutputValueChanged(id, value)) {
+    uiEmitValue(id, value);
+    wrRetInt(retVal, 1);
+  } else {
+    wrRetInt(retVal, 0);
+  }
+}
+
+static void w_p1_uiPush(WRContext*, const WRValue* argv, const int argn, WRValue& retVal, void*) {
+  String id = wrUiId(argv, argn, 0, "value");
+  int value = wrArgInt(argv, argn, 1, 0);
+  uiOutputValueChanged(id, value);
+  uiEmitValue(id, value);
   wrRetInt(retVal, 1);
 }
 
@@ -1336,7 +1404,7 @@ const char* wrenchBindingNameForHash(uint32_t hash) {
     "inboxDrops", "lastError", "clearError",
     "uiBegin", "uiClear", "uiLabel", "uiButton", "uiToggle", "uiSlider",
     "uiValue", "uiGraph", "uiSpacer", "uiColumn", "uiColor",
-    "uiUpdate", "uiText", "uiPoll",
+    "uiUpdate", "uiPush", "uiText", "uiPoll",
     "uiEventId", "uiEventType", "uiEventValue", "uiEventText",
     "uiGet", "uiChanged",
   };
@@ -1462,6 +1530,7 @@ void wrenchRegisterBindings(WRState* wr) {
   wr_registerFunction(wr, "uiColumn", w_p1_uiColumn);
   wr_registerFunction(wr, "uiColor", w_p1_uiColor);
   wr_registerFunction(wr, "uiUpdate", w_p1_uiUpdate);
+  wr_registerFunction(wr, "uiPush", w_p1_uiPush);
   wr_registerFunction(wr, "uiText", w_p1_uiText);
   wr_registerFunction(wr, "uiPoll", w_p1_uiPoll);
   wr_registerFunction(wr, "uiEventId", w_p1_uiEventId);

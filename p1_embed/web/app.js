@@ -1,14 +1,16 @@
-import { ProtocolClient } from "./protocol/ProtocolClient.js?v=0.1.87-ui155";
-import { canEncodeCommand } from "./protocol/P1MsgPack.js?v=0.1.87-ui155";
-import { WebSerialTransport } from "./protocol/WebSerialTransport.js?v=0.1.87-ui155";
+import { ProtocolClient } from "./protocol/ProtocolClient.js?v=0.1.87-ui179";
+import { canEncodeCommand } from "./protocol/P1MsgPack.js?v=0.1.87-ui179";
+import { WebSerialTransport } from "./protocol/WebSerialTransport.js?v=0.1.87-ui179";
 import { WebSocketTransport } from "./protocol/WebSocketTransport.js";
-import { MqttWebRtcTransport, MQTT_WEBRTC_TRANSPORT_VERSION } from "./protocol/MqttWebRtcTransport.js?v=0.1.87-ui155";
-import { P1WebFlasher } from "./web-flasher.js?v=0.1.87-ui155";
-import { inferCircuitLayout, initCircuitView, normalizeCircuitLayout } from "./circuit.js?v=0.1.87-ui155";
-import { initGuinoView } from "./guino.js?v=0.1.87-ui155";
+import { MqttWebRtcTransport, MQTT_WEBRTC_TRANSPORT_VERSION } from "./protocol/MqttWebRtcTransport.js?v=0.1.87-ui179";
+import { MqttTransport, MQTT_TRANSPORT_VERSION } from "./protocol/MqttTransport.js?v=0.1.87-ui179";
+import { P1WebFlasher } from "./web-flasher.js?v=0.1.87-ui179";
+import { inferCircuitLayout, initCircuitView, normalizeCircuitLayout } from "./circuit.js?v=0.1.87-ui179";
+import { initGuinoView } from "./guino.js?v=0.1.87-ui179";
 
-const WEB_UI_VERSION = "0.1.87-ui155";
-console.info(`[P1E web] loaded ${WEB_UI_VERSION}`, { mqttWebRtc: MQTT_WEBRTC_TRANSPORT_VERSION });
+const WEB_UI_VERSION = "0.1.87-ui179";
+const CHAT_MAX_OUTPUT_TOKENS = 8000;
+console.info(`[P1E web] loaded ${WEB_UI_VERSION}`, { mqtt: MQTT_TRANSPORT_VERSION, mqttWebRtc: MQTT_WEBRTC_TRANSPORT_VERSION });
 
 const defaultCode = `function setup() {
   pinMode(2, 1);
@@ -29,6 +31,11 @@ const storage = {
   wsHistory: "p1_embed.websocket.history",
   peerId: "p1_embed.peerjs.remoteId",
   peerHistory: "p1_embed.peerjs.history",
+  mqttHost: "p1_embed.mqtt.host",
+  mqttPort: "p1_embed.mqtt.port",
+  mqttRoot: "p1_embed.mqtt.root.v2",
+  mqttUser: "p1_embed.mqtt.user",
+  mqttPassword: "p1_embed.mqtt.password",
   usbHint: "p1_embed.serial.hint",
   usbHistory: "p1_embed.serial.history",
   lastConnection: "p1_embed.connection.last",
@@ -96,6 +103,7 @@ const els = {
   newPeerField: document.querySelector("#new-peer-field"),
   peerId: document.querySelector("#peer-id"),
   getScript: document.querySelector("#get-script-button"),
+  newSketch: document.querySelector("#new-sketch-button"),
   reboot: document.querySelector("#reboot-button"),
   run: document.querySelector("#run-button"),
   stop: document.querySelector("#stop-button"),
@@ -104,13 +112,18 @@ const els = {
   uploadStatusProgress: document.querySelector("#upload-status-progress"),
   downloadCode: document.querySelector("#download-code-button"),
   sketchHistory: document.querySelector("#sketch-history"),
-  rename: document.querySelector("#rename-button"),
-  renameDialog: document.querySelector("#rename-dialog"),
+  settings: document.querySelector("#settings-button"),
+  settingsDialog: document.querySelector("#settings-dialog"),
   deviceNameInput: document.querySelector("#device-name-input"),
   deviceNameSave: document.querySelector("#device-name-save-button"),
-  wifi: document.querySelector("#wifi-button"),
-  wifiDialog: document.querySelector("#wifi-dialog"),
   wifiSave: document.querySelector("#wifi-save-button"),
+  wifiNetworkList: document.querySelector("#wifi-network-list"),
+  mqttHost: document.querySelector("#mqtt-host"),
+  mqttPort: document.querySelector("#mqtt-port"),
+  mqttRoot: document.querySelector("#mqtt-root"),
+  mqttUser: document.querySelector("#mqtt-user"),
+  mqttPassword: document.querySelector("#mqtt-password"),
+  mqttSave: document.querySelector("#mqtt-save-button"),
   consoleActions: document.querySelector("#console-actions"),
   consoleTimestamps: document.querySelector("#console-timestamps-button"),
   copyConsole: document.querySelector("#copy-console-button"),
@@ -193,12 +206,14 @@ let lastWifiConsoleAt = 0;
 let flasher = null;
 let flasherBusy = false;
 let wifiDraftDirty = false;
+let lastConfig = null;
 let uploadState = { phase: "", label: "", progress: 0 };
 let uploadClearTimer = null;
 let currentSketchName = "";
 let currentSketchSource = "";
 let currentSketchVersionName = "";
 let currentSketchDirty = false;
+let currentSketchSaved = true;
 let circuitView = null;
 let circuitChatLayout = null;
 let circuitUpdateTimer = null;
@@ -208,7 +223,7 @@ boot();
 
 function boot() {
   initEditor();
-  setEditorValue("", { persist: false });
+  setEditorValueRaw("", { persist: false });
   els.websocketUrl.value = localStorage.getItem(storage.wsUrl) || els.websocketUrl.value;
   els.peerId.value = localStorage.getItem(storage.peerId) || defaultPeerIdFromWebSocket(els.websocketUrl.value);
   els.debugLevel.value = localStorage.getItem(storage.logLevel) || els.debugLevel.value;
@@ -221,7 +236,7 @@ function boot() {
   migrateConnectionHistory();
   renderConnectionHistory();
   renderSketchHistory();
-  logLine("info", `P1E web ${WEB_UI_VERSION} / mqtt-webrtc ${MQTT_WEBRTC_TRANSPORT_VERSION}`);
+  logLine("info", `P1E web ${WEB_UI_VERSION} / mqtt ${MQTT_TRANSPORT_VERSION}`);
   refreshKnownUsbPorts();
   setConnected(false);
   renderFields();
@@ -281,7 +296,7 @@ function getEditorValue() {
   return editor ? editor.getValue() : els.code.value;
 }
 
-function setEditorValue(value, { persist = true } = {}) {
+function setEditorValueRaw(value, { persist = true } = {}) {
   suppressEditorPersist = !persist;
   try {
     if (editor) {
@@ -293,7 +308,26 @@ function setEditorValue(value, { persist = true } = {}) {
   }
   if (persist) localStorage.setItem(storage.code, value);
   scheduleCircuitUpdate();
+  updateCurrentSketchDirty();
   updateEnabledState();
+}
+
+async function replaceEditorCode(value, {
+  persist = true,
+  saveCurrent = true,
+  identityName = "",
+  identityHistory = null,
+  markUnsaved = false,
+} = {}) {
+  const nextCode = String(value ?? "");
+  if (saveCurrent) await shelveEditorSketchIfNeeded({ incomingCode: nextCode });
+  setEditorValueRaw(nextCode, { persist });
+  if (identityName || identityHistory) {
+    setCurrentSketchIdentity(identityName, nextCode, identityHistory || await readSketchHistory());
+  } else if (markUnsaved) {
+    clearCurrentSketchIdentity();
+    updateCurrentSketchDirty();
+  }
 }
 
 function bindControls() {
@@ -306,26 +340,27 @@ function bindControls() {
   els.newWsConnect.addEventListener("click", () => connectWebSocket(els.websocketUrl.value));
   els.websocketUrl.addEventListener("input", () => renderConnectionHistory());
   els.newPeerToggle.addEventListener("click", showNewPeerField);
-  els.newPeerConnect.addEventListener("click", () => connectPeerJs(els.peerId.value));
+  els.newPeerConnect.addEventListener("click", () => connectMqtt(els.peerId.value));
   els.peerId.addEventListener("input", () => renderConnectionHistory());
   els.getScript.addEventListener("click", () => runUiAction(getScript, "reading"));
+  els.newSketch.addEventListener("click", () => runUiAction(createNewSketch, "new sketch"));
   els.reboot.addEventListener("click", () => runUiAction(() => sendCommand("device.reboot"), "rebooting"));
   els.run.addEventListener("click", runScriptFromToolbar);
   els.stop.addEventListener("click", () => runUiAction(() => sendCommand("script.stop").then(refreshStatus), "stopping"));
   els.downloadCode.addEventListener("click", downloadCode);
   els.sketchHistory.addEventListener("change", () => recoverSketchHistory());
   bindSketchDrop();
-  els.rename.addEventListener("click", openRenameDialog);
+  els.settings.addEventListener("click", openSettingsDialog);
   els.deviceNameSave.addEventListener("click", () => runUiAction(saveDeviceName, "rename"));
-  els.wifi.addEventListener("click", openWifiDialog);
   els.wifiSave.addEventListener("click", () => runUiAction(saveWifi, "wifi"));
+  els.mqttSave.addEventListener("click", () => runUiAction(saveMqtt, "mqtt"));
   els.wifiSsid.addEventListener("input", () => {
     wifiDraftDirty = true;
   });
   els.wifiPassword.addEventListener("input", () => {
     wifiDraftDirty = true;
   });
-  els.wifiDialog.addEventListener("close", () => {
+  els.settingsDialog.addEventListener("close", () => {
     wifiDraftDirty = false;
   });
   els.consoleTimestamps.addEventListener("click", toggleConsoleTimestamps);
@@ -477,7 +512,7 @@ async function copyGuinoLink() {
   try {
     const peerId = normalizePeerId(els.peerId.value || transport?.remoteId || lastStatus?.webrtc?.peerId || "");
     const hint = transport?.kind === "usb" ? readUsbHint() : null;
-    const kind = isWebRtcKind(transport?.kind) || peerId ? "webrtc" : transport?.kind === "usb" ? "usb" : "websocket";
+    const kind = isMqttKind(transport?.kind) || peerId ? "mqtt" : transport?.kind === "usb" ? "usb" : "websocket";
     const url = new URL(sharePageUrl(kind, transport?.url || els.websocketUrl.value, hint, peerId));
     url.searchParams.set("view", "ui");
     await navigator.clipboard.writeText(url.toString());
@@ -490,11 +525,18 @@ async function copyGuinoLink() {
 function openConnectDialog() {
   renderConnectionHistory();
   refreshKnownUsbPorts();
+  renderConnectionOptions();
   els.newWsField.classList.add("is-hidden");
   els.newWsConnect.classList.add("is-hidden");
   els.newPeerField.classList.add("is-hidden");
   els.newPeerConnect.classList.add("is-hidden");
   els.connectDialog.showModal();
+}
+
+function renderConnectionOptions() {
+  els.usbConnect.classList.toggle("is-hidden", !isConnectionKindAvailable("usb"));
+  els.newPeerToggle.classList.toggle("is-hidden", !isConnectionKindAvailable("mqtt"));
+  els.newWsToggle.classList.toggle("is-hidden", !isConnectionKindAvailable("websocket"));
 }
 
 function toggleConnection() {
@@ -530,7 +572,9 @@ function showNewPeerField() {
 }
 
 function renderConnectionHistory() {
-  const items = [...readPeerHistory(), ...readWebSocketHistory(), ...readUsbHistory()].sort((a, b) => (b.at || 0) - (a.at || 0));
+  const items = [...readPeerHistory(), ...readWebSocketHistory(), ...readUsbHistory()]
+    .filter((item) => isConnectionKindAvailable(item.kind))
+    .sort((a, b) => (b.at || 0) - (a.at || 0));
   els.connectionHistory.replaceChildren();
   els.connectionHistory.classList.toggle("is-hidden", items.length === 0);
 
@@ -540,7 +584,7 @@ function renderConnectionHistory() {
     button.className = "button suggestion-button";
     button.title = `${connectionKindLabel(item.kind)}: ${item.label}`;
     button.setAttribute("aria-label", button.title);
-    button.disabled = Boolean(client) || isBusy || (item.kind === "usb" && !("serial" in navigator)) || (isWebRtcKind(item.kind) && !(("RTCPeerConnection" in window) && ("mqtt" in window)));
+    button.disabled = Boolean(client) || isBusy;
 
     const icon = document.createElement("span");
     icon.className = "material-symbols-rounded";
@@ -554,6 +598,8 @@ function renderConnectionHistory() {
       if (consumeRecentLongPress()) return;
       if (item.kind === "usb") {
         connectRecentUsb(item.hint);
+      } else if (isMqttKind(item.kind)) {
+        connectMqtt(item.peerId);
       } else if (isWebRtcKind(item.kind)) {
         connectPeerJs(item.peerId);
       } else {
@@ -564,20 +610,38 @@ function renderConnectionHistory() {
   });
 }
 
+function isConnectionKindAvailable(kind) {
+  if (kind === "usb") return "serial" in navigator;
+  if (isMqttKind(kind)) return "mqtt" in window;
+  if (isWebRtcKind(kind)) return ("RTCPeerConnection" in window) && ("mqtt" in window);
+  if (kind === "websocket") return "WebSocket" in window;
+  return false;
+}
+
 function connectionKindLabel(kind) {
   if (kind === "usb") return "USB";
+  if (isMqttKind(kind)) return "MQTT";
   if (isWebRtcKind(kind)) return "WebRTC";
   return "WebSocket";
 }
 
 function connectionKindIcon(kind) {
   if (kind === "usb") return "settings_input_component";
+  if (isMqttKind(kind)) return "hub";
   if (isWebRtcKind(kind)) return "hub";
   return "lan";
 }
 
 function isWebRtcKind(kind) {
   return kind === "webrtc" || kind === "peerjs";
+}
+
+function isMqttKind(kind) {
+  return kind === "mqtt";
+}
+
+function isBinaryTransportKind(kind) {
+  return isMqttKind(kind) || isWebRtcKind(kind);
 }
 
 function bindLongPressDelete(button, onDelete) {
@@ -624,7 +688,7 @@ function forgetConnectionHistoryItem(item) {
         localStorage.removeItem(storage.wsName);
       }
     }
-  } else if (isWebRtcKind(item.kind)) {
+  } else if (isMqttKind(item.kind) || isWebRtcKind(item.kind)) {
     const peerId = normalizePeerId(item.peerId);
     writePeerHistory(readPeerHistory().filter((entry) => normalizePeerId(entry.peerId) !== peerId));
     if (normalizePeerId(localStorage.getItem(storage.peerId)) === peerId) {
@@ -715,6 +779,17 @@ async function connectPeerJs(value) {
   renderConnectionHistory();
 }
 
+async function connectMqtt(value) {
+  const peerId = normalizePeerId(value);
+  if (!peerId) {
+    logLine("warn", "MQTT device id is required");
+    return;
+  }
+  await connectTransport(new MqttTransport({ ...mqttTransportOptions(), connectTimeoutMs: 15000 }), { remoteId: peerId }, "mqtt", peerId, { startupTimeoutMs: 15000 });
+  els.peerId.value = peerId;
+  renderConnectionHistory();
+}
+
 async function connectUsb() {
   await connectTransport(new WebSerialTransport({ storageKey: storage.usbHint }), {}, "usb", "USB");
   await refreshKnownUsbPorts();
@@ -744,6 +819,22 @@ async function autoConnectFromUrlParams() {
       els.websocketUrl.value = url;
       warnIfPlainWebSocketFromSecurePage(url);
       await connectTransport(new WebSocketTransport(), { url }, "websocket", wsDisplayName(url), { lightStartup: true, includeScript: true });
+    } catch (error) {
+      logLine("error", error.message);
+    }
+    return true;
+  }
+
+  if (requested === "mqtt") {
+    const peerId = normalizePeerId(params.get("peer") || params.get("id") || params.get("device") || "");
+    if (!peerId) {
+      logLine("warn", "connect=mqtt needs a device id");
+      return true;
+    }
+    try {
+      applyMqttParams(params);
+      els.peerId.value = peerId;
+      await connectTransport(new MqttTransport({ ...mqttTransportOptions(), connectTimeoutMs: 15000 }), { remoteId: peerId }, "mqtt", peerId, { lightStartup: true, includeScript: true, startupTimeoutMs: 15000 });
     } catch (error) {
       logLine("error", error.message);
     }
@@ -800,6 +891,13 @@ async function autoReconnectLastConnection() {
     return;
   }
 
+  if (isMqttKind(last)) {
+    const peerId = normalizePeerId(localStorage.getItem(storage.peerId) || "");
+    if (!peerId || !("mqtt" in window)) return;
+    await connectTransport(new MqttTransport({ ...mqttTransportOptions(), connectTimeoutMs: 15000 }), { remoteId: peerId }, "mqtt", peerId, { quiet: true, lightStartup: true, includeScript: true, startupTimeoutMs: 15000 });
+    return;
+  }
+
   if (isWebRtcKind(last)) {
     const peerId = normalizePeerId(localStorage.getItem(storage.peerId) || "");
     if (!peerId || !(("RTCPeerConnection" in window) && ("mqtt" in window))) return;
@@ -838,9 +936,10 @@ async function connectTransport(nextTransport, options, kind, label, { quiet = f
     closeConnectDialog();
     setConnected(true);
     if (kind === "websocket" && options.url) updateConnectionUrlParams("websocket", options.url);
+    if (isMqttKind(kind) && options.remoteId) updateConnectionUrlParams("mqtt", "", null, options.remoteId);
     if (isWebRtcKind(kind) && options.remoteId) updateConnectionUrlParams("webrtc", "", null, options.remoteId);
     if (kind === "usb") updateConnectionUrlParams("usb", "", readUsbHint());
-    if (!quiet) logLine("info", isWebRtcKind(kind) ? `Connected to ${label}` : `${label} connected`);
+    if (!quiet) logLine("info", isBinaryTransportKind(kind) ? `Connected to ${label}` : `${label} connected`);
 
     if (lightStartup) await settle(450);
     if (generation !== connectionGeneration) return false;
@@ -913,12 +1012,12 @@ function rememberSuccessfulConnection(kind, label, options = {}) {
     renderConnectionHistory();
   }
 
-  if (isWebRtcKind(kind) && options.remoteId) {
+  if ((isMqttKind(kind) || isWebRtcKind(kind)) && options.remoteId) {
     const peerId = normalizePeerId(options.remoteId);
     localStorage.setItem(storage.peerId, peerId);
     rememberPeerHistory(peerId, label || peerId);
     els.peerId.value = peerId;
-    updateConnectionUrlParams("webrtc", "", null, peerId);
+    updateConnectionUrlParams(isMqttKind(kind) ? "mqtt" : "webrtc", "", null, peerId);
     renderConnectionHistory();
   }
 
@@ -946,7 +1045,7 @@ function forgetUnverifiedConnection(kind, options = {}) {
       }
     }
   }
-  if (isWebRtcKind(kind) && options.remoteId) {
+  if ((isMqttKind(kind) || isWebRtcKind(kind)) && options.remoteId) {
     const attempted = normalizePeerId(options.remoteId);
     writePeerHistory(readPeerHistory().filter((entry) => normalizePeerId(entry.peerId) !== attempted));
     if (normalizePeerId(localStorage.getItem(storage.peerId)) === attempted) {
@@ -1227,11 +1326,23 @@ function sharePageUrl(kind, wsUrl = "", usbHint = null, peerId = "") {
   url.searchParams.delete("usb");
   url.searchParams.delete("vid");
   url.searchParams.delete("pid");
+  url.searchParams.delete("mqttHost");
+  url.searchParams.delete("mqttPort");
+  url.searchParams.delete("mqttRoot");
+  url.searchParams.delete("mqttUser");
 
   if (kind === "websocket") {
     url.searchParams.set("connect", "ws");
     url.searchParams.set("ws", normalizeWebSocketUrl(wsUrl));
-  } else if (isWebRtcKind(kind)) {
+  } else if (isMqttKind(kind)) {
+    url.searchParams.set("connect", "mqtt");
+    url.searchParams.set("peer", normalizePeerId(peerId));
+    const cfg = mqttConfigFromStorageAndDevice();
+    if (cfg.mqttHost) url.searchParams.set("mqttHost", cfg.mqttHost);
+    if (cfg.mqttPort) url.searchParams.set("mqttPort", String(cfg.mqttPort));
+    if (cfg.mqttRoot) url.searchParams.set("mqttRoot", cfg.mqttRoot);
+    if (cfg.mqttUser) url.searchParams.set("mqttUser", cfg.mqttUser);
+  } else if (isMqttKind(kind) || isWebRtcKind(kind)) {
     url.searchParams.set("connect", "webrtc");
     url.searchParams.set("peer", normalizePeerId(peerId));
   } else if (kind === "usb") {
@@ -1266,6 +1377,10 @@ function clearConnectionUrlParams() {
   url.searchParams.delete("usb");
   url.searchParams.delete("vid");
   url.searchParams.delete("pid");
+  url.searchParams.delete("mqttHost");
+  url.searchParams.delete("mqttPort");
+  url.searchParams.delete("mqttRoot");
+  url.searchParams.delete("mqttUser");
   window.history.replaceState(null, "", url.toString());
 }
 
@@ -1338,35 +1453,36 @@ function bindClient(nextClient) {
 }
 
 function logTransportState(detail = {}) {
-  if (suppressConnectionLogs || !isWebRtcKind(transport?.kind)) return;
+  if (suppressConnectionLogs || !isBinaryTransportKind(transport?.kind)) return;
   const state = detail.state || "";
   const target = detail.remoteId || transport?.remoteId || transport?.label || "device";
+  const prefix = isMqttKind(transport?.kind) ? "MQTT" : "WebRTC";
   if (state === "signaling_connecting") {
     logLine("info", `Connecting to ${target}`);
-    logLine("debug", "WebRTC opening MQTT signaling");
+    logLine("debug", isMqttKind(transport?.kind) ? "MQTT opening binary channel" : "WebRTC opening MQTT signaling");
   } else if (state === "signaling_connected") {
-    logLine("debug", "WebRTC signaling connected");
+    logLine("debug", `${prefix} signaling connected`);
   } else if (state === "offer_sent") {
-    logLine("debug", `WebRTC trying ${target}`);
+    logLine("debug", `${prefix} trying ${target}`);
   } else if (state === "answer_received") {
     logLine("info", `Got a path to ${target}`);
-    logLine("debug", "WebRTC answer received");
+    logLine("debug", `${prefix} answer received`);
   } else if (state === "diagnostic") {
-    logLine("debug", `WebRTC ${detail.message || "diagnostic"}`);
+    logLine("debug", `${prefix} ${detail.message || "diagnostic"}`);
   } else if (state === "device_timeout") {
-    logLine("warn", `WebRTC timed out ${detail.remoteId || "device"}`);
+    logLine("warn", `${prefix} timed out ${detail.remoteId || "device"}`);
   } else if (state === "device_closed") {
-    logLine("warn", `WebRTC closed ${detail.remoteId || "device"}`);
+    logLine("warn", `${prefix} closed ${detail.remoteId || "device"}`);
   } else if (state === "device_error") {
-    logLine("error", `WebRTC ${detail.remoteId || "device"}: ${detail.message || "connection error"}`);
+    logLine("error", `${prefix} ${detail.remoteId || "device"}: ${detail.message || "connection error"}`);
   } else if (state === "signaling_error" || state === "signal_error") {
-    logLine("error", `WebRTC signaling: ${detail.message || "connection error"}`);
+    logLine("error", `${prefix} signaling: ${detail.message || "connection error"}`);
   } else if (state === "connected") {
-    logLine("debug", "WebRTC data channel open");
+    logLine("debug", isMqttKind(transport?.kind) ? "MQTT binary channel open" : "WebRTC data channel open");
   } else if (state === "signaling_closed") {
-    logLine("debug", "WebRTC signaling closed");
+    logLine("debug", `${prefix} signaling closed`);
   } else if (state === "disconnected" || state === "rtc_disconnected" || state === "rtc_failed" || state === "rtc_closed") {
-    logLine("debug", "WebRTC disconnected");
+    logLine("debug", `${prefix} disconnected`);
   }
 }
 
@@ -1456,7 +1572,7 @@ async function refreshInfo(options = {}) {
 }
 
 async function refreshStatus(options = {}) {
-  const command = isWebRtcKind(transport?.kind) ? "status.light" : "status.get";
+  const command = isBinaryTransportKind(transport?.kind) ? "status.light" : "status.get";
   const data = await sendCommand(command, {}, options);
   updateStatus(data);
   renderFields();
@@ -1464,9 +1580,37 @@ async function refreshStatus(options = {}) {
 }
 
 async function getScript(options = {}) {
-  const data = await sendCommand("script.get", {}, options);
+  const data = isBinaryTransportKind(transport?.kind)
+    ? await getScriptChunked(options)
+    : await sendCommand("script.get", {}, options);
+  await applyFetchedScript(data);
+}
+
+async function getScriptChunked(options = {}) {
+  let offset = 0;
+  let code = "";
+  let last = {};
+  const maxBytes = isMqttKind(transport?.kind) ? 6000 : 512;
+  for (let guard = 0; guard < 80; guard += 1) {
+    const data = await sendCommand("script.chunk.get", { offset, maxBytes }, options);
+    const chunk = String(data.chunk ?? "");
+    const nextOffset = Number(data.nextOffset ?? (offset + chunk.length));
+    code += chunk;
+    last = data;
+    if (data.done || nextOffset <= offset) break;
+    offset = nextOffset;
+  }
+  return {
+    ...last,
+    code,
+    stored: true,
+  };
+}
+
+async function applyFetchedScript(data) {
   if (typeof data.code === "string") {
-    setEditorValue(data.code, { persist: false });
+    await replaceEditorCode(data.code, { persist: false, saveCurrent: true, markUnsaved: true });
+    await rememberUploadedSketch(data.code, "", { promoteExisting: false, preferAutoName: true });
   }
   updateScriptState(data);
 }
@@ -1502,9 +1646,12 @@ async function uploadScriptCodeChunked(code, { run, save }) {
   const codeData = encoder.encode(code);
   const codeBytes = codeData.length;
   const codeHash = fnv1aHex(code);
-  const chunks = isWebRtcKind(transport?.kind) && transport?.sendBytes
-    ? chunkBytesForWebRtc(codeData, 320)
-    : chunkScriptForWebRtc(code, 360);
+  const binaryChunkSize = isMqttKind(transport?.kind) ? 6000 : 320;
+  const textChunkSize = uploadTextChunkEnvelopeBytes();
+  const chunkPauseMs = uploadChunkPauseMs();
+  const chunks = isBinaryTransportKind(transport?.kind) && transport?.sendBytes
+    ? chunkBytesForWebRtc(codeData, binaryChunkSize)
+    : chunkScriptForWebRtc(code, textChunkSize);
   setUploadState("uploading", "Uploading code", 5);
   logLine("info", `uploading script in ${chunks.length} chunks`);
   await sendCommand("script.chunk.begin", {
@@ -1528,7 +1675,7 @@ async function uploadScriptCodeChunked(code, { run, save }) {
     const received = Number(response.received);
     offset = Number.isFinite(received) ? received : offset + (isBinaryChunk ? chunk.length : encoder.encode(chunk).length);
     setUploadState("uploading", `Uploading ${index + 1}/${chunks.length}`, Math.round(((index + 1) / chunks.length) * 82));
-    await settle(12);
+    if (chunkPauseMs > 0) await settle(chunkPauseMs);
   }
 
   setUploadState("uploading", "Finalizing upload", 88);
@@ -1542,6 +1689,19 @@ async function uploadScriptCodeChunked(code, { run, save }) {
     setUploadState(run ? "running" : "saved", run ? "Running" : "Saved", 100, { autoClear: true });
   }
   return response;
+}
+
+function uploadTextChunkEnvelopeBytes() {
+  if (transport?.kind === "usb") return 1600;
+  if (transport?.kind === "websocket") return 1600;
+  return 360;
+}
+
+function uploadChunkPauseMs() {
+  if (isMqttKind(transport?.kind)) return 0;
+  if (transport?.kind === "usb") return 0;
+  if (transport?.kind === "websocket") return 0;
+  return 12;
 }
 
 function chunkScriptForWebRtc(text, maxEnvelopeBytes) {
@@ -1671,31 +1831,61 @@ function readSketchHistoryFallback() {
   }
 }
 
-async function rememberUploadedSketch(code, name = "") {
+async function rememberUploadedSketch(code, name = "", { promoteExisting = true, autoName = true, preferAutoName = false } = {}) {
   const current = String(code ?? "");
   if (!current.trim()) return;
 
   const history = await readSketchHistory();
-  const sketchName = resolveSketchNameForSave(current, name, history);
+  const sketchName = resolveSketchNameForSave(current, name, history, { autoName, preferAutoName });
   const unchangedCurrentSketch = currentSketchSource && current === currentSketchSource;
+  const existingByCode = history.find((item) => item?.code === current);
 
   if (unchangedCurrentSketch) {
     const existing = history.find((item) => {
       if (item?.code !== current) return false;
       if (!currentSketchName) return true;
       return normalizeSketchName(item.name || "") === currentSketchName;
-    }) || history.find((item) => item?.code === current);
+    }) || existingByCode;
 
     if (existing) {
       const explicitName = normalizeSketchName(name);
-      const promoted = await promoteSketchHistoryEntry(existing, explicitName || existing.name || sketchName || currentSketchName);
-      setCurrentSketchIdentity(
-        normalizeSketchName(promoted.name || "") || sketchName || currentSketchName,
-        current,
-        [promoted, ...history],
-      );
+      const nextName = explicitName || existing.name || sketchName || currentSketchName;
+      if (promoteExisting) {
+        const promoted = await promoteSketchHistoryEntry(existing, nextName);
+        setCurrentSketchIdentity(
+          normalizeSketchName(promoted.name || "") || sketchName || currentSketchName,
+          current,
+          [promoted, ...history],
+        );
+      } else {
+        if (explicitName && existing.name !== explicitName) {
+          existing.name = explicitName;
+          await updateSketchHistoryEntry(existing);
+          await renderSketchHistory();
+        }
+        setCurrentSketchIdentity(normalizeSketchName(nextName), current, history);
+      }
       return;
     }
+  }
+
+  if (existingByCode) {
+    const explicitName = normalizeSketchName(name);
+    const nextName = explicitName || existingByCode.name || sketchName;
+    if (promoteExisting) {
+      const promoted = await promoteSketchHistoryEntry(existingByCode, nextName);
+      setCurrentSketchIdentity(normalizeSketchName(promoted.name || "") || sketchName, current, [promoted, ...history]);
+    } else {
+      if (explicitName && existingByCode.name !== explicitName) {
+        existingByCode.name = explicitName;
+        await updateSketchHistoryEntry(existingByCode);
+        await renderSketchHistory();
+      } else {
+        renderCurrentSketchName();
+      }
+      setCurrentSketchIdentity(normalizeSketchName(nextName), current, history);
+    }
+    return;
   }
 
   if (history[0]?.code === current) {
@@ -1860,10 +2050,45 @@ async function recoverSketchHistory() {
   const entry = history[index];
   els.sketchHistory.value = "";
   if (!entry) return;
-  setEditorValue(entry.code);
-  setCurrentSketchIdentity(entry.name || "", entry.code, history);
+  await replaceEditorCode(entry.code, {
+    saveCurrent: true,
+    identityName: entry.name || "",
+    identityHistory: history,
+  });
   const sketchName = normalizeSketchName(entry.name || "");
   logLine("info", `recovered ${sketchName || "sketch"} from ${new Date(entry.at).toLocaleString()}`);
+}
+
+async function createNewSketch() {
+  const code = newSketchTemplate();
+  await replaceEditorCode(code, { saveCurrent: true, markUnsaved: true });
+  clearEditorError();
+  logLine("info", "new sketch");
+}
+
+async function shelveEditorSketchIfNeeded({ incomingCode = "" } = {}) {
+  const current = String(getEditorValue() || "");
+  if (!current.trim()) return;
+  if (incomingCode && current === String(incomingCode || "")) return;
+  const history = await readSketchHistory();
+  const alreadySaved = history.some((item) => item?.code === current);
+  if (currentSketchSaved && alreadySaved) return;
+  await rememberUploadedSketch(current, "", {
+    promoteExisting: false,
+    preferAutoName: !currentSketchName,
+  });
+}
+
+function newSketchTemplate() {
+  return `// New P1E sketch.
+function setup() {
+  println("new sketch ready");
+}
+
+function loop() {
+  delay(20);
+}
+`;
 }
 
 function normalizeSketchName(name) {
@@ -1874,12 +2099,14 @@ function normalizeSketchName(name) {
     .slice(0, 32);
 }
 
-function resolveSketchNameForSave(code, requestedName = "", history = []) {
+function resolveSketchNameForSave(code, requestedName = "", history = [], { autoName = true, preferAutoName = false } = {}) {
   const explicitName = normalizeSketchName(requestedName);
   if (explicitName) return explicitName;
-  if (!currentSketchName) return "";
+  if (preferAutoName) return autoName ? autoSketchName(code, history) : "";
   if (String(code ?? "") === currentSketchSource) return currentSketchName;
-  return currentSketchVersionName || nextSketchVersionName(currentSketchName, history);
+  if (!currentSketchName) return autoName ? autoSketchName(code, history) : "";
+  if (currentSketchVersionName) return currentSketchVersionName;
+  return autoName ? autoSketchName(code, history) : "";
 }
 
 function setCurrentSketchIdentity(name = "", code = "", history = []) {
@@ -1887,12 +2114,25 @@ function setCurrentSketchIdentity(name = "", code = "", history = []) {
   currentSketchSource = String(code ?? "");
   currentSketchVersionName = currentSketchName ? nextSketchVersionName(currentSketchName, history) : "";
   currentSketchDirty = false;
+  currentSketchSaved = true;
+  renderCurrentSketchName();
+}
+
+function clearCurrentSketchIdentity() {
+  currentSketchName = "";
+  currentSketchSource = "";
+  currentSketchVersionName = "";
+  currentSketchDirty = Boolean(String(getEditorValue() || "").trim());
+  currentSketchSaved = !currentSketchDirty;
   renderCurrentSketchName();
 }
 
 function updateCurrentSketchDirty() {
-  if (!currentSketchName) return;
-  currentSketchDirty = getEditorValue() !== currentSketchSource;
+  const code = getEditorValue();
+  currentSketchDirty = currentSketchName
+    ? code !== currentSketchSource
+    : Boolean(String(code || "").trim());
+  currentSketchSaved = !currentSketchDirty;
   renderCurrentSketchName();
 }
 
@@ -1906,8 +2146,93 @@ function renderCurrentSketchName() {
 }
 
 function sketchHistoryPlaceholderLabel() {
-  if (!currentSketchName) return "history";
+  if (!currentSketchName) return currentSketchDirty ? "unsaved" : "history";
   return currentSketchDirty ? (currentSketchVersionName || currentSketchName) : currentSketchName;
+}
+
+function autoSketchName(code, history = []) {
+  const base = inferSketchBaseName(code);
+  const existing = history.some((item) => normalizeSketchName(item?.name || "").toLowerCase() === base.toLowerCase());
+  return existing ? nextSketchVersionName(base, history) : base;
+}
+
+function inferSketchBaseName(code) {
+  const source = String(code || "");
+  const uiTitle = source.match(/\buiBegin\s*\(\s*["']([^"']{2,48})["']/);
+  if (uiTitle) return normalizeSketchName(uiTitle[1]) || "Untitled Sketch";
+
+  const printReady = source.match(/\bprintln\s*\(\s*["']([^"']{2,48}?\bready)\b[^"']*["']/i);
+  if (printReady) {
+    const name = wordsToSketchName(printReady[1].replace(/\bready\b/i, ""));
+    if (isMeaningfulAutoSketchName(name)) return name;
+  }
+
+  const comment = source.match(/^\s*\/\/\s*([^\n.]{4,90})/m);
+  if (comment) {
+    const name = wordsToSketchName(comment[1]);
+    if (isMeaningfulAutoSketchName(name)) return name;
+  }
+
+  if (/\bfetchJson\b|\bgetJsonValue\b|\bhttpGet\b|openweathermap|weather/i.test(source)) return uniqueGenericName("Weather LEDs");
+  if (/\bui(Button|Toggle|Slider|Value|Graph|Begin)\b/.test(source)) return uniqueGenericName("UI Controls");
+  if (/\bledSetHsv\b|rainbow|hsv|sparkle|chase/i.test(source)) return uniqueGenericName("LED Animation");
+  if (/\bledConfig\b|\bledFill\b|\bledSet\b/.test(source)) return uniqueGenericName("LED Sketch");
+  if (/\bdigitalRead\b|INPUT_PULLUP|button/i.test(source)) return uniqueGenericName("Button Input");
+  if (/\banalogRead\b|sensor|pot/i.test(source)) return uniqueGenericName("Sensor Read");
+  return generatedSketchName(source);
+}
+
+function uniqueGenericName(name) {
+  return normalizeSketchName(name) || "Untitled Sketch";
+}
+
+function wordsToSketchName(text) {
+  const stop = new Set(["a", "an", "and", "around", "by", "for", "from", "of", "on", "the", "to", "with", "shows", "show", "simple", "using"]);
+  const words = String(text || "")
+    .replace(/[_/.-]+/g, " ")
+    .replace(/[^\w ]+/g, " ")
+    .split(/\s+/)
+    .map((word) => word.trim())
+    .filter(Boolean)
+    .filter((word) => !stop.has(word.toLowerCase()))
+    .slice(0, 4);
+  if (!words.length) return "";
+  return normalizeSketchName(words.map((word) => word[0].toUpperCase() + word.slice(1).toLowerCase()).join(" "));
+}
+
+function isMeaningfulAutoSketchName(name) {
+  const normalized = normalizeSketchName(name).toLowerCase();
+  if (!normalized) return false;
+  return ![
+    "new sketch",
+    "new p1e sketch",
+    "p1e sketch",
+    "sketch",
+    "untitled sketch",
+  ].includes(normalized);
+}
+
+function generatedSketchName(code) {
+  const syllables = [
+    "ba", "be", "bo", "da", "de", "do", "fa", "fe", "fi", "go", "la", "le",
+    "li", "lo", "ma", "me", "mi", "na", "ne", "no", "ra", "re", "ri", "sa",
+    "se", "so", "ta", "te", "to", "va", "ve", "vi", "za", "ze", "zo",
+  ];
+  let hash = 0x811c9dc5;
+  const bytes = new TextEncoder().encode(String(code || `${Date.now()}`));
+  for (const byte of bytes) {
+    hash ^= byte;
+    hash = Math.imul(hash, 0x01000193) >>> 0;
+  }
+  const makeWord = (count) => {
+    let word = "";
+    for (let i = 0; i < count; i += 1) {
+      hash = Math.imul(hash ^ (i + 17), 0x01000193) >>> 0;
+      word += syllables[hash % syllables.length];
+    }
+    return word[0].toUpperCase() + word.slice(1);
+  };
+  return normalizeSketchName(`${makeWord(4)} ${makeWord(3)}`);
 }
 
 function nextSketchVersionName(name, history = []) {
@@ -1964,7 +2289,7 @@ function bindSketchDrop() {
     const file = event.dataTransfer?.files?.[0];
     const text = file ? await file.text() : event.dataTransfer?.getData("text/plain");
     if (!text) return;
-    setEditorValue(text);
+    await replaceEditorCode(text, { saveCurrent: true, markUnsaved: true });
     logLine("info", file ? `loaded ${file.name}` : "loaded dropped text");
   });
 }
@@ -1976,18 +2301,79 @@ function formatBytes(bytes) {
   return `${(size / 1024).toFixed(1)} KB`;
 }
 
-function openWifiDialog() {
-  wifiDraftDirty = false;
-  els.wifiDialog.showModal();
-  els.wifiSsid.focus();
-  els.wifiSsid.select();
-}
-
-function openRenameDialog() {
+function openSettingsDialog() {
   els.deviceNameInput.value = lastInfo?.deviceName || lastStatus?.deviceName || "";
-  els.renameDialog.showModal();
+  els.wifiSsid.value = "";
+  els.wifiPassword.value = "";
+  populateMqttSettings();
+  renderWifiNetworkList();
+  wifiDraftDirty = false;
+  els.settingsDialog.showModal();
   els.deviceNameInput.focus();
   els.deviceNameInput.select();
+}
+
+function mqttDefaults() {
+  return {
+    mqttHost: "public.cloud.shiftr.io",
+    mqttPort: 1883,
+    mqttRoot: "",
+    mqttUser: "public",
+    mqttPassword: "public",
+  };
+}
+
+function mqttConfigFromStorageAndDevice() {
+  const defaults = mqttDefaults();
+  const storedRoot = mqttRootOrEmpty(localStorage.getItem(storage.mqttRoot));
+  const deviceRoot = mqttRootOrEmpty(lastConfig?.mqttRoot);
+  return {
+    mqttHost: localStorage.getItem(storage.mqttHost) || lastConfig?.mqttHost || defaults.mqttHost,
+    mqttPort: Number(localStorage.getItem(storage.mqttPort) || lastConfig?.mqttPort || defaults.mqttPort),
+    mqttRoot: storedRoot || deviceRoot || defaults.mqttRoot,
+    mqttUser: localStorage.getItem(storage.mqttUser) || lastConfig?.mqttUser || defaults.mqttUser,
+    mqttPassword: localStorage.getItem(storage.mqttPassword) || defaults.mqttPassword,
+  };
+}
+
+function mqttRootOrEmpty(value) {
+  return String(value || "").trim();
+}
+
+function mqttTransportOptions() {
+  const cfg = mqttConfigFromStorageAndDevice();
+  const host = String(cfg.mqttHost || "").trim();
+  const isSecurePage = window.location.protocol === "https:";
+  const mqttUrl = host.startsWith("ws://") || host.startsWith("wss://")
+    ? host
+    : `${isSecurePage ? "wss" : "ws"}://${host}`;
+  return {
+    mqttUrl,
+    username: cfg.mqttUser,
+    password: cfg.mqttPassword,
+    root: cfg.mqttRoot,
+  };
+}
+
+function applyMqttParams(params) {
+  const host = String(params.get("mqttHost") || "").trim();
+  const port = Number(params.get("mqttPort") || 0);
+  const root = mqttRootOrEmpty(params.get("mqttRoot"));
+  const user = String(params.get("mqttUser") || "").trim();
+  if (host) localStorage.setItem(storage.mqttHost, host);
+  if (Number.isFinite(port) && port > 0) localStorage.setItem(storage.mqttPort, String(port));
+  if (root) localStorage.setItem(storage.mqttRoot, root);
+  if (user) localStorage.setItem(storage.mqttUser, user);
+}
+
+function populateMqttSettings() {
+  const cfg = mqttConfigFromStorageAndDevice();
+  els.mqttHost.value = cfg.mqttHost;
+  els.mqttPort.value = String(cfg.mqttPort || 1883);
+  els.mqttRoot.value = cfg.mqttRoot;
+  els.mqttUser.value = cfg.mqttUser;
+  els.mqttPassword.value = "";
+  els.mqttPassword.placeholder = lastConfig?.mqttPasswordSet ? "saved" : "default";
 }
 
 async function saveDeviceName() {
@@ -1999,7 +2385,6 @@ async function saveDeviceName() {
   lastStatus = { ...(lastStatus || {}), deviceName };
   await refreshStatus({ quiet: true, timeoutMs: 6000 });
   renderFields();
-  if (els.renameDialog.open) els.renameDialog.close();
 }
 
 async function saveWifi() {
@@ -2016,14 +2401,46 @@ async function saveWifi() {
   wifiDraftDirty = false;
   updateConfig(config);
   await refreshStatus();
-  if (els.wifiDialog.open) els.wifiDialog.close();
+}
+
+async function saveMqtt() {
+  const mqttHost = els.mqttHost.value.trim();
+  const mqttPort = Number(els.mqttPort.value || 0);
+  const mqttRoot = els.mqttRoot.value.trim();
+  const mqttUser = els.mqttUser.value.trim();
+  const mqttPassword = els.mqttPassword.value;
+  const data = {};
+  if (mqttHost) data.mqttHost = mqttHost;
+  if (Number.isFinite(mqttPort) && mqttPort > 0) data.mqttPort = mqttPort;
+  data.mqttRoot = mqttRoot;
+  if (mqttUser) data.mqttUser = mqttUser;
+  if (mqttPassword) data.mqttPassword = mqttPassword;
+
+  const config = await sendCommand("config.set", data, { timeoutMs: 10000 });
+  if (data.mqttHost) localStorage.setItem(storage.mqttHost, data.mqttHost);
+  if (data.mqttPort) localStorage.setItem(storage.mqttPort, String(data.mqttPort));
+  if (data.mqttRoot) localStorage.setItem(storage.mqttRoot, data.mqttRoot);
+  else localStorage.removeItem(storage.mqttRoot);
+  if (data.mqttUser) localStorage.setItem(storage.mqttUser, data.mqttUser);
+  if (data.mqttPassword) localStorage.setItem(storage.mqttPassword, data.mqttPassword);
+  els.mqttPassword.value = "";
+  updateConfig(config);
+  await refreshStatus({ quiet: true, timeoutMs: 6000 });
+  logLine("info", "MQTT settings saved");
+}
+
+async function forgetWifiNetwork(index) {
+  const config = await sendCommand("wifi.forget", { index }, { timeoutMs: 10000 });
+  wifiDraftDirty = false;
+  updateConfig(config);
+  await refreshStatus({ quiet: true, timeoutMs: 6000 });
 }
 
 async function sendRaw() {
   try {
     const line = els.raw.value.trim();
     const parsed = JSON.parse(line);
-    if (isWebRtcKind(transport?.kind) && parsed?.type === "cmd" && parsed.name) {
+    if (isBinaryTransportKind(transport?.kind) && parsed?.type === "cmd" && parsed.name) {
       if (!canEncodeCommand(parsed.name)) throw new Error(`No MessagePack opcode for ${parsed.name}`);
       const data = { ...(parsed.data || {}) };
       for (const [key, value] of Object.entries(parsed)) {
@@ -2044,10 +2461,9 @@ async function sendCommand(name, data = {}, options = {}) {
   if (!client) throw new Error("No device connection");
   const { quiet = false, ...requestOptions } = options;
   try {
-    const isWebRtc = isWebRtcKind(transport?.kind);
-    if (isWebRtc && !transport?.sendBytes) throw new Error("WebRTC transport has no binary channel");
-    if (isWebRtc && !canEncodeCommand(name)) throw new Error(`No MessagePack opcode for ${name}`);
-    const useMsgPack = isWebRtc;
+    const useMsgPack = isBinaryTransportKind(transport?.kind);
+    if (useMsgPack && !transport?.sendBytes) throw new Error(`${connectionKindLabel(transport?.kind)} transport has no binary channel`);
+    if (useMsgPack && !canEncodeCommand(name)) throw new Error(`No MessagePack opcode for ${name}`);
     let response;
     response = useMsgPack
       ? await client.requestMsgPack(name, data, requestOptions)
@@ -2427,36 +2843,87 @@ function updateWifi(wifi = {}, options = {}) {
 }
 
 function updateConfig(config = {}) {
+  lastConfig = config;
+  if (config.mqttHost) localStorage.setItem(storage.mqttHost, config.mqttHost);
+  if (config.mqttPort) localStorage.setItem(storage.mqttPort, String(config.mqttPort));
+  const mqttRoot = mqttRootOrEmpty(config.mqttRoot);
+  if (mqttRoot) localStorage.setItem(storage.mqttRoot, mqttRoot);
+  else localStorage.removeItem(storage.mqttRoot);
+  if (config.mqttUser) localStorage.setItem(storage.mqttUser, config.mqttUser);
+  if (els.settingsDialog.open) populateMqttSettings();
   if (config.deviceName) {
     lastInfo = { ...(lastInfo || {}), deviceName: config.deviceName };
     lastStatus = { ...(lastStatus || {}), deviceName: config.deviceName };
+    if (els.deviceNameInput && document.activeElement !== els.deviceNameInput) {
+      els.deviceNameInput.value = config.deviceName;
+    }
   }
   if (Array.isArray(config.wifiNetworks) && config.wifiNetworks[0]?.ssid) {
     setWifiSsidFromDevice(config.wifiNetworks[0].ssid);
   } else if (config.wifiSsid) {
     setWifiSsidFromDevice(config.wifiSsid);
   }
+  renderWifiNetworkList();
   renderFields();
 }
 
 function setWifiSsidFromDevice(ssid) {
   if (!ssid) return;
+  if (els.settingsDialog.open) return;
   const active = document.activeElement;
   const editingWifi =
-    els.wifiDialog.open &&
+    els.settingsDialog.open &&
     (wifiDraftDirty || active === els.wifiSsid || active === els.wifiPassword);
   if (editingWifi) return;
   els.wifiSsid.value = ssid;
+}
+
+function renderWifiNetworkList() {
+  if (!els.wifiNetworkList) return;
+  const networks = Array.isArray(lastConfig?.wifiNetworks) ? lastConfig.wifiNetworks : [];
+  els.wifiNetworkList.replaceChildren();
+  if (!networks.length) {
+    const empty = document.createElement("div");
+    empty.className = "wifi-network-empty";
+    empty.textContent = "No saved networks";
+    els.wifiNetworkList.append(empty);
+    return;
+  }
+  networks.forEach((network, index) => {
+    const row = document.createElement("div");
+    row.className = "wifi-network-row";
+    const icon = document.createElement("span");
+    icon.className = "material-symbols-rounded";
+    icon.textContent = "wifi";
+    const label = document.createElement("span");
+    label.className = "wifi-network-name";
+    label.textContent = network?.ssid || `Network ${index + 1}`;
+    const meta = document.createElement("span");
+    meta.className = "wifi-network-meta";
+    meta.textContent = network?.passwordSet ? "saved" : "open";
+    const remove = document.createElement("button");
+    remove.className = "button compact icon-buttonish";
+    remove.type = "button";
+    remove.title = `Forget ${network?.ssid || "network"}`;
+    remove.setAttribute("aria-label", remove.title);
+    remove.innerHTML = '<span class="material-symbols-rounded">close</span>';
+    remove.disabled = !isDeviceConnected() || isBusy;
+    remove.addEventListener("click", () => runUiAction(() => forgetWifiNetwork(index), "wifi"));
+    row.append(icon, label, meta, remove);
+    els.wifiNetworkList.append(row);
+  });
 }
 
 function renderFields() {
   const wifi = lastStatus?.wifi || {};
   const web = lastStatus?.web || {};
   const webrtc = lastStatus?.webrtc || {};
+  const mqtt = lastStatus?.mqtt || {};
   const scriptRunning = isScriptRunning();
   const wsUrl = client ? activeWebSocketUrl(web) : "";
-  const peerId = client ? activePeerId(webrtc) : "";
-  const shareUrl = peerId ? sharePageUrl("webrtc", "", null, peerId) : (wsUrl ? sharePageUrl("websocket", wsUrl) : "");
+  const peerId = client ? activePeerId(webrtc, mqtt) : "";
+  const shareTarget = bestInfoShareTarget({ web, webrtc, mqtt });
+  const shareUrl = shareTarget ? sharePageUrl(shareTarget.kind, shareTarget.wsUrl, shareTarget.usbHint, shareTarget.peerId) : "";
   syncConnectedShareParams();
   if (els.brandVersion) {
     els.brandVersion.textContent = lastInfo?.firmwareVersion || "0.1.87";
@@ -2467,10 +2934,6 @@ function renderFields() {
       infoMetric("Firmware", [lastInfo?.firmwareName, lastInfo?.firmwareVersion].filter(Boolean).join(" ") || "-"),
       infoMetric("Uptime", formatDuration(lastStatus?.uptimeMs) || "-"),
     ]),
-    infoCard(wifi.connected ? "wifi" : "wifi_off", wifi.connected ? wifi.ssid || "WiFi connected" : "WiFi offline", [
-      infoMetric("IP", wifi.ip || "-"),
-      infoMetric("Signal", wifiSignalLabel(wifi)),
-    ]),
     infoCard(scriptRunning ? "play_circle" : "stop_circle", scriptStatusLabel(), [
       infoMetric("Script", compactScriptLabel()),
       infoMetric("Speed", wrenchFpsLabel() || "-"),
@@ -2479,19 +2942,48 @@ function renderFields() {
     infoCard("memory", memoryStatusLabel() || "Memory", [
       infoMetric("Free heap", lastStatus?.freeHeap ? `${lastStatus.freeHeap} bytes` : "-"),
       infoMetric("Max alloc", lastStatus?.maxAllocHeap ? `${lastStatus.maxAllocHeap} bytes` : "-"),
-    ]),
+      infoMetric("Worker", scriptRuntimeLabel() || "-"),
+      infoMetric("Protocol", lastInfo?.protocolVersion || "-"),
+    ], { compact: true }),
     infoCard("share", "Connect", [
-      infoMetric("WebRTC", peerId || "-"),
+      infoMetric("WiFi", wifi.connected ? wifi.ssid || "connected" : "offline"),
+      infoMetric("IP", wifi.ip || "-"),
+      infoMetric("Signal", wifiSignalLabel(wifi)),
+      infoMetric("MQTT", mqttSharePeerId(mqtt) || "-"),
       infoMetric("WebSocket", wsUrl || "-"),
       infoMetric("Share", shareUrl || "-"),
-    ], { compact: true, links: { peerId, wsUrl, shareUrl } }),
-    infoCard("tune", "Tech details", [
-      infoMetric("Device id", lastInfo?.deviceId || lastStatus?.deviceId || "-"),
-      infoMetric("Protocol", lastInfo?.protocolVersion || "-"),
-      infoMetric("Worker", scriptRuntimeLabel() || "-"),
-      infoMetric("Web clients", web.clients ?? "-"),
-    ], { compact: true }),
+    ], { compact: true, links: { peerId: mqttSharePeerId(mqtt) || peerId, wsUrl, shareUrl } }),
   );
+}
+
+function bestInfoShareTarget({ web = {}, webrtc = {}, mqtt = {} } = {}) {
+  const mqttPeer = mqttSharePeerId(mqtt);
+  if (mqttPeer && isConnectionKindAvailable("mqtt")) {
+    return { kind: "mqtt", peerId: mqttPeer };
+  }
+  const wsUrl = activeWebSocketUrl(web);
+  if (wsUrl && isConnectionKindAvailable("websocket")) {
+    return { kind: "websocket", wsUrl };
+  }
+  const rtcPeer = activeWebRtcSharePeerId(webrtc);
+  if (rtcPeer && isConnectionKindAvailable("webrtc")) {
+    return { kind: "webrtc", peerId: rtcPeer };
+  }
+  if (transport?.kind === "usb" && isConnectionKindAvailable("usb")) {
+    return { kind: "usb", usbHint: readUsbHint() };
+  }
+  return null;
+}
+
+function mqttSharePeerId(mqtt = {}) {
+  if (isMqttKind(transport?.kind) && transport?.remoteId) return normalizePeerId(transport.remoteId);
+  if (mqtt?.connected && mqtt.deviceId) return normalizePeerId(mqtt.deviceId);
+  return "";
+}
+
+function activeWebRtcSharePeerId(webrtc = {}) {
+  if (isWebRtcKind(transport?.kind) && transport?.remoteId) return normalizePeerId(transport.remoteId);
+  return normalizePeerId(webrtc.peerId || "");
 }
 
 function infoCard(icon, title, metrics = [], options = {}) {
@@ -2522,8 +3014,8 @@ function renderInfoMetric(metric, links = {}) {
   label.textContent = metric.label;
   const value = document.createElement("strong");
   const text = String(metric.value || "-");
-  if (metric.label === "WebRTC" && links.peerId) {
-    value.append(infoActionLink(text, () => connectPeerJs(links.peerId), "Connect WebRTC"));
+  if (metric.label === "MQTT" && links.peerId) {
+    value.append(infoActionLink(text, () => connectMqtt(links.peerId), "Connect MQTT"));
   } else if (metric.label === "WebSocket" && links.wsUrl) {
     value.append(infoActionLink(text, () => connectWebSocket(links.wsUrl), "Connect WebSocket"));
   } else if (metric.label === "Share" && links.shareUrl) {
@@ -2647,9 +3139,10 @@ function activeWebSocketUrl(web = {}) {
   return "";
 }
 
-function activePeerId(webrtc = {}) {
-  if (isWebRtcKind(transport?.kind) && transport?.remoteId) return normalizePeerId(transport.remoteId);
+function activePeerId(webrtc = {}, mqtt = {}) {
+  if ((isMqttKind(transport?.kind) || isWebRtcKind(transport?.kind)) && transport?.remoteId) return normalizePeerId(transport.remoteId);
   if (transport?.kind === "usb" || transport?.kind === "websocket") {
+    if (mqtt.deviceId) return normalizePeerId(mqtt.deviceId);
     return normalizePeerId(webrtc.peerId || "");
   }
   return "";
@@ -2657,12 +3150,21 @@ function activePeerId(webrtc = {}) {
 
 function syncConnectedShareParams() {
   if (!client || !window.history?.replaceState) return;
+  const target = bestInfoShareTarget({
+    web: lastStatus?.web || {},
+    webrtc: lastStatus?.webrtc || {},
+    mqtt: lastStatus?.mqtt || {},
+  });
+  if (target) {
+    updateConnectionUrlParams(target.kind, target.wsUrl, target.usbHint, target.peerId);
+    return;
+  }
   if (transport?.kind === "websocket" && transport?.url) {
     updateConnectionUrlParams("websocket", transport.url);
     return;
   }
-  if (isWebRtcKind(transport?.kind) && transport?.remoteId) {
-    updateConnectionUrlParams("webrtc", "", null, transport.remoteId);
+  if ((isMqttKind(transport?.kind) || isWebRtcKind(transport?.kind)) && transport?.remoteId) {
+    updateConnectionUrlParams(isMqttKind(transport?.kind) ? "mqtt" : "webrtc", "", null, transport.remoteId);
     return;
   }
   if (transport?.kind === "usb") {
@@ -2704,13 +3206,13 @@ function wrenchFpsLabel() {
 
   const fps = Number(lastStatus?.wrenchLoopFps);
   if (Number.isFinite(fps) && fps > 0) {
-    return `${fps.toFixed(fps < 10 ? 2 : 1)} fps`;
+    return `${Math.round(fps)} fps`;
   }
 
   const loops = Number(lastStatus?.wrenchLoopCount);
   const uptimeMs = Number(lastStatus?.uptimeMs);
   if (Number.isFinite(loops) && loops > 0 && Number.isFinite(uptimeMs) && uptimeMs > 0) {
-    return `${(loops / (uptimeMs / 1000)).toFixed(2)} fps avg`;
+    return `${Math.round(loops / (uptimeMs / 1000))} fps avg`;
   }
 
   return "";
@@ -2745,7 +3247,7 @@ function renderConnectionState(transportState = "") {
     return;
   }
 
-  const parts = [transport?.label || "device"];
+  const parts = [connectionDeviceLabel(), transportProtocolLabel()];
   if (isBusy && busyLabel) {
     parts.push(busyLabel);
   } else {
@@ -2758,6 +3260,19 @@ function renderConnectionState(transportState = "") {
   const state = transportState && !["connected", "connecting", "hub_open", "trying_device"].includes(transportState) ? transportState : "";
   if (state) parts.push(state);
   els.connection.textContent = parts.filter(Boolean).join(" | ");
+}
+
+function connectionDeviceLabel() {
+  return lastInfo?.deviceName || lastStatus?.deviceName || transport?.label || "device";
+}
+
+function transportProtocolLabel() {
+  const kind = transport?.kind;
+  if (isMqttKind(kind)) return "MQTT";
+  if (isWebRtcKind(kind)) return "WebRTC";
+  if (kind === "usb") return "USB";
+  if (kind === "websocket") return "WS";
+  return "";
 }
 
 function scriptStatusLabel() {
@@ -2791,7 +3306,7 @@ function memoryStatusLabel() {
   const total = Number(lastStatus?.heapSize || lastInfo?.heapSize || 327680);
   if (Number.isFinite(free) && Number.isFinite(total) && total > 0) {
     const usedPct = Math.max(0, Math.min(100, Math.round((1 - free / total) * 100)));
-    return `mem ${usedPct}%`;
+    return `${usedPct}%`;
   }
   return "";
 }
@@ -3168,12 +3683,10 @@ async function runChatCode(index) {
 }
 
 async function replaceEditorFromChat(code, message, name = "", layout = null) {
-  const current = getEditorValue();
-  if (current.trim() && current !== code) await rememberUploadedSketch(current);
   circuitChatLayout = normalizeCircuitLayout(layout);
-  setEditorValue(code);
+  await replaceEditorCode(code, { saveCurrent: true, markUnsaved: true });
   updateCircuitView(circuitChatLayout ? "chat layout + code inference" : "inferred from code");
-  await rememberUploadedSketch(code, name);
+  await rememberUploadedSketch(code, name, { preferAutoName: !normalizeSketchName(name) });
   logLine("info", message);
 }
 
@@ -3251,7 +3764,7 @@ async function requestChatCompletion(prompt) {
         ],
       },
     ],
-    max_output_tokens: 3200,
+    max_output_tokens: CHAT_MAX_OUTPUT_TOKENS,
     text: {
       format: {
         type: "json_schema",
@@ -3302,7 +3815,7 @@ function buildChatInstructions(context) {
     "Every generated sketch must start with a short // comment explaining what the sketch does.",
     "When producing code, also provide sketch_name: a short 2-5 word title suitable for a history dropdown.",
     "Also provide circuit_layout: a best-effort JSON layout for the Circuit view with components, connections, assumptions, and notes. Use an empty object if no hardware is involved.",
-    "When the user asks for a live interface, dashboard, or controls, use the documented firmware-driven UI bindings in a Guino-style lifecycle: declare the interface in a drawUi() function from setup() and on hello, read slider/toggle state with uiGet(), use while (uiPoll()) for buttons and hello redraw events, and stream live values with uiUpdate(). Do not call uiBegin() after every control change.",
+    "When the user asks for a live interface, dashboard, or controls, use the documented firmware-driven UI bindings in a Guino-style lifecycle: declare the interface in a drawUi() function from setup() and on hello, read slider/toggle state with uiGet(), use while (uiPoll()) for buttons and hello redraw events, update ordinary values with uiUpdate(), and stream every graph/sample with uiPush(). Do not call uiBegin() after every control change.",
     "Prefer setup() and loop(). Keep loop non-blocking where reasonable. Use short delay() only when it is intentional.",
     "Avoid factory reset or destructive device actions. Do not invent firmware bindings beyond the documented P1E bindings.",
     "If the user's request is ambiguous, explain the assumption in reply and notes.",
@@ -3514,15 +4027,16 @@ function updateEnabledState() {
     els.reboot,
     els.run,
     els.stop,
-    els.rename,
+    els.settings,
     els.deviceNameSave,
-    els.wifi,
     els.wifiSave,
     els.raw,
     els.rawSend,
   ].forEach((el) => {
     el.disabled = !connected || isBusy;
   });
+  els.newSketch.disabled = isBusy;
+  renderWifiNetworkList();
   updateChatEnabledState();
   renderConnectionHistory();
   renderConnectionState();

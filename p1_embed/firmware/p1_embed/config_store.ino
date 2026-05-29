@@ -10,6 +10,11 @@ static String g_deviceName = "";
 static String g_wifiSsids[P1_EMBED_MAX_WIFI_NETWORKS];
 static String g_wifiPasswords[P1_EMBED_MAX_WIFI_NETWORKS];
 static int g_wifiNetworkCount = 0;
+static String g_mqttHost = "";
+static int g_mqttPort = P1_EMBED_MQTT_PORT;
+static String g_mqttRoot = "";
+static String g_mqttUser = "";
+static String g_mqttPassword = "";
 static bool g_configFsReady = false;
 
 static bool configEnsureFs() {
@@ -33,6 +38,14 @@ static String configBuildDefaultDeviceName() {
   char buf[24];
   snprintf(buf, sizeof(buf), "p1-embed-%06X", (uint32_t)(mac & 0xFFFFFF));
   return String(buf);
+}
+
+static String configBuildDefaultMqttRoot() {
+  String id = configDeviceId();
+  String root = id.length() >= 6 ? String("p1-embed-") + id.substring(id.length() - 6) : configBuildDefaultDeviceName();
+  root.toLowerCase();
+  root.replace(" ", "-");
+  return root;
 }
 
 static void configApplyIdentityDefaults() {
@@ -73,6 +86,29 @@ static bool configJsonGetString(const String& json, const char* key, String& out
     out += c;
   }
   return false;
+}
+
+static bool configJsonGetInt(const String& json, const char* key, int& out) {
+  String needle = String("\"") + key + "\"";
+  int keyPos = json.indexOf(needle);
+  if (keyPos < 0) return false;
+  int colon = json.indexOf(':', keyPos + needle.length());
+  if (colon < 0) return false;
+  int pos = colon + 1;
+  while (pos < json.length() && isspace((unsigned char)json[pos])) pos++;
+  bool neg = false;
+  if (pos < json.length() && json[pos] == '-') {
+    neg = true;
+    pos++;
+  }
+  if (pos >= json.length() || !isdigit((unsigned char)json[pos])) return false;
+  long value = 0;
+  while (pos < json.length() && isdigit((unsigned char)json[pos])) {
+    value = value * 10 + (json[pos] - '0');
+    pos++;
+  }
+  out = neg ? -value : value;
+  return true;
 }
 
 static int configFindWifiSsid(const String& ssid) {
@@ -167,8 +203,17 @@ static void configLoadLegacyPrefsIfPresent() {
   prefs.end();
 }
 
+static void configApplyMqttDefaults() {
+  if (!g_mqttHost.length()) g_mqttHost = P1_EMBED_MQTT_HOST;
+  if (g_mqttPort <= 0 || g_mqttPort > 65535) g_mqttPort = P1_EMBED_MQTT_PORT;
+  if (!g_mqttRoot.length()) g_mqttRoot = String(P1_EMBED_MQTT_ROOT);
+  if (!g_mqttUser.length()) g_mqttUser = P1_EMBED_MQTT_USER;
+  if (!g_mqttPassword.length()) g_mqttPassword = P1_EMBED_MQTT_PASS;
+}
+
 void configLoad() {
   configApplyIdentityDefaults();
+  configApplyMqttDefaults();
 
   String json;
   if (configReadFile(json)) {
@@ -180,12 +225,27 @@ void configLoad() {
     else changed = true;
     configApplyIdentityDefaults();
     configLoadWifiNetworks(json);
+    int port = 0;
+    if (configJsonGetString(json, "mqttHost", value)) g_mqttHost = value;
+    else changed = true;
+    if (configJsonGetInt(json, "mqttPort", port)) g_mqttPort = port;
+    else changed = true;
+    if (configJsonGetString(json, "mqttRoot", value)) {
+      g_mqttRoot = value;
+    }
+    else changed = true;
+    if (configJsonGetString(json, "mqttUser", value)) g_mqttUser = value;
+    else changed = true;
+    if (configJsonGetString(json, "mqttPassword", value)) g_mqttPassword = value;
+    else changed = true;
+    configApplyMqttDefaults();
     if (changed) configSave();
     return;
   }
 
   configLoadLegacyPrefsIfPresent();
   configApplyIdentityDefaults();
+  configApplyMqttDefaults();
   configSave();
 }
 
@@ -197,6 +257,11 @@ void configSave() {
   json += ",\"deviceName\":" + jsonString(g_deviceName);
   json += ",\"wifiSsid\":" + jsonString(configWifiSsid());
   json += ",\"wifiPassword\":" + jsonString(configWifiPassword());
+  json += ",\"mqttHost\":" + jsonString(configMqttHost());
+  json += ",\"mqttPort\":" + String(configMqttPort());
+  json += ",\"mqttRoot\":" + jsonString(configMqttRoot());
+  json += ",\"mqttUser\":" + jsonString(configMqttUser());
+  json += ",\"mqttPassword\":" + jsonString(configMqttPassword());
   json += ",\"wifiNetworks\":[";
   for (int i = 0; i < g_wifiNetworkCount; i++) {
     if (i) json += ",";
@@ -225,6 +290,11 @@ void configFactoryReset() {
 
   g_deviceId = configBuildDeviceId();
   g_deviceName = configBuildDefaultDeviceName();
+  g_mqttHost = P1_EMBED_MQTT_HOST;
+  g_mqttPort = P1_EMBED_MQTT_PORT;
+  g_mqttRoot = P1_EMBED_MQTT_ROOT;
+  g_mqttUser = P1_EMBED_MQTT_USER;
+  g_mqttPassword = P1_EMBED_MQTT_PASS;
   for (int i = 0; i < P1_EMBED_MAX_WIFI_NETWORKS; i++) {
     g_wifiSsids[i] = "";
     g_wifiPasswords[i] = "";
@@ -255,6 +325,45 @@ void configSetWifiPassword(const String& value) {
   if (g_wifiNetworkCount > 0) g_wifiPasswords[0] = value;
 }
 
+bool configRemoveWifiNetworkAt(int index) {
+  if (index < 0 || index >= g_wifiNetworkCount) return false;
+  for (int i = index; i < g_wifiNetworkCount - 1; i++) {
+    g_wifiSsids[i] = g_wifiSsids[i + 1];
+    g_wifiPasswords[i] = g_wifiPasswords[i + 1];
+  }
+  g_wifiNetworkCount--;
+  if (g_wifiNetworkCount < 0) g_wifiNetworkCount = 0;
+  g_wifiSsids[g_wifiNetworkCount] = "";
+  g_wifiPasswords[g_wifiNetworkCount] = "";
+  return true;
+}
+
+void configSetMqttHost(const String& value) {
+  String next = value;
+  next.trim();
+  g_mqttHost = next.length() ? next : String(P1_EMBED_MQTT_HOST);
+}
+
+void configSetMqttPort(int value) {
+  g_mqttPort = (value > 0 && value <= 65535) ? value : P1_EMBED_MQTT_PORT;
+}
+
+void configSetMqttRoot(const String& value) {
+  String next = value;
+  next.trim();
+  g_mqttRoot = next.length() ? next : String(P1_EMBED_MQTT_ROOT);
+}
+
+void configSetMqttUser(const String& value) {
+  String next = value;
+  next.trim();
+  g_mqttUser = next.length() ? next : String(P1_EMBED_MQTT_USER);
+}
+
+void configSetMqttPassword(const String& value) {
+  g_mqttPassword = value.length() ? value : String(P1_EMBED_MQTT_PASS);
+}
+
 String configWifiSsid() {
   return configWifiSsidAt(0);
 }
@@ -277,6 +386,28 @@ String configWifiPasswordAt(int index) {
   return g_wifiPasswords[index];
 }
 
+String configMqttHost() {
+  return g_mqttHost.length() ? g_mqttHost : String(P1_EMBED_MQTT_HOST);
+}
+
+int configMqttPort() {
+  return (g_mqttPort > 0 && g_mqttPort <= 65535) ? g_mqttPort : P1_EMBED_MQTT_PORT;
+}
+
+String configMqttRoot() {
+  if (g_mqttRoot.length()) return g_mqttRoot;
+  String root = P1_EMBED_MQTT_ROOT;
+  return root.length() ? root : configBuildDefaultMqttRoot();
+}
+
+String configMqttUser() {
+  return g_mqttUser.length() ? g_mqttUser : String(P1_EMBED_MQTT_USER);
+}
+
+String configMqttPassword() {
+  return g_mqttPassword.length() ? g_mqttPassword : String(P1_EMBED_MQTT_PASS);
+}
+
 P1ConfigSnapshot configSnapshot() {
   P1ConfigSnapshot snapshot;
   snapshot.deviceId = configDeviceId();
@@ -284,6 +415,11 @@ P1ConfigSnapshot configSnapshot() {
   snapshot.wifiSsid = configWifiSsid();
   snapshot.wifiPasswordSet = configWifiPassword().length() > 0;
   snapshot.wifiNetworkCount = g_wifiNetworkCount;
+  snapshot.mqttHost = configMqttHost();
+  snapshot.mqttPort = configMqttPort();
+  snapshot.mqttRoot = configMqttRoot();
+  snapshot.mqttUser = configMqttUser();
+  snapshot.mqttPasswordSet = configMqttPassword().length() > 0;
   snapshot.wifi = wifiSnapshot();
   return snapshot;
 }
@@ -295,6 +431,11 @@ String configAsJson(const P1ConfigSnapshot& snapshot) {
   out += ",\"wifiSsid\":" + jsonString(snapshot.wifiSsid);
   out += ",\"wifiPasswordSet\":" + String(snapshot.wifiPasswordSet ? "true" : "false");
   out += ",\"wifiNetworkCount\":" + String(snapshot.wifiNetworkCount);
+  out += ",\"mqttHost\":" + jsonString(snapshot.mqttHost);
+  out += ",\"mqttPort\":" + String(snapshot.mqttPort);
+  out += ",\"mqttRoot\":" + jsonString(snapshot.mqttRoot);
+  out += ",\"mqttUser\":" + jsonString(snapshot.mqttUser);
+  out += ",\"mqttPasswordSet\":" + String(snapshot.mqttPasswordSet ? "true" : "false");
   out += ",\"wifiNetworks\":[";
   for (int i = 0; i < g_wifiNetworkCount; i++) {
     if (i) out += ",";

@@ -1,0 +1,492 @@
+// Fifteen selectable LED animations for the 30-LED strip with UI buttons.
+var strip = 0;
+var ledCountTotal = 30;
+var mode = 0;
+var lastFrameAt = 0;
+var frameInterval = 50;
+var frame = 0;
+var patternColor = 0;
+
+// fireworks state
+var burstCooldown = 0;
+var sparksActive = 0;
+var sparkX[] = { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 };
+var sparkV[] = { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 };
+var sparkR[] = { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 };
+var sparkG[] = { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 };
+var sparkB[] = { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 };
+
+// comet state
+var cometPos = 0;
+var cometDir = 1;
+var cometHue = 0;
+
+// pulse state
+var pulseValue = 0;
+var pulseDir = 1;
+
+// extra animation state
+var wavePhase = 0;
+var scannerPos = 0;
+var scannerDir = 1;
+var wipePos = 0;
+var bouncePos = 0;
+var bounceDir = 1;
+var breathHue = 0;
+var strobeOn = 0;
+var meteorGap = 0;
+var glitterHue = 0;
+
+function drawUi() {
+  uiBegin("LED Animations");
+  uiColor(120, 200, 255);
+  uiLabel("title", "Pick an animation");
+  uiSpacer(1);
+  uiButton("mode0", "Fireworks");
+  uiButton("mode1", "Rainbow Chase");
+  uiButton("mode2", "Twinkle");
+  uiButton("mode3", "Comet");
+  uiButton("mode4", "Breathing Pulse");
+  uiButton("mode5", "Spiral");
+  uiButton("mode6", "Scanner");
+  uiButton("mode7", "Waves");
+  uiButton("mode8", "Meteor Rain");
+  uiButton("mode9", "Glitter");
+  uiButton("mode10", "Color Wipe");
+  uiButton("mode11", "Bounce Dot");
+  uiButton("mode12", "Rainbow Fade");
+  uiButton("mode13", "Fire Breaths");
+  uiButton("mode14", "Strobe");
+  uiSpacer(1);
+  uiValue("current", "Current Mode", mode, 0, 14);
+}
+
+function clearSparks() {
+  sparksActive = 0;
+  burstCooldown = 0;
+}
+
+function setMode(newMode) {
+  mode = newMode;
+  frame = 0;
+  lastFrameAt = 0;
+  ledClear(strip, 1);
+  clearSparks();
+  cometPos = 0;
+  cometDir = 1;
+  cometHue = random(0, 255);
+  pulseValue = 0;
+  pulseDir = 1;
+  wavePhase = 0;
+  scannerPos = 0;
+  scannerDir = 1;
+  wipePos = 0;
+  bouncePos = 0;
+  bounceDir = 1;
+  breathHue = random(0, 255);
+  strobeOn = 0;
+  meteorGap = 0;
+  glitterHue = random(0, 255);
+  uiUpdate("current", mode);
+}
+
+function addSpark(cx, cr, cg, cb) {
+  var i = 0;
+  while (i < 10) {
+    if (i >= sparksActive) {
+      sparkX[i] = cx;
+      sparkV[i] = random(-3, 4);
+      if (sparkV[i] == 0) {
+        sparkV[i] = 1;
+      }
+      sparkR[i] = cr;
+      sparkG[i] = cg;
+      sparkB[i] = cb;
+      sparksActive = sparksActive + 1;
+      return;
+    }
+    i = i + 1;
+  }
+}
+
+function launchBurst() {
+  var center = random(5, ledCountTotal - 5);
+  var hue = random(0, 3);
+
+  if (hue == 0) {
+    patternColor = 0;
+  } else if (hue == 1) {
+    patternColor = 1;
+  } else {
+    patternColor = 2;
+  }
+
+  if (patternColor == 0) {
+    addSpark(center, 255, 120, 20);
+    addSpark(center, 255, 120, 20);
+    addSpark(center, 255, 120, 20);
+    addSpark(center, 255, 120, 20);
+    addSpark(center, 255, 120, 20);
+    addSpark(center, 255, 120, 20);
+    addSpark(center, 255, 120, 20);
+    addSpark(center, 255, 120, 20);
+  } else if (patternColor == 1) {
+    addSpark(center, 255, 40, 120);
+    addSpark(center, 255, 40, 120);
+    addSpark(center, 255, 40, 120);
+    addSpark(center, 255, 40, 120);
+    addSpark(center, 255, 40, 120);
+    addSpark(center, 255, 40, 120);
+    addSpark(center, 255, 40, 120);
+    addSpark(center, 255, 40, 120);
+  } else {
+    addSpark(center, 80, 160, 255);
+    addSpark(center, 80, 160, 255);
+    addSpark(center, 80, 160, 255);
+    addSpark(center, 80, 160, 255);
+    addSpark(center, 80, 160, 255);
+    addSpark(center, 80, 160, 255);
+    addSpark(center, 80, 160, 255);
+    addSpark(center, 80, 160, 255);
+  }
+}
+
+function renderFireworks() {
+  var s = 0;
+  ledFill(strip, 0, 0, 0);
+
+  if (burstCooldown <= 0) {
+    if (random(0, 100) < 18) {
+      launchBurst();
+      burstCooldown = random(8, 18);
+    }
+  } else {
+    burstCooldown = burstCooldown - 1;
+  }
+
+  s = 0;
+  while (s < sparksActive) {
+    sparkX[s] = sparkX[s] + sparkV[s];
+    sparkV[s] = sparkV[s] / 2;
+
+    if (sparkV[s] == 0) {
+      if (random(0, 2) == 0) {
+        sparkV[s] = -1;
+      } else {
+        sparkV[s] = 1;
+      }
+    }
+
+    if ((sparkX[s] >= 0) && (sparkX[s] < ledCountTotal)) {
+      ledSet(strip, sparkX[s], sparkR[s], sparkG[s], sparkB[s]);
+      if ((sparkX[s] - 1) >= 0) {
+        ledSet(strip, sparkX[s] - 1, sparkR[s] / 4, sparkG[s] / 4, sparkB[s] / 4);
+      }
+      if ((sparkX[s] + 1) < ledCountTotal) {
+        ledSet(strip, sparkX[s] + 1, sparkR[s] / 4, sparkG[s] / 4, sparkB[s] / 4);
+      }
+    }
+
+    if ((sparkX[s] < -2) || (sparkX[s] > (ledCountTotal + 2)) || (sparkV[s] == 0)) {
+      sparksActive = sparksActive - 1;
+      if (sparksActive < 0) {
+        sparksActive = 0;
+      }
+      if (s < sparksActive) {
+        sparkX[s] = sparkX[sparksActive];
+        sparkV[s] = sparkV[sparksActive];
+        sparkR[s] = sparkR[sparksActive];
+        sparkG[s] = sparkG[sparksActive];
+        sparkB[s] = sparkB[sparksActive];
+        continue;
+      }
+    } else {
+      s = s + 1;
+    }
+  }
+}
+
+function renderRainbowChase() {
+  var i = 0;
+  ledClear(strip, 0);
+  while (i < ledCountTotal) {
+    ledSetHsv(strip, i, (frame * 8 + i * 12) % 256, 255, 45);
+    i = i + 1;
+  }
+  ledSetHsv(strip, frame % ledCountTotal, (frame * 8) % 256, 255, 255);
+}
+
+function renderTwinkle() {
+  var i = 0;
+  ledFill(strip, 0, 0, 2);
+  while (i < ledCountTotal) {
+    if (random(0, 100) < 20) {
+      ledSetHsv(strip, i, random(0, 255), 80, 255);
+    }
+    i = i + 1;
+  }
+}
+
+function renderComet() {
+  var i = 0;
+  ledClear(strip, 0);
+  while (i < 8) {
+    var p = cometPos - i * cometDir;
+    if ((p >= 0) && (p < ledCountTotal)) {
+      ledSetHsv(strip, p, (cometHue + i * 8) % 256, 255, 255 - i * 28);
+    }
+    i = i + 1;
+  }
+  cometPos = cometPos + cometDir;
+  if (cometPos >= (ledCountTotal - 1)) {
+    cometDir = -1;
+    cometHue = random(0, 255);
+  } else if (cometPos <= 0) {
+    cometDir = 1;
+    cometHue = random(0, 255);
+  }
+}
+
+function renderPulse() {
+  var i = 0;
+  var v = pulseValue;
+  ledFill(strip, v / 4, 0, v / 2);
+  while (i < ledCountTotal) {
+    if ((i % 6) == (frame % 6)) {
+      ledSet(strip, i, v, v / 4, 255 - v);
+    }
+    i = i + 1;
+  }
+  pulseValue = pulseValue + pulseDir * 10;
+  if (pulseValue >= 255) {
+    pulseValue = 255;
+    pulseDir = -1;
+  } else if (pulseValue <= 0) {
+    pulseValue = 0;
+    pulseDir = 1;
+  }
+}
+
+function renderSpiral() {
+  var i = 0;
+  var offset = frame % ledCountTotal;
+  ledClear(strip, 0);
+  while (i < ledCountTotal) {
+    ledSetHsv(strip, i, (frame * 6 + i * 18) % 256, 255, ((i + offset) % 10) * 25);
+    i = i + 1;
+  }
+}
+
+function renderScanner() {
+  var i = 0;
+  ledClear(strip, 0);
+  while (i < ledCountTotal) {
+    var dist = i - scannerPos;
+    if (dist < 0) dist = 0 - dist;
+    if (dist < 4) {
+      ledSet(strip, i, 0, 0, (4 - dist) * 60);
+    }
+    i = i + 1;
+  }
+  scannerPos = scannerPos + scannerDir;
+  if (scannerPos >= (ledCountTotal - 1)) {
+    scannerDir = -1;
+  } else if (scannerPos <= 0) {
+    scannerDir = 1;
+  }
+}
+
+function renderWaves() {
+  var i = 0;
+  while (i < ledCountTotal) {
+    var h = (frame * 4 + i * 14 + wavePhase) % 256;
+    var v = 80 + ((i + frame) % 6) * 25;
+    ledSetHsv(strip, i, h, 180, v);
+    i = i + 1;
+  }
+  wavePhase = wavePhase + 3;
+}
+
+function renderMeteorRain() {
+  var i = 0;
+  ledClear(strip, 0);
+  if (meteorGap <= 0) {
+    meteorGap = random(4, 10);
+    wipePos = ledCountTotal - 1;
+  } else {
+    meteorGap = meteorGap - 1;
+  }
+  while (i < 10) {
+    var p = wipePos - i;
+    if ((p >= 0) && (p < ledCountTotal)) {
+      ledSetHsv(strip, p, (frame * 10 + i * 12) % 256, 255, 255 - i * 24);
+    }
+    i = i + 1;
+  }
+  wipePos = wipePos - 1;
+  if (wipePos < 0) {
+    wipePos = 0;
+  }
+}
+
+function renderGlitter() {
+  var i = 0;
+  ledFill(strip, 0, 0, 0);
+  while (i < ledCountTotal) {
+    if (random(0, 100) < 35) {
+      ledSetHsv(strip, i, (glitterHue + random(0, 40)) % 256, 40, 255);
+    }
+    i = i + 1;
+  }
+  glitterHue = glitterHue + 2;
+}
+
+function renderColorWipe() {
+  var i = 0;
+  while (i < ledCountTotal) {
+    if (i <= wipePos) {
+      ledSetHsv(strip, i, (frame * 6) % 256, 255, 255);
+    } else {
+      ledSet(strip, i, 0, 0, 0);
+    }
+    i = i + 1;
+  }
+  wipePos = wipePos + 1;
+  if (wipePos >= ledCountTotal) {
+    wipePos = 0;
+    breathHue = random(0, 255);
+  }
+}
+
+function renderBounceDot() {
+  var i = 0;
+  ledClear(strip, 0);
+  while (i < 6) {
+    var p = bouncePos - (i * bounceDir);
+    if ((p >= 0) && (p < ledCountTotal)) {
+      ledSetHsv(strip, p, (frame * 12) % 256, 255, 255 - i * 40);
+    }
+    i = i + 1;
+  }
+  bouncePos = bouncePos + bounceDir;
+  if (bouncePos >= (ledCountTotal - 1)) {
+    bounceDir = -1;
+  } else if (bouncePos <= 0) {
+    bounceDir = 1;
+  }
+}
+
+function renderRainbowFade() {
+  var i = 0;
+  while (i < ledCountTotal) {
+    ledSetHsv(strip, i, (frame * 4 + i * 10) % 256, 255, 40 + ((frame + i) % 12) * 18);
+    i = i + 1;
+  }
+}
+
+function renderFireBreaths() {
+  var i = 0;
+  var v = pulseValue;
+  while (i < ledCountTotal) {
+    ledSetHsv(strip, i, (breathHue + i * 2) % 256, 255, v);
+    i = i + 1;
+  }
+  pulseValue = pulseValue + pulseDir * 12;
+  if (pulseValue >= 255) {
+    pulseValue = 255;
+    pulseDir = -1;
+  } else if (pulseValue <= 20) {
+    pulseValue = 20;
+    pulseDir = 1;
+    breathHue = random(0, 60);
+  }
+}
+
+function renderStrobe() {
+  if (strobeOn == 0) {
+    ledFill(strip, 0, 0, 0);
+    if ((frame % 6) == 0) {
+      strobeOn = 1;
+    }
+  } else {
+    ledFill(strip, 255, 255, 255);
+    if ((frame % 6) == 2) {
+      strobeOn = 0;
+    }
+  }
+}
+
+function setup() {
+  ledConfig(strip, 4, ledCountTotal, 70);
+  ledClear(strip, 1);
+  randomSeed(millis());
+  drawUi();
+  println("animations ready");
+}
+
+function loop() {
+  while (uiPoll()) {
+    if (uiEventType() == "hello") {
+      drawUi();
+    }
+    if (uiEventType() == "press") {
+      if (uiEventId() == "mode0") setMode(0);
+      else if (uiEventId() == "mode1") setMode(1);
+      else if (uiEventId() == "mode2") setMode(2);
+      else if (uiEventId() == "mode3") setMode(3);
+      else if (uiEventId() == "mode4") setMode(4);
+      else if (uiEventId() == "mode5") setMode(5);
+      else if (uiEventId() == "mode6") setMode(6);
+      else if (uiEventId() == "mode7") setMode(7);
+      else if (uiEventId() == "mode8") setMode(8);
+      else if (uiEventId() == "mode9") setMode(9);
+      else if (uiEventId() == "mode10") setMode(10);
+      else if (uiEventId() == "mode11") setMode(11);
+      else if (uiEventId() == "mode12") setMode(12);
+      else if (uiEventId() == "mode13") setMode(13);
+      else if (uiEventId() == "mode14") setMode(14);
+    }
+  }
+
+  if ((millis() - lastFrameAt) >= frameInterval) {
+    lastFrameAt = millis();
+    frame = frame + 1;
+
+    if (mode == 0) {
+      renderFireworks();
+    } else if (mode == 1) {
+      renderRainbowChase();
+    } else if (mode == 2) {
+      renderTwinkle();
+    } else if (mode == 3) {
+      renderComet();
+    } else if (mode == 4) {
+      renderPulse();
+    } else if (mode == 5) {
+      renderSpiral();
+    } else if (mode == 6) {
+      renderScanner();
+    } else if (mode == 7) {
+      renderWaves();
+    } else if (mode == 8) {
+      renderMeteorRain();
+    } else if (mode == 9) {
+      renderGlitter();
+    } else if (mode == 10) {
+      renderColorWipe();
+    } else if (mode == 11) {
+      renderBounceDot();
+    } else if (mode == 12) {
+      renderRainbowFade();
+    } else if (mode == 13) {
+      renderFireBreaths();
+    } else {
+      renderStrobe();
+    }
+
+    ledShow();
+    uiUpdate("current", mode);
+  }
+
+  delay(10);
+}

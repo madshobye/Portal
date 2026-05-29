@@ -39,7 +39,16 @@ The firmware compiles the source first. If compile succeeds, it can run `setup()
 
 ## Transport Model
 
-P1E uses compact MessagePack frames for the WebRTC data channel. Serial and WebSocket text transports serialize the same protocol concepts as JSON lines at the transport boundary. Avoid using JSON as an internal data structure in sketches; reserve JSON helpers for parsing external JSON text such as HTTP API responses.
+P1E uses compact MessagePack frames for MQTT device communication. Serial text transport serializes the same protocol concepts as JSON lines at the transport boundary. Avoid using JSON as an internal data structure in sketches; reserve JSON helpers for parsing external JSON text such as HTTP API responses.
+
+MQTT uses one binary command/response/event path and one plain text script path:
+
+- `p1e/<root>/<deviceId>/cmd/<clientId>` receives MessagePack commands.
+- `p1e/<root>/<deviceId>/res/<clientId>` publishes MessagePack responses.
+- `p1e/<root>/<deviceId>/evt` publishes MessagePack events.
+- `p1e/<root>/<deviceId>/hello` publishes retained JSON discovery.
+- `p1e/<root>/<deviceId>/script/in` accepts plain text input for the running script inbox.
+- `p1e/<root>/<deviceId>/script/out` publishes text from `print()` and `println()`.
 
 ## Common Failure Patterns
 
@@ -218,8 +227,9 @@ Use this lifecycle:
 - Browser slider and toggle input is captured in the firmware background as state. Use `uiGet(id, fallback)` to read the latest value without manually polling the input queue.
 - Use `uiChanged(id)` when code should react only once to a changed slider or toggle value.
 - Use `while (uiPoll()) { ... }` when a sketch needs edge-style events such as button presses or browser `hello` redraw requests.
-- During normal runtime, stream live sensor/graph/value changes with `uiUpdate(id, value)`.
-- Do not call `uiBegin()` after every button, toggle, slider, or graph update. `uiBegin()` resets the interface; `uiUpdate()` changes values.
+- During normal runtime, update UI values with `uiUpdate(id, value)`. It only sends when the value has changed.
+- Use `uiPush(id, value)` for streams that must send every sample, including moving graphs that should show time passing even when the value repeats.
+- Do not call `uiBegin()` after every button, toggle, slider, or graph update. `uiBegin()` resets the interface; `uiUpdate()` and `uiPush()` change values.
 
 UI layout and value bindings:
 
@@ -234,7 +244,8 @@ UI layout and value bindings:
 - `uiSpacer(size)` or `uiSpacer(id, size)` adds a visual spacer. Size is `1`, `2`, or `3`.
 - `uiColumn()` requests a column break in wider layouts.
 - `uiColor(r, g, b)` sets the UI accent color.
-- `uiUpdate(id, value)` updates a numeric value, slider, toggle, gauge, or graph.
+- `uiUpdate(id, value)` updates a numeric value, slider, toggle, gauge, or graph when the value has changed.
+- `uiPush(id, value)` updates a numeric value, slider, toggle, gauge, or graph every time it is called.
 - `uiText(id, text)` updates label text.
 
 UI input bindings:
@@ -283,7 +294,7 @@ function loop() {
 
   if (running && (millis() - lastUpdate) >= delayMs) {
     lastUpdate = millis();
-    uiUpdate("sensor", analogRead(sensorPin));
+    uiPush("sensor", analogRead(sensorPin));
   }
   delay(10);
 }

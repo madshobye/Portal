@@ -87,8 +87,8 @@ async function loadPlaywright() {
     const hint = [
       "Could not load the 'playwright' package.",
       "Run with the Codex bundled runtime like:",
-      "  NODE_PATH=/Users/madshobye/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/node_modules \\",
-      "  /Users/madshobye/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/bin/node \\",
+      "  NODE_PATH=/path/to/node_modules \\",
+      "  /path/to/node \\",
       "  p1_embed/tools/peerjs_webrtc_probe.cjs --peer p1-embed-f7a608",
       "",
       `Original error: ${error.message}`,

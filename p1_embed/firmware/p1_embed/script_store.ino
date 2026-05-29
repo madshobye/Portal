@@ -191,6 +191,18 @@ void scriptStoreArmVerification() {
   g_scriptVerifyArmed = true;
 }
 
+void scriptStoreMarkVerificationFailed(const char* reason) {
+  uint8_t runState = scriptStoreLoadRunState();
+  if (!g_scriptVerifyArmed && runState != P1_EMBED_SCRIPT_RUN_PENDING_NEW) return;
+  scriptStoreSaveRunState(P1_EMBED_SCRIPT_RUN_PENDING_TRIED);
+  g_scriptVerifyArmed = false;
+  P1EventField fields[] = {
+    p1FieldString("runState", scriptStoreRunStateName(P1_EMBED_SCRIPT_RUN_PENDING_TRIED)),
+    p1FieldString("reason", reason && reason[0] ? reason : "script_error"),
+  };
+  debugEventEmitFields("script.storage", "warn", "script", "autorun validation failed", fields, 2);
+}
+
 void scriptStoreVerifyIfDue() {
   if (!g_scriptVerifyArmed) return;
   if (millis() - g_scriptRunStartedAt < P1_EMBED_SCRIPT_VERIFY_MS) return;

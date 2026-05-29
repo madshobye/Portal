@@ -14,6 +14,7 @@ class P1Serial:
         self.port = port
         self.baud = baud
         self.trace = trace
+        self.raw_callback = None
         self.fd = None
         self.buf = b""
         self.next_id = 1
@@ -147,6 +148,8 @@ class P1Serial:
         while b"\n" in self.buf:
             line, self.buf = self.buf.split(b"\n", 1)
             text = line.decode(errors="replace").strip()
+            if self.raw_callback:
+                self.raw_callback(text)
             if not text.startswith("{"):
                 continue
             try:

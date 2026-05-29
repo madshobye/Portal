@@ -116,6 +116,7 @@ static void scriptErrorEmit(const char* level, const String& phase, const String
 void scriptErrorSet(const String& phase, const String& code, const String& message, const String& detailFieldsJson) {
   scriptErrorStore(phase, code, message, detailFieldsJson);
   scriptErrorEmit("error", phase, code, message);
+  scriptStoreMarkVerificationFailed(code.c_str());
 }
 
 void scriptErrorWarn(const String& phase, const String& code, const String& message, const String& detailFieldsJson) {

@@ -18,6 +18,7 @@ static const uint8_t P1_MP_OP_SCRIPT_GET = 8;
 static const uint8_t P1_MP_OP_WIFI_STATUS = 9;
 static const uint8_t P1_MP_OP_WIFI_CONNECT = 10;
 static const uint8_t P1_MP_OP_WIFI_DISCONNECT = 11;
+static const uint8_t P1_MP_OP_WIFI_FORGET = 18;
 static const uint8_t P1_MP_OP_SCRIPT_ERROR_GET = 12;
 static const uint8_t P1_MP_OP_SCRIPT_ERROR_CLEAR = 13;
 static const uint8_t P1_MP_OP_SCRIPT_INPUT = 14;
@@ -25,8 +26,14 @@ static const uint8_t P1_MP_OP_SCRIPT_CHUNK_BEGIN = 19;
 static const uint8_t P1_MP_OP_SCRIPT_CHUNK_ADD = 20;
 static const uint8_t P1_MP_OP_SCRIPT_CHUNK_COMMIT = 21;
 static const uint8_t P1_MP_OP_SCRIPT_STOP = 22;
+static const uint8_t P1_MP_OP_SCRIPT_CHUNK_GET = 23;
 static const uint8_t P1_MP_OP_SCRIPT_RESTART = 24;
 static const uint8_t P1_MP_OP_DEVICE_REBOOT = 30;
+
+static void protocolSendMsgPackBytes(const uint8_t* data, size_t len) {
+  webrtcTransportSendBytes(data, len);
+  mqttTransportSendBytes(data, len);
+}
 
 uint32_t protocolFnv1a(const String& s) {
   uint32_t h = 2166136261u;
@@ -245,6 +252,7 @@ static String protocolStatusFullJson() {
   out += ",\"debug\":" + debugEventStatusJson(snapshot.debug);
   out += ",\"memory\":" + memoryProfileSummaryJson();
   out += ",\"web\":" + webTransportStatusJson();
+  out += ",\"mqtt\":" + mqttTransportStatusJson();
   out += ",\"webrtc\":" + webrtcTransportStatusJson();
   out += ",\"led\":" + ledStatusJson();
   out += ",\"uart\":" + uartStatusJson();
@@ -265,6 +273,7 @@ static String protocolStatusJson() {
   out += ",\"lastError\":" + scriptErrorSummaryJson(snapshot.lastError);
   out += ",\"memory\":" + memoryProfileSummaryJson();
   out += ",\"web\":" + webTransportStatusJson();
+  out += ",\"mqtt\":" + mqttTransportStatusJson();
   out += ",\"webrtc\":" + webrtcTransportStatusJson();
   out += ",\"led\":" + ledStatusJson();
   out += ",\"wifi\":" + wifiStatusJson(snapshot.wifi);
@@ -278,6 +287,7 @@ static String protocolStatusLightJson() {
   out.reserve(900);
   out += "{";
   protocolAppendStatusCoreJson(out, snapshot);
+  out += ",\"mqtt\":" + mqttTransportStatusJson();
   out += ",\"webrtc\":" + webrtcTransportStatusJson();
   out += ",\"wifi\":" + wifiStatusJson(snapshot.wifi);
   out += "}";
@@ -298,6 +308,7 @@ static String protocolStatusEventJson() {
   out += ",\"wrenchLoopFps\":" + String(snapshot.script.loopFps, 2);
   out += ",\"wrenchTaskStackHighWater\":" + String(snapshot.script.taskStackHighWater);
   out += ",\"memory\":" + memoryProfileSummaryJson();
+  out += ",\"mqtt\":" + mqttTransportStatusJson();
   out += ",\"webrtc\":" + webrtcTransportStatusJson();
   out += ",\"wifi\":" + wifiStatusJson(snapshot.wifi);
   out += ",\"led\":" + ledStatusJson();
@@ -404,7 +415,7 @@ void protocolEmitMsgPackEventFields(const char* name, const char* level, const c
   for (size_t i = 0; i < fieldCount; i++) {
     protocolMsgPackWriteEventField(w, fields[i]);
   }
-  if (w.ok) webrtcTransportSendBytes(frame, w.length);
+  if (w.ok) protocolSendMsgPackBytes(frame, w.length);
   if (frame != stackFrame) free(frame);
 }
 
@@ -479,6 +490,7 @@ void protocolEmitLog(const String& level, const String& message) {
 }
 
 void protocolEmitPrint(const String& message, bool newline) {
+  mqttTransportSendScriptText(message, newline);
   P1EventField fields[] = {
     p1FieldBool("newline", newline),
   };
@@ -589,6 +601,7 @@ bool protocolHandleScriptSetCode(const String& id, const String& code, bool runA
         p1FieldString("error", runErr),
       };
       debugEventEmitFields("script.debug", "debug", "script", "script.set run failed", debugFields, 1);
+      if (saveAfterSet) scriptStoreMarkVerificationFailed("run_failed");
       if (sendResponse) protocolSendResponseError(id, "run_error", runErr);
       else {
         P1EventField fields[] = {
@@ -808,7 +821,7 @@ static void protocolSendMsgPackStatusLight(uint32_t id) {
   w.writeString("deviceName"); w.writeString(snapshot.deviceName);
   w.writeString("protocol"); w.writeString("msgpack.v0_2");
   w.writeString("wifi"); protocolMsgPackWriteWifi(w, snapshot.wifi);
-  if (w.ok) webrtcTransportSendBytes(frame, w.length);
+  if (w.ok) protocolSendMsgPackBytes(frame, w.length);
 }
 
 static void protocolMsgPackWriteWifi(P1MsgPackWriter& w, const P1WifiSnapshot& snapshot) {
@@ -849,28 +862,40 @@ static void protocolSendMsgPackSystemInfo(uint32_t id) {
   w.writeString("sdkVersion"); w.writeString(ESP.getSdkVersion());
   w.writeString("heapSize"); w.writeUInt(ESP.getHeapSize());
   w.writeString("capabilities"); w.writeArray(5);
-  w.writeString("transport.webrtc.msgpack");
+  w.writeString("transport.mqtt.msgpack");
   w.writeString("protocol.msgpack.v0_2");
   w.writeString("wrench.compile");
   w.writeString("wrench.bindings.ui_guino");
   w.writeString("wifi.station");
   w.writeString("wifi"); protocolMsgPackWriteWifi(w, config.wifi);
-  if (w.ok) webrtcTransportSendBytes(frame, w.length);
+  if (w.ok) protocolSendMsgPackBytes(frame, w.length);
 }
 
 static void protocolSendMsgPackConfig(uint32_t id) {
   P1ConfigSnapshot snapshot = configSnapshot();
   uint8_t frame[P1_EMBED_MSGPACK_MAX_FRAME_BYTES];
   P1MsgPackWriter w(frame, sizeof(frame));
-  protocolMsgPackBeginResponse(w, id, true, 7);
+  protocolMsgPackBeginResponse(w, id, true, 13);
   w.writeString("deviceId"); w.writeString(snapshot.deviceId);
   w.writeString("deviceName"); w.writeString(snapshot.deviceName);
   w.writeString("wifiSsid"); w.writeString(snapshot.wifiSsid);
   w.writeString("wifiPasswordSet"); w.writeBool(snapshot.wifiPasswordSet);
   w.writeString("wifiNetworkCount"); w.writeUInt(snapshot.wifiNetworkCount);
+  w.writeString("mqttHost"); w.writeString(snapshot.mqttHost);
+  w.writeString("mqttPort"); w.writeUInt(snapshot.mqttPort);
+  w.writeString("mqttRoot"); w.writeString(snapshot.mqttRoot);
+  w.writeString("mqttUser"); w.writeString(snapshot.mqttUser);
+  w.writeString("mqttPasswordSet"); w.writeBool(snapshot.mqttPasswordSet);
+  w.writeString("wifiNetworks");
+  w.writeArray(snapshot.wifiNetworkCount);
+  for (int i = 0; i < snapshot.wifiNetworkCount; i++) {
+    w.writeMap(2);
+    w.writeString("ssid"); w.writeString(configWifiSsidAt(i));
+    w.writeString("passwordSet"); w.writeBool(configWifiPasswordAt(i).length() > 0);
+  }
   w.writeString("storage"); w.writeString("littlefs:/config.json");
   w.writeString("wifi"); protocolMsgPackWriteWifi(w, snapshot.wifi);
-  if (w.ok) webrtcTransportSendBytes(frame, w.length);
+  if (w.ok) protocolSendMsgPackBytes(frame, w.length);
 }
 
 static void protocolSendMsgPackWifiStatus(uint32_t id) {
@@ -879,7 +904,7 @@ static void protocolSendMsgPackWifiStatus(uint32_t id) {
   P1MsgPackWriter w(frame, sizeof(frame));
   protocolMsgPackBeginResponse(w, id, true, 1);
   w.writeString("wifi"); protocolMsgPackWriteWifi(w, snapshot);
-  if (w.ok) webrtcTransportSendBytes(frame, w.length);
+  if (w.ok) protocolSendMsgPackBytes(frame, w.length);
 }
 
 static void protocolSendMsgPackDebug(uint32_t id) {
@@ -892,7 +917,7 @@ static void protocolSendMsgPackDebug(uint32_t id) {
   w.writeString("levelValue"); w.writeUInt(snapshot.levelValue);
   w.writeString("queueDrops"); w.writeUInt(snapshot.queueDrops);
   w.writeString("queueHighWater"); w.writeUInt(snapshot.queueHighWater);
-  if (w.ok) webrtcTransportSendBytes(frame, w.length);
+  if (w.ok) protocolSendMsgPackBytes(frame, w.length);
 }
 
 static void protocolSendMsgPackScriptError(uint32_t id) {
@@ -918,7 +943,7 @@ static void protocolSendMsgPackScriptError(uint32_t id) {
       w.writeString("json-fields");
     }
   }
-  if (w.ok) webrtcTransportSendBytes(frame, w.length);
+  if (w.ok) protocolSendMsgPackBytes(frame, w.length);
 }
 
 static void protocolSendMsgPackScriptGet(uint32_t id) {
@@ -941,9 +966,46 @@ static void protocolSendMsgPackScriptGet(uint32_t id) {
   w.writeString("state"); w.writeString(snapshot.state);
   w.writeString("stored"); w.writeBool(snapshot.stored);
   w.writeString("runState"); w.writeString(snapshot.runState);
-  if (w.ok) webrtcTransportSendBytes(frame, w.length);
+  if (w.ok && mqttTransportConnected() && w.length > P1_EMBED_MQTT_BUFFER_BYTES) {
+    protocolSendMsgPackError(id, "response_too_large", "script.get response is too large for MQTT; use script.chunk.get");
+  } else if (w.ok) {
+    protocolSendMsgPackBytes(frame, w.length);
+  }
   free(frame);
   if (!w.ok) protocolSendMsgPackError(id, "frame_too_large", "Stored script did not fit in MessagePack response");
+}
+
+static void protocolSendMsgPackScriptChunkGet(uint32_t id, uint32_t offset, uint32_t maxBytes) {
+  String code = wrenchCurrentScript();
+  P1ScriptSnapshot snapshot = protocolScriptSnapshot(&code);
+  const uint32_t total = code.length();
+  if (offset > total) {
+    protocolSendMsgPackError(id, "bad_offset", "script.chunk.get offset is beyond stored script");
+    return;
+  }
+  if (maxBytes == 0 || maxBytes > P1_EMBED_MQTT_SCRIPT_CHUNK_BYTES) maxBytes = P1_EMBED_MQTT_SCRIPT_CHUNK_BYTES;
+  uint32_t nextOffset = offset + maxBytes;
+  if (nextOffset > total) nextOffset = total;
+  String chunk = code.substring(offset, nextOffset);
+  size_t capacity = max<size_t>(P1_EMBED_MSGPACK_MAX_FRAME_BYTES, chunk.length() + 256);
+  if (capacity > P1_EMBED_MQTT_BUFFER_BYTES) capacity = P1_EMBED_MQTT_BUFFER_BYTES;
+  uint8_t* frame = static_cast<uint8_t*>(malloc(capacity));
+  if (!frame) {
+    protocolSendMsgPackError(id, "no_heap", "No heap for script.chunk.get response");
+    return;
+  }
+  P1MsgPackWriter w(frame, capacity);
+  protocolMsgPackBeginResponse(w, id, true, 7);
+  w.writeString("offset"); w.writeUInt(offset);
+  w.writeString("nextOffset"); w.writeUInt(nextOffset);
+  w.writeString("scriptBytes"); w.writeUInt(total);
+  w.writeString("done"); w.writeBool(nextOffset >= total);
+  w.writeString("chunk"); w.writeString(chunk);
+  w.writeString("state"); w.writeString(snapshot.state);
+  w.writeString("runState"); w.writeString(snapshot.runState);
+  if (w.ok) protocolSendMsgPackBytes(frame, w.length);
+  if (!w.ok) protocolSendMsgPackError(id, "frame_too_large", "Script chunk did not fit in MessagePack response");
+  free(frame);
 }
 
 static void protocolSendMsgPackState(uint32_t id, const char* state) {
@@ -951,7 +1013,7 @@ static void protocolSendMsgPackState(uint32_t id, const char* state) {
   P1MsgPackWriter w(frame, sizeof(frame));
   protocolMsgPackBeginResponse(w, id, true, 1);
   w.writeString("state"); w.writeString(state);
-  if (w.ok) webrtcTransportSendBytes(frame, w.length);
+  if (w.ok) protocolSendMsgPackBytes(frame, w.length);
 }
 
 static void protocolSendMsgPackPong(uint32_t id) {
@@ -964,7 +1026,7 @@ static void protocolSendMsgPackPong(uint32_t id) {
   w.writeMap(1);
   w.writeString("pong");
   w.writeBool(true);
-  if (w.ok) webrtcTransportSendBytes(frame, w.length);
+  if (w.ok) protocolSendMsgPackBytes(frame, w.length);
 }
 
 static void protocolSendMsgPackError(uint32_t id, const char* code, const char* message) {
@@ -977,7 +1039,7 @@ static void protocolSendMsgPackError(uint32_t id, const char* code, const char* 
   w.writeMap(2);
   w.writeString("code"); w.writeString(code);
   w.writeString("message"); w.writeString(message);
-  if (w.ok) webrtcTransportSendBytes(frame, w.length);
+  if (w.ok) protocolSendMsgPackBytes(frame, w.length);
 }
 
 static void protocolSendMsgPackReceived(uint32_t id, uint32_t received) {
@@ -990,7 +1052,7 @@ static void protocolSendMsgPackReceived(uint32_t id, uint32_t received) {
   w.writeMap(1);
   w.writeString("received");
   w.writeUInt(received);
-  if (w.ok) webrtcTransportSendBytes(frame, w.length);
+  if (w.ok) protocolSendMsgPackBytes(frame, w.length);
 }
 
 static void protocolSendMsgPackInbox(uint32_t id) {
@@ -999,7 +1061,7 @@ static void protocolSendMsgPackInbox(uint32_t id) {
   protocolMsgPackBeginResponse(w, id, true, 2);
   w.writeString("queued"); w.writeUInt(wrenchInboxAvailable());
   w.writeString("drops"); w.writeUInt(wrenchInboxDrops());
-  if (w.ok) webrtcTransportSendBytes(frame, w.length);
+  if (w.ok) protocolSendMsgPackBytes(frame, w.length);
 }
 
 static void protocolSendMsgPackChunkBeginOk(uint32_t id, int expectedBytes) {
@@ -1008,7 +1070,7 @@ static void protocolSendMsgPackChunkBeginOk(uint32_t id, int expectedBytes) {
   protocolMsgPackBeginResponse(w, id, true, 2);
   w.writeString("received"); w.writeUInt(0);
   w.writeString("expectedBytes"); w.writeUInt(expectedBytes);
-  if (w.ok) webrtcTransportSendBytes(frame, w.length);
+  if (w.ok) protocolSendMsgPackBytes(frame, w.length);
 }
 
 static void protocolSendMsgPackChunkCommitOk(uint32_t id, int scriptBytes) {
@@ -1017,7 +1079,7 @@ static void protocolSendMsgPackChunkCommitOk(uint32_t id, int scriptBytes) {
   protocolMsgPackBeginResponse(w, id, true, 2);
   w.writeString("state"); w.writeString("queued");
   w.writeString("scriptBytes"); w.writeUInt(scriptBytes);
-  if (w.ok) webrtcTransportSendBytes(frame, w.length);
+  if (w.ok) protocolSendMsgPackBytes(frame, w.length);
 }
 
 static void protocolHandleMsgPackScriptChunkBegin(uint32_t id, P1MsgPackReader& r) {
@@ -1114,16 +1176,37 @@ void protocolHandleBytes(const uint8_t* data, size_t len) {
     bool hasDeviceName = false;
     bool hasWifiSsid = false;
     bool hasWifiPassword = false;
+    bool hasMqttHost = false;
+    bool hasMqttPort = false;
+    bool hasMqttRoot = false;
+    bool hasMqttUser = false;
+    bool hasMqttPassword = false;
     String deviceName;
     String wifiSsid;
     String wifiPassword;
+    String mqttHost;
+    uint32_t mqttPort = 0;
+    String mqttRoot;
+    String mqttUser;
+    String mqttPassword;
     if (!r.readBool(hasDeviceName) || !r.readString(deviceName) ||
         !r.readBool(hasWifiSsid) || !r.readString(wifiSsid) ||
         !r.readBool(hasWifiPassword) || !r.readString(wifiPassword)) {
       protocolSendMsgPackError(id, "bad_config_frame", "config.set frame is malformed");
       return;
     }
+    if (count >= 19) {
+      if (!r.readBool(hasMqttHost) || !r.readString(mqttHost) ||
+          !r.readBool(hasMqttPort) || !r.readUInt(mqttPort) ||
+          !r.readBool(hasMqttRoot) || !r.readString(mqttRoot) ||
+          !r.readBool(hasMqttUser) || !r.readString(mqttUser) ||
+          !r.readBool(hasMqttPassword) || !r.readString(mqttPassword)) {
+        protocolSendMsgPackError(id, "bad_config_frame", "config.set MQTT fields are malformed");
+        return;
+      }
+    }
     bool changed = false;
+    bool mqttChanged = false;
     if (hasDeviceName) {
       configSetDeviceName(deviceName);
       changed = true;
@@ -1136,9 +1219,35 @@ void protocolHandleBytes(const uint8_t* data, size_t len) {
       configSetWifiPassword(wifiPassword);
       changed = true;
     }
+    if (hasMqttHost) {
+      configSetMqttHost(mqttHost);
+      changed = true;
+      mqttChanged = true;
+    }
+    if (hasMqttPort) {
+      configSetMqttPort((int)mqttPort);
+      changed = true;
+      mqttChanged = true;
+    }
+    if (hasMqttRoot) {
+      configSetMqttRoot(mqttRoot);
+      changed = true;
+      mqttChanged = true;
+    }
+    if (hasMqttUser) {
+      configSetMqttUser(mqttUser);
+      changed = true;
+      mqttChanged = true;
+    }
+    if (hasMqttPassword) {
+      configSetMqttPassword(mqttPassword);
+      changed = true;
+      mqttChanged = true;
+    }
     if (changed) {
       configSave();
       if (hasWifiSsid || hasWifiPassword) wifiReconnect();
+      if (mqttChanged) mqttTransportApplyConfig();
     }
     protocolSendMsgPackConfig(id);
   } else if (op == P1_MP_OP_WIFI_STATUS) {
@@ -1149,6 +1258,19 @@ void protocolHandleBytes(const uint8_t* data, size_t len) {
   } else if (op == P1_MP_OP_WIFI_DISCONNECT) {
     wifiDisconnect();
     protocolSendMsgPackWifiStatus(id);
+  } else if (op == P1_MP_OP_WIFI_FORGET) {
+    uint32_t index = 0;
+    if (!r.readUInt(index)) {
+      protocolSendMsgPackError(id, "bad_wifi_forget_frame", "wifi.forget frame is malformed");
+      return;
+    }
+    if (!configRemoveWifiNetworkAt((int)index)) {
+      protocolSendMsgPackError(id, "bad_wifi_index", "WiFi network index is invalid");
+      return;
+    }
+    configSave();
+    wifiReconnect();
+    protocolSendMsgPackConfig(id);
   } else if (op == P1_MP_OP_SCRIPT_ERROR_GET) {
     protocolSendMsgPackScriptError(id);
   } else if (op == P1_MP_OP_SCRIPT_ERROR_CLEAR) {
@@ -1189,6 +1311,14 @@ void protocolHandleBytes(const uint8_t* data, size_t len) {
     protocolHandleMsgPackScriptChunkBegin(id, r);
   } else if (op == P1_MP_OP_SCRIPT_CHUNK_ADD) {
     protocolHandleMsgPackScriptChunkAdd(id, data, len, r.offset);
+  } else if (op == P1_MP_OP_SCRIPT_CHUNK_GET) {
+    uint32_t offset = 0;
+    uint32_t maxBytes = 0;
+    if (!r.readUInt(offset) || !r.readUInt(maxBytes)) {
+      protocolSendMsgPackError(id, "bad_chunk_get_frame", "script.chunk.get frame requires offset and maxBytes");
+      return;
+    }
+    protocolSendMsgPackScriptChunkGet(id, offset, maxBytes);
   } else if (op == P1_MP_OP_SCRIPT_CHUNK_COMMIT) {
     if (!g_scriptChunkActive) {
       protocolSendMsgPackError(id, "no_upload", "No chunked script upload is active");
@@ -1236,7 +1366,7 @@ void protocolHandleBytes(const uint8_t* data, size_t len) {
     P1MsgPackWriter w(frame, sizeof(frame));
     protocolMsgPackBeginResponse(w, id, true, 1);
     w.writeString("rebooting"); w.writeBool(true);
-    if (w.ok) webrtcTransportSendBytes(frame, w.length);
+    if (w.ok) protocolSendMsgPackBytes(frame, w.length);
     delay(50);
     ESP.restart();
   } else {
@@ -1291,7 +1421,13 @@ void protocolHandleLine(const char* line) {
     String deviceName;
     String wifiSsid;
     String wifiPassword;
+    String mqttHost;
+    String mqttRoot;
+    String mqttUser;
+    String mqttPassword;
+    int mqttPort = 0;
     bool changed = false;
+    bool mqttChanged = false;
     if (jsonGetString(line, "deviceName", deviceName)) {
       configSetDeviceName(deviceName);
       changed = true;
@@ -1304,9 +1440,35 @@ void protocolHandleLine(const char* line) {
       configSetWifiPassword(wifiPassword);
       changed = true;
     }
+    if (jsonGetString(line, "mqttHost", mqttHost)) {
+      configSetMqttHost(mqttHost);
+      changed = true;
+      mqttChanged = true;
+    }
+    if (jsonGetInt(line, "mqttPort", mqttPort)) {
+      configSetMqttPort(mqttPort);
+      changed = true;
+      mqttChanged = true;
+    }
+    if (jsonGetString(line, "mqttRoot", mqttRoot)) {
+      configSetMqttRoot(mqttRoot);
+      changed = true;
+      mqttChanged = true;
+    }
+    if (jsonGetString(line, "mqttUser", mqttUser)) {
+      configSetMqttUser(mqttUser);
+      changed = true;
+      mqttChanged = true;
+    }
+    if (jsonGetString(line, "mqttPassword", mqttPassword)) {
+      configSetMqttPassword(mqttPassword);
+      changed = true;
+      mqttChanged = true;
+    }
     if (changed) {
       configSave();
       if (wifiSsid.length() || wifiPassword.length()) wifiReconnect();
+      if (mqttChanged) mqttTransportApplyConfig();
     }
     protocolSendResponseOk(id, configAsJson());
   } else if (name == "wifi.status") {
@@ -1317,6 +1479,16 @@ void protocolHandleLine(const char* line) {
   } else if (name == "wifi.disconnect") {
     wifiDisconnect();
     protocolSendResponseOk(id, wifiStatusJson());
+  } else if (name == "wifi.forget") {
+    int index = -1;
+    jsonGetInt(line, "index", index);
+    if (!configRemoveWifiNetworkAt(index)) {
+      protocolSendResponseError(id, "bad_wifi_index", "WiFi network index is invalid");
+      return;
+    }
+    configSave();
+    wifiReconnect();
+    protocolSendResponseOk(id, configAsJson());
   } else if (name == "debug.get") {
     protocolSendResponseOk(id, debugEventStatusJson());
   } else if (name == "debug.set") {

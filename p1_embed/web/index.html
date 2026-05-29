@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>P1E</title>
     <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@24,400,0,0">
-    <link rel="stylesheet" href="style.css?v=0.1.87-ui155">
+    <link rel="stylesheet" href="style.css?v=0.1.87-ui179">
   </head>
   <body>
     <main id="app">
@@ -31,6 +31,7 @@
             <span class="toolbar-divider" aria-hidden="true"></span>
             <button id="run-button" class="button primary icon-buttonish" type="button" disabled title="Save and run" aria-label="Save and run"><span class="material-symbols-rounded">play_arrow</span></button>
             <button id="stop-button" class="button icon-buttonish" type="button" disabled title="Stop" aria-label="Stop"><span class="material-symbols-rounded">stop</span></button>
+            <button id="new-sketch-button" class="button icon-buttonish" type="button" title="New sketch" aria-label="New sketch"><span class="material-symbols-rounded">note_add</span></button>
             <button id="get-script-button" class="button icon-buttonish" type="button" disabled title="Load running script" aria-label="Load running script"><span class="material-symbols-rounded">file_open</span></button>
             <button id="download-code-button" class="button icon-buttonish" type="button" disabled title="Download code" aria-label="Download code"><span class="material-symbols-rounded">download</span></button>
             <select id="sketch-history" class="compact-select sketch-history" title="Recover uploaded sketch" aria-label="Recover uploaded sketch">
@@ -42,8 +43,7 @@
               <span id="upload-status-label">Uploading</span>
               <progress id="upload-status-progress" value="0" max="100"></progress>
             </div>
-            <button id="rename-button" class="button icon-buttonish" type="button" disabled title="Rename board" aria-label="Rename board"><span class="material-symbols-rounded">drive_file_rename_outline</span></button>
-            <button id="wifi-button" class="button icon-buttonish" type="button" disabled title="WiFi setup" aria-label="WiFi setup"><span class="material-symbols-rounded">wifi</span></button>
+            <button id="settings-button" class="button icon-buttonish" type="button" disabled title="Settings" aria-label="Settings"><span class="material-symbols-rounded">settings</span></button>
             <button id="reboot-button" class="button icon-buttonish" type="button" disabled title="Reboot device" aria-label="Reboot device"><span class="material-symbols-rounded">restart_alt</span></button>
           </header>
 
@@ -204,7 +204,7 @@
         <div class="dialog-actions connect-options">
           <button id="usb-connect-button" class="button icon-buttonish" type="button" title="New USB" aria-label="New USB"><span class="material-symbols-rounded">usb</span></button>
           <button id="new-ws-toggle-button" class="button icon-buttonish" type="button" title="New WebSocket" aria-label="New WebSocket"><span class="material-symbols-rounded">add_link</span></button>
-          <button id="new-peer-toggle-button" class="button icon-buttonish" type="button" title="New WebRTC" aria-label="New WebRTC"><span class="material-symbols-rounded">hub</span></button>
+          <button id="new-peer-toggle-button" class="button icon-buttonish" type="button" title="New MQTT" aria-label="New MQTT"><span class="material-symbols-rounded">hub</span></button>
         </div>
         <label id="new-ws-field" class="field is-hidden">
           <span>WebSocket URL or host</span>
@@ -212,46 +212,67 @@
         </label>
         <button id="new-ws-connect-button" class="button primary icon-buttonish is-hidden" type="button" title="Connect WebSocket" aria-label="Connect WebSocket"><span class="material-symbols-rounded">link</span></button>
         <label id="new-peer-field" class="field is-hidden">
-          <span>WebRTC device id</span>
+          <span>MQTT device id</span>
           <input id="peer-id" type="text" autocomplete="off" spellcheck="false" value="p1-embed-f7a608">
         </label>
-        <button id="new-peer-connect-button" class="button primary icon-buttonish is-hidden" type="button" title="Connect WebRTC" aria-label="Connect WebRTC"><span class="material-symbols-rounded">hub</span></button>
+        <button id="new-peer-connect-button" class="button primary icon-buttonish is-hidden" type="button" title="Connect MQTT" aria-label="Connect MQTT"><span class="material-symbols-rounded">hub</span></button>
       </form>
     </dialog>
 
-    <dialog id="wifi-dialog" class="dialog">
+    <dialog id="settings-dialog" class="dialog settings-dialog">
       <form method="dialog" class="dialog-panel">
         <header class="dialog-header">
-          <strong>WiFi</strong>
+          <strong>Settings</strong>
           <button class="icon-button" value="cancel" type="submit" aria-label="Close" title="Close"><span class="material-symbols-rounded">close</span></button>
         </header>
-        <label class="field">
-          <span>SSID</span>
-          <input id="wifi-ssid" type="text" autocomplete="off">
-        </label>
-        <label class="field">
-          <span>Password</span>
-          <input id="wifi-password" type="password" autocomplete="new-password">
-        </label>
-        <div class="dialog-actions">
-          <button id="wifi-save-button" class="button primary icon-buttonish" type="button" title="Apply WiFi settings" aria-label="Apply WiFi settings"><span class="material-symbols-rounded">wifi_protected_setup</span></button>
-        </div>
-      </form>
-    </dialog>
-
-    <dialog id="rename-dialog" class="dialog">
-      <form method="dialog" class="dialog-panel">
-        <header class="dialog-header">
-          <strong>Rename</strong>
-          <button class="icon-button" value="cancel" type="submit" aria-label="Close" title="Close"><span class="material-symbols-rounded">close</span></button>
-        </header>
-        <label class="field">
-          <span>Name</span>
-          <input id="device-name-input" type="text" autocomplete="off" spellcheck="false">
-        </label>
-        <div class="dialog-actions">
+        <section class="settings-section">
+          <label class="field">
+            <span>Name</span>
+            <input id="device-name-input" type="text" autocomplete="off" spellcheck="false">
+          </label>
           <button id="device-name-save-button" class="button primary icon-buttonish" type="button" title="Apply board name" aria-label="Apply board name"><span class="material-symbols-rounded">drive_file_rename_outline</span></button>
-        </div>
+        </section>
+        <section class="settings-section">
+          <label class="field">
+            <span>SSID</span>
+            <input id="wifi-ssid" type="text" autocomplete="off">
+          </label>
+          <label class="field">
+            <span>Password</span>
+            <input id="wifi-password" type="password" autocomplete="new-password">
+          </label>
+          <button id="wifi-save-button" class="button primary icon-buttonish" type="button" title="Apply WiFi settings" aria-label="Apply WiFi settings"><span class="material-symbols-rounded">wifi_protected_setup</span></button>
+        </section>
+        <section class="settings-saved">
+          <div class="settings-subhead">Saved WiFi</div>
+          <div id="wifi-network-list" class="wifi-network-list"></div>
+        </section>
+        <section class="settings-mqtt">
+          <div class="settings-subhead">MQTT</div>
+          <div class="settings-mqtt-grid">
+            <label class="field">
+              <span>Host</span>
+              <input id="mqtt-host" type="text" autocomplete="off" spellcheck="false">
+            </label>
+            <label class="field">
+              <span>Port</span>
+              <input id="mqtt-port" type="number" min="1" max="65535" inputmode="numeric">
+            </label>
+            <label class="field">
+              <span>Root</span>
+              <input id="mqtt-root" type="text" autocomplete="off" spellcheck="false">
+            </label>
+            <label class="field">
+              <span>User</span>
+              <input id="mqtt-user" type="text" autocomplete="off" spellcheck="false">
+            </label>
+            <label class="field">
+              <span>Password</span>
+              <input id="mqtt-password" type="password" autocomplete="new-password">
+            </label>
+            <button id="mqtt-save-button" class="button primary icon-buttonish" type="button" title="Apply MQTT settings" aria-label="Apply MQTT settings"><span class="material-symbols-rounded">hub</span></button>
+          </div>
+        </section>
       </form>
     </dialog>
 
@@ -278,6 +299,6 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.9.4/p5.min.js" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
     <script src="../../P1/portal/usbSerial.js"></script>
     <script src="../../P1/portal/qrCodeGen.js"></script>
-    <script type="module" src="app.js?v=0.1.87-ui155"></script>
+    <script type="module" src="app.js?v=0.1.87-ui179"></script>
   </body>
 </html>
