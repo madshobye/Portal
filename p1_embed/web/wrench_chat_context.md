@@ -223,7 +223,7 @@ Use this lifecycle:
 
 - Declare the interface in a small `drawUi()` function.
 - Call `drawUi()` from `setup()`.
-- Call `drawUi()` again only when `uiEventType() == "hello"` so a newly connected browser can rebuild the view.
+- Call `drawUi()` again only when `uiEventIs("hello")` so a newly connected browser can rebuild the view.
 - Browser slider and toggle input is captured in the firmware background as state. Use `uiGet(id, fallback)` to read the latest value without manually polling the input queue.
 - Use `uiChanged(id)` when code should react only once to a changed slider or toggle value.
 - Use `while (uiPoll()) { ... }` when a sketch needs edge-style events such as button presses or browser `hello` redraw requests.
@@ -250,15 +250,13 @@ UI layout and value bindings:
 
 UI input bindings:
 
-- `uiPoll()` returns `1` when a UI input is available and loads that input into the `uiEvent...` accessors.
-- `uiEventId()` returns the control id, such as `speed` or `start`.
-- `uiEventType()` returns `set`, `press`, `hello`, or `message`.
+- `uiPoll()` returns `1` when a UI input is available and loads that input for `uiEventIs()` and `uiEventValue()`.
+- `uiEventIs(type, id)` returns `1` when the current event matches both fields. Use this for button-heavy interfaces because it avoids repeated string comparisons in Wrench code. Omit `id` to match only the event type, for example `uiEventIs("hello")`.
 - `uiEventValue()` returns the numeric value for sliders and toggles.
-- `uiEventText()` returns the raw compact input text.
 - `uiGet(id, fallback)` returns the latest background value for a slider or toggle, or `fallback` when the browser has not sent a value yet.
 - `uiChanged(id)` returns `1` once after a browser slider or toggle update, then clears that changed flag.
 
-Always wrap event-style UI input handling in `while (uiPoll()) { ... }`. Calling `uiEventId()`, `uiEventType()`, or `uiEventValue()` without first calling `uiPoll()` will keep reading the previous event, or no event at all. For simple toggles and sliders, prefer `uiGet()`.
+Always wrap event-style UI input handling in `while (uiPoll()) { ... }`. Calling `uiEventIs()` or `uiEventValue()` without first calling `uiPoll()` will keep reading the previous event, or no event at all. For simple toggles and sliders, prefer `uiGet()`.
 
 ```wrench
 // Streams an analog value to the UI and lets the browser control the refresh speed.
@@ -285,8 +283,8 @@ function setup() {
 
 function loop() {
   while (uiPoll()) {
-    if (uiEventType() == "hello") drawUi();
-    if (uiEventId() == "mark" && uiEventType() == "press") println("mark");
+    if (uiEventIs("hello")) drawUi();
+    if (uiEventIs("press", "mark")) println("mark");
   }
 
   delayMs = uiGet("speed", delayMs);

@@ -165,6 +165,8 @@ void debugEventSendLine(const String& line);
 void debugLog(const String& level, const String& category, const String& message);
 void debugError(const String& category, const String& code, const String& message);
 
+void uiOutputFlush();
+
 String jsonString(const String& s);
 String jsonPathGetRaw(const String& json, const String& path, bool* foundOut = nullptr);
 bool jsonPathHas(const String& json, const String& path);
@@ -200,6 +202,7 @@ bool configRemoveMqttAuthUser(const String& username);
 int configMqttAuthUserCount();
 String configMqttAuthUserNameAt(int index);
 bool configMqttAuthUserKey(const String& username, uint8_t outKey[32]);
+bool configMqttAuthUserKey(const char* username, uint8_t outKey[32]);
 bool configMqttEnabled();
 bool configMqttAllowAnonymousUi();
 bool configMqttAllowAnonymousScript();

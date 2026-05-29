@@ -156,6 +156,14 @@ static int configFindMqttAuthUser(const String& username) {
   return -1;
 }
 
+static int configFindMqttAuthUser(const char* username) {
+  if (!username || !username[0]) return -1;
+  for (int i = 0; i < g_mqttAuthUserCount; i++) {
+    if (strcmp(g_mqttAuthUsernames[i].c_str(), username) == 0) return i;
+  }
+  return -1;
+}
+
 static int configFindWifiSsid(const String& ssid) {
   for (int i = 0; i < g_wifiNetworkCount; i++) {
     if (g_wifiSsids[i] == ssid) return i;
@@ -517,6 +525,12 @@ String configMqttAuthUserNameAt(int index) {
 }
 
 bool configMqttAuthUserKey(const String& username, uint8_t outKey[32]) {
+  int index = configFindMqttAuthUser(username);
+  if (index < 0) return false;
+  return configHexToBytes(g_mqttAuthUserKeys[index], outKey, 32);
+}
+
+bool configMqttAuthUserKey(const char* username, uint8_t outKey[32]) {
   int index = configFindMqttAuthUser(username);
   if (index < 0) return false;
   return configHexToBytes(g_mqttAuthUserKeys[index], outKey, 32);

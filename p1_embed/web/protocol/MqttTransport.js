@@ -1,4 +1,4 @@
-import { MsgPackReader, MsgPackWriter } from "./P1MsgPack.js?v=0.1.87-ui183";
+import { MsgPackReader, MsgPackWriter } from "./P1MsgPack.js?v=0.1.87-ui188";
 
 const DEFAULT_MQTT_ROOT = "";
 const FRAME_AUTH = 3;
@@ -9,7 +9,7 @@ const AUTH_FINISH = 2;
 const AUTH_OK = 3;
 const AUTH_ERROR = 4;
 
-export const MQTT_TRANSPORT_VERSION = "0.1.87-ui185";
+export const MQTT_TRANSPORT_VERSION = "0.1.87-ui188";
 
 console.info(`[P1E mqtt] loaded ${MQTT_TRANSPORT_VERSION}`);
 
@@ -194,7 +194,10 @@ export class MqttTransport extends EventTarget {
     if (this.isSecureFrame(bytes)) {
       this.decodeSecure(bytes).then((inner) => {
         if (inner) this.emit("frame", { data: inner });
-      }).catch((error) => this.emit("error", { error }));
+      }).catch((error) => {
+        error.message = `${error.message} (mqtt bytes=${bytes.length}, head=${hexHead(bytes)})`;
+        this.emit("error", { error });
+      });
       return;
     }
     this.emit("frame", { data: bytes });
@@ -405,6 +408,10 @@ function publish(client, topic, payload) {
   return new Promise((resolve, reject) => {
     client.publish(topic, payload, { qos: 0, retain: false }, (error) => error ? reject(error) : resolve());
   });
+}
+
+function hexHead(bytes, count = 12) {
+  return Array.from(bytes.slice(0, Math.min(count, bytes.length)), (byte) => byte.toString(16).padStart(2, "0")).join(" ");
 }
 
 function wait(ms) {

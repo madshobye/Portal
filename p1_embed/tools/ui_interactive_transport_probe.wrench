@@ -1,0 +1,88 @@
+// UI test with buttons, sliders, toggles, graphs, and a press counter.
+var counter = 0;
+var sliderValue = 50;
+var toggleValue = 1;
+var lastSampleAt = 0;
+var sampleValue = 0;
+var graphPhase = 0;
+var buttonPulse = 0;
+
+function drawUi() {
+  uiBegin("UI Test Panel");
+  uiColor(120, 200, 255);
+
+  uiLabel("top", "Interactive UI Test");
+  uiSpacer(1);
+
+  uiButton("pressMe", "Press Me");
+  uiButton("reset", "Reset Counter");
+  uiValue("count", "Button Count", counter, 0, 9999);
+
+  uiSpacer(1);
+  uiColumn();
+
+  uiSlider("slider", "Slider", sliderValue, 0, 100);
+  uiToggle("toggle", "Toggle", toggleValue);
+  uiValue("sliderRead", "Slider Readout", sliderValue, 0, 100);
+  uiValue("toggleRead", "Toggle Readout", toggleValue, 0, 1);
+
+  uiSpacer(1);
+  uiColumn();
+
+  uiGraph("sampleGraph", "Sample Graph", sampleValue, 0, 100);
+  uiGraph("pulseGraph", "Button Pulse", buttonPulse, 0, 100);
+  uiValue("sampleRead", "Sample Value", sampleValue, 0, 100);
+  uiValue("pulseRead", "Pulse Value", buttonPulse, 0, 100);
+}
+
+function setup() {
+  randomSeed(millis());
+  drawUi();
+  println("ui test ready");
+}
+
+function loop() {
+  while (uiPoll()) {
+    if (uiEventIs("hello")) {
+      drawUi();
+    }
+    if (uiEventIs("press", "pressMe")) {
+      counter = counter + 1;
+      buttonPulse = 100;
+      uiUpdate("count", counter);
+      uiUpdate("pulseRead", buttonPulse);
+    } else if (uiEventIs("press", "reset")) {
+      counter = 0;
+      uiUpdate("count", counter);
+    }
+  }
+
+  sliderValue = uiGet("slider", sliderValue);
+  toggleValue = uiGet("toggle", toggleValue);
+  uiUpdate("sliderRead", sliderValue);
+  uiUpdate("toggleRead", toggleValue);
+
+  if ((millis() - lastSampleAt) >= 100) {
+    lastSampleAt = millis();
+
+    graphPhase = graphPhase + 1;
+    sampleValue = (sliderValue + (graphPhase % 30));
+    if (toggleValue == 0) {
+      sampleValue = 100 - sampleValue;
+    }
+    if (sampleValue < 0) sampleValue = 0;
+    if (sampleValue > 100) sampleValue = 100;
+
+    if (buttonPulse > 0) {
+      buttonPulse = buttonPulse - 5;
+      if (buttonPulse < 0) buttonPulse = 0;
+    }
+
+    uiPush("sampleGraph", sampleValue);
+    uiPush("pulseGraph", buttonPulse);
+    uiUpdate("sampleRead", sampleValue);
+    uiUpdate("pulseRead", buttonPulse);
+  }
+
+  delay(10);
+}

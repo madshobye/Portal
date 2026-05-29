@@ -24,17 +24,20 @@ static int g_mqttActiveSessionIndex = -1;
 
 static const uint8_t P1_MQTT_FRAME_AUTH = 3;
 static const uint8_t P1_MQTT_FRAME_SECURE = 4;
+static const uint8_t P1_MP_FRAME_BATCH = 3;
 static const uint8_t P1_MQTT_AUTH_START = 0;
 static const uint8_t P1_MQTT_AUTH_CHALLENGE = 1;
 static const uint8_t P1_MQTT_AUTH_FINISH = 2;
 static const uint8_t P1_MQTT_AUTH_OK = 3;
 static const uint8_t P1_MQTT_AUTH_ERROR = 4;
 static const unsigned long P1_MQTT_AUTH_PENDING_TIMEOUT_MS = 10000;
+static const size_t P1_MQTT_CLIENT_ID_MAX = 64;
+static const size_t P1_MQTT_USERNAME_MAX = 32;
 
 struct MqttPendingAuth {
   bool active = false;
-  String clientId;
-  String username;
+  char clientId[P1_MQTT_CLIENT_ID_MAX + 1] = {0};
+  char username[P1_MQTT_USERNAME_MAX + 1] = {0};
   uint8_t key[32];
   uint8_t clientNonce[16];
   uint8_t serverNonce[16];
@@ -43,16 +46,53 @@ struct MqttPendingAuth {
 
 struct MqttSession {
   bool active = false;
-  String clientId;
-  String username;
+  char clientId[P1_MQTT_CLIENT_ID_MAX + 1] = {0};
+  char username[P1_MQTT_USERNAME_MAX + 1] = {0};
   uint32_t sessionId = 0;
   uint32_t lastRxCounter = 0;
   uint32_t txCounter = 0;
+  unsigned long lastSeenAt = 0;
   uint8_t key[32];
 };
 
 static MqttPendingAuth g_mqttPendingAuth[P1_EMBED_MQTT_MAX_USERS];
 static MqttSession g_mqttSessions[P1_EMBED_MQTT_MAX_USERS];
+static uint8_t* g_mqttEventBatch = nullptr;
+static size_t g_mqttEventBatchLen = 0;
+static uint8_t g_mqttEventBatchCount = 0;
+
+static void mqttCopyText(char* dst, size_t dstLen, const String& src) {
+  if (!dst || dstLen == 0) return;
+  size_t n = src.length();
+  if (n >= dstLen) n = dstLen - 1;
+  memcpy(dst, src.c_str(), n);
+  dst[n] = 0;
+}
+
+static bool mqttTextEquals(const char* stored, const String& value) {
+  return stored && strcmp(stored, value.c_str()) == 0;
+}
+
+static void mqttClearPendingAuth(MqttPendingAuth& auth) {
+  auth.active = false;
+  auth.clientId[0] = 0;
+  auth.username[0] = 0;
+  auth.startedAt = 0;
+  memset(auth.key, 0, sizeof(auth.key));
+  memset(auth.clientNonce, 0, sizeof(auth.clientNonce));
+  memset(auth.serverNonce, 0, sizeof(auth.serverNonce));
+}
+
+static void mqttClearSession(MqttSession& session) {
+  session.active = false;
+  session.clientId[0] = 0;
+  session.username[0] = 0;
+  session.sessionId = 0;
+  session.lastRxCounter = 0;
+  session.txCounter = 0;
+  session.lastSeenAt = 0;
+  memset(session.key, 0, sizeof(session.key));
+}
 
 static String mqttNormalizeTopicPart(String value) {
   value.trim();
@@ -204,10 +244,10 @@ static bool mqttConstantTimeEqual(const uint8_t* a, const uint8_t* b, size_t len
 static int mqttFindSession(uint32_t sessionId, const String& clientId = "") {
   for (int i = 0; i < P1_EMBED_MQTT_MAX_USERS; i++) {
     if (!g_mqttSessions[i].active || g_mqttSessions[i].sessionId != sessionId) continue;
-    if (clientId.length() && g_mqttSessions[i].clientId != clientId) continue;
+    if (clientId.length() && !mqttTextEquals(g_mqttSessions[i].clientId, clientId)) continue;
     uint8_t key[32];
     if (!configMqttAuthUserKey(g_mqttSessions[i].username, key)) {
-      g_mqttSessions[i].active = false;
+      mqttClearSession(g_mqttSessions[i]);
       return -1;
     }
     memcpy(g_mqttSessions[i].key, key, sizeof(key));
@@ -234,9 +274,17 @@ static void mqttReapPendingAuth() {
   for (int i = 0; i < P1_EMBED_MQTT_MAX_USERS; i++) {
     if (!g_mqttPendingAuth[i].active) continue;
     if (now - g_mqttPendingAuth[i].startedAt > P1_MQTT_AUTH_PENDING_TIMEOUT_MS) {
-      g_mqttPendingAuth[i].active = false;
-      g_mqttPendingAuth[i].clientId = "";
-      g_mqttPendingAuth[i].username = "";
+      mqttClearPendingAuth(g_mqttPendingAuth[i]);
+    }
+  }
+}
+
+static void mqttReapIdleSessions() {
+  unsigned long now = millis();
+  for (int i = 0; i < P1_EMBED_MQTT_MAX_USERS; i++) {
+    if (!g_mqttSessions[i].active) continue;
+    if (g_mqttSessions[i].lastSeenAt && now - g_mqttSessions[i].lastSeenAt > P1_EMBED_MQTT_SESSION_IDLE_MS) {
+      mqttClearSession(g_mqttSessions[i]);
     }
   }
 }
@@ -257,8 +305,14 @@ static bool mqttPublishSecure(const String& topic, int sessionIndex, const uint8
   MqttSession& session = g_mqttSessions[sessionIndex];
   uint32_t counter = ++session.txCounter;
 
-  static uint8_t frame[P1_EMBED_MQTT_BUFFER_BYTES];
-  P1MsgPackWriter w(frame, sizeof(frame));
+  size_t frameCapacity = payloadLen + 96;
+  uint8_t* frame = static_cast<uint8_t*>(malloc(frameCapacity));
+  if (!frame) {
+    debugLog("warn", "mqtt", "secure frame alloc failed");
+    return false;
+  }
+
+  P1MsgPackWriter w(frame, frameCapacity);
   w.writeArray(5);
   w.writeUInt(P1_MQTT_FRAME_SECURE);
   w.writeUInt(session.sessionId);
@@ -272,18 +326,40 @@ static bool mqttPublishSecure(const String& topic, int sessionIndex, const uint8
     w.writeByte(payloadLen >> 8);
     w.writeByte(payloadLen);
   } else {
+    free(frame);
     return false;
   }
-  if (!w.ok || w.length + payloadLen + 36 > w.capacity) return false;
+  if (!w.ok || w.length + payloadLen + 36 > w.capacity) {
+    free(frame);
+    return false;
+  }
   uint8_t* cipher = frame + w.length;
-  if (!mqttAesCtrCrypt(session.key, session.sessionId, counter, 1, payload, cipher, payloadLen)) return false;
+  if (!mqttAesCtrCrypt(session.key, session.sessionId, counter, 1, payload, cipher, payloadLen)) {
+    free(frame);
+    return false;
+  }
   w.length += payloadLen;
 
   uint8_t tag[32];
-  if (!mqttSecureTag(session.key, session.sessionId, counter, cipher, payloadLen, tag)) return false;
+  if (!mqttSecureTag(session.key, session.sessionId, counter, cipher, payloadLen, tag)) {
+    free(frame);
+    return false;
+  }
   w.writeBin(tag, sizeof(tag));
-  if (!w.ok) return false;
-  return g_mqtt.publish(topic.c_str(), reinterpret_cast<const char*>(frame), (int)w.length, false, 0);
+  if (!w.ok) {
+    free(frame);
+    return false;
+  }
+  size_t tagOffset = w.length >= 34 ? w.length - 34 : 0;
+  if (!tagOffset || frame[tagOffset] != 0xc4 || frame[tagOffset + 1] != 32) {
+    debugLog("warn", "mqtt", "secure frame self-check failed");
+    free(frame);
+    return false;
+  }
+  bool ok = g_mqtt.publish(topic.c_str(), reinterpret_cast<const char*>(frame), (int)w.length, false, 0);
+  if (!ok) debugLog("warn", "mqtt", "secure publish failed");
+  free(frame);
+  return ok;
 }
 
 static void mqttHandleAuthFrame(const String& clientId, const uint8_t* data, size_t len) {
@@ -314,7 +390,7 @@ static void mqttHandleAuthFrame(const String& clientId, const uint8_t* data, siz
     }
     int slot = -1;
     for (int i = 0; i < P1_EMBED_MQTT_MAX_USERS; i++) {
-      if (g_mqttPendingAuth[i].active && g_mqttPendingAuth[i].clientId == clientId) {
+      if (g_mqttPendingAuth[i].active && mqttTextEquals(g_mqttPendingAuth[i].clientId, clientId)) {
         slot = i;
         break;
       }
@@ -332,8 +408,8 @@ static void mqttHandleAuthFrame(const String& clientId, const uint8_t* data, siz
       return;
     }
     g_mqttPendingAuth[slot].active = true;
-    g_mqttPendingAuth[slot].clientId = clientId;
-    g_mqttPendingAuth[slot].username = username;
+    mqttCopyText(g_mqttPendingAuth[slot].clientId, sizeof(g_mqttPendingAuth[slot].clientId), clientId);
+    mqttCopyText(g_mqttPendingAuth[slot].username, sizeof(g_mqttPendingAuth[slot].username), username);
     memcpy(g_mqttPendingAuth[slot].key, key, sizeof(key));
     memcpy(g_mqttPendingAuth[slot].clientNonce, clientNonce, 16);
     mqttRandomBytes(g_mqttPendingAuth[slot].serverNonce, 16);
@@ -368,8 +444,8 @@ static void mqttHandleAuthFrame(const String& clientId, const uint8_t* data, siz
     }
     int pending = -1;
     for (int i = 0; i < P1_EMBED_MQTT_MAX_USERS; i++) {
-      if (g_mqttPendingAuth[i].active && g_mqttPendingAuth[i].clientId == clientId &&
-          g_mqttPendingAuth[i].username == username &&
+      if (g_mqttPendingAuth[i].active && mqttTextEquals(g_mqttPendingAuth[i].clientId, clientId) &&
+          mqttTextEquals(g_mqttPendingAuth[i].username, username) &&
           memcmp(g_mqttPendingAuth[i].clientNonce, clientNonce, 16) == 0 &&
           memcmp(g_mqttPendingAuth[i].serverNonce, serverNonce, 16) == 0) {
         pending = i;
@@ -383,13 +459,13 @@ static void mqttHandleAuthFrame(const String& clientId, const uint8_t* data, siz
     uint8_t expected[32];
     if (!mqttAuthProof(g_mqttPendingAuth[pending].key, clientId, username, clientNonce, serverNonce, expected) ||
         !mqttConstantTimeEqual(expected, tag, 32)) {
-      g_mqttPendingAuth[pending].active = false;
+      mqttClearPendingAuth(g_mqttPendingAuth[pending]);
       mqttPublishAuthError(clientId, "auth_failed");
       return;
     }
     int slot = -1;
     for (int i = 0; i < P1_EMBED_MQTT_MAX_USERS; i++) {
-      if (!g_mqttSessions[i].active || g_mqttSessions[i].clientId == clientId) {
+      if (!g_mqttSessions[i].active || mqttTextEquals(g_mqttSessions[i].clientId, clientId)) {
         slot = i;
         break;
       }
@@ -399,13 +475,14 @@ static void mqttHandleAuthFrame(const String& clientId, const uint8_t* data, siz
       return;
     }
     g_mqttSessions[slot].active = true;
-    g_mqttSessions[slot].clientId = clientId;
-    g_mqttSessions[slot].username = username;
+    mqttCopyText(g_mqttSessions[slot].clientId, sizeof(g_mqttSessions[slot].clientId), clientId);
+    mqttCopyText(g_mqttSessions[slot].username, sizeof(g_mqttSessions[slot].username), username);
     g_mqttSessions[slot].sessionId = mqttRandomSessionId();
     g_mqttSessions[slot].lastRxCounter = 0;
     g_mqttSessions[slot].txCounter = 0;
+    g_mqttSessions[slot].lastSeenAt = millis();
     memcpy(g_mqttSessions[slot].key, g_mqttPendingAuth[pending].key, 32);
-    g_mqttPendingAuth[pending].active = false;
+    mqttClearPendingAuth(g_mqttPendingAuth[pending]);
 
     uint8_t frame[64];
     P1MsgPackWriter w(frame, sizeof(frame));
@@ -417,7 +494,7 @@ static void mqttHandleAuthFrame(const String& clientId, const uint8_t* data, siz
   }
 }
 
-static void mqttHandleSecureFrame(const String& clientId, const uint8_t* data, size_t len) {
+static void mqttHandleSecureFrame(const String& clientId, uint8_t* data, size_t len) {
   P1MsgPackReader r(data, len);
   uint32_t count = 0;
   uint32_t frameType = 0;
@@ -439,6 +516,7 @@ static void mqttHandleSecureFrame(const String& clientId, const uint8_t* data, s
     return;
   }
   MqttSession& session = g_mqttSessions[sessionIndex];
+  session.lastSeenAt = millis();
   if (counter <= session.lastRxCounter) {
     mqttPublishAuthError(clientId, "replay");
     return;
@@ -450,20 +528,14 @@ static void mqttHandleSecureFrame(const String& clientId, const uint8_t* data, s
     return;
   }
   session.lastRxCounter = counter;
-  uint8_t* plain = payloadLen ? static_cast<uint8_t*>(malloc(payloadLen)) : nullptr;
-  if (payloadLen && !plain) {
-    mqttPublishAuthError(clientId, "no_memory");
-    return;
-  }
+  uint8_t* plain = const_cast<uint8_t*>(payload);
   if (!mqttAesCtrCrypt(session.key, sessionId, counter, 0, payload, plain, payloadLen)) {
-    if (plain) free(plain);
     mqttPublishAuthError(clientId, "decrypt_failed");
     return;
   }
   g_mqttActiveSessionIndex = sessionIndex;
   protocolHandleBytes(plain, payloadLen);
   g_mqttActiveSessionIndex = -1;
-  if (plain) free(plain);
 }
 
 static void mqttPublishHello() {
@@ -499,7 +571,7 @@ static void mqttHandleMessage(MQTTClient*, char topic[], char bytes[], int lengt
   String clientId = mqttClientFromCommandTopic(topicText);
   if (clientId.length() == 0) return;
   g_mqttActiveResponseTopic = mqttResponseTopic(clientId);
-  const uint8_t* data = reinterpret_cast<const uint8_t*>(bytes);
+  uint8_t* data = reinterpret_cast<uint8_t*>(bytes);
   size_t len = (size_t)length;
   if (len >= 2 && (data[0] & 0xf0) == 0x90 && data[1] == P1_MQTT_FRAME_AUTH) {
     mqttHandleAuthFrame(clientId, data, len);
@@ -525,7 +597,7 @@ static bool mqttConnect() {
 
   if (!g_mqttBegun) {
     g_mqtt.begin(configMqttHost().c_str(), configMqttPort(), g_mqttNet);
-    g_mqtt.setOptions(15, true, 1000);
+    g_mqtt.setOptions(P1_EMBED_MQTT_KEEPALIVE_SECONDS, true, P1_EMBED_MQTT_TIMEOUT_MS);
     g_mqtt.onMessageAdvanced(mqttHandleMessage);
     g_mqttBegun = true;
   }
@@ -560,9 +632,71 @@ void mqttTransportApplyConfig() {
   g_mqttScriptOutTopic = "";
   g_mqttLastAttemptMs = 0;
   for (int i = 0; i < P1_EMBED_MQTT_MAX_USERS; i++) {
-    g_mqttPendingAuth[i].active = false;
-    g_mqttSessions[i].active = false;
+    mqttClearPendingAuth(g_mqttPendingAuth[i]);
+    mqttClearSession(g_mqttSessions[i]);
   }
+}
+
+static bool mqttPublishEventPayload(const uint8_t* data, size_t len) {
+  if (!data || len == 0 || len > P1_EMBED_MQTT_BUFFER_BYTES || !g_mqtt.connected()) return false;
+  bool sent = false;
+  if (mqttAuthRequired()) {
+    for (int i = 0; i < P1_EMBED_MQTT_MAX_USERS; i++) {
+      if (!g_mqttSessions[i].active) continue;
+      if (g_mqttSessions[i].lastSeenAt && millis() - g_mqttSessions[i].lastSeenAt > P1_EMBED_MQTT_SESSION_IDLE_MS) continue;
+      if (mqttPublishSecure(mqttResponseTopic(String(g_mqttSessions[i].clientId)), i, data, len)) sent = true;
+    }
+    if (!configMqttAllowAnonymousUi()) return sent;
+  }
+  if (g_mqttEvtTopic.length()) {
+    if (g_mqtt.publish(g_mqttEvtTopic.c_str(), reinterpret_cast<const char*>(data), (int)len, false, 0)) sent = true;
+  }
+  return sent;
+}
+
+static void mqttEventBatchReset() {
+  if (!g_mqttEventBatch) return;
+  g_mqttEventBatch[0] = 0x93;
+  g_mqttEventBatch[1] = P1_MP_FRAME_BATCH;
+  g_mqttEventBatch[2] = 0x90;
+  g_mqttEventBatchLen = 3;
+  g_mqttEventBatchCount = 0;
+}
+
+static void mqttFlushEventBatch() {
+  if (!g_mqttEventBatch || g_mqttEventBatchCount == 0) return;
+  g_mqttEventBatch[2] = 0x90 | (g_mqttEventBatchCount & 0x0f);
+  mqttPublishEventPayload(g_mqttEventBatch, g_mqttEventBatchLen);
+  mqttEventBatchReset();
+}
+
+static bool mqttAppendEventBatch(const uint8_t* data, size_t len) {
+  if (!data || len == 0 || len > 0xffff) return false;
+  if (!g_mqttEventBatch) {
+    g_mqttEventBatch = static_cast<uint8_t*>(malloc(P1_EMBED_MQTT_EVENT_BATCH_BYTES));
+    if (!g_mqttEventBatch) return false;
+    mqttEventBatchReset();
+  }
+
+  size_t overhead = len <= 0xff ? 2 : 3;
+  if (g_mqttEventBatchCount >= P1_EMBED_MQTT_EVENT_BATCH_FRAMES ||
+      g_mqttEventBatchLen + overhead + len > P1_EMBED_MQTT_EVENT_BATCH_BYTES) {
+    mqttFlushEventBatch();
+  }
+  if (g_mqttEventBatchLen + overhead + len > P1_EMBED_MQTT_EVENT_BATCH_BYTES) return false;
+
+  if (len <= 0xff) {
+    g_mqttEventBatch[g_mqttEventBatchLen++] = 0xc4;
+    g_mqttEventBatch[g_mqttEventBatchLen++] = (uint8_t)len;
+  } else {
+    g_mqttEventBatch[g_mqttEventBatchLen++] = 0xc5;
+    g_mqttEventBatch[g_mqttEventBatchLen++] = (uint8_t)(len >> 8);
+    g_mqttEventBatch[g_mqttEventBatchLen++] = (uint8_t)len;
+  }
+  memcpy(g_mqttEventBatch + g_mqttEventBatchLen, data, len);
+  g_mqttEventBatchLen += len;
+  g_mqttEventBatchCount++;
+  return true;
 }
 
 void mqttTransportLoop() {
@@ -584,7 +718,11 @@ void mqttTransportLoop() {
   }
 
   if (g_mqtt.connected()) {
-    g_mqtt.loop();
+    mqttReapIdleSessions();
+    if (!g_mqtt.loop()) {
+      debugLog("warn", "mqtt", "loop closed");
+    }
+    mqttFlushEventBatch();
     return;
   }
 
@@ -597,6 +735,7 @@ void mqttTransportLoop() {
 void mqttTransportSendBytes(const uint8_t* data, size_t len) {
   if (!data || len == 0 || len > P1_EMBED_MQTT_BUFFER_BYTES || !g_mqtt.connected()) return;
   if (mqttFrameIsResponse(data, len)) {
+    mqttFlushEventBatch();
     if (g_mqttActiveResponseTopic.length() == 0) return;
     if (g_mqttActiveSessionIndex >= 0) {
       mqttPublishSecure(g_mqttActiveResponseTopic, g_mqttActiveSessionIndex, data, len);
@@ -607,16 +746,7 @@ void mqttTransportSendBytes(const uint8_t* data, size_t len) {
     return;
   }
   if (mqttFrameIsEvent(data, len)) {
-    if (mqttAuthRequired()) {
-      for (int i = 0; i < P1_EMBED_MQTT_MAX_USERS; i++) {
-        if (!g_mqttSessions[i].active) continue;
-        mqttPublishSecure(mqttResponseTopic(g_mqttSessions[i].clientId), i, data, len);
-      }
-      if (!configMqttAllowAnonymousUi()) return;
-    }
-    if (g_mqttEvtTopic.length()) {
-      g_mqtt.publish(g_mqttEvtTopic.c_str(), reinterpret_cast<const char*>(data), (int)len, false, 0);
-    }
+    if (!mqttAppendEventBatch(data, len)) mqttPublishEventPayload(data, len);
   }
 }
 

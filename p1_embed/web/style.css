@@ -1194,7 +1194,7 @@ input {
 .settings-toggle-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 8px;
+  gap: 6px 14px;
 }
 
 .settings-toggle-grid-single {
@@ -1202,53 +1202,33 @@ input {
 }
 
 .compact-check {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
+  display: inline-grid;
+  grid-template-columns: auto minmax(0, max-content);
   align-items: center;
-  min-height: 36px;
-  padding: 7px 9px;
-  border: 1px solid var(--line-soft);
-  border-radius: 6px;
-  background: var(--surface-2);
+  justify-content: start;
+  min-height: 24px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  gap: 7px;
 }
 
 .compact-check span {
   color: var(--text);
   font-size: 12px;
+  grid-column: 2;
+  grid-row: 1;
 }
 
 .compact-check input[type="checkbox"] {
-  appearance: none;
-  width: 34px;
-  height: 20px;
-  margin: 0;
-  border: 1px solid var(--line);
-  border-radius: 999px;
-  background: var(--surface-3);
-  position: relative;
-  cursor: pointer;
-}
-
-.compact-check input[type="checkbox"]::before {
-  content: "";
-  position: absolute;
+  appearance: auto;
   width: 14px;
   height: 14px;
-  top: 2px;
-  left: 2px;
-  border-radius: 999px;
-  background: var(--muted);
-  transition: transform 120ms ease, background 120ms ease;
-}
-
-.compact-check input[type="checkbox"]:checked {
-  border-color: var(--accent);
-  background: color-mix(in srgb, var(--accent) 35%, var(--surface-3));
-}
-
-.compact-check input[type="checkbox"]:checked::before {
-  transform: translateX(14px);
-  background: var(--text);
+  margin: 0;
+  grid-column: 1;
+  grid-row: 1;
+  accent-color: var(--accent);
+  cursor: pointer;
 }
 
 .settings-mqtt-grid {
@@ -1274,9 +1254,10 @@ input {
 
 .settings-save-button {
   grid-column: 1 / -1;
+  justify-self: end;
   width: max-content;
   min-height: 34px;
-  gap: 6px;
+  min-width: 72px;
 }
 
 .settings-subhead {

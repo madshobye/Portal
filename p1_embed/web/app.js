@@ -1,14 +1,14 @@
-import { ProtocolClient } from "./protocol/ProtocolClient.js?v=0.1.87-ui184";
-import { canEncodeCommand } from "./protocol/P1MsgPack.js?v=0.1.87-ui183";
-import { WebSerialTransport } from "./protocol/WebSerialTransport.js?v=0.1.87-ui183";
+import { ProtocolClient } from "./protocol/ProtocolClient.js?v=0.1.87-ui188";
+import { canEncodeCommand } from "./protocol/P1MsgPack.js?v=0.1.87-ui188";
+import { WebSerialTransport } from "./protocol/WebSerialTransport.js?v=0.1.87-ui188";
 import { WebSocketTransport } from "./protocol/WebSocketTransport.js";
-import { MqttWebRtcTransport, MQTT_WEBRTC_TRANSPORT_VERSION } from "./protocol/MqttWebRtcTransport.js?v=0.1.87-ui183";
-import { MqttTransport, MQTT_TRANSPORT_VERSION, clearMqttAuthKey, deriveMqttAuthKeyHex, storeMqttAuthKey } from "./protocol/MqttTransport.js?v=0.1.87-ui185";
-import { P1WebFlasher } from "./web-flasher.js?v=0.1.87-ui183";
-import { inferCircuitLayout, initCircuitView, normalizeCircuitLayout } from "./circuit.js?v=0.1.87-ui183";
-import { initGuinoView } from "./guino.js?v=0.1.87-ui183";
+import { MqttWebRtcTransport, MQTT_WEBRTC_TRANSPORT_VERSION } from "./protocol/MqttWebRtcTransport.js?v=0.1.87-ui188";
+import { MqttTransport, MQTT_TRANSPORT_VERSION, clearMqttAuthKey, deriveMqttAuthKeyHex, storeMqttAuthKey } from "./protocol/MqttTransport.js?v=0.1.87-ui188";
+import { P1WebFlasher } from "./web-flasher.js?v=0.1.87-ui188";
+import { inferCircuitLayout, initCircuitView, normalizeCircuitLayout } from "./circuit.js?v=0.1.87-ui188";
+import { initGuinoView } from "./guino.js?v=0.1.87-ui188";
 
-const WEB_UI_VERSION = "0.1.87-ui185";
+const WEB_UI_VERSION = "0.1.87-ui188";
 const CHAT_MAX_OUTPUT_TOKENS = 8000;
 console.info(`[P1E web] loaded ${WEB_UI_VERSION}`, { mqtt: MQTT_TRANSPORT_VERSION, mqttWebRtc: MQTT_WEBRTC_TRANSPORT_VERSION });
 
@@ -1610,7 +1610,7 @@ async function getScriptChunked(options = {}) {
   let offset = 0;
   let code = "";
   let last = {};
-  const maxBytes = isMqttKind(transport?.kind) ? 6000 : 512;
+  const maxBytes = isMqttKind(transport?.kind) ? 3000 : 512;
   for (let guard = 0; guard < 80; guard += 1) {
     const data = await sendCommand("script.chunk.get", { offset, maxBytes }, options);
     const chunk = String(data.chunk ?? "");
@@ -1666,7 +1666,7 @@ async function uploadScriptCodeChunked(code, { run, save }) {
   const codeData = encoder.encode(code);
   const codeBytes = codeData.length;
   const codeHash = fnv1aHex(code);
-  const binaryChunkSize = isMqttKind(transport?.kind) ? 6000 : 320;
+  const binaryChunkSize = isMqttKind(transport?.kind) ? 3000 : 320;
   const textChunkSize = uploadTextChunkEnvelopeBytes();
   const chunkPauseMs = uploadChunkPauseMs();
   const chunks = isBinaryTransportKind(transport?.kind) && transport?.sendBytes
@@ -3967,7 +3967,7 @@ function buildChatInstructions(context) {
     "Every generated sketch must start with a short // comment explaining what the sketch does.",
     "When producing code, also provide sketch_name: a short 2-5 word title suitable for a history dropdown.",
     "Also provide circuit_layout: a best-effort JSON layout for the Circuit view with components, connections, assumptions, and notes. Use an empty object if no hardware is involved.",
-    "When the user asks for a live interface, dashboard, or controls, use the documented firmware-driven UI bindings in a Guino-style lifecycle: declare the interface in a drawUi() function from setup() and on hello, read slider/toggle state with uiGet(), use while (uiPoll()) for buttons and hello redraw events, update ordinary values with uiUpdate(), and stream every graph/sample with uiPush(). Do not call uiBegin() after every control change.",
+    "When the user asks for a live interface, dashboard, or controls, use the documented firmware-driven UI bindings in a Guino-style lifecycle: declare the interface in a drawUi() function from setup() and on hello, read slider/toggle state with uiGet(), use while (uiPoll()) plus uiEventIs(type, id) for buttons and hello redraw events, update ordinary values with uiUpdate(), and stream every graph/sample with uiPush(). Do not call uiBegin() after every control change.",
     "Prefer setup() and loop(). Keep loop non-blocking where reasonable. Use short delay() only when it is intentional.",
     "Avoid factory reset or destructive device actions. Do not invent firmware bindings beyond the documented P1E bindings.",
     "If the user's request is ambiguous, explain the assumption in reply and notes.",

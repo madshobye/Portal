@@ -1,4 +1,4 @@
-import { canEncodeCommand, decodeFrame, encodeCommand } from "./P1MsgPack.js?v=0.1.87-ui183";
+import { canEncodeCommand, decodeFrame, encodeCommand } from "./P1MsgPack.js?v=0.1.87-ui188";
 
 export class ProtocolClient extends EventTarget {
   constructor(transport, { timeoutMs = 15000 } = {}) {
@@ -91,6 +91,10 @@ export class ProtocolClient extends EventTarget {
       message = decodeFrame(data);
     } catch (error) {
       this.emit("raw", { line: `<msgpack ${data?.byteLength || data?.length || 0} bytes>`, error });
+      return;
+    }
+    if (message.type === "batch") {
+      for (const frame of message.frames || []) this.acceptFrame(frame);
       return;
     }
     this.emit("message", { message, binary: true });

@@ -180,6 +180,7 @@ void loop() {
 #endif
   webrtcTransportLoop();
   protocolPollScriptJobs();
+  uiOutputFlush();
   debugEventFlush();
 #if P1_EMBED_WRENCH_ENABLED
   wrenchRuntimePoll();

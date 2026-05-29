@@ -10034,7 +10034,7 @@ int WRGCObject::init( const unsigned int size, const WRGCObjectType type, bool c
 	}
 	else if ( m_type == SV_CHAR )
 	{
-		m_Cdata = (unsigned char*)g_malloc( size );
+		m_Cdata = (unsigned char*)g_malloc( size ? size : 1 );
 #ifdef WRENCH_HANDLE_MALLOC_FAIL
 		if ( !m_Cdata )
 		{

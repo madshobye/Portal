@@ -28,6 +28,8 @@ static const char* wrArgString(const WRValue* argv, int argn, int idx, char* buf
   if (!buf || buflen == 0) return "";
   buf[0] = 0;
   if (!argv || idx >= argn) return buf;
+  int stringLen = 0;
+  if (argv[idx].isString(&stringLen) && stringLen == 0) return buf;
   unsigned int strLen = 0;
   argv[idx].asString(buf, (unsigned int)buflen, &strLen);
   if (strLen >= buflen) {
@@ -221,9 +223,8 @@ static String wrWifiValue(const String& key) {
 }
 
 static String g_lastInboxChannel = "";
-static String g_lastUiEventId = "";
-static String g_lastUiEventType = "";
-static String g_lastUiEventText = "";
+static char g_lastUiEventId[P1_EMBED_UI_ID_MAX] = {0};
+static char g_lastUiEventType[P1_EMBED_UI_TYPE_MAX] = {0};
 static int g_lastUiEventValue = 0;
 
 struct P1UiInputEvent {
@@ -244,17 +245,61 @@ struct P1UiStateEntry {
 struct P1UiOutputEntry {
   char id[P1_EMBED_UI_ID_MAX];
   int value;
+  unsigned long sentAt;
   bool used;
+  bool pending;
+};
+
+enum P1UiOutboundKind : uint8_t {
+  P1_UI_OUT_RESET = 1,
+  P1_UI_OUT_ITEM = 2,
+  P1_UI_OUT_STYLE = 3,
+  P1_UI_OUT_TEXT = 4,
+};
+
+enum P1UiCommand : int {
+  P1_UI_INIT = 0,
+  P1_UI_ADD_SLIDER = 1,
+  P1_UI_ADD_BUTTON = 2,
+  P1_UI_ADD_TOGGLE = 4,
+  P1_UI_CLEAR_LABEL = 7,
+  P1_UI_ADD_WAVEFORM = 9,
+  P1_UI_ADD_COLUMN = 10,
+  P1_UI_ADD_SPACER = 11,
+  P1_UI_ADD_LABEL = 12,
+  P1_UI_ADD_MOVING_GRAPH = 13,
+  P1_UI_SET_VALUE = 20,
+  P1_UI_SET_COLOR = 21,
+};
+
+struct P1UiOutboundEvent {
+  P1UiOutboundKind kind;
+  char id[P1_EMBED_UI_ID_MAX];
+  char type[P1_EMBED_UI_TYPE_MAX];
+  char label[P1_EMBED_UI_TEXT_MAX];
+  char text[P1_EMBED_UI_TEXT_MAX];
+  int cmd;
+  int value;
+  int minValue;
+  int maxValue;
+  int r;
+  int g;
+  int b;
 };
 
 static portMUX_TYPE g_uiInputMux = portMUX_INITIALIZER_UNLOCKED;
 static P1UiInputEvent g_uiEvents[P1_EMBED_UI_EVENT_DEPTH];
 static P1UiStateEntry g_uiStates[P1_EMBED_UI_STATE_MAX];
 static P1UiOutputEntry g_uiOutputs[P1_EMBED_UI_STATE_MAX];
+static P1UiOutboundEvent g_uiOut[P1_EMBED_UI_OUT_DEPTH];
 static uint8_t g_uiEventHead = 0;
 static uint8_t g_uiEventTail = 0;
 static uint8_t g_uiEventCount = 0;
+static uint8_t g_uiOutHead = 0;
+static uint8_t g_uiOutTail = 0;
+static uint8_t g_uiOutCount = 0;
 static uint32_t g_uiInputDrops = 0;
+static uint32_t g_uiOutDrops = 0;
 
 static void uiCopy(char* dst, size_t len, const String& src) {
   if (!dst || len == 0) return;
@@ -366,21 +411,19 @@ uint32_t uiInputDrops() {
   return g_uiInputDrops;
 }
 
-static int uiInputValue(const String& id, int fallback) {
-  char idBuf[P1_EMBED_UI_ID_MAX];
-  uiCopy(idBuf, sizeof(idBuf), id);
+static int uiInputValue(const char* id, int fallback) {
+  if (!id || !id[0]) id = "value";
   portENTER_CRITICAL(&g_uiInputMux);
-  int index = uiFindStateLocked(idBuf);
+  int index = uiFindStateLocked(id);
   int value = index >= 0 ? g_uiStates[index].value : fallback;
   portEXIT_CRITICAL(&g_uiInputMux);
   return value;
 }
 
-static bool uiInputChanged(const String& id) {
-  char idBuf[P1_EMBED_UI_ID_MAX];
-  uiCopy(idBuf, sizeof(idBuf), id);
+static bool uiInputChanged(const char* id) {
+  if (!id || !id[0]) id = "value";
   portENTER_CRITICAL(&g_uiInputMux);
-  int index = uiFindStateLocked(idBuf);
+  int index = uiFindStateLocked(id);
   bool changed = index >= 0 && g_uiStates[index].changed;
   if (index >= 0) g_uiStates[index].changed = false;
   portEXIT_CRITICAL(&g_uiInputMux);
@@ -403,6 +446,8 @@ static int uiFindOrCreateOutputLocked(const char* id) {
       strncpy(g_uiOutputs[i].id, id, sizeof(g_uiOutputs[i].id) - 1);
       g_uiOutputs[i].id[sizeof(g_uiOutputs[i].id) - 1] = 0;
       g_uiOutputs[i].value = 0;
+      g_uiOutputs[i].sentAt = 0;
+      g_uiOutputs[i].pending = false;
       return i;
     }
   }
@@ -415,19 +460,179 @@ static void uiClearOutputCache() {
     g_uiOutputs[i].used = false;
     g_uiOutputs[i].id[0] = 0;
     g_uiOutputs[i].value = 0;
+    g_uiOutputs[i].sentAt = 0;
+    g_uiOutputs[i].pending = false;
   }
   portEXIT_CRITICAL(&g_uiInputMux);
 }
 
-static bool uiOutputValueChanged(const String& id, int value) {
-  char idBuf[P1_EMBED_UI_ID_MAX];
-  uiCopy(idBuf, sizeof(idBuf), id);
+static void uiClearOutboundLocked() {
+  g_uiOutHead = 0;
+  g_uiOutTail = 0;
+  g_uiOutCount = 0;
+}
+
+static bool uiQueueOutbound(const P1UiOutboundEvent& event) {
   portENTER_CRITICAL(&g_uiInputMux);
-  int index = uiFindOrCreateOutputLocked(idBuf);
-  bool changed = index < 0 || g_uiOutputs[index].value != value;
-  if (index >= 0) g_uiOutputs[index].value = value;
+  if (g_uiOutCount >= P1_EMBED_UI_OUT_DEPTH) {
+    g_uiOutTail = (uint8_t)((g_uiOutTail + 1) % P1_EMBED_UI_OUT_DEPTH);
+    g_uiOutCount--;
+    g_uiOutDrops++;
+  }
+  g_uiOut[g_uiOutHead] = event;
+  g_uiOutHead = (uint8_t)((g_uiOutHead + 1) % P1_EMBED_UI_OUT_DEPTH);
+  g_uiOutCount++;
   portEXIT_CRITICAL(&g_uiInputMux);
-  return changed;
+  return true;
+}
+
+static void uiQueueReset(const String& title) {
+  P1UiOutboundEvent event{};
+  event.kind = P1_UI_OUT_RESET;
+  event.cmd = P1_UI_INIT;
+  uiCopy(event.text, sizeof(event.text), title);
+  portENTER_CRITICAL(&g_uiInputMux);
+  uiClearOutboundLocked();
+  g_uiOut[g_uiOutHead] = event;
+  g_uiOutHead = (uint8_t)((g_uiOutHead + 1) % P1_EMBED_UI_OUT_DEPTH);
+  g_uiOutCount = 1;
+  portEXIT_CRITICAL(&g_uiInputMux);
+}
+
+static void uiQueueItem(int cmd, const char* type, const String& id, const String& label, int value, int minValue, int maxValue) {
+  P1UiOutboundEvent event{};
+  event.kind = P1_UI_OUT_ITEM;
+  event.cmd = cmd;
+  event.value = value;
+  event.minValue = minValue;
+  event.maxValue = maxValue;
+  uiCopy(event.id, sizeof(event.id), id);
+  uiCopy(event.type, sizeof(event.type), String(type ? type : "value"));
+  uiCopy(event.label, sizeof(event.label), label.length() ? label : id);
+  if (cmd == P1_UI_ADD_LABEL) uiCopy(event.text, sizeof(event.text), label.length() ? label : id);
+  uiQueueOutbound(event);
+}
+
+static void uiQueueStyle(int r, int g, int b) {
+  P1UiOutboundEvent event{};
+  event.kind = P1_UI_OUT_STYLE;
+  event.cmd = P1_UI_SET_COLOR;
+  event.r = r;
+  event.g = g;
+  event.b = b;
+  uiQueueOutbound(event);
+}
+
+static void uiQueueText(const String& id, const String& text) {
+  P1UiOutboundEvent event{};
+  event.kind = P1_UI_OUT_TEXT;
+  event.cmd = P1_UI_CLEAR_LABEL;
+  uiCopy(event.id, sizeof(event.id), id);
+  uiCopy(event.text, sizeof(event.text), text);
+  uiQueueOutbound(event);
+}
+
+static bool uiOutputShouldSend(const char* id, int value, bool force, unsigned long minIntervalMs) {
+  if (!id || !id[0]) id = "value";
+  unsigned long now = millis();
+  portENTER_CRITICAL(&g_uiInputMux);
+  int index = uiFindOrCreateOutputLocked(id);
+  bool changed = index < 0 || g_uiOutputs[index].value != value;
+  bool due = index < 0 || g_uiOutputs[index].sentAt == 0 || (now - g_uiOutputs[index].sentAt) >= minIntervalMs;
+  bool send = (changed || force) && due;
+  if (index >= 0) {
+    g_uiOutputs[index].value = value;
+    if (send) {
+      g_uiOutputs[index].sentAt = now;
+      g_uiOutputs[index].pending = true;
+    }
+  }
+  portEXIT_CRITICAL(&g_uiInputMux);
+  return send;
+}
+
+static bool uiOutputValueChanged(const char* id, int value) {
+  return uiOutputShouldSend(id, value, false, P1_EMBED_UI_VALUE_MIN_MS);
+}
+
+static bool uiOutputValuePushed(const char* id, int value) {
+  return uiOutputShouldSend(id, value, true, P1_EMBED_UI_PUSH_MIN_MS);
+}
+
+static bool uiPopOutbound(P1UiOutboundEvent& event) {
+  portENTER_CRITICAL(&g_uiInputMux);
+  if (g_uiOutCount == 0) {
+    portEXIT_CRITICAL(&g_uiInputMux);
+    return false;
+  }
+  event = g_uiOut[g_uiOutTail];
+  g_uiOutTail = (uint8_t)((g_uiOutTail + 1) % P1_EMBED_UI_OUT_DEPTH);
+  g_uiOutCount--;
+  portEXIT_CRITICAL(&g_uiInputMux);
+  return true;
+}
+
+static void uiEmitOutboundEvent(const P1UiOutboundEvent& event) {
+  if (event.kind == P1_UI_OUT_RESET) {
+    if (event.text[0]) {
+      P1EventField fields[] = {
+        p1FieldInt("cmd", event.cmd),
+        p1FieldString("title", event.text),
+      };
+      protocolEmitEventFields("ui.reset", fields, 2);
+    } else {
+      P1EventField fields[] = {
+        p1FieldInt("cmd", event.cmd),
+      };
+      protocolEmitEventFields("ui.reset", fields, 1);
+    }
+    return;
+  }
+
+  if (event.kind == P1_UI_OUT_ITEM) {
+    if (event.cmd == P1_UI_ADD_LABEL) {
+      P1EventField fields[] = {
+        p1FieldInt("cmd", event.cmd),
+        p1FieldString("id", event.id),
+        p1FieldString("type", event.type),
+        p1FieldString("label", event.label),
+        p1FieldString("text", event.text[0] ? event.text : event.label),
+      };
+      protocolEmitEventFields("ui.item", fields, 5);
+    } else {
+      P1EventField fields[] = {
+        p1FieldInt("cmd", event.cmd),
+        p1FieldString("id", event.id),
+        p1FieldString("type", event.type),
+        p1FieldString("label", event.label),
+        p1FieldInt("value", event.value),
+        p1FieldInt("min", event.minValue),
+        p1FieldInt("max", event.maxValue),
+      };
+      protocolEmitEventFields("ui.item", fields, 7);
+    }
+    return;
+  }
+
+  if (event.kind == P1_UI_OUT_STYLE) {
+    P1EventField fields[] = {
+      p1FieldInt("cmd", event.cmd),
+      p1FieldInt("r", event.r),
+      p1FieldInt("g", event.g),
+      p1FieldInt("b", event.b),
+    };
+    protocolEmitEventFields("ui.style", fields, 4);
+    return;
+  }
+
+  if (event.kind == P1_UI_OUT_TEXT) {
+    P1EventField fields[] = {
+      p1FieldInt("cmd", event.cmd),
+      p1FieldString("id", event.id),
+      p1FieldString("text", event.text),
+    };
+    protocolEmitEventFields("ui.text", fields, 3);
+  }
 }
 
 static void w_p1_print(WRContext*, const WRValue* argv, const int argn, WRValue& retVal, void*) {
@@ -1036,21 +1241,6 @@ static void w_p1_emitJson(WRContext*, const WRValue* argv, const int argn, WRVal
   wrRetInt(retVal, 0);
 }
 
-enum P1UiCommand : int {
-  P1_UI_INIT = 0,
-  P1_UI_ADD_SLIDER = 1,
-  P1_UI_ADD_BUTTON = 2,
-  P1_UI_ADD_TOGGLE = 4,
-  P1_UI_CLEAR_LABEL = 7,
-  P1_UI_ADD_WAVEFORM = 9,
-  P1_UI_ADD_COLUMN = 10,
-  P1_UI_ADD_SPACER = 11,
-  P1_UI_ADD_LABEL = 12,
-  P1_UI_ADD_MOVING_GRAPH = 13,
-  P1_UI_SET_VALUE = 20,
-  P1_UI_SET_COLOR = 21,
-};
-
 static uint16_t g_uiAutoItemCounter = 0;
 
 static String wrUiAutoId(const char* prefix) {
@@ -1068,6 +1258,39 @@ static void uiEmitValue(const String& id, int value) {
   protocolEmitEventFields("ui.value", fields, 3);
 }
 
+void uiOutputFlush() {
+  uint8_t layoutSent = 0;
+  while (layoutSent < P1_EMBED_UI_OUT_FLUSH_BUDGET) {
+    P1UiOutboundEvent event;
+    if (!uiPopOutbound(event)) break;
+    uiEmitOutboundEvent(event);
+    layoutSent++;
+  }
+
+  uint8_t sent = 0;
+  while (sent < P1_EMBED_UI_VALUE_FLUSH_BUDGET) {
+    char id[P1_EMBED_UI_ID_MAX];
+    int value = 0;
+    bool found = false;
+
+    portENTER_CRITICAL(&g_uiInputMux);
+    for (int i = 0; i < P1_EMBED_UI_STATE_MAX; i++) {
+      if (g_uiOutputs[i].used && g_uiOutputs[i].pending) {
+        strlcpy(id, g_uiOutputs[i].id, sizeof(id));
+        value = g_uiOutputs[i].value;
+        g_uiOutputs[i].pending = false;
+        found = true;
+        break;
+      }
+    }
+    portEXIT_CRITICAL(&g_uiInputMux);
+
+    if (!found) return;
+    uiEmitValue(String(id), value);
+    sent++;
+  }
+}
+
 static String wrUiId(const WRValue* argv, int argn, int idx, const char* fallback) {
   String id = wrArgStringValue(argv, argn, idx);
   id.trim();
@@ -1075,17 +1298,14 @@ static String wrUiId(const WRValue* argv, int argn, int idx, const char* fallbac
   return id;
 }
 
+static void wrUiIdBuf(const WRValue* argv, int argn, int idx, const char* fallback, char* out, size_t outLen) {
+  if (!out || outLen == 0) return;
+  wrArgString(argv, argn, idx, out, outLen);
+  if (!out[0] && fallback) strlcpy(out, fallback, outLen);
+}
+
 static void wrUiEmitItem(int cmd, const char* type, const String& id, const String& label, int value, int minValue, int maxValue) {
-  P1EventField fields[] = {
-    p1FieldInt("cmd", cmd),
-    p1FieldString("id", id),
-    p1FieldString("type", type ? type : "value"),
-    p1FieldString("label", label.length() ? label : id),
-    p1FieldInt("value", value),
-    p1FieldInt("min", minValue),
-    p1FieldInt("max", maxValue),
-  };
-  protocolEmitEventFields("ui.item", fields, 7);
+  uiQueueItem(cmd, type, id, label, value, minValue, maxValue);
 }
 
 static void w_p1_uiBegin(WRContext*, const WRValue* argv, const int argn, WRValue& retVal, void*) {
@@ -1093,21 +1313,14 @@ static void w_p1_uiBegin(WRContext*, const WRValue* argv, const int argn, WRValu
   if (!title.length()) title = "Live UI";
   g_uiAutoItemCounter = 0;
   uiClearOutputCache();
-  P1EventField fields[] = {
-    p1FieldInt("cmd", P1_UI_INIT),
-    p1FieldString("title", title),
-  };
-  protocolEmitEventFields("ui.reset", fields, 2);
+  uiQueueReset(title);
   wrRetInt(retVal, 1);
 }
 
 static void w_p1_uiClear(WRContext*, const WRValue*, const int, WRValue& retVal, void*) {
   g_uiAutoItemCounter = 0;
   uiClearOutputCache();
-  P1EventField fields[] = {
-    p1FieldInt("cmd", P1_UI_INIT),
-  };
-  protocolEmitEventFields("ui.reset", fields, 1);
+  uiQueueReset("");
   wrRetInt(retVal, 1);
 }
 
@@ -1115,14 +1328,7 @@ static void w_p1_uiLabel(WRContext*, const WRValue* argv, const int argn, WRValu
   String id = wrUiId(argv, argn, 0, "label");
   String label = wrArgStringValue(argv, argn, 1);
   if (!label.length()) label = id;
-  P1EventField fields[] = {
-    p1FieldInt("cmd", P1_UI_ADD_LABEL),
-    p1FieldString("id", id),
-    p1FieldString("type", "label"),
-    p1FieldString("label", label),
-    p1FieldString("text", label),
-  };
-  protocolEmitEventFields("ui.item", fields, 5);
+  uiQueueItem(P1_UI_ADD_LABEL, "label", id, label, 0, 0, 1);
   wrRetInt(retVal, 1);
 }
 
@@ -1188,21 +1394,15 @@ static void w_p1_uiColor(WRContext*, const WRValue* argv, const int argn, WRValu
   int r = constrain(wrArgInt(argv, argn, 0, 127), 0, 255);
   int g = constrain(wrArgInt(argv, argn, 1, 208), 0, 255);
   int b = constrain(wrArgInt(argv, argn, 2, 223), 0, 255);
-  P1EventField fields[] = {
-    p1FieldInt("cmd", P1_UI_SET_COLOR),
-    p1FieldInt("r", r),
-    p1FieldInt("g", g),
-    p1FieldInt("b", b),
-  };
-  protocolEmitEventFields("ui.style", fields, 4);
+  uiQueueStyle(r, g, b);
   wrRetInt(retVal, 1);
 }
 
 static void w_p1_uiUpdate(WRContext*, const WRValue* argv, const int argn, WRValue& retVal, void*) {
-  String id = wrUiId(argv, argn, 0, "value");
+  char id[P1_EMBED_UI_ID_MAX];
+  wrUiIdBuf(argv, argn, 0, "value", id, sizeof(id));
   int value = wrArgInt(argv, argn, 1, 0);
   if (uiOutputValueChanged(id, value)) {
-    uiEmitValue(id, value);
     wrRetInt(retVal, 1);
   } else {
     wrRetInt(retVal, 0);
@@ -1210,22 +1410,20 @@ static void w_p1_uiUpdate(WRContext*, const WRValue* argv, const int argn, WRVal
 }
 
 static void w_p1_uiPush(WRContext*, const WRValue* argv, const int argn, WRValue& retVal, void*) {
-  String id = wrUiId(argv, argn, 0, "value");
+  char id[P1_EMBED_UI_ID_MAX];
+  wrUiIdBuf(argv, argn, 0, "value", id, sizeof(id));
   int value = wrArgInt(argv, argn, 1, 0);
-  uiOutputValueChanged(id, value);
-  uiEmitValue(id, value);
-  wrRetInt(retVal, 1);
+  if (uiOutputValuePushed(id, value)) {
+    wrRetInt(retVal, 1);
+  } else {
+    wrRetInt(retVal, 0);
+  }
 }
 
 static void w_p1_uiText(WRContext*, const WRValue* argv, const int argn, WRValue& retVal, void*) {
   String id = wrUiId(argv, argn, 0, "label");
   String text = wrArgStringValue(argv, argn, 1);
-  P1EventField fields[] = {
-    p1FieldInt("cmd", P1_UI_CLEAR_LABEL),
-    p1FieldString("id", id),
-    p1FieldString("text", text),
-  };
-  protocolEmitEventFields("ui.text", fields, 3);
+  uiQueueText(id, text);
   wrRetInt(retVal, 1);
 }
 
@@ -1235,37 +1433,36 @@ static void w_p1_uiPoll(WRContext*, const WRValue*, const int, WRValue& retVal, 
     wrRetInt(retVal, 0);
     return;
   }
-  g_lastUiEventId = event.id;
-  g_lastUiEventType = event.type;
-  g_lastUiEventText = event.text;
+  strlcpy(g_lastUiEventId, event.id, sizeof(g_lastUiEventId));
+  strlcpy(g_lastUiEventType, event.type, sizeof(g_lastUiEventType));
   g_lastUiEventValue = event.value;
   wrRetInt(retVal, 1);
-}
-
-static void w_p1_uiEventId(WRContext* ctx, const WRValue*, const int, WRValue& retVal, void*) {
-  wrRetString(ctx, retVal, g_lastUiEventId);
-}
-
-static void w_p1_uiEventType(WRContext* ctx, const WRValue*, const int, WRValue& retVal, void*) {
-  wrRetString(ctx, retVal, g_lastUiEventType);
 }
 
 static void w_p1_uiEventValue(WRContext*, const WRValue*, const int, WRValue& retVal, void*) {
   wrRetInt(retVal, g_lastUiEventValue);
 }
 
-static void w_p1_uiEventText(WRContext* ctx, const WRValue*, const int, WRValue& retVal, void*) {
-  wrRetString(ctx, retVal, g_lastUiEventText);
+static void w_p1_uiEventIs(WRContext*, const WRValue* argv, const int argn, WRValue& retVal, void*) {
+  char type[P1_EMBED_UI_TYPE_MAX];
+  char id[P1_EMBED_UI_ID_MAX];
+  wrArgString(argv, argn, 0, type, sizeof(type));
+  wrArgString(argv, argn, 1, id, sizeof(id));
+  bool typeMatches = !type[0] || strncmp(g_lastUiEventType, type, sizeof(g_lastUiEventType)) == 0;
+  bool idMatches = !id[0] || strncmp(g_lastUiEventId, id, sizeof(g_lastUiEventId)) == 0;
+  wrRetInt(retVal, (typeMatches && idMatches) ? 1 : 0);
 }
 
 static void w_p1_uiGet(WRContext*, const WRValue* argv, const int argn, WRValue& retVal, void*) {
-  String id = wrUiId(argv, argn, 0, "value");
+  char id[P1_EMBED_UI_ID_MAX];
+  wrUiIdBuf(argv, argn, 0, "value", id, sizeof(id));
   int fallback = wrArgInt(argv, argn, 1, 0);
   wrRetInt(retVal, uiInputValue(id, fallback));
 }
 
 static void w_p1_uiChanged(WRContext*, const WRValue* argv, const int argn, WRValue& retVal, void*) {
-  String id = wrUiId(argv, argn, 0, "value");
+  char id[P1_EMBED_UI_ID_MAX];
+  wrUiIdBuf(argv, argn, 0, "value", id, sizeof(id));
   wrRetInt(retVal, uiInputChanged(id) ? 1 : 0);
 }
 
@@ -1405,8 +1602,7 @@ const char* wrenchBindingNameForHash(uint32_t hash) {
     "uiBegin", "uiClear", "uiLabel", "uiButton", "uiToggle", "uiSlider",
     "uiValue", "uiGraph", "uiSpacer", "uiColumn", "uiColor",
     "uiUpdate", "uiPush", "uiText", "uiPoll",
-    "uiEventId", "uiEventType", "uiEventValue", "uiEventText",
-    "uiGet", "uiChanged",
+    "uiEventIs", "uiEventValue", "uiGet", "uiChanged",
   };
   for (size_t i = 0; i < sizeof(names) / sizeof(names[0]); i++) {
     if ((uint32_t)wr_hashStr(names[i]) == hash) return names[i];
@@ -1533,10 +1729,8 @@ void wrenchRegisterBindings(WRState* wr) {
   wr_registerFunction(wr, "uiPush", w_p1_uiPush);
   wr_registerFunction(wr, "uiText", w_p1_uiText);
   wr_registerFunction(wr, "uiPoll", w_p1_uiPoll);
-  wr_registerFunction(wr, "uiEventId", w_p1_uiEventId);
-  wr_registerFunction(wr, "uiEventType", w_p1_uiEventType);
+  wr_registerFunction(wr, "uiEventIs", w_p1_uiEventIs);
   wr_registerFunction(wr, "uiEventValue", w_p1_uiEventValue);
-  wr_registerFunction(wr, "uiEventText", w_p1_uiEventText);
   wr_registerFunction(wr, "uiGet", w_p1_uiGet);
   wr_registerFunction(wr, "uiChanged", w_p1_uiChanged);
 

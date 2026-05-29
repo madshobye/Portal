@@ -1,8 +1,9 @@
-export const P1_MSGPACK_VERSION = "0.1.87-ui183";
+export const P1_MSGPACK_VERSION = "0.1.87-ui188";
 
 const FRAME_CMD = 0;
 const FRAME_RES = 1;
 const FRAME_EVT = 2;
+const FRAME_BATCH = 3;
 
 const OPS = {
   ping: 1,
@@ -160,6 +161,12 @@ export function decodeFrame(bytesLike) {
   const count = reader.array();
   if (count < 3) throw new Error("MessagePack frame is too short");
   const frameType = reader.uint();
+  if (frameType === FRAME_BATCH) {
+    const frameCount = reader.array();
+    const frames = [];
+    for (let i = 0; i < frameCount; i += 1) frames.push(reader.bin());
+    return { type: "batch", frames };
+  }
   if (frameType === FRAME_EVT) {
     const name = reader.value();
     const data = reader.value();
