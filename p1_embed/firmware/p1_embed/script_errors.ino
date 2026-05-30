@@ -8,6 +8,8 @@ static String g_scriptErrorMessage = "";
 static String g_scriptErrorDetails = "";
 static uint32_t g_scriptErrorAtMs = 0;
 static uint32_t g_scriptErrorCount = 0;
+static String g_scriptErrorLastEmitKey = "";
+static uint32_t g_scriptErrorLastEmitAtMs = 0;
 
 const char* scriptErrorWrenchName(int code) {
   switch ((WRError)code) {
@@ -74,6 +76,8 @@ void scriptErrorClear() {
   g_scriptErrorMessage = "";
   g_scriptErrorDetails = "";
   g_scriptErrorAtMs = 0;
+  g_scriptErrorLastEmitKey = "";
+  g_scriptErrorLastEmitAtMs = 0;
 }
 
 static String scriptErrorBuildJson(const P1ScriptErrorSnapshot& snapshot, bool includeDetails) {
@@ -102,6 +106,13 @@ static void scriptErrorStore(const String& phase, const String& code, const Stri
 }
 
 static void scriptErrorEmit(const char* level, const String& phase, const String& code, const String& message) {
+  String emitKey = String(level ? level : "") + "\n" + phase + "\n" + code + "\n" + message;
+  uint32_t now = millis();
+  if (emitKey == g_scriptErrorLastEmitKey && now - g_scriptErrorLastEmitAtMs < P1_EMBED_SCRIPT_ERROR_EMIT_REPEAT_MS) {
+    return;
+  }
+  g_scriptErrorLastEmitKey = emitKey;
+  g_scriptErrorLastEmitAtMs = now;
   P1EventField fields[] = {
     p1FieldBool("hasError", true),
     p1FieldString("phase", phase),

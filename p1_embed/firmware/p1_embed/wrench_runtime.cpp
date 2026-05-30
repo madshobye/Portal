@@ -53,6 +53,7 @@ static volatile bool g_wrenchRunPending = false;
 static volatile P1WrenchPhase g_wrenchPhase = WRENCH_PHASE_IDLE;
 static char g_wrenchTransitionReason[40] = "";
 static uint8_t g_wrenchLoopDebugMarkers = 0;
+static uint8_t g_wrenchConsecutiveErrorLoops = 0;
 
 static bool wrenchCheckStateError(WRState* wr, String& errOut, const char* phase) {
   if (!wr) {
@@ -187,6 +188,7 @@ static void wrenchFreeBytecodeLocked() {
 }
 
 static void wrenchStopLocked() {
+  g_wrenchConsecutiveErrorLoops = 0;
   wrenchSetPhase(WRENCH_PHASE_STOPPING);
   if (g_wr) {
     wr_destroyState(g_wr);
@@ -215,6 +217,7 @@ static void wrenchLoopLocked() {
     g_wrenchLoopDebugMarkers++;
   }
   uint32_t startedAt = millis();
+  uint32_t errorCountBefore = scriptErrorCount();
   g_wrenchCurrentLoopStartedAt = startedAt;
   g_wrenchLoopInProgress = true;
   g_wrenchHungCounted = false;
@@ -226,6 +229,11 @@ static void wrenchLoopLocked() {
   g_wrenchLastLoopDurationMs = elapsed;
   WRError loopError = wr_getLastError(g_wr);
   if (ret && loopError == WR_ERR_None) wrenchCollectAfterCall(ret);
+  if (scriptErrorCount() > errorCountBefore) {
+    if (g_wrenchConsecutiveErrorLoops < 255) g_wrenchConsecutiveErrorLoops++;
+  } else {
+    g_wrenchConsecutiveErrorLoops = 0;
+  }
   uint32_t now = millis();
   g_wrenchLastLoopMs = now;
   if (g_wrenchFpsWindowStartedAt == 0) {
@@ -251,6 +259,23 @@ static void wrenchLoopLocked() {
     wrenchEmitRuntimeError("loop", loopError);
     wrenchStopLocked();
     g_scriptState = SCRIPT_ERROR;
+    return;
+  }
+  if (g_wrenchConsecutiveErrorLoops >= P1_EMBED_WRENCH_ERROR_LOOP_LIMIT) {
+    String details = "\"consecutiveLoops\":" + String(g_wrenchConsecutiveErrorLoops);
+    details += ",\"lastErrorCode\":" + jsonString(scriptErrorLastCode());
+    details += ",\"lastErrorMessage\":" + jsonString(scriptErrorLastMessage());
+    details += ",\"loopCount\":" + String(g_wrenchLoopCount);
+    details += ",\"scriptBytes\":" + String(g_currentScriptBytes);
+    details += ",\"scriptHash\":" + String(g_currentScriptHash);
+    scriptErrorSet("loop", "binding_error_flood", "script stopped after repeated binding errors", details);
+    wrenchStopLocked();
+    g_scriptState = SCRIPT_ERROR;
+    P1EventField fields[] = {
+      p1FieldString("state", "error"),
+      p1FieldString("code", "binding_error_flood"),
+    };
+    protocolEmitEventFields("script.state", fields, 2);
   }
 }
 
@@ -803,6 +828,9 @@ bool wrenchRunCompiled(String& errOut) {
 
   wrenchStopLocked();
   debugEventEmitFields("script.debug", "debug", "script", "runCompiled after stop", nullptr, 0);
+  g_wrenchConsecutiveErrorLoops = 0;
+
+  ledBeginScriptRun();
 
   g_wr = wr_newState();
   if (!g_wr) {

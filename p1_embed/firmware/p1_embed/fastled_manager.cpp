@@ -8,6 +8,7 @@
 struct LedStripState {
   bool ready;
   bool configured;
+  uint32_t scriptGeneration;
   int pin;
   int count;
   int brightness;
@@ -23,11 +24,13 @@ static uint8_t g_ledShowDebugMarkers = 0;
 static uint32_t g_managerBeginCount = 0;
 static uint32_t g_controllerAddCount = 0;
 static uint32_t g_resourceReleaseCount = 0;
+static uint32_t g_ledScriptGeneration = 1;
 
 static void ledResetRuntimeState() {
   for (int i = 0; i < P1_EMBED_MAX_LED_STRIPS; i++) {
     g_ledStrips[i].ready = false;
     g_ledStrips[i].configured = false;
+    g_ledStrips[i].scriptGeneration = 0;
     g_ledStrips[i].pin = -1;
     g_ledStrips[i].count = 0;
     g_ledStrips[i].brightness = 255;
@@ -148,6 +151,7 @@ static bool ledStartStrip(int strip, int pin, int count, int brightness) {
       return false;
     }
     s.brightness = brightness;
+    s.scriptGeneration = g_ledScriptGeneration;
     FastLED.setBrightness((uint8_t)brightness);
     P1EventField reusedFields[] = {
       p1FieldInt("strip", strip),
@@ -180,6 +184,7 @@ static bool ledStartStrip(int strip, int pin, int count, int brightness) {
 
   s.ready = true;
   s.configured = true;
+  s.scriptGeneration = g_ledScriptGeneration;
   s.pin = pin;
   s.count = count;
   s.brightness = brightness;
@@ -223,6 +228,13 @@ void fastLedReleaseScriptResources() {
   }
 }
 
+void ledBeginScriptRun() {
+  g_ledScriptGeneration++;
+  if (g_ledScriptGeneration == 0) g_ledScriptGeneration = 1;
+  g_ledSetDebugMarkers = 0;
+  g_ledShowDebugMarkers = 0;
+}
+
 bool ledConfigureStrip(int strip, int pin, int count, int brightness) {
   if (strip < 0 || strip >= P1_EMBED_MAX_LED_STRIPS) {
     scriptErrorSet("binding", "led_bad_strip", "LED strip index is out of range", "\"strip\":" + String(strip));
@@ -241,11 +253,15 @@ bool ledRebootRequiredFor(int strip, int pin, int count) {
 
 bool ledReady(int strip) {
   if (strip < 0 || strip >= P1_EMBED_MAX_LED_STRIPS) return false;
-  return g_ledStrips[strip].ready;
+  return g_ledStrips[strip].ready && g_ledStrips[strip].scriptGeneration == g_ledScriptGeneration;
 }
 
 int ledStripCount() {
-  return g_activeStripCount;
+  int count = 0;
+  for (int i = 0; i < g_activeStripCount; i++) {
+    if (g_ledStrips[i].ready && g_ledStrips[i].scriptGeneration == g_ledScriptGeneration) count = i + 1;
+  }
+  return count;
 }
 
 int ledPin(int strip) {
@@ -255,6 +271,7 @@ int ledPin(int strip) {
 
 int ledCount(int strip) {
   if (strip < 0 || strip >= P1_EMBED_MAX_LED_STRIPS) return 0;
+  if (!ledReady(strip)) return 0;
   return g_ledStrips[strip].count;
 }
 
@@ -303,7 +320,7 @@ bool ledClear(int strip, bool show) {
 }
 
 bool fastLedShow() {
-  if (g_activeStripCount <= 0) return false;
+  if (ledStripCount() <= 0) return false;
   if (g_ledShowDebugMarkers < 8) {
     P1EventField fields[] = {
       p1FieldUInt("marker", g_ledShowDebugMarkers + 1),

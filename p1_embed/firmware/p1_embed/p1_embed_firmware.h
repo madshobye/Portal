@@ -344,6 +344,7 @@ String httpFetchStatusJson();
 void fastLedManagerBegin();
 void fastLedReleaseScriptResources();
 bool fastLedShow();
+void ledBeginScriptRun();
 bool ledConfigureStrip(int strip, int pin, int count, int brightness);
 bool ledRebootRequiredFor(int strip, int pin, int count);
 bool ledReady(int strip);

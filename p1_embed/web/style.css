@@ -361,6 +361,13 @@ select {
   gap: 8px;
 }
 
+.connection-history-item {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 36px;
+  gap: 6px;
+  min-width: 0;
+}
+
 .suggestion-button {
   min-width: 0;
   min-height: 52px;
@@ -375,6 +382,16 @@ select {
   color: inherit;
   font-size: 12px;
   text-overflow: ellipsis;
+}
+
+.connection-history-remove {
+  width: 36px;
+  min-height: 52px;
+  color: var(--text-muted);
+}
+
+.connection-history-remove .material-symbols-rounded {
+  font-size: 20px;
 }
 
 .button.compact {
@@ -1167,6 +1184,38 @@ input {
   flex-wrap: wrap;
 }
 
+.settings-tabs {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.settings-tab {
+  min-height: 34px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: var(--surface-2);
+  color: var(--muted);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.settings-tab.is-active {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 20%, var(--surface-2));
+  color: var(--text);
+}
+
+.settings-panel {
+  display: none;
+  gap: 10px;
+}
+
+.settings-panel.is-active {
+  display: grid;
+}
+
 .settings-section {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
@@ -1174,7 +1223,7 @@ input {
   gap: 10px;
 }
 
-.settings-section:has(#wifi-ssid) {
+.wifi-settings-section {
   grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto;
 }
 
@@ -1184,10 +1233,8 @@ input {
   padding-top: 2px;
 }
 
-.settings-access,
 .settings-mqtt {
-  display: grid;
-  gap: 6px;
+  gap: 10px;
   padding-top: 0;
 }
 
@@ -1405,6 +1452,12 @@ input {
 
 .install-upload-button .material-symbols-rounded {
   font-size: 27px;
+}
+
+.install-firmware-version {
+  margin-top: 12px;
+  color: var(--muted);
+  font-size: 12px;
 }
 
 .install-progress {

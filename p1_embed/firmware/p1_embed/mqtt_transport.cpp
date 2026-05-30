@@ -363,6 +363,20 @@ static bool mqttPublishSecure(const String& topic, int sessionIndex, const uint8
   return ok;
 }
 
+static bool mqttSessionIsNewestForClient(int sessionIndex) {
+  if (sessionIndex < 0 || sessionIndex >= P1_EMBED_MQTT_MAX_USERS || !g_mqttSessions[sessionIndex].active) return false;
+  const MqttSession& session = g_mqttSessions[sessionIndex];
+  for (int i = 0; i < P1_EMBED_MQTT_MAX_USERS; i++) {
+    if (i == sessionIndex || !g_mqttSessions[i].active) continue;
+    if (!mqttTextEquals(g_mqttSessions[i].clientId, session.clientId)) continue;
+    if (g_mqttSessions[i].lastSeenAt > session.lastSeenAt ||
+        (g_mqttSessions[i].lastSeenAt == session.lastSeenAt && g_mqttSessions[i].sessionId > session.sessionId)) {
+      return false;
+    }
+  }
+  return true;
+}
+
 static void mqttHandleAuthFrame(const String& clientId, const uint8_t* data, size_t len) {
   P1MsgPackReader r(data, len);
   uint32_t count = 0;
@@ -662,6 +676,7 @@ static bool mqttPublishEventPayload(const uint8_t* data, size_t len) {
     for (int i = 0; i < P1_EMBED_MQTT_MAX_USERS; i++) {
       if (!g_mqttSessions[i].active) continue;
       if (g_mqttSessions[i].lastSeenAt && millis() - g_mqttSessions[i].lastSeenAt > P1_EMBED_MQTT_SESSION_IDLE_MS) continue;
+      if (!mqttSessionIsNewestForClient(i)) continue;
       if (mqttPublishSecure(mqttResponseTopic(String(g_mqttSessions[i].clientId)), i, data, len)) sent = true;
     }
     if (!configMqttAllowAnonymousUi()) return sent;

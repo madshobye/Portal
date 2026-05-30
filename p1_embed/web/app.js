@@ -1,15 +1,17 @@
-import { ProtocolClient } from "./protocol/ProtocolClient.js?v=0.1.87-ui198";
-import { canEncodeCommand } from "./protocol/P1MsgPack.js?v=0.1.87-ui198";
-import { WebSerialTransport } from "./protocol/WebSerialTransport.js?v=0.1.87-ui198";
+import { ProtocolClient } from "./protocol/ProtocolClient.js?v=0.1.87-ui205";
+import { canEncodeCommand } from "./protocol/P1MsgPack.js?v=0.1.87-ui205";
+import { WebSerialTransport } from "./protocol/WebSerialTransport.js?v=0.1.87-ui205";
 import { WebSocketTransport } from "./protocol/WebSocketTransport.js";
-import { MqttWebRtcTransport, MQTT_WEBRTC_TRANSPORT_VERSION } from "./protocol/MqttWebRtcTransport.js?v=0.1.87-ui198";
-import { MqttTransport, MQTT_TRANSPORT_VERSION, clearOnlineAuthKey, deriveOnlineAuthKeyHex, storeOnlineAuthKey } from "./protocol/MqttTransport.js?v=0.1.87-ui198";
-import { P1WebFlasher } from "./web-flasher.js?v=0.1.87-ui198";
-import { inferCircuitLayout, initCircuitView, normalizeCircuitLayout } from "./circuit.js?v=0.1.87-ui198";
-import { initGuinoView } from "./guino.js?v=0.1.87-ui198";
+import { MqttWebRtcTransport, MQTT_WEBRTC_TRANSPORT_VERSION } from "./protocol/MqttWebRtcTransport.js?v=0.1.87-ui205";
+import { MqttTransport, MQTT_TRANSPORT_VERSION, clearOnlineAuthKey, deriveOnlineAuthKeyHex, storeOnlineAuthKey } from "./protocol/MqttTransport.js?v=0.1.87-ui205";
+import { P1WebFlasher } from "./web-flasher.js?v=0.1.87-ui205";
+import { inferCircuitLayout, initCircuitView, normalizeCircuitLayout } from "./circuit.js?v=0.1.87-ui205";
+import { initGuinoView } from "./guino.js?v=0.1.87-ui205";
 
-const WEB_UI_VERSION = "0.1.87-ui198";
+const WEB_UI_VERSION = "0.1.87-ui205";
 const CHAT_MAX_OUTPUT_TOKENS = 8000;
+const ALPHA_ENABLE_WEBSOCKET_CONNECT = false;
+const ALPHA_ENABLE_WEBRTC_CONNECT = false;
 console.info(`[P1E web] loaded ${WEB_UI_VERSION}`, { mqtt: MQTT_TRANSPORT_VERSION, mqttWebRtc: MQTT_WEBRTC_TRANSPORT_VERSION });
 
 const defaultCode = `function setup() {
@@ -114,6 +116,8 @@ const els = {
   sketchHistory: document.querySelector("#sketch-history"),
   settings: document.querySelector("#settings-button"),
   settingsDialog: document.querySelector("#settings-dialog"),
+  settingsTabs: document.querySelectorAll("[data-settings-tab]"),
+  settingsPanels: document.querySelectorAll("[data-settings-panel]"),
   deviceNameInput: document.querySelector("#device-name-input"),
   deviceNameSave: document.querySelector("#device-name-save-button"),
   wifiSave: document.querySelector("#wifi-save-button"),
@@ -126,6 +130,7 @@ const els = {
   mqttEnabled: document.querySelector("#mqtt-enabled"),
   accessGuestUi: document.querySelector("#access-guest-ui"),
   accessGuestScript: document.querySelector("#access-guest-script"),
+  accessSave: document.querySelector("#access-save-button"),
   onlineAuthList: document.querySelector("#online-auth-list"),
   onlineAuthUsername: document.querySelector("#online-auth-username"),
   onlineAuthPassword: document.querySelector("#online-auth-password"),
@@ -181,6 +186,7 @@ const els = {
   installFlashManifest: document.querySelector("#install-flash-manifest-button"),
   installGoCode: document.querySelector("#install-go-code-button"),
   installManifest: document.querySelector("#install-manifest-input"),
+  installFirmwareVersion: document.querySelector("#install-firmware-version"),
   installDeviceName: document.querySelector("#install-device-name"),
   installWifiSsid: document.querySelector("#install-wifi-ssid"),
   installWifiPassword: document.querySelector("#install-wifi-password"),
@@ -207,7 +213,6 @@ let connectionVerified = false;
 let statusTimer = null;
 let editorErrorMarker = null;
 let editorErrorGutterRow = null;
-let recentPressHandled = false;
 let chatMessages = [];
 let chatBusy = false;
 let wrenchChatContext = "";
@@ -227,6 +232,8 @@ let currentSketchSource = "";
 let currentSketchVersionName = "";
 let currentSketchDirty = false;
 let currentSketchSaved = true;
+let currentProjectDescription = "";
+let currentProjectCircuit = null;
 let circuitView = null;
 let circuitChatLayout = null;
 let circuitUpdateTimer = null;
@@ -251,6 +258,7 @@ function boot() {
   renderSketchHistory();
   logLine("info", `P1E web ${WEB_UI_VERSION} / mqtt ${MQTT_TRANSPORT_VERSION}`);
   refreshKnownUsbPorts();
+  refreshInstallManifestInfo();
   setConnected(false);
   renderFields();
   restoreActiveTab();
@@ -330,13 +338,14 @@ async function replaceEditorCode(value, {
   saveCurrent = true,
   identityName = "",
   identityHistory = null,
+  identityProject = null,
   markUnsaved = false,
 } = {}) {
   const nextCode = String(value ?? "");
   if (saveCurrent) await shelveEditorSketchIfNeeded({ incomingCode: nextCode });
   setEditorValueRaw(nextCode, { persist });
-  if (identityName || identityHistory) {
-    setCurrentSketchIdentity(identityName, nextCode, identityHistory || await readSketchHistory());
+  if (identityName || identityHistory || identityProject) {
+    setCurrentSketchIdentity(identityName, nextCode, identityHistory || await readSketchHistory(), identityProject);
   } else if (markUnsaved) {
     clearCurrentSketchIdentity();
     updateCurrentSketchDirty();
@@ -360,13 +369,15 @@ function bindControls() {
   els.reboot.addEventListener("click", () => runUiAction(() => sendCommand("device.reboot"), "rebooting"));
   els.run.addEventListener("click", runScriptFromToolbar);
   els.stop.addEventListener("click", () => runUiAction(() => sendCommand("script.stop").then(refreshStatus), "stopping"));
-  els.downloadCode.addEventListener("click", downloadCode);
+  els.downloadCode.addEventListener("click", () => runUiAction(downloadProject, "download"));
   els.sketchHistory.addEventListener("change", () => recoverSketchHistory());
   bindSketchDrop();
   els.settings.addEventListener("click", openSettingsDialog);
+  els.settingsTabs.forEach((tab) => tab.addEventListener("click", () => switchSettingsTab(tab.dataset.settingsTab)));
   els.deviceNameSave.addEventListener("click", () => runUiAction(saveDeviceName, "rename"));
   els.wifiSave.addEventListener("click", () => runUiAction(saveWifi, "wifi"));
   els.mqttSave.addEventListener("click", () => runUiAction(saveMqtt, "mqtt"));
+  els.accessSave.addEventListener("click", () => runUiAction(saveMqtt, "access"));
   els.onlineAuthAdd.addEventListener("click", () => runUiAction(addOnlineAuthUser, "online user"));
   els.wifiSsid.addEventListener("input", () => {
     wifiDraftDirty = true;
@@ -593,10 +604,14 @@ function renderConnectionHistory() {
   els.connectionHistory.classList.toggle("is-hidden", items.length === 0);
 
   items.forEach((item) => {
+    const displayLabel = connectionHistoryDisplayLabel(item);
+    const row = document.createElement("div");
+    row.className = "connection-history-item";
+
     const button = document.createElement("button");
     button.type = "button";
     button.className = "button suggestion-button";
-    button.title = `${connectionKindLabel(item.kind)}: ${item.label}`;
+    button.title = connectionHistoryTitle(item, displayLabel);
     button.setAttribute("aria-label", button.title);
     button.disabled = Boolean(client) || isBusy;
 
@@ -604,12 +619,10 @@ function renderConnectionHistory() {
     icon.className = "material-symbols-rounded";
     icon.textContent = connectionKindIcon(item.kind);
     const label = document.createElement("span");
-    label.textContent = item.kind === "usb" ? `USB ${item.label}` : item.label;
+    label.textContent = item.kind === "usb" ? `USB ${displayLabel}` : displayLabel;
     button.append(icon, label);
 
-    bindLongPressDelete(button, () => forgetConnectionHistoryItem(item));
     button.addEventListener("click", () => {
-      if (consumeRecentLongPress()) return;
       if (item.kind === "usb") {
         connectRecentUsb(item.hint);
       } else if (isMqttKind(item.kind)) {
@@ -620,15 +633,32 @@ function renderConnectionHistory() {
         connectWebSocket(item.url);
       }
     });
-    els.connectionHistory.append(button);
+
+    const remove = document.createElement("button");
+    remove.type = "button";
+    remove.className = "connection-history-remove icon-button";
+    remove.title = `Remove ${displayLabel}`;
+    remove.setAttribute("aria-label", remove.title);
+    remove.disabled = isBusy;
+    const removeIcon = document.createElement("span");
+    removeIcon.className = "material-symbols-rounded";
+    removeIcon.textContent = "close";
+    remove.append(removeIcon);
+    remove.addEventListener("click", (event) => {
+      event.stopPropagation();
+      forgetConnectionHistoryItem(item);
+    });
+
+    row.append(button, remove);
+    els.connectionHistory.append(row);
   });
 }
 
 function isConnectionKindAvailable(kind) {
   if (kind === "usb") return "serial" in navigator;
   if (isMqttKind(kind)) return "mqtt" in window;
-  if (isWebRtcKind(kind)) return ("RTCPeerConnection" in window) && ("mqtt" in window);
-  if (kind === "websocket") return "WebSocket" in window;
+  if (isWebRtcKind(kind)) return ALPHA_ENABLE_WEBRTC_CONNECT && ("RTCPeerConnection" in window) && ("mqtt" in window);
+  if (kind === "websocket") return ALPHA_ENABLE_WEBSOCKET_CONNECT && "WebSocket" in window;
   return false;
 }
 
@@ -641,9 +671,25 @@ function connectionKindLabel(kind) {
 
 function connectionKindIcon(kind) {
   if (kind === "usb") return "settings_input_component";
-  if (isMqttKind(kind)) return "hub";
+  if (isMqttKind(kind)) return "cloud";
   if (isWebRtcKind(kind)) return "hub";
   return "lan";
+}
+
+function connectionHistoryDisplayLabel(item) {
+  if (!item) return "";
+  if (item.kind === "usb") return item.label || "USB";
+  const activeRemote = normalizePeerId(transport?.remoteId || "");
+  const itemRemote = normalizePeerId(item.peerId || "");
+  const friendly = currentDeviceDisplayName();
+  if (friendly && itemRemote && itemRemote === activeRemote) return friendly;
+  return item.label || item.peerId || item.url || "";
+}
+
+function connectionHistoryTitle(item, displayLabel) {
+  const type = connectionKindLabel(item.kind);
+  const detail = item.kind === "websocket" ? item.url : item.kind === "usb" ? item.label : item.peerId;
+  return detail && detail !== displayLabel ? `${type}: ${displayLabel} (${detail})` : `${type}: ${displayLabel}`;
 }
 
 function isWebRtcKind(kind) {
@@ -656,36 +702,6 @@ function isMqttKind(kind) {
 
 function isBinaryTransportKind(kind) {
   return isMqttKind(kind) || isWebRtcKind(kind);
-}
-
-function bindLongPressDelete(button, onDelete) {
-  let timer = null;
-
-  const clear = () => {
-    if (!timer) return;
-    window.clearTimeout(timer);
-    timer = null;
-  };
-
-  button.addEventListener("pointerdown", () => {
-    if (button.disabled) return;
-    clear();
-    timer = window.setTimeout(() => {
-      timer = null;
-      recentPressHandled = true;
-      onDelete();
-    }, 3000);
-  });
-
-  ["pointerup", "pointerleave", "pointercancel", "lostpointercapture"].forEach((name) => {
-    button.addEventListener(name, clear);
-  });
-}
-
-function consumeRecentLongPress() {
-  if (!recentPressHandled) return false;
-  recentPressHandled = false;
-  return true;
 }
 
 function forgetConnectionHistoryItem(item) {
@@ -968,7 +984,6 @@ async function connectTransport(nextTransport, options, kind, label, { quiet = f
       return true;
     } else if (generation === connectionGeneration) {
       if (!quiet) logLine("warn", `${label} connected but did not answer protocol checks`);
-      forgetUnverifiedConnection(kind, options);
       await disconnectTransport({ quiet: true, keepGeneration: true });
       setConnected(false);
       return false;
@@ -977,7 +992,6 @@ async function connectTransport(nextTransport, options, kind, label, { quiet = f
     if (generation !== connectionGeneration) return false;
     if (!quiet) logLine("error", error.message);
     if (transport === nextTransport) {
-      forgetUnverifiedConnection(kind, options);
       await disconnectTransport({ quiet: true, keepGeneration: true });
     }
     setConnected(false);
@@ -1017,11 +1031,12 @@ async function cancelConnectionAttempt() {
 function rememberSuccessfulConnection(kind, label, options = {}) {
   localStorage.setItem(storage.lastConnection, kind);
   localStorage.setItem(storage.reconnectOnLoad, "1");
+  const friendlyLabel = currentDeviceDisplayName() || label;
 
   if (kind === "websocket" && options.url) {
     const url = normalizeWebSocketUrl(options.url);
     localStorage.setItem(storage.wsUrl, url);
-    const label = wsDisplayName(url);
+    const label = friendlyLabel || wsDisplayName(url);
     localStorage.setItem(storage.wsName, label);
     rememberWebSocketHistory(url, label);
     els.websocketUrl.value = url;
@@ -1032,7 +1047,7 @@ function rememberSuccessfulConnection(kind, label, options = {}) {
   if ((isMqttKind(kind) || isWebRtcKind(kind)) && options.remoteId) {
     const peerId = normalizePeerId(options.remoteId);
     localStorage.setItem(storage.peerId, peerId);
-    rememberPeerHistory(peerId, label || peerId, isMqttKind(kind) ? "mqtt" : "webrtc", options.mqttConfig);
+    rememberPeerHistory(peerId, friendlyLabel || peerId, isMqttKind(kind) ? "mqtt" : "webrtc", options.mqttConfig);
     els.peerId.value = peerId;
     updateConnectionUrlParams(isMqttKind(kind) ? "mqtt" : "webrtc", "", null, peerId);
     renderConnectionHistory();
@@ -1045,41 +1060,6 @@ function rememberSuccessfulConnection(kind, label, options = {}) {
     refreshKnownUsbPorts();
     renderConnectionHistory();
   }
-}
-
-function forgetUnverifiedConnection(kind, options = {}) {
-  if (kind === "websocket" && options.url) {
-    const attempted = normalizeWebSocketUrl(options.url);
-    writeWebSocketHistory(readWebSocketHistory().filter((entry) => normalizeWebSocketUrl(entry.url) !== attempted));
-    if (localStorage.getItem(storage.wsUrl) === attempted) {
-      const next = readWebSocketHistory()[0];
-      if (next) {
-        localStorage.setItem(storage.wsUrl, next.url);
-        localStorage.setItem(storage.wsName, next.label);
-      } else {
-        localStorage.removeItem(storage.wsUrl);
-        localStorage.removeItem(storage.wsName);
-      }
-    }
-  }
-  if ((isMqttKind(kind) || isWebRtcKind(kind)) && options.remoteId) {
-    const attempted = normalizePeerId(options.remoteId);
-    writePeerHistory(readPeerHistory().filter((entry) => normalizePeerId(entry.peerId) !== attempted));
-    if (normalizePeerId(localStorage.getItem(storage.peerId)) === attempted) {
-      const next = readPeerHistory()[0];
-      if (next) localStorage.setItem(storage.peerId, next.peerId);
-      else localStorage.removeItem(storage.peerId);
-    }
-  }
-  if (kind === "usb") {
-    const key = usbHistoryKey(readUsbHint());
-    if (key) writeUsbHistory(readUsbHistory().filter((entry) => usbHistoryKey(entry.hint) !== key));
-  }
-  if (localStorage.getItem(storage.lastConnection) === kind) {
-    localStorage.removeItem(storage.lastConnection);
-    localStorage.setItem(storage.reconnectOnLoad, "0");
-  }
-  renderConnectionHistory();
 }
 
 function migrateConnectionHistory() {
@@ -1782,18 +1762,90 @@ function fnv1aHex(text) {
   return hash.toString(16).padStart(8, "0");
 }
 
-function downloadCode() {
+async function downloadProject() {
   const code = getEditorValue();
   if (!code.trim()) return;
-  const blob = new Blob([code], { type: "text/plain;charset=utf-8" });
+  const history = await readSketchHistory();
+  const name = resolveSketchNameForSave(code, currentSketchName, history, { preferAutoName: !currentSketchName });
+  const project = buildProject({ name, code });
+  const blob = new Blob([JSON.stringify(project, null, 2)], { type: "application/json;charset=utf-8" });
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url;
-  a.download = `p1e-${new Date().toISOString().slice(0, 19).replace(/[:T]/g, "-")}.wrench`;
+  a.download = `${slugForFilename(name || "p1e-project")}.p1e.json`;
   document.body.append(a);
   a.click();
   a.remove();
   URL.revokeObjectURL(url);
+}
+
+function buildProject({ name = "", code = "", circuit = undefined, description = undefined } = {}) {
+  const source = String(code ?? "");
+  const explicitCircuit = circuit === undefined ? projectCircuitForCurrentCode(source) : normalizeCircuitLayout(circuit);
+  return {
+    type: "p1e-project",
+    version: "1",
+    name: normalizeSketchName(name),
+    description: String(description ?? currentProjectDescription ?? ""),
+    code: source,
+    circuit: explicitCircuit || inferCircuitLayout(source, null),
+    updatedAt: new Date().toISOString(),
+  };
+}
+
+function normalizeProject(project, fallbackName = "") {
+  if (!project || typeof project !== "object" || typeof project.code !== "string") return null;
+  return buildProject({
+    name: project.name || fallbackName,
+    code: project.code,
+    circuit: project.circuit,
+    description: project.description,
+  });
+}
+
+function projectFromCode(code, name = "", circuit = null, description = "") {
+  return buildProject({ name, code, circuit, description });
+}
+
+function historyEntryFromProject(project, existing = {}) {
+  const normalized = normalizeProject(project, existing.name || "");
+  if (!normalized) return null;
+  return {
+    ...existing,
+    projectVersion: normalized.version,
+    at: new Date().toISOString(),
+    bytes: new Blob([normalized.code]).size,
+    code: normalized.code,
+    name: normalized.name,
+    description: normalized.description,
+    circuit: normalizeCircuitLayout(normalized.circuit),
+  };
+}
+
+function projectCircuitForCurrentCode(code) {
+  if (String(code ?? "") === currentSketchSource && currentProjectCircuit) return normalizeCircuitLayout(currentProjectCircuit);
+  if (circuitChatLayout) return normalizeCircuitLayout(circuitChatLayout);
+  const viewModel = circuitView?.getModel?.();
+  return normalizeCircuitLayout(viewModel);
+}
+
+function slugForFilename(name) {
+  const slug = normalizeSketchName(name)
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+  return slug || `p1e-${timestampForFilename()}`;
+}
+
+function sketchNameFromFilename(filename = "") {
+  const base = String(filename || "")
+    .split(/[\\/]/)
+    .pop()
+    .replace(/\.(p1e\.json|json|wrench|txt)$/i, "")
+    .replace(/[-_]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  return normalizeSketchName(base);
 }
 
 function openSketchDb() {
@@ -1861,12 +1913,25 @@ function readSketchHistoryFallback() {
   }
 }
 
-async function rememberUploadedSketch(code, name = "", { promoteExisting = true, autoName = true, preferAutoName = false } = {}) {
+async function rememberUploadedSketch(code, name = "", {
+  promoteExisting = true,
+  autoName = true,
+  preferAutoName = false,
+  circuit = undefined,
+  description = undefined,
+} = {}) {
   const current = String(code ?? "");
   if (!current.trim()) return;
 
   const history = await readSketchHistory();
   const sketchName = resolveSketchNameForSave(current, name, history, { autoName, preferAutoName });
+  const project = buildProject({
+    name: sketchName,
+    code: current,
+    circuit,
+    description,
+  });
+  const hasProjectMetadata = circuit !== undefined || description !== undefined;
   const unchangedCurrentSketch = currentSketchSource && current === currentSketchSource;
   const existingByCode = history.find((item) => item?.code === current);
 
@@ -1881,19 +1946,22 @@ async function rememberUploadedSketch(code, name = "", { promoteExisting = true,
       const explicitName = normalizeSketchName(name);
       const nextName = explicitName || existing.name || sketchName || currentSketchName;
       if (promoteExisting) {
-        const promoted = await promoteSketchHistoryEntry(existing, nextName);
+        const promoted = await promoteSketchHistoryEntry(existing, nextName, project);
         setCurrentSketchIdentity(
           normalizeSketchName(promoted.name || "") || sketchName || currentSketchName,
           current,
           [promoted, ...history],
+          promoted,
         );
       } else {
-        if (explicitName && existing.name !== explicitName) {
-          existing.name = explicitName;
+        if ((explicitName && existing.name !== explicitName) || hasProjectMetadata) {
+          if (explicitName) existing.name = explicitName;
+          const merged = historyEntryFromProject({ ...project, name: explicitName || nextName }, existing);
+          if (merged) Object.assign(existing, merged);
           await updateSketchHistoryEntry(existing);
           await renderSketchHistory();
         }
-        setCurrentSketchIdentity(normalizeSketchName(nextName), current, history);
+        setCurrentSketchIdentity(normalizeSketchName(nextName), current, history, existing);
       }
       return;
     }
@@ -1903,32 +1971,36 @@ async function rememberUploadedSketch(code, name = "", { promoteExisting = true,
     const explicitName = normalizeSketchName(name);
     const nextName = explicitName || existingByCode.name || sketchName;
     if (promoteExisting) {
-      const promoted = await promoteSketchHistoryEntry(existingByCode, nextName);
-      setCurrentSketchIdentity(normalizeSketchName(promoted.name || "") || sketchName, current, [promoted, ...history]);
+      const promoted = await promoteSketchHistoryEntry(existingByCode, nextName, project);
+      setCurrentSketchIdentity(normalizeSketchName(promoted.name || "") || sketchName, current, [promoted, ...history], promoted);
     } else {
-      if (explicitName && existingByCode.name !== explicitName) {
-        existingByCode.name = explicitName;
+      if ((explicitName && existingByCode.name !== explicitName) || hasProjectMetadata) {
+        if (explicitName) existingByCode.name = explicitName;
+        const merged = historyEntryFromProject({ ...project, name: explicitName || nextName }, existingByCode);
+        if (merged) Object.assign(existingByCode, merged);
         await updateSketchHistoryEntry(existingByCode);
         await renderSketchHistory();
       } else {
         renderCurrentSketchName();
       }
-      setCurrentSketchIdentity(normalizeSketchName(nextName), current, history);
+      setCurrentSketchIdentity(normalizeSketchName(nextName), current, history, existingByCode);
     }
     return;
   }
 
   if (history[0]?.code === current) {
-    if (sketchName && history[0].name !== sketchName) {
-      history[0].name = sketchName;
+    if ((sketchName && history[0].name !== sketchName) || hasProjectMetadata) {
+      if (sketchName) history[0].name = sketchName;
+      const merged = historyEntryFromProject(project, history[0]);
+      if (merged) Object.assign(history[0], merged);
       await updateSketchHistoryEntry(history[0]);
       await renderSketchHistory();
     }
-    setCurrentSketchIdentity(sketchName || normalizeSketchName(history[0].name || ""), current, history);
+    setCurrentSketchIdentity(sketchName || normalizeSketchName(history[0].name || ""), current, history, history[0]);
     return;
   }
 
-  const entry = {
+  const entry = historyEntryFromProject(project) || {
     at: new Date().toISOString(),
     bytes: new Blob([current]).size,
     code: current,
@@ -1960,14 +2032,14 @@ async function rememberUploadedSketch(code, name = "", { promoteExisting = true,
       db.close();
     }
     await renderSketchHistory();
-    setCurrentSketchIdentity(entry.name, current, [entry, ...history]);
+    setCurrentSketchIdentity(entry.name, current, [entry, ...history], entry);
     return;
   } catch {
   }
 
   rememberUploadedSketchFallback(entry, history);
   await renderSketchHistory();
-  setCurrentSketchIdentity(entry.name, current, [entry, ...history]);
+  setCurrentSketchIdentity(entry.name, current, [entry, ...history], entry);
 }
 
 async function updateSketchHistoryEntry(entry) {
@@ -1998,15 +2070,16 @@ async function updateSketchHistoryEntry(entry) {
   }
 }
 
-async function promoteSketchHistoryEntry(entry, name = "") {
+async function promoteSketchHistoryEntry(entry, name = "", project = null) {
   const code = String(entry?.code || "");
-  const promoted = {
+  const base = {
     ...entry,
     at: new Date().toISOString(),
     bytes: new Blob([code]).size,
     code,
     name: normalizeSketchName(name || entry?.name || ""),
   };
+  const promoted = historyEntryFromProject(project || base, base) || base;
   await updateSketchHistoryEntry(promoted);
   await renderSketchHistory();
   return promoted;
@@ -2038,10 +2111,13 @@ async function migrateSketchHistoryToDb() {
     const store = tx.objectStore(sketchStoreName);
     oldHistory.slice().reverse().forEach((item) => {
       store.add({
+        projectVersion: item.projectVersion || "1",
         at: item.at || new Date().toISOString(),
         bytes: item.bytes || new Blob([item.code || ""]).size,
         code: String(item.code || ""),
         name: normalizeSketchName(item.name || ""),
+        description: String(item.description || ""),
+        circuit: normalizeCircuitLayout(item.circuit),
       });
     });
     await sketchDbTransactionDone(tx);
@@ -2080,11 +2156,14 @@ async function recoverSketchHistory() {
   const entry = history[index];
   els.sketchHistory.value = "";
   if (!entry) return;
+  circuitChatLayout = normalizeCircuitLayout(entry.circuit);
   await replaceEditorCode(entry.code, {
     saveCurrent: true,
     identityName: entry.name || "",
     identityHistory: history,
+    identityProject: entry,
   });
+  updateCircuitView(circuitChatLayout ? "project circuit + code inference" : "inferred from code");
   const sketchName = normalizeSketchName(entry.name || "");
   logLine("info", `recovered ${sketchName || "sketch"} from ${new Date(entry.at).toLocaleString()}`);
 }
@@ -2139,12 +2218,15 @@ function resolveSketchNameForSave(code, requestedName = "", history = [], { auto
   return autoName ? autoSketchName(code, history) : "";
 }
 
-function setCurrentSketchIdentity(name = "", code = "", history = []) {
+function setCurrentSketchIdentity(name = "", code = "", history = [], project = null) {
   currentSketchName = normalizeSketchName(name);
   currentSketchSource = String(code ?? "");
   currentSketchVersionName = currentSketchName ? nextSketchVersionName(currentSketchName, history) : "";
   currentSketchDirty = false;
   currentSketchSaved = true;
+  currentProjectDescription = String(project?.description || "");
+  currentProjectCircuit = normalizeCircuitLayout(project?.circuit);
+  circuitChatLayout = currentProjectCircuit;
   renderCurrentSketchName();
 }
 
@@ -2152,6 +2234,9 @@ function clearCurrentSketchIdentity() {
   currentSketchName = "";
   currentSketchSource = "";
   currentSketchVersionName = "";
+  currentProjectDescription = "";
+  currentProjectCircuit = null;
+  circuitChatLayout = null;
   currentSketchDirty = Boolean(String(getEditorValue() || "").trim());
   currentSketchSaved = !currentSketchDirty;
   renderCurrentSketchName();
@@ -2319,9 +2404,35 @@ function bindSketchDrop() {
     const file = event.dataTransfer?.files?.[0];
     const text = file ? await file.text() : event.dataTransfer?.getData("text/plain");
     if (!text) return;
-    await replaceEditorCode(text, { saveCurrent: true, markUnsaved: true });
-    logLine("info", file ? `loaded ${file.name}` : "loaded dropped text");
+    const project = parseDroppedProject(text, file);
+    if (!project?.code?.trim()) return;
+    circuitChatLayout = normalizeCircuitLayout(project.circuit);
+    await replaceEditorCode(project.code, {
+      saveCurrent: true,
+      markUnsaved: true,
+      identityName: project.name,
+      identityProject: project,
+    });
+    updateCircuitView(circuitChatLayout ? "project circuit + code inference" : "inferred from code");
+    await rememberUploadedSketch(project.code, project.name, {
+      promoteExisting: false,
+      preferAutoName: !project.name,
+      circuit: project.circuit,
+      description: project.description,
+    });
+    logLine("info", project.name ? `loaded ${project.name}` : (file ? `loaded ${file.name}` : "loaded dropped text"));
   });
+}
+
+function parseDroppedProject(text, file = null) {
+  const fallbackName = sketchNameFromFilename(file?.name || "");
+  try {
+    const parsed = JSON.parse(String(text || ""));
+    const project = normalizeProject(parsed, fallbackName);
+    if (project) return project;
+  } catch {
+  }
+  return projectFromCode(String(text || ""), fallbackName);
 }
 
 function formatBytes(bytes) {
@@ -2338,9 +2449,22 @@ function openSettingsDialog() {
   populateMqttSettings();
   renderWifiNetworkList();
   wifiDraftDirty = false;
+  switchSettingsTab("general");
   els.settingsDialog.showModal();
   els.deviceNameInput.focus();
   els.deviceNameInput.select();
+}
+
+function switchSettingsTab(name) {
+  const target = name || "general";
+  els.settingsTabs.forEach((tab) => {
+    const active = tab.dataset.settingsTab === target;
+    tab.classList.toggle("is-active", active);
+    tab.setAttribute("aria-selected", active ? "true" : "false");
+  });
+  els.settingsPanels.forEach((panel) => {
+    panel.classList.toggle("is-active", panel.dataset.settingsPanel === target);
+  });
 }
 
 function mqttDefaults() {
@@ -3052,6 +3176,17 @@ function updateConfig(config = {}) {
   renderFields();
 }
 
+function currentDeviceDisplayName() {
+  const name = String(lastInfo?.deviceName || lastStatus?.deviceName || lastConfig?.deviceName || "").trim();
+  if (!name) return "";
+  const normalized = normalizePeerId(name);
+  const id = normalizePeerId(lastInfo?.deviceId || lastStatus?.deviceId || lastConfig?.deviceId || "");
+  if (id && normalized === id) return "";
+  if (/^p1-embed-[0-9a-f]{6}$/i.test(name)) return "";
+  if (/^p1-[0-9a-f: -]{6,}$/i.test(name)) return "";
+  return name;
+}
+
 function setWifiSsidFromDevice(ssid) {
   if (!ssid) return;
   if (els.settingsDialog.open) return;
@@ -3131,13 +3266,12 @@ function renderFields() {
       infoMetric("Protocol", lastInfo?.protocolVersion || "-"),
     ], { compact: true }),
     infoCard("share", "Connect", [
-      infoMetric("WiFi", wifi.connected ? wifi.ssid || "connected" : "offline"),
+      infoMetric("WiFi name", wifi.connected ? wifi.ssid || "connected" : "offline"),
       infoMetric("IP", wifi.ip || "-"),
       infoMetric("Signal", wifiSignalLabel(wifi)),
       infoMetric("MQTT", mqttSharePeerId(mqtt) || "-"),
-      infoMetric("WebSocket", wsUrl || "-"),
       infoMetric("Share", shareUrl || "-"),
-    ], { compact: true, links: { peerId: mqttSharePeerId(mqtt) || peerId, wsUrl, shareUrl } }),
+    ], { compact: true, links: { peerId: mqttSharePeerId(mqtt) || peerId, shareUrl } }),
   );
 }
 
@@ -3145,14 +3279,6 @@ function bestInfoShareTarget({ web = {}, webrtc = {}, mqtt = {} } = {}) {
   const mqttPeer = mqttSharePeerId(mqtt);
   if (mqttPeer && isConnectionKindAvailable("mqtt")) {
     return { kind: "mqtt", peerId: mqttPeer };
-  }
-  const wsUrl = activeWebSocketUrl(web);
-  if (wsUrl && isConnectionKindAvailable("websocket")) {
-    return { kind: "websocket", wsUrl };
-  }
-  const rtcPeer = activeWebRtcSharePeerId(webrtc);
-  if (rtcPeer && isConnectionKindAvailable("webrtc")) {
-    return { kind: "webrtc", peerId: rtcPeer };
   }
   if (transport?.kind === "usb" && isConnectionKindAvailable("usb")) {
     return { kind: "usb", usbHint: readUsbHint() };
@@ -3570,6 +3696,21 @@ async function flashInstallManifest() {
   await applyInstallSetupAfterUpload(hint);
 }
 
+async function refreshInstallManifestInfo() {
+  if (!els.installFirmwareVersion) return;
+  const manifest = els.installManifest?.value?.trim() || "bin/p1e-firmware.json";
+  try {
+    const response = await fetch(manifest, { cache: "no-store" });
+    if (!response.ok) throw new Error(String(response.status));
+    const data = await response.json();
+    const name = data.name || "P1E firmware";
+    const version = data.version || "unknown";
+    els.installFirmwareVersion.textContent = `${name} ${version}`;
+  } catch {
+    els.installFirmwareVersion.textContent = "Firmware manifest unavailable";
+  }
+}
+
 async function releaseDeviceTransportForInstall() {
   localStorage.setItem(storage.reconnectOnLoad, "0");
   if (client || transport) {
@@ -3869,9 +4010,19 @@ async function runChatCode(index) {
 
 async function replaceEditorFromChat(code, message, name = "", layout = null) {
   circuitChatLayout = normalizeCircuitLayout(layout);
-  await replaceEditorCode(code, { saveCurrent: true, markUnsaved: true });
+  const project = projectFromCode(code, name, circuitChatLayout);
+  await replaceEditorCode(code, {
+    saveCurrent: true,
+    markUnsaved: true,
+    identityName: project.name,
+    identityProject: project,
+  });
   updateCircuitView(circuitChatLayout ? "chat layout + code inference" : "inferred from code");
-  await rememberUploadedSketch(code, name, { preferAutoName: !normalizeSketchName(name) });
+  await rememberUploadedSketch(code, name, {
+    preferAutoName: !normalizeSketchName(name),
+    circuit: circuitChatLayout,
+    description: project.description,
+  });
   logLine("info", message);
 }
 

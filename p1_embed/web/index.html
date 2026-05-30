@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>P1E</title>
     <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@24,400,0,0">
-    <link rel="stylesheet" href="style.css?v=0.1.87-ui198">
+    <link rel="stylesheet" href="style.css?v=0.1.87-ui205">
   </head>
   <body>
     <main id="app">
@@ -166,7 +166,7 @@
                 <input id="install-device-name" type="text" autocomplete="off" spellcheck="false" placeholder="optional">
               </label>
               <label class="field install-field">
-                <span>SSID</span>
+                <span>WiFi name</span>
                 <input id="install-wifi-ssid" type="text" autocomplete="off" placeholder="optional">
               </label>
               <label class="field install-field">
@@ -178,6 +178,7 @@
               <span>Upload P1E</span>
               <span class="material-symbols-rounded">system_update_alt</span>
             </button>
+            <div id="install-firmware-version" class="install-firmware-version">Firmware ...</div>
             <progress id="install-progress" class="install-progress" value="0" max="100"></progress>
             <div id="install-status" class="install-status"></div>
             <button id="install-go-code-button" class="button install-go-code-button is-hidden" type="button" title="Go to Code" aria-label="Go to Code">
@@ -204,7 +205,7 @@
         <div class="dialog-actions connect-options">
           <button id="usb-connect-button" class="button icon-buttonish" type="button" title="New USB" aria-label="New USB"><span class="material-symbols-rounded">usb</span></button>
           <button id="new-ws-toggle-button" class="button icon-buttonish" type="button" title="New WebSocket" aria-label="New WebSocket"><span class="material-symbols-rounded">add_link</span></button>
-          <button id="new-peer-toggle-button" class="button icon-buttonish" type="button" title="New MQTT" aria-label="New MQTT"><span class="material-symbols-rounded">hub</span></button>
+          <button id="new-peer-toggle-button" class="button icon-buttonish" type="button" title="New MQTT" aria-label="New MQTT"><span class="material-symbols-rounded">cloud</span></button>
         </div>
         <label id="new-ws-field" class="field is-hidden">
           <span>WebSocket URL or host</span>
@@ -215,7 +216,7 @@
           <span>MQTT device id</span>
           <input id="peer-id" type="text" autocomplete="off" spellcheck="false" value="p1-embed-f7a608">
         </label>
-        <button id="new-peer-connect-button" class="button primary icon-buttonish is-hidden" type="button" title="Connect MQTT" aria-label="Connect MQTT"><span class="material-symbols-rounded">hub</span></button>
+        <button id="new-peer-connect-button" class="button primary icon-buttonish is-hidden" type="button" title="Connect MQTT" aria-label="Connect MQTT"><span class="material-symbols-rounded">cloud</span></button>
       </form>
     </dialog>
 
@@ -225,45 +226,45 @@
           <strong>Settings</strong>
           <button class="icon-button" value="cancel" type="submit" aria-label="Close" title="Close"><span class="material-symbols-rounded">close</span></button>
         </header>
-        <section class="settings-section">
-          <label class="field">
-            <span>Name</span>
-            <input id="device-name-input" type="text" autocomplete="off" spellcheck="false">
-          </label>
-          <button id="device-name-save-button" class="button primary icon-buttonish" type="button" title="Apply board name" aria-label="Apply board name"><span class="material-symbols-rounded">drive_file_rename_outline</span></button>
+        <nav class="settings-tabs" aria-label="Settings sections">
+          <button class="settings-tab is-active" type="button" data-settings-tab="general">General</button>
+          <button class="settings-tab" type="button" data-settings-tab="wifi">WiFi</button>
+          <button class="settings-tab" type="button" data-settings-tab="mqtt">MQTT</button>
+          <button class="settings-tab" type="button" data-settings-tab="users">Users</button>
+        </nav>
+        <section class="settings-panel is-active" data-settings-panel="general">
+          <div class="settings-section">
+            <label class="field">
+              <span>Name</span>
+              <input id="device-name-input" type="text" autocomplete="off" spellcheck="false">
+            </label>
+            <button id="device-name-save-button" class="button primary icon-buttonish" type="button" title="Apply board name" aria-label="Apply board name"><span class="material-symbols-rounded">drive_file_rename_outline</span></button>
+          </div>
         </section>
-        <section class="settings-section">
-          <label class="field">
-            <span>SSID</span>
-            <input id="wifi-ssid" type="text" autocomplete="off">
-          </label>
-          <label class="field">
-            <span>Password</span>
-            <input id="wifi-password" type="password" autocomplete="new-password">
-          </label>
-          <button id="wifi-save-button" class="button primary icon-buttonish" type="button" title="Apply WiFi settings" aria-label="Apply WiFi settings"><span class="material-symbols-rounded">wifi_protected_setup</span></button>
+        <section class="settings-panel" data-settings-panel="wifi">
+          <div class="settings-section wifi-settings-section">
+            <label class="field">
+              <span>WiFi name</span>
+              <input id="wifi-ssid" type="text" autocomplete="off">
+            </label>
+            <label class="field">
+              <span>Password</span>
+              <input id="wifi-password" type="password" autocomplete="new-password">
+            </label>
+            <button id="wifi-save-button" class="button primary icon-buttonish" type="button" title="Apply WiFi settings" aria-label="Apply WiFi settings"><span class="material-symbols-rounded">wifi_protected_setup</span></button>
+          </div>
+          <div class="settings-saved">
+            <div class="settings-subhead">Saved WiFi</div>
+            <div id="wifi-network-list" class="wifi-network-list"></div>
+          </div>
         </section>
-        <section class="settings-saved">
-          <div class="settings-subhead">Saved WiFi</div>
-          <div id="wifi-network-list" class="wifi-network-list"></div>
-        </section>
-        <section class="settings-access">
+        <section class="settings-panel settings-mqtt" data-settings-panel="mqtt">
           <div class="settings-toggle-grid settings-toggle-row">
-            <label class="field compact-check">
-              <span>Guest UI</span>
-              <input id="access-guest-ui" type="checkbox">
-            </label>
-            <label class="field compact-check">
-              <span>Guest script</span>
-              <input id="access-guest-script" type="checkbox">
-            </label>
             <label class="field compact-check">
               <span>MQTT</span>
               <input id="mqtt-enabled" type="checkbox">
             </label>
           </div>
-        </section>
-        <section class="settings-mqtt">
           <div class="settings-mqtt-grid">
             <label class="field">
               <span>Host</span>
@@ -287,6 +288,19 @@
             </label>
             <button id="mqtt-save-button" class="button primary settings-save-button" type="button" title="Save access and MQTT settings" aria-label="Save access and MQTT settings">Save</button>
           </div>
+        </section>
+        <section class="settings-panel" data-settings-panel="users">
+          <div class="settings-toggle-grid settings-toggle-row">
+            <label class="field compact-check">
+              <span>Guest UI</span>
+              <input id="access-guest-ui" type="checkbox">
+            </label>
+            <label class="field compact-check">
+              <span>Guest script</span>
+              <input id="access-guest-script" type="checkbox">
+            </label>
+          </div>
+          <button id="access-save-button" class="button primary settings-save-button" type="button" title="Save access settings" aria-label="Save access settings">Save</button>
           <div class="settings-subhead">Online sign-in users</div>
           <div id="online-auth-list" class="wifi-network-list"></div>
           <div class="settings-mqtt-grid">
@@ -347,6 +361,6 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.9.4/p5.min.js" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
     <script src="../../P1/portal/usbSerial.js"></script>
     <script src="../../P1/portal/qrCodeGen.js"></script>
-    <script type="module" src="app.js?v=0.1.87-ui198"></script>
+    <script type="module" src="app.js?v=0.1.87-ui205"></script>
   </body>
 </html>

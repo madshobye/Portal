@@ -1,4 +1,4 @@
-import { MsgPackReader, MsgPackWriter } from "./P1MsgPack.js?v=0.1.87-ui198";
+import { MsgPackReader, MsgPackWriter } from "./P1MsgPack.js?v=0.1.87-ui205";
 
 const DEFAULT_MQTT_ROOT = "";
 const FRAME_AUTH = 3;
@@ -9,7 +9,7 @@ const AUTH_FINISH = 2;
 const AUTH_OK = 3;
 const AUTH_ERROR = 4;
 
-export const MQTT_TRANSPORT_VERSION = "0.1.87-ui198";
+export const MQTT_TRANSPORT_VERSION = "0.1.87-ui205";
 
 console.info(`[P1E mqtt] loaded ${MQTT_TRANSPORT_VERSION}`);
 
@@ -154,9 +154,6 @@ export class MqttTransport extends EventTarget {
       await this.ensureAuth();
       await this.authenticate();
     }
-    if (this.authRequired && this.sessionId && this.sessionStartedAt && Date.now() - this.sessionStartedAt > 45000) {
-      await this.recoverSession("refresh");
-    }
     const payload = this.sessionId ? await this.encodeSecure(bytes) : bytes;
     if (this.authRequired && !this.sessionId) throw new Error("MQTT sign in required");
     await publish(this.client, this.commandTopic(), payload);
@@ -208,6 +205,10 @@ export class MqttTransport extends EventTarget {
       this.decodeSecure(bytes).then((inner) => {
         if (inner) this.emit("frame", { data: inner });
       }).catch((error) => {
+        if (error?.staleSecureFrame) {
+          this.emit("state", { state: "diagnostic", remoteId: this.remoteId, message: error.message });
+          return;
+        }
         error.message = `${error.message} (mqtt bytes=${bytes.length}, head=${hexHead(bytes)})`;
         this.emit("error", { error });
       });
@@ -382,7 +383,17 @@ export class MqttTransport extends EventTarget {
     const counter = reader.uint();
     const cipher = reader.bin();
     const tag = reader.bin();
-    if (!this.auth?.key || sessionId !== this.sessionId || counter <= this.rxCounter) throw new Error("Invalid MQTT secure session");
+    if (!this.auth?.key) throw new Error("Invalid MQTT secure session: no key");
+    if (sessionId !== this.sessionId) {
+      const error = new Error(`Stale MQTT secure frame: session ${hexU32(sessionId)} != ${hexU32(this.sessionId)}`);
+      error.staleSecureFrame = true;
+      throw error;
+    }
+    if (counter <= this.rxCounter) {
+      const error = new Error(`Stale MQTT secure frame: counter ${counter} <= ${this.rxCounter}`);
+      error.staleSecureFrame = true;
+      throw error;
+    }
     const expected = await secureTag(this.auth.key, sessionId, counter, cipher);
     if (!constantTimeEqual(expected, tag)) throw new Error("Invalid MQTT secure signature");
     this.rxCounter = counter;
@@ -506,6 +517,10 @@ function hexToBytes(hex) {
 
 function bytesToHex(bytes) {
   return Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("");
+}
+
+function hexU32(value) {
+  return `0x${(value >>> 0).toString(16).padStart(8, "0")}`;
 }
 
 function u32be(value) {
