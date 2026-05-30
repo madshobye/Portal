@@ -34,6 +34,32 @@ function loop() {
     assert_equal(last.get("hasError"), False, "while script should not leave an error")
 
 
+def test_sequential_self_read_assignment_is_preserved(dev):
+    code = """
+var v = 0;
+var last = 0;
+
+function setup() {
+  println("self read ready");
+}
+
+function loop() {
+  if ((millis() - last) >= 100) {
+    last = millis();
+    v = 10;
+    v = v * 2;
+    println(v);
+  }
+  delay(10);
+}
+""".strip()
+    dev.command("script.set", {"code": code, "run": True, "save": False}, timeout=8.0)
+    assert_equal(dev.wait_event("script.print", timeout=4.0).get("data", {}).get("message"), "self read ready", "setup print")
+    assert_equal(dev.wait_event("script.print", timeout=4.0).get("data", {}).get("message"), "20", "self-read assignment should use the previous store")
+    last = dev.command("script.error.get")
+    assert_equal(last.get("hasError"), False, "self-read assignment script should not leave an error")
+
+
 def test_c_style_int_declaration_fails_cleanly(dev):
     code = """
 function setup() {

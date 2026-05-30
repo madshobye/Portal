@@ -103,7 +103,17 @@ void setup() {
   memoryProfileMark("wrench", "autorun_disabled");
 #else
 
-  if (haveStoredScript && runState == P1_EMBED_SCRIPT_RUN_PENDING_TRIED) {
+  if (haveStoredScript && runState == P1_EMBED_SCRIPT_RUN_STOPPED) {
+    P1EventField fields[] = {
+      p1FieldString("state", "stopped"),
+      p1FieldString("source", "stored"),
+      p1FieldString("autorun", "stopped"),
+    };
+    protocolEmitEventFields("script.state", fields, 3);
+    memoryProfileMark("wrench", "autorun_stopped");
+    bootScript = "";
+    bootSource = "stopped";
+  } else if (haveStoredScript && runState == P1_EMBED_SCRIPT_RUN_PENDING_TRIED) {
     protocolEmitErrorEvent("script.storage", "stored_script_skipped", "Stored script skipped because the previous boot did not verify");
     bootScript = wrenchDefaultScript();
   } else if (haveStoredScript) {
@@ -129,7 +139,7 @@ void setup() {
     };
     protocolEmitEventFields("script.state", fields, 4);
     memoryProfileMark("wrench", "autorun_wait_wifi");
-  } else {
+  } else if (bootSource != "stopped") {
     if (bootSource == "stored" && (!scriptStoreLoad(bootScript) || bootScript.length() == 0)) {
       err = "Stored script could not be loaded";
     }

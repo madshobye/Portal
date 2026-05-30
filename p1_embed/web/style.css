@@ -1150,7 +1150,7 @@ input {
 .dialog-panel {
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 10px;
   padding: 14px;
 }
 
@@ -1187,8 +1187,8 @@ input {
 .settings-access,
 .settings-mqtt {
   display: grid;
-  gap: 8px;
-  padding-top: 2px;
+  gap: 6px;
+  padding-top: 0;
 }
 
 .settings-toggle-grid {
@@ -1197,8 +1197,10 @@ input {
   gap: 6px 14px;
 }
 
-.settings-toggle-grid-single {
-  grid-template-columns: minmax(0, 1fr);
+.settings-toggle-row {
+  grid-template-columns: repeat(3, max-content);
+  align-items: center;
+  gap: 18px;
 }
 
 .compact-check {
@@ -1234,7 +1236,7 @@ input {
 .settings-mqtt-grid {
   display: grid;
   grid-template-columns: minmax(0, 1.4fr) 88px minmax(0, 1fr);
-  gap: 10px;
+  gap: 7px 10px;
   align-items: end;
 }
 
@@ -1263,6 +1265,7 @@ input {
 .settings-subhead {
   color: var(--muted);
   font-size: 11px;
+  margin-top: 2px;
 }
 
 .wifi-network-list {
@@ -1286,7 +1289,7 @@ input {
   color: var(--muted);
 }
 
-.mqtt-auth-row {
+.online-auth-row {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;

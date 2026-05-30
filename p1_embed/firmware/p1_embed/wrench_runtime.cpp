@@ -582,6 +582,17 @@ static void wrenchCompileTaskEntry(void* arg) {
   job->bytecode = nullptr;
   job->byteLen = 0;
   job->result = wr_compile(job->source->c_str(), (int)job->source->length(), &job->bytecode, &job->byteLen, &job->compileErr, WR_INCLUDE_GLOBALS);
+#ifdef WRENCH_HANDLE_MALLOC_FAIL
+  if (g_mallocFailed) {
+    g_mallocFailed = false;
+    if (job->bytecode) {
+      wr_free(job->bytecode);
+      job->bytecode = nullptr;
+    }
+    job->byteLen = 0;
+    job->result = WR_ERR_malloc_failed;
+  }
+#endif
   xSemaphoreGive(job->done);
   vTaskDelete(nullptr);
 }
@@ -638,6 +649,8 @@ static bool wrenchCompileSource(const String& userCode, unsigned char** bytecode
   }
   uint32_t freeHeap = ESP.getFreeHeap();
   uint32_t maxAlloc = ESP.getMaxAllocHeap();
+  uint32_t bestFreeHeap = freeHeap;
+  uint32_t bestMaxAlloc = maxAlloc;
   uint32_t minFreeHeap = P1_EMBED_WRENCH_COMPILE_MIN_FREE_HEAP;
   uint32_t minMaxAlloc = P1_EMBED_WRENCH_COMPILE_MIN_MAX_ALLOC;
   if (userCode.length() >= P1_EMBED_WRENCH_LARGE_SCRIPT_BYTES) {
@@ -653,9 +666,22 @@ static bool wrenchCompileSource(const String& userCode, unsigned char** bytecode
     }
   }
   if (freeHeap < minFreeHeap || maxAlloc < minMaxAlloc) {
+    uint32_t start = millis();
+    while ((uint32_t)(millis() - start) < P1_EMBED_WRENCH_COMPILE_HEAP_SETTLE_MS) {
+      delay(50);
+      freeHeap = ESP.getFreeHeap();
+      maxAlloc = ESP.getMaxAllocHeap();
+      if (freeHeap > bestFreeHeap) bestFreeHeap = freeHeap;
+      if (maxAlloc > bestMaxAlloc) bestMaxAlloc = maxAlloc;
+      if (freeHeap >= minFreeHeap && maxAlloc >= minMaxAlloc) break;
+    }
+  }
+  if (freeHeap < minFreeHeap || maxAlloc < minMaxAlloc) {
     errOut = "not enough contiguous heap to compile safely";
     String details = "\"freeHeap\":" + String(freeHeap);
     details += ",\"maxAllocHeap\":" + String(maxAlloc);
+    details += ",\"bestFreeHeap\":" + String(bestFreeHeap);
+    details += ",\"bestMaxAllocHeap\":" + String(bestMaxAlloc);
     details += ",\"minFreeHeap\":" + String(minFreeHeap);
     details += ",\"minMaxAllocHeap\":" + String(minMaxAlloc);
     details += ",\"scriptBytes\":" + String(userCode.length());

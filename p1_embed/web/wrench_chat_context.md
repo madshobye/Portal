@@ -16,6 +16,7 @@ Help write Wrench scripts for the P1E ESP32 classic firmware. Prefer complete sk
 - `if`, `else if`, `else`, `while`, and common C-style operators are supported.
 - String literals use double quotes. Escape embedded quotes in JSON strings: `"{\"ok\":true}"`.
 - Arrays can be built with `values[] = { 1, 2, 3 };` in normal Wrench syntax. P1E JSON helpers are for JSON text fields, not temporary data structures in animation loops.
+- Declare temporary loop variables at the top of the function, then assign them inside `while` and `if` blocks. Avoid `var` declarations inside tight loops or nested blocks, especially in LED animation render functions.
 - Single-line `//` comments and block comments are supported.
 - Wrench has a `yield()` concept in the engine, but P1E scripts should normally use `loop()` plus short delays instead of blocking forever.
 
@@ -56,6 +57,7 @@ MQTT uses one binary command/response/event path and one plain text script path:
 - A missing `;` can make the compiler point at the next line instead of the true source.
 - Unclosed strings, especially JSON strings, can shift the reported error far from the typo.
 - Prefer `while (i < count) { ... i = i + 1; }`; forgetting the increment can hang script logic.
+- Declare scratch variables before the loop: `var i = 0; var x = 0; var v = 0; while (...) { x = ...; v = ...; }`. Do not create new `var` variables inside the loop body.
 - Avoid long blocking loops in `setup()` or `loop()`. Communication and status updates should keep breathing.
 - Very large scripts can fail if contiguous heap is too fragmented. Keep big static JSON samples short when possible.
 - For HTTP weather/API scripts, WiFi must be connected before `httpGet()`.

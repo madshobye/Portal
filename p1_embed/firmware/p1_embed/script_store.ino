@@ -178,6 +178,7 @@ const char* scriptStoreRunStateName(uint8_t state) {
     case P1_EMBED_SCRIPT_RUN_PENDING_NEW: return "pending_new";
     case P1_EMBED_SCRIPT_RUN_PENDING_TRIED: return "pending_tried";
     case P1_EMBED_SCRIPT_RUN_OK: return "ok";
+    case P1_EMBED_SCRIPT_RUN_STOPPED: return "stopped";
   }
   return "unknown";
 }

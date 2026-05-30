@@ -1721,6 +1721,14 @@ public:
 			unsigned char* buf = m_buf;
 			m_bufLen = size + m_len + (m_bufLen * 3)/2;
 			m_buf = (unsigned char *)g_malloc( m_bufLen );
+			if ( !m_buf )
+			{
+#ifdef WRENCH_HANDLE_MALLOC_FAIL
+				g_mallocFailed = true;
+#endif
+				m_buf = buf;
+				return *this;
+			}
 			if ( m_len )
 			{
 				memcpy( m_buf, buf, m_len );
@@ -9343,15 +9351,6 @@ void WRCompilationContext::FinalizeStatementBytecode( WRUnitContext& unit, WRByt
 	WROverwriteStoreInfo currentStore;
 	bool haveCurrentStore = wr_findLastStatementOverwriteStore( statementBytecode, currentStore );
 
-	if ( haveCurrentStore
-		 && unit.lastStatementOverwriteStore.valid
-		 && unit.lastStatementOverwriteStore.global == currentStore.global
-		 && unit.lastStatementOverwriteStore.index == currentStore.index
-		 && (unit.lastStatementOverwriteStore.offset + unit.lastStatementOverwriteStore.length) == unit.bytecode.all.size() )
-	{
-		unit.bytecode.all.shave( unit.lastStatementOverwriteStore.length );
-	}
-
 	unit.bytecode.opcodes.clear();
 
 	unsigned int statementOffset = unit.bytecode.all.size();
@@ -10657,7 +10656,20 @@ static void dumpStack( const WRValue* bottom, const WRValue* top )
 */
 //#define DEBUG_PER_INSTRUCTION { printf( "%s\n", c_opcodeName[(int)*pc] ); }
 
-#define DEBUG_PER_INSTRUCTION
+	#define DEBUG_PER_INSTRUCTION
+
+	static inline bool wr_dispatchValueSafe( const WRValue* value )
+	{
+		if ( !value || value->type > WR_EX )
+		{
+			return false;
+		}
+		if ( value->type == WR_REF )
+		{
+			return value->r && value->r->type <= WR_EX;
+		}
+		return true;
+	}
 
 //------------------------------------------------------------------------------
 #ifdef WRENCH_PROTECT_STACK_FROM_OVERFLOW
@@ -10665,6 +10677,8 @@ static void dumpStack( const WRValue* bottom, const WRValue* top )
 #else
 #define CHECK_STACK
 #endif
+
+#define CHECK_BINARY_DISPATCH(a, b) { if ( !wr_dispatchValueSafe(a) || !wr_dispatchValueSafe(b) ) { w->err = WR_ERR_bad_expression; return 0; } }
 
 //------------------------------------------------------------------------------
 #ifdef WRENCH_HANDLE_MALLOC_FAIL
@@ -11540,8 +11554,8 @@ callFunction:
 				// initialize locals to int zero
 				for( int l=0; l<function->frameSpaceNeeded; ++l )
 				{
-					(stackTop++)->p2 = INIT_AS_INT;
 					stackTop->p = 0;
+					(stackTop++)->p2 = INIT_AS_INT;
 				}
 			
 				// temp value contains return vector/frame base
@@ -13606,12 +13620,13 @@ CompareGG8:
 			CASE(BinaryXORSkipLoad): { targetFunc = wr_XORBinary; goto targetFuncOpSkipLoad; }
 			CASE(BinaryModSkipLoad):
 			{
-				targetFunc = wr_ModBinary;
-targetFuncOpSkipLoad:
-				targetFunc[(register1->type<<2)|register0->type]( register1, register0, stackTop++ );
-				CHECK_STACK;
-				CONTINUE;
-			}
+					targetFunc = wr_ModBinary;
+	targetFuncOpSkipLoad:
+					CHECK_BINARY_DISPATCH(register1, register0);
+					targetFunc[(register1->type<<2)|register0->type]( register1, register0, stackTop++ );
+					CHECK_STACK;
+					CONTINUE;
+				}
 			
 			CASE(BinaryMultiplication): { targetFunc = wr_MultiplyBinary; goto targetFuncOp; }
 			CASE(BinarySubtraction): { targetFunc = wr_SubtractBinary; goto targetFuncOp; }
@@ -13625,12 +13640,13 @@ targetFuncOpSkipLoad:
 			CASE(BinaryAddition):
 			{
 				targetFunc = wr_AdditionBinary;
-targetFuncOp:
-				register1 = --stackTop;
-				register0 = stackTop - 1;
-				targetFunc[(register1->type<<2)|register0->type]( register1, register0, register0 );
+	targetFuncOp:
+					register1 = --stackTop;
+					register0 = stackTop - 1;
+					CHECK_BINARY_DISPATCH(register1, register0);
+					targetFunc[(register1->type<<2)|register0->type]( register1, register0, register0 );
 #ifdef WRENCH_TRAP_DIVISION_BY_ZERO
-				if ( IS_INVALID(register0->p2) )
+					if ( IS_INVALID(register0->p2) )
 				{
 					w->err = WR_ERR_division_by_zero;
 					return 0;
@@ -13652,12 +13668,13 @@ targetFuncOp:
 			CASE(Assign):
 			{
 				voidFunc = wr_assign;
-binaryTableOp:	
-				register0 = --stackTop;
-				register1 = stackTop - 1;
-				voidFunc[(register0->type<<2)|register1->type]( register0, register1 );
+	binaryTableOp:	
+					register0 = --stackTop;
+					register1 = stackTop - 1;
+					CHECK_BINARY_DISPATCH(register0, register1);
+					voidFunc[(register0->type<<2)|register1->type]( register0, register1 );
 #ifdef WRENCH_TRAP_DIVISION_BY_ZERO
-				if ( IS_INVALID(register0->p2) )
+					if ( IS_INVALID(register0->p2) )
 				{
 					w->err = WR_ERR_division_by_zero;
 					return 0;
@@ -13680,12 +13697,13 @@ binaryTableOp:
 			{
 				voidFunc = wr_assign;
 				
-binaryTableOpAndPop:
-				register0 = --stackTop;
-				register1 = --stackTop;
-				voidFunc[(register0->type<<2)|register1->type]( register0, register1 );
+	binaryTableOpAndPop:
+					register0 = --stackTop;
+					register1 = --stackTop;
+					CHECK_BINARY_DISPATCH(register0, register1);
+					voidFunc[(register0->type<<2)|register1->type]( register0, register1 );
 #ifdef WRENCH_TRAP_DIVISION_BY_ZERO
-				if ( IS_INVALID(register0->p2) )
+					if ( IS_INVALID(register0->p2) )
 				{
 					w->err = WR_ERR_division_by_zero;
 					return 0;
@@ -13701,12 +13719,13 @@ binaryTableOpAndPop:
 			{
 				targetFunc = wr_DivideBinary;
 				
-targetFuncStoreGlobalOp:
-				register1 = --stackTop;
-				register0 = --stackTop;
+	targetFuncStoreGlobalOp:
+					register1 = --stackTop;
+					register0 = --stackTop;
+					CHECK_BINARY_DISPATCH(register1, register0);
 #ifdef WRENCH_TRAP_DIVISION_BY_ZERO
-				WRValue* T = globalSpace + READ_8_FROM_PC(pc++);
-				targetFunc[(register1->type<<2)|register0->type]( register1, register0, T );
+					WRValue* T = globalSpace + READ_8_FROM_PC(pc++);
+					targetFunc[(register1->type<<2)|register0->type]( register1, register0, T );
 				if ( IS_INVALID(T->p2) )
 				{
 					w->err = WR_ERR_division_by_zero;
@@ -13725,12 +13744,13 @@ targetFuncStoreGlobalOp:
 			{
 				targetFunc = wr_DivideBinary;
 				
-targetFuncStoreLocalOp:
-				register1 = --stackTop;
-				register0 = --stackTop;
+	targetFuncStoreLocalOp:
+					register1 = --stackTop;
+					register0 = --stackTop;
+					CHECK_BINARY_DISPATCH(register1, register0);
 #ifdef WRENCH_TRAP_DIVISION_BY_ZERO
-				WRValue* T = frameBase + READ_8_FROM_PC(pc++);
-				targetFunc[(register1->type<<2)|register0->type]( register1, register0, T );
+					WRValue* T = frameBase + READ_8_FROM_PC(pc++);
+					targetFunc[(register1->type<<2)|register0->type]( register1, register0, T );
 				if ( IS_INVALID(T->p2) )
 				{
 					w->err = WR_ERR_division_by_zero;

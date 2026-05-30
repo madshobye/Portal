@@ -1,4 +1,4 @@
-export const P1_MSGPACK_VERSION = "0.1.87-ui188";
+export const P1_MSGPACK_VERSION = "0.1.87-ui197";
 
 const FRAME_CMD = 0;
 const FRAME_RES = 1;
@@ -81,11 +81,11 @@ function encodeConfigSet(id, op, data = {}) {
   writer.bool(Boolean(data.mqttAllowAnonymousUi));
   writer.bool(Object.prototype.hasOwnProperty.call(data, "mqttAllowAnonymousScript"));
   writer.bool(Boolean(data.mqttAllowAnonymousScript));
-  writer.bool(Object.prototype.hasOwnProperty.call(data, "mqttAuthUsername") && Object.prototype.hasOwnProperty.call(data, "mqttAuthKey"));
-  writer.string(data.mqttAuthUsername || "");
-  writer.string(data.mqttAuthKey || "");
-  writer.bool(Object.prototype.hasOwnProperty.call(data, "mqttAuthUserRemove"));
-  writer.string(data.mqttAuthUserRemove || "");
+  writer.bool(Object.prototype.hasOwnProperty.call(data, "onlineAuthUsername") && Object.prototype.hasOwnProperty.call(data, "onlineAuthKey"));
+  writer.string(data.onlineAuthUsername || "");
+  writer.string(data.onlineAuthKey || "");
+  writer.bool(Object.prototype.hasOwnProperty.call(data, "onlineAuthUserRemove"));
+  writer.string(data.onlineAuthUserRemove || "");
   return writer.bytes();
 }
 
@@ -159,7 +159,7 @@ function encodeScriptChunkGet(id, op, data = {}) {
 export function decodeFrame(bytesLike) {
   const reader = new MsgPackReader(bytesLike);
   const count = reader.array();
-  if (count < 3) throw new Error("MessagePack frame is too short");
+  if (count < 2) throw new Error("MessagePack frame is too short");
   const frameType = reader.uint();
   if (frameType === FRAME_BATCH) {
     const frameCount = reader.array();
@@ -168,6 +168,7 @@ export function decodeFrame(bytesLike) {
     return { type: "batch", frames };
   }
   if (frameType === FRAME_EVT) {
+    if (count < 3) throw new Error("MessagePack event frame is too short");
     const name = reader.value();
     const data = reader.value();
     return { type: "evt", name: String(name || ""), data: data || {} };

@@ -169,6 +169,10 @@ static P1StatusSnapshot protocolStatusSnapshot() {
 
 static String protocolScriptSnapshotJson(const P1ScriptSnapshot& snapshot, bool includeCode, bool includeMetrics) {
   String out = "{";
+  size_t reserveBytes = 128;
+  if (includeCode) reserveBytes += snapshot.code.length() + 64;
+  if (includeMetrics) reserveBytes += 96;
+  out.reserve(reserveBytes);
   bool first = true;
   if (includeCode) {
     out += "\"code\":" + jsonString(snapshot.code);
@@ -403,8 +407,7 @@ void protocolEmitMsgPackEventFields(const char* name, const char* level, const c
     capacity += protocolEventFieldPayloadBytes(fields[i]);
   }
   capacity = min((size_t)P1_EMBED_WEBRTC_SEND_MAX_BYTES, max((size_t)160, capacity));
-  uint8_t stackFrame[512];
-  uint8_t* frame = capacity <= sizeof(stackFrame) ? stackFrame : static_cast<uint8_t*>(malloc(capacity));
+  uint8_t* frame = static_cast<uint8_t*>(malloc(capacity));
   if (!frame) return;
 
   P1MsgPackWriter w(frame, capacity);
@@ -416,7 +419,7 @@ void protocolEmitMsgPackEventFields(const char* name, const char* level, const c
     protocolMsgPackWriteEventField(w, fields[i]);
   }
   if (w.ok) protocolSendMsgPackBytes(frame, w.length);
-  if (frame != stackFrame) free(frame);
+  free(frame);
 }
 
 void protocolEmitEventFields(const char* name, const P1EventField* fields, size_t fieldCount) {
@@ -586,7 +589,7 @@ bool protocolHandleScriptSetCode(const String& id, const String& code, bool runA
       }
       return false;
     }
-    scriptStoreSaveRunState(runAfterSet ? P1_EMBED_SCRIPT_RUN_PENDING_NEW : P1_EMBED_SCRIPT_RUN_OK);
+    scriptStoreSaveRunState(runAfterSet ? P1_EMBED_SCRIPT_RUN_PENDING_NEW : P1_EMBED_SCRIPT_RUN_STOPPED);
     P1EventField fields[] = {
       p1FieldString("runState", scriptStoreRunStateName(scriptStoreLoadRunState())),
     };
@@ -811,7 +814,7 @@ static void protocolSendMsgPackStatusLight(uint32_t id) {
   w.writeUInt(P1_MP_FRAME_RES);
   w.writeUInt(id);
   w.writeBool(true);
-  w.writeMap(13);
+  w.writeMap(14);
   w.writeString("uptimeMs"); w.writeUInt(snapshot.uptimeMs);
   w.writeString("heapSize"); w.writeUInt(snapshot.heapSize);
   w.writeString("freeHeap"); w.writeUInt(snapshot.freeHeap);
@@ -825,6 +828,20 @@ static void protocolSendMsgPackStatusLight(uint32_t id) {
   w.writeString("deviceName"); w.writeString(snapshot.deviceName);
   w.writeString("protocol"); w.writeString("msgpack.v0_2");
   w.writeString("wifi"); protocolMsgPackWriteWifi(w, snapshot.wifi);
+  w.writeString("lastError");
+  if (!snapshot.lastError.hasError) {
+    w.writeMap(2);
+    w.writeString("hasError"); w.writeBool(false);
+    w.writeString("count"); w.writeUInt(snapshot.lastError.count);
+  } else {
+    w.writeMap(6);
+    w.writeString("hasError"); w.writeBool(true);
+    w.writeString("phase"); w.writeString(snapshot.lastError.phase);
+    w.writeString("code"); w.writeString(snapshot.lastError.code);
+    w.writeString("message"); w.writeString(snapshot.lastError.message);
+    w.writeString("atMs"); w.writeUInt(snapshot.lastError.atMs);
+    w.writeString("count"); w.writeUInt(snapshot.lastError.count);
+  }
   if (w.ok) protocolSendMsgPackBytes(frame, w.length);
   else protocolSendMsgPackError(id, "frame_too_large", "status.light response is too large");
   free(frame);
@@ -905,12 +922,12 @@ static void protocolSendMsgPackConfig(uint32_t id) {
   w.writeString("mqttEnabled"); w.writeBool(snapshot.mqttEnabled);
   w.writeString("mqttAllowAnonymousUi"); w.writeBool(snapshot.mqttAllowAnonymousUi);
   w.writeString("mqttAllowAnonymousScript"); w.writeBool(snapshot.mqttAllowAnonymousScript);
-  w.writeString("mqttAuthUserCount"); w.writeUInt(snapshot.mqttAuthUserCount);
-  w.writeString("mqttAuthUsers");
-  w.writeArray(snapshot.mqttAuthUserCount);
-  for (int i = 0; i < snapshot.mqttAuthUserCount; i++) {
+  w.writeString("onlineAuthUserCount"); w.writeUInt(snapshot.onlineAuthUserCount);
+  w.writeString("onlineAuthUsers");
+  w.writeArray(snapshot.onlineAuthUserCount);
+  for (int i = 0; i < snapshot.onlineAuthUserCount; i++) {
     w.writeMap(1);
-    w.writeString("username"); w.writeString(configMqttAuthUserNameAt(i));
+    w.writeString("username"); w.writeString(configOnlineAuthUserNameAt(i));
   }
   w.writeString("wifiNetworks");
   w.writeArray(snapshot.wifiNetworkCount);
@@ -1218,8 +1235,8 @@ void protocolHandleBytes(const uint8_t* data, size_t len) {
     bool hasMqttEnabled = false;
     bool hasMqttAllowAnonymousUi = false;
     bool hasMqttAllowAnonymousScript = false;
-    bool hasMqttAuthUserAdd = false;
-    bool hasMqttAuthUserRemove = false;
+    bool hasOnlineAuthUserAdd = false;
+    bool hasOnlineAuthUserRemove = false;
     String deviceName;
     String wifiSsid;
     String wifiPassword;
@@ -1228,9 +1245,9 @@ void protocolHandleBytes(const uint8_t* data, size_t len) {
     String mqttRoot;
     String mqttUser;
     String mqttPassword;
-    String mqttAuthUsername;
-    String mqttAuthKeyHex;
-    String mqttAuthUserRemove;
+    String onlineAuthUsername;
+    String onlineAuthKeyHex;
+    String onlineAuthUserRemove;
     bool mqttEnabled = true;
     bool mqttAllowAnonymousUi = false;
     bool mqttAllowAnonymousScript = false;
@@ -1259,10 +1276,10 @@ void protocolHandleBytes(const uint8_t* data, size_t len) {
       }
     }
     if (count >= 31) {
-      if (!r.readBool(hasMqttAuthUserAdd) || !r.readString(mqttAuthUsername) ||
-          !r.readString(mqttAuthKeyHex) ||
-          !r.readBool(hasMqttAuthUserRemove) || !r.readString(mqttAuthUserRemove)) {
-        protocolSendMsgPackError(id, "bad_config_frame", "config.set MQTT auth user fields are malformed");
+      if (!r.readBool(hasOnlineAuthUserAdd) || !r.readString(onlineAuthUsername) ||
+          !r.readString(onlineAuthKeyHex) ||
+          !r.readBool(hasOnlineAuthUserRemove) || !r.readString(onlineAuthUserRemove)) {
+        protocolSendMsgPackError(id, "bad_config_frame", "config.set online auth user fields are malformed");
         return;
       }
     }
@@ -1318,16 +1335,16 @@ void protocolHandleBytes(const uint8_t* data, size_t len) {
       configSetMqttAllowAnonymousScript(mqttAllowAnonymousScript);
       changed = true;
     }
-    if (hasMqttAuthUserAdd) {
-      if (!configAddMqttAuthUserKey(mqttAuthUsername, mqttAuthKeyHex)) {
-        protocolSendMsgPackError(id, "bad_mqtt_user", "Invalid MQTT user or key");
+    if (hasOnlineAuthUserAdd) {
+      if (!configAddOnlineAuthUserKey(onlineAuthUsername, onlineAuthKeyHex)) {
+        protocolSendMsgPackError(id, "bad_online_user", "Invalid online user or key");
         return;
       }
       changed = true;
       mqttChanged = true;
     }
-    if (hasMqttAuthUserRemove) {
-      configRemoveMqttAuthUser(mqttAuthUserRemove);
+    if (hasOnlineAuthUserRemove) {
+      configRemoveOnlineAuthUser(onlineAuthUserRemove);
       changed = true;
       mqttChanged = true;
     }
@@ -1512,9 +1529,9 @@ void protocolHandleLine(const char* line) {
     String mqttRoot;
     String mqttUser;
     String mqttPassword;
-    String mqttAuthUsername;
-    String mqttAuthKeyHex;
-    String mqttAuthUserRemove;
+    String onlineAuthUsername;
+    String onlineAuthKeyHex;
+    String onlineAuthUserRemove;
     int mqttPort = 0;
     bool mqttEnabled = true;
     bool mqttAllowAnonymousUi = false;
@@ -1571,17 +1588,17 @@ void protocolHandleLine(const char* line) {
       configSetMqttAllowAnonymousScript(mqttAllowAnonymousScript);
       changed = true;
     }
-    if (jsonGetString(line, "mqttAuthUsername", mqttAuthUsername) &&
-        jsonGetString(line, "mqttAuthKey", mqttAuthKeyHex)) {
-      if (!configAddMqttAuthUserKey(mqttAuthUsername, mqttAuthKeyHex)) {
-        protocolSendResponseError(id, "bad_mqtt_user", "Invalid MQTT user or key");
+    if (jsonGetString(line, "onlineAuthUsername", onlineAuthUsername) &&
+        jsonGetString(line, "onlineAuthKey", onlineAuthKeyHex)) {
+      if (!configAddOnlineAuthUserKey(onlineAuthUsername, onlineAuthKeyHex)) {
+        protocolSendResponseError(id, "bad_online_user", "Invalid online user or key");
         return;
       }
       changed = true;
       mqttChanged = true;
     }
-    if (jsonGetString(line, "mqttAuthUserRemove", mqttAuthUserRemove)) {
-      configRemoveMqttAuthUser(mqttAuthUserRemove);
+    if (jsonGetString(line, "onlineAuthUserRemove", onlineAuthUserRemove)) {
+      configRemoveOnlineAuthUser(onlineAuthUserRemove);
       changed = true;
       mqttChanged = true;
     }
@@ -1635,7 +1652,42 @@ void protocolHandleLine(const char* line) {
     protocolSendResponseError(id, "wrench_disabled", "Wrench is disabled in this WebRTC lab firmware");
   } else if (name == "script.get") {
     String code = wrenchCurrentScript();
-    protocolSendResponseOk(id, protocolScriptSnapshotJson(protocolScriptSnapshot(&code), true, false));
+    String response = protocolScriptSnapshotJson(protocolScriptSnapshot(&code), true, false);
+    if (response.length() < code.length()) {
+      protocolSendResponseError(id, "no_heap", "No heap for script.get response; use script.chunk.get");
+      return;
+    }
+    protocolSendResponseOk(id, response);
+  } else if (name == "script.chunk.get") {
+    int offset = 0;
+    int maxBytes = 512;
+    jsonGetInt(line, "offset", offset);
+    jsonGetInt(line, "maxBytes", maxBytes);
+    if (offset < 0) offset = 0;
+    if (maxBytes <= 0 || maxBytes > 1024) maxBytes = 512;
+    String code = wrenchCurrentScript();
+    if (offset > (int)code.length()) {
+      protocolSendResponseError(id, "bad_offset", "script.chunk.get offset is beyond stored script");
+      return;
+    }
+    int nextOffset = offset + maxBytes;
+    if (nextOffset > (int)code.length()) nextOffset = code.length();
+    String chunk = code.substring(offset, nextOffset);
+    String response;
+    response.reserve(chunk.length() + 160);
+    response += "{\"offset\":" + String(offset);
+    response += ",\"nextOffset\":" + String(nextOffset);
+    response += ",\"scriptBytes\":" + String(code.length());
+    response += ",\"done\":" + String(nextOffset >= (int)code.length() ? "true" : "false");
+    response += ",\"chunk\":" + jsonString(chunk);
+    response += ",\"state\":" + jsonString(wrenchStateName());
+    response += ",\"runState\":" + jsonString(scriptStoreRunStateName(scriptStoreLoadRunState()));
+    response += "}";
+    if (response.length() < chunk.length()) {
+      protocolSendResponseError(id, "no_heap", "No heap for script.chunk.get response");
+      return;
+    }
+    protocolSendResponseOk(id, response);
   } else if (name == "script.set") {
     bool runAfterSet = false;
     bool saveAfterSet = false;
@@ -1680,7 +1732,7 @@ void protocolHandleLine(const char* line) {
     }
     bool autorun = true;
     jsonGetBool(line, "autorun", autorun);
-    scriptStoreSaveRunState(autorun ? P1_EMBED_SCRIPT_RUN_PENDING_NEW : P1_EMBED_SCRIPT_RUN_OK);
+    scriptStoreSaveRunState(autorun ? P1_EMBED_SCRIPT_RUN_PENDING_NEW : P1_EMBED_SCRIPT_RUN_STOPPED);
     protocolSendResponseOk(id, protocolScriptMetaJson(code, "saved"));
   } else if (name == "script.clear") {
     if (!scriptStoreClear()) {
@@ -1715,16 +1767,19 @@ void protocolHandleLine(const char* line) {
         return;
       }
     }
+    if (scriptStoreHasSaved()) scriptStoreSaveRunState(P1_EMBED_SCRIPT_RUN_PENDING_NEW);
     wrenchRequestRun();
     protocolSendResponseOk(id, "{\"state\":\"run_pending\",\"scriptBytes\":" + String(code.length()) + ",\"scriptHash\":" + String(protocolFnv1a(code)) + "}");
   } else if (name == "script.stop") {
     wrenchStop();
-    protocolSendResponseOk(id, "{\"state\":\"stopped\"}");
+    if (scriptStoreHasSaved()) scriptStoreSaveRunState(P1_EMBED_SCRIPT_RUN_STOPPED);
+    protocolSendResponseOk(id, "{\"state\":\"stopped\",\"runState\":\"stopped\"}");
   } else if (name == "script.restart") {
     if (wrenchCurrentScript().length() == 0) {
       protocolSendResponseError(id, "no_script", "No compiled script is available");
       return;
     }
+    if (scriptStoreHasSaved()) scriptStoreSaveRunState(P1_EMBED_SCRIPT_RUN_PENDING_NEW);
     wrenchRequestRun();
     protocolSendResponseOk(id, "{\"state\":\"run_pending\"}");
   } else if (name == "device.reboot") {

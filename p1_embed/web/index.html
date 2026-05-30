@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>P1E</title>
     <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@24,400,0,0">
-    <link rel="stylesheet" href="style.css?v=0.1.87-ui188">
+    <link rel="stylesheet" href="style.css?v=0.1.87-ui197">
   </head>
   <body>
     <main id="app">
@@ -248,8 +248,7 @@
           <div id="wifi-network-list" class="wifi-network-list"></div>
         </section>
         <section class="settings-access">
-          <div class="settings-subhead">Access</div>
-          <div class="settings-toggle-grid">
+          <div class="settings-toggle-grid settings-toggle-row">
             <label class="field compact-check">
               <span>Guest UI</span>
               <input id="access-guest-ui" type="checkbox">
@@ -258,16 +257,13 @@
               <span>Guest script</span>
               <input id="access-guest-script" type="checkbox">
             </label>
-          </div>
-        </section>
-        <section class="settings-mqtt">
-          <div class="settings-subhead">MQTT</div>
-          <div class="settings-toggle-grid settings-toggle-grid-single">
             <label class="field compact-check">
-              <span>Enabled</span>
+              <span>MQTT</span>
               <input id="mqtt-enabled" type="checkbox">
             </label>
           </div>
+        </section>
+        <section class="settings-mqtt">
           <div class="settings-mqtt-grid">
             <label class="field">
               <span>Host</span>
@@ -291,18 +287,18 @@
             </label>
             <button id="mqtt-save-button" class="button primary settings-save-button" type="button" title="Save access and MQTT settings" aria-label="Save access and MQTT settings">Save</button>
           </div>
-          <div class="settings-subhead">MQTT sign-in users</div>
-          <div id="mqtt-auth-list" class="wifi-network-list"></div>
+          <div class="settings-subhead">Online sign-in users</div>
+          <div id="online-auth-list" class="wifi-network-list"></div>
           <div class="settings-mqtt-grid">
             <label class="field">
               <span>Username</span>
-              <input id="mqtt-auth-username" type="text" autocomplete="username" spellcheck="false">
+              <input id="online-auth-username" type="text" autocomplete="username" spellcheck="false">
             </label>
             <label class="field">
               <span>Password</span>
-              <input id="mqtt-auth-password" type="password" autocomplete="new-password">
+              <input id="online-auth-password" type="password" autocomplete="new-password">
             </label>
-            <button id="mqtt-auth-add-button" class="button primary icon-buttonish" type="button" title="Add MQTT user" aria-label="Add MQTT user"><span class="material-symbols-rounded">person_add</span></button>
+            <button id="online-auth-add-button" class="button primary icon-buttonish" type="button" title="Add online user" aria-label="Add online user"><span class="material-symbols-rounded">person_add</span></button>
           </div>
         </section>
       </form>
@@ -351,6 +347,6 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.9.4/p5.min.js" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
     <script src="../../P1/portal/usbSerial.js"></script>
     <script src="../../P1/portal/qrCodeGen.js"></script>
-    <script type="module" src="app.js?v=0.1.87-ui188"></script>
+    <script type="module" src="app.js?v=0.1.87-ui197"></script>
   </body>
 </html>

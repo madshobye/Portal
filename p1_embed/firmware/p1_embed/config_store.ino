@@ -18,9 +18,9 @@ static String g_mqttPassword = "";
 static bool g_mqttEnabled = true;
 static bool g_mqttAllowAnonymousUi = false;
 static bool g_mqttAllowAnonymousScript = false;
-static String g_mqttAuthUsernames[P1_EMBED_MQTT_MAX_USERS];
-static String g_mqttAuthUserKeys[P1_EMBED_MQTT_MAX_USERS];
-static int g_mqttAuthUserCount = 0;
+static String g_onlineAuthUsernames[P1_EMBED_MQTT_MAX_USERS];
+static String g_onlineAuthUserKeys[P1_EMBED_MQTT_MAX_USERS];
+static int g_onlineAuthUserCount = 0;
 static bool g_configFsReady = false;
 
 static bool configEnsureFs() {
@@ -149,17 +149,17 @@ static bool configHexToBytes(const String& hex, uint8_t* out, size_t outLen) {
   return true;
 }
 
-static int configFindMqttAuthUser(const String& username) {
-  for (int i = 0; i < g_mqttAuthUserCount; i++) {
-    if (g_mqttAuthUsernames[i] == username) return i;
+static int configFindOnlineAuthUser(const String& username) {
+  for (int i = 0; i < g_onlineAuthUserCount; i++) {
+    if (g_onlineAuthUsernames[i] == username) return i;
   }
   return -1;
 }
 
-static int configFindMqttAuthUser(const char* username) {
+static int configFindOnlineAuthUser(const char* username) {
   if (!username || !username[0]) return -1;
-  for (int i = 0; i < g_mqttAuthUserCount; i++) {
-    if (strcmp(g_mqttAuthUsernames[i].c_str(), username) == 0) return i;
+  for (int i = 0; i < g_onlineAuthUserCount; i++) {
+    if (strcmp(g_onlineAuthUsernames[i].c_str(), username) == 0) return i;
   }
   return -1;
 }
@@ -232,14 +232,15 @@ static void configLoadWifiNetworks(const String& json) {
   }
 }
 
-static void configLoadMqttAuthUsers(const String& json) {
-  g_mqttAuthUserCount = 0;
-  int arrayPos = json.indexOf("\"mqttAuthUsers\"");
+static void configLoadOnlineAuthUsers(const String& json) {
+  g_onlineAuthUserCount = 0;
+  int arrayPos = json.indexOf("\"onlineAuthUsers\"");
+  if (arrayPos < 0) arrayPos = json.indexOf("\"mqttAuthUsers\"");
   if (arrayPos < 0) return;
 
   int arrayEnd = json.indexOf(']', arrayPos);
   int pos = json.indexOf('{', arrayPos);
-  while (pos >= 0 && (arrayEnd < 0 || pos < arrayEnd) && g_mqttAuthUserCount < P1_EMBED_MQTT_MAX_USERS) {
+  while (pos >= 0 && (arrayEnd < 0 || pos < arrayEnd) && g_onlineAuthUserCount < P1_EMBED_MQTT_MAX_USERS) {
     int end = json.indexOf('}', pos);
     if (end < 0 || (arrayEnd >= 0 && end > arrayEnd)) break;
 
@@ -251,10 +252,10 @@ static void configLoadMqttAuthUsers(const String& json) {
       keyHex.trim();
       uint8_t key[32];
       if (username.length() && configHexToBytes(keyHex, key, sizeof(key))) {
-        g_mqttAuthUsernames[g_mqttAuthUserCount] = username;
-        g_mqttAuthUserKeys[g_mqttAuthUserCount] = keyHex;
-        g_mqttAuthUserKeys[g_mqttAuthUserCount].toLowerCase();
-        g_mqttAuthUserCount++;
+        g_onlineAuthUsernames[g_onlineAuthUserCount] = username;
+        g_onlineAuthUserKeys[g_onlineAuthUserCount] = keyHex;
+        g_onlineAuthUserKeys[g_onlineAuthUserCount].toLowerCase();
+        g_onlineAuthUserCount++;
       }
     }
 
@@ -308,7 +309,7 @@ void configLoad() {
     else changed = true;
     configApplyIdentityDefaults();
     configLoadWifiNetworks(json);
-    configLoadMqttAuthUsers(json);
+    configLoadOnlineAuthUsers(json);
     int port = 0;
     if (configJsonGetString(json, "mqttHost", value)) g_mqttHost = value;
     else changed = true;
@@ -352,11 +353,11 @@ void configSave() {
   json += ",\"mqttEnabled\":" + String(configMqttEnabled() ? "true" : "false");
   json += ",\"mqttAllowAnonymousUi\":" + String(configMqttAllowAnonymousUi() ? "true" : "false");
   json += ",\"mqttAllowAnonymousScript\":" + String(configMqttAllowAnonymousScript() ? "true" : "false");
-  json += ",\"mqttAuthUsers\":[";
-  for (int i = 0; i < g_mqttAuthUserCount; i++) {
+  json += ",\"onlineAuthUsers\":[";
+  for (int i = 0; i < g_onlineAuthUserCount; i++) {
     if (i) json += ",";
-    json += "{\"username\":" + jsonString(g_mqttAuthUsernames[i]);
-    json += ",\"key\":" + jsonString(g_mqttAuthUserKeys[i]) + "}";
+    json += "{\"username\":" + jsonString(g_onlineAuthUsernames[i]);
+    json += ",\"key\":" + jsonString(g_onlineAuthUserKeys[i]) + "}";
   }
   json += "]";
   json += ",\"wifiNetworks\":[";
@@ -395,10 +396,10 @@ void configFactoryReset() {
   g_mqttEnabled = true;
   g_mqttAllowAnonymousUi = false;
   g_mqttAllowAnonymousScript = false;
-  g_mqttAuthUserCount = 0;
+  g_onlineAuthUserCount = 0;
   for (int i = 0; i < P1_EMBED_MQTT_MAX_USERS; i++) {
-    g_mqttAuthUsernames[i] = "";
-    g_mqttAuthUserKeys[i] = "";
+    g_onlineAuthUsernames[i] = "";
+    g_onlineAuthUserKeys[i] = "";
   }
   for (int i = 0; i < P1_EMBED_MAX_WIFI_NETWORKS; i++) {
     g_wifiSsids[i] = "";
@@ -481,7 +482,7 @@ void configSetMqttAllowAnonymousScript(bool value) {
   g_mqttAllowAnonymousScript = value;
 }
 
-bool configAddMqttAuthUserKey(const String& username, const String& keyHex) {
+bool configAddOnlineAuthUserKey(const String& username, const String& keyHex) {
   String user = username;
   String key = keyHex;
   user.trim();
@@ -490,50 +491,50 @@ bool configAddMqttAuthUserKey(const String& username, const String& keyHex) {
   uint8_t parsed[32];
   if (!user.length() || !configHexToBytes(key, parsed, sizeof(parsed))) return false;
 
-  int index = configFindMqttAuthUser(user);
+  int index = configFindOnlineAuthUser(user);
   if (index < 0) {
-    if (g_mqttAuthUserCount >= P1_EMBED_MQTT_MAX_USERS) return false;
-    index = g_mqttAuthUserCount++;
+    if (g_onlineAuthUserCount >= P1_EMBED_MQTT_MAX_USERS) return false;
+    index = g_onlineAuthUserCount++;
   }
-  g_mqttAuthUsernames[index] = user;
-  g_mqttAuthUserKeys[index] = key;
+  g_onlineAuthUsernames[index] = user;
+  g_onlineAuthUserKeys[index] = key;
   return true;
 }
 
-bool configRemoveMqttAuthUser(const String& username) {
+bool configRemoveOnlineAuthUser(const String& username) {
   String user = username;
   user.trim();
-  int index = configFindMqttAuthUser(user);
+  int index = configFindOnlineAuthUser(user);
   if (index < 0) return false;
-  for (int i = index; i < g_mqttAuthUserCount - 1; i++) {
-    g_mqttAuthUsernames[i] = g_mqttAuthUsernames[i + 1];
-    g_mqttAuthUserKeys[i] = g_mqttAuthUserKeys[i + 1];
+  for (int i = index; i < g_onlineAuthUserCount - 1; i++) {
+    g_onlineAuthUsernames[i] = g_onlineAuthUsernames[i + 1];
+    g_onlineAuthUserKeys[i] = g_onlineAuthUserKeys[i + 1];
   }
-  g_mqttAuthUserCount--;
-  g_mqttAuthUsernames[g_mqttAuthUserCount] = "";
-  g_mqttAuthUserKeys[g_mqttAuthUserCount] = "";
+  g_onlineAuthUserCount--;
+  g_onlineAuthUsernames[g_onlineAuthUserCount] = "";
+  g_onlineAuthUserKeys[g_onlineAuthUserCount] = "";
   return true;
 }
 
-int configMqttAuthUserCount() {
-  return g_mqttAuthUserCount;
+int configOnlineAuthUserCount() {
+  return g_onlineAuthUserCount;
 }
 
-String configMqttAuthUserNameAt(int index) {
-  if (index < 0 || index >= g_mqttAuthUserCount) return "";
-  return g_mqttAuthUsernames[index];
+String configOnlineAuthUserNameAt(int index) {
+  if (index < 0 || index >= g_onlineAuthUserCount) return "";
+  return g_onlineAuthUsernames[index];
 }
 
-bool configMqttAuthUserKey(const String& username, uint8_t outKey[32]) {
-  int index = configFindMqttAuthUser(username);
+bool configOnlineAuthUserKey(const String& username, uint8_t outKey[32]) {
+  int index = configFindOnlineAuthUser(username);
   if (index < 0) return false;
-  return configHexToBytes(g_mqttAuthUserKeys[index], outKey, 32);
+  return configHexToBytes(g_onlineAuthUserKeys[index], outKey, 32);
 }
 
-bool configMqttAuthUserKey(const char* username, uint8_t outKey[32]) {
-  int index = configFindMqttAuthUser(username);
+bool configOnlineAuthUserKey(const char* username, uint8_t outKey[32]) {
+  int index = configFindOnlineAuthUser(username);
   if (index < 0) return false;
-  return configHexToBytes(g_mqttAuthUserKeys[index], outKey, 32);
+  return configHexToBytes(g_onlineAuthUserKeys[index], outKey, 32);
 }
 
 String configWifiSsid() {
@@ -607,7 +608,7 @@ P1ConfigSnapshot configSnapshot() {
   snapshot.mqttEnabled = configMqttEnabled();
   snapshot.mqttAllowAnonymousUi = configMqttAllowAnonymousUi();
   snapshot.mqttAllowAnonymousScript = configMqttAllowAnonymousScript();
-  snapshot.mqttAuthUserCount = configMqttAuthUserCount();
+  snapshot.onlineAuthUserCount = configOnlineAuthUserCount();
   snapshot.wifi = wifiSnapshot();
   return snapshot;
 }
@@ -627,11 +628,11 @@ String configAsJson(const P1ConfigSnapshot& snapshot) {
   out += ",\"mqttEnabled\":" + String(snapshot.mqttEnabled ? "true" : "false");
   out += ",\"mqttAllowAnonymousUi\":" + String(snapshot.mqttAllowAnonymousUi ? "true" : "false");
   out += ",\"mqttAllowAnonymousScript\":" + String(snapshot.mqttAllowAnonymousScript ? "true" : "false");
-  out += ",\"mqttAuthUserCount\":" + String(snapshot.mqttAuthUserCount);
-  out += ",\"mqttAuthUsers\":[";
-  for (int i = 0; i < g_mqttAuthUserCount; i++) {
+  out += ",\"onlineAuthUserCount\":" + String(snapshot.onlineAuthUserCount);
+  out += ",\"onlineAuthUsers\":[";
+  for (int i = 0; i < g_onlineAuthUserCount; i++) {
     if (i) out += ",";
-    out += "{\"username\":" + jsonString(g_mqttAuthUsernames[i]) + "}";
+    out += "{\"username\":" + jsonString(g_onlineAuthUsernames[i]) + "}";
   }
   out += "]";
   out += ",\"wifiNetworks\":[";
