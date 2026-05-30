@@ -1,14 +1,14 @@
-import { ProtocolClient } from "./protocol/ProtocolClient.js?v=0.1.87-ui197";
-import { canEncodeCommand } from "./protocol/P1MsgPack.js?v=0.1.87-ui197";
-import { WebSerialTransport } from "./protocol/WebSerialTransport.js?v=0.1.87-ui197";
+import { ProtocolClient } from "./protocol/ProtocolClient.js?v=0.1.87-ui198";
+import { canEncodeCommand } from "./protocol/P1MsgPack.js?v=0.1.87-ui198";
+import { WebSerialTransport } from "./protocol/WebSerialTransport.js?v=0.1.87-ui198";
 import { WebSocketTransport } from "./protocol/WebSocketTransport.js";
-import { MqttWebRtcTransport, MQTT_WEBRTC_TRANSPORT_VERSION } from "./protocol/MqttWebRtcTransport.js?v=0.1.87-ui197";
-import { MqttTransport, MQTT_TRANSPORT_VERSION, clearOnlineAuthKey, deriveOnlineAuthKeyHex, storeOnlineAuthKey } from "./protocol/MqttTransport.js?v=0.1.87-ui197";
-import { P1WebFlasher } from "./web-flasher.js?v=0.1.87-ui197";
-import { inferCircuitLayout, initCircuitView, normalizeCircuitLayout } from "./circuit.js?v=0.1.87-ui197";
-import { initGuinoView } from "./guino.js?v=0.1.87-ui197";
+import { MqttWebRtcTransport, MQTT_WEBRTC_TRANSPORT_VERSION } from "./protocol/MqttWebRtcTransport.js?v=0.1.87-ui198";
+import { MqttTransport, MQTT_TRANSPORT_VERSION, clearOnlineAuthKey, deriveOnlineAuthKeyHex, storeOnlineAuthKey } from "./protocol/MqttTransport.js?v=0.1.87-ui198";
+import { P1WebFlasher } from "./web-flasher.js?v=0.1.87-ui198";
+import { inferCircuitLayout, initCircuitView, normalizeCircuitLayout } from "./circuit.js?v=0.1.87-ui198";
+import { initGuinoView } from "./guino.js?v=0.1.87-ui198";
 
-const WEB_UI_VERSION = "0.1.87-ui197";
+const WEB_UI_VERSION = "0.1.87-ui198";
 const CHAT_MAX_OUTPUT_TOKENS = 8000;
 console.info(`[P1E web] loaded ${WEB_UI_VERSION}`, { mqtt: MQTT_TRANSPORT_VERSION, mqttWebRtc: MQTT_WEBRTC_TRANSPORT_VERSION });
 
