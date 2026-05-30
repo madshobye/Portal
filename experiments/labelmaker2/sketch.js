@@ -77,6 +77,7 @@ let useSoftKeyboardInput = false;
 let useP5SoftKeyboardInput = false;
 let textInputComposing = false;
 let lastBridgeInput = { time: 0, text: "", kind: "" };
+let pasteTargetEl = null;
 let outputMode = "label";
 let outputModeAuto = true;
 let peerHostnames = [];
@@ -491,7 +492,8 @@ function buildToolbarLeftItems(square) {
         if (!busy && result.clicked) settingsPanelOpen = !settingsPanelOpen;
       },
     },
-    makeClearToolbarItem(square, { gapAfter: Math.round(square * 0.5) }),
+    makeClearToolbarItem(square),
+    makePasteToolbarItem(square, { gapAfter: Math.round(square * 0.5) }),
   ];
 
   if (simpleUiMode) {
@@ -802,12 +804,28 @@ function makeClearToolbarItem(square, options = {}) {
     width: square,
     gapAfter: options.gapAfter,
     draw: (rect) => {
-      const result = drawIconButton("cancel", {
+      const result = drawIconButton("note_add", {
         ...rect,
         disabled: busy,
-        tooltip: "Clear",
+        tooltip: "New label",
       });
       if (!busy && result.clicked) clearEditor();
+    },
+  };
+}
+
+function makePasteToolbarItem(square, options = {}) {
+  return {
+    key: "paste",
+    width: square,
+    gapAfter: options.gapAfter,
+    draw: (rect) => {
+      const result = drawIconButton("content_paste", {
+        ...rect,
+        disabled: busy,
+        tooltip: "Paste image or text",
+      });
+      if (!busy && result.clicked) pasteFromSystemClipboard();
     },
   };
 }
@@ -3703,6 +3721,95 @@ function installKeyCapture() {
   window.addEventListener("paste", handleEditorPaste, { passive: false });
 }
 
+async function pasteFromSystemClipboard() {
+  if (busy) return;
+  if (navigator.clipboard?.read) {
+    try {
+      const items = await navigator.clipboard.read();
+      for (const item of items) {
+        const imageType = item.types.find((type) => String(type || "").toLowerCase().startsWith("image/"));
+        if (!imageType) continue;
+        const blob = await item.getType(imageType);
+        const extension = imageType.includes("jpeg") ? "jpg" : (imageType.split("/")[1] || "png");
+        const file = new File([blob], `clipboard-image.${extension}`, { type: imageType });
+        loadPhotoFile(file, "Clipboard image");
+        return;
+      }
+
+      const text = await readTextFromClipboardItems(items);
+      if (text) {
+        insertTextAtCursor(text.replace(/\r\n?/g, "\n"));
+        detailText = "Pasted text into the label.";
+        return;
+      }
+
+      detailText = "Clipboard does not contain an image or text.";
+      return;
+    } catch (error) {
+      console.warn("[labelmaker2] async clipboard paste failed", error);
+    }
+  }
+
+  if (navigator.clipboard?.readText) {
+    try {
+      const text = await navigator.clipboard.readText();
+      if (text) {
+        insertTextAtCursor(text.replace(/\r\n?/g, "\n"));
+        detailText = "Pasted text into the label.";
+        return;
+      }
+    } catch (error) {
+      console.warn("[labelmaker2] clipboard text paste failed", error);
+    }
+  }
+
+  showNativePasteTarget();
+}
+
+async function readTextFromClipboardItems(items) {
+  for (const item of items || []) {
+    const textType = item.types.find((type) => type === "text/plain" || String(type || "").startsWith("text/"));
+    if (!textType) continue;
+    const blob = await item.getType(textType);
+    return await blob.text();
+  }
+  return "";
+}
+
+function showNativePasteTarget() {
+  if (!pasteTargetEl) {
+    pasteTargetEl = document.createElement("div");
+    pasteTargetEl.className = "labelmaker-paste-target";
+    pasteTargetEl.contentEditable = "true";
+    pasteTargetEl.setAttribute("role", "textbox");
+    pasteTargetEl.setAttribute("aria-label", "Paste image or text");
+    pasteTargetEl.addEventListener("paste", handleEditorPaste, { passive: false });
+    pasteTargetEl.addEventListener("input", handleNativePasteTargetInput);
+    document.body.appendChild(pasteTargetEl);
+  }
+
+  pasteTargetEl.textContent = "";
+  pasteTargetEl.style.display = "block";
+  pasteTargetEl.focus({ preventScroll: true });
+  detailText = "Long-press and choose Paste.";
+  window.setTimeout(hideNativePasteTarget, 15000);
+}
+
+function hideNativePasteTarget() {
+  if (!pasteTargetEl) return;
+  pasteTargetEl.textContent = "";
+  pasteTargetEl.style.display = "none";
+}
+
+function handleNativePasteTargetInput() {
+  if (!pasteTargetEl) return;
+  const text = pasteTargetEl.innerText || pasteTargetEl.textContent || "";
+  if (!text) return;
+  insertTextAtCursor(text.replace(/\r\n?/g, "\n"));
+  detailText = "Pasted text into the label.";
+  hideNativePasteTarget();
+}
+
 function handleEditorPaste(event) {
   if (busy) {
     event.preventDefault();
@@ -3714,6 +3821,7 @@ function handleEditorPaste(event) {
     event.stopPropagation();
     loadPhotoFile(pastedImage, pastedImage.name || "Pasted photo");
     if (textInputEl) textInputEl.value = "";
+    hideNativePasteTarget();
     return;
   }
 
@@ -3723,6 +3831,7 @@ function handleEditorPaste(event) {
   event.stopPropagation();
   insertTextAtCursor(pastedText.replace(/\r\n?/g, "\n"));
   if (textInputEl) textInputEl.value = "";
+  hideNativePasteTarget();
   detailText = "Pasted text into the label.";
 }
 

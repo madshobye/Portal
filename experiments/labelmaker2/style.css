@@ -24,3 +24,22 @@ body {
   caret-color: transparent;
   resize: none;
 }
+
+.labelmaker-paste-target {
+  position: fixed;
+  left: 16px;
+  bottom: 88px;
+  width: 190px;
+  min-height: 44px;
+  opacity: 0.02;
+  z-index: 9999;
+  overflow: hidden;
+  border: 0;
+  outline: 0;
+  background: #fff;
+  color: #000;
+  font-size: 16px;
+  line-height: 20px;
+  -webkit-user-select: text;
+  user-select: text;
+}
