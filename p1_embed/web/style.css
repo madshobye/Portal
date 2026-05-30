@@ -175,6 +175,8 @@ textarea {
   align-items: center;
   gap: 7px;
   min-width: 0;
+  overflow-x: auto;
+  padding-bottom: 1px;
 }
 
 .circuit-toolbar {
@@ -297,6 +299,13 @@ textarea {
 
 .toolbar-push {
   margin-left: auto;
+}
+
+.project-control-cluster {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-width: max-content;
 }
 
 .button,
@@ -460,9 +469,22 @@ select {
 
 .compact-select {
   min-width: 82px;
-  min-height: 28px;
+  min-height: 35px;
   padding: 5px 7px;
   font-size: 11px;
+}
+
+.compact-select:focus,
+.compact-select:focus-visible {
+  outline: none;
+  border-color: var(--line);
+  box-shadow: none;
+}
+
+.project-select {
+  width: clamp(150px, 18vw, 260px);
+  min-height: 35px;
+  padding-block: 7px;
 }
 
 .sketch-history {
@@ -1022,6 +1044,79 @@ input {
   gap: 10px;
   min-width: 0;
   min-height: 0;
+}
+
+.generative-tabs {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+}
+
+.generative-tab {
+  min-height: 34px;
+  padding: 0 12px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  color: var(--muted);
+  background: transparent;
+  font: inherit;
+  cursor: pointer;
+}
+
+.generative-tab.is-active {
+  color: var(--text);
+  border-color: var(--line);
+  background: var(--surface-2);
+}
+
+.generative-panel {
+  display: none;
+}
+
+.generative-panel.is-active {
+  display: grid;
+}
+
+.spec-shell {
+  grid-template-rows: minmax(0, 1fr) auto;
+  gap: 10px;
+  min-width: 0;
+  min-height: 0;
+}
+
+.spec-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  min-width: 0;
+}
+
+.spec-mode {
+  min-width: 150px;
+}
+
+#spec-generate-button {
+  width: auto;
+  min-width: 122px;
+  padding-inline: 12px;
+  white-space: nowrap;
+}
+
+.spec-editor {
+  width: 100%;
+  min-width: 0;
+  min-height: 0;
+  padding: 14px;
+  resize: none;
+  outline: none;
+  color: var(--text);
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  font: inherit;
+  line-height: 1.55;
 }
 
 .chat-transcript {

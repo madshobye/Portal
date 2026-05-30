@@ -908,9 +908,11 @@ static void protocolSendMsgPackConfig(uint32_t id) {
     return;
   }
   P1MsgPackWriter w(frame, P1_EMBED_MSGPACK_MAX_FRAME_BYTES);
-  protocolMsgPackBeginResponse(w, id, true, 18);
+  protocolMsgPackBeginResponse(w, id, true, 20);
   w.writeString("deviceId"); w.writeString(snapshot.deviceId);
   w.writeString("deviceName"); w.writeString(snapshot.deviceName);
+  w.writeString("projectId"); w.writeString(snapshot.projectId);
+  w.writeString("projectName"); w.writeString(snapshot.projectName);
   w.writeString("wifiSsid"); w.writeString(snapshot.wifiSsid);
   w.writeString("wifiPasswordSet"); w.writeBool(snapshot.wifiPasswordSet);
   w.writeString("wifiNetworkCount"); w.writeUInt(snapshot.wifiNetworkCount);
@@ -1227,6 +1229,8 @@ void protocolHandleBytes(const uint8_t* data, size_t len) {
     bool hasDeviceName = false;
     bool hasWifiSsid = false;
     bool hasWifiPassword = false;
+    bool hasProjectId = false;
+    bool hasProjectName = false;
     bool hasMqttHost = false;
     bool hasMqttPort = false;
     bool hasMqttRoot = false;
@@ -1240,6 +1244,8 @@ void protocolHandleBytes(const uint8_t* data, size_t len) {
     String deviceName;
     String wifiSsid;
     String wifiPassword;
+    String projectId;
+    String projectName;
     String mqttHost;
     uint32_t mqttPort = 0;
     String mqttRoot;
@@ -1283,6 +1289,13 @@ void protocolHandleBytes(const uint8_t* data, size_t len) {
         return;
       }
     }
+    if (count >= 35) {
+      if (!r.readBool(hasProjectId) || !r.readString(projectId) ||
+          !r.readBool(hasProjectName) || !r.readString(projectName)) {
+        protocolSendMsgPackError(id, "bad_config_frame", "config.set project fields are malformed");
+        return;
+      }
+    }
     bool changed = false;
     bool mqttChanged = false;
     if (hasDeviceName) {
@@ -1295,6 +1308,10 @@ void protocolHandleBytes(const uint8_t* data, size_t len) {
     }
     if (hasWifiPassword) {
       configSetWifiPassword(wifiPassword);
+      changed = true;
+    }
+    if (hasProjectId || hasProjectName) {
+      configSetProject(hasProjectId ? projectId : configProjectId(), hasProjectName ? projectName : configProjectName());
       changed = true;
     }
     if (hasMqttHost) {
@@ -1525,6 +1542,8 @@ void protocolHandleLine(const char* line) {
     String deviceName;
     String wifiSsid;
     String wifiPassword;
+    String projectId;
+    String projectName;
     String mqttHost;
     String mqttRoot;
     String mqttUser;
@@ -1548,6 +1567,12 @@ void protocolHandleLine(const char* line) {
     }
     if (jsonGetString(line, "wifiPassword", wifiPassword)) {
       configSetWifiPassword(wifiPassword);
+      changed = true;
+    }
+    bool hasProjectId = jsonGetString(line, "projectId", projectId);
+    bool hasProjectName = jsonGetString(line, "projectName", projectName);
+    if (hasProjectId || hasProjectName) {
+      configSetProject(hasProjectId ? projectId : configProjectId(), hasProjectName ? projectName : configProjectName());
       changed = true;
     }
     if (jsonGetString(line, "mqttHost", mqttHost)) {

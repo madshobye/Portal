@@ -20,6 +20,8 @@ struct P1WifiSnapshot {
 struct P1ConfigSnapshot {
   String deviceId;
   String deviceName;
+  String projectId;
+  String projectName;
   String wifiSsid;
   bool wifiPasswordSet = false;
   int wifiNetworkCount = 0;
@@ -186,6 +188,9 @@ void configFactoryReset();
 String configDeviceId();
 String configDeviceName();
 void configSetDeviceName(const String& value);
+String configProjectId();
+String configProjectName();
+void configSetProject(const String& id, const String& name);
 void configSetWifiSsid(const String& value);
 void configSetWifiPassword(const String& value);
 bool configRemoveWifiNetworkAt(int index);

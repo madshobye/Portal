@@ -38,6 +38,12 @@ function loop() {
 
 The firmware compiles the source first. If compile succeeds, it can run `setup()` and then call `loop()` repeatedly from the Wrench task. A new uploaded script stops the old script before compile/run.
 
+## Project Model
+
+The web app stores work as projects with revisions. A project has a stable id, a human name, chat history, and one or more revisions. Each revision stores the Wrench code, the project specification for that code, the specification mode, and the circuit layout. Code, Generative, and Circuit views should all read and write through this project/revision model.
+
+When generating code, return a short `sketch_name` for the new revision and an updated `project_specification` that describes the resulting code. Chat history belongs to the project. Specifications and circuit layout belong to the revision.
+
 ## Transport Model
 
 P1E uses compact MessagePack frames for MQTT device communication. Serial text transport serializes the same protocol concepts as JSON lines at the transport boundary. Avoid using JSON as an internal data structure in sketches; reserve JSON helpers for parsing external JSON text such as HTTP API responses.

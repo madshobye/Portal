@@ -1,14 +1,14 @@
-import { ProtocolClient } from "./protocol/ProtocolClient.js?v=0.1.87-ui205";
-import { canEncodeCommand } from "./protocol/P1MsgPack.js?v=0.1.87-ui205";
-import { WebSerialTransport } from "./protocol/WebSerialTransport.js?v=0.1.87-ui205";
+import { ProtocolClient } from "./protocol/ProtocolClient.js?v=0.1.87-ui212";
+import { canEncodeCommand } from "./protocol/P1MsgPack.js?v=0.1.87-ui212";
+import { WebSerialTransport } from "./protocol/WebSerialTransport.js?v=0.1.87-ui212";
 import { WebSocketTransport } from "./protocol/WebSocketTransport.js";
-import { MqttWebRtcTransport, MQTT_WEBRTC_TRANSPORT_VERSION } from "./protocol/MqttWebRtcTransport.js?v=0.1.87-ui205";
-import { MqttTransport, MQTT_TRANSPORT_VERSION, clearOnlineAuthKey, deriveOnlineAuthKeyHex, storeOnlineAuthKey } from "./protocol/MqttTransport.js?v=0.1.87-ui205";
-import { P1WebFlasher } from "./web-flasher.js?v=0.1.87-ui205";
-import { inferCircuitLayout, initCircuitView, normalizeCircuitLayout } from "./circuit.js?v=0.1.87-ui205";
-import { initGuinoView } from "./guino.js?v=0.1.87-ui205";
+import { MqttWebRtcTransport, MQTT_WEBRTC_TRANSPORT_VERSION } from "./protocol/MqttWebRtcTransport.js?v=0.1.87-ui212";
+import { MqttTransport, MQTT_TRANSPORT_VERSION, clearOnlineAuthKey, deriveOnlineAuthKeyHex, storeOnlineAuthKey } from "./protocol/MqttTransport.js?v=0.1.87-ui212";
+import { P1WebFlasher } from "./web-flasher.js?v=0.1.87-ui212";
+import { inferCircuitLayout, initCircuitView, normalizeCircuitLayout } from "./circuit.js?v=0.1.87-ui212";
+import { initGuinoView } from "./guino.js?v=0.1.87-ui212";
 
-const WEB_UI_VERSION = "0.1.87-ui205";
+const WEB_UI_VERSION = "0.1.87-ui212";
 const CHAT_MAX_OUTPUT_TOKENS = 8000;
 const ALPHA_ENABLE_WEBSOCKET_CONNECT = false;
 const ALPHA_ENABLE_WEBRTC_CONNECT = false;
@@ -46,10 +46,15 @@ const storage = {
   logLevel: "p1_embed.console.logLevel",
   consoleTimestamps: "p1_embed.console.timestamps",
   sketchHistory: "p1_embed.editor.history",
+  projectId: "p1_embed.project.activeId",
+  projectMigration: "p1_embed.project.migrated",
+  projectFallback: "p1_embed.project.fallback",
   chatApiKey: "p1_embed.chat.apiKey",
   chatModel: "p1_embed.chat.model",
   chatHistory: "p1_embed.chat.history",
   chatDebugPrompt: "p1_embed.chat.debugPrompt",
+  specificationDraft: "p1_embed.project.specificationDraft",
+  specificationMode: "p1_embed.project.specificationMode",
 };
 
 const chatModelOptions = [
@@ -68,10 +73,12 @@ const chatModelOptions = [
 const defaultChatModel = "gpt-5.4-mini";
 const chatHistoryLimit = 15;
 const sketchHistoryLimit = 50;
+const projectLimit = 80;
 const connectionHistoryLimit = 12;
 const sketchDbName = "p1_embed";
-const sketchDbVersion = 1;
+const sketchDbVersion = 2;
 const sketchStoreName = "sketch_history";
+const projectStoreName = "projects";
 
 const els = {
   tabs: [...document.querySelectorAll(".tab")],
@@ -106,6 +113,7 @@ const els = {
   peerId: document.querySelector("#peer-id"),
   getScript: document.querySelector("#get-script-button"),
   newSketch: document.querySelector("#new-sketch-button"),
+  chatNewSketch: document.querySelector("#chat-new-sketch-button"),
   reboot: document.querySelector("#reboot-button"),
   run: document.querySelector("#run-button"),
   stop: document.querySelector("#stop-button"),
@@ -113,6 +121,8 @@ const els = {
   uploadStatusLabel: document.querySelector("#upload-status-label"),
   uploadStatusProgress: document.querySelector("#upload-status-progress"),
   downloadCode: document.querySelector("#download-code-button"),
+  chatDownloadCode: document.querySelector("#chat-download-code-button"),
+  projectSelect: document.querySelector("#project-select"),
   sketchHistory: document.querySelector("#sketch-history"),
   settings: document.querySelector("#settings-button"),
   settingsDialog: document.querySelector("#settings-dialog"),
@@ -172,6 +182,13 @@ const els = {
   chatForm: document.querySelector("#chat-form"),
   chatInput: document.querySelector("#chat-input"),
   chatSend: document.querySelector("#chat-send-button"),
+  generativeProjectSelect: document.querySelector("#generative-project-select"),
+  generativeRevisionSelect: document.querySelector("#generative-revision-select"),
+  generativeTabs: document.querySelectorAll("[data-generative-tab]"),
+  generativePanels: document.querySelectorAll("[data-generative-panel]"),
+  specification: document.querySelector("#project-specification"),
+  specificationMode: document.querySelector("#spec-mode"),
+  specificationGenerate: document.querySelector("#spec-generate-button"),
   circuitRefresh: document.querySelector("#circuit-refresh-button"),
   circuitDownload: document.querySelector("#circuit-download-button"),
   circuitStatus: document.querySelector("#circuit-status"),
@@ -227,12 +244,18 @@ let wifiDraftDirty = false;
 let lastConfig = null;
 let uploadState = { phase: "", label: "", progress: 0 };
 let uploadClearTimer = null;
+let currentProjectId = "";
+let currentRevisionId = "";
+let projectCache = [];
 let currentSketchName = "";
 let currentSketchSource = "";
 let currentSketchVersionName = "";
 let currentSketchDirty = false;
 let currentSketchSaved = true;
 let currentProjectDescription = "";
+let currentProjectDescriptionSource = "";
+let currentProjectSpecificationMode = "middle";
+let currentProjectSpecificationModeSource = "middle";
 let currentProjectCircuit = null;
 let circuitView = null;
 let circuitChatLayout = null;
@@ -337,15 +360,17 @@ async function replaceEditorCode(value, {
   persist = true,
   saveCurrent = true,
   identityName = "",
-  identityHistory = null,
   identityProject = null,
+  identityRevision = null,
   markUnsaved = false,
 } = {}) {
   const nextCode = String(value ?? "");
   if (saveCurrent) await shelveEditorSketchIfNeeded({ incomingCode: nextCode });
   setEditorValueRaw(nextCode, { persist });
-  if (identityName || identityHistory || identityProject) {
-    setCurrentSketchIdentity(identityName, nextCode, identityHistory || await readSketchHistory(), identityProject);
+  if (identityName || identityProject || identityRevision) {
+    const project = identityProject ? normalizeProjectRecord(identityProject) : null;
+    const revision = identityRevision || activeRevision(project);
+    setCurrentSketchIdentity(identityName || revision?.name || "", nextCode, project, revision);
   } else if (markUnsaved) {
     clearCurrentSketchIdentity();
     updateCurrentSketchDirty();
@@ -366,11 +391,16 @@ function bindControls() {
   els.peerId.addEventListener("input", () => renderConnectionHistory());
   els.getScript.addEventListener("click", () => runUiAction(getScript, "reading"));
   els.newSketch.addEventListener("click", () => runUiAction(createNewSketch, "new sketch"));
+  els.chatNewSketch.addEventListener("click", () => runUiAction(createNewSketch, "new sketch"));
   els.reboot.addEventListener("click", () => runUiAction(() => sendCommand("device.reboot"), "rebooting"));
   els.run.addEventListener("click", runScriptFromToolbar);
   els.stop.addEventListener("click", () => runUiAction(() => sendCommand("script.stop").then(refreshStatus), "stopping"));
   els.downloadCode.addEventListener("click", () => runUiAction(downloadProject, "download"));
-  els.sketchHistory.addEventListener("change", () => recoverSketchHistory());
+  els.chatDownloadCode.addEventListener("click", () => runUiAction(downloadProject, "download"));
+  els.projectSelect.addEventListener("change", () => selectProject(els.projectSelect.value));
+  els.sketchHistory.addEventListener("change", () => selectRevision(els.sketchHistory.value));
+  els.generativeProjectSelect.addEventListener("change", () => selectProject(els.generativeProjectSelect.value));
+  els.generativeRevisionSelect.addEventListener("change", () => selectRevision(els.generativeRevisionSelect.value));
   bindSketchDrop();
   els.settings.addEventListener("click", openSettingsDialog);
   els.settingsTabs.forEach((tab) => tab.addEventListener("click", () => switchSettingsTab(tab.dataset.settingsTab)));
@@ -412,6 +442,10 @@ function bindControls() {
   });
   els.chatDebugPrompt.addEventListener("click", toggleChatDebugPrompt);
   els.chatClear.addEventListener("click", clearChat);
+  els.generativeTabs.forEach((tab) => tab.addEventListener("click", () => switchGenerativeTab(tab.dataset.generativeTab)));
+  els.specification.addEventListener("input", handleSpecificationInput);
+  els.specificationMode.addEventListener("change", handleSpecificationModeChange);
+  els.specificationGenerate.addEventListener("click", () => runUiAction(generateCodeFromSpecification, "generating"));
   els.circuitRefresh?.addEventListener("click", () => {
     circuitChatLayout = null;
     updateCircuitView("inferred from code");
@@ -432,6 +466,14 @@ function bindControls() {
     sendChatPrompt();
   });
   els.chatInput.addEventListener("input", updateEnabledState);
+}
+
+function switchGenerativeTab(name) {
+  const target = name || "chat";
+  els.generativeTabs.forEach((tab) => tab.classList.toggle("is-active", tab.dataset.generativeTab === target));
+  els.generativePanels.forEach((panel) => panel.classList.toggle("is-active", panel.dataset.generativePanel === target));
+  els.views.chat?.classList.toggle("is-specification", target === "specification");
+  if (target === "chat") renderChatTranscript();
 }
 
 function switchTab(name) {
@@ -1619,7 +1661,10 @@ async function getScriptChunked(options = {}) {
 
 async function applyFetchedScript(data) {
   if (typeof data.code === "string") {
-    await replaceEditorCode(data.code, { persist: false, saveCurrent: true, markUnsaved: true });
+    // Startup script sync must not clear the active revision metadata. The
+    // board only returns code, while project specification and circuit live in
+    // the browser project revision.
+    await replaceEditorCode(data.code, { persist: false, saveCurrent: true });
     await rememberUploadedSketch(data.code, "", { promoteExisting: false, preferAutoName: true });
   }
   updateScriptState(data);
@@ -1763,63 +1808,235 @@ function fnv1aHex(text) {
 }
 
 async function downloadProject() {
-  const code = getEditorValue();
-  if (!code.trim()) return;
-  const history = await readSketchHistory();
-  const name = resolveSketchNameForSave(code, currentSketchName, history, { preferAutoName: !currentSketchName });
-  const project = buildProject({ name, code });
+  const project = await projectSnapshotForDownload();
+  if (!project?.revisions?.length) return;
   const blob = new Blob([JSON.stringify(project, null, 2)], { type: "application/json;charset=utf-8" });
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url;
-  a.download = `${slugForFilename(name || "p1e-project")}.p1e.json`;
+  a.download = `${slugForFilename(project.name || "p1e-project")}.p1e.json`;
   document.body.append(a);
   a.click();
   a.remove();
   URL.revokeObjectURL(url);
 }
 
-function buildProject({ name = "", code = "", circuit = undefined, description = undefined } = {}) {
+async function projectSnapshotForDownload() {
+  const project = await getActiveProject();
+  const code = getEditorValue();
+  if (!project) {
+    const revision = buildRevision({ code, name: currentSketchName || "Draft", source: "download" });
+    return normalizeProjectRecord({
+      id: createProjectId(),
+      name: currentSketchName || autoProjectName(code),
+      revisions: revision.code.trim() ? [revision] : [],
+      activeRevisionId: revision.id,
+      chat: chatMessages,
+    });
+  }
+  const snapshot = normalizeProjectRecord(project);
+  const revision = activeRevision(snapshot);
+  if (revision) {
+    revision.code = code;
+    revision.specification = currentProjectDescription;
+    revision.specificationMode = currentProjectSpecificationMode;
+    revision.circuit = projectCircuitForCurrentCode(code) || revision.circuit;
+    revision.bytes = new Blob([code]).size;
+  }
+  snapshot.chat = chatMessages.slice(-60);
+  snapshot.updatedAt = new Date().toISOString();
+  return snapshot;
+}
+
+function buildProject({ name = "", code = "", circuit = undefined, description = undefined, specificationMode = currentProjectSpecificationMode } = {}) {
   const source = String(code ?? "");
   const explicitCircuit = circuit === undefined ? projectCircuitForCurrentCode(source) : normalizeCircuitLayout(circuit);
-  return {
-    type: "p1e-project",
-    version: "1",
-    name: normalizeSketchName(name),
-    description: String(description ?? currentProjectDescription ?? ""),
+  const revision = buildRevision({
     code: source,
+    name: name || "Draft",
+    specification: String(description ?? currentProjectDescription ?? ""),
+    specificationMode,
     circuit: explicitCircuit || inferCircuitLayout(source, null),
-    updatedAt: new Date().toISOString(),
-  };
+    source: "import",
+  });
+  return normalizeProjectRecord({
+    id: createProjectId(),
+    name: normalizeProjectName(name) || autoProjectName(source),
+    revisions: source.trim() ? [revision] : [],
+    activeRevisionId: revision.id,
+    chat: [],
+  });
 }
 
 function normalizeProject(project, fallbackName = "") {
-  if (!project || typeof project !== "object" || typeof project.code !== "string") return null;
+  if (!project || typeof project !== "object") return null;
+  if (Array.isArray(project.revisions)) {
+    return normalizeProjectRecord({ ...project, name: project.name || fallbackName });
+  }
+  if (typeof project.code !== "string") return null;
   return buildProject({
     name: project.name || fallbackName,
     code: project.code,
     circuit: project.circuit,
-    description: project.description,
+    description: project.description ?? project.specification,
+    specificationMode: project.specificationMode || project.descriptionMode,
   });
 }
 
-function projectFromCode(code, name = "", circuit = null, description = "") {
-  return buildProject({ name, code, circuit, description });
+function projectFromCode(code, name = "", circuit = null, description = "", specificationMode = currentProjectSpecificationMode) {
+  return buildProject({ name, code, circuit, description, specificationMode });
 }
 
-function historyEntryFromProject(project, existing = {}) {
-  const normalized = normalizeProject(project, existing.name || "");
-  if (!normalized) return null;
+function createProjectId() {
+  return `p1e-prj-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
+function createRevisionId() {
+  return `rev-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
+function normalizeProjectName(name) {
+  return normalizeSketchName(name);
+}
+
+function autoProjectName(code) {
+  const inferred = inferSketchBaseName(code);
+  if (isMeaningfulAutoSketchName(inferred)) return inferred;
+  return generatedSketchName(code || `${Date.now()}`);
+}
+
+function normalizeProjectRecord(project = {}) {
+  const now = new Date().toISOString();
+  const revisions = Array.isArray(project.revisions)
+    ? project.revisions
+      .map((revision) => normalizeRevisionRecord(revision))
+      .filter((revision) => revision.code.trim() || revision.specification.trim())
+    : [];
+  const active = revisions.find((revision) => revision.id === project.activeRevisionId) || revisions[0] || null;
   return {
-    ...existing,
-    projectVersion: normalized.version,
-    at: new Date().toISOString(),
-    bytes: new Blob([normalized.code]).size,
-    code: normalized.code,
-    name: normalized.name,
-    description: normalized.description,
-    circuit: normalizeCircuitLayout(normalized.circuit),
+    type: "p1e-project",
+    version: 2,
+    id: String(project.id || createProjectId()),
+    name: normalizeProjectName(project.name) || autoProjectName(active?.code || ""),
+    createdAt: String(project.createdAt || now),
+    updatedAt: String(project.updatedAt || now),
+    activeRevisionId: active?.id || "",
+    chat: Array.isArray(project.chat)
+      ? project.chat
+        .filter((item) => ["user", "assistant", "error"].includes(item?.role) && typeof item?.content === "string")
+        .slice(-60)
+      : [],
+    revisions,
   };
+}
+
+function normalizeRevisionRecord(revision = {}) {
+  const code = String(revision.code ?? "");
+  const specification = String(revision.specification ?? revision.description ?? "");
+  const circuit = normalizeCircuitLayout(revision.circuit)
+    || (code.trim() ? inferCircuitLayout(code, null) : null);
+  return {
+    id: String(revision.id || createRevisionId()),
+    name: normalizeSketchName(revision.name) || "Revision",
+    code,
+    specification,
+    specificationMode: normalizeSpecificationMode(revision.specificationMode || revision.descriptionMode || "middle"),
+    circuit,
+    source: String(revision.source || "manual"),
+    createdAt: String(revision.createdAt || revision.at || new Date().toISOString()),
+    bytes: Number(revision.bytes) || new Blob([code]).size,
+  };
+}
+
+function buildRevision({
+  id = "",
+  name = "",
+  code = "",
+  specification = currentProjectDescription,
+  specificationMode = currentProjectSpecificationMode,
+  circuit = undefined,
+  source = "manual",
+  createdAt = "",
+} = {}) {
+  const text = String(code ?? "");
+  return normalizeRevisionRecord({
+    id: id || createRevisionId(),
+    name: name || "Revision",
+    code: text,
+    specification,
+    specificationMode,
+    circuit: circuit === undefined ? projectCircuitForCurrentCode(text) : circuit,
+    source,
+    createdAt,
+  });
+}
+
+function revisionEquivalent(left, right) {
+  if (!left || !right) return false;
+  return String(left.code || "") === String(right.code || "")
+    && String(left.specification || "") === String(right.specification || "")
+    && normalizeSpecificationMode(left.specificationMode) === normalizeSpecificationMode(right.specificationMode)
+    && JSON.stringify(normalizeCircuitLayout(left.circuit) || null) === JSON.stringify(normalizeCircuitLayout(right.circuit) || null);
+}
+
+function nextRevisionName(project) {
+  const count = Array.isArray(project?.revisions) ? project.revisions.length + 1 : 1;
+  return `Revision ${count}`;
+}
+
+function nextNamedRevisionName(project, name = "") {
+  const root = revisionNameRoot(name);
+  if (!root) return nextRevisionName(project);
+  let maxVersion = 1;
+  (project?.revisions || []).forEach((revision) => {
+    const parsed = splitRevisionNumber(revision?.name || "");
+    if (parsed.root.toLowerCase() === root.toLowerCase()) {
+      maxVersion = Math.max(maxVersion, parsed.version);
+    }
+  });
+  return normalizeSketchName(`${root} ${maxVersion + 1}`);
+}
+
+function revisionNameRoot(name = "") {
+  return splitRevisionNumber(name).root;
+}
+
+function splitRevisionNumber(name = "") {
+  const normalized = normalizeSketchName(name);
+  const match = normalized.match(/^(.*?)\s+(?:v)?(\d+)$/i);
+  if (!match) return { root: normalized, version: normalized ? 1 : 0 };
+  return {
+    root: normalizeSketchName(match[1]),
+    version: Math.max(1, Number(match[2]) || 1),
+  };
+}
+
+async function ensureProjectForWrite({ code = "", nameHint = "" } = {}) {
+  const existing = await getActiveProject();
+  if (existing) return normalizeProjectRecord(existing);
+  const configuredId = currentProjectId || localStorage.getItem(storage.projectId) || lastConfig?.projectId || "";
+  const configuredName = lastConfig?.projectName || "";
+  const project = normalizeProjectRecord({
+    id: configuredId || createProjectId(),
+    name: normalizeProjectName(nameHint) || normalizeProjectName(configuredName) || autoProjectName(code),
+    revisions: [],
+    activeRevisionId: "",
+    chat: chatMessages,
+  });
+  currentProjectId = project.id;
+  localStorage.setItem(storage.projectId, project.id);
+  return project;
+}
+
+async function persistProjectMetadataToDevice(project) {
+  if (!client || !project?.id) return;
+  try {
+    await sendCommand("config.set", {
+      projectId: project.id,
+      projectName: project.name,
+    }, { quiet: true, timeoutMs: 2500 });
+  } catch {
+  }
 }
 
 function projectCircuitForCurrentCode(code) {
@@ -1862,6 +2079,10 @@ function openSketchDb() {
         const store = db.createObjectStore(sketchStoreName, { keyPath: "id", autoIncrement: true });
         store.createIndex("at", "at");
       }
+      if (!db.objectStoreNames.contains(projectStoreName)) {
+        const store = db.createObjectStore(projectStoreName, { keyPath: "id" });
+        store.createIndex("updatedAt", "updatedAt");
+      }
     };
     request.onsuccess = () => resolve(request.result);
     request.onerror = () => reject(request.error || new Error("Could not open sketch history database"));
@@ -1883,308 +2104,280 @@ function sketchDbTransactionDone(transaction) {
   });
 }
 
-async function readSketchHistory() {
+async function readProjects() {
   try {
-    await migrateSketchHistoryToDb();
+    await migrateLegacySketchesToProjects();
     const db = await openSketchDb();
     try {
-      const tx = db.transaction(sketchStoreName, "readonly");
-      const items = await sketchDbRequest(tx.objectStore(sketchStoreName).getAll());
-      return items
-        .filter((item) => typeof item?.code === "string")
-        .sort((a, b) => String(b.at || "").localeCompare(String(a.at || "")))
-        .slice(0, sketchHistoryLimit);
+      const tx = db.transaction(projectStoreName, "readonly");
+      const store = tx.objectStore(projectStoreName);
+      const items = await sketchDbRequest(store.getAll());
+      projectCache = items
+        .map((item) => normalizeProjectRecord(item))
+        .filter((item) => item.revisions.length)
+        .sort((a, b) => String(b.updatedAt || "").localeCompare(String(a.updatedAt || "")))
+        .slice(0, projectLimit);
+      return projectCache;
     } finally {
       db.close();
     }
   } catch {
-    return readSketchHistoryFallback();
+    projectCache = readProjectsFallback();
+    return projectCache;
   }
 }
 
-function readSketchHistoryFallback() {
+function readProjectsFallback() {
   try {
-    const value = JSON.parse(localStorage.getItem(storage.sketchHistory) || "[]");
+    const value = JSON.parse(localStorage.getItem(storage.projectFallback) || "[]");
     return Array.isArray(value)
-      ? value.filter((item) => typeof item?.code === "string").slice(0, sketchHistoryLimit)
+      ? value.map((item) => normalizeProjectRecord(item)).filter((item) => item.revisions.length).slice(0, projectLimit)
       : [];
   } catch {
     return [];
   }
 }
 
+async function saveProject(project) {
+  const normalized = normalizeProjectRecord(project);
+  normalized.updatedAt = new Date().toISOString();
+  projectCache = [
+    normalized,
+    ...projectCache.filter((item) => item.id !== normalized.id),
+  ].slice(0, projectLimit);
+  localStorage.setItem(storage.projectId, normalized.id);
+  try {
+    const db = await openSketchDb();
+    try {
+      const tx = db.transaction(projectStoreName, "readwrite");
+      tx.objectStore(projectStoreName).put(normalized);
+      await sketchDbTransactionDone(tx);
+    } finally {
+      db.close();
+    }
+  } catch {
+    localStorage.setItem(storage.projectFallback, JSON.stringify(projectCache));
+  }
+  return normalized;
+}
+
+async function getActiveProject() {
+  const projects = projectCache.length ? projectCache : await readProjects();
+  const id = currentProjectId || localStorage.getItem(storage.projectId) || "";
+  return projects.find((project) => project.id === id) || null;
+}
+
+function activeRevision(project) {
+  if (!project?.revisions?.length) return null;
+  return project.revisions.find((revision) => revision.id === project.activeRevisionId) || project.revisions[0];
+}
+
 async function rememberUploadedSketch(code, name = "", {
-  promoteExisting = true,
-  autoName = true,
-  preferAutoName = false,
   circuit = undefined,
   description = undefined,
+  specificationMode = currentProjectSpecificationMode,
+  source = "upload",
 } = {}) {
   const current = String(code ?? "");
   if (!current.trim()) return;
-
-  const history = await readSketchHistory();
-  const sketchName = resolveSketchNameForSave(current, name, history, { autoName, preferAutoName });
-  const project = buildProject({
-    name: sketchName,
+  const project = await ensureProjectForWrite({ code: current, nameHint: name });
+  const revisionName = normalizeSketchName(name)
+    || (source === "manual" || source === "upload" ? nextNamedRevisionName(project, currentSketchName) : nextRevisionName(project));
+  const revision = buildRevision({
+    name: revisionName,
     code: current,
-    circuit,
-    description,
+    specification: description ?? currentProjectDescription,
+    specificationMode,
+    circuit: circuit === undefined ? projectCircuitForCurrentCode(current) : circuit,
+    source,
   });
-  const hasProjectMetadata = circuit !== undefined || description !== undefined;
-  const unchangedCurrentSketch = currentSketchSource && current === currentSketchSource;
-  const existingByCode = history.find((item) => item?.code === current);
-
-  if (unchangedCurrentSketch) {
-    const existing = history.find((item) => {
-      if (item?.code !== current) return false;
-      if (!currentSketchName) return true;
-      return normalizeSketchName(item.name || "") === currentSketchName;
-    }) || existingByCode;
-
-    if (existing) {
-      const explicitName = normalizeSketchName(name);
-      const nextName = explicitName || existing.name || sketchName || currentSketchName;
-      if (promoteExisting) {
-        const promoted = await promoteSketchHistoryEntry(existing, nextName, project);
-        setCurrentSketchIdentity(
-          normalizeSketchName(promoted.name || "") || sketchName || currentSketchName,
-          current,
-          [promoted, ...history],
-          promoted,
-        );
-      } else {
-        if ((explicitName && existing.name !== explicitName) || hasProjectMetadata) {
-          if (explicitName) existing.name = explicitName;
-          const merged = historyEntryFromProject({ ...project, name: explicitName || nextName }, existing);
-          if (merged) Object.assign(existing, merged);
-          await updateSketchHistoryEntry(existing);
-          await renderSketchHistory();
-        }
-        setCurrentSketchIdentity(normalizeSketchName(nextName), current, history, existing);
-      }
-      return;
-    }
-  }
-
-  if (existingByCode) {
-    const explicitName = normalizeSketchName(name);
-    const nextName = explicitName || existingByCode.name || sketchName;
-    if (promoteExisting) {
-      const promoted = await promoteSketchHistoryEntry(existingByCode, nextName, project);
-      setCurrentSketchIdentity(normalizeSketchName(promoted.name || "") || sketchName, current, [promoted, ...history], promoted);
-    } else {
-      if ((explicitName && existingByCode.name !== explicitName) || hasProjectMetadata) {
-        if (explicitName) existingByCode.name = explicitName;
-        const merged = historyEntryFromProject({ ...project, name: explicitName || nextName }, existingByCode);
-        if (merged) Object.assign(existingByCode, merged);
-        await updateSketchHistoryEntry(existingByCode);
-        await renderSketchHistory();
-      } else {
-        renderCurrentSketchName();
-      }
-      setCurrentSketchIdentity(normalizeSketchName(nextName), current, history, existingByCode);
-    }
+  const previous = activeRevision(project);
+  if (previous && revisionEquivalent(previous, revision)) {
+    const saved = await saveProject(project);
+    await persistProjectMetadataToDevice(saved);
+    await openProjectRevision(saved, previous, { saveCurrent: false });
     return;
   }
-
-  if (history[0]?.code === current) {
-    if ((sketchName && history[0].name !== sketchName) || hasProjectMetadata) {
-      if (sketchName) history[0].name = sketchName;
-      const merged = historyEntryFromProject(project, history[0]);
-      if (merged) Object.assign(history[0], merged);
-      await updateSketchHistoryEntry(history[0]);
-      await renderSketchHistory();
-    }
-    setCurrentSketchIdentity(sketchName || normalizeSketchName(history[0].name || ""), current, history, history[0]);
-    return;
-  }
-
-  const entry = historyEntryFromProject(project) || {
-    at: new Date().toISOString(),
-    bytes: new Blob([current]).size,
-    code: current,
-    name: sketchName,
-  };
-
-  try {
-    const db = await openSketchDb();
-    try {
-      const tx = db.transaction(sketchStoreName, "readwrite");
-      const store = tx.objectStore(sketchStoreName);
-      store.add(entry);
-      await new Promise((resolve, reject) => {
-        const request = store.getAll();
-        request.onsuccess = () => {
-          const stale = request.result
-            .filter((item) => typeof item?.code === "string")
-            .sort((a, b) => String(b.at || "").localeCompare(String(a.at || "")))
-            .slice(sketchHistoryLimit);
-          stale.forEach((item) => {
-            if (item.id !== undefined) store.delete(item.id);
-          });
-          resolve();
-        };
-        request.onerror = () => reject(request.error || new Error("Could not trim sketch history"));
-      });
-      await sketchDbTransactionDone(tx);
-    } finally {
-      db.close();
-    }
-    await renderSketchHistory();
-    setCurrentSketchIdentity(entry.name, current, [entry, ...history], entry);
-    return;
-  } catch {
-  }
-
-  rememberUploadedSketchFallback(entry, history);
+  project.revisions.unshift(revision);
+  project.activeRevisionId = revision.id;
+  const saved = await saveProject(project);
+  await persistProjectMetadataToDevice(saved);
   await renderSketchHistory();
-  setCurrentSketchIdentity(entry.name, current, [entry, ...history], entry);
+  await openProjectRevision(saved, revision, { saveCurrent: false });
 }
 
-async function updateSketchHistoryEntry(entry) {
-  if (entry?.id === undefined) {
-    const history = readSketchHistoryFallback();
-    const index = history.findIndex((item) => (
-      item?.code === entry?.code
-      && normalizeSketchName(item.name || "") === normalizeSketchName(entry.name || "")
-    ));
-    const fallbackIndex = index >= 0 ? index : history.findIndex((item) => item?.code === entry?.code);
-    if (fallbackIndex >= 0) {
-      const rest = history.slice();
-      rest.splice(fallbackIndex, 1);
-      rememberUploadedSketchFallback(entry, rest);
-    }
-    return;
+async function migrateLegacySketchesToProjects() {
+  if (localStorage.getItem(storage.projectMigration) === "1") return;
+  const legacy = [];
+  try {
+    const value = JSON.parse(localStorage.getItem(storage.sketchHistory) || "[]");
+    if (Array.isArray(value)) legacy.push(...value.filter((item) => typeof item?.code === "string"));
+  } catch {
   }
   try {
     const db = await openSketchDb();
     try {
-      const tx = db.transaction(sketchStoreName, "readwrite");
-      tx.objectStore(sketchStoreName).put(entry);
-      await sketchDbTransactionDone(tx);
+      const tx = db.transaction(sketchStoreName, "readonly");
+      const items = await sketchDbRequest(tx.objectStore(sketchStoreName).getAll());
+      legacy.push(...items.filter((item) => typeof item?.code === "string"));
     } finally {
       db.close();
     }
   } catch {
   }
-}
-
-async function promoteSketchHistoryEntry(entry, name = "", project = null) {
-  const code = String(entry?.code || "");
-  const base = {
-    ...entry,
-    at: new Date().toISOString(),
-    bytes: new Blob([code]).size,
-    code,
-    name: normalizeSketchName(name || entry?.name || ""),
-  };
-  const promoted = historyEntryFromProject(project || base, base) || base;
-  await updateSketchHistoryEntry(promoted);
-  await renderSketchHistory();
-  return promoted;
-}
-
-function rememberUploadedSketchFallback(entry, history) {
-  let next = [entry, ...history].slice(0, sketchHistoryLimit);
-  while (next.length) {
-    try {
-      localStorage.setItem(storage.sketchHistory, JSON.stringify(next));
-      return;
-    } catch {
-      next = next.slice(0, -1);
-    }
-  }
-}
-
-async function migrateSketchHistoryToDb() {
-  if (localStorage.getItem(`${storage.sketchHistory}.migrated`) === "1") return;
-  const oldHistory = readSketchHistoryFallback();
-  if (!oldHistory.length) {
-    localStorage.setItem(`${storage.sketchHistory}.migrated`, "1");
+  if (!legacy.length) {
+    localStorage.setItem(storage.projectMigration, "1");
     return;
   }
-
-  const db = await openSketchDb();
-  try {
-    const tx = db.transaction(sketchStoreName, "readwrite");
-    const store = tx.objectStore(sketchStoreName);
-    oldHistory.slice().reverse().forEach((item) => {
-      store.add({
-        projectVersion: item.projectVersion || "1",
-        at: item.at || new Date().toISOString(),
-        bytes: item.bytes || new Blob([item.code || ""]).size,
-        code: String(item.code || ""),
-        name: normalizeSketchName(item.name || ""),
-        description: String(item.description || ""),
-        circuit: normalizeCircuitLayout(item.circuit),
-      });
-    });
-    await sketchDbTransactionDone(tx);
-    localStorage.removeItem(storage.sketchHistory);
-    localStorage.setItem(`${storage.sketchHistory}.migrated`, "1");
-  } finally {
-    db.close();
+  const seen = new Set();
+  const revisions = legacy
+    .filter((item) => {
+      const key = String(item.code || "");
+      if (!key.trim() || seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    })
+    .map((item) => buildRevision({
+      id: createRevisionId(),
+      name: item.name || "Imported revision",
+      code: String(item.code || ""),
+      specification: String(item.description || ""),
+      specificationMode: item.specificationMode || "middle",
+      circuit: normalizeCircuitLayout(item.circuit),
+      source: "migration",
+      createdAt: item.at || new Date().toISOString(),
+    }));
+  if (!revisions.length) {
+    localStorage.setItem(storage.projectMigration, "1");
+    return;
   }
+  const project = normalizeProjectRecord({
+    id: createProjectId(),
+    name: "Imported Sketches",
+    revisions,
+    activeRevisionId: revisions[0].id,
+    chat: [],
+  });
+  await saveProject(project);
+  localStorage.removeItem(storage.sketchHistory);
+  localStorage.setItem(storage.projectMigration, "1");
 }
 
 async function renderSketchHistory() {
-  const history = await readSketchHistory();
-  els.sketchHistory.replaceChildren(new Option(sketchHistoryPlaceholderLabel(), ""));
-  history.forEach((item, index) => {
-    const date = new Date(item.at);
+  const projects = await readProjects();
+  renderProjectSelectors(projects);
+  const project = projects.find((item) => item.id === currentProjectId)
+    || projects.find((item) => item.id === localStorage.getItem(storage.projectId))
+    || projects[0]
+    || null;
+  if (!currentProjectId && project && !getEditorValue().trim()) {
+    await openProjectRevision(project, activeRevision(project), { saveCurrent: false });
+  }
+}
+
+function renderProjectSelectors(projects = projectCache) {
+  const options = [new Option("project", "")];
+  projects.forEach((project) => {
+    options.push(new Option(project.name || "Untitled Project", project.id));
+  });
+  [els.projectSelect, els.generativeProjectSelect].forEach((select) => {
+    select.replaceChildren(...options.map((option) => new Option(option.textContent, option.value)));
+    select.value = currentProjectId || "";
+    select.disabled = projects.length === 0;
+  });
+  const project = projects.find((item) => item.id === currentProjectId) || null;
+  renderRevisionSelectors(project);
+}
+
+function renderRevisionSelectors(project) {
+  const revisions = project?.revisions || [];
+  const options = [new Option("revision", "")];
+  revisions.forEach((revision) => {
+    const date = new Date(revision.createdAt);
     const when = Number.isNaN(date.getTime()) ? "unknown" : date.toLocaleString([], {
       month: "short",
       day: "numeric",
       hour: "2-digit",
       minute: "2-digit",
     });
-    const name = normalizeSketchName(item.name || "");
+    const name = normalizeSketchName(revision.name || "");
     const label = name
-      ? `${name} / ${when} / ${formatBytes(item.bytes || item.code.length)}`
-      : `${when} / ${formatBytes(item.bytes || item.code.length)}`;
-    els.sketchHistory.append(new Option(label, String(index)));
+      ? `${name} / ${when} / ${formatBytes(revision.bytes || revision.code.length)}`
+      : `${when} / ${formatBytes(revision.bytes || revision.code.length)}`;
+    options.push(new Option(label, revision.id));
   });
-  els.sketchHistory.disabled = history.length === 0;
-  els.sketchHistory.value = "";
+  [els.sketchHistory, els.generativeRevisionSelect].forEach((select) => {
+    select.replaceChildren(...options.map((option) => new Option(option.textContent, option.value)));
+    select.value = currentRevisionId || "";
+    select.disabled = revisions.length === 0;
+  });
   renderCurrentSketchName();
 }
 
-async function recoverSketchHistory() {
-  const index = Number(els.sketchHistory.value);
-  const history = await readSketchHistory();
-  const entry = history[index];
-  els.sketchHistory.value = "";
-  if (!entry) return;
-  circuitChatLayout = normalizeCircuitLayout(entry.circuit);
-  await replaceEditorCode(entry.code, {
-    saveCurrent: true,
-    identityName: entry.name || "",
-    identityHistory: history,
-    identityProject: entry,
-  });
+async function selectProject(id) {
+  const projects = projectCache.length ? projectCache : await readProjects();
+  const project = projects.find((item) => item.id === id);
+  if (!project) return;
+  await shelveEditorSketchIfNeeded();
+  await openProjectRevision(project, activeRevision(project), { saveCurrent: false });
+  logLine("info", `opened project ${project.name || "Untitled Project"}`);
+}
+
+async function selectRevision(id) {
+  const project = await getActiveProject();
+  const revision = project?.revisions?.find((item) => item.id === id);
+  if (!project || !revision) return;
+  await shelveEditorSketchIfNeeded();
+  await openProjectRevision(project, revision, { saveCurrent: false });
+  logLine("info", `opened revision ${revision.name || "revision"}`);
+}
+
+async function openProjectRevision(project, revision, { saveCurrent = true } = {}) {
+  if (!project || !revision) return;
+  if (saveCurrent) await shelveEditorSketchIfNeeded({ incomingCode: revision.code });
+  currentProjectId = project.id;
+  currentRevisionId = revision.id;
+  localStorage.setItem(storage.projectId, project.id);
+  project.activeRevisionId = revision.id;
+  chatMessages = Array.isArray(project.chat) ? project.chat.slice(-60) : [];
+  circuitChatLayout = normalizeCircuitLayout(revision.circuit);
+  setEditorValueRaw(revision.code || "", { persist: true });
+  setCurrentSketchIdentity(revision.name || "", revision.code || "", project, revision);
+  await saveProject(project);
+  renderProjectSelectors(projectCache);
+  renderChatTranscript();
   updateCircuitView(circuitChatLayout ? "project circuit + code inference" : "inferred from code");
-  const sketchName = normalizeSketchName(entry.name || "");
-  logLine("info", `recovered ${sketchName || "sketch"} from ${new Date(entry.at).toLocaleString()}`);
 }
 
 async function createNewSketch() {
+  const requested = window.prompt("Project name", "");
+  if (requested === null) return;
+  await shelveEditorSketchIfNeeded();
+  const name = normalizeProjectName(requested) || autoProjectName("");
   const code = newSketchTemplate();
-  await replaceEditorCode(code, { saveCurrent: true, markUnsaved: true });
+  const revision = buildRevision({ code, name: "Initial revision", source: "new" });
+  const project = normalizeProjectRecord({
+    id: createProjectId(),
+    name,
+    revisions: [revision],
+    activeRevisionId: revision.id,
+    chat: [],
+  });
+  const saved = await saveProject(project);
+  await openProjectRevision(saved, revision, { saveCurrent: false });
   clearEditorError();
-  logLine("info", "new sketch");
+  logLine("info", `new project ${saved.name}`);
 }
 
 async function shelveEditorSketchIfNeeded({ incomingCode = "" } = {}) {
   const current = String(getEditorValue() || "");
-  if (!current.trim()) return;
+  const specDirty = currentProjectDescription !== currentProjectDescriptionSource
+    || currentProjectSpecificationMode !== currentProjectSpecificationModeSource;
+  if (!current.trim() && !specDirty) return;
   if (incomingCode && current === String(incomingCode || "")) return;
-  const history = await readSketchHistory();
-  const alreadySaved = history.some((item) => item?.code === current);
-  if (currentSketchSaved && alreadySaved) return;
+  if (currentSketchSaved) return;
   await rememberUploadedSketch(current, "", {
-    promoteExisting: false,
-    preferAutoName: !currentSketchName,
+    source: "manual",
   });
 }
 
@@ -2218,15 +2411,19 @@ function resolveSketchNameForSave(code, requestedName = "", history = [], { auto
   return autoName ? autoSketchName(code, history) : "";
 }
 
-function setCurrentSketchIdentity(name = "", code = "", history = [], project = null) {
+function setCurrentSketchIdentity(name = "", code = "", project = null, revision = null) {
   currentSketchName = normalizeSketchName(name);
   currentSketchSource = String(code ?? "");
-  currentSketchVersionName = currentSketchName ? nextSketchVersionName(currentSketchName, history) : "";
+  currentSketchVersionName = project ? nextRevisionName(project) : "";
   currentSketchDirty = false;
   currentSketchSaved = true;
-  currentProjectDescription = String(project?.description || "");
-  currentProjectCircuit = normalizeCircuitLayout(project?.circuit);
+  currentProjectDescription = String(revision?.specification || "");
+  currentProjectSpecificationMode = normalizeSpecificationMode(revision?.specificationMode || "middle");
+  currentProjectDescriptionSource = currentProjectDescription;
+  currentProjectSpecificationModeSource = currentProjectSpecificationMode;
+  currentProjectCircuit = normalizeCircuitLayout(revision?.circuit);
   circuitChatLayout = currentProjectCircuit;
+  setProjectSpecification(currentProjectDescription, currentProjectSpecificationMode, { markSaved: true });
   renderCurrentSketchName();
 }
 
@@ -2235,8 +2432,12 @@ function clearCurrentSketchIdentity() {
   currentSketchSource = "";
   currentSketchVersionName = "";
   currentProjectDescription = "";
+  currentProjectDescriptionSource = "";
+  currentProjectSpecificationMode = "middle";
+  currentProjectSpecificationModeSource = "middle";
   currentProjectCircuit = null;
   circuitChatLayout = null;
+  setProjectSpecification("", currentProjectSpecificationMode, { markSaved: true });
   currentSketchDirty = Boolean(String(getEditorValue() || "").trim());
   currentSketchSaved = !currentSketchDirty;
   renderCurrentSketchName();
@@ -2244,9 +2445,12 @@ function clearCurrentSketchIdentity() {
 
 function updateCurrentSketchDirty() {
   const code = getEditorValue();
-  currentSketchDirty = currentSketchName
+  const codeDirty = currentSketchName
     ? code !== currentSketchSource
     : Boolean(String(code || "").trim());
+  const specDirty = currentProjectDescription !== currentProjectDescriptionSource
+    || currentProjectSpecificationMode !== currentProjectSpecificationModeSource;
+  currentSketchDirty = codeDirty || specDirty;
   currentSketchSaved = !currentSketchDirty;
   renderCurrentSketchName();
 }
@@ -2256,13 +2460,13 @@ function renderCurrentSketchName() {
   if (option) option.textContent = sketchHistoryPlaceholderLabel();
   const label = sketchHistoryPlaceholderLabel();
   els.sketchHistory.title = currentSketchName
-    ? `Current sketch: ${label}`
-    : "Recover uploaded sketch";
+    ? `Current revision: ${label}`
+    : "Revision";
 }
 
 function sketchHistoryPlaceholderLabel() {
-  if (!currentSketchName) return currentSketchDirty ? "unsaved" : "history";
-  return currentSketchDirty ? (currentSketchVersionName || currentSketchName) : currentSketchName;
+  if (!currentSketchName) return currentSketchDirty ? "unsaved revision" : "revision";
+  return currentSketchDirty ? `${currentSketchName} *` : currentSketchName;
 }
 
 function autoSketchName(code, history = []) {
@@ -2405,22 +2609,13 @@ function bindSketchDrop() {
     const text = file ? await file.text() : event.dataTransfer?.getData("text/plain");
     if (!text) return;
     const project = parseDroppedProject(text, file);
-    if (!project?.code?.trim()) return;
-    circuitChatLayout = normalizeCircuitLayout(project.circuit);
-    await replaceEditorCode(project.code, {
-      saveCurrent: true,
-      markUnsaved: true,
-      identityName: project.name,
-      identityProject: project,
-    });
+    const revision = activeRevision(project);
+    if (!project || !revision?.code?.trim()) return;
+    await shelveEditorSketchIfNeeded({ incomingCode: revision.code });
+    const saved = await saveProject(project);
+    await openProjectRevision(saved, activeRevision(saved), { saveCurrent: false });
     updateCircuitView(circuitChatLayout ? "project circuit + code inference" : "inferred from code");
-    await rememberUploadedSketch(project.code, project.name, {
-      promoteExisting: false,
-      preferAutoName: !project.name,
-      circuit: project.circuit,
-      description: project.description,
-    });
-    logLine("info", project.name ? `loaded ${project.name}` : (file ? `loaded ${file.name}` : "loaded dropped text"));
+    logLine("info", saved.name ? `loaded ${saved.name}` : (file ? `loaded ${file.name}` : "loaded dropped text"));
   });
 }
 
@@ -3153,6 +3348,10 @@ function updateWifi(wifi = {}, options = {}) {
 
 function updateConfig(config = {}) {
   lastConfig = config;
+  if (config.projectId) {
+    currentProjectId = String(config.projectId);
+    localStorage.setItem(storage.projectId, currentProjectId);
+  }
   if (config.mqttHost) localStorage.setItem(storage.mqttHost, config.mqttHost);
   if (config.mqttPort) localStorage.setItem(storage.mqttPort, String(config.mqttPort));
   const mqttRoot = mqttRootOrEmpty(config.mqttRoot);
@@ -3173,6 +3372,7 @@ function updateConfig(config = {}) {
     setWifiSsidFromDevice(config.wifiSsid);
   }
   renderWifiNetworkList();
+  if (config.projectId || config.projectName) void renderSketchHistory();
   renderFields();
 }
 
@@ -3627,6 +3827,10 @@ function initChat() {
   const savedModel = localStorage.getItem(storage.chatModel);
   els.chatModel.value = chatModelOptions.includes(savedModel) ? savedModel : defaultChatModel;
   if (!els.chatModel.value) els.chatModel.value = chatModelOptions[0] || "";
+  currentProjectDescription = localStorage.getItem(storage.specificationDraft) || "";
+  currentProjectSpecificationMode = normalizeSpecificationMode(localStorage.getItem(storage.specificationMode) || "middle");
+  els.specification.value = currentProjectDescription;
+  els.specificationMode.value = currentProjectSpecificationMode;
   chatMessages = readChatHistory();
   renderChatTranscript();
   updateChatKeyButton();
@@ -3634,7 +3838,58 @@ function initChat() {
   updateChatEnabledState();
 }
 
+function handleSpecificationInput() {
+  currentProjectDescription = els.specification.value;
+  localStorage.setItem(storage.specificationDraft, currentProjectDescription);
+  updateCurrentSketchDirty();
+  updateEnabledState();
+}
+
+function handleSpecificationModeChange() {
+  currentProjectSpecificationMode = normalizeSpecificationMode(els.specificationMode.value);
+  els.specificationMode.value = currentProjectSpecificationMode;
+  localStorage.setItem(storage.specificationMode, currentProjectSpecificationMode);
+  updateCurrentSketchDirty();
+}
+
+function setProjectSpecification(text = "", mode = currentProjectSpecificationMode, { markSaved = false } = {}) {
+  currentProjectDescription = String(text || "");
+  currentProjectSpecificationMode = normalizeSpecificationMode(mode);
+  if (markSaved) {
+    currentProjectDescriptionSource = currentProjectDescription;
+    currentProjectSpecificationModeSource = currentProjectSpecificationMode;
+  }
+  if (els.specification) els.specification.value = currentProjectDescription;
+  if (els.specificationMode) els.specificationMode.value = currentProjectSpecificationMode;
+  localStorage.setItem(storage.specificationDraft, currentProjectDescription);
+  localStorage.setItem(storage.specificationMode, currentProjectSpecificationMode);
+  updateEnabledState();
+}
+
+function normalizeSpecificationMode(mode = "middle") {
+  return ["overview", "middle", "structured"].includes(mode) ? mode : "middle";
+}
+
+function specificationModeLabel(mode = "middle") {
+  if (mode === "overview") return "Overarching Description";
+  if (mode === "structured") return "Programming-Like Plain Text";
+  return "Middle-Level Description";
+}
+
+function specificationModePrompt(mode = "middle") {
+  if (mode === "overview") {
+    return "Describe the program at a high level in plain language. Focus on what the program does, what hardware it uses, and how it behaves over time. Do not describe every variable or every line of logic. Write it as a short human-readable explanation.";
+  }
+  if (mode === "structured") {
+    return "Describe the program as structured plain text that follows the same shape as the code. Use sections like Program, Global values, Setup, and Main loop. Describe conditions, state updates, and actions step by step, but do not write actual code syntax unless naming functions, pins, or values is necessary.";
+  }
+  return "Describe the program in plain language, but include the important implementation details needed to recreate it. Mention key pins, hardware setup, state variables, timing, conditions, and behavior changes. Do not write pseudocode or step-by-step code instructions. The result should sit between a summary and a code plan.";
+}
+
 function readChatHistory() {
+  const project = projectCache.find((item) => item.id === currentProjectId)
+    || projectCache.find((item) => item.id === localStorage.getItem(storage.projectId));
+  if (project?.chat?.length) return project.chat.slice(-60);
   try {
     const parsed = JSON.parse(localStorage.getItem(storage.chatHistory) || "[]");
     if (!Array.isArray(parsed)) return [];
@@ -3647,12 +3902,24 @@ function readChatHistory() {
 }
 
 function saveChatHistory() {
+  const project = projectCache.find((item) => item.id === currentProjectId);
+  if (project) {
+    project.chat = chatMessages.slice(-60);
+    void saveProject(project);
+    return;
+  }
   localStorage.setItem(storage.chatHistory, JSON.stringify(chatMessages.slice(-60)));
 }
 
 function clearChat() {
   chatMessages = [];
-  localStorage.removeItem(storage.chatHistory);
+  const project = projectCache.find((item) => item.id === currentProjectId);
+  if (project) {
+    project.chat = [];
+    void saveProject(project);
+  } else {
+    localStorage.removeItem(storage.chatHistory);
+  }
   renderChatTranscript();
   updateChatEnabledState();
 }
@@ -3869,6 +4136,7 @@ function updateChatEnabledState() {
   els.chatForm.classList.toggle("is-hidden", !hasKey);
   els.chatInput.disabled = !hasKey || chatBusy;
   els.chatSend.disabled = !hasKey || chatBusy || !els.chatInput.value.trim();
+  els.specificationGenerate.disabled = !hasKey || chatBusy || !els.specification.value.trim();
   els.chatModel.disabled = chatBusy;
   els.chatApiKey.disabled = chatBusy;
   els.chatDebugPrompt.disabled = chatBusy;
@@ -3993,7 +4261,14 @@ async function applyChatCode(index) {
   const message = chatMessages[index];
   const code = message?.structured?.code;
   if (!code) return;
-  await replaceEditorFromChat(code, "chat code applied to editor", message.structured?.sketch_name || "", message.structured?.circuit_layout || null);
+  await replaceEditorFromChat(
+    code,
+    "chat code applied to editor",
+    message.structured?.sketch_name || "",
+    message.structured?.circuit_layout || null,
+    message.structured?.project_specification || "",
+    message.structured?.specification_mode || "",
+  );
 }
 
 async function runChatCode(index) {
@@ -4002,27 +4277,46 @@ async function runChatCode(index) {
   if (!code) return;
   await runUiAction(async () => {
     const name = message.structured?.sketch_name || "";
-    await replaceEditorFromChat(code, "chat code prepared", name, message.structured?.circuit_layout || null);
+    await replaceEditorFromChat(
+      code,
+      "chat code prepared",
+      name,
+      message.structured?.circuit_layout || null,
+      message.structured?.project_specification || "",
+      message.structured?.specification_mode || "",
+    );
     await uploadScriptCode(code, { run: true, save: true, name });
     logLine("info", "chat code saved and running");
   }, "uploading");
 }
 
-async function replaceEditorFromChat(code, message, name = "", layout = null) {
+async function replaceEditorFromChat(code, message, name = "", layout = null, specification = "", specificationMode = "") {
   circuitChatLayout = normalizeCircuitLayout(layout);
-  const project = projectFromCode(code, name, circuitChatLayout);
-  await replaceEditorCode(code, {
-    saveCurrent: true,
-    markUnsaved: true,
-    identityName: project.name,
-    identityProject: project,
-  });
-  updateCircuitView(circuitChatLayout ? "chat layout + code inference" : "inferred from code");
-  await rememberUploadedSketch(code, name, {
-    preferAutoName: !normalizeSketchName(name),
+  const nextSpecification = String(specification || currentProjectDescription || "");
+  const nextMode = normalizeSpecificationMode(specificationMode || currentProjectSpecificationMode);
+  const current = String(code ?? "");
+  await shelveEditorSketchIfNeeded({ incomingCode: current });
+  const project = await ensureProjectForWrite({ code: current, nameHint: name });
+  const revision = buildRevision({
+    name: normalizeSketchName(name) || nextRevisionName(project),
+    code: current,
+    specification: nextSpecification,
+    specificationMode: nextMode,
     circuit: circuitChatLayout,
-    description: project.description,
+    source: "generative",
   });
+  const previous = activeRevision(project);
+  let saved = project;
+  let selected = revision;
+  if (previous && revisionEquivalent(previous, revision)) {
+    selected = previous;
+  } else {
+    project.revisions.unshift(revision);
+    project.activeRevisionId = revision.id;
+    saved = await saveProject(project);
+  }
+  await openProjectRevision(saved, selected, { saveCurrent: false });
+  updateCircuitView(circuitChatLayout ? "chat layout + code inference" : "inferred from code");
   logLine("info", message);
 }
 
@@ -4041,11 +4335,19 @@ async function sendChatPrompt() {
     const result = await requestChatCompletion(prompt);
     const content = result.reply || "Done.";
     if (result.code_action === "replace" && result.code.trim()) {
-      await replaceEditorFromChat(result.code, "chat code replaced editor", result.sketch_name, result.circuit_layout);
+      await replaceEditorFromChat(
+        result.code,
+        "chat code replaced editor",
+        result.sketch_name,
+        result.circuit_layout,
+        result.project_specification,
+        result.specification_mode,
+      );
     } else if (result.circuit_layout) {
       circuitChatLayout = result.circuit_layout;
       updateCircuitView("chat layout + code inference");
     }
+    if (result.project_specification) setProjectSpecification(result.project_specification, result.specification_mode);
     chatMessages.push({
       role: "assistant",
       content,
@@ -4063,7 +4365,68 @@ async function sendChatPrompt() {
   }
 }
 
-async function requestChatCompletion(prompt) {
+async function generateCodeFromSpecification() {
+  const specification = els.specification.value.trim();
+  if (!specification || chatBusy || !hasChatApiKey()) return;
+
+  chatBusy = true;
+  updateChatEnabledState();
+  try {
+    const result = await requestChatCompletion(buildSpecificationGeneratePrompt(specification), {
+      purpose: "specification",
+      specification,
+      specificationMode: currentProjectSpecificationMode,
+    });
+    if (result.project_specification) setProjectSpecification(result.project_specification, result.specification_mode);
+    if (result.code_action === "replace" && result.code.trim()) {
+      const name = result.sketch_name || "";
+      await replaceEditorFromChat(
+        result.code,
+        "generated code from specification",
+        name,
+        result.circuit_layout,
+        result.project_specification || specification,
+        result.specification_mode || currentProjectSpecificationMode,
+      );
+      if (isDeviceConnected()) {
+        await uploadScriptCode(result.code, { run: true, save: true, name });
+        logLine("info", "generated code deployed");
+      } else {
+        logLine("info", "generated code ready; connect to deploy");
+      }
+    }
+    chatMessages.push({
+      role: "assistant",
+      content: result.reply || "Generated from specification.",
+      structured: result,
+      at: new Date().toISOString(),
+    });
+    saveChatHistory();
+    renderChatTranscript();
+  } catch (error) {
+    chatMessages.push({ role: "error", content: error.message || String(error), at: new Date().toISOString() });
+    saveChatHistory();
+    renderChatTranscript();
+  } finally {
+    chatBusy = false;
+    updateChatEnabledState();
+  }
+}
+
+function buildSpecificationGeneratePrompt(specification) {
+  return [
+    "Generate a complete P1E Wrench script from the project specification below.",
+    "Use the existing editor code as a foundation if it helps, but the specification is the source of intent.",
+    "Also return an updated project_specification that accurately describes the generated code.",
+    "",
+    `Specification mode: ${specificationModeLabel(currentProjectSpecificationMode)}`,
+    "",
+    "Project specification:",
+    specification,
+  ].join("\n");
+}
+
+async function requestChatCompletion(prompt, options = {}) {
   const apiKey = localStorage.getItem(storage.chatApiKey) || "";
   const model = els.chatModel.value || defaultChatModel;
   const context = await getWrenchChatContext();
@@ -4078,11 +4441,16 @@ async function requestChatCompletion(prompt) {
     lastError: lastStatus?.lastError || null,
     deviceInfo: lastInfo || {},
     deviceStatus: lastStatus || {},
+    projectSpecification: options.specification ?? currentProjectDescription,
+    specificationMode: normalizeSpecificationMode(options.specificationMode || currentProjectSpecificationMode),
+    purpose: options.purpose || "chat",
     conversation,
   };
   const instructions = buildChatInstructions(context);
   const userInputText = [
     `User request:\n${prompt}`,
+    `Current project specification mode:\n${specificationModeLabel(payloadContext.specificationMode)}\n${specificationModePrompt(payloadContext.specificationMode)}`,
+    `Current project specification:\n${payloadContext.projectSpecification || "(empty)"}`,
     `P1E context JSON:\n${JSON.stringify(payloadContext)}`,
   ].join("\n\n");
 
@@ -4149,7 +4517,9 @@ function buildChatInstructions(context) {
     "Return only JSON matching the requested schema.",
     "When producing code, provide a complete Wrench script that can replace the editor contents.",
     "Every generated sketch must start with a short // comment explaining what the sketch does.",
-    "When producing code, also provide sketch_name: a short 2-5 word title suitable for a history dropdown.",
+    "When producing code, also provide sketch_name: a short 2-5 word title suitable for a project revision.",
+    "When producing or changing code, also provide project_specification: an updated project specification that matches the resulting code and follows the requested specification_mode.",
+    "Specification modes: overview means high-level human description; middle means important implementation details without pseudocode; structured means sections like Program, Global values, Setup, and Main loop in plain text.",
     "Also provide circuit_layout: a best-effort JSON layout for the Circuit view with components, connections, assumptions, and notes. Use an empty object if no hardware is involved.",
     "Declare scratch variables at the top of each function and assign them inside while/if blocks. Avoid new var declarations inside tight loops or nested blocks, especially LED render loops.",
     "When the user asks for a live interface, dashboard, or controls, use the documented firmware-driven UI bindings in a Guino-style lifecycle: declare the interface in a drawUi() function from setup() and on hello, read slider/toggle state with uiGet(), use while (uiPoll()) plus uiEventIs(type, id) for buttons and hello redraw events, update ordinary values with uiUpdate(), and stream every graph/sample with uiPush(). Do not call uiBegin() after every control change.",
@@ -4172,6 +4542,8 @@ function chatResponseSchema() {
       code: { type: "string" },
       code_action: { type: "string", enum: ["replace", "none"] },
       sketch_name: { type: "string" },
+      project_specification: { type: "string" },
+      specification_mode: { type: "string", enum: ["overview", "middle", "structured"] },
       notes: { type: "array", items: { type: "string" } },
       warnings: { type: "array", items: { type: "string" } },
       circuit_layout: {
@@ -4187,7 +4559,7 @@ function chatResponseSchema() {
         },
       },
     },
-    required: ["reply", "code", "code_action", "sketch_name", "notes", "warnings", "circuit_layout"],
+    required: ["reply", "code", "code_action", "sketch_name", "project_specification", "specification_mode", "notes", "warnings", "circuit_layout"],
   };
 }
 
@@ -4302,7 +4674,17 @@ function parseChatStructuredText(text) {
   }
 
   if (!parsed || typeof parsed !== "object") {
-    return { reply: raw, code: "", code_action: "none", sketch_name: "", notes: [], warnings: ["Response was not structured JSON."], circuit_layout: null };
+    return {
+      reply: raw,
+      code: "",
+      code_action: "none",
+      sketch_name: "",
+      project_specification: "",
+      specification_mode: currentProjectSpecificationMode,
+      notes: [],
+      warnings: ["Response was not structured JSON."],
+      circuit_layout: null,
+    };
   }
 
   return {
@@ -4310,6 +4692,8 @@ function parseChatStructuredText(text) {
     code: String(parsed.code || ""),
     code_action: parsed.code_action === "replace" ? "replace" : "none",
     sketch_name: normalizeSketchName(parsed.sketch_name || parsed.name || parsed.title || ""),
+    project_specification: String(parsed.project_specification || parsed.specification || parsed.description || ""),
+    specification_mode: normalizeSpecificationMode(parsed.specification_mode || parsed.descriptionMode || currentProjectSpecificationMode),
     notes: Array.isArray(parsed.notes) ? parsed.notes.map(String) : [],
     warnings: filterChatWarnings(parsed.warnings),
     circuit_layout: hasCircuitLayoutContent(parsed.circuit_layout) ? normalizeCircuitLayout(parsed.circuit_layout) : null,
@@ -4359,6 +4743,7 @@ function updateEnabledState() {
     button.querySelector(".material-symbols-rounded").textContent = connecting ? "sync" : (connected || transport ? "link_off" : "link");
   });
   els.downloadCode.disabled = !getEditorValue().trim();
+  els.chatDownloadCode.disabled = els.downloadCode.disabled;
   [
     els.getScript,
     els.reboot,
@@ -4372,7 +4757,9 @@ function updateEnabledState() {
   ].forEach((el) => {
     el.disabled = !connected || isBusy;
   });
-  els.newSketch.disabled = isBusy;
+  [els.newSketch, els.chatNewSketch].forEach((button) => {
+    button.disabled = isBusy;
+  });
   renderWifiNetworkList();
   updateChatEnabledState();
   renderConnectionHistory();

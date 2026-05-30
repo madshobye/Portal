@@ -1,4 +1,4 @@
-export const P1_MSGPACK_VERSION = "0.1.87-ui205";
+export const P1_MSGPACK_VERSION = "0.1.87-ui212";
 
 const FRAME_CMD = 0;
 const FRAME_RES = 1;
@@ -55,7 +55,7 @@ export function encodeCommand(id, name, data = {}) {
 
 function encodeConfigSet(id, op, data = {}) {
   const writer = new MsgPackWriter(512);
-  writer.array(31);
+  writer.array(35);
   writer.uint(FRAME_CMD);
   writer.uint(Number(id));
   writer.uint(op);
@@ -86,6 +86,10 @@ function encodeConfigSet(id, op, data = {}) {
   writer.string(data.onlineAuthKey || "");
   writer.bool(Object.prototype.hasOwnProperty.call(data, "onlineAuthUserRemove"));
   writer.string(data.onlineAuthUserRemove || "");
+  writer.bool(Object.prototype.hasOwnProperty.call(data, "projectId"));
+  writer.string(data.projectId || "");
+  writer.bool(Object.prototype.hasOwnProperty.call(data, "projectName"));
+  writer.string(data.projectName || "");
   return writer.bytes();
 }
 
