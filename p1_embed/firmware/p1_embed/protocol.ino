@@ -1,6 +1,7 @@
 #include <Arduino.h>
 #include <ESP.h>
 #include <WiFi.h>
+#include <time.h>
 #include "p1_embed_firmware.h"
 #include "p1_msgpack.h"
 
@@ -158,6 +159,18 @@ static P1StatusSnapshot protocolStatusSnapshot() {
   snapshot.freeHeap = ESP.getFreeHeap();
   snapshot.minFreeHeap = ESP.getMinFreeHeap();
   snapshot.maxAllocHeap = ESP.getMaxAllocHeap();
+  snapshot.timezone = configTimezone();
+  time_t now = time(nullptr);
+  snapshot.timeSynced = now >= 100000;
+  if (snapshot.timeSynced) {
+    tm info;
+    localtime_r(&now, &info);
+    char buf[24];
+    snprintf(buf, sizeof(buf), "%04d-%02d-%02d %02d:%02d:%02d", info.tm_year + 1900, info.tm_mon + 1, info.tm_mday, info.tm_hour, info.tm_min, info.tm_sec);
+    snapshot.localTime = buf;
+  } else {
+    snapshot.localTime = "";
+  }
   snapshot.deviceId = configDeviceId();
   snapshot.deviceName = configDeviceName();
   snapshot.script = protocolScriptSnapshot();
@@ -198,6 +211,9 @@ static void protocolAppendStatusCoreJson(String& out, const P1StatusSnapshot& sn
   out += ",\"freeHeap\":" + String(snapshot.freeHeap);
   out += ",\"minFreeHeap\":" + String(snapshot.minFreeHeap);
   out += ",\"maxAllocHeap\":" + String(snapshot.maxAllocHeap);
+  out += ",\"timeSynced\":" + String(snapshot.timeSynced ? "true" : "false");
+  out += ",\"localTime\":" + jsonString(snapshot.localTime);
+  out += ",\"timezone\":" + jsonString(snapshot.timezone);
   out += ",\"scriptState\":" + jsonString(snapshot.script.state);
   out += ",\"scriptBytes\":" + String(snapshot.script.bytes);
   out += ",\"scriptHash\":" + String(snapshot.script.hash);
@@ -830,11 +846,14 @@ static void protocolSendMsgPackStatusLight(uint32_t id) {
   w.writeUInt(P1_MP_FRAME_RES);
   w.writeUInt(id);
   w.writeBool(true);
-  w.writeMap(14);
+  w.writeMap(17);
   w.writeString("uptimeMs"); w.writeUInt(snapshot.uptimeMs);
   w.writeString("heapSize"); w.writeUInt(snapshot.heapSize);
   w.writeString("freeHeap"); w.writeUInt(snapshot.freeHeap);
   w.writeString("maxAllocHeap"); w.writeUInt(snapshot.maxAllocHeap);
+  w.writeString("timeSynced"); w.writeBool(snapshot.timeSynced);
+  w.writeString("localTime"); w.writeString(snapshot.localTime);
+  w.writeString("timezone"); w.writeString(snapshot.timezone);
   w.writeString("scriptState"); w.writeString(snapshot.script.state);
   w.writeString("scriptBytes"); w.writeUInt(snapshot.script.bytes);
   w.writeString("scriptHash"); w.writeUInt(snapshot.script.hash);
@@ -924,12 +943,13 @@ static void protocolSendMsgPackConfig(uint32_t id) {
     return;
   }
   P1MsgPackWriter w(frame, P1_EMBED_MSGPACK_MAX_FRAME_BYTES);
-  protocolMsgPackBeginResponse(w, id, true, 21);
+  protocolMsgPackBeginResponse(w, id, true, 22);
   w.writeString("deviceId"); w.writeString(snapshot.deviceId);
   w.writeString("deviceName"); w.writeString(snapshot.deviceName);
   w.writeString("projectId"); w.writeString(snapshot.projectId);
   w.writeString("projectName"); w.writeString(snapshot.projectName);
   w.writeString("scriptName"); w.writeString(snapshot.scriptName);
+  w.writeString("timezone"); w.writeString(snapshot.timezone);
   w.writeString("wifiSsid"); w.writeString(snapshot.wifiSsid);
   w.writeString("wifiPasswordSet"); w.writeBool(snapshot.wifiPasswordSet);
   w.writeString("wifiNetworkCount"); w.writeUInt(snapshot.wifiNetworkCount);
@@ -1251,6 +1271,7 @@ void protocolHandleBytes(const uint8_t* data, size_t len) {
     bool hasProjectId = false;
     bool hasProjectName = false;
     bool hasScriptName = false;
+    bool hasTimezone = false;
     bool hasMqttHost = false;
     bool hasMqttPort = false;
     bool hasMqttRoot = false;
@@ -1267,6 +1288,7 @@ void protocolHandleBytes(const uint8_t* data, size_t len) {
     String projectId;
     String projectName;
     String scriptName;
+    String timezone;
     String mqttHost;
     uint32_t mqttPort = 0;
     String mqttRoot;
@@ -1323,6 +1345,12 @@ void protocolHandleBytes(const uint8_t* data, size_t len) {
         return;
       }
     }
+    if (count >= 39) {
+      if (!r.readBool(hasTimezone) || !r.readString(timezone)) {
+        protocolSendMsgPackError(id, "bad_config_frame", "config.set timezone field is malformed");
+        return;
+      }
+    }
     bool changed = false;
     bool mqttChanged = false;
     if (hasDeviceName) {
@@ -1343,6 +1371,10 @@ void protocolHandleBytes(const uint8_t* data, size_t len) {
     }
     if (hasScriptName) {
       configSetScriptName(scriptName);
+      changed = true;
+    }
+    if (hasTimezone) {
+      configSetTimezone(timezone);
       changed = true;
     }
     if (hasMqttHost) {
@@ -1576,6 +1608,7 @@ void protocolHandleLine(const char* line) {
     String projectId;
     String projectName;
     String scriptName;
+    String timezone;
     String mqttHost;
     String mqttRoot;
     String mqttUser;
@@ -1609,6 +1642,10 @@ void protocolHandleLine(const char* line) {
     }
     if (jsonGetString(line, "scriptName", scriptName)) {
       configSetScriptName(scriptName);
+      changed = true;
+    }
+    if (jsonGetString(line, "timezone", timezone)) {
+      configSetTimezone(timezone);
       changed = true;
     }
     if (jsonGetString(line, "mqttHost", mqttHost)) {

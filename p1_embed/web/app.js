@@ -1,14 +1,14 @@
-import { ProtocolClient } from "./protocol/ProtocolClient.js?v=0.1.87-ui257";
-import { canEncodeCommand } from "./protocol/P1MsgPack.js?v=0.1.87-ui257";
-import { WebSerialTransport } from "./protocol/WebSerialTransport.js?v=0.1.87-ui257";
+import { ProtocolClient } from "./protocol/ProtocolClient.js?v=0.1.87-ui264";
+import { canEncodeCommand } from "./protocol/P1MsgPack.js?v=0.1.87-ui264";
+import { WebSerialTransport } from "./protocol/WebSerialTransport.js?v=0.1.87-ui264";
 import { WebSocketTransport } from "./protocol/WebSocketTransport.js";
-import { MqttWebRtcTransport, MQTT_WEBRTC_TRANSPORT_VERSION } from "./protocol/MqttWebRtcTransport.js?v=0.1.87-ui257";
-import { MqttTransport, MQTT_TRANSPORT_VERSION, clearOnlineAuthKey, deriveOnlineAuthKeyHex, storeOnlineAuthKey } from "./protocol/MqttTransport.js?v=0.1.87-ui257";
-import { P1WebFlasher } from "./web-flasher.js?v=0.1.87-ui257";
-import { inferCircuitLayout, initCircuitView, normalizeCircuitLayout } from "./circuit.js?v=0.1.87-ui257";
-import { initGuinoView } from "./guino.js?v=0.1.87-ui257";
+import { MqttWebRtcTransport, MQTT_WEBRTC_TRANSPORT_VERSION } from "./protocol/MqttWebRtcTransport.js?v=0.1.87-ui264";
+import { MqttTransport, MQTT_TRANSPORT_VERSION, clearOnlineAuthKey, deriveOnlineAuthKeyHex, storeOnlineAuthKey } from "./protocol/MqttTransport.js?v=0.1.87-ui264";
+import { P1WebFlasher } from "./web-flasher.js?v=0.1.87-ui264";
+import { inferCircuitLayout, initCircuitView, normalizeCircuitLayout } from "./circuit.js?v=0.1.87-ui264";
+import { initGuinoView } from "./guino.js?v=0.1.87-ui264";
 
-const WEB_UI_VERSION = "0.1.87-ui257";
+const WEB_UI_VERSION = "0.1.87-ui264";
 const CHAT_DEFAULT_MAX_OUTPUT_TOKENS = 8000;
 const CHAT_MIN_MAX_OUTPUT_TOKENS = 1024;
 const CHAT_HARD_MAX_OUTPUT_TOKENS = 32000;
@@ -136,6 +136,7 @@ const els = {
   settingsTabs: document.querySelectorAll("[data-settings-tab]"),
   settingsPanels: document.querySelectorAll("[data-settings-panel]"),
   deviceNameInput: document.querySelector("#device-name-input"),
+  timezoneInput: document.querySelector("#timezone-input"),
   deviceNameSave: document.querySelector("#device-name-save-button"),
   wifiSave: document.querySelector("#wifi-save-button"),
   wifiNetworkList: document.querySelector("#wifi-network-list"),
@@ -2473,17 +2474,9 @@ function renderRevisionSelectors(project) {
   const revisions = project?.revisions || [];
   const options = [new Option("revision", "")];
   revisions.forEach((revision) => {
-    const date = new Date(revision.createdAt);
-    const when = Number.isNaN(date.getTime()) ? "unknown" : date.toLocaleString([], {
-      month: "short",
-      day: "numeric",
-      hour: "2-digit",
-      minute: "2-digit",
-    });
     const name = normalizeSketchName(revision.name || "");
-    const label = name
-      ? `${name} / ${when} / ${formatBytes(revision.bytes || revision.code.length)}`
-      : `${when} / ${formatBytes(revision.bytes || revision.code.length)}`;
+    const size = formatBytes(revision.bytes || revision.code.length);
+    const label = name ? `${name} / ${size}` : size;
     options.push(new Option(label, revision.id));
   });
   [els.sketchHistory, els.generativeRevisionSelect].forEach((select) => {
@@ -2890,8 +2883,16 @@ function formatBytes(bytes) {
   return `${(size / 1024).toFixed(1)} KB`;
 }
 
+function setTimezoneSelectValue(value) {
+  if (!els.timezoneInput) return;
+  const timezone = String(value || "UTC0").trim() || "UTC0";
+  const existing = Array.from(els.timezoneInput.options).find((option) => option.value === timezone);
+  els.timezoneInput.value = existing ? timezone : "UTC0";
+}
+
 function openSettingsDialog() {
   els.deviceNameInput.value = lastInfo?.deviceName || lastStatus?.deviceName || "";
+  setTimezoneSelectValue(lastConfig?.timezone || "UTC0");
   els.wifiSsid.value = "";
   els.wifiPassword.value = "";
   populateMqttSettings();
@@ -3109,7 +3110,8 @@ function renderOnlineAuthUsers() {
 async function saveDeviceName() {
   const deviceName = els.deviceNameInput.value.trim();
   if (!deviceName) return;
-  const config = await sendCommand("config.set", { deviceName }, { timeoutMs: 10000 });
+  const timezone = els.timezoneInput?.value.trim() || "UTC0";
+  const config = await sendCommand("config.set", { deviceName, timezone }, { timeoutMs: 10000 });
   updateConfig(config);
   lastInfo = { ...(lastInfo || {}), deviceName };
   lastStatus = { ...(lastStatus || {}), deviceName };
@@ -3622,6 +3624,9 @@ function updateConfig(config = {}) {
       els.deviceNameInput.value = config.deviceName;
     }
   }
+  if (config.timezone && els.timezoneInput && document.activeElement !== els.timezoneInput) {
+    setTimezoneSelectValue(config.timezone);
+  }
   if (Array.isArray(config.wifiNetworks) && config.wifiNetworks[0]?.ssid) {
     setWifiSsidFromDevice(config.wifiNetworks[0].ssid);
   } else if (config.wifiSsid) {
@@ -3708,6 +3713,8 @@ function renderFields() {
     infoCard("developer_board", lastInfo?.deviceName || lastStatus?.deviceName || "P1E board", [
       infoMetric("Firmware", [lastInfo?.firmwareName, lastInfo?.firmwareVersion].filter(Boolean).join(" ") || "-"),
       infoMetric("Uptime", formatDuration(lastStatus?.uptimeMs) || "-"),
+      infoMetric("Time", lastStatus?.timeSynced ? lastStatus.localTime || "-" : "not synced"),
+      infoMetric("Timezone", lastStatus?.timezone || lastConfig?.timezone || "-"),
     ]),
     infoCard(scriptRunning ? "play_circle" : "stop_circle", scriptStatusLabel(), [
       infoMetric("Script", compactScriptLabel()),

@@ -71,7 +71,7 @@ MQTT uses one binary command/response/event path and one plain text script path:
 - Avoid long blocking loops in `setup()` or `loop()`. Communication and status updates should keep breathing.
 - Very large scripts can fail if contiguous heap is too fragmented. Keep big static JSON samples short when possible.
 - For HTTP weather/API scripts, WiFi must be connected before `httpGet()`.
-- LED setup should happen in Wrench with `ledConfig()` so the script owns the strip layout.
+- LED setup should happen in Wrench with `ledConfig()` so the script owns the strip layout. A later script can reduce the count on the same pin without reboot; changing pin or growing beyond the active capacity requires reboot.
 - Use `==` for comparisons; use `=` only for assignment.
 - Wrench strings and JSON helpers are convenient, but repeated large string building can pressure heap.
 - Do not use JSON helpers as temporary data structures inside animation loops. Keep hot loops numeric, especially for LED color math.
@@ -87,6 +87,18 @@ MQTT uses one binary command/response/event path and one plain text script path:
 - `random(max)`, `random(min, max)`, `randomSeed(seed)`.
 - `freeHeap()`.
 - `lastError()`, `clearError()`.
+
+## Math, Noise, And Time
+
+- `lerp(a, b, t)` returns the linear interpolation between `a` and `b`. `t` is clamped to `0.0..1.0`.
+- `noiseSeed(seed)` seeds the firmware simplex noise permutation table.
+- `simplex3(x, y, z)` returns 3D simplex noise in roughly `-1.0..1.0`.
+- `simplex3_01(x, y, z)` returns clamped 3D simplex noise mapped to `0.0..1.0`.
+- `timeNow()` returns Unix time in seconds, or a low unsynced value before WiFi/NTP has set time.
+- `timeLocalHour()`, `timeLocalMinute()`, and `timeLocalSeconds()` return local time parts, or `-1` before time is synced.
+- `timeGet()` returns local time text as `YYYY-MM-DD HH:MM:SS`, or an empty string before time is synced.
+
+The timezone is configured in Settings > General with representative city labels. The firmware stores a fixed allow-listed POSIX timezone string such as `UTC0` or `CET-1CEST,M3.5.0/02,M10.5.0/03`; unsupported timezone strings are normalized to `UTC0`.
 
 ## GPIO And ESP Basics
 
@@ -144,14 +156,19 @@ Paths can address nested object/array values such as `weather.0.main` or `main.t
 
 Multi-strip API:
 
-- `ledConfig(strip, pin, count, brightness)`.
+- `ledConfig(strip, pin, count, brightness)`. Reusing the same pin with a smaller or equal count updates the logical strip size immediately and clears any tail pixels beyond the new count.
 - `ledReady(strip)`.
 - `ledStripCount()`.
 - `ledCount(strip)`.
 - `ledSet(strip, index, r, g, b)`.
 - `ledSetHsv(strip, index, h, s, v)` converts HSV to RGB in firmware without Wrench JSON/string allocation. This is the compact path for rainbow, sparkle, and chase animations.
+- `ledGetR(strip, index)`, `ledGetG(strip, index)`, `ledGetB(strip, index)` return the current stored RGB channel for a pixel. They return `0` when the strip or pixel is not ready.
 - `hsvToR(h, s, v)`, `hsvToG(h, s, v)`, `hsvToB(h, s, v)` return numeric RGB components without building a JSON array. Use these when a sketch needs to reuse individual color channels.
 - `rgbToH(r, g, b)`, `rgbToS(r, g, b)`, `rgbToV(r, g, b)` return numeric HSV components without building a JSON array.
+- `paletteSet2(slot, r0, g0, b0, r1, g1, b1)` defines a two-color gradient in palette slot `0..3`.
+- `paletteSet3(slot, r0, g0, b0, r1, g1, b1, r2, g2, b2)` defines a three-color gradient.
+- `paletteSet4(slot, r0, g0, b0, r1, g1, b1, r2, g2, b2, r3, g3, b3)` defines a four-color gradient.
+- `paletteGetR(slot, t)`, `paletteGetG(slot, t)`, `paletteGetB(slot, t)` sample a palette channel at `t` in `0..255`.
 - `ledFill(strip, r, g, b)`.
 - `ledClear(strip, show)`.
 - `ledShow()`.

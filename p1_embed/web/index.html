@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>P1E</title>
     <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@24,400,0,0">
-    <link rel="stylesheet" href="style.css?v=0.1.87-ui257">
+    <link rel="stylesheet" href="style.css?v=0.1.87-ui264">
   </head>
   <body>
     <main id="app">
@@ -21,7 +21,10 @@
           <button id="ui-tab" class="tab" type="button" data-tab="ui">UI</button>
           <button id="install-tab" class="tab" type="button" data-tab="install">Install</button>
         </nav>
-        <div class="connection-pill" id="connection-state">not connected</div>
+        <div class="topbar-status">
+          <div class="connection-pill" id="connection-state">not connected</div>
+          <button id="settings-button" class="button compact topbar-settings icon-buttonish" type="button" disabled title="Settings" aria-label="Settings"><span class="material-symbols-rounded">settings</span></button>
+        </div>
       </header>
 
       <section id="coding-view" class="view" aria-label="Code">
@@ -48,7 +51,6 @@
               <span id="upload-status-label">Uploading</span>
               <progress id="upload-status-progress" value="0" max="100"></progress>
             </div>
-            <button id="settings-button" class="button icon-buttonish" type="button" disabled title="Settings" aria-label="Settings"><span class="material-symbols-rounded">settings</span></button>
             <button id="reboot-button" class="button icon-buttonish" type="button" disabled title="Reboot device" aria-label="Reboot device"><span class="material-symbols-rounded">restart_alt</span></button>
           </header>
 
@@ -285,10 +287,44 @@
           <button class="settings-tab" type="button" data-settings-tab="generative">AI</button>
         </nav>
         <section class="settings-panel is-active" data-settings-panel="general">
-          <div class="settings-section">
+          <div class="settings-section settings-general-section">
             <label class="field">
               <span>Name</span>
               <input id="device-name-input" type="text" autocomplete="off" spellcheck="false">
+            </label>
+            <label class="field">
+              <span>Timezone</span>
+              <select id="timezone-input">
+                <option value="UTC0">UTC / Reykjavik / Accra</option>
+                <option value="GMT0BST,M3.5.0/1,M10.5.0">London / Dublin / Lisbon</option>
+                <option value="CET-1CEST,M3.5.0/02,M10.5.0/03">Copenhagen / Berlin / Paris / Rome / Madrid</option>
+                <option value="EET-2EEST,M3.5.0/03,M10.5.0/04">Athens / Helsinki / Cairo / Jerusalem</option>
+                <option value="MSK-3">Moscow / Istanbul / Nairobi</option>
+                <option value="GST-4">Dubai / Abu Dhabi / Baku</option>
+                <option value="PKT-5">Karachi / Islamabad</option>
+                <option value="IST-5:30">Delhi / Mumbai / Colombo</option>
+                <option value="NPT-5:45">Kathmandu</option>
+                <option value="BST-6">Dhaka</option>
+                <option value="ICT-7">Bangkok / Jakarta / Hanoi</option>
+                <option value="CST-8">Beijing / Shanghai / Singapore / Hong Kong</option>
+                <option value="JST-9">Tokyo / Seoul</option>
+                <option value="AEST-10AEDT,M10.1.0/02,M4.1.0/03">Sydney / Melbourne</option>
+                <option value="NZST-12NZDT,M9.5.0/02,M4.1.0/03">Auckland / Wellington</option>
+                <option value="NST11">Noumea / Solomon Islands</option>
+                <option value="HST10">Honolulu / Tahiti</option>
+                <option value="AKST9AKDT,M3.2.0/02,M11.1.0/02">Anchorage / Juneau</option>
+                <option value="PST8PDT,M3.2.0/02,M11.1.0/02">Los Angeles / San Francisco / Vancouver</option>
+                <option value="MST7MDT,M3.2.0/02,M11.1.0/02">Denver / Salt Lake City / Edmonton</option>
+                <option value="MST7">Phoenix</option>
+                <option value="CST6CDT,M3.2.0/02,M11.1.0/02">Chicago / Mexico City / Winnipeg</option>
+                <option value="EST5EDT,M3.2.0/02,M11.1.0/02">New York / Toronto / Miami</option>
+                <option value="AST4ADT,M3.2.0/02,M11.1.0/02">Halifax / Bermuda</option>
+                <option value="AST4">Santo Domingo / San Juan / La Paz</option>
+                <option value="NST3:30NDT,M3.2.0/00:01,M11.1.0/00:01">St. John's</option>
+                <option value="ART3">Buenos Aires / Montevideo</option>
+                <option value="BRT3">Sao Paulo / Rio de Janeiro</option>
+                <option value="SAST-2">Cape Town / Johannesburg</option>
+              </select>
             </label>
             <button id="device-name-save-button" class="button primary icon-buttonish" type="button" title="Apply board name" aria-label="Apply board name"><span class="material-symbols-rounded">drive_file_rename_outline</span></button>
           </div>
@@ -445,6 +481,6 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.9.4/p5.min.js" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
     <script src="../../P1/portal/usbSerial.js"></script>
     <script src="../../P1/portal/qrCodeGen.js"></script>
-    <script type="module" src="app.js?v=0.1.87-ui257"></script>
+    <script type="module" src="app.js?v=0.1.87-ui264"></script>
   </body>
 </html>

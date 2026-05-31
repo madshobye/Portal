@@ -2,6 +2,7 @@
 #include <ESP.h>
 #include <WiFi.h>
 #include <Wire.h>
+#include <time.h>
 #include "p1_embed_firmware.h"
 
 static int wrArgInt(const WRValue* argv, int argn, int idx, int def) {
@@ -150,6 +151,154 @@ static void rgbToHsv8(int r, int g, int b, int& h, int& s, int& v) {
   while (h >= 255) h -= 255;
 }
 
+static uint8_t g_noisePerm[512];
+static bool g_noisePermReady = false;
+static uint32_t g_noiseSeed = 1;
+
+static uint32_t noiseNextRandom(uint32_t& state) {
+  state ^= state << 13;
+  state ^= state >> 17;
+  state ^= state << 5;
+  return state;
+}
+
+static void noiseSeedSimplex(uint32_t seed) {
+  if (seed == 0) seed = 1;
+  g_noiseSeed = seed;
+  uint8_t p[256];
+  for (int i = 0; i < 256; i++) p[i] = (uint8_t)i;
+  uint32_t state = seed;
+  for (int i = 255; i > 0; i--) {
+    int j = noiseNextRandom(state) % (i + 1);
+    uint8_t tmp = p[i];
+    p[i] = p[j];
+    p[j] = tmp;
+  }
+  for (int i = 0; i < 512; i++) g_noisePerm[i] = p[i & 255];
+  g_noisePermReady = true;
+}
+
+static int noiseFastFloor(float x) {
+  int xi = (int)x;
+  return x < xi ? xi - 1 : xi;
+}
+
+static float noiseGrad3(int hash, float x, float y, float z) {
+  int h = hash & 15;
+  float u = h < 8 ? x : y;
+  float v = h < 4 ? y : ((h == 12 || h == 14) ? x : z);
+  return ((h & 1) ? -u : u) + ((h & 2) ? -v : v);
+}
+
+static float noiseSimplex3(float x, float y, float z) {
+  if (!g_noisePermReady) noiseSeedSimplex(1);
+  const float f3 = 1.0f / 3.0f;
+  const float g3 = 1.0f / 6.0f;
+  float s = (x + y + z) * f3;
+  int i = noiseFastFloor(x + s);
+  int j = noiseFastFloor(y + s);
+  int k = noiseFastFloor(z + s);
+  float t = (i + j + k) * g3;
+  float x0 = x - (i - t);
+  float y0 = y - (j - t);
+  float z0 = z - (k - t);
+
+  int i1 = 0, j1 = 0, k1 = 0;
+  int i2 = 0, j2 = 0, k2 = 0;
+  if (x0 >= y0) {
+    if (y0 >= z0) { i1 = 1; i2 = 1; j2 = 1; }
+    else if (x0 >= z0) { i1 = 1; i2 = 1; k2 = 1; }
+    else { k1 = 1; i2 = 1; k2 = 1; }
+  } else {
+    if (y0 < z0) { k1 = 1; j2 = 1; k2 = 1; }
+    else if (x0 < z0) { j1 = 1; j2 = 1; k2 = 1; }
+    else { j1 = 1; i2 = 1; j2 = 1; }
+  }
+
+  float x1 = x0 - i1 + g3;
+  float y1 = y0 - j1 + g3;
+  float z1 = z0 - k1 + g3;
+  float x2 = x0 - i2 + 2.0f * g3;
+  float y2 = y0 - j2 + 2.0f * g3;
+  float z2 = z0 - k2 + 2.0f * g3;
+  float x3 = x0 - 1.0f + 3.0f * g3;
+  float y3 = y0 - 1.0f + 3.0f * g3;
+  float z3 = z0 - 1.0f + 3.0f * g3;
+
+  int ii = i & 255;
+  int jj = j & 255;
+  int kk = k & 255;
+  float n0 = 0.0f, n1 = 0.0f, n2 = 0.0f, n3 = 0.0f;
+
+  float tt = 0.6f - x0 * x0 - y0 * y0 - z0 * z0;
+  if (tt > 0) {
+    tt *= tt;
+    n0 = tt * tt * noiseGrad3(g_noisePerm[ii + g_noisePerm[jj + g_noisePerm[kk]]], x0, y0, z0);
+  }
+  tt = 0.6f - x1 * x1 - y1 * y1 - z1 * z1;
+  if (tt > 0) {
+    tt *= tt;
+    n1 = tt * tt * noiseGrad3(g_noisePerm[ii + i1 + g_noisePerm[jj + j1 + g_noisePerm[kk + k1]]], x1, y1, z1);
+  }
+  tt = 0.6f - x2 * x2 - y2 * y2 - z2 * z2;
+  if (tt > 0) {
+    tt *= tt;
+    n2 = tt * tt * noiseGrad3(g_noisePerm[ii + i2 + g_noisePerm[jj + j2 + g_noisePerm[kk + k2]]], x2, y2, z2);
+  }
+  tt = 0.6f - x3 * x3 - y3 * y3 - z3 * z3;
+  if (tt > 0) {
+    tt *= tt;
+    n3 = tt * tt * noiseGrad3(g_noisePerm[ii + 1 + g_noisePerm[jj + 1 + g_noisePerm[kk + 1]]], x3, y3, z3);
+  }
+  return 32.0f * (n0 + n1 + n2 + n3);
+}
+
+#define P1_WRENCH_PALETTE_SLOTS 4
+#define P1_WRENCH_PALETTE_STOPS 4
+
+static uint8_t g_paletteCounts[P1_WRENCH_PALETTE_SLOTS] = {0};
+static uint8_t g_paletteR[P1_WRENCH_PALETTE_SLOTS * P1_WRENCH_PALETTE_STOPS] = {0};
+static uint8_t g_paletteG[P1_WRENCH_PALETTE_SLOTS * P1_WRENCH_PALETTE_STOPS] = {0};
+static uint8_t g_paletteB[P1_WRENCH_PALETTE_SLOTS * P1_WRENCH_PALETTE_STOPS] = {0};
+
+static int paletteIndex(int slot, int stop) {
+  return slot * P1_WRENCH_PALETTE_STOPS + stop;
+}
+
+static bool paletteValidSlot(int slot) {
+  return slot >= 0 && slot < P1_WRENCH_PALETTE_SLOTS;
+}
+
+static void paletteSetStop(int slot, int stop, int r, int g, int b) {
+  int index = paletteIndex(slot, stop);
+  g_paletteR[index] = (uint8_t)constrain(r, 0, 255);
+  g_paletteG[index] = (uint8_t)constrain(g, 0, 255);
+  g_paletteB[index] = (uint8_t)constrain(b, 0, 255);
+}
+
+static bool paletteSet(int slot, int count, const int* rgb) {
+  if (!paletteValidSlot(slot) || count < 2 || count > P1_WRENCH_PALETTE_STOPS || !rgb) return false;
+  g_paletteCounts[slot] = (uint8_t)count;
+  for (int i = 0; i < count; i++) paletteSetStop(slot, i, rgb[i * 3], rgb[i * 3 + 1], rgb[i * 3 + 2]);
+  return true;
+}
+
+static int paletteSampleComponent(int slot, int t, int component) {
+  if (!paletteValidSlot(slot) || g_paletteCounts[slot] < 2) return 0;
+  int count = g_paletteCounts[slot];
+  t = constrain(t, 0, 255);
+  int scaled = t * (count - 1);
+  int left = scaled / 255;
+  int right = left + 1;
+  if (right >= count) right = count - 1;
+  int localT = scaled - (left * 255);
+  int li = paletteIndex(slot, left);
+  int ri = paletteIndex(slot, right);
+  int a = component == 0 ? g_paletteR[li] : (component == 1 ? g_paletteG[li] : g_paletteB[li]);
+  int b = component == 0 ? g_paletteR[ri] : (component == 1 ? g_paletteG[ri] : g_paletteB[ri]);
+  return a + ((b - a) * localT) / 255;
+}
+
 static String wrStripJsonObjectBraces(String fields) {
   fields.trim();
   if (fields.startsWith("{") && fields.endsWith("}")) {
@@ -203,6 +352,7 @@ static String wrConfigValue(const String& key) {
   if (!key.length()) return configAsJson();
   if (key == "deviceId") return configDeviceId();
   if (key == "deviceName") return configDeviceName();
+  if (key == "timezone") return configTimezone();
   if (key == "wifiSsid") return configWifiSsid();
   if (key == "wifiNetworkCount") return String(configWifiNetworkCount());
   if (key == "wifi") return wifiStatusJson();
@@ -1103,6 +1253,65 @@ static void w_p1_fanDetach(WRContext*, const WRValue* argv, const int argn, WRVa
   wrRetInt(retVal, pwmFanDetach(wrArgInt(argv, argn, 0, -1)) ? 1 : 0);
 }
 
+static void w_p1_lerp(WRContext*, const WRValue* argv, const int argn, WRValue& retVal, void*) {
+  float a = wrArgFloat(argv, argn, 0, 0.0f);
+  float b = wrArgFloat(argv, argn, 1, 0.0f);
+  float t = constrain(wrArgFloat(argv, argn, 2, 0.0f), 0.0f, 1.0f);
+  wrRetFloat(retVal, a + (b - a) * t);
+}
+
+static void w_p1_noiseSeed(WRContext*, const WRValue* argv, const int argn, WRValue& retVal, void*) {
+  uint32_t seed = wrArgPresent(argv, argn, 0) ? (uint32_t)wrArgInt(argv, argn, 0, 1) : (uint32_t)micros();
+  noiseSeedSimplex(seed);
+  wrRetInt(retVal, (int)g_noiseSeed);
+}
+
+static void w_p1_simplex3(WRContext*, const WRValue* argv, const int argn, WRValue& retVal, void*) {
+  wrRetFloat(retVal, noiseSimplex3(wrArgFloat(argv, argn, 0, 0.0f), wrArgFloat(argv, argn, 1, 0.0f), wrArgFloat(argv, argn, 2, 0.0f)));
+}
+
+static void w_p1_simplex3_01(WRContext*, const WRValue* argv, const int argn, WRValue& retVal, void*) {
+  float value = (noiseSimplex3(wrArgFloat(argv, argn, 0, 0.0f), wrArgFloat(argv, argn, 1, 0.0f), wrArgFloat(argv, argn, 2, 0.0f)) + 1.0f) * 0.5f;
+  wrRetFloat(retVal, constrain(value, 0.0f, 1.0f));
+}
+
+static bool wrLocalTime(tm& out) {
+  time_t now = time(nullptr);
+  if (now < 100000) return false;
+  localtime_r(&now, &out);
+  return true;
+}
+
+static void w_p1_timeNow(WRContext*, const WRValue*, const int, WRValue& retVal, void*) {
+  wrRetInt(retVal, (int)time(nullptr));
+}
+
+static void w_p1_timeLocalHour(WRContext*, const WRValue*, const int, WRValue& retVal, void*) {
+  tm info;
+  wrRetInt(retVal, wrLocalTime(info) ? info.tm_hour : -1);
+}
+
+static void w_p1_timeLocalMinute(WRContext*, const WRValue*, const int, WRValue& retVal, void*) {
+  tm info;
+  wrRetInt(retVal, wrLocalTime(info) ? info.tm_min : -1);
+}
+
+static void w_p1_timeLocalSeconds(WRContext*, const WRValue*, const int, WRValue& retVal, void*) {
+  tm info;
+  wrRetInt(retVal, wrLocalTime(info) ? info.tm_sec : -1);
+}
+
+static void w_p1_timeGet(WRContext* ctx, const WRValue*, const int, WRValue& retVal, void*) {
+  tm info;
+  if (!wrLocalTime(info)) {
+    wrRetString(ctx, retVal, "");
+    return;
+  }
+  char buf[24];
+  snprintf(buf, sizeof(buf), "%04d-%02d-%02d %02d:%02d:%02d", info.tm_year + 1900, info.tm_mon + 1, info.tm_mday, info.tm_hour, info.tm_min, info.tm_sec);
+  wrRetString(ctx, retVal, String(buf));
+}
+
 static void w_p1_ledConfig(WRContext*, const WRValue* argv, const int argn, WRValue& retVal, void*) {
   int strip = wrArgInt(argv, argn, 0, 0);
   int pin = wrArgInt(argv, argn, 1, -1);
@@ -1145,6 +1354,26 @@ static void w_p1_ledSetHsv(WRContext*, const WRValue* argv, const int argn, WRVa
   wrRetInt(retVal, ok ? 1 : 0);
 }
 
+static void wrRetLedComponent(const WRValue* argv, const int argn, WRValue& retVal, int component) {
+  int r = 0;
+  int g = 0;
+  int b = 0;
+  ledGetPixel(wrArgInt(argv, argn, 0, 0), wrArgInt(argv, argn, 1, -1), r, g, b);
+  wrRetInt(retVal, component == 0 ? r : (component == 1 ? g : b));
+}
+
+static void w_p1_ledGetR(WRContext*, const WRValue* argv, const int argn, WRValue& retVal, void*) {
+  wrRetLedComponent(argv, argn, retVal, 0);
+}
+
+static void w_p1_ledGetG(WRContext*, const WRValue* argv, const int argn, WRValue& retVal, void*) {
+  wrRetLedComponent(argv, argn, retVal, 1);
+}
+
+static void w_p1_ledGetB(WRContext*, const WRValue* argv, const int argn, WRValue& retVal, void*) {
+  wrRetLedComponent(argv, argn, retVal, 2);
+}
+
 static void wrRetHsvComponent(const WRValue* argv, const int argn, WRValue& retVal, int component) {
   int r = 0;
   int g = 0;
@@ -1183,6 +1412,49 @@ static void w_p1_rgbToS(WRContext*, const WRValue* argv, const int argn, WRValue
 
 static void w_p1_rgbToV(WRContext*, const WRValue* argv, const int argn, WRValue& retVal, void*) {
   wrRetRgbComponent(argv, argn, retVal, 2);
+}
+
+static void w_p1_paletteSet2(WRContext*, const WRValue* argv, const int argn, WRValue& retVal, void*) {
+  int rgb[6] = {
+    wrArgInt(argv, argn, 1, 0), wrArgInt(argv, argn, 2, 0), wrArgInt(argv, argn, 3, 0),
+    wrArgInt(argv, argn, 4, 255), wrArgInt(argv, argn, 5, 255), wrArgInt(argv, argn, 6, 255),
+  };
+  wrRetInt(retVal, paletteSet(wrArgInt(argv, argn, 0, 0), 2, rgb) ? 1 : 0);
+}
+
+static void w_p1_paletteSet3(WRContext*, const WRValue* argv, const int argn, WRValue& retVal, void*) {
+  int rgb[9] = {
+    wrArgInt(argv, argn, 1, 0), wrArgInt(argv, argn, 2, 0), wrArgInt(argv, argn, 3, 0),
+    wrArgInt(argv, argn, 4, 127), wrArgInt(argv, argn, 5, 127), wrArgInt(argv, argn, 6, 127),
+    wrArgInt(argv, argn, 7, 255), wrArgInt(argv, argn, 8, 255), wrArgInt(argv, argn, 9, 255),
+  };
+  wrRetInt(retVal, paletteSet(wrArgInt(argv, argn, 0, 0), 3, rgb) ? 1 : 0);
+}
+
+static void w_p1_paletteSet4(WRContext*, const WRValue* argv, const int argn, WRValue& retVal, void*) {
+  int rgb[12] = {
+    wrArgInt(argv, argn, 1, 0), wrArgInt(argv, argn, 2, 0), wrArgInt(argv, argn, 3, 0),
+    wrArgInt(argv, argn, 4, 85), wrArgInt(argv, argn, 5, 85), wrArgInt(argv, argn, 6, 85),
+    wrArgInt(argv, argn, 7, 170), wrArgInt(argv, argn, 8, 170), wrArgInt(argv, argn, 9, 170),
+    wrArgInt(argv, argn, 10, 255), wrArgInt(argv, argn, 11, 255), wrArgInt(argv, argn, 12, 255),
+  };
+  wrRetInt(retVal, paletteSet(wrArgInt(argv, argn, 0, 0), 4, rgb) ? 1 : 0);
+}
+
+static void wrRetPaletteComponent(const WRValue* argv, const int argn, WRValue& retVal, int component) {
+  wrRetInt(retVal, paletteSampleComponent(wrArgInt(argv, argn, 0, 0), wrArgInt(argv, argn, 1, 0), component));
+}
+
+static void w_p1_paletteGetR(WRContext*, const WRValue* argv, const int argn, WRValue& retVal, void*) {
+  wrRetPaletteComponent(argv, argn, retVal, 0);
+}
+
+static void w_p1_paletteGetG(WRContext*, const WRValue* argv, const int argn, WRValue& retVal, void*) {
+  wrRetPaletteComponent(argv, argn, retVal, 1);
+}
+
+static void w_p1_paletteGetB(WRContext*, const WRValue* argv, const int argn, WRValue& retVal, void*) {
+  wrRetPaletteComponent(argv, argn, retVal, 2);
 }
 
 static void w_p1_ledFill(WRContext*, const WRValue* argv, const int argn, WRValue& retVal, void*) {
@@ -1488,6 +1760,9 @@ static void w_p1_configSet(WRContext*, const WRValue* argv, const int argn, WRVa
   } else if (key == "wifiPassword") {
     configSetWifiPassword(value);
     changed = true;
+  } else if (key == "timezone") {
+    configSetTimezone(value);
+    changed = true;
   } else if (key == "debugLevel") {
     changed = debugEventSetLevelName(value);
   }
@@ -1576,6 +1851,8 @@ const char* wrenchBindingNameForHash(uint32_t hash) {
     "pinMode", "digitalWrite", "digitalRead", "analogRead", "touchRead",
     "delay", "delayMicroseconds", "millis", "micros",
     "random", "randomSeed", "freeHeap",
+    "lerp", "noiseSeed", "simplex3", "simplex3_01",
+    "timeNow", "timeLocalHour", "timeLocalMinute", "timeLocalSeconds", "timeGet",
     "wifiConnected", "wifiIp", "wifiRssi", "wifiSsid",
     "wireBegin", "i2cWrite", "i2cRead",
     "serialBegin", "serialEnd", "serialAvailable", "serialRead",
@@ -1593,7 +1870,9 @@ const char* wrenchBindingNameForHash(uint32_t hash) {
     "servoAttach", "servoWrite", "servoWriteMicroseconds", "servoDetach",
     "fanAttach", "fanWrite", "fanWriteRaw", "fanDetach",
     "ledConfig", "ledReady", "ledStripCount", "ledCount", "ledSet", "ledSetHsv",
+    "ledGetR", "ledGetG", "ledGetB",
     "hsvToR", "hsvToG", "hsvToB", "rgbToH", "rgbToS", "rgbToV",
+    "paletteSet2", "paletteSet3", "paletteSet4", "paletteGetR", "paletteGetG", "paletteGetB",
     "ledFill", "ledClear", "ledShow", "ledBrightness", "ledStatus",
     "log", "emit", "emitJson", "statusGet", "configGet", "configSet",
     "wifiStatus", "wifiConnect", "wifiDisconnect", "reboot",
@@ -1625,6 +1904,15 @@ void wrenchRegisterBindings(WRState* wr) {
   wr_registerFunction(wr, "random", w_p1_random);
   wr_registerFunction(wr, "randomSeed", w_p1_randomSeed);
   wr_registerFunction(wr, "freeHeap", w_p1_freeHeap);
+  wr_registerFunction(wr, "lerp", w_p1_lerp);
+  wr_registerFunction(wr, "noiseSeed", w_p1_noiseSeed);
+  wr_registerFunction(wr, "simplex3", w_p1_simplex3);
+  wr_registerFunction(wr, "simplex3_01", w_p1_simplex3_01);
+  wr_registerFunction(wr, "timeNow", w_p1_timeNow);
+  wr_registerFunction(wr, "timeLocalHour", w_p1_timeLocalHour);
+  wr_registerFunction(wr, "timeLocalMinute", w_p1_timeLocalMinute);
+  wr_registerFunction(wr, "timeLocalSeconds", w_p1_timeLocalSeconds);
+  wr_registerFunction(wr, "timeGet", w_p1_timeGet);
   wr_registerFunction(wr, "wifiConnected", w_p1_wifiConnected);
   wr_registerFunction(wr, "wifiIp", w_p1_wifiIp);
   wr_registerFunction(wr, "wifiRssi", w_p1_wifiRssi);
@@ -1686,12 +1974,21 @@ void wrenchRegisterBindings(WRState* wr) {
   wr_registerFunction(wr, "ledCount", w_p1_ledCount);
   wr_registerFunction(wr, "ledSet", w_p1_ledSet);
   wr_registerFunction(wr, "ledSetHsv", w_p1_ledSetHsv);
+  wr_registerFunction(wr, "ledGetR", w_p1_ledGetR);
+  wr_registerFunction(wr, "ledGetG", w_p1_ledGetG);
+  wr_registerFunction(wr, "ledGetB", w_p1_ledGetB);
   wr_registerFunction(wr, "hsvToR", w_p1_hsvToR);
   wr_registerFunction(wr, "hsvToG", w_p1_hsvToG);
   wr_registerFunction(wr, "hsvToB", w_p1_hsvToB);
   wr_registerFunction(wr, "rgbToH", w_p1_rgbToH);
   wr_registerFunction(wr, "rgbToS", w_p1_rgbToS);
   wr_registerFunction(wr, "rgbToV", w_p1_rgbToV);
+  wr_registerFunction(wr, "paletteSet2", w_p1_paletteSet2);
+  wr_registerFunction(wr, "paletteSet3", w_p1_paletteSet3);
+  wr_registerFunction(wr, "paletteSet4", w_p1_paletteSet4);
+  wr_registerFunction(wr, "paletteGetR", w_p1_paletteGetR);
+  wr_registerFunction(wr, "paletteGetG", w_p1_paletteGetG);
+  wr_registerFunction(wr, "paletteGetB", w_p1_paletteGetB);
   wr_registerFunction(wr, "ledFill", w_p1_ledFill);
   wr_registerFunction(wr, "ledClear", w_p1_ledClear);
   wr_registerFunction(wr, "ledShow", w_p1_ledShow);

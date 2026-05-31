@@ -2,6 +2,7 @@
 #include <ESP.h>
 #include <LittleFS.h>
 #include <Preferences.h>
+#include <time.h>
 #include "p1_embed_firmware.h"
 
 static const char* CONFIG_PATH = "/config.json";
@@ -10,6 +11,7 @@ static String g_deviceName = "";
 static String g_projectId = "";
 static String g_projectName = "";
 static String g_scriptName = "";
+static String g_timezone = "UTC0";
 static String g_wifiSsids[P1_EMBED_MAX_WIFI_NETWORKS];
 static String g_wifiPasswords[P1_EMBED_MAX_WIFI_NETWORKS];
 static int g_wifiNetworkCount = 0;
@@ -25,6 +27,47 @@ static String g_onlineAuthUsernames[P1_EMBED_MQTT_MAX_USERS];
 static String g_onlineAuthUserKeys[P1_EMBED_MQTT_MAX_USERS];
 static int g_onlineAuthUserCount = 0;
 static bool g_configFsReady = false;
+
+static const char* const P1_TIMEZONE_VALUES[] = {
+  "UTC0",
+  "GMT0BST,M3.5.0/1,M10.5.0",
+  "CET-1CEST,M3.5.0/02,M10.5.0/03",
+  "EET-2EEST,M3.5.0/03,M10.5.0/04",
+  "MSK-3",
+  "GST-4",
+  "PKT-5",
+  "IST-5:30",
+  "NPT-5:45",
+  "BST-6",
+  "ICT-7",
+  "CST-8",
+  "JST-9",
+  "AEST-10AEDT,M10.1.0/02,M4.1.0/03",
+  "NZST-12NZDT,M9.5.0/02,M4.1.0/03",
+  "NST11",
+  "HST10",
+  "AKST9AKDT,M3.2.0/02,M11.1.0/02",
+  "PST8PDT,M3.2.0/02,M11.1.0/02",
+  "MST7MDT,M3.2.0/02,M11.1.0/02",
+  "MST7",
+  "CST6CDT,M3.2.0/02,M11.1.0/02",
+  "EST5EDT,M3.2.0/02,M11.1.0/02",
+  "AST4ADT,M3.2.0/02,M11.1.0/02",
+  "AST4",
+  "NST3:30NDT,M3.2.0/00:01,M11.1.0/00:01",
+  "ART3",
+  "BRT3",
+  "SAST-2",
+};
+
+static String configNormalizeTimezone(const String& value) {
+  String next = value;
+  next.trim();
+  for (size_t i = 0; i < sizeof(P1_TIMEZONE_VALUES) / sizeof(P1_TIMEZONE_VALUES[0]); i++) {
+    if (next == P1_TIMEZONE_VALUES[i]) return next;
+  }
+  return "UTC0";
+}
 
 static bool configEnsureFs() {
   if (g_configFsReady) return true;
@@ -60,6 +103,12 @@ static String configBuildDefaultMqttRoot() {
 static void configApplyIdentityDefaults() {
   if (!g_deviceId.length()) g_deviceId = configBuildDeviceId();
   if (!g_deviceName.length() || g_deviceName == "p1-embed") g_deviceName = configBuildDefaultDeviceName();
+}
+
+void configApplyTimezone() {
+  String tz = configTimezone();
+  setenv("TZ", tz.c_str(), 1);
+  tzset();
 }
 
 static bool configJsonGetString(const String& json, const char* key, String& out) {
@@ -316,7 +365,10 @@ void configLoad() {
     else changed = true;
     if (configJsonGetString(json, "scriptName", value)) g_scriptName = value;
     else changed = true;
+    if (configJsonGetString(json, "timezone", value)) g_timezone = configNormalizeTimezone(value);
+    else changed = true;
     configApplyIdentityDefaults();
+    configApplyTimezone();
     configLoadWifiNetworks(json);
     configLoadOnlineAuthUsers(json);
     int port = 0;
@@ -343,6 +395,7 @@ void configLoad() {
   configLoadLegacyPrefsIfPresent();
   configApplyIdentityDefaults();
   configApplyMqttDefaults();
+  configApplyTimezone();
   configSave();
 }
 
@@ -355,6 +408,7 @@ void configSave() {
   json += ",\"projectId\":" + jsonString(g_projectId);
   json += ",\"projectName\":" + jsonString(g_projectName);
   json += ",\"scriptName\":" + jsonString(g_scriptName);
+  json += ",\"timezone\":" + jsonString(configTimezone());
   json += ",\"wifiSsid\":" + jsonString(configWifiSsid());
   json += ",\"wifiPassword\":" + jsonString(configWifiPassword());
   json += ",\"mqttHost\":" + jsonString(configMqttHost());
@@ -403,6 +457,7 @@ void configFactoryReset() {
   g_projectId = "";
   g_projectName = "";
   g_scriptName = "";
+  g_timezone = "UTC0";
   g_mqttHost = P1_EMBED_MQTT_HOST;
   g_mqttPort = P1_EMBED_MQTT_PORT;
   g_mqttRoot = P1_EMBED_MQTT_ROOT;
@@ -421,6 +476,7 @@ void configFactoryReset() {
     g_wifiPasswords[i] = "";
   }
   g_wifiNetworkCount = 0;
+  configApplyTimezone();
   configSave();
 }
 
@@ -458,6 +514,15 @@ String configScriptName() {
 void configSetScriptName(const String& name) {
   g_scriptName = name;
   g_scriptName.trim();
+}
+
+String configTimezone() {
+  return configNormalizeTimezone(g_timezone);
+}
+
+void configSetTimezone(const String& value) {
+  g_timezone = configNormalizeTimezone(value);
+  configApplyTimezone();
 }
 
 void configSetWifiSsid(const String& value) {
@@ -639,6 +704,7 @@ P1ConfigSnapshot configSnapshot() {
   snapshot.projectId = configProjectId();
   snapshot.projectName = configProjectName();
   snapshot.scriptName = configScriptName();
+  snapshot.timezone = configTimezone();
   snapshot.wifiSsid = configWifiSsid();
   snapshot.wifiPasswordSet = configWifiPassword().length() > 0;
   snapshot.wifiNetworkCount = g_wifiNetworkCount;
@@ -662,6 +728,7 @@ String configAsJson(const P1ConfigSnapshot& snapshot) {
   out += ",\"projectId\":" + jsonString(snapshot.projectId);
   out += ",\"projectName\":" + jsonString(snapshot.projectName);
   out += ",\"scriptName\":" + jsonString(snapshot.scriptName);
+  out += ",\"timezone\":" + jsonString(snapshot.timezone);
   out += ",\"wifiSsid\":" + jsonString(snapshot.wifiSsid);
   out += ",\"wifiPasswordSet\":" + String(snapshot.wifiPasswordSet ? "true" : "false");
   out += ",\"wifiNetworkCount\":" + String(snapshot.wifiNetworkCount);

@@ -11,6 +11,7 @@ struct LedStripState {
   uint32_t scriptGeneration;
   int pin;
   int count;
+  int capacity;
   int brightness;
   CRGB* pixels;
   CLEDController* controller;
@@ -33,6 +34,7 @@ static void ledResetRuntimeState() {
     g_ledStrips[i].scriptGeneration = 0;
     g_ledStrips[i].pin = -1;
     g_ledStrips[i].count = 0;
+    g_ledStrips[i].capacity = 0;
     g_ledStrips[i].brightness = 255;
     g_ledStrips[i].pixels = nullptr;
     g_ledStrips[i].controller = nullptr;
@@ -138,28 +140,36 @@ static bool ledStartStrip(int strip, int pin, int count, int brightness) {
       p1FieldInt("strip", strip),
       p1FieldInt("pin", s.pin),
       p1FieldInt("count", s.count),
+      p1FieldInt("capacity", s.capacity),
       p1FieldInt("brightness", s.brightness),
     };
-    debugEventEmitFields("led.debug", "debug", "led", "ledStartStrip existing", existingFields, 4);
-    if (pin != s.pin || count != s.count) {
+    debugEventEmitFields("led.debug", "debug", "led", "ledStartStrip existing", existingFields, 5);
+    if (pin != s.pin || count > s.capacity) {
       scriptErrorSet(
         "binding",
         "led_reboot_required",
-        "LED strip geometry is already active; save the requested config and reboot to change pin or count",
-        "\"strip\":" + String(strip) + ",\"pin\":" + String(pin) + ",\"activePin\":" + String(s.pin) + ",\"count\":" + String(count) + ",\"activeCount\":" + String(s.count)
+        "LED strip geometry is already active; save the requested config and reboot to change pin or grow count",
+        "\"strip\":" + String(strip) + ",\"pin\":" + String(pin) + ",\"activePin\":" + String(s.pin) + ",\"count\":" + String(count) + ",\"activeCount\":" + String(s.count) + ",\"capacity\":" + String(s.capacity)
       );
       return false;
     }
+    bool resized = count != s.count;
+    if (resized && s.pixels && count < s.capacity) {
+      fill_solid(s.pixels + count, s.capacity - count, CRGB::Black);
+    }
+    s.count = count;
     s.brightness = brightness;
     s.scriptGeneration = g_ledScriptGeneration;
     FastLED.setBrightness((uint8_t)brightness);
+    if (resized) FastLED.show();
     P1EventField reusedFields[] = {
       p1FieldInt("strip", strip),
       p1FieldInt("pin", pin),
       p1FieldInt("count", count),
+      p1FieldInt("capacity", s.capacity),
       p1FieldInt("brightness", brightness),
     };
-    debugEventEmitFields("led.status", "debug", "led", "strip reused", reusedFields, 4);
+    debugEventEmitFields("led.status", "debug", "led", resized ? "strip resized" : "strip reused", reusedFields, 5);
     return true;
   }
 
@@ -187,8 +197,9 @@ static bool ledStartStrip(int strip, int pin, int count, int brightness) {
   s.scriptGeneration = g_ledScriptGeneration;
   s.pin = pin;
   s.count = count;
+  s.capacity = count;
   s.brightness = brightness;
-  fill_solid(s.pixels, s.count, CRGB::Black);
+  fill_solid(s.pixels, s.capacity, CRGB::Black);
   g_activeStripCount = max(g_activeStripCount, strip + 1);
   g_totalLedCount += count;
   g_ledSetDebugMarkers = 0;
@@ -248,7 +259,7 @@ bool ledConfigureStrip(int strip, int pin, int count, int brightness) {
 bool ledRebootRequiredFor(int strip, int pin, int count) {
   if (strip < 0 || strip >= P1_EMBED_MAX_LED_STRIPS) return false;
   LedStripState& s = g_ledStrips[strip];
-  return s.ready && (pin != s.pin || count != s.count);
+  return s.ready && (pin != s.pin || count > s.capacity);
 }
 
 bool ledReady(int strip) {
@@ -295,10 +306,27 @@ bool ledSetPixel(int strip, int index, int r, int g, int b) {
   return true;
 }
 
+bool ledGetPixel(int strip, int index, int& r, int& g, int& b) {
+  r = 0;
+  g = 0;
+  b = 0;
+  if (!ledReady(strip)) return false;
+  LedStripState& s = g_ledStrips[strip];
+  if (!s.pixels || index < 0 || index >= s.count) return false;
+  const CRGB& pixel = s.pixels[index];
+  r = pixel.r;
+  g = pixel.g;
+  b = pixel.b;
+  return true;
+}
+
 bool ledFill(int strip, int r, int g, int b) {
   if (!ledReady(strip)) return false;
   LedStripState& s = g_ledStrips[strip];
   fill_solid(s.pixels, s.count, CRGB(constrain(r, 0, 255), constrain(g, 0, 255), constrain(b, 0, 255)));
+  if (s.capacity > s.count) {
+    fill_solid(s.pixels + s.count, s.capacity - s.count, CRGB::Black);
+  }
   return true;
 }
 
@@ -307,14 +335,14 @@ bool ledClear(int strip, bool show) {
     bool any = false;
     for (int i = 0; i < P1_EMBED_MAX_LED_STRIPS; i++) {
       if (!ledReady(i)) continue;
-      fill_solid(g_ledStrips[i].pixels, g_ledStrips[i].count, CRGB::Black);
+      fill_solid(g_ledStrips[i].pixels, g_ledStrips[i].capacity, CRGB::Black);
       any = true;
     }
     if (show && any) FastLED.show();
     return any;
   }
   if (!ledReady(strip)) return false;
-  fill_solid(g_ledStrips[strip].pixels, g_ledStrips[strip].count, CRGB::Black);
+  fill_solid(g_ledStrips[strip].pixels, g_ledStrips[strip].capacity, CRGB::Black);
   if (show) FastLED.show();
   return true;
 }
@@ -359,6 +387,7 @@ String ledStatusJson() {
     out += ",\"ready\":" + String(g_ledStrips[i].ready ? "true" : "false");
     out += ",\"pin\":" + String(g_ledStrips[i].pin);
     out += ",\"count\":" + String(g_ledStrips[i].count);
+    out += ",\"capacity\":" + String(g_ledStrips[i].capacity);
     out += ",\"brightness\":" + String(g_ledStrips[i].brightness);
     out += ",\"chipset\":\"WS2812B\"";
     out += ",\"order\":\"GRB\"";

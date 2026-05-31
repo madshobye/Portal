@@ -1,4 +1,4 @@
-export const P1_MSGPACK_VERSION = "0.1.87-ui257";
+export const P1_MSGPACK_VERSION = "0.1.87-ui264";
 
 const FRAME_CMD = 0;
 const FRAME_RES = 1;
@@ -54,8 +54,8 @@ export function encodeCommand(id, name, data = {}) {
 }
 
 function encodeConfigSet(id, op, data = {}) {
-  const writer = new MsgPackWriter(512);
-  writer.array(37);
+  const writer = new MsgPackWriter(768);
+  writer.array(39);
   writer.uint(FRAME_CMD);
   writer.uint(Number(id));
   writer.uint(op);
@@ -92,6 +92,8 @@ function encodeConfigSet(id, op, data = {}) {
   writer.string(data.projectName || "");
   writer.bool(Object.prototype.hasOwnProperty.call(data, "scriptName"));
   writer.string(data.scriptName || "");
+  writer.bool(Object.prototype.hasOwnProperty.call(data, "timezone"));
+  writer.string(data.timezone || "");
   return writer.bytes();
 }
 

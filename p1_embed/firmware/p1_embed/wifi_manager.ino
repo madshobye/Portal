@@ -1,11 +1,13 @@
 #include <Arduino.h>
 #include <WiFi.h>
+#include <time.h>
 #include "p1_embed_firmware.h"
 
 static int g_lastWifiStatus = WL_IDLE_STATUS;
 static unsigned long g_lastWifiAttemptMs = 0;
 static bool g_wifiConfigured = false;
 static int g_wifiNetworkIndex = 0;
+static bool g_timeSyncStarted = false;
 
 static const char* wifiStatusName(int status) {
   switch (status) {
@@ -31,6 +33,11 @@ static void wifiEmitStatusIfChanged() {
     p1FieldString("ip", ip),
   };
   protocolEmitEventFields("wifi.status", fields, 2);
+  if (status == WL_CONNECTED && !g_timeSyncStarted) {
+    configApplyTimezone();
+    configTime(0, 0, "pool.ntp.org", "time.nist.gov", "time.google.com");
+    g_timeSyncStarted = true;
+  }
 }
 
 static void wifiTryNetwork(int index, const char* statusLabel) {
@@ -57,6 +64,7 @@ void wifiBegin() {
   g_wifiConfigured = configWifiNetworkCount() > 0;
   g_lastWifiStatus = WiFi.status();
   g_wifiNetworkIndex = 0;
+  g_timeSyncStarted = false;
 
   if (!g_wifiConfigured) {
     WiFi.mode(WIFI_OFF);
@@ -97,6 +105,7 @@ void wifiDisconnect() {
   WiFi.disconnect(true, false);
   WiFi.mode(WIFI_OFF);
   g_wifiConfigured = false;
+  g_timeSyncStarted = false;
   g_lastWifiStatus = WL_DISCONNECTED;
   P1EventField fields[] = {
     p1FieldString("status", "off"),
