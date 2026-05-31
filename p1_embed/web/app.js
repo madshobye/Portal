@@ -1,14 +1,14 @@
-import { ProtocolClient } from "./protocol/ProtocolClient.js?v=0.1.87-ui243";
-import { canEncodeCommand } from "./protocol/P1MsgPack.js?v=0.1.87-ui243";
-import { WebSerialTransport } from "./protocol/WebSerialTransport.js?v=0.1.87-ui243";
+import { ProtocolClient } from "./protocol/ProtocolClient.js?v=0.1.87-ui247";
+import { canEncodeCommand } from "./protocol/P1MsgPack.js?v=0.1.87-ui247";
+import { WebSerialTransport } from "./protocol/WebSerialTransport.js?v=0.1.87-ui247";
 import { WebSocketTransport } from "./protocol/WebSocketTransport.js";
-import { MqttWebRtcTransport, MQTT_WEBRTC_TRANSPORT_VERSION } from "./protocol/MqttWebRtcTransport.js?v=0.1.87-ui243";
-import { MqttTransport, MQTT_TRANSPORT_VERSION, clearOnlineAuthKey, deriveOnlineAuthKeyHex, storeOnlineAuthKey } from "./protocol/MqttTransport.js?v=0.1.87-ui243";
-import { P1WebFlasher } from "./web-flasher.js?v=0.1.87-ui243";
-import { inferCircuitLayout, initCircuitView, normalizeCircuitLayout } from "./circuit.js?v=0.1.87-ui243";
-import { initGuinoView } from "./guino.js?v=0.1.87-ui243";
+import { MqttWebRtcTransport, MQTT_WEBRTC_TRANSPORT_VERSION } from "./protocol/MqttWebRtcTransport.js?v=0.1.87-ui247";
+import { MqttTransport, MQTT_TRANSPORT_VERSION, clearOnlineAuthKey, deriveOnlineAuthKeyHex, storeOnlineAuthKey } from "./protocol/MqttTransport.js?v=0.1.87-ui247";
+import { P1WebFlasher } from "./web-flasher.js?v=0.1.87-ui247";
+import { inferCircuitLayout, initCircuitView, normalizeCircuitLayout } from "./circuit.js?v=0.1.87-ui247";
+import { initGuinoView } from "./guino.js?v=0.1.87-ui247";
 
-const WEB_UI_VERSION = "0.1.87-ui243";
+const WEB_UI_VERSION = "0.1.87-ui247";
 const CHAT_DEFAULT_MAX_OUTPUT_TOKENS = 8000;
 const CHAT_MIN_MAX_OUTPUT_TOKENS = 1024;
 const CHAT_HARD_MAX_OUTPUT_TOKENS = 32000;
@@ -883,16 +883,26 @@ async function connectMqtt(value, mqttConfig = null) {
 }
 
 async function connectUsb() {
-  await connectTransport(new WebSerialTransport({ storageKey: storage.usbHint }), {}, "usb", "USB");
+  await connectTransport(new WebSerialTransport({ storageKey: storage.usbHint }), {}, "usb", "USB", usbStartupOptions());
   await refreshKnownUsbPorts();
   renderConnectionHistory();
 }
 
 async function connectRecentUsb(hint = null) {
   if (hint) localStorage.setItem(storage.usbHint, JSON.stringify(hint));
-  await connectTransport(new WebSerialTransport({ storageKey: storage.usbHint }), { pickPort: false }, "usb", "USB");
+  await connectTransport(new WebSerialTransport({ storageKey: storage.usbHint }), { pickPort: false }, "usb", "USB", usbStartupOptions());
   await refreshKnownUsbPorts();
   renderConnectionHistory();
+}
+
+function usbStartupOptions(extra = {}) {
+  return {
+    lightStartup: true,
+    startupAttempts: 4,
+    startupTimeoutMs: 6000,
+    startupRetryDelayMs: 650,
+    ...extra,
+  };
 }
 
 async function autoConnectFromUrlParams() {
@@ -961,7 +971,7 @@ async function autoConnectFromUrlParams() {
       return true;
     }
     try {
-      await connectTransport(new WebSerialTransport({ storageKey: storage.usbHint }), { pickPort: false }, "usb", "USB", { lightStartup: true, includeScript: true, preserveUrl: true });
+      await connectTransport(new WebSerialTransport({ storageKey: storage.usbHint }), { pickPort: false }, "usb", "USB", usbStartupOptions({ includeScript: true, preserveUrl: true }));
       await refreshKnownUsbPorts();
     } catch (error) {
       logLine("error", error.message);
@@ -1000,12 +1010,12 @@ async function autoReconnectLastConnection() {
 
   if (last === "usb") {
     if (!("serial" in navigator) || !readUsbHint()) return;
-    await connectTransport(new WebSerialTransport({ storageKey: storage.usbHint }), { pickPort: false }, "usb", "USB", { quiet: true, lightStartup: true, includeScript: true });
+    await connectTransport(new WebSerialTransport({ storageKey: storage.usbHint }), { pickPort: false }, "usb", "USB", usbStartupOptions({ quiet: true, includeScript: true }));
     await refreshKnownUsbPorts();
   }
 }
 
-async function connectTransport(nextTransport, options, kind, label, { quiet = false, lightStartup = false, includeScript = true, startupTimeoutMs = 15000, preserveUrl = false } = {}) {
+async function connectTransport(nextTransport, options, kind, label, { quiet = false, lightStartup = false, includeScript = true, startupTimeoutMs = 15000, startupAttempts = 1, startupRetryDelayMs = 450, preserveUrl = false } = {}) {
   const generation = connectionGeneration + 1;
   connectionGeneration = generation;
   connectionVerified = false;
@@ -1027,17 +1037,26 @@ async function connectTransport(nextTransport, options, kind, label, { quiet = f
     }
     if (!ok) throw new Error(`${label} device was not available`);
     closeConnectDialog();
-    setConnected(true);
+    updateEnabledState();
     rememberActiveConnection(kind, options);
     if (!preserveUrl) clearConnectionUrlParams();
-    if (!quiet) logLine("info", isBinaryTransportKind(kind) ? `Connected to ${label}` : `${label} connected`);
+    if (!quiet && kind !== "usb") logLine("info", isBinaryTransportKind(kind) ? `Connected to ${label}` : `${label} connected`);
 
     if (lightStartup) await settle(450);
     if (generation !== connectionGeneration) return false;
-    const verified = await startupRefresh({ quiet, includeScript, timeoutMs: startupTimeoutMs, expectedGeneration: generation });
+    const verified = await startupRefresh({
+      quiet,
+      includeScript,
+      timeoutMs: startupTimeoutMs,
+      attempts: startupAttempts,
+      retryDelayMs: startupRetryDelayMs,
+      expectedGeneration: generation,
+    });
     if (generation === connectionGeneration && verified) {
       connectionVerified = true;
       rememberSuccessfulConnection(kind, label, options);
+      if (!quiet && kind === "usb") logLine("info", `${label} connected`);
+      setConnected(true);
       startStatusPolling();
       return true;
     } else if (generation === connectionGeneration) {
@@ -1597,7 +1616,19 @@ function handleTransportDropped(droppedClient) {
   droppedTransport?.disconnect?.();
 }
 
-async function startupRefresh({ quiet = false, includeScript = true, timeoutMs = 15000, expectedGeneration = null } = {}) {
+async function startupRefresh({ quiet = false, includeScript = true, timeoutMs = 15000, attempts = 1, retryDelayMs = 450, expectedGeneration = null } = {}) {
+  const maxAttempts = Math.max(1, Number(attempts) || 1);
+  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    const logAttempt = attempt === maxAttempts ? quiet : true;
+    const verified = await startupRefreshOnce({ quiet: logAttempt, includeScript, timeoutMs, expectedGeneration });
+    if (verified) return true;
+    if (expectedGeneration !== null && expectedGeneration !== connectionGeneration) return false;
+    if (attempt < maxAttempts) await settle(retryDelayMs);
+  }
+  return false;
+}
+
+async function startupRefreshOnce({ quiet = false, includeScript = true, timeoutMs = 15000, expectedGeneration = null } = {}) {
   const stale = () => expectedGeneration !== null && expectedGeneration !== connectionGeneration;
   if (stale()) return false;
   const infoOk = await bestEffortStartupStep(() => refreshInfo({ quiet, timeoutMs }), quiet);
@@ -1695,13 +1726,47 @@ async function getScriptChunked(options = {}) {
 
 async function applyFetchedScript(data) {
   if (typeof data.code === "string") {
-    // Startup script sync must not clear the active revision metadata. The
-    // board only returns code, while project specification and circuit live in
-    // the browser project revision.
+    await activateDeviceProjectForFetchedScript(data);
     await replaceEditorCode(data.code, { persist: false, saveCurrent: true });
-    await rememberUploadedSketch(data.code, "", { promoteExisting: false, preferAutoName: true });
+    await rememberUploadedSketch(data.code, data.scriptName || "", { source: "download" });
   }
   updateScriptState(data);
+}
+
+async function activateDeviceProjectForFetchedScript(data = {}) {
+  let config = lastConfig || {};
+  const hasDataProject = data.projectId || data.projectName;
+  if (!hasDataProject && client) {
+    try {
+      config = await sendCommand("config.get", {}, { quiet: true, timeoutMs: 6000 });
+      updateConfig(config);
+    } catch {
+    }
+  }
+  const projectId = String(data.projectId || config.projectId || "").trim();
+  const projectName = normalizeProjectName(data.projectName || config.projectName || "");
+  if (!projectId && !projectName) return null;
+
+  const projects = await readProjects();
+  let project = projectId ? projects.find((item) => item.id === projectId) : null;
+  if (!project && projectName) {
+    project = projects.find((item) => normalizeProjectName(item.name).toLowerCase() === projectName.toLowerCase());
+  }
+  if (!project) {
+    project = normalizeProjectRecord({
+      id: projectId || createProjectId(),
+      name: projectName || "Board Project",
+      revisions: [],
+      activeRevisionId: "",
+      chat: [],
+    });
+  } else if (projectName && project.name !== projectName) {
+    project = { ...project, name: projectName };
+    await saveProject(project);
+  }
+  currentProjectId = project.id;
+  localStorage.setItem(storage.projectId, project.id);
+  return project;
 }
 
 async function setScript({ run, save }) {
@@ -2112,9 +2177,11 @@ async function ensureProjectForWrite({ code = "", nameHint = "" } = {}) {
 async function persistProjectMetadataToDevice(project) {
   if (!client || !project?.id) return;
   try {
+    const revision = activeRevision(project);
     await sendCommand("config.set", {
       projectId: project.id,
       projectName: project.name,
+      scriptName: revision?.name || "",
     }, { quiet: true, timeoutMs: 2500 });
   } catch {
   }
@@ -3806,7 +3873,7 @@ function setConnected(isConnected) {
 }
 
 function isDeviceConnected() {
-  return Boolean(client && transport?.connected);
+  return Boolean(client && transport?.connected && connectionVerified);
 }
 
 function syncGuinoConnectionState() {
@@ -3817,9 +3884,10 @@ function syncGuinoConnectionState() {
 }
 
 function renderConnectionState(transportState = "") {
-  const transportOnline = Boolean(client && transport?.connected);
+  const transportOpen = Boolean(client && transport?.connected);
+  const transportOnline = Boolean(transportOpen && connectionVerified);
   els.connection.classList.toggle("is-online", transportOnline);
-  if (!client || (!transportOnline && !isBusy)) {
+  if (!client || (!transportOpen && !isBusy)) {
     els.connection.textContent = "not connected";
     return;
   }

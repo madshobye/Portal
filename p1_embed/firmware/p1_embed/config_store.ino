@@ -9,6 +9,7 @@ static String g_deviceId = "";
 static String g_deviceName = "";
 static String g_projectId = "";
 static String g_projectName = "";
+static String g_scriptName = "";
 static String g_wifiSsids[P1_EMBED_MAX_WIFI_NETWORKS];
 static String g_wifiPasswords[P1_EMBED_MAX_WIFI_NETWORKS];
 static int g_wifiNetworkCount = 0;
@@ -313,6 +314,8 @@ void configLoad() {
     else changed = true;
     if (configJsonGetString(json, "projectName", value)) g_projectName = value;
     else changed = true;
+    if (configJsonGetString(json, "scriptName", value)) g_scriptName = value;
+    else changed = true;
     configApplyIdentityDefaults();
     configLoadWifiNetworks(json);
     configLoadOnlineAuthUsers(json);
@@ -351,6 +354,7 @@ void configSave() {
   json += ",\"deviceName\":" + jsonString(g_deviceName);
   json += ",\"projectId\":" + jsonString(g_projectId);
   json += ",\"projectName\":" + jsonString(g_projectName);
+  json += ",\"scriptName\":" + jsonString(g_scriptName);
   json += ",\"wifiSsid\":" + jsonString(configWifiSsid());
   json += ",\"wifiPassword\":" + jsonString(configWifiPassword());
   json += ",\"mqttHost\":" + jsonString(configMqttHost());
@@ -398,6 +402,7 @@ void configFactoryReset() {
   g_deviceName = configBuildDefaultDeviceName();
   g_projectId = "";
   g_projectName = "";
+  g_scriptName = "";
   g_mqttHost = P1_EMBED_MQTT_HOST;
   g_mqttPort = P1_EMBED_MQTT_PORT;
   g_mqttRoot = P1_EMBED_MQTT_ROOT;
@@ -444,6 +449,15 @@ void configSetProject(const String& id, const String& name) {
   g_projectId.trim();
   g_projectName = name;
   g_projectName.trim();
+}
+
+String configScriptName() {
+  return g_scriptName;
+}
+
+void configSetScriptName(const String& name) {
+  g_scriptName = name;
+  g_scriptName.trim();
 }
 
 void configSetWifiSsid(const String& value) {
@@ -624,6 +638,7 @@ P1ConfigSnapshot configSnapshot() {
   snapshot.deviceName = configDeviceName();
   snapshot.projectId = configProjectId();
   snapshot.projectName = configProjectName();
+  snapshot.scriptName = configScriptName();
   snapshot.wifiSsid = configWifiSsid();
   snapshot.wifiPasswordSet = configWifiPassword().length() > 0;
   snapshot.wifiNetworkCount = g_wifiNetworkCount;
@@ -646,6 +661,7 @@ String configAsJson(const P1ConfigSnapshot& snapshot) {
   out += ",\"deviceName\":" + jsonString(snapshot.deviceName);
   out += ",\"projectId\":" + jsonString(snapshot.projectId);
   out += ",\"projectName\":" + jsonString(snapshot.projectName);
+  out += ",\"scriptName\":" + jsonString(snapshot.scriptName);
   out += ",\"wifiSsid\":" + jsonString(snapshot.wifiSsid);
   out += ",\"wifiPasswordSet\":" + String(snapshot.wifiPasswordSet ? "true" : "false");
   out += ",\"wifiNetworkCount\":" + String(snapshot.wifiNetworkCount);

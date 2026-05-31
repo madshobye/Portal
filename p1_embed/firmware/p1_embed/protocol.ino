@@ -182,6 +182,7 @@ static String protocolScriptSnapshotJson(const P1ScriptSnapshot& snapshot, bool 
   out += "\"state\":" + jsonString(snapshot.state);
   out += ",\"stored\":" + String(snapshot.stored ? "true" : "false");
   out += ",\"runState\":" + jsonString(snapshot.runState);
+  out += ",\"scriptName\":" + jsonString(configScriptName());
   if (includeMetrics) {
     out += ",\"scriptBytes\":" + String(snapshot.bytes);
     out += ",\"scriptHash\":" + String(snapshot.hash);
@@ -923,11 +924,12 @@ static void protocolSendMsgPackConfig(uint32_t id) {
     return;
   }
   P1MsgPackWriter w(frame, P1_EMBED_MSGPACK_MAX_FRAME_BYTES);
-  protocolMsgPackBeginResponse(w, id, true, 20);
+  protocolMsgPackBeginResponse(w, id, true, 21);
   w.writeString("deviceId"); w.writeString(snapshot.deviceId);
   w.writeString("deviceName"); w.writeString(snapshot.deviceName);
   w.writeString("projectId"); w.writeString(snapshot.projectId);
   w.writeString("projectName"); w.writeString(snapshot.projectName);
+  w.writeString("scriptName"); w.writeString(snapshot.scriptName);
   w.writeString("wifiSsid"); w.writeString(snapshot.wifiSsid);
   w.writeString("wifiPasswordSet"); w.writeBool(snapshot.wifiPasswordSet);
   w.writeString("wifiNetworkCount"); w.writeUInt(snapshot.wifiNetworkCount);
@@ -1029,11 +1031,12 @@ static void protocolSendMsgPackScriptGet(uint32_t id) {
     return;
   }
   P1MsgPackWriter w(frame, capacity);
-  protocolMsgPackBeginResponse(w, id, true, 4);
+  protocolMsgPackBeginResponse(w, id, true, 5);
   w.writeString("code"); w.writeString(snapshot.code);
   w.writeString("state"); w.writeString(snapshot.state);
   w.writeString("stored"); w.writeBool(snapshot.stored);
   w.writeString("runState"); w.writeString(snapshot.runState);
+  w.writeString("scriptName"); w.writeString(configScriptName());
   if (w.ok && mqttTransportConnected() && w.length > P1_EMBED_MQTT_BUFFER_BYTES) {
     protocolSendMsgPackError(id, "response_too_large", "script.get response is too large for MQTT; use script.chunk.get");
   } else if (w.ok) {
@@ -1063,7 +1066,7 @@ static void protocolSendMsgPackScriptChunkGet(uint32_t id, uint32_t offset, uint
     return;
   }
   P1MsgPackWriter w(frame, capacity);
-  protocolMsgPackBeginResponse(w, id, true, 7);
+  protocolMsgPackBeginResponse(w, id, true, 8);
   w.writeString("offset"); w.writeUInt(offset);
   w.writeString("nextOffset"); w.writeUInt(nextOffset);
   w.writeString("scriptBytes"); w.writeUInt(total);
@@ -1071,6 +1074,7 @@ static void protocolSendMsgPackScriptChunkGet(uint32_t id, uint32_t offset, uint
   w.writeString("chunk"); w.writeString(chunk);
   w.writeString("state"); w.writeString(snapshot.state);
   w.writeString("runState"); w.writeString(snapshot.runState);
+  w.writeString("scriptName"); w.writeString(configScriptName());
   if (w.ok) protocolSendMsgPackBytes(frame, w.length);
   if (!w.ok) protocolSendMsgPackError(id, "frame_too_large", "Script chunk did not fit in MessagePack response");
   free(frame);
@@ -1246,6 +1250,7 @@ void protocolHandleBytes(const uint8_t* data, size_t len) {
     bool hasWifiPassword = false;
     bool hasProjectId = false;
     bool hasProjectName = false;
+    bool hasScriptName = false;
     bool hasMqttHost = false;
     bool hasMqttPort = false;
     bool hasMqttRoot = false;
@@ -1261,6 +1266,7 @@ void protocolHandleBytes(const uint8_t* data, size_t len) {
     String wifiPassword;
     String projectId;
     String projectName;
+    String scriptName;
     String mqttHost;
     uint32_t mqttPort = 0;
     String mqttRoot;
@@ -1311,6 +1317,12 @@ void protocolHandleBytes(const uint8_t* data, size_t len) {
         return;
       }
     }
+    if (count >= 37) {
+      if (!r.readBool(hasScriptName) || !r.readString(scriptName)) {
+        protocolSendMsgPackError(id, "bad_config_frame", "config.set script name field is malformed");
+        return;
+      }
+    }
     bool changed = false;
     bool mqttChanged = false;
     if (hasDeviceName) {
@@ -1327,6 +1339,10 @@ void protocolHandleBytes(const uint8_t* data, size_t len) {
     }
     if (hasProjectId || hasProjectName) {
       configSetProject(hasProjectId ? projectId : configProjectId(), hasProjectName ? projectName : configProjectName());
+      changed = true;
+    }
+    if (hasScriptName) {
+      configSetScriptName(scriptName);
       changed = true;
     }
     if (hasMqttHost) {
@@ -1559,6 +1575,7 @@ void protocolHandleLine(const char* line) {
     String wifiPassword;
     String projectId;
     String projectName;
+    String scriptName;
     String mqttHost;
     String mqttRoot;
     String mqttUser;
@@ -1588,6 +1605,10 @@ void protocolHandleLine(const char* line) {
     bool hasProjectName = jsonGetString(line, "projectName", projectName);
     if (hasProjectId || hasProjectName) {
       configSetProject(hasProjectId ? projectId : configProjectId(), hasProjectName ? projectName : configProjectName());
+      changed = true;
+    }
+    if (jsonGetString(line, "scriptName", scriptName)) {
+      configSetScriptName(scriptName);
       changed = true;
     }
     if (jsonGetString(line, "mqttHost", mqttHost)) {
