@@ -1,14 +1,14 @@
-import { ProtocolClient } from "./protocol/ProtocolClient.js?v=0.1.87-ui249";
-import { canEncodeCommand } from "./protocol/P1MsgPack.js?v=0.1.87-ui249";
-import { WebSerialTransport } from "./protocol/WebSerialTransport.js?v=0.1.87-ui249";
+import { ProtocolClient } from "./protocol/ProtocolClient.js?v=0.1.87-ui252";
+import { canEncodeCommand } from "./protocol/P1MsgPack.js?v=0.1.87-ui252";
+import { WebSerialTransport } from "./protocol/WebSerialTransport.js?v=0.1.87-ui252";
 import { WebSocketTransport } from "./protocol/WebSocketTransport.js";
-import { MqttWebRtcTransport, MQTT_WEBRTC_TRANSPORT_VERSION } from "./protocol/MqttWebRtcTransport.js?v=0.1.87-ui249";
-import { MqttTransport, MQTT_TRANSPORT_VERSION, clearOnlineAuthKey, deriveOnlineAuthKeyHex, storeOnlineAuthKey } from "./protocol/MqttTransport.js?v=0.1.87-ui249";
-import { P1WebFlasher } from "./web-flasher.js?v=0.1.87-ui249";
-import { inferCircuitLayout, initCircuitView, normalizeCircuitLayout } from "./circuit.js?v=0.1.87-ui249";
-import { initGuinoView } from "./guino.js?v=0.1.87-ui249";
+import { MqttWebRtcTransport, MQTT_WEBRTC_TRANSPORT_VERSION } from "./protocol/MqttWebRtcTransport.js?v=0.1.87-ui252";
+import { MqttTransport, MQTT_TRANSPORT_VERSION, clearOnlineAuthKey, deriveOnlineAuthKeyHex, storeOnlineAuthKey } from "./protocol/MqttTransport.js?v=0.1.87-ui252";
+import { P1WebFlasher } from "./web-flasher.js?v=0.1.87-ui252";
+import { inferCircuitLayout, initCircuitView, normalizeCircuitLayout } from "./circuit.js?v=0.1.87-ui252";
+import { initGuinoView } from "./guino.js?v=0.1.87-ui252";
 
-const WEB_UI_VERSION = "0.1.87-ui249";
+const WEB_UI_VERSION = "0.1.87-ui252";
 const CHAT_DEFAULT_MAX_OUTPUT_TOKENS = 8000;
 const CHAT_MIN_MAX_OUTPUT_TOKENS = 1024;
 const CHAT_HARD_MAX_OUTPUT_TOKENS = 32000;
@@ -58,6 +58,7 @@ const storage = {
   chatHistory: "p1_embed.chat.history",
   chatDebugPrompt: "p1_embed.chat.debugPrompt",
   specificationDraft: "p1_embed.project.specificationDraft",
+  revisionDraft: "p1_embed.project.revisionDraft",
   specificationMode: "p1_embed.project.specificationMode",
 };
 
@@ -196,6 +197,8 @@ const els = {
   generativeTabs: document.querySelectorAll("[data-generative-tab]"),
   generativePanels: document.querySelectorAll("[data-generative-panel]"),
   specification: document.querySelector("#project-specification"),
+  specificationEditor: document.querySelector("#project-specification-editor"),
+  specificationTools: document.querySelectorAll("[data-spec-format]"),
   specificationMode: document.querySelector("#spec-mode"),
   specificationGenerate: document.querySelector("#spec-generate-button"),
   circuitRefresh: document.querySelector("#circuit-refresh-button"),
@@ -270,6 +273,7 @@ let currentProjectCircuit = null;
 let circuitView = null;
 let circuitChatLayout = null;
 let circuitUpdateTimer = null;
+let revisionDraftSaveTimer = null;
 let guinoView = null;
 
 boot();
@@ -302,6 +306,7 @@ function boot() {
 
 function bindLifecycle() {
   const markUnload = () => {
+    writeCurrentRevisionDraft();
     isUnloading = true;
     localStorage.setItem(storage.reconnectOnLoad, client && transport?.connected && connectionVerified ? "1" : "0");
   };
@@ -343,6 +348,7 @@ function handleEditorInput() {
   circuitChatLayout = null;
   scheduleCircuitUpdate();
   updateCurrentSketchDirty();
+  scheduleCurrentRevisionDraftSave();
   updateEnabledState();
 }
 
@@ -460,7 +466,9 @@ function bindControls() {
   els.chatDebugPrompt.addEventListener("click", toggleChatDebugPrompt);
   els.chatClear.addEventListener("click", clearChat);
   els.generativeTabs.forEach((tab) => tab.addEventListener("click", () => toggleGenerativePanel(tab.dataset.generativeTab)));
-  els.specification.addEventListener("input", handleSpecificationInput);
+  els.specificationEditor?.addEventListener("input", handleSpecificationInput);
+  els.specificationEditor?.addEventListener("paste", handleSpecificationPaste);
+  els.specificationTools.forEach((button) => button.addEventListener("click", () => applySpecificationFormat(button.dataset.specFormat)));
   els.specificationMode.addEventListener("change", handleSpecificationModeChange);
   els.specificationGenerate.addEventListener("click", () => runUiAction(generateCodeFromSpecification, "generating"));
   els.circuitRefresh?.addEventListener("click", () => {
@@ -2503,6 +2511,7 @@ async function selectRevision(id) {
 async function openProjectRevision(project, revision, { saveCurrent = true } = {}) {
   if (!project || !revision) return;
   if (saveCurrent) await shelveEditorSketchIfNeeded({ incomingCode: revision.code });
+  revision = applyStoredRevisionDraft(project, revision);
   currentProjectId = project.id;
   currentRevisionId = revision.id;
   localStorage.setItem(storage.projectId, project.id);
@@ -2515,6 +2524,70 @@ async function openProjectRevision(project, revision, { saveCurrent = true } = {
   renderProjectSelectors(projectCache);
   renderChatTranscript();
   updateCircuitView(circuitChatLayout ? "project circuit + code inference" : "inferred from code");
+}
+
+function applyStoredRevisionDraft(project, revision) {
+  const draft = readCurrentRevisionDraft();
+  if (!draft || draft.projectId !== project.id || draft.revisionId !== revision.id) return revision;
+  const nextRevision = {
+    ...revision,
+    code: String(draft.code ?? revision.code ?? ""),
+    specification: String(draft.specification ?? revision.specification ?? ""),
+    specificationMode: normalizeSpecificationMode(draft.specificationMode || revision.specificationMode),
+    bytes: Number(draft.bytes) || new Blob([String(draft.code ?? revision.code ?? "")]).size,
+  };
+  project.revisions = project.revisions.map((item) => item.id === revision.id ? nextRevision : item);
+  return nextRevision;
+}
+
+function scheduleCurrentRevisionDraftSave() {
+  writeCurrentRevisionDraft();
+  window.clearTimeout(revisionDraftSaveTimer);
+  revisionDraftSaveTimer = window.setTimeout(() => {
+    revisionDraftSaveTimer = null;
+    void persistCurrentRevisionDraft();
+  }, 500);
+}
+
+function writeCurrentRevisionDraft() {
+  if (!currentProjectId || !currentRevisionId) return;
+  const code = getEditorValue();
+  const draft = {
+    projectId: currentProjectId,
+    revisionId: currentRevisionId,
+    code,
+    specification: currentProjectDescription,
+    specificationMode: currentProjectSpecificationMode,
+    bytes: new Blob([code]).size,
+    updatedAt: new Date().toISOString(),
+  };
+  localStorage.setItem(storage.revisionDraft, JSON.stringify(draft));
+}
+
+function readCurrentRevisionDraft() {
+  try {
+    return JSON.parse(localStorage.getItem(storage.revisionDraft) || "null");
+  } catch {
+    return null;
+  }
+}
+
+async function persistCurrentRevisionDraft() {
+  const draft = readCurrentRevisionDraft();
+  if (!draft?.projectId || !draft?.revisionId) return;
+  const project = await getActiveProject();
+  if (!project || project.id !== draft.projectId) return;
+  const index = project.revisions.findIndex((revision) => revision.id === draft.revisionId);
+  if (index < 0) return;
+  project.revisions[index] = {
+    ...project.revisions[index],
+    code: String(draft.code ?? ""),
+    specification: String(draft.specification ?? ""),
+    specificationMode: normalizeSpecificationMode(draft.specificationMode || "middle"),
+    circuit: projectCircuitForCurrentCode(String(draft.code ?? "")),
+    bytes: Number(draft.bytes) || new Blob([String(draft.code ?? "")]).size,
+  };
+  await saveProject(project);
 }
 
 async function createNewSketch() {
@@ -3985,8 +4058,7 @@ function initChat() {
   els.chatMaxOutputTokens.value = String(chatMaxOutputTokens());
   currentProjectDescription = localStorage.getItem(storage.specificationDraft) || "";
   currentProjectSpecificationMode = normalizeSpecificationMode(localStorage.getItem(storage.specificationMode) || "middle");
-  els.specification.value = currentProjectDescription;
-  els.specificationMode.value = currentProjectSpecificationMode;
+  setProjectSpecification(currentProjectDescription, currentProjectSpecificationMode);
   chatMessages = readChatHistory();
   renderChatTranscript();
   updateChatKeyButton();
@@ -4067,10 +4139,38 @@ function chatMaxOutputTokens() {
 }
 
 function handleSpecificationInput() {
-  currentProjectDescription = els.specification.value;
+  currentProjectDescription = readSpecificationMarkdown();
+  if (els.specification) els.specification.value = currentProjectDescription;
   localStorage.setItem(storage.specificationDraft, currentProjectDescription);
   updateCurrentSketchDirty();
+  scheduleCurrentRevisionDraftSave();
   updateEnabledState();
+}
+
+function handleSpecificationPaste(event) {
+  event.preventDefault();
+  const text = event.clipboardData?.getData("text/plain") || "";
+  document.execCommand("insertText", false, text);
+  handleSpecificationInput();
+}
+
+function applySpecificationFormat(format = "") {
+  els.specificationEditor?.focus();
+  const command = {
+    normal: ["formatBlock", "P"],
+    h1: ["formatBlock", "H1"],
+    h2: ["formatBlock", "H2"],
+    h3: ["formatBlock", "H3"],
+    h4: ["formatBlock", "H4"],
+    bold: ["bold"],
+    italic: ["italic"],
+    underline: ["underline"],
+    bullet: ["insertUnorderedList"],
+    number: ["insertOrderedList"],
+  }[format];
+  if (!command) return;
+  document.execCommand(command[0], false, command[1] || null);
+  handleSpecificationInput();
 }
 
 function handleSpecificationModeChange() {
@@ -4078,6 +4178,7 @@ function handleSpecificationModeChange() {
   els.specificationMode.value = currentProjectSpecificationMode;
   localStorage.setItem(storage.specificationMode, currentProjectSpecificationMode);
   updateCurrentSketchDirty();
+  scheduleCurrentRevisionDraftSave();
 }
 
 function setProjectSpecification(text = "", mode = currentProjectSpecificationMode, { markSaved = false } = {}) {
@@ -4088,10 +4189,122 @@ function setProjectSpecification(text = "", mode = currentProjectSpecificationMo
     currentProjectSpecificationModeSource = currentProjectSpecificationMode;
   }
   if (els.specification) els.specification.value = currentProjectDescription;
+  if (els.specificationEditor) els.specificationEditor.innerHTML = markdownToSpecificationHtml(currentProjectDescription);
   if (els.specificationMode) els.specificationMode.value = currentProjectSpecificationMode;
   localStorage.setItem(storage.specificationDraft, currentProjectDescription);
   localStorage.setItem(storage.specificationMode, currentProjectSpecificationMode);
   updateEnabledState();
+}
+
+function readSpecificationMarkdown() {
+  if (!els.specificationEditor) return els.specification?.value || "";
+  return specificationNodesToMarkdown([...els.specificationEditor.childNodes]).trim();
+}
+
+function specificationNodesToMarkdown(nodes = []) {
+  const lines = [];
+  nodes.forEach((node) => {
+    if (node.nodeType === Node.TEXT_NODE) {
+      const text = node.textContent.trim();
+      if (text) lines.push(text);
+      return;
+    }
+    if (node.nodeType !== Node.ELEMENT_NODE) return;
+    const tag = node.tagName.toLowerCase();
+    if (/^h[1-4]$/.test(tag)) {
+      lines.push(`${"#".repeat(Number(tag.slice(1)))} ${inlineMarkdown(node).trim()}`);
+    } else if (tag === "ul" || tag === "ol") {
+      [...node.children].forEach((child, index) => {
+        if (child.tagName?.toLowerCase() !== "li") return;
+        const marker = tag === "ol" ? `${index + 1}.` : "-";
+        lines.push(`${marker} ${inlineMarkdown(child).trim()}`);
+      });
+    } else if (tag === "br") {
+      lines.push("");
+    } else {
+      const text = inlineMarkdown(node).trim();
+      if (text) lines.push(text);
+    }
+  });
+  return lines.join("\n\n");
+}
+
+function inlineMarkdown(node) {
+  if (node.nodeType === Node.TEXT_NODE) return node.textContent.replace(/\s+/g, " ");
+  if (node.nodeType !== Node.ELEMENT_NODE) return "";
+  const tag = node.tagName.toLowerCase();
+  if (tag === "br") return "\n";
+  const text = [...node.childNodes].map(inlineMarkdown).join("");
+  if (!text) return "";
+  if (tag === "strong" || tag === "b") return `**${text}**`;
+  if (tag === "em" || tag === "i") return `*${text}*`;
+  if (tag === "u" || node.style?.textDecorationLine?.includes("underline") || node.style?.textDecoration?.includes("underline")) return `<u>${text}</u>`;
+  return text;
+}
+
+function markdownToSpecificationHtml(markdown = "") {
+  const lines = String(markdown || "").split(/\r?\n/);
+  const html = [];
+  let listType = "";
+  const closeList = () => {
+    if (!listType) return;
+    html.push(`</${listType}>`);
+    listType = "";
+  };
+
+  lines.forEach((line) => {
+    const trimmed = line.trim();
+    if (!trimmed) {
+      closeList();
+      return;
+    }
+    const heading = trimmed.match(/^(#{1,4})\s+(.+)$/);
+    if (heading) {
+      closeList();
+      const level = heading[1].length;
+      html.push(`<h${level}>${inlineMarkdownToHtml(heading[2])}</h${level}>`);
+      return;
+    }
+    const bullet = trimmed.match(/^[-*]\s+(.+)$/);
+    if (bullet) {
+      if (listType !== "ul") {
+        closeList();
+        html.push("<ul>");
+        listType = "ul";
+      }
+      html.push(`<li>${inlineMarkdownToHtml(bullet[1])}</li>`);
+      return;
+    }
+    const numbered = trimmed.match(/^\d+\.\s+(.+)$/);
+    if (numbered) {
+      if (listType !== "ol") {
+        closeList();
+        html.push("<ol>");
+        listType = "ol";
+      }
+      html.push(`<li>${inlineMarkdownToHtml(numbered[1])}</li>`);
+      return;
+    }
+    closeList();
+    html.push(`<p>${inlineMarkdownToHtml(trimmed)}</p>`);
+  });
+  closeList();
+  return html.join("");
+}
+
+function inlineMarkdownToHtml(text = "") {
+  return escapeHtml(String(text || ""))
+    .replace(/&lt;u&gt;([\s\S]+?)&lt;\/u&gt;/g, "<u>$1</u>")
+    .replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>")
+    .replace(/\*([^*]+)\*/g, "<em>$1</em>");
+}
+
+function escapeHtml(text = "") {
+  return String(text)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
 }
 
 function normalizeSpecificationMode(mode = "middle") {
@@ -4378,7 +4591,7 @@ function updateChatEnabledState() {
   els.chatForm.classList.toggle("is-hidden", !hasKey);
   els.chatInput.disabled = !hasKey || chatBusy;
   els.chatSend.disabled = !hasKey || chatBusy || !els.chatInput.value.trim();
-  els.specificationGenerate.disabled = !hasKey || chatBusy || !els.specification.value.trim();
+  els.specificationGenerate.disabled = !hasKey || chatBusy || !currentProjectDescription.trim();
   if (els.chatModel) els.chatModel.disabled = chatBusy;
   if (els.chatModelsRefresh) els.chatModelsRefresh.disabled = chatBusy || !hasKey;
   if (els.chatMaxOutputTokens) els.chatMaxOutputTokens.disabled = chatBusy;
@@ -4718,7 +4931,7 @@ async function sendChatPrompt() {
 }
 
 async function generateCodeFromSpecification() {
-  const specification = els.specification.value.trim();
+  const specification = readSpecificationMarkdown().trim();
   if (!specification || chatBusy || !hasChatApiKey()) return;
 
   chatBusy = true;
@@ -4928,8 +5141,9 @@ function buildChatInstructions(context) {
     "Every generated sketch must start with a short // comment explaining what the sketch does.",
     "When producing code, also provide sketch_name: a short project revision title, 2-5 words and at most 32 characters.",
     "Naming rule: for small iterations, keep the current revision base name and increment its trailing number, such as LED Chase -> LED Chase 2 -> LED Chase 3. For larger reframings, choose a new short descriptive name. Do not invent a random unrelated name when the current name still describes the work. Avoid dates, New Sketch, generic Revision names, and decorative punctuation.",
-    "When producing or changing code, also provide project_specification: an updated project specification that matches the resulting code and follows the requested specification_mode.",
-    "Specification modes: overview means high-level human description; middle means important implementation details without pseudocode; structured means sections like Program, Global values, Setup, and Main loop in plain text.",
+    "When producing or changing code, also provide project_specification as simple Markdown that matches the resulting code and follows the requested specification_mode.",
+    "Use only this Markdown subset in project_specification: # through #### headings, **bold**, *italic*, <u>underline</u>, numbered lists, and bullet lists.",
+    "Specification modes: overview means high-level human description; middle means important implementation details without pseudocode; structured means sections like Program, Global values, Setup, and Main loop in Markdown/plain text.",
     "Also provide circuit_layout: a best-effort JSON layout for the Circuit view with components, connections, assumptions, and notes. Use an empty object if no hardware is involved.",
     "GPIO rule: pinMode uses firmware constants such as INPUT, OUTPUT, INPUT_PULLUP, and INPUT_PULLDOWN when available. Write pinMode(powerPin, OUTPUT), never pinMode(powerPin, \"OUTPUT\"). digitalWrite should use HIGH/LOW if available or 1/0, never string values.",
     "Declare scratch variables at the top of each function and assign them inside while/if blocks. Avoid new var declarations inside tight loops or nested blocks, especially LED render loops.",

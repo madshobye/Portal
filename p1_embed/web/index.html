@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>P1E</title>
     <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@24,400,0,0">
-    <link rel="stylesheet" href="style.css?v=0.1.87-ui249">
+    <link rel="stylesheet" href="style.css?v=0.1.87-ui252">
   </head>
   <body>
     <main id="app">
@@ -133,7 +133,22 @@
             </form>
           </section>
           <section class="spec-shell generative-panel is-active" data-generative-panel="specification">
-            <textarea id="project-specification" class="spec-editor" spellcheck="true" autocomplete="off" placeholder="Describe what this project should do, what hardware it uses, and how it should behave."></textarea>
+            <div class="spec-editor-wrap">
+              <div class="spec-toolbar" aria-label="Specification formatting">
+                <button class="spec-tool spec-tool-wide" type="button" data-spec-format="normal" title="Normal text">Normal</button>
+                <button class="spec-tool" type="button" data-spec-format="h1" title="Heading 1">H1</button>
+                <button class="spec-tool" type="button" data-spec-format="h2" title="Heading 2">H2</button>
+                <button class="spec-tool" type="button" data-spec-format="h3" title="Heading 3">H3</button>
+                <button class="spec-tool" type="button" data-spec-format="h4" title="Heading 4">H4</button>
+                <button class="spec-tool" type="button" data-spec-format="bold" title="Bold"><strong>B</strong></button>
+                <button class="spec-tool" type="button" data-spec-format="italic" title="Italic"><em>I</em></button>
+                <button class="spec-tool" type="button" data-spec-format="underline" title="Underline"><u>U</u></button>
+                <button class="spec-tool" type="button" data-spec-format="bullet" title="Bullet list"><span class="material-symbols-rounded">format_list_bulleted</span></button>
+                <button class="spec-tool" type="button" data-spec-format="number" title="Numbered list"><span class="material-symbols-rounded">format_list_numbered</span></button>
+              </div>
+              <div id="project-specification-editor" class="spec-editor" contenteditable="true" spellcheck="true" role="textbox" aria-multiline="true" data-placeholder="Describe what this project should do, what hardware it uses, and how it should behave."></div>
+              <textarea id="project-specification" class="is-hidden" autocomplete="off" aria-hidden="true"></textarea>
+            </div>
             <footer class="spec-actions">
               <button id="spec-generate-button" class="button primary icon-buttonish" type="button" disabled title="Generate code from specification" aria-label="Generate code from specification">
                 <span>Generate</span>
@@ -428,6 +443,6 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.9.4/p5.min.js" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
     <script src="../../P1/portal/usbSerial.js"></script>
     <script src="../../P1/portal/qrCodeGen.js"></script>
-    <script type="module" src="app.js?v=0.1.87-ui249"></script>
+    <script type="module" src="app.js?v=0.1.87-ui252"></script>
   </body>
 </html>

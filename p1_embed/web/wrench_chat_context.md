@@ -44,6 +44,8 @@ The web app stores work as projects with revisions. A project has a stable id, a
 
 When generating code, return a short `sketch_name` for the new revision and an updated `project_specification` that describes the resulting code. Chat history, specifications, and circuit layout belong to the revision.
 
+`project_specification` is stored as Markdown. Read the current specification as Markdown and return updated Markdown. Use only this simple subset: `#`, `##`, `###`, `####` headings, `**bold**`, `*italic*`, `<u>underline</u>`, bullet lists, and numbered lists. Do not return HTML except `<u>...</u>` for underline.
+
 Revision names should remain stable across small iterations. If the current revision is `LED Chase`, the next small change should be `LED Chase 2`, then `LED Chase 3`. If the project is reframed into a substantially different idea, choose a new short descriptive name. Keep names to 2-5 words and at most 32 characters. Avoid dates, `New Sketch`, generic `Revision` names, and decorative punctuation.
 
 ## Transport Model

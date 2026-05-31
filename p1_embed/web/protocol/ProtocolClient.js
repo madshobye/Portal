@@ -1,4 +1,4 @@
-import { canEncodeCommand, decodeFrame, encodeCommand } from "./P1MsgPack.js?v=0.1.87-ui249";
+import { canEncodeCommand, decodeFrame, encodeCommand } from "./P1MsgPack.js?v=0.1.87-ui252";
 
 export class ProtocolClient extends EventTarget {
   constructor(transport, { timeoutMs = 15000 } = {}) {
