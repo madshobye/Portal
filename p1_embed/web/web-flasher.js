@@ -88,7 +88,7 @@ export class P1WebFlasher extends EventTarget {
     });
     this.setState("resetting");
     await this.loader.after("hard_reset");
-    await this.releaseBootSignals();
+    await this.resetToAppMode();
     this.setState("done");
   }
 
@@ -123,6 +123,28 @@ export class P1WebFlasher extends EventTarget {
     }
   }
 
+  async resetToAppMode() {
+    try {
+      await this.port?.setSignals?.({
+        dataTerminalReady: false,
+        requestToSend: false,
+      });
+      await sleep(50);
+      await this.port?.setSignals?.({
+        dataTerminalReady: false,
+        requestToSend: true,
+      });
+      await sleep(120);
+      await this.port?.setSignals?.({
+        dataTerminalReady: false,
+        requestToSend: false,
+      });
+      await sleep(250);
+    } catch {
+      await this.releaseBootSignals();
+    }
+  }
+
   terminal() {
     return {
       clean: () => this.emit("log", { message: "" }),
@@ -138,6 +160,10 @@ export class P1WebFlasher extends EventTarget {
   emit(name, detail) {
     this.dispatchEvent(new CustomEvent(name, { detail }));
   }
+}
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 function manifestToFiles(manifest, baseUrl) {

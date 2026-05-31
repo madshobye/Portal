@@ -1,14 +1,14 @@
-import { ProtocolClient } from "./protocol/ProtocolClient.js?v=0.1.87-ui241";
-import { canEncodeCommand } from "./protocol/P1MsgPack.js?v=0.1.87-ui241";
-import { WebSerialTransport } from "./protocol/WebSerialTransport.js?v=0.1.87-ui241";
+import { ProtocolClient } from "./protocol/ProtocolClient.js?v=0.1.87-ui243";
+import { canEncodeCommand } from "./protocol/P1MsgPack.js?v=0.1.87-ui243";
+import { WebSerialTransport } from "./protocol/WebSerialTransport.js?v=0.1.87-ui243";
 import { WebSocketTransport } from "./protocol/WebSocketTransport.js";
-import { MqttWebRtcTransport, MQTT_WEBRTC_TRANSPORT_VERSION } from "./protocol/MqttWebRtcTransport.js?v=0.1.87-ui241";
-import { MqttTransport, MQTT_TRANSPORT_VERSION, clearOnlineAuthKey, deriveOnlineAuthKeyHex, storeOnlineAuthKey } from "./protocol/MqttTransport.js?v=0.1.87-ui241";
-import { P1WebFlasher } from "./web-flasher.js?v=0.1.87-ui241";
-import { inferCircuitLayout, initCircuitView, normalizeCircuitLayout } from "./circuit.js?v=0.1.87-ui241";
-import { initGuinoView } from "./guino.js?v=0.1.87-ui241";
+import { MqttWebRtcTransport, MQTT_WEBRTC_TRANSPORT_VERSION } from "./protocol/MqttWebRtcTransport.js?v=0.1.87-ui243";
+import { MqttTransport, MQTT_TRANSPORT_VERSION, clearOnlineAuthKey, deriveOnlineAuthKeyHex, storeOnlineAuthKey } from "./protocol/MqttTransport.js?v=0.1.87-ui243";
+import { P1WebFlasher } from "./web-flasher.js?v=0.1.87-ui243";
+import { inferCircuitLayout, initCircuitView, normalizeCircuitLayout } from "./circuit.js?v=0.1.87-ui243";
+import { initGuinoView } from "./guino.js?v=0.1.87-ui243";
 
-const WEB_UI_VERSION = "0.1.87-ui241";
+const WEB_UI_VERSION = "0.1.87-ui243";
 const CHAT_DEFAULT_MAX_OUTPUT_TOKENS = 8000;
 const CHAT_MIN_MAX_OUTPUT_TOKENS = 1024;
 const CHAT_HARD_MAX_OUTPUT_TOKENS = 32000;
@@ -210,6 +210,7 @@ const els = {
   uiCanvas: document.querySelector("#ui-canvas"),
   installConnect: document.querySelector("#install-connect-button"),
   installFlashManifest: document.querySelector("#install-flash-manifest-button"),
+  installClearData: document.querySelector("#install-clear-data"),
   installGoCode: document.querySelector("#install-go-code-button"),
   installManifest: document.querySelector("#install-manifest-input"),
   installFirmwareVersion: document.querySelector("#install-firmware-version"),
@@ -4091,19 +4092,24 @@ async function connectFlasher() {
   installStatus(chipName ? `connected / ${chipName}` : "connected");
 }
 
-async function flashInstallManifest() {
+async function flashInstallManifest(options = {}) {
   ensureFlasher();
   els.installLog.textContent = "";
   els.installGoCode.classList.add("is-hidden");
   await releaseDeviceTransportForInstall();
   const manifest = els.installManifest.value.trim() || "bin/p1e-firmware.json";
+  const eraseAll = Boolean(options.eraseAll || els.installClearData?.checked);
+  if (eraseAll) {
+    const ok = window.confirm("Clear old data erases WiFi, users, projects, and stored scripts before installing. Continue?");
+    if (!ok) return;
+  }
   els.installProgress.value = 0;
   installStatus("Choose your ESP32 serial port");
-  await flasher.flashManifest(manifest);
+  await flasher.flashManifest(manifest, { ...options, eraseAll });
   const hint = normalizeUsbHint(flasher.port?.getInfo?.() || null);
   installStatus("Upload complete. Waiting for board...");
   await flasher.disconnect();
-  await settle(1800);
+  await settle(eraseAll ? 4500 : 2600);
   await applyInstallSetupAfterUpload(hint);
 }
 
@@ -4212,15 +4218,16 @@ async function applyInstallSetupAfterUpload(hint) {
 
 async function connectUsbAfterInstall() {
   if (!("serial" in navigator) || !readUsbHint()) return false;
-  for (let attempt = 0; attempt < 4; attempt += 1) {
-    installStatus(attempt ? `Checking P1E (${attempt + 1}/4)` : "Checking P1E");
-    await settle(attempt ? 1600 : 800);
+  const attempts = 7;
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    installStatus(attempt ? `Checking P1E (${attempt + 1}/${attempts})` : "Checking P1E");
+    await settle(attempt ? 2200 : 1200);
     const ok = await connectTransport(
       new WebSerialTransport({ storageKey: storage.usbHint }),
       { pickPort: false },
       "usb",
       "USB",
-      { quiet: true, lightStartup: true, includeScript: false, startupTimeoutMs: 2500 },
+      { quiet: true, lightStartup: true, includeScript: false, startupTimeoutMs: 7000 },
     );
     await refreshKnownUsbPorts();
     if (ok && client) return true;
@@ -4241,6 +4248,7 @@ function updateInstallEnabledState() {
   [
     els.installConnect,
     els.installFlashManifest,
+    els.installClearData,
     els.installGoCode,
     els.installManifest,
   ].forEach((el) => {

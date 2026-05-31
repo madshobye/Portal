@@ -1605,6 +1605,12 @@ input {
   width: 100%;
 }
 
+.install-actions {
+  display: flex;
+  justify-content: center;
+  align-items: stretch;
+}
+
 .install-upload-button {
   min-height: 66px;
   min-width: min(100%, 310px);
@@ -1616,6 +1622,22 @@ input {
 
 .install-upload-button .material-symbols-rounded {
   font-size: 27px;
+}
+
+.install-clear-row {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 12px;
+  color: var(--muted);
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.install-clear-row input {
+  width: 16px;
+  height: 16px;
+  accent-color: var(--accent);
 }
 
 .install-firmware-version {

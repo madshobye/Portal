@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>P1E</title>
     <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@24,400,0,0">
-    <link rel="stylesheet" href="style.css?v=0.1.87-ui241">
+    <link rel="stylesheet" href="style.css?v=0.1.87-ui243">
   </head>
   <body>
     <main id="app">
@@ -200,10 +200,16 @@
                 <input id="install-wifi-password" type="password" autocomplete="new-password" placeholder="optional">
               </label>
             </div>
-            <button id="install-flash-manifest-button" class="button primary install-upload-button" type="button" title="Upload P1E firmware" aria-label="Upload P1E firmware">
-              <span>Upload P1E</span>
-              <span class="material-symbols-rounded">system_update_alt</span>
-            </button>
+            <div class="install-actions">
+              <button id="install-flash-manifest-button" class="button primary install-upload-button" type="button" title="Upload P1E firmware" aria-label="Upload P1E firmware">
+                <span>Install P1E</span>
+                <span class="material-symbols-rounded">system_update_alt</span>
+              </button>
+            </div>
+            <label class="install-clear-row">
+              <input id="install-clear-data" type="checkbox">
+              <span>Clear old data before install</span>
+            </label>
             <div id="install-firmware-version" class="install-firmware-version">Firmware ...</div>
             <progress id="install-progress" class="install-progress" value="0" max="100"></progress>
             <div id="install-status" class="install-status"></div>
@@ -420,6 +426,6 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.9.4/p5.min.js" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
     <script src="../../P1/portal/usbSerial.js"></script>
     <script src="../../P1/portal/qrCodeGen.js"></script>
-    <script type="module" src="app.js?v=0.1.87-ui241"></script>
+    <script type="module" src="app.js?v=0.1.87-ui243"></script>
   </body>
 </html>
