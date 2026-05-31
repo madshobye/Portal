@@ -118,7 +118,9 @@ const els = {
   peerId: document.querySelector("#peer-id"),
   getScript: document.querySelector("#get-script-button"),
   newSketch: document.querySelector("#new-sketch-button"),
+  newRevision: document.querySelector("#new-revision-button"),
   chatNewSketch: document.querySelector("#chat-new-sketch-button"),
+  chatNewRevision: document.querySelector("#chat-new-revision-button"),
   chatRun: document.querySelector("#chat-run-button"),
   chatStop: document.querySelector("#chat-stop-button"),
   reboot: document.querySelector("#reboot-button"),
@@ -410,7 +412,9 @@ function bindControls() {
   els.peerId.addEventListener("input", () => renderConnectionHistory());
   els.getScript.addEventListener("click", () => runUiAction(getScript, "reading"));
   els.newSketch.addEventListener("click", () => runUiAction(createNewSketch, "new sketch"));
+  els.newRevision.addEventListener("click", () => runUiAction(createCleanRevision, "new revision"));
   els.chatNewSketch.addEventListener("click", () => runUiAction(createNewSketch, "new sketch"));
+  els.chatNewRevision.addEventListener("click", () => runUiAction(createCleanRevision, "new revision"));
   els.reboot.addEventListener("click", () => runUiAction(() => sendCommand("device.reboot"), "rebooting"));
   els.run.addEventListener("click", runScriptFromToolbar);
   els.stop.addEventListener("click", () => runUiAction(() => sendCommand("script.stop").then(refreshStatus), "stopping"));
@@ -2081,7 +2085,7 @@ function normalizeProjectRecord(project = {}) {
   const revisions = Array.isArray(project.revisions)
     ? project.revisions
       .map((revision) => normalizeRevisionRecord(revision))
-      .filter((revision) => revision.code.trim() || revision.specification.trim())
+      .filter((revision) => revision.code.trim() || revision.specification.trim() || revision.source === "new-revision")
     : [];
   const active = revisions.find((revision) => revision.id === project.activeRevisionId) || revisions[0] || null;
   if (active && projectChat.length && !active.chat.length) active.chat = projectChat;
@@ -2164,6 +2168,7 @@ function nextRevisionName(project) {
 }
 
 function nextNamedRevisionName(project, name = "") {
+  if (isGenericRevisionName(name)) return nextRevisionName(project);
   const root = revisionNameRoot(name);
   if (!root) return nextRevisionName(project);
   let maxVersion = 1;
@@ -2174,6 +2179,11 @@ function nextNamedRevisionName(project, name = "") {
     }
   });
   return normalizeSketchName(`${root} ${maxVersion + 1}`);
+}
+
+function isGenericRevisionName(name = "") {
+  const clean = normalizeSketchName(name).toLowerCase();
+  return /^(initial revision|revision|new sketch)( \d+)?$/.test(clean);
 }
 
 function revisionNameRoot(name = "") {
@@ -2595,7 +2605,7 @@ async function createNewSketch() {
   const code = newSketchTemplate();
   const revision = buildRevision({
     code,
-    name: "Initial revision",
+    name: "Revision",
     specification: "",
     specificationMode: "middle",
     circuit: null,
@@ -2613,6 +2623,31 @@ async function createNewSketch() {
   await openProjectRevision(saved, revision, { saveCurrent: false });
   clearEditorError();
   logLine("info", `new project ${saved.name}`);
+}
+
+async function createCleanRevision() {
+  await shelveEditorSketchIfNeeded();
+  let project = await getActiveProject();
+  if (!project) {
+    project = await ensureProjectForWrite({ code: "", nameHint: "Untitled Project" });
+  }
+  project = normalizeProjectRecord(project);
+  const revision = buildRevision({
+    code: "",
+    name: nextRevisionName(project),
+    specification: "",
+    specificationMode: "middle",
+    circuit: null,
+    chat: [],
+    source: "new-revision",
+  });
+  project.revisions.unshift(revision);
+  project.activeRevisionId = revision.id;
+  const saved = await saveProject(project);
+  await persistProjectMetadataToDevice(saved);
+  await openProjectRevision(saved, revision, { saveCurrent: false });
+  clearEditorError();
+  logLine("info", `new revision ${revision.name}`);
 }
 
 async function shelveEditorSketchIfNeeded({ incomingCode = "" } = {}) {
@@ -4161,9 +4196,17 @@ function handleSpecificationInput() {
 
 function handleSpecificationPaste(event) {
   event.preventDefault();
+  const html = event.clipboardData?.getData("text/html") || "";
   const text = event.clipboardData?.getData("text/plain") || "";
-  document.execCommand("insertText", false, text);
+  const markdown = html ? specificationHtmlToMarkdown(html) : text;
+  insertSpecificationMarkdown(markdown || text);
   handleSpecificationInput();
+}
+
+function insertSpecificationMarkdown(markdown = "") {
+  const text = String(markdown || "");
+  if (!text.trim()) return;
+  document.execCommand("insertHTML", false, markdownToSpecificationHtml(text));
 }
 
 function applySpecificationFormat(format = "") {
@@ -4241,6 +4284,11 @@ function specificationNodesToMarkdown(nodes = []) {
   return lines.join("\n\n");
 }
 
+function specificationHtmlToMarkdown(html = "") {
+  const doc = new DOMParser().parseFromString(String(html || ""), "text/html");
+  return specificationNodesToMarkdown([...doc.body.childNodes]).trim();
+}
+
 function inlineMarkdown(node) {
   if (node.nodeType === Node.TEXT_NODE) return node.textContent.replace(/\s+/g, " ");
   if (node.nodeType !== Node.ELEMENT_NODE) return "";
@@ -4248,8 +4296,12 @@ function inlineMarkdown(node) {
   if (tag === "br") return "\n";
   const text = [...node.childNodes].map(inlineMarkdown).join("");
   if (!text) return "";
-  if (tag === "strong" || tag === "b") return `**${text}**`;
-  if (tag === "em" || tag === "i") return `*${text}*`;
+  const weight = String(node.style?.fontWeight || "").toLowerCase();
+  const isBold = tag === "strong" || tag === "b" || weight === "bold" || Number(weight) >= 600;
+  const style = String(node.style?.fontStyle || "").toLowerCase();
+  const isItalic = tag === "em" || tag === "i" || style === "italic";
+  if (isBold) return `**${text}**`;
+  if (isItalic) return `*${text}*`;
   if (tag === "u" || node.style?.textDecorationLine?.includes("underline") || node.style?.textDecoration?.includes("underline")) return `<u>${text}</u>`;
   return text;
 }
@@ -5016,13 +5068,14 @@ async function requestChatCompletion(prompt, options = {}) {
   const purpose = options.purpose || "chat";
   const activeProject = projectCache.find((item) => item.id === currentProjectId) || null;
   const activeProjectRevision = activeRevision(activeProject);
-  const currentRevisionName = normalizeSketchName(currentSketchName || activeProjectRevision?.name || "");
+  const rawRevisionName = normalizeSketchName(currentSketchName || activeProjectRevision?.name || "");
+  const currentRevisionName = isGenericRevisionName(rawRevisionName) ? "" : rawRevisionName;
   const namingContext = {
     projectName: normalizeProjectName(activeProject?.name || ""),
     currentRevisionName,
     suggestedSmallIterationName: currentRevisionName
       ? nextNamedRevisionName(activeProject, currentRevisionName)
-      : nextRevisionName(activeProject),
+      : "choose a short descriptive name",
     maxNameChars: 32,
     rule: "Small iterations keep the current base name and increment the trailing number. Larger reframings may use a new short descriptive name.",
   };

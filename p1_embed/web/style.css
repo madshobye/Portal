@@ -502,13 +502,13 @@ select {
 }
 
 .project-select {
-  width: clamp(150px, 18vw, 260px);
+  width: clamp(120px, 14vw, 190px);
   min-height: 35px;
   padding-block: 7px;
 }
 
 .sketch-history {
-  width: clamp(150px, 22vw, 300px);
+  width: clamp(118px, 15vw, 190px);
   min-height: 35px;
   padding-block: 7px;
 }
@@ -627,6 +627,7 @@ input {
   align-items: center;
   justify-content: space-between;
   gap: 10px;
+  min-height: 35px;
 }
 
 .console-actions {
@@ -655,7 +656,7 @@ input {
 }
 
 .lower-tab {
-  min-height: 28px;
+  min-height: 35px;
   padding: 5px 9px;
   border: 1px solid transparent;
   border-radius: 6px;
@@ -1282,7 +1283,8 @@ input {
   place-items: center;
   width: 34px;
   min-width: 34px;
-  min-height: 31px;
+  height: 35px;
+  min-height: 35px;
   padding: 0;
   border: 1px solid transparent;
   border-radius: 6px;
