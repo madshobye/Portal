@@ -525,6 +525,21 @@ static bool g_scriptJobSave = false;
 static int g_scriptJobExpectedBytes = -1;
 static String g_scriptJobExpectedHashHex;
 
+static void protocolEmitScriptUploadEvent(const char* consoleLevel, const P1EventField* fields, size_t fieldCount) {
+  if (consoleLevel && strcmp(consoleLevel, "error") == 0) {
+    debugEventEmitFields("script.upload", "error", "script", "", fields, fieldCount);
+    return;
+  }
+
+  P1EventField systemFields[8];
+  size_t count = min(fieldCount, (size_t)7);
+  for (size_t i = 0; i < count; i++) {
+    systemFields[i] = fields[i];
+  }
+  systemFields[count++] = p1FieldString("consoleLevel", consoleLevel && consoleLevel[0] ? consoleLevel : "debug");
+  debugEventEmitFields("script.upload", "system", "script", "", systemFields, count);
+}
+
 static void protocolQueueScriptJob(bool runAfterSet, bool saveAfterSet, int expectedBytes, const String& expectedHashHex, size_t scriptBytes) {
   g_scriptJobPending = true;
   g_scriptJobRun = runAfterSet;
@@ -535,7 +550,7 @@ static void protocolQueueScriptJob(bool runAfterSet, bool saveAfterSet, int expe
     p1FieldString("state", "queued"),
     p1FieldUInt("scriptBytes", scriptBytes),
   };
-  protocolEmitEventFields("script.upload", fields, 2);
+  protocolEmitScriptUploadEvent("debug", fields, 2);
 }
 
 bool protocolHandleScriptSetCode(const String& id, const String& code, bool runAfterSet, bool saveAfterSet, bool sendResponse) {
@@ -563,7 +578,7 @@ bool protocolHandleScriptSetCode(const String& id, const String& code, bool runA
         p1FieldString("phase", "compile"),
         p1FieldString("message", err),
       };
-      protocolEmitEventFields("script.upload", fields, 3);
+      protocolEmitScriptUploadEvent("error", fields, 3);
     }
     return false;
   }
@@ -585,7 +600,7 @@ bool protocolHandleScriptSetCode(const String& id, const String& code, bool runA
           p1FieldString("phase", "save"),
           p1FieldString("message", "Failed to save script to LittleFS"),
         };
-        protocolEmitEventFields("script.upload", fields, 3);
+        protocolEmitScriptUploadEvent("error", fields, 3);
       }
       return false;
     }
@@ -612,7 +627,7 @@ bool protocolHandleScriptSetCode(const String& id, const String& code, bool runA
           p1FieldString("phase", "run"),
           p1FieldString("message", runErr),
         };
-        protocolEmitEventFields("script.upload", fields, 3);
+        protocolEmitScriptUploadEvent("error", fields, 3);
       }
       return false;
     }
@@ -637,7 +652,7 @@ bool protocolHandleScriptSetCode(const String& id, const String& code, bool runA
       p1FieldUInt("scriptBytes", code.length()),
       p1FieldUInt("scriptHash", protocolFnv1a(code)),
     };
-    protocolEmitEventFields("script.upload", fields, 3);
+    protocolEmitScriptUploadEvent("debug", fields, 3);
   }
   return true;
 }
@@ -776,7 +791,7 @@ void protocolPollScriptJobs() {
       p1FieldString("phase", "load"),
       p1FieldString("message", "Failed to load staged script"),
     };
-    protocolEmitEventFields("script.upload", fields, 3);
+    protocolEmitScriptUploadEvent("error", fields, 3);
     return;
   }
   if (!protocolValidateScriptIntegrity("0", code, expectedBytes, expectedHashHex)) {
@@ -786,14 +801,14 @@ void protocolPollScriptJobs() {
       p1FieldString("phase", "integrity"),
       p1FieldString("message", "Script integrity check failed"),
     };
-    protocolEmitEventFields("script.upload", fields, 3);
+    protocolEmitScriptUploadEvent("error", fields, 3);
     return;
   }
   P1EventField fields[] = {
     p1FieldString("state", "compiling"),
     p1FieldUInt("scriptBytes", code.length()),
   };
-  protocolEmitEventFields("script.upload", fields, 2);
+  protocolEmitScriptUploadEvent("debug", fields, 2);
   bool ok = protocolHandleScriptSetCode("0", code, runAfterSet, saveAfterSet, false);
   if (ok) {
     scriptStoreClearIncoming();

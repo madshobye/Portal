@@ -40,9 +40,11 @@ The firmware compiles the source first. If compile succeeds, it can run `setup()
 
 ## Project Model
 
-The web app stores work as projects with revisions. A project has a stable id, a human name, chat history, and one or more revisions. Each revision stores the Wrench code, the project specification for that code, the specification mode, and the circuit layout. Code, Generative, and Circuit views should all read and write through this project/revision model.
+The web app stores work as projects with revisions. A project has a stable id, a human name, and one or more revisions. Each revision stores the Wrench code, the chat history for that code, the project specification for that code, the specification mode, and the circuit layout. Code, Generative, and Circuit views should all read and write through this project/revision model.
 
-When generating code, return a short `sketch_name` for the new revision and an updated `project_specification` that describes the resulting code. Chat history belongs to the project. Specifications and circuit layout belong to the revision.
+When generating code, return a short `sketch_name` for the new revision and an updated `project_specification` that describes the resulting code. Chat history, specifications, and circuit layout belong to the revision.
+
+Revision names should remain stable across small iterations. If the current revision is `LED Chase`, the next small change should be `LED Chase 2`, then `LED Chase 3`. If the project is reframed into a substantially different idea, choose a new short descriptive name. Keep names to 2-5 words and at most 32 characters. Avoid dates, `New Sketch`, generic `Revision` names, and decorative punctuation.
 
 ## Transport Model
 
@@ -86,8 +88,8 @@ MQTT uses one binary command/response/event path and one plain text script path:
 
 ## GPIO And ESP Basics
 
-- `pinMode(pin, mode)`.
-- `digitalWrite(pin, value)`, `digitalRead(pin)`.
+- `pinMode(pin, mode)` uses numeric firmware constants: `INPUT`, `OUTPUT`, `INPUT_PULLUP`, and `INPUT_PULLDOWN` when available. Use `pinMode(powerPin, OUTPUT)`, not `pinMode(powerPin, "OUTPUT")`.
+- `digitalWrite(pin, value)`, `digitalRead(pin)`. Use `HIGH`/`LOW` if available or `1`/`0`; do not pass `"HIGH"` or `"LOW"` as strings.
 - `analogRead(pin)`.
 - `touchRead(pin)`.
 - `analogWrite(pin, value)`.
@@ -308,7 +310,7 @@ function loop() {
 
 ## Output Preference
 
-When asked to generate code, return a complete Wrench sketch and keep explanatory text short. Every generated sketch should start with one short `//` comment explaining what the sketch does. Also provide a short `sketch_name` of 2-5 words, such as `Blue Chase`, `Weather Coat Lights`, or `Fan PWM Test`; this name is shown in the browser history dropdown. Put normal assumptions and caveats in notes. Use warnings only for immediate, concrete risks such as unsafe pins, high current LED loads, blocking code, destructive commands, missing credentials, or likely firmware/resource failure.
+When asked to generate code, return a complete Wrench sketch and keep explanatory text short. Every generated sketch should start with one short `//` comment explaining what the sketch does. Also provide a short `sketch_name` of 2-5 words and at most 32 characters. Small iterations should keep the current base name and increment the trailing number, while larger reframings may use a new short descriptive name. This name is shown in the project revision selector. Put normal assumptions and caveats in notes. Use warnings only for immediate, concrete risks such as unsafe pins, high current LED loads, blocking code, destructive commands, missing credentials, or likely firmware/resource failure.
 
 The browser also has a Circuit view. For generated hardware sketches, provide a `circuit_layout` object with this shape:
 

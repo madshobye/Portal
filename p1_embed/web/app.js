@@ -1,15 +1,17 @@
-import { ProtocolClient } from "./protocol/ProtocolClient.js?v=0.1.87-ui212";
-import { canEncodeCommand } from "./protocol/P1MsgPack.js?v=0.1.87-ui212";
-import { WebSerialTransport } from "./protocol/WebSerialTransport.js?v=0.1.87-ui212";
+import { ProtocolClient } from "./protocol/ProtocolClient.js?v=0.1.87-ui241";
+import { canEncodeCommand } from "./protocol/P1MsgPack.js?v=0.1.87-ui241";
+import { WebSerialTransport } from "./protocol/WebSerialTransport.js?v=0.1.87-ui241";
 import { WebSocketTransport } from "./protocol/WebSocketTransport.js";
-import { MqttWebRtcTransport, MQTT_WEBRTC_TRANSPORT_VERSION } from "./protocol/MqttWebRtcTransport.js?v=0.1.87-ui212";
-import { MqttTransport, MQTT_TRANSPORT_VERSION, clearOnlineAuthKey, deriveOnlineAuthKeyHex, storeOnlineAuthKey } from "./protocol/MqttTransport.js?v=0.1.87-ui212";
-import { P1WebFlasher } from "./web-flasher.js?v=0.1.87-ui212";
-import { inferCircuitLayout, initCircuitView, normalizeCircuitLayout } from "./circuit.js?v=0.1.87-ui212";
-import { initGuinoView } from "./guino.js?v=0.1.87-ui212";
+import { MqttWebRtcTransport, MQTT_WEBRTC_TRANSPORT_VERSION } from "./protocol/MqttWebRtcTransport.js?v=0.1.87-ui241";
+import { MqttTransport, MQTT_TRANSPORT_VERSION, clearOnlineAuthKey, deriveOnlineAuthKeyHex, storeOnlineAuthKey } from "./protocol/MqttTransport.js?v=0.1.87-ui241";
+import { P1WebFlasher } from "./web-flasher.js?v=0.1.87-ui241";
+import { inferCircuitLayout, initCircuitView, normalizeCircuitLayout } from "./circuit.js?v=0.1.87-ui241";
+import { initGuinoView } from "./guino.js?v=0.1.87-ui241";
 
-const WEB_UI_VERSION = "0.1.87-ui212";
-const CHAT_MAX_OUTPUT_TOKENS = 8000;
+const WEB_UI_VERSION = "0.1.87-ui241";
+const CHAT_DEFAULT_MAX_OUTPUT_TOKENS = 8000;
+const CHAT_MIN_MAX_OUTPUT_TOKENS = 1024;
+const CHAT_HARD_MAX_OUTPUT_TOKENS = 32000;
 const ALPHA_ENABLE_WEBSOCKET_CONNECT = false;
 const ALPHA_ENABLE_WEBRTC_CONNECT = false;
 console.info(`[P1E web] loaded ${WEB_UI_VERSION}`, { mqtt: MQTT_TRANSPORT_VERSION, mqttWebRtc: MQTT_WEBRTC_TRANSPORT_VERSION });
@@ -51,17 +53,19 @@ const storage = {
   projectFallback: "p1_embed.project.fallback",
   chatApiKey: "p1_embed.chat.apiKey",
   chatModel: "p1_embed.chat.model",
+  chatModelList: "p1_embed.chat.modelList",
+  chatMaxOutputTokens: "p1_embed.chat.maxOutputTokens",
   chatHistory: "p1_embed.chat.history",
   chatDebugPrompt: "p1_embed.chat.debugPrompt",
   specificationDraft: "p1_embed.project.specificationDraft",
   specificationMode: "p1_embed.project.specificationMode",
 };
 
-const chatModelOptions = [
+const builtInChatModelOptions = [
+  "gpt-5.5",
   "gpt-5.4",
-  "gpt-5.4-pro",
-  "gpt-5.4-nano",
   "gpt-5.4-mini",
+  "gpt-5.4-nano",
   "gpt-5.2",
   "gpt-5.2-pro",
   "gpt-5-mini",
@@ -172,10 +176,15 @@ const els = {
   wifiSsid: document.querySelector("#wifi-ssid"),
   wifiPassword: document.querySelector("#wifi-password"),
   chatApiKey: document.querySelector("#chat-api-key-button"),
-  chatApiKeyDialog: document.querySelector("#chat-api-key-dialog"),
   chatApiKeyInput: document.querySelector("#chat-api-key-input"),
   chatApiKeySave: document.querySelector("#chat-api-key-save-button"),
+  chatKeySharePassword: document.querySelector("#chat-key-share-password"),
+  chatKeyShareDays: document.querySelector("#chat-key-share-days"),
+  chatKeyShare: document.querySelector("#chat-key-share-button"),
+  chatKeyShareOutput: document.querySelector("#chat-key-share-output"),
   chatModel: document.querySelector("#chat-model"),
+  chatModelsRefresh: document.querySelector("#chat-models-refresh-button"),
+  chatMaxOutputTokens: document.querySelector("#chat-max-output-tokens"),
   chatDebugPrompt: document.querySelector("#chat-debug-prompt-button"),
   chatClear: document.querySelector("#chat-clear-button"),
   chatTranscript: document.querySelector("#chat-transcript"),
@@ -437,8 +446,15 @@ function bindControls() {
   });
   els.chatApiKey.addEventListener("click", toggleChatApiKey);
   els.chatApiKeySave.addEventListener("click", saveChatApiKey);
+  els.chatKeyShare.addEventListener("click", () => runUiAction(createEncryptedChatKeyShare, "sharing"));
   els.chatModel.addEventListener("change", () => {
     localStorage.setItem(storage.chatModel, els.chatModel.value);
+  });
+  els.chatModelsRefresh.addEventListener("click", () => runUiAction(refreshChatModels, "refreshing"));
+  els.chatMaxOutputTokens.addEventListener("change", () => {
+    const value = chatMaxOutputTokens();
+    els.chatMaxOutputTokens.value = String(value);
+    localStorage.setItem(storage.chatMaxOutputTokens, String(value));
   });
   els.chatDebugPrompt.addEventListener("click", toggleChatDebugPrompt);
   els.chatClear.addEventListener("click", clearChat);
@@ -473,6 +489,7 @@ function switchGenerativeTab(name) {
   els.generativeTabs.forEach((tab) => tab.classList.toggle("is-active", tab.dataset.generativeTab === target));
   els.generativePanels.forEach((panel) => panel.classList.toggle("is-active", panel.dataset.generativePanel === target));
   els.views.chat?.classList.toggle("is-specification", target === "specification");
+  els.chatClear?.classList.toggle("is-hidden", target !== "chat");
   if (target === "chat") renderChatTranscript();
 }
 
@@ -828,7 +845,7 @@ async function runUiAction(action, label = "busy") {
 }
 
 function runScriptFromToolbar() {
-  logLine("info", "upload requested");
+  logLine("debug", "upload requested");
   runUiAction(() => setScript({ run: true, save: true }), "uploading");
 }
 
@@ -892,7 +909,7 @@ async function autoConnectFromUrlParams() {
       const url = normalizeWebSocketUrl(value);
       els.websocketUrl.value = url;
       warnIfPlainWebSocketFromSecurePage(url);
-      await connectTransport(new WebSocketTransport(), { url }, "websocket", wsDisplayName(url), { lightStartup: true, includeScript: true });
+      await connectTransport(new WebSocketTransport(), { url }, "websocket", wsDisplayName(url), { lightStartup: true, includeScript: true, preserveUrl: true });
     } catch (error) {
       logLine("error", error.message);
     }
@@ -909,7 +926,7 @@ async function autoConnectFromUrlParams() {
       applyMqttParams(params);
       els.peerId.value = peerId;
       const historyConfig = mqttConfigFromStorageAndDevice();
-      await connectTransport(new MqttTransport({ ...mqttTransportOptions(historyConfig), connectTimeoutMs: 15000 }), { remoteId: peerId, mqttConfig: historyConfig }, "mqtt", peerId, { lightStartup: true, includeScript: true, startupTimeoutMs: 15000 });
+      await connectTransport(new MqttTransport({ ...mqttTransportOptions(historyConfig), connectTimeoutMs: 15000 }), { remoteId: peerId, mqttConfig: historyConfig }, "mqtt", peerId, { lightStartup: true, includeScript: true, startupTimeoutMs: 15000, preserveUrl: true });
     } catch (error) {
       logLine("error", error.message);
     }
@@ -924,7 +941,7 @@ async function autoConnectFromUrlParams() {
     }
     try {
       els.peerId.value = peerId;
-      await connectTransport(new MqttWebRtcTransport({ connectTimeoutMs: 90000 }), { remoteId: peerId }, "webrtc", peerId, { lightStartup: true, includeScript: true, startupTimeoutMs: 30000 });
+      await connectTransport(new MqttWebRtcTransport({ connectTimeoutMs: 90000 }), { remoteId: peerId }, "webrtc", peerId, { lightStartup: true, includeScript: true, startupTimeoutMs: 30000, preserveUrl: true });
     } catch (error) {
       logLine("error", error.message);
     }
@@ -943,7 +960,7 @@ async function autoConnectFromUrlParams() {
       return true;
     }
     try {
-      await connectTransport(new WebSerialTransport({ storageKey: storage.usbHint }), { pickPort: false }, "usb", "USB", { lightStartup: true, includeScript: true });
+      await connectTransport(new WebSerialTransport({ storageKey: storage.usbHint }), { pickPort: false }, "usb", "USB", { lightStartup: true, includeScript: true, preserveUrl: true });
       await refreshKnownUsbPorts();
     } catch (error) {
       logLine("error", error.message);
@@ -987,7 +1004,7 @@ async function autoReconnectLastConnection() {
   }
 }
 
-async function connectTransport(nextTransport, options, kind, label, { quiet = false, lightStartup = false, includeScript = true, startupTimeoutMs = 15000 } = {}) {
+async function connectTransport(nextTransport, options, kind, label, { quiet = false, lightStartup = false, includeScript = true, startupTimeoutMs = 15000, preserveUrl = false } = {}) {
   const generation = connectionGeneration + 1;
   connectionGeneration = generation;
   connectionVerified = false;
@@ -1010,10 +1027,8 @@ async function connectTransport(nextTransport, options, kind, label, { quiet = f
     if (!ok) throw new Error(`${label} device was not available`);
     closeConnectDialog();
     setConnected(true);
-    if (kind === "websocket" && options.url) updateConnectionUrlParams("websocket", options.url);
-    if (isMqttKind(kind) && options.remoteId) updateConnectionUrlParams("mqtt", "", null, options.remoteId);
-    if (isWebRtcKind(kind) && options.remoteId) updateConnectionUrlParams("webrtc", "", null, options.remoteId);
-    if (kind === "usb") updateConnectionUrlParams("usb", "", readUsbHint());
+    rememberActiveConnection(kind, options);
+    if (!preserveUrl) clearConnectionUrlParams();
     if (!quiet) logLine("info", isBinaryTransportKind(kind) ? `Connected to ${label}` : `${label} connected`);
 
     if (lightStartup) await settle(450);
@@ -1049,6 +1064,23 @@ async function connectTransport(nextTransport, options, kind, label, { quiet = f
   return false;
 }
 
+function rememberActiveConnection(kind, options = {}) {
+  localStorage.setItem(storage.lastConnection, kind);
+
+  if (kind === "websocket" && options.url) {
+    localStorage.setItem(storage.wsUrl, normalizeWebSocketUrl(options.url));
+  }
+
+  if ((isMqttKind(kind) || isWebRtcKind(kind)) && options.remoteId) {
+    localStorage.setItem(storage.peerId, normalizePeerId(options.remoteId));
+  }
+
+  if (kind === "usb") {
+    const hint = readUsbHint();
+    if (hint) localStorage.setItem(storage.usbHint, JSON.stringify(hint));
+  }
+}
+
 async function cancelConnectionAttempt() {
   connectionGeneration += 1;
   localStorage.setItem(storage.reconnectOnLoad, "0");
@@ -1082,7 +1114,6 @@ function rememberSuccessfulConnection(kind, label, options = {}) {
     localStorage.setItem(storage.wsName, label);
     rememberWebSocketHistory(url, label);
     els.websocketUrl.value = url;
-    updateConnectionUrlParams("websocket", url);
     renderConnectionHistory();
   }
 
@@ -1091,14 +1122,12 @@ function rememberSuccessfulConnection(kind, label, options = {}) {
     localStorage.setItem(storage.peerId, peerId);
     rememberPeerHistory(peerId, friendlyLabel || peerId, isMqttKind(kind) ? "mqtt" : "webrtc", options.mqttConfig);
     els.peerId.value = peerId;
-    updateConnectionUrlParams(isMqttKind(kind) ? "mqtt" : "webrtc", "", null, peerId);
     renderConnectionHistory();
   }
 
   if (kind === "usb") {
     const hint = readUsbHint();
     if (hint) rememberUsbHistory(hint);
-    updateConnectionUrlParams("usb", "", hint);
     refreshKnownUsbPorts();
     renderConnectionHistory();
   }
@@ -1575,18 +1604,22 @@ async function startupRefresh({ quiet = false, includeScript = true, timeoutMs =
   const statusOk = await bestEffortStartupStep(() => refreshStatus({ quiet, timeoutMs }), quiet);
   if (!client || stale()) return infoOk || statusOk;
   if (!infoOk && !statusOk) return false;
-  await bestEffortStartupStep(() => sendCommand("config.get", {}, { quiet, timeoutMs }).then(updateConfig), quiet);
+  await bestEffortStartupStep(() => syncDeviceEventLevel({ quiet, timeoutMs }), quiet);
   if (!client || stale()) return infoOk || statusOk;
-  await bestEffortStartupStep(async () => {
-    const data = await sendCommand("debug.get", {}, { quiet, timeoutMs });
-    if (data.levelName && !localStorage.getItem(storage.logLevel)) {
-      els.debugLevel.value = data.levelName;
-    }
-    await sendCommand("debug.set", { level: els.debugLevel.value }, { quiet, timeoutMs });
-  }, quiet);
+  await bestEffortStartupStep(() => sendCommand("config.get", {}, { quiet, timeoutMs }).then(updateConfig), quiet);
   if (!client || stale()) return infoOk || statusOk;
   if (includeScript) await bestEffortStartupStep(() => getScript({ quiet, timeoutMs }), quiet);
   return infoOk || statusOk;
+}
+
+async function syncDeviceEventLevel({ quiet = false, timeoutMs = 15000 } = {}) {
+  const data = await sendCommand("debug.get", {}, { quiet, timeoutMs });
+  const deviceLevel = data.levelName || data.level || "";
+  if (deviceLevel && !localStorage.getItem(storage.logLevel)) {
+    els.debugLevel.value = deviceLevel;
+  }
+  const requestedLevel = els.debugLevel.value || "info";
+  await sendCommand("debug.set", { level: requestedLevel }, { quiet, timeoutMs });
 }
 
 async function bestEffortStartupStep(action, quiet) {
@@ -1708,7 +1741,7 @@ async function uploadScriptCodeChunked(code, { run, save }) {
     ? chunkBytesForWebRtc(codeData, binaryChunkSize)
     : chunkScriptForWebRtc(code, textChunkSize);
   setUploadState("uploading", "Uploading code", 5);
-  logLine("info", `uploading script in ${chunks.length} chunks`);
+  logLine("debug", `uploading script in ${chunks.length} chunks`);
   await sendCommand("script.chunk.begin", {
     codeBytes,
     codeHash,
@@ -1736,11 +1769,11 @@ async function uploadScriptCodeChunked(code, { run, save }) {
   setUploadState("uploading", "Finalizing upload", 88);
   const response = await sendCommand("script.chunk.commit", {}, { timeoutMs: 10000 });
   if (response.state === "queued") {
-    logLine("info", "script upload received; queued on device");
+    logLine("debug", "script upload received; queued on device");
     setUploadState("queued", "Upload received", 90);
     updateScriptState({ state: "queued", scriptBytes: response.scriptBytes });
   } else {
-    logLine("info", "script upload complete");
+    logLine("debug", "script upload complete");
     setUploadState(run ? "running" : "saved", run ? "Running" : "Saved", 100, { autoClear: true });
   }
   return response;
@@ -1831,7 +1864,7 @@ async function projectSnapshotForDownload() {
       name: currentSketchName || autoProjectName(code),
       revisions: revision.code.trim() ? [revision] : [],
       activeRevisionId: revision.id,
-      chat: chatMessages,
+      chat: [],
     });
   }
   const snapshot = normalizeProjectRecord(project);
@@ -1841,9 +1874,10 @@ async function projectSnapshotForDownload() {
     revision.specification = currentProjectDescription;
     revision.specificationMode = currentProjectSpecificationMode;
     revision.circuit = projectCircuitForCurrentCode(code) || revision.circuit;
+    revision.chat = chatMessages.slice(-60);
     revision.bytes = new Blob([code]).size;
   }
-  snapshot.chat = chatMessages.slice(-60);
+  snapshot.chat = [];
   snapshot.updatedAt = new Date().toISOString();
   return snapshot;
 }
@@ -1883,6 +1917,43 @@ function normalizeProject(project, fallbackName = "") {
   });
 }
 
+function forkImportedProjectIfNeeded(project) {
+  const normalized = normalizeProjectRecord(project);
+  const collides = projectCache.some((item) => item.id === normalized.id);
+  if (!collides) return normalized;
+
+  let activeRevisionId = "";
+  const revisions = normalized.revisions.map((revision) => {
+    const forkedId = createRevisionId();
+    if (revision.id === normalized.activeRevisionId) activeRevisionId = forkedId;
+    return {
+      ...revision,
+      id: forkedId,
+      source: "import",
+    };
+  });
+
+  return normalizeProjectRecord({
+    ...normalized,
+    id: createProjectId(),
+    name: nextProjectImportName(normalized.name),
+    revisions,
+    activeRevisionId: activeRevisionId || revisions[0]?.id || "",
+  });
+}
+
+function nextProjectImportName(name = "") {
+  const root = revisionNameRoot(name) || normalizeProjectName(name) || "Imported Project";
+  let maxVersion = 1;
+  projectCache.forEach((project) => {
+    const parsed = splitRevisionNumber(project?.name || "");
+    if (parsed.root.toLowerCase() === root.toLowerCase()) {
+      maxVersion = Math.max(maxVersion, parsed.version);
+    }
+  });
+  return normalizeProjectName(`${root} ${maxVersion + 1}`);
+}
+
 function projectFromCode(code, name = "", circuit = null, description = "", specificationMode = currentProjectSpecificationMode) {
   return buildProject({ name, code, circuit, description, specificationMode });
 }
@@ -1907,12 +1978,14 @@ function autoProjectName(code) {
 
 function normalizeProjectRecord(project = {}) {
   const now = new Date().toISOString();
+  const projectChat = normalizeChatMessages(project.chat);
   const revisions = Array.isArray(project.revisions)
     ? project.revisions
       .map((revision) => normalizeRevisionRecord(revision))
       .filter((revision) => revision.code.trim() || revision.specification.trim())
     : [];
   const active = revisions.find((revision) => revision.id === project.activeRevisionId) || revisions[0] || null;
+  if (active && projectChat.length && !active.chat.length) active.chat = projectChat;
   return {
     type: "p1e-project",
     version: 2,
@@ -1921,13 +1994,17 @@ function normalizeProjectRecord(project = {}) {
     createdAt: String(project.createdAt || now),
     updatedAt: String(project.updatedAt || now),
     activeRevisionId: active?.id || "",
-    chat: Array.isArray(project.chat)
-      ? project.chat
-        .filter((item) => ["user", "assistant", "error"].includes(item?.role) && typeof item?.content === "string")
-        .slice(-60)
-      : [],
+    chat: [],
     revisions,
   };
+}
+
+function normalizeChatMessages(messages) {
+  return Array.isArray(messages)
+    ? messages
+      .filter((item) => ["user", "assistant", "error"].includes(item?.role) && typeof item?.content === "string")
+      .slice(-60)
+    : [];
 }
 
 function normalizeRevisionRecord(revision = {}) {
@@ -1942,6 +2019,7 @@ function normalizeRevisionRecord(revision = {}) {
     specification,
     specificationMode: normalizeSpecificationMode(revision.specificationMode || revision.descriptionMode || "middle"),
     circuit,
+    chat: normalizeChatMessages(revision.chat),
     source: String(revision.source || "manual"),
     createdAt: String(revision.createdAt || revision.at || new Date().toISOString()),
     bytes: Number(revision.bytes) || new Blob([code]).size,
@@ -1955,6 +2033,7 @@ function buildRevision({
   specification = currentProjectDescription,
   specificationMode = currentProjectSpecificationMode,
   circuit = undefined,
+  chat = chatMessages,
   source = "manual",
   createdAt = "",
 } = {}) {
@@ -1966,6 +2045,7 @@ function buildRevision({
     specification,
     specificationMode,
     circuit: circuit === undefined ? projectCircuitForCurrentCode(text) : circuit,
+    chat,
     source,
     createdAt,
   });
@@ -2021,7 +2101,7 @@ async function ensureProjectForWrite({ code = "", nameHint = "" } = {}) {
     name: normalizeProjectName(nameHint) || normalizeProjectName(configuredName) || autoProjectName(code),
     revisions: [],
     activeRevisionId: "",
-    chat: chatMessages,
+    chat: [],
   });
   currentProjectId = project.id;
   localStorage.setItem(storage.projectId, project.id);
@@ -2339,7 +2419,7 @@ async function openProjectRevision(project, revision, { saveCurrent = true } = {
   currentRevisionId = revision.id;
   localStorage.setItem(storage.projectId, project.id);
   project.activeRevisionId = revision.id;
-  chatMessages = Array.isArray(project.chat) ? project.chat.slice(-60) : [];
+  chatMessages = normalizeChatMessages(revision.chat);
   circuitChatLayout = normalizeCircuitLayout(revision.circuit);
   setEditorValueRaw(revision.code || "", { persist: true });
   setCurrentSketchIdentity(revision.name || "", revision.code || "", project, revision);
@@ -2355,7 +2435,15 @@ async function createNewSketch() {
   await shelveEditorSketchIfNeeded();
   const name = normalizeProjectName(requested) || autoProjectName("");
   const code = newSketchTemplate();
-  const revision = buildRevision({ code, name: "Initial revision", source: "new" });
+  const revision = buildRevision({
+    code,
+    name: "Initial revision",
+    specification: "",
+    specificationMode: "middle",
+    circuit: null,
+    chat: [],
+    source: "new",
+  });
   const project = normalizeProjectRecord({
     id: createProjectId(),
     name,
@@ -2624,7 +2712,7 @@ function parseDroppedProject(text, file = null) {
   try {
     const parsed = JSON.parse(String(text || ""));
     const project = normalizeProject(parsed, fallbackName);
-    if (project) return project;
+    if (project) return forkImportedProjectIfNeeded(project);
   } catch {
   }
   return projectFromCode(String(text || ""), fallbackName);
@@ -3020,6 +3108,8 @@ function acceptEvent(event) {
 
 function eventLogLevel(name = "", data = {}) {
   if (name?.startsWith("ui.")) return "debug";
+  if (data.consoleLevel) return data.consoleLevel;
+  if (data.level === "system") return "debug";
   if (data.level) return data.level;
   if (name?.includes("error")) return "error";
   if (name === "script.upload") {
@@ -3444,7 +3534,6 @@ function renderFields() {
   const peerId = client ? activePeerId(webrtc, mqtt) : "";
   const shareTarget = bestInfoShareTarget({ web, webrtc, mqtt });
   const shareUrl = shareTarget ? sharePageUrl(shareTarget.kind, shareTarget.wsUrl, shareTarget.usbHint, shareTarget.peerId) : "";
-  syncConnectedShareParams();
   if (els.brandVersion) {
     els.brandVersion.textContent = lastInfo?.firmwareVersion || "0.1.87";
   }
@@ -3659,30 +3748,6 @@ function activePeerId(webrtc = {}, mqtt = {}) {
   return "";
 }
 
-function syncConnectedShareParams() {
-  if (!client || !window.history?.replaceState) return;
-  const target = bestInfoShareTarget({
-    web: lastStatus?.web || {},
-    webrtc: lastStatus?.webrtc || {},
-    mqtt: lastStatus?.mqtt || {},
-  });
-  if (target) {
-    updateConnectionUrlParams(target.kind, target.wsUrl, target.usbHint, target.peerId);
-    return;
-  }
-  if (transport?.kind === "websocket" && transport?.url) {
-    updateConnectionUrlParams("websocket", transport.url);
-    return;
-  }
-  if ((isMqttKind(transport?.kind) || isWebRtcKind(transport?.kind)) && transport?.remoteId) {
-    updateConnectionUrlParams(isMqttKind(transport?.kind) ? "mqtt" : "webrtc", "", null, transport.remoteId);
-    return;
-  }
-  if (transport?.kind === "usb") {
-    updateConnectionUrlParams("usb", "", readUsbHint());
-  }
-}
-
 function formatDuration(ms) {
   const totalSeconds = Math.floor(Number(ms) / 1000);
   if (!Number.isFinite(totalSeconds) || totalSeconds < 0) return "";
@@ -3823,10 +3888,12 @@ function memoryStatusLabel() {
 }
 
 function initChat() {
-  els.chatModel.replaceChildren(...chatModelOptions.map((model) => new Option(model, model)));
+  renderChatModelOptions();
   const savedModel = localStorage.getItem(storage.chatModel);
-  els.chatModel.value = chatModelOptions.includes(savedModel) ? savedModel : defaultChatModel;
-  if (!els.chatModel.value) els.chatModel.value = chatModelOptions[0] || "";
+  const options = chatModelOptions();
+  els.chatModel.value = options.includes(savedModel) ? savedModel : defaultChatModel;
+  if (!els.chatModel.value) els.chatModel.value = options[0] || "";
+  els.chatMaxOutputTokens.value = String(chatMaxOutputTokens());
   currentProjectDescription = localStorage.getItem(storage.specificationDraft) || "";
   currentProjectSpecificationMode = normalizeSpecificationMode(localStorage.getItem(storage.specificationMode) || "middle");
   els.specification.value = currentProjectDescription;
@@ -3836,6 +3903,78 @@ function initChat() {
   updateChatKeyButton();
   updateChatDebugPromptButton();
   updateChatEnabledState();
+}
+
+function chatModelOptions() {
+  try {
+    const stored = JSON.parse(localStorage.getItem(storage.chatModelList) || "[]");
+    if (Array.isArray(stored)) {
+      const cleaned = cleanChatModelList(stored);
+      if (cleaned.length) return cleaned;
+    }
+  } catch {
+  }
+  return builtInChatModelOptions.slice();
+}
+
+function renderChatModelOptions() {
+  const current = els.chatModel?.value || localStorage.getItem(storage.chatModel) || defaultChatModel;
+  const options = chatModelOptions();
+  els.chatModel.replaceChildren(...options.map((model) => new Option(model, model)));
+  if (options.includes(current)) els.chatModel.value = current;
+}
+
+function cleanChatModelList(models = []) {
+  const ids = [...new Set(models.map((model) => String(model?.id || model || "").trim()).filter(Boolean))]
+    .filter(isSupportedChatModelId)
+    .sort(compareChatModelIds);
+  return ids.length ? ids : [];
+}
+
+function isSupportedChatModelId(id = "") {
+  if (/\d{4}-\d{2}-\d{2}/.test(id)) return false;
+  return /^gpt-(?:5(?:\.\d+)?(?:-(?:mini|nano|pro))?|4\.1(?:-(?:mini|nano))?)$/i.test(id);
+}
+
+function compareChatModelIds(a, b) {
+  const score = (id) => {
+    const version = id.match(/^gpt-(\d+(?:\.\d+)?)/i)?.[1] || "0";
+    const [major, minor = "0"] = version.split(".").map(Number);
+    const size = id.includes("-nano") ? 0 : id.includes("-mini") ? 1 : id.includes("-pro") ? 3 : 2;
+    return major * 10000 + minor * 100 + size;
+  };
+  return score(b) - score(a) || a.localeCompare(b);
+}
+
+async function refreshChatModels() {
+  const apiKey = localStorage.getItem(storage.chatApiKey) || "";
+  if (!apiKey) {
+    logLine("warn", "store an OpenAI API key before refreshing models");
+    updateChatEnabledState();
+    return;
+  }
+  const response = await fetch("https://api.openai.com/v1/models", {
+    headers: { Authorization: `Bearer ${apiKey}` },
+  });
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok || data.error) {
+    throw new Error(data.error?.message || `Model refresh failed (${response.status})`);
+  }
+  const models = cleanChatModelList(data.data || []);
+  if (!models.length) throw new Error("No compatible GPT models found");
+  localStorage.setItem(storage.chatModelList, JSON.stringify(models));
+  renderChatModelOptions();
+  if (!models.includes(els.chatModel.value)) {
+    els.chatModel.value = models.includes(defaultChatModel) ? defaultChatModel : models[0];
+    localStorage.setItem(storage.chatModel, els.chatModel.value);
+  }
+  logLine("info", `model list refreshed / ${models.length} models`);
+}
+
+function chatMaxOutputTokens() {
+  const raw = Number(els.chatMaxOutputTokens?.value || localStorage.getItem(storage.chatMaxOutputTokens));
+  if (!Number.isFinite(raw) || raw <= 0) return CHAT_DEFAULT_MAX_OUTPUT_TOKENS;
+  return Math.max(CHAT_MIN_MAX_OUTPUT_TOKENS, Math.min(CHAT_HARD_MAX_OUTPUT_TOKENS, Math.round(raw)));
 }
 
 function handleSpecificationInput() {
@@ -3889,7 +4028,8 @@ function specificationModePrompt(mode = "middle") {
 function readChatHistory() {
   const project = projectCache.find((item) => item.id === currentProjectId)
     || projectCache.find((item) => item.id === localStorage.getItem(storage.projectId));
-  if (project?.chat?.length) return project.chat.slice(-60);
+  const revision = activeRevision(project);
+  if (revision?.chat?.length) return normalizeChatMessages(revision.chat);
   try {
     const parsed = JSON.parse(localStorage.getItem(storage.chatHistory) || "[]");
     if (!Array.isArray(parsed)) return [];
@@ -3904,7 +4044,9 @@ function readChatHistory() {
 function saveChatHistory() {
   const project = projectCache.find((item) => item.id === currentProjectId);
   if (project) {
-    project.chat = chatMessages.slice(-60);
+    const revision = project.revisions.find((item) => item.id === currentRevisionId) || activeRevision(project);
+    if (revision) revision.chat = chatMessages.slice(-60);
+    project.chat = [];
     void saveProject(project);
     return;
   }
@@ -3915,6 +4057,8 @@ function clearChat() {
   chatMessages = [];
   const project = projectCache.find((item) => item.id === currentProjectId);
   if (project) {
+    const revision = project.revisions.find((item) => item.id === currentRevisionId) || activeRevision(project);
+    if (revision) revision.chat = [];
     project.chat = [];
     void saveProject(project);
   } else {
@@ -4119,6 +4263,7 @@ function toggleChatDebugPrompt() {
 
 function updateChatDebugPromptButton() {
   const enabled = chatDebugPromptEnabled();
+  if (!els.chatDebugPrompt) return;
   els.chatDebugPrompt.classList.toggle("is-active", enabled);
   els.chatDebugPrompt.title = enabled ? "Download prompt debug: on" : "Download prompt debug: off";
   els.chatDebugPrompt.setAttribute("aria-label", els.chatDebugPrompt.title);
@@ -4126,9 +4271,10 @@ function updateChatDebugPromptButton() {
 
 function updateChatKeyButton() {
   const hasKey = hasChatApiKey();
-  els.chatApiKey.title = hasKey ? "Clear API key" : "Set API key";
+  if (!els.chatApiKey) return;
+  els.chatApiKey.title = hasKey ? "Clear API key" : "No API key stored";
   els.chatApiKey.setAttribute("aria-label", els.chatApiKey.title);
-  els.chatApiKey.querySelector(".material-symbols-rounded").textContent = hasKey ? "key_off" : "key";
+  els.chatApiKey.textContent = hasKey ? "Clear key" : "No key";
 }
 
 function updateChatEnabledState() {
@@ -4137,9 +4283,13 @@ function updateChatEnabledState() {
   els.chatInput.disabled = !hasKey || chatBusy;
   els.chatSend.disabled = !hasKey || chatBusy || !els.chatInput.value.trim();
   els.specificationGenerate.disabled = !hasKey || chatBusy || !els.specification.value.trim();
-  els.chatModel.disabled = chatBusy;
-  els.chatApiKey.disabled = chatBusy;
-  els.chatDebugPrompt.disabled = chatBusy;
+  if (els.chatModel) els.chatModel.disabled = chatBusy;
+  if (els.chatModelsRefresh) els.chatModelsRefresh.disabled = chatBusy || !hasKey;
+  if (els.chatMaxOutputTokens) els.chatMaxOutputTokens.disabled = chatBusy;
+  if (els.chatApiKey) els.chatApiKey.disabled = chatBusy || !hasKey;
+  if (els.chatApiKeySave) els.chatApiKeySave.disabled = chatBusy;
+  if (els.chatKeyShare) els.chatKeyShare.disabled = chatBusy || !hasKey || !cryptoAvailable();
+  if (els.chatDebugPrompt) els.chatDebugPrompt.disabled = chatBusy;
   els.chatClear.disabled = chatBusy || chatMessages.length === 0;
 }
 
@@ -4153,21 +4303,127 @@ function toggleChatApiKey() {
     return;
   }
 
-  els.chatApiKeyInput.value = "";
-  els.chatApiKeyDialog.showModal();
-  els.chatApiKeyInput.focus();
+  els.chatApiKeyInput?.focus();
 }
 
 function saveChatApiKey() {
   const apiKey = els.chatApiKeyInput.value.trim();
   if (!apiKey) return;
+  if (isEncryptedChatKeyShare(apiKey)) {
+    void importEncryptedChatKeyShare(apiKey).catch((error) => logLine("error", error.message || "encrypted key import failed"));
+    return;
+  }
   localStorage.setItem(storage.chatApiKey, apiKey);
   els.chatApiKeyInput.value = "";
-  if (els.chatApiKeyDialog.open) els.chatApiKeyDialog.close();
   updateChatKeyButton();
   updateChatEnabledState();
   renderChatTranscript();
   logLine("info", "OpenAI API key stored in this browser");
+}
+
+function cryptoAvailable() {
+  return Boolean(globalThis.crypto?.subtle && globalThis.crypto?.getRandomValues);
+}
+
+function isEncryptedChatKeyShare(text = "") {
+  return String(text || "").trim().startsWith("p1e-key:v1:");
+}
+
+async function createEncryptedChatKeyShare() {
+  if (!cryptoAvailable()) throw new Error("WebCrypto is not available");
+  const apiKey = localStorage.getItem(storage.chatApiKey) || "";
+  if (!apiKey) throw new Error("No API key stored");
+  const password = els.chatKeySharePassword.value;
+  if (!password) throw new Error("Enter a share password");
+  const days = Math.max(1, Math.min(365, Math.round(Number(els.chatKeyShareDays.value) || 7)));
+  els.chatKeyShareDays.value = String(days);
+
+  const salt = crypto.getRandomValues(new Uint8Array(16));
+  const iv = crypto.getRandomValues(new Uint8Array(12));
+  const key = await deriveChatKeyShareCryptoKey(password, salt);
+  const payload = {
+    apiKey,
+    exp: Date.now() + days * 24 * 60 * 60 * 1000,
+  };
+  const encoded = new TextEncoder().encode(JSON.stringify(payload));
+  const cipher = new Uint8Array(await crypto.subtle.encrypt({ name: "AES-GCM", iv }, key, encoded));
+  const share = {
+    v: 1,
+    alg: "PBKDF2-SHA256+A256GCM",
+    iter: 150000,
+    salt: base64UrlEncode(salt),
+    iv: base64UrlEncode(iv),
+    ct: base64UrlEncode(cipher),
+  };
+  const token = `p1e-key:v1:${base64UrlEncode(new TextEncoder().encode(JSON.stringify(share)))}`;
+  els.chatKeyShareOutput.value = token;
+  await navigator.clipboard?.writeText?.(token).catch(() => {});
+  logLine("info", `encrypted API key share created / ${days} days`);
+}
+
+async function importEncryptedChatKeyShare(token) {
+  if (!cryptoAvailable()) throw new Error("WebCrypto is not available");
+  const password = window.prompt("Password for encrypted API key");
+  if (!password) return;
+  const share = parseEncryptedChatKeyShare(token);
+  const salt = base64UrlDecode(share.salt);
+  const iv = base64UrlDecode(share.iv);
+  const cipher = base64UrlDecode(share.ct);
+  const key = await deriveChatKeyShareCryptoKey(password, salt, Number(share.iter) || 150000);
+  let decrypted;
+  try {
+    decrypted = await crypto.subtle.decrypt({ name: "AES-GCM", iv }, key, cipher);
+  } catch {
+    throw new Error("Encrypted key password did not work");
+  }
+  const payload = JSON.parse(new TextDecoder().decode(decrypted));
+  if (!payload?.apiKey || typeof payload.apiKey !== "string") throw new Error("Encrypted key payload is invalid");
+  if (Number(payload.exp) && Date.now() > Number(payload.exp)) throw new Error("Encrypted key share has expired");
+  localStorage.setItem(storage.chatApiKey, payload.apiKey);
+  els.chatApiKeyInput.value = "";
+  updateChatKeyButton();
+  updateChatEnabledState();
+  renderChatTranscript();
+  logLine("info", "encrypted OpenAI API key imported");
+}
+
+function parseEncryptedChatKeyShare(token) {
+  const raw = String(token || "").trim();
+  if (!isEncryptedChatKeyShare(raw)) throw new Error("Not a P1E encrypted key share");
+  const json = new TextDecoder().decode(base64UrlDecode(raw.slice("p1e-key:v1:".length)));
+  const share = JSON.parse(json);
+  if (!share || share.v !== 1 || !share.salt || !share.iv || !share.ct) {
+    throw new Error("Encrypted key share is invalid");
+  }
+  return share;
+}
+
+async function deriveChatKeyShareCryptoKey(password, salt, iterations = 150000) {
+  const material = await crypto.subtle.importKey(
+    "raw",
+    new TextEncoder().encode(password),
+    "PBKDF2",
+    false,
+    ["deriveKey"],
+  );
+  return crypto.subtle.deriveKey(
+    { name: "PBKDF2", salt, iterations, hash: "SHA-256" },
+    material,
+    { name: "AES-GCM", length: 256 },
+    false,
+    ["encrypt", "decrypt"],
+  );
+}
+
+function base64UrlEncode(bytes) {
+  const chars = Array.from(bytes, (byte) => String.fromCharCode(byte)).join("");
+  return btoa(chars).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "");
+}
+
+function base64UrlDecode(text) {
+  const normalized = String(text || "").replace(/-/g, "+").replace(/_/g, "/");
+  const padded = normalized.padEnd(Math.ceil(normalized.length / 4) * 4, "=");
+  return Uint8Array.from(atob(padded), (char) => char.charCodeAt(0));
 }
 
 function renderChatTranscript() {
@@ -4378,7 +4634,7 @@ async function generateCodeFromSpecification() {
       specificationMode: currentProjectSpecificationMode,
     });
     if (result.project_specification) setProjectSpecification(result.project_specification, result.specification_mode);
-    if (result.code_action === "replace" && result.code.trim()) {
+    if (result.code.trim()) {
       const name = result.sketch_name || "";
       await replaceEditorFromChat(
         result.code,
@@ -4394,6 +4650,8 @@ async function generateCodeFromSpecification() {
       } else {
         logLine("info", "generated code ready; connect to deploy");
       }
+    } else {
+      logLine("warn", "specification generate returned no code");
     }
     chatMessages.push({
       role: "assistant",
@@ -4415,9 +4673,13 @@ async function generateCodeFromSpecification() {
 
 function buildSpecificationGeneratePrompt(specification) {
   return [
+    "Specification Generate mode.",
+    "Update the current code to match the specification.",
     "Generate a complete P1E Wrench script from the project specification below.",
-    "Use the existing editor code as a foundation if it helps, but the specification is the source of intent.",
-    "Also return an updated project_specification that accurately describes the generated code.",
+    "The specification is the source of truth. Existing editor code is only a starting point or reusable material.",
+    "If the existing code conflicts with the specification, change the code to match the specification.",
+    "Return code_action=\"replace\" and provide complete replacement code.",
+    "Also return an updated project_specification that preserves the user's intent and accurately describes the generated code.",
     "",
     `Specification mode: ${specificationModeLabel(currentProjectSpecificationMode)}`,
     "",
@@ -4430,7 +4692,20 @@ async function requestChatCompletion(prompt, options = {}) {
   const apiKey = localStorage.getItem(storage.chatApiKey) || "";
   const model = els.chatModel.value || defaultChatModel;
   const context = await getWrenchChatContext();
-  const conversation = chatMessages.slice(-chatHistoryLimit).map((message) => ({
+  const purpose = options.purpose || "chat";
+  const activeProject = projectCache.find((item) => item.id === currentProjectId) || null;
+  const activeProjectRevision = activeRevision(activeProject);
+  const currentRevisionName = normalizeSketchName(currentSketchName || activeProjectRevision?.name || "");
+  const namingContext = {
+    projectName: normalizeProjectName(activeProject?.name || ""),
+    currentRevisionName,
+    suggestedSmallIterationName: currentRevisionName
+      ? nextNamedRevisionName(activeProject, currentRevisionName)
+      : nextRevisionName(activeProject),
+    maxNameChars: 32,
+    rule: "Small iterations keep the current base name and increment the trailing number. Larger reframings may use a new short descriptive name.",
+  };
+  const conversation = purpose === "specification" ? [] : chatMessages.slice(-chatHistoryLimit).map((message) => ({
     role: message.role,
     content: message.content,
     code: message.structured?.code ? "[code omitted from transcript; current code is provided separately]" : undefined,
@@ -4443,16 +4718,28 @@ async function requestChatCompletion(prompt, options = {}) {
     deviceStatus: lastStatus || {},
     projectSpecification: options.specification ?? currentProjectDescription,
     specificationMode: normalizeSpecificationMode(options.specificationMode || currentProjectSpecificationMode),
-    purpose: options.purpose || "chat",
+    naming: namingContext,
+    purpose,
     conversation,
   };
   const instructions = buildChatInstructions(context);
   const userInputText = [
+    buildInteractionPriorityInstructions(payloadContext.purpose),
+    [
+      "Current project naming:",
+      `Project: ${namingContext.projectName || "(untitled project)"}`,
+      `Current revision: ${namingContext.currentRevisionName || "(unnamed revision)"}`,
+      `Suggested name for a small iteration: ${namingContext.suggestedSmallIterationName}`,
+      `Maximum sketch_name length: ${namingContext.maxNameChars} characters`,
+    ].join("\n"),
     `User request:\n${prompt}`,
     `Current project specification mode:\n${specificationModeLabel(payloadContext.specificationMode)}\n${specificationModePrompt(payloadContext.specificationMode)}`,
     `Current project specification:\n${payloadContext.projectSpecification || "(empty)"}`,
+    payloadContext.purpose === "specification"
+      ? `Current code to revise. Keep useful structure, names, pins, and working behavior only when they do not conflict with the specification:\n${payloadContext.currentCode || "(empty)"}`
+      : "",
     `P1E context JSON:\n${JSON.stringify(payloadContext)}`,
-  ].join("\n\n");
+  ].filter(Boolean).join("\n\n");
 
   const body = {
     model,
@@ -4468,7 +4755,7 @@ async function requestChatCompletion(prompt, options = {}) {
         ],
       },
     ],
-    max_output_tokens: CHAT_MAX_OUTPUT_TOKENS,
+    max_output_tokens: chatMaxOutputTokens(),
     text: {
       format: {
         type: "json_schema",
@@ -4500,6 +4787,31 @@ async function requestChatCompletion(prompt, options = {}) {
   return parseChatStructuredText(text);
 }
 
+function buildInteractionPriorityInstructions(purpose = "chat") {
+  if (purpose === "specification") {
+    return [
+      "Interaction mode: Specification Generate.",
+      "Main task: update the current code to match the specification.",
+      "Priority order:",
+      "1. The current project specification is the dominant source of truth.",
+      "2. Current editor code is the implementation base to revise, not an equal source of intent.",
+      "3. Preserve useful existing code structure, names, pins, and stable behavior only when it does not conflict with the specification.",
+      "4. If current code conflicts with the specification, change the code to satisfy the specification.",
+      "5. Ignore previous chat for intent; it is not included as authority in this mode.",
+      "Output requirement: return code_action=\"replace\" with complete code unless the specification is impossible to implement.",
+      "The returned project_specification should refine and clarify the specification, not silently change its intent to match old code.",
+    ].join("\n");
+  }
+  return [
+    "Interaction mode: Chat.",
+    "Priority order:",
+    "1. The newest user request is the dominant instruction.",
+    "2. Current editor code and current specification are context to edit from.",
+    "3. If the user asks for a code change, adjust the code to follow the chat request and update project_specification to match the resulting code.",
+    "4. If the user asks only a question, use code_action=\"none\" and keep project_specification unchanged unless an explicit clarification is useful.",
+  ].join("\n");
+}
+
 async function getWrenchChatContext() {
   if (wrenchChatContext) return wrenchChatContext;
   try {
@@ -4515,12 +4827,15 @@ function buildChatInstructions(context) {
   return [
     "You are the P1E Wrench coding assistant inside a browser tool for an ESP32 classic firmware.",
     "Return only JSON matching the requested schema.",
+    "Respect the interaction-mode priority rules in the user input. They define whether chat request or project specification is the source of truth.",
     "When producing code, provide a complete Wrench script that can replace the editor contents.",
     "Every generated sketch must start with a short // comment explaining what the sketch does.",
-    "When producing code, also provide sketch_name: a short 2-5 word title suitable for a project revision.",
+    "When producing code, also provide sketch_name: a short project revision title, 2-5 words and at most 32 characters.",
+    "Naming rule: for small iterations, keep the current revision base name and increment its trailing number, such as LED Chase -> LED Chase 2 -> LED Chase 3. For larger reframings, choose a new short descriptive name. Do not invent a random unrelated name when the current name still describes the work. Avoid dates, New Sketch, generic Revision names, and decorative punctuation.",
     "When producing or changing code, also provide project_specification: an updated project specification that matches the resulting code and follows the requested specification_mode.",
     "Specification modes: overview means high-level human description; middle means important implementation details without pseudocode; structured means sections like Program, Global values, Setup, and Main loop in plain text.",
     "Also provide circuit_layout: a best-effort JSON layout for the Circuit view with components, connections, assumptions, and notes. Use an empty object if no hardware is involved.",
+    "GPIO rule: pinMode uses firmware constants such as INPUT, OUTPUT, INPUT_PULLUP, and INPUT_PULLDOWN when available. Write pinMode(powerPin, OUTPUT), never pinMode(powerPin, \"OUTPUT\"). digitalWrite should use HIGH/LOW if available or 1/0, never string values.",
     "Declare scratch variables at the top of each function and assign them inside while/if blocks. Avoid new var declarations inside tight loops or nested blocks, especially LED render loops.",
     "When the user asks for a live interface, dashboard, or controls, use the documented firmware-driven UI bindings in a Guino-style lifecycle: declare the interface in a drawUi() function from setup() and on hello, read slider/toggle state with uiGet(), use while (uiPoll()) plus uiEventIs(type, id) for buttons and hello redraw events, update ordinary values with uiUpdate(), and stream every graph/sample with uiPush(). Do not call uiBegin() after every control change.",
     "Prefer setup() and loop(). Keep loop non-blocking where reasonable. Use short delay() only when it is intentional.",

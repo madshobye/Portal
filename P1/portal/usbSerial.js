@@ -15,6 +15,7 @@ class PortalUsbSerial {
     reconnectDelayMs = 1200,
     lineEnding = "\n",
     storageKey = "portal.usbSerial.deviceHint",
+    releaseBootSignalsOnOpen = false,
     onState = null,
     onConnect = null,
     onDisconnect = null,
@@ -34,6 +35,7 @@ class PortalUsbSerial {
     this.reconnectDelayMs = Math.max(200, Number(reconnectDelayMs) || 1200);
     this.lineEnding = typeof lineEnding === "string" ? lineEnding : "\n";
     this.storageKey = storageKey || "portal.usbSerial.deviceHint";
+    this.releaseBootSignalsOnOpen = !!releaseBootSignalsOnOpen;
 
     this._onState = typeof onState === "function" ? onState : null;
     this._onConnect = typeof onConnect === "function" ? onConnect : null;
@@ -185,6 +187,9 @@ class PortalUsbSerial {
         flowControl: this.flowControl,
         bufferSize: this.bufferSize,
       });
+      if (this.releaseBootSignalsOnOpen) {
+        await this._releaseBootSignals();
+      }
 
       this.writer = this.port.writable?.getWriter?.() || null;
       if (!this.writer) throw new Error("PortalUsbSerial: failed to acquire serial writer");
@@ -290,6 +295,15 @@ class PortalUsbSerial {
       }
     } catch {}
     this.port = null;
+  }
+
+  async _releaseBootSignals() {
+    try {
+      await this.port?.setSignals?.({
+        dataTerminalReady: false,
+        requestToSend: false,
+      });
+    } catch {}
   }
 
   async _startReadLoop() {

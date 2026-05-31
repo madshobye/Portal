@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>P1E</title>
     <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@24,400,0,0">
-    <link rel="stylesheet" href="style.css?v=0.1.87-ui212">
+    <link rel="stylesheet" href="style.css?v=0.1.87-ui241">
   </head>
   <body>
     <main id="app">
@@ -122,9 +122,6 @@
             <span id="chat-upload-status-label">Uploading</span>
             <progress id="chat-upload-status-progress" value="0" max="100"></progress>
           </div>
-          <button id="chat-api-key-button" class="button icon-buttonish" type="button" title="Set API key" aria-label="Set API key"><span class="material-symbols-rounded">key</span></button>
-          <select id="chat-model" class="compact-select chat-model" title="Model" aria-label="Model"></select>
-          <button id="chat-debug-prompt-button" class="button icon-buttonish" type="button" title="Download prompt debug: off" aria-label="Download prompt debug: off"><span class="material-symbols-rounded">bug_report</span></button>
           <button id="chat-clear-button" class="button icon-buttonish" type="button" title="Clear chat" aria-label="Clear chat"><span class="material-symbols-rounded">cancel</span></button>
         </header>
         <section class="chat-shell generative-panel is-active" data-generative-panel="chat">
@@ -137,11 +134,6 @@
         <section class="spec-shell generative-panel" data-generative-panel="specification">
           <textarea id="project-specification" class="spec-editor" spellcheck="true" autocomplete="off" placeholder="Describe what this project should do, what hardware it uses, and how it should behave."></textarea>
           <footer class="spec-actions">
-            <select id="spec-mode" class="compact-select spec-mode" title="Specification detail" aria-label="Specification detail">
-              <option value="overview">Overview</option>
-              <option value="middle" selected>Detailed</option>
-              <option value="structured">Structured</option>
-            </select>
             <button id="spec-generate-button" class="button primary icon-buttonish" type="button" disabled title="Generate code from specification" aria-label="Generate code from specification">
               <span>Generate</span>
               <span class="material-symbols-rounded">auto_awesome</span>
@@ -265,6 +257,7 @@
           <button class="settings-tab" type="button" data-settings-tab="wifi">WiFi</button>
           <button class="settings-tab" type="button" data-settings-tab="mqtt">MQTT</button>
           <button class="settings-tab" type="button" data-settings-tab="users">Users</button>
+          <button class="settings-tab" type="button" data-settings-tab="generative">Generative</button>
         </nav>
         <section class="settings-panel is-active" data-settings-panel="general">
           <div class="settings-section">
@@ -285,7 +278,7 @@
               <span>Password</span>
               <input id="wifi-password" type="password" autocomplete="new-password">
             </label>
-            <button id="wifi-save-button" class="button primary icon-buttonish" type="button" title="Apply WiFi settings" aria-label="Apply WiFi settings"><span class="material-symbols-rounded">wifi_protected_setup</span></button>
+            <button id="wifi-save-button" class="button primary icon-buttonish" type="button" title="Add WiFi settings" aria-label="Add WiFi settings"><span class="material-symbols-rounded">add</span></button>
           </div>
           <div class="settings-saved">
             <div class="settings-subhead">Saved WiFi</div>
@@ -324,7 +317,7 @@
           </div>
         </section>
         <section class="settings-panel" data-settings-panel="users">
-          <div class="settings-toggle-grid settings-toggle-row">
+          <div class="settings-toggle-grid settings-toggle-row settings-users-access-row">
             <label class="field compact-check">
               <span>Guest UI</span>
               <input id="access-guest-ui" type="checkbox">
@@ -333,11 +326,11 @@
               <span>Guest script</span>
               <input id="access-guest-script" type="checkbox">
             </label>
+            <button id="access-save-button" class="button primary settings-save-button" type="button" title="Save access settings" aria-label="Save access settings">Save</button>
           </div>
-          <button id="access-save-button" class="button primary settings-save-button" type="button" title="Save access settings" aria-label="Save access settings">Save</button>
           <div class="settings-subhead">Online sign-in users</div>
           <div id="online-auth-list" class="wifi-network-list"></div>
-          <div class="settings-mqtt-grid">
+          <div class="settings-mqtt-grid settings-user-add-grid">
             <label class="field">
               <span>Username</span>
               <input id="online-auth-username" type="text" autocomplete="username" spellcheck="false">
@@ -347,6 +340,54 @@
               <input id="online-auth-password" type="password" autocomplete="new-password">
             </label>
             <button id="online-auth-add-button" class="button primary icon-buttonish" type="button" title="Add online user" aria-label="Add online user"><span class="material-symbols-rounded">person_add</span></button>
+          </div>
+        </section>
+        <section class="settings-panel" data-settings-panel="generative">
+          <div class="settings-mqtt-grid settings-generative-grid">
+            <label class="field">
+              <span>Model</span>
+              <select id="chat-model" class="compact-select chat-model" title="Model" aria-label="Model"></select>
+            </label>
+            <button id="chat-models-refresh-button" class="button settings-save-button" type="button" title="Retrieve latest models" aria-label="Retrieve latest models">Refresh models</button>
+            <label class="field">
+              <span>Max output tokens</span>
+              <input id="chat-max-output-tokens" type="number" min="1024" max="32000" step="1" inputmode="numeric">
+            </label>
+            <label class="field">
+              <span>OpenAI API key</span>
+              <input id="chat-api-key-input" type="password" autocomplete="off" spellcheck="false" placeholder="stored in this browser">
+            </label>
+            <div class="settings-inline-actions">
+              <button id="chat-api-key-save-button" class="button primary settings-save-button" type="button" title="Store API key" aria-label="Store API key">Save</button>
+              <button id="chat-api-key-button" class="button settings-save-button" type="button" title="Clear API key" aria-label="Clear API key">Clear</button>
+            </div>
+          </div>
+          <div class="settings-section">
+            <label class="field">
+              <span>Specification detail</span>
+              <select id="spec-mode" class="compact-select spec-mode" title="Specification detail" aria-label="Specification detail">
+                <option value="overview">Overview</option>
+                <option value="middle" selected>Detailed</option>
+                <option value="structured">Structured</option>
+              </select>
+            </label>
+          </div>
+          <div class="settings-subhead">Share encrypted key</div>
+          <div class="settings-mqtt-grid settings-key-share-grid">
+            <label class="field">
+              <span>Password</span>
+              <input id="chat-key-share-password" type="password" autocomplete="new-password">
+            </label>
+            <label class="field">
+              <span>Expires in days</span>
+              <input id="chat-key-share-days" type="number" min="1" max="365" step="1" inputmode="numeric" value="7">
+            </label>
+            <button id="chat-key-share-button" class="button settings-save-button" type="button" title="Create encrypted key share" aria-label="Create encrypted key share">Create</button>
+            <textarea id="chat-key-share-output" class="encrypted-key-output" rows="3" readonly spellcheck="false" placeholder="encrypted key share appears here"></textarea>
+          </div>
+          <div class="settings-section">
+            <div class="settings-subhead">Prompt debug</div>
+            <button id="chat-debug-prompt-button" class="button icon-buttonish" type="button" title="Download prompt debug: off" aria-label="Download prompt debug: off"><span class="material-symbols-rounded">bug_report</span></button>
           </div>
         </section>
       </form>
@@ -372,22 +413,6 @@
       </form>
     </dialog>
 
-    <dialog id="chat-api-key-dialog" class="dialog">
-      <form method="dialog" class="dialog-panel">
-        <header class="dialog-header">
-          <strong>API key</strong>
-          <button class="icon-button" value="cancel" type="submit" aria-label="Close" title="Close"><span class="material-symbols-rounded">close</span></button>
-        </header>
-        <label class="field">
-          <span>OpenAI API key</span>
-          <input id="chat-api-key-input" type="password" autocomplete="off" spellcheck="false">
-        </label>
-        <div class="dialog-actions">
-          <button id="chat-api-key-save-button" class="button primary icon-buttonish" type="button" title="Store API key" aria-label="Store API key"><span class="material-symbols-rounded">key</span></button>
-        </div>
-      </form>
-    </dialog>
-
     <script src="https://cdnjs.cloudflare.com/ajax/libs/ace/1.43.3/ace.js" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/ace/1.43.3/mode-javascript.min.js" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/ace/1.43.3/theme-chaos.min.js" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
@@ -395,6 +420,6 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.9.4/p5.min.js" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
     <script src="../../P1/portal/usbSerial.js"></script>
     <script src="../../P1/portal/qrCodeGen.js"></script>
-    <script type="module" src="app.js?v=0.1.87-ui212"></script>
+    <script type="module" src="app.js?v=0.1.87-ui241"></script>
   </body>
 </html>

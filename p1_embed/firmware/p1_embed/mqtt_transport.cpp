@@ -646,7 +646,7 @@ static bool mqttConnect() {
   g_mqtt.subscribe(g_mqttCmdTopicPrefix + "/+");
   g_mqtt.subscribe(g_mqttScriptInTopic);
   mqttPublishHello();
-  debugLog("info", "mqtt", "open");
+  debugLog("debug", "mqtt", "open");
   return true;
 }
 

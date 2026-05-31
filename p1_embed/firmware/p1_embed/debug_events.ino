@@ -12,6 +12,7 @@ static volatile uint32_t g_debugQueueHighWater = 0;
 static uint8_t g_debugLevel = P1_EMBED_DEBUG_DEFAULT_LEVEL;
 
 static uint8_t debugLevelValue(const String& level) {
+  if (level == "system") return 0;
   if (level == "error") return 0;
   if (level == "warn") return 1;
   if (level == "info") return 2;
@@ -81,6 +82,7 @@ P1DebugSnapshot debugEventSnapshot() {
 String debugEventStatusJson(const P1DebugSnapshot& snapshot) {
   String out = "{";
   out += "\"level\":" + jsonString(snapshot.level);
+  out += ",\"levelName\":" + jsonString(snapshot.level);
   out += ",\"levelValue\":" + String(snapshot.levelValue);
   out += ",\"queueDrops\":" + String(snapshot.queueDrops);
   out += ",\"queueHighWater\":" + String(snapshot.queueHighWater);

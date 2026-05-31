@@ -360,7 +360,7 @@ select {
 }
 
 .button.compact.icon-buttonish {
-  width: 31px;
+  width: 35px;
   padding-inline: 0;
 }
 
@@ -404,7 +404,7 @@ select {
 }
 
 .button.compact {
-  min-height: 28px;
+  min-height: 35px;
   padding: 5px 9px;
   font-size: 11px;
 }
@@ -1257,6 +1257,9 @@ input {
 
 .settings-dialog {
   width: min(520px, calc(100vw - 28px));
+  max-height: calc(100vh - 44px);
+  margin-top: 22px;
+  margin-bottom: 22px;
 }
 
 .dialog-panel {
@@ -1264,6 +1267,11 @@ input {
   flex-direction: column;
   gap: 10px;
   padding: 14px;
+}
+
+.settings-dialog .dialog-panel {
+  max-height: calc(100vh - 44px);
+  min-height: 0;
 }
 
 .dialog-header,
@@ -1281,7 +1289,7 @@ input {
 
 .settings-tabs {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(5, minmax(0, 1fr));
   gap: 6px;
 }
 
@@ -1305,10 +1313,15 @@ input {
 .settings-panel {
   display: none;
   gap: 10px;
+  min-height: 0;
+  max-height: calc(100vh - 176px);
+  overflow: auto;
+  padding-right: 2px;
 }
 
 .settings-panel.is-active {
   display: grid;
+  align-content: start;
 }
 
 .settings-section {
@@ -1392,6 +1405,53 @@ input {
   grid-column: 1 / -1;
 }
 
+.settings-generative-grid .field:nth-child(3),
+.settings-key-share-grid .field:nth-child(3) {
+  grid-column: auto;
+}
+
+.settings-key-share-grid {
+  grid-template-columns: minmax(0, 1fr) 118px auto;
+}
+
+.settings-generative-grid {
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+
+.settings-generative-grid .field {
+  grid-column: 1;
+}
+
+.settings-generative-grid .button {
+  grid-column: 2;
+  justify-self: end;
+}
+
+.settings-generative-grid .settings-inline-actions {
+  grid-column: 2;
+  display: flex;
+  align-items: end;
+  justify-content: end;
+  gap: 7px;
+}
+
+.settings-inline-actions .settings-save-button {
+  grid-column: auto;
+}
+
+.settings-generative-grid .field:nth-child(3),
+.settings-generative-grid .field:nth-child(4) {
+  grid-column: 1;
+}
+
+.settings-user-add-grid {
+  grid-template-columns: minmax(0, 1fr) minmax(0, 176px) auto;
+}
+
+.settings-users-access-row .settings-save-button {
+  grid-column: auto;
+}
+
 .settings-mqtt-grid .button {
   min-width: 44px;
 }
@@ -1402,6 +1462,15 @@ input {
   width: max-content;
   min-height: 34px;
   min-width: 72px;
+}
+
+.encrypted-key-output {
+  grid-column: 1 / -1;
+  width: 100%;
+  min-height: 74px;
+  resize: vertical;
+  font-size: 11px;
+  color: var(--muted);
 }
 
 .settings-subhead {
