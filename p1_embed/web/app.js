@@ -1,14 +1,14 @@
-import { ProtocolClient } from "./protocol/ProtocolClient.js?v=0.1.87-ui247";
-import { canEncodeCommand } from "./protocol/P1MsgPack.js?v=0.1.87-ui247";
-import { WebSerialTransport } from "./protocol/WebSerialTransport.js?v=0.1.87-ui247";
+import { ProtocolClient } from "./protocol/ProtocolClient.js?v=0.1.87-ui249";
+import { canEncodeCommand } from "./protocol/P1MsgPack.js?v=0.1.87-ui249";
+import { WebSerialTransport } from "./protocol/WebSerialTransport.js?v=0.1.87-ui249";
 import { WebSocketTransport } from "./protocol/WebSocketTransport.js";
-import { MqttWebRtcTransport, MQTT_WEBRTC_TRANSPORT_VERSION } from "./protocol/MqttWebRtcTransport.js?v=0.1.87-ui247";
-import { MqttTransport, MQTT_TRANSPORT_VERSION, clearOnlineAuthKey, deriveOnlineAuthKeyHex, storeOnlineAuthKey } from "./protocol/MqttTransport.js?v=0.1.87-ui247";
-import { P1WebFlasher } from "./web-flasher.js?v=0.1.87-ui247";
-import { inferCircuitLayout, initCircuitView, normalizeCircuitLayout } from "./circuit.js?v=0.1.87-ui247";
-import { initGuinoView } from "./guino.js?v=0.1.87-ui247";
+import { MqttWebRtcTransport, MQTT_WEBRTC_TRANSPORT_VERSION } from "./protocol/MqttWebRtcTransport.js?v=0.1.87-ui249";
+import { MqttTransport, MQTT_TRANSPORT_VERSION, clearOnlineAuthKey, deriveOnlineAuthKeyHex, storeOnlineAuthKey } from "./protocol/MqttTransport.js?v=0.1.87-ui249";
+import { P1WebFlasher } from "./web-flasher.js?v=0.1.87-ui249";
+import { inferCircuitLayout, initCircuitView, normalizeCircuitLayout } from "./circuit.js?v=0.1.87-ui249";
+import { initGuinoView } from "./guino.js?v=0.1.87-ui249";
 
-const WEB_UI_VERSION = "0.1.87-ui247";
+const WEB_UI_VERSION = "0.1.87-ui249";
 const CHAT_DEFAULT_MAX_OUTPUT_TOKENS = 8000;
 const CHAT_MIN_MAX_OUTPUT_TOKENS = 1024;
 const CHAT_HARD_MAX_OUTPUT_TOKENS = 32000;
@@ -459,7 +459,7 @@ function bindControls() {
   });
   els.chatDebugPrompt.addEventListener("click", toggleChatDebugPrompt);
   els.chatClear.addEventListener("click", clearChat);
-  els.generativeTabs.forEach((tab) => tab.addEventListener("click", () => switchGenerativeTab(tab.dataset.generativeTab)));
+  els.generativeTabs.forEach((tab) => tab.addEventListener("click", () => toggleGenerativePanel(tab.dataset.generativeTab)));
   els.specification.addEventListener("input", handleSpecificationInput);
   els.specificationMode.addEventListener("change", handleSpecificationModeChange);
   els.specificationGenerate.addEventListener("click", () => runUiAction(generateCodeFromSpecification, "generating"));
@@ -485,13 +485,30 @@ function bindControls() {
   els.chatInput.addEventListener("input", updateEnabledState);
 }
 
-function switchGenerativeTab(name) {
-  const target = name || "chat";
-  els.generativeTabs.forEach((tab) => tab.classList.toggle("is-active", tab.dataset.generativeTab === target));
-  els.generativePanels.forEach((panel) => panel.classList.toggle("is-active", panel.dataset.generativePanel === target));
-  els.views.chat?.classList.toggle("is-specification", target === "specification");
-  els.chatClear?.classList.toggle("is-hidden", target !== "chat");
-  if (target === "chat") renderChatTranscript();
+function toggleGenerativePanel(name) {
+  const panel = els.views.chat?.querySelector(`[data-generative-panel="${name}"]`);
+  if (!panel) return;
+  const active = panel.classList.contains("is-active");
+  const activeCount = [...els.generativePanels].filter((item) => item.classList.contains("is-active")).length;
+  if (active && activeCount <= 1) return;
+  panel.classList.toggle("is-active", !active);
+  syncGenerativePanelState();
+}
+
+function syncGenerativePanelState() {
+  const chatVisible = Boolean(els.views.chat?.querySelector('[data-generative-panel="chat"]')?.classList.contains("is-active"));
+  const specVisible = Boolean(els.views.chat?.querySelector('[data-generative-panel="specification"]')?.classList.contains("is-active"));
+  els.generativeTabs.forEach((tab) => {
+    const visible = tab.dataset.generativeTab === "chat" ? chatVisible : specVisible;
+    tab.classList.toggle("is-active", visible);
+    tab.setAttribute("aria-pressed", visible ? "true" : "false");
+  });
+  els.views.chat?.classList.toggle("is-chat-visible", chatVisible);
+  els.views.chat?.classList.toggle("is-specification-visible", specVisible);
+  els.views.chat?.classList.toggle("is-single-chat", chatVisible && !specVisible);
+  els.views.chat?.classList.toggle("is-single-specification", specVisible && !chatVisible);
+  els.chatClear?.classList.toggle("is-hidden", !chatVisible);
+  if (chatVisible) renderChatTranscript();
 }
 
 function switchTab(name) {
@@ -506,7 +523,10 @@ function switchTab(name) {
       editor.renderer?.updateFull?.();
     });
   }
-  if (name === "chat") renderChatTranscript();
+  if (name === "chat") {
+    syncGenerativePanelState();
+    renderChatTranscript();
+  }
   if (name === "circuit") {
     updateCircuitView();
     requestAnimationFrame(() => circuitView?.resize?.());

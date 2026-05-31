@@ -1046,6 +1046,14 @@ input {
   min-height: 0;
 }
 
+.generative-workspace {
+  display: grid;
+  grid-template-columns: minmax(260px, 1fr) minmax(360px, 2fr);
+  gap: 10px;
+  min-width: 0;
+  min-height: 0;
+}
+
 .generative-tabs {
   display: flex;
   align-items: center;
@@ -1072,10 +1080,17 @@ input {
 
 .generative-panel {
   display: none;
+  min-width: 0;
+  min-height: 0;
 }
 
 .generative-panel.is-active {
   display: grid;
+}
+
+.chat-view.is-single-chat .generative-workspace,
+.chat-view.is-single-specification .generative-workspace {
+  grid-template-columns: minmax(0, 1fr);
 }
 
 .spec-shell {
@@ -1115,7 +1130,9 @@ input {
   background: var(--surface);
   border: 1px solid var(--line);
   border-radius: 6px;
-  font: inherit;
+  font-family: var(--font);
+  font-size: 12px;
+  font-weight: 400;
   line-height: 1.55;
 }
 
