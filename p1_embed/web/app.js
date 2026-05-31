@@ -1,14 +1,14 @@
-import { ProtocolClient } from "./protocol/ProtocolClient.js?v=0.1.87-ui252";
-import { canEncodeCommand } from "./protocol/P1MsgPack.js?v=0.1.87-ui252";
-import { WebSerialTransport } from "./protocol/WebSerialTransport.js?v=0.1.87-ui252";
+import { ProtocolClient } from "./protocol/ProtocolClient.js?v=0.1.87-ui257";
+import { canEncodeCommand } from "./protocol/P1MsgPack.js?v=0.1.87-ui257";
+import { WebSerialTransport } from "./protocol/WebSerialTransport.js?v=0.1.87-ui257";
 import { WebSocketTransport } from "./protocol/WebSocketTransport.js";
-import { MqttWebRtcTransport, MQTT_WEBRTC_TRANSPORT_VERSION } from "./protocol/MqttWebRtcTransport.js?v=0.1.87-ui252";
-import { MqttTransport, MQTT_TRANSPORT_VERSION, clearOnlineAuthKey, deriveOnlineAuthKeyHex, storeOnlineAuthKey } from "./protocol/MqttTransport.js?v=0.1.87-ui252";
-import { P1WebFlasher } from "./web-flasher.js?v=0.1.87-ui252";
-import { inferCircuitLayout, initCircuitView, normalizeCircuitLayout } from "./circuit.js?v=0.1.87-ui252";
-import { initGuinoView } from "./guino.js?v=0.1.87-ui252";
+import { MqttWebRtcTransport, MQTT_WEBRTC_TRANSPORT_VERSION } from "./protocol/MqttWebRtcTransport.js?v=0.1.87-ui257";
+import { MqttTransport, MQTT_TRANSPORT_VERSION, clearOnlineAuthKey, deriveOnlineAuthKeyHex, storeOnlineAuthKey } from "./protocol/MqttTransport.js?v=0.1.87-ui257";
+import { P1WebFlasher } from "./web-flasher.js?v=0.1.87-ui257";
+import { inferCircuitLayout, initCircuitView, normalizeCircuitLayout } from "./circuit.js?v=0.1.87-ui257";
+import { initGuinoView } from "./guino.js?v=0.1.87-ui257";
 
-const WEB_UI_VERSION = "0.1.87-ui252";
+const WEB_UI_VERSION = "0.1.87-ui257";
 const CHAT_DEFAULT_MAX_OUTPUT_TOKENS = 8000;
 const CHAT_MIN_MAX_OUTPUT_TOKENS = 1024;
 const CHAT_HARD_MAX_OUTPUT_TOKENS = 32000;
@@ -119,6 +119,8 @@ const els = {
   getScript: document.querySelector("#get-script-button"),
   newSketch: document.querySelector("#new-sketch-button"),
   chatNewSketch: document.querySelector("#chat-new-sketch-button"),
+  chatRun: document.querySelector("#chat-run-button"),
+  chatStop: document.querySelector("#chat-stop-button"),
   reboot: document.querySelector("#reboot-button"),
   run: document.querySelector("#run-button"),
   stop: document.querySelector("#stop-button"),
@@ -411,6 +413,8 @@ function bindControls() {
   els.reboot.addEventListener("click", () => runUiAction(() => sendCommand("device.reboot"), "rebooting"));
   els.run.addEventListener("click", runScriptFromToolbar);
   els.stop.addEventListener("click", () => runUiAction(() => sendCommand("script.stop").then(refreshStatus), "stopping"));
+  els.chatRun.addEventListener("click", runScriptFromToolbar);
+  els.chatStop.addEventListener("click", () => runUiAction(() => sendCommand("script.stop").then(refreshStatus), "stopping"));
   els.downloadCode.addEventListener("click", () => runUiAction(downloadProject, "download"));
   els.chatDownloadCode.addEventListener("click", () => runUiAction(downloadProject, "download"));
   els.projectSelect.addEventListener("change", () => selectProject(els.projectSelect.value));
@@ -3407,12 +3411,13 @@ function renderUploadState() {
     if (progressEl) progressEl.value = progress;
   });
 
-  const runIcon = els.run?.querySelector(".material-symbols-rounded");
-  if (runIcon) {
+  [els.run, els.chatRun].forEach((button) => {
+    const runIcon = button?.querySelector(".material-symbols-rounded");
+    if (!runIcon) return;
     const working = active && !["running", "saved", "error"].includes(uploadState.phase);
     runIcon.classList.toggle("is-spinning", working);
     runIcon.textContent = working ? "progress_activity" : "play_arrow";
-  }
+  });
 }
 
 function shouldLogWifiEvent(data = {}) {
@@ -5374,6 +5379,8 @@ function updateEnabledState() {
     els.reboot,
     els.run,
     els.stop,
+    els.chatRun,
+    els.chatStop,
     els.settings,
     els.deviceNameSave,
     els.wifiSave,

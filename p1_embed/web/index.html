@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>P1E</title>
     <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@24,400,0,0">
-    <link rel="stylesheet" href="style.css?v=0.1.87-ui252">
+    <link rel="stylesheet" href="style.css?v=0.1.87-ui257">
   </head>
   <body>
     <main id="app">
@@ -112,10 +112,8 @@
             </select>
           </div>
           <span class="toolbar-divider" aria-hidden="true"></span>
-          <nav class="generative-tabs" aria-label="AI panels">
-            <button class="generative-tab is-active" type="button" data-generative-tab="chat" aria-pressed="true">Chat</button>
-            <button class="generative-tab is-active" type="button" data-generative-tab="specification" aria-pressed="true">Specification</button>
-          </nav>
+          <button id="chat-run-button" class="button primary icon-buttonish" type="button" disabled title="Save and run" aria-label="Save and run"><span class="material-symbols-rounded">play_arrow</span></button>
+          <button id="chat-stop-button" class="button icon-buttonish" type="button" disabled title="Stop" aria-label="Stop"><span class="material-symbols-rounded">stop</span></button>
           <span class="toolbar-divider toolbar-push" aria-hidden="true"></span>
           <div id="chat-upload-status" class="upload-status chat-upload-status is-hidden" aria-live="polite">
             <span class="material-symbols-rounded upload-status-icon">progress_activity</span>
@@ -123,6 +121,10 @@
             <progress id="chat-upload-status-progress" value="0" max="100"></progress>
           </div>
           <button id="chat-clear-button" class="button icon-buttonish" type="button" title="Clear chat" aria-label="Clear chat"><span class="material-symbols-rounded">cancel</span></button>
+          <nav class="generative-tabs" aria-label="AI panels">
+            <button class="generative-tab icon-buttonish is-active" type="button" data-generative-tab="chat" aria-pressed="true" title="Show chat" aria-label="Show chat"><span class="material-symbols-rounded">chat</span></button>
+            <button class="generative-tab icon-buttonish is-active" type="button" data-generative-tab="specification" aria-pressed="true" title="Show specification" aria-label="Show specification"><span class="material-symbols-rounded">description</span></button>
+          </nav>
         </header>
         <section class="generative-workspace" aria-label="AI workspace">
           <section class="chat-shell generative-panel is-active" data-generative-panel="chat">
@@ -193,7 +195,7 @@
         </header>
         <section class="ui-shell">
           <div class="ui-canvas-frame">
-            <canvas id="ui-canvas" class="ui-canvas" aria-label="Firmware-driven live interface"></canvas>
+            <div id="ui-canvas" class="ui-dom" aria-label="Firmware-driven live interface"></div>
           </div>
         </section>
       </section>
@@ -443,6 +445,6 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.9.4/p5.min.js" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
     <script src="../../P1/portal/usbSerial.js"></script>
     <script src="../../P1/portal/qrCodeGen.js"></script>
-    <script type="module" src="app.js?v=0.1.87-ui252"></script>
+    <script type="module" src="app.js?v=0.1.87-ui257"></script>
   </body>
 </html>

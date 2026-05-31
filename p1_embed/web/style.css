@@ -858,7 +858,7 @@ input {
 .ui-canvas-frame {
   min-width: 0;
   min-height: 0;
-  overflow: hidden;
+  overflow: auto;
   border: 1px solid var(--line);
   border-radius: 9px;
   background: #111314;
@@ -873,15 +873,210 @@ input {
   opacity: 0.74;
 }
 
-.ui-canvas {
-  display: block;
-  width: 100%;
-  height: 100%;
-  touch-action: none;
+.ui-dom {
+  --ui-accent: #7fd0df;
+  --ui-accent-soft: #2a5861;
+  min-width: 0;
+  min-height: 100%;
+  padding: 14px;
 }
 
-.ui-canvas[aria-disabled="true"] {
-  cursor: default;
+.ui-dom[aria-disabled="true"] {
+  pointer-events: none;
+}
+
+.ui-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
+  align-content: start;
+  gap: 10px;
+  min-width: 0;
+}
+
+.ui-column-break {
+  grid-column: 1 / -1;
+  height: 0;
+}
+
+.ui-widget {
+  display: grid;
+  align-content: start;
+  gap: 9px;
+  min-width: 0;
+  min-height: 74px;
+  padding: 12px;
+  border: 1px solid var(--line-soft);
+  border-radius: 8px;
+  background: var(--surface);
+}
+
+.ui-widget-wide {
+  grid-column: span 2;
+}
+
+@media (max-width: 640px) {
+  .ui-widget-wide {
+    grid-column: span 1;
+  }
+}
+
+.ui-widget header {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ui-live-button {
+  min-height: 50px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  color: var(--text);
+  background: var(--surface-2);
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.ui-live-button:hover,
+.ui-live-button:focus-visible {
+  border-color: var(--ui-accent);
+  color: var(--ui-accent);
+}
+
+.ui-live-title {
+  color: var(--text);
+  font-size: 18px;
+  font-weight: 700;
+}
+
+.ui-live-label {
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.ui-live-toggle {
+  display: grid;
+  grid-template-columns: 54px auto;
+  align-items: center;
+  gap: 10px;
+  color: var(--text);
+  font-size: 14px;
+  cursor: pointer;
+  user-select: none;
+}
+
+.ui-live-toggle input {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.ui-live-switch {
+  position: relative;
+  display: inline-block;
+  width: 54px;
+  height: 30px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: #25282b;
+  transition: border-color 120ms ease, background 120ms ease;
+}
+
+.ui-live-switch::after {
+  position: absolute;
+  top: 4px;
+  left: 4px;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: var(--muted);
+  transition: transform 120ms ease, background 120ms ease;
+  content: "";
+}
+
+.ui-live-toggle input:checked + .ui-live-switch {
+  border-color: var(--ui-accent);
+  background: var(--ui-accent-soft);
+}
+
+.ui-live-toggle input:checked + .ui-live-switch::after {
+  transform: translateX(24px);
+  background: var(--ui-accent);
+}
+
+.ui-live-toggle input:focus-visible + .ui-live-switch {
+  box-shadow: 0 0 0 2px rgba(127, 208, 223, 0.28);
+}
+
+.ui-live-toggle input:disabled + .ui-live-switch {
+  opacity: 0.55;
+}
+
+.ui-live-slider {
+  display: grid;
+  gap: 7px;
+}
+
+.ui-live-slider strong,
+.ui-live-value strong,
+.ui-live-graph strong {
+  color: var(--ui-accent);
+  font-size: 20px;
+}
+
+.ui-live-slider input {
+  width: 100%;
+  accent-color: var(--ui-accent);
+}
+
+.ui-live-slider span {
+  color: var(--muted);
+  font-size: 10px;
+}
+
+.ui-live-value {
+  display: grid;
+  gap: 10px;
+}
+
+.ui-live-meter {
+  display: block;
+  height: 8px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: #2a2d30;
+}
+
+.ui-live-meter::before {
+  display: block;
+  width: var(--value, 0%);
+  height: 100%;
+  border-radius: inherit;
+  background: var(--ui-accent);
+  content: "";
+}
+
+.ui-live-graph {
+  display: grid;
+  gap: 8px;
+}
+
+.ui-live-graph svg {
+  width: 100%;
+  height: 112px;
+  border: 1px solid var(--line-soft);
+  border-radius: 6px;
+  background: #0c0d0e;
+}
+
+.ui-live-graph path {
+  fill: none;
+  stroke: var(--ui-accent);
+  stroke-width: 2;
+  vector-effect: non-scaling-stroke;
 }
 
 .fields {
@@ -1059,11 +1254,16 @@ input {
   align-items: center;
   gap: 4px;
   min-width: 0;
+  flex: 0 0 auto;
 }
 
 .generative-tab {
-  min-height: 34px;
-  padding: 0 12px;
+  display: inline-grid;
+  place-items: center;
+  width: 34px;
+  min-width: 34px;
+  min-height: 31px;
+  padding: 0;
   border: 1px solid transparent;
   border-radius: 6px;
   color: var(--muted);
@@ -1076,6 +1276,10 @@ input {
   color: var(--text);
   border-color: var(--line);
   background: var(--surface-2);
+}
+
+.generative-tab .material-symbols-rounded {
+  font-size: 19px;
 }
 
 .generative-panel {

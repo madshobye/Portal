@@ -1,20 +1,5 @@
-const theme = {
-  bg: "#111314",
-  panel: "#1b1d1f",
-  panelSoft: "#151718",
-  line: "#34383c",
-  lineHot: "#6d858d",
-  text: "#f1ede6",
-  muted: "#aaa59c",
-  accent: "#7fd0df",
-  accentSoft: "#2a5861",
-  disabledWash: "rgba(17, 19, 20, 0.68)",
-  disabledText: "#8e8a82",
-  good: "#7ac285",
-  warn: "#d8be64",
-};
-
 const clamp = (value, min, max) => Math.min(max, Math.max(min, value));
+
 const toNumber = (value, fallback = 0) => {
   const next = Number(value);
   return Number.isFinite(next) ? next : fallback;
@@ -29,118 +14,55 @@ function colorFromRgb(r, g, b) {
   return `#${toHex(r)}${toHex(g)}${toHex(b)}`;
 }
 
-function roundedRect(ctx, x, y, w, h, r) {
-  const rr = Math.max(0, Math.min(r, w / 2, h / 2));
-  ctx.beginPath();
-  ctx.moveTo(x + rr, y);
-  ctx.arcTo(x + w, y, x + w, y + h, rr);
-  ctx.arcTo(x + w, y + h, x, y + h, rr);
-  ctx.arcTo(x, y + h, x, y, rr);
-  ctx.arcTo(x, y, x + w, y, rr);
-  ctx.closePath();
-}
-
-function drawText(ctx, text, x, y, options = {}) {
-  const { size = 14, weight = 500, color = theme.text, align = "left", baseline = "top" } = options;
-  ctx.fillStyle = color;
-  ctx.font = `${weight} ${size}px ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace`;
-  ctx.textAlign = align;
-  ctx.textBaseline = baseline;
-  ctx.fillText(String(text ?? ""), x, y);
-}
-
-function pointerFromEvent(canvas, event) {
-  const rect = canvas.getBoundingClientRect();
-  return {
-    x: event.clientX - rect.left,
-    y: event.clientY - rect.top,
-  };
-}
-
 export function initGuinoView({ canvas, status, widgetList, sendInput, requestRefresh }) {
-  return new GuinoView({ canvas, status, widgetList, sendInput, requestRefresh });
+  return new GuinoView({ root: canvas, status, widgetList, sendInput, requestRefresh });
 }
 
 class GuinoView {
-  constructor({ canvas, status, widgetList, sendInput, requestRefresh }) {
-    this.canvas = canvas;
-    this.ctx = canvas?.getContext("2d");
+  constructor({ root, status, widgetList, sendInput, requestRefresh }) {
+    this.root = root;
     this.status = status;
     this.widgetList = widgetList;
     this.sendInput = sendInput;
     this.requestRefresh = requestRefresh;
     this.title = "Live UI";
     this.widgets = new Map();
-    this.rects = new Map();
-    this.dpr = 1;
-    this.hoverId = "";
-    this.pressedId = "";
-    this.dragId = "";
-    this.scrollY = 0;
-    this.contentHeight = 0;
-    this.lastUpdateAt = 0;
-    this.lastInput = "";
-    this.sliderSendTimer = 0;
-    this.accent = theme.accent;
-    this.accentSoft = theme.accentSoft;
     this.connected = false;
-    this.resizeObserver = null;
-    this.raf = 0;
-    this.pointerDown = false;
+    this.accent = "#7fd0df";
+    this.accentSoft = "#2a5861";
+    this.lastInput = "";
+    this.interacting = false;
+    this.renderPending = false;
+    this.renderTimer = 0;
+    this.inputSendTimers = new Map();
 
-    if (!this.canvas || !this.ctx) return;
-    this.bind();
-    this.resize();
+    if (!this.root) return;
+    this.root.classList.add("ui-dom");
+    this.root.addEventListener("pointerdown", () => this.beginInteraction());
+    this.root.addEventListener("pointerup", () => this.endInteractionSoon());
+    this.root.addEventListener("pointercancel", () => this.endInteractionSoon());
+    this.root.addEventListener("focusin", () => this.beginInteraction());
+    this.root.addEventListener("focusout", () => this.endInteractionSoon());
+    this.render();
   }
 
   setConnected(connected) {
     const next = Boolean(connected);
     if (this.connected === next) return;
     this.connected = next;
-    if (!next) {
-      this.cancelPointer();
-      this.hoverId = "";
-    }
-    this.scheduleDraw();
-  }
-
-  bind() {
-    this.resizeObserver = new ResizeObserver(() => this.resize());
-    this.resizeObserver.observe(this.canvas.parentElement || this.canvas);
-    this.canvas.addEventListener("pointerdown", (event) => this.onPointerDown(event));
-    this.canvas.addEventListener("pointermove", (event) => this.onPointerMove(event));
-    this.canvas.addEventListener("pointerup", (event) => this.onPointerUp(event));
-    this.canvas.addEventListener("pointercancel", () => this.cancelPointer());
-    this.canvas.addEventListener("mouseleave", () => {
-      this.hoverId = "";
-      this.scheduleDraw();
-    });
-    this.canvas.addEventListener("wheel", (event) => this.onWheel(event), { passive: false });
+    this.render();
   }
 
   resize() {
-    if (!this.canvas || !this.ctx) return;
-    const rect = this.canvas.parentElement?.getBoundingClientRect() || this.canvas.getBoundingClientRect();
-    const width = Math.max(320, Math.floor(rect.width || 640));
-    const height = Math.max(260, Math.floor(rect.height || 420));
-    this.dpr = Math.max(1, Math.min(2, window.devicePixelRatio || 1));
-    this.canvas.width = Math.floor(width * this.dpr);
-    this.canvas.height = Math.floor(height * this.dpr);
-    this.canvas.style.width = `${width}px`;
-    this.canvas.style.height = `${height}px`;
-    this.ctx.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
-    this.scheduleDraw();
   }
 
   clear() {
     this.widgets.clear();
-    this.rects.clear();
     this.title = "Live UI";
-    this.scrollY = 0;
-    this.lastUpdateAt = Date.now();
+    this.lastInput = "";
     this.renderList();
     this.setStatus();
-    this.scheduleDraw();
+    this.render();
   }
 
   acceptEvent(name, data = {}) {
@@ -148,7 +70,6 @@ class GuinoView {
     if (name === "ui.reset" || name === "ui.clear") {
       this.widgets.clear();
       this.title = data.title || "Live UI";
-      this.scrollY = 0;
     } else if (name === "ui.item") {
       this.upsertWidget(data);
     } else if (name === "ui.value") {
@@ -160,16 +81,17 @@ class GuinoView {
     } else if (name === "ui.style") {
       this.setStyle(data);
     }
-    this.lastUpdateAt = Date.now();
     this.renderList();
     this.setStatus();
-    this.scheduleDraw();
+    this.scheduleRender();
     return true;
   }
 
   setStyle(data = {}) {
     this.accent = colorFromRgb(data.r ?? 127, data.g ?? 208, data.b ?? 223);
     this.accentSoft = colorFromRgb((data.r ?? 127) * 0.32, (data.g ?? 208) * 0.42, (data.b ?? 223) * 0.45);
+    this.root?.style.setProperty("--ui-accent", this.accent);
+    this.root?.style.setProperty("--ui-accent-soft", this.accentSoft);
   }
 
   upsertWidget(data = {}) {
@@ -189,12 +111,10 @@ class GuinoView {
       value,
       min,
       max: max === min ? min + 1 : max,
+      history: existing.history || [],
       updatedAt: Date.now(),
     };
-    if (type === "graph" || type === "plot" || type === "waveform") {
-      next.history = existing.history || [];
-      this.pushHistory(next, value);
-    }
+    if (isGraph(next)) this.pushHistory(next, value);
     this.widgets.set(id, next);
   }
 
@@ -211,8 +131,9 @@ class GuinoView {
     };
     widget.value = toNumber(value, widget.value || 0);
     widget.updatedAt = Date.now();
-    if (widget.type === "graph" || widget.type === "plot" || widget.type === "waveform") this.pushHistory(widget, widget.value);
+    if (isGraph(widget)) this.pushHistory(widget, widget.value);
     this.widgets.set(id, widget);
+    this.patchWidgetDom(widget);
   }
 
   setWidgetText(idValue, text) {
@@ -226,7 +147,7 @@ class GuinoView {
   pushHistory(widget, value) {
     widget.history = widget.history || [];
     widget.history.push(toNumber(value, 0));
-    if (widget.history.length > 96) widget.history.splice(0, widget.history.length - 96);
+    if (widget.history.length > 120) widget.history.splice(0, widget.history.length - 120);
   }
 
   setStatus(text = "") {
@@ -242,358 +163,204 @@ class GuinoView {
 
   renderList() {
     if (!this.widgetList) return;
-    const widgets = [...this.widgets.values()].sort((a, b) => a.order - b.order);
+    const widgets = sortedWidgets(this.widgets).filter((item) => !["spacer", "column"].includes(item.type));
     this.widgetList.innerHTML = widgets.map((item) => {
       const value = item.type === "button" || item.type === "label" ? "" : `<span>${Math.round(toNumber(item.value, 0))}</span>`;
       return `<li><strong>${escapeHtml(item.label || item.id)}</strong>${value}</li>`;
     }).join("");
   }
 
-  scheduleDraw() {
-    if (this.raf) return;
-    this.raf = requestAnimationFrame(() => {
-      this.raf = 0;
-      this.draw();
-    });
-  }
-
-  draw() {
-    if (!this.ctx || !this.canvas) return;
-    const w = this.canvas.width / this.dpr;
-    const h = this.canvas.height / this.dpr;
-    const ctx = this.ctx;
-    ctx.clearRect(0, 0, w, h);
-    ctx.fillStyle = theme.bg;
-    ctx.fillRect(0, 0, w, h);
-
-    const widgets = [...this.widgets.values()].sort((a, b) => a.order - b.order);
-    this.rects.clear();
-    if (!widgets.length) {
+  render() {
+    if (!this.root) return;
+    if (this.interacting) {
+      this.renderPending = true;
       return;
     }
+    this.renderPending = false;
+    window.clearTimeout(this.renderTimer);
+    this.renderTimer = 0;
+    this.root.toggleAttribute("aria-disabled", !this.connected);
+    this.root.innerHTML = "";
+    const widgets = sortedWidgets(this.widgets);
+    if (!widgets.length) return;
 
-    this.drawHeader(ctx, w);
-    const pad = 18;
-    const gap = 12;
-    const bodyTop = 66;
-    const colCount = Math.max(1, Math.floor((w - pad * 2 + gap) / 264));
-    const colW = Math.floor((w - pad * 2 - gap * (colCount - 1)) / colCount);
-    let y = bodyTop - this.scrollY;
-    let col = 0;
-    let rowHeight = 0;
+    const fragment = document.createDocumentFragment();
+    const grid = document.createElement("div");
+    grid.className = "ui-grid";
+    fragment.append(grid);
 
     for (const widget of widgets) {
       if (widget.type === "column") {
-        if (col < colCount - 1) {
-          col += 1;
-        } else {
-          col = 0;
-          y += rowHeight + gap;
-          rowHeight = 0;
-        }
+        const column = document.createElement("div");
+        column.className = "ui-column-break";
+        grid.append(column);
         continue;
       }
-      const span = this.widgetSpan(widget, colCount);
-      const ww = colW * span + gap * (span - 1);
-      if (col + span > colCount) {
-        col = 0;
-        y += rowHeight + gap;
-        rowHeight = 0;
-      }
-      const x = pad + col * (colW + gap);
-      const wh = this.widgetHeight(widget);
-      this.drawWidget(ctx, widget, x, y, ww, wh);
-      this.rects.set(widget.id, { x, y, w: ww, h: wh, widget });
-      rowHeight = Math.max(rowHeight, wh);
-      col += span;
-      if (col >= colCount) {
-        col = 0;
-        y += rowHeight + gap;
-        rowHeight = 0;
-      }
+      grid.append(this.renderWidget(widget));
+    }
+    this.root.append(fragment);
+  }
+
+  renderWidget(widget) {
+    if (widget.type === "spacer") {
+      const spacer = document.createElement("div");
+      spacer.className = "ui-widget ui-spacer";
+      spacer.style.minHeight = `${14 + clamp(toNumber(widget.value, 1), 1, 3) * 12}px`;
+      return spacer;
     }
 
-    this.contentHeight = Math.max(h, y + rowHeight + gap + this.scrollY);
-    const maxScroll = Math.max(0, this.contentHeight - h);
-    this.scrollY = clamp(this.scrollY, 0, maxScroll);
-  }
+    const wrap = document.createElement("section");
+    wrap.className = `ui-widget ui-widget-${cssType(widget.type)}`;
+    wrap.dataset.uiId = widget.id;
+    if (isGraph(widget) || widget.type === "label") wrap.classList.add("ui-widget-wide");
 
-  drawHeader(ctx, w) {
-    ctx.fillStyle = theme.panelSoft;
-    ctx.fillRect(0, 0, w, 54);
-    ctx.strokeStyle = theme.line;
-    ctx.beginPath();
-    ctx.moveTo(0, 54);
-    ctx.lineTo(w, 54);
-    ctx.stroke();
-    drawText(ctx, this.title, 18, 18, { size: 18, weight: 700, color: this.connected ? theme.text : theme.disabledText });
-  }
-
-  drawEmpty(ctx, w, h) {
-    ctx.fillStyle = theme.bg;
-    ctx.fillRect(0, 0, w, h);
-  }
-
-  drawDisabledOverlay(ctx, w, h) {
-    ctx.fillStyle = theme.disabledWash;
-    ctx.fillRect(0, 54, w, Math.max(0, h - 54));
-  }
-
-  widgetSpan(widget, colCount) {
-    if (colCount <= 1) return 1;
-    if (["graph", "plot", "waveform"].includes(widget.type)) return Math.min(2, colCount);
-    if (widget.type === "label") return Math.min(2, colCount);
-    if (widget.type === "spacer") return Math.min(2, colCount);
-    return 1;
-  }
-
-  widgetHeight(widget) {
-    if (widget.type === "spacer") return 12 + clamp(toNumber(widget.value, 1), 1, 3) * 14;
-    if (widget.type === "column") return 0;
-    if (widget.type === "label") return 68;
-    if (widget.type === "button" || widget.type === "toggle") return 88;
-    if (widget.type === "slider") return 98;
-    if (["graph", "plot", "waveform"].includes(widget.type)) return 154;
-    return 108;
-  }
-
-  drawWidget(ctx, widget, x, y, w, h) {
-    if (widget.type === "spacer") return this.drawSpacer(ctx, widget, x, y, w, h);
-    roundedRect(ctx, x, y, w, h, 8);
-    ctx.fillStyle = theme.panel;
-    ctx.fill();
-    ctx.strokeStyle = theme.line;
-    ctx.stroke();
-
-    const label = widget.label || widget.id;
-    if (widget.type !== "button" && widget.type !== "label") {
-      drawText(ctx, label, x + 14, y + 13, { size: 13, weight: 800 });
-    }
-
-    if (widget.type === "button") return this.drawButton(ctx, widget, x, y, w, h);
-    if (widget.type === "toggle") return this.drawToggle(ctx, widget, x, y, w, h);
-    if (widget.type === "slider") return this.drawSlider(ctx, widget, x, y, w, h);
-    if (["graph", "plot", "waveform"].includes(widget.type)) return this.drawGraph(ctx, widget, x, y, w, h);
-    if (widget.type === "label") return this.drawLabel(ctx, widget, x, y, w, h);
-    return this.drawValue(ctx, widget, x, y, w, h);
-  }
-
-  drawSpacer(ctx, widget, x, y, w, h) {
-    return;
-  }
-
-  drawLabel(ctx, widget, x, y, w, h) {
-    const text = widget.text || widget.value || widget.label || "";
-    const isTitle = widget.id === "title";
-    drawText(ctx, text, x + 14, y + (isTitle ? 22 : 26), {
-      size: isTitle ? 18 : 13,
-      weight: isTitle ? 800 : 650,
-      color: isTitle ? theme.text : theme.muted,
-    });
-  }
-
-  drawButton(ctx, widget, x, y, w, h) {
-    const down = this.pressedId === widget.id;
-    const isHover = this.hoverId === widget.id;
-    const bx = x + 14;
-    const by = y + 14;
-    const bw = w - 28;
-    const bh = h - 28;
-    roundedRect(ctx, bx, by, bw, bh, 7);
-    ctx.fillStyle = down ? this.accentSoft : (isHover ? "#202528" : theme.panelSoft);
-    ctx.fill();
-    ctx.strokeStyle = down || isHover ? this.accent : theme.line;
-    ctx.stroke();
-    drawText(ctx, widget.label || widget.id, bx + bw / 2, by + bh / 2 + 1, {
-      size: 14,
-      weight: 850,
-      color: down ? this.accent : theme.text,
-      align: "center",
-      baseline: "middle",
-    });
-  }
-
-  drawToggle(ctx, widget, x, y, w, h) {
-    const on = toNumber(widget.value, 0) > 0;
-    const isHover = this.hoverId === widget.id;
-    const tx = x + w - 76;
-    const ty = y + 42;
-    roundedRect(ctx, tx, ty, 54, 28, 14);
-    ctx.fillStyle = on ? this.accentSoft : (isHover ? "#2b2e31" : "#232527");
-    ctx.fill();
-    ctx.strokeStyle = on || isHover ? this.accent : theme.line;
-    ctx.stroke();
-    ctx.beginPath();
-    ctx.arc(tx + (on ? 39 : 15), ty + 14, 10, 0, Math.PI * 2);
-    ctx.fillStyle = on ? this.accent : theme.muted;
-    ctx.fill();
-    drawText(ctx, on ? "on" : "off", x + 14, y + 50, { size: 18, weight: 800, color: on ? this.accent : theme.muted });
-  }
-
-  drawSlider(ctx, widget, x, y, w, h) {
-    const isHover = this.hoverId === widget.id || this.dragId === widget.id;
-    const min = toNumber(widget.min, 0);
-    const max = toNumber(widget.max, 100);
-    const value = clamp(toNumber(widget.value, min), min, max);
-    const t = (value - min) / (max - min || 1);
-    const sx = x + 14;
-    const sy = y + 58;
-    const sw = w - 28;
-    ctx.lineWidth = 7;
-    ctx.lineCap = "round";
-    ctx.strokeStyle = "#2a2d30";
-    ctx.beginPath();
-    ctx.moveTo(sx, sy);
-    ctx.lineTo(sx + sw, sy);
-    ctx.stroke();
-    ctx.strokeStyle = this.accent;
-    ctx.beginPath();
-    ctx.moveTo(sx, sy);
-    ctx.lineTo(sx + sw * t, sy);
-    ctx.stroke();
-    ctx.lineWidth = 1;
-    ctx.beginPath();
-    ctx.arc(sx + sw * t, sy, 11, 0, Math.PI * 2);
-    ctx.fillStyle = isHover ? this.accent : theme.text;
-    ctx.fill();
-    drawText(ctx, Math.round(value), x + w - 14, y + 16, { size: 18, weight: 800, align: "right", color: this.accent });
-    drawText(ctx, `${Math.round(min)} - ${Math.round(max)}`, x + 14, y + 76, { size: 10, weight: 600, color: theme.muted });
-  }
-
-  drawGraph(ctx, widget, x, y, w, h) {
-    const gx = x + 14;
-    const gy = y + 44;
-    const gw = w - 28;
-    const gh = h - 62;
-    roundedRect(ctx, gx, gy, gw, gh, 5);
-    ctx.fillStyle = "#0c0d0e";
-    ctx.fill();
-    ctx.strokeStyle = theme.line;
-    ctx.stroke();
-    const history = widget.history || [];
-    const min = toNumber(widget.min, 0);
-    const max = toNumber(widget.max, 100);
-    if (history.length > 1) {
-      ctx.beginPath();
-      history.forEach((value, index) => {
-        const tx = gx + (index / Math.max(1, history.length - 1)) * gw;
-        const ty = gy + gh - clamp((toNumber(value, min) - min) / (max - min || 1), 0, 1) * gh;
-        if (index === 0) ctx.moveTo(tx, ty);
-        else ctx.lineTo(tx, ty);
+    if (widget.type === "button") {
+      const button = document.createElement("button");
+      button.className = "ui-live-button";
+      button.type = "button";
+      button.textContent = widget.label || widget.id;
+      button.disabled = !this.connected;
+      button.addEventListener("click", () => {
+        this.beginInteraction();
+        this.sendUi(widget.id, "press").finally(() => this.endInteractionSoon());
       });
-      ctx.strokeStyle = this.accent;
-      ctx.lineWidth = 2;
-      ctx.stroke();
-      ctx.lineWidth = 1;
+      wrap.append(button);
+      return wrap;
     }
-    drawText(ctx, Math.round(toNumber(widget.value, 0)), x + w - 14, y + 15, { size: 16, weight: 800, align: "right", color: this.accent });
+
+    if (widget.type === "label") {
+      const label = document.createElement("div");
+      label.className = widget.id === "title" ? "ui-live-title" : "ui-live-label";
+      label.textContent = widget.text || widget.value || widget.label || "";
+      wrap.append(label);
+      return wrap;
+    }
+
+    const header = document.createElement("header");
+    header.textContent = widget.label || widget.id;
+    wrap.append(header);
+
+    if (widget.type === "toggle") {
+      wrap.append(this.renderToggle(widget));
+    } else if (widget.type === "slider") {
+      wrap.append(this.renderSlider(widget));
+    } else if (isGraph(widget)) {
+      wrap.append(this.renderGraph(widget));
+    } else {
+      wrap.append(this.renderValue(widget));
+    }
+    return wrap;
   }
 
-  drawValue(ctx, widget, x, y, w, h) {
+  renderToggle(widget) {
+    const label = document.createElement("label");
+    label.className = "ui-live-toggle";
+    const input = document.createElement("input");
+    input.type = "checkbox";
+    input.checked = toNumber(widget.value, 0) > 0;
+    input.disabled = !this.connected;
+    input.addEventListener("change", () => {
+      const next = input.checked ? 1 : 0;
+      widget.value = next;
+      this.sendUi(widget.id, "set", next).finally(() => this.endInteractionSoon());
+    });
+    const text = document.createElement("span");
+    text.textContent = input.checked ? "on" : "off";
+    input.addEventListener("change", () => {
+      text.textContent = input.checked ? "on" : "off";
+    });
+    const switchTrack = document.createElement("span");
+    switchTrack.className = "ui-live-switch";
+    switchTrack.setAttribute("aria-hidden", "true");
+    label.append(input, switchTrack, text);
+    return label;
+  }
+
+  renderSlider(widget) {
+    const wrap = document.createElement("div");
+    wrap.className = "ui-live-slider";
+    const value = document.createElement("strong");
+    value.textContent = String(Math.round(toNumber(widget.value, 0)));
+    const input = document.createElement("input");
+    input.type = "range";
+    input.min = String(toNumber(widget.min, 0));
+    input.max = String(toNumber(widget.max, 100));
+    input.value = String(Math.round(toNumber(widget.value, 0)));
+    input.disabled = !this.connected;
+    input.addEventListener("input", () => {
+      widget.value = Number(input.value);
+      value.textContent = input.value;
+      this.sendUiDebounced(widget.id, Number(input.value));
+    });
+    input.addEventListener("change", () => {
+      this.flushDebouncedInput(widget.id);
+      this.sendUi(widget.id, "set", Number(input.value)).finally(() => this.endInteractionSoon());
+    });
+    const range = document.createElement("span");
+    range.textContent = `${Math.round(toNumber(widget.min, 0))} - ${Math.round(toNumber(widget.max, 100))}`;
+    wrap.append(value, input, range);
+    return wrap;
+  }
+
+  renderValue(widget) {
     const min = toNumber(widget.min, 0);
     const max = toNumber(widget.max, 100);
     const value = clamp(toNumber(widget.value, min), min, max);
     const t = clamp((value - min) / (max - min || 1), 0, 1);
-    drawText(ctx, Math.round(value), x + 14, y + 42, { size: 32, weight: 900, color: this.accent });
-    const gx = x + 14;
-    const gy = y + h - 24;
-    const gw = w - 28;
-    roundedRect(ctx, gx, gy, gw, 8, 4);
-    ctx.fillStyle = "#2a2d30";
-    ctx.fill();
-    roundedRect(ctx, gx, gy, gw * t, 8, 4);
-    ctx.fillStyle = this.accent;
-    ctx.fill();
+    const wrap = document.createElement("div");
+    wrap.className = "ui-live-value";
+    const number = document.createElement("strong");
+    number.className = "ui-live-number";
+    number.textContent = String(Math.round(value));
+    const meter = document.createElement("span");
+    meter.className = "ui-live-meter";
+    meter.style.setProperty("--value", `${t * 100}%`);
+    wrap.append(number, meter);
+    return wrap;
   }
 
-  onPointerDown(event) {
-    if (!this.connected) return;
-    const p = pointerFromEvent(this.canvas, event);
-    const hit = this.hitTest(p.x, p.y);
-    if (!hit) return;
-    this.pointerDown = true;
-    this.pressedId = hit.widget.id;
-    this.canvas.setPointerCapture?.(event.pointerId);
-    if (hit.widget.type === "slider") {
-      this.dragId = hit.widget.id;
-      this.updateSliderFromPointer(hit.widget, p.x, true);
-    }
-    this.scheduleDraw();
-  }
-
-  onPointerMove(event) {
-    if (!this.connected) {
-      if (this.hoverId) {
-        this.hoverId = "";
-        this.scheduleDraw();
-      }
-      return;
-    }
-    const p = pointerFromEvent(this.canvas, event);
-    const hit = this.hitTest(p.x, p.y);
-    this.hoverId = hit?.widget?.id || "";
-    if (this.dragId) {
-      const widget = this.widgets.get(this.dragId);
-      if (widget) this.updateSliderFromPointer(widget, p.x, false);
-    }
-    this.scheduleDraw();
-  }
-
-  onPointerUp(event) {
-    if (!this.connected) {
-      this.cancelPointer();
-      return;
-    }
-    const p = pointerFromEvent(this.canvas, event);
-    const hit = this.hitTest(p.x, p.y);
-    const widget = this.widgets.get(this.pressedId);
-    if (widget && hit?.widget?.id === widget.id) {
-      if (widget.type === "button") this.sendUi(widget.id, "press");
-      if (widget.type === "toggle") {
-        const next = toNumber(widget.value, 0) > 0 ? 0 : 1;
-        widget.value = next;
-        this.sendUi(widget.id, "set", next);
-      }
-      if (widget.type === "slider") this.sendUi(widget.id, "set", Math.round(toNumber(widget.value, 0)));
-    }
-    this.cancelPointer();
-  }
-
-  cancelPointer() {
-    this.pointerDown = false;
-    this.pressedId = "";
-    this.dragId = "";
-    this.scheduleDraw();
-  }
-
-  onWheel(event) {
-    if (!this.connected) return;
-    const h = this.canvas.height / this.dpr;
-    const maxScroll = Math.max(0, this.contentHeight - h);
-    if (maxScroll <= 0) return;
-    event.preventDefault();
-    this.scrollY = clamp(this.scrollY + event.deltaY, 0, maxScroll);
-    this.scheduleDraw();
-  }
-
-  hitTest(x, y) {
-    for (const rect of [...this.rects.values()].reverse()) {
-      if (x >= rect.x && x <= rect.x + rect.w && y >= rect.y && y <= rect.y + rect.h) return rect;
-    }
-    return null;
-  }
-
-  updateSliderFromPointer(widget, pointerX, force) {
-    const rect = this.rects.get(widget.id);
-    if (!rect) return;
+  renderGraph(widget) {
     const min = toNumber(widget.min, 0);
     const max = toNumber(widget.max, 100);
-    const t = clamp((pointerX - (rect.x + 14)) / Math.max(1, rect.w - 28), 0, 1);
-    widget.value = Math.round(min + t * (max - min));
-    const now = Date.now();
-    if (force || now - this.sliderSendTimer > 90) {
-      this.sliderSendTimer = now;
-      this.sendUi(widget.id, "set", Math.round(widget.value), { quietErrors: true });
+    const history = widget.history || [];
+    const wrap = document.createElement("div");
+    wrap.className = "ui-live-graph";
+    const value = document.createElement("strong");
+    value.className = "ui-live-number";
+    value.textContent = String(Math.round(toNumber(widget.value, 0)));
+    const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+    svg.setAttribute("viewBox", "0 0 100 42");
+    svg.setAttribute("preserveAspectRatio", "none");
+    const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+    path.classList.add("ui-live-graph-path");
+    path.setAttribute("d", graphPath(history, min, max));
+    svg.append(path);
+    wrap.append(value, svg);
+    return wrap;
+  }
+
+  patchWidgetDom(widget) {
+    if (!this.root || !this.interacting) return;
+    const node = this.root.querySelector(`[data-ui-id="${cssEscape(widget.id)}"]`);
+    if (!node) return;
+
+    const number = node.querySelector(".ui-live-number");
+    if (number) number.textContent = String(Math.round(toNumber(widget.value, 0)));
+
+    if (isGraph(widget)) {
+      const path = node.querySelector(".ui-live-graph-path");
+      if (path) {
+        path.setAttribute("d", graphPath(widget.history || [], toNumber(widget.min, 0), toNumber(widget.max, 100)));
+      }
+      return;
+    }
+
+    if (widget.type === "value") {
+      const min = toNumber(widget.min, 0);
+      const max = toNumber(widget.max, 100);
+      const value = clamp(toNumber(widget.value, min), min, max);
+      const meter = node.querySelector(".ui-live-meter");
+      if (meter) meter.style.setProperty("--value", `${clamp((value - min) / (max - min || 1), 0, 1) * 100}%`);
     }
   }
 
@@ -617,6 +384,65 @@ class GuinoView {
     if (this.requestRefresh) return this.requestRefresh();
     return this.sendUi("system", "hello");
   }
+
+  beginInteraction() {
+    this.interacting = true;
+    window.clearTimeout(this.renderTimer);
+  }
+
+  endInteractionSoon() {
+    window.clearTimeout(this.renderTimer);
+    this.renderTimer = window.setTimeout(() => {
+      this.interacting = false;
+      if (this.renderPending) this.render();
+    }, 160);
+  }
+
+  scheduleRender() {
+    if (this.interacting) {
+      this.renderPending = true;
+      return;
+    }
+    window.clearTimeout(this.renderTimer);
+    this.renderTimer = window.setTimeout(() => this.render(), 0);
+  }
+
+  sendUiDebounced(id, value) {
+    this.flushDebouncedInput(id);
+    const timer = window.setTimeout(() => {
+      this.inputSendTimers.delete(id);
+      this.sendUi(id, "set", value, { quietErrors: true });
+    }, 90);
+    this.inputSendTimers.set(id, timer);
+  }
+
+  flushDebouncedInput(id) {
+    const timer = this.inputSendTimers.get(id);
+    if (!timer) return;
+    window.clearTimeout(timer);
+    this.inputSendTimers.delete(id);
+  }
+}
+
+function sortedWidgets(widgets) {
+  return [...widgets.values()].sort((a, b) => a.order - b.order);
+}
+
+function isGraph(widget) {
+  return ["graph", "plot", "waveform"].includes(widget.type);
+}
+
+function cssType(type = "") {
+  return String(type || "value").replace(/[^a-z0-9_-]/gi, "-");
+}
+
+function graphPath(history = [], min = 0, max = 100) {
+  if (history.length < 2) return "";
+  return history.map((value, index) => {
+    const x = (index / Math.max(1, history.length - 1)) * 100;
+    const y = 42 - clamp((toNumber(value, min) - min) / (max - min || 1), 0, 1) * 42;
+    return `${index === 0 ? "M" : "L"}${x.toFixed(2)},${y.toFixed(2)}`;
+  }).join(" ");
 }
 
 function escapeHtml(value) {
@@ -625,4 +451,9 @@ function escapeHtml(value) {
     .replaceAll("<", "&lt;")
     .replaceAll(">", "&gt;")
     .replaceAll('"', "&quot;");
+}
+
+function cssEscape(value) {
+  if (window.CSS?.escape) return window.CSS.escape(String(value));
+  return String(value).replace(/["\\]/g, "\\$&");
 }
