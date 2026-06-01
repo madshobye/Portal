@@ -1371,6 +1371,13 @@ class WRstr
 public:
 	WRstr() { m_smallbuf[m_len = 0] = 0 ; m_str = m_smallbuf; m_buflen = c_sizeofBaseString; }
 	WRstr( const WRstr& str) { m_len = 0; m_str = m_smallbuf; m_buflen = c_sizeofBaseString; set(str, str.size()); } 
+	WRstr( WRstr&& str )
+	{
+		m_len = 0;
+		m_str = m_smallbuf;
+		m_buflen = c_sizeofBaseString;
+		*this = static_cast<WRstr&&>(str);
+	}
 	WRstr( const WRstr* str ) { m_len = 0; m_str = m_smallbuf; m_buflen = c_sizeofBaseString; if ( str ) { set(*str, str->size()); } } 
 	WRstr( const char* s, const unsigned int len ) { m_len = 0; m_str = m_smallbuf; m_buflen = c_sizeofBaseString; set(s, len); }
 	WRstr( const char* s ) { m_len = 0; m_str = m_smallbuf; m_buflen = c_sizeofBaseString; set(s, (unsigned int)strlen(s)); }
@@ -1482,6 +1489,35 @@ public:
 	WRstr& operator += ( const char c ) { return append(c); }
 
 	WRstr& operator = ( const WRstr& str ) { if ( &str != this ) set(str, str.size()); return *this; }
+	WRstr& operator = ( WRstr&& str )
+	{
+		if ( &str != this )
+		{
+			if ( m_str != m_smallbuf )
+			{
+				g_free( m_str );
+			}
+
+			if ( str.m_str == str.m_smallbuf )
+			{
+				m_str = m_smallbuf;
+				m_buflen = c_sizeofBaseString;
+				m_len = str.m_len;
+				memcpy( m_smallbuf, str.m_smallbuf, str.m_len + 1 );
+			}
+			else
+			{
+				m_str = str.m_str;
+				m_buflen = str.m_buflen;
+				m_len = str.m_len;
+				str.m_str = str.m_smallbuf;
+				str.m_buflen = c_sizeofBaseString;
+				str.m_len = 0;
+				str.m_smallbuf[0] = 0;
+			}
+		}
+		return *this;
+	}
 	WRstr& operator = ( const WRstr* str ) { if ( !str ) { clear(); } else if ( this != str ) { set(*str, str->size()); } return *this; }
 	WRstr& operator = ( const char* c ) { set(c, (unsigned int)strlen(c)); return *this; }
 	WRstr& operator = ( const char c ) { set(&c, 1); return *this; }

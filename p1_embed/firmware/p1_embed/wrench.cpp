@@ -229,7 +229,7 @@ public:
 		{
 			for( unsigned int i=0; i<(unsigned int)newCount; ++i )
 			{
-				na[i] = m_list[i+count];
+				na[i] = static_cast<T&&>(m_list[i+count]);
 			}
 		}
 		else
@@ -245,7 +245,7 @@ public:
 				}
 				else if ( i >= skipEnd )
 				{
-					na[j++] = m_list[i];
+					na[j++] = static_cast<T&&>(m_list[i]);
 				}
 			}
 		}
@@ -280,7 +280,7 @@ public:
 			{
 				for( unsigned int i=0; i<m_elementsAllocated; ++i )
 				{
-					na[i] = m_list[i];
+					na[i] = static_cast<T&&>(m_list[i]);
 				}
 
 				deleteArray( m_list, m_elementsNewed );
@@ -348,14 +348,14 @@ public:
 	{
 		m_list = 0;
 		clear();
-		m_list = newArray( A.m_elementsNewed );
+		m_list = newArray( A.m_elementsAllocated );
 		if ( !m_list )
 		{
 			m_elementsNewed = 0;
 			m_elementsAllocated = 0;
 			return;
 		}
-		m_elementsNewed = A.m_elementsNewed;
+		m_elementsNewed = A.m_elementsAllocated;
 		for( unsigned int i=0; i<A.m_elementsAllocated; ++i )
 		{
 			m_list[i] = A.m_list[i];
@@ -364,12 +364,23 @@ public:
 	}
 
 	//------------------------------------------------------------------------------
+	WRarray( WRarray&& A )
+	{
+		m_list = A.m_list;
+		m_elementsNewed = A.m_elementsNewed;
+		m_elementsAllocated = A.m_elementsAllocated;
+		A.m_list = 0;
+		A.m_elementsNewed = 0;
+		A.m_elementsAllocated = 0;
+	}
+
+	//------------------------------------------------------------------------------
 	WRarray& operator= ( const WRarray& A )
 	{
 		if ( &A != this )
 		{
 			clear();
-			m_list = newArray( A.m_elementsNewed );
+			m_list = newArray( A.m_elementsAllocated );
 			if ( !m_list )
 			{
 				m_elementsAllocated = 0;
@@ -381,7 +392,23 @@ public:
 				m_list[i] = A.m_list[i];
 			}
 			m_elementsAllocated = A.m_elementsAllocated;
+			m_elementsNewed = A.m_elementsAllocated;
+		}
+		return *this;
+	}
+
+	//------------------------------------------------------------------------------
+	WRarray& operator= ( WRarray&& A )
+	{
+		if ( &A != this )
+		{
+			clear();
+			m_list = A.m_list;
 			m_elementsNewed = A.m_elementsNewed;
+			m_elementsAllocated = A.m_elementsAllocated;
+			A.m_list = 0;
+			A.m_elementsNewed = 0;
+			A.m_elementsAllocated = 0;
 		}
 		return *this;
 	}
@@ -1838,12 +1865,35 @@ public:
 	}
 
 	WROpcodeStream (const WROpcodeStream &other ) { m_buf = 0; *this = other; }
+	WROpcodeStream ( WROpcodeStream&& other )
+	{
+		m_buf = other.m_buf;
+		m_len = other.m_len;
+		m_bufLen = other.m_bufLen;
+		other.m_buf = 0;
+		other.m_len = 0;
+		other.m_bufLen = 0;
+	}
 	WROpcodeStream& operator = ( const WROpcodeStream& str )
 	{
 		clear();
 		if ( str.m_len )
 		{
 			*this += str;
+		}
+		return *this;
+	}
+	WROpcodeStream& operator = ( WROpcodeStream&& str )
+	{
+		if ( &str != this )
+		{
+			clear();
+			m_buf = str.m_buf;
+			m_len = str.m_len;
+			m_bufLen = str.m_bufLen;
+			str.m_buf = 0;
+			str.m_len = 0;
+			str.m_bufLen = 0;
 		}
 		return *this;
 	}
@@ -2159,11 +2209,6 @@ struct WRExpressionContext
 	void setLocalSpace( WRarray<WRNamespaceLookup>& localSpace, bool isStructSpace )
 	{
 		bytecode.isStructSpace = isStructSpace;
-		bytecode.localSpace.setCountExact( localSpace.count() );
-		for( unsigned int l=0; l<localSpace.count(); ++l )
-		{
-			bytecode.localSpace[l].hash = localSpace[l].hash;
-		}
 		type = EXTYPE_NONE;
 	}
 
