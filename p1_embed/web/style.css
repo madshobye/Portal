@@ -1630,6 +1630,10 @@ input {
   flex-wrap: wrap;
 }
 
+.dialog-actions-right {
+  justify-content: flex-end;
+}
+
 .settings-tabs {
   display: grid;
   grid-template-columns: repeat(5, minmax(0, 1fr));

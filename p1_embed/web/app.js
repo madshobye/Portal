@@ -1,14 +1,14 @@
-import { ProtocolClient } from "./protocol/ProtocolClient.js?v=0.1.87-ui279";
-import { canEncodeCommand } from "./protocol/P1MsgPack.js?v=0.1.87-ui279";
-import { WebSerialTransport } from "./protocol/WebSerialTransport.js?v=0.1.87-ui279";
+import { ProtocolClient } from "./protocol/ProtocolClient.js?v=0.1.87-ui280";
+import { canEncodeCommand } from "./protocol/P1MsgPack.js?v=0.1.87-ui280";
+import { WebSerialTransport } from "./protocol/WebSerialTransport.js?v=0.1.87-ui280";
 import { WebSocketTransport } from "./protocol/WebSocketTransport.js";
-import { MqttWebRtcTransport, MQTT_WEBRTC_TRANSPORT_VERSION } from "./protocol/MqttWebRtcTransport.js?v=0.1.87-ui279";
-import { MqttTransport, MQTT_TRANSPORT_VERSION, clearOnlineAuthKey, deriveOnlineAuthKeyHex, storeOnlineAuthKey } from "./protocol/MqttTransport.js?v=0.1.87-ui279";
-import { P1WebFlasher } from "./web-flasher.js?v=0.1.87-ui279";
-import { inferCircuitLayout, initCircuitView, normalizeCircuitLayout } from "./circuit.js?v=0.1.87-ui279";
-import { initGuinoView } from "./guino.js?v=0.1.87-ui279";
+import { MqttWebRtcTransport, MQTT_WEBRTC_TRANSPORT_VERSION } from "./protocol/MqttWebRtcTransport.js?v=0.1.87-ui280";
+import { MqttTransport, MQTT_TRANSPORT_VERSION, clearOnlineAuthKey, deriveOnlineAuthKeyHex, storeOnlineAuthKey } from "./protocol/MqttTransport.js?v=0.1.87-ui280";
+import { P1WebFlasher } from "./web-flasher.js?v=0.1.87-ui280";
+import { inferCircuitLayout, initCircuitView, normalizeCircuitLayout } from "./circuit.js?v=0.1.87-ui280";
+import { initGuinoView } from "./guino.js?v=0.1.87-ui280";
 
-const WEB_UI_VERSION = "0.1.87-ui279";
+const WEB_UI_VERSION = "0.1.87-ui280";
 const CHAT_DEFAULT_MAX_OUTPUT_TOKENS = 8000;
 const CHAT_MIN_MAX_OUTPUT_TOKENS = 1024;
 const CHAT_HARD_MAX_OUTPUT_TOKENS = 32000;
@@ -161,6 +161,10 @@ const els = {
   mqttSigninPassword: document.querySelector("#mqtt-signin-password"),
   mqttSigninButton: document.querySelector("#mqtt-signin-button"),
   mqttSigninCancel: document.querySelector("#mqtt-signin-cancel-button"),
+  revisionNameDialog: document.querySelector("#revision-name-dialog"),
+  revisionNameInput: document.querySelector("#revision-name-input"),
+  revisionNameCreate: document.querySelector("#revision-name-create-button"),
+  revisionNameCancel: document.querySelector("#revision-name-cancel-button"),
   mqttSave: document.querySelector("#mqtt-save-button"),
   consoleActions: document.querySelector("#console-actions"),
   consoleTimestamps: document.querySelector("#console-timestamps-button"),
@@ -2744,7 +2748,68 @@ async function createNewSketch() {
   logLine("info", `new project ${saved.name}`);
 }
 
+function requestRevisionName(defaultName = "Revision") {
+  const fallback = normalizeSketchName(defaultName) || "Revision";
+  const dialog = els.revisionNameDialog;
+  const input = els.revisionNameInput;
+  if (!dialog || !input) {
+    const requested = window.prompt("Revision name", fallback);
+    return Promise.resolve(requested === null ? null : (normalizeSketchName(requested) || fallback));
+  }
+  input.value = fallback;
+  return new Promise((resolve) => {
+    let settled = false;
+    const cleanup = () => {
+      dialog.removeEventListener("close", onClose);
+      dialog.removeEventListener("cancel", onCancel);
+      input.removeEventListener("keydown", onKeydown);
+      els.revisionNameCreate?.removeEventListener("click", onCreate);
+      els.revisionNameCancel?.removeEventListener("click", onCancel);
+    };
+    const finish = (value) => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      resolve(value);
+    };
+    const onClose = () => {
+      if (dialog.returnValue === "ok") {
+        finish(normalizeSketchName(input.value) || fallback);
+      } else {
+        finish(null);
+      }
+    };
+    const onCancel = (event) => {
+      event?.preventDefault?.();
+      if (dialog.open) dialog.close("cancel");
+    };
+    const onCreate = () => {
+      if (dialog.open) dialog.close("ok");
+    };
+    const onKeydown = (event) => {
+      if (event.key === "Enter") {
+        event.preventDefault();
+        onCreate();
+      }
+    };
+    dialog.addEventListener("close", onClose);
+    dialog.addEventListener("cancel", onCancel);
+    input.addEventListener("keydown", onKeydown);
+    els.revisionNameCreate?.addEventListener("click", onCreate);
+    els.revisionNameCancel?.addEventListener("click", onCancel);
+    dialog.showModal();
+    window.setTimeout(() => {
+      input.focus();
+      input.select();
+    }, 0);
+  });
+}
+
 async function createCleanRevision() {
+  const activeProjectBeforeShelve = normalizeProjectRecord(await getActiveProject() || {});
+  const defaultName = nextRevisionName(activeProjectBeforeShelve);
+  const revisionName = await requestRevisionName(defaultName);
+  if (revisionName === null) return;
   await shelveEditorSketchIfNeeded();
   let project = await getActiveProject();
   if (!project) {
@@ -2753,7 +2818,7 @@ async function createCleanRevision() {
   project = normalizeProjectRecord(project);
   const revision = buildRevision({
     code: "",
-    name: nextRevisionName(project),
+    name: revisionName,
     specification: "",
     specificationMode: "middle",
     circuit: null,

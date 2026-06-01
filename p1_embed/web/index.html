@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>P1E</title>
     <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@24,400,0,0">
-    <link rel="stylesheet" href="style.css?v=0.1.87-ui279">
+    <link rel="stylesheet" href="style.css?v=0.1.87-ui280">
   </head>
   <body>
     <main id="app">
@@ -476,6 +476,22 @@
       </form>
     </dialog>
 
+    <dialog id="revision-name-dialog" class="dialog">
+      <form method="dialog" class="dialog-panel">
+        <header class="dialog-header">
+          <strong>New revision</strong>
+          <button id="revision-name-cancel-button" class="icon-button" value="cancel" type="button" aria-label="Cancel" title="Cancel"><span class="material-symbols-rounded">close</span></button>
+        </header>
+        <label class="field">
+          <span>Name</span>
+          <input id="revision-name-input" type="text" autocomplete="off" spellcheck="false">
+        </label>
+        <div class="dialog-actions dialog-actions-right">
+          <button id="revision-name-create-button" class="button primary settings-save-button" type="button">Create</button>
+        </div>
+      </form>
+    </dialog>
+
     <script src="https://cdnjs.cloudflare.com/ajax/libs/ace/1.43.3/ace.js" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/ace/1.43.3/mode-javascript.min.js" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/ace/1.43.3/theme-chaos.min.js" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
@@ -483,6 +499,6 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.9.4/p5.min.js" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
     <script src="../../P1/portal/usbSerial.js"></script>
     <script src="../../P1/portal/qrCodeGen.js"></script>
-    <script type="module" src="app.js?v=0.1.87-ui279"></script>
+    <script type="module" src="app.js?v=0.1.87-ui280"></script>
   </body>
 </html>
