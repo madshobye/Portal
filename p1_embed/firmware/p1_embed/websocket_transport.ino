@@ -205,6 +205,7 @@ static void webTransportEvent(uint8_t num, int type, uint8_t* payload, size_t le
     if (!protocolValidateScriptIntegrity(id.length() ? id : "0", code, expectedBytes, expectedHashHex)) {
       return;
     }
+    protocolPrepareScriptUpload();
     if (!scriptStoreSaveIncoming(code)) {
       protocolSendResponseError(id.length() ? id : "0", "storage_error", "Failed to stage incoming script");
       return;

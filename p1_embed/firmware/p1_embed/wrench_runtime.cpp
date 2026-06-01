@@ -55,6 +55,44 @@ static char g_wrenchTransitionReason[40] = "";
 static uint8_t g_wrenchLoopDebugMarkers = 0;
 static uint8_t g_wrenchConsecutiveErrorLoops = 0;
 
+struct P1CompileCrashLatch {
+  uint32_t magic;
+  uint32_t scriptHash;
+  uint32_t scriptBytes;
+  uint32_t startedAtMs;
+};
+
+static RTC_NOINIT_ATTR P1CompileCrashLatch g_compileCrashLatch;
+static const uint32_t P1_COMPILE_CRASH_MAGIC = 0xC011A7C5u;
+
+static void wrenchCompileCrashArm(uint32_t scriptHash, uint32_t scriptBytes) {
+  g_compileCrashLatch.magic = P1_COMPILE_CRASH_MAGIC;
+  g_compileCrashLatch.scriptHash = scriptHash;
+  g_compileCrashLatch.scriptBytes = scriptBytes;
+  g_compileCrashLatch.startedAtMs = millis();
+}
+
+static void wrenchCompileCrashClear() {
+  g_compileCrashLatch.magic = 0;
+  g_compileCrashLatch.scriptHash = 0;
+  g_compileCrashLatch.scriptBytes = 0;
+  g_compileCrashLatch.startedAtMs = 0;
+}
+
+void wrenchReportCompileCrashIfAny() {
+  if (g_compileCrashLatch.magic != P1_COMPILE_CRASH_MAGIC) return;
+  uint32_t scriptHash = g_compileCrashLatch.scriptHash;
+  uint32_t scriptBytes = g_compileCrashLatch.scriptBytes;
+  uint32_t startedAtMs = g_compileCrashLatch.startedAtMs;
+  wrenchCompileCrashClear();
+  String message = "previous script compile crashed the board";
+  String details = "\"scriptHash\":" + String(scriptHash);
+  details += ",\"scriptBytes\":" + String(scriptBytes);
+  details += ",\"startedAtMs\":" + String(startedAtMs);
+  details += ",\"hint\":\"try splitting large functions into smaller helpers\"";
+  scriptErrorSet("compile", "compile_crash", message, details);
+}
+
 static bool wrenchCheckStateError(WRState* wr, String& errOut, const char* phase) {
   if (!wr) {
     errOut = String(phase) + " failed: no Wrench state";
@@ -630,7 +668,8 @@ static WRError wrenchCompileOnWorker(const String& src, unsigned char** bytecode
   job.result = WR_ERR_None;
   job.done = xSemaphoreCreateBinary();
   if (!job.done) {
-    return wr_compile(src.c_str(), (int)src.length(), bytecodeOut, byteLenOut, &compileErr, WR_INCLUDE_GLOBALS);
+    compileErr = "could not allocate compile worker semaphore";
+    return WR_ERR_malloc_failed;
   }
 
   BaseType_t ok = xTaskCreatePinnedToCore(
@@ -638,13 +677,14 @@ static WRError wrenchCompileOnWorker(const String& src, unsigned char** bytecode
     "p1WrCompile",
     P1_EMBED_WRENCH_COMPILE_TASK_STACK,
     &job,
-    1,
+    0,
     nullptr,
     1);
 
   if (ok != pdPASS) {
     vSemaphoreDelete(job.done);
-    return wr_compile(src.c_str(), (int)src.length(), bytecodeOut, byteLenOut, &compileErr, WR_INCLUDE_GLOBALS);
+    compileErr = "could not start compile worker task";
+    return WR_ERR_malloc_failed;
   }
 
   while (xSemaphoreTake(job.done, pdMS_TO_TICKS(10)) != pdTRUE) {
@@ -727,9 +767,11 @@ static bool wrenchCompileSource(const String& userCode, unsigned char** bytecode
   int byteLen = 0;
   WRstr compileErr;
 
+  wrenchCompileCrashArm(protocolFnv1a(userCode), userCode.length());
   WRError ce = wrenchCompileOnWorker(src, &bytecode, &byteLen, compileErr);
+  wrenchCompileCrashClear();
   if (ce != WR_ERR_None || !bytecode || byteLen <= 0) {
-    errOut = compileErr.size() ? String(compileErr.c_str()) : String("compile failed code=") + String((int)ce);
+    errOut = compileErr.size() ? String(compileErr.c_str()) : String("compile failed: ") + scriptErrorWrenchName((int)ce);
     errOut = wrenchRemapCompileError(errOut, userLineOffset);
     g_scriptState = SCRIPT_ERROR;
     wrenchSetPhase(WRENCH_PHASE_ERROR);
@@ -807,6 +849,56 @@ bool wrenchCompileAndSet(const String& userCode, String& errOut) {
   return true;
 }
 
+bool wrenchSetCompiledBytecode(const String& userCode, const uint8_t* bytecodeData, size_t bytecodeLen, String& errOut) {
+  errOut = "";
+  if (!bytecodeData || bytecodeLen == 0) {
+    errOut = "empty bytecode";
+    scriptErrorSet("compile", "empty_bytecode", errOut);
+    return false;
+  }
+  if (bytecodeLen > P1_EMBED_MAX_BYTECODE_BYTES) {
+    errOut = "compiled bytecode too large";
+    String details = "\"bytecodeBytes\":" + String(bytecodeLen);
+    details += ",\"maxBytecodeBytes\":" + String(P1_EMBED_MAX_BYTECODE_BYTES);
+    scriptErrorSet("compile", "bytecode_too_large", errOut, details);
+    return false;
+  }
+  if (!wr_isBytecodeValid(bytecodeData, (unsigned int)bytecodeLen)) {
+    errOut = "invalid Wrench bytecode";
+    String details = "\"bytecodeBytes\":" + String(bytecodeLen);
+    scriptErrorSet("compile", "invalid_bytecode", errOut, details);
+    return false;
+  }
+  unsigned char* bytecode = (unsigned char*)wr_malloc(bytecodeLen);
+  if (!bytecode) {
+    errOut = "No heap for bytecode";
+    String details = "\"bytecodeBytes\":" + String(bytecodeLen);
+    details += ",\"freeHeap\":" + String(ESP.getFreeHeap());
+    details += ",\"maxAllocHeap\":" + String(ESP.getMaxAllocHeap());
+    scriptErrorSet("compile", "bytecode_no_heap", errOut, details);
+    return false;
+  }
+  memcpy(bytecode, bytecodeData, bytecodeLen);
+
+  wrenchLock();
+  g_wrenchRunPending = false;
+  wrenchStopLocked();
+  wrenchFreeBytecodeLocked();
+  wrenchSourceSet(userCode);
+  g_bytecode = bytecode;
+  g_bytecodeLen = (int)bytecodeLen;
+  g_scriptState = SCRIPT_COMPILED;
+  wrenchSetPhase(WRENCH_PHASE_COMPILED);
+  P1EventField fields[] = {
+    p1FieldString("state", "compiled"),
+    p1FieldUInt("scriptBytes", userCode.length()),
+    p1FieldUInt("bytecodeBytes", bytecodeLen),
+  };
+  protocolEmitEventFields("script.state", fields, 3);
+  wrenchUnlock();
+  return true;
+}
+
 bool wrenchRunCompiled(String& errOut) {
   errOut = "";
   wrenchTaskBegin();
@@ -832,7 +924,7 @@ bool wrenchRunCompiled(String& errOut) {
 
   ledBeginScriptRun();
 
-  g_wr = wr_newState();
+  g_wr = wr_newState(P1_EMBED_WRENCH_VM_STACK);
   if (!g_wr) {
     errOut = "wr_newState failed";
     g_scriptState = SCRIPT_ERROR;

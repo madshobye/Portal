@@ -779,6 +779,17 @@ enum WRGCObjectType
 
 #ifdef WRENCH_HANDLE_MALLOC_FAIL
 extern bool g_mallocFailed; // used as an internal global flag for when a malloc came back null
+#ifdef WRENCH_DEBUG_EXPR
+#include <stdio.h>
+inline void wr_debugMarkMallocFailed( int line )
+{
+	fprintf( stderr, "malloc flag line=%d\n", line );
+	g_mallocFailed = true;
+}
+#define WR_MARK_MALLOC_FAILED() wr_debugMarkMallocFailed( __LINE__ )
+#else
+#define WR_MARK_MALLOC_FAILED() g_mallocFailed = true
+#endif
 #endif
 
 extern WR_ALLOC g_malloc;
@@ -1396,7 +1407,26 @@ public:
 	inline unsigned int rfind( const char* str, const unsigned int from =npos ) const;
 	inline unsigned int findCase( const char* str, const unsigned int from =0 ) const;
 
-	WRstr& setSize( const unsigned int size, const bool preserveContents =true ) { alloc(size, preserveContents); m_len = size; m_str[size] = 0; return *this; }
+	WRstr& setSize( const unsigned int size, const bool preserveContents =true )
+	{
+#ifdef WRENCH_HANDLE_MALLOC_FAIL
+		if ( g_mallocFailed )
+		{
+			return *this;
+		}
+#endif
+		alloc(size, preserveContents);
+		if ( size > m_buflen )
+		{
+#ifdef WRENCH_HANDLE_MALLOC_FAIL
+			WR_MARK_MALLOC_FAILED();
+#endif
+			return *this;
+		}
+		m_len = size;
+		m_str[size] = 0;
+		return *this;
+	}
 
 	inline WRstr& alloc( const unsigned int characters, const bool preserveContents =true );
 
@@ -1659,6 +1689,17 @@ void WRstr::release( char** toBuf, unsigned int* len )
 	else if ( m_str == m_smallbuf )
 	{
 		*toBuf = (char*)g_malloc( m_len + 1 );
+		if ( !*toBuf )
+		{
+#ifdef WRENCH_HANDLE_MALLOC_FAIL
+			WR_MARK_MALLOC_FAILED();
+#endif
+			if ( len )
+			{
+				*len = 0;
+			}
+			return;
+		}
 		memcpy( *toBuf, m_str, m_len + 1 );
 	}
 	else
@@ -1741,9 +1782,22 @@ WRstr& WRstr::trim()
 //-----------------------------------------------------------------------------
 WRstr& WRstr::alloc( const unsigned int characters, const bool preserveContents )
 {
-	if ( characters >= m_buflen ) // only need to alloc if more space is requested than we have
+#ifdef WRENCH_HANDLE_MALLOC_FAIL
+	if ( g_mallocFailed )
+	{
+		return *this;
+	}
+#endif
+	if ( characters > m_buflen ) // only need to alloc if more space is requested than we have
 	{
 		char* newStr = (char*)g_malloc( characters + 1 ); // create the space
+#ifdef WRENCH_HANDLE_MALLOC_FAIL
+		if ( !newStr )
+		{
+			WR_MARK_MALLOC_FAILED();
+			return *this;
+		}
+#endif
 
 		if ( preserveContents ) 
 		{
@@ -1954,9 +2008,22 @@ bool WRstr::isWildMatchCase( const char* pattern, const char* haystack )
 //-----------------------------------------------------------------------------
 WRstr& WRstr::insert( const char* buf, const unsigned int len, const unsigned int startPos /*=0*/ )
 {
+#ifdef WRENCH_HANDLE_MALLOC_FAIL
+	if ( g_mallocFailed )
+	{
+		return *this;
+	}
+#endif
 	if ( len != 0 ) // insert 0? done
 	{
 		alloc( m_len + len + startPos, true ); // make sure there is enough room for the new string
+		if ( (m_len + len + startPos) > m_buflen )
+		{
+#ifdef WRENCH_HANDLE_MALLOC_FAIL
+			WR_MARK_MALLOC_FAILED();
+#endif
+			return *this;
+		}
 
 		if ( startPos < m_len ) // text after the insert, move everything up
 		{
@@ -1975,9 +2042,22 @@ WRstr& WRstr::insert( const char* buf, const unsigned int len, const unsigned in
 //-----------------------------------------------------------------------------
 WRstr& WRstr::append( const char c )
 {
-	if ( (m_len+1) >= m_buflen )
+#ifdef WRENCH_HANDLE_MALLOC_FAIL
+	if ( g_mallocFailed )
+	{
+		return *this;
+	}
+#endif
+	if ( (m_len+1) > m_buflen )
 	{
 		alloc( ((m_len * 3) / 2) + 1, true ); // single-character, expect a lot more are coming so alloc some buffer space
+		if ( (m_len+1) > m_buflen )
+		{
+#ifdef WRENCH_HANDLE_MALLOC_FAIL
+			WR_MARK_MALLOC_FAILED();
+#endif
+			return *this;
+		}	
 	}
 	m_str[ m_len++ ] = c;
 	m_str[ m_len ] = 0;
@@ -2004,6 +2084,14 @@ WRstr& WRstr::appendFormatVA( const char* format, va_list arg )
 	else
 	{
 		char* alloc = (char*)g_malloc( ++len );
+#ifdef WRENCH_HANDLE_MALLOC_FAIL
+		if ( !alloc )
+		{
+			WR_MARK_MALLOC_FAILED();
+			va_end( vacopy );
+			return *this;
+		}
+#endif
 
 		len = vsnprintf(alloc, len, format, arg);
 
@@ -2042,6 +2130,13 @@ WRstr& WRstr::format( const char* format, ... )
 	else
 	{
 		char* alloc = (char*)g_malloc(++len);
+#ifdef WRENCH_HANDLE_MALLOC_FAIL
+		if ( !alloc )
+		{
+			WR_MARK_MALLOC_FAILED();
+			return *this;
+		}
+#endif
 
 		va_start( arg, format );
 		len = vsnprintf( alloc, len, format, arg );
@@ -2070,6 +2165,13 @@ WRstr& WRstr::appendFormat( const char* format, ... )
 	else
 	{
 		char* alloc = (char*)g_malloc(++len);
+#ifdef WRENCH_HANDLE_MALLOC_FAIL
+		if ( !alloc )
+		{
+			WR_MARK_MALLOC_FAILED();
+			return *this;
+		}
+#endif
 
 		va_start( arg, format );
 		len = vsnprintf( alloc, len, format, arg );

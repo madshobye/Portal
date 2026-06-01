@@ -69,6 +69,7 @@ MQTT uses one binary command/response/event path and one plain text script path:
 - Prefer `while (i < count) { ... i = i + 1; }`; forgetting the increment can hang script logic.
 - Declare scratch variables before the loop: `var i = 0; var x = 0; var v = 0; while (...) { x = ...; v = ...; }`. Do not create new `var` variables inside the loop body.
 - Avoid long blocking loops in `setup()` or `loop()`. Communication and status updates should keep breathing.
+- Keep each function modest. For complex LED animations, split behavior into helpers such as `updateMotion(now)`, `drawPixelTrail(index, now)`, or `drawFrame(now)` instead of putting all motion, attraction, color, and drawing logic in one huge `loop()`.
 - Very large scripts can fail if contiguous heap is too fragmented. Keep big static JSON samples short when possible.
 - For HTTP weather/API scripts, WiFi must be connected before `httpGet()`.
 - LED setup should happen in Wrench with `ledConfig()` so the script owns the strip layout. A later script can reduce the count on the same pin without reboot; changing pin or growing beyond the active capacity requires reboot.

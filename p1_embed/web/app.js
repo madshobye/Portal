@@ -1,14 +1,14 @@
-import { ProtocolClient } from "./protocol/ProtocolClient.js?v=0.1.87-ui264";
-import { canEncodeCommand } from "./protocol/P1MsgPack.js?v=0.1.87-ui264";
-import { WebSerialTransport } from "./protocol/WebSerialTransport.js?v=0.1.87-ui264";
+import { ProtocolClient } from "./protocol/ProtocolClient.js?v=0.1.87-ui277";
+import { canEncodeCommand } from "./protocol/P1MsgPack.js?v=0.1.87-ui277";
+import { WebSerialTransport } from "./protocol/WebSerialTransport.js?v=0.1.87-ui277";
 import { WebSocketTransport } from "./protocol/WebSocketTransport.js";
-import { MqttWebRtcTransport, MQTT_WEBRTC_TRANSPORT_VERSION } from "./protocol/MqttWebRtcTransport.js?v=0.1.87-ui264";
-import { MqttTransport, MQTT_TRANSPORT_VERSION, clearOnlineAuthKey, deriveOnlineAuthKeyHex, storeOnlineAuthKey } from "./protocol/MqttTransport.js?v=0.1.87-ui264";
-import { P1WebFlasher } from "./web-flasher.js?v=0.1.87-ui264";
-import { inferCircuitLayout, initCircuitView, normalizeCircuitLayout } from "./circuit.js?v=0.1.87-ui264";
-import { initGuinoView } from "./guino.js?v=0.1.87-ui264";
+import { MqttWebRtcTransport, MQTT_WEBRTC_TRANSPORT_VERSION } from "./protocol/MqttWebRtcTransport.js?v=0.1.87-ui277";
+import { MqttTransport, MQTT_TRANSPORT_VERSION, clearOnlineAuthKey, deriveOnlineAuthKeyHex, storeOnlineAuthKey } from "./protocol/MqttTransport.js?v=0.1.87-ui277";
+import { P1WebFlasher } from "./web-flasher.js?v=0.1.87-ui277";
+import { inferCircuitLayout, initCircuitView, normalizeCircuitLayout } from "./circuit.js?v=0.1.87-ui277";
+import { initGuinoView } from "./guino.js?v=0.1.87-ui277";
 
-const WEB_UI_VERSION = "0.1.87-ui264";
+const WEB_UI_VERSION = "0.1.87-ui277";
 const CHAT_DEFAULT_MAX_OUTPUT_TOKENS = 8000;
 const CHAT_MIN_MAX_OUTPUT_TOKENS = 1024;
 const CHAT_HARD_MAX_OUTPUT_TOKENS = 32000;
@@ -262,6 +262,7 @@ let wifiDraftDirty = false;
 let lastConfig = null;
 let uploadState = { phase: "", label: "", progress: 0 };
 let uploadClearTimer = null;
+let localUploadActiveUntil = 0;
 let currentProjectId = "";
 let currentRevisionId = "";
 let projectCache = [];
@@ -1812,6 +1813,7 @@ async function setScript({ run, save }) {
 
 async function uploadScriptCode(code, { run, save, name = "" }) {
   let data;
+  localUploadActiveUntil = Date.now() + 120000;
   setUploadState("uploading", "Uploading code", 8);
   try {
     clearEditorError();
@@ -2162,6 +2164,31 @@ function revisionEquivalent(left, right) {
     && JSON.stringify(normalizeCircuitLayout(left.circuit) || null) === JSON.stringify(normalizeCircuitLayout(right.circuit) || null);
 }
 
+function revisionContentEquivalent(left, right) {
+  if (!left || !right) return false;
+  return String(left.code || "") === String(right.code || "")
+    && String(left.specification || "") === String(right.specification || "")
+    && normalizeSpecificationMode(left.specificationMode) === normalizeSpecificationMode(right.specificationMode);
+}
+
+function revisionCodeEquivalent(left, right) {
+  if (!left || !right) return false;
+  return String(left.code || "") === String(right.code || "");
+}
+
+function moveRevisionToFront(project, revisionId) {
+  if (!project?.revisions?.length || !revisionId) return project;
+  const index = project.revisions.findIndex((revision) => revision.id === revisionId);
+  if (index <= 0) return project;
+  const revisions = project.revisions.slice();
+  const [revision] = revisions.splice(index, 1);
+  revisions.unshift(revision);
+  return {
+    ...project,
+    revisions,
+  };
+}
+
 function nextRevisionName(project) {
   const count = Array.isArray(project?.revisions) ? project.revisions.length + 1 : 1;
   return `Revision ${count}`;
@@ -2371,7 +2398,7 @@ async function rememberUploadedSketch(code, name = "", {
 } = {}) {
   const current = String(code ?? "");
   if (!current.trim()) return;
-  const project = await ensureProjectForWrite({ code: current, nameHint: name });
+  let project = await ensureProjectForWrite({ code: current, nameHint: name });
   const revisionName = normalizeSketchName(name)
     || (source === "manual" || source === "upload" ? nextNamedRevisionName(project, currentSketchName) : nextRevisionName(project));
   const revision = buildRevision({
@@ -2382,11 +2409,43 @@ async function rememberUploadedSketch(code, name = "", {
     circuit: circuit === undefined ? projectCircuitForCurrentCode(current) : circuit,
     source,
   });
-  const previous = activeRevision(project);
-  if (previous && revisionEquivalent(previous, revision)) {
+  const matchingRevision = project.revisions.find((item) => revisionContentEquivalent(item, revision))
+    || (source === "upload" ? project.revisions.find((item) => revisionCodeEquivalent(item, revision)) : null);
+  if (matchingRevision) {
+    const keepExistingSpec = !revisionContentEquivalent(matchingRevision, revision)
+      && revisionCodeEquivalent(matchingRevision, revision)
+      && source === "upload"
+      && description === undefined
+      && currentProjectDescription === currentProjectDescriptionSource;
+    const updatedMatching = {
+      ...matchingRevision,
+      specification: keepExistingSpec ? matchingRevision.specification : revision.specification,
+      specificationMode: keepExistingSpec ? matchingRevision.specificationMode : revision.specificationMode,
+      circuit: revision.circuit,
+      chat: normalizeChatMessages(revision.chat),
+      bytes: revision.bytes,
+    };
+    project.revisions = project.revisions.map((item) => item.id === matchingRevision.id ? updatedMatching : item);
+    project = moveRevisionToFront(project, matchingRevision.id);
+    project.activeRevisionId = matchingRevision.id;
     const saved = await saveProject(project);
     await persistProjectMetadataToDevice(saved);
-    await openProjectRevision(saved, previous, { saveCurrent: false });
+    await openProjectRevision(saved, updatedMatching, { saveCurrent: false });
+    return;
+  }
+  const previous = project.revisions.find((item) => item.id === currentRevisionId) || activeRevision(project);
+  if (previous && revisionContentEquivalent(previous, revision)) {
+    const updatedPrevious = {
+      ...previous,
+      circuit: revision.circuit,
+      chat: normalizeChatMessages(revision.chat),
+      bytes: revision.bytes,
+    };
+    project.revisions = project.revisions.map((item) => item.id === previous.id ? updatedPrevious : item);
+    project.activeRevisionId = previous.id;
+    const saved = await saveProject(project);
+    await persistProjectMetadataToDevice(saved);
+    await openProjectRevision(saved, updatedPrevious, { saveCurrent: false });
     return;
   }
   project.revisions.unshift(revision);
@@ -3385,6 +3444,7 @@ function shouldLogEvent(name, data = {}, message = "") {
 }
 
 function updateUploadFromEvent(data = {}) {
+  if (Date.now() > localUploadActiveUntil) return;
   const state = String(data.state || data.phase || "").toLowerCase();
   if (state === "queued") {
     setUploadState("queued", "Upload received", 90);
@@ -3422,6 +3482,7 @@ function setUploadState(phase = "", label = "", progress = 0, { autoClear = fals
     uploadClearTimer = window.setTimeout(() => {
       uploadClearTimer = null;
       uploadState = { phase: "", label: "", progress: 0 };
+      localUploadActiveUntil = 0;
       renderUploadState();
     }, phase === "error" ? 5200 : 2600);
   }

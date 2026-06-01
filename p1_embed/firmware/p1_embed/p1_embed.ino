@@ -79,6 +79,8 @@ void setup() {
   protocolEmitBoot();
   memoryProfileMark("protocol", "boot_emit");
 #if P1_EMBED_WRENCH_ENABLED
+  wrenchReportCompileCrashIfAny();
+  memoryProfileMark("wrench", "compile_crash_check");
 #if P1_EMBED_WRENCH_AUTORUN_ENABLED
   wrenchTaskBegin();
   memoryProfileMark("wrench_task", "begin");

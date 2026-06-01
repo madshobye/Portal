@@ -1,4 +1,4 @@
-import { MsgPackReader, MsgPackWriter } from "./P1MsgPack.js?v=0.1.87-ui264";
+import { MsgPackReader, MsgPackWriter } from "./P1MsgPack.js?v=0.1.87-ui275";
 
 const DEFAULT_MQTT_ROOT = "";
 const FRAME_AUTH = 3;
@@ -9,7 +9,7 @@ const AUTH_FINISH = 2;
 const AUTH_OK = 3;
 const AUTH_ERROR = 4;
 
-export const MQTT_TRANSPORT_VERSION = "0.1.87-ui264";
+export const MQTT_TRANSPORT_VERSION = "0.1.87-ui275";
 
 console.info(`[P1E mqtt] loaded ${MQTT_TRANSPORT_VERSION}`);
 
@@ -214,11 +214,17 @@ export class MqttTransport extends EventTarget {
       });
       return;
     }
+    if (this.authRequired && this.sessionId && topic === this.eventTopic()) {
+      return;
+    }
     this.emit("frame", { data: bytes });
   }
 
   isAuthFrame(bytes) {
-    return bytes?.length >= 2 && (bytes[0] & 0xf0) === 0x90 && bytes[1] === FRAME_AUTH;
+    return bytes?.length >= 3
+      && (bytes[0] & 0xf0) === 0x90
+      && bytes[1] === FRAME_AUTH
+      && isMsgPackUIntPrefix(bytes[2]);
   }
 
   isSecureFrame(bytes) {
@@ -438,6 +444,10 @@ function publish(client, topic, payload) {
 
 function hexHead(bytes, count = 12) {
   return Array.from(bytes.slice(0, Math.min(count, bytes.length)), (byte) => byte.toString(16).padStart(2, "0")).join(" ");
+}
+
+function isMsgPackUIntPrefix(byte) {
+  return byte <= 0x7f || byte === 0xcc || byte === 0xcd || byte === 0xce;
 }
 
 function wait(ms) {

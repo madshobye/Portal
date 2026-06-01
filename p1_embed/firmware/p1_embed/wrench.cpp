@@ -100,8 +100,18 @@ public:
 	T* newArray( int size )
 	{
 		if ( !size ) return 0;
+#ifdef WRENCH_HANDLE_MALLOC_FAIL
+		if ( g_mallocFailed ) return 0;
+#endif
 		
 		T* t = (T*)g_malloc( sizeof(T) * size );
+#ifdef WRENCH_HANDLE_MALLOC_FAIL
+		if ( !t )
+		{
+			WR_MARK_MALLOC_FAILED();
+			return 0;
+		}
+#endif
 		for( int i=0; i<size; ++i )
 		{
 			new (&(t[i])) T();
@@ -133,11 +143,49 @@ public:
 	}
 	
 	unsigned int count() const { return m_elementsAllocated; }
+	void setCountExact( unsigned int count )
+	{
+#ifdef WRENCH_HANDLE_MALLOC_FAIL
+		if ( g_mallocFailed )
+		{
+			return;
+		}
+#endif
+		clear();
+		if ( !count )
+		{
+			return;
+		}
+		m_list = newArray( count );
+		if ( !m_list )
+		{
+#ifdef WRENCH_HANDLE_MALLOC_FAIL
+			WR_MARK_MALLOC_FAILED();
+#endif
+			return;
+		}
+		m_elementsNewed = count;
+		m_elementsAllocated = count;
+	}
+
 	void setCount( unsigned int count )
 	{
+#ifdef WRENCH_HANDLE_MALLOC_FAIL
+		if ( g_mallocFailed )
+		{
+			return;
+		}
+#endif
 		if ( count >= m_elementsNewed )
 		{
 			alloc( count + 1 ); 
+			if ( count >= m_elementsNewed )
+			{
+#ifdef WRENCH_HANDLE_MALLOC_FAIL
+				WR_MARK_MALLOC_FAILED();
+#endif
+				return;
+			}
 		}
 		m_elementsAllocated = count; 
 	}
@@ -145,30 +193,37 @@ public:
 	//------------------------------------------------------------------------------
 	unsigned int remove( unsigned int location, unsigned int count =1 )
 	{
-		if ( location >= m_elementsAllocated )
+#ifdef WRENCH_HANDLE_MALLOC_FAIL
+		if ( g_mallocFailed )
+		{
+			return m_elementsAllocated;
+		}
+#endif
+		if ( !count || location >= m_elementsAllocated )
 		{
 			return m_elementsAllocated;
 		}
 
-		unsigned int newCount;
-		if ( count > m_elementsAllocated )
+		unsigned int remaining = m_elementsAllocated - location;
+		if ( count >= remaining )
 		{
 			if ( location == 0 )
 			{
 				clear();
 				return 0;
 			}
-			else
-			{
-				newCount = location + 1;
-			}
-		}
-		else
-		{
-			newCount = m_elementsAllocated - count;
+			count = remaining;
 		}
 
+		unsigned int newCount = m_elementsAllocated - count;
 		T* na = newArray( newCount );
+		if ( !na )
+		{
+#ifdef WRENCH_HANDLE_MALLOC_FAIL
+			WR_MARK_MALLOC_FAILED();
+#endif
+			return m_elementsAllocated;
+		}
 
 		if ( location == 0 )
 		{
@@ -206,10 +261,20 @@ public:
 	//------------------------------------------------------------------------------
 	void alloc( const unsigned int size )
 	{
+#ifdef WRENCH_HANDLE_MALLOC_FAIL
+		if ( g_mallocFailed )
+		{
+			return;
+		}
+#endif
 		if ( size > m_elementsNewed )
 		{
 			unsigned int newSize = size + (size/2) + 1;
 			T* na = newArray( newSize );
+			if ( !na )
+			{
+				return;
+			}
 
 			if ( m_list )
 			{
@@ -228,16 +293,47 @@ public:
 
 	//------------------------------------------------------------------------------
 	T* push() { return &get( m_elementsAllocated ); }
-	T* tail() { return m_elementsAllocated ? m_list + (m_elementsAllocated - 1) : 0; }
+	T* tail()
+	{
+		static T dummy;
+#ifdef WRENCH_HANDLE_MALLOC_FAIL
+		if ( g_mallocFailed )
+		{
+			return &dummy;
+		}
+#endif
+		return m_elementsAllocated ? m_list + (m_elementsAllocated - 1) : 0;
+	}
 	void pop() { if ( m_elementsAllocated > 0 ) { --m_elementsAllocated; }  }
 
 	T& append() { return get( m_elementsAllocated ); }
 	T& get( const unsigned int l )
 	{
+		static T dummy;
+#ifdef WRENCH_HANDLE_MALLOC_FAIL
+		if ( g_mallocFailed )
+		{
+			return dummy;
+		}
+#endif
 		if ( l >= m_elementsNewed )
 		{
 			alloc(l + 1);
+			if ( l >= m_elementsNewed )
+			{
+#ifdef WRENCH_HANDLE_MALLOC_FAIL
+				WR_MARK_MALLOC_FAILED();
+#endif
+				return dummy;
+			}
 			m_elementsAllocated = l + 1;
+		}
+		if ( !m_list )
+		{
+#ifdef WRENCH_HANDLE_MALLOC_FAIL
+			WR_MARK_MALLOC_FAILED();
+#endif
+			return dummy;
 		}
 		else if ( l >= m_elementsAllocated )
 		{
@@ -252,7 +348,13 @@ public:
 	{
 		m_list = 0;
 		clear();
-		m_list = newArray( A.m_elementsAllocated );
+		m_list = newArray( A.m_elementsNewed );
+		if ( !m_list )
+		{
+			m_elementsNewed = 0;
+			m_elementsAllocated = 0;
+			return;
+		}
 		m_elementsNewed = A.m_elementsNewed;
 		for( unsigned int i=0; i<A.m_elementsAllocated; ++i )
 		{
@@ -268,6 +370,12 @@ public:
 		{
 			clear();
 			m_list = newArray( A.m_elementsNewed );
+			if ( !m_list )
+			{
+				m_elementsAllocated = 0;
+				m_elementsNewed = 0;
+				return *this;
+			}
 			for( unsigned int i=0; i<A.m_elementsAllocated; ++i )
 			{
 				m_list[i] = A.m_list[i];
@@ -292,6 +400,8 @@ template <class T> class WRHashTable
 public:
 	WRHashTable( unsigned int sizeHint =0 )
 	{
+		m_mod = (int)c_primeTable[0];
+		m_list = 0;
 		for( uint16_t i=0; c_primeTable[i]; ++i )
 		{
 			if ( sizeHint < c_primeTable[i] )
@@ -314,8 +424,18 @@ public:
 	Node* newArray( int size )
 	{
 		if ( !size ) return 0;
+#ifdef WRENCH_HANDLE_MALLOC_FAIL
+		if ( g_mallocFailed ) return 0;
+#endif
 
 		Node* n = (Node*)g_malloc( sizeof(Node) * size );
+#ifdef WRENCH_HANDLE_MALLOC_FAIL
+		if ( !n )
+		{
+			WR_MARK_MALLOC_FAILED();
+			return 0;
+		}
+#endif
 		for( int i=0; i<size; ++i )
 		{
 			new (&(n[i].value)) T();
@@ -349,6 +469,10 @@ public:
 	//------------------------------------------------------------------------------
 	T* get( uint32_t hash )
 	{
+		if ( !m_list || !m_mod )
+		{
+			return 0;
+		}
 		Node& N = m_list[hash % m_mod];
 		return (N.hash == hash) ? &N.value : 0;
 	}
@@ -356,13 +480,21 @@ public:
 	//------------------------------------------------------------------------------
 	T getItem( uint32_t hash )
 	{
+		if ( !m_list || !m_mod )
+		{
+			return T();
+		}
 		Node& N = m_list[hash % m_mod];
-		return (N.hash == hash) ? N.value : 0;
+		return (N.hash == hash) ? N.value : T();
 	}
 
 	//------------------------------------------------------------------------------
 	void remove( uint32_t hash )
 	{
+		if ( !m_list || !m_mod )
+		{
+			return;
+		}
 		uint32_t key = hash % m_mod;
 		if ( m_list[key].hash == hash ) // at least CHECK.. 
 		{
@@ -373,6 +505,10 @@ public:
 	//------------------------------------------------------------------------------
 	bool set( uint32_t hash, T const& value )
 	{
+		if ( !m_list || !m_mod )
+		{
+			return false;
+		}
 		uint32_t key = hash % m_mod;
 		// clobber on collide, assume the user knows what they are doing
 		if ( (m_list[key].hash == WRENCH_NULL_HASH) || (m_list[key].hash == hash) )
@@ -402,6 +538,10 @@ public:
 
 			// this causes a bad fragmentation on small memory systems
 			Node* newList = newArray( newMod );
+			if ( !newList )
+			{
+				return false;
+			}
 
 			int h = 0;
 			for( ; h<m_mod; ++h )
@@ -529,7 +669,7 @@ public:
 		if ( !m_buf )
 		{
 			m_size = 0;
-			g_mallocFailed = true;
+			WR_MARK_MALLOC_FAILED();
 		}
 		else
 #endif
@@ -579,15 +719,16 @@ public:
 
 		if ( m_pos + size >= m_size )
 		{
-			m_size += (size*2) + 8;
-			char* newBuf = (char*)g_malloc( m_size );
+			unsigned int newSize = m_size + (size*2) + 8;
+			char* newBuf = (char*)g_malloc( newSize );
 #ifdef WRENCH_HANDLE_MALLOC_FAIL
 			if ( !newBuf )
 			{
-				g_mallocFailed = true;
+				WR_MARK_MALLOC_FAILED();
 				return;
 			}
 #endif
+			m_size = newSize;
 			if ( m_pos > 0 )
 			{
 				memcpy( newBuf, m_buf, m_pos );
@@ -1715,20 +1856,29 @@ public:
 		{
 			return *this;
 		}
+#ifdef WRENCH_HANDLE_MALLOC_FAIL
+		if ( g_mallocFailed )
+		{
+			return *this;
+		}
+#endif
 
 		if ( (size + m_len) >= m_bufLen )
 		{
 			unsigned char* buf = m_buf;
-			m_bufLen = size + m_len + (m_bufLen * 3)/2;
-			m_buf = (unsigned char *)g_malloc( m_bufLen );
+			unsigned int oldBufLen = m_bufLen;
+			unsigned int newBufLen = size + m_len + (m_bufLen * 3)/2;
+			m_buf = (unsigned char *)g_malloc( newBufLen );
 			if ( !m_buf )
 			{
 #ifdef WRENCH_HANDLE_MALLOC_FAIL
-				g_mallocFailed = true;
+				WR_MARK_MALLOC_FAILED();
 #endif
 				m_buf = buf;
+				m_bufLen = oldBufLen;
 				return *this;
 			}
+			m_bufLen = newBufLen;
 			if ( m_len )
 			{
 				memcpy( m_buf, buf, m_len );
@@ -2008,11 +2158,11 @@ struct WRExpressionContext
 
 	void setLocalSpace( WRarray<WRNamespaceLookup>& localSpace, bool isStructSpace )
 	{
-		bytecode.localSpace.clear();
 		bytecode.isStructSpace = isStructSpace;
+		bytecode.localSpace.setCountExact( localSpace.count() );
 		for( unsigned int l=0; l<localSpace.count(); ++l )
 		{
-			bytecode.localSpace.append().hash = localSpace[l].hash;
+			bytecode.localSpace[l].hash = localSpace[l].hash;
 		}
 		type = EXTYPE_NONE;
 	}
@@ -2026,8 +2176,10 @@ struct WRExpressionContext
 		spaceAfter = false;
 		global = false;
 		stackPosition = -1;
+		prefix.clear();
 		token.clear();
 		value.init();
+		literalString.clear();
 		bytecode.clear();
 		bytecode2.clear();
 		operation = 0;
@@ -2113,9 +2265,10 @@ public:
 	{
 		reset();
 		bytecode.isStructSpace = isStructSpace;
+		bytecode.localSpace.setCountExact( localSpace.count() );
 		for( unsigned int l=0; l<localSpace.count(); ++l )
 		{
-			bytecode.localSpace.append().hash = localSpace[l].hash;
+			bytecode.localSpace[l].hash = localSpace[l].hash;
 		}
 	}
 
@@ -3160,6 +3313,13 @@ WRError WRCompilationContext::compile( const char* source,
 
 	do
 	{
+#ifdef WRENCH_HANDLE_MALLOC_FAIL
+		if ( g_mallocFailed )
+		{
+			m_err = WR_ERR_malloc_failed;
+			break;
+		}
+#endif
 		WRExpressionContext ex;
 		WRstr& token = ex.token;
 		WRValue& value = ex.value;
@@ -3175,6 +3335,12 @@ WRError WRCompilationContext::compile( const char* source,
 		parseStatement( 0, ';', O_GlobalStop );
 
 	} while ( !m_EOF && (m_err == WR_ERR_None) );
+#ifdef WRENCH_HANDLE_MALLOC_FAIL
+	if ( g_mallocFailed && m_err == WR_ERR_None )
+	{
+		m_err = WR_ERR_malloc_failed;
+	}
+#endif
 
 	WRstr msg;
 
@@ -3414,28 +3580,64 @@ int WRCompilationContext::getSourcePosition( int& onLine, int& onChar, WRstr* li
 int WRCompilationContext::addRelativeJumpTarget( WRBytecode& bytecode )
 {
 	bytecode.jumpOffsetTargets.append().references.clear();
+#ifdef WRENCH_HANDLE_MALLOC_FAIL
+	if ( g_mallocFailed || !bytecode.jumpOffsetTargets.count() )
+	{
+		return -1;
+	}
+#endif
 	return bytecode.jumpOffsetTargets.count() - 1;
 }
 
 //------------------------------------------------------------------------------
 void WRCompilationContext::setRelativeJumpTarget( WRBytecode& bytecode, int relativeJumpTarget )
 {
+#ifdef WRENCH_HANDLE_MALLOC_FAIL
+	if ( g_mallocFailed || relativeJumpTarget < 0 )
+	{
+		return;
+	}
+#endif
 	bytecode.jumpOffsetTargets[relativeJumpTarget].offset = bytecode.all.size();
 }
 
 //------------------------------------------------------------------------------
 void WRCompilationContext::addRelativeJumpSourceEx( WRBytecode& bytecode, WROpcode opcode, int relativeJumpTarget, const unsigned char* data, const int dataSize )
 {
+#ifdef WRENCH_HANDLE_MALLOC_FAIL
+	if ( g_mallocFailed || relativeJumpTarget < 0 )
+	{
+		return;
+	}
+#endif
 	pushOpcode( bytecode, opcode );
+#ifdef WRENCH_HANDLE_MALLOC_FAIL
+	if ( g_mallocFailed )
+	{
+		return;
+	}
+#endif
 
 	int offset = bytecode.all.size();
 	
 	if ( dataSize ) // additional data
 	{
 		pushData( bytecode, data, dataSize );
+#ifdef WRENCH_HANDLE_MALLOC_FAIL
+		if ( g_mallocFailed )
+		{
+			return;
+		}
+#endif
 	}
 
 	bytecode.jumpOffsetTargets[relativeJumpTarget].references.append() = offset;
+#ifdef WRENCH_HANDLE_MALLOC_FAIL
+	if ( g_mallocFailed )
+	{
+		return;
+	}
+#endif
 
 	pushData( bytecode, "\t\t", 2 ); // 16-bit relative vector
 }
@@ -3445,7 +3647,19 @@ void WRCompilationContext::addRelativeJumpSourceEx( WRBytecode& bytecode, WROpco
 // add a jump FROM with whatever opcode is supposed to do it
 void WRCompilationContext::addRelativeJumpSource( WRBytecode& bytecode, WROpcode opcode, int relativeJumpTarget )
 {
+#ifdef WRENCH_HANDLE_MALLOC_FAIL
+	if ( g_mallocFailed || relativeJumpTarget < 0 )
+	{
+		return;
+	}
+#endif
 	pushOpcode( bytecode, opcode );
+#ifdef WRENCH_HANDLE_MALLOC_FAIL
+	if ( g_mallocFailed || !bytecode.opcodes.size() )
+	{
+		return;
+	}
+#endif
 
 	int offset = bytecode.all.size();
 	switch( bytecode.opcodes[bytecode.opcodes.size() - 1] )
@@ -3490,6 +3704,12 @@ void WRCompilationContext::addRelativeJumpSource( WRBytecode& bytecode, WROpcode
 	}
 	
 	bytecode.jumpOffsetTargets[relativeJumpTarget].references.append() = offset;
+#ifdef WRENCH_HANDLE_MALLOC_FAIL
+	if ( g_mallocFailed )
+	{
+		return;
+	}
+#endif
 	pushData( bytecode, "\t\t", 2 );
 }
 
@@ -4137,7 +4357,10 @@ void WRExpression::swapWithTop( int stackPosition, bool addOpcodes )
 		}
 	}
 
-	assert( (currentTop != (unsigned int)-1) && (swapWith != (unsigned int)-1) );
+	if ( (currentTop == (unsigned int)-1) || (swapWith == (unsigned int)-1) )
+	{
+		return;
+	}
 
 	if ( addOpcodes )
 	{
@@ -4152,9 +4375,22 @@ void WRExpression::swapWithTop( int stackPosition, bool addOpcodes )
 //------------------------------------------------------------------------------
 void WRCompilationContext::resolveExpression( WRExpression& expression )
 {
+#ifdef WRENCH_HANDLE_MALLOC_FAIL
+	if ( g_mallocFailed )
+	{
+		m_err = WR_ERR_malloc_failed;
+		return;
+	}
+#endif
 	if ( expression.context.count() == 1 ) // single expression is trivial to resolve, load it!
 	{
 		loadExpressionContext( expression, 0, 0 );
+#ifdef WRENCH_HANDLE_MALLOC_FAIL
+		if ( g_mallocFailed )
+		{
+			m_err = WR_ERR_malloc_failed;
+		}
+#endif
 		return;
 	}
 
@@ -4166,6 +4402,13 @@ void WRCompilationContext::resolveExpression( WRExpression& expression )
 		// left to right operations
 		for( int o=0; (unsigned int)o < expression.context.count(); ++o )
 		{
+#ifdef WRENCH_HANDLE_MALLOC_FAIL
+			if ( g_mallocFailed )
+			{
+				m_err = WR_ERR_malloc_failed;
+				return;
+			}
+#endif
 			if ( (expression.context[o].type != EXTYPE_OPERATION)
 				 || expression.context[o].operation->precedence > p
 				 || !expression.context[o].operation->leftToRight )
@@ -4184,6 +4427,13 @@ void WRCompilationContext::resolveExpression( WRExpression& expression )
 		// right to left operations
 		for( int o = expression.context.count() - 1; o >= 0; --o )
 		{
+#ifdef WRENCH_HANDLE_MALLOC_FAIL
+			if ( g_mallocFailed )
+			{
+				m_err = WR_ERR_malloc_failed;
+				return;
+			}
+#endif
 			if ( (expression.context[o].type != EXTYPE_OPERATION)
 				 || expression.context[o].operation->precedence > p
 				 || expression.context[o].operation->leftToRight )
@@ -4210,6 +4460,20 @@ void WRCompilationContext::resolveExpression( WRExpression& expression )
 //------------------------------------------------------------------------------
 unsigned int WRCompilationContext::resolveExpressionEx( WRExpression& expression, int o, int p )
 {
+#ifdef WRENCH_HANDLE_MALLOC_FAIL
+#define WR_EXPR_RETURN_ON_MALLOC_FAIL() do { if ( g_mallocFailed ) { m_err = WR_ERR_malloc_failed; return 0; } } while (0)
+	if ( g_mallocFailed
+		 || o < 0
+		 || (unsigned int)o >= expression.context.count()
+		 || expression.context[o].type != EXTYPE_OPERATION
+		 || !expression.context[o].operation )
+	{
+		m_err = WR_ERR_malloc_failed;
+		return 0;
+	}
+#else
+#define WR_EXPR_RETURN_ON_MALLOC_FAIL() do {} while (0)
+#endif
 	unsigned int ret = 0;
 	switch( expression.context[o].operation->type )
 	{
@@ -4221,15 +4485,17 @@ unsigned int WRCompilationContext::resolveExpressionEx( WRExpression& expression
 			{
 				loadExpressionContext( expression, o + 1, 0 ); // load argument
 			}
-			else if ( expression.context[o + 1].stackPosition != 0 )
-			{
-				expression.swapWithTop( expression.context[o + 1].stackPosition );
-			}
+				else if ( expression.context[o + 1].stackPosition != 0 )
+				{
+					expression.swapWithTop( expression.context[o + 1].stackPosition );
+				}
+				WR_EXPR_RETURN_ON_MALLOC_FAIL();
 
-			appendBytecode( expression.bytecode, expression.context[o].bytecode );  // apply operator
-			expression.context.remove( o, 1 ); // knock off operator
-			expression.pushToStack(o);
-			break;
+				appendBytecode( expression.bytecode, expression.context[o].bytecode );  // apply operator
+				WR_EXPR_RETURN_ON_MALLOC_FAIL();
+				expression.context.remove( o, 1 ); // knock off operator
+				expression.pushToStack(o);
+				break;
 		}
 
 		case WR_OPER_BINARY_COMMUTE:
@@ -4285,9 +4551,9 @@ unsigned int WRCompilationContext::resolveExpressionEx( WRExpression& expression
 			{
 				expression.swapWithTop( expression.context[second].stackPosition );
 			}
-			else
-			{
-				// first and second are both loaded but neither
+				else
+				{
+					// first and second are both loaded but neither
 				// is in the correct position
 
 				WRCompilationContext::pushOpcode( expression.bytecode, O_SwapTwoToTop );
@@ -4298,13 +4564,15 @@ unsigned int WRCompilationContext::resolveExpressionEx( WRExpression& expression
 
 				expression.swapWithTop( expression.context[second].stackPosition, false );
 				expression.swapWithTop( 1, false );
-				expression.swapWithTop( expression.context[first].stackPosition, false );
-			}
+					expression.swapWithTop( expression.context[first].stackPosition, false );
+				}
+				WR_EXPR_RETURN_ON_MALLOC_FAIL();
 
-			appendBytecode( expression.bytecode, expression.context[o].bytecode ); // apply operator
+				appendBytecode( expression.bytecode, expression.context[o].bytecode ); // apply operator
+				WR_EXPR_RETURN_ON_MALLOC_FAIL();
 
-			expression.context.remove( o - 1, 2 ); // knock off operator and arg
-			expression.pushToStack(o - 1);
+				expression.context.remove( o - 1, 2 ); // knock off operator and arg
+				expression.pushToStack(o - 1);
 
 			break;
 		}
@@ -4330,23 +4598,28 @@ unsigned int WRCompilationContext::resolveExpressionEx( WRExpression& expression
 			if ( expression.context[second].stackPosition == -1 )
 			{
 				if ( expression.context[first].stackPosition == -1 )
-				{
-					loadExpressionContext( expression, second, o ); // nope, grab 'em
-					loadExpressionContext( expression, first, o ); 
-				}
-				else
-				{
+					{
+						loadExpressionContext( expression, second, o ); // nope, grab 'em
+						WR_EXPR_RETURN_ON_MALLOC_FAIL();
+						loadExpressionContext( expression, first, o ); 
+						WR_EXPR_RETURN_ON_MALLOC_FAIL();
+					}
+					else
+					{
 					// first is in the stack somewhere, we need
 					// to swap it to the top, then load, then
 					// swap top values
-					expression.swapWithTop( expression.context[first].stackPosition );
+						expression.swapWithTop( expression.context[first].stackPosition );
+						WR_EXPR_RETURN_ON_MALLOC_FAIL();
 
-					loadExpressionContext( expression, second, o );
+						loadExpressionContext( expression, second, o );
+						WR_EXPR_RETURN_ON_MALLOC_FAIL();
 
-					if ( expression.context[o].operation->alt == O_LAST )
-					{
-						expression.swapWithTop( 1 );
-					}
+						if ( expression.context[o].operation->alt == O_LAST )
+						{
+							expression.swapWithTop( 1 );
+							WR_EXPR_RETURN_ON_MALLOC_FAIL();
+						}
 					else // otherwise top shuffle is NOT required because we have an equal-but-opposite operation
 					{
 						useAlt = true;
@@ -4397,9 +4670,9 @@ unsigned int WRCompilationContext::resolveExpressionEx( WRExpression& expression
 					expression.swapWithTop( expression.context[first].stackPosition, false );
 				}
 			}
-			else
-			{
-				// first and second are both loaded but neither is in the correct position
+				else
+				{
+					// first and second are both loaded but neither is in the correct position
 
 				WRCompilationContext::pushOpcode( expression.bytecode, O_SwapTwoToTop );
 				unsigned char pos = expression.context[first].stackPosition + 1;
@@ -4409,20 +4682,22 @@ unsigned int WRCompilationContext::resolveExpressionEx( WRExpression& expression
 
 				expression.swapWithTop( expression.context[second].stackPosition, false );
 				expression.swapWithTop( 1, false );
-				expression.swapWithTop( expression.context[first].stackPosition, false );
-			}
+					expression.swapWithTop( expression.context[first].stackPosition, false );
+				}
+				WR_EXPR_RETURN_ON_MALLOC_FAIL();
 
-			if ( useAlt )
-			{
-				pushOpcode( expression.bytecode, expression.context[o].operation->alt );
-			}
-			else
-			{
-				appendBytecode( expression.bytecode, expression.context[o].bytecode ); // apply operator
-			}
+				if ( useAlt )
+				{
+					pushOpcode( expression.bytecode, expression.context[o].operation->alt );
+				}
+				else
+				{
+					appendBytecode( expression.bytecode, expression.context[o].bytecode ); // apply operator
+				}
+				WR_EXPR_RETURN_ON_MALLOC_FAIL();
 
-			expression.context.remove( o - 1, 2 ); // knock off operator and arg
-			expression.pushToStack(o - 1);
+				expression.context.remove( o - 1, 2 ); // knock off operator and arg
+				expression.pushToStack(o - 1);
 
 			break;
 		}
@@ -4441,14 +4716,16 @@ unsigned int WRCompilationContext::resolveExpressionEx( WRExpression& expression
 			{
 				loadExpressionContext( expression, o - 1, o ); // load argument
 			}
-			else if ( expression.context[o - 1].stackPosition != 0 )
-			{
-				expression.swapWithTop( expression.context[o - 1].stackPosition );
-			}
+				else if ( expression.context[o - 1].stackPosition != 0 )
+				{
+					expression.swapWithTop( expression.context[o - 1].stackPosition );
+				}
+				WR_EXPR_RETURN_ON_MALLOC_FAIL();
 
-			appendBytecode( expression.bytecode, expression.context[o].bytecode );
-			expression.context.remove( o, 1 ); // knock off operator
-			expression.pushToStack( o - 1 );
+				appendBytecode( expression.bytecode, expression.context[o].bytecode );
+				WR_EXPR_RETURN_ON_MALLOC_FAIL();
+				expression.context.remove( o, 1 ); // knock off operator
+				expression.pushToStack( o - 1 );
 
 			break;
 		}
@@ -4468,32 +4745,38 @@ unsigned int WRCompilationContext::resolveExpressionEx( WRExpression& expression
 			{
 				loadExpressionContext( expression, o - 1, o );
 			}
-			else if ( expression.context[o - 1].stackPosition != 0 )
-			{
-				expression.swapWithTop( expression.context[o - 1].stackPosition );
-			}
+				else if ( expression.context[o - 1].stackPosition != 0 )
+				{
+					expression.swapWithTop( expression.context[o - 1].stackPosition );
+				}
+				WR_EXPR_RETURN_ON_MALLOC_FAIL();
 
-			int conditionFalseMarker = addRelativeJumpTarget( expression.bytecode );
-			addRelativeJumpSource( expression.bytecode, O_BZ, conditionFalseMarker );
+				int conditionFalseMarker = addRelativeJumpTarget( expression.bytecode );
+				addRelativeJumpSource( expression.bytecode, O_BZ, conditionFalseMarker );
+				WR_EXPR_RETURN_ON_MALLOC_FAIL();
 
-			appendBytecode( expression.bytecode, expression.context[o].bytecode );
+				appendBytecode( expression.bytecode, expression.context[o].bytecode );
+				WR_EXPR_RETURN_ON_MALLOC_FAIL();
 
-			int conditionTrueMarker = addRelativeJumpTarget( expression.bytecode );
-			addRelativeJumpSource( expression.bytecode, O_RelativeJump, conditionTrueMarker );
+				int conditionTrueMarker = addRelativeJumpTarget( expression.bytecode );
+				addRelativeJumpSource( expression.bytecode, O_RelativeJump, conditionTrueMarker );
+				WR_EXPR_RETURN_ON_MALLOC_FAIL();
 
-			setRelativeJumpTarget( expression.bytecode, conditionFalseMarker );
-			appendBytecode( expression.bytecode, expression.context[o].bytecode2 );
-			setRelativeJumpTarget( expression.bytecode, conditionTrueMarker );
+				setRelativeJumpTarget( expression.bytecode, conditionFalseMarker );
+				appendBytecode( expression.bytecode, expression.context[o].bytecode2 );
+				setRelativeJumpTarget( expression.bytecode, conditionTrueMarker );
+				WR_EXPR_RETURN_ON_MALLOC_FAIL();
 
-			expression.context.remove( o, 1 );
-			expression.pushToStack( o - 1 );
+				expression.context.remove( o, 1 );
+				expression.pushToStack( o - 1 );
 
 			break;
 		}
 	}
-	
-	return ret;
-}
+		
+#undef WR_EXPR_RETURN_ON_MALLOC_FAIL
+		return ret;
+	}
 
 //------------------------------------------------------------------------------
 bool WRCompilationContext::operatorFound( WRstr const& token, WRarray<WRExpressionContext>& context, int depth )
@@ -6152,6 +6435,13 @@ bool WRCompilationContext::parseStatement( int unitIndex, char end, WROpcode opc
 
 	for(;;)
 	{
+#ifdef WRENCH_HANDLE_MALLOC_FAIL
+		if ( g_mallocFailed )
+		{
+			m_err = WR_ERR_malloc_failed;
+			return false;
+		}
+#endif
 		WRstr& token = ex.token;
 //		WRValue& value = ex.value;
 
@@ -6577,6 +6867,11 @@ void WRCompilationContext::createLocalHashMap( WRUnitContext& unit, unsigned cha
 void WRCompilationContext::link( unsigned char** out, int* outLen, const uint8_t compilerOptionFlags )
 {
 	WROpcodeStream code;
+#ifdef WRENCH_HANDLE_MALLOC_FAIL
+#define WR_LINK_RETURN_ON_MALLOC_FAIL() do { if ( g_mallocFailed ) { m_err = WR_ERR_malloc_failed; return; } } while (0)
+#else
+#define WR_LINK_RETURN_ON_MALLOC_FAIL() do {} while (0)
+#endif
 
 	uint8_t data[4];
 
@@ -6597,6 +6892,7 @@ void WRCompilationContext::link( unsigned char** out, int* outLen, const uint8_t
 	}
 	code += (uint8_t)(m_units.count() - 1); // function count (for VM allocation)
 	code += (uint8_t)compilerOptionFlags;
+	WR_LINK_RETURN_ON_MALLOC_FAIL();
 
 	// push function signatures
 	for( unsigned int u=1; u<m_units.count(); ++u )
@@ -6607,18 +6903,22 @@ void WRCompilationContext::link( unsigned char** out, int* outLen, const uint8_t
 		data[0] = 0xAA;
 		data[1] = 0xBB;
 		code.append( data, 2 ); // placeholder
+		WR_LINK_RETURN_ON_MALLOC_FAIL();
 
 		// WRFunction.functionOffset
 		data[0] = 0xCC;
 		data[1] = 0xDD;
 		code.append( data, 2 ); // placeholder
+		WR_LINK_RETURN_ON_MALLOC_FAIL();
 
 		// WRFunction.hash
 		code.append( wr_pack32(m_units[u].hash, data), 4 );
+		WR_LINK_RETURN_ON_MALLOC_FAIL();
 
 		// WRFunction.arguments;
 		data[0] = m_units[u].arguments;
 		code.append( data, 1 );
+		WR_LINK_RETURN_ON_MALLOC_FAIL();
 
 		// WRFunction.frameSpaceNeeded;
 		unsigned int frameSpaceNeeded = m_units[u].bytecode.localSpace.count() - m_units[u].arguments;
@@ -6629,10 +6929,12 @@ void WRCompilationContext::link( unsigned char** out, int* outLen, const uint8_t
 		}
 		data[1] = (uint8_t)frameSpaceNeeded;
 		code.append( data + 1, 1 );
+		WR_LINK_RETURN_ON_MALLOC_FAIL();
 
 		// WRFunction.frameBaseAdjustment;
 		data[2] = 1 + data[0] + data[1];
 		code.append( data + 2, 1 );
+		WR_LINK_RETURN_ON_MALLOC_FAIL();
 	}
 
 	m_units[0].name = "::global";
@@ -6642,16 +6944,18 @@ void WRCompilationContext::link( unsigned char** out, int* outLen, const uint8_t
 		for( unsigned int i=0; i<globals; ++i )
 		{
 			code.append( wr_pack32(m_units[0].bytecode.localSpace[i].hash, data), 4 );
+			WR_LINK_RETURN_ON_MALLOC_FAIL();
 		}
 	}
 
 	if ( (compilerOptionFlags & WR_EMBED_DEBUG_CODE)
 		 || (compilerOptionFlags & WR_EMBED_SOURCE_CODE) )
-	{
-		// hash of source compiled for this
-		code.append( wr_pack32(wr_hash(m_source, m_sourceLen), data), 4 ); 
+		{
+			// hash of source compiled for this
+			code.append( wr_pack32(wr_hash(m_source, m_sourceLen), data), 4 ); 
+			WR_LINK_RETURN_ON_MALLOC_FAIL();
 
-		WRstr symbols;
+			WRstr symbols;
 
 		uint16_t functions = m_units.count();
 		symbols.append( (char*)wr_pack16(functions, data), 2 );
@@ -6678,16 +6982,20 @@ void WRCompilationContext::link( unsigned char** out, int* outLen, const uint8_t
 			m_err = WR_ERR_compiler_panic;
 			return;
 		}
-		uint16_t symbolSize = (uint16_t)symbols.size();
-		code.append( wr_pack16(symbolSize, data), 2 );
-		code.append( (uint8_t*)symbols.p_str(), symbols.size() );
-	}
+			uint16_t symbolSize = (uint16_t)symbols.size();
+			code.append( wr_pack16(symbolSize, data), 2 );
+			WR_LINK_RETURN_ON_MALLOC_FAIL();
+			code.append( (uint8_t*)symbols.p_str(), symbols.size() );
+			WR_LINK_RETURN_ON_MALLOC_FAIL();
+		}
 
 	if ( compilerOptionFlags & WR_EMBED_SOURCE_CODE )
-	{
-		code.append( wr_pack32(m_sourceLen, data), 4 );
-		code.append( (uint8_t*)m_source, m_sourceLen );
-	}
+		{
+			code.append( wr_pack32(m_sourceLen, data), 4 );
+			WR_LINK_RETURN_ON_MALLOC_FAIL();
+			code.append( (uint8_t*)m_source, m_sourceLen );
+			WR_LINK_RETURN_ON_MALLOC_FAIL();
+		}
 
 	// export any explicitly marked for export or are referred to by a 'new'
 	for( unsigned int ux=0; ux<m_units.count(); ++ux )
@@ -6740,9 +7048,10 @@ void WRCompilationContext::link( unsigned char** out, int* outLen, const uint8_t
 
 				WR_DUMP_LINK_OUTPUT(printf("<new> namespace\n%s\n", wr_asciiDump(map, size, str)));
 
-				code.append( map, size );
-				g_free( map );
-			}
+					code.append( map, size );
+					g_free( map );
+					WR_LINK_RETURN_ON_MALLOC_FAIL();
+				}
 			else
 			{
 				base = 0;
@@ -6796,7 +7105,8 @@ void WRCompilationContext::link( unsigned char** out, int* outLen, const uint8_t
 
 		WR_DUMP_LINK_OUTPUT(printf("Adding Unit %d [%d]\n%s", u, m_units[u].bytecode.all.size(), wr_asciiDump(m_units[u].bytecode.all, m_units[u].bytecode.all.size(), str)));
 
-		code.append( m_units[u].bytecode.all, m_units[u].bytecode.all.size() );
+			code.append( m_units[u].bytecode.all, m_units[u].bytecode.all.size() );
+			WR_LINK_RETURN_ON_MALLOC_FAIL();
 
 		WR_DUMP_LINK_OUTPUT(printf("->\n%s\n", wr_asciiDump( code.p_str(), code.size(), str )));
 
@@ -6811,8 +7121,15 @@ void WRCompilationContext::link( unsigned char** out, int* outLen, const uint8_t
 				{
 					if ( m_units[u2].hash == N.hash )
 					{
-						NamespacePush *n = (NamespacePush *)g_malloc(sizeof(NamespacePush));
-						n->next = namespaceLookups;
+							NamespacePush *n = (NamespacePush *)g_malloc(sizeof(NamespacePush));
+#ifdef WRENCH_HANDLE_MALLOC_FAIL
+							if ( !n )
+							{
+								WR_MARK_MALLOC_FAILED();
+								WR_LINK_RETURN_ON_MALLOC_FAIL();
+							}
+#endif
+							n->next = namespaceLookups;
 						namespaceLookups = n;
 						n->unit = u2;
 						n->location = base + N.references[r];
@@ -6903,19 +7220,22 @@ void WRCompilationContext::link( unsigned char** out, int* outLen, const uint8_t
 		namespaceLookups = next;
 	}
 
-	// append a CRC
-	uint32_t salted = wr_hash( code, code.size() );
-	salted += WRENCH_VERSION_MAJOR;
-	code.append( wr_pack32(salted, data), 4 );
+		// append a CRC
+		uint32_t salted = wr_hash( code, code.size() );
+		salted += WRENCH_VERSION_MAJOR;
+		code.append( wr_pack32(salted, data), 4 );
+		WR_LINK_RETURN_ON_MALLOC_FAIL();
 
 	WR_DUMP_BYTECODE(printf("bytecode [%d]:\n%s\n", code.size(), wr_asciiDump(code, code.size(), str)));
 
 	if ( !m_err )
 	{
-		*outLen = code.size();
-		code.release( out );
+			*outLen = code.size();
+			code.release( out );
+			WR_LINK_RETURN_ON_MALLOC_FAIL();
+		}
+#undef WR_LINK_RETURN_ON_MALLOC_FAIL
 	}
-}
 
 #endif
 /*******************************************************************************
@@ -6986,6 +7306,13 @@ char WRCompilationContext::parseExpression( WRExpression& expression )
 
 	for(;;)
 	{
+#ifdef WRENCH_HANDLE_MALLOC_FAIL
+		if ( g_mallocFailed )
+		{
+			m_err = WR_ERR_malloc_failed;
+			return 0;
+		}
+#endif
 		WRValue& value = expression.context[depth].value;
 		WRstr& token = expression.context[depth].token;
 
@@ -8004,6 +8331,12 @@ bool WRCompilationContext::CheckCompareReplace( WROpcode LS, WROpcode GS, WROpco
 //------------------------------------------------------------------------------
 void WRCompilationContext::pushOpcode( WRBytecode& bytecode, WROpcode opcode )
 {
+#ifdef WRENCH_HANDLE_MALLOC_FAIL
+	if ( g_mallocFailed )
+	{
+		return;
+	}
+#endif
 #ifdef KEYHOLE_OPTIMIZER
 	unsigned int o = bytecode.opcodes.size();
 	if ( o )
@@ -9067,17 +9400,32 @@ void WRCompilationContext::pushOpcode( WRBytecode& bytecode, WROpcode opcode )
 	}
 #endif
 	bytecode.all += opcode;
+#ifdef WRENCH_HANDLE_MALLOC_FAIL
+	if ( g_mallocFailed )
+	{
+		return;
+	}
+#endif
 	bytecode.opcodes += opcode;
 }
 
 //------------------------------------------------------------------------------
 void WRCompilationContext::appendBytecode( WRBytecode& bytecode, WRBytecode& addMe )
 {
+#ifdef WRENCH_HANDLE_MALLOC_FAIL
+	if ( g_mallocFailed ) return;
+#endif
 	for (unsigned int n = 0; n < addMe.jumpOffsetTargets.count(); ++n)
 	{
+#ifdef WRENCH_HANDLE_MALLOC_FAIL
+		if ( g_mallocFailed ) return;
+#endif
 		if (addMe.jumpOffsetTargets[n].gotoHash)
 		{
 			int index = addRelativeJumpTarget(bytecode);
+#ifdef WRENCH_HANDLE_MALLOC_FAIL
+			if ( g_mallocFailed ) return;
+#endif
 			bytecode.jumpOffsetTargets[index].gotoHash = addMe.jumpOffsetTargets[n].gotoHash;
 			bytecode.jumpOffsetTargets[index].offset = addMe.jumpOffsetTargets[n].offset + bytecode.all.size();
 		}
@@ -9086,6 +9434,9 @@ void WRCompilationContext::appendBytecode( WRBytecode& bytecode, WRBytecode& add
 	// add the namespace, making sure to offset it into the new block properly
 	for (unsigned int n = 0; n < addMe.localSpace.count(); ++n)
 	{
+#ifdef WRENCH_HANDLE_MALLOC_FAIL
+		if ( g_mallocFailed ) return;
+#endif
 		unsigned int m = 0;
 		for (m = 0; m < bytecode.localSpace.count(); ++m)
 		{
@@ -9093,6 +9444,9 @@ void WRCompilationContext::appendBytecode( WRBytecode& bytecode, WRBytecode& add
 			{
 				for (unsigned int s = 0; s < addMe.localSpace[n].references.count(); ++s)
 				{
+#ifdef WRENCH_HANDLE_MALLOC_FAIL
+					if ( g_mallocFailed ) return;
+#endif
 					bytecode.localSpace[m].references.append() = addMe.localSpace[n].references[s] + bytecode.all.size();
 				}
 
@@ -9103,9 +9457,15 @@ void WRCompilationContext::appendBytecode( WRBytecode& bytecode, WRBytecode& add
 		if (m >= bytecode.localSpace.count())
 		{
 			WRNamespaceLookup* space = &bytecode.localSpace.append();
+#ifdef WRENCH_HANDLE_MALLOC_FAIL
+			if ( g_mallocFailed ) return;
+#endif
 			*space = addMe.localSpace[n];
 			for (unsigned int s = 0; s < space->references.count(); ++s)
 			{
+#ifdef WRENCH_HANDLE_MALLOC_FAIL
+				if ( g_mallocFailed ) return;
+#endif
 				space->references[s] += bytecode.all.size();
 			}
 		}
@@ -9114,10 +9474,19 @@ void WRCompilationContext::appendBytecode( WRBytecode& bytecode, WRBytecode& add
 	// add the function space, making sure to offset it into the new block properly
 	for (unsigned int n = 0; n < addMe.functionSpace.count(); ++n)
 	{
+#ifdef WRENCH_HANDLE_MALLOC_FAIL
+		if ( g_mallocFailed ) return;
+#endif
 		WRNamespaceLookup* space = &bytecode.functionSpace.append();
+#ifdef WRENCH_HANDLE_MALLOC_FAIL
+		if ( g_mallocFailed ) return;
+#endif
 		*space = addMe.functionSpace[n];
 		for (unsigned int s = 0; s < space->references.count(); ++s)
 		{
+#ifdef WRENCH_HANDLE_MALLOC_FAIL
+			if ( g_mallocFailed ) return;
+#endif
 			space->references[s] += bytecode.all.size();
 		}
 	}
@@ -9125,10 +9494,19 @@ void WRCompilationContext::appendBytecode( WRBytecode& bytecode, WRBytecode& add
 	// add the function space, making sure to offset it into the new block properly
 	for (unsigned int u = 0; u < addMe.unitObjectSpace.count(); ++u)
 	{
+#ifdef WRENCH_HANDLE_MALLOC_FAIL
+		if ( g_mallocFailed ) return;
+#endif
 		WRNamespaceLookup* space = &bytecode.unitObjectSpace.append();
+#ifdef WRENCH_HANDLE_MALLOC_FAIL
+		if ( g_mallocFailed ) return;
+#endif
 		*space = addMe.unitObjectSpace[u];
 		for (unsigned int s = 0; s < space->references.count(); ++s)
 		{
+#ifdef WRENCH_HANDLE_MALLOC_FAIL
+			if ( g_mallocFailed ) return;
+#endif
 			space->references[s] += bytecode.all.size();
 		}
 	}
@@ -9136,7 +9514,13 @@ void WRCompilationContext::appendBytecode( WRBytecode& bytecode, WRBytecode& add
 	// add the goto targets, making sure to offset it into the new block properly
 	for (unsigned int u = 0; u < addMe.gotoSource.count(); ++u)
 	{
+#ifdef WRENCH_HANDLE_MALLOC_FAIL
+		if ( g_mallocFailed ) return;
+#endif
 		GotoSource* G = &bytecode.gotoSource.append();
+#ifdef WRENCH_HANDLE_MALLOC_FAIL
+		if ( g_mallocFailed ) return;
+#endif
 		G->hash = addMe.gotoSource[u].hash;
 		G->offset = addMe.gotoSource[u].offset + bytecode.all.size();
 	}
@@ -9347,6 +9731,12 @@ void WRCompilationContext::appendBytecode( WRBytecode& bytecode, WRBytecode& add
 void WRCompilationContext::FinalizeStatementBytecode( WRUnitContext& unit, WRBytecode& statementBytecode )
 {
 	pushOpcode( statementBytecode, O_PopOne );
+#ifdef WRENCH_HANDLE_MALLOC_FAIL
+	if ( g_mallocFailed )
+	{
+		return;
+	}
+#endif
 
 	WROverwriteStoreInfo currentStore;
 	bool haveCurrentStore = wr_findLastStatementOverwriteStore( statementBytecode, currentStore );
@@ -10021,7 +10411,7 @@ int WRGCObject::init( const unsigned int size, const WRGCObjectType type, bool c
 		if ( !m_Vdata )
 		{
 			m_size = 0;
-			g_mallocFailed = true;
+			WR_MARK_MALLOC_FAILED();
 			return 0;
 		}
 #endif
@@ -10038,7 +10428,7 @@ int WRGCObject::init( const unsigned int size, const WRGCObjectType type, bool c
 		if ( !m_Cdata )
 		{
 			m_size = 0;
-			g_mallocFailed = true;
+			WR_MARK_MALLOC_FAILED();
 			return 0;
 		}
 #endif
@@ -10207,7 +10597,7 @@ tryAgain:
 #ifdef WRENCH_HANDLE_MALLOC_FAIL
 		if ( !base )
 		{
-			g_mallocFailed = true;
+			WR_MARK_MALLOC_FAILED();
 			return 0; // congradulations, clobber this one. we're dying it doesn't matter.
 		}
 #endif
@@ -10466,7 +10856,7 @@ WRGCObject* WRContext::getSVA( int size, WRGCObjectType type, bool init )
 #ifdef WRENCH_HANDLE_MALLOC_FAIL
 	if ( !ret )
 	{
-		g_mallocFailed = true;
+		WR_MARK_MALLOC_FAILED();
 		return 0;
 	}
 #endif
@@ -10475,7 +10865,19 @@ WRGCObject* WRContext::getSVA( int size, WRGCObjectType type, bool init )
 	ret->m_nextGC = svAllocated;
 	svAllocated = ret;
 
-	allocatedMemoryHint += ret->init( size, type, init ) + sizeof(WRGCObject);
+	int allocated = ret->init( size, type, init );
+#ifdef WRENCH_HANDLE_MALLOC_FAIL
+	if ( !allocated && g_mallocFailed )
+	{
+		if ( svAllocated == ret )
+		{
+			svAllocated = ret->m_nextGC;
+		}
+		g_free( ret );
+		return 0;
+	}
+#endif
+	allocatedMemoryHint += allocated + sizeof(WRGCObject);
 
 	if ( (int)type >= SV_VALUE )
 	{
@@ -14733,7 +15135,7 @@ char* WRValue::asMallocString( unsigned int* strLen ) const
 #ifdef WRENCH_HANDLE_MALLOC_FAIL
 		if ( !ret )
 		{
-			g_mallocFailed = true;
+			WR_MARK_MALLOC_FAILED();
 			return 0;
 		}
 #endif
@@ -18218,7 +18620,7 @@ int WrenchScheduler::addThread( const uint8_t* byteCode, const int size, const i
 	if ( !task )
 	{
 #ifdef WRENCH_HANDLE_MALLOC_FAIL
-		g_mallocFailed = true;
+		WR_MARK_MALLOC_FAILED();
 #endif
 		m_w->err = WR_ERR_malloc_failed;
 		wr_destroyContext( context );
@@ -18374,7 +18776,7 @@ void wr_growValueArray( WRGCObject* va, int newMinIndex )
 	if ( !va->m_Cdata )
 	{
 		va->m_Cdata = old;
-		g_mallocFailed = true;
+		WR_MARK_MALLOC_FAILED();
 		return;
 	}
 #endif
@@ -18556,7 +18958,7 @@ void wr_addLibraryCleanupFunction( WRState* w, void (*function)(WRState* w, void
 #ifdef WRENCH_HANDLE_MALLOC_FAIL
 	if ( !entry )
 	{
-		g_mallocFailed = true;
+		WR_MARK_MALLOC_FAILED();
 		w->err = WR_ERR_malloc_failed;
 		return;
 	}
@@ -20053,6 +20455,13 @@ boundsFailed:
 			}
 
 			wr_growValueArray( value->va, index->ui );
+#ifdef WRENCH_HANDLE_MALLOC_FAIL
+			if ( g_mallocFailed || index->ui >= value->va->m_size )
+			{
+				target->init();
+				return;
+			}
+#endif
 		}
 
 		arrayElementToTarget( index->ui, target, value );
@@ -21492,7 +21901,7 @@ void wr_ioOpen( WRValue* stackTop, const int argn, WRContext* c )
 		WRFSFile* entry = (WRFSFile *)g_malloc( sizeof(WRFSFile) );
 
 #ifdef WRENCH_HANDLE_MALLOC_FAIL
-		if(!entry) { g_mallocFailed = true; return; }
+		if(!entry) { WR_MARK_MALLOC_FAILED(); return; }
 #endif
 		
 		if ( mode & LFS_READ )
@@ -23112,7 +23521,7 @@ void wr_importByteCode( WRValue* stackTop, const int argn, WRContext* c )
 		{
 			uint8_t* import = (uint8_t*)g_malloc( len );
 #ifdef WRENCH_HANDLE_MALLOC_FAIL
-			if(!import) { g_mallocFailed = true; return; }
+			if(!import) { WR_MARK_MALLOC_FAILED(); return; }
 #endif
 			memcpy( (char*)import, data, len );
 			wr_import( c, import, len, true );
@@ -23424,28 +23833,41 @@ void wr_arrayTruncate( WRValue* stackTop, const int argn, WRContext* c )
 }
 
 //------------------------------------------------------------------------------
-void wr_arrayInsertEx( WRValue* A, const unsigned int where, const unsigned int count, WRValue* stackTop, WRContext* c )
+bool wr_arrayInsertEx( WRValue* A, const unsigned int where, const unsigned int count, WRValue* stackTop, WRContext* c )
 {
+	if ( !count )
+	{
+		return true;
+	}
+
 	unsigned int originalSize = A->va->m_size;
+	unsigned int insertAt = where > originalSize ? originalSize : where;
 	// accommodate new size (passed value is expected to be the highest accessible index)
 	wr_growValueArray( A->va, originalSize + (count - 1) );
+#ifdef WRENCH_HANDLE_MALLOC_FAIL
+	if ( g_mallocFailed || A->va->m_size < (originalSize + count) )
+	{
+		return false;
+	}
+#endif
 
 	// move tail of array UP "count" entries
-	unsigned int entries = originalSize - where;
+	unsigned int entries = originalSize - insertAt;
 	if ( entries )
 	{
-		unsigned int to = where + count;
+		unsigned int to = insertAt + count;
 
 		memmove( (char*)(A->va->m_Vdata + to),
-				 (char*)(A->va->m_Vdata + where),
+				 (char*)(A->va->m_Vdata + insertAt),
 				 entries * sizeof(WRValue) );
 
-		memset( (char*)(A->va->m_Vdata + where),
+		memset( (char*)(A->va->m_Vdata + insertAt),
 				0,
 				count * sizeof(WRValue) );
 	}
 
 	c->gc( stackTop + 1 );
+	return true;
 }
 
 //------------------------------------------------------------------------------
@@ -23467,7 +23889,10 @@ void wr_arrayInsert( WRValue* stackTop, const int argn, WRContext* c )
 		count = args[2].asInt();
 	}
 
-	wr_arrayInsertEx( A, where, count, stackTop, c );
+	if ( count < 1 || !wr_arrayInsertEx( A, where, (unsigned int)count, stackTop, c ) )
+	{
+		return;
+	}
 
 	*stackTop = *A;
 }
@@ -23486,7 +23911,7 @@ void wr_arrayPop( WRValue* stackTop, const int argn, WRContext* c )
 	if ( A->va->m_size )
 	{
 		*stackTop = *A->va->m_Vdata;
-		wr_arrayRemoveEx( A, 0, 1, stackTop, c );
+		(void)wr_arrayRemoveEx( A, 0, 1, stackTop, c );
 	}
 }
 
@@ -23522,7 +23947,10 @@ void wr_arrayPushBack( WRValue* stackTop, const int argn, WRContext* c )
 
 	const unsigned int where = A->va->m_size;
 
-	wr_arrayInsertEx( A, where, 1, stackTop, c );
+	if ( !wr_arrayInsertEx( A, where, 1, stackTop, c ) )
+	{
+		return;
+	}
 	A->va->m_Vdata[where] = args[1];
 }
 
@@ -23537,7 +23965,10 @@ void wr_arrayPush( WRValue* stackTop, const int argn, WRContext* c )
 		return;
 	}
 
-	wr_arrayInsertEx( A, 0, 1, stackTop, c );
+	if ( !wr_arrayInsertEx( A, 0, 1, stackTop, c ) )
+	{
+		return;
+	}
 	A->va->m_Vdata[0] = args[1];
 }
 

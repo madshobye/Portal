@@ -61,6 +61,33 @@ static bool protocolParseHexU32(const String& text, uint32_t& out) {
   return true;
 }
 
+static int protocolHexNibble(char c) {
+  if (c >= '0' && c <= '9') return c - '0';
+  if (c >= 'a' && c <= 'f') return c - 'a' + 10;
+  if (c >= 'A' && c <= 'F') return c - 'A' + 10;
+  return -1;
+}
+
+static uint8_t* protocolParseHexBytes(const String& text, size_t& outLen) {
+  outLen = 0;
+  if (text.length() == 0 || (text.length() % 2) != 0) return nullptr;
+  size_t byteLen = text.length() / 2;
+  if (byteLen > P1_EMBED_MAX_BYTECODE_BYTES) return nullptr;
+  uint8_t* bytes = (uint8_t*)malloc(byteLen);
+  if (!bytes) return nullptr;
+  for (size_t i = 0; i < byteLen; i++) {
+    int hi = protocolHexNibble(text[i * 2]);
+    int lo = protocolHexNibble(text[i * 2 + 1]);
+    if (hi < 0 || lo < 0) {
+      free(bytes);
+      return nullptr;
+    }
+    bytes[i] = (uint8_t)((hi << 4) | lo);
+  }
+  outLen = byteLen;
+  return bytes;
+}
+
 bool protocolValidateScriptIntegrity(const String& id, const String& code, int expectedBytes, const String& expectedHashHex) {
   if (expectedBytes >= 0 && (int)code.length() != expectedBytes) {
     protocolSendResponseError(id, "script_integrity_error", "script.set payload length mismatch");
@@ -570,6 +597,13 @@ static void protocolQueueScriptJob(bool runAfterSet, bool saveAfterSet, int expe
   protocolEmitScriptUploadEvent("debug", fields, 2);
 }
 
+void protocolPrepareScriptUpload() {
+  wrenchStop();
+  if (scriptStoreHasSaved()) {
+    scriptStoreSaveRunState(P1_EMBED_SCRIPT_RUN_STOPPED);
+  }
+}
+
 bool protocolHandleScriptSetCode(const String& id, const String& code, bool runAfterSet, bool saveAfterSet, bool sendResponse) {
   String err;
   WrenchTransitionGuard transition("script.set");
@@ -685,6 +719,7 @@ static void protocolHandleScriptSet(const String& id, const char* line, bool run
   jsonGetInt(line, "codeBytes", expectedBytes);
   jsonGetString(line, "codeHash", expectedHashHex);
   if (!protocolValidateScriptIntegrity(id, code, expectedBytes, expectedHashHex)) return;
+  protocolPrepareScriptUpload();
   if (!scriptStoreSaveIncoming(code)) {
     protocolSendResponseError(id, "storage_error", "Failed to stage script upload");
     return;
@@ -697,6 +732,63 @@ static void protocolHandleScriptSet(const String& id, const char* line, bool run
   response += "}";
   protocolSendResponseOk(id, response);
   protocolQueueScriptJob(runAfterSet, saveAfterSet, expectedBytes, expectedHashHex, code.length());
+}
+
+static void protocolHandleScriptBytecodeSet(const String& id, const char* line) {
+  String code;
+  String bytecodeHex;
+  bool runAfterSet = true;
+  bool saveAfterSet = false;
+  jsonGetString(line, "code", code);
+  jsonGetString(line, "bytecodeHex", bytecodeHex);
+  jsonGetBool(line, "run", runAfterSet);
+  jsonGetBool(line, "save", saveAfterSet);
+  if (!code.length()) {
+    protocolSendResponseError(id, "missing_code", "script.bytecode.set requires data.code");
+    return;
+  }
+  if (!bytecodeHex.length()) {
+    protocolSendResponseError(id, "missing_bytecode", "script.bytecode.set requires data.bytecodeHex");
+    return;
+  }
+
+  size_t bytecodeLen = 0;
+  uint8_t* bytecode = protocolParseHexBytes(bytecodeHex, bytecodeLen);
+  if (!bytecode) {
+    protocolSendResponseError(id, "bad_bytecode", "script.bytecode.set bytecodeHex is invalid or too large");
+    return;
+  }
+
+  protocolPrepareScriptUpload();
+  scriptErrorClear();
+  String err;
+  bool ok = wrenchSetCompiledBytecode(code, bytecode, bytecodeLen, err);
+  free(bytecode);
+  if (!ok) {
+    protocolSendResponseError(id, "bytecode_error", err);
+    return;
+  }
+
+  if (saveAfterSet) {
+    if (!scriptStoreSave(code)) {
+      protocolSendResponseError(id, "storage_error", "Failed to save script to LittleFS");
+      return;
+    }
+    scriptStoreSaveRunState(runAfterSet ? P1_EMBED_SCRIPT_RUN_PENDING_NEW : P1_EMBED_SCRIPT_RUN_STOPPED);
+  }
+
+  if (runAfterSet) {
+    String runErr;
+    if (!wrenchRunCompiled(runErr)) {
+      if (saveAfterSet) scriptStoreMarkVerificationFailed("run_failed");
+      protocolSendResponseError(id, "run_error", runErr);
+      return;
+    }
+    if (saveAfterSet) scriptStoreArmVerification();
+  }
+
+  String state = runAfterSet ? "running" : (saveAfterSet ? "saved" : "compiled");
+  protocolSendResponseOk(id, protocolScriptMetaJson(code, state));
 }
 
 static void protocolHandleScriptChunkBegin(const String& id, const char* line) {
@@ -720,6 +812,7 @@ static void protocolHandleScriptChunkBegin(const String& id, const char* line) {
     protocolSendResponseError(id, "storage_error", "Failed to start staged script upload");
     return;
   }
+  protocolPrepareScriptUpload();
   g_scriptChunkActive = true;
   g_scriptChunkRun = runAfterSet;
   g_scriptChunkSave = saveAfterSet;
@@ -1196,6 +1289,7 @@ static void protocolHandleMsgPackScriptChunkBegin(uint32_t id, P1MsgPackReader& 
     protocolSendMsgPackError(id, "storage_error", "Failed to start staged script upload");
     return;
   }
+  protocolPrepareScriptUpload();
   g_scriptChunkActive = true;
   g_scriptChunkRun = runAfterSet;
   g_scriptChunkSave = saveAfterSet;
@@ -1537,6 +1631,7 @@ void protocolHandleBytes(const uint8_t* data, size_t len) {
     protocolQueueScriptJob(runAfterSet, saveAfterSet, expectedBytes, expectedHashHex, code.length());
   } else if (op == P1_MP_OP_SCRIPT_STOP) {
     wrenchStop();
+    if (scriptStoreHasSaved()) scriptStoreSaveRunState(P1_EMBED_SCRIPT_RUN_STOPPED);
     protocolSendMsgPackState(id, "stopped");
   } else if (op == P1_MP_OP_SCRIPT_RESTART) {
     if (wrenchCurrentScript().length() == 0) {
@@ -1792,6 +1887,8 @@ void protocolHandleLine(const char* line) {
     jsonGetBool(line, "run", runAfterSet);
     jsonGetBool(line, "save", saveAfterSet);
     protocolHandleScriptSet(id, line, runAfterSet, saveAfterSet);
+  } else if (name == "script.bytecode.set") {
+    protocolHandleScriptBytecodeSet(id, line);
   } else if (name == "script.chunk.begin") {
     protocolHandleScriptChunkBegin(id, line);
   } else if (name == "script.chunk.add") {
