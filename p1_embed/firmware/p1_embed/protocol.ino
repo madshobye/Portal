@@ -1036,7 +1036,7 @@ static void protocolSendMsgPackConfig(uint32_t id) {
     return;
   }
   P1MsgPackWriter w(frame, P1_EMBED_MSGPACK_MAX_FRAME_BYTES);
-  protocolMsgPackBeginResponse(w, id, true, 22);
+  protocolMsgPackBeginResponse(w, id, true, 24);
   w.writeString("deviceId"); w.writeString(snapshot.deviceId);
   w.writeString("deviceName"); w.writeString(snapshot.deviceName);
   w.writeString("projectId"); w.writeString(snapshot.projectId);
@@ -1054,6 +1054,8 @@ static void protocolSendMsgPackConfig(uint32_t id) {
   w.writeString("mqttEnabled"); w.writeBool(snapshot.mqttEnabled);
   w.writeString("mqttAllowAnonymousUi"); w.writeBool(snapshot.mqttAllowAnonymousUi);
   w.writeString("mqttAllowAnonymousScript"); w.writeBool(snapshot.mqttAllowAnonymousScript);
+  w.writeString("mqttGuestUiKeySet"); w.writeBool(snapshot.mqttGuestUiKeySet);
+  w.writeString("mqttGuestUiKey"); w.writeString(snapshot.mqttGuestUiKey);
   w.writeString("onlineAuthUserCount"); w.writeUInt(snapshot.onlineAuthUserCount);
   w.writeString("onlineAuthUsers");
   w.writeArray(snapshot.onlineAuthUserCount);
@@ -1376,6 +1378,7 @@ void protocolHandleBytes(const uint8_t* data, size_t len) {
     bool hasMqttAllowAnonymousScript = false;
     bool hasOnlineAuthUserAdd = false;
     bool hasOnlineAuthUserRemove = false;
+    bool hasMqttGuestUiKey = false;
     String deviceName;
     String wifiSsid;
     String wifiPassword;
@@ -1391,6 +1394,7 @@ void protocolHandleBytes(const uint8_t* data, size_t len) {
     String onlineAuthUsername;
     String onlineAuthKeyHex;
     String onlineAuthUserRemove;
+    String mqttGuestUiKey;
     bool mqttEnabled = true;
     bool mqttAllowAnonymousUi = false;
     bool mqttAllowAnonymousScript = false;
@@ -1442,6 +1446,12 @@ void protocolHandleBytes(const uint8_t* data, size_t len) {
     if (count >= 39) {
       if (!r.readBool(hasTimezone) || !r.readString(timezone)) {
         protocolSendMsgPackError(id, "bad_config_frame", "config.set timezone field is malformed");
+        return;
+      }
+    }
+    if (count >= 41) {
+      if (!r.readBool(hasMqttGuestUiKey) || !r.readString(mqttGuestUiKey)) {
+        protocolSendMsgPackError(id, "bad_config_frame", "config.set guest UI key field is malformed");
         return;
       }
     }
@@ -1503,6 +1513,10 @@ void protocolHandleBytes(const uint8_t* data, size_t len) {
     }
     if (hasMqttAllowAnonymousUi) {
       configSetMqttAllowAnonymousUi(mqttAllowAnonymousUi);
+      changed = true;
+    }
+    if (hasMqttGuestUiKey) {
+      configSetMqttGuestUiKey(mqttGuestUiKey);
       changed = true;
     }
     if (hasMqttAllowAnonymousScript) {

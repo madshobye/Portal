@@ -1,4 +1,4 @@
-import { canEncodeCommand, decodeFrame, encodeCommand } from "./P1MsgPack.js?v=0.1.87-ui275";
+import { canEncodeCommand, decodeFrame, encodeCommand } from "./P1MsgPack.js?v=0.1.87-ui279";
 
 export class ProtocolClient extends EventTarget {
   constructor(transport, { timeoutMs = 15000 } = {}) {
@@ -45,7 +45,10 @@ export class ProtocolClient extends EventTarget {
     if (!canEncodeCommand(name)) throw new Error(`No MessagePack opcode for ${name}`);
     const id = String(this.nextId++);
     const timeoutMs = options.timeoutMs || this.timeoutMs;
-    const frame = encodeCommand(id, name, data);
+    const payload = typeof this.transport.prepareMsgPackData === "function"
+      ? this.transport.prepareMsgPackData(name, data)
+      : data;
+    const frame = encodeCommand(id, name, payload);
 
     const responsePromise = new Promise((resolve, reject) => {
       const timer = setTimeout(() => {

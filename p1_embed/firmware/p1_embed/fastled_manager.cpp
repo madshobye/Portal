@@ -144,14 +144,44 @@ static bool ledStartStrip(int strip, int pin, int count, int brightness) {
       p1FieldInt("brightness", s.brightness),
     };
     debugEventEmitFields("led.debug", "debug", "led", "ledStartStrip existing", existingFields, 5);
-    if (pin != s.pin || count > s.capacity) {
+    if (pin != s.pin) {
       scriptErrorSet(
         "binding",
         "led_reboot_required",
-        "LED strip geometry is already active; save the requested config and reboot to change pin or grow count",
+        "LED strip geometry is already active; save the requested config and reboot to change pin",
         "\"strip\":" + String(strip) + ",\"pin\":" + String(pin) + ",\"activePin\":" + String(s.pin) + ",\"count\":" + String(count) + ",\"activeCount\":" + String(s.count) + ",\"capacity\":" + String(s.capacity)
       );
       return false;
+    }
+    if (count > s.capacity) {
+      int nextTotal = g_totalLedCount - s.capacity + count;
+      if (nextTotal > P1_EMBED_FASTLED_MAX_LEDS) {
+        scriptErrorSet("binding", "led_too_many_pixels", "LED strips exceed firmware pixel limit", "\"requestedTotal\":" + String(nextTotal) + ",\"maxLeds\":" + String(P1_EMBED_FASTLED_MAX_LEDS));
+        return false;
+      }
+      CRGB* nextPixels = new CRGB[count];
+      if (!nextPixels) {
+        scriptErrorSet("binding", "led_alloc_failed", "Failed to grow LED pixel buffer", "\"strip\":" + String(strip) + ",\"count\":" + String(count));
+        return false;
+      }
+      int copied = min(s.count, count);
+      if (s.pixels && copied > 0) ::memmove(static_cast<void*>(nextPixels), static_cast<const void*>(s.pixels), copied * sizeof(CRGB));
+      if (count > copied) fill_solid(nextPixels + copied, count - copied, CRGB::Black);
+      CLEDController* nextController = nullptr;
+      CLEDController* oldController = s.controller;
+      if (oldController) oldController->setEnabled(false);
+      if (!ledAddController(pin, nextPixels, count, nextController)) {
+        if (oldController) oldController->setEnabled(true);
+        delete[] nextPixels;
+        scriptErrorSet("binding", "led_pin_not_enabled", "LED pin is not enabled in this firmware", "\"strip\":" + String(strip) + ",\"pin\":" + String(pin));
+        return false;
+      }
+      CRGB* oldPixels = s.pixels;
+      s.pixels = nextPixels;
+      s.controller = nextController;
+      s.capacity = count;
+      g_totalLedCount = nextTotal;
+      delete[] oldPixels;
     }
     bool resized = count != s.count;
     if (resized && s.pixels && count < s.capacity) {
@@ -259,7 +289,7 @@ bool ledConfigureStrip(int strip, int pin, int count, int brightness) {
 bool ledRebootRequiredFor(int strip, int pin, int count) {
   if (strip < 0 || strip >= P1_EMBED_MAX_LED_STRIPS) return false;
   LedStripState& s = g_ledStrips[strip];
-  return s.ready && (pin != s.pin || count > s.capacity);
+  return s.ready && pin != s.pin;
 }
 
 bool ledReady(int strip) {
@@ -345,6 +375,18 @@ bool ledClear(int strip, bool show) {
   fill_solid(g_ledStrips[strip].pixels, g_ledStrips[strip].capacity, CRGB::Black);
   if (show) FastLED.show();
   return true;
+}
+
+bool ledClearAllPhysical(bool show) {
+  bool any = false;
+  for (int i = 0; i < P1_EMBED_MAX_LED_STRIPS; i++) {
+    LedStripState& s = g_ledStrips[i];
+    if (!s.ready || !s.pixels || s.capacity <= 0) continue;
+    fill_solid(s.pixels, s.capacity, CRGB::Black);
+    any = true;
+  }
+  if (show && any) FastLED.show();
+  return any;
 }
 
 bool fastLedShow() {

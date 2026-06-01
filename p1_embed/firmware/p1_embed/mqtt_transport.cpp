@@ -266,7 +266,16 @@ static bool mqttRawOpAllowed(const uint8_t* data, size_t len) {
   uint32_t id = 0;
   uint32_t op = 0;
   if (!r.readArray(count) || count < 3 || !r.readUInt(frameType) || !r.readUInt(id) || !r.readUInt(op)) return false;
-  return frameType == 0 && (op == 2 || op == 3 || op == 9 || op == 14);
+  if (frameType != 0 || !(op == 2 || op == 3 || op == 9 || op == 14)) return false;
+  String guestKey;
+  if (op == 14) {
+    String channel;
+    String message;
+    if (count < 6 || !r.readString(channel) || !r.readString(message) || !r.readString(guestKey)) return false;
+  } else {
+    if (count < 4 || !r.readString(guestKey)) return false;
+  }
+  return configMqttGuestUiKeyMatches(guestKey);
 }
 
 static void mqttReapPendingAuth() {
@@ -581,6 +590,7 @@ static void mqttPublishHello() {
   payload += ",\"onlineAuthUsers\":" + String(configOnlineAuthUserCount());
   payload += ",\"anonymousUi\":" + String(configMqttAllowAnonymousUi() ? "true" : "false");
   payload += ",\"anonymousScript\":" + String(configMqttAllowAnonymousScript() ? "true" : "false");
+  payload += ",\"guestUiKeySet\":" + String(configMqttGuestUiKey().length() >= 16 ? "true" : "false");
   payload += "}";
   g_mqtt.publish(g_mqttHelloTopic, payload, true, 0);
 }
@@ -812,6 +822,7 @@ String mqttTransportStatusJson() {
   out += ",\"onlineAuthUsers\":" + String(configOnlineAuthUserCount());
   out += ",\"anonymousUi\":" + String(configMqttAllowAnonymousUi() ? "true" : "false");
   out += ",\"anonymousScript\":" + String(configMqttAllowAnonymousScript() ? "true" : "false");
+  out += ",\"guestUiKeySet\":" + String(configMqttGuestUiKey().length() >= 16 ? "true" : "false");
   out += "}";
   return out;
 }

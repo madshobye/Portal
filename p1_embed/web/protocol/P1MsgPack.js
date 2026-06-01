@@ -1,4 +1,4 @@
-export const P1_MSGPACK_VERSION = "0.1.87-ui275";
+export const P1_MSGPACK_VERSION = "0.1.87-ui279";
 
 const FRAME_CMD = 0;
 const FRAME_RES = 1;
@@ -45,17 +45,19 @@ export function encodeCommand(id, name, data = {}) {
   if (name === "script.chunk.add") return encodeScriptChunkAdd(id, op, data);
   if (name === "script.chunk.get") return encodeScriptChunkGet(id, op, data);
   if (name === "wifi.forget") return encodeWifiForget(id, op, data);
-  const writer = new MsgPackWriter(32);
-  writer.array(3);
+  const guestKey = guestKeyFromData(data);
+  const writer = new MsgPackWriter(guestKey ? 80 : 32);
+  writer.array(guestKey ? 4 : 3);
   writer.uint(FRAME_CMD);
   writer.uint(Number(id));
   writer.uint(op);
+  if (guestKey) writer.string(guestKey);
   return writer.bytes();
 }
 
 function encodeConfigSet(id, op, data = {}) {
   const writer = new MsgPackWriter(768);
-  writer.array(39);
+  writer.array(41);
   writer.uint(FRAME_CMD);
   writer.uint(Number(id));
   writer.uint(op);
@@ -94,6 +96,8 @@ function encodeConfigSet(id, op, data = {}) {
   writer.string(data.scriptName || "");
   writer.bool(Object.prototype.hasOwnProperty.call(data, "timezone"));
   writer.string(data.timezone || "");
+  writer.bool(Object.prototype.hasOwnProperty.call(data, "mqttGuestUiKey"));
+  writer.string(data.mqttGuestUiKey || "");
   return writer.bytes();
 }
 
@@ -118,14 +122,21 @@ function encodeDebugSet(id, op, data = {}) {
 }
 
 function encodeScriptInput(id, op, data = {}) {
-  const writer = new MsgPackWriter(256);
-  writer.array(5);
+  const guestKey = guestKeyFromData(data);
+  const writer = new MsgPackWriter(guestKey ? 320 : 256);
+  writer.array(guestKey ? 6 : 5);
   writer.uint(FRAME_CMD);
   writer.uint(Number(id));
   writer.uint(op);
   writer.string(data.channel || "");
   writer.string(data.message || "");
+  if (guestKey) writer.string(guestKey);
   return writer.bytes();
+}
+
+function guestKeyFromData(data = {}) {
+  const key = String(data.__guestKey || "").trim();
+  return key.length ? key : "";
 }
 
 function encodeScriptChunkBegin(id, op, data = {}) {

@@ -1,14 +1,14 @@
-import { ProtocolClient } from "./protocol/ProtocolClient.js?v=0.1.87-ui277";
-import { canEncodeCommand } from "./protocol/P1MsgPack.js?v=0.1.87-ui277";
-import { WebSerialTransport } from "./protocol/WebSerialTransport.js?v=0.1.87-ui277";
+import { ProtocolClient } from "./protocol/ProtocolClient.js?v=0.1.87-ui279";
+import { canEncodeCommand } from "./protocol/P1MsgPack.js?v=0.1.87-ui279";
+import { WebSerialTransport } from "./protocol/WebSerialTransport.js?v=0.1.87-ui279";
 import { WebSocketTransport } from "./protocol/WebSocketTransport.js";
-import { MqttWebRtcTransport, MQTT_WEBRTC_TRANSPORT_VERSION } from "./protocol/MqttWebRtcTransport.js?v=0.1.87-ui277";
-import { MqttTransport, MQTT_TRANSPORT_VERSION, clearOnlineAuthKey, deriveOnlineAuthKeyHex, storeOnlineAuthKey } from "./protocol/MqttTransport.js?v=0.1.87-ui277";
-import { P1WebFlasher } from "./web-flasher.js?v=0.1.87-ui277";
-import { inferCircuitLayout, initCircuitView, normalizeCircuitLayout } from "./circuit.js?v=0.1.87-ui277";
-import { initGuinoView } from "./guino.js?v=0.1.87-ui277";
+import { MqttWebRtcTransport, MQTT_WEBRTC_TRANSPORT_VERSION } from "./protocol/MqttWebRtcTransport.js?v=0.1.87-ui279";
+import { MqttTransport, MQTT_TRANSPORT_VERSION, clearOnlineAuthKey, deriveOnlineAuthKeyHex, storeOnlineAuthKey } from "./protocol/MqttTransport.js?v=0.1.87-ui279";
+import { P1WebFlasher } from "./web-flasher.js?v=0.1.87-ui279";
+import { inferCircuitLayout, initCircuitView, normalizeCircuitLayout } from "./circuit.js?v=0.1.87-ui279";
+import { initGuinoView } from "./guino.js?v=0.1.87-ui279";
 
-const WEB_UI_VERSION = "0.1.87-ui277";
+const WEB_UI_VERSION = "0.1.87-ui279";
 const CHAT_DEFAULT_MAX_OUTPUT_TOKENS = 8000;
 const CHAT_MIN_MAX_OUTPUT_TOKENS = 1024;
 const CHAT_HARD_MAX_OUTPUT_TOKENS = 32000;
@@ -304,6 +304,7 @@ function boot() {
   refreshInstallManifestInfo();
   setConnected(false);
   renderFields();
+  applyGuestUiShell();
   restoreActiveTab();
   autoConnectFromUrlParams().then((handled) => {
     if (!handled) autoReconnectLastConnection();
@@ -638,11 +639,36 @@ async function copyGuinoLink() {
     const kind = isMqttKind(transport?.kind) || peerId ? "mqtt" : transport?.kind === "usb" ? "usb" : "websocket";
     const url = new URL(sharePageUrl(kind, transport?.url || els.websocketUrl.value, hint, peerId));
     url.searchParams.set("view", "ui");
+    const guestKey = await ensureGuestUiShareKey();
+    if (guestKey && isMqttKind(kind)) {
+      url.searchParams.set("guest", "ui");
+      url.searchParams.set("guestKey", guestKey);
+    }
     await navigator.clipboard.writeText(url.toString());
     logLine("info", "UI link copied");
   } catch (error) {
     logLine("warn", `UI link not ready: ${error.message}`);
   }
+}
+
+async function ensureGuestUiShareKey() {
+  if (!lastConfig?.mqttAllowAnonymousUi) return "";
+  const existing = String(lastConfig?.mqttGuestUiKey || "").trim();
+  if (existing.length >= 16) return existing;
+  if (!client || !isDeviceConnected()) return "";
+  const key = generateGuestKey();
+  const config = await sendCommand("config.set", { mqttGuestUiKey: key, mqttAllowAnonymousUi: true }, { quiet: true, timeoutMs: 10000 });
+  updateConfig(config);
+  return String(config?.mqttGuestUiKey || key).trim();
+}
+
+function generateGuestKey() {
+  const bytes = new Uint8Array(16);
+  globalThis.crypto?.getRandomValues?.(bytes);
+  if (!bytes.some(Boolean)) {
+    for (let i = 0; i < bytes.length; i += 1) bytes[i] = Math.floor(Math.random() * 256);
+  }
+  return Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("");
 }
 
 function openConnectDialog() {
@@ -943,6 +969,20 @@ function usbStartupOptions(extra = {}) {
   };
 }
 
+function isGuestUiLink(params = new URLSearchParams(window.location.search)) {
+  return String(params.get("guest") || "").toLowerCase() === "ui"
+    || String(params.get("mode") || "").toLowerCase() === "guest-ui";
+}
+
+function guestKeyFromParams(params = new URLSearchParams(window.location.search)) {
+  return String(params.get("guestKey") || params.get("key") || "").trim();
+}
+
+function applyGuestUiShell() {
+  const params = new URLSearchParams(window.location.search);
+  document.body.classList.toggle("is-guest-ui", isGuestUiLink(params));
+}
+
 async function autoConnectFromUrlParams() {
   const params = new URLSearchParams(window.location.search);
   const requested = (params.get("connect") || params.get("transport") || "").toLowerCase();
@@ -975,7 +1015,19 @@ async function autoConnectFromUrlParams() {
       applyMqttParams(params);
       els.peerId.value = peerId;
       const historyConfig = mqttConfigFromStorageAndDevice();
-      await connectTransport(new MqttTransport({ ...mqttTransportOptions(historyConfig), connectTimeoutMs: 15000 }), { remoteId: peerId, mqttConfig: historyConfig }, "mqtt", peerId, { lightStartup: true, includeScript: true, startupTimeoutMs: 15000, preserveUrl: true });
+      const guestUi = isGuestUiLink(params);
+      await connectTransport(
+        new MqttTransport({
+          ...mqttTransportOptions(historyConfig),
+          connectTimeoutMs: 15000,
+          authMode: guestUi ? "guest-ui" : "control",
+          guestKey: guestUi ? guestKeyFromParams(params) : "",
+        }),
+        { remoteId: peerId, mqttConfig: historyConfig },
+        "mqtt",
+        peerId,
+        { lightStartup: true, includeScript: !guestUi, startupTimeoutMs: 15000, preserveUrl: true },
+      );
     } catch (error) {
       logLine("error", error.message);
     }
@@ -1463,6 +1515,9 @@ function sharePageUrl(kind, wsUrl = "", usbHint = null, peerId = "") {
   url.searchParams.delete("mqttPort");
   url.searchParams.delete("mqttRoot");
   url.searchParams.delete("mqttUser");
+  url.searchParams.delete("guest");
+  url.searchParams.delete("guestKey");
+  url.searchParams.delete("key");
 
   if (kind === "websocket") {
     url.searchParams.set("connect", "ws");
@@ -1514,6 +1569,9 @@ function clearConnectionUrlParams() {
   url.searchParams.delete("mqttPort");
   url.searchParams.delete("mqttRoot");
   url.searchParams.delete("mqttUser");
+  url.searchParams.delete("guest");
+  url.searchParams.delete("guestKey");
+  url.searchParams.delete("key");
   window.history.replaceState(null, "", url.toString());
 }
 
@@ -1674,6 +1732,7 @@ async function startupRefreshOnce({ quiet = false, includeScript = true, timeout
   const statusOk = await bestEffortStartupStep(() => refreshStatus({ quiet, timeoutMs }), quiet);
   if (!client || stale()) return infoOk || statusOk;
   if (!infoOk && !statusOk) return false;
+  if (transport?.isGuestUiOpen?.()) return infoOk || statusOk;
   await bestEffortStartupStep(() => syncDeviceEventLevel({ quiet, timeoutMs }), quiet);
   if (!client || stale()) return infoOk || statusOk;
   await bestEffortStartupStep(() => sendCommand("config.get", {}, { quiet, timeoutMs }).then(updateConfig), quiet);
@@ -1814,6 +1873,7 @@ async function setScript({ run, save }) {
 async function uploadScriptCode(code, { run, save, name = "" }) {
   let data;
   localUploadActiveUntil = Date.now() + 120000;
+  guinoView?.clear?.();
   setUploadState("uploading", "Uploading code", 8);
   try {
     clearEditorError();
@@ -3239,6 +3299,9 @@ async function saveMqtt() {
   data.mqttEnabled = Boolean(els.mqttEnabled.checked);
   data.mqttAllowAnonymousUi = Boolean(els.accessGuestUi.checked);
   data.mqttAllowAnonymousScript = Boolean(els.accessGuestScript.checked);
+  if (data.mqttAllowAnonymousUi && !String(lastConfig?.mqttGuestUiKey || "").trim()) {
+    data.mqttGuestUiKey = generateGuestKey();
+  }
   if (mqttHost) data.mqttHost = mqttHost;
   if (Number.isFinite(mqttPort) && mqttPort > 0) data.mqttPort = mqttPort;
   data.mqttRoot = mqttRoot;
@@ -3357,6 +3420,7 @@ function acceptEvent(event) {
   if (event.name === "wifi.status") updateWifi(data.wifi || data);
   if (event.name === "script.state") updateScriptState(data);
   if (event.name === "script.upload") {
+    clearGuinoForUploadEvent(data);
     updateUploadFromEvent(data);
     updateScriptState(data);
   }
@@ -3365,6 +3429,12 @@ function acceptEvent(event) {
     if (data.status) updateStatus(data.status);
     renderFields();
   }
+}
+
+function clearGuinoForUploadEvent(data = {}) {
+  const state = String(data.state || "").toLowerCase();
+  const phase = String(data.phase || "").toLowerCase();
+  if (state === "queued" || state === "compiling" || phase === "compile") guinoView?.clear?.();
 }
 
 function eventLogLevel(name = "", data = {}) {

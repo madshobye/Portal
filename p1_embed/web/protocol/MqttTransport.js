@@ -1,4 +1,4 @@
-import { MsgPackReader, MsgPackWriter } from "./P1MsgPack.js?v=0.1.87-ui275";
+import { MsgPackReader, MsgPackWriter } from "./P1MsgPack.js?v=0.1.87-ui279";
 
 const DEFAULT_MQTT_ROOT = "";
 const FRAME_AUTH = 3;
@@ -9,7 +9,7 @@ const AUTH_FINISH = 2;
 const AUTH_OK = 3;
 const AUTH_ERROR = 4;
 
-export const MQTT_TRANSPORT_VERSION = "0.1.87-ui275";
+export const MQTT_TRANSPORT_VERSION = "0.1.87-ui279";
 
 console.info(`[P1E mqtt] loaded ${MQTT_TRANSPORT_VERSION}`);
 
@@ -23,6 +23,8 @@ export class MqttTransport extends EventTarget {
     deviceId = "",
     connectTimeoutMs = 15000,
     authProvider = null,
+    authMode = "control",
+    guestKey = "",
   } = {}) {
     super();
     this.mqttUrl = mqttUrl;
@@ -47,6 +49,8 @@ export class MqttTransport extends EventTarget {
     this.authResolve = null;
     this.authReject = null;
     this.authProvider = authProvider;
+    this.authMode = authMode;
+    this.guestKey = normalizeGuestKey(guestKey);
     this.reauthPromise = null;
     this.sessionStartedAt = 0;
     this.sendQueue = Promise.resolve();
@@ -95,7 +99,9 @@ export class MqttTransport extends EventTarget {
             await subscribe(this.client, this.eventTopic());
             await subscribe(this.client, this.helloTopic());
             await wait(250);
-            if (this.authRequired || this.hello?.auth === "required") {
+            this.authRequired = this.hello?.auth === "required";
+            const guestUiOpen = this.isGuestUiOpen();
+            if ((this.authRequired || this.hello?.auth === "required") && !guestUiOpen) {
               await this.ensureAuth();
               await this.authenticate();
             }
@@ -151,12 +157,45 @@ export class MqttTransport extends EventTarget {
   async sendBytesNow(bytes) {
     if (!this.client || !this.connected) throw new Error("MQTT is not connected");
     if (this.authRequired && !this.sessionId) {
-      await this.ensureAuth();
-      await this.authenticate();
+      if (!this.canSendAnonymous(bytes)) {
+        await this.ensureAuth();
+        await this.authenticate();
+      }
     }
     const payload = this.sessionId ? await this.encodeSecure(bytes) : bytes;
-    if (this.authRequired && !this.sessionId) throw new Error("MQTT sign in required");
+    if (this.authRequired && !this.sessionId && !this.canSendAnonymous(bytes)) throw new Error("MQTT sign in required");
     await publish(this.client, this.commandTopic(), payload);
+  }
+
+  prepareMsgPackData(name, data = {}) {
+    if (!this.isGuestUiOpen() || !this.isAnonymousUiCommandName(name)) return data;
+    return { ...data, __guestKey: this.guestKey };
+  }
+
+  isGuestUiOpen() {
+    return this.authMode === "guest-ui" && Boolean(this.hello?.anonymousUi) && this.guestKey.length >= 16;
+  }
+
+  isAnonymousUiCommandName(name = "") {
+    return name === "status.light"
+      || name === "system.info"
+      || name === "wifi.status"
+      || name === "script.input"
+      || name === "wrench.input";
+  }
+
+  canSendAnonymous(bytes) {
+    if (!this.isGuestUiOpen()) return false;
+    try {
+      const reader = new MsgPackReader(bytes);
+      const count = reader.array();
+      const frameType = reader.uint();
+      reader.uint();
+      const op = reader.uint();
+      return frameType === 0 && count >= 4 && (op === 2 || op === 3 || op === 9 || op === 14);
+    } catch {
+      return false;
+    }
   }
 
   async sendLine() {
@@ -413,6 +452,10 @@ export class MqttTransport extends EventTarget {
   emit(type, detail) {
     this.dispatchEvent(new CustomEvent(type, { detail }));
   }
+}
+
+function normalizeGuestKey(value) {
+  return String(value || "").trim().toLowerCase().replace(/[^a-z0-9]/g, "");
 }
 
 function normalizeTopicPart(value) {

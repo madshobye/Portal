@@ -228,6 +228,7 @@ static void wrenchFreeBytecodeLocked() {
 static void wrenchStopLocked() {
   g_wrenchConsecutiveErrorLoops = 0;
   wrenchSetPhase(WRENCH_PHASE_STOPPING);
+  ledClearAllPhysical(true);
   if (g_wr) {
     wr_destroyState(g_wr);
     g_wr = nullptr;
@@ -806,6 +807,7 @@ bool wrenchCompileAndSet(const String& userCode, String& errOut) {
     };
     debugEventEmitFields("script.debug", "debug", "script", "compileAndSet begin", fields, 1);
   }
+  uiRuntimeReset("", true);
   wrenchReleaseCompiledProgram();
   wrenchSetPhase(WRENCH_PHASE_COMPILING);
 
@@ -964,6 +966,12 @@ bool wrenchRunCompiled(String& errOut) {
     errOut = String("runtime load failed: ") + scriptErrorWrenchName((int)error);
     String details = "\"wrenchError\":" + String((int)error);
     details += ",\"wrenchErrorName\":" + jsonString(scriptErrorWrenchName((int)error));
+    details += ",\"bytecodeBytes\":" + String(g_bytecodeLen);
+    details += ",\"vmStackValues\":" + String(P1_EMBED_WRENCH_VM_STACK);
+    if (g_bytecode && g_bytecodeLen >= 3) {
+      details += ",\"globals\":" + String((uint8_t)g_bytecode[0]);
+      details += ",\"localFunctions\":" + String((uint8_t)g_bytecode[1]);
+    }
     scriptErrorSet("load", "runtime_load_error", errOut, details);
     wrenchStopLocked();
     g_scriptState = SCRIPT_ERROR;
@@ -1006,11 +1014,25 @@ bool wrenchRunCompiled(String& errOut) {
   if (g_fnSetup) {
     wrenchSetPhase(WRENCH_PHASE_SETUP);
     debugEventEmitFields("script.debug", "debug", "script", "setup begin", nullptr, 0);
+    uint32_t errorCountBefore = scriptErrorCount();
     WRValue* ret = wr_callFunction(g_ctx, g_fnSetup, nullptr, 0);
     if (!ret && wr_getLastError(g_wr) != WR_ERR_None) {
       WRError error = wr_getLastError(g_wr);
       errOut = String("setup runtime error: ") + scriptErrorWrenchName((int)error);
       wrenchEmitRuntimeError("setup", error);
+      wrenchStopLocked();
+      g_scriptState = SCRIPT_ERROR;
+      wrenchSetPhase(WRENCH_PHASE_ERROR);
+      wrenchUnlock();
+      return false;
+    }
+    if (scriptErrorCount() > errorCountBefore) {
+      errOut = String("setup binding error: ") + scriptErrorLastMessage();
+      String details = "\"lastErrorCode\":" + jsonString(scriptErrorLastCode());
+      details += ",\"lastErrorMessage\":" + jsonString(scriptErrorLastMessage());
+      details += ",\"scriptBytes\":" + String(g_currentScriptBytes);
+      details += ",\"scriptHash\":" + String(g_currentScriptHash);
+      scriptErrorSet("setup", "setup_binding_error", errOut, details);
       wrenchStopLocked();
       g_scriptState = SCRIPT_ERROR;
       wrenchSetPhase(WRENCH_PHASE_ERROR);

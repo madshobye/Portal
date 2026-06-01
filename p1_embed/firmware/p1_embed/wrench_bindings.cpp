@@ -649,6 +649,37 @@ static void uiQueueReset(const String& title) {
   portEXIT_CRITICAL(&g_uiInputMux);
 }
 
+void uiRuntimeReset(const String& title, bool emitReset) {
+  P1UiOutboundEvent event{};
+  event.kind = P1_UI_OUT_RESET;
+  event.cmd = P1_UI_INIT;
+  uiCopy(event.text, sizeof(event.text), title);
+
+  portENTER_CRITICAL(&g_uiInputMux);
+  g_uiEventHead = 0;
+  g_uiEventTail = 0;
+  g_uiEventCount = 0;
+  for (int i = 0; i < P1_EMBED_UI_STATE_MAX; i++) {
+    g_uiStates[i].used = false;
+    g_uiStates[i].id[0] = 0;
+    g_uiStates[i].text[0] = 0;
+    g_uiStates[i].value = 0;
+    g_uiStates[i].changed = false;
+    g_uiOutputs[i].used = false;
+    g_uiOutputs[i].id[0] = 0;
+    g_uiOutputs[i].value = 0;
+    g_uiOutputs[i].sentAt = 0;
+    g_uiOutputs[i].pending = false;
+  }
+  uiClearOutboundLocked();
+  if (emitReset) {
+    g_uiOut[g_uiOutHead] = event;
+    g_uiOutHead = (uint8_t)((g_uiOutHead + 1) % P1_EMBED_UI_OUT_DEPTH);
+    g_uiOutCount = 1;
+  }
+  portEXIT_CRITICAL(&g_uiInputMux);
+}
+
 static void uiQueueItem(int cmd, const char* type, const String& id, const String& label, int value, int minValue, int maxValue) {
   P1UiOutboundEvent event{};
   event.kind = P1_UI_OUT_ITEM;

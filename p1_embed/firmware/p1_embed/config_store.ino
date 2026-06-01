@@ -1,5 +1,6 @@
 #include <Arduino.h>
 #include <ESP.h>
+#include <esp_system.h>
 #include <LittleFS.h>
 #include <Preferences.h>
 #include <time.h>
@@ -23,6 +24,7 @@ static String g_mqttPassword = "";
 static bool g_mqttEnabled = true;
 static bool g_mqttAllowAnonymousUi = false;
 static bool g_mqttAllowAnonymousScript = false;
+static String g_mqttGuestUiKey = "";
 static String g_onlineAuthUsernames[P1_EMBED_MQTT_MAX_USERS];
 static String g_onlineAuthUserKeys[P1_EMBED_MQTT_MAX_USERS];
 static int g_onlineAuthUserCount = 0;
@@ -98,6 +100,38 @@ static String configBuildDefaultMqttRoot() {
   root.toLowerCase();
   root.replace(" ", "-");
   return root;
+}
+
+static String configNormalizeGuestKey(const String& value) {
+  String key = value;
+  key.trim();
+  key.toLowerCase();
+  String out;
+  out.reserve(40);
+  for (size_t i = 0; i < key.length() && out.length() < 40; i++) {
+    char c = key[i];
+    if ((c >= 'a' && c <= 'z') || (c >= '0' && c <= '9')) out += c;
+  }
+  return out;
+}
+
+static String configGenerateGuestKey() {
+  uint8_t bytes[16];
+  for (size_t i = 0; i < sizeof(bytes); i += 4) {
+    uint32_t value = esp_random();
+    bytes[i] = value & 0xff;
+    if (i + 1 < sizeof(bytes)) bytes[i + 1] = (value >> 8) & 0xff;
+    if (i + 2 < sizeof(bytes)) bytes[i + 2] = (value >> 16) & 0xff;
+    if (i + 3 < sizeof(bytes)) bytes[i + 3] = (value >> 24) & 0xff;
+  }
+  static const char* hex = "0123456789abcdef";
+  String out;
+  out.reserve(32);
+  for (uint8_t byte : bytes) {
+    out += hex[(byte >> 4) & 0x0f];
+    out += hex[byte & 0x0f];
+  }
+  return out;
 }
 
 static void configApplyIdentityDefaults() {
@@ -387,6 +421,12 @@ void configLoad() {
     if (!configJsonGetBool(json, "mqttEnabled", g_mqttEnabled)) changed = true;
     if (!configJsonGetBool(json, "mqttAllowAnonymousUi", g_mqttAllowAnonymousUi)) changed = true;
     if (!configJsonGetBool(json, "mqttAllowAnonymousScript", g_mqttAllowAnonymousScript)) changed = true;
+    if (configJsonGetString(json, "mqttGuestUiKey", value)) g_mqttGuestUiKey = configNormalizeGuestKey(value);
+    else changed = true;
+    if (g_mqttAllowAnonymousUi && g_mqttGuestUiKey.length() < 16) {
+      g_mqttGuestUiKey = configGenerateGuestKey();
+      changed = true;
+    }
     configApplyMqttDefaults();
     if (changed) configSave();
     return;
@@ -419,6 +459,7 @@ void configSave() {
   json += ",\"mqttEnabled\":" + String(configMqttEnabled() ? "true" : "false");
   json += ",\"mqttAllowAnonymousUi\":" + String(configMqttAllowAnonymousUi() ? "true" : "false");
   json += ",\"mqttAllowAnonymousScript\":" + String(configMqttAllowAnonymousScript() ? "true" : "false");
+  json += ",\"mqttGuestUiKey\":" + jsonString(configMqttGuestUiKey());
   json += ",\"onlineAuthUsers\":[";
   for (int i = 0; i < g_onlineAuthUserCount; i++) {
     if (i) json += ",";
@@ -580,10 +621,15 @@ void configSetMqttEnabled(bool value) {
 
 void configSetMqttAllowAnonymousUi(bool value) {
   g_mqttAllowAnonymousUi = value;
+  if (value && g_mqttGuestUiKey.length() < 16) g_mqttGuestUiKey = configGenerateGuestKey();
 }
 
 void configSetMqttAllowAnonymousScript(bool value) {
   g_mqttAllowAnonymousScript = value;
+}
+
+void configSetMqttGuestUiKey(const String& value) {
+  g_mqttGuestUiKey = configNormalizeGuestKey(value);
 }
 
 bool configAddOnlineAuthUserKey(const String& username, const String& keyHex) {
@@ -697,6 +743,24 @@ bool configMqttAllowAnonymousScript() {
   return g_mqttAllowAnonymousScript;
 }
 
+String configMqttGuestUiKey() {
+  return g_mqttGuestUiKey;
+}
+
+bool configMqttGuestUiKeyMatches(const String& value) {
+  String expected = configMqttGuestUiKey();
+  String provided = configNormalizeGuestKey(value);
+  return expected.length() >= 16 && provided.length() >= 16 && provided == expected;
+}
+
+String configEnsureMqttGuestUiKey() {
+  if (g_mqttGuestUiKey.length() < 16) {
+    g_mqttGuestUiKey = configGenerateGuestKey();
+    configSave();
+  }
+  return g_mqttGuestUiKey;
+}
+
 P1ConfigSnapshot configSnapshot() {
   P1ConfigSnapshot snapshot;
   snapshot.deviceId = configDeviceId();
@@ -716,6 +780,8 @@ P1ConfigSnapshot configSnapshot() {
   snapshot.mqttEnabled = configMqttEnabled();
   snapshot.mqttAllowAnonymousUi = configMqttAllowAnonymousUi();
   snapshot.mqttAllowAnonymousScript = configMqttAllowAnonymousScript();
+  snapshot.mqttGuestUiKey = configMqttGuestUiKey();
+  snapshot.mqttGuestUiKeySet = snapshot.mqttGuestUiKey.length() >= 16;
   snapshot.onlineAuthUserCount = configOnlineAuthUserCount();
   snapshot.wifi = wifiSnapshot();
   return snapshot;
@@ -740,6 +806,8 @@ String configAsJson(const P1ConfigSnapshot& snapshot) {
   out += ",\"mqttEnabled\":" + String(snapshot.mqttEnabled ? "true" : "false");
   out += ",\"mqttAllowAnonymousUi\":" + String(snapshot.mqttAllowAnonymousUi ? "true" : "false");
   out += ",\"mqttAllowAnonymousScript\":" + String(snapshot.mqttAllowAnonymousScript ? "true" : "false");
+  out += ",\"mqttGuestUiKeySet\":" + String(snapshot.mqttGuestUiKeySet ? "true" : "false");
+  out += ",\"mqttGuestUiKey\":" + jsonString(snapshot.mqttGuestUiKey);
   out += ",\"onlineAuthUserCount\":" + String(snapshot.onlineAuthUserCount);
   out += ",\"onlineAuthUsers\":[";
   for (int i = 0; i < g_onlineAuthUserCount; i++) {
