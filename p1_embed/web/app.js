@@ -1,14 +1,14 @@
-import { ProtocolClient } from "./protocol/ProtocolClient.js?v=0.1.87-ui309";
-import { canEncodeCommand } from "./protocol/P1MsgPack.js?v=0.1.87-ui309";
-import { WebSerialTransport } from "./protocol/WebSerialTransport.js?v=0.1.87-ui309";
+import { ProtocolClient } from "./protocol/ProtocolClient.js?v=0.1.87-ui314";
+import { canEncodeCommand } from "./protocol/P1MsgPack.js?v=0.1.87-ui314";
+import { WebSerialTransport } from "./protocol/WebSerialTransport.js?v=0.1.87-ui314";
 import { WebSocketTransport } from "./protocol/WebSocketTransport.js";
-import { MqttWebRtcTransport, MQTT_WEBRTC_TRANSPORT_VERSION } from "./protocol/MqttWebRtcTransport.js?v=0.1.87-ui309";
-import { MqttTransport, MQTT_TRANSPORT_VERSION, clearOnlineAuthKey, deriveOnlineAuthKeyHex, storeOnlineAuthKey } from "./protocol/MqttTransport.js?v=0.1.87-ui309";
-import { P1WebFlasher } from "./web-flasher.js?v=0.1.87-ui309";
-import { inferCircuitLayout, initCircuitView, normalizeCircuitLayout } from "./circuit.js?v=0.1.87-ui309";
-import { initGuinoView } from "./guino.js?v=0.1.87-ui309";
+import { MqttWebRtcTransport, MQTT_WEBRTC_TRANSPORT_VERSION } from "./protocol/MqttWebRtcTransport.js?v=0.1.87-ui314";
+import { MqttTransport, MQTT_TRANSPORT_VERSION, clearOnlineAuthKey, deriveOnlineAuthKeyHex, storeOnlineAuthKey } from "./protocol/MqttTransport.js?v=0.1.87-ui314";
+import { P1WebFlasher } from "./web-flasher.js?v=0.1.87-ui314";
+import { inferCircuitLayout, initCircuitView, normalizeCircuitLayout } from "./circuit.js?v=0.1.87-ui314";
+import { initGuinoView } from "./guino.js?v=0.1.87-ui314";
 
-const WEB_UI_VERSION = "0.1.87-ui311";
+const WEB_UI_VERSION = "0.1.87-ui314";
 const CHAT_DEFAULT_MAX_OUTPUT_TOKENS = 8000;
 const CHAT_MIN_MAX_OUTPUT_TOKENS = 1024;
 const CHAT_HARD_MAX_OUTPUT_TOKENS = 32000;
@@ -1993,13 +1993,16 @@ async function openDownloadedBoardRevision(data = {}) {
   await shelveEditorSketchIfNeeded({ incomingCode: code });
 
   let project = await resolveBoardProjectForFetchedScript(data);
-  project = await adoptLegacyRevisionsForBoardProject(project, data, code);
+  const hasBoardRevisionId = Boolean(String(data.revisionId || "").trim());
   const codeHash = boardCodeHash(data, code);
   let revision = findRevisionByIdentity(project, {
     revisionId: data.revisionId,
     codeHash,
     code,
   });
+  if (!revision && !hasBoardRevisionId) {
+    revision = findReusableBoardDownloadRevision(project, { codeHash, code });
+  }
 
   if (!revision) {
     revision = buildRevision({
@@ -2014,7 +2017,9 @@ async function openDownloadedBoardRevision(data = {}) {
     project.revisions.unshift(revision);
     project.activeRevisionId = revision.id;
     project = await saveProject(project);
-    logLine("info", `downloaded board sketch as new revision ${revision.name}`);
+    logLine("info", hasBoardRevisionId
+      ? `downloaded board sketch as new revision ${revision.name}`
+      : `downloaded board sketch as new revision ${revision.name}; no board revision id, so specification was left empty`);
   } else {
     project.activeRevisionId = revision.id;
     project = await saveProject(project);
@@ -2286,12 +2291,25 @@ function projectFromCode(code, name = "", circuit = null, description = "", spec
   return buildProject({ name, code, circuit, description, specificationMode });
 }
 
+function createOpaqueId(prefix = "id") {
+  if (globalThis.crypto?.randomUUID) return `${prefix}-${globalThis.crypto.randomUUID()}`;
+  const bytes = new Uint8Array(16);
+  globalThis.crypto?.getRandomValues?.(bytes);
+  if (!bytes.some(Boolean)) {
+    for (let i = 0; i < bytes.length; i += 1) bytes[i] = Math.floor(Math.random() * 256);
+  }
+  bytes[6] = (bytes[6] & 0x0f) | 0x40;
+  bytes[8] = (bytes[8] & 0x3f) | 0x80;
+  const hex = [...bytes].map((byte) => byte.toString(16).padStart(2, "0"));
+  return `${prefix}-${hex.slice(0, 4).join("")}-${hex.slice(4, 6).join("")}-${hex.slice(6, 8).join("")}-${hex.slice(8, 10).join("")}-${hex.slice(10).join("")}`;
+}
+
 function createProjectId() {
-  return `p1e-prj-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+  return createOpaqueId("p1e-prj");
 }
 
 function createRevisionId() {
-  return `rev-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+  return createOpaqueId("rev");
 }
 
 function normalizeProjectName(name) {
@@ -2435,20 +2453,33 @@ function boardCodeHash(data = {}, code = "") {
   return normalizeCodeHash(data.codeHash ?? data.scriptHash ?? data.hash, code);
 }
 
-function findRevisionByIdentity(project, { revisionId = "", codeHash = "", code = "" } = {}) {
+function findRevisionByIdentity(project, { revisionId = "", codeHash = "", code = "", allowContentMatch = false } = {}) {
   const revisions = Array.isArray(project?.revisions) ? project.revisions : [];
   const id = String(revisionId || "").trim();
   if (id) {
     const byId = revisions.find((revision) => revision.id === id);
     if (byId) return byId;
-    logLine("warn", `board revision id ${id} was not found locally; falling back to hash`);
+    logLine("warn", `board revision id ${id} was not found locally; opening downloaded sketch as a new revision`);
   }
+  if (!allowContentMatch) return null;
   const hash = normalizeCodeHash(codeHash, code);
   if (hash) {
     const byHash = revisions.find((revision) => normalizeCodeHash(revision.codeHash, revision.code) === hash);
     if (byHash) return byHash;
   }
   return revisions.find((revision) => String(revision.code || "") === String(code || "")) || null;
+}
+
+function findReusableBoardDownloadRevision(project, { codeHash = "", code = "" } = {}) {
+  const revisions = Array.isArray(project?.revisions) ? project.revisions : [];
+  const hash = normalizeCodeHash(codeHash, code);
+  return revisions.find((revision) => revision.source === "download"
+    && !String(revision.specification || "").trim()
+    && normalizeChatMessages(revision.chat).length === 0
+    && (
+      String(revision.code || "") === String(code || "")
+      || normalizeCodeHash(revision.codeHash, revision.code) === hash
+    )) || null;
 }
 
 function nextRevisionName(project) {
@@ -2587,6 +2618,7 @@ async function persistProjectMetadataToDevice(project, revision = null) {
     await sendCommand("config.set", {
       projectId: project.id,
       projectName: project.name,
+      revisionId: selected?.id || "",
       scriptName: selected?.name || "",
     }, { quiet: true, timeoutMs: 2500 });
   } catch {

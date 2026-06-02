@@ -11,6 +11,7 @@ static String g_deviceId = "";
 static String g_deviceName = "";
 static String g_projectId = "";
 static String g_projectName = "";
+static String g_revisionId = "";
 static String g_scriptName = "";
 static String g_timezone = "UTC0";
 static String g_wifiSsids[P1_EMBED_MAX_WIFI_NETWORKS];
@@ -397,6 +398,8 @@ void configLoad() {
     else changed = true;
     if (configJsonGetString(json, "projectName", value)) g_projectName = value;
     else changed = true;
+    if (configJsonGetString(json, "revisionId", value)) g_revisionId = value;
+    else changed = true;
     if (configJsonGetString(json, "scriptName", value)) g_scriptName = value;
     else changed = true;
     if (configJsonGetString(json, "timezone", value)) g_timezone = configNormalizeTimezone(value);
@@ -447,6 +450,7 @@ void configSave() {
   json += ",\"deviceName\":" + jsonString(g_deviceName);
   json += ",\"projectId\":" + jsonString(g_projectId);
   json += ",\"projectName\":" + jsonString(g_projectName);
+  json += ",\"revisionId\":" + jsonString(g_revisionId);
   json += ",\"scriptName\":" + jsonString(g_scriptName);
   json += ",\"timezone\":" + jsonString(configTimezone());
   json += ",\"wifiSsid\":" + jsonString(configWifiSsid());
@@ -497,6 +501,7 @@ void configFactoryReset() {
   g_deviceName = configBuildDefaultDeviceName();
   g_projectId = "";
   g_projectName = "";
+  g_revisionId = "";
   g_scriptName = "";
   g_timezone = "UTC0";
   g_mqttHost = P1_EMBED_MQTT_HOST;
@@ -546,6 +551,15 @@ void configSetProject(const String& id, const String& name) {
   g_projectId.trim();
   g_projectName = name;
   g_projectName.trim();
+}
+
+String configRevisionId() {
+  return g_revisionId;
+}
+
+void configSetRevisionId(const String& id) {
+  g_revisionId = id;
+  g_revisionId.trim();
 }
 
 String configScriptName() {
@@ -767,6 +781,7 @@ P1ConfigSnapshot configSnapshot() {
   snapshot.deviceName = configDeviceName();
   snapshot.projectId = configProjectId();
   snapshot.projectName = configProjectName();
+  snapshot.revisionId = configRevisionId();
   snapshot.scriptName = configScriptName();
   snapshot.timezone = configTimezone();
   snapshot.wifiSsid = configWifiSsid();
@@ -793,6 +808,7 @@ String configAsJson(const P1ConfigSnapshot& snapshot) {
   out += ",\"deviceName\":" + jsonString(snapshot.deviceName);
   out += ",\"projectId\":" + jsonString(snapshot.projectId);
   out += ",\"projectName\":" + jsonString(snapshot.projectName);
+  out += ",\"revisionId\":" + jsonString(snapshot.revisionId);
   out += ",\"scriptName\":" + jsonString(snapshot.scriptName);
   out += ",\"timezone\":" + jsonString(snapshot.timezone);
   out += ",\"wifiSsid\":" + jsonString(snapshot.wifiSsid);

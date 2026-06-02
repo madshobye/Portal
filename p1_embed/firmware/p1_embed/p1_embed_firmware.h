@@ -22,6 +22,7 @@ struct P1ConfigSnapshot {
   String deviceName;
   String projectId;
   String projectName;
+  String revisionId;
   String scriptName;
   String timezone;
   String wifiSsid;
@@ -199,6 +200,8 @@ void configSetDeviceName(const String& value);
 String configProjectId();
 String configProjectName();
 void configSetProject(const String& id, const String& name);
+String configRevisionId();
+void configSetRevisionId(const String& id);
 String configScriptName();
 void configSetScriptName(const String& name);
 String configTimezone();

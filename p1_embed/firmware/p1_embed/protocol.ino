@@ -222,6 +222,7 @@ static String protocolScriptSnapshotJson(const P1ScriptSnapshot& snapshot, bool 
   out += "\"state\":" + jsonString(snapshot.state);
   out += ",\"stored\":" + String(snapshot.stored ? "true" : "false");
   out += ",\"runState\":" + jsonString(snapshot.runState);
+  out += ",\"revisionId\":" + jsonString(configRevisionId());
   out += ",\"scriptName\":" + jsonString(configScriptName());
   if (includeMetrics) {
     out += ",\"scriptBytes\":" + String(snapshot.bytes);
@@ -1036,11 +1037,12 @@ static void protocolSendMsgPackConfig(uint32_t id) {
     return;
   }
   P1MsgPackWriter w(frame, P1_EMBED_MSGPACK_MAX_FRAME_BYTES);
-  protocolMsgPackBeginResponse(w, id, true, 24);
+  protocolMsgPackBeginResponse(w, id, true, 25);
   w.writeString("deviceId"); w.writeString(snapshot.deviceId);
   w.writeString("deviceName"); w.writeString(snapshot.deviceName);
   w.writeString("projectId"); w.writeString(snapshot.projectId);
   w.writeString("projectName"); w.writeString(snapshot.projectName);
+  w.writeString("revisionId"); w.writeString(snapshot.revisionId);
   w.writeString("scriptName"); w.writeString(snapshot.scriptName);
   w.writeString("timezone"); w.writeString(snapshot.timezone);
   w.writeString("wifiSsid"); w.writeString(snapshot.wifiSsid);
@@ -1146,11 +1148,12 @@ static void protocolSendMsgPackScriptGet(uint32_t id) {
     return;
   }
   P1MsgPackWriter w(frame, capacity);
-  protocolMsgPackBeginResponse(w, id, true, 5);
+  protocolMsgPackBeginResponse(w, id, true, 6);
   w.writeString("code"); w.writeString(snapshot.code);
   w.writeString("state"); w.writeString(snapshot.state);
   w.writeString("stored"); w.writeBool(snapshot.stored);
   w.writeString("runState"); w.writeString(snapshot.runState);
+  w.writeString("revisionId"); w.writeString(configRevisionId());
   w.writeString("scriptName"); w.writeString(configScriptName());
   if (w.ok && mqttTransportConnected() && w.length > P1_EMBED_MQTT_BUFFER_BYTES) {
     protocolSendMsgPackError(id, "response_too_large", "script.get response is too large for MQTT; use script.chunk.get");
@@ -1181,7 +1184,7 @@ static void protocolSendMsgPackScriptChunkGet(uint32_t id, uint32_t offset, uint
     return;
   }
   P1MsgPackWriter w(frame, capacity);
-  protocolMsgPackBeginResponse(w, id, true, 8);
+  protocolMsgPackBeginResponse(w, id, true, 9);
   w.writeString("offset"); w.writeUInt(offset);
   w.writeString("nextOffset"); w.writeUInt(nextOffset);
   w.writeString("scriptBytes"); w.writeUInt(total);
@@ -1189,6 +1192,7 @@ static void protocolSendMsgPackScriptChunkGet(uint32_t id, uint32_t offset, uint
   w.writeString("chunk"); w.writeString(chunk);
   w.writeString("state"); w.writeString(snapshot.state);
   w.writeString("runState"); w.writeString(snapshot.runState);
+  w.writeString("revisionId"); w.writeString(configRevisionId());
   w.writeString("scriptName"); w.writeString(configScriptName());
   if (w.ok) protocolSendMsgPackBytes(frame, w.length);
   if (!w.ok) protocolSendMsgPackError(id, "frame_too_large", "Script chunk did not fit in MessagePack response");
@@ -1384,6 +1388,7 @@ void protocolHandleBytes(const uint8_t* data, size_t len) {
     String wifiPassword;
     String projectId;
     String projectName;
+    String revisionId;
     String scriptName;
     String timezone;
     String mqttHost;
@@ -1455,6 +1460,13 @@ void protocolHandleBytes(const uint8_t* data, size_t len) {
         return;
       }
     }
+    bool hasRevisionId = false;
+    if (count >= 43) {
+      if (!r.readBool(hasRevisionId) || !r.readString(revisionId)) {
+        protocolSendMsgPackError(id, "bad_config_frame", "config.set revision id field is malformed");
+        return;
+      }
+    }
     bool changed = false;
     bool mqttChanged = false;
     if (hasDeviceName) {
@@ -1475,6 +1487,10 @@ void protocolHandleBytes(const uint8_t* data, size_t len) {
     }
     if (hasScriptName) {
       configSetScriptName(scriptName);
+      changed = true;
+    }
+    if (hasRevisionId) {
+      configSetRevisionId(revisionId);
       changed = true;
     }
     if (hasTimezone) {
@@ -1716,6 +1732,7 @@ void protocolHandleLine(const char* line) {
     String wifiPassword;
     String projectId;
     String projectName;
+    String revisionId;
     String scriptName;
     String timezone;
     String mqttHost;
@@ -1751,6 +1768,10 @@ void protocolHandleLine(const char* line) {
     }
     if (jsonGetString(line, "scriptName", scriptName)) {
       configSetScriptName(scriptName);
+      changed = true;
+    }
+    if (jsonGetString(line, "revisionId", revisionId)) {
+      configSetRevisionId(revisionId);
       changed = true;
     }
     if (jsonGetString(line, "timezone", timezone)) {
