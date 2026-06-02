@@ -857,6 +857,37 @@ static void w_p1_touchRead(WRContext*, const WRValue* argv, const int argn, WRVa
   wrRetInt(retVal, pin >= 0 ? touchRead(pin) : 0);
 }
 
+static void w_p1_touchReadPair(WRContext*, const WRValue* argv, const int argn, WRValue& retVal, void*) {
+  int drivePin = wrArgInt(argv, argn, 0, -1);
+  int sensePin = wrArgInt(argv, argn, 1, -1);
+  int samples = constrain(wrArgInt(argv, argn, 2, 32), 1, 256);
+  int settleUs = constrain(wrArgInt(argv, argn, 3, 5), 0, 1000);
+  if (drivePin < 0 || sensePin < 0 || drivePin == sensePin) {
+    wrRetInt(retVal, 0);
+    return;
+  }
+
+  int32_t total = 0;
+  pinMode(drivePin, OUTPUT);
+  pinMode(sensePin, INPUT);
+  for (int i = 0; i < samples; i++) {
+    digitalWrite(drivePin, HIGH);
+    if (settleUs > 0) delayMicroseconds((uint32_t)settleUs);
+    int high = analogRead(sensePin);
+
+    digitalWrite(drivePin, LOW);
+    if (settleUs > 0) delayMicroseconds((uint32_t)settleUs);
+    int low = analogRead(sensePin);
+
+    total += high - low;
+  }
+
+  digitalWrite(drivePin, LOW);
+  pinMode(drivePin, INPUT);
+  pinMode(sensePin, INPUT);
+  wrRetInt(retVal, (int)(total / samples));
+}
+
 static void w_p1_delay(WRContext*, const WRValue* argv, const int argn, WRValue& retVal, void*) {
   int ms = wrArgInt(argv, argn, 0, 0);
   delay((uint32_t)max(0, ms));
@@ -1879,7 +1910,7 @@ static void w_p1_clearError(WRContext*, const WRValue*, const int, WRValue& retV
 const char* wrenchBindingNameForHash(uint32_t hash) {
   static const char* const names[] = {
     "print", "println",
-    "pinMode", "digitalWrite", "digitalRead", "analogRead", "touchRead",
+    "pinMode", "digitalWrite", "digitalRead", "analogRead", "touchRead", "touchReadPair",
     "delay", "delayMicroseconds", "millis", "micros",
     "random", "randomSeed", "freeHeap",
     "lerp", "noiseSeed", "simplex3", "simplex3_01",
@@ -1928,6 +1959,7 @@ void wrenchRegisterBindings(WRState* wr) {
   wr_registerFunction(wr, "digitalRead", w_p1_digitalRead);
   wr_registerFunction(wr, "analogRead", w_p1_analogRead);
   wr_registerFunction(wr, "touchRead", w_p1_touchRead);
+  wr_registerFunction(wr, "touchReadPair", w_p1_touchReadPair);
   wr_registerFunction(wr, "delay", w_p1_delay);
   wr_registerFunction(wr, "delayMicroseconds", w_p1_delayMicroseconds);
   wr_registerFunction(wr, "millis", w_p1_millis);

@@ -74,6 +74,7 @@ void wifiBegin() {
 
   WiFi.mode(WIFI_STA);
   memoryProfileMark("wifi", "sta_mode");
+  WiFi.setSleep(false);
   WiFi.setAutoReconnect(true);
   WiFi.persistent(false);
   wifiTryNetwork(0, "connecting");

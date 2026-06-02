@@ -107,6 +107,7 @@ The timezone is configured in Settings > General with representative city labels
 - `digitalWrite(pin, value)`, `digitalRead(pin)`. Use `HIGH`/`LOW` if available or `1`/`0`; do not pass `"HIGH"` or `"LOW"` as strings.
 - `analogRead(pin)`.
 - `touchRead(pin)`.
+- `touchReadPair(drivePin, sensePin, samples, settleMicroseconds)` measures two-wire touch by driving `drivePin` high/low and reading `sensePin` with `analogRead()`. It returns the averaged high-minus-low delta. `samples` defaults to `32`; `settleMicroseconds` defaults to `5`. Smooth the returned value in the script if needed, especially when scanning several pin pairs.
 - `analogWrite(pin, value)`.
 - `analogWriteResolution(bits)`.
 - `analogWriteFrequency(pin, hz)`.

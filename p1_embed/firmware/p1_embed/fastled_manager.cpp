@@ -1,5 +1,8 @@
 #include <Arduino.h>
 #define FASTLED_INTERNAL
+#ifndef FASTLED_RMT_MEM_BLOCKS_NETWORK_MODE
+#define FASTLED_RMT_MEM_BLOCKS_NETWORK_MODE 4
+#endif
 #include <FastLED.h>
 #include "p1_embed_firmware.h"
 
@@ -53,7 +56,7 @@ static bool ledValidPin(int pin) {
 }
 
 #if P1_EMBED_FASTLED_AVAILABLE
-#define P1_ADD_FASTLED_CASE(PIN) case PIN: controllerOut = &FastLED.addLeds<WS2812B, PIN, GRB>(pixels, count); break
+#define P1_ADD_FASTLED_CASE(PIN) case PIN: controllerOut = &FastLED.addLeds<WS2812B, PIN, GRB, fl::Bus::RMT>(pixels, count); break
 
 static bool ledAddController(int pin, CRGB* pixels, int count, CLEDController*& controllerOut) {
   controllerOut = nullptr;
