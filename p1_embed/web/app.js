@@ -8,7 +8,7 @@ import { P1WebFlasher } from "./web-flasher.js?v=0.1.87-ui309";
 import { inferCircuitLayout, initCircuitView, normalizeCircuitLayout } from "./circuit.js?v=0.1.87-ui309";
 import { initGuinoView } from "./guino.js?v=0.1.87-ui309";
 
-const WEB_UI_VERSION = "0.1.87-ui310";
+const WEB_UI_VERSION = "0.1.87-ui311";
 const CHAT_DEFAULT_MAX_OUTPUT_TOKENS = 8000;
 const CHAT_MIN_MAX_OUTPUT_TOKENS = 1024;
 const CHAT_HARD_MAX_OUTPUT_TOKENS = 32000;
@@ -5863,7 +5863,13 @@ async function replaceEditorFromChat(code, message, name = "", layout = null, sp
   const nextMode = normalizeSpecificationMode(specificationMode || targetContext?.specificationMode || currentProjectSpecificationMode);
   const current = String(code ?? "");
   if (!targetContext || isCurrentRevisionContext(targetContext)) {
-    await shelveEditorSketchIfNeeded({ incomingCode: current });
+    const visibleChatMessages = chatMessages;
+    if (targetContext?.sourceChat) chatMessages = normalizeChatMessages(targetContext.sourceChat);
+    try {
+      await shelveEditorSketchIfNeeded({ incomingCode: current });
+    } finally {
+      chatMessages = visibleChatMessages;
+    }
   }
   let project = targetContext?.projectId ? await getProjectById(targetContext.projectId) : null;
   if (!project) project = await ensureProjectForWrite({ code: current, nameHint: name });
@@ -5939,7 +5945,7 @@ async function sendChatPrompt() {
         result.circuit_layout,
         result.project_specification,
         result.specification_mode,
-        { targetContext: { ...requestContext, chat: requestMessages } },
+        { targetContext: { ...requestContext, chat: requestMessages, sourceChat: requestContext.chat } },
       );
       const finalMessages = [...requestMessages, assistantMessage];
       await saveChatForRevisionContext({
