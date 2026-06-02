@@ -35,6 +35,26 @@ static bool wrRetIntArray3(WRContext* ctx, WRValue& retVal, int a, int b, int c)
   return true;
 }
 
+static bool wrRetFloatArray3(WRContext* ctx, WRValue& retVal, float a, float b, float c) {
+  float values[3] = { a, b, c };
+  for (int i = 0; i < 3; i++) {
+    WRValue* slot = retVal.indexArray(ctx, (uint32_t)i, true);
+    if (!slot) return false;
+    wr_makeFloat(slot, values[i]);
+  }
+  return true;
+}
+
+static bool wrRetIntArray4(WRContext* ctx, WRValue& retVal, int a, int b, int c, int d) {
+  int values[4] = { a, b, c, d };
+  for (int i = 0; i < 4; i++) {
+    WRValue* slot = retVal.indexArray(ctx, (uint32_t)i, true);
+    if (!slot) return false;
+    wr_makeInt(slot, values[i]);
+  }
+  return true;
+}
+
 static bool wrRetIntArray6(WRContext* ctx, WRValue& retVal, int a, int b, int c, int d, int e, int f) {
   int values[6] = { a, b, c, d, e, f };
   for (int i = 0; i < 6; i++) {
@@ -61,6 +81,17 @@ static bool wrSetArrayInt3(WRContext* ctx, const WRValue* argv, int argn, int ar
   if (!argv || argIdx >= argn) return false;
   int values[3] = { a, b, c };
   for (int i = 0; i < 3; i++) {
+    WRValue* slot = argv[argIdx].indexArray(ctx, (uint32_t)i, true);
+    if (!slot) return false;
+    wr_makeInt(slot, values[i]);
+  }
+  return true;
+}
+
+static bool wrSetArrayInt4(WRContext* ctx, const WRValue* argv, int argn, int argIdx, int a, int b, int c, int d) {
+  if (!argv || argIdx >= argn) return false;
+  int values[4] = { a, b, c, d };
+  for (int i = 0; i < 4; i++) {
     WRValue* slot = argv[argIdx].indexArray(ctx, (uint32_t)i, true);
     if (!slot) return false;
     wr_makeInt(slot, values[i]);
@@ -207,6 +238,109 @@ static void rgbToHsv8(int r, int g, int b, int& h, int& s, int& v) {
 
   while (h < 0) h += 255;
   while (h >= 255) h -= 255;
+}
+
+static double solarDegToRad(double deg) {
+  return deg * PI / 180.0;
+}
+
+static double solarRadToDeg(double rad) {
+  return rad * 180.0 / PI;
+}
+
+static double solarNormalizeDeg(double deg) {
+  double out = fmod(deg, 360.0);
+  if (out < 0.0) out += 360.0;
+  return out;
+}
+
+static int sunBrightnessFromElevation(float elevationDeg) {
+  if (elevationDeg <= -6.0f) return 0;
+  if (elevationDeg >= 60.0f) return 255;
+  float x = (elevationDeg + 6.0f) / 66.0f;
+  x = constrain(x, 0.0f, 1.0f);
+  x = x * x * (3.0f - 2.0f * x);
+  return constrain((int)roundf(x * 255.0f), 0, 255);
+}
+
+static int sunKelvinFromElevation(float elevationDeg) {
+  if (elevationDeg <= -6.0f) return 2200;
+  if (elevationDeg >= 45.0f) return 6500;
+  float x = (elevationDeg + 6.0f) / 51.0f;
+  x = constrain(x, 0.0f, 1.0f);
+  x = x * x * (3.0f - 2.0f * x);
+  return constrain(2200 + (int)roundf(x * 4300.0f), 2200, 6500);
+}
+
+static bool sunCalculate(double latitudeDeg, double longitudeDeg, time_t unixSeconds, float& elevationDeg, float& azimuthDeg, int& brightness, int& kelvin) {
+  if (unixSeconds < 100000) {
+    elevationDeg = -90.0f;
+    azimuthDeg = 0.0f;
+    brightness = 0;
+    kelvin = 2200;
+    return false;
+  }
+
+  latitudeDeg = constrain(latitudeDeg, -89.9, 89.9);
+  longitudeDeg = constrain(longitudeDeg, -180.0, 180.0);
+
+  double jd = ((double)unixSeconds / 86400.0) + 2440587.5;
+  double t = (jd - 2451545.0) / 36525.0;
+  double geomMeanLong = solarNormalizeDeg(280.46646 + t * (36000.76983 + t * 0.0003032));
+  double geomMeanAnomaly = 357.52911 + t * (35999.05029 - 0.0001537 * t);
+  double eccentricity = 0.016708634 - t * (0.000042037 + 0.0000001267 * t);
+  double anomalyRad = solarDegToRad(geomMeanAnomaly);
+  double sunEqCenter = sin(anomalyRad) * (1.914602 - t * (0.004817 + 0.000014 * t))
+    + sin(2.0 * anomalyRad) * (0.019993 - 0.000101 * t)
+    + sin(3.0 * anomalyRad) * 0.000289;
+  double trueLong = geomMeanLong + sunEqCenter;
+  double omega = 125.04 - 1934.136 * t;
+  double appLong = trueLong - 0.00569 - 0.00478 * sin(solarDegToRad(omega));
+  double meanObliq = 23.0 + (26.0 + ((21.448 - t * (46.815 + t * (0.00059 - t * 0.001813))) / 60.0)) / 60.0;
+  double obliqCorr = meanObliq + 0.00256 * cos(solarDegToRad(omega));
+  double obliqRad = solarDegToRad(obliqCorr);
+  double appLongRad = solarDegToRad(appLong);
+  double declRad = asin(sin(obliqRad) * sin(appLongRad));
+
+  double y = tan(obliqRad / 2.0);
+  y *= y;
+  double longRad = solarDegToRad(geomMeanLong);
+  double eqTime = 4.0 * solarRadToDeg(
+    y * sin(2.0 * longRad)
+    - 2.0 * eccentricity * sin(anomalyRad)
+    + 4.0 * eccentricity * y * sin(anomalyRad) * cos(2.0 * longRad)
+    - 0.5 * y * y * sin(4.0 * longRad)
+    - 1.25 * eccentricity * eccentricity * sin(2.0 * anomalyRad));
+
+  double minutesUtc = fmod((double)unixSeconds / 60.0, 1440.0);
+  if (minutesUtc < 0.0) minutesUtc += 1440.0;
+  double trueSolarTime = fmod(minutesUtc + eqTime + (4.0 * longitudeDeg), 1440.0);
+  if (trueSolarTime < 0.0) trueSolarTime += 1440.0;
+  double hourAngleDeg = trueSolarTime / 4.0 - 180.0;
+  if (hourAngleDeg < -180.0) hourAngleDeg += 360.0;
+
+  double latRad = solarDegToRad(latitudeDeg);
+  double hourAngleRad = solarDegToRad(hourAngleDeg);
+  double cosZenith = sin(latRad) * sin(declRad) + cos(latRad) * cos(declRad) * cos(hourAngleRad);
+  cosZenith = constrain(cosZenith, -1.0, 1.0);
+  double zenithDeg = solarRadToDeg(acos(cosZenith));
+  double elevation = 90.0 - zenithDeg;
+
+  double azDenom = cos(latRad) * sin(solarDegToRad(zenithDeg));
+  double azimuth = 180.0;
+  if (fabs(azDenom) > 0.001) {
+    double az = ((sin(latRad) * cos(solarDegToRad(zenithDeg))) - sin(declRad)) / azDenom;
+    az = constrain(az, -1.0, 1.0);
+    azimuth = solarRadToDeg(acos(az));
+    if (hourAngleDeg > 0.0) azimuth = solarNormalizeDeg(azimuth + 180.0);
+    else azimuth = solarNormalizeDeg(540.0 - azimuth);
+  }
+
+  elevationDeg = (float)elevation;
+  azimuthDeg = (float)azimuth;
+  brightness = sunBrightnessFromElevation(elevationDeg);
+  kelvin = sunKelvinFromElevation(elevationDeg);
+  return true;
 }
 
 static uint8_t g_noisePerm[512];
@@ -994,6 +1128,12 @@ static void w_p1_diagArray3(WRContext* ctx, const WRValue* argv, const int argn,
   }
 }
 
+static void w_p1_diagFloatArray3(WRContext* ctx, const WRValue* argv, const int argn, WRValue& retVal, void*) {
+  if (!wrRetFloatArray3(ctx, retVal, wrArgFloat(argv, argn, 0, 0.0f), wrArgFloat(argv, argn, 1, 0.0f), wrArgFloat(argv, argn, 2, 0.0f))) {
+    scriptErrorSet("binding", "diag_float_array_alloc_failed", "diagFloatArray3 failed to allocate return array");
+  }
+}
+
 static void w_p1_wifiConnected(WRContext*, const WRValue*, const int, WRValue& retVal, void*) {
   wrRetInt(retVal, WiFi.status() == WL_CONNECTED ? 1 : 0);
 }
@@ -1592,6 +1732,38 @@ static void w_p1_timeGet(WRContext* ctx, const WRValue*, const int, WRValue& ret
   char buf[24];
   snprintf(buf, sizeof(buf), "%04d-%02d-%02d %02d:%02d:%02d", info.tm_year + 1900, info.tm_mon + 1, info.tm_mday, info.tm_hour, info.tm_min, info.tm_sec);
   wrRetString(ctx, retVal, String(buf));
+}
+
+static void w_p1_sunLocal(WRContext* ctx, const WRValue* argv, const int argn, WRValue& retVal, void*) {
+  float elevation = -90.0f;
+  float azimuth = 0.0f;
+  int brightness = 0;
+  int kelvin = 2200;
+  double latitude = wrArgFloat(argv, argn, 0, 0.0f);
+  double longitude = wrArgFloat(argv, argn, 1, 0.0f);
+  int outIdx = -1;
+  time_t timestamp = time(nullptr);
+
+  if (wrArgIsArray(argv, argn, 2)) {
+    outIdx = 2;
+  } else {
+    if (wrArgPresent(argv, argn, 2)) timestamp = (time_t)wrArgInt(argv, argn, 2, (int)timestamp);
+    if (wrArgIsArray(argv, argn, 3)) outIdx = 3;
+  }
+
+  sunCalculate(latitude, longitude, timestamp, elevation, azimuth, brightness, kelvin);
+  int elevationInt = (int)roundf(elevation);
+  int azimuthInt = constrain((int)roundf(azimuth), 0, 360);
+  if (outIdx >= 0) {
+    bool ok = wrSetArrayInt4(ctx, argv, argn, outIdx, elevationInt, azimuthInt, brightness, kelvin);
+    if (!ok) scriptErrorSet("binding", "sun_local_into_failed", "sunLocal failed to write output array");
+    wrRetInt(retVal, ok ? 1 : 0);
+    return;
+  }
+
+  if (!wrRetIntArray4(ctx, retVal, elevationInt, azimuthInt, brightness, kelvin)) {
+    scriptErrorSet("binding", "sun_local_alloc_failed", "sunLocal failed to allocate return array");
+  }
 }
 
 static void w_p1_ledConfig(WRContext*, const WRValue* argv, const int argn, WRValue& retVal, void*) {
@@ -2234,13 +2406,13 @@ const char* wrenchBindingNameForHash(uint32_t hash) {
     "print", "println",
     "pinMode", "digitalWrite", "digitalRead", "analogRead", "touchRead", "touchReadPair",
     "delay", "delayMicroseconds", "millis", "micros",
-    "random", "randomSeed", "freeHeap", "diagArray3",
+    "random", "randomSeed", "freeHeap", "diagArray3", "diagFloatArray3",
     "lerp", "map", "constrain", "min", "max", "abs",
     "sin", "cos", "tan", "asin", "acos", "atan", "atan2",
     "sqrt", "pow", "floor", "ceil", "round", "exp", "ln", "log10",
     "fmod", "radians", "degrees",
     "noiseSeed", "simplex3", "simplex3_01",
-    "timeNow", "timeLocal", "timeGet",
+    "timeNow", "timeLocal", "timeGet", "sunLocal",
     "wifiConnected", "wifiIp", "wifiRssi", "wifiSsid",
     "wireBegin", "i2cWrite", "i2cRead",
     "serialBegin", "serialEnd", "serialAvailable", "serialRead",
@@ -2303,6 +2475,7 @@ void wrenchRegisterBindings(WRState* wr) {
   wr_registerFunction(wr, "randomSeed", w_p1_randomSeed);
   wr_registerFunction(wr, "freeHeap", w_p1_freeHeap);
   wr_registerFunction(wr, "diagArray3", w_p1_diagArray3);
+  wr_registerFunction(wr, "diagFloatArray3", w_p1_diagFloatArray3);
   wr_registerFunction(wr, "lerp", w_p1_lerp);
   wr_registerFunction(wr, "map", w_p1_map);
   wr_registerFunction(wr, "constrain", w_p1_constrain);
@@ -2333,6 +2506,7 @@ void wrenchRegisterBindings(WRState* wr) {
   wr_registerFunction(wr, "timeNow", w_p1_timeNow);
   wr_registerFunction(wr, "timeLocal", w_p1_timeLocal);
   wr_registerFunction(wr, "timeGet", w_p1_timeGet);
+  wr_registerFunction(wr, "sunLocal", w_p1_sunLocal);
   wr_registerFunction(wr, "wifiConnected", w_p1_wifiConnected);
   wr_registerFunction(wr, "wifiIp", w_p1_wifiIp);
   wr_registerFunction(wr, "wifiRssi", w_p1_wifiRssi);

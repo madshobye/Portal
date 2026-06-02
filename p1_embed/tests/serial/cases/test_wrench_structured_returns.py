@@ -105,6 +105,43 @@ function loop() {
       assert_true(0 <= parts[5] <= 60, f"timeLocal seconds range: {message}")
 
 
+def test_sun_local_direction_brightness_and_kelvin(dev):
+    code = """
+var sun[] = { 0, 0, 0, 0 };
+
+function setup() {
+  sunLocal(55.6761, 12.5683, 1782036000, sun);
+  println("sun noon=" + sun[0] + "," + sun[1] + "," + sun[2] + "," + sun[3]);
+  sunLocal(55.6761, 12.5683, 1782079200, sun);
+  println("sun night=" + sun[0] + "," + sun[1] + "," + sun[2] + "," + sun[3]);
+}
+
+function loop() {
+  delay(10);
+}
+""".strip()
+    dev.command("script.set", {"code": code, "run": True, "save": False}, timeout=10.0)
+    noon_event = dev.wait_event("script.print", timeout=5.0)
+    night_event = dev.wait_event("script.print", timeout=5.0)
+    noon = noon_event.get("data", {}).get("message", "")
+    night = night_event.get("data", {}).get("message", "")
+    assert_true(noon.startswith("sun noon="), f"sunLocal noon output: {noon}")
+    assert_true(night.startswith("sun night="), f"sunLocal night output: {night}")
+
+    noon_parts = [float(value) for value in noon.split("=", 1)[1].split(",")]
+    night_parts = [float(value) for value in night.split("=", 1)[1].split(",")]
+    assert_equal(len(noon_parts), 4, f"sunLocal noon part count: {noon}")
+    assert_equal(len(night_parts), 4, f"sunLocal night part count: {night}")
+    assert_true(45.0 <= noon_parts[0] <= 60.0, f"Copenhagen summer noon elevation: {noon}")
+    assert_true(120.0 <= noon_parts[1] <= 240.0, f"Copenhagen summer noon azimuth should face generally south: {noon}")
+    assert_true(180.0 <= noon_parts[2] <= 255.0, f"Copenhagen summer noon brightness: {noon}")
+    assert_true(5500.0 <= noon_parts[3] <= 6500.0, f"Copenhagen summer noon kelvin: {noon}")
+    assert_true(night_parts[0] < 0.0, f"Copenhagen summer night elevation: {night}")
+    assert_true(0.0 <= night_parts[1] <= 360.0, f"Copenhagen summer night azimuth range: {night}")
+    assert_true(night_parts[2] <= 80.0, f"Copenhagen summer night brightness: {night}")
+    assert_true(2200.0 <= night_parts[3] <= 4000.0, f"Copenhagen summer night kelvin: {night}")
+
+
 def test_palette_get_rgb_output_array(dev):
     code = """
 var color[] = { 0, 0, 0 };

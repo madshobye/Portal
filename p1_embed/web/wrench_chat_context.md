@@ -77,6 +77,7 @@ MQTT uses one binary command/response/event path and one plain text script path:
 - Wrench strings and JSON helpers are convenient, but repeated large string building can pressure heap.
 - Do not use JSON helpers as temporary data structures inside animation loops. Keep hot loops numeric, especially for LED color math.
 - Avoid fake numeric casts such as `pos = pos + 0;` or `value = value * 1;`. On P1E these can compile but later stop with a runtime `function_not_found`. For LED animation, prefer a simple integer frame/position counter that is incremented in `loop()`.
+- Do not build strings with float values using `+`, such as `"value=" + x`, when `x` may be a float. Float arithmetic and direct `println(x)` work, but string concatenation with floats can produce integer-looking garbage. For debug output, print a label separately or keep debug values as scaled integers.
 
 ## Core Bindings
 
@@ -104,6 +105,9 @@ MQTT uses one binary command/response/event path and one plain text script path:
 - `timeLocal()` returns `[year, month, day, hour, minute, second]`, or `-1` values before time is synced.
 - `timeLocal(out)` fills a caller-provided six-element array in the same order and avoids allocating a new return array.
 - `timeGet()` returns local time text as `YYYY-MM-DD HH:MM:SS`, or an empty string before time is synced.
+- `sunLocal(lat, lon)` returns `[elevationDeg, azimuthDeg, brightness, kelvin]` as integers for the current device time. Azimuth uses compass degrees: north `0`, east `90`, south `180`, west `270`.
+- `sunLocal(lat, lon, out)` fills a caller-provided four-element array for the current device time and avoids allocating a new return array.
+- `sunLocal(lat, lon, unixSeconds, out)` calculates the same values for an explicit UTC Unix timestamp. `brightness` is `0..255`; `kelvin` is a practical LED color-temperature estimate from about `2200..6500`.
 
 The timezone is configured in Settings > General with representative city labels. The firmware stores a fixed allow-listed POSIX timezone string such as `UTC0` or `CET-1CEST,M3.5.0/02,M10.5.0/03`; unsupported timezone strings are normalized to `UTC0`.
 

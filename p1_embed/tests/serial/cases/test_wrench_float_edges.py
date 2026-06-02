@@ -50,6 +50,82 @@ function loop() {
     run_script_and_expect_print(dev, code, "float arrays ok")
 
 
+def test_float_scalar_direct_print_on_board(dev):
+    code = """
+function setup() {
+  var value = 12.5;
+  println(value);
+}
+
+function loop() {
+  delay(50);
+}
+"""
+    run_script_and_expect_print(dev, code, "12.5")
+
+
+def test_float_binding_scalar_direct_print_on_board(dev):
+    code = """
+function setup() {
+  var value = lerp(10.0, 20.0, 0.25);
+  println(value);
+}
+
+function loop() {
+  delay(50);
+}
+"""
+    run_script_and_expect_print(dev, code, "12.5")
+
+
+def test_local_float_array_direct_print_on_board(dev):
+    code = """
+var values[] = { 12.5, -3.25, 0.125 };
+
+function setup() {
+  println(values[0]);
+}
+
+function loop() {
+  delay(50);
+}
+"""
+    run_script_and_expect_print(dev, code, "12.5")
+
+
+def test_binding_returned_float_array_direct_print_on_board(dev):
+    code = """
+function setup() {
+  var values = diagFloatArray3(12.5, -3.25, 0.125);
+  println(values[0]);
+}
+
+function loop() {
+  delay(50);
+}
+"""
+    run_script_and_expect_print(dev, code, "12.5")
+
+
+def test_binding_returned_float_array_arithmetic_on_board(dev):
+    code = """
+function setup() {
+  var values = diagFloatArray3(12.5, -3.25, 0.125);
+  var sum = values[0] + values[1] + values[2];
+  if (sum > 9.3 && sum < 9.4) {
+    println("binding array arithmetic ok");
+  } else {
+    println("binding array arithmetic bad=" + sum);
+  }
+}
+
+function loop() {
+  delay(50);
+}
+"""
+    run_script_and_expect_print(dev, code, "binding array arithmetic ok")
+
+
 def test_repeated_float_compile_does_not_decay_into_syntax_error(dev):
     code = """
 var phase = 0.0;

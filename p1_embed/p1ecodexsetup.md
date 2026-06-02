@@ -126,6 +126,7 @@ Use Wrench case style:
 - `pinMode(pin, OUTPUT)`, not string modes.
 - `digitalWrite(pin, HIGH)`, not string values.
 - `timeLocal(out)` or `timeLocal()` for `[year, month, day, hour, minute, second]`.
+- `sunLocal(lat, lon, out)` or `sunLocal(lat, lon, unixSeconds, out)` for `[elevationDeg, azimuthDeg, brightness, kelvin]`.
 - `simplex3()`, `simplex3_01()`, `noiseSeed()`.
 - Use top-level math helpers such as `map()`, `constrain()`, `sin()`, `cos()`, `sqrt()`, `pow()`, `floor()`, `ceil()`, `round()`, `abs()`, `min()`, `max()`, `radians()`, and `degrees()`.
 - Wrench's namespaced math library is also available as `math::...`, but generated sketches should prefer the top-level helpers.
@@ -135,6 +136,8 @@ Use Wrench case style:
 - `touchReadPair(drivePin, sensePin, samples, settleMicroseconds)` is the two-wire analog transfer touch helper.
 
 Legacy scalar time and color component bindings remain registered for existing sketches, but do not generate new code that uses them.
+
+Float arithmetic, float arrays, and direct `println(floatValue)` work on the board. Avoid generating `"label=" + floatValue` or other string concatenation with floats; serial tests showed that path can print integer-looking garbage even when the underlying float value is valid.
 
 Keep `wrench_chat_context.md` current whenever bindings change.
 

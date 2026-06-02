@@ -1,14 +1,14 @@
-import { ProtocolClient } from "./protocol/ProtocolClient.js?v=0.1.87-ui298";
-import { canEncodeCommand } from "./protocol/P1MsgPack.js?v=0.1.87-ui298";
-import { WebSerialTransport } from "./protocol/WebSerialTransport.js?v=0.1.87-ui298";
+import { ProtocolClient } from "./protocol/ProtocolClient.js?v=0.1.87-ui309";
+import { canEncodeCommand } from "./protocol/P1MsgPack.js?v=0.1.87-ui309";
+import { WebSerialTransport } from "./protocol/WebSerialTransport.js?v=0.1.87-ui309";
 import { WebSocketTransport } from "./protocol/WebSocketTransport.js";
-import { MqttWebRtcTransport, MQTT_WEBRTC_TRANSPORT_VERSION } from "./protocol/MqttWebRtcTransport.js?v=0.1.87-ui298";
-import { MqttTransport, MQTT_TRANSPORT_VERSION, clearOnlineAuthKey, deriveOnlineAuthKeyHex, storeOnlineAuthKey } from "./protocol/MqttTransport.js?v=0.1.87-ui298";
-import { P1WebFlasher } from "./web-flasher.js?v=0.1.87-ui298";
-import { inferCircuitLayout, initCircuitView, normalizeCircuitLayout } from "./circuit.js?v=0.1.87-ui298";
-import { initGuinoView } from "./guino.js?v=0.1.87-ui298";
+import { MqttWebRtcTransport, MQTT_WEBRTC_TRANSPORT_VERSION } from "./protocol/MqttWebRtcTransport.js?v=0.1.87-ui309";
+import { MqttTransport, MQTT_TRANSPORT_VERSION, clearOnlineAuthKey, deriveOnlineAuthKeyHex, storeOnlineAuthKey } from "./protocol/MqttTransport.js?v=0.1.87-ui309";
+import { P1WebFlasher } from "./web-flasher.js?v=0.1.87-ui309";
+import { inferCircuitLayout, initCircuitView, normalizeCircuitLayout } from "./circuit.js?v=0.1.87-ui309";
+import { initGuinoView } from "./guino.js?v=0.1.87-ui309";
 
-const WEB_UI_VERSION = "0.1.87-ui298";
+const WEB_UI_VERSION = "0.1.87-ui310";
 const CHAT_DEFAULT_MAX_OUTPUT_TOKENS = 8000;
 const CHAT_MIN_MAX_OUTPUT_TOKENS = 1024;
 const CHAT_HARD_MAX_OUTPUT_TOKENS = 32000;
@@ -49,7 +49,7 @@ const storage = {
   consoleTimestamps: "p1_embed.console.timestamps",
   sketchHistory: "p1_embed.editor.history",
   projectId: "p1_embed.project.activeId",
-  projectMigration: "p1_embed.project.migrated",
+  projectSchemaMigration: "p1_embed.project.schemaMigrated",
   projectFallback: "p1_embed.project.fallback",
   chatApiKey: "p1_embed.chat.apiKey",
   chatModel: "p1_embed.chat.model",
@@ -85,6 +85,10 @@ const sketchDbName = "p1_embed";
 const sketchDbVersion = 2;
 const sketchStoreName = "sketch_history";
 const projectStoreName = "projects";
+const projectSchemaMigrationVersion = "2";
+const legacySketchMigrationId = "sketch-history-to-projects";
+const legacySketchMigrationVersion = "2";
+const revisionDraftVersion = "2";
 
 const els = {
   tabs: [...document.querySelectorAll(".tab")],
@@ -287,6 +291,8 @@ let circuitView = null;
 let circuitChatLayout = null;
 let circuitUpdateTimer = null;
 let revisionDraftSaveTimer = null;
+let projectSelectTimer = null;
+let revisionSelectTimer = null;
 let guinoView = null;
 
 boot();
@@ -404,40 +410,20 @@ function getEditorValue() {
 }
 
 function setEditorValueRaw(value, { persist = true } = {}) {
-  suppressEditorPersist = !persist;
+  const previousSuppressEditorPersist = suppressEditorPersist;
+  suppressEditorPersist = true;
   try {
     if (editor) {
       editor.setValue(value, -1);
     }
     els.code.value = value;
   } finally {
-    suppressEditorPersist = false;
+    suppressEditorPersist = previousSuppressEditorPersist;
   }
   if (persist) localStorage.setItem(storage.code, value);
   scheduleCircuitUpdate();
   updateCurrentSketchDirty();
   updateEnabledState();
-}
-
-async function replaceEditorCode(value, {
-  persist = true,
-  saveCurrent = true,
-  identityName = "",
-  identityProject = null,
-  identityRevision = null,
-  markUnsaved = false,
-} = {}) {
-  const nextCode = String(value ?? "");
-  if (saveCurrent) await shelveEditorSketchIfNeeded({ incomingCode: nextCode });
-  setEditorValueRaw(nextCode, { persist });
-  if (identityName || identityProject || identityRevision) {
-    const project = identityProject ? normalizeProjectRecord(identityProject) : null;
-    const revision = identityRevision || activeRevision(project);
-    setCurrentSketchIdentity(identityName || revision?.name || "", nextCode, project, revision);
-  } else if (markUnsaved) {
-    clearCurrentSketchIdentity();
-    updateCurrentSketchDirty();
-  }
 }
 
 function bindControls() {
@@ -464,10 +450,14 @@ function bindControls() {
   els.chatStop.addEventListener("click", () => runUiAction(() => sendCommand("script.stop").then(refreshStatus), "stopping"));
   els.downloadCode.addEventListener("click", () => runUiAction(downloadProject, "download"));
   els.chatDownloadCode.addEventListener("click", () => runUiAction(downloadProject, "download"));
-  els.projectSelect.addEventListener("change", () => selectProject(els.projectSelect.value));
-  els.sketchHistory.addEventListener("change", () => selectRevision(els.sketchHistory.value));
-  els.generativeProjectSelect.addEventListener("change", () => selectProject(els.generativeProjectSelect.value));
-  els.generativeRevisionSelect.addEventListener("change", () => selectRevision(els.generativeRevisionSelect.value));
+  [els.projectSelect, els.generativeProjectSelect].forEach((select) => {
+    select.addEventListener("input", () => scheduleProjectSelect(select.value));
+    select.addEventListener("change", () => scheduleProjectSelect(select.value));
+  });
+  [els.sketchHistory, els.generativeRevisionSelect].forEach((select) => {
+    select.addEventListener("input", () => scheduleRevisionSelect(select.value));
+    select.addEventListener("change", () => scheduleRevisionSelect(select.value));
+  });
   bindSketchDrop();
   els.settings.addEventListener("click", openSettingsDialog);
   els.settingsTabs.forEach((tab) => tab.addEventListener("click", () => switchSettingsTab(tab.dataset.settingsTab)));
@@ -1907,14 +1897,12 @@ async function getScriptChunked(options = {}) {
 
 async function applyFetchedScript(data) {
   if (typeof data.code === "string") {
-    await activateDeviceProjectForFetchedScript(data);
-    await replaceEditorCode(data.code, { persist: false, saveCurrent: true });
-    await rememberUploadedSketch(data.code, data.scriptName || "", { source: "download" });
+    await openDownloadedBoardRevision(data);
   }
   updateScriptState(data);
 }
 
-async function activateDeviceProjectForFetchedScript(data = {}) {
+async function boardConfigForFetchedScript(data = {}) {
   let config = lastConfig || {};
   const hasDataProject = data.projectId || data.projectName;
   if (!hasDataProject && client) {
@@ -1924,9 +1912,13 @@ async function activateDeviceProjectForFetchedScript(data = {}) {
     } catch {
     }
   }
+  return config || {};
+}
+
+async function resolveBoardProjectForFetchedScript(data = {}) {
+  const config = await boardConfigForFetchedScript(data);
   const projectId = String(data.projectId || config.projectId || "").trim();
   const projectName = normalizeProjectName(data.projectName || config.projectName || "");
-  if (!projectId && !projectName) return null;
 
   const projects = await readProjects();
   let project = projectId ? projects.find((item) => item.id === projectId) : null;
@@ -1945,9 +1937,92 @@ async function activateDeviceProjectForFetchedScript(data = {}) {
     project = { ...project, name: projectName };
     await saveProject(project);
   }
-  currentProjectId = project.id;
-  localStorage.setItem(storage.projectId, project.id);
   return project;
+}
+
+async function adoptLegacyRevisionsForBoardProject(project, data = {}, code = "") {
+  project = normalizeProjectRecord(project);
+  const legacy = await readLegacySketchEntries({ includeConverted: true });
+  if (!legacy.length) return project;
+
+  const roots = boardLegacyRevisionRoots(project, data, code, legacy);
+  if (!roots.size) return project;
+  const knownCodes = new Set(project.revisions.map((revision) => String(revision.code || "")).filter((item) => item.trim()));
+  const matches = legacy.filter((item) => {
+    const itemCode = String(item.code || "");
+    if (!itemCode.trim() || knownCodes.has(itemCode)) return false;
+    return roots.has(revisionNameRoot(item.name || "").toLowerCase()) || itemCode === String(code || "");
+  });
+  if (!matches.length) return project;
+
+  const imported = legacyEntriesToRevisions(matches);
+  if (!imported.length) return project;
+  project.revisions.push(...imported);
+  project = normalizeProjectRecord(project);
+  const saved = await saveProject(project);
+  await markLegacySketchEntriesConverted(matches, saved);
+  logLine("warn", `adopted ${imported.length} legacy revisions into ${saved.name || "board project"}`);
+  return saved;
+}
+
+function boardLegacyRevisionRoots(project, data = {}, code = "", legacy = []) {
+  const roots = new Set();
+  [
+    project?.name,
+    data.projectName,
+    data.scriptName,
+  ].forEach((name) => {
+    const root = revisionNameRoot(name || "").toLowerCase();
+    if (root) roots.add(root);
+  });
+  const codeText = String(code || "");
+  legacy.forEach((item) => {
+    if (String(item.code || "") !== codeText) return;
+    const root = revisionNameRoot(item.name || "").toLowerCase();
+    if (root) roots.add(root);
+  });
+  roots.delete("revision");
+  roots.delete("imported revision");
+  roots.delete("new sketch");
+  return roots;
+}
+
+async function openDownloadedBoardRevision(data = {}) {
+  const code = String(data.code ?? "");
+  if (!code.trim()) throw new Error("Board returned an empty sketch");
+  await shelveEditorSketchIfNeeded({ incomingCode: code });
+
+  let project = await resolveBoardProjectForFetchedScript(data);
+  project = await adoptLegacyRevisionsForBoardProject(project, data, code);
+  const codeHash = boardCodeHash(data, code);
+  let revision = findRevisionByIdentity(project, {
+    revisionId: data.revisionId,
+    codeHash,
+    code,
+  });
+
+  if (!revision) {
+    revision = buildRevision({
+      name: normalizeSketchName(data.scriptName || "") || nextRevisionName(project),
+      code,
+      specification: "",
+      specificationMode: "middle",
+      circuit: inferCircuitLayout(code, null),
+      chat: [],
+      source: "download",
+    });
+    project.revisions.unshift(revision);
+    project.activeRevisionId = revision.id;
+    project = await saveProject(project);
+    logLine("info", `downloaded board sketch as new revision ${revision.name}`);
+  } else {
+    project.activeRevisionId = revision.id;
+    project = await saveProject(project);
+    logLine("info", `matched board sketch to revision ${revision.name || "revision"}`);
+  }
+
+  const selected = project.revisions.find((item) => item.id === revision.id) || revision;
+  await openRevision(project, selected, { saveCurrent: false });
 }
 
 async function setScript({ run, save }) {
@@ -1956,6 +2031,11 @@ async function setScript({ run, save }) {
 
 async function uploadScriptCode(code, { run, save, name = "" }) {
   let data;
+  if (String(code ?? "") !== getEditorValue()) {
+    throw new Error("Upload refused because requested code does not match the editor");
+  }
+  const savedState = await saveActiveRevisionFromEditor({ source: "upload", nameHint: name, updateInterface: false });
+  await openRevision(savedState.project, savedState.revision, { saveCurrent: false });
   localUploadActiveUntil = Date.now() + 120000;
   guinoView?.clear?.();
   setUploadState("uploading", "Uploading code", 8);
@@ -1964,11 +2044,10 @@ async function uploadScriptCode(code, { run, save, name = "" }) {
     data = await uploadScriptCodeChunked(code, { run, save });
   } catch (error) {
     setUploadState("error", uploadErrorLabel(error.message), 100, { autoClear: true });
-    await rememberUploadedSketch(code, name);
     markEditorError(error.message);
     throw error;
   }
-  await rememberUploadedSketch(code, name);
+  await persistProjectMetadataToDevice(savedState.project, savedState.revision);
   updateScriptState(data);
   try {
     await refreshStatus({ quiet: true, timeoutMs: 8000 });
@@ -2228,12 +2307,12 @@ function autoProjectName(code) {
 function normalizeProjectRecord(project = {}) {
   const now = new Date().toISOString();
   const projectChat = normalizeChatMessages(project.chat);
-  const revisions = Array.isArray(project.revisions)
-    ? project.revisions
-      .map((revision) => normalizeRevisionRecord(revision))
-      .filter((revision) => revision.code.trim() || revision.specification.trim() || revision.source === "new-revision")
-    : [];
-  const active = revisions.find((revision) => revision.id === project.activeRevisionId) || revisions[0] || null;
+  const revisionSource = projectRevisionSource(project);
+  const activeRevisionId = String(project.activeRevisionId || project.revisionId || project.activeSketchId || project.activeVersionId || "");
+  const revisions = revisionSource
+    .map((revision) => normalizeRevisionRecord(revision))
+    .filter((revision) => revision.code.trim() || revision.specification.trim() || revision.source === "new-revision");
+  const active = revisions.find((revision) => revision.id === activeRevisionId) || revisions[0] || null;
   if (active && projectChat.length && !active.chat.length) active.chat = projectChat;
   return {
     type: "p1e-project",
@@ -2246,6 +2325,15 @@ function normalizeProjectRecord(project = {}) {
     chat: [],
     revisions,
   };
+}
+
+function projectRevisionSource(project = {}) {
+  if (Array.isArray(project.revisions)) return project.revisions;
+  if (Array.isArray(project.sketches)) return project.sketches;
+  if (Array.isArray(project.history)) return project.history;
+  if (Array.isArray(project.versions)) return project.versions;
+  if (typeof project.code === "string") return [project];
+  return [];
 }
 
 function normalizeChatMessages(messages) {
@@ -2272,6 +2360,7 @@ function normalizeRevisionRecord(revision = {}) {
     source: String(revision.source || "manual"),
     createdAt: String(revision.createdAt || revision.at || new Date().toISOString()),
     bytes: Number(revision.bytes) || new Blob([code]).size,
+    codeHash: String(revision.codeHash || revision.hash || fnv1aHex(code)),
   };
 }
 
@@ -2308,34 +2397,69 @@ function revisionEquivalent(left, right) {
     && JSON.stringify(normalizeCircuitLayout(left.circuit) || null) === JSON.stringify(normalizeCircuitLayout(right.circuit) || null);
 }
 
-function revisionContentEquivalent(left, right) {
-  if (!left || !right) return false;
-  return String(left.code || "") === String(right.code || "")
-    && String(left.specification || "") === String(right.specification || "")
-    && normalizeSpecificationMode(left.specificationMode) === normalizeSpecificationMode(right.specificationMode);
+function findGeneratedRevisionMatch(project, revision, preferred = null) {
+  if (preferred && revisionEquivalent(preferred, revision)) return preferred;
+  const revisions = Array.isArray(project?.revisions) ? project.revisions : [];
+  const code = String(revision?.code || "");
+  if (!code.trim()) return null;
+  return revisions.find((item) => String(item.code || "") === code) || null;
 }
 
-function revisionCodeEquivalent(left, right) {
-  if (!left || !right) return false;
-  return String(left.code || "") === String(right.code || "");
-}
-
-function moveRevisionToFront(project, revisionId) {
-  if (!project?.revisions?.length || !revisionId) return project;
-  const index = project.revisions.findIndex((revision) => revision.id === revisionId);
-  if (index <= 0) return project;
-  const revisions = project.revisions.slice();
-  const [revision] = revisions.splice(index, 1);
-  revisions.unshift(revision);
+function mergeGeneratedRevision(existing, incoming) {
   return {
-    ...project,
-    revisions,
+    ...existing,
+    name: normalizeSketchName(incoming.name) || existing.name,
+    code: incoming.code,
+    specification: incoming.specification,
+    specificationMode: incoming.specificationMode,
+    circuit: normalizeCircuitLayout(incoming.circuit) || normalizeCircuitLayout(existing.circuit),
+    chat: normalizeChatMessages(incoming.chat?.length ? incoming.chat : existing.chat),
+    source: existing.source || incoming.source,
+    bytes: incoming.bytes,
+    codeHash: codeHashFor(incoming.code),
   };
 }
 
+function codeHashFor(code) {
+  return fnv1aHex(String(code ?? ""));
+}
+
+function normalizeCodeHash(value, code = "") {
+  if (Number.isFinite(value)) return (Number(value) >>> 0).toString(16).padStart(8, "0");
+  const text = String(value || "").trim().toLowerCase();
+  if (/^[0-9a-f]{8}$/.test(text)) return text;
+  return codeHashFor(code);
+}
+
+function boardCodeHash(data = {}, code = "") {
+  return normalizeCodeHash(data.codeHash ?? data.scriptHash ?? data.hash, code);
+}
+
+function findRevisionByIdentity(project, { revisionId = "", codeHash = "", code = "" } = {}) {
+  const revisions = Array.isArray(project?.revisions) ? project.revisions : [];
+  const id = String(revisionId || "").trim();
+  if (id) {
+    const byId = revisions.find((revision) => revision.id === id);
+    if (byId) return byId;
+    logLine("warn", `board revision id ${id} was not found locally; falling back to hash`);
+  }
+  const hash = normalizeCodeHash(codeHash, code);
+  if (hash) {
+    const byHash = revisions.find((revision) => normalizeCodeHash(revision.codeHash, revision.code) === hash);
+    if (byHash) return byHash;
+  }
+  return revisions.find((revision) => String(revision.code || "") === String(code || "")) || null;
+}
+
 function nextRevisionName(project) {
-  const count = Array.isArray(project?.revisions) ? project.revisions.length + 1 : 1;
-  return `Revision ${count}`;
+  let maxVersion = 0;
+  (project?.revisions || []).forEach((revision) => {
+    const parsed = splitRevisionNumber(revision?.name || "");
+    if (parsed.root.toLowerCase() === "revision") {
+      maxVersion = Math.max(maxVersion, parsed.version);
+    }
+  });
+  return `Revision ${maxVersion + 1}`;
 }
 
 function nextNamedRevisionName(project, name = "") {
@@ -2374,11 +2498,10 @@ function splitRevisionNumber(name = "") {
 async function ensureProjectForWrite({ code = "", nameHint = "" } = {}) {
   const existing = await getActiveProject();
   if (existing) return normalizeProjectRecord(existing);
-  const configuredId = currentProjectId || localStorage.getItem(storage.projectId) || lastConfig?.projectId || "";
-  const configuredName = lastConfig?.projectName || "";
+  const configuredId = currentProjectId || localStorage.getItem(storage.projectId) || "";
   const project = normalizeProjectRecord({
     id: configuredId || createProjectId(),
-    name: normalizeProjectName(nameHint) || normalizeProjectName(configuredName) || autoProjectName(code),
+    name: normalizeProjectName(nameHint) || autoProjectName(code),
     revisions: [],
     activeRevisionId: "",
     chat: [],
@@ -2388,14 +2511,83 @@ async function ensureProjectForWrite({ code = "", nameHint = "" } = {}) {
   return project;
 }
 
-async function persistProjectMetadataToDevice(project) {
+async function saveActiveRevisionFromEditor({ source = "manual", nameHint = "", updateInterface = true } = {}) {
+  const code = String(getEditorValue() || "");
+  const specification = readSpecificationMarkdown();
+  let project = await getActiveProject();
+  if (!project) {
+    project = await ensureProjectForWrite({ code, nameHint });
+  }
+  project = normalizeProjectRecord(project);
+  let revision = project.revisions.find((item) => item.id === currentRevisionId) || activeRevision(project);
+  if (!revision) {
+    revision = buildRevision({
+      name: normalizeSketchName(nameHint || currentSketchName) || nextRevisionName(project),
+      code,
+      specification,
+      specificationMode: currentProjectSpecificationMode,
+      circuit: projectCircuitForCurrentCode(code),
+      chat: chatMessages,
+      source,
+    });
+    project.revisions.unshift(revision);
+  } else {
+    const shouldCheckpoint = source === "upload" && editorContentDiffersFromRevision(revision, {
+      code,
+      specification,
+      specificationMode: currentProjectSpecificationMode,
+    });
+    if (shouldCheckpoint) {
+      revision = buildRevision({
+        name: nextNamedRevisionName(project, normalizeSketchName(nameHint || currentSketchName || revision.name) || "Revision"),
+        code,
+        specification,
+        specificationMode: currentProjectSpecificationMode,
+        circuit: projectCircuitForCurrentCode(code),
+        chat: chatMessages,
+        source,
+      });
+      project.revisions.unshift(revision);
+    } else {
+      revision = {
+        ...revision,
+        code,
+        specification,
+        specificationMode: currentProjectSpecificationMode,
+        circuit: projectCircuitForCurrentCode(code),
+        chat: normalizeChatMessages(chatMessages),
+        source: revision.source || source,
+        bytes: new Blob([code]).size,
+        codeHash: codeHashFor(code),
+      };
+      project.revisions = project.revisions.map((item) => item.id === revision.id ? revision : item);
+    }
+  }
+  project.activeRevisionId = revision.id;
+  const saved = await saveProject(project);
+  const savedRevision = saved.revisions.find((item) => item.id === revision.id) || activeRevision(saved);
+  if (!savedRevision) throw new Error("Could not save active revision");
+  localStorage.removeItem(storage.revisionDraft);
+  if (updateInterface) {
+    setCurrentSketchIdentity(savedRevision.name || "", savedRevision.code || "", saved, savedRevision);
+  }
+  return { project: saved, revision: savedRevision };
+}
+
+function editorContentDiffersFromRevision(revision = {}, { code = "", specification = "", specificationMode = "middle" } = {}) {
+  return String(revision.code || "") !== String(code || "")
+    || String(revision.specification || "") !== String(specification || "")
+    || normalizeSpecificationMode(revision.specificationMode) !== normalizeSpecificationMode(specificationMode);
+}
+
+async function persistProjectMetadataToDevice(project, revision = null) {
   if (!client || !project?.id) return;
   try {
-    const revision = activeRevision(project);
+    const selected = revision || activeRevision(project);
     await sendCommand("config.set", {
       projectId: project.id,
       projectName: project.name,
-      scriptName: revision?.name || "",
+      scriptName: selected?.name || "",
     }, { quiet: true, timeoutMs: 2500 });
   } catch {
   }
@@ -2467,26 +2659,16 @@ function sketchDbTransactionDone(transaction) {
 }
 
 async function readProjects() {
-  try {
-    await migrateLegacySketchesToProjects();
-    const db = await openSketchDb();
-    try {
-      const tx = db.transaction(projectStoreName, "readonly");
-      const store = tx.objectStore(projectStoreName);
-      const items = await sketchDbRequest(store.getAll());
-      projectCache = items
-        .map((item) => normalizeProjectRecord(item))
-        .filter((item) => item.revisions.length)
-        .sort((a, b) => String(b.updatedAt || "").localeCompare(String(a.updatedAt || "")))
-        .slice(0, projectLimit);
-      return projectCache;
-    } finally {
-      db.close();
-    }
-  } catch {
-    projectCache = readProjectsFallback();
-    return projectCache;
+  await runProjectStartupStep("legacy sketch migration", migrateLegacySketchesToProjects);
+  await runProjectStartupStep("missing legacy recovery", recoverMissingLegacySketches);
+  await runProjectStartupStep("project schema migration", migrateProjectStorageSchema);
+  projectCache = await readProjectsFromIndexedDb();
+  if (!projectCache.length) {
+    await recoverLegacySketchesWhenProjectListEmpty();
+    projectCache = await readProjectsFromIndexedDb();
   }
+  if (!projectCache.length) projectCache = readProjectsFallback();
+  return projectCache;
 }
 
 function readProjectsFallback() {
@@ -2500,14 +2682,159 @@ function readProjectsFallback() {
   }
 }
 
-async function saveProject(project) {
+function writeProjectsFallbackBestEffort(projects = []) {
+  const candidates = [projectLimit, 40, 20, 10, 5, 1];
+  for (const count of candidates) {
+    if (tryWriteProjectsFallback(projects.slice(0, count))) return;
+  }
+  if (tryWriteProjectsFallback(projects.slice(0, projectLimit).map(compactProjectFallbackRecord))) {
+    logLine("warn", "project fallback stored as metadata because localStorage quota was tight");
+    return;
+  }
+  logLine("warn", "project fallback not updated because localStorage quota was exceeded");
+}
+
+function tryWriteProjectsFallback(projects = []) {
+  try {
+    localStorage.setItem(storage.projectFallback, JSON.stringify(projects));
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function compactProjectFallbackRecord(project = {}) {
   const normalized = normalizeProjectRecord(project);
+  return {
+    ...normalized,
+    revisions: normalized.revisions.map((revision) => ({
+      id: revision.id,
+      name: revision.name,
+      code: "",
+      specification: "",
+      specificationMode: revision.specificationMode,
+      circuit: null,
+      chat: [],
+      source: "new-revision",
+      createdAt: revision.createdAt,
+      bytes: revision.bytes,
+      codeHash: revision.codeHash,
+    })),
+  };
+}
+
+async function runProjectStartupStep(label, fn) {
+  try {
+    await fn();
+  } catch (error) {
+    logLine("warn", `${label} failed: ${error?.message || error}`);
+  }
+}
+
+async function readProjectsFromIndexedDb() {
+  try {
+    const db = await openSketchDb();
+    try {
+      const tx = db.transaction(projectStoreName, "readonly");
+      const store = tx.objectStore(projectStoreName);
+      const items = await sketchDbRequest(store.getAll());
+      return items
+        .map((item) => normalizeProjectRecord(item))
+        .filter((item) => item.revisions.length)
+        .sort((a, b) => String(b.updatedAt || "").localeCompare(String(a.updatedAt || "")))
+        .slice(0, projectLimit);
+    } finally {
+      db.close();
+    }
+  } catch (error) {
+    logLine("warn", `project store read failed: ${error?.message || error}`);
+    return [];
+  }
+}
+
+async function migrateProjectStorageSchema() {
+  if (localStorage.getItem(storage.projectSchemaMigration) === projectSchemaMigrationVersion) return;
+  let migrated = [];
+  try {
+    const db = await openSketchDb();
+    try {
+      const tx = db.transaction(projectStoreName, "readwrite");
+      const store = tx.objectStore(projectStoreName);
+      const items = await sketchDbRequest(store.getAll());
+      migrated = items
+        .map((item) => migrateProjectRecordSchema(item))
+        .filter((item) => item.revisions.length)
+        .slice(0, projectLimit);
+      for (const project of migrated) {
+        store.put(project);
+      }
+      await sketchDbTransactionDone(tx);
+    } finally {
+      db.close();
+    }
+  } catch {
+    migrated = readProjectsFallback().map((item) => migrateProjectRecordSchema(item)).filter((item) => item.revisions.length);
+  }
+
+  if (migrated.length) {
+    projectCache = migrated;
+    writeProjectsFallbackBestEffort(migrated);
+  }
+  localStorage.removeItem(storage.chatHistory);
+  localStorage.removeItem(storage.specificationDraft);
+  localStorage.removeItem(storage.specificationMode);
+  localStorage.removeItem(storage.revisionDraft);
+  localStorage.setItem(storage.projectSchemaMigration, projectSchemaMigrationVersion);
+}
+
+function migrateProjectRecordSchema(project = {}) {
+  const normalized = normalizeProjectRecord(project);
+  const projectChat = normalizeChatMessages(project.chat);
+  const activeIndex = Math.max(0, normalized.revisions.findIndex((revision) => revision.id === normalized.activeRevisionId));
+  const revisions = normalized.revisions.map((revision, index) => {
+    const code = String(revision.code || "");
+    const chat = revision.chat.length ? revision.chat : (index === activeIndex ? projectChat : []);
+    return {
+      ...revision,
+      codeHash: fnv1aHex(code),
+      chat: normalizeChatMessages(chat),
+    };
+  });
+  return {
+    ...normalized,
+    chat: [],
+    revisions,
+    activeRevisionId: revisions[activeIndex]?.id || revisions[0]?.id || "",
+  };
+}
+
+function projectWithRequiredRevision(project = {}) {
+  const normalized = normalizeProjectRecord(project);
+  if (normalized.revisions.length) return normalized;
+  const revision = buildRevision({
+    name: "Revision 1",
+    code: "",
+    specification: "",
+    specificationMode: "middle",
+    circuit: null,
+    chat: [],
+    source: "new-revision",
+  });
+  return {
+    ...normalized,
+    revisions: [revision],
+    activeRevisionId: revision.id,
+  };
+}
+
+async function saveProject(project, { makeActive = true } = {}) {
+  const normalized = projectWithRequiredRevision(project);
   normalized.updatedAt = new Date().toISOString();
   projectCache = [
     normalized,
     ...projectCache.filter((item) => item.id !== normalized.id),
   ].slice(0, projectLimit);
-  localStorage.setItem(storage.projectId, normalized.id);
+  if (makeActive) localStorage.setItem(storage.projectId, normalized.id);
   try {
     const db = await openSketchDb();
     try {
@@ -2518,7 +2845,7 @@ async function saveProject(project) {
       db.close();
     }
   } catch {
-    localStorage.setItem(storage.projectFallback, JSON.stringify(projectCache));
+    writeProjectsFallbackBestEffort(projectCache);
   }
   return normalized;
 }
@@ -2529,83 +2856,150 @@ async function getActiveProject() {
   return projects.find((project) => project.id === id) || null;
 }
 
+async function getProjectById(id) {
+  const projects = projectCache.length ? projectCache : await readProjects();
+  return projects.find((project) => project.id === id) || null;
+}
+
 function activeRevision(project) {
   if (!project?.revisions?.length) return null;
   return project.revisions.find((revision) => revision.id === project.activeRevisionId) || project.revisions[0];
 }
 
-async function rememberUploadedSketch(code, name = "", {
-  circuit = undefined,
-  description = undefined,
-  specificationMode = currentProjectSpecificationMode,
-  source = "upload",
-} = {}) {
-  const current = String(code ?? "");
-  if (!current.trim()) return;
-  let project = await ensureProjectForWrite({ code: current, nameHint: name });
-  const revisionName = normalizeSketchName(name)
-    || (source === "manual" || source === "upload" ? nextNamedRevisionName(project, currentSketchName) : nextRevisionName(project));
-  const revision = buildRevision({
-    name: revisionName,
-    code: current,
-    specification: description ?? currentProjectDescription,
-    specificationMode,
-    circuit: circuit === undefined ? projectCircuitForCurrentCode(current) : circuit,
-    source,
-  });
-  const matchingRevision = project.revisions.find((item) => revisionContentEquivalent(item, revision))
-    || (source === "upload" ? project.revisions.find((item) => revisionCodeEquivalent(item, revision)) : null);
-  if (matchingRevision) {
-    const keepExistingSpec = !revisionContentEquivalent(matchingRevision, revision)
-      && revisionCodeEquivalent(matchingRevision, revision)
-      && source === "upload"
-      && description === undefined
-      && currentProjectDescription === currentProjectDescriptionSource;
-    const updatedMatching = {
-      ...matchingRevision,
-      specification: keepExistingSpec ? matchingRevision.specification : revision.specification,
-      specificationMode: keepExistingSpec ? matchingRevision.specificationMode : revision.specificationMode,
-      circuit: revision.circuit,
-      chat: normalizeChatMessages(revision.chat),
-      bytes: revision.bytes,
-    };
-    project.revisions = project.revisions.map((item) => item.id === matchingRevision.id ? updatedMatching : item);
-    project = moveRevisionToFront(project, matchingRevision.id);
-    project.activeRevisionId = matchingRevision.id;
-    const saved = await saveProject(project);
-    await persistProjectMetadataToDevice(saved);
-    await openProjectRevision(saved, updatedMatching, { saveCurrent: false });
-    return;
+function captureActiveRevisionContext() {
+  return {
+    projectId: currentProjectId,
+    revisionId: currentRevisionId,
+    chat: normalizeChatMessages(chatMessages),
+    specification: currentProjectDescription,
+    specificationMode: currentProjectSpecificationMode,
+  };
+}
+
+function isCurrentRevisionContext(context = {}) {
+  return Boolean(context.projectId && context.revisionId
+    && context.projectId === currentProjectId
+    && context.revisionId === currentRevisionId);
+}
+
+async function saveChatForRevisionContext(context = {}, messages = []) {
+  const saved = await saveRevisionFieldsForContext(context, { chat: messages });
+  return Boolean(saved);
+}
+
+async function saveRevisionFieldsForContext(context = {}, fields = {}) {
+  if (!context.projectId || !context.revisionId) {
+    logLine("warn", "revision fields not saved: response had no revision target");
+    return null;
   }
-  const previous = project.revisions.find((item) => item.id === currentRevisionId) || activeRevision(project);
-  if (previous && revisionContentEquivalent(previous, revision)) {
-    const updatedPrevious = {
-      ...previous,
-      circuit: revision.circuit,
-      chat: normalizeChatMessages(revision.chat),
-      bytes: revision.bytes,
-    };
-    project.revisions = project.revisions.map((item) => item.id === previous.id ? updatedPrevious : item);
-    project.activeRevisionId = previous.id;
-    const saved = await saveProject(project);
-    await persistProjectMetadataToDevice(saved);
-    await openProjectRevision(saved, updatedPrevious, { saveCurrent: false });
-    return;
+  const project = await getProjectById(context.projectId);
+  const revision = project?.revisions?.find((item) => item.id === context.revisionId);
+  if (!project || !revision) {
+    logLine("error", "revision fields not saved: target revision disappeared");
+    return null;
   }
-  project.revisions.unshift(revision);
-  project.activeRevisionId = revision.id;
-  const saved = await saveProject(project);
-  await persistProjectMetadataToDevice(saved);
-  await renderSketchHistory();
-  await openProjectRevision(saved, revision, { saveCurrent: false });
+  if (fields.chat !== undefined) revision.chat = normalizeChatMessages(fields.chat);
+  if (fields.specification !== undefined) revision.specification = String(fields.specification || "");
+  if (fields.specificationMode !== undefined) revision.specificationMode = normalizeSpecificationMode(fields.specificationMode);
+  if (fields.circuit !== undefined) revision.circuit = normalizeCircuitLayout(fields.circuit);
+  project.chat = [];
+  const saved = await saveProject(project, { makeActive: isCurrentRevisionContext(context) });
+  const savedRevision = saved.revisions.find((item) => item.id === revision.id) || revision;
+  return { project: saved, revision: savedRevision };
+}
+
+function revisionFieldsFromChatResult(result = {}, messages = []) {
+  const fields = { chat: messages };
+  if (result.project_specification) {
+    fields.specification = result.project_specification;
+    fields.specificationMode = result.specification_mode || currentProjectSpecificationMode;
+  }
+  if (result.circuit_layout) fields.circuit = result.circuit_layout;
+  return fields;
 }
 
 async function migrateLegacySketchesToProjects() {
-  if (localStorage.getItem(storage.projectMigration) === "1") return;
+  const legacy = await readLegacySketchEntries({ includeConverted: false });
+  if (!legacy.length) return;
+  await saveLegacySketchGroups(legacy, { reason: "migrated legacy sketches" });
+}
+
+async function recoverMissingLegacySketches() {
+  const existing = (await readRawProjectRecords()).map((project) => normalizeProjectRecord(project)).filter((project) => project.revisions.length);
+  const fallback = readProjectsFallback();
+  let projects = existing;
+  if (fallback.length) {
+    const byId = new Map(projects.map((project) => [project.id, project]));
+    fallback.forEach((project) => {
+      if (!byId.has(project.id)) byId.set(project.id, projectWithRequiredRevision(project));
+    });
+    projects = [...byId.values()];
+    await writeRawProjectRecords(projects);
+  }
+
+  const legacy = await readLegacySketchEntries({ includeConverted: true });
+  const knownCodes = new Set();
+  projects.forEach((project) => {
+    project.revisions.forEach((revision) => {
+      const code = String(revision.code || "");
+      if (code.trim()) knownCodes.add(code);
+    });
+  });
+  const missingLegacy = legacy.filter((item) => {
+    const code = String(item.code || "");
+    return code.trim() && !knownCodes.has(code);
+  });
+  await saveLegacySketchGroups(missingLegacy, { reason: "recovered missing legacy sketches" });
+}
+
+async function recoverLegacySketchesWhenProjectListEmpty() {
+  const legacy = await readLegacySketchEntries({ includeConverted: true });
+  const count = await saveLegacySketchGroups(legacy, { reason: "recovered legacy sketches because project list was empty" });
+  if (count) logLine("warn", `recovered ${count} legacy sketches because project list was empty`);
+}
+
+async function readRawProjectRecords() {
+  try {
+    const db = await openSketchDb();
+    try {
+      const tx = db.transaction(projectStoreName, "readonly");
+      return await sketchDbRequest(tx.objectStore(projectStoreName).getAll());
+    } finally {
+      db.close();
+    }
+  } catch {
+    return [];
+  }
+}
+
+async function writeRawProjectRecords(projects = []) {
+  const normalized = projects.map((project) => projectWithRequiredRevision(project)).filter((project) => project.revisions.length);
+  if (!normalized.length) return;
+  try {
+    const db = await openSketchDb();
+    try {
+      const tx = db.transaction(projectStoreName, "readwrite");
+      const store = tx.objectStore(projectStoreName);
+      normalized.forEach((project) => store.put(project));
+      await sketchDbTransactionDone(tx);
+    } finally {
+      db.close();
+    }
+  } catch {
+  }
+  projectCache = normalized.slice(0, projectLimit);
+  writeProjectsFallbackBestEffort(projectCache);
+}
+
+async function readLegacySketchEntries({ includeConverted = false } = {}) {
   const legacy = [];
   try {
     const value = JSON.parse(localStorage.getItem(storage.sketchHistory) || "[]");
-    if (Array.isArray(value)) legacy.push(...value.filter((item) => typeof item?.code === "string"));
+    if (Array.isArray(value)) {
+      legacy.push(...value
+        .map((item, index) => legacySketchWithSource(item, { source: "localStorage", index }))
+        .filter((item) => typeof item?.code === "string" && (includeConverted || !legacySketchConverted(item))));
+    }
   } catch {
   }
   try {
@@ -2613,18 +3007,265 @@ async function migrateLegacySketchesToProjects() {
     try {
       const tx = db.transaction(sketchStoreName, "readonly");
       const items = await sketchDbRequest(tx.objectStore(sketchStoreName).getAll());
-      legacy.push(...items.filter((item) => typeof item?.code === "string"));
+      legacy.push(...items
+        .map((item) => legacySketchWithSource(item, { source: "indexedDb", id: item.id }))
+        .filter((item) => typeof item?.code === "string" && (includeConverted || !legacySketchConverted(item))));
     } finally {
       db.close();
     }
   } catch {
   }
-  if (!legacy.length) {
-    localStorage.setItem(storage.projectMigration, "1");
-    return;
+  return legacy;
+}
+
+function legacySketchWithSource(item, source) {
+  if (!item || typeof item !== "object") return item;
+  return { ...item, _legacySource: source };
+}
+
+function legacySketchConverted(item = {}) {
+  const marker = recordMigrationMarker(item, legacySketchMigrationId)
+    || item.p1eProjectMigration
+    || item.projectMigration
+    || {};
+  return (String(marker.version) === legacySketchMigrationVersion || String(marker.version) === "project-v2")
+    && (!marker.status || marker.status === "converted")
+    && Boolean(marker.projectId)
+    && Boolean(marker.revisionId);
+}
+
+function recordMigrationMarker(record = {}, migrationId = "") {
+  const migrations = record?.p1eMigrations;
+  return migrations && typeof migrations === "object" ? migrations[migrationId] || null : null;
+}
+
+// Per-record migration ledgers let future migrations mark their own completion
+// without deleting source rows or trusting one global "done" flag.
+function recordWithMigrationMarker(record = {}, migrationId = "", marker = {}) {
+  const migrations = record.p1eMigrations && typeof record.p1eMigrations === "object"
+    ? { ...record.p1eMigrations }
+    : {};
+  migrations[migrationId] = marker;
+  return {
+    ...record,
+    p1eMigrations: migrations,
+  };
+}
+
+function legacySketchStoredCopy(item = {}) {
+  const copy = { ...item };
+  delete copy._legacySource;
+  return copy;
+}
+
+async function markLegacySketchEntriesConverted(entries = [], project = {}) {
+  if (!entries.length || !project?.id) return;
+  const revisionsByCode = new Map();
+  (project.revisions || []).forEach((revision) => {
+    const code = String(revision.code || "");
+    if (code.trim() && !revisionsByCode.has(code)) revisionsByCode.set(code, revision);
+  });
+  const convertedAt = new Date().toISOString();
+  await markLocalStorageLegacySketchesConverted(entries, project, revisionsByCode, convertedAt);
+  await markIndexedDbLegacySketchesConverted(entries, project, revisionsByCode, convertedAt);
+}
+
+async function markLocalStorageLegacySketchesConverted(entries, project, revisionsByCode, convertedAt) {
+  const localEntries = entries.filter((item) => item?._legacySource?.source === "localStorage");
+  if (!localEntries.length) return;
+  try {
+    const value = JSON.parse(localStorage.getItem(storage.sketchHistory) || "[]");
+    if (!Array.isArray(value)) return;
+    localEntries.forEach((entry) => {
+      const index = entry._legacySource.index;
+      if (!Number.isInteger(index) || !value[index]) return;
+      const revision = revisionsByCode.get(String(entry.code || ""));
+      if (!revision) return;
+      value[index] = legacySketchConvertedCopy(value[index], project, revision, convertedAt);
+    });
+    localStorage.setItem(storage.sketchHistory, JSON.stringify(value));
+  } catch {
   }
+}
+
+async function markIndexedDbLegacySketchesConverted(entries, project, revisionsByCode, convertedAt) {
+  const idbEntries = entries.filter((item) => item?._legacySource?.source === "indexedDb");
+  if (!idbEntries.length) return;
+  try {
+    const db = await openSketchDb();
+    try {
+      const tx = db.transaction(sketchStoreName, "readwrite");
+      const store = tx.objectStore(sketchStoreName);
+      idbEntries.forEach((entry) => {
+        const revision = revisionsByCode.get(String(entry.code || ""));
+        if (!revision) return;
+        store.put(legacySketchConvertedCopy(legacySketchStoredCopy(entry), project, revision, convertedAt));
+      });
+      await sketchDbTransactionDone(tx);
+    } finally {
+      db.close();
+    }
+  } catch {
+  }
+}
+
+function legacySketchConvertedCopy(item, project, revision, convertedAt) {
+  return recordWithMigrationMarker(item, legacySketchMigrationId, {
+    version: legacySketchMigrationVersion,
+    status: "converted",
+    targetStore: projectStoreName,
+    projectId: project.id,
+    revisionId: revision.id,
+    convertedAt,
+  });
+}
+
+function localStorageArrayCount(key) {
+  try {
+    const raw = localStorage.getItem(key);
+    if (raw === null) return "missing";
+    const value = JSON.parse(raw || "[]");
+    return Array.isArray(value) ? String(value.length) : "not-array";
+  } catch {
+    return "invalid-json";
+  }
+}
+
+async function indexedDbStoreCount(storeName) {
+  try {
+    const db = await openSketchDb();
+    try {
+      if (!db.objectStoreNames.contains(storeName)) return "missing";
+      const tx = db.transaction(storeName, "readonly");
+      return String(await sketchDbRequest(tx.objectStore(storeName).count()));
+    } finally {
+      db.close();
+    }
+  } catch (error) {
+    return `unreadable:${error?.name || "error"}`;
+  }
+}
+
+async function logEmptyProjectStorageDiagnostic() {
+  const [idbProjects, idbLegacy] = await Promise.all([
+    indexedDbStoreCount(projectStoreName),
+    indexedDbStoreCount(sketchStoreName),
+  ]);
+  logLine("warn", [
+    "project history empty; storage diagnostic",
+    `idb.${projectStoreName}=${idbProjects}`,
+    `idb.${sketchStoreName}=${idbLegacy}`,
+    `${storage.projectFallback}=${localStorageArrayCount(storage.projectFallback)}`,
+    `${storage.sketchHistory}=${localStorageArrayCount(storage.sketchHistory)}`,
+    `legacy migration=${legacySketchMigrationId}@${legacySketchMigrationVersion}`,
+    `${storage.projectSchemaMigration}=${localStorage.getItem(storage.projectSchemaMigration) || "missing"}`,
+    `${storage.projectId}=${localStorage.getItem(storage.projectId) || "missing"}`,
+  ].join(" / "));
+}
+
+async function saveLegacySketchGroups(entries = [], { reason = "migrated legacy sketches" } = {}) {
+  const groups = groupLegacySketchEntries(entries);
+  if (!groups.size) return 0;
+  const existingProjects = (await readRawProjectRecords())
+    .map((project) => normalizeProjectRecord(project))
+    .filter((project) => project.revisions.length)
+    .sort((a, b) => String(b.updatedAt || "").localeCompare(String(a.updatedAt || "")));
+  const byName = new Map();
+  const byRoot = new Map();
+  existingProjects.forEach((project) => {
+    const nameKey = normalizeProjectName(project.name).toLowerCase();
+    const rootKey = revisionNameRoot(project.name).toLowerCase();
+    if (nameKey && !byName.has(nameKey)) byName.set(nameKey, project);
+    if (rootKey && !byRoot.has(rootKey)) byRoot.set(rootKey, project);
+  });
+
+  let convertedCount = 0;
+  for (const [name, group] of groups.entries()) {
+    const revisions = legacyEntriesToRevisions(group);
+    if (!revisions.length) continue;
+    const nameKey = normalizeProjectName(name).toLowerCase();
+    const rootKey = revisionNameRoot(name).toLowerCase();
+    let project = byName.get(nameKey) || byRoot.get(rootKey) || null;
+    if (!project) {
+      project = normalizeProjectRecord({
+        id: createProjectId(),
+        name,
+        revisions: [],
+        activeRevisionId: "",
+        chat: [],
+      });
+    }
+
+    const knownCodes = new Set(project.revisions.map((revision) => String(revision.code || "")).filter((code) => code.trim()));
+    const newRevisions = revisions.filter((revision) => {
+      const code = String(revision.code || "");
+      if (!code.trim() || knownCodes.has(code)) return false;
+      knownCodes.add(code);
+      return true;
+    });
+    if (newRevisions.length) {
+      project = normalizeProjectRecord({
+        ...project,
+        revisions: [...project.revisions, ...newRevisions],
+        activeRevisionId: project.activeRevisionId || newRevisions[0].id,
+      });
+    }
+    const saved = await saveProject(project, { makeActive: false });
+    await markLegacySketchEntriesConverted(group, saved);
+    byName.set(normalizeProjectName(saved.name).toLowerCase(), saved);
+    byRoot.set(revisionNameRoot(saved.name).toLowerCase(), saved);
+    convertedCount += group.length;
+  }
+  if (convertedCount) logLine("warn", `${reason}: ${convertedCount} sketches grouped into ${groups.size} projects`);
+  return convertedCount;
+}
+
+function groupLegacySketchEntries(entries = []) {
+  const groups = new Map();
+  entries.forEach((entry) => {
+    if (!String(entry?.code || "").trim()) return;
+    const name = legacySketchProjectName(entry);
+    const key = normalizeProjectName(name).toLowerCase() || "imported sketches";
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(entry);
+  });
+  const named = new Map();
+  groups.forEach((items, key) => {
+    named.set(normalizeProjectName(items[0] ? legacySketchProjectName(items[0]) : key) || "Imported Sketches", items);
+  });
+  return named;
+}
+
+function legacySketchProjectName(entry = {}) {
+  const root = revisionNameRoot(entry.name || "");
+  if (root && !isLegacyGenericProjectRoot(root)) return normalizeProjectName(root);
+  return normalizeProjectName(autoProjectName(entry.code || "")) || "Imported Sketches";
+}
+
+function isLegacyGenericProjectRoot(root = "") {
+  const clean = normalizeProjectName(root).toLowerCase();
+  return !clean || ["revision", "initial revision", "imported revision", "new sketch"].includes(clean);
+}
+
+async function projectFromLegacySketchEntries(name = "Imported Sketches", entries = null) {
+  const legacy = entries || await readLegacySketchEntries();
+  if (!legacy.length) return null;
+  const revisions = legacyEntriesToRevisions(legacy);
+  if (!revisions.length) {
+    return null;
+  }
+  return normalizeProjectRecord({
+    id: createProjectId(),
+    name,
+    revisions,
+    activeRevisionId: revisions[0].id,
+    chat: [],
+  });
+}
+
+function legacyEntriesToRevisions(legacy = []) {
   const seen = new Set();
-  const revisions = legacy
+  return legacy
     .filter((item) => {
       const key = String(item.code || "");
       if (!key.trim() || seen.has(key)) return false;
@@ -2641,31 +3282,18 @@ async function migrateLegacySketchesToProjects() {
       source: "migration",
       createdAt: item.at || new Date().toISOString(),
     }));
-  if (!revisions.length) {
-    localStorage.setItem(storage.projectMigration, "1");
-    return;
-  }
-  const project = normalizeProjectRecord({
-    id: createProjectId(),
-    name: "Imported Sketches",
-    revisions,
-    activeRevisionId: revisions[0].id,
-    chat: [],
-  });
-  await saveProject(project);
-  localStorage.removeItem(storage.sketchHistory);
-  localStorage.setItem(storage.projectMigration, "1");
 }
 
 async function renderSketchHistory() {
   const projects = await readProjects();
   renderProjectSelectors(projects);
+  if (!projects.length) await logEmptyProjectStorageDiagnostic();
   const project = projects.find((item) => item.id === currentProjectId)
     || projects.find((item) => item.id === localStorage.getItem(storage.projectId))
     || projects[0]
     || null;
   if (!currentProjectId && project && !getEditorValue().trim()) {
-    await openProjectRevision(project, activeRevision(project), { saveCurrent: false });
+    await openRevision(project, activeRevision(project), { saveCurrent: false });
   }
 }
 
@@ -2700,40 +3328,91 @@ function renderRevisionSelectors(project) {
   renderCurrentSketchName();
 }
 
+function scheduleProjectSelect(id) {
+  window.clearTimeout(projectSelectTimer);
+  projectSelectTimer = window.setTimeout(() => {
+    projectSelectTimer = null;
+    void selectProject(id).catch((error) => logLine("error", `project open failed: ${error?.message || error}`));
+  }, 0);
+}
+
+function scheduleRevisionSelect(id) {
+  window.clearTimeout(revisionSelectTimer);
+  revisionSelectTimer = window.setTimeout(() => {
+    revisionSelectTimer = null;
+    void selectRevision(id).catch((error) => logLine("error", `revision open failed: ${error?.message || error}`));
+  }, 0);
+}
+
 async function selectProject(id) {
+  if (!id) {
+    logLine("warn", "project open skipped: no project selected");
+    renderProjectSelectors(projectCache);
+    return;
+  }
   const projects = projectCache.length ? projectCache : await readProjects();
   const project = projects.find((item) => item.id === id);
-  if (!project) return;
-  await shelveEditorSketchIfNeeded();
-  await openProjectRevision(project, activeRevision(project), { saveCurrent: false });
-  logLine("info", `opened project ${project.name || "Untitled Project"}`);
+  if (!project) {
+    logLine("error", `project open failed: ${id} was not found`);
+    renderProjectSelectors(projects);
+    return;
+  }
+  const revision = activeRevision(project);
+  if (!revision) {
+    logLine("error", `project open failed: ${project.name || id} has no revision`);
+    renderProjectSelectors(projects);
+    return;
+  }
+  const opened = await openRevision(project, revision, { saveCurrent: true, reason: "project-select" });
+  logLine("info", `opened project ${opened.project.name || "Untitled Project"} / ${opened.revision.name || "revision"} / spec ${opened.revision.specification.length} chars`);
 }
 
 async function selectRevision(id) {
+  if (!id) {
+    logLine("warn", "revision open skipped: no revision selected");
+    renderProjectSelectors(projectCache);
+    return;
+  }
   const project = await getActiveProject();
   const revision = project?.revisions?.find((item) => item.id === id);
-  if (!project || !revision) return;
-  await shelveEditorSketchIfNeeded();
-  await openProjectRevision(project, revision, { saveCurrent: false });
-  logLine("info", `opened revision ${revision.name || "revision"}`);
+  if (!project || !revision) {
+    logLine("error", `revision open failed: ${id} was not found`);
+    renderProjectSelectors(projectCache);
+    return;
+  }
+  const opened = await openRevision(project, revision, { saveCurrent: true, reason: "revision-select" });
+  logLine("info", `opened revision ${opened.revision.name || "revision"} / spec ${opened.revision.specification.length} chars`);
 }
 
-async function openProjectRevision(project, revision, { saveCurrent = true } = {}) {
-  if (!project || !revision) return;
-  if (saveCurrent) await shelveEditorSketchIfNeeded({ incomingCode: revision.code });
+async function openRevision(project, revision, { saveCurrent = true } = {}) {
+  if (!project?.id) throw new Error("Cannot open revision without a project");
+  if (!revision?.id) throw new Error("Cannot open project without a revision");
+  const targetProjectId = project.id;
+  const targetRevisionId = revision.id;
+  project = normalizeProjectRecord(project);
+  revision = project.revisions.find((item) => item.id === targetRevisionId);
+  if (!revision) throw new Error("Cannot open revision because it is not part of the project");
+  if (saveCurrent) {
+    await shelveEditorSketchIfNeeded({ incomingCode: revision.code, updateInterface: false });
+    project = normalizeProjectRecord(await getProjectById(targetProjectId) || project);
+    revision = project.revisions.find((item) => item.id === targetRevisionId);
+    if (!revision) throw new Error("Cannot open revision because it disappeared while saving current revision");
+  }
   revision = applyStoredRevisionDraft(project, revision);
   currentProjectId = project.id;
   currentRevisionId = revision.id;
   localStorage.setItem(storage.projectId, project.id);
   project.activeRevisionId = revision.id;
-  chatMessages = normalizeChatMessages(revision.chat);
-  circuitChatLayout = normalizeCircuitLayout(revision.circuit);
-  setEditorValueRaw(revision.code || "", { persist: true });
-  setCurrentSketchIdentity(revision.name || "", revision.code || "", project, revision);
-  await saveProject(project);
+  const saved = await saveProject(project);
+  const savedRevision = saved.revisions.find((item) => item.id === revision.id) || revision;
+  chatMessages = normalizeChatMessages(savedRevision.chat);
+  circuitChatLayout = normalizeCircuitLayout(savedRevision.circuit);
+  setEditorValueRaw(savedRevision.code || "", { persist: true });
+  setCurrentSketchIdentity(savedRevision.name || "", savedRevision.code || "", saved, savedRevision);
   renderProjectSelectors(projectCache);
   renderChatTranscript();
   updateCircuitView(circuitChatLayout ? "project circuit + code inference" : "inferred from code");
+  return { project: saved, revision: savedRevision };
 }
 
 function applyStoredRevisionDraft(project, revision) {
@@ -2746,7 +3425,10 @@ function applyStoredRevisionDraft(project, revision) {
     specificationMode: normalizeSpecificationMode(draft.specificationMode || revision.specificationMode),
     bytes: Number(draft.bytes) || new Blob([String(draft.code ?? revision.code ?? "")]).size,
   };
+  nextRevision.codeHash = codeHashFor(nextRevision.code);
+  nextRevision.circuit = normalizeCircuitLayout(revision.circuit) || inferCircuitLayout(nextRevision.code, null);
   project.revisions = project.revisions.map((item) => item.id === revision.id ? nextRevision : item);
+  localStorage.removeItem(storage.revisionDraft);
   return nextRevision;
 }
 
@@ -2763,6 +3445,7 @@ function writeCurrentRevisionDraft() {
   if (!currentProjectId || !currentRevisionId) return;
   const code = getEditorValue();
   const draft = {
+    schemaVersion: revisionDraftVersion,
     projectId: currentProjectId,
     revisionId: currentRevisionId,
     code,
@@ -2776,7 +3459,13 @@ function writeCurrentRevisionDraft() {
 
 function readCurrentRevisionDraft() {
   try {
-    return JSON.parse(localStorage.getItem(storage.revisionDraft) || "null");
+    const draft = JSON.parse(localStorage.getItem(storage.revisionDraft) || "null");
+    if (!draft) return null;
+    if (draft.schemaVersion !== revisionDraftVersion) {
+      localStorage.removeItem(storage.revisionDraft);
+      return null;
+    }
+    return draft;
   } catch {
     return null;
   }
@@ -2823,7 +3512,7 @@ async function createNewSketch() {
     chat: [],
   });
   const saved = await saveProject(project);
-  await openProjectRevision(saved, revision, { saveCurrent: false });
+  await openRevision(saved, revision, { saveCurrent: false });
   clearEditorError();
   logLine("info", `new project ${saved.name}`);
 }
@@ -2908,22 +3597,19 @@ async function createCleanRevision() {
   project.revisions.unshift(revision);
   project.activeRevisionId = revision.id;
   const saved = await saveProject(project);
-  await persistProjectMetadataToDevice(saved);
-  await openProjectRevision(saved, revision, { saveCurrent: false });
+  await openRevision(saved, revision, { saveCurrent: false });
   clearEditorError();
   logLine("info", `new revision ${revision.name}`);
 }
 
-async function shelveEditorSketchIfNeeded({ incomingCode = "" } = {}) {
+async function shelveEditorSketchIfNeeded({ incomingCode = "", updateInterface = true } = {}) {
   const current = String(getEditorValue() || "");
   const specDirty = currentProjectDescription !== currentProjectDescriptionSource
     || currentProjectSpecificationMode !== currentProjectSpecificationModeSource;
   if (!current.trim() && !specDirty) return;
-  if (incomingCode && current === String(incomingCode || "")) return;
+  if (incomingCode && current === String(incomingCode || "") && !specDirty) return;
   if (currentSketchSaved) return;
-  await rememberUploadedSketch(current, "", {
-    source: "manual",
-  });
+  return await saveActiveRevisionFromEditor({ source: "manual", updateInterface });
 }
 
 function newSketchTemplate() {
@@ -3158,7 +3844,7 @@ function bindSketchDrop() {
     if (!project || !revision?.code?.trim()) return;
     await shelveEditorSketchIfNeeded({ incomingCode: revision.code });
     const saved = await saveProject(project);
-    await openProjectRevision(saved, activeRevision(saved), { saveCurrent: false });
+    await openRevision(saved, activeRevision(saved), { saveCurrent: false });
     updateCircuitView(circuitChatLayout ? "project circuit + code inference" : "inferred from code");
     logLine("info", saved.name ? `loaded ${saved.name}` : (file ? `loaded ${file.name}` : "loaded dropped text"));
   });
@@ -3917,10 +4603,6 @@ function updateWifi(wifi = {}, options = {}) {
 
 function updateConfig(config = {}) {
   lastConfig = config;
-  if (config.projectId) {
-    currentProjectId = String(config.projectId);
-    localStorage.setItem(storage.projectId, currentProjectId);
-  }
   if (config.mqttHost) localStorage.setItem(storage.mqttHost, config.mqttHost);
   if (config.mqttPort) localStorage.setItem(storage.mqttPort, String(config.mqttPort));
   const mqttRoot = mqttRootOrEmpty(config.mqttRoot);
@@ -3944,7 +4626,6 @@ function updateConfig(config = {}) {
     setWifiSsidFromDevice(config.wifiSsid);
   }
   renderWifiNetworkList();
-  if (config.projectId || config.projectName) void renderSketchHistory();
   renderFields();
 }
 
@@ -4379,8 +5060,8 @@ function initChat() {
   els.chatModel.value = options.includes(savedModel) ? savedModel : defaultChatModel;
   if (!els.chatModel.value) els.chatModel.value = options[0] || "";
   els.chatMaxOutputTokens.value = String(chatMaxOutputTokens());
-  currentProjectDescription = localStorage.getItem(storage.specificationDraft) || "";
-  currentProjectSpecificationMode = normalizeSpecificationMode(localStorage.getItem(storage.specificationMode) || "middle");
+  currentProjectDescription = "";
+  currentProjectSpecificationMode = "middle";
   setProjectSpecification(currentProjectDescription, currentProjectSpecificationMode);
   chatMessages = readChatHistory();
   renderChatTranscript();
@@ -4464,7 +5145,6 @@ function chatMaxOutputTokens() {
 function handleSpecificationInput() {
   currentProjectDescription = readSpecificationMarkdown();
   if (els.specification) els.specification.value = currentProjectDescription;
-  localStorage.setItem(storage.specificationDraft, currentProjectDescription);
   updateCurrentSketchDirty();
   scheduleCurrentRevisionDraftSave();
   updateEnabledState();
@@ -4507,7 +5187,6 @@ function applySpecificationFormat(format = "") {
 function handleSpecificationModeChange() {
   currentProjectSpecificationMode = normalizeSpecificationMode(els.specificationMode.value);
   els.specificationMode.value = currentProjectSpecificationMode;
-  localStorage.setItem(storage.specificationMode, currentProjectSpecificationMode);
   updateCurrentSketchDirty();
   scheduleCurrentRevisionDraftSave();
 }
@@ -4522,8 +5201,6 @@ function setProjectSpecification(text = "", mode = currentProjectSpecificationMo
   if (els.specification) els.specification.value = currentProjectDescription;
   if (els.specificationEditor) els.specificationEditor.innerHTML = markdownToSpecificationHtml(currentProjectDescription);
   if (els.specificationMode) els.specificationMode.value = currentProjectSpecificationMode;
-  localStorage.setItem(storage.specificationDraft, currentProjectDescription);
-  localStorage.setItem(storage.specificationMode, currentProjectSpecificationMode);
   updateEnabledState();
 }
 
@@ -4668,43 +5345,25 @@ function specificationModePrompt(mode = "middle") {
 }
 
 function readChatHistory() {
-  const project = projectCache.find((item) => item.id === currentProjectId)
-    || projectCache.find((item) => item.id === localStorage.getItem(storage.projectId));
-  const revision = activeRevision(project);
-  if (revision?.chat?.length) return normalizeChatMessages(revision.chat);
-  try {
-    const parsed = JSON.parse(localStorage.getItem(storage.chatHistory) || "[]");
-    if (!Array.isArray(parsed)) return [];
-    return parsed
-      .filter((item) => ["user", "assistant", "error"].includes(item?.role) && typeof item?.content === "string")
-      .slice(-60);
-  } catch {
-    return [];
-  }
-}
-
-function saveChatHistory() {
   const project = projectCache.find((item) => item.id === currentProjectId);
-  if (project) {
-    const revision = project.revisions.find((item) => item.id === currentRevisionId) || activeRevision(project);
-    if (revision) revision.chat = chatMessages.slice(-60);
-    project.chat = [];
-    void saveProject(project);
-    return;
-  }
-  localStorage.setItem(storage.chatHistory, JSON.stringify(chatMessages.slice(-60)));
+  const revision = project?.revisions?.find((item) => item.id === currentRevisionId);
+  return normalizeChatMessages(revision?.chat);
 }
 
 function clearChat() {
   chatMessages = [];
   const project = projectCache.find((item) => item.id === currentProjectId);
   if (project) {
-    const revision = project.revisions.find((item) => item.id === currentRevisionId) || activeRevision(project);
-    if (revision) revision.chat = [];
+    const revision = project.revisions.find((item) => item.id === currentRevisionId);
+    if (!revision) {
+      logLine("error", "chat not cleared: active revision was not found");
+      return;
+    }
+    revision.chat = [];
     project.chat = [];
     void saveProject(project);
   } else {
-    localStorage.removeItem(storage.chatHistory);
+    logLine("warn", "chat not cleared: no active revision");
   }
   renderChatTranscript();
   updateChatEnabledState();
@@ -5195,74 +5854,116 @@ async function runChatCode(index) {
   }, "uploading");
 }
 
-async function replaceEditorFromChat(code, message, name = "", layout = null, specification = "", specificationMode = "") {
-  circuitChatLayout = normalizeCircuitLayout(layout);
-  const nextSpecification = String(specification || currentProjectDescription || "");
-  const nextMode = normalizeSpecificationMode(specificationMode || currentProjectSpecificationMode);
+async function replaceEditorFromChat(code, message, name = "", layout = null, specification = "", specificationMode = "", {
+  targetContext = null,
+} = {}) {
+  if (!targetContext?.projectId || !targetContext?.revisionId) targetContext = null;
+  const nextCircuitLayout = normalizeCircuitLayout(layout);
+  const nextSpecification = String(specification || targetContext?.specification || currentProjectDescription || "");
+  const nextMode = normalizeSpecificationMode(specificationMode || targetContext?.specificationMode || currentProjectSpecificationMode);
   const current = String(code ?? "");
-  await shelveEditorSketchIfNeeded({ incomingCode: current });
-  const project = await ensureProjectForWrite({ code: current, nameHint: name });
+  if (!targetContext || isCurrentRevisionContext(targetContext)) {
+    await shelveEditorSketchIfNeeded({ incomingCode: current });
+  }
+  let project = targetContext?.projectId ? await getProjectById(targetContext.projectId) : null;
+  if (!project) project = await ensureProjectForWrite({ code: current, nameHint: name });
+  project = normalizeProjectRecord(project);
   const revision = buildRevision({
     name: normalizeSketchName(name) || nextRevisionName(project),
     code: current,
     specification: nextSpecification,
     specificationMode: nextMode,
-    circuit: circuitChatLayout,
+    circuit: nextCircuitLayout,
+    chat: targetContext?.chat || chatMessages,
     source: "generative",
   });
-  const previous = activeRevision(project);
+  const previous = targetContext?.revisionId
+    ? project.revisions.find((item) => item.id === targetContext.revisionId)
+    : activeRevision(project);
   let saved = project;
   let selected = revision;
-  if (previous && revisionEquivalent(previous, revision)) {
-    selected = previous;
+  const shouldOpen = !targetContext || isCurrentRevisionContext(targetContext);
+  const existing = findGeneratedRevisionMatch(project, revision, previous);
+  if (existing) {
+    selected = mergeGeneratedRevision(existing, revision);
+    project.revisions = project.revisions.map((item) => item.id === selected.id ? selected : item);
+    project.activeRevisionId = selected.id;
+    saved = await saveProject(project, { makeActive: shouldOpen });
+    selected = saved.revisions.find((item) => item.id === selected.id) || selected;
   } else {
     project.revisions.unshift(revision);
     project.activeRevisionId = revision.id;
-    saved = await saveProject(project);
+    saved = await saveProject(project, { makeActive: shouldOpen });
   }
-  await openProjectRevision(saved, selected, { saveCurrent: false });
-  updateCircuitView(circuitChatLayout ? "chat layout + code inference" : "inferred from code");
-  logLine("info", message);
+  if (shouldOpen) {
+    await openRevision(saved, selected, { saveCurrent: false });
+    updateCircuitView(nextCircuitLayout ? "chat layout + code inference" : "inferred from code");
+  } else {
+    logLine("info", `${message}; saved to original revision`);
+  }
+  if (shouldOpen) logLine("info", message);
+  return { project: saved, revision: selected, opened: shouldOpen };
 }
 
 async function sendChatPrompt() {
   const prompt = els.chatInput.value.trim();
   if (!prompt || chatBusy || !hasChatApiKey()) return;
 
+  await shelveEditorSketchIfNeeded();
+  const requestContext = captureActiveRevisionContext();
+  if (!requestContext.projectId || !requestContext.revisionId) {
+    logLine("warn", "chat response will not be persisted until a revision exists");
+  }
   chatBusy = true;
   updateChatEnabledState();
-  chatMessages.push({ role: "user", content: prompt, at: new Date().toISOString() });
+  const userMessage = { role: "user", content: prompt, at: new Date().toISOString() };
+  const requestMessages = [...requestContext.chat, userMessage];
+  chatMessages = requestMessages.slice();
   els.chatInput.value = "";
   renderChatTranscript();
-  saveChatHistory();
 
   try {
     const result = await requestChatCompletion(prompt);
     const content = result.reply || "Done.";
+    const assistantMessage = {
+      role: "assistant",
+      content,
+      structured: result,
+      at: new Date().toISOString(),
+    };
     if (result.code_action === "replace" && result.code.trim()) {
-      await replaceEditorFromChat(
+      const applied = await replaceEditorFromChat(
         result.code,
         "chat code replaced editor",
         result.sketch_name,
         result.circuit_layout,
         result.project_specification,
         result.specification_mode,
+        { targetContext: { ...requestContext, chat: requestMessages } },
       );
+      const finalMessages = [...requestMessages, assistantMessage];
+      await saveChatForRevisionContext({
+        projectId: applied.project.id,
+        revisionId: applied.revision.id,
+      }, finalMessages);
+      if (applied.opened) chatMessages = finalMessages;
     } else if (result.circuit_layout) {
-      circuitChatLayout = result.circuit_layout;
-      updateCircuitView("chat layout + code inference");
+      const finalMessages = [...requestMessages, assistantMessage];
+      const savedFields = await saveRevisionFieldsForContext(requestContext, revisionFieldsFromChatResult(result, finalMessages));
+      if (isCurrentRevisionContext(requestContext)) {
+        if (savedFields) await openRevision(savedFields.project, savedFields.revision, { saveCurrent: false });
+      }
+    } else {
+      const finalMessages = [...requestMessages, assistantMessage];
+      const savedFields = await saveRevisionFieldsForContext(requestContext, revisionFieldsFromChatResult(result, finalMessages));
+      if (isCurrentRevisionContext(requestContext)) {
+        if (savedFields) await openRevision(savedFields.project, savedFields.revision, { saveCurrent: false });
+      }
     }
-    if (result.project_specification) setProjectSpecification(result.project_specification, result.specification_mode);
-    chatMessages.push({
-      role: "assistant",
-      content,
-      structured: result,
-      at: new Date().toISOString(),
-    });
-    saveChatHistory();
   } catch (error) {
-    chatMessages.push({ role: "error", content: error.message || String(error), at: new Date().toISOString() });
-    saveChatHistory();
+    const finalMessages = [...requestMessages, { role: "error", content: error.message || String(error), at: new Date().toISOString() }];
+    await saveChatForRevisionContext(requestContext, finalMessages);
+    if (isCurrentRevisionContext(requestContext)) chatMessages = finalMessages;
   } finally {
     chatBusy = false;
     renderChatTranscript();
@@ -5274,6 +5975,8 @@ async function generateCodeFromSpecification() {
   const specification = readSpecificationMarkdown().trim();
   if (!specification || chatBusy || !hasChatApiKey()) return;
 
+  await shelveEditorSketchIfNeeded();
+  const requestContext = captureActiveRevisionContext();
   chatBusy = true;
   updateChatEnabledState();
   try {
@@ -5282,37 +5985,49 @@ async function generateCodeFromSpecification() {
       specification,
       specificationMode: currentProjectSpecificationMode,
     });
-    if (result.project_specification) setProjectSpecification(result.project_specification, result.specification_mode);
+    const assistantMessage = {
+      role: "assistant",
+      content: result.reply || "Generated from specification.",
+      structured: result,
+      at: new Date().toISOString(),
+    };
     if (result.code.trim()) {
       const name = result.sketch_name || "";
-      await replaceEditorFromChat(
+      const applied = await replaceEditorFromChat(
         result.code,
         "generated code from specification",
         name,
         result.circuit_layout,
         result.project_specification || specification,
         result.specification_mode || currentProjectSpecificationMode,
+        { targetContext: { ...requestContext, chat: requestContext.chat } },
       );
-      if (isDeviceConnected()) {
+      await saveChatForRevisionContext({
+        projectId: applied.project.id,
+        revisionId: applied.revision.id,
+      }, [...requestContext.chat, assistantMessage]);
+      if (applied.opened) chatMessages = [...requestContext.chat, assistantMessage];
+      if (isDeviceConnected() && applied.opened) {
         await uploadScriptCode(result.code, { run: true, save: true, name });
         logLine("info", "generated code deployed");
+      } else if (isDeviceConnected()) {
+        logLine("info", "generated code saved to original revision; not deployed because active revision changed");
       } else {
         logLine("info", "generated code ready; connect to deploy");
       }
     } else {
       logLine("warn", "specification generate returned no code");
+      const finalMessages = [...requestContext.chat, assistantMessage];
+      const savedFields = await saveRevisionFieldsForContext(requestContext, revisionFieldsFromChatResult(result, finalMessages));
+      if (isCurrentRevisionContext(requestContext)) {
+        if (savedFields) await openRevision(savedFields.project, savedFields.revision, { saveCurrent: false });
+      }
     }
-    chatMessages.push({
-      role: "assistant",
-      content: result.reply || "Generated from specification.",
-      structured: result,
-      at: new Date().toISOString(),
-    });
-    saveChatHistory();
     renderChatTranscript();
   } catch (error) {
-    chatMessages.push({ role: "error", content: error.message || String(error), at: new Date().toISOString() });
-    saveChatHistory();
+    const finalMessages = [...requestContext.chat, { role: "error", content: error.message || String(error), at: new Date().toISOString() }];
+    await saveChatForRevisionContext(requestContext, finalMessages);
+    if (isCurrentRevisionContext(requestContext)) chatMessages = finalMessages;
     renderChatTranscript();
   } finally {
     chatBusy = false;
