@@ -1,14 +1,14 @@
-import { ProtocolClient } from "./protocol/ProtocolClient.js?v=0.1.87-ui314";
-import { canEncodeCommand } from "./protocol/P1MsgPack.js?v=0.1.87-ui314";
-import { WebSerialTransport } from "./protocol/WebSerialTransport.js?v=0.1.87-ui314";
+import { ProtocolClient } from "./protocol/ProtocolClient.js?v=0.1.87-ui316";
+import { canEncodeCommand } from "./protocol/P1MsgPack.js?v=0.1.87-ui316";
+import { WebSerialTransport } from "./protocol/WebSerialTransport.js?v=0.1.87-ui316";
 import { WebSocketTransport } from "./protocol/WebSocketTransport.js";
-import { MqttWebRtcTransport, MQTT_WEBRTC_TRANSPORT_VERSION } from "./protocol/MqttWebRtcTransport.js?v=0.1.87-ui314";
-import { MqttTransport, MQTT_TRANSPORT_VERSION, clearOnlineAuthKey, deriveOnlineAuthKeyHex, storeOnlineAuthKey } from "./protocol/MqttTransport.js?v=0.1.87-ui314";
-import { P1WebFlasher } from "./web-flasher.js?v=0.1.87-ui314";
-import { inferCircuitLayout, initCircuitView, normalizeCircuitLayout } from "./circuit.js?v=0.1.87-ui314";
-import { initGuinoView } from "./guino.js?v=0.1.87-ui314";
+import { MqttWebRtcTransport, MQTT_WEBRTC_TRANSPORT_VERSION } from "./protocol/MqttWebRtcTransport.js?v=0.1.87-ui316";
+import { MqttTransport, MQTT_TRANSPORT_VERSION, clearOnlineAuthKey, deriveOnlineAuthKeyHex, storeOnlineAuthKey } from "./protocol/MqttTransport.js?v=0.1.87-ui316";
+import { P1WebFlasher } from "./web-flasher.js?v=0.1.87-ui316";
+import { inferCircuitLayout, initCircuitView, normalizeCircuitLayout } from "./circuit.js?v=0.1.87-ui316";
+import { initGuinoView } from "./guino.js?v=0.1.87-ui316";
 
-const WEB_UI_VERSION = "0.1.87-ui314";
+const WEB_UI_VERSION = "0.1.87-ui316";
 const CHAT_DEFAULT_MAX_OUTPUT_TOKENS = 8000;
 const CHAT_MIN_MAX_OUTPUT_TOKENS = 1024;
 const CHAT_HARD_MAX_OUTPUT_TOKENS = 32000;
@@ -410,20 +410,31 @@ function getEditorValue() {
 }
 
 function setEditorValueRaw(value, { persist = true } = {}) {
+  const nextValue = String(value ?? "");
   const previousSuppressEditorPersist = suppressEditorPersist;
   suppressEditorPersist = true;
   try {
     if (editor) {
-      editor.setValue(value, -1);
+      if (editor.getValue() !== nextValue) {
+        editor.setValue(nextValue, -1);
+        editor.clearSelection();
+        editor.scrollToLine(0, true, false, () => {});
+      }
     }
-    els.code.value = value;
+    els.code.value = nextValue;
   } finally {
     suppressEditorPersist = previousSuppressEditorPersist;
   }
-  if (persist) localStorage.setItem(storage.code, value);
+  if (persist) localStorage.setItem(storage.code, nextValue);
   scheduleCircuitUpdate();
   updateCurrentSketchDirty();
   updateEnabledState();
+  if (editor) {
+    requestAnimationFrame(() => {
+      editor.resize(true);
+      editor.renderer?.updateFull?.();
+    });
+  }
 }
 
 function bindControls() {
