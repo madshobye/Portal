@@ -13,6 +13,7 @@
   --red: #ee6666;
   --warn: #d6bd62;
   --font: "IBM Plex Mono", "SFMono-Regular", Consolas, monospace;
+  --app-height: 100dvh;
 }
 
 * {
@@ -41,7 +42,7 @@ textarea {
   display: grid;
   grid-template-rows: 48px minmax(0, 1fr);
   width: 100vw;
-  height: 100vh;
+  height: var(--app-height);
   min-width: 320px;
 }
 
@@ -200,18 +201,20 @@ body.is-guest-ui #ui-view {
 .coding-toolbar {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 7px;
   min-width: 0;
-  overflow-x: auto;
+  overflow: visible;
   padding-bottom: 1px;
 }
 
 .chat-toolbar {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 7px;
   min-width: 0;
-  overflow-x: auto;
+  overflow: visible;
   padding-bottom: 1px;
 }
 
@@ -1600,7 +1603,7 @@ input {
 
 .settings-dialog {
   width: min(520px, calc(100vw - 28px));
-  max-height: calc(100vh - 44px);
+  max-height: calc(var(--app-height) - 44px);
   margin-top: 22px;
   margin-bottom: 22px;
 }
@@ -1613,7 +1616,7 @@ input {
 }
 
 .settings-dialog .dialog-panel {
-  max-height: calc(100vh - 44px);
+  max-height: calc(var(--app-height) - 44px);
   min-height: 0;
 }
 
@@ -1661,7 +1664,7 @@ input {
   display: none;
   gap: 10px;
   min-height: 0;
-  max-height: calc(100vh - 176px);
+  max-height: calc(var(--app-height) - 176px);
   overflow: auto;
   padding-right: 2px;
 }
@@ -2144,6 +2147,63 @@ input {
   .ui-shell {
     grid-template-columns: minmax(0, 1fr);
     grid-template-rows: minmax(300px, 1fr);
+  }
+}
+
+@media (max-width: 760px) {
+  .project-control-cluster {
+    gap: 4px;
+    min-width: 0;
+  }
+
+  .project-select,
+  .sketch-history {
+    appearance: none;
+    -webkit-appearance: none;
+    width: 58px;
+    min-width: 58px;
+    max-width: 58px;
+    height: 35px;
+    min-height: 35px;
+    max-height: 35px;
+    padding-inline: 5px;
+    padding-block: 0;
+    line-height: 35px;
+    text-overflow: ellipsis;
+  }
+
+  #coding-view select,
+  #chat-view select {
+    appearance: none;
+    -webkit-appearance: none;
+    height: 35px;
+    min-height: 35px;
+    max-height: 35px;
+    padding-block: 0;
+    line-height: 35px;
+  }
+
+  .generative-tabs {
+    display: grid;
+    grid-template-columns: repeat(2, 34px);
+    gap: 3px;
+  }
+
+  .upload-status {
+    order: 2;
+    flex: 1 1 100%;
+    min-width: 0;
+    max-width: none;
+  }
+
+  .generative-workspace {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .chat-shell,
+  .spec-shell {
+    width: 100%;
+    min-width: 0;
   }
 }
 

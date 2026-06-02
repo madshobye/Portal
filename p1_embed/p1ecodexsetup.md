@@ -71,6 +71,10 @@ Then update `p1_embed/web/bin/p1e-firmware.json` to the same firmware version as
 - Use `rg` before slower search tools.
 - Do not revert user changes.
 - Do not hide root causes behind generic errors.
+- When debugging an unknown problem, seek the root cause before changing behavior.
+- Prefer slow, incremental changes with verification after each step; the system is often already working well in other situations, and broad changes can break those cases.
+- Prioritize targeted log/trace output before making functional changes.
+- For debugging work, suggest a brief plan first and verify observations before changing many elements.
 - When firmware changes affect the board, compile and usually upload if a board is available.
 - When installer firmware should be current, update the web binaries and manifest.
 - Keep final answers short and concrete.
@@ -121,13 +125,16 @@ Use Wrench case style:
 
 - `pinMode(pin, OUTPUT)`, not string modes.
 - `digitalWrite(pin, HIGH)`, not string values.
-- `timeLocalHour()`, `timeLocalMinute()`, `timeLocalSeconds()`.
+- `timeLocal(out)` or `timeLocal()` for `[year, month, day, hour, minute, second]`.
 - `simplex3()`, `simplex3_01()`, `noiseSeed()`.
-- `hsvToR/G/B`, `rgbToH/S/V`.
-- `ledGetR/G/B`.
-- `paletteSet2/3/4` and `paletteGetR/G/B`.
+- Use top-level math helpers such as `map()`, `constrain()`, `sin()`, `cos()`, `sqrt()`, `pow()`, `floor()`, `ceil()`, `round()`, `abs()`, `min()`, `max()`, `radians()`, and `degrees()`.
+- Wrench's namespaced math library is also available as `math::...`, but generated sketches should prefer the top-level helpers.
+- `ledGetRgb(strip, index, out)`, `rgbToHsv(rgb, out)`, `hsvToRgb(hsv, out)` in hot LED loops.
+- `paletteSet2/3/4` and `paletteGetRgb(slot, t, out)`.
 - `touchRead(pin)` is ESP32 one-pin touch.
 - `touchReadPair(drivePin, sensePin, samples, settleMicroseconds)` is the two-wire analog transfer touch helper.
+
+Legacy scalar time and color component bindings remain registered for existing sketches, but do not generate new code that uses them.
 
 Keep `wrench_chat_context.md` current whenever bindings change.
 
@@ -232,13 +239,15 @@ python3 p1_embed/tests/serial/run_serial_tests.py
 
 Only run serial/board tests when the board is connected and the serial port is free.
 
+For unclear runtime bugs, start by adding the smallest useful logs and reproducing the problem. Avoid changing transport/protocol behavior until the logs identify the failing boundary. Make one change at a time, compile/check it, and ask for or collect a fresh verification log before continuing.
+
 ## Current Recent Work
 
 At the time this file was written:
 
-- Firmware was bumped to `0.1.155`.
-- Installer manifest was bumped to `0.1.155`.
+- Firmware was bumped to `0.1.156`.
+- Installer manifest was bumped to `0.1.156`.
 - `touchReadPair()` was added as an optimized two-wire analog touch helper.
+- Common top-level math helpers and Arduino-like `map()`/`constrain()` were added.
 - It compiled successfully.
 - Upload failed because the configured serial port was unavailable or busy.
-

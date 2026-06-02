@@ -25,6 +25,60 @@ static float wrArgFloat(const WRValue* argv, int argn, int idx, float def) {
   return (float)atof(buf);
 }
 
+static bool wrRetIntArray3(WRContext* ctx, WRValue& retVal, int a, int b, int c) {
+  int values[3] = { a, b, c };
+  for (int i = 0; i < 3; i++) {
+    WRValue* slot = retVal.indexArray(ctx, (uint32_t)i, true);
+    if (!slot) return false;
+    wr_makeInt(slot, values[i]);
+  }
+  return true;
+}
+
+static bool wrRetIntArray6(WRContext* ctx, WRValue& retVal, int a, int b, int c, int d, int e, int f) {
+  int values[6] = { a, b, c, d, e, f };
+  for (int i = 0; i < 6; i++) {
+    WRValue* slot = retVal.indexArray(ctx, (uint32_t)i, true);
+    if (!slot) return false;
+    wr_makeInt(slot, values[i]);
+  }
+  return true;
+}
+
+static int wrArgArrayInt(WRContext* ctx, const WRValue* argv, int argn, int argIdx, int arrayIdx, int def) {
+  if (!argv || argIdx >= argn) return def;
+  WRValue* slot = argv[argIdx].indexArray(ctx, (uint32_t)arrayIdx, false);
+  if (!slot) return def;
+  WRValue& value = slot->deref();
+  if (value.isInt()) return value.asInt();
+  if (value.isFloat()) return (int)value.asFloat();
+  char buf[32];
+  value.asString(buf, sizeof(buf));
+  return atoi(buf);
+}
+
+static bool wrSetArrayInt3(WRContext* ctx, const WRValue* argv, int argn, int argIdx, int a, int b, int c) {
+  if (!argv || argIdx >= argn) return false;
+  int values[3] = { a, b, c };
+  for (int i = 0; i < 3; i++) {
+    WRValue* slot = argv[argIdx].indexArray(ctx, (uint32_t)i, true);
+    if (!slot) return false;
+    wr_makeInt(slot, values[i]);
+  }
+  return true;
+}
+
+static bool wrSetArrayInt6(WRContext* ctx, const WRValue* argv, int argn, int argIdx, int a, int b, int c, int d, int e, int f) {
+  if (!argv || argIdx >= argn) return false;
+  int values[6] = { a, b, c, d, e, f };
+  for (int i = 0; i < 6; i++) {
+    WRValue* slot = argv[argIdx].indexArray(ctx, (uint32_t)i, true);
+    if (!slot) return false;
+    wr_makeInt(slot, values[i]);
+  }
+  return true;
+}
+
 static const char* wrArgString(const WRValue* argv, int argn, int idx, char* buf, size_t buflen) {
   if (!buf || buflen == 0) return "";
   buf[0] = 0;
@@ -90,6 +144,10 @@ static String wrArgStringValueMax(const WRValue* argv, int argn, int idx, int ma
 
 static bool wrArgPresent(const WRValue* argv, int argn, int idx) {
   return argv && idx < argn;
+}
+
+static bool wrArgIsArray(const WRValue* argv, int argn, int idx) {
+  return argv && idx < argn && argv[idx].isWrenchArray();
 }
 
 static void hsvToRgb8(int h, int s, int v, int& r, int& g, int& b) {
@@ -930,6 +988,12 @@ static void w_p1_freeHeap(WRContext*, const WRValue*, const int, WRValue& retVal
   wrRetInt(retVal, (int)ESP.getFreeHeap());
 }
 
+static void w_p1_diagArray3(WRContext* ctx, const WRValue* argv, const int argn, WRValue& retVal, void*) {
+  if (!wrRetIntArray3(ctx, retVal, wrArgInt(argv, argn, 0, 0), wrArgInt(argv, argn, 1, 0), wrArgInt(argv, argn, 2, 0))) {
+    scriptErrorSet("binding", "diag_array_alloc_failed", "diagArray3 failed to allocate return array");
+  }
+}
+
 static void w_p1_wifiConnected(WRContext*, const WRValue*, const int, WRValue& retVal, void*) {
   wrRetInt(retVal, WiFi.status() == WL_CONNECTED ? 1 : 0);
 }
@@ -1322,6 +1386,117 @@ static void w_p1_lerp(WRContext*, const WRValue* argv, const int argn, WRValue& 
   wrRetFloat(retVal, a + (b - a) * t);
 }
 
+static void w_p1_map(WRContext*, const WRValue* argv, const int argn, WRValue& retVal, void*) {
+  float value = wrArgFloat(argv, argn, 0, 0.0f);
+  float inMin = wrArgFloat(argv, argn, 1, 0.0f);
+  float inMax = wrArgFloat(argv, argn, 2, 1.0f);
+  float outMin = wrArgFloat(argv, argn, 3, 0.0f);
+  float outMax = wrArgFloat(argv, argn, 4, 1.0f);
+  float span = inMax - inMin;
+  if (span == 0.0f) {
+    wrRetFloat(retVal, outMin);
+    return;
+  }
+  wrRetFloat(retVal, outMin + ((value - inMin) * (outMax - outMin)) / span);
+}
+
+static void w_p1_constrain(WRContext*, const WRValue* argv, const int argn, WRValue& retVal, void*) {
+  float value = wrArgFloat(argv, argn, 0, 0.0f);
+  float low = wrArgFloat(argv, argn, 1, 0.0f);
+  float high = wrArgFloat(argv, argn, 2, 1.0f);
+  if (low > high) {
+    float tmp = low;
+    low = high;
+    high = tmp;
+  }
+  wrRetFloat(retVal, constrain(value, low, high));
+}
+
+static void w_p1_min(WRContext*, const WRValue* argv, const int argn, WRValue& retVal, void*) {
+  wrRetFloat(retVal, min(wrArgFloat(argv, argn, 0, 0.0f), wrArgFloat(argv, argn, 1, 0.0f)));
+}
+
+static void w_p1_max(WRContext*, const WRValue* argv, const int argn, WRValue& retVal, void*) {
+  wrRetFloat(retVal, max(wrArgFloat(argv, argn, 0, 0.0f), wrArgFloat(argv, argn, 1, 0.0f)));
+}
+
+static void w_p1_abs(WRContext*, const WRValue* argv, const int argn, WRValue& retVal, void*) {
+  wrRetFloat(retVal, fabsf(wrArgFloat(argv, argn, 0, 0.0f)));
+}
+
+static void w_p1_sin(WRContext*, const WRValue* argv, const int argn, WRValue& retVal, void*) {
+  wrRetFloat(retVal, sinf(wrArgFloat(argv, argn, 0, 0.0f)));
+}
+
+static void w_p1_cos(WRContext*, const WRValue* argv, const int argn, WRValue& retVal, void*) {
+  wrRetFloat(retVal, cosf(wrArgFloat(argv, argn, 0, 0.0f)));
+}
+
+static void w_p1_tan(WRContext*, const WRValue* argv, const int argn, WRValue& retVal, void*) {
+  wrRetFloat(retVal, tanf(wrArgFloat(argv, argn, 0, 0.0f)));
+}
+
+static void w_p1_asin(WRContext*, const WRValue* argv, const int argn, WRValue& retVal, void*) {
+  wrRetFloat(retVal, asinf(constrain(wrArgFloat(argv, argn, 0, 0.0f), -1.0f, 1.0f)));
+}
+
+static void w_p1_acos(WRContext*, const WRValue* argv, const int argn, WRValue& retVal, void*) {
+  wrRetFloat(retVal, acosf(constrain(wrArgFloat(argv, argn, 0, 0.0f), -1.0f, 1.0f)));
+}
+
+static void w_p1_atan(WRContext*, const WRValue* argv, const int argn, WRValue& retVal, void*) {
+  wrRetFloat(retVal, atanf(wrArgFloat(argv, argn, 0, 0.0f)));
+}
+
+static void w_p1_atan2(WRContext*, const WRValue* argv, const int argn, WRValue& retVal, void*) {
+  wrRetFloat(retVal, atan2f(wrArgFloat(argv, argn, 0, 0.0f), wrArgFloat(argv, argn, 1, 0.0f)));
+}
+
+static void w_p1_sqrt(WRContext*, const WRValue* argv, const int argn, WRValue& retVal, void*) {
+  wrRetFloat(retVal, sqrtf(max(0.0f, wrArgFloat(argv, argn, 0, 0.0f))));
+}
+
+static void w_p1_pow(WRContext*, const WRValue* argv, const int argn, WRValue& retVal, void*) {
+  wrRetFloat(retVal, powf(wrArgFloat(argv, argn, 0, 0.0f), wrArgFloat(argv, argn, 1, 1.0f)));
+}
+
+static void w_p1_floor(WRContext*, const WRValue* argv, const int argn, WRValue& retVal, void*) {
+  wrRetFloat(retVal, floorf(wrArgFloat(argv, argn, 0, 0.0f)));
+}
+
+static void w_p1_ceil(WRContext*, const WRValue* argv, const int argn, WRValue& retVal, void*) {
+  wrRetFloat(retVal, ceilf(wrArgFloat(argv, argn, 0, 0.0f)));
+}
+
+static void w_p1_round(WRContext*, const WRValue* argv, const int argn, WRValue& retVal, void*) {
+  wrRetFloat(retVal, roundf(wrArgFloat(argv, argn, 0, 0.0f)));
+}
+
+static void w_p1_exp(WRContext*, const WRValue* argv, const int argn, WRValue& retVal, void*) {
+  wrRetFloat(retVal, expf(wrArgFloat(argv, argn, 0, 0.0f)));
+}
+
+static void w_p1_ln(WRContext*, const WRValue* argv, const int argn, WRValue& retVal, void*) {
+  wrRetFloat(retVal, logf(max(0.000001f, wrArgFloat(argv, argn, 0, 1.0f))));
+}
+
+static void w_p1_log10(WRContext*, const WRValue* argv, const int argn, WRValue& retVal, void*) {
+  wrRetFloat(retVal, log10f(max(0.000001f, wrArgFloat(argv, argn, 0, 1.0f))));
+}
+
+static void w_p1_fmod(WRContext*, const WRValue* argv, const int argn, WRValue& retVal, void*) {
+  float divisor = wrArgFloat(argv, argn, 1, 1.0f);
+  wrRetFloat(retVal, divisor == 0.0f ? 0.0f : fmodf(wrArgFloat(argv, argn, 0, 0.0f), divisor));
+}
+
+static void w_p1_radians(WRContext*, const WRValue* argv, const int argn, WRValue& retVal, void*) {
+  wrRetFloat(retVal, wrArgFloat(argv, argn, 0, 0.0f) * (3.14159265358979323846f / 180.0f));
+}
+
+static void w_p1_degrees(WRContext*, const WRValue* argv, const int argn, WRValue& retVal, void*) {
+  wrRetFloat(retVal, wrArgFloat(argv, argn, 0, 0.0f) * (180.0f / 3.14159265358979323846f));
+}
+
 static void w_p1_noiseSeed(WRContext*, const WRValue* argv, const int argn, WRValue& retVal, void*) {
   uint32_t seed = wrArgPresent(argv, argn, 0) ? (uint32_t)wrArgInt(argv, argn, 0, 1) : (uint32_t)micros();
   noiseSeedSimplex(seed);
@@ -1348,6 +1523,36 @@ static void w_p1_timeNow(WRContext*, const WRValue*, const int, WRValue& retVal,
   wrRetInt(retVal, (int)time(nullptr));
 }
 
+static void w_p1_timeLocal(WRContext* ctx, const WRValue* argv, const int argn, WRValue& retVal, void*) {
+  tm info;
+  int year = -1;
+  int month = -1;
+  int day = -1;
+  int hour = -1;
+  int minute = -1;
+  int second = -1;
+  if (wrLocalTime(info)) {
+    year = info.tm_year + 1900;
+    month = info.tm_mon + 1;
+    day = info.tm_mday;
+    hour = info.tm_hour;
+    minute = info.tm_min;
+    second = info.tm_sec;
+  }
+
+  if (argn >= 1) {
+    bool ok = wrSetArrayInt6(ctx, argv, argn, 0, year, month, day, hour, minute, second);
+    if (!ok) scriptErrorSet("binding", "time_local_into_failed", "timeLocal failed to write output array");
+    wrRetInt(retVal, ok ? 1 : 0);
+    return;
+  }
+
+  if (!wrRetIntArray6(ctx, retVal, year, month, day, hour, minute, second)) {
+    scriptErrorSet("binding", "time_local_alloc_failed", "timeLocal failed to allocate return array");
+  }
+}
+
+// Legacy scalar time bindings kept for existing sketches. Prefer timeLocal(out).
 static void w_p1_timeLocalHour(WRContext*, const WRValue*, const int, WRValue& retVal, void*) {
   tm info;
   wrRetInt(retVal, wrLocalTime(info) ? info.tm_hour : -1);
@@ -1361,6 +1566,21 @@ static void w_p1_timeLocalMinute(WRContext*, const WRValue*, const int, WRValue&
 static void w_p1_timeLocalSeconds(WRContext*, const WRValue*, const int, WRValue& retVal, void*) {
   tm info;
   wrRetInt(retVal, wrLocalTime(info) ? info.tm_sec : -1);
+}
+
+static void w_p1_timeLocalDay(WRContext*, const WRValue*, const int, WRValue& retVal, void*) {
+  tm info;
+  wrRetInt(retVal, wrLocalTime(info) ? info.tm_mday : -1);
+}
+
+static void w_p1_timeLocalMonth(WRContext*, const WRValue*, const int, WRValue& retVal, void*) {
+  tm info;
+  wrRetInt(retVal, wrLocalTime(info) ? info.tm_mon + 1 : -1);
+}
+
+static void w_p1_timeLocalYear(WRContext*, const WRValue*, const int, WRValue& retVal, void*) {
+  tm info;
+  wrRetInt(retVal, wrLocalTime(info) ? info.tm_year + 1900 : -1);
 }
 
 static void w_p1_timeGet(WRContext* ctx, const WRValue*, const int, WRValue& retVal, void*) {
@@ -1416,6 +1636,89 @@ static void w_p1_ledSetHsv(WRContext*, const WRValue* argv, const int argn, WRVa
   wrRetInt(retVal, ok ? 1 : 0);
 }
 
+static void w_p1_ledGetRgb(WRContext* ctx, const WRValue* argv, const int argn, WRValue& retVal, void*) {
+  int r = 0;
+  int g = 0;
+  int b = 0;
+  ledGetPixel(wrArgInt(argv, argn, 0, 0), wrArgInt(argv, argn, 1, -1), r, g, b);
+  if (argn >= 3) {
+    bool ok = wrSetArrayInt3(ctx, argv, argn, 2, r, g, b);
+    if (!ok) scriptErrorSet("binding", "led_get_rgb_into_failed", "ledGetRgb failed to write output array");
+    wrRetInt(retVal, ok ? 1 : 0);
+    return;
+  }
+  if (!wrRetIntArray3(ctx, retVal, r, g, b)) {
+    scriptErrorSet("binding", "led_get_rgb_alloc_failed", "ledGetRgb failed to allocate return array");
+  }
+}
+
+static void w_p1_ledGetRgbInto(WRContext* ctx, const WRValue* argv, const int argn, WRValue& retVal, void*) {
+  w_p1_ledGetRgb(ctx, argv, argn, retVal, nullptr);
+}
+
+static void w_p1_ledSetRgb(WRContext* ctx, const WRValue* argv, const int argn, WRValue& retVal, void*) {
+  int strip = wrArgInt(argv, argn, 0, 0);
+  int index = wrArgInt(argv, argn, 1, -1);
+  int r = wrArgArrayInt(ctx, argv, argn, 2, 0, wrArgInt(argv, argn, 2, 0));
+  int g = wrArgArrayInt(ctx, argv, argn, 2, 1, wrArgInt(argv, argn, 3, 0));
+  int b = wrArgArrayInt(ctx, argv, argn, 2, 2, wrArgInt(argv, argn, 4, 0));
+  bool ok = ledSetPixel(strip, index, r, g, b);
+  if (!ok) scriptErrorSet("binding", "led_set_rgb_failed", "ledSetRgb failed", "\"strip\":" + String(strip) + ",\"index\":" + String(index));
+  wrRetInt(retVal, ok ? 1 : 0);
+}
+
+static void w_p1_hsvToRgb(WRContext* ctx, const WRValue* argv, const int argn, WRValue& retVal, void*) {
+  int r = 0;
+  int g = 0;
+  int b = 0;
+  bool inputArray = wrArgIsArray(argv, argn, 0);
+  int h = inputArray ? wrArgArrayInt(ctx, argv, argn, 0, 0, 0) : wrArgInt(argv, argn, 0, 0);
+  int s = inputArray ? wrArgArrayInt(ctx, argv, argn, 0, 1, 255) : wrArgInt(argv, argn, 1, 255);
+  int v = inputArray ? wrArgArrayInt(ctx, argv, argn, 0, 2, 255) : wrArgInt(argv, argn, 2, 255);
+  hsvToRgb8(h, s, v, r, g, b);
+  int outIdx = inputArray ? (argn >= 2 ? 1 : -1) : (argn >= 4 ? 3 : -1);
+  if (outIdx >= 0) {
+    bool ok = wrSetArrayInt3(ctx, argv, argn, outIdx, r, g, b);
+    if (!ok) scriptErrorSet("binding", "hsv_to_rgb_into_failed", "hsvToRgb failed to write output array");
+    wrRetInt(retVal, ok ? 1 : 0);
+    return;
+  }
+  if (!wrRetIntArray3(ctx, retVal, r, g, b)) {
+    scriptErrorSet("binding", "hsv_to_rgb_alloc_failed", "hsvToRgb failed to allocate return array");
+  }
+}
+
+static void w_p1_hsvToRgbInto(WRContext* ctx, const WRValue* argv, const int argn, WRValue& retVal, void*) {
+  w_p1_hsvToRgb(ctx, argv, argn, retVal, nullptr);
+}
+
+static void w_p1_rgbToHsv(WRContext* ctx, const WRValue* argv, const int argn, WRValue& retVal, void*) {
+  int h = 0;
+  int s = 0;
+  int v = 0;
+  bool inputArray = wrArgIsArray(argv, argn, 0);
+  int r = inputArray ? wrArgArrayInt(ctx, argv, argn, 0, 0, 0) : wrArgInt(argv, argn, 0, 0);
+  int g = inputArray ? wrArgArrayInt(ctx, argv, argn, 0, 1, 0) : wrArgInt(argv, argn, 1, 0);
+  int b = inputArray ? wrArgArrayInt(ctx, argv, argn, 0, 2, 0) : wrArgInt(argv, argn, 2, 0);
+  rgbToHsv8(r, g, b, h, s, v);
+  int outIdx = inputArray ? (argn >= 2 ? 1 : -1) : (argn >= 4 ? 3 : -1);
+  if (outIdx >= 0) {
+    bool ok = wrSetArrayInt3(ctx, argv, argn, outIdx, h, s, v);
+    if (!ok) scriptErrorSet("binding", "rgb_to_hsv_into_failed", "rgbToHsv failed to write output array");
+    wrRetInt(retVal, ok ? 1 : 0);
+    return;
+  }
+  if (!wrRetIntArray3(ctx, retVal, h, s, v)) {
+    scriptErrorSet("binding", "rgb_to_hsv_alloc_failed", "rgbToHsv failed to allocate return array");
+  }
+}
+
+static void w_p1_rgbToHsvInto(WRContext* ctx, const WRValue* argv, const int argn, WRValue& retVal, void*) {
+  w_p1_rgbToHsv(ctx, argv, argn, retVal, nullptr);
+}
+
+// Legacy scalar color component bindings kept for existing sketches.
+// Prefer ledGetRgb(..., out), rgbToHsv(..., out), and hsvToRgb(..., out).
 static void wrRetLedComponent(const WRValue* argv, const int argn, WRValue& retVal, int component) {
   int r = 0;
   int g = 0;
@@ -1503,6 +1806,25 @@ static void w_p1_paletteSet4(WRContext*, const WRValue* argv, const int argn, WR
   wrRetInt(retVal, paletteSet(wrArgInt(argv, argn, 0, 0), 4, rgb) ? 1 : 0);
 }
 
+static void w_p1_paletteGetRgb(WRContext* ctx, const WRValue* argv, const int argn, WRValue& retVal, void*) {
+  int slot = wrArgInt(argv, argn, 0, 0);
+  int t = wrArgInt(argv, argn, 1, 0);
+  int r = paletteSampleComponent(slot, t, 0);
+  int g = paletteSampleComponent(slot, t, 1);
+  int b = paletteSampleComponent(slot, t, 2);
+  if (argn >= 3) {
+    bool ok = wrSetArrayInt3(ctx, argv, argn, 2, r, g, b);
+    if (!ok) scriptErrorSet("binding", "palette_get_rgb_into_failed", "paletteGetRgb failed to write output array");
+    wrRetInt(retVal, ok ? 1 : 0);
+    return;
+  }
+  if (!wrRetIntArray3(ctx, retVal, r, g, b)) {
+    scriptErrorSet("binding", "palette_get_rgb_alloc_failed", "paletteGetRgb failed to allocate return array");
+  }
+}
+
+// Legacy scalar palette component bindings kept for existing sketches.
+// Prefer paletteGetRgb(slot, t, out).
 static void wrRetPaletteComponent(const WRValue* argv, const int argn, WRValue& retVal, int component) {
   wrRetInt(retVal, paletteSampleComponent(wrArgInt(argv, argn, 0, 0), wrArgInt(argv, argn, 1, 0), component));
 }
@@ -1912,9 +2234,13 @@ const char* wrenchBindingNameForHash(uint32_t hash) {
     "print", "println",
     "pinMode", "digitalWrite", "digitalRead", "analogRead", "touchRead", "touchReadPair",
     "delay", "delayMicroseconds", "millis", "micros",
-    "random", "randomSeed", "freeHeap",
-    "lerp", "noiseSeed", "simplex3", "simplex3_01",
-    "timeNow", "timeLocalHour", "timeLocalMinute", "timeLocalSeconds", "timeGet",
+    "random", "randomSeed", "freeHeap", "diagArray3",
+    "lerp", "map", "constrain", "min", "max", "abs",
+    "sin", "cos", "tan", "asin", "acos", "atan", "atan2",
+    "sqrt", "pow", "floor", "ceil", "round", "exp", "ln", "log10",
+    "fmod", "radians", "degrees",
+    "noiseSeed", "simplex3", "simplex3_01",
+    "timeNow", "timeLocal", "timeGet",
     "wifiConnected", "wifiIp", "wifiRssi", "wifiSsid",
     "wireBegin", "i2cWrite", "i2cRead",
     "serialBegin", "serialEnd", "serialAvailable", "serialRead",
@@ -1932,9 +2258,9 @@ const char* wrenchBindingNameForHash(uint32_t hash) {
     "servoAttach", "servoWrite", "servoWriteMicroseconds", "servoDetach",
     "fanAttach", "fanWrite", "fanWriteRaw", "fanDetach",
     "ledConfig", "ledReady", "ledStripCount", "ledCount", "ledSet", "ledSetHsv",
-    "ledGetR", "ledGetG", "ledGetB",
-    "hsvToR", "hsvToG", "hsvToB", "rgbToH", "rgbToS", "rgbToV",
-    "paletteSet2", "paletteSet3", "paletteSet4", "paletteGetR", "paletteGetG", "paletteGetB",
+    "ledGetRgb", "ledGetRgbInto", "ledSetRgb",
+    "hsvToRgb", "hsvToRgbInto", "rgbToHsv", "rgbToHsvInto",
+    "paletteSet2", "paletteSet3", "paletteSet4", "paletteGetRgb",
     "ledFill", "ledClear", "ledShow", "ledBrightness", "ledStatus",
     "log", "emit", "emitJson", "statusGet", "configGet", "configSet",
     "wifiStatus", "wifiConnect", "wifiDisconnect", "reboot",
@@ -1944,6 +2270,13 @@ const char* wrenchBindingNameForHash(uint32_t hash) {
     "uiValue", "uiGraph", "uiSpacer", "uiColumn", "uiColor",
     "uiUpdate", "uiPush", "uiText", "uiPoll",
     "uiEventIs", "uiEventValue", "uiGet", "uiChanged",
+    // Legacy scalar bindings kept for existing compiled and saved sketches.
+    "timeLocalHour", "timeLocalMinute", "timeLocalSeconds",
+    "timeLocalDay", "timeLocalMonth", "timeLocalYear",
+    "ledGetR", "ledGetG", "ledGetB",
+    "hsvToR", "hsvToG", "hsvToB",
+    "rgbToH", "rgbToS", "rgbToV",
+    "paletteGetR", "paletteGetG", "paletteGetB",
   };
   for (size_t i = 0; i < sizeof(names) / sizeof(names[0]); i++) {
     if ((uint32_t)wr_hashStr(names[i]) == hash) return names[i];
@@ -1952,6 +2285,8 @@ const char* wrenchBindingNameForHash(uint32_t hash) {
 }
 
 void wrenchRegisterBindings(WRState* wr) {
+  wr_loadMathLib(wr);
+
   wr_registerFunction(wr, "print", w_p1_print);
   wr_registerFunction(wr, "println", w_p1_println);
   wr_registerFunction(wr, "pinMode", w_p1_pinMode);
@@ -1967,14 +2302,36 @@ void wrenchRegisterBindings(WRState* wr) {
   wr_registerFunction(wr, "random", w_p1_random);
   wr_registerFunction(wr, "randomSeed", w_p1_randomSeed);
   wr_registerFunction(wr, "freeHeap", w_p1_freeHeap);
+  wr_registerFunction(wr, "diagArray3", w_p1_diagArray3);
   wr_registerFunction(wr, "lerp", w_p1_lerp);
+  wr_registerFunction(wr, "map", w_p1_map);
+  wr_registerFunction(wr, "constrain", w_p1_constrain);
+  wr_registerFunction(wr, "min", w_p1_min);
+  wr_registerFunction(wr, "max", w_p1_max);
+  wr_registerFunction(wr, "abs", w_p1_abs);
+  wr_registerFunction(wr, "sin", w_p1_sin);
+  wr_registerFunction(wr, "cos", w_p1_cos);
+  wr_registerFunction(wr, "tan", w_p1_tan);
+  wr_registerFunction(wr, "asin", w_p1_asin);
+  wr_registerFunction(wr, "acos", w_p1_acos);
+  wr_registerFunction(wr, "atan", w_p1_atan);
+  wr_registerFunction(wr, "atan2", w_p1_atan2);
+  wr_registerFunction(wr, "sqrt", w_p1_sqrt);
+  wr_registerFunction(wr, "pow", w_p1_pow);
+  wr_registerFunction(wr, "floor", w_p1_floor);
+  wr_registerFunction(wr, "ceil", w_p1_ceil);
+  wr_registerFunction(wr, "round", w_p1_round);
+  wr_registerFunction(wr, "exp", w_p1_exp);
+  wr_registerFunction(wr, "ln", w_p1_ln);
+  wr_registerFunction(wr, "log10", w_p1_log10);
+  wr_registerFunction(wr, "fmod", w_p1_fmod);
+  wr_registerFunction(wr, "radians", w_p1_radians);
+  wr_registerFunction(wr, "degrees", w_p1_degrees);
   wr_registerFunction(wr, "noiseSeed", w_p1_noiseSeed);
   wr_registerFunction(wr, "simplex3", w_p1_simplex3);
   wr_registerFunction(wr, "simplex3_01", w_p1_simplex3_01);
   wr_registerFunction(wr, "timeNow", w_p1_timeNow);
-  wr_registerFunction(wr, "timeLocalHour", w_p1_timeLocalHour);
-  wr_registerFunction(wr, "timeLocalMinute", w_p1_timeLocalMinute);
-  wr_registerFunction(wr, "timeLocalSeconds", w_p1_timeLocalSeconds);
+  wr_registerFunction(wr, "timeLocal", w_p1_timeLocal);
   wr_registerFunction(wr, "timeGet", w_p1_timeGet);
   wr_registerFunction(wr, "wifiConnected", w_p1_wifiConnected);
   wr_registerFunction(wr, "wifiIp", w_p1_wifiIp);
@@ -2037,21 +2394,17 @@ void wrenchRegisterBindings(WRState* wr) {
   wr_registerFunction(wr, "ledCount", w_p1_ledCount);
   wr_registerFunction(wr, "ledSet", w_p1_ledSet);
   wr_registerFunction(wr, "ledSetHsv", w_p1_ledSetHsv);
-  wr_registerFunction(wr, "ledGetR", w_p1_ledGetR);
-  wr_registerFunction(wr, "ledGetG", w_p1_ledGetG);
-  wr_registerFunction(wr, "ledGetB", w_p1_ledGetB);
-  wr_registerFunction(wr, "hsvToR", w_p1_hsvToR);
-  wr_registerFunction(wr, "hsvToG", w_p1_hsvToG);
-  wr_registerFunction(wr, "hsvToB", w_p1_hsvToB);
-  wr_registerFunction(wr, "rgbToH", w_p1_rgbToH);
-  wr_registerFunction(wr, "rgbToS", w_p1_rgbToS);
-  wr_registerFunction(wr, "rgbToV", w_p1_rgbToV);
+  wr_registerFunction(wr, "ledGetRgb", w_p1_ledGetRgb);
+  wr_registerFunction(wr, "ledGetRgbInto", w_p1_ledGetRgbInto);
+  wr_registerFunction(wr, "ledSetRgb", w_p1_ledSetRgb);
+  wr_registerFunction(wr, "hsvToRgb", w_p1_hsvToRgb);
+  wr_registerFunction(wr, "hsvToRgbInto", w_p1_hsvToRgbInto);
+  wr_registerFunction(wr, "rgbToHsv", w_p1_rgbToHsv);
+  wr_registerFunction(wr, "rgbToHsvInto", w_p1_rgbToHsvInto);
   wr_registerFunction(wr, "paletteSet2", w_p1_paletteSet2);
   wr_registerFunction(wr, "paletteSet3", w_p1_paletteSet3);
   wr_registerFunction(wr, "paletteSet4", w_p1_paletteSet4);
-  wr_registerFunction(wr, "paletteGetR", w_p1_paletteGetR);
-  wr_registerFunction(wr, "paletteGetG", w_p1_paletteGetG);
-  wr_registerFunction(wr, "paletteGetB", w_p1_paletteGetB);
+  wr_registerFunction(wr, "paletteGetRgb", w_p1_paletteGetRgb);
   wr_registerFunction(wr, "ledFill", w_p1_ledFill);
   wr_registerFunction(wr, "ledClear", w_p1_ledClear);
   wr_registerFunction(wr, "ledShow", w_p1_ledShow);
@@ -2094,6 +2447,28 @@ void wrenchRegisterBindings(WRState* wr) {
   wr_registerFunction(wr, "uiGet", w_p1_uiGet);
   wr_registerFunction(wr, "uiChanged", w_p1_uiChanged);
 
+  // Legacy scalar bindings kept for existing sketches; new code should use
+  // timeLocal(out), ledGetRgb(..., out), rgbToHsv(..., out), hsvToRgb(..., out),
+  // and paletteGetRgb(..., out).
+  wr_registerFunction(wr, "timeLocalHour", w_p1_timeLocalHour);
+  wr_registerFunction(wr, "timeLocalMinute", w_p1_timeLocalMinute);
+  wr_registerFunction(wr, "timeLocalSeconds", w_p1_timeLocalSeconds);
+  wr_registerFunction(wr, "timeLocalDay", w_p1_timeLocalDay);
+  wr_registerFunction(wr, "timeLocalMonth", w_p1_timeLocalMonth);
+  wr_registerFunction(wr, "timeLocalYear", w_p1_timeLocalYear);
+  wr_registerFunction(wr, "ledGetR", w_p1_ledGetR);
+  wr_registerFunction(wr, "ledGetG", w_p1_ledGetG);
+  wr_registerFunction(wr, "ledGetB", w_p1_ledGetB);
+  wr_registerFunction(wr, "hsvToR", w_p1_hsvToR);
+  wr_registerFunction(wr, "hsvToG", w_p1_hsvToG);
+  wr_registerFunction(wr, "hsvToB", w_p1_hsvToB);
+  wr_registerFunction(wr, "rgbToH", w_p1_rgbToH);
+  wr_registerFunction(wr, "rgbToS", w_p1_rgbToS);
+  wr_registerFunction(wr, "rgbToV", w_p1_rgbToV);
+  wr_registerFunction(wr, "paletteGetR", w_p1_paletteGetR);
+  wr_registerFunction(wr, "paletteGetG", w_p1_paletteGetG);
+  wr_registerFunction(wr, "paletteGetB", w_p1_paletteGetB);
+
   wr_registerLibraryConstant(wr, "INPUT", (int32_t)INPUT);
   wr_registerLibraryConstant(wr, "OUTPUT", (int32_t)OUTPUT);
   wr_registerLibraryConstant(wr, "INPUT_PULLUP", (int32_t)INPUT_PULLUP);
@@ -2103,4 +2478,7 @@ void wrenchRegisterBindings(WRState* wr) {
   wr_registerLibraryConstant(wr, "HIGH", (int32_t)HIGH);
   wr_registerLibraryConstant(wr, "LOW", (int32_t)LOW);
   wr_registerLibraryConstant(wr, "LED_BUILTIN", (int32_t)P1_EMBED_DEFAULT_LED_PIN);
+  wr_registerLibraryConstant(wr, "PI", 3.14159265358979323846f);
+  wr_registerLibraryConstant(wr, "TWO_PI", 6.28318530717958647692f);
+  wr_registerLibraryConstant(wr, "HALF_PI", 1.57079632679489661923f);
 }

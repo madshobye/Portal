@@ -1,14 +1,14 @@
-import { ProtocolClient } from "./protocol/ProtocolClient.js?v=0.1.87-ui280";
-import { canEncodeCommand } from "./protocol/P1MsgPack.js?v=0.1.87-ui280";
-import { WebSerialTransport } from "./protocol/WebSerialTransport.js?v=0.1.87-ui280";
+import { ProtocolClient } from "./protocol/ProtocolClient.js?v=0.1.87-ui298";
+import { canEncodeCommand } from "./protocol/P1MsgPack.js?v=0.1.87-ui298";
+import { WebSerialTransport } from "./protocol/WebSerialTransport.js?v=0.1.87-ui298";
 import { WebSocketTransport } from "./protocol/WebSocketTransport.js";
-import { MqttWebRtcTransport, MQTT_WEBRTC_TRANSPORT_VERSION } from "./protocol/MqttWebRtcTransport.js?v=0.1.87-ui280";
-import { MqttTransport, MQTT_TRANSPORT_VERSION, clearOnlineAuthKey, deriveOnlineAuthKeyHex, storeOnlineAuthKey } from "./protocol/MqttTransport.js?v=0.1.87-ui280";
-import { P1WebFlasher } from "./web-flasher.js?v=0.1.87-ui280";
-import { inferCircuitLayout, initCircuitView, normalizeCircuitLayout } from "./circuit.js?v=0.1.87-ui280";
-import { initGuinoView } from "./guino.js?v=0.1.87-ui280";
+import { MqttWebRtcTransport, MQTT_WEBRTC_TRANSPORT_VERSION } from "./protocol/MqttWebRtcTransport.js?v=0.1.87-ui298";
+import { MqttTransport, MQTT_TRANSPORT_VERSION, clearOnlineAuthKey, deriveOnlineAuthKeyHex, storeOnlineAuthKey } from "./protocol/MqttTransport.js?v=0.1.87-ui298";
+import { P1WebFlasher } from "./web-flasher.js?v=0.1.87-ui298";
+import { inferCircuitLayout, initCircuitView, normalizeCircuitLayout } from "./circuit.js?v=0.1.87-ui298";
+import { initGuinoView } from "./guino.js?v=0.1.87-ui298";
 
-const WEB_UI_VERSION = "0.1.87-ui280";
+const WEB_UI_VERSION = "0.1.87-ui298";
 const CHAT_DEFAULT_MAX_OUTPUT_TOKENS = 8000;
 const CHAT_MIN_MAX_OUTPUT_TOKENS = 1024;
 const CHAT_HARD_MAX_OUTPUT_TOKENS = 32000;
@@ -80,6 +80,7 @@ const chatHistoryLimit = 15;
 const sketchHistoryLimit = 50;
 const projectLimit = 80;
 const connectionHistoryLimit = 12;
+const narrowGenerativeQuery = window.matchMedia?.("(max-width: 760px)");
 const sketchDbName = "p1_embed";
 const sketchDbVersion = 2;
 const sketchStoreName = "sketch_history";
@@ -249,6 +250,8 @@ let busyLabel = "";
 let suppressEditorPersist = false;
 let connectionGeneration = 0;
 let connectionVerified = false;
+let reconnectAfterReturn = false;
+let reconnectAfterReturnAttempted = false;
 let statusTimer = null;
 let editorErrorMarker = null;
 let editorErrorGutterRow = null;
@@ -289,6 +292,7 @@ let guinoView = null;
 boot();
 
 function boot() {
+  updateViewportHeight();
   initEditor();
   setEditorValueRaw("", { persist: false });
   els.websocketUrl.value = localStorage.getItem(storage.wsUrl) || els.websocketUrl.value;
@@ -296,6 +300,7 @@ function boot() {
   els.debugLevel.value = localStorage.getItem(storage.logLevel) || els.debugLevel.value;
   updateConsoleTimestampButton();
   bindControls();
+  syncGenerativePanelState();
   bindLifecycle();
   initChat();
   initCircuit();
@@ -316,13 +321,44 @@ function boot() {
 }
 
 function bindLifecycle() {
+  window.addEventListener("resize", updateViewportHeight);
+  window.addEventListener("orientationchange", updateViewportHeight);
+
   const markUnload = () => {
     writeCurrentRevisionDraft();
     isUnloading = true;
     localStorage.setItem(storage.reconnectOnLoad, client && transport?.connected && connectionVerified ? "1" : "0");
   };
+  const markReturned = () => {
+    isUnloading = false;
+    updateViewportHeight();
+    recoverReturnedConnection();
+  };
+  const markVisible = () => {
+    updateViewportHeight();
+    if (!document.hidden) recoverReturnedConnection();
+  };
   window.addEventListener("beforeunload", markUnload);
   window.addEventListener("pagehide", markUnload);
+  window.addEventListener("pageshow", markReturned);
+  window.addEventListener("focus", markVisible);
+  window.addEventListener("online", markVisible);
+  document.addEventListener("visibilitychange", markVisible);
+}
+
+function updateViewportHeight() {
+  const height = Math.max(320, Math.floor(window.innerHeight || document.documentElement.clientHeight || 0));
+  document.documentElement.style.setProperty("--app-height", `${height}px`);
+}
+
+function recoverReturnedConnection() {
+  if (localStorage.getItem(storage.reconnectOnLoad) !== "1") return;
+  if (client && (!transport?.connected || !connectionVerified)) {
+    handleTransportDropped(client, { reconnectOnReturn: true });
+    return;
+  }
+  if (!client && !isBusy) reconnectAfterReturn = true;
+  maybeReconnectAfterReturn();
 }
 
 function initEditor() {
@@ -506,9 +542,18 @@ function bindControls() {
     sendChatPrompt();
   });
   els.chatInput.addEventListener("input", updateEnabledState);
+  if (narrowGenerativeQuery?.addEventListener) {
+    narrowGenerativeQuery.addEventListener("change", syncGenerativePanelState);
+  } else {
+    narrowGenerativeQuery?.addListener?.(syncGenerativePanelState);
+  }
 }
 
 function toggleGenerativePanel(name) {
+  if (isNarrowGenerativeLayout()) {
+    showSingleGenerativePanel(name);
+    return;
+  }
   const panel = els.views.chat?.querySelector(`[data-generative-panel="${name}"]`);
   if (!panel) return;
   const active = panel.classList.contains("is-active");
@@ -518,9 +563,28 @@ function toggleGenerativePanel(name) {
   syncGenerativePanelState();
 }
 
+function showSingleGenerativePanel(name) {
+  els.generativePanels.forEach((panel) => {
+    panel.classList.toggle("is-active", panel.dataset.generativePanel === name);
+  });
+  syncGenerativePanelState();
+}
+
+function isNarrowGenerativeLayout() {
+  return Boolean(narrowGenerativeQuery?.matches);
+}
+
 function syncGenerativePanelState() {
-  const chatVisible = Boolean(els.views.chat?.querySelector('[data-generative-panel="chat"]')?.classList.contains("is-active"));
-  const specVisible = Boolean(els.views.chat?.querySelector('[data-generative-panel="specification"]')?.classList.contains("is-active"));
+  let chatVisible = Boolean(els.views.chat?.querySelector('[data-generative-panel="chat"]')?.classList.contains("is-active"));
+  let specVisible = Boolean(els.views.chat?.querySelector('[data-generative-panel="specification"]')?.classList.contains("is-active"));
+  if (isNarrowGenerativeLayout()) {
+    const activeName = specVisible && !chatVisible ? "specification" : "chat";
+    els.generativePanels.forEach((panel) => {
+      panel.classList.toggle("is-active", panel.dataset.generativePanel === activeName);
+    });
+    chatVisible = activeName === "chat";
+    specVisible = activeName === "specification";
+  }
   els.generativeTabs.forEach((tab) => {
     const visible = tab.dataset.generativeTab === "chat" ? chatVisible : specVisible;
     tab.classList.toggle("is-active", visible);
@@ -1076,46 +1140,47 @@ async function autoConnectFromUrlParams() {
   return false;
 }
 
-async function autoReconnectLastConnection() {
+async function autoReconnectLastConnection({ reconnecting = false } = {}) {
   const last = localStorage.getItem(storage.lastConnection);
   const shouldReconnect = localStorage.getItem(storage.reconnectOnLoad) === "1";
   if (client || isBusy || !last || !shouldReconnect) return;
+  const reconnectOptions = reconnecting ? { quiet: false, busyLabelText: "reconnecting" } : { quiet: true };
 
   if (last === "websocket") {
     const url = localStorage.getItem(storage.wsUrl) || "";
     if (!url) return;
-    await connectTransport(new WebSocketTransport(), { url }, "websocket", wsDisplayName(url), { quiet: true, lightStartup: true, includeScript: true });
+    await connectTransport(new WebSocketTransport(), { url }, "websocket", wsDisplayName(url), { ...reconnectOptions, lightStartup: true, includeScript: true });
     return;
   }
 
   if (isMqttKind(last)) {
     const peerId = normalizePeerId(localStorage.getItem(storage.peerId) || "");
     if (!peerId || !("mqtt" in window)) return;
-    await connectTransport(new MqttTransport({ ...mqttTransportOptions(), connectTimeoutMs: 15000 }), { remoteId: peerId, mqttConfig: mqttConfigFromStorageAndDevice() }, "mqtt", peerId, { quiet: true, lightStartup: true, includeScript: true, startupTimeoutMs: 15000 });
+    await connectTransport(new MqttTransport({ ...mqttTransportOptions(), connectTimeoutMs: 15000 }), { remoteId: peerId, mqttConfig: mqttConfigFromStorageAndDevice() }, "mqtt", peerId, { ...reconnectOptions, lightStartup: true, includeScript: true, startupTimeoutMs: 15000 });
     return;
   }
 
   if (isWebRtcKind(last)) {
     const peerId = normalizePeerId(localStorage.getItem(storage.peerId) || "");
     if (!peerId || !(("RTCPeerConnection" in window) && ("mqtt" in window))) return;
-    await connectTransport(new MqttWebRtcTransport({ connectTimeoutMs: 90000 }), { remoteId: peerId }, "webrtc", peerId, { quiet: true, lightStartup: true, includeScript: true, startupTimeoutMs: 30000 });
+    await connectTransport(new MqttWebRtcTransport({ connectTimeoutMs: 90000 }), { remoteId: peerId }, "webrtc", peerId, { ...reconnectOptions, lightStartup: true, includeScript: true, startupTimeoutMs: 30000 });
     return;
   }
 
   if (last === "usb") {
     if (!("serial" in navigator) || !readUsbHint()) return;
-    await connectTransport(new WebSerialTransport({ storageKey: storage.usbHint }), { pickPort: false }, "usb", "USB", usbStartupOptions({ quiet: true, includeScript: true }));
+    await connectTransport(new WebSerialTransport({ storageKey: storage.usbHint }), { pickPort: false }, "usb", "USB", usbStartupOptions({ ...reconnectOptions, includeScript: true }));
     await refreshKnownUsbPorts();
   }
 }
 
-async function connectTransport(nextTransport, options, kind, label, { quiet = false, lightStartup = false, includeScript = true, startupTimeoutMs = 15000, startupAttempts = 1, startupRetryDelayMs = 450, preserveUrl = false } = {}) {
+async function connectTransport(nextTransport, options, kind, label, { quiet = false, lightStartup = false, includeScript = true, startupTimeoutMs = 15000, startupAttempts = 1, startupRetryDelayMs = 450, preserveUrl = false, busyLabelText = "connecting" } = {}) {
   const generation = connectionGeneration + 1;
   connectionGeneration = generation;
   connectionVerified = false;
   suppressConnectionLogs = quiet;
   isBusy = true;
-  busyLabel = "connecting";
+  busyLabel = busyLabelText;
   updateEnabledState();
   try {
     await disconnectTransport({ quiet: true, keepGeneration: true });
@@ -1612,8 +1677,9 @@ function bindClient(nextClient) {
     renderConnectionState(event.detail.state);
     if (event.detail.state === "connected") closeConnectDialog();
     if (isDroppedTransportState(event.detail.state) && !isUnloading) {
-      localStorage.setItem(storage.reconnectOnLoad, "0");
-      handleTransportDropped(nextClient);
+      const shouldReconnect = connectionVerified && localStorage.getItem(storage.reconnectOnLoad) === "1";
+      localStorage.setItem(storage.reconnectOnLoad, shouldReconnect ? "1" : "0");
+      handleTransportDropped(nextClient, { reconnectOnReturn: shouldReconnect });
     }
   });
 
@@ -1701,19 +1767,33 @@ function isDroppedTransportState(state = "") {
   ].includes(state);
 }
 
-function handleTransportDropped(droppedClient) {
+function handleTransportDropped(droppedClient, { reconnectOnReturn = false } = {}) {
   if (droppedClient !== client) return;
   const droppedTransport = droppedClient.transport;
   stopStatusPolling();
   client = null;
   transport = null;
   connectionVerified = false;
+  reconnectAfterReturn = Boolean(reconnectOnReturn);
+  reconnectAfterReturnAttempted = false;
   isBusy = false;
   busyLabel = "";
   suppressConnectionLogs = false;
   setConnected(false);
   updateEnabledState();
   droppedTransport?.disconnect?.();
+  maybeReconnectAfterReturn();
+}
+
+function maybeReconnectAfterReturn() {
+  if (!reconnectAfterReturn || reconnectAfterReturnAttempted) return;
+  if (document.hidden || client || isBusy) return;
+  if (localStorage.getItem(storage.reconnectOnLoad) !== "1") return;
+  reconnectAfterReturn = false;
+  reconnectAfterReturnAttempted = true;
+  autoReconnectLastConnection({ reconnecting: true }).catch((error) => {
+    logLine("warn", `reconnect failed: ${error.message}`);
+  });
 }
 
 async function startupRefresh({ quiet = false, includeScript = true, timeoutMs = 15000, attempts = 1, retryDelayMs = 450, expectedGeneration = null } = {}) {

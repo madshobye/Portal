@@ -92,11 +92,17 @@ MQTT uses one binary command/response/event path and one plain text script path:
 ## Math, Noise, And Time
 
 - `lerp(a, b, t)` returns the linear interpolation between `a` and `b`. `t` is clamped to `0.0..1.0`.
+- `map(value, inMin, inMax, outMin, outMax)` maps a value from one range to another and returns a float. If `inMin == inMax`, it returns `outMin`.
+- `constrain(value, min, max)` clamps a value and returns a float.
+- Common math helpers are available as top-level functions: `sin`, `cos`, `tan`, `asin`, `acos`, `atan`, `atan2`, `sqrt`, `pow`, `floor`, `ceil`, `round`, `abs`, `min`, `max`, `exp`, `ln`, `log10`, `fmod`, `radians`, and `degrees`.
+- Math constants: `PI`, `TWO_PI`, and `HALF_PI`.
+- Wrench's namespaced math library is also loaded for advanced use, such as `math::sin(x)`, but generated sketches should prefer the top-level names.
 - `noiseSeed(seed)` seeds the firmware simplex noise permutation table.
 - `simplex3(x, y, z)` returns 3D simplex noise in roughly `-1.0..1.0`.
 - `simplex3_01(x, y, z)` returns clamped 3D simplex noise mapped to `0.0..1.0`.
 - `timeNow()` returns Unix time in seconds, or a low unsynced value before WiFi/NTP has set time.
-- `timeLocalHour()`, `timeLocalMinute()`, and `timeLocalSeconds()` return local time parts, or `-1` before time is synced.
+- `timeLocal()` returns `[year, month, day, hour, minute, second]`, or `-1` values before time is synced.
+- `timeLocal(out)` fills a caller-provided six-element array in the same order and avoids allocating a new return array.
 - `timeGet()` returns local time text as `YYYY-MM-DD HH:MM:SS`, or an empty string before time is synced.
 
 The timezone is configured in Settings > General with representative city labels. The firmware stores a fixed allow-listed POSIX timezone string such as `UTC0` or `CET-1CEST,M3.5.0/02,M10.5.0/03`; unsupported timezone strings are normalized to `UTC0`.
@@ -164,13 +170,18 @@ Multi-strip API:
 - `ledCount(strip)`.
 - `ledSet(strip, index, r, g, b)`.
 - `ledSetHsv(strip, index, h, s, v)` converts HSV to RGB in firmware without Wrench JSON/string allocation. This is the compact path for rainbow, sparkle, and chase animations.
-- `ledGetR(strip, index)`, `ledGetG(strip, index)`, `ledGetB(strip, index)` return the current stored RGB channel for a pixel. They return `0` when the strip or pixel is not ready.
-- `hsvToR(h, s, v)`, `hsvToG(h, s, v)`, `hsvToB(h, s, v)` return numeric RGB components without building a JSON array. Use these when a sketch needs to reuse individual color channels.
-- `rgbToH(r, g, b)`, `rgbToS(r, g, b)`, `rgbToV(r, g, b)` return numeric HSV components without building a JSON array.
+- `ledGetRgb(strip, index)` returns `[r, g, b]` for the current stored pixel. It returns zeros when the strip or pixel is not ready.
+- `ledGetRgb(strip, index, out)` fills a caller-provided three-element RGB array and avoids allocating a new return array.
+- `ledSetRgb(strip, index, rgb)` sets a pixel from a three-element RGB array.
+- `rgbToHsv(rgb)` returns `[h, s, v]` for a three-element RGB array.
+- `rgbToHsv(rgb, out)` fills a caller-provided three-element HSV array and avoids allocating a new return array.
+- `hsvToRgb(hsv)` returns `[r, g, b]` for a three-element HSV array.
+- `hsvToRgb(hsv, out)` fills a caller-provided three-element RGB array and avoids allocating a new return array.
 - `paletteSet2(slot, r0, g0, b0, r1, g1, b1)` defines a two-color gradient in palette slot `0..3`.
 - `paletteSet3(slot, r0, g0, b0, r1, g1, b1, r2, g2, b2)` defines a three-color gradient.
 - `paletteSet4(slot, r0, g0, b0, r1, g1, b1, r2, g2, b2, r3, g3, b3)` defines a four-color gradient.
-- `paletteGetR(slot, t)`, `paletteGetG(slot, t)`, `paletteGetB(slot, t)` sample a palette channel at `t` in `0..255`.
+- `paletteGetRgb(slot, t)` samples a palette color at `t` in `0..255` and returns `[r, g, b]`.
+- `paletteGetRgb(slot, t, out)` fills a caller-provided three-element RGB array and avoids allocating a new return array.
 - `ledFill(strip, r, g, b)`.
 - `ledClear(strip, show)`.
 - `ledShow()`.
@@ -178,6 +189,27 @@ Multi-strip API:
 - `ledStatus()`.
 
 For the current LED test strip, use pin `4` and count `30`.
+
+In hot LED loops, predeclare reusable color arrays and pass them as output buffers:
+
+```wrench
+var rgb[] = { 0, 0, 0 };
+var hsv[] = { 0, 0, 0 };
+
+function loop() {
+  var i = 0;
+  while (i < ledCount(0)) {
+    ledGetRgb(0, i, rgb);
+    rgbToHsv(rgb, hsv);
+    hsv[0] = (hsv[0] + 8) % 255;
+    hsvToRgb(hsv, rgb);
+    ledSetRgb(0, i, rgb);
+    i = i + 1;
+  }
+  ledShow();
+  delay(30);
+}
+```
 
 Stable chase pattern shape:
 
