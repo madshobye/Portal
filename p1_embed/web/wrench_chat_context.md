@@ -325,6 +325,32 @@ UI input bindings:
 
 Always wrap event-style UI input handling in `while (uiPoll()) { ... }`. Calling `uiEventIs()` or `uiEventValue()` without first calling `uiPoll()` will keep reading the previous event, or no event at all. For simple toggles and sliders, prefer `uiGet()`.
 
+## Home Assistant / ESPHome Native API
+
+The firmware includes an experimental, sketch-owned Home Assistant bridge using the ESPHome native API on TCP port `6053`. Keep this separate from browser UI code. A sketch declares HA entities in `setup()`, pulls HA state from firmware with `haGet()`, and publishes sketch-side state changes with `haSet()`.
+
+Bindings:
+
+- `haBegin(name)` clears the current HA entity registry for this sketch and sets the device name shown to Home Assistant.
+- `haSensor(id, name, value, unit)` declares a numeric sensor.
+- `haBinarySensor(id, name, value)` declares a boolean sensor.
+- `haSwitch(id, name, value)` declares a switch. HA commands update the firmware-side value, so `haGet(id)` can read the latest value.
+- `haNumber(id, name, value, min, max, step)` declares a numeric control. HA changes update the firmware-side value.
+- `haButton(id, name)` declares a virtual Home Assistant button. HA presses can be consumed with `haEvent(id, "press")`. Wrench can emit a button press toward HA with `haPress(id)`.
+- `haLight(id, name, brightness)` declares a simple brightness light using `0..100` brightness. HA brightness changes update the firmware-side value.
+- `haSet(id, value)` updates the firmware-side value for an existing entity and publishes it to HA. Missing ids are binding errors.
+- `haUpdate(id, value)` is a compatibility alias for `haSet(id, value)`.
+- `haGet(id)` returns the latest firmware-side entity value, including changes pulled from Home Assistant. Missing ids are binding errors.
+- `haChanged(id)` returns `1` once after Home Assistant changes a switch, number, or light value, then clears that changed flag.
+- `haEvent(id, type)` finds the latest queued event matching `id` and `type`, removes only that matching event, loads it for `haEventValue()` / `haEventType()`, and returns `1`. Unrelated events stay queued.
+- `haPoll()` returns `1` when the next Home Assistant command is available and loads it for `haEventIs()`, `haEventValue()`, and `haEventType()`.
+- `haEventIs(id, type)` returns `1` when the current HA event matches. Omit either argument to match only the other field.
+- `haEventValue()` returns the numeric event value.
+- `haEventType()` returns `set` or `press`.
+- `haPress(id)` emits a Wrench-originated press for a declared HA button. It also fires a Home Assistant event named `p1e_button_press` with the button id/name.
+
+Always call `haBegin()` before declaring entities. Re-declare entities only from `setup()` or when rebuilding the HA registry; use `haSet()` for normal state changes. Prefer `haGet()` and `haChanged()` for switch, number, and light values; use `haEvent()` for simple button/event handling and `haPoll()` for advanced event scanning.
+
 ```wrench
 // Streams an analog value to the UI and lets the browser control the refresh speed.
 var sensorPin = 34;

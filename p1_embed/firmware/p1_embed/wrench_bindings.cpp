@@ -568,6 +568,9 @@ static String g_lastInboxChannel = "";
 static char g_lastUiEventId[P1_EMBED_UI_ID_MAX] = {0};
 static char g_lastUiEventType[P1_EMBED_UI_TYPE_MAX] = {0};
 static int g_lastUiEventValue = 0;
+static char g_lastHaEventId[P1_EMBED_HA_ID_MAX] = {0};
+static char g_lastHaEventType[P1_EMBED_HA_TYPE_MAX] = {0};
+static float g_lastHaEventValue = 0.0f;
 
 struct P1UiInputEvent {
   char id[P1_EMBED_UI_ID_MAX];
@@ -1135,19 +1138,22 @@ static void w_p1_diagFloatArray3(WRContext* ctx, const WRValue* argv, const int 
 }
 
 static void w_p1_wifiConnected(WRContext*, const WRValue*, const int, WRValue& retVal, void*) {
-  wrRetInt(retVal, WiFi.status() == WL_CONNECTED ? 1 : 0);
+  wrRetInt(retVal, wifiCachedSnapshot().connected ? 1 : 0);
 }
 
 static void w_p1_wifiIp(WRContext* ctx, const WRValue*, const int, WRValue& retVal, void*) {
-  wrRetString(ctx, retVal, WiFi.status() == WL_CONNECTED ? WiFi.localIP().toString() : String(""));
+  P1WifiSnapshot wifi = wifiCachedSnapshot();
+  wrRetString(ctx, retVal, wifi.connected ? wifi.ip : String(""));
 }
 
 static void w_p1_wifiRssi(WRContext*, const WRValue*, const int, WRValue& retVal, void*) {
-  wrRetInt(retVal, WiFi.status() == WL_CONNECTED ? WiFi.RSSI() : 0);
+  P1WifiSnapshot wifi = wifiCachedSnapshot();
+  wrRetInt(retVal, wifi.connected ? wifi.rssi : 0);
 }
 
 static void w_p1_wifiSsid(WRContext* ctx, const WRValue*, const int, WRValue& retVal, void*) {
-  wrRetString(ctx, retVal, WiFi.status() == WL_CONNECTED ? WiFi.SSID() : configWifiSsid());
+  P1WifiSnapshot wifi = wifiCachedSnapshot();
+  wrRetString(ctx, retVal, wifi.connected ? wifi.ssid : configWifiSsid());
 }
 
 static void w_p1_wireBegin(WRContext*, const WRValue* argv, const int argn, WRValue& retVal, void*) {
@@ -2294,6 +2300,139 @@ static void w_p1_uiChanged(WRContext*, const WRValue* argv, const int argn, WRVa
   wrRetInt(retVal, uiInputChanged(id) ? 1 : 0);
 }
 
+static void w_p1_haBegin(WRContext*, const WRValue* argv, const int argn, WRValue& retVal, void*) {
+  String name = wrArgStringValue(argv, argn, 0);
+  wrRetInt(retVal, haBeginDevice(name) ? 1 : 0);
+}
+
+static void w_p1_haSensor(WRContext*, const WRValue* argv, const int argn, WRValue& retVal, void*) {
+  String id = wrArgStringValue(argv, argn, 0);
+  String name = wrArgStringValue(argv, argn, 1);
+  float value = wrArgFloat(argv, argn, 2, 0.0f);
+  String unit = wrArgStringValue(argv, argn, 3);
+  wrRetInt(retVal, haDeclareSensor(id, name, value, unit) ? 1 : 0);
+}
+
+static void w_p1_haBinarySensor(WRContext*, const WRValue* argv, const int argn, WRValue& retVal, void*) {
+  String id = wrArgStringValue(argv, argn, 0);
+  String name = wrArgStringValue(argv, argn, 1);
+  bool value = wrArgInt(argv, argn, 2, 0) != 0;
+  wrRetInt(retVal, haDeclareBinarySensor(id, name, value) ? 1 : 0);
+}
+
+static void w_p1_haSwitch(WRContext*, const WRValue* argv, const int argn, WRValue& retVal, void*) {
+  String id = wrArgStringValue(argv, argn, 0);
+  String name = wrArgStringValue(argv, argn, 1);
+  bool value = wrArgInt(argv, argn, 2, 0) != 0;
+  wrRetInt(retVal, haDeclareSwitch(id, name, value) ? 1 : 0);
+}
+
+static void w_p1_haNumber(WRContext*, const WRValue* argv, const int argn, WRValue& retVal, void*) {
+  String id = wrArgStringValue(argv, argn, 0);
+  String name = wrArgStringValue(argv, argn, 1);
+  float value = wrArgFloat(argv, argn, 2, 0.0f);
+  float minValue = wrArgFloat(argv, argn, 3, 0.0f);
+  float maxValue = wrArgFloat(argv, argn, 4, 100.0f);
+  float step = wrArgFloat(argv, argn, 5, 1.0f);
+  wrRetInt(retVal, haDeclareNumber(id, name, value, minValue, maxValue, step) ? 1 : 0);
+}
+
+static void w_p1_haButton(WRContext*, const WRValue* argv, const int argn, WRValue& retVal, void*) {
+  String id = wrArgStringValue(argv, argn, 0);
+  String name = wrArgStringValue(argv, argn, 1);
+  wrRetInt(retVal, haDeclareButton(id, name) ? 1 : 0);
+}
+
+static void w_p1_haLight(WRContext*, const WRValue* argv, const int argn, WRValue& retVal, void*) {
+  String id = wrArgStringValue(argv, argn, 0);
+  String name = wrArgStringValue(argv, argn, 1);
+  float brightness = wrArgFloat(argv, argn, 2, 100.0f);
+  wrRetInt(retVal, haDeclareLight(id, name, brightness) ? 1 : 0);
+}
+
+static void w_p1_haUpdate(WRContext*, const WRValue* argv, const int argn, WRValue& retVal, void*) {
+  String id = wrArgStringValue(argv, argn, 0);
+  float value = wrArgFloat(argv, argn, 1, 0.0f);
+  bool ok = haUpdateValue(id, value);
+  if (!ok) scriptErrorSet("binding", "ha_entity_missing", "haSet failed because the Home Assistant entity does not exist", "\"id\":" + jsonString(id));
+  wrRetInt(retVal, ok ? 1 : 0);
+}
+
+static void w_p1_haSet(WRContext*, const WRValue* argv, const int argn, WRValue& retVal, void*) {
+  String id = wrArgStringValue(argv, argn, 0);
+  float value = wrArgFloat(argv, argn, 1, 0.0f);
+  bool ok = haUpdateValue(id, value);
+  if (!ok) scriptErrorSet("binding", "ha_entity_missing", "haSet failed because the Home Assistant entity does not exist", "\"id\":" + jsonString(id));
+  wrRetInt(retVal, ok ? 1 : 0);
+}
+
+static void w_p1_haGet(WRContext*, const WRValue* argv, const int argn, WRValue& retVal, void*) {
+  String id = wrArgStringValue(argv, argn, 0);
+  float value = 0.0f;
+  if (!haInputValue(id, value)) {
+    scriptErrorSet("binding", "ha_entity_missing", "haGet failed because the Home Assistant entity does not exist", "\"id\":" + jsonString(id));
+    wrRetFloat(retVal, 0.0f);
+    return;
+  }
+  wrRetFloat(retVal, value);
+}
+
+static void w_p1_haChanged(WRContext*, const WRValue* argv, const int argn, WRValue& retVal, void*) {
+  String id = wrArgStringValue(argv, argn, 0);
+  wrRetInt(retVal, haInputChanged(id) ? 1 : 0);
+}
+
+static void w_p1_haPoll(WRContext*, const WRValue*, const int, WRValue& retVal, void*) {
+  P1HaInputEvent event;
+  if (!haInputPop(event)) {
+    wrRetInt(retVal, 0);
+    return;
+  }
+  strlcpy(g_lastHaEventId, event.id, sizeof(g_lastHaEventId));
+  strlcpy(g_lastHaEventType, event.type, sizeof(g_lastHaEventType));
+  g_lastHaEventValue = event.value;
+  wrRetInt(retVal, 1);
+}
+
+static void w_p1_haEvent(WRContext*, const WRValue* argv, const int argn, WRValue& retVal, void*) {
+  String id = wrArgStringValue(argv, argn, 0);
+  String type = wrArgStringValue(argv, argn, 1);
+  P1HaInputEvent event;
+  if (!haInputTakeMatching(id, type, event)) {
+    wrRetInt(retVal, 0);
+    return;
+  }
+  strlcpy(g_lastHaEventId, event.id, sizeof(g_lastHaEventId));
+  strlcpy(g_lastHaEventType, event.type, sizeof(g_lastHaEventType));
+  g_lastHaEventValue = event.value;
+  wrRetInt(retVal, 1);
+}
+
+static void w_p1_haPress(WRContext*, const WRValue* argv, const int argn, WRValue& retVal, void*) {
+  String id = wrArgStringValue(argv, argn, 0);
+  bool ok = haPressButton(id);
+  if (!ok) scriptErrorSet("binding", "ha_button_missing", "haPress failed because the Home Assistant button does not exist", "\"id\":" + jsonString(id));
+  wrRetInt(retVal, ok ? 1 : 0);
+}
+
+static void w_p1_haEventValue(WRContext*, const WRValue*, const int, WRValue& retVal, void*) {
+  wrRetFloat(retVal, g_lastHaEventValue);
+}
+
+static void w_p1_haEventIs(WRContext*, const WRValue* argv, const int argn, WRValue& retVal, void*) {
+  char id[P1_EMBED_HA_ID_MAX];
+  char type[P1_EMBED_HA_TYPE_MAX];
+  wrArgString(argv, argn, 0, id, sizeof(id));
+  wrArgString(argv, argn, 1, type, sizeof(type));
+  bool idMatches = !id[0] || strncmp(g_lastHaEventId, id, sizeof(g_lastHaEventId)) == 0;
+  bool typeMatches = !type[0] || strncmp(g_lastHaEventType, type, sizeof(g_lastHaEventType)) == 0;
+  wrRetInt(retVal, (idMatches && typeMatches) ? 1 : 0);
+}
+
+static void w_p1_haEventType(WRContext* ctx, const WRValue*, const int, WRValue& retVal, void*) {
+  wrRetString(ctx, retVal, String(g_lastHaEventType));
+}
+
 static void w_p1_statusGet(WRContext* ctx, const WRValue* argv, const int argn, WRValue& retVal, void*) {
   wrRetString(ctx, retVal, wrStatusValue(wrArgStringValue(argv, argn, 0)));
 }
@@ -2442,6 +2581,11 @@ const char* wrenchBindingNameForHash(uint32_t hash) {
     "uiValue", "uiGraph", "uiSpacer", "uiColumn", "uiColor",
     "uiUpdate", "uiPush", "uiText", "uiPoll",
     "uiEventIs", "uiEventValue", "uiGet", "uiChanged",
+#if P1_EMBED_HA_ENABLED
+    "haBegin", "haSensor", "haBinarySensor", "haSwitch", "haNumber",
+    "haButton", "haLight", "haSet", "haUpdate", "haGet", "haChanged",
+    "haEvent", "haPoll", "haEventIs", "haEventValue", "haEventType", "haPress",
+#endif
     // Legacy scalar bindings kept for existing compiled and saved sketches.
     "timeLocalHour", "timeLocalMinute", "timeLocalSeconds",
     "timeLocalDay", "timeLocalMonth", "timeLocalYear",
@@ -2620,6 +2764,25 @@ void wrenchRegisterBindings(WRState* wr) {
   wr_registerFunction(wr, "uiEventValue", w_p1_uiEventValue);
   wr_registerFunction(wr, "uiGet", w_p1_uiGet);
   wr_registerFunction(wr, "uiChanged", w_p1_uiChanged);
+#if P1_EMBED_HA_ENABLED
+  wr_registerFunction(wr, "haBegin", w_p1_haBegin);
+  wr_registerFunction(wr, "haSensor", w_p1_haSensor);
+  wr_registerFunction(wr, "haBinarySensor", w_p1_haBinarySensor);
+  wr_registerFunction(wr, "haSwitch", w_p1_haSwitch);
+  wr_registerFunction(wr, "haNumber", w_p1_haNumber);
+  wr_registerFunction(wr, "haButton", w_p1_haButton);
+  wr_registerFunction(wr, "haLight", w_p1_haLight);
+  wr_registerFunction(wr, "haSet", w_p1_haSet);
+  wr_registerFunction(wr, "haUpdate", w_p1_haUpdate);
+  wr_registerFunction(wr, "haGet", w_p1_haGet);
+  wr_registerFunction(wr, "haChanged", w_p1_haChanged);
+  wr_registerFunction(wr, "haEvent", w_p1_haEvent);
+  wr_registerFunction(wr, "haPoll", w_p1_haPoll);
+  wr_registerFunction(wr, "haEventIs", w_p1_haEventIs);
+  wr_registerFunction(wr, "haEventValue", w_p1_haEventValue);
+  wr_registerFunction(wr, "haEventType", w_p1_haEventType);
+  wr_registerFunction(wr, "haPress", w_p1_haPress);
+#endif
 
   // Legacy scalar bindings kept for existing sketches; new code should use
   // timeLocal(out), ledGetRgb(..., out), rgbToHsv(..., out), hsvToRgb(..., out),

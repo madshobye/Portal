@@ -36,14 +36,23 @@ The preferred architecture is:
 Run from `/Users/madshobye/Media/codeRepo/Portal`.
 
 ```sh
-./scripts/esp32/compile.sh
-./scripts/esp32/upload.sh
-./scripts/esp32/monitor.sh
-./scripts/esp32/read-serial.sh
-./scripts/esp32/stop-serial.sh
+./scripts/esp32/p1embed-compile.sh
+./scripts/esp32/p1embed-upload.sh
+./scripts/esp32/p1embed-monitor.sh
+./scripts/esp32/p1embed-listen.sh 30
+./scripts/esp32/p1embed-read-serial.sh
+./scripts/esp32/p1embed-stop-serial.sh
 ```
 
-For upload, the default configured port may be stale. If upload fails with a missing or busy `/dev/cu.wchusbserial...`, inspect the connected ports and use the repo scripts/env convention already present in the scripts.
+The P1 Embed wrappers default to the classic ESP32 profile and `/dev/cu.wchusbserial10`. Override with `ESP32_PORT=/dev/cu...` only when the board enumerates differently.
+
+For normal serial observation, prefer the decoded listener:
+
+```sh
+./scripts/esp32/p1embed-listen.sh 30
+```
+
+The P1E firmware can emit compact/binary transport bytes on serial alongside JSON lines. Raw `cat`/`p1embed-read-serial.sh` can therefore look like a baud-rate problem even when the port is correct. `p1embed-listen.sh` uses `p1_embed/tools/p1_serial_repl.py --listen`, configures 115200 baud, ignores non-JSON binary chunks, and prints only decoded protocol events. Use raw serial only when deliberately inspecting transport bytes.
 
 After firmware changes, compile first. If upload succeeds or the installer must be updated, copy the build outputs from `/private/tmp/p1-embed-build` into `p1_embed/web/bin`:
 
@@ -229,7 +238,7 @@ git diff --check -- p1_embed/web/app.js p1_embed/web/index.html p1_embed/web/sty
 Minimum checks after firmware edits:
 
 ```sh
-./scripts/esp32/compile.sh
+./scripts/esp32/p1embed-compile.sh
 ```
 
 If changing Wrench internals or bindings, consider:

@@ -44,6 +44,7 @@ static volatile uint32_t g_wrenchCurrentLoopStartedAt = 0;
 static volatile uint32_t g_wrenchSlowLoopCount = 0;
 static volatile uint32_t g_wrenchHungLoopCount = 0;
 static volatile uint32_t g_wrenchLockTimeoutCount = 0;
+static volatile int g_wrenchTaskCore = -1;
 static volatile bool g_wrenchLoopInProgress = false;
 static volatile bool g_wrenchHungCounted = false;
 static volatile uint8_t g_wrenchTransitionDepth = 0;
@@ -321,6 +322,7 @@ static void wrenchLoopLocked() {
 static void wrenchTask(void*) {
   g_wrenchTaskRunning = true;
   for (;;) {
+    g_wrenchTaskCore = xPortGetCoreID();
     if (g_wrenchTransitionDepth == 0) {
       wrenchLock();
       wrenchLoopLocked();
@@ -342,7 +344,7 @@ void wrenchTaskBegin() {
     nullptr,
     1,
     &g_wrenchTaskHandle,
-    1);
+    P1_EMBED_WRENCH_TASK_CORE);
   if (ok != pdPASS) {
     g_wrenchTaskHandle = nullptr;
     g_wrenchTaskRunning = false;
@@ -509,6 +511,9 @@ String wrenchRuntimeStatusJson() {
   out += ",\"transitionRecoveries\":" + String(g_wrenchTransitionRecoveries);
   out += ",\"runPending\":" + String(g_wrenchRunPending ? "true" : "false");
   out += ",\"bytecodeBytes\":" + String(g_bytecodeLen);
+  out += ",\"taskTargetCore\":" + String(P1_EMBED_WRENCH_TASK_CORE);
+  out += ",\"taskCore\":" + String(g_wrenchTaskCore);
+  out += ",\"compileTargetCore\":" + String(P1_EMBED_WRENCH_COMPILE_TASK_CORE);
   out += "}";
   return out;
 }
@@ -680,7 +685,7 @@ static WRError wrenchCompileOnWorker(const String& src, unsigned char** bytecode
     &job,
     0,
     nullptr,
-    1);
+    P1_EMBED_WRENCH_COMPILE_TASK_CORE);
 
   if (ok != pdPASS) {
     vSemaphoreDelete(job.done);
@@ -925,6 +930,7 @@ bool wrenchRunCompiled(String& errOut) {
   g_wrenchConsecutiveErrorLoops = 0;
 
   ledBeginScriptRun();
+  haRuntimeReset();
 
   g_wr = wr_newState(P1_EMBED_WRENCH_VM_STACK);
   if (!g_wr) {

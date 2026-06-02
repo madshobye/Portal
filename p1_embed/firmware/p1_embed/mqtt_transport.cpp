@@ -21,6 +21,17 @@ static String g_mqttScriptInTopic;
 static String g_mqttScriptOutTopic;
 static String g_mqttActiveResponseTopic;
 static int g_mqttActiveSessionIndex = -1;
+static bool g_mqttWasConnected = false;
+static uint32_t g_mqttConnectCount = 0;
+static uint32_t g_mqttLostCount = 0;
+static uint32_t g_mqttLoopClosedCount = 0;
+static uint32_t g_mqttPublishFailCount = 0;
+static uint32_t g_mqttSecurePublishFailCount = 0;
+static uint32_t g_mqttScriptOutPublishFailCount = 0;
+static uint32_t g_mqttHelloPublishFailCount = 0;
+static unsigned long g_mqttLastLostMs = 0;
+static unsigned long g_mqttLastLoopClosedMs = 0;
+static unsigned long g_mqttLastPublishFailMs = 0;
 
 static const uint8_t P1_MQTT_FRAME_AUTH = 3;
 static const uint8_t P1_MQTT_FRAME_SECURE = 4;
@@ -33,6 +44,8 @@ static const uint8_t P1_MQTT_AUTH_ERROR = 4;
 static const unsigned long P1_MQTT_AUTH_PENDING_TIMEOUT_MS = 10000;
 static const size_t P1_MQTT_CLIENT_ID_MAX = 64;
 static const size_t P1_MQTT_USERNAME_MAX = 32;
+static const uint8_t P1_MQTT_OUT_BYTES = 1;
+static const uint8_t P1_MQTT_OUT_SCRIPT_TEXT = 2;
 
 struct MqttPendingAuth {
   bool active = false;
@@ -55,11 +68,25 @@ struct MqttSession {
   uint8_t key[32];
 };
 
+struct MqttQueuedOut {
+  uint8_t kind = 0;
+  bool newline = false;
+  uint16_t len = 0;
+  uint8_t data[P1_EMBED_MQTT_OUT_QUEUE_BYTES];
+};
+
 static MqttPendingAuth g_mqttPendingAuth[P1_EMBED_MQTT_MAX_USERS];
 static MqttSession g_mqttSessions[P1_EMBED_MQTT_MAX_USERS];
 static uint8_t* g_mqttEventBatch = nullptr;
 static size_t g_mqttEventBatchLen = 0;
 static uint8_t g_mqttEventBatchCount = 0;
+static TaskHandle_t g_mqttOwnerTask = nullptr;
+static QueueHandle_t g_mqttOutQueue = nullptr;
+static volatile uint32_t g_mqttOutQueuedCount = 0;
+static volatile uint32_t g_mqttOutDropCount = 0;
+static volatile uint32_t g_mqttOutHighWater = 0;
+static volatile int g_mqttOwnerCore = -1;
+static volatile int g_mqttLoopCore = -1;
 
 static void mqttCopyText(char* dst, size_t dstLen, const String& src) {
   if (!dst || dstLen == 0) return;
@@ -71,6 +98,32 @@ static void mqttCopyText(char* dst, size_t dstLen, const String& src) {
 
 static bool mqttTextEquals(const char* stored, const String& value) {
   return stored && strcmp(stored, value.c_str()) == 0;
+}
+
+static bool mqttIsOwnerTask() {
+  return !g_mqttOwnerTask || xTaskGetCurrentTaskHandle() == g_mqttOwnerTask;
+}
+
+static bool mqttQueueOut(uint8_t kind, const uint8_t* data, size_t len, bool newline) {
+  if (!data || len == 0 || len > P1_EMBED_MQTT_OUT_QUEUE_BYTES || !g_mqttOutQueue) {
+    g_mqttOutDropCount++;
+    return false;
+  }
+
+  MqttQueuedOut item;
+  item.kind = kind;
+  item.newline = newline;
+  item.len = (uint16_t)len;
+  memcpy(item.data, data, len);
+  if (xQueueSend(g_mqttOutQueue, &item, 0) != pdTRUE) {
+    g_mqttOutDropCount++;
+    return false;
+  }
+
+  g_mqttOutQueuedCount++;
+  UBaseType_t waiting = uxQueueMessagesWaiting(g_mqttOutQueue);
+  if (waiting > g_mqttOutHighWater) g_mqttOutHighWater = waiting;
+  return true;
 }
 
 static void mqttClearPendingAuth(MqttPendingAuth& auth) {
@@ -592,7 +645,11 @@ static void mqttPublishHello() {
   payload += ",\"anonymousScript\":" + String(configMqttAllowAnonymousScript() ? "true" : "false");
   payload += ",\"guestUiKeySet\":" + String(configMqttGuestUiKey().length() >= 16 ? "true" : "false");
   payload += "}";
-  g_mqtt.publish(g_mqttHelloTopic, payload, true, 0);
+  if (!g_mqtt.publish(g_mqttHelloTopic, payload, true, 0)) {
+    g_mqttHelloPublishFailCount++;
+    g_mqttPublishFailCount++;
+    g_mqttLastPublishFailMs = millis();
+  }
 }
 
 static void mqttHandleMessage(MQTTClient*, char topic[], char bytes[], int length) {
@@ -650,17 +707,23 @@ static bool mqttConnect() {
   bool ok = g_mqtt.connect(g_mqttClientId.c_str(), user.c_str(), pass.c_str());
   if (!ok) {
     debugLog("debug", "mqtt", "connect failed");
+    g_mqttWasConnected = false;
     return false;
   }
 
   g_mqtt.subscribe(g_mqttCmdTopicPrefix + "/+");
   g_mqtt.subscribe(g_mqttScriptInTopic);
   mqttPublishHello();
+  g_mqttConnectCount++;
+  g_mqttWasConnected = true;
   debugLog("debug", "mqtt", "open");
   return true;
 }
 
 void mqttTransportBegin() {
+  if (!g_mqttOutQueue) {
+    g_mqttOutQueue = xQueueCreate(P1_EMBED_MQTT_OUT_QUEUE_DEPTH, sizeof(MqttQueuedOut));
+  }
   g_mqttDeviceId = mqttDeviceTopicId();
 }
 
@@ -687,12 +750,20 @@ static bool mqttPublishEventPayload(const uint8_t* data, size_t len) {
       if (!g_mqttSessions[i].active) continue;
       if (g_mqttSessions[i].lastSeenAt && millis() - g_mqttSessions[i].lastSeenAt > P1_EMBED_MQTT_SESSION_IDLE_MS) continue;
       if (!mqttSessionIsNewestForClient(i)) continue;
-      if (mqttPublishSecure(mqttResponseTopic(String(g_mqttSessions[i].clientId)), i, data, len)) sent = true;
+      if (mqttPublishSecure(mqttResponseTopic(String(g_mqttSessions[i].clientId)), i, data, len)) {
+        sent = true;
+      } else {
+        g_mqttSecurePublishFailCount++;
+      }
     }
     if (!configMqttAllowAnonymousUi()) return sent;
   }
   if (g_mqttEvtTopic.length()) {
     if (g_mqtt.publish(g_mqttEvtTopic.c_str(), reinterpret_cast<const char*>(data), (int)len, false, 0)) sent = true;
+  }
+  if (!sent) {
+    g_mqttPublishFailCount++;
+    g_mqttLastPublishFailMs = millis();
   }
   return sent;
 }
@@ -742,8 +813,88 @@ static bool mqttAppendEventBatch(const uint8_t* data, size_t len) {
   return true;
 }
 
+static void mqttTransportSendBytesNow(const uint8_t* data, size_t len) {
+  if (!data || len == 0 || len > P1_EMBED_MQTT_BUFFER_BYTES || !g_mqtt.connected()) return;
+  if (mqttFrameIsResponse(data, len)) {
+    mqttFlushEventBatch();
+    if (g_mqttActiveResponseTopic.length() == 0) return;
+    if (g_mqttActiveSessionIndex >= 0) {
+      if (!mqttPublishSecure(g_mqttActiveResponseTopic, g_mqttActiveSessionIndex, data, len)) {
+        g_mqttSecurePublishFailCount++;
+        g_mqttPublishFailCount++;
+        g_mqttLastPublishFailMs = millis();
+      }
+      return;
+    }
+    if (mqttAuthRequired() && !configMqttAllowAnonymousUi()) return;
+    if (!g_mqtt.publish(g_mqttActiveResponseTopic.c_str(), reinterpret_cast<const char*>(data), (int)len, false, 0)) {
+      g_mqttPublishFailCount++;
+      g_mqttLastPublishFailMs = millis();
+    }
+    return;
+  }
+  if (mqttFrameIsEvent(data, len)) {
+    if (!mqttAppendEventBatch(data, len)) mqttPublishEventPayload(data, len);
+  }
+}
+
+static void mqttTransportSendScriptTextNow(const char* data, size_t len, bool newline) {
+  if (!data || len == 0 || !g_mqtt.connected() || !g_mqttScriptOutTopic.length()) return;
+
+  if (newline && data[len - 1] != '\n') {
+    if (len + 1 > P1_EMBED_MQTT_OUT_QUEUE_BYTES) {
+      g_mqttScriptOutPublishFailCount++;
+      g_mqttPublishFailCount++;
+      g_mqttLastPublishFailMs = millis();
+      return;
+    }
+    char payload[P1_EMBED_MQTT_OUT_QUEUE_BYTES + 1];
+    memcpy(payload, data, len);
+    payload[len++] = '\n';
+    payload[len] = 0;
+    if (!g_mqtt.publish(g_mqttScriptOutTopic.c_str(), payload, (int)len, false, 0)) {
+      g_mqttScriptOutPublishFailCount++;
+      g_mqttPublishFailCount++;
+      g_mqttLastPublishFailMs = millis();
+    }
+    return;
+  }
+
+  if (!g_mqtt.publish(g_mqttScriptOutTopic.c_str(), data, (int)len, false, 0)) {
+    g_mqttScriptOutPublishFailCount++;
+    g_mqttPublishFailCount++;
+    g_mqttLastPublishFailMs = millis();
+  }
+}
+
+static void mqttFlushOutQueue() {
+  if (!g_mqttOutQueue) return;
+
+  MqttQueuedOut item;
+  uint8_t sent = 0;
+  while (sent < P1_EMBED_MQTT_OUT_QUEUE_DEPTH && xQueueReceive(g_mqttOutQueue, &item, 0) == pdTRUE) {
+    if (item.kind == P1_MQTT_OUT_BYTES) {
+      mqttTransportSendBytesNow(item.data, item.len);
+    } else if (item.kind == P1_MQTT_OUT_SCRIPT_TEXT) {
+      mqttTransportSendScriptTextNow(reinterpret_cast<const char*>(item.data), item.len, item.newline);
+    }
+    sent++;
+  }
+}
+
 void mqttTransportLoop() {
+  if (!g_mqttOwnerTask) {
+    g_mqttOwnerTask = xTaskGetCurrentTaskHandle();
+    g_mqttOwnerCore = xPortGetCoreID();
+  }
+  g_mqttLoopCore = xPortGetCoreID();
   mqttReapPendingAuth();
+  bool connectedNow = g_mqtt.connected();
+  if (g_mqttWasConnected && !connectedNow) {
+    g_mqttLostCount++;
+    g_mqttLastLostMs = millis();
+    g_mqttWasConnected = false;
+  }
   if (!configMqttEnabled()) {
     if (g_mqtt.connected()) {
       g_mqtt.disconnect();
@@ -761,10 +912,14 @@ void mqttTransportLoop() {
   }
 
   if (g_mqtt.connected()) {
+    g_mqttWasConnected = true;
     mqttReapIdleSessions();
     if (!g_mqtt.loop()) {
+      g_mqttLoopClosedCount++;
+      g_mqttLastLoopClosedMs = millis();
       debugLog("warn", "mqtt", "loop closed");
     }
+    mqttFlushOutQueue();
     mqttFlushEventBatch();
     return;
   }
@@ -776,29 +931,21 @@ void mqttTransportLoop() {
 }
 
 void mqttTransportSendBytes(const uint8_t* data, size_t len) {
-  if (!data || len == 0 || len > P1_EMBED_MQTT_BUFFER_BYTES || !g_mqtt.connected()) return;
-  if (mqttFrameIsResponse(data, len)) {
-    mqttFlushEventBatch();
-    if (g_mqttActiveResponseTopic.length() == 0) return;
-    if (g_mqttActiveSessionIndex >= 0) {
-      mqttPublishSecure(g_mqttActiveResponseTopic, g_mqttActiveSessionIndex, data, len);
-      return;
-    }
-    if (mqttAuthRequired() && !configMqttAllowAnonymousUi()) return;
-    g_mqtt.publish(g_mqttActiveResponseTopic.c_str(), reinterpret_cast<const char*>(data), (int)len, false, 0);
+  if (!data || len == 0 || len > P1_EMBED_MQTT_BUFFER_BYTES) return;
+  if (!mqttIsOwnerTask()) {
+    mqttQueueOut(P1_MQTT_OUT_BYTES, data, len, false);
     return;
   }
-  if (mqttFrameIsEvent(data, len)) {
-    if (!mqttAppendEventBatch(data, len)) mqttPublishEventPayload(data, len);
-  }
+  mqttTransportSendBytesNow(data, len);
 }
 
 void mqttTransportSendScriptText(const String& message, bool newline) {
-  if (!g_mqtt.connected() || !g_mqttScriptOutTopic.length()) return;
-  String payload = message;
-  if (newline && !payload.endsWith("\n")) payload += "\n";
-  if (!payload.length()) return;
-  g_mqtt.publish(g_mqttScriptOutTopic.c_str(), payload.c_str(), payload.length(), false, 0);
+  if (!message.length()) return;
+  if (!mqttIsOwnerTask()) {
+    mqttQueueOut(P1_MQTT_OUT_SCRIPT_TEXT, reinterpret_cast<const uint8_t*>(message.c_str()), message.length(), newline);
+    return;
+  }
+  mqttTransportSendScriptTextNow(message.c_str(), message.length(), newline);
 }
 
 bool mqttTransportConnected() {
@@ -823,6 +970,21 @@ String mqttTransportStatusJson() {
   out += ",\"anonymousUi\":" + String(configMqttAllowAnonymousUi() ? "true" : "false");
   out += ",\"anonymousScript\":" + String(configMqttAllowAnonymousScript() ? "true" : "false");
   out += ",\"guestUiKeySet\":" + String(configMqttGuestUiKey().length() >= 16 ? "true" : "false");
+  out += ",\"ownerCore\":" + String(g_mqttOwnerCore);
+  out += ",\"loopCore\":" + String(g_mqttLoopCore);
+  out += ",\"outQueuedCount\":" + String(g_mqttOutQueuedCount);
+  out += ",\"outDropCount\":" + String(g_mqttOutDropCount);
+  out += ",\"outHighWater\":" + String(g_mqttOutHighWater);
+  out += ",\"connectCount\":" + String(g_mqttConnectCount);
+  out += ",\"lostCount\":" + String(g_mqttLostCount);
+  out += ",\"loopClosedCount\":" + String(g_mqttLoopClosedCount);
+  out += ",\"publishFailCount\":" + String(g_mqttPublishFailCount);
+  out += ",\"securePublishFailCount\":" + String(g_mqttSecurePublishFailCount);
+  out += ",\"scriptOutPublishFailCount\":" + String(g_mqttScriptOutPublishFailCount);
+  out += ",\"helloPublishFailCount\":" + String(g_mqttHelloPublishFailCount);
+  out += ",\"lastLostMs\":" + String(g_mqttLastLostMs);
+  out += ",\"lastLoopClosedMs\":" + String(g_mqttLastLoopClosedMs);
+  out += ",\"lastPublishFailMs\":" + String(g_mqttLastPublishFailMs);
   out += "}";
   return out;
 }

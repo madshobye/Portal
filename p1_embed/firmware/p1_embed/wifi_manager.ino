@@ -8,6 +8,23 @@ static unsigned long g_lastWifiAttemptMs = 0;
 static bool g_wifiConfigured = false;
 static int g_wifiNetworkIndex = 0;
 static bool g_timeSyncStarted = false;
+static unsigned long g_lastWifiRssiMs = 0;
+static int g_lastWifiRssi = 0;
+static portMUX_TYPE g_wifiCacheMux = portMUX_INITIALIZER_UNLOCKED;
+
+struct WifiCachedState {
+  bool configured = false;
+  bool connected = false;
+  int networkIndex = 0;
+  int networkCount = 0;
+  int rssi = 0;
+  char status[20] = "unknown";
+  char ssid[40] = "";
+  char ip[24] = "";
+  char mac[24] = "";
+};
+
+static WifiCachedState g_wifiCached;
 
 static const char* wifiStatusName(int status) {
   switch (status) {
@@ -40,6 +57,41 @@ static void wifiEmitStatusIfChanged() {
   }
 }
 
+static void wifiUpdateCache() {
+  int status = WiFi.status();
+  bool connected = status == WL_CONNECTED;
+  int networkCount = configWifiNetworkCount();
+  int rssi = 0;
+  String ssid = connected ? configWifiSsidAt(g_wifiNetworkIndex) : String("");
+  String ip = connected ? WiFi.localIP().toString() : String("");
+  String mac = WiFi.macAddress();
+  const char* statusText = wifiStatusName(status);
+  unsigned long now = millis();
+
+  if (connected) {
+    if (g_lastWifiRssiMs == 0 || now - g_lastWifiRssiMs >= P1_EMBED_WIFI_RSSI_INTERVAL_MS) {
+      g_lastWifiRssi = WiFi.RSSI();
+      g_lastWifiRssiMs = now;
+    }
+    rssi = g_lastWifiRssi;
+  } else {
+    g_lastWifiRssi = 0;
+    g_lastWifiRssiMs = 0;
+  }
+
+  portENTER_CRITICAL(&g_wifiCacheMux);
+  g_wifiCached.configured = networkCount > 0;
+  g_wifiCached.connected = connected;
+  g_wifiCached.networkIndex = g_wifiNetworkIndex;
+  g_wifiCached.networkCount = networkCount;
+  g_wifiCached.rssi = rssi;
+  strlcpy(g_wifiCached.status, statusText, sizeof(g_wifiCached.status));
+  strlcpy(g_wifiCached.ssid, ssid.c_str(), sizeof(g_wifiCached.ssid));
+  strlcpy(g_wifiCached.ip, ip.c_str(), sizeof(g_wifiCached.ip));
+  strlcpy(g_wifiCached.mac, mac.c_str(), sizeof(g_wifiCached.mac));
+  portEXIT_CRITICAL(&g_wifiCacheMux);
+}
+
 static void wifiTryNetwork(int index, const char* statusLabel) {
   String ssid = configWifiSsidAt(index);
   if (!ssid.length()) return;
@@ -69,6 +121,7 @@ void wifiBegin() {
   if (!g_wifiConfigured) {
     WiFi.mode(WIFI_OFF);
     memoryProfileMark("wifi", "off");
+    wifiUpdateCache();
     return;
   }
 
@@ -78,9 +131,11 @@ void wifiBegin() {
   WiFi.setAutoReconnect(true);
   WiFi.persistent(false);
   wifiTryNetwork(0, "connecting");
+  wifiUpdateCache();
 }
 
 void wifiLoop() {
+  wifiUpdateCache();
   if (!g_wifiConfigured) return;
   wifiEmitStatusIfChanged();
 
@@ -108,6 +163,7 @@ void wifiDisconnect() {
   g_wifiConfigured = false;
   g_timeSyncStarted = false;
   g_lastWifiStatus = WL_DISCONNECTED;
+  wifiUpdateCache();
   P1EventField fields[] = {
     p1FieldString("status", "off"),
   };
@@ -115,18 +171,26 @@ void wifiDisconnect() {
 }
 
 P1WifiSnapshot wifiSnapshot() {
-  int status = WiFi.status();
-  const bool connected = status == WL_CONNECTED;
+  wifiUpdateCache();
+  return wifiCachedSnapshot();
+}
+
+P1WifiSnapshot wifiCachedSnapshot() {
+  WifiCachedState cached;
+  portENTER_CRITICAL(&g_wifiCacheMux);
+  cached = g_wifiCached;
+  portEXIT_CRITICAL(&g_wifiCacheMux);
+
   P1WifiSnapshot snapshot;
-  snapshot.configured = configWifiNetworkCount() > 0;
-  snapshot.status = wifiStatusName(status);
-  snapshot.connected = connected;
-  snapshot.networkIndex = g_wifiNetworkIndex;
-  snapshot.networkCount = configWifiNetworkCount();
-  snapshot.ssid = connected ? configWifiSsidAt(g_wifiNetworkIndex) : String("");
-  snapshot.ip = connected ? WiFi.localIP().toString() : String("");
-  snapshot.rssi = connected ? WiFi.RSSI() : 0;
-  snapshot.mac = WiFi.macAddress();
+  snapshot.configured = cached.configured;
+  snapshot.status = cached.status;
+  snapshot.connected = cached.connected;
+  snapshot.networkIndex = cached.networkIndex;
+  snapshot.networkCount = cached.networkCount;
+  snapshot.ssid = cached.ssid;
+  snapshot.ip = cached.ip;
+  snapshot.rssi = cached.rssi;
+  snapshot.mac = cached.mac;
   return snapshot;
 }
 

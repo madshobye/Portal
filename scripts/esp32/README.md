@@ -36,6 +36,28 @@ Common commands:
 ./scripts/esp32/reboot.sh
 ```
 
+P1 Embed classic ESP32 profile:
+
+```sh
+./scripts/esp32/p1embed-compile.sh
+./scripts/esp32/p1embed-upload.sh
+./scripts/esp32/p1embed-compile-upload.sh
+./scripts/esp32/p1embed-monitor.sh
+./scripts/esp32/p1embed-upload-monitor.sh
+./scripts/esp32/p1embed-listen.sh 30
+./scripts/esp32/p1embed-read-serial.sh
+./scripts/esp32/p1embed-stop-serial.sh
+./scripts/esp32/p1embed-reboot.sh
+```
+
+These wrappers use the `p1embed` profile, which defaults to classic ESP32
+with `esp32:esp32:esp32:PartitionScheme=huge_app`, the P1 Embed firmware
+sketch, the P1 Embed Arduino libraries, `/private/tmp/p1-embed-build`, and
+`/dev/cu.wchusbserial10`. Override `ESP32_PORT` if the USB device changes.
+Use `p1embed-listen.sh` for normal serial watching: it runs the decoded
+Python listener at 115200 baud and filters out compact/binary serial frames
+that make raw `cat` output look like a baud-rate problem.
+
 LabelCam BLE test profile:
 
 ```sh

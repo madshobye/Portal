@@ -59,8 +59,8 @@ case "${ESP32_PROFILE}" in
     ESP32_BUILD_PATH="${ESP32_BUILD_PATH:-/private/tmp/serial-smoke-build}"
     ;;
   p1embed)
-    ESP32_PORT="${ESP32_PORT:-/dev/cu.wchusbserial58741104521}"
-    ESP32_FQBN="${ESP32_FQBN:-esp32:esp32:esp32:PartitionScheme=huge_app}"
+    ESP32_PORT="${ESP32_PORT:-/dev/cu.wchusbserial10}"
+    ESP32_FQBN="${ESP32_FQBN:-esp32:esp32:esp32:PartitionScheme=huge_app,LoopCore=1,EventsCore=0}"
     SKETCH_DIR="${SKETCH_DIR:-${PORTAL_ROOT}/p1_embed/firmware/p1_embed}"
     PORTAL_ARDUINO_LIBS="${PORTAL_ARDUINO_LIBS:-${PORTAL_ROOT}/p1_embed/arduino_libraries}"
     ESP32_WEBRTC_LIBRARY_ROOT="${ESP32_WEBRTC_LIBRARY_ROOT:-${PORTAL_ROOT}/arduinolibs/ESP32_WebRTC_light}"

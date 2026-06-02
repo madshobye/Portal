@@ -76,6 +76,8 @@ void setup() {
   memoryProfileMark("mqtt", "begin");
   webrtcTransportBegin();
   memoryProfileMark("webrtc", "begin");
+  haBridgeBegin();
+  memoryProfileMark("home_assistant", "begin");
   protocolEmitBoot();
   memoryProfileMark("protocol", "boot_emit");
 #if P1_EMBED_WRENCH_ENABLED
@@ -187,6 +189,7 @@ void loop() {
   wifiLoop();
   webTransportLoop();
   mqttTransportLoop();
+  haBridgeLoop();
 #if P1_EMBED_WRENCH_ENABLED
   bootPollDelayedAutorun();
 #endif

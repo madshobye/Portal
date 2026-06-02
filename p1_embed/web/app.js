@@ -1,14 +1,14 @@
-import { ProtocolClient } from "./protocol/ProtocolClient.js?v=0.1.87-ui316";
-import { canEncodeCommand } from "./protocol/P1MsgPack.js?v=0.1.87-ui316";
-import { WebSerialTransport } from "./protocol/WebSerialTransport.js?v=0.1.87-ui316";
+import { ProtocolClient } from "./protocol/ProtocolClient.js?v=0.1.87-ui320";
+import { canEncodeCommand } from "./protocol/P1MsgPack.js?v=0.1.87-ui320";
+import { WebSerialTransport } from "./protocol/WebSerialTransport.js?v=0.1.87-ui320";
 import { WebSocketTransport } from "./protocol/WebSocketTransport.js";
-import { MqttWebRtcTransport, MQTT_WEBRTC_TRANSPORT_VERSION } from "./protocol/MqttWebRtcTransport.js?v=0.1.87-ui316";
-import { MqttTransport, MQTT_TRANSPORT_VERSION, clearOnlineAuthKey, deriveOnlineAuthKeyHex, storeOnlineAuthKey } from "./protocol/MqttTransport.js?v=0.1.87-ui316";
-import { P1WebFlasher } from "./web-flasher.js?v=0.1.87-ui316";
-import { inferCircuitLayout, initCircuitView, normalizeCircuitLayout } from "./circuit.js?v=0.1.87-ui316";
-import { initGuinoView } from "./guino.js?v=0.1.87-ui316";
+import { MqttWebRtcTransport, MQTT_WEBRTC_TRANSPORT_VERSION } from "./protocol/MqttWebRtcTransport.js?v=0.1.87-ui320";
+import { MqttTransport, MQTT_TRANSPORT_VERSION, clearOnlineAuthKey, deriveOnlineAuthKeyHex, storeOnlineAuthKey } from "./protocol/MqttTransport.js?v=0.1.87-ui320";
+import { P1WebFlasher } from "./web-flasher.js?v=0.1.87-ui320";
+import { inferCircuitLayout, initCircuitView, normalizeCircuitLayout } from "./circuit.js?v=0.1.87-ui320";
+import { initGuinoView } from "./guino.js?v=0.1.87-ui320";
 
-const WEB_UI_VERSION = "0.1.87-ui316";
+const WEB_UI_VERSION = "0.1.87-ui320";
 const CHAT_DEFAULT_MAX_OUTPUT_TOKENS = 8000;
 const CHAT_MIN_MAX_OUTPUT_TOKENS = 1024;
 const CHAT_HARD_MAX_OUTPUT_TOKENS = 32000;
@@ -43,6 +43,7 @@ const storage = {
   usbHint: "p1_embed.serial.hint",
   usbHistory: "p1_embed.serial.history",
   lastConnection: "p1_embed.connection.last",
+  connectionIntent: "p1_embed.connection.intent",
   reconnectOnLoad: "p1_embed.connection.reconnectOnLoad",
   activeTab: "p1_embed.workspace.activeTab",
   logLevel: "p1_embed.console.logLevel",
@@ -290,12 +291,23 @@ let currentProjectCircuit = null;
 let circuitView = null;
 let circuitChatLayout = null;
 let circuitUpdateTimer = null;
-let revisionDraftSaveTimer = null;
 let projectSelectTimer = null;
 let revisionSelectTimer = null;
 let guinoView = null;
 
 boot();
+
+function connectionIntentWanted() {
+  const explicit = localStorage.getItem(storage.connectionIntent);
+  if (explicit === "connected") return true;
+  if (explicit === "disconnected") return false;
+  return localStorage.getItem(storage.reconnectOnLoad) === "1";
+}
+
+function setConnectionIntentWanted(wanted) {
+  localStorage.setItem(storage.connectionIntent, wanted ? "connected" : "disconnected");
+  localStorage.setItem(storage.reconnectOnLoad, wanted ? "1" : "0");
+}
 
 function boot() {
   updateViewportHeight();
@@ -333,7 +345,6 @@ function bindLifecycle() {
   const markUnload = () => {
     writeCurrentRevisionDraft();
     isUnloading = true;
-    localStorage.setItem(storage.reconnectOnLoad, client && transport?.connected && connectionVerified ? "1" : "0");
   };
   const markReturned = () => {
     isUnloading = false;
@@ -358,7 +369,7 @@ function updateViewportHeight() {
 }
 
 function recoverReturnedConnection() {
-  if (localStorage.getItem(storage.reconnectOnLoad) !== "1") return;
+  if (!connectionIntentWanted()) return;
   if (client && (!transport?.connected || !connectionVerified)) {
     handleTransportDropped(client, { reconnectOnReturn: true });
     return;
@@ -931,7 +942,7 @@ function forgetConnectionHistoryItem(item) {
 
   if (!readPeerHistory().length && !readWebSocketHistory().length && !readUsbHistory().length) {
     localStorage.removeItem(storage.lastConnection);
-    localStorage.setItem(storage.reconnectOnLoad, "0");
+    setConnectionIntentWanted(false);
   }
   renderConnectionHistory();
   logLine("info", "removed recent connection");
@@ -1143,7 +1154,7 @@ async function autoConnectFromUrlParams() {
 
 async function autoReconnectLastConnection({ reconnecting = false } = {}) {
   const last = localStorage.getItem(storage.lastConnection);
-  const shouldReconnect = localStorage.getItem(storage.reconnectOnLoad) === "1";
+  const shouldReconnect = connectionIntentWanted();
   if (client || isBusy || !last || !shouldReconnect) return;
   const reconnectOptions = reconnecting ? { quiet: false, busyLabelText: "reconnecting" } : { quiet: true };
 
@@ -1263,7 +1274,7 @@ function rememberActiveConnection(kind, options = {}) {
 
 async function cancelConnectionAttempt() {
   connectionGeneration += 1;
-  localStorage.setItem(storage.reconnectOnLoad, "0");
+  setConnectionIntentWanted(false);
   clearConnectionUrlParams();
   try {
     await transport?.disconnect?.();
@@ -1284,7 +1295,7 @@ async function cancelConnectionAttempt() {
 
 function rememberSuccessfulConnection(kind, label, options = {}) {
   localStorage.setItem(storage.lastConnection, kind);
-  localStorage.setItem(storage.reconnectOnLoad, "1");
+  setConnectionIntentWanted(true);
   const friendlyLabel = currentDeviceDisplayName() || label;
 
   if (kind === "websocket" && options.url) {
@@ -1647,6 +1658,11 @@ function clearConnectionUrlParams() {
 
 async function disconnectTransport({ quiet = false, keepGeneration = false } = {}) {
   if (!keepGeneration) connectionGeneration += 1;
+  if (!keepGeneration && !isUnloading) {
+    setConnectionIntentWanted(false);
+    reconnectAfterReturn = false;
+    reconnectAfterReturnAttempted = false;
+  }
   try {
     await transport?.disconnect();
   } finally {
@@ -1655,7 +1671,6 @@ async function disconnectTransport({ quiet = false, keepGeneration = false } = {
     connectionVerified = false;
     closeConnectDialog();
     stopStatusPolling();
-    if (!isUnloading) localStorage.setItem(storage.reconnectOnLoad, "0");
     if (!quiet && !keepGeneration && !isUnloading) clearConnectionUrlParams();
     if (!keepGeneration) {
       isBusy = false;
@@ -1678,8 +1693,7 @@ function bindClient(nextClient) {
     renderConnectionState(event.detail.state);
     if (event.detail.state === "connected") closeConnectDialog();
     if (isDroppedTransportState(event.detail.state) && !isUnloading) {
-      const shouldReconnect = connectionVerified && localStorage.getItem(storage.reconnectOnLoad) === "1";
-      localStorage.setItem(storage.reconnectOnLoad, shouldReconnect ? "1" : "0");
+      const shouldReconnect = connectionVerified && connectionIntentWanted();
       handleTransportDropped(nextClient, { reconnectOnReturn: shouldReconnect });
     }
   });
@@ -1789,7 +1803,7 @@ function handleTransportDropped(droppedClient, { reconnectOnReturn = false } = {
 function maybeReconnectAfterReturn() {
   if (!reconnectAfterReturn || reconnectAfterReturnAttempted) return;
   if (document.hidden || client || isBusy) return;
-  if (localStorage.getItem(storage.reconnectOnLoad) !== "1") return;
+  if (!connectionIntentWanted()) return;
   reconnectAfterReturn = false;
   reconnectAfterReturnAttempted = true;
   autoReconnectLastConnection({ reconnecting: true }).catch((error) => {
@@ -2574,11 +2588,7 @@ async function saveActiveRevisionFromEditor({ source = "manual", nameHint = "", 
     });
     project.revisions.unshift(revision);
   } else {
-    const shouldCheckpoint = source === "upload" && editorContentDiffersFromRevision(revision, {
-      code,
-      specification,
-      specificationMode: currentProjectSpecificationMode,
-    });
+    const shouldCheckpoint = String(revision.code || "") !== String(code || "");
     if (shouldCheckpoint) {
       revision = buildRevision({
         name: nextNamedRevisionName(project, normalizeSketchName(nameHint || currentSketchName || revision.name) || "Revision"),
@@ -2614,12 +2624,6 @@ async function saveActiveRevisionFromEditor({ source = "manual", nameHint = "", 
     setCurrentSketchIdentity(savedRevision.name || "", savedRevision.code || "", saved, savedRevision);
   }
   return { project: saved, revision: savedRevision };
-}
-
-function editorContentDiffersFromRevision(revision = {}, { code = "", specification = "", specificationMode = "middle" } = {}) {
-  return String(revision.code || "") !== String(code || "")
-    || String(revision.specification || "") !== String(specification || "")
-    || normalizeSpecificationMode(revision.specificationMode) !== normalizeSpecificationMode(specificationMode);
 }
 
 async function persistProjectMetadataToDevice(project, revision = null) {
@@ -3356,7 +3360,7 @@ function renderProjectSelectors(projects = projectCache) {
 
 function renderRevisionSelectors(project) {
   const revisions = project?.revisions || [];
-  const options = [new Option("revision", "")];
+  const options = [];
   revisions.forEach((revision) => {
     const name = normalizeSketchName(revision.name || "");
     const size = formatBytes(revision.bytes || revision.code.length);
@@ -3441,47 +3445,49 @@ async function openRevision(project, revision, { saveCurrent = true } = {}) {
     revision = project.revisions.find((item) => item.id === targetRevisionId);
     if (!revision) throw new Error("Cannot open revision because it disappeared while saving current revision");
   }
-  revision = applyStoredRevisionDraft(project, revision);
+  const draftRevision = storedRevisionDraftFor(project, revision);
   currentProjectId = project.id;
   currentRevisionId = revision.id;
   localStorage.setItem(storage.projectId, project.id);
   project.activeRevisionId = revision.id;
   const saved = await saveProject(project);
   const savedRevision = saved.revisions.find((item) => item.id === revision.id) || revision;
+  const visibleRevision = draftRevision ? {
+    ...savedRevision,
+    code: draftRevision.code,
+    specification: draftRevision.specification,
+    specificationMode: draftRevision.specificationMode,
+  } : savedRevision;
   chatMessages = normalizeChatMessages(savedRevision.chat);
   circuitChatLayout = normalizeCircuitLayout(savedRevision.circuit);
-  setEditorValueRaw(savedRevision.code || "", { persist: true });
   setCurrentSketchIdentity(savedRevision.name || "", savedRevision.code || "", saved, savedRevision);
+  if (draftRevision) {
+    setEditorValueRaw(visibleRevision.code || "", { persist: true });
+    setProjectSpecification(visibleRevision.specification || "", visibleRevision.specificationMode, { markSaved: false });
+    updateCurrentSketchDirty();
+  } else {
+    setEditorValueRaw(savedRevision.code || "", { persist: true });
+  }
   renderProjectSelectors(projectCache);
   renderChatTranscript();
   updateCircuitView(circuitChatLayout ? "project circuit + code inference" : "inferred from code");
-  return { project: saved, revision: savedRevision };
+  return { project: saved, revision: visibleRevision };
 }
 
-function applyStoredRevisionDraft(project, revision) {
+function storedRevisionDraftFor(project, revision) {
   const draft = readCurrentRevisionDraft();
-  if (!draft || draft.projectId !== project.id || draft.revisionId !== revision.id) return revision;
-  const nextRevision = {
+  if (!draft || draft.projectId !== project.id || draft.revisionId !== revision.id) return null;
+  return {
     ...revision,
     code: String(draft.code ?? revision.code ?? ""),
     specification: String(draft.specification ?? revision.specification ?? ""),
     specificationMode: normalizeSpecificationMode(draft.specificationMode || revision.specificationMode),
     bytes: Number(draft.bytes) || new Blob([String(draft.code ?? revision.code ?? "")]).size,
   };
-  nextRevision.codeHash = codeHashFor(nextRevision.code);
-  nextRevision.circuit = normalizeCircuitLayout(revision.circuit) || inferCircuitLayout(nextRevision.code, null);
-  project.revisions = project.revisions.map((item) => item.id === revision.id ? nextRevision : item);
-  localStorage.removeItem(storage.revisionDraft);
-  return nextRevision;
 }
 
 function scheduleCurrentRevisionDraftSave() {
   writeCurrentRevisionDraft();
-  window.clearTimeout(revisionDraftSaveTimer);
-  revisionDraftSaveTimer = window.setTimeout(() => {
-    revisionDraftSaveTimer = null;
-    void persistCurrentRevisionDraft();
-  }, 500);
 }
 
 function writeCurrentRevisionDraft() {
@@ -3512,24 +3518,6 @@ function readCurrentRevisionDraft() {
   } catch {
     return null;
   }
-}
-
-async function persistCurrentRevisionDraft() {
-  const draft = readCurrentRevisionDraft();
-  if (!draft?.projectId || !draft?.revisionId) return;
-  const project = await getActiveProject();
-  if (!project || project.id !== draft.projectId) return;
-  const index = project.revisions.findIndex((revision) => revision.id === draft.revisionId);
-  if (index < 0) return;
-  project.revisions[index] = {
-    ...project.revisions[index],
-    code: String(draft.code ?? ""),
-    specification: String(draft.specification ?? ""),
-    specificationMode: normalizeSpecificationMode(draft.specificationMode || "middle"),
-    circuit: projectCircuitForCurrentCode(String(draft.code ?? "")),
-    bytes: Number(draft.bytes) || new Blob([String(draft.code ?? "")]).size,
-  };
-  await saveProject(project);
 }
 
 async function createNewSketch() {
@@ -3730,8 +3718,6 @@ function updateCurrentSketchDirty() {
 }
 
 function renderCurrentSketchName() {
-  const option = els.sketchHistory.options[0];
-  if (option) option.textContent = sketchHistoryPlaceholderLabel();
   const label = sketchHistoryPlaceholderLabel();
   els.sketchHistory.title = currentSketchName
     ? `Current revision: ${label}`
@@ -5472,7 +5458,7 @@ async function refreshInstallManifestInfo() {
 }
 
 async function releaseDeviceTransportForInstall() {
-  localStorage.setItem(storage.reconnectOnLoad, "0");
+  setConnectionIntentWanted(false);
   if (client || transport) {
     await disconnectTransport({ quiet: true });
     installLog("Disconnected coding transport");

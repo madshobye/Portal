@@ -7,7 +7,7 @@
 
 struct P1WifiSnapshot {
   bool configured = false;
-  const char* status = "unknown";
+  String status = "unknown";
   bool connected = false;
   int networkIndex = 0;
   int networkCount = 0;
@@ -250,6 +250,7 @@ void wifiLoop();
 void wifiReconnect();
 void wifiDisconnect();
 P1WifiSnapshot wifiSnapshot();
+P1WifiSnapshot wifiCachedSnapshot();
 String wifiStatusJson();
 String wifiStatusJson(const P1WifiSnapshot& snapshot);
 bool wifiIsConnected();
@@ -328,6 +329,29 @@ bool uiInputPush(const String& channel, const String& message);
 void uiRuntimeReset(const String& title = "", bool emitReset = true);
 uint32_t uiInputQueued();
 uint32_t uiInputDrops();
+
+struct P1HaInputEvent {
+  char id[P1_EMBED_HA_ID_MAX];
+  char type[P1_EMBED_HA_TYPE_MAX];
+  float value = 0.0f;
+};
+
+void haBridgeBegin();
+void haBridgeLoop();
+void haRuntimeReset();
+bool haBeginDevice(const String& name);
+bool haDeclareSensor(const String& id, const String& name, float value, const String& unit);
+bool haDeclareBinarySensor(const String& id, const String& name, bool value);
+bool haDeclareSwitch(const String& id, const String& name, bool value);
+bool haDeclareNumber(const String& id, const String& name, float value, float minValue, float maxValue, float step);
+bool haDeclareButton(const String& id, const String& name);
+bool haDeclareLight(const String& id, const String& name, float brightness);
+bool haUpdateValue(const String& id, float value);
+bool haInputValue(const String& id, float& valueOut);
+bool haInputChanged(const String& id);
+bool haInputPop(P1HaInputEvent& event);
+bool haInputTakeMatching(const String& id, const String& type, P1HaInputEvent& event);
+bool haPressButton(const String& id);
 
 void pwmManagerBegin();
 bool pwmAnalogWrite(int pin, int value);
