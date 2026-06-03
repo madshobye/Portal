@@ -36,18 +36,21 @@ static bool scriptStoreLoadPath(const char* path, String& out) {
     return n == 0;
   }
 
-  char* buf = (char*)malloc(n + 1);
-  if (!buf) {
+  if (!out.reserve(n)) {
     f.close();
     return false;
   }
 
-  size_t got = f.readBytes(buf, n);
-  buf[got] = 0;
+  char buf[256];
+  size_t got = 0;
+  while (got < n) {
+    size_t want = min(sizeof(buf), n - got);
+    size_t chunk = f.readBytes(buf, want);
+    if (chunk == 0) break;
+    out.concat(buf, chunk);
+    got += chunk;
+  }
   f.close();
-
-  out = String(buf);
-  free(buf);
   return got == n;
 }
 

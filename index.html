@@ -973,6 +973,19 @@ function draw() {
             "Prefer clear examples with one model and one visible result."
           ]
         }
+        ,
+        {
+          title: "PortalTinyNN",
+          path: "portal/PortalTinyNN.js",
+          github: ["portal/PortalTinyNN.js"],
+          description: "Small dependency-free neural-network math engine for teaching dense layers, activations, MSE loss, backpropagation, and simple regression.",
+          bullets: [
+            "Use this when the math should stay visible instead of hidden inside ml5.",
+            "Initialize with new PortalTinyNN({ layers, activations, learningRate }).",
+            "Train with nn.train(samples, { steps, learningRate }) and predict with nn.predict([x]).",
+            "Credits Halim Rahman and Mads Hobye from the original x-ml sketch."
+          ]
+        }
       ];
 
       const recipes = [
@@ -1090,6 +1103,7 @@ function draw() {
         "rtconboarder",
         "textprompt",
         "textprompt_noMapping",
+        "tiny-nn-lab",
         "webNotifications",
         "webrtc-exploration"
       ];

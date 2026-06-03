@@ -55,6 +55,7 @@ static volatile P1WrenchPhase g_wrenchPhase = WRENCH_PHASE_IDLE;
 static char g_wrenchTransitionReason[40] = "";
 static uint8_t g_wrenchLoopDebugMarkers = 0;
 static uint8_t g_wrenchConsecutiveErrorLoops = 0;
+static P1ReusableBuffer g_wrenchCompileSourceBuffer;
 
 struct P1CompileCrashLatch {
   uint32_t magic;
@@ -527,6 +528,7 @@ String wrenchRuntimeStatusJson() {
   out += ",\"taskTargetCore\":" + String(P1_EMBED_WRENCH_TASK_CORE);
   out += ",\"taskCore\":" + String(g_wrenchTaskCore);
   out += ",\"compileTargetCore\":" + String(P1_EMBED_WRENCH_COMPILE_TASK_CORE);
+  out += ",\"compileSourceBuffer\":" + p1ReusableBufferStatusJson(g_wrenchCompileSourceBuffer);
   out += "}";
   return out;
 }
@@ -651,7 +653,8 @@ static String wrenchRemapCompileError(const String& err, int lineOffset) {
 }
 
 struct WrenchCompileJob {
-  const String* source;
+  const char* source;
+  int sourceLen;
   unsigned char* bytecode;
   int byteLen;
   WRstr compileErr;
@@ -663,7 +666,7 @@ static void wrenchCompileTaskEntry(void* arg) {
   WrenchCompileJob* job = (WrenchCompileJob*)arg;
   job->bytecode = nullptr;
   job->byteLen = 0;
-  job->result = wr_compile(job->source->c_str(), (int)job->source->length(), &job->bytecode, &job->byteLen, &job->compileErr, WR_INCLUDE_GLOBALS);
+  job->result = wr_compile(job->source, job->sourceLen, &job->bytecode, &job->byteLen, &job->compileErr, WR_INCLUDE_GLOBALS);
 #ifdef WRENCH_HANDLE_MALLOC_FAIL
   if (g_mallocFailed) {
     g_mallocFailed = false;
@@ -679,9 +682,10 @@ static void wrenchCompileTaskEntry(void* arg) {
   vTaskDelete(nullptr);
 }
 
-static WRError wrenchCompileOnWorker(const String& src, unsigned char** bytecodeOut, int* byteLenOut, WRstr& compileErr) {
+static WRError wrenchCompileOnWorker(const char* src, int srcLen, unsigned char** bytecodeOut, int* byteLenOut, WRstr& compileErr) {
   WrenchCompileJob job;
-  job.source = &src;
+  job.source = src;
+  job.sourceLen = srcLen;
   job.bytecode = nullptr;
   job.byteLen = 0;
   job.result = WR_ERR_None;
@@ -780,20 +784,53 @@ static bool wrenchCompileSource(const String& userCode, unsigned char** bytecode
   for (size_t i = 0; i < prelude.length(); i++) {
     if (prelude[i] == '\n') userLineOffset++;
   }
-  String src = prelude;
-  src += "\n";
-  src += userCode;
-  wrenchEmitCompileMemoryTrace("source.built", userCode.length(), src.length());
+  size_t sourceLen = prelude.length() + 1 + userCode.length();
+  if (sourceLen > (size_t)INT_MAX - 1) {
+    errOut = "script too large";
+    scriptErrorSet("compile", "script_too_large", errOut, "\"sourceBytes\":" + String(sourceLen));
+    return false;
+  }
+  P1ReusableBufferHandle sourceHandle;
+  if (!p1ReusableBufferAcquire(
+        g_wrenchCompileSourceBuffer,
+        sourceLen + 1,
+        P1_EMBED_WRENCH_COMPILE_SOURCE_RETAIN_MIN,
+        P1_EMBED_WRENCH_COMPILE_SOURCE_RETAIN_MAX,
+        sourceHandle)) {
+    errOut = "No heap for compile source";
+    String details = "\"scriptBytes\":" + String(userCode.length());
+    details += ",\"sourceBytes\":" + String(sourceLen);
+    details += ",\"freeHeap\":" + String(ESP.getFreeHeap());
+    details += ",\"maxAllocHeap\":" + String(ESP.getMaxAllocHeap());
+    scriptErrorSet("compile", "source_no_heap", errOut, details);
+    return false;
+  }
+  char* source = (char*)sourceHandle.data;
+  size_t cursor = 0;
+  memcpy(source + cursor, prelude.c_str(), prelude.length());
+  cursor += prelude.length();
+  source[cursor++] = '\n';
+  memcpy(source + cursor, userCode.c_str(), userCode.length());
+  cursor += userCode.length();
+  source[cursor] = 0;
+  prelude = "";
+  wrenchEmitCompileMemoryTrace("source.built", userCode.length(), sourceLen);
 
   unsigned char* bytecode = nullptr;
   int byteLen = 0;
   WRstr compileErr;
 
   wrenchCompileCrashArm(protocolFnv1a(userCode), userCode.length());
-  wrenchEmitCompileMemoryTrace("worker.before", userCode.length(), src.length());
-  WRError ce = wrenchCompileOnWorker(src, &bytecode, &byteLen, compileErr);
+  wrenchEmitCompileMemoryTrace("worker.before", userCode.length(), sourceLen);
+  WRError ce = wrenchCompileOnWorker(source, (int)sourceLen, &bytecode, &byteLen, compileErr);
+  p1ReusableBufferReleaseHandle(g_wrenchCompileSourceBuffer, sourceHandle);
+  p1ReusableBufferMaintain(
+    g_wrenchCompileSourceBuffer,
+    P1_EMBED_WRENCH_COMPILE_SOURCE_RETAIN_MIN,
+    P1_EMBED_WRENCH_COMPILE_SOURCE_RETAIN_MAX,
+    P1_EMBED_WRENCH_COMPILE_SOURCE_SHRINK_IDLE_MS);
   wrenchCompileCrashClear();
-  wrenchEmitCompileMemoryTrace("worker.after", userCode.length(), src.length(), byteLen > 0 ? (size_t)byteLen : 0);
+  wrenchEmitCompileMemoryTrace("worker.after", userCode.length(), sourceLen, byteLen > 0 ? (size_t)byteLen : 0);
   if (ce != WR_ERR_None || !bytecode || byteLen <= 0) {
     errOut = compileErr.size() ? String(compileErr.c_str()) : String("compile failed: ") + scriptErrorWrenchName((int)ce);
     errOut = wrenchRemapCompileError(errOut, userLineOffset);
@@ -835,6 +872,11 @@ bool wrenchCompileAndSet(const String& userCode, String& errOut) {
   wrenchReleaseCompiledProgram();
   wrenchEmitCompileMemoryTrace("runtime.released", userCode.length());
   mqttTransportPrepareMemoryPressure();
+  p1ReusableBufferMaintain(
+    g_wrenchCompileSourceBuffer,
+    P1_EMBED_WRENCH_COMPILE_SOURCE_RETAIN_MIN,
+    P1_EMBED_WRENCH_COMPILE_SOURCE_RETAIN_MAX,
+    0);
   wrenchEmitCompileMemoryTrace("mqtt.released", userCode.length());
   wrenchSetPhase(WRENCH_PHASE_COMPILING);
 

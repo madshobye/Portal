@@ -798,6 +798,126 @@ function uiRect(x,y,w,h, style={}){
 }
 
 // -------------------------
+// Small plot utility
+// -------------------------
+function uiPlot(id, series = [], style = {}) {
+  const g = uiGraphicsTarget;
+  if (g) g.push(); else push();
+  const overlay2d = g ? false : _uiOverlayStart();
+  const s = uiMergeDeep({}, uiBaseStyle.common, {
+    width: uiGetList?.()?.width || 260,
+    height: 140,
+    bgColor: [255, 255, 255, 18],
+    gridColor: [255, 255, 255, 26],
+    axisColor: [255, 255, 255, 90],
+    textColor: [255, 255, 255, 190],
+    fontSize: 11,
+    padding: 14,
+    xMin: null,
+    xMax: null,
+    yMin: null,
+    yMax: null,
+    showGrid: true,
+    showLabels: true,
+    rounding: 4,
+  }, style);
+  const box = (s.x !== undefined && s.y !== undefined && s.width !== undefined && s.height !== undefined)
+    ? { x: s.x, y: s.y, width: s.width, height: s.height }
+    : uiPlace(s.width, s.height);
+  const list = Array.isArray(series) ? series : [series];
+  const normalized = list
+    .filter(Boolean)
+    .map((item, index) => Array.isArray(item)
+      ? { values: item, color: index === 0 ? "#ff3b30" : "#2274ff" }
+      : { color: index === 0 ? "#ff3b30" : "#2274ff", ...item });
+  const allPoints = [];
+  for (const item of normalized) {
+    const values = item.values || item.points || [];
+    for (let i = 0; i < values.length; i++) {
+      const p = values[i];
+      if (Array.isArray(p)) allPoints.push({ x: Number(p[0]), y: Number(p[1]) });
+      else if (p && typeof p === "object") allPoints.push({ x: Number(p.x ?? i), y: Number(p.y ?? p.value) });
+      else allPoints.push({ x: i, y: Number(p) });
+    }
+  }
+  const finite = allPoints.filter((p) => Number.isFinite(p.x) && Number.isFinite(p.y));
+  const xMin = s.xMin ?? (finite.length ? Math.min(...finite.map((p) => p.x)) : 0);
+  const xMax = s.xMax ?? (finite.length ? Math.max(...finite.map((p) => p.x)) : 1);
+  const yMinRaw = s.yMin ?? (finite.length ? Math.min(...finite.map((p) => p.y)) : 0);
+  const yMaxRaw = s.yMax ?? (finite.length ? Math.max(...finite.map((p) => p.y)) : 1);
+  const yPad = Math.max(1e-9, (yMaxRaw - yMinRaw) * 0.06);
+  const yMin = s.yMin ?? (yMinRaw - yPad);
+  const yMax = s.yMax ?? (yMaxRaw + yPad);
+  const px = box.x + s.padding;
+  const py = box.y + s.padding;
+  const pw = Math.max(1, box.width - s.padding * 2);
+  const ph = Math.max(1, box.height - s.padding * 2);
+  const sx = (x) => px + ((x - xMin) / ((xMax - xMin) || 1)) * pw;
+  const sy = (y) => py + ph - ((y - yMin) / ((yMax - yMin) || 1)) * ph;
+  const draw = g || window;
+
+  draw.noStroke();
+  if (s.bgColor) draw.fill(s.bgColor);
+  else draw.noFill();
+  draw.rect(box.x, box.y, box.width, box.height, s.rounding);
+
+  if (s.showGrid) {
+    draw.stroke(s.gridColor);
+    draw.strokeWeight(1);
+    for (let i = 0; i <= 4; i++) {
+      const gx = px + (pw * i) / 4;
+      const gy = py + (ph * i) / 4;
+      draw.line(gx, py, gx, py + ph);
+      draw.line(px, gy, px + pw, gy);
+    }
+  }
+
+  draw.noFill();
+  draw.stroke(s.axisColor);
+  draw.rect(px, py, pw, ph);
+
+  for (const item of normalized) {
+    const values = item.values || item.points || [];
+    draw.noFill();
+    draw.stroke(item.color || "#ffffff");
+    draw.strokeWeight(item.weight || 2);
+    draw.beginShape();
+    for (let i = 0; i < values.length; i++) {
+      const p = values[i];
+      const x = Array.isArray(p) ? Number(p[0]) : (p && typeof p === "object" ? Number(p.x ?? i) : i);
+      const y = Array.isArray(p) ? Number(p[1]) : (p && typeof p === "object" ? Number(p.y ?? p.value) : Number(p));
+      if (Number.isFinite(x) && Number.isFinite(y)) draw.vertex(sx(x), sy(y));
+    }
+    draw.endShape();
+  }
+
+  const hit = uiHit(box.x, box.y, box.width, box.height);
+  let hoverValue = null;
+  if (hit.hover && finite.length) {
+    const hoverX = xMin + constrain((uiMX - px) / pw, 0, 1) * ((xMax - xMin) || 1);
+    hoverValue = { x: hoverX, yMin, yMax };
+    draw.stroke(s.axisColor);
+    draw.line(uiMX, py, uiMX, py + ph);
+  }
+
+  if (s.showLabels) {
+    draw.noStroke();
+    draw.fill(s.textColor);
+    draw.textSize(s.fontSize);
+    draw.textAlign(LEFT, TOP);
+    if (s.label) draw.text(String(s.label), box.x + 8, box.y + 6);
+    draw.textAlign(RIGHT, TOP);
+    draw.text(Number(yMax).toFixed(2), box.x + box.width - 8, box.y + 6);
+    draw.textAlign(RIGHT, BOTTOM);
+    draw.text(Number(yMin).toFixed(2), box.x + box.width - 8, box.y + box.height - 6);
+  }
+
+  _uiOverlayEnd(overlay2d);
+  if (g) g.pop(); else pop();
+  return { ...box, hover: hit.hover, clicked: hit.clicked, hoverValue, xMin, xMax, yMin, yMax };
+}
+
+// -------------------------
 // Demo (optional)
 // -------------------------
 function uiDemoPanel(){
@@ -1256,6 +1376,7 @@ window.uiPromptText = uiPromptText;
 window.uiSlider = uiSlider;
 window.uiToggle = uiToggle;
 window.uiRect = uiRect;
+window.uiPlot = uiPlot;
 window.uiSetBaseStyle = uiSetBaseStyle;
 window.uiGet = uiGet;
 window.uiSet = uiSet;
