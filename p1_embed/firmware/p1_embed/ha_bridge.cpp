@@ -113,6 +113,7 @@ static WiFiServer g_haServer(P1_EMBED_HA_PORT);
 static WiFiClient g_haClient;
 static bool g_haServerStarted = false;
 static bool g_haMdnsStarted = false;
+static bool g_haRuntimeActive = false;
 static bool g_haClientSubscribed = false;
 static bool g_haClientHello = false;
 static char g_haDeviceName[P1_EMBED_HA_NAME_MAX] = "";
@@ -444,11 +445,9 @@ static void haSendEntityListOne(const P1HaEntity& entity) {
         };
         debugEventEmitFields("home_assistant.entity", "trace", "home_assistant", "list light entity", fields, 4);
       }
-      msg.fieldBool(5, true);
-      msg.fieldBool(6, false);
-      msg.fieldBool(7, false);
-      msg.fieldBool(8, false);
-      msg.fieldPackedUint(12, 3);
+      msg.fieldFloat(9, 0.0f);
+      msg.fieldFloat(10, 0.0f);
+      msg.fieldUint(12, 3);
       msg.fieldBool(13, false);
       msg.fieldUint(15, 0);
       haSendMessage(15, msg);
@@ -727,6 +726,16 @@ void haBridgeBegin() {
 }
 
 void haBridgeLoop() {
+  if (!g_haRuntimeActive) {
+    if (g_haClient) g_haClient.stop();
+    if (g_haServerStarted) {
+      g_haServer.end();
+      g_haServerStarted = false;
+      debugLog("info", "home_assistant", "ESPHome native API inactive");
+    }
+    return;
+  }
+
   if (!wifiIsConnected()) return;
 
   haStartMdns();
@@ -764,7 +773,12 @@ void haBridgeLoop() {
 }
 
 void haRuntimeReset() {
+  g_haRuntimeActive = false;
   if (g_haClient) g_haClient.stop();
+  if (g_haServerStarted) {
+    g_haServer.end();
+    g_haServerStarted = false;
+  }
   g_haClientSubscribed = false;
   g_haClientHello = false;
   g_haRxLen = 0;
@@ -779,8 +793,9 @@ void haRuntimeReset() {
 bool haBeginDevice(const String& name) {
   String clean = name;
   clean.trim();
-  haCopy(g_haDeviceName, sizeof(g_haDeviceName), clean.length() ? clean : configDeviceName());
   haRuntimeReset();
+  haCopy(g_haDeviceName, sizeof(g_haDeviceName), clean.length() ? clean : configDeviceName());
+  g_haRuntimeActive = true;
   return true;
 }
 
