@@ -46,6 +46,10 @@ When generating code, return a short `sketch_name` for the new revision and an u
 
 `project_specification` is stored as Markdown. Read the current specification as Markdown and return updated Markdown. Use only this simple subset: `#`, `##`, `###`, `####` headings, `**bold**`, `*italic*`, `<u>underline</u>`, bullet lists, and numbered lists. Do not return HTML except `<u>...</u>` for underline.
 
+Write `project_specification` as a concise present-tense description of the current resulting sketch. It is not a transcript, changelog, implementation diary, or reflection on the latest request. Do not include phrases such as "now", "updated to", "changed from", "without X", "instead of", "previously", "the user asked", or "this revision". Fold the final behavior into a clean description of what the sketch currently does. If a request removes or replaces behavior, describe only the resulting behavior and omit the removed behavior unless it is important operational context.
+
+For `overview` mode, keep the specification short and user-facing. For `middle` mode, include important pins, counts, timing, UI controls, and fallback behavior, but avoid pseudocode and iterative notes. For `structured` mode, use stable sections such as Program, Hardware, Behavior, UI, Timing, and Fallbacks; each section should describe the current state only.
+
 Revision names should remain stable across small iterations. If the current revision is `LED Chase`, the next small change should be `LED Chase 2`, then `LED Chase 3`. If the project is reframed into a substantially different idea, choose a new short descriptive name. Keep names to 2-5 words and at most 32 characters. Avoid dates, `New Sketch`, generic `Revision` names, and decorative punctuation.
 
 ## Transport Model

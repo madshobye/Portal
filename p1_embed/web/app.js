@@ -1,14 +1,14 @@
-import { ProtocolClient } from "./protocol/ProtocolClient.js?v=0.1.87-ui327";
-import { canEncodeCommand } from "./protocol/P1MsgPack.js?v=0.1.87-ui327";
-import { WebSerialTransport } from "./protocol/WebSerialTransport.js?v=0.1.87-ui327";
+import { ProtocolClient } from "./protocol/ProtocolClient.js?v=0.1.87-ui328";
+import { canEncodeCommand } from "./protocol/P1MsgPack.js?v=0.1.87-ui328";
+import { WebSerialTransport } from "./protocol/WebSerialTransport.js?v=0.1.87-ui328";
 import { WebSocketTransport } from "./protocol/WebSocketTransport.js";
-import { MqttWebRtcTransport, MQTT_WEBRTC_TRANSPORT_VERSION } from "./protocol/MqttWebRtcTransport.js?v=0.1.87-ui327";
-import { MqttTransport, MQTT_TRANSPORT_VERSION, clearOnlineAuthKey, deriveOnlineAuthKeyHex, storeOnlineAuthKey } from "./protocol/MqttTransport.js?v=0.1.87-ui327";
-import { P1WebFlasher } from "./web-flasher.js?v=0.1.87-ui327";
-import { inferCircuitLayout, initCircuitView, normalizeCircuitLayout } from "./circuit.js?v=0.1.87-ui327";
-import { initGuinoView } from "./guino.js?v=0.1.87-ui327";
+import { MqttWebRtcTransport, MQTT_WEBRTC_TRANSPORT_VERSION } from "./protocol/MqttWebRtcTransport.js?v=0.1.87-ui328";
+import { MqttTransport, MQTT_TRANSPORT_VERSION, clearOnlineAuthKey, deriveOnlineAuthKeyHex, storeOnlineAuthKey } from "./protocol/MqttTransport.js?v=0.1.87-ui328";
+import { P1WebFlasher } from "./web-flasher.js?v=0.1.87-ui328";
+import { inferCircuitLayout, initCircuitView, normalizeCircuitLayout } from "./circuit.js?v=0.1.87-ui328";
+import { initGuinoView } from "./guino.js?v=0.1.87-ui328";
 
-const WEB_UI_VERSION = "0.1.87-ui327";
+const WEB_UI_VERSION = "0.1.87-ui328";
 const CHAT_DEFAULT_MAX_OUTPUT_TOKENS = 8000;
 const CHAT_MIN_MAX_OUTPUT_TOKENS = 1024;
 const CHAT_HARD_MAX_OUTPUT_TOKENS = 32000;
@@ -6287,6 +6287,7 @@ function buildChatInstructions(context) {
     "When producing code, also provide sketch_name: a short project revision title, 2-5 words and at most 32 characters.",
     "Naming rule: for small iterations, keep the current revision base name and increment its trailing number, such as LED Chase -> LED Chase 2 -> LED Chase 3. For larger reframings, choose a new short descriptive name. Do not invent a random unrelated name when the current name still describes the work. Avoid dates, New Sketch, generic Revision names, and decorative punctuation.",
     "When producing or changing code, also provide project_specification as simple Markdown that matches the resulting code and follows the requested specification_mode.",
+    "Project specification rule: describe only the current resulting sketch in concise present tense. Do not write a changelog, transcript, reflection, or iterative phrasing such as now, updated to, changed from, without X, instead of, previously, the user asked, or this revision. If behavior was removed, omit the removed behavior and describe the final behavior.",
     "Use only this Markdown subset in project_specification: # through #### headings, **bold**, *italic*, <u>underline</u>, numbered lists, and bullet lists.",
     "Specification modes: overview means high-level human description; middle means important implementation details without pseudocode; structured means sections like Program, Global values, Setup, and Main loop in Markdown/plain text.",
     "Also provide circuit_layout: a best-effort JSON layout for the Circuit view with components, connections, assumptions, and notes. Use an empty object if no hardware is involved.",
