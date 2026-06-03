@@ -257,8 +257,8 @@ For unclear runtime bugs, start by adding the smallest useful logs and reproduci
 
 At the time this file was written:
 
-- Firmware was bumped to `0.1.156`.
-- Installer manifest was bumped to `0.1.156`.
+- Firmware was bumped to `0.1.157`.
+- Installer manifest was bumped to `0.1.157`.
 - `touchReadPair()` was added as an optimized two-wire analog touch helper.
 - Common top-level math helpers and Arduino-like `map()`/`constrain()` were added.
 - It compiled successfully.
