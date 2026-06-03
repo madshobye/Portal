@@ -134,6 +134,19 @@ static const char* wrenchScriptStateName(P1ScriptState state) {
   return "unknown";
 }
 
+static void wrenchEmitCompileMemoryTrace(const char* marker, size_t scriptBytes = 0, size_t sourceBytes = 0, size_t bytecodeBytes = 0) {
+  P1EventField fields[] = {
+    p1FieldString("marker", marker ? marker : ""),
+    p1FieldUInt("freeHeap", ESP.getFreeHeap()),
+    p1FieldUInt("maxAllocHeap", ESP.getMaxAllocHeap()),
+    p1FieldUInt("minFreeHeap", ESP.getMinFreeHeap()),
+    p1FieldUInt("scriptBytes", scriptBytes),
+    p1FieldUInt("sourceBytes", sourceBytes),
+    p1FieldUInt("bytecodeBytes", bytecodeBytes),
+  };
+  debugEventEmitFields("script.memory", "debug", "script", "compile memory trace", fields, 7);
+}
+
 static void wrenchSetPhase(P1WrenchPhase phase) {
   g_wrenchPhase = phase;
 }
@@ -708,6 +721,7 @@ static bool wrenchCompileSource(const String& userCode, unsigned char** bytecode
   errOut = "";
   *bytecodeOut = nullptr;
   *byteLenOut = 0;
+  wrenchEmitCompileMemoryTrace("compileSource.begin", userCode.length());
   if (userCode.length() == 0) {
     errOut = "empty script";
     scriptErrorSet("compile", "empty_script", errOut);
@@ -748,19 +762,20 @@ static bool wrenchCompileSource(const String& userCode, unsigned char** bytecode
     }
   }
   if (freeHeap < minFreeHeap || maxAlloc < minMaxAlloc) {
-    errOut = "not enough contiguous heap to compile safely";
-    String details = "\"freeHeap\":" + String(freeHeap);
-    details += ",\"maxAllocHeap\":" + String(maxAlloc);
-    details += ",\"bestFreeHeap\":" + String(bestFreeHeap);
-    details += ",\"bestMaxAllocHeap\":" + String(bestMaxAlloc);
-    details += ",\"minFreeHeap\":" + String(minFreeHeap);
-    details += ",\"minMaxAllocHeap\":" + String(minMaxAlloc);
-    details += ",\"scriptBytes\":" + String(userCode.length());
-    scriptErrorSet("compile", "compile_memory_low", errOut, details);
-    return false;
+    P1EventField fields[] = {
+      p1FieldUInt("freeHeap", freeHeap),
+      p1FieldUInt("maxAllocHeap", maxAlloc),
+      p1FieldUInt("bestFreeHeap", bestFreeHeap),
+      p1FieldUInt("bestMaxAllocHeap", bestMaxAlloc),
+      p1FieldUInt("minFreeHeap", minFreeHeap),
+      p1FieldUInt("minMaxAllocHeap", minMaxAlloc),
+      p1FieldUInt("scriptBytes", userCode.length()),
+    };
+    debugEventEmitFields("script.memory", "warn", "script", "compiling despite low heap guard estimate", fields, 7);
   }
 
   String prelude = wrenchPrelude();
+  wrenchEmitCompileMemoryTrace("prelude.built", userCode.length(), prelude.length());
   int userLineOffset = 1;
   for (size_t i = 0; i < prelude.length(); i++) {
     if (prelude[i] == '\n') userLineOffset++;
@@ -768,14 +783,17 @@ static bool wrenchCompileSource(const String& userCode, unsigned char** bytecode
   String src = prelude;
   src += "\n";
   src += userCode;
+  wrenchEmitCompileMemoryTrace("source.built", userCode.length(), src.length());
 
   unsigned char* bytecode = nullptr;
   int byteLen = 0;
   WRstr compileErr;
 
   wrenchCompileCrashArm(protocolFnv1a(userCode), userCode.length());
+  wrenchEmitCompileMemoryTrace("worker.before", userCode.length(), src.length());
   WRError ce = wrenchCompileOnWorker(src, &bytecode, &byteLen, compileErr);
   wrenchCompileCrashClear();
+  wrenchEmitCompileMemoryTrace("worker.after", userCode.length(), src.length(), byteLen > 0 ? (size_t)byteLen : 0);
   if (ce != WR_ERR_None || !bytecode || byteLen <= 0) {
     errOut = compileErr.size() ? String(compileErr.c_str()) : String("compile failed: ") + scriptErrorWrenchName((int)ce);
     errOut = wrenchRemapCompileError(errOut, userLineOffset);
@@ -806,6 +824,7 @@ static bool wrenchCompileSource(const String& userCode, unsigned char** bytecode
 
 bool wrenchCompileAndSet(const String& userCode, String& errOut) {
   errOut = "";
+  wrenchEmitCompileMemoryTrace("compileAndSet.begin", userCode.length());
   {
     P1EventField fields[] = {
       p1FieldUInt("scriptBytes", userCode.length()),
@@ -814,11 +833,15 @@ bool wrenchCompileAndSet(const String& userCode, String& errOut) {
   }
   uiRuntimeReset("", true);
   wrenchReleaseCompiledProgram();
+  wrenchEmitCompileMemoryTrace("runtime.released", userCode.length());
+  mqttTransportPrepareMemoryPressure();
+  wrenchEmitCompileMemoryTrace("mqtt.released", userCode.length());
   wrenchSetPhase(WRENCH_PHASE_COMPILING);
 
   unsigned char* bytecode = nullptr;
   int byteLen = 0;
   if (!wrenchCompileSource(userCode, &bytecode, &byteLen, errOut)) {
+    wrenchEmitCompileMemoryTrace("compileAndSet.failed", userCode.length());
     P1EventField fields[] = {
       p1FieldString("error", errOut),
     };
@@ -852,6 +875,7 @@ bool wrenchCompileAndSet(const String& userCode, String& errOut) {
     p1FieldUInt("bytecodeBytes", byteLen),
   };
   protocolEmitEventFields("script.state", fields, 3);
+  wrenchEmitCompileMemoryTrace("compileAndSet.ready", userCode.length(), 0, byteLen);
   wrenchUnlock();
   return true;
 }
@@ -929,6 +953,7 @@ bool wrenchRunCompiled(String& errOut) {
   debugEventEmitFields("script.debug", "debug", "script", "runCompiled after stop", nullptr, 0);
   g_wrenchConsecutiveErrorLoops = 0;
 
+  mqttTransportPrepareMemoryPressure();
   ledBeginScriptRun();
   haRuntimeReset();
 

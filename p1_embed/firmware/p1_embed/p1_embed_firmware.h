@@ -94,6 +94,33 @@ struct P1StatusSnapshot {
   P1DebugSnapshot debug;
 };
 
+struct P1ReusableBuffer {
+  uint8_t* data = nullptr;
+  size_t capacity = 0;
+  size_t emaNeed = 0;
+  size_t peakNeed = 0;
+  size_t lastNeed = 0;
+  uint32_t lastUseMs = 0;
+  uint32_t reuseCount = 0;
+  uint32_t growCount = 0;
+  uint32_t shrinkCount = 0;
+  uint32_t tempAllocCount = 0;
+  uint32_t tempFreeCount = 0;
+  uint32_t failCount = 0;
+};
+
+struct P1ReusableBufferHandle {
+  uint8_t* data = nullptr;
+  size_t capacity = 0;
+  bool temporary = false;
+};
+
+bool p1ReusableBufferAcquire(P1ReusableBuffer& buffer, size_t needed, size_t retainMin, size_t retainMax, P1ReusableBufferHandle& handle);
+void p1ReusableBufferReleaseHandle(P1ReusableBuffer& buffer, P1ReusableBufferHandle& handle);
+void p1ReusableBufferMaintain(P1ReusableBuffer& buffer, size_t retainMin, size_t retainMax, uint32_t idleMs);
+void p1ReusableBufferRelease(P1ReusableBuffer& buffer);
+String p1ReusableBufferStatusJson(const P1ReusableBuffer& buffer);
+
 void transportSerialBegin();
 void transportSerialPoll();
 void transportSendRaw(const char* data);
@@ -116,6 +143,7 @@ void mqttTransportSendScriptText(const String& message, bool newline);
 bool mqttTransportConnected();
 String mqttTransportStatusJson();
 void mqttTransportApplyConfig();
+void mqttTransportPrepareMemoryPressure();
 
 void memoryProfileBegin();
 void memoryProfileReset();

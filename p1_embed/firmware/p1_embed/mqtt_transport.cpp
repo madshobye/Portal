@@ -42,8 +42,11 @@ static const uint8_t P1_MQTT_AUTH_FINISH = 2;
 static const uint8_t P1_MQTT_AUTH_OK = 3;
 static const uint8_t P1_MQTT_AUTH_ERROR = 4;
 static const unsigned long P1_MQTT_AUTH_PENDING_TIMEOUT_MS = 10000;
+static const unsigned long P1_MQTT_SECURE_BUFFER_SHRINK_IDLE_MS = 15000;
 static const size_t P1_MQTT_CLIENT_ID_MAX = 64;
 static const size_t P1_MQTT_USERNAME_MAX = 32;
+static const size_t P1_MQTT_SECURE_FRAME_RETAIN_MIN = 256;
+static const size_t P1_MQTT_SECURE_FRAME_RETAIN_MAX = 4096;
 static const uint8_t P1_MQTT_OUT_BYTES = 1;
 static const uint8_t P1_MQTT_OUT_SCRIPT_TEXT = 2;
 
@@ -77,7 +80,8 @@ struct MqttQueuedOut {
 
 static MqttPendingAuth g_mqttPendingAuth[P1_EMBED_MQTT_MAX_USERS];
 static MqttSession g_mqttSessions[P1_EMBED_MQTT_MAX_USERS];
-static uint8_t* g_mqttEventBatch = nullptr;
+static P1ReusableBuffer g_mqttEventBatchBuffer;
+static P1ReusableBuffer g_mqttSecureFrameBuffer;
 static size_t g_mqttEventBatchLen = 0;
 static uint8_t g_mqttEventBatchCount = 0;
 static TaskHandle_t g_mqttOwnerTask = nullptr;
@@ -87,6 +91,8 @@ static volatile uint32_t g_mqttOutDropCount = 0;
 static volatile uint32_t g_mqttOutHighWater = 0;
 static volatile int g_mqttOwnerCore = -1;
 static volatile int g_mqttLoopCore = -1;
+
+static void mqttFlushEventBatch();
 
 static void mqttCopyText(char* dst, size_t dstLen, const String& src) {
   if (!dst || dstLen == 0) return;
@@ -104,8 +110,29 @@ static bool mqttIsOwnerTask() {
   return !g_mqttOwnerTask || xTaskGetCurrentTaskHandle() == g_mqttOwnerTask;
 }
 
+static bool mqttEnsureOutQueue() {
+  if (g_mqttOutQueue) return true;
+  if (!configMqttEnabled()) return false;
+  g_mqttOutQueue = xQueueCreate(P1_EMBED_MQTT_OUT_QUEUE_DEPTH, sizeof(MqttQueuedOut));
+  return g_mqttOutQueue != nullptr;
+}
+
+static void mqttReleaseOutQueue() {
+  if (!g_mqttOutQueue) return;
+  vQueueDelete(g_mqttOutQueue);
+  g_mqttOutQueue = nullptr;
+}
+
+static void mqttReleaseRuntimeBuffers() {
+  mqttReleaseOutQueue();
+  p1ReusableBufferRelease(g_mqttEventBatchBuffer);
+  p1ReusableBufferRelease(g_mqttSecureFrameBuffer);
+  g_mqttEventBatchLen = 0;
+  g_mqttEventBatchCount = 0;
+}
+
 static bool mqttQueueOut(uint8_t kind, const uint8_t* data, size_t len, bool newline) {
-  if (!data || len == 0 || len > P1_EMBED_MQTT_OUT_QUEUE_BYTES || !g_mqttOutQueue) {
+  if (!data || len == 0 || len > P1_EMBED_MQTT_OUT_QUEUE_BYTES || !mqttEnsureOutQueue()) {
     g_mqttOutDropCount++;
     return false;
   }
@@ -369,11 +396,12 @@ static bool mqttPublishSecure(const String& topic, int sessionIndex, const uint8
   session.lastSeenAt = millis();
 
   size_t frameCapacity = payloadLen + 96;
-  uint8_t* frame = static_cast<uint8_t*>(malloc(frameCapacity));
-  if (!frame) {
+  P1ReusableBufferHandle frameHandle;
+  if (!p1ReusableBufferAcquire(g_mqttSecureFrameBuffer, frameCapacity, P1_MQTT_SECURE_FRAME_RETAIN_MIN, P1_MQTT_SECURE_FRAME_RETAIN_MAX, frameHandle)) {
     debugLog("warn", "mqtt", "secure frame alloc failed");
     return false;
   }
+  uint8_t* frame = frameHandle.data;
 
   P1MsgPackWriter w(frame, frameCapacity);
   w.writeArray(5);
@@ -389,39 +417,39 @@ static bool mqttPublishSecure(const String& topic, int sessionIndex, const uint8
     w.writeByte(payloadLen >> 8);
     w.writeByte(payloadLen);
   } else {
-    free(frame);
+    p1ReusableBufferReleaseHandle(g_mqttSecureFrameBuffer, frameHandle);
     return false;
   }
   if (!w.ok || w.length + payloadLen + 36 > w.capacity) {
-    free(frame);
+    p1ReusableBufferReleaseHandle(g_mqttSecureFrameBuffer, frameHandle);
     return false;
   }
   uint8_t* cipher = frame + w.length;
   if (!mqttAesCtrCrypt(session.key, session.sessionId, counter, 1, payload, cipher, payloadLen)) {
-    free(frame);
+    p1ReusableBufferReleaseHandle(g_mqttSecureFrameBuffer, frameHandle);
     return false;
   }
   w.length += payloadLen;
 
   uint8_t tag[32];
   if (!mqttSecureTag(session.key, session.sessionId, counter, cipher, payloadLen, tag)) {
-    free(frame);
+    p1ReusableBufferReleaseHandle(g_mqttSecureFrameBuffer, frameHandle);
     return false;
   }
   w.writeBin(tag, sizeof(tag));
   if (!w.ok) {
-    free(frame);
+    p1ReusableBufferReleaseHandle(g_mqttSecureFrameBuffer, frameHandle);
     return false;
   }
   size_t tagOffset = w.length >= 34 ? w.length - 34 : 0;
   if (!tagOffset || frame[tagOffset] != 0xc4 || frame[tagOffset + 1] != 32) {
     debugLog("warn", "mqtt", "secure frame self-check failed");
-    free(frame);
+    p1ReusableBufferReleaseHandle(g_mqttSecureFrameBuffer, frameHandle);
     return false;
   }
   bool ok = g_mqtt.publish(topic.c_str(), reinterpret_cast<const char*>(frame), (int)w.length, false, 0);
   if (!ok) debugLog("warn", "mqtt", "secure publish failed");
-  free(frame);
+  p1ReusableBufferReleaseHandle(g_mqttSecureFrameBuffer, frameHandle);
   return ok;
 }
 
@@ -686,6 +714,7 @@ static void mqttHandleMessage(MQTTClient*, char topic[], char bytes[], int lengt
 
 static bool mqttConnect() {
   if (!configMqttEnabled()) return false;
+  if (!mqttEnsureOutQueue()) return false;
   g_mqttDeviceId = mqttDeviceTopicId();
   g_mqttClientId = String("p1e-device-") + g_mqttDeviceId;
   g_mqttCmdTopicPrefix = mqttBaseTopic() + "/cmd";
@@ -721,10 +750,8 @@ static bool mqttConnect() {
 }
 
 void mqttTransportBegin() {
-  if (!g_mqttOutQueue) {
-    g_mqttOutQueue = xQueueCreate(P1_EMBED_MQTT_OUT_QUEUE_DEPTH, sizeof(MqttQueuedOut));
-  }
   g_mqttDeviceId = mqttDeviceTopicId();
+  if (configMqttEnabled()) mqttEnsureOutQueue();
 }
 
 void mqttTransportApplyConfig() {
@@ -740,6 +767,14 @@ void mqttTransportApplyConfig() {
     mqttClearPendingAuth(g_mqttPendingAuth[i]);
     mqttClearSession(g_mqttSessions[i]);
   }
+  if (!configMqttEnabled()) mqttReleaseRuntimeBuffers();
+}
+
+void mqttTransportPrepareMemoryPressure() {
+  p1ReusableBufferRelease(g_mqttEventBatchBuffer);
+  p1ReusableBufferRelease(g_mqttSecureFrameBuffer);
+  g_mqttEventBatchLen = 0;
+  g_mqttEventBatchCount = 0;
 }
 
 static bool mqttPublishEventPayload(const uint8_t* data, size_t len) {
@@ -769,28 +804,31 @@ static bool mqttPublishEventPayload(const uint8_t* data, size_t len) {
 }
 
 static void mqttEventBatchReset() {
-  if (!g_mqttEventBatch) return;
-  g_mqttEventBatch[0] = 0x92;
-  g_mqttEventBatch[1] = P1_MP_FRAME_BATCH;
-  g_mqttEventBatch[2] = 0x90;
+  uint8_t* batch = g_mqttEventBatchBuffer.data;
+  if (!batch) return;
+  batch[0] = 0x92;
+  batch[1] = P1_MP_FRAME_BATCH;
+  batch[2] = 0x90;
   g_mqttEventBatchLen = 3;
   g_mqttEventBatchCount = 0;
 }
 
 static void mqttFlushEventBatch() {
-  if (!g_mqttEventBatch || g_mqttEventBatchCount == 0) return;
-  g_mqttEventBatch[2] = 0x90 | (g_mqttEventBatchCount & 0x0f);
-  mqttPublishEventPayload(g_mqttEventBatch, g_mqttEventBatchLen);
+  uint8_t* batch = g_mqttEventBatchBuffer.data;
+  if (!batch || g_mqttEventBatchCount == 0) return;
+  batch[2] = 0x90 | (g_mqttEventBatchCount & 0x0f);
+  mqttPublishEventPayload(batch, g_mqttEventBatchLen);
   mqttEventBatchReset();
 }
 
 static bool mqttAppendEventBatch(const uint8_t* data, size_t len) {
   if (!data || len == 0 || len > 0xffff) return false;
-  if (!g_mqttEventBatch) {
-    g_mqttEventBatch = static_cast<uint8_t*>(malloc(P1_EMBED_MQTT_EVENT_BATCH_BYTES));
-    if (!g_mqttEventBatch) return false;
+  if (!g_mqttEventBatchBuffer.data) {
+    P1ReusableBufferHandle batchHandle;
+    if (!p1ReusableBufferAcquire(g_mqttEventBatchBuffer, P1_EMBED_MQTT_EVENT_BATCH_BYTES, P1_EMBED_MQTT_EVENT_BATCH_BYTES, P1_EMBED_MQTT_EVENT_BATCH_BYTES, batchHandle)) return false;
     mqttEventBatchReset();
   }
+  uint8_t* batch = g_mqttEventBatchBuffer.data;
 
   size_t overhead = len <= 0xff ? 2 : 3;
   if (g_mqttEventBatchCount >= P1_EMBED_MQTT_EVENT_BATCH_FRAMES ||
@@ -800,14 +838,14 @@ static bool mqttAppendEventBatch(const uint8_t* data, size_t len) {
   if (g_mqttEventBatchLen + overhead + len > P1_EMBED_MQTT_EVENT_BATCH_BYTES) return false;
 
   if (len <= 0xff) {
-    g_mqttEventBatch[g_mqttEventBatchLen++] = 0xc4;
-    g_mqttEventBatch[g_mqttEventBatchLen++] = (uint8_t)len;
+    batch[g_mqttEventBatchLen++] = 0xc4;
+    batch[g_mqttEventBatchLen++] = (uint8_t)len;
   } else {
-    g_mqttEventBatch[g_mqttEventBatchLen++] = 0xc5;
-    g_mqttEventBatch[g_mqttEventBatchLen++] = (uint8_t)(len >> 8);
-    g_mqttEventBatch[g_mqttEventBatchLen++] = (uint8_t)len;
+    batch[g_mqttEventBatchLen++] = 0xc5;
+    batch[g_mqttEventBatchLen++] = (uint8_t)(len >> 8);
+    batch[g_mqttEventBatchLen++] = (uint8_t)len;
   }
-  memcpy(g_mqttEventBatch + g_mqttEventBatchLen, data, len);
+  memcpy(batch + g_mqttEventBatchLen, data, len);
   g_mqttEventBatchLen += len;
   g_mqttEventBatchCount++;
   return true;
@@ -900,6 +938,7 @@ void mqttTransportLoop() {
       g_mqtt.disconnect();
       debugLog("info", "mqtt", "disabled");
     }
+    mqttReleaseRuntimeBuffers();
     return;
   }
 
@@ -921,6 +960,7 @@ void mqttTransportLoop() {
     }
     mqttFlushOutQueue();
     mqttFlushEventBatch();
+    p1ReusableBufferMaintain(g_mqttSecureFrameBuffer, P1_MQTT_SECURE_FRAME_RETAIN_MIN, P1_MQTT_SECURE_FRAME_RETAIN_MAX, P1_MQTT_SECURE_BUFFER_SHRINK_IDLE_MS);
     return;
   }
 
@@ -932,6 +972,7 @@ void mqttTransportLoop() {
 
 void mqttTransportSendBytes(const uint8_t* data, size_t len) {
   if (!data || len == 0 || len > P1_EMBED_MQTT_BUFFER_BYTES) return;
+  if (!configMqttEnabled()) return;
   if (!mqttIsOwnerTask()) {
     mqttQueueOut(P1_MQTT_OUT_BYTES, data, len, false);
     return;
@@ -941,6 +982,7 @@ void mqttTransportSendBytes(const uint8_t* data, size_t len) {
 
 void mqttTransportSendScriptText(const String& message, bool newline) {
   if (!message.length()) return;
+  if (!configMqttEnabled()) return;
   if (!mqttIsOwnerTask()) {
     mqttQueueOut(P1_MQTT_OUT_SCRIPT_TEXT, reinterpret_cast<const uint8_t*>(message.c_str()), message.length(), newline);
     return;
@@ -949,14 +991,16 @@ void mqttTransportSendScriptText(const String& message, bool newline) {
 }
 
 bool mqttTransportConnected() {
-  return g_mqtt.connected();
+  return configMqttEnabled() && g_mqtt.connected();
 }
 
 String mqttTransportStatusJson() {
   String out = "{";
   out += "\"enabled\":true";
   out += ",\"configured\":" + String(configMqttEnabled() ? "true" : "false");
-  out += ",\"connected\":" + String(g_mqtt.connected() ? "true" : "false");
+  out += ",\"connected\":" + String(mqttTransportConnected() ? "true" : "false");
+  out += ",\"begun\":" + String(g_mqttBegun ? "true" : "false");
+  out += ",\"queueAllocated\":" + String(g_mqttOutQueue ? "true" : "false");
   out += ",\"host\":" + jsonString(configMqttHost());
   out += ",\"port\":" + String(configMqttPort());
   out += ",\"root\":" + jsonString(configMqttRoot());
@@ -985,6 +1029,8 @@ String mqttTransportStatusJson() {
   out += ",\"lastLostMs\":" + String(g_mqttLastLostMs);
   out += ",\"lastLoopClosedMs\":" + String(g_mqttLastLoopClosedMs);
   out += ",\"lastPublishFailMs\":" + String(g_mqttLastPublishFailMs);
+  out += ",\"secureFrameBuffer\":" + p1ReusableBufferStatusJson(g_mqttSecureFrameBuffer);
+  out += ",\"eventBatchBuffer\":" + p1ReusableBufferStatusJson(g_mqttEventBatchBuffer);
   out += "}";
   return out;
 }
@@ -997,4 +1043,5 @@ void mqttTransportSendScriptText(const String&, bool) {}
 bool mqttTransportConnected() { return false; }
 String mqttTransportStatusJson() { return "{\"enabled\":false,\"connected\":false}"; }
 void mqttTransportApplyConfig() {}
+void mqttTransportPrepareMemoryPressure() {}
 #endif

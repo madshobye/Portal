@@ -31,9 +31,19 @@ static const uint8_t P1_MP_OP_SCRIPT_CHUNK_GET = 23;
 static const uint8_t P1_MP_OP_SCRIPT_RESTART = 24;
 static const uint8_t P1_MP_OP_DEVICE_REBOOT = 30;
 
+static void protocolSendMsgPackError(uint32_t id, const char* code, const char* message);
+
 static void protocolSendMsgPackBytes(const uint8_t* data, size_t len) {
   webrtcTransportSendBytes(data, len);
   mqttTransportSendBytes(data, len);
+}
+
+static void protocolSendMsgPackResponseBytes(uint32_t id, const uint8_t* data, size_t len, const char* tooLargeMessage) {
+  if (mqttTransportConnected() && len > P1_EMBED_MQTT_BUFFER_BYTES) {
+    protocolSendMsgPackError(id, "response_too_large", tooLargeMessage ? tooLargeMessage : "Response is too large for MQTT");
+    return;
+  }
+  protocolSendMsgPackBytes(data, len);
 }
 
 uint32_t protocolFnv1a(const String& s) {
@@ -971,7 +981,7 @@ static void protocolSendMsgPackStatusLight(uint32_t id) {
     w.writeString("atMs"); w.writeUInt(snapshot.lastError.atMs);
     w.writeString("count"); w.writeUInt(snapshot.lastError.count);
   }
-  if (w.ok) protocolSendMsgPackBytes(frame, w.length);
+  if (w.ok) protocolSendMsgPackResponseBytes(id, frame, w.length, "status.light response is too large for MQTT");
   else protocolSendMsgPackError(id, "frame_too_large", "status.light response is too large");
   free(frame);
 }
@@ -1024,7 +1034,7 @@ static void protocolSendMsgPackSystemInfo(uint32_t id) {
   w.writeString("wrench.bindings.ui_guino");
   w.writeString("wifi.station");
   w.writeString("wifi"); protocolMsgPackWriteWifi(w, config.wifi);
-  if (w.ok) protocolSendMsgPackBytes(frame, w.length);
+  if (w.ok) protocolSendMsgPackResponseBytes(id, frame, w.length, "system.info response is too large for MQTT");
   else protocolSendMsgPackError(id, "frame_too_large", "system.info response is too large");
   free(frame);
 }
@@ -1074,7 +1084,7 @@ static void protocolSendMsgPackConfig(uint32_t id) {
   }
   w.writeString("storage"); w.writeString("littlefs:/config.json");
   w.writeString("wifi"); protocolMsgPackWriteWifi(w, snapshot.wifi);
-  if (w.ok) protocolSendMsgPackBytes(frame, w.length);
+  if (w.ok) protocolSendMsgPackResponseBytes(id, frame, w.length, "config.get response is too large for MQTT");
   else protocolSendMsgPackError(id, "frame_too_large", "config.get response is too large");
   free(frame);
 }
@@ -1128,7 +1138,7 @@ static void protocolSendMsgPackScriptError(uint32_t id) {
       w.writeString("json-fields");
     }
   }
-  if (w.ok) protocolSendMsgPackBytes(frame, w.length);
+  if (w.ok) protocolSendMsgPackResponseBytes(id, frame, w.length, "script.error response is too large for MQTT");
   else protocolSendMsgPackError(id, "frame_too_large", "script.error response is too large");
   free(frame);
 }
@@ -1155,11 +1165,7 @@ static void protocolSendMsgPackScriptGet(uint32_t id) {
   w.writeString("runState"); w.writeString(snapshot.runState);
   w.writeString("revisionId"); w.writeString(configRevisionId());
   w.writeString("scriptName"); w.writeString(configScriptName());
-  if (w.ok && mqttTransportConnected() && w.length > P1_EMBED_MQTT_BUFFER_BYTES) {
-    protocolSendMsgPackError(id, "response_too_large", "script.get response is too large for MQTT; use script.chunk.get");
-  } else if (w.ok) {
-    protocolSendMsgPackBytes(frame, w.length);
-  }
+  if (w.ok) protocolSendMsgPackResponseBytes(id, frame, w.length, "script.get response is too large for MQTT; use script.chunk.get");
   free(frame);
   if (!w.ok) protocolSendMsgPackError(id, "frame_too_large", "Stored script did not fit in MessagePack response");
 }
@@ -1194,7 +1200,7 @@ static void protocolSendMsgPackScriptChunkGet(uint32_t id, uint32_t offset, uint
   w.writeString("runState"); w.writeString(snapshot.runState);
   w.writeString("revisionId"); w.writeString(configRevisionId());
   w.writeString("scriptName"); w.writeString(configScriptName());
-  if (w.ok) protocolSendMsgPackBytes(frame, w.length);
+  if (w.ok) protocolSendMsgPackResponseBytes(id, frame, w.length, "script.chunk.get response is too large for MQTT");
   if (!w.ok) protocolSendMsgPackError(id, "frame_too_large", "Script chunk did not fit in MessagePack response");
   free(frame);
 }
