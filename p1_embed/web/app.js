@@ -1,14 +1,14 @@
-import { ProtocolClient } from "./protocol/ProtocolClient.js?v=0.1.87-ui320";
-import { canEncodeCommand } from "./protocol/P1MsgPack.js?v=0.1.87-ui320";
-import { WebSerialTransport } from "./protocol/WebSerialTransport.js?v=0.1.87-ui320";
+import { ProtocolClient } from "./protocol/ProtocolClient.js?v=0.1.87-ui327";
+import { canEncodeCommand } from "./protocol/P1MsgPack.js?v=0.1.87-ui327";
+import { WebSerialTransport } from "./protocol/WebSerialTransport.js?v=0.1.87-ui327";
 import { WebSocketTransport } from "./protocol/WebSocketTransport.js";
-import { MqttWebRtcTransport, MQTT_WEBRTC_TRANSPORT_VERSION } from "./protocol/MqttWebRtcTransport.js?v=0.1.87-ui320";
-import { MqttTransport, MQTT_TRANSPORT_VERSION, clearOnlineAuthKey, deriveOnlineAuthKeyHex, storeOnlineAuthKey } from "./protocol/MqttTransport.js?v=0.1.87-ui320";
-import { P1WebFlasher } from "./web-flasher.js?v=0.1.87-ui320";
-import { inferCircuitLayout, initCircuitView, normalizeCircuitLayout } from "./circuit.js?v=0.1.87-ui320";
-import { initGuinoView } from "./guino.js?v=0.1.87-ui320";
+import { MqttWebRtcTransport, MQTT_WEBRTC_TRANSPORT_VERSION } from "./protocol/MqttWebRtcTransport.js?v=0.1.87-ui327";
+import { MqttTransport, MQTT_TRANSPORT_VERSION, clearOnlineAuthKey, deriveOnlineAuthKeyHex, storeOnlineAuthKey } from "./protocol/MqttTransport.js?v=0.1.87-ui327";
+import { P1WebFlasher } from "./web-flasher.js?v=0.1.87-ui327";
+import { inferCircuitLayout, initCircuitView, normalizeCircuitLayout } from "./circuit.js?v=0.1.87-ui327";
+import { initGuinoView } from "./guino.js?v=0.1.87-ui327";
 
-const WEB_UI_VERSION = "0.1.87-ui320";
+const WEB_UI_VERSION = "0.1.87-ui327";
 const CHAT_DEFAULT_MAX_OUTPUT_TOKENS = 8000;
 const CHAT_MIN_MAX_OUTPUT_TOKENS = 1024;
 const CHAT_HARD_MAX_OUTPUT_TOKENS = 32000;
@@ -309,6 +309,18 @@ function setConnectionIntentWanted(wanted) {
   localStorage.setItem(storage.reconnectOnLoad, wanted ? "1" : "0");
 }
 
+function markConnectionAttemptStarted() {
+  setConnectionIntentWanted(true);
+  reconnectAfterReturn = false;
+  reconnectAfterReturnAttempted = false;
+}
+
+function markConnectionAttemptFailed() {
+  setConnectionIntentWanted(false);
+  reconnectAfterReturn = false;
+  reconnectAfterReturnAttempted = false;
+}
+
 function boot() {
   updateViewportHeight();
   initEditor();
@@ -369,6 +381,7 @@ function updateViewportHeight() {
 }
 
 function recoverReturnedConnection() {
+  if (isBusy) return;
   if (!connectionIntentWanted()) return;
   if (client && (!transport?.connected || !connectionVerified)) {
     handleTransportDropped(client, { reconnectOnReturn: true });
@@ -714,9 +727,20 @@ async function requestGuinoRefresh({ quiet = false } = {}) {
 
 async function copyGuinoLink() {
   try {
-    const peerId = normalizePeerId(els.peerId.value || transport?.remoteId || lastStatus?.webrtc?.peerId || "");
-    const hint = transport?.kind === "usb" ? readUsbHint() : null;
-    const kind = isMqttKind(transport?.kind) || peerId ? "mqtt" : transport?.kind === "usb" ? "usb" : "websocket";
+    const activeKind = transport?.kind || "";
+    const peerId = normalizePeerId(isMqttKind(activeKind) || isWebRtcKind(activeKind)
+      ? transport?.remoteId || els.peerId.value || lastStatus?.webrtc?.peerId || ""
+      : els.peerId.value || lastStatus?.webrtc?.peerId || "");
+    const hint = activeKind === "usb" ? readUsbHint() : null;
+    const kind = activeKind === "usb"
+      ? "usb"
+      : isMqttKind(activeKind)
+        ? "mqtt"
+        : isWebRtcKind(activeKind)
+          ? "webrtc"
+          : peerId
+            ? "mqtt"
+            : "websocket";
     const url = new URL(sharePageUrl(kind, transport?.url || els.websocketUrl.value, hint, peerId));
     url.searchParams.set("view", "ui");
     const guestKey = await ensureGuestUiShareKey();
@@ -1067,11 +1091,14 @@ async function autoConnectFromUrlParams() {
   const params = new URLSearchParams(window.location.search);
   const requested = (params.get("connect") || params.get("transport") || "").toLowerCase();
   if (!requested) return false;
+  reconnectAfterReturn = false;
+  reconnectAfterReturnAttempted = false;
 
   if (requested === "ws" || requested === "websocket") {
     const value = params.get("ws") || params.get("url") || "";
     if (!value) {
       logLine("warn", "connect=ws is missing a ws URL");
+      markConnectionAttemptFailed();
       return true;
     }
     try {
@@ -1089,6 +1116,7 @@ async function autoConnectFromUrlParams() {
     const peerId = normalizePeerId(params.get("peer") || params.get("id") || params.get("device") || "");
     if (!peerId) {
       logLine("warn", "connect=mqtt needs a device id");
+      markConnectionAttemptFailed();
       return true;
     }
     try {
@@ -1118,6 +1146,7 @@ async function autoConnectFromUrlParams() {
     const peerId = normalizePeerId(params.get("peer") || params.get("id") || params.get("device") || "");
     if (!peerId) {
       logLine("warn", "connect=webrtc needs a WebRTC device id");
+      markConnectionAttemptFailed();
       return true;
     }
     try {
@@ -1132,12 +1161,14 @@ async function autoConnectFromUrlParams() {
   if (requested === "usb" || requested === "serial") {
     if (!("serial" in navigator)) {
       logLine("warn", "connect=usb needs Web Serial");
+      markConnectionAttemptFailed();
       return true;
     }
     const urlHint = usbHintFromParams(params);
     if (urlHint) localStorage.setItem(storage.usbHint, JSON.stringify(urlHint));
     if (!readUsbHint()) {
       logLine("warn", "connect=usb needs a previously approved USB device in this browser");
+      markConnectionAttemptFailed();
       return true;
     }
     try {
@@ -1149,7 +1180,9 @@ async function autoConnectFromUrlParams() {
     return true;
   }
 
-  return false;
+  logLine("warn", `Unsupported connect target: ${requested}`);
+  markConnectionAttemptFailed();
+  return true;
 }
 
 async function autoReconnectLastConnection({ reconnecting = false } = {}) {
@@ -1190,6 +1223,7 @@ async function connectTransport(nextTransport, options, kind, label, { quiet = f
   const generation = connectionGeneration + 1;
   connectionGeneration = generation;
   connectionVerified = false;
+  markConnectionAttemptStarted();
   suppressConnectionLogs = quiet;
   isBusy = true;
   busyLabel = busyLabelText;
@@ -1232,6 +1266,7 @@ async function connectTransport(nextTransport, options, kind, label, { quiet = f
       return true;
     } else if (generation === connectionGeneration) {
       if (!quiet) logLine("warn", `${label} connected but did not answer protocol checks`);
+      markConnectionAttemptFailed();
       await disconnectTransport({ quiet: true, keepGeneration: true });
       setConnected(false);
       return false;
@@ -1242,6 +1277,7 @@ async function connectTransport(nextTransport, options, kind, label, { quiet = f
     if (transport === nextTransport) {
       await disconnectTransport({ quiet: true, keepGeneration: true });
     }
+    markConnectionAttemptFailed();
     setConnected(false);
     return false;
   } finally {
@@ -4025,10 +4061,11 @@ function populateMqttSettings() {
 }
 
 function mqttRemoteIdForAuth() {
-  const explicit = normalizePeerId(els.peerId?.value || "");
-  if (explicit) return explicit;
+  if (isMqttKind(transport?.kind) && transport?.remoteId) return normalizePeerId(transport.remoteId);
   const deviceId = lastConfig?.deviceId || lastInfo?.deviceId || lastStatus?.deviceId || "";
   if (deviceId && deviceId.length >= 6) return `p1-embed-${deviceId.slice(-6)}`.toLowerCase();
+  const explicit = normalizePeerId(els.peerId?.value || "");
+  if (explicit) return explicit;
   return normalizePeerId(lastConfig?.deviceName || lastInfo?.deviceName || "");
 }
 
@@ -4726,9 +4763,7 @@ function renderFields() {
   const peerId = client ? activePeerId(webrtc, mqtt) : "";
   const shareTarget = bestInfoShareTarget({ web, webrtc, mqtt });
   const shareUrl = shareTarget ? sharePageUrl(shareTarget.kind, shareTarget.wsUrl, shareTarget.usbHint, shareTarget.peerId) : "";
-  if (els.brandVersion) {
-    els.brandVersion.textContent = lastInfo?.firmwareVersion || "0.1.87";
-  }
+  renderBrandVersion();
   renderInfoShare(shareUrl);
   els.fields.replaceChildren(
     infoCard("developer_board", lastInfo?.deviceName || lastStatus?.deviceName || "P1E board", [
@@ -4756,6 +4791,25 @@ function renderFields() {
       infoMetric("Share", shareUrl || "-"),
     ], { compact: true, links: { peerId: mqttSharePeerId(mqtt) || peerId, shareUrl } }),
   );
+}
+
+function renderBrandVersion() {
+  if (!els.brandVersion) return;
+  const firmware = String(lastInfo?.firmwareVersion || "").trim();
+  const webLine = `web ${WEB_UI_VERSION}`;
+  const firmwareLine = firmware ? `fw ${firmware}` : "";
+  els.brandVersion.replaceChildren(
+    versionLine(webLine),
+    ...(firmwareLine ? [versionLine(firmwareLine)] : []),
+  );
+  els.brandVersion.title = firmwareLine ? `${webLine} / ${firmwareLine}` : webLine;
+}
+
+function versionLine(text) {
+  const line = document.createElement("span");
+  line.className = "brand-version-line";
+  line.textContent = text;
+  return line;
 }
 
 function bestInfoShareTarget({ web = {}, webrtc = {}, mqtt = {} } = {}) {

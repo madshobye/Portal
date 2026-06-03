@@ -70,11 +70,30 @@ textarea {
   line-height: 1;
 }
 
-.brand span,
+.brand-version,
 .console-header span,
 .fields dt {
   color: var(--muted);
   font-size: 11px;
+}
+
+.brand-version {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  min-width: 0;
+  max-width: 22ch;
+  overflow: hidden;
+  gap: 1px;
+  line-height: 1.05;
+}
+
+.brand-version-line {
+  display: block;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .tabs {
@@ -2214,10 +2233,12 @@ input {
 
   .brand {
     gap: 6px;
+    min-width: 0;
   }
 
-  .brand span {
-    display: none;
+  .brand-version {
+    max-width: 15ch;
+    font-size: 9px;
   }
 
   .tab {

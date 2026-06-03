@@ -1,4 +1,4 @@
-import { MsgPackReader, MsgPackWriter } from "./P1MsgPack.js?v=0.1.87-ui279";
+import { MsgPackReader, MsgPackWriter } from "./P1MsgPack.js?v=0.1.87-ui281";
 
 const DEFAULT_MQTT_ROOT = "";
 const FRAME_AUTH = 3;
@@ -9,7 +9,7 @@ const AUTH_FINISH = 2;
 const AUTH_OK = 3;
 const AUTH_ERROR = 4;
 
-export const MQTT_TRANSPORT_VERSION = "0.1.87-ui279";
+export const MQTT_TRANSPORT_VERSION = "0.1.87-ui281";
 
 console.info(`[P1E mqtt] loaded ${MQTT_TRANSPORT_VERSION}`);
 
@@ -39,6 +39,9 @@ export class MqttTransport extends EventTarget {
     this.connected = false;
     this._closed = false;
     this.hello = null;
+    this.helloPromise = null;
+    this.helloResolve = null;
+    this.helloTimer = null;
     this.authRequired = false;
     this.auth = loadStoredAuth(this.remoteId);
     this.sessionId = 0;
@@ -65,18 +68,20 @@ export class MqttTransport extends EventTarget {
     this.remoteId = normalizeTopicPart(remoteId);
     if (!this.remoteId) throw new Error("MQTT device id is required");
     this.localId = this.explicitClientId || loadStoredClientId(this.remoteId);
+    this.hello = null;
     this.auth = loadStoredAuth(this.remoteId);
     this._closed = false;
     this.setState("signaling_connecting", { remoteId: this.remoteId });
 
     await new Promise((resolve, reject) => {
-      const timer = setTimeout(() => {
+      let openTimer = setTimeout(() => {
         this.disconnect();
         reject(new Error(`Timed out opening MQTT connection for ${this.remoteId}`));
       }, this.connectTimeoutMs);
 
       const finish = (ok, value) => {
-        clearTimeout(timer);
+        if (openTimer) clearTimeout(openTimer);
+        openTimer = null;
         ok ? resolve(value) : reject(value);
       };
 
@@ -98,12 +103,13 @@ export class MqttTransport extends EventTarget {
             await subscribe(this.client, this.responseTopic());
             await subscribe(this.client, this.eventTopic());
             await subscribe(this.client, this.helloTopic());
-            await wait(250);
+            await this.waitForHello(Math.min(5000, Math.max(1000, this.connectTimeoutMs - 1000)));
+            if (openTimer) clearTimeout(openTimer);
+            openTimer = null;
             this.authRequired = this.hello?.auth === "required";
             const guestUiOpen = this.isGuestUiOpen();
             if ((this.authRequired || this.hello?.auth === "required") && !guestUiOpen) {
-              await this.ensureAuth();
-              await this.authenticate();
+              await this.signIn({ retryPromptOnRejectedKey: true });
             }
             this.setState("answer_received", { remoteId: this.remoteId });
             this.setState("connected", { remoteId: this.remoteId, localId: this.localId });
@@ -143,6 +149,7 @@ export class MqttTransport extends EventTarget {
       });
     }
     this.client = null;
+    this.clearHelloWait();
     this.clearSession();
     this.setState("disconnected", { remoteId: this.remoteId });
   }
@@ -158,8 +165,7 @@ export class MqttTransport extends EventTarget {
     if (!this.client || !this.connected) throw new Error("MQTT is not connected");
     if (this.authRequired && !this.sessionId) {
       if (!this.canSendAnonymous(bytes)) {
-        await this.ensureAuth();
-        await this.authenticate();
+        await this.signIn({ retryPromptOnRejectedKey: true });
       }
     }
     const payload = this.sessionId ? await this.encodeSecure(bytes) : bytes;
@@ -232,6 +238,7 @@ export class MqttTransport extends EventTarget {
       } catch {
         this.hello = null;
       }
+      this.resolveHelloWait();
       this.emit("state", { state: "diagnostic", remoteId: this.remoteId, message: `hello ${payload?.length || 0} bytes` });
       return;
     }
@@ -298,6 +305,18 @@ export class MqttTransport extends EventTarget {
     return this.authPromise;
   }
 
+  async signIn({ retryPromptOnRejectedKey = false } = {}) {
+    const hadStoredAuth = Boolean(loadStoredAuth(this.remoteId));
+    await this.ensureAuth();
+    try {
+      await this.authenticate();
+    } catch (error) {
+      if (!retryPromptOnRejectedKey || !hadStoredAuth || !isRejectedAuthError(error)) throw error;
+      await this.ensureAuth({ forcePrompt: true });
+      await this.authenticate();
+    }
+  }
+
   async handleAuthFrame(bytes) {
     try {
       const reader = new MsgPackReader(bytes);
@@ -347,6 +366,7 @@ export class MqttTransport extends EventTarget {
           this.clearSession();
         }
         const error = new Error(`MQTT sign in failed: ${code}`);
+        if (code === "auth_failed" || code === "unknown_user") error.authRejected = true;
         const reject = this.authReject;
         this.authPromise = null;
         this.authResolve = null;
@@ -363,8 +383,9 @@ export class MqttTransport extends EventTarget {
     }
   }
 
-  async ensureAuth() {
-    this.auth = loadStoredAuth(this.remoteId);
+  async ensureAuth({ forcePrompt = false } = {}) {
+    this.auth = forcePrompt ? null : loadStoredAuth(this.remoteId);
+    if (forcePrompt) clearOnlineAuthKey(this.remoteId);
     if (this.auth?.username && this.auth?.key) return this.auth;
     if (typeof this.authProvider === "function") {
       const provided = await this.authProvider({ remoteId: this.remoteId, hello: this.hello });
@@ -378,6 +399,34 @@ export class MqttTransport extends EventTarget {
       throw new Error("MQTT sign in required");
     }
     return this.auth;
+  }
+
+  waitForHello(timeoutMs = 5000) {
+    if (this.hello) return Promise.resolve(this.hello);
+    this.clearHelloWait();
+    this.helloPromise = new Promise((resolve, reject) => {
+      this.helloTimer = setTimeout(() => {
+        if (!this.helloPromise) return;
+        this.clearHelloWait();
+        reject(new Error(`Timed out waiting for MQTT hello from ${this.remoteId}`));
+      }, timeoutMs);
+      this.helloResolve = (hello) => {
+        this.clearHelloWait();
+        resolve(hello);
+      };
+    });
+    return this.helloPromise;
+  }
+
+  resolveHelloWait() {
+    if (this.helloResolve && this.hello) this.helloResolve(this.hello);
+  }
+
+  clearHelloWait() {
+    if (this.helloTimer) clearTimeout(this.helloTimer);
+    this.helloTimer = null;
+    this.helloPromise = null;
+    this.helloResolve = null;
   }
 
   clearSession() {
@@ -630,6 +679,11 @@ function authProof(key, clientId, username, clientNonce, serverNonce) {
     clientNonce,
     serverNonce,
   ]);
+}
+
+function isRejectedAuthError(error) {
+  return Boolean(error?.authRejected)
+    || /MQTT sign in failed: (auth_failed|unknown_user)/.test(String(error?.message || ""));
 }
 
 function secureTag(key, sessionId, counter, payload) {
