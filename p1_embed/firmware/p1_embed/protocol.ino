@@ -145,6 +145,49 @@ static bool protocolScriptIntegrityOk(const String& code, int expectedBytes, con
   return true;
 }
 
+static bool protocolScriptIntegrityInfoOk(size_t scriptBytes,
+                                          uint32_t scriptHash,
+                                          int expectedBytes,
+                                          const String& expectedHashHex,
+                                          String& codeOut,
+                                          String& messageOut) {
+  if (expectedBytes >= 0 && (int)scriptBytes != expectedBytes) {
+    codeOut = "script_integrity_error";
+    messageOut = "script.set payload length mismatch";
+    return false;
+  }
+
+  if (expectedHashHex.length()) {
+    uint32_t expectedHash;
+    if (!protocolParseHexU32(expectedHashHex, expectedHash)) {
+      codeOut = "script_integrity_error";
+      messageOut = "script.set payload hash is invalid";
+      return false;
+    }
+    if (scriptHash != expectedHash) {
+      codeOut = "script_integrity_error";
+      messageOut = "script.set payload hash mismatch";
+      return false;
+    }
+  }
+
+  return true;
+}
+
+static bool protocolValidateScriptIntegrityInfo(const String& id,
+                                                size_t scriptBytes,
+                                                uint32_t scriptHash,
+                                                int expectedBytes,
+                                                const String& expectedHashHex) {
+  String code;
+  String message;
+  if (!protocolScriptIntegrityInfoOk(scriptBytes, scriptHash, expectedBytes, expectedHashHex, code, message)) {
+    protocolSendResponseError(id, code.c_str(), message.c_str());
+    return false;
+  }
+  return true;
+}
+
 class WrenchTransitionGuard {
  public:
   explicit WrenchTransitionGuard(const String& reason) {
@@ -719,6 +762,110 @@ bool protocolHandleScriptSetCode(const String& id, const String& code, bool runA
   return true;
 }
 
+static bool protocolHandleScriptSetIncoming(bool runAfterSet, bool saveAfterSet) {
+  size_t scriptBytes = 0;
+  uint32_t scriptHash = 2166136261u;
+  if (!scriptStoreIncomingInfo(scriptBytes, scriptHash) || scriptBytes == 0 || scriptBytes > P1_EMBED_MAX_SCRIPT_BYTES) {
+    P1EventField fields[] = {
+      p1FieldString("state", "error"),
+      p1FieldString("phase", "load"),
+      p1FieldString("message", "Failed to load staged script"),
+    };
+    protocolEmitScriptUploadEvent("error", fields, 3);
+    return false;
+  }
+
+  String err;
+  WrenchTransitionGuard transition("script.set.incoming");
+  scriptErrorClear();
+  {
+    P1EventField fields[] = {
+      p1FieldBool("run", runAfterSet),
+      p1FieldBool("save", saveAfterSet),
+      p1FieldUInt("scriptBytes", scriptBytes),
+    };
+    debugEventEmitFields("script.debug", "debug", "script", "script.set incoming begin", fields, 3);
+  }
+  if (!wrenchCompileAndSetIncoming(scriptBytes, scriptHash, err)) {
+    wrenchSetCurrentScriptFromIncoming();
+    P1EventField debugFields[] = {
+      p1FieldString("error", err),
+    };
+    debugEventEmitFields("script.debug", "debug", "script", "script.set incoming compile failed", debugFields, 1);
+    P1EventField fields[] = {
+      p1FieldString("state", "error"),
+      p1FieldString("phase", "compile"),
+      p1FieldString("message", err),
+    };
+    protocolEmitScriptUploadEvent("error", fields, 3);
+    return false;
+  }
+  {
+    P1EventField fields[] = {
+      p1FieldBool("run", runAfterSet),
+      p1FieldBool("save", saveAfterSet),
+    };
+    debugEventEmitFields("script.debug", "debug", "script", "script.set incoming compile ok", fields, 2);
+  }
+
+  if (saveAfterSet) {
+    if (!scriptStoreCopyIncomingToSaved()) {
+      debugEventEmitFields("script.debug", "debug", "script", "script.set incoming save failed", nullptr, 0);
+      P1EventField fields[] = {
+        p1FieldString("state", "error"),
+        p1FieldString("phase", "save"),
+        p1FieldString("message", "Failed to save script to LittleFS"),
+      };
+      protocolEmitScriptUploadEvent("error", fields, 3);
+      return false;
+    }
+    scriptStoreSaveRunState(runAfterSet ? P1_EMBED_SCRIPT_RUN_PENDING_NEW : P1_EMBED_SCRIPT_RUN_STOPPED);
+    P1EventField fields[] = {
+      p1FieldString("runState", scriptStoreRunStateName(scriptStoreLoadRunState())),
+    };
+    debugEventEmitFields("script.debug", "debug", "script", "script.set incoming save ok", fields, 1);
+  }
+
+  if (runAfterSet) {
+    String runErr;
+    debugEventEmitFields("script.debug", "debug", "script", "script.set incoming run begin", nullptr, 0);
+    if (!wrenchRunCompiled(runErr)) {
+      P1EventField debugFields[] = {
+        p1FieldString("error", runErr),
+      };
+      debugEventEmitFields("script.debug", "debug", "script", "script.set incoming run failed", debugFields, 1);
+      if (saveAfterSet) scriptStoreMarkVerificationFailed("run_failed");
+      P1EventField fields[] = {
+        p1FieldString("state", "error"),
+        p1FieldString("phase", "run"),
+        p1FieldString("message", runErr),
+      };
+      protocolEmitScriptUploadEvent("error", fields, 3);
+      return false;
+    }
+    P1EventField fields[] = {
+      p1FieldString("state", wrenchStateName()),
+    };
+    debugEventEmitFields("script.debug", "debug", "script", "script.set incoming run ok", fields, 1);
+    if (saveAfterSet) scriptStoreArmVerification();
+  }
+
+  String state = runAfterSet ? "running" : (saveAfterSet ? "saved" : "compiled");
+  {
+    P1EventField fields[] = {
+      p1FieldString("state", state),
+    };
+    debugEventEmitFields("script.debug", "debug", "script", "script.set incoming response", fields, 1);
+  }
+  P1EventField fields[] = {
+    p1FieldString("state", state),
+    p1FieldUInt("scriptBytes", scriptBytes),
+    p1FieldUInt("scriptHash", scriptHash),
+  };
+  protocolEmitScriptUploadEvent("debug", fields, 3);
+  return true;
+}
+
 static void protocolHandleScriptSet(const String& id, const char* line, bool runAfterSet, bool saveAfterSet) {
   String code;
   if (!jsonGetString(line, "code", code)) {
@@ -870,14 +1017,15 @@ static void protocolHandleScriptChunkCommit(const String& id) {
     protocolSendResponseError(id, "incomplete_upload", "Script upload is missing chunks");
     return;
   }
-  String code;
-  if (!scriptStoreLoadIncoming(code) || code.length() == 0) {
+  size_t scriptBytes = 0;
+  uint32_t scriptHash = 2166136261u;
+  if (!scriptStoreIncomingInfo(scriptBytes, scriptHash) || scriptBytes == 0) {
     scriptStoreClearIncoming();
     g_scriptChunkActive = false;
     protocolSendResponseError(id, "storage_error", "Failed to load staged script");
     return;
   }
-  if (!protocolValidateScriptIntegrity(id, code, g_scriptChunkExpectedBytes, g_scriptChunkExpectedHashHex)) {
+  if (!protocolValidateScriptIntegrityInfo(id, scriptBytes, scriptHash, g_scriptChunkExpectedBytes, g_scriptChunkExpectedHashHex)) {
     scriptStoreClearIncoming();
     g_scriptChunkActive = false;
     return;
@@ -888,8 +1036,8 @@ static void protocolHandleScriptChunkCommit(const String& id) {
   int expectedBytes = g_scriptChunkExpectedBytes;
   String expectedHashHex = g_scriptChunkExpectedHashHex;
   g_scriptChunkExpectedHashHex = "";
-  protocolSendResponseOk(id, "{\"state\":\"queued\",\"scriptBytes\":" + String(code.length()) + "}");
-  protocolQueueScriptJob(runAfterSet, saveAfterSet, expectedBytes, expectedHashHex, code.length());
+  protocolSendResponseOk(id, "{\"state\":\"queued\",\"scriptBytes\":" + String(scriptBytes) + "}");
+  protocolQueueScriptJob(runAfterSet, saveAfterSet, expectedBytes, expectedHashHex, scriptBytes);
 }
 
 void protocolPollScriptJobs() {
@@ -904,8 +1052,9 @@ void protocolPollScriptJobs() {
   g_scriptJobExpectedBytes = -1;
   g_scriptJobExpectedHashHex = "";
 
-  String code;
-  if (!scriptStoreLoadIncoming(code) || code.length() == 0) {
+  size_t scriptBytes = 0;
+  uint32_t scriptHash = 2166136261u;
+  if (!scriptStoreIncomingInfo(scriptBytes, scriptHash) || scriptBytes == 0) {
     scriptStoreClearIncoming();
     P1EventField fields[] = {
       p1FieldString("state", "error"),
@@ -915,22 +1064,24 @@ void protocolPollScriptJobs() {
     protocolEmitScriptUploadEvent("error", fields, 3);
     return;
   }
-  if (!protocolValidateScriptIntegrity("0", code, expectedBytes, expectedHashHex)) {
+  String integrityCode;
+  String integrityMessage;
+  if (!protocolScriptIntegrityInfoOk(scriptBytes, scriptHash, expectedBytes, expectedHashHex, integrityCode, integrityMessage)) {
     scriptStoreClearIncoming();
     P1EventField fields[] = {
       p1FieldString("state", "error"),
       p1FieldString("phase", "integrity"),
-      p1FieldString("message", "Script integrity check failed"),
+      p1FieldString("message", integrityMessage),
     };
     protocolEmitScriptUploadEvent("error", fields, 3);
     return;
   }
   P1EventField fields[] = {
     p1FieldString("state", "compiling"),
-    p1FieldUInt("scriptBytes", code.length()),
+    p1FieldUInt("scriptBytes", scriptBytes),
   };
   protocolEmitScriptUploadEvent("debug", fields, 2);
-  bool ok = protocolHandleScriptSetCode("0", code, runAfterSet, saveAfterSet, false);
+  bool ok = protocolHandleScriptSetIncoming(runAfterSet, saveAfterSet);
   if (ok) {
     scriptStoreClearIncoming();
   }
@@ -1642,8 +1793,9 @@ void protocolHandleBytes(const uint8_t* data, size_t len) {
       protocolSendMsgPackError(id, "incomplete_upload", "Script upload is missing chunks");
       return;
     }
-    String code;
-    if (!scriptStoreLoadIncoming(code) || code.length() == 0) {
+    size_t scriptBytes = 0;
+    uint32_t scriptHash = 2166136261u;
+    if (!scriptStoreIncomingInfo(scriptBytes, scriptHash) || scriptBytes == 0) {
       scriptStoreClearIncoming();
       g_scriptChunkActive = false;
       protocolSendMsgPackError(id, "storage_error", "Failed to load staged script");
@@ -1651,7 +1803,7 @@ void protocolHandleBytes(const uint8_t* data, size_t len) {
     }
     String errorCode;
     String errorMessage;
-    if (!protocolScriptIntegrityOk(code, g_scriptChunkExpectedBytes, g_scriptChunkExpectedHashHex, errorCode, errorMessage)) {
+    if (!protocolScriptIntegrityInfoOk(scriptBytes, scriptHash, g_scriptChunkExpectedBytes, g_scriptChunkExpectedHashHex, errorCode, errorMessage)) {
       scriptStoreClearIncoming();
       g_scriptChunkActive = false;
       protocolSendMsgPackError(id, errorCode.c_str(), errorMessage.c_str());
@@ -1663,8 +1815,8 @@ void protocolHandleBytes(const uint8_t* data, size_t len) {
     int expectedBytes = g_scriptChunkExpectedBytes;
     String expectedHashHex = g_scriptChunkExpectedHashHex;
     g_scriptChunkExpectedHashHex = "";
-    protocolSendMsgPackChunkCommitOk(id, code.length());
-    protocolQueueScriptJob(runAfterSet, saveAfterSet, expectedBytes, expectedHashHex, code.length());
+    protocolSendMsgPackChunkCommitOk(id, scriptBytes);
+    protocolQueueScriptJob(runAfterSet, saveAfterSet, expectedBytes, expectedHashHex, scriptBytes);
   } else if (op == P1_MP_OP_SCRIPT_STOP) {
     wrenchStop();
     if (scriptStoreHasSaved()) scriptStoreSaveRunState(P1_EMBED_SCRIPT_RUN_STOPPED);

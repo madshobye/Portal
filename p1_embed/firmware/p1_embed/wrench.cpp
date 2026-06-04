@@ -1913,11 +1913,22 @@ public:
 		}
 #endif
 
-		if ( (size + m_len) >= m_bufLen )
+		unsigned int needed = size + m_len;
+		if ( needed > m_bufLen )
 		{
 			unsigned char* buf = m_buf;
 			unsigned int oldBufLen = m_bufLen;
-			unsigned int newBufLen = size + m_len + (m_bufLen * 3)/2;
+			unsigned int newBufLen = m_bufLen ? m_bufLen : 64;
+			while ( newBufLen < needed )
+			{
+				unsigned int grown = newBufLen + (newBufLen / 2) + 32;
+				if ( grown <= newBufLen )
+				{
+					newBufLen = needed;
+					break;
+				}
+				newBufLen = grown;
+			}
 			m_buf = (unsigned char *)g_malloc( newBufLen );
 			if ( !m_buf )
 			{

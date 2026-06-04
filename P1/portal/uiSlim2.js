@@ -666,7 +666,7 @@ function uiPromptText(id, label, style={}){
 }
 
 function uiSlider(id, label, opts={}, style={}){
-  const sliderOptionKeys = new Set(["min", "max", "init"]);
+  const sliderOptionKeys = new Set(["min", "max", "init", "syncValue"]);
   const optsStyle = {};
   for (const key of Object.keys(opts || {})) {
     if (!sliderOptionKeys.has(key)) optsStyle[key] = opts[key];
@@ -687,6 +687,14 @@ function uiSlider(id, label, opts={}, style={}){
   const vertical = !!s.vertical;
   const isActive = _uiSliderDragState.id === id;
   let changed = false;
+
+  if (!isActive && Number.isFinite(Number(opts.syncValue))) {
+    const synced = Number(opts.syncValue);
+    if (Math.abs(synced - val) > 1e-9) {
+      val = synced;
+      uiSetState(id, val, s);
+    }
+  }
 
   if (hit.pressedDown) {
     _uiSliderDragState.id = id;
@@ -813,12 +821,29 @@ function uiPlot(id, series = [], style = {}) {
     textColor: [255, 255, 255, 190],
     fontSize: 11,
     padding: 14,
+    paddingX: null,
+    paddingY: null,
     xMin: null,
     xMax: null,
     yMin: null,
     yMax: null,
     showGrid: true,
     showLabels: true,
+    showRangeLabels: true,
+    headerItems: null,
+    headerText: "",
+    headerTextColor: null,
+    footerText: "",
+    footerTextColor: null,
+    labelGap: 10,
+    labelDotSize: 8,
+    dataInsetRatio: 0,
+    dataInsetXRatio: null,
+    dataInsetYRatio: null,
+    dataInsetPx: 0,
+    dataInsetXPx: null,
+    dataInsetYPx: null,
+    clipToBounds: true,
     rounding: 4,
   }, style);
   const box = (s.x !== undefined && s.y !== undefined && s.width !== undefined && s.height !== undefined)
@@ -848,12 +873,30 @@ function uiPlot(id, series = [], style = {}) {
   const yPad = Math.max(1e-9, (yMaxRaw - yMinRaw) * 0.06);
   const yMin = s.yMin ?? (yMinRaw - yPad);
   const yMax = s.yMax ?? (yMaxRaw + yPad);
-  const px = box.x + s.padding;
-  const py = box.y + s.padding;
-  const pw = Math.max(1, box.width - s.padding * 2);
-  const ph = Math.max(1, box.height - s.padding * 2);
-  const sx = (x) => px + ((x - xMin) / ((xMax - xMin) || 1)) * pw;
-  const sy = (y) => py + ph - ((y - yMin) / ((yMax - yMin) || 1)) * ph;
+  const xInsetRatio = s.dataInsetXRatio ?? s.dataInsetRatio;
+  const yInsetRatio = s.dataInsetYRatio ?? s.dataInsetRatio;
+  const xInset = Math.max(0, Number(xInsetRatio) || 0) * ((xMax - xMin) || 1);
+  const yInset = Math.max(0, Number(yInsetRatio) || 0) * ((yMax - yMin) || 1);
+  const xPlotMin = xMin - xInset;
+  const xPlotMax = xMax + xInset;
+  const yPlotMin = yMin - yInset;
+  const yPlotMax = yMax + yInset;
+  const paddingX = s.paddingX ?? s.padding;
+  const paddingY = s.paddingY ?? s.padding;
+  const px = box.x + paddingX;
+  const py = box.y + paddingY;
+  const pw = Math.max(1, box.width - paddingX * 2);
+  const ph = Math.max(1, box.height - paddingY * 2);
+  const dataInsetXPx = Math.max(0, Number(s.dataInsetXPx ?? s.dataInsetPx) || 0);
+  const dataInsetYPx = Math.max(0, Number(s.dataInsetYPx ?? s.dataInsetPx) || 0);
+  const dataPx = px + Math.min(dataInsetXPx, pw * 0.45);
+  const dataPy = py + Math.min(dataInsetYPx, ph * 0.45);
+  const dataPw = Math.max(1, pw - Math.min(dataInsetXPx, pw * 0.45) * 2);
+  const dataPh = Math.max(1, ph - Math.min(dataInsetYPx, ph * 0.45) * 2);
+  const sx = (x) => dataPx + ((x - xPlotMin) / ((xPlotMax - xPlotMin) || 1)) * dataPw;
+  const sy = (y) => dataPy + dataPh - ((y - yPlotMin) / ((yPlotMax - yPlotMin) || 1)) * dataPh;
+  const plotX = (x) => s.clipToBounds ? constrain(x, xMin, xMax) : x;
+  const plotY = (y) => s.clipToBounds ? constrain(y, yMin, yMax) : y;
   const draw = g || window;
 
   draw.noStroke();
@@ -878,17 +921,30 @@ function uiPlot(id, series = [], style = {}) {
 
   for (const item of normalized) {
     const values = item.values || item.points || [];
-    draw.noFill();
-    draw.stroke(item.color || "#ffffff");
-    draw.strokeWeight(item.weight || 2);
-    draw.beginShape();
-    for (let i = 0; i < values.length; i++) {
-      const p = values[i];
-      const x = Array.isArray(p) ? Number(p[0]) : (p && typeof p === "object" ? Number(p.x ?? i) : i);
-      const y = Array.isArray(p) ? Number(p[1]) : (p && typeof p === "object" ? Number(p.y ?? p.value) : Number(p));
-      if (Number.isFinite(x) && Number.isFinite(y)) draw.vertex(sx(x), sy(y));
+    const asPoints = item.type === "points" || item.pointsOnly || Number.isFinite(Number(item.pointSize));
+    if (asPoints) {
+      draw.noStroke();
+      draw.fill(item.color || "#ffffff");
+      const pointSize = Number(item.pointSize) || 4;
+      for (let i = 0; i < values.length; i++) {
+        const p = values[i];
+        const x = Array.isArray(p) ? Number(p[0]) : (p && typeof p === "object" ? Number(p.x ?? i) : i);
+        const y = Array.isArray(p) ? Number(p[1]) : (p && typeof p === "object" ? Number(p.y ?? p.value) : Number(p));
+        if (Number.isFinite(x) && Number.isFinite(y)) draw.circle(sx(plotX(x)), sy(plotY(y)), pointSize);
+      }
+    } else {
+      draw.noFill();
+      draw.stroke(item.color || "#ffffff");
+      draw.strokeWeight(item.weight || 2);
+      draw.beginShape();
+      for (let i = 0; i < values.length; i++) {
+        const p = values[i];
+        const x = Array.isArray(p) ? Number(p[0]) : (p && typeof p === "object" ? Number(p.x ?? i) : i);
+        const y = Array.isArray(p) ? Number(p[1]) : (p && typeof p === "object" ? Number(p.y ?? p.value) : Number(p));
+        if (Number.isFinite(x) && Number.isFinite(y)) draw.vertex(sx(plotX(x)), sy(plotY(y)));
+      }
+      draw.endShape();
     }
-    draw.endShape();
   }
 
   const hit = uiHit(box.x, box.y, box.width, box.height);
@@ -902,19 +958,82 @@ function uiPlot(id, series = [], style = {}) {
 
   if (s.showLabels) {
     draw.noStroke();
-    draw.fill(s.textColor);
     draw.textSize(s.fontSize);
+
+    const labelLeft = box.x + 8;
+    const labelTop = box.y + 6;
+    const labelRight = box.x + box.width - 8;
+    const yMaxText = Number(yMax).toFixed(2);
+    const yMinText = Number(yMin).toFixed(2);
+    const rangeReserve = s.showRangeLabels ? Math.max(draw.textWidth(yMaxText), draw.textWidth(yMinText)) + 12 : 0;
+    const headerMaxW = Math.max(1, labelRight - labelLeft - rangeReserve);
+    let usedHeaderW = 0;
     draw.textAlign(LEFT, TOP);
-    if (s.label) draw.text(String(s.label), box.x + 8, box.y + 6);
-    draw.textAlign(RIGHT, TOP);
-    draw.text(Number(yMax).toFixed(2), box.x + box.width - 8, box.y + 6);
-    draw.textAlign(RIGHT, BOTTOM);
-    draw.text(Number(yMin).toFixed(2), box.x + box.width - 8, box.y + box.height - 6);
+
+    const headerItems = Array.isArray(s.headerItems)
+      ? s.headerItems
+      : (s.headerItems === true
+        ? normalized.filter((item) => item.label).map((item) => ({ label: item.label, color: item.color }))
+        : null);
+
+    if (headerItems?.length) {
+      let lx = labelLeft;
+      for (const item of headerItems) {
+        const text = String(item.label ?? "");
+        if (!text) continue;
+        const itemW = s.labelDotSize + 5 + draw.textWidth(text);
+        if (lx + itemW > labelLeft + headerMaxW) break;
+        draw.fill(item.color || s.textColor);
+        draw.circle(lx + s.labelDotSize * 0.5, labelTop + s.fontSize * 0.55, s.labelDotSize);
+        draw.fill(s.textColor);
+        draw.text(text, lx + s.labelDotSize + 5, labelTop);
+        lx += itemW + s.labelGap;
+      }
+      usedHeaderW = Math.max(0, lx - labelLeft - s.labelGap);
+    } else if (s.label) {
+      draw.fill(s.textColor);
+      const text = String(s.label);
+      const textW = Math.min(draw.textWidth(text), headerMaxW);
+      draw.text(_uiFitText(text, headerMaxW, draw), labelLeft, labelTop);
+      usedHeaderW = textW;
+    }
+
+    if (s.headerText) {
+      const textLeft = labelLeft + usedHeaderW + (usedHeaderW ? s.labelGap : 0);
+      const remaining = labelLeft + headerMaxW - textLeft;
+      if (remaining > 20) {
+        draw.fill(s.headerTextColor || s.textColor);
+        draw.text(_uiFitText(String(s.headerText), remaining, draw), textLeft, labelTop);
+      }
+    }
+
+    if (s.showRangeLabels) {
+      draw.fill(s.textColor);
+      draw.textAlign(RIGHT, TOP);
+      draw.text(yMaxText, labelRight, labelTop);
+      draw.textAlign(RIGHT, BOTTOM);
+      draw.text(yMinText, labelRight, box.y + box.height - 6);
+    }
+
+    if (s.footerText) {
+      const footerMaxW = Math.max(1, labelRight - labelLeft - rangeReserve);
+      draw.fill(s.footerTextColor || s.textColor);
+      draw.textAlign(LEFT, BOTTOM);
+      draw.text(_uiFitText(String(s.footerText), footerMaxW, draw), labelLeft, box.y + box.height - 6);
+    }
   }
 
   _uiOverlayEnd(overlay2d);
   if (g) g.pop(); else pop();
   return { ...box, hover: hit.hover, clicked: hit.clicked, hoverValue, xMin, xMax, yMin, yMax };
+}
+
+function _uiFitText(text, maxWidth, draw = window) {
+  const raw = String(text ?? "");
+  if (draw.textWidth(raw) <= maxWidth) return raw;
+  let out = raw;
+  while (out.length > 4 && draw.textWidth(`${out}...`) > maxWidth) out = out.slice(0, -1);
+  return `${out}...`;
 }
 
 // -------------------------

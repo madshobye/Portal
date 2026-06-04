@@ -97,8 +97,9 @@ static void opcode_stream_append_after_failed_resize() {
   WROpcodeStream stream;
   stream += (unsigned char)0x11;
   unsigned int before = stream.size();
+  unsigned char block[96] = {0};
   reset_alloc(0);
-  stream.append((const unsigned char*)"12345678901234567890", 20);
+  stream.append(block, sizeof(block));
   if (!g_mallocFailed) _exit(1);
   if (stream.size() != before) _exit(2);
   stream += (unsigned char)0x22;

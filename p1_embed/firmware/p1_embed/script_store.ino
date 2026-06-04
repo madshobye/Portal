@@ -69,6 +69,110 @@ static bool scriptStoreSavePath(const char* path, const String& code) {
   return wrote == code.length();
 }
 
+static bool scriptStorePathInfo(const char* path, size_t& bytesOut, uint32_t& hashOut) {
+  bytesOut = 0;
+  hashOut = 2166136261u;
+  if (!scriptStoreBegin()) return false;
+
+  File f = LittleFS.open(path, "r");
+  if (!f) return false;
+
+  size_t n = (size_t)f.size();
+  if (n == 0 || n > P1_EMBED_MAX_SCRIPT_BYTES) {
+    f.close();
+    return n == 0;
+  }
+
+  uint8_t buf[256];
+  size_t got = 0;
+  uint32_t h = 2166136261u;
+  while (got < n) {
+    size_t want = min(sizeof(buf), n - got);
+    size_t chunk = f.read(buf, want);
+    if (chunk == 0) break;
+    for (size_t i = 0; i < chunk; i++) {
+      h ^= buf[i];
+      h *= 16777619u;
+    }
+    got += chunk;
+  }
+  f.close();
+  if (got != n) return false;
+  bytesOut = got;
+  hashOut = h;
+  return true;
+}
+
+static bool scriptStoreCopyPathToPath(const char* from, const char* to) {
+  if (!scriptStoreBegin()) return false;
+
+  File in = LittleFS.open(from, "r");
+  if (!in) return false;
+  size_t n = (size_t)in.size();
+  if (n == 0 || n > P1_EMBED_MAX_SCRIPT_BYTES) {
+    in.close();
+    return false;
+  }
+
+  if (LittleFS.exists(to)) LittleFS.remove(to);
+  File out = LittleFS.open(to, "w");
+  if (!out) {
+    in.close();
+    return false;
+  }
+
+  uint8_t buf[256];
+  size_t copied = 0;
+  bool ok = true;
+  while (copied < n) {
+    size_t want = min(sizeof(buf), n - copied);
+    size_t got = in.read(buf, want);
+    if (got == 0) {
+      ok = false;
+      break;
+    }
+    size_t wrote = out.write(buf, got);
+    if (wrote != got) {
+      ok = false;
+      break;
+    }
+    copied += got;
+  }
+  out.flush();
+  out.close();
+  in.close();
+  if (!ok || copied != n) {
+    if (LittleFS.exists(to)) LittleFS.remove(to);
+    return false;
+  }
+  return true;
+}
+
+static bool scriptStoreCopyPathToBuffer(const char* path, uint8_t* dst, size_t capacity, size_t& bytesOut) {
+  bytesOut = 0;
+  if (!dst || capacity == 0) return false;
+  if (!scriptStoreBegin()) return false;
+
+  File f = LittleFS.open(path, "r");
+  if (!f) return false;
+
+  size_t n = (size_t)f.size();
+  if (n == 0 || n > capacity || n > P1_EMBED_MAX_SCRIPT_BYTES) {
+    f.close();
+    return false;
+  }
+
+  size_t got = 0;
+  while (got < n) {
+    size_t chunk = f.read(dst + got, n - got);
+    if (chunk == 0) break;
+    got += chunk;
+  }
+  f.close();
+  bytesOut = got;
+  return got == n;
+}
+
 bool scriptStoreLoad(String& out) {
   return scriptStoreLoadPath(SCRIPT_STORE_PATH, out);
 }
@@ -133,6 +237,22 @@ bool scriptStoreAppendIncomingBytes(const uint8_t* data, size_t len) {
   f.flush();
   f.close();
   return wrote == len;
+}
+
+bool scriptStoreIncomingInfo(size_t& bytesOut, uint32_t& hashOut) {
+  return scriptStorePathInfo(SCRIPT_INCOMING_PATH, bytesOut, hashOut);
+}
+
+bool scriptStoreCopyIncomingToBuffer(uint8_t* dst, size_t capacity, size_t& bytesOut) {
+  return scriptStoreCopyPathToBuffer(SCRIPT_INCOMING_PATH, dst, capacity, bytesOut);
+}
+
+bool scriptStoreCopyIncomingToCurrent() {
+  return scriptStoreCopyPathToPath(SCRIPT_INCOMING_PATH, SCRIPT_CURRENT_PATH);
+}
+
+bool scriptStoreCopyIncomingToSaved() {
+  return scriptStoreCopyPathToPath(SCRIPT_INCOMING_PATH, SCRIPT_STORE_PATH);
 }
 
 bool scriptStoreClearIncoming() {

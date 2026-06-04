@@ -1,4 +1,5 @@
 #include <Arduino.h>
+#include <esp_heap_caps.h>
 #include "p1_embed_firmware.h"
 
 enum P1ScriptState {
@@ -56,6 +57,26 @@ static char g_wrenchTransitionReason[40] = "";
 static uint8_t g_wrenchLoopDebugMarkers = 0;
 static uint8_t g_wrenchConsecutiveErrorLoops = 0;
 static P1ReusableBuffer g_wrenchCompileSourceBuffer;
+
+struct P1WrenchAllocStats {
+  uint32_t allocCount = 0;
+  uint32_t freeCount = 0;
+  uint32_t failCount = 0;
+  uint32_t externalFreeCount = 0;
+  uint32_t requestedBytes = 0;
+  uint32_t allocatedBytes = 0;
+  uint32_t freedBytes = 0;
+  uint32_t activeBytes = 0;
+  uint32_t highWaterBytes = 0;
+  uint32_t largestRequest = 0;
+  uint32_t largestAllocated = 0;
+  uint32_t failedRequest = 0;
+};
+
+static portMUX_TYPE g_wrenchAllocStatsMux = portMUX_INITIALIZER_UNLOCKED;
+static bool g_wrenchAllocatorInstalled = false;
+static P1WrenchAllocStats g_wrenchAllocStats;
+static P1WrenchAllocStats g_lastCompileAllocStats;
 
 struct P1CompileCrashLatch {
   uint32_t magic;
@@ -133,6 +154,102 @@ static const char* wrenchScriptStateName(P1ScriptState state) {
     case SCRIPT_ERROR: return "error";
   }
   return "unknown";
+}
+
+static void* wrenchTrackedMalloc(size_t size) {
+  void* ptr = malloc(size);
+  size_t allocated = ptr ? heap_caps_get_allocated_size(ptr) : 0;
+  portENTER_CRITICAL(&g_wrenchAllocStatsMux);
+  if (ptr) {
+    g_wrenchAllocStats.allocCount++;
+    g_wrenchAllocStats.requestedBytes += (uint32_t)size;
+    g_wrenchAllocStats.allocatedBytes += (uint32_t)allocated;
+    g_wrenchAllocStats.activeBytes += (uint32_t)allocated;
+    if (g_wrenchAllocStats.activeBytes > g_wrenchAllocStats.highWaterBytes) {
+      g_wrenchAllocStats.highWaterBytes = g_wrenchAllocStats.activeBytes;
+    }
+    if (size > g_wrenchAllocStats.largestRequest) {
+      g_wrenchAllocStats.largestRequest = (uint32_t)size;
+    }
+    if (allocated > g_wrenchAllocStats.largestAllocated) {
+      g_wrenchAllocStats.largestAllocated = (uint32_t)allocated;
+    }
+  } else {
+    g_wrenchAllocStats.failCount++;
+    g_wrenchAllocStats.failedRequest = (uint32_t)size;
+  }
+  portEXIT_CRITICAL(&g_wrenchAllocStatsMux);
+  return ptr;
+}
+
+static void wrenchTrackedFree(void* ptr) {
+  if (!ptr) return;
+  size_t allocated = heap_caps_get_allocated_size(ptr);
+  portENTER_CRITICAL(&g_wrenchAllocStatsMux);
+  g_wrenchAllocStats.freeCount++;
+  g_wrenchAllocStats.freedBytes += (uint32_t)allocated;
+  if (g_wrenchAllocStats.activeBytes >= allocated) {
+    g_wrenchAllocStats.activeBytes -= (uint32_t)allocated;
+  } else {
+    g_wrenchAllocStats.activeBytes = 0;
+    g_wrenchAllocStats.externalFreeCount++;
+  }
+  portEXIT_CRITICAL(&g_wrenchAllocStatsMux);
+  free(ptr);
+}
+
+static void wrenchInstallAllocator() {
+  if (g_wrenchAllocatorInstalled) return;
+  wr_setGlobalAllocator(wrenchTrackedMalloc, wrenchTrackedFree);
+  g_wrenchAllocatorInstalled = true;
+}
+
+static void wrenchAllocStatsReset() {
+  portENTER_CRITICAL(&g_wrenchAllocStatsMux);
+  g_wrenchAllocStats = P1WrenchAllocStats();
+  portEXIT_CRITICAL(&g_wrenchAllocStatsMux);
+}
+
+static P1WrenchAllocStats wrenchAllocStatsSnapshot() {
+  P1WrenchAllocStats stats;
+  portENTER_CRITICAL(&g_wrenchAllocStatsMux);
+  stats = g_wrenchAllocStats;
+  portEXIT_CRITICAL(&g_wrenchAllocStatsMux);
+  return stats;
+}
+
+static String wrenchAllocStatsJson(const P1WrenchAllocStats& stats) {
+  String out = "{";
+  out += "\"allocs\":" + String(stats.allocCount);
+  out += ",\"frees\":" + String(stats.freeCount);
+  out += ",\"fails\":" + String(stats.failCount);
+  out += ",\"externalFrees\":" + String(stats.externalFreeCount);
+  out += ",\"requestedBytes\":" + String(stats.requestedBytes);
+  out += ",\"allocatedBytes\":" + String(stats.allocatedBytes);
+  out += ",\"freedBytes\":" + String(stats.freedBytes);
+  out += ",\"activeBytes\":" + String(stats.activeBytes);
+  out += ",\"highWaterBytes\":" + String(stats.highWaterBytes);
+  out += ",\"largestRequest\":" + String(stats.largestRequest);
+  out += ",\"largestAllocated\":" + String(stats.largestAllocated);
+  out += ",\"failedRequest\":" + String(stats.failedRequest);
+  out += "}";
+  return out;
+}
+
+static void wrenchEmitCompileAllocTrace(const char* marker, const P1WrenchAllocStats& stats) {
+  P1EventField fields[] = {
+    p1FieldString("marker", marker ? marker : ""),
+    p1FieldUInt("allocs", stats.allocCount),
+    p1FieldUInt("frees", stats.freeCount),
+    p1FieldUInt("fails", stats.failCount),
+    p1FieldUInt("externalFrees", stats.externalFreeCount),
+    p1FieldUInt("activeBytes", stats.activeBytes),
+    p1FieldUInt("highWaterBytes", stats.highWaterBytes),
+    p1FieldUInt("largestRequest", stats.largestRequest),
+    p1FieldUInt("largestAllocated", stats.largestAllocated),
+    p1FieldUInt("failedRequest", stats.failedRequest),
+  };
+  debugEventEmitFields("script.memory", "debug", "script", "compile allocator stats", fields, 10);
 }
 
 static void wrenchEmitCompileMemoryTrace(const char* marker, size_t scriptBytes = 0, size_t sourceBytes = 0, size_t bytecodeBytes = 0) {
@@ -224,6 +341,19 @@ static void wrenchSourceSet(const String& code) {
   if (code.length() > 0 && scriptStoreSaveCurrent(code)) {
     g_currentScriptBytes = code.length();
     g_currentScriptHash = wrenchSourceHash(code);
+  } else {
+    scriptStoreClearCurrent();
+    g_currentScriptBytes = 0;
+    g_currentScriptHash = 2166136261u;
+  }
+  wrenchSourceUnlock();
+}
+
+static void wrenchSourceSetIncoming(size_t scriptBytes, uint32_t scriptHash) {
+  wrenchSourceLock();
+  if (scriptBytes > 0 && scriptBytes <= P1_EMBED_MAX_SCRIPT_BYTES && scriptStoreCopyIncomingToCurrent()) {
+    g_currentScriptBytes = scriptBytes;
+    g_currentScriptHash = scriptHash;
   } else {
     scriptStoreClearCurrent();
     g_currentScriptBytes = 0;
@@ -347,6 +477,7 @@ static void wrenchTask(void*) {
 }
 
 void wrenchTaskBegin() {
+  wrenchInstallAllocator();
   if (!g_wrenchMutex) g_wrenchMutex = xSemaphoreCreateMutex();
   if (!g_scriptSourceMutex) g_scriptSourceMutex = xSemaphoreCreateMutex();
   if (g_wrenchTaskHandle) return;
@@ -408,6 +539,17 @@ bool wrenchSetCurrentScript(const String& code) {
   if (code.length() > P1_EMBED_MAX_SCRIPT_BYTES) return false;
   wrenchLock();
   wrenchSourceSet(code);
+  if (g_scriptState == SCRIPT_EMPTY) g_scriptState = SCRIPT_STOPPED;
+  wrenchUnlock();
+  return true;
+}
+
+bool wrenchSetCurrentScriptFromIncoming() {
+  size_t scriptBytes = 0;
+  uint32_t scriptHash = 2166136261u;
+  if (!scriptStoreIncomingInfo(scriptBytes, scriptHash) || scriptBytes == 0 || scriptBytes > P1_EMBED_MAX_SCRIPT_BYTES) return false;
+  wrenchLock();
+  wrenchSourceSetIncoming(scriptBytes, scriptHash);
   if (g_scriptState == SCRIPT_EMPTY) g_scriptState = SCRIPT_STOPPED;
   wrenchUnlock();
   return true;
@@ -529,6 +671,7 @@ String wrenchRuntimeStatusJson() {
   out += ",\"taskCore\":" + String(g_wrenchTaskCore);
   out += ",\"compileTargetCore\":" + String(P1_EMBED_WRENCH_COMPILE_TASK_CORE);
   out += ",\"compileSourceBuffer\":" + p1ReusableBufferStatusJson(g_wrenchCompileSourceBuffer);
+  out += ",\"lastCompileAlloc\":" + wrenchAllocStatsJson(g_lastCompileAllocStats);
   out += "}";
   return out;
 }
@@ -659,6 +802,7 @@ struct WrenchCompileJob {
   int byteLen;
   WRstr compileErr;
   WRError result;
+  P1WrenchAllocStats allocStats;
   SemaphoreHandle_t done;
 };
 
@@ -678,17 +822,21 @@ static void wrenchCompileTaskEntry(void* arg) {
     job->result = WR_ERR_malloc_failed;
   }
 #endif
+  job->allocStats = wrenchAllocStatsSnapshot();
   xSemaphoreGive(job->done);
   vTaskDelete(nullptr);
 }
 
 static WRError wrenchCompileOnWorker(const char* src, int srcLen, unsigned char** bytecodeOut, int* byteLenOut, WRstr& compileErr) {
+  wrenchInstallAllocator();
+  wrenchAllocStatsReset();
   WrenchCompileJob job;
   job.source = src;
   job.sourceLen = srcLen;
   job.bytecode = nullptr;
   job.byteLen = 0;
   job.result = WR_ERR_None;
+  job.allocStats = P1WrenchAllocStats();
   job.done = xSemaphoreCreateBinary();
   if (!job.done) {
     compileErr = "could not allocate compile worker semaphore";
@@ -718,6 +866,8 @@ static WRError wrenchCompileOnWorker(const char* src, int srcLen, unsigned char*
   *bytecodeOut = job.bytecode;
   *byteLenOut = job.byteLen;
   compileErr = job.compileErr;
+  g_lastCompileAllocStats = job.allocStats;
+  wrenchEmitCompileAllocTrace("worker.done", g_lastCompileAllocStats);
   return job.result;
 }
 
@@ -859,6 +1009,154 @@ static bool wrenchCompileSource(const String& userCode, unsigned char** bytecode
   return true;
 }
 
+static bool wrenchCompileIncomingSource(size_t scriptBytes, uint32_t scriptHash, unsigned char** bytecodeOut, int* byteLenOut, String& errOut) {
+  errOut = "";
+  *bytecodeOut = nullptr;
+  *byteLenOut = 0;
+  wrenchEmitCompileMemoryTrace("compileIncoming.begin", scriptBytes);
+  if (scriptBytes == 0) {
+    errOut = "empty script";
+    scriptErrorSet("compile", "empty_script", errOut);
+    return false;
+  }
+  if (scriptBytes > P1_EMBED_MAX_SCRIPT_BYTES) {
+    errOut = "script too large";
+    scriptErrorSet("compile", "script_too_large", errOut, "\"scriptBytes\":" + String(scriptBytes) + ",\"maxScriptBytes\":" + String(P1_EMBED_MAX_SCRIPT_BYTES));
+    return false;
+  }
+  uint32_t freeHeap = ESP.getFreeHeap();
+  uint32_t maxAlloc = ESP.getMaxAllocHeap();
+  uint32_t bestFreeHeap = freeHeap;
+  uint32_t bestMaxAlloc = maxAlloc;
+  uint32_t minFreeHeap = P1_EMBED_WRENCH_COMPILE_MIN_FREE_HEAP;
+  uint32_t minMaxAlloc = P1_EMBED_WRENCH_COMPILE_MIN_MAX_ALLOC;
+  if (scriptBytes >= P1_EMBED_WRENCH_LARGE_SCRIPT_BYTES) {
+    minFreeHeap = P1_EMBED_WRENCH_LARGE_COMPILE_MIN_FREE_HEAP;
+    minMaxAlloc = P1_EMBED_WRENCH_LARGE_COMPILE_MIN_MAX_ALLOC;
+  }
+  if (webrtcTransportDataChannelOpen() && scriptBytes >= P1_EMBED_WRENCH_WEBRTC_LARGE_SCRIPT_BYTES) {
+    if (minFreeHeap < P1_EMBED_WRENCH_WEBRTC_COMPILE_MIN_FREE_HEAP) {
+      minFreeHeap = P1_EMBED_WRENCH_WEBRTC_COMPILE_MIN_FREE_HEAP;
+    }
+    if (minMaxAlloc < P1_EMBED_WRENCH_WEBRTC_COMPILE_MIN_MAX_ALLOC) {
+      minMaxAlloc = P1_EMBED_WRENCH_WEBRTC_COMPILE_MIN_MAX_ALLOC;
+    }
+  }
+  if (freeHeap < minFreeHeap || maxAlloc < minMaxAlloc) {
+    uint32_t start = millis();
+    while ((uint32_t)(millis() - start) < P1_EMBED_WRENCH_COMPILE_HEAP_SETTLE_MS) {
+      delay(50);
+      freeHeap = ESP.getFreeHeap();
+      maxAlloc = ESP.getMaxAllocHeap();
+      if (freeHeap > bestFreeHeap) bestFreeHeap = freeHeap;
+      if (maxAlloc > bestMaxAlloc) bestMaxAlloc = maxAlloc;
+      if (freeHeap >= minFreeHeap && maxAlloc >= minMaxAlloc) break;
+    }
+  }
+  if (freeHeap < minFreeHeap || maxAlloc < minMaxAlloc) {
+    P1EventField fields[] = {
+      p1FieldUInt("freeHeap", freeHeap),
+      p1FieldUInt("maxAllocHeap", maxAlloc),
+      p1FieldUInt("bestFreeHeap", bestFreeHeap),
+      p1FieldUInt("bestMaxAllocHeap", bestMaxAlloc),
+      p1FieldUInt("minFreeHeap", minFreeHeap),
+      p1FieldUInt("minMaxAllocHeap", minMaxAlloc),
+      p1FieldUInt("scriptBytes", scriptBytes),
+    };
+    debugEventEmitFields("script.memory", "warn", "script", "compiling despite low heap guard estimate", fields, 7);
+  }
+
+  String prelude = wrenchPrelude();
+  wrenchEmitCompileMemoryTrace("prelude.built", scriptBytes, prelude.length());
+  int userLineOffset = 1;
+  for (size_t i = 0; i < prelude.length(); i++) {
+    if (prelude[i] == '\n') userLineOffset++;
+  }
+  size_t sourceLen = prelude.length() + 1 + scriptBytes;
+  if (sourceLen > (size_t)INT_MAX - 1) {
+    errOut = "script too large";
+    scriptErrorSet("compile", "script_too_large", errOut, "\"sourceBytes\":" + String(sourceLen));
+    return false;
+  }
+
+  P1ReusableBufferHandle sourceHandle;
+  if (!p1ReusableBufferAcquire(
+        g_wrenchCompileSourceBuffer,
+        sourceLen + 1,
+        P1_EMBED_WRENCH_COMPILE_SOURCE_RETAIN_MIN,
+        P1_EMBED_WRENCH_COMPILE_SOURCE_RETAIN_MAX,
+        sourceHandle)) {
+    errOut = "No heap for compile source";
+    String details = "\"scriptBytes\":" + String(scriptBytes);
+    details += ",\"sourceBytes\":" + String(sourceLen);
+    details += ",\"freeHeap\":" + String(ESP.getFreeHeap());
+    details += ",\"maxAllocHeap\":" + String(ESP.getMaxAllocHeap());
+    scriptErrorSet("compile", "source_no_heap", errOut, details);
+    return false;
+  }
+
+  char* source = (char*)sourceHandle.data;
+  size_t cursor = 0;
+  memcpy(source + cursor, prelude.c_str(), prelude.length());
+  cursor += prelude.length();
+  source[cursor++] = '\n';
+  prelude = "";
+  size_t copied = 0;
+  if (!scriptStoreCopyIncomingToBuffer((uint8_t*)source + cursor, scriptBytes, copied) || copied != scriptBytes) {
+    p1ReusableBufferReleaseHandle(g_wrenchCompileSourceBuffer, sourceHandle);
+    errOut = "Failed to load staged script";
+    String details = "\"scriptBytes\":" + String(scriptBytes);
+    details += ",\"copiedBytes\":" + String(copied);
+    scriptErrorSet("compile", "source_load_failed", errOut, details);
+    return false;
+  }
+  cursor += copied;
+  source[cursor] = 0;
+  wrenchEmitCompileMemoryTrace("source.built", scriptBytes, sourceLen);
+
+  unsigned char* bytecode = nullptr;
+  int byteLen = 0;
+  WRstr compileErr;
+
+  wrenchCompileCrashArm(scriptHash, scriptBytes);
+  wrenchEmitCompileMemoryTrace("worker.before", scriptBytes, sourceLen);
+  WRError ce = wrenchCompileOnWorker(source, (int)sourceLen, &bytecode, &byteLen, compileErr);
+  p1ReusableBufferReleaseHandle(g_wrenchCompileSourceBuffer, sourceHandle);
+  p1ReusableBufferMaintain(
+    g_wrenchCompileSourceBuffer,
+    P1_EMBED_WRENCH_COMPILE_SOURCE_RETAIN_MIN,
+    P1_EMBED_WRENCH_COMPILE_SOURCE_RETAIN_MAX,
+    P1_EMBED_WRENCH_COMPILE_SOURCE_SHRINK_IDLE_MS);
+  wrenchCompileCrashClear();
+  wrenchEmitCompileMemoryTrace("worker.after", scriptBytes, sourceLen, byteLen > 0 ? (size_t)byteLen : 0);
+  if (ce != WR_ERR_None || !bytecode || byteLen <= 0) {
+    errOut = compileErr.size() ? String(compileErr.c_str()) : String("compile failed: ") + scriptErrorWrenchName((int)ce);
+    errOut = wrenchRemapCompileError(errOut, userLineOffset);
+    g_scriptState = SCRIPT_ERROR;
+    wrenchSetPhase(WRENCH_PHASE_ERROR);
+    String details = "\"wrenchError\":" + String((int)ce);
+    details += ",\"wrenchErrorName\":" + jsonString(scriptErrorWrenchName((int)ce));
+    details += ",\"scriptBytes\":" + String(scriptBytes);
+    scriptErrorSet("compile", "compile_error", errOut, details);
+    if (bytecode) wr_free(bytecode);
+    return false;
+  }
+
+  if (byteLen > P1_EMBED_MAX_BYTECODE_BYTES) {
+    errOut = "compiled bytecode too large";
+    wrenchSetPhase(WRENCH_PHASE_ERROR);
+    String details = "\"bytecodeBytes\":" + String(byteLen);
+    details += ",\"maxBytecodeBytes\":" + String(P1_EMBED_MAX_BYTECODE_BYTES);
+    scriptErrorSet("compile", "bytecode_too_large", errOut, details);
+    wr_free(bytecode);
+    return false;
+  }
+
+  *bytecodeOut = bytecode;
+  *byteLenOut = byteLen;
+  return true;
+}
+
 bool wrenchCompileAndSet(const String& userCode, String& errOut) {
   errOut = "";
   wrenchEmitCompileMemoryTrace("compileAndSet.begin", userCode.length());
@@ -918,6 +1216,69 @@ bool wrenchCompileAndSet(const String& userCode, String& errOut) {
   };
   protocolEmitEventFields("script.state", fields, 3);
   wrenchEmitCompileMemoryTrace("compileAndSet.ready", userCode.length(), 0, byteLen);
+  wrenchUnlock();
+  return true;
+}
+
+bool wrenchCompileAndSetIncoming(size_t scriptBytes, uint32_t scriptHash, String& errOut) {
+  errOut = "";
+  wrenchEmitCompileMemoryTrace("compileAndSetIncoming.begin", scriptBytes);
+  {
+    P1EventField fields[] = {
+      p1FieldUInt("scriptBytes", scriptBytes),
+    };
+    debugEventEmitFields("script.debug", "debug", "script", "compileAndSetIncoming begin", fields, 1);
+  }
+  uiRuntimeReset("", true);
+  wrenchReleaseCompiledProgram();
+  wrenchEmitCompileMemoryTrace("runtime.released", scriptBytes);
+  mqttTransportPrepareMemoryPressure();
+  p1ReusableBufferMaintain(
+    g_wrenchCompileSourceBuffer,
+    P1_EMBED_WRENCH_COMPILE_SOURCE_RETAIN_MIN,
+    P1_EMBED_WRENCH_COMPILE_SOURCE_RETAIN_MAX,
+    0);
+  wrenchEmitCompileMemoryTrace("mqtt.released", scriptBytes);
+  wrenchSetPhase(WRENCH_PHASE_COMPILING);
+
+  unsigned char* bytecode = nullptr;
+  int byteLen = 0;
+  if (!wrenchCompileIncomingSource(scriptBytes, scriptHash, &bytecode, &byteLen, errOut)) {
+    wrenchEmitCompileMemoryTrace("compileAndSetIncoming.failed", scriptBytes);
+    P1EventField fields[] = {
+      p1FieldString("error", errOut),
+    };
+    debugEventEmitFields("script.debug", "debug", "script", "compileAndSetIncoming compile failed", fields, 1);
+    wrenchLock();
+    g_scriptState = SCRIPT_ERROR;
+    wrenchSetPhase(WRENCH_PHASE_ERROR);
+    wrenchUnlock();
+    return false;
+  }
+
+  wrenchLock();
+  g_wrenchRunPending = false;
+  wrenchStopLocked();
+  wrenchFreeBytecodeLocked();
+  wrenchSourceSetIncoming(scriptBytes, scriptHash);
+  g_bytecode = bytecode;
+  g_bytecodeLen = byteLen;
+  g_scriptState = SCRIPT_COMPILED;
+  wrenchSetPhase(WRENCH_PHASE_COMPILED);
+  {
+    P1EventField fields[] = {
+      p1FieldUInt("scriptBytes", scriptBytes),
+      p1FieldUInt("bytecodeBytes", byteLen),
+    };
+    debugEventEmitFields("script.debug", "debug", "script", "compileAndSetIncoming ready", fields, 2);
+  }
+  P1EventField fields[] = {
+    p1FieldString("state", "compiled"),
+    p1FieldUInt("scriptBytes", scriptBytes),
+    p1FieldUInt("bytecodeBytes", byteLen),
+  };
+  protocolEmitEventFields("script.state", fields, 3);
+  wrenchEmitCompileMemoryTrace("compileAndSetIncoming.ready", scriptBytes, 0, byteLen);
   wrenchUnlock();
   return true;
 }

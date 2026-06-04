@@ -272,6 +272,16 @@ class PortalTinyNN {
     }
   }
 
+  getBias(layer, row) {
+    return this.biases?.[layer]?.[row]?.[0];
+  }
+
+  setBias(layer, row, value) {
+    if (this.biases?.[layer]?.[row] && Number.isFinite(Number(value))) {
+      this.biases[layer][row][0] = Number(value);
+    }
+  }
+
   exportState() {
     return {
       layers: [...this.layers],

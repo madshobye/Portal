@@ -1782,6 +1782,11 @@ static void w_p1_ledConfig(WRContext*, const WRValue* argv, const int argn, WRVa
   wrRetInt(retVal, ok ? 1 : 0);
 }
 
+static void p1LedBindingError(const String& code, const String& message, const String& details = String()) {
+  if (scriptErrorLastCode() == "led_reboot_required") return;
+  scriptErrorSet("binding", code, message, details);
+}
+
 static void w_p1_ledReady(WRContext*, const WRValue* argv, const int argn, WRValue& retVal, void*) {
   wrRetInt(retVal, ledReady(wrArgInt(argv, argn, 0, 0)) ? 1 : 0);
 }
@@ -1798,7 +1803,7 @@ static void w_p1_ledSet(WRContext*, const WRValue* argv, const int argn, WRValue
   int strip = wrArgInt(argv, argn, 0, 0);
   int index = wrArgInt(argv, argn, 1, -1);
   bool ok = ledSetPixel(strip, index, wrArgInt(argv, argn, 2, 0), wrArgInt(argv, argn, 3, 0), wrArgInt(argv, argn, 4, 0));
-  if (!ok) scriptErrorSet("binding", "led_set_failed", "ledSet failed", "\"strip\":" + String(strip) + ",\"index\":" + String(index));
+  if (!ok) p1LedBindingError("led_set_failed", "ledSet failed", "\"strip\":" + String(strip) + ",\"index\":" + String(index));
   wrRetInt(retVal, ok ? 1 : 0);
 }
 
@@ -1810,7 +1815,7 @@ static void w_p1_ledSetHsv(WRContext*, const WRValue* argv, const int argn, WRVa
   int b = 0;
   hsvToRgb8(wrArgInt(argv, argn, 2, 0), wrArgInt(argv, argn, 3, 255), wrArgInt(argv, argn, 4, 255), r, g, b);
   bool ok = ledSetPixel(strip, index, r, g, b);
-  if (!ok) scriptErrorSet("binding", "led_set_hsv_failed", "ledSetHsv failed", "\"strip\":" + String(strip) + ",\"index\":" + String(index));
+  if (!ok) p1LedBindingError("led_set_hsv_failed", "ledSetHsv failed", "\"strip\":" + String(strip) + ",\"index\":" + String(index));
   wrRetInt(retVal, ok ? 1 : 0);
 }
 
@@ -1841,7 +1846,7 @@ static void w_p1_ledSetRgb(WRContext* ctx, const WRValue* argv, const int argn, 
   int g = wrArgArrayInt(ctx, argv, argn, 2, 1, wrArgInt(argv, argn, 3, 0));
   int b = wrArgArrayInt(ctx, argv, argn, 2, 2, wrArgInt(argv, argn, 4, 0));
   bool ok = ledSetPixel(strip, index, r, g, b);
-  if (!ok) scriptErrorSet("binding", "led_set_rgb_failed", "ledSetRgb failed", "\"strip\":" + String(strip) + ",\"index\":" + String(index));
+  if (!ok) p1LedBindingError("led_set_rgb_failed", "ledSetRgb failed", "\"strip\":" + String(strip) + ",\"index\":" + String(index));
   wrRetInt(retVal, ok ? 1 : 0);
 }
 
@@ -2022,7 +2027,7 @@ static void w_p1_paletteGetB(WRContext*, const WRValue* argv, const int argn, WR
 static void w_p1_ledFill(WRContext*, const WRValue* argv, const int argn, WRValue& retVal, void*) {
   int strip = wrArgInt(argv, argn, 0, 0);
   bool ok = ledFill(strip, wrArgInt(argv, argn, 1, 0), wrArgInt(argv, argn, 2, 0), wrArgInt(argv, argn, 3, 0));
-  if (!ok) scriptErrorSet("binding", "led_fill_failed", "ledFill failed", "\"strip\":" + String(strip));
+  if (!ok) p1LedBindingError("led_fill_failed", "ledFill failed", "\"strip\":" + String(strip));
   wrRetInt(retVal, ok ? 1 : 0);
 }
 
@@ -2030,20 +2035,20 @@ static void w_p1_ledClear(WRContext*, const WRValue* argv, const int argn, WRVal
   int strip = wrArgInt(argv, argn, 0, -1);
   bool show = wrArgPresent(argv, argn, 1) ? wrArgInt(argv, argn, 1, 1) != 0 : true;
   bool ok = ledClear(strip, show);
-  if (!ok) scriptErrorSet("binding", "led_clear_failed", "ledClear failed", "\"strip\":" + String(strip));
+  if (!ok) p1LedBindingError("led_clear_failed", "ledClear failed", "\"strip\":" + String(strip));
   wrRetInt(retVal, ok ? 1 : 0);
 }
 
 static void w_p1_ledShow(WRContext*, const WRValue*, const int, WRValue& retVal, void*) {
   bool ok = fastLedShow();
-  if (!ok) scriptErrorSet("binding", "led_show_failed", "ledShow failed");
+  if (!ok) p1LedBindingError("led_show_failed", "ledShow failed");
   wrRetInt(retVal, ok ? 1 : 0);
 }
 
 static void w_p1_ledBrightness(WRContext*, const WRValue* argv, const int argn, WRValue& retVal, void*) {
   int strip = wrArgInt(argv, argn, 0, 0);
   bool ok = ledSetBrightness(strip, wrArgInt(argv, argn, 1, 255));
-  if (!ok) scriptErrorSet("binding", "led_brightness_failed", "ledBrightness failed", "\"strip\":" + String(strip));
+  if (!ok) p1LedBindingError("led_brightness_failed", "ledBrightness failed", "\"strip\":" + String(strip));
   wrRetInt(retVal, ok ? 1 : 0);
 }
 
