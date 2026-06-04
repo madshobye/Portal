@@ -18,12 +18,12 @@ const LAB_SECTION_H = 20;
 const LAB_GAP = 5;
 const LAB_OUTER_PAD = 24;
 const DEFAULT_ARCHITECTURE_MODELS = [
-  { name: "tiny", layers: [1, 3, 1] },
-  { name: "classic", layers: [1, 4, 10, 4, 1] },
-  { name: "deep", layers: [1, 8, 8, 8, 1] },
-  { name: "wide", layers: [1, 16, 16, 1] },
-  { name: "magic", layers: [1, 3, 6, 10, 6, 3, 1] },
-  { name: "weaver", layers: [1, 4, 10, 4, 4, 1] },
+  { name: "tiny", layers: [1, 3, 1], activations: ["input", "tanh", "linear"] },
+  { name: "classic", layers: [1, 4, 10, 4, 1], activations: ["input", "tanh", "tanh", "tanh", "linear"] },
+  { name: "deep", layers: [1, 8, 8, 8, 1], activations: ["input", "tanh", "tanh", "tanh", "linear"] },
+  { name: "wide", layers: [1, 16, 16, 1], activations: ["input", "tanh", "tanh", "linear"] },
+  { name: "magic", layers: [1, 3, 6, 10, 6, 3, 1], activations: ["input", "tanh", "tanh", "magic", "tanh", "tanh", "linear"] },
+  { name: "weaver", layers: [1, 4, 10, 4, 4, 1], activations: ["input", "tanh", "magic", "tanh", "tanh", "linear"] },
 ];
 
 let nn;
@@ -227,12 +227,11 @@ function createNetwork({ keepToggles = false, keepMagicParams = true, layers = n
 
 function buildNetworkActivations(layers, previous = null) {
   const last = layers.length - 1;
-  const magicLayer = constrain(Math.floor(last * 0.5), 1, max(1, last - 1));
   return layers.map((_, layer) => {
     if (layer === 0) return "input";
     if (layer === last) return "linear";
     if (previous?.[layer] && previous[layer] !== "input" && previous[layer] !== "linear") return previous[layer];
-    return layer === magicLayer ? "magic" : "tanh";
+    return "tanh";
   });
 }
 
