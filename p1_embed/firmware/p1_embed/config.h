@@ -3,7 +3,7 @@
 #include <Arduino.h>
 
 #define P1_EMBED_FIRMWARE_NAME "p1_embed"
-#define P1_EMBED_FIRMWARE_VERSION "0.1.163"
+#define P1_EMBED_FIRMWARE_VERSION "0.1.166"
 #define P1_EMBED_PROTOCOL_VERSION "0.1"
 #define P1_EMBED_WRENCH_API_VERSION "0.1"
 #define P1_EMBED_WRENCH_UPSTREAM_REPO "https://github.com/jingoro2112/wrench"

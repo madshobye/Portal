@@ -14,14 +14,23 @@ enum P1HaEntityType : uint8_t {
   P1_HA_LIGHT = 6,
 };
 
+static constexpr uint32_t P1_HA_COLOR_MODE_ON_OFF = 1;
+static constexpr uint32_t P1_HA_COLOR_MODE_BRIGHTNESS = 3;
+static constexpr uint32_t P1_HA_COLOR_MODE_RGB = 35;
+
 struct P1HaEntity {
   bool used = false;
   P1HaEntityType type = P1_HA_SENSOR;
+  bool lightBrightness = false;
+  bool lightRgb = false;
   uint32_t key = 0;
   char id[P1_EMBED_HA_ID_MAX]{};
   char name[P1_EMBED_HA_NAME_MAX]{};
   char unit[P1_EMBED_HA_UNIT_MAX]{};
   float value = 0.0f;
+  float red = 255.0f;
+  float green = 255.0f;
+  float blue = 255.0f;
   float minValue = 0.0f;
   float maxValue = 100.0f;
   float step = 1.0f;
@@ -460,9 +469,15 @@ static void haSendEntityListOne(const P1HaEntity& entity) {
         };
         debugEventEmitFields("home_assistant.entity", "trace", "home_assistant", "list light entity", fields, 4);
       }
-      msg.fieldFloat(9, 0.0f);
-      msg.fieldFloat(10, 0.0f);
-      msg.fieldUint(12, 3);
+      if (entity.lightRgb) {
+        msg.fieldUint(12, P1_HA_COLOR_MODE_RGB);
+      } else if (entity.lightBrightness) {
+        msg.fieldFloat(9, 0.0f);
+        msg.fieldFloat(10, 0.0f);
+        msg.fieldUint(12, P1_HA_COLOR_MODE_BRIGHTNESS);
+      } else {
+        msg.fieldUint(12, P1_HA_COLOR_MODE_ON_OFF);
+      }
       msg.fieldBool(13, false);
       msg.fieldUint(15, 0);
       haSendMessage(15, msg);
@@ -494,10 +509,34 @@ static void haSendStateOne(const P1HaEntity& entity) {
       haSendMessage(50, msg);
       break;
     case P1_HA_LIGHT: {
-      float brightness = constrain(entity.value, 0.0f, 100.0f) / 100.0f;
-      msg.fieldBool(2, brightness > 0.0f);
-      msg.fieldFloat(3, brightness);
-      msg.fieldUint(11, 3);
+      if (entity.lightRgb) {
+        float brightness = constrain(entity.value, 0.0f, 100.0f) / 100.0f;
+        float red = constrain(entity.red, 0.0f, 255.0f) / 255.0f;
+        float green = constrain(entity.green, 0.0f, 255.0f) / 255.0f;
+        float blue = constrain(entity.blue, 0.0f, 255.0f) / 255.0f;
+        float colorBrightness = max(red, max(green, blue));
+        msg.fieldBool(2, brightness > 0.0f);
+        msg.fieldFloat(3, brightness);
+        if (colorBrightness > 0.0f) {
+          msg.fieldFloat(4, red / colorBrightness);
+          msg.fieldFloat(5, green / colorBrightness);
+          msg.fieldFloat(6, blue / colorBrightness);
+        } else {
+          msg.fieldFloat(4, 0.0f);
+          msg.fieldFloat(5, 0.0f);
+          msg.fieldFloat(6, 0.0f);
+        }
+        msg.fieldFloat(10, colorBrightness);
+        msg.fieldUint(11, P1_HA_COLOR_MODE_RGB);
+      } else if (entity.lightBrightness) {
+        float brightness = constrain(entity.value, 0.0f, 100.0f) / 100.0f;
+        msg.fieldBool(2, brightness > 0.0f);
+        msg.fieldFloat(3, brightness);
+        msg.fieldUint(11, P1_HA_COLOR_MODE_BRIGHTNESS);
+      } else {
+        msg.fieldBool(2, entity.value != 0.0f);
+        msg.fieldUint(11, P1_HA_COLOR_MODE_ON_OFF);
+      }
       haSendMessage(24, msg);
       break;
     }
@@ -601,10 +640,17 @@ static bool haSkipField(uint8_t wire, const uint8_t* data, size_t len, size_t& p
 
 static void haParseCommand(uint32_t messageType, const uint8_t* data, size_t len) {
   uint32_t key = 0;
+  bool haveKey = false;
   bool haveState = false;
   bool state = false;
   bool haveValue = false;
   float value = 0.0f;
+  bool haveRgb = false;
+  bool haveColorBrightness = false;
+  float red = 0.0f;
+  float green = 0.0f;
+  float blue = 0.0f;
+  float colorBrightness = 1.0f;
   size_t pos = 0;
 
   while (pos < len) {
@@ -613,7 +659,8 @@ static void haParseCommand(uint32_t messageType, const uint8_t* data, size_t len
     uint32_t field = tag >> 3;
     uint8_t wire = (uint8_t)(tag & 7);
     if (field == 1 && wire == 5) {
-      haReadFixed32At(data, len, pos, key);
+      if (!haReadFixed32At(data, len, pos, key)) return;
+      haveKey = true;
     } else if (messageType == 32 && field == 2 && wire == 0) {
       uint32_t raw = 0;
       if (!haReadVarintAt(data, len, pos, raw)) return;
@@ -637,9 +684,42 @@ static void haParseCommand(uint32_t messageType, const uint8_t* data, size_t len
       cvt.u = raw;
       haveValue = true;
       value = cvt.f;
+    } else if (messageType == 32 && field == 6 && wire == 0) {
+      uint32_t raw = 0;
+      if (!haReadVarintAt(data, len, pos, raw)) return;
+      if (raw != 0) haveRgb = true;
+    } else if (messageType == 32 && field >= 7 && field <= 9 && wire == 5) {
+      uint32_t raw = 0;
+      if (!haReadFixed32At(data, len, pos, raw)) return;
+      union {
+        uint32_t u;
+        float f;
+      } cvt;
+      cvt.u = raw;
+      if (field == 7) red = cvt.f;
+      if (field == 8) green = cvt.f;
+      if (field == 9) blue = cvt.f;
+    } else if (messageType == 32 && field == 20 && wire == 0) {
+      uint32_t raw = 0;
+      if (!haReadVarintAt(data, len, pos, raw)) return;
+      if (raw != 0) haveColorBrightness = true;
+    } else if (messageType == 32 && field == 21 && wire == 5) {
+      uint32_t raw = 0;
+      if (!haReadFixed32At(data, len, pos, raw)) return;
+      union {
+        uint32_t u;
+        float f;
+      } cvt;
+      cvt.u = raw;
+      colorBrightness = cvt.f;
     } else {
       if (!haSkipField(wire, data, len, pos)) return;
     }
+  }
+
+  if (messageType == 33 && haveKey && !haveState && !haveValue) {
+    haveState = true;
+    state = false;
   }
 
   int idx = haFindEntityByKey(key);
@@ -660,19 +740,28 @@ static void haParseCommand(uint32_t messageType, const uint8_t* data, size_t len
       p1FieldString("messageName", haMessageName(messageType)),
       p1FieldBool("haveState", haveState),
       p1FieldBool("haveValue", haveValue),
+      p1FieldBool("haveRgb", haveRgb),
       p1FieldInt("value", (int)value),
     };
-    debugEventEmitFields("home_assistant.command", "trace", "home_assistant", "command parsed", fields, 6);
+    debugEventEmitFields("home_assistant.command", "trace", "home_assistant", "command parsed", fields, 7);
   }
   if (messageType == 62) {
     haQueueEvent(entity.id, "press", 1.0f);
     return;
   }
-  if (messageType == 32 && haveValue) value = constrain(value, 0.0f, 1.0f) * 100.0f;
-  if (messageType == 32 && !haveValue && haveState) value = state ? (entity.value > 0.0f ? entity.value : 100.0f) : 0.0f;
+  if (messageType == 32 && entity.type == P1_HA_LIGHT && entity.lightRgb && haveRgb) {
+    float scale = haveColorBrightness ? constrain(colorBrightness, 0.0f, 1.0f) : 1.0f;
+    entity.red = constrain(red, 0.0f, 1.0f) * scale * 255.0f;
+    entity.green = constrain(green, 0.0f, 1.0f) * scale * 255.0f;
+    entity.blue = constrain(blue, 0.0f, 1.0f) * scale * 255.0f;
+  }
+  if (messageType == 32 && entity.type == P1_HA_LIGHT && (entity.lightBrightness || entity.lightRgb) && haveValue) value = constrain(value, 0.0f, 1.0f) * 100.0f;
+  if (messageType == 32 && entity.type == P1_HA_LIGHT && !entity.lightBrightness && !entity.lightRgb && haveValue) value = value > 0.0f ? 1.0f : 0.0f;
+  if (messageType == 32 && entity.type == P1_HA_LIGHT && (entity.lightBrightness || entity.lightRgb) && !haveValue && haveState) value = state ? (entity.value > 0.0f ? entity.value : 100.0f) : 0.0f;
+  if (messageType == 32 && entity.type == P1_HA_LIGHT && !entity.lightBrightness && !entity.lightRgb && !haveValue && haveState) value = state ? 1.0f : 0.0f;
   if (messageType != 32 && !haveValue && haveState) value = state ? 1.0f : 0.0f;
-  if (!haveValue && !haveState) return;
-  entity.value = value;
+  if (!haveValue && !haveState && !haveRgb) return;
+  if (haveValue || haveState) entity.value = value;
   entity.changed = true;
   haSendStateOne(entity);
   haQueueEvent(entity.id, "set", value);
@@ -882,6 +971,33 @@ bool haDeclareLight(const String& id, const String& name, float brightness) {
   int idx = haFindOrCreate(P1_HA_LIGHT, id);
   if (idx < 0) return false;
   haCopy(g_haEntities[idx].name, sizeof(g_haEntities[idx].name), name.length() ? name : id);
+  g_haEntities[idx].lightBrightness = true;
+  g_haEntities[idx].lightRgb = false;
+  g_haEntities[idx].value = constrain(brightness, 0.0f, 100.0f);
+  if (g_haClientSubscribed) haSendStateOne(g_haEntities[idx]);
+  return true;
+}
+
+bool haDeclareOnOffLight(const String& id, const String& name, bool value) {
+  int idx = haFindOrCreate(P1_HA_LIGHT, id);
+  if (idx < 0) return false;
+  haCopy(g_haEntities[idx].name, sizeof(g_haEntities[idx].name), name.length() ? name : id);
+  g_haEntities[idx].lightBrightness = false;
+  g_haEntities[idx].lightRgb = false;
+  g_haEntities[idx].value = value ? 1.0f : 0.0f;
+  if (g_haClientSubscribed) haSendStateOne(g_haEntities[idx]);
+  return true;
+}
+
+bool haDeclareRgbLight(const String& id, const String& name, float red, float green, float blue, float brightness) {
+  int idx = haFindOrCreate(P1_HA_LIGHT, id);
+  if (idx < 0) return false;
+  haCopy(g_haEntities[idx].name, sizeof(g_haEntities[idx].name), name.length() ? name : id);
+  g_haEntities[idx].lightBrightness = true;
+  g_haEntities[idx].lightRgb = true;
+  g_haEntities[idx].red = constrain(red, 0.0f, 255.0f);
+  g_haEntities[idx].green = constrain(green, 0.0f, 255.0f);
+  g_haEntities[idx].blue = constrain(blue, 0.0f, 255.0f);
   g_haEntities[idx].value = constrain(brightness, 0.0f, 100.0f);
   if (g_haClientSubscribed) haSendStateOne(g_haEntities[idx]);
   return true;
@@ -896,10 +1012,31 @@ bool haUpdateValue(const String& id, float value) {
   return true;
 }
 
+bool haUpdateRgbValue(const String& id, float red, float green, float blue, float brightness) {
+  int idx = haFindEntityById(id);
+  if (idx < 0 || g_haEntities[idx].type != P1_HA_LIGHT || !g_haEntities[idx].lightRgb) return false;
+  g_haEntities[idx].red = constrain(red, 0.0f, 255.0f);
+  g_haEntities[idx].green = constrain(green, 0.0f, 255.0f);
+  g_haEntities[idx].blue = constrain(blue, 0.0f, 255.0f);
+  g_haEntities[idx].value = constrain(brightness, 0.0f, 100.0f);
+  g_haEntities[idx].changed = false;
+  if (g_haClientSubscribed) haSendStateOne(g_haEntities[idx]);
+  return true;
+}
+
 bool haInputValue(const String& id, float& valueOut) {
   int idx = haFindEntityById(id);
   if (idx < 0) return false;
   valueOut = g_haEntities[idx].value;
+  return true;
+}
+
+bool haInputRgbValue(const String& id, float& redOut, float& greenOut, float& blueOut) {
+  int idx = haFindEntityById(id);
+  if (idx < 0 || g_haEntities[idx].type != P1_HA_LIGHT || !g_haEntities[idx].lightRgb) return false;
+  redOut = g_haEntities[idx].red;
+  greenOut = g_haEntities[idx].green;
+  blueOut = g_haEntities[idx].blue;
   return true;
 }
 
@@ -948,8 +1085,12 @@ bool haDeclareSwitch(const String&, const String&, bool) { return false; }
 bool haDeclareNumber(const String&, const String&, float, float, float, float) { return false; }
 bool haDeclareButton(const String&, const String&) { return false; }
 bool haDeclareLight(const String&, const String&, float) { return false; }
+bool haDeclareOnOffLight(const String&, const String&, bool) { return false; }
+bool haDeclareRgbLight(const String&, const String&, float, float, float, float) { return false; }
 bool haUpdateValue(const String&, float) { return false; }
+bool haUpdateRgbValue(const String&, float, float, float, float) { return false; }
 bool haInputValue(const String&, float&) { return false; }
+bool haInputRgbValue(const String&, float&, float&, float&) { return false; }
 bool haInputChanged(const String&) { return false; }
 bool haInputPop(P1HaInputEvent&) { return false; }
 bool haInputTakeMatching(const String&, const String&, P1HaInputEvent&) { return false; }

@@ -2355,6 +2355,23 @@ static void w_p1_haLight(WRContext*, const WRValue* argv, const int argn, WRValu
   wrRetInt(retVal, haDeclareLight(id, name, brightness) ? 1 : 0);
 }
 
+static void w_p1_haOnOffLight(WRContext*, const WRValue* argv, const int argn, WRValue& retVal, void*) {
+  String id = wrArgStringValue(argv, argn, 0);
+  String name = wrArgStringValue(argv, argn, 1);
+  bool value = wrArgInt(argv, argn, 2, 0) != 0;
+  wrRetInt(retVal, haDeclareOnOffLight(id, name, value) ? 1 : 0);
+}
+
+static void w_p1_haRgbLight(WRContext*, const WRValue* argv, const int argn, WRValue& retVal, void*) {
+  String id = wrArgStringValue(argv, argn, 0);
+  String name = wrArgStringValue(argv, argn, 1);
+  float red = wrArgFloat(argv, argn, 2, 255.0f);
+  float green = wrArgFloat(argv, argn, 3, 255.0f);
+  float blue = wrArgFloat(argv, argn, 4, 255.0f);
+  float brightness = wrArgFloat(argv, argn, 5, 100.0f);
+  wrRetInt(retVal, haDeclareRgbLight(id, name, red, green, blue, brightness) ? 1 : 0);
+}
+
 static void w_p1_haUpdate(WRContext*, const WRValue* argv, const int argn, WRValue& retVal, void*) {
   String id = wrArgStringValue(argv, argn, 0);
   float value = wrArgFloat(argv, argn, 1, 0.0f);
@@ -2371,6 +2388,17 @@ static void w_p1_haSet(WRContext*, const WRValue* argv, const int argn, WRValue&
   wrRetInt(retVal, ok ? 1 : 0);
 }
 
+static void w_p1_haSetRgb(WRContext*, const WRValue* argv, const int argn, WRValue& retVal, void*) {
+  String id = wrArgStringValue(argv, argn, 0);
+  float red = wrArgFloat(argv, argn, 1, 255.0f);
+  float green = wrArgFloat(argv, argn, 2, 255.0f);
+  float blue = wrArgFloat(argv, argn, 3, 255.0f);
+  float brightness = wrArgFloat(argv, argn, 4, 100.0f);
+  bool ok = haUpdateRgbValue(id, red, green, blue, brightness);
+  if (!ok) scriptErrorSet("binding", "ha_entity_missing", "haSetRgb failed because the RGB Home Assistant light does not exist", "\"id\":" + jsonString(id));
+  wrRetInt(retVal, ok ? 1 : 0);
+}
+
 static void w_p1_haGet(WRContext*, const WRValue* argv, const int argn, WRValue& retVal, void*) {
   String id = wrArgStringValue(argv, argn, 0);
   float value = 0.0f;
@@ -2380,6 +2408,45 @@ static void w_p1_haGet(WRContext*, const WRValue* argv, const int argn, WRValue&
     return;
   }
   wrRetFloat(retVal, value);
+}
+
+static void w_p1_haRed(WRContext*, const WRValue* argv, const int argn, WRValue& retVal, void*) {
+  String id = wrArgStringValue(argv, argn, 0);
+  float red = 0.0f;
+  float green = 0.0f;
+  float blue = 0.0f;
+  if (!haInputRgbValue(id, red, green, blue)) {
+    scriptErrorSet("binding", "ha_entity_missing", "haRed failed because the RGB Home Assistant light does not exist", "\"id\":" + jsonString(id));
+    wrRetFloat(retVal, 0.0f);
+    return;
+  }
+  wrRetFloat(retVal, red);
+}
+
+static void w_p1_haGreen(WRContext*, const WRValue* argv, const int argn, WRValue& retVal, void*) {
+  String id = wrArgStringValue(argv, argn, 0);
+  float red = 0.0f;
+  float green = 0.0f;
+  float blue = 0.0f;
+  if (!haInputRgbValue(id, red, green, blue)) {
+    scriptErrorSet("binding", "ha_entity_missing", "haGreen failed because the RGB Home Assistant light does not exist", "\"id\":" + jsonString(id));
+    wrRetFloat(retVal, 0.0f);
+    return;
+  }
+  wrRetFloat(retVal, green);
+}
+
+static void w_p1_haBlue(WRContext*, const WRValue* argv, const int argn, WRValue& retVal, void*) {
+  String id = wrArgStringValue(argv, argn, 0);
+  float red = 0.0f;
+  float green = 0.0f;
+  float blue = 0.0f;
+  if (!haInputRgbValue(id, red, green, blue)) {
+    scriptErrorSet("binding", "ha_entity_missing", "haBlue failed because the RGB Home Assistant light does not exist", "\"id\":" + jsonString(id));
+    wrRetFloat(retVal, 0.0f);
+    return;
+  }
+  wrRetFloat(retVal, blue);
 }
 
 static void w_p1_haChanged(WRContext*, const WRValue* argv, const int argn, WRValue& retVal, void*) {
@@ -2588,7 +2655,8 @@ const char* wrenchBindingNameForHash(uint32_t hash) {
     "uiEventIs", "uiEventValue", "uiGet", "uiChanged",
 #if P1_EMBED_HA_ENABLED
     "haBegin", "haSensor", "haBinarySensor", "haSwitch", "haNumber",
-    "haButton", "haLight", "haSet", "haUpdate", "haGet", "haChanged",
+    "haButton", "haLight", "haOnOffLight", "haRgbLight", "haSet", "haUpdate", "haSetRgb",
+    "haGet", "haRed", "haGreen", "haBlue", "haChanged",
     "haEvent", "haPoll", "haEventIs", "haEventValue", "haEventType", "haPress",
 #endif
     // Legacy scalar bindings kept for existing compiled and saved sketches.
@@ -2777,9 +2845,15 @@ void wrenchRegisterBindings(WRState* wr) {
   wr_registerFunction(wr, "haNumber", w_p1_haNumber);
   wr_registerFunction(wr, "haButton", w_p1_haButton);
   wr_registerFunction(wr, "haLight", w_p1_haLight);
+  wr_registerFunction(wr, "haOnOffLight", w_p1_haOnOffLight);
+  wr_registerFunction(wr, "haRgbLight", w_p1_haRgbLight);
   wr_registerFunction(wr, "haSet", w_p1_haSet);
   wr_registerFunction(wr, "haUpdate", w_p1_haUpdate);
+  wr_registerFunction(wr, "haSetRgb", w_p1_haSetRgb);
   wr_registerFunction(wr, "haGet", w_p1_haGet);
+  wr_registerFunction(wr, "haRed", w_p1_haRed);
+  wr_registerFunction(wr, "haGreen", w_p1_haGreen);
+  wr_registerFunction(wr, "haBlue", w_p1_haBlue);
   wr_registerFunction(wr, "haChanged", w_p1_haChanged);
   wr_registerFunction(wr, "haEvent", w_p1_haEvent);
   wr_registerFunction(wr, "haPoll", w_p1_haPoll);

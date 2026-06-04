@@ -342,9 +342,13 @@ Bindings:
 - `haNumber(id, name, value, min, max, step)` declares a numeric control. HA changes update the firmware-side value.
 - `haButton(id, name)` declares a virtual Home Assistant button. HA presses can be consumed with `haEvent(id, "press")`. Wrench can emit a button press toward HA with `haPress(id)`.
 - `haLight(id, name, brightness)` declares a simple brightness light using `0..100` brightness. HA brightness changes update the firmware-side value.
+- `haOnOffLight(id, name, value)` declares a Home Assistant light with only on/off control and no brightness slider. HA changes update the firmware-side value as `0` or `1`.
+- `haRgbLight(id, name, r, g, b, brightness)` declares a Home Assistant RGB light. Use `0..255` for `r`, `g`, and `b`; use `0..100` for `brightness`. HA changes update the firmware-side brightness and RGB values.
 - `haSet(id, value)` updates the firmware-side value for an existing entity and publishes it to HA. Missing ids are binding errors.
 - `haUpdate(id, value)` is a compatibility alias for `haSet(id, value)`.
+- `haSetRgb(id, r, g, b, brightness)` updates an existing RGB light and publishes the new color and brightness to HA.
 - `haGet(id)` returns the latest firmware-side entity value, including changes pulled from Home Assistant. Missing ids are binding errors.
+- `haRed(id)`, `haGreen(id)`, and `haBlue(id)` return the latest `0..255` RGB channel values for an RGB light. Missing ids are binding errors.
 - `haChanged(id)` returns `1` once after Home Assistant changes a switch, number, or light value, then clears that changed flag.
 - `haEvent(id, type)` finds the latest queued event matching `id` and `type`, removes only that matching event, loads it for `haEventValue()` / `haEventType()`, and returns `1`. Unrelated events stay queued.
 - `haPoll()` returns `1` when the next Home Assistant command is available and loads it for `haEventIs()`, `haEventValue()`, and `haEventType()`.
