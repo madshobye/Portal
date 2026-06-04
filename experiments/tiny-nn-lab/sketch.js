@@ -39,10 +39,16 @@ let neuronHitZones = [];
 let architectureHitZones = [];
 let suppressConnectionSelection = false;
 let training = false;
+let fastTraining = false;
+let splitTrainingMode = false;
+let multiSplitTrainingMode = false;
 let presetIndex = 0;
 let sampleCount = 90;
 let noiseAmount = 0.04;
 let graphCenter = 0;
+let graphPredictionReadout = null;
+let weightVisualThreshold = 0;
+let showAccumulatedFlow = false;
 const GRAPH_SPAN = 2;
 let customModels = [];
 let activeCustomModelIndex = -1;
@@ -136,7 +142,7 @@ const presets = [
   {
     name: "noise",
     params: [
-      { key: "a", label: "amp", min: -1.4, max: 1.4, value: 0.92 },
+      { key: "a", label: "amp", min: -3, max: 3, value: 1.4 },
       { key: "s", label: "scale", min: 0.2, max: 5, value: 1.4 },
       { key: "o", label: "offset", min: -8, max: 8, value: 0 },
       { key: "b", label: "b", min: -0.8, max: 0.8, value: 0 },
@@ -158,7 +164,9 @@ async function setup() {
   installTinyNNPointerHandlers();
   installTinyNNSaveHandlers();
   training = restoredState?.training ?? true;
+  fastTraining = restoredState?.fastTraining ?? false;
   uiSetState("tiny-nn-training", training);
+  uiSetState("tiny-nn-fast-training", fastTraining);
 }
 
 function waitForPortalRuntime() {
@@ -191,10 +199,31 @@ function draw() {
     suppressConnectionSelection = false;
   }
 
-  if (training && nn) {
-    nn.train(samples, { steps: 1, learningRate: lastUi.learningRate ?? 0.012 });
-  }
   syncGraphWindowFromUi();
+
+  if (training && nn) {
+    const splitSamples = usesHeldOutLoss() ? getTrainingModeSamples() : null;
+    const trainingSamples = usesHeldOutLoss()
+      ? (splitSamples.train.length ? splitSamples.train : samples)
+      : samples;
+    const lossHistoryLength = usesHeldOutLoss() && Array.isArray(nn.lossHistory) ? nn.lossHistory.length : null;
+    nn.train(trainingSamples, {
+      steps: fastTraining ? 24 : 1,
+      learningRate: lastUi.learningRate ?? 0.012,
+      batchSize: fastTraining ? 24 : 0,
+      recordLossEachStep: !fastTraining && !usesHeldOutLoss(),
+    });
+    if (usesHeldOutLoss()) {
+      if (Number.isInteger(lossHistoryLength) && Array.isArray(nn.lossHistory)) {
+        nn.lossHistory.length = lossHistoryLength;
+      }
+      const validationSamples = splitSamples.validation;
+      setEvaluationLoss(validationSamples.length ? validationSamples : trainingSamples, { record: true });
+    }
+  } else if (usesHeldOutLoss() && nn) {
+    const validationSamples = getTrainingModeSamples().validation;
+    if (validationSamples.length) setEvaluationLoss(validationSamples, { record: false });
+  }
   saveLabStateThrottled();
 
   updatePredictions();
@@ -358,10 +387,15 @@ function saveLabStateThrottled(force = false) {
       presetParams: exportPresetParams(),
       noiseAmount,
       graphCenter,
+      weightVisualThreshold,
+      showAccumulatedFlow,
       customModels,
       activeCustomModelIndex,
       architectureModelIndex,
       training,
+      fastTraining,
+      splitTrainingMode,
+      multiSplitTrainingMode,
       learningRate: lastUi.learningRate ?? 0.012,
       network: nn.exportState(),
     }));
@@ -382,6 +416,8 @@ function applySavedPresetState(state) {
   }
   if (Number.isFinite(Number(state.noiseAmount))) noiseAmount = Number(state.noiseAmount);
   if (Number.isFinite(Number(state.graphCenter))) graphCenter = constrain(Number(state.graphCenter), -2, 2);
+  if (Number.isFinite(Number(state.weightVisualThreshold))) weightVisualThreshold = constrain(Number(state.weightVisualThreshold), 0, 6);
+  if (typeof state.showAccumulatedFlow === "boolean") showAccumulatedFlow = state.showAccumulatedFlow;
   if (Array.isArray(state.customModels)) {
     customModels = state.customModels
       .filter((model) => model && Array.isArray(model.layers))
@@ -417,9 +453,18 @@ function applySavedRuntimeState(state) {
   if (!state || typeof state !== "object") return;
   if (state.network && nn?.importState) nn.importState(state.network);
   magicParams = nn?.getMagicParams?.() || magicParams;
+  if (typeof state.fastTraining === "boolean") fastTraining = state.fastTraining;
+  if (typeof state.splitTrainingMode === "boolean") splitTrainingMode = state.splitTrainingMode;
+  if (typeof state.multiSplitTrainingMode === "boolean") multiSplitTrainingMode = state.multiSplitTrainingMode;
+  if (multiSplitTrainingMode) splitTrainingMode = false;
   uiSetState("tiny-nn-noise", noiseAmount);
   uiSetState("tiny-nn-lr", lastUi.learningRate ?? 0.012);
   uiSetState("tiny-nn-graph-center", graphCenter);
+  uiSetState("tiny-nn-weight-threshold", weightVisualThreshold);
+  uiSetState("tiny-nn-flow-mode", showAccumulatedFlow);
+  uiSetState("tiny-nn-fast-training", fastTraining);
+  uiSetState("tiny-nn-split-training", splitTrainingMode);
+  uiSetState("tiny-nn-multi-split-training", multiSplitTrainingMode);
   for (const preset of presets) {
     for (const param of preset.params || []) {
       uiSetState(`target-${preset.name}-${param.key}`, param.value);
@@ -467,13 +512,13 @@ function regenerateSamples() {
 function syncGraphWindowFromUi() {
   if (typeof uiGetState !== "function") return;
   const nextCenter = constrain(Number(uiGetState("tiny-nn-graph-center", graphCenter)) || 0, -2, 2);
-  const win = getGraphWindow();
-  const staleSamples = !samples.length ||
+  const win = getGraphWindow(nextCenter);
+  const staleSamples = training && (!samples.length ||
     abs(samples[0].input[0] - win.xMin) > 1e-6 ||
-    abs(samples[samples.length - 1].input[0] - win.xMax) > 1e-6;
+    abs(samples[samples.length - 1].input[0] - win.xMax) > 1e-6);
   if (abs(nextCenter - graphCenter) > 1e-9) {
     graphCenter = nextCenter;
-    regenerateSamples();
+    if (training) regenerateSamples();
   } else if (staleSamples) {
     regenerateSamples();
   }
@@ -489,11 +534,11 @@ function getPresetLabel(preset = presets[presetIndex]) {
   return typeof preset.label === "function" ? preset.label(getPresetParams(preset)) : preset.label;
 }
 
-function getGraphWindow() {
+function getGraphWindow(center = graphCenter) {
   const half = GRAPH_SPAN * 0.5;
   return {
-    xMin: graphCenter - half,
-    xMax: graphCenter + half,
+    xMin: center - half,
+    xMax: center + half,
   };
 }
 
@@ -513,6 +558,67 @@ function getSampleWindow(fallback = getGraphWindow()) {
     xMax += 0.5;
   }
   return { xMin, xMax };
+}
+
+function getSplitTrainingSamples(win = getGraphWindow()) {
+  return getTrainingModeSamples(win);
+}
+
+function getTrainingModeName() {
+  if (multiSplitTrainingMode) return "multi";
+  if (splitTrainingMode) return "split";
+  return "all";
+}
+
+function usesHeldOutLoss() {
+  return splitTrainingMode || multiSplitTrainingMode;
+}
+
+function getTrainingModeSamples(win = getGraphWindow()) {
+  const mode = getTrainingModeName();
+  const mid = (win.xMin + win.xMax) * 0.5;
+  const sectionCount = 6;
+  const sectionW = (win.xMax - win.xMin) / sectionCount || 1;
+  const train = [];
+  const validation = [];
+  for (const sample of samples) {
+    const x = sample?.input?.[0];
+    if (!Number.isFinite(x) || x < win.xMin || x > win.xMax) continue;
+    if (mode === "multi") {
+      const section = constrain(floor((x - win.xMin) / sectionW), 0, sectionCount - 1);
+      if (section % 2 === 0) train.push(sample);
+      else validation.push(sample);
+    } else if (mode === "split") {
+      if (x <= mid) train.push(sample);
+      else validation.push(sample);
+    } else {
+      train.push(sample);
+    }
+  }
+  return { train, validation, mid, sectionCount, sectionW, mode };
+}
+
+function setEvaluationLoss(evalSamples, { record = false } = {}) {
+  if (!nn || !Array.isArray(evalSamples) || evalSamples.length === 0) return 0;
+  let total = 0;
+  let count = 0;
+  for (const sample of evalSamples) {
+    const x = sample?.input?.[0] ?? sample?.x;
+    const target = sample?.output?.[0] ?? sample?.y;
+    if (!Number.isFinite(Number(x)) || !Number.isFinite(Number(target))) continue;
+    const prediction = nn.predict([Number(x)])?.[0];
+    if (!Number.isFinite(Number(prediction))) continue;
+    const error = Number(prediction) - Number(target);
+    total += error * error;
+    count += 1;
+  }
+  const loss = count ? total / count : 0;
+  nn.loss = loss;
+  if (record && Array.isArray(nn.lossHistory)) {
+    nn.lossHistory.push(loss);
+    if (nn.lossHistory.length > 240) nn.lossHistory.shift();
+  }
+  return loss;
 }
 
 function getFitPlotYRange(seriesLists = []) {
@@ -535,7 +641,7 @@ function getFitPlotYRange(seriesLists = []) {
 
 function updatePredictions() {
   if (!nn) return;
-  const win = getSampleWindow();
+  const win = getGraphWindow();
   predictions = [];
   for (let i = 0; i <= 120; i++) {
     const x = map(i, 0, 120, win.xMin, win.xMax);
@@ -607,25 +713,45 @@ function drawMainSurface(layout) {
     LAB_UI.radius
   );
 
-  const sampleWin = getSampleWindow();
+  const graphWin = getGraphWindow();
   const target = Array.from({ length: 121 }, (_, i) => {
-    const x = map(i, 0, 120, sampleWin.xMin, sampleWin.xMax);
+    const x = map(i, 0, 120, graphWin.xMin, graphWin.xMax);
     const preset = presets[presetIndex];
     return { x, y: preset.fn(x, getPresetParams(preset)) };
   });
-  const samplePoints = samples.map((s) => ({ x: s.input[0], y: s.output[0] }));
+  const visibleSamples = samples
+    .map((s) => ({ x: s.input[0], y: s.output[0] }))
+    .filter((p) => p.x >= graphWin.xMin && p.x <= graphWin.xMax);
+  const modeSamples = getTrainingModeSamples(graphWin);
+  const isTrainPoint = (p) => {
+    if (modeSamples.mode === "multi") {
+      const section = constrain(floor((p.x - graphWin.xMin) / modeSamples.sectionW), 0, modeSamples.sectionCount - 1);
+      return section % 2 === 0;
+    }
+    if (modeSamples.mode === "split") return p.x <= modeSamples.mid;
+    return true;
+  };
+  const trainSamplePoints = usesHeldOutLoss()
+    ? visibleSamples.filter(isTrainPoint)
+    : visibleSamples;
+  const lossSamplePoints = usesHeldOutLoss()
+    ? visibleSamples.filter((p) => !isTrainPoint(p))
+    : [];
+  const samplePoints = usesHeldOutLoss() ? [...trainSamplePoints, ...lossSamplePoints] : visibleSamples;
   const yRange = getFitPlotYRange([target, predictions, samplePoints]);
+  updateFitPlotPredictionReadout(graphX, graphY, graphW, graphH, graphWin, yRange);
   uiPlot("fit-plot", [
     { label: "target", values: target, color: LAB_UI.target, weight: 2.5 },
     { label: "prediction", values: predictions, color: LAB_UI.prediction, weight: 2.5 },
-    { label: "samples", values: samplePoints, color: LAB_UI.samples, pointSize: 5.5 },
+    { label: usesHeldOutLoss() ? "train" : "samples", values: trainSamplePoints, color: LAB_UI.samples, pointSize: 5.5 },
+    ...(usesHeldOutLoss() ? [{ label: "loss", values: lossSamplePoints, color: [217, 195, 74, 115], pointSize: 5.5 }] : []),
   ], {
     x: graphX,
     y: graphY,
     width: graphW,
     height: graphH,
-    xMin: sampleWin.xMin,
-    xMax: sampleWin.xMax,
+    xMin: graphWin.xMin,
+    xMax: graphWin.xMax,
     yMin: yRange.yMin,
     yMax: yRange.yMax,
     bgColor: LAB_UI.panelSoft,
@@ -640,20 +766,133 @@ function drawMainSurface(layout) {
     headerItems: [
       { label: "target", color: LAB_UI.target },
       { label: "prediction", color: LAB_UI.prediction },
-      { label: "samples", color: LAB_UI.samples },
+      { label: usesHeldOutLoss() ? "train" : "samples", color: LAB_UI.samples },
+      ...(usesHeldOutLoss() ? [{ label: "loss", color: [217, 195, 74, 115] }] : []),
     ],
     headerText: getPresetLabel(),
     headerTextColor: [244, 240, 232, 105],
-    footerText: `Window ${nf(sampleWin.xMin, 1, 2)}..${nf(sampleWin.xMax, 1, 2)}`,
-    footerTextColor: [244, 240, 232, 105],
     rounding: LAB_UI.radius,
   });
 
   drawGraphSamplingControls(layout);
-  drawGraphViewSlider(graphX, graphY, graphW, graphH, sampleWin);
-  drawTrainingDomainMarkers(graphX, graphY, graphW, graphH, sampleWin);
+  drawPredictionWindowLabel(graphX, graphY, graphW, graphH, graphWin);
+  drawGraphViewSlider(graphX, graphY, graphW, graphH, graphWin);
+  drawTrainingDomainMarkers(graphX, graphY, graphW, graphH, graphWin);
+  drawSplitTrainingMarker(graphX, graphY, graphW, graphH, graphWin);
+  drawFitPlotCursor(graphX, graphY, graphW, graphH, graphWin, yRange);
   drawGraphRunControls(layout);
   drawGraphStats(layout);
+}
+
+function getFitPlotGeometry(x, y, w, h, win, yRange) {
+  const px = x + FIT_PLOT_PAD_X;
+  const py = y + FIT_PLOT_PAD_Y;
+  const pw = max(1, w - FIT_PLOT_PAD_X * 2);
+  const ph = max(1, h - FIT_PLOT_PAD_Y * 2);
+  const dataInsetPx = min(4, pw * 0.45);
+  const dataInsetYPx = min(4, ph * 0.45);
+  const dataPy = py + dataInsetYPx;
+  const dataPh = max(1, ph - dataInsetYPx * 2);
+  const yInset = max(0, 0.035) * ((yRange.yMax - yRange.yMin) || 1);
+  return {
+    axisX: px,
+    axisY: py,
+    axisW: pw,
+    axisH: ph,
+    dataX: px + dataInsetPx,
+    dataY: dataPy,
+    dataW: max(1, pw - dataInsetPx * 2),
+    dataH: dataPh,
+    xMin: win.xMin,
+    xMax: win.xMax,
+    yMin: yRange.yMin,
+    yMax: yRange.yMax,
+    yPlotMin: yRange.yMin - yInset,
+    yPlotMax: yRange.yMax + yInset,
+  };
+}
+
+function graphToScreenY(value, geom) {
+  return geom.dataY + geom.dataH - ((value - geom.yPlotMin) / ((geom.yPlotMax - geom.yPlotMin) || 1)) * geom.dataH;
+}
+
+function getPredictionWindowLabel(win = getGraphWindow()) {
+  const x = graphPredictionReadout?.x ?? ((win.xMin + win.xMax) * 0.5);
+  const y = graphPredictionReadout?.y ?? (nn ? nn.predict([x])?.[0] : 0);
+  return `Prediction window: x=${nf(Number(x) || 0, 1, 2)}, y=${nf(Number(y) || 0, 1, 2)}`;
+}
+
+function updateFitPlotPredictionReadout(x, y, w, h, win, yRange) {
+  if (!nn) {
+    graphPredictionReadout = null;
+    return null;
+  }
+  const geom = getFitPlotGeometry(x, y, w, h, win, yRange);
+  const overPlot =
+    mouseX >= geom.axisX &&
+    mouseX <= geom.axisX + geom.axisW &&
+    mouseY >= geom.axisY &&
+    mouseY <= geom.axisY + geom.axisH;
+  if (!overPlot) {
+    graphPredictionReadout = null;
+    return null;
+  }
+  const graphXValue = map(constrain(mouseX, geom.dataX, geom.dataX + geom.dataW), geom.dataX, geom.dataX + geom.dataW, geom.xMin, geom.xMax);
+  const predictedY = nn.predict([graphXValue])[0];
+  graphPredictionReadout = { x: graphXValue, y: predictedY };
+  return graphPredictionReadout;
+}
+
+function drawFitPlotCursor(x, y, w, h, win, yRange) {
+  if (!nn || !graphPredictionReadout) return;
+  const geom = getFitPlotGeometry(x, y, w, h, win, yRange);
+  const graphXValue = graphPredictionReadout.x;
+  const predictedY = graphPredictionReadout.y;
+  const graphYValue = map(constrain(mouseY, geom.dataY, geom.dataY + geom.dataH), geom.dataY + geom.dataH, geom.dataY, geom.yPlotMin, geom.yPlotMax);
+  const dotX = map(graphXValue, geom.xMin, geom.xMax, geom.dataX, geom.dataX + geom.dataW);
+  const dotY = constrain(graphToScreenY(predictedY, geom), geom.axisY, geom.axisY + geom.axisH);
+
+  stroke(244, 240, 232, 70);
+  strokeWeight(1);
+  line(dotX, geom.axisY, dotX, geom.axisY + geom.axisH);
+  noStroke();
+  fill(230, 58, 48);
+  circle(dotX, dotY, 8);
+  fill(244, 240, 232);
+  circle(dotX, dotY, 3);
+
+  const label = `x ${nf(graphXValue, 1, 2)}  y ${nf(graphYValue, 1, 2)}  nn ${nf(predictedY, 1, 2)}`;
+  textSize(11);
+  const labelW = textWidth(label) + 14;
+  const labelH = 22;
+  const lx = constrain(mouseX + 12, x + 6, x + w - labelW - 6);
+  const ly = constrain(mouseY - labelH - 10, y + 26, y + h - labelH - 8);
+  noStroke();
+  fill(15, 16, 18, 225);
+  rect(lx, ly, labelW, labelH, LAB_UI.radius);
+  fill(244, 240, 232, 185);
+  textAlign(LEFT, CENTER);
+  text(label, lx + 7, ly + labelH * 0.5);
+}
+
+function drawPredictionWindowLabel(x, y, w, h, win) {
+  const label = getPredictionWindowLabel(win);
+  const labelX = x + FIT_PLOT_PAD_X;
+  const labelY = y + h - 7;
+  const maxW = min(260, max(80, w * 0.42));
+  noStroke();
+  fill(244, 240, 232, 105);
+  textSize(11);
+  textAlign(LEFT, BOTTOM);
+  text(_fitTextToWidth(label, maxW), labelX, labelY);
+}
+
+function _fitTextToWidth(label, maxW) {
+  const textValue = String(label ?? "");
+  if (textWidth(textValue) <= maxW) return textValue;
+  let out = textValue;
+  while (out.length > 4 && textWidth(`${out}...`) > maxW) out = out.slice(0, -1);
+  return `${out}...`;
 }
 
 function drawGraphRunControls(layout) {
@@ -673,6 +912,39 @@ function drawGraphRunControls(layout) {
     textColor: training ? [244, 240, 232] : LAB_UI.muted,
   }));
   training = trainToggle.value;
+  y += rowH + gap;
+
+  const fastToggle = uiToggle("tiny-nn-fast-training", fastTraining ? "Fast" : "Normal", labToggleStyle({
+    x,
+    y,
+    width: w,
+    height: rowH,
+    fontSize: 11,
+    padding: 6,
+    onBgColor: [88, 89, 92],
+    offBgColor: LAB_UI.panelSoft,
+    textColor: fastTraining ? [244, 240, 232] : LAB_UI.muted,
+  }));
+  fastTraining = fastToggle.value;
+  y += rowH + gap;
+
+  const modeLabel = multiSplitTrainingMode ? "Multi" : (splitTrainingMode ? "Split" : "All");
+  if (uiButton(modeLabel, labButtonStyle({
+    x,
+    y,
+    width: w,
+    height: rowH,
+    fontSize: 11,
+    padding: 6,
+    bgColor: usesHeldOutLoss() ? [88, 89, 92] : LAB_UI.panelSoft,
+    textColor: usesHeldOutLoss() ? [244, 240, 232] : LAB_UI.muted,
+  })).clicked) {
+    const mode = getTrainingModeName();
+    splitTrainingMode = mode === "all";
+    multiSplitTrainingMode = mode === "split";
+    if (nn) nn.lossHistory = [];
+    saveLabStateThrottled(true);
+  }
   y += rowH + gap;
 
   if (uiButton("Reset Weights", labButtonStyle({ x, y, width: w, height: rowH, fontSize: 11, padding: 6 })).clicked) {
@@ -723,9 +995,8 @@ function drawGraphSamplingControls(layout) {
 }
 
 function drawGraphViewSlider(x, y, w, h, win) {
-  const label = `Window ${nf(win.xMin, 1, 2)}..${nf(win.xMax, 1, 2)}`;
   textSize(11);
-  const sliderX = x + 150;
+  const sliderX = x + min(280, max(170, w * 0.44));
   const rangeLabelReserve = 54;
   const sliderW = constrain(w * 0.28, 180, 340);
   const availableW = max(0, x + w - rangeLabelReserve - sliderX);
@@ -746,7 +1017,7 @@ function drawGraphViewSlider(x, y, w, h, win) {
     hideText: true,
   });
   graphCenter = view.value;
-  if (view.changed) {
+  if (view.changed && training) {
     regenerateSamples();
   }
 }
@@ -802,6 +1073,41 @@ function drawTrainingDomainMarkers(x, y, w, h, win) {
   noStroke();
 }
 
+function drawSplitTrainingMarker(x, y, w, h, win) {
+  if (!usesHeldOutLoss()) return;
+  const geom = getFitPlotGeometry(x, y, w, h, win, { yMin: FIT_PLOT_Y_MIN, yMax: FIT_PLOT_Y_MAX });
+  textSize(10);
+  textAlign(CENTER, TOP);
+  if (multiSplitTrainingMode) {
+    const sections = 6;
+    const sectionW = geom.axisW / sections;
+    noStroke();
+    for (let i = 0; i < sections; i++) {
+      const trainBand = i % 2 === 0;
+      fill(trainBand ? [217, 195, 74, 12] : [244, 240, 232, 10]);
+      rect(geom.axisX + i * sectionW, geom.axisY, sectionW, geom.axisH);
+      fill(244, 240, 232, trainBand ? 105 : 82);
+      text(trainBand ? "train" : "loss", geom.axisX + i * sectionW + sectionW * 0.5, geom.axisY + 5);
+    }
+    stroke(244, 240, 232, 48);
+    strokeWeight(1);
+    for (let i = 1; i < sections; i++) {
+      const sx = geom.axisX + i * sectionW;
+      line(sx, geom.axisY, sx, geom.axisY + geom.axisH);
+    }
+  } else {
+    const mid = (win.xMin + win.xMax) * 0.5;
+    const sx = map(mid, geom.xMin, geom.xMax, geom.dataX, geom.dataX + geom.dataW);
+    stroke(244, 240, 232, 74);
+    strokeWeight(1);
+    line(sx, geom.axisY, sx, geom.axisY + geom.axisH);
+    noStroke();
+    fill(244, 240, 232, 115);
+    text("train", x + w * 0.28, geom.axisY + 5);
+    text("loss", x + w * 0.72, geom.axisY + 5);
+  }
+}
+
 function drawNetwork(x, y, w, h) {
   if (!nn) return;
   drawNetworkCredit(x, y, w);
@@ -810,6 +1116,7 @@ function drawNetwork(x, y, w, h) {
   const layers = nn.layers;
   const positions = [];
   const weightVisuals = getWeightVisualStats(weights, layers);
+  const accumulatedFlow = computeAccumulatedWeightVisuals(weights, layers);
   const networkPadX = min(58, max(26, w * 0.07));
   const networkPadTop = 48;
   const networkControlBand = 46;
@@ -831,7 +1138,7 @@ function drawNetwork(x, y, w, h) {
   }
 
   const hoveredNeuron = findHoveredNeuron(positions, layers);
-  hovered = hoveredNeuron ? null : findHoveredConnection(positions, weights, layers);
+  hovered = hoveredNeuron ? null : findHoveredConnection(positions, weights, layers, showAccumulatedFlow ? accumulatedFlow.connections : null);
   const focus = hoveredNeuron || hovered || getSelectedConnectionFocus(positions, weights) || getSelectedNeuronFocus(positions);
 
   for (let layer = 1; layer < layers.length; layer++) {
@@ -840,7 +1147,12 @@ function drawNetwork(x, y, w, h) {
         const a = positions[layer - 1][col];
         const b = positions[layer][row];
         const value = weights[layer][row][col];
-        const strength = getWeightStrength(value, weightVisuals.scale);
+        const visualValue = showAccumulatedFlow
+          ? accumulatedFlow.connections?.[layer]?.[row]?.[col] ?? 0
+          : value;
+        const visualScale = showAccumulatedFlow ? accumulatedFlow.scale : weightVisuals.scale;
+        if (abs(visualValue) < weightVisualThreshold) continue;
+        const strength = getWeightStrength(visualValue, visualScale);
         const connectionEnabled = isNeuronEnabled(layer, row) && isNeuronEnabled(layer - 1, col);
         const isSelected = selectedConnection &&
           selectedConnection.layer === layer &&
@@ -860,7 +1172,7 @@ function drawNetwork(x, y, w, h) {
             : propagated
               ? map(strength, 0, 1, 1.2, 3.4)
               : map(strength, 0, 1, 0.6, 4.6);
-        drawWeightedConnection(a, b, value, width, alpha, { primary, related, propagated });
+        drawWeightedConnection(a, b, visualValue, width, alpha, { primary, related, propagated });
       }
     }
   }
@@ -933,8 +1245,48 @@ function drawNetworkCredit(x, y, w) {
 function drawArchitectureControls(positions, x, y, w, h) {
   if (!nn?.resizeLayers || !positions?.length) return false;
   let changed = false;
-  const controlY = y + h - 24;
-  const controlH = 18;
+  const controlY = y + h - 23;
+  const controlH = 16;
+  const thresholdW = 76;
+  const flowY = controlY - controlH - 4;
+  architectureHitZones.push({
+    kind: "passive",
+    x: x + 12,
+    y: flowY,
+    width: thresholdW,
+    height: controlH * 2 + 4,
+    disabled: false,
+  });
+  uiSetState("tiny-nn-flow-mode", showAccumulatedFlow);
+  const flowMode = uiToggle("tiny-nn-flow-mode", showAccumulatedFlow ? "Flow" : "Weight", labToggleStyle({
+    x: x + 12,
+    y: flowY,
+    width: thresholdW,
+    height: controlH,
+    fontSize: 9,
+    padding: 4,
+    onBgColor: [54, 55, 58],
+    offBgColor: [31, 32, 35, 190],
+    textColor: LAB_UI.muted,
+  }));
+  if (flowMode.toggled) {
+    showAccumulatedFlow = flowMode.value;
+    saveLabStateThrottled(true);
+  }
+  const threshold = uiSlider("tiny-nn-weight-threshold", "T", {
+    min: 0,
+    max: 6,
+    init: weightVisualThreshold,
+  }, labSliderStyle({
+    x: x + 12,
+    y: controlY,
+    width: thresholdW,
+    height: controlH,
+    fontSize: 9,
+    padding: 4,
+  }));
+  weightVisualThreshold = threshold.value;
+  if (threshold.changed) saveLabStateThrottled(true);
   const overlayButtonStyle = labButtonStyle({
     width: 24,
     height: controlH,
@@ -1016,6 +1368,40 @@ function getWeightStrength(value, scale) {
   return constrain(sqrt(abs(value) / max(1e-6, scale)), 0, 1);
 }
 
+function computeAccumulatedWeightVisuals(weights, layers) {
+  const nodeValues = [];
+  const connections = [];
+  const magnitudes = [];
+  for (let layer = 0; layer < layers.length; layer++) {
+    nodeValues[layer] = Array.from({ length: layers[layer] }, () => 0);
+    connections[layer] = [];
+  }
+  if (!layers.length) return { nodeValues, connections, scale: 1 };
+  nodeValues[0] = Array.from({ length: layers[0] }, () => 1);
+  for (let layer = 1; layer < layers.length; layer++) {
+    connections[layer] = [];
+    for (let row = 0; row < layers[layer]; row++) {
+      let sum = 0;
+      connections[layer][row] = [];
+      for (let col = 0; col < layers[layer - 1]; col++) {
+        const previous = isNeuronEnabled(layer - 1, col) ? nodeValues[layer - 1][col] || 0 : 0;
+        const value = isNeuronEnabled(layer, row) ? previous * (weights?.[layer]?.[row]?.[col] ?? 0) : 0;
+        connections[layer][row][col] = value;
+        sum += value;
+        magnitudes.push(abs(value));
+      }
+      nodeValues[layer][row] = sum;
+    }
+  }
+  magnitudes.sort((a, b) => a - b);
+  const percentileIndex = floor(constrain(magnitudes.length * 0.9, 0, max(0, magnitudes.length - 1)));
+  return {
+    nodeValues,
+    connections,
+    scale: max(0.08, magnitudes[percentileIndex] || 1),
+  };
+}
+
 function drawWeightedConnection(a, b, value, width, alpha, state = {}) {
   const dx = b.x - a.x;
   const dy = b.y - a.y;
@@ -1045,16 +1431,18 @@ function drawWeightedConnection(a, b, value, width, alpha, state = {}) {
   noStroke();
 }
 
-function findHoveredConnection(positions, weights, layers) {
+function findHoveredConnection(positions, weights, layers, visualConnections = null) {
   let best = null;
   for (let layer = 1; layer < layers.length; layer++) {
     for (let row = 0; row < layers[layer]; row++) {
       for (let col = 0; col < layers[layer - 1]; col++) {
+        const visualValue = visualConnections?.[layer]?.[row]?.[col] ?? weights[layer][row][col];
+        if (abs(visualValue) < weightVisualThreshold) continue;
         const a = positions[layer - 1][col];
         const b = positions[layer][row];
         const d = distToSegment({ x: mouseX, y: mouseY }, a, b);
         if (d < 8 && (!best || d < best.d)) {
-          best = { layer, row, col, value: weights[layer][row][col], a, b, d };
+          best = { layer, row, col, value: weights[layer][row][col], visualValue, a, b, d };
         }
       }
     }
@@ -1731,7 +2119,9 @@ function getNeuronUnderMouse() {
 
 function getConnectionUnderMouse() {
   if (!nn) return null;
-  return findHoveredConnection(computeNetworkPositions(getLayout()), nn.getWeights(), nn.layers);
+  const weights = nn.getWeights();
+  const flow = showAccumulatedFlow ? computeAccumulatedWeightVisuals(weights, nn.layers).connections : null;
+  return findHoveredConnection(computeNetworkPositions(getLayout()), weights, nn.layers, flow);
 }
 
 function computeNetworkPositions(layout) {
@@ -1775,6 +2165,10 @@ function resizeArchitectureUnderMouse() {
       mouseY >= zone.y &&
       mouseY <= zone.y + zone.height
     ) {
+      if (zone.kind === "passive") {
+        suppressConnectionSelection = true;
+        return true;
+      }
       if (zone.kind === "insert-layer") addHiddenLayer(zone.afterLayer);
       else if (zone.kind === "remove-layer") removeHiddenLayer(zone.layer);
       else resizeHiddenLayer(zone.layer, zone.delta);

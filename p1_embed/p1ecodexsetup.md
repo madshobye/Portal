@@ -39,20 +39,26 @@ Run from `/Users/madshobye/Media/codeRepo/Portal`.
 ./scripts/esp32/p1embed-compile.sh
 ./scripts/esp32/p1embed-upload.sh
 ./scripts/esp32/p1embed-monitor.sh
-./scripts/esp32/p1embed-listen.sh 30
+./scripts/esp32/p1embed-listen.sh raw 30
 ./scripts/esp32/p1embed-read-serial.sh
 ./scripts/esp32/p1embed-stop-serial.sh
 ```
 
-The P1 Embed wrappers default to the classic ESP32 profile and `/dev/cu.wchusbserial10`. Override with `ESP32_PORT=/dev/cu...` only when the board enumerates differently.
+The P1 Embed wrappers default to the classic ESP32 profile. They use `/dev/cu.wchusbserial10` when present and otherwise auto-pick the latest `/dev/cu.wchusbserial*`, `/dev/cu.usbserial*`, or `/dev/cu.usbmodem*` device. Override with `ESP32_PORT=/dev/cu...` only when multiple boards are connected and the auto-pick is wrong.
 
-For normal serial observation, prefer the decoded listener:
+For normal serial observation and HA debugging, use the raw listener:
 
 ```sh
-./scripts/esp32/p1embed-listen.sh 30
+./scripts/esp32/p1embed-listen.sh raw 120
 ```
 
-The P1E firmware can emit compact/binary transport bytes on serial alongside JSON lines. Raw `cat`/`p1embed-read-serial.sh` can therefore look like a baud-rate problem even when the port is correct. `p1embed-listen.sh` uses `p1_embed/tools/p1_serial_repl.py --listen`, configures 115200 baud, ignores non-JSON binary chunks, and prints only decoded protocol events. Use raw serial only when deliberately inspecting transport bytes.
+The P1E firmware emits JSON protocol/debug lines at 115200 baud. `p1embed-listen.sh raw` uses `p1_embed/tools/p1_serial_repl.py --raw-listen` and should be the default when watching board behavior, Home Assistant reloads, MQTT reconnects, or Wrench print output. Use decoded mode only for protocol-only event streams:
+
+```sh
+./scripts/esp32/p1embed-listen.sh decoded 30
+```
+
+Avoid raw `cat` unless deliberately inspecting transport bytes; it can make mixed serial output look like a baud-rate problem.
 
 After firmware changes, compile first. If upload succeeds or the installer must be updated, copy the build outputs from `/private/tmp/p1-embed-build` into `p1_embed/web/bin`:
 

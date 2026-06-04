@@ -1,0 +1,26 @@
+var brightness = 40;
+var lastPrintAt = 0;
+
+function setup() {
+  haBegin("P1E HA Test");
+  haLight("clock_light", "Clock Light", brightness);
+  println("HA light test ready");
+}
+
+function loop() {
+  var now = millis();
+
+  if (haChanged("clock_light")) {
+    brightness = haGet("clock_light");
+    print("HA brightness changed: ");
+    println(brightness);
+  }
+
+  if ((now - lastPrintAt) >= 5000) {
+    lastPrintAt = now;
+    print("alive brightness=");
+    println(brightness);
+  }
+
+  delay(20);
+}

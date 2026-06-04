@@ -120,15 +120,24 @@ class PortalTinyNN {
     return this._forward(this._column(input)).a[this.layers.length - 1].map((row) => row[0]);
   }
 
-  train(samples, { steps = 1, learningRate = this.learningRate } = {}) {
+  train(samples, {
+    steps = 1,
+    learningRate = this.learningRate,
+    batchSize = 0,
+    recordLossEachStep = true,
+  } = {}) {
     if (!Array.isArray(samples) || samples.length === 0) return this.getStats();
     const lr = Math.max(1e-8, Number(learningRate) || this.learningRate);
+    const size = Math.max(0, Math.floor(Number(batchSize) || 0));
 
     for (let step = 0; step < steps; step++) {
+      const batch = size > 0 && size < samples.length
+        ? this._sampleBatch(samples, size)
+        : samples;
       const grads = this._emptyGradients();
       let totalLoss = 0;
 
-      for (const sample of samples) {
+      for (const sample of batch) {
         const x = this._column(sample.input ?? sample.x);
         const y = this._column(sample.output ?? sample.y);
         const pass = this._forward(x);
@@ -136,14 +145,28 @@ class PortalTinyNN {
         this._backward(pass, y, grads);
       }
 
-      this._applyGradients(grads, lr, samples.length);
+      this._applyGradients(grads, lr, batch.length);
       this.iteration += 1;
-      this.loss = totalLoss / samples.length;
-      this.lossHistory.push(this.loss);
-      if (this.lossHistory.length > 240) this.lossHistory.shift();
+      this.loss = totalLoss / batch.length;
+      if (recordLossEachStep) this._pushLoss(this.loss);
     }
 
+    if (!recordLossEachStep) this._pushLoss(this.loss);
     return this.getStats();
+  }
+
+  evaluateLoss(samples, { record = false } = {}) {
+    if (!Array.isArray(samples) || samples.length === 0) return this.loss;
+    let totalLoss = 0;
+    for (const sample of samples) {
+      const x = this._column(sample.input ?? sample.x);
+      const y = this._column(sample.output ?? sample.y);
+      const pass = this._forward(x);
+      totalLoss += this._mse(pass.a[this.layers.length - 1], y);
+    }
+    this.loss = totalLoss / samples.length;
+    if (record) this._pushLoss(this.loss);
+    return this.loss;
   }
 
   getStats() {
@@ -403,6 +426,20 @@ class PortalTinyNN {
       dB[layer] = this._matrix(this.layers[layer], 1, () => 0);
     }
     return { dW, dB };
+  }
+
+  _sampleBatch(samples, batchSize) {
+    const batch = [];
+    for (let i = 0; i < batchSize; i++) {
+      batch.push(samples[Math.floor(Math.random() * samples.length)]);
+    }
+    return batch;
+  }
+
+  _pushLoss(value) {
+    if (!Number.isFinite(value)) return;
+    this.lossHistory.push(value);
+    if (this.lossHistory.length > 240) this.lossHistory.shift();
   }
 
   _activate(m, name, layer = -1) {

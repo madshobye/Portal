@@ -130,8 +130,8 @@ static const char* haMessageName(uint32_t type) {
   switch (type) {
     case 1: return "HelloRequest";
     case 2: return "HelloResponse";
-    case 3: return "AuthenticationRequest";
-    case 4: return "AuthenticationResponse";
+    case 3: return "ReservedAuthenticationRequest";
+    case 4: return "ReservedAuthenticationResponse";
     case 5: return "DisconnectRequest";
     case 6: return "DisconnectResponse";
     case 7: return "PingRequest";
@@ -161,15 +161,30 @@ static const char* haMessageName(uint32_t type) {
   }
 }
 
-static void haTraceFrame(const char* dir, uint32_t type, size_t bytes) {
+static String haHexHead(const uint8_t* data, size_t bytes) {
+  String out;
+  if (!data || bytes == 0) return out;
+  size_t count = bytes < 12 ? bytes : 12;
+  out.reserve(count * 3);
+  for (size_t i = 0; i < count; i++) {
+    if (i) out += ' ';
+    if (data[i] < 16) out += '0';
+    out += String(data[i], HEX);
+  }
+  return out;
+}
+
+static void haTraceFrame(const char* dir, uint32_t type, size_t bytes, const uint8_t* payload = nullptr) {
+  String head = haHexHead(payload, bytes);
   P1EventField fields[] = {
     p1FieldString("dir", dir),
     p1FieldUInt("type", type),
     p1FieldString("name", haMessageName(type)),
     p1FieldUInt("bytes", bytes),
     p1FieldBool("subscribed", g_haClientSubscribed),
+    p1FieldString("head", head),
   };
-  debugEventEmitFields("home_assistant.api", "trace", "home_assistant", "native api frame", fields, 5);
+  debugEventEmitFields("home_assistant.api", "trace", "home_assistant", "native api frame", fields, 6);
 }
 
 static String haDeviceName() {
@@ -346,7 +361,7 @@ static void haWriteVarintToClient(uint32_t value) {
 
 static void haSendMessage(uint32_t type, P1HaProtoWriter& msg) {
   if (!g_haClient || !g_haClient.connected() || !msg.ok) return;
-  haTraceFrame("tx", type, msg.len);
+  haTraceFrame("tx", type, msg.len, msg.data);
   g_haClient.write((uint8_t)0);
   haWriteVarintToClient((uint32_t)msg.len);
   haWriteVarintToClient(type);
@@ -367,8 +382,8 @@ static void haAddMapField(P1HaProtoWriter& msg, uint32_t field, const char* key,
 
 static void haSendHello() {
   P1HaProtoWriter msg;
-  msg.fieldUint(1, 1);
-  msg.fieldUint(2, 10);
+  msg.fieldUint(1, P1_EMBED_HA_API_VERSION_MAJOR);
+  msg.fieldUint(2, P1_EMBED_HA_API_VERSION_MINOR);
   msg.fieldString(3, String(P1_EMBED_FIRMWARE_NAME) + " " + P1_EMBED_FIRMWARE_VERSION);
   msg.fieldString(4, haNodeName());
   haSendMessage(2, msg);
@@ -382,7 +397,7 @@ static void haSendDeviceInfo() {
   msg.fieldCString(4, P1_EMBED_FIRMWARE_VERSION);
   msg.fieldCString(5, __DATE__ " " __TIME__);
   msg.fieldCString(6, "P1E ESP32");
-  msg.fieldCString(8, "p1e");
+  msg.fieldCString(8, "p1e.embed");
   msg.fieldCString(9, P1_EMBED_FIRMWARE_VERSION);
   msg.fieldCString(12, "P1E");
   msg.fieldString(13, haDeviceName());
@@ -536,7 +551,7 @@ static void haStartMdns() {
   MDNS.addServiceTxt("esphomelib", "tcp", "platform", "ESP32");
   MDNS.addServiceTxt("esphomelib", "tcp", "board", "P1E");
   MDNS.addServiceTxt("esphomelib", "tcp", "network", "wifi");
-  MDNS.addServiceTxt("esphomelib", "tcp", "project_name", "p1e");
+  MDNS.addServiceTxt("esphomelib", "tcp", "project_name", "p1e.embed");
   MDNS.addServiceTxt("esphomelib", "tcp", "project_version", P1_EMBED_FIRMWARE_VERSION);
   g_haMdnsStarted = true;
 
@@ -599,11 +614,19 @@ static void haParseCommand(uint32_t messageType, const uint8_t* data, size_t len
     uint8_t wire = (uint8_t)(tag & 7);
     if (field == 1 && wire == 5) {
       haReadFixed32At(data, len, pos, key);
+    } else if (messageType == 32 && field == 2 && wire == 0) {
+      uint32_t raw = 0;
+      if (!haReadVarintAt(data, len, pos, raw)) return;
+      if (raw != 0) haveState = true;
     } else if ((messageType == 33 && field == 2 && wire == 0) || (messageType == 32 && field == 3 && wire == 0)) {
       uint32_t raw = 0;
       if (!haReadVarintAt(data, len, pos, raw)) return;
       haveState = true;
       state = raw != 0;
+    } else if (messageType == 32 && field == 4 && wire == 0) {
+      uint32_t raw = 0;
+      if (!haReadVarintAt(data, len, pos, raw)) return;
+      if (raw != 0) haveValue = true;
     } else if ((messageType == 51 && field == 2 && wire == 5) || (messageType == 32 && field == 5 && wire == 5)) {
       uint32_t raw = 0;
       if (!haReadFixed32At(data, len, pos, raw)) return;
@@ -646,7 +669,8 @@ static void haParseCommand(uint32_t messageType, const uint8_t* data, size_t len
     return;
   }
   if (messageType == 32 && haveValue) value = constrain(value, 0.0f, 1.0f) * 100.0f;
-  if (!haveValue && haveState) value = state ? 1.0f : 0.0f;
+  if (messageType == 32 && !haveValue && haveState) value = state ? (entity.value > 0.0f ? entity.value : 100.0f) : 0.0f;
+  if (messageType != 32 && !haveValue && haveState) value = state ? 1.0f : 0.0f;
   if (!haveValue && !haveState) return;
   entity.value = value;
   entity.changed = true;
@@ -657,14 +681,15 @@ static void haParseCommand(uint32_t messageType, const uint8_t* data, size_t len
 static void haHandleFrame(uint32_t type, const uint8_t* data, size_t len) {
   (void)data;
   (void)len;
-  haTraceFrame("rx", type, len);
+  haTraceFrame("rx", type, len, data);
   switch (type) {
     case 1:
       g_haClientHello = true;
       haSendHello();
       break;
     case 3:
-      haSendEmpty(4);
+      // Current aioesphomeapi may still batch this during login but only waits
+      // for HelloResponse. ESPHome 2026.1+ treats ID 3 as reserved and ignores it.
       break;
     case 5:
       haSendEmpty(6);
@@ -747,17 +772,24 @@ void haBridgeLoop() {
     debugLog("info", "home_assistant", String("ESPHome native API listening on port ") + P1_EMBED_HA_PORT);
   }
 
-  if (!g_haClient || !g_haClient.connected()) {
-    WiFiClient incoming = g_haServer.available();
-    if (incoming) {
-      if (g_haClient) g_haClient.stop();
-      g_haClient = incoming;
-      g_haClient.setNoDelay(true);
-      g_haClientSubscribed = false;
-      g_haClientHello = false;
-      g_haRxLen = 0;
-      debugLog("info", "home_assistant", "ESPHome native API client connected");
+  WiFiClient incoming;
+  if (!g_haClient || !g_haClient.connected() || g_haServer.hasClient()) {
+    incoming = g_haServer.accept();
+  }
+  if (incoming) {
+    if (g_haClient && g_haClient.connected()) {
+      debugLog("debug", "home_assistant", "ESPHome native API replacing existing client");
+      g_haClient.stop();
     }
+    g_haClient = incoming;
+    g_haClient.setNoDelay(true);
+    g_haClientSubscribed = false;
+    g_haClientHello = false;
+    g_haRxLen = 0;
+    debugLog("info", "home_assistant", "ESPHome native API client connected");
+  }
+
+  if (!g_haClient || !g_haClient.connected()) {
     return;
   }
 

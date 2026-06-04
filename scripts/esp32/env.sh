@@ -6,6 +6,18 @@ PORTAL_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 
 ESP32_PROFILE="${ESP32_PROFILE:-${1:-}}"
 
+esp32_latest_serial_port() {
+  local latest=""
+  latest="$(
+    find /dev -maxdepth 1 \
+      \( -name 'cu.wchusbserial*' -o -name 'cu.usbserial*' -o -name 'cu.usbmodem*' \) \
+      -print 2>/dev/null \
+      | sort \
+      | tail -n 1
+  )"
+  printf '%s\n' "${latest}"
+}
+
 case "${ESP32_PROFILE}" in
   "")
     ;;
@@ -59,7 +71,14 @@ case "${ESP32_PROFILE}" in
     ESP32_BUILD_PATH="${ESP32_BUILD_PATH:-/private/tmp/serial-smoke-build}"
     ;;
   p1embed)
-    ESP32_PORT="${ESP32_PORT:-/dev/cu.wchusbserial10}"
+    if [[ -z "${ESP32_PORT:-}" ]]; then
+      if [[ -e "/dev/cu.wchusbserial10" ]]; then
+        ESP32_PORT="/dev/cu.wchusbserial10"
+      else
+        ESP32_PORT="$(esp32_latest_serial_port)"
+        ESP32_PORT="${ESP32_PORT:-/dev/cu.wchusbserial10}"
+      fi
+    fi
     ESP32_FQBN="${ESP32_FQBN:-esp32:esp32:esp32:PartitionScheme=huge_app,LoopCore=1,EventsCore=0}"
     SKETCH_DIR="${SKETCH_DIR:-${PORTAL_ROOT}/p1_embed/firmware/p1_embed}"
     PORTAL_ARDUINO_LIBS="${PORTAL_ARDUINO_LIBS:-${PORTAL_ROOT}/p1_embed/arduino_libraries}"
