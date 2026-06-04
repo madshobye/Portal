@@ -10,6 +10,8 @@ static int g_wifiNetworkIndex = 0;
 static bool g_timeSyncStarted = false;
 static unsigned long g_lastWifiRssiMs = 0;
 static int g_lastWifiRssi = 0;
+static char g_wifiActiveSsid[40] = "";
+static char g_wifiMacText[24] = "";
 static portMUX_TYPE g_wifiCacheMux = portMUX_INITIALIZER_UNLOCKED;
 
 struct WifiCachedState {
@@ -62,9 +64,25 @@ static void wifiUpdateCache() {
   bool connected = status == WL_CONNECTED;
   int networkCount = configWifiNetworkCount();
   int rssi = 0;
-  String ssid = connected ? configWifiSsidAt(g_wifiNetworkIndex) : String("");
-  String ip = connected ? WiFi.localIP().toString() : String("");
-  String mac = WiFi.macAddress();
+  char ip[24] = "";
+  if (connected) {
+    IPAddress ipAddress = WiFi.localIP();
+    snprintf(ip, sizeof(ip), "%u.%u.%u.%u", ipAddress[0], ipAddress[1], ipAddress[2], ipAddress[3]);
+  }
+  if (g_wifiMacText[0] == '\0') {
+    uint8_t mac[6] = {0, 0, 0, 0, 0, 0};
+    WiFi.macAddress(mac);
+    snprintf(
+      g_wifiMacText,
+      sizeof(g_wifiMacText),
+      "%02X:%02X:%02X:%02X:%02X:%02X",
+      mac[0],
+      mac[1],
+      mac[2],
+      mac[3],
+      mac[4],
+      mac[5]);
+  }
   const char* statusText = wifiStatusName(status);
   unsigned long now = millis();
 
@@ -86,9 +104,9 @@ static void wifiUpdateCache() {
   g_wifiCached.networkCount = networkCount;
   g_wifiCached.rssi = rssi;
   strlcpy(g_wifiCached.status, statusText, sizeof(g_wifiCached.status));
-  strlcpy(g_wifiCached.ssid, ssid.c_str(), sizeof(g_wifiCached.ssid));
-  strlcpy(g_wifiCached.ip, ip.c_str(), sizeof(g_wifiCached.ip));
-  strlcpy(g_wifiCached.mac, mac.c_str(), sizeof(g_wifiCached.mac));
+  strlcpy(g_wifiCached.ssid, connected ? g_wifiActiveSsid : "", sizeof(g_wifiCached.ssid));
+  strlcpy(g_wifiCached.ip, ip, sizeof(g_wifiCached.ip));
+  strlcpy(g_wifiCached.mac, g_wifiMacText, sizeof(g_wifiCached.mac));
   portEXIT_CRITICAL(&g_wifiCacheMux);
 }
 
@@ -97,6 +115,7 @@ static void wifiTryNetwork(int index, const char* statusLabel) {
   if (!ssid.length()) return;
 
   g_wifiNetworkIndex = index;
+  strlcpy(g_wifiActiveSsid, ssid.c_str(), sizeof(g_wifiActiveSsid));
   memoryProfileMark("wifi", "disconnect_before_begin");
   WiFi.disconnect(false, false);
   memoryProfileMark("wifi", "after_disconnect");

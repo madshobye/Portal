@@ -208,4 +208,5 @@ void loop() {
     g_lastStatusMs = now;
     protocolEmitStatusEvent();
   }
+  delay(1);
 }

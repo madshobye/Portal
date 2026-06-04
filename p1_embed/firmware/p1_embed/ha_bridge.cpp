@@ -120,6 +120,7 @@ struct P1HaProtoWriter {
 
 static WiFiServer g_haServer(P1_EMBED_HA_PORT);
 static WiFiClient g_haClient;
+static bool g_haClientActive = false;
 static bool g_haServerStarted = false;
 static bool g_haMdnsStarted = false;
 static bool g_haRuntimeActive = false;
@@ -134,6 +135,14 @@ static uint8_t g_haEventCount = 0;
 static uint8_t g_haRx[P1_EMBED_HA_RX_MAX];
 static size_t g_haRxLen = 0;
 static portMUX_TYPE g_haMux = portMUX_INITIALIZER_UNLOCKED;
+
+static void haStopClient() {
+  g_haClient.stop();
+  g_haClientActive = false;
+  g_haClientSubscribed = false;
+  g_haClientHello = false;
+  g_haRxLen = 0;
+}
 
 static const char* haMessageName(uint32_t type) {
   switch (type) {
@@ -362,19 +371,27 @@ static bool haTakeMatchingEvent(const char* id, const char* type, P1HaInputEvent
 
 static void haWriteVarintToClient(uint32_t value) {
   while (value >= 0x80) {
-    g_haClient.write((uint8_t)(value | 0x80));
+    if (g_haClient.write((uint8_t)(value | 0x80)) != 1) {
+      haStopClient();
+      return;
+    }
     value >>= 7;
   }
-  g_haClient.write((uint8_t)value);
+  if (g_haClient.write((uint8_t)value) != 1) haStopClient();
 }
 
 static void haSendMessage(uint32_t type, P1HaProtoWriter& msg) {
-  if (!g_haClient || !g_haClient.connected() || !msg.ok) return;
+  if (!g_haClientActive || !msg.ok) return;
   haTraceFrame("tx", type, msg.len, msg.data);
-  g_haClient.write((uint8_t)0);
+  if (g_haClient.write((uint8_t)0) != 1) {
+    haStopClient();
+    return;
+  }
   haWriteVarintToClient((uint32_t)msg.len);
+  if (!g_haClientActive) return;
   haWriteVarintToClient(type);
-  if (msg.len) g_haClient.write(msg.data, msg.len);
+  if (!g_haClientActive) return;
+  if (msg.len && g_haClient.write(msg.data, msg.len) != msg.len) haStopClient();
 }
 
 static void haSendEmpty(uint32_t type) {
@@ -559,7 +576,7 @@ static void haSendAllStates() {
 }
 
 static void haSendHomeAssistantButtonEvent(const P1HaEntity& entity) {
-  if (!g_haClient || !g_haClient.connected()) return;
+  if (!g_haClientActive) return;
   P1HaProtoWriter msg;
   msg.fieldCString(1, "p1e_button_press");
   haAddMapField(msg, 2, "id", String(entity.id));
@@ -782,7 +799,7 @@ static void haHandleFrame(uint32_t type, const uint8_t* data, size_t len) {
       break;
     case 5:
       haSendEmpty(6);
-      g_haClient.stop();
+      haStopClient();
       break;
     case 7:
       haSendEmpty(8);
@@ -822,8 +839,7 @@ static void haParseRx() {
     if (!haReadVarintAt(g_haRx, g_haRxLen, pos, size)) return;
     if (!haReadVarintAt(g_haRx, g_haRxLen, pos, type)) return;
     if (size > P1_EMBED_HA_RX_MAX) {
-      g_haClient.stop();
-      g_haRxLen = 0;
+      haStopClient();
       return;
     }
     if (g_haRxLen - pos < size) return;
@@ -841,7 +857,7 @@ void haBridgeBegin() {
 
 void haBridgeLoop() {
   if (!g_haRuntimeActive) {
-    if (g_haClient) g_haClient.stop();
+    if (g_haClientActive) haStopClient();
     if (g_haServerStarted) {
       g_haServer.end();
       g_haServerStarted = false;
@@ -850,7 +866,10 @@ void haBridgeLoop() {
     return;
   }
 
-  if (!wifiIsConnected()) return;
+  if (!wifiIsConnected()) {
+    if (g_haClientActive) haStopClient();
+    return;
+  }
 
   haStartMdns();
 
@@ -862,32 +881,36 @@ void haBridgeLoop() {
   }
 
   WiFiClient incoming;
-  if (!g_haClient || !g_haClient.connected() || g_haServer.hasClient()) {
+  if (!g_haClientActive || g_haServer.hasClient()) {
     incoming = g_haServer.accept();
   }
-  if (incoming) {
-    if (g_haClient && g_haClient.connected()) {
+  if (incoming.fd() >= 0) {
+    if (g_haClientActive) {
       debugLog("debug", "home_assistant", "ESPHome native API replacing existing client");
-      g_haClient.stop();
+      haStopClient();
     }
     g_haClient = incoming;
     g_haClient.setNoDelay(true);
+    g_haClient.setTimeout(0);
+    g_haClientActive = true;
     g_haClientSubscribed = false;
     g_haClientHello = false;
     g_haRxLen = 0;
     debugLog("info", "home_assistant", "ESPHome native API client connected");
   }
 
-  if (!g_haClient || !g_haClient.connected()) {
-    return;
-  }
+  if (!g_haClientActive) return;
 
   while (g_haClient.available() && g_haRxLen < sizeof(g_haRx)) {
-    g_haRx[g_haRxLen++] = (uint8_t)g_haClient.read();
+    int next = g_haClient.read();
+    if (next < 0) {
+      haStopClient();
+      return;
+    }
+    g_haRx[g_haRxLen++] = (uint8_t)next;
   }
   if (g_haRxLen >= sizeof(g_haRx) && g_haClient.available()) {
-    g_haClient.stop();
-    g_haRxLen = 0;
+    haStopClient();
     return;
   }
   haParseRx();
@@ -895,11 +918,12 @@ void haBridgeLoop() {
 
 void haRuntimeReset() {
   g_haRuntimeActive = false;
-  if (g_haClient) g_haClient.stop();
+  if (g_haClientActive) haStopClient();
   if (g_haServerStarted) {
     g_haServer.end();
     g_haServerStarted = false;
   }
+  g_haClientActive = false;
   g_haClientSubscribed = false;
   g_haClientHello = false;
   g_haRxLen = 0;

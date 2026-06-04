@@ -18,6 +18,10 @@ elif [[ "${ESP32_SKIP_WEBRTC_LINK:-0}" != "1" && -n "${ESP32_WEBRTC_LINK_LIBS:-}
   compile_args+=(--build-property "compiler.c.elf.libs=${ESP32_WEBRTC_LINK_LIBS}")
 fi
 
+if [[ -n "${ESP32_CPP_EXTRA_FLAGS:-}" ]]; then
+  compile_args+=(--build-property "compiler.cpp.extra_flags=${ESP32_CPP_EXTRA_FLAGS}")
+fi
+
 if [[ -n "${ESP32_BUILD_PATH:-}" ]]; then
   compile_args+=(--build-path "${ESP32_BUILD_PATH}")
 fi

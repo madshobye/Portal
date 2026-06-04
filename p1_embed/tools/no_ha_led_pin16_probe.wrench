@@ -1,0 +1,26 @@
+var stripPin = 16;
+var powerPin = 18;
+var stripIndex = 0;
+var ledCount = 144;
+var pos = 0;
+var lastFrameAt = 0;
+
+function setup() {
+  pinMode(powerPin, OUTPUT);
+  digitalWrite(powerPin, HIGH);
+  ledConfig(stripIndex, stripPin, ledCount, 30);
+  ledClear(stripIndex, 1);
+  println("no ha led probe ready");
+}
+
+function loop() {
+  var now = millis();
+  if ((now - lastFrameAt) < 50) {
+    return;
+  }
+  lastFrameAt = now;
+  ledClear(stripIndex, 0);
+  ledSet(stripIndex, pos, 70, 0, 0);
+  pos = (pos + 1) % ledCount;
+  ledShow();
+}

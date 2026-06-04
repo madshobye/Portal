@@ -79,7 +79,8 @@ case "${ESP32_PROFILE}" in
         ESP32_PORT="${ESP32_PORT:-/dev/cu.wchusbserial10}"
       fi
     fi
-    ESP32_FQBN="${ESP32_FQBN:-esp32:esp32:esp32:PartitionScheme=huge_app,LoopCore=1,EventsCore=0}"
+    ESP32_FQBN="${ESP32_FQBN:-esp32:esp32:esp32:PartitionScheme=huge_app,LoopCore=0,EventsCore=0}"
+    ESP32_CPP_EXTRA_FLAGS="${ESP32_CPP_EXTRA_FLAGS:--DP1_EMBED_MQTT_AVOID_CONNECTED_PROBE=1}"
     SKETCH_DIR="${SKETCH_DIR:-${PORTAL_ROOT}/p1_embed/firmware/p1_embed}"
     PORTAL_ARDUINO_LIBS="${PORTAL_ARDUINO_LIBS:-${PORTAL_ROOT}/p1_embed/arduino_libraries}"
     ESP32_WEBRTC_LIBRARY_ROOT="${ESP32_WEBRTC_LIBRARY_ROOT:-${PORTAL_ROOT}/arduinolibs/ESP32_WebRTC_light}"

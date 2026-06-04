@@ -16,7 +16,9 @@ void transportSerialBegin() {
 
 void transportSendRaw(const char* data) {
   if (!data) return;
+  if (g_transportWriteLock) xSemaphoreTake(g_transportWriteLock, portMAX_DELAY);
   Serial.print(data);
+  if (g_transportWriteLock) xSemaphoreGive(g_transportWriteLock);
 }
 
 void transportSendLine(const String& line) {
@@ -28,8 +30,19 @@ void transportSendLine(const String& line) {
 }
 
 void transportSerialPoll() {
-  while (Serial.available() > 0) {
-    char c = (char)Serial.read();
+  uint8_t budget = 64;
+  while (budget-- > 0) {
+    if (g_transportWriteLock && xSemaphoreTake(g_transportWriteLock, 0) != pdTRUE) {
+      return;
+    }
+    int available = Serial.available();
+    int value = available > 0 ? Serial.read() : -1;
+    if (g_transportWriteLock) xSemaphoreGive(g_transportWriteLock);
+    if (value < 0) {
+      return;
+    }
+
+    char c = (char)value;
 
     if (g_serialDiscardLine) {
       if (c == '\n') {
