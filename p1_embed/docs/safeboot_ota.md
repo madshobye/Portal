@@ -18,15 +18,15 @@ nvs,      data, nvs,     0x9000,  0x5000,
 otadata,  data, ota,     0xe000,  0x2000,
 updater,  app,  factory, 0x10000, 0x110000,
 app,      app,  ota_0,   0x120000,0x230000,
-patch,    data, spiffs,  0x350000,0x40000,
-spiffs,   data, spiffs,  0x390000,0x50000,
+patch,    data, spiffs,  0x350000,0x60000,
+spiffs,   data, spiffs,  0x3B0000,0x30000,
 coredump, data, coredump,0x3E0000,0x20000,
 ```
 
 - Updater partition: `0x110000` bytes.
 - App partition: `0x230000` bytes.
-- Patch partition: `0x40000` bytes.
-- Filesystem: `0x50000` bytes.
+- Patch partition: `0x60000` bytes.
+- Filesystem: `0x30000` bytes.
 
 Changing to this layout requires a full USB/browser flash because the partition
 table changes.

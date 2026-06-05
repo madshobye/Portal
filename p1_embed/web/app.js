@@ -1,14 +1,14 @@
-import { ProtocolClient } from "./protocol/ProtocolClient.js?v=0.1.87-ui345";
-import { canEncodeCommand } from "./protocol/P1MsgPack.js?v=0.1.87-ui345";
-import { WebSerialTransport } from "./protocol/WebSerialTransport.js?v=0.1.87-ui345";
+import { ProtocolClient } from "./protocol/ProtocolClient.js?v=0.1.87-ui346";
+import { canEncodeCommand } from "./protocol/P1MsgPack.js?v=0.1.87-ui346";
+import { WebSerialTransport } from "./protocol/WebSerialTransport.js?v=0.1.87-ui346";
 import { WebSocketTransport } from "./protocol/WebSocketTransport.js";
-import { MqttWebRtcTransport, MQTT_WEBRTC_TRANSPORT_VERSION } from "./protocol/MqttWebRtcTransport.js?v=0.1.87-ui345";
-import { MqttTransport, MQTT_TRANSPORT_VERSION, deriveOnlineAuthKeyHex, getStoredOnlineAuth } from "./protocol/MqttTransport.js?v=0.1.87-ui345";
-import { P1WebFlasher } from "./web-flasher.js?v=0.1.87-ui345";
-import { inferCircuitLayout, initCircuitView, normalizeCircuitLayout } from "./circuit.js?v=0.1.87-ui345";
-import { initGuinoView } from "./guino.js?v=0.1.87-ui345";
+import { MqttWebRtcTransport, MQTT_WEBRTC_TRANSPORT_VERSION } from "./protocol/MqttWebRtcTransport.js?v=0.1.87-ui346";
+import { MqttTransport, MQTT_TRANSPORT_VERSION, deriveOnlineAuthKeyHex, getStoredOnlineAuth } from "./protocol/MqttTransport.js?v=0.1.87-ui346";
+import { P1WebFlasher } from "./web-flasher.js?v=0.1.87-ui346";
+import { inferCircuitLayout, initCircuitView, normalizeCircuitLayout } from "./circuit.js?v=0.1.87-ui346";
+import { initGuinoView } from "./guino.js?v=0.1.87-ui346";
 
-const WEB_UI_VERSION = "0.1.87-ui345";
+const WEB_UI_VERSION = "0.1.87-ui346";
 const CHAT_DEFAULT_MAX_OUTPUT_TOKENS = 8000;
 const CHAT_MIN_MAX_OUTPUT_TOKENS = 1024;
 const CHAT_HARD_MAX_OUTPUT_TOKENS = 32000;
@@ -5769,6 +5769,33 @@ async function firmwareUpdatePayload(candidate) {
   };
 }
 
+function firmwareUpdateFailureMessage(status = {}) {
+  const phase = String(status.phase || "").trim();
+  const lastError = String(status.lastError || "").trim();
+  if (!lastError) return "";
+  if (phase && !/fail|error/i.test(phase)) return "";
+  return phase ? `${phase}: ${lastError}` : lastError;
+}
+
+async function readFirmwareOtaStatus({ quiet = true, timeoutMs = 8000 } = {}) {
+  return await sendCommand("firmware.update.status", {}, { quiet, timeoutMs });
+}
+
+async function reportStoredFirmwareUpdateError({ quiet = false } = {}) {
+  if (!isDeviceConnected()) return "";
+  try {
+    const status = await readFirmwareOtaStatus({ quiet: true, timeoutMs: 8000 });
+    const message = firmwareUpdateFailureMessage(status);
+    if (!message) return "";
+    if (!quiet) firmwareLog(message);
+    logLine("error", `firmware update: ${message}`);
+    return message;
+  } catch (error) {
+    if (!quiet) firmwareLog(`firmware.update.status: ${error.message || error}`);
+    return "";
+  }
+}
+
 async function runFirmwareUpdate() {
   if (firmwareUpdateBusy || isBusy) return;
   firmwareUpdateBusy = true;
@@ -5792,7 +5819,13 @@ async function runFirmwareUpdate() {
     setConnectionIntentWanted(true);
     firmwareLog(`preparing ${candidate.currentVersion} -> ${candidate.targetVersion}`);
     const payload = await firmwareUpdatePayload(candidate);
-    firmwareLog(`patch ${formatBytes(candidate.delta.size || 0)}`);
+    const patchSize = Number(candidate.delta.size || 0);
+    const otaStatus = await readFirmwareOtaStatus({ quiet: true, timeoutMs: 8000 });
+    const patchLimit = Number(otaStatus?.patchPartitionSize || 0);
+    if (patchLimit > 0 && patchSize > patchLimit) {
+      throw new Error(`Delta patch is too large for this board: ${formatBytes(patchSize)} > ${formatBytes(patchLimit)}. Full install required for the larger SafeBoot layout.`);
+    }
+    firmwareLog(`patch ${formatBytes(patchSize)}`);
     await sendCommand("firmware.update.prepare", payload, { timeoutMs: 30000 });
     firmwareLog("accepted; board will reboot, download, patch, and reboot again");
     await waitForFirmwareUpdateVersion(candidate.targetVersion);
@@ -5829,8 +5862,14 @@ async function waitForFirmwareUpdateVersion(targetVersion) {
     try {
       const info = await refreshInfo({ quiet: true, timeoutMs: 8000 });
       if (String(info?.firmwareVersion || "").trim() === targetVersion) return info;
+      const storedError = await reportStoredFirmwareUpdateError();
+      if (storedError) throw new Error(storedError);
     } catch (error) {
       const message = String(error.message || error);
+      if (/^(download_failed|updater_select_failed|patch_failed|apply_failed):/i.test(message)
+        || /Delta patch is too large/i.test(message)) {
+        throw error;
+      }
       if (/timeout|closed|disconnect|transport/i.test(message) && client) {
         try {
           await disconnectTransport({ quiet: true, keepGeneration: true });

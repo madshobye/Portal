@@ -300,12 +300,14 @@ P1OtaSafeBootStatusSnapshot otaSafeBootStatusSnapshot() {
   P1OtaSafeBootStatusSnapshot snapshot;
   snapshot.enabled = true;
   const esp_partition_t* updater = otaSafeBootFindUpdaterPartition();
+  const esp_partition_t* patch = otaSafeBootFindPatchPartition();
   Preferences p;
   String sha256;
   String fromSha256;
   String toSha256;
   snapshot.updaterPartition = updater != nullptr;
   snapshot.updaterLabel = P1_EMBED_OTA_SAFEBOOT_PARTITION_LABEL;
+  snapshot.patchPartitionSize = patch ? (uint32_t)patch->size : 0;
   snapshot.kind = "full";
   if (p.begin(P1_EMBED_OTA_REQUEST_NVS_NS, true)) {
     snapshot.pending = p.getBool("pending", false);

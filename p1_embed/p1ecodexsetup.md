@@ -293,6 +293,10 @@ The SafeBoot delta OTA flow is intentionally split into phases:
 - Only after the patch is downloaded and verified does the app select the `updater` partition and reboot into it.
 - The updater applies the already-downloaded patch and clears the request.
 
+Current 4 MB SafeBoot layout uses a `0x60000` patch partition and a `0x30000`
+LittleFS partition. Changing this layout requires a full USB/browser install,
+not an app-only OTA.
+
 Do not boot directly into the updater while `downloadPending` is true. The updater expects a verified patch already present in the patch partition.
 
 HTTPS needs a large contiguous heap block. Testing showed normal Wrench script runtime could leave only about 35 KB largest allocation and fail TLS with `SSL - Memory allocation failed`. With the OTA download running before Wrench autorun, largest allocation was about 94 KB and HTTPS worked.

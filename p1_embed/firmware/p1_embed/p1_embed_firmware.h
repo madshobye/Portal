@@ -658,6 +658,7 @@ struct P1OtaSafeBootStatusSnapshot {
   uint32_t fromSize = 0;
   uint32_t toSize = 0;
   uint32_t patchSize = 0;
+  uint32_t patchPartitionSize = 0;
   uint32_t memorySize = 0;
   uint32_t segmentSize = 0;
   bool restartPending = false;

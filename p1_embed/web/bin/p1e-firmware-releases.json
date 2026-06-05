@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "channel": "safeboot-experimental",
-  "latest": "0.1.182",
+  "latest": "0.1.183",
   "releases": [
     {
       "version": "0.1.175",
@@ -232,6 +232,35 @@
       },
       "bootApp0": {
         "url": "releases/p1e-esp32-classic-safeboot-0.1.182.boot_app0.bin",
+        "sha256": "f94c5d786a7a8fab06ac5d10e33bf37711a6697636dc037559ea19cc410a17f0"
+      }
+    },
+    {
+      "version": "0.1.183",
+      "createdAt": "2026-06-05T22:03:45.997770Z",
+      "buildLabel": "release",
+      "allowHttpOtaUrls": false,
+      "fullInstallerManifest": "p1e-firmware-safeboot.json",
+      "app": {
+        "url": "releases/p1e-esp32-classic-safeboot-0.1.183.app.bin",
+        "sha256": "d2cafea2d9474c930f6b1f06c836d7c4261a17eabb53235c6ee20a3896872e76",
+        "size": 1947552
+      },
+      "updater": {
+        "url": "releases/p1e-esp32-classic-safeboot-0.1.183.updater.bin",
+        "sha256": "6f7fe88a6a6ed965f9f0ac77b9d0f09a656f11069d0011b2e33ce5bea2c94405",
+        "size": 299248
+      },
+      "bootloader": {
+        "url": "releases/p1e-esp32-classic-safeboot-0.1.183.bootloader.bin",
+        "sha256": "1191eb3d913873c709c2fa100f829f4b824971000c0b8831b33f05f98be3282a"
+      },
+      "partitions": {
+        "url": "releases/p1e-esp32-classic-safeboot-0.1.183.partitions.bin",
+        "sha256": "2ae3b60d12b32a69ea523012248cdd12f5ce169150c012a309040ef0a562fa98"
+      },
+      "bootApp0": {
+        "url": "releases/p1e-esp32-classic-safeboot-0.1.183.boot_app0.bin",
         "sha256": "f94c5d786a7a8fab06ac5d10e33bf37711a6697636dc037559ea19cc410a17f0"
       }
     }

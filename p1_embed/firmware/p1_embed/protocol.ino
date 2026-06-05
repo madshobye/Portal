@@ -2350,7 +2350,7 @@ static void protocolMsgPackWriteHttpStatus(P1MsgPackWriter& w, const P1HttpFetch
 }
 
 static void protocolMsgPackWriteOtaStatus(P1MsgPackWriter& w, const P1OtaSafeBootStatusSnapshot& snapshot) {
-  w.writeMap(18);
+  w.writeMap(19);
   w.writeString("enabled"); w.writeBool(snapshot.enabled);
   w.writeString("updaterPartition"); w.writeBool(snapshot.updaterPartition);
   w.writeString("updaterLabel"); w.writeString(snapshot.updaterLabel);
@@ -2366,6 +2366,7 @@ static void protocolMsgPackWriteOtaStatus(P1MsgPackWriter& w, const P1OtaSafeBoo
   w.writeString("fromSize"); w.writeUInt(snapshot.fromSize);
   w.writeString("toSize"); w.writeUInt(snapshot.toSize);
   w.writeString("patchSize"); w.writeUInt(snapshot.patchSize);
+  w.writeString("patchPartitionSize"); w.writeUInt(snapshot.patchPartitionSize);
   w.writeString("memorySize"); w.writeUInt(snapshot.memorySize);
   w.writeString("segmentSize"); w.writeUInt(snapshot.segmentSize);
   w.writeString("restartPending"); w.writeBool(snapshot.restartPending);
