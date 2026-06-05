@@ -35,9 +35,17 @@ The preferred architecture is:
 
 Run from `/Users/madshobye/Media/codeRepo/Portal`.
 
+For normal P1E firmware iteration on a board that already has the SafeBoot partition layout, use the app-only SafeBoot command:
+
 ```sh
-./scripts/esp32/p1embed-compile.sh
-./scripts/esp32/p1embed-upload.sh
+./scripts/esp32/p1embed-safeboot-app-compile-upload.sh
+```
+
+This compiles the main app and flashes only the app slot at `0x120000`. Do not use the older `p1embed-compile.sh` / `p1embed-upload.sh` path for current SafeBoot boards unless explicitly working on the pre-SafeBoot profile.
+
+For serial observation:
+
+```sh
 ./scripts/esp32/p1embed-monitor.sh
 ./scripts/esp32/p1embed-listen.sh raw 30
 ./scripts/esp32/p1embed-read-serial.sh
@@ -60,23 +68,27 @@ The P1E firmware emits JSON protocol/debug lines at 115200 baud. `p1embed-listen
 
 Avoid raw `cat` unless deliberately inspecting transport bytes; it can make mixed serial output look like a baud-rate problem.
 
-After firmware changes, compile first. If upload succeeds or the installer must be updated, copy the build outputs from `/private/tmp/p1-embed-build` into `p1_embed/web/bin`:
+Use full SafeBoot USB upload only for first install, recovery, partition table changes, or updater changes:
 
 ```sh
-cp /private/tmp/p1-embed-build/p1_embed.ino.bin p1_embed/web/bin/p1e-esp32-classic.app.bin
-cp /private/tmp/p1-embed-build/p1_embed.ino.merged.bin p1_embed/web/bin/p1e-esp32-classic.bin
-cp /private/tmp/p1-embed-build/p1_embed.ino.bootloader.bin p1_embed/web/bin/p1e-esp32-classic.bootloader.bin
-cp /private/tmp/p1-embed-build/p1_embed.ino.partitions.bin p1_embed/web/bin/p1e-esp32-classic.partitions.bin
+./scripts/esp32/p1embed-safeboot-upload.sh
 ```
 
-Then update `p1_embed/web/bin/p1e-firmware.json` to the same firmware version as `P1_EMBED_FIRMWARE_VERSION` in `p1_embed/firmware/p1_embed/config.h`.
+Use the deploy script only when intentionally minting an official versioned OTA release. It updates `P1_EMBED_FIRMWARE_VERSION`, current USB installer files, versioned release files, delta patches, and SafeBoot manifests together:
+
+```sh
+DETOOLS=/private/tmp/p1e-detools-venv/bin/detools ./scripts/esp32/p1embed-safeboot-deploy.sh \
+  --from <previous-deploy-version> \
+  --to <next-deploy-version>
+```
 
 ## Versioning
 
 - Firmware version is in `p1_embed/firmware/p1_embed/config.h`.
 - Web UI version is in `p1_embed/web/app.js` as `WEB_UI_VERSION`.
 - Cache-busting query strings in `p1_embed/web/index.html` and imports in `app.js` should be bumped when changing web code.
-- Installer manifest version is in `p1_embed/web/bin/p1e-firmware.json`.
+- SafeBoot USB installer manifest version is in `p1_embed/web/bin/p1e-firmware-safeboot.json`.
+- OTA release chain is in `p1_embed/web/bin/p1e-firmware-releases.json`.
 
 ## User Preferences
 
@@ -254,7 +266,7 @@ git diff --check -- p1_embed/web/app.js p1_embed/web/index.html p1_embed/web/sty
 Minimum checks after firmware edits:
 
 ```sh
-./scripts/esp32/p1embed-compile.sh
+./scripts/esp32/p1embed-safeboot-app-compile.sh
 ```
 
 If changing Wrench internals or bindings, consider:
