@@ -1519,7 +1519,7 @@ void webrtcTransportLoop() {
   webrtcResumeSuspendedScriptIfPending();
   WebRtcMessage* inbound = nullptr;
   while (g_inboundQueue && xQueueReceive(g_inboundQueue, &inbound, 0) == pdTRUE) {
-    if (inbound && inbound->data) protocolHandleBytes(inbound->data, inbound->len);
+    if (inbound && inbound->data) protocolHandleBytes(inbound->data, inbound->len, P1_PROTOCOL_SOURCE_WEBRTC);
     webrtcFreeMessage(inbound);
   }
 }
@@ -1546,34 +1546,62 @@ bool webrtcTransportDataChannelOpen() {
   return g_started && g_dataChannelOpen;
 }
 
-String webrtcTransportStatusJson() {
-  String out = "{";
-  out += "\"enabled\":true";
-  out += ",\"started\":" + String(g_started ? "true" : "false");
-  out += ",\"peerOpen\":" + String(g_peerOpen ? "true" : "false");
-  out += ",\"dataChannelOpen\":" + String(g_dataChannelOpen ? "true" : "false");
-  out += ",\"signalingParked\":" + String(g_peerJsParkedForDataChannel ? "true" : "false");
-  out += ",\"peerState\":" + jsonString(webrtcStateName(g_peerState));
-  out += ",\"peerId\":" + jsonString(g_peerId.length() ? g_peerId : webrtcBuildId(g_idAttempt));
-  out += ",\"remoteId\":" + jsonString(g_remoteId);
+P1WebRtcTransportSnapshot webrtcTransportSnapshot() {
+  P1WebRtcTransportSnapshot snapshot;
+  snapshot.enabled = true;
+  snapshot.started = g_started;
+  snapshot.peerOpen = g_peerOpen;
+  snapshot.dataChannelOpen = g_dataChannelOpen;
+  snapshot.signalingParked = g_peerJsParkedForDataChannel;
+  snapshot.peerState = webrtcStateName(g_peerState);
+  snapshot.peerId = g_peerId.length() ? g_peerId : webrtcBuildId(g_idAttempt);
+  snapshot.remoteId = g_remoteId;
 #if P1_EMBED_WEBRTC_SIGNALING_MQTT
-  out += ",\"signaling\":\"mqtt\"";
-  out += ",\"host\":" + jsonString(P1_EMBED_WEBRTC_MQTT_HOST);
-  out += ",\"port\":" + String(P1_EMBED_WEBRTC_MQTT_PORT);
-  out += ",\"root\":" + jsonString(P1_EMBED_WEBRTC_MQTT_ROOT);
-  out += ",\"secure\":false";
+  snapshot.signaling = "mqtt";
+  snapshot.host = P1_EMBED_WEBRTC_MQTT_HOST;
+  snapshot.root = P1_EMBED_WEBRTC_MQTT_ROOT;
+  snapshot.port = P1_EMBED_WEBRTC_MQTT_PORT;
+  snapshot.secure = false;
 #else
-  out += ",\"signaling\":\"peerjs\"";
-  out += ",\"host\":" + jsonString(P1_EMBED_WEBRTC_PEERJS_HOST);
-  out += ",\"secure\":" + String(P1_EMBED_WEBRTC_PEERJS_SECURE ? "true" : "false");
+  snapshot.signaling = "peerjs";
+  snapshot.host = P1_EMBED_WEBRTC_PEERJS_HOST;
+  snapshot.secure = P1_EMBED_WEBRTC_PEERJS_SECURE;
 #endif
-  out += ",\"sendDrops\":" + String(g_sendDrops);
-  out += ",\"recvDrops\":" + String(g_recvDrops);
-  out += ",\"signalDrops\":" + String(g_signalDrops);
-  out += ",\"connectFailures\":" + String(g_connectFailures);
-  out += ",\"lastSocketReason\":" + jsonString(g_lastSocketReason);
-  out += ",\"suspended\":" + String(g_suspended ? "true" : "false");
-  out += ",\"scriptSuspended\":" + String(g_wrenchSuspendedForWebRtc ? "true" : "false");
+  snapshot.sendDrops = g_sendDrops;
+  snapshot.recvDrops = g_recvDrops;
+  snapshot.signalDrops = g_signalDrops;
+  snapshot.connectFailures = g_connectFailures;
+  strlcpy(snapshot.lastSocketReason, g_lastSocketReason, sizeof(snapshot.lastSocketReason));
+  snapshot.suspended = g_suspended;
+  snapshot.scriptSuspended = g_wrenchSuspendedForWebRtc;
+  return snapshot;
+}
+
+String webrtcTransportStatusJson() {
+  P1WebRtcTransportSnapshot snapshot = webrtcTransportSnapshot();
+  String out = "{";
+  out += "\"enabled\":" + String(snapshot.enabled ? "true" : "false");
+  out += ",\"started\":" + String(snapshot.started ? "true" : "false");
+  out += ",\"peerOpen\":" + String(snapshot.peerOpen ? "true" : "false");
+  out += ",\"dataChannelOpen\":" + String(snapshot.dataChannelOpen ? "true" : "false");
+  out += ",\"signalingParked\":" + String(snapshot.signalingParked ? "true" : "false");
+  out += ",\"peerState\":" + jsonString(snapshot.peerState);
+  out += ",\"peerId\":" + jsonString(snapshot.peerId);
+  out += ",\"remoteId\":" + jsonString(snapshot.remoteId);
+  out += ",\"signaling\":" + jsonString(snapshot.signaling);
+  out += ",\"host\":" + jsonString(snapshot.host);
+  if (snapshot.port > 0) out += ",\"port\":" + String(snapshot.port);
+#if P1_EMBED_WEBRTC_SIGNALING_MQTT
+  out += ",\"root\":" + jsonString(P1_EMBED_WEBRTC_MQTT_ROOT);
+#endif
+  out += ",\"secure\":" + String(snapshot.secure ? "true" : "false");
+  out += ",\"sendDrops\":" + String(snapshot.sendDrops);
+  out += ",\"recvDrops\":" + String(snapshot.recvDrops);
+  out += ",\"signalDrops\":" + String(snapshot.signalDrops);
+  out += ",\"connectFailures\":" + String(snapshot.connectFailures);
+  out += ",\"lastSocketReason\":" + jsonString(snapshot.lastSocketReason);
+  out += ",\"suspended\":" + String(snapshot.suspended ? "true" : "false");
+  out += ",\"scriptSuspended\":" + String(snapshot.scriptSuspended ? "true" : "false");
   out += "}";
   return out;
 }
@@ -1630,6 +1658,7 @@ void webrtcTransportLoop() {}
 void webrtcTransportSendLine(const String& line) {}
 void webrtcTransportSendBytes(const uint8_t* data, size_t len) {}
 bool webrtcTransportDataChannelOpen() { return false; }
+P1WebRtcTransportSnapshot webrtcTransportSnapshot() { return P1WebRtcTransportSnapshot(); }
 String webrtcTransportStatusJson() {
   return "{\"enabled\":false}";
 }

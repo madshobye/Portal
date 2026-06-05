@@ -22,7 +22,11 @@ for file in \
   fi
 done
 
-"${ESPTOOL}" --chip esp32 --port "${ESP32_PORT}" --baud "${ESP32_BAUD}" \
+echo "Flashing P1E SafeBoot full image..."
+echo "  port: ${ESP32_PORT}"
+echo "  baud: ${ESP32_UPLOAD_BAUD}"
+
+"${ESPTOOL}" --chip esp32 --port "${ESP32_PORT}" --baud "${ESP32_UPLOAD_BAUD}" \
   --before default-reset --after hard-reset write-flash -z \
   --flash-mode keep --flash-freq keep --flash-size keep \
   0x1000 "${APP_BUILD}/p1_embed.ino.bootloader.bin" \

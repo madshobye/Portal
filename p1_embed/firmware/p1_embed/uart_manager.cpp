@@ -116,18 +116,35 @@ int uartWriteByte(int uart, int value) {
 }
 
 String uartStatusJson() {
+  P1UartStatusSnapshot snapshot = uartStatusSnapshot();
   String out = "{\"ports\":[";
-  for (int uart = 1; uart <= 2; uart++) {
-    if (uart > 1) out += ",";
+  for (int i = 0; i < snapshot.portCount; i++) {
+    const P1UartPortSnapshot& port = snapshot.ports[i];
+    if (i) out += ",";
     out += "{";
-    out += "\"uart\":" + String(uart);
-    out += ",\"active\":" + String(g_uarts[uart].active ? "true" : "false");
-    out += ",\"rx\":" + String(g_uarts[uart].rxPin);
-    out += ",\"tx\":" + String(g_uarts[uart].txPin);
-    out += ",\"baud\":" + String(g_uarts[uart].baud);
-    out += ",\"available\":" + String(uartAvailable(uart));
+    out += "\"uart\":" + String(port.uart);
+    out += ",\"active\":" + String(port.active ? "true" : "false");
+    out += ",\"rx\":" + String(port.rx);
+    out += ",\"tx\":" + String(port.tx);
+    out += ",\"baud\":" + String(port.baud);
+    out += ",\"available\":" + String(port.available);
     out += "}";
   }
   out += "],\"reserved\":{\"transportUart\":0,\"transportPins\":[1,3],\"flashPins\":[6,7,8,9,10,11]}}";
   return out;
+}
+
+P1UartStatusSnapshot uartStatusSnapshot() {
+  P1UartStatusSnapshot snapshot;
+  snapshot.portCount = 2;
+  for (int uart = 1; uart <= 2; uart++) {
+    P1UartPortSnapshot& port = snapshot.ports[uart - 1];
+    port.uart = uart;
+    port.active = g_uarts[uart].active;
+    port.rx = g_uarts[uart].rxPin;
+    port.tx = g_uarts[uart].txPin;
+    port.baud = g_uarts[uart].baud;
+    port.available = uartAvailable(uart);
+  }
+  return snapshot;
 }

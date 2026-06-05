@@ -1,4 +1,4 @@
-import { canEncodeCommand, decodeFrame, encodeCommand } from "./P1MsgPack.js?v=0.1.87-ui335";
+import { canEncodeCommand, decodeFrame, encodeCommand } from "./P1MsgPack.js?v=0.1.87-ui343";
 
 export class ProtocolClient extends EventTarget {
   constructor(transport, { timeoutMs = 15000 } = {}) {
@@ -139,6 +139,20 @@ export class ProtocolClient extends EventTarget {
         pending.reject(error);
       });
     }
+  }
+
+  cancelPending(reason = "request canceled") {
+    for (const [id, pending] of this.pending.entries()) {
+      clearTimeout(pending.timer);
+      this.pending.delete(id);
+      const error = new Error(reason);
+      error.code = "request_canceled";
+      pending.reject(error);
+    }
+  }
+
+  dispose() {
+    this.cancelPending("connection closed");
   }
 
   emit(type, detail) {

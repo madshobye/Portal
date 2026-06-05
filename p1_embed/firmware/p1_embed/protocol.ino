@@ -24,6 +24,9 @@ static const uint8_t P1_MP_OP_WIFI_FORGET = 18;
 static const uint8_t P1_MP_OP_SCRIPT_ERROR_GET = 12;
 static const uint8_t P1_MP_OP_SCRIPT_ERROR_CLEAR = 13;
 static const uint8_t P1_MP_OP_SCRIPT_INPUT = 14;
+static const uint8_t P1_MP_OP_STATUS_GET = 15;
+static const uint8_t P1_MP_OP_STATUS_FULL = 16;
+static const uint8_t P1_MP_OP_STATUS_LIVE = 17;
 static const uint8_t P1_MP_OP_SCRIPT_CHUNK_BEGIN = 19;
 static const uint8_t P1_MP_OP_SCRIPT_CHUNK_ADD = 20;
 static const uint8_t P1_MP_OP_SCRIPT_CHUNK_COMMIT = 21;
@@ -35,8 +38,1108 @@ static const uint8_t P1_MP_OP_FIRMWARE_UPDATE_STATUS = 40;
 static const uint8_t P1_MP_OP_FIRMWARE_UPDATE_PREPARE = 41;
 static const uint8_t P1_MP_OP_FIRMWARE_UPDATE_BOOT = 42;
 static const uint8_t P1_MP_OP_FIRMWARE_UPDATE_CLEAR = 43;
+static const uint8_t P1_MP_OP_PROTOCOL_MODE = 60;
 
 static void protocolSendMsgPackError(uint32_t id, const char* code, const char* message);
+static void protocolSendMsgPackBytes(const uint8_t* data, size_t len);
+static void protocolSendMsgPackResponseBytes(uint32_t id, const uint8_t* data, size_t len, const char* tooLargeMessage);
+static void protocolMsgPackBeginResponse(P1MsgPackWriter& w, uint32_t id, bool ok, uint32_t mapCount);
+static void protocolSendMsgPackStatusLight(uint32_t id);
+static void protocolSendMsgPackStatusGet(uint32_t id);
+static void protocolSendMsgPackStatusFull(uint32_t id);
+static void protocolSendMsgPackStatusLive(uint32_t id);
+static void protocolSendJsonWifiStatus(const String& id);
+static void protocolSendJsonDebugStatus(const String& id);
+static void protocolSendJsonOtaStatus(const String& id);
+static void protocolMsgPackWriteStatusLightData(P1MsgPackWriter& w, const P1StatusSnapshot& snapshot);
+static void protocolMsgPackWriteStatusGetData(P1MsgPackWriter& w, const P1StatusSnapshot& snapshot);
+static void protocolMsgPackWriteStatusFullData(P1MsgPackWriter& w, const P1StatusSnapshot& snapshot);
+static void protocolMsgPackWriteStatusLiveData(P1MsgPackWriter& w, const P1StatusSnapshot& snapshot);
+static void protocolSendMsgPackConfig(uint32_t id);
+static void protocolSendMsgPackPong(uint32_t id);
+static void protocolSendMsgPackSystemInfo(uint32_t id);
+static void protocolSendMsgPackWifiStatus(uint32_t id);
+static void protocolSendMsgPackDebug(uint32_t id);
+static void protocolSendMsgPackScriptError(uint32_t id);
+static void protocolSendMsgPackScriptGet(uint32_t id);
+static void protocolSendMsgPackOtaStatus(uint32_t id);
+static void protocolSendMsgPackState(uint32_t id, const char* state);
+static void protocolSendMsgPackInbox(uint32_t id);
+static void protocolSendMsgPackReceived(uint32_t id, uint32_t received);
+static void protocolSendMsgPackChunkBeginOk(uint32_t id, int expectedBytes);
+static void protocolSendMsgPackChunkCommitOk(uint32_t id, int scriptBytes);
+static String protocolBaseInfoJson();
+static String protocolConfigResponseJson(const P1ConfigSnapshot& snapshot);
+static String protocolWifiStatusJsonProjection(const P1WifiSnapshot& snapshot);
+static String protocolHttpStatusJsonProjection(const P1HttpFetchStatusSnapshot& snapshot);
+static P1ScriptSnapshot protocolScriptSnapshot(const String* codeOverride, const char* stateOverride);
+static String protocolScriptSnapshotJson(const P1ScriptSnapshot& snapshot, bool includeCode, bool includeMetrics);
+static void protocolSendCommandConfig(P1ProtocolReplyMode replyMode, uint32_t msgpackId, const String& jsonId);
+static bool protocolHandleCommandFrame(const P1FrameView& frame, P1ProtocolReplyMode replyMode, P1ProtocolSource source, const String& jsonId);
+
+static bool protocolParseCommandFrame(const uint8_t* data, size_t len, P1FrameView& frame) {
+  frame = P1FrameView();
+  if (!data || len == 0) return false;
+  P1MsgPackReader r(data, len);
+  if (!r.readArray(frame.count) || frame.count < 3 ||
+      !r.readUInt(frame.frameType) || !r.readUInt(frame.id) || !r.readUInt(frame.op)) {
+    return false;
+  }
+  if (frame.frameType != P1_MP_FRAME_CMD) return false;
+  frame.data = data;
+  frame.len = len;
+  frame.argsOffset = r.offset;
+  return true;
+}
+
+static String protocolStringFromView(const P1StringView& view) {
+  String out;
+  if (view.empty()) return out;
+  out.reserve(view.len);
+  for (size_t i = 0; i < view.len; i++) out += view.data[i];
+  return out;
+}
+
+static bool protocolParseJsonIdU32(const String& id, uint32_t& out) {
+  out = 0;
+  if (!id.length()) return true;
+  uint32_t value = 0;
+  for (size_t i = 0; i < id.length(); i++) {
+    char c = id[i];
+    if (c < '0' || c > '9') return false;
+    uint32_t next = value * 10u + (uint32_t)(c - '0');
+    if (next < value) return false;
+    value = next;
+  }
+  out = value;
+  return true;
+}
+
+static void protocolSendConfigSetError(P1ProtocolReplyMode replyMode, uint32_t msgpackId, const String& jsonId, const char* code, const char* message) {
+  if (replyMode == P1_REPLY_MSGPACK) {
+    protocolSendMsgPackError(msgpackId, code, message);
+  } else {
+    protocolSendResponseError(jsonId, code, message);
+  }
+}
+
+static void protocolSendConfigSetOk(P1ProtocolReplyMode replyMode, uint32_t msgpackId, const String& jsonId) {
+  protocolSendCommandConfig(replyMode, msgpackId, jsonId);
+}
+
+static void protocolSendCommandError(P1ProtocolReplyMode replyMode, uint32_t msgpackId, const String& jsonId, const char* code, const char* message) {
+  if (replyMode == P1_REPLY_MSGPACK) {
+    protocolSendMsgPackError(msgpackId, code, message);
+  } else {
+    protocolSendResponseError(jsonId, code, message);
+  }
+}
+
+static void protocolSendCommandPong(P1ProtocolReplyMode replyMode, uint32_t msgpackId, const String& jsonId) {
+  if (replyMode == P1_REPLY_MSGPACK) protocolSendMsgPackPong(msgpackId);
+  else protocolSendResponseOk(jsonId, "{\"pong\":true}");
+}
+
+static void protocolSendCommandSystemInfo(P1ProtocolReplyMode replyMode, uint32_t msgpackId, const String& jsonId) {
+  if (replyMode == P1_REPLY_MSGPACK) protocolSendMsgPackSystemInfo(msgpackId);
+  else protocolSendResponseOk(jsonId, protocolBaseInfoJson());
+}
+
+static void protocolSendCommandStatusGet(P1ProtocolReplyMode replyMode, uint32_t msgpackId, const String& jsonId);
+static void protocolSendCommandStatusFull(P1ProtocolReplyMode replyMode, uint32_t msgpackId, const String& jsonId);
+static void protocolSendCommandStatusLive(P1ProtocolReplyMode replyMode, uint32_t msgpackId, const String& jsonId);
+
+static const char* protocolSerialModeName(bool msgpackMode) {
+  return msgpackMode ? "msgpack" : "json";
+}
+
+static String protocolModeResponseJson(bool msgpackMode) {
+  String out = "{\"mode\":";
+  out += jsonString(protocolSerialModeName(msgpackMode));
+  out += ",\"framing\":\"p1mp.u16be\"}";
+  return out;
+}
+
+static void protocolSendMsgPackMode(uint32_t id, bool msgpackMode) {
+  uint8_t frame[96];
+  P1MsgPackWriter w(frame, sizeof(frame));
+  protocolMsgPackBeginResponse(w, id, true, 2);
+  w.writeString("mode"); w.writeString(protocolSerialModeName(msgpackMode));
+  w.writeString("framing"); w.writeString("p1mp.u16be");
+  if (w.ok) protocolSendMsgPackBytes(frame, w.length);
+}
+
+static void protocolSendCommandProtocolMode(P1ProtocolReplyMode replyMode, uint32_t msgpackId, const String& jsonId, bool msgpackMode) {
+  if (replyMode == P1_REPLY_MSGPACK) protocolSendMsgPackMode(msgpackId, msgpackMode);
+  else protocolSendResponseOk(jsonId, protocolModeResponseJson(msgpackMode));
+}
+
+static void protocolSendCommandConfig(P1ProtocolReplyMode replyMode, uint32_t msgpackId, const String& jsonId) {
+  if (replyMode == P1_REPLY_MSGPACK) {
+    protocolSendMsgPackConfig(msgpackId);
+    return;
+  }
+  P1ConfigSnapshot snapshot = configSnapshot();
+  protocolSendResponseOk(jsonId, protocolConfigResponseJson(snapshot));
+}
+
+static void protocolSendCommandWifiStatus(P1ProtocolReplyMode replyMode, uint32_t msgpackId, const String& jsonId) {
+  if (replyMode == P1_REPLY_MSGPACK) protocolSendMsgPackWifiStatus(msgpackId);
+  else protocolSendJsonWifiStatus(jsonId);
+}
+
+static void protocolSendCommandDebug(P1ProtocolReplyMode replyMode, uint32_t msgpackId, const String& jsonId) {
+  if (replyMode == P1_REPLY_MSGPACK) protocolSendMsgPackDebug(msgpackId);
+  else protocolSendJsonDebugStatus(jsonId);
+}
+
+static void protocolSendCommandScriptError(P1ProtocolReplyMode replyMode, uint32_t msgpackId, const String& jsonId) {
+  if (replyMode == P1_REPLY_MSGPACK) protocolSendMsgPackScriptError(msgpackId);
+  else protocolSendResponseOk(jsonId, scriptErrorLastJson());
+}
+
+static void protocolSendCommandScriptGet(P1ProtocolReplyMode replyMode, uint32_t msgpackId, const String& jsonId) {
+  if (replyMode == P1_REPLY_MSGPACK) {
+    protocolSendMsgPackScriptGet(msgpackId);
+    return;
+  }
+  String code = wrenchCurrentScript();
+  String response = protocolScriptSnapshotJson(protocolScriptSnapshot(&code, nullptr), true, false);
+  if (response.length() < code.length()) {
+    protocolSendResponseError(jsonId, "no_heap", "No heap for script.get response; use script.chunk.get");
+    return;
+  }
+  protocolSendResponseOk(jsonId, response);
+}
+
+static bool protocolBuildScriptChunkGetResponse(uint32_t offset, uint32_t maxBytes, uint32_t maxChunkBytes, P1ScriptChunkGetResponse& out) {
+  String code = wrenchCurrentScript();
+  P1ScriptSnapshot snapshot = protocolScriptSnapshot(&code, nullptr);
+  const uint32_t total = code.length();
+  if (offset > total) return false;
+  if (maxBytes == 0 || maxBytes > maxChunkBytes) maxBytes = maxChunkBytes;
+  uint32_t nextOffset = offset + maxBytes;
+  if (nextOffset > total) nextOffset = total;
+
+  out.offset = offset;
+  out.nextOffset = nextOffset;
+  out.scriptBytes = total;
+  out.done = nextOffset >= total;
+  out.chunk = code.substring(offset, nextOffset);
+  out.state = snapshot.state;
+  out.runState = snapshot.runState;
+  out.revisionId = configRevisionId();
+  out.scriptName = configScriptName();
+  return true;
+}
+
+static String protocolScriptChunkGetResponseJson(const P1ScriptChunkGetResponse& response) {
+  String out;
+  out.reserve(response.chunk.length() + response.revisionId.length() + response.scriptName.length() + 180);
+  out += "{\"offset\":" + String(response.offset);
+  out += ",\"nextOffset\":" + String(response.nextOffset);
+  out += ",\"scriptBytes\":" + String(response.scriptBytes);
+  out += ",\"done\":" + String(response.done ? "true" : "false");
+  out += ",\"chunk\":" + jsonString(response.chunk);
+  out += ",\"state\":" + jsonString(response.state);
+  out += ",\"runState\":" + jsonString(response.runState);
+  out += ",\"revisionId\":" + jsonString(response.revisionId);
+  out += ",\"scriptName\":" + jsonString(response.scriptName);
+  out += "}";
+  return out;
+}
+
+static void protocolMsgPackWriteScriptChunkGetResponse(P1MsgPackWriter& w, uint32_t id, const P1ScriptChunkGetResponse& response) {
+  protocolMsgPackBeginResponse(w, id, true, 9);
+  w.writeString("offset"); w.writeUInt(response.offset);
+  w.writeString("nextOffset"); w.writeUInt(response.nextOffset);
+  w.writeString("scriptBytes"); w.writeUInt(response.scriptBytes);
+  w.writeString("done"); w.writeBool(response.done);
+  w.writeString("chunk"); w.writeString(response.chunk);
+  w.writeString("state"); w.writeString(response.state);
+  w.writeString("runState"); w.writeString(response.runState);
+  w.writeString("revisionId"); w.writeString(response.revisionId);
+  w.writeString("scriptName"); w.writeString(response.scriptName);
+}
+
+static void protocolSendMsgPackScriptChunkGet(uint32_t id, const P1ScriptChunkGetResponse& response) {
+  size_t capacity = max<size_t>(P1_EMBED_MSGPACK_MAX_FRAME_BYTES, response.chunk.length() + response.revisionId.length() + response.scriptName.length() + 256);
+  if (capacity > P1_EMBED_MQTT_BUFFER_BYTES) capacity = P1_EMBED_MQTT_BUFFER_BYTES;
+  uint8_t* frame = static_cast<uint8_t*>(malloc(capacity));
+  if (!frame) {
+    protocolSendMsgPackError(id, "no_heap", "No heap for script.chunk.get response");
+    return;
+  }
+  P1MsgPackWriter w(frame, capacity);
+  protocolMsgPackWriteScriptChunkGetResponse(w, id, response);
+  if (w.ok) protocolSendMsgPackResponseBytes(id, frame, w.length, "script.chunk.get response is too large for MQTT");
+  if (!w.ok) protocolSendMsgPackError(id, "frame_too_large", "Script chunk did not fit in MessagePack response");
+  free(frame);
+}
+
+static void protocolSendCommandScriptChunkGet(P1ProtocolReplyMode replyMode, uint32_t msgpackId, const String& jsonId, uint32_t offset, uint32_t maxBytes) {
+  P1ScriptChunkGetResponse response;
+  const uint32_t maxChunkBytes = replyMode == P1_REPLY_MSGPACK ? P1_EMBED_MQTT_SCRIPT_CHUNK_BYTES : 1024;
+  if (!protocolBuildScriptChunkGetResponse(offset, maxBytes, maxChunkBytes, response)) {
+    protocolSendCommandError(replyMode, msgpackId, jsonId, "bad_offset", "script.chunk.get offset is beyond stored script");
+    return;
+  }
+  if (replyMode == P1_REPLY_MSGPACK) {
+    protocolSendMsgPackScriptChunkGet(msgpackId, response);
+    return;
+  }
+  String json = protocolScriptChunkGetResponseJson(response);
+  if (json.length() < response.chunk.length()) {
+    protocolSendResponseError(jsonId, "no_heap", "No heap for script.chunk.get response");
+    return;
+  }
+  protocolSendResponseOk(jsonId, json);
+}
+
+static void protocolSendCommandOtaStatus(P1ProtocolReplyMode replyMode, uint32_t msgpackId, const String& jsonId) {
+  if (replyMode == P1_REPLY_MSGPACK) protocolSendMsgPackOtaStatus(msgpackId);
+  else protocolSendJsonOtaStatus(jsonId);
+}
+
+static void protocolSendCommandState(P1ProtocolReplyMode replyMode, uint32_t msgpackId, const String& jsonId, const char* state, const char* runState = nullptr) {
+  if (replyMode == P1_REPLY_MSGPACK) {
+    protocolSendMsgPackState(msgpackId, state);
+    return;
+  }
+  String response = "{\"state\":" + jsonString(state ? state : "");
+  if (runState) response += ",\"runState\":" + jsonString(runState);
+  response += "}";
+  protocolSendResponseOk(jsonId, response);
+}
+
+static void protocolSendCommandInbox(P1ProtocolReplyMode replyMode, uint32_t msgpackId, const String& jsonId, bool uiQueued) {
+  if (replyMode == P1_REPLY_MSGPACK) {
+    protocolSendMsgPackInbox(msgpackId);
+    return;
+  }
+  if (uiQueued) {
+    protocolSendResponseOk(jsonId, "{\"ui\":true,\"queued\":" + String(uiInputQueued()) + ",\"drops\":" + String(uiInputDrops()) + "}");
+  } else {
+    protocolSendResponseOk(jsonId, "{\"queued\":" + String(wrenchInboxAvailable()) + ",\"drops\":" + String(wrenchInboxDrops()) + "}");
+  }
+}
+
+static void protocolSendCommandReceived(P1ProtocolReplyMode replyMode, uint32_t msgpackId, const String& jsonId, uint32_t received) {
+  if (replyMode == P1_REPLY_MSGPACK) protocolSendMsgPackReceived(msgpackId, received);
+  else protocolSendResponseOk(jsonId, "{\"received\":" + String(received) + "}");
+}
+
+static void protocolSendCommandChunkBeginOk(P1ProtocolReplyMode replyMode, uint32_t msgpackId, const String& jsonId, uint32_t expectedBytes) {
+  if (replyMode == P1_REPLY_MSGPACK) protocolSendMsgPackChunkBeginOk(msgpackId, expectedBytes);
+  else protocolSendResponseOk(jsonId, "{\"received\":0,\"expectedBytes\":" + String(expectedBytes) + "}");
+}
+
+static void protocolSendCommandChunkCommitOk(P1ProtocolReplyMode replyMode, uint32_t msgpackId, const String& jsonId, uint32_t scriptBytes) {
+  if (replyMode == P1_REPLY_MSGPACK) protocolSendMsgPackChunkCommitOk(msgpackId, scriptBytes);
+  else protocolSendResponseOk(jsonId, "{\"state\":\"queued\",\"scriptBytes\":" + String(scriptBytes) + "}");
+}
+
+static bool protocolReadConfigStringView(P1MsgPackReader& r, bool& hasValue, P1StringView& value) {
+  value = {nullptr, 0};
+  return r.readBool(hasValue) && r.readStringView(value);
+}
+
+static bool protocolHandleConfigSetFrame(const P1FrameView& frame, P1ProtocolReplyMode replyMode, const String& jsonId) {
+  P1MsgPackReader r(frame.data, frame.len);
+  r.offset = frame.argsOffset;
+
+  bool hasDeviceName = false;
+  bool hasWifiSsid = false;
+  bool hasWifiPassword = false;
+  bool hasProjectId = false;
+  bool hasProjectName = false;
+  bool hasScriptName = false;
+  bool hasTimezone = false;
+  bool hasMqttHost = false;
+  bool hasMqttPort = false;
+  bool hasMqttRoot = false;
+  bool hasMqttUser = false;
+  bool hasMqttPassword = false;
+  bool hasMqttEnabled = false;
+  bool hasMqttAllowAnonymousUi = false;
+  bool hasMqttAllowAnonymousScript = false;
+  bool hasOnlineAuthUserAdd = false;
+  bool hasOnlineAuthUserRemove = false;
+  bool hasMqttGuestUiKey = false;
+  bool hasRevisionId = false;
+
+  P1StringView deviceName;
+  P1StringView wifiSsid;
+  P1StringView wifiPassword;
+  P1StringView projectId;
+  P1StringView projectName;
+  P1StringView revisionId;
+  P1StringView scriptName;
+  P1StringView timezone;
+  P1StringView mqttHost;
+  P1StringView mqttRoot;
+  P1StringView mqttUser;
+  P1StringView mqttPassword;
+  P1StringView onlineAuthUsername;
+  P1StringView onlineAuthKeyHex;
+  P1StringView onlineAuthUserRemove;
+  P1StringView mqttGuestUiKey;
+  uint32_t mqttPort = 0;
+  bool mqttEnabled = true;
+  bool mqttAllowAnonymousUi = false;
+  bool mqttAllowAnonymousScript = false;
+
+  if (!protocolReadConfigStringView(r, hasDeviceName, deviceName) ||
+      !protocolReadConfigStringView(r, hasWifiSsid, wifiSsid) ||
+      !protocolReadConfigStringView(r, hasWifiPassword, wifiPassword)) {
+    protocolSendConfigSetError(replyMode, frame.id, jsonId, "bad_config_frame", "config.set frame is malformed");
+    return false;
+  }
+  if (frame.count >= 19) {
+    if (!protocolReadConfigStringView(r, hasMqttHost, mqttHost) ||
+        !r.readBool(hasMqttPort) || !r.readUInt(mqttPort) ||
+        !protocolReadConfigStringView(r, hasMqttRoot, mqttRoot) ||
+        !protocolReadConfigStringView(r, hasMqttUser, mqttUser) ||
+        !protocolReadConfigStringView(r, hasMqttPassword, mqttPassword)) {
+      protocolSendConfigSetError(replyMode, frame.id, jsonId, "bad_config_frame", "config.set MQTT fields are malformed");
+      return false;
+    }
+  }
+  if (frame.count >= 25) {
+    if (!r.readBool(hasMqttEnabled) || !r.readBool(mqttEnabled) ||
+        !r.readBool(hasMqttAllowAnonymousUi) || !r.readBool(mqttAllowAnonymousUi) ||
+        !r.readBool(hasMqttAllowAnonymousScript) || !r.readBool(mqttAllowAnonymousScript)) {
+      protocolSendConfigSetError(replyMode, frame.id, jsonId, "bad_config_frame", "config.set MQTT security fields are malformed");
+      return false;
+    }
+  }
+  if (frame.count >= 31) {
+    if (!protocolReadConfigStringView(r, hasOnlineAuthUserAdd, onlineAuthUsername) ||
+        !r.readStringView(onlineAuthKeyHex) ||
+        !protocolReadConfigStringView(r, hasOnlineAuthUserRemove, onlineAuthUserRemove)) {
+      protocolSendConfigSetError(replyMode, frame.id, jsonId, "bad_config_frame", "config.set online auth user fields are malformed");
+      return false;
+    }
+  }
+  if (frame.count >= 35) {
+    if (!protocolReadConfigStringView(r, hasProjectId, projectId) ||
+        !protocolReadConfigStringView(r, hasProjectName, projectName)) {
+      protocolSendConfigSetError(replyMode, frame.id, jsonId, "bad_config_frame", "config.set project fields are malformed");
+      return false;
+    }
+  }
+  if (frame.count >= 37 && !protocolReadConfigStringView(r, hasScriptName, scriptName)) {
+    protocolSendConfigSetError(replyMode, frame.id, jsonId, "bad_config_frame", "config.set script name field is malformed");
+    return false;
+  }
+  if (frame.count >= 39 && !protocolReadConfigStringView(r, hasTimezone, timezone)) {
+    protocolSendConfigSetError(replyMode, frame.id, jsonId, "bad_config_frame", "config.set timezone field is malformed");
+    return false;
+  }
+  if (frame.count >= 41 && !protocolReadConfigStringView(r, hasMqttGuestUiKey, mqttGuestUiKey)) {
+    protocolSendConfigSetError(replyMode, frame.id, jsonId, "bad_config_frame", "config.set guest UI key field is malformed");
+    return false;
+  }
+  if (frame.count >= 43 && !protocolReadConfigStringView(r, hasRevisionId, revisionId)) {
+    protocolSendConfigSetError(replyMode, frame.id, jsonId, "bad_config_frame", "config.set revision id field is malformed");
+    return false;
+  }
+
+  bool changed = false;
+  bool mqttChanged = false;
+  if (hasDeviceName) {
+    configSetDeviceName(protocolStringFromView(deviceName));
+    changed = true;
+  }
+  if (hasWifiSsid) {
+    configSetWifiSsid(protocolStringFromView(wifiSsid));
+    changed = true;
+  }
+  if (hasWifiPassword) {
+    configSetWifiPassword(protocolStringFromView(wifiPassword));
+    changed = true;
+  }
+  if (hasProjectId || hasProjectName) {
+    configSetProject(hasProjectId ? protocolStringFromView(projectId) : configProjectId(),
+                     hasProjectName ? protocolStringFromView(projectName) : configProjectName());
+    changed = true;
+  }
+  if (hasScriptName) {
+    configSetScriptName(protocolStringFromView(scriptName));
+    changed = true;
+  }
+  if (hasRevisionId) {
+    configSetRevisionId(protocolStringFromView(revisionId));
+    changed = true;
+  }
+  if (hasTimezone) {
+    configSetTimezone(protocolStringFromView(timezone));
+    changed = true;
+  }
+  if (hasMqttHost) {
+    configSetMqttHost(protocolStringFromView(mqttHost));
+    changed = true;
+    mqttChanged = true;
+  }
+  if (hasMqttPort) {
+    configSetMqttPort((int)mqttPort);
+    changed = true;
+    mqttChanged = true;
+  }
+  if (hasMqttRoot) {
+    configSetMqttRoot(protocolStringFromView(mqttRoot));
+    changed = true;
+    mqttChanged = true;
+  }
+  if (hasMqttUser) {
+    configSetMqttUser(protocolStringFromView(mqttUser));
+    changed = true;
+    mqttChanged = true;
+  }
+  if (hasMqttPassword) {
+    configSetMqttPassword(protocolStringFromView(mqttPassword));
+    changed = true;
+    mqttChanged = true;
+  }
+  if (hasMqttEnabled) {
+    configSetMqttEnabled(mqttEnabled);
+    changed = true;
+    mqttChanged = true;
+  }
+  if (hasMqttAllowAnonymousUi) {
+    configSetMqttAllowAnonymousUi(mqttAllowAnonymousUi);
+    changed = true;
+  }
+  if (hasMqttGuestUiKey) {
+    configSetMqttGuestUiKey(protocolStringFromView(mqttGuestUiKey));
+    changed = true;
+  }
+  if (hasMqttAllowAnonymousScript) {
+    configSetMqttAllowAnonymousScript(mqttAllowAnonymousScript);
+    changed = true;
+  }
+  if (hasOnlineAuthUserAdd) {
+    P1OnlineAuthUserAddResult addResult = configAddOnlineAuthUserKeyChecked(
+      protocolStringFromView(onlineAuthUsername),
+      protocolStringFromView(onlineAuthKeyHex)
+    );
+    if (addResult != P1_ONLINE_AUTH_USER_ADDED) {
+      const char* code = "bad_online_user";
+      const char* message = "Invalid online user or key";
+      if (addResult == P1_ONLINE_AUTH_USER_EMPTY_NAME) {
+        code = "missing_online_user";
+        message = "Online username is required";
+      } else if (addResult == P1_ONLINE_AUTH_USER_BAD_KEY) {
+        code = "bad_online_key";
+        message = "Online user key must be 64 hex characters";
+      } else if (addResult == P1_ONLINE_AUTH_USER_LIMIT) {
+        code = "online_user_limit";
+        message = "Online user limit reached";
+      }
+      protocolSendConfigSetError(replyMode, frame.id, jsonId, code, message);
+      return false;
+    }
+    changed = true;
+  }
+  if (hasOnlineAuthUserRemove) {
+    configRemoveOnlineAuthUser(protocolStringFromView(onlineAuthUserRemove));
+    changed = true;
+  }
+  if (changed) {
+    configSave();
+    if (hasWifiSsid || hasWifiPassword) wifiReconnect();
+    if (mqttChanged) mqttTransportRequestApplyConfig();
+  }
+  protocolSendConfigSetOk(replyMode, frame.id, jsonId);
+  return true;
+}
+
+static void protocolMsgPackWriteBoolString(P1MsgPackWriter& w, bool hasValue, const String& value) {
+  w.writeBool(hasValue);
+  w.writeString(hasValue ? value : "");
+}
+
+static bool protocolJsonConfigSetToMsgPack(const char* line, const String& jsonId, uint8_t* out, size_t capacity, size_t& outLen) {
+  outLen = 0;
+  if (!line || !out || capacity == 0) return false;
+
+  uint32_t msgpackId = 0;
+  if (!protocolParseJsonIdU32(jsonId, msgpackId)) msgpackId = 0;
+
+  String deviceName;
+  String wifiSsid;
+  String wifiPassword;
+  String projectId;
+  String projectName;
+  String revisionId;
+  String scriptName;
+  String timezone;
+  String mqttHost;
+  String mqttRoot;
+  String mqttUser;
+  String mqttPassword;
+  String onlineAuthUsername;
+  String onlineAuthKeyHex;
+  String onlineAuthUserRemove;
+  String mqttGuestUiKey;
+
+  bool hasDeviceName = jsonGetString(line, "deviceName", deviceName);
+  bool hasWifiSsid = jsonGetString(line, "wifiSsid", wifiSsid);
+  bool hasWifiPassword = jsonGetString(line, "wifiPassword", wifiPassword);
+  bool hasProjectId = jsonGetString(line, "projectId", projectId);
+  bool hasProjectName = jsonGetString(line, "projectName", projectName);
+  bool hasRevisionId = jsonGetString(line, "revisionId", revisionId);
+  bool hasScriptName = jsonGetString(line, "scriptName", scriptName);
+  bool hasTimezone = jsonGetString(line, "timezone", timezone);
+  bool hasMqttHost = jsonGetString(line, "mqttHost", mqttHost);
+  bool hasMqttRoot = jsonGetString(line, "mqttRoot", mqttRoot);
+  bool hasMqttUser = jsonGetString(line, "mqttUser", mqttUser);
+  bool hasMqttPassword = jsonGetString(line, "mqttPassword", mqttPassword);
+  bool hasOnlineAuthUserAdd = jsonGetString(line, "onlineAuthUsername", onlineAuthUsername) &&
+                              jsonGetString(line, "onlineAuthKey", onlineAuthKeyHex);
+  bool hasOnlineAuthUserRemove = jsonGetString(line, "onlineAuthUserRemove", onlineAuthUserRemove);
+  bool hasMqttGuestUiKey = jsonGetString(line, "mqttGuestUiKey", mqttGuestUiKey);
+
+  int mqttPortInt = 0;
+  bool hasMqttPort = jsonGetInt(line, "mqttPort", mqttPortInt);
+  bool mqttEnabled = true;
+  bool hasMqttEnabled = jsonGetBool(line, "mqttEnabled", mqttEnabled);
+  bool mqttAllowAnonymousUi = false;
+  bool hasMqttAllowAnonymousUi = jsonGetBool(line, "mqttAllowAnonymousUi", mqttAllowAnonymousUi);
+  bool mqttAllowAnonymousScript = false;
+  bool hasMqttAllowAnonymousScript = jsonGetBool(line, "mqttAllowAnonymousScript", mqttAllowAnonymousScript);
+
+  P1MsgPackWriter w(out, capacity);
+  w.writeArray(43);
+  w.writeUInt(P1_MP_FRAME_CMD);
+  w.writeUInt(msgpackId);
+  w.writeUInt(P1_MP_OP_CONFIG_SET);
+  protocolMsgPackWriteBoolString(w, hasDeviceName, deviceName);
+  protocolMsgPackWriteBoolString(w, hasWifiSsid, wifiSsid);
+  protocolMsgPackWriteBoolString(w, hasWifiPassword, wifiPassword);
+  protocolMsgPackWriteBoolString(w, hasMqttHost, mqttHost);
+  w.writeBool(hasMqttPort);
+  w.writeUInt((uint32_t)max(0, mqttPortInt));
+  protocolMsgPackWriteBoolString(w, hasMqttRoot, mqttRoot);
+  protocolMsgPackWriteBoolString(w, hasMqttUser, mqttUser);
+  protocolMsgPackWriteBoolString(w, hasMqttPassword, mqttPassword);
+  w.writeBool(hasMqttEnabled);
+  w.writeBool(mqttEnabled);
+  w.writeBool(hasMqttAllowAnonymousUi);
+  w.writeBool(mqttAllowAnonymousUi);
+  w.writeBool(hasMqttAllowAnonymousScript);
+  w.writeBool(mqttAllowAnonymousScript);
+  protocolMsgPackWriteBoolString(w, hasOnlineAuthUserAdd, onlineAuthUsername);
+  w.writeString(hasOnlineAuthUserAdd ? onlineAuthKeyHex : "");
+  protocolMsgPackWriteBoolString(w, hasOnlineAuthUserRemove, onlineAuthUserRemove);
+  protocolMsgPackWriteBoolString(w, hasProjectId, projectId);
+  protocolMsgPackWriteBoolString(w, hasProjectName, projectName);
+  protocolMsgPackWriteBoolString(w, hasScriptName, scriptName);
+  protocolMsgPackWriteBoolString(w, hasTimezone, timezone);
+  protocolMsgPackWriteBoolString(w, hasMqttGuestUiKey, mqttGuestUiKey);
+  protocolMsgPackWriteBoolString(w, hasRevisionId, revisionId);
+  if (!w.ok) return false;
+  outLen = w.length;
+  return true;
+}
+
+static bool protocolJsonNameToMsgPackOp(const String& name, uint32_t& op) {
+  if (name == "ping") op = P1_MP_OP_PING;
+  else if (name == "status.light") op = P1_MP_OP_STATUS_LIGHT;
+  else if (name == "status.get") op = P1_MP_OP_STATUS_GET;
+  else if (name == "status.full") op = P1_MP_OP_STATUS_FULL;
+  else if (name == "status.live") op = P1_MP_OP_STATUS_LIVE;
+  else if (name == "system.info") op = P1_MP_OP_SYSTEM_INFO;
+  else if (name == "config.get") op = P1_MP_OP_CONFIG_GET;
+  else if (name == "config.set") op = P1_MP_OP_CONFIG_SET;
+  else if (name == "debug.get") op = P1_MP_OP_DEBUG_GET;
+  else if (name == "debug.set") op = P1_MP_OP_DEBUG_SET;
+  else if (name == "script.get") op = P1_MP_OP_SCRIPT_GET;
+  else if (name == "wifi.status") op = P1_MP_OP_WIFI_STATUS;
+  else if (name == "wifi.connect") op = P1_MP_OP_WIFI_CONNECT;
+  else if (name == "wifi.disconnect") op = P1_MP_OP_WIFI_DISCONNECT;
+  else if (name == "wifi.forget") op = P1_MP_OP_WIFI_FORGET;
+  else if (name == "script.error.get") op = P1_MP_OP_SCRIPT_ERROR_GET;
+  else if (name == "script.error.clear") op = P1_MP_OP_SCRIPT_ERROR_CLEAR;
+  else if (name == "script.input" || name == "wrench.input") op = P1_MP_OP_SCRIPT_INPUT;
+  else if (name == "script.chunk.begin") op = P1_MP_OP_SCRIPT_CHUNK_BEGIN;
+  else if (name == "script.chunk.add") op = P1_MP_OP_SCRIPT_CHUNK_ADD;
+  else if (name == "script.chunk.commit") op = P1_MP_OP_SCRIPT_CHUNK_COMMIT;
+  else if (name == "script.stop") op = P1_MP_OP_SCRIPT_STOP;
+  else if (name == "script.chunk.get") op = P1_MP_OP_SCRIPT_CHUNK_GET;
+  else if (name == "script.restart") op = P1_MP_OP_SCRIPT_RESTART;
+  else if (name == "device.reboot") op = P1_MP_OP_DEVICE_REBOOT;
+  else if (name == "firmware.update.status") op = P1_MP_OP_FIRMWARE_UPDATE_STATUS;
+  else if (name == "firmware.update.boot") op = P1_MP_OP_FIRMWARE_UPDATE_BOOT;
+  else if (name == "firmware.update.clear") op = P1_MP_OP_FIRMWARE_UPDATE_CLEAR;
+  else if (name == "protocol.mode") op = P1_MP_OP_PROTOCOL_MODE;
+  else return false;
+  return true;
+}
+
+static bool protocolJsonCommandToMsgPack(const char* line, const String& jsonId, const String& name, uint8_t* out, size_t capacity, size_t& outLen) {
+  outLen = 0;
+  uint32_t op = 0;
+  if (!protocolJsonNameToMsgPackOp(name, op)) return false;
+  if (op == P1_MP_OP_CONFIG_SET) return protocolJsonConfigSetToMsgPack(line, jsonId, out, capacity, outLen);
+
+  uint32_t msgpackId = 0;
+  if (!protocolParseJsonIdU32(jsonId, msgpackId)) msgpackId = 0;
+
+  P1MsgPackWriter w(out, capacity);
+  if (op == P1_MP_OP_DEBUG_SET) {
+    String level;
+    jsonGetString(line, "level", level);
+    w.writeArray(4);
+    w.writeUInt(P1_MP_FRAME_CMD);
+    w.writeUInt(msgpackId);
+    w.writeUInt(op);
+    w.writeString(level);
+  } else if (op == P1_MP_OP_WIFI_FORGET) {
+    int index = 0;
+    jsonGetInt(line, "index", index);
+    w.writeArray(4);
+    w.writeUInt(P1_MP_FRAME_CMD);
+    w.writeUInt(msgpackId);
+    w.writeUInt(op);
+    w.writeUInt((uint32_t)max(0, index));
+  } else if (op == P1_MP_OP_SCRIPT_INPUT) {
+    String channel;
+    String message;
+    jsonGetString(line, "channel", channel);
+    jsonGetString(line, "message", message);
+    w.writeArray(5);
+    w.writeUInt(P1_MP_FRAME_CMD);
+    w.writeUInt(msgpackId);
+    w.writeUInt(op);
+    w.writeString(channel);
+    w.writeString(message);
+  } else if (op == P1_MP_OP_SCRIPT_CHUNK_BEGIN) {
+    int expectedBytes = 0;
+    String expectedHashHex;
+    bool runAfterSet = false;
+    bool saveAfterSet = false;
+    jsonGetInt(line, "codeBytes", expectedBytes);
+    jsonGetString(line, "codeHash", expectedHashHex);
+    jsonGetBool(line, "run", runAfterSet);
+    jsonGetBool(line, "save", saveAfterSet);
+    w.writeArray(7);
+    w.writeUInt(P1_MP_FRAME_CMD);
+    w.writeUInt(msgpackId);
+    w.writeUInt(op);
+    w.writeUInt((uint32_t)max(0, expectedBytes));
+    w.writeString(expectedHashHex);
+    w.writeBool(runAfterSet);
+    w.writeBool(saveAfterSet);
+  } else if (op == P1_MP_OP_SCRIPT_CHUNK_ADD) {
+    int offset = 0;
+    String chunk;
+    jsonGetInt(line, "offset", offset);
+    jsonGetString(line, "chunk", chunk);
+    w.writeArray(5);
+    w.writeUInt(P1_MP_FRAME_CMD);
+    w.writeUInt(msgpackId);
+    w.writeUInt(op);
+    w.writeUInt((uint32_t)max(0, offset));
+    w.writeBin(reinterpret_cast<const uint8_t*>(chunk.c_str()), chunk.length());
+  } else if (op == P1_MP_OP_SCRIPT_CHUNK_GET) {
+    int offset = 0;
+    int maxBytes = 512;
+    jsonGetInt(line, "offset", offset);
+    jsonGetInt(line, "maxBytes", maxBytes);
+    w.writeArray(5);
+    w.writeUInt(P1_MP_FRAME_CMD);
+    w.writeUInt(msgpackId);
+    w.writeUInt(op);
+    w.writeUInt((uint32_t)max(0, offset));
+    w.writeUInt((uint32_t)max(1, maxBytes));
+  } else if (op == P1_MP_OP_PROTOCOL_MODE) {
+    String mode;
+    jsonGetString(line, "mode", mode);
+    mode.toLowerCase();
+    w.writeArray(4);
+    w.writeUInt(P1_MP_FRAME_CMD);
+    w.writeUInt(msgpackId);
+    w.writeUInt(op);
+    w.writeString(mode);
+  } else {
+    w.writeArray(3);
+    w.writeUInt(P1_MP_FRAME_CMD);
+    w.writeUInt(msgpackId);
+    w.writeUInt(op);
+  }
+  if (!w.ok) return false;
+  outLen = w.length;
+  return true;
+}
+
+static const char* protocolJsonSkipWs(const char* p) {
+  while (p && *p && (*p == ' ' || *p == '\t' || *p == '\r' || *p == '\n')) p++;
+  return p;
+}
+
+static const char* protocolJsonSkipString(const char* p) {
+  p = protocolJsonSkipWs(p);
+  if (!p || *p != '"') return p;
+  p++;
+  while (*p) {
+    char c = *p++;
+    if (c == '\\') {
+      if (*p) p++;
+    } else if (c == '"') {
+      return p;
+    }
+  }
+  return p;
+}
+
+static const char* protocolJsonSkipValue(const char* p);
+
+static const char* protocolJsonSkipContainer(const char* p, char open, char close) {
+  p = protocolJsonSkipWs(p);
+  if (!p || *p != open) return p;
+  p++;
+  while (*p) {
+    p = protocolJsonSkipWs(p);
+    if (*p == close) return p + 1;
+    if (open == '{') {
+      if (*p != '"') return p;
+      p = protocolJsonSkipString(p);
+      p = protocolJsonSkipWs(p);
+      if (*p != ':') return p;
+      p = protocolJsonSkipValue(p + 1);
+    } else {
+      p = protocolJsonSkipValue(p);
+    }
+    p = protocolJsonSkipWs(p);
+    if (*p == ',') {
+      p++;
+      continue;
+    }
+    if (*p == close) return p + 1;
+    return p;
+  }
+  return p;
+}
+
+static const char* protocolJsonSkipValue(const char* p) {
+  p = protocolJsonSkipWs(p);
+  if (!p || !*p) return p;
+  if (*p == '"') return protocolJsonSkipString(p);
+  if (*p == '{') return protocolJsonSkipContainer(p, '{', '}');
+  if (*p == '[') return protocolJsonSkipContainer(p, '[', ']');
+  while (*p && *p != ',' && *p != '}' && *p != ']') p++;
+  return p;
+}
+
+static bool protocolJsonParseStringToken(const char*& p, String& out) {
+  out = "";
+  p = protocolJsonSkipWs(p);
+  if (!p || *p != '"') return false;
+  p++;
+  while (*p) {
+    char c = *p++;
+    if (c == '"') return true;
+    if (c == '\\') {
+      char e = *p++;
+      if (!e) return false;
+      switch (e) {
+        case '"': out += '"'; break;
+        case '\\': out += '\\'; break;
+        case '/': out += '/'; break;
+        case 'b': out += '\b'; break;
+        case 'f': out += '\f'; break;
+        case 'n': out += '\n'; break;
+        case 'r': out += '\r'; break;
+        case 't': out += '\t'; break;
+        default: out += e; break;
+      }
+    } else {
+      out += c;
+    }
+  }
+  return false;
+}
+
+static uint32_t protocolJsonCountMembers(const char* p, char open, char close) {
+  p = protocolJsonSkipWs(p);
+  if (!p || *p != open) return 0;
+  p++;
+  uint32_t count = 0;
+  while (*p) {
+    p = protocolJsonSkipWs(p);
+    if (*p == close) return count;
+    if (open == '{') {
+      if (*p != '"') return count;
+      p = protocolJsonSkipString(p);
+      p = protocolJsonSkipWs(p);
+      if (*p != ':') return count;
+      p = protocolJsonSkipValue(p + 1);
+    } else {
+      p = protocolJsonSkipValue(p);
+    }
+    count++;
+    p = protocolJsonSkipWs(p);
+    if (*p == ',') {
+      p++;
+      continue;
+    }
+    if (*p == close) return count;
+    return count;
+  }
+  return count;
+}
+
+static bool protocolMsgPackWriteJsonValue(P1MsgPackWriter& w, const char*& p, uint8_t depth) {
+  if (depth > 8) return false;
+  p = protocolJsonSkipWs(p);
+  if (!p || !*p) return false;
+  if (*p == '"') {
+    String value;
+    if (!protocolJsonParseStringToken(p, value)) return false;
+    return w.writeString(value);
+  }
+  if (*p == '{') {
+    uint32_t count = protocolJsonCountMembers(p, '{', '}');
+    if (!w.writeMap(count)) return false;
+    p++;
+    for (uint32_t i = 0; i < count; i++) {
+      String key;
+      if (!protocolJsonParseStringToken(p, key)) return false;
+      p = protocolJsonSkipWs(p);
+      if (*p != ':') return false;
+      p++;
+      if (!w.writeString(key) || !protocolMsgPackWriteJsonValue(w, p, depth + 1)) return false;
+      p = protocolJsonSkipWs(p);
+      if (i + 1 < count) {
+        if (*p != ',') return false;
+        p++;
+      }
+    }
+    p = protocolJsonSkipWs(p);
+    if (*p == '}') p++;
+    return true;
+  }
+  if (*p == '[') {
+    uint32_t count = protocolJsonCountMembers(p, '[', ']');
+    if (!w.writeArray(count)) return false;
+    p++;
+    for (uint32_t i = 0; i < count; i++) {
+      if (!protocolMsgPackWriteJsonValue(w, p, depth + 1)) return false;
+      p = protocolJsonSkipWs(p);
+      if (i + 1 < count) {
+        if (*p != ',') return false;
+        p++;
+      }
+    }
+    p = protocolJsonSkipWs(p);
+    if (*p == ']') p++;
+    return true;
+  }
+  if (strncmp(p, "true", 4) == 0) {
+    p += 4;
+    return w.writeBool(true);
+  }
+  if (strncmp(p, "false", 5) == 0) {
+    p += 5;
+    return w.writeBool(false);
+  }
+  if (strncmp(p, "null", 4) == 0) {
+    p += 4;
+    return w.writeNil();
+  }
+  char* end = nullptr;
+  double number = strtod(p, &end);
+  if (end == p) return false;
+  bool isFloat = false;
+  for (const char* q = p; q < end; q++) {
+    if (*q == '.' || *q == 'e' || *q == 'E') {
+      isFloat = true;
+      break;
+    }
+  }
+  p = end;
+  if (isFloat) return w.writeFloat((float)number);
+  long iv = (long)number;
+  if (iv < 0) return w.writeInt((int32_t)iv);
+  return w.writeUInt((uint32_t)iv);
+}
+
+static void protocolMsgPackWriteJsonObject(P1MsgPackWriter& w, const String& json) {
+  const char* p = json.c_str();
+  if (!protocolMsgPackWriteJsonValue(w, p, 0)) w.writeMap(0);
+}
+
+static void protocolAppendJsonEscapedBytes(String& out, const char* data, size_t len) {
+  out += '"';
+  for (size_t i = 0; i < len; i++) {
+    char c = data[i];
+    switch (c) {
+      case '"': out += "\\\""; break;
+      case '\\': out += "\\\\"; break;
+      case '\n': out += "\\n"; break;
+      case '\r': out += "\\r"; break;
+      case '\t': out += "\\t"; break;
+      default:
+        if ((uint8_t)c < 0x20) out += ' ';
+        else out += c;
+        break;
+    }
+  }
+  out += '"';
+}
+
+static bool protocolMsgPackValueToJson(P1MsgPackReader& r, String& out, uint8_t depth) {
+  if (depth > 12) return false;
+  uint8_t b = 0;
+  if (!r.readByte(b)) return false;
+
+  if (b <= 0x7f) {
+    out += String((uint32_t)b);
+    return true;
+  }
+  if (b >= 0xe0) {
+    out += String((int32_t)(int8_t)b);
+    return true;
+  }
+  if ((b & 0xe0) == 0xa0) {
+    size_t len = b & 0x1f;
+    if (r.offset + len > r.length) return false;
+    protocolAppendJsonEscapedBytes(out, reinterpret_cast<const char*>(r.data + r.offset), len);
+    r.offset += len;
+    return true;
+  }
+  if ((b & 0xf0) == 0x80 || b == 0xde) {
+    uint32_t count = b & 0x0f;
+    if (b == 0xde) {
+      if (r.offset + 2 > r.length) return false;
+      count = (uint32_t(r.data[r.offset]) << 8) | r.data[r.offset + 1];
+      r.offset += 2;
+    }
+    out += '{';
+    for (uint32_t i = 0; i < count; i++) {
+      if (i) out += ',';
+      if (!protocolMsgPackValueToJson(r, out, depth + 1)) return false;
+      out += ':';
+      if (!protocolMsgPackValueToJson(r, out, depth + 1)) return false;
+    }
+    out += '}';
+    return true;
+  }
+  if ((b & 0xf0) == 0x90 || b == 0xdc) {
+    uint32_t count = b & 0x0f;
+    if (b == 0xdc) {
+      if (r.offset + 2 > r.length) return false;
+      count = (uint32_t(r.data[r.offset]) << 8) | r.data[r.offset + 1];
+      r.offset += 2;
+    }
+    out += '[';
+    for (uint32_t i = 0; i < count; i++) {
+      if (i) out += ',';
+      if (!protocolMsgPackValueToJson(r, out, depth + 1)) return false;
+    }
+    out += ']';
+    return true;
+  }
+
+  if (b == 0xc0) {
+    out += "null";
+    return true;
+  }
+  if (b == 0xc2 || b == 0xc3) {
+    out += (b == 0xc3) ? "true" : "false";
+    return true;
+  }
+  if (b == 0xcc || b == 0xcd || b == 0xce) {
+    uint32_t value = 0;
+    if (b == 0xcc) {
+      if (r.offset + 1 > r.length) return false;
+      value = r.data[r.offset++];
+    } else if (b == 0xcd) {
+      if (r.offset + 2 > r.length) return false;
+      value = (uint32_t(r.data[r.offset]) << 8) | r.data[r.offset + 1];
+      r.offset += 2;
+    } else {
+      if (r.offset + 4 > r.length) return false;
+      value = (uint32_t(r.data[r.offset]) << 24) | (uint32_t(r.data[r.offset + 1]) << 16) |
+              (uint32_t(r.data[r.offset + 2]) << 8) | r.data[r.offset + 3];
+      r.offset += 4;
+    }
+    out += String(value);
+    return true;
+  }
+  if (b == 0xd0 || b == 0xd1 || b == 0xd2) {
+    int32_t value = 0;
+    if (b == 0xd0) {
+      if (r.offset + 1 > r.length) return false;
+      value = (int8_t)r.data[r.offset++];
+    } else if (b == 0xd1) {
+      if (r.offset + 2 > r.length) return false;
+      uint16_t raw = (uint16_t(r.data[r.offset]) << 8) | r.data[r.offset + 1];
+      value = (int16_t)raw;
+      r.offset += 2;
+    } else {
+      if (r.offset + 4 > r.length) return false;
+      uint32_t raw = (uint32_t(r.data[r.offset]) << 24) | (uint32_t(r.data[r.offset + 1]) << 16) |
+                     (uint32_t(r.data[r.offset + 2]) << 8) | r.data[r.offset + 3];
+      value = (int32_t)raw;
+      r.offset += 4;
+    }
+    out += String(value);
+    return true;
+  }
+  if (b == 0xca) {
+    if (r.offset + 4 > r.length) return false;
+    union {
+      uint32_t u;
+      float f;
+    } v;
+    v.u = (uint32_t(r.data[r.offset]) << 24) | (uint32_t(r.data[r.offset + 1]) << 16) |
+          (uint32_t(r.data[r.offset + 2]) << 8) | r.data[r.offset + 3];
+    r.offset += 4;
+    if (!isfinite(v.f)) out += "0";
+    else out += String(v.f, 3);
+    return true;
+  }
+  if (b == 0xd9 || b == 0xda) {
+    size_t len = 0;
+    if (b == 0xd9) {
+      if (r.offset + 1 > r.length) return false;
+      len = r.data[r.offset++];
+    } else {
+      if (r.offset + 2 > r.length) return false;
+      len = (size_t(r.data[r.offset]) << 8) | r.data[r.offset + 1];
+      r.offset += 2;
+    }
+    if (r.offset + len > r.length) return false;
+    protocolAppendJsonEscapedBytes(out, reinterpret_cast<const char*>(r.data + r.offset), len);
+    r.offset += len;
+    return true;
+  }
+
+  return false;
+}
+
+static bool protocolMsgPackPayloadToJson(const uint8_t* data, size_t len, String& out) {
+  out = "";
+  P1MsgPackReader r(data, len);
+  if (!protocolMsgPackValueToJson(r, out, 0)) return false;
+  return r.offset == r.length;
+}
+
+static void protocolSendJsonResponseFromMsgPackPayload(const String& id, const uint8_t* data, size_t len) {
+  String json;
+  json.reserve(len * 2);
+  if (!protocolMsgPackPayloadToJson(data, len, json)) {
+    protocolSendResponseError(id, "bad_payload_projection", "Could not project MessagePack payload to JSON");
+    return;
+  }
+  if (!json.length()) {
+    protocolSendResponseError(id, "empty_payload_projection", "MessagePack payload projected to an empty JSON response");
+    return;
+  }
+  protocolSendResponseOk(id, json);
+}
 
 static String protocolHeapSnapshotJson(const char* prefix) {
   String out;
@@ -72,7 +1175,7 @@ static String protocolHttpProbeJson(const String& url, int maxBytes, int timeout
   out += ",\"bodyBytes\":" + String(body.length());
   out += ",\"code\":" + String(httpFetchLastCode());
   out += ",\"error\":" + jsonString(httpFetchLastError());
-  out += ",\"http\":" + httpFetchStatusJson();
+  out += ",\"http\":" + protocolHttpStatusJsonProjection(httpFetchStatusSnapshot());
   out += ",";
   out += protocolHeapSnapshotJson("after");
   out += "}";
@@ -80,6 +1183,7 @@ static String protocolHttpProbeJson(const String& url, int maxBytes, int timeout
 }
 
 static void protocolSendMsgPackBytes(const uint8_t* data, size_t len) {
+  transportSendMsgPackBytes(data, len);
   webrtcTransportSendBytes(data, len);
   mqttTransportSendBytes(data, len);
 }
@@ -384,84 +1488,65 @@ static String protocolBaseInfoJson() {
 
 static String protocolStatusFullJson() {
   P1StatusSnapshot snapshot = protocolStatusSnapshot();
-  String out = "{";
-  protocolAppendStatusCoreJson(out, snapshot);
-  out += ",\"wrenchLastLoopMs\":" + String(wrenchLastLoopMs());
-  out += ",\"wrenchLastLoopDurationMs\":" + String(wrenchLastLoopDurationMs());
-  out += ",\"wrenchCurrentLoopStartedAt\":" + String(wrenchCurrentLoopStartedAt());
-  out += ",\"wrenchSlowLoopCount\":" + String(wrenchSlowLoopCount());
-  out += ",\"wrenchHungLoopCount\":" + String(wrenchHungLoopCount());
-  out += ",\"wrenchLockTimeoutCount\":" + String(wrenchLockTimeoutCount());
-  out += ",\"wrenchTaskStackHighWater\":" + String(snapshot.script.taskStackHighWater);
-  out += ",\"wrenchRuntime\":" + wrenchRuntimeStatusJson();
-  out += ",\"wrenchInboxQueued\":" + String(wrenchInboxAvailable());
-  out += ",\"wrenchInboxDrops\":" + String(wrenchInboxDrops());
-  out += ",\"lastError\":" + scriptErrorSummaryJson(snapshot.lastError);
-  out += ",\"debug\":" + debugEventStatusJson(snapshot.debug);
-  out += ",\"memory\":" + memoryProfileSummaryJson();
-  out += ",\"web\":" + webTransportStatusJson();
-  out += ",\"mqtt\":" + mqttTransportStatusJson();
-  out += ",\"webrtc\":" + webrtcTransportStatusJson();
-  out += ",\"led\":" + ledStatusJson();
-  out += ",\"uart\":" + uartStatusJson();
-  out += ",\"http\":" + httpFetchStatusJson();
-  out += ",\"scriptVerificationArmed\":" + String(snapshot.script.verificationArmed ? "true" : "false");
-  out += ",\"wifi\":" + wifiStatusJson(snapshot.wifi);
-  out += "}";
+  uint8_t* payload = static_cast<uint8_t*>(malloc(P1_EMBED_MQTT_BUFFER_BYTES));
+  if (!payload) return "{}";
+  P1MsgPackWriter w(payload, P1_EMBED_MQTT_BUFFER_BYTES);
+  protocolMsgPackWriteStatusFullData(w, snapshot);
+  String out;
+  if (!w.ok || !protocolMsgPackPayloadToJson(payload, w.length, out)) out = "{}";
+  free(payload);
   return out;
 }
 
 static String protocolStatusJson() {
   P1StatusSnapshot snapshot = protocolStatusSnapshot();
+  uint8_t* payload = static_cast<uint8_t*>(malloc(P1_EMBED_MQTT_BUFFER_BYTES));
+  if (!payload) return "{}";
+  P1MsgPackWriter w(payload, P1_EMBED_MQTT_BUFFER_BYTES);
+  protocolMsgPackWriteStatusGetData(w, snapshot);
   String out;
-  out.reserve(1800);
-  out += "{";
-  protocolAppendStatusCoreJson(out, snapshot);
-  out += ",\"wrenchRuntime\":" + wrenchRuntimeStatusJson();
-  out += ",\"lastError\":" + scriptErrorSummaryJson(snapshot.lastError);
-  out += ",\"memory\":" + memoryProfileSummaryJson();
-  out += ",\"web\":" + webTransportStatusJson();
-  out += ",\"mqtt\":" + mqttTransportStatusJson();
-  out += ",\"webrtc\":" + webrtcTransportStatusJson();
-  out += ",\"led\":" + ledStatusJson();
-  out += ",\"wifi\":" + wifiStatusJson(snapshot.wifi);
-  out += "}";
+  if (!w.ok || !protocolMsgPackPayloadToJson(payload, w.length, out)) out = "{}";
+  free(payload);
   return out;
 }
 
 static String protocolStatusLightJson() {
   P1StatusSnapshot snapshot = protocolStatusSnapshot();
+  uint8_t payload[P1_EMBED_MSGPACK_MAX_FRAME_BYTES];
+  P1MsgPackWriter w(payload, sizeof(payload));
+  protocolMsgPackWriteStatusLightData(w, snapshot);
   String out;
-  out.reserve(900);
-  out += "{";
-  protocolAppendStatusCoreJson(out, snapshot);
-  out += ",\"mqtt\":" + mqttTransportStatusJson();
-  out += ",\"webrtc\":" + webrtcTransportStatusJson();
-  out += ",\"wifi\":" + wifiStatusJson(snapshot.wifi);
-  out += "}";
+  if (!w.ok || !protocolMsgPackPayloadToJson(payload, w.length, out)) return "{}";
   return out;
 }
 
 static String protocolStatusEventJson() {
   P1StatusSnapshot snapshot = protocolStatusSnapshot();
+  uint8_t payload[P1_EMBED_MSGPACK_MAX_FRAME_BYTES];
+  P1MsgPackWriter w(payload, sizeof(payload));
+  protocolMsgPackWriteStatusLiveData(w, snapshot);
   String out;
-  out.reserve(900);
-  out += "{";
-  out += "\"uptimeMs\":" + String(snapshot.uptimeMs);
-  out += ",\"freeHeap\":" + String(snapshot.freeHeap);
-  out += ",\"minFreeHeap\":" + String(snapshot.minFreeHeap);
-  out += ",\"maxAllocHeap\":" + String(snapshot.maxAllocHeap);
-  out += ",\"scriptState\":" + jsonString(snapshot.script.state);
-  out += ",\"scriptBytes\":" + String(snapshot.script.bytes);
-  out += ",\"wrenchLoopFps\":" + String(snapshot.script.loopFps, 2);
-  out += ",\"wrenchTaskStackHighWater\":" + String(snapshot.script.taskStackHighWater);
-  out += ",\"memory\":" + memoryProfileSummaryJson();
-  out += ",\"mqtt\":" + mqttTransportStatusJson();
-  out += ",\"webrtc\":" + webrtcTransportStatusJson();
-  out += ",\"wifi\":" + wifiStatusJson(snapshot.wifi);
-  out += ",\"led\":" + ledStatusJson();
-  out += "}";
+  if (!w.ok || !protocolMsgPackPayloadToJson(payload, w.length, out)) return "{}";
   return out;
+}
+
+static String protocolStatusLiveJson() {
+  return protocolStatusEventJson();
+}
+
+static void protocolSendCommandStatusGet(P1ProtocolReplyMode replyMode, uint32_t msgpackId, const String& jsonId) {
+  if (replyMode == P1_REPLY_MSGPACK) protocolSendMsgPackStatusGet(msgpackId);
+  else protocolSendJsonStatusGet(jsonId);
+}
+
+static void protocolSendCommandStatusFull(P1ProtocolReplyMode replyMode, uint32_t msgpackId, const String& jsonId) {
+  if (replyMode == P1_REPLY_MSGPACK) protocolSendMsgPackStatusFull(msgpackId);
+  else protocolSendJsonStatusFull(jsonId);
+}
+
+static void protocolSendCommandStatusLive(P1ProtocolReplyMode replyMode, uint32_t msgpackId, const String& jsonId) {
+  if (replyMode == P1_REPLY_MSGPACK) protocolSendMsgPackStatusLive(msgpackId);
+  else protocolSendJsonStatusLive(jsonId);
 }
 
 void protocolSendResponseOk(const String& id, const String& dataJson) {
@@ -650,7 +1735,17 @@ void protocolEmitBoot() {
 
 void protocolEmitStatusEvent() {
   fastLedSkipFor(20);
-  protocolEmitEvent("device.status", "\"status\":" + protocolStatusEventJson());
+  P1StatusSnapshot snapshot = protocolStatusSnapshot();
+  uint8_t* frame = static_cast<uint8_t*>(malloc(P1_EMBED_MSGPACK_MAX_FRAME_BYTES));
+  if (frame) {
+    P1MsgPackWriter w(frame, P1_EMBED_MSGPACK_MAX_FRAME_BYTES);
+    protocolMsgPackBeginEvent(w, "device.status", 1);
+    w.writeString("status");
+    protocolMsgPackWriteStatusLiveData(w, snapshot);
+    if (w.ok) protocolSendMsgPackBytes(frame, w.length);
+    free(frame);
+  }
+  protocolEmitEvent("device.status", "\"status\":" + protocolStatusLiveJson());
 }
 
 static String protocolScriptMetaJson(const String& code, const String& state) {
@@ -996,97 +2091,6 @@ static void protocolHandleScriptBytecodeSet(const String& id, const char* line) 
   protocolSendResponseOk(id, protocolScriptMetaJson(code, state));
 }
 
-static void protocolHandleScriptChunkBegin(const String& id, const char* line) {
-  bool runAfterSet = false;
-  bool saveAfterSet = false;
-  int expectedBytes = -1;
-  String expectedHashHex;
-  jsonGetBool(line, "run", runAfterSet);
-  jsonGetBool(line, "save", saveAfterSet);
-  jsonGetInt(line, "codeBytes", expectedBytes);
-  jsonGetString(line, "codeHash", expectedHashHex);
-  if (expectedBytes <= 0 || expectedBytes > P1_EMBED_MAX_SCRIPT_BYTES) {
-    protocolSendResponseError(id, "script_too_large", "Invalid script size");
-    return;
-  }
-  if (expectedHashHex.length() == 0) {
-    protocolSendResponseError(id, "missing_hash", "script.chunk.begin requires codeHash");
-    return;
-  }
-  if (!scriptStoreBeginIncoming()) {
-    protocolSendResponseError(id, "storage_error", "Failed to start staged script upload");
-    return;
-  }
-  protocolPrepareScriptUpload();
-  g_scriptChunkActive = true;
-  g_scriptChunkRun = runAfterSet;
-  g_scriptChunkSave = saveAfterSet;
-  g_scriptChunkExpectedBytes = expectedBytes;
-  g_scriptChunkReceivedBytes = 0;
-  g_scriptChunkExpectedHashHex = expectedHashHex;
-  protocolSendResponseOk(id, "{\"received\":0,\"expectedBytes\":" + String(expectedBytes) + "}");
-}
-
-static void protocolHandleScriptChunkAdd(const String& id, const char* line) {
-  if (!g_scriptChunkActive) {
-    protocolSendResponseError(id, "no_upload", "No chunked script upload is active");
-    return;
-  }
-  int offset = -1;
-  String chunk;
-  jsonGetInt(line, "offset", offset);
-  if (!jsonGetString(line, "chunk", chunk)) {
-    protocolSendResponseError(id, "missing_chunk", "script.chunk.add requires chunk");
-    return;
-  }
-  if (offset != g_scriptChunkReceivedBytes) {
-    protocolSendResponseError(id, "bad_offset", "Script chunk offset did not match received bytes");
-    return;
-  }
-  if (g_scriptChunkReceivedBytes + (int)chunk.length() > g_scriptChunkExpectedBytes) {
-    protocolSendResponseError(id, "too_many_bytes", "Script chunk exceeds expected size");
-    return;
-  }
-  if (!scriptStoreAppendIncoming(chunk)) {
-    protocolSendResponseError(id, "storage_error", "Failed to append script chunk");
-    return;
-  }
-  g_scriptChunkReceivedBytes += chunk.length();
-  protocolSendResponseOk(id, "{\"received\":" + String(g_scriptChunkReceivedBytes) + "}");
-}
-
-static void protocolHandleScriptChunkCommit(const String& id) {
-  if (!g_scriptChunkActive) {
-    protocolSendResponseError(id, "no_upload", "No chunked script upload is active");
-    return;
-  }
-  if (g_scriptChunkReceivedBytes != g_scriptChunkExpectedBytes) {
-    protocolSendResponseError(id, "incomplete_upload", "Script upload is missing chunks");
-    return;
-  }
-  size_t scriptBytes = 0;
-  uint32_t scriptHash = 2166136261u;
-  if (!scriptStoreIncomingInfo(scriptBytes, scriptHash) || scriptBytes == 0) {
-    scriptStoreClearIncoming();
-    g_scriptChunkActive = false;
-    protocolSendResponseError(id, "storage_error", "Failed to load staged script");
-    return;
-  }
-  if (!protocolValidateScriptIntegrityInfo(id, scriptBytes, scriptHash, g_scriptChunkExpectedBytes, g_scriptChunkExpectedHashHex)) {
-    scriptStoreClearIncoming();
-    g_scriptChunkActive = false;
-    return;
-  }
-  bool runAfterSet = g_scriptChunkRun;
-  bool saveAfterSet = g_scriptChunkSave;
-  g_scriptChunkActive = false;
-  int expectedBytes = g_scriptChunkExpectedBytes;
-  String expectedHashHex = g_scriptChunkExpectedHashHex;
-  g_scriptChunkExpectedHashHex = "";
-  protocolSendResponseOk(id, "{\"state\":\"queued\",\"scriptBytes\":" + String(scriptBytes) + "}");
-  protocolQueueScriptJob(runAfterSet, saveAfterSet, expectedBytes, expectedHashHex, scriptBytes);
-}
-
 void protocolPollScriptJobs() {
   if (!g_scriptJobPending) return;
   bool runAfterSet = g_scriptJobRun;
@@ -1136,18 +2140,201 @@ void protocolPollScriptJobs() {
 
 static void protocolMsgPackWriteWifi(P1MsgPackWriter& w, const P1WifiSnapshot& snapshot);
 
-static void protocolSendMsgPackStatusLight(uint32_t id) {
-  P1StatusSnapshot snapshot = protocolStatusSnapshot();
-  uint8_t* frame = static_cast<uint8_t*>(malloc(P1_EMBED_MSGPACK_MAX_FRAME_BYTES));
-  if (!frame) {
-    protocolSendMsgPackError(id, "no_heap", "No heap for status.light response");
+static void protocolMsgPackWriteWebTransport(P1MsgPackWriter& w, const P1WebTransportSnapshot& snapshot) {
+  w.writeMap(6);
+  w.writeString("enabled"); w.writeBool(snapshot.enabled);
+  w.writeString("started"); w.writeBool(snapshot.started);
+  w.writeString("port"); w.writeUInt(snapshot.port);
+  w.writeString("clients"); w.writeUInt(snapshot.clients);
+  w.writeString("mdns"); w.writeBool(snapshot.mdns);
+  w.writeString("host"); w.writeString(snapshot.host);
+}
+
+static void protocolMsgPackWriteMqttTransport(P1MsgPackWriter& w, const P1MqttTransportSnapshot& snapshot) {
+  if (!snapshot.enabled) {
+    w.writeMap(2);
+    w.writeString("enabled"); w.writeBool(false);
+    w.writeString("connected"); w.writeBool(false);
     return;
   }
-  P1MsgPackWriter w(frame, P1_EMBED_MSGPACK_MAX_FRAME_BYTES);
-  w.writeArray(4);
-  w.writeUInt(P1_MP_FRAME_RES);
-  w.writeUInt(id);
-  w.writeBool(true);
+  w.writeMap(35);
+  w.writeString("enabled"); w.writeBool(snapshot.enabled);
+  w.writeString("configured"); w.writeBool(snapshot.configured);
+  w.writeString("connected"); w.writeBool(snapshot.connected);
+  w.writeString("begun"); w.writeBool(snapshot.begun);
+  w.writeString("queueAllocated"); w.writeBool(snapshot.queueAllocated);
+  w.writeString("host"); w.writeString(snapshot.host);
+  w.writeString("port"); w.writeUInt(snapshot.port);
+  w.writeString("root"); w.writeString(snapshot.root);
+  w.writeString("deviceId"); w.writeString(snapshot.deviceId);
+  w.writeString("cmd"); w.writeString(snapshot.cmd);
+  w.writeString("evt"); w.writeString(snapshot.evt);
+  w.writeString("scriptIn"); w.writeString(snapshot.scriptIn);
+  w.writeString("scriptOut"); w.writeString(snapshot.scriptOut);
+  w.writeString("authRequired"); w.writeBool(snapshot.authRequired);
+  w.writeString("onlineAuthUsers"); w.writeUInt(snapshot.onlineAuthUsers);
+  w.writeString("anonymousUi"); w.writeBool(snapshot.anonymousUi);
+  w.writeString("anonymousScript"); w.writeBool(snapshot.anonymousScript);
+  w.writeString("guestUiKeySet"); w.writeBool(snapshot.guestUiKeySet);
+  w.writeString("ownerCore"); w.writeInt(snapshot.ownerCore);
+  w.writeString("loopCore"); w.writeInt(snapshot.loopCore);
+  w.writeString("outQueuedCount"); w.writeUInt(snapshot.outQueuedCount);
+  w.writeString("outDropCount"); w.writeUInt(snapshot.outDropCount);
+  w.writeString("outHighWater"); w.writeUInt(snapshot.outHighWater);
+  w.writeString("connectCount"); w.writeUInt(snapshot.connectCount);
+  w.writeString("lostCount"); w.writeUInt(snapshot.lostCount);
+  w.writeString("loopClosedCount"); w.writeUInt(snapshot.loopClosedCount);
+  w.writeString("publishFailCount"); w.writeUInt(snapshot.publishFailCount);
+  w.writeString("securePublishFailCount"); w.writeUInt(snapshot.securePublishFailCount);
+  w.writeString("scriptOutPublishFailCount"); w.writeUInt(snapshot.scriptOutPublishFailCount);
+  w.writeString("helloPublishFailCount"); w.writeUInt(snapshot.helloPublishFailCount);
+  w.writeString("lastLostMs"); w.writeUInt(snapshot.lastLostMs);
+  w.writeString("lastLoopClosedMs"); w.writeUInt(snapshot.lastLoopClosedMs);
+  w.writeString("lastPublishFailMs"); w.writeUInt(snapshot.lastPublishFailMs);
+  w.writeString("secureFrameBuffer"); protocolMsgPackWriteReusableBuffer(w, snapshot.secureFrameBuffer);
+  w.writeString("eventBatchBuffer"); protocolMsgPackWriteReusableBuffer(w, snapshot.eventBatchBuffer);
+}
+
+static void protocolMsgPackWriteWebRtcTransport(P1MsgPackWriter& w, const P1WebRtcTransportSnapshot& snapshot) {
+  if (!snapshot.enabled) {
+    w.writeMap(1);
+    w.writeString("enabled"); w.writeBool(false);
+    return;
+  }
+  uint32_t count = snapshot.root.length() ? 20 : 19;
+  if (snapshot.port == 0) count--;
+  w.writeMap(count);
+  w.writeString("enabled"); w.writeBool(snapshot.enabled);
+  w.writeString("started"); w.writeBool(snapshot.started);
+  w.writeString("peerOpen"); w.writeBool(snapshot.peerOpen);
+  w.writeString("dataChannelOpen"); w.writeBool(snapshot.dataChannelOpen);
+  w.writeString("signalingParked"); w.writeBool(snapshot.signalingParked);
+  w.writeString("peerState"); w.writeString(snapshot.peerState);
+  w.writeString("peerId"); w.writeString(snapshot.peerId);
+  w.writeString("remoteId"); w.writeString(snapshot.remoteId);
+  w.writeString("signaling"); w.writeString(snapshot.signaling);
+  w.writeString("host"); w.writeString(snapshot.host);
+  if (snapshot.port > 0) {
+    w.writeString("port"); w.writeUInt(snapshot.port);
+  }
+  if (snapshot.root.length()) {
+    w.writeString("root"); w.writeString(snapshot.root);
+  }
+  w.writeString("secure"); w.writeBool(snapshot.secure);
+  w.writeString("sendDrops"); w.writeUInt(snapshot.sendDrops);
+  w.writeString("recvDrops"); w.writeUInt(snapshot.recvDrops);
+  w.writeString("signalDrops"); w.writeUInt(snapshot.signalDrops);
+  w.writeString("connectFailures"); w.writeUInt(snapshot.connectFailures);
+  w.writeString("lastSocketReason"); w.writeString(snapshot.lastSocketReason);
+  w.writeString("suspended"); w.writeBool(snapshot.suspended);
+  w.writeString("scriptSuspended"); w.writeBool(snapshot.scriptSuspended);
+}
+
+static void protocolMsgPackWriteLedStatus(P1MsgPackWriter& w, const P1LedStatusSnapshot& snapshot) {
+  w.writeMap(10);
+  w.writeString("available"); w.writeBool(snapshot.available);
+  w.writeString("ready"); w.writeBool(snapshot.ready);
+  w.writeString("stripCount"); w.writeUInt(snapshot.stripCount);
+  w.writeString("totalLeds"); w.writeUInt(snapshot.totalLeds);
+  w.writeString("maxLeds"); w.writeUInt(snapshot.maxLeds);
+  w.writeString("maxStrips"); w.writeUInt(snapshot.maxStrips);
+  w.writeString("driver"); w.writeString(snapshot.driver);
+  w.writeString("chipset"); w.writeString(snapshot.chipset);
+  w.writeString("order"); w.writeString(snapshot.order);
+  w.writeString("strips");
+  w.writeArray(snapshot.stripCount);
+  for (uint8_t i = 0; i < snapshot.stripCount; i++) {
+    const P1LedStripSnapshot& strip = snapshot.strips[i];
+    w.writeMap(8);
+    w.writeString("strip"); w.writeUInt(strip.strip);
+    w.writeString("ready"); w.writeBool(strip.ready);
+    w.writeString("pin"); w.writeInt(strip.pin);
+    w.writeString("count"); w.writeUInt(strip.count);
+    w.writeString("capacity"); w.writeUInt(strip.capacity);
+    w.writeString("brightness"); w.writeUInt(strip.brightness);
+    w.writeString("chipset"); w.writeString(strip.chipset);
+    w.writeString("order"); w.writeString(strip.order);
+  }
+}
+
+static void protocolMsgPackWriteUartStatus(P1MsgPackWriter& w, const P1UartStatusSnapshot& snapshot) {
+  w.writeMap(2);
+  w.writeString("ports");
+  w.writeArray(snapshot.portCount);
+  for (uint8_t i = 0; i < snapshot.portCount; i++) {
+    const P1UartPortSnapshot& port = snapshot.ports[i];
+    w.writeMap(6);
+    w.writeString("uart"); w.writeUInt(port.uart);
+    w.writeString("active"); w.writeBool(port.active);
+    w.writeString("rx"); w.writeInt(port.rx);
+    w.writeString("tx"); w.writeInt(port.tx);
+    w.writeString("baud"); w.writeUInt(port.baud);
+    w.writeString("available"); w.writeUInt(port.available);
+  }
+  w.writeString("reserved");
+  w.writeMap(3);
+  w.writeString("transportUart"); w.writeUInt(0);
+  w.writeString("transportPins"); w.writeArray(2); w.writeUInt(1); w.writeUInt(3);
+  w.writeString("flashPins"); w.writeArray(6); w.writeUInt(6); w.writeUInt(7); w.writeUInt(8); w.writeUInt(9); w.writeUInt(10); w.writeUInt(11);
+}
+
+static void protocolMsgPackWriteHttpStatus(P1MsgPackWriter& w, const P1HttpFetchStatusSnapshot& snapshot) {
+  w.writeMap(12);
+  w.writeString("lastCode"); w.writeInt(snapshot.lastCode);
+  w.writeString("lastTruncated"); w.writeBool(snapshot.lastTruncated);
+  w.writeString("lastError"); w.writeString(snapshot.lastError);
+  w.writeString("lastMessage"); w.writeString(snapshot.lastMessage);
+  w.writeString("lastDetails"); protocolMsgPackWriteJsonObject(w, "{" + snapshot.lastDetails + "}");
+  w.writeString("lastBodyBytes"); w.writeUInt(snapshot.lastBodyBytes);
+  w.writeString("lastSecure"); w.writeBool(snapshot.lastSecure);
+  w.writeString("lastDurationMs"); w.writeUInt(snapshot.lastDurationMs);
+  w.writeString("maxResponseBytes"); w.writeUInt(snapshot.maxResponseBytes);
+  w.writeString("defaultTimeoutMs"); w.writeUInt(snapshot.defaultTimeoutMs);
+  w.writeString("tlsInsecureDefault"); w.writeBool(snapshot.tlsInsecureDefault);
+  w.writeString("failuresAreScriptErrors"); w.writeBool(snapshot.failuresAreScriptErrors);
+}
+
+static void protocolMsgPackWriteOtaStatus(P1MsgPackWriter& w, const P1OtaSafeBootStatusSnapshot& snapshot) {
+  w.writeMap(18);
+  w.writeString("enabled"); w.writeBool(snapshot.enabled);
+  w.writeString("updaterPartition"); w.writeBool(snapshot.updaterPartition);
+  w.writeString("updaterLabel"); w.writeString(snapshot.updaterLabel);
+  w.writeString("pending"); w.writeBool(snapshot.pending);
+  w.writeString("downloadPending"); w.writeBool(snapshot.downloadPending);
+  w.writeString("kind"); w.writeString(snapshot.kind);
+  w.writeString("phase"); w.writeString(snapshot.phase);
+  w.writeString("url"); w.writeString(snapshot.url);
+  w.writeString("sha256Set"); w.writeBool(snapshot.sha256Set);
+  w.writeString("fromSha256Set"); w.writeBool(snapshot.fromSha256Set);
+  w.writeString("toSha256Set"); w.writeBool(snapshot.toSha256Set);
+  w.writeString("lastError"); w.writeString(snapshot.lastError);
+  w.writeString("fromSize"); w.writeUInt(snapshot.fromSize);
+  w.writeString("toSize"); w.writeUInt(snapshot.toSize);
+  w.writeString("patchSize"); w.writeUInt(snapshot.patchSize);
+  w.writeString("memorySize"); w.writeUInt(snapshot.memorySize);
+  w.writeString("segmentSize"); w.writeUInt(snapshot.segmentSize);
+  w.writeString("restartPending"); w.writeBool(snapshot.restartPending);
+}
+
+static String protocolWifiStatusJsonProjection(const P1WifiSnapshot& snapshot) {
+  uint8_t payload[256];
+  P1MsgPackWriter w(payload, sizeof(payload));
+  protocolMsgPackWriteWifi(w, snapshot);
+  String out;
+  if (!w.ok || !protocolMsgPackPayloadToJson(payload, w.length, out)) return "{}";
+  return out;
+}
+
+static String protocolHttpStatusJsonProjection(const P1HttpFetchStatusSnapshot& snapshot) {
+  uint8_t payload[512];
+  P1MsgPackWriter w(payload, sizeof(payload));
+  protocolMsgPackWriteHttpStatus(w, snapshot);
+  String out;
+  if (!w.ok || !protocolMsgPackPayloadToJson(payload, w.length, out)) return "{}";
+  return out;
+}
+
+static void protocolMsgPackWriteStatusLightData(P1MsgPackWriter& w, const P1StatusSnapshot& snapshot) {
   w.writeMap(17);
   w.writeString("uptimeMs"); w.writeUInt(snapshot.uptimeMs);
   w.writeString("heapSize"); w.writeUInt(snapshot.heapSize);
@@ -1179,6 +2366,21 @@ static void protocolSendMsgPackStatusLight(uint32_t id) {
     w.writeString("atMs"); w.writeUInt(snapshot.lastError.atMs);
     w.writeString("count"); w.writeUInt(snapshot.lastError.count);
   }
+}
+
+static void protocolSendMsgPackStatusLight(uint32_t id) {
+  P1StatusSnapshot snapshot = protocolStatusSnapshot();
+  uint8_t* frame = static_cast<uint8_t*>(malloc(P1_EMBED_MSGPACK_MAX_FRAME_BYTES));
+  if (!frame) {
+    protocolSendMsgPackError(id, "no_heap", "No heap for status.light response");
+    return;
+  }
+  P1MsgPackWriter w(frame, P1_EMBED_MSGPACK_MAX_FRAME_BYTES);
+  w.writeArray(4);
+  w.writeUInt(P1_MP_FRAME_RES);
+  w.writeUInt(id);
+  w.writeBool(true);
+  protocolMsgPackWriteStatusLightData(w, snapshot);
   if (w.ok) protocolSendMsgPackResponseBytes(id, frame, w.length, "status.light response is too large for MQTT");
   else protocolSendMsgPackError(id, "frame_too_large", "status.light response is too large");
   free(frame);
@@ -1203,6 +2405,301 @@ static void protocolMsgPackBeginResponse(P1MsgPackWriter& w, uint32_t id, bool o
   w.writeUInt(id);
   w.writeBool(ok);
   w.writeMap(mapCount);
+}
+
+static void protocolMsgPackWriteStatusCoreFields(P1MsgPackWriter& w, const P1StatusSnapshot& snapshot) {
+  w.writeString("uptimeMs"); w.writeUInt(snapshot.uptimeMs);
+  w.writeString("heapSize"); w.writeUInt(snapshot.heapSize);
+  w.writeString("freeHeap"); w.writeUInt(snapshot.freeHeap);
+  w.writeString("minFreeHeap"); w.writeUInt(snapshot.minFreeHeap);
+  w.writeString("maxAllocHeap"); w.writeUInt(snapshot.maxAllocHeap);
+  w.writeString("timeSynced"); w.writeBool(snapshot.timeSynced);
+  w.writeString("localTime"); w.writeString(snapshot.localTime);
+  w.writeString("timezone"); w.writeString(snapshot.timezone);
+  w.writeString("scriptState"); w.writeString(snapshot.script.state);
+  w.writeString("scriptBytes"); w.writeUInt(snapshot.script.bytes);
+  w.writeString("scriptHash"); w.writeUInt(snapshot.script.hash);
+  w.writeString("hasSetup"); w.writeBool(snapshot.script.hasSetup);
+  w.writeString("hasLoop"); w.writeBool(snapshot.script.hasLoop);
+  w.writeString("wrenchTaskRunning"); w.writeBool(snapshot.script.taskRunning);
+  w.writeString("wrenchLoopCount"); w.writeUInt(snapshot.script.loopCount);
+  w.writeString("wrenchLoopFps"); w.writeFloat(snapshot.script.loopFps);
+  w.writeString("wrenchLoopHung"); w.writeBool(snapshot.script.loopHung);
+  w.writeString("deviceId"); w.writeString(snapshot.deviceId);
+  w.writeString("deviceName"); w.writeString(snapshot.deviceName);
+  w.writeString("scriptStored"); w.writeBool(snapshot.script.stored);
+  w.writeString("scriptRunState"); w.writeString(snapshot.script.runState);
+}
+
+static void protocolMsgPackWriteLastError(P1MsgPackWriter& w, const P1ScriptErrorSnapshot& error) {
+  if (!error.hasError) {
+    w.writeMap(2);
+    w.writeString("hasError"); w.writeBool(false);
+    w.writeString("count"); w.writeUInt(error.count);
+    return;
+  }
+  w.writeMap(error.details.length() ? 7 : 6);
+  w.writeString("hasError"); w.writeBool(true);
+  w.writeString("phase"); w.writeString(error.phase);
+  w.writeString("code"); w.writeString(error.code);
+  w.writeString("message"); w.writeString(error.message);
+  if (error.details.length()) {
+    w.writeString("details"); w.writeString(error.details);
+  }
+  w.writeString("atMs"); w.writeUInt(error.atMs);
+  w.writeString("count"); w.writeUInt(error.count);
+}
+
+static void protocolMsgPackWriteDebug(P1MsgPackWriter& w, const P1DebugSnapshot& debug) {
+  w.writeMap(4);
+  w.writeString("level"); w.writeString(debug.level);
+  w.writeString("levelValue"); w.writeUInt(debug.levelValue);
+  w.writeString("queueDrops"); w.writeUInt(debug.queueDrops);
+  w.writeString("queueHighWater"); w.writeUInt(debug.queueHighWater);
+}
+
+static void protocolMsgPackWriteReusableBuffer(P1MsgPackWriter& w, const P1ReusableBuffer& buffer) {
+  w.writeMap(10);
+  w.writeString("capacity"); w.writeUInt((uint32_t)buffer.capacity);
+  w.writeString("emaNeed"); w.writeUInt((uint32_t)buffer.emaNeed);
+  w.writeString("peakNeed"); w.writeUInt((uint32_t)buffer.peakNeed);
+  w.writeString("lastNeed"); w.writeUInt((uint32_t)buffer.lastNeed);
+  w.writeString("reuseCount"); w.writeUInt(buffer.reuseCount);
+  w.writeString("growCount"); w.writeUInt(buffer.growCount);
+  w.writeString("shrinkCount"); w.writeUInt(buffer.shrinkCount);
+  w.writeString("tempAllocCount"); w.writeUInt(buffer.tempAllocCount);
+  w.writeString("tempFreeCount"); w.writeUInt(buffer.tempFreeCount);
+  w.writeString("failCount"); w.writeUInt(buffer.failCount);
+}
+
+static void protocolMsgPackWriteWrenchAllocStats(P1MsgPackWriter& w, const P1WrenchAllocStats& stats) {
+  w.writeMap(12);
+  w.writeString("allocs"); w.writeUInt(stats.allocCount);
+  w.writeString("frees"); w.writeUInt(stats.freeCount);
+  w.writeString("fails"); w.writeUInt(stats.failCount);
+  w.writeString("externalFrees"); w.writeUInt(stats.externalFreeCount);
+  w.writeString("requestedBytes"); w.writeUInt(stats.requestedBytes);
+  w.writeString("allocatedBytes"); w.writeUInt(stats.allocatedBytes);
+  w.writeString("freedBytes"); w.writeUInt(stats.freedBytes);
+  w.writeString("activeBytes"); w.writeUInt(stats.activeBytes);
+  w.writeString("highWaterBytes"); w.writeUInt(stats.highWaterBytes);
+  w.writeString("largestRequest"); w.writeUInt(stats.largestRequest);
+  w.writeString("largestAllocated"); w.writeUInt(stats.largestAllocated);
+  w.writeString("failedRequest"); w.writeUInt(stats.failedRequest);
+}
+
+static void protocolMsgPackWriteWrenchRuntime(P1MsgPackWriter& w, const P1WrenchRuntimeSnapshot& runtime) {
+  w.writeMap(13);
+  w.writeString("phase"); w.writeString(runtime.phase);
+  w.writeString("transitionActive"); w.writeBool(runtime.transitionActive);
+  w.writeString("transitionDepth"); w.writeUInt(runtime.transitionDepth);
+  w.writeString("transitionReason"); w.writeString(runtime.transitionReason);
+  w.writeString("transitionMs"); w.writeUInt(runtime.transitionMs);
+  w.writeString("transitionRecoveries"); w.writeUInt(runtime.transitionRecoveries);
+  w.writeString("runPending"); w.writeBool(runtime.runPending);
+  w.writeString("bytecodeBytes"); w.writeUInt(runtime.bytecodeBytes);
+  w.writeString("taskTargetCore"); w.writeInt(runtime.taskTargetCore);
+  w.writeString("taskCore"); w.writeInt(runtime.taskCore);
+  w.writeString("compileTargetCore"); w.writeInt(runtime.compileTargetCore);
+  w.writeString("compileSourceBuffer"); protocolMsgPackWriteReusableBuffer(w, runtime.compileSourceBuffer);
+  w.writeString("lastCompileAlloc"); protocolMsgPackWriteWrenchAllocStats(w, runtime.lastCompileAlloc);
+}
+
+static void protocolMsgPackWriteMemorySummary(P1MsgPackWriter& w, const P1MemoryProfileSummary& memory) {
+  if (!memory.enabled) {
+    w.writeMap(1);
+    w.writeString("enabled"); w.writeBool(false);
+    return;
+  }
+  w.writeMap(11);
+  w.writeString("enabled"); w.writeBool(true);
+  w.writeString("capacity"); w.writeUInt(memory.capacity);
+  w.writeString("samples"); w.writeUInt(memory.samples);
+  w.writeString("staticBytes"); w.writeUInt(memory.staticBytes);
+  w.writeString("baseFreeHeap"); w.writeUInt(memory.baseFreeHeap);
+  w.writeString("baseMaxAllocHeap"); w.writeUInt(memory.baseMaxAllocHeap);
+  w.writeString("currentFreeHeap"); w.writeUInt(memory.currentFreeHeap);
+  w.writeString("currentMaxAllocHeap"); w.writeUInt(memory.currentMaxAllocHeap);
+  w.writeString("currentMinFreeHeap"); w.writeUInt(memory.currentMinFreeHeap);
+  w.writeString("worstFreeHeap"); w.writeUInt(memory.worstFreeHeap);
+  w.writeString("worstMaxAllocHeap"); w.writeUInt(memory.worstMaxAllocHeap);
+}
+
+static void protocolMsgPackWriteStatusGetData(P1MsgPackWriter& w, const P1StatusSnapshot& snapshot) {
+  w.writeMap(29);
+  protocolMsgPackWriteStatusCoreFields(w, snapshot);
+  w.writeString("wrenchRuntime"); protocolMsgPackWriteWrenchRuntime(w, wrenchRuntimeSnapshot());
+  w.writeString("lastError"); protocolMsgPackWriteLastError(w, snapshot.lastError);
+  w.writeString("memory"); protocolMsgPackWriteMemorySummary(w, memoryProfileSummarySnapshot());
+  w.writeString("web"); protocolMsgPackWriteWebTransport(w, webTransportSnapshot());
+  w.writeString("mqtt"); protocolMsgPackWriteMqttTransport(w, mqttTransportSnapshot());
+  w.writeString("webrtc"); protocolMsgPackWriteWebRtcTransport(w, webrtcTransportSnapshot());
+  w.writeString("led"); protocolMsgPackWriteLedStatus(w, ledStatusSnapshot());
+  w.writeString("wifi"); protocolMsgPackWriteWifi(w, snapshot.wifi);
+}
+
+static void protocolMsgPackWriteStatusFullData(P1MsgPackWriter& w, const P1StatusSnapshot& snapshot) {
+  w.writeMap(42);
+  protocolMsgPackWriteStatusCoreFields(w, snapshot);
+  w.writeString("wrenchLastLoopMs"); w.writeUInt(wrenchLastLoopMs());
+  w.writeString("wrenchLastLoopDurationMs"); w.writeUInt(wrenchLastLoopDurationMs());
+  w.writeString("wrenchCurrentLoopStartedAt"); w.writeUInt(wrenchCurrentLoopStartedAt());
+  w.writeString("wrenchSlowLoopCount"); w.writeUInt(wrenchSlowLoopCount());
+  w.writeString("wrenchHungLoopCount"); w.writeUInt(wrenchHungLoopCount());
+  w.writeString("wrenchLockTimeoutCount"); w.writeUInt(wrenchLockTimeoutCount());
+  w.writeString("wrenchTaskStackHighWater"); w.writeUInt(snapshot.script.taskStackHighWater);
+  w.writeString("wrenchRuntime"); protocolMsgPackWriteWrenchRuntime(w, wrenchRuntimeSnapshot());
+  w.writeString("wrenchInboxQueued"); w.writeUInt(wrenchInboxAvailable());
+  w.writeString("wrenchInboxDrops"); w.writeUInt(wrenchInboxDrops());
+  w.writeString("lastError"); protocolMsgPackWriteLastError(w, snapshot.lastError);
+  w.writeString("debug"); protocolMsgPackWriteDebug(w, snapshot.debug);
+  w.writeString("memory"); protocolMsgPackWriteMemorySummary(w, memoryProfileSummarySnapshot());
+  w.writeString("web"); protocolMsgPackWriteWebTransport(w, webTransportSnapshot());
+  w.writeString("mqtt"); protocolMsgPackWriteMqttTransport(w, mqttTransportSnapshot());
+  w.writeString("webrtc"); protocolMsgPackWriteWebRtcTransport(w, webrtcTransportSnapshot());
+  w.writeString("led"); protocolMsgPackWriteLedStatus(w, ledStatusSnapshot());
+  w.writeString("uart"); protocolMsgPackWriteUartStatus(w, uartStatusSnapshot());
+  w.writeString("http"); protocolMsgPackWriteHttpStatus(w, httpFetchStatusSnapshot());
+  w.writeString("scriptVerificationArmed"); w.writeBool(snapshot.script.verificationArmed);
+  w.writeString("wifi"); protocolMsgPackWriteWifi(w, snapshot.wifi);
+}
+
+static void protocolMsgPackWriteStatusLiveData(P1MsgPackWriter& w, const P1StatusSnapshot& snapshot) {
+  w.writeMap(14);
+  w.writeString("uptimeMs"); w.writeUInt(snapshot.uptimeMs);
+  w.writeString("freeHeap"); w.writeUInt(snapshot.freeHeap);
+  w.writeString("minFreeHeap"); w.writeUInt(snapshot.minFreeHeap);
+  w.writeString("maxAllocHeap"); w.writeUInt(snapshot.maxAllocHeap);
+  w.writeString("scriptState"); w.writeString(snapshot.script.state);
+  w.writeString("scriptBytes"); w.writeUInt(snapshot.script.bytes);
+  w.writeString("scriptHash"); w.writeUInt(snapshot.script.hash);
+  w.writeString("scriptRunState"); w.writeString(snapshot.script.runState);
+  w.writeString("wrenchLoopCount"); w.writeUInt(snapshot.script.loopCount);
+  w.writeString("wrenchLoopFps"); w.writeFloat(snapshot.script.loopFps);
+  w.writeString("wrenchLoopHung"); w.writeBool(snapshot.script.loopHung);
+  w.writeString("wrenchTaskStackHighWater"); w.writeUInt(snapshot.script.taskStackHighWater);
+  w.writeString("lastError"); protocolMsgPackWriteLastError(w, snapshot.lastError);
+  w.writeString("wifi"); protocolMsgPackWriteWifi(w, snapshot.wifi);
+}
+
+static void protocolSendMsgPackStatusGet(uint32_t id) {
+  P1StatusSnapshot snapshot = protocolStatusSnapshot();
+  uint8_t* frame = static_cast<uint8_t*>(malloc(P1_EMBED_MQTT_BUFFER_BYTES));
+  if (!frame) {
+    protocolSendMsgPackError(id, "no_heap", "No heap for status.get response");
+    return;
+  }
+  P1MsgPackWriter w(frame, P1_EMBED_MQTT_BUFFER_BYTES);
+  w.writeArray(4);
+  w.writeUInt(P1_MP_FRAME_RES);
+  w.writeUInt(id);
+  w.writeBool(true);
+  protocolMsgPackWriteStatusGetData(w, snapshot);
+  if (w.ok) protocolSendMsgPackResponseBytes(id, frame, w.length, "status.get response is too large for MQTT");
+  else protocolSendMsgPackError(id, "frame_too_large", "status.get response is too large");
+  free(frame);
+}
+
+static void protocolSendMsgPackStatusFull(uint32_t id) {
+  P1StatusSnapshot snapshot = protocolStatusSnapshot();
+  uint8_t* frame = static_cast<uint8_t*>(malloc(P1_EMBED_MQTT_BUFFER_BYTES));
+  if (!frame) {
+    protocolSendMsgPackError(id, "no_heap", "No heap for status.full response");
+    return;
+  }
+  P1MsgPackWriter w(frame, P1_EMBED_MQTT_BUFFER_BYTES);
+  w.writeArray(4);
+  w.writeUInt(P1_MP_FRAME_RES);
+  w.writeUInt(id);
+  w.writeBool(true);
+  protocolMsgPackWriteStatusFullData(w, snapshot);
+  if (w.ok) protocolSendMsgPackResponseBytes(id, frame, w.length, "status.full response is too large for MQTT");
+  else protocolSendMsgPackError(id, "frame_too_large", "status.full response is too large");
+  free(frame);
+}
+
+static void protocolSendMsgPackStatusLive(uint32_t id) {
+  P1StatusSnapshot snapshot = protocolStatusSnapshot();
+  uint8_t* frame = static_cast<uint8_t*>(malloc(P1_EMBED_MSGPACK_MAX_FRAME_BYTES));
+  if (!frame) {
+    protocolSendMsgPackError(id, "no_heap", "No heap for status.live response");
+    return;
+  }
+  P1MsgPackWriter w(frame, P1_EMBED_MSGPACK_MAX_FRAME_BYTES);
+  w.writeArray(4);
+  w.writeUInt(P1_MP_FRAME_RES);
+  w.writeUInt(id);
+  w.writeBool(true);
+  protocolMsgPackWriteStatusLiveData(w, snapshot);
+  if (w.ok) protocolSendMsgPackResponseBytes(id, frame, w.length, "status.live response is too large for MQTT");
+  else protocolSendMsgPackError(id, "frame_too_large", "status.live response is too large");
+  free(frame);
+}
+
+static void protocolSendJsonWifiStatus(const String& id) {
+  uint8_t payload[192];
+  P1MsgPackWriter w(payload, sizeof(payload));
+  protocolMsgPackWriteWifi(w, wifiSnapshot());
+  if (w.ok) protocolSendJsonResponseFromMsgPackPayload(id, payload, w.length);
+  else protocolSendResponseError(id, "frame_too_large", "wifi.status response is too large");
+}
+
+static void protocolSendJsonDebugStatus(const String& id) {
+  uint8_t payload[128];
+  P1MsgPackWriter w(payload, sizeof(payload));
+  protocolMsgPackWriteDebug(w, debugEventSnapshot());
+  if (w.ok) protocolSendJsonResponseFromMsgPackPayload(id, payload, w.length);
+  else protocolSendResponseError(id, "frame_too_large", "debug.get response is too large");
+}
+
+static void protocolSendJsonOtaStatus(const String& id) {
+  uint8_t payload[1024];
+  P1MsgPackWriter w(payload, sizeof(payload));
+  protocolMsgPackWriteOtaStatus(w, otaSafeBootStatusSnapshot());
+  if (w.ok) protocolSendJsonResponseFromMsgPackPayload(id, payload, w.length);
+  else protocolSendResponseError(id, "frame_too_large", "firmware.update.status response is too large");
+}
+
+static void protocolSendJsonStatusGet(const String& id) {
+  P1StatusSnapshot snapshot = protocolStatusSnapshot();
+  uint8_t* payload = static_cast<uint8_t*>(malloc(P1_EMBED_MQTT_BUFFER_BYTES));
+  if (!payload) {
+    protocolSendResponseError(id, "no_heap", "No heap for status.get response");
+    return;
+  }
+  P1MsgPackWriter w(payload, P1_EMBED_MQTT_BUFFER_BYTES);
+  protocolMsgPackWriteStatusGetData(w, snapshot);
+  if (w.ok) protocolSendJsonResponseFromMsgPackPayload(id, payload, w.length);
+  else protocolSendResponseError(id, "frame_too_large", "status.get response is too large");
+  free(payload);
+}
+
+static void protocolSendJsonStatusFull(const String& id) {
+  P1StatusSnapshot snapshot = protocolStatusSnapshot();
+  uint8_t* payload = static_cast<uint8_t*>(malloc(P1_EMBED_MQTT_BUFFER_BYTES));
+  if (!payload) {
+    protocolSendResponseError(id, "no_heap", "No heap for status.full response");
+    return;
+  }
+  P1MsgPackWriter w(payload, P1_EMBED_MQTT_BUFFER_BYTES);
+  protocolMsgPackWriteStatusFullData(w, snapshot);
+  if (w.ok) protocolSendJsonResponseFromMsgPackPayload(id, payload, w.length);
+  else protocolSendResponseError(id, "frame_too_large", "status.full response is too large");
+  free(payload);
+}
+
+static void protocolSendJsonStatusLive(const String& id) {
+  P1StatusSnapshot snapshot = protocolStatusSnapshot();
+  uint8_t* payload = static_cast<uint8_t*>(malloc(P1_EMBED_MSGPACK_MAX_FRAME_BYTES));
+  if (!payload) {
+    protocolSendResponseError(id, "no_heap", "No heap for status.live response");
+    return;
+  }
+  P1MsgPackWriter w(payload, P1_EMBED_MSGPACK_MAX_FRAME_BYTES);
+  protocolMsgPackWriteStatusLiveData(w, snapshot);
+  if (w.ok) protocolSendJsonResponseFromMsgPackPayload(id, payload, w.length);
+  else protocolSendResponseError(id, "frame_too_large", "status.live response is too large");
+  free(payload);
 }
 
 static void protocolSendMsgPackSystemInfo(uint32_t id) {
@@ -1237,15 +2734,51 @@ static void protocolSendMsgPackSystemInfo(uint32_t id) {
   free(frame);
 }
 
-static void protocolSendMsgPackConfig(uint32_t id) {
-  P1ConfigSnapshot snapshot = configSnapshot();
-  uint8_t* frame = static_cast<uint8_t*>(malloc(P1_EMBED_MSGPACK_MAX_FRAME_BYTES));
-  if (!frame) {
-    protocolSendMsgPackError(id, "no_heap", "No heap for config.get response");
-    return;
+static String protocolConfigResponseJson(const P1ConfigSnapshot& snapshot) {
+  String out = "{";
+  out += "\"deviceId\":" + jsonString(snapshot.deviceId);
+  out += ",\"deviceName\":" + jsonString(snapshot.deviceName);
+  out += ",\"projectId\":" + jsonString(snapshot.projectId);
+  out += ",\"projectName\":" + jsonString(snapshot.projectName);
+  out += ",\"revisionId\":" + jsonString(snapshot.revisionId);
+  out += ",\"scriptName\":" + jsonString(snapshot.scriptName);
+  out += ",\"timezone\":" + jsonString(snapshot.timezone);
+  out += ",\"wifiSsid\":" + jsonString(snapshot.wifiSsid);
+  out += ",\"wifiPasswordSet\":" + String(snapshot.wifiPasswordSet ? "true" : "false");
+  out += ",\"wifiNetworkCount\":" + String(snapshot.wifiNetworkCount);
+  out += ",\"mqttHost\":" + jsonString(snapshot.mqttHost);
+  out += ",\"mqttPort\":" + String(snapshot.mqttPort);
+  out += ",\"mqttRoot\":" + jsonString(snapshot.mqttRoot);
+  out += ",\"mqttUser\":" + jsonString(snapshot.mqttUser);
+  out += ",\"mqttPasswordSet\":" + String(snapshot.mqttPasswordSet ? "true" : "false");
+  out += ",\"mqttEnabled\":" + String(snapshot.mqttEnabled ? "true" : "false");
+  out += ",\"mqttAllowAnonymousUi\":" + String(snapshot.mqttAllowAnonymousUi ? "true" : "false");
+  out += ",\"mqttAllowAnonymousScript\":" + String(snapshot.mqttAllowAnonymousScript ? "true" : "false");
+  out += ",\"mqttGuestUiKeySet\":" + String(snapshot.mqttGuestUiKeySet ? "true" : "false");
+  out += ",\"mqttGuestUiKey\":" + jsonString(snapshot.mqttGuestUiKey);
+  out += ",\"onlineAuthUserCount\":" + String(snapshot.onlineAuthUserCount);
+  out += ",\"onlineAuthUserMax\":" + String(snapshot.onlineAuthUserMax);
+  out += ",\"onlineAuthUsers\":[";
+  for (int i = 0; i < snapshot.onlineAuthUserCount; i++) {
+    if (i) out += ",";
+    out += "{\"username\":" + jsonString(configOnlineAuthUserNameAt(i)) + "}";
   }
-  P1MsgPackWriter w(frame, P1_EMBED_MSGPACK_MAX_FRAME_BYTES);
-  protocolMsgPackBeginResponse(w, id, true, 25);
+  out += "]";
+  out += ",\"wifiNetworks\":[";
+  for (int i = 0; i < snapshot.wifiNetworkCount; i++) {
+    if (i) out += ",";
+    out += "{\"ssid\":" + jsonString(configWifiSsidAt(i));
+    out += ",\"passwordSet\":" + String(configWifiPasswordAt(i).length() ? "true" : "false") + "}";
+  }
+  out += "]";
+  out += ",\"storage\":\"littlefs:/config.json\"";
+  out += ",\"wifi\":" + protocolWifiStatusJsonProjection(snapshot.wifi);
+  out += "}";
+  return out;
+}
+
+static void protocolMsgPackWriteConfigResponse(P1MsgPackWriter& w, uint32_t id, const P1ConfigSnapshot& snapshot) {
+  protocolMsgPackBeginResponse(w, id, true, 26);
   w.writeString("deviceId"); w.writeString(snapshot.deviceId);
   w.writeString("deviceName"); w.writeString(snapshot.deviceName);
   w.writeString("projectId"); w.writeString(snapshot.projectId);
@@ -1267,6 +2800,7 @@ static void protocolSendMsgPackConfig(uint32_t id) {
   w.writeString("mqttGuestUiKeySet"); w.writeBool(snapshot.mqttGuestUiKeySet);
   w.writeString("mqttGuestUiKey"); w.writeString(snapshot.mqttGuestUiKey);
   w.writeString("onlineAuthUserCount"); w.writeUInt(snapshot.onlineAuthUserCount);
+  w.writeString("onlineAuthUserMax"); w.writeUInt(snapshot.onlineAuthUserMax);
   w.writeString("onlineAuthUsers");
   w.writeArray(snapshot.onlineAuthUserCount);
   for (int i = 0; i < snapshot.onlineAuthUserCount; i++) {
@@ -1282,6 +2816,17 @@ static void protocolSendMsgPackConfig(uint32_t id) {
   }
   w.writeString("storage"); w.writeString("littlefs:/config.json");
   w.writeString("wifi"); protocolMsgPackWriteWifi(w, snapshot.wifi);
+}
+
+static void protocolSendMsgPackConfig(uint32_t id) {
+  P1ConfigSnapshot snapshot = configSnapshot();
+  uint8_t* frame = static_cast<uint8_t*>(malloc(P1_EMBED_MSGPACK_MAX_FRAME_BYTES));
+  if (!frame) {
+    protocolSendMsgPackError(id, "no_heap", "No heap for config.get response");
+    return;
+  }
+  P1MsgPackWriter w(frame, P1_EMBED_MSGPACK_MAX_FRAME_BYTES);
+  protocolMsgPackWriteConfigResponse(w, id, snapshot);
   if (w.ok) protocolSendMsgPackResponseBytes(id, frame, w.length, "config.get response is too large for MQTT");
   else protocolSendMsgPackError(id, "frame_too_large", "config.get response is too large");
   free(frame);
@@ -1368,105 +2913,18 @@ static void protocolSendMsgPackScriptGet(uint32_t id) {
   if (!w.ok) protocolSendMsgPackError(id, "frame_too_large", "Stored script did not fit in MessagePack response");
 }
 
-static void protocolSendMsgPackScriptChunkGet(uint32_t id, uint32_t offset, uint32_t maxBytes) {
-  String code = wrenchCurrentScript();
-  P1ScriptSnapshot snapshot = protocolScriptSnapshot(&code);
-  const uint32_t total = code.length();
-  if (offset > total) {
-    protocolSendMsgPackError(id, "bad_offset", "script.chunk.get offset is beyond stored script");
-    return;
-  }
-  if (maxBytes == 0 || maxBytes > P1_EMBED_MQTT_SCRIPT_CHUNK_BYTES) maxBytes = P1_EMBED_MQTT_SCRIPT_CHUNK_BYTES;
-  uint32_t nextOffset = offset + maxBytes;
-  if (nextOffset > total) nextOffset = total;
-  String chunk = code.substring(offset, nextOffset);
-  size_t capacity = max<size_t>(P1_EMBED_MSGPACK_MAX_FRAME_BYTES, chunk.length() + 256);
-  if (capacity > P1_EMBED_MQTT_BUFFER_BYTES) capacity = P1_EMBED_MQTT_BUFFER_BYTES;
-  uint8_t* frame = static_cast<uint8_t*>(malloc(capacity));
-  if (!frame) {
-    protocolSendMsgPackError(id, "no_heap", "No heap for script.chunk.get response");
-    return;
-  }
-  P1MsgPackWriter w(frame, capacity);
-  protocolMsgPackBeginResponse(w, id, true, 9);
-  w.writeString("offset"); w.writeUInt(offset);
-  w.writeString("nextOffset"); w.writeUInt(nextOffset);
-  w.writeString("scriptBytes"); w.writeUInt(total);
-  w.writeString("done"); w.writeBool(nextOffset >= total);
-  w.writeString("chunk"); w.writeString(chunk);
-  w.writeString("state"); w.writeString(snapshot.state);
-  w.writeString("runState"); w.writeString(snapshot.runState);
-  w.writeString("revisionId"); w.writeString(configRevisionId());
-  w.writeString("scriptName"); w.writeString(configScriptName());
-  if (w.ok) protocolSendMsgPackResponseBytes(id, frame, w.length, "script.chunk.get response is too large for MQTT");
-  if (!w.ok) protocolSendMsgPackError(id, "frame_too_large", "Script chunk did not fit in MessagePack response");
-  free(frame);
-}
-
 static void protocolSendMsgPackOtaStatus(uint32_t id) {
-  uint8_t* frame = static_cast<uint8_t*>(malloc(1280));
+  uint8_t* frame = static_cast<uint8_t*>(malloc(1024));
   if (!frame) {
     protocolSendMsgPackError(id, "no_heap", "No heap for firmware.update.status response");
     return;
   }
-  String status = otaSafeBootStatusJson();
-  bool enabled = false;
-  bool updaterPartition = false;
-  bool pending = false;
-  bool downloadPending = false;
-  bool sha256Set = false;
-  bool fromSha256Set = false;
-  bool toSha256Set = false;
-  bool restartPending = false;
-  String updaterLabel;
-  String kind;
-  String phase;
-  String url;
-  String lastError;
-  int fromSize = 0;
-  int toSize = 0;
-  int patchSize = 0;
-  int memorySize = 0;
-  int segmentSize = 0;
-  jsonGetBool(status.c_str(), "enabled", enabled);
-  jsonGetBool(status.c_str(), "updaterPartition", updaterPartition);
-  jsonGetBool(status.c_str(), "pending", pending);
-  jsonGetBool(status.c_str(), "downloadPending", downloadPending);
-  jsonGetBool(status.c_str(), "sha256Set", sha256Set);
-  jsonGetBool(status.c_str(), "fromSha256Set", fromSha256Set);
-  jsonGetBool(status.c_str(), "toSha256Set", toSha256Set);
-  jsonGetBool(status.c_str(), "restartPending", restartPending);
-  jsonGetString(status.c_str(), "updaterLabel", updaterLabel);
-  jsonGetString(status.c_str(), "kind", kind);
-  jsonGetString(status.c_str(), "phase", phase);
-  jsonGetString(status.c_str(), "url", url);
-  jsonGetString(status.c_str(), "lastError", lastError);
-  jsonGetInt(status.c_str(), "fromSize", fromSize);
-  jsonGetInt(status.c_str(), "toSize", toSize);
-  jsonGetInt(status.c_str(), "patchSize", patchSize);
-  jsonGetInt(status.c_str(), "memorySize", memorySize);
-  jsonGetInt(status.c_str(), "segmentSize", segmentSize);
-
-  P1MsgPackWriter w(frame, 1280);
-  protocolMsgPackBeginResponse(w, id, true, 18);
-  w.writeString("enabled"); w.writeBool(enabled);
-  w.writeString("updaterPartition"); w.writeBool(updaterPartition);
-  w.writeString("updaterLabel"); w.writeString(updaterLabel);
-  w.writeString("pending"); w.writeBool(pending);
-  w.writeString("downloadPending"); w.writeBool(downloadPending);
-  w.writeString("kind"); w.writeString(kind);
-  w.writeString("phase"); w.writeString(phase);
-  w.writeString("url"); w.writeString(url);
-  w.writeString("sha256Set"); w.writeBool(sha256Set);
-  w.writeString("fromSha256Set"); w.writeBool(fromSha256Set);
-  w.writeString("toSha256Set"); w.writeBool(toSha256Set);
-  w.writeString("lastError"); w.writeString(lastError);
-  w.writeString("fromSize"); w.writeUInt(fromSize);
-  w.writeString("toSize"); w.writeUInt(toSize);
-  w.writeString("patchSize"); w.writeUInt(patchSize);
-  w.writeString("memorySize"); w.writeUInt(memorySize);
-  w.writeString("segmentSize"); w.writeUInt(segmentSize);
-  w.writeString("restartPending"); w.writeBool(restartPending);
+  P1MsgPackWriter w(frame, 1024);
+  w.writeArray(4);
+  w.writeUInt(P1_MP_FRAME_RES);
+  w.writeUInt(id);
+  w.writeBool(true);
+  protocolMsgPackWriteOtaStatus(w, otaSafeBootStatusSnapshot());
   if (w.ok) protocolSendMsgPackBytes(frame, w.length);
   else protocolSendMsgPackError(id, "frame_too_large", "firmware.update.status response is too large");
   free(frame);
@@ -1546,72 +3004,296 @@ static void protocolSendMsgPackChunkCommitOk(uint32_t id, int scriptBytes) {
   if (w.ok) protocolSendMsgPackBytes(frame, w.length);
 }
 
-static void protocolHandleMsgPackScriptChunkBegin(uint32_t id, P1MsgPackReader& r) {
-  uint32_t expectedBytes = 0;
-  String expectedHashHex;
-  bool runAfterSet = false;
-  bool saveAfterSet = false;
-  if (!r.readUInt(expectedBytes) || !r.readString(expectedHashHex) ||
-      !r.readBool(runAfterSet) || !r.readBool(saveAfterSet)) {
-    protocolSendMsgPackError(id, "bad_begin_frame", "script.chunk.begin frame is malformed");
-    return;
+static bool protocolHandleCommandFrame(const P1FrameView& frame, P1ProtocolReplyMode replyMode, P1ProtocolSource source, const String& jsonId) {
+  P1MsgPackReader r(frame.data, frame.len);
+  r.offset = frame.argsOffset;
+  const uint32_t id = frame.id;
+  const uint32_t op = frame.op;
+
+  if (op == P1_MP_OP_PING) {
+    protocolSendCommandPong(replyMode, id, jsonId);
+  } else if (op == P1_MP_OP_STATUS_LIGHT) {
+    if (replyMode == P1_REPLY_MSGPACK) protocolSendMsgPackStatusLight(id);
+    else protocolSendResponseOk(jsonId, protocolStatusLightJson());
+  } else if (op == P1_MP_OP_STATUS_GET) {
+    protocolSendCommandStatusGet(replyMode, id, jsonId);
+  } else if (op == P1_MP_OP_STATUS_FULL) {
+    protocolSendCommandStatusFull(replyMode, id, jsonId);
+  } else if (op == P1_MP_OP_STATUS_LIVE) {
+    protocolSendCommandStatusLive(replyMode, id, jsonId);
+  } else if (op == P1_MP_OP_SYSTEM_INFO) {
+    protocolSendCommandSystemInfo(replyMode, id, jsonId);
+  } else if (op == P1_MP_OP_CONFIG_GET) {
+    protocolSendCommandConfig(replyMode, id, jsonId);
+  } else if (op == P1_MP_OP_CONFIG_SET) {
+    protocolHandleConfigSetFrame(frame, replyMode, jsonId);
+  } else if (op == P1_MP_OP_PROTOCOL_MODE) {
+    if (source != P1_PROTOCOL_SOURCE_SERIAL) {
+      protocolSendCommandError(replyMode, id, jsonId, "unsupported_source", "protocol.mode only applies to the serial transport");
+      return true;
+    }
+    String mode;
+    if (!r.readString(mode)) {
+      protocolSendCommandError(replyMode, id, jsonId, "bad_protocol_mode_frame", "protocol.mode requires mode");
+      return true;
+    }
+    mode.toLowerCase();
+    bool msgpackMode = mode == "msgpack" || mode == "binary";
+    bool jsonMode = mode == "json" || mode == "line";
+    if (!msgpackMode && !jsonMode) {
+      protocolSendCommandError(replyMode, id, jsonId, "bad_protocol_mode", "Use json or msgpack");
+      return true;
+    }
+    protocolSendCommandProtocolMode(replyMode, id, jsonId, msgpackMode);
+    transportSerialSetMsgPackMode(msgpackMode);
+  } else if (op == P1_MP_OP_WIFI_STATUS) {
+    protocolSendCommandWifiStatus(replyMode, id, jsonId);
+  } else if (op == P1_MP_OP_WIFI_CONNECT) {
+    wifiReconnect();
+    protocolSendCommandWifiStatus(replyMode, id, jsonId);
+  } else if (op == P1_MP_OP_WIFI_DISCONNECT) {
+    wifiDisconnect();
+    protocolSendCommandWifiStatus(replyMode, id, jsonId);
+  } else if (op == P1_MP_OP_WIFI_FORGET) {
+    uint32_t index = 0;
+    if (!r.readUInt(index)) {
+      protocolSendCommandError(replyMode, id, jsonId, "bad_wifi_forget_frame", "wifi.forget frame is malformed");
+      return true;
+    }
+    if (!configRemoveWifiNetworkAt((int)index)) {
+      protocolSendCommandError(replyMode, id, jsonId, "bad_wifi_index", "WiFi network index is invalid");
+      return true;
+    }
+    configSave();
+    wifiReconnect();
+    protocolSendCommandConfig(replyMode, id, jsonId);
+  } else if (op == P1_MP_OP_SCRIPT_ERROR_GET) {
+    protocolSendCommandScriptError(replyMode, id, jsonId);
+  } else if (op == P1_MP_OP_SCRIPT_ERROR_CLEAR) {
+    scriptErrorClear();
+    protocolSendCommandScriptError(replyMode, id, jsonId);
+  } else if (op == P1_MP_OP_SCRIPT_INPUT) {
+    String channel;
+    String message;
+    if (!r.readString(channel) || !r.readString(message) || message.length() == 0) {
+      protocolSendCommandError(replyMode, id, jsonId, "missing_message", "script.input requires message");
+      return true;
+    }
+    if (uiInputPush(channel, message)) {
+      protocolSendCommandInbox(replyMode, id, jsonId, true);
+      return true;
+    }
+    if (!wrenchInboxPush(channel, message)) {
+      protocolSendCommandError(replyMode, id, jsonId, "inbox_full", "Wrench input inbox is full");
+      return true;
+    }
+    protocolSendCommandInbox(replyMode, id, jsonId, false);
+  } else if (op == P1_MP_OP_DEBUG_GET) {
+    protocolSendCommandDebug(replyMode, id, jsonId);
+  } else if (op == P1_MP_OP_DEBUG_SET) {
+    String level;
+    if (!r.readString(level)) {
+      protocolSendCommandError(replyMode, id, jsonId, "missing_level", "debug.set requires level");
+      return true;
+    }
+    if (!debugEventSetLevelName(level)) {
+      protocolSendCommandError(replyMode, id, jsonId, "bad_level", "Use error, warn, info, debug, or trace");
+      return true;
+    }
+    protocolSendCommandDebug(replyMode, id, jsonId);
+  } else if (op == P1_MP_OP_SCRIPT_GET) {
+    protocolSendCommandScriptGet(replyMode, id, jsonId);
+  } else if (op == P1_MP_OP_SCRIPT_CHUNK_BEGIN) {
+    uint32_t expectedBytes = 0;
+    String expectedHashHex;
+    bool runAfterSet = false;
+    bool saveAfterSet = false;
+    if (!r.readUInt(expectedBytes) || !r.readString(expectedHashHex) ||
+        !r.readBool(runAfterSet) || !r.readBool(saveAfterSet)) {
+      protocolSendCommandError(replyMode, id, jsonId, "bad_begin_frame", "script.chunk.begin frame is malformed");
+      return true;
+    }
+    if (expectedBytes == 0 || expectedBytes > P1_EMBED_MAX_SCRIPT_BYTES) {
+      protocolSendCommandError(replyMode, id, jsonId, "script_too_large", "Invalid script size");
+      return true;
+    }
+    if (expectedHashHex.length() == 0) {
+      protocolSendCommandError(replyMode, id, jsonId, "missing_hash", "script.chunk.begin requires codeHash");
+      return true;
+    }
+    if (!scriptStoreBeginIncoming()) {
+      protocolSendCommandError(replyMode, id, jsonId, "storage_error", "Failed to start staged script upload");
+      return true;
+    }
+    protocolPrepareScriptUpload();
+    g_scriptChunkActive = true;
+    g_scriptChunkRun = runAfterSet;
+    g_scriptChunkSave = saveAfterSet;
+    g_scriptChunkExpectedBytes = expectedBytes;
+    g_scriptChunkReceivedBytes = 0;
+    g_scriptChunkExpectedHashHex = expectedHashHex;
+    protocolSendCommandChunkBeginOk(replyMode, id, jsonId, expectedBytes);
+  } else if (op == P1_MP_OP_SCRIPT_CHUNK_ADD) {
+    if (!g_scriptChunkActive) {
+      protocolSendCommandError(replyMode, id, jsonId, "no_upload", "No chunked script upload is active");
+      return true;
+    }
+    uint32_t offset = 0;
+    const uint8_t* chunk = nullptr;
+    size_t chunkLen = 0;
+    if (!r.readUInt(offset) || !r.readBin(chunk, chunkLen)) {
+      protocolSendCommandError(replyMode, id, jsonId, "bad_chunk_frame", "script.chunk.add frame requires offset and bytes");
+      return true;
+    }
+    if ((int)offset != g_scriptChunkReceivedBytes) {
+      protocolSendCommandError(replyMode, id, jsonId, "bad_offset", "Script chunk offset did not match received bytes");
+      return true;
+    }
+    if (g_scriptChunkReceivedBytes + (int)chunkLen > g_scriptChunkExpectedBytes) {
+      protocolSendCommandError(replyMode, id, jsonId, "too_many_bytes", "Script chunk exceeds expected size");
+      return true;
+    }
+    if (!scriptStoreAppendIncomingBytes(chunk, chunkLen)) {
+      protocolSendCommandError(replyMode, id, jsonId, "storage_error", "Failed to append script chunk");
+      return true;
+    }
+    g_scriptChunkReceivedBytes += chunkLen;
+    protocolSendCommandReceived(replyMode, id, jsonId, g_scriptChunkReceivedBytes);
+  } else if (op == P1_MP_OP_SCRIPT_CHUNK_GET) {
+    uint32_t offset = 0;
+    uint32_t maxBytes = 0;
+    if (!r.readUInt(offset) || !r.readUInt(maxBytes)) {
+      protocolSendCommandError(replyMode, id, jsonId, "bad_chunk_get_frame", "script.chunk.get frame requires offset and maxBytes");
+      return true;
+    }
+    protocolSendCommandScriptChunkGet(replyMode, id, jsonId, offset, maxBytes);
+  } else if (op == P1_MP_OP_SCRIPT_CHUNK_COMMIT) {
+    if (!g_scriptChunkActive) {
+      protocolSendCommandError(replyMode, id, jsonId, "no_upload", "No chunked script upload is active");
+      return true;
+    }
+    if (g_scriptChunkReceivedBytes != g_scriptChunkExpectedBytes) {
+      protocolSendCommandError(replyMode, id, jsonId, "incomplete_upload", "Script upload is missing chunks");
+      return true;
+    }
+    size_t scriptBytes = 0;
+    uint32_t scriptHash = 2166136261u;
+    if (!scriptStoreIncomingInfo(scriptBytes, scriptHash) || scriptBytes == 0) {
+      scriptStoreClearIncoming();
+      g_scriptChunkActive = false;
+      protocolSendCommandError(replyMode, id, jsonId, "storage_error", "Failed to load staged script");
+      return true;
+    }
+    String errorCode;
+    String errorMessage;
+    if (!protocolScriptIntegrityInfoOk(scriptBytes, scriptHash, g_scriptChunkExpectedBytes, g_scriptChunkExpectedHashHex, errorCode, errorMessage)) {
+      scriptStoreClearIncoming();
+      g_scriptChunkActive = false;
+      protocolSendCommandError(replyMode, id, jsonId, errorCode.c_str(), errorMessage.c_str());
+      return true;
+    }
+    bool runAfterSet = g_scriptChunkRun;
+    bool saveAfterSet = g_scriptChunkSave;
+    g_scriptChunkActive = false;
+    int expectedBytes = g_scriptChunkExpectedBytes;
+    String expectedHashHex = g_scriptChunkExpectedHashHex;
+    g_scriptChunkExpectedHashHex = "";
+    protocolSendCommandChunkCommitOk(replyMode, id, jsonId, scriptBytes);
+    protocolQueueScriptJob(runAfterSet, saveAfterSet, expectedBytes, expectedHashHex, scriptBytes);
+  } else if (op == P1_MP_OP_SCRIPT_STOP) {
+    wrenchStop();
+    if (scriptStoreHasSaved()) scriptStoreSaveRunState(P1_EMBED_SCRIPT_RUN_STOPPED);
+    protocolSendCommandState(replyMode, id, jsonId, "stopped", "stopped");
+  } else if (op == P1_MP_OP_SCRIPT_RESTART) {
+    if (wrenchCurrentScript().length() == 0) {
+      protocolSendCommandError(replyMode, id, jsonId, "no_script", "No compiled script is available");
+      return true;
+    }
+    if (scriptStoreHasSaved()) scriptStoreSaveRunState(P1_EMBED_SCRIPT_RUN_PENDING_NEW);
+    wrenchRequestRun();
+    protocolSendCommandState(replyMode, id, jsonId, "run_pending");
+  } else if (op == P1_MP_OP_DEVICE_REBOOT) {
+    if (replyMode == P1_REPLY_MSGPACK) {
+      uint8_t responseFrame[80];
+      P1MsgPackWriter w(responseFrame, sizeof(responseFrame));
+      protocolMsgPackBeginResponse(w, id, true, 1);
+      w.writeString("rebooting"); w.writeBool(true);
+      if (w.ok) protocolSendMsgPackBytes(responseFrame, w.length);
+    } else {
+      protocolSendResponseOk(jsonId, "{\"rebooting\":true}");
+    }
+    delay(50);
+    ESP.restart();
+  } else if (op == P1_MP_OP_FIRMWARE_UPDATE_STATUS) {
+    protocolSendCommandOtaStatus(replyMode, id, jsonId);
+  } else if (op == P1_MP_OP_FIRMWARE_UPDATE_CLEAR) {
+    if (!otaSafeBootClearRequest()) {
+      protocolSendCommandError(replyMode, id, jsonId, "ota_clear_failed", "Failed to clear firmware update request");
+      return true;
+    }
+    protocolSendCommandOtaStatus(replyMode, id, jsonId);
+  } else if (op == P1_MP_OP_FIRMWARE_UPDATE_PREPARE) {
+    P1OtaRequest request;
+    bool reboot = false;
+    if (!r.readString(request.url) || !r.readString(request.sha256) || !r.readBool(reboot)) {
+      protocolSendCommandError(replyMode, id, jsonId, "bad_ota_prepare_frame", "firmware.update.prepare frame is malformed");
+      return true;
+    }
+    if (r.offset < r.length && !r.readString(request.kind)) {
+      protocolSendCommandError(replyMode, id, jsonId, "bad_ota_prepare_frame", "firmware.update.prepare kind is malformed");
+      return true;
+    }
+    if (r.offset < r.length && !r.readString(request.fromSha256)) {
+      protocolSendCommandError(replyMode, id, jsonId, "bad_ota_prepare_frame", "firmware.update.prepare fromSha256 is malformed");
+      return true;
+    }
+    if (r.offset < r.length && !r.readString(request.toSha256)) {
+      protocolSendCommandError(replyMode, id, jsonId, "bad_ota_prepare_frame", "firmware.update.prepare toSha256 is malformed");
+      return true;
+    }
+    if (r.offset < r.length && !r.readUInt(request.fromSize)) {
+      protocolSendCommandError(replyMode, id, jsonId, "bad_ota_prepare_frame", "firmware.update.prepare fromSize is malformed");
+      return true;
+    }
+    if (r.offset < r.length && !r.readUInt(request.toSize)) {
+      protocolSendCommandError(replyMode, id, jsonId, "bad_ota_prepare_frame", "firmware.update.prepare toSize is malformed");
+      return true;
+    }
+    if (r.offset < r.length && !r.readUInt(request.memorySize)) {
+      protocolSendCommandError(replyMode, id, jsonId, "bad_ota_prepare_frame", "firmware.update.prepare memorySize is malformed");
+      return true;
+    }
+    if (r.offset < r.length && !r.readUInt(request.segmentSize)) {
+      protocolSendCommandError(replyMode, id, jsonId, "bad_ota_prepare_frame", "firmware.update.prepare segmentSize is malformed");
+      return true;
+    }
+    String err;
+    if (!otaSafeBootRequestUpdate(request, err)) {
+      protocolSendCommandError(replyMode, id, jsonId, "ota_prepare_failed", err.c_str());
+      return true;
+    }
+    if (reboot && !otaSafeBootBootUpdater(err)) {
+      protocolSendCommandError(replyMode, id, jsonId, "ota_boot_failed", err.c_str());
+      return true;
+    }
+    protocolSendCommandOtaStatus(replyMode, id, jsonId);
+  } else if (op == P1_MP_OP_FIRMWARE_UPDATE_BOOT) {
+    String err;
+    if (!otaSafeBootBootUpdater(err)) {
+      protocolSendCommandError(replyMode, id, jsonId, "ota_boot_failed", err.c_str());
+      return true;
+    }
+    protocolSendCommandOtaStatus(replyMode, id, jsonId);
+  } else {
+    return false;
   }
-  if (expectedBytes == 0 || expectedBytes > P1_EMBED_MAX_SCRIPT_BYTES) {
-    protocolSendMsgPackError(id, "script_too_large", "Invalid script size");
-    return;
-  }
-  if (expectedHashHex.length() == 0) {
-    protocolSendMsgPackError(id, "missing_hash", "script.chunk.begin requires codeHash");
-    return;
-  }
-  if (!scriptStoreBeginIncoming()) {
-    protocolSendMsgPackError(id, "storage_error", "Failed to start staged script upload");
-    return;
-  }
-  protocolPrepareScriptUpload();
-  g_scriptChunkActive = true;
-  g_scriptChunkRun = runAfterSet;
-  g_scriptChunkSave = saveAfterSet;
-  g_scriptChunkExpectedBytes = expectedBytes;
-  g_scriptChunkReceivedBytes = 0;
-  g_scriptChunkExpectedHashHex = expectedHashHex;
-  protocolSendMsgPackChunkBeginOk(id, expectedBytes);
+  return true;
 }
 
-static void protocolHandleMsgPackScriptChunkAdd(uint32_t id, const uint8_t* data, size_t len, size_t payloadOffset) {
-  if (!g_scriptChunkActive) {
-    protocolSendMsgPackError(id, "no_upload", "No chunked script upload is active");
-    return;
-  }
-  P1MsgPackReader r(data, len);
-  r.offset = payloadOffset;
-  uint32_t offset = 0;
-  const uint8_t* chunk = nullptr;
-  size_t chunkLen = 0;
-  if (!r.readUInt(offset) || !r.readBin(chunk, chunkLen)) {
-    protocolSendMsgPackError(id, "bad_chunk_frame", "script.chunk.add frame requires offset and bytes");
-    return;
-  }
-  if ((int)offset != g_scriptChunkReceivedBytes) {
-    protocolSendMsgPackError(id, "bad_offset", "Script chunk offset did not match received bytes");
-    return;
-  }
-  if (g_scriptChunkReceivedBytes + (int)chunkLen > g_scriptChunkExpectedBytes) {
-    protocolSendMsgPackError(id, "too_many_bytes", "Script chunk exceeds expected size");
-    return;
-  }
-  if (!scriptStoreAppendIncomingBytes(chunk, chunkLen)) {
-    protocolSendMsgPackError(id, "storage_error", "Failed to append script chunk");
-    return;
-  }
-  g_scriptChunkReceivedBytes += chunkLen;
-  protocolSendMsgPackReceived(id, g_scriptChunkReceivedBytes);
-}
-
-void protocolHandleBytes(const uint8_t* data, size_t len) {
+void protocolHandleBytes(const uint8_t* data, size_t len, P1ProtocolSource source) {
   if (!data || len == 0) return;
   if (data[0] == '{' || data[0] == '[') {
-    protocolEmitErrorEvent("protocol.error", "json_on_binary_channel", "WebRTC data channel only accepts MessagePack frames");
+    protocolEmitErrorEvent("protocol.error", "json_on_binary_channel", "Binary protocol channel only accepts MessagePack frames");
     return;
   }
 
@@ -1628,396 +3310,21 @@ void protocolHandleBytes(const uint8_t* data, size_t len) {
     protocolEmitErrorEvent("protocol.error", "bad_msgpack_type", "Expected MessagePack command frame");
     return;
   }
+  P1FrameView frame;
+  frame.data = data;
+  frame.len = len;
+  frame.count = count;
+  frame.frameType = frameType;
+  frame.id = id;
+  frame.op = op;
+  frame.argsOffset = r.offset;
 
-  if (op == P1_MP_OP_PING) {
-    protocolSendMsgPackPong(id);
-  } else if (op == P1_MP_OP_STATUS_LIGHT) {
-    protocolSendMsgPackStatusLight(id);
-  } else if (op == P1_MP_OP_SYSTEM_INFO) {
-    protocolSendMsgPackSystemInfo(id);
-  } else if (op == P1_MP_OP_CONFIG_GET) {
-    protocolSendMsgPackConfig(id);
-  } else if (op == P1_MP_OP_CONFIG_SET) {
-    bool hasDeviceName = false;
-    bool hasWifiSsid = false;
-    bool hasWifiPassword = false;
-    bool hasProjectId = false;
-    bool hasProjectName = false;
-    bool hasScriptName = false;
-    bool hasTimezone = false;
-    bool hasMqttHost = false;
-    bool hasMqttPort = false;
-    bool hasMqttRoot = false;
-    bool hasMqttUser = false;
-    bool hasMqttPassword = false;
-    bool hasMqttEnabled = false;
-    bool hasMqttAllowAnonymousUi = false;
-    bool hasMqttAllowAnonymousScript = false;
-    bool hasOnlineAuthUserAdd = false;
-    bool hasOnlineAuthUserRemove = false;
-    bool hasMqttGuestUiKey = false;
-    String deviceName;
-    String wifiSsid;
-    String wifiPassword;
-    String projectId;
-    String projectName;
-    String revisionId;
-    String scriptName;
-    String timezone;
-    String mqttHost;
-    uint32_t mqttPort = 0;
-    String mqttRoot;
-    String mqttUser;
-    String mqttPassword;
-    String onlineAuthUsername;
-    String onlineAuthKeyHex;
-    String onlineAuthUserRemove;
-    String mqttGuestUiKey;
-    bool mqttEnabled = true;
-    bool mqttAllowAnonymousUi = false;
-    bool mqttAllowAnonymousScript = false;
-    if (!r.readBool(hasDeviceName) || !r.readString(deviceName) ||
-        !r.readBool(hasWifiSsid) || !r.readString(wifiSsid) ||
-        !r.readBool(hasWifiPassword) || !r.readString(wifiPassword)) {
-      protocolSendMsgPackError(id, "bad_config_frame", "config.set frame is malformed");
-      return;
-    }
-    if (count >= 19) {
-      if (!r.readBool(hasMqttHost) || !r.readString(mqttHost) ||
-          !r.readBool(hasMqttPort) || !r.readUInt(mqttPort) ||
-          !r.readBool(hasMqttRoot) || !r.readString(mqttRoot) ||
-          !r.readBool(hasMqttUser) || !r.readString(mqttUser) ||
-          !r.readBool(hasMqttPassword) || !r.readString(mqttPassword)) {
-        protocolSendMsgPackError(id, "bad_config_frame", "config.set MQTT fields are malformed");
-        return;
-      }
-    }
-    if (count >= 25) {
-      if (!r.readBool(hasMqttEnabled) || !r.readBool(mqttEnabled) ||
-          !r.readBool(hasMqttAllowAnonymousUi) || !r.readBool(mqttAllowAnonymousUi) ||
-          !r.readBool(hasMqttAllowAnonymousScript) || !r.readBool(mqttAllowAnonymousScript)) {
-        protocolSendMsgPackError(id, "bad_config_frame", "config.set MQTT security fields are malformed");
-        return;
-      }
-    }
-    if (count >= 31) {
-      if (!r.readBool(hasOnlineAuthUserAdd) || !r.readString(onlineAuthUsername) ||
-          !r.readString(onlineAuthKeyHex) ||
-          !r.readBool(hasOnlineAuthUserRemove) || !r.readString(onlineAuthUserRemove)) {
-        protocolSendMsgPackError(id, "bad_config_frame", "config.set online auth user fields are malformed");
-        return;
-      }
-    }
-    if (count >= 35) {
-      if (!r.readBool(hasProjectId) || !r.readString(projectId) ||
-          !r.readBool(hasProjectName) || !r.readString(projectName)) {
-        protocolSendMsgPackError(id, "bad_config_frame", "config.set project fields are malformed");
-        return;
-      }
-    }
-    if (count >= 37) {
-      if (!r.readBool(hasScriptName) || !r.readString(scriptName)) {
-        protocolSendMsgPackError(id, "bad_config_frame", "config.set script name field is malformed");
-        return;
-      }
-    }
-    if (count >= 39) {
-      if (!r.readBool(hasTimezone) || !r.readString(timezone)) {
-        protocolSendMsgPackError(id, "bad_config_frame", "config.set timezone field is malformed");
-        return;
-      }
-    }
-    if (count >= 41) {
-      if (!r.readBool(hasMqttGuestUiKey) || !r.readString(mqttGuestUiKey)) {
-        protocolSendMsgPackError(id, "bad_config_frame", "config.set guest UI key field is malformed");
-        return;
-      }
-    }
-    bool hasRevisionId = false;
-    if (count >= 43) {
-      if (!r.readBool(hasRevisionId) || !r.readString(revisionId)) {
-        protocolSendMsgPackError(id, "bad_config_frame", "config.set revision id field is malformed");
-        return;
-      }
-    }
-    bool changed = false;
-    bool mqttChanged = false;
-    if (hasDeviceName) {
-      configSetDeviceName(deviceName);
-      changed = true;
-    }
-    if (hasWifiSsid) {
-      configSetWifiSsid(wifiSsid);
-      changed = true;
-    }
-    if (hasWifiPassword) {
-      configSetWifiPassword(wifiPassword);
-      changed = true;
-    }
-    if (hasProjectId || hasProjectName) {
-      configSetProject(hasProjectId ? projectId : configProjectId(), hasProjectName ? projectName : configProjectName());
-      changed = true;
-    }
-    if (hasScriptName) {
-      configSetScriptName(scriptName);
-      changed = true;
-    }
-    if (hasRevisionId) {
-      configSetRevisionId(revisionId);
-      changed = true;
-    }
-    if (hasTimezone) {
-      configSetTimezone(timezone);
-      changed = true;
-    }
-    if (hasMqttHost) {
-      configSetMqttHost(mqttHost);
-      changed = true;
-      mqttChanged = true;
-    }
-    if (hasMqttPort) {
-      configSetMqttPort((int)mqttPort);
-      changed = true;
-      mqttChanged = true;
-    }
-    if (hasMqttRoot) {
-      configSetMqttRoot(mqttRoot);
-      changed = true;
-      mqttChanged = true;
-    }
-    if (hasMqttUser) {
-      configSetMqttUser(mqttUser);
-      changed = true;
-      mqttChanged = true;
-    }
-    if (hasMqttPassword) {
-      configSetMqttPassword(mqttPassword);
-      changed = true;
-      mqttChanged = true;
-    }
-    if (hasMqttEnabled) {
-      configSetMqttEnabled(mqttEnabled);
-      changed = true;
-      mqttChanged = true;
-    }
-    if (hasMqttAllowAnonymousUi) {
-      configSetMqttAllowAnonymousUi(mqttAllowAnonymousUi);
-      changed = true;
-    }
-    if (hasMqttGuestUiKey) {
-      configSetMqttGuestUiKey(mqttGuestUiKey);
-      changed = true;
-    }
-    if (hasMqttAllowAnonymousScript) {
-      configSetMqttAllowAnonymousScript(mqttAllowAnonymousScript);
-      changed = true;
-    }
-    if (hasOnlineAuthUserAdd) {
-      if (!configAddOnlineAuthUserKey(onlineAuthUsername, onlineAuthKeyHex)) {
-        protocolSendMsgPackError(id, "bad_online_user", "Invalid online user or key");
-        return;
-      }
-      changed = true;
-      mqttChanged = true;
-    }
-    if (hasOnlineAuthUserRemove) {
-      configRemoveOnlineAuthUser(onlineAuthUserRemove);
-      changed = true;
-      mqttChanged = true;
-    }
-    if (changed) {
-      configSave();
-      if (hasWifiSsid || hasWifiPassword) wifiReconnect();
-      if (mqttChanged) mqttTransportApplyConfig();
-    }
-    protocolSendMsgPackConfig(id);
-  } else if (op == P1_MP_OP_WIFI_STATUS) {
-    protocolSendMsgPackWifiStatus(id);
-  } else if (op == P1_MP_OP_WIFI_CONNECT) {
-    wifiReconnect();
-    protocolSendMsgPackWifiStatus(id);
-  } else if (op == P1_MP_OP_WIFI_DISCONNECT) {
-    wifiDisconnect();
-    protocolSendMsgPackWifiStatus(id);
-  } else if (op == P1_MP_OP_WIFI_FORGET) {
-    uint32_t index = 0;
-    if (!r.readUInt(index)) {
-      protocolSendMsgPackError(id, "bad_wifi_forget_frame", "wifi.forget frame is malformed");
-      return;
-    }
-    if (!configRemoveWifiNetworkAt((int)index)) {
-      protocolSendMsgPackError(id, "bad_wifi_index", "WiFi network index is invalid");
-      return;
-    }
-    configSave();
-    wifiReconnect();
-    protocolSendMsgPackConfig(id);
-  } else if (op == P1_MP_OP_SCRIPT_ERROR_GET) {
-    protocolSendMsgPackScriptError(id);
-  } else if (op == P1_MP_OP_SCRIPT_ERROR_CLEAR) {
-    scriptErrorClear();
-    protocolSendMsgPackScriptError(id);
-  } else if (op == P1_MP_OP_SCRIPT_INPUT) {
-    String channel;
-    String message;
-    if (!r.readString(channel) || !r.readString(message) || message.length() == 0) {
-      protocolSendMsgPackError(id, "missing_message", "script.input requires message");
-      return;
-    }
-    if (uiInputPush(channel, message)) {
-      protocolSendMsgPackInbox(id);
-      return;
-    }
-    if (!wrenchInboxPush(channel, message)) {
-      protocolSendMsgPackError(id, "inbox_full", "Wrench input inbox is full");
-      return;
-    }
-    protocolSendMsgPackInbox(id);
-  } else if (op == P1_MP_OP_DEBUG_GET) {
-    protocolSendMsgPackDebug(id);
-  } else if (op == P1_MP_OP_DEBUG_SET) {
-    String level;
-    if (!r.readString(level)) {
-      protocolSendMsgPackError(id, "missing_level", "debug.set requires level");
-      return;
-    }
-    if (!debugEventSetLevelName(level)) {
-      protocolSendMsgPackError(id, "bad_level", "Use error, warn, info, debug, or trace");
-      return;
-    }
-    protocolSendMsgPackDebug(id);
-  } else if (op == P1_MP_OP_SCRIPT_GET) {
-    protocolSendMsgPackScriptGet(id);
-  } else if (op == P1_MP_OP_SCRIPT_CHUNK_BEGIN) {
-    protocolHandleMsgPackScriptChunkBegin(id, r);
-  } else if (op == P1_MP_OP_SCRIPT_CHUNK_ADD) {
-    protocolHandleMsgPackScriptChunkAdd(id, data, len, r.offset);
-  } else if (op == P1_MP_OP_SCRIPT_CHUNK_GET) {
-    uint32_t offset = 0;
-    uint32_t maxBytes = 0;
-    if (!r.readUInt(offset) || !r.readUInt(maxBytes)) {
-      protocolSendMsgPackError(id, "bad_chunk_get_frame", "script.chunk.get frame requires offset and maxBytes");
-      return;
-    }
-    protocolSendMsgPackScriptChunkGet(id, offset, maxBytes);
-  } else if (op == P1_MP_OP_SCRIPT_CHUNK_COMMIT) {
-    if (!g_scriptChunkActive) {
-      protocolSendMsgPackError(id, "no_upload", "No chunked script upload is active");
-      return;
-    }
-    if (g_scriptChunkReceivedBytes != g_scriptChunkExpectedBytes) {
-      protocolSendMsgPackError(id, "incomplete_upload", "Script upload is missing chunks");
-      return;
-    }
-    size_t scriptBytes = 0;
-    uint32_t scriptHash = 2166136261u;
-    if (!scriptStoreIncomingInfo(scriptBytes, scriptHash) || scriptBytes == 0) {
-      scriptStoreClearIncoming();
-      g_scriptChunkActive = false;
-      protocolSendMsgPackError(id, "storage_error", "Failed to load staged script");
-      return;
-    }
-    String errorCode;
-    String errorMessage;
-    if (!protocolScriptIntegrityInfoOk(scriptBytes, scriptHash, g_scriptChunkExpectedBytes, g_scriptChunkExpectedHashHex, errorCode, errorMessage)) {
-      scriptStoreClearIncoming();
-      g_scriptChunkActive = false;
-      protocolSendMsgPackError(id, errorCode.c_str(), errorMessage.c_str());
-      return;
-    }
-    bool runAfterSet = g_scriptChunkRun;
-    bool saveAfterSet = g_scriptChunkSave;
-    g_scriptChunkActive = false;
-    int expectedBytes = g_scriptChunkExpectedBytes;
-    String expectedHashHex = g_scriptChunkExpectedHashHex;
-    g_scriptChunkExpectedHashHex = "";
-    protocolSendMsgPackChunkCommitOk(id, scriptBytes);
-    protocolQueueScriptJob(runAfterSet, saveAfterSet, expectedBytes, expectedHashHex, scriptBytes);
-  } else if (op == P1_MP_OP_SCRIPT_STOP) {
-    wrenchStop();
-    if (scriptStoreHasSaved()) scriptStoreSaveRunState(P1_EMBED_SCRIPT_RUN_STOPPED);
-    protocolSendMsgPackState(id, "stopped");
-  } else if (op == P1_MP_OP_SCRIPT_RESTART) {
-    if (wrenchCurrentScript().length() == 0) {
-      protocolSendMsgPackError(id, "no_script", "No compiled script is available");
-      return;
-    }
-    wrenchRequestRun();
-    protocolSendMsgPackState(id, "run_pending");
-  } else if (op == P1_MP_OP_DEVICE_REBOOT) {
-    uint8_t frame[80];
-    P1MsgPackWriter w(frame, sizeof(frame));
-    protocolMsgPackBeginResponse(w, id, true, 1);
-    w.writeString("rebooting"); w.writeBool(true);
-    if (w.ok) protocolSendMsgPackBytes(frame, w.length);
-    delay(50);
-    ESP.restart();
-  } else if (op == P1_MP_OP_FIRMWARE_UPDATE_STATUS) {
-    protocolSendMsgPackOtaStatus(id);
-  } else if (op == P1_MP_OP_FIRMWARE_UPDATE_CLEAR) {
-    if (!otaSafeBootClearRequest()) {
-      protocolSendMsgPackError(id, "ota_clear_failed", "Failed to clear firmware update request");
-      return;
-    }
-    protocolSendMsgPackOtaStatus(id);
-  } else if (op == P1_MP_OP_FIRMWARE_UPDATE_PREPARE) {
-    P1OtaRequest request;
-    bool reboot = false;
-    if (!r.readString(request.url) || !r.readString(request.sha256) || !r.readBool(reboot)) {
-      protocolSendMsgPackError(id, "bad_ota_prepare_frame", "firmware.update.prepare frame is malformed");
-      return;
-    }
-    if (r.offset < r.length && !r.readString(request.kind)) {
-      protocolSendMsgPackError(id, "bad_ota_prepare_frame", "firmware.update.prepare kind is malformed");
-      return;
-    }
-    if (r.offset < r.length && !r.readString(request.fromSha256)) {
-      protocolSendMsgPackError(id, "bad_ota_prepare_frame", "firmware.update.prepare fromSha256 is malformed");
-      return;
-    }
-    if (r.offset < r.length && !r.readString(request.toSha256)) {
-      protocolSendMsgPackError(id, "bad_ota_prepare_frame", "firmware.update.prepare toSha256 is malformed");
-      return;
-    }
-    if (r.offset < r.length && !r.readUInt(request.fromSize)) {
-      protocolSendMsgPackError(id, "bad_ota_prepare_frame", "firmware.update.prepare fromSize is malformed");
-      return;
-    }
-    if (r.offset < r.length && !r.readUInt(request.toSize)) {
-      protocolSendMsgPackError(id, "bad_ota_prepare_frame", "firmware.update.prepare toSize is malformed");
-      return;
-    }
-    if (r.offset < r.length && !r.readUInt(request.memorySize)) {
-      protocolSendMsgPackError(id, "bad_ota_prepare_frame", "firmware.update.prepare memorySize is malformed");
-      return;
-    }
-    if (r.offset < r.length && !r.readUInt(request.segmentSize)) {
-      protocolSendMsgPackError(id, "bad_ota_prepare_frame", "firmware.update.prepare segmentSize is malformed");
-      return;
-    }
-    String err;
-    if (!otaSafeBootRequestUpdate(request, err)) {
-      protocolSendMsgPackError(id, "ota_prepare_failed", err.c_str());
-      return;
-    }
-    if (reboot && !otaSafeBootBootUpdater(err)) {
-      protocolSendMsgPackError(id, "ota_boot_failed", err.c_str());
-      return;
-    }
-    protocolSendMsgPackOtaStatus(id);
-  } else if (op == P1_MP_OP_FIRMWARE_UPDATE_BOOT) {
-    String err;
-    if (!otaSafeBootBootUpdater(err)) {
-      protocolSendMsgPackError(id, "ota_boot_failed", err.c_str());
-      return;
-    }
-    protocolSendMsgPackOtaStatus(id);
-  } else {
+  if (!protocolHandleCommandFrame(frame, P1_REPLY_MSGPACK, source, String())) {
     protocolEmitErrorEvent("protocol.error", "unknown_msgpack_op", "Unknown MessagePack command");
   }
 }
 
-void protocolHandleLine(const char* line) {
+void protocolHandleLine(const char* line, P1ProtocolSource source) {
   String type;
   String id;
   String name;
@@ -2035,17 +3342,21 @@ void protocolHandleLine(const char* line) {
     return;
   }
 
-  if (name == "ping") {
-    protocolSendResponseOk(id, "{\"pong\":true}");
-  } else if (name == "system.info") {
-    protocolSendResponseOk(id, protocolBaseInfoJson());
-  } else if (name == "status.get") {
-    protocolSendResponseOk(id, protocolStatusJson());
-  } else if (name == "status.light") {
-    protocolSendResponseOk(id, protocolStatusLightJson());
-  } else if (name == "status.full") {
-    protocolSendResponseOk(id, protocolStatusFullJson());
-  } else if (name == "memory.profile") {
+  uint8_t frameBytes[P1_EMBED_MSGPACK_MAX_FRAME_BYTES];
+  size_t frameLen = 0;
+  if (protocolJsonCommandToMsgPack(line, id, name, frameBytes, sizeof(frameBytes), frameLen)) {
+    P1FrameView frame;
+    if (!protocolParseCommandFrame(frameBytes, frameLen, frame)) {
+      protocolSendResponseError(id, "bad_command_frame", "JSON command could not be encoded");
+      return;
+    }
+    if (!protocolHandleCommandFrame(frame, P1_REPLY_JSON, source, id)) {
+      protocolSendResponseError(id, "unknown_command", String("Unknown command: ") + name);
+    }
+    return;
+  }
+
+  if (name == "memory.profile") {
     int limit = P1_EMBED_MEMORY_PROFILE_DEFAULT_LIMIT;
     jsonGetInt(line, "limit", limit);
     memoryProfileMark("protocol", "memory_profile");
@@ -2058,16 +3369,6 @@ void protocolHandleLine(const char* line) {
   } else if (name == "webrtc.probe") {
     memoryProfileMark("webrtc", "probe");
     protocolSendResponseOk(id, webrtcTransportProbeJson());
-  } else if (name == "config.get") {
-    protocolSendResponseOk(id, configAsJson());
-  } else if (name == "firmware.update.status") {
-    protocolSendResponseOk(id, otaSafeBootStatusJson());
-  } else if (name == "firmware.update.clear") {
-    if (!otaSafeBootClearRequest()) {
-      protocolSendResponseError(id, "ota_clear_failed", "Failed to clear firmware update request");
-      return;
-    }
-    protocolSendResponseOk(id, otaSafeBootStatusJson());
   } else if (name == "firmware.update.prepare") {
     P1OtaRequest request;
     bool reboot = false;
@@ -2094,142 +3395,7 @@ void protocolHandleLine(const char* line) {
       protocolSendResponseError(id, "ota_boot_failed", err);
       return;
     }
-    protocolSendResponseOk(id, otaSafeBootStatusJson());
-  } else if (name == "firmware.update.boot") {
-    String err;
-    if (!otaSafeBootBootUpdater(err)) {
-      protocolSendResponseError(id, "ota_boot_failed", err);
-      return;
-    }
-    protocolSendResponseOk(id, otaSafeBootStatusJson());
-  } else if (name == "config.set") {
-    String deviceName;
-    String wifiSsid;
-    String wifiPassword;
-    String projectId;
-    String projectName;
-    String revisionId;
-    String scriptName;
-    String timezone;
-    String mqttHost;
-    String mqttRoot;
-    String mqttUser;
-    String mqttPassword;
-    String onlineAuthUsername;
-    String onlineAuthKeyHex;
-    String onlineAuthUserRemove;
-    int mqttPort = 0;
-    bool mqttEnabled = true;
-    bool mqttAllowAnonymousUi = false;
-    bool mqttAllowAnonymousScript = false;
-    bool changed = false;
-    bool mqttChanged = false;
-    if (jsonGetString(line, "deviceName", deviceName)) {
-      configSetDeviceName(deviceName);
-      changed = true;
-    }
-    if (jsonGetString(line, "wifiSsid", wifiSsid)) {
-      configSetWifiSsid(wifiSsid);
-      changed = true;
-    }
-    if (jsonGetString(line, "wifiPassword", wifiPassword)) {
-      configSetWifiPassword(wifiPassword);
-      changed = true;
-    }
-    bool hasProjectId = jsonGetString(line, "projectId", projectId);
-    bool hasProjectName = jsonGetString(line, "projectName", projectName);
-    if (hasProjectId || hasProjectName) {
-      configSetProject(hasProjectId ? projectId : configProjectId(), hasProjectName ? projectName : configProjectName());
-      changed = true;
-    }
-    if (jsonGetString(line, "scriptName", scriptName)) {
-      configSetScriptName(scriptName);
-      changed = true;
-    }
-    if (jsonGetString(line, "revisionId", revisionId)) {
-      configSetRevisionId(revisionId);
-      changed = true;
-    }
-    if (jsonGetString(line, "timezone", timezone)) {
-      configSetTimezone(timezone);
-      changed = true;
-    }
-    if (jsonGetString(line, "mqttHost", mqttHost)) {
-      configSetMqttHost(mqttHost);
-      changed = true;
-      mqttChanged = true;
-    }
-    if (jsonGetInt(line, "mqttPort", mqttPort)) {
-      configSetMqttPort(mqttPort);
-      changed = true;
-      mqttChanged = true;
-    }
-    if (jsonGetString(line, "mqttRoot", mqttRoot)) {
-      configSetMqttRoot(mqttRoot);
-      changed = true;
-      mqttChanged = true;
-    }
-    if (jsonGetString(line, "mqttUser", mqttUser)) {
-      configSetMqttUser(mqttUser);
-      changed = true;
-      mqttChanged = true;
-    }
-    if (jsonGetString(line, "mqttPassword", mqttPassword)) {
-      configSetMqttPassword(mqttPassword);
-      changed = true;
-      mqttChanged = true;
-    }
-    if (jsonGetBool(line, "mqttEnabled", mqttEnabled)) {
-      configSetMqttEnabled(mqttEnabled);
-      changed = true;
-      mqttChanged = true;
-    }
-    if (jsonGetBool(line, "mqttAllowAnonymousUi", mqttAllowAnonymousUi)) {
-      configSetMqttAllowAnonymousUi(mqttAllowAnonymousUi);
-      changed = true;
-    }
-    if (jsonGetBool(line, "mqttAllowAnonymousScript", mqttAllowAnonymousScript)) {
-      configSetMqttAllowAnonymousScript(mqttAllowAnonymousScript);
-      changed = true;
-    }
-    if (jsonGetString(line, "onlineAuthUsername", onlineAuthUsername) &&
-        jsonGetString(line, "onlineAuthKey", onlineAuthKeyHex)) {
-      if (!configAddOnlineAuthUserKey(onlineAuthUsername, onlineAuthKeyHex)) {
-        protocolSendResponseError(id, "bad_online_user", "Invalid online user or key");
-        return;
-      }
-      changed = true;
-      mqttChanged = true;
-    }
-    if (jsonGetString(line, "onlineAuthUserRemove", onlineAuthUserRemove)) {
-      configRemoveOnlineAuthUser(onlineAuthUserRemove);
-      changed = true;
-      mqttChanged = true;
-    }
-    if (changed) {
-      configSave();
-      if (wifiSsid.length() || wifiPassword.length()) wifiReconnect();
-      if (mqttChanged) mqttTransportApplyConfig();
-    }
-    protocolSendResponseOk(id, configAsJson());
-  } else if (name == "wifi.status") {
-    protocolSendResponseOk(id, wifiStatusJson());
-  } else if (name == "wifi.connect") {
-    wifiReconnect();
-    protocolSendResponseOk(id, wifiStatusJson());
-  } else if (name == "wifi.disconnect") {
-    wifiDisconnect();
-    protocolSendResponseOk(id, wifiStatusJson());
-  } else if (name == "wifi.forget") {
-    int index = -1;
-    jsonGetInt(line, "index", index);
-    if (!configRemoveWifiNetworkAt(index)) {
-      protocolSendResponseError(id, "bad_wifi_index", "WiFi network index is invalid");
-      return;
-    }
-    configSave();
-    wifiReconnect();
-    protocolSendResponseOk(id, configAsJson());
+    protocolSendJsonOtaStatus(id);
   } else if (name == "http.probe") {
     String url;
     int maxBytes = 64;
@@ -2241,68 +3407,8 @@ void protocolHandleLine(const char* line) {
     jsonGetInt(line, "maxBytes", maxBytes);
     jsonGetInt(line, "timeoutMs", timeoutMs);
     protocolSendResponseOk(id, protocolHttpProbeJson(url, maxBytes, timeoutMs));
-  } else if (name == "debug.get") {
-    protocolSendResponseOk(id, debugEventStatusJson());
-  } else if (name == "debug.set") {
-    String level;
-    if (!jsonGetString(line, "level", level)) {
-      protocolSendResponseError(id, "missing_level", "debug.set requires data.level");
-      return;
-    }
-    if (!debugEventSetLevelName(level)) {
-      protocolSendResponseError(id, "bad_level", "Use error, warn, info, debug, or trace");
-      return;
-    }
-    protocolSendResponseOk(id, debugEventStatusJson());
-  } else if (name == "script.error.get") {
-    protocolSendResponseOk(id, scriptErrorLastJson());
-  } else if (name == "script.error.clear") {
-    scriptErrorClear();
-    protocolSendResponseOk(id, scriptErrorLastJson());
-  } else if (!P1_EMBED_WRENCH_ENABLED && name == "script.get") {
-    protocolSendResponseOk(id, "{\"code\":\"\",\"state\":\"disabled\",\"stored\":false,\"runState\":\"disabled\"}");
-  } else if (!P1_EMBED_WRENCH_ENABLED && name == "script.stop") {
-    protocolSendResponseOk(id, "{\"state\":\"disabled\"}");
   } else if (!P1_EMBED_WRENCH_ENABLED && (name.startsWith("script.") || name == "wrench.input")) {
     protocolSendResponseError(id, "wrench_disabled", "Wrench is disabled in this WebRTC lab firmware");
-  } else if (name == "script.get") {
-    String code = wrenchCurrentScript();
-    String response = protocolScriptSnapshotJson(protocolScriptSnapshot(&code), true, false);
-    if (response.length() < code.length()) {
-      protocolSendResponseError(id, "no_heap", "No heap for script.get response; use script.chunk.get");
-      return;
-    }
-    protocolSendResponseOk(id, response);
-  } else if (name == "script.chunk.get") {
-    int offset = 0;
-    int maxBytes = 512;
-    jsonGetInt(line, "offset", offset);
-    jsonGetInt(line, "maxBytes", maxBytes);
-    if (offset < 0) offset = 0;
-    if (maxBytes <= 0 || maxBytes > 1024) maxBytes = 512;
-    String code = wrenchCurrentScript();
-    if (offset > (int)code.length()) {
-      protocolSendResponseError(id, "bad_offset", "script.chunk.get offset is beyond stored script");
-      return;
-    }
-    int nextOffset = offset + maxBytes;
-    if (nextOffset > (int)code.length()) nextOffset = code.length();
-    String chunk = code.substring(offset, nextOffset);
-    String response;
-    response.reserve(chunk.length() + 160);
-    response += "{\"offset\":" + String(offset);
-    response += ",\"nextOffset\":" + String(nextOffset);
-    response += ",\"scriptBytes\":" + String(code.length());
-    response += ",\"done\":" + String(nextOffset >= (int)code.length() ? "true" : "false");
-    response += ",\"chunk\":" + jsonString(chunk);
-    response += ",\"state\":" + jsonString(wrenchStateName());
-    response += ",\"runState\":" + jsonString(scriptStoreRunStateName(scriptStoreLoadRunState()));
-    response += "}";
-    if (response.length() < chunk.length()) {
-      protocolSendResponseError(id, "no_heap", "No heap for script.chunk.get response");
-      return;
-    }
-    protocolSendResponseOk(id, response);
   } else if (name == "script.set") {
     bool runAfterSet = false;
     bool saveAfterSet = false;
@@ -2311,29 +3417,6 @@ void protocolHandleLine(const char* line) {
     protocolHandleScriptSet(id, line, runAfterSet, saveAfterSet);
   } else if (name == "script.bytecode.set") {
     protocolHandleScriptBytecodeSet(id, line);
-  } else if (name == "script.chunk.begin") {
-    protocolHandleScriptChunkBegin(id, line);
-  } else if (name == "script.chunk.add") {
-    protocolHandleScriptChunkAdd(id, line);
-  } else if (name == "script.chunk.commit") {
-    protocolHandleScriptChunkCommit(id);
-  } else if (name == "script.input" || name == "wrench.input") {
-    String channel;
-    String message;
-    jsonGetString(line, "channel", channel);
-    if (!jsonGetString(line, "message", message)) {
-      protocolSendResponseError(id, "missing_message", "script.input requires data.message");
-      return;
-    }
-    if (uiInputPush(channel, message)) {
-      protocolSendResponseOk(id, "{\"ui\":true,\"queued\":" + String(uiInputQueued()) + ",\"drops\":" + String(uiInputDrops()) + "}");
-      return;
-    }
-    if (!wrenchInboxPush(channel, message)) {
-      protocolSendResponseError(id, "inbox_full", "Wrench input inbox is full");
-      return;
-    }
-    protocolSendResponseOk(id, "{\"queued\":" + String(wrenchInboxAvailable()) + ",\"drops\":" + String(wrenchInboxDrops()) + "}");
   } else if (name == "script.save") {
     String code;
     if (!jsonGetString(line, "code", code)) code = wrenchCurrentScript();
@@ -2387,22 +3470,6 @@ void protocolHandleLine(const char* line) {
     if (scriptStoreHasSaved()) scriptStoreSaveRunState(P1_EMBED_SCRIPT_RUN_PENDING_NEW);
     wrenchRequestRun();
     protocolSendResponseOk(id, "{\"state\":\"run_pending\",\"scriptBytes\":" + String(code.length()) + ",\"scriptHash\":" + String(protocolFnv1a(code)) + "}");
-  } else if (name == "script.stop") {
-    wrenchStop();
-    if (scriptStoreHasSaved()) scriptStoreSaveRunState(P1_EMBED_SCRIPT_RUN_STOPPED);
-    protocolSendResponseOk(id, "{\"state\":\"stopped\",\"runState\":\"stopped\"}");
-  } else if (name == "script.restart") {
-    if (wrenchCurrentScript().length() == 0) {
-      protocolSendResponseError(id, "no_script", "No compiled script is available");
-      return;
-    }
-    if (scriptStoreHasSaved()) scriptStoreSaveRunState(P1_EMBED_SCRIPT_RUN_PENDING_NEW);
-    wrenchRequestRun();
-    protocolSendResponseOk(id, "{\"state\":\"run_pending\"}");
-  } else if (name == "device.reboot") {
-    protocolSendResponseOk(id, "{\"rebooting\":true}");
-    delay(50);
-    ESP.restart();
   } else if (name == "device.factory_reset") {
     configFactoryReset();
     wifiDisconnect();

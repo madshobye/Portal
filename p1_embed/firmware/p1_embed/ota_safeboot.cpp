@@ -296,60 +296,62 @@ static bool otaSafeBootSelectUpdater(String& errOut) {
   return true;
 }
 
-String otaSafeBootStatusJson() {
+P1OtaSafeBootStatusSnapshot otaSafeBootStatusSnapshot() {
+  P1OtaSafeBootStatusSnapshot snapshot;
+  snapshot.enabled = true;
   const esp_partition_t* updater = otaSafeBootFindUpdaterPartition();
   Preferences p;
-  bool pending = false;
-  bool downloadPending = false;
-  String kind = "full";
-  String url;
   String sha256;
   String fromSha256;
   String toSha256;
-  String phase;
-  String lastError;
-  uint32_t fromSize = 0;
-  uint32_t toSize = 0;
-  uint32_t patchSize = 0;
-  uint32_t memorySize = 0;
-  uint32_t segmentSize = 0;
+  snapshot.updaterPartition = updater != nullptr;
+  snapshot.updaterLabel = P1_EMBED_OTA_SAFEBOOT_PARTITION_LABEL;
+  snapshot.kind = "full";
   if (p.begin(P1_EMBED_OTA_REQUEST_NVS_NS, true)) {
-    pending = p.getBool("pending", false);
-    downloadPending = p.getBool("downloadPending", false);
-    kind = p.getString("kind", "full");
-    url = p.getString("url", "");
+    snapshot.pending = p.getBool("pending", false);
+    snapshot.downloadPending = p.getBool("downloadPending", false);
+    snapshot.kind = p.getString("kind", "full");
+    snapshot.url = p.getString("url", "");
     sha256 = p.getString("sha256", "");
     fromSha256 = p.getString("fromSha256", "");
     toSha256 = p.getString("toSha256", "");
-    phase = p.getString("phase", "");
-    lastError = p.getString("lastError", "");
-    fromSize = p.getUInt("fromSize", 0);
-    toSize = p.getUInt("toSize", 0);
-    patchSize = p.getUInt("patchSize", 0);
-    memorySize = p.getUInt("memorySize", 0);
-    segmentSize = p.getUInt("segmentSize", 0);
+    snapshot.phase = p.getString("phase", "");
+    snapshot.lastError = p.getString("lastError", "");
+    snapshot.fromSize = p.getUInt("fromSize", 0);
+    snapshot.toSize = p.getUInt("toSize", 0);
+    snapshot.patchSize = p.getUInt("patchSize", 0);
+    snapshot.memorySize = p.getUInt("memorySize", 0);
+    snapshot.segmentSize = p.getUInt("segmentSize", 0);
     p.end();
   }
+  snapshot.sha256Set = sha256.length() > 0;
+  snapshot.fromSha256Set = fromSha256.length() > 0;
+  snapshot.toSha256Set = toSha256.length() > 0;
+  snapshot.restartPending = g_otaRestartPending;
+  return snapshot;
+}
 
+String otaSafeBootStatusJson() {
+  P1OtaSafeBootStatusSnapshot snapshot = otaSafeBootStatusSnapshot();
   String out = "{";
-  out += "\"enabled\":true";
-  out += ",\"updaterPartition\":" + String(updater ? "true" : "false");
-  out += ",\"updaterLabel\":" + jsonString(P1_EMBED_OTA_SAFEBOOT_PARTITION_LABEL);
-  out += ",\"pending\":" + String(pending ? "true" : "false");
-  out += ",\"downloadPending\":" + String(downloadPending ? "true" : "false");
-  out += ",\"kind\":" + jsonString(kind);
-  out += ",\"phase\":" + jsonString(phase);
-  out += ",\"url\":" + jsonString(url);
-  out += ",\"sha256Set\":" + String(sha256.length() ? "true" : "false");
-  out += ",\"fromSha256Set\":" + String(fromSha256.length() ? "true" : "false");
-  out += ",\"toSha256Set\":" + String(toSha256.length() ? "true" : "false");
-  out += ",\"lastError\":" + jsonString(lastError);
-  out += ",\"fromSize\":" + String(fromSize);
-  out += ",\"toSize\":" + String(toSize);
-  out += ",\"patchSize\":" + String(patchSize);
-  out += ",\"memorySize\":" + String(memorySize);
-  out += ",\"segmentSize\":" + String(segmentSize);
-  out += ",\"restartPending\":" + String(g_otaRestartPending ? "true" : "false");
+  out += "\"enabled\":" + String(snapshot.enabled ? "true" : "false");
+  out += ",\"updaterPartition\":" + String(snapshot.updaterPartition ? "true" : "false");
+  out += ",\"updaterLabel\":" + jsonString(snapshot.updaterLabel);
+  out += ",\"pending\":" + String(snapshot.pending ? "true" : "false");
+  out += ",\"downloadPending\":" + String(snapshot.downloadPending ? "true" : "false");
+  out += ",\"kind\":" + jsonString(snapshot.kind);
+  out += ",\"phase\":" + jsonString(snapshot.phase);
+  out += ",\"url\":" + jsonString(snapshot.url);
+  out += ",\"sha256Set\":" + String(snapshot.sha256Set ? "true" : "false");
+  out += ",\"fromSha256Set\":" + String(snapshot.fromSha256Set ? "true" : "false");
+  out += ",\"toSha256Set\":" + String(snapshot.toSha256Set ? "true" : "false");
+  out += ",\"lastError\":" + jsonString(snapshot.lastError);
+  out += ",\"fromSize\":" + String(snapshot.fromSize);
+  out += ",\"toSize\":" + String(snapshot.toSize);
+  out += ",\"patchSize\":" + String(snapshot.patchSize);
+  out += ",\"memorySize\":" + String(snapshot.memorySize);
+  out += ",\"segmentSize\":" + String(snapshot.segmentSize);
+  out += ",\"restartPending\":" + String(snapshot.restartPending ? "true" : "false");
   out += "}";
   return out;
 }
@@ -538,6 +540,10 @@ void otaSafeBootPoll() {
 
 String otaSafeBootStatusJson() {
   return "{\"enabled\":false}";
+}
+
+P1OtaSafeBootStatusSnapshot otaSafeBootStatusSnapshot() {
+  return P1OtaSafeBootStatusSnapshot();
 }
 
 bool otaSafeBootRequestUpdate(const String&, const String&, String& errOut) {

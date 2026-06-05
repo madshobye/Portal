@@ -21,6 +21,7 @@ class PortalUsbSerial {
     onDisconnect = null,
     onError = null,
     onText = null,
+    onBytes = null,
     onLine = null,
     onMessage = null,
   } = {}) {
@@ -42,6 +43,7 @@ class PortalUsbSerial {
     this._onDisconnect = typeof onDisconnect === "function" ? onDisconnect : null;
     this._onError = typeof onError === "function" ? onError : null;
     this._onText = typeof onText === "function" ? onText : null;
+    this._onBytes = typeof onBytes === "function" ? onBytes : null;
     this._onLine = typeof onLine === "function" ? onLine : null;
     this._onMessage = typeof onMessage === "function" ? onMessage : null;
 
@@ -56,6 +58,7 @@ class PortalUsbSerial {
     this.encoder = new TextEncoder();
     this.decoder = new TextDecoder();
     this._readBuffer = "";
+    this._rawMode = false;
     this._connectPromise = null;
     this._disconnectRequested = false;
     this._readLoopActive = false;
@@ -137,6 +140,20 @@ class PortalUsbSerial {
 
   async sendLine(text = "") {
     return await this.sendText(String(text ?? "") + this.lineEnding);
+  }
+
+  async sendBytes(bytes) {
+    if (!this.connected || !this.writer) return false;
+    const payload = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes || []);
+    return await this._queueWrite(payload);
+  }
+
+  setRawMode(enabled) {
+    this._rawMode = !!enabled;
+    this._readBuffer = "";
+    try {
+      this.decoder.decode();
+    } catch {}
   }
 
   getConnectionState() {
@@ -335,6 +352,17 @@ class PortalUsbSerial {
   }
 
   _acceptReadChunk(value) {
+    if (this._rawMode) {
+      if (this._onBytes) {
+        try {
+          this._onBytes(value instanceof Uint8Array ? value : new Uint8Array(value));
+        } catch (e) {
+          console.warn("PortalUsbSerial onBytes callback error:", e);
+        }
+      }
+      return;
+    }
+
     const text = this.decoder.decode(value, { stream: true });
     if (!text) return;
 

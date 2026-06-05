@@ -1,14 +1,14 @@
-import { ProtocolClient } from "./protocol/ProtocolClient.js?v=0.1.87-ui335";
-import { canEncodeCommand } from "./protocol/P1MsgPack.js?v=0.1.87-ui335";
-import { WebSerialTransport } from "./protocol/WebSerialTransport.js?v=0.1.87-ui335";
+import { ProtocolClient } from "./protocol/ProtocolClient.js?v=0.1.87-ui343";
+import { canEncodeCommand } from "./protocol/P1MsgPack.js?v=0.1.87-ui343";
+import { WebSerialTransport } from "./protocol/WebSerialTransport.js?v=0.1.87-ui343";
 import { WebSocketTransport } from "./protocol/WebSocketTransport.js";
-import { MqttWebRtcTransport, MQTT_WEBRTC_TRANSPORT_VERSION } from "./protocol/MqttWebRtcTransport.js?v=0.1.87-ui335";
-import { MqttTransport, MQTT_TRANSPORT_VERSION, clearOnlineAuthKey, deriveOnlineAuthKeyHex, storeOnlineAuthKey } from "./protocol/MqttTransport.js?v=0.1.87-ui335";
-import { P1WebFlasher } from "./web-flasher.js?v=0.1.87-ui335";
-import { inferCircuitLayout, initCircuitView, normalizeCircuitLayout } from "./circuit.js?v=0.1.87-ui335";
-import { initGuinoView } from "./guino.js?v=0.1.87-ui335";
+import { MqttWebRtcTransport, MQTT_WEBRTC_TRANSPORT_VERSION } from "./protocol/MqttWebRtcTransport.js?v=0.1.87-ui343";
+import { MqttTransport, MQTT_TRANSPORT_VERSION, deriveOnlineAuthKeyHex, getStoredOnlineAuth } from "./protocol/MqttTransport.js?v=0.1.87-ui343";
+import { P1WebFlasher } from "./web-flasher.js?v=0.1.87-ui343";
+import { inferCircuitLayout, initCircuitView, normalizeCircuitLayout } from "./circuit.js?v=0.1.87-ui343";
+import { initGuinoView } from "./guino.js?v=0.1.87-ui343";
 
-const WEB_UI_VERSION = "0.1.87-ui335";
+const WEB_UI_VERSION = "0.1.87-ui343";
 const CHAT_DEFAULT_MAX_OUTPUT_TOKENS = 8000;
 const CHAT_MIN_MAX_OUTPUT_TOKENS = 1024;
 const CHAT_HARD_MAX_OUTPUT_TOKENS = 32000;
@@ -164,6 +164,7 @@ const els = {
   onlineAuthPassword: document.querySelector("#online-auth-password"),
   onlineAuthAdd: document.querySelector("#online-auth-add-button"),
   mqttSigninDialog: document.querySelector("#mqtt-signin-dialog"),
+  mqttSigninForm: document.querySelector("#mqtt-signin-form"),
   mqttSigninTitle: document.querySelector("#mqtt-signin-title"),
   mqttSigninUsername: document.querySelector("#mqtt-signin-username"),
   mqttSigninPassword: document.querySelector("#mqtt-signin-password"),
@@ -944,6 +945,7 @@ function isMqttKind(kind) {
 }
 
 function isBinaryTransportKind(kind) {
+  if (kind === "usb") return Boolean(transport?.kind === "usb" && transport?.msgPackMode);
   return isMqttKind(kind) || isWebRtcKind(kind);
 }
 
@@ -1256,6 +1258,13 @@ async function connectTransport(nextTransport, options, kind, label, { quiet = f
       return false;
     }
     if (!ok) throw new Error(`${label} device was not available`);
+    if (kind === "usb") {
+      await enableUsbMsgPack(nextTransport);
+      if (generation !== connectionGeneration) {
+        await nextTransport.disconnect?.();
+        return false;
+      }
+    }
     closeConnectDialog();
     updateEnabledState();
     rememberActiveConnection(kind, options);
@@ -1304,6 +1313,28 @@ async function connectTransport(nextTransport, options, kind, label, { quiet = f
     }
   }
   return false;
+}
+
+async function enableUsbMsgPack(nextTransport) {
+  if (!nextTransport || typeof nextTransport.setMsgPackMode !== "function") return;
+  if (!canEncodeCommand("protocol.mode")) throw new Error("No MessagePack opcode for protocol.mode");
+  let response;
+  try {
+    response = await client.request("protocol.mode", { mode: "msgpack" }, { timeoutMs: 5000 });
+  } catch (error) {
+    nextTransport.setMsgPackMode(true);
+    try {
+      response = await client.requestMsgPack("protocol.mode", { mode: "msgpack" }, { timeoutMs: 3000 });
+      logLine("debug", "USB was already in binary mode");
+    } catch {
+      nextTransport.setMsgPackMode(false);
+      throw error;
+    }
+  }
+  const mode = String(response?.mode || "").toLowerCase();
+  if (mode !== "msgpack") throw new Error(`USB refused MessagePack mode: ${mode || "unknown"}`);
+  nextTransport.setMsgPackMode(true);
+  logLine("debug", "USB binary channel open");
 }
 
 function rememberActiveConnection(kind, options = {}) {
@@ -1715,6 +1746,7 @@ async function disconnectTransport({ quiet = false, keepGeneration = false } = {
     reconnectAfterReturnAttempted = false;
   }
   try {
+    client?.dispose?.();
     await transport?.disconnect();
   } finally {
     client = null;
@@ -1837,6 +1869,7 @@ function handleTransportDropped(droppedClient, { reconnectOnReturn = false } = {
   if (droppedClient !== client) return;
   const droppedTransport = droppedClient.transport;
   stopStatusPolling();
+  droppedClient.dispose?.();
   client = null;
   transport = null;
   connectionVerified = false;
@@ -1879,7 +1912,7 @@ async function startupRefreshOnce({ quiet = false, includeScript = true, timeout
   if (stale()) return false;
   const infoOk = await bestEffortStartupStep(() => refreshInfo({ quiet, timeoutMs }), quiet);
   if (!client || stale()) return false;
-  const statusOk = await bestEffortStartupStep(() => refreshStatus({ quiet, timeoutMs }), quiet);
+  const statusOk = await bestEffortStartupStep(() => refreshStatus({ quiet, timeoutMs, full: true }), quiet);
   if (!client || stale()) return infoOk || statusOk;
   if (!infoOk && !statusOk) return false;
   if (transport?.isGuestUiOpen?.()) return infoOk || statusOk;
@@ -1921,6 +1954,7 @@ async function bestEffortStartupStep(action, quiet) {
     await action();
     return true;
   } catch (error) {
+    if (error.code === "request_canceled") return false;
     if (!quiet) logLine("warn", `startup: ${error.message}`);
     return false;
   }
@@ -1931,7 +1965,7 @@ function startStatusPolling() {
   statusTimer = window.setInterval(async () => {
     if (!client || isBusy) return;
     try {
-      await refreshStatus({ quiet: true, timeoutMs: 6000 });
+      await refreshStatus({ quiet: true, timeoutMs: 6000, live: true });
     } catch {
     }
   }, 5000);
@@ -1951,17 +1985,17 @@ async function refreshInfo(options = {}) {
 }
 
 async function refreshStatus(options = {}) {
-  const command = isBinaryTransportKind(transport?.kind) ? "status.light" : "status.get";
-  const data = await sendCommand(command, {}, options);
+  const { full = false, ...requestOptions } = options;
+  delete requestOptions.live;
+  const command = full ? "status.full" : "status.live";
+  const data = await sendCommand(command, {}, requestOptions);
   updateStatus(data);
   renderFields();
   return data;
 }
 
 async function getScript(options = {}) {
-  const data = isBinaryTransportKind(transport?.kind)
-    ? await getScriptChunked(options)
-    : await sendCommand("script.get", {}, options);
+  const data = await getScriptChunked(options);
   await applyFetchedScript(data);
 }
 
@@ -4223,11 +4257,14 @@ function requestMqttSignIn({ remoteId } = {}) {
     }
 
     els.mqttSigninTitle.textContent = `MQTT sign in: ${target}`;
+    els.mqttSigninForm?.reset();
     els.mqttSigninUsername.value = "";
+    els.mqttSigninUsername.defaultValue = "";
     els.mqttSigninPassword.value = "";
+    els.mqttSigninPassword.defaultValue = "";
 
     const cleanup = () => {
-      els.mqttSigninButton.removeEventListener("click", submit);
+      els.mqttSigninForm?.removeEventListener("submit", submit);
       els.mqttSigninCancel.removeEventListener("click", cancel);
       dialog.removeEventListener("cancel", cancel);
       dialog.removeEventListener("close", onClose);
@@ -4242,13 +4279,13 @@ function requestMqttSignIn({ remoteId } = {}) {
       cleanup();
       reject(new Error("MQTT sign in cancelled"));
     };
-    const submit = async () => {
+    const submit = async (event) => {
+      event?.preventDefault?.();
       const username = els.mqttSigninUsername.value.trim();
       const password = els.mqttSigninPassword.value;
       if (!username || !password) return;
       try {
         const keyHex = await deriveOnlineAuthKeyHex(target, username, password);
-        storeOnlineAuthKey(target, username, keyHex);
         cleanup();
         if (dialog.open) dialog.close("ok");
         resolve({ username, keyHex });
@@ -4261,7 +4298,7 @@ function requestMqttSignIn({ remoteId } = {}) {
       }
     };
 
-    els.mqttSigninButton.addEventListener("click", submit);
+    els.mqttSigninForm?.addEventListener("submit", submit);
     els.mqttSigninCancel.addEventListener("click", cancel);
     dialog.addEventListener("cancel", cancel);
     dialog.addEventListener("close", onClose);
@@ -4362,11 +4399,17 @@ async function addOnlineAuthUser() {
   const username = els.onlineAuthUsername.value.trim();
   const password = els.onlineAuthPassword.value;
   if (!username || !password) return;
+  const users = Array.isArray(lastConfig?.onlineAuthUsers) ? lastConfig.onlineAuthUsers : [];
+  const maxUsers = Number(lastConfig?.onlineAuthUserMax || 0);
+  const updatesExisting = users.some((user) => String(user?.username || "").trim() === username);
+  if (maxUsers > 0 && users.length >= maxUsers && !updatesExisting) {
+    throw new Error(`Online user limit reached (${maxUsers})`);
+  }
   const remoteId = mqttRemoteIdForAuth();
   if (!remoteId) throw new Error("Connect or enter a board id before adding an online user");
   const keyHex = await deriveOnlineAuthKeyHex(remoteId, username, password);
+  if (!/^[0-9a-f]{64}$/.test(keyHex)) throw new Error("Online user key must be 64 hex characters");
   const config = await sendCommand("config.set", { onlineAuthUsername: username, onlineAuthKey: keyHex }, { timeoutMs: 10000 });
-  storeOnlineAuthKey(remoteId, username, keyHex);
   els.onlineAuthPassword.value = "";
   updateConfig(config);
   renderOnlineAuthUsers();
@@ -4375,8 +4418,12 @@ async function addOnlineAuthUser() {
 
 async function removeOnlineAuthUser(username) {
   if (!username) return;
+  const remoteId = mqttRemoteIdForAuth();
+  const remembered = getStoredOnlineAuth(remoteId);
+  if (remembered?.username === username) {
+    throw new Error("Sign in as another online user before removing this one");
+  }
   const config = await sendCommand("config.set", { onlineAuthUserRemove: username }, { timeoutMs: 10000 });
-  clearOnlineAuthKey(mqttRemoteIdForAuth());
   updateConfig(config);
   renderOnlineAuthUsers();
   logLine("info", `Online user ${username} removed`);
@@ -4425,6 +4472,7 @@ async function sendCommand(name, data = {}, options = {}) {
     if (!quiet) logLine("debug", `< ${name} ok`);
     return response;
   } catch (error) {
+    if (error.code === "request_canceled") throw error;
     if (!quiet) logLine("error", `${name}: ${error.message}`);
     throw error;
   }

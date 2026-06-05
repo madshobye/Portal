@@ -21,10 +21,11 @@ fi
 
 echo "Flashing P1E SafeBoot app partition only..."
 echo "  port: ${ESP32_PORT}"
+echo "  baud: ${ESP32_UPLOAD_BAUD}"
 echo "  app:  ${APP_BIN}"
 echo "  addr: ${APP_OFFSET}"
 
-"${ESPTOOL}" --chip esp32 --port "${ESP32_PORT}" --baud "${ESP32_BAUD}" \
+"${ESPTOOL}" --chip esp32 --port "${ESP32_PORT}" --baud "${ESP32_UPLOAD_BAUD}" \
   --before default-reset --after hard-reset write-flash -z \
   --flash-mode keep --flash-freq keep --flash-size keep \
   "${APP_OFFSET}" "${APP_BIN}"

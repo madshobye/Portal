@@ -12,6 +12,8 @@ static WiFiClient g_mqttNet;
 static MQTTClient g_mqtt(P1_EMBED_MQTT_BUFFER_BYTES);
 static bool g_mqttBegun = false;
 static unsigned long g_mqttLastAttemptMs = 0;
+static bool g_mqttApplyConfigPending = false;
+static unsigned long g_mqttApplyConfigAtMs = 0;
 static String g_mqttDeviceId;
 static String g_mqttClientId;
 static String g_mqttCmdTopicPrefix;
@@ -42,6 +44,7 @@ static const uint8_t P1_MQTT_AUTH_FINISH = 2;
 static const uint8_t P1_MQTT_AUTH_OK = 3;
 static const uint8_t P1_MQTT_AUTH_ERROR = 4;
 static const unsigned long P1_MQTT_AUTH_PENDING_TIMEOUT_MS = 10000;
+static const unsigned long P1_MQTT_APPLY_CONFIG_DELAY_MS = 250;
 static const unsigned long P1_MQTT_SECURE_BUFFER_SHRINK_IDLE_MS = 15000;
 static const size_t P1_MQTT_CLIENT_ID_MAX = 64;
 static const size_t P1_MQTT_USERNAME_MAX = 32;
@@ -656,7 +659,7 @@ static void mqttHandleSecureFrame(const String& clientId, uint8_t* data, size_t 
     return;
   }
   g_mqttActiveSessionIndex = sessionIndex;
-  protocolHandleBytes(plain, payloadLen);
+  protocolHandleBytes(plain, payloadLen, P1_PROTOCOL_SOURCE_MQTT);
   g_mqttActiveSessionIndex = -1;
 }
 
@@ -705,7 +708,7 @@ static void mqttHandleMessage(MQTTClient*, char topic[], char bytes[], int lengt
   } else if (len >= 2 && (data[0] & 0xf0) == 0x90 && data[1] == P1_MQTT_FRAME_SECURE) {
     mqttHandleSecureFrame(clientId, data, len);
   } else if (mqttRawOpAllowed(data, len)) {
-    protocolHandleBytes(data, len);
+    protocolHandleBytes(data, len, P1_PROTOCOL_SOURCE_MQTT);
   } else {
     mqttPublishAuthError(clientId, "auth_required");
   }
@@ -755,6 +758,8 @@ void mqttTransportBegin() {
 }
 
 void mqttTransportApplyConfig() {
+  g_mqttApplyConfigPending = false;
+  g_mqttApplyConfigAtMs = 0;
   if (g_mqtt.connected()) g_mqtt.disconnect();
   g_mqttBegun = false;
   g_mqttCmdTopicPrefix = "";
@@ -768,6 +773,11 @@ void mqttTransportApplyConfig() {
     mqttClearSession(g_mqttSessions[i]);
   }
   if (!configMqttEnabled()) mqttReleaseRuntimeBuffers();
+}
+
+void mqttTransportRequestApplyConfig() {
+  g_mqttApplyConfigPending = true;
+  g_mqttApplyConfigAtMs = millis() + P1_MQTT_APPLY_CONFIG_DELAY_MS;
 }
 
 void mqttTransportPrepareMemoryPressure() {
@@ -961,10 +971,16 @@ void mqttTransportLoop() {
     mqttFlushOutQueue();
     mqttFlushEventBatch();
     p1ReusableBufferMaintain(g_mqttSecureFrameBuffer, P1_MQTT_SECURE_FRAME_RETAIN_MIN, P1_MQTT_SECURE_FRAME_RETAIN_MAX, P1_MQTT_SECURE_BUFFER_SHRINK_IDLE_MS);
+    if (g_mqttApplyConfigPending && (int32_t)(millis() - g_mqttApplyConfigAtMs) >= 0) {
+      mqttTransportApplyConfig();
+    }
     return;
   }
 
   unsigned long now = millis();
+  if (g_mqttApplyConfigPending && (int32_t)(now - g_mqttApplyConfigAtMs) >= 0) {
+    mqttTransportApplyConfig();
+  }
   if (now - g_mqttLastAttemptMs < P1_EMBED_MQTT_RECONNECT_MS) return;
   g_mqttLastAttemptMs = now;
   mqttConnect();
@@ -994,43 +1010,84 @@ bool mqttTransportConnected() {
   return configMqttEnabled() && g_mqtt.connected();
 }
 
+P1MqttTransportSnapshot mqttTransportSnapshot() {
+  P1MqttTransportSnapshot snapshot;
+  snapshot.enabled = true;
+  snapshot.configured = configMqttEnabled();
+  snapshot.connected = mqttTransportConnected();
+  snapshot.begun = g_mqttBegun;
+  snapshot.queueAllocated = g_mqttOutQueue != nullptr;
+  snapshot.host = configMqttHost();
+  snapshot.port = configMqttPort();
+  snapshot.root = configMqttRoot();
+  snapshot.deviceId = g_mqttDeviceId;
+  snapshot.cmd = g_mqttCmdTopicPrefix;
+  snapshot.evt = g_mqttEvtTopic;
+  snapshot.scriptIn = g_mqttScriptInTopic;
+  snapshot.scriptOut = g_mqttScriptOutTopic;
+  snapshot.authRequired = mqttAuthRequired();
+  snapshot.onlineAuthUsers = configOnlineAuthUserCount();
+  snapshot.anonymousUi = configMqttAllowAnonymousUi();
+  snapshot.anonymousScript = configMqttAllowAnonymousScript();
+  snapshot.guestUiKeySet = configMqttGuestUiKey().length() >= 16;
+  snapshot.ownerCore = g_mqttOwnerCore;
+  snapshot.loopCore = g_mqttLoopCore;
+  snapshot.outQueuedCount = g_mqttOutQueuedCount;
+  snapshot.outDropCount = g_mqttOutDropCount;
+  snapshot.outHighWater = g_mqttOutHighWater;
+  snapshot.connectCount = g_mqttConnectCount;
+  snapshot.lostCount = g_mqttLostCount;
+  snapshot.loopClosedCount = g_mqttLoopClosedCount;
+  snapshot.publishFailCount = g_mqttPublishFailCount;
+  snapshot.securePublishFailCount = g_mqttSecurePublishFailCount;
+  snapshot.scriptOutPublishFailCount = g_mqttScriptOutPublishFailCount;
+  snapshot.helloPublishFailCount = g_mqttHelloPublishFailCount;
+  snapshot.lastLostMs = g_mqttLastLostMs;
+  snapshot.lastLoopClosedMs = g_mqttLastLoopClosedMs;
+  snapshot.lastPublishFailMs = g_mqttLastPublishFailMs;
+  snapshot.secureFrameBuffer = g_mqttSecureFrameBuffer;
+  snapshot.eventBatchBuffer = g_mqttEventBatchBuffer;
+  return snapshot;
+}
+
 String mqttTransportStatusJson() {
+  P1MqttTransportSnapshot snapshot = mqttTransportSnapshot();
   String out = "{";
-  out += "\"enabled\":true";
-  out += ",\"configured\":" + String(configMqttEnabled() ? "true" : "false");
-  out += ",\"connected\":" + String(mqttTransportConnected() ? "true" : "false");
-  out += ",\"begun\":" + String(g_mqttBegun ? "true" : "false");
-  out += ",\"queueAllocated\":" + String(g_mqttOutQueue ? "true" : "false");
-  out += ",\"host\":" + jsonString(configMqttHost());
-  out += ",\"port\":" + String(configMqttPort());
-  out += ",\"root\":" + jsonString(configMqttRoot());
-  out += ",\"deviceId\":" + jsonString(g_mqttDeviceId);
-  out += ",\"cmd\":" + jsonString(g_mqttCmdTopicPrefix);
-  out += ",\"evt\":" + jsonString(g_mqttEvtTopic);
-  out += ",\"scriptIn\":" + jsonString(g_mqttScriptInTopic);
-  out += ",\"scriptOut\":" + jsonString(g_mqttScriptOutTopic);
-  out += ",\"authRequired\":" + String(mqttAuthRequired() ? "true" : "false");
-  out += ",\"onlineAuthUsers\":" + String(configOnlineAuthUserCount());
-  out += ",\"anonymousUi\":" + String(configMqttAllowAnonymousUi() ? "true" : "false");
-  out += ",\"anonymousScript\":" + String(configMqttAllowAnonymousScript() ? "true" : "false");
-  out += ",\"guestUiKeySet\":" + String(configMqttGuestUiKey().length() >= 16 ? "true" : "false");
-  out += ",\"ownerCore\":" + String(g_mqttOwnerCore);
-  out += ",\"loopCore\":" + String(g_mqttLoopCore);
-  out += ",\"outQueuedCount\":" + String(g_mqttOutQueuedCount);
-  out += ",\"outDropCount\":" + String(g_mqttOutDropCount);
-  out += ",\"outHighWater\":" + String(g_mqttOutHighWater);
-  out += ",\"connectCount\":" + String(g_mqttConnectCount);
-  out += ",\"lostCount\":" + String(g_mqttLostCount);
-  out += ",\"loopClosedCount\":" + String(g_mqttLoopClosedCount);
-  out += ",\"publishFailCount\":" + String(g_mqttPublishFailCount);
-  out += ",\"securePublishFailCount\":" + String(g_mqttSecurePublishFailCount);
-  out += ",\"scriptOutPublishFailCount\":" + String(g_mqttScriptOutPublishFailCount);
-  out += ",\"helloPublishFailCount\":" + String(g_mqttHelloPublishFailCount);
-  out += ",\"lastLostMs\":" + String(g_mqttLastLostMs);
-  out += ",\"lastLoopClosedMs\":" + String(g_mqttLastLoopClosedMs);
-  out += ",\"lastPublishFailMs\":" + String(g_mqttLastPublishFailMs);
-  out += ",\"secureFrameBuffer\":" + p1ReusableBufferStatusJson(g_mqttSecureFrameBuffer);
-  out += ",\"eventBatchBuffer\":" + p1ReusableBufferStatusJson(g_mqttEventBatchBuffer);
+  out += "\"enabled\":" + String(snapshot.enabled ? "true" : "false");
+  out += ",\"configured\":" + String(snapshot.configured ? "true" : "false");
+  out += ",\"connected\":" + String(snapshot.connected ? "true" : "false");
+  out += ",\"begun\":" + String(snapshot.begun ? "true" : "false");
+  out += ",\"queueAllocated\":" + String(snapshot.queueAllocated ? "true" : "false");
+  out += ",\"host\":" + jsonString(snapshot.host);
+  out += ",\"port\":" + String(snapshot.port);
+  out += ",\"root\":" + jsonString(snapshot.root);
+  out += ",\"deviceId\":" + jsonString(snapshot.deviceId);
+  out += ",\"cmd\":" + jsonString(snapshot.cmd);
+  out += ",\"evt\":" + jsonString(snapshot.evt);
+  out += ",\"scriptIn\":" + jsonString(snapshot.scriptIn);
+  out += ",\"scriptOut\":" + jsonString(snapshot.scriptOut);
+  out += ",\"authRequired\":" + String(snapshot.authRequired ? "true" : "false");
+  out += ",\"onlineAuthUsers\":" + String(snapshot.onlineAuthUsers);
+  out += ",\"anonymousUi\":" + String(snapshot.anonymousUi ? "true" : "false");
+  out += ",\"anonymousScript\":" + String(snapshot.anonymousScript ? "true" : "false");
+  out += ",\"guestUiKeySet\":" + String(snapshot.guestUiKeySet ? "true" : "false");
+  out += ",\"ownerCore\":" + String(snapshot.ownerCore);
+  out += ",\"loopCore\":" + String(snapshot.loopCore);
+  out += ",\"outQueuedCount\":" + String(snapshot.outQueuedCount);
+  out += ",\"outDropCount\":" + String(snapshot.outDropCount);
+  out += ",\"outHighWater\":" + String(snapshot.outHighWater);
+  out += ",\"connectCount\":" + String(snapshot.connectCount);
+  out += ",\"lostCount\":" + String(snapshot.lostCount);
+  out += ",\"loopClosedCount\":" + String(snapshot.loopClosedCount);
+  out += ",\"publishFailCount\":" + String(snapshot.publishFailCount);
+  out += ",\"securePublishFailCount\":" + String(snapshot.securePublishFailCount);
+  out += ",\"scriptOutPublishFailCount\":" + String(snapshot.scriptOutPublishFailCount);
+  out += ",\"helloPublishFailCount\":" + String(snapshot.helloPublishFailCount);
+  out += ",\"lastLostMs\":" + String(snapshot.lastLostMs);
+  out += ",\"lastLoopClosedMs\":" + String(snapshot.lastLoopClosedMs);
+  out += ",\"lastPublishFailMs\":" + String(snapshot.lastPublishFailMs);
+  out += ",\"secureFrameBuffer\":" + p1ReusableBufferStatusJson(snapshot.secureFrameBuffer);
+  out += ",\"eventBatchBuffer\":" + p1ReusableBufferStatusJson(snapshot.eventBatchBuffer);
   out += "}";
   return out;
 }
@@ -1041,7 +1098,9 @@ void mqttTransportLoop() {}
 void mqttTransportSendBytes(const uint8_t*, size_t) {}
 void mqttTransportSendScriptText(const String&, bool) {}
 bool mqttTransportConnected() { return false; }
+P1MqttTransportSnapshot mqttTransportSnapshot() { return P1MqttTransportSnapshot(); }
 String mqttTransportStatusJson() { return "{\"enabled\":false,\"connected\":false}"; }
 void mqttTransportApplyConfig() {}
+void mqttTransportRequestApplyConfig() {}
 void mqttTransportPrepareMemoryPressure() {}
 #endif

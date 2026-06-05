@@ -1,4 +1,4 @@
-export const P1_MSGPACK_VERSION = "0.1.87-ui335";
+export const P1_MSGPACK_VERSION = "0.1.87-ui343";
 
 const FRAME_CMD = 0;
 const FRAME_RES = 1;
@@ -8,6 +8,9 @@ const FRAME_BATCH = 3;
 const OPS = {
   ping: 1,
   "status.light": 2,
+  "status.get": 15,
+  "status.full": 16,
+  "status.live": 17,
   "system.info": 3,
   "config.get": 4,
   "config.set": 5,
@@ -33,6 +36,7 @@ const OPS = {
   "firmware.update.prepare": 41,
   "firmware.update.boot": 42,
   "firmware.update.clear": 43,
+  "protocol.mode": 60,
 };
 
 export function canEncodeCommand(name) {
@@ -50,6 +54,7 @@ export function encodeCommand(id, name, data = {}) {
   if (name === "script.chunk.get") return encodeScriptChunkGet(id, op, data);
   if (name === "firmware.update.prepare") return encodeFirmwareUpdatePrepare(id, op, data);
   if (name === "wifi.forget") return encodeWifiForget(id, op, data);
+  if (name === "protocol.mode") return encodeProtocolMode(id, op, data);
   const guestKey = guestKeyFromData(data);
   const writer = new MsgPackWriter(guestKey ? 80 : 32);
   writer.array(guestKey ? 4 : 3);
@@ -105,6 +110,16 @@ function encodeConfigSet(id, op, data = {}) {
   writer.string(data.mqttGuestUiKey || "");
   writer.bool(Object.prototype.hasOwnProperty.call(data, "revisionId"));
   writer.string(data.revisionId || "");
+  return writer.bytes();
+}
+
+function encodeProtocolMode(id, op, data = {}) {
+  const writer = new MsgPackWriter(48);
+  writer.array(4);
+  writer.uint(FRAME_CMD);
+  writer.uint(Number(id));
+  writer.uint(op);
+  writer.string(data.mode || "json");
   return writer.bytes();
 }
 

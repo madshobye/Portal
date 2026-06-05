@@ -274,20 +274,38 @@ String httpFetchLastError() {
   return g_httpLastError;
 }
 
+P1HttpFetchStatusSnapshot httpFetchStatusSnapshot() {
+  P1HttpFetchStatusSnapshot snapshot;
+  snapshot.lastCode = g_httpLastCode;
+  snapshot.lastTruncated = g_httpLastTruncated;
+  snapshot.lastError = g_httpLastError;
+  snapshot.lastMessage = g_httpLastMessage;
+  snapshot.lastDetails = g_httpLastDetails;
+  snapshot.lastBodyBytes = g_httpLastBody.length();
+  snapshot.lastSecure = g_httpLastSecure;
+  snapshot.lastDurationMs = g_httpLastDurationMs;
+  snapshot.maxResponseBytes = P1_EMBED_HTTP_MAX_RESPONSE_BYTES;
+  snapshot.defaultTimeoutMs = P1_EMBED_HTTP_DEFAULT_TIMEOUT_MS;
+  snapshot.tlsInsecureDefault = P1_EMBED_HTTP_TLS_INSECURE_DEFAULT;
+  snapshot.failuresAreScriptErrors = P1_EMBED_HTTP_FAILURES_ARE_SCRIPT_ERRORS;
+  return snapshot;
+}
+
 String httpFetchStatusJson() {
+  P1HttpFetchStatusSnapshot snapshot = httpFetchStatusSnapshot();
   String out = "{";
-  out += "\"lastCode\":" + String(g_httpLastCode);
-  out += ",\"lastTruncated\":" + String(g_httpLastTruncated ? "true" : "false");
-  out += ",\"lastError\":" + jsonString(g_httpLastError);
-  out += ",\"lastMessage\":" + jsonString(g_httpLastMessage);
-  out += ",\"lastDetails\":{" + g_httpLastDetails + "}";
-  out += ",\"lastBodyBytes\":" + String(g_httpLastBody.length());
-  out += ",\"lastSecure\":" + String(g_httpLastSecure ? "true" : "false");
-  out += ",\"lastDurationMs\":" + String(g_httpLastDurationMs);
-  out += ",\"maxResponseBytes\":" + String(P1_EMBED_HTTP_MAX_RESPONSE_BYTES);
-  out += ",\"defaultTimeoutMs\":" + String(P1_EMBED_HTTP_DEFAULT_TIMEOUT_MS);
-  out += ",\"tlsInsecureDefault\":" + String(P1_EMBED_HTTP_TLS_INSECURE_DEFAULT ? "true" : "false");
-  out += ",\"failuresAreScriptErrors\":" + String(P1_EMBED_HTTP_FAILURES_ARE_SCRIPT_ERRORS ? "true" : "false");
+  out += "\"lastCode\":" + String(snapshot.lastCode);
+  out += ",\"lastTruncated\":" + String(snapshot.lastTruncated ? "true" : "false");
+  out += ",\"lastError\":" + jsonString(snapshot.lastError);
+  out += ",\"lastMessage\":" + jsonString(snapshot.lastMessage);
+  out += ",\"lastDetails\":{" + snapshot.lastDetails + "}";
+  out += ",\"lastBodyBytes\":" + String(snapshot.lastBodyBytes);
+  out += ",\"lastSecure\":" + String(snapshot.lastSecure ? "true" : "false");
+  out += ",\"lastDurationMs\":" + String(snapshot.lastDurationMs);
+  out += ",\"maxResponseBytes\":" + String(snapshot.maxResponseBytes);
+  out += ",\"defaultTimeoutMs\":" + String(snapshot.defaultTimeoutMs);
+  out += ",\"tlsInsecureDefault\":" + String(snapshot.tlsInsecureDefault ? "true" : "false");
+  out += ",\"failuresAreScriptErrors\":" + String(snapshot.failuresAreScriptErrors ? "true" : "false");
   out += "}";
   return out;
 }

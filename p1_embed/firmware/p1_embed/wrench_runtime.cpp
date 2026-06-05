@@ -58,21 +58,6 @@ static uint8_t g_wrenchLoopDebugMarkers = 0;
 static uint8_t g_wrenchConsecutiveErrorLoops = 0;
 static P1ReusableBuffer g_wrenchCompileSourceBuffer;
 
-struct P1WrenchAllocStats {
-  uint32_t allocCount = 0;
-  uint32_t freeCount = 0;
-  uint32_t failCount = 0;
-  uint32_t externalFreeCount = 0;
-  uint32_t requestedBytes = 0;
-  uint32_t allocatedBytes = 0;
-  uint32_t freedBytes = 0;
-  uint32_t activeBytes = 0;
-  uint32_t highWaterBytes = 0;
-  uint32_t largestRequest = 0;
-  uint32_t largestAllocated = 0;
-  uint32_t failedRequest = 0;
-};
-
 static portMUX_TYPE g_wrenchAllocStatsMux = portMUX_INITIALIZER_UNLOCKED;
 static bool g_wrenchAllocatorInstalled = false;
 static P1WrenchAllocStats g_wrenchAllocStats;
@@ -216,24 +201,6 @@ static P1WrenchAllocStats wrenchAllocStatsSnapshot() {
   stats = g_wrenchAllocStats;
   portEXIT_CRITICAL(&g_wrenchAllocStatsMux);
   return stats;
-}
-
-static String wrenchAllocStatsJson(const P1WrenchAllocStats& stats) {
-  String out = "{";
-  out += "\"allocs\":" + String(stats.allocCount);
-  out += ",\"frees\":" + String(stats.freeCount);
-  out += ",\"fails\":" + String(stats.failCount);
-  out += ",\"externalFrees\":" + String(stats.externalFreeCount);
-  out += ",\"requestedBytes\":" + String(stats.requestedBytes);
-  out += ",\"allocatedBytes\":" + String(stats.allocatedBytes);
-  out += ",\"freedBytes\":" + String(stats.freedBytes);
-  out += ",\"activeBytes\":" + String(stats.activeBytes);
-  out += ",\"highWaterBytes\":" + String(stats.highWaterBytes);
-  out += ",\"largestRequest\":" + String(stats.largestRequest);
-  out += ",\"largestAllocated\":" + String(stats.largestAllocated);
-  out += ",\"failedRequest\":" + String(stats.failedRequest);
-  out += "}";
-  return out;
 }
 
 static void wrenchEmitCompileAllocTrace(const char* marker, const P1WrenchAllocStats& stats) {
@@ -658,25 +625,24 @@ void wrenchRuntimePoll() {
   }
 }
 
-String wrenchRuntimeStatusJson() {
+P1WrenchRuntimeSnapshot wrenchRuntimeSnapshot() {
+  P1WrenchRuntimeSnapshot snapshot;
   uint8_t depth = g_wrenchTransitionDepth;
-  uint32_t pausedMs = depth ? millis() - g_wrenchTransitionStartedAt : 0;
-  String out = "{";
-  out += "\"phase\":" + jsonString(wrenchPhaseName((P1WrenchPhase)g_wrenchPhase));
-  out += ",\"transitionActive\":" + String(depth ? "true" : "false");
-  out += ",\"transitionDepth\":" + String(depth);
-  out += ",\"transitionReason\":" + jsonString(g_wrenchTransitionReason);
-  out += ",\"transitionMs\":" + String(pausedMs);
-  out += ",\"transitionRecoveries\":" + String(g_wrenchTransitionRecoveries);
-  out += ",\"runPending\":" + String(g_wrenchRunPending ? "true" : "false");
-  out += ",\"bytecodeBytes\":" + String(g_bytecodeLen);
-  out += ",\"taskTargetCore\":" + String(P1_EMBED_WRENCH_TASK_CORE);
-  out += ",\"taskCore\":" + String(g_wrenchTaskCore);
-  out += ",\"compileTargetCore\":" + String(P1_EMBED_WRENCH_COMPILE_TASK_CORE);
-  out += ",\"compileSourceBuffer\":" + p1ReusableBufferStatusJson(g_wrenchCompileSourceBuffer);
-  out += ",\"lastCompileAlloc\":" + wrenchAllocStatsJson(g_lastCompileAllocStats);
-  out += "}";
-  return out;
+  snapshot.phase = wrenchPhaseName((P1WrenchPhase)g_wrenchPhase);
+  snapshot.transitionActive = depth > 0;
+  snapshot.transitionDepth = depth;
+  strncpy(snapshot.transitionReason, g_wrenchTransitionReason, sizeof(snapshot.transitionReason) - 1);
+  snapshot.transitionReason[sizeof(snapshot.transitionReason) - 1] = '\0';
+  snapshot.transitionMs = depth ? millis() - g_wrenchTransitionStartedAt : 0;
+  snapshot.transitionRecoveries = g_wrenchTransitionRecoveries;
+  snapshot.runPending = g_wrenchRunPending;
+  snapshot.bytecodeBytes = g_bytecodeLen;
+  snapshot.taskTargetCore = P1_EMBED_WRENCH_TASK_CORE;
+  snapshot.taskCore = g_wrenchTaskCore;
+  snapshot.compileTargetCore = P1_EMBED_WRENCH_COMPILE_TASK_CORE;
+  snapshot.compileSourceBuffer = g_wrenchCompileSourceBuffer;
+  snapshot.lastCompileAlloc = g_lastCompileAllocStats;
+  return snapshot;
 }
 
 uint32_t wrenchTaskStackHighWater() {

@@ -1,4 +1,4 @@
-import { MsgPackReader, MsgPackWriter } from "./P1MsgPack.js?v=0.1.87-ui335";
+import { MsgPackReader, MsgPackWriter } from "./P1MsgPack.js?v=0.1.87-ui343";
 
 const DEFAULT_MQTT_ROOT = "";
 const FRAME_AUTH = 3;
@@ -9,7 +9,7 @@ const AUTH_FINISH = 2;
 const AUTH_OK = 3;
 const AUTH_ERROR = 4;
 
-export const MQTT_TRANSPORT_VERSION = "0.1.87-ui335";
+export const MQTT_TRANSPORT_VERSION = "0.1.87-ui343";
 
 console.info(`[P1E mqtt] loaded ${MQTT_TRANSPORT_VERSION}`);
 
@@ -361,7 +361,6 @@ export class MqttTransport extends EventTarget {
           return;
         }
         if (code === "auth_failed" || code === "unknown_user") {
-          clearOnlineAuthKey(this.remoteId);
           this.auth = null;
           this.clearSession();
         }
@@ -587,6 +586,12 @@ function loadStoredAuth(remoteId) {
   } catch {
     return null;
   }
+}
+
+export function getStoredOnlineAuth(remoteId) {
+  const auth = loadStoredAuth(remoteId);
+  if (!auth?.username || !auth?.keyHex) return null;
+  return { username: auth.username, keyHex: auth.keyHex };
 }
 
 export async function deriveOnlineAuthKeyHex(deviceId, username, password) {

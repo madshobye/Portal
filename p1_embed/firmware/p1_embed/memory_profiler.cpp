@@ -113,21 +113,42 @@ static bool memoryProfileReadSample(uint16_t chronologicalIndex, MemoryProfileSa
   return true;
 }
 
+P1MemoryProfileSummary memoryProfileSummarySnapshot() {
+  P1MemoryProfileSummary snapshot;
+  snapshot.enabled = true;
+  snapshot.capacity = P1_EMBED_MEMORY_PROFILE_SAMPLES;
+  snapshot.staticBytes = sizeof(g_memoryProfileSamples);
+  snapshot.currentFreeHeap = ESP.getFreeHeap();
+  snapshot.currentMaxAllocHeap = ESP.getMaxAllocHeap();
+  snapshot.currentMinFreeHeap = ESP.getMinFreeHeap();
+
+  portENTER_CRITICAL(&g_memoryProfileMux);
+  snapshot.samples = g_memoryProfileCount;
+  snapshot.baseFreeHeap = g_memoryProfileBaseFree;
+  snapshot.baseMaxAllocHeap = g_memoryProfileBaseMaxAlloc;
+  snapshot.worstFreeHeap = g_memoryProfileWorstFree == UINT32_MAX ? 0 : g_memoryProfileWorstFree;
+  snapshot.worstMaxAllocHeap = g_memoryProfileWorstMaxAlloc == UINT32_MAX ? 0 : g_memoryProfileWorstMaxAlloc;
+  portEXIT_CRITICAL(&g_memoryProfileMux);
+
+  return snapshot;
+}
+
 String memoryProfileSummaryJson() {
+  P1MemoryProfileSummary snapshot = memoryProfileSummarySnapshot();
   String out;
   out.reserve(420);
   out += "{";
   out += "\"enabled\":true";
-  out += ",\"capacity\":" + String(P1_EMBED_MEMORY_PROFILE_SAMPLES);
-  out += ",\"samples\":" + String(g_memoryProfileCount);
-  out += ",\"staticBytes\":" + String(sizeof(g_memoryProfileSamples));
-  out += ",\"baseFreeHeap\":" + String(g_memoryProfileBaseFree);
-  out += ",\"baseMaxAllocHeap\":" + String(g_memoryProfileBaseMaxAlloc);
-  out += ",\"currentFreeHeap\":" + String(ESP.getFreeHeap());
-  out += ",\"currentMaxAllocHeap\":" + String(ESP.getMaxAllocHeap());
-  out += ",\"currentMinFreeHeap\":" + String(ESP.getMinFreeHeap());
-  out += ",\"worstFreeHeap\":" + String(g_memoryProfileWorstFree == UINT32_MAX ? 0 : g_memoryProfileWorstFree);
-  out += ",\"worstMaxAllocHeap\":" + String(g_memoryProfileWorstMaxAlloc == UINT32_MAX ? 0 : g_memoryProfileWorstMaxAlloc);
+  out += ",\"capacity\":" + String(snapshot.capacity);
+  out += ",\"samples\":" + String(snapshot.samples);
+  out += ",\"staticBytes\":" + String(snapshot.staticBytes);
+  out += ",\"baseFreeHeap\":" + String(snapshot.baseFreeHeap);
+  out += ",\"baseMaxAllocHeap\":" + String(snapshot.baseMaxAllocHeap);
+  out += ",\"currentFreeHeap\":" + String(snapshot.currentFreeHeap);
+  out += ",\"currentMaxAllocHeap\":" + String(snapshot.currentMaxAllocHeap);
+  out += ",\"currentMinFreeHeap\":" + String(snapshot.currentMinFreeHeap);
+  out += ",\"worstFreeHeap\":" + String(snapshot.worstFreeHeap);
+  out += ",\"worstMaxAllocHeap\":" + String(snapshot.worstMaxAllocHeap);
   out += "}";
   return out;
 }
@@ -183,6 +204,9 @@ String memoryProfileJson(int limit) {
 void memoryProfileBegin() {}
 void memoryProfileReset() {}
 void memoryProfileMark(const char* component, const char* phase) {}
+P1MemoryProfileSummary memoryProfileSummarySnapshot() {
+  return P1MemoryProfileSummary();
+}
 String memoryProfileSummaryJson() {
   return "{\"enabled\":false}";
 }

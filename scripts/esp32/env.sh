@@ -105,6 +105,7 @@ if [[ -z "${ARDUINO_CLI:-}" ]]; then
 fi
 ESP32_PORT="${ESP32_PORT:-/dev/cu.wchusbserial5B5E1092281}"
 ESP32_FQBN="${ESP32_FQBN:-esp32:esp32:esp32s3:FlashSize=8M,PartitionScheme=default_8MB,PSRAM=opi}"
+ESP32_UPLOAD_BAUD="${ESP32_UPLOAD_BAUD:-${ESP32_BAUD:-921600}}"
 ESP32_BAUD="${ESP32_BAUD:-115200}"
 
 SKETCH_DIR="${SKETCH_DIR:-${PORTAL_ROOT}/ArduinoExamples/printhost}"

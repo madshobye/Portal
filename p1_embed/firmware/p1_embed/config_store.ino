@@ -646,23 +646,28 @@ void configSetMqttGuestUiKey(const String& value) {
   g_mqttGuestUiKey = configNormalizeGuestKey(value);
 }
 
-bool configAddOnlineAuthUserKey(const String& username, const String& keyHex) {
+P1OnlineAuthUserAddResult configAddOnlineAuthUserKeyChecked(const String& username, const String& keyHex) {
   String user = username;
   String key = keyHex;
   user.trim();
   key.trim();
   key.toLowerCase();
   uint8_t parsed[32];
-  if (!user.length() || !configHexToBytes(key, parsed, sizeof(parsed))) return false;
+  if (!user.length()) return P1_ONLINE_AUTH_USER_EMPTY_NAME;
+  if (!configHexToBytes(key, parsed, sizeof(parsed))) return P1_ONLINE_AUTH_USER_BAD_KEY;
 
   int index = configFindOnlineAuthUser(user);
   if (index < 0) {
-    if (g_onlineAuthUserCount >= P1_EMBED_MQTT_MAX_USERS) return false;
+    if (g_onlineAuthUserCount >= P1_EMBED_MQTT_MAX_USERS) return P1_ONLINE_AUTH_USER_LIMIT;
     index = g_onlineAuthUserCount++;
   }
   g_onlineAuthUsernames[index] = user;
   g_onlineAuthUserKeys[index] = key;
-  return true;
+  return P1_ONLINE_AUTH_USER_ADDED;
+}
+
+bool configAddOnlineAuthUserKey(const String& username, const String& keyHex) {
+  return configAddOnlineAuthUserKeyChecked(username, keyHex) == P1_ONLINE_AUTH_USER_ADDED;
 }
 
 bool configRemoveOnlineAuthUser(const String& username) {
@@ -798,6 +803,7 @@ P1ConfigSnapshot configSnapshot() {
   snapshot.mqttGuestUiKey = configMqttGuestUiKey();
   snapshot.mqttGuestUiKeySet = snapshot.mqttGuestUiKey.length() >= 16;
   snapshot.onlineAuthUserCount = configOnlineAuthUserCount();
+  snapshot.onlineAuthUserMax = P1_EMBED_MQTT_MAX_USERS;
   snapshot.wifi = wifiSnapshot();
   return snapshot;
 }
@@ -825,6 +831,7 @@ String configAsJson(const P1ConfigSnapshot& snapshot) {
   out += ",\"mqttGuestUiKeySet\":" + String(snapshot.mqttGuestUiKeySet ? "true" : "false");
   out += ",\"mqttGuestUiKey\":" + jsonString(snapshot.mqttGuestUiKey);
   out += ",\"onlineAuthUserCount\":" + String(snapshot.onlineAuthUserCount);
+  out += ",\"onlineAuthUserMax\":" + String(snapshot.onlineAuthUserMax);
   out += ",\"onlineAuthUsers\":[";
   for (int i = 0; i < g_onlineAuthUserCount; i++) {
     if (i) out += ",";

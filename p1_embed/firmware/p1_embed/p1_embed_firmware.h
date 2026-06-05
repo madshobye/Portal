@@ -39,7 +39,15 @@ struct P1ConfigSnapshot {
   bool mqttGuestUiKeySet = false;
   String mqttGuestUiKey;
   int onlineAuthUserCount = 0;
+  int onlineAuthUserMax = P1_EMBED_MQTT_MAX_USERS;
   P1WifiSnapshot wifi;
+};
+
+enum P1OnlineAuthUserAddResult : uint8_t {
+  P1_ONLINE_AUTH_USER_ADDED = 0,
+  P1_ONLINE_AUTH_USER_EMPTY_NAME,
+  P1_ONLINE_AUTH_USER_BAD_KEY,
+  P1_ONLINE_AUTH_USER_LIMIT
 };
 
 struct P1DebugSnapshot {
@@ -75,6 +83,18 @@ struct P1ScriptSnapshot {
   float loopFps = 0.0f;
   bool loopHung = false;
   uint32_t taskStackHighWater = 0;
+};
+
+struct P1ScriptChunkGetResponse {
+  uint32_t offset = 0;
+  uint32_t nextOffset = 0;
+  uint32_t scriptBytes = 0;
+  bool done = true;
+  String chunk;
+  const char* state = "empty";
+  const char* runState = "ok";
+  String revisionId;
+  String scriptName;
 };
 
 struct P1StatusSnapshot {
@@ -115,6 +135,174 @@ struct P1ReusableBufferHandle {
   bool temporary = false;
 };
 
+struct P1MemoryProfileSummary {
+  bool enabled = false;
+  uint16_t capacity = 0;
+  uint16_t samples = 0;
+  uint32_t staticBytes = 0;
+  uint32_t baseFreeHeap = 0;
+  uint32_t baseMaxAllocHeap = 0;
+  uint32_t currentFreeHeap = 0;
+  uint32_t currentMaxAllocHeap = 0;
+  uint32_t currentMinFreeHeap = 0;
+  uint32_t worstFreeHeap = 0;
+  uint32_t worstMaxAllocHeap = 0;
+};
+
+struct P1WrenchAllocStats {
+  uint32_t allocCount = 0;
+  uint32_t freeCount = 0;
+  uint32_t failCount = 0;
+  uint32_t externalFreeCount = 0;
+  uint32_t requestedBytes = 0;
+  uint32_t allocatedBytes = 0;
+  uint32_t freedBytes = 0;
+  uint32_t activeBytes = 0;
+  uint32_t highWaterBytes = 0;
+  uint32_t largestRequest = 0;
+  uint32_t largestAllocated = 0;
+  uint32_t failedRequest = 0;
+};
+
+struct P1WrenchRuntimeSnapshot {
+  const char* phase = "unknown";
+  bool transitionActive = false;
+  uint8_t transitionDepth = 0;
+  char transitionReason[40] = {0};
+  uint32_t transitionMs = 0;
+  uint32_t transitionRecoveries = 0;
+  bool runPending = false;
+  uint32_t bytecodeBytes = 0;
+  int taskTargetCore = 0;
+  int taskCore = -1;
+  int compileTargetCore = 0;
+  P1ReusableBuffer compileSourceBuffer;
+  P1WrenchAllocStats lastCompileAlloc;
+};
+
+struct P1WebTransportSnapshot {
+  bool enabled = false;
+  bool started = false;
+  uint16_t port = 0;
+  uint8_t clients = 0;
+  bool mdns = false;
+  String host;
+};
+
+struct P1MqttTransportSnapshot {
+  bool enabled = false;
+  bool configured = false;
+  bool connected = false;
+  bool begun = false;
+  bool queueAllocated = false;
+  String host;
+  uint16_t port = 0;
+  String root;
+  String deviceId;
+  String cmd;
+  String evt;
+  String scriptIn;
+  String scriptOut;
+  bool authRequired = false;
+  uint16_t onlineAuthUsers = 0;
+  bool anonymousUi = false;
+  bool anonymousScript = false;
+  bool guestUiKeySet = false;
+  int ownerCore = -1;
+  int loopCore = -1;
+  uint32_t outQueuedCount = 0;
+  uint32_t outDropCount = 0;
+  uint32_t outHighWater = 0;
+  uint32_t connectCount = 0;
+  uint32_t lostCount = 0;
+  uint32_t loopClosedCount = 0;
+  uint32_t publishFailCount = 0;
+  uint32_t securePublishFailCount = 0;
+  uint32_t scriptOutPublishFailCount = 0;
+  uint32_t helloPublishFailCount = 0;
+  uint32_t lastLostMs = 0;
+  uint32_t lastLoopClosedMs = 0;
+  uint32_t lastPublishFailMs = 0;
+  P1ReusableBuffer secureFrameBuffer;
+  P1ReusableBuffer eventBatchBuffer;
+};
+
+struct P1WebRtcTransportSnapshot {
+  bool enabled = false;
+  bool started = false;
+  bool peerOpen = false;
+  bool dataChannelOpen = false;
+  bool signalingParked = false;
+  const char* peerState = "";
+  String peerId;
+  String remoteId;
+  const char* signaling = "";
+  String host;
+  String root;
+  uint16_t port = 0;
+  bool secure = false;
+  uint32_t sendDrops = 0;
+  uint32_t recvDrops = 0;
+  uint32_t signalDrops = 0;
+  uint32_t connectFailures = 0;
+  char lastSocketReason[96] = {0};
+  bool suspended = false;
+  bool scriptSuspended = false;
+};
+
+struct P1LedStripSnapshot {
+  uint8_t strip = 0;
+  bool ready = false;
+  int pin = -1;
+  uint16_t count = 0;
+  uint16_t capacity = 0;
+  uint8_t brightness = 0;
+  const char* chipset = "";
+  const char* order = "";
+};
+
+struct P1LedStatusSnapshot {
+  bool available = false;
+  bool ready = false;
+  uint8_t stripCount = 0;
+  uint16_t totalLeds = 0;
+  uint16_t maxLeds = 0;
+  uint8_t maxStrips = 0;
+  const char* driver = "";
+  const char* chipset = "";
+  const char* order = "";
+  P1LedStripSnapshot strips[P1_EMBED_MAX_LED_STRIPS];
+};
+
+struct P1UartPortSnapshot {
+  uint8_t uart = 0;
+  bool active = false;
+  int rx = -1;
+  int tx = -1;
+  uint32_t baud = 0;
+  uint32_t available = 0;
+};
+
+struct P1UartStatusSnapshot {
+  P1UartPortSnapshot ports[2];
+  uint8_t portCount = 0;
+};
+
+struct P1HttpFetchStatusSnapshot {
+  int lastCode = 0;
+  bool lastTruncated = false;
+  String lastError;
+  String lastMessage;
+  String lastDetails;
+  uint32_t lastBodyBytes = 0;
+  bool lastSecure = false;
+  uint32_t lastDurationMs = 0;
+  uint32_t maxResponseBytes = 0;
+  uint32_t defaultTimeoutMs = 0;
+  bool tlsInsecureDefault = false;
+  bool failuresAreScriptErrors = false;
+};
+
 bool p1ReusableBufferAcquire(P1ReusableBuffer& buffer, size_t needed, size_t retainMin, size_t retainMax, P1ReusableBufferHandle& handle);
 void p1ReusableBufferReleaseHandle(P1ReusableBuffer& buffer, P1ReusableBufferHandle& handle);
 void p1ReusableBufferMaintain(P1ReusableBuffer& buffer, size_t retainMin, size_t retainMax, uint32_t idleMs);
@@ -124,16 +312,21 @@ String p1ReusableBufferStatusJson(const P1ReusableBuffer& buffer);
 void transportSerialBegin();
 void transportSerialPoll();
 void transportSendRaw(const char* data);
+void transportSendMsgPackBytes(const uint8_t* data, size_t len);
+bool transportSerialMsgPackMode();
+void transportSerialSetMsgPackMode(bool enabled);
 void transportSendLine(const String& line);
 void webTransportBegin();
 void webTransportLoop();
 void webTransportSendLine(const String& line);
+P1WebTransportSnapshot webTransportSnapshot();
 String webTransportStatusJson();
 void webrtcTransportBegin();
 void webrtcTransportLoop();
 void webrtcTransportSendLine(const String& line);
 void webrtcTransportSendBytes(const uint8_t* data, size_t len);
 bool webrtcTransportDataChannelOpen();
+P1WebRtcTransportSnapshot webrtcTransportSnapshot();
 String webrtcTransportStatusJson();
 String webrtcTransportProbeJson();
 void mqttTransportBegin();
@@ -141,18 +334,21 @@ void mqttTransportLoop();
 void mqttTransportSendBytes(const uint8_t* data, size_t len);
 void mqttTransportSendScriptText(const String& message, bool newline);
 bool mqttTransportConnected();
+P1MqttTransportSnapshot mqttTransportSnapshot();
 String mqttTransportStatusJson();
 void mqttTransportApplyConfig();
+void mqttTransportRequestApplyConfig();
 void mqttTransportPrepareMemoryPressure();
 
 void memoryProfileBegin();
 void memoryProfileReset();
 void memoryProfileMark(const char* component, const char* phase);
+P1MemoryProfileSummary memoryProfileSummarySnapshot();
 String memoryProfileSummaryJson();
 String memoryProfileJson(int limit = P1_EMBED_MEMORY_PROFILE_DEFAULT_LIMIT);
 
-void protocolHandleLine(const char* line);
-void protocolHandleBytes(const uint8_t* data, size_t len);
+void protocolHandleLine(const char* line, P1ProtocolSource source = P1_PROTOCOL_SOURCE_SERIAL);
+void protocolHandleBytes(const uint8_t* data, size_t len, P1ProtocolSource source = P1_PROTOCOL_SOURCE_SERIAL);
 void protocolPollScriptJobs();
 bool protocolHandleScriptSetCode(const String& id, const String& code, bool runAfterSet, bool saveAfterSet, bool sendResponse = true);
 void protocolPrepareScriptUpload();
@@ -248,6 +444,7 @@ void configSetMqttAllowAnonymousUi(bool value);
 void configSetMqttAllowAnonymousScript(bool value);
 void configSetMqttGuestUiKey(const String& value);
 bool configAddOnlineAuthUserKey(const String& username, const String& keyHex);
+P1OnlineAuthUserAddResult configAddOnlineAuthUserKeyChecked(const String& username, const String& keyHex);
 bool configRemoveOnlineAuthUser(const String& username);
 int configOnlineAuthUserCount();
 String configOnlineAuthUserNameAt(int index);
@@ -334,7 +531,7 @@ uint32_t wrenchLockTimeoutCount();
 uint32_t wrenchTaskStackHighWater();
 void wrenchWatchdogPoll();
 void wrenchRuntimePoll();
-String wrenchRuntimeStatusJson();
+P1WrenchRuntimeSnapshot wrenchRuntimeSnapshot();
 void wrenchStop();
 void wrenchReleaseCompiledProgram();
 void wrenchBeginTransition(const String& reason);
@@ -413,6 +610,7 @@ int uartReadByte(int uart);
 String uartReadString(int uart, int maxLen);
 int uartWriteString(int uart, const String& value);
 int uartWriteByte(int uart, int value);
+P1UartStatusSnapshot uartStatusSnapshot();
 String uartStatusJson();
 
 String httpFetchGet(const String& url, int maxBytes, int timeoutMs);
@@ -429,6 +627,7 @@ bool httpFetchJsonValueBool(const String& path);
 int httpFetchLastCode();
 bool httpFetchLastTruncated();
 String httpFetchLastError();
+P1HttpFetchStatusSnapshot httpFetchStatusSnapshot();
 String httpFetchStatusJson();
 
 struct P1OtaRequest {
@@ -444,6 +643,28 @@ struct P1OtaRequest {
   uint32_t segmentSize = 0;
 };
 
+struct P1OtaSafeBootStatusSnapshot {
+  bool enabled = false;
+  bool updaterPartition = false;
+  String updaterLabel;
+  bool pending = false;
+  bool downloadPending = false;
+  String kind;
+  String phase;
+  String url;
+  bool sha256Set = false;
+  bool fromSha256Set = false;
+  bool toSha256Set = false;
+  String lastError;
+  uint32_t fromSize = 0;
+  uint32_t toSize = 0;
+  uint32_t patchSize = 0;
+  uint32_t memorySize = 0;
+  uint32_t segmentSize = 0;
+  bool restartPending = false;
+};
+
+P1OtaSafeBootStatusSnapshot otaSafeBootStatusSnapshot();
 String otaSafeBootStatusJson();
 bool otaSafeBootRequestUpdate(const P1OtaRequest& request, String& errOut);
 bool otaSafeBootRequestUpdate(const String& url, const String& sha256, String& errOut);
@@ -471,4 +692,5 @@ bool ledFill(int strip, int r, int g, int b);
 bool ledClear(int strip, bool show);
 bool ledClearAllPhysical(bool show);
 bool ledSetBrightness(int strip, int brightness);
+P1LedStatusSnapshot ledStatusSnapshot();
 String ledStatusJson();

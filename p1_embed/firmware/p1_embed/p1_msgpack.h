@@ -10,6 +10,35 @@ enum P1EventFieldType : uint8_t {
   P1_FIELD_RAW_JSON
 };
 
+struct P1StringView {
+  const char* data;
+  size_t len;
+
+  bool empty() const { return !data || len == 0; }
+};
+
+enum P1ProtocolReplyMode : uint8_t {
+  P1_REPLY_MSGPACK,
+  P1_REPLY_JSON
+};
+
+enum P1ProtocolSource : uint8_t {
+  P1_PROTOCOL_SOURCE_SERIAL,
+  P1_PROTOCOL_SOURCE_WEBSOCKET,
+  P1_PROTOCOL_SOURCE_MQTT,
+  P1_PROTOCOL_SOURCE_WEBRTC
+};
+
+struct P1FrameView {
+  const uint8_t* data = nullptr;
+  size_t len = 0;
+  uint32_t count = 0;
+  uint32_t frameType = 0;
+  uint32_t id = 0;
+  uint32_t op = 0;
+  size_t argsOffset = 0;
+};
+
 struct P1EventField {
   const char* key;
   P1EventFieldType type;
@@ -85,6 +114,7 @@ struct P1MsgPackWriter {
   }
 
   bool writeBool(bool value) { return writeByte(value ? 0xc3 : 0xc2); }
+  bool writeNil() { return writeByte(0xc0); }
 
   bool writeUInt(uint32_t value) {
     if (value <= 0x7f) return writeByte(value);
@@ -204,6 +234,16 @@ struct P1MsgPackReader {
   }
 
   bool readString(String& value) {
+    P1StringView view;
+    if (!readStringView(view)) return false;
+    value = "";
+    value.reserve(view.len);
+    for (size_t i = 0; i < view.len; i++) value += view.data[i];
+    return true;
+  }
+
+  bool readStringView(P1StringView& value) {
+    value = {nullptr, 0};
     uint8_t b = 0;
     if (!readByte(b)) return false;
     size_t len = 0;
@@ -221,9 +261,7 @@ struct P1MsgPackReader {
       return false;
     }
     if (offset + len > length) return false;
-    value = "";
-    value.reserve(len);
-    for (size_t i = 0; i < len; i++) value += char(data[offset + i]);
+    value = {reinterpret_cast<const char*>(data + offset), len};
     offset += len;
     return true;
   }

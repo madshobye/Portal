@@ -626,29 +626,55 @@ bool ledSetBrightness(int strip, int brightness) {
 }
 
 String ledStatusJson() {
+  P1LedStatusSnapshot snapshot = ledStatusSnapshot();
   String out = "{";
-  out += "\"available\":" + String(P1_EMBED_FASTLED_AVAILABLE ? "true" : "false");
-  out += ",\"ready\":" + String(g_activeStripCount > 0 ? "true" : "false");
-  out += ",\"stripCount\":" + String(g_activeStripCount);
-  out += ",\"totalLeds\":" + String(g_totalLedCount);
-  out += ",\"maxLeds\":" + String(P1_EMBED_FASTLED_MAX_LEDS);
-  out += ",\"maxStrips\":" + String(P1_EMBED_MAX_LED_STRIPS);
-  out += ",\"driver\":\"FastLED\"";
-  out += ",\"chipset\":\"WS2812B\"";
-  out += ",\"order\":\"configurable\"";
+  out += "\"available\":" + String(snapshot.available ? "true" : "false");
+  out += ",\"ready\":" + String(snapshot.ready ? "true" : "false");
+  out += ",\"stripCount\":" + String(snapshot.stripCount);
+  out += ",\"totalLeds\":" + String(snapshot.totalLeds);
+  out += ",\"maxLeds\":" + String(snapshot.maxLeds);
+  out += ",\"maxStrips\":" + String(snapshot.maxStrips);
+  out += ",\"driver\":" + jsonString(snapshot.driver);
+  out += ",\"chipset\":" + jsonString(snapshot.chipset);
+  out += ",\"order\":" + jsonString(snapshot.order);
   out += ",\"strips\":[";
-  for (int i = 0; i < g_activeStripCount; i++) {
+  for (int i = 0; i < snapshot.stripCount; i++) {
+    const P1LedStripSnapshot& strip = snapshot.strips[i];
     if (i) out += ",";
-    out += "{\"strip\":" + String(i);
-    out += ",\"ready\":" + String(g_ledStrips[i].ready ? "true" : "false");
-    out += ",\"pin\":" + String(g_ledStrips[i].pin);
-    out += ",\"count\":" + String(g_ledStrips[i].count);
-    out += ",\"capacity\":" + String(g_ledStrips[i].capacity);
-    out += ",\"brightness\":" + String(g_ledStrips[i].brightness);
-    out += ",\"chipset\":\"" + String(ledChipsetName(g_ledStrips[i].chipset)) + "\"";
-    out += ",\"order\":\"" + String(ledOrderName(g_ledStrips[i].order)) + "\"";
+    out += "{\"strip\":" + String(strip.strip);
+    out += ",\"ready\":" + String(strip.ready ? "true" : "false");
+    out += ",\"pin\":" + String(strip.pin);
+    out += ",\"count\":" + String(strip.count);
+    out += ",\"capacity\":" + String(strip.capacity);
+    out += ",\"brightness\":" + String(strip.brightness);
+    out += ",\"chipset\":" + jsonString(strip.chipset);
+    out += ",\"order\":" + jsonString(strip.order);
     out += "}";
   }
   out += "]}";
   return out;
+}
+
+P1LedStatusSnapshot ledStatusSnapshot() {
+  P1LedStatusSnapshot snapshot;
+  snapshot.available = P1_EMBED_FASTLED_AVAILABLE;
+  snapshot.ready = g_activeStripCount > 0;
+  snapshot.stripCount = constrain(g_activeStripCount, 0, P1_EMBED_MAX_LED_STRIPS);
+  snapshot.totalLeds = g_totalLedCount;
+  snapshot.maxLeds = P1_EMBED_FASTLED_MAX_LEDS;
+  snapshot.maxStrips = P1_EMBED_MAX_LED_STRIPS;
+  snapshot.driver = "FastLED";
+  snapshot.chipset = "WS2812B";
+  snapshot.order = "configurable";
+  for (int i = 0; i < snapshot.stripCount; i++) {
+    snapshot.strips[i].strip = i;
+    snapshot.strips[i].ready = g_ledStrips[i].ready;
+    snapshot.strips[i].pin = g_ledStrips[i].pin;
+    snapshot.strips[i].count = g_ledStrips[i].count;
+    snapshot.strips[i].capacity = g_ledStrips[i].capacity;
+    snapshot.strips[i].brightness = g_ledStrips[i].brightness;
+    snapshot.strips[i].chipset = ledChipsetName(g_ledStrips[i].chipset);
+    snapshot.strips[i].order = ledOrderName(g_ledStrips[i].order);
+  }
+  return snapshot;
 }

@@ -222,7 +222,7 @@ static void webTransportEvent(uint8_t num, int type, uint8_t* payload, size_t le
   String line;
   line.reserve(length);
   for (size_t i = 0; i < length; i++) line += (char)payload[i];
-  protocolHandleLine(line.c_str());
+  protocolHandleLine(line.c_str(), P1_PROTOCOL_SOURCE_WEBSOCKET);
 }
 
 void webTransportBegin() {
@@ -271,13 +271,25 @@ void webTransportSendLine(const String& line) {
 }
 
 String webTransportStatusJson() {
+  P1WebTransportSnapshot snapshot = webTransportSnapshot();
   String out = "{";
-  out += "\"enabled\":" + String(P1_EMBED_WS_ENABLED ? "true" : "false");
-  out += ",\"started\":" + String(g_wsStarted ? "true" : "false");
-  out += ",\"port\":" + String(P1_EMBED_WS_PORT);
-  out += ",\"clients\":" + String(g_wsClients);
-  out += ",\"mdns\":" + String(g_mdnsStarted ? "true" : "false");
-  out += ",\"host\":" + jsonString(g_mdnsStarted ? g_mdnsName + ".local" : webTransportHostName() + ".local");
+  out += "\"enabled\":" + String(snapshot.enabled ? "true" : "false");
+  out += ",\"started\":" + String(snapshot.started ? "true" : "false");
+  out += ",\"port\":" + String(snapshot.port);
+  out += ",\"clients\":" + String(snapshot.clients);
+  out += ",\"mdns\":" + String(snapshot.mdns ? "true" : "false");
+  out += ",\"host\":" + jsonString(snapshot.host);
   out += "}";
   return out;
+}
+
+P1WebTransportSnapshot webTransportSnapshot() {
+  P1WebTransportSnapshot snapshot;
+  snapshot.enabled = P1_EMBED_WS_ENABLED;
+  snapshot.started = g_wsStarted;
+  snapshot.port = P1_EMBED_WS_PORT;
+  snapshot.clients = g_wsClients;
+  snapshot.mdns = g_mdnsStarted;
+  snapshot.host = g_mdnsStarted ? g_mdnsName + ".local" : webTransportHostName() + ".local";
+  return snapshot;
 }
