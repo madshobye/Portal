@@ -146,7 +146,8 @@ Use Wrench case style:
 - Use top-level math helpers such as `map()`, `constrain()`, `sin()`, `cos()`, `sqrt()`, `pow()`, `floor()`, `ceil()`, `round()`, `abs()`, `min()`, `max()`, `radians()`, and `degrees()`.
 - Wrench's namespaced math library is also available as `math::...`, but generated sketches should prefer the top-level helpers.
 - `ledGetRgb(strip, index, out)`, `rgbToHsv(rgb, out)`, `hsvToRgb(hsv, out)` in hot LED loops.
-- `ledConfig(strip, pin, count, brightness)` defaults to `WS2812B`/`GRB`; `ledConfig(strip, pin, count, brightness, chipset, order)` supports `WS2812B`, `WS2812`, `WS2811`, `SK6812` and `RGB`, `RBG`, `GRB`, `GBR`, `BRG`, `BGR`.
+- `ledConfig(strip, pin, count, brightness)` configures a WS2812B/NeoPixel-style strip with default GRB packing.
+- `ledConfig(strip, pin, count, brightness, "WS2812B", order)` may be used only when the sketch needs explicit color order: `RGB`, `RBG`, `GRB`, `GBR`, `BRG`, or `BGR`. Do not generate non-WS2812B chipsets in normal sketches; extended chipset support is disabled in the default firmware to preserve RAM.
 - `paletteSet2/3/4` and `paletteGetRgb(slot, t, out)`.
 - `touchRead(pin)` is ESP32 one-pin touch.
 - `touchReadPair(drivePin, sensePin, samples, settleMicroseconds)` is the two-wire analog transfer touch helper.
@@ -166,7 +167,7 @@ The LED manager should fail gracefully:
 - Stopping a script should clear physical LEDs.
 - Repeated binding errors should stop the script instead of flooding the console.
 - If a sketch changes LED count on the same pin, it should reconfigure without reboot.
-- If a sketch changes LED pin or chipset, reboot may still be required. Color order changes are live because they are handled by P1E byte packing.
+- If a sketch changes LED pin, reboot may still be required. Color order changes are live because they are handled by P1E byte packing.
 - If a new sketch does not call `ledConfig()` but uses LED calls, it should stop with a clear error.
 
 Do not just say “reboot”; try to identify whether the issue is pin change, missing `ledConfig`, invalid index, or heap/runtime failure.
@@ -283,6 +284,14 @@ The SafeBoot delta OTA flow is intentionally split into phases:
 Do not boot directly into the updater while `downloadPending` is true. The updater expects a verified patch already present in the patch partition.
 
 HTTPS needs a large contiguous heap block. Testing showed normal Wrench script runtime could leave only about 35 KB largest allocation and fail TLS with `SSL - Memory allocation failed`. With the OTA download running before Wrench autorun, largest allocation was about 94 KB and HTTPS worked.
+
+For quick firmware experiments on a board that already has the SafeBoot partition layout, use the app-only script:
+
+```sh
+./scripts/esp32/p1embed-safeboot-app-compile-upload.sh
+```
+
+This compiles only the main app partition and flashes only `0x120000`. It does not rebuild or flash the updater partition, does not touch bootloader/partitions, does not bump `P1_EMBED_FIRMWARE_VERSION`, and does not update OTA manifests. Use it for local testing, not official releases.
 
 For local experiments, use the official deploy script first and test the generated release manifest through the web UI:
 

@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "channel": "safeboot-experimental",
-  "latest": "0.1.179",
+  "latest": "0.1.180",
   "releases": [
     {
       "version": "0.1.175",
@@ -147,6 +147,35 @@
         "url": "releases/p1e-esp32-classic-safeboot-0.1.179.boot_app0.bin",
         "sha256": "f94c5d786a7a8fab06ac5d10e33bf37711a6697636dc037559ea19cc410a17f0"
       }
+    },
+    {
+      "version": "0.1.180",
+      "createdAt": "2026-06-05T14:51:52.290034Z",
+      "buildLabel": "release",
+      "allowHttpOtaUrls": true,
+      "fullInstallerManifest": "p1e-firmware-safeboot.json",
+      "app": {
+        "url": "releases/p1e-esp32-classic-safeboot-0.1.180.app.bin",
+        "sha256": "cfc9e39aabef84c185e66fd39a681f355b17bdd023322e5341a9a831661a5ba6",
+        "size": 1995120
+      },
+      "updater": {
+        "url": "releases/p1e-esp32-classic-safeboot-0.1.180.updater.bin",
+        "sha256": "0a44c9e9b42111c5c7b99b606ac14c697828cb9d5aadeea646a73c407182996a",
+        "size": 299248
+      },
+      "bootloader": {
+        "url": "releases/p1e-esp32-classic-safeboot-0.1.180.bootloader.bin",
+        "sha256": "1191eb3d913873c709c2fa100f829f4b824971000c0b8831b33f05f98be3282a"
+      },
+      "partitions": {
+        "url": "releases/p1e-esp32-classic-safeboot-0.1.180.partitions.bin",
+        "sha256": "5f27c9f102ad6a15bcb4372e9d4f58a130a2137905164b385222ea379b10b921"
+      },
+      "bootApp0": {
+        "url": "releases/p1e-esp32-classic-safeboot-0.1.180.boot_app0.bin",
+        "sha256": "f94c5d786a7a8fab06ac5d10e33bf37711a6697636dc037559ea19cc410a17f0"
+      }
     }
   ],
   "deltas": [
@@ -241,6 +270,25 @@
       "toSize": 2048000,
       "rawFromSize": 2046768,
       "rawToSize": 2046768,
+      "memorySize": 2293760,
+      "segmentSize": 4096,
+      "hostProbe": "passed"
+    },
+    {
+      "fromVersion": "0.1.179",
+      "toVersion": "0.1.180",
+      "kind": "detools-in-place",
+      "compression": "heatshrink",
+      "url": "releases/p1e-safeboot-delta-0.1.179-to-0.1.180.patch",
+      "prepareUrl": "releases/p1e-safeboot-delta-0.1.179-to-0.1.180.patch.prepare.json",
+      "sha256": "449c00b419cbd8181ef68c4119e37846dc8083e77afef36922e67f1df555bd72",
+      "size": 153613,
+      "fromSha256": "d62bbb16e95f5ba4f876d90826cd77d046f1e08a0dfc2c84095aba3fdcd97d4f",
+      "toSha256": "403fc1a9e064ee6a05f58f3839c4017b8234b593284c57dc42cd4c1c07b288f6",
+      "fromSize": 2048000,
+      "toSize": 1998848,
+      "rawFromSize": 2046768,
+      "rawToSize": 1995120,
       "memorySize": 2293760,
       "segmentSize": 4096,
       "hostProbe": "passed"

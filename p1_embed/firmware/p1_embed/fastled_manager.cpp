@@ -149,6 +149,11 @@ static bool ledParseChipset(const char* value, int& chipsetOut) {
     chipsetOut = P1_LED_CHIPSET_WS2812B;
     return true;
   }
+#if 0
+  // Extended chipset support is intentionally disabled in the default firmware
+  // because FastLED templates allocate static controller state for every
+  // chipset/pin combination. Keep this here as the map for a future extended
+  // LED build, but do not carry the RAM cost in the normal NeoPixel path.
   if (token == "WS2812") {
     chipsetOut = P1_LED_CHIPSET_WS2812;
     return true;
@@ -161,6 +166,7 @@ static bool ledParseChipset(const char* value, int& chipsetOut) {
     chipsetOut = P1_LED_CHIPSET_SK6812;
     return true;
   }
+#endif
   return false;
 }
 
@@ -253,6 +259,11 @@ static bool ledAddController(int pin, CRGB* pixels, int count, int chipset, CLED
     p1FieldString("chipset", ledChipsetName(chipset)),
   };
   debugEventEmitFields("led.debug", "debug", "led", "FastLED.addLeds begin", beginFields, 4);
+  P1_FASTLED_PIN_SWITCH(WS2812B);
+#if 0
+  // Extended chipset matrix kept for reference. Enabling this in the default
+  // firmware costs roughly 18 KB of permanent .bss on classic ESP32 because
+  // FastLED creates static controller storage per template specialization.
   switch (chipset) {
     case P1_LED_CHIPSET_WS2812:
       P1_FASTLED_PIN_SWITCH(WS2812);
@@ -268,6 +279,7 @@ static bool ledAddController(int pin, CRGB* pixels, int count, int chipset, CLED
       P1_FASTLED_PIN_SWITCH(WS2812B);
       break;
   }
+#endif
   if (controllerOut) {
     if (!controllerOut->isInList()) {
       controllerOut->addToList();
@@ -622,7 +634,7 @@ String ledStatusJson() {
   out += ",\"maxLeds\":" + String(P1_EMBED_FASTLED_MAX_LEDS);
   out += ",\"maxStrips\":" + String(P1_EMBED_MAX_LED_STRIPS);
   out += ",\"driver\":\"FastLED\"";
-  out += ",\"chipset\":\"configurable\"";
+  out += ",\"chipset\":\"WS2812B\"";
   out += ",\"order\":\"configurable\"";
   out += ",\"strips\":[";
   for (int i = 0; i < g_activeStripCount; i++) {

@@ -174,8 +174,8 @@ Paths can address nested object/array values such as `weather.0.main` or `main.t
 
 Multi-strip API:
 
-- `ledConfig(strip, pin, count, brightness)` defaults to `WS2812B` and `GRB`.
-- `ledConfig(strip, pin, count, brightness, chipset, order)` supports chipset `"WS2812B"`, `"WS2812"`, `"WS2811"`, or `"SK6812"` and color order `"RGB"`, `"RBG"`, `"GRB"`, `"GBR"`, `"BRG"`, or `"BGR"`. Reusing the same pin with a smaller or equal count updates the logical strip size immediately and clears any tail pixels beyond the new count. Changing pin or chipset requires reboot; changing color order is allowed live.
+- `ledConfig(strip, pin, count, brightness)` configures a WS2812B/NeoPixel-style strip with default GRB packing.
+- `ledConfig(strip, pin, count, brightness, "WS2812B", order)` may be used only when explicit color order is needed: `"RGB"`, `"RBG"`, `"GRB"`, `"GBR"`, `"BRG"`, or `"BGR"`. Reusing the same pin with a smaller or equal count updates the logical strip size immediately and clears any tail pixels beyond the new count. Changing pin requires reboot; changing color order is allowed live. Do not generate non-WS2812B chipsets; extended chipset support is disabled in the default firmware to preserve RAM.
 - `ledReady(strip)`.
 - `ledStripCount()`.
 - `ledCount(strip)`.

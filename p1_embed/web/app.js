@@ -1,14 +1,14 @@
-import { ProtocolClient } from "./protocol/ProtocolClient.js?v=0.1.87-ui334";
-import { canEncodeCommand } from "./protocol/P1MsgPack.js?v=0.1.87-ui334";
-import { WebSerialTransport } from "./protocol/WebSerialTransport.js?v=0.1.87-ui334";
+import { ProtocolClient } from "./protocol/ProtocolClient.js?v=0.1.87-ui335";
+import { canEncodeCommand } from "./protocol/P1MsgPack.js?v=0.1.87-ui335";
+import { WebSerialTransport } from "./protocol/WebSerialTransport.js?v=0.1.87-ui335";
 import { WebSocketTransport } from "./protocol/WebSocketTransport.js";
-import { MqttWebRtcTransport, MQTT_WEBRTC_TRANSPORT_VERSION } from "./protocol/MqttWebRtcTransport.js?v=0.1.87-ui334";
-import { MqttTransport, MQTT_TRANSPORT_VERSION, clearOnlineAuthKey, deriveOnlineAuthKeyHex, storeOnlineAuthKey } from "./protocol/MqttTransport.js?v=0.1.87-ui334";
-import { P1WebFlasher } from "./web-flasher.js?v=0.1.87-ui334";
-import { inferCircuitLayout, initCircuitView, normalizeCircuitLayout } from "./circuit.js?v=0.1.87-ui334";
-import { initGuinoView } from "./guino.js?v=0.1.87-ui334";
+import { MqttWebRtcTransport, MQTT_WEBRTC_TRANSPORT_VERSION } from "./protocol/MqttWebRtcTransport.js?v=0.1.87-ui335";
+import { MqttTransport, MQTT_TRANSPORT_VERSION, clearOnlineAuthKey, deriveOnlineAuthKeyHex, storeOnlineAuthKey } from "./protocol/MqttTransport.js?v=0.1.87-ui335";
+import { P1WebFlasher } from "./web-flasher.js?v=0.1.87-ui335";
+import { inferCircuitLayout, initCircuitView, normalizeCircuitLayout } from "./circuit.js?v=0.1.87-ui335";
+import { initGuinoView } from "./guino.js?v=0.1.87-ui335";
 
-const WEB_UI_VERSION = "0.1.87-ui334";
+const WEB_UI_VERSION = "0.1.87-ui335";
 const CHAT_DEFAULT_MAX_OUTPUT_TOKENS = 8000;
 const CHAT_MIN_MAX_OUTPUT_TOKENS = 1024;
 const CHAT_HARD_MAX_OUTPUT_TOKENS = 32000;
@@ -2010,11 +2010,23 @@ async function resolveBoardProjectForFetchedScript(data = {}) {
   const config = await boardConfigForFetchedScript(data);
   const projectId = String(data.projectId || config.projectId || "").trim();
   const projectName = normalizeProjectName(data.projectName || config.projectName || "");
+  const code = String(data.code ?? "");
+  const codeHash = boardCodeHash(data, code);
 
   const projects = await readProjects();
   let project = projectId ? projects.find((item) => item.id === projectId) : null;
   if (!project && projectName) {
     project = projects.find((item) => normalizeProjectName(item.name).toLowerCase() === projectName.toLowerCase());
+  }
+  if (!project) {
+    project = findBoardProjectByRevisionIdentity(projects, {
+      revisionId: data.revisionId,
+      codeHash,
+      code,
+    });
+  }
+  if (!project) {
+    project = projects.find((item) => normalizeProjectName(item.name).toLowerCase() === "board project");
   }
   if (!project) {
     project = normalizeProjectRecord({
@@ -2029,6 +2041,18 @@ async function resolveBoardProjectForFetchedScript(data = {}) {
     await saveProject(project);
   }
   return project;
+}
+
+function findBoardProjectByRevisionIdentity(projects = [], identity = {}) {
+  for (const project of projects) {
+    const revision = findRevisionByIdentity(project, {
+      ...identity,
+      allowContentMatch: true,
+      quiet: true,
+    });
+    if (revision) return project;
+  }
+  return null;
 }
 
 async function adoptLegacyRevisionsForBoardProject(project, data = {}, code = "") {
@@ -2547,7 +2571,7 @@ function boardCodeHash(data = {}, code = "") {
   return normalizeCodeHash(data.codeHash ?? data.scriptHash ?? data.hash, code);
 }
 
-function findRevisionByIdentity(project, { revisionId = "", codeHash = "", code = "", allowContentMatch = false } = {}) {
+function findRevisionByIdentity(project, { revisionId = "", codeHash = "", code = "", allowContentMatch = false, quiet = false } = {}) {
   const revisions = Array.isArray(project?.revisions) ? project.revisions : [];
   const id = String(revisionId || "").trim();
   const codeText = String(code || "");
@@ -2567,12 +2591,12 @@ function findRevisionByIdentity(project, { revisionId = "", codeHash = "", code 
     const byId = revisions.find((revision) => revision.id === id);
     if (byId) {
       if (codeText.trim() && String(byId.code || "") !== codeText) {
-        logLine("warn", `board revision id ${id} matched ${byId.name || "revision"} but code differs; matching downloaded code instead`);
+        if (!quiet) logLine("warn", `board revision id ${id} matched ${byId.name || "revision"} but code differs; matching downloaded code instead`);
         return findByDownloadedCode();
       }
       return byId;
     }
-    logLine("warn", `board revision id ${id} was not found locally; opening downloaded sketch as a new revision`);
+    if (!quiet) logLine("warn", `board revision id ${id} was not found locally; opening downloaded sketch as a new revision`);
   }
   if (!allowContentMatch) return null;
   return findByDownloadedCode();
@@ -2798,7 +2822,65 @@ async function readProjects() {
     projectCache = await readProjectsFromIndexedDb();
   }
   if (!projectCache.length) projectCache = readProjectsFallback();
+  projectCache = await mergeDuplicateBoardProjects(projectCache);
   return projectCache;
+}
+
+async function mergeDuplicateBoardProjects(projects = []) {
+  const normalized = projects.map((item) => normalizeProjectRecord(item)).filter((item) => item.revisions.length);
+  const boardProjects = normalized.filter((item) => normalizeProjectName(item.name).toLowerCase() === "board project");
+  if (boardProjects.length <= 1) return normalized;
+
+  const primary = normalizeProjectRecord(boardProjects[0]);
+  const duplicateIds = new Set(boardProjects.slice(1).map((item) => item.id));
+  const seen = new Set(primary.revisions.map(revisionMergeKey));
+  boardProjects.slice(1).forEach((project) => {
+    project.revisions.forEach((revision) => {
+      const key = revisionMergeKey(revision);
+      if (seen.has(key)) return;
+      seen.add(key);
+      primary.revisions.push(revision);
+    });
+  });
+  primary.updatedAt = new Date().toISOString();
+  primary.activeRevisionId = primary.revisions.find((item) => item.id === primary.activeRevisionId)?.id
+    || primary.revisions[0]?.id
+    || "";
+
+  const merged = [
+    primary,
+    ...normalized.filter((item) => normalizeProjectName(item.name).toLowerCase() !== "board project"),
+  ].sort((a, b) => String(b.updatedAt || "").localeCompare(String(a.updatedAt || ""))).slice(0, projectLimit);
+
+  try {
+    const db = await openSketchDb();
+    try {
+      const tx = db.transaction(projectStoreName, "readwrite");
+      const store = tx.objectStore(projectStoreName);
+      store.put(primary);
+      duplicateIds.forEach((id) => store.delete(id));
+      await sketchDbTransactionDone(tx);
+    } finally {
+      db.close();
+    }
+  } catch (error) {
+    logLine("warn", `board project cleanup could not update IndexedDB: ${error?.message || error}`);
+  }
+
+  if (duplicateIds.has(localStorage.getItem(storage.projectId) || "")) {
+    localStorage.setItem(storage.projectId, primary.id);
+  }
+  writeProjectsFallbackBestEffort(merged);
+  logLine("warn", `merged ${duplicateIds.size} duplicate Board Project entries`);
+  return merged;
+}
+
+function revisionMergeKey(revision = {}) {
+  const code = String(revision.code || "");
+  if (code.trim()) return `code:${codeHashFor(code)}:${code.length}`;
+  const id = String(revision.id || "").trim();
+  if (id) return `id:${id}`;
+  return `name:${normalizeSketchName(revision.name || "")}:${String(revision.createdAt || "")}`;
 }
 
 function readProjectsFallback() {
@@ -5684,15 +5766,17 @@ async function runFirmwareUpdate() {
 async function waitForFirmwareUpdateVersion(targetVersion) {
   const deadline = Date.now() + 150000;
   let lastNoteAt = 0;
+  let lastErrorMessage = "";
   while (Date.now() < deadline) {
     await settle(2600);
     if (!client) {
       try {
         await autoReconnectLastConnection({ reconnecting: true });
       } catch (error) {
+        lastErrorMessage = String(error.message || error);
         if (Date.now() - lastNoteAt > 12000) {
           lastNoteAt = Date.now();
-          firmwareLog(`waiting for reconnect: ${error.message || error}`);
+          firmwareLog("board is still updating; waiting for reconnect");
         }
       }
       continue;
@@ -5709,13 +5793,14 @@ async function waitForFirmwareUpdateVersion(targetVersion) {
         } catch {
         }
       }
+      lastErrorMessage = message;
       if (Date.now() - lastNoteAt > 12000) {
         lastNoteAt = Date.now();
-        firmwareLog(`waiting for board: ${message}`);
+        firmwareLog("board is still updating; waiting for firmware response");
       }
     }
   }
-  throw new Error(`Timed out waiting for firmware ${targetVersion}`);
+  throw new Error(`Timed out waiting for firmware ${targetVersion}${lastErrorMessage ? ` (${lastErrorMessage})` : ""}`);
 }
 
 function firmwareLog(message) {

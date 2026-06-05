@@ -61,10 +61,16 @@ that make raw `cat` output look like a baud-rate problem.
 P1 Embed SafeBoot OTA profile:
 
 ```sh
+./scripts/esp32/p1embed-safeboot-app-compile-upload.sh
 ./scripts/esp32/p1embed-safeboot-compile.sh
 ./scripts/esp32/p1embed-safeboot-upload.sh
 DETOOLS=/private/tmp/p1e-detools-venv/bin/detools ./scripts/esp32/p1embed-safeboot-deploy.sh --from 0.1.176 --to 0.1.177
 ```
+
+Use `p1embed-safeboot-app-compile-upload.sh` for normal firmware iteration on
+an already-SafeBoot-flashed board. It compiles only the main app partition and
+flashes only address `0x120000`, leaving the updater, bootloader, partition
+table, and release manifests untouched.
 
 Use `p1embed-safeboot-deploy.sh` for official SafeBoot releases. It is the
 single script that should bump `P1_EMBED_FIRMWARE_VERSION`, compile both

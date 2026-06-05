@@ -977,11 +977,7 @@ static bool wrenchCompileSource(const String& userCode, unsigned char** bytecode
   wrenchEmitCompileMemoryTrace("worker.before", userCode.length(), sourceLen);
   WRError ce = wrenchCompileOnWorker(source, (int)sourceLen, &bytecode, &byteLen, compileErr);
   p1ReusableBufferReleaseHandle(g_wrenchCompileSourceBuffer, sourceHandle);
-  p1ReusableBufferMaintain(
-    g_wrenchCompileSourceBuffer,
-    P1_EMBED_WRENCH_COMPILE_SOURCE_RETAIN_MIN,
-    P1_EMBED_WRENCH_COMPILE_SOURCE_RETAIN_MAX,
-    P1_EMBED_WRENCH_COMPILE_SOURCE_SHRINK_IDLE_MS);
+  p1ReusableBufferRelease(g_wrenchCompileSourceBuffer);
   wrenchCompileCrashClear();
   wrenchEmitCompileMemoryTrace("worker.after", userCode.length(), sourceLen, byteLen > 0 ? (size_t)byteLen : 0);
   if (ce != WR_ERR_None || !bytecode || byteLen <= 0) {
@@ -1125,11 +1121,7 @@ static bool wrenchCompileIncomingSource(size_t scriptBytes, uint32_t scriptHash,
   wrenchEmitCompileMemoryTrace("worker.before", scriptBytes, sourceLen);
   WRError ce = wrenchCompileOnWorker(source, (int)sourceLen, &bytecode, &byteLen, compileErr);
   p1ReusableBufferReleaseHandle(g_wrenchCompileSourceBuffer, sourceHandle);
-  p1ReusableBufferMaintain(
-    g_wrenchCompileSourceBuffer,
-    P1_EMBED_WRENCH_COMPILE_SOURCE_RETAIN_MIN,
-    P1_EMBED_WRENCH_COMPILE_SOURCE_RETAIN_MAX,
-    P1_EMBED_WRENCH_COMPILE_SOURCE_SHRINK_IDLE_MS);
+  p1ReusableBufferRelease(g_wrenchCompileSourceBuffer);
   wrenchCompileCrashClear();
   wrenchEmitCompileMemoryTrace("worker.after", scriptBytes, sourceLen, byteLen > 0 ? (size_t)byteLen : 0);
   if (ce != WR_ERR_None || !bytecode || byteLen <= 0) {
@@ -1360,6 +1352,7 @@ bool wrenchRunCompiled(String& errOut) {
   g_wrenchConsecutiveErrorLoops = 0;
 
   mqttTransportPrepareMemoryPressure();
+  p1ReusableBufferRelease(g_wrenchCompileSourceBuffer);
   ledBeginScriptRun();
   haRuntimeReset();
 

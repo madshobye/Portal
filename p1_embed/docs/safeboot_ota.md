@@ -122,10 +122,15 @@ The UI should offer only the next available step.
 Useful scripts:
 
 ```sh
+./scripts/esp32/p1embed-safeboot-app-compile-upload.sh
 ./scripts/esp32/p1embed-safeboot-compile.sh
 ./scripts/esp32/p1embed-safeboot-upload.sh
 ./scripts/esp32/p1embed-safeboot-deploy.sh --to <version> --from <previous>
 ```
+
+Use `p1embed-safeboot-app-compile-upload.sh` for normal local firmware
+iteration after the board already has SafeBoot installed. It builds the app
+partition only and flashes only `0x120000`.
 
 `p1embed-delta-patch.sh` is a low-level experiment helper. Do not use it for
 official releases; use `p1embed-safeboot-deploy.sh`.
