@@ -1,0 +1,17 @@
+{
+  "name": "P1E ESP32 classic SafeBoot experimental",
+  "version": "0.1.179",
+  "flashMode": "dio",
+  "flashFreq": "80m",
+  "flashSize": "4MB",
+  "eraseAll": false,
+  "compress": true,
+  "experimental": true,
+  "files": [
+    { "address": "0x1000", "url": "p1e-esp32-classic-safeboot.bootloader.bin" },
+    { "address": "0x8000", "url": "p1e-esp32-classic-safeboot.partitions.bin" },
+    { "address": "0xe000", "url": "p1e-esp32-classic-safeboot.boot_app0.bin" },
+    { "address": "0x10000", "url": "p1e-esp32-classic-safeboot.updater.bin" },
+    { "address": "0x120000", "url": "p1e-esp32-classic-safeboot.app.bin" }
+  ]
+}

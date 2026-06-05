@@ -673,7 +673,7 @@ static void mqttPublishHello() {
   payload += ",\"anonymousScript\":" + String(configMqttAllowAnonymousScript() ? "true" : "false");
   payload += ",\"guestUiKeySet\":" + String(configMqttGuestUiKey().length() >= 16 ? "true" : "false");
   payload += "}";
-  if (!g_mqtt.publish(g_mqttHelloTopic, payload, true, 0)) {
+  if (!g_mqtt.publish(g_mqttHelloTopic.c_str(), payload.c_str(), true, 0)) {
     g_mqttHelloPublishFailCount++;
     g_mqttPublishFailCount++;
     g_mqttLastPublishFailMs = millis();

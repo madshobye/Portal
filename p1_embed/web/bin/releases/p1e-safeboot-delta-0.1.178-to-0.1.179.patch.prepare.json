@@ -1,0 +1,15 @@
+{
+  "type": "cmd",
+  "id": "delta-prepare",
+  "name": "firmware.update.prepare",
+  "kind": "delta",
+  "url": "p1e-safeboot-delta-0.1.178-to-0.1.179.patch",
+  "sha256": "fac2b68e9584a29d00b80e05843de566147d7a20a994eb9167074a2169427cd3",
+  "fromSha256": "6fcf8a3743a3e741ceb4487cd973a9ff33a3f412b4c3638179c768c6b568ecff",
+  "toSha256": "d62bbb16e95f5ba4f876d90826cd77d046f1e08a0dfc2c84095aba3fdcd97d4f",
+  "fromSize": 2048000,
+  "toSize": 2048000,
+  "memorySize": 2293760,
+  "segmentSize": 4096,
+  "reboot": false
+}

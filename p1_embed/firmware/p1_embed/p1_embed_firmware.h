@@ -431,11 +431,35 @@ bool httpFetchLastTruncated();
 String httpFetchLastError();
 String httpFetchStatusJson();
 
+struct P1OtaRequest {
+  String kind = "full";
+  String url;
+  String sha256;
+  String fromSha256;
+  String toSha256;
+  uint32_t fromSize = 0;
+  uint32_t toSize = 0;
+  uint32_t patchSize = 0;
+  uint32_t memorySize = 0;
+  uint32_t segmentSize = 0;
+};
+
+String otaSafeBootStatusJson();
+bool otaSafeBootRequestUpdate(const P1OtaRequest& request, String& errOut);
+bool otaSafeBootRequestUpdate(const String& url, const String& sha256, String& errOut);
+bool otaSafeBootClearRequest();
+bool otaSafeBootBootUpdater(String& errOut);
+void otaSafeBootHandleBootDownload();
+void otaSafeBootPoll();
+
 void fastLedManagerBegin();
 void fastLedReleaseScriptResources();
+bool fastLedShowActive();
+void fastLedSkipFor(uint32_t ms);
 bool fastLedShow();
 void ledBeginScriptRun();
 bool ledConfigureStrip(int strip, int pin, int count, int brightness);
+bool ledConfigureStrip(int strip, int pin, int count, int brightness, const char* chipsetName, const char* orderName);
 bool ledRebootRequiredFor(int strip, int pin, int count);
 bool ledReady(int strip);
 int ledStripCount();

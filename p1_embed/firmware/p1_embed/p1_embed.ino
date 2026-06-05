@@ -70,6 +70,8 @@ void setup() {
 #endif
   wifiBegin();
   memoryProfileMark("wifi", "begin");
+  otaSafeBootHandleBootDownload();
+  memoryProfileMark("ota", "boot_download_checked");
   webTransportBegin();
   memoryProfileMark("websocket", "begin");
   mqttTransportBegin();
@@ -190,6 +192,7 @@ void loop() {
   webTransportLoop();
   mqttTransportLoop();
   haBridgeLoop();
+  otaSafeBootPoll();
 #if P1_EMBED_WRENCH_ENABLED
   bootPollDelayedAutorun();
 #endif

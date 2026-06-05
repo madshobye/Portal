@@ -1,6 +1,7 @@
 #include <Arduino.h>
 #include <ESP.h>
 #include <WiFi.h>
+#include <esp_heap_caps.h>
 #include <time.h>
 #include "p1_embed_firmware.h"
 #include "p1_msgpack.h"
@@ -30,8 +31,53 @@ static const uint8_t P1_MP_OP_SCRIPT_STOP = 22;
 static const uint8_t P1_MP_OP_SCRIPT_CHUNK_GET = 23;
 static const uint8_t P1_MP_OP_SCRIPT_RESTART = 24;
 static const uint8_t P1_MP_OP_DEVICE_REBOOT = 30;
+static const uint8_t P1_MP_OP_FIRMWARE_UPDATE_STATUS = 40;
+static const uint8_t P1_MP_OP_FIRMWARE_UPDATE_PREPARE = 41;
+static const uint8_t P1_MP_OP_FIRMWARE_UPDATE_BOOT = 42;
+static const uint8_t P1_MP_OP_FIRMWARE_UPDATE_CLEAR = 43;
 
 static void protocolSendMsgPackError(uint32_t id, const char* code, const char* message);
+
+static String protocolHeapSnapshotJson(const char* prefix) {
+  String out;
+  out.reserve(160);
+  out += "\"";
+  out += prefix;
+  out += "FreeHeap\":";
+  out += String(ESP.getFreeHeap());
+  out += ",\"";
+  out += prefix;
+  out += "MaxAllocHeap\":";
+  out += String(ESP.getMaxAllocHeap());
+  out += ",\"";
+  out += prefix;
+  out += "InternalFree\":";
+  out += String(heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT));
+  out += ",\"";
+  out += prefix;
+  out += "InternalLargest\":";
+  out += String(heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT));
+  return out;
+}
+
+static String protocolHttpProbeJson(const String& url, int maxBytes, int timeoutMs) {
+  maxBytes = constrain(maxBytes <= 0 ? 64 : maxBytes, 0, P1_EMBED_HTTP_MAX_RESPONSE_BYTES);
+  timeoutMs = constrain(timeoutMs <= 0 ? P1_EMBED_HTTP_DEFAULT_TIMEOUT_MS : timeoutMs, 500, 15000);
+
+  String out = "{";
+  out += "\"url\":" + jsonString(url);
+  out += ",";
+  out += protocolHeapSnapshotJson("before");
+  String body = httpFetchGet(url, maxBytes, timeoutMs);
+  out += ",\"bodyBytes\":" + String(body.length());
+  out += ",\"code\":" + String(httpFetchLastCode());
+  out += ",\"error\":" + jsonString(httpFetchLastError());
+  out += ",\"http\":" + httpFetchStatusJson();
+  out += ",";
+  out += protocolHeapSnapshotJson("after");
+  out += "}";
+  return out;
+}
 
 static void protocolSendMsgPackBytes(const uint8_t* data, size_t len) {
   webrtcTransportSendBytes(data, len);
@@ -603,6 +649,7 @@ void protocolEmitBoot() {
 }
 
 void protocolEmitStatusEvent() {
+  fastLedSkipFor(20);
   protocolEmitEvent("device.status", "\"status\":" + protocolStatusEventJson());
 }
 
@@ -1356,6 +1403,75 @@ static void protocolSendMsgPackScriptChunkGet(uint32_t id, uint32_t offset, uint
   free(frame);
 }
 
+static void protocolSendMsgPackOtaStatus(uint32_t id) {
+  uint8_t* frame = static_cast<uint8_t*>(malloc(1280));
+  if (!frame) {
+    protocolSendMsgPackError(id, "no_heap", "No heap for firmware.update.status response");
+    return;
+  }
+  String status = otaSafeBootStatusJson();
+  bool enabled = false;
+  bool updaterPartition = false;
+  bool pending = false;
+  bool downloadPending = false;
+  bool sha256Set = false;
+  bool fromSha256Set = false;
+  bool toSha256Set = false;
+  bool restartPending = false;
+  String updaterLabel;
+  String kind;
+  String phase;
+  String url;
+  String lastError;
+  int fromSize = 0;
+  int toSize = 0;
+  int patchSize = 0;
+  int memorySize = 0;
+  int segmentSize = 0;
+  jsonGetBool(status.c_str(), "enabled", enabled);
+  jsonGetBool(status.c_str(), "updaterPartition", updaterPartition);
+  jsonGetBool(status.c_str(), "pending", pending);
+  jsonGetBool(status.c_str(), "downloadPending", downloadPending);
+  jsonGetBool(status.c_str(), "sha256Set", sha256Set);
+  jsonGetBool(status.c_str(), "fromSha256Set", fromSha256Set);
+  jsonGetBool(status.c_str(), "toSha256Set", toSha256Set);
+  jsonGetBool(status.c_str(), "restartPending", restartPending);
+  jsonGetString(status.c_str(), "updaterLabel", updaterLabel);
+  jsonGetString(status.c_str(), "kind", kind);
+  jsonGetString(status.c_str(), "phase", phase);
+  jsonGetString(status.c_str(), "url", url);
+  jsonGetString(status.c_str(), "lastError", lastError);
+  jsonGetInt(status.c_str(), "fromSize", fromSize);
+  jsonGetInt(status.c_str(), "toSize", toSize);
+  jsonGetInt(status.c_str(), "patchSize", patchSize);
+  jsonGetInt(status.c_str(), "memorySize", memorySize);
+  jsonGetInt(status.c_str(), "segmentSize", segmentSize);
+
+  P1MsgPackWriter w(frame, 1280);
+  protocolMsgPackBeginResponse(w, id, true, 18);
+  w.writeString("enabled"); w.writeBool(enabled);
+  w.writeString("updaterPartition"); w.writeBool(updaterPartition);
+  w.writeString("updaterLabel"); w.writeString(updaterLabel);
+  w.writeString("pending"); w.writeBool(pending);
+  w.writeString("downloadPending"); w.writeBool(downloadPending);
+  w.writeString("kind"); w.writeString(kind);
+  w.writeString("phase"); w.writeString(phase);
+  w.writeString("url"); w.writeString(url);
+  w.writeString("sha256Set"); w.writeBool(sha256Set);
+  w.writeString("fromSha256Set"); w.writeBool(fromSha256Set);
+  w.writeString("toSha256Set"); w.writeBool(toSha256Set);
+  w.writeString("lastError"); w.writeString(lastError);
+  w.writeString("fromSize"); w.writeUInt(fromSize);
+  w.writeString("toSize"); w.writeUInt(toSize);
+  w.writeString("patchSize"); w.writeUInt(patchSize);
+  w.writeString("memorySize"); w.writeUInt(memorySize);
+  w.writeString("segmentSize"); w.writeUInt(segmentSize);
+  w.writeString("restartPending"); w.writeBool(restartPending);
+  if (w.ok) protocolSendMsgPackBytes(frame, w.length);
+  else protocolSendMsgPackError(id, "frame_too_large", "firmware.update.status response is too large");
+  free(frame);
+}
+
 static void protocolSendMsgPackState(uint32_t id, const char* state) {
   uint8_t frame[96];
   P1MsgPackWriter w(frame, sizeof(frame));
@@ -1836,6 +1952,66 @@ void protocolHandleBytes(const uint8_t* data, size_t len) {
     if (w.ok) protocolSendMsgPackBytes(frame, w.length);
     delay(50);
     ESP.restart();
+  } else if (op == P1_MP_OP_FIRMWARE_UPDATE_STATUS) {
+    protocolSendMsgPackOtaStatus(id);
+  } else if (op == P1_MP_OP_FIRMWARE_UPDATE_CLEAR) {
+    if (!otaSafeBootClearRequest()) {
+      protocolSendMsgPackError(id, "ota_clear_failed", "Failed to clear firmware update request");
+      return;
+    }
+    protocolSendMsgPackOtaStatus(id);
+  } else if (op == P1_MP_OP_FIRMWARE_UPDATE_PREPARE) {
+    P1OtaRequest request;
+    bool reboot = false;
+    if (!r.readString(request.url) || !r.readString(request.sha256) || !r.readBool(reboot)) {
+      protocolSendMsgPackError(id, "bad_ota_prepare_frame", "firmware.update.prepare frame is malformed");
+      return;
+    }
+    if (r.offset < r.length && !r.readString(request.kind)) {
+      protocolSendMsgPackError(id, "bad_ota_prepare_frame", "firmware.update.prepare kind is malformed");
+      return;
+    }
+    if (r.offset < r.length && !r.readString(request.fromSha256)) {
+      protocolSendMsgPackError(id, "bad_ota_prepare_frame", "firmware.update.prepare fromSha256 is malformed");
+      return;
+    }
+    if (r.offset < r.length && !r.readString(request.toSha256)) {
+      protocolSendMsgPackError(id, "bad_ota_prepare_frame", "firmware.update.prepare toSha256 is malformed");
+      return;
+    }
+    if (r.offset < r.length && !r.readUInt(request.fromSize)) {
+      protocolSendMsgPackError(id, "bad_ota_prepare_frame", "firmware.update.prepare fromSize is malformed");
+      return;
+    }
+    if (r.offset < r.length && !r.readUInt(request.toSize)) {
+      protocolSendMsgPackError(id, "bad_ota_prepare_frame", "firmware.update.prepare toSize is malformed");
+      return;
+    }
+    if (r.offset < r.length && !r.readUInt(request.memorySize)) {
+      protocolSendMsgPackError(id, "bad_ota_prepare_frame", "firmware.update.prepare memorySize is malformed");
+      return;
+    }
+    if (r.offset < r.length && !r.readUInt(request.segmentSize)) {
+      protocolSendMsgPackError(id, "bad_ota_prepare_frame", "firmware.update.prepare segmentSize is malformed");
+      return;
+    }
+    String err;
+    if (!otaSafeBootRequestUpdate(request, err)) {
+      protocolSendMsgPackError(id, "ota_prepare_failed", err.c_str());
+      return;
+    }
+    if (reboot && !otaSafeBootBootUpdater(err)) {
+      protocolSendMsgPackError(id, "ota_boot_failed", err.c_str());
+      return;
+    }
+    protocolSendMsgPackOtaStatus(id);
+  } else if (op == P1_MP_OP_FIRMWARE_UPDATE_BOOT) {
+    String err;
+    if (!otaSafeBootBootUpdater(err)) {
+      protocolSendMsgPackError(id, "ota_boot_failed", err.c_str());
+      return;
+    }
+    protocolSendMsgPackOtaStatus(id);
   } else {
     protocolEmitErrorEvent("protocol.error", "unknown_msgpack_op", "Unknown MessagePack command");
   }
@@ -1884,6 +2060,48 @@ void protocolHandleLine(const char* line) {
     protocolSendResponseOk(id, webrtcTransportProbeJson());
   } else if (name == "config.get") {
     protocolSendResponseOk(id, configAsJson());
+  } else if (name == "firmware.update.status") {
+    protocolSendResponseOk(id, otaSafeBootStatusJson());
+  } else if (name == "firmware.update.clear") {
+    if (!otaSafeBootClearRequest()) {
+      protocolSendResponseError(id, "ota_clear_failed", "Failed to clear firmware update request");
+      return;
+    }
+    protocolSendResponseOk(id, otaSafeBootStatusJson());
+  } else if (name == "firmware.update.prepare") {
+    P1OtaRequest request;
+    bool reboot = false;
+    int value = 0;
+    if (!jsonGetString(line, "url", request.url)) {
+      protocolSendResponseError(id, "missing_url", "firmware.update.prepare requires data.url");
+      return;
+    }
+    jsonGetString(line, "sha256", request.sha256);
+    jsonGetString(line, "kind", request.kind);
+    jsonGetString(line, "fromSha256", request.fromSha256);
+    jsonGetString(line, "toSha256", request.toSha256);
+    if (jsonGetInt(line, "fromSize", value)) request.fromSize = (uint32_t)max(0, value);
+    if (jsonGetInt(line, "toSize", value)) request.toSize = (uint32_t)max(0, value);
+    if (jsonGetInt(line, "memorySize", value)) request.memorySize = (uint32_t)max(0, value);
+    if (jsonGetInt(line, "segmentSize", value)) request.segmentSize = (uint32_t)max(0, value);
+    jsonGetBool(line, "reboot", reboot);
+    String err;
+    if (!otaSafeBootRequestUpdate(request, err)) {
+      protocolSendResponseError(id, "ota_prepare_failed", err);
+      return;
+    }
+    if (reboot && !otaSafeBootBootUpdater(err)) {
+      protocolSendResponseError(id, "ota_boot_failed", err);
+      return;
+    }
+    protocolSendResponseOk(id, otaSafeBootStatusJson());
+  } else if (name == "firmware.update.boot") {
+    String err;
+    if (!otaSafeBootBootUpdater(err)) {
+      protocolSendResponseError(id, "ota_boot_failed", err);
+      return;
+    }
+    protocolSendResponseOk(id, otaSafeBootStatusJson());
   } else if (name == "config.set") {
     String deviceName;
     String wifiSsid;
@@ -2012,6 +2230,17 @@ void protocolHandleLine(const char* line) {
     configSave();
     wifiReconnect();
     protocolSendResponseOk(id, configAsJson());
+  } else if (name == "http.probe") {
+    String url;
+    int maxBytes = 64;
+    int timeoutMs = P1_EMBED_HTTP_DEFAULT_TIMEOUT_MS;
+    if (!jsonGetString(line, "url", url) || !url.length()) {
+      protocolSendResponseError(id, "missing_url", "http.probe requires data.url");
+      return;
+    }
+    jsonGetInt(line, "maxBytes", maxBytes);
+    jsonGetInt(line, "timeoutMs", timeoutMs);
+    protocolSendResponseOk(id, protocolHttpProbeJson(url, maxBytes, timeoutMs));
   } else if (name == "debug.get") {
     protocolSendResponseOk(id, debugEventStatusJson());
   } else if (name == "debug.set") {

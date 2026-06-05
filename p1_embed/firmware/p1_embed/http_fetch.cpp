@@ -1,12 +1,17 @@
 #include <Arduino.h>
 #include <HTTPClient.h>
 #include <WiFi.h>
+#include <WiFiClientSecure.h>
 #include "p1_embed_firmware.h"
 
 static int g_httpLastCode = 0;
 static bool g_httpLastTruncated = false;
 static String g_httpLastError = "";
+static String g_httpLastMessage = "";
+static String g_httpLastDetails = "";
 static String g_httpLastBody = "";
+static bool g_httpLastSecure = false;
+static uint32_t g_httpLastDurationMs = 0;
 
 static bool httpValidUrl(const String& url) {
   return url.startsWith("http://") || url.startsWith("https://");
@@ -14,7 +19,66 @@ static bool httpValidUrl(const String& url) {
 
 static void httpSetError(const String& code, const String& message, const String& details = "") {
   g_httpLastError = code;
+  g_httpLastMessage = message;
+  g_httpLastDetails = details;
+#if P1_EMBED_HTTP_FAILURES_ARE_SCRIPT_ERRORS
   scriptErrorSet("binding", code, message, details);
+#endif
+}
+
+static String httpClientSecureLastError(NetworkClientSecure& client) {
+  char err[96] = {0};
+  int code = client.lastError(err, sizeof(err));
+  if (code == 0) return "";
+  String out = String(code);
+  if (err[0]) {
+    out += " ";
+    out += err;
+  }
+  return out;
+}
+
+static void httpConfigureClient(HTTPClient& http, int timeoutMs) {
+  http.setConnectTimeout(timeoutMs);
+  http.setTimeout((uint16_t)timeoutMs);
+  http.setFollowRedirects(HTTPC_STRICT_FOLLOW_REDIRECTS);
+  http.useHTTP10(true);
+}
+
+static bool httpBeginWithClient(HTTPClient& http, NetworkClient& plain, NetworkClientSecure& secure, const String& url, int timeoutMs) {
+  g_httpLastSecure = url.startsWith("https://");
+  httpConfigureClient(http, timeoutMs);
+
+  if (g_httpLastSecure) {
+    secure.setHandshakeTimeout((unsigned long)max(1, timeoutMs / 1000));
+#if P1_EMBED_HTTP_TLS_INSECURE_DEFAULT
+    secure.setInsecure();
+#endif
+    if (!http.begin(secure, url)) {
+      String details = "\"url\":" + jsonString(url);
+      String tlsError = httpClientSecureLastError(secure);
+      if (tlsError.length()) details += ",\"tlsError\":" + jsonString(tlsError);
+      httpSetError("http_begin_failed", "HTTPS begin failed", details);
+      return false;
+    }
+    return true;
+  }
+
+  if (!http.begin(plain, url)) {
+    httpSetError("http_begin_failed", "HTTP begin failed", "\"url\":" + jsonString(url));
+    return false;
+  }
+  return true;
+}
+
+static void httpSetRequestError(int code, NetworkClientSecure* secure = nullptr) {
+  String err = HTTPClient::errorToString(code);
+  String details = "\"httpCode\":" + String(code);
+  if (secure) {
+    String tlsError = httpClientSecureLastError(*secure);
+    if (tlsError.length()) details += ",\"tlsError\":" + jsonString(tlsError);
+  }
+  httpSetError("http_request_failed", err, details);
 }
 
 static String httpReadLimited(HTTPClient& http, int maxBytes, int timeoutMs) {
@@ -66,7 +130,11 @@ static bool httpPrepare(const String& url, int& maxBytes, int& timeoutMs) {
   g_httpLastCode = 0;
   g_httpLastTruncated = false;
   g_httpLastError = "";
+  g_httpLastMessage = "";
+  g_httpLastDetails = "";
   g_httpLastBody = "";
+  g_httpLastSecure = false;
+  g_httpLastDurationMs = 0;
 
   if (!httpValidUrl(url)) {
     httpSetError("http_bad_url", "HTTP URL must start with http:// or https://", "\"url\":" + jsonString(url));
@@ -86,27 +154,27 @@ String httpFetchGet(const String& url, int maxBytes, int timeoutMs) {
   if (!httpPrepare(url, maxBytes, timeoutMs)) return "";
 
   HTTPClient http;
-  http.setConnectTimeout(timeoutMs);
-  http.setTimeout((uint16_t)timeoutMs);
-  http.setFollowRedirects(HTTPC_STRICT_FOLLOW_REDIRECTS);
-  http.useHTTP10(true);
+  NetworkClient plain;
+  NetworkClientSecure secure;
+  uint32_t startedAt = millis();
 
-  if (!http.begin(url)) {
-    httpSetError("http_begin_failed", "HTTP begin failed", "\"url\":" + jsonString(url));
+  if (!httpBeginWithClient(http, plain, secure, url, timeoutMs)) {
+    g_httpLastDurationMs = millis() - startedAt;
     return "";
   }
 
   g_httpLastCode = http.GET();
   if (g_httpLastCode <= 0) {
-    String err = HTTPClient::errorToString(g_httpLastCode);
-    httpSetError("http_request_failed", err, "\"httpCode\":" + String(g_httpLastCode));
+    httpSetRequestError(g_httpLastCode, g_httpLastSecure ? &secure : nullptr);
     http.end();
+    g_httpLastDurationMs = millis() - startedAt;
     return "";
   }
 
   String body = httpReadLimited(http, maxBytes, timeoutMs);
   g_httpLastBody = body;
   http.end();
+  g_httpLastDurationMs = millis() - startedAt;
   return body;
 }
 
@@ -145,28 +213,28 @@ String httpFetchPost(const String& url, const String& body, const String& conten
   if (!httpPrepare(url, maxBytes, timeoutMs)) return "";
 
   HTTPClient http;
-  http.setConnectTimeout(timeoutMs);
-  http.setTimeout((uint16_t)timeoutMs);
-  http.setFollowRedirects(HTTPC_STRICT_FOLLOW_REDIRECTS);
-  http.useHTTP10(true);
+  NetworkClient plain;
+  NetworkClientSecure secure;
+  uint32_t startedAt = millis();
 
-  if (!http.begin(url)) {
-    httpSetError("http_begin_failed", "HTTP begin failed", "\"url\":" + jsonString(url));
+  if (!httpBeginWithClient(http, plain, secure, url, timeoutMs)) {
+    g_httpLastDurationMs = millis() - startedAt;
     return "";
   }
 
   http.addHeader("Content-Type", contentType.length() ? contentType : String("text/plain"));
   g_httpLastCode = http.POST(body);
   if (g_httpLastCode <= 0) {
-    String err = HTTPClient::errorToString(g_httpLastCode);
-    httpSetError("http_request_failed", err, "\"httpCode\":" + String(g_httpLastCode));
+    httpSetRequestError(g_httpLastCode, g_httpLastSecure ? &secure : nullptr);
     http.end();
+    g_httpLastDurationMs = millis() - startedAt;
     return "";
   }
 
   String response = httpReadLimited(http, maxBytes, timeoutMs);
   g_httpLastBody = response;
   http.end();
+  g_httpLastDurationMs = millis() - startedAt;
   return response;
 }
 
@@ -211,9 +279,15 @@ String httpFetchStatusJson() {
   out += "\"lastCode\":" + String(g_httpLastCode);
   out += ",\"lastTruncated\":" + String(g_httpLastTruncated ? "true" : "false");
   out += ",\"lastError\":" + jsonString(g_httpLastError);
+  out += ",\"lastMessage\":" + jsonString(g_httpLastMessage);
+  out += ",\"lastDetails\":{" + g_httpLastDetails + "}";
   out += ",\"lastBodyBytes\":" + String(g_httpLastBody.length());
+  out += ",\"lastSecure\":" + String(g_httpLastSecure ? "true" : "false");
+  out += ",\"lastDurationMs\":" + String(g_httpLastDurationMs);
   out += ",\"maxResponseBytes\":" + String(P1_EMBED_HTTP_MAX_RESPONSE_BYTES);
   out += ",\"defaultTimeoutMs\":" + String(P1_EMBED_HTTP_DEFAULT_TIMEOUT_MS);
+  out += ",\"tlsInsecureDefault\":" + String(P1_EMBED_HTTP_TLS_INSECURE_DEFAULT ? "true" : "false");
+  out += ",\"failuresAreScriptErrors\":" + String(P1_EMBED_HTTP_FAILURES_ARE_SCRIPT_ERRORS ? "true" : "false");
   out += "}";
   return out;
 }

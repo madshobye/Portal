@@ -348,6 +348,28 @@ body.is-guest-ui #ui-view {
   }
 }
 
+@keyframes p1-ai-submit-pulse {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 rgba(92, 183, 198, 0.08);
+  }
+
+  50% {
+    box-shadow: 0 0 0 3px rgba(92, 183, 198, 0.16);
+  }
+}
+
+@keyframes p1-ai-submit-sweep {
+  0% {
+    transform: translateX(-120%);
+  }
+
+  55%,
+  100% {
+    transform: translateX(120%);
+  }
+}
+
 .toolbar-divider {
   flex: 0 0 1px;
   align-self: stretch;
@@ -490,6 +512,31 @@ input:disabled {
 .button.primary:disabled {
   border-color: var(--line);
   background: #1a1c1d;
+}
+
+.button.is-ai-working,
+.button.is-ai-working:disabled {
+  position: relative;
+  overflow: hidden;
+  border-color: #6ca9b4;
+  color: var(--text);
+  background: #285f69;
+  animation: p1-ai-submit-pulse 0.9s ease-in-out infinite;
+}
+
+.button.is-ai-working::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.14), transparent);
+  transform: translateX(-120%);
+  animation: p1-ai-submit-sweep 1.15s ease-in-out infinite;
+  pointer-events: none;
+}
+
+.button:active:not(:disabled),
+.icon-button:active:not(:disabled) {
+  transform: translateY(1px) scale(0.98);
 }
 
 .button.is-active {
@@ -1598,6 +1645,7 @@ input {
   outline: none;
   color: var(--text);
   background: var(--surface-2);
+  font-size: 12px;
   line-height: 1.45;
 }
 
@@ -1658,7 +1706,7 @@ input {
 
 .settings-tabs {
   display: grid;
-  grid-template-columns: repeat(5, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(64px, 1fr));
   gap: 6px;
 }
 
@@ -1854,6 +1902,46 @@ input {
   color: var(--muted);
   font-size: 11px;
   margin-top: 2px;
+}
+
+.settings-firmware-card {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: end;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface-2);
+}
+
+.firmware-update-summary {
+  margin-top: 6px;
+  color: var(--text);
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.firmware-update-detail {
+  margin-top: 5px;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.firmware-update-log {
+  min-height: 92px;
+  max-height: 190px;
+  margin: 0;
+  padding: 10px;
+  overflow: auto;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #0b0c0d;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.45;
+  white-space: pre-wrap;
 }
 
 .wifi-network-list {

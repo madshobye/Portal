@@ -473,6 +473,9 @@ static void wrenchTask(void*) {
       wrenchUnlock();
     }
     delay(P1_EMBED_WRENCH_TASK_DELAY_MS);
+    if (g_wrenchLoopFps > P1_EMBED_WRENCH_HIGH_FPS_THRESHOLD) {
+      delay(P1_EMBED_WRENCH_HIGH_FPS_EXTRA_DELAY_MS);
+    }
   }
 }
 

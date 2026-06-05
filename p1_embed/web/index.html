@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>P1E</title>
     <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@24,400,0,0">
-    <link rel="stylesheet" href="style.css?v=0.1.87-ui328">
+    <link rel="stylesheet" href="style.css?v=0.1.87-ui334">
   </head>
   <body>
     <main id="app">
@@ -13,7 +13,7 @@
         <div class="brand">
           <strong>P1E</strong>
           <span id="brand-version" class="brand-version">
-            <span class="brand-version-line">web 0.1.87-ui328</span>
+            <span class="brand-version-line">web 0.1.87-ui334</span>
           </span>
         </div>
         <nav class="tabs" aria-label="Workspace">
@@ -243,7 +243,7 @@
               <span class="material-symbols-rounded">arrow_forward</span>
             </button>
           </div>
-          <input id="install-manifest-input" class="is-hidden" type="hidden" value="bin/p1e-firmware.json" aria-hidden="true">
+          <input id="install-manifest-input" class="is-hidden" type="hidden" value="bin/p1e-firmware-safeboot.json" aria-hidden="true">
           <details class="install-log-panel">
             <summary><span class="material-symbols-rounded">terminal</span><span>Details</span></summary>
             <pre id="install-log" class="install-log"></pre>
@@ -288,6 +288,7 @@
           <button class="settings-tab" type="button" data-settings-tab="wifi">WiFi</button>
           <button class="settings-tab" type="button" data-settings-tab="mqtt">MQTT</button>
           <button class="settings-tab" type="button" data-settings-tab="users">Users</button>
+          <button class="settings-tab" type="button" data-settings-tab="firmware">Firmware</button>
           <button class="settings-tab" type="button" data-settings-tab="generative">AI</button>
         </nav>
         <section class="settings-panel is-active" data-settings-panel="general">
@@ -407,6 +408,17 @@
             <button id="online-auth-add-button" class="button primary icon-buttonish" type="button" title="Add online user" aria-label="Add online user"><span class="material-symbols-rounded">person_add</span></button>
           </div>
         </section>
+        <section class="settings-panel" data-settings-panel="firmware">
+          <div class="settings-firmware-card">
+            <div>
+              <div class="settings-subhead">Firmware update</div>
+              <div id="firmware-update-summary" class="firmware-update-summary">Connect a board to check OTA updates.</div>
+              <div id="firmware-update-detail" class="firmware-update-detail"></div>
+            </div>
+            <button id="firmware-update-button" class="button primary settings-save-button" type="button" disabled title="Run firmware update over OTA" aria-label="Run firmware update over OTA">Update</button>
+          </div>
+          <pre id="firmware-update-log" class="firmware-update-log" aria-label="Firmware update log"></pre>
+        </section>
         <section class="settings-panel" data-settings-panel="generative">
           <div class="settings-mqtt-grid settings-generative-grid">
             <label class="field">
@@ -501,6 +513,6 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.9.4/p5.min.js" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
     <script src="../../P1/portal/usbSerial.js"></script>
     <script src="../../P1/portal/qrCodeGen.js"></script>
-    <script type="module" src="app.js?v=0.1.87-ui328"></script>
+    <script type="module" src="app.js?v=0.1.87-ui334"></script>
   </body>
 </html>

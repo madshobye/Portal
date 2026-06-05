@@ -144,6 +144,8 @@ The timezone is configured in Settings > General with representative city labels
 - `httpJsonGet(url, path, maxBytes, timeoutMs)`, `httpJsonGetInt(...)`, `httpJsonGetFloat(...)`, `httpJsonGetBool(...)` fetch and extract one path in firmware.
 - `httpPost(url, body, contentType, maxBytes, timeoutMs)`.
 - `httpCode()`, `httpError()`, `httpTruncated()`, `httpStatus()`.
+- HTTP failures return an empty body and set `httpCode()`, `httpError()`, and `httpStatus()`; generated sketches should check the status code instead of assuming network requests always succeed.
+- The lab firmware may allow insecure HTTPS for local/self-signed test servers. Do not depend on certificate validation details in generated sketches.
 
 HTTP JSON field extraction:
 
@@ -172,7 +174,8 @@ Paths can address nested object/array values such as `weather.0.main` or `main.t
 
 Multi-strip API:
 
-- `ledConfig(strip, pin, count, brightness)`. Reusing the same pin with a smaller or equal count updates the logical strip size immediately and clears any tail pixels beyond the new count.
+- `ledConfig(strip, pin, count, brightness)` defaults to `WS2812B` and `GRB`.
+- `ledConfig(strip, pin, count, brightness, chipset, order)` supports chipset `"WS2812B"`, `"WS2812"`, `"WS2811"`, or `"SK6812"` and color order `"RGB"`, `"RBG"`, `"GRB"`, `"GBR"`, `"BRG"`, or `"BGR"`. Reusing the same pin with a smaller or equal count updates the logical strip size immediately and clears any tail pixels beyond the new count. Changing pin or chipset requires reboot; changing color order is allowed live.
 - `ledReady(strip)`.
 - `ledStripCount()`.
 - `ledCount(strip)`.

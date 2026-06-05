@@ -1,19 +1,21 @@
-import { ProtocolClient } from "./protocol/ProtocolClient.js?v=0.1.87-ui328";
-import { canEncodeCommand } from "./protocol/P1MsgPack.js?v=0.1.87-ui328";
-import { WebSerialTransport } from "./protocol/WebSerialTransport.js?v=0.1.87-ui328";
+import { ProtocolClient } from "./protocol/ProtocolClient.js?v=0.1.87-ui334";
+import { canEncodeCommand } from "./protocol/P1MsgPack.js?v=0.1.87-ui334";
+import { WebSerialTransport } from "./protocol/WebSerialTransport.js?v=0.1.87-ui334";
 import { WebSocketTransport } from "./protocol/WebSocketTransport.js";
-import { MqttWebRtcTransport, MQTT_WEBRTC_TRANSPORT_VERSION } from "./protocol/MqttWebRtcTransport.js?v=0.1.87-ui328";
-import { MqttTransport, MQTT_TRANSPORT_VERSION, clearOnlineAuthKey, deriveOnlineAuthKeyHex, storeOnlineAuthKey } from "./protocol/MqttTransport.js?v=0.1.87-ui328";
-import { P1WebFlasher } from "./web-flasher.js?v=0.1.87-ui328";
-import { inferCircuitLayout, initCircuitView, normalizeCircuitLayout } from "./circuit.js?v=0.1.87-ui328";
-import { initGuinoView } from "./guino.js?v=0.1.87-ui328";
+import { MqttWebRtcTransport, MQTT_WEBRTC_TRANSPORT_VERSION } from "./protocol/MqttWebRtcTransport.js?v=0.1.87-ui334";
+import { MqttTransport, MQTT_TRANSPORT_VERSION, clearOnlineAuthKey, deriveOnlineAuthKeyHex, storeOnlineAuthKey } from "./protocol/MqttTransport.js?v=0.1.87-ui334";
+import { P1WebFlasher } from "./web-flasher.js?v=0.1.87-ui334";
+import { inferCircuitLayout, initCircuitView, normalizeCircuitLayout } from "./circuit.js?v=0.1.87-ui334";
+import { initGuinoView } from "./guino.js?v=0.1.87-ui334";
 
-const WEB_UI_VERSION = "0.1.87-ui328";
+const WEB_UI_VERSION = "0.1.87-ui334";
 const CHAT_DEFAULT_MAX_OUTPUT_TOKENS = 8000;
 const CHAT_MIN_MAX_OUTPUT_TOKENS = 1024;
 const CHAT_HARD_MAX_OUTPUT_TOKENS = 32000;
 const ALPHA_ENABLE_WEBSOCKET_CONNECT = false;
 const ALPHA_ENABLE_WEBRTC_CONNECT = false;
+const INSTALL_MANIFEST = "bin/p1e-firmware-safeboot.json";
+const FIRMWARE_RELEASES_MANIFEST = "bin/p1e-firmware-releases.json";
 console.info(`[P1E web] loaded ${WEB_UI_VERSION}`, { mqtt: MQTT_TRANSPORT_VERSION, mqttWebRtc: MQTT_WEBRTC_TRANSPORT_VERSION });
 
 const defaultCode = `function setup() {
@@ -202,6 +204,10 @@ const els = {
   chatModelsRefresh: document.querySelector("#chat-models-refresh-button"),
   chatMaxOutputTokens: document.querySelector("#chat-max-output-tokens"),
   chatDebugPrompt: document.querySelector("#chat-debug-prompt-button"),
+  firmwareUpdateSummary: document.querySelector("#firmware-update-summary"),
+  firmwareUpdateDetail: document.querySelector("#firmware-update-detail"),
+  firmwareUpdateButton: document.querySelector("#firmware-update-button"),
+  firmwareUpdateLog: document.querySelector("#firmware-update-log"),
   chatClear: document.querySelector("#chat-clear-button"),
   chatTranscript: document.querySelector("#chat-transcript"),
   chatForm: document.querySelector("#chat-form"),
@@ -270,6 +276,10 @@ let lastWifiConsoleKey = "";
 let lastWifiConsoleAt = 0;
 let flasher = null;
 let flasherBusy = false;
+let firmwareUpdateBusy = false;
+let firmwareReleasesManifest = null;
+let firmwareReleasesManifestUrl = "";
+let firmwareUpdateCandidate = null;
 let wifiDraftDirty = false;
 let lastConfig = null;
 let uploadState = { phase: "", label: "", progress: 0 };
@@ -341,6 +351,10 @@ function boot() {
   logLine("info", `P1E web ${WEB_UI_VERSION} / mqtt ${MQTT_TRANSPORT_VERSION}`);
   refreshKnownUsbPorts();
   refreshInstallManifestInfo();
+  refreshFirmwareReleaseInfo({ quiet: true }).catch((error) => {
+    firmwareLog(`manifest: ${error.message || error}`);
+    renderFirmwareUpdatePanel();
+  });
   setConnected(false);
   renderFields();
   applyGuestUiShell();
@@ -540,6 +554,7 @@ function bindControls() {
     localStorage.setItem(storage.chatMaxOutputTokens, String(value));
   });
   els.chatDebugPrompt.addEventListener("click", toggleChatDebugPrompt);
+  els.firmwareUpdateButton?.addEventListener("click", runFirmwareUpdate);
   els.chatClear.addEventListener("click", clearChat);
   els.generativeTabs.forEach((tab) => tab.addEventListener("click", () => toggleGenerativePanel(tab.dataset.generativeTab)));
   els.specificationEditor?.addEventListener("input", handleSpecificationInput);
@@ -1872,8 +1887,23 @@ async function startupRefreshOnce({ quiet = false, includeScript = true, timeout
   if (!client || stale()) return infoOk || statusOk;
   await bestEffortStartupStep(() => sendCommand("config.get", {}, { quiet, timeoutMs }).then(updateConfig), quiet);
   if (!client || stale()) return infoOk || statusOk;
-  if (includeScript) await bestEffortStartupStep(() => getScript({ quiet, timeoutMs }), quiet);
+  if (includeScript) {
+    const scriptOk = await startupScriptSync({ quiet, timeoutMs });
+    if (!client || stale()) return false;
+    if (!scriptOk) return false;
+  }
   return infoOk || statusOk;
+}
+
+async function startupScriptSync({ quiet = false, timeoutMs = 15000 } = {}) {
+  try {
+    if (!quiet) logLine("debug", "startup: downloading board sketch");
+    await getScript({ quiet, timeoutMs });
+    return true;
+  } catch (error) {
+    if (!quiet) logLine("warn", `startup script sync failed: ${error.message || error}`);
+    return false;
+  }
 }
 
 async function syncDeviceEventLevel({ quiet = false, timeoutMs = 15000 } = {}) {
@@ -1939,7 +1969,7 @@ async function getScriptChunked(options = {}) {
   let offset = 0;
   let code = "";
   let last = {};
-  const maxBytes = isMqttKind(transport?.kind) ? 3000 : 512;
+  const maxBytes = isMqttKind(transport?.kind) ? 1024 : 512;
   for (let guard = 0; guard < 80; guard += 1) {
     const data = await sendCommand("script.chunk.get", { offset, maxBytes }, options);
     const chunk = String(data.chunk ?? "");
@@ -2066,7 +2096,10 @@ async function openDownloadedBoardRevision(data = {}) {
   }
 
   if (!revision) {
+    const boardRevisionId = String(data.revisionId || "").trim();
+    const boardRevisionIdAvailable = boardRevisionId && !project.revisions.some((item) => item.id === boardRevisionId);
     revision = buildRevision({
+      id: boardRevisionIdAvailable ? boardRevisionId : "",
       name: normalizeSketchName(data.scriptName || "") || nextRevisionName(project),
       code,
       specification: "",
@@ -2517,18 +2550,32 @@ function boardCodeHash(data = {}, code = "") {
 function findRevisionByIdentity(project, { revisionId = "", codeHash = "", code = "", allowContentMatch = false } = {}) {
   const revisions = Array.isArray(project?.revisions) ? project.revisions : [];
   const id = String(revisionId || "").trim();
+  const codeText = String(code || "");
+  const hash = normalizeCodeHash(codeHash, codeText);
+  const findByDownloadedCode = () => {
+    if (codeText.trim()) {
+      const byExactCode = revisions.find((revision) => String(revision.code || "") === codeText);
+      if (byExactCode) return byExactCode;
+    }
+    if (hash) {
+      const byHash = revisions.find((revision) => normalizeCodeHash(revision.codeHash, revision.code) === hash);
+      if (byHash) return byHash;
+    }
+    return null;
+  };
   if (id) {
     const byId = revisions.find((revision) => revision.id === id);
-    if (byId) return byId;
+    if (byId) {
+      if (codeText.trim() && String(byId.code || "") !== codeText) {
+        logLine("warn", `board revision id ${id} matched ${byId.name || "revision"} but code differs; matching downloaded code instead`);
+        return findByDownloadedCode();
+      }
+      return byId;
+    }
     logLine("warn", `board revision id ${id} was not found locally; opening downloaded sketch as a new revision`);
   }
   if (!allowContentMatch) return null;
-  const hash = normalizeCodeHash(codeHash, code);
-  if (hash) {
-    const byHash = revisions.find((revision) => normalizeCodeHash(revision.codeHash, revision.code) === hash);
-    if (byHash) return byHash;
-  }
-  return revisions.find((revision) => String(revision.code || "") === String(code || "")) || null;
+  return findByDownloadedCode();
 }
 
 function findReusableBoardDownloadRevision(project, { codeHash = "", code = "" } = {}) {
@@ -3502,7 +3549,8 @@ async function openRevision(project, revision, { saveCurrent = true } = {}) {
     setProjectSpecification(visibleRevision.specification || "", visibleRevision.specificationMode, { markSaved: false });
     updateCurrentSketchDirty();
   } else {
-    setEditorValueRaw(savedRevision.code || "", { persist: true });
+    setEditorValueRaw(visibleRevision.code || "", { persist: true });
+    setProjectSpecification(visibleRevision.specification || "", visibleRevision.specificationMode, { markSaved: true });
   }
   renderProjectSelectors(projectCache);
   renderChatTranscript();
@@ -3948,6 +3996,10 @@ function openSettingsDialog() {
   populateMqttSettings();
   renderWifiNetworkList();
   wifiDraftDirty = false;
+  refreshFirmwareReleaseInfo({ quiet: true }).catch((error) => {
+    firmwareLog(`manifest: ${error.message || error}`);
+    renderFirmwareUpdatePanel();
+  });
   switchSettingsTab("general");
   els.settingsDialog.showModal();
   els.deviceNameInput.focus();
@@ -3964,6 +4016,12 @@ function switchSettingsTab(name) {
   els.settingsPanels.forEach((panel) => {
     panel.classList.toggle("is-active", panel.dataset.settingsPanel === target);
   });
+  if (target === "firmware") {
+    refreshFirmwareUpdateState({ quiet: true }).catch((error) => {
+      firmwareLog(`refresh: ${error.message || error}`);
+      renderFirmwareUpdatePanel();
+    });
+  }
 }
 
 function mqttDefaults() {
@@ -4764,6 +4822,7 @@ function renderFields() {
   const shareTarget = bestInfoShareTarget({ web, webrtc, mqtt });
   const shareUrl = shareTarget ? sharePageUrl(shareTarget.kind, shareTarget.wsUrl, shareTarget.usbHint, shareTarget.peerId) : "";
   renderBrandVersion();
+  renderFirmwareUpdatePanel();
   renderInfoShare(shareUrl);
   els.fields.replaceChildren(
     infoCard("developer_board", lastInfo?.deviceName || lastStatus?.deviceName || "P1E board", [
@@ -5452,6 +5511,220 @@ function clearChat() {
   updateChatEnabledState();
 }
 
+async function refreshFirmwareReleaseInfo({ quiet = false } = {}) {
+  const url = new URL(FIRMWARE_RELEASES_MANIFEST, window.location.href).toString();
+  const response = await fetch(url, { cache: "no-store" });
+  if (!response.ok) throw new Error(`firmware manifest ${response.status}`);
+  firmwareReleasesManifest = await response.json();
+  firmwareReleasesManifestUrl = url;
+  if (!quiet) firmwareLog(`loaded ${FIRMWARE_RELEASES_MANIFEST}`);
+  renderFirmwareUpdatePanel();
+  return firmwareReleasesManifest;
+}
+
+async function refreshFirmwareUpdateState({ quiet = false } = {}) {
+  await refreshFirmwareReleaseInfo({ quiet: true });
+  if (isDeviceConnected() && !firmwareCurrentVersion()) {
+    try {
+      await refreshInfo({ quiet: true, timeoutMs: 10000 });
+      if (!quiet) firmwareLog("read board firmware version");
+    } catch (error) {
+      firmwareLog(`system.info: ${error.message || error}`);
+    }
+  }
+  renderFirmwareUpdatePanel();
+}
+
+function firmwareCurrentVersion() {
+  return String(lastInfo?.firmwareVersion || lastStatus?.firmwareVersion || "").trim();
+}
+
+function compareFirmwareVersions(left, right) {
+  const a = String(left || "").split(".").map((part) => Number(part.replace(/\D+.*$/, "")));
+  const b = String(right || "").split(".").map((part) => Number(part.replace(/\D+.*$/, "")));
+  const length = Math.max(a.length, b.length);
+  for (let i = 0; i < length; i += 1) {
+    const delta = (a[i] || 0) - (b[i] || 0);
+    if (delta) return delta;
+  }
+  return String(left || "").localeCompare(String(right || ""));
+}
+
+function directFirmwareDeltaFor(currentVersion) {
+  const deltas = Array.isArray(firmwareReleasesManifest?.deltas) ? firmwareReleasesManifest.deltas : [];
+  const latest = String(firmwareReleasesManifest?.latest || "").trim();
+  const candidates = deltas
+    .filter((delta) => String(delta?.fromVersion || "").trim() === currentVersion)
+    .filter((delta) => String(delta?.toVersion || "").trim())
+    .sort((a, b) => compareFirmwareVersions(a.toVersion, b.toVersion));
+  if (!candidates.length) return null;
+  return candidates.find((delta) => String(delta.toVersion) === latest) || candidates[0];
+}
+
+function firmwareUpdateCandidateForCurrentBoard() {
+  const currentVersion = firmwareCurrentVersion();
+  const latest = String(firmwareReleasesManifest?.latest || "").trim();
+  if (!currentVersion || !latest || currentVersion === latest) return null;
+  const delta = directFirmwareDeltaFor(currentVersion);
+  if (!delta) return null;
+  return {
+    currentVersion,
+    targetVersion: String(delta.toVersion || "").trim(),
+    latestVersion: latest,
+    delta,
+  };
+}
+
+function renderFirmwareUpdatePanel() {
+  if (!els.firmwareUpdateSummary || !els.firmwareUpdateButton) return;
+  firmwareUpdateCandidate = firmwareUpdateCandidateForCurrentBoard();
+  const connected = isDeviceConnected();
+  const currentVersion = firmwareCurrentVersion();
+  const latest = String(firmwareReleasesManifest?.latest || "").trim();
+
+  if (!connected) {
+    els.firmwareUpdateSummary.textContent = "Connect a board to check OTA updates.";
+    els.firmwareUpdateDetail.textContent = latest ? `Latest release manifest: ${latest}` : "Release manifest not loaded.";
+  } else if (!firmwareReleasesManifest) {
+    els.firmwareUpdateSummary.textContent = "Firmware release manifest is not loaded.";
+    els.firmwareUpdateDetail.textContent = FIRMWARE_RELEASES_MANIFEST;
+  } else if (!currentVersion) {
+    els.firmwareUpdateSummary.textContent = "The connected board did not report a firmware version.";
+    els.firmwareUpdateDetail.textContent = "OTA is available only when the board reports an exact version.";
+  } else if (currentVersion === latest) {
+    els.firmwareUpdateSummary.textContent = `Firmware ${currentVersion} is current.`;
+    els.firmwareUpdateDetail.textContent = "No delta update needed.";
+  } else if (firmwareUpdateCandidate) {
+    const { targetVersion, latestVersion, delta } = firmwareUpdateCandidate;
+    const step = targetVersion === latestVersion ? "latest" : `next step toward ${latestVersion}`;
+    els.firmwareUpdateSummary.textContent = `Update ${currentVersion} -> ${targetVersion}`;
+    els.firmwareUpdateDetail.textContent = `${step} / ${formatBytes(delta.size || 0)} patch`;
+  } else {
+    els.firmwareUpdateSummary.textContent = `No delta update for firmware ${currentVersion}.`;
+    els.firmwareUpdateDetail.textContent = latest ? `Latest release: ${latest}. Use USB install if this board needs to jump versions.` : "";
+  }
+
+  els.firmwareUpdateButton.disabled = firmwareUpdateBusy || isBusy || !connected || !firmwareUpdateCandidate;
+  els.firmwareUpdateButton.textContent = firmwareUpdateBusy
+    ? "Updating..."
+    : (firmwareUpdateCandidate ? `Update to ${firmwareUpdateCandidate.targetVersion}` : "Update");
+}
+
+function firmwareManifestUrl(value, baseUrl = firmwareReleasesManifestUrl || window.location.href) {
+  const text = String(value || "").trim();
+  if (!text) return "";
+  return new URL(text, baseUrl).toString();
+}
+
+async function firmwareUpdatePayload(candidate) {
+  const delta = candidate.delta || {};
+  let payload = {};
+  let payloadBase = firmwareReleasesManifestUrl;
+  const prepareUrl = firmwareManifestUrl(delta.prepareUrl);
+  if (prepareUrl) {
+    const response = await fetch(prepareUrl, { cache: "no-store" });
+    if (!response.ok) throw new Error(`prepare manifest ${response.status}`);
+    payload = await response.json();
+    payloadBase = prepareUrl;
+  }
+
+  const url = firmwareManifestUrl(delta.absoluteUrl || payload.url || delta.url, payloadBase);
+  return {
+    kind: payload.kind || delta.kind || "delta",
+    url,
+    sha256: payload.sha256 || delta.sha256 || "",
+    fromSha256: payload.fromSha256 || delta.fromSha256 || "",
+    toSha256: payload.toSha256 || delta.toSha256 || "",
+    fromSize: Number(payload.fromSize || delta.fromSize || 0),
+    toSize: Number(payload.toSize || delta.toSize || 0),
+    memorySize: Number(payload.memorySize || delta.memorySize || 0),
+    segmentSize: Number(payload.segmentSize || delta.segmentSize || 0),
+    reboot: true,
+  };
+}
+
+async function runFirmwareUpdate() {
+  if (firmwareUpdateBusy || isBusy) return;
+  firmwareUpdateBusy = true;
+  renderFirmwareUpdatePanel();
+  try {
+    if (!isDeviceConnected()) {
+      firmwareLog("connect a board before OTA");
+      return;
+    }
+    if (!firmwareReleasesManifest) await refreshFirmwareReleaseInfo();
+    const candidate = firmwareUpdateCandidateForCurrentBoard();
+    if (!candidate) {
+      firmwareLog("no matching delta update");
+      return;
+    }
+
+    const ok = window.confirm(`Update firmware ${candidate.currentVersion} to ${candidate.targetVersion} over OTA?`);
+    if (!ok) return;
+
+    els.firmwareUpdateLog.textContent = "";
+    setConnectionIntentWanted(true);
+    firmwareLog(`preparing ${candidate.currentVersion} -> ${candidate.targetVersion}`);
+    const payload = await firmwareUpdatePayload(candidate);
+    firmwareLog(`patch ${formatBytes(candidate.delta.size || 0)}`);
+    await sendCommand("firmware.update.prepare", payload, { timeoutMs: 30000 });
+    firmwareLog("accepted; board will reboot, download, patch, and reboot again");
+    await waitForFirmwareUpdateVersion(candidate.targetVersion);
+    firmwareLog(`running firmware ${candidate.targetVersion}`);
+    await refreshFirmwareReleaseInfo({ quiet: true });
+  } catch (error) {
+    firmwareLog(`error: ${error.message || error}`);
+    logLine("error", `firmware update: ${error.message || error}`);
+  } finally {
+    firmwareUpdateBusy = false;
+    renderFirmwareUpdatePanel();
+  }
+}
+
+async function waitForFirmwareUpdateVersion(targetVersion) {
+  const deadline = Date.now() + 150000;
+  let lastNoteAt = 0;
+  while (Date.now() < deadline) {
+    await settle(2600);
+    if (!client) {
+      try {
+        await autoReconnectLastConnection({ reconnecting: true });
+      } catch (error) {
+        if (Date.now() - lastNoteAt > 12000) {
+          lastNoteAt = Date.now();
+          firmwareLog(`waiting for reconnect: ${error.message || error}`);
+        }
+      }
+      continue;
+    }
+
+    try {
+      const info = await refreshInfo({ quiet: true, timeoutMs: 8000 });
+      if (String(info?.firmwareVersion || "").trim() === targetVersion) return info;
+    } catch (error) {
+      const message = String(error.message || error);
+      if (/timeout|closed|disconnect|transport/i.test(message) && client) {
+        try {
+          await disconnectTransport({ quiet: true, keepGeneration: true });
+        } catch {
+        }
+      }
+      if (Date.now() - lastNoteAt > 12000) {
+        lastNoteAt = Date.now();
+        firmwareLog(`waiting for board: ${message}`);
+      }
+    }
+  }
+  throw new Error(`Timed out waiting for firmware ${targetVersion}`);
+}
+
+function firmwareLog(message) {
+  if (!els.firmwareUpdateLog) return;
+  const stamp = new Date().toLocaleTimeString();
+  els.firmwareUpdateLog.textContent += `[${stamp}] ${message}\n`;
+  els.firmwareUpdateLog.scrollTop = els.firmwareUpdateLog.scrollHeight;
+}
+
 async function runInstallAction(action) {
   if (flasherBusy) return;
   flasherBusy = true;
@@ -5480,7 +5753,7 @@ async function flashInstallManifest(options = {}) {
   els.installLog.textContent = "";
   els.installGoCode.classList.add("is-hidden");
   await releaseDeviceTransportForInstall();
-  const manifest = els.installManifest.value.trim() || "bin/p1e-firmware.json";
+  const manifest = els.installManifest.value.trim() || INSTALL_MANIFEST;
   const eraseAll = Boolean(options.eraseAll || els.installClearData?.checked);
   if (eraseAll) {
     const ok = window.confirm("Clear old data erases WiFi, users, projects, and stored scripts before installing. Continue?");
@@ -5498,7 +5771,7 @@ async function flashInstallManifest(options = {}) {
 
 async function refreshInstallManifestInfo() {
   if (!els.installFirmwareVersion) return;
-  const manifest = els.installManifest?.value?.trim() || "bin/p1e-firmware.json";
+  const manifest = els.installManifest?.value?.trim() || INSTALL_MANIFEST;
   try {
     const response = await fetch(manifest, { cache: "no-store" });
     if (!response.ok) throw new Error(String(response.status));
@@ -6004,6 +6277,7 @@ async function sendChatPrompt() {
     logLine("warn", "chat response will not be persisted until a revision exists");
   }
   chatBusy = true;
+  setAiSubmitWorking(els.chatSend, true);
   updateChatEnabledState();
   const userMessage = { role: "user", content: prompt, at: new Date().toISOString() };
   const requestMessages = [...requestContext.chat, userMessage];
@@ -6055,6 +6329,7 @@ async function sendChatPrompt() {
     if (isCurrentRevisionContext(requestContext)) chatMessages = finalMessages;
   } finally {
     chatBusy = false;
+    setAiSubmitWorking(els.chatSend, false);
     renderChatTranscript();
     updateChatEnabledState();
   }
@@ -6067,6 +6342,7 @@ async function generateCodeFromSpecification() {
   await shelveEditorSketchIfNeeded();
   const requestContext = captureActiveRevisionContext();
   chatBusy = true;
+  setAiSubmitWorking(els.specificationGenerate, true);
   updateChatEnabledState();
   try {
     const result = await requestChatCompletion(buildSpecificationGeneratePrompt(specification), {
@@ -6120,8 +6396,15 @@ async function generateCodeFromSpecification() {
     renderChatTranscript();
   } finally {
     chatBusy = false;
+    setAiSubmitWorking(els.specificationGenerate, false);
     updateChatEnabledState();
   }
+}
+
+function setAiSubmitWorking(button, working) {
+  if (!button) return;
+  button.classList.toggle("is-ai-working", Boolean(working));
+  button.setAttribute("aria-busy", working ? "true" : "false");
 }
 
 function buildSpecificationGeneratePrompt(specification) {
@@ -6538,6 +6821,7 @@ function updateEnabledState() {
   renderConnectionHistory();
   renderConnectionState();
   updateInstallEnabledState();
+  renderFirmwareUpdatePanel();
 }
 
 function logLine(level, message) {

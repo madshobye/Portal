@@ -58,6 +58,25 @@ Use `p1embed-listen.sh` for normal serial watching: it runs the decoded
 Python listener at 115200 baud and filters out compact/binary serial frames
 that make raw `cat` output look like a baud-rate problem.
 
+P1 Embed SafeBoot OTA profile:
+
+```sh
+./scripts/esp32/p1embed-safeboot-compile.sh
+./scripts/esp32/p1embed-safeboot-upload.sh
+DETOOLS=/private/tmp/p1e-detools-venv/bin/detools ./scripts/esp32/p1embed-safeboot-deploy.sh --from 0.1.176 --to 0.1.177
+```
+
+Use `p1embed-safeboot-deploy.sh` for official SafeBoot releases. It is the
+single script that should bump `P1_EMBED_FIRMWARE_VERSION`, compile both
+partitions, publish current USB installer files, write versioned files under
+`p1_embed/web/bin/releases/`, create the delta patch, host-verify the patch,
+and update `p1e-firmware-safeboot.json` plus `p1e-firmware-releases.json`.
+
+SafeBoot release URLs are intentionally relative to `p1_embed/web/bin`; the web
+UI resolves them from wherever the web utility is hosted before sending an OTA
+command to the board. Do not put LAN IPs or local absolute URLs in committed
+release manifests. See `p1_embed/docs/safeboot_ota.md` for the full workflow.
+
 LabelCam BLE test profile:
 
 ```sh

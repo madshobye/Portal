@@ -7,10 +7,10 @@
 #define FASTLED_RMT_NETWORK_REDUCE_CHANNELS 0
 #endif
 #ifndef FASTLED_RMT_MEM_BLOCKS
-#define FASTLED_RMT_MEM_BLOCKS 8
+#define FASTLED_RMT_MEM_BLOCKS 4
 #endif
 #ifndef FASTLED_RMT_MEM_BLOCKS_NETWORK_MODE
-#define FASTLED_RMT_MEM_BLOCKS_NETWORK_MODE 8
+#define FASTLED_RMT_MEM_BLOCKS_NETWORK_MODE 4
 #endif
 #include <FastLED.h>
 #include "p1_embed_firmware.h"
@@ -25,8 +25,26 @@ struct LedStripState {
   int count;
   int capacity;
   int brightness;
+  int chipset;
+  int order;
   CRGB* pixels;
   CLEDController* controller;
+};
+
+enum {
+  P1_LED_CHIPSET_WS2812B = 0,
+  P1_LED_CHIPSET_WS2812 = 1,
+  P1_LED_CHIPSET_WS2811 = 2,
+  P1_LED_CHIPSET_SK6812 = 3,
+};
+
+enum {
+  P1_LED_ORDER_GRB = 0,
+  P1_LED_ORDER_RGB = 1,
+  P1_LED_ORDER_RBG = 2,
+  P1_LED_ORDER_GBR = 3,
+  P1_LED_ORDER_BRG = 4,
+  P1_LED_ORDER_BGR = 5,
 };
 
 static LedStripState g_ledStrips[P1_EMBED_MAX_LED_STRIPS];
@@ -38,6 +56,28 @@ static uint32_t g_managerBeginCount = 0;
 static uint32_t g_controllerAddCount = 0;
 static uint32_t g_resourceReleaseCount = 0;
 static uint32_t g_ledScriptGeneration = 1;
+static volatile bool g_fastLedShowActive = false;
+static volatile uint32_t g_fastLedSkipUntilMs = 0;
+
+bool fastLedShowActive() {
+  return g_fastLedShowActive;
+}
+
+void fastLedSkipFor(uint32_t ms) {
+  g_fastLedSkipUntilMs = millis() + ms;
+}
+
+static bool fastLedSkipActive() {
+  uint32_t until = g_fastLedSkipUntilMs;
+  return until != 0 && static_cast<int32_t>(until - millis()) > 0;
+}
+
+static void fastLedShowGuarded() {
+  if (fastLedSkipActive()) return;
+  g_fastLedShowActive = true;
+  FastLED.show();
+  g_fastLedShowActive = false;
+}
 
 static void ledResetRuntimeState() {
   for (int i = 0; i < P1_EMBED_MAX_LED_STRIPS; i++) {
@@ -48,6 +88,8 @@ static void ledResetRuntimeState() {
     g_ledStrips[i].count = 0;
     g_ledStrips[i].capacity = 0;
     g_ledStrips[i].brightness = 255;
+    g_ledStrips[i].chipset = P1_LED_CHIPSET_WS2812B;
+    g_ledStrips[i].order = P1_LED_ORDER_GRB;
     g_ledStrips[i].pixels = nullptr;
     g_ledStrips[i].controller = nullptr;
   }
@@ -64,10 +106,143 @@ static bool ledValidPin(int pin) {
   return true;
 }
 
-#if P1_EMBED_FASTLED_AVAILABLE
-#define P1_ADD_FASTLED_CASE(PIN) case PIN: controllerOut = &FastLED.addLeds<WS2812B, PIN, GRB, fl::Bus::RMT>(pixels, count); break
+static String ledNormalizeToken(const char* value) {
+  String out;
+  if (!value) return out;
+  for (const char* p = value; *p; ++p) {
+    char c = *p;
+    if (c == '-' || c == '_' || c == ' ') continue;
+    out += (char)toupper((unsigned char)c);
+  }
+  return out;
+}
 
-static bool ledAddController(int pin, CRGB* pixels, int count, CLEDController*& controllerOut) {
+static const char* ledChipsetName(int chipset) {
+  switch (chipset) {
+    case P1_LED_CHIPSET_WS2812: return "WS2812";
+    case P1_LED_CHIPSET_WS2811: return "WS2811";
+    case P1_LED_CHIPSET_SK6812: return "SK6812";
+    case P1_LED_CHIPSET_WS2812B:
+    default: return "WS2812B";
+  }
+}
+
+static const char* ledOrderName(int order) {
+  switch (order) {
+    case P1_LED_ORDER_RGB: return "RGB";
+    case P1_LED_ORDER_RBG: return "RBG";
+    case P1_LED_ORDER_GBR: return "GBR";
+    case P1_LED_ORDER_BRG: return "BRG";
+    case P1_LED_ORDER_BGR: return "BGR";
+    case P1_LED_ORDER_GRB:
+    default: return "GRB";
+  }
+}
+
+static bool ledParseChipset(const char* value, int& chipsetOut) {
+  String token = ledNormalizeToken(value);
+  if (!token.length()) {
+    chipsetOut = P1_LED_CHIPSET_WS2812B;
+    return true;
+  }
+  if (token == "WS2812B" || token == "NEOPIXEL") {
+    chipsetOut = P1_LED_CHIPSET_WS2812B;
+    return true;
+  }
+  if (token == "WS2812") {
+    chipsetOut = P1_LED_CHIPSET_WS2812;
+    return true;
+  }
+  if (token == "WS2811") {
+    chipsetOut = P1_LED_CHIPSET_WS2811;
+    return true;
+  }
+  if (token == "SK6812") {
+    chipsetOut = P1_LED_CHIPSET_SK6812;
+    return true;
+  }
+  return false;
+}
+
+static bool ledParseOrder(const char* value, int& orderOut) {
+  String token = ledNormalizeToken(value);
+  if (!token.length() || token == "GRB") {
+    orderOut = P1_LED_ORDER_GRB;
+    return true;
+  }
+  if (token == "RGB") orderOut = P1_LED_ORDER_RGB;
+  else if (token == "RBG") orderOut = P1_LED_ORDER_RBG;
+  else if (token == "GBR") orderOut = P1_LED_ORDER_GBR;
+  else if (token == "BRG") orderOut = P1_LED_ORDER_BRG;
+  else if (token == "BGR") orderOut = P1_LED_ORDER_BGR;
+  else return false;
+  return true;
+}
+
+static void ledOrderBytes(int order, uint8_t r, uint8_t g, uint8_t b, uint8_t out[3]) {
+  switch (order) {
+    case P1_LED_ORDER_RGB: out[0] = r; out[1] = g; out[2] = b; break;
+    case P1_LED_ORDER_RBG: out[0] = r; out[1] = b; out[2] = g; break;
+    case P1_LED_ORDER_GBR: out[0] = g; out[1] = b; out[2] = r; break;
+    case P1_LED_ORDER_BRG: out[0] = b; out[1] = r; out[2] = g; break;
+    case P1_LED_ORDER_BGR: out[0] = b; out[1] = g; out[2] = r; break;
+    case P1_LED_ORDER_GRB:
+    default: out[0] = g; out[1] = r; out[2] = b; break;
+  }
+}
+
+static CRGB ledPackColor(int order, int r, int g, int b) {
+  uint8_t bytes[3];
+  ledOrderBytes(order, constrain(r, 0, 255), constrain(g, 0, 255), constrain(b, 0, 255), bytes);
+  return CRGB(bytes[1], bytes[0], bytes[2]);
+}
+
+static void ledUnpackColor(const CRGB& pixel, int order, int& r, int& g, int& b) {
+  uint8_t bytes[3] = { pixel.g, pixel.r, pixel.b };
+  r = 0;
+  g = 0;
+  b = 0;
+  switch (order) {
+    case P1_LED_ORDER_RGB: r = bytes[0]; g = bytes[1]; b = bytes[2]; break;
+    case P1_LED_ORDER_RBG: r = bytes[0]; b = bytes[1]; g = bytes[2]; break;
+    case P1_LED_ORDER_GBR: g = bytes[0]; b = bytes[1]; r = bytes[2]; break;
+    case P1_LED_ORDER_BRG: b = bytes[0]; r = bytes[1]; g = bytes[2]; break;
+    case P1_LED_ORDER_BGR: b = bytes[0]; g = bytes[1]; r = bytes[2]; break;
+    case P1_LED_ORDER_GRB:
+    default: g = bytes[0]; r = bytes[1]; b = bytes[2]; break;
+  }
+}
+
+#if P1_EMBED_FASTLED_AVAILABLE
+#define P1_ADD_FASTLED_CASE(CHIPSET, PIN) case PIN: controllerOut = &FastLED.addLeds<CHIPSET, PIN, GRB, fl::Bus::RMT>(pixels, count); break
+#define P1_FASTLED_PIN_SWITCH(CHIPSET) \
+  switch (pin) { \
+    P1_ADD_FASTLED_CASE(CHIPSET, 0); \
+    P1_ADD_FASTLED_CASE(CHIPSET, 1); \
+    P1_ADD_FASTLED_CASE(CHIPSET, 2); \
+    P1_ADD_FASTLED_CASE(CHIPSET, 3); \
+    P1_ADD_FASTLED_CASE(CHIPSET, 4); \
+    P1_ADD_FASTLED_CASE(CHIPSET, 5); \
+    P1_ADD_FASTLED_CASE(CHIPSET, 12); \
+    P1_ADD_FASTLED_CASE(CHIPSET, 13); \
+    P1_ADD_FASTLED_CASE(CHIPSET, 14); \
+    P1_ADD_FASTLED_CASE(CHIPSET, 15); \
+    P1_ADD_FASTLED_CASE(CHIPSET, 16); \
+    P1_ADD_FASTLED_CASE(CHIPSET, 17); \
+    P1_ADD_FASTLED_CASE(CHIPSET, 18); \
+    P1_ADD_FASTLED_CASE(CHIPSET, 19); \
+    P1_ADD_FASTLED_CASE(CHIPSET, 21); \
+    P1_ADD_FASTLED_CASE(CHIPSET, 22); \
+    P1_ADD_FASTLED_CASE(CHIPSET, 23); \
+    P1_ADD_FASTLED_CASE(CHIPSET, 25); \
+    P1_ADD_FASTLED_CASE(CHIPSET, 26); \
+    P1_ADD_FASTLED_CASE(CHIPSET, 27); \
+    P1_ADD_FASTLED_CASE(CHIPSET, 32); \
+    P1_ADD_FASTLED_CASE(CHIPSET, 33); \
+    default: matchedPin = false; break; \
+  }
+
+static bool ledAddController(int pin, CRGB* pixels, int count, int chipset, CLEDController*& controllerOut) {
   controllerOut = nullptr;
   g_controllerAddCount++;
   bool matchedPin = true;
@@ -75,33 +250,22 @@ static bool ledAddController(int pin, CRGB* pixels, int count, CLEDController*& 
     p1FieldUInt("call", g_controllerAddCount),
     p1FieldInt("pin", pin),
     p1FieldInt("count", count),
+    p1FieldString("chipset", ledChipsetName(chipset)),
   };
-  debugEventEmitFields("led.debug", "debug", "led", "FastLED.addLeds begin", beginFields, 3);
-  switch (pin) {
-    P1_ADD_FASTLED_CASE(0);
-    P1_ADD_FASTLED_CASE(1);
-    P1_ADD_FASTLED_CASE(2);
-    P1_ADD_FASTLED_CASE(3);
-    P1_ADD_FASTLED_CASE(4);
-    P1_ADD_FASTLED_CASE(5);
-    P1_ADD_FASTLED_CASE(12);
-    P1_ADD_FASTLED_CASE(13);
-    P1_ADD_FASTLED_CASE(14);
-    P1_ADD_FASTLED_CASE(15);
-    P1_ADD_FASTLED_CASE(16);
-    P1_ADD_FASTLED_CASE(17);
-    P1_ADD_FASTLED_CASE(18);
-    P1_ADD_FASTLED_CASE(19);
-    P1_ADD_FASTLED_CASE(21);
-    P1_ADD_FASTLED_CASE(22);
-    P1_ADD_FASTLED_CASE(23);
-    P1_ADD_FASTLED_CASE(25);
-    P1_ADD_FASTLED_CASE(26);
-    P1_ADD_FASTLED_CASE(27);
-    P1_ADD_FASTLED_CASE(32);
-    P1_ADD_FASTLED_CASE(33);
+  debugEventEmitFields("led.debug", "debug", "led", "FastLED.addLeds begin", beginFields, 4);
+  switch (chipset) {
+    case P1_LED_CHIPSET_WS2812:
+      P1_FASTLED_PIN_SWITCH(WS2812);
+      break;
+    case P1_LED_CHIPSET_WS2811:
+      P1_FASTLED_PIN_SWITCH(WS2811);
+      break;
+    case P1_LED_CHIPSET_SK6812:
+      P1_FASTLED_PIN_SWITCH(SK6812);
+      break;
+    case P1_LED_CHIPSET_WS2812B:
     default:
-      matchedPin = false;
+      P1_FASTLED_PIN_SWITCH(WS2812B);
       break;
   }
   if (controllerOut) {
@@ -126,14 +290,16 @@ static bool ledAddController(int pin, CRGB* pixels, int count, CLEDController*& 
 }
 #endif
 
-static bool ledStartStrip(int strip, int pin, int count, int brightness) {
+static bool ledStartStrip(int strip, int pin, int count, int brightness, int chipset, int order) {
   P1EventField startFields[] = {
     p1FieldInt("strip", strip),
     p1FieldInt("pin", pin),
     p1FieldInt("count", count),
     p1FieldInt("brightness", brightness),
+    p1FieldString("chipset", ledChipsetName(chipset)),
+    p1FieldString("order", ledOrderName(order)),
   };
-  debugEventEmitFields("led.debug", "debug", "led", "ledStartStrip begin", startFields, 4);
+  debugEventEmitFields("led.debug", "debug", "led", "ledStartStrip begin", startFields, 6);
   if (strip < 0 || strip >= P1_EMBED_MAX_LED_STRIPS) {
     scriptErrorSet("binding", "led_bad_strip", "LED strip index is out of range", "\"strip\":" + String(strip));
     return false;
@@ -154,14 +320,16 @@ static bool ledStartStrip(int strip, int pin, int count, int brightness) {
       p1FieldInt("count", s.count),
       p1FieldInt("capacity", s.capacity),
       p1FieldInt("brightness", s.brightness),
+      p1FieldString("chipset", ledChipsetName(s.chipset)),
+      p1FieldString("order", ledOrderName(s.order)),
     };
-    debugEventEmitFields("led.debug", "debug", "led", "ledStartStrip existing", existingFields, 5);
-    if (pin != s.pin) {
+    debugEventEmitFields("led.debug", "debug", "led", "ledStartStrip existing", existingFields, 7);
+    if (pin != s.pin || chipset != s.chipset) {
       scriptErrorSet(
         "binding",
         "led_reboot_required",
-        "LED strip geometry is already active; save the requested config and reboot to change pin",
-        "\"strip\":" + String(strip) + ",\"pin\":" + String(pin) + ",\"activePin\":" + String(s.pin) + ",\"count\":" + String(count) + ",\"activeCount\":" + String(s.count) + ",\"capacity\":" + String(s.capacity)
+        "LED strip geometry is already active; save the requested config and reboot to change pin or chipset",
+        "\"strip\":" + String(strip) + ",\"pin\":" + String(pin) + ",\"activePin\":" + String(s.pin) + ",\"chipset\":\"" + ledChipsetName(chipset) + "\",\"activeChipset\":\"" + ledChipsetName(s.chipset) + "\",\"count\":" + String(count) + ",\"activeCount\":" + String(s.count) + ",\"capacity\":" + String(s.capacity)
       );
       return false;
     }
@@ -182,7 +350,7 @@ static bool ledStartStrip(int strip, int pin, int count, int brightness) {
       CLEDController* nextController = nullptr;
       CLEDController* oldController = s.controller;
       if (oldController) oldController->setEnabled(false);
-      if (!ledAddController(pin, nextPixels, count, nextController)) {
+      if (!ledAddController(pin, nextPixels, count, chipset, nextController)) {
         if (oldController) oldController->setEnabled(true);
         delete[] nextPixels;
         scriptErrorSet("binding", "led_pin_not_enabled", "LED pin is not enabled in this firmware", "\"strip\":" + String(strip) + ",\"pin\":" + String(pin));
@@ -196,22 +364,29 @@ static bool ledStartStrip(int strip, int pin, int count, int brightness) {
       delete[] oldPixels;
     }
     bool resized = count != s.count;
+    bool orderChanged = order != s.order;
     if (resized && s.pixels && count < s.capacity) {
       fill_solid(s.pixels + count, s.capacity - count, CRGB::Black);
     }
+    if (orderChanged && s.pixels) {
+      fill_solid(s.pixels, s.capacity, CRGB::Black);
+    }
     s.count = count;
     s.brightness = brightness;
+    s.order = order;
     s.scriptGeneration = g_ledScriptGeneration;
     FastLED.setBrightness((uint8_t)brightness);
-    if (resized) FastLED.show();
+    if (resized || orderChanged) fastLedShowGuarded();
     P1EventField reusedFields[] = {
       p1FieldInt("strip", strip),
       p1FieldInt("pin", pin),
       p1FieldInt("count", count),
       p1FieldInt("capacity", s.capacity),
       p1FieldInt("brightness", brightness),
+      p1FieldString("chipset", ledChipsetName(s.chipset)),
+      p1FieldString("order", ledOrderName(s.order)),
     };
-    debugEventEmitFields("led.status", "debug", "led", resized ? "strip resized" : "strip reused", reusedFields, 5);
+    debugEventEmitFields("led.status", "debug", "led", resized ? "strip resized" : (orderChanged ? "strip order changed" : "strip reused"), reusedFields, 7);
     return true;
   }
 
@@ -226,7 +401,7 @@ static bool ledStartStrip(int strip, int pin, int count, int brightness) {
     return false;
   }
 
-  if (!ledAddController(pin, s.pixels, count, s.controller)) {
+  if (!ledAddController(pin, s.pixels, count, chipset, s.controller)) {
     delete[] s.pixels;
     s.pixels = nullptr;
     s.controller = nullptr;
@@ -241,19 +416,23 @@ static bool ledStartStrip(int strip, int pin, int count, int brightness) {
   s.count = count;
   s.capacity = count;
   s.brightness = brightness;
+  s.chipset = chipset;
+  s.order = order;
   fill_solid(s.pixels, s.capacity, CRGB::Black);
   g_activeStripCount = max(g_activeStripCount, strip + 1);
   g_totalLedCount += count;
   g_ledSetDebugMarkers = 0;
   g_ledShowDebugMarkers = 0;
   FastLED.setBrightness((uint8_t)brightness);
-  FastLED.show();
+  fastLedShowGuarded();
   P1EventField startedFields[] = {
     p1FieldInt("strip", strip),
     p1FieldInt("pin", pin),
     p1FieldInt("count", count),
+    p1FieldString("chipset", ledChipsetName(chipset)),
+    p1FieldString("order", ledOrderName(order)),
   };
-  debugEventEmitFields("led.status", "debug", "led", "strip started", startedFields, 3);
+  debugEventEmitFields("led.status", "debug", "led", "strip started", startedFields, 5);
   return true;
 }
 
@@ -289,13 +468,27 @@ void ledBeginScriptRun() {
 }
 
 bool ledConfigureStrip(int strip, int pin, int count, int brightness) {
+  return ledConfigureStrip(strip, pin, count, brightness, nullptr, nullptr);
+}
+
+bool ledConfigureStrip(int strip, int pin, int count, int brightness, const char* chipsetName, const char* orderName) {
   if (strip < 0 || strip >= P1_EMBED_MAX_LED_STRIPS) {
     scriptErrorSet("binding", "led_bad_strip", "LED strip index is out of range", "\"strip\":" + String(strip));
     return false;
   }
+  int chipset = P1_LED_CHIPSET_WS2812B;
+  int order = P1_LED_ORDER_GRB;
+  if (!ledParseChipset(chipsetName, chipset)) {
+    scriptErrorSet("binding", "led_bad_chipset", "LED chipset is not supported", "\"chipset\":\"" + String(chipsetName ? chipsetName : "") + "\"");
+    return false;
+  }
+  if (!ledParseOrder(orderName, order)) {
+    scriptErrorSet("binding", "led_bad_order", "LED color order is not supported", "\"order\":\"" + String(orderName ? orderName : "") + "\"");
+    return false;
+  }
   count = constrain(count, 1, P1_EMBED_FASTLED_MAX_LEDS);
   brightness = constrain(brightness, 0, 255);
-  return ledStartStrip(strip, pin, count, brightness);
+  return ledStartStrip(strip, pin, count, brightness, chipset, order);
 }
 
 bool ledRebootRequiredFor(int strip, int pin, int count) {
@@ -332,7 +525,7 @@ bool ledSetPixel(int strip, int index, int r, int g, int b) {
   if (!ledReady(strip)) return false;
   LedStripState& s = g_ledStrips[strip];
   if (!s.pixels || index < 0 || index >= s.count) return false;
-  s.pixels[index] = CRGB(constrain(r, 0, 255), constrain(g, 0, 255), constrain(b, 0, 255));
+  s.pixels[index] = ledPackColor(s.order, r, g, b);
   if (g_ledSetDebugMarkers < 8) {
     P1EventField fields[] = {
       p1FieldUInt("marker", g_ledSetDebugMarkers + 1),
@@ -355,17 +548,14 @@ bool ledGetPixel(int strip, int index, int& r, int& g, int& b) {
   if (!ledReady(strip)) return false;
   LedStripState& s = g_ledStrips[strip];
   if (!s.pixels || index < 0 || index >= s.count) return false;
-  const CRGB& pixel = s.pixels[index];
-  r = pixel.r;
-  g = pixel.g;
-  b = pixel.b;
+  ledUnpackColor(s.pixels[index], s.order, r, g, b);
   return true;
 }
 
 bool ledFill(int strip, int r, int g, int b) {
   if (!ledReady(strip)) return false;
   LedStripState& s = g_ledStrips[strip];
-  fill_solid(s.pixels, s.count, CRGB(constrain(r, 0, 255), constrain(g, 0, 255), constrain(b, 0, 255)));
+  fill_solid(s.pixels, s.count, ledPackColor(s.order, r, g, b));
   if (s.capacity > s.count) {
     fill_solid(s.pixels + s.count, s.capacity - s.count, CRGB::Black);
   }
@@ -380,12 +570,12 @@ bool ledClear(int strip, bool show) {
       fill_solid(g_ledStrips[i].pixels, g_ledStrips[i].capacity, CRGB::Black);
       any = true;
     }
-    if (show && any) FastLED.show();
+    if (show && any) fastLedShowGuarded();
     return any;
   }
   if (!ledReady(strip)) return false;
   fill_solid(g_ledStrips[strip].pixels, g_ledStrips[strip].capacity, CRGB::Black);
-  if (show) FastLED.show();
+  if (show) fastLedShowGuarded();
   return true;
 }
 
@@ -397,7 +587,7 @@ bool ledClearAllPhysical(bool show) {
     fill_solid(s.pixels, s.capacity, CRGB::Black);
     any = true;
   }
-  if (show && any) FastLED.show();
+  if (show && any) fastLedShowGuarded();
   return any;
 }
 
@@ -412,7 +602,7 @@ bool fastLedShow() {
     debugEventEmitFields("led.debug", "trace", "led", "ledShow", fields, 3);
     g_ledShowDebugMarkers++;
   }
-  FastLED.show();
+  fastLedShowGuarded();
   return true;
 }
 
@@ -432,8 +622,8 @@ String ledStatusJson() {
   out += ",\"maxLeds\":" + String(P1_EMBED_FASTLED_MAX_LEDS);
   out += ",\"maxStrips\":" + String(P1_EMBED_MAX_LED_STRIPS);
   out += ",\"driver\":\"FastLED\"";
-  out += ",\"chipset\":\"WS2812B\"";
-  out += ",\"order\":\"GRB\"";
+  out += ",\"chipset\":\"configurable\"";
+  out += ",\"order\":\"configurable\"";
   out += ",\"strips\":[";
   for (int i = 0; i < g_activeStripCount; i++) {
     if (i) out += ",";
@@ -443,8 +633,8 @@ String ledStatusJson() {
     out += ",\"count\":" + String(g_ledStrips[i].count);
     out += ",\"capacity\":" + String(g_ledStrips[i].capacity);
     out += ",\"brightness\":" + String(g_ledStrips[i].brightness);
-    out += ",\"chipset\":\"WS2812B\"";
-    out += ",\"order\":\"GRB\"";
+    out += ",\"chipset\":\"" + String(ledChipsetName(g_ledStrips[i].chipset)) + "\"";
+    out += ",\"order\":\"" + String(ledOrderName(g_ledStrips[i].order)) + "\"";
     out += "}";
   }
   out += "]}";

@@ -146,6 +146,7 @@ Use Wrench case style:
 - Use top-level math helpers such as `map()`, `constrain()`, `sin()`, `cos()`, `sqrt()`, `pow()`, `floor()`, `ceil()`, `round()`, `abs()`, `min()`, `max()`, `radians()`, and `degrees()`.
 - Wrench's namespaced math library is also available as `math::...`, but generated sketches should prefer the top-level helpers.
 - `ledGetRgb(strip, index, out)`, `rgbToHsv(rgb, out)`, `hsvToRgb(hsv, out)` in hot LED loops.
+- `ledConfig(strip, pin, count, brightness)` defaults to `WS2812B`/`GRB`; `ledConfig(strip, pin, count, brightness, chipset, order)` supports `WS2812B`, `WS2812`, `WS2811`, `SK6812` and `RGB`, `RBG`, `GRB`, `GBR`, `BRG`, `BGR`.
 - `paletteSet2/3/4` and `paletteGetRgb(slot, t, out)`.
 - `touchRead(pin)` is ESP32 one-pin touch.
 - `touchReadPair(drivePin, sensePin, samples, settleMicroseconds)` is the two-wire analog transfer touch helper.
@@ -165,7 +166,7 @@ The LED manager should fail gracefully:
 - Stopping a script should clear physical LEDs.
 - Repeated binding errors should stop the script instead of flooding the console.
 - If a sketch changes LED count on the same pin, it should reconfigure without reboot.
-- If a sketch changes LED pin, reboot may still be required.
+- If a sketch changes LED pin or chipset, reboot may still be required. Color order changes are live because they are handled by P1E byte packing.
 - If a new sketch does not call `ledConfig()` but uses LED calls, it should stop with a clear error.
 
 Do not just say “reboot”; try to identify whether the issue is pin change, missing `ledConfig`, invalid index, or heap/runtime failure.
@@ -185,6 +186,14 @@ Watch for:
 - MQTT/Web/UI traffic during compile
 
 Do not replace weird Wrench compile errors with a generic heap preflight unless the root is actually heap. There have been real parser/array/optimizer issues before.
+
+## SafeBoot OTA Notes
+
+SafeBoot delta OTA is experimental. Generate detools in-place patches with `scripts/esp32/p1embed-delta-patch.sh`; it pads app images with `0xff` to the 4096-byte segment boundary before hashing and patching. This avoids ESP32 flash rejecting a final partial-sector erase. Verify patches with `p1_embed/tests/detools_host/detools_in_place_probe.c` before trying them on the board.
+
+Do not assume `code=-1 Function not implemented` from the updater means detools lacks a feature. Raw callback `-1` also maps to that text. The updater callbacks should return specific detools errors such as `-DETOOLS_IO_FAILED`.
+
+The embedded detools C applier still has an explicit unsupported `dfpatch` branch. Current sector-padded test patches avoid it. Keep implementing `dfpatch` support on the future list if patch generation ever needs it.
 
 ## Console Levels
 
@@ -259,13 +268,43 @@ Only run serial/board tests when the board is connected and the serial port is f
 
 For unclear runtime bugs, start by adding the smallest useful logs and reproducing the problem. Avoid changing transport/protocol behavior until the logs identify the failing boundary. Make one change at a time, compile/check it, and ask for or collect a fresh verification log before continuing.
 
-## Current Recent Work
+## SafeBoot OTA Notes
 
-At the time this file was written:
+The SafeBoot delta OTA flow is intentionally split into phases:
 
-- Firmware was bumped to `0.1.157`.
-- Installer manifest was bumped to `0.1.157`.
-- `touchReadPair()` was added as an optimized two-wire analog touch helper.
-- Common top-level math helpers and Arduino-like `map()`/`constrain()` were added.
-- It compiled successfully.
-- Upload failed because the configured serial port was unavailable or busy.
+- `firmware.update.prepare` validates and stores the URL, patch hash, source/target hashes, and delta sizing metadata.
+- The stored request is first marked `downloadPending`, not `pending`.
+- If `reboot:true` is supplied, the main app reboots back into the main app first.
+- Very early in app boot, after WiFi starts but before MQTT/WebRTC/HA and before Wrench autorun, `otaSafeBootHandleBootDownload()` checks `downloadPending`.
+- That early download mode waits briefly for WiFi, downloads the patch over HTTP/HTTPS into the `patch` partition, verifies SHA-256, then marks the request `pending`.
+- Only after the patch is downloaded and verified does the app select the `updater` partition and reboot into it.
+- The updater applies the already-downloaded patch and clears the request.
+
+Do not boot directly into the updater while `downloadPending` is true. The updater expects a verified patch already present in the patch partition.
+
+HTTPS needs a large contiguous heap block. Testing showed normal Wrench script runtime could leave only about 35 KB largest allocation and fail TLS with `SSL - Memory allocation failed`. With the OTA download running before Wrench autorun, largest allocation was about 94 KB and HTTPS worked.
+
+For local experiments, use the official deploy script first and test the generated release manifest through the web UI:
+
+```sh
+DETOOLS=/private/tmp/p1e-detools-venv/bin/detools ./scripts/esp32/p1embed-safeboot-deploy.sh \
+  --from <previous-deploy-version> \
+  --to <next-deploy-version>
+```
+
+SafeBoot release deploys must go through that one command so versions, binaries, delta patches, and manifests stay in sync. Use `--force` only when intentionally replacing the same not-yet-committed deploy version:
+
+```sh
+DETOOLS=/private/tmp/p1e-detools-venv/bin/detools ./scripts/esp32/p1embed-safeboot-deploy.sh \
+  --from <previous-deploy-version> \
+  --to <next-deploy-version> \
+  --force
+```
+
+The deploy script writes `p1_embed/web/bin/p1e-firmware-releases.json` for OTA deltas and `p1_embed/web/bin/p1e-firmware-safeboot.json` for full USB installation. OTA release URLs in committed manifests should stay relative to `p1_embed/web/bin`; the browser resolves them from the current web utility location before asking the ESP32 to download. The web Install page stays the manual USB install/recovery path and uses the SafeBoot manifest. OTA updates live in Settings -> Firmware as an explicit test panel; it only enables the update button when the connected board reports a firmware version with an exact delta entry in the release manifest. If a board is several versions behind, update one delta step at a time. If no delta path exists, use USB install.
+
+Keep `p1_embed/web/bin` tidy:
+
+- Current USB SafeBoot installer files live directly in `p1_embed/web/bin` as `p1e-esp32-classic-safeboot.*` plus `p1e-firmware-safeboot.json`.
+- Official versioned app/updater/delta artifacts live under `p1_embed/web/bin/releases/`.
+- Do not commit one-off scratch patches in the top-level `web/bin` directory.

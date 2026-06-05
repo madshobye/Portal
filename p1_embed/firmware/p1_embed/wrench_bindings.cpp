@@ -1777,7 +1777,11 @@ static void w_p1_ledConfig(WRContext*, const WRValue* argv, const int argn, WRVa
   int pin = wrArgInt(argv, argn, 1, -1);
   int count = wrArgInt(argv, argn, 2, 0);
   int brightness = wrArgInt(argv, argn, 3, 255);
-  bool ok = ledConfigureStrip(strip, pin, count, brightness);
+  char chipset[24];
+  char order[8];
+  const char* chipsetName = argn > 4 ? wrArgString(argv, argn, 4, chipset, sizeof(chipset)) : nullptr;
+  const char* orderName = argn > 5 ? wrArgString(argv, argn, 5, order, sizeof(order)) : nullptr;
+  bool ok = ledConfigureStrip(strip, pin, count, brightness, chipsetName, orderName);
   if (!ok && !scriptErrorHasLast()) scriptErrorSet("binding", "led_config_failed", "ledConfig failed", "\"strip\":" + String(strip));
   wrRetInt(retVal, ok ? 1 : 0);
 }

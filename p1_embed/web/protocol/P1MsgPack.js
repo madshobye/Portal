@@ -29,6 +29,10 @@ const OPS = {
   "script.chunk.get": 23,
   "script.restart": 24,
   "device.reboot": 30,
+  "firmware.update.status": 40,
+  "firmware.update.prepare": 41,
+  "firmware.update.boot": 42,
+  "firmware.update.clear": 43,
 };
 
 export function canEncodeCommand(name) {
@@ -44,6 +48,7 @@ export function encodeCommand(id, name, data = {}) {
   if (name === "script.chunk.begin") return encodeScriptChunkBegin(id, op, data);
   if (name === "script.chunk.add") return encodeScriptChunkAdd(id, op, data);
   if (name === "script.chunk.get") return encodeScriptChunkGet(id, op, data);
+  if (name === "firmware.update.prepare") return encodeFirmwareUpdatePrepare(id, op, data);
   if (name === "wifi.forget") return encodeWifiForget(id, op, data);
   const guestKey = guestKeyFromData(data);
   const writer = new MsgPackWriter(guestKey ? 80 : 32);
@@ -174,6 +179,25 @@ function encodeScriptChunkGet(id, op, data = {}) {
   writer.uint(op);
   writer.uint(Math.max(0, Number(data.offset || 0)));
   writer.uint(Math.max(1, Number(data.maxBytes || 512)));
+  return writer.bytes();
+}
+
+function encodeFirmwareUpdatePrepare(id, op, data = {}) {
+  const writer = new MsgPackWriter(1024);
+  writer.array(13);
+  writer.uint(FRAME_CMD);
+  writer.uint(Number(id));
+  writer.uint(op);
+  writer.string(data.url || "");
+  writer.string(data.sha256 || "");
+  writer.bool(Boolean(data.reboot));
+  writer.string(data.kind || "full");
+  writer.string(data.fromSha256 || "");
+  writer.string(data.toSha256 || "");
+  writer.uint(Math.max(0, Number(data.fromSize || 0)));
+  writer.uint(Math.max(0, Number(data.toSize || 0)));
+  writer.uint(Math.max(0, Number(data.memorySize || 0)));
+  writer.uint(Math.max(0, Number(data.segmentSize || 0)));
   return writer.bytes();
 }
 
