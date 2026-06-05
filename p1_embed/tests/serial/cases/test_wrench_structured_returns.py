@@ -56,7 +56,7 @@ function loop() {
 }
 """.strip()
     before = dev.command("status.get", timeout=4.0).get("freeHeap", 0)
-    dev.command("script.set", {"code": code, "run": True, "save": False}, timeout=10.0)
+    dev.run_script(code, save=False, timeout=10.0)
     start_event = dev.wait_event("script.print", timeout=5.0)
     assert_true(start_event.get("data", {}).get("message", "").startswith("diag array start="), "array diagnostic should start")
     done_event = dev.wait_event("script.print", timeout=12.0)
@@ -90,7 +90,7 @@ function loop() {
   delay(10);
 }
 """.strip()
-    dev.command("script.set", {"code": code, "run": True, "save": False}, timeout=10.0)
+    dev.run_script(code, save=False, timeout=10.0)
     event = dev.wait_event("script.print", timeout=5.0)
     message = event.get("data", {}).get("message", "")
     assert_true(message.startswith("time local parts="), f"timeLocal should emit array parts: {message}")
@@ -120,7 +120,7 @@ function loop() {
   delay(10);
 }
 """.strip()
-    dev.command("script.set", {"code": code, "run": True, "save": False}, timeout=10.0)
+    dev.run_script(code, save=False, timeout=10.0)
     noon_event = dev.wait_event("script.print", timeout=5.0)
     night_event = dev.wait_event("script.print", timeout=5.0)
     noon = noon_event.get("data", {}).get("message", "")
@@ -158,7 +158,7 @@ function loop() {
   delay(10);
 }
 """.strip()
-    dev.command("script.set", {"code": code, "run": True, "save": False}, timeout=10.0)
+    dev.run_script(code, save=False, timeout=10.0)
     low_event = dev.wait_event("script.print", timeout=5.0)
     high_event = dev.wait_event("script.print", timeout=5.0)
     low = low_event.get("data", {}).get("message", "")
@@ -218,7 +218,7 @@ function loop() {
 }
 """.strip()
     before = dev.command("status.get", timeout=4.0).get("freeHeap", 0)
-    dev.command("script.set", {"code": code, "run": True, "save": False}, timeout=12.0)
+    dev.run_script(code, save=False, timeout=12.0)
     start_event = dev.wait_event("script.print", timeout=5.0)
     assert_true(start_event.get("data", {}).get("message", "").startswith("rgb hsv array start="), "RGB/HSV array diagnostic should start")
     done_event = dev.wait_event("script.print", timeout=14.0)
@@ -284,7 +284,7 @@ function loop() {
 }
 """.strip()
     before = dev.command("status.get", timeout=4.0).get("freeHeap", 0)
-    dev.command("script.set", {"code": code, "run": True, "save": False}, timeout=14.0)
+    dev.run_script(code, save=False, timeout=14.0)
     start_event = dev.wait_event("script.print", timeout=6.0)
     assert_true(start_event.get("data", {}).get("message", "").startswith("rgb hsv array 2000 start="), "2000 LED array diagnostic should start")
     done_event = dev.wait_event("script.print", timeout=18.0)
@@ -348,7 +348,7 @@ function loop() {
 }
 """.strip()
     before = dev.command("status.get", timeout=4.0).get("freeHeap", 0)
-    dev.command("script.set", {"code": code, "run": True, "save": False}, timeout=14.0)
+    dev.run_script(code, save=False, timeout=14.0)
     start_event = dev.wait_event("script.print", timeout=6.0)
     assert_true(start_event.get("data", {}).get("message", "").startswith("rgb hsv reuse 2000 start="), "2000 LED reused-array diagnostic should start")
     done_event = dev.wait_event("script.print", timeout=18.0)

@@ -14,7 +14,7 @@ function loop() {
   delay(100);
 }
 """.strip()
-    dev.command("script.run", {"code": code}, timeout=8.0)
+    dev.run_script(code, save=False, timeout=8.0)
     assert_equal(dev.wait_event("script.print", timeout=4.0).get("data", {}).get("message"), "body=", "bad URL body should be empty")
     assert_equal(dev.wait_event("script.print", timeout=4.0).get("data", {}).get("message"), "code=0", "bad URL code should be zero")
     assert_equal(dev.wait_event("script.print", timeout=4.0).get("data", {}).get("message"), "err=http_bad_url", "bad URL error should be visible")
@@ -33,7 +33,7 @@ function loop() {
   delay(100);
 }
 """.strip()
-    dev.command("script.run", {"code": code}, timeout=8.0)
+    dev.run_script(code, save=False, timeout=8.0)
     seen = []
     for _ in range(3):
         seen.append(dev.wait_event("script.print", timeout=4.0).get("data", {}).get("message", ""))

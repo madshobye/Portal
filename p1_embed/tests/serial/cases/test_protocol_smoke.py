@@ -60,3 +60,30 @@ def test_script_chunk_get_includes_metadata(dev):
         assert_true("revisionId" in data, "script.chunk.get should include revision id")
     finally:
         dev.command("config.set", {"scriptName": original_name})
+
+
+def test_legacy_script_commands_are_size_capped(dev):
+    body = "var x = 0;\n" * 140
+    code = f"""
+function setup() {{
+  println("legacy cap ready");
+}}
+
+function loop() {{
+  delay(100);
+}}
+
+{body}
+""".strip()
+    assert_true(len(code) > 1024, "test script should exceed the legacy cap")
+    dev.compile_script(code, save=False, timeout=8.0)
+
+    get_error = dev.legacy_script_command_error("script.get", timeout=4.0)
+    assert_equal(get_error.get("code"), "legacy_script_too_large", "legacy script.get should be capped")
+
+    set_error = dev.legacy_script_command_error(
+        "script.set",
+        {"code": code, "run": False, "save": False},
+        timeout=4.0,
+    )
+    assert_equal(set_error.get("code"), "legacy_script_too_large", "legacy script.set should be capped")

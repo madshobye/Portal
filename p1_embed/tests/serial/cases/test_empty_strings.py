@@ -16,7 +16,7 @@ function loop() {
   delay(20);
 }
 """.strip()
-    dev.command("script.set", {"code": code, "run": True, "save": False}, timeout=8.0)
+    dev.run_script(code, save=False, timeout=8.0)
     event = dev.wait_event("script.print", lambda msg: (msg.get("data") or {}).get("message") == "empty compare ok", timeout=4.0)
     assert_equal((event.get("data") or {}).get("message"), "empty compare ok", "empty strings should compare")
     error = dev.command("script.error.get", timeout=4.0)
@@ -39,7 +39,7 @@ function loop() {
   delay(20);
 }
 """.strip()
-    dev.command("script.set", {"code": code, "run": True, "save": False}, timeout=8.0)
+    dev.run_script(code, save=False, timeout=8.0)
     dev.wait_event("script.print", lambda msg: (msg.get("data") or {}).get("message") == "ready", timeout=4.0)
     dev.command("script.input", {"channel": "ui.go", "message": "press"}, timeout=4.0)
     event = dev.wait_event("script.print", lambda msg: (msg.get("data") or {}).get("message") == "press", timeout=4.0)

@@ -9,9 +9,15 @@ static bool g_httpLastTruncated = false;
 static String g_httpLastError = "";
 static String g_httpLastMessage = "";
 static String g_httpLastDetails = "";
-static String g_httpLastBody = "";
+static P1ReusableBuffer g_httpBodyBuffer;
+static size_t g_httpLastBodyLen = 0;
+static uint32_t g_httpLastBodyAtMs = 0;
 static bool g_httpLastSecure = false;
 static uint32_t g_httpLastDurationMs = 0;
+
+static constexpr size_t P1_HTTP_BODY_RETAIN_MIN = 512;
+static constexpr size_t P1_HTTP_BODY_RETAIN_MAX = P1_EMBED_HTTP_MAX_RESPONSE_BYTES + 1;
+static constexpr uint32_t P1_HTTP_BODY_IDLE_RELEASE_MS = 30000;
 
 static bool httpValidUrl(const String& url) {
   return url.startsWith("http://") || url.startsWith("https://");
@@ -43,6 +49,32 @@ static void httpConfigureClient(HTTPClient& http, int timeoutMs) {
   http.setTimeout((uint16_t)timeoutMs);
   http.setFollowRedirects(HTTPC_STRICT_FOLLOW_REDIRECTS);
   http.useHTTP10(true);
+}
+
+static void httpReleaseBodyStorage() {
+  p1ReusableBufferRelease(g_httpBodyBuffer);
+  g_httpLastBodyLen = 0;
+  g_httpLastBodyAtMs = 0;
+}
+
+void httpFetchReleaseBody() {
+  httpReleaseBodyStorage();
+}
+
+void httpFetchPrepareMemoryPressure() {
+  httpReleaseBodyStorage();
+}
+
+static void httpMaintainBodyStorage() {
+  if (!g_httpBodyBuffer.data || g_httpLastBodyLen == 0) return;
+  if (P1_HTTP_BODY_IDLE_RELEASE_MS > 0 && millis() - g_httpLastBodyAtMs >= P1_HTTP_BODY_IDLE_RELEASE_MS) {
+    httpReleaseBodyStorage();
+  }
+}
+
+static String httpLastBodyString() {
+  if (!g_httpBodyBuffer.data || g_httpLastBodyLen == 0) return "";
+  return String(reinterpret_cast<const char*>(g_httpBodyBuffer.data));
 }
 
 static bool httpBeginWithClient(HTTPClient& http, NetworkClient& plain, NetworkClientSecure& secure, const String& url, int timeoutMs) {
@@ -81,17 +113,34 @@ static void httpSetRequestError(int code, NetworkClientSecure* secure = nullptr)
   httpSetError("http_request_failed", err, details);
 }
 
-static String httpReadLimited(HTTPClient& http, int maxBytes, int timeoutMs) {
-  String out;
+static bool httpReadLimitedToBodyBuffer(HTTPClient& http, int maxBytes, int timeoutMs) {
   maxBytes = constrain(maxBytes, 0, P1_EMBED_HTTP_MAX_RESPONSE_BYTES);
-  out.reserve(min(maxBytes, 512));
+  httpReleaseBodyStorage();
 
   NetworkClient* stream = http.getStreamPtr();
   if (!stream) {
     httpSetError("http_no_stream", "HTTP response stream unavailable");
-    return out;
+    return false;
   }
 
+  if (maxBytes <= 0) {
+    g_httpLastTruncated = http.getSize() != 0;
+    return true;
+  }
+
+  P1ReusableBufferHandle body;
+  if (!p1ReusableBufferAcquire(
+        g_httpBodyBuffer,
+        (size_t)maxBytes + 1,
+        P1_HTTP_BODY_RETAIN_MIN,
+        P1_HTTP_BODY_RETAIN_MAX,
+        body)) {
+    httpSetError("http_body_alloc_failed", "No heap for HTTP response body");
+    return false;
+  }
+
+  uint8_t* out = body.data;
+  size_t outLen = 0;
   int remaining = http.getSize();
   uint32_t deadline = millis() + (uint32_t)timeoutMs;
   while (http.connected() && (remaining > 0 || remaining == -1)) {
@@ -108,8 +157,8 @@ static String httpReadLimited(HTTPClient& http, int maxBytes, int timeoutMs) {
     while (available-- && (remaining > 0 || remaining == -1)) {
       int c = stream->read();
       if (c < 0) break;
-      if ((int)out.length() < maxBytes) {
-        out += (char)c;
+      if (outLen < (size_t)maxBytes) {
+        out[outLen++] = (uint8_t)c;
       } else {
         g_httpLastTruncated = true;
       }
@@ -117,13 +166,18 @@ static String httpReadLimited(HTTPClient& http, int maxBytes, int timeoutMs) {
       deadline = millis() + (uint32_t)timeoutMs;
     }
 
-    if ((int)out.length() >= maxBytes && maxBytes > 0) {
+    if (outLen >= (size_t)maxBytes) {
       g_httpLastTruncated = true;
       break;
     }
   }
 
-  return out;
+  out[outLen] = 0;
+  g_httpLastBodyLen = outLen;
+  g_httpLastBodyAtMs = millis();
+  p1ReusableBufferReleaseHandle(g_httpBodyBuffer, body);
+  if (outLen == 0) httpReleaseBodyStorage();
+  return true;
 }
 
 static bool httpPrepare(const String& url, int& maxBytes, int& timeoutMs) {
@@ -132,7 +186,7 @@ static bool httpPrepare(const String& url, int& maxBytes, int& timeoutMs) {
   g_httpLastError = "";
   g_httpLastMessage = "";
   g_httpLastDetails = "";
-  g_httpLastBody = "";
+  httpReleaseBodyStorage();
   g_httpLastSecure = false;
   g_httpLastDurationMs = 0;
 
@@ -171,8 +225,12 @@ String httpFetchGet(const String& url, int maxBytes, int timeoutMs) {
     return "";
   }
 
-  String body = httpReadLimited(http, maxBytes, timeoutMs);
-  g_httpLastBody = body;
+  if (!httpReadLimitedToBodyBuffer(http, maxBytes, timeoutMs)) {
+    http.end();
+    g_httpLastDurationMs = millis() - startedAt;
+    return "";
+  }
+  String body = httpLastBodyString();
   http.end();
   g_httpLastDurationMs = millis() - startedAt;
   return body;
@@ -231,19 +289,24 @@ String httpFetchPost(const String& url, const String& body, const String& conten
     return "";
   }
 
-  String response = httpReadLimited(http, maxBytes, timeoutMs);
-  g_httpLastBody = response;
+  if (!httpReadLimitedToBodyBuffer(http, maxBytes, timeoutMs)) {
+    http.end();
+    g_httpLastDurationMs = millis() - startedAt;
+    return "";
+  }
+  String response = httpLastBodyString();
   http.end();
   g_httpLastDurationMs = millis() - startedAt;
   return response;
 }
 
 String httpFetchJsonValue(const String& path) {
-  if (!g_httpLastBody.length()) return "";
+  httpMaintainBodyStorage();
+  if (!g_httpLastBodyLen) return "";
   if (g_httpLastCode < 200 || g_httpLastCode >= 300 || g_httpLastError.length()) return "";
 
   bool found = false;
-  String value = jsonPathGetRaw(g_httpLastBody, path, &found);
+  String value = jsonPathGetRaw(httpLastBodyString(), path, &found);
   return found ? value : String("");
 }
 
@@ -275,13 +338,14 @@ String httpFetchLastError() {
 }
 
 P1HttpFetchStatusSnapshot httpFetchStatusSnapshot() {
+  httpMaintainBodyStorage();
   P1HttpFetchStatusSnapshot snapshot;
   snapshot.lastCode = g_httpLastCode;
   snapshot.lastTruncated = g_httpLastTruncated;
   snapshot.lastError = g_httpLastError;
   snapshot.lastMessage = g_httpLastMessage;
   snapshot.lastDetails = g_httpLastDetails;
-  snapshot.lastBodyBytes = g_httpLastBody.length();
+  snapshot.lastBodyBytes = g_httpLastBodyLen;
   snapshot.lastSecure = g_httpLastSecure;
   snapshot.lastDurationMs = g_httpLastDurationMs;
   snapshot.maxResponseBytes = P1_EMBED_HTTP_MAX_RESPONSE_BYTES;

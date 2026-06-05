@@ -69,7 +69,7 @@ def paste_code():
 
 def run_code(dev, code, save=False):
     try:
-        return dev.command("script.set", {"code": code, "run": True, "save": save}, timeout=20.0)
+        return dev.run_script(code, save=save, timeout=20.0)
     except P1SerialError as exc:
         details = {"error": str(exc)}
         try:

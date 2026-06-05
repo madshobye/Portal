@@ -25,7 +25,7 @@ function loop() {
   delay(100);
 }
 """.strip()
-    dev.command("script.set", {"code": code, "run": True, "save": False})
+    dev.run_script(code, save=False)
     seen = []
     for _ in range(7):
         seen.append(dev.wait_event("script.print", timeout=4.0).get("data", {}).get("message", ""))
@@ -51,7 +51,7 @@ function loop() {
   delay(100);
 }
 """.strip()
-    dev.command("script.set", {"code": code, "run": True, "save": False})
+    dev.run_script(code, save=False)
     seen = []
     for _ in range(4):
         seen.append(dev.wait_event("script.print", timeout=4.0).get("data", {}).get("message", ""))
@@ -74,7 +74,7 @@ function setup() {
   println("show=" + ledShow());
 }
 '''
-    dev.command("script.set", {"code": code, "run": True, "save": False})
+    dev.run_script(code, save=False)
     seen = []
     for _ in range(7):
         seen.append(dev.wait_event("script.print", timeout=4.0).get("data", {}).get("message", ""))

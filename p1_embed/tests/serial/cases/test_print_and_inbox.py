@@ -12,7 +12,7 @@ function loop() {
   delay(100);
 }
 """.strip()
-    dev.command("script.set", {"code": code, "run": True, "save": False})
+    dev.run_script(code, save=False)
     first = dev.wait_event("script.print", lambda e: e.get("data", {}).get("message") == "plain print")
     second = dev.wait_event("script.print", lambda e: e.get("data", {}).get("message") == "plain println")
     assert_equal(first.get("data", {}).get("newline"), False, "print newline flag")
@@ -34,7 +34,7 @@ function loop() {
   delay(25);
 }
 """.strip()
-    dev.command("script.set", {"code": code, "run": True, "save": False})
+    dev.run_script(code, save=False)
     dev.command("script.input", {"channel": "serial-test", "message": "hello wrench"})
     got_msg = dev.wait_event("script.input.received")
     got_channel = dev.wait_event("script.input.channel")

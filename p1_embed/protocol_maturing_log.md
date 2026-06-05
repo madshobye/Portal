@@ -1085,3 +1085,115 @@ Notes:
   `device.reboot` was used on `/dev/cu.wchusbserial110` instead.
 - This pass does not remove temporary `String` use while parsing/saving config
   JSON. Those are load/save-time allocations, not permanent config state.
+
+## Iteration 24 - Runtime Stop Release and Real Script Chunk Reads
+
+Changes:
+
+- Replaced retained HTTP response-body storage in `http_fetch.cpp` with one
+  reusable byte buffer.
+- HTTP fetches now overwrite that buffer per request and release it on:
+  - script stop
+  - protocol memory pressure
+  - empty responses
+  - idle status maintenance after 30 seconds
+- Public `wrenchStop()` now releases script side effects:
+  - HTTP retained body
+  - Home Assistant runtime storage
+  - UI runtime storage without queuing a new UI reset allocation
+  - FastLED script resources
+- `wrenchReleaseCompiledProgram()` now also releases HTTP, HA, and FastLED
+  side effects while preserving the compile path's existing UI reset event.
+- `script.chunk.get` was changed from full-script materialization to real
+  file-backed chunk reads from `/wrench_current.txt`.
+- The serial test harness now records whether the script was running, stops it,
+  and only then downloads source chunks for snapshot/restore.
+
+Rationale:
+
+- HTTP response retention is useful for `fetchJson()` / `httpJsonValue()`, but
+  it should not live as a long-lived Arduino `String`.
+- Stop should mean "script-owned runtime memory is gone", not merely "the VM is
+  no longer looping".
+- The earlier `script.chunk.get` path was not really chunked internally: each
+  request loaded the complete script into a `String` and then sliced it. With a
+  9288-byte stored Hourglass script, repeated 512-byte reads could reboot the
+  board during the test harness snapshot.
+
+Verification:
+
+- SafeBoot app-only compile succeeded:
+  - app image size: `1946544 / 2293760` bytes
+  - globals: `76480` bytes, leaving `251200`
+- App-only upload at `921600` baud succeeded and verified the flash hash.
+- Reproduced the previous failure before the chunk fix:
+  - traced `test_ping` rebooted while repeatedly reading `script.chunk.get`
+    chunks around the 4.6 KB offset.
+- After file-backed chunk reads:
+  - traced `test_ping` downloaded all 9288 bytes without rebooting.
+  - `protocol_smoke`: `5 passed, 0 failed`
+  - `http_bindings`: `2 passed, 0 failed`
+  - `serial_msgpack_mode`: `1 passed, 0 failed`
+
+Notes:
+
+- `script.chunk.get` still returns a JSON `String` for JSON transport and a
+  MessagePack frame for binary transport. The important fix here is that the
+  script source itself is no longer rebuilt as a full `String` for every chunk.
+- The board's current `projectName` remained `Unit Testing` because that was
+  already the persisted value before this iteration; I did not guess a prior
+  name.
+
+## Iteration 25 - Python Chunk Helpers and Legacy Script Caps
+
+Changes:
+
+- Added explicit Python serial helpers:
+  - `upload_script_source()`
+  - `upload_script_source_and_wait()`
+  - `run_script()`
+  - `compile_script()`
+  - `run_script_expect_error()`
+  - `compile_script_expect_error()`
+  - `download_script_source()`
+  - `download_script_source_with_metadata()`
+- Python `P1Serial.command()` now rejects accidental `script.set` and
+  `script.get` calls by default.
+- Added explicit `legacy_script_command*()` helpers for tests that intentionally
+  verify legacy behavior.
+- Updated serial tests and `p1_serial_repl.py` run/paste uploads to use chunked
+  upload/download helpers.
+- Added Python MessagePack encoding for `script.chunk.begin`,
+  `script.chunk.add`, `script.chunk.commit`, and `script.chunk.get`.
+- Kept firmware legacy full-source commands, but capped them at
+  `P1_EMBED_LEGACY_SCRIPT_JSON_MAX_BYTES` (`1024` bytes):
+  - `script.get`
+  - JSON/WebSocket `script.set`
+  - inline-code `script.save`
+  - inline-code `script.compile`
+  - inline-code `script.run`
+- Added a serial smoke test proving oversized legacy `script.get` and
+  `script.set` return `legacy_script_too_large`.
+- Extended serial MessagePack mode testing to upload, run, and download a
+  script through chunk helpers.
+
+Rationale:
+
+- Unit tests should exercise the same chunked upload/download path as the web
+  UI, otherwise a failure can be impossible to reproduce from the UI.
+- Legacy commands are still useful for tiny debug snippets, but large scripts
+  must not silently take a heap-heavy full-source path.
+
+Verification:
+
+- Python syntax check passed with bytecode cache redirected to `/private/tmp`.
+- SafeBoot app-only compile succeeded:
+  - app image size: `1947504 / 2293760` bytes
+  - globals: `76480` bytes, leaving `251200`
+- App-only upload at `921600` baud succeeded and verified the flash hash.
+- Serial tests passed:
+  - `test_legacy_script_commands_are_size_capped`: `1 passed, 0 failed`
+  - `empty_strings`: `2 passed, 0 failed`
+  - `test_script_save_run_and_get_roundtrip`: `1 passed, 0 failed`
+  - `protocol_smoke`: `6 passed, 0 failed`
+  - `serial_msgpack_mode`: `1 passed, 0 failed`

@@ -2,7 +2,7 @@ from p1_serial import assert_true
 
 
 def run_script_and_collect_prints(dev, code, count):
-    dev.command("script.set", {"code": code.strip(), "run": True, "save": False})
+    dev.run_script(code.strip(), save=False)
     values = []
     for _ in range(count):
       values.append(dev.wait_event("script.print", timeout=4.0).get("data", {}).get("message", ""))

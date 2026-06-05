@@ -205,6 +205,10 @@ static void webTransportEvent(uint8_t num, int type, uint8_t* payload, size_t le
       protocolSendResponseError(id.length() ? id : "0", "missing_code", "script.set requires data.code");
       return;
     }
+    if (code.length() > P1_EMBED_LEGACY_SCRIPT_JSON_MAX_BYTES) {
+      protocolSendResponseError(id.length() ? id : "0", "legacy_script_too_large", "websocket script.set is limited; use script.chunk.begin/add/commit");
+      return;
+    }
     if (!protocolValidateScriptIntegrity(id.length() ? id : "0", code, expectedBytes, expectedHashHex)) {
       return;
     }

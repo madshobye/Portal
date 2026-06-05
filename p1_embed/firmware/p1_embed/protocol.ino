@@ -115,6 +115,7 @@ static void protocolReleaseFrameBuffer(P1ReusableBufferHandle& handle) {
 }
 
 void protocolPrepareMemoryPressure() {
+  httpFetchPrepareMemoryPressure();
   SemaphoreHandle_t lock = protocolFrameBufferLock();
   if (!lock) return;
   if (xSemaphoreTake(lock, pdMS_TO_TICKS(50)) != pdTRUE) return;
@@ -249,6 +250,10 @@ static void protocolSendCommandScriptGet(P1ProtocolReplyMode replyMode, uint32_t
     return;
   }
   String code = wrenchCurrentScript();
+  if (code.length() > P1_EMBED_LEGACY_SCRIPT_JSON_MAX_BYTES) {
+    protocolSendResponseError(jsonId, "legacy_script_too_large", "script.get is limited; use script.chunk.get");
+    return;
+  }
   String response = protocolScriptSnapshotJson(protocolScriptSnapshot(&code, nullptr), true, false);
   if (response.length() < code.length()) {
     protocolSendResponseError(jsonId, "no_heap", "No heap for script.get response; use script.chunk.get");
@@ -258,19 +263,22 @@ static void protocolSendCommandScriptGet(P1ProtocolReplyMode replyMode, uint32_t
 }
 
 static bool protocolBuildScriptChunkGetResponse(uint32_t offset, uint32_t maxBytes, uint32_t maxChunkBytes, P1ScriptChunkGetResponse& out) {
-  String code = wrenchCurrentScript();
-  P1ScriptSnapshot snapshot = protocolScriptSnapshot(&code, nullptr);
-  const uint32_t total = code.length();
+  P1ScriptSnapshot snapshot = protocolScriptSnapshot(nullptr, nullptr);
+  size_t totalBytes = 0;
+  String chunk;
+  if (!scriptStoreReadCurrentChunk(offset, 0, chunk, totalBytes)) return false;
+  const uint32_t total = (uint32_t)totalBytes;
   if (offset > total) return false;
   if (maxBytes == 0 || maxBytes > maxChunkBytes) maxBytes = maxChunkBytes;
   uint32_t nextOffset = offset + maxBytes;
   if (nextOffset > total) nextOffset = total;
+  if (!scriptStoreReadCurrentChunk(offset, nextOffset - offset, chunk, totalBytes)) return false;
 
   out.offset = offset;
   out.nextOffset = nextOffset;
   out.scriptBytes = total;
   out.done = nextOffset >= total;
-  out.chunk = code.substring(offset, nextOffset);
+  out.chunk = chunk;
   out.state = snapshot.state;
   out.runState = snapshot.runState;
   out.revisionId = configRevisionId();
@@ -2057,6 +2065,10 @@ static void protocolHandleScriptSet(const String& id, const char* line, bool run
     protocolSendResponseError(id, "missing_code", "script.set requires data.code");
     return;
   }
+  if (code.length() > P1_EMBED_LEGACY_SCRIPT_JSON_MAX_BYTES) {
+    protocolSendResponseError(id, "legacy_script_too_large", "script.set is limited; use script.chunk.begin/add/commit");
+    return;
+  }
   int expectedBytes = -1;
   String expectedHashHex;
   jsonGetInt(line, "codeBytes", expectedBytes);
@@ -2933,6 +2945,10 @@ static void protocolSendMsgPackScriptError(uint32_t id) {
 
 static void protocolSendMsgPackScriptGet(uint32_t id) {
   String code = wrenchCurrentScript();
+  if (code.length() > P1_EMBED_LEGACY_SCRIPT_JSON_MAX_BYTES) {
+    protocolSendMsgPackError(id, "legacy_script_too_large", "script.get is limited; use script.chunk.get");
+    return;
+  }
   P1ScriptSnapshot snapshot = protocolScriptSnapshot(&code);
   size_t capacity = code.length() + 192;
   if (capacity < 512) capacity = 512;
@@ -3465,6 +3481,10 @@ void protocolHandleLine(const char* line, P1ProtocolSource source) {
   } else if (name == "script.save") {
     String code;
     if (!jsonGetString(line, "code", code)) code = wrenchCurrentScript();
+    if (code.length() > P1_EMBED_LEGACY_SCRIPT_JSON_MAX_BYTES) {
+      protocolSendResponseError(id, "legacy_script_too_large", "script.save with inline code is limited; use script.chunk.begin/add/commit");
+      return;
+    }
     String err;
     WrenchTransitionGuard transition("script.save");
     if (!wrenchCompileAndSet(code, err)) {
@@ -3488,6 +3508,10 @@ void protocolHandleLine(const char* line, P1ProtocolSource source) {
   } else if (name == "script.compile") {
     String code;
     if (!jsonGetString(line, "code", code)) code = wrenchCurrentScript();
+    if (code.length() > P1_EMBED_LEGACY_SCRIPT_JSON_MAX_BYTES) {
+      protocolSendResponseError(id, "legacy_script_too_large", "script.compile with inline code is limited; use script.chunk.begin/add/commit");
+      return;
+    }
     String err;
     WrenchTransitionGuard transition(name);
     if (!wrenchCompileAndSet(code, err)) {
@@ -3500,6 +3524,10 @@ void protocolHandleLine(const char* line, P1ProtocolSource source) {
     String err;
     wrenchStop();
     if (jsonGetString(line, "code", code)) {
+      if (code.length() > P1_EMBED_LEGACY_SCRIPT_JSON_MAX_BYTES) {
+        protocolSendResponseError(id, "legacy_script_too_large", "script.run with inline code is limited; use script.chunk.begin/add/commit");
+        return;
+      }
       WrenchTransitionGuard transition("script.run.compile");
       if (!wrenchCompileAndSet(code, err)) {
         protocolSendResponseError(id, "compile_error", err);

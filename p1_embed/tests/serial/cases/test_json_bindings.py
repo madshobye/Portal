@@ -28,7 +28,7 @@ function loop() {
   delay(100);
 }
 """.strip()
-    dev.command("script.run", {"code": code}, timeout=20.0)
+    dev.run_script(code, save=False, timeout=20.0)
     expected = [
         "city=Roskilde",
         "weather=clear sky",

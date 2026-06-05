@@ -22,6 +22,10 @@ OPS = {
     "status.full": 16,
     "status.live": 17,
     "system.info": 3,
+    "script.chunk.begin": 19,
+    "script.chunk.add": 20,
+    "script.chunk.commit": 21,
+    "script.chunk.get": 23,
     "protocol.mode": 60,
 }
 
@@ -46,6 +50,7 @@ class P1Serial:
         self.events = []
         self.max_events = 200
         self.protocol = "json"
+        self.allow_legacy_script_commands = False
 
     def __enter__(self):
         self.open()
@@ -89,6 +94,8 @@ class P1Serial:
         self.fd = None
 
     def command(self, name, data=None, timeout=10.0):
+        if not self.allow_legacy_script_commands and name in ("script.set", "script.get"):
+            raise P1SerialError(f"{name} is a legacy test path; use chunk upload/download helpers")
         if self.protocol == "msgpack":
             return self.command_msgpack(name, data, timeout=timeout)
         data = data or {}
@@ -151,6 +158,8 @@ class P1Serial:
         return data
 
     def command_error(self, name, data=None, timeout=10.0):
+        if not self.allow_legacy_script_commands and name in ("script.set", "script.get"):
+            raise P1SerialError(f"{name} is a legacy test path; use chunk upload/download helpers")
         data = data or {}
         msg_id = str(self.next_id)
         self.next_id += 1
@@ -175,6 +184,22 @@ class P1Serial:
             if "timed out" not in str(exc):
                 raise
             return False, {"error": str(exc)}
+
+    def legacy_script_command(self, name, data=None, timeout=10.0):
+        previous = self.allow_legacy_script_commands
+        self.allow_legacy_script_commands = True
+        try:
+            return self.command(name, data, timeout=timeout)
+        finally:
+            self.allow_legacy_script_commands = previous
+
+    def legacy_script_command_error(self, name, data=None, timeout=10.0):
+        previous = self.allow_legacy_script_commands
+        self.allow_legacy_script_commands = True
+        try:
+            return self.command_error(name, data, timeout=timeout)
+        finally:
+            self.allow_legacy_script_commands = previous
 
     def write_json(self, message):
         raw = (json.dumps(message, separators=(",", ":")) + "\n").encode()
@@ -341,6 +366,8 @@ class P1Serial:
     def board_snapshot(self):
         config = self.command("config.get", timeout=6.0)
         status = self.command("status.get", timeout=6.0)
+        script_was_running = status.get("scriptState") in ("running", "busy")
+        self.stop_script()
         return {
             "config": {
                 "projectId": config.get("projectId") or "",
@@ -350,7 +377,7 @@ class P1Serial:
             },
             "code": self.download_script_source(),
             "scriptStored": bool(status.get("scriptStored")),
-            "scriptWasRunning": status.get("scriptState") in ("running", "busy"),
+            "scriptWasRunning": script_was_running,
         }
 
     def restore_board_snapshot(self, snapshot):
@@ -379,14 +406,30 @@ class P1Serial:
         self.clear_error()
 
     def download_script_source(self, chunk_size=512):
+        return self.download_script_source_with_metadata(chunk_size=chunk_size).get("code", "")
+
+    def download_script_source_with_metadata(self, chunk_size=512):
         chunks = []
         offset = 0
+        metadata = {}
         while True:
             data = self.command("script.chunk.get", {"offset": offset, "maxBytes": chunk_size}, timeout=8.0)
+            if not metadata:
+                metadata = dict(data)
+                metadata.pop("chunk", None)
             chunk = data.get("chunk") or ""
             chunks.append(chunk)
             if data.get("done"):
-                return "".join(chunks)
+                metadata.update({k: v for k, v in data.items() if k != "chunk"})
+                metadata["code"] = "".join(chunks)
+                try:
+                    status = self.command("status.get", timeout=4.0)
+                    metadata["stored"] = bool(status.get("scriptStored"))
+                    if not metadata.get("state"):
+                        metadata["state"] = status.get("scriptState")
+                except P1SerialError:
+                    pass
+                return metadata
             next_offset = int(data.get("nextOffset", offset + len(chunk)))
             if next_offset <= offset:
                 raise P1SerialError("script.chunk.get did not advance")
@@ -412,7 +455,89 @@ class P1Serial:
             if next_offset <= offset:
                 raise P1SerialError("script.chunk.add did not advance")
             offset = next_offset
-        self.command("script.chunk.commit", {}, timeout=20.0)
+        return self.command("script.chunk.commit", {}, timeout=20.0)
+
+    def _wait_script_upload_result(self, timeout=20.0):
+        terminal = {"compiled", "saved", "running", "error"}
+        deadline = time.time() + timeout
+        last = None
+        while time.time() < deadline:
+            remaining = max(0.2, min(1.0, deadline - time.time()))
+            try:
+                event = self.wait_event("script.upload", timeout=remaining)
+            except P1SerialError:
+                continue
+            data = event.get("data") or {}
+            state = data.get("state")
+            if state:
+                last = data
+            if state in terminal:
+                if state == "error":
+                    message = data.get("message") or "script upload failed"
+                    phase = data.get("phase") or "upload"
+                    raise P1SerialError(f"script upload failed: {phase} {message}")
+                return data
+        raise P1SerialError(f"script upload result timed out after {timeout}s; last={last}")
+
+    def upload_script_source_and_wait(self, code, run=False, save=False, chunk_size=360, timeout=20.0):
+        self.upload_script_source(code, run=run, save=save, chunk_size=chunk_size)
+        return self._wait_script_upload_result(timeout=timeout)
+
+    def run_script(self, code, save=False, timeout=20.0, chunk_size=360):
+        return self.upload_script_source_and_wait(
+            code,
+            run=True,
+            save=save,
+            chunk_size=chunk_size,
+            timeout=timeout,
+        )
+
+    def compile_script(self, code, save=False, timeout=20.0, chunk_size=360):
+        return self.upload_script_source_and_wait(
+            code,
+            run=False,
+            save=save,
+            chunk_size=chunk_size,
+            timeout=timeout,
+        )
+
+    def run_script_maybe_timeout(self, code, save=False, timeout=20.0, chunk_size=360):
+        try:
+            return True, self.run_script(code, save=save, timeout=timeout, chunk_size=chunk_size)
+        except P1SerialError as exc:
+            if "timed out" not in str(exc):
+                raise
+            return False, {"error": str(exc)}
+
+    def run_script_expect_error(self, code, save=False, timeout=20.0, chunk_size=360):
+        try:
+            self.run_script(code, save=save, timeout=timeout, chunk_size=chunk_size)
+        except P1SerialError as exc:
+            last = self.command("script.error.get", timeout=4.0)
+            if last.get("hasError"):
+                return {
+                    "code": last.get("code"),
+                    "message": last.get("message"),
+                    "phase": last.get("phase"),
+                    "details": last.get("details"),
+                }
+            return {"code": "upload_error", "message": str(exc)}
+        raise P1SerialError("script upload unexpectedly succeeded")
+
+    def compile_script_expect_error(self, code, save=False, timeout=20.0, chunk_size=360):
+        try:
+            self.compile_script(code, save=save, timeout=timeout, chunk_size=chunk_size)
+        except P1SerialError as exc:
+            last = self.command("script.error.get", timeout=4.0)
+            if last.get("hasError"):
+                return {
+                    "code": last.get("code"),
+                    "message": last.get("message"),
+                    "phase": last.get("phase"),
+                    "details": last.get("details"),
+                }
+            return {"code": "upload_error", "message": str(exc)}
+        raise P1SerialError("script compile unexpectedly succeeded")
 
     def trim_events(self):
         if len(self.events) > self.max_events:
@@ -450,6 +575,15 @@ def encode_string(value):
     raise P1SerialError("string too large for test MessagePack encoder")
 
 
+def encode_bin(value):
+    raw = bytes(value or b"")
+    if len(raw) <= 0xff:
+        return b"\xc4" + bytes([len(raw)]) + raw
+    if len(raw) <= 0xffff:
+        return b"\xc5" + len(raw).to_bytes(2, "big") + raw
+    raise P1SerialError("binary too large for test MessagePack encoder")
+
+
 def encode_array(count):
     if count <= 15:
         return bytes([0x90 | count])
@@ -467,6 +601,36 @@ def encode_command_msgpack(msg_id, name, data):
             encode_uint(msg_id),
             encode_uint(op),
             encode_string(data.get("mode", "json")),
+        ])
+    if name == "script.chunk.begin":
+        return b"".join([
+            encode_array(7),
+            encode_uint(FRAME_CMD),
+            encode_uint(msg_id),
+            encode_uint(op),
+            encode_uint(data.get("codeBytes", 0)),
+            encode_string(data.get("codeHash", "")),
+            encode_bool(data.get("run", False)),
+            encode_bool(data.get("save", False)),
+        ])
+    if name == "script.chunk.add":
+        chunk = str(data.get("chunk", "")).encode("utf-8")
+        return b"".join([
+            encode_array(5),
+            encode_uint(FRAME_CMD),
+            encode_uint(msg_id),
+            encode_uint(op),
+            encode_uint(data.get("offset", 0)),
+            encode_bin(chunk),
+        ])
+    if name == "script.chunk.get":
+        return b"".join([
+            encode_array(5),
+            encode_uint(FRAME_CMD),
+            encode_uint(msg_id),
+            encode_uint(op),
+            encode_uint(data.get("offset", 0)),
+            encode_uint(data.get("maxBytes", 512)),
         ])
     return b"".join([
         encode_array(3),

@@ -103,6 +103,50 @@ static bool scriptStorePathInfo(const char* path, size_t& bytesOut, uint32_t& ha
   return true;
 }
 
+static bool scriptStoreReadPathChunk(const char* path, uint32_t offset, uint32_t maxBytes, String& chunkOut, size_t& totalBytesOut) {
+  chunkOut = "";
+  totalBytesOut = 0;
+  if (!scriptStoreBegin()) return false;
+
+  File f = LittleFS.open(path, "r");
+  if (!f) {
+    return offset == 0;
+  }
+
+  size_t n = (size_t)f.size();
+  totalBytesOut = n;
+  if (n > P1_EMBED_MAX_SCRIPT_BYTES || offset > n) {
+    f.close();
+    return false;
+  }
+
+  size_t toRead = min((size_t)maxBytes, n - (size_t)offset);
+  if (toRead == 0) {
+    f.close();
+    return true;
+  }
+  if (!chunkOut.reserve(toRead)) {
+    f.close();
+    return false;
+  }
+  if (!f.seek(offset, SeekSet)) {
+    f.close();
+    return false;
+  }
+
+  char buf[128];
+  size_t gotTotal = 0;
+  while (gotTotal < toRead) {
+    size_t want = min(sizeof(buf), toRead - gotTotal);
+    size_t got = f.readBytes(buf, want);
+    if (got == 0) break;
+    chunkOut.concat(buf, got);
+    gotTotal += got;
+  }
+  f.close();
+  return gotTotal == toRead;
+}
+
 static bool scriptStoreCopyPathToPath(const char* from, const char* to) {
   if (!scriptStoreBegin()) return false;
 
@@ -196,6 +240,10 @@ bool scriptStoreHasSaved() {
 
 bool scriptStoreLoadCurrent(String& out) {
   return scriptStoreLoadPath(SCRIPT_CURRENT_PATH, out);
+}
+
+bool scriptStoreReadCurrentChunk(uint32_t offset, uint32_t maxBytes, String& chunkOut, size_t& totalBytesOut) {
+  return scriptStoreReadPathChunk(SCRIPT_CURRENT_PATH, offset, maxBytes, chunkOut, totalBytesOut);
 }
 
 bool scriptStoreSaveCurrent(const String& code) {

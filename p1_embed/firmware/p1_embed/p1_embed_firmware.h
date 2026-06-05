@@ -5,6 +5,8 @@
 #include "p1_msgpack.h"
 #include "wrench.h"
 
+static constexpr size_t P1_EMBED_LEGACY_SCRIPT_JSON_MAX_BYTES = 1024;
+
 struct P1WifiSnapshot {
   bool configured = false;
   String status = "unknown";
@@ -482,6 +484,7 @@ bool scriptStoreSave(const String& code);
 bool scriptStoreClear();
 bool scriptStoreHasSaved();
 bool scriptStoreLoadCurrent(String& out);
+bool scriptStoreReadCurrentChunk(uint32_t offset, uint32_t maxBytes, String& chunkOut, size_t& totalBytesOut);
 bool scriptStoreSaveCurrent(const String& code);
 bool scriptStoreClearCurrent();
 bool scriptStoreLoadIncoming(String& out);
@@ -623,6 +626,8 @@ int httpFetchLastCode();
 bool httpFetchLastTruncated();
 String httpFetchLastError();
 P1HttpFetchStatusSnapshot httpFetchStatusSnapshot();
+void httpFetchReleaseBody();
+void httpFetchPrepareMemoryPressure();
 
 struct P1OtaRequest {
   String kind = "full";

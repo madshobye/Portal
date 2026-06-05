@@ -2,7 +2,7 @@ from p1_serial import assert_equal, assert_true
 
 
 def run_script_and_expect_print(dev, code, expected, timeout=10.0):
-    result = dev.command("script.set", {"code": code.strip(), "run": True, "save": False}, timeout=timeout)
+    result = dev.run_script(code.strip(), save=False, timeout=timeout)
     assert_true(result.get("state") in ("queued", "running", "run_pending"), "script should be accepted")
     event = dev.wait_event("script.print", timeout=5.0)
     assert_equal(event.get("data", {}).get("message"), expected, "script print")

@@ -16,7 +16,7 @@ def clear_stored_script(dev):
 def test_bad_script_is_rejected_before_save(dev):
     bad_code = 'function setup() {\n  int broken = 1;\n}\n'
     dev.command("script.clear", timeout=5.0)
-    error = dev.command_error("script.save", {"code": bad_code, "autorun": True}, timeout=6.0)
+    error = dev.compile_script_expect_error(bad_code, save=True, timeout=6.0)
     assert_equal(error.get("code"), "compile_error", "bad script should be rejected before save")
 
     status = dev.command("status.get", timeout=4.0)
@@ -36,7 +36,7 @@ function loop() {
   delay(2000);
 }
 """.strip()
-    dev.command("script.set", {"code": code, "run": True, "save": True}, timeout=8.0)
+    dev.run_script(code, save=True, timeout=8.0)
     reboot_and_wait(dev)
 
     status = dev.command("status.get", timeout=4.0)
@@ -67,7 +67,7 @@ function loop() {
   }
 }
 """.strip()
-    dev.command("script.set", {"code": code, "run": True, "save": True}, timeout=10.0)
+    dev.run_script(code, save=True, timeout=10.0)
     reboot_and_wait(dev)
 
     assert_true(dev.command("ping", timeout=3.0).get("pong"), "device should respond with saved infinite loop running")

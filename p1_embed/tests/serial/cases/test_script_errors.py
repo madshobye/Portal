@@ -3,7 +3,7 @@ from p1_serial import assert_equal, assert_true
 
 def test_compile_error(dev):
     bad_code = 'function setup() {\n  println("oops")\n'
-    error = dev.command_error("script.set", {"code": bad_code, "run": True, "save": False})
+    error = dev.run_script_expect_error(bad_code, save=False)
     assert_equal(error.get("code"), "compile_error", "script.set should fail with compile_error")
     last = dev.command("script.error.get")
     assert_equal(last.get("phase"), "compile", "last error phase")
@@ -23,7 +23,7 @@ function loop() {
   delay(100);
 }
 """.strip()
-    dev.command("script.set", {"code": code, "run": True, "save": False})
+    dev.run_script(code, save=False)
     event = dev.wait_event("script.error", timeout=4.0)
     err = event.get("data", {}).get("error", {})
     assert_equal(err.get("phase"), "binding", "binding phase")

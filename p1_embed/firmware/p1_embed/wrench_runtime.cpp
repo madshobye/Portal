@@ -654,11 +654,19 @@ bool wrenchHasCompiledProgram() {
   return g_bytecode && g_bytecodeLen > 0;
 }
 
+static void wrenchReleaseScriptSideEffects(bool releaseUi) {
+  httpFetchReleaseBody();
+  haRuntimeReset();
+  if (releaseUi) uiRuntimeReset("", false);
+  fastLedReleaseScriptResources();
+}
+
 void wrenchStop() {
   wrenchLock();
   g_wrenchRunPending = false;
   wrenchStopLocked();
   wrenchUnlock();
+  wrenchReleaseScriptSideEffects(true);
 }
 
 void wrenchReleaseCompiledProgram() {
@@ -670,7 +678,7 @@ void wrenchReleaseCompiledProgram() {
   g_scriptState = SCRIPT_EMPTY;
   wrenchSetPhase(WRENCH_PHASE_IDLE);
   wrenchUnlock();
-  fastLedReleaseScriptResources();
+  wrenchReleaseScriptSideEffects(false);
 }
 
 void wrenchBeginTransition(const String& reason) {

@@ -27,7 +27,7 @@ function loop() {
   delay(100);
 }
 """.strip()
-    dev.command("script.set", {"code": code, "run": True, "save": False}, timeout=8.0)
+    dev.run_script(code, save=False, timeout=8.0)
     event = dev.wait_event("script.print", timeout=4.0)
     assert_equal(event.get("data", {}).get("message"), "total=10", "while loop should run")
     last = dev.command("script.error.get")
@@ -53,7 +53,7 @@ function loop() {
   delay(10);
 }
 """.strip()
-    dev.command("script.set", {"code": code, "run": True, "save": False}, timeout=8.0)
+    dev.run_script(code, save=False, timeout=8.0)
     assert_equal(dev.wait_event("script.print", timeout=4.0).get("data", {}).get("message"), "self read ready", "setup print")
     assert_equal(dev.wait_event("script.print", timeout=4.0).get("data", {}).get("message"), "20", "self-read assignment should use the previous store")
     last = dev.command("script.error.get")
@@ -67,7 +67,7 @@ function setup() {
   println(i);
 }
 """.strip()
-    error = dev.command_error("script.set", {"code": code, "run": True, "save": False}, timeout=6.0)
+    error = dev.run_script_expect_error(code, save=False, timeout=6.0)
     assert_equal(error.get("code"), "compile_error", "C-style int should fail as compile_error")
     last = dev.command("script.error.get")
     assert_equal(last.get("phase"), "compile", "last error phase")
@@ -95,9 +95,9 @@ function setup() {
   int broken = 1;
 }
 """.strip()
-    dev.command("script.run", {"code": good_code}, timeout=8.0)
+    dev.run_script(good_code, save=False, timeout=8.0)
     assert_equal(dev.wait_event("script.print", timeout=4.0).get("data", {}).get("message"), "run stop guard ready", "good setup print")
-    error = dev.command_error("script.run", {"code": bad_code}, timeout=6.0)
+    error = dev.run_script_expect_error(bad_code, save=False, timeout=6.0)
     assert_equal(error.get("code"), "compile_error", "script.run should return compile_error")
     status = dev.command("status.get", timeout=4.0)
     assert_equal(status.get("scriptState"), "error", "failed run compile should leave runtime stopped/error")
@@ -123,13 +123,13 @@ function loop() {
   delay(40);
 }
 """.strip()
-    dev.command("script.set", {"code": first, "run": True, "save": False}, timeout=8.0)
+    dev.run_script(first, save=False, timeout=8.0)
     assert_equal(dev.wait_event("script.print", timeout=4.0).get("data", {}).get("message"), "replace first ready", "first script setup print")
-    result = dev.command("script.set", {"code": second, "run": True, "save": True}, timeout=10.0)
+    result = dev.run_script(second, save=True, timeout=10.0)
     assert_equal(result.get("state"), "running", "replacement should be accepted and running")
     assert_equal(result.get("scriptBytes"), len(second), "replacement byte count")
     assert_equal(dev.wait_event("script.print", timeout=4.0).get("data", {}).get("message"), "replace second ready", "second script setup print")
-    fetched = dev.command("script.get", timeout=4.0)
+    fetched = dev.download_script_source_with_metadata()
     assert_equal(fetched.get("code"), second, "script.get should read replaced running script")
     assert_equal(fetched.get("state"), "running", "replacement should be running")
 
@@ -148,10 +148,10 @@ function loop() {
   delay(20);
 }
 """.strip()
-    dev.command("script.set", {"code": code, "run": True, "save": True}, timeout=8.0)
+    dev.run_script(code, save=True, timeout=8.0)
     assert_equal(dev.wait_event("script.print", timeout=4.0).get("data", {}).get("message"), "read source ready", "setup print")
     for _ in range(5):
-        fetched = dev.command("script.get", timeout=4.0)
+        fetched = dev.download_script_source_with_metadata()
         assert_equal(fetched.get("code"), code, "script.get should return running source")
         assert_equal(fetched.get("stored"), True, "saved running source should report stored")
 
@@ -166,16 +166,16 @@ function loop() {
   delay(30);
 }
 """.strip()
-    saved = dev.command("script.save", {"code": code, "autorun": False}, timeout=8.0)
+    saved = dev.compile_script(code, save=True, timeout=8.0)
     assert_equal(saved.get("state"), "saved", "script.save should report saved")
     assert_equal(saved.get("scriptBytes"), len(code), "saved byte count")
-    fetched = dev.command("script.get", timeout=4.0)
+    fetched = dev.download_script_source_with_metadata()
     assert_equal(fetched.get("code"), code, "script.get should read saved compiled source")
     assert_equal(fetched.get("stored"), True, "script.save should persist source")
     result = dev.command("script.run", timeout=6.0)
-    assert_equal(result.get("state"), "run_pending", "script.run without code should run compiled source")
+    assert_true(result.get("state") in ("run_pending", "running"), "script.run without code should run compiled source")
     assert_equal(dev.wait_event("script.print", timeout=4.0).get("data", {}).get("message"), "save run roundtrip ready", "saved script setup print")
-    fetched = dev.command("script.get", timeout=4.0)
+    fetched = dev.download_script_source_with_metadata()
     assert_equal(fetched.get("code"), code, "script.get should read source after run")
     assert_equal(fetched.get("state"), "running", "saved script should be running")
 
@@ -195,9 +195,9 @@ function setup() {
   int broken = 1;
 }
 """.strip()
-    dev.command("script.set", {"code": good_code, "run": True, "save": False}, timeout=8.0)
+    dev.run_script(good_code, save=False, timeout=8.0)
     assert_equal(dev.wait_event("script.print", timeout=4.0).get("data", {}).get("message"), "bad replace guard ready", "good setup print")
-    error = dev.command_error("script.set", {"code": bad_code, "run": True, "save": False}, timeout=8.0)
+    error = dev.run_script_expect_error(bad_code, save=False, timeout=8.0)
     assert_equal(error.get("code"), "compile_error", "bad replacement should fail as compile_error")
     status = dev.command("status.get", timeout=4.0)
     assert_equal(status.get("scriptState"), "error", "bad replacement should stop old runtime")
@@ -216,7 +216,7 @@ function loop() {
   delay(100);
 }
 """.strip()
-    ok, result = dev.command_maybe_timeout("script.set", {"code": code, "run": True, "save": False}, timeout=8.0)
+    ok, result = dev.run_script_maybe_timeout(code, save=False, timeout=8.0)
     assert_true(ok, "bad strip script should not time out")
     event = dev.wait_event("script.error", timeout=4.0)
     err = event.get("data", {}).get("error", {})
@@ -236,7 +236,7 @@ function loop() {
   delay(100);
 }
 """.strip()
-    dev.command("script.set", {"code": code, "run": True, "save": False}, timeout=8.0)
+    dev.run_script(code, save=False, timeout=8.0)
     event = dev.wait_event("script.error", timeout=4.0)
     err = event.get("data", {}).get("error", {})
     assert_equal(err.get("phase"), "binding", "bad pin error phase")
@@ -257,7 +257,7 @@ function loop() {
   delay(100);
 }
 """.strip()
-    dev.command("script.set", {"code": code, "run": True, "save": False}, timeout=8.0)
+    dev.run_script(code, save=False, timeout=8.0)
     event = dev.wait_event("script.error", timeout=4.0)
     err = event.get("data", {}).get("error", {})
     assert_equal(err.get("phase"), "binding", "geometry error phase")
@@ -284,9 +284,9 @@ function loop() {
   delay(60);
 }
 """.strip()
-    ok, result = dev.command_maybe_timeout("script.set", {"code": code, "run": True, "save": False}, timeout=10.0)
+    ok, result = dev.run_script_maybe_timeout(code, save=False, timeout=10.0)
     assert_true(ok, "heavy LED script upload should receive a protocol response")
-    assert_equal(result.get("state"), "run_pending", "heavy LED script should be accepted for run")
+    assert_true(result.get("state") in ("run_pending", "running"), "heavy LED script should be accepted for run")
     assert_equal(dev.wait_event("script.print", timeout=4.0).get("data", {}).get("message"), "edge sparkle ready", "setup print")
     assert_true(dev.command("ping", timeout=3.0).get("pong"), "device should respond while LED script runs")
 
@@ -306,7 +306,7 @@ function loop() {
   delay(1);
 }
 """.strip()
-    result = dev.command("script.set", {"code": code, "run": True, "save": False}, timeout=8.0)
+    result = dev.run_script(code, save=False, timeout=8.0)
     assert_equal(result.get("state"), "running", "print flood script should start")
     dev.wait_event("script.print", timeout=4.0)
     for _ in range(5):
@@ -320,8 +320,8 @@ def test_sparkle_animation_example_uploads_and_runs(dev):
     reboot_and_wait(dev)
     path = Path(__file__).resolve().parents[3] / "tools" / "sparkle_30_pin4.wrench"
     code = path.read_text(encoding="utf-8")
-    result = dev.command("script.run", {"code": code}, timeout=10.0)
-    assert_equal(result.get("state"), "run_pending", "sparkle example should be accepted for run")
+    result = dev.run_script(code, save=False, timeout=10.0)
+    assert_true(result.get("state") in ("run_pending", "running"), "sparkle example should be accepted for run")
     assert_equal(result.get("scriptBytes"), len(code), "sparkle example byte count")
     assert_equal(dev.wait_event("script.print", timeout=4.0).get("data", {}).get("message"), "sparkle celebration ready", "sparkle setup print")
     status = dev.command("status.get", timeout=4.0)
@@ -341,8 +341,8 @@ def test_weather_wear_example_uploads_and_runs(dev):
         code = code.replace("PUT_OPENWEATHER_KEY_HERE", api_key)
     else:
         code = code.replace("var USE_SAMPLE = 0;", "var USE_SAMPLE = 1;")
-    result = dev.command("script.run", {"code": code}, timeout=25.0)
-    assert_equal(result.get("state"), "run_pending", "weather wear example should be accepted for run")
+    result = dev.run_script(code, save=False, timeout=25.0)
+    assert_true(result.get("state") in ("run_pending", "running"), "weather wear example should be accepted for run")
     assert_equal(result.get("scriptBytes"), len(code), "weather wear example byte count")
     assert_equal(dev.wait_event("script.print", timeout=6.0).get("data", {}).get("message"), "weather wear ready", "weather setup print")
     weather_print = dev.wait_event("script.print", timeout=12.0).get("data", {}).get("message", "")
@@ -357,11 +357,11 @@ def test_weather_wear_example_uploads_and_runs(dev):
     assert_equal(strip.get("pin"), 4, "weather strip pin")
     assert_equal(strip.get("count"), 30, "weather strip count")
     assert_true(dev.command("ping", timeout=3.0).get("pong"), "device should respond while weather animation runs")
-    second = dev.command("script.run", {"code": code}, timeout=25.0)
-    assert_equal(second.get("state"), "run_pending", "weather replacement should be accepted while warm")
+    second = dev.run_script(code, save=False, timeout=25.0)
+    assert_true(second.get("state") in ("run_pending", "running"), "weather replacement should be accepted while warm")
     assert_equal(second.get("scriptBytes"), len(code), "weather replacement byte count")
     assert_equal(dev.wait_event("script.print", timeout=6.0).get("data", {}).get("message"), "weather wear ready", "weather replacement setup print")
-    fetched = dev.command("script.get", timeout=8.0)
+    fetched = dev.download_script_source_with_metadata()
     assert_equal(fetched.get("code"), code, "script.get should read large running weather source")
     assert_equal(fetched.get("state"), "running", "weather replacement should be running")
     assert_true(dev.command("ping", timeout=3.0).get("pong"), "device should respond after warm weather replacement")
@@ -380,8 +380,8 @@ function loop() {
   }
 }
 """.strip()
-    result = dev.command("script.set", {"code": code, "run": True, "save": False}, timeout=10.0)
-    assert_equal(result.get("state"), "run_pending", "infinite script should be accepted for run")
+    result = dev.run_script(code, save=False, timeout=10.0)
+    assert_true(result.get("state") in ("run_pending", "running"), "infinite script should be accepted for run")
     assert_equal(dev.wait_event("script.print", timeout=4.0).get("data", {}).get("message"), "infinite ready", "setup print")
     assert_true(dev.command("ping", timeout=3.0).get("pong"), "protocol should respond while infinite Wrench loop runs")
     status = dev.command("status.get", timeout=4.0)
