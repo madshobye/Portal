@@ -48,14 +48,14 @@ Current state, at keyword level:
 - I2C bindings.
 - Secondary UART bindings.
 - PWM, servo, and CPU fan bindings.
-- FastLED-backed LED runtime.
+- FastLED-backed LED runtime exposed through the `led*` script API.
 - Runtime-only LED strip configuration.
 - Multi-strip WS2812B/GRB support.
-- Compatibility `fastLed*` bindings.
+- Legacy `fastLed*` script bindings removed; use `ledConfig`, `ledSet`, `ledShow`, and scalar LED helpers.
 - Serial test harness with full-write handling for larger scripts.
 - Interactive serial REPL.
 - Firmware compile/upload scripts.
-- Regression tests for protocol, storage, errors, bindings, HTTP, JSON helpers, PWM, FastLED, Wrench edge cases, the sparkle animation example, and the weather-to-wear LED example.
+- Regression tests for protocol, storage, errors, bindings, HTTP, JSON helpers, PWM, LED control, Wrench edge cases, the sparkle animation example, and the weather-to-wear LED example.
 - Verified on the ESP32 Classic board at `/dev/cu.wchusbserial58741104521`.
 
 ## Target List
@@ -115,10 +115,19 @@ Current service bindings:
 - `log(level, message)`
 - `emit(name, message)`
 - `emitJson(name, jsonField...)`
-- `statusGet(key)`
-- `configGet(key)`
 - `configSet(key, value)`
-- `wifiStatus(key)`
+- `deviceId()`
+- `deviceName()`
+- `timezone()`
+- `uptimeMs()`
+- `minFreeHeap()`
+- `scriptState()`
+- `loopCount()`
+- `wifiConnected()`
+- `wifiIp()`
+- `wifiRssi()`
+- `wifiSsid()`
+- `wifiNetworkCount()`
 - `wifiConnect(ssid, password)`
 - `wifiDisconnect()`
 - `reboot()`
@@ -127,7 +136,6 @@ Current service bindings:
 - `httpCode()`
 - `httpTruncated()`
 - `httpError()`
-- `httpStatus()`
 - `jsonGet(json, path)`
 - `jsonGetInt(json, path)`
 - `jsonGetFloat(json, path)`

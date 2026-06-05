@@ -512,58 +512,6 @@ static String wrJsonJoinArgs(const WRValue* argv, int argn, int startIdx) {
   return out;
 }
 
-static String wrStatusValue(const String& key) {
-  if (!key.length()) {
-    String out = "{";
-    out += "\"uptimeMs\":" + String(millis());
-    out += ",\"freeHeap\":" + String(ESP.getFreeHeap());
-    out += ",\"minFreeHeap\":" + String(ESP.getMinFreeHeap());
-    out += ",\"scriptState\":" + jsonString(wrenchStateName());
-    out += ",\"wrenchLoopCount\":" + String(wrenchLoopCount());
-    out += ",\"deviceId\":" + jsonString(configDeviceId());
-    out += ",\"deviceName\":" + jsonString(configDeviceName());
-    out += ",\"wifi\":" + wifiStatusJson();
-    out += "}";
-    return out;
-  }
-  if (key == "uptimeMs") return String(millis());
-  if (key == "freeHeap") return String(ESP.getFreeHeap());
-  if (key == "minFreeHeap") return String(ESP.getMinFreeHeap());
-  if (key == "scriptState") return String(wrenchStateName());
-  if (key == "wrenchLoopCount" || key == "loopCount") return String(wrenchLoopCount());
-  if (key == "deviceId") return configDeviceId();
-  if (key == "deviceName") return configDeviceName();
-  if (key == "wifi") return wifiStatusJson();
-  if (key == "led") return ledStatusJson();
-  if (key == "uart" || key == "serial") return uartStatusJson();
-  if (key == "http") return httpFetchStatusJson();
-  return "";
-}
-
-static String wrConfigValue(const String& key) {
-  if (!key.length()) return configAsJson();
-  if (key == "deviceId") return configDeviceId();
-  if (key == "deviceName") return configDeviceName();
-  if (key == "timezone") return configTimezone();
-  if (key == "wifiSsid") return configWifiSsid();
-  if (key == "wifiNetworkCount") return String(configWifiNetworkCount());
-  if (key == "wifi") return wifiStatusJson();
-  if (key == "led") return ledStatusJson();
-  if (key == "uart" || key == "serial") return uartStatusJson();
-  if (key == "http") return httpFetchStatusJson();
-  return "";
-}
-
-static String wrWifiValue(const String& key) {
-  String json = wifiStatusJson();
-  if (!key.length()) return json;
-  if (key == "configured") return configWifiSsid().length() ? "true" : "false";
-  if (key == "networkCount") return String(configWifiNetworkCount());
-  if (key == "ssid") return configWifiSsid();
-  if (key == "json") return json;
-  return "";
-}
-
 static String g_lastInboxChannel = "";
 static char g_lastUiEventId[P1_EMBED_UI_ID_MAX] = {0};
 static char g_lastUiEventType[P1_EMBED_UI_TYPE_MAX] = {0};
@@ -1125,6 +1073,38 @@ static void w_p1_freeHeap(WRContext*, const WRValue*, const int, WRValue& retVal
   wrRetInt(retVal, (int)ESP.getFreeHeap());
 }
 
+static void w_p1_minFreeHeap(WRContext*, const WRValue*, const int, WRValue& retVal, void*) {
+  wrRetInt(retVal, (int)ESP.getMinFreeHeap());
+}
+
+static void w_p1_uptimeMs(WRContext*, const WRValue*, const int, WRValue& retVal, void*) {
+  wrRetInt(retVal, (int)millis());
+}
+
+static void w_p1_scriptState(WRContext* ctx, const WRValue*, const int, WRValue& retVal, void*) {
+  wrRetString(ctx, retVal, String(wrenchStateName()));
+}
+
+static void w_p1_loopCount(WRContext*, const WRValue*, const int, WRValue& retVal, void*) {
+  wrRetInt(retVal, (int)wrenchLoopCount());
+}
+
+static void w_p1_deviceId(WRContext* ctx, const WRValue*, const int, WRValue& retVal, void*) {
+  wrRetString(ctx, retVal, configDeviceId());
+}
+
+static void w_p1_deviceName(WRContext* ctx, const WRValue*, const int, WRValue& retVal, void*) {
+  wrRetString(ctx, retVal, configDeviceName());
+}
+
+static void w_p1_timezone(WRContext* ctx, const WRValue*, const int, WRValue& retVal, void*) {
+  wrRetString(ctx, retVal, configTimezone());
+}
+
+static void w_p1_wifiNetworkCount(WRContext*, const WRValue*, const int, WRValue& retVal, void*) {
+  wrRetInt(retVal, configWifiNetworkCount());
+}
+
 static void w_p1_diagArray3(WRContext* ctx, const WRValue* argv, const int argn, WRValue& retVal, void*) {
   if (!wrRetIntArray3(ctx, retVal, wrArgInt(argv, argn, 0, 0), wrArgInt(argv, argn, 1, 0), wrArgInt(argv, argn, 2, 0))) {
     scriptErrorSet("binding", "diag_array_alloc_failed", "diagArray3 failed to allocate return array");
@@ -1277,10 +1257,6 @@ static void w_p1_serialWriteByte(WRContext*, const WRValue* argv, const int argn
   wrRetInt(retVal, written);
 }
 
-static void w_p1_serialStatus(WRContext* ctx, const WRValue*, const int, WRValue& retVal, void*) {
-  wrRetString(ctx, retVal, uartStatusJson());
-}
-
 static void w_p1_httpGet(WRContext* ctx, const WRValue* argv, const int argn, WRValue& retVal, void*) {
   String url = wrArgStringValue(argv, argn, 0);
   int maxBytes = wrArgInt(argv, argn, 1, P1_EMBED_HTTP_MAX_RESPONSE_BYTES);
@@ -1346,10 +1322,6 @@ static void w_p1_httpTruncated(WRContext*, const WRValue*, const int, WRValue& r
 
 static void w_p1_httpError(WRContext* ctx, const WRValue*, const int, WRValue& retVal, void*) {
   wrRetString(ctx, retVal, httpFetchLastError());
-}
-
-static void w_p1_httpStatus(WRContext* ctx, const WRValue*, const int, WRValue& retVal, void*) {
-  wrRetString(ctx, retVal, httpFetchStatusJson());
 }
 
 static void w_p1_getJsonValue(WRContext* ctx, const WRValue* argv, const int argn, WRValue& retVal, void*) {
@@ -1698,37 +1670,6 @@ static void w_p1_timeLocal(WRContext* ctx, const WRValue* argv, const int argn, 
   }
 }
 
-// Legacy scalar time bindings kept for existing sketches. Prefer timeLocal(out).
-static void w_p1_timeLocalHour(WRContext*, const WRValue*, const int, WRValue& retVal, void*) {
-  tm info;
-  wrRetInt(retVal, wrLocalTime(info) ? info.tm_hour : -1);
-}
-
-static void w_p1_timeLocalMinute(WRContext*, const WRValue*, const int, WRValue& retVal, void*) {
-  tm info;
-  wrRetInt(retVal, wrLocalTime(info) ? info.tm_min : -1);
-}
-
-static void w_p1_timeLocalSeconds(WRContext*, const WRValue*, const int, WRValue& retVal, void*) {
-  tm info;
-  wrRetInt(retVal, wrLocalTime(info) ? info.tm_sec : -1);
-}
-
-static void w_p1_timeLocalDay(WRContext*, const WRValue*, const int, WRValue& retVal, void*) {
-  tm info;
-  wrRetInt(retVal, wrLocalTime(info) ? info.tm_mday : -1);
-}
-
-static void w_p1_timeLocalMonth(WRContext*, const WRValue*, const int, WRValue& retVal, void*) {
-  tm info;
-  wrRetInt(retVal, wrLocalTime(info) ? info.tm_mon + 1 : -1);
-}
-
-static void w_p1_timeLocalYear(WRContext*, const WRValue*, const int, WRValue& retVal, void*) {
-  tm info;
-  wrRetInt(retVal, wrLocalTime(info) ? info.tm_year + 1900 : -1);
-}
-
 static void w_p1_timeGet(WRContext* ctx, const WRValue*, const int, WRValue& retVal, void*) {
   tm info;
   if (!wrLocalTime(info)) {
@@ -1904,68 +1845,6 @@ static void w_p1_rgbToHsvInto(WRContext* ctx, const WRValue* argv, const int arg
   w_p1_rgbToHsv(ctx, argv, argn, retVal, nullptr);
 }
 
-// Legacy scalar color component bindings kept for existing sketches.
-// Prefer ledGetRgb(..., out), rgbToHsv(..., out), and hsvToRgb(..., out).
-static void wrRetLedComponent(const WRValue* argv, const int argn, WRValue& retVal, int component) {
-  int r = 0;
-  int g = 0;
-  int b = 0;
-  ledGetPixel(wrArgInt(argv, argn, 0, 0), wrArgInt(argv, argn, 1, -1), r, g, b);
-  wrRetInt(retVal, component == 0 ? r : (component == 1 ? g : b));
-}
-
-static void w_p1_ledGetR(WRContext*, const WRValue* argv, const int argn, WRValue& retVal, void*) {
-  wrRetLedComponent(argv, argn, retVal, 0);
-}
-
-static void w_p1_ledGetG(WRContext*, const WRValue* argv, const int argn, WRValue& retVal, void*) {
-  wrRetLedComponent(argv, argn, retVal, 1);
-}
-
-static void w_p1_ledGetB(WRContext*, const WRValue* argv, const int argn, WRValue& retVal, void*) {
-  wrRetLedComponent(argv, argn, retVal, 2);
-}
-
-static void wrRetHsvComponent(const WRValue* argv, const int argn, WRValue& retVal, int component) {
-  int r = 0;
-  int g = 0;
-  int b = 0;
-  hsvToRgb8(wrArgInt(argv, argn, 0, 0), wrArgInt(argv, argn, 1, 255), wrArgInt(argv, argn, 2, 255), r, g, b);
-  wrRetInt(retVal, component == 0 ? r : (component == 1 ? g : b));
-}
-
-static void w_p1_hsvToR(WRContext*, const WRValue* argv, const int argn, WRValue& retVal, void*) {
-  wrRetHsvComponent(argv, argn, retVal, 0);
-}
-
-static void w_p1_hsvToG(WRContext*, const WRValue* argv, const int argn, WRValue& retVal, void*) {
-  wrRetHsvComponent(argv, argn, retVal, 1);
-}
-
-static void w_p1_hsvToB(WRContext*, const WRValue* argv, const int argn, WRValue& retVal, void*) {
-  wrRetHsvComponent(argv, argn, retVal, 2);
-}
-
-static void wrRetRgbComponent(const WRValue* argv, const int argn, WRValue& retVal, int component) {
-  int h = 0;
-  int s = 0;
-  int v = 0;
-  rgbToHsv8(wrArgInt(argv, argn, 0, 0), wrArgInt(argv, argn, 1, 0), wrArgInt(argv, argn, 2, 0), h, s, v);
-  wrRetInt(retVal, component == 0 ? h : (component == 1 ? s : v));
-}
-
-static void w_p1_rgbToH(WRContext*, const WRValue* argv, const int argn, WRValue& retVal, void*) {
-  wrRetRgbComponent(argv, argn, retVal, 0);
-}
-
-static void w_p1_rgbToS(WRContext*, const WRValue* argv, const int argn, WRValue& retVal, void*) {
-  wrRetRgbComponent(argv, argn, retVal, 1);
-}
-
-static void w_p1_rgbToV(WRContext*, const WRValue* argv, const int argn, WRValue& retVal, void*) {
-  wrRetRgbComponent(argv, argn, retVal, 2);
-}
-
 static void w_p1_paletteSet2(WRContext*, const WRValue* argv, const int argn, WRValue& retVal, void*) {
   int rgb[6] = {
     wrArgInt(argv, argn, 1, 0), wrArgInt(argv, argn, 2, 0), wrArgInt(argv, argn, 3, 0),
@@ -2010,24 +1889,6 @@ static void w_p1_paletteGetRgb(WRContext* ctx, const WRValue* argv, const int ar
   }
 }
 
-// Legacy scalar palette component bindings kept for existing sketches.
-// Prefer paletteGetRgb(slot, t, out).
-static void wrRetPaletteComponent(const WRValue* argv, const int argn, WRValue& retVal, int component) {
-  wrRetInt(retVal, paletteSampleComponent(wrArgInt(argv, argn, 0, 0), wrArgInt(argv, argn, 1, 0), component));
-}
-
-static void w_p1_paletteGetR(WRContext*, const WRValue* argv, const int argn, WRValue& retVal, void*) {
-  wrRetPaletteComponent(argv, argn, retVal, 0);
-}
-
-static void w_p1_paletteGetG(WRContext*, const WRValue* argv, const int argn, WRValue& retVal, void*) {
-  wrRetPaletteComponent(argv, argn, retVal, 1);
-}
-
-static void w_p1_paletteGetB(WRContext*, const WRValue* argv, const int argn, WRValue& retVal, void*) {
-  wrRetPaletteComponent(argv, argn, retVal, 2);
-}
-
 static void w_p1_ledFill(WRContext*, const WRValue* argv, const int argn, WRValue& retVal, void*) {
   int strip = wrArgInt(argv, argn, 0, 0);
   bool ok = ledFill(strip, wrArgInt(argv, argn, 1, 0), wrArgInt(argv, argn, 2, 0), wrArgInt(argv, argn, 3, 0));
@@ -2054,10 +1915,6 @@ static void w_p1_ledBrightness(WRContext*, const WRValue* argv, const int argn, 
   bool ok = ledSetBrightness(strip, wrArgInt(argv, argn, 1, 255));
   if (!ok) p1LedBindingError("led_brightness_failed", "ledBrightness failed", "\"strip\":" + String(strip));
   wrRetInt(retVal, ok ? 1 : 0);
-}
-
-static void w_p1_ledStatus(WRContext* ctx, const WRValue*, const int, WRValue& retVal, void*) {
-  wrRetString(ctx, retVal, ledStatusJson());
 }
 
 static void w_p1_log(WRContext*, const WRValue* argv, const int argn, WRValue& retVal, void*) {
@@ -2509,14 +2366,6 @@ static void w_p1_haEventType(WRContext* ctx, const WRValue*, const int, WRValue&
   wrRetString(ctx, retVal, String(g_lastHaEventType));
 }
 
-static void w_p1_statusGet(WRContext* ctx, const WRValue* argv, const int argn, WRValue& retVal, void*) {
-  wrRetString(ctx, retVal, wrStatusValue(wrArgStringValue(argv, argn, 0)));
-}
-
-static void w_p1_configGet(WRContext* ctx, const WRValue* argv, const int argn, WRValue& retVal, void*) {
-  wrRetString(ctx, retVal, wrConfigValue(wrArgStringValue(argv, argn, 0)));
-}
-
 static void w_p1_configSet(WRContext*, const WRValue* argv, const int argn, WRValue& retVal, void*) {
   String key = wrArgStringValue(argv, argn, 0);
   String value = wrArgStringValue(argv, argn, 1);
@@ -2544,10 +2393,6 @@ static void w_p1_configSet(WRContext*, const WRValue* argv, const int argn, WRVa
   }
   if (!changed) scriptErrorSet("binding", "config_set_failed", "configSet failed", "\"key\":" + jsonString(key));
   wrRetInt(retVal, changed ? 1 : 0);
-}
-
-static void w_p1_wifiStatus(WRContext* ctx, const WRValue* argv, const int argn, WRValue& retVal, void*) {
-  wrRetString(ctx, retVal, wrWifiValue(wrArgStringValue(argv, argn, 0)));
 }
 
 static void w_p1_wifiConnect(WRContext*, const WRValue* argv, const int argn, WRValue& retVal, void*) {
@@ -2621,7 +2466,9 @@ const char* wrenchBindingNameForHash(uint32_t hash) {
     "print", "println",
     "pinMode", "digitalWrite", "digitalRead", "analogRead", "touchRead", "touchReadPair",
     "delay", "delayMicroseconds", "millis", "micros",
-    "random", "randomSeed", "freeHeap", "diagArray3", "diagFloatArray3",
+    "random", "randomSeed", "freeHeap", "minFreeHeap", "uptimeMs",
+    "scriptState", "loopCount", "deviceId", "deviceName", "timezone",
+    "diagArray3", "diagFloatArray3",
     "lerp", "map", "constrain", "min", "max", "abs",
     "sin", "cos", "tan", "asin", "acos", "atan", "atan2",
     "sqrt", "pow", "floor", "ceil", "round", "exp", "ln", "log10",
@@ -2632,9 +2479,9 @@ const char* wrenchBindingNameForHash(uint32_t hash) {
     "wireBegin", "i2cWrite", "i2cRead",
     "serialBegin", "serialEnd", "serialAvailable", "serialRead",
     "serialReadString", "serialWrite", "serialWriteLine",
-    "serialWriteByte", "serialStatus",
+    "serialWriteByte",
     "httpGet", "httpPost", "httpCode", "httpTruncated", "httpError",
-    "httpStatus", "httpJsonGet", "httpJsonGetInt", "httpJsonGetFloat", "httpJsonGetBool", "fetchJson",
+    "httpJsonGet", "httpJsonGetInt", "httpJsonGetFloat", "httpJsonGetBool", "fetchJson",
     "getJsonValue", "getJsonInt", "getJsonFloat", "getJsonBool",
     "jsonGet", "jsonGetInt", "jsonGetFloat", "jsonGetBool", "jsonHas",
     "jsonPair", "jsonPairRaw", "jsonPairInt", "jsonPairFloat",
@@ -2648,9 +2495,9 @@ const char* wrenchBindingNameForHash(uint32_t hash) {
     "ledGetRgb", "ledGetRgbInto", "ledSetRgb",
     "hsvToRgb", "hsvToRgbInto", "rgbToHsv", "rgbToHsvInto",
     "paletteSet2", "paletteSet3", "paletteSet4", "paletteGetRgb",
-    "ledFill", "ledClear", "ledShow", "ledBrightness", "ledStatus",
-    "log", "emit", "emitJson", "statusGet", "configGet", "configSet",
-    "wifiStatus", "wifiConnect", "wifiDisconnect", "reboot",
+    "ledFill", "ledClear", "ledShow", "ledBrightness",
+    "log", "emit", "emitJson", "configSet",
+    "wifiNetworkCount", "wifiConnect", "wifiDisconnect", "reboot",
     "inboxAvailable", "inboxRead", "inboxChannel", "inboxClear",
     "inboxDrops", "lastError", "clearError",
     "uiBegin", "uiClear", "uiLabel", "uiButton", "uiToggle", "uiSlider",
@@ -2663,13 +2510,6 @@ const char* wrenchBindingNameForHash(uint32_t hash) {
     "haGet", "haRed", "haGreen", "haBlue", "haChanged",
     "haEvent", "haPoll", "haEventIs", "haEventValue", "haEventType", "haPress",
 #endif
-    // Legacy scalar bindings kept for existing compiled and saved sketches.
-    "timeLocalHour", "timeLocalMinute", "timeLocalSeconds",
-    "timeLocalDay", "timeLocalMonth", "timeLocalYear",
-    "ledGetR", "ledGetG", "ledGetB",
-    "hsvToR", "hsvToG", "hsvToB",
-    "rgbToH", "rgbToS", "rgbToV",
-    "paletteGetR", "paletteGetG", "paletteGetB",
   };
   for (size_t i = 0; i < sizeof(names) / sizeof(names[0]); i++) {
     if ((uint32_t)wr_hashStr(names[i]) == hash) return names[i];
@@ -2695,6 +2535,13 @@ void wrenchRegisterBindings(WRState* wr) {
   wr_registerFunction(wr, "random", w_p1_random);
   wr_registerFunction(wr, "randomSeed", w_p1_randomSeed);
   wr_registerFunction(wr, "freeHeap", w_p1_freeHeap);
+  wr_registerFunction(wr, "minFreeHeap", w_p1_minFreeHeap);
+  wr_registerFunction(wr, "uptimeMs", w_p1_uptimeMs);
+  wr_registerFunction(wr, "scriptState", w_p1_scriptState);
+  wr_registerFunction(wr, "loopCount", w_p1_loopCount);
+  wr_registerFunction(wr, "deviceId", w_p1_deviceId);
+  wr_registerFunction(wr, "deviceName", w_p1_deviceName);
+  wr_registerFunction(wr, "timezone", w_p1_timezone);
   wr_registerFunction(wr, "diagArray3", w_p1_diagArray3);
   wr_registerFunction(wr, "diagFloatArray3", w_p1_diagFloatArray3);
   wr_registerFunction(wr, "lerp", w_p1_lerp);
@@ -2743,7 +2590,6 @@ void wrenchRegisterBindings(WRState* wr) {
   wr_registerFunction(wr, "serialWrite", w_p1_serialWrite);
   wr_registerFunction(wr, "serialWriteLine", w_p1_serialWriteLine);
   wr_registerFunction(wr, "serialWriteByte", w_p1_serialWriteByte);
-  wr_registerFunction(wr, "serialStatus", w_p1_serialStatus);
   wr_registerFunction(wr, "httpGet", w_p1_httpGet);
   wr_registerFunction(wr, "httpJsonGet", w_p1_httpJsonGet);
   wr_registerFunction(wr, "httpJsonGetInt", w_p1_httpJsonGetInt);
@@ -2754,7 +2600,6 @@ void wrenchRegisterBindings(WRState* wr) {
   wr_registerFunction(wr, "httpCode", w_p1_httpCode);
   wr_registerFunction(wr, "httpTruncated", w_p1_httpTruncated);
   wr_registerFunction(wr, "httpError", w_p1_httpError);
-  wr_registerFunction(wr, "httpStatus", w_p1_httpStatus);
   wr_registerFunction(wr, "getJsonValue", w_p1_getJsonValue);
   wr_registerFunction(wr, "getJsonInt", w_p1_getJsonInt);
   wr_registerFunction(wr, "getJsonFloat", w_p1_getJsonFloat);
@@ -2804,14 +2649,11 @@ void wrenchRegisterBindings(WRState* wr) {
   wr_registerFunction(wr, "ledClear", w_p1_ledClear);
   wr_registerFunction(wr, "ledShow", w_p1_ledShow);
   wr_registerFunction(wr, "ledBrightness", w_p1_ledBrightness);
-  wr_registerFunction(wr, "ledStatus", w_p1_ledStatus);
   wr_registerFunction(wr, "log", w_p1_log);
   wr_registerFunction(wr, "emit", w_p1_emit);
   wr_registerFunction(wr, "emitJson", w_p1_emitJson);
-  wr_registerFunction(wr, "statusGet", w_p1_statusGet);
-  wr_registerFunction(wr, "configGet", w_p1_configGet);
   wr_registerFunction(wr, "configSet", w_p1_configSet);
-  wr_registerFunction(wr, "wifiStatus", w_p1_wifiStatus);
+  wr_registerFunction(wr, "wifiNetworkCount", w_p1_wifiNetworkCount);
   wr_registerFunction(wr, "wifiConnect", w_p1_wifiConnect);
   wr_registerFunction(wr, "wifiDisconnect", w_p1_wifiDisconnect);
   wr_registerFunction(wr, "reboot", w_p1_reboot);
@@ -2866,28 +2708,6 @@ void wrenchRegisterBindings(WRState* wr) {
   wr_registerFunction(wr, "haEventType", w_p1_haEventType);
   wr_registerFunction(wr, "haPress", w_p1_haPress);
 #endif
-
-  // Legacy scalar bindings kept for existing sketches; new code should use
-  // timeLocal(out), ledGetRgb(..., out), rgbToHsv(..., out), hsvToRgb(..., out),
-  // and paletteGetRgb(..., out).
-  wr_registerFunction(wr, "timeLocalHour", w_p1_timeLocalHour);
-  wr_registerFunction(wr, "timeLocalMinute", w_p1_timeLocalMinute);
-  wr_registerFunction(wr, "timeLocalSeconds", w_p1_timeLocalSeconds);
-  wr_registerFunction(wr, "timeLocalDay", w_p1_timeLocalDay);
-  wr_registerFunction(wr, "timeLocalMonth", w_p1_timeLocalMonth);
-  wr_registerFunction(wr, "timeLocalYear", w_p1_timeLocalYear);
-  wr_registerFunction(wr, "ledGetR", w_p1_ledGetR);
-  wr_registerFunction(wr, "ledGetG", w_p1_ledGetG);
-  wr_registerFunction(wr, "ledGetB", w_p1_ledGetB);
-  wr_registerFunction(wr, "hsvToR", w_p1_hsvToR);
-  wr_registerFunction(wr, "hsvToG", w_p1_hsvToG);
-  wr_registerFunction(wr, "hsvToB", w_p1_hsvToB);
-  wr_registerFunction(wr, "rgbToH", w_p1_rgbToH);
-  wr_registerFunction(wr, "rgbToS", w_p1_rgbToS);
-  wr_registerFunction(wr, "rgbToV", w_p1_rgbToV);
-  wr_registerFunction(wr, "paletteGetR", w_p1_paletteGetR);
-  wr_registerFunction(wr, "paletteGetG", w_p1_paletteGetG);
-  wr_registerFunction(wr, "paletteGetB", w_p1_paletteGetB);
 
   wr_registerLibraryConstant(wr, "INPUT", (int32_t)INPUT);
   wr_registerLibraryConstant(wr, "OUTPUT", (int32_t)OUTPUT);

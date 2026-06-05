@@ -213,25 +213,6 @@ P1WifiSnapshot wifiCachedSnapshot() {
   return snapshot;
 }
 
-String wifiStatusJson(const P1WifiSnapshot& snapshot) {
-  String out = "{";
-  out += "\"configured\":" + String(snapshot.configured ? "true" : "false");
-  out += ",\"status\":" + jsonString(snapshot.status);
-  out += ",\"connected\":" + String(snapshot.connected ? "true" : "false");
-  out += ",\"networkIndex\":" + String(snapshot.networkIndex);
-  out += ",\"networkCount\":" + String(snapshot.networkCount);
-  out += ",\"ssid\":" + jsonString(snapshot.ssid);
-  out += ",\"ip\":" + jsonString(snapshot.ip);
-  out += ",\"rssi\":" + String(snapshot.rssi);
-  out += ",\"mac\":" + jsonString(snapshot.mac);
-  out += "}";
-  return out;
-}
-
-String wifiStatusJson() {
-  return wifiStatusJson(wifiSnapshot());
-}
-
 bool wifiIsConnected() {
   return WiFi.status() == WL_CONNECTED && WiFi.localIP() != IPAddress(0, 0, 0, 0);
 }

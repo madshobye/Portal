@@ -679,3 +679,73 @@ Notes:
 - Remaining direct `*StatusJson()` callers are in Wrench/script compatibility
   bindings and the lower-level config JSON helper. They should be treated as
   human/debug API wrappers, not canonical protocol paths.
+
+## Iteration 16 - Hard Wrench Binding Cleanup
+
+Changes:
+
+- Removed Wrench's JSON status/config telemetry surface:
+  - `statusGet`
+  - `configGet`
+  - `wifiStatus`
+  - `serialStatus`
+  - `httpStatus`
+  - `ledStatus`
+- Added explicit scalar script helpers for simple information:
+  - `uptimeMs`
+  - `minFreeHeap`
+  - `scriptState`
+  - `loopCount`
+  - `deviceId`
+  - `deviceName`
+  - `timezone`
+  - `wifiNetworkCount`
+- Removed legacy scalar compatibility helpers:
+  - `timeLocalHour`, `timeLocalMinute`, `timeLocalSeconds`
+  - `timeLocalDay`, `timeLocalMonth`, `timeLocalYear`
+  - `ledGetR`, `ledGetG`, `ledGetB`
+  - `hsvToR`, `hsvToG`, `hsvToB`
+  - `rgbToH`, `rgbToS`, `rgbToV`
+  - `paletteGetR`, `paletteGetG`, `paletteGetB`
+- Removed the vendored Wrench `wr_loadFastLEDLib()` hook and its
+  `fastled::...` registrations. P1 scripts now use only the `led*` API.
+- Removed dead module-owned status JSON builders and declarations:
+  - reusable buffer
+  - debug events
+  - WiFi
+  - config store `configAsJson`
+  - UART
+  - HTTP fetch
+  - LED
+  - websocket transport
+  - MQTT transport
+  - WebRTC transport
+  - OTA SafeBoot
+- Renamed protocol JSON edge helpers away from the old `*StatusJson()` naming
+  pattern. JSON still exists as protocol-edge projection from MessagePack.
+- Updated Wrench docs/context and serial tests to use scalar helpers and
+  structured array/out-buffer LED/color APIs.
+
+Verification:
+
+- SafeBoot app-only compile/upload succeeded at `921600` baud and verified the
+  flash hash.
+- App image size: `1987728 / 2293760` bytes.
+- Host Wrench Python tests passed:
+  - `test_wrench_optimizer.py`
+  - `test_wrench_containers.py`
+- Serial tests passed after upload:
+  - `protocol_smoke`: `5 passed, 0 failed`
+  - `serial_msgpack_mode`: `1 passed, 0 failed`
+  - `http_bindings`: `2 passed, 0 failed`
+  - `fastled_bindings`: `3 passed, 0 failed`
+  - `wrench_structured_returns`: `7 passed, 0 failed`
+- `git diff --check` passed.
+
+Notes:
+
+- A first full `wrench_structured_returns` run had one timeout in the 5k
+  allocating-array stress test. The focused rerun passed, and the second full
+  suite passed. Treated as serial/test timing, not a firmware regression.
+- Internal firmware function names still contain `fastLed*` for the underlying
+  FastLED-backed LED runtime. Those are not Wrench script bindings.

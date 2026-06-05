@@ -549,10 +549,6 @@ void wr_loadContainerLib( WRState* w ); // array/hash/queue/stack/list
 // sketch. much thanks to Koepel for contributing
 void wr_loadAllArduinoLibs( WRState* w );
 
-// embedded-specific libs
-#define WR_FASTLED_DATA_PIN 6  // define your data pin here
-void wr_loadFastLEDLib( WRState* w );
-
 void wr_loadArduinoSTDLib( WRState* w ); 
 void wr_loadArduinoIOLib( WRState* w ); 
 void wr_loadArduinoLCDLib( WRState* w ); 

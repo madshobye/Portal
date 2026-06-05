@@ -99,19 +99,3 @@ void p1ReusableBufferRelease(P1ReusableBuffer& buffer) {
   buffer.data = nullptr;
   buffer.capacity = 0;
 }
-
-String p1ReusableBufferStatusJson(const P1ReusableBuffer& buffer) {
-  String out = "{";
-  out += "\"capacity\":" + String(buffer.capacity);
-  out += ",\"emaNeed\":" + String(buffer.emaNeed);
-  out += ",\"peakNeed\":" + String(buffer.peakNeed);
-  out += ",\"lastNeed\":" + String(buffer.lastNeed);
-  out += ",\"reuseCount\":" + String(buffer.reuseCount);
-  out += ",\"growCount\":" + String(buffer.growCount);
-  out += ",\"shrinkCount\":" + String(buffer.shrinkCount);
-  out += ",\"tempAllocCount\":" + String(buffer.tempAllocCount);
-  out += ",\"tempFreeCount\":" + String(buffer.tempFreeCount);
-  out += ",\"failCount\":" + String(buffer.failCount);
-  out += "}";
-  return out;
-}

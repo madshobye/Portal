@@ -79,21 +79,6 @@ P1DebugSnapshot debugEventSnapshot() {
   return snapshot;
 }
 
-String debugEventStatusJson(const P1DebugSnapshot& snapshot) {
-  String out = "{";
-  out += "\"level\":" + jsonString(snapshot.level);
-  out += ",\"levelName\":" + jsonString(snapshot.level);
-  out += ",\"levelValue\":" + String(snapshot.levelValue);
-  out += ",\"queueDrops\":" + String(snapshot.queueDrops);
-  out += ",\"queueHighWater\":" + String(snapshot.queueHighWater);
-  out += "}";
-  return out;
-}
-
-String debugEventStatusJson() {
-  return debugEventStatusJson(debugEventSnapshot());
-}
-
 static void debugSendOrQueueLine(const String& line) {
   if (debugIsMainTask() || !g_debugQueue) {
     transportSendLine(line);

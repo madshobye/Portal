@@ -131,9 +131,11 @@ The timezone is configured in Settings > General with representative city labels
 
 - `wifiConnected()` returns `1` or `0`.
 - `wifiIp()`, `wifiRssi()`, `wifiSsid()`.
-- `wifiStatus()` returns JSON status text.
 - `wifiConnect(ssid, password)` and `wifiDisconnect()`.
-- `statusGet()`, `configGet()`, `configSet(json)`.
+- `wifiNetworkCount()`.
+- `deviceId()`, `deviceName()`, `timezone()`.
+- `uptimeMs()`, `minFreeHeap()`, `scriptState()`, `loopCount()`.
+- `configSet(key, value)`.
 - `reboot()`.
 
 ## HTTP
@@ -143,8 +145,8 @@ The timezone is configured in Settings > General with representative city labels
 - `getJsonValue(path)`, `getJsonInt(path)`, `getJsonFloat(path)`, `getJsonBool(path)` read from the last `fetchJson()` or `httpGet()` response cache.
 - `httpJsonGet(url, path, maxBytes, timeoutMs)`, `httpJsonGetInt(...)`, `httpJsonGetFloat(...)`, `httpJsonGetBool(...)` fetch and extract one path in firmware.
 - `httpPost(url, body, contentType, maxBytes, timeoutMs)`.
-- `httpCode()`, `httpError()`, `httpTruncated()`, `httpStatus()`.
-- HTTP failures return an empty body and set `httpCode()`, `httpError()`, and `httpStatus()`; generated sketches should check the status code instead of assuming network requests always succeed.
+- `httpCode()`, `httpError()`, `httpTruncated()`.
+- HTTP failures return an empty body and set `httpCode()` and `httpError()`; generated sketches should check the status code instead of assuming network requests always succeed.
 - The lab firmware may allow insecure HTTPS for local/self-signed test servers. Do not depend on certificate validation details in generated sketches.
 
 HTTP JSON field extraction:
@@ -197,7 +199,7 @@ Multi-strip API:
 - `ledClear(strip, show)`.
 - `ledShow()`.
 - `ledBrightness(strip, brightness)`.
-- `ledStatus()`.
+Use scalar LED helpers such as `ledReady(strip)`, `ledStripCount()`, and `ledCount(strip)` for status checks.
 
 For the current LED test strip, use pin `4` and count `30`.
 
@@ -264,7 +266,7 @@ UART0 is reserved for the host transport. Wrench can use UART1 or UART2 only.
 - `serialWrite(uart, value)`.
 - `serialWriteLine(uart, value)`.
 - `serialWriteByte(uart, value)`.
-- `serialStatus()`.
+Use scalar serial helpers such as `serialAvailable(uart)` for status checks.
 
 Avoid flash pins and transport pins.
 

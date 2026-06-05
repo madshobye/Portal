@@ -70,8 +70,8 @@ static void protocolSendMsgPackChunkBeginOk(uint32_t id, int expectedBytes);
 static void protocolSendMsgPackChunkCommitOk(uint32_t id, int scriptBytes);
 static String protocolBaseInfoJson();
 static String protocolConfigResponseJson(const P1ConfigSnapshot& snapshot);
-static String protocolWifiStatusJsonProjection(const P1WifiSnapshot& snapshot);
-static String protocolHttpStatusJsonProjection(const P1HttpFetchStatusSnapshot& snapshot);
+static String protocolProjectWifiStatusToJson(const P1WifiSnapshot& snapshot);
+static String protocolProjectHttpStatusToJson(const P1HttpFetchStatusSnapshot& snapshot);
 static P1ScriptSnapshot protocolScriptSnapshot(const String* codeOverride, const char* stateOverride);
 static String protocolScriptSnapshotJson(const P1ScriptSnapshot& snapshot, bool includeCode, bool includeMetrics);
 static void protocolSendCommandConfig(P1ProtocolReplyMode replyMode, uint32_t msgpackId, const String& jsonId);
@@ -1175,7 +1175,7 @@ static String protocolHttpProbeJson(const String& url, int maxBytes, int timeout
   out += ",\"bodyBytes\":" + String(body.length());
   out += ",\"code\":" + String(httpFetchLastCode());
   out += ",\"error\":" + jsonString(httpFetchLastError());
-  out += ",\"http\":" + protocolHttpStatusJsonProjection(httpFetchStatusSnapshot());
+  out += ",\"http\":" + protocolProjectHttpStatusToJson(httpFetchStatusSnapshot());
   out += ",";
   out += protocolHeapSnapshotJson("after");
   out += "}";
@@ -1486,7 +1486,7 @@ static String protocolBaseInfoJson() {
   return out;
 }
 
-static String protocolStatusFullJson() {
+static String protocolProjectStatusFullToJson() {
   P1StatusSnapshot snapshot = protocolStatusSnapshot();
   uint8_t* payload = static_cast<uint8_t*>(malloc(P1_EMBED_MQTT_BUFFER_BYTES));
   if (!payload) return "{}";
@@ -1498,7 +1498,7 @@ static String protocolStatusFullJson() {
   return out;
 }
 
-static String protocolStatusJson() {
+static String protocolProjectStatusGetToJson() {
   P1StatusSnapshot snapshot = protocolStatusSnapshot();
   uint8_t* payload = static_cast<uint8_t*>(malloc(P1_EMBED_MQTT_BUFFER_BYTES));
   if (!payload) return "{}";
@@ -1510,7 +1510,7 @@ static String protocolStatusJson() {
   return out;
 }
 
-static String protocolStatusLightJson() {
+static String protocolProjectStatusLightToJson() {
   P1StatusSnapshot snapshot = protocolStatusSnapshot();
   uint8_t payload[P1_EMBED_MSGPACK_MAX_FRAME_BYTES];
   P1MsgPackWriter w(payload, sizeof(payload));
@@ -1520,7 +1520,7 @@ static String protocolStatusLightJson() {
   return out;
 }
 
-static String protocolStatusEventJson() {
+static String protocolProjectStatusLiveToJson() {
   P1StatusSnapshot snapshot = protocolStatusSnapshot();
   uint8_t payload[P1_EMBED_MSGPACK_MAX_FRAME_BYTES];
   P1MsgPackWriter w(payload, sizeof(payload));
@@ -1528,10 +1528,6 @@ static String protocolStatusEventJson() {
   String out;
   if (!w.ok || !protocolMsgPackPayloadToJson(payload, w.length, out)) return "{}";
   return out;
-}
-
-static String protocolStatusLiveJson() {
-  return protocolStatusEventJson();
 }
 
 static void protocolSendCommandStatusGet(P1ProtocolReplyMode replyMode, uint32_t msgpackId, const String& jsonId) {
@@ -1730,7 +1726,7 @@ void protocolEmitPrint(const String& message, bool newline) {
 }
 
 void protocolEmitBoot() {
-  protocolEmitEvent("device.boot", "\"info\":" + protocolBaseInfoJson() + ",\"status\":" + protocolStatusJson());
+  protocolEmitEvent("device.boot", "\"info\":" + protocolBaseInfoJson() + ",\"status\":" + protocolProjectStatusGetToJson());
 }
 
 void protocolEmitStatusEvent() {
@@ -1745,7 +1741,7 @@ void protocolEmitStatusEvent() {
     if (w.ok) protocolSendMsgPackBytes(frame, w.length);
     free(frame);
   }
-  protocolEmitEvent("device.status", "\"status\":" + protocolStatusLiveJson());
+  protocolEmitEvent("device.status", "\"status\":" + protocolProjectStatusLiveToJson());
 }
 
 static String protocolScriptMetaJson(const String& code, const String& state) {
@@ -2316,7 +2312,7 @@ static void protocolMsgPackWriteOtaStatus(P1MsgPackWriter& w, const P1OtaSafeBoo
   w.writeString("restartPending"); w.writeBool(snapshot.restartPending);
 }
 
-static String protocolWifiStatusJsonProjection(const P1WifiSnapshot& snapshot) {
+static String protocolProjectWifiStatusToJson(const P1WifiSnapshot& snapshot) {
   uint8_t payload[256];
   P1MsgPackWriter w(payload, sizeof(payload));
   protocolMsgPackWriteWifi(w, snapshot);
@@ -2325,7 +2321,7 @@ static String protocolWifiStatusJsonProjection(const P1WifiSnapshot& snapshot) {
   return out;
 }
 
-static String protocolHttpStatusJsonProjection(const P1HttpFetchStatusSnapshot& snapshot) {
+static String protocolProjectHttpStatusToJson(const P1HttpFetchStatusSnapshot& snapshot) {
   uint8_t payload[512];
   P1MsgPackWriter w(payload, sizeof(payload));
   protocolMsgPackWriteHttpStatus(w, snapshot);
@@ -2772,7 +2768,7 @@ static String protocolConfigResponseJson(const P1ConfigSnapshot& snapshot) {
   }
   out += "]";
   out += ",\"storage\":\"littlefs:/config.json\"";
-  out += ",\"wifi\":" + protocolWifiStatusJsonProjection(snapshot.wifi);
+  out += ",\"wifi\":" + protocolProjectWifiStatusToJson(snapshot.wifi);
   out += "}";
   return out;
 }
@@ -3014,7 +3010,7 @@ static bool protocolHandleCommandFrame(const P1FrameView& frame, P1ProtocolReply
     protocolSendCommandPong(replyMode, id, jsonId);
   } else if (op == P1_MP_OP_STATUS_LIGHT) {
     if (replyMode == P1_REPLY_MSGPACK) protocolSendMsgPackStatusLight(id);
-    else protocolSendResponseOk(jsonId, protocolStatusLightJson());
+    else protocolSendResponseOk(jsonId, protocolProjectStatusLightToJson());
   } else if (op == P1_MP_OP_STATUS_GET) {
     protocolSendCommandStatusGet(replyMode, id, jsonId);
   } else if (op == P1_MP_OP_STATUS_FULL) {

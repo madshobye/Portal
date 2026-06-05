@@ -307,7 +307,6 @@ bool p1ReusableBufferAcquire(P1ReusableBuffer& buffer, size_t needed, size_t ret
 void p1ReusableBufferReleaseHandle(P1ReusableBuffer& buffer, P1ReusableBufferHandle& handle);
 void p1ReusableBufferMaintain(P1ReusableBuffer& buffer, size_t retainMin, size_t retainMax, uint32_t idleMs);
 void p1ReusableBufferRelease(P1ReusableBuffer& buffer);
-String p1ReusableBufferStatusJson(const P1ReusableBuffer& buffer);
 
 void transportSerialBegin();
 void transportSerialPoll();
@@ -320,14 +319,12 @@ void webTransportBegin();
 void webTransportLoop();
 void webTransportSendLine(const String& line);
 P1WebTransportSnapshot webTransportSnapshot();
-String webTransportStatusJson();
 void webrtcTransportBegin();
 void webrtcTransportLoop();
 void webrtcTransportSendLine(const String& line);
 void webrtcTransportSendBytes(const uint8_t* data, size_t len);
 bool webrtcTransportDataChannelOpen();
 P1WebRtcTransportSnapshot webrtcTransportSnapshot();
-String webrtcTransportStatusJson();
 String webrtcTransportProbeJson();
 void mqttTransportBegin();
 void mqttTransportLoop();
@@ -335,7 +332,6 @@ void mqttTransportSendBytes(const uint8_t* data, size_t len);
 void mqttTransportSendScriptText(const String& message, bool newline);
 bool mqttTransportConnected();
 P1MqttTransportSnapshot mqttTransportSnapshot();
-String mqttTransportStatusJson();
 void mqttTransportApplyConfig();
 void mqttTransportRequestApplyConfig();
 void mqttTransportPrepareMemoryPressure();
@@ -392,8 +388,6 @@ const char* debugLevelName(uint8_t level);
 uint32_t debugEventDrops();
 uint32_t debugEventHighWater();
 P1DebugSnapshot debugEventSnapshot();
-String debugEventStatusJson();
-String debugEventStatusJson(const P1DebugSnapshot& snapshot);
 void debugEventEmit(const String& name, const String& level, const String& category, const String& message, const String& dataFieldsJson = "");
 void debugEventEmitFields(const String& name, const String& level, const String& category, const String& message, const P1EventField* fields, size_t fieldCount);
 void debugEventSendLine(const String& line);
@@ -467,8 +461,6 @@ String configMqttRoot();
 String configMqttUser();
 String configMqttPassword();
 P1ConfigSnapshot configSnapshot();
-String configAsJson();
-String configAsJson(const P1ConfigSnapshot& snapshot);
 
 void wifiBegin();
 void wifiLoop();
@@ -476,8 +468,6 @@ void wifiReconnect();
 void wifiDisconnect();
 P1WifiSnapshot wifiSnapshot();
 P1WifiSnapshot wifiCachedSnapshot();
-String wifiStatusJson();
-String wifiStatusJson(const P1WifiSnapshot& snapshot);
 bool wifiIsConnected();
 
 bool scriptStoreBegin();
@@ -611,7 +601,6 @@ String uartReadString(int uart, int maxLen);
 int uartWriteString(int uart, const String& value);
 int uartWriteByte(int uart, int value);
 P1UartStatusSnapshot uartStatusSnapshot();
-String uartStatusJson();
 
 String httpFetchGet(const String& url, int maxBytes, int timeoutMs);
 String httpFetchJsonGet(const String& url, const String& path, int maxBytes, int timeoutMs);
@@ -628,7 +617,6 @@ int httpFetchLastCode();
 bool httpFetchLastTruncated();
 String httpFetchLastError();
 P1HttpFetchStatusSnapshot httpFetchStatusSnapshot();
-String httpFetchStatusJson();
 
 struct P1OtaRequest {
   String kind = "full";
@@ -665,7 +653,6 @@ struct P1OtaSafeBootStatusSnapshot {
 };
 
 P1OtaSafeBootStatusSnapshot otaSafeBootStatusSnapshot();
-String otaSafeBootStatusJson();
 bool otaSafeBootRequestUpdate(const P1OtaRequest& request, String& errOut);
 bool otaSafeBootRequestUpdate(const String& url, const String& sha256, String& errOut);
 bool otaSafeBootClearRequest();
@@ -693,4 +680,3 @@ bool ledClear(int strip, bool show);
 bool ledClearAllPhysical(bool show);
 bool ledSetBrightness(int strip, int brightness);
 P1LedStatusSnapshot ledStatusSnapshot();
-String ledStatusJson();

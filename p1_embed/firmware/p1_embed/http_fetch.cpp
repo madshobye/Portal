@@ -290,22 +290,3 @@ P1HttpFetchStatusSnapshot httpFetchStatusSnapshot() {
   snapshot.failuresAreScriptErrors = P1_EMBED_HTTP_FAILURES_ARE_SCRIPT_ERRORS;
   return snapshot;
 }
-
-String httpFetchStatusJson() {
-  P1HttpFetchStatusSnapshot snapshot = httpFetchStatusSnapshot();
-  String out = "{";
-  out += "\"lastCode\":" + String(snapshot.lastCode);
-  out += ",\"lastTruncated\":" + String(snapshot.lastTruncated ? "true" : "false");
-  out += ",\"lastError\":" + jsonString(snapshot.lastError);
-  out += ",\"lastMessage\":" + jsonString(snapshot.lastMessage);
-  out += ",\"lastDetails\":{" + snapshot.lastDetails + "}";
-  out += ",\"lastBodyBytes\":" + String(snapshot.lastBodyBytes);
-  out += ",\"lastSecure\":" + String(snapshot.lastSecure ? "true" : "false");
-  out += ",\"lastDurationMs\":" + String(snapshot.lastDurationMs);
-  out += ",\"maxResponseBytes\":" + String(snapshot.maxResponseBytes);
-  out += ",\"defaultTimeoutMs\":" + String(snapshot.defaultTimeoutMs);
-  out += ",\"tlsInsecureDefault\":" + String(snapshot.tlsInsecureDefault ? "true" : "false");
-  out += ",\"failuresAreScriptErrors\":" + String(snapshot.failuresAreScriptErrors ? "true" : "false");
-  out += "}";
-  return out;
-}

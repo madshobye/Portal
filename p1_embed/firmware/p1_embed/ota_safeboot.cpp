@@ -331,31 +331,6 @@ P1OtaSafeBootStatusSnapshot otaSafeBootStatusSnapshot() {
   return snapshot;
 }
 
-String otaSafeBootStatusJson() {
-  P1OtaSafeBootStatusSnapshot snapshot = otaSafeBootStatusSnapshot();
-  String out = "{";
-  out += "\"enabled\":" + String(snapshot.enabled ? "true" : "false");
-  out += ",\"updaterPartition\":" + String(snapshot.updaterPartition ? "true" : "false");
-  out += ",\"updaterLabel\":" + jsonString(snapshot.updaterLabel);
-  out += ",\"pending\":" + String(snapshot.pending ? "true" : "false");
-  out += ",\"downloadPending\":" + String(snapshot.downloadPending ? "true" : "false");
-  out += ",\"kind\":" + jsonString(snapshot.kind);
-  out += ",\"phase\":" + jsonString(snapshot.phase);
-  out += ",\"url\":" + jsonString(snapshot.url);
-  out += ",\"sha256Set\":" + String(snapshot.sha256Set ? "true" : "false");
-  out += ",\"fromSha256Set\":" + String(snapshot.fromSha256Set ? "true" : "false");
-  out += ",\"toSha256Set\":" + String(snapshot.toSha256Set ? "true" : "false");
-  out += ",\"lastError\":" + jsonString(snapshot.lastError);
-  out += ",\"fromSize\":" + String(snapshot.fromSize);
-  out += ",\"toSize\":" + String(snapshot.toSize);
-  out += ",\"patchSize\":" + String(snapshot.patchSize);
-  out += ",\"memorySize\":" + String(snapshot.memorySize);
-  out += ",\"segmentSize\":" + String(snapshot.segmentSize);
-  out += ",\"restartPending\":" + String(snapshot.restartPending ? "true" : "false");
-  out += "}";
-  return out;
-}
-
 bool otaSafeBootRequestUpdate(const P1OtaRequest& request, String& errOut) {
   String kind = request.kind.length() ? request.kind : String("full");
   String url = request.url;
@@ -537,10 +512,6 @@ void otaSafeBootPoll() {
 }
 
 #else
-
-String otaSafeBootStatusJson() {
-  return "{\"enabled\":false}";
-}
 
 P1OtaSafeBootStatusSnapshot otaSafeBootStatusSnapshot() {
   return P1OtaSafeBootStatusSnapshot();

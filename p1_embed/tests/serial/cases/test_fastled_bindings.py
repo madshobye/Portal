@@ -8,18 +8,17 @@ def reboot_and_wait(dev):
     dev.events = []
 
 
-def test_fastled_ws2812b_smoke(dev):
+def test_led_ws2812b_smoke(dev):
     reboot_and_wait(dev)
     code = """
 function setup() {
-  println("begin=" + fastLedBegin(4, 1, 32));
-  println("ready=" + fastLedReady());
-  println("count=" + fastLedCount());
-  println("set=" + fastLedSet(0, 12, 34, 56));
-  println("brightness=" + fastLedBrightness(16));
-  println("show=" + fastLedShow());
-  println("clear=" + fastLedClear(1));
-  println("status=" + fastLedStatus());
+  println("begin=" + ledConfig(0, 4, 32, 16));
+  println("ready=" + ledReady(0));
+  println("count=" + ledCount(0));
+  println("set=" + ledSet(0, 0, 12, 34, 56));
+  println("brightness=" + ledBrightness(0, 16));
+  println("show=" + ledShow());
+  println("clear=" + ledClear(0, 1));
 }
 
 function loop() {
@@ -28,25 +27,24 @@ function loop() {
 """.strip()
     dev.command("script.set", {"code": code, "run": True, "save": False})
     seen = []
-    for _ in range(8):
+    for _ in range(7):
         seen.append(dev.wait_event("script.print", timeout=4.0).get("data", {}).get("message", ""))
     joined = "\n".join(seen)
-    assert_true("begin=1" in joined, "fastLedBegin should pass")
-    assert_true("ready=1" in joined, "fastLedReady should be true")
-    assert_true("count=" in joined, "fastLedCount should report strip size")
-    assert_true("set=1" in joined, "fastLedSet should pass")
-    assert_true("show=1" in joined, "fastLedShow should pass")
-    assert_true('"ready":true' in joined, "fastLedStatus should report ready")
+    assert_true("begin=1" in joined, "ledConfig should pass")
+    assert_true("ready=1" in joined, "ledReady should be true")
+    assert_true("count=32" in joined, "ledCount should report strip size")
+    assert_true("set=1" in joined, "ledSet should pass")
+    assert_true("show=1" in joined, "ledShow should pass")
 
 
-def test_fastled_begin_is_idempotent(dev):
+def test_led_config_is_idempotent(dev):
     reboot_and_wait(dev)
     code = """
 function setup() {
-  println("beginA=" + fastLedBegin(4, 1, 20));
-  println("beginB=" + fastLedBegin(4, 1, 10));
-  println("fill=" + fastLedFill(1, 2, 3));
-  println("show=" + fastLedShow());
+  println("beginA=" + ledConfig(0, 4, 20, 255));
+  println("beginB=" + ledConfig(0, 4, 10, 255));
+  println("fill=" + ledFill(0, 1, 2, 3));
+  println("show=" + ledShow());
 }
 
 function loop() {
@@ -58,28 +56,27 @@ function loop() {
     for _ in range(4):
         seen.append(dev.wait_event("script.print", timeout=4.0).get("data", {}).get("message", ""))
     joined = "\n".join(seen)
-    assert_true("beginA=1" in joined, "first fastLedBegin should pass")
-    assert_true("beginB=1" in joined, "second same fastLedBegin should pass")
-    assert_true("fill=1" in joined, "fastLedFill should pass")
+    assert_true("beginA=1" in joined, "first ledConfig should pass")
+    assert_true("beginB=1" in joined, "second same ledConfig should pass")
+    assert_true("fill=1" in joined, "ledFill should pass")
 
 
 def test_led_multistrip_bindings(dev):
     reboot_and_wait(dev)
     code = r'''
 function setup() {
-  println("cfg0=" + ledConfig(0, 4, 1, 24, 0));
-  println("cfg1=" + ledConfig(1, 16, 1, 24, 0));
+  println("cfg0=" + ledConfig(0, 4, 1, 24));
+  println("cfg1=" + ledConfig(1, 16, 1, 24));
   println("strips=" + ledStripCount());
   println("count1=" + ledCount(1));
   println("set1=" + ledSet(1, 0, 4, 5, 6));
   println("fill0=" + ledFill(0, 7, 8, 9));
   println("show=" + ledShow());
-  println("status=" + ledStatus());
 }
 '''
     dev.command("script.set", {"code": code, "run": True, "save": False})
     seen = []
-    for _ in range(8):
+    for _ in range(7):
         seen.append(dev.wait_event("script.print", timeout=4.0).get("data", {}).get("message", ""))
     joined = "\n".join(seen)
     assert_true("cfg0=1" in joined, "ledConfig strip 0 should pass")

@@ -625,36 +625,6 @@ bool ledSetBrightness(int strip, int brightness) {
   return true;
 }
 
-String ledStatusJson() {
-  P1LedStatusSnapshot snapshot = ledStatusSnapshot();
-  String out = "{";
-  out += "\"available\":" + String(snapshot.available ? "true" : "false");
-  out += ",\"ready\":" + String(snapshot.ready ? "true" : "false");
-  out += ",\"stripCount\":" + String(snapshot.stripCount);
-  out += ",\"totalLeds\":" + String(snapshot.totalLeds);
-  out += ",\"maxLeds\":" + String(snapshot.maxLeds);
-  out += ",\"maxStrips\":" + String(snapshot.maxStrips);
-  out += ",\"driver\":" + jsonString(snapshot.driver);
-  out += ",\"chipset\":" + jsonString(snapshot.chipset);
-  out += ",\"order\":" + jsonString(snapshot.order);
-  out += ",\"strips\":[";
-  for (int i = 0; i < snapshot.stripCount; i++) {
-    const P1LedStripSnapshot& strip = snapshot.strips[i];
-    if (i) out += ",";
-    out += "{\"strip\":" + String(strip.strip);
-    out += ",\"ready\":" + String(strip.ready ? "true" : "false");
-    out += ",\"pin\":" + String(strip.pin);
-    out += ",\"count\":" + String(strip.count);
-    out += ",\"capacity\":" + String(strip.capacity);
-    out += ",\"brightness\":" + String(strip.brightness);
-    out += ",\"chipset\":" + jsonString(strip.chipset);
-    out += ",\"order\":" + jsonString(strip.order);
-    out += "}";
-  }
-  out += "]}";
-  return out;
-}
-
 P1LedStatusSnapshot ledStatusSnapshot() {
   P1LedStatusSnapshot snapshot;
   snapshot.available = P1_EMBED_FASTLED_AVAILABLE;

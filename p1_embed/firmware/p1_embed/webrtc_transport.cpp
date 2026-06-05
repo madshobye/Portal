@@ -1577,35 +1577,6 @@ P1WebRtcTransportSnapshot webrtcTransportSnapshot() {
   return snapshot;
 }
 
-String webrtcTransportStatusJson() {
-  P1WebRtcTransportSnapshot snapshot = webrtcTransportSnapshot();
-  String out = "{";
-  out += "\"enabled\":" + String(snapshot.enabled ? "true" : "false");
-  out += ",\"started\":" + String(snapshot.started ? "true" : "false");
-  out += ",\"peerOpen\":" + String(snapshot.peerOpen ? "true" : "false");
-  out += ",\"dataChannelOpen\":" + String(snapshot.dataChannelOpen ? "true" : "false");
-  out += ",\"signalingParked\":" + String(snapshot.signalingParked ? "true" : "false");
-  out += ",\"peerState\":" + jsonString(snapshot.peerState);
-  out += ",\"peerId\":" + jsonString(snapshot.peerId);
-  out += ",\"remoteId\":" + jsonString(snapshot.remoteId);
-  out += ",\"signaling\":" + jsonString(snapshot.signaling);
-  out += ",\"host\":" + jsonString(snapshot.host);
-  if (snapshot.port > 0) out += ",\"port\":" + String(snapshot.port);
-#if P1_EMBED_WEBRTC_SIGNALING_MQTT
-  out += ",\"root\":" + jsonString(P1_EMBED_WEBRTC_MQTT_ROOT);
-#endif
-  out += ",\"secure\":" + String(snapshot.secure ? "true" : "false");
-  out += ",\"sendDrops\":" + String(snapshot.sendDrops);
-  out += ",\"recvDrops\":" + String(snapshot.recvDrops);
-  out += ",\"signalDrops\":" + String(snapshot.signalDrops);
-  out += ",\"connectFailures\":" + String(snapshot.connectFailures);
-  out += ",\"lastSocketReason\":" + jsonString(snapshot.lastSocketReason);
-  out += ",\"suspended\":" + String(snapshot.suspended ? "true" : "false");
-  out += ",\"scriptSuspended\":" + String(snapshot.scriptSuspended ? "true" : "false");
-  out += "}";
-  return out;
-}
-
 String webrtcTransportProbeJson() {
   String out = "{";
   out += "\"started\":" + String(g_started ? "true" : "false");
@@ -1659,9 +1630,6 @@ void webrtcTransportSendLine(const String& line) {}
 void webrtcTransportSendBytes(const uint8_t* data, size_t len) {}
 bool webrtcTransportDataChannelOpen() { return false; }
 P1WebRtcTransportSnapshot webrtcTransportSnapshot() { return P1WebRtcTransportSnapshot(); }
-String webrtcTransportStatusJson() {
-  return "{\"enabled\":false}";
-}
 String webrtcTransportProbeJson() {
   return "{\"enabled\":false}";
 }

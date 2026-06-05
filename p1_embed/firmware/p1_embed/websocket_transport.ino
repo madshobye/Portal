@@ -270,19 +270,6 @@ void webTransportSendLine(const String& line) {
   g_ws.broadcastTXT(payload);
 }
 
-String webTransportStatusJson() {
-  P1WebTransportSnapshot snapshot = webTransportSnapshot();
-  String out = "{";
-  out += "\"enabled\":" + String(snapshot.enabled ? "true" : "false");
-  out += ",\"started\":" + String(snapshot.started ? "true" : "false");
-  out += ",\"port\":" + String(snapshot.port);
-  out += ",\"clients\":" + String(snapshot.clients);
-  out += ",\"mdns\":" + String(snapshot.mdns ? "true" : "false");
-  out += ",\"host\":" + jsonString(snapshot.host);
-  out += "}";
-  return out;
-}
-
 P1WebTransportSnapshot webTransportSnapshot() {
   P1WebTransportSnapshot snapshot;
   snapshot.enabled = P1_EMBED_WS_ENABLED;

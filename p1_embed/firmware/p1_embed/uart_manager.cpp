@@ -115,25 +115,6 @@ int uartWriteByte(int uart, int value) {
   return (int)g_uarts[uart].serial->write((uint8_t)(value & 0xff));
 }
 
-String uartStatusJson() {
-  P1UartStatusSnapshot snapshot = uartStatusSnapshot();
-  String out = "{\"ports\":[";
-  for (int i = 0; i < snapshot.portCount; i++) {
-    const P1UartPortSnapshot& port = snapshot.ports[i];
-    if (i) out += ",";
-    out += "{";
-    out += "\"uart\":" + String(port.uart);
-    out += ",\"active\":" + String(port.active ? "true" : "false");
-    out += ",\"rx\":" + String(port.rx);
-    out += ",\"tx\":" + String(port.tx);
-    out += ",\"baud\":" + String(port.baud);
-    out += ",\"available\":" + String(port.available);
-    out += "}";
-  }
-  out += "],\"reserved\":{\"transportUart\":0,\"transportPins\":[1,3],\"flashPins\":[6,7,8,9,10,11]}}";
-  return out;
-}
-
 P1UartStatusSnapshot uartStatusSnapshot() {
   P1UartStatusSnapshot snapshot;
   snapshot.portCount = 2;

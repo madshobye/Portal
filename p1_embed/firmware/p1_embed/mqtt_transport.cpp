@@ -1050,48 +1050,6 @@ P1MqttTransportSnapshot mqttTransportSnapshot() {
   return snapshot;
 }
 
-String mqttTransportStatusJson() {
-  P1MqttTransportSnapshot snapshot = mqttTransportSnapshot();
-  String out = "{";
-  out += "\"enabled\":" + String(snapshot.enabled ? "true" : "false");
-  out += ",\"configured\":" + String(snapshot.configured ? "true" : "false");
-  out += ",\"connected\":" + String(snapshot.connected ? "true" : "false");
-  out += ",\"begun\":" + String(snapshot.begun ? "true" : "false");
-  out += ",\"queueAllocated\":" + String(snapshot.queueAllocated ? "true" : "false");
-  out += ",\"host\":" + jsonString(snapshot.host);
-  out += ",\"port\":" + String(snapshot.port);
-  out += ",\"root\":" + jsonString(snapshot.root);
-  out += ",\"deviceId\":" + jsonString(snapshot.deviceId);
-  out += ",\"cmd\":" + jsonString(snapshot.cmd);
-  out += ",\"evt\":" + jsonString(snapshot.evt);
-  out += ",\"scriptIn\":" + jsonString(snapshot.scriptIn);
-  out += ",\"scriptOut\":" + jsonString(snapshot.scriptOut);
-  out += ",\"authRequired\":" + String(snapshot.authRequired ? "true" : "false");
-  out += ",\"onlineAuthUsers\":" + String(snapshot.onlineAuthUsers);
-  out += ",\"anonymousUi\":" + String(snapshot.anonymousUi ? "true" : "false");
-  out += ",\"anonymousScript\":" + String(snapshot.anonymousScript ? "true" : "false");
-  out += ",\"guestUiKeySet\":" + String(snapshot.guestUiKeySet ? "true" : "false");
-  out += ",\"ownerCore\":" + String(snapshot.ownerCore);
-  out += ",\"loopCore\":" + String(snapshot.loopCore);
-  out += ",\"outQueuedCount\":" + String(snapshot.outQueuedCount);
-  out += ",\"outDropCount\":" + String(snapshot.outDropCount);
-  out += ",\"outHighWater\":" + String(snapshot.outHighWater);
-  out += ",\"connectCount\":" + String(snapshot.connectCount);
-  out += ",\"lostCount\":" + String(snapshot.lostCount);
-  out += ",\"loopClosedCount\":" + String(snapshot.loopClosedCount);
-  out += ",\"publishFailCount\":" + String(snapshot.publishFailCount);
-  out += ",\"securePublishFailCount\":" + String(snapshot.securePublishFailCount);
-  out += ",\"scriptOutPublishFailCount\":" + String(snapshot.scriptOutPublishFailCount);
-  out += ",\"helloPublishFailCount\":" + String(snapshot.helloPublishFailCount);
-  out += ",\"lastLostMs\":" + String(snapshot.lastLostMs);
-  out += ",\"lastLoopClosedMs\":" + String(snapshot.lastLoopClosedMs);
-  out += ",\"lastPublishFailMs\":" + String(snapshot.lastPublishFailMs);
-  out += ",\"secureFrameBuffer\":" + p1ReusableBufferStatusJson(snapshot.secureFrameBuffer);
-  out += ",\"eventBatchBuffer\":" + p1ReusableBufferStatusJson(snapshot.eventBatchBuffer);
-  out += "}";
-  return out;
-}
-
 #else
 void mqttTransportBegin() {}
 void mqttTransportLoop() {}
@@ -1099,7 +1057,6 @@ void mqttTransportSendBytes(const uint8_t*, size_t) {}
 void mqttTransportSendScriptText(const String&, bool) {}
 bool mqttTransportConnected() { return false; }
 P1MqttTransportSnapshot mqttTransportSnapshot() { return P1MqttTransportSnapshot(); }
-String mqttTransportStatusJson() { return "{\"enabled\":false,\"connected\":false}"; }
 void mqttTransportApplyConfig() {}
 void mqttTransportRequestApplyConfig() {}
 void mqttTransportPrepareMemoryPressure() {}
