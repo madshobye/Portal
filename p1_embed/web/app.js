@@ -1,14 +1,14 @@
-import { ProtocolClient } from "./protocol/ProtocolClient.js?v=0.1.87-ui344";
-import { canEncodeCommand } from "./protocol/P1MsgPack.js?v=0.1.87-ui344";
-import { WebSerialTransport } from "./protocol/WebSerialTransport.js?v=0.1.87-ui344";
+import { ProtocolClient } from "./protocol/ProtocolClient.js?v=0.1.87-ui345";
+import { canEncodeCommand } from "./protocol/P1MsgPack.js?v=0.1.87-ui345";
+import { WebSerialTransport } from "./protocol/WebSerialTransport.js?v=0.1.87-ui345";
 import { WebSocketTransport } from "./protocol/WebSocketTransport.js";
-import { MqttWebRtcTransport, MQTT_WEBRTC_TRANSPORT_VERSION } from "./protocol/MqttWebRtcTransport.js?v=0.1.87-ui344";
-import { MqttTransport, MQTT_TRANSPORT_VERSION, deriveOnlineAuthKeyHex, getStoredOnlineAuth } from "./protocol/MqttTransport.js?v=0.1.87-ui344";
-import { P1WebFlasher } from "./web-flasher.js?v=0.1.87-ui344";
-import { inferCircuitLayout, initCircuitView, normalizeCircuitLayout } from "./circuit.js?v=0.1.87-ui344";
-import { initGuinoView } from "./guino.js?v=0.1.87-ui344";
+import { MqttWebRtcTransport, MQTT_WEBRTC_TRANSPORT_VERSION } from "./protocol/MqttWebRtcTransport.js?v=0.1.87-ui345";
+import { MqttTransport, MQTT_TRANSPORT_VERSION, deriveOnlineAuthKeyHex, getStoredOnlineAuth } from "./protocol/MqttTransport.js?v=0.1.87-ui345";
+import { P1WebFlasher } from "./web-flasher.js?v=0.1.87-ui345";
+import { inferCircuitLayout, initCircuitView, normalizeCircuitLayout } from "./circuit.js?v=0.1.87-ui345";
+import { initGuinoView } from "./guino.js?v=0.1.87-ui345";
 
-const WEB_UI_VERSION = "0.1.87-ui344";
+const WEB_UI_VERSION = "0.1.87-ui345";
 const CHAT_DEFAULT_MAX_OUTPUT_TOKENS = 8000;
 const CHAT_MIN_MAX_OUTPUT_TOKENS = 1024;
 const CHAT_HARD_MAX_OUTPUT_TOKENS = 32000;
@@ -1912,7 +1912,8 @@ async function startupRefreshOnce({ quiet = false, includeScript = true, timeout
   if (stale()) return false;
   const infoOk = await bestEffortStartupStep(() => refreshInfo({ quiet, timeoutMs }), quiet);
   if (!client || stale()) return false;
-  const statusOk = await bestEffortStartupStep(() => refreshStatus({ quiet, timeoutMs, full: true }), quiet);
+  const guestUi = Boolean(transport?.isGuestUiOpen?.());
+  const statusOk = await bestEffortStartupStep(() => refreshStatus({ quiet, timeoutMs, full: !guestUi, light: guestUi }), quiet);
   if (!client || stale()) return infoOk || statusOk;
   if (!infoOk && !statusOk) return false;
   if (transport?.isGuestUiOpen?.()) return infoOk || statusOk;
@@ -1965,7 +1966,8 @@ function startStatusPolling() {
   statusTimer = window.setInterval(async () => {
     if (!client || isBusy) return;
     try {
-      await refreshStatus({ quiet: true, timeoutMs: 6000, live: true });
+      const guestUi = Boolean(transport?.isGuestUiOpen?.());
+      await refreshStatus({ quiet: true, timeoutMs: 6000, live: !guestUi, light: guestUi });
     } catch {
     }
   }, 5000);
@@ -1985,9 +1987,9 @@ async function refreshInfo(options = {}) {
 }
 
 async function refreshStatus(options = {}) {
-  const { full = false, ...requestOptions } = options;
+  const { full = false, light = false, ...requestOptions } = options;
   delete requestOptions.live;
-  const command = full ? "status.full" : "status.live";
+  const command = light ? "status.light" : (full ? "status.full" : "status.live");
   const data = await sendCommand(command, {}, requestOptions);
   updateStatus(data);
   renderFields();

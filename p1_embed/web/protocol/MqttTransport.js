@@ -1,4 +1,4 @@
-import { MsgPackReader, MsgPackWriter } from "./P1MsgPack.js?v=0.1.87-ui344";
+import { MsgPackReader, MsgPackWriter } from "./P1MsgPack.js?v=0.1.87-ui345";
 
 const DEFAULT_MQTT_ROOT = "";
 const FRAME_AUTH = 3;
@@ -9,7 +9,7 @@ const AUTH_FINISH = 2;
 const AUTH_OK = 3;
 const AUTH_ERROR = 4;
 
-export const MQTT_TRANSPORT_VERSION = "0.1.87-ui344";
+export const MQTT_TRANSPORT_VERSION = "0.1.87-ui345";
 
 console.info(`[P1E mqtt] loaded ${MQTT_TRANSPORT_VERSION}`);
 
@@ -181,7 +181,9 @@ export class MqttTransport extends EventTarget {
   }
 
   isGuestUiOpen() {
-    return this.authMode === "guest-ui" && Boolean(this.hello?.anonymousUi) && this.guestKey.length >= 16;
+    if (this.authMode !== "guest-ui" || this.guestKey.length < 16) return false;
+    if (!this.hello) return true;
+    return Boolean(this.hello?.guestUiKeySet) || Boolean(this.hello?.anonymousUi);
   }
 
   isAnonymousUiCommandName(name = "") {
@@ -200,7 +202,9 @@ export class MqttTransport extends EventTarget {
       const frameType = reader.uint();
       reader.uint();
       const op = reader.uint();
-      return frameType === 0 && count >= 4 && (op === 2 || op === 3 || op === 9 || op === 14);
+      if (frameType !== 0) return false;
+      if (op === 14) return count >= 6;
+      return count >= 4 && (op === 2 || op === 3 || op === 9);
     } catch {
       return false;
     }
