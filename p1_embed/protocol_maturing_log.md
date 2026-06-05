@@ -749,3 +749,49 @@ Notes:
   suite passed. Treated as serial/test timing, not a firmware regression.
 - Internal firmware function names still contain `fastLed*` for the underlying
   FastLED-backed LED runtime. Those are not Wrench script bindings.
+
+## Iteration 17 - Web Protocol Encoding Boundary
+
+Changes:
+
+- Made `ProtocolClient.request()` the single normal web command path.
+- Added explicit `ProtocolClient.requestJson()` for legacy/debug and the USB
+  `protocol.mode` bootstrap.
+- Kept explicit `ProtocolClient.requestMsgPack()` for USB already-binary
+  fallback and raw debug forcing.
+- Added transport capability flags:
+  - MQTT: MsgPack only
+  - MQTT-WebRTC: MsgPack only
+  - USB serial: JSON bootstrap plus MsgPack once `msgPackMode` is active
+  - WebSocket: JSON only
+  - PeerJS: JSON only
+- Removed normal app-level JSON-vs-MsgPack branching from `sendCommand()`.
+  The app now asks `ProtocolClient` which encoding it will use and then calls
+  the same request method.
+- Corrected the app's binary transport helper so PeerJS is not treated as a
+  binary protocol transport.
+- Bumped the web cache/version tag to `0.1.87-ui344`.
+
+Verification:
+
+- JavaScript syntax checks passed for:
+  - `app.js`
+  - `ProtocolClient.js`
+  - `MqttTransport.js`
+  - `MqttWebRtcTransport.js`
+  - `WebSerialTransport.js`
+  - `WebSocketTransport.js`
+  - `PeerJsTransport.js`
+- Node protocol-client probe passed:
+  - JSON-only transport uses JSON
+  - binary-only transport uses MsgPack
+  - USB before MsgPack mode uses JSON
+  - binary-only unsupported commands fail instead of falling back to JSON
+- `git diff --check` passed.
+
+Notes:
+
+- Browser manual testing is still useful because this pass changes the web
+  connection/client boundary rather than firmware behavior.
+- LocalStorage/project/chat JSON remains untouched; that is app data, not the
+  firmware protocol path.

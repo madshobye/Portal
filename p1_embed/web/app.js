@@ -1,14 +1,14 @@
-import { ProtocolClient } from "./protocol/ProtocolClient.js?v=0.1.87-ui343";
-import { canEncodeCommand } from "./protocol/P1MsgPack.js?v=0.1.87-ui343";
-import { WebSerialTransport } from "./protocol/WebSerialTransport.js?v=0.1.87-ui343";
+import { ProtocolClient } from "./protocol/ProtocolClient.js?v=0.1.87-ui344";
+import { canEncodeCommand } from "./protocol/P1MsgPack.js?v=0.1.87-ui344";
+import { WebSerialTransport } from "./protocol/WebSerialTransport.js?v=0.1.87-ui344";
 import { WebSocketTransport } from "./protocol/WebSocketTransport.js";
-import { MqttWebRtcTransport, MQTT_WEBRTC_TRANSPORT_VERSION } from "./protocol/MqttWebRtcTransport.js?v=0.1.87-ui343";
-import { MqttTransport, MQTT_TRANSPORT_VERSION, deriveOnlineAuthKeyHex, getStoredOnlineAuth } from "./protocol/MqttTransport.js?v=0.1.87-ui343";
-import { P1WebFlasher } from "./web-flasher.js?v=0.1.87-ui343";
-import { inferCircuitLayout, initCircuitView, normalizeCircuitLayout } from "./circuit.js?v=0.1.87-ui343";
-import { initGuinoView } from "./guino.js?v=0.1.87-ui343";
+import { MqttWebRtcTransport, MQTT_WEBRTC_TRANSPORT_VERSION } from "./protocol/MqttWebRtcTransport.js?v=0.1.87-ui344";
+import { MqttTransport, MQTT_TRANSPORT_VERSION, deriveOnlineAuthKeyHex, getStoredOnlineAuth } from "./protocol/MqttTransport.js?v=0.1.87-ui344";
+import { P1WebFlasher } from "./web-flasher.js?v=0.1.87-ui344";
+import { inferCircuitLayout, initCircuitView, normalizeCircuitLayout } from "./circuit.js?v=0.1.87-ui344";
+import { initGuinoView } from "./guino.js?v=0.1.87-ui344";
 
-const WEB_UI_VERSION = "0.1.87-ui343";
+const WEB_UI_VERSION = "0.1.87-ui344";
 const CHAT_DEFAULT_MAX_OUTPUT_TOKENS = 8000;
 const CHAT_MIN_MAX_OUTPUT_TOKENS = 1024;
 const CHAT_HARD_MAX_OUTPUT_TOKENS = 32000;
@@ -946,7 +946,7 @@ function isMqttKind(kind) {
 
 function isBinaryTransportKind(kind) {
   if (kind === "usb") return Boolean(transport?.kind === "usb" && transport?.msgPackMode);
-  return isMqttKind(kind) || isWebRtcKind(kind);
+  return kind === "mqtt" || kind === "webrtc";
 }
 
 function forgetConnectionHistoryItem(item) {
@@ -1320,7 +1320,7 @@ async function enableUsbMsgPack(nextTransport) {
   if (!canEncodeCommand("protocol.mode")) throw new Error("No MessagePack opcode for protocol.mode");
   let response;
   try {
-    response = await client.request("protocol.mode", { mode: "msgpack" }, { timeoutMs: 5000 });
+    response = await client.requestJson("protocol.mode", { mode: "msgpack" }, { timeoutMs: 5000 });
   } catch (error) {
     nextTransport.setMsgPackMode(true);
     try {
@@ -4440,13 +4440,12 @@ async function sendRaw() {
   try {
     const line = els.raw.value.trim();
     const parsed = JSON.parse(line);
-    if (isBinaryTransportKind(transport?.kind) && parsed?.type === "cmd" && parsed.name) {
-      if (!canEncodeCommand(parsed.name)) throw new Error(`No MessagePack opcode for ${parsed.name}`);
+    if (client?.canUseMsgPack?.(parsed?.name) && parsed?.type === "cmd" && parsed.name) {
       const data = { ...(parsed.data || {}) };
       for (const [key, value] of Object.entries(parsed)) {
         if (!["type", "id", "name", "data"].includes(key)) data[key] = value;
       }
-      await sendCommand(parsed.name, data);
+      await sendCommand(parsed.name, data, { encoding: "msgpack" });
       logLine("debug", `> ${parsed.name} msgpack`);
       return;
     }
@@ -4461,14 +4460,9 @@ async function sendCommand(name, data = {}, options = {}) {
   if (!client) throw new Error("No device connection");
   const { quiet = false, ...requestOptions } = options;
   try {
-    const useMsgPack = isBinaryTransportKind(transport?.kind);
-    if (useMsgPack && !transport?.sendBytes) throw new Error(`${connectionKindLabel(transport?.kind)} transport has no binary channel`);
-    if (useMsgPack && !canEncodeCommand(name)) throw new Error(`No MessagePack opcode for ${name}`);
-    let response;
-    response = useMsgPack
-      ? await client.requestMsgPack(name, data, requestOptions)
-      : await client.request(name, data, requestOptions);
-    if (useMsgPack && !quiet) logLine("debug", `< ${name} msgpack ok`);
+    const encoding = client.preferredEncoding(name, requestOptions);
+    const response = await client.request(name, data, requestOptions);
+    if (encoding === "msgpack" && !quiet) logLine("debug", `< ${name} msgpack ok`);
     if (!quiet) logLine("debug", `< ${name} ok`);
     return response;
   } catch (error) {

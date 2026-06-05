@@ -17,6 +17,8 @@ export class WebSerialTransport extends EventTarget {
     this.state = "idle";
     this.msgPackMode = false;
     this.frameBuffer = new Uint8Array(0);
+    this.supportsJson = true;
+    this.supportsMsgPack = true;
   }
 
   get available() {

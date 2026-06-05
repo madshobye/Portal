@@ -31,6 +31,8 @@ export class PeerJsTransport extends EventTarget {
     this._candidateIndex = 0;
     this._connectionTimer = null;
     this._iceDiagnostics = new WeakMap();
+    this.supportsJson = true;
+    this.supportsMsgPack = false;
   }
 
   get available() {

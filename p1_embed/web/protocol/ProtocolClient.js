@@ -1,4 +1,4 @@
-import { canEncodeCommand, decodeFrame, encodeCommand } from "./P1MsgPack.js?v=0.1.87-ui343";
+import { canEncodeCommand, decodeFrame, encodeCommand } from "./P1MsgPack.js?v=0.1.87-ui344";
 
 export class ProtocolClient extends EventTarget {
   constructor(transport, { timeoutMs = 15000 } = {}) {
@@ -18,6 +18,12 @@ export class ProtocolClient extends EventTarget {
   }
 
   async request(name, data = {}, options = {}) {
+    const encoding = this.preferredEncoding(name, options);
+    if (encoding === "msgpack") return await this.requestMsgPack(name, data, options);
+    return await this.requestJson(name, data, options);
+  }
+
+  async requestJson(name, data = {}, options = {}) {
     const id = String(this.nextId++);
     const timeoutMs = options.timeoutMs || this.timeoutMs;
     const message = {
@@ -60,6 +66,34 @@ export class ProtocolClient extends EventTarget {
 
     await this.transport.sendBytes(frame);
     return await responsePromise;
+  }
+
+  preferredEncoding(name, options = {}) {
+    const requested = String(options.encoding || options.transportEncoding || "auto").toLowerCase();
+    if (requested === "json") {
+      if (!this.canUseJson()) throw new Error(`JSON channel is not available for ${name}`);
+      return "json";
+    }
+    if (requested === "msgpack") {
+      if (!this.canUseMsgPack(name)) throw new Error(`No MessagePack channel for ${name}`);
+      return "msgpack";
+    }
+    if (this.canUseMsgPack(name)) return "msgpack";
+    if (this.canUseJson()) return "json";
+    throw new Error(`No protocol encoding available for ${name}`);
+  }
+
+  canUseMsgPack(name) {
+    if (!canEncodeCommand(name)) return false;
+    if (this.transport.supportsMsgPack === false) return false;
+    if (typeof this.transport.sendBytes !== "function") return false;
+    if (this.transport.msgPackMode === false) return false;
+    return true;
+  }
+
+  canUseJson() {
+    if (this.transport.supportsJson === false) return false;
+    return typeof this.transport.sendLine === "function";
   }
 
   async sendRaw(text) {

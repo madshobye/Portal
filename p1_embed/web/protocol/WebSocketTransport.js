@@ -7,6 +7,8 @@ export class WebSocketTransport extends EventTarget {
     this.socket = null;
     this.connected = false;
     this.state = "idle";
+    this.supportsJson = true;
+    this.supportsMsgPack = false;
   }
 
   get available() {

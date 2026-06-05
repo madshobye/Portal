@@ -1,4 +1,4 @@
-import { MsgPackReader, MsgPackWriter } from "./P1MsgPack.js?v=0.1.87-ui343";
+import { MsgPackReader, MsgPackWriter } from "./P1MsgPack.js?v=0.1.87-ui344";
 
 const DEFAULT_MQTT_ROOT = "";
 const FRAME_AUTH = 3;
@@ -9,7 +9,7 @@ const AUTH_FINISH = 2;
 const AUTH_OK = 3;
 const AUTH_ERROR = 4;
 
-export const MQTT_TRANSPORT_VERSION = "0.1.87-ui343";
+export const MQTT_TRANSPORT_VERSION = "0.1.87-ui344";
 
 console.info(`[P1E mqtt] loaded ${MQTT_TRANSPORT_VERSION}`);
 
@@ -57,6 +57,8 @@ export class MqttTransport extends EventTarget {
     this.reauthPromise = null;
     this.sessionStartedAt = 0;
     this.sendQueue = Promise.resolve();
+    this.supportsJson = false;
+    this.supportsMsgPack = true;
   }
 
   get available() {

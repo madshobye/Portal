@@ -1,5 +1,5 @@
 const DEFAULT_MQTT_ROOT = "p1e-webrtc-v1";
-export const MQTT_WEBRTC_TRANSPORT_VERSION = "0.1.87-ui343";
+export const MQTT_WEBRTC_TRANSPORT_VERSION = "0.1.87-ui344";
 
 console.info(`[P1E mqtt-webrtc] loaded ${MQTT_WEBRTC_TRANSPORT_VERSION}`);
 
@@ -41,6 +41,8 @@ export class MqttWebRtcTransport extends EventTarget {
     this._remoteCandidateSummaries = [];
     this._lastStatsDiagnostic = "";
     this._rtcFailureTimer = null;
+    this.supportsJson = false;
+    this.supportsMsgPack = true;
   }
 
   get available() {
