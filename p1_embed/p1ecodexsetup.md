@@ -293,7 +293,7 @@ For quick firmware experiments on a board that already has the SafeBoot partitio
 
 This compiles only the main app partition and flashes only `0x120000`. It does not rebuild or flash the updater partition, does not touch bootloader/partitions, does not bump `P1_EMBED_FIRMWARE_VERSION`, and does not update OTA manifests. Use it for local testing, not official releases.
 
-For local experiments, use the official deploy script first and test the generated release manifest through the web UI:
+For official OTA/release experiments where a versioned delta and manifest are part of the test, use the deploy script and test the generated release manifest through the web UI:
 
 ```sh
 DETOOLS=/private/tmp/p1e-detools-venv/bin/detools ./scripts/esp32/p1embed-safeboot-deploy.sh \

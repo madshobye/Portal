@@ -72,6 +72,10 @@ an already-SafeBoot-flashed board. It compiles only the main app partition and
 flashes only address `0x120000`, leaving the updater, bootloader, partition
 table, and release manifests untouched.
 
+Use `p1embed-safeboot-upload.sh` for first install, recovery, partition-table
+changes, or updater-partition changes. It is not needed for ordinary main
+firmware testing.
+
 Use `p1embed-safeboot-deploy.sh` for official SafeBoot releases. It is the
 single script that should bump `P1_EMBED_FIRMWARE_VERSION`, compile both
 partitions, publish current USB installer files, write versioned files under
