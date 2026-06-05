@@ -23,7 +23,7 @@ struct MemoryProfileSample {
   char task[18];
 };
 
-static MemoryProfileSample g_memoryProfileSamples[P1_EMBED_MEMORY_PROFILE_SAMPLES];
+static MemoryProfileSample* g_memoryProfileSamples = nullptr;
 static portMUX_TYPE g_memoryProfileMux = portMUX_INITIALIZER_UNLOCKED;
 static uint16_t g_memoryProfileNext = 0;
 static uint16_t g_memoryProfileCount = 0;
@@ -32,6 +32,12 @@ static uint32_t g_memoryProfileBaseMaxAlloc = 0;
 static uint32_t g_memoryProfileWorstFree = UINT32_MAX;
 static uint32_t g_memoryProfileWorstMaxAlloc = UINT32_MAX;
 static bool g_memoryProfileStarted = false;
+
+static bool memoryProfileEnsureSamples() {
+  if (g_memoryProfileSamples) return true;
+  g_memoryProfileSamples = static_cast<MemoryProfileSample*>(calloc(P1_EMBED_MEMORY_PROFILE_SAMPLES, sizeof(MemoryProfileSample)));
+  return g_memoryProfileSamples != nullptr;
+}
 
 static void memoryProfileCopyText(char* dst, size_t size, const char* src) {
   if (!dst || size == 0) return;
@@ -64,6 +70,7 @@ void memoryProfileBegin() {
 }
 
 void memoryProfileReset() {
+  if (!memoryProfileEnsureSamples()) return;
   MemoryProfileSample baseline;
   memoryProfileCapture(baseline, "profiler", "baseline");
   g_memoryProfileBaseFree = baseline.freeHeap;
@@ -79,6 +86,7 @@ void memoryProfileReset() {
 }
 
 void memoryProfileMark(const char* component, const char* phase) {
+  if (!memoryProfileEnsureSamples()) return;
   MemoryProfileSample sample;
   memoryProfileCapture(sample, component, phase);
 
@@ -100,6 +108,7 @@ void memoryProfileMark(const char* component, const char* phase) {
 }
 
 static bool memoryProfileReadSample(uint16_t chronologicalIndex, MemoryProfileSample& out) {
+  if (!g_memoryProfileSamples) return false;
   portENTER_CRITICAL(&g_memoryProfileMux);
   const uint16_t count = g_memoryProfileCount;
   if (chronologicalIndex >= count) {
@@ -117,7 +126,7 @@ P1MemoryProfileSummary memoryProfileSummarySnapshot() {
   P1MemoryProfileSummary snapshot;
   snapshot.enabled = true;
   snapshot.capacity = P1_EMBED_MEMORY_PROFILE_SAMPLES;
-  snapshot.staticBytes = sizeof(g_memoryProfileSamples);
+  snapshot.staticBytes = g_memoryProfileSamples ? sizeof(MemoryProfileSample) * P1_EMBED_MEMORY_PROFILE_SAMPLES : 0;
   snapshot.currentFreeHeap = ESP.getFreeHeap();
   snapshot.currentMaxAllocHeap = ESP.getMaxAllocHeap();
   snapshot.currentMinFreeHeap = ESP.getMinFreeHeap();

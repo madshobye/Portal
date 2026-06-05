@@ -56,7 +56,9 @@ def main():
         dev.wait_ready()
         for name, fn in cases:
             print(f"RUN  {name}")
+            snapshot = None
             try:
+                snapshot = dev.board_snapshot()
                 dev.stop_script()
                 dev.clear_error()
                 fn(dev)
@@ -67,6 +69,13 @@ def main():
                 failed += 1
                 print(f"FAIL {name}: {exc}")
                 dev.stop_script()
+            finally:
+                if snapshot:
+                    try:
+                        dev.restore_board_snapshot(snapshot)
+                    except Exception as exc:
+                        failed += 1
+                        print(f"FAIL {name}: restore failed: {exc}")
 
     elapsed = time.time() - started
     print(f"\n{passed} passed, {failed} failed in {elapsed:.1f}s")

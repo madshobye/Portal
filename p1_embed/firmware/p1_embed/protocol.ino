@@ -39,6 +39,12 @@ static const uint8_t P1_MP_OP_FIRMWARE_UPDATE_PREPARE = 41;
 static const uint8_t P1_MP_OP_FIRMWARE_UPDATE_BOOT = 42;
 static const uint8_t P1_MP_OP_FIRMWARE_UPDATE_CLEAR = 43;
 static const uint8_t P1_MP_OP_PROTOCOL_MODE = 60;
+static const size_t P1_PROTOCOL_FRAME_RETAIN_MIN = 512;
+static const size_t P1_PROTOCOL_FRAME_RETAIN_MAX = P1_EMBED_MQTT_BUFFER_BYTES;
+
+static P1ReusableBuffer g_protocolFrameBuffer;
+static SemaphoreHandle_t g_protocolFrameBufferLock = nullptr;
+static portMUX_TYPE g_protocolFrameBufferInitMux = portMUX_INITIALIZER_UNLOCKED;
 
 static void protocolSendMsgPackError(uint32_t id, const char* code, const char* message);
 static void protocolSendMsgPackBytes(const uint8_t* data, size_t len);
@@ -76,6 +82,45 @@ static P1ScriptSnapshot protocolScriptSnapshot(const String* codeOverride, const
 static String protocolScriptSnapshotJson(const P1ScriptSnapshot& snapshot, bool includeCode, bool includeMetrics);
 static void protocolSendCommandConfig(P1ProtocolReplyMode replyMode, uint32_t msgpackId, const String& jsonId);
 static bool protocolHandleCommandFrame(const P1FrameView& frame, P1ProtocolReplyMode replyMode, P1ProtocolSource source, const String& jsonId);
+
+static SemaphoreHandle_t protocolFrameBufferLock() {
+  if (g_protocolFrameBufferLock) return g_protocolFrameBufferLock;
+  SemaphoreHandle_t created = xSemaphoreCreateMutex();
+  if (!created) return nullptr;
+  portENTER_CRITICAL(&g_protocolFrameBufferInitMux);
+  if (!g_protocolFrameBufferLock) {
+    g_protocolFrameBufferLock = created;
+    created = nullptr;
+  }
+  SemaphoreHandle_t lock = g_protocolFrameBufferLock;
+  portEXIT_CRITICAL(&g_protocolFrameBufferInitMux);
+  if (created) vSemaphoreDelete(created);
+  return lock;
+}
+
+static bool protocolAcquireFrameBuffer(size_t needed, P1ReusableBufferHandle& handle) {
+  SemaphoreHandle_t lock = protocolFrameBufferLock();
+  if (!lock) return false;
+  if (xSemaphoreTake(lock, pdMS_TO_TICKS(250)) != pdTRUE) return false;
+  if (p1ReusableBufferAcquire(g_protocolFrameBuffer, needed, P1_PROTOCOL_FRAME_RETAIN_MIN, P1_PROTOCOL_FRAME_RETAIN_MAX, handle)) {
+    return true;
+  }
+  xSemaphoreGive(lock);
+  return false;
+}
+
+static void protocolReleaseFrameBuffer(P1ReusableBufferHandle& handle) {
+  p1ReusableBufferReleaseHandle(g_protocolFrameBuffer, handle);
+  if (g_protocolFrameBufferLock) xSemaphoreGive(g_protocolFrameBufferLock);
+}
+
+void protocolPrepareMemoryPressure() {
+  SemaphoreHandle_t lock = protocolFrameBufferLock();
+  if (!lock) return;
+  if (xSemaphoreTake(lock, pdMS_TO_TICKS(50)) != pdTRUE) return;
+  p1ReusableBufferRelease(g_protocolFrameBuffer);
+  xSemaphoreGive(lock);
+}
 
 static bool protocolParseCommandFrame(const uint8_t* data, size_t len, P1FrameView& frame) {
   frame = P1FrameView();
@@ -265,16 +310,16 @@ static void protocolMsgPackWriteScriptChunkGetResponse(P1MsgPackWriter& w, uint3
 static void protocolSendMsgPackScriptChunkGet(uint32_t id, const P1ScriptChunkGetResponse& response) {
   size_t capacity = max<size_t>(P1_EMBED_MSGPACK_MAX_FRAME_BYTES, response.chunk.length() + response.revisionId.length() + response.scriptName.length() + 256);
   if (capacity > P1_EMBED_MQTT_BUFFER_BYTES) capacity = P1_EMBED_MQTT_BUFFER_BYTES;
-  uint8_t* frame = static_cast<uint8_t*>(malloc(capacity));
-  if (!frame) {
+  P1ReusableBufferHandle frame;
+  if (!protocolAcquireFrameBuffer(capacity, frame)) {
     protocolSendMsgPackError(id, "no_heap", "No heap for script.chunk.get response");
     return;
   }
-  P1MsgPackWriter w(frame, capacity);
+  P1MsgPackWriter w(frame.data, frame.capacity);
   protocolMsgPackWriteScriptChunkGetResponse(w, id, response);
-  if (w.ok) protocolSendMsgPackResponseBytes(id, frame, w.length, "script.chunk.get response is too large for MQTT");
+  if (w.ok) protocolSendMsgPackResponseBytes(id, frame.data, w.length, "script.chunk.get response is too large for MQTT");
   if (!w.ok) protocolSendMsgPackError(id, "frame_too_large", "Script chunk did not fit in MessagePack response");
-  free(frame);
+  protocolReleaseFrameBuffer(frame);
 }
 
 static void protocolSendCommandScriptChunkGet(P1ProtocolReplyMode replyMode, uint32_t msgpackId, const String& jsonId, uint32_t offset, uint32_t maxBytes) {
@@ -1488,25 +1533,25 @@ static String protocolBaseInfoJson() {
 
 static String protocolProjectStatusFullToJson() {
   P1StatusSnapshot snapshot = protocolStatusSnapshot();
-  uint8_t* payload = static_cast<uint8_t*>(malloc(P1_EMBED_MQTT_BUFFER_BYTES));
-  if (!payload) return "{}";
-  P1MsgPackWriter w(payload, P1_EMBED_MQTT_BUFFER_BYTES);
+  P1ReusableBufferHandle payload;
+  if (!protocolAcquireFrameBuffer(P1_EMBED_MQTT_BUFFER_BYTES, payload)) return "{}";
+  P1MsgPackWriter w(payload.data, payload.capacity);
   protocolMsgPackWriteStatusFullData(w, snapshot);
   String out;
-  if (!w.ok || !protocolMsgPackPayloadToJson(payload, w.length, out)) out = "{}";
-  free(payload);
+  if (!w.ok || !protocolMsgPackPayloadToJson(payload.data, w.length, out)) out = "{}";
+  protocolReleaseFrameBuffer(payload);
   return out;
 }
 
 static String protocolProjectStatusGetToJson() {
   P1StatusSnapshot snapshot = protocolStatusSnapshot();
-  uint8_t* payload = static_cast<uint8_t*>(malloc(P1_EMBED_MQTT_BUFFER_BYTES));
-  if (!payload) return "{}";
-  P1MsgPackWriter w(payload, P1_EMBED_MQTT_BUFFER_BYTES);
+  P1ReusableBufferHandle payload;
+  if (!protocolAcquireFrameBuffer(P1_EMBED_MQTT_BUFFER_BYTES, payload)) return "{}";
+  P1MsgPackWriter w(payload.data, payload.capacity);
   protocolMsgPackWriteStatusGetData(w, snapshot);
   String out;
-  if (!w.ok || !protocolMsgPackPayloadToJson(payload, w.length, out)) out = "{}";
-  free(payload);
+  if (!w.ok || !protocolMsgPackPayloadToJson(payload.data, w.length, out)) out = "{}";
+  protocolReleaseFrameBuffer(payload);
   return out;
 }
 
@@ -1632,10 +1677,10 @@ void protocolEmitMsgPackEventFields(const char* name, const char* level, const c
     capacity += protocolEventFieldPayloadBytes(fields[i]);
   }
   capacity = min((size_t)P1_EMBED_WEBRTC_SEND_MAX_BYTES, max((size_t)160, capacity));
-  uint8_t* frame = static_cast<uint8_t*>(malloc(capacity));
-  if (!frame) return;
+  P1ReusableBufferHandle frame;
+  if (!protocolAcquireFrameBuffer(capacity, frame)) return;
 
-  P1MsgPackWriter w(frame, capacity);
+  P1MsgPackWriter w(frame.data, frame.capacity);
   protocolMsgPackBeginEvent(w, name ? name : "", mapCount);
   if (level) { w.writeString("level"); w.writeString(level); }
   if (category) { w.writeString("category"); w.writeString(category); }
@@ -1643,8 +1688,8 @@ void protocolEmitMsgPackEventFields(const char* name, const char* level, const c
   for (size_t i = 0; i < fieldCount; i++) {
     protocolMsgPackWriteEventField(w, fields[i]);
   }
-  if (w.ok) protocolSendMsgPackBytes(frame, w.length);
-  free(frame);
+  if (w.ok) protocolSendMsgPackBytes(frame.data, w.length);
+  protocolReleaseFrameBuffer(frame);
 }
 
 void protocolEmitEventFields(const char* name, const P1EventField* fields, size_t fieldCount) {
@@ -1727,21 +1772,23 @@ void protocolEmitPrint(const String& message, bool newline) {
 
 void protocolEmitBoot() {
   protocolEmitEvent("device.boot", "\"info\":" + protocolBaseInfoJson() + ",\"status\":" + protocolProjectStatusGetToJson());
+  protocolPrepareMemoryPressure();
 }
 
 void protocolEmitStatusEvent() {
   fastLedSkipFor(20);
   P1StatusSnapshot snapshot = protocolStatusSnapshot();
-  uint8_t* frame = static_cast<uint8_t*>(malloc(P1_EMBED_MSGPACK_MAX_FRAME_BYTES));
-  if (frame) {
-    P1MsgPackWriter w(frame, P1_EMBED_MSGPACK_MAX_FRAME_BYTES);
+  P1ReusableBufferHandle frame;
+  if (protocolAcquireFrameBuffer(P1_EMBED_MSGPACK_MAX_FRAME_BYTES, frame)) {
+    P1MsgPackWriter w(frame.data, frame.capacity);
     protocolMsgPackBeginEvent(w, "device.status", 1);
     w.writeString("status");
     protocolMsgPackWriteStatusLiveData(w, snapshot);
-    if (w.ok) protocolSendMsgPackBytes(frame, w.length);
-    free(frame);
+    if (w.ok) protocolSendMsgPackBytes(frame.data, w.length);
+    protocolReleaseFrameBuffer(frame);
   }
   protocolEmitEvent("device.status", "\"status\":" + protocolProjectStatusLiveToJson());
+  protocolPrepareMemoryPressure();
 }
 
 static String protocolScriptMetaJson(const String& code, const String& state) {
@@ -2366,20 +2413,20 @@ static void protocolMsgPackWriteStatusLightData(P1MsgPackWriter& w, const P1Stat
 
 static void protocolSendMsgPackStatusLight(uint32_t id) {
   P1StatusSnapshot snapshot = protocolStatusSnapshot();
-  uint8_t* frame = static_cast<uint8_t*>(malloc(P1_EMBED_MSGPACK_MAX_FRAME_BYTES));
-  if (!frame) {
+  P1ReusableBufferHandle frame;
+  if (!protocolAcquireFrameBuffer(P1_EMBED_MSGPACK_MAX_FRAME_BYTES, frame)) {
     protocolSendMsgPackError(id, "no_heap", "No heap for status.light response");
     return;
   }
-  P1MsgPackWriter w(frame, P1_EMBED_MSGPACK_MAX_FRAME_BYTES);
+  P1MsgPackWriter w(frame.data, frame.capacity);
   w.writeArray(4);
   w.writeUInt(P1_MP_FRAME_RES);
   w.writeUInt(id);
   w.writeBool(true);
   protocolMsgPackWriteStatusLightData(w, snapshot);
-  if (w.ok) protocolSendMsgPackResponseBytes(id, frame, w.length, "status.light response is too large for MQTT");
+  if (w.ok) protocolSendMsgPackResponseBytes(id, frame.data, w.length, "status.light response is too large for MQTT");
   else protocolSendMsgPackError(id, "frame_too_large", "status.light response is too large");
-  free(frame);
+  protocolReleaseFrameBuffer(frame);
 }
 
 static void protocolMsgPackWriteWifi(P1MsgPackWriter& w, const P1WifiSnapshot& snapshot) {
@@ -2434,12 +2481,13 @@ static void protocolMsgPackWriteLastError(P1MsgPackWriter& w, const P1ScriptErro
     w.writeString("count"); w.writeUInt(error.count);
     return;
   }
-  w.writeMap(error.details.length() ? 7 : 6);
+  const bool hasDetails = error.details && error.details[0];
+  w.writeMap(hasDetails ? 7 : 6);
   w.writeString("hasError"); w.writeBool(true);
   w.writeString("phase"); w.writeString(error.phase);
   w.writeString("code"); w.writeString(error.code);
   w.writeString("message"); w.writeString(error.message);
-  if (error.details.length()) {
+  if (hasDetails) {
     w.writeString("details"); w.writeString(error.details);
   }
   w.writeString("atMs"); w.writeUInt(error.atMs);
@@ -2580,56 +2628,56 @@ static void protocolMsgPackWriteStatusLiveData(P1MsgPackWriter& w, const P1Statu
 
 static void protocolSendMsgPackStatusGet(uint32_t id) {
   P1StatusSnapshot snapshot = protocolStatusSnapshot();
-  uint8_t* frame = static_cast<uint8_t*>(malloc(P1_EMBED_MQTT_BUFFER_BYTES));
-  if (!frame) {
+  P1ReusableBufferHandle frame;
+  if (!protocolAcquireFrameBuffer(P1_EMBED_MQTT_BUFFER_BYTES, frame)) {
     protocolSendMsgPackError(id, "no_heap", "No heap for status.get response");
     return;
   }
-  P1MsgPackWriter w(frame, P1_EMBED_MQTT_BUFFER_BYTES);
+  P1MsgPackWriter w(frame.data, frame.capacity);
   w.writeArray(4);
   w.writeUInt(P1_MP_FRAME_RES);
   w.writeUInt(id);
   w.writeBool(true);
   protocolMsgPackWriteStatusGetData(w, snapshot);
-  if (w.ok) protocolSendMsgPackResponseBytes(id, frame, w.length, "status.get response is too large for MQTT");
+  if (w.ok) protocolSendMsgPackResponseBytes(id, frame.data, w.length, "status.get response is too large for MQTT");
   else protocolSendMsgPackError(id, "frame_too_large", "status.get response is too large");
-  free(frame);
+  protocolReleaseFrameBuffer(frame);
 }
 
 static void protocolSendMsgPackStatusFull(uint32_t id) {
   P1StatusSnapshot snapshot = protocolStatusSnapshot();
-  uint8_t* frame = static_cast<uint8_t*>(malloc(P1_EMBED_MQTT_BUFFER_BYTES));
-  if (!frame) {
+  P1ReusableBufferHandle frame;
+  if (!protocolAcquireFrameBuffer(P1_EMBED_MQTT_BUFFER_BYTES, frame)) {
     protocolSendMsgPackError(id, "no_heap", "No heap for status.full response");
     return;
   }
-  P1MsgPackWriter w(frame, P1_EMBED_MQTT_BUFFER_BYTES);
+  P1MsgPackWriter w(frame.data, frame.capacity);
   w.writeArray(4);
   w.writeUInt(P1_MP_FRAME_RES);
   w.writeUInt(id);
   w.writeBool(true);
   protocolMsgPackWriteStatusFullData(w, snapshot);
-  if (w.ok) protocolSendMsgPackResponseBytes(id, frame, w.length, "status.full response is too large for MQTT");
+  if (w.ok) protocolSendMsgPackResponseBytes(id, frame.data, w.length, "status.full response is too large for MQTT");
   else protocolSendMsgPackError(id, "frame_too_large", "status.full response is too large");
-  free(frame);
+  protocolReleaseFrameBuffer(frame);
 }
 
 static void protocolSendMsgPackStatusLive(uint32_t id) {
   P1StatusSnapshot snapshot = protocolStatusSnapshot();
-  uint8_t* frame = static_cast<uint8_t*>(malloc(P1_EMBED_MSGPACK_MAX_FRAME_BYTES));
-  if (!frame) {
+  P1ReusableBufferHandle frame;
+  if (!protocolAcquireFrameBuffer(P1_EMBED_MSGPACK_MAX_FRAME_BYTES, frame)) {
     protocolSendMsgPackError(id, "no_heap", "No heap for status.live response");
     return;
   }
-  P1MsgPackWriter w(frame, P1_EMBED_MSGPACK_MAX_FRAME_BYTES);
+  P1MsgPackWriter w(frame.data, frame.capacity);
   w.writeArray(4);
   w.writeUInt(P1_MP_FRAME_RES);
   w.writeUInt(id);
   w.writeBool(true);
   protocolMsgPackWriteStatusLiveData(w, snapshot);
-  if (w.ok) protocolSendMsgPackResponseBytes(id, frame, w.length, "status.live response is too large for MQTT");
+  if (w.ok) protocolSendMsgPackResponseBytes(id, frame.data, w.length, "status.live response is too large for MQTT");
   else protocolSendMsgPackError(id, "frame_too_large", "status.live response is too large");
-  free(frame);
+  protocolReleaseFrameBuffer(frame);
 }
 
 static void protocolSendJsonWifiStatus(const String& id) {
@@ -2658,54 +2706,54 @@ static void protocolSendJsonOtaStatus(const String& id) {
 
 static void protocolSendJsonStatusGet(const String& id) {
   P1StatusSnapshot snapshot = protocolStatusSnapshot();
-  uint8_t* payload = static_cast<uint8_t*>(malloc(P1_EMBED_MQTT_BUFFER_BYTES));
-  if (!payload) {
+  P1ReusableBufferHandle payload;
+  if (!protocolAcquireFrameBuffer(P1_EMBED_MQTT_BUFFER_BYTES, payload)) {
     protocolSendResponseError(id, "no_heap", "No heap for status.get response");
     return;
   }
-  P1MsgPackWriter w(payload, P1_EMBED_MQTT_BUFFER_BYTES);
+  P1MsgPackWriter w(payload.data, payload.capacity);
   protocolMsgPackWriteStatusGetData(w, snapshot);
-  if (w.ok) protocolSendJsonResponseFromMsgPackPayload(id, payload, w.length);
+  if (w.ok) protocolSendJsonResponseFromMsgPackPayload(id, payload.data, w.length);
   else protocolSendResponseError(id, "frame_too_large", "status.get response is too large");
-  free(payload);
+  protocolReleaseFrameBuffer(payload);
 }
 
 static void protocolSendJsonStatusFull(const String& id) {
   P1StatusSnapshot snapshot = protocolStatusSnapshot();
-  uint8_t* payload = static_cast<uint8_t*>(malloc(P1_EMBED_MQTT_BUFFER_BYTES));
-  if (!payload) {
+  P1ReusableBufferHandle payload;
+  if (!protocolAcquireFrameBuffer(P1_EMBED_MQTT_BUFFER_BYTES, payload)) {
     protocolSendResponseError(id, "no_heap", "No heap for status.full response");
     return;
   }
-  P1MsgPackWriter w(payload, P1_EMBED_MQTT_BUFFER_BYTES);
+  P1MsgPackWriter w(payload.data, payload.capacity);
   protocolMsgPackWriteStatusFullData(w, snapshot);
-  if (w.ok) protocolSendJsonResponseFromMsgPackPayload(id, payload, w.length);
+  if (w.ok) protocolSendJsonResponseFromMsgPackPayload(id, payload.data, w.length);
   else protocolSendResponseError(id, "frame_too_large", "status.full response is too large");
-  free(payload);
+  protocolReleaseFrameBuffer(payload);
 }
 
 static void protocolSendJsonStatusLive(const String& id) {
   P1StatusSnapshot snapshot = protocolStatusSnapshot();
-  uint8_t* payload = static_cast<uint8_t*>(malloc(P1_EMBED_MSGPACK_MAX_FRAME_BYTES));
-  if (!payload) {
+  P1ReusableBufferHandle payload;
+  if (!protocolAcquireFrameBuffer(P1_EMBED_MSGPACK_MAX_FRAME_BYTES, payload)) {
     protocolSendResponseError(id, "no_heap", "No heap for status.live response");
     return;
   }
-  P1MsgPackWriter w(payload, P1_EMBED_MSGPACK_MAX_FRAME_BYTES);
+  P1MsgPackWriter w(payload.data, payload.capacity);
   protocolMsgPackWriteStatusLiveData(w, snapshot);
-  if (w.ok) protocolSendJsonResponseFromMsgPackPayload(id, payload, w.length);
+  if (w.ok) protocolSendJsonResponseFromMsgPackPayload(id, payload.data, w.length);
   else protocolSendResponseError(id, "frame_too_large", "status.live response is too large");
-  free(payload);
+  protocolReleaseFrameBuffer(payload);
 }
 
 static void protocolSendMsgPackSystemInfo(uint32_t id) {
   P1ConfigSnapshot config = configSnapshot();
-  uint8_t* frame = static_cast<uint8_t*>(malloc(P1_EMBED_MSGPACK_MAX_FRAME_BYTES));
-  if (!frame) {
+  P1ReusableBufferHandle frame;
+  if (!protocolAcquireFrameBuffer(P1_EMBED_MSGPACK_MAX_FRAME_BYTES, frame)) {
     protocolSendMsgPackError(id, "no_heap", "No heap for system.info response");
     return;
   }
-  P1MsgPackWriter w(frame, P1_EMBED_MSGPACK_MAX_FRAME_BYTES);
+  P1MsgPackWriter w(frame.data, frame.capacity);
   protocolMsgPackBeginResponse(w, id, true, 13);
   w.writeString("firmwareName"); w.writeString(P1_EMBED_FIRMWARE_NAME);
   w.writeString("firmwareVersion"); w.writeString(P1_EMBED_FIRMWARE_VERSION);
@@ -2725,9 +2773,9 @@ static void protocolSendMsgPackSystemInfo(uint32_t id) {
   w.writeString("wrench.bindings.ui_guino");
   w.writeString("wifi.station");
   w.writeString("wifi"); protocolMsgPackWriteWifi(w, config.wifi);
-  if (w.ok) protocolSendMsgPackResponseBytes(id, frame, w.length, "system.info response is too large for MQTT");
+  if (w.ok) protocolSendMsgPackResponseBytes(id, frame.data, w.length, "system.info response is too large for MQTT");
   else protocolSendMsgPackError(id, "frame_too_large", "system.info response is too large");
-  free(frame);
+  protocolReleaseFrameBuffer(frame);
 }
 
 static String protocolConfigResponseJson(const P1ConfigSnapshot& snapshot) {
@@ -2816,16 +2864,16 @@ static void protocolMsgPackWriteConfigResponse(P1MsgPackWriter& w, uint32_t id, 
 
 static void protocolSendMsgPackConfig(uint32_t id) {
   P1ConfigSnapshot snapshot = configSnapshot();
-  uint8_t* frame = static_cast<uint8_t*>(malloc(P1_EMBED_MSGPACK_MAX_FRAME_BYTES));
-  if (!frame) {
+  P1ReusableBufferHandle frame;
+  if (!protocolAcquireFrameBuffer(P1_EMBED_MSGPACK_MAX_FRAME_BYTES, frame)) {
     protocolSendMsgPackError(id, "no_heap", "No heap for config.get response");
     return;
   }
-  P1MsgPackWriter w(frame, P1_EMBED_MSGPACK_MAX_FRAME_BYTES);
+  P1MsgPackWriter w(frame.data, frame.capacity);
   protocolMsgPackWriteConfigResponse(w, id, snapshot);
-  if (w.ok) protocolSendMsgPackResponseBytes(id, frame, w.length, "config.get response is too large for MQTT");
+  if (w.ok) protocolSendMsgPackResponseBytes(id, frame.data, w.length, "config.get response is too large for MQTT");
   else protocolSendMsgPackError(id, "frame_too_large", "config.get response is too large");
-  free(frame);
+  protocolReleaseFrameBuffer(frame);
 }
 
 static void protocolSendMsgPackWifiStatus(uint32_t id) {
@@ -2852,18 +2900,19 @@ static void protocolSendMsgPackDebug(uint32_t id) {
 
 static void protocolSendMsgPackScriptError(uint32_t id) {
   P1ScriptErrorSnapshot snapshot = scriptErrorSnapshot();
-  uint8_t* frame = static_cast<uint8_t*>(malloc(512));
-  if (!frame) {
+  P1ReusableBufferHandle frame;
+  if (!protocolAcquireFrameBuffer(512, frame)) {
     protocolSendMsgPackError(id, "no_heap", "No heap for script.error response");
     return;
   }
-  P1MsgPackWriter w(frame, 512);
+  P1MsgPackWriter w(frame.data, frame.capacity);
   if (!snapshot.hasError) {
     protocolMsgPackBeginResponse(w, id, true, 2);
     w.writeString("hasError"); w.writeBool(false);
     w.writeString("count"); w.writeUInt(snapshot.count);
   } else {
-    const bool hasDetails = snapshot.details.length() > 0 && snapshot.details.length() < 128;
+    const size_t detailsLen = snapshot.details ? strlen(snapshot.details) : 0;
+    const bool hasDetails = detailsLen > 0 && detailsLen < 128;
     protocolMsgPackBeginResponse(w, id, true, hasDetails ? 8 : 7);
     w.writeString("hasError"); w.writeBool(true);
     w.writeString("phase"); w.writeString(snapshot.phase);
@@ -2877,9 +2926,9 @@ static void protocolSendMsgPackScriptError(uint32_t id) {
       w.writeString("json-fields");
     }
   }
-  if (w.ok) protocolSendMsgPackResponseBytes(id, frame, w.length, "script.error response is too large for MQTT");
+  if (w.ok) protocolSendMsgPackResponseBytes(id, frame.data, w.length, "script.error response is too large for MQTT");
   else protocolSendMsgPackError(id, "frame_too_large", "script.error response is too large");
-  free(frame);
+  protocolReleaseFrameBuffer(frame);
 }
 
 static void protocolSendMsgPackScriptGet(uint32_t id) {
@@ -2891,12 +2940,12 @@ static void protocolSendMsgPackScriptGet(uint32_t id) {
     protocolSendMsgPackError(id, "script_too_large", "Stored script is too large for one MessagePack response");
     return;
   }
-  uint8_t* frame = static_cast<uint8_t*>(malloc(capacity));
-  if (!frame) {
+  P1ReusableBufferHandle frame;
+  if (!protocolAcquireFrameBuffer(capacity, frame)) {
     protocolSendMsgPackError(id, "no_heap", "No heap for script.get response");
     return;
   }
-  P1MsgPackWriter w(frame, capacity);
+  P1MsgPackWriter w(frame.data, frame.capacity);
   protocolMsgPackBeginResponse(w, id, true, 6);
   w.writeString("code"); w.writeString(snapshot.code);
   w.writeString("state"); w.writeString(snapshot.state);
@@ -2904,26 +2953,26 @@ static void protocolSendMsgPackScriptGet(uint32_t id) {
   w.writeString("runState"); w.writeString(snapshot.runState);
   w.writeString("revisionId"); w.writeString(configRevisionId());
   w.writeString("scriptName"); w.writeString(configScriptName());
-  if (w.ok) protocolSendMsgPackResponseBytes(id, frame, w.length, "script.get response is too large for MQTT; use script.chunk.get");
-  free(frame);
+  if (w.ok) protocolSendMsgPackResponseBytes(id, frame.data, w.length, "script.get response is too large for MQTT; use script.chunk.get");
   if (!w.ok) protocolSendMsgPackError(id, "frame_too_large", "Stored script did not fit in MessagePack response");
+  protocolReleaseFrameBuffer(frame);
 }
 
 static void protocolSendMsgPackOtaStatus(uint32_t id) {
-  uint8_t* frame = static_cast<uint8_t*>(malloc(1024));
-  if (!frame) {
+  P1ReusableBufferHandle frame;
+  if (!protocolAcquireFrameBuffer(1024, frame)) {
     protocolSendMsgPackError(id, "no_heap", "No heap for firmware.update.status response");
     return;
   }
-  P1MsgPackWriter w(frame, 1024);
+  P1MsgPackWriter w(frame.data, frame.capacity);
   w.writeArray(4);
   w.writeUInt(P1_MP_FRAME_RES);
   w.writeUInt(id);
   w.writeBool(true);
   protocolMsgPackWriteOtaStatus(w, otaSafeBootStatusSnapshot());
-  if (w.ok) protocolSendMsgPackBytes(frame, w.length);
+  if (w.ok) protocolSendMsgPackBytes(frame.data, w.length);
   else protocolSendMsgPackError(id, "frame_too_large", "firmware.update.status response is too large");
-  free(frame);
+  protocolReleaseFrameBuffer(frame);
 }
 
 static void protocolSendMsgPackState(uint32_t id, const char* state) {

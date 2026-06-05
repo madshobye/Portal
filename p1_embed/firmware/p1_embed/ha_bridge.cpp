@@ -127,21 +127,59 @@ static bool g_haRuntimeActive = false;
 static bool g_haClientSubscribed = false;
 static bool g_haClientHello = false;
 static char g_haDeviceName[P1_EMBED_HA_NAME_MAX] = "";
-static P1HaEntity g_haEntities[P1_EMBED_HA_ENTITY_MAX];
-static P1HaInputEvent g_haEvents[P1_EMBED_HA_EVENT_DEPTH];
+static P1HaEntity* g_haEntities = nullptr;
+static P1HaInputEvent* g_haEvents = nullptr;
 static uint8_t g_haEventHead = 0;
 static uint8_t g_haEventTail = 0;
 static uint8_t g_haEventCount = 0;
-static uint8_t g_haRx[P1_EMBED_HA_RX_MAX];
+static uint8_t* g_haRx = nullptr;
 static size_t g_haRxLen = 0;
 static portMUX_TYPE g_haMux = portMUX_INITIALIZER_UNLOCKED;
+
+static bool haEnsureEntities() {
+  if (g_haEntities) return true;
+  g_haEntities = static_cast<P1HaEntity*>(calloc(P1_EMBED_HA_ENTITY_MAX, sizeof(P1HaEntity)));
+  if (g_haEntities) return true;
+  scriptErrorWarn("home_assistant", "entity_alloc_failed", "Failed to allocate Home Assistant entity registry");
+  return false;
+}
+
+static bool haEnsureEvents() {
+  if (g_haEvents) return true;
+  g_haEvents = static_cast<P1HaInputEvent*>(calloc(P1_EMBED_HA_EVENT_DEPTH, sizeof(P1HaInputEvent)));
+  if (g_haEvents) return true;
+  scriptErrorWarn("home_assistant", "event_alloc_failed", "Failed to allocate Home Assistant input event queue");
+  return false;
+}
+
+static bool haEnsureRx() {
+  if (g_haRx) return true;
+  g_haRx = static_cast<uint8_t*>(calloc(P1_EMBED_HA_RX_MAX, 1));
+  if (g_haRx) return true;
+  scriptErrorWarn("home_assistant", "rx_alloc_failed", "Failed to allocate Home Assistant receive buffer");
+  return false;
+}
+
+static void haReleaseRx() {
+  free(g_haRx);
+  g_haRx = nullptr;
+  g_haRxLen = 0;
+}
+
+static void haReleaseRuntimeStorage() {
+  free(g_haEntities);
+  free(g_haEvents);
+  g_haEntities = nullptr;
+  g_haEvents = nullptr;
+  haReleaseRx();
+}
 
 static void haStopClient() {
   g_haClient.stop();
   g_haClientActive = false;
   g_haClientSubscribed = false;
   g_haClientHello = false;
-  g_haRxLen = 0;
+  haReleaseRx();
 }
 
 static const char* haMessageName(uint32_t type) {
@@ -280,6 +318,7 @@ static uint32_t haKey(P1HaEntityType type, const String& id) {
 }
 
 static int haFindEntityById(const String& id) {
+  if (!g_haEntities) return -1;
   for (int i = 0; i < P1_EMBED_HA_ENTITY_MAX; i++) {
     if (g_haEntities[i].used && id == g_haEntities[i].id) return i;
   }
@@ -287,6 +326,7 @@ static int haFindEntityById(const String& id) {
 }
 
 static int haFindEntityByKey(uint32_t key) {
+  if (!g_haEntities) return -1;
   for (int i = 0; i < P1_EMBED_HA_ENTITY_MAX; i++) {
     if (g_haEntities[i].used && g_haEntities[i].key == key) return i;
   }
@@ -294,6 +334,7 @@ static int haFindEntityByKey(uint32_t key) {
 }
 
 static int haFindOrCreate(P1HaEntityType type, const String& id) {
+  if (!haEnsureEntities()) return -1;
   String cleanId = id;
   cleanId.trim();
   if (!cleanId.length()) return -1;
@@ -315,6 +356,7 @@ static int haFindOrCreate(P1HaEntityType type, const String& id) {
 }
 
 static void haQueueEvent(const char* id, const char* type, float value) {
+  if (!haEnsureEvents()) return;
   P1HaInputEvent event{};
   strlcpy(event.id, id ? id : "", sizeof(event.id));
   strlcpy(event.type, type ? type : "set", sizeof(event.type));
@@ -332,6 +374,7 @@ static void haQueueEvent(const char* id, const char* type, float value) {
 }
 
 static bool haTakeMatchingEvent(const char* id, const char* type, P1HaInputEvent& event) {
+  if (!g_haEvents) return false;
   bool found = false;
   P1HaInputEvent kept[P1_EMBED_HA_EVENT_DEPTH];
   uint8_t keptCount = 0;
@@ -563,6 +606,10 @@ static void haSendStateOne(const P1HaEntity& entity) {
 }
 
 static void haSendEntityList() {
+  if (!g_haEntities) {
+    haSendEmpty(19);
+    return;
+  }
   for (int i = 0; i < P1_EMBED_HA_ENTITY_MAX; i++) {
     if (g_haEntities[i].used) haSendEntityListOne(g_haEntities[i]);
   }
@@ -570,6 +617,7 @@ static void haSendEntityList() {
 }
 
 static void haSendAllStates() {
+  if (!g_haEntities) return;
   for (int i = 0; i < P1_EMBED_HA_ENTITY_MAX; i++) {
     if (g_haEntities[i].used) haSendStateOne(g_haEntities[i]);
   }
@@ -826,6 +874,7 @@ static void haHandleFrame(uint32_t type, const uint8_t* data, size_t len) {
 }
 
 static void haParseRx() {
+  if (!g_haRx) return;
   while (g_haRxLen > 0) {
     if (g_haRx[0] != 0) {
       memmove(g_haRx, g_haRx + 1, g_haRxLen - 1);
@@ -895,13 +944,21 @@ void haBridgeLoop() {
     g_haClientActive = true;
     g_haClientSubscribed = false;
     g_haClientHello = false;
+    if (!haEnsureRx()) {
+      haStopClient();
+      return;
+    }
     g_haRxLen = 0;
     debugLog("info", "home_assistant", "ESPHome native API client connected");
   }
 
   if (!g_haClientActive) return;
+  if (!haEnsureRx()) {
+    haStopClient();
+    return;
+  }
 
-  while (g_haClient.available() && g_haRxLen < sizeof(g_haRx)) {
+  while (g_haClient.available() && g_haRxLen < P1_EMBED_HA_RX_MAX) {
     int next = g_haClient.read();
     if (next < 0) {
       haStopClient();
@@ -909,7 +966,7 @@ void haBridgeLoop() {
     }
     g_haRx[g_haRxLen++] = (uint8_t)next;
   }
-  if (g_haRxLen >= sizeof(g_haRx) && g_haClient.available()) {
+  if (g_haRxLen >= P1_EMBED_HA_RX_MAX && g_haClient.available()) {
     haStopClient();
     return;
   }
@@ -926,19 +983,19 @@ void haRuntimeReset() {
   g_haClientActive = false;
   g_haClientSubscribed = false;
   g_haClientHello = false;
-  g_haRxLen = 0;
+  haReleaseRuntimeStorage();
   portENTER_CRITICAL(&g_haMux);
   g_haEventHead = 0;
   g_haEventTail = 0;
   g_haEventCount = 0;
   portEXIT_CRITICAL(&g_haMux);
-  for (int i = 0; i < P1_EMBED_HA_ENTITY_MAX; i++) g_haEntities[i] = P1HaEntity{};
 }
 
 bool haBeginDevice(const String& name) {
   String clean = name;
   clean.trim();
   haRuntimeReset();
+  if (!haEnsureEntities()) return false;
   haCopy(g_haDeviceName, sizeof(g_haDeviceName), clean.length() ? clean : configDeviceName());
   g_haRuntimeActive = true;
   return true;
@@ -1073,6 +1130,7 @@ bool haInputChanged(const String& id) {
 }
 
 bool haInputPop(P1HaInputEvent& event) {
+  if (!g_haEvents) return false;
   bool found = false;
   portENTER_CRITICAL(&g_haMux);
   if (g_haEventCount > 0) {

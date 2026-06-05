@@ -7,27 +7,51 @@
 #include "p1_embed_firmware.h"
 
 static const char* CONFIG_PATH = "/config.json";
-static String g_deviceId = "";
-static String g_deviceName = "";
-static String g_projectId = "";
-static String g_projectName = "";
-static String g_revisionId = "";
-static String g_scriptName = "";
-static String g_timezone = "UTC0";
-static String g_wifiSsids[P1_EMBED_MAX_WIFI_NETWORKS];
-static String g_wifiPasswords[P1_EMBED_MAX_WIFI_NETWORKS];
+static const size_t P1_CONFIG_DEVICE_ID_MAX = 32;
+static const size_t P1_CONFIG_DEVICE_NAME_MAX = 48;
+static const size_t P1_CONFIG_PROJECT_ID_MAX = 64;
+static const size_t P1_CONFIG_PROJECT_NAME_MAX = 64;
+static const size_t P1_CONFIG_REVISION_ID_MAX = 80;
+static const size_t P1_CONFIG_SCRIPT_NAME_MAX = 80;
+static const size_t P1_CONFIG_TIMEZONE_MAX = 64;
+static const size_t P1_CONFIG_WIFI_SSID_MAX = 33;
+static const size_t P1_CONFIG_WIFI_PASSWORD_MAX = 65;
+static const size_t P1_CONFIG_MQTT_HOST_MAX = 96;
+static const size_t P1_CONFIG_MQTT_ROOT_MAX = 64;
+static const size_t P1_CONFIG_MQTT_USER_MAX = 33;
+static const size_t P1_CONFIG_MQTT_PASSWORD_MAX = 129;
+static const size_t P1_CONFIG_MQTT_GUEST_KEY_MAX = 41;
+static const size_t P1_CONFIG_AUTH_USERNAME_MAX = 33;
+
+struct P1StoredWifiNetwork {
+  char ssid[P1_CONFIG_WIFI_SSID_MAX] = {0};
+  char password[P1_CONFIG_WIFI_PASSWORD_MAX] = {0};
+};
+
+struct P1StoredOnlineAuthUser {
+  char username[P1_CONFIG_AUTH_USERNAME_MAX] = {0};
+  uint8_t key[32] = {0};
+};
+
+static char g_deviceId[P1_CONFIG_DEVICE_ID_MAX] = "";
+static char g_deviceName[P1_CONFIG_DEVICE_NAME_MAX] = "";
+static char g_projectId[P1_CONFIG_PROJECT_ID_MAX] = "";
+static char g_projectName[P1_CONFIG_PROJECT_NAME_MAX] = "";
+static char g_revisionId[P1_CONFIG_REVISION_ID_MAX] = "";
+static char g_scriptName[P1_CONFIG_SCRIPT_NAME_MAX] = "";
+static char g_timezone[P1_CONFIG_TIMEZONE_MAX] = "UTC0";
+static P1StoredWifiNetwork g_wifiNetworks[P1_EMBED_MAX_WIFI_NETWORKS];
 static int g_wifiNetworkCount = 0;
-static String g_mqttHost = "";
+static char g_mqttHost[P1_CONFIG_MQTT_HOST_MAX] = "";
 static int g_mqttPort = P1_EMBED_MQTT_PORT;
-static String g_mqttRoot = "";
-static String g_mqttUser = "";
-static String g_mqttPassword = "";
+static char g_mqttRoot[P1_CONFIG_MQTT_ROOT_MAX] = "";
+static char g_mqttUser[P1_CONFIG_MQTT_USER_MAX] = "";
+static char g_mqttPassword[P1_CONFIG_MQTT_PASSWORD_MAX] = "";
 static bool g_mqttEnabled = true;
 static bool g_mqttAllowAnonymousUi = false;
 static bool g_mqttAllowAnonymousScript = false;
-static String g_mqttGuestUiKey = "";
-static String g_onlineAuthUsernames[P1_EMBED_MQTT_MAX_USERS];
-static String g_onlineAuthUserKeys[P1_EMBED_MQTT_MAX_USERS];
+static char g_mqttGuestUiKey[P1_CONFIG_MQTT_GUEST_KEY_MAX] = "";
+static P1StoredOnlineAuthUser g_onlineAuthUsers[P1_EMBED_MQTT_MAX_USERS];
 static int g_onlineAuthUserCount = 0;
 static bool g_configFsReady = false;
 
@@ -62,6 +86,51 @@ static const char* const P1_TIMEZONE_VALUES[] = {
   "BRT3",
   "SAST-2",
 };
+
+static void configSetText(char* dst, size_t dstLen, const String& value, bool trimValue = true) {
+  if (!dst || dstLen == 0) return;
+  String next = value;
+  if (trimValue) next.trim();
+  size_t n = next.length();
+  if (n >= dstLen) n = dstLen - 1;
+  memcpy(dst, next.c_str(), n);
+  dst[n] = 0;
+}
+
+static void configClearText(char* dst, size_t dstLen) {
+  if (!dst || dstLen == 0) return;
+  dst[0] = 0;
+}
+
+static bool configTextHasValue(const char* value) {
+  return value && value[0];
+}
+
+static String configText(const char* value) {
+  return String(value ? value : "");
+}
+
+static void configClearWifiNetworkAt(int index) {
+  if (index < 0 || index >= P1_EMBED_MAX_WIFI_NETWORKS) return;
+  g_wifiNetworks[index].ssid[0] = 0;
+  g_wifiNetworks[index].password[0] = 0;
+}
+
+static void configCopyWifiNetworkSlot(int dst, int src) {
+  if (dst < 0 || dst >= P1_EMBED_MAX_WIFI_NETWORKS || src < 0 || src >= P1_EMBED_MAX_WIFI_NETWORKS) return;
+  memcpy(&g_wifiNetworks[dst], &g_wifiNetworks[src], sizeof(P1StoredWifiNetwork));
+}
+
+static void configClearOnlineAuthUserAt(int index) {
+  if (index < 0 || index >= P1_EMBED_MQTT_MAX_USERS) return;
+  g_onlineAuthUsers[index].username[0] = 0;
+  memset(g_onlineAuthUsers[index].key, 0, sizeof(g_onlineAuthUsers[index].key));
+}
+
+static void configCopyOnlineAuthUserSlot(int dst, int src) {
+  if (dst < 0 || dst >= P1_EMBED_MQTT_MAX_USERS || src < 0 || src >= P1_EMBED_MQTT_MAX_USERS) return;
+  memcpy(&g_onlineAuthUsers[dst], &g_onlineAuthUsers[src], sizeof(P1StoredOnlineAuthUser));
+}
 
 static String configNormalizeTimezone(const String& value) {
   String next = value;
@@ -136,8 +205,10 @@ static String configGenerateGuestKey() {
 }
 
 static void configApplyIdentityDefaults() {
-  if (!g_deviceId.length()) g_deviceId = configBuildDeviceId();
-  if (!g_deviceName.length() || g_deviceName == "p1-embed") g_deviceName = configBuildDefaultDeviceName();
+  if (!configTextHasValue(g_deviceId)) configSetText(g_deviceId, sizeof(g_deviceId), configBuildDeviceId());
+  if (!configTextHasValue(g_deviceName) || strcmp(g_deviceName, "p1-embed") == 0) {
+    configSetText(g_deviceName, sizeof(g_deviceName), configBuildDefaultDeviceName());
+  }
 }
 
 void configApplyTimezone() {
@@ -236,9 +307,19 @@ static bool configHexToBytes(const String& hex, uint8_t* out, size_t outLen) {
   return true;
 }
 
+static void configAppendHex(String& out, const uint8_t* bytes, size_t len) {
+  static const char* hex = "0123456789abcdef";
+  if (!bytes) return;
+  out.reserve(out.length() + len * 2);
+  for (size_t i = 0; i < len; i++) {
+    out += hex[(bytes[i] >> 4) & 0x0f];
+    out += hex[bytes[i] & 0x0f];
+  }
+}
+
 static int configFindOnlineAuthUser(const String& username) {
   for (int i = 0; i < g_onlineAuthUserCount; i++) {
-    if (g_onlineAuthUsernames[i] == username) return i;
+    if (strcmp(g_onlineAuthUsers[i].username, username.c_str()) == 0) return i;
   }
   return -1;
 }
@@ -246,14 +327,14 @@ static int configFindOnlineAuthUser(const String& username) {
 static int configFindOnlineAuthUser(const char* username) {
   if (!username || !username[0]) return -1;
   for (int i = 0; i < g_onlineAuthUserCount; i++) {
-    if (strcmp(g_onlineAuthUsernames[i].c_str(), username) == 0) return i;
+    if (strcmp(g_onlineAuthUsers[i].username, username) == 0) return i;
   }
   return -1;
 }
 
 static int configFindWifiSsid(const String& ssid) {
   for (int i = 0; i < g_wifiNetworkCount; i++) {
-    if (g_wifiSsids[i] == ssid) return i;
+    if (strcmp(g_wifiNetworks[i].ssid, ssid.c_str()) == 0) return i;
   }
   return -1;
 }
@@ -264,24 +345,21 @@ static void configAddWifiNetwork(const String& ssid, const String& password) {
   int existing = configFindWifiSsid(ssid);
   if (existing >= 0) {
     for (int i = existing; i > 0; i--) {
-      g_wifiSsids[i] = g_wifiSsids[i - 1];
-      g_wifiPasswords[i] = g_wifiPasswords[i - 1];
+      configCopyWifiNetworkSlot(i, i - 1);
     }
   } else if (g_wifiNetworkCount < P1_EMBED_MAX_WIFI_NETWORKS) {
     for (int i = g_wifiNetworkCount; i > 0; i--) {
-      g_wifiSsids[i] = g_wifiSsids[i - 1];
-      g_wifiPasswords[i] = g_wifiPasswords[i - 1];
+      configCopyWifiNetworkSlot(i, i - 1);
     }
     g_wifiNetworkCount++;
   } else {
     for (int i = P1_EMBED_MAX_WIFI_NETWORKS - 1; i > 0; i--) {
-      g_wifiSsids[i] = g_wifiSsids[i - 1];
-      g_wifiPasswords[i] = g_wifiPasswords[i - 1];
+      configCopyWifiNetworkSlot(i, i - 1);
     }
   }
 
-  g_wifiSsids[0] = ssid;
-  g_wifiPasswords[0] = password;
+  configSetText(g_wifiNetworks[0].ssid, sizeof(g_wifiNetworks[0].ssid), ssid);
+  configSetText(g_wifiNetworks[0].password, sizeof(g_wifiNetworks[0].password), password, false);
 }
 
 static void configLoadWifiNetworks(const String& json) {
@@ -308,8 +386,8 @@ static void configLoadWifiNetworks(const String& json) {
     String password;
     if (configJsonGetString(entry, "ssid", ssid)) {
       configJsonGetString(entry, "password", password);
-      g_wifiSsids[g_wifiNetworkCount] = ssid;
-      g_wifiPasswords[g_wifiNetworkCount] = password;
+      configSetText(g_wifiNetworks[g_wifiNetworkCount].ssid, sizeof(g_wifiNetworks[g_wifiNetworkCount].ssid), ssid);
+      configSetText(g_wifiNetworks[g_wifiNetworkCount].password, sizeof(g_wifiNetworks[g_wifiNetworkCount].password), password, false);
       g_wifiNetworkCount++;
     }
 
@@ -339,9 +417,8 @@ static void configLoadOnlineAuthUsers(const String& json) {
       keyHex.trim();
       uint8_t key[32];
       if (username.length() && configHexToBytes(keyHex, key, sizeof(key))) {
-        g_onlineAuthUsernames[g_onlineAuthUserCount] = username;
-        g_onlineAuthUserKeys[g_onlineAuthUserCount] = keyHex;
-        g_onlineAuthUserKeys[g_onlineAuthUserCount].toLowerCase();
+        configSetText(g_onlineAuthUsers[g_onlineAuthUserCount].username, sizeof(g_onlineAuthUsers[g_onlineAuthUserCount].username), username);
+        memcpy(g_onlineAuthUsers[g_onlineAuthUserCount].key, key, sizeof(key));
         g_onlineAuthUserCount++;
       }
     }
@@ -369,17 +446,17 @@ static bool configReadFile(String& out) {
 static void configLoadLegacyPrefsIfPresent() {
   Preferences prefs;
   if (!prefs.begin("p1embed", true)) return;
-  g_deviceName = prefs.getString("deviceName", g_deviceName);
+  configSetText(g_deviceName, sizeof(g_deviceName), prefs.getString("deviceName", configText(g_deviceName)));
   configAddWifiNetwork(prefs.getString("wifiSsid", ""), prefs.getString("wifiPass", ""));
   prefs.end();
 }
 
 static void configApplyMqttDefaults() {
-  if (!g_mqttHost.length()) g_mqttHost = P1_EMBED_MQTT_HOST;
+  if (!configTextHasValue(g_mqttHost)) configSetText(g_mqttHost, sizeof(g_mqttHost), P1_EMBED_MQTT_HOST);
   if (g_mqttPort <= 0 || g_mqttPort > 65535) g_mqttPort = P1_EMBED_MQTT_PORT;
-  if (!g_mqttRoot.length()) g_mqttRoot = String(P1_EMBED_MQTT_ROOT);
-  if (!g_mqttUser.length()) g_mqttUser = P1_EMBED_MQTT_USER;
-  if (!g_mqttPassword.length()) g_mqttPassword = P1_EMBED_MQTT_PASS;
+  if (!configTextHasValue(g_mqttRoot)) configSetText(g_mqttRoot, sizeof(g_mqttRoot), P1_EMBED_MQTT_ROOT);
+  if (!configTextHasValue(g_mqttUser)) configSetText(g_mqttUser, sizeof(g_mqttUser), P1_EMBED_MQTT_USER);
+  if (!configTextHasValue(g_mqttPassword)) configSetText(g_mqttPassword, sizeof(g_mqttPassword), P1_EMBED_MQTT_PASS, false);
 }
 
 void configLoad() {
@@ -390,44 +467,44 @@ void configLoad() {
   if (configReadFile(json)) {
     String value;
     bool changed = false;
-    if (configJsonGetString(json, "deviceId", value)) g_deviceId = value;
+    if (configJsonGetString(json, "deviceId", value)) configSetText(g_deviceId, sizeof(g_deviceId), value);
     else changed = true;
-    if (configJsonGetString(json, "deviceName", value)) g_deviceName = value.length() ? value : configBuildDefaultDeviceName();
+    if (configJsonGetString(json, "deviceName", value)) configSetText(g_deviceName, sizeof(g_deviceName), value.length() ? value : configBuildDefaultDeviceName());
     else changed = true;
-    if (configJsonGetString(json, "projectId", value)) g_projectId = value;
+    if (configJsonGetString(json, "projectId", value)) configSetText(g_projectId, sizeof(g_projectId), value);
     else changed = true;
-    if (configJsonGetString(json, "projectName", value)) g_projectName = value;
+    if (configJsonGetString(json, "projectName", value)) configSetText(g_projectName, sizeof(g_projectName), value);
     else changed = true;
-    if (configJsonGetString(json, "revisionId", value)) g_revisionId = value;
+    if (configJsonGetString(json, "revisionId", value)) configSetText(g_revisionId, sizeof(g_revisionId), value);
     else changed = true;
-    if (configJsonGetString(json, "scriptName", value)) g_scriptName = value;
+    if (configJsonGetString(json, "scriptName", value)) configSetText(g_scriptName, sizeof(g_scriptName), value);
     else changed = true;
-    if (configJsonGetString(json, "timezone", value)) g_timezone = configNormalizeTimezone(value);
+    if (configJsonGetString(json, "timezone", value)) configSetText(g_timezone, sizeof(g_timezone), configNormalizeTimezone(value));
     else changed = true;
     configApplyIdentityDefaults();
     configApplyTimezone();
     configLoadWifiNetworks(json);
     configLoadOnlineAuthUsers(json);
     int port = 0;
-    if (configJsonGetString(json, "mqttHost", value)) g_mqttHost = value;
+    if (configJsonGetString(json, "mqttHost", value)) configSetText(g_mqttHost, sizeof(g_mqttHost), value);
     else changed = true;
     if (configJsonGetInt(json, "mqttPort", port)) g_mqttPort = port;
     else changed = true;
     if (configJsonGetString(json, "mqttRoot", value)) {
-      g_mqttRoot = value;
+      configSetText(g_mqttRoot, sizeof(g_mqttRoot), value);
     }
     else changed = true;
-    if (configJsonGetString(json, "mqttUser", value)) g_mqttUser = value;
+    if (configJsonGetString(json, "mqttUser", value)) configSetText(g_mqttUser, sizeof(g_mqttUser), value);
     else changed = true;
-    if (configJsonGetString(json, "mqttPassword", value)) g_mqttPassword = value;
+    if (configJsonGetString(json, "mqttPassword", value)) configSetText(g_mqttPassword, sizeof(g_mqttPassword), value, false);
     else changed = true;
     if (!configJsonGetBool(json, "mqttEnabled", g_mqttEnabled)) changed = true;
     if (!configJsonGetBool(json, "mqttAllowAnonymousUi", g_mqttAllowAnonymousUi)) changed = true;
     if (!configJsonGetBool(json, "mqttAllowAnonymousScript", g_mqttAllowAnonymousScript)) changed = true;
-    if (configJsonGetString(json, "mqttGuestUiKey", value)) g_mqttGuestUiKey = configNormalizeGuestKey(value);
+    if (configJsonGetString(json, "mqttGuestUiKey", value)) configSetText(g_mqttGuestUiKey, sizeof(g_mqttGuestUiKey), configNormalizeGuestKey(value));
     else changed = true;
-    if (g_mqttAllowAnonymousUi && g_mqttGuestUiKey.length() < 16) {
-      g_mqttGuestUiKey = configGenerateGuestKey();
+    if (g_mqttAllowAnonymousUi && strlen(g_mqttGuestUiKey) < 16) {
+      configSetText(g_mqttGuestUiKey, sizeof(g_mqttGuestUiKey), configGenerateGuestKey());
       changed = true;
     }
     configApplyMqttDefaults();
@@ -467,15 +544,17 @@ void configSave() {
   json += ",\"onlineAuthUsers\":[";
   for (int i = 0; i < g_onlineAuthUserCount; i++) {
     if (i) json += ",";
-    json += "{\"username\":" + jsonString(g_onlineAuthUsernames[i]);
-    json += ",\"key\":" + jsonString(g_onlineAuthUserKeys[i]) + "}";
+    json += "{\"username\":" + jsonString(g_onlineAuthUsers[i].username);
+    json += ",\"key\":\"";
+    configAppendHex(json, g_onlineAuthUsers[i].key, sizeof(g_onlineAuthUsers[i].key));
+    json += "\"}";
   }
   json += "]";
   json += ",\"wifiNetworks\":[";
   for (int i = 0; i < g_wifiNetworkCount; i++) {
     if (i) json += ",";
-    json += "{\"ssid\":" + jsonString(g_wifiSsids[i]);
-    json += ",\"password\":" + jsonString(g_wifiPasswords[i]) + "}";
+    json += "{\"ssid\":" + jsonString(g_wifiNetworks[i].ssid);
+    json += ",\"password\":" + jsonString(g_wifiNetworks[i].password) + "}";
   }
   json += "]";
   json += "}\n";
@@ -497,29 +576,28 @@ void configFactoryReset() {
     prefs.end();
   }
 
-  g_deviceId = configBuildDeviceId();
-  g_deviceName = configBuildDefaultDeviceName();
-  g_projectId = "";
-  g_projectName = "";
-  g_revisionId = "";
-  g_scriptName = "";
-  g_timezone = "UTC0";
-  g_mqttHost = P1_EMBED_MQTT_HOST;
+  configSetText(g_deviceId, sizeof(g_deviceId), configBuildDeviceId());
+  configSetText(g_deviceName, sizeof(g_deviceName), configBuildDefaultDeviceName());
+  configClearText(g_projectId, sizeof(g_projectId));
+  configClearText(g_projectName, sizeof(g_projectName));
+  configClearText(g_revisionId, sizeof(g_revisionId));
+  configClearText(g_scriptName, sizeof(g_scriptName));
+  configSetText(g_timezone, sizeof(g_timezone), "UTC0");
+  configSetText(g_mqttHost, sizeof(g_mqttHost), P1_EMBED_MQTT_HOST);
   g_mqttPort = P1_EMBED_MQTT_PORT;
-  g_mqttRoot = P1_EMBED_MQTT_ROOT;
-  g_mqttUser = P1_EMBED_MQTT_USER;
-  g_mqttPassword = P1_EMBED_MQTT_PASS;
+  configSetText(g_mqttRoot, sizeof(g_mqttRoot), P1_EMBED_MQTT_ROOT);
+  configSetText(g_mqttUser, sizeof(g_mqttUser), P1_EMBED_MQTT_USER);
+  configSetText(g_mqttPassword, sizeof(g_mqttPassword), P1_EMBED_MQTT_PASS, false);
   g_mqttEnabled = true;
   g_mqttAllowAnonymousUi = false;
   g_mqttAllowAnonymousScript = false;
+  configClearText(g_mqttGuestUiKey, sizeof(g_mqttGuestUiKey));
   g_onlineAuthUserCount = 0;
   for (int i = 0; i < P1_EMBED_MQTT_MAX_USERS; i++) {
-    g_onlineAuthUsernames[i] = "";
-    g_onlineAuthUserKeys[i] = "";
+    configClearOnlineAuthUserAt(i);
   }
   for (int i = 0; i < P1_EMBED_MAX_WIFI_NETWORKS; i++) {
-    g_wifiSsids[i] = "";
-    g_wifiPasswords[i] = "";
+    configClearWifiNetworkAt(i);
   }
   g_wifiNetworkCount = 0;
   configApplyTimezone();
@@ -527,86 +605,80 @@ void configFactoryReset() {
 }
 
 String configDeviceId() {
-  return g_deviceId.length() ? g_deviceId : configBuildDeviceId();
+  return configTextHasValue(g_deviceId) ? configText(g_deviceId) : configBuildDeviceId();
 }
 
 String configDeviceName() {
-  return g_deviceName.length() ? g_deviceName : configBuildDefaultDeviceName();
+  return configTextHasValue(g_deviceName) ? configText(g_deviceName) : configBuildDefaultDeviceName();
 }
 
 void configSetDeviceName(const String& value) {
-  g_deviceName = value.length() ? value : configBuildDefaultDeviceName();
+  configSetText(g_deviceName, sizeof(g_deviceName), value.length() ? value : configBuildDefaultDeviceName());
 }
 
 String configProjectId() {
-  return g_projectId;
+  return configText(g_projectId);
 }
 
 String configProjectName() {
-  return g_projectName;
+  return configText(g_projectName);
 }
 
 void configSetProject(const String& id, const String& name) {
-  g_projectId = id;
-  g_projectId.trim();
-  g_projectName = name;
-  g_projectName.trim();
+  configSetText(g_projectId, sizeof(g_projectId), id);
+  configSetText(g_projectName, sizeof(g_projectName), name);
 }
 
 String configRevisionId() {
-  return g_revisionId;
+  return configText(g_revisionId);
 }
 
 void configSetRevisionId(const String& id) {
-  g_revisionId = id;
-  g_revisionId.trim();
+  configSetText(g_revisionId, sizeof(g_revisionId), id);
 }
 
 String configScriptName() {
-  return g_scriptName;
+  return configText(g_scriptName);
 }
 
 void configSetScriptName(const String& name) {
-  g_scriptName = name;
-  g_scriptName.trim();
+  configSetText(g_scriptName, sizeof(g_scriptName), name);
 }
 
 String configTimezone() {
-  return configNormalizeTimezone(g_timezone);
+  return configNormalizeTimezone(configText(g_timezone));
 }
 
 void configSetTimezone(const String& value) {
-  g_timezone = configNormalizeTimezone(value);
+  configSetText(g_timezone, sizeof(g_timezone), configNormalizeTimezone(value));
   configApplyTimezone();
 }
 
 void configSetWifiSsid(const String& value) {
   if (!value.length()) return;
-  String password = g_wifiNetworkCount > 0 ? g_wifiPasswords[0] : "";
+  String password = g_wifiNetworkCount > 0 ? configText(g_wifiNetworks[0].password) : "";
   configAddWifiNetwork(value, password);
 }
 
 void configSetWifiPassword(const String& value) {
-  if (g_wifiNetworkCount > 0) g_wifiPasswords[0] = value;
+  if (g_wifiNetworkCount > 0) configSetText(g_wifiNetworks[0].password, sizeof(g_wifiNetworks[0].password), value, false);
 }
 
 bool configRemoveWifiNetworkAt(int index) {
   if (index < 0 || index >= g_wifiNetworkCount) return false;
   for (int i = index; i < g_wifiNetworkCount - 1; i++) {
-    g_wifiSsids[i] = g_wifiSsids[i + 1];
-    g_wifiPasswords[i] = g_wifiPasswords[i + 1];
+    configCopyWifiNetworkSlot(i, i + 1);
   }
   g_wifiNetworkCount--;
   if (g_wifiNetworkCount < 0) g_wifiNetworkCount = 0;
-  g_wifiSsids[g_wifiNetworkCount] = "";
-  g_wifiPasswords[g_wifiNetworkCount] = "";
+  configClearWifiNetworkAt(g_wifiNetworkCount);
   return true;
 }
 
 void configSetMqttHost(const String& value) {
   String next = value;
   next.trim();
-  g_mqttHost = next.length() ? next : String(P1_EMBED_MQTT_HOST);
+  configSetText(g_mqttHost, sizeof(g_mqttHost), next.length() ? next : String(P1_EMBED_MQTT_HOST));
 }
 
 void configSetMqttPort(int value) {
@@ -616,17 +688,17 @@ void configSetMqttPort(int value) {
 void configSetMqttRoot(const String& value) {
   String next = value;
   next.trim();
-  g_mqttRoot = next.length() ? next : String(P1_EMBED_MQTT_ROOT);
+  configSetText(g_mqttRoot, sizeof(g_mqttRoot), next.length() ? next : String(P1_EMBED_MQTT_ROOT));
 }
 
 void configSetMqttUser(const String& value) {
   String next = value;
   next.trim();
-  g_mqttUser = next.length() ? next : String(P1_EMBED_MQTT_USER);
+  configSetText(g_mqttUser, sizeof(g_mqttUser), next.length() ? next : String(P1_EMBED_MQTT_USER));
 }
 
 void configSetMqttPassword(const String& value) {
-  g_mqttPassword = value.length() ? value : String(P1_EMBED_MQTT_PASS);
+  configSetText(g_mqttPassword, sizeof(g_mqttPassword), value.length() ? value : String(P1_EMBED_MQTT_PASS), false);
 }
 
 void configSetMqttEnabled(bool value) {
@@ -635,7 +707,7 @@ void configSetMqttEnabled(bool value) {
 
 void configSetMqttAllowAnonymousUi(bool value) {
   g_mqttAllowAnonymousUi = value;
-  if (value && g_mqttGuestUiKey.length() < 16) g_mqttGuestUiKey = configGenerateGuestKey();
+  if (value && strlen(g_mqttGuestUiKey) < 16) configSetText(g_mqttGuestUiKey, sizeof(g_mqttGuestUiKey), configGenerateGuestKey());
 }
 
 void configSetMqttAllowAnonymousScript(bool value) {
@@ -643,7 +715,7 @@ void configSetMqttAllowAnonymousScript(bool value) {
 }
 
 void configSetMqttGuestUiKey(const String& value) {
-  g_mqttGuestUiKey = configNormalizeGuestKey(value);
+  configSetText(g_mqttGuestUiKey, sizeof(g_mqttGuestUiKey), configNormalizeGuestKey(value));
 }
 
 P1OnlineAuthUserAddResult configAddOnlineAuthUserKeyChecked(const String& username, const String& keyHex) {
@@ -661,8 +733,8 @@ P1OnlineAuthUserAddResult configAddOnlineAuthUserKeyChecked(const String& userna
     if (g_onlineAuthUserCount >= P1_EMBED_MQTT_MAX_USERS) return P1_ONLINE_AUTH_USER_LIMIT;
     index = g_onlineAuthUserCount++;
   }
-  g_onlineAuthUsernames[index] = user;
-  g_onlineAuthUserKeys[index] = key;
+  configSetText(g_onlineAuthUsers[index].username, sizeof(g_onlineAuthUsers[index].username), user);
+  memcpy(g_onlineAuthUsers[index].key, parsed, sizeof(parsed));
   return P1_ONLINE_AUTH_USER_ADDED;
 }
 
@@ -676,12 +748,10 @@ bool configRemoveOnlineAuthUser(const String& username) {
   int index = configFindOnlineAuthUser(user);
   if (index < 0) return false;
   for (int i = index; i < g_onlineAuthUserCount - 1; i++) {
-    g_onlineAuthUsernames[i] = g_onlineAuthUsernames[i + 1];
-    g_onlineAuthUserKeys[i] = g_onlineAuthUserKeys[i + 1];
+    configCopyOnlineAuthUserSlot(i, i + 1);
   }
   g_onlineAuthUserCount--;
-  g_onlineAuthUsernames[g_onlineAuthUserCount] = "";
-  g_onlineAuthUserKeys[g_onlineAuthUserCount] = "";
+  configClearOnlineAuthUserAt(g_onlineAuthUserCount);
   return true;
 }
 
@@ -691,19 +761,23 @@ int configOnlineAuthUserCount() {
 
 String configOnlineAuthUserNameAt(int index) {
   if (index < 0 || index >= g_onlineAuthUserCount) return "";
-  return g_onlineAuthUsernames[index];
+  return configText(g_onlineAuthUsers[index].username);
 }
 
 bool configOnlineAuthUserKey(const String& username, uint8_t outKey[32]) {
   int index = configFindOnlineAuthUser(username);
   if (index < 0) return false;
-  return configHexToBytes(g_onlineAuthUserKeys[index], outKey, 32);
+  if (!outKey) return false;
+  memcpy(outKey, g_onlineAuthUsers[index].key, 32);
+  return true;
 }
 
 bool configOnlineAuthUserKey(const char* username, uint8_t outKey[32]) {
   int index = configFindOnlineAuthUser(username);
   if (index < 0) return false;
-  return configHexToBytes(g_onlineAuthUserKeys[index], outKey, 32);
+  if (!outKey) return false;
+  memcpy(outKey, g_onlineAuthUsers[index].key, 32);
+  return true;
 }
 
 String configWifiSsid() {
@@ -720,16 +794,16 @@ int configWifiNetworkCount() {
 
 String configWifiSsidAt(int index) {
   if (index < 0 || index >= g_wifiNetworkCount) return "";
-  return g_wifiSsids[index];
+  return configText(g_wifiNetworks[index].ssid);
 }
 
 String configWifiPasswordAt(int index) {
   if (index < 0 || index >= g_wifiNetworkCount) return "";
-  return g_wifiPasswords[index];
+  return configText(g_wifiNetworks[index].password);
 }
 
 String configMqttHost() {
-  return g_mqttHost.length() ? g_mqttHost : String(P1_EMBED_MQTT_HOST);
+  return configTextHasValue(g_mqttHost) ? configText(g_mqttHost) : String(P1_EMBED_MQTT_HOST);
 }
 
 int configMqttPort() {
@@ -737,17 +811,17 @@ int configMqttPort() {
 }
 
 String configMqttRoot() {
-  if (g_mqttRoot.length()) return g_mqttRoot;
+  if (configTextHasValue(g_mqttRoot)) return configText(g_mqttRoot);
   String root = P1_EMBED_MQTT_ROOT;
   return root.length() ? root : configBuildDefaultMqttRoot();
 }
 
 String configMqttUser() {
-  return g_mqttUser.length() ? g_mqttUser : String(P1_EMBED_MQTT_USER);
+  return configTextHasValue(g_mqttUser) ? configText(g_mqttUser) : String(P1_EMBED_MQTT_USER);
 }
 
 String configMqttPassword() {
-  return g_mqttPassword.length() ? g_mqttPassword : String(P1_EMBED_MQTT_PASS);
+  return configTextHasValue(g_mqttPassword) ? configText(g_mqttPassword) : String(P1_EMBED_MQTT_PASS);
 }
 
 bool configMqttEnabled() {
@@ -763,7 +837,7 @@ bool configMqttAllowAnonymousScript() {
 }
 
 String configMqttGuestUiKey() {
-  return g_mqttGuestUiKey;
+  return configText(g_mqttGuestUiKey);
 }
 
 bool configMqttGuestUiKeyMatches(const String& value) {
@@ -773,11 +847,11 @@ bool configMqttGuestUiKeyMatches(const String& value) {
 }
 
 String configEnsureMqttGuestUiKey() {
-  if (g_mqttGuestUiKey.length() < 16) {
-    g_mqttGuestUiKey = configGenerateGuestKey();
+  if (strlen(g_mqttGuestUiKey) < 16) {
+    configSetText(g_mqttGuestUiKey, sizeof(g_mqttGuestUiKey), configGenerateGuestKey());
     configSave();
   }
-  return g_mqttGuestUiKey;
+  return configText(g_mqttGuestUiKey);
 }
 
 P1ConfigSnapshot configSnapshot() {

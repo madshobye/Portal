@@ -795,3 +795,293 @@ Notes:
   connection/client boundary rather than firmware behavior.
 - LocalStorage/project/chat JSON remains untouched; that is app data, not the
   firmware protocol path.
+
+## Iteration 18 - Static RAM Cleanup
+
+Changes:
+
+- Removed dormant WebSocket static RAM when `P1_EMBED_WS_ENABLED` is off by
+  compiling the transport to stubs.
+- Split the legacy serial JSON line buffer from the old `P1_EMBED_LINE_MAX`
+  worst case and reduced it to `P1_EMBED_SERIAL_JSON_LINE_MAX = 2048`.
+  Large USB/script traffic should use MsgPack and chunk commands.
+- Disabled the memory profiler by default. When enabled for debug builds, the
+  sample ring is now allocated lazily instead of being permanent BSS.
+- Moved UI input/state/output/outbound buffers from permanent BSS to lazy heap
+  storage, released on UI/runtime reset.
+- Moved Home Assistant entity/event/RX buffers from permanent BSS to lazy heap
+  storage. HA entity storage appears only after `haBegin(...)`; RX storage
+  appears only while a HA client is active.
+- Kept UI and HA API shape unchanged for sketches.
+
+Verification:
+
+- SafeBoot app-only compile succeeded.
+- App globals dropped from `104464` bytes before this memory pass to `74880`
+  bytes after it, recovering `29584` bytes of permanent RAM.
+- App image size after this pass: `1958832 / 2293760` bytes.
+- App-only SafeBoot upload at `921600` baud succeeded and verified the flash
+  hash.
+- Serial tests passed after upload:
+  - `protocol_smoke`: `5 passed, 0 failed`
+  - `serial_msgpack_mode`: `1 passed, 0 failed`
+  - `wrench_structured_returns`: `7 passed, 0 failed`
+  - `empty_strings`: `2 passed, 0 failed`
+- `memory.profile` reports disabled in the default build.
+- A small `haBegin(...)`/`haSensor(...)` script queued successfully and left no
+  script error.
+- `git diff --check` passed.
+
+Notes:
+
+- Two serial test attempts timed out because I accidentally launched multiple
+  serial clients against the same port. Sequential reruns passed.
+- HA client protocol behavior still deserves manual Home Assistant testing
+  because the automated check only covers lazy entity allocation, not an
+  external native API connection.
+
+## Iteration 19 - Protocol Frame Buffer Reuse
+
+Changes:
+
+- Added one mutex-protected reusable protocol frame buffer for MsgPack response
+  and event construction.
+- Converted repeated protocol scratch allocations to the reusable buffer:
+  - `status.light`, `status.get`, `status.full`, `status.live`
+  - `system.info`
+  - `config.get`
+  - `script.error`
+  - `script.get`
+  - `script.chunk.get`
+  - `firmware.update.status`
+  - protocol MsgPack event emission
+  - JSON projection helpers that first build MsgPack and then convert it to
+    JSON
+- Kept small fixed stack frames for tiny responses such as `ping`, state, inbox,
+  and received counters.
+- Left true content allocations alone for now, such as decoded bytecode/script
+  payload storage. Those have a different ownership lifecycle than temporary
+  protocol response frames.
+- Released the reusable protocol frame buffer at Wrench compile/run memory
+  pressure points, alongside MQTT scratch buffers.
+
+Intent:
+
+- Reduce heap fragmentation from recurring protocol requests without bringing
+  back a permanent 4 KB static response array.
+- Keep MsgPack as the canonical response shape; JSON helpers still project from
+  MsgPack when legacy/debug JSON is needed.
+
+Verification:
+
+- `git diff --check` passed before compile.
+- SafeBoot app-only compile succeeded:
+  - app image size: `1960000 / 2293760` bytes
+  - globals: `74928` bytes, leaving `252752`
+- App-only upload at `921600` baud succeeded and verified the flash hash.
+- Serial tests passed after upload:
+  - `protocol_smoke`: `5 passed, 0 failed`
+  - `serial_msgpack_mode`: `1 passed, 0 failed`
+  - `wrench_structured_returns`: `7 passed, 0 failed`
+  - `empty_strings`: `2 passed, 0 failed`
+- Direct serial JSON-helper smoke checks passed:
+  - `status.full` returned a full status document
+  - `config.get` returned config including `scriptName: Hourglass 11`
+
+Notes:
+
+- One direct probe attempt timed out because `status.full` and `config.get`
+  were accidentally launched in parallel against the same serial port.
+  Sequential reruns passed.
+
+## Iteration 20 - Bounded Script Error State and Debug Overloads
+
+Changes:
+
+- Replaced persistent script error `String` fields with bounded internal
+  `char[]` storage for phase, code, message, and detail JSON fragments.
+- Replaced script error duplicate-emission key construction with an FNV-style
+  hash, avoiding a concatenated `String` on every repeated error.
+- Kept the external error schema unchanged:
+  - `hasError`
+  - `count`
+  - `phase`
+  - `code`
+  - `message`
+  - `atMs`
+  - detail fields when present
+- Added `const char*` debug/event overloads so literal-heavy debug paths do not
+  first allocate temporary Arduino `String` objects.
+- Added a `const char*` `jsonString(...)` overload for those debug/event paths.
+- Released protocol scratch after boot/status event emission. This avoids a
+  periodic status event retaining the shared protocol frame buffer during a
+  running Wrench script and perturbing heap recovery diagnostics.
+
+Verification:
+
+- `git diff --check` passed.
+- SafeBoot app-only compile succeeded:
+  - app image size: `1945360 / 2293760` bytes
+  - globals: `75368` bytes, leaving `252312`
+- App-only upload at `921600` baud succeeded and verified the flash hash.
+- Serial tests passed after upload:
+  - `protocol_smoke`: `5 passed, 0 failed`
+  - `serial_msgpack_mode`: `1 passed, 0 failed`
+  - `wrench_structured_returns`: `7 passed, 0 failed`
+  - `empty_strings`: `2 passed, 0 failed`
+- Direct script compile-error smoke passed:
+  - malformed script produced `phase: compile`
+  - `code: compile_error`
+  - details still projected into `script.error.get`
+  - the intentional error was cleared afterward
+
+Notes:
+
+- A `script.chunk.get` timeout immediately after flashing looked like a reset
+  during startup. The exact raw command sequence passed afterward, and the full
+  protocol suite passed from the settled state.
+- A Wrench heap recovery check initially failed because a periodic status event
+  retained protocol scratch while the script was running. Releasing scratch
+  after status/boot events fixed the case.
+- Two remaining test attempts timed out because the USB port was either held by
+  the browser or accidentally used in parallel. Sequential reruns passed.
+
+## Iteration 21 - MQTT Runtime Buffer Lifetime
+
+Changes:
+
+- Made the MQTT outbound queue lazy. MQTT begin/connect no longer allocates the
+  FreeRTOS queue just because MQTT is enabled; it appears only when a non-owner
+  task needs to queue outbound data.
+- Added short idle release for the MQTT outbound queue once it is empty.
+- Added explicit last-use tracking and idle release for the MQTT event batch
+  buffer. The 3 KB batch buffer is retained only long enough to coalesce a
+  burst, then released.
+- Shortened secure-frame scratch retention. Secure MQTT publish still builds a
+  bounded contiguous encrypted frame, but the reusable frame buffer is released
+  after the secure publish burst goes quiet.
+- Extended MQTT memory-pressure cleanup to release an empty outbound queue and
+  reset the new buffer lifetime clocks.
+
+Rationale:
+
+- Keep reusable scratch where it prevents burst fragmentation, but stop turning
+  those burst buffers into background heap occupants.
+- Avoid adding another buffer framework. Each retained MQTT allocation now has a
+  simple reason and a clear release path.
+- Leave true streaming encryption for later measurement. AES-CTR can be chunked,
+  but the current MQTT publish API and secure frame/HMAC layout still expect one
+  contiguous publish payload. The bounded full-frame buffer is acceptable for
+  current frame sizes as long as it is short-lived.
+
+Verification:
+
+- SafeBoot app-only compile succeeded:
+  - app image size: `1945696 / 2293760` bytes
+  - globals: `75376` bytes, leaving `252304`
+- App-only upload at `921600` baud succeeded and verified the flash hash.
+- Serial tests passed after upload:
+  - `protocol_smoke`: `5 passed, 0 failed`
+  - `serial_msgpack_mode`: `1 passed, 0 failed`
+  - `wrench_structured_returns`: `7 passed, 0 failed`
+  - `empty_strings`: `2 passed, 0 failed`
+- Final `status.full` after idle showed:
+  - MQTT outbound queue not allocated
+  - MQTT event batch buffer capacity `0`
+  - MQTT secure frame buffer capacity `0`
+
+Notes:
+
+- The event batch buffer can appear briefly during MQTT status/event bursts; it
+  released correctly after the idle window.
+- This pass does not change MQTT encryption semantics or wire format.
+
+## Iteration 22 - Serial Test Board Preservation
+
+Changes:
+
+- Replaced the earlier serial-test metadata stamping idea with a board
+  snapshot/restore flow.
+- Before each serial test, the harness now snapshots:
+  - `projectId`
+  - `projectName`
+  - `revisionId`
+  - `scriptName`
+  - stored script source via `script.chunk.get`
+  - whether the script was stored/running
+- After each test, the harness restores the script source with chunk upload,
+  then restores the original project/revision/script metadata.
+
+Rationale:
+
+- The earlier approach of stamping `Unit Testing` metadata was too blunt: it
+  protected against code/name mismatch but overwrote real project metadata that
+  the web UI depends on.
+- The correct default for hardware tests is to leave the board as it was found,
+  including revision ids/hashes that matter for web-side matching.
+
+Verification:
+
+- Python syntax check passed with bytecode cache redirected to `/private/tmp`.
+- Serial script-writing smoke passed with restore:
+  - `test_empty_strings_do_not_report_malloc_failed`: `1 passed, 0 failed`
+- Before and after the test, `config.get` stayed at:
+  - `projectId: p1e-prj-mpu4efko-2phe29`
+  - `scriptName: Hourglass 11`
+  - `revisionId: rev-73a84891-b935-4083-898e-f4edb0706436`
+- `script.chunk.get` after the test returned the 9288-byte Hourglass source
+  beginning with the hourglass comment, not the unit-test snippet.
+
+Notes:
+
+- The board still showed `projectName: Unit Testing` from the earlier bad
+  stamp. I did not guess the original project name.
+
+## Iteration 23 - Config Backing Storage
+
+Changes:
+
+- Replaced long-lived config `String` globals with bounded backing storage in
+  `config_store.ino`.
+- Moved WiFi networks from parallel `String` arrays to fixed credential slots:
+  SSID and password are copied into bounded fields.
+- Moved online auth users from username/key hex `String` arrays to bounded
+  usernames plus 32-byte binary keys.
+- Kept the public config API returning `String` for compatibility with the rest
+  of the firmware.
+- Kept JSON save/load behavior and the on-disk `/config.json` schema unchanged.
+
+Rationale:
+
+- Config is always needed, so the goal is not lazy loading. The goal is to stop
+  config from owning scattered, long-lived heap allocations.
+- Online auth keys are runtime secrets, not text. Storing them as raw bytes
+  avoids retaining 64-character hex strings and avoids reparsing on every auth
+  lookup.
+- Fixed backing storage is a deliberate tradeoff: globals increased modestly,
+  but the config heap shape is now predictable and stable.
+
+Verification:
+
+- SafeBoot app-only compile succeeded:
+  - app image size: `1945376 / 2293760` bytes
+  - globals: `76440` bytes, leaving `251240`
+- App-only upload at `921600` baud succeeded and verified the flash hash.
+- Config/auth live checks passed:
+  - added temporary online auth user `unit-auth`
+  - removed `unit-auth`
+  - rebooted
+  - `config.get` showed WiFi, MQTT, project metadata, and the remaining auth
+    user persisted correctly
+- Serial tests passed after upload/reboot:
+  - `protocol_smoke`: `5 passed, 0 failed`
+  - `serial_msgpack_mode`: `1 passed, 0 failed`
+  - `empty_strings`: `2 passed, 0 failed`
+  - `wrench_structured_returns`: `7 passed, 0 failed`
+
+Notes:
+
+- The reboot shell helper still points at an old serial device path; protocol
+  `device.reboot` was used on `/dev/cu.wchusbserial110` instead.
+- This pass does not remove temporary `String` use while parsing/saving config
+  JSON. Those are load/save-time allocations, not permanent config state.

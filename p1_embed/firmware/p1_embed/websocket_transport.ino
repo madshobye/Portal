@@ -1,9 +1,12 @@
 #include <Arduino.h>
+#include "p1_embed_firmware.h"
+
+#if P1_EMBED_WS_ENABLED
+
 #include <ESPmDNS.h>
 #include <WebSockets.h>
 #include <WebSocketsServer.h>
 #include <WiFi.h>
-#include "p1_embed_firmware.h"
 
 static WebSocketsServer g_ws(P1_EMBED_WS_PORT);
 static bool g_wsEnabled = false;
@@ -280,3 +283,26 @@ P1WebTransportSnapshot webTransportSnapshot() {
   snapshot.host = g_mdnsStarted ? g_mdnsName + ".local" : webTransportHostName() + ".local";
   return snapshot;
 }
+
+#else
+
+void webTransportBegin() {}
+
+void webTransportLoop() {}
+
+void webTransportSendLine(const String& line) {
+  (void)line;
+}
+
+P1WebTransportSnapshot webTransportSnapshot() {
+  P1WebTransportSnapshot snapshot;
+  snapshot.enabled = false;
+  snapshot.started = false;
+  snapshot.port = P1_EMBED_WS_PORT;
+  snapshot.clients = 0;
+  snapshot.mdns = false;
+  snapshot.host = "";
+  return snapshot;
+}
+
+#endif

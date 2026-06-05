@@ -1,7 +1,7 @@
 #include <Arduino.h>
 #include "p1_embed_firmware.h"
 
-static char g_serialLine[P1_EMBED_LINE_MAX];
+static char g_serialLine[P1_EMBED_SERIAL_JSON_LINE_MAX];
 static size_t g_serialLineLen = 0;
 static bool g_serialDiscardLine = false;
 static SemaphoreHandle_t g_transportWriteLock = nullptr;

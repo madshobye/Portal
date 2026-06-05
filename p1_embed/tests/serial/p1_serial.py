@@ -26,6 +26,14 @@ OPS = {
 }
 
 
+def fnv1a_hex(text):
+    h = 0x811C9DC5
+    for b in str(text or "").encode("utf-8"):
+        h ^= b
+        h = (h * 0x01000193) & 0xFFFFFFFF
+    return f"{h:08x}"
+
+
 class P1Serial:
     def __init__(self, port, baud=115200, trace=False):
         self.port = port
@@ -329,6 +337,82 @@ class P1Serial:
     def clear_error(self):
         self.command("script.error.clear", timeout=3.0)
         self.events = []
+
+    def board_snapshot(self):
+        config = self.command("config.get", timeout=6.0)
+        status = self.command("status.get", timeout=6.0)
+        return {
+            "config": {
+                "projectId": config.get("projectId") or "",
+                "projectName": config.get("projectName") or "",
+                "revisionId": config.get("revisionId") or "",
+                "scriptName": config.get("scriptName") or "",
+            },
+            "code": self.download_script_source(),
+            "scriptStored": bool(status.get("scriptStored")),
+            "scriptWasRunning": status.get("scriptState") in ("running", "busy"),
+        }
+
+    def restore_board_snapshot(self, snapshot):
+        if not snapshot:
+            return
+        if self.protocol != "json":
+            self.set_protocol("json")
+        self.stop_script()
+        self.clear_error()
+        code = snapshot.get("code") or ""
+        if code:
+            self.upload_script_source(
+                code,
+                run=bool(snapshot.get("scriptWasRunning")),
+                save=bool(snapshot.get("scriptStored")),
+            )
+        else:
+            self.command("script.clear", timeout=6.0)
+        config = snapshot.get("config") or {}
+        self.command("config.set", {
+            "projectId": config.get("projectId") or "",
+            "projectName": config.get("projectName") or "",
+            "revisionId": config.get("revisionId") or "",
+            "scriptName": config.get("scriptName") or "",
+        }, timeout=6.0)
+        self.clear_error()
+
+    def download_script_source(self, chunk_size=512):
+        chunks = []
+        offset = 0
+        while True:
+            data = self.command("script.chunk.get", {"offset": offset, "maxBytes": chunk_size}, timeout=8.0)
+            chunk = data.get("chunk") or ""
+            chunks.append(chunk)
+            if data.get("done"):
+                return "".join(chunks)
+            next_offset = int(data.get("nextOffset", offset + len(chunk)))
+            if next_offset <= offset:
+                raise P1SerialError("script.chunk.get did not advance")
+            offset = next_offset
+
+    def upload_script_source(self, code, run=False, save=False, chunk_size=360):
+        code_bytes = code.encode("utf-8")
+        self.command(
+            "script.chunk.begin",
+            {
+                "codeBytes": len(code_bytes),
+                "codeHash": fnv1a_hex(code),
+                "run": bool(run),
+                "save": bool(save),
+            },
+            timeout=10.0,
+        )
+        offset = 0
+        while offset < len(code):
+            chunk = code[offset:offset + chunk_size]
+            data = self.command("script.chunk.add", {"offset": offset, "chunk": chunk}, timeout=10.0)
+            next_offset = int(data.get("received", offset + len(chunk)))
+            if next_offset <= offset:
+                raise P1SerialError("script.chunk.add did not advance")
+            offset = next_offset
+        self.command("script.chunk.commit", {}, timeout=20.0)
 
     def trim_events(self):
         if len(self.events) > self.max_events:

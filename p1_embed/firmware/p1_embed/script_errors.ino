@@ -2,14 +2,37 @@
 #include "p1_embed_firmware.h"
 
 static bool g_scriptErrorHasLast = false;
-static String g_scriptErrorPhase = "";
-static String g_scriptErrorCode = "";
-static String g_scriptErrorMessage = "";
-static String g_scriptErrorDetails = "";
+static char g_scriptErrorPhase[P1_EMBED_SCRIPT_ERROR_PHASE_MAX];
+static char g_scriptErrorCode[P1_EMBED_SCRIPT_ERROR_CODE_MAX];
+static char g_scriptErrorMessage[P1_EMBED_SCRIPT_ERROR_MESSAGE_MAX];
+static char g_scriptErrorDetails[P1_EMBED_SCRIPT_ERROR_DETAILS_MAX];
 static uint32_t g_scriptErrorAtMs = 0;
 static uint32_t g_scriptErrorCount = 0;
-static String g_scriptErrorLastEmitKey = "";
+static uint32_t g_scriptErrorLastEmitHash = 0;
 static uint32_t g_scriptErrorLastEmitAtMs = 0;
+
+static void scriptErrorCopyText(char* dst, size_t size, const char* src) {
+  if (!dst || size == 0) return;
+  if (!src) src = "";
+  size_t i = 0;
+  for (; i + 1 < size && src[i]; i++) dst[i] = src[i];
+  dst[i] = 0;
+}
+
+static uint32_t scriptErrorHashPart(uint32_t h, const char* value) {
+  if (!value) value = "";
+  while (*value) {
+    h ^= (uint8_t)*value++;
+    h *= 16777619u;
+  }
+  h ^= 0xff;
+  h *= 16777619u;
+  return h;
+}
+
+static size_t scriptErrorStringLength(const char* value) {
+  return value ? strlen(value) : 0;
+}
 
 const char* scriptErrorWrenchName(int code) {
   switch ((WRError)code) {
@@ -71,12 +94,12 @@ const char* scriptErrorWrenchName(int code) {
 
 void scriptErrorClear() {
   g_scriptErrorHasLast = false;
-  g_scriptErrorPhase = "";
-  g_scriptErrorCode = "";
-  g_scriptErrorMessage = "";
-  g_scriptErrorDetails = "";
+  g_scriptErrorPhase[0] = 0;
+  g_scriptErrorCode[0] = 0;
+  g_scriptErrorMessage[0] = 0;
+  g_scriptErrorDetails[0] = 0;
   g_scriptErrorAtMs = 0;
-  g_scriptErrorLastEmitKey = "";
+  g_scriptErrorLastEmitHash = 0;
   g_scriptErrorLastEmitAtMs = 0;
 }
 
@@ -89,7 +112,7 @@ static String scriptErrorBuildJson(const P1ScriptErrorSnapshot& snapshot, bool i
     out += ",\"code\":" + jsonString(snapshot.code);
     out += ",\"message\":" + jsonString(snapshot.message);
     out += ",\"atMs\":" + String(snapshot.atMs);
-    if (includeDetails && snapshot.details.length()) out += "," + snapshot.details;
+    if (includeDetails && scriptErrorStringLength(snapshot.details)) out += "," + String(snapshot.details);
   }
   out += "}";
   return out;
@@ -97,31 +120,41 @@ static String scriptErrorBuildJson(const P1ScriptErrorSnapshot& snapshot, bool i
 
 static void scriptErrorStore(const String& phase, const String& code, const String& message, const String& detailFieldsJson) {
   g_scriptErrorHasLast = true;
-  g_scriptErrorPhase = phase;
-  g_scriptErrorCode = code;
-  g_scriptErrorMessage = message;
-  g_scriptErrorDetails = detailFieldsJson;
+  scriptErrorCopyText(g_scriptErrorPhase, sizeof(g_scriptErrorPhase), phase.c_str());
+  scriptErrorCopyText(g_scriptErrorCode, sizeof(g_scriptErrorCode), code.c_str());
+  scriptErrorCopyText(g_scriptErrorMessage, sizeof(g_scriptErrorMessage), message.c_str());
+  if (detailFieldsJson.length() < sizeof(g_scriptErrorDetails)) {
+    scriptErrorCopyText(g_scriptErrorDetails, sizeof(g_scriptErrorDetails), detailFieldsJson.c_str());
+  } else {
+    snprintf(g_scriptErrorDetails, sizeof(g_scriptErrorDetails),
+             "\"detailsTruncated\":true,\"detailsBytes\":%u",
+             (unsigned)detailFieldsJson.length());
+  }
   g_scriptErrorAtMs = millis();
   g_scriptErrorCount++;
 }
 
 static void scriptErrorEmit(const char* level, const String& phase, const String& code, const String& message) {
-  String emitKey = String(level ? level : "") + "\n" + phase + "\n" + code + "\n" + message;
+  uint32_t emitHash = 2166136261u;
+  emitHash = scriptErrorHashPart(emitHash, level);
+  emitHash = scriptErrorHashPart(emitHash, phase.c_str());
+  emitHash = scriptErrorHashPart(emitHash, code.c_str());
+  emitHash = scriptErrorHashPart(emitHash, message.c_str());
   uint32_t now = millis();
-  if (emitKey == g_scriptErrorLastEmitKey && now - g_scriptErrorLastEmitAtMs < P1_EMBED_SCRIPT_ERROR_EMIT_REPEAT_MS) {
+  if (emitHash == g_scriptErrorLastEmitHash && now - g_scriptErrorLastEmitAtMs < P1_EMBED_SCRIPT_ERROR_EMIT_REPEAT_MS) {
     return;
   }
-  g_scriptErrorLastEmitKey = emitKey;
+  g_scriptErrorLastEmitHash = emitHash;
   g_scriptErrorLastEmitAtMs = now;
   P1EventField fields[] = {
     p1FieldBool("hasError", true),
-    p1FieldString("phase", phase),
-    p1FieldString("code", code),
-    p1FieldString("message", message),
+    p1FieldString("phase", g_scriptErrorPhase),
+    p1FieldString("code", g_scriptErrorCode),
+    p1FieldString("message", g_scriptErrorMessage),
     p1FieldUInt("atMs", g_scriptErrorAtMs),
     p1FieldUInt("count", g_scriptErrorCount),
   };
-  debugEventEmitFields("script.error", level, "script", message, fields, 6);
+  debugEventEmitFields("script.error", level, "script", g_scriptErrorMessage, fields, 6);
 }
 
 void scriptErrorSet(const String& phase, const String& code, const String& message, const String& detailFieldsJson) {
@@ -152,7 +185,7 @@ P1ScriptErrorSnapshot scriptErrorSnapshot() {
 }
 
 String scriptErrorLastCode() {
-  return g_scriptErrorCode;
+  return String(g_scriptErrorCode);
 }
 
 String scriptErrorLastJson(const P1ScriptErrorSnapshot& snapshot) {
@@ -164,15 +197,15 @@ String scriptErrorLastJson() {
 }
 
 String scriptErrorLastPhase() {
-  return g_scriptErrorPhase;
+  return String(g_scriptErrorPhase);
 }
 
 String scriptErrorLastMessage() {
-  return g_scriptErrorMessage;
+  return String(g_scriptErrorMessage);
 }
 
 String scriptErrorLastDetails() {
-  return g_scriptErrorDetails;
+  return String(g_scriptErrorDetails);
 }
 
 uint32_t scriptErrorLastAtMs() {

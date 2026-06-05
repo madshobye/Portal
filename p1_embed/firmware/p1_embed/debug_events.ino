@@ -11,15 +11,39 @@ static volatile uint32_t g_debugQueueDrops = 0;
 static volatile uint32_t g_debugQueueHighWater = 0;
 static uint8_t g_debugLevel = P1_EMBED_DEBUG_DEFAULT_LEVEL;
 
-static uint8_t debugLevelValue(const String& level) {
-  if (level == "system") return 0;
-  if (level == "error") return 0;
-  if (level == "warn") return 1;
-  if (level == "info") return 2;
-  if (level == "debug") return 3;
-  if (level == "trace") return 4;
-  if (level == "silent") return 255;
+static bool debugTextEquals(const char* a, const char* b) {
+  if (!a) a = "";
+  if (!b) b = "";
+  return strcmp(a, b) == 0;
+}
+
+static bool debugTextStartsWith(const char* value, const char* prefix) {
+  if (!value || !prefix) return false;
+  return strncmp(value, prefix, strlen(prefix)) == 0;
+}
+
+static bool debugShouldMirrorMsgPack(const char* name) {
+  return debugTextStartsWith(name, "script.") ||
+         debugTextStartsWith(name, "debug.") ||
+         debugTextStartsWith(name, "led.") ||
+         debugTextStartsWith(name, "webrtc.") ||
+         debugTextStartsWith(name, "ui.") ||
+         debugTextEquals(name, "wifi.status");
+}
+
+static uint8_t debugLevelValue(const char* level) {
+  if (debugTextEquals(level, "system")) return 0;
+  if (debugTextEquals(level, "error")) return 0;
+  if (debugTextEquals(level, "warn")) return 1;
+  if (debugTextEquals(level, "info")) return 2;
+  if (debugTextEquals(level, "debug")) return 3;
+  if (debugTextEquals(level, "trace")) return 4;
+  if (debugTextEquals(level, "silent")) return 255;
   return 2;
+}
+
+static uint8_t debugLevelValue(const String& level) {
+  return debugLevelValue(level.c_str());
 }
 
 const char* debugLevelName(uint8_t level) {
@@ -135,38 +159,40 @@ void debugEventFlush() {
   }
 }
 
-void debugEventEmit(const String& name, const String& level, const String& category, const String& message, const String& dataFieldsJson) {
+void debugEventEmit(const char* name, const char* level, const char* category, const char* message, const String& dataFieldsJson) {
   uint8_t value = debugLevelValue(level);
   if (value > g_debugLevel) return;
 
   if (!dataFieldsJson.length() &&
-      (name.startsWith("script.") || name.startsWith("debug.") || name.startsWith("led.") ||
-       name.startsWith("webrtc.") || name.startsWith("ui.") || name == "wifi.status")) {
-    protocolEmitMsgPackEventFields(name.c_str(), level.c_str(), category.c_str(), message.c_str(), nullptr, 0);
+      debugShouldMirrorMsgPack(name)) {
+    protocolEmitMsgPackEventFields(name, level, category, message, nullptr, 0);
   }
 
   String out = "{\"type\":\"evt\",\"name\":" + jsonString(name) + ",\"data\":{";
   out += "\"level\":" + jsonString(level);
   out += ",\"category\":" + jsonString(category);
-  if (message.length()) out += ",\"message\":" + jsonString(message);
+  if (message && message[0]) out += ",\"message\":" + jsonString(message);
   if (dataFieldsJson.length()) out += "," + dataFieldsJson;
   out += "}}";
   debugSendOrQueueLine(out);
 }
 
-void debugEventEmitFields(const String& name, const String& level, const String& category, const String& message, const P1EventField* fields, size_t fieldCount) {
+void debugEventEmit(const String& name, const String& level, const String& category, const String& message, const String& dataFieldsJson) {
+  debugEventEmit(name.c_str(), level.c_str(), category.c_str(), message.c_str(), dataFieldsJson);
+}
+
+void debugEventEmitFields(const char* name, const char* level, const char* category, const char* message, const P1EventField* fields, size_t fieldCount) {
   uint8_t value = debugLevelValue(level);
   if (value > g_debugLevel) return;
 
-  if (name.startsWith("script.") || name.startsWith("debug.") || name.startsWith("led.") ||
-      name.startsWith("webrtc.") || name.startsWith("ui.") || name == "wifi.status") {
-    protocolEmitMsgPackEventFields(name.c_str(), level.c_str(), category.c_str(), message.c_str(), fields, fieldCount);
+  if (debugShouldMirrorMsgPack(name)) {
+    protocolEmitMsgPackEventFields(name, level, category, message, fields, fieldCount);
   }
 
   String out = "{\"type\":\"evt\",\"name\":" + jsonString(name) + ",\"data\":{";
   out += "\"level\":" + jsonString(level);
   out += ",\"category\":" + jsonString(category);
-  if (message.length()) out += ",\"message\":" + jsonString(message);
+  if (message && message[0]) out += ",\"message\":" + jsonString(message);
   for (size_t i = 0; i < fieldCount; i++) {
     out += ",";
     debugAppendJsonEventField(out, fields[i]);
@@ -175,11 +201,23 @@ void debugEventEmitFields(const String& name, const String& level, const String&
   debugSendOrQueueLine(out);
 }
 
+void debugEventEmitFields(const String& name, const String& level, const String& category, const String& message, const P1EventField* fields, size_t fieldCount) {
+  debugEventEmitFields(name.c_str(), level.c_str(), category.c_str(), message.c_str(), fields, fieldCount);
+}
+
 void debugLog(const String& level, const String& category, const String& message) {
+  debugLog(level.c_str(), category.c_str(), message.c_str());
+}
+
+void debugLog(const char* level, const char* category, const char* message) {
   debugEventEmitFields("debug.log", level, category, message, nullptr, 0);
 }
 
 void debugError(const String& category, const String& code, const String& message) {
+  debugError(category.c_str(), code.c_str(), message.c_str());
+}
+
+void debugError(const char* category, const char* code, const char* message) {
   P1EventField fields[] = {
     p1FieldString("code", code),
   };

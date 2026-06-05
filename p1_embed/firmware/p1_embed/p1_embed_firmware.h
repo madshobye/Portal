@@ -59,10 +59,10 @@ struct P1DebugSnapshot {
 
 struct P1ScriptErrorSnapshot {
   bool hasError = false;
-  String phase;
-  String code;
-  String message;
-  String details;
+  const char* phase = "";
+  const char* code = "";
+  const char* message = "";
+  const char* details = "";
   uint32_t atMs = 0;
   uint32_t count = 0;
 };
@@ -348,6 +348,7 @@ void protocolHandleBytes(const uint8_t* data, size_t len, P1ProtocolSource sourc
 void protocolPollScriptJobs();
 bool protocolHandleScriptSetCode(const String& id, const String& code, bool runAfterSet, bool saveAfterSet, bool sendResponse = true);
 void protocolPrepareScriptUpload();
+void protocolPrepareMemoryPressure();
 void protocolSendResponseOk(const String& id, const String& dataJson = "{}");
 void protocolSendResponseError(const String& id, const String& code, const String& message);
 void protocolEmitEvent(const String& name, const String& dataFieldsJson);
@@ -389,14 +390,19 @@ uint32_t debugEventDrops();
 uint32_t debugEventHighWater();
 P1DebugSnapshot debugEventSnapshot();
 void debugEventEmit(const String& name, const String& level, const String& category, const String& message, const String& dataFieldsJson = "");
+void debugEventEmit(const char* name, const char* level, const char* category, const char* message, const String& dataFieldsJson = "");
 void debugEventEmitFields(const String& name, const String& level, const String& category, const String& message, const P1EventField* fields, size_t fieldCount);
+void debugEventEmitFields(const char* name, const char* level, const char* category, const char* message, const P1EventField* fields, size_t fieldCount);
 void debugEventSendLine(const String& line);
 void debugLog(const String& level, const String& category, const String& message);
+void debugLog(const char* level, const char* category, const char* message);
 void debugError(const String& category, const String& code, const String& message);
+void debugError(const char* category, const char* code, const char* message);
 
 void uiOutputFlush();
 
 String jsonString(const String& s);
+String jsonString(const char* s);
 String jsonPathGetRaw(const String& json, const String& path, bool* foundOut = nullptr);
 bool jsonPathHas(const String& json, const String& path);
 String jsonPairString(const String& key, const String& value);

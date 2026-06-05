@@ -1131,6 +1131,7 @@ bool wrenchCompileAndSet(const String& userCode, String& errOut) {
   wrenchReleaseCompiledProgram();
   wrenchEmitCompileMemoryTrace("runtime.released", userCode.length());
   mqttTransportPrepareMemoryPressure();
+  protocolPrepareMemoryPressure();
   p1ReusableBufferMaintain(
     g_wrenchCompileSourceBuffer,
     P1_EMBED_WRENCH_COMPILE_SOURCE_RETAIN_MIN,
@@ -1194,6 +1195,7 @@ bool wrenchCompileAndSetIncoming(size_t scriptBytes, uint32_t scriptHash, String
   wrenchReleaseCompiledProgram();
   wrenchEmitCompileMemoryTrace("runtime.released", scriptBytes);
   mqttTransportPrepareMemoryPressure();
+  protocolPrepareMemoryPressure();
   p1ReusableBufferMaintain(
     g_wrenchCompileSourceBuffer,
     P1_EMBED_WRENCH_COMPILE_SOURCE_RETAIN_MIN,
@@ -1318,6 +1320,7 @@ bool wrenchRunCompiled(String& errOut) {
   g_wrenchConsecutiveErrorLoops = 0;
 
   mqttTransportPrepareMemoryPressure();
+  protocolPrepareMemoryPressure();
   p1ReusableBufferRelease(g_wrenchCompileSourceBuffer);
   ledBeginScriptRun();
   haRuntimeReset();

@@ -581,10 +581,10 @@ struct P1UiOutboundEvent {
 };
 
 static portMUX_TYPE g_uiInputMux = portMUX_INITIALIZER_UNLOCKED;
-static P1UiInputEvent g_uiEvents[P1_EMBED_UI_EVENT_DEPTH];
-static P1UiStateEntry g_uiStates[P1_EMBED_UI_STATE_MAX];
-static P1UiOutputEntry g_uiOutputs[P1_EMBED_UI_STATE_MAX];
-static P1UiOutboundEvent g_uiOut[P1_EMBED_UI_OUT_DEPTH];
+static P1UiInputEvent* g_uiEvents = nullptr;
+static P1UiStateEntry* g_uiStates = nullptr;
+static P1UiOutputEntry* g_uiOutputs = nullptr;
+static P1UiOutboundEvent* g_uiOut = nullptr;
 static uint8_t g_uiEventHead = 0;
 static uint8_t g_uiEventTail = 0;
 static uint8_t g_uiEventCount = 0;
@@ -593,6 +593,48 @@ static uint8_t g_uiOutTail = 0;
 static uint8_t g_uiOutCount = 0;
 static uint32_t g_uiInputDrops = 0;
 static uint32_t g_uiOutDrops = 0;
+
+template <typename T>
+static bool uiEnsureArray(T*& ptr, size_t count, const char* code, const char* message) {
+  if (ptr) return true;
+  ptr = static_cast<T*>(calloc(count, sizeof(T)));
+  if (ptr) return true;
+  scriptErrorSet("binding", code, message);
+  return false;
+}
+
+static bool uiEnsureInputStorage() {
+  return uiEnsureArray(g_uiEvents, P1_EMBED_UI_EVENT_DEPTH, "ui_event_alloc_failed", "Failed to allocate UI input event buffer") &&
+         uiEnsureArray(g_uiStates, P1_EMBED_UI_STATE_MAX, "ui_state_alloc_failed", "Failed to allocate UI state buffer");
+}
+
+static bool uiEnsureOutputStorage() {
+  return uiEnsureArray(g_uiOutputs, P1_EMBED_UI_STATE_MAX, "ui_output_alloc_failed", "Failed to allocate UI output cache");
+}
+
+static bool uiEnsureOutboundStorage() {
+  return uiEnsureArray(g_uiOut, P1_EMBED_UI_OUT_DEPTH, "ui_outbound_alloc_failed", "Failed to allocate UI outbound event buffer");
+}
+
+static void uiClearStoragePointersLocked(P1UiInputEvent*& events,
+                                         P1UiStateEntry*& states,
+                                         P1UiOutputEntry*& outputs,
+                                         P1UiOutboundEvent*& out) {
+  events = g_uiEvents;
+  states = g_uiStates;
+  outputs = g_uiOutputs;
+  out = g_uiOut;
+  g_uiEvents = nullptr;
+  g_uiStates = nullptr;
+  g_uiOutputs = nullptr;
+  g_uiOut = nullptr;
+  g_uiEventHead = 0;
+  g_uiEventTail = 0;
+  g_uiEventCount = 0;
+  g_uiOutHead = 0;
+  g_uiOutTail = 0;
+  g_uiOutCount = 0;
+}
 
 static void uiCopy(char* dst, size_t len, const String& src) {
   if (!dst || len == 0) return;
@@ -626,6 +668,7 @@ static bool uiParseInput(const String& channel, const String& message, P1UiInput
 }
 
 static int uiFindStateLocked(const char* id) {
+  if (!g_uiStates) return -1;
   for (int i = 0; i < P1_EMBED_UI_STATE_MAX; i++) {
     if (g_uiStates[i].used && strncmp(g_uiStates[i].id, id, P1_EMBED_UI_ID_MAX) == 0) return i;
   }
@@ -633,6 +676,7 @@ static int uiFindStateLocked(const char* id) {
 }
 
 static int uiFindOrCreateStateLocked(const char* id) {
+  if (!g_uiStates) return -1;
   int index = uiFindStateLocked(id);
   if (index >= 0) return index;
   for (int i = 0; i < P1_EMBED_UI_STATE_MAX; i++) {
@@ -656,6 +700,7 @@ bool uiInputIsChannel(const String& channel) {
 bool uiInputPush(const String& channel, const String& message) {
   P1UiInputEvent event;
   if (!uiParseInput(channel, message, event)) return false;
+  if (!uiEnsureInputStorage()) return false;
 
   portENTER_CRITICAL(&g_uiInputMux);
   int stateIndex = uiFindOrCreateStateLocked(event.id);
@@ -681,6 +726,7 @@ bool uiInputPush(const String& channel, const String& message) {
 }
 
 static bool uiInputPop(P1UiInputEvent& event) {
+  if (!g_uiEvents) return false;
   portENTER_CRITICAL(&g_uiInputMux);
   if (g_uiEventCount == 0) {
     portEXIT_CRITICAL(&g_uiInputMux);
@@ -706,6 +752,7 @@ uint32_t uiInputDrops() {
 
 static int uiInputValue(const char* id, int fallback) {
   if (!id || !id[0]) id = "value";
+  if (!g_uiStates) return fallback;
   portENTER_CRITICAL(&g_uiInputMux);
   int index = uiFindStateLocked(id);
   int value = index >= 0 ? g_uiStates[index].value : fallback;
@@ -715,6 +762,7 @@ static int uiInputValue(const char* id, int fallback) {
 
 static bool uiInputChanged(const char* id) {
   if (!id || !id[0]) id = "value";
+  if (!g_uiStates) return false;
   portENTER_CRITICAL(&g_uiInputMux);
   int index = uiFindStateLocked(id);
   bool changed = index >= 0 && g_uiStates[index].changed;
@@ -724,6 +772,7 @@ static bool uiInputChanged(const char* id) {
 }
 
 static int uiFindOutputLocked(const char* id) {
+  if (!g_uiOutputs) return -1;
   for (int i = 0; i < P1_EMBED_UI_STATE_MAX; i++) {
     if (g_uiOutputs[i].used && strncmp(g_uiOutputs[i].id, id, P1_EMBED_UI_ID_MAX) == 0) return i;
   }
@@ -731,6 +780,7 @@ static int uiFindOutputLocked(const char* id) {
 }
 
 static int uiFindOrCreateOutputLocked(const char* id) {
+  if (!g_uiOutputs) return -1;
   int index = uiFindOutputLocked(id);
   if (index >= 0) return index;
   for (int i = 0; i < P1_EMBED_UI_STATE_MAX; i++) {
@@ -748,6 +798,7 @@ static int uiFindOrCreateOutputLocked(const char* id) {
 }
 
 static void uiClearOutputCache() {
+  if (!g_uiOutputs) return;
   portENTER_CRITICAL(&g_uiInputMux);
   for (int i = 0; i < P1_EMBED_UI_STATE_MAX; i++) {
     g_uiOutputs[i].used = false;
@@ -766,6 +817,7 @@ static void uiClearOutboundLocked() {
 }
 
 static bool uiQueueOutbound(const P1UiOutboundEvent& event) {
+  if (!uiEnsureOutboundStorage()) return false;
   portENTER_CRITICAL(&g_uiInputMux);
   if (g_uiOutCount >= P1_EMBED_UI_OUT_DEPTH) {
     g_uiOutTail = (uint8_t)((g_uiOutTail + 1) % P1_EMBED_UI_OUT_DEPTH);
@@ -784,6 +836,7 @@ static void uiQueueReset(const String& title) {
   event.kind = P1_UI_OUT_RESET;
   event.cmd = P1_UI_INIT;
   uiCopy(event.text, sizeof(event.text), title);
+  if (!uiEnsureOutboundStorage()) return;
   portENTER_CRITICAL(&g_uiInputMux);
   uiClearOutboundLocked();
   g_uiOut[g_uiOutHead] = event;
@@ -793,34 +846,23 @@ static void uiQueueReset(const String& title) {
 }
 
 void uiRuntimeReset(const String& title, bool emitReset) {
-  P1UiOutboundEvent event{};
-  event.kind = P1_UI_OUT_RESET;
-  event.cmd = P1_UI_INIT;
-  uiCopy(event.text, sizeof(event.text), title);
-
+  (void)title;
+  P1UiInputEvent* events = nullptr;
+  P1UiStateEntry* states = nullptr;
+  P1UiOutputEntry* outputs = nullptr;
+  P1UiOutboundEvent* out = nullptr;
   portENTER_CRITICAL(&g_uiInputMux);
-  g_uiEventHead = 0;
-  g_uiEventTail = 0;
-  g_uiEventCount = 0;
-  for (int i = 0; i < P1_EMBED_UI_STATE_MAX; i++) {
-    g_uiStates[i].used = false;
-    g_uiStates[i].id[0] = 0;
-    g_uiStates[i].text[0] = 0;
-    g_uiStates[i].value = 0;
-    g_uiStates[i].changed = false;
-    g_uiOutputs[i].used = false;
-    g_uiOutputs[i].id[0] = 0;
-    g_uiOutputs[i].value = 0;
-    g_uiOutputs[i].sentAt = 0;
-    g_uiOutputs[i].pending = false;
-  }
-  uiClearOutboundLocked();
-  if (emitReset) {
-    g_uiOut[g_uiOutHead] = event;
-    g_uiOutHead = (uint8_t)((g_uiOutHead + 1) % P1_EMBED_UI_OUT_DEPTH);
-    g_uiOutCount = 1;
-  }
+  uiClearStoragePointersLocked(events, states, outputs, out);
   portEXIT_CRITICAL(&g_uiInputMux);
+  free(events);
+  free(states);
+  free(outputs);
+  free(out);
+  if (!emitReset) return;
+  P1EventField fields[] = {
+    p1FieldInt("cmd", P1_UI_INIT),
+  };
+  protocolEmitEventFields("ui.reset", fields, 1);
 }
 
 static void uiQueueItem(int cmd, const char* type, const String& id, const String& label, int value, int minValue, int maxValue) {
@@ -858,6 +900,7 @@ static void uiQueueText(const String& id, const String& text) {
 
 static bool uiOutputShouldSend(const char* id, int value, bool force, unsigned long minIntervalMs) {
   if (!id || !id[0]) id = "value";
+  if (!uiEnsureOutputStorage()) return false;
   unsigned long now = millis();
   portENTER_CRITICAL(&g_uiInputMux);
   int index = uiFindOrCreateOutputLocked(id);
@@ -884,6 +927,7 @@ static bool uiOutputValuePushed(const char* id, int value) {
 }
 
 static bool uiPopOutbound(P1UiOutboundEvent& event) {
+  if (!g_uiOut) return false;
   portENTER_CRITICAL(&g_uiInputMux);
   if (g_uiOutCount == 0) {
     portEXIT_CRITICAL(&g_uiInputMux);
@@ -1969,6 +2013,7 @@ void uiOutputFlush() {
 
   uint8_t sent = 0;
   while (sent < P1_EMBED_UI_VALUE_FLUSH_BUDGET) {
+    if (!g_uiOutputs) return;
     char id[P1_EMBED_UI_ID_MAX];
     int value = 0;
     bool found = false;

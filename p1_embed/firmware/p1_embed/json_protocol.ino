@@ -277,7 +277,32 @@ static String jsonEscape(const String& s) {
   return out;
 }
 
+static String jsonEscape(const char* s) {
+  if (!s) s = "";
+  String out;
+  out.reserve(strlen(s) + 8);
+  while (*s) {
+    char c = *s++;
+    switch (c) {
+      case '"': out += "\\\""; break;
+      case '\\': out += "\\\\"; break;
+      case '\n': out += "\\n"; break;
+      case '\r': out += "\\r"; break;
+      case '\t': out += "\\t"; break;
+      default:
+        if ((uint8_t)c < 0x20) out += ' ';
+        else out += c;
+        break;
+    }
+  }
+  return out;
+}
+
 String jsonString(const String& s) {
+  return String("\"") + jsonEscape(s) + "\"";
+}
+
+String jsonString(const char* s) {
   return String("\"") + jsonEscape(s) + "\"";
 }
 
