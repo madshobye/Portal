@@ -2343,12 +2343,11 @@ input {
 
   .circuit-shell {
     grid-template-columns: minmax(0, 1fr);
-    grid-template-rows: minmax(0, 1fr) auto;
+    grid-template-rows: minmax(0, 1fr);
   }
 
   .circuit-side {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    grid-template-rows: auto auto;
+    display: none;
   }
 
   .ui-shell {

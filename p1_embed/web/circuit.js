@@ -18,6 +18,7 @@ const COMPONENT_LAYOUT_MIN_GAP = 72;
 const COMPONENT_LINK_MARGIN = 24;
 const NEOPIXEL_MAX_MA_PER_PIXEL = 60;
 const BOARD_NEOPIXEL_POWER_BUDGET_MA = 500;
+const BOARD_PIN_EDGE_INSET = 8;
 
 const pinDefs = [
   { pin: "VIN", side: "left", power: true, desc: "VIN / USB 5V" },
@@ -68,9 +69,9 @@ const componentTypes = {
   potentiometer: { label: "Potentiometer", icon: "pot", signal: "ADC", needs: ["signal", "3v3", "gnd"] },
   servo: { label: "Servo", icon: "servo", signal: "PWM", needs: ["signal", "5v", "gnd"] },
   servoLarge: { label: "Large servo", icon: "servo", signal: "PWM", needs: ["signal", "5v", "gnd"] },
-  fan: { label: "Fan", icon: "fan", signal: "PWM", needs: ["signal", "power", "gnd"] },
-  dcMotor: { label: "DC motor", icon: "motor", signal: "driver", needs: ["signal", "power", "gnd"] },
-  stepperMotor: { label: "Stepper motor", icon: "stepper", signal: "STEP/DIR", needs: ["step", "dir", "en", "power", "gnd"] },
+  fan: { label: "PC fan", icon: "fan", signal: "PWM", needs: ["signal", "power", "gnd"] },
+  dcMotor: { label: "DC motor controller", icon: "motor", signal: "driver", needs: ["signal", "power", "gnd"] },
+  stepperMotor: { label: "Stepper controller", icon: "stepper", signal: "STEP/DIR", needs: ["step", "dir", "en", "power", "gnd"] },
   buzzer: { label: "Buzzer", icon: "speaker", signal: "PWM", needs: ["signal", "gnd"] },
   relay: { label: "Relay", icon: "relay", signal: "GPIO", needs: ["signal", "power", "gnd"] },
   i2cDevice: { label: "I2C device", icon: "i2c", signal: "SDA/SCL", needs: ["sda", "scl", "3v3", "gnd"] },
@@ -546,6 +547,7 @@ function componentTypeFromCircuitHint(text) {
     [/digital\s*sensor/, "digitalSensor"],
     [/dc\s*motor/, "dcMotor"],
     [/stepper\s*motor|stepper/, "stepperMotor"],
+    [/pc\s*fan|case\s*fan|computer\s*fan/, "fan"],
   ];
   const phrase = phraseAliases.find(([pattern]) => pattern.test(words))?.[1];
   if (phrase && componentTypes[phrase]) return phrase;
@@ -568,6 +570,7 @@ function componentTypeFromCircuitHint(text) {
     neopixelmatrix: "neopixelMatrix",
     neopixelring: "neopixelRing",
     neopixelstrip: "ledStrip",
+    pcfan: "fan",
     pot: "potentiometer",
     potentiometer: "potentiometer",
     relay: "relay",
@@ -693,7 +696,9 @@ function componentTypeFromName(name) {
   if (/relay/.test(lower)) return { type: "relay", label: "Relay", confidence: 0.94 };
   if (/(large|big|high.?torque|high.?power).{0,16}servo|servo.{0,16}(large|big|high.?torque|high.?power)/.test(lower)) return { type: "servoLarge", label: "Large servo", confidence: 0.92 };
   if (/servo/.test(lower)) return { type: "servo", label: "Servo", confidence: 0.9 };
-  if (/fan/.test(lower)) return { type: "fan", label: "Fan", confidence: 0.9 };
+  if (/fan/.test(lower)) return { type: "fan", label: "PC fan", confidence: 0.9 };
+  if (/stepper/.test(lower)) return { type: "stepperMotor", label: "Stepper controller", confidence: 0.9 };
+  if (/dc.?motor|motor/.test(lower)) return { type: "dcMotor", label: "DC motor controller", confidence: 0.86 };
   if (/pot|knob|dial/.test(lower)) return { type: "potentiometer", label: "Potentiometer", confidence: 0.92 };
   if (/microphone|mic|sound/.test(lower)) return { type: "microphone", label: "Microphone", confidence: 0.9 };
   if (/distance|proximity|sharp/.test(lower)) return { type: "distanceSensor", label: "Distance sensor", confidence: 0.88 };
@@ -860,7 +865,7 @@ function addDefaultConnections(component, connections, assumptions) {
     if (component.pins?.dir) connections.push({ from: { component: id, pin: "DIR" }, to: { boardPin: component.pins.dir }, color: "#d6bd62", label: "DIR" });
     if (component.pins?.en) connections.push({ from: { component: id, pin: "EN" }, to: { boardPin: component.pins.en }, color: "#7e57c2", label: "EN" });
     connections.push({ from: { component: id, pin: "gnd" }, to: { boardPin: "GND" }, color: "#8f9699", label: "GND" });
-    assumptions.push("Stepper motors should use a driver with external motor power; this drawing shows STEP/DIR control and common ground.");
+    assumptions.push("Stepper controller is shown as a driver stage: ESP32 STEP/DIR/EN control, common ground, and external motor power.");
     return;
   }
   if (pin) {
@@ -881,10 +886,12 @@ function addDefaultConnections(component, connections, assumptions) {
       }
       if (isNeoPixelType(type)) assumptions.push("NeoPixels need V, data, and GND; larger strips should use separate 5V power with common ground.");
     } else if (["servo", "servoLarge", "fan", "dcMotor", "stepperMotor", "relay"].includes(type)) {
-      if (type === "servo") {
+      if (type === "servo" || type === "relay") {
         connections.push({ from: { component: id, pin: "power" }, to: { boardPin: "VIN" }, color: "#d26b5b", label: "5V" });
       }
-      if (!["servoLarge", "fan"].includes(type)) {
+      if (type === "relay") {
+        assumptions.push("Relay module is shown powered from board 5V/VIN with common ground; load-side relay contacts are not shown.");
+      } else if (!["servoLarge", "fan", "dcMotor", "stepperMotor"].includes(type)) {
         assumptions.push(`${componentTypes[type]?.label || "This component"} needs suitable power; dense inferred diagrams show signal and common ground${type === "servo" ? "." : " and omit the board-crossing VIN lead."}`);
       }
       if (["dcMotor", "stepperMotor", "fan"].includes(type)) assumptions.push("Motors and fans should use a driver or transistor stage; this drawing shows the control signal and common ground.");
@@ -912,7 +919,15 @@ function addExternalPowerPlan(components, connections, assumptions, notes, seen)
       return;
     }
     if (component.type === "fan") {
-      powered.push({ component, reason: "Fan should use external power with common ground." });
+      powered.push({ component, reason: "PC fan should use external power with common ground." });
+      return;
+    }
+    if (component.type === "dcMotor") {
+      powered.push({ component, diode: true, reason: "DC motor controller should use external motor power with common ground and a flyback/back EMF diode across the motor output." });
+      return;
+    }
+    if (component.type === "stepperMotor") {
+      powered.push({ component, reason: "Stepper controller should use external motor power with common ground; the driver stage handles coil switching/protection." });
       return;
     }
     if (isNeoPixelType(component.type)) {
@@ -951,7 +966,7 @@ function addExternalPowerPlan(components, connections, assumptions, notes, seen)
         label: "Back EMF diode",
         pin: "",
         pins: {},
-        inferredFrom: "large servo protection",
+        inferredFrom: `${component.label || componentTypes[component.type]?.label || "motor"} protection`,
         confidence: 0.86,
       };
       components.push(protection);
@@ -1984,7 +1999,7 @@ function pinPosition(board, pinName, preferredSide = "") {
   const sidePins = pinDefs.filter((item) => item.side === pin.side);
   const index = sidePins.findIndex((item) => item.pin === pin.pin);
   const y = board.y + 96 + index * ((board.h - 132) / Math.max(1, sidePins.length - 1));
-  const x = pin.side === "left" ? board.x + 15 : board.x + board.w - 15;
+  const x = pin.side === "left" ? board.x + BOARD_PIN_EDGE_INSET : board.x + board.w - BOARD_PIN_EDGE_INSET;
   return { x, y, ...pin };
 }
 
@@ -2084,7 +2099,7 @@ function drawComponent(p, component, selected = false, renderMode = "symbols", b
     drawComponentIllustration(p, component, connectorSide);
     p.pop();
   } else {
-    drawComponentSymbol(p, component);
+    drawComponentSymbol(p, component, connectorSide);
   }
 
   p.noStroke();
@@ -2101,7 +2116,7 @@ function componentConnectorSide(component, board = null) {
   return component.x < board.x + board.w / 2 ? "right" : "left";
 }
 
-function drawComponentSymbol(p, component) {
+function drawComponentSymbol(p, component, connectorSide = "right") {
   if (component.type === "ledStrip") drawLedStrip(p);
   else if (component.type === "neopixelRing") drawNeoPixelRing(p);
   else if (component.type === "neopixelMatrix") drawNeoPixelMatrix(p);
@@ -2109,14 +2124,15 @@ function drawComponentSymbol(p, component) {
   else if (component.type === "led") drawLed(p);
   else if (component.type === "analogSensor") drawAnalogSensor(p);
   else if (component.type === "potentiometer") drawPot(p);
+  else if (component.type === "touchPad") drawTouchInput(p);
   else if (component.type === "distanceSensor") drawDistanceSensor(p);
   else if (component.type === "ultrasonicSensor") drawUltrasonic(p);
   else if (component.type === "microphone") drawMic(p);
   else if (component.type === "joystick") drawJoystick(p);
   else if (component.type === "servo" || component.type === "servoLarge") drawServo(p, component.type === "servoLarge");
   else if (component.type === "fan") drawFan(p);
-  else if (component.type === "dcMotor") drawDcMotor(p);
-  else if (component.type === "stepperMotor") drawStepper(p);
+  else if (component.type === "dcMotor") drawDcMotor(p, connectorSide);
+  else if (component.type === "stepperMotor") drawStepper(p, connectorSide);
   else if (component.type === "relay") drawRelay(p);
   else if (component.type === "i2cDevice") drawChip(p, "I2C");
   else if (component.type === "imu") drawChip(p, "IMU");
@@ -2137,13 +2153,14 @@ function drawComponentIllustration(p, component, connectorSide = "right") {
   else if (component.type === "led") drawLedIllustration(p);
   else if (component.type === "analogSensor") drawAnalogSensorIllustration(p);
   else if (component.type === "potentiometer") drawPotIllustration(p, connectorSide);
+  else if (component.type === "touchPad") drawTouchInputIllustration(p);
   else if (component.type === "distanceSensor" || component.type === "ultrasonicSensor") drawDistanceSensorIllustration(p);
   else if (component.type === "microphone") drawMicrophoneIllustration(p);
   else if (component.type === "joystick") drawJoystickIllustration(p);
   else if (component.type === "servo" || component.type === "servoLarge") drawServoIllustration(p, component.type === "servoLarge", connectorSide);
   else if (component.type === "fan") drawFanIllustration(p);
   else if (component.type === "dcMotor") drawDcMotorIllustration(p, connectorSide);
-  else if (component.type === "stepperMotor") drawStepperIllustration(p);
+  else if (component.type === "stepperMotor") drawStepperIllustration(p, connectorSide);
   else if (component.type === "relay") drawRelayIllustration(p);
   else if (component.type === "buzzer") drawBuzzerIllustration(p);
   else if (component.type === "i2cDevice") drawModuleIllustration(p, "I2C", "#1565c0");
@@ -2179,6 +2196,7 @@ function escapeRegExp(text) {
 
 function componentWidth(type) {
   if (type === "ledStrip") return 180;
+  if (type === "dcMotor" || type === "stepperMotor") return 190;
   if (type === "servoLarge") return 162;
   if (type === "powerSupply") return 150;
   if (type === "backEmfDiode") return 118;
@@ -2195,7 +2213,7 @@ function componentBodyHeight(type) {
 }
 
 function componentBodyHeightForPinCount(type, count = 0) {
-  const base = type === "ledStrip" ? 36 : (type === "servoLarge" ? 62 : 50);
+  const base = type === "ledStrip" ? 36 : (type === "servoLarge" ? 62 : (type === "dcMotor" || type === "stepperMotor" ? 72 : 50));
   if (count <= 1) return base;
   return Math.max(base, COMPONENT_TERMINAL_PITCH * (count - 1) + COMPONENT_TERMINAL_MIN_MARGIN * 2);
 }
@@ -2213,6 +2231,7 @@ function componentLabelY(type, fallbackHeight, renderMode = "symbols") {
 function componentIllustrationScale(type) {
   if (type === "ledStrip") return 1;
   if (type === "dcMotor") return 1;
+  if (type === "stepperMotor") return 1;
   if (type === "buzzer") return 1;
   if (type === "powerSupply" || type === "backEmfDiode") return 1.08;
   return 1.18;
@@ -2222,10 +2241,11 @@ function componentIllustrationHalfWidth(type) {
   const scale = componentIllustrationScale(type);
   if (type === "ledStrip") return 90;
   if (type === "powerSupply") return 49;
-  if (type === "backEmfDiode") return 37;
+  if (type === "backEmfDiode") return 22;
   if (type === "servoLarge") return 45;
-  if (type === "dcMotor") return 34;
+  if (type === "dcMotor" || type === "stepperMotor") return 90;
   if (type === "buzzer") return 37;
+  if (type === "touchPad") return 20;
   return Math.min(componentBodyWidth(type) / 2 - 8, 42 * scale);
 }
 
@@ -2235,12 +2255,14 @@ function componentIllustrationHalfHeight(type) {
   if (type === "potentiometer") return 33 * scale;
   if (type === "servoLarge") return 48 * scale;
   if (type === "servo") return 40 * scale;
-  if (type === "stepperMotor") return 36 * scale;
+  if (type === "stepperMotor") return 42;
   if (type === "led") return 27 * scale;
   if (type === "button") return 18 * scale;
-  if (type === "fan") return 24 * scale;
-  if (type === "dcMotor") return 20;
-  if (type === "powerSupply" || type === "backEmfDiode") return 20 * scale;
+  if (type === "touchPad") return 20 * scale;
+  if (type === "fan") return 34 * scale;
+  if (type === "dcMotor") return 40;
+  if (type === "powerSupply") return 20 * scale;
+  if (type === "backEmfDiode") return 30 * scale;
   if (type === "neopixelRing" || type === "neopixelMatrix") return 28 * scale;
   return componentBodyHeight(type) / 2;
 }
@@ -2354,26 +2376,48 @@ function drawServo(p, large = false) {
 function drawFan(p) {
   p.noFill();
   p.stroke("#59bdd0");
-  p.circle(0, 0, 30);
-  p.line(0, 0, 18, -5);
-  p.line(0, 0, -12, -15);
-  p.line(0, 0, -4, 17);
+  p.rect(-24, -24, 48, 48, 5);
+  p.circle(0, 0, 31);
+  p.circle(0, 0, 7);
+  [[-17, -17], [17, -17], [-17, 17], [17, 17]].forEach(([x, y]) => p.circle(x, y, 4));
+  drawPcFanBlades(p, "#59bdd0", false);
 }
 
-function drawDcMotor(p) {
+function drawDcMotor(p, connectorSide = "left") {
+  const dir = connectorSide === "left" ? 1 : -1;
+  p.stroke("#8fc7d4");
+  p.noFill();
+  p.rect(-dir * 82 - (dir < 0 ? 36 : 0), -23, 36, 46, 3);
+  p.noStroke();
+  p.fill("#8fc7d4");
+  p.textAlign(p.CENTER, p.CENTER);
+  p.textSize(7);
+  p.text("CTRL", -dir * 64, 0);
   p.stroke("#4a4f53");
   p.noFill();
-  p.rect(-30, 2, 60, 22, 11);
-  p.line(30, 13, 42, 13);
-  p.line(-42, 13, -30, 13);
+  p.line(-dir * 46, -7, -dir * 15, -7);
+  p.line(-dir * 46, 7, -dir * 15, 7);
+  p.rect(dir * 12 - 27, -13, 54, 26, 12);
+  p.line(dir * 39, 0, dir * 54, 0);
 }
 
-function drawStepper(p) {
-  p.stroke("#4a4f53");
+function drawStepper(p, connectorSide = "left") {
+  const dir = connectorSide === "left" ? 1 : -1;
+  p.stroke("#8fc7d4");
   p.noFill();
-  p.rect(-26, -19, 52, 38, 5);
-  p.circle(0, 0, 20);
-  p.line(0, 0, 0, -14);
+  p.rect(-dir * 82 - (dir < 0 ? 36 : 0), -26, 36, 52, 3);
+  p.noStroke();
+  p.fill("#8fc7d4");
+  p.textAlign(p.CENTER, p.CENTER);
+  p.textSize(7);
+  p.text("CTRL", -dir * 64, 0);
+  p.stroke("#9aa0a3");
+  p.noFill();
+  [-18, -9, 0, 9, 18].forEach((y) => p.line(-dir * 46, y, -dir * 13, y));
+  p.stroke("#4a4f53");
+  p.rect(dir * 11 - 24, -22, 48, 44, 5);
+  p.circle(dir * 11, 0, 18);
+  p.line(dir * 11, 0, dir * 11, -16);
 }
 
 function drawRelay(p) {
@@ -2405,6 +2449,13 @@ function drawSensor(p) {
   p.noFill();
   p.rect(-24, -13, 48, 26, 4);
   p.circle(0, 0, 8);
+}
+
+function drawTouchInput(p) {
+  p.stroke("#4f5559");
+  p.strokeWeight(1.5);
+  p.fill("#050505");
+  p.circle(0, 0, 24);
 }
 
 function drawAnalogSensor(p) {
@@ -2447,11 +2498,16 @@ function drawPowerSupply(p) {
 
 function drawDiode(p) {
   p.stroke("#d6bd62");
+  p.strokeWeight(2);
   p.noFill();
-  p.line(-28, 0, -12, 0);
-  p.line(15, 0, 28, 0);
-  p.triangle(-12, -12, -12, 12, 11, 0);
-  p.line(15, -13, 15, 13);
+  drawVerticalDiodeGlyph(p, 22, 12, 10, -9, 11);
+}
+
+function drawVerticalDiodeGlyph(p, leadExtent, cathodeY, baseY, tipY, halfWidth) {
+  p.line(0, -leadExtent, 0, -cathodeY);
+  p.line(0, baseY, 0, leadExtent);
+  p.triangle(-halfWidth, baseY, halfWidth, baseY, 0, tipY);
+  p.line(-halfWidth - 3, -cathodeY, halfWidth + 3, -cathodeY);
 }
 
 function drawQuestion(p) {
@@ -2639,49 +2695,94 @@ function drawServoIllustration(p, large = false, connectorSide = "left") {
 
 function drawFanIllustration(p) {
   p.noStroke();
-  p.fill("#33383c");
-  p.rect(-35, -20, 70, 40, 4);
-  p.fill("#58c4d6");
-  p.circle(0, 0, 34);
+  p.fill("#171b1e");
+  p.rect(-31, -31, 62, 62, 7);
+  p.fill("#2b3135");
+  p.circle(0, 0, 49);
+  p.fill("#101315");
+  p.circle(0, 0, 42);
+  p.fill("#cbd2d4");
+  [[-22, -22], [22, -22], [-22, 22], [22, 22]].forEach(([x, y]) => p.circle(x, y, 7));
+  p.fill("#171b1e");
+  [[-22, -22], [22, -22], [-22, 22], [22, 22]].forEach(([x, y]) => p.circle(x, y, 3.2));
+  drawPcFanBlades(p, "#58c4d6", true);
   p.fill("#1d2022");
-  p.circle(0, 0, 10);
-  p.fill("#33383c");
-  for (let i = 0; i < 3; i += 1) {
+  p.circle(0, 0, 12);
+  p.fill("#58c4d6");
+  p.circle(0, 0, 5);
+}
+
+function drawPcFanBlades(p, color, filled) {
+  p.push();
+  if (filled) {
+    p.noStroke();
+    p.fill(color);
+  } else {
+    p.noFill();
+    p.stroke(color);
+  }
+  for (let i = 0; i < 4; i += 1) {
     p.push();
-    p.rotate((Math.PI * 2 * i) / 3);
-    p.ellipse(11, 0, 24, 9);
+    p.rotate((Math.PI * 2 * i) / 4);
+    p.beginShape();
+    p.vertex(4, -3);
+    p.bezierVertex(12, -16, 25, -13, 22, -3);
+    p.bezierVertex(18, 3, 11, 5, 5, 3);
+    p.endShape(p.CLOSE);
     p.pop();
   }
+  p.pop();
 }
 
 function drawDcMotorIllustration(p, connectorSide = "left") {
-  const flip = connectorSide === "right" ? -1 : 1;
-  p.push();
-  p.scale(flip, 1);
+  const dir = connectorSide === "left" ? 1 : -1;
+  drawMotorControllerBox(p, -dir * 68, 70);
+  drawInternalControllerWires(p, dir, [-8, 8], [WIRE_POWER, WIRE_GROUND], -46, -7);
   p.noStroke();
   p.fill("#efefed");
   p.stroke("#5d5f60");
   p.strokeWeight(2.4);
-  p.rect(-34, -18, 68, 36, 10);
-  p.line(-18, -18, -18, 18);
+  p.rect(dir * 26 - 34, -18, 68, 36, 10);
+  p.line(dir * 26 - dir * 18, -18, dir * 26 - dir * 18, 18);
   p.noStroke();
   p.fill("#8b8c8c");
-  p.rect(33, -6, 9, 12, 2);
+  p.rect(dir * 26 + dir * 33 - (dir < 0 ? 9 : 0), -6, 9, 12, 2);
   p.fill("#666767");
-  p.rect(41, -3, 22, 6, 1);
-  p.pop();
+  p.rect(dir * 26 + dir * 41 - (dir < 0 ? 22 : 0), -3, 22, 6, 1);
 }
 
-function drawStepperIllustration(p) {
+function drawStepperIllustration(p, connectorSide = "left") {
+  const dir = connectorSide === "left" ? 1 : -1;
+  drawMotorControllerBox(p, -dir * 68, 76);
+  drawInternalControllerWires(p, dir, [-20, -10, 0, 10, 20], ["#8f9699", "#8f9699", "#8f9699", "#8f9699", "#8f9699"], -46, -6);
   p.noStroke();
   p.fill("#cfcfca");
-  p.rect(-29, -22, 58, 44, 5);
+  p.rect(dir * 26 - 29, -22, 58, 44, 5);
   p.fill("#9c9b95");
-  p.circle(0, 0, 24);
+  p.circle(dir * 26, 0, 24);
   p.fill("#eeeeea");
-  p.circle(0, 0, 10);
+  p.circle(dir * 26, 0, 10);
   p.fill("#606060");
-  p.rect(-5, -35, 10, 18, 2);
+  p.rect(dir * 26 - 5, -35, 10, 18, 2);
+}
+
+function drawMotorControllerBox(p, x, h) {
+  p.noStroke();
+  p.fill("#111517");
+  p.rect(x - 22, -h / 2, 44, h, 4);
+  p.fill("#f3efe5");
+  p.textAlign(p.CENTER, p.CENTER);
+  p.textStyle(p.NORMAL);
+  p.textSize(6.6);
+  p.text("controller", x, 0);
+}
+
+function drawInternalControllerWires(p, dir, offsets, colors, controllerInnerX, motorInnerX) {
+  p.strokeWeight(WIRE_STROKE);
+  offsets.forEach((y, index) => {
+    p.stroke(colors[index] || "#8f9699");
+    p.line(dir * controllerInnerX, y, dir * motorInnerX, y);
+  });
 }
 
 function drawRelayIllustration(p) {
@@ -2715,6 +2816,12 @@ function drawBuzzerIllustration(p) {
   p.noStroke();
   p.fill("#e7e8e3");
   p.circle(0, 0, 16);
+}
+
+function drawTouchInputIllustration(p) {
+  p.noStroke();
+  p.fill("#050505");
+  p.circle(0, 0, 34);
 }
 
 function drawModuleIllustration(p, label, color = "#1565c0") {
@@ -2764,14 +2871,11 @@ function drawPowerSupplyIllustration(p) {
 function drawDiodeIllustration(p) {
   p.noStroke();
   p.fill("#101820");
-  p.rect(-34, -16, 68, 32, 4);
+  p.rect(-20, -27, 40, 54, 4);
   p.stroke("#d6bd62");
   p.strokeWeight(3);
   p.noFill();
-  p.line(-26, 0, -10, 0);
-  p.line(15, 0, 28, 0);
-  p.triangle(-10, -11, -10, 11, 12, 0);
-  p.line(16, -12, 16, 12);
+  drawVerticalDiodeGlyph(p, 22, 12, 10, -9, 11);
 }
 
 function drawSensorIllustration(p) {

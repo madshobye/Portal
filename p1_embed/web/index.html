@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>P1E</title>
     <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@24,400,0,0">
-    <link rel="stylesheet" href="style.css?v=0.1.87-ui442">
+    <link rel="stylesheet" href="style.css?v=0.1.87-ui450">
   </head>
   <body>
     <main id="app">
@@ -13,7 +13,7 @@
         <div class="brand">
           <strong>P1E</strong>
           <span id="brand-version" class="brand-version">
-            <span class="brand-version-line">web 0.1.87-ui442</span>
+            <span class="brand-version-line">web 0.1.87-ui450</span>
           </span>
         </div>
         <nav class="tabs" aria-label="Workspace">
@@ -453,7 +453,7 @@
               </select>
             </label>
           </div>
-          <div class="settings-subhead">Share encrypted key</div>
+          <div class="settings-subhead">Create an obfuscated key for sharing</div>
           <div class="settings-mqtt-grid settings-key-share-grid">
             <label class="field">
               <span>Password</span>
@@ -463,8 +463,8 @@
               <span>Expires in days</span>
               <input id="chat-key-share-days" type="number" min="1" max="365" step="1" inputmode="numeric" value="7">
             </label>
-            <button id="chat-key-share-button" class="button settings-save-button" type="button" title="Create encrypted key share" aria-label="Create encrypted key share">Create</button>
-            <textarea id="chat-key-share-output" class="encrypted-key-output" rows="3" readonly spellcheck="false" placeholder="encrypted key share appears here"></textarea>
+            <button id="chat-key-share-button" class="button settings-save-button" type="button" title="Create obfuscated key for sharing" aria-label="Create obfuscated key for sharing">Create</button>
+            <textarea id="chat-key-share-output" class="encrypted-key-output" rows="3" readonly spellcheck="false" placeholder="obfuscated key appears here" hidden></textarea>
           </div>
           <div class="settings-section">
             <div class="settings-subhead">Prompt debug</div>
@@ -518,6 +518,6 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.9.4/p5.min.js" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
     <script src="../../P1/portal/usbSerial.js"></script>
     <script src="../../P1/portal/qrCodeGen.js"></script>
-    <script type="module" src="app.js?v=0.1.87-ui442"></script>
+    <script type="module" src="app.js?v=0.1.87-ui450"></script>
   </body>
 </html>
