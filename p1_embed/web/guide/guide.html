@@ -188,6 +188,31 @@
         background: rgba(255, 255, 255, 0.025);
       }
 
+      .info-box {
+        margin-top: 18px;
+        padding: 14px 16px;
+        border: 1px solid var(--line);
+        border-left: 4px solid var(--cyan);
+        border-radius: 8px;
+        background: rgba(89, 189, 208, 0.08);
+      }
+
+      .info-box strong {
+        display: block;
+        margin-bottom: 8px;
+        color: var(--text);
+      }
+
+      .info-box p {
+        max-width: none;
+        margin: 0;
+        font-size: 13px;
+      }
+
+      .info-box p + p {
+        margin-top: 10px;
+      }
+
       .quick-grid {
         display: grid;
         grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -393,7 +418,7 @@
         <a href="#bindings">Bindings</a>
         <a href="#patterns">Patterns</a>
       </nav>
-      <a class="back-link" href="../index.html">Open Editor</a>
+      <a class="back-link" href="../index.html" target="_blank" rel="noopener">Open Editor</a>
     </header>
 
     <main>
@@ -407,6 +432,12 @@
             <li>Keep projects as revisions with code, chat, specification, and circuit notes together.</li>
             <li>Drive NeoPixel-style LED strips, GPIO, HTTP APIs, time, sun position, UI controls, and Home Assistant entities.</li>
           </ul>
+          <div class="info-box">
+            <strong>Early maturing system</strong>
+            <p>P1.E is already quite stable, but the firmware is under rapid development. Expect to find bugs sometimes, and expect to update the board firmware as the system matures.</p>
+            <p>The core system is designed to be independent of cloud subscriptions: the main parts are a static HTML page and firmware on the board. Two optional parts use cloud services: internet connection needs an MQTT broker, and chat needs a ChatGPT API key. A public MQTT broker can work for initial testing because P1.E encrypts its own communication. Other LLM providers may be added later.</p>
+            <p>There are no cloud backups of your sketches. The running code lives on the board, while projects, revisions, chat, and specifications are stored in your browser local storage. Export projects and make regular backups when the work matters.</p>
+          </div>
         </div>
       </section>
 
