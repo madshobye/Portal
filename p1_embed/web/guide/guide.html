@@ -169,6 +169,12 @@
         font-size: 18px;
       }
 
+      .byline {
+        margin: 12px 0 0;
+        color: var(--muted);
+        font-size: 13px;
+      }
+
       .feature-list,
       .steps,
       .notes {
@@ -426,6 +432,7 @@
         <div class="panel intro">
           <p class="eyebrow">ESP32 creative coding environment</p>
           <h1>P1.E lets a board become a live, scriptable object.</h1>
+          <p class="byline">By <a href="https://www.hobye.dk/" target="_blank" rel="noopener">Mads Hobye</a></p>
           <p class="lead">Write small Wrench sketches in the browser, run them on an ESP32, control LEDs and pins, build a live UI, connect over USB or MQTT, and let the AI assistant help shape code and documentation around the project you are making.</p>
           <ul class="feature-list">
             <li>Code, upload, stop, inspect logs, and recover sketches from the board.</li>
@@ -435,6 +442,7 @@
           <div class="info-box">
             <strong>Early maturing system</strong>
             <p>P1.E is already quite stable, but the firmware is under rapid development. Expect to find bugs sometimes, and expect to update the board firmware as the system matures.</p>
+            <p>USB connection and firmware install use Web Serial, which works in Chrome-based browsers such as Chrome and Edge.</p>
             <p>The core system is designed to be independent of cloud subscriptions: the main parts are a static HTML page and firmware on the board. Two optional parts use cloud services: internet connection needs an MQTT broker, and chat needs a ChatGPT API key. A public MQTT broker can work for initial testing because P1.E encrypts its own communication. Other LLM providers may be added later.</p>
             <p>There are no cloud backups of your sketches. The running code lives on the board, while projects, revisions, chat, and specifications are stored in your browser local storage. Export projects and make regular backups when the work matters.</p>
           </div>
@@ -829,7 +837,7 @@ function loop() {
       </section>
 
       <footer>
-        P1.E guide generated from the local Wrench context and firmware binding notes. Keep this page and <code>wrench_chat_context.md</code> in sync when bindings change.
+        <div>P1.E guide generated from the local Wrench context and firmware binding notes. Keep this page and <code>wrench_chat_context.md</code> in sync when bindings change.</div>
       </footer>
     </main>
   </body>
