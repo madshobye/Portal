@@ -20,6 +20,17 @@ const NEOPIXEL_MAX_MA_PER_PIXEL = 60;
 const BOARD_NEOPIXEL_POWER_BUDGET_MA = 500;
 const BOARD_PIN_EDGE_INSET = 8;
 
+const COMPONENT_ACCENTS = {
+  physicalInput: { wire: "#9aa0a3", outline: "#d2d8da" },
+  sensor: { wire: "#0097a7", outline: "#68d8e6" },
+  light: { wire: "#c99700", outline: "#f1d15b" },
+  actuator: { wire: "#7e57c2", outline: "#b99af2" },
+  comms: { wire: "#1565c0", outline: "#82b8ff" },
+  power: { wire: "#27ae60", outline: "#69e489" },
+  protection: { wire: WIRE_POWER, outline: "#ff8a80" },
+  unknown: { wire: "#8f9699", outline: "#d6bd62" },
+};
+
 const pinDefs = [
   { pin: "VIN", side: "left", power: true, desc: "VIN / USB 5V" },
   { pin: "GND", side: "left", ground: true, desc: "Ground" },
@@ -1030,10 +1041,26 @@ function primaryComponentPin(type) {
 }
 
 function signalColor(type) {
-  if (type === "button") return "#b8bec0";
-  if (["ledStrip", "neopixelRing", "neopixelMatrix"].includes(type)) return "#59bdd0";
-  if (["analogSensor", "distanceSensor", "microphone", "joystick", "potentiometer"].includes(type)) return "#d6bd62";
-  return "#8fc7d4";
+  return componentAccent(type).wire;
+}
+
+function componentAccent(type) {
+  return COMPONENT_ACCENTS[componentColorGroup(type)] || COMPONENT_ACCENTS.unknown;
+}
+
+function componentOutlineColor(type) {
+  return componentAccent(type).outline;
+}
+
+function componentColorGroup(type) {
+  if (["button", "touchPad", "joystick"].includes(type)) return "physicalInput";
+  if (["analogSensor", "digitalSensor", "distanceSensor", "ultrasonicSensor", "microphone", "potentiometer"].includes(type)) return "sensor";
+  if (["led", "ledStrip", "neopixelRing", "neopixelMatrix"].includes(type)) return "light";
+  if (["servo", "servoLarge", "fan", "dcMotor", "stepperMotor", "buzzer", "relay"].includes(type)) return "actuator";
+  if (["i2cDevice", "imu", "uartDevice", "mp3Player", "wifiService"].includes(type)) return "comms";
+  if (type === "powerSupply") return "power";
+  if (type === "backEmfDiode") return "protection";
+  return "unknown";
 }
 
 function normalizeComponent(component, index) {
@@ -2117,32 +2144,33 @@ function componentConnectorSide(component, board = null) {
 }
 
 function drawComponentSymbol(p, component, connectorSide = "right") {
-  if (component.type === "ledStrip") drawLedStrip(p);
-  else if (component.type === "neopixelRing") drawNeoPixelRing(p);
-  else if (component.type === "neopixelMatrix") drawNeoPixelMatrix(p);
-  else if (component.type === "button") drawButton(p);
-  else if (component.type === "led") drawLed(p);
-  else if (component.type === "analogSensor") drawAnalogSensor(p);
-  else if (component.type === "potentiometer") drawPot(p);
-  else if (component.type === "touchPad") drawTouchInput(p);
-  else if (component.type === "distanceSensor") drawDistanceSensor(p);
-  else if (component.type === "ultrasonicSensor") drawUltrasonic(p);
-  else if (component.type === "microphone") drawMic(p);
-  else if (component.type === "joystick") drawJoystick(p);
-  else if (component.type === "servo" || component.type === "servoLarge") drawServo(p, component.type === "servoLarge");
-  else if (component.type === "fan") drawFan(p);
-  else if (component.type === "dcMotor") drawDcMotor(p, connectorSide);
-  else if (component.type === "stepperMotor") drawStepper(p, connectorSide);
-  else if (component.type === "relay") drawRelay(p);
-  else if (component.type === "i2cDevice") drawChip(p, "I2C");
-  else if (component.type === "imu") drawChip(p, "IMU");
-  else if (component.type === "uartDevice") drawChip(p, "RX/TX");
-  else if (component.type === "mp3Player") drawChip(p, "MP3");
-  else if (component.type === "wifiService") drawCloud(p);
-  else if (component.type === "powerSupply") drawPowerSupply(p);
-  else if (component.type === "backEmfDiode") drawDiode(p);
-  else if (component.type === "unknown") drawQuestion(p);
-  else drawSensor(p);
+  const accent = componentOutlineColor(component.type);
+  if (component.type === "ledStrip") drawLedStrip(p, accent);
+  else if (component.type === "neopixelRing") drawNeoPixelRing(p, accent);
+  else if (component.type === "neopixelMatrix") drawNeoPixelMatrix(p, accent);
+  else if (component.type === "button") drawButton(p, accent);
+  else if (component.type === "led") drawLed(p, accent);
+  else if (component.type === "analogSensor") drawAnalogSensor(p, accent);
+  else if (component.type === "potentiometer") drawPot(p, accent);
+  else if (component.type === "touchPad") drawTouchInput(p, accent);
+  else if (component.type === "distanceSensor") drawDistanceSensor(p, accent);
+  else if (component.type === "ultrasonicSensor") drawUltrasonic(p, accent);
+  else if (component.type === "microphone") drawMic(p, accent);
+  else if (component.type === "joystick") drawJoystick(p, accent);
+  else if (component.type === "servo" || component.type === "servoLarge") drawServo(p, component.type === "servoLarge", accent);
+  else if (component.type === "fan") drawFan(p, accent);
+  else if (component.type === "dcMotor") drawDcMotor(p, connectorSide, accent);
+  else if (component.type === "stepperMotor") drawStepper(p, connectorSide, accent);
+  else if (component.type === "relay") drawRelay(p, accent);
+  else if (component.type === "i2cDevice") drawChip(p, "I2C", accent);
+  else if (component.type === "imu") drawChip(p, "IMU", accent);
+  else if (component.type === "uartDevice") drawChip(p, "RX/TX", accent);
+  else if (component.type === "mp3Player") drawChip(p, "MP3", accent);
+  else if (component.type === "wifiService") drawCloud(p, accent);
+  else if (component.type === "powerSupply") drawPowerSupply(p, accent);
+  else if (component.type === "backEmfDiode") drawDiode(p, accent);
+  else if (component.type === "unknown") drawQuestion(p, accent);
+  else drawSensor(p, accent);
 }
 
 function drawComponentIllustration(p, component, connectorSide = "right") {
@@ -2267,10 +2295,14 @@ function componentIllustrationHalfHeight(type) {
   return componentBodyHeight(type) / 2;
 }
 
-function drawLedStrip(p) {
+function drawLedStrip(p, accent = componentOutlineColor("ledStrip")) {
   const h = componentBodyHeight("ledStrip");
   p.noStroke();
   p.fill("#303030");
+  p.rect(-90, -h / 2, 180, h, 1);
+  p.noFill();
+  p.stroke(accent);
+  p.strokeWeight(1.6);
   p.rect(-90, -h / 2, 180, h, 1);
 
   const ledXs = [-62, -31, 0, 31, 62];
@@ -2290,9 +2322,9 @@ function drawLedStrip(p) {
 
 }
 
-function drawNeoPixelRing(p) {
+function drawNeoPixelRing(p, accent = componentOutlineColor("neopixelRing")) {
   p.noFill();
-  p.stroke("#59bdd0");
+  p.stroke(accent);
   p.circle(0, 0, 38);
   p.noStroke();
   for (let i = 0; i < 8; i += 1) {
@@ -2302,7 +2334,11 @@ function drawNeoPixelRing(p) {
   }
 }
 
-function drawNeoPixelMatrix(p) {
+function drawNeoPixelMatrix(p, accent = componentOutlineColor("neopixelMatrix")) {
+  p.noFill();
+  p.stroke(accent);
+  p.rect(-40, -23, 83, 48, 4);
+  p.noStroke();
   for (let y = 0; y < 4; y += 1) {
     for (let x = 0; x < 6; x += 1) {
       const n = x + y;
@@ -2312,8 +2348,8 @@ function drawNeoPixelMatrix(p) {
   }
 }
 
-function drawButton(p) {
-  p.stroke("#b8bec0");
+function drawButton(p, accent = componentOutlineColor("button")) {
+  p.stroke(accent);
   p.noFill();
   p.line(-22, 8, -7, 8);
   p.line(7, 8, 22, 8);
@@ -2323,23 +2359,23 @@ function drawButton(p) {
   p.circle(24, 8, 5);
 }
 
-function drawLed(p) {
-  p.stroke("#d6bd62");
+function drawLed(p, accent = componentOutlineColor("led")) {
+  p.stroke(accent);
   p.noFill();
   p.circle(0, 0, 25);
   p.line(-4, 9, -15, 20);
   p.line(4, 9, 15, 20);
 }
 
-function drawPot(p) {
-  p.stroke("#d6bd62");
+function drawPot(p, accent = componentOutlineColor("potentiometer")) {
+  p.stroke(accent);
   p.noFill();
   p.circle(0, 0, 28);
   p.line(0, 0, 10, -11);
 }
 
-function drawDistanceSensor(p) {
-  p.stroke("#59bdd0");
+function drawDistanceSensor(p, accent = componentOutlineColor("distanceSensor")) {
+  p.stroke(accent);
   p.noFill();
   p.rect(-32, -15, 64, 30, 4);
   p.noFill();
@@ -2347,85 +2383,88 @@ function drawDistanceSensor(p) {
   p.circle(16, 0, 17);
 }
 
-function drawUltrasonic(p) {
-  drawDistanceSensor(p);
+function drawUltrasonic(p, accent = componentOutlineColor("ultrasonicSensor")) {
+  drawDistanceSensor(p, accent);
 }
 
-function drawMic(p) {
-  p.stroke("#61d47c");
+function drawMic(p, accent = componentOutlineColor("microphone")) {
+  p.stroke(accent);
   p.noFill();
   p.rect(-25, -14, 50, 28, 4);
   p.circle(0, 0, 22);
 }
 
-function drawJoystick(p) {
-  p.stroke("#8f9699");
+function drawJoystick(p, accent = componentOutlineColor("joystick")) {
+  p.stroke(accent);
   p.noFill();
   p.circle(0, 11, 34);
   p.circle(0, 11, 17);
   p.ellipse(6, 2, 16, 24);
 }
 
-function drawServo(p, large = false) {
-  p.stroke("#59bdd0");
+function drawServo(p, large = false, accent = componentOutlineColor("servo")) {
+  p.stroke(accent);
   p.noFill();
   p.rect(large ? -34 : -25, large ? -18 : -13, large ? 68 : 50, large ? 36 : 26, 4);
   p.circle(0, 0, large ? 16 : 12);
 }
 
-function drawFan(p) {
+function drawFan(p, accent = componentOutlineColor("fan")) {
   p.noFill();
-  p.stroke("#59bdd0");
+  p.stroke(accent);
   p.rect(-24, -24, 48, 48, 5);
   p.circle(0, 0, 31);
   p.circle(0, 0, 7);
   [[-17, -17], [17, -17], [-17, 17], [17, 17]].forEach(([x, y]) => p.circle(x, y, 4));
-  drawPcFanBlades(p, "#59bdd0", false);
+  drawPcFanBlades(p, accent, false);
 }
 
-function drawDcMotor(p, connectorSide = "left") {
+function drawDcMotor(p, connectorSide = "left", accent = componentOutlineColor("dcMotor")) {
   const dir = connectorSide === "left" ? 1 : -1;
-  p.stroke("#8fc7d4");
+  p.push();
+  p.translate(dir * 14, 0);
+  p.stroke(accent);
   p.noFill();
   p.rect(-dir * 82 - (dir < 0 ? 36 : 0), -23, 36, 46, 3);
   p.noStroke();
-  p.fill("#8fc7d4");
+  p.fill(accent);
   p.textAlign(p.CENTER, p.CENTER);
   p.textSize(7);
   p.text("CTRL", -dir * 64, 0);
-  p.stroke("#4a4f53");
+  p.stroke(accent);
   p.noFill();
   p.line(-dir * 46, -7, -dir * 15, -7);
   p.line(-dir * 46, 7, -dir * 15, 7);
   p.rect(dir * 12 - 27, -13, 54, 26, 12);
   p.line(dir * 39, 0, dir * 54, 0);
+  p.pop();
 }
 
-function drawStepper(p, connectorSide = "left") {
+function drawStepper(p, connectorSide = "left", accent = componentOutlineColor("stepperMotor")) {
   const dir = connectorSide === "left" ? 1 : -1;
-  p.stroke("#8fc7d4");
+  p.stroke(accent);
   p.noFill();
   p.rect(-dir * 82 - (dir < 0 ? 36 : 0), -26, 36, 52, 3);
   p.noStroke();
-  p.fill("#8fc7d4");
+  p.fill(accent);
   p.textAlign(p.CENTER, p.CENTER);
   p.textSize(7);
   p.text("CTRL", -dir * 64, 0);
-  p.stroke("#9aa0a3");
+  p.stroke(accent);
   p.noFill();
   [-18, -9, 0, 9, 18].forEach((y) => p.line(-dir * 46, y, -dir * 13, y));
-  p.stroke("#4a4f53");
+  p.stroke(accent);
   p.rect(dir * 11 - 24, -22, 48, 44, 5);
   p.circle(dir * 11, 0, 18);
   p.line(dir * 11, 0, dir * 11, -16);
 }
 
-function drawRelay(p) {
-  p.stroke("#8fc7d4");
+function drawRelay(p, accent = componentOutlineColor("relay")) {
+  p.stroke(accent);
   p.noFill();
   p.rect(-30, -15, 60, 30, 4);
   p.noFill();
-  p.stroke("#d6bd62");
+  p.stroke(accent);
   p.line(-20, 5, -6, 5);
   p.line(7, 5, 20, 5);
   p.line(-6, 5, 10, -8);
@@ -2433,37 +2472,37 @@ function drawRelay(p) {
   p.circle(22, 5, 5);
 }
 
-function drawChip(p, label) {
-  p.stroke("#59bdd0");
+function drawChip(p, label, accent = componentOutlineColor("i2cDevice")) {
+  p.stroke(accent);
   p.noFill();
   p.rect(-30, -3, 60, 28, 4);
   p.noStroke();
-  p.fill("#59bdd0");
+  p.fill(accent);
   p.textAlign(p.CENTER, p.CENTER);
   p.textSize(11);
   p.text(label, 0, 11);
 }
 
-function drawSensor(p) {
-  p.stroke("#d6bd62");
+function drawSensor(p, accent = componentOutlineColor("analogSensor")) {
+  p.stroke(accent);
   p.noFill();
   p.rect(-24, -13, 48, 26, 4);
   p.circle(0, 0, 8);
 }
 
-function drawTouchInput(p) {
-  p.stroke("#4f5559");
+function drawTouchInput(p, accent = componentOutlineColor("touchPad")) {
+  p.stroke(accent);
   p.strokeWeight(1.5);
   p.fill("#050505");
   p.circle(0, 0, 24);
 }
 
-function drawAnalogSensor(p) {
-  p.stroke("#d6bd62");
+function drawAnalogSensor(p, accent = componentOutlineColor("analogSensor")) {
+  p.stroke(accent);
   p.noFill();
   p.rect(-28, -14, 56, 28, 4);
   p.noFill();
-  p.stroke("#d6bd62");
+  p.stroke(accent);
   p.line(-18, 7, -8, 7);
   p.line(-8, 7, -2, -6);
   p.line(-2, -6, 6, 6);
@@ -2472,21 +2511,21 @@ function drawAnalogSensor(p) {
   p.circle(18, 6, 4);
 }
 
-function drawCloud(p) {
+function drawCloud(p, accent = componentOutlineColor("wifiService")) {
   p.noStroke();
-  p.fill("#59666b");
+  p.fill(accent);
   p.circle(-16, 11, 24);
   p.circle(2, 3, 30);
   p.circle(21, 12, 22);
   p.rect(-27, 10, 58, 16, 8);
 }
 
-function drawPowerSupply(p) {
-  p.stroke("#61d47c");
+function drawPowerSupply(p, accent = componentOutlineColor("powerSupply")) {
+  p.stroke(accent);
   p.noFill();
   p.rect(-38, -16, 76, 32, 5);
   p.noStroke();
-  p.fill("#61d47c");
+  p.fill(accent);
   p.textAlign(p.CENTER, p.CENTER);
   p.textStyle(p.BOLD);
   p.textSize(12);
@@ -2496,8 +2535,8 @@ function drawPowerSupply(p) {
   p.text("GND", 0, 10);
 }
 
-function drawDiode(p) {
-  p.stroke("#d6bd62");
+function drawDiode(p, accent = componentOutlineColor("backEmfDiode")) {
+  p.stroke(accent);
   p.strokeWeight(2);
   p.noFill();
   drawVerticalDiodeGlyph(p, 22, 12, 10, -9, 11);
@@ -2510,9 +2549,9 @@ function drawVerticalDiodeGlyph(p, leadExtent, cathodeY, baseY, tipY, halfWidth)
   p.line(-halfWidth - 3, -cathodeY, halfWidth + 3, -cathodeY);
 }
 
-function drawQuestion(p) {
+function drawQuestion(p, accent = componentOutlineColor("unknown")) {
   p.noStroke();
-  p.fill("#d6bd62");
+  p.fill(accent);
   p.textAlign(p.CENTER, p.CENTER);
   p.textSize(28);
   p.text("?", 0, 11);

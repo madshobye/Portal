@@ -5,10 +5,10 @@ import { WebSocketTransport } from "./protocol/WebSocketTransport.js";
 import { MqttWebRtcTransport, MQTT_WEBRTC_TRANSPORT_VERSION } from "./protocol/MqttWebRtcTransport.js?v=0.1.87-ui348";
 import { MqttTransport, MQTT_TRANSPORT_VERSION, deriveOnlineAuthKeyHex, getStoredOnlineAuth } from "./protocol/MqttTransport.js?v=0.1.87-ui348";
 import { P1WebFlasher } from "./web-flasher.js?v=0.1.87-ui348";
-import { inferCircuitLayout, initCircuitView, normalizeCircuitLayout } from "./circuit.js?v=0.1.87-ui450";
+import { inferCircuitLayout, initCircuitView, normalizeCircuitLayout } from "./circuit.js?v=0.1.87-ui453";
 import { initGuinoView } from "./guino.js?v=0.1.87-ui348";
 
-const WEB_UI_VERSION = "0.1.87-ui450";
+const WEB_UI_VERSION = "0.1.87-ui453";
 const CHAT_DEFAULT_MAX_OUTPUT_TOKENS = 8000;
 const CHAT_MIN_MAX_OUTPUT_TOKENS = 1024;
 const CHAT_HARD_MAX_OUTPUT_TOKENS = 32000;
@@ -6246,6 +6246,10 @@ function updateChatEnabledState() {
 function toggleChatApiKey() {
   if (hasChatApiKey()) {
     localStorage.removeItem(storage.chatApiKey);
+    if (els.chatKeyShareOutput) {
+      els.chatKeyShareOutput.value = "";
+      els.chatKeyShareOutput.hidden = true;
+    }
     updateChatKeyButton();
     updateChatEnabledState();
     renderChatTranscript();
@@ -6265,6 +6269,10 @@ function saveChatApiKey() {
   }
   localStorage.setItem(storage.chatApiKey, apiKey);
   els.chatApiKeyInput.value = "";
+  if (els.chatKeyShareOutput) {
+    els.chatKeyShareOutput.value = "";
+    els.chatKeyShareOutput.hidden = true;
+  }
   updateChatKeyButton();
   updateChatEnabledState();
   renderChatTranscript();
@@ -6307,6 +6315,7 @@ async function createEncryptedChatKeyShare() {
   };
   const token = `p1e-key:v1:${base64UrlEncode(new TextEncoder().encode(JSON.stringify(share)))}`;
   els.chatKeyShareOutput.value = token;
+  els.chatKeyShareOutput.hidden = false;
   await navigator.clipboard?.writeText?.(token).catch(() => {});
   logLine("info", `encrypted API key share created / ${days} days`);
 }

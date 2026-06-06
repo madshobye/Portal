@@ -1981,12 +1981,30 @@ input {
   min-width: 44px;
 }
 
+.settings-panel .button {
+  min-height: 30px;
+  height: 30px;
+  padding: 0 11px;
+  font-size: 12px;
+  line-height: 1;
+  border-radius: 7px;
+}
+
+.settings-panel .button.icon-buttonish {
+  width: 32px;
+  min-width: 32px;
+  padding: 0;
+}
+
+.settings-panel .button.icon-buttonish .material-symbols-rounded {
+  font-size: 19px;
+}
+
 .settings-save-button {
   grid-column: 1 / -1;
   justify-self: end;
   width: max-content;
-  min-height: 34px;
-  min-width: 72px;
+  min-width: 64px;
 }
 
 .encrypted-key-output {
@@ -1996,6 +2014,10 @@ input {
   resize: vertical;
   font-size: 11px;
   color: var(--muted);
+}
+
+.encrypted-key-output[hidden] {
+  display: none;
 }
 
 .settings-subhead {
