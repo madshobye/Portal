@@ -182,6 +182,7 @@ export function inferCircuitLayout(code, chatLayout = null) {
     ...parsed,
     assumptions: dedupe([...(parsed.assumptions || []), ...stringArray(chatLayout.assumptions)]),
     notes: dedupe([...(parsed.notes || []), ...stringArray(chatLayout.notes)]),
+    interfaceFeatures: dedupe([...(parsed.interfaceFeatures || []), ...stringArray(chatLayout.interfaceFeatures)]),
   };
 }
 
@@ -189,7 +190,7 @@ export function normalizeCircuitLayout(layout) {
   if (!layout || typeof layout !== "object") return null;
   const board = normalizeBoard(layout.board);
   const components = Array.isArray(layout.components)
-    ? layout.components.map((component, index) => normalizeComponent(component, index)).filter(Boolean)
+    ? layout.components.map((component, index) => normalizeComponent(component, index)).filter((component) => component && !isInterfacePreviewType(component.type))
     : [];
   const connections = Array.isArray(layout.connections)
     ? layout.connections.map((connection, index) => normalizeConnection(connection, index)).filter(Boolean)
@@ -202,6 +203,7 @@ export function normalizeCircuitLayout(layout) {
     connections,
     assumptions: stringArray(layout.assumptions),
     notes: stringArray(layout.notes),
+    interfaceFeatures: stringArray(layout.interfaceFeatures),
   };
 }
 
@@ -496,9 +498,17 @@ export function initCircuitView({ mount, componentList, assumptions, pinInfo, al
   function renderSidePanel(nextModel) {
     if (componentList) {
       componentList.replaceChildren();
-      if (!nextModel.components.length) {
+      const features = stringArray(nextModel.interfaceFeatures);
+      if (!nextModel.components.length && !features.length) {
         componentList.append(makeSmallLine("No concrete parts found yet."));
       } else {
+        features.forEach((feature) => {
+          const item = document.createElement("li");
+          const title = document.createElement("strong");
+          title.textContent = feature;
+          item.append(title);
+          componentList.append(item);
+        });
         nextModel.components.forEach((component) => {
           const item = document.createElement("li");
           const title = document.createElement("strong");
@@ -595,6 +605,7 @@ function inferFromSource(source) {
   const connections = [];
   const assumptions = [];
   const notes = [];
+  const interfaceFeatures = [];
   const seen = new Set();
 
   const add = (type, pin, options = {}) => {
@@ -617,6 +628,10 @@ function inferFromSource(source) {
   };
 
   hints.forEach((hint) => {
+    if (isInterfacePreviewType(hint.type)) {
+      interfaceFeatures.push(interfaceFeatureLabel(hint.type));
+      return;
+    }
     if (!hint.pin) return;
     add(hint.type, hint.pin, {
       label: componentTypes[hint.type]?.label || hint.type,
@@ -752,8 +767,8 @@ function inferFromSource(source) {
     });
   });
 
-  addUiPreviewComponent(source, add, components);
-  addHomeAssistantPreviewComponent(source, add, components);
+  addUiPreviewFeature(source, interfaceFeatures, assumptions);
+  addHomeAssistantPreviewFeature(source, interfaceFeatures, assumptions);
 
   if (/\b(httpGet|fetchJson|httpJsonGet|wifiConnected|wifiConnect)\s*\(/.test(source)) {
     add("wifiService", "", { id: "wifi", label: "WiFi / web API", inferredFrom: "WiFi or HTTP binding", confidence: 0.7 });
@@ -774,6 +789,7 @@ function inferFromSource(source) {
     connections,
     assumptions: dedupe(assumptions),
     notes,
+    interfaceFeatures: dedupe(interfaceFeatures),
   });
 }
 
@@ -1037,8 +1053,8 @@ function addKnownProtocolModules(source, vars, add, components) {
   }
 }
 
-function addUiPreviewComponent(source, add, components) {
-  if (hasType(components, "uiPanel")) return false;
+function addUiPreviewFeature(source, interfaceFeatures, assumptions) {
+  if (interfaceFeatures.includes("UI enabled")) return false;
   const counts = {
     sliders: countCalls(source, ["uiSlider"]),
     toggles: countCalls(source, ["uiToggle"]),
@@ -1048,19 +1064,13 @@ function addUiPreviewComponent(source, add, components) {
   };
   const used = countCalls(source, ["uiBegin", "uiColor", "uiPoll", "uiGet", "uiUpdate"]) + Object.values(counts).reduce((sum, value) => sum + value, 0);
   if (!used) return false;
-  const title = firstStringArg(source, "uiBegin") || "Script UI";
-  add("uiPanel", "", {
-    id: "p1e-ui-preview",
-    label: "P1E UI",
-    pins: { title, ...counts },
-    inferredFrom: "UI bindings",
-    confidence: 0.9,
-  });
+  interfaceFeatures.push("UI enabled");
+  assumptions.push(`UI enabled${formatFeatureCounts(counts)}.`);
   return true;
 }
 
-function addHomeAssistantPreviewComponent(source, add, components) {
-  if (hasType(components, "homeAssistant")) return false;
+function addHomeAssistantPreviewFeature(source, interfaceFeatures, assumptions) {
+  if (interfaceFeatures.includes("HA enabled")) return false;
   const counts = {
     lights: countCalls(source, ["haLight", "haOnOffLight", "haRgbLight"]),
     switches: countCalls(source, ["haSwitch"]),
@@ -1073,15 +1083,16 @@ function addHomeAssistantPreviewComponent(source, add, components) {
     "haEvent", "haPoll", "haEventIs", "haEventValue", "haPress",
   ]) + Object.values(counts).reduce((sum, value) => sum + value, 0);
   if (!used) return false;
-  const title = firstStringArg(source, "haBegin") || "Home Assistant";
-  add("homeAssistant", "", {
-    id: "home-assistant-preview",
-    label: "Home Assistant",
-    pins: { title, ...counts },
-    inferredFrom: "Home Assistant bindings",
-    confidence: 0.9,
-  });
+  interfaceFeatures.push("HA enabled");
+  assumptions.push(`HA enabled${formatFeatureCounts(counts)}.`);
   return true;
+}
+
+function formatFeatureCounts(counts) {
+  const parts = Object.entries(counts || {})
+    .filter(([, value]) => value > 0)
+    .map(([key, value]) => `${value} ${key}`);
+  return parts.length ? ` (${parts.join(", ")})` : "";
 }
 
 function compactPins(pins) {
@@ -1094,6 +1105,16 @@ function compactPins(pins) {
 
 function hasType(components, type) {
   return components.some((component) => component.type === type);
+}
+
+function isInterfacePreviewType(type) {
+  return type === "uiPanel" || type === "homeAssistant";
+}
+
+function interfaceFeatureLabel(type) {
+  if (type === "homeAssistant") return "HA enabled";
+  if (type === "uiPanel") return "UI enabled";
+  return "";
 }
 
 function addStepperFromNamedPins(vars, add, components) {
@@ -1487,9 +1508,12 @@ function addExternalPowerPlan(components, connections, assumptions, notes, seen,
   };
   components.push(supply);
   rerouteVinPowerToExternalSupply(supply, components, connections);
+  const poweredIds = new Set(powered.map(({ component }) => component.id));
+  removeBoardGroundReturnsForExternalLoads(poweredIds, connections);
+  connections.push({ from: { component: supply.id, pin: "GND" }, to: { boardPin: "GND" }, color: "#8f9699", label: "common GND reference" });
   powered.forEach(({ component, reason, diode }) => {
     connections.push({ from: { component: supply.id, pin: "5V" }, to: { component: component.id, pin: "power" }, color: WIRE_POWER, label: "5V" });
-    connections.push({ from: { component: supply.id, pin: "GND" }, to: { boardPin: "GND" }, color: "#8f9699", label: "common GND" });
+    connections.push({ from: { component: supply.id, pin: "GND" }, to: { component: component.id, pin: "gnd" }, color: WIRE_GROUND, label: "load GND" });
     if (diode) {
       const protection = {
         id: uniqueId(`${component.id}-back-emf-diode`, seen),
@@ -1507,6 +1531,17 @@ function addExternalPowerPlan(components, connections, assumptions, notes, seen,
     }
     assumptions.push(reason);
   });
+}
+
+function removeBoardGroundReturnsForExternalLoads(poweredIds, connections) {
+  for (let index = connections.length - 1; index >= 0; index -= 1) {
+    const connection = connections[index];
+    const componentId = connection.from?.component;
+    if (!poweredIds.has(componentId)) continue;
+    if (connection.from?.pin !== "gnd") continue;
+    if (!/^gnd$/i.test(String(connection.to?.boardPin || ""))) continue;
+    connections.splice(index, 1);
+  }
 }
 
 function rerouteVinPowerToExternalSupply(supply, components, connections) {
@@ -2450,13 +2485,15 @@ function wireText(connection) {
 
 function drawCircuitNote(p, model) {
   const count = model.components?.length || 0;
+  const features = stringArray(model.interfaceFeatures);
   p.push();
   p.noStroke();
   p.fill("#202326");
   p.textAlign(p.LEFT, p.TOP);
   p.textStyle(p.NORMAL);
   p.textSize(11);
-  p.text(`${count} part${count === 1 ? "" : "s"} inferred`, 12, 12);
+  const featureText = features.length ? ` · ${features.join(" · ")}` : "";
+  p.text(`${count} part${count === 1 ? "" : "s"} inferred${featureText}`, 12, 12);
   p.fill("#687076");
   p.textSize(10);
   p.text("Estimated circuit based on code", 12, 28);
