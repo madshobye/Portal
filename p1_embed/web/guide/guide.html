@@ -289,6 +289,25 @@
 
       .binding-card .body { padding: 14px; }
 
+      .binding-detail-link {
+        display: inline-flex;
+        align-items: center;
+        min-height: 30px;
+        margin-bottom: 12px;
+        padding: 7px 10px;
+        border: 1px solid var(--line);
+        border-radius: 6px;
+        color: var(--cyan);
+        background: rgba(89, 189, 208, 0.08);
+        font-size: 12px;
+      }
+
+      .binding-detail-link:hover {
+        color: var(--text);
+        background: var(--surface-2);
+        text-decoration: none;
+      }
+
       .binding-card ul {
         margin: 0;
         padding-left: 18px;
@@ -482,6 +501,7 @@ function loop() {
           <article class="binding-card">
             <header><h3>Core Runtime</h3><span>logs, timing, random</span></header>
             <div class="body">
+              <a class="binding-detail-link" href="bindings/core-runtime.html">Open detailed reference</a>
               <ul>
                 <li><code>print()</code>, <code>println()</code>, <code>log(level, message)</code></li>
                 <li><code>millis()</code>, <code>micros()</code>, <code>delay(ms)</code>, <code>delayMicroseconds(us)</code></li>
@@ -497,6 +517,7 @@ delay(20);</pre>
           <article class="binding-card">
             <header><h3>Math, Noise, Time, Sun</h3><span>motion and context</span></header>
             <div class="body">
+              <a class="binding-detail-link" href="bindings/math-time-sun.html">Open detailed reference</a>
               <ul>
                 <li><code>map()</code>, <code>constrain()</code>, <code>lerp()</code>, <code>sin()</code>, <code>cos()</code>, <code>sqrt()</code>, <code>radians()</code>, <code>degrees()</code></li>
                 <li><code>noiseSeed(seed)</code>, <code>simplex3(x, y, z)</code>, <code>simplex3_01(x, y, z)</code></li>
@@ -516,6 +537,7 @@ println(sun[2]);   // brightness 0..255</pre>
           <article class="binding-card">
             <header><h3>GPIO And PWM</h3><span>pins and motors</span></header>
             <div class="body">
+              <a class="binding-detail-link" href="bindings/gpio-pwm.html">Open detailed reference</a>
               <ul>
                 <li><code>pinMode(pin, OUTPUT)</code>, <code>digitalWrite(pin, HIGH)</code>, <code>digitalRead(pin)</code></li>
                 <li><code>analogRead(pin)</code>, <code>analogWrite(pin, value)</code></li>
@@ -540,6 +562,7 @@ function loop() {
           <article class="binding-card">
             <header><h3>WiFi And Device</h3><span>network state</span></header>
             <div class="body">
+              <a class="binding-detail-link" href="bindings/wifi-device.html">Open detailed reference</a>
               <ul>
                 <li><code>wifiConnected()</code>, <code>wifiIp()</code>, <code>wifiRssi()</code>, <code>wifiSsid()</code></li>
                 <li><code>wifiConnect(ssid, password)</code>, <code>wifiDisconnect()</code></li>
@@ -556,6 +579,7 @@ function loop() {
           <article class="binding-card">
             <header><h3>HTTP And JSON</h3><span>small API calls</span></header>
             <div class="body">
+              <a class="binding-detail-link" href="bindings/http-json.html">Open detailed reference</a>
               <ul>
                 <li><code>httpGet(url, maxBytes, timeoutMs)</code>, <code>httpPost(url, body, contentType, maxBytes, timeoutMs)</code></li>
                 <li><code>fetchJson(url, maxBytes, timeoutMs)</code> stores the response in firmware cache.</li>
@@ -573,6 +597,7 @@ if (code == 200) {
           <article class="binding-card">
             <header><h3>LED Strips</h3><span>NeoPixel-style output</span></header>
             <div class="body">
+              <a class="binding-detail-link" href="bindings/led-strips.html">Open detailed reference</a>
               <ul>
                 <li><code>ledConfig(strip, pin, count, brightness)</code> configures a WS2812B/NeoPixel-style strip with GRB order.</li>
                 <li><code>ledConfig(strip, pin, count, brightness, "WS2812B", order)</code> supports explicit color orders such as <code>RGB</code>, <code>GRB</code>, and <code>BGR</code>.</li>
@@ -599,6 +624,7 @@ function loop() {
           <article class="binding-card">
             <header><h3>Palettes</h3><span>color gradients</span></header>
             <div class="body">
+              <a class="binding-detail-link" href="bindings/palettes.html">Open detailed reference</a>
               <ul>
                 <li><code>paletteSet2()</code>, <code>paletteSet3()</code>, and <code>paletteSet4()</code> define gradient slots.</li>
                 <li><code>paletteGetRgb(slot, t, out)</code> samples a color at <code>0..255</code>.</li>
@@ -626,6 +652,7 @@ function loop() {
           <article class="binding-card">
             <header><h3>I2C And UART</h3><span>external devices</span></header>
             <div class="body">
+              <a class="binding-detail-link" href="bindings/i2c-uart.html">Open detailed reference</a>
               <ul>
                 <li><code>wireBegin(sda, scl)</code>, <code>i2cWrite(addr, reg, value)</code>, <code>i2cRead(addr, reg, len)</code></li>
                 <li><code>serialBegin(uart, rxPin, txPin, baud)</code>, <code>serialAvailable(uart)</code>, <code>serialRead(uart)</code></li>
@@ -647,6 +674,7 @@ function loop() {
           <article class="binding-card">
             <header><h3>Browser UI</h3><span>live controls</span></header>
             <div class="body">
+              <a class="binding-detail-link" href="bindings/browser-ui.html">Open detailed reference</a>
               <ul>
                 <li><code>uiBegin(title)</code>, <code>uiLabel()</code>, <code>uiButton()</code>, <code>uiToggle()</code>, <code>uiSlider()</code>, <code>uiValue()</code>, <code>uiGraph()</code></li>
                 <li><code>uiPoll()</code>, <code>uiEventIs(type, id)</code>, <code>uiEventValue()</code></li>
@@ -676,6 +704,7 @@ function loop() {
           <article class="binding-card">
             <header><h3>Home Assistant</h3><span>experimental ESPHome API</span></header>
             <div class="body">
+              <a class="binding-detail-link" href="bindings/home-assistant.html">Open detailed reference</a>
               <ul>
                 <li><code>haBegin(name)</code> starts a sketch-owned entity registry.</li>
                 <li><code>haSensor()</code>, <code>haBinarySensor()</code>, <code>haSwitch()</code>, <code>haNumber()</code>, <code>haButton()</code></li>
@@ -702,6 +731,7 @@ function loop() {
           <article class="binding-card">
             <header><h3>Inbox</h3><span>host messages</span></header>
             <div class="body">
+              <a class="binding-detail-link" href="bindings/inbox.html">Open detailed reference</a>
               <ul>
                 <li><code>inboxAvailable()</code>, <code>inboxRead()</code>, <code>inboxChannel()</code></li>
                 <li><code>inboxClear()</code>, <code>inboxDrops()</code></li>

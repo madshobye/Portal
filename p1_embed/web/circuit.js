@@ -36,6 +36,7 @@ const D1_MINI_HEADER_PITCH = 18;
 const D1_MINI_OUTER_INSET = 9;
 const D1_MINI_INNER_INSET = 24;
 const D1_MINI_SHARED_ROW_WIRE_OFFSET = 1.7;
+const NEOPIXEL_BACKING_COLOR = "#303437";
 
 const COMPONENT_ACCENTS = {
   physicalInput: { wire: "#9aa0a3", outline: "#d2d8da" },
@@ -3135,7 +3136,7 @@ function componentIllustrationHalfHeight(type) {
 
 function drawLedStrip(p, accent = componentOutlineColor("ledStrip"), symbolMode = false) {
   const h = componentBodyHeight("ledStrip");
-  p.noFill();
+  p.fill(NEOPIXEL_BACKING_COLOR);
   p.stroke(accent);
   p.strokeWeight(1.6);
   p.rect(-90, -h / 2, 180, h, symbolMode ? 8 : 1);
@@ -3161,7 +3162,7 @@ function drawLedStrip(p, accent = componentOutlineColor("ledStrip"), symbolMode 
 }
 
 function drawNeoPixelRing(p, accent = componentOutlineColor("neopixelRing")) {
-  p.noFill();
+  p.fill(NEOPIXEL_BACKING_COLOR);
   p.stroke(accent);
   p.circle(0, 0, 38);
   p.noStroke();
@@ -3173,7 +3174,7 @@ function drawNeoPixelRing(p, accent = componentOutlineColor("neopixelRing")) {
 }
 
 function drawNeoPixelMatrix(p, accent = componentOutlineColor("neopixelMatrix")) {
-  p.noFill();
+  p.fill(NEOPIXEL_BACKING_COLOR);
   p.stroke(accent);
   p.rect(-28, -28, 56, 56, 4);
   drawSquareMatrixPixels(p, 6, 7, 4, false);
@@ -3505,7 +3506,7 @@ function drawQuestion(p, accent = componentOutlineColor("unknown")) {
 
 function drawNeoPixelRingIllustration(p) {
   p.noStroke();
-  p.fill("#3f4548");
+  p.fill(NEOPIXEL_BACKING_COLOR);
   p.circle(0, 0, 54);
   p.fill("#1d2022");
   p.circle(0, 0, 32);
@@ -3519,7 +3520,7 @@ function drawNeoPixelRingIllustration(p) {
 }
 
 function drawLedMatrixIllustration(p) {
-  p.fill("#1b3470");
+  p.fill(NEOPIXEL_BACKING_COLOR);
   p.noStroke();
   p.rect(-36, -36, 72, 72, 2);
   drawSquareMatrixPixels(p, 6, 7.5, 3.5, true);
