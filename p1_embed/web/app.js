@@ -1,14 +1,14 @@
-import { ProtocolClient } from "./protocol/ProtocolClient.js?v=0.1.87-ui346";
-import { canEncodeCommand } from "./protocol/P1MsgPack.js?v=0.1.87-ui346";
-import { WebSerialTransport } from "./protocol/WebSerialTransport.js?v=0.1.87-ui346";
+import { ProtocolClient } from "./protocol/ProtocolClient.js?v=0.1.87-ui348";
+import { canEncodeCommand } from "./protocol/P1MsgPack.js?v=0.1.87-ui348";
+import { WebSerialTransport } from "./protocol/WebSerialTransport.js?v=0.1.87-ui348";
 import { WebSocketTransport } from "./protocol/WebSocketTransport.js";
-import { MqttWebRtcTransport, MQTT_WEBRTC_TRANSPORT_VERSION } from "./protocol/MqttWebRtcTransport.js?v=0.1.87-ui346";
-import { MqttTransport, MQTT_TRANSPORT_VERSION, deriveOnlineAuthKeyHex, getStoredOnlineAuth } from "./protocol/MqttTransport.js?v=0.1.87-ui346";
-import { P1WebFlasher } from "./web-flasher.js?v=0.1.87-ui346";
-import { inferCircuitLayout, initCircuitView, normalizeCircuitLayout } from "./circuit.js?v=0.1.87-ui346";
-import { initGuinoView } from "./guino.js?v=0.1.87-ui346";
+import { MqttWebRtcTransport, MQTT_WEBRTC_TRANSPORT_VERSION } from "./protocol/MqttWebRtcTransport.js?v=0.1.87-ui348";
+import { MqttTransport, MQTT_TRANSPORT_VERSION, deriveOnlineAuthKeyHex, getStoredOnlineAuth } from "./protocol/MqttTransport.js?v=0.1.87-ui348";
+import { P1WebFlasher } from "./web-flasher.js?v=0.1.87-ui348";
+import { inferCircuitLayout, initCircuitView, normalizeCircuitLayout } from "./circuit.js?v=0.1.87-ui442";
+import { initGuinoView } from "./guino.js?v=0.1.87-ui348";
 
-const WEB_UI_VERSION = "0.1.87-ui346";
+const WEB_UI_VERSION = "0.1.87-ui442";
 const CHAT_DEFAULT_MAX_OUTPUT_TOKENS = 8000;
 const CHAT_MIN_MAX_OUTPUT_TOKENS = 1024;
 const CHAT_HARD_MAX_OUTPUT_TOKENS = 32000;
@@ -63,6 +63,7 @@ const storage = {
   specificationDraft: "p1_embed.project.specificationDraft",
   revisionDraft: "p1_embed.project.revisionDraft",
   specificationMode: "p1_embed.project.specificationMode",
+  circuitArtMode: "p1_embed.circuit.artMode",
 };
 
 const builtInChatModelOptions = [
@@ -138,6 +139,7 @@ const els = {
   uploadStatusLabel: document.querySelector("#upload-status-label"),
   uploadStatusProgress: document.querySelector("#upload-status-progress"),
   downloadCode: document.querySelector("#download-code-button"),
+  formatCode: document.querySelector("#format-code-button"),
   chatDownloadCode: document.querySelector("#chat-download-code-button"),
   projectSelect: document.querySelector("#project-select"),
   sketchHistory: document.querySelector("#sketch-history"),
@@ -224,9 +226,11 @@ const els = {
   specificationMode: document.querySelector("#spec-mode"),
   specificationGenerate: document.querySelector("#spec-generate-button"),
   circuitRefresh: document.querySelector("#circuit-refresh-button"),
+  circuitArtMode: document.querySelector("#circuit-art-mode-button"),
   circuitDownload: document.querySelector("#circuit-download-button"),
   circuitStatus: document.querySelector("#circuit-status"),
   circuitCanvas: document.querySelector("#circuit-canvas"),
+  circuitAlternatives: document.querySelector("#circuit-alternatives"),
   circuitComponents: document.querySelector("#circuit-components"),
   circuitAssumptions: document.querySelector("#circuit-assumptions"),
   circuitPinInfo: document.querySelector("#circuit-pin-info"),
@@ -476,6 +480,33 @@ function setEditorValueRaw(value, { persist = true } = {}) {
   }
 }
 
+async function formatEditorCode() {
+  const before = getEditorValue();
+  if (!before.trim()) return;
+
+  const beautify = window.ace?.require?.("ace/ext/beautify");
+  if (editor && typeof beautify?.beautify === "function") {
+    beautify.beautify(editor.session);
+    els.code.value = editor.getValue();
+    handleEditorInput();
+    logLine("info", "code formatted");
+    return;
+  }
+
+  const after = before
+    .replace(/\r\n?/g, "\n")
+    .split("\n")
+    .map((line) => line.replace(/[ \t]+$/g, ""))
+    .join("\n")
+    .replace(/\n*$/g, "\n");
+  if (after === before) {
+    logLine("info", "code already formatted");
+    return;
+  }
+  setEditorValueRaw(after);
+  logLine("info", "code formatted");
+}
+
 function bindControls() {
   els.tabs.forEach((tab) => tab.addEventListener("click", () => switchTab(tab.dataset.tab)));
   els.lowerTabs.forEach((tab) => tab.addEventListener("click", () => switchLowerPanel(tab.dataset.panel)));
@@ -500,6 +531,11 @@ function bindControls() {
   els.chatStop.addEventListener("click", () => runUiAction(() => sendCommand("script.stop").then(refreshStatus), "stopping"));
   els.downloadCode.addEventListener("click", () => runUiAction(downloadProject, "download"));
   els.chatDownloadCode.addEventListener("click", () => runUiAction(downloadProject, "download"));
+  els.formatCode.addEventListener("click", () => runUiAction(formatEditorCode, "formatting"));
+  ["pointerdown", "mousedown", "mouseup", "pointerup", "click"].forEach((name) => {
+    els.circuitArtMode.addEventListener(name, (event) => event.stopPropagation());
+  });
+  els.circuitArtMode.addEventListener("click", toggleCircuitArtMode);
   [els.projectSelect, els.generativeProjectSelect].forEach((select) => {
     select.addEventListener("input", () => scheduleProjectSelect(select.value));
     select.addEventListener("change", () => scheduleProjectSelect(select.value));
@@ -690,14 +726,37 @@ function initCircuit() {
     componentList: els.circuitComponents,
     assumptions: els.circuitAssumptions,
     pinInfo: els.circuitPinInfo,
+    alternatives: els.circuitAlternatives,
+    onComponentOverride: applyCircuitComponentOverride,
   });
+  setCircuitArtMode(normalizeCircuitArtMode(localStorage.getItem(storage.circuitArtMode)), { persist: false });
   updateCircuitView("inferred from code");
+}
+
+function normalizeCircuitArtMode(mode) {
+  return mode === "illustrations" ? "illustrations" : "symbols";
+}
+
+function toggleCircuitArtMode() {
+  const current = normalizeCircuitArtMode(localStorage.getItem(storage.circuitArtMode));
+  setCircuitArtMode(current === "illustrations" ? "symbols" : "illustrations");
+}
+
+function setCircuitArtMode(mode, { persist = true } = {}) {
+  const next = normalizeCircuitArtMode(mode);
+  if (persist) localStorage.setItem(storage.circuitArtMode, next);
+  circuitView?.setRenderMode?.(next);
+  const illustrated = next === "illustrations";
+  els.circuitArtMode?.classList.toggle("is-active", illustrated);
+  els.circuitArtMode?.setAttribute("aria-pressed", illustrated ? "true" : "false");
+  els.circuitArtMode?.setAttribute("title", illustrated ? "Circuit illustration mode" : "Circuit symbol mode");
+  els.circuitArtMode?.querySelector(".material-symbols-rounded")?.replaceChildren(document.createTextNode(illustrated ? "image" : "category"));
 }
 
 function scheduleCircuitUpdate() {
   window.clearTimeout(circuitUpdateTimer);
   circuitUpdateTimer = window.setTimeout(() => {
-    if (els.views.circuit?.classList.contains("is-active")) updateCircuitView();
+    updateCircuitView();
   }, 360);
 }
 
@@ -709,6 +768,67 @@ function updateCircuitView(status = "") {
     const count = model.components?.length || 0;
     els.circuitStatus.textContent = status || `${count} part${count === 1 ? "" : "s"} inferred`;
   }
+}
+
+function applyCircuitComponentOverride({ component, type, label } = {}) {
+  const pin = circuitComponentPin(component);
+  if (!pin || !type) return;
+  const hint = `// p1e-circuit: IO${pin} ${type}`;
+  const current = getEditorValue();
+  const next = upsertCircuitHintComment(current, pin, hint);
+  if (next === current) return;
+  setEditorValueRaw(next, { persist: true });
+  circuitChatLayout = null;
+  updateCircuitView(`${label || type} hint saved`);
+  logLine("info", `circuit hint saved: IO${pin} ${type}`);
+}
+
+function circuitComponentPin(component) {
+  return String(
+    component?.pins?.data
+    || component?.pins?.signal
+    || component?.pins?.trigger
+    || component?.pins?.sda
+    || component?.pins?.rx
+    || component?.pin
+    || "",
+  ).replace(/\D+/g, "");
+}
+
+function upsertCircuitHintComment(code, pin, hint) {
+  const lines = String(code || "").split("\n");
+  const hintRe = new RegExp(`//\\s*p1e-circuit:\\s*(?:IO|GPIO)?\\s*${escapeRegex(pin)}\\b[^\\n]*`, "i");
+  const existingIndex = lines.findIndex((line) => hintRe.test(line));
+  if (existingIndex >= 0) {
+    lines[existingIndex] = lines[existingIndex].replace(hintRe, hint).replace(/\s+$/, "");
+    return lines.join("\n");
+  }
+  const targetIndex = findCircuitHintLine(lines, pin);
+  if (targetIndex >= 0) {
+    lines[targetIndex] = `${lines[targetIndex].replace(/\s+$/, "")} ${hint}`;
+  } else {
+    lines.unshift(hint);
+  }
+  return lines.join("\n");
+}
+
+function findCircuitHintLine(lines, pin) {
+  const pinRe = new RegExp(`\\b${escapeRegex(pin)}\\b`);
+  const pinVarRe = new RegExp(`\\bvar\\s+[A-Za-z_]\\w*pin\\s*=\\s*${escapeRegex(pin)}\\s*;`, "i");
+  let fallback = -1;
+  for (let index = 0; index < lines.length; index += 1) {
+    const line = lines[index];
+    if (/p1e-circuit:/i.test(line)) continue;
+    if (pinVarRe.test(line)) return index;
+    if (fallback < 0 && pinRe.test(line) && /\b(ledConfig|pinMode|digitalWrite|digitalRead|analogWrite|analogRead|touchRead|servoAttach|fanAttach|tone)\s*\(/.test(line)) {
+      fallback = index;
+    }
+  }
+  return fallback;
+}
+
+function escapeRegex(text) {
+  return String(text).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
 function downloadCircuitDiagram() {
@@ -2785,7 +2905,6 @@ async function persistProjectMetadataToDevice(project, revision = null) {
 
 function projectCircuitForCurrentCode(code) {
   if (String(code ?? "") === currentSketchSource && currentProjectCircuit) return normalizeCircuitLayout(currentProjectCircuit);
-  if (circuitChatLayout) return normalizeCircuitLayout(circuitChatLayout);
   const viewModel = circuitView?.getModel?.();
   return normalizeCircuitLayout(viewModel);
 }
@@ -3162,7 +3281,6 @@ function revisionFieldsFromChatResult(result = {}, messages = []) {
     fields.specification = result.project_specification;
     fields.specificationMode = result.specification_mode || currentProjectSpecificationMode;
   }
-  if (result.circuit_layout) fields.circuit = result.circuit_layout;
   return fields;
 }
 
@@ -6353,7 +6471,7 @@ async function applyChatCode(index) {
     code,
     "chat code applied to editor",
     message.structured?.sketch_name || "",
-    message.structured?.circuit_layout || null,
+    null,
     message.structured?.project_specification || "",
     message.structured?.specification_mode || "",
   );
@@ -6369,7 +6487,7 @@ async function runChatCode(index) {
       code,
       "chat code prepared",
       name,
-      message.structured?.circuit_layout || null,
+      null,
       message.structured?.project_specification || "",
       message.structured?.specification_mode || "",
     );
@@ -6382,7 +6500,6 @@ async function replaceEditorFromChat(code, message, name = "", layout = null, sp
   targetContext = null,
 } = {}) {
   if (!targetContext?.projectId || !targetContext?.revisionId) targetContext = null;
-  const nextCircuitLayout = normalizeCircuitLayout(layout);
   const nextSpecification = String(specification || targetContext?.specification || currentProjectDescription || "");
   const nextMode = normalizeSpecificationMode(specificationMode || targetContext?.specificationMode || currentProjectSpecificationMode);
   const current = String(code ?? "");
@@ -6403,7 +6520,7 @@ async function replaceEditorFromChat(code, message, name = "", layout = null, sp
     code: current,
     specification: nextSpecification,
     specificationMode: nextMode,
-    circuit: nextCircuitLayout,
+    circuit: inferCircuitLayout(current, null),
     chat: targetContext?.chat || chatMessages,
     source: "generative",
   });
@@ -6427,7 +6544,7 @@ async function replaceEditorFromChat(code, message, name = "", layout = null, sp
   }
   if (shouldOpen) {
     await openRevision(saved, selected, { saveCurrent: false });
-    updateCircuitView(nextCircuitLayout ? "chat layout + code inference" : "inferred from code");
+    updateCircuitView("inferred from code");
   } else {
     logLine("info", `${message}; saved to original revision`);
   }
@@ -6467,7 +6584,7 @@ async function sendChatPrompt() {
         result.code,
         "chat code replaced editor",
         result.sketch_name,
-        result.circuit_layout,
+        null,
         result.project_specification,
         result.specification_mode,
         { targetContext: { ...requestContext, chat: requestMessages, sourceChat: requestContext.chat } },
@@ -6478,11 +6595,13 @@ async function sendChatPrompt() {
         revisionId: applied.revision.id,
       }, finalMessages);
       if (applied.opened) chatMessages = finalMessages;
-    } else if (result.circuit_layout) {
-      const finalMessages = [...requestMessages, assistantMessage];
-      const savedFields = await saveRevisionFieldsForContext(requestContext, revisionFieldsFromChatResult(result, finalMessages));
-      if (isCurrentRevisionContext(requestContext)) {
-        if (savedFields) await openRevision(savedFields.project, savedFields.revision, { saveCurrent: false });
+      if (isDeviceConnected() && applied.opened) {
+        await uploadScriptCode(result.code, { run: true, save: true, name: result.sketch_name || "" });
+        logLine("info", "chat code deployed");
+      } else if (isDeviceConnected()) {
+        logLine("info", "chat code saved to original revision; not deployed because active revision changed");
+      } else {
+        logLine("info", "chat code ready; connect to deploy");
       }
     } else {
       const finalMessages = [...requestMessages, assistantMessage];
@@ -6530,7 +6649,7 @@ async function generateCodeFromSpecification() {
         result.code,
         "generated code from specification",
         name,
-        result.circuit_layout,
+        null,
         result.project_specification || specification,
         result.specification_mode || currentProjectSpecificationMode,
         { targetContext: { ...requestContext, chat: requestContext.chat } },
@@ -6741,7 +6860,8 @@ function buildChatInstructions(context) {
     "Project specification rule: describe only the current resulting sketch in concise present tense. Do not write a changelog, transcript, reflection, or iterative phrasing such as now, updated to, changed from, without X, instead of, previously, the user asked, or this revision. If behavior was removed, omit the removed behavior and describe the final behavior.",
     "Use only this Markdown subset in project_specification: # through #### headings, **bold**, *italic*, <u>underline</u>, numbered lists, and bullet lists.",
     "Specification modes: overview means high-level human description; middle means important implementation details without pseudocode; structured means sections like Program, Global values, Setup, and Main loop in Markdown/plain text.",
-    "Also provide circuit_layout: a best-effort JSON layout for the Circuit view with components, connections, assumptions, and notes. Use an empty object if no hardware is involved.",
+    "Do not generate a circuit diagram layout. Always return circuit_layout as an empty object. The browser infers the diagram from code and // p1e-circuit comments near pin variables. Add these comments whenever the user's words choose a specific physical part that generic code cannot prove. Use exact component keys such as led, relay, buzzer, servo, largeServo, fan, dcMotor, stepperMotor, ledStrip, neopixelRing, potentiometer, microphone, distanceSensor, analogSensor, digitalSensor, button, touchPad. If the user says large/big/high-torque servo, write largeServo, never plain servo. If the user says potentiometer/knob/dial, write potentiometer. If the user says LED string/strip/bar or NeoPixel strip, write ledStrip. Example: var servoPin = 16; // p1e-circuit: IO16 largeServo",
+    "When generated code reads a named physical input, add a short ordinary comment immediately before the read, such as // Read the potentiometer. before analogRead(potPin), // Read the microphone. before analogRead(micPin), or // Read the button. before digitalRead(buttonPin). Keep these comments concrete and physical, not generic sensor wording when the part is known.",
     "GPIO rule: pinMode uses firmware constants such as INPUT, OUTPUT, INPUT_PULLUP, and INPUT_PULLDOWN when available. Write pinMode(powerPin, OUTPUT), never pinMode(powerPin, \"OUTPUT\"). digitalWrite should use HIGH/LOW if available or 1/0, never string values.",
     "Declare scratch variables at the top of each function and assign them inside while/if blocks. Avoid new var declarations inside tight loops or nested blocks, especially LED render loops.",
     "When the user asks for a live interface, dashboard, or controls, use the documented firmware-driven UI bindings in a Guino-style lifecycle: declare the interface in a drawUi() function from setup() and on hello, read slider/toggle state with uiGet(), use while (uiPoll()) plus uiEventIs(type, id) for buttons and hello redraw events, update ordinary values with uiUpdate(), and stream every graph/sample with uiPush(). Do not call uiBegin() after every control change.",
@@ -6918,7 +7038,7 @@ function parseChatStructuredText(text) {
     specification_mode: normalizeSpecificationMode(parsed.specification_mode || parsed.descriptionMode || currentProjectSpecificationMode),
     notes: Array.isArray(parsed.notes) ? parsed.notes.map(String) : [],
     warnings: filterChatWarnings(parsed.warnings),
-    circuit_layout: hasCircuitLayoutContent(parsed.circuit_layout) ? normalizeCircuitLayout(parsed.circuit_layout) : null,
+    circuit_layout: null,
   };
 }
 
@@ -6965,6 +7085,7 @@ function updateEnabledState() {
     button.querySelector(".material-symbols-rounded").textContent = connecting ? "sync" : (connected || transport ? "link_off" : "link");
   });
   els.downloadCode.disabled = !getEditorValue().trim();
+  els.formatCode.disabled = isBusy || !getEditorValue().trim();
   els.chatDownloadCode.disabled = els.downloadCode.disabled;
   [
     els.getScript,
