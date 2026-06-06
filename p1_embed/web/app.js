@@ -5,10 +5,10 @@ import { WebSocketTransport } from "./protocol/WebSocketTransport.js";
 import { MqttWebRtcTransport, MQTT_WEBRTC_TRANSPORT_VERSION } from "./protocol/MqttWebRtcTransport.js?v=0.1.87-ui348";
 import { MqttTransport, MQTT_TRANSPORT_VERSION, deriveOnlineAuthKeyHex, getStoredOnlineAuth } from "./protocol/MqttTransport.js?v=0.1.87-ui348";
 import { P1WebFlasher } from "./web-flasher.js?v=0.1.87-ui348";
-import { inferCircuitLayout, initCircuitView, normalizeCircuitLayout } from "./circuit.js?v=0.1.87-ui494";
+import { inferCircuitLayout, initCircuitView, normalizeCircuitLayout } from "./circuit.js?v=0.1.87-ui506";
 import { initGuinoView } from "./guino.js?v=0.1.87-ui348";
 
-const WEB_UI_VERSION = "0.1.87-ui494";
+const WEB_UI_VERSION = "0.1.87-ui506";
 const CHAT_DEFAULT_MAX_OUTPUT_TOKENS = 8000;
 const CHAT_MIN_MAX_OUTPUT_TOKENS = 1024;
 const CHAT_HARD_MAX_OUTPUT_TOKENS = 32000;
@@ -16,7 +16,7 @@ const ALPHA_ENABLE_WEBSOCKET_CONNECT = false;
 const ALPHA_ENABLE_WEBRTC_CONNECT = false;
 const INSTALL_MANIFEST = "bin/p1e-firmware-safeboot.json";
 const FIRMWARE_RELEASES_MANIFEST = "bin/p1e-firmware-releases.json";
-console.info(`[P1E web] loaded ${WEB_UI_VERSION}`, { mqtt: MQTT_TRANSPORT_VERSION, mqttWebRtc: MQTT_WEBRTC_TRANSPORT_VERSION });
+console.info(`[P1.E web] loaded ${WEB_UI_VERSION}`, { mqtt: MQTT_TRANSPORT_VERSION, mqttWebRtc: MQTT_WEBRTC_TRANSPORT_VERSION });
 
 const defaultCode = `function setup() {
   pinMode(2, 1);
@@ -356,7 +356,7 @@ function boot() {
   migrateConnectionHistory();
   renderConnectionHistory();
   renderSketchHistory();
-  logLine("info", `P1E web ${WEB_UI_VERSION} / mqtt ${MQTT_TRANSPORT_VERSION}`);
+  logLine("info", `P1.E web ${WEB_UI_VERSION} / mqtt ${MQTT_TRANSPORT_VERSION}`);
   refreshKnownUsbPorts();
   refreshInstallManifestInfo();
   refreshFirmwareReleaseInfo({ quiet: true }).catch((error) => {
@@ -4098,7 +4098,7 @@ async function shelveEditorSketchIfNeeded({ incomingCode = "", updateInterface =
 }
 
 function newSketchTemplate() {
-  return `// New P1E sketch.
+  return `// New P1.E sketch.
 function setup() {
   println("new sketch ready");
 }
@@ -5225,7 +5225,7 @@ function renderFields() {
   renderFirmwareUpdatePanel();
   renderInfoShare(shareUrl);
   els.fields.replaceChildren(
-    infoCard("developer_board", lastInfo?.deviceName || lastStatus?.deviceName || "P1E board", [
+    infoCard("developer_board", lastInfo?.deviceName || lastStatus?.deviceName || "P1.E board", [
       infoMetric("Firmware", [lastInfo?.firmwareName, lastInfo?.firmwareVersion].filter(Boolean).join(" ") || "-"),
       infoMetric("Uptime", formatDuration(lastStatus?.uptimeMs) || "-"),
       infoMetric("Time", lastStatus?.timeSynced ? lastStatus.localTime || "-" : "not synced"),
@@ -6218,7 +6218,7 @@ async function refreshInstallManifestInfo() {
     const response = await fetch(manifest, { cache: "no-store" });
     if (!response.ok) throw new Error(String(response.status));
     const data = await response.json();
-    const name = data.name || "P1E firmware";
+    const name = data.name || "P1.E firmware";
     const version = data.version || "unknown";
     els.installFirmwareVersion.textContent = `${name} ${version}`;
   } catch {
@@ -6318,7 +6318,7 @@ async function connectUsbAfterInstall() {
   if (!("serial" in navigator) || !readUsbHint()) return false;
   const attempts = 7;
   for (let attempt = 0; attempt < attempts; attempt += 1) {
-    installStatus(attempt ? `Checking P1E (${attempt + 1}/${attempts})` : "Checking P1E");
+    installStatus(attempt ? `Checking P1.E (${attempt + 1}/${attempts})` : "Checking P1.E");
     await settle(attempt ? 2200 : 1200);
     const ok = await connectTransport(
       new WebSerialTransport({ storageKey: storage.usbHint }),
@@ -6330,7 +6330,7 @@ async function connectUsbAfterInstall() {
     await refreshKnownUsbPorts();
     if (ok && client) return true;
   }
-  installLog("P1E did not answer the automatic post-upload probe.");
+  installLog("P1.E did not answer the automatic post-upload probe.");
   return false;
 }
 
@@ -6504,7 +6504,7 @@ async function importEncryptedChatKeyShare(token) {
 
 function parseEncryptedChatKeyShare(token) {
   const raw = String(token || "").trim();
-  if (!isEncryptedChatKeyShare(raw)) throw new Error("Not a P1E encrypted key share");
+  if (!isEncryptedChatKeyShare(raw)) throw new Error("Not a P1.E encrypted key share");
   const json = new TextDecoder().decode(base64UrlDecode(raw.slice("p1e-key:v1:".length)));
   const share = JSON.parse(json);
   if (!share || share.v !== 1 || !share.salt || !share.iv || !share.ct) {

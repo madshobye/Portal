@@ -147,7 +147,8 @@ textarea {
   max-width: 100%;
 }
 
-.topbar-settings {
+.topbar-settings,
+.topbar-guide {
   flex: 0 0 auto;
   width: 30px;
   min-width: 30px;
@@ -155,7 +156,8 @@ textarea {
   padding: 0;
 }
 
-.topbar-settings .material-symbols-rounded {
+.topbar-settings .material-symbols-rounded,
+.topbar-guide .material-symbols-rounded {
   font-size: 18px;
 }
 
@@ -171,6 +173,7 @@ textarea {
 
 body.is-guest-ui .brand,
 body.is-guest-ui .tabs,
+body.is-guest-ui .topbar-guide,
 body.is-guest-ui .topbar-settings,
 body.is-guest-ui #ui-connect-button,
 body.is-guest-ui #ui-copy-link-button {

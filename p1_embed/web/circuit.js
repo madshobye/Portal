@@ -33,8 +33,9 @@ const BOARD_NEOPIXEL_DIRECT_PIXEL_LIMIT = 20;
 const BOARD_PIN_EDGE_INSET = 8;
 const D1_MINI_HEADER_TOP = 48;
 const D1_MINI_HEADER_PITCH = 18;
-const D1_MINI_OUTER_INSET = 18;
-const D1_MINI_INNER_INSET = 34;
+const D1_MINI_OUTER_INSET = 9;
+const D1_MINI_INNER_INSET = 24;
+const D1_MINI_SHARED_ROW_WIRE_OFFSET = 1.7;
 
 const COMPONENT_ACCENTS = {
   physicalInput: { wire: "#9aa0a3", outline: "#d2d8da" },
@@ -130,7 +131,7 @@ d1MiniPinDefs
 
 const boardProfiles = {
   "esp32-classic": { type: "esp32-classic", label: "ESP32", title: "ESP32", pinDefs: classicPinDefs, w: 180, h: 470, usb: "top" },
-  "esp32-d1-mini": { type: "esp32-d1-mini", label: "ESP32 D1 mini", title: "ESP32 mini", pinDefs: d1MiniPinDefs, w: 176, h: 236, usb: "bottom" },
+  "esp32-d1-mini": { type: "esp32-d1-mini", label: "ESP32 D1 mini", title: "ESP32 mini", pinDefs: d1MiniPinDefs, w: 190, h: 236, usb: "bottom" },
 };
 
 const pinDefs = classicPinDefs;
@@ -256,6 +257,7 @@ export function initCircuitView({ mount, componentList, assumptions, pinInfo, al
   let renderMode = "symbols";
   let boardType = "esp32-classic";
   let zoomScale = loadStoredCircuitZoom();
+  let panOffset = { x: 0, y: 0 };
   let transform = { scale: 1, ox: 0, oy: 0 };
 
   const setModel = (nextModel) => {
@@ -300,6 +302,7 @@ export function initCircuitView({ mount, componentList, assumptions, pinInfo, al
       selectedComponentId,
       hoveredPin: null,
       zoomScale,
+      panOffset,
       logicalWidth,
       logicalHeight,
       renderScale: CIRCUIT_DOWNLOAD_SCALE,
@@ -340,10 +343,12 @@ export function initCircuitView({ mount, componentList, assumptions, pinInfo, al
         selectedComponentId,
         hoveredPin,
         zoomScale,
+        panOffset,
         logicalWidth: p.width,
         logicalHeight: p.height,
         renderScale: 1,
       });
+      panOffset = { x: transform.panX, y: transform.panY };
     };
     p.mouseMoved = () => {
       if (dragging) return;
@@ -376,6 +381,13 @@ export function initCircuitView({ mount, componentList, assumptions, pinInfo, al
           selectedComponentId = "";
           selectedComponentPin = "";
           renderAlternatives();
+          dragging = {
+            kind: "viewport",
+            startMouseX: p.mouseX,
+            startMouseY: p.mouseY,
+            startPanX: panOffset.x,
+            startPanY: panOffset.y,
+          };
           p.redraw();
         }
         return;
@@ -400,6 +412,16 @@ export function initCircuitView({ mount, componentList, assumptions, pinInfo, al
       if (dragging.kind === "board") {
         model.board.x = clamp(world.x + dragging.dx, bounds.minX + 40, bounds.maxX - model.board.w - 40);
         model.board.y = clamp(world.y + dragging.dy, bounds.minY + 24, bounds.maxY - model.board.h - 24);
+      } else if (dragging.kind === "viewport") {
+        panOffset = clampPanOffset(
+          p.width,
+          p.height,
+          zoomScale,
+          {
+            x: dragging.startPanX + p.mouseX - dragging.startMouseX,
+            y: dragging.startPanY + p.mouseY - dragging.startMouseY,
+          },
+        );
       } else {
         const component = model.components.find((item) => item.id === dragging.id);
         if (!component) return;
@@ -415,6 +437,7 @@ export function initCircuitView({ mount, componentList, assumptions, pinInfo, al
       const nextZoom = clamp(zoomScale * (1 - delta * CIRCUIT_ZOOM_STEP), CIRCUIT_ZOOM_MIN, CIRCUIT_ZOOM_MAX);
       if (Math.abs(nextZoom - zoomScale) < 0.001) return false;
       zoomScale = nextZoom;
+      panOffset = clampPanOffset(p.width, p.height, zoomScale, panOffset);
       storeCircuitZoom(zoomScale);
       p.redraw();
       return false;
@@ -431,7 +454,7 @@ export function initCircuitView({ mount, componentList, assumptions, pinInfo, al
               cy: Math.round(clamp(((model.board.y + model.board.h / 2) / WORLD_H) * 100, PLACEMENT_MIN_PCT, PLACEMENT_MAX_PCT)),
             });
           }
-        } else {
+        } else if (dragging.kind === "component") {
           const component = model.components.find((item) => item.id === dragging.id);
           const moved = component
             && (Math.abs(component.x - dragging.startX) > 2 || Math.abs(component.y - dragging.startY) > 2);
@@ -1429,7 +1452,7 @@ function addExternalPowerPlan(components, connections, assumptions, notes, seen,
       return;
     }
     if (component.type === "dcMotor") {
-      powered.push({ component, diode: true, reason: "DC motor controller should use external motor power with common ground and a flyback/back EMF diode across the motor output." });
+      powered.push({ component, reason: "DC motor controller should use external motor power with common ground; the driver stage handles motor switching/protection." });
       return;
     }
     if (component.type === "stepperMotor") {
@@ -2115,15 +2138,59 @@ function buildComponentTerminals(model, componentsById) {
 
 function componentPrimaryTerminalSide(component, board, counts = null) {
   if (!component || !board) return "right";
+  if (counts && counts.left !== counts.right) return counts.left > counts.right ? "left" : "right";
+  if (component.x < board.x) return "right";
+  if (component.x > board.x + board.w) return "left";
+  const pinSide = componentSignalBoardSide(component, board);
+  if (pinSide && componentInBoardHorizontalBand(component, board)) return pinSide;
   return component.x < board.x + board.w / 2 ? "right" : "left";
 }
 
 function componentSideForBoard(component, board, boardPinName = "", componentPinName = "") {
+  if (componentInBoardHorizontalBand(component, board)) {
+    if (isRailBoardPin(boardPinName)) return "";
+    const pinSide = boardPinSide(boardPinName, "", board);
+    if (pinSide) return pinSide;
+  }
   return componentPrimaryTerminalSide(component, board);
 }
 
 function componentSideForComponent(component, otherComponent, board = null) {
   return componentPrimaryTerminalSide(component, board);
+}
+
+function componentInBoardHorizontalBand(component, board) {
+  if (!component || !board) return false;
+  return component.x >= board.x && component.x <= board.x + board.w;
+}
+
+function componentSignalBoardSide(component, board) {
+  if (!component || !board) return "";
+  const candidates = [
+    component.pin,
+    component.pins?.data,
+    component.pins?.signal,
+    component.pins?.in1,
+    component.pins?.step,
+    component.pins?.sda,
+    component.pins?.rx,
+    component.pins?.out,
+    component.pins?.din,
+    component.pins?.trigger,
+  ].filter((pin) => pin && !isRailBoardPin(pin));
+  for (const pin of candidates) {
+    const side = boardPinSide(pin, "", board);
+    if (side) return side;
+  }
+  return "";
+}
+
+function componentRouteBoardSide(component, board, targetSide = "") {
+  if (!component || !board) return targetSide || "right";
+  if (component.x < board.x) return "left";
+  if (component.x > board.x + board.w) return "right";
+  if (targetSide) return targetSide;
+  return component.x < board.x + board.w / 2 ? "left" : "right";
 }
 
 function componentTerminalAnchor(component, pinName, terminals, board, renderMode = "symbols") {
@@ -2220,12 +2287,12 @@ function buildWireLanes(model) {
   model.connections.forEach((connection) => {
     const component = componentsById.get(connection.from?.component);
     const targetComponent = componentsById.get(connection.to?.component);
-    const sourceSide = component
-      ? (component.x < model.board.x + model.board.w / 2 ? "left" : "right")
-      : "";
     const targetSide = targetComponent
       ? (targetComponent.x < model.board.x + model.board.w / 2 ? "left" : "right")
       : (boardPinSideForComponent(connection.to?.boardPin, component, model.board) || "right");
+    const sourceSide = component
+      ? componentRouteBoardSide(component, model.board, targetSide)
+      : "";
     const laneKey = wireLaneKey(connection);
     addLane(sourceSide || targetSide, laneKey);
     addLane(targetSide, laneKey);
@@ -2239,17 +2306,17 @@ function wireRoutePoints(connection, start, pin, component, board, lanes) {
   const color = wireColor(connection);
   const laneKey = wireLaneKey(connection);
   const targetSide = pin.side || "right";
-  const sourceSide = component.x < board.x + board.w / 2 ? "left" : "right";
+  const sourceSide = componentRouteBoardSide(component, board, targetSide);
   const sourceLaneX = wireLaneX(board, sourceSide, laneKey, lanes);
   const targetLaneX = wireLaneX(board, targetSide, laneKey, lanes);
   const pinEntry = pinEntryPoint(board, pin);
+  const pinTail = pinTailPoints(pinEntry, pin);
   if (sourceSide === targetSide) {
     return [
       start,
       { x: targetLaneX, y: start.y },
       { x: targetLaneX, y: pinEntry.y },
-      pinEntry,
-      pin,
+      ...pinTail,
     ];
   }
   const bridgeY = wireBridgeY(board, laneKey, lanes, start, pin, targetSide);
@@ -2259,17 +2326,31 @@ function wireRoutePoints(connection, start, pin, component, board, lanes) {
     { x: sourceLaneX, y: bridgeY },
     { x: targetLaneX, y: bridgeY },
     { x: targetLaneX, y: pinEntry.y },
-    pinEntry,
-    pin,
+    ...pinTail,
   ];
 }
 
 function pinEntryPoint(board, pin) {
   const clearance = 10;
+  const rowOffset = d1MiniSharedRowWireOffset(board, pin);
   return {
     x: pin.side === "left" ? board.x - clearance : board.x + board.w + clearance,
-    y: pin.y,
+    y: pin.y + rowOffset,
   };
+}
+
+function pinTailPoints(pinEntry, pin) {
+  if (Math.abs(pinEntry.y - pin.y) < 0.1) return [pinEntry, pin];
+  return [
+    pinEntry,
+    { x: pin.x, y: pinEntry.y },
+    pin,
+  ];
+}
+
+function d1MiniSharedRowWireOffset(board, pin) {
+  if (board?.type !== "esp32-d1-mini" || !pin?.row) return 0;
+  return pin.row === "inner" ? D1_MINI_SHARED_ROW_WIRE_OFFSET : -D1_MINI_SHARED_ROW_WIRE_OFFSET;
 }
 
 function wireLaneX(board, side, laneKey, lanes) {
@@ -2427,14 +2508,30 @@ function drawSegmentWithGaps(p, a, b, crossings) {
   }
   const direction = axisEnd >= axisStart ? 1 : -1;
   let cursor = axisStart;
-  const orderedCuts = direction > 0 ? cuts : cuts.reverse();
-  orderedCuts.forEach((cut) => {
-    const before = cut - direction * WIRE_CROSSING_GAP;
-    const after = cut + direction * WIRE_CROSSING_GAP;
+  const orderedGaps = direction > 0 ? mergedGapRanges(cuts) : mergedGapRanges(cuts).reverse();
+  orderedGaps.forEach((gap) => {
+    const before = direction > 0 ? gap.start : gap.end;
+    const after = direction > 0 ? gap.end : gap.start;
     drawAxisLine(p, horizontal, a, cursor, before);
     cursor = after;
   });
   drawAxisLine(p, horizontal, a, cursor, axisEnd);
+}
+
+function mergedGapRanges(cuts) {
+  return cuts.reduce((ranges, cut) => {
+    const next = {
+      start: cut - WIRE_CROSSING_GAP,
+      end: cut + WIRE_CROSSING_GAP,
+    };
+    const last = ranges[ranges.length - 1];
+    if (last && next.start <= last.end) {
+      last.end = Math.max(last.end, next.end);
+    } else {
+      ranges.push(next);
+    }
+    return ranges;
+  }, []);
 }
 
 function drawAxisLine(p, horizontal, reference, from, to) {
@@ -2584,22 +2681,24 @@ function drawD1MiniBoard(p, board, hovered) {
   p.fill("#f4f4ef");
   p.stroke("#6a6f70");
   p.strokeWeight(1);
-  p.rect(board.x + D1_MINI_OUTER_INSET - 8, headerTop, 12, headerH, 8);
-  p.rect(board.x + D1_MINI_INNER_INSET - 8, headerTop, 12, headerH, 8);
-  p.rect(board.x + board.w - D1_MINI_INNER_INSET - 4, headerTop, 12, headerH, 8);
-  p.rect(board.x + board.w - D1_MINI_OUTER_INSET - 4, headerTop, 12, headerH, 8);
+  [D1_MINI_OUTER_INSET, D1_MINI_INNER_INSET].forEach((inset) => {
+    p.rect(board.x + inset - 6, headerTop, 12, headerH, 8);
+    p.rect(board.x + board.w - inset - 6, headerTop, 12, headerH, 8);
+  });
 
+  const moduleW = Math.min(70, board.w * 0.34);
+  const moduleX = board.x + board.w / 2 - moduleW / 2;
   p.fill("#101214");
   p.noStroke();
-  p.rect(board.x + board.w * 0.27, board.y + 34, board.w * 0.46, 78, 2);
+  p.rect(moduleX, board.y + 40, moduleW, 78, 2);
   p.fill("#f7f7f2");
   p.stroke("#222");
   p.strokeWeight(1);
-  p.rect(board.x + board.w * 0.35, board.y + 61, board.w * 0.30, 60, 1);
+  p.rect(board.x + board.w / 2 - 24, board.y + 67, 48, 56, 1);
   p.noFill();
   p.stroke("#d9b30c");
   p.strokeWeight(2);
-  const ax = board.x + board.w * 0.34;
+  const ax = board.x + board.w / 2 - 29;
   const ay = board.y + 16;
   const tooth = 19;
   p.line(ax, ay + 24, ax, ay);
@@ -2613,9 +2712,11 @@ function drawD1MiniBoard(p, board, hovered) {
   p.fill("#f3efe5");
   p.noStroke();
   p.textAlign(p.CENTER, p.CENTER);
-  p.textSize(13);
   p.textStyle(p.BOLD);
-  p.text(boardProfile(board).title, board.x + board.w / 2, board.y + board.h * 0.48);
+  p.textSize(15);
+  p.text("ESP32", board.x + board.w / 2, board.y + 142);
+  p.textSize(10);
+  p.text("mini", board.x + board.w / 2, board.y + 157);
   p.textStyle(p.NORMAL);
 
   p.fill("#e8e8e5");
@@ -2626,12 +2727,6 @@ function drawD1MiniBoard(p, board, hovered) {
   p.fill("#33383c");
   p.textSize(7);
   p.text("USB", board.x + board.w / 2, board.y + board.h - 27);
-
-  p.fill("#0d0e10");
-  p.noStroke();
-  p.rect(board.x + 48, board.y + board.h - 75, 24, 22, 1);
-  p.rect(board.x + board.w - 62, board.y + board.h - 92, 9, 16, 1);
-  p.rect(board.x + board.w - 44, board.y + board.h - 62, 8, 10, 1);
 
   d1MiniPinRows(board).forEach((pos) => {
     const active = hovered?.pin === pos.pin;
@@ -2645,10 +2740,23 @@ function drawD1MiniBoard(p, board, hovered) {
     p.fill(active ? "#202326" : "#f3efe5");
     p.textSize(7);
     p.textAlign(pos.side === "left" ? p.LEFT : p.RIGHT, p.CENTER);
-    const labelX = pos.side === "left" ? board.x + D1_MINI_INNER_INSET + 10 : board.x + board.w - D1_MINI_INNER_INSET - 10;
-    p.text(pos.label || pos.pin, labelX, pos.y);
+    const isInner = (pos.row || "outer") === "inner";
+    const labelX = d1MiniPinLabelX(board, pos.side, isInner);
+    p.text(d1MiniPinDisplayLabel(pos), labelX, pos.y);
   });
   p.pop();
+}
+
+function d1MiniPinLabelX(board, side, isInner) {
+  if (side === "left") return board.x + (isInner ? 45 : 34);
+  return board.x + board.w - (isInner ? 45 : 34);
+}
+
+function d1MiniPinDisplayLabel(pin) {
+  const label = String(pin?.label || pin?.pin || "");
+  if (/^gnd\d*$/i.test(label)) return "G";
+  if (/^3v3$/i.test(label)) return "3V";
+  return label;
 }
 
 function pinFill(pin) {
@@ -2809,7 +2917,7 @@ function drawComponent(p, component, selected = false, renderMode = "symbols", b
 
 function componentConnectorSide(component, board = null) {
   if (!component || !board) return "right";
-  return component.x < board.x + board.w / 2 ? "right" : "left";
+  return componentPrimaryTerminalSide(component, board);
 }
 
 function drawComponentSymbol(p, component, connectorSide = "right") {
@@ -2978,7 +3086,7 @@ function componentIllustrationHalfWidth(type) {
   if (type === "ld2410cRadar") return 70;
   if (type === "uiPanel") return 78;
   if (type === "homeAssistant") return 68;
-  if (type === "led") return 58;
+  if (type === "led") return 44;
   if (type === "button") return 31;
   if (["analogSensor", "digitalSensor", "microphone"].includes(type)) return 34;
   if (type === "relay") return 32;
@@ -3014,7 +3122,7 @@ function componentIllustrationHalfHeight(type) {
   if (type === "servo") return 40 * scale;
   if (type === "stepperMotor") return 42;
   if (type === "neopixelMatrix") return 36;
-  if (type === "led") return 24 * scale;
+  if (type === "led") return 18 * scale;
   if (type === "button") return 18 * scale;
   if (type === "touchPad") return 20 * scale;
   if (type === "fan") return 34 * scale;
@@ -3442,16 +3550,27 @@ function drawLedIllustration(p, connectorSide = "right") {
   p.scale(side, 1);
   p.noStroke();
   p.fill("#211d1f");
-  p.rect(-54, -18, 48, 36, 18, 0, 0, 18);
-  p.rect(-30, -18, 34, 36, 0);
-  p.rect(10, -22, 10, 44, 2);
-  p.rect(28, -11, 31, 6, 1);
-  p.rect(28, 5, 25, 6, 1);
+  p.rect(-41, -13, 36, 26, 13, 0, 0, 13);
+  p.rect(-24, -13, 24, 26, 0);
+  p.rect(5, -16, 7, 32, 2);
+  p.rect(23, -8, 22, 5, 1);
+  p.rect(23, 4, 18, 5, 1);
   p.pop();
 }
 
 function drawAnalogSensorIllustration(p, connectorSide = "right") {
-  drawModuleIllustration(p, "ADC", "#263f77", connectorSide, 3);
+  const side = connectorSideSign(connectorSide);
+  p.noStroke();
+  p.fill("#263f77");
+  p.rect(-34, -20, 68, 40, 3);
+  p.fill("#0e2233");
+  p.rect(-17, -10, 34, 20, 2);
+  drawSidePinStubs(p, side, componentTerminalOffsets(3, null), {
+    fromX: 34,
+    toX: COMPONENT_ILLUSTRATION_PIN_X,
+    color: "#8f9699",
+    dotColor: "#f4f0dc",
+  });
   p.stroke("#f1d15b");
   p.strokeWeight(2);
   p.noFill();
@@ -3613,6 +3732,7 @@ function drawJoystickIllustration(p, connectorSide = "right") {
 
 function drawServoIllustration(p, large = false, connectorSide = "left") {
   const side = connectorSideSign(connectorSide);
+  const hornSide = connectorSide === "right" ? -1 : 1;
   const bodyW = large ? 76 : 60;
   const bodyH = large ? 46 : 42;
   p.noStroke();
@@ -3620,6 +3740,8 @@ function drawServoIllustration(p, large = false, connectorSide = "left") {
   p.rect(-bodyW / 2, -bodyH / 2, bodyW, bodyH, 3);
   p.fill(large ? "#1d2022" : "#2e007d");
   p.rect(-bodyW / 2 + 4, -bodyH / 2 + 4, bodyW - 8, bodyH - 8, 2);
+  p.push();
+  p.scale(hornSide, 1);
   p.stroke("#d6d8d8");
   p.strokeWeight(2);
   p.fill("#f2f2ef");
@@ -3633,6 +3755,7 @@ function drawServoIllustration(p, large = false, connectorSide = "left") {
   p.circle(-8, 0, large ? 7 : 6);
   p.fill("#d6d8d8");
   [13, 26, 39].forEach((x) => p.circle(x, 0, large ? 5 : 4));
+  p.pop();
   drawSidePinStubs(p, side, [-16, 0, 16], { fromX: bodyW / 2, toX: COMPONENT_ILLUSTRATION_PIN_X, color: "#8f9699", dotColor: "#d7dad8" });
 }
 
@@ -4182,6 +4305,7 @@ function drawCircuitScene(p, {
   selectedComponentId,
   hoveredPin,
   zoomScale,
+  panOffset,
   logicalWidth,
   logicalHeight,
   renderScale = 1,
@@ -4189,7 +4313,7 @@ function drawCircuitScene(p, {
   const targetScale = numberOr(renderScale, 1);
   const width = numberOr(logicalWidth, p.width);
   const height = numberOr(logicalHeight, p.height);
-  const sceneTransform = computeTransform(width, height, zoomScale);
+  const sceneTransform = computeTransform(width, height, zoomScale, panOffset);
   p.background(CIRCUIT_BG);
   p.push();
   p.scale(targetScale);
@@ -4206,13 +4330,34 @@ function drawCircuitScene(p, {
   return sceneTransform;
 }
 
-function computeTransform(width, height, zoom = 1) {
+function computeTransform(width, height, zoom = 1, panOffset = null) {
   const scale = Math.min(width / WORLD_W, height / WORLD_H) * numberOr(zoom, 1);
+  const pan = clampPanOffset(width, height, zoom, panOffset);
   return {
     scale,
-    ox: (width - WORLD_W * scale) / 2,
-    oy: (height - WORLD_H * scale) / 2,
+    ox: (width - WORLD_W * scale) / 2 + pan.x,
+    oy: (height - WORLD_H * scale) / 2 + pan.y,
+    panX: pan.x,
+    panY: pan.y,
   };
+}
+
+function clampPanOffset(width, height, zoom = 1, panOffset = null) {
+  const fitScale = Math.min(width / WORLD_W, height / WORLD_H);
+  const scale = fitScale * numberOr(zoom, 1);
+  const contentW = WORLD_W * scale;
+  const contentH = WORLD_H * scale;
+  const baseX = (width - contentW) / 2;
+  const baseY = (height - contentH) / 2;
+  return {
+    x: clampPanAxis(numberOr(panOffset?.x, 0), baseX, contentW, width),
+    y: clampPanAxis(numberOr(panOffset?.y, 0), baseY, contentH, height),
+  };
+}
+
+function clampPanAxis(value, baseOffset, contentSize, viewportSize) {
+  if (contentSize <= viewportSize) return 0;
+  return clamp(value, viewportSize - contentSize - baseOffset, -baseOffset);
 }
 
 function loadStoredCircuitZoom() {

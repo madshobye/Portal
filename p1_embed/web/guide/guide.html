@@ -1,0 +1,775 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>P1.E Guide</title>
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@24,400,0,0">
+    <style>
+      :root {
+        --bg: #141516;
+        --surface: #1c1e20;
+        --surface-2: #24272a;
+        --surface-3: #303438;
+        --line: #3a3f44;
+        --line-soft: #292d30;
+        --text: #f3efe5;
+        --muted: #a69f93;
+        --accent: #d2a43c;
+        --cyan: #59bdd0;
+        --green: #61d47c;
+        --red: #ee6666;
+        --font: "IBM Plex Mono", "SFMono-Regular", Consolas, monospace;
+      }
+
+      * { box-sizing: border-box; }
+
+      html {
+        background: var(--bg);
+        color: var(--text);
+        font-family: var(--font);
+        scroll-behavior: smooth;
+      }
+
+      body {
+        margin: 0;
+        background: var(--bg);
+        color: var(--text);
+      }
+
+      a {
+        color: var(--cyan);
+        text-decoration: none;
+      }
+
+      a:hover { text-decoration: underline; }
+
+      code,
+      pre {
+        font-family: var(--font);
+      }
+
+      .topbar {
+        position: sticky;
+        top: 0;
+        z-index: 10;
+        display: grid;
+        grid-template-columns: minmax(120px, auto) minmax(0, 1fr) auto;
+        align-items: center;
+        gap: 14px;
+        min-height: 48px;
+        padding: 8px 14px;
+        border-bottom: 1px solid var(--line-soft);
+        background: rgba(23, 25, 26, 0.96);
+        backdrop-filter: blur(10px);
+      }
+
+      .brand {
+        display: flex;
+        align-items: baseline;
+        gap: 10px;
+        white-space: nowrap;
+      }
+
+      .brand strong {
+        font-size: 15px;
+        line-height: 1;
+      }
+
+      .brand span {
+        color: var(--muted);
+        font-size: 11px;
+      }
+
+      .topnav {
+        display: flex;
+        justify-content: center;
+        gap: 6px;
+        overflow-x: auto;
+      }
+
+      .topnav a,
+      .back-link {
+        min-height: 31px;
+        padding: 7px 12px;
+        border: 1px solid transparent;
+        border-radius: 6px;
+        color: var(--muted);
+        background: transparent;
+        font-size: 13px;
+        line-height: 1;
+        text-decoration: none;
+        white-space: nowrap;
+      }
+
+      .topnav a:hover,
+      .back-link:hover {
+        border-color: var(--line);
+        color: var(--text);
+        background: var(--surface-2);
+        text-decoration: none;
+      }
+
+      main {
+        max-width: 1180px;
+        margin: 0 auto;
+        padding: 28px 18px 64px;
+      }
+
+      .hero {
+        margin-bottom: 22px;
+      }
+
+      .panel,
+      .binding-card {
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: var(--surface);
+      }
+
+      .intro { padding: 24px; }
+
+      .eyebrow {
+        margin: 0 0 12px;
+        color: var(--accent);
+        font-size: 12px;
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+      }
+
+      h1,
+      h2,
+      h3 {
+        margin: 0;
+        line-height: 1.15;
+      }
+
+      h1 {
+        max-width: 16ch;
+        font-size: clamp(34px, 6vw, 68px);
+      }
+
+      h2 {
+        margin-top: 34px;
+        padding-top: 18px;
+        border-top: 1px solid var(--line-soft);
+        font-size: 25px;
+      }
+
+      h3 { font-size: 16px; }
+
+      p {
+        color: var(--muted);
+        line-height: 1.62;
+      }
+
+      .lead {
+        max-width: 68ch;
+        color: var(--text);
+        font-size: 18px;
+      }
+
+      .feature-list,
+      .steps,
+      .notes {
+        display: grid;
+        gap: 10px;
+        margin: 18px 0 0;
+        padding: 0;
+        list-style: none;
+      }
+
+      .feature-list li,
+      .steps li,
+      .notes li {
+        border-left: 3px solid var(--accent);
+        padding: 10px 12px;
+        color: var(--text);
+        background: rgba(255, 255, 255, 0.025);
+      }
+
+      .quick-grid {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 12px;
+        margin-top: 18px;
+      }
+
+      .quick-card {
+        padding: 14px;
+        border: 1px solid var(--line-soft);
+        border-radius: 8px;
+        background: var(--surface-2);
+      }
+
+      .quick-card .material-symbols-rounded {
+        color: var(--accent);
+        font-size: 22px;
+      }
+
+      .quick-card strong {
+        display: block;
+        margin-top: 8px;
+      }
+
+      .quick-card p {
+        margin: 8px 0 0;
+        font-size: 13px;
+      }
+
+      .section-copy { max-width: 76ch; }
+
+      .visual-grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 14px;
+        margin-top: 18px;
+      }
+
+      .visual-card {
+        overflow: hidden;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: var(--surface);
+      }
+
+      .visual-media {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        height: clamp(260px, 34vw, 430px);
+        padding: 10px;
+        background: #050606;
+      }
+
+      .visual-card img {
+        display: block;
+        width: auto;
+        height: 100%;
+        max-width: 100%;
+        object-fit: contain;
+      }
+
+      .visual-card figcaption {
+        padding: 10px 12px;
+        border-top: 1px solid var(--line-soft);
+        color: var(--muted);
+        background: var(--surface-2);
+        font-size: 12px;
+        line-height: 1.45;
+      }
+
+      .visual-card.is-wide {
+        grid-column: 1 / -1;
+      }
+
+      .binding-grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 14px;
+        margin-top: 16px;
+      }
+
+      .binding-card { overflow: hidden; }
+
+      .binding-card header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 10px;
+        padding: 12px 14px;
+        border-bottom: 1px solid var(--line-soft);
+        background: var(--surface-2);
+      }
+
+      .binding-card header span {
+        color: var(--muted);
+        font-size: 12px;
+      }
+
+      .binding-card .body { padding: 14px; }
+
+      .binding-card ul {
+        margin: 0;
+        padding-left: 18px;
+        color: var(--muted);
+        line-height: 1.6;
+      }
+
+      .binding-card li + li { margin-top: 6px; }
+
+      pre.code {
+        margin: 12px 0 0;
+        padding: 13px;
+        overflow: auto;
+        border: 1px solid var(--line-soft);
+        border-radius: 7px;
+        color: var(--text);
+        background: #050606;
+        font-size: 13px;
+        line-height: 1.5;
+      }
+
+      .inline-code {
+        padding: 1px 5px;
+        border: 1px solid var(--line-soft);
+        border-radius: 4px;
+        color: var(--text);
+        background: var(--surface-2);
+      }
+
+      .call-list {
+        columns: 2;
+        column-gap: 28px;
+        margin: 16px 0 0;
+        padding-left: 18px;
+        color: var(--muted);
+        line-height: 1.7;
+      }
+
+      .call-list li { break-inside: avoid; }
+
+      footer {
+        margin-top: 44px;
+        padding-top: 18px;
+        border-top: 1px solid var(--line-soft);
+        color: var(--muted);
+        font-size: 12px;
+      }
+
+      @media (max-width: 900px) {
+        .topbar { grid-template-columns: 1fr auto; }
+        .topnav {
+          grid-column: 1 / -1;
+          justify-content: start;
+        }
+        .binding-grid,
+        .quick-grid,
+        .visual-grid {
+          grid-template-columns: 1fr;
+        }
+
+        .visual-card.is-wide {
+          grid-column: auto;
+        }
+      }
+
+      @media (max-width: 560px) {
+        main { padding: 18px 12px 48px; }
+        .intro { padding: 18px; }
+        .call-list { columns: 1; }
+      }
+    </style>
+  </head>
+  <body>
+    <header class="topbar">
+      <div class="brand">
+        <strong>P1.E</strong>
+        <span>guide</span>
+      </div>
+      <nav class="topnav" aria-label="Guide sections">
+        <a href="#tour">Tour</a>
+        <a href="#start">Getting Started</a>
+        <a href="#writing">Writing Sketches</a>
+        <a href="#bindings">Bindings</a>
+        <a href="#patterns">Patterns</a>
+      </nav>
+      <a class="back-link" href="../index.html">Open Editor</a>
+    </header>
+
+    <main>
+      <section class="hero">
+        <div class="panel intro">
+          <p class="eyebrow">ESP32 creative coding environment</p>
+          <h1>P1.E lets a board become a live, scriptable object.</h1>
+          <p class="lead">Write small Wrench sketches in the browser, run them on an ESP32, control LEDs and pins, build a live UI, connect over USB or MQTT, and let the AI assistant help shape code and documentation around the project you are making.</p>
+          <ul class="feature-list">
+            <li>Code, upload, stop, inspect logs, and recover sketches from the board.</li>
+            <li>Keep projects as revisions with code, chat, specification, and circuit notes together.</li>
+            <li>Drive NeoPixel-style LED strips, GPIO, HTTP APIs, time, sun position, UI controls, and Home Assistant entities.</li>
+          </ul>
+        </div>
+      </section>
+
+      <section id="tour">
+        <h2>Workspace Tour</h2>
+        <p class="section-copy">P1.E is built around a few connected views: AI for shaping the sketch and specification, Code for editing and uploading, Circuit for wiring notes, and UI for the live controls declared by the running sketch.</p>
+        <div class="visual-grid">
+          <figure class="visual-card">
+            <div class="visual-media"><img src="assets/p1e-ai-view.png" alt="P1.E AI view showing a chat response beside a project specification"></div>
+            <figcaption>AI view: chat, revision context, and the specification for the current sketch live together.</figcaption>
+          </figure>
+          <figure class="visual-card">
+            <div class="visual-media"><img src="assets/p1e-code-view.png" alt="P1.E code editor showing a Wrench hourglass sketch connected over MQTT"></div>
+            <figcaption>Code view: edit Wrench, select project revisions, upload to the board, and inspect console output.</figcaption>
+          </figure>
+          <figure class="visual-card">
+            <div class="visual-media"><img src="assets/p1e-circuit-workspace.png" alt="P1.E Circuit view showing inferred parts, wiring diagram, and assumptions"></div>
+            <figcaption>Circuit view: inferred parts, wiring, pin notes, and assumptions stay visible while the project evolves.</figcaption>
+          </figure>
+        </div>
+      </section>
+
+      <section id="start">
+        <h2>Getting Started</h2>
+        <p class="section-copy">The first setup flow gives the board enough information to join your network, identify itself, and use the AI features in the browser. USB is the simplest way to start; MQTT is useful once the board is on WiFi.</p>
+        <ol class="steps">
+          <li><strong>Install firmware.</strong> Open the Install tab, connect the ESP32 over USB, and flash the current P1.E firmware.</li>
+          <li><strong>Add WiFi.</strong> Open Settings, add the network name and password, save, and reboot if the board asks for it.</li>
+          <li><strong>Name the board.</strong> Use Settings > General to set a friendly device name. This name is shown in the status bar and integrations.</li>
+          <li><strong>Add online users.</strong> In Settings > Users, create a user name and password for MQTT sign-in. Guest UI access can be enabled separately.</li>
+          <li><strong>Add a ChatGPT key.</strong> In Settings > AI, save an API key in the browser. The key stays local to the browser unless you create an obfuscated sharing key.</li>
+        </ol>
+        <div class="quick-grid">
+          <div class="quick-card">
+            <span class="material-symbols-rounded">usb</span>
+            <strong>USB</strong>
+            <p>Best for first install, recovery, and direct development at the desk.</p>
+          </div>
+          <div class="quick-card">
+            <span class="material-symbols-rounded">cloud</span>
+            <strong>MQTT</strong>
+            <p>Wireless command path for coding, logs, UI events, and script uploads.</p>
+          </div>
+          <div class="quick-card">
+            <span class="material-symbols-rounded">auto_awesome</span>
+            <strong>AI</strong>
+            <p>Chat can write sketches, update specifications, and keep revision notes with the code.</p>
+          </div>
+        </div>
+      </section>
+
+      <section id="writing">
+        <h2>Writing Wrench Sketches</h2>
+        <p class="section-copy">A P1.E sketch usually has a <code class="inline-code">setup()</code> function for one-time configuration and a <code class="inline-code">loop()</code> function that does a small slice of work repeatedly. Keep loops short so the board can keep communicating while your code runs.</p>
+        <pre class="code">// Prints a heartbeat once per second.
+var lastPrintAt = 0;
+
+function setup() {
+  println("ready");
+}
+
+function loop() {
+  if ((millis() - lastPrintAt) >= 1000) {
+    lastPrintAt = millis();
+    println("alive");
+  }
+  delay(10);
+}</pre>
+        <ul class="notes">
+          <li>Declare new variables with <code class="inline-code">var</code>, for example <code class="inline-code">var count = 0;</code>.</li>
+          <li>Use <code class="inline-code">while</code> loops and remember to increment your counter.</li>
+          <li>For LED animation, predeclare scratch arrays and reuse them inside hot loops.</li>
+          <li>Avoid long blocking loops in <code class="inline-code">setup()</code> or <code class="inline-code">loop()</code>.</li>
+        </ul>
+        <div class="visual-grid">
+          <figure class="visual-card">
+            <div class="visual-media"><img src="assets/p1e-ui-view.png" alt="P1.E UI view showing an hourglass toggle and brightness sliders"></div>
+            <figcaption>UI view: sketches can expose toggles, sliders, values, buttons, and graphs for live interaction.</figcaption>
+          </figure>
+          <figure class="visual-card">
+            <div class="visual-media"><img src="assets/p1e-circuit-view.png" alt="Circuit diagram showing ESP32 wiring to a NeoPixel strip, relay, and external supply"></div>
+            <figcaption>Circuit view: wiring notes can show the board, LED strip, relay, power supply, and selected pins.</figcaption>
+          </figure>
+        </div>
+      </section>
+
+      <section id="bindings">
+        <h2>Bindings</h2>
+        <p class="section-copy">Bindings are the functions a Wrench sketch can call to reach firmware features. The examples below show the preferred current style: explicit setup, short runtime loops, and reusable buffers when data is updated often.</p>
+
+        <div class="binding-grid">
+          <article class="binding-card">
+            <header><h3>Core Runtime</h3><span>logs, timing, random</span></header>
+            <div class="body">
+              <ul>
+                <li><code>print()</code>, <code>println()</code>, <code>log(level, message)</code></li>
+                <li><code>millis()</code>, <code>micros()</code>, <code>delay(ms)</code>, <code>delayMicroseconds(us)</code></li>
+                <li><code>random(max)</code>, <code>random(min, max)</code>, <code>randomSeed(seed)</code></li>
+                <li><code>freeHeap()</code>, <code>lastError()</code>, <code>clearError()</code></li>
+              </ul>
+              <pre class="code">println("heap:");
+println(freeHeap());
+delay(20);</pre>
+            </div>
+          </article>
+
+          <article class="binding-card">
+            <header><h3>Math, Noise, Time, Sun</h3><span>motion and context</span></header>
+            <div class="body">
+              <ul>
+                <li><code>map()</code>, <code>constrain()</code>, <code>lerp()</code>, <code>sin()</code>, <code>cos()</code>, <code>sqrt()</code>, <code>radians()</code>, <code>degrees()</code></li>
+                <li><code>noiseSeed(seed)</code>, <code>simplex3(x, y, z)</code>, <code>simplex3_01(x, y, z)</code></li>
+                <li><code>timeNow()</code>, <code>timeLocal(out)</code>, <code>timeGet()</code></li>
+                <li><code>sunLocal(lat, lon, unixSeconds, out)</code> returns elevation, azimuth, brightness, and kelvin.</li>
+              </ul>
+              <pre class="code">var parts[] = { 0, 0, 0, 0, 0, 0 };
+var sun[] = { 0, 0, 0, 0 };
+
+timeLocal(parts);
+sunLocal(55.652116, 12.610874, timeNow(), sun);
+println(parts[3]); // hour
+println(sun[2]);   // brightness 0..255</pre>
+            </div>
+          </article>
+
+          <article class="binding-card">
+            <header><h3>GPIO And PWM</h3><span>pins and motors</span></header>
+            <div class="body">
+              <ul>
+                <li><code>pinMode(pin, OUTPUT)</code>, <code>digitalWrite(pin, HIGH)</code>, <code>digitalRead(pin)</code></li>
+                <li><code>analogRead(pin)</code>, <code>analogWrite(pin, value)</code></li>
+                <li><code>touchRead(pin)</code>, <code>touchReadPair(drivePin, sensePin, samples, settleUs)</code></li>
+                <li><code>servoAttach()</code>, <code>servoWrite()</code>, <code>fanAttach()</code>, <code>fanWrite()</code></li>
+              </ul>
+              <pre class="code">var ledPin = 2;
+
+function setup() {
+  pinMode(ledPin, OUTPUT);
+}
+
+function loop() {
+  digitalWrite(ledPin, HIGH);
+  delay(100);
+  digitalWrite(ledPin, LOW);
+  delay(900);
+}</pre>
+            </div>
+          </article>
+
+          <article class="binding-card">
+            <header><h3>WiFi And Device</h3><span>network state</span></header>
+            <div class="body">
+              <ul>
+                <li><code>wifiConnected()</code>, <code>wifiIp()</code>, <code>wifiRssi()</code>, <code>wifiSsid()</code></li>
+                <li><code>wifiConnect(ssid, password)</code>, <code>wifiDisconnect()</code></li>
+                <li><code>deviceId()</code>, <code>deviceName()</code>, <code>timezone()</code></li>
+                <li><code>uptimeMs()</code>, <code>minFreeHeap()</code>, <code>scriptState()</code>, <code>reboot()</code></li>
+              </ul>
+              <pre class="code">if (wifiConnected()) {
+  println(wifiIp());
+  println(wifiRssi());
+}</pre>
+            </div>
+          </article>
+
+          <article class="binding-card">
+            <header><h3>HTTP And JSON</h3><span>small API calls</span></header>
+            <div class="body">
+              <ul>
+                <li><code>httpGet(url, maxBytes, timeoutMs)</code>, <code>httpPost(url, body, contentType, maxBytes, timeoutMs)</code></li>
+                <li><code>fetchJson(url, maxBytes, timeoutMs)</code> stores the response in firmware cache.</li>
+                <li><code>getJsonValue(path)</code>, <code>getJsonInt(path)</code>, <code>getJsonFloat(path)</code>, <code>getJsonBool(path)</code></li>
+                <li><code>httpCode()</code>, <code>httpError()</code>, <code>httpTruncated()</code></li>
+              </ul>
+              <pre class="code">var code = fetchJson("https://example.com/data.json", 2048, 6000);
+if (code == 200) {
+  println(getJsonValue("name"));
+  println(getJsonFloat("main.temp"));
+}</pre>
+            </div>
+          </article>
+
+          <article class="binding-card">
+            <header><h3>LED Strips</h3><span>NeoPixel-style output</span></header>
+            <div class="body">
+              <ul>
+                <li><code>ledConfig(strip, pin, count, brightness)</code> configures a WS2812B/NeoPixel-style strip with GRB order.</li>
+                <li><code>ledConfig(strip, pin, count, brightness, "WS2812B", order)</code> supports explicit color orders such as <code>RGB</code>, <code>GRB</code>, and <code>BGR</code>.</li>
+                <li><code>ledSet()</code>, <code>ledSetHsv()</code>, <code>ledFill()</code>, <code>ledClear()</code>, <code>ledShow()</code>, <code>ledBrightness()</code></li>
+                <li><code>ledGetRgb(strip, index, out)</code>, <code>rgbToHsv(rgb, out)</code>, <code>hsvToRgb(hsv, out)</code></li>
+              </ul>
+              <pre class="code">var pos = 0;
+
+function setup() {
+  ledConfig(0, 4, 30, 70);
+  ledClear(0, 1);
+}
+
+function loop() {
+  ledClear(0, 0);
+  ledSetHsv(0, pos, (pos * 8) % 255, 255, 180);
+  ledShow();
+  pos = (pos + 1) % ledCount(0);
+  delay(50);
+}</pre>
+            </div>
+          </article>
+
+          <article class="binding-card">
+            <header><h3>Palettes</h3><span>color gradients</span></header>
+            <div class="body">
+              <ul>
+                <li><code>paletteSet2()</code>, <code>paletteSet3()</code>, and <code>paletteSet4()</code> define gradient slots.</li>
+                <li><code>paletteGetRgb(slot, t, out)</code> samples a color at <code>0..255</code>.</li>
+              </ul>
+              <pre class="code">var rgb[] = { 0, 0, 0 };
+
+function setup() {
+  ledConfig(0, 4, 30, 80);
+  paletteSet2(0, 20, 0, 120, 255, 110, 0);
+}
+
+function loop() {
+  var i = 0;
+  while (i < ledCount(0)) {
+    paletteGetRgb(0, (i * 255) / ledCount(0), rgb);
+    ledSetRgb(0, i, rgb);
+    i = i + 1;
+  }
+  ledShow();
+  delay(40);
+}</pre>
+            </div>
+          </article>
+
+          <article class="binding-card">
+            <header><h3>I2C And UART</h3><span>external devices</span></header>
+            <div class="body">
+              <ul>
+                <li><code>wireBegin(sda, scl)</code>, <code>i2cWrite(addr, reg, value)</code>, <code>i2cRead(addr, reg, len)</code></li>
+                <li><code>serialBegin(uart, rxPin, txPin, baud)</code>, <code>serialAvailable(uart)</code>, <code>serialRead(uart)</code></li>
+                <li><code>serialReadString(uart, maxLen)</code>, <code>serialWriteLine(uart, value)</code>, <code>serialEnd(uart)</code></li>
+              </ul>
+              <pre class="code">function setup() {
+  serialBegin(1, 16, 17, 9600);
+}
+
+function loop() {
+  if (serialAvailable(1)) {
+    println(serialReadString(1, 80));
+  }
+  delay(10);
+}</pre>
+            </div>
+          </article>
+
+          <article class="binding-card">
+            <header><h3>Browser UI</h3><span>live controls</span></header>
+            <div class="body">
+              <ul>
+                <li><code>uiBegin(title)</code>, <code>uiLabel()</code>, <code>uiButton()</code>, <code>uiToggle()</code>, <code>uiSlider()</code>, <code>uiValue()</code>, <code>uiGraph()</code></li>
+                <li><code>uiPoll()</code>, <code>uiEventIs(type, id)</code>, <code>uiEventValue()</code></li>
+                <li><code>uiGet(id, fallback)</code>, <code>uiChanged(id)</code>, <code>uiUpdate(id, value)</code>, <code>uiPush(id, value)</code></li>
+              </ul>
+              <pre class="code">var brightness = 60;
+
+function drawUi() {
+  uiBegin("Light");
+  uiSlider("brightness", "Brightness", brightness, 0, 100);
+}
+
+function setup() {
+  drawUi();
+}
+
+function loop() {
+  while (uiPoll()) {
+    if (uiEventIs("hello")) drawUi();
+  }
+  brightness = uiGet("brightness", brightness);
+  delay(10);
+}</pre>
+            </div>
+          </article>
+
+          <article class="binding-card">
+            <header><h3>Home Assistant</h3><span>experimental ESPHome API</span></header>
+            <div class="body">
+              <ul>
+                <li><code>haBegin(name)</code> starts a sketch-owned entity registry.</li>
+                <li><code>haSensor()</code>, <code>haBinarySensor()</code>, <code>haSwitch()</code>, <code>haNumber()</code>, <code>haButton()</code></li>
+                <li><code>haLight()</code>, <code>haOnOffLight()</code>, <code>haRgbLight()</code></li>
+                <li><code>haGet(id)</code>, <code>haSet(id, value)</code>, <code>haSetRgb(id, r, g, b, brightness)</code>, <code>haChanged(id)</code>, <code>haEvent(id, type)</code>, <code>haPress(id)</code></li>
+              </ul>
+              <pre class="code">var brightness = 40;
+
+function setup() {
+  haBegin("P1.E HA Test");
+  haLight("clock_light", "Clock Light", brightness);
+}
+
+function loop() {
+  if (haChanged("clock_light")) {
+    brightness = haGet("clock_light");
+    println(brightness);
+  }
+  delay(20);
+}</pre>
+            </div>
+          </article>
+
+          <article class="binding-card">
+            <header><h3>Inbox</h3><span>host messages</span></header>
+            <div class="body">
+              <ul>
+                <li><code>inboxAvailable()</code>, <code>inboxRead()</code>, <code>inboxChannel()</code></li>
+                <li><code>inboxClear()</code>, <code>inboxDrops()</code></li>
+              </ul>
+              <pre class="code">function loop() {
+  if (inboxAvailable()) {
+    println(inboxChannel());
+    println(inboxRead());
+  }
+  delay(10);
+}</pre>
+            </div>
+          </article>
+        </div>
+      </section>
+
+      <section id="patterns">
+        <h2>Useful Patterns</h2>
+        <p class="section-copy">These habits keep sketches responsive and reduce memory pressure while still allowing rich behavior.</p>
+        <ul class="notes">
+          <li><strong>Prefer reusable output buffers.</strong> Use <code class="inline-code">timeLocal(out)</code>, <code class="inline-code">sunLocal(..., out)</code>, <code class="inline-code">ledGetRgb(..., out)</code>, and <code class="inline-code">rgbToHsv(rgb, out)</code> in repeated loops.</li>
+          <li><strong>Keep LED frames bounded.</strong> Draw one frame, call <code class="inline-code">ledShow()</code>, then leave a small <code class="inline-code">delay()</code>.</li>
+          <li><strong>Use firmware JSON cache for APIs.</strong> <code class="inline-code">fetchJson()</code> plus <code class="inline-code">getJsonValue()</code> avoids copying a large response into Wrench when you only need a few fields.</li>
+          <li><strong>Rebuild UI only on hello.</strong> Call <code class="inline-code">uiBegin()</code> in <code class="inline-code">setup()</code> and after <code class="inline-code">uiEventIs("hello")</code>; use <code class="inline-code">uiUpdate()</code> for live values.</li>
+        </ul>
+        <pre class="code">var rgb[] = { 0, 0, 0 };
+var hsv[] = { 0, 0, 0 };
+
+function loop() {
+  var i = 0;
+  while (i < ledCount(0)) {
+    ledGetRgb(0, i, rgb);
+    rgbToHsv(rgb, hsv);
+    hsv[0] = (hsv[0] + 8) % 255;
+    hsvToRgb(hsv, rgb);
+    ledSetRgb(0, i, rgb);
+    i = i + 1;
+  }
+  ledShow();
+  delay(30);
+}</pre>
+      </section>
+
+      <section>
+        <h2>Binding Index</h2>
+        <ul class="call-list">
+          <li><code>print</code>, <code>println</code>, <code>log</code>, <code>emit</code>, <code>emitJson</code></li>
+          <li><code>millis</code>, <code>micros</code>, <code>delay</code>, <code>delayMicroseconds</code></li>
+          <li><code>random</code>, <code>randomSeed</code>, <code>freeHeap</code>, <code>lastError</code>, <code>clearError</code></li>
+          <li><code>map</code>, <code>constrain</code>, <code>lerp</code>, <code>sin</code>, <code>cos</code>, <code>sqrt</code>, <code>pow</code></li>
+          <li><code>noiseSeed</code>, <code>simplex3</code>, <code>simplex3_01</code></li>
+          <li><code>timeNow</code>, <code>timeLocal</code>, <code>timeGet</code>, <code>sunLocal</code></li>
+          <li><code>pinMode</code>, <code>digitalWrite</code>, <code>digitalRead</code>, <code>analogRead</code>, <code>analogWrite</code></li>
+          <li><code>touchRead</code>, <code>touchReadPair</code>, <code>servoAttach</code>, <code>servoWrite</code>, <code>fanAttach</code>, <code>fanWrite</code></li>
+          <li><code>wifiConnected</code>, <code>wifiIp</code>, <code>wifiRssi</code>, <code>wifiSsid</code>, <code>deviceName</code>, <code>reboot</code></li>
+          <li><code>httpGet</code>, <code>fetchJson</code>, <code>getJsonValue</code>, <code>httpPost</code>, <code>httpCode</code>, <code>httpError</code></li>
+          <li><code>jsonGet</code>, <code>jsonGetInt</code>, <code>jsonPair</code>, <code>jsonBuild</code></li>
+          <li><code>ledConfig</code>, <code>ledSet</code>, <code>ledSetHsv</code>, <code>ledShow</code>, <code>ledBrightness</code>, <code>ledGetRgb</code></li>
+          <li><code>rgbToHsv</code>, <code>hsvToRgb</code>, <code>paletteSet2</code>, <code>paletteSet3</code>, <code>paletteSet4</code>, <code>paletteGetRgb</code></li>
+          <li><code>wireBegin</code>, <code>i2cWrite</code>, <code>i2cRead</code>, <code>serialBegin</code>, <code>serialAvailable</code>, <code>serialReadString</code></li>
+          <li><code>uiBegin</code>, <code>uiButton</code>, <code>uiSlider</code>, <code>uiPoll</code>, <code>uiGet</code>, <code>uiChanged</code>, <code>uiUpdate</code></li>
+          <li><code>haBegin</code>, <code>haLight</code>, <code>haRgbLight</code>, <code>haSwitch</code>, <code>haGet</code>, <code>haSet</code>, <code>haChanged</code></li>
+        </ul>
+      </section>
+
+      <footer>
+        P1.E guide generated from the local Wrench context and firmware binding notes. Keep this page and <code>wrench_chat_context.md</code> in sync when bindings change.
+      </footer>
+    </main>
+  </body>
+</html>
