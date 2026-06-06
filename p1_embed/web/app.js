@@ -5,10 +5,10 @@ import { WebSocketTransport } from "./protocol/WebSocketTransport.js";
 import { MqttWebRtcTransport, MQTT_WEBRTC_TRANSPORT_VERSION } from "./protocol/MqttWebRtcTransport.js?v=0.1.87-ui348";
 import { MqttTransport, MQTT_TRANSPORT_VERSION, deriveOnlineAuthKeyHex, getStoredOnlineAuth } from "./protocol/MqttTransport.js?v=0.1.87-ui348";
 import { P1WebFlasher } from "./web-flasher.js?v=0.1.87-ui348";
-import { inferCircuitLayout, initCircuitView, normalizeCircuitLayout } from "./circuit.js?v=0.1.87-ui513";
+import { inferCircuitLayout, initCircuitView, normalizeCircuitLayout } from "./circuit.js?v=0.1.87-ui524";
 import { initGuinoView } from "./guino.js?v=0.1.87-ui348";
 
-const WEB_UI_VERSION = "0.1.87-ui513";
+const WEB_UI_VERSION = "0.1.87-ui524";
 const CHAT_DEFAULT_MAX_OUTPUT_TOKENS = 8000;
 const CHAT_MIN_MAX_OUTPUT_TOKENS = 1024;
 const CHAT_HARD_MAX_OUTPUT_TOKENS = 32000;
@@ -535,7 +535,7 @@ function bindControls() {
   els.downloadCode.addEventListener("click", () => runUiAction(downloadProject, "download"));
   els.chatDownloadCode.addEventListener("click", () => runUiAction(downloadProject, "download"));
   els.formatCode.addEventListener("click", () => runUiAction(formatEditorCode, "formatting"));
-  [els.circuitBoardSelect, els.circuitArtMode, els.circuitDownload].forEach((button) => {
+  [els.circuitBoardSelect, els.circuitRefresh, els.circuitArtMode, els.circuitDownload].forEach((button) => {
     ["pointerdown", "mousedown", "mouseup", "pointerup", "click"].forEach((name) => {
       button?.addEventListener(name, (event) => event.stopPropagation());
     });
@@ -608,10 +608,7 @@ function bindControls() {
   els.specificationTools.forEach((button) => button.addEventListener("click", () => applySpecificationFormat(button.dataset.specFormat)));
   els.specificationMode.addEventListener("change", handleSpecificationModeChange);
   els.specificationGenerate.addEventListener("click", () => runUiAction(generateCodeFromSpecification, "generating"));
-  els.circuitRefresh?.addEventListener("click", () => {
-    circuitChatLayout = null;
-    updateCircuitView("inferred from code");
-  });
+  els.circuitRefresh?.addEventListener("click", resetCircuitLayoutPositions);
   els.circuitDownload?.addEventListener("click", downloadCircuitDiagram);
   els.uiConnect?.addEventListener("click", toggleConnection);
   els.uiCopyLink?.addEventListener("click", copyGuinoLink);
@@ -833,6 +830,17 @@ function applyCircuitBoardPlacement({ type, cx, cy } = {}) {
   logLine("info", `circuit board placement saved: ${boardType} ${Math.round(cx)}%, ${Math.round(cy)}%`);
 }
 
+function resetCircuitLayoutPositions() {
+  const current = getEditorValue();
+  const cleaned = stripCircuitPlacementComments(current);
+  circuitChatLayout = null;
+  const model = inferCircuitLayout(cleaned, null);
+  const next = persistGeneratedCircuitLayoutPositions(cleaned, model);
+  setEditorValueRaw(next, { persist: true });
+  updateCircuitView("positions regenerated");
+  logLine("info", "circuit positions regenerated and saved to code");
+}
+
 function circuitComponentPin(component) {
   return String(
     component?.pins?.data
@@ -851,9 +859,62 @@ function circuitComponentPlacementKey(component) {
   if (component?.type === "powerSupply") return `powerSupply-${String(component?.pins?.voltage || "V").replace(/[^A-Za-z0-9]+/g, "") || "V"}`;
   if (component?.type === "uiPanel") return "uiPanel";
   if (component?.type === "homeAssistant") return "homeAssistant";
-  if (component?.type === "backEmfDiode") return "backEmfDiode";
+  if (component?.type === "backEmfDiode") return `backEmfDiode-${String(component?.pins?.voltage || "V").replace(/[^A-Za-z0-9]+/g, "") || "V"}`;
   if (component?.id) return String(component.id);
   return "";
+}
+
+function stripCircuitPlacementComments(code) {
+  return String(code || "")
+    .split("\n")
+    .map(stripCircuitPlacementLine)
+    .filter((line) => line !== null)
+    .join("\n");
+}
+
+function stripCircuitPlacementLine(line) {
+  if (/\/\/\s*p1e-circuit-board:/i.test(line)) {
+    const cleaned = line
+      .replace(/\bcx\s*=\s*-?\d{1,3}\b/ig, "")
+      .replace(/\bcy\s*=\s*-?\d{1,3}\b/ig, "")
+      .replace(/\s+/g, " ")
+      .replace(/\s+$/, "");
+    return /\/\/\s*p1e-circuit-board:\s*type\s*=/i.test(cleaned) ? cleaned : null;
+  }
+  if (!/\/\/\s*p1e-circuit:/i.test(line)) return line;
+  const cleaned = line
+    .replace(/\bside\s*=\s*(?:left|right)\b/ig, "")
+    .replace(/\bx\s*=\s*-?\d{1,3}\b/ig, "")
+    .replace(/\by\s*=\s*-?\d{1,3}\b/ig, "")
+    .replace(/\s+/g, " ")
+    .replace(/\s+$/, "");
+  return /\/\/\s*p1e-circuit:\s*$/i.test(cleaned) ? null : cleaned;
+}
+
+function persistGeneratedCircuitLayoutPositions(code, model) {
+  if (!model?.board) return code;
+  let next = upsertCircuitBoardPlacementComment(
+    code,
+    normalizeCircuitBoardType(model.board.type),
+    (model.board.x + model.board.w / 2) / 1680 * 100,
+    (model.board.y + model.board.h / 2) / 1140 * 100,
+  );
+  const boardCenter = model.board.x + model.board.w / 2;
+  (model.components || []).forEach((component) => {
+    if (!Number.isFinite(component?.x) || !Number.isFinite(component?.y)) return;
+    const key = circuitComponentPlacementKey(component);
+    if (!key) return;
+    const side = component.x < boardCenter ? "left" : "right";
+    next = upsertCircuitPlacementComment(
+      next,
+      key,
+      component.type || "unknown",
+      side,
+      component.x / 1680 * 100,
+      component.y / 1140 * 100,
+    );
+  });
+  return next;
 }
 
 function upsertCircuitHintComment(code, pin, hint) {
@@ -917,7 +978,9 @@ function normalizeCircuitPlacementKey(key, type = "") {
   if (type === "powerSupply" || /^power$/i.test(text) || /^powerSupply$/i.test(text)) return "powerSupply";
   if (type === "uiPanel" || /^ui/i.test(text)) return "uiPanel";
   if (type === "homeAssistant" || /^ha|home/i.test(text)) return "homeAssistant";
-  if (type === "backEmfDiode" || /^back|diode/i.test(text)) return "backEmfDiode";
+  if (/^backEmfDiode[-_]/i.test(text)) return text.replace(/^backEmfDiode/i, "backEmfDiode");
+  if (/^diode[-_]/i.test(text)) return text.replace(/^diode/i, "backEmfDiode");
+  if (type === "backEmfDiode" || /^(backEmfDiode|back|diode)$/i.test(text)) return "backEmfDiode";
   return text.replace(/\s+/g, "-") || String(type || "component");
 }
 
