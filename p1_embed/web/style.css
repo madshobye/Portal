@@ -876,11 +876,17 @@ input {
   display: block;
 }
 
-.circuit-art-mode-button {
+.circuit-canvas-actions {
   position: absolute;
   z-index: 3;
   top: 12px;
   right: 12px;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.circuit-canvas-action-button {
   display: grid;
   place-items: center;
   width: 34px;
@@ -894,7 +900,27 @@ input {
   cursor: pointer;
 }
 
-.circuit-art-mode-button:hover {
+.circuit-board-select {
+  height: 34px;
+  max-width: 142px;
+  padding: 0 28px 0 10px;
+  border: 1px solid rgba(32, 35, 38, 0.28);
+  border-radius: 7px;
+  background: rgba(255, 255, 255, 0.94);
+  color: #202326;
+  box-shadow: 0 8px 22px rgba(0, 0, 0, 0.12);
+  font: 600 12px/1 var(--mono);
+  cursor: pointer;
+}
+
+.circuit-board-select:hover,
+.circuit-board-select:focus {
+  border-color: rgba(0, 151, 167, 0.55);
+  background: #ffffff;
+  outline: none;
+}
+
+.circuit-canvas-action-button:hover {
   border-color: rgba(0, 151, 167, 0.55);
   background: #ffffff;
 }
@@ -905,7 +931,7 @@ input {
   background: #eefbfc;
 }
 
-.circuit-art-mode-button .material-symbols-rounded {
+.circuit-canvas-action-button .material-symbols-rounded {
   font-size: 21px;
 }
 
@@ -931,11 +957,6 @@ input {
 
 .circuit-alternatives[hidden] {
   display: none;
-}
-
-.circuit-alternatives strong {
-  flex: 0 0 auto;
-  font-weight: 600;
 }
 
 .circuit-alternatives button {
@@ -1738,8 +1759,8 @@ input {
 
 #chat-input {
   width: 100%;
-  min-height: 42px;
-  max-height: 86px;
+  min-height: 84px;
+  max-height: 172px;
   padding: 9px 10px;
   resize: vertical;
   outline: none;
@@ -1996,6 +2017,10 @@ input {
   padding: 0;
 }
 
+.settings-panel .button.settings-icon-button {
+  align-self: end;
+}
+
 .settings-panel .button.icon-buttonish .material-symbols-rounded {
   font-size: 19px;
 }
@@ -2023,7 +2048,7 @@ input {
 .settings-subhead {
   color: var(--muted);
   font-size: 11px;
-  margin-top: 2px;
+  margin-top: 12px;
 }
 
 .settings-firmware-card {
@@ -2129,6 +2154,40 @@ input {
 .field span {
   color: var(--muted);
   font-size: 11px;
+}
+
+.settings-panel .field {
+  margin-top: 8px;
+}
+
+.settings-panel .settings-toggle-row .field,
+.settings-panel .field:first-child {
+  margin-top: 0;
+}
+
+.field.compact-check {
+  display: inline-grid;
+  grid-template-columns: auto max-content;
+  grid-template-rows: auto;
+  align-items: center;
+  justify-content: start;
+  gap: 7px;
+  min-height: 24px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+}
+
+.field.compact-check span {
+  grid-column: 2;
+  grid-row: 1;
+  color: var(--text);
+  font-size: 12px;
+}
+
+.field.compact-check input[type="checkbox"] {
+  grid-column: 1;
+  grid-row: 1;
 }
 
 .is-hidden {

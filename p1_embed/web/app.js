@@ -5,10 +5,10 @@ import { WebSocketTransport } from "./protocol/WebSocketTransport.js";
 import { MqttWebRtcTransport, MQTT_WEBRTC_TRANSPORT_VERSION } from "./protocol/MqttWebRtcTransport.js?v=0.1.87-ui348";
 import { MqttTransport, MQTT_TRANSPORT_VERSION, deriveOnlineAuthKeyHex, getStoredOnlineAuth } from "./protocol/MqttTransport.js?v=0.1.87-ui348";
 import { P1WebFlasher } from "./web-flasher.js?v=0.1.87-ui348";
-import { inferCircuitLayout, initCircuitView, normalizeCircuitLayout } from "./circuit.js?v=0.1.87-ui453";
+import { inferCircuitLayout, initCircuitView, normalizeCircuitLayout } from "./circuit.js?v=0.1.87-ui471";
 import { initGuinoView } from "./guino.js?v=0.1.87-ui348";
 
-const WEB_UI_VERSION = "0.1.87-ui453";
+const WEB_UI_VERSION = "0.1.87-ui471";
 const CHAT_DEFAULT_MAX_OUTPUT_TOKENS = 8000;
 const CHAT_MIN_MAX_OUTPUT_TOKENS = 1024;
 const CHAT_HARD_MAX_OUTPUT_TOKENS = 32000;
@@ -64,6 +64,7 @@ const storage = {
   revisionDraft: "p1_embed.project.revisionDraft",
   specificationMode: "p1_embed.project.specificationMode",
   circuitArtMode: "p1_embed.circuit.artMode",
+  circuitBoardType: "p1_embed.circuit.boardType",
 };
 
 const builtInChatModelOptions = [
@@ -226,6 +227,7 @@ const els = {
   specificationMode: document.querySelector("#spec-mode"),
   specificationGenerate: document.querySelector("#spec-generate-button"),
   circuitRefresh: document.querySelector("#circuit-refresh-button"),
+  circuitBoardSelect: document.querySelector("#circuit-board-select"),
   circuitArtMode: document.querySelector("#circuit-art-mode-button"),
   circuitDownload: document.querySelector("#circuit-download-button"),
   circuitStatus: document.querySelector("#circuit-status"),
@@ -286,6 +288,7 @@ let firmwareReleasesManifest = null;
 let firmwareReleasesManifestUrl = "";
 let firmwareUpdateCandidate = null;
 let wifiDraftDirty = false;
+let accessSettingsBaseline = null;
 let lastConfig = null;
 let uploadState = { phase: "", label: "", progress: 0 };
 let uploadClearTimer = null;
@@ -532,10 +535,13 @@ function bindControls() {
   els.downloadCode.addEventListener("click", () => runUiAction(downloadProject, "download"));
   els.chatDownloadCode.addEventListener("click", () => runUiAction(downloadProject, "download"));
   els.formatCode.addEventListener("click", () => runUiAction(formatEditorCode, "formatting"));
-  ["pointerdown", "mousedown", "mouseup", "pointerup", "click"].forEach((name) => {
-    els.circuitArtMode.addEventListener(name, (event) => event.stopPropagation());
+  [els.circuitBoardSelect, els.circuitArtMode, els.circuitDownload].forEach((button) => {
+    ["pointerdown", "mousedown", "mouseup", "pointerup", "click"].forEach((name) => {
+      button?.addEventListener(name, (event) => event.stopPropagation());
+    });
   });
   els.circuitArtMode.addEventListener("click", toggleCircuitArtMode);
+  els.circuitBoardSelect?.addEventListener("change", () => setCircuitBoardType(els.circuitBoardSelect.value));
   [els.projectSelect, els.generativeProjectSelect].forEach((select) => {
     select.addEventListener("input", () => scheduleProjectSelect(select.value));
     select.addEventListener("change", () => scheduleProjectSelect(select.value));
@@ -551,6 +557,9 @@ function bindControls() {
   els.wifiSave.addEventListener("click", () => runUiAction(saveWifi, "wifi"));
   els.mqttSave.addEventListener("click", () => runUiAction(saveMqtt, "mqtt"));
   els.accessSave.addEventListener("click", () => runUiAction(saveMqtt, "access"));
+  [els.accessGuestUi, els.accessGuestScript].forEach((toggle) => {
+    toggle?.addEventListener("change", updateAccessSaveVisibility);
+  });
   els.onlineAuthAdd.addEventListener("click", () => runUiAction(addOnlineAuthUser, "online user"));
   els.wifiSsid.addEventListener("input", () => {
     wifiDraftDirty = true;
@@ -730,6 +739,7 @@ function initCircuit() {
     onComponentOverride: applyCircuitComponentOverride,
   });
   setCircuitArtMode(normalizeCircuitArtMode(localStorage.getItem(storage.circuitArtMode)), { persist: false });
+  setCircuitBoardType(normalizeCircuitBoardType(localStorage.getItem(storage.circuitBoardType)), { persist: false });
   updateCircuitView("inferred from code");
 }
 
@@ -751,6 +761,17 @@ function setCircuitArtMode(mode, { persist = true } = {}) {
   els.circuitArtMode?.setAttribute("aria-pressed", illustrated ? "true" : "false");
   els.circuitArtMode?.setAttribute("title", illustrated ? "Circuit illustration mode" : "Circuit symbol mode");
   els.circuitArtMode?.querySelector(".material-symbols-rounded")?.replaceChildren(document.createTextNode(illustrated ? "image" : "category"));
+}
+
+function normalizeCircuitBoardType(type) {
+  return type === "esp32-d1-mini" ? "esp32-d1-mini" : "esp32-classic";
+}
+
+function setCircuitBoardType(type, { persist = true } = {}) {
+  const next = normalizeCircuitBoardType(type);
+  if (persist) localStorage.setItem(storage.circuitBoardType, next);
+  if (els.circuitBoardSelect) els.circuitBoardSelect.value = next;
+  circuitView?.setBoardType?.(next);
 }
 
 function scheduleCircuitUpdate() {
@@ -4351,7 +4372,24 @@ function populateMqttSettings() {
   els.mqttEnabled.checked = cfg.mqttEnabled;
   els.accessGuestUi.checked = cfg.mqttAllowAnonymousUi;
   els.accessGuestScript.checked = cfg.mqttAllowAnonymousScript;
+  accessSettingsBaseline = {
+    mqttAllowAnonymousUi: cfg.mqttAllowAnonymousUi,
+    mqttAllowAnonymousScript: cfg.mqttAllowAnonymousScript,
+  };
+  updateAccessSaveVisibility();
   renderOnlineAuthUsers();
+}
+
+function updateAccessSaveVisibility() {
+  if (!els.accessSave) return;
+  if (!accessSettingsBaseline) {
+    els.accessSave.hidden = true;
+    return;
+  }
+  const changed =
+    Boolean(els.accessGuestUi?.checked) !== Boolean(accessSettingsBaseline.mqttAllowAnonymousUi) ||
+    Boolean(els.accessGuestScript?.checked) !== Boolean(accessSettingsBaseline.mqttAllowAnonymousScript);
+  els.accessSave.hidden = !changed;
 }
 
 function mqttRemoteIdForAuth() {
@@ -4511,6 +4549,11 @@ async function saveMqtt() {
   if (data.mqttPassword) localStorage.setItem(storage.mqttPassword, data.mqttPassword);
   els.mqttPassword.value = "";
   updateConfig(config);
+  accessSettingsBaseline = {
+    mqttAllowAnonymousUi: Boolean(config?.mqttAllowAnonymousUi),
+    mqttAllowAnonymousScript: Boolean(config?.mqttAllowAnonymousScript),
+  };
+  updateAccessSaveVisibility();
   await refreshStatus({ quiet: true, timeoutMs: 6000 });
   logLine("info", "settings saved");
 }
@@ -6869,7 +6912,7 @@ function buildChatInstructions(context) {
     "Project specification rule: describe only the current resulting sketch in concise present tense. Do not write a changelog, transcript, reflection, or iterative phrasing such as now, updated to, changed from, without X, instead of, previously, the user asked, or this revision. If behavior was removed, omit the removed behavior and describe the final behavior.",
     "Use only this Markdown subset in project_specification: # through #### headings, **bold**, *italic*, <u>underline</u>, numbered lists, and bullet lists.",
     "Specification modes: overview means high-level human description; middle means important implementation details without pseudocode; structured means sections like Program, Global values, Setup, and Main loop in Markdown/plain text.",
-    "Do not generate a circuit diagram layout. Always return circuit_layout as an empty object. The browser infers the diagram from code and // p1e-circuit comments near pin variables. Add these comments whenever the user's words choose a specific physical part that generic code cannot prove. Use exact component keys such as led, relay, buzzer, servo, largeServo, fan, dcMotor, stepperMotor, ledStrip, neopixelRing, potentiometer, microphone, distanceSensor, analogSensor, digitalSensor, button, touchPad. If the user says large/big/high-torque servo, write largeServo, never plain servo. If the user says potentiometer/knob/dial, write potentiometer. If the user says LED string/strip/bar or NeoPixel strip, write ledStrip. Example: var servoPin = 16; // p1e-circuit: IO16 largeServo",
+    "Do not generate a circuit diagram layout. Always return circuit_layout as an empty object. The browser infers the diagram from code and // p1e-circuit comments near pin variables. Add these comments whenever the user's words choose a specific physical part that generic code cannot prove. Use exact component keys such as led, relay, buzzer, servo, largeServo, fan, dcMotor, stepperMotor, ledStrip, neopixelRing, potentiometer, microphone, distanceSensor, analogSensor, digitalSensor, button, touchPad, vl53l0x, uda1334a, ld2410c. If the user says large/big/high-torque servo, write largeServo, never plain servo. If the user says potentiometer/knob/dial, write potentiometer. If the user says GY-VL53L0XV2/Laser ToF, write vl53l0x. If the user says UDA1334A/I2S stereo decoder, write uda1334a. If the user says Hi-Link LD2410C/microwave radar, write ld2410c. If the user says LED string/strip/bar or NeoPixel strip, write ledStrip. Example: var servoPin = 16; // p1e-circuit: IO16 largeServo",
     "When generated code reads a named physical input, add a short ordinary comment immediately before the read, such as // Read the potentiometer. before analogRead(potPin), // Read the microphone. before analogRead(micPin), or // Read the button. before digitalRead(buttonPin). Keep these comments concrete and physical, not generic sensor wording when the part is known.",
     "GPIO rule: pinMode uses firmware constants such as INPUT, OUTPUT, INPUT_PULLUP, and INPUT_PULLDOWN when available. Write pinMode(powerPin, OUTPUT), never pinMode(powerPin, \"OUTPUT\"). digitalWrite should use HIGH/LOW if available or 1/0, never string values.",
     "Declare scratch variables at the top of each function and assign them inside while/if blocks. Avoid new var declarations inside tight loops or nested blocks, especially LED render loops.",
