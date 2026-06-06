@@ -11,15 +11,30 @@ const WIRE_RAIL_BASE_OFFSET = 32;
 const WIRE_RAIL_PITCH = 14;
 const WIRE_SIGNAL_MARGIN = 26;
 const WIRE_SIGNAL_PITCH = 16;
-const COMPONENT_TERMINAL_PITCH = 16;
+const WIRE_BRIDGE_BASE_OFFSET = 42;
+const WIRE_BRIDGE_PITCH = 10;
+const WIRE_SIGNAL_BRIDGE_LANES = 6;
+const COMPONENT_TERMINAL_PITCH = 12;
 const COMPONENT_TERMINAL_MIN_MARGIN = 8;
 const COMPONENT_TERMINAL_MAX_MARGIN = 12;
 const COMPONENT_LAYOUT_MIN_GAP = 72;
 const COMPONENT_LINK_MARGIN = 24;
 const COMPONENT_ILLUSTRATION_PIN_X = 52;
+const CIRCUIT_ZOOM_STORAGE_KEY = "p1e.circuit.zoom";
+const CIRCUIT_ZOOM_MIN = 0.72;
+const CIRCUIT_ZOOM_MAX = 2.2;
+const CIRCUIT_ZOOM_STEP = 0.0018;
+const CIRCUIT_DOWNLOAD_SCALE = 3;
+const PLACEMENT_MIN_PCT = -50;
+const PLACEMENT_MAX_PCT = 150;
 const NEOPIXEL_MAX_MA_PER_PIXEL = 60;
 const BOARD_NEOPIXEL_POWER_BUDGET_MA = 500;
+const BOARD_NEOPIXEL_DIRECT_PIXEL_LIMIT = 20;
 const BOARD_PIN_EDGE_INSET = 8;
+const D1_MINI_HEADER_TOP = 48;
+const D1_MINI_HEADER_PITCH = 18;
+const D1_MINI_OUTER_INSET = 18;
+const D1_MINI_INNER_INSET = 34;
 
 const COMPONENT_ACCENTS = {
   physicalInput: { wire: "#9aa0a3", outline: "#d2d8da" },
@@ -102,9 +117,20 @@ const d1MiniPinDefs = [
   { pin: "3", side: "right", serial: "RX0", caution: true, desc: "UART0 RX, USB serial transport" },
 ];
 
+d1MiniPinDefs
+  .filter((pin) => pin.side === "left")
+  .forEach((pin, index) => {
+    pin.row = index % 2 ? "inner" : "outer";
+  });
+d1MiniPinDefs
+  .filter((pin) => pin.side === "right")
+  .forEach((pin, index) => {
+    pin.row = index % 2 ? "inner" : "outer";
+  });
+
 const boardProfiles = {
   "esp32-classic": { type: "esp32-classic", label: "ESP32", title: "ESP32", pinDefs: classicPinDefs, w: 180, h: 470, usb: "top" },
-  "esp32-d1-mini": { type: "esp32-d1-mini", label: "ESP32 D1 mini", title: "ESP32 mini", pinDefs: d1MiniPinDefs, w: 165, h: 430, usb: "bottom" },
+  "esp32-d1-mini": { type: "esp32-d1-mini", label: "ESP32 D1 mini", title: "ESP32 mini", pinDefs: d1MiniPinDefs, w: 176, h: 236, usb: "bottom" },
 };
 
 const pinDefs = classicPinDefs;
@@ -116,6 +142,7 @@ const componentTypes = {
   neopixelRing: { label: "NeoPixel ring", icon: "ring", signal: "Data", needs: ["data", "5v", "gnd"] },
   neopixelMatrix: { label: "LED matrix", icon: "matrix", signal: "Data", needs: ["data", "5v", "gnd"] },
   analogSensor: { label: "Analog sensor", icon: "sensor", signal: "ADC", needs: ["signal", "3v3", "gnd"] },
+  analogMeter: { label: "Analogue meter", icon: "meter", signal: "ADC", needs: ["signal", "3v3", "gnd"] },
   digitalSensor: { label: "Digital sensor", icon: "sensor", signal: "GPIO", needs: ["signal", "3v3", "gnd"] },
   distanceSensor: { label: "Distance sensor", icon: "distance", signal: "ADC", needs: ["signal", "3v3", "gnd"] },
   vl53l0xTof: { label: "GY-VL53L0XV2 ToF", icon: "tof", signal: "I2C", needs: ["3v3", "sda", "scl", "gnd"] },
@@ -140,7 +167,7 @@ const componentTypes = {
   wifiService: { label: "WiFi / API", icon: "cloud", signal: "Network", needs: [] },
   uiPanel: { label: "P1E UI preview", icon: "ui", signal: "UI", needs: [] },
   homeAssistant: { label: "Home Assistant preview", icon: "ha", signal: "Wireless", needs: [] },
-  powerSupply: { label: "External 5V supply", icon: "power", signal: "5V", needs: ["5v", "gnd"] },
+  powerSupply: { label: "External V supply", icon: "power", signal: "V", needs: ["5v", "gnd"] },
   backEmfDiode: { label: "Back EMF diode", icon: "diode", signal: "Clamp", needs: ["5v", "gnd"] },
   unknown: { label: "Unknown part", icon: "question", signal: "?", needs: ["signal"] },
 };
@@ -179,10 +206,19 @@ export function normalizeCircuitLayout(layout) {
 function normalizeBoard(board = {}) {
   const type = boardProfiles[board?.type]?.type || "esp32-classic";
   const profile = boardProfiles[type];
+  const fallbackX = (WORLD_W - profile.w) / 2;
+  const fallbackY = 100;
+  const bounds = expandedPlacementBounds();
+  const centerX = Number.isFinite(board?.cx)
+    ? clamp((Number(board.cx) / 100) * WORLD_W, bounds.minX + profile.w / 2, bounds.maxX - profile.w / 2)
+    : null;
+  const centerY = Number.isFinite(board?.cy)
+    ? clamp((Number(board.cy) / 100) * WORLD_H, bounds.minY + profile.h / 2, bounds.maxY - profile.h / 2)
+    : null;
   return {
     type,
-    x: numberOr(board?.x, (WORLD_W - profile.w) / 2),
-    y: numberOr(board?.y, 100),
+    x: centerX !== null ? centerX - profile.w / 2 : numberOr(board?.x, fallbackX),
+    y: centerY !== null ? centerY - profile.h / 2 : numberOr(board?.y, fallbackY),
     w: numberOr(board?.w, profile.w),
     h: numberOr(board?.h, profile.h),
   };
@@ -210,7 +246,7 @@ function boardPinDefs(board = null) {
   return boardProfile(board).pinDefs;
 }
 
-export function initCircuitView({ mount, componentList, assumptions, pinInfo, alternatives, onComponentOverride } = {}) {
+export function initCircuitView({ mount, componentList, assumptions, pinInfo, alternatives, onComponentOverride, onComponentPlacement, onBoardPlacement } = {}) {
   let model = normalizeCircuitLayout({});
   let hoveredPin = null;
   let selectedComponentId = "";
@@ -219,6 +255,7 @@ export function initCircuitView({ mount, componentList, assumptions, pinInfo, al
   let p5Instance = null;
   let renderMode = "symbols";
   let boardType = "esp32-classic";
+  let zoomScale = loadStoredCircuitZoom();
   let transform = { scale: 1, ox: 0, oy: 0 };
 
   const setModel = (nextModel) => {
@@ -249,15 +286,31 @@ export function initCircuitView({ mount, componentList, assumptions, pinInfo, al
   };
 
   const downloadPng = (filename = "p1e-circuit.png") => {
-    const canvas = p5Instance?.canvas;
-    if (!canvas) return false;
+    if (!p5Instance?.canvas) return false;
     p5Instance.redraw();
+    const logicalWidth = Math.max(320, p5Instance.width || p5Instance.canvas.width || 0);
+    const logicalHeight = Math.max(260, p5Instance.height || p5Instance.canvas.height || 0);
+    const pg = p5Instance.createGraphics(
+      Math.round(logicalWidth * CIRCUIT_DOWNLOAD_SCALE),
+      Math.round(logicalHeight * CIRCUIT_DOWNLOAD_SCALE),
+    );
+    drawCircuitScene(pg, {
+      model,
+      renderMode,
+      selectedComponentId,
+      hoveredPin: null,
+      zoomScale,
+      logicalWidth,
+      logicalHeight,
+      renderScale: CIRCUIT_DOWNLOAD_SCALE,
+    });
     const link = document.createElement("a");
     link.download = filename;
-    link.href = canvas.toDataURL("image/png");
+    link.href = pg.canvas.toDataURL("image/png");
     document.body.append(link);
     link.click();
     link.remove();
+    pg.remove();
     return true;
   };
 
@@ -281,16 +334,16 @@ export function initCircuitView({ mount, componentList, assumptions, pinInfo, al
       p.noLoop();
     };
     p.draw = () => {
-      p.background(CIRCUIT_BG);
-      transform = computeTransform(p.width, p.height);
-      p.push();
-      p.translate(transform.ox, transform.oy);
-      p.scale(transform.scale);
-      drawConnections(p, model, renderMode);
-      drawBoard(p, model.board, hoveredPin);
-      drawComponents(p, model.components, selectedComponentId, renderMode, model.board);
-      p.pop();
-      drawCircuitNote(p, model);
+      transform = drawCircuitScene(p, {
+        model,
+        renderMode,
+        selectedComponentId,
+        hoveredPin,
+        zoomScale,
+        logicalWidth: p.width,
+        logicalHeight: p.height,
+        renderScale: 1,
+      });
     };
     p.mouseMoved = () => {
       if (dragging) return;
@@ -306,29 +359,92 @@ export function initCircuitView({ mount, componentList, assumptions, pinInfo, al
       const world = screenToWorld(p.mouseX, p.mouseY, transform);
       const component = hitComponent(world, model.components);
       if (!component) {
-        selectedComponentId = "";
-        selectedComponentPin = "";
-        renderAlternatives();
-        p.redraw();
+        const board = hitBoard(world, model.board);
+        if (board) {
+          selectedComponentId = "";
+          selectedComponentPin = "";
+          renderAlternatives();
+          dragging = {
+            kind: "board",
+            dx: model.board.x - world.x,
+            dy: model.board.y - world.y,
+            startX: model.board.x,
+            startY: model.board.y,
+          };
+          p.redraw();
+        } else {
+          selectedComponentId = "";
+          selectedComponentPin = "";
+          renderAlternatives();
+          p.redraw();
+        }
         return;
       }
       selectedComponentId = component.id;
       selectedComponentPin = componentSelectionKey(component);
       renderAlternatives();
       p.redraw();
-      dragging = { id: component.id, dx: component.x - world.x, dy: component.y - world.y };
+      dragging = {
+        id: component.id,
+        kind: "component",
+        dx: component.x - world.x,
+        dy: component.y - world.y,
+        startX: component.x,
+        startY: component.y,
+      };
     };
     p.mouseDragged = () => {
       if (!dragging) return;
-      const component = model.components.find((item) => item.id === dragging.id);
-      if (!component) return;
       const world = screenToWorld(p.mouseX, p.mouseY, transform);
-      component.x = clamp(world.x + dragging.dx, 60, WORLD_W - 60);
-      component.y = clamp(world.y + dragging.dy, 44, WORLD_H - 44);
+      const bounds = worldBoundsForZoom(zoomScale);
+      if (dragging.kind === "board") {
+        model.board.x = clamp(world.x + dragging.dx, bounds.minX + 40, bounds.maxX - model.board.w - 40);
+        model.board.y = clamp(world.y + dragging.dy, bounds.minY + 24, bounds.maxY - model.board.h - 24);
+      } else {
+        const component = model.components.find((item) => item.id === dragging.id);
+        if (!component) return;
+        component.x = clamp(world.x + dragging.dx, bounds.minX + 60, bounds.maxX - 60);
+        component.y = clamp(world.y + dragging.dy, bounds.minY + 44, bounds.maxY - 44);
+      }
       renderSidePanel(model);
       p.redraw();
     };
+    p.mouseWheel = (event) => {
+      const delta = Number(event?.delta || 0);
+      if (!Number.isFinite(delta) || Math.abs(delta) < 0.01) return false;
+      const nextZoom = clamp(zoomScale * (1 - delta * CIRCUIT_ZOOM_STEP), CIRCUIT_ZOOM_MIN, CIRCUIT_ZOOM_MAX);
+      if (Math.abs(nextZoom - zoomScale) < 0.001) return false;
+      zoomScale = nextZoom;
+      storeCircuitZoom(zoomScale);
+      p.redraw();
+      return false;
+    };
     p.mouseReleased = () => {
+      if (dragging) {
+        if (dragging.kind === "board") {
+          const moved = Math.abs(model.board.x - dragging.startX) > 2 || Math.abs(model.board.y - dragging.startY) > 2;
+          if (moved) {
+            onBoardPlacement?.({
+              board: model.board,
+              type: model.board.type,
+              cx: Math.round(clamp(((model.board.x + model.board.w / 2) / WORLD_W) * 100, PLACEMENT_MIN_PCT, PLACEMENT_MAX_PCT)),
+              cy: Math.round(clamp(((model.board.y + model.board.h / 2) / WORLD_H) * 100, PLACEMENT_MIN_PCT, PLACEMENT_MAX_PCT)),
+            });
+          }
+        } else {
+          const component = model.components.find((item) => item.id === dragging.id);
+          const moved = component
+            && (Math.abs(component.x - dragging.startX) > 2 || Math.abs(component.y - dragging.startY) > 2);
+          if (moved) {
+            onComponentPlacement?.({
+              component,
+              side: component.x < model.board.x + model.board.w / 2 ? "left" : "right",
+              x: Math.round(clamp((component.x / WORLD_W) * 100, PLACEMENT_MIN_PCT, PLACEMENT_MAX_PCT)),
+              y: Math.round(clamp((component.y / WORLD_H) * 100, PLACEMENT_MIN_PCT, PLACEMENT_MAX_PCT)),
+            });
+          }
+        }
+      }
       dragging = null;
     };
     p.windowResized = resize;
@@ -363,9 +479,7 @@ export function initCircuitView({ mount, componentList, assumptions, pinInfo, al
           const item = document.createElement("li");
           const title = document.createElement("strong");
           title.textContent = componentDisplayLabel(component);
-          const meta = document.createElement("span");
-          meta.textContent = component.inferredFrom || component.kind || component.type;
-          item.append(title, meta);
+          item.append(title);
           componentList.append(item);
         });
       }
@@ -436,7 +550,7 @@ function componentAlternatives(component) {
 function componentAlternativeGroup(type) {
   if (["led", "relay", "buzzer", "servo", "servoLarge", "fan", "dcMotor", "stepperMotor"].includes(type)) return "gpio-output";
   if (["button", "digitalSensor", "touchPad"].includes(type)) return "gpio-input";
-  if (["analogSensor", "distanceSensor", "microphone", "potentiometer"].includes(type)) return "adc-input";
+  if (["analogSensor", "analogMeter", "distanceSensor", "microphone", "potentiometer"].includes(type)) return "adc-input";
   if (["ledStrip", "neopixelRing", "neopixelMatrix"].includes(type)) return "addressable-led";
   if (["i2cDevice", "imu", "vl53l0xTof"].includes(type)) return "i2c";
   if (["uartDevice", "mp3Player", "ld2410cRadar"].includes(type)) return "uart";
@@ -451,6 +565,7 @@ function inferFromSource(source) {
   const vars = parseNumericVars(source);
   const arrays = parseNumericArrays(source);
   const hints = parseCircuitHints(source);
+  const boardHint = parseCircuitBoardHint(source);
   const lower = source.toLowerCase();
   const components = [];
   const connections = [];
@@ -468,6 +583,7 @@ function inferFromSource(source) {
       label: options.label || typeDef.label,
       pin: pin ? String(pin) : "",
       pins: options.pins || {},
+      placement: options.placement || placementForCircuitHint(hints, type, pin),
       inferredFrom: options.inferredFrom || "",
       confidence: numberOr(options.confidence, 0.65),
     };
@@ -477,8 +593,10 @@ function inferFromSource(source) {
   };
 
   hints.forEach((hint) => {
+    if (!hint.pin) return;
     add(hint.type, hint.pin, {
       label: componentTypes[hint.type]?.label || hint.type,
+      placement: hint.placement,
       inferredFrom: "p1e-circuit comment",
       confidence: 0.99,
     });
@@ -623,16 +741,30 @@ function inferFromSource(source) {
     assumptions.push("No direct hardware binding was obvious, so the drawing leaves a question-mark part.");
   }
   pruneDuplicateSignalPins(components, connections);
-  addExternalPowerPlan(components, connections, assumptions, notes, seen);
+  addExternalPowerPlan(components, connections, assumptions, notes, seen, hints);
 
   return normalizeCircuitLayout({
     version: CIRCUIT_VERSION,
-    board: { type: "esp32-classic", x: (WORLD_W - 180) / 2, y: 100, w: 180, h: 470 },
+    board: boardHint || { type: "esp32-classic" },
     components,
     connections,
     assumptions: dedupe(assumptions),
     notes,
   });
+}
+
+function parseCircuitBoardHint(source) {
+  const match = String(source || "").match(/\/\/\s*p1e-circuit-board:\s*([^\n;]+)/i);
+  if (!match) return null;
+  const text = match[1];
+  const type = text.match(/\btype\s*=\s*([A-Za-z0-9_-]+)/i)?.[1] || "";
+  const cx = text.match(/\bcx\s*=\s*(-?\d{1,3})\b/i)?.[1];
+  const cy = text.match(/\bcy\s*=\s*(-?\d{1,3})\b/i)?.[1];
+  return {
+    type: boardProfiles[type]?.type || "esp32-classic",
+    cx: cx !== undefined ? clamp(Number(cx), PLACEMENT_MIN_PCT, PLACEMENT_MAX_PCT) : undefined,
+    cy: cy !== undefined ? clamp(Number(cy), PLACEMENT_MIN_PCT, PLACEMENT_MAX_PCT) : undefined,
+  };
 }
 
 function parseNumericVars(source) {
@@ -658,16 +790,79 @@ function parseNumericArrays(source) {
 
 function parseCircuitHints(source) {
   const hints = [];
-  for (const match of String(source || "").matchAll(/\/\/\s*p1e-circuit:\s*(?:IO|GPIO)?\s*(\d{1,2})\s+([^\n;]+)/gi)) {
-    const type = componentTypeFromCircuitHint(match[2]);
-    if (type) hints.push({ pin: String(match[1]), type });
+  for (const match of String(source || "").matchAll(/\/\/\s*p1e-circuit:\s*([^\n;]+)/gi)) {
+    const text = match[1].trim();
+    const pinMatch = text.match(/^(?:IO|GPIO)?\s*(\d{1,2})\b/i);
+    if (pinMatch) {
+      const rest = text.slice(pinMatch[0].length).trim();
+      const type = componentTypeFromCircuitHint(rest);
+      if (type) hints.push({ key: `IO${pinMatch[1]}`, pin: String(pinMatch[1]), type, placement: parseCircuitHintPlacement(rest) });
+      continue;
+    }
+    const keyMatch = text.match(/^([A-Za-z][A-Za-z0-9_-]*)\b/);
+    const key = normalizeCircuitHintKey(keyMatch?.[1] || "");
+    if (!key) continue;
+    const rest = text.slice(keyMatch[0].length).trim();
+    const type = componentTypeFromCircuitHint(`${key} ${rest}`) || circuitTypeFromHintKey(key);
+    if (type) hints.push({ key, pin: "", type, placement: parseCircuitHintPlacement(rest) });
   }
   return hints;
 }
 
+function normalizeCircuitHintKey(key) {
+  const text = String(key || "").trim();
+  if (/^powersupply$/i.test(text)) return "powerSupply";
+  if (/^uipanel$/i.test(text)) return "uiPanel";
+  if (/^(homeassistant|ha)$/i.test(text)) return "homeAssistant";
+  if (/^(backemfdiode|diode)$/i.test(text)) return "backEmfDiode";
+  return text;
+}
+
+function circuitTypeFromHintKey(key) {
+  if (key === "powerSupply") return "powerSupply";
+  if (key === "uiPanel") return "uiPanel";
+  if (key === "homeAssistant") return "homeAssistant";
+  if (key === "backEmfDiode") return "backEmfDiode";
+  return "";
+}
+
+function placementForCircuitHint(hints, type, pin = "") {
+  const wantedPin = String(pin || "");
+  const wantedKey = circuitHintKeyForType(type);
+  const match = hints.find((hint) => (
+    hint.placement
+    && hint.type === type
+    && ((wantedPin && hint.pin === wantedPin) || (!wantedPin && hint.key === wantedKey))
+  ));
+  return match?.placement || null;
+}
+
+function circuitHintKeyForType(type) {
+  if (type === "powerSupply") return "powerSupply";
+  if (type === "uiPanel") return "uiPanel";
+  if (type === "homeAssistant") return "homeAssistant";
+  if (type === "backEmfDiode") return "backEmfDiode";
+  return "";
+}
+
+function parseCircuitHintPlacement(text) {
+  const words = String(text || "");
+  const side = /\bside\s*=\s*left\b/i.test(words) ? "left" : /\bside\s*=\s*right\b/i.test(words) ? "right" : "";
+  const xMatch = words.match(/\bx\s*=\s*(-?\d{1,3})\b/i);
+  const yMatch = words.match(/\by\s*=\s*(-?\d{1,3})\b/i);
+  const x = xMatch ? clamp(Number(xMatch[1]), PLACEMENT_MIN_PCT, PLACEMENT_MAX_PCT) : null;
+  const y = yMatch ? clamp(Number(yMatch[1]), PLACEMENT_MIN_PCT, PLACEMENT_MAX_PCT) : null;
+  if (!side && x === null && y === null) return null;
+  return { side, x, y };
+}
+
 function componentTypeFromCircuitHint(text) {
-  const key = String(text || "").replace(/[^A-Za-z0-9]/g, "").toLowerCase();
-  const words = String(text || "").toLowerCase();
+  const cleaned = String(text || "")
+    .replace(/\bside\s*=\s*(left|right)\b/ig, " ")
+    .replace(/\bx\s*=\s*-?\d{1,3}\b/ig, " ")
+    .replace(/\by\s*=\s*-?\d{1,3}\b/ig, " ");
+  const key = cleaned.replace(/[^A-Za-z0-9]/g, "").toLowerCase();
+  const words = cleaned.toLowerCase();
   const phraseAliases = [
     [/large\s*servo|big\s*servo|high\s*torque\s*servo|high\s*power\s*servo|servolarge/, "servoLarge"],
     [/neo\s*pixel\s*matrix|led\s*matrix|pixel\s*matrix/, "neopixelMatrix"],
@@ -679,6 +874,7 @@ function componentTypeFromCircuitHint(text) {
     [/uda\s*1334a?|i2s\s*(stereo\s*)?(decoder|dac|audio)|stereo\s*decoder/, "i2sAudioDecoder"],
     [/hi\s*-?\s*link\s*ld\s*2410c?|ld\s*2410c?|microwave\s*radar|presence\s*radar|radar\s*module/, "ld2410cRadar"],
     [/microphone|mic|sound\s*sensor/, "microphone"],
+    [/analogue\s*meter|analog\s*meter|meter|gauge|vu\s*meter/, "analogMeter"],
     [/analog\s*sensor/, "analogSensor"],
     [/digital\s*sensor/, "digitalSensor"],
     [/df\s*player\s*mini|dfplayer|mp3\s*player|sound\s*player/, "mp3Player"],
@@ -690,6 +886,8 @@ function componentTypeFromCircuitHint(text) {
   if (phrase && componentTypes[phrase]) return phrase;
   const aliases = {
     analog: "analogSensor",
+    analogmeter: "analogMeter",
+    analoguemeter: "analogMeter",
     analogsensor: "analogSensor",
     button: "button",
     buzzer: "buzzer",
@@ -723,6 +921,7 @@ function componentTypeFromCircuitHint(text) {
     potentiometer: "potentiometer",
     relay: "relay",
     sensor: "analogSensor",
+    meter: "analogMeter",
     bigservo: "servoLarge",
     highpowerservo: "servoLarge",
     hightorqueservo: "servoLarge",
@@ -928,7 +1127,7 @@ function signalComponentPriority(component) {
   if (isNeoPixelType(component?.type)) return 100;
   if (["vl53l0xTof", "i2sAudioDecoder", "ld2410cRadar"].includes(component?.type)) return 90;
   if (["servo", "fan", "dcMotor", "stepperMotor", "relay", "buzzer"].includes(component?.type)) return 80;
-  if (["analogSensor", "digitalSensor", "distanceSensor", "microphone", "joystick", "potentiometer", "touchPad"].includes(component?.type)) return 70;
+  if (["analogSensor", "analogMeter", "digitalSensor", "distanceSensor", "microphone", "joystick", "potentiometer", "touchPad"].includes(component?.type)) return 70;
   if (component?.type === "button") return 60;
   if (component?.type === "led") return 20;
   return 40;
@@ -961,6 +1160,7 @@ function componentTypeFromName(name) {
   if (/stepper/.test(lower)) return { type: "stepperMotor", label: "Stepper controller", confidence: 0.9 };
   if (/dc.?motor|motor/.test(lower)) return { type: "dcMotor", label: "DC motor controller", confidence: 0.86 };
   if (/pot|knob|dial/.test(lower)) return { type: "potentiometer", label: "Potentiometer", confidence: 0.92 };
+  if (/analogue.?meter|analog.?meter|meter|gauge|vu.?meter/.test(lower)) return { type: "analogMeter", label: "Analogue meter", confidence: 0.9 };
   if (/vl53|tof|time.?of.?flight|laser.?distance/.test(lower)) return { type: "vl53l0xTof", label: "GY-VL53L0XV2 ToF", confidence: 0.92 };
   if (/uda1334|i2s|stereo.?decoder|audio.?dac/.test(lower)) return { type: "i2sAudioDecoder", label: "UDA1334A I2S decoder", confidence: 0.9 };
   if (/ld2410|microwave.?radar|presence.?radar|radar/.test(lower)) return { type: "ld2410cRadar", label: "LD2410C radar", confidence: 0.9 };
@@ -1068,11 +1268,13 @@ function ledComponentType(lower, count) {
 function analogComponentType(lower, source, pin, expr = "") {
   const local = String(expr || "").toLowerCase();
   if (local.includes("pot") || local.includes("knob") || local.includes("dial")) return "potentiometer";
+  if (local.includes("meter") || local.includes("gauge")) return "analogMeter";
   if (local.includes("microphone") || local.includes("mic") || local.includes("sound") || local.includes("volume")) return "microphone";
   if (local.includes("distance") || local.includes("proximity") || local.includes("sharp")) return "distanceSensor";
   if (lower.includes("microphone") || lower.includes("mic") || lower.includes("sound") || lower.includes("volume")) return "microphone";
   if (lower.includes("distance") || lower.includes("proximity") || lower.includes("ir sensor") || lower.includes("sharp")) return "distanceSensor";
   if (lower.includes("pot") || lower.includes("knob") || lower.includes("dial")) return "potentiometer";
+  if (lower.includes("analog meter") || lower.includes("analogue meter") || lower.includes("gauge") || lower.includes("vu meter")) return "analogMeter";
   const analogReads = collectCalls(source, "analogRead").map((args) => resolvePin(args[0], parseNumericVars(source))).filter((value) => value !== null);
   if (analogReads.length >= 2 && analogReads.includes(pin)) return "joystick";
   return "analogSensor";
@@ -1170,7 +1372,7 @@ function addDefaultConnections(component, connections, assumptions) {
   }
   if (type === "button") {
     connections.push({ from: { component: id, pin: "gnd" }, to: { boardPin: "GND" }, color: "#8f9699", label: "GND" });
-  } else if (["led", "ledStrip", "neopixelRing", "neopixelMatrix", "analogSensor", "digitalSensor", "distanceSensor", "microphone", "joystick", "potentiometer", "servo", "servoLarge", "fan", "dcMotor", "stepperMotor", "buzzer", "relay"].includes(type)) {
+  } else if (["led", "ledStrip", "neopixelRing", "neopixelMatrix", "analogSensor", "analogMeter", "digitalSensor", "distanceSensor", "microphone", "joystick", "potentiometer", "servo", "servoLarge", "fan", "dcMotor", "stepperMotor", "buzzer", "relay"].includes(type)) {
     connections.push({ from: { component: id, pin: "gnd" }, to: { boardPin: "GND" }, color: "#8f9699", label: "GND" });
     if (["ledStrip", "neopixelRing", "neopixelMatrix"].includes(type)) {
       if (!isNeoPixelType(type) || !needsExternalNeoPixelPower(component)) {
@@ -1187,7 +1389,7 @@ function addDefaultConnections(component, connections, assumptions) {
         assumptions.push(`${componentTypes[type]?.label || "This component"} needs suitable power; dense inferred diagrams show signal and common ground${type === "servo" ? "." : " and omit the board-crossing VIN lead."}`);
       }
       if (["dcMotor", "stepperMotor", "fan"].includes(type)) assumptions.push("Motors and fans should use a driver or transistor stage; this drawing shows the control signal and common ground.");
-    } else if (["analogSensor", "digitalSensor", "distanceSensor", "microphone", "joystick", "potentiometer"].includes(type)) {
+    } else if (["analogSensor", "analogMeter", "digitalSensor", "distanceSensor", "microphone", "joystick", "potentiometer"].includes(type)) {
       connections.push({ from: { component: id, pin: "3v3" }, to: { boardPin: "3V3" }, color: "#d26b5b", label: "3V3" });
     }
   } else if (type === "i2cDevice" || type === "imu" || type === "vl53l0xTof") {
@@ -1215,7 +1417,7 @@ function addDefaultConnections(component, connections, assumptions) {
   }
 }
 
-function addExternalPowerPlan(components, connections, assumptions, notes, seen) {
+function addExternalPowerPlan(components, connections, assumptions, notes, seen, hints = []) {
   const powered = [];
   components.forEach((component) => {
     if (component.type === "servoLarge") {
@@ -1239,10 +1441,10 @@ function addExternalPowerPlan(components, connections, assumptions, notes, seen)
       if (!count) return;
       const currentMa = neoPixelCurrentMa(count);
       notes.push(`${component.label}: ${count} NeoPixels x ${NEOPIXEL_MAX_MA_PER_PIXEL} mA ~= ${formatCurrent(currentMa)} worst-case.`);
-      if (currentMa > BOARD_NEOPIXEL_POWER_BUDGET_MA) {
+      if (needsExternalNeoPixelPower(component)) {
         powered.push({
           component,
-          reason: `${component.label}: ${count} NeoPixels can draw about ${formatCurrent(currentMa)} at full white, above the ${formatCurrent(BOARD_NEOPIXEL_POWER_BUDGET_MA)} board-power budget. Use an external 5V supply and common ground.`,
+          reason: `${component.label}: ${count} NeoPixels can draw about ${formatCurrent(currentMa)} at full white. Use an external V supply and common ground for larger strips.`,
         });
       }
     }
@@ -1252,9 +1454,10 @@ function addExternalPowerPlan(components, connections, assumptions, notes, seen)
   const supply = {
     id: uniqueId("external-5v-supply", seen),
     type: "powerSupply",
-    label: "External 5V supply",
+    label: "External V supply",
     pin: "",
     pins: {},
+    placement: placementForCircuitHint(hints, "powerSupply", ""),
     inferredFrom: "external power requirement",
     confidence: 0.9,
   };
@@ -1270,6 +1473,7 @@ function addExternalPowerPlan(components, connections, assumptions, notes, seen)
         label: "Back EMF diode",
         pin: "",
         pins: {},
+        placement: placementForCircuitHint(hints, "backEmfDiode", ""),
         inferredFrom: `${component.label || componentTypes[component.type]?.label || "motor"} protection`,
         confidence: 0.86,
       };
@@ -1320,7 +1524,8 @@ function neoPixelCurrentMa(count) {
 
 function needsExternalNeoPixelPower(component) {
   const count = neoPixelCount(component);
-  return count > 0 && neoPixelCurrentMa(count) > BOARD_NEOPIXEL_POWER_BUDGET_MA;
+  return count > BOARD_NEOPIXEL_DIRECT_PIXEL_LIMIT
+    && neoPixelCurrentMa(count) > BOARD_NEOPIXEL_POWER_BUDGET_MA;
 }
 
 function formatCurrent(ma) {
@@ -1364,7 +1569,7 @@ function componentOutlineColor(type) {
 
 function componentColorGroup(type) {
   if (["button", "touchPad", "joystick"].includes(type)) return "physicalInput";
-  if (["analogSensor", "digitalSensor", "distanceSensor", "ultrasonicSensor", "microphone", "potentiometer", "vl53l0xTof", "ld2410cRadar"].includes(type)) return "sensor";
+  if (["analogSensor", "analogMeter", "digitalSensor", "distanceSensor", "ultrasonicSensor", "microphone", "potentiometer", "vl53l0xTof", "ld2410cRadar"].includes(type)) return "sensor";
   if (["led", "ledStrip", "neopixelRing", "neopixelMatrix"].includes(type)) return "light";
   if (["servo", "servoLarge", "fan", "dcMotor", "stepperMotor", "buzzer", "relay"].includes(type)) return "actuator";
   if (["i2cDevice", "imu", "uartDevice", "mp3Player", "i2sAudioDecoder", "wifiService", "uiPanel", "homeAssistant"].includes(type)) return "comms";
@@ -1384,11 +1589,21 @@ function normalizeComponent(component, index) {
     label: normalizeComponentLabel(component.label || fallbackLabel, requestedType),
     pin: component.pin !== undefined && component.pin !== null ? String(component.pin) : "",
     pins: normalizePins(component.pins),
+    placement: normalizePlacement(component.placement),
     x: finiteOrNull(component.x),
     y: finiteOrNull(component.y),
     inferredFrom: String(component.inferredFrom || ""),
     confidence: clamp(numberOr(component.confidence, 0.5), 0, 1),
   };
+}
+
+function normalizePlacement(placement) {
+  if (!placement || typeof placement !== "object") return null;
+  const side = placement.side === "left" || placement.side === "right" ? placement.side : "";
+  const x = Number.isFinite(placement.x) ? clamp(placement.x, PLACEMENT_MIN_PCT, PLACEMENT_MAX_PCT) : null;
+  const y = Number.isFinite(placement.y) ? clamp(placement.y, PLACEMENT_MIN_PCT, PLACEMENT_MAX_PCT) : null;
+  if (!side && x === null && y === null) return null;
+  return { side, x, y };
 }
 
 function normalizeComponentLabel(label, type) {
@@ -1429,6 +1644,7 @@ function placeComponents(components, connections = [], board = null) {
   const left = [];
   const right = [];
   components.forEach((component, index) => {
+    applyPlacementHint(component, board);
     const side = componentPlacementSide(component, connections, index, board, components);
     if (side === "right") right.push(component);
     else left.push(component);
@@ -1437,6 +1653,23 @@ function placeComponents(components, connections = [], board = null) {
   placeSideComponents(left, Math.max(118, boardCenter - 410), connections, board);
   placeSideComponents(right, Math.min(WORLD_W - 118, boardCenter + 410), connections, board);
   return components;
+}
+
+function applyPlacementHint(component, board) {
+  const placement = component?.placement;
+  if (!placement || !board) return;
+  const bounds = expandedPlacementBounds();
+  if (Number.isFinite(placement.x) && !Number.isFinite(component.x)) {
+    component.x = clamp((placement.x / 100) * WORLD_W, bounds.minX + 60, bounds.maxX - 60);
+  } else if (placement.side && !Number.isFinite(component.x)) {
+    const boardCenter = board.x + board.w / 2;
+    component.x = placement.side === "left"
+      ? Math.max(118, boardCenter - 410)
+      : Math.min(WORLD_W - 118, boardCenter + 410);
+  }
+  if (Number.isFinite(placement.y) && !Number.isFinite(component.y)) {
+    component.y = clamp((placement.y / 100) * WORLD_H, bounds.minY + 44, bounds.maxY - 44);
+  }
 }
 
 function placeSideComponents(items, x, connections, board) {
@@ -1602,6 +1835,7 @@ function isRailBoardPin(pinName) {
 function componentPlacementSide(component, connections, index, board = null, components = []) {
   const center = board ? board.x + board.w / 2 : WORLD_W / 2;
   if (Number.isFinite(component.x)) return component.x < center ? "left" : "right";
+  if (component.placement?.side === "left" || component.placement?.side === "right") return component.placement.side;
   if (component.type === "backEmfDiode") {
     const targetPinSide = boardPinSide(connectionForComponentTarget(component, connections)?.to?.boardPin, "", board);
     if (targetPinSide) return targetPinSide;
@@ -2046,8 +2280,10 @@ function wireLaneX(board, side, laneKey, lanes) {
 function wireBridgeY(board, laneKey, lanes, start, pin, side) {
   const index = wireLaneIndex(side, laneKey, lanes);
   const railSide = powerRailBridgeSide(laneKey);
-  const above = railSide ? railSide === "top" : (start.y + pin.y) / 2 < board.y + board.h / 2;
-  const offset = 42 + index * 12;
+  const isSignal = wireLaneGroup(laneKey) === "signal";
+  const above = railSide ? railSide === "top" : pin.y < board.y + board.h / 2;
+  const laneIndex = isSignal ? index % WIRE_SIGNAL_BRIDGE_LANES : index;
+  const offset = WIRE_BRIDGE_BASE_OFFSET + laneIndex * WIRE_BRIDGE_PITCH;
   return above ? board.y - offset : board.y + board.h + offset;
 }
 
@@ -2328,67 +2564,77 @@ function drawD1MiniBoard(p, board, hovered) {
   p.fill("#214a78");
   p.stroke("#1a3557");
   p.strokeWeight(2);
-  const notch = 15;
+  const notch = 14;
+  const foot = 14;
   p.beginShape();
   p.vertex(board.x + notch, board.y);
   p.vertex(board.x + board.w - notch, board.y);
   p.vertex(board.x + board.w, board.y + notch);
   p.vertex(board.x + board.w, board.y + board.h);
-  p.vertex(board.x + board.w * 0.64, board.y + board.h);
-  p.vertex(board.x + board.w * 0.58, board.y + board.h - 20);
-  p.vertex(board.x + board.w * 0.42, board.y + board.h - 20);
-  p.vertex(board.x + board.w * 0.36, board.y + board.h);
+  p.vertex(board.x + board.w * 0.66, board.y + board.h);
+  p.vertex(board.x + board.w * 0.61, board.y + board.h - foot);
+  p.vertex(board.x + board.w * 0.39, board.y + board.h - foot);
+  p.vertex(board.x + board.w * 0.34, board.y + board.h);
   p.vertex(board.x, board.y + board.h);
   p.vertex(board.x, board.y + notch);
   p.endShape(p.CLOSE);
 
+  const headerTop = board.y + D1_MINI_HEADER_TOP - 8;
+  const headerH = D1_MINI_HEADER_PITCH * 7 + 16;
+  p.fill("#f4f4ef");
+  p.stroke("#6a6f70");
+  p.strokeWeight(1);
+  p.rect(board.x + D1_MINI_OUTER_INSET - 8, headerTop, 12, headerH, 8);
+  p.rect(board.x + D1_MINI_INNER_INSET - 8, headerTop, 12, headerH, 8);
+  p.rect(board.x + board.w - D1_MINI_INNER_INSET - 4, headerTop, 12, headerH, 8);
+  p.rect(board.x + board.w - D1_MINI_OUTER_INSET - 4, headerTop, 12, headerH, 8);
+
   p.fill("#101214");
   p.noStroke();
-  p.rect(board.x + board.w * 0.22, board.y + 30, board.w * 0.56, 92, 2);
+  p.rect(board.x + board.w * 0.27, board.y + 34, board.w * 0.46, 78, 2);
   p.fill("#f7f7f2");
   p.stroke("#222");
   p.strokeWeight(1);
-  p.rect(board.x + board.w * 0.28, board.y + 56, board.w * 0.44, 70, 1);
+  p.rect(board.x + board.w * 0.35, board.y + 61, board.w * 0.30, 60, 1);
   p.noFill();
   p.stroke("#d9b30c");
   p.strokeWeight(2);
-  const ax = board.x + board.w * 0.32;
-  const ay = board.y + 20;
+  const ax = board.x + board.w * 0.34;
+  const ay = board.y + 16;
+  const tooth = 19;
   p.line(ax, ay + 24, ax, ay);
-  p.line(ax, ay, ax + 20, ay);
-  p.line(ax + 20, ay, ax + 20, ay + 16);
-  p.line(ax + 20, ay + 16, ax + 42, ay + 16);
-  p.line(ax + 42, ay + 16, ax + 42, ay);
-  p.line(ax + 42, ay, ax + 66, ay);
-  p.line(ax + 66, ay, ax + 66, ay + 28);
+  p.line(ax, ay, ax + tooth, ay);
+  p.line(ax + tooth, ay, ax + tooth, ay + 18);
+  p.line(ax + tooth, ay + 18, ax + tooth * 2, ay + 18);
+  p.line(ax + tooth * 2, ay + 18, ax + tooth * 2, ay);
+  p.line(ax + tooth * 2, ay, ax + tooth * 3, ay);
+  p.line(ax + tooth * 3, ay, ax + tooth * 3, ay + 24);
 
   p.fill("#f3efe5");
   p.noStroke();
   p.textAlign(p.CENTER, p.CENTER);
   p.textSize(13);
   p.textStyle(p.BOLD);
-  p.text(boardProfile(board).title, board.x + board.w / 2, board.y + 166);
+  p.text(boardProfile(board).title, board.x + board.w / 2, board.y + board.h * 0.48);
   p.textStyle(p.NORMAL);
 
   p.fill("#e8e8e5");
   p.stroke("#222");
   p.strokeWeight(1.5);
-  p.rect(board.x + board.w / 2 - 27, board.y + board.h - 44, 54, 36, 5);
+  p.rect(board.x + board.w / 2 - 28, board.y + board.h - 44, 56, 33, 5);
   p.noStroke();
   p.fill("#33383c");
   p.textSize(7);
-  p.text("USB", board.x + board.w / 2, board.y + board.h - 25);
+  p.text("USB", board.x + board.w / 2, board.y + board.h - 27);
 
   p.fill("#0d0e10");
   p.noStroke();
-  p.rect(board.x + 38, board.y + board.h - 72, 22, 24, 1);
-  p.rect(board.x + board.w - 52, board.y + board.h - 96, 10, 18, 1);
-  p.rect(board.x + board.w - 36, board.y + board.h - 64, 8, 10, 1);
+  p.rect(board.x + 48, board.y + board.h - 75, 24, 22, 1);
+  p.rect(board.x + board.w - 62, board.y + board.h - 92, 9, 16, 1);
+  p.rect(board.x + board.w - 44, board.y + board.h - 62, 8, 10, 1);
 
-  boardPinDefs(board).forEach((pin) => {
-    const pos = pinPosition(board, pin.pin);
-    if (!pos) return;
-    const active = hovered?.pin === pin.pin;
+  d1MiniPinRows(board).forEach((pos) => {
+    const active = hovered?.pin === pos.pin;
     p.fill("#ffffff");
     p.stroke(active ? "#ffffff" : "#d9b30c");
     p.strokeWeight(active ? 2.5 : 2);
@@ -2397,9 +2643,10 @@ function drawD1MiniBoard(p, board, hovered) {
     p.fill(active ? "#202326" : "#d9b30c");
     p.circle(pos.x, pos.y, active ? 4 : 3);
     p.fill(active ? "#202326" : "#f3efe5");
-    p.textSize(8);
-    p.textAlign(pin.side === "left" ? p.LEFT : p.RIGHT, p.CENTER);
-    p.text(pin.label || pin.pin, pin.side === "left" ? pos.x + 10 : pos.x - 10, pos.y);
+    p.textSize(7);
+    p.textAlign(pos.side === "left" ? p.LEFT : p.RIGHT, p.CENTER);
+    const labelX = pos.side === "left" ? board.x + D1_MINI_INNER_INSET + 10 : board.x + board.w - D1_MINI_INNER_INSET - 10;
+    p.text(pos.label || pos.pin, labelX, pos.y);
   });
   p.pop();
 }
@@ -2416,11 +2663,26 @@ function pinFill(pin) {
 function pinPosition(board, pinName, preferredSide = "") {
   const pin = findPinDef(pinName, preferredSide, board);
   if (!pin) return null;
+  if (board?.type === "esp32-d1-mini") {
+    const rowPins = boardPinDefs(board).filter((item) => item.side === pin.side && (item.row || "outer") === (pin.row || "outer"));
+    const index = rowPins.findIndex((item) => item.pin === pin.pin);
+    const maxY = board.y + board.h - 58;
+    const y = Math.min(board.y + D1_MINI_HEADER_TOP + index * D1_MINI_HEADER_PITCH, maxY);
+    const inset = (pin.row || "outer") === "inner" ? D1_MINI_INNER_INSET : D1_MINI_OUTER_INSET;
+    const x = pin.side === "left" ? board.x + inset : board.x + board.w - inset;
+    return { x, y, ...pin };
+  }
   const sidePins = boardPinDefs(board).filter((item) => item.side === pin.side);
   const index = sidePins.findIndex((item) => item.pin === pin.pin);
   const y = board.y + 96 + index * ((board.h - 132) / Math.max(1, sidePins.length - 1));
   const x = pin.side === "left" ? board.x + BOARD_PIN_EDGE_INSET : board.x + board.w - BOARD_PIN_EDGE_INSET;
   return { x, y, ...pin };
+}
+
+function d1MiniPinRows(board) {
+  return boardPinDefs(board)
+    .map((pin) => pinPosition(board, pin.pin))
+    .filter(Boolean);
 }
 
 function pinPositionForComponent(board, pinName, component) {
@@ -2459,6 +2721,14 @@ function hitPin(world, board) {
     if ((dx * dx + dy * dy) <= 144) return pos;
   }
   return null;
+}
+
+function hitBoard(world, board) {
+  if (!world || !board) return false;
+  return world.x >= board.x
+    && world.x <= board.x + board.w
+    && world.y >= board.y
+    && world.y <= board.y + board.h;
 }
 
 function hitComponent(world, components) {
@@ -2503,10 +2773,15 @@ function drawComponent(p, component, selected = false, renderMode = "symbols", b
   const h = componentBodyHeight(component.type);
   const connectorSide = componentConnectorSide(component, board);
   if (renderMode === "symbols" && component.type !== "ledStrip") {
-    p.stroke(selected ? "#0097a7" : "#43494e");
-    p.strokeWeight(selected ? 2.4 : 1.5);
+    p.noStroke();
     p.fill("#1d2022");
     p.rect(-w / 2, -h / 2, w, h, 8);
+    if (selected) {
+      p.noFill();
+      p.stroke("#0097a7");
+      p.strokeWeight(2.4);
+      p.rect(-w / 2 - 5, -h / 2 - 5, w + 10, h + 10, 4);
+    }
   } else if (selected && renderMode !== "illustrations") {
     p.noFill();
     p.stroke("#0097a7");
@@ -2539,12 +2814,13 @@ function componentConnectorSide(component, board = null) {
 
 function drawComponentSymbol(p, component, connectorSide = "right") {
   const accent = componentOutlineColor(component.type);
-  if (component.type === "ledStrip") drawLedStrip(p, accent);
+  if (component.type === "ledStrip") drawLedStrip(p, accent, true);
   else if (component.type === "neopixelRing") drawNeoPixelRing(p, accent);
   else if (component.type === "neopixelMatrix") drawNeoPixelMatrix(p, accent);
   else if (component.type === "button") drawButton(p, accent);
   else if (component.type === "led") drawLed(p, accent);
   else if (component.type === "analogSensor") drawAnalogSensor(p, accent);
+  else if (component.type === "analogMeter") drawAnalogMeter(p, accent);
   else if (component.type === "potentiometer") drawPot(p, accent);
   else if (component.type === "touchPad") drawTouchInput(p, accent);
   else if (component.type === "distanceSensor") drawDistanceSensor(p, accent);
@@ -2566,8 +2842,8 @@ function drawComponentSymbol(p, component, connectorSide = "right") {
   else if (component.type === "wifiService") drawCloud(p, accent);
   else if (component.type === "uiPanel") drawUiPreviewSymbol(p, component, accent);
   else if (component.type === "homeAssistant") drawHomeAssistantSymbol(p, component, accent);
-  else if (component.type === "powerSupply") drawPowerSupply(p, accent);
-  else if (component.type === "backEmfDiode") drawDiode(p, accent);
+  else if (component.type === "powerSupply") drawPowerSupply(p, connectorSide, accent);
+  else if (component.type === "backEmfDiode") drawDiode(p, connectorSide, accent);
   else if (component.type === "unknown") drawQuestion(p, accent);
   else drawSensor(p, accent);
 }
@@ -2579,6 +2855,7 @@ function drawComponentIllustration(p, component, connectorSide = "right") {
   else if (component.type === "button") drawButtonIllustration(p, connectorSide);
   else if (component.type === "led") drawLedIllustration(p, connectorSide);
   else if (component.type === "analogSensor") drawAnalogSensorIllustration(p, connectorSide);
+  else if (component.type === "analogMeter") drawAnalogMeterIllustration(p, connectorSide);
   else if (component.type === "potentiometer") drawPotIllustration(p, connectorSide);
   else if (component.type === "touchPad") drawTouchInputIllustration(p);
   else if (component.type === "distanceSensor") drawDistanceSensorIllustration(p, connectorSide);
@@ -2601,8 +2878,8 @@ function drawComponentIllustration(p, component, connectorSide = "right") {
   else if (component.type === "wifiService") drawWifiIllustration(p);
   else if (component.type === "uiPanel") drawUiPreviewIllustration(p, component);
   else if (component.type === "homeAssistant") drawHomeAssistantIllustration(p, component);
-  else if (component.type === "powerSupply") drawPowerSupplyIllustration(p);
-  else if (component.type === "backEmfDiode") drawDiodeIllustration(p);
+  else if (component.type === "powerSupply") drawPowerSupplyIllustration(p, connectorSide);
+  else if (component.type === "backEmfDiode") drawDiodeIllustration(p, connectorSide);
   else if (component.type === "unknown") drawQuestion(p);
   else drawSensorIllustration(p, connectorSide);
 }
@@ -2634,7 +2911,7 @@ function componentWidth(type) {
   if (type === "homeAssistant") return 158;
   if (type === "dcMotor" || type === "stepperMotor") return 190;
   if (type === "servoLarge") return 162;
-  if (type === "powerSupply") return 150;
+  if (type === "powerSupply") return 172;
   if (type === "backEmfDiode") return 118;
   return 138;
 }
@@ -2661,7 +2938,7 @@ function componentBodyHeightForPinCount(type, count = 0) {
             ? 82
             : (type === "ld2410cRadar"
               ? 74
-              : (type === "servoLarge" ? 62 : (type === "dcMotor" || type === "stepperMotor" ? 72 : (type === "fan" ? 62 : 50))))))));
+              : (type === "servoLarge" ? 62 : (type === "powerSupply" ? 68 : (type === "dcMotor" || type === "stepperMotor" ? 72 : (type === "fan" ? 62 : 50)))))))));
   if (count <= 1) return base;
   return Math.max(base, COMPONENT_TERMINAL_PITCH * (count - 1) + COMPONENT_TERMINAL_MIN_MARGIN * 2);
 }
@@ -2672,6 +2949,7 @@ function componentDefaultTerminalCount(type) {
 
 function componentLabelY(type, fallbackHeight, renderMode = "symbols") {
   if (type === "ledStrip") return componentBodyHeight(type) / 2 + 4;
+  if (renderMode === "illustrations" && (type === "servo" || type === "servoLarge")) return fallbackHeight / 2 + 8;
   if (renderMode === "illustrations") return Math.max(fallbackHeight / 2 + 4, componentIllustrationHalfHeight(type) + 8);
   return fallbackHeight / 2 + 4;
 }
@@ -2690,9 +2968,9 @@ function componentIllustrationHalfWidth(type) {
   const scale = componentIllustrationScale(type);
   if (type === "ledStrip") return 90;
   if (type === "neopixelMatrix") return 36;
-  if (type === "distanceSensor") return 57;
-  if (type === "ultrasonicSensor") return 56;
-  if (type === "joystick") return 58;
+  if (type === "distanceSensor") return 42;
+  if (type === "ultrasonicSensor") return 38;
+  if (type === "joystick") return 42;
   if (type === "imu") return 52;
   if (type === "mp3Player") return 46;
   if (type === "vl53l0xTof") return 48;
@@ -2700,11 +2978,17 @@ function componentIllustrationHalfWidth(type) {
   if (type === "ld2410cRadar") return 70;
   if (type === "uiPanel") return 78;
   if (type === "homeAssistant") return 68;
-  if (["led", "button", "analogSensor", "digitalSensor", "microphone", "relay", "servo", "servoLarge", "fan"].includes(type)) return COMPONENT_ILLUSTRATION_PIN_X;
-  if (type === "potentiometer") return COMPONENT_ILLUSTRATION_PIN_X;
-  if (type === "powerSupply") return 49;
+  if (type === "led") return 58;
+  if (type === "button") return 31;
+  if (["analogSensor", "digitalSensor", "microphone"].includes(type)) return 34;
+  if (type === "relay") return 32;
+  if (type === "servo") return 30;
+  if (type === "servoLarge") return 38;
+  if (type === "fan") return 31;
+  if (type === "analogMeter") return 50;
+  if (type === "potentiometer") return 30;
+  if (type === "powerSupply") return 72;
   if (type === "backEmfDiode") return 56;
-  if (type === "servoLarge") return 45;
   if (type === "dcMotor" || type === "stepperMotor") return 90;
   if (type === "buzzer") return 37;
   if (type === "touchPad") return 20;
@@ -2725,44 +3009,45 @@ function componentIllustrationHalfHeight(type) {
   if (type === "homeAssistant") return 58;
   if (type === "buzzer") return 43;
   if (type === "potentiometer") return 27;
+  if (type === "analogMeter") return 46;
   if (type === "servoLarge") return 48 * scale;
   if (type === "servo") return 40 * scale;
   if (type === "stepperMotor") return 42;
   if (type === "neopixelMatrix") return 36;
-  if (type === "led") return 27 * scale;
+  if (type === "led") return 24 * scale;
   if (type === "button") return 18 * scale;
   if (type === "touchPad") return 20 * scale;
   if (type === "fan") return 34 * scale;
   if (type === "dcMotor") return 40;
-  if (type === "powerSupply") return 20 * scale;
+  if (type === "powerSupply") return 38;
   if (type === "backEmfDiode") return 14;
   if (type === "neopixelRing") return 28 * scale;
   return componentBodyHeight(type) / 2;
 }
 
-function drawLedStrip(p, accent = componentOutlineColor("ledStrip")) {
+function drawLedStrip(p, accent = componentOutlineColor("ledStrip"), symbolMode = false) {
   const h = componentBodyHeight("ledStrip");
-  p.noStroke();
-  p.fill("#303030");
-  p.rect(-90, -h / 2, 180, h, 1);
   p.noFill();
   p.stroke(accent);
   p.strokeWeight(1.6);
-  p.rect(-90, -h / 2, 180, h, 1);
+  p.rect(-90, -h / 2, 180, h, symbolMode ? 8 : 1);
 
   const ledXs = [-62, -31, 0, 31, 62];
   ledXs.forEach((x) => {
-    p.fill("#f6f6f2");
-    p.stroke("#5b5b5b");
-    p.strokeWeight(3);
+    if (symbolMode) p.noFill();
+    else p.fill("#f6f6f2");
+    p.stroke(symbolMode ? accent : "#5b5b5b");
+    p.strokeWeight(symbolMode ? 1.5 : 3);
     p.rect(x - 12, -12, 24, 24, 2);
     p.noFill();
-    p.stroke("#5b5b5b");
-    p.strokeWeight(3);
+    p.stroke(symbolMode ? accent : "#5b5b5b");
+    p.strokeWeight(symbolMode ? 1.5 : 3);
     p.circle(x, 0, 15);
-    p.noStroke();
-    p.fill("#efefef");
-    p.circle(x, 0, 9);
+    if (!symbolMode) {
+      p.noStroke();
+      p.fill("#efefef");
+      p.circle(x, 0, 9);
+    }
   });
 
 }
@@ -2970,6 +3255,22 @@ function drawAnalogSensor(p, accent = componentOutlineColor("analogSensor")) {
   p.circle(18, 6, 4);
 }
 
+function drawAnalogMeter(p, accent = componentOutlineColor("analogMeter")) {
+  p.stroke(accent);
+  p.strokeWeight(1.5);
+  p.noFill();
+  p.rect(-33, -17, 66, 34, 5);
+  p.arc(0, 15, 54, 48, -2.42, -0.72);
+  [-20, 0, 20].forEach((x, index) => {
+    const angle = -2.22 + index * 0.64;
+    p.line(Math.cos(angle) * 20, 15 + Math.sin(angle) * 20, Math.cos(angle) * 24, 15 + Math.sin(angle) * 24);
+  });
+  p.stroke("#e53935");
+  p.line(0, 15, -23, -7);
+  p.stroke(accent);
+  p.circle(0, 15, 3);
+}
+
 function drawCloud(p, accent = componentOutlineColor("wifiService")) {
   p.noStroke();
   p.fill(accent);
@@ -3009,33 +3310,81 @@ function drawHomeAssistantSymbol(p, component, accent = componentOutlineColor("h
   p.circle(18, 22, 7);
 }
 
-function drawPowerSupply(p, accent = componentOutlineColor("powerSupply")) {
-  p.stroke(accent);
-  p.noFill();
-  p.rect(-38, -16, 76, 32, 5);
-  p.noStroke();
-  p.fill(accent);
-  p.textAlign(p.CENTER, p.CENTER);
-  p.textStyle(p.BOLD);
-  p.textSize(12);
-  p.text("5V", 0, -3);
-  p.textStyle(p.NORMAL);
-  p.textSize(9);
-  p.text("GND", 0, 10);
+function drawPowerSupply(p, connectorSide = "right", accent = componentOutlineColor("powerSupply")) {
+  drawLabPowerSupply(p, connectorSide, accent, false);
 }
 
-function drawDiode(p, accent = componentOutlineColor("backEmfDiode")) {
+function drawLabPowerSupply(p, connectorSide = "right", accent = componentOutlineColor("powerSupply"), illustration = false) {
+  const bodyW = illustration ? 126 : 106;
+  const bodyH = illustration ? 58 : 48;
+  const displayW = illustration ? 66 : 58;
+  const displayH = illustration ? 21 : 18;
+  const bodyFill = illustration ? "#f5f5f0" : "#202725";
+  const bodyStroke = illustration ? "#3c403e" : accent;
+  const textFill = illustration ? "#303431" : accent;
+  p.fill(bodyFill);
+  p.stroke(bodyStroke);
+  p.strokeWeight(illustration ? 2.5 : 1.8);
+  p.rect(-bodyW / 2, -bodyH / 2, bodyW, bodyH, 9);
+
+  p.fill(illustration ? "#fbfbf8" : "#111917");
+  p.stroke(illustration ? "#303431" : accent);
+  p.strokeWeight(illustration ? 2 : 1.4);
+  p.rect(-displayW / 2, -bodyH / 2 + 9, displayW, displayH, 2);
+
+  p.noStroke();
+  p.fill(textFill);
+  p.textAlign(p.CENTER, p.CENTER);
+  p.textStyle(p.BOLD);
+  p.textSize(illustration ? 16 : 13);
+  p.text("V", 0, -bodyH / 2 + 9 + displayH / 2);
+  p.textStyle(p.NORMAL);
+
+  const buttonY = bodyH / 2 - 12;
+  for (let i = -1; i <= 1; i += 1) {
+    const bx = i * 22;
+    p.fill(illustration ? "#ffffff" : "#1b211f");
+    p.stroke(illustration ? "#303431" : accent);
+    p.strokeWeight(illustration ? 1.6 : 1.2);
+    p.rect(bx - 8, buttonY - 5, 16, 8, 2);
+    p.noStroke();
+    p.fill(illustration ? "#303431" : accent);
+    p.rect(bx - 4, buttonY - 2, 8, 2, 1);
+  }
+
+  const side = connectorSide === "left" ? -1 : 1;
+  const portX = side * (bodyW / 2 + 1);
+  const portStubX = side * (bodyW / 2 + 11);
+  p.strokeWeight(illustration ? 2.4 : 2);
+  p.stroke(WIRE_POWER);
+  p.line(portX, -7, portStubX, -7);
+  p.stroke(WIRE_GROUND);
+  p.line(portX, 9, portStubX, 9);
+  p.noStroke();
+  p.fill(WIRE_POWER);
+  p.circle(portX, -7, 4);
+  p.fill(WIRE_GROUND);
+  p.circle(portX, 9, 4);
+}
+
+function drawDiode(p, connectorSide = "right", accent = componentOutlineColor("backEmfDiode")) {
   p.stroke(accent);
   p.strokeWeight(2);
   p.noFill();
-  drawVerticalDiodeGlyph(p, 22, 12, 10, -9, 11);
-}
-
-function drawVerticalDiodeGlyph(p, leadExtent, cathodeY, baseY, tipY, halfWidth) {
-  p.line(0, -leadExtent, 0, -cathodeY);
-  p.line(0, baseY, 0, leadExtent);
-  p.triangle(-halfWidth, baseY, halfWidth, baseY, 0, tipY);
-  p.line(-halfWidth - 3, -cathodeY, halfWidth + 3, -cathodeY);
+  p.line(-22, -8, -10, -8);
+  p.line(-22, 8, -10, 8);
+  p.line(10, -8, 22, -8);
+  p.line(10, 8, 22, 8);
+  p.line(0, -17, 0, -9);
+  p.triangle(-11, 8, 11, 8, 0, -7);
+  p.line(-13, -9, 13, -9);
+  p.line(0, 9, 0, 17);
+  p.noStroke();
+  p.fill(accent);
+  p.textAlign(p.CENTER, p.CENTER);
+  p.textSize(8);
+  p.text("+", 29, -8);
+  p.text("-", 29, 8);
 }
 
 function drawQuestion(p, accent = componentOutlineColor("unknown")) {
@@ -3089,14 +3438,16 @@ function drawButtonIllustration(p, connectorSide = "right") {
 
 function drawLedIllustration(p, connectorSide = "right") {
   const side = connectorSideSign(connectorSide);
+  p.push();
+  p.scale(side, 1);
   p.noStroke();
-  p.fill("#2b2f32");
-  p.rect(-34, -8, 68, 22, 3);
-  p.fill("#f05d5d");
-  p.circle(0, -3, 28);
-  p.fill("#ffb6b6");
-  p.circle(-6, -9, 8);
-  drawSidePinStubs(p, side, [-8, 8], { fromX: 34, toX: COMPONENT_ILLUSTRATION_PIN_X, color: "#8f9699", dotColor: "#d7dad8" });
+  p.fill("#211d1f");
+  p.rect(-54, -18, 48, 36, 18, 0, 0, 18);
+  p.rect(-30, -18, 34, 36, 0);
+  p.rect(10, -22, 10, 44, 2);
+  p.rect(28, -11, 31, 6, 1);
+  p.rect(28, 5, 25, 6, 1);
+  p.pop();
 }
 
 function drawAnalogSensorIllustration(p, connectorSide = "right") {
@@ -3111,6 +3462,35 @@ function drawAnalogSensorIllustration(p, connectorSide = "right") {
   p.vertex(8, 8);
   p.vertex(20, 8);
   p.endShape();
+}
+
+function drawAnalogMeterIllustration(p, connectorSide = "right") {
+  const side = connectorSideSign(connectorSide);
+  p.stroke("#0a0a0a");
+  p.strokeWeight(2);
+  p.fill("#f8f8f4");
+  p.rect(-50, -34, 100, 72, 9);
+  p.noStroke();
+  p.fill("#050505");
+  p.rect(-50, 7, 100, 31, 0, 0, 9, 9);
+  p.stroke("#5f6261");
+  p.strokeWeight(1.8);
+  p.noFill();
+  p.arc(0, 16, 72, 65, -2.42, -0.62);
+  [-28, 0, 28].forEach((x, index) => {
+    const angle = -2.18 + index * 0.58;
+    p.line(Math.cos(angle) * 28, 16 + Math.sin(angle) * 28, Math.cos(angle) * 35, 16 + Math.sin(angle) * 35);
+  });
+  p.stroke("#f11818");
+  p.strokeWeight(2.2);
+  p.line(0, 14, -36, -18);
+  p.stroke("#5f6261");
+  p.strokeWeight(2);
+  p.fill("#202020");
+  p.circle(0, 25, 8);
+  p.circle(-40, 19, 4);
+  p.circle(40, 19, 4);
+  drawSidePinStubs(p, side, [-9, 5, 19], { fromX: 50, toX: COMPONENT_ILLUSTRATION_PIN_X, color: "#8f9699", dotColor: "#d7dad8" });
 }
 
 function drawPotIllustration(p, connectorSide = "left") {
@@ -3402,15 +3782,13 @@ function connectorSideSign(connectorSide = "right") {
 }
 
 function drawSidePinStubs(p, side, offsets, { fromX = 34, toX = 52, color = "#8f9699", dotColor = "#d7dad8" } = {}) {
-  p.stroke(color);
-  p.strokeWeight(2.4);
-  offsets.forEach((y) => {
-    p.line(side * fromX, y, side * toX, y);
-    p.noStroke();
-    p.fill(dotColor);
-    p.circle(side * fromX, y, 4.5);
-    p.stroke(color);
-  });
+  void p;
+  void side;
+  void offsets;
+  void fromX;
+  void toX;
+  void color;
+  void dotColor;
 }
 
 function drawSidePinHeader(p, side, offsets, {
@@ -3663,25 +4041,11 @@ function drawWifiIllustration(p) {
   p.rect(-16, -8, 32, 24, 2);
 }
 
-function drawPowerSupplyIllustration(p) {
-  p.noStroke();
-  p.fill("#26312b");
-  p.rect(-45, -18, 90, 36, 5);
-  p.stroke("#61d47c");
-  p.strokeWeight(2);
-  p.noFill();
-  p.rect(-31, -11, 62, 22, 3);
-  p.noStroke();
-  p.fill("#61d47c");
-  p.textAlign(p.CENTER, p.CENTER);
-  p.textStyle(p.BOLD);
-  p.textSize(12);
-  p.text("5V", 0, -2);
-  p.textStyle(p.NORMAL);
+function drawPowerSupplyIllustration(p, connectorSide = "right") {
+  drawLabPowerSupply(p, connectorSide, componentOutlineColor("powerSupply"), true);
 }
 
 function drawUiPreviewIllustration(p, component) {
-  const title = String(component?.pins?.title || "Script UI").slice(0, 18).toUpperCase();
   const sliders = pinCountValue(component, "sliders");
   const toggles = pinCountValue(component, "toggles");
   const values = pinCountValue(component, "values") + pinCountValue(component, "labels");
@@ -3689,18 +4053,9 @@ function drawUiPreviewIllustration(p, component) {
   p.noStroke();
   p.fill("#111517");
   p.rect(-76, -52, 152, 104, 8);
-  p.fill("#1b1f21");
-  p.stroke("#343a3f");
-  p.strokeWeight(1.2);
-  p.rect(-67, -43, 134, 28, 5);
-  p.noStroke();
-  p.fill("#f3efe5");
   p.textAlign(p.LEFT, p.CENTER);
-  p.textStyle(p.BOLD);
-  p.textSize(8.5);
-  p.text(title, -58, -29);
   p.textStyle(p.NORMAL);
-  let y = -2;
+  let y = -28;
   if (sliders) {
     p.fill("#a7a29a");
     p.textSize(7.2);
@@ -3751,22 +4106,15 @@ function drawHomeAssistantIllustration(p, component) {
   p.noStroke();
   p.fill("#17191a");
   p.rect(-62, -52, 124, 104, 12);
-  p.fill("#2b2c2d");
-  p.rect(-62, -52, 124, 15, 12);
-  p.fill("#f3efe5");
-  p.textAlign(p.LEFT, p.CENTER);
-  p.textStyle(p.BOLD);
-  p.textSize(8);
-  p.text("Home Assistant", -50, -27);
   p.textStyle(p.NORMAL);
   if (lights) {
     p.fill("#f7942e");
-    p.rect(-20, -4, 40, 47, 14);
+    p.rect(-24, -11, 48, 58, 16);
     p.fill("#ffffff");
     p.textAlign(p.CENTER, p.CENTER);
-    p.textSize(11);
-    p.text("100%", 0, -13);
-    drawTinyBulb(p, 0, 14, "#fff7dd");
+    p.textSize(13);
+    p.text("100%", 0, -24);
+    drawTinyBulb(p, 0, 13, "#fff7dd");
   } else {
     p.fill("#253341");
     p.rect(-46, -6, 92, 42, 8);
@@ -3801,30 +4149,109 @@ function pinCountValue(component, key) {
   return Number.isFinite(n) && n > 0 ? n : 0;
 }
 
-function drawDiodeIllustration(p) {
+function drawDiodeIllustration(p, connectorSide = "right") {
+  const side = connectorSideSign(connectorSide);
+  const labelX = side * 34;
   p.stroke("#050505");
-  p.strokeWeight(3.8);
-  p.line(-52, 0, -31, 0);
-  p.line(30, 0, 52, 0);
+  p.strokeWeight(3);
+  p.line(side * 52, -8, side * 18, -8);
+  p.line(side * 52, 8, side * 18, 8);
   p.noStroke();
   p.fill("#050505");
-  p.rect(-31, -12, 38, 24, 1);
+  p.rect(-11, -27, 22, 54, 1);
   p.fill("#d8d8d4");
-  p.rect(7, -12, 10, 24, 0);
+  p.rect(-11, -20, 22, 8, 0);
   p.fill("#050505");
-  p.rect(17, -12, 13, 24, 0);
+  p.rect(-11, -12, 22, 39, 1);
+  p.fill("#202326");
+  p.textAlign(p.CENTER, p.CENTER);
+  p.textStyle(p.BOLD);
+  p.textSize(9);
+  p.text("+", labelX, -8);
+  p.text("-", labelX, 8);
+  p.textStyle(p.NORMAL);
 }
 
 function drawSensorIllustration(p, connectorSide = "right") {
   drawModuleIllustration(p, "SENS", "#263f77", connectorSide, 3);
 }
 
-function computeTransform(width, height) {
-  const scale = Math.min(width / WORLD_W, height / WORLD_H);
+function drawCircuitScene(p, {
+  model,
+  renderMode,
+  selectedComponentId,
+  hoveredPin,
+  zoomScale,
+  logicalWidth,
+  logicalHeight,
+  renderScale = 1,
+} = {}) {
+  const targetScale = numberOr(renderScale, 1);
+  const width = numberOr(logicalWidth, p.width);
+  const height = numberOr(logicalHeight, p.height);
+  const sceneTransform = computeTransform(width, height, zoomScale);
+  p.background(CIRCUIT_BG);
+  p.push();
+  p.scale(targetScale);
+  p.translate(sceneTransform.ox, sceneTransform.oy);
+  p.scale(sceneTransform.scale);
+  drawConnections(p, model, renderMode);
+  drawBoard(p, model.board, hoveredPin);
+  drawComponents(p, model.components, selectedComponentId, renderMode, model.board);
+  p.pop();
+  p.push();
+  p.scale(targetScale);
+  drawCircuitNote(p, model);
+  p.pop();
+  return sceneTransform;
+}
+
+function computeTransform(width, height, zoom = 1) {
+  const scale = Math.min(width / WORLD_W, height / WORLD_H) * numberOr(zoom, 1);
   return {
     scale,
     ox: (width - WORLD_W * scale) / 2,
     oy: (height - WORLD_H * scale) / 2,
+  };
+}
+
+function loadStoredCircuitZoom() {
+  try {
+    const raw = window.localStorage?.getItem(CIRCUIT_ZOOM_STORAGE_KEY);
+    const value = Number(raw);
+    return Number.isFinite(value) ? clamp(value, CIRCUIT_ZOOM_MIN, CIRCUIT_ZOOM_MAX) : 1;
+  } catch (_) {
+    return 1;
+  }
+}
+
+function storeCircuitZoom(value) {
+  try {
+    window.localStorage?.setItem(CIRCUIT_ZOOM_STORAGE_KEY, String(clamp(value, CIRCUIT_ZOOM_MIN, CIRCUIT_ZOOM_MAX)));
+  } catch (_) {
+    // View state persistence is best-effort only.
+  }
+}
+
+function worldBoundsForZoom(zoom = 1) {
+  const scale = clamp(numberOr(zoom, 1), CIRCUIT_ZOOM_MIN, CIRCUIT_ZOOM_MAX);
+  if (scale >= 1) return { minX: 0, minY: 0, maxX: WORLD_W, maxY: WORLD_H };
+  const extraW = WORLD_W * (1 / scale - 1);
+  const extraH = WORLD_H * (1 / scale - 1);
+  return {
+    minX: -extraW / 2,
+    minY: -extraH / 2,
+    maxX: WORLD_W + extraW / 2,
+    maxY: WORLD_H + extraH / 2,
+  };
+}
+
+function expandedPlacementBounds() {
+  return {
+    minX: (PLACEMENT_MIN_PCT / 100) * WORLD_W,
+    minY: (PLACEMENT_MIN_PCT / 100) * WORLD_H,
+    maxX: (PLACEMENT_MAX_PCT / 100) * WORLD_W,
+    maxY: (PLACEMENT_MAX_PCT / 100) * WORLD_H,
   };
 }
 

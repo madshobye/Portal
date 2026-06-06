@@ -5,10 +5,10 @@ import { WebSocketTransport } from "./protocol/WebSocketTransport.js";
 import { MqttWebRtcTransport, MQTT_WEBRTC_TRANSPORT_VERSION } from "./protocol/MqttWebRtcTransport.js?v=0.1.87-ui348";
 import { MqttTransport, MQTT_TRANSPORT_VERSION, deriveOnlineAuthKeyHex, getStoredOnlineAuth } from "./protocol/MqttTransport.js?v=0.1.87-ui348";
 import { P1WebFlasher } from "./web-flasher.js?v=0.1.87-ui348";
-import { inferCircuitLayout, initCircuitView, normalizeCircuitLayout } from "./circuit.js?v=0.1.87-ui471";
+import { inferCircuitLayout, initCircuitView, normalizeCircuitLayout } from "./circuit.js?v=0.1.87-ui494";
 import { initGuinoView } from "./guino.js?v=0.1.87-ui348";
 
-const WEB_UI_VERSION = "0.1.87-ui471";
+const WEB_UI_VERSION = "0.1.87-ui494";
 const CHAT_DEFAULT_MAX_OUTPUT_TOKENS = 8000;
 const CHAT_MIN_MAX_OUTPUT_TOKENS = 1024;
 const CHAT_HARD_MAX_OUTPUT_TOKENS = 32000;
@@ -737,6 +737,8 @@ function initCircuit() {
     pinInfo: els.circuitPinInfo,
     alternatives: els.circuitAlternatives,
     onComponentOverride: applyCircuitComponentOverride,
+    onComponentPlacement: applyCircuitComponentPlacement,
+    onBoardPlacement: applyCircuitBoardPlacement,
   });
   setCircuitArtMode(normalizeCircuitArtMode(localStorage.getItem(storage.circuitArtMode)), { persist: false });
   setCircuitBoardType(normalizeCircuitBoardType(localStorage.getItem(storage.circuitBoardType)), { persist: false });
@@ -804,6 +806,33 @@ function applyCircuitComponentOverride({ component, type, label } = {}) {
   logLine("info", `circuit hint saved: IO${pin} ${type}`);
 }
 
+function applyCircuitComponentPlacement({ component, side, x, y } = {}) {
+  const key = circuitComponentPlacementKey(component);
+  if (!key || (side !== "left" && side !== "right") || !Number.isFinite(y)) return;
+  const type = component?.type || "unknown";
+  const current = getEditorValue();
+  const next = upsertCircuitPlacementComment(current, key, type, side, x, y);
+  if (next === current) return;
+  setEditorValueRaw(next, { persist: true });
+  circuitChatLayout = null;
+  updateCircuitView(`${componentDisplayName(component)} placement saved`);
+  logLine("info", `circuit placement saved: ${key} ${side} ${Math.round(y)}%`);
+}
+
+function applyCircuitBoardPlacement({ type, cx, cy } = {}) {
+  const boardType = normalizeCircuitBoardType(type);
+  if (!Number.isFinite(cx) || !Number.isFinite(cy)) return;
+  const current = getEditorValue();
+  const next = upsertCircuitBoardPlacementComment(current, boardType, cx, cy);
+  if (next === current) return;
+  setEditorValueRaw(next, { persist: true });
+  localStorage.setItem(storage.circuitBoardType, boardType);
+  if (els.circuitBoardSelect) els.circuitBoardSelect.value = boardType;
+  circuitChatLayout = null;
+  updateCircuitView("board placement saved");
+  logLine("info", `circuit board placement saved: ${boardType} ${Math.round(cx)}%, ${Math.round(cy)}%`);
+}
+
 function circuitComponentPin(component) {
   return String(
     component?.pins?.data
@@ -816,12 +845,28 @@ function circuitComponentPin(component) {
   ).replace(/\D+/g, "");
 }
 
+function circuitComponentPlacementKey(component) {
+  const pin = circuitComponentPin(component);
+  if (pin) return `IO${pin}`;
+  if (component?.type === "powerSupply") return "powerSupply";
+  if (component?.type === "uiPanel") return "uiPanel";
+  if (component?.type === "homeAssistant") return "homeAssistant";
+  if (component?.type === "backEmfDiode") return "backEmfDiode";
+  if (component?.id) return String(component.id);
+  return "";
+}
+
 function upsertCircuitHintComment(code, pin, hint) {
   const lines = String(code || "").split("\n");
   const hintRe = new RegExp(`//\\s*p1e-circuit:\\s*(?:IO|GPIO)?\\s*${escapeRegex(pin)}\\b[^\\n]*`, "i");
   const existingIndex = lines.findIndex((line) => hintRe.test(line));
   if (existingIndex >= 0) {
-    lines[existingIndex] = lines[existingIndex].replace(hintRe, hint).replace(/\s+$/, "");
+    lines[existingIndex] = lines[existingIndex].replace(hintRe, (existing) => {
+      const placement = existing.match(/\bside\s*=\s*(?:left|right)\b/ig)?.join(" ") || "";
+      const xHint = existing.match(/\bx\s*=\s*-?\d{1,3}\b/ig)?.join(" ") || "";
+      const yHint = existing.match(/\by\s*=\s*-?\d{1,3}\b/ig)?.join(" ") || "";
+      return [hint, placement, xHint, yHint].filter(Boolean).join(" ");
+    }).replace(/\s+$/, "");
     return lines.join("\n");
   }
   const targetIndex = findCircuitHintLine(lines, pin);
@@ -831,6 +876,74 @@ function upsertCircuitHintComment(code, pin, hint) {
     lines.unshift(hint);
   }
   return lines.join("\n");
+}
+
+function upsertCircuitPlacementComment(code, key, type, side, x, y) {
+  const roundedX = Number.isFinite(x) ? Math.round(Math.max(-50, Math.min(150, Number(x)))) : null;
+  const roundedY = Math.round(Math.max(-50, Math.min(150, Number(y))));
+  const normalizedKey = normalizeCircuitPlacementKey(key, type);
+  const lines = String(code || "").split("\n");
+  const hintRe = circuitPlacementHintRegex(normalizedKey);
+  const existingIndex = lines.findIndex((line) => hintRe.test(line));
+  const applyPlacement = (hint) => {
+    let next = hint
+      .replace(/\bside\s*=\s*(left|right)\b/ig, "")
+      .replace(/\bx\s*=\s*-?\d{1,3}\b/ig, "")
+      .replace(/\by\s*=\s*-?\d{1,3}\b/ig, "")
+      .replace(/\s+/g, " ")
+      .trim();
+    return `${next} side=${side}${roundedX !== null ? ` x=${roundedX}` : ""} y=${roundedY}`;
+  };
+  if (existingIndex >= 0) {
+    lines[existingIndex] = lines[existingIndex].replace(hintRe, (hint) => applyPlacement(hint)).replace(/\s+$/, "");
+    return lines.join("\n");
+  }
+  const hint = `// p1e-circuit: ${normalizedKey} ${type || "unknown"} side=${side}${roundedX !== null ? ` x=${roundedX}` : ""} y=${roundedY}`;
+  const pin = normalizedKey.match(/^IO(\d+)$/i)?.[1] || "";
+  const targetIndex = pin ? findCircuitHintLine(lines, pin) : -1;
+  if (targetIndex >= 0) {
+    lines[targetIndex] = `${lines[targetIndex].replace(/\s+$/, "")} ${hint}`;
+  } else {
+    lines.unshift(hint);
+  }
+  return lines.join("\n");
+}
+
+function normalizeCircuitPlacementKey(key, type = "") {
+  const text = String(key || "").trim();
+  const pin = text.replace(/\D+/g, "");
+  if (/^(IO|GPIO)?\d+$/i.test(text) && pin) return `IO${pin}`;
+  if (type === "powerSupply" || /^power/i.test(text)) return "powerSupply";
+  if (type === "uiPanel" || /^ui/i.test(text)) return "uiPanel";
+  if (type === "homeAssistant" || /^ha|home/i.test(text)) return "homeAssistant";
+  if (type === "backEmfDiode" || /^back|diode/i.test(text)) return "backEmfDiode";
+  return text.replace(/\s+/g, "-") || String(type || "component");
+}
+
+function circuitPlacementHintRegex(key) {
+  if (/^IO\d+$/i.test(key)) {
+    const pin = key.replace(/\D+/g, "");
+    return new RegExp(`//\\s*p1e-circuit:\\s*(?:IO|GPIO)?\\s*${escapeRegex(pin)}\\b[^\\n]*`, "i");
+  }
+  return new RegExp(`//\\s*p1e-circuit:\\s*${escapeRegex(key)}\\b[^\\n]*`, "i");
+}
+
+function upsertCircuitBoardPlacementComment(code, type, cx, cy) {
+  const roundedX = Math.round(Math.max(-50, Math.min(150, Number(cx))));
+  const roundedY = Math.round(Math.max(-50, Math.min(150, Number(cy))));
+  const lines = String(code || "").split("\n");
+  const hint = `// p1e-circuit-board: type=${type} cx=${roundedX} cy=${roundedY}`;
+  const existingIndex = lines.findIndex((line) => /\/\/\s*p1e-circuit-board:/i.test(line));
+  if (existingIndex >= 0) {
+    lines[existingIndex] = hint;
+  } else {
+    lines.unshift(hint);
+  }
+  return lines.join("\n");
+}
+
+function componentDisplayName(component) {
+  return component?.label || component?.type || "component";
 }
 
 function findCircuitHintLine(lines, pin) {
@@ -6912,7 +7025,7 @@ function buildChatInstructions(context) {
     "Project specification rule: describe only the current resulting sketch in concise present tense. Do not write a changelog, transcript, reflection, or iterative phrasing such as now, updated to, changed from, without X, instead of, previously, the user asked, or this revision. If behavior was removed, omit the removed behavior and describe the final behavior.",
     "Use only this Markdown subset in project_specification: # through #### headings, **bold**, *italic*, <u>underline</u>, numbered lists, and bullet lists.",
     "Specification modes: overview means high-level human description; middle means important implementation details without pseudocode; structured means sections like Program, Global values, Setup, and Main loop in Markdown/plain text.",
-    "Do not generate a circuit diagram layout. Always return circuit_layout as an empty object. The browser infers the diagram from code and // p1e-circuit comments near pin variables. Add these comments whenever the user's words choose a specific physical part that generic code cannot prove. Use exact component keys such as led, relay, buzzer, servo, largeServo, fan, dcMotor, stepperMotor, ledStrip, neopixelRing, potentiometer, microphone, distanceSensor, analogSensor, digitalSensor, button, touchPad, vl53l0x, uda1334a, ld2410c. If the user says large/big/high-torque servo, write largeServo, never plain servo. If the user says potentiometer/knob/dial, write potentiometer. If the user says GY-VL53L0XV2/Laser ToF, write vl53l0x. If the user says UDA1334A/I2S stereo decoder, write uda1334a. If the user says Hi-Link LD2410C/microwave radar, write ld2410c. If the user says LED string/strip/bar or NeoPixel strip, write ledStrip. Example: var servoPin = 16; // p1e-circuit: IO16 largeServo",
+    "Do not generate a circuit diagram layout. Always return circuit_layout as an empty object. The browser infers the diagram from code and // p1e-circuit comments near pin variables. Add these comments whenever the user's words choose a specific physical part that generic code cannot prove. Use exact component keys such as led, relay, buzzer, servo, largeServo, fan, dcMotor, stepperMotor, ledStrip, neopixelRing, potentiometer, analogMeter, microphone, distanceSensor, analogSensor, digitalSensor, button, touchPad, vl53l0x, uda1334a, ld2410c. If the user says large/big/high-torque servo, write largeServo, never plain servo. If the user says potentiometer/knob/dial, write potentiometer. If the user says GY-VL53L0XV2/Laser ToF, write vl53l0x. If the user says UDA1334A/I2S stereo decoder, write uda1334a. If the user says Hi-Link LD2410C/microwave radar, write ld2410c. If the user says LED string/strip/bar or NeoPixel strip, write ledStrip. Example: var servoPin = 16; // p1e-circuit: IO16 largeServo",
     "When generated code reads a named physical input, add a short ordinary comment immediately before the read, such as // Read the potentiometer. before analogRead(potPin), // Read the microphone. before analogRead(micPin), or // Read the button. before digitalRead(buttonPin). Keep these comments concrete and physical, not generic sensor wording when the part is known.",
     "GPIO rule: pinMode uses firmware constants such as INPUT, OUTPUT, INPUT_PULLUP, and INPUT_PULLDOWN when available. Write pinMode(powerPin, OUTPUT), never pinMode(powerPin, \"OUTPUT\"). digitalWrite should use HIGH/LOW if available or 1/0, never string values.",
     "Declare scratch variables at the top of each function and assign them inside while/if blocks. Avoid new var declarations inside tight loops or nested blocks, especially LED render loops.",
