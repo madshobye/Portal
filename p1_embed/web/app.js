@@ -5,10 +5,10 @@ import { WebSocketTransport } from "./protocol/WebSocketTransport.js";
 import { MqttWebRtcTransport, MQTT_WEBRTC_TRANSPORT_VERSION } from "./protocol/MqttWebRtcTransport.js?v=0.1.87-ui348";
 import { MqttTransport, MQTT_TRANSPORT_VERSION, deriveOnlineAuthKeyHex, getStoredOnlineAuth } from "./protocol/MqttTransport.js?v=0.1.87-ui348";
 import { P1WebFlasher } from "./web-flasher.js?v=0.1.87-ui348";
-import { inferCircuitLayout, initCircuitView, normalizeCircuitLayout } from "./circuit.js?v=0.1.87-ui509";
+import { inferCircuitLayout, initCircuitView, normalizeCircuitLayout } from "./circuit.js?v=0.1.87-ui513";
 import { initGuinoView } from "./guino.js?v=0.1.87-ui348";
 
-const WEB_UI_VERSION = "0.1.87-ui509";
+const WEB_UI_VERSION = "0.1.87-ui513";
 const CHAT_DEFAULT_MAX_OUTPUT_TOKENS = 8000;
 const CHAT_MIN_MAX_OUTPUT_TOKENS = 1024;
 const CHAT_HARD_MAX_OUTPUT_TOKENS = 32000;
@@ -848,7 +848,7 @@ function circuitComponentPin(component) {
 function circuitComponentPlacementKey(component) {
   const pin = circuitComponentPin(component);
   if (pin) return `IO${pin}`;
-  if (component?.type === "powerSupply") return "powerSupply";
+  if (component?.type === "powerSupply") return `powerSupply-${String(component?.pins?.voltage || "V").replace(/[^A-Za-z0-9]+/g, "") || "V"}`;
   if (component?.type === "uiPanel") return "uiPanel";
   if (component?.type === "homeAssistant") return "homeAssistant";
   if (component?.type === "backEmfDiode") return "backEmfDiode";
@@ -913,7 +913,8 @@ function normalizeCircuitPlacementKey(key, type = "") {
   const text = String(key || "").trim();
   const pin = text.replace(/\D+/g, "");
   if (/^(IO|GPIO)?\d+$/i.test(text) && pin) return `IO${pin}`;
-  if (type === "powerSupply" || /^power/i.test(text)) return "powerSupply";
+  if (type === "powerSupply" && /^powerSupply[-_]/i.test(text)) return text.replace(/^powerSupply/i, "powerSupply");
+  if (type === "powerSupply" || /^power$/i.test(text) || /^powerSupply$/i.test(text)) return "powerSupply";
   if (type === "uiPanel" || /^ui/i.test(text)) return "uiPanel";
   if (type === "homeAssistant" || /^ha|home/i.test(text)) return "homeAssistant";
   if (type === "backEmfDiode" || /^back|diode/i.test(text)) return "backEmfDiode";

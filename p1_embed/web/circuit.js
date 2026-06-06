@@ -1,6 +1,6 @@
 const CIRCUIT_VERSION = "0.1";
-const WORLD_W = 1120;
-const WORLD_H = 760;
+const WORLD_W = 1680;
+const WORLD_H = 1140;
 const CIRCUIT_BG = "#ffffff";
 const WIRE_POWER = "#e53935";
 const WIRE_GROUND = "#111111";
@@ -20,10 +20,11 @@ const COMPONENT_TERMINAL_MAX_MARGIN = 12;
 const COMPONENT_LAYOUT_MIN_GAP = 72;
 const COMPONENT_LINK_MARGIN = 24;
 const COMPONENT_ILLUSTRATION_PIN_X = 52;
-const CIRCUIT_ZOOM_STORAGE_KEY = "p1e.circuit.zoom";
+const CIRCUIT_ZOOM_STORAGE_KEY = "p1e.circuit.zoom.v2";
 const CIRCUIT_ZOOM_MIN = 0.72;
 const CIRCUIT_ZOOM_MAX = 2.2;
 const CIRCUIT_ZOOM_STEP = 0.0018;
+const CIRCUIT_DEFAULT_ZOOM = 1.28;
 const CIRCUIT_DOWNLOAD_SCALE = 3;
 const PLACEMENT_MIN_PCT = -50;
 const PLACEMENT_MAX_PCT = 150;
@@ -353,7 +354,13 @@ export function initCircuitView({ mount, componentList, assumptions, pinInfo, al
       });
       panOffset = { x: transform.panX, y: transform.panY };
     };
-    p.mouseMoved = () => {
+    const isCanvasPointerEvent = (event = null) => {
+      const canvas = p.canvas || p._renderer?.canvas;
+      if (event?.target && canvas && event.target !== canvas) return false;
+      return p.mouseX >= 0 && p.mouseY >= 0 && p.mouseX <= p.width && p.mouseY <= p.height;
+    };
+    p.mouseMoved = (event) => {
+      if (!isCanvasPointerEvent(event)) return;
       if (dragging) return;
       const world = screenToWorld(p.mouseX, p.mouseY, transform);
       const next = hitPin(world, model.board);
@@ -363,7 +370,8 @@ export function initCircuitView({ mount, componentList, assumptions, pinInfo, al
         p.redraw();
       }
     };
-    p.mousePressed = () => {
+    p.mousePressed = (event) => {
+      if (!isCanvasPointerEvent(event)) return;
       const world = screenToWorld(p.mouseX, p.mouseY, transform);
       const component = hitComponent(world, model.components);
       if (!component) {
@@ -408,8 +416,9 @@ export function initCircuitView({ mount, componentList, assumptions, pinInfo, al
         startY: component.y,
       };
     };
-    p.mouseDragged = () => {
+    p.mouseDragged = (event) => {
       if (!dragging) return;
+      if (!isCanvasPointerEvent(event) && dragging.kind !== "viewport") return;
       const world = screenToWorld(p.mouseX, p.mouseY, transform);
       const bounds = worldBoundsForZoom(zoomScale);
       if (dragging.kind === "board") {
@@ -435,6 +444,7 @@ export function initCircuitView({ mount, componentList, assumptions, pinInfo, al
       p.redraw();
     };
     p.mouseWheel = (event) => {
+      if (!isCanvasPointerEvent(event)) return true;
       const delta = Number(event?.delta || 0);
       if (!Number.isFinite(delta) || Math.abs(delta) < 0.01) return false;
       const nextZoom = clamp(zoomScale * (1 - delta * CIRCUIT_ZOOM_STEP), CIRCUIT_ZOOM_MIN, CIRCUIT_ZOOM_MAX);
@@ -852,6 +862,7 @@ function parseCircuitHints(source) {
 function normalizeCircuitHintKey(key) {
   const text = String(key || "").trim();
   if (/^powersupply$/i.test(text)) return "powerSupply";
+  if (/^powersupply[-_]/i.test(text)) return text.replace(/^powersupply/i, "powerSupply");
   if (/^uipanel$/i.test(text)) return "uiPanel";
   if (/^(homeassistant|ha)$/i.test(text)) return "homeAssistant";
   if (/^(backemfdiode|diode)$/i.test(text)) return "backEmfDiode";
@@ -860,15 +871,16 @@ function normalizeCircuitHintKey(key) {
 
 function circuitTypeFromHintKey(key) {
   if (key === "powerSupply") return "powerSupply";
+  if (/^powerSupply[-_]/.test(key)) return "powerSupply";
   if (key === "uiPanel") return "uiPanel";
   if (key === "homeAssistant") return "homeAssistant";
   if (key === "backEmfDiode") return "backEmfDiode";
   return "";
 }
 
-function placementForCircuitHint(hints, type, pin = "") {
+function placementForCircuitHint(hints, type, pin = "", keyOverride = "") {
   const wantedPin = String(pin || "");
-  const wantedKey = circuitHintKeyForType(type);
+  const wantedKey = keyOverride || circuitHintKeyForType(type);
   const match = hints.find((hint) => (
     hint.placement
     && hint.type === type
@@ -883,6 +895,11 @@ function circuitHintKeyForType(type) {
   if (type === "homeAssistant") return "homeAssistant";
   if (type === "backEmfDiode") return "backEmfDiode";
   return "";
+}
+
+function powerSupplyHintKey(voltage) {
+  const suffix = String(voltage || "v").replace(/[^A-Za-z0-9]+/g, "") || "v";
+  return `powerSupply-${suffix}`;
 }
 
 function parseCircuitHintPlacement(text) {
@@ -1466,19 +1483,19 @@ function addExternalPowerPlan(components, connections, assumptions, notes, seen,
   const powered = [];
   components.forEach((component) => {
     if (component.type === "servoLarge") {
-      powered.push({ component, diode: true, reason: "Large servo should use external 5V power with common ground and a back EMF protection diode." });
+      powered.push({ component, voltage: "5V", diode: true, reason: "Large servo should use external 5V power with common ground and a back EMF protection diode." });
       return;
     }
     if (component.type === "fan") {
-      powered.push({ component, reason: "PC fan should use external power with common ground." });
+      powered.push({ component, voltage: "12V", reason: "PC fan should use external 12V power with common ground." });
       return;
     }
     if (component.type === "dcMotor") {
-      powered.push({ component, reason: "DC motor controller should use external motor power with common ground; the driver stage handles motor switching/protection." });
+      powered.push({ component, voltage: "V", reason: "DC motor controller should use external motor power with common ground; the driver stage handles motor switching/protection." });
       return;
     }
     if (component.type === "stepperMotor") {
-      powered.push({ component, reason: "Stepper controller should use external motor power with common ground; the driver stage handles coil switching/protection." });
+      powered.push({ component, voltage: "V", reason: "Stepper controller should use external motor power with common ground; the driver stage handles coil switching/protection." });
       return;
     }
     if (isNeoPixelType(component.type)) {
@@ -1489,6 +1506,7 @@ function addExternalPowerPlan(components, connections, assumptions, notes, seen,
       if (needsExternalNeoPixelPower(component)) {
         powered.push({
           component,
+          voltage: "5V",
           reason: `${component.label}: ${count} NeoPixels can draw about ${formatCurrent(currentMa)} at full white. Use an external V supply and common ground for larger strips.`,
         });
       }
@@ -1496,41 +1514,55 @@ function addExternalPowerPlan(components, connections, assumptions, notes, seen,
   });
   if (!powered.length) return;
 
-  const supply = {
-    id: uniqueId("external-5v-supply", seen),
-    type: "powerSupply",
-    label: "External V supply",
-    pin: "",
-    pins: {},
-    placement: placementForCircuitHint(hints, "powerSupply", ""),
-    inferredFrom: "external power requirement",
-    confidence: 0.9,
-  };
-  components.push(supply);
-  rerouteVinPowerToExternalSupply(supply, components, connections);
-  const poweredIds = new Set(powered.map(({ component }) => component.id));
-  removeBoardGroundReturnsForExternalLoads(poweredIds, connections);
-  connections.push({ from: { component: supply.id, pin: "GND" }, to: { boardPin: "GND" }, color: "#8f9699", label: "common GND reference" });
-  powered.forEach(({ component, reason, diode }) => {
-    connections.push({ from: { component: supply.id, pin: "5V" }, to: { component: component.id, pin: "power" }, color: WIRE_POWER, label: "5V" });
-    connections.push({ from: { component: supply.id, pin: "GND" }, to: { component: component.id, pin: "gnd" }, color: WIRE_GROUND, label: "load GND" });
-    if (diode) {
-      const protection = {
-        id: uniqueId(`${component.id}-back-emf-diode`, seen),
-        type: "backEmfDiode",
-        label: "Back EMF diode",
-        pin: "",
-        pins: {},
-        placement: placementForCircuitHint(hints, "backEmfDiode", ""),
-        inferredFrom: `${component.label || componentTypes[component.type]?.label || "motor"} protection`,
-        confidence: 0.86,
-      };
-      components.push(protection);
-      connections.push({ from: { component: protection.id, pin: "5V" }, to: { component: component.id, pin: "power" }, color: WIRE_POWER, label: "diode +" });
-      connections.push({ from: { component: protection.id, pin: "GND" }, to: { component: component.id, pin: "gnd" }, color: WIRE_GROUND, label: "diode -" });
-    }
-    assumptions.push(reason);
+  groupExternalLoadsByVoltage(powered).forEach(({ voltage, loads }) => {
+    const placementKey = powerSupplyHintKey(voltage);
+    const supply = {
+      id: uniqueId(`external-${voltage.toLowerCase()}-supply`, seen),
+      type: "powerSupply",
+      label: "External V supply",
+      pin: "",
+      pins: { voltage },
+      placement: placementForCircuitHint(hints, "powerSupply", "", placementKey),
+      inferredFrom: "external power requirement",
+      confidence: 0.9,
+    };
+    components.push(supply);
+    rerouteVinPowerToExternalSupply(supply, components, connections, voltage);
+    const poweredIds = new Set(loads.map(({ component }) => component.id));
+    removeBoardGroundReturnsForExternalLoads(poweredIds, connections);
+    connections.push({ from: { component: supply.id, pin: "GND" }, to: { boardPin: "GND" }, color: "#8f9699", label: "common GND reference" });
+    loads.forEach(({ component, reason, diode }) => {
+      connections.push({ from: { component: supply.id, pin: voltage }, to: { component: component.id, pin: "power" }, color: WIRE_POWER, label: voltage });
+      connections.push({ from: { component: supply.id, pin: "GND" }, to: { component: component.id, pin: "gnd" }, color: WIRE_GROUND, label: "load GND" });
+      if (diode) {
+        const protection = {
+          id: uniqueId(`${component.id}-back-emf-diode`, seen),
+          type: "backEmfDiode",
+          label: "Back EMF diode",
+          pin: "",
+          pins: {},
+          placement: placementForCircuitHint(hints, "backEmfDiode", ""),
+          inferredFrom: `${component.label || componentTypes[component.type]?.label || "motor"} protection`,
+          confidence: 0.86,
+        };
+        components.push(protection);
+        connections.push({ from: { component: protection.id, pin: voltage }, to: { component: component.id, pin: "power" }, color: WIRE_POWER, label: "diode +" });
+        connections.push({ from: { component: protection.id, pin: "GND" }, to: { component: component.id, pin: "gnd" }, color: WIRE_GROUND, label: "diode -" });
+      }
+      assumptions.push(reason);
+    });
   });
+}
+
+function groupExternalLoadsByVoltage(powered) {
+  const hasTwelveVoltRail = powered.some((load) => load.voltage === "12V");
+  const groups = new Map();
+  powered.forEach((load) => {
+    const voltage = load.voltage === "V" && hasTwelveVoltRail ? "12V" : String(load.voltage || "V");
+    if (!groups.has(voltage)) groups.set(voltage, []);
+    groups.get(voltage).push({ ...load, voltage });
+  });
+  return [...groups.entries()].map(([voltage, loads]) => ({ voltage, loads }));
 }
 
 function removeBoardGroundReturnsForExternalLoads(poweredIds, connections) {
@@ -1544,7 +1576,7 @@ function removeBoardGroundReturnsForExternalLoads(poweredIds, connections) {
   }
 }
 
-function rerouteVinPowerToExternalSupply(supply, components, connections) {
+function rerouteVinPowerToExternalSupply(supply, components, connections, voltage = "5V") {
   const componentIds = new Set(components.map((component) => component.id));
   let changed = 0;
   connections.forEach((connection) => {
@@ -1555,14 +1587,14 @@ function rerouteVinPowerToExternalSupply(supply, components, connections) {
     if (!/^vin$/i.test(String(connection.to?.boardPin || ""))) return;
     if (connections.some((candidate) => (
       candidate.from?.component === supply.id
-      && candidate.from?.pin === "5V"
+      && candidate.from?.pin === voltage
       && candidate.to?.component === componentId
       && candidate.to?.pin === "power"
     ))) return;
-    connection.from = { component: supply.id, pin: "5V" };
+    connection.from = { component: supply.id, pin: voltage };
     connection.to = { component: componentId, pin: "power" };
     connection.color = WIRE_POWER;
-    connection.label = "5V";
+    connection.label = voltage;
     changed += 1;
   });
   return changed;
@@ -1709,8 +1741,8 @@ function placeComponents(components, connections = [], board = null) {
     else left.push(component);
   });
   const boardCenter = board ? board.x + board.w / 2 : WORLD_W / 2;
-  placeSideComponents(left, Math.max(118, boardCenter - 410), connections, board);
-  placeSideComponents(right, Math.min(WORLD_W - 118, boardCenter + 410), connections, board);
+  placeSideComponents(left, Math.max(118, boardCenter - 410), connections, board, components);
+  placeSideComponents(right, Math.min(WORLD_W - 118, boardCenter + 410), connections, board, components);
   return components;
 }
 
@@ -1731,7 +1763,7 @@ function applyPlacementHint(component, board) {
   }
 }
 
-function placeSideComponents(items, x, connections, board) {
+function placeSideComponents(items, x, connections, board, allItems = items) {
   const fallbackGap = items.length > 1 ? clamp((WORLD_H - 190) / (items.length - 1), 78, 108) : 90;
   const preferred = new Map();
   items.forEach((component, index) => {
@@ -1757,7 +1789,7 @@ function placeSideComponents(items, x, connections, board) {
   });
   items
     .filter((component) => flexible.has(component.id))
-    .forEach((component) => placeFlexiblePowerSupply(component, connections, items, board, x));
+    .forEach((component) => placeFlexiblePowerSupply(component, connections, items, allItems, board, x));
 }
 
 function componentDirectPinY(component, connections, board) {
@@ -1776,12 +1808,12 @@ function componentDirectPinY(component, connections, board) {
   return pos?.y ?? null;
 }
 
-function placeFlexiblePowerSupply(component, connections, sideItems, board, fallbackX) {
+function placeFlexiblePowerSupply(component, connections, sideItems, allItems, board, fallbackX) {
   if (Number.isFinite(component.x) && Number.isFinite(component.y)) return;
-  const target = powerSupplyTarget(component, connections, sideItems);
+  const target = powerSupplyTarget(component, connections, allItems);
   if (!target || !board) {
     if (!Number.isFinite(component.x)) component.x = fallbackX;
-    if (!Number.isFinite(component.y)) component.y = 96;
+    if (!Number.isFinite(component.y)) component.y = nearestOpenColumnY(component, sideItems);
     return;
   }
   if (!Number.isFinite(component.x)) component.x = fallbackX;
@@ -1795,6 +1827,23 @@ function powerSupplyTarget(component, connections, sideItems) {
   return targets
     .map((id) => sideItems.find((item) => item.id === id))
     .find(Boolean) || null;
+}
+
+function nearestOpenColumnY(component, sideItems) {
+  const top = 70;
+  const bottom = WORLD_H - 76;
+  const scan = [];
+  for (let y = top; y <= bottom; y += 8) scan.push(y);
+  const blockers = sideItems.filter((item) => item.id !== component.id);
+  return scan
+    .map((y) => ({
+      y,
+      score: blockers.reduce((total, item) => {
+        if (!Number.isFinite(item.y)) return total;
+        return total + Math.max(0, componentPlacementGap(component, item) - Math.abs(y - item.y));
+      }, 0),
+    }))
+    .sort((left, right) => left.score - right.score || left.y - right.y)[0]?.y ?? 96;
 }
 
 function nearestPowerSupplyColumnY(component, target, sideItems) {
@@ -1888,7 +1937,7 @@ function isCircuitSupportPart(type) {
 }
 
 function isRailBoardPin(pinName) {
-  return /^(g|gnd|ground|vin|vcc|3v3|3\.3v|5v|\+)$/i.test(String(pinName || ""));
+  return /^(g|gnd|ground|vin|vcc|3v3|3\.3v|5v|12v|\+)$/i.test(String(pinName || ""));
 }
 
 function componentPlacementSide(component, connections, index, board = null, components = []) {
@@ -1900,7 +1949,7 @@ function componentPlacementSide(component, connections, index, board = null, com
     if (targetPinSide) return targetPinSide;
   }
   if (component.type === "powerSupply") {
-    const clusterSide = externalPowerClusterSide(connections, components, board);
+    const clusterSide = externalPowerClusterSide(component, connections, components, board);
     if (clusterSide) return clusterSide;
     return "left";
   }
@@ -1922,11 +1971,10 @@ function componentPlacementSide(component, connections, index, board = null, com
   return index % 2 ? "right" : "left";
 }
 
-function externalPowerClusterSide(connections, components, board = null) {
-  const supply = components.find((component) => component.type === "powerSupply");
+function externalPowerClusterSide(supply, connections, components, board = null) {
   if (!supply) return "";
   const powered = connections
-    .filter((connection) => connection.from?.component === supply.id && connection.from?.pin === "5V" && connection.to?.component)
+    .filter((connection) => connection.from?.component === supply.id && connection.to?.component && connection.to?.pin === "power")
     .map((connection) => {
       const component = components.find((item) => item.id === connection.to.component);
       return component ? { component, score: externalPowerTargetScore(component.type) } : null;
@@ -1999,7 +2047,7 @@ function componentMergeKey(component) {
   const type = String(component?.type || "unknown");
   const pins = component?.pins || {};
   if (isNeoPixelType(type)) return `${type}:data=${pins.data || component.pin || ""}`;
-  if (type === "powerSupply") return `${type}:external-5v`;
+  if (type === "powerSupply") return `${type}:external-${String(component.pins?.voltage || "v").toLowerCase()}`;
   if (type === "uiPanel") return `${type}:script-ui`;
   if (type === "homeAssistant") return `${type}:ha`;
   if (component?.pin) return `${type}:pin=${component.pin}`;
@@ -2264,7 +2312,7 @@ function componentTerminalMargin(bodyH) {
 
 function terminalSortRank(pinName) {
   const pin = String(pinName || "").toLowerCase();
-  if (/(5v|vcc|vin|power|3v3|\+)/.test(pin)) return 10;
+  if (/(5v|12v|vcc|vin|power|3v3|\+)/.test(pin)) return 10;
   if (/(data|signal|sig|in1|step|sda|rx|trigger|touch|din|bclk|lrc|out|xshut|gpio1)/.test(pin)) return 20;
   if (/(in2|dir|scl|tx|echo)/.test(pin)) return 30;
   if (/(gnd|ground|-)/.test(pin)) return 40;
@@ -2450,6 +2498,7 @@ function wireLaneGroup(laneKey) {
 function wireLaneKey(connection) {
   const text = wireText(connection);
   if (/\b(3v3|3\.3v)\b/.test(text)) return "power:3v3";
+  if (/\b(12v)\b/.test(text)) return "power:12v";
   if (/\b(5v)\b/.test(text)) return "power:5v";
   if (/\b(vin|vcc|power|\+)\b/.test(text)) return "power:vin";
   if (/\b(g|gnd|ground)\b/.test(text)) return "ground";
@@ -2469,7 +2518,7 @@ function wireIdentity(connection) {
 function wireColor(connection) {
   const text = wireText(connection);
   if (/\b(g|gnd|ground)\b/.test(text)) return WIRE_GROUND;
-  if (/\b(\+|vcc|vin|3v3|3\.3v|5v|power)\b/.test(text)) return WIRE_POWER;
+  if (/\b(\+|vcc|vin|3v3|3\.3v|5v|12v|power)\b/.test(text)) return WIRE_POWER;
   return WIRE_SIGNALS[stableHash(text) % WIRE_SIGNALS.length];
 }
 
@@ -4402,9 +4451,9 @@ function loadStoredCircuitZoom() {
   try {
     const raw = window.localStorage?.getItem(CIRCUIT_ZOOM_STORAGE_KEY);
     const value = Number(raw);
-    return Number.isFinite(value) ? clamp(value, CIRCUIT_ZOOM_MIN, CIRCUIT_ZOOM_MAX) : 1;
+    return Number.isFinite(value) ? clamp(value, CIRCUIT_ZOOM_MIN, CIRCUIT_ZOOM_MAX) : CIRCUIT_DEFAULT_ZOOM;
   } catch (_) {
-    return 1;
+    return CIRCUIT_DEFAULT_ZOOM;
   }
 }
 
@@ -4417,16 +4466,7 @@ function storeCircuitZoom(value) {
 }
 
 function worldBoundsForZoom(zoom = 1) {
-  const scale = clamp(numberOr(zoom, 1), CIRCUIT_ZOOM_MIN, CIRCUIT_ZOOM_MAX);
-  if (scale >= 1) return { minX: 0, minY: 0, maxX: WORLD_W, maxY: WORLD_H };
-  const extraW = WORLD_W * (1 / scale - 1);
-  const extraH = WORLD_H * (1 / scale - 1);
-  return {
-    minX: -extraW / 2,
-    minY: -extraH / 2,
-    maxX: WORLD_W + extraW / 2,
-    maxY: WORLD_H + extraH / 2,
-  };
+  return { minX: 0, minY: 0, maxX: WORLD_W, maxY: WORLD_H };
 }
 
 function expandedPlacementBounds() {
