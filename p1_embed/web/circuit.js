@@ -3,18 +3,26 @@ const WORLD_W = 1680;
 const WORLD_H = 1140;
 const CIRCUIT_BG = "#ffffff";
 const WIRE_POWER = "#e53935";
+const WIRE_POWER_5V = "#e53935";
+const WIRE_POWER_12V = "#c62828";
+const WIRE_POWER_3V3 = "#2e7d32";
 const WIRE_GROUND = "#111111";
 const WIRE_SIGNALS = ["#c99700", "#27ae60", "#7e57c2", "#0097a7", "#ef6c00", "#1565c0", "#ad1457", "#558b2f", "#6d4c41"];
 const WIRE_STROKE = 2.4;
 const WIRE_CROSSING_GAP = 5.5;
+const WIRE_CROSSING_ENDPOINT_MARGIN = 0;
 const WIRE_RAIL_BASE_OFFSET = 32;
-const WIRE_RAIL_PITCH = 14;
+const WIRE_RAIL_PITCH = 22;
 const WIRE_SIGNAL_MARGIN = 26;
 const WIRE_SIGNAL_PITCH = 16;
 const WIRE_BRIDGE_BASE_OFFSET = 42;
 const WIRE_BRIDGE_PITCH = 10;
 const WIRE_SIGNAL_BRIDGE_LANES = 6;
 const COMPONENT_TERMINAL_PITCH = 12;
+const COMPONENT_ENDPOINT_TAIL_Y_EPS = 1.2;
+const COMPONENT_ENDPOINT_TAIL_MIN_OVERLAP = 12;
+const COMPONENT_ENDPOINT_NUDGE = 16;
+const COMPONENT_ENDPOINT_NUDGE_PASSES = 5;
 const COMPONENT_TERMINAL_MIN_MARGIN = 8;
 const COMPONENT_TERMINAL_MAX_MARGIN = 12;
 const COMPONENT_LAYOUT_MIN_GAP = 72;
@@ -23,7 +31,7 @@ const COMPONENT_ILLUSTRATION_PIN_X = 52;
 const CIRCUIT_ZOOM_STORAGE_KEY = "p1e.circuit.zoom.v2";
 const CIRCUIT_PAN_STORAGE_KEY = "p1e.circuit.pan.v1";
 const CIRCUIT_ZOOM_MIN = 1;
-const CIRCUIT_ZOOM_MAX = 2.2;
+const CIRCUIT_ZOOM_MAX = 4.2;
 const CIRCUIT_ZOOM_STEP = 0.0018;
 const CIRCUIT_DEFAULT_ZOOM = 1.28;
 const CIRCUIT_DOWNLOAD_SCALE = 3;
@@ -37,7 +45,7 @@ const D1_MINI_HEADER_TOP = 42;
 const D1_MINI_HEADER_PITCH = 16;
 const D1_MINI_OUTER_INSET = 8;
 const D1_MINI_INNER_INSET = 21;
-const D1_MINI_SHARED_ROW_WIRE_OFFSET = 1.7;
+const D1_MINI_SHARED_ROW_WIRE_OFFSET = 3.2;
 const NEOPIXEL_BACKING_COLOR = "#303437";
 
 const COMPONENT_ACCENTS = {
@@ -1586,18 +1594,17 @@ function addExternalPowerPlan(components, connections, assumptions, notes, seen,
       confidence: 0.9,
     };
     components.push(supply);
-    rerouteVinPowerToExternalSupply(supply, components, connections, voltage);
     const poweredIds = new Set(loads.map(({ component }) => component.id));
+    rerouteVinPowerToExternalSupply(supply, poweredIds, connections, voltage);
     removeBoardGroundReturnsForExternalLoads(poweredIds, connections);
     connections.push({ from: { component: supply.id, pin: "GND" }, to: { boardPin: "GND" }, color: "#8f9699", label: "common GND reference" });
     if (voltage === "5V") {
       connections.push({
         from: { component: supply.id, pin: voltage },
         to: { boardPin: "VIN" },
-        color: WIRE_POWER,
+        color: WIRE_POWER_5V,
         label: "optional ESP 5V",
-        style: "dotted",
-        hint: true,
+        stroke: 3,
       });
     }
     loads.forEach(({ component, reason }) => {
@@ -1650,12 +1657,11 @@ function removeBoardGroundReturnsForExternalLoads(poweredIds, connections) {
   }
 }
 
-function rerouteVinPowerToExternalSupply(supply, components, connections, voltage = "5V") {
-  const componentIds = new Set(components.map((component) => component.id));
+function rerouteVinPowerToExternalSupply(supply, poweredIds, connections, voltage = "5V") {
   let changed = 0;
   connections.forEach((connection) => {
     const componentId = connection.from?.component;
-    if (!componentIds.has(componentId)) return;
+    if (!poweredIds?.has(componentId)) return;
     if (componentId === supply.id) return;
     if (connection.from?.pin !== "power") return;
     if (!/^vin$/i.test(String(connection.to?.boardPin || ""))) return;
@@ -1793,6 +1799,8 @@ function normalizeConnection(connection, index) {
     color: String(connection.color || "#8fc7d4"),
     label: String(connection.label || ""),
     assumption: String(connection.assumption || ""),
+    style: String(connection.style || ""),
+    hint: Boolean(connection.hint),
     stroke: Number.isFinite(Number(connection.stroke)) ? Number(connection.stroke) : undefined,
   };
 }
@@ -1818,6 +1826,7 @@ function placeComponents(components, connections = [], board = null) {
   const boardCenter = board ? board.x + board.w / 2 : WORLD_W / 2;
   placeSideComponents(left, Math.max(118, boardCenter - 410), connections, board, components);
   placeSideComponents(right, Math.min(WORLD_W - 118, boardCenter + 410), connections, board, components);
+  resolveComponentEndpointTailOverlaps(components, connections, board);
   return components;
 }
 
@@ -1893,6 +1902,148 @@ function placeFlexiblePowerSupply(component, connections, sideItems, allItems, b
   }
   if (!Number.isFinite(component.x)) component.x = fallbackX;
   if (!Number.isFinite(component.y)) component.y = nearestPowerSupplyColumnY(component, target, sideItems);
+}
+
+function resolveComponentEndpointTailOverlaps(components, connections, board) {
+  if (!board || !components?.length || !connections?.length) return;
+  const componentsById = new Map(components.map((component) => [component.id, component]));
+  for (let pass = 0; pass < COMPONENT_ENDPOINT_NUDGE_PASSES; pass += 1) {
+    const routes = buildComponentEndpointAnalysisRoutes(components, connections, board);
+    const groups = componentEndpointTailGroups(collectComponentEndpointTails(routes))
+      .filter((group) => uniqueEndpointTailComponentIds(group).length > 1);
+    if (!groups.length) return;
+    let moved = false;
+    groups.forEach((group) => {
+      const groupComponents = uniqueEndpointTailComponentIds(group)
+        .map((id) => componentsById.get(id))
+        .filter((component) => component && Number.isFinite(component.y))
+        .sort((left, right) => left.y - right.y || String(left.id).localeCompare(String(right.id)));
+      if (groupComponents.length < 2) return;
+      const center = (groupComponents.length - 1) / 2;
+      groupComponents.forEach((component, index) => {
+        const offset = Math.round((index - center) * COMPONENT_ENDPOINT_NUDGE);
+        if (!offset) return;
+        const nextY = clamp(component.y + offset, 44, WORLD_H - 44);
+        if (!nearlyEqual(nextY, component.y)) {
+          component.y = nextY;
+          moved = true;
+        }
+      });
+    });
+    if (!moved) return;
+  }
+}
+
+function buildComponentEndpointAnalysisRoutes(components, connections, board) {
+  const model = { components, connections, board };
+  const componentsById = new Map(components.map((component) => [component.id, component]));
+  const terminals = buildComponentTerminals(model, componentsById);
+  const lanes = buildWireLanes(model, terminals, componentsById, "illustrations");
+  const routes = connections.map((connection) => {
+    const sourceComponent = componentsById.get(connection.from?.component);
+    if (!sourceComponent) return null;
+    const targetComponent = componentsById.get(connection.to?.component);
+    const pin = targetComponent ? null : pinPositionForComponent(board, connection.to?.boardPin, sourceComponent);
+    if (!targetComponent && !pin) return null;
+    const start = componentTerminalAnchor(sourceComponent, connection.from?.pin, terminals, board, "illustrations");
+    const end = targetComponent
+      ? componentTerminalAnchor(targetComponent, connection.to?.pin, terminals, board, "illustrations")
+      : pin;
+    const points = targetComponent
+      ? componentWireRoutePoints(start, end, sourceComponent, targetComponent, connection, board, lanes)
+      : wireRoutePoints(connection, start, pin, sourceComponent, board, lanes);
+    const laneKey = wireLaneKey(connection);
+    const sourceSide = routeSideForTerminal(sourceComponent, board, start, pin?.side || "");
+    const targetSide = targetComponent
+      ? routeSideForTerminal(targetComponent, board, end, "")
+      : pin?.side || "";
+    return {
+      connection,
+      start,
+      end,
+      endDot: end,
+      points,
+      laneKey,
+      sourceSide,
+      targetSide,
+      targetBoardPin: String(connection.to?.boardPin || ""),
+      targetComponent,
+    };
+  }).filter(Boolean);
+  return collapseSharedRailRoundTrips(routes)
+    .map((route, routeIndex) => ({ ...route, routeIndex }));
+}
+
+function collectComponentEndpointTails(routes) {
+  const tails = [];
+  routes.forEach((route, routeIndex) => {
+    const sourceId = String(route.connection?.from?.component || "");
+    const targetId = String(route.targetComponent?.id || route.connection?.to?.component || "");
+    const sourceTail = componentEndpointTail(route, routeIndex, "source", sourceId, 0, 1);
+    if (sourceTail) tails.push(sourceTail);
+    const last = (route.points || []).length - 1;
+    const targetTail = componentEndpointTail(route, routeIndex, "target", targetId, last - 1, last);
+    if (targetTail) tails.push(targetTail);
+  });
+  return tails;
+}
+
+function componentEndpointTail(route, routeIndex, kind, componentId, fromIndex, toIndex) {
+  if (!componentId || fromIndex < 0 || toIndex < 0) return null;
+  const a = route.points?.[fromIndex];
+  const b = route.points?.[toIndex];
+  if (!a || !b || !nearlyEqual(a.y, b.y)) return null;
+  const minX = Math.min(a.x, b.x);
+  const maxX = Math.max(a.x, b.x);
+  if (maxX - minX < COMPONENT_ENDPOINT_TAIL_MIN_OVERLAP) return null;
+  return {
+    routeIndex,
+    kind,
+    componentId,
+    y: a.y,
+    minX,
+    maxX,
+  };
+}
+
+function componentEndpointTailGroups(tails) {
+  const groups = [];
+  const visited = new Set();
+  tails.forEach((tail, index) => {
+    if (visited.has(index)) return;
+    const group = [];
+    const queue = [index];
+    visited.add(index);
+    while (queue.length) {
+      const currentIndex = queue.shift();
+      const current = tails[currentIndex];
+      group.push(current);
+      tails.forEach((candidate, candidateIndex) => {
+        if (visited.has(candidateIndex)) return;
+        if (!componentEndpointTailsOverlap(current, candidate)) return;
+        visited.add(candidateIndex);
+        queue.push(candidateIndex);
+      });
+    }
+    groups.push(group);
+  });
+  return groups;
+}
+
+function componentEndpointTailsOverlap(left, right) {
+  if (left.componentId === right.componentId) return false;
+  if (left.routeIndex === right.routeIndex) return false;
+  if (Math.abs(left.y - right.y) > COMPONENT_ENDPOINT_TAIL_Y_EPS) return false;
+  const overlap = Math.min(left.maxX, right.maxX) - Math.max(left.minX, right.minX);
+  return overlap >= COMPONENT_ENDPOINT_TAIL_MIN_OVERLAP;
+}
+
+function uniqueEndpointTailComponentIds(group) {
+  const ids = [];
+  group.forEach((tail) => {
+    if (tail.componentId && !ids.includes(tail.componentId)) ids.push(tail.componentId);
+  });
+  return ids;
 }
 
 function powerSupplyTarget(component, connections, sideItems) {
@@ -2156,8 +2307,8 @@ function mergeConnections(base = [], extra = []) {
 
 function drawConnections(p, model, renderMode = "symbols") {
   const componentsById = new Map(model.components.map((component) => [component.id, component]));
-  const lanes = buildWireLanes(model);
   const terminals = buildComponentTerminals(model, componentsById);
+  const lanes = buildWireLanes(model, terminals, componentsById, renderMode);
   const orderedConnections = [...model.connections].sort((left, right) => wireDrawRank(left) - wireDrawRank(right));
   const routes = orderedConnections.map((connection) => {
     const component = componentsById.get(connection.from.component);
@@ -2174,8 +2325,10 @@ function drawConnections(p, model, renderMode = "symbols") {
       : wireRoutePoints(connection, start, pin, component, model.board, lanes);
     const laneKey = wireLaneKey(connection);
     const drawRank = wireDrawRank(connection);
-    const sourceSide = pointSide(start, model.board);
-    const targetSide = targetComponent ? pointSide(end, model.board) : pin?.side || "";
+    const sourceSide = routeSideForTerminal(component, model.board, start, pin?.side || "");
+    const targetSide = targetComponent
+      ? routeSideForTerminal(targetComponent, model.board, end, "")
+      : pin?.side || "";
     return {
       connection,
       start,
@@ -2189,6 +2342,7 @@ function drawConnections(p, model, renderMode = "symbols") {
       targetSide,
       targetBoardPin: String(connection.to?.boardPin || ""),
       targetComponent,
+      board: model.board,
     };
   }).filter(Boolean);
   const collapsedRoutes = collapseSharedRailRoundTrips(routes)
@@ -2218,12 +2372,55 @@ function drawConnections(p, model, renderMode = "symbols") {
   });
 }
 
+function drawBoardWireMarkers(p, model) {
+  const componentsById = new Map(model.components.map((component) => [component.id, component]));
+  const markers = new Map();
+  model.connections.forEach((connection) => {
+    if (!connection.to?.boardPin) return;
+    const component = componentsById.get(connection.from?.component);
+    const pin = pinPositionForComponent(model.board, connection.to.boardPin, component);
+    if (!pin) return;
+    const landing = pinLandingPoint(model.board, pin);
+    const key = `${pin.side}:${pin.row || ""}:${pin.pin}`;
+    if (!markers.has(key)) markers.set(key, { pin, landing, colors: [] });
+    const color = wireColor(connection);
+    const marker = markers.get(key);
+    if (!marker.colors.includes(color)) marker.colors.push(color);
+  });
+
+  const orderedMarkers = [...markers.values()].sort((a, b) => {
+    if (model.board?.type !== "esp32-d1-mini") return 0;
+    return d1MiniWireStubDrawRank(a.pin) - d1MiniWireStubDrawRank(b.pin);
+  });
+
+  orderedMarkers.forEach(({ pin, landing, colors }) => {
+    const color = colors[0] || WIRE_GROUND;
+    const size = model.board?.type === "esp32-d1-mini" ? 8.5 : 10;
+    p.push();
+    if (model.board?.type === "esp32-d1-mini") {
+      p.stroke(color);
+      p.strokeWeight(WIRE_STROKE);
+      p.strokeCap(p.ROUND);
+      const edgeX = pin.side === "left" ? model.board.x : model.board.x + model.board.w;
+      p.line(edgeX, landing.y, landing.x, landing.y);
+    }
+    p.noStroke();
+    p.fill(color);
+    p.circle(pin.x, pin.y, size);
+    p.pop();
+  });
+}
+
+function d1MiniWireStubDrawRank(pin) {
+  return (pin?.row || "outer") === "inner" ? 1 : 0;
+}
+
 function collapseSharedRailRoundTrips(routes) {
   const trunks = new Map();
   return routes.map((route) => {
     if (!isSharedRailRoundTrip(route)) return route;
     const key = `${route.laneKey}:${route.sourceSide}->${route.targetSide}:${route.targetBoardPin}`;
-    const join = route.points[2];
+    const join = firstBridgeJoinPoint(route.points) || route.points[2];
     const existing = trunks.get(key);
     if (!existing) {
       trunks.set(key, { join });
@@ -2236,6 +2433,16 @@ function collapseSharedRailRoundTrips(routes) {
       endDot: null,
     };
   });
+}
+
+function firstBridgeJoinPoint(points = []) {
+  for (let index = 1; index < points.length - 1; index += 1) {
+    const point = points[index];
+    const next = points[index + 1];
+    if (!point || !next) continue;
+    if (!nearlyEqual(point.x, next.x) && nearlyEqual(point.y, next.y)) return point;
+  }
+  return null;
 }
 
 function isSharedRailRoundTrip(route) {
@@ -2253,9 +2460,9 @@ function pointSide(point, board) {
 }
 
 function wireDrawRank(connection) {
-  const color = wireColor(connection);
-  if (color === WIRE_POWER) return 0;
-  if (color === WIRE_GROUND) return 1;
+  const laneKey = wireLaneKey(connection);
+  if (String(laneKey || "").startsWith("power:")) return 0;
+  if (laneKey === "ground") return 1;
   return 2;
 }
 
@@ -2302,7 +2509,7 @@ function buildComponentTerminals(model, componentsById) {
     const component = componentsById.get(id);
     const out = { left: new Map(), right: new Map() };
     const side = componentPrimaryTerminalSide(component, model.board, desiredSidesByComponent.get(id));
-    const pins = [...pinsByName.values()].sort((a, b) => terminalSortRank(a.pin) - terminalSortRank(b.pin) || a.pin.localeCompare(b.pin));
+    const pins = [...pinsByName.values()].sort((a, b) => terminalSortRank(a.pin, component) - terminalSortRank(b.pin, component) || a.pin.localeCompare(b.pin));
     const offsets = componentTerminalOffsets(pins.length, component);
     pins.forEach((terminal, index) => {
       out[side].set(terminal.pin, { side, yOffset: offsets[index] || 0 });
@@ -2314,19 +2521,18 @@ function buildComponentTerminals(model, componentsById) {
 
 function componentPrimaryTerminalSide(component, board, counts = null) {
   if (!component || !board) return "right";
+  const zoneSide = componentTerminalSideForBoardZone(component, board);
+  if (zoneSide) return zoneSide;
   if (counts && counts.left !== counts.right) return counts.left > counts.right ? "left" : "right";
-  if (component.x < board.x) return "right";
-  if (component.x > board.x + board.w) return "left";
   const pinSide = componentSignalBoardSide(component, board);
-  if (pinSide && componentInBoardHorizontalBand(component, board)) return pinSide;
+  if (pinSide) return pinSide;
   return component.x < board.x + board.w / 2 ? "right" : "left";
 }
 
 function componentSideForBoard(component, board, boardPinName = "", componentPinName = "") {
   if (componentInBoardHorizontalBand(component, board)) {
     if (isRailBoardPin(boardPinName)) return "";
-    const pinSide = boardPinSide(boardPinName, "", board);
-    if (pinSide) return pinSide;
+    return componentPrimaryTerminalSide(component, board);
   }
   return componentPrimaryTerminalSide(component, board);
 }
@@ -2337,7 +2543,45 @@ function componentSideForComponent(component, otherComponent, board = null) {
 
 function componentInBoardHorizontalBand(component, board) {
   if (!component || !board) return false;
-  return component.x >= board.x && component.x <= board.x + board.w;
+  const zone = componentBoardHorizontalZone(component, board);
+  return zone === "inside-left" || zone === "inside-right";
+}
+
+function componentBoardHorizontalZone(component, board) {
+  if (!component || !board) return "";
+  const midX = board.x + board.w / 2;
+  if (component.x < board.x) return "outside-left";
+  if (component.x < midX) return "inside-left";
+  if (component.x <= board.x + board.w) return "inside-right";
+  return "outside-right";
+}
+
+function componentTerminalSideForBoardZone(component, board) {
+  switch (componentBoardHorizontalZone(component, board)) {
+    case "outside-left":
+      return "right";
+    case "inside-left":
+      return "left";
+    case "inside-right":
+      return "right";
+    case "outside-right":
+      return "left";
+    default:
+      return "";
+  }
+}
+
+function componentRouteSideForBoardZone(component, board) {
+  switch (componentBoardHorizontalZone(component, board)) {
+    case "outside-left":
+    case "inside-left":
+      return "left";
+    case "inside-right":
+    case "outside-right":
+      return "right";
+    default:
+      return "";
+  }
 }
 
 function componentSignalBoardSide(component, board) {
@@ -2363,8 +2607,8 @@ function componentSignalBoardSide(component, board) {
 
 function componentRouteBoardSide(component, board, targetSide = "") {
   if (!component || !board) return targetSide || "right";
-  if (component.x < board.x) return "left";
-  if (component.x > board.x + board.w) return "right";
+  const zoneSide = componentRouteSideForBoardZone(component, board);
+  if (zoneSide) return zoneSide;
   if (targetSide) return targetSide;
   return component.x < board.x + board.w / 2 ? "left" : "right";
 }
@@ -2402,8 +2646,13 @@ function componentTerminalMargin(bodyH) {
   return clamp(bodyH * 0.24, COMPONENT_TERMINAL_MIN_MARGIN, COMPONENT_TERMINAL_MAX_MARGIN);
 }
 
-function terminalSortRank(pinName) {
+function terminalSortRank(pinName, component = null) {
   const pin = String(pinName || "").toLowerCase();
+  if (isNeoPixelType(component?.type)) {
+    if (/(gnd|ground|-)/.test(pin)) return 10;
+    if (/(data|signal|sig)/.test(pin)) return 20;
+    if (/(5v|vcc|vin|power|\+)/.test(pin)) return 30;
+  }
   if (/(5v|12v|vcc|vin|power|3v3|\+)/.test(pin)) return 10;
   if (/(data|signal|sig|in1|step|sda|rx|trigger|touch|din|bclk|lrc|out|xshut|gpio1)/.test(pin)) return 20;
   if (/(in2|dir|scl|tx|echo)/.test(pin)) return 30;
@@ -2416,28 +2665,26 @@ function componentWireRoutePoints(start, end, sourceComponent = null, targetComp
     const midX = (start.x + end.x) / 2;
     return [start, { x: midX, y: start.y }, { x: midX, y: end.y }, end];
   }
-  const color = wireColor(connection || {});
   const laneKey = wireLaneKey(connection || {});
-  const sourceSide = start.x < board.x + board.w / 2 ? "left" : "right";
-  const targetSide = end.x < board.x + board.w / 2 ? "left" : "right";
+  const sourceSide = routeSideForTerminal(sourceComponent, board, start, "");
+  const targetSide = routeSideForTerminal(targetComponent, board, end, "");
   const sourceLaneX = wireLaneX(board, sourceSide, laneKey, lanes);
   const targetLaneX = wireLaneX(board, targetSide, laneKey, lanes);
+  const startExit = wireExitPoints(start, sourceLaneX, laneKey);
+  const endEntry = wireEntryPoints(end, targetLaneX, laneKey);
   if (sourceSide === targetSide) {
     return [
-      start,
-      { x: sourceLaneX, y: start.y },
-      { x: sourceLaneX, y: end.y },
-      end,
+      ...startExit,
+      { x: sourceLaneX, y: endEntry[0].y },
+      ...endEntry,
     ];
   }
-  const bridgeY = wireBridgeY(board, laneKey, lanes, start, { y: end.y }, targetSide);
+  const bridgeY = wireBridgeY(board, laneKey, lanes, start, { y: end.y }, targetSide, connection);
   return [
-    start,
-    { x: sourceLaneX, y: start.y },
+    ...startExit,
     { x: sourceLaneX, y: bridgeY },
     { x: targetLaneX, y: bridgeY },
-    { x: targetLaneX, y: end.y },
-    end,
+    ...endEntry,
   ];
 }
 
@@ -2454,8 +2701,9 @@ function localComponentWireRoutePoints(start, end, sourceComponent = null, targe
   return [start, { x: elbowX, y: start.y }, { x: elbowX, y: end.y }, end];
 }
 
-function buildWireLanes(model) {
-  const componentsById = new Map(model.components.map((component) => [component.id, component]));
+function buildWireLanes(model, terminals = null, componentsById = null, renderMode = "symbols") {
+  componentsById = componentsById || new Map(model.components.map((component) => [component.id, component]));
+  terminals = terminals || buildComponentTerminals(model, componentsById);
   const colorsBySide = { left: [], right: [] };
   const addLane = (side, key) => {
     if (!colorsBySide[side]?.includes(key)) colorsBySide[side].push(key);
@@ -2463,13 +2711,20 @@ function buildWireLanes(model) {
   model.connections.forEach((connection) => {
     const component = componentsById.get(connection.from?.component);
     const targetComponent = componentsById.get(connection.to?.component);
-    const targetSide = targetComponent
-      ? (targetComponent.x < model.board.x + model.board.w / 2 ? "left" : "right")
-      : (boardPinSideForComponent(connection.to?.boardPin, component, model.board) || "right");
-    const sourceSide = component
-      ? componentRouteBoardSide(component, model.board, targetSide)
-      : "";
+    if (!component) return;
     const laneKey = wireLaneKey(connection);
+    let sourceSide = "";
+    let targetSide = "";
+    const start = componentTerminalAnchor(component, connection.from?.pin, terminals, model.board, renderMode);
+    if (targetComponent) {
+      const end = componentTerminalAnchor(targetComponent, connection.to?.pin, terminals, model.board, renderMode);
+      sourceSide = routeSideForTerminal(component, model.board, start, "");
+      targetSide = routeSideForTerminal(targetComponent, model.board, end, "");
+    } else {
+      const pin = pinPositionForComponent(model.board, connection.to?.boardPin, component);
+      targetSide = pin?.side || boardPinSideForComponent(connection.to?.boardPin, component, model.board) || "right";
+      sourceSide = routeSideForTerminal(component, model.board, start, targetSide);
+    }
     addLane(sourceSide || targetSide, laneKey);
     addLane(targetSide, laneKey);
   });
@@ -2479,31 +2734,45 @@ function buildWireLanes(model) {
 }
 
 function wireRoutePoints(connection, start, pin, component, board, lanes) {
-  const color = wireColor(connection);
   const laneKey = wireLaneKey(connection);
   const targetSide = pin.side || "right";
-  const sourceSide = componentRouteBoardSide(component, board, targetSide);
+  const sourceSide = routeSideForTerminal(component, board, start, targetSide);
   const sourceLaneX = wireLaneX(board, sourceSide, laneKey, lanes);
   const targetLaneX = wireLaneX(board, targetSide, laneKey, lanes);
   const pinEntry = pinEntryPoint(board, pin);
-  const pinTail = pinTailPoints(pinEntry, pin);
+  const pinTail = pinTailPoints(board, pinEntry, pin);
+  const startExit = wireExitPoints(start, sourceLaneX, laneKey);
   if (sourceSide === targetSide) {
     return [
-      start,
-      { x: targetLaneX, y: start.y },
+      ...startExit,
       { x: targetLaneX, y: pinEntry.y },
       ...pinTail,
     ];
   }
-  const bridgeY = wireBridgeY(board, laneKey, lanes, start, pin, targetSide);
+  const bridgeY = wireBridgeY(board, laneKey, lanes, start, pin, targetSide, connection);
   return [
-    start,
-    { x: sourceLaneX, y: start.y },
+    ...startExit,
     { x: sourceLaneX, y: bridgeY },
     { x: targetLaneX, y: bridgeY },
     { x: targetLaneX, y: pinEntry.y },
     ...pinTail,
   ];
+}
+
+function routeSideForTerminal(component, board, point, fallbackSide = "") {
+  if (!component || !board || !point) return fallbackSide || "right";
+  if (componentInBoardHorizontalBand(component, board)) {
+    return point.x < component.x ? "left" : "right";
+  }
+  return componentRouteBoardSide(component, board, fallbackSide);
+}
+
+function wireExitPoints(start, laneX, laneKey) {
+  return [start, { x: laneX, y: start.y }];
+}
+
+function wireEntryPoints(end, laneX, laneKey) {
+  return [{ x: laneX, y: end.y }, end];
 }
 
 function pinEntryPoint(board, pin) {
@@ -2515,12 +2784,13 @@ function pinEntryPoint(board, pin) {
   };
 }
 
-function pinTailPoints(pinEntry, pin) {
-  if (Math.abs(pinEntry.y - pin.y) < 0.1) return [pinEntry, pin];
+function pinTailPoints(board, pinEntry, pin) {
+  const landing = pinLandingPoint(board, pin);
+  if (Math.abs(pinEntry.y - landing.y) < 0.1) return [pinEntry, landing];
   return [
     pinEntry,
-    { x: pin.x, y: pinEntry.y },
-    pin,
+    { x: landing.x, y: pinEntry.y },
+    landing,
   ];
 }
 
@@ -2529,22 +2799,36 @@ function d1MiniSharedRowWireOffset(board, pin) {
   return pin.row === "inner" ? D1_MINI_SHARED_ROW_WIRE_OFFSET : -D1_MINI_SHARED_ROW_WIRE_OFFSET;
 }
 
+function pinLandingPoint(board, pin) {
+  return {
+    ...pin,
+    y: pin.y + d1MiniSharedRowWireOffset(board, pin),
+  };
+}
+
 function wireLaneX(board, side, laneKey, lanes) {
   const offset = wireLaneOffset(side, laneKey, lanes);
   return side === "left" ? board.x - offset : board.x + board.w + offset;
 }
 
-function wireBridgeY(board, laneKey, lanes, start, pin, side) {
+function wireBridgeY(board, laneKey, lanes, start, pin, side, connection = null) {
   const index = wireLaneIndex(side, laneKey, lanes);
-  const railSide = powerRailBridgeSide(laneKey);
+  const railSide = powerRailBridgeSide(laneKey, connection);
   const isSignal = wireLaneGroup(laneKey) === "signal";
-  const above = railSide ? railSide === "top" : pin.y < board.y + board.h / 2;
+  const above = railSide ? railSide === "top" : signalBridgeAboveBoard(board, start, pin);
   const laneIndex = isSignal ? index % WIRE_SIGNAL_BRIDGE_LANES : index;
   const offset = WIRE_BRIDGE_BASE_OFFSET + laneIndex * WIRE_BRIDGE_PITCH;
   return above ? board.y - offset : board.y + board.h + offset;
 }
 
-function powerRailBridgeSide(laneKey) {
+function signalBridgeAboveBoard(board, start, pin) {
+  if (start?.y < board.y) return true;
+  if (start?.y > board.y + board.h) return false;
+  return pin.y < board.y + board.h / 2;
+}
+
+function powerRailBridgeSide(laneKey, connection = null) {
+  if (connection?.to?.component) return "";
   if (laneKey === "power:12v") return "top";
   if (laneKey === "power:3v3") return "top";
   if (laneKey === "power:5v" || laneKey === "power:vin") return "bottom";
@@ -2613,8 +2897,13 @@ function wireIdentity(connection) {
 
 function wireColor(connection) {
   const text = wireText(connection);
+  if (connection?.hint && connection?.color) return String(connection.color);
+  if (/\b(12v)\b/.test(text)) return WIRE_POWER_12V;
+  if (/\b(5v)\b/.test(text)) return WIRE_POWER_5V;
+  if (/\b(3v3|3\.3v)\b/.test(text)) return WIRE_POWER_3V3;
   if (/\b(g|gnd|ground)\b/.test(text)) return WIRE_GROUND;
   if (/\b(\+|vcc|vin|3v3|3\.3v|5v|12v|power)\b/.test(text)) return WIRE_POWER;
+  if (connection?.color) return String(connection.color);
   return WIRE_SIGNALS[stableHash(text) % WIRE_SIGNALS.length];
 }
 
@@ -2638,10 +2927,40 @@ function drawCircuitNote(p, model) {
   p.textStyle(p.NORMAL);
   p.textSize(11);
   const featureText = features.length ? ` · ${features.join(" · ")}` : "";
-  p.text(`${count} part${count === 1 ? "" : "s"} inferred${featureText}`, 12, 12);
+  const title = `${count} part${count === 1 ? "" : "s"} inferred${featureText}`;
+  p.text(title, 12, 12);
+  if (modelHasExternalPower(model)) drawPowerSafetyWarning(p, 12 + p.textWidth(title) + 12, 7);
   p.fill("#687076");
   p.textSize(10);
   p.text("Estimated circuit based on code", 12, 28);
+  p.pop();
+}
+
+function modelHasExternalPower(model) {
+  return Array.isArray(model?.components)
+    && model.components.some((component) => component?.type === "powerSupply");
+}
+
+function drawPowerSafetyWarning(p, x, y) {
+  const text = "External power: verify rails, grounds, and current.";
+  p.push();
+  p.stroke("#e2b21a");
+  p.strokeWeight(1);
+  p.fill("#fff8dc");
+  p.rect(x, y, 236, 21, 5);
+  p.noStroke();
+  p.fill("#d99a00");
+  p.triangle(x + 11, y + 5, x + 6, y + 16, x + 16, y + 16);
+  p.fill("#2d2f31");
+  p.textAlign(p.CENTER, p.CENTER);
+  p.textStyle(p.BOLD);
+  p.textSize(8);
+  p.text("!", x + 11, y + 13);
+  p.textAlign(p.LEFT, p.TOP);
+  p.textStyle(p.NORMAL);
+  p.textSize(8);
+  p.fill("#3d3420");
+  p.text(text, x + 23, y + 6, 206, 14);
   p.pop();
 }
 
@@ -2682,7 +3001,7 @@ function drawSegmentWithGaps(p, a, b, crossings) {
   const axisStart = horizontal ? a.x : a.y;
   const axisEnd = horizontal ? b.x : b.y;
   const cuts = crossings
-    .filter((point) => pointOnSegmentInterior(point, a, b))
+    .filter((point) => pointOnSegmentInterior(point, a, b, WIRE_CROSSING_ENDPOINT_MARGIN))
     .map((point) => horizontal ? point.x : point.y)
     .sort((left, right) => left - right);
   if (!cuts.length) {
@@ -2732,8 +3051,8 @@ function wireCrossingsForRoute(route, routes) {
     const routeRank = Number(route.drawRank || 0);
     if (otherRank < routeRank) return;
     if (otherRank === routeRank && Number(other.routeIndex || 0) <= Number(route.routeIndex || 0)) return;
-    routeSegments(route.points).forEach((a) => {
-      routeSegments(other.points).forEach((b) => {
+    routeSegments(route.points, route).forEach((a) => {
+      routeSegments(other.points, other).forEach((b) => {
         const point = perpendicularCrossing(a, b);
         if (point && !crossings.some((existing) => samePoint(existing, point))) crossings.push(point);
       });
@@ -2742,14 +3061,26 @@ function wireCrossingsForRoute(route, routes) {
   return crossings;
 }
 
-function routeSegments(points) {
+function routeSegments(points, route = null) {
   const segments = [];
   for (let index = 0; index < points.length - 1; index += 1) {
     const a = points[index];
     const b = points[index + 1];
-    if (!samePoint(a, b)) segments.push({ a, b });
+    if (!samePoint(a, b)) segments.push({ a, b, index, route });
   }
   return segments;
+}
+
+function isProtectedBoardBridgeSegment(segment) {
+  const board = segment?.route?.board;
+  if (!board) return false;
+  if (segment?.route?.sourceSide === segment?.route?.targetSide) return false;
+  if (!nearlyEqual(segment.a.y, segment.b.y)) return false;
+  const minX = Math.min(segment.a.x, segment.b.x);
+  const maxX = Math.max(segment.a.x, segment.b.x);
+  const spansBoard = minX < board.x && maxX > board.x + board.w;
+  const aboveOrBelowBoard = segment.a.y < board.y || segment.a.y > board.y + board.h;
+  return spansBoard && aboveOrBelowBoard;
 }
 
 function perpendicularCrossing(first, second) {
@@ -2766,12 +3097,12 @@ function crossingPoint(horizontal, vertical) {
   const x = vertical.a.x;
   const y = horizontal.a.y;
   const point = { x, y };
-  if (!pointOnSegmentInterior(point, horizontal.a, horizontal.b)) return null;
-  if (!pointOnSegmentInterior(point, vertical.a, vertical.b)) return null;
+  if (!pointOnSegmentInterior(point, horizontal.a, horizontal.b, WIRE_CROSSING_ENDPOINT_MARGIN)) return null;
+  if (!pointOnSegmentInterior(point, vertical.a, vertical.b, WIRE_CROSSING_ENDPOINT_MARGIN)) return null;
   return point;
 }
 
-function pointOnSegmentInterior(point, a, b) {
+function pointOnSegmentInterior(point, a, b, endpointMarginOverride = null) {
   const horizontal = nearlyEqual(a.y, b.y);
   const vertical = nearlyEqual(a.x, b.x);
   if (horizontal && !nearlyEqual(point.y, a.y)) return false;
@@ -2780,10 +3111,12 @@ function pointOnSegmentInterior(point, a, b) {
   const axisA = horizontal ? a.x : a.y;
   const axisB = horizontal ? b.x : b.y;
   const segmentLength = Math.abs(axisB - axisA);
-  const endpointMargin = Math.min(WIRE_CROSSING_GAP, Math.max(0.8, segmentLength * 0.16));
+  const endpointMargin = Number.isFinite(Number(endpointMarginOverride))
+    ? Number(endpointMarginOverride)
+    : Math.min(WIRE_CROSSING_GAP, Math.max(0.8, segmentLength * 0.16));
   const minAxis = Math.min(axisA, axisB) + endpointMargin;
   const maxAxis = Math.max(axisA, axisB) - endpointMargin;
-  return axisPoint > minAxis && axisPoint < maxAxis;
+  return axisPoint >= minAxis - 0.02 && axisPoint <= maxAxis + 0.02;
 }
 
 function samePoint(a, b) {
@@ -3242,6 +3575,7 @@ function componentDefaultTerminalCount(type) {
 
 function componentLabelY(type, fallbackHeight, renderMode = "symbols") {
   if (type === "ledStrip") return componentBodyHeight(type) / 2 + 4;
+  if (type === "backEmfDiode") return fallbackHeight / 2 + 12;
   if (renderMode === "illustrations" && (type === "servo" || type === "servoLarge")) return fallbackHeight / 2 + 8;
   if (renderMode === "illustrations") return Math.max(fallbackHeight / 2 + 4, componentIllustrationHalfHeight(type) + 8);
   return fallbackHeight / 2 + 4;
@@ -3661,23 +3995,15 @@ function drawLabPowerSupply(p, connectorSide = "right", accent = componentOutlin
 }
 
 function drawDiode(p, connectorSide = "right", accent = componentOutlineColor("backEmfDiode")) {
+  const side = connectorSideSign(connectorSide);
+  drawDiodeCurvedLeads(p, side);
   p.stroke(accent);
   p.strokeWeight(2);
   p.noFill();
-  p.line(-22, -8, -10, -8);
-  p.line(-22, 8, -10, 8);
-  p.line(10, -8, 22, -8);
-  p.line(10, 8, 22, 8);
   p.line(0, -17, 0, -9);
   p.triangle(-11, 8, 11, 8, 0, -7);
   p.line(-13, -9, 13, -9);
   p.line(0, 9, 0, 17);
-  p.noStroke();
-  p.fill(accent);
-  p.textAlign(p.CENTER, p.CENTER);
-  p.textSize(8);
-  p.text("+", 29, -8);
-  p.text("-", 29, 8);
 }
 
 function drawQuestion(p, accent = componentOutlineColor("unknown")) {
@@ -4459,11 +4785,7 @@ function pinCountValue(component, key) {
 
 function drawDiodeIllustration(p, connectorSide = "right") {
   const side = connectorSideSign(connectorSide);
-  const labelX = side * 34;
-  p.stroke("#050505");
-  p.strokeWeight(3);
-  p.line(side * 52, -8, side * 18, -8);
-  p.line(side * 52, 8, side * 18, 8);
+  drawDiodeCurvedLeads(p, side);
   p.noStroke();
   p.fill("#050505");
   p.rect(-11, -27, 22, 54, 1);
@@ -4471,13 +4793,17 @@ function drawDiodeIllustration(p, connectorSide = "right") {
   p.rect(-11, -20, 22, 8, 0);
   p.fill("#050505");
   p.rect(-11, -12, 22, 39, 1);
-  p.fill("#202326");
-  p.textAlign(p.CENTER, p.CENTER);
-  p.textStyle(p.BOLD);
-  p.textSize(9);
-  p.text("+", labelX, -8);
-  p.text("-", labelX, 8);
-  p.textStyle(p.NORMAL);
+}
+
+function drawDiodeCurvedLeads(p, side = 1) {
+  const endX = side * 52;
+  const leadColor = "#aeb4b4";
+  p.noFill();
+  p.strokeCap(p.ROUND);
+  p.strokeWeight(2.4);
+  p.stroke(leadColor);
+  p.bezier(0, -27, side * 18, -46, side * 38, -9, endX, -8);
+  p.bezier(0, 27, side * 18, 46, side * 38, 9, endX, 8);
 }
 
 function drawSensorIllustration(p, connectorSide = "right") {
@@ -4506,6 +4832,7 @@ function drawCircuitScene(p, {
   p.scale(sceneTransform.scale);
   drawConnections(p, model, renderMode);
   drawBoard(p, model.board, hoveredPin);
+  drawBoardWireMarkers(p, model);
   drawComponents(p, model.components, selectedComponentId, renderMode, model.board);
   p.pop();
   p.push();
