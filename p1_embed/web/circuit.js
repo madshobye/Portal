@@ -17,6 +17,7 @@ const WIRE_SIGNAL_MARGIN = 26;
 const WIRE_SIGNAL_PITCH = 16;
 const WIRE_BRIDGE_BASE_OFFSET = 42;
 const WIRE_BRIDGE_PITCH = 10;
+const WIRE_BRIDGE_GROUP_GAP = 18;
 const WIRE_SIGNAL_BRIDGE_LANES = 6;
 const COMPONENT_TERMINAL_PITCH = 12;
 const COMPONENT_ENDPOINT_TAIL_Y_EPS = 1.2;
@@ -199,6 +200,7 @@ export function inferCircuitLayout(code, chatLayout = null) {
 export function normalizeCircuitLayout(layout) {
   if (!layout || typeof layout !== "object") return null;
   const board = normalizeBoard(layout.board);
+  const viewport = normalizeViewport(layout.viewport);
   const components = Array.isArray(layout.components)
     ? layout.components.map((component, index) => normalizeComponent(component, index)).filter((component) => component && !isInterfacePreviewType(component.type))
     : [];
@@ -214,6 +216,10 @@ export function normalizeCircuitLayout(layout) {
     assumptions: stringArray(layout.assumptions),
     notes: stringArray(layout.notes),
     interfaceFeatures: stringArray(layout.interfaceFeatures),
+    projectTitle: String(layout.projectTitle || ""),
+    revisionTitle: String(layout.revisionTitle || ""),
+    viewport,
+    viewportKey: String(layout.viewportKey || ""),
   };
 }
 
@@ -256,11 +262,24 @@ function boardProfile(board = null) {
   return boardProfiles[board?.type] || boardProfiles["esp32-classic"];
 }
 
+function normalizeViewport(viewport = {}) {
+  if (!viewport || typeof viewport !== "object") return null;
+  const zoom = Number(viewport.zoom);
+  const panX = Number(viewport.panX ?? viewport.x);
+  const panY = Number(viewport.panY ?? viewport.y);
+  if (!Number.isFinite(zoom) && !Number.isFinite(panX) && !Number.isFinite(panY)) return null;
+  return {
+    zoom: Number.isFinite(zoom) ? clamp(zoom, CIRCUIT_ZOOM_MIN, CIRCUIT_ZOOM_MAX) : CIRCUIT_DEFAULT_ZOOM,
+    panX: Number.isFinite(panX) ? Math.round(panX) : 0,
+    panY: Number.isFinite(panY) ? Math.round(panY) : 0,
+  };
+}
+
 function boardPinDefs(board = null) {
   return boardProfile(board).pinDefs;
 }
 
-export function initCircuitView({ mount, componentList, assumptions, pinInfo, alternatives, onComponentOverride, onComponentPlacement, onBoardPlacement } = {}) {
+export function initCircuitView({ mount, componentList, assumptions, pinInfo, alternatives, onComponentOverride, onComponentPlacement, onBoardPlacement, onViewportPlacement } = {}) {
   let model = normalizeCircuitLayout({});
   let hoveredPin = null;
   let selectedComponentId = "";
@@ -272,7 +291,11 @@ export function initCircuitView({ mount, componentList, assumptions, pinInfo, al
   let zoomScale = loadStoredCircuitZoom();
   let panOffset = loadStoredCircuitPan();
   let transform = { scale: 1, ox: 0, oy: 0 };
+  let powerWarningBounds = null;
+  let powerWarningDismissed = false;
   let pendingModel = null;
+  let viewportModelKey = "";
+  let viewportPersistTimer = null;
 
   const setModel = (nextModel) => {
     if (dragging) {
@@ -280,6 +303,23 @@ export function initCircuitView({ mount, componentList, assumptions, pinInfo, al
       return;
     }
     model = normalizeCircuitLayout(nextModel) || normalizeCircuitLayout({});
+    const modelBoardType = boardProfiles[model.board?.type]?.type || boardType;
+    if (modelBoardType !== boardType) {
+      boardType = modelBoardType;
+      const select = document.querySelector("#circuit-board-select");
+      if (select) select.value = boardType;
+    }
+    const nextViewportKey = model.viewportKey || `${model.projectTitle}\n${model.revisionTitle}`;
+    if (nextViewportKey !== viewportModelKey) {
+      viewportModelKey = nextViewportKey;
+      if (model.viewport) {
+        zoomScale = model.viewport.zoom;
+        panOffset = { x: model.viewport.panX, y: model.viewport.panY };
+      } else {
+        zoomScale = loadStoredCircuitZoom();
+        panOffset = loadStoredCircuitPan();
+      }
+    }
     model.board = boardWithType(model.board, boardType);
     if (selectedComponentId && !model.components.some((component) => component.id === selectedComponentId)) {
       const replacement = selectedComponentPin
@@ -316,6 +356,23 @@ export function initCircuitView({ mount, componentList, assumptions, pinInfo, al
     p5Instance.redraw();
   };
 
+  const persistViewport = ({ immediate = false } = {}) => {
+    storeCircuitZoom(zoomScale);
+    storeCircuitPan(panOffset);
+    if (typeof onViewportPlacement !== "function") return;
+    window.clearTimeout(viewportPersistTimer);
+    const save = () => onViewportPlacement({
+      zoom: zoomScale,
+      panX: Math.round(numberOr(panOffset?.x, 0)),
+      panY: Math.round(numberOr(panOffset?.y, 0)),
+    });
+    if (immediate) {
+      save();
+    } else {
+      viewportPersistTimer = window.setTimeout(save, 240);
+    }
+  };
+
   const downloadPng = (filename = "p1e-circuit.png") => {
     if (!p5Instance?.canvas) return false;
     p5Instance.redraw();
@@ -335,6 +392,7 @@ export function initCircuitView({ mount, componentList, assumptions, pinInfo, al
       logicalWidth,
       logicalHeight,
       renderScale: CIRCUIT_DOWNLOAD_SCALE,
+      hidePowerWarning: powerWarningDismissed,
     });
     const link = document.createElement("a");
     link.download = filename;
@@ -380,7 +438,9 @@ export function initCircuitView({ mount, componentList, assumptions, pinInfo, al
         logicalWidth: p.width,
         logicalHeight: p.height,
         renderScale: 1,
+        hidePowerWarning: powerWarningDismissed,
       });
+      powerWarningBounds = transform.warningBounds || null;
       panOffset = { x: transform.panX, y: transform.panY };
     };
     const isCanvasPointerEvent = (event = null) => {
@@ -406,6 +466,12 @@ export function initCircuitView({ mount, componentList, assumptions, pinInfo, al
     };
     p.mousePressed = (event) => {
       if (!isCanvasPointerEvent(event)) return;
+      if (hitScreenRect(p.mouseX, p.mouseY, powerWarningBounds)) {
+        powerWarningDismissed = true;
+        powerWarningBounds = null;
+        p.redraw();
+        return;
+      }
       const world = screenToWorld(p.mouseX, p.mouseY, transform);
       const component = hitComponent(world, model.components);
       if (!component) {
@@ -486,8 +552,7 @@ export function initCircuitView({ mount, componentList, assumptions, pinInfo, al
       if (Math.abs(nextZoom - zoomScale) < 0.001) return false;
       zoomScale = nextZoom;
       panOffset = clampPanOffset(p.width, p.height, zoomScale, panOffset);
-      storeCircuitZoom(zoomScale);
-      storeCircuitPan(panOffset);
+      persistViewport();
       p.redraw();
       return false;
     };
@@ -503,6 +568,9 @@ export function initCircuitView({ mount, componentList, assumptions, pinInfo, al
               cy: Math.round(clamp(((model.board.y + model.board.h / 2) / WORLD_H) * 100, PLACEMENT_MIN_PCT, PLACEMENT_MAX_PCT)),
             });
           }
+        } else if (dragging.kind === "viewport") {
+          const moved = Math.abs(panOffset.x - dragging.startPanX) > 2 || Math.abs(panOffset.y - dragging.startPanY) > 2;
+          if (moved) persistViewport({ immediate: true });
         } else if (dragging.kind === "component") {
           const component = model.components.find((item) => item.id === dragging.id);
           const moved = component
@@ -651,6 +719,7 @@ function inferFromSource(source) {
   const arrays = parseNumericArrays(source);
   const hints = parseCircuitHints(source);
   const boardHint = parseCircuitBoardHint(source);
+  const viewportHint = parseCircuitViewportHint(source);
   const lower = source.toLowerCase();
   const components = [];
   const connections = [];
@@ -805,7 +874,10 @@ function inferFromSource(source) {
   collectCalls(source, "wireBegin").forEach((args) => {
     const sda = resolvePin(args[0], vars) ?? 21;
     const scl = resolvePin(args[1], vars) ?? 22;
-    add(i2cComponentType(lower), "", { pins: { sda: String(sda), scl: String(scl) }, inferredFrom: "wireBegin", confidence: 0.82 });
+    const intPin = findNamedPin(vars, /\b(imu|mpu|motion).{0,16}(int|irq)|\b(int|irq).{0,16}(imu|mpu|motion)/i);
+    const pins = { sda: String(sda), scl: String(scl) };
+    if (intPin !== null) pins.int = String(intPin);
+    add(i2cComponentType(lower), "", { pins, inferredFrom: "wireBegin", confidence: 0.82 });
   });
 
   collectCalls(source, "serialBegin").forEach((args) => {
@@ -830,6 +902,7 @@ function inferFromSource(source) {
     add("unknown", guessedPin ? String(guessedPin) : "", { label: "Possible component", confidence: 0.25 });
     assumptions.push("No direct hardware binding was obvious, so the drawing leaves a question-mark part.");
   }
+  correctOutputHintComponents(source, vars, components, connections, assumptions);
   pruneDuplicateSignalPins(components, connections);
   addExternalPowerPlan(components, connections, assumptions, notes, seen, hints);
 
@@ -841,6 +914,7 @@ function inferFromSource(source) {
     assumptions: dedupe(assumptions),
     notes,
     interfaceFeatures: dedupe(interfaceFeatures),
+    viewport: viewportHint,
   });
 }
 
@@ -856,6 +930,20 @@ function parseCircuitBoardHint(source) {
     cx: cx !== undefined ? clamp(Number(cx), PLACEMENT_MIN_PCT, PLACEMENT_MAX_PCT) : undefined,
     cy: cy !== undefined ? clamp(Number(cy), PLACEMENT_MIN_PCT, PLACEMENT_MAX_PCT) : undefined,
   };
+}
+
+function parseCircuitViewportHint(source) {
+  const match = String(source || "").match(/\/\/\s*p1e-circuit-view:\s*([^\n;]+)/i);
+  if (!match) return null;
+  const text = match[1];
+  const zoom = text.match(/\bzoom\s*=\s*(-?\d+(?:\.\d+)?)\b/i)?.[1];
+  const panX = text.match(/\b(?:panX|x)\s*=\s*(-?\d+)\b/i)?.[1];
+  const panY = text.match(/\b(?:panY|y)\s*=\s*(-?\d+)\b/i)?.[1];
+  return normalizeViewport({
+    zoom: zoom !== undefined ? Number(zoom) : undefined,
+    panX: panX !== undefined ? Number(panX) : undefined,
+    panY: panY !== undefined ? Number(panY) : undefined,
+  });
 }
 
 function parseNumericVars(source) {
@@ -1224,6 +1312,34 @@ function pruneDuplicateSignalPins(components, connections) {
       connections.splice(index, 1);
     }
   }
+  pruneStandalonePinsClaimedByBusComponents(components, connections);
+}
+
+function pruneStandalonePinsClaimedByBusComponents(components, connections) {
+  const claimedPins = new Set();
+  components.forEach((component) => {
+    if (!["i2cDevice", "imu", "vl53l0xTof", "i2sAudioDecoder", "ld2410cRadar"].includes(component.type)) return;
+    Object.values(component.pins || {}).forEach((pin) => {
+      if (pin !== null && pin !== undefined && pin !== "") claimedPins.add(String(pin));
+    });
+  });
+  if (!claimedPins.size) return;
+  const removeIds = new Set();
+  components.forEach((component) => {
+    if (!component.pin || !claimedPins.has(String(component.pin))) return;
+    if (Object.keys(component.pins || {}).length) return;
+    if (/p1e-circuit comment/i.test(component.inferredFrom || "")) return;
+    removeIds.add(component.id);
+  });
+  if (!removeIds.size) return;
+  for (let index = components.length - 1; index >= 0; index -= 1) {
+    if (removeIds.has(components[index].id)) components.splice(index, 1);
+  }
+  for (let index = connections.length - 1; index >= 0; index -= 1) {
+    if (removeIds.has(connections[index].from?.component) || removeIds.has(connections[index].to?.component)) {
+      connections.splice(index, 1);
+    }
+  }
 }
 
 function mergeDuplicateComponentMetadata(target, source) {
@@ -1293,6 +1409,8 @@ function componentTypeFromName(name) {
   if (/vl53|tof|time.?of.?flight|laser.?distance/.test(lower)) return { type: "vl53l0xTof", label: "GY-VL53L0XV2 ToF", confidence: 0.92 };
   if (/uda1334|i2s|stereo.?decoder|audio.?dac/.test(lower)) return { type: "i2sAudioDecoder", label: "UDA1334A I2S decoder", confidence: 0.9 };
   if (/ld2410|microwave.?radar|presence.?radar|radar/.test(lower)) return { type: "ld2410cRadar", label: "LD2410C radar", confidence: 0.9 };
+  if (/imu|mpu|gyro|accelerometer/.test(lower)) return { type: "imu", label: "IMU / MPU", confidence: 0.9 };
+  if (/dfplayer|df.?player|mp3|sound.?player|audio.?player/.test(lower)) return { type: "mp3Player", label: "DFPlayer Mini", confidence: 0.88 };
   if (/microphone|mic|sound/.test(lower)) return { type: "microphone", label: "Microphone", confidence: 0.9 };
   if (/distance|proximity|sharp/.test(lower)) return { type: "distanceSensor", label: "Distance sensor", confidence: 0.88 };
   if (/analog|adc|sensor/.test(lower)) return { type: "analogSensor", label: "Analog sensor", confidence: 0.86 };
@@ -1454,6 +1572,44 @@ function hasPin(components, pin) {
   return components.some((component) => component.pin === value || Object.values(component.pins || {}).includes(value));
 }
 
+function correctOutputHintComponents(source, vars, components, connections, assumptions) {
+  const promote = (expr, pin, reason) => {
+    if (pin === null) return;
+    const targetType = outputTypeFromPinExpr(expr);
+    if (!targetType || targetType === "led") return;
+    const value = String(pin);
+    const component = components.find((candidate) => (
+      candidate.pin === value || candidate.pins?.signal === value || candidate.pins?.data === value
+    ));
+    if (!component) return;
+    if (!/p1e-circuit comment/i.test(component.inferredFrom || "")) return;
+    if (!["digitalSensor", "analogSensor", "unknown"].includes(component.type)) return;
+    const typeDef = componentTypes[targetType];
+    if (!typeDef) return;
+    component.type = targetType;
+    component.label = typeDef.label;
+    component.pin = value;
+    component.pins = { signal: value };
+    component.inferredFrom = `${reason}; corrected p1e-circuit comment`;
+    component.confidence = Math.max(numberOr(component.confidence, 0), 0.88);
+    for (let i = connections.length - 1; i >= 0; i -= 1) {
+      if (connections[i]?.from?.component === component.id) connections.splice(i, 1);
+    }
+    addDefaultConnections(component, connections, assumptions);
+  };
+  collectCalls(source, "pinMode").forEach((args) => {
+    const pin = resolvePin(args[0], vars);
+    const mode = String(args[1] || "").toUpperCase();
+    if (mode.includes("OUTPUT") || mode === "1") promote(args[0], pin, "pinMode OUTPUT");
+  });
+  collectCalls(source, "digitalWrite").forEach((args) => {
+    promote(args[0], resolvePin(args[0], vars), "digitalWrite");
+  });
+  collectCalls(source, "analogWrite").forEach((args) => {
+    promote(args[0], resolvePin(args[0], vars), "analogWrite");
+  });
+}
+
 function addDefaultConnections(component, connections, assumptions) {
   const type = component.type;
   const pin = component.pin || component.pins?.signal || component.pins?.data || component.pins?.in1 || component.pins?.step;
@@ -1524,6 +1680,7 @@ function addDefaultConnections(component, connections, assumptions) {
   } else if (type === "i2cDevice" || type === "imu" || type === "vl53l0xTof") {
     if (component.pins?.sda) connections.push({ from: { component: id, pin: "SDA" }, to: { boardPin: component.pins.sda }, color: "#59bdd0", label: "SDA" });
     if (component.pins?.scl) connections.push({ from: { component: id, pin: "SCL" }, to: { boardPin: component.pins.scl }, color: "#d6bd62", label: "SCL" });
+    if (component.pins?.int) connections.push({ from: { component: id, pin: "INT" }, to: { boardPin: component.pins.int }, color: "#7e57c2", label: "INT" });
     if (component.pins?.xshut) connections.push({ from: { component: id, pin: "XSHUT" }, to: { boardPin: component.pins.xshut }, color: "#7e57c2", label: "XSHUT" });
     if (component.pins?.gpio1) connections.push({ from: { component: id, pin: "GPIO1" }, to: { boardPin: component.pins.gpio1 }, color: "#0097a7", label: "GPIO1" });
     connections.push({ from: { component: id, pin: "3v3" }, to: { boardPin: "3V3" }, color: "#d26b5b", label: "3V3" });
@@ -2812,12 +2969,14 @@ function wireLaneX(board, side, laneKey, lanes) {
 }
 
 function wireBridgeY(board, laneKey, lanes, start, pin, side, connection = null) {
-  const index = wireLaneIndex(side, laneKey, lanes);
+  const group = wireLaneGroup(laneKey);
+  const index = wireLaneGroupIndex(side, laneKey, lanes, group);
   const railSide = powerRailBridgeSide(laneKey, connection);
-  const isSignal = wireLaneGroup(laneKey) === "signal";
+  const isSignal = group === "signal";
   const above = railSide ? railSide === "top" : signalBridgeAboveBoard(board, start, pin);
   const laneIndex = isSignal ? index % WIRE_SIGNAL_BRIDGE_LANES : index;
-  const offset = WIRE_BRIDGE_BASE_OFFSET + laneIndex * WIRE_BRIDGE_PITCH;
+  const groupOffset = isSignal ? wireRailBridgeBand(side, lanes) + WIRE_BRIDGE_GROUP_GAP : 0;
+  const offset = WIRE_BRIDGE_BASE_OFFSET + groupOffset + laneIndex * WIRE_BRIDGE_PITCH;
   return above ? board.y - offset : board.y + board.h + offset;
 }
 
@@ -2839,6 +2998,18 @@ function wireLaneIndex(side, laneKey, lanes) {
   const list = lanes[side] || [];
   const index = list.indexOf(laneKey);
   return index < 0 ? 0 : index;
+}
+
+function wireLaneGroupIndex(side, laneKey, lanes, group) {
+  const list = lanes[side] || [];
+  const grouped = list.filter((key) => wireLaneGroup(key) === group);
+  const index = grouped.indexOf(laneKey);
+  return index < 0 ? 0 : index;
+}
+
+function wireRailBridgeBand(side, lanes) {
+  const railCount = (lanes[side] || []).filter((key) => wireLaneGroup(key) === "rail").length;
+  return Math.max(0, railCount - 1) * WIRE_BRIDGE_PITCH;
 }
 
 function wireLaneOffset(side, laneKey, lanes) {
@@ -2917,23 +3088,43 @@ function wireText(connection) {
   return parts.join(" ");
 }
 
-function drawCircuitNote(p, model) {
+function drawCircuitNote(p, model, { logicalWidth = p.width, hidePowerWarning = false } = {}) {
   const count = model.components?.length || 0;
   const features = stringArray(model.interfaceFeatures);
+  const projectRevisionTitle = circuitProjectRevisionTitle(model);
+  const titleY = projectRevisionTitle ? 30 : 12;
+  const subtitleY = projectRevisionTitle ? 46 : 28;
+  let warningBounds = null;
   p.push();
   p.noStroke();
   p.fill("#202326");
   p.textAlign(p.LEFT, p.TOP);
   p.textStyle(p.NORMAL);
   p.textSize(11);
+  if (projectRevisionTitle) {
+    p.text(projectRevisionTitle, 12, 12);
+  }
   const featureText = features.length ? ` · ${features.join(" · ")}` : "";
   const title = `${count} part${count === 1 ? "" : "s"} inferred${featureText}`;
-  p.text(title, 12, 12);
-  if (modelHasExternalPower(model)) drawPowerSafetyWarning(p, 12 + p.textWidth(title) + 12, 7);
+  p.text(title, 12, titleY);
+  if (modelHasExternalPower(model) && !hidePowerWarning) {
+    const warningY = 12;
+    const warningWidth = POWER_WARNING_W;
+    const warningX = Math.max(12, numberOr(logicalWidth, p.width) - warningWidth - 12);
+    warningBounds = drawPowerSafetyWarning(p, warningX, warningY);
+  }
   p.fill("#687076");
   p.textSize(10);
-  p.text("Estimated circuit based on code", 12, 28);
+  p.text("Estimated circuit based on code", 12, subtitleY);
   p.pop();
+  return warningBounds;
+}
+
+function circuitProjectRevisionTitle(model) {
+  const project = String(model?.projectTitle || "").trim();
+  const revision = String(model?.revisionTitle || "").trim();
+  if (project && revision) return `${project} / ${revision}`;
+  return project || revision;
 }
 
 function modelHasExternalPower(model) {
@@ -2941,27 +3132,33 @@ function modelHasExternalPower(model) {
     && model.components.some((component) => component?.type === "powerSupply");
 }
 
+const POWER_WARNING_W = 328;
+const POWER_WARNING_H = 38;
+
 function drawPowerSafetyWarning(p, x, y) {
-  const text = "External power: verify rails, grounds, and current.";
+  const line1 = "This circuit is autogenerated and uses components";
+  const line2 = "that can damage electronics. Verify with a trusted source.";
   p.push();
   p.stroke("#e2b21a");
   p.strokeWeight(1);
   p.fill("#fff8dc");
-  p.rect(x, y, 236, 21, 5);
+  p.rect(x, y, POWER_WARNING_W, POWER_WARNING_H, 5);
   p.noStroke();
   p.fill("#d99a00");
-  p.triangle(x + 11, y + 5, x + 6, y + 16, x + 16, y + 16);
+  p.triangle(x + 15, y + 9, x + 8, y + 26, x + 22, y + 26);
   p.fill("#2d2f31");
   p.textAlign(p.CENTER, p.CENTER);
   p.textStyle(p.BOLD);
-  p.textSize(8);
-  p.text("!", x + 11, y + 13);
+  p.textSize(10);
+  p.text("!", x + 15, y + 21);
   p.textAlign(p.LEFT, p.TOP);
   p.textStyle(p.NORMAL);
-  p.textSize(8);
+  p.textSize(11);
   p.fill("#3d3420");
-  p.text(text, x + 23, y + 6, 206, 14);
+  p.text(line1, x + 31, y + 6);
+  p.text(line2, x + 31, y + 20);
   p.pop();
+  return { x, y, w: POWER_WARNING_W, h: POWER_WARNING_H };
 }
 
 function stableHash(text) {
@@ -3576,6 +3773,7 @@ function componentDefaultTerminalCount(type) {
 function componentLabelY(type, fallbackHeight, renderMode = "symbols") {
   if (type === "ledStrip") return componentBodyHeight(type) / 2 + 4;
   if (type === "backEmfDiode") return fallbackHeight / 2 + 12;
+  if (renderMode === "illustrations" && type === "powerSupply") return componentIllustrationHalfHeight(type) + 4;
   if (renderMode === "illustrations" && (type === "servo" || type === "servoLarge")) return fallbackHeight / 2 + 8;
   if (renderMode === "illustrations") return Math.max(fallbackHeight / 2 + 4, componentIllustrationHalfHeight(type) + 8);
   return fallbackHeight / 2 + 4;
@@ -3824,7 +4022,7 @@ function drawStepper(p, connectorSide = "left", accent = componentOutlineColor("
   p.noFill();
   [-18, -9, 0, 9, 18].forEach((y) => p.line(-dir * 46, y, -dir * 10, y));
   p.stroke(accent);
-  p.rect(dir * 17 - 16, -28, 32, 56, 5);
+  p.rect(dir * 17 - 24, -24, 48, 48, 5);
   p.circle(dir * 17, 0, 18);
   p.line(dir * 17, 0, dir * 17, -20);
   p.pop();
@@ -3979,19 +4177,6 @@ function drawLabPowerSupply(p, connectorSide = "right", accent = componentOutlin
     p.rect(bx - 4, buttonY - 2, 8, 2, 1);
   }
 
-  const side = connectorSide === "left" ? -1 : 1;
-  const portX = side * (bodyW / 2 + 1);
-  const portStubX = side * (bodyW / 2 + 11);
-  p.strokeWeight(illustration ? 2.4 : 2);
-  p.stroke(WIRE_POWER);
-  p.line(portX, -7, portStubX, -7);
-  p.stroke(WIRE_GROUND);
-  p.line(portX, 9, portStubX, 9);
-  p.noStroke();
-  p.fill(WIRE_POWER);
-  p.circle(portX, -7, 4);
-  p.fill(WIRE_GROUND);
-  p.circle(portX, 9, 4);
 }
 
 function drawDiode(p, connectorSide = "right", accent = componentOutlineColor("backEmfDiode")) {
@@ -4336,13 +4521,13 @@ function drawStepperIllustration(p, connectorSide = "left") {
   drawInternalControllerWires(p, dir, [-20, -10, 0, 10, 20], ["#8f9699", "#8f9699", "#8f9699", "#8f9699", "#8f9699"], -46, -11);
   p.noStroke();
   p.fill("#cfcfca");
-  p.rect(dir * 25 - 18, -34, 36, 68, 5);
+  p.rect(dir * 25 - 26, -26, 52, 52, 5);
   p.fill("#9c9b95");
   p.circle(dir * 25, 0, 24);
   p.fill("#eeeeea");
   p.circle(dir * 25, 0, 10);
   p.fill("#606060");
-  p.rect(dir * 25 - 5, -45, 10, 18, 2);
+  p.rect(dir * 25 - 5, -37, 10, 18, 2);
 }
 
 function drawMotorControllerBox(p, x, h) {
@@ -4820,6 +5005,7 @@ function drawCircuitScene(p, {
   logicalWidth,
   logicalHeight,
   renderScale = 1,
+  hidePowerWarning = false,
 } = {}) {
   const targetScale = numberOr(renderScale, 1);
   const width = numberOr(logicalWidth, p.width);
@@ -4837,9 +5023,17 @@ function drawCircuitScene(p, {
   p.pop();
   p.push();
   p.scale(targetScale);
-  drawCircuitNote(p, model);
+  const warningBounds = drawCircuitNote(p, model, { logicalWidth: width, hidePowerWarning });
   p.pop();
-  return sceneTransform;
+  return {
+    ...sceneTransform,
+    warningBounds: warningBounds ? {
+      x: warningBounds.x * targetScale,
+      y: warningBounds.y * targetScale,
+      w: warningBounds.w * targetScale,
+      h: warningBounds.h * targetScale,
+    } : null,
+  };
 }
 
 function computeTransform(width, height, zoom = 1, panOffset = null) {
@@ -4921,6 +5115,14 @@ function screenToWorld(x, y, transform) {
     x: (x - transform.ox) / transform.scale,
     y: (y - transform.oy) / transform.scale,
   };
+}
+
+function hitScreenRect(x, y, rect) {
+  return !!rect
+    && x >= rect.x
+    && x <= rect.x + rect.w
+    && y >= rect.y
+    && y <= rect.y + rect.h;
 }
 
 function makeSmallLine(text) {

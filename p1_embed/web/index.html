@@ -50,6 +50,7 @@
             <button id="stop-button" class="button icon-buttonish" type="button" disabled title="Stop" aria-label="Stop"><span class="material-symbols-rounded">stop</span></button>
             <button id="get-script-button" class="button icon-buttonish" type="button" disabled title="Load running script" aria-label="Load running script"><span class="material-symbols-rounded">file_open</span></button>
             <button id="format-code-button" class="button icon-buttonish" type="button" disabled title="Format code" aria-label="Format code"><span class="material-symbols-rounded">format_align_left</span></button>
+            <button id="editor-theme-button" class="button icon-buttonish" type="button" disabled title="Use Xcode theme" aria-label="Use Xcode theme" aria-pressed="false"><span class="material-symbols-rounded">light_mode</span></button>
             <span class="toolbar-divider toolbar-push" aria-hidden="true"></span>
             <div id="upload-status" class="upload-status is-hidden" aria-live="polite">
               <span class="material-symbols-rounded upload-status-icon">progress_activity</span>
@@ -170,17 +171,30 @@
       </section>
 
       <section id="circuit-view" class="view circuit-view" aria-label="Circuit">
+        <header class="circuit-toolbar">
+          <div class="project-control-cluster" aria-label="Project controls">
+            <button id="circuit-connect-button" class="button primary icon-buttonish" type="button" title="Connect" aria-label="Connect"><span class="material-symbols-rounded">link</span></button>
+            <button id="circuit-new-sketch-button" class="button icon-buttonish" type="button" title="New project" aria-label="New project"><span class="material-symbols-rounded">note_add</span></button>
+            <button id="circuit-new-revision-button" class="button icon-buttonish" type="button" title="New revision" aria-label="New revision"><span class="material-symbols-rounded">post_add</span></button>
+            <button id="circuit-download-code-button" class="button icon-buttonish" type="button" disabled title="Download project code" aria-label="Download project code"><span class="material-symbols-rounded">download</span></button>
+            <select id="circuit-project-select" class="compact-select project-select" title="Project" aria-label="Project">
+              <option value="">project</option>
+            </select>
+            <select id="circuit-revision-select" class="compact-select sketch-history" title="Revision" aria-label="Revision">
+              <option value="">revision</option>
+            </select>
+          </div>
+          <span class="toolbar-divider toolbar-push" aria-hidden="true"></span>
+          <select id="circuit-board-select" class="compact-select circuit-board-select" title="Board layout" aria-label="Board layout">
+            <option value="esp32-classic">ESP32</option>
+            <option value="esp32-d1-mini">ESP32 D1 mini</option>
+          </select>
+          <button id="circuit-refresh-button" class="button icon-buttonish" type="button" title="Regenerate and save positions" aria-label="Regenerate and save positions"><span class="material-symbols-rounded">refresh</span></button>
+          <button id="circuit-download-button" class="button icon-buttonish" type="button" title="Download diagram" aria-label="Download diagram"><span class="material-symbols-rounded">download</span></button>
+          <button id="circuit-art-mode-button" class="button icon-buttonish circuit-art-mode-button" type="button" title="Circuit symbol mode" aria-label="Toggle circuit artwork mode" aria-pressed="false"><span class="material-symbols-rounded">category</span></button>
+        </header>
         <section class="circuit-shell">
           <div id="circuit-canvas" class="circuit-canvas" aria-label="Inferred circuit drawing">
-            <div class="circuit-canvas-actions">
-              <select id="circuit-board-select" class="circuit-board-select" title="Board layout" aria-label="Board layout">
-                <option value="esp32-classic">ESP32</option>
-                <option value="esp32-d1-mini">ESP32 D1 mini</option>
-              </select>
-              <button id="circuit-refresh-button" class="circuit-canvas-action-button" type="button" title="Regenerate and save positions" aria-label="Regenerate and save positions"><span class="material-symbols-rounded">refresh</span></button>
-              <button id="circuit-download-button" class="circuit-canvas-action-button" type="button" title="Download diagram" aria-label="Download diagram"><span class="material-symbols-rounded">download</span></button>
-              <button id="circuit-art-mode-button" class="circuit-canvas-action-button circuit-art-mode-button" type="button" title="Circuit symbol mode" aria-label="Toggle circuit artwork mode" aria-pressed="false"><span class="material-symbols-rounded">category</span></button>
-            </div>
             <div id="circuit-alternatives" class="circuit-alternatives" hidden></div>
           </div>
           <aside class="circuit-side">
@@ -517,6 +531,7 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/ace/1.43.3/ext-beautify.min.js" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/ace/1.43.3/mode-javascript.min.js" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/ace/1.43.3/theme-chaos.min.js" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/ace/1.43.3/theme-xcode.min.js" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
     <script src="https://unpkg.com/mqtt/dist/mqtt.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.9.4/p5.min.js" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
     <script src="../../P1/portal/usbSerial.js"></script>

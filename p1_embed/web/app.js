@@ -63,6 +63,7 @@ const storage = {
   specificationDraft: "p1_embed.project.specificationDraft",
   revisionDraft: "p1_embed.project.revisionDraft",
   specificationMode: "p1_embed.project.specificationMode",
+  editorTheme: "p1_embed.editor.theme",
   circuitArtMode: "p1_embed.circuit.artMode",
   circuitBoardType: "p1_embed.circuit.boardType",
 };
@@ -141,7 +142,9 @@ const els = {
   uploadStatusProgress: document.querySelector("#upload-status-progress"),
   downloadCode: document.querySelector("#download-code-button"),
   formatCode: document.querySelector("#format-code-button"),
+  editorTheme: document.querySelector("#editor-theme-button"),
   chatDownloadCode: document.querySelector("#chat-download-code-button"),
+  circuitDownloadCode: document.querySelector("#circuit-download-code-button"),
   projectSelect: document.querySelector("#project-select"),
   sketchHistory: document.querySelector("#sketch-history"),
   settings: document.querySelector("#settings-button"),
@@ -227,6 +230,11 @@ const els = {
   specificationMode: document.querySelector("#spec-mode"),
   specificationGenerate: document.querySelector("#spec-generate-button"),
   circuitRefresh: document.querySelector("#circuit-refresh-button"),
+  circuitConnect: document.querySelector("#circuit-connect-button"),
+  circuitNewSketch: document.querySelector("#circuit-new-sketch-button"),
+  circuitNewRevision: document.querySelector("#circuit-new-revision-button"),
+  circuitProjectSelect: document.querySelector("#circuit-project-select"),
+  circuitRevisionSelect: document.querySelector("#circuit-revision-select"),
   circuitBoardSelect: document.querySelector("#circuit-board-select"),
   circuitArtMode: document.querySelector("#circuit-art-mode-button"),
   circuitDownload: document.querySelector("#circuit-download-button"),
@@ -256,6 +264,7 @@ const els = {
 let transport = null;
 let client = null;
 let editor = null;
+let currentEditorTheme = "chaos";
 let lastInfo = null;
 let lastStatus = null;
 let consoleLines = [];
@@ -413,10 +422,41 @@ function recoverReturnedConnection() {
   maybeReconnectAfterReturn();
 }
 
+function normalizeEditorTheme(theme) {
+  return String(theme || "").toLowerCase() === "xcode" ? "xcode" : "chaos";
+}
+
+function getStoredEditorTheme() {
+  return normalizeEditorTheme(localStorage.getItem(storage.editorTheme));
+}
+
+function updateEditorThemeButton(theme = currentEditorTheme) {
+  if (!els.editorTheme) return;
+  const normalized = normalizeEditorTheme(theme);
+  const isXcode = normalized === "xcode";
+  els.editorTheme.classList.toggle("is-active", isXcode);
+  els.editorTheme.setAttribute("aria-pressed", isXcode ? "true" : "false");
+  els.editorTheme.title = isXcode ? "Use Chaos theme" : "Use Xcode theme";
+  els.editorTheme.setAttribute("aria-label", els.editorTheme.title);
+  const icon = els.editorTheme.querySelector(".material-symbols-rounded");
+  if (icon) icon.textContent = isXcode ? "dark_mode" : "light_mode";
+}
+
+function applyEditorTheme(theme, { persist = false } = {}) {
+  currentEditorTheme = normalizeEditorTheme(theme);
+  if (editor) editor.setTheme(`ace/theme/${currentEditorTheme}`);
+  if (persist) localStorage.setItem(storage.editorTheme, currentEditorTheme);
+  updateEditorThemeButton(currentEditorTheme);
+}
+
+function toggleEditorTheme() {
+  applyEditorTheme(currentEditorTheme === "xcode" ? "chaos" : "xcode", { persist: true });
+}
+
 function initEditor() {
   if (window.ace) {
     editor = window.ace.edit(els.aceHost);
-    editor.setTheme("ace/theme/chaos");
+    applyEditorTheme(getStoredEditorTheme());
     editor.session.setMode("ace/mode/javascript");
     editor.session.setUseWorker(false);
     editor.session.setUseWrapMode(true);
@@ -433,7 +473,9 @@ function initEditor() {
     });
     els.aceHost.classList.add("is-active");
     els.code.classList.add("is-hidden");
+    if (els.editorTheme) els.editorTheme.disabled = false;
   } else {
+    if (els.editorTheme) els.editorTheme.disabled = true;
     els.code.addEventListener("input", () => {
       handleEditorInput();
     });
@@ -515,6 +557,7 @@ function bindControls() {
   els.lowerTabs.forEach((tab) => tab.addEventListener("click", () => switchLowerPanel(tab.dataset.panel)));
   els.connect.addEventListener("click", toggleConnection);
   els.chatConnect.addEventListener("click", toggleConnection);
+  els.circuitConnect?.addEventListener("click", toggleConnection);
   els.usbConnect.addEventListener("click", connectUsb);
   els.newWsToggle.addEventListener("click", showNewWsField);
   els.newWsConnect.addEventListener("click", () => connectWebSocket(els.websocketUrl.value));
@@ -527,6 +570,8 @@ function bindControls() {
   els.newRevision.addEventListener("click", () => runUiAction(createCleanRevision, "new revision"));
   els.chatNewSketch.addEventListener("click", () => runUiAction(createNewSketch, "new sketch"));
   els.chatNewRevision.addEventListener("click", () => runUiAction(createCleanRevision, "new revision"));
+  els.circuitNewSketch?.addEventListener("click", () => runUiAction(createNewSketch, "new sketch"));
+  els.circuitNewRevision?.addEventListener("click", () => runUiAction(createCleanRevision, "new revision"));
   els.reboot.addEventListener("click", () => runUiAction(() => sendCommand("device.reboot"), "rebooting"));
   els.run.addEventListener("click", runScriptFromToolbar);
   els.stop.addEventListener("click", () => runUiAction(() => sendCommand("script.stop").then(refreshStatus), "stopping"));
@@ -534,7 +579,9 @@ function bindControls() {
   els.chatStop.addEventListener("click", () => runUiAction(() => sendCommand("script.stop").then(refreshStatus), "stopping"));
   els.downloadCode.addEventListener("click", () => runUiAction(downloadProject, "download"));
   els.chatDownloadCode.addEventListener("click", () => runUiAction(downloadProject, "download"));
+  els.circuitDownloadCode?.addEventListener("click", () => runUiAction(downloadProject, "download"));
   els.formatCode.addEventListener("click", () => runUiAction(formatEditorCode, "formatting"));
+  els.editorTheme?.addEventListener("click", toggleEditorTheme);
   [els.circuitBoardSelect, els.circuitRefresh, els.circuitArtMode, els.circuitDownload].forEach((button) => {
     ["pointerdown", "mousedown", "mouseup", "pointerup", "click"].forEach((name) => {
       button?.addEventListener(name, (event) => event.stopPropagation());
@@ -542,11 +589,11 @@ function bindControls() {
   });
   els.circuitArtMode.addEventListener("click", toggleCircuitArtMode);
   els.circuitBoardSelect?.addEventListener("change", () => setCircuitBoardType(els.circuitBoardSelect.value));
-  [els.projectSelect, els.generativeProjectSelect].forEach((select) => {
+  [els.projectSelect, els.generativeProjectSelect, els.circuitProjectSelect].filter(Boolean).forEach((select) => {
     select.addEventListener("input", () => scheduleProjectSelect(select.value));
     select.addEventListener("change", () => scheduleProjectSelect(select.value));
   });
-  [els.sketchHistory, els.generativeRevisionSelect].forEach((select) => {
+  [els.sketchHistory, els.generativeRevisionSelect, els.circuitRevisionSelect].filter(Boolean).forEach((select) => {
     select.addEventListener("input", () => scheduleRevisionSelect(select.value));
     select.addEventListener("change", () => scheduleRevisionSelect(select.value));
   });
@@ -736,6 +783,7 @@ function initCircuit() {
     onComponentOverride: applyCircuitComponentOverride,
     onComponentPlacement: applyCircuitComponentPlacement,
     onBoardPlacement: applyCircuitBoardPlacement,
+    onViewportPlacement: applyCircuitViewportPlacement,
   });
   setCircuitArtMode(normalizeCircuitArtMode(localStorage.getItem(storage.circuitArtMode)), { persist: false });
   setCircuitBoardType(normalizeCircuitBoardType(localStorage.getItem(storage.circuitBoardType)), { persist: false });
@@ -771,6 +819,15 @@ function setCircuitBoardType(type, { persist = true } = {}) {
   if (persist) localStorage.setItem(storage.circuitBoardType, next);
   if (els.circuitBoardSelect) els.circuitBoardSelect.value = next;
   circuitView?.setBoardType?.(next);
+  if (persist) {
+    const current = getEditorValue();
+    const updated = upsertCircuitBoardPlacementComment(current, next);
+    if (updated !== current) {
+      setEditorValueRaw(updated, { persist: true });
+      circuitChatLayout = null;
+      updateCircuitView("board type saved");
+    }
+  }
 }
 
 function scheduleCircuitUpdate() {
@@ -783,6 +840,11 @@ function scheduleCircuitUpdate() {
 function updateCircuitView(status = "") {
   if (!circuitView) return;
   const model = inferCircuitLayout(getEditorValue(), circuitChatLayout);
+  const project = projectCache.find((item) => item.id === currentProjectId) || null;
+  const revision = project?.revisions?.find((item) => item.id === currentRevisionId) || null;
+  model.projectTitle = normalizeProjectName(project?.name || "");
+  model.revisionTitle = normalizeSketchName(currentSketchName || revision?.name || "");
+  model.viewportKey = `${currentProjectId || ""}:${currentRevisionId || ""}:${currentSketchName || ""}`;
   circuitView.setModel(model);
   if (els.circuitStatus) {
     const count = model.components?.length || 0;
@@ -828,6 +890,15 @@ function applyCircuitBoardPlacement({ type, cx, cy } = {}) {
   circuitChatLayout = null;
   updateCircuitView("board placement saved");
   logLine("info", `circuit board placement saved: ${boardType} ${Math.round(cx)}%, ${Math.round(cy)}%`);
+}
+
+function applyCircuitViewportPlacement({ zoom, panX, panY } = {}) {
+  if (!Number.isFinite(zoom) || !Number.isFinite(panX) || !Number.isFinite(panY)) return;
+  const current = getEditorValue();
+  const next = upsertCircuitViewportComment(current, zoom, panX, panY);
+  if (next === current) return;
+  setEditorValueRaw(next, { persist: true });
+  circuitChatLayout = null;
 }
 
 function resetCircuitLayoutPositions() {
@@ -993,15 +1064,36 @@ function circuitPlacementHintRegex(key) {
 }
 
 function upsertCircuitBoardPlacementComment(code, type, cx, cy) {
-  const roundedX = Math.round(Math.max(-50, Math.min(150, Number(cx))));
-  const roundedY = Math.round(Math.max(-50, Math.min(150, Number(cy))));
   const lines = String(code || "").split("\n");
-  const hint = `// p1e-circuit-board: type=${type} cx=${roundedX} cy=${roundedY}`;
   const existingIndex = lines.findIndex((line) => /\/\/\s*p1e-circuit-board:/i.test(line));
+  const existing = existingIndex >= 0 ? lines[existingIndex] : "";
+  const existingX = existing.match(/\bcx\s*=\s*(-?\d{1,3})\b/i)?.[1];
+  const existingY = existing.match(/\bcy\s*=\s*(-?\d{1,3})\b/i)?.[1];
+  const sourceX = Number.isFinite(Number(cx)) ? Number(cx) : Number(existingX ?? 50);
+  const sourceY = Number.isFinite(Number(cy)) ? Number(cy) : Number(existingY ?? 50);
+  const roundedX = Math.round(Math.max(-50, Math.min(150, sourceX)));
+  const roundedY = Math.round(Math.max(-50, Math.min(150, sourceY)));
+  const hint = `// p1e-circuit-board: type=${type} cx=${roundedX} cy=${roundedY}`;
   if (existingIndex >= 0) {
     lines[existingIndex] = hint;
   } else {
     lines.unshift(hint);
+  }
+  return lines.join("\n");
+}
+
+function upsertCircuitViewportComment(code, zoom, panX, panY) {
+  const roundedZoom = Math.round(Math.max(0.5, Math.min(4, Number(zoom))) * 100) / 100;
+  const roundedPanX = Math.round(Math.max(-9999, Math.min(9999, Number(panX))));
+  const roundedPanY = Math.round(Math.max(-9999, Math.min(9999, Number(panY))));
+  const lines = String(code || "").split("\n");
+  const hint = `// p1e-circuit-view: zoom=${roundedZoom.toFixed(2)} panX=${roundedPanX} panY=${roundedPanY}`;
+  const existingIndex = lines.findIndex((line) => /\/\/\s*p1e-circuit-view:/i.test(line));
+  if (existingIndex >= 0) {
+    lines[existingIndex] = hint;
+  } else {
+    const boardIndex = lines.findIndex((line) => /\/\/\s*p1e-circuit-board:/i.test(line));
+    lines.splice(boardIndex >= 0 ? boardIndex + 1 : 0, 0, hint);
   }
   return lines.join("\n");
 }
@@ -3866,7 +3958,7 @@ function renderProjectSelectors(projects = projectCache) {
   projects.forEach((project) => {
     options.push(new Option(project.name || "Untitled Project", project.id));
   });
-  [els.projectSelect, els.generativeProjectSelect].forEach((select) => {
+  [els.projectSelect, els.generativeProjectSelect, els.circuitProjectSelect].filter(Boolean).forEach((select) => {
     select.replaceChildren(...options.map((option) => new Option(option.textContent, option.value)));
     select.value = currentProjectId || "";
     select.disabled = projects.length === 0;
@@ -3884,7 +3976,7 @@ function renderRevisionSelectors(project) {
     const label = name ? `${name} / ${size}` : size;
     options.push(new Option(label, revision.id));
   });
-  [els.sketchHistory, els.generativeRevisionSelect].forEach((select) => {
+  [els.sketchHistory, els.generativeRevisionSelect, els.circuitRevisionSelect].filter(Boolean).forEach((select) => {
     select.replaceChildren(...options.map((option) => new Option(option.textContent, option.value)));
     select.value = currentRevisionId || "";
     select.disabled = revisions.length === 0;
@@ -7089,7 +7181,7 @@ function buildChatInstructions(context) {
     "Project specification rule: describe only the current resulting sketch in concise present tense. Do not write a changelog, transcript, reflection, or iterative phrasing such as now, updated to, changed from, without X, instead of, previously, the user asked, or this revision. If behavior was removed, omit the removed behavior and describe the final behavior.",
     "Use only this Markdown subset in project_specification: # through #### headings, **bold**, *italic*, <u>underline</u>, numbered lists, and bullet lists.",
     "Specification modes: overview means high-level human description; middle means important implementation details without pseudocode; structured means sections like Program, Global values, Setup, and Main loop in Markdown/plain text.",
-    "Do not generate a circuit diagram layout. Always return circuit_layout as an empty object. The browser infers the diagram from code and // p1e-circuit comments near pin variables. Add these comments whenever the user's words choose a specific physical part that generic code cannot prove. Use exact component keys such as led, relay, buzzer, servo, largeServo, fan, dcMotor, stepperMotor, ledStrip, neopixelRing, potentiometer, analogMeter, microphone, distanceSensor, analogSensor, digitalSensor, button, touchPad, vl53l0x, uda1334a, ld2410c. If the user says large/big/high-torque servo, write largeServo, never plain servo. If the user says potentiometer/knob/dial, write potentiometer. If the user says GY-VL53L0XV2/Laser ToF, write vl53l0x. If the user says UDA1334A/I2S stereo decoder, write uda1334a. If the user says Hi-Link LD2410C/microwave radar, write ld2410c. If the user says LED string/strip/bar or NeoPixel strip, write ledStrip. Example: var servoPin = 16; // p1e-circuit: IO16 largeServo",
+    "Do not generate a circuit diagram layout. Always return circuit_layout as an empty object. The browser infers the diagram from code and // p1e-circuit comments near pin variables. Add these comments whenever the user's words choose a specific physical part that generic code cannot prove. Use exact component keys such as led, relay, buzzer, servo, largeServo, fan, dcMotor, stepperMotor, ledStrip, neopixelRing, potentiometer, analogMeter, microphone, distanceSensor, analogSensor, digitalSensor, button, touchPad, imu, mp3Player, vl53l0x, uda1334a, ld2410c. If the user says IMU/MPU/gyro/accelerometer, write imu and use wireBegin(SDA, SCL); do not invent an analog IMU data pin. If the user says MP3 player, DFPlayer, or MP3 trigger, write mp3Player; a GPIO trigger/play pin is an output/control wire to the player, not a digitalSensor. If the user says large/big/high-torque servo, write largeServo, never plain servo. If the user says potentiometer/knob/dial, write potentiometer. If the user says GY-VL53L0XV2/Laser ToF, write vl53l0x. If the user says UDA1334A/I2S stereo decoder, write uda1334a. If the user says Hi-Link LD2410C/microwave radar, write ld2410c. If the user says LED string/strip/bar or NeoPixel strip, write ledStrip. Example: var servoPin = 16; // p1e-circuit: IO16 largeServo",
     "When generated code reads a named physical input, add a short ordinary comment immediately before the read, such as // Read the potentiometer. before analogRead(potPin), // Read the microphone. before analogRead(micPin), or // Read the button. before digitalRead(buttonPin). Keep these comments concrete and physical, not generic sensor wording when the part is known.",
     "GPIO rule: pinMode uses firmware constants such as INPUT, OUTPUT, INPUT_PULLUP, and INPUT_PULLDOWN when available. Write pinMode(powerPin, OUTPUT), never pinMode(powerPin, \"OUTPUT\"). digitalWrite should use HIGH/LOW if available or 1/0, never string values.",
     "Declare scratch variables at the top of each function and assign them inside while/if blocks. Avoid new var declarations inside tight loops or nested blocks, especially LED render loops.",
@@ -7302,7 +7394,7 @@ function updateEnabledState() {
   const connected = isDeviceConnected();
   const canDisconnectOrCancel = Boolean(client || transport || isBusy);
   syncGuinoConnectionState();
-  [els.connect, els.chatConnect, els.uiConnect].forEach((button) => {
+  [els.connect, els.chatConnect, els.circuitConnect, els.uiConnect].forEach((button) => {
     if (!button) return;
     const connecting = isBusy && !connected;
     button.disabled = isBusy && !canDisconnectOrCancel;
@@ -7316,6 +7408,7 @@ function updateEnabledState() {
   els.downloadCode.disabled = !getEditorValue().trim();
   els.formatCode.disabled = isBusy || !getEditorValue().trim();
   els.chatDownloadCode.disabled = els.downloadCode.disabled;
+  if (els.circuitDownloadCode) els.circuitDownloadCode.disabled = els.downloadCode.disabled;
   [
     els.getScript,
     els.reboot,
@@ -7331,9 +7424,11 @@ function updateEnabledState() {
   ].forEach((el) => {
     el.disabled = !connected || isBusy;
   });
-  [els.newSketch, els.chatNewSketch].forEach((button) => {
+  [els.newSketch, els.chatNewSketch, els.circuitNewSketch].forEach((button) => {
+    if (!button) return;
     button.disabled = isBusy;
   });
+  if (els.circuitNewRevision) els.circuitNewRevision.disabled = isBusy;
   renderWifiNetworkList();
   updateChatEnabledState();
   renderConnectionHistory();
