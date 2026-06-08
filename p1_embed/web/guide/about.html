@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>About And Credits - XOBIT Guide</title>
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@24,400,0,0">
+    <link rel="stylesheet" href="site.css?v=guide-style-3">
+  </head>
+  <body data-guide-section="about">
+
+    <main>
+      <section class="page-hero panel">
+        <p class="eyebrow">About</p>
+        <h1>Credits and software foundations</h1>
+        <p class="lead">XOBIT is an ESP32 creative coding environment by <a href="https://www.hobye.dk/" target="_blank" rel="noopener">Mads Hobye</a>. It combines browser tooling, firmware scripting, online transport, circuit notes, and AI-assisted project context.</p>
+      </section>
+
+      <section>
+        <h2>Project Principles</h2>
+        <ul class="notes">
+          <li><strong>Independent by design.</strong> The main stack is firmware plus a static browser app, with optional services where they make sense.</li>
+          <li><strong>Local-first projects.</strong> Sketches, revisions, chat, and specifications stay in browser storage unless exported or shared.</li>
+          <li><strong>Physical computing as live material.</strong> Code, circuit notes, UI controls, and logs stay close to the object being made.</li>
+        </ul>
+      </section>
+
+      <section>
+        <h2>Firmware Software Credits</h2>
+        <table>
+          <thead>
+            <tr><th>Software</th><th>Used For</th><th>Source</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>Arduino core for ESP32</td><td>Arduino-compatible ESP32 runtime, board APIs, WiFi wrappers, filesystem wrappers, and build environment.</td><td><a href="https://github.com/espressif/arduino-esp32" target="_blank" rel="noopener">espressif/arduino-esp32</a></td></tr>
+            <tr><td>ESP-IDF</td><td>Underlying ESP32 platform, FreeRTOS, OTA primitives, partitions, heap APIs, networking, and system services.</td><td><a href="https://github.com/espressif/esp-idf" target="_blank" rel="noopener">espressif/esp-idf</a></td></tr>
+            <tr><td>Wrench embedded interpreter</td><td>Core scripting language used by XOBIT sketches. XOBIT bundles Wrench as <code>wrench.cpp</code> and <code>wrench.h</code> in the firmware and exposes firmware services as the XOBIT script API.</td><td><a href="https://home.workshopfriends.com/wrench/www/" target="_blank" rel="noopener">Wrench reference and source</a></td></tr>
+            <tr><td>FastLED</td><td>LED strip color management and NeoPixel-style output foundation.</td><td><a href="https://github.com/FastLED/FastLED" target="_blank" rel="noopener">FastLED/FastLED</a></td></tr>
+            <tr><td>MQTT library for Arduino</td><td>MQTT client transport used for online command, response, and event paths.</td><td><a href="https://github.com/256dpi/arduino-mqtt" target="_blank" rel="noopener">256dpi/arduino-mqtt</a></td></tr>
+            <tr><td>mbedTLS</td><td>AES, HMAC, SHA-256, TLS support, and cryptographic primitives used by secure transport and OTA verification.</td><td><a href="https://github.com/Mbed-TLS/mbedtls" target="_blank" rel="noopener">Mbed-TLS/mbedtls</a></td></tr>
+            <tr><td>LittleFS</td><td>On-board filesystem used for configuration and script storage through the ESP32 Arduino integration.</td><td><a href="https://github.com/littlefs-project/littlefs" target="_blank" rel="noopener">littlefs-project/littlefs</a></td></tr>
+            <tr><td>Preferences / NVS</td><td>Persistent settings and SafeBoot OTA request state through ESP32 non-volatile storage.</td><td><a href="https://docs.espressif.com/projects/esp-idf/en/latest/esp32/api-reference/storage/nvs_flash.html" target="_blank" rel="noopener">ESP-IDF NVS</a></td></tr>
+            <tr><td>detools</td><td>Delta patch format and in-place OTA patch application.</td><td><a href="https://github.com/eerimoq/detools" target="_blank" rel="noopener">eerimoq/detools</a></td></tr>
+            <tr><td>heatshrink</td><td>Compression component included with the embedded detools patch path.</td><td><a href="https://github.com/atomicobject/heatshrink" target="_blank" rel="noopener">atomicobject/heatshrink</a></td></tr>
+            <tr><td>arduinoWebSockets</td><td>WebSocket transport code that may still exist in firmware but is hidden for the current UI direction unless revived.</td><td><a href="https://github.com/Links2004/arduinoWebSockets" target="_blank" rel="noopener">Links2004/arduinoWebSockets</a></td></tr>
+            <tr><td>libpeer</td><td>WebRTC experiment code that may still exist in firmware but is not the active browser transport.</td><td><a href="https://github.com/sepfy/libpeer" target="_blank" rel="noopener">sepfy/libpeer</a></td></tr>
+            <tr><td>Home Assistant</td><td>Integration target and entity model for exposing XOBIT prototypes to a living environment.</td><td><a href="https://www.home-assistant.io/" target="_blank" rel="noopener">home-assistant.io</a></td></tr>
+            <tr><td>ESPHome native API</td><td>Protocol model used by the sketch-owned Home Assistant bridge, including ESPHome discovery service naming and native API entity behavior.</td><td><a href="https://esphome.io/components/api.html" target="_blank" rel="noopener">ESPHome native API</a> / <a href="https://github.com/esphome/esphome" target="_blank" rel="noopener">esphome/esphome</a></td></tr>
+            <tr><td>MessagePack</td><td>Compact binary frame format used by XOBIT protocol transports such as MQTT and serial MessagePack mode.</td><td><a href="https://msgpack.org/" target="_blank" rel="noopener">msgpack.org</a></td></tr>
+            <tr><td>Protocol Buffers</td><td>Serialization format behind the ESPHome native API messages used as the protocol basis for the Home Assistant bridge.</td><td><a href="https://protobuf.dev/" target="_blank" rel="noopener">protobuf.dev</a></td></tr>
+          </tbody>
+        </table>
+      </section>
+
+      <section>
+        <h2>Browser And Documentation Credits</h2>
+        <table>
+          <thead>
+            <tr><th>Software or Service</th><th>Used For</th><th>Source</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>Ace Editor</td><td>In-browser code editor, JavaScript/Wrench-like editing mode, code formatting extension, and editor themes loaded from cdnjs.</td><td><a href="https://ace.c9.io/" target="_blank" rel="noopener">ace.c9.io</a> / <a href="https://github.com/ajaxorg/ace" target="_blank" rel="noopener">ajaxorg/ace</a></td></tr>
+            <tr><td>MQTT.js</td><td>Browser MQTT-over-WebSocket client used for online command, response, event, and share-link transport paths.</td><td><a href="https://github.com/mqttjs/MQTT.js" target="_blank" rel="noopener">mqttjs/MQTT.js</a></td></tr>
+            <tr><td>p5.js</td><td>Canvas drawing layer used by the Circuit workspace for board diagrams, wiring, parts, and exportable circuit views.</td><td><a href="https://p5js.org/" target="_blank" rel="noopener">p5js.org</a> / <a href="https://github.com/processing/p5.js" target="_blank" rel="noopener">processing/p5.js</a></td></tr>
+            <tr><td>esptool-js</td><td>Browser firmware installer and erase/install flow. XOBIT loads <code>esptool-js@0.5.7</code> and uses it with Web Serial to flash ESP32 firmware manifests.</td><td><a href="https://github.com/espressif/esptool-js" target="_blank" rel="noopener">espressif/esptool-js</a></td></tr>
+            <tr><td>Web Serial API</td><td>Browser-to-board USB install, recovery, direct serial development, and post-install reconnect behavior.</td><td><a href="https://developer.mozilla.org/en-US/docs/Web/API/Web_Serial_API" target="_blank" rel="noopener">MDN Web Serial API</a></td></tr>
+            <tr><td>Portal USB Serial helper</td><td>Local helper script used by the editor's USB transport wrapper for serial communication with the board after firmware is installed.</td><td><code>../../P1/portal/usbSerial.js</code></td></tr>
+            <tr><td>QR code helper</td><td>Local helper script used by the browser editor for share/link QR code rendering.</td><td><code>../../P1/portal/qrCodeGen.js</code></td></tr>
+            <tr><td>cdnjs</td><td>CDN used by the current editor page for Ace Editor assets and p5.js.</td><td><a href="https://cdnjs.com/" target="_blank" rel="noopener">cdnjs.com</a></td></tr>
+            <tr><td>unpkg</td><td>CDN used by the current editor page for MQTT.js.</td><td><a href="https://unpkg.com/" target="_blank" rel="noopener">unpkg.com</a></td></tr>
+            <tr><td>esm.sh</td><td>ES module CDN used by the browser flasher to load esptool-js.</td><td><a href="https://esm.sh/" target="_blank" rel="noopener">esm.sh</a></td></tr>
+            <tr><td>Material Symbols</td><td>Icon font used by the guide and editor UI.</td><td><a href="https://fonts.google.com/icons" target="_blank" rel="noopener">Google Fonts Icons</a></td></tr>
+            <tr><td>OpenAI API</td><td>Optional chat-assisted sketch and specification workflow when an API key is configured.</td><td><a href="https://platform.openai.com/docs" target="_blank" rel="noopener">OpenAI platform docs</a></td></tr>
+          </tbody>
+        </table>
+      </section>
+
+      <section>
+        <h2>Source Notes</h2>
+        <p class="section-copy">This credits page is based on the current XOBIT firmware includes, editor HTML, browser scripts, and local guide context. Some libraries are part of the ESP32 Arduino/ESP-IDF distribution rather than copied directly into this repository. ESPHome, Protocol Buffers, and MessagePack are credited because XOBIT implements compatible protocol ideas or wire formats around them. WebRTC and WebSocket components are credited because code paths exist, but MQTT is the active online transport. The browser installer is custom XOBIT code around Web Serial and esptool-js, rather than a separate ESP Web Tools install button.</p>
+      </section>
+    </main>
+    <script src="site.js?v=guide-shell-8"></script>
+  </body>
+</html>

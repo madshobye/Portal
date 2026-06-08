@@ -2,7 +2,7 @@ const pages = {
   "core-runtime": {
     title: "Core Runtime",
     subtitle: "Logging, timing, random numbers, heap checks, and script errors.",
-    intro: "These bindings are the everyday tools for making a sketch observable and responsive. Use them to pace loop work, print diagnostics, and avoid blind debugging.",
+    intro: "These API functions are the everyday tools for making a sketch observable and responsive. Use them to pace loop work, print diagnostics, and avoid blind debugging.",
     calls: [
       {
         name: "print",
@@ -53,7 +53,7 @@ const pages = {
         signature: "freeHeap()\nlastError()\nclearError()",
         params: [],
         returns: "freeHeap returns available heap. lastError returns the current script error text. clearError clears it.",
-        notes: ["freeHeap is useful for coarse diagnostics; max contiguous heap is a firmware status field, not a Wrench binding."],
+        notes: ["freeHeap is useful for coarse diagnostics; max contiguous heap is a firmware status field, not part of the script API."],
         example: "println(freeHeap());\nif (lastError() != \"\") {\n  println(lastError());\n  clearError();\n}"
       }
     ]
@@ -61,7 +61,7 @@ const pages = {
   "math-time-sun": {
     title: "Math, Noise, Time, Sun",
     subtitle: "Numeric helpers, simplex noise, local time, and sun-derived brightness/color.",
-    intro: "Use these bindings for animation curves, physical-ish motion, clocks, daylight-aware brightness, and color temperature.",
+    intro: "Use these API functions for animation curves, physical-ish motion, clocks, daylight-aware brightness, and color temperature.",
     calls: [
       {
         name: "range helpers",
@@ -124,7 +124,7 @@ const pages = {
   "gpio-pwm": {
     title: "GPIO And PWM",
     subtitle: "Digital pins, analog reads, touch, servo control, and fan PWM.",
-    intro: "These bindings connect Wrench code to physical pins. Use firmware constants such as OUTPUT, HIGH, and LOW rather than string names.",
+    intro: "These API functions connect script code to physical pins. Use firmware constants such as OUTPUT, HIGH, and LOW rather than string names.",
     calls: [
       {
         name: "digital GPIO",
@@ -184,7 +184,7 @@ const pages = {
   "wifi-device": {
     title: "WiFi And Device",
     subtitle: "Network state, identity, uptime, and device-level helpers.",
-    intro: "Use these bindings for diagnostics and simple device configuration from sketches. WiFi settings are normally managed from Settings.",
+    intro: "Use these API functions for diagnostics and simple device configuration from sketches. WiFi settings are normally managed from Settings.",
     calls: [
       {
         name: "WiFi status",
@@ -229,7 +229,7 @@ const pages = {
   "http-json": {
     title: "HTTP And JSON",
     subtitle: "Small web requests and firmware-cached JSON extraction.",
-    intro: "For APIs, prefer fetchJson plus getJsonValue/getJsonFloat when you only need a few fields. That avoids copying large bodies into Wrench heap.",
+    intro: "For APIs, prefer fetchJson plus getJsonValue/getJsonFloat when you only need a few fields. That avoids copying large bodies into script heap.",
     calls: [
       {
         name: "HTTP GET",
@@ -240,7 +240,7 @@ const pages = {
           ["timeoutMs", "Request timeout in milliseconds."]
         ],
         returns: "Response body string, or empty string on failure.",
-        notes: ["Check httpCode and httpError after a request.", "Large response strings can pressure Wrench heap."],
+        notes: ["Check httpCode and httpError after a request.", "Large response strings can pressure script heap."],
         example: 'var body = httpGet("http://example.com/status.txt", 256, 4000);\nprintln(httpCode());\nprintln(body);'
       },
       {
@@ -289,7 +289,7 @@ const pages = {
         signature: "httpCode()\nhttpError()\nhttpTruncated()",
         params: [],
         returns: "Status code, error string, and truncation flag.",
-        notes: ["Use these after any HTTP binding to make failures visible."],
+        notes: ["Use these after any HTTP API call to make failures visible."],
         example: 'var body = httpGet("http://example.com", 512, 4000);\nif (httpCode() != 200) {\n  println(httpError());\n}'
       }
     ]
@@ -309,7 +309,7 @@ const pages = {
           ["brightness", "Global brightness 0..255 in firmware terms; many sketches use 0..100 by convention."],
           ["order", "Optional color order: RGB, RBG, GRB, GBR, BRG, or BGR."]
         ],
-        returns: "No useful return value. Binding errors stop the sketch when setup cannot proceed.",
+        returns: "No useful return value. API errors stop the sketch when setup cannot proceed.",
         notes: ["Default order is GRB.", "Changing pin or growing beyond active capacity can require reboot.", "Changing color order is allowed live."],
         example: 'function setup() {\n  ledConfig(0, 16, 144, 50);\n  ledClear(0, 1);\n}'
       },
@@ -334,7 +334,7 @@ const pages = {
           ["rgb", "Three-element array [r, g, b]."]
         ],
         returns: "No useful return value.",
-        notes: ["ledSetHsv avoids Wrench-side HSV math allocation.", "Out-of-range pixels are binding errors."],
+        notes: ["ledSetHsv avoids script-side HSV math allocation.", "Out-of-range pixels are API errors."],
         example: "ledSet(0, 0, 255, 0, 0);\nledSetHsv(0, 1, 96, 255, 180);"
       },
       {
@@ -365,7 +365,7 @@ const pages = {
   "palettes": {
     title: "Palettes",
     subtitle: "Small firmware-side gradients for animation colors.",
-    intro: "Palette bindings let a sketch define gradient slots and sample colors without manually interpolating every channel in Wrench.",
+    intro: "Palette API functions let a sketch define gradient slots and sample colors without manually interpolating every channel in script code.",
     calls: [
       {
         name: "define palettes",
@@ -486,7 +486,7 @@ const pages = {
   },
   "home-assistant": {
     title: "Home Assistant",
-    subtitle: "Experimental sketch-owned ESPHome native API entities.",
+    subtitle: "Sketch-owned ESPHome native API entities.",
     intro: "A sketch can declare entities that appear in Home Assistant. Home Assistant commands update firmware-side values, and the sketch can read or publish those values.",
     calls: [
       {
@@ -497,13 +497,13 @@ const pages = {
         ],
         returns: "No useful return value.",
         notes: ["Call before declaring entities.", "Keep HA separate from browser UI; declare entities in setup."],
-        example: 'function setup() {\n  haBegin("P1.E HA Test");\n}'
+        example: 'function setup() {\n  haBegin("XOBIT HA Test");\n}'
       },
       {
         name: "declare entities",
         signature: "haSensor(id, name, value, unit)\nhaBinarySensor(id, name, value)\nhaSwitch(id, name, value)\nhaNumber(id, name, value, min, max, step)\nhaButton(id, name)\nhaLight(id, name, brightness)\nhaOnOffLight(id, name, value)\nhaRgbLight(id, name, r, g, b, brightness)",
         params: [
-          ["id", "Stable entity id used by Wrench calls."],
+          ["id", "Stable entity id used by script calls."],
           ["name", "Display name in Home Assistant."],
           ["value", "Initial numeric or boolean value."],
           ["unit", "Sensor unit text."],
@@ -512,7 +512,7 @@ const pages = {
           ["brightness", "Light brightness 0..100."]
         ],
         returns: "No useful return value.",
-        notes: ["Missing ids in later calls are binding errors.", "Use haOnOffLight when you do not want a brightness slider."],
+        notes: ["Missing ids in later calls are API errors.", "Use haOnOffLight when you do not want a brightness slider."],
         example: "var brightness = 40;\n\nfunction setup() {\n  haBegin(\"Desk Lamp\");\n  haLight(\"lamp\", \"Desk Lamp\", brightness);\n  haButton(\"next_mode\", \"Next Mode\");\n}"
       },
       {
@@ -536,7 +536,7 @@ const pages = {
           ["type", "Event type such as press or set."]
         ],
         returns: "haEvent/haPoll/haEventIs return 1/0. haEventValue returns numeric value. haEventType returns text.",
-        notes: ["haEvent finds and removes only the latest matching event.", "haPress emits a Wrench-originated button press toward Home Assistant."],
+        notes: ["haEvent finds and removes only the latest matching event.", "haPress emits a script-originated button press toward Home Assistant."],
         example: "if (haEvent(\"next_mode\", \"press\")) {\n  println(\"next mode\");\n}\n\nif (someLocalButtonPressed) {\n  haPress(\"next_mode\");\n}"
       }
     ]
@@ -616,9 +616,9 @@ function renderCall(call) {
 }
 
 function render() {
-  const key = document.body.dataset.bindingPage;
+  const key = document.body.dataset.apiPage;
   const page = pages[key] || pages["core-runtime"];
-  document.title = `${page.title} - P1.E Guide`;
+  document.title = `${page.title} - XOBIT Guide`;
   document.querySelector("[data-page-title]").textContent = page.title;
   document.querySelector("[data-page-subtitle]").textContent = page.subtitle;
   document.querySelector("[data-page-intro]").textContent = page.intro;

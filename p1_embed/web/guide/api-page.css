@@ -1,0 +1,108 @@
+.grid[data-call-grid] {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-items: start;
+}
+
+.grid[data-call-grid] .card {
+  overflow: hidden;
+  padding: 0;
+  background: var(--paper);
+}
+
+.grid[data-call-grid] .card header {
+  padding: 13px 14px;
+  border-bottom: 1px solid var(--rule);
+  background: var(--paper-3);
+}
+
+.grid[data-call-grid] .card header h3 {
+  font-size: 17px;
+}
+
+.card-body {
+  padding: 14px;
+}
+
+.signature {
+  margin: 0;
+  color: #9ee0ad;
+}
+
+.params {
+  display: grid;
+  gap: 0;
+  margin: 12px 0 0;
+  border-top: 1px solid var(--rule-soft);
+}
+
+.param {
+  display: grid;
+  grid-template-columns: minmax(96px, 0.35fr) minmax(0, 1fr);
+  gap: 10px;
+  padding: 9px 0;
+  border-bottom: 1px solid var(--rule-soft);
+}
+
+.param code {
+  color: var(--ink);
+  background: transparent;
+  border-color: transparent;
+  padding-left: 0;
+}
+
+.param span,
+.returns,
+.note-list {
+  color: var(--soft-ink);
+  line-height: 1.5;
+}
+
+.returns {
+  margin-top: 12px;
+}
+
+.note-list {
+  margin: 12px 0 0;
+  padding-left: 18px;
+}
+
+.note-list li + li {
+  margin-top: 6px;
+}
+
+pre.example {
+  margin: 12px 0 0;
+}
+
+.related {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 18px;
+}
+
+.related a {
+  padding: 8px 11px;
+  border: 1px solid var(--rule);
+  border-radius: 999px;
+  color: var(--soft-ink);
+  background: var(--paper-2);
+  font-size: 13px;
+  text-decoration: none;
+}
+
+.related a:hover {
+  color: var(--ink);
+  background: var(--paper-2);
+  border-color: var(--accent);
+}
+
+@media (max-width: 880px) {
+  .grid[data-call-grid] {
+    grid-template-columns: 1fr;
+  }
+
+  .param {
+    grid-template-columns: 1fr;
+  }
+}

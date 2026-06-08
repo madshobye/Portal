@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>USB And Online Control - XOBIT Guide</title>
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@24,400,0,0">
+    <link rel="stylesheet" href="../site.css?v=guide-style-3">
+  </head>
+  <body data-guide-section="overview">
+    <main>
+      <section class="page-hero panel">
+        <p class="eyebrow">Capability</p>
+        <h1>USB and online control</h1>
+        <p class="lead">USB is the trusted desk connection. MQTT is the online path once the board joins WiFi. Both transports aim at the same project workflow: upload scripts, read logs, receive UI events, and inspect board state.</p>
+      </section>
+
+      <section>
+        <h2>Connection Roles</h2>
+        <div class="two-grid">
+          <article class="card"><span class="material-symbols-rounded">usb</span><strong>USB</strong><p>Used for first install, recovery, direct development, and trusted local communication through Web Serial in Chrome-based browsers.</p></article>
+          <article class="card"><span class="material-symbols-rounded">cloud</span><strong>Online MQTT</strong><p>Used when the board is on WiFi and should be controlled without a cable. MQTT carries commands, responses, events, logs, and script uploads.</p></article>
+        </div>
+      </section>
+
+      <section>
+        <h2>How It Works</h2>
+        <ol class="steps">
+          <li><strong>Install or connect over USB.</strong> Web Serial lets the browser talk directly to the ESP32 for install and development.</li>
+          <li><strong>Save WiFi settings.</strong> The board stores network details and reconnects after reboot.</li>
+          <li><strong>Add online users.</strong> Username/password-derived keys are used for online sign-in and encrypted MQTT sessions.</li>
+          <li><strong>Use MQTT topics.</strong> The board listens for commands and publishes responses, events, and hello/status messages under its root/device topic.</li>
+          <li><strong>Keep USB as recovery.</strong> If online settings are wrong, USB remains the clean way back in.</li>
+        </ol>
+      </section>
+
+      <section>
+        <h2>Related Reference</h2>
+        <div class="reference-grid">
+          <a class="reference-card" href="../first-run.html"><span class="material-symbols-rounded">start</span><strong>First run walkthrough</strong><p>Install, WiFi, users, and first online connection.</p></a>
+          <a class="reference-card" href="../api/wifi-device.html"><span class="material-symbols-rounded">wifi</span><strong>WiFi and device API</strong><p>Read WiFi status and device information from the script.</p></a>
+          <a class="reference-card" href="ota-firmware.html"><span class="material-symbols-rounded">system_update_alt</span><strong>OTA firmware</strong><p>How online firmware update fits into SafeBoot.</p></a>
+        </div>
+      </section>
+    </main>
+    <script src="../site.js?v=guide-shell-8"></script>
+  </body>
+</html>
