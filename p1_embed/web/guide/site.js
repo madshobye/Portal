@@ -8,6 +8,7 @@
     ["first-run", "First Run", "first-run.html"],
     ["wrench", "Script", "wrench-language.html"],
     ["api", "API", "api.html"],
+    ["security", "Security", "security.html"],
     ["about", "About", "about.html"]
   ];
 
@@ -16,6 +17,7 @@
     const name = location.pathname.split("/").pop();
     if (name === "first-run.html") return "first-run";
     if (name === "wrench-language.html") return "wrench";
+    if (name === "security.html") return "security";
     if (name === "about.html") return "about";
     if (location.pathname.includes("/api/")) return "api";
     return "overview";
