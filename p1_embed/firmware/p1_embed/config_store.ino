@@ -49,6 +49,14 @@ static char g_mqttRoot[P1_CONFIG_MQTT_ROOT_MAX] = "";
 static char g_mqttUser[P1_CONFIG_MQTT_USER_MAX] = "";
 static char g_mqttPassword[P1_CONFIG_MQTT_PASSWORD_MAX] = "";
 static bool g_mqttEnabled = true;
+
+// SECURITY DEFAULTS: fresh boards must not expose online control by accident.
+// These three booleans are independent access surfaces:
+//   g_allowUnauthenticatedAccess  -> full unauthenticated MQTT command control
+//   g_mqttAllowAnonymousUi        -> limited guest UI commands with guest key
+//   g_mqttAllowAnonymousScript    -> script text inbox/outbox over MQTT
+// Do not combine these into a hierarchy or require the full-control flag for
+// guest UI/script. Only change this policy for a clear security-design request.
 static bool g_allowUnauthenticatedAccess = false;
 static bool g_mqttAllowAnonymousUi = false;
 static bool g_mqttAllowAnonymousScript = false;
@@ -538,6 +546,9 @@ void configLoad() {
     if (configJsonGetString(json, "mqttPassword", value)) configSetText(g_mqttPassword, sizeof(g_mqttPassword), value, false);
     else changed = true;
     if (!configJsonGetBool(json, "mqttEnabled", g_mqttEnabled)) changed = true;
+
+    // Missing auth fields mean closed defaults. Keep these defaults explicit:
+    // a schema upgrade or fresh board must never infer open online access.
     if (!configJsonGetBool(json, "allowUnauthenticatedAccess", g_allowUnauthenticatedAccess)) {
       g_allowUnauthenticatedAccess = false;
       changed = true;
@@ -634,6 +645,9 @@ void configFactoryReset() {
   configSetText(g_mqttUser, sizeof(g_mqttUser), P1_EMBED_MQTT_USER);
   configSetText(g_mqttPassword, sizeof(g_mqttPassword), P1_EMBED_MQTT_PASS, false);
   g_mqttEnabled = true;
+
+  // Factory reset / first config returns to closed online defaults. These
+  // flags are independent; do not make guest UI/script depend on full control.
   g_allowUnauthenticatedAccess = false;
   g_mqttAllowAnonymousUi = false;
   g_mqttAllowAnonymousScript = false;
@@ -750,6 +764,9 @@ void configSetMqttEnabled(bool value) {
   g_mqttEnabled = value;
 }
 
+// SECURITY SETTERS: keep these independent. The full-control flag opens normal
+// unauthenticated MQTT commands. The guest flags open only their named limited
+// surfaces. Do not cross-toggle them or silently enable one from another.
 void configSetAllowUnauthenticatedAccess(bool value) {
   g_allowUnauthenticatedAccess = value;
 }

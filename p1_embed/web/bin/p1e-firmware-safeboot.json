@@ -1,6 +1,6 @@
 {
   "name": "XOBIT ESP32 classic SafeBoot",
-  "version": "0.1.185",
+  "version": "0.1.186",
   "flashMode": "dio",
   "flashFreq": "80m",
   "flashSize": "4MB",

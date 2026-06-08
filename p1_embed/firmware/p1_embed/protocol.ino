@@ -230,6 +230,10 @@ static void protocolSendCommandConfig(P1ProtocolReplyMode replyMode, uint32_t ms
 }
 
 static bool protocolSourceAllowsOtaWrite(P1ProtocolSource source) {
+  // SECURITY POLICY: OTA mutation is intentionally stricter than general MQTT.
+  // USB is trusted physical recovery. MQTT OTA writes require an authenticated
+  // secure session, even when full or guest unauthenticated MQTT is enabled.
+  // Keep all OTA prepare/boot/clear checks routed through this one gate.
   if (source == P1_PROTOCOL_SOURCE_SERIAL) return true;
   if (source == P1_PROTOCOL_SOURCE_MQTT) return mqttTransportCurrentSessionAuthenticated();
   return false;

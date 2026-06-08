@@ -12,8 +12,8 @@
       <section class="page-hero panel">
         <p class="eyebrow">Security</p>
         <h1>Security architecture</h1>
-        <p class="lead">This page describes the current XOBIT security model as implemented in the browser editor and ESP32 firmware. It is a technical walkthrough of trust boundaries, stored secrets, transport rules, and settings.</p>
-        <p class="fine-print">Status: current architecture note, not a third-party audit or security certification.</p>
+        <p class="lead">Implementation snapshot of the XOBIT security model: trust boundaries, stored secrets, transport rules, and operator settings.</p>
+        <p class="fine-print">This is not a third-party audit or security certification.</p>
       </section>
 
       <section>
@@ -27,7 +27,7 @@
             <tr><td>USB transport</td><td>Web Serial and esptool-js</td><td>USB access requires the browser permission picker. Once granted, the browser can install firmware, configure the board, upload scripts, and read logs. USB is the recovery and first-install authority.</td></tr>
             <tr><td>Board storage</td><td>LittleFS <code>/config.json</code>, script files, and NVS state</td><td>The ESP32 stores WiFi credentials, MQTT settings, online auth keys, guest flags, guest key, device identity, and scripts locally. This storage is not presented as encrypted-at-rest.</td></tr>
             <tr><td>MQTT broker</td><td>MQTT.js in the browser, Arduino MQTT on firmware</td><td>Broker username/password only controls broker access. XOBIT protocol authorization is separate and happens inside the MQTT payload layer.</td></tr>
-            <tr><td>XOBIT online protocol</td><td>MessagePack frames, challenge auth, AES-CTR, and HMAC-SHA256</td><td>MQTT control requires a named online user by default. Unauthenticated online control is only available when the global unauthenticated-access setting is deliberately enabled. After sign-in, MQTT command/response payloads are encrypted and authenticated by the XOBIT session layer.</td></tr>
+            <tr><td>XOBIT online protocol</td><td>MessagePack frames, challenge auth, AES-CTR, and HMAC-SHA256</td><td>Full MQTT control requires a named online user by default. Full unauthenticated online control is only available when its dedicated setting is deliberately enabled. Guest UI and guest script access are separate limited permissions. After sign-in, MQTT command/response payloads are encrypted and authenticated by the XOBIT session layer.</td></tr>
             <tr><td>AI service</td><td>OpenAI API over browser HTTPS requests</td><td>The OpenAI API key is stored in the browser and sent to OpenAI when AI features are used. XOBIT does not proxy the key through its own server.</td></tr>
             <tr><td>Firmware update</td><td>USB install and optional SafeBoot OTA path</td><td>USB remains the recovery path. OTA is configuration-dependent and validates requested source/target update metadata; it should not be treated as the only recovery mechanism.</td></tr>
           </tbody>
@@ -39,7 +39,7 @@
         <ul class="notes">
           <li><strong>Project data.</strong> Projects, revisions, chat transcript, specification text, editor state, UI preferences, connection history, and circuit preferences are stored in browser local storage or related browser storage.</li>
           <li><strong>OpenAI key.</strong> The API key is stored directly in local storage under the editor's chat API key setting. It is available to JavaScript running in the page and should be cleared on shared machines.</li>
-          <li><strong>MQTT settings.</strong> Broker host, port, root, username, and password can be stored in the browser. These are transport credentials, not XOBIT control credentials.</li>
+          <li><strong>MQTT settings.</strong> Broker host, port, topic root, username, and password can be stored in the browser. These are transport credentials, not XOBIT control credentials.</li>
           <li><strong>Online sign-in cache.</strong> After a user signs in to a board, the browser stores the derived online auth key for that board id in local storage so reconnect can happen without retyping the password.</li>
           <li><strong>Rule.</strong> Treat the browser profile as sensitive. Use a separate profile for demonstrations, public machines, or shared workstations.</li>
         </ul>
@@ -76,17 +76,18 @@
         <h2>MQTT Layer</h2>
         <p class="section-copy">MQTT has two distinct security levels: broker access and XOBIT protocol access. A broker password alone does not define who is allowed to control the board.</p>
         <ol class="steps">
-          <li><strong>Broker connection.</strong> The browser and board connect to the configured MQTT host, port, root, username, and password. The browser chooses <code>wss://</code> when the page is served over HTTPS and <code>ws://</code> otherwise.</li>
+          <li><strong>Broker connection.</strong> The browser and board connect to the configured MQTT host and port using the configured broker username and password. The browser chooses <code>wss://</code> when the page is served over HTTPS and <code>ws://</code> otherwise.</li>
+          <li><strong>Topic root.</strong> The configured topic root is the complete XOBIT MQTT base prefix, for example <code>xobit/my-board</code>. Commands, responses, events, and hello messages live below that root.</li>
           <li><strong>Device hello.</strong> The board publishes a hello message that states whether XOBIT auth is required, whether guest UI/script access is enabled, and whether a guest UI key exists.</li>
-          <li><strong>Default closed condition.</strong> On fresh firmware, <code>allowUnauthenticatedAccess</code> is false. With no online users, the board does not start MQTT control even if WiFi and broker settings are present.</li>
+          <li><strong>Default closed condition.</strong> On fresh firmware, <code>allowUnauthenticatedAccess</code>, <code>mqttAllowAnonymousUi</code>, and <code>mqttAllowAnonymousScript</code> are false. With no online users, the board does not start MQTT control even if WiFi and broker settings are present.</li>
           <li><strong>Auth required condition.</strong> When one or more online users are configured and unauthenticated access is off, the board reports <code>auth: "required"</code> and requires XOBIT sign-in for normal MQTT control traffic.</li>
-          <li><strong>Explicit open condition.</strong> If <code>allowUnauthenticatedAccess</code> is enabled, MQTT can run without online sign-in. In that state, any MQTT client that can publish valid command frames to the board command topic through the broker namespace can control the board within the configured access surface.</li>
+          <li><strong>Full anonymous condition.</strong> If <code>allowUnauthenticatedAccess</code> is enabled, MQTT accepts normal command frames without online sign-in. Any MQTT client that can publish valid command frames to the board command topic through the broker namespace can control the board except for operations that still require USB or authenticated MQTT.</li>
           <li><strong>Challenge response.</strong> The browser sends an auth-start frame with client id, username, and client nonce. The board replies with a server nonce. The browser proves the shared key with HMAC-SHA256 over a versioned auth string, ids, and both nonces.</li>
           <li><strong>Secure session.</strong> After success, the board assigns a session id. Payloads are wrapped in secure MessagePack frames. The browser encrypts/decrypts with AES-CTR and signs/verifies with HMAC-SHA256. Counters reject replayed or stale frames.</li>
         </ol>
         <div class="callout">
-          <strong>Current rule</strong>
-          <p>For project use, configure at least one named online user before relying on MQTT. Leave unauthenticated online access off unless the object is intentionally public. Use a private broker or private broker credentials when the deployment matters.</p>
+          <strong>Operational baseline</strong>
+          <p>Configure at least one named online user for administrative MQTT control. Keep full unauthenticated online control off unless the object is intentionally public. Use guest UI or guest script only for deliberately limited public surfaces.</p>
         </div>
       </section>
 
@@ -97,8 +98,8 @@
             <tr><th>Mode</th><th>Allowed Surface</th><th>Rule</th></tr>
           </thead>
           <tbody>
-            <tr><td>Guest UI</td><td>Limited status/UI/input command frames</td><td>Requires both the global unauthenticated-access setting and Guest UI. Frames must include the generated guest key. Use for public-facing controls that the sketch is designed to accept.</td></tr>
-            <tr><td>Guest script</td><td>MQTT script inbox text topic</td><td>Requires both the global unauthenticated-access setting and Guest script. Keep disabled unless the script treats incoming messages as untrusted public input.</td></tr>
+            <tr><td>Guest UI</td><td>Status light, system info, WiFi status, and script input command frames</td><td>Requires Guest UI. Frames must include the generated guest key. This permission is independent of full unauthenticated online control.</td></tr>
+            <tr><td>Guest script</td><td>MQTT script inbox text topic</td><td>Requires Guest script. This permission is independent of full unauthenticated online control. Keep disabled unless the script treats incoming messages as untrusted public input.</td></tr>
             <tr><td>Full online user</td><td>Normal XOBIT command channel</td><td>Use for administrative script upload, device configuration, and control workflows.</td></tr>
           </tbody>
         </table>
@@ -119,30 +120,30 @@
         <h2>Firmware And Setup Rules</h2>
         <table>
           <thead>
-            <tr><th>Setting or Path</th><th>Current Behavior</th><th>Technical Rule</th></tr>
+            <tr><th>Setting or Path</th><th>Behavior</th><th>Technical Rule</th></tr>
           </thead>
           <tbody>
             <tr><td>WiFi settings</td><td>Stored on the board and configured over USB or existing protocol connection.</td><td>Use a network intended for experimental devices. Changing WiFi does not itself create online authorization.</td></tr>
-            <tr><td>MQTT enabled</td><td>Board connects online only when MQTT is enabled and either a named online user exists or unauthenticated online access is explicitly enabled.</td><td>Disable MQTT for USB-only projects.</td></tr>
-            <tr><td>Allow unauthenticated online access</td><td>Default off. When off, non-USB control requires an authenticated online session.</td><td>Enable only for deliberate public or lab setups where any broker client in the namespace may be treated as untrusted but allowed.</td></tr>
-            <tr><td>MQTT root</td><td>Part of the topic namespace.</td><td>Use a project/device-specific root to avoid accidental topic overlap.</td></tr>
+            <tr><td>MQTT enabled</td><td>Board connects online only when MQTT is enabled and at least one online path is configured: named online users, full unauthenticated control, Guest UI, or Guest script.</td><td>Disable MQTT for USB-only projects.</td></tr>
+            <tr><td>Allow full unauthenticated online control</td><td>Default off. When on, normal MQTT command frames can be accepted without online sign-in.</td><td>Enable only for deliberate public or lab setups where any broker client in the namespace may be treated as allowed.</td></tr>
+            <tr><td>MQTT topic root</td><td>The complete base topic prefix used by the board and browser.</td><td>Use a unique project/device-specific root such as <code>xobit/my-board</code>. Treat predictable roots on public brokers as discoverable.</td></tr>
             <tr><td>Online users</td><td>Usernames plus derived 32-byte keys are stored on the board.</td><td>Add individual users; remove users that should no longer control the object.</td></tr>
-            <tr><td>Guest UI</td><td>Generates/stores a guest UI key if needed, but only becomes reachable when unauthenticated online access is also enabled.</td><td>Enable only for deliberately limited interfaces.</td></tr>
-            <tr><td>Guest script</td><td>Accepts unauthenticated text on the script inbox topic only when unauthenticated online access is also enabled.</td><td>Default to off. Treat incoming messages as hostile input.</td></tr>
-            <tr><td>Home Assistant bridge</td><td>Uses the current compatibility layer without ESPHome Noise encryption.</td><td>Treat as LAN-trusted until encrypted HA native API support is implemented.</td></tr>
-            <tr><td>HTTP from scripts</td><td>Firmware includes HTTP/TLS support, with current defaults allowing insecure TLS behavior for script HTTP fetches.</td><td>Do not treat script-level HTTP fetch as a high-assurance data channel without reviewing firmware build flags and endpoint validation.</td></tr>
+            <tr><td>Guest UI</td><td>Generates/stores a guest UI key if needed and enables the guest UI allowlist.</td><td>Enable only for deliberately limited interfaces.</td></tr>
+            <tr><td>Guest script</td><td>Accepts unauthenticated text on the script inbox topic.</td><td>Default to off. Treat incoming messages as hostile input.</td></tr>
+            <tr><td>Home Assistant bridge</td><td>Uses the compatibility layer without ESPHome Noise encryption.</td><td>Treat as LAN-trusted until encrypted HA native API support is implemented.</td></tr>
+            <tr><td>HTTP from scripts</td><td>Firmware includes HTTP/TLS support, with defaults allowing insecure TLS behavior for script HTTP fetches.</td><td>Do not treat script-level HTTP fetch as a high-assurance data channel without reviewing firmware build flags and endpoint validation.</td></tr>
             <tr><td>OTA</td><td>SafeBoot OTA support is build/configuration dependent and USB remains recovery.</td><td>OTA prepare, boot, and clear require USB or an authenticated MQTT secure session. Keep physical access during updates.</td></tr>
           </tbody>
         </table>
       </section>
 
       <section>
-        <h2>Decision Checklist</h2>
+        <h2>Deployment Position</h2>
         <ul class="check-list">
           <li><strong>Acceptable for:</strong> studio prototypes, installations under operator control, lab deployments, and networked objects where the operator controls the browser profile, board, broker, and physical recovery path.</li>
           <li><strong>Use caution for:</strong> public networks, unattended public interaction, shared computers, untrusted MQTT brokers, or projects where API keys and WiFi credentials are sensitive assets.</li>
-          <li><strong>Not currently positioned as:</strong> a hardened multi-tenant platform, audited remote administration system, encrypted-at-rest device vault, or substitute for product security review.</li>
-          <li><strong>Minimum serious setup:</strong> private broker or broker credentials, unique MQTT root, named online users, unauthenticated online access off, guest script disabled, guest UI only when intentionally public, separate browser profile, exported backups, and USB recovery available.</li>
+          <li><strong>Not positioned as:</strong> a hardened multi-tenant platform, audited remote administration system, encrypted-at-rest device vault, or substitute for product security review.</li>
+          <li><strong>Minimum serious setup:</strong> private broker or broker credentials, unique MQTT topic root, named online users, full unauthenticated control off, guest script disabled, guest UI only when intentionally public, separate browser profile, exported backups, and USB recovery available.</li>
         </ul>
       </section>
 

@@ -36,6 +36,13 @@ struct P1ConfigSnapshot {
   String mqttUser;
   bool mqttPasswordSet = false;
   bool mqttEnabled = true;
+
+  // SECURITY POLICY: these three flags are deliberately separate.
+  // - allowUnauthenticatedAccess: full unauthenticated MQTT command control.
+  // - mqttAllowAnonymousUi: limited guest UI allowlist with guest key.
+  // - mqttAllowAnonymousScript: plain MQTT script inbox/outbox text.
+  // Do not make guest UI/script subordinate to allowUnauthenticatedAccess.
+  // Change this only for an explicit security-design request.
   bool allowUnauthenticatedAccess = false;
   bool mqttAllowAnonymousUi = false;
   bool mqttAllowAnonymousScript = false;

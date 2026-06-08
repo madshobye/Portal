@@ -1519,7 +1519,9 @@ void webrtcTransportLoop() {
   webrtcResumeSuspendedScriptIfPending();
   WebRtcMessage* inbound = nullptr;
   while (g_inboundQueue && xQueueReceive(g_inboundQueue, &inbound, 0) == pdTRUE) {
-    if (inbound && inbound->data) protocolHandleBytes(inbound->data, inbound->len, P1_PROTOCOL_SOURCE_WEBRTC);
+    // Disabled until WebRTC has a transport/source auth gate. Calling the
+    // protocol handler directly would bypass the MQTT online-auth model.
+    // if (inbound && inbound->data) protocolHandleBytes(inbound->data, inbound->len, P1_PROTOCOL_SOURCE_WEBRTC);
     webrtcFreeMessage(inbound);
   }
 }

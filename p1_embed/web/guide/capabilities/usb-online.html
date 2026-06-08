@@ -12,7 +12,7 @@
       <section class="page-hero panel">
         <p class="eyebrow">Capability</p>
         <h1>USB and online control</h1>
-        <p class="lead">USB is the trusted desk connection. MQTT is the online path once the board joins WiFi and has an online user, or when unauthenticated online access has been deliberately enabled. Both transports aim at the same project workflow: upload scripts, read logs, receive UI events, and inspect board state.</p>
+        <p class="lead">USB is the trusted desk connection. MQTT is the online path once the board joins WiFi and has an online user, full unauthenticated control, Guest UI, or Guest script configured. Both transports aim at the same project workflow: upload scripts, read logs, receive UI events, and inspect board state.</p>
       </section>
 
       <section>
@@ -28,8 +28,8 @@
         <ol class="steps">
           <li><strong>Install or connect over USB.</strong> Web Serial lets the browser talk directly to the ESP32 for install and development.</li>
           <li><strong>Save WiFi settings.</strong> The board stores network details and reconnects after reboot.</li>
-          <li><strong>Add online users.</strong> Username/password-derived keys are used for online sign-in and encrypted MQTT sessions. Without a user, MQTT stays inactive unless unauthenticated online access is deliberately enabled.</li>
-          <li><strong>Use MQTT topics.</strong> The board listens for commands and publishes responses, events, and hello/status messages under its root/device topic.</li>
+          <li><strong>Add online users.</strong> Username/password-derived keys are used for online sign-in and encrypted MQTT sessions. Without a user or explicit guest/anonymous mode, MQTT stays inactive.</li>
+          <li><strong>Use MQTT topics.</strong> The board listens for commands and publishes responses, events, and hello/status messages under its configured topic root, for example <code>xobit/my-board</code>.</li>
           <li><strong>Keep USB as recovery.</strong> If online settings are wrong, USB remains the clean way back in.</li>
         </ol>
       </section>

@@ -258,22 +258,45 @@ static bool mqttFrameIsEvent(const uint8_t* data, size_t len) {
   return data && len >= 2 && (data[0] & 0xf0) == 0x90 && data[1] == 2;
 }
 
+// SECURITY POLICY: MQTT has three independent unauthenticated surfaces.
+// 1. Full unauthenticated control: normal command frames without sign-in.
+// 2. Guest UI: a small allowlist of UI/status/input frames with guest key.
+// 3. Guest script: plain text script inbox/outbox.
+//
+// Do not make guest UI/script depend on full unauthenticated control. That was
+// a previous bug. Each helper below is the single gate for its named surface.
+// Change this only for a clear, explicit security-design request.
+static bool mqttFullUnauthenticatedControlAllowed() {
+  return configAllowUnauthenticatedAccess();
+}
+
 static bool mqttAuthRequired() {
-  return !configAllowUnauthenticatedAccess();
+  return !mqttFullUnauthenticatedControlAllowed();
 }
 
 static bool mqttUnauthenticatedUiAllowed() {
-  return configAllowUnauthenticatedAccess() && configMqttAllowAnonymousUi();
+  return configMqttAllowAnonymousUi();
 }
 
 static bool mqttUnauthenticatedScriptAllowed() {
-  return configAllowUnauthenticatedAccess() && configMqttAllowAnonymousScript();
+  return configMqttAllowAnonymousScript();
 }
 
 static bool mqttTransportAllowedByConfig() {
   if (!configMqttEnabled()) return false;
   if (configOnlineAuthUserCount() > 0) return true;
-  return configAllowUnauthenticatedAccess();
+
+  // MQTT may start for any configured online access surface. Starting the
+  // transport is not the same as granting full command control.
+  return mqttFullUnauthenticatedControlAllowed() || mqttUnauthenticatedUiAllowed() || mqttUnauthenticatedScriptAllowed();
+}
+
+static bool mqttPlainUiPublishAllowed() {
+  return mqttFullUnauthenticatedControlAllowed() || mqttUnauthenticatedUiAllowed();
+}
+
+static bool mqttPlainScriptTextAllowed() {
+  return mqttFullUnauthenticatedControlAllowed() || mqttUnauthenticatedScriptAllowed();
 }
 
 static void mqttRandomBytes(uint8_t* out, size_t len) {
@@ -391,8 +414,7 @@ static int mqttFindSession(uint32_t sessionId, const String& clientId = "") {
   return -1;
 }
 
-static bool mqttRawOpAllowed(const uint8_t* data, size_t len) {
-  if (!mqttAuthRequired()) return configAllowUnauthenticatedAccess();
+static bool mqttGuestUiCommandFrameAllowed(const uint8_t* data, size_t len) {
   if (!mqttUnauthenticatedUiAllowed()) return false;
   if (!data || len == 0) return false;
   P1MsgPackReader r(data, len);
@@ -411,6 +433,11 @@ static bool mqttRawOpAllowed(const uint8_t* data, size_t len) {
     if (count < 4 || !r.readString(guestKey)) return false;
   }
   return configMqttGuestUiKeyMatches(guestKey);
+}
+
+static bool mqttCommandFrameAllowedWithoutSession(const uint8_t* data, size_t len) {
+  if (mqttFullUnauthenticatedControlAllowed()) return true;
+  return mqttGuestUiCommandFrameAllowed(data, len);
 }
 
 static void mqttReapPendingAuth() {
@@ -583,6 +610,9 @@ static void mqttHandleAuthFrame(const String& clientId, const uint8_t* data, siz
     w.writeUInt(P1_MQTT_FRAME_AUTH);
     w.writeUInt(P1_MQTT_AUTH_CHALLENGE);
     w.writeBin(g_mqttPendingAuth[slot].serverNonce, 16);
+
+    // Auth challenge reports policy state to the browser. Keep this tied to
+    // the helper gates above so the UI mirrors firmware authorization exactly.
     w.writeBool(mqttAuthRequired());
     w.writeBool(mqttUnauthenticatedUiAllowed());
     if (w.ok) g_mqtt.publish(mqttResponseTopic(clientId).c_str(), reinterpret_cast<const char*>(frame), (int)w.length, false, 0);
@@ -742,7 +772,7 @@ static void mqttHandleMessage(MQTTClient*, char topic[], char bytes[], int lengt
   if (!topic || !bytes || length <= 0) return;
   String topicText(topic);
   if (mqttIsScriptInTopic(topicText)) {
-    if (!mqttUnauthenticatedScriptAllowed()) return;
+    if (!mqttPlainScriptTextAllowed()) return;
     String message;
     message.reserve(length);
     for (int i = 0; i < length; i++) message += bytes[i];
@@ -762,7 +792,7 @@ static void mqttHandleMessage(MQTTClient*, char topic[], char bytes[], int lengt
     mqttHandleAuthFrame(clientId, data, len);
   } else if (len >= 2 && (data[0] & 0xf0) == 0x90 && data[1] == P1_MQTT_FRAME_SECURE) {
     mqttHandleSecureFrame(clientId, data, len);
-  } else if (mqttRawOpAllowed(data, len)) {
+  } else if (mqttCommandFrameAllowedWithoutSession(data, len)) {
     protocolHandleBytes(data, len, P1_PROTOCOL_SOURCE_MQTT);
   } else {
     mqttPublishAuthError(clientId, "auth_required");
@@ -857,7 +887,7 @@ static bool mqttPublishEventPayload(const uint8_t* data, size_t len) {
         g_mqttSecurePublishFailCount++;
       }
     }
-    if (!mqttUnauthenticatedUiAllowed()) return sent;
+    if (!mqttPlainUiPublishAllowed()) return sent;
   }
   if (g_mqttEvtTopic.length()) {
     if (g_mqtt.publish(g_mqttEvtTopic.c_str(), reinterpret_cast<const char*>(data), (int)len, false, 0)) sent = true;
@@ -932,7 +962,7 @@ static void mqttTransportSendBytesNow(const uint8_t* data, size_t len) {
       }
       return;
     }
-    if (mqttAuthRequired() && !mqttUnauthenticatedUiAllowed()) return;
+    if (!mqttPlainUiPublishAllowed()) return;
     if (!g_mqtt.publish(g_mqttActiveResponseTopic.c_str(), reinterpret_cast<const char*>(data), (int)len, false, 0)) {
       g_mqttPublishFailCount++;
       g_mqttLastPublishFailMs = millis();
@@ -946,6 +976,7 @@ static void mqttTransportSendBytesNow(const uint8_t* data, size_t len) {
 
 static void mqttTransportSendScriptTextNow(const char* data, size_t len, bool newline) {
   if (!data || len == 0 || !g_mqtt.connected() || !g_mqttScriptOutTopic.length()) return;
+  if (!mqttPlainScriptTextAllowed()) return;
 
   if (newline && data[len - 1] != '\n') {
     if (len + 1 > P1_EMBED_MQTT_OUT_QUEUE_BYTES) {

@@ -229,7 +229,9 @@ static void webTransportEvent(uint8_t num, int type, uint8_t* payload, size_t le
   String line;
   line.reserve(length);
   for (size_t i = 0; i < length; i++) line += (char)payload[i];
-  protocolHandleLine(line.c_str(), P1_PROTOCOL_SOURCE_WEBSOCKET);
+  // Disabled until WebSocket has a transport/source auth gate. Calling the
+  // protocol handler directly would bypass the MQTT online-auth model.
+  // protocolHandleLine(line.c_str(), P1_PROTOCOL_SOURCE_WEBSOCKET);
 }
 
 void webTransportBegin() {
