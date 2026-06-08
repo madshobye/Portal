@@ -201,9 +201,9 @@ body.is-guest-ui #ui-view {
 
 #circuit-view {
   grid-template-rows: auto minmax(0, 1fr);
-  gap: 8px;
+  gap: 10px;
   height: 100%;
-  padding: 4px 12px 12px;
+  padding: 12px;
 }
 
 #ui-view {
@@ -220,27 +220,7 @@ body.is-guest-ui #ui-view {
   min-height: 0;
 }
 
-.coding-toolbar {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 7px;
-  min-width: 0;
-  overflow: visible;
-  padding-bottom: 1px;
-}
-
-.chat-toolbar {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 7px;
-  min-width: 0;
-  overflow: visible;
-  padding-bottom: 1px;
-}
-
-.circuit-toolbar {
+.workspace-toolbar {
   display: flex;
   align-items: center;
   flex-wrap: wrap;
@@ -251,10 +231,8 @@ body.is-guest-ui #ui-view {
 }
 
 .ui-toolbar {
-  display: flex;
-  align-items: center;
-  gap: 7px;
-  min-width: 0;
+  flex-wrap: nowrap;
+  padding-bottom: 0;
 }
 
 .circuit-status {

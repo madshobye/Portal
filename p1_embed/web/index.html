@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>P1.E</title>
     <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@24,400,0,0">
-    <link rel="stylesheet" href="style.css?v=0.1.87-ui554">
+    <link rel="stylesheet" href="style.css?v=0.1.87-ui555">
   </head>
   <body>
     <main id="app">
@@ -13,7 +13,7 @@
         <div class="brand">
           <strong>P1.E</strong>
           <span id="brand-version" class="brand-version">
-            <span class="brand-version-line">web 0.1.87-ui554</span>
+            <span class="brand-version-line">web 0.1.87-ui720</span>
           </span>
         </div>
         <nav class="tabs" aria-label="Workspace">
@@ -32,19 +32,8 @@
 
       <section id="coding-view" class="view" aria-label="Code">
         <section class="coding-main">
-          <header class="coding-toolbar">
-            <div class="project-control-cluster" aria-label="Project controls">
-              <button id="connect-button" class="button primary icon-buttonish" type="button" title="Connect" aria-label="Connect"><span class="material-symbols-rounded">link</span></button>
-              <button id="new-sketch-button" class="button icon-buttonish" type="button" title="New project" aria-label="New project"><span class="material-symbols-rounded">note_add</span></button>
-              <button id="new-revision-button" class="button icon-buttonish" type="button" title="New clean revision" aria-label="New clean revision"><span class="material-symbols-rounded">post_add</span></button>
-              <button id="download-code-button" class="button icon-buttonish" type="button" disabled title="Download project" aria-label="Download project"><span class="material-symbols-rounded">download</span></button>
-              <select id="project-select" class="compact-select project-select" title="Project" aria-label="Project">
-                <option value="">project</option>
-              </select>
-              <select id="sketch-history" class="compact-select sketch-history" title="Revision" aria-label="Revision">
-                <option value="">revision</option>
-              </select>
-            </div>
+          <header class="workspace-toolbar coding-toolbar">
+            <div data-project-control-cluster="code"></div>
             <span class="toolbar-divider" aria-hidden="true"></span>
             <button id="run-button" class="button primary icon-buttonish" type="button" disabled title="Save and run" aria-label="Save and run"><span class="material-symbols-rounded">play_arrow</span></button>
             <button id="stop-button" class="button icon-buttonish" type="button" disabled title="Stop" aria-label="Stop"><span class="material-symbols-rounded">stop</span></button>
@@ -107,19 +96,8 @@
       </section>
 
       <section id="chat-view" class="view chat-view is-active is-chat-visible is-specification-visible" aria-label="AI">
-        <header class="chat-toolbar">
-          <div class="project-control-cluster" aria-label="Project controls">
-            <button id="chat-connect-button" class="button primary icon-buttonish" type="button" title="Connect" aria-label="Connect"><span class="material-symbols-rounded">link</span></button>
-            <button id="chat-new-sketch-button" class="button icon-buttonish" type="button" title="New project" aria-label="New project"><span class="material-symbols-rounded">note_add</span></button>
-            <button id="chat-new-revision-button" class="button icon-buttonish" type="button" title="New clean revision" aria-label="New clean revision"><span class="material-symbols-rounded">post_add</span></button>
-            <button id="chat-download-code-button" class="button icon-buttonish" type="button" disabled title="Download project" aria-label="Download project"><span class="material-symbols-rounded">download</span></button>
-            <select id="generative-project-select" class="compact-select project-select" title="Project" aria-label="Project">
-              <option value="">project</option>
-            </select>
-            <select id="generative-revision-select" class="compact-select sketch-history" title="Revision" aria-label="Revision">
-              <option value="">revision</option>
-            </select>
-          </div>
+        <header class="workspace-toolbar chat-toolbar">
+          <div data-project-control-cluster="chat"></div>
           <span class="toolbar-divider" aria-hidden="true"></span>
           <button id="chat-run-button" class="button primary icon-buttonish" type="button" disabled title="Save and run" aria-label="Save and run"><span class="material-symbols-rounded">play_arrow</span></button>
           <button id="chat-stop-button" class="button icon-buttonish" type="button" disabled title="Stop" aria-label="Stop"><span class="material-symbols-rounded">stop</span></button>
@@ -171,19 +149,8 @@
       </section>
 
       <section id="circuit-view" class="view circuit-view" aria-label="Circuit">
-        <header class="circuit-toolbar">
-          <div class="project-control-cluster" aria-label="Project controls">
-            <button id="circuit-connect-button" class="button primary icon-buttonish" type="button" title="Connect" aria-label="Connect"><span class="material-symbols-rounded">link</span></button>
-            <button id="circuit-new-sketch-button" class="button icon-buttonish" type="button" title="New project" aria-label="New project"><span class="material-symbols-rounded">note_add</span></button>
-            <button id="circuit-new-revision-button" class="button icon-buttonish" type="button" title="New revision" aria-label="New revision"><span class="material-symbols-rounded">post_add</span></button>
-            <button id="circuit-download-code-button" class="button icon-buttonish" type="button" disabled title="Download project code" aria-label="Download project code"><span class="material-symbols-rounded">download</span></button>
-            <select id="circuit-project-select" class="compact-select project-select" title="Project" aria-label="Project">
-              <option value="">project</option>
-            </select>
-            <select id="circuit-revision-select" class="compact-select sketch-history" title="Revision" aria-label="Revision">
-              <option value="">revision</option>
-            </select>
-          </div>
+        <header class="workspace-toolbar circuit-toolbar">
+          <div data-project-control-cluster="circuit"></div>
           <span class="toolbar-divider toolbar-push" aria-hidden="true"></span>
           <select id="circuit-board-select" class="compact-select circuit-board-select" title="Board layout" aria-label="Board layout">
             <option value="esp32-classic">ESP32</option>
@@ -216,7 +183,7 @@
       </section>
 
       <section id="ui-view" class="view ui-view" aria-label="Live UI">
-        <header class="ui-toolbar">
+        <header class="workspace-toolbar ui-toolbar">
           <button id="ui-connect-button" class="button primary icon-buttonish" type="button" title="Connect" aria-label="Connect"><span class="material-symbols-rounded">link</span></button>
           <span class="toolbar-divider toolbar-push" aria-hidden="true"></span>
           <button id="ui-copy-link-button" class="button icon-buttonish" type="button" title="Copy UI link" aria-label="Copy UI link"><span class="material-symbols-rounded">link</span></button>
@@ -537,6 +504,6 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.9.4/p5.min.js" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
     <script src="../../P1/portal/usbSerial.js"></script>
     <script src="../../P1/portal/qrCodeGen.js"></script>
-    <script type="module" src="app.js?v=0.1.87-ui554"></script>
+    <script type="module" src="app.js?v=0.1.87-ui720"></script>
   </body>
 </html>
