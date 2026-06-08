@@ -1,12 +1,12 @@
 {
-  "name": "XOBIT ESP32 classic SafeBoot experimental",
+  "name": "XOBIT ESP32 classic SafeBoot",
   "version": "0.1.185",
   "flashMode": "dio",
   "flashFreq": "80m",
   "flashSize": "4MB",
   "eraseAll": false,
   "compress": true,
-  "experimental": true,
+  "experimental": false,
   "files": [
     { "address": "0x1000", "url": "p1e-esp32-classic-safeboot.bootloader.bin" },
     { "address": "0x8000", "url": "p1e-esp32-classic-safeboot.partitions.bin" },

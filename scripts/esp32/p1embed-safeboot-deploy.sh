@@ -226,14 +226,14 @@ cp "${BOOT_APP0_VERSIONED}" "${WEB_BIN}/p1e-esp32-classic-safeboot.boot_app0.bin
 
 cat > "${INSTALLER_MANIFEST}" <<JSON
 {
-  "name": "XOBIT ESP32 classic SafeBoot experimental",
+  "name": "XOBIT ESP32 classic SafeBoot",
   "version": "${TO_VERSION}",
   "flashMode": "dio",
   "flashFreq": "80m",
   "flashSize": "4MB",
   "eraseAll": false,
   "compress": true,
-  "experimental": true,
+  "experimental": false,
   "files": [
     { "address": "0x1000", "url": "p1e-esp32-classic-safeboot.bootloader.bin" },
     { "address": "0x8000", "url": "p1e-esp32-classic-safeboot.partitions.bin" },

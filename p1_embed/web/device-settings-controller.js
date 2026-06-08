@@ -11,7 +11,6 @@ export function createDeviceSettingsController({
   storeMqttConfigFields,
   generateGuestKey,
   deriveOnlineAuthKeyHex,
-  getStoredOnlineAuth,
   remoteIdForAuth,
   getLastConfig,
   setLastDeviceName,
@@ -103,11 +102,6 @@ export function createDeviceSettingsController({
 
   async function removeOnlineAuthUser(username) {
     if (!username) return;
-    const remoteId = remoteIdForAuth();
-    const remembered = getStoredOnlineAuth(remoteId);
-    if (remembered?.username === username) {
-      throw new Error("Sign in as another online user before removing this one");
-    }
     const config = await sendCommand("config.set", { onlineAuthUserRemove: username }, { timeoutMs: 10000 });
     updateConfig(config);
     renderOnlineAuthUsers();

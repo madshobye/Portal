@@ -1,4 +1,4 @@
-import { deriveOnlineAuthKeyHex, getStoredOnlineAuth } from "./protocol/MqttTransport.js?v=0.1.87-ui348";
+import { deriveOnlineAuthKeyHex } from "./protocol/MqttTransport.js?v=0.1.87-ui348";
 import { generateGuestKey } from "./guino-share-link.js?v=0.1.87-ui720";
 import {
   mqttConfigFromStorageAndDevice as mqttConfigFromStorageAndDeviceFor,
@@ -50,7 +50,6 @@ export function createSettingsFeatureRegistry({
       getDeviceStateController,
       getLastConfig,
       getSettingsShellController,
-      getStoredOnlineAuth,
       getUiActionRunner,
       isBusy,
       isSecurePage,
