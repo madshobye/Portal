@@ -9,7 +9,13 @@ export function mqttDefaults() {
 }
 
 export function mqttRootOrEmpty(value) {
-  return String(value || "").trim();
+  return String(value || "")
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, "-")
+    .replace(/^\/+|\/+$/g, "")
+    .replace(/\/+/g, "/")
+    .replace(/[+#]/g, "-");
 }
 
 export function mqttConfigFromStorageAndDevice({ storage, storageArea, lastConfig } = {}) {

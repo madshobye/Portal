@@ -232,8 +232,7 @@ export class MqttTransport extends EventTarget {
   }
 
   baseTopic() {
-    const root = normalizeTopicPart(this.root) || this.remoteId;
-    return `${product.mqttTopicPrefix}/${root}/${this.remoteId}`;
+    return normalizeTopicRoot(this.root) || `${product.mqttTopicPrefix}/${this.remoteId}`;
   }
 
   handleMessage(topic, payload) {
@@ -515,6 +514,16 @@ function normalizeGuestKey(value) {
 
 function normalizeTopicPart(value) {
   return String(value || "").trim().toLowerCase().replace(/\s+/g, "-");
+}
+
+function normalizeTopicRoot(value) {
+  return String(value || "")
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, "-")
+    .replace(/^\/+|\/+$/g, "")
+    .replace(/\/+/g, "/")
+    .replace(/[+#]/g, "-");
 }
 
 function makeClientId(prefix = "w") {

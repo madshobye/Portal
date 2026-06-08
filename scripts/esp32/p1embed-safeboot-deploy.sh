@@ -226,7 +226,7 @@ cp "${BOOT_APP0_VERSIONED}" "${WEB_BIN}/p1e-esp32-classic-safeboot.boot_app0.bin
 
 cat > "${INSTALLER_MANIFEST}" <<JSON
 {
-  "name": "P1E ESP32 classic SafeBoot experimental",
+  "name": "XOBIT ESP32 classic SafeBoot experimental",
   "version": "${TO_VERSION}",
   "flashMode": "dio",
   "flashFreq": "80m",
@@ -416,7 +416,7 @@ trap - EXIT
 rm -f "${BACKUP_CONFIG}"
 
 cat <<REPORT
-P1E SafeBoot deploy complete
+XOBIT SafeBoot deploy complete
   previous config version: ${OLD_VERSION}
   deploy version:          ${TO_VERSION}
   installer manifest:      ${INSTALLER_MANIFEST}

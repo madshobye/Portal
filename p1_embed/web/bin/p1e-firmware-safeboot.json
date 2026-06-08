@@ -1,6 +1,6 @@
 {
-  "name": "P1E ESP32 classic SafeBoot experimental",
-  "version": "0.1.183",
+  "name": "XOBIT ESP32 classic SafeBoot experimental",
+  "version": "0.1.185",
   "flashMode": "dio",
   "flashFreq": "80m",
   "flashSize": "4MB",

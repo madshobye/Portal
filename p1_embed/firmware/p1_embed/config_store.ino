@@ -7,7 +7,7 @@
 #include "p1_embed_firmware.h"
 
 static const char* CONFIG_PATH = "/config.json";
-static const int CONFIG_SCHEMA_VERSION = 2;
+static const int CONFIG_SCHEMA_VERSION = 3;
 static const size_t P1_CONFIG_DEVICE_ID_MAX = 32;
 static const size_t P1_CONFIG_DEVICE_NAME_MAX = 48;
 static const size_t P1_CONFIG_PROJECT_ID_MAX = 64;
@@ -18,7 +18,7 @@ static const size_t P1_CONFIG_TIMEZONE_MAX = 64;
 static const size_t P1_CONFIG_WIFI_SSID_MAX = 33;
 static const size_t P1_CONFIG_WIFI_PASSWORD_MAX = 65;
 static const size_t P1_CONFIG_MQTT_HOST_MAX = 96;
-static const size_t P1_CONFIG_MQTT_ROOT_MAX = 64;
+static const size_t P1_CONFIG_MQTT_ROOT_MAX = 128;
 static const size_t P1_CONFIG_MQTT_USER_MAX = 33;
 static const size_t P1_CONFIG_MQTT_PASSWORD_MAX = 129;
 static const size_t P1_CONFIG_MQTT_GUEST_KEY_MAX = 41;
@@ -131,15 +131,6 @@ static bool configMigrateLegacyDeviceName() {
   return true;
 }
 
-static bool configMigrateLegacyMqttRoot() {
-  String root = configText(g_mqttRoot);
-  if (!root.startsWith(String(XOBIT_LEGACY_DEVICE_ID_PREFIX) + "-")) return false;
-  size_t prefixLen = strlen(XOBIT_LEGACY_DEVICE_ID_PREFIX) + 1;
-  if (!configIsHexSuffix(root, prefixLen)) return false;
-  configSetText(g_mqttRoot, sizeof(g_mqttRoot), String(XOBIT_DEVICE_ID_PREFIX) + "-" + root.substring(prefixLen));
-  return true;
-}
-
 static void configClearWifiNetworkAt(int index) {
   if (index < 0 || index >= P1_EMBED_MAX_WIFI_NETWORKS) return;
   g_wifiNetworks[index].ssid[0] = 0;
@@ -199,7 +190,20 @@ static String configBuildDefaultMqttRoot() {
   String root = id.length() >= 6 ? String(XOBIT_DEVICE_ID_PREFIX) + "-" + id.substring(id.length() - 6) : configBuildDefaultDeviceName();
   root.toLowerCase();
   root.replace(" ", "-");
-  return root;
+  return String(XOBIT_MQTT_TOPIC_PREFIX) + "/" + root;
+}
+
+static String configNormalizeMqttRoot(const String& value) {
+  String out = value;
+  out.trim();
+  out.toLowerCase();
+  out.replace(" ", "-");
+  while (out.startsWith("/")) out.remove(0, 1);
+  while (out.endsWith("/")) out.remove(out.length() - 1);
+  while (out.indexOf("//") >= 0) out.replace("//", "/");
+  out.replace("+", "-");
+  out.replace("#", "-");
+  return out;
 }
 
 static String configNormalizeGuestKey(const String& value) {
@@ -484,7 +488,7 @@ static void configLoadLegacyPrefsIfPresent() {
 static void configApplyMqttDefaults() {
   if (!configTextHasValue(g_mqttHost)) configSetText(g_mqttHost, sizeof(g_mqttHost), P1_EMBED_MQTT_HOST);
   if (g_mqttPort <= 0 || g_mqttPort > 65535) g_mqttPort = P1_EMBED_MQTT_PORT;
-  if (!configTextHasValue(g_mqttRoot)) configSetText(g_mqttRoot, sizeof(g_mqttRoot), P1_EMBED_MQTT_ROOT);
+  if (!configTextHasValue(g_mqttRoot)) configSetText(g_mqttRoot, sizeof(g_mqttRoot), configBuildDefaultMqttRoot());
   if (!configTextHasValue(g_mqttUser)) configSetText(g_mqttUser, sizeof(g_mqttUser), P1_EMBED_MQTT_USER);
   if (!configTextHasValue(g_mqttPassword)) configSetText(g_mqttPassword, sizeof(g_mqttPassword), P1_EMBED_MQTT_PASS, false);
 }
@@ -523,11 +527,12 @@ void configLoad() {
     else changed = true;
     if (configJsonGetInt(json, "mqttPort", port)) g_mqttPort = port;
     else changed = true;
-    if (configJsonGetString(json, "mqttRoot", value)) {
-      configSetText(g_mqttRoot, sizeof(g_mqttRoot), value);
-      if (configMigrateLegacyMqttRoot()) changed = true;
-    }
+    if (configJsonGetString(json, "mqttRoot", value)) configSetText(g_mqttRoot, sizeof(g_mqttRoot), configNormalizeMqttRoot(value));
     else changed = true;
+    if (schemaVersion < CONFIG_SCHEMA_VERSION) {
+      configSetText(g_mqttRoot, sizeof(g_mqttRoot), configBuildDefaultMqttRoot());
+      changed = true;
+    }
     if (configJsonGetString(json, "mqttUser", value)) configSetText(g_mqttUser, sizeof(g_mqttUser), value);
     else changed = true;
     if (configJsonGetString(json, "mqttPassword", value)) configSetText(g_mqttPassword, sizeof(g_mqttPassword), value, false);
@@ -625,7 +630,7 @@ void configFactoryReset() {
   configSetText(g_timezone, sizeof(g_timezone), "UTC0");
   configSetText(g_mqttHost, sizeof(g_mqttHost), P1_EMBED_MQTT_HOST);
   g_mqttPort = P1_EMBED_MQTT_PORT;
-  configSetText(g_mqttRoot, sizeof(g_mqttRoot), P1_EMBED_MQTT_ROOT);
+  configSetText(g_mqttRoot, sizeof(g_mqttRoot), configBuildDefaultMqttRoot());
   configSetText(g_mqttUser, sizeof(g_mqttUser), P1_EMBED_MQTT_USER);
   configSetText(g_mqttPassword, sizeof(g_mqttPassword), P1_EMBED_MQTT_PASS, false);
   g_mqttEnabled = true;
@@ -727,9 +732,8 @@ void configSetMqttPort(int value) {
 }
 
 void configSetMqttRoot(const String& value) {
-  String next = value;
-  next.trim();
-  configSetText(g_mqttRoot, sizeof(g_mqttRoot), next.length() ? next : String(P1_EMBED_MQTT_ROOT));
+  String next = configNormalizeMqttRoot(value);
+  configSetText(g_mqttRoot, sizeof(g_mqttRoot), next.length() ? next : configBuildDefaultMqttRoot());
 }
 
 void configSetMqttUser(const String& value) {
@@ -858,7 +862,7 @@ int configMqttPort() {
 String configMqttRoot() {
   if (configTextHasValue(g_mqttRoot)) return configText(g_mqttRoot);
   String root = P1_EMBED_MQTT_ROOT;
-  return root.length() ? root : configBuildDefaultMqttRoot();
+  return root.length() ? configNormalizeMqttRoot(root) : configBuildDefaultMqttRoot();
 }
 
 String configMqttUser() {

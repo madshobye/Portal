@@ -231,7 +231,7 @@ static String mqttDeviceTopicId() {
 }
 
 static String mqttBaseTopic() {
-  return String(XOBIT_MQTT_TOPIC_PREFIX) + "/" + configMqttRoot() + "/" + g_mqttDeviceId;
+  return configMqttRoot();
 }
 
 static String mqttResponseTopic(const String& clientId) {
