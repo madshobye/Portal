@@ -1,4 +1,6 @@
 import { drawEmbroideryConnections } from "./circuit-embroidery-router.js?v=0.1.87-ui554";
+import { product, storage } from "./app-config.js?v=0.1.87-ui720";
+import { escapeRegex } from "./string-utils.js?v=0.1.87-ui559";
 
 const CIRCUIT_VERSION = "0.1";
 const WORLD_W = 1680;
@@ -31,8 +33,16 @@ const COMPONENT_TERMINAL_MAX_MARGIN = 12;
 const COMPONENT_LAYOUT_MIN_GAP = 72;
 const COMPONENT_LINK_MARGIN = 24;
 const COMPONENT_ILLUSTRATION_PIN_X = 52;
-const CIRCUIT_ZOOM_STORAGE_KEY = "p1e.circuit.zoom.v2";
-const CIRCUIT_PAN_STORAGE_KEY = "p1e.circuit.pan.v1";
+const CIRCUIT_ZOOM_STORAGE_KEY = storage.circuitArtMode.replace(/artMode$/, "zoom.v2");
+const CIRCUIT_PAN_STORAGE_KEY = storage.circuitArtMode.replace(/artMode$/, "pan.v1");
+const LEGACY_CIRCUIT_ZOOM_STORAGE_KEY = "p1e.circuit.zoom.v2";
+const LEGACY_CIRCUIT_PAN_STORAGE_KEY = "p1e.circuit.pan.v1";
+const CIRCUIT_COMMENT = `(?:${escapeRegex(product.circuitCommentPrefix)}|${escapeRegex(product.legacyCircuitCommentPrefix)})`;
+const CIRCUIT_INFERRED_LABEL = "circuit comment";
+
+function isCircuitCommentInference(value) {
+  return /(?:xobit-circuit|p1e-circuit|circuit) comment/i.test(String(value || ""));
+}
 const CIRCUIT_ZOOM_MIN = 1;
 const CIRCUIT_ZOOM_MAX = 4.2;
 const CIRCUIT_ZOOM_STEP = 0.0018;
@@ -181,7 +191,7 @@ const componentTypes = {
   mp3Player: { label: "DFPlayer Mini", icon: "mp3", signal: "RX/TX", needs: ["rx", "tx", "power", "gnd"] },
   touchPad: { label: "Touch input", icon: "touch", signal: "Touch", needs: ["signal"] },
   wifiService: { label: "WiFi / API", icon: "cloud", signal: "Network", needs: [] },
-  uiPanel: { label: "P1E UI preview", icon: "ui", signal: "UI", needs: [] },
+  uiPanel: { label: "XOBIT UI preview", icon: "ui", signal: "UI", needs: [] },
   homeAssistant: { label: "Home Assistant preview", icon: "ha", signal: "Wireless", needs: [] },
   powerSupply: { label: "External V supply", icon: "power", signal: "V", needs: ["5v", "gnd"] },
   backEmfDiode: { label: "Back EMF diode", icon: "diode", signal: "Clamp", needs: ["5v", "gnd"] },
@@ -378,7 +388,7 @@ export function initCircuitView({ mount, componentList, assumptions, pinInfo, al
     }
   };
 
-  const downloadPng = (filename = "p1e-circuit.png") => {
+  const downloadPng = (filename = "xobit-circuit.png") => {
     if (!p5Instance?.canvas) return false;
     p5Instance.redraw();
     const logicalWidth = Math.max(320, p5Instance.width || p5Instance.canvas.width || 0);
@@ -774,7 +784,7 @@ function inferFromSource(source) {
     add(hint.type, hint.pin, {
       label: componentTypes[hint.type]?.label || hint.type,
       placement: hint.placement,
-      inferredFrom: "p1e-circuit comment",
+      inferredFrom: CIRCUIT_INFERRED_LABEL,
       confidence: 0.99,
     });
   });
@@ -937,7 +947,7 @@ function inferFromSource(source) {
 }
 
 function parseCircuitBoardHint(source) {
-  const match = String(source || "").match(/\/\/\s*p1e-circuit-board:\s*([^\n;]+)/i);
+  const match = String(source || "").match(new RegExp(`//\\s*${CIRCUIT_COMMENT}-board:\\s*([^\\n;]+)`, "i"));
   if (!match) return null;
   const text = match[1];
   const type = text.match(/\btype\s*=\s*([A-Za-z0-9_-]+)/i)?.[1] || "";
@@ -951,7 +961,7 @@ function parseCircuitBoardHint(source) {
 }
 
 function parseCircuitViewportHint(source) {
-  const match = String(source || "").match(/\/\/\s*p1e-circuit-view:\s*([^\n;]+)/i);
+  const match = String(source || "").match(new RegExp(`//\\s*${CIRCUIT_COMMENT}-view:\\s*([^\\n;]+)`, "i"));
   if (!match) return null;
   const text = match[1];
   const zoom = text.match(/\bzoom\s*=\s*(-?\d+(?:\.\d+)?)\b/i)?.[1];
@@ -987,7 +997,7 @@ function parseNumericArrays(source) {
 
 function parseCircuitHints(source) {
   const hints = [];
-  for (const match of String(source || "").matchAll(/\/\/\s*p1e-circuit:\s*([^\n;]+)/gi)) {
+  for (const match of String(source || "").matchAll(new RegExp(`//\\s*${CIRCUIT_COMMENT}:\\s*([^\\n;]+)`, "gi"))) {
     const text = match[1].trim();
     const pinMatch = text.match(/^(?:IO|GPIO)?\s*(\d{1,2})\b/i);
     if (pinMatch) {
@@ -1346,7 +1356,7 @@ function pruneStandalonePinsClaimedByBusComponents(components, connections) {
   components.forEach((component) => {
     if (!component.pin || !claimedPins.has(String(component.pin))) return;
     if (Object.keys(component.pins || {}).length) return;
-    if (/p1e-circuit comment/i.test(component.inferredFrom || "")) return;
+    if (isCircuitCommentInference(component.inferredFrom)) return;
     removeIds.add(component.id);
   });
   if (!removeIds.size) return;
@@ -1386,7 +1396,7 @@ function preferredSignalComponent(left, right) {
 }
 
 function signalComponentPriority(component) {
-  if (/p1e-circuit comment/i.test(component?.inferredFrom || "")) return 1000;
+  if (isCircuitCommentInference(component?.inferredFrom)) return 1000;
   if (isNeoPixelType(component?.type)) return 100;
   if (["vl53l0xTof", "i2sAudioDecoder", "ld2410cRadar"].includes(component?.type)) return 90;
   if (["servo", "fan", "dcMotor", "stepperMotor", "relay", "buzzer"].includes(component?.type)) return 80;
@@ -1600,7 +1610,7 @@ function correctOutputHintComponents(source, vars, components, connections, assu
       candidate.pin === value || candidate.pins?.signal === value || candidate.pins?.data === value
     ));
     if (!component) return;
-    if (!/p1e-circuit comment/i.test(component.inferredFrom || "")) return;
+    if (!isCircuitCommentInference(component.inferredFrom)) return;
     if (!["digitalSensor", "analogSensor", "unknown"].includes(component.type)) return;
     const typeDef = componentTypes[targetType];
     if (!typeDef) return;
@@ -1608,7 +1618,7 @@ function correctOutputHintComponents(source, vars, components, connections, assu
     component.label = typeDef.label;
     component.pin = value;
     component.pins = { signal: value };
-    component.inferredFrom = `${reason}; corrected p1e-circuit comment`;
+    component.inferredFrom = `${reason}; corrected ${CIRCUIT_INFERRED_LABEL}`;
     component.confidence = Math.max(numberOr(component.confidence, 0), 0.88);
     for (let i = connections.length - 1; i >= 0; i -= 1) {
       if (connections[i]?.from?.component === component.id) connections.splice(i, 1);
@@ -5095,7 +5105,7 @@ function clampPanAxis(value, baseOffset, contentSize, viewportSize) {
 
 function loadStoredCircuitZoom() {
   try {
-    const raw = window.localStorage?.getItem(CIRCUIT_ZOOM_STORAGE_KEY);
+    const raw = window.localStorage?.getItem(CIRCUIT_ZOOM_STORAGE_KEY) ?? window.localStorage?.getItem(LEGACY_CIRCUIT_ZOOM_STORAGE_KEY);
     const value = Number(raw);
     return Number.isFinite(value) ? clamp(value, CIRCUIT_ZOOM_MIN, CIRCUIT_ZOOM_MAX) : CIRCUIT_DEFAULT_ZOOM;
   } catch (_) {
@@ -5113,7 +5123,8 @@ function storeCircuitZoom(value) {
 
 function loadStoredCircuitPan() {
   try {
-    const parsed = JSON.parse(window.localStorage?.getItem(CIRCUIT_PAN_STORAGE_KEY) || "{}");
+    const raw = (window.localStorage?.getItem(CIRCUIT_PAN_STORAGE_KEY) ?? window.localStorage?.getItem(LEGACY_CIRCUIT_PAN_STORAGE_KEY)) || "{}";
+    const parsed = JSON.parse(raw);
     const x = Number(parsed?.x);
     const y = Number(parsed?.y);
     return { x: Number.isFinite(x) ? x : 0, y: Number.isFinite(y) ? y : 0 };

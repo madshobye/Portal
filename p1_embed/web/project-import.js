@@ -8,7 +8,7 @@ export function createProjectImporter({
     const base = String(filename || "")
       .split(/[\\/]/)
       .pop()
-      .replace(/\.(p1e\.json|json|wrench|txt)$/i, "")
+      .replace(/\.(xobit\.json|p1e\.json|json|wrench|txt)$/i, "")
       .replace(/[-_]+/g, " ")
       .replace(/\s+/g, " ")
       .trim();

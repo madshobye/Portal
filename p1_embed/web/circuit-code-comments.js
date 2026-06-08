@@ -1,4 +1,9 @@
 import { escapeRegex } from "./string-utils.js?v=0.1.87-ui559";
+import { product } from "./app-config.js?v=0.1.87-ui720";
+
+const CIRCUIT_COMMENT = `(?:${escapeRegex(product.circuitCommentPrefix)}|${escapeRegex(product.legacyCircuitCommentPrefix)})`;
+const CIRCUIT_BOARD_COMMENT = `(?:${escapeRegex(product.circuitCommentPrefix)}|${escapeRegex(product.legacyCircuitCommentPrefix)})-board`;
+const CIRCUIT_VIEW_COMMENT = `(?:${escapeRegex(product.circuitCommentPrefix)}|${escapeRegex(product.legacyCircuitCommentPrefix)})-view`;
 
 export function normalizeCircuitBoardType(type) {
   return type === "esp32-d1-mini" ? "esp32-d1-mini" : "esp32-classic";
@@ -36,22 +41,22 @@ export function stripCircuitPlacementComments(code) {
 }
 
 function stripCircuitPlacementLine(line) {
-  if (/\/\/\s*p1e-circuit-board:/i.test(line)) {
+  if (new RegExp(`//\\s*${CIRCUIT_BOARD_COMMENT}:`, "i").test(line)) {
     const cleaned = line
       .replace(/\bcx\s*=\s*-?\d{1,3}\b/ig, "")
       .replace(/\bcy\s*=\s*-?\d{1,3}\b/ig, "")
       .replace(/\s+/g, " ")
       .replace(/\s+$/, "");
-    return /\/\/\s*p1e-circuit-board:\s*type\s*=/i.test(cleaned) ? cleaned : null;
+    return new RegExp(`//\\s*${CIRCUIT_BOARD_COMMENT}:\\s*type\\s*=`, "i").test(cleaned) ? cleaned : null;
   }
-  if (!/\/\/\s*p1e-circuit:/i.test(line)) return line;
+  if (!new RegExp(`//\\s*${CIRCUIT_COMMENT}:`, "i").test(line)) return line;
   const cleaned = line
     .replace(/\bside\s*=\s*(?:left|right)\b/ig, "")
     .replace(/\bx\s*=\s*-?\d{1,3}\b/ig, "")
     .replace(/\by\s*=\s*-?\d{1,3}\b/ig, "")
     .replace(/\s+/g, " ")
     .replace(/\s+$/, "");
-  return /\/\/\s*p1e-circuit:\s*$/i.test(cleaned) ? null : cleaned;
+  return new RegExp(`//\\s*${CIRCUIT_COMMENT}:\\s*$`, "i").test(cleaned) ? null : cleaned;
 }
 
 export function persistGeneratedCircuitLayoutPositions(code, model) {
@@ -82,7 +87,7 @@ export function persistGeneratedCircuitLayoutPositions(code, model) {
 
 export function upsertCircuitHintComment(code, pin, hint) {
   const lines = String(code || "").split("\n");
-  const hintRe = new RegExp(`//\\s*p1e-circuit:\\s*(?:IO|GPIO)?\\s*${escapeRegex(pin)}\\b[^\\n]*`, "i");
+  const hintRe = new RegExp(`//\\s*${CIRCUIT_COMMENT}:\\s*(?:IO|GPIO)?\\s*${escapeRegex(pin)}\\b[^\\n]*`, "i");
   const existingIndex = lines.findIndex((line) => hintRe.test(line));
   if (existingIndex >= 0) {
     lines[existingIndex] = lines[existingIndex].replace(hintRe, (existing) => {
@@ -122,7 +127,7 @@ export function upsertCircuitPlacementComment(code, key, type, side, x, y) {
     lines[existingIndex] = lines[existingIndex].replace(hintRe, (hint) => applyPlacement(hint)).replace(/\s+$/, "");
     return lines.join("\n");
   }
-  const hint = `// p1e-circuit: ${normalizedKey} ${type || "unknown"} side=${side}${roundedX !== null ? ` x=${roundedX}` : ""} y=${roundedY}`;
+  const hint = `// ${product.circuitCommentPrefix}: ${normalizedKey} ${type || "unknown"} side=${side}${roundedX !== null ? ` x=${roundedX}` : ""} y=${roundedY}`;
   const pin = normalizedKey.match(/^IO(\d+)$/i)?.[1] || "";
   const targetIndex = pin ? findCircuitHintLine(lines, pin) : -1;
   if (targetIndex >= 0) {
@@ -150,14 +155,14 @@ function normalizeCircuitPlacementKey(key, type = "") {
 function circuitPlacementHintRegex(key) {
   if (/^IO\d+$/i.test(key)) {
     const pin = key.replace(/\D+/g, "");
-    return new RegExp(`//\\s*p1e-circuit:\\s*(?:IO|GPIO)?\\s*${escapeRegex(pin)}\\b[^\\n]*`, "i");
+    return new RegExp(`//\\s*${CIRCUIT_COMMENT}:\\s*(?:IO|GPIO)?\\s*${escapeRegex(pin)}\\b[^\\n]*`, "i");
   }
-  return new RegExp(`//\\s*p1e-circuit:\\s*${escapeRegex(key)}\\b[^\\n]*`, "i");
+  return new RegExp(`//\\s*${CIRCUIT_COMMENT}:\\s*${escapeRegex(key)}\\b[^\\n]*`, "i");
 }
 
 export function upsertCircuitBoardPlacementComment(code, type, cx, cy) {
   const lines = String(code || "").split("\n");
-  const existingIndex = lines.findIndex((line) => /\/\/\s*p1e-circuit-board:/i.test(line));
+  const existingIndex = lines.findIndex((line) => new RegExp(`//\\s*${CIRCUIT_BOARD_COMMENT}:`, "i").test(line));
   const existing = existingIndex >= 0 ? lines[existingIndex] : "";
   const existingX = existing.match(/\bcx\s*=\s*(-?\d{1,3})\b/i)?.[1];
   const existingY = existing.match(/\bcy\s*=\s*(-?\d{1,3})\b/i)?.[1];
@@ -165,7 +170,7 @@ export function upsertCircuitBoardPlacementComment(code, type, cx, cy) {
   const sourceY = Number.isFinite(Number(cy)) ? Number(cy) : Number(existingY ?? 50);
   const roundedX = Math.round(Math.max(-50, Math.min(150, sourceX)));
   const roundedY = Math.round(Math.max(-50, Math.min(150, sourceY)));
-  const hint = `// p1e-circuit-board: type=${type} cx=${roundedX} cy=${roundedY}`;
+  const hint = `// ${product.circuitCommentPrefix}-board: type=${type} cx=${roundedX} cy=${roundedY}`;
   if (existingIndex >= 0) {
     lines[existingIndex] = hint;
   } else {
@@ -179,12 +184,12 @@ export function upsertCircuitViewportComment(code, zoom, panX, panY) {
   const roundedPanX = Math.round(Math.max(-9999, Math.min(9999, Number(panX))));
   const roundedPanY = Math.round(Math.max(-9999, Math.min(9999, Number(panY))));
   const lines = String(code || "").split("\n");
-  const hint = `// p1e-circuit-view: zoom=${roundedZoom.toFixed(2)} panX=${roundedPanX} panY=${roundedPanY}`;
-  const existingIndex = lines.findIndex((line) => /\/\/\s*p1e-circuit-view:/i.test(line));
+  const hint = `// ${product.circuitCommentPrefix}-view: zoom=${roundedZoom.toFixed(2)} panX=${roundedPanX} panY=${roundedPanY}`;
+  const existingIndex = lines.findIndex((line) => new RegExp(`//\\s*${CIRCUIT_VIEW_COMMENT}:`, "i").test(line));
   if (existingIndex >= 0) {
     lines[existingIndex] = hint;
   } else {
-    const boardIndex = lines.findIndex((line) => /\/\/\s*p1e-circuit-board:/i.test(line));
+    const boardIndex = lines.findIndex((line) => new RegExp(`//\\s*${CIRCUIT_BOARD_COMMENT}:`, "i").test(line));
     lines.splice(boardIndex >= 0 ? boardIndex + 1 : 0, 0, hint);
   }
   return lines.join("\n");
@@ -200,7 +205,7 @@ function findCircuitHintLine(lines, pin) {
   let fallback = -1;
   for (let index = 0; index < lines.length; index += 1) {
     const line = lines[index];
-    if (/p1e-circuit:/i.test(line)) continue;
+    if (new RegExp(`${CIRCUIT_COMMENT}:`, "i").test(line)) continue;
     if (pinVarRe.test(line)) return index;
     if (fallback < 0 && pinRe.test(line) && /\b(ledConfig|pinMode|digitalWrite|digitalRead|analogWrite|analogRead|touchRead|servoAttach|fanAttach|tone)\s*\(/.test(line)) {
       fallback = index;

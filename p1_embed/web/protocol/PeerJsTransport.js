@@ -1,3 +1,5 @@
+import { product } from "../app-config.js?v=0.1.87-ui720";
+
 const DEFAULT_REMOTE_SUFFIXES = ["a", "b", "c", "d", "e"];
 
 export class PeerJsTransport extends EventTarget {
@@ -18,7 +20,7 @@ export class PeerJsTransport extends EventTarget {
     this.path = path;
     this.key = key;
     this.secure = secure;
-    this.localId = localId || `p1e-web-${Math.floor(Math.random() * 100000)}`;
+    this.localId = localId || `${product.deviceIdPrefix}-web-${Math.floor(Math.random() * 100000)}`;
     this.remoteId = remoteId;
     this.connectTimeoutMs = connectTimeoutMs;
     this.dataChannelTimeoutMs = dataChannelTimeoutMs;
@@ -126,7 +128,7 @@ export class PeerJsTransport extends EventTarget {
     const conn = this.peer.connect(remoteId, {
       serialization: "raw",
       reliable: true,
-      label: "p1e",
+      label: product.deviceIdPrefix,
     });
     this.attachConnection(conn, finish);
     this.installRemoteDescriptionFilter(conn);

@@ -247,7 +247,7 @@ static String haDeviceName() {
   if (g_haDeviceName[0]) return String(g_haDeviceName);
   String name = configDeviceName();
   name.trim();
-  return name.length() ? name : String("p1-embed");
+  return name.length() ? name : String(XOBIT_DEVICE_ID_PREFIX);
 }
 
 static String haHostName() {
@@ -271,7 +271,7 @@ static String haHostName() {
   }
 
   while (clean.endsWith("-")) clean.remove(clean.length() - 1);
-  if (!clean.length()) clean = "p1-embed";
+  if (!clean.length()) clean = XOBIT_DEVICE_ID_PREFIX;
   if (clean.length() > 63) clean = clean.substring(0, 63);
   return clean;
 }
@@ -465,10 +465,10 @@ static void haSendDeviceInfo() {
   msg.fieldString(3, WiFi.macAddress());
   msg.fieldCString(4, P1_EMBED_FIRMWARE_VERSION);
   msg.fieldCString(5, __DATE__ " " __TIME__);
-  msg.fieldCString(6, "P1E ESP32");
-  msg.fieldCString(8, "p1e.embed");
+  msg.fieldString(6, String(XOBIT_PRODUCT_NAME) + " ESP32");
+  msg.fieldCString(8, "xobit.embed");
   msg.fieldCString(9, P1_EMBED_FIRMWARE_VERSION);
-  msg.fieldCString(12, "P1E");
+  msg.fieldCString(12, XOBIT_PRODUCT_NAME);
   msg.fieldString(13, haDeviceName());
   msg.fieldBool(19, false);
   haSendMessage(10, msg);
@@ -626,7 +626,7 @@ static void haSendAllStates() {
 static void haSendHomeAssistantButtonEvent(const P1HaEntity& entity) {
   if (!g_haClientActive) return;
   P1HaProtoWriter msg;
-  msg.fieldCString(1, "p1e_button_press");
+  msg.fieldCString(1, "xobit_button_press");
   haAddMapField(msg, 2, "id", String(entity.id));
   haAddMapField(msg, 2, "name", String(entity.name));
   haAddMapField(msg, 2, "device", haDeviceName());
@@ -653,9 +653,9 @@ static void haStartMdns() {
   MDNS.addServiceTxt("esphomelib", "tcp", "config_hash", hash.c_str());
   MDNS.addServiceTxt("esphomelib", "tcp", "mac", mac.c_str());
   MDNS.addServiceTxt("esphomelib", "tcp", "platform", "ESP32");
-  MDNS.addServiceTxt("esphomelib", "tcp", "board", "P1E");
+  MDNS.addServiceTxt("esphomelib", "tcp", "board", XOBIT_PRODUCT_NAME);
   MDNS.addServiceTxt("esphomelib", "tcp", "network", "wifi");
-  MDNS.addServiceTxt("esphomelib", "tcp", "project_name", "p1e.embed");
+  MDNS.addServiceTxt("esphomelib", "tcp", "project_name", "xobit.embed");
   MDNS.addServiceTxt("esphomelib", "tcp", "project_version", P1_EMBED_FIRMWARE_VERSION);
   g_haMdnsStarted = true;
 

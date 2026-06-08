@@ -141,7 +141,7 @@ export function createProjectActionsController({
   }
 
   function newSketchTemplate() {
-    return `// New P1.E sketch.
+    return `// New XOBIT sketch.
 function setup() {
   println("new sketch ready");
 }

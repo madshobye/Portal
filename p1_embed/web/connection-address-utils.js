@@ -1,3 +1,5 @@
+import { product } from "./app-config.js?v=0.1.87-ui720";
+
 export function normalizePeerId(value) {
   return String(value || "").trim().toLowerCase();
 }
@@ -66,7 +68,7 @@ export function wsDisplayName(url) {
   }
 }
 
-export function defaultPeerIdFromWebSocket(value, fallback = "p1-embed-f7a608") {
+export function defaultPeerIdFromWebSocket(value, fallback = `${product.deviceIdPrefix}-f7a608`) {
   try {
     const host = new URL(normalizeWebSocketUrl(value)).hostname;
     return normalizePeerId(host.replace(/\.local$/i, ""));

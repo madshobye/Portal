@@ -7,7 +7,7 @@ import { normalizeChatMessages } from "./revision-chat-model.js?v=0.1.87-ui720";
 import { createAppRuntimeAppFeatureRegistry } from "./app-runtime-app-feature-registry.js?v=0.1.87-ui720";
 import { createAppRuntimeAppDependencies } from "./app-runtime-app-dependencies.js?v=0.1.87-ui720";
 import { createTransferAppDependencies } from "./transfer-app-dependencies.js?v=0.1.87-ui720";
-import { storage } from "./app-config.js?v=0.1.87-ui720";
+import { product, storage } from "./app-config.js?v=0.1.87-ui720";
 
 export function createRuntimeRegistries({
   context,
@@ -32,6 +32,7 @@ export function createRuntimeRegistries({
     return registryCache.get("appRuntimeAppFeatureRegistry", () => createAppRuntimeAppFeatureRegistry(createAppRuntimeAppDependencies({
       defaultPeerIdFromWebSocket,
       fields,
+      product,
       getChatSettings: accessor("getChatSettings"),
       getChatShellController: accessor("getChatShellController"),
       getCircuitShellController: accessor("getCircuitShellController"),

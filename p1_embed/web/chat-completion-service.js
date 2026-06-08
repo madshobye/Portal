@@ -117,14 +117,14 @@ export function createChatCompletionService({
       const response = await fetchRef("wrench_chat_context.md", { cache: "no-cache" });
       wrenchChatContext = await response.text();
     } catch {
-      wrenchChatContext = "P1E Wrench context unavailable.";
+      wrenchChatContext = "XOBIT Wrench context unavailable.";
     }
     return wrenchChatContext;
   }
 
   function downloadChatPromptDebug({ model, prompt, instructions, userInputText, payloadContext, body }) {
     const md = chatPromptDebugMarkdown({ model, prompt, instructions, userInputText, payloadContext, body });
-    downloadText(md, `p1e-chat-prompt-${timestampForFilename()}.md`, "text/markdown;charset=utf-8");
+    downloadText(md, `xobit-chat-prompt-${timestampForFilename()}.md`, "text/markdown;charset=utf-8");
   }
 
   function timestampForFilename() {

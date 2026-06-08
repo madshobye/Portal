@@ -1,4 +1,5 @@
 import { MsgPackReader, MsgPackWriter } from "./P1MsgPack.js?v=0.1.87-ui348";
+import { product } from "../app-config.js?v=0.1.87-ui720";
 
 const DEFAULT_MQTT_ROOT = "";
 const FRAME_AUTH = 3;
@@ -11,7 +12,7 @@ const AUTH_ERROR = 4;
 
 export const MQTT_TRANSPORT_VERSION = "0.1.87-ui348";
 
-console.info(`[P1E mqtt] loaded ${MQTT_TRANSPORT_VERSION}`);
+console.info(`[${product.mqttLogLabel}] loaded ${MQTT_TRANSPORT_VERSION}`);
 
 export class MqttTransport extends EventTarget {
   constructor({
@@ -232,7 +233,7 @@ export class MqttTransport extends EventTarget {
 
   baseTopic() {
     const root = normalizeTopicPart(this.root) || this.remoteId;
-    return `p1e/${root}/${this.remoteId}`;
+    return `${product.mqttTopicPrefix}/${root}/${this.remoteId}`;
   }
 
   handleMessage(topic, payload) {
@@ -524,7 +525,7 @@ function makeClientId(prefix = "w") {
     for (let i = 0; i < bytes.length; i += 1) bytes[i] = Math.floor(Math.random() * 256);
   }
   const suffix = Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("");
-  return `p1e-${prefix}-${suffix}`;
+  return `${product.mqttClientPrefix}-${prefix}-${suffix}`;
 }
 
 function subscribe(client, topic) {
@@ -551,27 +552,39 @@ function wait(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-function authStorageKey(remoteId) {
-  return `p1e.online.auth.${normalizeTopicPart(remoteId)}`;
+function authStorageKey(remoteId, prefix = product.mqttClientPrefix) {
+  return `${prefix}.online.auth.${normalizeTopicPart(remoteId)}`;
 }
 
-function clientIdStorageKey(remoteId) {
-  return `p1e.mqtt.browserId.${normalizeTopicPart(remoteId)}`;
+function legacyAuthStorageKey(remoteId) {
+  return authStorageKey(remoteId, "p1e");
 }
 
-function tabClientIdStorageKey(remoteId) {
-  return `p1e.mqtt.tabId.${normalizeTopicPart(remoteId)}`;
+function clientIdStorageKey(remoteId, prefix = product.mqttClientPrefix) {
+  return `${prefix}.mqtt.browserId.${normalizeTopicPart(remoteId)}`;
+}
+
+function legacyClientIdStorageKey(remoteId) {
+  return clientIdStorageKey(remoteId, "p1e");
+}
+
+function tabClientIdStorageKey(remoteId, prefix = product.mqttClientPrefix) {
+  return `${prefix}.mqtt.tabId.${normalizeTopicPart(remoteId)}`;
+}
+
+function legacyTabClientIdStorageKey(remoteId) {
+  return tabClientIdStorageKey(remoteId, "p1e");
 }
 
 function loadStoredClientId(remoteId) {
   const normalizedRemote = normalizeTopicPart(remoteId);
   try {
-    let browserId = normalizeTopicPart(localStorage.getItem(clientIdStorageKey(normalizedRemote)));
+    let browserId = normalizeTopicPart(localStorage.getItem(clientIdStorageKey(normalizedRemote)) || localStorage.getItem(legacyClientIdStorageKey(normalizedRemote)));
     if (!browserId || browserId.length > 28) {
       browserId = makeClientId("b");
       localStorage.setItem(clientIdStorageKey(normalizedRemote), browserId);
     }
-    let tabId = normalizeTopicPart(sessionStorage.getItem(tabClientIdStorageKey(normalizedRemote)));
+    let tabId = normalizeTopicPart(sessionStorage.getItem(tabClientIdStorageKey(normalizedRemote)) || sessionStorage.getItem(legacyTabClientIdStorageKey(normalizedRemote)));
     if (!tabId || tabId.length > 28) {
       tabId = makeClientId("t");
       sessionStorage.setItem(tabClientIdStorageKey(normalizedRemote), tabId);
@@ -584,7 +597,7 @@ function loadStoredClientId(remoteId) {
 
 function loadStoredAuth(remoteId) {
   try {
-    const raw = localStorage.getItem(authStorageKey(remoteId));
+    const raw = localStorage.getItem(authStorageKey(remoteId)) || localStorage.getItem(legacyAuthStorageKey(remoteId));
     if (!raw) return null;
     const parsed = JSON.parse(raw);
     if (!parsed?.username || !parsed?.keyHex) return null;
@@ -684,7 +697,7 @@ function stringChunk(value) {
 
 function authProof(key, clientId, username, clientNonce, serverNonce) {
   return hmacSha256(key, [
-    stringChunk("P1E-MQTT-AUTH-v1"),
+    stringChunk("XOBIT-MQTT-AUTH-v1"),
     stringChunk(clientId),
     stringChunk(username),
     clientNonce,
@@ -699,7 +712,7 @@ function isRejectedAuthError(error) {
 
 function secureTag(key, sessionId, counter, payload) {
   return hmacSha256(key, [
-    stringChunk("P1E-MQTT-SECURE-v1"),
+    stringChunk("XOBIT-MQTT-SECURE-v1"),
     u32be(sessionId),
     u32be(counter),
     payload,

@@ -26,7 +26,7 @@ export function createProjectModel({
   }
 
   function createProjectId() {
-    return createOpaqueId("p1e-prj");
+    return createOpaqueId("xobit-prj");
   }
 
   function createRevisionId() {
@@ -91,7 +91,7 @@ export function createProjectModel({
     const active = revisions.find((revision) => revision.id === activeRevisionId) || revisions[0] || null;
     if (active && projectChat.length && !active.chat.length) active.chat = projectChat;
     return {
-      type: "p1e-project",
+      type: "xobit-project",
       version: 2,
       id: String(project.id || createProjectId()),
       name: normalizeProjectName(project.name) || autoProjectName(active?.code || ""),

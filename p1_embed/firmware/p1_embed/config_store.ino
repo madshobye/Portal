@@ -7,6 +7,7 @@
 #include "p1_embed_firmware.h"
 
 static const char* CONFIG_PATH = "/config.json";
+static const int CONFIG_SCHEMA_VERSION = 2;
 static const size_t P1_CONFIG_DEVICE_ID_MAX = 32;
 static const size_t P1_CONFIG_DEVICE_NAME_MAX = 48;
 static const size_t P1_CONFIG_PROJECT_ID_MAX = 64;
@@ -111,6 +112,34 @@ static String configText(const char* value) {
   return String(value ? value : "");
 }
 
+static bool configIsHexSuffix(const String& value, size_t start) {
+  if (value.length() != start + 6) return false;
+  for (size_t i = start; i < value.length(); i++) {
+    char c = value[i];
+    bool hex = (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F');
+    if (!hex) return false;
+  }
+  return true;
+}
+
+static bool configMigrateLegacyDeviceName() {
+  String name = configText(g_deviceName);
+  if (!name.startsWith(String(XOBIT_LEGACY_DEVICE_ID_PREFIX) + "-")) return false;
+  size_t prefixLen = strlen(XOBIT_LEGACY_DEVICE_ID_PREFIX) + 1;
+  if (!configIsHexSuffix(name, prefixLen)) return false;
+  configSetText(g_deviceName, sizeof(g_deviceName), String(XOBIT_DEVICE_ID_PREFIX) + "-" + name.substring(prefixLen));
+  return true;
+}
+
+static bool configMigrateLegacyMqttRoot() {
+  String root = configText(g_mqttRoot);
+  if (!root.startsWith(String(XOBIT_LEGACY_DEVICE_ID_PREFIX) + "-")) return false;
+  size_t prefixLen = strlen(XOBIT_LEGACY_DEVICE_ID_PREFIX) + 1;
+  if (!configIsHexSuffix(root, prefixLen)) return false;
+  configSetText(g_mqttRoot, sizeof(g_mqttRoot), String(XOBIT_DEVICE_ID_PREFIX) + "-" + root.substring(prefixLen));
+  return true;
+}
+
 static void configClearWifiNetworkAt(int index) {
   if (index < 0 || index >= P1_EMBED_MAX_WIFI_NETWORKS) return;
   g_wifiNetworks[index].ssid[0] = 0;
@@ -153,21 +182,21 @@ static bool configEnsureFs() {
 
 static String configBuildDeviceId() {
   uint64_t mac = ESP.getEfuseMac();
-  char buf[24];
-  snprintf(buf, sizeof(buf), "p1-%04X%08X", (uint16_t)(mac >> 32), (uint32_t)mac);
+  char buf[28];
+  snprintf(buf, sizeof(buf), "%s-%04X%08X", XOBIT_DEVICE_ID_PREFIX, (uint16_t)(mac >> 32), (uint32_t)mac);
   return String(buf);
 }
 
 static String configBuildDefaultDeviceName() {
   uint64_t mac = ESP.getEfuseMac();
   char buf[24];
-  snprintf(buf, sizeof(buf), "p1-embed-%06X", (uint32_t)(mac & 0xFFFFFF));
+  snprintf(buf, sizeof(buf), "%s-%06X", XOBIT_DEVICE_ID_PREFIX, (uint32_t)(mac & 0xFFFFFF));
   return String(buf);
 }
 
 static String configBuildDefaultMqttRoot() {
   String id = configDeviceId();
-  String root = id.length() >= 6 ? String("p1-embed-") + id.substring(id.length() - 6) : configBuildDefaultDeviceName();
+  String root = id.length() >= 6 ? String(XOBIT_DEVICE_ID_PREFIX) + "-" + id.substring(id.length() - 6) : configBuildDefaultDeviceName();
   root.toLowerCase();
   root.replace(" ", "-");
   return root;
@@ -207,7 +236,7 @@ static String configGenerateGuestKey() {
 
 static void configApplyIdentityDefaults() {
   if (!configTextHasValue(g_deviceId)) configSetText(g_deviceId, sizeof(g_deviceId), configBuildDeviceId());
-  if (!configTextHasValue(g_deviceName) || strcmp(g_deviceName, "p1-embed") == 0) {
+  if (!configTextHasValue(g_deviceName) || strcmp(g_deviceName, "p1-embed") == 0 || strcmp(g_deviceName, "P1.E") == 0 || strcmp(g_deviceName, "P1E") == 0) {
     configSetText(g_deviceName, sizeof(g_deviceName), configBuildDefaultDeviceName());
   }
 }
@@ -468,6 +497,8 @@ void configLoad() {
   if (configReadFile(json)) {
     String value;
     bool changed = false;
+    int schemaVersion = 0;
+    if (!configJsonGetInt(json, "configSchemaVersion", schemaVersion) || schemaVersion < CONFIG_SCHEMA_VERSION) changed = true;
     if (configJsonGetString(json, "deviceId", value)) configSetText(g_deviceId, sizeof(g_deviceId), value);
     else changed = true;
     if (configJsonGetString(json, "deviceName", value)) configSetText(g_deviceName, sizeof(g_deviceName), value.length() ? value : configBuildDefaultDeviceName());
@@ -483,6 +514,7 @@ void configLoad() {
     if (configJsonGetString(json, "timezone", value)) configSetText(g_timezone, sizeof(g_timezone), configNormalizeTimezone(value));
     else changed = true;
     configApplyIdentityDefaults();
+    if (configMigrateLegacyDeviceName()) changed = true;
     configApplyTimezone();
     configLoadWifiNetworks(json);
     configLoadOnlineAuthUsers(json);
@@ -493,6 +525,7 @@ void configLoad() {
     else changed = true;
     if (configJsonGetString(json, "mqttRoot", value)) {
       configSetText(g_mqttRoot, sizeof(g_mqttRoot), value);
+      if (configMigrateLegacyMqttRoot()) changed = true;
     }
     else changed = true;
     if (configJsonGetString(json, "mqttUser", value)) configSetText(g_mqttUser, sizeof(g_mqttUser), value);
@@ -528,7 +561,8 @@ void configSave() {
   if (!configEnsureFs()) return;
 
   String json = "{";
-  json += "\"deviceId\":" + jsonString(g_deviceId);
+  json += "\"configSchemaVersion\":" + String(CONFIG_SCHEMA_VERSION);
+  json += ",\"deviceId\":" + jsonString(g_deviceId);
   json += ",\"deviceName\":" + jsonString(g_deviceName);
   json += ",\"projectId\":" + jsonString(g_projectId);
   json += ",\"projectName\":" + jsonString(g_projectName);

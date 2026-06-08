@@ -1,3 +1,5 @@
+import { product } from "./app-config.js?v=0.1.87-ui720";
+
 export function createInfoPanelController({
   renderer,
   webVersion,
@@ -41,7 +43,7 @@ export function createInfoPanelController({
     renderFirmwareUpdatePanel();
     renderer.renderShare(shareUrl);
     renderer.renderCards([
-      { icon: "developer_board", title: lastInfo?.deviceName || lastStatus?.deviceName || "P1.E board", metrics: [
+      { icon: "developer_board", title: lastInfo?.deviceName || lastStatus?.deviceName || product.boardLabel, metrics: [
         metric("Firmware", [lastInfo?.firmwareName, lastInfo?.firmwareVersion].filter(Boolean).join(" ") || "-"),
         metric("Uptime", formatDuration(lastStatus?.uptimeMs) || "-"),
         metric("Time", lastStatus?.timeSynced ? lastStatus.localTime || "-" : "not synced"),

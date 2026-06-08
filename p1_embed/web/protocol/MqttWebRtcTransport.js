@@ -1,7 +1,9 @@
-const DEFAULT_MQTT_ROOT = "p1e-webrtc-v1";
+import { product } from "../app-config.js?v=0.1.87-ui720";
+
+const DEFAULT_MQTT_ROOT = "xobit-webrtc-v1";
 export const MQTT_WEBRTC_TRANSPORT_VERSION = "0.1.87-ui348";
 
-console.info(`[P1E mqtt-webrtc] loaded ${MQTT_WEBRTC_TRANSPORT_VERSION}`);
+console.info(`[${product.name} mqtt-webrtc] loaded ${MQTT_WEBRTC_TRANSPORT_VERSION}`);
 
 export class MqttWebRtcTransport extends EventTarget {
   constructor({
@@ -20,7 +22,7 @@ export class MqttWebRtcTransport extends EventTarget {
     this.password = password;
     this.root = root;
     this.stunUrl = stunUrl;
-    this.localId = normalizePeerId(localId) || `p1e-web-mqtt-${Math.floor(Math.random() * 100000)}`;
+    this.localId = normalizePeerId(localId) || `${product.deviceIdPrefix}-web-mqtt-${Math.floor(Math.random() * 100000)}`;
     this.remoteId = normalizePeerId(remoteId);
     this.connectTimeoutMs = connectTimeoutMs;
     this.connectionId = `mqtt_${Math.floor(Math.random() * 100000000)}`;
@@ -110,7 +112,7 @@ export class MqttWebRtcTransport extends EventTarget {
 
     this.pc = new RTCPeerConnection(rtcConfig.config);
     this.setState("diagnostic", { message: `certificate=${rtcConfig.certificateLabel}` });
-    this.channel = this.pc.createDataChannel("p1e", { ordered: true });
+    this.channel = this.pc.createDataChannel(product.deviceIdPrefix, { ordered: true });
 
     const publish = (message) => {
       if (!this.client || this.client.disconnected) return;
@@ -458,7 +460,7 @@ export class MqttWebRtcTransport extends EventTarget {
   debug(message, data = undefined) {
     if (!this._debug) return;
     const payload = { at: new Date().toISOString(), ...(data || {}) };
-    console.debug(`[P1E mqtt-webrtc] ${message}`, payload);
+    console.debug(`[${product.name} mqtt-webrtc] ${message}`, payload);
   }
 
   setState(state, extra = {}) {

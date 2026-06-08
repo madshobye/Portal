@@ -23,7 +23,7 @@ export function createProjectDownloadService({
     const url = URLRef.createObjectURL(blob);
     const a = documentRef.createElement("a");
     a.href = url;
-    a.download = `${slugForFilename(project.name || "p1e-project")}.p1e.json`;
+    a.download = `${slugForFilename(project.name || "xobit-project")}.xobit.json`;
     documentRef.body.append(a);
     a.click();
     a.remove();
@@ -64,7 +64,7 @@ export function createProjectDownloadService({
       .toLowerCase()
       .replace(/[^a-z0-9]+/g, "-")
       .replace(/^-+|-+$/g, "");
-    return slug || `p1e-${timestampForFilename()}`;
+    return slug || `xobit-${timestampForFilename()}`;
   }
 
   return {

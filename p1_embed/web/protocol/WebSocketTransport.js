@@ -1,6 +1,8 @@
+import { product } from "../app-config.js?v=0.1.87-ui720";
+
 export class WebSocketTransport extends EventTarget {
   constructor({
-    url = "ws://p1-embed-f7a608.local:81/",
+    url = `ws://${product.deviceIdPrefix}-f7a608.local:81/`,
   } = {}) {
     super();
     this.url = url;

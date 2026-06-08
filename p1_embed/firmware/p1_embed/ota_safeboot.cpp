@@ -465,11 +465,11 @@ bool otaSafeBootBootUpdater(String& errOut) {
 void otaSafeBootHandleBootDownload() {
   if (!otaSafeBootDownloadPending()) return;
 
-  Serial.println("[p1e ota] download mode: waiting for WiFi");
+  Serial.println("[xobit ota] download mode: waiting for WiFi");
   otaSafeBootStorePhase(true, false, "waiting_wifi", "");
   if (!otaSafeBootWaitForWifi(P1_EMBED_OTA_DOWNLOAD_WIFI_WAIT_MS)) {
     String err = "WiFi did not connect before OTA download timeout";
-    Serial.println(String("[p1e ota] ") + err);
+    Serial.println(String("[xobit ota] ") + err);
     otaSafeBootStorePhase(false, false, "download_failed", err);
     return;
   }
@@ -477,32 +477,32 @@ void otaSafeBootHandleBootDownload() {
   P1OtaRequest request;
   if (!otaSafeBootLoadRequest(request)) {
     String err = "OTA download request is missing or corrupt";
-    Serial.println(String("[p1e ota] ") + err);
+    Serial.println(String("[xobit ota] ") + err);
     otaSafeBootStorePhase(false, false, "download_failed", err);
     return;
   }
 
   otaSafeBootStorePhase(true, false, "downloading", "");
-  Serial.println(String("[p1e ota] downloading ") + request.url);
+  Serial.println(String("[xobit ota] downloading ") + request.url);
   uint32_t patchSize = 0;
   String err;
   if (!otaSafeBootDownloadPatch(request.url, request.sha256, patchSize, err)) {
-    Serial.println(String("[p1e ota] download failed: ") + err);
+    Serial.println(String("[xobit ota] download failed: ") + err);
     otaSafeBootStorePhase(false, false, "download_failed", err);
     return;
   }
   if (!otaSafeBootStoreDownloadedPatch(patchSize, err)) {
-    Serial.println(String("[p1e ota] ") + err);
+    Serial.println(String("[xobit ota] ") + err);
     otaSafeBootStorePhase(false, false, "download_failed", err);
     return;
   }
   if (!otaSafeBootSelectUpdater(err)) {
-    Serial.println(String("[p1e ota] ") + err);
+    Serial.println(String("[xobit ota] ") + err);
     otaSafeBootStorePhase(false, true, "updater_select_failed", err);
     return;
   }
 
-  Serial.println(String("[p1e ota] patch ready, size=") + patchSize + "; rebooting updater");
+  Serial.println(String("[xobit ota] patch ready, size=") + patchSize + "; rebooting updater");
   delay(200);
   ESP.restart();
 }

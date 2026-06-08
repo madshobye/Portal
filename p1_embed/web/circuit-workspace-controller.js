@@ -85,7 +85,7 @@ export function createCircuitWorkspaceController({
   }
 
   function downloadDiagram() {
-    const ok = getCircuitView()?.downloadPng?.(`p1e-circuit-${timestampForFilename()}.png`);
+    const ok = getCircuitView()?.downloadPng?.(`xobit-circuit-${timestampForFilename()}.png`);
     logLine(ok ? "info" : "warn", ok ? "circuit diagram downloaded" : "circuit diagram not ready");
   }
 

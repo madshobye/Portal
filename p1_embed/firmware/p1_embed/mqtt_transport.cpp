@@ -225,13 +225,13 @@ static String mqttNormalizeTopicPart(String value) {
 static String mqttDeviceTopicId() {
   String id = configDeviceId();
   if (id.length() >= 6) {
-    return mqttNormalizeTopicPart(String("p1-embed-") + id.substring(id.length() - 6));
+    return mqttNormalizeTopicPart(String(XOBIT_DEVICE_ID_PREFIX) + "-" + id.substring(id.length() - 6));
   }
   return mqttNormalizeTopicPart(id.length() ? id : configDeviceName());
 }
 
 static String mqttBaseTopic() {
-  return String("p1e/") + configMqttRoot() + "/" + g_mqttDeviceId;
+  return String(XOBIT_MQTT_TOPIC_PREFIX) + "/" + configMqttRoot() + "/" + g_mqttDeviceId;
 }
 
 static String mqttResponseTopic(const String& clientId) {
@@ -321,7 +321,7 @@ static bool mqttAuthProof(const uint8_t key[32], const String& clientId, const S
                           const uint8_t clientNonce[16], const uint8_t serverNonce[16], uint8_t out[32]) {
   mbedtls_md_context_t ctx;
   if (!mqttHmacStart(ctx, key)) return false;
-  mqttHmacUpdateString(ctx, "P1E-MQTT-AUTH-v1");
+  mqttHmacUpdateString(ctx, XOBIT_MQTT_AUTH_DOMAIN);
   mqttHmacUpdateString(ctx, clientId.c_str());
   mqttHmacUpdateString(ctx, username.c_str());
   mbedtls_md_hmac_update(&ctx, clientNonce, 16);
@@ -333,7 +333,7 @@ static bool mqttSecureTag(const uint8_t key[32], uint32_t sessionId, uint32_t co
                           const uint8_t* payload, size_t payloadLen, uint8_t out[32]) {
   mbedtls_md_context_t ctx;
   if (!mqttHmacStart(ctx, key)) return false;
-  mqttHmacUpdateString(ctx, "P1E-MQTT-SECURE-v1");
+  mqttHmacUpdateString(ctx, XOBIT_MQTT_SECURE_DOMAIN);
   mqttHmacUpdateU32(ctx, sessionId);
   mqttHmacUpdateU32(ctx, counter);
   if (payload && payloadLen) mbedtls_md_hmac_update(&ctx, payload, payloadLen);
@@ -773,7 +773,7 @@ static void mqttHandleMessage(MQTTClient*, char topic[], char bytes[], int lengt
 static bool mqttConnect() {
   if (!mqttTransportAllowedByConfig()) return false;
   g_mqttDeviceId = mqttDeviceTopicId();
-  g_mqttClientId = String("p1e-device-") + g_mqttDeviceId;
+  g_mqttClientId = String(XOBIT_MQTT_CLIENT_PREFIX) + "-device-" + g_mqttDeviceId;
   g_mqttCmdTopicPrefix = mqttBaseTopic() + "/cmd";
   g_mqttEvtTopic = mqttBaseTopic() + "/evt";
   g_mqttHelloTopic = mqttBaseTopic() + "/hello";

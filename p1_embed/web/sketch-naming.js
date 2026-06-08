@@ -54,8 +54,8 @@ export function createSketchNaming({ normalizeSketchName } = {}) {
     if (!normalized) return false;
     return ![
       "new sketch",
-      "new p1e sketch",
-      "p1e sketch",
+      "new xobit sketch",
+      "xobit sketch",
       "sketch",
       "untitled sketch",
     ].includes(normalized);

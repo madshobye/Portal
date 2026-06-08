@@ -5,12 +5,14 @@ import { createDomRefs } from "./dom-refs.js?v=0.1.87-ui720";
 import { createAppState } from "./app-state.js?v=0.1.87-ui720";
 import { createAppControllerAccessors } from "./app-controller-accessors.js?v=0.1.87-ui720";
 import { createAppRegistries } from "./app-registry-factory.js?v=0.1.87-ui720";
+import { migrateLegacyBrowserStorage, product } from "./app-config.js?v=0.1.87-ui720";
 
 const WEB_UI_VERSION = "0.1.87-ui720";
-console.info(`[P1.E web] loaded ${WEB_UI_VERSION}`, { mqtt: MQTT_TRANSPORT_VERSION, mqttWebRtc: MQTT_WEBRTC_TRANSPORT_VERSION });
+console.info(`[${product.logLabel}] loaded ${WEB_UI_VERSION}`, { mqtt: MQTT_TRANSPORT_VERSION, mqttWebRtc: MQTT_WEBRTC_TRANSPORT_VERSION });
 
 const narrowGenerativeQuery = window.matchMedia?.("(max-width: 760px)");
 
+migrateLegacyBrowserStorage(localStorage);
 renderProjectControlClusters();
 
 const els = createDomRefs(document);

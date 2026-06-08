@@ -4,9 +4,25 @@ export const CHAT_HARD_MAX_OUTPUT_TOKENS = 32000;
 export const ALPHA_ENABLE_WEBSOCKET_CONNECT = false;
 export const ALPHA_ENABLE_WEBRTC_CONNECT = false;
 
+export const product = {
+  name: "XOBIT",
+  firmwareName: "xobit",
+  boardLabel: "XOBIT board",
+  logLabel: "XOBIT web",
+  mqttLogLabel: "XOBIT mqtt",
+  mqttTopicPrefix: "xobit",
+  mqttClientPrefix: "xobit",
+  deviceIdPrefix: "xobit",
+  legacyDeviceIdPrefix: "p1-embed",
+  circuitCommentPrefix: "xobit-circuit",
+  legacyCircuitCommentPrefix: "p1e-circuit",
+  keySharePrefix: "xobit-key:v1:",
+  legacyKeySharePrefix: "p1e-key:v1:",
+};
+
 export const defaultCode = `function setup() {
   pinMode(2, 1);
-  println("p1_embed ready");
+  println("XOBIT ready");
 }
 
 function loop() {
@@ -16,43 +32,83 @@ function loop() {
   delay(880);
 }`;
 
-export const storage = {
-  code: "p1_embed.editor.code",
-  wsUrl: "p1_embed.websocket.url",
-  wsName: "p1_embed.websocket.name",
-  wsHistory: "p1_embed.websocket.history",
-  peerId: "p1_embed.peerjs.remoteId",
-  peerHistory: "p1_embed.peerjs.history",
-  mqttHost: "p1_embed.mqtt.host",
-  mqttPort: "p1_embed.mqtt.port",
-  mqttRoot: "p1_embed.mqtt.root.v2",
-  mqttUser: "p1_embed.mqtt.user",
-  mqttPassword: "p1_embed.mqtt.password",
-  usbHint: "p1_embed.serial.hint",
-  usbHistory: "p1_embed.serial.history",
-  lastConnection: "p1_embed.connection.last",
-  connectionIntent: "p1_embed.connection.intent",
-  reconnectOnLoad: "p1_embed.connection.reconnectOnLoad",
-  activeTab: "p1_embed.workspace.activeTab",
-  logLevel: "p1_embed.console.logLevel",
-  consoleTimestamps: "p1_embed.console.timestamps",
-  sketchHistory: "p1_embed.editor.history",
-  projectId: "p1_embed.project.activeId",
-  projectSchemaMigration: "p1_embed.project.schemaMigrated",
-  projectFallback: "p1_embed.project.fallback",
-  chatApiKey: "p1_embed.chat.apiKey",
-  chatModel: "p1_embed.chat.model",
-  chatModelList: "p1_embed.chat.modelList",
-  chatMaxOutputTokens: "p1_embed.chat.maxOutputTokens",
-  chatHistory: "p1_embed.chat.history",
-  chatDebugPrompt: "p1_embed.chat.debugPrompt",
-  specificationDraft: "p1_embed.project.specificationDraft",
-  revisionDraft: "p1_embed.project.revisionDraft",
-  specificationMode: "p1_embed.project.specificationMode",
-  editorTheme: "p1_embed.editor.theme",
-  circuitArtMode: "p1_embed.circuit.artMode",
-  circuitRoutingMode: "p1_embed.circuit.routingMode",
-  circuitBoardType: "p1_embed.circuit.boardType",
+const browserStorageNamespace = "xobit";
+const legacyBrowserStorageNamespace = "p1_embed";
+
+function storageKey(namespace, suffix) {
+  return `${namespace}.${suffix}`;
+}
+
+function makeStorage(namespace) {
+  return {
+    code: storageKey(namespace, "editor.code"),
+    wsUrl: storageKey(namespace, "websocket.url"),
+    wsName: storageKey(namespace, "websocket.name"),
+    wsHistory: storageKey(namespace, "websocket.history"),
+    peerId: storageKey(namespace, "peerjs.remoteId"),
+    peerHistory: storageKey(namespace, "peerjs.history"),
+    mqttHost: storageKey(namespace, "mqtt.host"),
+    mqttPort: storageKey(namespace, "mqtt.port"),
+    mqttRoot: storageKey(namespace, "mqtt.root.v2"),
+    mqttUser: storageKey(namespace, "mqtt.user"),
+    mqttPassword: storageKey(namespace, "mqtt.password"),
+    usbHint: storageKey(namespace, "serial.hint"),
+    usbHistory: storageKey(namespace, "serial.history"),
+    lastConnection: storageKey(namespace, "connection.last"),
+    connectionIntent: storageKey(namespace, "connection.intent"),
+    reconnectOnLoad: storageKey(namespace, "connection.reconnectOnLoad"),
+    activeTab: storageKey(namespace, "workspace.activeTab"),
+    logLevel: storageKey(namespace, "console.logLevel"),
+    consoleTimestamps: storageKey(namespace, "console.timestamps"),
+    sketchHistory: storageKey(namespace, "editor.history"),
+    projectId: storageKey(namespace, "project.activeId"),
+    projectSchemaMigration: storageKey(namespace, "project.schemaMigrated"),
+    projectFallback: storageKey(namespace, "project.fallback"),
+    chatApiKey: storageKey(namespace, "chat.apiKey"),
+    chatModel: storageKey(namespace, "chat.model"),
+    chatModelList: storageKey(namespace, "chat.modelList"),
+    chatMaxOutputTokens: storageKey(namespace, "chat.maxOutputTokens"),
+    chatHistory: storageKey(namespace, "chat.history"),
+    chatDebugPrompt: storageKey(namespace, "chat.debugPrompt"),
+    specificationDraft: storageKey(namespace, "project.specificationDraft"),
+    revisionDraft: storageKey(namespace, "project.revisionDraft"),
+    specificationMode: storageKey(namespace, "project.specificationMode"),
+    editorTheme: storageKey(namespace, "editor.theme"),
+    circuitArtMode: storageKey(namespace, "circuit.artMode"),
+    circuitRoutingMode: storageKey(namespace, "circuit.routingMode"),
+    circuitBoardType: storageKey(namespace, "circuit.boardType"),
+  };
+}
+
+export const storage = makeStorage(browserStorageNamespace);
+export const legacyStorage = makeStorage(legacyBrowserStorageNamespace);
+
+function migrateLegacyTextValue(value) {
+  return String(value || "")
+    .replace(/\bp1-embed-([0-9a-f]{6})\b/ig, `${product.deviceIdPrefix}-$1`)
+    .replace(/\bP1\.E\b/g, product.name)
+    .replace(/\bP1E\b/g, product.name);
+}
+
+export function migrateLegacyBrowserStorage(storageArea = globalThis.localStorage) {
+  if (!storageArea) return;
+  const marker = storageKey(browserStorageNamespace, "migration.p1eToXobit.v1");
+  try {
+    if (storageArea.getItem(marker) === "done") return;
+    for (const key of Object.keys(storage)) {
+      const nextKey = storage[key];
+      const oldKey = legacyStorage[key];
+      if (!nextKey || !oldKey || storageArea.getItem(nextKey) !== null) continue;
+      const oldValue = storageArea.getItem(oldKey);
+      if (oldValue !== null) {
+        const migrated = ["peerId", "mqttRoot", "wsUrl", "wsName"].includes(key) ? migrateLegacyTextValue(oldValue) : oldValue;
+        storageArea.setItem(nextKey, migrated);
+      }
+    }
+    storageArea.setItem(marker, "done");
+  } catch {
+    // Storage may be unavailable in private browser contexts.
+  }
 };
 
 export const builtInChatModelOptions = [
@@ -73,6 +129,7 @@ export const chatHistoryLimit = 15;
 export const sketchHistoryLimit = 50;
 export const projectLimit = 80;
 export const connectionHistoryLimit = 12;
+// Kept for browser project-history continuity. Do not rename without an IndexedDB migration.
 export const sketchDbName = "p1_embed";
 export const sketchDbVersion = 2;
 export const sketchStoreName = "sketch_history";

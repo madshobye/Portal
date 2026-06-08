@@ -9,7 +9,7 @@ export function currentDeviceDisplayName({
   const normalized = normalizePeerId(name);
   const id = normalizePeerId(lastInfo?.deviceId || lastStatus?.deviceId || lastConfig?.deviceId || "");
   if (id && normalized === id) return "";
-  if (/^p1-embed-[0-9a-f]{6}$/i.test(name)) return "";
+  if (/^(?:xobit|p1-embed)-[0-9a-f]{6}$/i.test(name)) return "";
   if (/^p1-[0-9a-f: -]{6,}$/i.test(name)) return "";
   return name;
 }

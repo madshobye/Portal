@@ -1,9 +1,12 @@
+import { product } from "./app-config.js?v=0.1.87-ui720";
+
 export function cryptoAvailable() {
   return Boolean(globalThis.crypto?.subtle && globalThis.crypto?.getRandomValues);
 }
 
 export function isEncryptedChatKeyShare(text = "") {
-  return String(text || "").trim().startsWith("p1e-key:v1:");
+  const raw = String(text || "").trim();
+  return raw.startsWith(product.keySharePrefix) || raw.startsWith(product.legacyKeySharePrefix);
 }
 
 export async function createEncryptedChatKeyShareToken({
@@ -34,7 +37,7 @@ export async function createEncryptedChatKeyShareToken({
   };
   return {
     days: boundedDays,
-    token: `p1e-key:v1:${base64UrlEncode(new TextEncoder().encode(JSON.stringify(share)))}`,
+    token: `${product.keySharePrefix}${base64UrlEncode(new TextEncoder().encode(JSON.stringify(share)))}`,
   };
 }
 
@@ -60,8 +63,9 @@ export async function decryptEncryptedChatKeyShare(token, password) {
 
 function parseEncryptedChatKeyShare(token) {
   const raw = String(token || "").trim();
-  if (!isEncryptedChatKeyShare(raw)) throw new Error("Not a P1.E encrypted key share");
-  const json = new TextDecoder().decode(base64UrlDecode(raw.slice("p1e-key:v1:".length)));
+  if (!isEncryptedChatKeyShare(raw)) throw new Error(`Not a ${product.name} encrypted key share`);
+  const prefix = raw.startsWith(product.keySharePrefix) ? product.keySharePrefix : product.legacyKeySharePrefix;
+  const json = new TextDecoder().decode(base64UrlDecode(raw.slice(prefix.length)));
   const share = JSON.parse(json);
   if (!share || share.v !== 1 || !share.salt || !share.iv || !share.ct) {
     throw new Error("Encrypted key share is invalid");

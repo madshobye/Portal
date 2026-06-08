@@ -1,3 +1,5 @@
+import { product } from "./app-config.js?v=0.1.87-ui720";
+
 export function createInstallWorkflowController({
   P1WebFlasher,
   WebSerialTransport,
@@ -81,7 +83,7 @@ export function createInstallWorkflowController({
       const response = await fetch(manifest, { cache: "no-store" });
       if (!response.ok) throw new Error(String(response.status));
       const data = await response.json();
-      const name = data.name || "P1.E firmware";
+      const name = data.name || `${product.name} firmware`;
       const version = data.version || "unknown";
       installPanel.setFirmwareVersion(`${name} ${version}`);
     } catch {
@@ -161,7 +163,7 @@ export function createInstallWorkflowController({
     if (!("serial" in navigatorRef) || !readUsbHint()) return false;
     const attempts = 7;
     for (let attempt = 0; attempt < attempts; attempt += 1) {
-      installStatus(attempt ? `Checking P1.E (${attempt + 1}/${attempts})` : "Checking P1.E");
+      installStatus(attempt ? `Checking ${product.name} (${attempt + 1}/${attempts})` : `Checking ${product.name}`);
       await settle(attempt ? 2200 : 1200);
       const ok = await connectTransport(
         new WebSerialTransport({ storageKey: storage.usbHint }),
@@ -173,7 +175,7 @@ export function createInstallWorkflowController({
       await refreshKnownUsbPorts();
       if (ok && getClient()) return true;
     }
-    installLog("P1.E did not answer the automatic post-upload probe.");
+    installLog(`${product.name} did not answer the automatic post-upload probe.`);
     return false;
   }
 

@@ -72,7 +72,7 @@ inline P1EventField p1FieldRawJson(const char* key, const String& value) {
   return {key, P1_FIELD_RAW_JSON, value.c_str(), 0, 0, false};
 }
 
-// Small P1E-only MessagePack subset. It avoids a generic DOM/object tree and
+// Small firmware-only MessagePack subset. It avoids a generic DOM/object tree and
 // writes directly into caller-owned buffers.
 struct P1MsgPackWriter {
   uint8_t* data;

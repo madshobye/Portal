@@ -473,7 +473,7 @@ String wrenchDefaultScript() {
   code += "var on = 0;\n\n";
   code += "function setup() {\n";
   code += "  pinMode(LED_BUILTIN, OUTPUT);\n";
-  code += "  print(\"p1_embed default Wrench script started\");\n";
+  code += "  print(\"XOBIT default Wrench script started\");\n";
   code += "}\n\n";
   code += "function loop() {\n";
   code += "  if (millis() - last > 500) {\n";

@@ -1,11 +1,13 @@
 const SERIAL_MSGPACK_MAGIC = new Uint8Array([0x50, 0x31, 0x4d, 0x50]); // P1MP
 
+import { storage } from "../app-config.js?v=0.1.87-ui720";
+
 export class WebSerialTransport extends EventTarget {
   constructor({
     baudRate = 115200,
     bufferSize = 4096,
     lineEnding = "\n",
-    storageKey = "p1_embed.serial.hint",
+    storageKey = storage.usbHint,
   } = {}) {
     super();
     this.baudRate = baudRate;

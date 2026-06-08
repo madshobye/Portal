@@ -1,5 +1,6 @@
 export function createSettingsShellController({
   fields,
+  product,
   getLastInfo,
   getLastStatus,
   getLastConfig,
@@ -54,7 +55,7 @@ export function createSettingsShellController({
     const lastStatus = getLastStatus();
     if (isMqttKind(transport?.kind) && transport?.remoteId) return normalizePeerId(transport.remoteId);
     const deviceId = lastConfig?.deviceId || lastInfo?.deviceId || lastStatus?.deviceId || "";
-    if (deviceId && deviceId.length >= 6) return `p1-embed-${deviceId.slice(-6)}`.toLowerCase();
+    if (deviceId && deviceId.length >= 6) return `${product?.deviceIdPrefix || "xobit"}-${deviceId.slice(-6)}`.toLowerCase();
     const explicit = normalizePeerId(fields.peerId?.value || "");
     if (explicit) return explicit;
     return normalizePeerId(lastConfig?.deviceName || lastInfo?.deviceName || "");

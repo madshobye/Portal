@@ -1,5 +1,6 @@
 export function createAppBootstrapController({
   fields,
+  product,
   storage,
   storageArea,
   webVersion,
@@ -49,7 +50,7 @@ export function createAppBootstrapController({
     migrateConnectionHistory();
     renderConnectionHistory();
     renderSketchHistory();
-    logLine("info", `P1.E web ${webVersion} / mqtt ${mqttVersion}`);
+    logLine("info", `${product?.name || "XOBIT"} web ${webVersion} / mqtt ${mqttVersion}`);
     refreshKnownUsbPorts();
     refreshInstallManifestInfo();
     refreshFirmwareReleaseInfo({ quiet: true }).catch((error) => {

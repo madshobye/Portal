@@ -131,7 +131,7 @@ static String webTransportHostName() {
   }
 
   while (clean.endsWith("-")) clean.remove(clean.length() - 1);
-  if (!clean.length()) clean = "p1-embed";
+  if (!clean.length()) clean = XOBIT_DEVICE_ID_PREFIX;
   if (clean.length() > 63) clean = clean.substring(0, 63);
   return clean;
 }
@@ -145,13 +145,13 @@ static void webTransportStartMdns() {
     return;
   }
 
-  MDNS.addService("p1-embed", "tcp", P1_EMBED_WS_PORT);
+  MDNS.addService(XOBIT_DEVICE_ID_PREFIX, "tcp", P1_EMBED_WS_PORT);
   String id = configDeviceId();
   String name = configDeviceName();
-  MDNS.addServiceTxt("p1-embed", "tcp", "id", id.c_str());
-  MDNS.addServiceTxt("p1-embed", "tcp", "name", name.c_str());
-  MDNS.addServiceTxt("p1-embed", "tcp", "protocol", P1_EMBED_PROTOCOL_VERSION);
-  MDNS.addServiceTxt("p1-embed", "tcp", "transport", "websocket");
+  MDNS.addServiceTxt(XOBIT_DEVICE_ID_PREFIX, "tcp", "id", id.c_str());
+  MDNS.addServiceTxt(XOBIT_DEVICE_ID_PREFIX, "tcp", "name", name.c_str());
+  MDNS.addServiceTxt(XOBIT_DEVICE_ID_PREFIX, "tcp", "protocol", P1_EMBED_PROTOCOL_VERSION);
+  MDNS.addServiceTxt(XOBIT_DEVICE_ID_PREFIX, "tcp", "transport", "websocket");
   MDNS.addService("ws", "tcp", P1_EMBED_WS_PORT);
   g_mdnsStarted = true;
 

@@ -11,6 +11,8 @@ import {
   upsertCircuitViewportComment,
 } from "./circuit-code-comments.js?v=0.1.87-ui559";
 
+import { product } from "./app-config.js?v=0.1.87-ui720";
+
 export function createCircuitEditorActions({
   getCode,
   setCode,
@@ -27,7 +29,7 @@ export function createCircuitEditorActions({
   function applyComponentOverride({ component, type, label } = {}) {
     const pin = circuitComponentPin(component);
     if (!pin || !type) return;
-    const hint = `// p1e-circuit: IO${pin} ${type}`;
+    const hint = `// ${product.circuitCommentPrefix}: IO${pin} ${type}`;
     const current = getCode();
     const next = upsertCircuitHintComment(current, pin, hint);
     if (next === current) return;
