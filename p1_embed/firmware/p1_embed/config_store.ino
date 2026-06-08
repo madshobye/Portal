@@ -48,6 +48,7 @@ static char g_mqttRoot[P1_CONFIG_MQTT_ROOT_MAX] = "";
 static char g_mqttUser[P1_CONFIG_MQTT_USER_MAX] = "";
 static char g_mqttPassword[P1_CONFIG_MQTT_PASSWORD_MAX] = "";
 static bool g_mqttEnabled = true;
+static bool g_allowUnauthenticatedAccess = false;
 static bool g_mqttAllowAnonymousUi = false;
 static bool g_mqttAllowAnonymousScript = false;
 static char g_mqttGuestUiKey[P1_CONFIG_MQTT_GUEST_KEY_MAX] = "";
@@ -499,6 +500,10 @@ void configLoad() {
     if (configJsonGetString(json, "mqttPassword", value)) configSetText(g_mqttPassword, sizeof(g_mqttPassword), value, false);
     else changed = true;
     if (!configJsonGetBool(json, "mqttEnabled", g_mqttEnabled)) changed = true;
+    if (!configJsonGetBool(json, "allowUnauthenticatedAccess", g_allowUnauthenticatedAccess)) {
+      g_allowUnauthenticatedAccess = false;
+      changed = true;
+    }
     if (!configJsonGetBool(json, "mqttAllowAnonymousUi", g_mqttAllowAnonymousUi)) changed = true;
     if (!configJsonGetBool(json, "mqttAllowAnonymousScript", g_mqttAllowAnonymousScript)) changed = true;
     if (configJsonGetString(json, "mqttGuestUiKey", value)) configSetText(g_mqttGuestUiKey, sizeof(g_mqttGuestUiKey), configNormalizeGuestKey(value));
@@ -538,6 +543,7 @@ void configSave() {
   json += ",\"mqttUser\":" + jsonString(configMqttUser());
   json += ",\"mqttPassword\":" + jsonString(configMqttPassword());
   json += ",\"mqttEnabled\":" + String(configMqttEnabled() ? "true" : "false");
+  json += ",\"allowUnauthenticatedAccess\":" + String(configAllowUnauthenticatedAccess() ? "true" : "false");
   json += ",\"mqttAllowAnonymousUi\":" + String(configMqttAllowAnonymousUi() ? "true" : "false");
   json += ",\"mqttAllowAnonymousScript\":" + String(configMqttAllowAnonymousScript() ? "true" : "false");
   json += ",\"mqttGuestUiKey\":" + jsonString(configMqttGuestUiKey());
@@ -589,6 +595,7 @@ void configFactoryReset() {
   configSetText(g_mqttUser, sizeof(g_mqttUser), P1_EMBED_MQTT_USER);
   configSetText(g_mqttPassword, sizeof(g_mqttPassword), P1_EMBED_MQTT_PASS, false);
   g_mqttEnabled = true;
+  g_allowUnauthenticatedAccess = false;
   g_mqttAllowAnonymousUi = false;
   g_mqttAllowAnonymousScript = false;
   configClearText(g_mqttGuestUiKey, sizeof(g_mqttGuestUiKey));
@@ -703,6 +710,10 @@ void configSetMqttPassword(const String& value) {
 
 void configSetMqttEnabled(bool value) {
   g_mqttEnabled = value;
+}
+
+void configSetAllowUnauthenticatedAccess(bool value) {
+  g_allowUnauthenticatedAccess = value;
 }
 
 void configSetMqttAllowAnonymousUi(bool value) {
@@ -828,6 +839,10 @@ bool configMqttEnabled() {
   return g_mqttEnabled;
 }
 
+bool configAllowUnauthenticatedAccess() {
+  return g_allowUnauthenticatedAccess;
+}
+
 bool configMqttAllowAnonymousUi() {
   return g_mqttAllowAnonymousUi;
 }
@@ -872,6 +887,7 @@ P1ConfigSnapshot configSnapshot() {
   snapshot.mqttUser = configMqttUser();
   snapshot.mqttPasswordSet = configMqttPassword().length() > 0;
   snapshot.mqttEnabled = configMqttEnabled();
+  snapshot.allowUnauthenticatedAccess = configAllowUnauthenticatedAccess();
   snapshot.mqttAllowAnonymousUi = configMqttAllowAnonymousUi();
   snapshot.mqttAllowAnonymousScript = configMqttAllowAnonymousScript();
   snapshot.mqttGuestUiKey = configMqttGuestUiKey();

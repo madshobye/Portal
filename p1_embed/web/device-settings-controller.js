@@ -54,6 +54,7 @@ export function createDeviceSettingsController({
     const mqttPassword = fields.mqttPassword.value;
     const data = {};
     data.mqttEnabled = Boolean(fields.mqttEnabled.checked);
+    data.allowUnauthenticatedAccess = Boolean(fields.allowUnauthenticatedAccess.checked);
     data.mqttAllowAnonymousUi = Boolean(fields.accessGuestUi.checked);
     data.mqttAllowAnonymousScript = Boolean(fields.accessGuestScript.checked);
     if (data.mqttAllowAnonymousUi && !String(lastConfig?.mqttGuestUiKey || "").trim()) {
@@ -70,6 +71,7 @@ export function createDeviceSettingsController({
     fields.mqttPassword.value = "";
     updateConfig(config);
     updateAccessSaveVisibility({
+      allowUnauthenticatedAccess: Boolean(config?.allowUnauthenticatedAccess),
       mqttAllowAnonymousUi: Boolean(config?.mqttAllowAnonymousUi),
       mqttAllowAnonymousScript: Boolean(config?.mqttAllowAnonymousScript),
     });

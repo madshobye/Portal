@@ -67,7 +67,7 @@ export function encodeCommand(id, name, data = {}) {
 
 function encodeConfigSet(id, op, data = {}) {
   const writer = new MsgPackWriter(768);
-  writer.array(43);
+  writer.array(45);
   writer.uint(FRAME_CMD);
   writer.uint(Number(id));
   writer.uint(op);
@@ -110,6 +110,8 @@ function encodeConfigSet(id, op, data = {}) {
   writer.string(data.mqttGuestUiKey || "");
   writer.bool(Object.prototype.hasOwnProperty.call(data, "revisionId"));
   writer.string(data.revisionId || "");
+  writer.bool(Object.prototype.hasOwnProperty.call(data, "allowUnauthenticatedAccess"));
+  writer.bool(Boolean(data.allowUnauthenticatedAccess));
   return writer.bytes();
 }
 

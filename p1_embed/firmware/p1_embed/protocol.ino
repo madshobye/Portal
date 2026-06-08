@@ -229,6 +229,12 @@ static void protocolSendCommandConfig(P1ProtocolReplyMode replyMode, uint32_t ms
   protocolSendResponseOk(jsonId, protocolConfigResponseJson(snapshot));
 }
 
+static bool protocolSourceAllowsOtaWrite(P1ProtocolSource source) {
+  if (source == P1_PROTOCOL_SOURCE_SERIAL) return true;
+  if (source == P1_PROTOCOL_SOURCE_MQTT) return mqttTransportCurrentSessionAuthenticated();
+  return false;
+}
+
 static void protocolSendCommandWifiStatus(P1ProtocolReplyMode replyMode, uint32_t msgpackId, const String& jsonId) {
   if (replyMode == P1_REPLY_MSGPACK) protocolSendMsgPackWifiStatus(msgpackId);
   else protocolSendJsonWifiStatus(jsonId);
@@ -420,6 +426,7 @@ static bool protocolHandleConfigSetFrame(const P1FrameView& frame, P1ProtocolRep
   bool hasOnlineAuthUserRemove = false;
   bool hasMqttGuestUiKey = false;
   bool hasRevisionId = false;
+  bool hasAllowUnauthenticatedAccess = false;
 
   P1StringView deviceName;
   P1StringView wifiSsid;
@@ -439,6 +446,7 @@ static bool protocolHandleConfigSetFrame(const P1FrameView& frame, P1ProtocolRep
   P1StringView mqttGuestUiKey;
   uint32_t mqttPort = 0;
   bool mqttEnabled = true;
+  bool allowUnauthenticatedAccess = false;
   bool mqttAllowAnonymousUi = false;
   bool mqttAllowAnonymousScript = false;
 
@@ -495,6 +503,10 @@ static bool protocolHandleConfigSetFrame(const P1FrameView& frame, P1ProtocolRep
   }
   if (frame.count >= 43 && !protocolReadConfigStringView(r, hasRevisionId, revisionId)) {
     protocolSendConfigSetError(replyMode, frame.id, jsonId, "bad_config_frame", "config.set revision id field is malformed");
+    return false;
+  }
+  if (frame.count >= 45 && (!r.readBool(hasAllowUnauthenticatedAccess) || !r.readBool(allowUnauthenticatedAccess))) {
+    protocolSendConfigSetError(replyMode, frame.id, jsonId, "bad_config_frame", "config.set unauthenticated access fields are malformed");
     return false;
   }
 
@@ -556,6 +568,11 @@ static bool protocolHandleConfigSetFrame(const P1FrameView& frame, P1ProtocolRep
   }
   if (hasMqttEnabled) {
     configSetMqttEnabled(mqttEnabled);
+    changed = true;
+    mqttChanged = true;
+  }
+  if (hasAllowUnauthenticatedAccess) {
+    configSetAllowUnauthenticatedAccess(allowUnauthenticatedAccess);
     changed = true;
     mqttChanged = true;
   }
@@ -631,6 +648,7 @@ static bool protocolJsonConfigSetToMsgPack(const char* line, const String& jsonI
   String mqttRoot;
   String mqttUser;
   String mqttPassword;
+  bool allowUnauthenticatedAccess = false;
   String onlineAuthUsername;
   String onlineAuthKeyHex;
   String onlineAuthUserRemove;
@@ -648,6 +666,7 @@ static bool protocolJsonConfigSetToMsgPack(const char* line, const String& jsonI
   bool hasMqttRoot = jsonGetString(line, "mqttRoot", mqttRoot);
   bool hasMqttUser = jsonGetString(line, "mqttUser", mqttUser);
   bool hasMqttPassword = jsonGetString(line, "mqttPassword", mqttPassword);
+  bool hasAllowUnauthenticatedAccess = jsonGetBool(line, "allowUnauthenticatedAccess", allowUnauthenticatedAccess);
   bool hasOnlineAuthUserAdd = jsonGetString(line, "onlineAuthUsername", onlineAuthUsername) &&
                               jsonGetString(line, "onlineAuthKey", onlineAuthKeyHex);
   bool hasOnlineAuthUserRemove = jsonGetString(line, "onlineAuthUserRemove", onlineAuthUserRemove);
@@ -663,7 +682,7 @@ static bool protocolJsonConfigSetToMsgPack(const char* line, const String& jsonI
   bool hasMqttAllowAnonymousScript = jsonGetBool(line, "mqttAllowAnonymousScript", mqttAllowAnonymousScript);
 
   P1MsgPackWriter w(out, capacity);
-  w.writeArray(43);
+  w.writeArray(45);
   w.writeUInt(P1_MP_FRAME_CMD);
   w.writeUInt(msgpackId);
   w.writeUInt(P1_MP_OP_CONFIG_SET);
@@ -691,6 +710,8 @@ static bool protocolJsonConfigSetToMsgPack(const char* line, const String& jsonI
   protocolMsgPackWriteBoolString(w, hasTimezone, timezone);
   protocolMsgPackWriteBoolString(w, hasMqttGuestUiKey, mqttGuestUiKey);
   protocolMsgPackWriteBoolString(w, hasRevisionId, revisionId);
+  w.writeBool(hasAllowUnauthenticatedAccess);
+  w.writeBool(allowUnauthenticatedAccess);
   if (!w.ok) return false;
   outLen = w.length;
   return true;
@@ -723,6 +744,7 @@ static bool protocolJsonNameToMsgPackOp(const String& name, uint32_t& op) {
   else if (name == "script.restart") op = P1_MP_OP_SCRIPT_RESTART;
   else if (name == "device.reboot") op = P1_MP_OP_DEVICE_REBOOT;
   else if (name == "firmware.update.status") op = P1_MP_OP_FIRMWARE_UPDATE_STATUS;
+  else if (name == "firmware.update.prepare") op = P1_MP_OP_FIRMWARE_UPDATE_PREPARE;
   else if (name == "firmware.update.boot") op = P1_MP_OP_FIRMWARE_UPDATE_BOOT;
   else if (name == "firmware.update.clear") op = P1_MP_OP_FIRMWARE_UPDATE_CLEAR;
   else if (name == "protocol.mode") op = P1_MP_OP_PROTOCOL_MODE;
@@ -815,6 +837,42 @@ static bool protocolJsonCommandToMsgPack(const char* line, const String& jsonId,
     w.writeUInt(msgpackId);
     w.writeUInt(op);
     w.writeString(mode);
+  } else if (op == P1_MP_OP_FIRMWARE_UPDATE_PREPARE) {
+    String url;
+    String sha256;
+    String kind;
+    String fromSha256;
+    String toSha256;
+    int value = 0;
+    uint32_t fromSize = 0;
+    uint32_t toSize = 0;
+    uint32_t memorySize = 0;
+    uint32_t segmentSize = 0;
+    bool reboot = false;
+    jsonGetString(line, "url", url);
+    jsonGetString(line, "sha256", sha256);
+    jsonGetString(line, "kind", kind);
+    jsonGetString(line, "fromSha256", fromSha256);
+    jsonGetString(line, "toSha256", toSha256);
+    if (jsonGetInt(line, "fromSize", value)) fromSize = (uint32_t)max(0, value);
+    if (jsonGetInt(line, "toSize", value)) toSize = (uint32_t)max(0, value);
+    if (jsonGetInt(line, "memorySize", value)) memorySize = (uint32_t)max(0, value);
+    if (jsonGetInt(line, "segmentSize", value)) segmentSize = (uint32_t)max(0, value);
+    jsonGetBool(line, "reboot", reboot);
+    w.writeArray(13);
+    w.writeUInt(P1_MP_FRAME_CMD);
+    w.writeUInt(msgpackId);
+    w.writeUInt(op);
+    w.writeString(url);
+    w.writeString(sha256);
+    w.writeBool(reboot);
+    w.writeString(kind);
+    w.writeString(fromSha256);
+    w.writeString(toSha256);
+    w.writeUInt(fromSize);
+    w.writeUInt(toSize);
+    w.writeUInt(memorySize);
+    w.writeUInt(segmentSize);
   } else {
     w.writeArray(3);
     w.writeUInt(P1_MP_FRAME_CMD);
@@ -2809,6 +2867,7 @@ static String protocolConfigResponseJson(const P1ConfigSnapshot& snapshot) {
   out += ",\"mqttUser\":" + jsonString(snapshot.mqttUser);
   out += ",\"mqttPasswordSet\":" + String(snapshot.mqttPasswordSet ? "true" : "false");
   out += ",\"mqttEnabled\":" + String(snapshot.mqttEnabled ? "true" : "false");
+  out += ",\"allowUnauthenticatedAccess\":" + String(snapshot.allowUnauthenticatedAccess ? "true" : "false");
   out += ",\"mqttAllowAnonymousUi\":" + String(snapshot.mqttAllowAnonymousUi ? "true" : "false");
   out += ",\"mqttAllowAnonymousScript\":" + String(snapshot.mqttAllowAnonymousScript ? "true" : "false");
   out += ",\"mqttGuestUiKeySet\":" + String(snapshot.mqttGuestUiKeySet ? "true" : "false");
@@ -2835,7 +2894,7 @@ static String protocolConfigResponseJson(const P1ConfigSnapshot& snapshot) {
 }
 
 static void protocolMsgPackWriteConfigResponse(P1MsgPackWriter& w, uint32_t id, const P1ConfigSnapshot& snapshot) {
-  protocolMsgPackBeginResponse(w, id, true, 26);
+  protocolMsgPackBeginResponse(w, id, true, 27);
   w.writeString("deviceId"); w.writeString(snapshot.deviceId);
   w.writeString("deviceName"); w.writeString(snapshot.deviceName);
   w.writeString("projectId"); w.writeString(snapshot.projectId);
@@ -2852,6 +2911,7 @@ static void protocolMsgPackWriteConfigResponse(P1MsgPackWriter& w, uint32_t id, 
   w.writeString("mqttUser"); w.writeString(snapshot.mqttUser);
   w.writeString("mqttPasswordSet"); w.writeBool(snapshot.mqttPasswordSet);
   w.writeString("mqttEnabled"); w.writeBool(snapshot.mqttEnabled);
+  w.writeString("allowUnauthenticatedAccess"); w.writeBool(snapshot.allowUnauthenticatedAccess);
   w.writeString("mqttAllowAnonymousUi"); w.writeBool(snapshot.mqttAllowAnonymousUi);
   w.writeString("mqttAllowAnonymousScript"); w.writeBool(snapshot.mqttAllowAnonymousScript);
   w.writeString("mqttGuestUiKeySet"); w.writeBool(snapshot.mqttGuestUiKeySet);
@@ -3289,12 +3349,20 @@ static bool protocolHandleCommandFrame(const P1FrameView& frame, P1ProtocolReply
   } else if (op == P1_MP_OP_FIRMWARE_UPDATE_STATUS) {
     protocolSendCommandOtaStatus(replyMode, id, jsonId);
   } else if (op == P1_MP_OP_FIRMWARE_UPDATE_CLEAR) {
+    if (!protocolSourceAllowsOtaWrite(source)) {
+      protocolSendCommandError(replyMode, id, jsonId, "auth_required", "Firmware update changes require USB or authenticated MQTT");
+      return true;
+    }
     if (!otaSafeBootClearRequest()) {
       protocolSendCommandError(replyMode, id, jsonId, "ota_clear_failed", "Failed to clear firmware update request");
       return true;
     }
     protocolSendCommandOtaStatus(replyMode, id, jsonId);
   } else if (op == P1_MP_OP_FIRMWARE_UPDATE_PREPARE) {
+    if (!protocolSourceAllowsOtaWrite(source)) {
+      protocolSendCommandError(replyMode, id, jsonId, "auth_required", "Firmware update changes require USB or authenticated MQTT");
+      return true;
+    }
     P1OtaRequest request;
     bool reboot = false;
     if (!r.readString(request.url) || !r.readString(request.sha256) || !r.readBool(reboot)) {
@@ -3340,6 +3408,10 @@ static bool protocolHandleCommandFrame(const P1FrameView& frame, P1ProtocolReply
     }
     protocolSendCommandOtaStatus(replyMode, id, jsonId);
   } else if (op == P1_MP_OP_FIRMWARE_UPDATE_BOOT) {
+    if (!protocolSourceAllowsOtaWrite(source)) {
+      protocolSendCommandError(replyMode, id, jsonId, "auth_required", "Firmware update changes require USB or authenticated MQTT");
+      return true;
+    }
     String err;
     if (!otaSafeBootBootUpdater(err)) {
       protocolSendCommandError(replyMode, id, jsonId, "ota_boot_failed", err.c_str());
@@ -3431,33 +3503,6 @@ void protocolHandleLine(const char* line, P1ProtocolSource source) {
   } else if (name == "webrtc.probe") {
     memoryProfileMark("webrtc", "probe");
     protocolSendResponseOk(id, webrtcTransportProbeJson());
-  } else if (name == "firmware.update.prepare") {
-    P1OtaRequest request;
-    bool reboot = false;
-    int value = 0;
-    if (!jsonGetString(line, "url", request.url)) {
-      protocolSendResponseError(id, "missing_url", "firmware.update.prepare requires data.url");
-      return;
-    }
-    jsonGetString(line, "sha256", request.sha256);
-    jsonGetString(line, "kind", request.kind);
-    jsonGetString(line, "fromSha256", request.fromSha256);
-    jsonGetString(line, "toSha256", request.toSha256);
-    if (jsonGetInt(line, "fromSize", value)) request.fromSize = (uint32_t)max(0, value);
-    if (jsonGetInt(line, "toSize", value)) request.toSize = (uint32_t)max(0, value);
-    if (jsonGetInt(line, "memorySize", value)) request.memorySize = (uint32_t)max(0, value);
-    if (jsonGetInt(line, "segmentSize", value)) request.segmentSize = (uint32_t)max(0, value);
-    jsonGetBool(line, "reboot", reboot);
-    String err;
-    if (!otaSafeBootRequestUpdate(request, err)) {
-      protocolSendResponseError(id, "ota_prepare_failed", err);
-      return;
-    }
-    if (reboot && !otaSafeBootBootUpdater(err)) {
-      protocolSendResponseError(id, "ota_boot_failed", err);
-      return;
-    }
-    protocolSendJsonOtaStatus(id);
   } else if (name == "http.probe") {
     String url;
     int maxBytes = 64;

@@ -14,11 +14,13 @@ export function createMqttSettingsPanelController({
     fields.mqttRoot.value = cfg.mqttRoot;
     fields.mqttUser.value = cfg.mqttUser;
     fields.mqttPassword.value = "";
-    fields.mqttPassword.placeholder = lastConfig?.mqttPasswordSet ? "saved" : "default";
+    fields.mqttPassword.placeholder = lastConfig?.mqttPasswordSet ? "saved on board" : "default";
     fields.mqttEnabled.checked = cfg.mqttEnabled;
+    fields.allowUnauthenticatedAccess.checked = cfg.allowUnauthenticatedAccess;
     fields.accessGuestUi.checked = cfg.mqttAllowAnonymousUi;
     fields.accessGuestScript.checked = cfg.mqttAllowAnonymousScript;
     updateAccessSaveVisibility({
+      allowUnauthenticatedAccess: cfg.allowUnauthenticatedAccess,
       mqttAllowAnonymousUi: cfg.mqttAllowAnonymousUi,
       mqttAllowAnonymousScript: cfg.mqttAllowAnonymousScript,
     });
@@ -28,6 +30,7 @@ export function createMqttSettingsPanelController({
   function updateAccessSaveVisibility(baseline = null) {
     if (baseline && Object.hasOwn(baseline, "mqttAllowAnonymousUi")) {
       accessBaseline = {
+        allowUnauthenticatedAccess: Boolean(baseline.allowUnauthenticatedAccess),
         mqttAllowAnonymousUi: Boolean(baseline.mqttAllowAnonymousUi),
         mqttAllowAnonymousScript: Boolean(baseline.mqttAllowAnonymousScript),
       };
@@ -38,6 +41,7 @@ export function createMqttSettingsPanelController({
       return;
     }
     const changed =
+      Boolean(fields.allowUnauthenticatedAccess?.checked) !== Boolean(accessBaseline.allowUnauthenticatedAccess) ||
       Boolean(fields.accessGuestUi?.checked) !== Boolean(accessBaseline.mqttAllowAnonymousUi) ||
       Boolean(fields.accessGuestScript?.checked) !== Boolean(accessBaseline.mqttAllowAnonymousScript);
     fields.accessSave.hidden = !changed;

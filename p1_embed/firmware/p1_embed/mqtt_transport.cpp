@@ -259,7 +259,21 @@ static bool mqttFrameIsEvent(const uint8_t* data, size_t len) {
 }
 
 static bool mqttAuthRequired() {
-  return configOnlineAuthUserCount() > 0;
+  return !configAllowUnauthenticatedAccess();
+}
+
+static bool mqttUnauthenticatedUiAllowed() {
+  return configAllowUnauthenticatedAccess() && configMqttAllowAnonymousUi();
+}
+
+static bool mqttUnauthenticatedScriptAllowed() {
+  return configAllowUnauthenticatedAccess() && configMqttAllowAnonymousScript();
+}
+
+static bool mqttTransportAllowedByConfig() {
+  if (!configMqttEnabled()) return false;
+  if (configOnlineAuthUserCount() > 0) return true;
+  return configAllowUnauthenticatedAccess();
 }
 
 static void mqttRandomBytes(uint8_t* out, size_t len) {
@@ -378,8 +392,8 @@ static int mqttFindSession(uint32_t sessionId, const String& clientId = "") {
 }
 
 static bool mqttRawOpAllowed(const uint8_t* data, size_t len) {
-  if (!mqttAuthRequired()) return true;
-  if (!configMqttAllowAnonymousUi()) return false;
+  if (!mqttAuthRequired()) return configAllowUnauthenticatedAccess();
+  if (!mqttUnauthenticatedUiAllowed()) return false;
   if (!data || len == 0) return false;
   P1MsgPackReader r(data, len);
   uint32_t count = 0;
@@ -570,7 +584,7 @@ static void mqttHandleAuthFrame(const String& clientId, const uint8_t* data, siz
     w.writeUInt(P1_MQTT_AUTH_CHALLENGE);
     w.writeBin(g_mqttPendingAuth[slot].serverNonce, 16);
     w.writeBool(mqttAuthRequired());
-    w.writeBool(configMqttAllowAnonymousUi());
+    w.writeBool(mqttUnauthenticatedUiAllowed());
     if (w.ok) g_mqtt.publish(mqttResponseTopic(clientId).c_str(), reinterpret_cast<const char*>(frame), (int)w.length, false, 0);
     return;
   }
@@ -712,8 +726,9 @@ static void mqttPublishHello() {
   payload += ",\"transport\":\"mqtt.msgpack\"";
   payload += ",\"auth\":" + jsonString(mqttAuthRequired() ? "required" : "open");
   payload += ",\"onlineAuthUsers\":" + String(configOnlineAuthUserCount());
-  payload += ",\"anonymousUi\":" + String(configMqttAllowAnonymousUi() ? "true" : "false");
-  payload += ",\"anonymousScript\":" + String(configMqttAllowAnonymousScript() ? "true" : "false");
+  payload += ",\"allowUnauthenticatedAccess\":" + String(configAllowUnauthenticatedAccess() ? "true" : "false");
+  payload += ",\"anonymousUi\":" + String(mqttUnauthenticatedUiAllowed() ? "true" : "false");
+  payload += ",\"anonymousScript\":" + String(mqttUnauthenticatedScriptAllowed() ? "true" : "false");
   payload += ",\"guestUiKeySet\":" + String(configMqttGuestUiKey().length() >= 16 ? "true" : "false");
   payload += "}";
   if (!g_mqtt.publish(g_mqttHelloTopic.c_str(), payload.c_str(), true, 0)) {
@@ -727,7 +742,7 @@ static void mqttHandleMessage(MQTTClient*, char topic[], char bytes[], int lengt
   if (!topic || !bytes || length <= 0) return;
   String topicText(topic);
   if (mqttIsScriptInTopic(topicText)) {
-    if (!configMqttAllowAnonymousScript()) return;
+    if (!mqttUnauthenticatedScriptAllowed()) return;
     String message;
     message.reserve(length);
     for (int i = 0; i < length; i++) message += bytes[i];
@@ -756,7 +771,7 @@ static void mqttHandleMessage(MQTTClient*, char topic[], char bytes[], int lengt
 }
 
 static bool mqttConnect() {
-  if (!configMqttEnabled()) return false;
+  if (!mqttTransportAllowedByConfig()) return false;
   g_mqttDeviceId = mqttDeviceTopicId();
   g_mqttClientId = String("p1e-device-") + g_mqttDeviceId;
   g_mqttCmdTopicPrefix = mqttBaseTopic() + "/cmd";
@@ -810,7 +825,7 @@ void mqttTransportApplyConfig() {
     mqttClearPendingAuth(g_mqttPendingAuth[i]);
     mqttClearSession(g_mqttSessions[i]);
   }
-  if (!configMqttEnabled()) mqttReleaseRuntimeBuffers();
+  if (!mqttTransportAllowedByConfig()) mqttReleaseRuntimeBuffers();
 }
 
 void mqttTransportRequestApplyConfig() {
@@ -842,7 +857,7 @@ static bool mqttPublishEventPayload(const uint8_t* data, size_t len) {
         g_mqttSecurePublishFailCount++;
       }
     }
-    if (!configMqttAllowAnonymousUi()) return sent;
+    if (!mqttUnauthenticatedUiAllowed()) return sent;
   }
   if (g_mqttEvtTopic.length()) {
     if (g_mqtt.publish(g_mqttEvtTopic.c_str(), reinterpret_cast<const char*>(data), (int)len, false, 0)) sent = true;
@@ -917,7 +932,7 @@ static void mqttTransportSendBytesNow(const uint8_t* data, size_t len) {
       }
       return;
     }
-    if (mqttAuthRequired() && !configMqttAllowAnonymousUi()) return;
+    if (mqttAuthRequired() && !mqttUnauthenticatedUiAllowed()) return;
     if (!g_mqtt.publish(g_mqttActiveResponseTopic.c_str(), reinterpret_cast<const char*>(data), (int)len, false, 0)) {
       g_mqttPublishFailCount++;
       g_mqttLastPublishFailMs = millis();
@@ -987,10 +1002,10 @@ void mqttTransportLoop() {
     g_mqttLastLostMs = millis();
     g_mqttWasConnected = false;
   }
-  if (!configMqttEnabled()) {
+  if (!mqttTransportAllowedByConfig()) {
     if (g_mqtt.connected()) {
       g_mqtt.disconnect();
-      debugLog("info", "mqtt", "disabled");
+      debugLog("info", "mqtt", configMqttEnabled() ? "auth required" : "disabled");
     }
     mqttReleaseRuntimeBuffers();
     return;
@@ -1058,13 +1073,17 @@ void mqttTransportSendScriptText(const String& message, bool newline) {
 }
 
 bool mqttTransportConnected() {
-  return configMqttEnabled() && g_mqtt.connected();
+  return mqttTransportAllowedByConfig() && g_mqtt.connected();
+}
+
+bool mqttTransportCurrentSessionAuthenticated() {
+  return g_mqttActiveSessionIndex >= 0;
 }
 
 P1MqttTransportSnapshot mqttTransportSnapshot() {
   P1MqttTransportSnapshot snapshot;
   snapshot.enabled = true;
-  snapshot.configured = configMqttEnabled();
+  snapshot.configured = mqttTransportAllowedByConfig();
   snapshot.connected = mqttTransportConnected();
   snapshot.begun = g_mqttBegun;
   snapshot.queueAllocated = g_mqttOutQueue != nullptr;
@@ -1078,8 +1097,8 @@ P1MqttTransportSnapshot mqttTransportSnapshot() {
   snapshot.scriptOut = g_mqttScriptOutTopic;
   snapshot.authRequired = mqttAuthRequired();
   snapshot.onlineAuthUsers = configOnlineAuthUserCount();
-  snapshot.anonymousUi = configMqttAllowAnonymousUi();
-  snapshot.anonymousScript = configMqttAllowAnonymousScript();
+  snapshot.anonymousUi = mqttUnauthenticatedUiAllowed();
+  snapshot.anonymousScript = mqttUnauthenticatedScriptAllowed();
   snapshot.guestUiKeySet = configMqttGuestUiKey().length() >= 16;
   snapshot.ownerCore = g_mqttOwnerCore;
   snapshot.loopCore = g_mqttLoopCore;

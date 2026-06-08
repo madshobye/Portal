@@ -16,13 +16,24 @@ export function mqttConfigFromStorageAndDevice({ storage, storageArea, lastConfi
   const defaults = mqttDefaults();
   const storedRoot = mqttRootOrEmpty(storageArea?.getItem(storage.mqttRoot));
   const deviceRoot = mqttRootOrEmpty(lastConfig?.mqttRoot);
+  const storedPassword = storageArea?.getItem(storage.mqttPassword);
+  const hasStoredPassword = storedPassword !== null && storedPassword !== undefined;
+  const devicePassword = typeof lastConfig?.mqttPassword === "string" ? lastConfig.mqttPassword : "";
+  const mqttPassword = hasStoredPassword
+    ? storedPassword
+    : devicePassword
+      ? devicePassword
+      : lastConfig?.mqttPasswordSet
+        ? ""
+        : defaults.mqttPassword;
   return {
     mqttHost: storageArea?.getItem(storage.mqttHost) || lastConfig?.mqttHost || defaults.mqttHost,
     mqttPort: Number(storageArea?.getItem(storage.mqttPort) || lastConfig?.mqttPort || defaults.mqttPort),
     mqttRoot: storedRoot || deviceRoot || defaults.mqttRoot,
     mqttUser: storageArea?.getItem(storage.mqttUser) || lastConfig?.mqttUser || defaults.mqttUser,
-    mqttPassword: storageArea?.getItem(storage.mqttPassword) || defaults.mqttPassword,
+    mqttPassword,
     mqttEnabled: lastConfig?.mqttEnabled !== false,
+    allowUnauthenticatedAccess: Boolean(lastConfig?.allowUnauthenticatedAccess),
     mqttAllowAnonymousUi: Boolean(lastConfig?.mqttAllowAnonymousUi),
     mqttAllowAnonymousScript: Boolean(lastConfig?.mqttAllowAnonymousScript),
   };
@@ -63,7 +74,10 @@ export function storeMqttHistoryConfig(config = {}, { storage, storageArea } = {
   if (cfg.mqttRoot) storageArea.setItem(storage.mqttRoot, cfg.mqttRoot);
   else storageArea.removeItem(storage.mqttRoot);
   if (cfg.mqttUser) storageArea.setItem(storage.mqttUser, cfg.mqttUser);
-  if (cfg.mqttPassword) storageArea.setItem(storage.mqttPassword, cfg.mqttPassword);
+  if (Object.prototype.hasOwnProperty.call(config, "mqttPassword") || Object.prototype.hasOwnProperty.call(config, "password")) {
+    if (cfg.mqttPassword) storageArea.setItem(storage.mqttPassword, cfg.mqttPassword);
+    else storageArea.removeItem(storage.mqttPassword);
+  }
   return cfg;
 }
 

@@ -34,7 +34,7 @@ export function createAppControlBindingsController({
     fields.wifiSave.addEventListener("click", () => actions.runUiAction(actions.saveWifi, "wifi"));
     fields.mqttSave.addEventListener("click", () => actions.runUiAction(actions.saveMqtt, "mqtt"));
     fields.accessSave.addEventListener("click", () => actions.runUiAction(actions.saveMqtt, "access"));
-    [fields.accessGuestUi, fields.accessGuestScript].forEach((toggle) => {
+    [fields.allowUnauthenticatedAccess, fields.accessGuestUi, fields.accessGuestScript].forEach((toggle) => {
       toggle?.addEventListener("change", actions.updateAccessSaveVisibility);
     });
     fields.onlineAuthAdd.addEventListener("click", () => actions.runUiAction(actions.addOnlineAuthUser, "online user"));

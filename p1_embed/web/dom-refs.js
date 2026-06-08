@@ -65,6 +65,7 @@ export function createDomRefs(documentRef = document) {
     mqttUser: documentRef.querySelector("#mqtt-user"),
     mqttPassword: documentRef.querySelector("#mqtt-password"),
     mqttEnabled: documentRef.querySelector("#mqtt-enabled"),
+    allowUnauthenticatedAccess: documentRef.querySelector("#allow-unauthenticated-access"),
     accessGuestUi: documentRef.querySelector("#access-guest-ui"),
     accessGuestScript: documentRef.querySelector("#access-guest-script"),
     accessSave: documentRef.querySelector("#access-save-button"),

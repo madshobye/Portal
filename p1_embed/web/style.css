@@ -1935,11 +1935,25 @@ input {
 }
 
 .settings-user-add-grid {
-  grid-template-columns: minmax(0, 1fr) minmax(0, 176px) auto;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) 36px;
+}
+
+.settings-users-access-row {
+  grid-template-columns: minmax(0, 1fr) max-content max-content auto;
+  gap: 8px 18px;
+}
+
+.settings-users-access-row .field:first-child {
+  grid-column: 1 / -1;
 }
 
 .settings-users-access-row .settings-save-button {
-  grid-column: auto;
+  grid-column: 4;
+  justify-self: end;
+}
+
+.settings-user-add-grid .button.icon-buttonish {
+  justify-self: stretch;
 }
 
 .settings-mqtt-grid .button {
