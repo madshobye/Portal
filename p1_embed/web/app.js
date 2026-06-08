@@ -5,10 +5,10 @@ import { WebSocketTransport } from "./protocol/WebSocketTransport.js";
 import { MqttWebRtcTransport, MQTT_WEBRTC_TRANSPORT_VERSION } from "./protocol/MqttWebRtcTransport.js?v=0.1.87-ui348";
 import { MqttTransport, MQTT_TRANSPORT_VERSION, deriveOnlineAuthKeyHex, getStoredOnlineAuth } from "./protocol/MqttTransport.js?v=0.1.87-ui348";
 import { P1WebFlasher } from "./web-flasher.js?v=0.1.87-ui348";
-import { inferCircuitLayout, initCircuitView, normalizeCircuitLayout } from "./circuit.js?v=0.1.87-ui553";
+import { inferCircuitLayout, initCircuitView, normalizeCircuitLayout } from "./circuit.js?v=0.1.87-ui554";
 import { initGuinoView } from "./guino.js?v=0.1.87-ui348";
 
-const WEB_UI_VERSION = "0.1.87-ui553";
+const WEB_UI_VERSION = "0.1.87-ui554";
 const CHAT_DEFAULT_MAX_OUTPUT_TOKENS = 8000;
 const CHAT_MIN_MAX_OUTPUT_TOKENS = 1024;
 const CHAT_HARD_MAX_OUTPUT_TOKENS = 32000;
@@ -65,6 +65,7 @@ const storage = {
   specificationMode: "p1_embed.project.specificationMode",
   editorTheme: "p1_embed.editor.theme",
   circuitArtMode: "p1_embed.circuit.artMode",
+  circuitRoutingMode: "p1_embed.circuit.routingMode",
   circuitBoardType: "p1_embed.circuit.boardType",
 };
 
@@ -237,6 +238,7 @@ const els = {
   circuitRevisionSelect: document.querySelector("#circuit-revision-select"),
   circuitBoardSelect: document.querySelector("#circuit-board-select"),
   circuitArtMode: document.querySelector("#circuit-art-mode-button"),
+  circuitRoutingMode: document.querySelector("#circuit-routing-mode-button"),
   circuitDownload: document.querySelector("#circuit-download-button"),
   circuitStatus: document.querySelector("#circuit-status"),
   circuitCanvas: document.querySelector("#circuit-canvas"),
@@ -582,12 +584,13 @@ function bindControls() {
   els.circuitDownloadCode?.addEventListener("click", () => runUiAction(downloadProject, "download"));
   els.formatCode.addEventListener("click", () => runUiAction(formatEditorCode, "formatting"));
   els.editorTheme?.addEventListener("click", toggleEditorTheme);
-  [els.circuitBoardSelect, els.circuitRefresh, els.circuitArtMode, els.circuitDownload].forEach((button) => {
+  [els.circuitBoardSelect, els.circuitRefresh, els.circuitArtMode, els.circuitRoutingMode, els.circuitDownload].forEach((button) => {
     ["pointerdown", "mousedown", "mouseup", "pointerup", "click"].forEach((name) => {
       button?.addEventListener(name, (event) => event.stopPropagation());
     });
   });
-  els.circuitArtMode.addEventListener("click", toggleCircuitArtMode);
+  els.circuitArtMode?.addEventListener("click", toggleCircuitArtMode);
+  els.circuitRoutingMode?.addEventListener("click", toggleCircuitRoutingMode);
   els.circuitBoardSelect?.addEventListener("change", () => setCircuitBoardType(els.circuitBoardSelect.value));
   [els.projectSelect, els.generativeProjectSelect, els.circuitProjectSelect].filter(Boolean).forEach((select) => {
     select.addEventListener("input", () => scheduleProjectSelect(select.value));
@@ -786,6 +789,7 @@ function initCircuit() {
     onViewportPlacement: applyCircuitViewportPlacement,
   });
   setCircuitArtMode(normalizeCircuitArtMode(localStorage.getItem(storage.circuitArtMode)), { persist: false });
+  setCircuitRoutingMode(normalizeCircuitRoutingMode(localStorage.getItem(storage.circuitRoutingMode)), { persist: false });
   setCircuitBoardType(normalizeCircuitBoardType(localStorage.getItem(storage.circuitBoardType)), { persist: false });
   updateCircuitView("inferred from code");
 }
@@ -808,6 +812,26 @@ function setCircuitArtMode(mode, { persist = true } = {}) {
   els.circuitArtMode?.setAttribute("aria-pressed", illustrated ? "true" : "false");
   els.circuitArtMode?.setAttribute("title", illustrated ? "Circuit illustration mode" : "Circuit symbol mode");
   els.circuitArtMode?.querySelector(".material-symbols-rounded")?.replaceChildren(document.createTextNode(illustrated ? "image" : "category"));
+}
+
+function normalizeCircuitRoutingMode(mode) {
+  return mode === "embroidery" ? "embroidery" : "orthogonal";
+}
+
+function toggleCircuitRoutingMode() {
+  const current = normalizeCircuitRoutingMode(localStorage.getItem(storage.circuitRoutingMode));
+  setCircuitRoutingMode(current === "embroidery" ? "orthogonal" : "embroidery");
+}
+
+function setCircuitRoutingMode(mode, { persist = true } = {}) {
+  const next = normalizeCircuitRoutingMode(mode);
+  if (persist) localStorage.setItem(storage.circuitRoutingMode, next);
+  circuitView?.setRoutingMode?.(next);
+  const experimental = next === "embroidery";
+  els.circuitRoutingMode?.classList.toggle("is-active", experimental);
+  els.circuitRoutingMode?.setAttribute("aria-pressed", experimental ? "true" : "false");
+  els.circuitRoutingMode?.setAttribute("title", experimental ? "Experimental embroidery routing" : "Orthogonal routing");
+  els.circuitRoutingMode?.querySelector(".material-symbols-rounded")?.replaceChildren(document.createTextNode(experimental ? "gesture" : "route"));
 }
 
 function normalizeCircuitBoardType(type) {

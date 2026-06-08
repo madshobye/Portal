@@ -1,3 +1,5 @@
+import { drawEmbroideryConnections } from "./circuit-embroidery-router.js?v=0.1.87-ui554";
+
 const CIRCUIT_VERSION = "0.1";
 const WORLD_W = 1680;
 const WORLD_H = 1140;
@@ -36,6 +38,7 @@ const CIRCUIT_ZOOM_MAX = 4.2;
 const CIRCUIT_ZOOM_STEP = 0.0018;
 const CIRCUIT_DEFAULT_ZOOM = 1.28;
 const CIRCUIT_DOWNLOAD_SCALE = 3;
+const CIRCUIT_IDLE_REDRAW_MS = 2000;
 const PLACEMENT_MIN_PCT = 0;
 const PLACEMENT_MAX_PCT = 100;
 const NEOPIXEL_MAX_MA_PER_PIXEL = 60;
@@ -287,6 +290,7 @@ export function initCircuitView({ mount, componentList, assumptions, pinInfo, al
   let dragging = null;
   let p5Instance = null;
   let renderMode = "symbols";
+  let routingMode = "orthogonal";
   let boardType = "esp32-classic";
   let zoomScale = loadStoredCircuitZoom();
   let panOffset = loadStoredCircuitPan();
@@ -296,6 +300,7 @@ export function initCircuitView({ mount, componentList, assumptions, pinInfo, al
   let pendingModel = null;
   let viewportModelKey = "";
   let viewportPersistTimer = null;
+  let idleRedrawTimer = null;
 
   const setModel = (nextModel) => {
     if (dragging) {
@@ -385,6 +390,7 @@ export function initCircuitView({ mount, componentList, assumptions, pinInfo, al
     drawCircuitScene(pg, {
       model,
       renderMode,
+      routingMode,
       selectedComponentId,
       hoveredPin: null,
       zoomScale,
@@ -431,6 +437,7 @@ export function initCircuitView({ mount, componentList, assumptions, pinInfo, al
       transform = drawCircuitScene(p, {
         model,
         renderMode,
+        routingMode,
         selectedComponentId,
         hoveredPin,
         zoomScale,
@@ -542,7 +549,9 @@ export function initCircuitView({ mount, componentList, assumptions, pinInfo, al
         component.y = clamp(world.y + dragging.dy, bounds.minY + 44, bounds.maxY - 44);
       }
       renderSidePanel(model);
-      p.redraw();
+      if (routingMode !== "embroidery") {
+        p.redraw();
+      }
     };
     p.mouseWheel = (event) => {
       if (!isCanvasPointerEvent(event)) return true;
@@ -590,6 +599,8 @@ export function initCircuitView({ mount, componentList, assumptions, pinInfo, al
         const nextModel = pendingModel;
         pendingModel = null;
         setModel(nextModel);
+      } else {
+        p.redraw();
       }
     };
     p.windowResized = resize;
@@ -597,9 +608,16 @@ export function initCircuitView({ mount, componentList, assumptions, pinInfo, al
 
   const observer = new ResizeObserver(resize);
   observer.observe(mount);
+  idleRedrawTimer = window.setInterval(() => {
+    if (!dragging && p5Instance) p5Instance.redraw();
+  }, CIRCUIT_IDLE_REDRAW_MS);
   setModel(model);
   const setRenderMode = (mode = "symbols") => {
     renderMode = mode === "illustrations" ? "illustrations" : "symbols";
+    if (p5Instance) p5Instance.redraw();
+  };
+  const setRoutingMode = (mode = "orthogonal") => {
+    routingMode = mode === "embroidery" ? "embroidery" : "orthogonal";
     if (p5Instance) p5Instance.redraw();
   };
   const setBoardType = (type = "esp32-classic") => {
@@ -612,7 +630,7 @@ export function initCircuitView({ mount, componentList, assumptions, pinInfo, al
     renderAlternatives();
     if (p5Instance) p5Instance.redraw();
   };
-  return { setModel, resize, downloadPng, getModel: () => model, setRenderMode, setBoardType };
+  return { setModel, resize, downloadPng, getModel: () => model, setRenderMode, setRoutingMode, setBoardType };
 
   function renderSidePanel(nextModel) {
     if (componentList) {
@@ -2462,7 +2480,7 @@ function mergeConnections(base = [], extra = []) {
   return out;
 }
 
-function drawConnections(p, model, renderMode = "symbols") {
+function buildConnectionRoutes(model, renderMode = "symbols") {
   const componentsById = new Map(model.components.map((component) => [component.id, component]));
   const terminals = buildComponentTerminals(model, componentsById);
   const lanes = buildWireLanes(model, terminals, componentsById, renderMode);
@@ -2504,7 +2522,11 @@ function drawConnections(p, model, renderMode = "symbols") {
   }).filter(Boolean);
   const collapsedRoutes = collapseSharedRailRoundTrips(routes)
     .map((route, routeIndex) => ({ ...route, routeIndex }));
+  return { routes: collapsedRoutes, componentsById, terminals, lanes };
+}
 
+function drawConnections(p, model, renderMode = "symbols") {
+  const { routes: collapsedRoutes } = buildConnectionRoutes(model, renderMode);
   collapsedRoutes.forEach((route) => {
     const crossings = wireCrossingsForRoute(route, collapsedRoutes);
     const stroke = Number.isFinite(Number(route.connection?.stroke)) ? Number(route.connection.stroke) : WIRE_STROKE;
@@ -4998,6 +5020,7 @@ function drawSensorIllustration(p, connectorSide = "right") {
 function drawCircuitScene(p, {
   model,
   renderMode,
+  routingMode = "orthogonal",
   selectedComponentId,
   hoveredPin,
   zoomScale,
@@ -5016,7 +5039,11 @@ function drawCircuitScene(p, {
   p.scale(targetScale);
   p.translate(sceneTransform.ox, sceneTransform.oy);
   p.scale(sceneTransform.scale);
-  drawConnections(p, model, renderMode);
+  if (routingMode === "embroidery") {
+    drawEmbroideryConnections(p, model, renderMode, buildConnectionRoutes(model, renderMode));
+  } else {
+    drawConnections(p, model, renderMode);
+  }
   drawBoard(p, model.board, hoveredPin);
   drawBoardWireMarkers(p, model);
   drawComponents(p, model.components, selectedComponentId, renderMode, model.board);

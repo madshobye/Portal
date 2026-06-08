@@ -895,6 +895,12 @@ input {
   background: #eefbfc;
 }
 
+.circuit-routing-mode-button.is-active {
+  border-color: rgba(126, 87, 194, 0.72);
+  color: #5e35b1;
+  background: #f5f0ff;
+}
+
 .circuit-alternatives {
   position: absolute;
   z-index: 2;
