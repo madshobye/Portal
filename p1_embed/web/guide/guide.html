@@ -219,45 +219,51 @@
         margin-top: 10px;
       }
 
-      .quick-grid {
+      .feature-grid {
         display: grid;
-        grid-template-columns: repeat(3, minmax(0, 1fr));
+        grid-template-columns: repeat(4, minmax(0, 1fr));
         gap: 12px;
         margin-top: 18px;
       }
 
-      .quick-card {
+      .feature-card {
         padding: 14px;
         border: 1px solid var(--line-soft);
         border-radius: 8px;
         background: var(--surface-2);
       }
 
-      .quick-card .material-symbols-rounded {
+      .feature-card .material-symbols-rounded {
         color: var(--accent);
-        font-size: 22px;
+        font-size: 24px;
       }
 
-      .quick-card strong {
+      .feature-card strong {
         display: block;
         margin-top: 8px;
       }
 
-      .quick-card p {
-        margin: 8px 0 0;
-        font-size: 13px;
+      .feature-card ul {
+        display: grid;
+        gap: 6px;
+        margin: 10px 0 0;
+        padding-left: 18px;
+        color: var(--muted);
+        font-size: 12px;
+        line-height: 1.45;
       }
 
       .section-copy { max-width: 76ch; }
 
       .visual-grid {
         display: grid;
-        grid-template-columns: repeat(2, minmax(0, 1fr));
-        gap: 14px;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 10px;
         margin-top: 18px;
       }
 
       .visual-card {
+        margin: 0;
         overflow: hidden;
         border: 1px solid var(--line);
         border-radius: 8px;
@@ -268,17 +274,23 @@
         display: flex;
         align-items: center;
         justify-content: center;
-        height: clamp(260px, 34vw, 430px);
-        padding: 10px;
-        background: #050606;
+        aspect-ratio: 16 / 10;
+        background: #151719;
+        cursor: zoom-in;
       }
 
       .visual-card img {
         display: block;
-        width: auto;
+        width: 100%;
         height: 100%;
         max-width: 100%;
-        object-fit: contain;
+        object-fit: cover;
+        border-radius: 5px;
+      }
+
+      .visual-media:focus-visible {
+        outline: 2px solid var(--cyan);
+        outline-offset: 3px;
       }
 
       .visual-card figcaption {
@@ -379,6 +391,89 @@
 
       .call-list li { break-inside: avoid; }
 
+      .image-popup {
+        position: fixed;
+        inset: 0;
+        z-index: 50;
+        display: none;
+        align-items: center;
+        justify-content: center;
+        padding: 0;
+        background: rgba(5, 6, 6, 0.82);
+      }
+
+      .image-popup.is-open {
+        display: flex;
+      }
+
+      .image-popup-frame {
+        width: fit-content;
+        max-width: calc(100vw - 32px);
+        max-height: calc(100dvh - 32px);
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: var(--surface);
+        box-shadow: 0 24px 80px rgba(0, 0, 0, 0.55);
+        overflow: hidden;
+      }
+
+      .image-popup-titlebar {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        width: 100%;
+        min-width: 0;
+        min-height: 48px;
+        border-top: 1px solid var(--line);
+        background: var(--surface-2);
+      }
+
+      .image-popup-title {
+        flex: 1;
+        min-width: 0;
+        padding: 12px 14px;
+        color: var(--muted);
+        font-size: 12px;
+        line-height: 1.4;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .image-popup-close {
+        flex: 0 0 auto;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 32px;
+        height: 32px;
+        margin-right: 8px;
+        border: 1px solid var(--line);
+        border-radius: 6px;
+        color: var(--text);
+        background: transparent;
+        cursor: pointer;
+      }
+
+      .image-popup-close:hover {
+        background: var(--surface-3);
+      }
+
+      .image-popup-body {
+        display: block;
+        line-height: 0;
+        background: #050606;
+      }
+
+      .image-popup-body img {
+        display: block;
+        width: auto;
+        height: auto;
+        max-width: calc(100vw - 34px);
+        max-height: calc(100dvh - 112px);
+        object-fit: contain;
+      }
+
       footer {
         margin-top: 44px;
         padding-top: 18px;
@@ -394,7 +489,7 @@
           justify-content: start;
         }
         .binding-grid,
-        .quick-grid,
+        .feature-grid,
         .visual-grid {
           grid-template-columns: 1fr;
         }
@@ -418,6 +513,7 @@
         <span>guide</span>
       </div>
       <nav class="topnav" aria-label="Guide sections">
+        <a href="#features">Features</a>
         <a href="#tour">Tour</a>
         <a href="#start">Getting Started</a>
         <a href="#writing">Writing Sketches</a>
@@ -442,9 +538,93 @@
           <div class="info-box">
             <strong>Early maturing system</strong>
             <p>P1.E is already quite stable, but the firmware is under rapid development. Expect to find bugs sometimes, and expect to update the board firmware as the system matures.</p>
-            <p>USB connection and firmware install use Web Serial, which works in Chrome-based browsers such as Chrome and Edge.</p>
-            <p>The core system is designed to be independent of cloud subscriptions: the main parts are a static HTML page and firmware on the board. Two optional parts use cloud services: internet connection needs an MQTT broker, and chat needs a ChatGPT API key. A public MQTT broker can work for initial testing because P1.E encrypts its own communication. Other LLM providers may be added later.</p>
-            <p>There are no cloud backups of your sketches. The running code lives on the board, while projects, revisions, chat, and specifications are stored in your browser local storage. Export projects and make regular backups when the work matters.</p>
+          </div>
+          <div class="info-box">
+            <strong>Independent by design</strong>
+            <p>P1.E is built so the fundamental stack stays independent: a static HTML page, firmware on the board, and project data kept close to the person making the work. It should not rely on sudden subscription changes, locked-in add-on models, or a hosted platform that decides what is possible.</p>
+            <p>Therefore, USB connection and firmware install use Web Serial, which works in Chrome-based browsers such as Chrome and Edge.</p>
+            <p>Two optional parts can use cloud services: internet connection needs an MQTT broker, and chat needs a ChatGPT API key. A public MQTT broker can work for initial testing because P1.E encrypts its own communication. Other LLM providers may be added later.</p>
+            <p>Therefore, there are no cloud backups of your sketches. The running code lives on the board, while projects, revisions, chat, and specifications are stored in your browser local storage. Export projects and make regular backups when the work matters.</p>
+            <p>The philosophy is freedom to inspect, modify, self-host, extend, and implement projects on your own terms. You should be able to understand the stack, replace parts of it, and keep making even when a service changes direction.</p>
+          </div>
+        </div>
+      </section>
+
+      <section id="features">
+        <h2>Built-in Capabilities</h2>
+        <p class="section-copy">P1.E combines board coding, project context, live controls, circuit notes, online connection, AI, Home Assistant, and firmware updates in one browser workspace.</p>
+        <div class="feature-grid">
+          <div class="feature-card">
+            <span class="material-symbols-rounded">terminal</span>
+            <strong>Live board coding</strong>
+            <ul>
+              <li>Write Wrench sketches in the browser.</li>
+              <li>Upload, stop, and inspect logs.</li>
+              <li>Recover the running sketch from the board.</li>
+            </ul>
+          </div>
+          <div class="feature-card">
+            <span class="material-symbols-rounded">folder_open</span>
+            <strong>Local-first projects</strong>
+            <ul>
+              <li>Keep projects as revisions.</li>
+              <li>Link code, chat, specification, and circuit notes.</li>
+              <li>Export project JSON when work matters.</li>
+            </ul>
+          </div>
+          <div class="feature-card">
+            <span class="material-symbols-rounded">usb</span>
+            <strong>USB and online control</strong>
+            <ul>
+              <li>Start over USB with Web Serial.</li>
+              <li>Continue online with MQTT on WiFi.</li>
+              <li>Use online coding, logs, UI events, and uploads.</li>
+            </ul>
+          </div>
+          <div class="feature-card">
+            <span class="material-symbols-rounded">auto_awesome</span>
+            <strong>AI-assisted making</strong>
+            <ul>
+              <li>Chat helps write and revise sketches.</li>
+              <li>Specification evolves with the project.</li>
+              <li>Project context stays with each revision.</li>
+            </ul>
+          </div>
+          <div class="feature-card">
+            <span class="material-symbols-rounded">tune</span>
+            <strong>Live project UI</strong>
+            <ul>
+              <li>Expose controls directly from sketches.</li>
+              <li>Use toggles, sliders, buttons, values, and graphs.</li>
+              <li>Test physical behavior in real time.</li>
+            </ul>
+          </div>
+          <div class="feature-card">
+            <span class="material-symbols-rounded">schema</span>
+            <strong>Circuit workspace</strong>
+            <ul>
+              <li>Keep wiring notes beside the code.</li>
+              <li>Track parts, pins, power, and assumptions.</li>
+              <li>Generate diagrams from project context.</li>
+            </ul>
+          </div>
+          <div class="feature-card">
+            <span class="material-symbols-rounded">home_iot_device</span>
+            <strong>Home Assistant bridge</strong>
+            <ul>
+              <li>Use Home Assistant as an integration path.</li>
+              <li>Expose values, buttons, sliders, and switches.</li>
+              <li>Connect prototypes to a living environment.</li>
+            </ul>
+          </div>
+          <div class="feature-card">
+            <span class="material-symbols-rounded">system_update_alt</span>
+            <strong>OTA firmware updates</strong>
+            <ul>
+              <li>Update firmware from the browser.</li>
+              <li>Use SafeBoot recovery for safer experiments.</li>
+              <li>Follow a versioned update flow for alpha testing.</li>
+            </ul>
           </div>
         </div>
       </section>
@@ -478,23 +658,6 @@
           <li><strong>Add online users.</strong> In Settings > Users, create a user name and password for MQTT sign-in. Guest UI access can be enabled separately.</li>
           <li><strong>Add a ChatGPT key.</strong> In Settings > AI, save an API key in the browser. The key stays local to the browser unless you create an obfuscated sharing key.</li>
         </ol>
-        <div class="quick-grid">
-          <div class="quick-card">
-            <span class="material-symbols-rounded">usb</span>
-            <strong>USB</strong>
-            <p>Best for first install, recovery, and direct development at the desk.</p>
-          </div>
-          <div class="quick-card">
-            <span class="material-symbols-rounded">cloud</span>
-            <strong>MQTT</strong>
-            <p>Wireless command path for coding, logs, UI events, and script uploads.</p>
-          </div>
-          <div class="quick-card">
-            <span class="material-symbols-rounded">auto_awesome</span>
-            <strong>AI</strong>
-            <p>Chat can write sketches, update specifications, and keep revision notes with the code.</p>
-          </div>
-        </div>
       </section>
 
       <section id="writing">
@@ -840,5 +1003,69 @@ function loop() {
         <div>P1.E guide generated from the local Wrench context and firmware binding notes. Keep this page and <code>wrench_chat_context.md</code> in sync when bindings change.</div>
       </footer>
     </main>
+    <div class="image-popup" id="imagePopup" role="presentation" aria-hidden="true">
+      <div class="image-popup-frame" role="dialog" aria-modal="true" aria-labelledby="imagePopupTitle">
+        <div class="image-popup-body">
+          <img alt="">
+        </div>
+        <div class="image-popup-titlebar">
+          <div class="image-popup-title" id="imagePopupTitle"></div>
+          <button class="image-popup-close" type="button" aria-label="Close image preview">
+            <span class="material-symbols-rounded" aria-hidden="true">close</span>
+          </button>
+        </div>
+      </div>
+    </div>
+    <script>
+      (() => {
+        const popup = document.getElementById("imagePopup");
+        if (!popup) return;
+
+        const popupFrame = popup.querySelector(".image-popup-frame");
+        const popupImage = popup.querySelector(".image-popup-body img");
+        const popupTitle = popup.querySelector(".image-popup-title");
+        const closeButton = popup.querySelector(".image-popup-close");
+
+        function closeImage() {
+          popup.classList.remove("is-open");
+          popup.setAttribute("aria-hidden", "true");
+          popupImage.removeAttribute("src");
+        }
+
+        function openImage(image) {
+          const caption = image.closest(".visual-card")?.querySelector("figcaption")?.textContent.trim() || image.alt || "Image preview";
+          popupImage.src = image.currentSrc || image.src;
+          popupImage.alt = image.alt;
+          popupTitle.textContent = caption;
+          popup.classList.add("is-open");
+          popup.setAttribute("aria-hidden", "false");
+        }
+
+        document.querySelectorAll(".visual-media").forEach((media) => {
+          const image = media.querySelector("img");
+          if (!image) return;
+          media.tabIndex = 0;
+          media.setAttribute("role", "button");
+          media.setAttribute("aria-label", `Open larger image: ${image.alt}`);
+          media.addEventListener("click", () => {
+            openImage(image);
+          });
+          media.addEventListener("keydown", (event) => {
+            if (event.key === "Enter" || event.key === " ") {
+              event.preventDefault();
+              openImage(image);
+            }
+          });
+        });
+
+        closeButton.addEventListener("click", closeImage);
+        popup.addEventListener("click", (event) => {
+          if (!popupFrame.contains(event.target)) closeImage();
+        });
+        document.addEventListener("keydown", (event) => {
+          if (event.key === "Escape" && popup.classList.contains("is-open")) closeImage();
+        });
+      })();
+    </script>
   </body>
 </html>
