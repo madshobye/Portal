@@ -14,7 +14,7 @@
         <div class="panel intro">
           <div class="intro-main">
             <p class="eyebrow">ESP32 creative coding environment</p>
-            <h1>XOBIT lets an idea become a live, scriptable object.</h1>
+            <h1>XOBIT lets a microcontroller become a live, scriptable object.</h1>
             <p class="byline">By <a href="https://www.hobye.dk/" target="_blank" rel="noopener">Mads Hobye</a></p>
             <p class="lead">Write small scripts in the browser, run them on an ESP32, control LEDs and pins, build a live UI, connect over USB or MQTT, and let the AI assistant help shape code and documentation around the project you are making.</p>
             <ul class="feature-list">
@@ -33,44 +33,44 @@
 
       <section id="features">
         <h2>Built-in Capabilities</h2>
-        <p class="section-copy">XOBIT combines board coding, project context, live controls, circuit notes, online connection, AI, Home Assistant, and firmware updates in one browser workspace.</p>
-        <div class="feature-grid">
-          <a class="feature-card" href="capabilities/live-board-coding.html">
+        <p class="section-copy">Code the board, shape the project, and keep live controls, circuit notes, online connection, AI context, Home Assistant, and firmware updates in one browser workspace.</p>
+        <div class="reference-grid">
+          <a class="reference-card" href="capabilities/live-board-coding.html">
             <span class="material-symbols-rounded">terminal</span>
             <strong>Live board coding</strong>
             <p>Write scripts, upload, stop, inspect logs, and recover the running sketch from the board.</p>
           </a>
-          <a class="feature-card" href="capabilities/local-projects.html">
+          <a class="reference-card" href="capabilities/local-projects.html">
             <span class="material-symbols-rounded">folder_open</span>
             <strong>Local-first projects</strong>
             <p>Keep revisions, code, chat, specification, circuit notes, and exportable project JSON together.</p>
           </a>
-          <a class="feature-card" href="capabilities/usb-online.html">
+          <a class="reference-card" href="capabilities/usb-online.html">
             <span class="material-symbols-rounded">usb</span>
             <strong>USB and online control</strong>
             <p>Start over USB with Web Serial, then continue online with MQTT on WiFi.</p>
           </a>
-          <a class="feature-card" href="capabilities/ai-assisted-making.html">
+          <a class="reference-card" href="capabilities/ai-assisted-making.html">
             <span class="material-symbols-rounded">auto_awesome</span>
             <strong>AI-assisted making</strong>
             <p>Use chat to draft scripts and keep specification context near each project revision.</p>
           </a>
-          <a class="feature-card" href="capabilities/live-ui.html">
+          <a class="reference-card" href="capabilities/live-ui.html">
             <span class="material-symbols-rounded">tune</span>
             <strong>Live project UI</strong>
             <p>Expose toggles, sliders, buttons, values, and graphs directly from the running sketch.</p>
           </a>
-          <a class="feature-card" href="capabilities/circuit-workspace.html">
+          <a class="reference-card" href="capabilities/circuit-workspace.html">
             <span class="material-symbols-rounded">schema</span>
             <strong>Circuit workspace</strong>
             <p>Track parts, pins, power, wiring notes, assumptions, and generated diagrams beside the code.</p>
           </a>
-          <a class="feature-card" href="capabilities/home-assistant.html">
+          <a class="reference-card" href="capabilities/home-assistant.html">
             <span class="material-symbols-rounded">home_iot_device</span>
             <strong>Home Assistant bridge</strong>
             <p>Expose values, buttons, sliders, switches, and prototype state to Home Assistant.</p>
           </a>
-          <a class="feature-card" href="capabilities/ota-firmware.html">
+          <a class="reference-card" href="capabilities/ota-firmware.html">
             <span class="material-symbols-rounded">system_update_alt</span>
             <strong>OTA firmware updates</strong>
             <p>Update firmware from the browser with SafeBoot recovery for safer experiments.</p>
@@ -80,7 +80,7 @@
 
       <section id="tour">
         <h2>Workspace Tour</h2>
-        <p class="section-copy">XOBIT is built around a few connected views: AI for shaping the sketch and specification, Code for editing and uploading, Circuit for wiring notes, and UI for the live controls declared by the running sketch.</p>
+        <p class="section-copy">Move between AI, code, circuit notes, and live controls as one connected workspace.</p>
         <div class="visual-grid">
           <figure class="visual-card">
             <div class="visual-media"><img src="assets/p1e-ai-view.png" alt="XOBIT AI view showing a chat response beside a project specification"></div>
@@ -98,8 +98,8 @@
       </section>
 
       <section id="api-overview">
-        <h2>API Guide Overview</h2>
-        <p class="section-copy">The API is the set of functions a script calls to reach firmware features. Start with the language guide, then open the API family that matches the thing you are trying to control.</p>
+        <h2>Guide Overview</h2>
+        <p class="section-copy">Start with scripting, then choose the guide for the thing you want your object to do.</p>
         <div class="reference-grid">
           <a class="reference-card" href="wrench-language.html"><span class="material-symbols-rounded">code</span><strong>Script language</strong><p>Variables, functions, arrays, loops, sketch structure, and XOBIT-specific syntax notes.</p></a>
           <a class="reference-card" href="api/core-runtime.html"><span class="material-symbols-rounded">terminal</span><strong>Core runtime</strong><p>Printing, timing, random values, heap checks, and script error helpers.</p></a>

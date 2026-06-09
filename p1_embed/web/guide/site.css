@@ -41,7 +41,6 @@ a {
 
 a:hover {
   color: var(--accent);
-  font-weight: 700;
   text-decoration-color: currentColor;
 }
 
@@ -96,6 +95,7 @@ pre { font-family: var(--mono); }
   color: var(--soft-ink);
   background: transparent;
   font-size: 13px;
+  font-weight: 400;
   line-height: 1;
   text-decoration: none;
   white-space: nowrap;
@@ -105,7 +105,7 @@ pre { font-family: var(--mono); }
 .topnav a.is-active {
   border-bottom-color: var(--accent);
   color: var(--ink);
-  font-weight: 800;
+  font-weight: 400;
   text-decoration: none;
 }
 
@@ -119,6 +119,7 @@ pre { font-family: var(--mono); }
   color: var(--soft-ink);
   background: transparent;
   font-size: 13px;
+  font-weight: 700;
   line-height: 1;
   text-decoration: none;
   white-space: nowrap;
@@ -128,7 +129,6 @@ pre { font-family: var(--mono); }
 .button-link:hover {
   border-bottom-color: var(--accent);
   color: var(--ink);
-  font-weight: 700;
   text-decoration: none;
 }
 
@@ -150,7 +150,6 @@ section {
 
 .panel,
 .card,
-.feature-card,
 .reference-card,
 .visual-card {
   border: 1px solid var(--rule);
@@ -166,7 +165,7 @@ section {
 
 .intro {
   display: grid;
-  grid-template-columns: minmax(0, 0.98fr) minmax(280px, 0.72fr);
+  grid-template-columns: minmax(0, 1.28fr) minmax(260px, 0.52fr);
   column-gap: clamp(24px, 5vw, 64px);
   row-gap: 14px;
   align-items: start;
@@ -180,6 +179,8 @@ section {
   grid-column: 2;
   grid-row: 1;
   align-self: end;
+  width: 100%;
+  min-width: 0;
   margin-top: 4px;
 }
 
@@ -282,17 +283,11 @@ p {
 }
 
 .grid,
-.feature-grid,
 .two-grid,
 .reference-grid {
   display: grid;
   gap: 12px;
   margin-top: 20px;
-}
-
-.feature-grid {
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  counter-reset: feature-card;
 }
 
 .two-grid {
@@ -301,11 +296,9 @@ p {
 
 .reference-grid {
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  counter-reset: reference-card;
 }
 
 .card,
-.feature-card,
 .reference-card {
   position: relative;
   display: block;
@@ -313,57 +306,50 @@ p {
   padding: 16px;
   color: inherit;
   text-decoration: none;
-  transition: background 160ms ease, border-color 160ms ease, transform 160ms ease;
+  transition: background 160ms ease;
 }
 
-.feature-card {
-  counter-increment: feature-card;
-  padding-top: 42px;
+.card:has(> .material-symbols-rounded),
+.reference-card:has(> .material-symbols-rounded) {
+  display: grid;
+  grid-template-columns: 70px minmax(0, 1fr);
+  column-gap: 18px;
+  align-items: start;
 }
 
-.reference-card {
-  counter-increment: reference-card;
-}
-
-.feature-card::before {
-  content: counter(feature-card, decimal-leading-zero);
-  position: absolute;
-  top: 16px;
-  right: 16px;
-  color: var(--quiet-ink);
-  font-family: var(--mono);
-  font-size: 12px;
+.card:has(> .material-symbols-rounded) > :not(.material-symbols-rounded),
+.reference-card:has(> .material-symbols-rounded) > :not(.material-symbols-rounded) {
+  grid-column: 2;
 }
 
 a.card:hover,
-a.feature-card:hover,
 a.reference-card:hover {
-  border-color: var(--accent);
+  color: inherit;
   background: var(--paper-2);
+  font-weight: inherit;
   text-decoration: none;
-  transform: translateY(-1px);
 }
 
 .card .material-symbols-rounded,
-.feature-card .material-symbols-rounded,
 .reference-card .material-symbols-rounded {
-  color: var(--accent);
-  font-weight: 700;
-  font-size: 22px;
+  grid-column: 1;
+  grid-row: 1 / span 2;
+  color: var(--ink);
+  font-weight: 300;
+  font-size: 62px;
+  line-height: 1;
 }
 
 .card strong,
-.feature-card strong,
 .reference-card strong {
   display: block;
-  margin-top: 10px;
+  margin-top: 0;
   color: var(--ink);
   font-size: 15px;
   line-height: 1.2;
 }
 
 .card p,
-.feature-card p,
 .reference-card p {
   margin: 8px 0 0;
   color: var(--soft-ink);
@@ -372,7 +358,6 @@ a.reference-card:hover {
 }
 
 .card ul,
-.feature-card ul,
 .notes,
 .check-list {
   display: grid;
@@ -420,7 +405,6 @@ a.reference-card:hover {
 }
 
 .card li,
-.feature-card li,
 .notes li,
 .check-list li {
   border-left: 2px solid var(--rule);
@@ -484,7 +468,7 @@ a.reference-card:hover {
   align-items: center;
   justify-content: center;
   aspect-ratio: 16 / 10;
-  background: var(--paper-3);
+  background: #000000;
   cursor: zoom-in;
 }
 
@@ -656,9 +640,10 @@ footer {
   .intro .info-box {
     grid-column: 1;
     grid-row: auto;
+    width: 100%;
+    min-width: 0;
   }
 
-  .feature-grid,
   .reference-grid,
   .two-grid,
   .visual-grid {
@@ -679,7 +664,6 @@ footer {
     padding-bottom: 52px;
   }
 
-  .feature-grid,
   .reference-grid,
   .two-grid,
   .visual-grid {
