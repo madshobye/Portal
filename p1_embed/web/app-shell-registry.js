@@ -1,11 +1,11 @@
-import { createStorageDiagnostics } from "./storage-diagnostics.js?v=0.1.87-ui726";
-import { createStartupStepRunner } from "./startup-steps.js?v=0.1.87-ui726";
-import { createConnectionIntentStore } from "./connection-intent.js?v=0.1.87-ui726";
-import { createConsolePreferences } from "./console-preferences.js?v=0.1.87-ui726";
-import { createViewRouting } from "./view-routing.js?v=0.1.87-ui726";
-import { createLowerPanelController } from "./lower-panel-controller.js?v=0.1.87-ui726";
-import { createSettingsTabs } from "./settings-tabs.js?v=0.1.87-ui726";
-import { createGenerativePanelController } from "./generative-panel-controller.js?v=0.1.87-ui726";
+import { createStorageDiagnostics } from "./storage-diagnostics.js?v=0.1.87-ui728";
+import { createStartupStepRunner } from "./startup-steps.js?v=0.1.87-ui728";
+import { createConnectionIntentStore } from "./connection-intent.js?v=0.1.87-ui728";
+import { createConsolePreferences } from "./console-preferences.js?v=0.1.87-ui728";
+import { createViewRouting } from "./view-routing.js?v=0.1.87-ui728";
+import { createLowerPanelController } from "./lower-panel-controller.js?v=0.1.87-ui728";
+import { createSettingsTabs } from "./settings-tabs.js?v=0.1.87-ui728";
+import { createGenerativePanelController } from "./generative-panel-controller.js?v=0.1.87-ui728";
 
 export function createAppShellRegistry({
   fields,

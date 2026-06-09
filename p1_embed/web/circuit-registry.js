@@ -1,6 +1,6 @@
-import { createCircuitWorkspaceController } from "./circuit-workspace-controller.js?v=0.1.87-ui726";
-import { createCircuitEditorActions } from "./circuit-editor-actions.js?v=0.1.87-ui726";
-import { createCircuitShellController } from "./circuit-shell-controller.js?v=0.1.87-ui726";
+import { createCircuitWorkspaceController } from "./circuit-workspace-controller.js?v=0.1.87-ui728";
+import { createCircuitEditorActions } from "./circuit-editor-actions.js?v=0.1.87-ui728";
+import { createCircuitShellController } from "./circuit-shell-controller.js?v=0.1.87-ui728";
 
 export function createCircuitRegistry({
   fields,

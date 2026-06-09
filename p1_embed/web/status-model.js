@@ -92,7 +92,7 @@ export function transportProtocolLabel(kind, { isMqttKind, isWebRtcKind } = {}) 
 
 export function mqttSharePeerId({ mqtt = {}, transport = null, normalizePeerId, isMqttKind } = {}) {
   if (isMqttKind(transport?.kind) && transport?.remoteId) return normalizePeerId(transport.remoteId);
-  if (mqtt?.connected && mqtt.deviceId) return normalizePeerId(mqtt.deviceId);
+  if ((mqtt?.connected || mqtt?.configured || mqtt?.begun) && mqtt.deviceId) return normalizePeerId(mqtt.deviceId);
   return "";
 }
 

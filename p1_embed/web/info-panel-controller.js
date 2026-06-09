@@ -1,4 +1,4 @@
-import { product } from "./app-config.js?v=0.1.87-ui726";
+import { product } from "./app-config.js?v=0.1.87-ui728";
 
 export function createInfoPanelController({
   renderer,
@@ -64,6 +64,7 @@ export function createInfoPanelController({
         metric("WiFi name", wifi.connected ? wifi.ssid || "connected" : "offline"),
         metric("IP", wifi.ip || "-"),
         metric("Signal", wifiSignalLabel(wifi)),
+        metric("MQTT state", mqttStateLabel(mqtt)),
         metric("MQTT", mqttSharePeerId(mqtt) || "-"),
         metric("Share", shareUrl || "-"),
       ], options: { compact: true, links: { peerId: mqttSharePeerId(mqtt) || peerId, shareUrl } } },
@@ -95,6 +96,22 @@ export function createInfoPanelController({
   function compactScriptLabel() {
     const state = String(getScriptStateText() || "");
     return state.replace(/\s*\/\s*/g, " / ") || "-";
+  }
+
+  function mqttStateLabel(mqtt = {}) {
+    const state = mqtt.connected
+      ? "connected"
+      : mqtt.begun
+        ? "starting"
+        : mqtt.configured
+          ? "configured"
+          : mqtt.enabled
+            ? "enabled"
+            : "offline";
+    const details = [];
+    if (mqtt.authRequired) details.push("auth");
+    if (Number(mqtt.onlineAuthUsers) > 0) details.push(`${mqtt.onlineAuthUsers} user${Number(mqtt.onlineAuthUsers) === 1 ? "" : "s"}`);
+    return details.length ? `${state} / ${details.join(", ")}` : state;
   }
 
   async function copyShareLink() {
