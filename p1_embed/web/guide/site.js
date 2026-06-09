@@ -117,7 +117,141 @@
     });
   }
 
+  function formatLogDate(value) {
+    const date = new Date(`${value}T00:00:00`);
+    if (Number.isNaN(date.getTime())) return value;
+    return new Intl.DateTimeFormat("en", {
+      month: "long",
+      day: "numeric",
+      year: "numeric"
+    }).format(date);
+  }
+
+  function normalizeTopic(value) {
+    return String(value || "").trim().toLowerCase();
+  }
+
+  function topicLabel(topic, entries) {
+    for (const entry of entries) {
+      for (const icon of entry.icons || []) {
+        if (normalizeTopic(icon.type || icon.name) === topic) return icon.label || icon.type || icon.name;
+      }
+    }
+    return topic.replaceAll("-", " ");
+  }
+
+  function entrySearchText(entry) {
+    return [
+      entry.date,
+      entry.scope,
+      entry.title,
+      entry.summary,
+      ...(entry.icons || []).flatMap((icon) => [icon.name, icon.label, icon.type])
+    ].join(" ").toLowerCase();
+  }
+
+  function renderLogIcons(icons, activeTopic, onTopicClick) {
+    const wrap = document.createElement("div");
+    wrap.className = "log-icons";
+    for (const icon of icons || []) {
+      const topic = normalizeTopic(icon.type || icon.name);
+      const item = document.createElement("button");
+      item.type = "button";
+      item.className = "log-icon";
+      item.title = icon.label || icon.type || icon.name;
+      item.setAttribute("aria-label", item.title);
+      item.dataset.topic = topic;
+      item.classList.toggle("is-active", activeTopic === topic);
+      item.addEventListener("click", () => onTopicClick(topic));
+      const symbol = document.createElement("span");
+      symbol.className = "material-symbols-rounded";
+      symbol.setAttribute("aria-hidden", "true");
+      symbol.textContent = icon.name || "label";
+      item.append(symbol);
+      wrap.append(item);
+    }
+    return wrap;
+  }
+
+  function renderChangeLog(entries, activeTopic = "all", query = "", onTopicClick = () => {}) {
+    const list = document.querySelector("[data-log-list]");
+    if (!list) return;
+    const normalizedQuery = query.trim().toLowerCase();
+    const filtered = entries.filter((entry) => {
+      const topics = (entry.icons || []).map((icon) => normalizeTopic(icon.type || icon.name));
+      const topicMatch = activeTopic === "all" || topics.includes(activeTopic);
+      const searchMatch = !normalizedQuery || entrySearchText(entry).includes(normalizedQuery);
+      return topicMatch && searchMatch;
+    });
+
+    list.replaceChildren();
+    if (!filtered.length) {
+      const empty = document.createElement("article");
+      empty.className = "log-entry";
+      const text = document.createElement("p");
+      text.textContent = "No changes match that search.";
+      empty.append(text);
+      list.append(empty);
+      return;
+    }
+
+    for (const entry of filtered) {
+      const article = document.createElement("article");
+      article.className = "log-entry";
+
+      const header = document.createElement("header");
+      const tag = document.createElement("span");
+      tag.className = "log-tag";
+      tag.textContent = entry.scope || "Update";
+      const time = document.createElement("time");
+      time.dateTime = entry.date || "";
+      time.textContent = formatLogDate(entry.date || "");
+      header.append(tag, time, renderLogIcons(entry.icons, activeTopic, onTopicClick));
+
+      const title = document.createElement("h3");
+      title.textContent = entry.title || "Untitled change";
+      const summary = document.createElement("p");
+      summary.textContent = entry.summary || "";
+
+      article.append(header, title, summary);
+      list.append(article);
+    }
+  }
+
+  function installChangeLog() {
+    const list = document.querySelector("[data-log-list]");
+    const tools = document.querySelector("[data-log-tools]");
+    const search = document.querySelector("[data-log-search]");
+    if (!list || !tools || !search) return;
+
+    fetch(guideUrl("system-log.json"))
+      .then((response) => {
+        if (!response.ok) throw new Error(`Change log failed to load: ${response.status}`);
+        return response.json();
+      })
+      .then((entries) => {
+        let activeTopic = "all";
+        const render = () => renderChangeLog(entries, activeTopic, search.value, (topic) => {
+          activeTopic = activeTopic === topic ? "all" : topic;
+          render();
+        });
+        search.addEventListener("input", render);
+        tools.hidden = false;
+        render();
+      })
+      .catch((error) => {
+        list.replaceChildren();
+        const entry = document.createElement("article");
+        entry.className = "log-entry";
+        const text = document.createElement("p");
+        text.textContent = error.message || "The change log could not be loaded.";
+        entry.append(text);
+        list.append(entry);
+      });
+  }
+
   installHeader();
   installFooter();
   installImagePopup();
+  installChangeLog();
 })();

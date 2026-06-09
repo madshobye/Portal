@@ -541,6 +541,37 @@ code {
   margin-top: 20px;
 }
 
+.log-tools {
+  display: grid;
+  gap: 12px;
+  margin-top: 18px;
+}
+
+.log-search {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  max-width: 460px;
+  padding: 8px 10px;
+  border: 1px solid var(--rule);
+  border-radius: 6px;
+  background: var(--paper);
+}
+
+.log-search .material-symbols-rounded {
+  color: var(--quiet-ink);
+  font-size: 21px;
+}
+
+.log-search input {
+  width: 100%;
+  border: 0;
+  outline: 0;
+  color: var(--ink);
+  background: transparent;
+  font: inherit;
+}
+
 .log-entry {
   padding: 16px;
   border: 1px solid var(--rule);
@@ -574,6 +605,34 @@ code {
   border-radius: 4px;
   color: var(--ink);
   background: var(--paper-2);
+}
+
+.log-icons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.log-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border: 1px solid var(--rule);
+  border-radius: 6px;
+  color: var(--ink);
+  background: var(--paper-2);
+  cursor: pointer;
+}
+
+.log-icon:hover,
+.log-icon.is-active {
+  background: var(--paper-3);
+}
+
+.log-icon .material-symbols-rounded {
+  font-size: 20px;
 }
 
 table {

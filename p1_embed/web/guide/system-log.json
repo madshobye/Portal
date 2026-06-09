@@ -1,0 +1,38 @@
+[
+  {
+    "id": "2026-06-10-searchable-icon-log",
+    "date": "2026-06-10",
+    "scope": "Web / Guide",
+    "title": "Searchable change log with topic icons",
+    "summary": "The Change Log now loads from a JSON file, shows topic icons for each entry, and can be searched or filtered by topic.",
+    "icons": [
+      { "name": "history", "label": "Change log", "type": "change-log" },
+      { "name": "filter_list", "label": "Filter", "type": "filter" },
+      { "name": "search", "label": "Search", "type": "search" }
+    ]
+  },
+  {
+    "id": "2026-06-10-examples-modules-generate",
+    "date": "2026-06-10",
+    "scope": "Web / Guide",
+    "title": "Examples project, module guide, and cleaner Generate",
+    "summary": "The project selector now includes a special Examples project with starter sketches across modules. The guide now speaks in Modules instead of API families, and Generate now creates a new revision with a cleaned definition, a better sketch name, and no AI-made circuit layout.",
+    "icons": [
+      { "name": "folder_special", "label": "Examples", "type": "examples" },
+      { "name": "menu_book", "label": "Guide", "type": "guide" },
+      { "name": "auto_awesome", "label": "AI Generate", "type": "ai" },
+      { "name": "edit_note", "label": "Revision", "type": "revision" }
+    ]
+  },
+  {
+    "id": "2026-06-09-change-log-added",
+    "date": "2026-06-09",
+    "scope": "Web / Guide",
+    "title": "Change log added to the guide",
+    "summary": "The guide now has a Change Log page for short notes about visible web changes and firmware deploys.",
+    "icons": [
+      { "name": "history", "label": "Change log", "type": "change-log" },
+      { "name": "menu_book", "label": "Guide", "type": "guide" }
+    ]
+  }
+]
