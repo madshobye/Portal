@@ -1,6 +1,6 @@
-import { createPageLifecycleController } from "./page-lifecycle-controller.js?v=0.1.87-ui720";
-import { createAppBootstrapController } from "./app-bootstrap-controller.js?v=0.1.87-ui720";
-import { createAppControlBindingsController } from "./app-control-bindings-controller.js?v=0.1.87-ui720";
+import { createPageLifecycleController } from "./page-lifecycle-controller.js?v=0.1.87-ui722";
+import { createAppBootstrapController } from "./app-bootstrap-controller.js?v=0.1.87-ui722";
+import { createAppControlBindingsController } from "./app-control-bindings-controller.js?v=0.1.87-ui722";
 
 export function createAppRuntimeRegistry({
   defaultPeerIdFromWebSocket,

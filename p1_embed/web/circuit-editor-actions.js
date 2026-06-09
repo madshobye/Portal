@@ -11,7 +11,7 @@ import {
   upsertCircuitViewportComment,
 } from "./circuit-code-comments.js?v=0.1.87-ui559";
 
-import { product } from "./app-config.js?v=0.1.87-ui720";
+import { product } from "./app-config.js?v=0.1.87-ui722";
 
 export function createCircuitEditorActions({
   getCode,

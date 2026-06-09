@@ -155,6 +155,7 @@ export function createDomRefs(documentRef = document) {
     installConnect: documentRef.querySelector("#install-connect-button"),
     installFlashManifest: documentRef.querySelector("#install-flash-manifest-button"),
     installClearData: documentRef.querySelector("#install-clear-data"),
+    installSlowBaud: documentRef.querySelector("#install-slow-baud"),
     installGoCode: documentRef.querySelector("#install-go-code-button"),
     installManifest: documentRef.querySelector("#install-manifest-input"),
     installFirmwareVersion: documentRef.querySelector("#install-firmware-version"),

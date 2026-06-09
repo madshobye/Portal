@@ -1,6 +1,6 @@
-import { createFirmwareUpdateController } from "./firmware-update-controller.js?v=0.1.87-ui720";
-import { createInstallPanelController } from "./install-panel-controller.js?v=0.1.87-ui720";
-import { createInstallWorkflowController } from "./install-workflow-controller.js?v=0.1.87-ui720";
+import { createFirmwareUpdateController } from "./firmware-update-controller.js?v=0.1.87-ui722";
+import { createInstallPanelController } from "./install-panel-controller.js?v=0.1.87-ui722";
+import { createInstallWorkflowController } from "./install-workflow-controller.js?v=0.1.87-ui722";
 
 export function createInstallFirmwareRegistry({
   P1WebFlasher,
@@ -57,6 +57,7 @@ export function createInstallFirmwareRegistry({
       connectButton: fields.installConnect,
       flashButton: fields.installFlashManifest,
       clearDataInput: fields.installClearData,
+      slowBaudInput: fields.installSlowBaud,
       goCodeButton: fields.installGoCode,
       manifestInput: fields.installManifest,
       firmwareVersion: fields.installFirmwareVersion,

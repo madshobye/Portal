@@ -1,6 +1,6 @@
 const SERIAL_MSGPACK_MAGIC = new Uint8Array([0x50, 0x31, 0x4d, 0x50]); // P1MP
 
-import { storage } from "../app-config.js?v=0.1.87-ui720";
+import { storage } from "../app-config.js?v=0.1.87-ui722";
 
 export class WebSerialTransport extends EventTarget {
   constructor({
@@ -40,7 +40,7 @@ export class WebSerialTransport extends EventTarget {
       storageKey: this.storageKey,
       autoReconnect: false,
       autoReconnectOnRefresh: false,
-      releaseBootSignalsOnOpen: false,
+      releaseBootSignalsOnOpen: true,
       onState: (state) => this.setState(state),
       onLine: (line) => this.emit("line", { line }),
       onBytes: (bytes) => this.acceptBytes(bytes),

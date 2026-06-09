@@ -2,6 +2,7 @@ export function createInstallPanelController({
   connectButton,
   flashButton,
   clearDataInput,
+  slowBaudInput,
   goCodeButton,
   manifestInput,
   firmwareVersion,
@@ -57,6 +58,7 @@ export function createInstallPanelController({
       connectButton,
       flashButton,
       clearDataInput,
+      slowBaudInput,
       goCodeButton,
       manifestInput,
     ].forEach((el) => {
@@ -88,6 +90,10 @@ export function createInstallPanelController({
     return manifestInput?.value?.trim() || fallback;
   }
 
+  function baudrateValue() {
+    return slowBaudInput?.checked ? 115200 : 921600;
+  }
+
   function setFirmwareVersion(text) {
     if (firmwareVersion) firmwareVersion.textContent = text;
   }
@@ -98,6 +104,7 @@ export function createInstallPanelController({
     clearWifiPassword,
     formatState,
     hideGoCode,
+    baudrateValue,
     manifestValue,
     readSetup,
     setEnabled,

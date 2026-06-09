@@ -1,13 +1,13 @@
 import { deriveOnlineAuthKeyHex } from "./protocol/MqttTransport.js?v=0.1.87-ui348";
-import { generateGuestKey } from "./guino-share-link.js?v=0.1.87-ui720";
+import { generateGuestKey } from "./guino-share-link.js?v=0.1.87-ui722";
 import {
   mqttConfigFromStorageAndDevice as mqttConfigFromStorageAndDeviceFor,
   mqttTransportOptions as mqttTransportOptionsFor,
   storeMqttConfigFields,
   storeMqttHistoryConfig,
   storeMqttParams,
-} from "./mqtt-settings-model.js?v=0.1.87-ui720";
-import { createSettingsDeviceRegistry } from "./settings-device-registry.js?v=0.1.87-ui720";
+} from "./mqtt-settings-model.js?v=0.1.87-ui722";
+import { createSettingsDeviceRegistry } from "./settings-device-registry.js?v=0.1.87-ui722";
 
 export function createSettingsFeatureRegistry({
   fields,

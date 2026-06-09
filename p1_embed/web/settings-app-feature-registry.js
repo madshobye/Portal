@@ -1,4 +1,4 @@
-import { createSettingsFeatureRegistry } from "./settings-feature-registry.js?v=0.1.87-ui720";
+import { createSettingsFeatureRegistry } from "./settings-feature-registry.js?v=0.1.87-ui722";
 
 export function createSettingsAppFeatureRegistry(options = {}) {
   let settingsFeatureRegistry = null;

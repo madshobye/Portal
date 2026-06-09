@@ -1,7 +1,7 @@
-import { createCodeView } from "./code-view.js?v=0.1.87-ui720";
-import { createCodeEditorShellController } from "./code-editor-shell-controller.js?v=0.1.87-ui720";
-import { createCodeDropController } from "./code-drop-controller.js?v=0.1.87-ui720";
-import { createSpecificationEditorController } from "./specification-editor-controller.js?v=0.1.87-ui720";
+import { createCodeView } from "./code-view.js?v=0.1.87-ui722";
+import { createCodeEditorShellController } from "./code-editor-shell-controller.js?v=0.1.87-ui722";
+import { createCodeDropController } from "./code-drop-controller.js?v=0.1.87-ui722";
+import { createSpecificationEditorController } from "./specification-editor-controller.js?v=0.1.87-ui722";
 
 export function createEditorRegistry({
   documentRef,

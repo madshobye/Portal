@@ -1,4 +1,4 @@
-import { WebSerialTransport } from "./protocol/WebSerialTransport.js?v=0.1.87-ui348";
+import { WebSerialTransport } from "./protocol/WebSerialTransport.js?v=0.1.87-ui349";
 import { P1WebFlasher } from "./web-flasher.js?v=0.1.87-ui348";
 import {
   firmwareCurrentVersion,
@@ -6,8 +6,8 @@ import {
   firmwareUpdateCandidateFor,
   firmwareUpdateFailureMessage,
   firmwareUpdatePayload,
-} from "./firmware-update-model.js?v=0.1.87-ui720";
-import { createInstallFirmwareRegistry } from "./install-firmware-registry.js?v=0.1.87-ui720";
+} from "./firmware-update-model.js?v=0.1.87-ui722";
+import { createInstallFirmwareRegistry } from "./install-firmware-registry.js?v=0.1.87-ui722";
 
 const INSTALL_MANIFEST = "bin/p1e-firmware-safeboot.json";
 const FIRMWARE_RELEASES_MANIFEST = "bin/p1e-firmware-releases.json";

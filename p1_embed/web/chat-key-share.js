@@ -1,4 +1,4 @@
-import { product } from "./app-config.js?v=0.1.87-ui720";
+import { product } from "./app-config.js?v=0.1.87-ui722";
 
 export function cryptoAvailable() {
   return Boolean(globalThis.crypto?.subtle && globalThis.crypto?.getRandomValues);

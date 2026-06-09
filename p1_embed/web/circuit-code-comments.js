@@ -1,5 +1,5 @@
 import { escapeRegex } from "./string-utils.js?v=0.1.87-ui559";
-import { product } from "./app-config.js?v=0.1.87-ui720";
+import { product } from "./app-config.js?v=0.1.87-ui722";
 
 const CIRCUIT_COMMENT = `(?:${escapeRegex(product.circuitCommentPrefix)}|${escapeRegex(product.legacyCircuitCommentPrefix)})`;
 const CIRCUIT_BOARD_COMMENT = `(?:${escapeRegex(product.circuitCommentPrefix)}|${escapeRegex(product.legacyCircuitCommentPrefix)})-board`;

@@ -1,11 +1,11 @@
-import { createStorageDiagnostics } from "./storage-diagnostics.js?v=0.1.87-ui720";
-import { createStartupStepRunner } from "./startup-steps.js?v=0.1.87-ui720";
-import { createConnectionIntentStore } from "./connection-intent.js?v=0.1.87-ui720";
-import { createConsolePreferences } from "./console-preferences.js?v=0.1.87-ui720";
-import { createViewRouting } from "./view-routing.js?v=0.1.87-ui720";
-import { createLowerPanelController } from "./lower-panel-controller.js?v=0.1.87-ui720";
-import { createSettingsTabs } from "./settings-tabs.js?v=0.1.87-ui720";
-import { createGenerativePanelController } from "./generative-panel-controller.js?v=0.1.87-ui720";
+import { createStorageDiagnostics } from "./storage-diagnostics.js?v=0.1.87-ui722";
+import { createStartupStepRunner } from "./startup-steps.js?v=0.1.87-ui722";
+import { createConnectionIntentStore } from "./connection-intent.js?v=0.1.87-ui722";
+import { createConsolePreferences } from "./console-preferences.js?v=0.1.87-ui722";
+import { createViewRouting } from "./view-routing.js?v=0.1.87-ui722";
+import { createLowerPanelController } from "./lower-panel-controller.js?v=0.1.87-ui722";
+import { createSettingsTabs } from "./settings-tabs.js?v=0.1.87-ui722";
+import { createGenerativePanelController } from "./generative-panel-controller.js?v=0.1.87-ui722";
 
 export function createAppShellRegistry({
   fields,

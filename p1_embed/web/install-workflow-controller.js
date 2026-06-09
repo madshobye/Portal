@@ -1,4 +1,4 @@
-import { product } from "./app-config.js?v=0.1.87-ui720";
+import { product } from "./app-config.js?v=0.1.87-ui722";
 
 export function createInstallWorkflowController({
   P1WebFlasher,
@@ -68,6 +68,7 @@ export function createInstallWorkflowController({
     }
     installPanel.setProgress(0);
     installStatus("Choose your ESP32 serial port");
+    installLog(`Using ${flasher.baudrate} baud`);
     await flasher.flashManifest(manifest, { ...options, eraseAll });
     const hint = normalizeUsbHint(flasher.port?.getInfo?.() || null);
     installStatus("Upload complete. Waiting for board...");
@@ -100,8 +101,13 @@ export function createInstallWorkflowController({
   }
 
   function ensureFlasher() {
-    if (getFlasher()) return getFlasher();
-    const flasher = new P1WebFlasher();
+    const baudrate = installPanel.baudrateValue();
+    const existing = getFlasher();
+    if (existing) {
+      existing.baudrate = baudrate;
+      return existing;
+    }
+    const flasher = new P1WebFlasher({ baudrate });
     setFlasher(flasher);
     flasher.addEventListener("state", (event) => installStatus(formatInstallState(event.detail)));
     flasher.addEventListener("log", (event) => installLog(event.detail.message || ""));
