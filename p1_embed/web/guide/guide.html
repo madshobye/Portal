@@ -14,7 +14,7 @@
         <div class="panel intro">
           <div class="intro-main">
             <p class="eyebrow">ESP32 creative coding environment</p>
-            <h1>XOBIT lets a board become a live, scriptable object.</h1>
+            <h1>XOBIT lets an idea become a live, scriptable object.</h1>
             <p class="byline">By <a href="https://www.hobye.dk/" target="_blank" rel="noopener">Mads Hobye</a></p>
             <p class="lead">Write small scripts in the browser, run them on an ESP32, control LEDs and pins, build a live UI, connect over USB or MQTT, and let the AI assistant help shape code and documentation around the project you are making.</p>
             <ul class="feature-list">
@@ -23,20 +23,10 @@
               <li>Drive NeoPixel-style LED strips, GPIO, HTTP APIs, time, sun position, UI controls, and Home Assistant entities.</li>
             </ul>
           </div>
-          <div class="intro-notes">
-            <div class="info-box">
-              <strong>Early maturing system</strong>
-              <p>XOBIT is already quite stable, but the firmware is under rapid development. Expect to find bugs sometimes, and expect to update the board firmware as the system matures.</p>
-              <p>This is still alpha-stage software: use it for experiments and prototypes, keep physical access to the board, and make backups before the work matters.</p>
-            </div>
-            <div class="info-box">
-              <strong>Independent by design</strong>
-              <p>XOBIT is built so the stack stays independent: a static HTML page, firmware on the board, and project data kept close to the person making the work. It should not rely on sudden subscription changes, locked-in add-on models, or a hosted platform that decides what is possible.</p>
-              <p>Therefore, USB connection and firmware install use Web Serial, which works in Chrome-based browsers such as Chrome and Edge.</p>
-              <p>Two optional parts can use cloud services: online control needs an MQTT broker, and chat needs a ChatGPT API key. Fresh boards do not allow MQTT control until a named online user or an explicit guest/anonymous mode is configured. Other LLM providers may be added later.</p>
-              <p>Therefore, there are no cloud backups of your sketches. The running code lives on the board, while projects, revisions, chat, and specifications are stored in your browser local storage. Export projects and make regular backups when the work matters.</p>
-              <p>The philosophy is freedom to inspect, modify, self-host, extend, and implement projects on your own terms. You should be able to understand the stack, replace parts of it, and keep making even when a service changes direction.</p>
-            </div>
+          <div class="info-box intro-bottom-note">
+            <strong>Early maturing system</strong>
+            <p>XOBIT is already quite stable, but the firmware is under rapid development. Expect to find bugs sometimes, and expect to update the board firmware as the system matures.</p>
+            <p>This is still alpha-stage software: use it for experiments and prototypes, keep physical access to the board, and make backups before the work matters.</p>
           </div>
         </div>
       </section>

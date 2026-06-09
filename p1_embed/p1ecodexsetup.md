@@ -1,12 +1,12 @@
-# P1E Codex Setup
+# XOBIT Codex Setup
 
-This is the short handoff for starting a blank Codex thread on the P1E work.
+This is the short handoff for starting a blank Codex thread on the XOBIT work.
 
 ## Repository
 
 - Workspace root: `/Users/madshobye/Media/codeRepo`
 - Main repo: `/Users/madshobye/Media/codeRepo/Portal`
-- P1E app root: `/Users/madshobye/Media/codeRepo/Portal/p1_embed`
+- XOBIT app root: `/Users/madshobye/Media/codeRepo/Portal/p1_embed`
 - Firmware: `/Users/madshobye/Media/codeRepo/Portal/p1_embed/firmware/p1_embed`
 - Web app: `/Users/madshobye/Media/codeRepo/Portal/p1_embed/web`
 - Web installer binaries: `/Users/madshobye/Media/codeRepo/Portal/p1_embed/web/bin`
@@ -14,7 +14,7 @@ This is the short handoff for starting a blank Codex thread on the P1E work.
 
 ## Current Direction
 
-P1E is an alpha-stage ESP32 creative coding environment:
+XOBIT is an alpha-stage ESP32 creative coding environment:
 
 - Wrench is the current scripting runtime.
 - The browser editor stores projects with revisions.
@@ -106,26 +106,44 @@ DETOOLS=/private/tmp/p1e-detools-venv/bin/detools ./scripts/esp32/p1embed-safebo
 - When installer firmware should be current, update the web binaries and manifest.
 - Keep final answers short and concrete.
 
-## Current Transport Model
+## Current Transport And Security Model
 
-MQTT binary transport is the active wireless path.
+MQTT binary transport is the active online control path. USB serial is the trusted physical recovery/admin path. WebSocket and WebRTC source code may exist, but direct calls into `protocolHandleLine()` / `protocolHandleBytes()` must stay disabled unless a clear source-level auth gate is added first.
 
 Typical MQTT topics:
 
-- `p1e/<root>/<deviceId>/cmd`
-- `p1e/<root>/<deviceId>/res/<clientId>`
-- `p1e/<root>/<deviceId>/evt`
-- `p1e/<root>/<deviceId>/hello`
+- `<mqttRoot>/cmd/<clientId>`
+- `<mqttRoot>/res/<clientId>`
+- `<mqttRoot>/evt`
+- `<mqttRoot>/hello`
 
-Default root should be simple and board-specific, for example `p1-embed-f7a608`. Avoid `lab` or personal names in defaults.
+`mqttRoot` is the whole topic prefix, for example `xobit/my-board` or the generated default `xobit/xobit-f7a608`. Do not treat the final board id as separate from the root when building URLs or connection history. A public broker plus predictable topic root should be treated as discoverable.
 
-Security model:
+Security model, do not eagerly simplify:
 
-- USB is trusted.
-- MQTT online users authenticate with username/password-derived keys.
+- USB is trusted physical access and remains usable without online login. USB can configure WiFi, add users, upload scripts, and trigger firmware OTA/recovery actions.
+- MQTT startup is allowed only when MQTT is enabled and at least one online surface is configured: an online sign-in user exists, full unauthenticated control is enabled, Guest UI is enabled, or Guest script is enabled.
+- MQTT online users authenticate with username/password-derived keys. Signed-in MQTT command/response payloads use the firmware's secure-session wrapper.
 - Session keys are tied to users and should fail if the user is deleted.
-- Guest UI can be enabled separately from guest script.
-- Guest UI links use a share key, not a full privileged login.
+- `allowUnauthenticatedAccess` means full unauthenticated MQTT command control. It is not a parent flag for guest modes.
+- `mqttAllowAnonymousUi` means limited guest UI command frames only. Guest UI frames must include the generated guest key and are restricted to the firmware allowlist.
+- `mqttAllowAnonymousScript` means plain MQTT script inbox/outbox text only. Treat all incoming script text as hostile public input.
+- Guest UI and Guest script are independent of `allowUnauthenticatedAccess` and independent of each other. Do not make them subordinate to full unauthenticated control. This exact mistake has already broken the security model once.
+- Fresh boards, missing config fields, and factory reset must default all three unauthenticated flags to `false`.
+- `config.get` must return `mqttPasswordSet`, not the MQTT password. The browser must not overwrite an existing board password with `public` just because the password value is omitted.
+- `config.get` may return `mqttGuestUiKey`; that allows the browser UI to create/manage guest UI links. Guest key retrieval is not full access.
+- OTA mutation is stricter than general MQTT: `firmware.update.prepare`, `firmware.update.boot`, and `firmware.update.clear` require USB or an authenticated MQTT secure session. Full unauthenticated access, Guest UI, and Guest script must not allow OTA writes.
+- Home Assistant / ESPHome compatibility is LAN-trusted until Noise/API encryption is implemented. Do not describe it as secure.
+
+Important firmware locations:
+
+- Access flag storage/defaults: `p1_embed/firmware/p1_embed/config_store.ino`
+- Access flag snapshot fields: `p1_embed/firmware/p1_embed/p1_embed_firmware.h`
+- MQTT auth and guest gates: `p1_embed/firmware/p1_embed/mqtt_transport.cpp`
+- OTA source gate: `p1_embed/firmware/p1_embed/protocol.ino`
+- Disabled WebSocket/WebRTC protocol dispatch notes: `p1_embed/firmware/p1_embed/websocket_transport.ino`, `p1_embed/firmware/p1_embed/webrtc_transport.cpp`
+
+Before changing this area, read the comments marked `SECURITY POLICY`, `SECURITY DEFAULTS`, and `SECURITY SETTERS`. Only change these rules for a clear and specific user request, and verify there is one gate per decision rather than repeated nested checks.
 
 ## Project And Revision Model
 

@@ -17,9 +17,17 @@
       </section>
 
       <section>
+        <h2>Independent by design</h2>
+        <p class="section-copy">XOBIT is built so the stack stays independent: a static HTML page, firmware on the board, and project data kept close to the person making the work. It should not rely on sudden subscription changes, locked-in add-on models, or a hosted platform that decides what is possible.</p>
+        <p>Therefore, USB connection and firmware install use Web Serial, which works in Chrome-based browsers such as Chrome and Edge.</p>
+        <p>Two optional parts can use cloud services: online control needs an MQTT broker, and chat needs a ChatGPT API key. Fresh boards do not allow MQTT control until a named online user or an explicit guest/anonymous mode is configured. Other LLM providers may be added later.</p>
+        <p>Therefore, there are no cloud backups of your sketches. The running code lives on the board, while projects, revisions, chat, and specifications are stored in your browser local storage. Export projects and make regular backups when the work matters.</p>
+        <p>The philosophy is freedom to inspect, modify, self-host, extend, and implement projects on your own terms. You should be able to understand the stack, replace parts of it, and keep making even when a service changes direction.</p>
+      </section>
+
+      <section>
         <h2>Project Principles</h2>
         <ul class="notes">
-          <li><strong>Independent by design.</strong> The main stack is firmware plus a static browser app, with optional services where they make sense.</li>
           <li><strong>Local-first projects.</strong> Sketches, revisions, chat, and specifications stay in browser storage unless exported or shared.</li>
           <li><strong>Physical computing as live material.</strong> Code, circuit notes, UI controls, and logs stay close to the object being made.</li>
         </ul>
