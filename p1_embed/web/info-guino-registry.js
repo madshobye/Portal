@@ -1,7 +1,7 @@
-import { createGuinoController } from "./guino-controller.js?v=0.1.87-ui722";
-import { createGuinoShellService } from "./guino-shell-service.js?v=0.1.87-ui722";
-import { createInfoPanelRenderer } from "./info-panel-renderer.js?v=0.1.87-ui722";
-import { createInfoPanelController } from "./info-panel-controller.js?v=0.1.87-ui722";
+import { createGuinoController } from "./guino-controller.js?v=0.1.87-ui723";
+import { createGuinoShellService } from "./guino-shell-service.js?v=0.1.87-ui723";
+import { createInfoPanelRenderer } from "./info-panel-renderer.js?v=0.1.87-ui723";
+import { createInfoPanelController } from "./info-panel-controller.js?v=0.1.87-ui723";
 
 export function createInfoGuinoRegistry({
   activePeerId,

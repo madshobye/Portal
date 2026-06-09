@@ -1,10 +1,10 @@
-import { createProjectToolbarController } from "./project-toolbar-controller.js?v=0.1.87-ui722";
-import { createViewShellController } from "./view-shell-controller.js?v=0.1.87-ui722";
-import { createSettingsShellController } from "./settings-shell-controller.js?v=0.1.87-ui722";
-import { createRevisionNameDialog } from "./revision-name-dialog.js?v=0.1.87-ui722";
-import { createConsoleController } from "./console-controller.js?v=0.1.87-ui722";
-import { createCommandConsoleService } from "./command-console-service.js?v=0.1.87-ui722";
-import { product } from "./app-config.js?v=0.1.87-ui722";
+import { createProjectToolbarController } from "./project-toolbar-controller.js?v=0.1.87-ui723";
+import { createViewShellController } from "./view-shell-controller.js?v=0.1.87-ui723";
+import { createSettingsShellController } from "./settings-shell-controller.js?v=0.1.87-ui723";
+import { createRevisionNameDialog } from "./revision-name-dialog.js?v=0.1.87-ui723";
+import { createConsoleController } from "./console-controller.js?v=0.1.87-ui723";
+import { createCommandConsoleService } from "./command-console-service.js?v=0.1.87-ui723";
+import { product } from "./app-config.js?v=0.1.87-ui723";
 
 export function createUiServicesRegistry({
   copyText,

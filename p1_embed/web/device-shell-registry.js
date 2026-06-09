@@ -1,11 +1,11 @@
-import { createConnectionStatusRenderer } from "./connection-status-renderer.js?v=0.1.87-ui722";
-import { createUiEnabledStateController } from "./ui-enabled-state-controller.js?v=0.1.87-ui722";
-import { createConnectionUiStateController } from "./connection-ui-state-controller.js?v=0.1.87-ui722";
-import { createUiActionRunner } from "./ui-action-runner.js?v=0.1.87-ui722";
-import { createDeviceRefreshService } from "./device-refresh-service.js?v=0.1.87-ui722";
-import { createUploadStatusController } from "./upload-status-controller.js?v=0.1.87-ui722";
-import { createEventLogFilter } from "./event-status-model.js?v=0.1.87-ui722";
-import { createDeviceStateController } from "./device-state-controller.js?v=0.1.87-ui722";
+import { createConnectionStatusRenderer } from "./connection-status-renderer.js?v=0.1.87-ui723";
+import { createUiEnabledStateController } from "./ui-enabled-state-controller.js?v=0.1.87-ui723";
+import { createConnectionUiStateController } from "./connection-ui-state-controller.js?v=0.1.87-ui723";
+import { createUiActionRunner } from "./ui-action-runner.js?v=0.1.87-ui723";
+import { createDeviceRefreshService } from "./device-refresh-service.js?v=0.1.87-ui723";
+import { createUploadStatusController } from "./upload-status-controller.js?v=0.1.87-ui723";
+import { createEventLogFilter } from "./event-status-model.js?v=0.1.87-ui723";
+import { createDeviceStateController } from "./device-state-controller.js?v=0.1.87-ui723";
 
 export function createDeviceShellRegistry({
   connectionDeviceLabel,

@@ -1,12 +1,12 @@
-import { settle } from "./timing.js?v=0.1.87-ui722";
+import { settle } from "./timing.js?v=0.1.87-ui723";
 import {
   connectionKindIcon as connectionKindIconFor,
   connectionKindLabel as connectionKindLabelFor,
   isConnectionKindAvailable as connectionKindAvailable,
   isMqttKind,
   isWebRtcKind,
-} from "./connection-kinds.js?v=0.1.87-ui722";
-import { normalizeMqttHistoryConfig } from "./mqtt-settings-model.js?v=0.1.87-ui722";
+} from "./connection-kinds.js?v=0.1.87-ui723";
+import { normalizeMqttHistoryConfig } from "./mqtt-settings-model.js?v=0.1.87-ui723";
 import {
   defaultPeerIdFromWebSocket,
   isLoopbackHost,
@@ -17,20 +17,20 @@ import {
   usbHintFromParams,
   usbHintLabel,
   wsDisplayName,
-} from "./connection-address-utils.js?v=0.1.87-ui722";
-import { createConnectionAppFeatureRegistry } from "./connection-app-feature-registry.js?v=0.1.87-ui722";
-import { usbStartupOptions as usbStartupOptionsFor } from "./connection-lifecycle-model.js?v=0.1.87-ui722";
-import { currentDeviceDisplayName as currentDeviceDisplayNameFor } from "./status-model.js?v=0.1.87-ui722";
-import { createConnectionShellFeatureRegistry } from "./connection-shell-feature-registry.js?v=0.1.87-ui722";
-import { createConnectionAppDependencies } from "./connection-app-dependencies.js?v=0.1.87-ui722";
-import { createConnectionShellDependencies } from "./connection-shell-dependencies.js?v=0.1.87-ui722";
-import { createDeviceRegistries } from "./app-device-registries.js?v=0.1.87-ui722";
+} from "./connection-address-utils.js?v=0.1.87-ui723";
+import { createConnectionAppFeatureRegistry } from "./connection-app-feature-registry.js?v=0.1.87-ui723";
+import { usbStartupOptions as usbStartupOptionsFor } from "./connection-lifecycle-model.js?v=0.1.87-ui723";
+import { currentDeviceDisplayName as currentDeviceDisplayNameFor } from "./status-model.js?v=0.1.87-ui723";
+import { createConnectionShellFeatureRegistry } from "./connection-shell-feature-registry.js?v=0.1.87-ui723";
+import { createConnectionAppDependencies } from "./connection-app-dependencies.js?v=0.1.87-ui723";
+import { createConnectionShellDependencies } from "./connection-shell-dependencies.js?v=0.1.87-ui723";
+import { createDeviceRegistries } from "./app-device-registries.js?v=0.1.87-ui723";
 import {
   ALPHA_ENABLE_WEBRTC_CONNECT,
   ALPHA_ENABLE_WEBSOCKET_CONNECT,
   connectionHistoryLimit,
   storage,
-} from "./app-config.js?v=0.1.87-ui722";
+} from "./app-config.js?v=0.1.87-ui723";
 
 export function createConnectionRegistries({
   context,
