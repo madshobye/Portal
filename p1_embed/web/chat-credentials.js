@@ -6,21 +6,25 @@ export function createChatCredentials({
   debugPromptButton,
 } = {}) {
   function hasApiKey() {
-    return Boolean(localStorage.getItem(storageKeys.apiKey));
+    return Boolean(apiKey());
   }
 
   function apiKey() {
-    return localStorage.getItem(storageKeys.apiKey) || "";
+    return localStorage.getItem(storageKeys.apiKey)
+      || (storageKeys.legacyApiKey ? localStorage.getItem(storageKeys.legacyApiKey) : "")
+      || "";
   }
 
   function storeApiKey(value = "") {
     localStorage.setItem(storageKeys.apiKey, String(value || ""));
+    if (storageKeys.legacyApiKey) localStorage.removeItem(storageKeys.legacyApiKey);
     clearKeyInput();
     clearShareOutput();
   }
 
   function clearApiKey() {
     localStorage.removeItem(storageKeys.apiKey);
+    if (storageKeys.legacyApiKey) localStorage.removeItem(storageKeys.legacyApiKey);
     clearShareOutput();
   }
 

@@ -1,4 +1,4 @@
-import { product } from "./app-config.js?v=0.1.87-ui725";
+import { product } from "./app-config.js?v=0.1.87-ui726";
 
 export function cryptoAvailable() {
   return Boolean(globalThis.crypto?.subtle && globalThis.crypto?.getRandomValues);
@@ -6,7 +6,9 @@ export function cryptoAvailable() {
 
 export function isEncryptedChatKeyShare(text = "") {
   const raw = String(text || "").trim();
-  return raw.startsWith(product.keySharePrefix) || raw.startsWith(product.legacyKeySharePrefix);
+  return raw.startsWith(product.keySharePrefix)
+    || raw.startsWith(product.legacyKeySharePrefix)
+    || raw.startsWith("v1:");
 }
 
 export async function createEncryptedChatKeyShareToken({
@@ -64,7 +66,11 @@ export async function decryptEncryptedChatKeyShare(token, password) {
 function parseEncryptedChatKeyShare(token) {
   const raw = String(token || "").trim();
   if (!isEncryptedChatKeyShare(raw)) throw new Error(`Not a ${product.name} encrypted key share`);
-  const prefix = raw.startsWith(product.keySharePrefix) ? product.keySharePrefix : product.legacyKeySharePrefix;
+  const prefix = raw.startsWith(product.keySharePrefix)
+    ? product.keySharePrefix
+    : raw.startsWith(product.legacyKeySharePrefix)
+      ? product.legacyKeySharePrefix
+      : "v1:";
   const json = new TextDecoder().decode(base64UrlDecode(raw.slice(prefix.length)));
   const share = JSON.parse(json);
   if (!share || share.v !== 1 || !share.salt || !share.iv || !share.ct) {

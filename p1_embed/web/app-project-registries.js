@@ -1,18 +1,18 @@
 import { inferCircuitLayout, normalizeCircuitLayout } from "./circuit.js?v=0.1.87-ui554";
-import { createProjectDomainFeatureRegistry } from "./project-domain-feature-registry.js?v=0.1.87-ui725";
-import { createEditorFeatureRegistry } from "./editor-feature-registry.js?v=0.1.87-ui725";
-import { createProjectAppFeatureRegistry } from "./project-app-feature-registry.js?v=0.1.87-ui725";
-import { createProjectStateAdapter } from "./project-state-adapter.js?v=0.1.87-ui725";
-import { createChatStateAdapter } from "./chat-state-adapter.js?v=0.1.87-ui725";
-import { createWorkspaceToolbarRegistry } from "./workspace-toolbar-registry.js?v=0.1.87-ui725";
-import { normalizeSpecificationMode } from "./specification-format.js?v=0.1.87-ui725";
-import { fnv1aHex } from "./script-chunking.js?v=0.1.87-ui725";
-import { normalizeChatMessages } from "./revision-chat-model.js?v=0.1.87-ui725";
-import { createProjectAppDependencies } from "./project-app-dependencies.js?v=0.1.87-ui725";
-import { createEditorFeatureDependencies } from "./editor-feature-dependencies.js?v=0.1.87-ui725";
-import { createProjectDomainDependencies } from "./project-domain-dependencies.js?v=0.1.87-ui725";
-import { createProjectMaintenanceAppFeatureRegistry } from "./project-maintenance-app-feature-registry.js?v=0.1.87-ui725";
-import { createProjectMaintenanceAppDependencies } from "./project-maintenance-app-dependencies.js?v=0.1.87-ui725";
+import { createProjectDomainFeatureRegistry } from "./project-domain-feature-registry.js?v=0.1.87-ui726";
+import { createEditorFeatureRegistry } from "./editor-feature-registry.js?v=0.1.87-ui726";
+import { createProjectAppFeatureRegistry } from "./project-app-feature-registry.js?v=0.1.87-ui726";
+import { createProjectStateAdapter } from "./project-state-adapter.js?v=0.1.87-ui726";
+import { createChatStateAdapter } from "./chat-state-adapter.js?v=0.1.87-ui726";
+import { createWorkspaceToolbarRegistry } from "./workspace-toolbar-registry.js?v=0.1.87-ui726";
+import { normalizeSpecificationMode } from "./specification-format.js?v=0.1.87-ui726";
+import { fnv1aHex } from "./script-chunking.js?v=0.1.87-ui726";
+import { normalizeChatMessages } from "./revision-chat-model.js?v=0.1.87-ui726";
+import { createProjectAppDependencies } from "./project-app-dependencies.js?v=0.1.87-ui726";
+import { createEditorFeatureDependencies } from "./editor-feature-dependencies.js?v=0.1.87-ui726";
+import { createProjectDomainDependencies } from "./project-domain-dependencies.js?v=0.1.87-ui726";
+import { createProjectMaintenanceAppFeatureRegistry } from "./project-maintenance-app-feature-registry.js?v=0.1.87-ui726";
+import { createProjectMaintenanceAppDependencies } from "./project-maintenance-app-dependencies.js?v=0.1.87-ui726";
 import {
   legacySketchMigrationId,
   legacySketchMigrationVersion,
@@ -24,7 +24,7 @@ import {
   sketchDbVersion,
   sketchStoreName,
   storage,
-} from "./app-config.js?v=0.1.87-ui725";
+} from "./app-config.js?v=0.1.87-ui726";
 
 export function createProjectRegistries({
   context,

@@ -1,19 +1,19 @@
-import { createDeviceShellRegistry } from "./device-shell-registry.js?v=0.1.87-ui725";
+import { createDeviceShellRegistry } from "./device-shell-registry.js?v=0.1.87-ui726";
 import {
   eventLogLevel as eventLogLevelFor,
   eventMessage as eventMessageFor,
   mergeStatusSnapshot as mergeStatusSnapshotFor,
   nextScriptErrorReport,
-} from "./event-status-model.js?v=0.1.87-ui725";
-import { setSelectValueOrFallback } from "./settings-fields.js?v=0.1.87-ui725";
+} from "./event-status-model.js?v=0.1.87-ui726";
+import { setSelectValueOrFallback } from "./settings-fields.js?v=0.1.87-ui726";
 import {
   memoryStatusLabel as memoryStatusLabelFor,
   scriptStatusLabel as scriptStatusLabelFor,
   transportProtocolLabel as transportProtocolLabelFor,
   wifiStatusLabel as wifiStatusLabelFor,
   wrenchFpsLabel as wrenchFpsLabelFor,
-} from "./status-model.js?v=0.1.87-ui725";
-import { parseWrenchErrorLocation } from "./wrench-error-locator.js?v=0.1.87-ui725";
+} from "./status-model.js?v=0.1.87-ui726";
+import { parseWrenchErrorLocation } from "./wrench-error-locator.js?v=0.1.87-ui726";
 
 export function createDeviceFeatureRegistry({
   documentRef,

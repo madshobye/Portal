@@ -6,8 +6,8 @@ import {
   firmwareUpdateCandidateFor,
   firmwareUpdateFailureMessage,
   firmwareUpdatePayload,
-} from "./firmware-update-model.js?v=0.1.87-ui725";
-import { createInstallFirmwareRegistry } from "./install-firmware-registry.js?v=0.1.87-ui725";
+} from "./firmware-update-model.js?v=0.1.87-ui726";
+import { createInstallFirmwareRegistry } from "./install-firmware-registry.js?v=0.1.87-ui726";
 
 const INSTALL_MANIFEST = "bin/p1e-firmware-safeboot.json";
 const FIRMWARE_RELEASES_MANIFEST = "bin/p1e-firmware-releases.json";
