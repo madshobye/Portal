@@ -3,13 +3,13 @@ import { canEncodeCommand } from "./protocol/P1MsgPack.js?v=0.1.87-ui348";
 import { WebSerialTransport } from "./protocol/WebSerialTransport.js?v=0.1.87-ui350";
 import { WebSocketTransport } from "./protocol/WebSocketTransport.js";
 import { MqttWebRtcTransport } from "./protocol/MqttWebRtcTransport.js?v=0.1.87-ui348";
-import { MqttTransport } from "./protocol/MqttTransport.js?v=0.1.87-ui348";
-import { createConnectionRuntimeRegistry } from "./connection-runtime-registry.js?v=0.1.87-ui728";
+import { MqttTransport } from "./protocol/MqttTransport.js?v=0.1.87-ui349";
+import { createConnectionRuntimeRegistry } from "./connection-runtime-registry.js?v=0.1.87-ui729";
 import {
   isDroppedTransportState as isDroppedTransportStateFor,
   transportStateLogEntries,
-} from "./connection-lifecycle-model.js?v=0.1.87-ui728";
-import { currentDeviceDisplayName as currentDeviceDisplayNameFor } from "./status-model.js?v=0.1.87-ui728";
+} from "./connection-lifecycle-model.js?v=0.1.87-ui729";
+import { currentDeviceDisplayName as currentDeviceDisplayNameFor } from "./status-model.js?v=0.1.87-ui729";
 
 export function createConnectionFeatureRegistry({
   clearConnectionUrlParams,

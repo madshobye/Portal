@@ -1,4 +1,4 @@
-import { createDeviceFeatureRegistry } from "./device-feature-registry.js?v=0.1.87-ui728";
+import { createDeviceFeatureRegistry } from "./device-feature-registry.js?v=0.1.87-ui729";
 
 export function createDeviceAppFeatureRegistry(options = {}) {
   let deviceFeatureRegistry = null;

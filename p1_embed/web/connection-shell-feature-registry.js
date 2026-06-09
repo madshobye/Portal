@@ -1,8 +1,8 @@
 import { WebSerialTransport } from "./protocol/WebSerialTransport.js?v=0.1.87-ui350";
 import { WebSocketTransport } from "./protocol/WebSocketTransport.js";
 import { MqttWebRtcTransport } from "./protocol/MqttWebRtcTransport.js?v=0.1.87-ui348";
-import { MqttTransport } from "./protocol/MqttTransport.js?v=0.1.87-ui348";
-import { createConnectionShellRegistry } from "./connection-shell-registry.js?v=0.1.87-ui728";
+import { MqttTransport } from "./protocol/MqttTransport.js?v=0.1.87-ui349";
+import { createConnectionShellRegistry } from "./connection-shell-registry.js?v=0.1.87-ui729";
 
 export function createConnectionShellFeatureRegistry({
   alphaEnableWebRtcConnect,

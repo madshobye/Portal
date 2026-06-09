@@ -9,8 +9,9 @@ const AUTH_CHALLENGE = 1;
 const AUTH_FINISH = 2;
 const AUTH_OK = 3;
 const AUTH_ERROR = 4;
+const AUTH_TIMEOUT_MS = 10000;
 
-export const MQTT_TRANSPORT_VERSION = "0.1.87-ui348";
+export const MQTT_TRANSPORT_VERSION = "0.1.87-ui349";
 
 console.info(`[${product.mqttLogLabel}] loaded ${MQTT_TRANSPORT_VERSION}`);
 
@@ -294,12 +295,14 @@ export class MqttTransport extends EventTarget {
       setTimeout(() => {
         if (!this.authPromise) return;
         const error = new Error("MQTT sign in timed out");
+        error.authTimedOut = true;
         this.authPromise = null;
         this.authReject = null;
         this.authResolve = null;
         reject(error);
-      }, 5000);
+      }, AUTH_TIMEOUT_MS);
     });
+    this.emit("state", { state: "diagnostic", remoteId: this.remoteId, message: `auth start as ${this.auth.username}` });
     const writer = new MsgPackWriter(128);
     writer.array(5);
     writer.uint(FRAME_AUTH);
@@ -317,6 +320,12 @@ export class MqttTransport extends EventTarget {
     try {
       await this.authenticate();
     } catch (error) {
+      if (hadStoredAuth && error?.authTimedOut) {
+        this.emit("state", { state: "diagnostic", remoteId: this.remoteId, message: "auth timed out; retrying stored sign in" });
+        await wait(300);
+        await this.authenticate();
+        return;
+      }
       if (!retryPromptOnRejectedKey || !hadStoredAuth || !isRejectedAuthError(error)) throw error;
       await this.ensureAuth({ forcePrompt: true });
       await this.authenticate();
@@ -331,6 +340,7 @@ export class MqttTransport extends EventTarget {
       const op = reader.uint();
       if (frameType !== FRAME_AUTH) return;
       if (op === AUTH_CHALLENGE) {
+        this.emit("state", { state: "diagnostic", remoteId: this.remoteId, message: "auth challenge received" });
         const serverNonce = reader.bin();
         this.authRequired = Boolean(count >= 4 ? reader.bool() : true);
         if (count >= 5) reader.bool();
@@ -362,6 +372,7 @@ export class MqttTransport extends EventTarget {
       }
       if (op === AUTH_ERROR) {
         const code = String(reader.value?.() || "auth_error");
+        this.emit("state", { state: "diagnostic", remoteId: this.remoteId, message: `auth error ${code}` });
         if (code === "session_invalid") {
           this.recoverSession(code).catch((error) => this.emit("error", { error }));
           return;
@@ -634,6 +645,7 @@ export function storeOnlineAuthKey(remoteId, username, keyHex) {
 
 export function clearOnlineAuthKey(remoteId) {
   localStorage.removeItem(authStorageKey(remoteId));
+  localStorage.removeItem(legacyAuthStorageKey(remoteId));
 }
 
 function randomBytes(length) {
