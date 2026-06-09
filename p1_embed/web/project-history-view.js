@@ -33,8 +33,9 @@ export function createProjectHistoryView({
       indexedDbStoreCount(projectStoreName),
       indexedDbStoreCount(sketchStoreName),
     ]);
-    logLine("warn", [
-      "project history empty; storage diagnostic",
+    logLine("info", "No projects yet. Start with the welcome sketch, ask AI for an idea, or connect a board.");
+    logLine("debug", [
+      "empty project storage",
       `idb.${projectStoreName}=${idbProjects}`,
       `idb.${sketchStoreName}=${idbLegacy}`,
       `${storage.projectFallback}=${localStorageArrayCount(storage.projectFallback)}`,

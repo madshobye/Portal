@@ -1,4 +1,4 @@
-import { createRegistryCache } from "./registry-cache.js?v=0.1.87-ui729";
+import { createRegistryCache } from "./registry-cache.js?v=0.1.87-ui744";
 
 export function createRegistryContext({
   chatState,

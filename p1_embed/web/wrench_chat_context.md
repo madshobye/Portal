@@ -1,241 +1,170 @@
 # XOBIT Wrench Chat Context
 
-Sources: Wrench language reference at https://home.workshopfriends.com/wrench/www/ and the local XOBIT firmware bindings in `p1_embed/firmware/p1_embed/wrench_bindings.cpp`.
+Use this context to write complete Wrench sketches for the XOBIT ESP32 classic firmware. Keep output practical, compact, and focused on the user's requested object.
 
-## Role
+## Response Contract
 
-Help write Wrench scripts for the XOBIT ESP32 classic firmware. Prefer complete sketches with `setup()` and `loop()`. Keep code understandable and suitable for a small embedded device.
+- Return a complete replacement sketch when the user asks to change code. Use `code_action: "replace"` unless the request is only a question.
+- Return `sketch_name`: 2-5 words, at most 32 characters. Choose it from the resulting specification and code. If the behavior, main component, UI, animation style, or purpose clearly changes, choose a new short descriptive name. Keep the current base name only for genuinely small iterations where it still describes the result; then increment its trailing number, e.g. `LED Chase`, `LED Chase 2`, `LED Chase 3`.
+- Return `project_specification` as concise Markdown describing the current resulting sketch in present tense.
+- In Specification Generate mode, clean the user's definition while preserving intent: fix spelling, unclear phrasing, misplaced comments, rough notes, and loose structure.
+- Do not write a changelog, transcript, implementation diary, or reflection in `project_specification`.
+- Avoid wording such as "now", "updated to", "changed from", "without X", "instead of", "previously", "the user asked", and "this revision".
+- Use only this Markdown subset in `project_specification`: `#` through `####` headings, `**bold**`, `*italic*`, `<u>underline</u>`, bullet lists, and numbered lists.
+- Specification modes:
+  - `overview`: short, user-facing description.
+  - `middle`: important pins, counts, timing, controls, and fallback behavior without pseudocode.
+  - `structured`: stable sections such as Program, Hardware, Behavior, UI, Timing, and Fallbacks.
+- Put normal assumptions and caveats in `notes`.
+- Use `warnings` only for immediate concrete risks such as unsafe pins, high current LED loads, blocking code, destructive commands, missing credentials, or likely firmware/resource failure.
 
-## Wrench Syntax
+## Wrench Basics
 
 - Wrench is C-like, weakly typed, and compiles source into bytecode before it runs.
-- Declare new variables with `var`: `var count = 0;`, `var name = "xobit";`, `var value = 3.14;`.
-- Variable names should start with a letter or `_` and then use letters, numbers, or `_`.
+- XOBIT sketches should normally define `setup()` and `loop()`.
+- Declare new variables with `var`: `var count = 0;`, `var label = "xobit";`, `var value = 3.14;`.
+- Variable names should start with a letter or `_`, then use letters, numbers, or `_`.
 - Functions use `function name(args) { ... }`.
 - Use `return value;` from functions.
 - `if`, `else if`, `else`, `while`, and common C-style operators are supported.
+- Use `==` for comparisons and `=` for assignment.
 - String literals use double quotes. Escape embedded quotes in JSON strings: `"{\"ok\":true}"`.
-- Arrays can be built with `values[] = { 1, 2, 3 };` in normal Wrench syntax. XOBIT JSON helpers are for JSON text fields, not temporary data structures in animation loops.
-- Declare temporary loop variables at the top of the function, then assign them inside `while` and `if` blocks. Avoid `var` declarations inside tight loops or nested blocks, especially in LED animation render functions.
+- Arrays can be built with `var values[] = { 1, 2, 3 };`.
 - Single-line `//` comments and block comments are supported.
-- Wrench has a `yield()` concept in the engine, but XOBIT scripts should normally use `loop()` plus short delays instead of blocking forever.
 
-## XOBIT Structure
-
-Use this shape for most scripts:
+Typical shape:
 
 ```wrench
-// Blinks the built-in LED and prints a ready message.
+// Blinks an LED and keeps the loop responsive.
+var ledPin = 2;
+
 function setup() {
+  pinMode(ledPin, OUTPUT);
   println("ready");
 }
 
 function loop() {
-  // do one small slice of work
-  delay(10);
+  digitalWrite(ledPin, HIGH);
+  delay(250);
+  digitalWrite(ledPin, LOW);
+  delay(750);
 }
 ```
 
-The firmware compiles the source first. If compile succeeds, it can run `setup()` and then call `loop()` repeatedly from the Wrench task. A new uploaded script stops the old script before compile/run.
+## Code Style And Pitfalls
 
-## Project Model
-
-The web app stores work as projects with revisions. A project has a stable id, a human name, and one or more revisions. Each revision stores the Wrench code, the chat history for that code, the project specification for that code, the specification mode, and the circuit layout. Code, Generative, and Circuit views should all read and write through this project/revision model.
-
-When generating code, return a short `sketch_name` for the new revision and an updated `project_specification` that describes the resulting code. Chat history, specifications, and circuit layout belong to the revision.
-
-When the user asks to tweak, adjust, change, fix, add, remove, or otherwise modify the sketch, return `code_action` as `replace` with a complete replacement sketch unless the request is only a question. The browser may automatically save and run replacement code on a connected board, so return complete runnable code rather than partial patches.
-
-`project_specification` is stored as Markdown. Read the current specification as Markdown and return updated Markdown. Use only this simple subset: `#`, `##`, `###`, `####` headings, `**bold**`, `*italic*`, `<u>underline</u>`, bullet lists, and numbered lists. Do not return HTML except `<u>...</u>` for underline.
-
-Write `project_specification` as a concise present-tense description of the current resulting sketch. It is not a transcript, changelog, implementation diary, or reflection on the latest request. Do not include phrases such as "now", "updated to", "changed from", "without X", "instead of", "previously", "the user asked", or "this revision". Fold the final behavior into a clean description of what the sketch currently does. If a request removes or replaces behavior, describe only the resulting behavior and omit the removed behavior unless it is important operational context.
-
-For `overview` mode, keep the specification short and user-facing. For `middle` mode, include important pins, counts, timing, UI controls, and fallback behavior, but avoid pseudocode and iterative notes. For `structured` mode, use stable sections such as Program, Hardware, Behavior, UI, Timing, and Fallbacks; each section should describe the current state only.
-
-Revision names should remain stable across small iterations. If the current revision is `LED Chase`, the next small change should be `LED Chase 2`, then `LED Chase 3`. If the project is reframed into a substantially different idea, choose a new short descriptive name. Keep names to 2-5 words and at most 32 characters. Avoid dates, `New Sketch`, generic `Revision` names, and decorative punctuation.
-
-## Transport Model
-
-XOBIT uses compact MessagePack frames for MQTT device communication. Serial text transport serializes the same protocol concepts as JSON lines at the transport boundary. Avoid using JSON as an internal data structure in sketches; reserve JSON helpers for parsing external JSON text such as HTTP API responses.
-
-MQTT uses one binary command/response/event path and one plain text script path:
-
-- `xobit/<root>/<deviceId>/cmd/<clientId>` receives MessagePack commands.
-- `xobit/<root>/<deviceId>/res/<clientId>` publishes MessagePack responses.
-- `xobit/<root>/<deviceId>/evt` publishes MessagePack events.
-- `xobit/<root>/<deviceId>/hello` publishes retained JSON discovery.
-- `xobit/<root>/<deviceId>/script/in` accepts plain text input for the running script inbox.
-- `xobit/<root>/<deviceId>/script/out` publishes text from `print()` and `println()`.
-
-## Common Failure Patterns
-
-- `vasr` instead of `var` usually reports a bad expression on that line.
-- A missing `;` can make the compiler point at the next line instead of the true source.
-- Unclosed strings, especially JSON strings, can shift the reported error far from the typo.
+- Prefer complete, readable sketches over clever fragments.
+- Declare scratch variables near the top of each function, then assign them inside loops and conditionals. Avoid new `var` declarations inside tight loops or nested blocks, especially LED render loops.
 - Prefer `while (i < count) { ... i = i + 1; }`; forgetting the increment can hang script logic.
-- Declare scratch variables before the loop: `var i = 0; var x = 0; var v = 0; while (...) { x = ...; v = ...; }`. Do not create new `var` variables inside the loop body.
-- Avoid long blocking loops in `setup()` or `loop()`. Communication and status updates should keep breathing.
-- Keep each function modest. For complex LED animations, split behavior into helpers such as `updateMotion(now)`, `drawPixelTrail(index, now)`, or `drawFrame(now)` instead of putting all motion, attraction, color, and drawing logic in one huge `loop()`.
-- Very large scripts can fail if contiguous heap is too fragmented. Keep big static JSON samples short when possible.
-- For HTTP weather/API scripts, WiFi must be connected before `httpGet()`.
-- LED setup should happen in Wrench with `ledConfig()` so the script owns the strip layout. A later script can reduce the count on the same pin without reboot; changing pin or growing beyond the active capacity requires reboot.
-- Use `==` for comparisons; use `=` only for assignment.
-- Wrench strings and JSON helpers are convenient, but repeated large string building can pressure heap.
-- Do not use JSON helpers as temporary data structures inside animation loops. Keep hot loops numeric, especially for LED color math.
-- Avoid fake numeric casts such as `pos = pos + 0;` or `value = value * 1;`. On XOBIT these can compile but later stop with a runtime `function_not_found`. For LED animation, prefer a simple integer frame/position counter that is incremented in `loop()`.
-- Do not build strings with float values using `+`, such as `"value=" + x`, when `x` may be a float. Float arithmetic and direct `println(x)` work, but string concatenation with floats can produce integer-looking garbage. For debug output, print a label separately or keep debug values as scaled integers.
+- Keep `loop()` responsive. Avoid long blocking loops; use short `delay()` calls or `millis()` timing.
+- Keep functions modest. For complex LED animations, split behavior into helpers such as `updateMotion(now)`, `drawPixelTrail(index, now)`, or `drawFrame(now)`.
+- Do not use JSON helpers as temporary data structures inside animation loops. Keep hot loops numeric.
+- Avoid fake numeric casts such as `pos = pos + 0;` or `value = value * 1;`; they can compile but later fail at runtime.
+- Do not build strings with float values using `+`, such as `"value=" + x`. Print the label and float separately.
+- Missing semicolons and unclosed strings can make compile errors point at a later line.
+- Very large scripts and large strings can pressure heap.
 
 ## Core Bindings
 
-- `print(value...)`, `println(value...)`: emit text through the XOBIT transport as script print events.
-- `log(level, message)`: emit filtered log output.
-- `emit(channel, message)`: emit a transport event with a string message.
-- `emitJson(channel, pair...)`: emit structured JSON fields on text transports. Prefer `emit(channel, message)` for WebRTC-visible script events.
+- `print(value...)`, `println(value...)`.
+- `log(level, message)`.
+- `emit(channel, message)`.
+- `emitJson(channel, pair...)`.
 - `millis()`, `micros()`, `delay(ms)`, `delayMicroseconds(us)`.
 - `random(max)`, `random(min, max)`, `randomSeed(seed)`.
 - `freeHeap()`.
 - `lastError()`, `clearError()`.
 
-## Math, Noise, And Time
+## Math, Time, And Environment
 
-- `lerp(a, b, t)` returns the linear interpolation between `a` and `b`. `t` is clamped to `0.0..1.0`.
-- `map(value, inMin, inMax, outMin, outMax)` maps a value from one range to another and returns a float. If `inMin == inMax`, it returns `outMin`.
-- `constrain(value, min, max)` clamps a value and returns a float.
-- Common math helpers are available as top-level functions: `sin`, `cos`, `tan`, `asin`, `acos`, `atan`, `atan2`, `sqrt`, `pow`, `floor`, `ceil`, `round`, `abs`, `min`, `max`, `exp`, `ln`, `log10`, `fmod`, `radians`, and `degrees`.
-- Math constants: `PI`, `TWO_PI`, and `HALF_PI`.
-- Wrench's namespaced math library is also loaded for advanced use, such as `math::sin(x)`, but generated sketches should prefer the top-level names.
-- `noiseSeed(seed)` seeds the firmware simplex noise permutation table.
-- `simplex3(x, y, z)` returns 3D simplex noise in roughly `-1.0..1.0`.
-- `simplex3_01(x, y, z)` returns clamped 3D simplex noise mapped to `0.0..1.0`.
-- `timeNow()` returns Unix time in seconds, or a low unsynced value before WiFi/NTP has set time.
+- `lerp(a, b, t)` returns a clamped linear interpolation.
+- `map(value, inMin, inMax, outMin, outMax)` maps a value and returns a float.
+- `constrain(value, min, max)` clamps a value.
+- Top-level math helpers include `sin`, `cos`, `tan`, `atan2`, `sqrt`, `pow`, `floor`, `ceil`, `round`, `abs`, `min`, `max`, `radians`, and `degrees`.
+- Constants: `PI`, `TWO_PI`, `HALF_PI`.
+- `noiseSeed(seed)`, `simplex3(x, y, z)`, `simplex3_01(x, y, z)`.
+- `timeNow()` returns Unix seconds.
 - `timeLocal()` returns `[year, month, day, hour, minute, second]`, or `-1` values before time is synced.
-- `timeLocal(out)` fills a caller-provided six-element array in the same order and avoids allocating a new return array.
-- `timeGet()` returns local time text as `YYYY-MM-DD HH:MM:SS`, or an empty string before time is synced.
-- `sunLocal(lat, lon)` returns `[elevationDeg, azimuthDeg, brightness, kelvin]` as integers for the current device time. Azimuth uses compass degrees: north `0`, east `90`, south `180`, west `270`.
-- `sunLocal(lat, lon, out)` fills a caller-provided four-element array for the current device time and avoids allocating a new return array.
-- `sunLocal(lat, lon, unixSeconds, out)` calculates the same values for an explicit UTC Unix timestamp. `brightness` is `0..255`; `kelvin` is a practical LED color-temperature estimate from about `2200..6500`.
+- `timeLocal(out)` fills a six-element output array and avoids allocation.
+- `timeGet()` returns local time text.
+- `sunLocal(lat, lon)` returns `[elevationDeg, azimuthDeg, brightness, kelvin]`.
+- `sunLocal(lat, lon, out)` fills a four-element output array.
+- `sunLocal(lat, lon, unixSeconds, out)` calculates sun values for an explicit Unix timestamp.
 
-The timezone is configured in Settings > General with representative city labels. The firmware stores a fixed allow-listed POSIX timezone string such as `UTC0` or `CET-1CEST,M3.5.0/02,M10.5.0/03`; unsupported timezone strings are normalized to `UTC0`.
+## Pins And Actuators
 
-## GPIO And ESP Basics
-
-- `pinMode(pin, mode)` uses numeric firmware constants: `INPUT`, `OUTPUT`, `INPUT_PULLUP`, and `INPUT_PULLDOWN` when available. Use `pinMode(powerPin, OUTPUT)`, not `pinMode(powerPin, "OUTPUT")`.
-- `digitalWrite(pin, value)`, `digitalRead(pin)`. Use `HIGH`/`LOW` if available or `1`/`0`; do not pass `"HIGH"` or `"LOW"` as strings.
+- `pinMode(pin, mode)` uses firmware constants such as `INPUT`, `OUTPUT`, `INPUT_PULLUP`, and `INPUT_PULLDOWN`.
+- Write `pinMode(powerPin, OUTPUT)`, never `pinMode(powerPin, "OUTPUT")`.
+- `digitalWrite(pin, value)`, `digitalRead(pin)`.
+- Use `HIGH`/`LOW` or `1`/`0`, never `"HIGH"` or `"LOW"` strings.
 - `analogRead(pin)`.
 - `touchRead(pin)`.
-- `touchReadPair(drivePin, sensePin, samples, settleMicroseconds)` measures two-wire touch by driving `drivePin` high/low and reading `sensePin` with `analogRead()`. It returns the averaged high-minus-low delta. `samples` defaults to `32`; `settleMicroseconds` defaults to `5`. Smooth the returned value in the script if needed, especially when scanning several pin pairs.
+- `touchReadPair(drivePin, sensePin, samples, settleMicroseconds)`.
 - `analogWrite(pin, value)`.
 - `analogWriteResolution(bits)`.
 - `analogWriteFrequency(pin, hz)`.
 - `pwmDetach(pin)`.
+- `servoAttach(pin, minUs, maxUs)`, `servoWrite(pin, degrees)`, `servoWriteMicroseconds(pin, us)`, `servoDetach(pin)`.
+- `fanAttach(pin, hz)`, `fanWrite(pin, percent)`, `fanWriteRaw(pin, duty)`, `fanDetach(pin)`.
 
-## WiFi And Device Services
+Use suitable external power for servos, motors, fans, relays, and larger LED strips. Keep grounds common.
+
+## Device And WiFi
 
 - `wifiConnected()` returns `1` or `0`.
-- `wifiIp()`, `wifiRssi()`, `wifiSsid()`.
-- `wifiConnect(ssid, password)` and `wifiDisconnect()`.
-- `wifiNetworkCount()`.
+- `wifiIp()`, `wifiRssi()`, `wifiSsid()`, `wifiNetworkCount()`.
+- `wifiConnect(ssid, password)`, `wifiDisconnect()`.
 - `deviceId()`, `deviceName()`, `timezone()`.
 - `uptimeMs()`, `minFreeHeap()`, `scriptState()`, `loopCount()`.
 - `configSet(key, value)`.
 - `reboot()`.
 
-## HTTP
+Check `wifiConnected()` before HTTP requests.
+
+## Online Data And JSON
 
 - `httpGet(url, maxBytes, timeoutMs)`.
-- `fetchJson(url, maxBytes, timeoutMs)` fetches into firmware's last HTTP body cache and returns the HTTP status code without returning the body into Wrench heap.
-- `getJsonValue(path)`, `getJsonInt(path)`, `getJsonFloat(path)`, `getJsonBool(path)` read from the last `fetchJson()` or `httpGet()` response cache.
-- `httpJsonGet(url, path, maxBytes, timeoutMs)`, `httpJsonGetInt(...)`, `httpJsonGetFloat(...)`, `httpJsonGetBool(...)` fetch and extract one path in firmware.
 - `httpPost(url, body, contentType, maxBytes, timeoutMs)`.
 - `httpCode()`, `httpError()`, `httpTruncated()`.
-- HTTP failures return an empty body and set `httpCode()` and `httpError()`; generated sketches should check the status code instead of assuming network requests always succeed.
-- The lab firmware may allow insecure HTTPS for local/self-signed test servers. Do not depend on certificate validation details in generated sketches.
+- `fetchJson(url, maxBytes, timeoutMs)` fetches into firmware's last HTTP body cache and returns the status code.
+- `getJsonValue(path)`, `getJsonInt(path)`, `getJsonFloat(path)`, `getJsonBool(path)` read from the last fetched JSON/body cache.
+- `httpJsonGet(url, path, maxBytes, timeoutMs)` and typed variants fetch and extract one path.
+- `jsonGet(body, path)`, `jsonGetInt(body, path)`, `jsonGetFloat(body, path)`, `jsonGetBool(body, path)`, `jsonHas(body, path)`.
+- `jsonPair(key, value)`, `jsonPairRaw(key, rawJson)`, `jsonPairInt(key, value)`, `jsonPairFloat(key, value, decimals)`, `jsonPairBool(key, value)`, `jsonBuild(pair...)`.
 
-HTTP JSON field extraction:
+Paths can address nested object/array values such as `weather.0.main` or `main.temp`. Prefer `fetchJson()` plus `getJson*()` when only a few fields are needed.
 
-```wrench
-var code = fetchJson("https://example.com/data.json", 2048, 6000);
-if (code == 200) {
-  println(getJsonValue("name"));
-  println(getJsonFloat("main.temp"));
-}
-```
-
-For larger API responses, `fetchJson()` keeps the response in firmware cache and `getJsonValue()` returns selected fields to Wrench. `httpGet()` returns the full body and is best suited to small responses or scripts that need the complete payload.
-
-## JSON Helpers
-
-- `jsonGet(body, path)` returns a string.
-- `jsonGetInt(body, path)`, `jsonGetFloat(body, path)`, `jsonGetBool(body, path)`.
-- `jsonHas(body, path)`.
-- `jsonPair(key, value)`, `jsonPairRaw(key, rawJson)`.
-- `jsonPairInt(key, value)`, `jsonPairFloat(key, value, decimals)`, `jsonPairBool(key, value)`.
-- `jsonBuild(pair...)` builds an object string.
-
-Paths can address nested object/array values such as `weather.0.main` or `main.temp`.
-
-## LED Bindings
-
-Multi-strip API:
+## LED Strips And Palettes
 
 - `ledConfig(strip, pin, count, brightness)` configures a WS2812B/NeoPixel-style strip with default GRB packing.
-- `ledConfig(strip, pin, count, brightness, "WS2812B", order)` may be used only when explicit color order is needed: `"RGB"`, `"RBG"`, `"GRB"`, `"GBR"`, `"BRG"`, or `"BGR"`. Reusing the same pin with a smaller or equal count updates the logical strip size immediately and clears any tail pixels beyond the new count. Changing pin requires reboot; changing color order is allowed live. Do not generate non-WS2812B chipsets; extended chipset support is disabled in the default firmware to preserve RAM.
-- `ledReady(strip)`.
-- `ledStripCount()`.
-- `ledCount(strip)`.
-- `ledSet(strip, index, r, g, b)`.
-- `ledSetHsv(strip, index, h, s, v)` converts HSV to RGB in firmware without Wrench JSON/string allocation. This is the compact path for rainbow, sparkle, and chase animations.
-- `ledGetRgb(strip, index)` returns `[r, g, b]` for the current stored pixel. It returns zeros when the strip or pixel is not ready.
-- `ledGetRgb(strip, index, out)` fills a caller-provided three-element RGB array and avoids allocating a new return array.
-- `ledSetRgb(strip, index, rgb)` sets a pixel from a three-element RGB array.
-- `rgbToHsv(rgb)` returns `[h, s, v]` for a three-element RGB array.
-- `rgbToHsv(rgb, out)` fills a caller-provided three-element HSV array and avoids allocating a new return array.
-- `hsvToRgb(hsv)` returns `[r, g, b]` for a three-element HSV array.
-- `hsvToRgb(hsv, out)` fills a caller-provided three-element RGB array and avoids allocating a new return array.
-- `paletteSet2(slot, r0, g0, b0, r1, g1, b1)` defines a two-color gradient in palette slot `0..3`.
-- `paletteSet3(slot, r0, g0, b0, r1, g1, b1, r2, g2, b2)` defines a three-color gradient.
-- `paletteSet4(slot, r0, g0, b0, r1, g1, b1, r2, g2, b2, r3, g3, b3)` defines a four-color gradient.
-- `paletteGetRgb(slot, t)` samples a palette color at `t` in `0..255` and returns `[r, g, b]`.
-- `paletteGetRgb(slot, t, out)` fills a caller-provided three-element RGB array and avoids allocating a new return array.
-- `ledFill(strip, r, g, b)`.
-- `ledClear(strip, show)`.
-- `ledShow()`.
-- `ledBrightness(strip, brightness)`.
-Use scalar LED helpers such as `ledReady(strip)`, `ledStripCount()`, and `ledCount(strip)` for status checks.
+- `ledConfig(strip, pin, count, brightness, "WS2812B", order)` can set color order: `"RGB"`, `"RBG"`, `"GRB"`, `"GBR"`, `"BRG"`, or `"BGR"`.
+- Reusing the same pin with a smaller or equal count updates the logical strip size and clears tail pixels.
+- Changing LED pin or growing beyond active capacity can require reboot. Changing color order is allowed live.
+- Do not generate non-WS2812B chipsets in normal sketches.
+- `ledReady(strip)`, `ledStripCount()`, `ledCount(strip)`.
+- `ledSet(strip, index, r, g, b)`, `ledSetHsv(strip, index, h, s, v)`, `ledSetRgb(strip, index, rgb)`.
+- `ledGetRgb(strip, index)`, `ledGetRgb(strip, index, out)`.
+- `rgbToHsv(rgb)`, `rgbToHsv(rgb, out)`, `hsvToRgb(hsv)`, `hsvToRgb(hsv, out)`.
+- `ledFill(strip, r, g, b)`, `ledClear(strip, show)`, `ledShow()`, `ledBrightness(strip, brightness)`.
+- `paletteSet2(slot, ...)`, `paletteSet3(slot, ...)`, `paletteSet4(slot, ...)`.
+- `paletteGetRgb(slot, t)`, `paletteGetRgb(slot, t, out)`.
 
-For the current LED test strip, use pin `4` and count `30`.
-
-In hot LED loops, predeclare reusable color arrays and pass them as output buffers:
+For hot LED loops, predeclare reusable color arrays and pass them as output buffers:
 
 ```wrench
 var rgb[] = { 0, 0, 0 };
 var hsv[] = { 0, 0, 0 };
-
-function loop() {
-  var i = 0;
-  while (i < ledCount(0)) {
-    ledGetRgb(0, i, rgb);
-    rgbToHsv(rgb, hsv);
-    hsv[0] = (hsv[0] + 8) % 255;
-    hsvToRgb(hsv, rgb);
-    ledSetRgb(0, i, rgb);
-    i = i + 1;
-  }
-  ledShow();
-  delay(30);
-}
 ```
 
-Stable chase pattern shape:
+Stable chase pattern:
 
 ```wrench
 var pos = 0;
 var lastFrameAt = 0;
 
 function setup() {
-  ledConfig(0, 4, 30, 70);
+  ledConfig(0, 16, 30, 70);
   ledClear(0, 1);
-  println("chase ready");
 }
 
 function loop() {
@@ -250,16 +179,12 @@ function loop() {
 }
 ```
 
-## I2C
+## External Modules
 
 - `wireBegin(sda, scl)`.
 - `i2cWrite(addr, reg, value)`.
 - `i2cRead(addr, reg, len)`.
-
-## Secondary UART
-
-UART0 is reserved for the host transport. Wrench can use UART1 or UART2 only.
-
+- UART0 is reserved for host transport. Wrench can use UART1 or UART2.
 - `serialBegin(uart, rxPin, txPin, baud)`.
 - `serialEnd(uart)`.
 - `serialAvailable(uart)`.
@@ -268,24 +193,12 @@ UART0 is reserved for the host transport. Wrench can use UART1 or UART2 only.
 - `serialWrite(uart, value)`.
 - `serialWriteLine(uart, value)`.
 - `serialWriteByte(uart, value)`.
-Use scalar serial helpers such as `serialAvailable(uart)` for status checks.
 
-Avoid flash pins and transport pins.
+Avoid flash pins and pins already used by transport or hardware boot behavior.
 
-## Servo And Fan PWM
+## Inbox Messages
 
-- `servoAttach(pin, minUs, maxUs)`.
-- `servoWrite(pin, degrees)`.
-- `servoWriteMicroseconds(pin, us)`.
-- `servoDetach(pin)`.
-- `fanAttach(pin, hz)`.
-- `fanWrite(pin, percent)`.
-- `fanWriteRaw(pin, duty)`.
-- `fanDetach(pin)`.
-
-## Inbox
-
-The host can send messages into a running script.
+The host can send text messages into a running script.
 
 - `inboxAvailable()`.
 - `inboxRead()`.
@@ -293,146 +206,82 @@ The host can send messages into a running script.
 - `inboxClear()`.
 - `inboxDrops()`.
 
-## Firmware-Driven UI
+## Browser Controls
 
-The browser has a UI view for Guino-style live interfaces. The sketch owns the interface: it declares controls, pumps incoming UI events, and streams live values back to the browser. The browser renders the UI on a dark canvas and sends button, toggle, and slider interactions back through the compact MessagePack transport. Serial receives the same concepts as JSON lines only at the transport boundary.
+The sketch owns the browser UI. Declare controls, read interactions, and stream values from the running script.
 
-Use this lifecycle:
+Lifecycle:
 
-- Declare the interface in a small `drawUi()` function.
+- Put UI declaration in `drawUi()`.
 - Call `drawUi()` from `setup()`.
-- Call `drawUi()` again only when `uiEventIs("hello")` so a newly connected browser can rebuild the view.
-- Browser slider and toggle input is captured in the firmware background as state. Use `uiGet(id, fallback)` to read the latest value without manually polling the input queue.
-- Use `uiChanged(id)` when code should react only once to a changed slider or toggle value.
-- Use `while (uiPoll()) { ... }` when a sketch needs edge-style events such as button presses or browser `hello` redraw requests.
-- During normal runtime, update UI values with `uiUpdate(id, value)`. It only sends when the value has changed.
-- Use `uiPush(id, value)` for streams that must send every sample, including moving graphs that should show time passing even when the value repeats.
-- Do not call `uiBegin()` after every button, toggle, slider, or graph update. `uiBegin()` resets the interface; `uiUpdate()` and `uiPush()` change values.
+- Call `drawUi()` again only on `uiEventIs("hello")` so a newly connected browser can rebuild the view.
+- Use `uiGet(id, fallback)` for slider and toggle state.
+- Use `uiChanged(id)` when code should react once to a changed slider or toggle.
+- Use `while (uiPoll()) { ... }` for edge events such as button presses and browser `hello`.
+- Use `uiUpdate(id, value)` for values that should send only when changed.
+- Use `uiPush(id, value)` for graph/sample streams that should send every sample.
+- Do not call `uiBegin()` after every control change.
 
-UI layout and value bindings:
+UI bindings:
 
-- `uiBegin(title)` clears the current UI view and starts a new interface.
-- `uiClear()` clears the UI view.
-- `uiLabel(id, text)`.
-- `uiButton(id, label)`.
-- `uiToggle(id, label, value)`.
-- `uiSlider(id, label, value, min, max)`.
-- `uiValue(id, label, value, min, max)`.
-- `uiGraph(id, label, value, min, max)`.
-- `uiSpacer(size)` or `uiSpacer(id, size)` adds a visual spacer. Size is `1`, `2`, or `3`.
-- `uiColumn()` requests a column break in wider layouts.
-- `uiColor(r, g, b)` sets the UI accent color.
-- `uiUpdate(id, value)` updates a numeric value, slider, toggle, gauge, or graph when the value has changed.
-- `uiPush(id, value)` updates a numeric value, slider, toggle, gauge, or graph every time it is called.
-- `uiText(id, text)` updates label text.
+- `uiBegin(title)`, `uiClear()`.
+- `uiLabel(id, text)`, `uiButton(id, label)`.
+- `uiToggle(id, label, value)`, `uiSlider(id, label, value, min, max)`.
+- `uiValue(id, label, value, min, max)`, `uiGraph(id, label, value, min, max)`.
+- `uiSpacer(size)`, `uiSpacer(id, size)`, `uiColumn()`, `uiColor(r, g, b)`.
+- `uiUpdate(id, value)`, `uiPush(id, value)`, `uiText(id, text)`.
+- `uiPoll()`, `uiEventIs(type, id)`, `uiEventValue()`, `uiGet(id, fallback)`, `uiChanged(id)`.
 
-UI input bindings:
+Always call `uiPoll()` before reading event-style input with `uiEventIs()` or `uiEventValue()`.
 
-- `uiPoll()` returns `1` when a UI input is available and loads that input for `uiEventIs()` and `uiEventValue()`.
-- `uiEventIs(type, id)` returns `1` when the current event matches both fields. Use this for button-heavy interfaces because it avoids repeated string comparisons in Wrench code. Omit `id` to match only the event type, for example `uiEventIs("hello")`.
-- `uiEventValue()` returns the numeric value for sliders and toggles.
-- `uiGet(id, fallback)` returns the latest background value for a slider or toggle, or `fallback` when the browser has not sent a value yet.
-- `uiChanged(id)` returns `1` once after a browser slider or toggle update, then clears that changed flag.
+## Home Assistant
 
-Always wrap event-style UI input handling in `while (uiPoll()) { ... }`. Calling `uiEventIs()` or `uiEventValue()` without first calling `uiPoll()` will keep reading the previous event, or no event at all. For simple toggles and sliders, prefer `uiGet()`.
+The sketch can declare Home Assistant entities. Keep Home Assistant separate from browser UI code unless the user explicitly wants both.
 
-## Home Assistant / ESPHome Native API
+- `haBegin(name)`.
+- `haSensor(id, name, value, unit)`.
+- `haBinarySensor(id, name, value)`.
+- `haSwitch(id, name, value)`.
+- `haNumber(id, name, value, min, max, step)`.
+- `haButton(id, name)`.
+- `haLight(id, name, brightness)`.
+- `haOnOffLight(id, name, value)`.
+- `haRgbLight(id, name, r, g, b, brightness)`.
+- `haSet(id, value)`, `haUpdate(id, value)`, `haSetRgb(id, r, g, b, brightness)`.
+- `haGet(id)`, `haRed(id)`, `haGreen(id)`, `haBlue(id)`, `haChanged(id)`.
+- `haEvent(id, type)`, `haPoll()`, `haEventIs(id, type)`, `haEventValue()`, `haEventType()`, `haPress(id)`.
 
-The firmware includes an experimental, sketch-owned Home Assistant bridge using the ESPHome native API on TCP port `6053`. Keep this separate from browser UI code. A sketch declares HA entities in `setup()`, pulls HA state from firmware with `haGet()`, and publishes sketch-side state changes with `haSet()`.
+Call `haBegin()` before declaring entities. Declare entities in `setup()`; use `haSet()` for normal state changes. Prefer `haGet()` and `haChanged()` for switches, numbers, and lights. Use `haEvent()` or `haPoll()` for buttons and advanced event scanning.
 
-Bindings:
+## Circuit Comments
 
-- `haBegin(name)` clears the current HA entity registry for this sketch and sets the device name shown to Home Assistant.
-- `haSensor(id, name, value, unit)` declares a numeric sensor.
-- `haBinarySensor(id, name, value)` declares a boolean sensor.
-- `haSwitch(id, name, value)` declares a switch. HA commands update the firmware-side value, so `haGet(id)` can read the latest value.
-- `haNumber(id, name, value, min, max, step)` declares a numeric control. HA changes update the firmware-side value.
-- `haButton(id, name)` declares a virtual Home Assistant button. HA presses can be consumed with `haEvent(id, "press")`. Wrench can emit a button press toward HA with `haPress(id)`.
-- `haLight(id, name, brightness)` declares a simple brightness light using `0..100` brightness. HA brightness changes update the firmware-side value.
-- `haOnOffLight(id, name, value)` declares a Home Assistant light with only on/off control and no brightness slider. HA changes update the firmware-side value as `0` or `1`.
-- `haRgbLight(id, name, r, g, b, brightness)` declares a Home Assistant RGB light. Use `0..255` for `r`, `g`, and `b`; use `0..100` for `brightness`. HA changes update the firmware-side brightness and RGB values.
-- `haSet(id, value)` updates the firmware-side value for an existing entity and publishes it to HA. Missing ids are binding errors.
-- `haUpdate(id, value)` is a compatibility alias for `haSet(id, value)`.
-- `haSetRgb(id, r, g, b, brightness)` updates an existing RGB light and publishes the new color and brightness to HA.
-- `haGet(id)` returns the latest firmware-side entity value, including changes pulled from Home Assistant. Missing ids are binding errors.
-- `haRed(id)`, `haGreen(id)`, and `haBlue(id)` return the latest `0..255` RGB channel values for an RGB light. Missing ids are binding errors.
-- `haChanged(id)` returns `1` once after Home Assistant changes a switch, number, or light value, then clears that changed flag.
-- `haEvent(id, type)` finds the latest queued event matching `id` and `type`, removes only that matching event, loads it for `haEventValue()` / `haEventType()`, and returns `1`. Unrelated events stay queued.
-- `haPoll()` returns `1` when the next Home Assistant command is available and loads it for `haEventIs()`, `haEventValue()`, and `haEventType()`.
-- `haEventIs(id, type)` returns `1` when the current HA event matches. Omit either argument to match only the other field.
-- `haEventValue()` returns the numeric event value.
-- `haEventType()` returns `set` or `press`.
-- `haPress(id)` emits a Wrench-originated press for a declared HA button. It also fires a Home Assistant event named `xobit_button_press` with the button id/name.
+Do not generate circuit diagrams, circuit JSON, wiring diagrams, schematics, or `circuit_layout` fields. The browser infers the Circuit view from code.
 
-Always call `haBegin()` before declaring entities. Re-declare entities only from `setup()` or when rebuilding the HA registry; use `haSet()` for normal state changes. Prefer `haGet()` and `haChanged()` for switch, number, and light values; use `haEvent()` for simple button/event handling and `haPoll()` for advanced event scanning.
+When the user's wording identifies a specific physical part that generic code cannot prove, add a short `// xobit-circuit:` comment next to the relevant pin variable or setup line:
 
 ```wrench
-// Streams an analog value to the UI and lets the browser control the refresh speed.
-var sensorPin = 34;
-var delayMs = 80;
-var running = 1;
-var lastUpdate = 0;
-
-function drawUi() {
-  uiBegin("Sensor Panel");
-  uiColor(127, 208, 223);
-  uiLabel("sliders", "SLIDERS");
-  uiGraph("sensor", "Analog", 0, 0, 4095);
-  uiColumn();
-  uiSlider("speed", "Delay", delayMs, 10, 300);
-  uiToggle("running", "Running", running);
-  uiButton("mark", "Mark");
-}
-
-function setup() {
-  drawUi();
-  println("ui sensor ready");
-}
-
-function loop() {
-  while (uiPoll()) {
-    if (uiEventIs("hello")) drawUi();
-    if (uiEventIs("press", "mark")) println("mark");
-  }
-
-  delayMs = uiGet("speed", delayMs);
-  running = uiGet("running", running);
-
-  if (running && (millis() - lastUpdate) >= delayMs) {
-    lastUpdate = millis();
-    uiPush("sensor", analogRead(sensorPin));
-  }
-  delay(10);
-}
-```
-
-## Output Preference
-
-When asked to generate code, return a complete Wrench sketch and keep explanatory text short. Every generated sketch should start with one short `//` comment explaining what the sketch does. Also provide a short `sketch_name` of 2-5 words and at most 32 characters. Small iterations should keep the current base name and increment the trailing number, while larger reframings may use a new short descriptive name. This name is shown in the project revision selector. Put normal assumptions and caveats in notes. Use warnings only for immediate, concrete risks such as unsafe pins, high current LED loads, blocking code, destructive commands, missing credentials, or likely firmware/resource failure.
-
-The browser also has a Circuit view. Do not generate a full diagram or non-empty `circuit_layout`; return `{}` for `circuit_layout`. The browser infers the diagram from code and `// xobit-circuit` comments. When the user's wording identifies a specific physical part that generic code cannot prove, add a short code comment next to the relevant pin variable or setup line.
-
-```js
 var ledPin = 16; // xobit-circuit: IO16 ledStrip
 var potPin = 34; // xobit-circuit: IO34 potentiometer
 var servoPin = 18; // xobit-circuit: IO18 largeServo
 ```
 
-Use these specific mappings:
+Mappings:
 
-- If the user says large, big, high-torque, or high-power servo, write `largeServo`, not `servo`.
-- If the user says potentiometer, knob, or dial, write `potentiometer`, not generic `analogSensor`.
-- If the user says LED string, LED strip, LED bar, NeoPixel string, or NeoPixel strip, write `ledStrip`.
-- If the user says NeoPixel ring, write `neopixelRing`.
-- If the user says relay, buzzer, fan, DC motor, stepper motor, microphone, distance sensor, button, touch input, or digital sensor, write that specific component key.
+- Large, big, high-torque, or high-power servo: `largeServo`.
+- Potentiometer, knob, or dial: `potentiometer`.
+- LED string, LED strip, LED bar, NeoPixel string, or NeoPixel strip: `ledStrip`.
+- NeoPixel ring: `neopixelRing`.
+- IMU, MPU, gyro, or accelerometer: `imu`; use I2C with `wireBegin(SDA, SCL)`.
+- MP3 player, DFPlayer, or MP3 trigger: `mp3Player`.
+- GY-VL53L0XV2 or laser ToF: `vl53l0x`.
+- UDA1334A/I2S stereo decoder: `uda1334a`.
+- Hi-Link LD2410C/microwave radar: `ld2410c`.
 
-Supported comment component types include `button`, `led`, `ledStrip`, `neopixelRing`, `analogSensor`, `digitalSensor`, `distanceSensor`, `microphone`, `joystick`, `potentiometer`, `servo`, `largeServo`, `fan`, `dcMotor`, `stepperMotor`, `buzzer`, `relay`, and `touchPad`.
+Supported comment component types include `button`, `led`, `ledStrip`, `neopixelRing`, `analogSensor`, `analogMeter`, `digitalSensor`, `distanceSensor`, `microphone`, `joystick`, `potentiometer`, `servo`, `largeServo`, `fan`, `dcMotor`, `stepperMotor`, `buzzer`, `relay`, `touchPad`, `imu`, `mp3Player`, `vl53l0x`, `uda1334a`, and `ld2410c`.
 
-Also add short ordinary comments at important physical reads and writes. For a potentiometer, put a comment directly before the read:
+Also add short ordinary comments at important physical reads and writes:
 
-```js
+```wrench
 // Read the potentiometer.
 potRaw = analogRead(potPin);
 ```
-
-Use the physical part name in these comments: `potentiometer`, `microphone`, `distance sensor`, `button`, `touch input`, `large servo`, `LED strip`, and so on.

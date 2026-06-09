@@ -40,7 +40,6 @@ export function parseChatStructuredText(text, {
       specification_mode: currentSpecificationMode,
       notes: [],
       warnings: ["Response was not structured JSON."],
-      circuit_layout: null,
     };
   }
 
@@ -53,18 +52,7 @@ export function parseChatStructuredText(text, {
     specification_mode: normalizeSpecificationMode(parsed.specification_mode || parsed.descriptionMode || currentSpecificationMode),
     notes: Array.isArray(parsed.notes) ? parsed.notes.map(String) : [],
     warnings: filterChatWarnings(parsed.warnings),
-    circuit_layout: null,
   };
-}
-
-export function hasCircuitLayoutContent(layout) {
-  if (!layout || typeof layout !== "object") return false;
-  return Boolean(
-    (Array.isArray(layout.components) && layout.components.length)
-    || (Array.isArray(layout.connections) && layout.connections.length)
-    || (Array.isArray(layout.assumptions) && layout.assumptions.length)
-    || (Array.isArray(layout.notes) && layout.notes.length)
-  );
 }
 
 export function filterChatWarnings(warnings) {

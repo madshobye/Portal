@@ -32,7 +32,8 @@ export function createProjectToolbarController({
   function renderProjectSelectors(projects = [], { currentProjectId = "", currentRevisionId = "" } = {}) {
     const options = [new Option("project", "")];
     projects.forEach((project) => {
-      options.push(new Option(project.name || "Untitled Project", project.id));
+      const name = project.name || "Untitled Project";
+      options.push(new Option(project.isExampleProject ? `${name} *` : name, project.id));
     });
     projectSelects.filter(Boolean).forEach((select) => {
       select.replaceChildren(...options.map((option) => new Option(option.textContent, option.value)));

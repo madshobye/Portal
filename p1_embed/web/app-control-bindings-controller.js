@@ -11,6 +11,7 @@ export function createAppControlBindingsController({
     bindScriptToolbarControls();
     controllers.projectToolbar().bind();
     fields.usbConnect.addEventListener("click", actions.connectUsb);
+    fields.connectForm?.addEventListener("submit", handleConnectSubmit);
     fields.newWsToggle.addEventListener("click", actions.showNewWsField);
     fields.newWsConnect.addEventListener("click", () => actions.connectWebSocket(fields.websocketUrl.value));
     fields.websocketUrl.addEventListener("input", actions.renderConnectionHistory);
@@ -29,6 +30,7 @@ export function createAppControlBindingsController({
     controllers.circuitWorkspace().bind();
     actions.bindSketchDrop();
     fields.settings.addEventListener("click", actions.openSettingsDialog);
+    fields.settingsForm?.addEventListener("submit", handleSettingsSubmit);
     controllers.settingsTabs().bind();
     fields.deviceNameSave.addEventListener("click", () => actions.runUiAction(actions.saveDeviceName, "rename"));
     fields.wifiSave.addEventListener("click", () => actions.runUiAction(actions.saveWifi, "wifi"));
@@ -92,6 +94,45 @@ export function createAppControlBindingsController({
       actions.sendChatPrompt();
     });
     fields.chatInput.addEventListener("input", actions.updateEnabledState);
+  }
+
+  function handleSettingsSubmit(event) {
+    const submitter = event.submitter || null;
+    if (submitter?.value === "cancel" && document.activeElement === submitter) return;
+    event.preventDefault();
+    const activePanel = fields.settingsDialog?.querySelector(".settings-panel.is-active")?.dataset.settingsPanel || "";
+    if (activePanel === "general") {
+      actions.runUiAction(actions.saveDeviceName, "rename");
+    } else if (activePanel === "wifi") {
+      actions.runUiAction(actions.saveWifi, "wifi");
+    } else if (activePanel === "mqtt") {
+      actions.runUiAction(actions.saveMqtt, "mqtt");
+    } else if (activePanel === "users") {
+      if (document.activeElement === fields.onlineAuthUsername || document.activeElement === fields.onlineAuthPassword) {
+        actions.runUiAction(actions.addOnlineAuthUser, "online user");
+      } else if (!fields.accessSave.hidden) {
+        actions.runUiAction(actions.saveMqtt, "access");
+      } else {
+        actions.runUiAction(actions.addOnlineAuthUser, "online user");
+      }
+    } else if (activePanel === "generative") {
+      if (document.activeElement === fields.chatKeySharePassword || document.activeElement === fields.chatKeyShareDays) {
+        actions.runUiAction(actions.createEncryptedChatKeyShare, "sharing");
+      } else {
+        actions.saveChatApiKey();
+      }
+    }
+  }
+
+  function handleConnectSubmit(event) {
+    const submitter = event.submitter || null;
+    if (submitter?.value === "cancel" && document.activeElement === submitter) return;
+    event.preventDefault();
+    if (!fields.newWsField.classList.contains("is-hidden")) {
+      actions.connectWebSocket(fields.websocketUrl.value);
+    } else if (!fields.newPeerField.classList.contains("is-hidden")) {
+      actions.connectMqtt(fields.peerId.value);
+    }
   }
 
   function bindProjectToolbarControls() {

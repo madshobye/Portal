@@ -1,8 +1,8 @@
 const pages = {
   "core-runtime": {
-    title: "Core Runtime",
+    title: "Sketch Basics",
     subtitle: "Logging, timing, random numbers, heap checks, and script errors.",
-    intro: "These API functions are the everyday tools for making a sketch observable and responsive. Use them to pace loop work, print diagnostics, and avoid blind debugging.",
+    intro: "These are the everyday tools for making a sketch observable and responsive. Use them to pace loop work, print diagnostics, and avoid blind debugging.",
     calls: [
       {
         name: "print",
@@ -53,15 +53,15 @@ const pages = {
         signature: "freeHeap()\nlastError()\nclearError()",
         params: [],
         returns: "freeHeap returns available heap. lastError returns the current script error text. clearError clears it.",
-        notes: ["freeHeap is useful for coarse diagnostics; max contiguous heap is a firmware status field, not part of the script API."],
+        notes: ["freeHeap is useful for coarse diagnostics; max contiguous heap is a firmware status field, not a script function."],
         example: "println(freeHeap());\nif (lastError() != \"\") {\n  println(lastError());\n  clearError();\n}"
       }
     ]
   },
   "math-time-sun": {
-    title: "Math, Noise, Time, Sun",
+    title: "Environment",
     subtitle: "Numeric helpers, simplex noise, local time, and sun-derived brightness/color.",
-    intro: "Use these API functions for animation curves, physical-ish motion, clocks, daylight-aware brightness, and color temperature.",
+    intro: "Use these module functions for animation curves, physical-ish motion, clocks, daylight-aware brightness, and color temperature.",
     calls: [
       {
         name: "range helpers",
@@ -122,9 +122,9 @@ const pages = {
     ]
   },
   "gpio-pwm": {
-    title: "GPIO And PWM",
+    title: "Pins And Actuators",
     subtitle: "Digital pins, analog reads, touch, servo control, and fan PWM.",
-    intro: "These API functions connect script code to physical pins. Use firmware constants such as OUTPUT, HIGH, and LOW rather than string names.",
+    intro: "These functions connect script code to physical inputs and outputs. Use firmware constants such as OUTPUT, HIGH, and LOW rather than string names.",
     calls: [
       {
         name: "digital GPIO",
@@ -182,9 +182,9 @@ const pages = {
     ]
   },
   "wifi-device": {
-    title: "WiFi And Device",
+    title: "Device And WiFi",
     subtitle: "Network state, identity, uptime, and device-level helpers.",
-    intro: "Use these API functions for diagnostics and simple device configuration from sketches. WiFi settings are normally managed from Settings.",
+    intro: "Use these functions for diagnostics and simple device configuration from sketches. WiFi settings are normally managed from Settings.",
     calls: [
       {
         name: "WiFi status",
@@ -227,9 +227,9 @@ const pages = {
     ]
   },
   "http-json": {
-    title: "HTTP And JSON",
+    title: "Online Data",
     subtitle: "Small web requests and firmware-cached JSON extraction.",
-    intro: "For APIs, prefer fetchJson plus getJsonValue/getJsonFloat when you only need a few fields. That avoids copying large bodies into script heap.",
+    intro: "For online data, prefer fetchJson plus getJsonValue/getJsonFloat when you only need a few fields. That avoids copying large bodies into script heap.",
     calls: [
       {
         name: "HTTP GET",
@@ -247,20 +247,20 @@ const pages = {
         name: "cached JSON fetch",
         signature: "fetchJson(url, maxBytes, timeoutMs)\ngetJsonValue(path)\ngetJsonInt(path)\ngetJsonFloat(path)\ngetJsonBool(path)",
         params: [
-          ["url", "JSON API URL."],
+          ["url", "JSON endpoint URL."],
           ["maxBytes", "Maximum response bytes in firmware cache."],
           ["timeoutMs", "Request timeout."],
           ["path", "Dot path such as main.temp or weather.0.main."]
         ],
         returns: "fetchJson returns HTTP status code. getJson* returns the selected field converted to the requested type.",
-        notes: ["Use this pattern for weather and sensor APIs.", "The path reads from the most recent fetchJson/httpGet cache."],
+        notes: ["Use this pattern for weather and sensor feeds.", "The path reads from the most recent fetchJson/httpGet cache."],
         example: 'var code = fetchJson("https://api.example.com/weather.json", 4096, 6000);\nif (code == 200) {\n  println(getJsonFloat("main.temp"));\n  println(getJsonValue("weather.0.main"));\n}'
       },
       {
         name: "one-shot JSON helpers",
         signature: "httpJsonGet(url, path, maxBytes, timeoutMs)\nhttpJsonGetInt(...)\nhttpJsonGetFloat(...)\nhttpJsonGetBool(...)",
         params: [
-          ["url", "JSON API URL."],
+          ["url", "JSON endpoint URL."],
           ["path", "Dot path to extract."],
           ["maxBytes", "Maximum response bytes."],
           ["timeoutMs", "Request timeout."]
@@ -289,7 +289,7 @@ const pages = {
         signature: "httpCode()\nhttpError()\nhttpTruncated()",
         params: [],
         returns: "Status code, error string, and truncation flag.",
-        notes: ["Use these after any HTTP API call to make failures visible."],
+        notes: ["Use these after any HTTP request to make failures visible."],
         example: 'var body = httpGet("http://example.com", 512, 4000);\nif (httpCode() != 200) {\n  println(httpError());\n}'
       }
     ]
@@ -309,7 +309,7 @@ const pages = {
           ["brightness", "Global brightness 0..255 in firmware terms; many sketches use 0..100 by convention."],
           ["order", "Optional color order: RGB, RBG, GRB, GBR, BRG, or BGR."]
         ],
-        returns: "No useful return value. API errors stop the sketch when setup cannot proceed.",
+        returns: "No useful return value. Script errors stop the sketch when setup cannot proceed.",
         notes: ["Default order is GRB.", "Changing pin or growing beyond active capacity can require reboot.", "Changing color order is allowed live."],
         example: 'function setup() {\n  ledConfig(0, 16, 144, 50);\n  ledClear(0, 1);\n}'
       },
@@ -334,7 +334,7 @@ const pages = {
           ["rgb", "Three-element array [r, g, b]."]
         ],
         returns: "No useful return value.",
-        notes: ["ledSetHsv avoids script-side HSV math allocation.", "Out-of-range pixels are API errors."],
+        notes: ["ledSetHsv avoids script-side HSV math allocation.", "Out-of-range pixels are script errors."],
         example: "ledSet(0, 0, 255, 0, 0);\nledSetHsv(0, 1, 96, 255, 180);"
       },
       {
@@ -363,9 +363,9 @@ const pages = {
     ]
   },
   "palettes": {
-    title: "Palettes",
+    title: "Color Palettes",
     subtitle: "Small firmware-side gradients for animation colors.",
-    intro: "Palette API functions let a sketch define gradient slots and sample colors without manually interpolating every channel in script code.",
+    intro: "Palette functions let a sketch define gradient slots and sample colors without manually interpolating every channel in script code.",
     calls: [
       {
         name: "define palettes",
@@ -393,7 +393,7 @@ const pages = {
     ]
   },
   "i2c-uart": {
-    title: "I2C And UART",
+    title: "External Modules",
     subtitle: "Simple bus access for external devices.",
     intro: "Use I2C for register-style sensors and UART1/UART2 for serial modules. UART0 is reserved for the host transport.",
     calls: [
@@ -428,7 +428,7 @@ const pages = {
     ]
   },
   "browser-ui": {
-    title: "Browser UI",
+    title: "Browser Controls",
     subtitle: "Sketch-owned live controls rendered in the UI tab.",
     intro: "The sketch declares the UI. The browser renders it and sends interactions back to firmware. Rebuild the interface only when a browser connects or asks for hello.",
     calls: [
@@ -486,7 +486,7 @@ const pages = {
   },
   "home-assistant": {
     title: "Home Assistant",
-    subtitle: "Sketch-owned ESPHome native API entities.",
+    subtitle: "Sketch-owned Home Assistant entities.",
     intro: "A sketch can declare entities that appear in Home Assistant. Home Assistant commands update firmware-side values, and the sketch can read or publish those values.",
     calls: [
       {
@@ -512,7 +512,7 @@ const pages = {
           ["brightness", "Light brightness 0..100."]
         ],
         returns: "No useful return value.",
-        notes: ["Missing ids in later calls are API errors.", "Use haOnOffLight when you do not want a brightness slider."],
+        notes: ["Missing ids in later calls are script errors.", "Use haOnOffLight when you do not want a brightness slider."],
         example: "var brightness = 40;\n\nfunction setup() {\n  haBegin(\"Desk Lamp\");\n  haLight(\"lamp\", \"Desk Lamp\", brightness);\n  haButton(\"next_mode\", \"Next Mode\");\n}"
       },
       {
@@ -542,7 +542,7 @@ const pages = {
     ]
   },
   "inbox": {
-    title: "Inbox",
+    title: "Messages",
     subtitle: "Messages sent from the host into a running script.",
     intro: "The inbox is a lightweight way for the browser or transport to deliver text commands to a running sketch.",
     calls: [
@@ -567,17 +567,17 @@ const pages = {
 };
 
 const pageOrder = [
-  ["core-runtime", "Core Runtime"],
-  ["math-time-sun", "Math, Time, Sun"],
-  ["gpio-pwm", "GPIO And PWM"],
-  ["wifi-device", "WiFi And Device"],
-  ["http-json", "HTTP And JSON"],
+  ["core-runtime", "Sketch Basics"],
+  ["math-time-sun", "Environment"],
+  ["gpio-pwm", "Pins And Actuators"],
+  ["wifi-device", "Device And WiFi"],
+  ["http-json", "Online Data"],
   ["led-strips", "LED Strips"],
-  ["palettes", "Palettes"],
-  ["i2c-uart", "I2C And UART"],
-  ["browser-ui", "Browser UI"],
+  ["palettes", "Color Palettes"],
+  ["i2c-uart", "External Modules"],
+  ["browser-ui", "Browser Controls"],
   ["home-assistant", "Home Assistant"],
-  ["inbox", "Inbox"]
+  ["inbox", "Messages"]
 ];
 
 function el(tag, attrs = {}, children = []) {
@@ -616,7 +616,7 @@ function renderCall(call) {
 }
 
 function render() {
-  const key = document.body.dataset.apiPage;
+  const key = document.body.dataset.modulePage;
   const page = pages[key] || pages["core-runtime"];
   document.title = `${page.title} - XOBIT Guide`;
   document.querySelector("[data-page-title]").textContent = page.title;

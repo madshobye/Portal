@@ -7,8 +7,9 @@
     ["overview", "Overview", "guide.html"],
     ["first-run", "Getting Started", "first-run.html"],
     ["wrench", "Script", "wrench-language.html"],
-    ["api", "API", "api.html"],
+    ["modules", "Modules", "modules.html"],
     ["security", "Security", "security.html"],
+    ["system-log", "Change Log", "system-log.html"],
     ["about", "About", "about.html"]
   ];
 
@@ -18,8 +19,9 @@
     if (name === "first-run.html") return "first-run";
     if (name === "wrench-language.html") return "wrench";
     if (name === "security.html") return "security";
+    if (name === "system-log.html") return "system-log";
     if (name === "about.html") return "about";
-    if (location.pathname.includes("/api/")) return "api";
+    if (location.pathname.includes("/modules/")) return "modules";
     return "overview";
   }
 
@@ -45,7 +47,7 @@
   function installFooter() {
     document.querySelector("footer")?.remove();
     const footer = document.createElement("footer");
-    footer.innerHTML = 'XOBIT guide for the browser editor, ESP32 firmware, script runtime, and project workflow. Keep the script and API pages in sync with <code>wrench_chat_context.md</code> when firmware APIs change.';
+    footer.innerHTML = 'XOBIT guide for the browser editor, ESP32 firmware, script runtime, and project workflow. Keep the script and module pages in sync with <code>wrench_chat_context.md</code> when firmware modules change.';
     document.querySelector("main")?.append(footer);
   }
 

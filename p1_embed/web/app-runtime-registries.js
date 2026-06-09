@@ -1,13 +1,13 @@
 import { inferCircuitLayout } from "./circuit.js?v=0.1.87-ui554";
-import { settle } from "./timing.js?v=0.1.87-ui729";
-import { isMqttKind } from "./connection-kinds.js?v=0.1.87-ui729";
-import { defaultPeerIdFromWebSocket } from "./connection-address-utils.js?v=0.1.87-ui729";
-import { createTransferAppFeatureRegistry } from "./transfer-app-feature-registry.js?v=0.1.87-ui729";
-import { normalizeChatMessages } from "./revision-chat-model.js?v=0.1.87-ui729";
-import { createAppRuntimeAppFeatureRegistry } from "./app-runtime-app-feature-registry.js?v=0.1.87-ui729";
-import { createAppRuntimeAppDependencies } from "./app-runtime-app-dependencies.js?v=0.1.87-ui729";
-import { createTransferAppDependencies } from "./transfer-app-dependencies.js?v=0.1.87-ui729";
-import { product, storage } from "./app-config.js?v=0.1.87-ui729";
+import { settle } from "./timing.js?v=0.1.87-ui744";
+import { isMqttKind } from "./connection-kinds.js?v=0.1.87-ui744";
+import { defaultPeerIdFromWebSocket } from "./connection-address-utils.js?v=0.1.87-ui744";
+import { createTransferAppFeatureRegistry } from "./transfer-app-feature-registry.js?v=0.1.87-ui744";
+import { normalizeChatMessages } from "./revision-chat-model.js?v=0.1.87-ui744";
+import { createAppRuntimeAppFeatureRegistry } from "./app-runtime-app-feature-registry.js?v=0.1.87-ui744";
+import { createAppRuntimeAppDependencies } from "./app-runtime-app-dependencies.js?v=0.1.87-ui744";
+import { createTransferAppDependencies } from "./transfer-app-dependencies.js?v=0.1.87-ui744";
+import { product, storage } from "./app-config.js?v=0.1.87-ui744";
 
 export function createRuntimeRegistries({
   context,

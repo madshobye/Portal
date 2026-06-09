@@ -1,4 +1,4 @@
-import { product } from "./app-config.js?v=0.1.87-ui729";
+import { product } from "./app-config.js?v=0.1.87-ui744";
 
 export function createInstallWorkflowController({
   P1WebFlasher,

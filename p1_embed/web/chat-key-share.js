@@ -1,14 +1,15 @@
-import { product } from "./app-config.js?v=0.1.87-ui729";
+import { product } from "./app-config.js?v=0.1.87-ui744";
+
+const KEY_SHARE_END_MARKER = ":xobit-key-end";
+const KEY_SHARE_PAYLOAD_PATTERN = "[A-Za-z0-9_-]{80,}";
+const KEY_SHARE_PREFIXES = () => [product.keySharePrefix, product.legacyKeySharePrefix, "v1:"];
 
 export function cryptoAvailable() {
   return Boolean(globalThis.crypto?.subtle && globalThis.crypto?.getRandomValues);
 }
 
 export function isEncryptedChatKeyShare(text = "") {
-  const raw = String(text || "").trim();
-  return raw.startsWith(product.keySharePrefix)
-    || raw.startsWith(product.legacyKeySharePrefix)
-    || raw.startsWith("v1:");
+  return Boolean(extractEncryptedChatKeyShare(text));
 }
 
 export async function createEncryptedChatKeyShareToken({
@@ -39,7 +40,7 @@ export async function createEncryptedChatKeyShareToken({
   };
   return {
     days: boundedDays,
-    token: `${product.keySharePrefix}${base64UrlEncode(new TextEncoder().encode(JSON.stringify(share)))}`,
+    token: `${product.keySharePrefix}${base64UrlEncode(new TextEncoder().encode(JSON.stringify(share)))}${KEY_SHARE_END_MARKER}`,
   };
 }
 
@@ -64,19 +65,44 @@ export async function decryptEncryptedChatKeyShare(token, password) {
 }
 
 function parseEncryptedChatKeyShare(token) {
-  const raw = String(token || "").trim();
-  if (!isEncryptedChatKeyShare(raw)) throw new Error(`Not a ${product.name} encrypted key share`);
+  const raw = extractEncryptedChatKeyShare(token);
+  if (!raw) throw new Error(`Not a ${product.name} encrypted key share`);
   const prefix = raw.startsWith(product.keySharePrefix)
     ? product.keySharePrefix
     : raw.startsWith(product.legacyKeySharePrefix)
       ? product.legacyKeySharePrefix
       : "v1:";
-  const json = new TextDecoder().decode(base64UrlDecode(raw.slice(prefix.length)));
-  const share = JSON.parse(json);
+  const share = parseEncryptedChatKeySharePayload(raw.slice(prefix.length));
   if (!share || share.v !== 1 || !share.salt || !share.iv || !share.ct) {
     throw new Error("Encrypted key share is invalid");
   }
   return share;
+}
+
+export function extractEncryptedChatKeyShare(text = "") {
+  const raw = String(text || "").trim();
+  if (!raw) return "";
+  const prefixPattern = KEY_SHARE_PREFIXES().map(escapeRegex).join("|");
+  const marked = new RegExp(`(?:${prefixPattern})${KEY_SHARE_PAYLOAD_PATTERN}${escapeRegex(KEY_SHARE_END_MARKER)}`).exec(raw);
+  if (marked) return marked[0].slice(0, -KEY_SHARE_END_MARKER.length);
+  const loose = new RegExp(`(?:${prefixPattern})${KEY_SHARE_PAYLOAD_PATTERN}`).exec(raw);
+  return loose?.[0] || "";
+}
+
+function escapeRegex(text) {
+  return String(text || "").replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function parseEncryptedChatKeySharePayload(payload) {
+  let candidate = String(payload || "").replace(new RegExp(`${escapeRegex(KEY_SHARE_END_MARKER)}.*$`), "");
+  while (candidate.length >= 80) {
+    try {
+      return JSON.parse(new TextDecoder().decode(base64UrlDecode(candidate)));
+    } catch {
+      candidate = candidate.slice(0, -1);
+    }
+  }
+  throw new Error("Encrypted key share is invalid");
 }
 
 async function deriveChatKeyShareCryptoKey(password, salt, iterations = 150000) {

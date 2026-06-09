@@ -90,6 +90,16 @@ DETOOLS=/private/tmp/p1e-detools-venv/bin/detools ./scripts/esp32/p1embed-safebo
 - SafeBoot USB installer manifest version is in `p1_embed/web/bin/p1e-firmware-safeboot.json`.
 - OTA release chain is in `p1_embed/web/bin/p1e-firmware-releases.json`.
 
+## System Log Workflow
+
+Use `p1_embed/web/guide/system-log.html` for human-readable notes about changes people can see or feel.
+
+- Before committing web-visible changes, inspect the current repository state with `git status` and an actual diff against the commit/branch that will be pushed to GitHub. Include staged and unstaged work, because another Codex chat may have changed files in the same repo. Add a short `Web / Guide` entry that describes what users will notice in the browser app, guide, visible text, assets, or behavior.
+- Before deploying firmware, inspect the firmware diff, version, manifest/release artifacts, and deploy output. Add a short `Firmware` entry that describes what board users will experience: firmware behavior, install/update impact, connection behavior, compatibility notes, or known issues.
+- Do not write log entries from memory alone. Base them on the repository diff and deploy artifacts.
+- Keep entries plain and human-readable. Prefer “MQTT sign-in now waits longer and logs the auth step” over low-level function names.
+- Do not turn every internal refactor into a user note. Log changes that affect visible behavior, documentation, firmware behavior, setup, recovery, or known risks.
+
 ## User Preferences
 
 - Prefer implementation over long proposals.

@@ -17,6 +17,7 @@ export function createSettingsShellController({
   getMqttSettingsPanelController,
   getMqttSigninDialogController,
   getOnlineAuthListRenderer,
+  isDeviceConnected,
   setWifiDraftDirty,
 } = {}) {
   function openSettingsDialog() {
@@ -34,10 +35,15 @@ export function createSettingsShellController({
       firmwareLog(`manifest: ${error.message || error}`);
       renderFirmwareUpdatePanel();
     });
-    switchSettingsTab("general");
+    const connected = Boolean(isDeviceConnected?.());
+    switchSettingsTab(connected ? "general" : "generative");
     fields.settingsDialog.showModal();
-    fields.deviceNameInput.focus();
-    fields.deviceNameInput.select();
+    if (connected) {
+      fields.deviceNameInput.focus();
+      fields.deviceNameInput.select();
+    } else {
+      fields.chatApiKeyInput?.focus();
+    }
   }
 
   function switchSettingsTab(name) {

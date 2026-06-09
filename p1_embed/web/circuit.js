@@ -1,5 +1,5 @@
 import { drawEmbroideryConnections } from "./circuit-embroidery-router.js?v=0.1.87-ui554";
-import { product, storage } from "./app-config.js?v=0.1.87-ui729";
+import { product, storage } from "./app-config.js?v=0.1.87-ui744";
 import { escapeRegex } from "./string-utils.js?v=0.1.87-ui559";
 
 const CIRCUIT_VERSION = "0.1";
@@ -240,7 +240,7 @@ function normalizeBoard(board = {}) {
   const type = boardProfiles[board?.type]?.type || "esp32-classic";
   const profile = boardProfiles[type];
   const fallbackX = (WORLD_W - profile.w) / 2;
-  const fallbackY = 100;
+  const fallbackY = (WORLD_H - profile.h) / 2;
   const bounds = paperBounds();
   const centerX = Number.isFinite(board?.cx)
     ? clamp((Number(board.cx) / 100) * WORLD_W, bounds.minX + profile.w / 2, bounds.maxX - profile.w / 2)

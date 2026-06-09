@@ -1,10 +1,10 @@
-import { createProjectToolbarController } from "./project-toolbar-controller.js?v=0.1.87-ui729";
-import { createViewShellController } from "./view-shell-controller.js?v=0.1.87-ui729";
-import { createSettingsShellController } from "./settings-shell-controller.js?v=0.1.87-ui729";
-import { createRevisionNameDialog } from "./revision-name-dialog.js?v=0.1.87-ui729";
-import { createConsoleController } from "./console-controller.js?v=0.1.87-ui729";
-import { createCommandConsoleService } from "./command-console-service.js?v=0.1.87-ui729";
-import { product } from "./app-config.js?v=0.1.87-ui729";
+import { createProjectToolbarController } from "./project-toolbar-controller.js?v=0.1.87-ui744";
+import { createViewShellController } from "./view-shell-controller.js?v=0.1.87-ui744";
+import { createSettingsShellController } from "./settings-shell-controller.js?v=0.1.87-ui744";
+import { createRevisionNameDialog } from "./revision-name-dialog.js?v=0.1.87-ui744";
+import { createConsoleController } from "./console-controller.js?v=0.1.87-ui744";
+import { createCommandConsoleService } from "./command-console-service.js?v=0.1.87-ui744";
+import { product } from "./app-config.js?v=0.1.87-ui744";
 
 export function createUiServicesRegistry({
   copyText,
@@ -104,6 +104,7 @@ export function createUiServicesRegistry({
       getMqttSettingsPanelController,
       getMqttSigninDialogController,
       getOnlineAuthListRenderer,
+      isDeviceConnected: () => getConnectionUiStateController().isDeviceConnected(),
       setWifiDraftDirty,
     });
     return settingsShellController;

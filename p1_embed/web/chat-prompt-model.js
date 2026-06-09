@@ -9,7 +9,10 @@ export function buildSpecificationGeneratePrompt(specification, {
     "The specification is the source of truth. Existing editor code is only a starting point or reusable material.",
     "If the existing code conflicts with the specification, change the code to match the specification.",
     "Return code_action=\"replace\" and provide complete replacement code.",
-    "Also return an updated project_specification that preserves the user's intent and accurately describes the generated code.",
+    "Return project_specification as a cleaned-up version of the project specification below with the same intent and requirements.",
+    "Fix spelling, unclear phrasing, misplaced comments, rough notes, and loose structure in project_specification when doing so preserves the user's meaning.",
+    "Do not add behavior from existing code into project_specification unless it is explicitly requested by the specification.",
+    "Do not remove or soften specification requirements just because existing code does not implement them yet.",
     "",
     `Specification mode: ${specificationModeLabel(specificationMode)}`,
     "",
@@ -30,7 +33,9 @@ export function buildInteractionPriorityInstructions(purpose = "chat") {
       "4. If current code conflicts with the specification, change the code to satisfy the specification.",
       "5. Ignore previous chat for intent; it is not included as authority in this mode.",
       "Output requirement: return code_action=\"replace\" with complete code unless the specification is impossible to implement.",
-      "The returned project_specification should refine and clarify the specification, not silently change its intent to match old code.",
+      "The returned project_specification must be a cleaned-up version of the current project specification that preserves its intent and requirements.",
+      "Do not make project_specification match old code. Make code match project_specification.",
+      "You may fix spelling, unclear phrasing, misplaced comments, rough notes, and loose structure in project_specification when the cleanup still means the same thing as the user's specification.",
     ].join("\n");
   }
   return [
@@ -51,12 +56,13 @@ export function buildChatInstructions(context) {
     "When producing code, provide a complete Wrench script that can replace the editor contents.",
     "Every generated sketch must start with a short // comment explaining what the sketch does.",
     "When producing code, also provide sketch_name: a short project revision title, 2-5 words and at most 32 characters.",
-    "Naming rule: for small iterations, keep the current revision base name and increment its trailing number, such as LED Chase -> LED Chase 2 -> LED Chase 3. For larger reframings, choose a new short descriptive name. Do not invent a random unrelated name when the current name still describes the work. Avoid dates, New Sketch, generic Revision names, and decorative punctuation.",
-    "When producing or changing code, also provide project_specification as simple Markdown that matches the resulting code and follows the requested specification_mode.",
+    "Naming rule: choose sketch_name from the resulting specification and code, not from habit. If the resulting behavior, main component, UI, animation style, or purpose clearly changes, choose a new short descriptive name. Only keep the current revision base name for genuinely small iterations where it still describes the result; then increment its trailing number, such as LED Chase -> LED Chase 2 -> LED Chase 3. Avoid dates, New Sketch, generic Revision names, and decorative punctuation.",
+    "When producing or changing code in Chat mode, also provide project_specification as simple Markdown that matches the resulting code and follows the requested specification_mode.",
+    "When producing code in Specification Generate mode, project_specification must preserve the user's specification as source of truth while cleaning spelling, phrasing, misplaced comments, rough notes, and loose structure; code is the generated implementation of it.",
     "Project specification rule: describe only the current resulting sketch in concise present tense. Do not write a changelog, transcript, reflection, or iterative phrasing such as now, updated to, changed from, without X, instead of, previously, the user asked, or this revision. If behavior was removed, omit the removed behavior and describe the final behavior.",
     "Use only this Markdown subset in project_specification: # through #### headings, **bold**, *italic*, <u>underline</u>, numbered lists, and bullet lists.",
     "Specification modes: overview means high-level human description; middle means important implementation details without pseudocode; structured means sections like Program, Global values, Setup, and Main loop in Markdown/plain text.",
-    "Do not generate a circuit diagram layout. Always return circuit_layout as an empty object. The browser infers the diagram from code and // xobit-circuit comments near pin variables. Add these comments whenever the user's words choose a specific physical part that generic code cannot prove. Use exact component keys such as led, relay, buzzer, servo, largeServo, fan, dcMotor, stepperMotor, ledStrip, neopixelRing, potentiometer, analogMeter, microphone, distanceSensor, analogSensor, digitalSensor, button, touchPad, imu, mp3Player, vl53l0x, uda1334a, ld2410c. If the user says IMU/MPU/gyro/accelerometer, write imu and use wireBegin(SDA, SCL); do not invent an analog IMU data pin. If the user says MP3 player, DFPlayer, or MP3 trigger, write mp3Player; a GPIO trigger/play pin is an output/control wire to the player, not a digitalSensor. If the user says large/big/high-torque servo, write largeServo, never plain servo. If the user says potentiometer/knob/dial, write potentiometer. If the user says GY-VL53L0XV2/Laser ToF, write vl53l0x. If the user says UDA1334A/I2S stereo decoder, write uda1334a. If the user says Hi-Link LD2410C/microwave radar, write ld2410c. If the user says LED string/strip/bar or NeoPixel strip, write ledStrip. Example: var servoPin = 16; // xobit-circuit: IO16 largeServo",
+    "Do not generate circuit diagrams, circuit JSON, wiring diagrams, schematics, or circuit_layout fields. The browser infers the Circuit view from code. When the user's words choose a specific physical part that generic code cannot prove, add a // xobit-circuit comment near the relevant pin variable or setup line. Use exact component keys such as led, relay, buzzer, servo, largeServo, fan, dcMotor, stepperMotor, ledStrip, neopixelRing, potentiometer, analogMeter, microphone, distanceSensor, analogSensor, digitalSensor, button, touchPad, imu, mp3Player, vl53l0x, uda1334a, ld2410c. If the user says IMU/MPU/gyro/accelerometer, write imu and use wireBegin(SDA, SCL); do not invent an analog IMU data pin. If the user says MP3 player, DFPlayer, or MP3 trigger, write mp3Player; a GPIO trigger/play pin is an output/control wire to the player, not a digitalSensor. If the user says large/big/high-torque servo, write largeServo, never plain servo. If the user says potentiometer/knob/dial, write potentiometer. If the user says GY-VL53L0XV2/Laser ToF, write vl53l0x. If the user says UDA1334A/I2S stereo decoder, write uda1334a. If the user says Hi-Link LD2410C/microwave radar, write ld2410c. If the user says LED string/strip/bar or NeoPixel strip, write ledStrip. Example: var servoPin = 16; // xobit-circuit: IO16 largeServo",
     "When generated code reads a named physical input, add a short ordinary comment immediately before the read, such as // Read the potentiometer. before analogRead(potPin), // Read the microphone. before analogRead(micPin), or // Read the button. before digitalRead(buttonPin). Keep these comments concrete and physical, not generic sensor wording when the part is known.",
     "GPIO rule: pinMode uses firmware constants such as INPUT, OUTPUT, INPUT_PULLUP, and INPUT_PULLDOWN when available. Write pinMode(powerPin, OUTPUT), never pinMode(powerPin, \"OUTPUT\"). digitalWrite should use HIGH/LOW if available or 1/0, never string values.",
     "Declare scratch variables at the top of each function and assign them inside while/if blocks. Avoid new var declarations inside tight loops or nested blocks, especially LED render loops.",
@@ -166,20 +172,8 @@ export function chatResponseSchema() {
       specification_mode: { type: "string", enum: ["overview", "middle", "structured"] },
       notes: { type: "array", items: { type: "string" } },
       warnings: { type: "array", items: { type: "string" } },
-      circuit_layout: {
-        type: "object",
-        additionalProperties: true,
-        properties: {
-          version: { type: "string" },
-          board: { type: "object", additionalProperties: true },
-          components: { type: "array", items: { type: "object", additionalProperties: true } },
-          connections: { type: "array", items: { type: "object", additionalProperties: true } },
-          assumptions: { type: "array", items: { type: "string" } },
-          notes: { type: "array", items: { type: "string" } },
-        },
-      },
     },
-    required: ["reply", "code", "code_action", "sketch_name", "project_specification", "specification_mode", "notes", "warnings", "circuit_layout"],
+    required: ["reply", "code", "code_action", "sketch_name", "project_specification", "specification_mode", "notes", "warnings"],
   };
 }
 

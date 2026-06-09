@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>XOBIT Guide</title>
     <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@24,400,0,0">
-    <link rel="stylesheet" href="site.css?v=guide-style-3">
+    <link rel="stylesheet" href="site.css?v=guide-style-4">
   </head>
   <body data-guide-section="overview">
 
@@ -20,7 +20,7 @@
             <ul class="feature-list">
               <li>Code, upload, stop, inspect logs, and recover sketches from the board.</li>
               <li>Keep projects as revisions with code, chat, specification, and circuit notes together.</li>
-              <li>Drive NeoPixel-style LED strips, GPIO, HTTP APIs, time, sun position, UI controls, and Home Assistant entities.</li>
+              <li>Drive LED strips, pins, sensors, environment-aware behavior, browser controls, online data, and Home Assistant entities.</li>
             </ul>
             <p class="hero-actions"><a class="button-link" href="first-run.html">Getting Started</a></p>
           </div>
@@ -114,21 +114,23 @@
         </div>
       </section>
 
-      <section id="api-overview">
+      <section id="modules-overview">
         <h2>Guide Overview</h2>
         <p class="section-copy">Start with scripting, then choose the guide for the thing you want your object to do.</p>
         <div class="reference-grid">
           <a class="reference-card" href="wrench-language.html"><span class="material-symbols-rounded">code</span><strong>Script language</strong><p>Variables, functions, arrays, loops, sketch structure, and XOBIT-specific syntax notes.</p></a>
-          <a class="reference-card" href="api/core-runtime.html"><span class="material-symbols-rounded">terminal</span><strong>Core runtime</strong><p>Printing, timing, random values, heap checks, and script error helpers.</p></a>
-          <a class="reference-card" href="api/gpio-pwm.html"><span class="material-symbols-rounded">memory</span><strong>GPIO and PWM</strong><p>Digital pins, analog input, touch, PWM, servos, fans, and simple physical outputs.</p></a>
-          <a class="reference-card" href="api/led-strips.html"><span class="material-symbols-rounded">flare</span><strong>LED strips</strong><p>NeoPixel-style LED setup, RGB/HSV pixels, brightness, palettes, and frame output.</p></a>
-          <a class="reference-card" href="api/browser-ui.html"><span class="material-symbols-rounded">tune</span><strong>Browser UI</strong><p>Declare live controls, consume UI events, and update values from the running sketch.</p></a>
-          <a class="reference-card" href="api/home-assistant.html"><span class="material-symbols-rounded">home_iot_device</span><strong>Home Assistant</strong><p>Expose script-defined entities and consume Home Assistant events.</p></a>
+          <a class="reference-card" href="modules/core-runtime.html"><span class="material-symbols-rounded">terminal</span><strong>Sketch basics</strong><p>Printing, timing, random values, heap checks, and script error helpers.</p></a>
+          <a class="reference-card" href="modules/gpio-pwm.html"><span class="material-symbols-rounded">memory</span><strong>Pins and actuators</strong><p>Digital pins, analog input, touch, PWM, servos, fans, and simple physical outputs.</p></a>
+          <a class="reference-card" href="modules/math-time-sun.html"><span class="material-symbols-rounded">wb_sunny</span><strong>Environment</strong><p>Noise, local time, sun position, daylight brightness, and color temperature.</p></a>
+          <a class="reference-card" href="modules/led-strips.html"><span class="material-symbols-rounded">flare</span><strong>LED strips</strong><p>NeoPixel-style LED setup, RGB/HSV pixels, brightness, palettes, and frame output.</p></a>
+          <a class="reference-card" href="modules/browser-ui.html"><span class="material-symbols-rounded">tune</span><strong>Browser controls</strong><p>Declare live controls, consume UI events, and update values from the running sketch.</p></a>
+          <a class="reference-card" href="modules/home-assistant.html"><span class="material-symbols-rounded">home_iot_device</span><strong>Home Assistant</strong><p>Expose script-defined entities and consume Home Assistant events.</p></a>
           <a class="reference-card" href="security.html"><span class="material-symbols-rounded">shield_lock</span><strong>Security model</strong><p>How local storage, USB, MQTT sign-in, guest access, and API keys are currently handled.</p></a>
+          <a class="reference-card" href="system-log.html"><span class="material-symbols-rounded">history</span><strong>Change log</strong><p>Short notes about web updates, firmware deploys, visible changes, and known risks.</p></a>
         </div>
       </section>
 
     </main>
-    <script src="site.js?v=guide-shell-9"></script>
+    <script src="site.js?v=guide-shell-10"></script>
   </body>
 </html>

@@ -1,13 +1,14 @@
-import { createProjectImporter } from "./project-import.js?v=0.1.87-ui729";
-import { createProjectController } from "./project-controller.js?v=0.1.87-ui729";
-import { createRevisionDraftStore } from "./revision-drafts.js?v=0.1.87-ui729";
-import { createProjectStore } from "./project-store.js?v=0.1.87-ui729";
-import { createProjectDownloadService } from "./project-download-service.js?v=0.1.87-ui729";
-import { createProjectRevisionService } from "./project-revision-service.js?v=0.1.87-ui729";
-import { createCurrentRevisionSession } from "./current-revision-session.js?v=0.1.87-ui729";
-import { createProjectActionsController } from "./project-actions-controller.js?v=0.1.87-ui729";
-import { createProjectHistoryView } from "./project-history-view.js?v=0.1.87-ui729";
-import { createProjectLibraryService } from "./project-library-service.js?v=0.1.87-ui729";
+import { createProjectImporter } from "./project-import.js?v=0.1.87-ui744";
+import { createProjectController } from "./project-controller.js?v=0.1.87-ui744";
+import { createRevisionDraftStore } from "./revision-drafts.js?v=0.1.87-ui744";
+import { createProjectStore } from "./project-store.js?v=0.1.87-ui744";
+import { createProjectDownloadService } from "./project-download-service.js?v=0.1.87-ui744";
+import { createProjectRevisionService } from "./project-revision-service.js?v=0.1.87-ui744";
+import { createCurrentRevisionSession } from "./current-revision-session.js?v=0.1.87-ui744";
+import { createProjectActionsController } from "./project-actions-controller.js?v=0.1.87-ui744";
+import { createProjectHistoryView } from "./project-history-view.js?v=0.1.87-ui744";
+import { createProjectLibraryService } from "./project-library-service.js?v=0.1.87-ui744";
+import { createExamplesProject, isExamplesProject } from "./example-projects.js?v=0.1.87-ui744";
 
 export function createProjectShellRegistry({
   activeRevision,
@@ -252,6 +253,7 @@ export function createProjectShellRegistry({
       normalizeProjectRecord,
       normalizeSketchName,
       normalizeSpecificationMode,
+      isExampleProject: isExamplesProject,
     });
     return projectRevisionService;
   }
@@ -369,6 +371,8 @@ export function createProjectShellRegistry({
       normalizeProjectRecord,
       revisionNameRoot,
       splitRevisionNumber,
+      examplesProject: createExamplesProject({ buildRevision, normalizeProjectRecord }),
+      isExampleProject: isExamplesProject,
     });
     return projectLibraryService;
   }

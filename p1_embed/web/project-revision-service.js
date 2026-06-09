@@ -33,10 +33,21 @@ export function createProjectRevisionService({
   normalizeProjectRecord,
   normalizeSketchName,
   normalizeSpecificationMode,
+  isExampleProject = () => false,
 } = {}) {
   async function ensureProjectForWrite({ code = "", nameHint = "" } = {}) {
     const existing = await getActiveProject();
-    if (existing) return normalizeProjectRecord(existing);
+    if (existing && !isExampleProject(existing)) return normalizeProjectRecord(existing);
+    if (existing && isExampleProject(existing)) {
+      const project = projectFromExampleForWrite(existing, {
+        code,
+        nameHint,
+        revision: activeRevision(existing),
+      });
+      setCurrentProjectId(project.id);
+      storageArea.setItem(storage.projectId, project.id);
+      return project;
+    }
     const configuredId = getCurrentProjectId() || storageArea.getItem(storage.projectId) || "";
     const project = normalizeProjectRecord({
       id: configuredId || createProjectId(),
@@ -56,6 +67,13 @@ export function createProjectRevisionService({
     let project = await getActiveProject();
     if (!project) {
       project = await ensureProjectForWrite({ code, nameHint });
+    }
+    if (isExampleProject(project)) {
+      const exampleRevision = project.revisions.find((item) => item.id === getCurrentRevisionId()) || activeRevision(project);
+      project = projectFromExampleForWrite(project, { code, nameHint, revision: exampleRevision });
+      setCurrentProjectId(project.id);
+      storageArea.setItem(storage.projectId, project.id);
+      logLine?.("info", `copied example to project: ${project.name}`);
     }
     project = normalizeProjectRecord(project);
     let revision = project.revisions.find((item) => item.id === getCurrentRevisionId()) || activeRevision(project);
@@ -107,6 +125,19 @@ export function createProjectRevisionService({
       setCurrentSketchIdentity(savedRevision.name || "", savedRevision.code || "", saved, savedRevision);
     }
     return { project: saved, revision: savedRevision };
+  }
+
+  function projectFromExampleForWrite(exampleProject = {}, { code = "", nameHint = "", revision = null } = {}) {
+    const sourceRevision = revision || activeRevision(exampleProject) || {};
+    const name = normalizeProjectName(nameHint || sourceRevision.exampleProjectName || sourceRevision.name || exampleProject.name)
+      || autoProjectName(code || sourceRevision.code || "");
+    return normalizeProjectRecord({
+      id: createProjectId(),
+      name,
+      revisions: [],
+      activeRevisionId: "",
+      chat: [],
+    });
   }
 
   async function persistProjectMetadataToDevice(project, revision = null) {

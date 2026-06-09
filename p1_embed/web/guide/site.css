@@ -535,6 +535,47 @@ code {
   margin-top: 18px;
 }
 
+.log-list {
+  display: grid;
+  gap: 14px;
+  margin-top: 20px;
+}
+
+.log-entry {
+  padding: 16px;
+  border: 1px solid var(--rule);
+  border-radius: 6px;
+  background: var(--paper);
+}
+
+.log-entry header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 10px;
+  color: var(--quiet-ink);
+  font-family: var(--mono);
+  font-size: 12px;
+}
+
+.log-entry h3 {
+  margin: 0;
+}
+
+.log-entry p {
+  max-width: 76ch;
+  margin: 9px 0 0;
+}
+
+.log-tag {
+  padding: 4px 7px;
+  border: 1px solid var(--rule);
+  border-radius: 4px;
+  color: var(--ink);
+  background: var(--paper-2);
+}
+
 table {
   width: 100%;
   margin-top: 16px;

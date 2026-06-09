@@ -74,6 +74,7 @@ export function createProjectModel({
       circuit,
       chat: normalizeChatMessages(revision.chat),
       source: String(revision.source || "manual"),
+      exampleProjectName: normalizeProjectName(revision.exampleProjectName || ""),
       createdAt: String(revision.createdAt || revision.at || new Date().toISOString()),
       bytes: Number(revision.bytes) || new Blob([code]).size,
       codeHash: String(revision.codeHash || revision.hash || fnv1aHex(code)),
@@ -98,6 +99,8 @@ export function createProjectModel({
       createdAt: String(project.createdAt || now),
       updatedAt: String(project.updatedAt || now),
       activeRevisionId: active?.id || "",
+      isExampleProject: Boolean(project.isExampleProject),
+      specialLabel: String(project.specialLabel || ""),
       chat: [],
       revisions,
     };
@@ -113,6 +116,7 @@ export function createProjectModel({
     chat = getCurrentChatMessages(),
     source = "manual",
     createdAt = "",
+    exampleProjectName = "",
   } = {}) {
     const text = String(code ?? "");
     return normalizeRevisionRecord({
@@ -125,6 +129,7 @@ export function createProjectModel({
       chat,
       source,
       createdAt,
+      exampleProjectName,
     });
   }
 

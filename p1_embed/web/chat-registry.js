@@ -1,10 +1,10 @@
-import { createChatSettings } from "./chat-settings.js?v=0.1.87-ui729";
-import { createChatCredentials } from "./chat-credentials.js?v=0.1.87-ui729";
-import { createChatCredentialActions } from "./chat-credential-actions.js?v=0.1.87-ui729";
-import { createChatTranscript } from "./chat-transcript.js?v=0.1.87-ui729";
-import { createChatWorkflowController } from "./chat-workflow-controller.js?v=0.1.87-ui729";
-import { createChatCompletionService } from "./chat-completion-service.js?v=0.1.87-ui729";
-import { createChatShellController } from "./chat-shell-controller.js?v=0.1.87-ui729";
+import { createChatSettings } from "./chat-settings.js?v=0.1.87-ui744";
+import { createChatCredentials } from "./chat-credentials.js?v=0.1.87-ui744";
+import { createChatCredentialActions } from "./chat-credential-actions.js?v=0.1.87-ui744";
+import { createChatTranscript } from "./chat-transcript.js?v=0.1.87-ui744";
+import { createChatWorkflowController } from "./chat-workflow-controller.js?v=0.1.87-ui744";
+import { createChatCompletionService } from "./chat-completion-service.js?v=0.1.87-ui744";
+import { createChatShellController } from "./chat-shell-controller.js?v=0.1.87-ui744";
 
 export function createChatRegistry({
   activeRevision,
@@ -169,6 +169,7 @@ export function createChatRegistry({
       buildSpecificationGeneratePrompt: (specification) => getChatCompletionService().buildSpecificationGeneratePrompt(specification),
       runUiAction: (action, label = "busy") => getUiActionRunner().run(action, label),
       renderChatTranscript: () => getChatShellController().renderChatTranscript(),
+      setProjectSpecification: (text = "", mode = getCurrentProjectSpecificationMode(), options = {}) => getSpecificationEditorController().setProjectSpecification(text, mode, options),
       updateChatEnabledState: () => getChatShellController().updateChatEnabledState(),
       updateCircuitView,
       logLine: (level, message) => getConsoleController().logLine(level, message),

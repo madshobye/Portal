@@ -1,5 +1,5 @@
-import { createProjectShellRegistry } from "./project-shell-registry.js?v=0.1.87-ui729";
-import { timestampForFilename } from "./download-utils.js?v=0.1.87-ui729";
+import { createProjectShellRegistry } from "./project-shell-registry.js?v=0.1.87-ui744";
+import { timestampForFilename } from "./download-utils.js?v=0.1.87-ui744";
 
 export function createProjectFeatureRegistry({
   activeRevision,

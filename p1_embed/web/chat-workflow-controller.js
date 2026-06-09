@@ -24,6 +24,7 @@ export function createChatWorkflowController({
   buildSpecificationGeneratePrompt,
   runUiAction,
   renderChatTranscript,
+  setProjectSpecification,
   updateChatEnabledState,
   updateCircuitView,
   logLine,
@@ -72,6 +73,7 @@ export function createChatWorkflowController({
   }
 
   async function replaceEditorFromChat(code, message, name = "", layout = null, specification = "", specificationMode = "", {
+    allowMerge = true,
     targetContext = null,
   } = {}) {
     if (!targetContext?.projectId || !targetContext?.revisionId) targetContext = null;
@@ -105,7 +107,7 @@ export function createChatWorkflowController({
     let saved = project;
     let selected = revision;
     const shouldOpen = !targetContext || isCurrentRevisionContext(targetContext);
-    const existing = findGeneratedRevisionMatch(project, revision, previous);
+    const existing = allowMerge ? findGeneratedRevisionMatch(project, revision, previous) : null;
     if (existing) {
       selected = mergeGeneratedRevision(existing, revision);
       project.revisions = project.revisions.map((item) => item.id === selected.id ? selected : item);
@@ -119,6 +121,7 @@ export function createChatWorkflowController({
     }
     if (shouldOpen) {
       await openRevision(saved, selected, { saveCurrent: false });
+      setProjectSpecification?.(selected.specification || nextSpecification, selected.specificationMode || nextMode, { markSaved: true });
       updateCircuitView("inferred from code");
     } else {
       logLine("info", `${message}; saved to original revision`);
@@ -220,14 +223,15 @@ export function createChatWorkflowController({
       };
       if (result.code.trim()) {
         const name = result.sketch_name || "";
+        const generatedSpecification = result.project_specification || specification;
         const applied = await replaceEditorFromChat(
           result.code,
           "generated code from specification",
           name,
           null,
-          result.project_specification || specification,
+          generatedSpecification,
           result.specification_mode || getCurrentProjectSpecificationMode(),
-          { targetContext: { ...requestContext, chat: requestContext.chat } },
+          { allowMerge: false, targetContext: { ...requestContext, chat: requestContext.chat } },
         );
         await saveChatForRevisionContext({
           projectId: applied.project.id,

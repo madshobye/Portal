@@ -19,7 +19,19 @@ export function createProjectLibraryService({
   normalizeProjectRecord,
   revisionNameRoot,
   splitRevisionNumber,
+  examplesProject = null,
+  isExampleProject = () => false,
 } = {}) {
+  function userProjectsOnly(projects = []) {
+    return projects.filter((project) => !isExampleProject(project));
+  }
+
+  function withExamplesProject(projects = []) {
+    const userProjects = userProjectsOnly(projects);
+    if (!examplesProject) return userProjects;
+    return [normalizeProjectRecord(examplesProject), ...userProjects];
+  }
+
   async function readProjects() {
     await runProjectStartupStep("legacy sketch migration", migrateLegacySketchesToProjects);
     await runProjectStartupStep("missing legacy recovery", recoverMissingLegacySketches);
@@ -30,7 +42,8 @@ export function createProjectLibraryService({
       projects = await readProjectsFromIndexedDb();
     }
     if (!projects.length) projects = readProjectsFallback();
-    projects = await mergeDuplicateBoardProjects(projects);
+    projects = await mergeDuplicateBoardProjects(userProjectsOnly(projects));
+    projects = withExamplesProject(projects.slice(0, projectLimit));
     setProjectCache(projects);
     return projects;
   }
@@ -58,15 +71,22 @@ export function createProjectLibraryService({
   async function saveProject(project, { makeActive = true } = {}) {
     const normalized = projectWithRequiredRevision(project);
     normalized.updatedAt = new Date().toISOString();
-    const projects = [
+    if (isExampleProject(normalized)) {
+      const projects = withExamplesProject(getProjectCache());
+      setProjectCache(projects);
+      if (makeActive) storageArea.setItem(storage.projectId, normalized.id);
+      return normalized;
+    }
+    const userProjects = [
       normalized,
-      ...getProjectCache().filter((item) => item.id !== normalized.id),
+      ...userProjectsOnly(getProjectCache()).filter((item) => item.id !== normalized.id),
     ].slice(0, projectLimit);
+    const projects = withExamplesProject(userProjects);
     setProjectCache(projects);
     if (makeActive) storageArea.setItem(storage.projectId, normalized.id);
     const stored = await projectStore.putProjectRecord(normalized);
     if (!stored) {
-      writeProjectsFallbackBestEffort(projects);
+      writeProjectsFallbackBestEffort(userProjects);
     }
     return normalized;
   }
