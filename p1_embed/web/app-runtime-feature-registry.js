@@ -1,4 +1,4 @@
-import { createAppRuntimeRegistry } from "./app-runtime-registry.js?v=0.1.87-ui723";
+import { createAppRuntimeRegistry } from "./app-runtime-registry.js?v=0.1.87-ui725";
 
 export function createAppRuntimeFeatureRegistry({
   defaultPeerIdFromWebSocket,

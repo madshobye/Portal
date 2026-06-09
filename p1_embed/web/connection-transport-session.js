@@ -129,18 +129,42 @@ export function createConnectionTransportSession({
     return false;
   }
 
+  async function waitForUsbJsonCommandPath({ attempts = 4, timeoutMs = 2000, retryDelayMs = 700 } = {}) {
+    let lastError = null;
+    for (let attempt = 1; attempt <= attempts; attempt += 1) {
+      logLine("debug", `USB JSON ping attempt ${attempt}/${attempts}`);
+      try {
+        await getClient().requestJson("ping", {}, { timeoutMs });
+        logLine("debug", "USB JSON ping ok");
+        return;
+      } catch (error) {
+        lastError = error;
+        logLine("debug", `USB JSON ping failed: ${error.message || error}`);
+        if (attempt < attempts) await settle(retryDelayMs);
+      }
+    }
+    throw lastError || new Error("USB JSON ping failed");
+  }
+
   async function enableUsbMsgPack(nextTransport) {
     if (!nextTransport || typeof nextTransport.setMsgPackMode !== "function") return;
     if (!canEncodeCommand("protocol.mode")) throw new Error("No MessagePack opcode for protocol.mode");
+    logLine("debug", "USB checking JSON command path");
+    await waitForUsbJsonCommandPath();
     let response;
     try {
+      logLine("debug", "USB requesting MessagePack mode");
       response = await getClient().requestJson("protocol.mode", { mode: "msgpack" }, { timeoutMs: 5000 });
+      logLine("debug", "USB protocol.mode JSON response received");
     } catch (error) {
+      logLine("debug", `USB protocol.mode JSON failed: ${error.message || error}`);
       nextTransport.setMsgPackMode(true);
       try {
+        logLine("debug", "USB trying protocol.mode as MessagePack");
         response = await getClient().requestMsgPack("protocol.mode", { mode: "msgpack" }, { timeoutMs: 3000 });
         logLine("debug", "USB was already in binary mode");
-      } catch {
+      } catch (binaryError) {
+        logLine("debug", `USB protocol.mode MessagePack failed: ${binaryError.message || binaryError}`);
         nextTransport.setMsgPackMode(false);
         throw error;
       }

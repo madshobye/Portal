@@ -1,4 +1,4 @@
-import { createTransferRegistry } from "./transfer-registry.js?v=0.1.87-ui723";
+import { createTransferRegistry } from "./transfer-registry.js?v=0.1.87-ui725";
 
 export function createTransferFeatureRegistry({
   buildRevision,

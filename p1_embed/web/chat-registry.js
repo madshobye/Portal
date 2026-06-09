@@ -1,10 +1,10 @@
-import { createChatSettings } from "./chat-settings.js?v=0.1.87-ui723";
-import { createChatCredentials } from "./chat-credentials.js?v=0.1.87-ui723";
-import { createChatCredentialActions } from "./chat-credential-actions.js?v=0.1.87-ui723";
-import { createChatTranscript } from "./chat-transcript.js?v=0.1.87-ui723";
-import { createChatWorkflowController } from "./chat-workflow-controller.js?v=0.1.87-ui723";
-import { createChatCompletionService } from "./chat-completion-service.js?v=0.1.87-ui723";
-import { createChatShellController } from "./chat-shell-controller.js?v=0.1.87-ui723";
+import { createChatSettings } from "./chat-settings.js?v=0.1.87-ui725";
+import { createChatCredentials } from "./chat-credentials.js?v=0.1.87-ui725";
+import { createChatCredentialActions } from "./chat-credential-actions.js?v=0.1.87-ui725";
+import { createChatTranscript } from "./chat-transcript.js?v=0.1.87-ui725";
+import { createChatWorkflowController } from "./chat-workflow-controller.js?v=0.1.87-ui725";
+import { createChatCompletionService } from "./chat-completion-service.js?v=0.1.87-ui725";
+import { createChatShellController } from "./chat-shell-controller.js?v=0.1.87-ui725";
 
 export function createChatRegistry({
   activeRevision,

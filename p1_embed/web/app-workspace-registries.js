@@ -1,31 +1,31 @@
 import { inferCircuitLayout, initCircuitView, normalizeCircuitLayout } from "./circuit.js?v=0.1.87-ui554";
-import { createAppShellRegistry } from "./app-shell-registry.js?v=0.1.87-ui723";
-import { createUiFeatureRegistry } from "./ui-feature-registry.js?v=0.1.87-ui723";
-import { createCircuitRegistry } from "./circuit-registry.js?v=0.1.87-ui723";
+import { createAppShellRegistry } from "./app-shell-registry.js?v=0.1.87-ui725";
+import { createUiFeatureRegistry } from "./ui-feature-registry.js?v=0.1.87-ui725";
+import { createCircuitRegistry } from "./circuit-registry.js?v=0.1.87-ui725";
 import {
   normalizeSpecificationMode,
   specificationModeLabel,
   specificationModePrompt,
-} from "./specification-format.js?v=0.1.87-ui723";
-import { createChatAppFeatureRegistry } from "./chat-app-feature-registry.js?v=0.1.87-ui723";
-import { downloadTextFile, timestampForFilename } from "./download-utils.js?v=0.1.87-ui723";
+} from "./specification-format.js?v=0.1.87-ui725";
+import { createChatAppFeatureRegistry } from "./chat-app-feature-registry.js?v=0.1.87-ui725";
+import { downloadTextFile, timestampForFilename } from "./download-utils.js?v=0.1.87-ui725";
 import {
   createEncryptedChatKeyShareToken,
   cryptoAvailable,
   decryptEncryptedChatKeyShare,
   isEncryptedChatKeyShare,
-} from "./chat-key-share.js?v=0.1.87-ui723";
-import { isMqttKind } from "./connection-kinds.js?v=0.1.87-ui723";
-import { normalizePeerId } from "./connection-address-utils.js?v=0.1.87-ui723";
+} from "./chat-key-share.js?v=0.1.87-ui725";
+import { isMqttKind } from "./connection-kinds.js?v=0.1.87-ui725";
+import { normalizePeerId } from "./connection-address-utils.js?v=0.1.87-ui725";
 import {
   findGeneratedRevisionMatch as findGeneratedRevisionMatchFor,
   mergeGeneratedRevision as mergeGeneratedRevisionFor,
   normalizeChatMessages,
-} from "./revision-chat-model.js?v=0.1.87-ui723";
-import { createChatAppDependencies } from "./chat-app-dependencies.js?v=0.1.87-ui723";
-import { createAppShellDependencies } from "./app-shell-dependencies.js?v=0.1.87-ui723";
-import { createUiFeatureDependencies } from "./ui-feature-dependencies.js?v=0.1.87-ui723";
-import { createCircuitDependencies } from "./circuit-dependencies.js?v=0.1.87-ui723";
+} from "./revision-chat-model.js?v=0.1.87-ui725";
+import { createChatAppDependencies } from "./chat-app-dependencies.js?v=0.1.87-ui725";
+import { createAppShellDependencies } from "./app-shell-dependencies.js?v=0.1.87-ui725";
+import { createUiFeatureDependencies } from "./ui-feature-dependencies.js?v=0.1.87-ui725";
+import { createCircuitDependencies } from "./circuit-dependencies.js?v=0.1.87-ui725";
 import {
   CHAT_DEFAULT_MAX_OUTPUT_TOKENS,
   CHAT_HARD_MAX_OUTPUT_TOKENS,
@@ -34,7 +34,7 @@ import {
   chatHistoryLimit,
   defaultChatModel,
   storage,
-} from "./app-config.js?v=0.1.87-ui723";
+} from "./app-config.js?v=0.1.87-ui725";
 
 export function createWorkspaceRegistries({
   context,

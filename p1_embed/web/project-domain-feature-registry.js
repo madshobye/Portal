@@ -1,4 +1,4 @@
-import { createProjectDomain } from "./project-domain.js?v=0.1.87-ui723";
+import { createProjectDomain } from "./project-domain.js?v=0.1.87-ui725";
 
 export function createProjectDomainFeatureRegistry({
   fnv1aHex,
