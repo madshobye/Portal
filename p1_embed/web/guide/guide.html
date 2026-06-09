@@ -22,6 +22,7 @@
               <li>Keep projects as revisions with code, chat, specification, and circuit notes together.</li>
               <li>Drive NeoPixel-style LED strips, GPIO, HTTP APIs, time, sun position, UI controls, and Home Assistant entities.</li>
             </ul>
+            <p class="hero-actions"><a class="button-link" href="first-run.html">Getting Started</a></p>
           </div>
           <div class="info-box intro-bottom-note">
             <strong>Early maturing system</strong>
@@ -124,22 +125,6 @@
           <a class="reference-card" href="api/browser-ui.html"><span class="material-symbols-rounded">tune</span><strong>Browser UI</strong><p>Declare live controls, consume UI events, and update values from the running sketch.</p></a>
           <a class="reference-card" href="api/home-assistant.html"><span class="material-symbols-rounded">home_iot_device</span><strong>Home Assistant</strong><p>Expose script-defined entities and consume Home Assistant events.</p></a>
           <a class="reference-card" href="security.html"><span class="material-symbols-rounded">shield_lock</span><strong>Security model</strong><p>How local storage, USB, MQTT sign-in, guest access, and API keys are currently handled.</p></a>
-        </div>
-      </section>
-
-      <section id="start">
-        <h2>Getting Started</h2>
-        <p class="section-copy">The first setup flow gives the board enough information to join your network, identify itself, and use the AI features in the browser. USB is the simplest way to start; MQTT becomes useful once the board is on WiFi and has an online user.</p>
-        <ol class="steps">
-          <li><strong>Install firmware.</strong> Open the Install tab, connect the ESP32 over USB, and flash the current XOBIT firmware.</li>
-          <li><strong>Add WiFi.</strong> Open Settings, add the network name and password, save, and reboot if the board asks for it.</li>
-          <li><strong>Name the board.</strong> Use Settings > General to set a friendly device name. This name is shown in the status bar and integrations.</li>
-          <li><strong>Add online users.</strong> In Settings > Users, create a user name and password for MQTT sign-in. Guest UI and Guest script are separate limited access modes.</li>
-          <li><strong>Add a ChatGPT key.</strong> In Settings > AI, save an API key in the browser. The key stays local to the browser unless you create an obfuscated sharing key.</li>
-        </ol>
-        <div class="callout">
-          <strong>New to XOBIT?</strong>
-          <p>Use the <a href="first-run.html">First object walkthrough</a> for the detailed beginner path. It covers browser choice, USB install, board naming, WiFi, online users, a first script, and project backup.</p>
         </div>
       </section>
 

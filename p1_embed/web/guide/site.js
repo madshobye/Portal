@@ -5,7 +5,7 @@
 
   const navItems = [
     ["overview", "Overview", "guide.html"],
-    ["first-run", "First Run", "first-run.html"],
+    ["first-run", "Getting Started", "first-run.html"],
     ["wrench", "Script", "wrench-language.html"],
     ["api", "API", "api.html"],
     ["security", "Security", "security.html"],

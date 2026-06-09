@@ -282,6 +282,21 @@ p {
   background: var(--paper);
 }
 
+.hero-actions {
+  margin: 22px 0 0;
+}
+
+.hero-actions .button-link {
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+  padding: 12px 0 9px;
+  border-bottom-width: 2px;
+  color: var(--ink);
+  font-size: clamp(18px, 2vw, 24px);
+  font-weight: 900;
+}
+
 .grid,
 .two-grid,
 .reference-grid {
