@@ -1,5 +1,17 @@
 [
   {
+    "id": "2026-06-10-signal-group-qr",
+    "date": "2026-06-10",
+    "scope": "Guide",
+    "title": "Signal group QR added to the guide frontpage",
+    "summary": "The guide frontpage now shows a small scannable QR link for the XOBIT Signal group, aligned with the right-side alpha note.",
+    "icons": [
+      { "name": "qr_code_2", "label": "QR code", "type": "qr" },
+      { "name": "forum", "label": "Community", "type": "community" },
+      { "name": "menu_book", "label": "Guide", "type": "guide" }
+    ]
+  },
+  {
     "id": "2026-06-10-signal-group-and-bug-reporting",
     "date": "2026-06-10",
     "scope": "Guide",

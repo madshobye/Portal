@@ -250,8 +250,45 @@
       });
   }
 
+  function renderQrCanvas(text, targetSize = 82) {
+    if (typeof window.createQRCode !== "function") return null;
+    const qr = window.createQRCode(text);
+    const quiet = 3;
+    const scale = Math.max(2, Math.floor(targetSize / (qr.size + quiet * 2)));
+    const pixels = (qr.size + quiet * 2) * scale;
+    const canvas = document.createElement("canvas");
+    canvas.width = pixels;
+    canvas.height = pixels;
+    canvas.setAttribute("role", "img");
+    canvas.setAttribute("aria-label", "QR code for Signal group invite");
+    const ctx = canvas.getContext("2d");
+    ctx.fillStyle = "#ffffff";
+    ctx.fillRect(0, 0, pixels, pixels);
+    ctx.fillStyle = "#000000";
+    for (let y = 0; y < qr.size; y += 1) {
+      for (let x = 0; x < qr.size; x += 1) {
+        if (qr.getModule(x, y)) ctx.fillRect((x + quiet) * scale, (y + quiet) * scale, scale, scale);
+      }
+    }
+    return canvas;
+  }
+
+  function installQrLinks() {
+    document.querySelectorAll("[data-qr-link]").forEach((link) => {
+      const target = link.querySelector("[data-qr-target]");
+      if (!target) return;
+      try {
+        const canvas = renderQrCanvas(link.href);
+        target.replaceChildren(canvas || document.createTextNode("QR"));
+      } catch (error) {
+        target.textContent = "QR";
+      }
+    });
+  }
+
   installHeader();
   installFooter();
   installImagePopup();
   installChangeLog();
+  installQrLinks();
 })();
