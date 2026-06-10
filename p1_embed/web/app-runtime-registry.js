@@ -340,7 +340,6 @@ export function createAppRuntimeRegistry({
     if (!peerId) return "";
     const url = new URL(addressService.sharePageUrl("mqtt", "", null, peerId));
     url.searchParams.set("view", "ui");
-    url.searchParams.set("ui", "1");
     return url.toString();
   }
 
