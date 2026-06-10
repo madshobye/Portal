@@ -366,12 +366,46 @@ body.is-guest-ui .topbar-share-button {
   display: none;
 }
 
-body.is-guest-ui #app {
+body.is-guest-ui #app,
+body.is-ui-link-mode #app {
   grid-template-rows: auto minmax(0, 1fr);
 }
 
-body.is-guest-ui #ui-view {
+body.is-guest-ui #ui-view,
+body.is-ui-link-mode #ui-view {
   padding: 8px;
+}
+
+body.is-ui-link-mode .brand,
+body.is-ui-link-mode .tabs,
+body.is-ui-link-mode .topbar-guide,
+body.is-ui-link-mode .topbar-settings,
+body.is-ui-link-mode .topbar-share-button {
+  display: none;
+}
+
+body.is-ui-link-mode .app-topbar {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  padding: 6px 8px;
+  background: var(--app-bg);
+}
+
+body.is-ui-link-mode .topbar-status {
+  justify-content: stretch;
+  width: 100%;
+  min-width: 0;
+}
+
+body.is-ui-link-mode .connection-pill {
+  width: 100%;
+  max-width: none;
+  height: 26px;
+  min-height: 26px;
+  justify-content: center;
+  padding: 0 8px;
+  border-radius: 5px;
+  font-size: 10px;
 }
 
 #coding-view {

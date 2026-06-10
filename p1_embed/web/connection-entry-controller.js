@@ -78,6 +78,11 @@ export function createConnectionEntryController({
       || String(params.get("mode") || "").toLowerCase() === "guest-ui";
   }
 
+  function isUiLinkMode(params = new URLSearchParams(windowRef.location.search)) {
+    const mode = String(params.get("mode") || "").toLowerCase();
+    return params.get("ui") === "1" || mode === "ui" || mode === "ui-link";
+  }
+
   function guestKeyFromParams(params = new URLSearchParams(windowRef.location.search)) {
     return String(params.get("guestKey") || params.get("key") || "").trim();
   }
@@ -85,6 +90,7 @@ export function createConnectionEntryController({
   function applyGuestUiShell() {
     const params = new URLSearchParams(windowRef.location.search);
     documentRef.body.classList.toggle("is-guest-ui", isGuestUiLink(params));
+    documentRef.body.classList.toggle("is-ui-link-mode", isUiLinkMode(params));
   }
 
   async function autoConnectFromUrlParams() {

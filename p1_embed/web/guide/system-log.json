@@ -4,11 +4,12 @@
     "date": "2026-06-10",
     "scope": "Web",
     "title": "Web UI theme and sharing polish",
-    "summary": "The browser workspace got a cleaner light/dark theme setup, tighter toolbar spacing, calmer borders, and a new Share panel with QR links plus a safer bug report download for the current revision.",
+    "summary": "The browser workspace got a cleaner light/dark theme setup, tighter toolbar spacing, calmer borders, and a new Share panel with QR links, focused UI-only links, plus a safer bug report download for the current revision.",
     "icons": [
       { "name": "contrast", "label": "Theme", "type": "theme" },
       { "name": "ios_share", "label": "Share", "type": "share" },
       { "name": "qr_code_2", "label": "QR code", "type": "qr" },
+      { "name": "dashboard", "label": "UI link", "type": "ui-link" },
       { "name": "bug_report", "label": "Bug report", "type": "bugs" },
       { "name": "settings", "label": "Settings", "type": "settings" },
       { "name": "tune", "label": "UI polish", "type": "ui" }

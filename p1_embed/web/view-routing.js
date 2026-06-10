@@ -4,6 +4,8 @@ export function createViewRouting({
 } = {}) {
   function requestedView() {
     const params = new URLSearchParams(window.location.search);
+    const mode = String(params.get("mode") || "").toLowerCase();
+    if (params.get("ui") === "1" || mode === "ui" || mode === "ui-link") return "ui";
     return params.get("view") || params.get("tab") || "";
   }
 

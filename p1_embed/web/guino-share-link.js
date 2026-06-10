@@ -35,6 +35,7 @@ export async function guinoShareUrl({
           : "websocket";
   const url = new URL(sharePageUrl(kind, transport?.url || websocketUrl, hint, peerId));
   url.searchParams.set("view", "ui");
+  url.searchParams.set("ui", "1");
   const guestKey = await ensureGuestKey();
   if (guestKey && isMqttKind(kind)) {
     url.searchParams.set("guest", "ui");
