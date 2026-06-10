@@ -283,6 +283,9 @@ p {
 }
 
 .hero-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px 18px;
   margin: 22px 0 0;
 }
 
@@ -432,6 +435,13 @@ a.reference-card:hover {
   max-width: 60ch;
   color: var(--soft-ink);
   font-size: 18px;
+}
+
+.support-note {
+  max-width: 72ch;
+  margin-top: 18px;
+  color: var(--soft-ink);
+  font-size: 15px;
 }
 
 .info-box,

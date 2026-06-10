@@ -1,5 +1,18 @@
 [
   {
+    "id": "2026-06-10-signal-group-and-bug-reporting",
+    "date": "2026-06-10",
+    "scope": "Guide",
+    "title": "Signal group and bug reporting notes added",
+    "summary": "The guide frontpage now links to the XOBIT Signal group, and the About and Change Log pages now explain where to discuss ideas and where to send heavier bug reports.",
+    "icons": [
+      { "name": "forum", "label": "Community", "type": "community" },
+      { "name": "bug_report", "label": "Bug reports", "type": "bugs" },
+      { "name": "mail", "label": "Email", "type": "email" },
+      { "name": "menu_book", "label": "Guide", "type": "guide" }
+    ]
+  },
+  {
     "id": "2026-06-10-searchable-icon-log",
     "date": "2026-06-10",
     "scope": "Web / Guide",
