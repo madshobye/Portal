@@ -10,6 +10,7 @@ export function createAppControlBindingsController({
     bindProjectToolbarControls();
     bindScriptToolbarControls();
     controllers.projectToolbar().bind();
+    controllers.topbarShare().bind();
     fields.usbConnect.addEventListener("click", actions.connectUsb);
     fields.connectForm?.addEventListener("submit", handleConnectSubmit);
     fields.newWsToggle.addEventListener("click", actions.showNewWsField);
@@ -21,7 +22,7 @@ export function createAppControlBindingsController({
     fields.getScript.addEventListener("click", () => actions.runUiAction(actions.getScript, "reading"));
     fields.reboot.addEventListener("click", () => actions.runUiAction(() => actions.sendCommand("device.reboot"), "rebooting"));
     fields.formatCode.addEventListener("click", () => actions.runUiAction(actions.formatEditorCode, "formatting"));
-    fields.editorTheme?.addEventListener("click", actions.toggleEditorTheme);
+    fields.appTheme?.addEventListener("click", actions.toggleAppTheme);
     [fields.circuitBoardSelect, fields.circuitRefresh, fields.circuitArtMode, fields.circuitRoutingMode, fields.circuitDownload].forEach((button) => {
       ["pointerdown", "mousedown", "mouseup", "pointerup", "click"].forEach((name) => {
         button?.addEventListener(name, (event) => event.stopPropagation());
@@ -45,12 +46,6 @@ export function createAppControlBindingsController({
     fields.settingsDialog.addEventListener("close", () => state.setWifiDraftDirty(false));
     fields.consoleTimestamps.addEventListener("click", actions.toggleConsoleTimestamps);
     fields.copyConsole.addEventListener("click", actions.copyConsole);
-    fields.infoQr.addEventListener("click", actions.copyInfoShareLink);
-    fields.infoQr.addEventListener("keydown", (event) => {
-      if (event.key !== "Enter" && event.key !== " ") return;
-      event.preventDefault();
-      actions.copyInfoShareLink();
-    });
     fields.clearConsole.addEventListener("click", actions.clearConsole);
     fields.rawForm.addEventListener("submit", (event) => {
       event.preventDefault();
@@ -80,7 +75,6 @@ export function createAppControlBindingsController({
     fields.specificationMode.addEventListener("change", actions.handleSpecificationModeChange);
     fields.specificationGenerate.addEventListener("click", () => actions.runUiAction(actions.generateCodeFromSpecification, "generating"));
     fields.circuitRefresh?.addEventListener("click", actions.resetCircuitLayoutPositions);
-    fields.uiCopyLink?.addEventListener("click", actions.copyGuinoLink);
     fields.installConnect?.addEventListener("click", () => actions.runInstallAction(actions.connectFlasher));
     fields.installFlashManifest.addEventListener("click", () => actions.runInstallAction(actions.flashInstallManifest));
     fields.installGoCode.addEventListener("click", () => actions.switchTab("coding"));

@@ -39,6 +39,7 @@ export function createRuntimeRegistries({
       getCircuitWorkspaceController: accessor("getCircuitWorkspaceController"),
       getCodeEditorShellController: accessor("getCodeEditorShellController"),
       getCommandConsoleService: accessor("getCommandConsoleService"),
+      getConnectionAddressService: accessor("getConnectionAddressService"),
       getConnectionShellController: accessor("getConnectionShellController"),
       getConnectionTransportSession: accessor("getConnectionTransportSession"),
       getConnectionUiStateController: accessor("getConnectionUiStateController"),

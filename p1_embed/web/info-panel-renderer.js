@@ -1,7 +1,5 @@
 export function createInfoPanelRenderer({
   fields,
-  infoShare,
-  infoQr,
   brandVersion,
   connectMqtt,
   connectWebSocket,
@@ -85,54 +83,7 @@ export function createInfoPanelRenderer({
     return { label, value };
   }
 
-  function renderShare(shareUrl = "") {
-    const url = String(shareUrl || "");
-    infoShare.classList.toggle("is-hidden", !url);
-    if (!url) {
-      infoQr.replaceChildren();
-      delete infoQr.dataset.url;
-      return;
-    }
-
-    if (infoQr.dataset.url === url) return;
-    infoQr.dataset.url = url;
-    infoQr.replaceChildren(renderQrCanvas(url));
-  }
-
-  function renderQrCanvas(text) {
-    if (typeof window.createQRCode !== "function") {
-      const fallback = document.createElement("div");
-      fallback.className = "info-qr-fallback";
-      fallback.textContent = "QR unavailable";
-      return fallback;
-    }
-
-    try {
-      const qr = window.createQRCode(text);
-      const quiet = 4;
-      const scale = Math.max(2, Math.floor(150 / (qr.size + quiet * 2)));
-      const pixels = (qr.size + quiet * 2) * scale;
-      const canvas = document.createElement("canvas");
-      canvas.width = pixels;
-      canvas.height = pixels;
-      const ctx = canvas.getContext("2d");
-      ctx.fillStyle = "#ffffff";
-      ctx.fillRect(0, 0, pixels, pixels);
-      ctx.fillStyle = "#000000";
-      for (let y = 0; y < qr.size; y += 1) {
-        for (let x = 0; x < qr.size; x += 1) {
-          if (qr.getModule(x, y)) {
-            ctx.fillRect((x + quiet) * scale, (y + quiet) * scale, scale, scale);
-          }
-        }
-      }
-      return canvas;
-    } catch (error) {
-      const fallback = document.createElement("div");
-      fallback.className = "info-qr-fallback";
-      fallback.textContent = error.message || "QR failed";
-      return fallback;
-    }
+  function renderShare() {
   }
 
   return {

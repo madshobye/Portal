@@ -33,9 +33,6 @@ export function createWorkspaceToolbarRegistry(fields) {
         projectSelect: fields.circuitProjectSelect,
         revisionSelect: fields.circuitRevisionSelect,
       },
-      {
-        connect: fields.uiConnect,
-      },
     ];
     return toolbars;
   }

@@ -36,13 +36,13 @@ export function createSettingsShellController({
       renderFirmwareUpdatePanel();
     });
     const connected = Boolean(isDeviceConnected?.());
-    switchSettingsTab(connected ? "general" : "generative");
+    switchSettingsTab("general");
     fields.settingsDialog.showModal();
     if (connected) {
       fields.deviceNameInput.focus();
       fields.deviceNameInput.select();
     } else {
-      fields.chatApiKeyInput?.focus();
+      fields.appTheme?.focus();
     }
   }
 

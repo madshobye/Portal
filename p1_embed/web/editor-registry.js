@@ -31,6 +31,7 @@ export function createEditorRegistry({
   function getCodeEditorShellController() {
     if (codeEditorShellController) return codeEditorShellController;
     codeEditorShellController = createCodeEditorShellController({
+      documentRef,
       fields,
       storage,
       createCodeView,

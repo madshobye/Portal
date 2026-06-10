@@ -1,6 +1,10 @@
 import { createPageLifecycleController } from "./page-lifecycle-controller.js?v=0.1.87-ui744";
 import { createAppBootstrapController } from "./app-bootstrap-controller.js?v=0.1.87-ui744";
 import { createAppControlBindingsController } from "./app-control-bindings-controller.js?v=0.1.87-ui744";
+import { copyTextToClipboard } from "./clipboard.js?v=0.1.87-ui744";
+import { isMqttKind } from "./connection-kinds.js?v=0.1.87-ui744";
+import { mqttSharePeerId } from "./status-model.js?v=0.1.87-ui744";
+import { createTopbarShareController } from "./topbar-share-controller.js?v=0.1.87-ui744";
 
 export function createAppRuntimeRegistry({
   defaultPeerIdFromWebSocket,
@@ -12,6 +16,7 @@ export function createAppRuntimeRegistry({
   getCodeEditorShellController,
   getCommandConsoleService,
   getConnectionShellController,
+  getConnectionAddressService,
   getConnectionTransportSession,
   getConnectionUiStateController,
   getConsoleController,
@@ -43,6 +48,7 @@ export function createAppRuntimeRegistry({
   connectionIntentWanted,
   getClient,
   getTransport,
+  getLastStatus,
   mqttVersion,
   scriptToolbars,
   setReconnectAfterReturn,
@@ -60,6 +66,7 @@ export function createAppRuntimeRegistry({
   let pageLifecycleController = null;
   let appBootstrapController = null;
   let appControlBindingsController = null;
+  let topbarShareController = null;
 
   function getPageLifecycleController() {
     if (pageLifecycleController) return pageLifecycleController;
@@ -144,7 +151,7 @@ export function createAppRuntimeRegistry({
         getScript: (options) => getScriptDownloadService().getScript(options),
         sendCommand: (...args) => getCommandConsoleService().sendCommand(...args),
         formatEditorCode: () => getCodeEditorShellController().formatCode(),
-        toggleEditorTheme: () => getCodeEditorShellController().toggleTheme(),
+        toggleAppTheme: () => getCodeEditorShellController().toggleTheme(),
         bindSketchDrop: () => getEditorRegistry().bindCodeDrop(),
         openSettingsDialog: () => getSettingsShellController().openSettingsDialog(),
         saveDeviceName: () => getDeviceSettingsController().saveDeviceName(),
@@ -157,7 +164,6 @@ export function createAppRuntimeRegistry({
           getConsoleController().render();
         },
         copyConsole: () => getConsoleController().copy(),
-        copyInfoShareLink: () => getInfoPanelController().copyShareLink(),
         clearConsole: () => getConsoleController().clear(),
         sendRaw: () => getCommandConsoleService().sendRaw(),
         toggleChatApiKey: () => getChatShellController().toggleChatApiKey(),
@@ -173,7 +179,6 @@ export function createAppRuntimeRegistry({
         handleSpecificationModeChange: () => getSpecificationEditorController().handleModeChange(),
         generateCodeFromSpecification: () => getChatShellController().generateCodeFromSpecification(),
         resetCircuitLayoutPositions: () => getCircuitShellController().resetLayoutPositions(),
-        copyGuinoLink: () => getGuinoShellService().copyLink(),
         runInstallAction: (action) => getInstallWorkflowController().runInstallAction(action),
         connectFlasher: () => getInstallWorkflowController().connectFlasher(),
         flashInstallManifest: (options) => getInstallWorkflowController().flashInstallManifest(options),
@@ -189,6 +194,7 @@ export function createAppRuntimeRegistry({
       controllers: {
         lowerPanel: getLowerPanelController,
         projectToolbar: getProjectToolbarController,
+        topbarShare: getTopbarShareController,
         circuitWorkspace: getCircuitWorkspaceController,
         settingsTabs: getSettingsTabs,
         consolePreferences: getConsolePreferences,
@@ -197,6 +203,144 @@ export function createAppRuntimeRegistry({
       },
     });
     return appControlBindingsController;
+  }
+
+  function getTopbarShareController() {
+    if (topbarShareController) return topbarShareController;
+    topbarShareController = createTopbarShareController({
+      fields,
+      documentRef,
+      URLRef: windowRef.URL,
+      shareLinks,
+      buildBugReport,
+      copyText: copyTextToClipboard,
+      logLine: (level, message) => getConsoleController().logLine(level, message),
+    });
+    return topbarShareController;
+  }
+
+  async function buildBugReport(description = "") {
+    const transport = getTransport();
+    const activeView = documentRef.querySelector(".view.is-active")?.id || "";
+    const activeLowerPanel = documentRef.querySelector(".lower-panel.is-active")?.id || "";
+    const activeGenerativePanel = documentRef.querySelector(".generative-panel.is-active")?.dataset.generativePanel || "";
+    const projectSnapshot = await getProjectDownloadService().projectSnapshotForDownload().catch((error) => ({
+      error: error?.message || "project snapshot failed",
+    }));
+    const report = {
+      kind: "xobit-bug-report",
+      createdAt: new Date().toISOString(),
+      description: String(description || "").trim(),
+      app: {
+        webVersion,
+        mqttVersion,
+        url: windowRef.location?.href || "",
+        userAgent: windowRef.navigator?.userAgent || "",
+        language: windowRef.navigator?.language || "",
+        viewport: {
+          width: windowRef.innerWidth,
+          height: windowRef.innerHeight,
+          devicePixelRatio: windowRef.devicePixelRatio,
+        },
+      },
+      ui: {
+        activeView,
+        activeLowerPanel,
+        activeGenerativePanel,
+        theme: documentRef.body?.getAttribute("data-theme") || "",
+        debugLevel: fields.debugLevel?.value || "",
+        consoleTimestamps: Boolean(fields.consoleTimestamps?.classList.contains("is-active")),
+      },
+      connection: {
+        busy: isBusy(),
+        verified: isConnectionVerified(),
+        hasClient: Boolean(getClient()),
+        transport: summarizeTransport(transport),
+        status: getLastStatus() || null,
+      },
+      ai: {
+        model: fields.chatModel?.value || "",
+        maxOutputTokens: getChatSettings()?.maxOutputTokens?.() || null,
+        keyStored: Boolean(fields.chatApiKey?.dataset?.hasKey === "true" || fields.chatApiKeyInput?.value),
+      },
+      logs: getConsoleController().recentFormatted(180),
+      project: currentRevisionOnly(projectSnapshot),
+    };
+    return redactSensitive(report);
+  }
+
+  function currentRevisionOnly(project = null) {
+    if (!project || project.error) return project;
+    const revisions = Array.isArray(project.revisions) ? project.revisions : [];
+    const revision = revisions.find((item) => item.id === project.activeRevisionId) || revisions[0] || null;
+    return {
+      id: project.id || "",
+      name: project.name || "",
+      activeRevisionId: revision?.id || project.activeRevisionId || "",
+      updatedAt: project.updatedAt || "",
+      revision: revision ? { ...revision } : null,
+    };
+  }
+
+  function summarizeTransport(transport = null) {
+    if (!transport) return null;
+    return {
+      kind: transport.kind || "",
+      label: transport.label || "",
+      name: transport.name || "",
+      peerId: transport.peerId || "",
+      connected: Boolean(transport.connected),
+    };
+  }
+
+  function redactSensitive(value, key = "") {
+    if (Array.isArray(value)) return value.map((item) => redactSensitive(item, key));
+    if (value && typeof value === "object") {
+      return Object.fromEntries(Object.entries(value).map(([entryKey, entryValue]) => [
+        entryKey,
+        sensitiveKey(entryKey) ? "[redacted]" : redactSensitive(entryValue, entryKey),
+      ]));
+    }
+    if (typeof value === "string") return redactSensitiveString(value, key);
+    return value;
+  }
+
+  function sensitiveKey(key = "") {
+    return /(?:password|passphrase|api.?key|secret|credential|authorization|bearer|token|keyshare|sharekey|authkey)/i.test(key);
+  }
+
+  function redactSensitiveString(value = "", key = "") {
+    if (sensitiveKey(key)) return value ? "[redacted]" : "";
+    return String(value)
+      .replace(/Bearer\s+[A-Za-z0-9._~+/=-]+/g, "Bearer [redacted]")
+      .replace(/\bsk-[A-Za-z0-9_-]{20,}\b/g, "[redacted-openai-key]")
+      .replace(/\bv1:eyJ[A-Za-z0-9._~+/=-]{20,}(?:<<XOBIT_KEY_END>>)?/g, "[redacted-encrypted-key]")
+      .replace(/\b[A-Za-z0-9_-]{24,}\.[A-Za-z0-9_-]{24,}\.[A-Za-z0-9_-]{16,}\b/g, "[redacted-token]");
+  }
+
+  async function shareLinks() {
+    return {
+      ui: await getGuinoShellService().shareUrl().catch(() => ""),
+      mqtt: mqttLinkIfUsable(),
+    };
+  }
+
+  function mqttLinkIfUsable() {
+    if (!getConnectionShellController().isConnectionKindAvailable("mqtt")) return "";
+    const transport = getTransport();
+    const mqtt = getLastStatus()?.mqtt || {};
+    if (!isMqttKind(transport?.kind) && !mqtt.connected) return "";
+    const addressService = getConnectionAddressService();
+    const peerId = mqttSharePeerId({
+      mqtt,
+      transport,
+      normalizePeerId: (value) => addressService.normalizePeerId(value),
+      isMqttKind,
+    });
+    if (!peerId) return "";
+    const url = new URL(addressService.sharePageUrl("mqtt", "", null, peerId));
+    url.searchParams.set("view", "ui");
+    return url.toString();
   }
 
   return {

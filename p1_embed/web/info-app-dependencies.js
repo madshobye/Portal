@@ -34,8 +34,6 @@ export function createInfoAppDependencies({
     getTransport: () => state.transport,
     getWebRtcPeerId: () => state.lastStatus?.webrtc?.peerId || "",
     getWebSocketUrl: () => els.websocketUrl.value,
-    infoQr: els.infoQr,
-    infoShare: els.infoShare,
     isMqttKind,
     isWebRtcKind,
     normalizePeerId,

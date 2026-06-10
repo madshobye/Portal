@@ -10,6 +10,7 @@ export function createAppRuntimeAppDependencies({
   getCodeEditorShellController,
   getCommandConsoleService,
   getConnectionShellController,
+  getConnectionAddressService,
   getConnectionTransportSession,
   getConnectionUiStateController,
   getConsoleController,
@@ -56,6 +57,7 @@ export function createAppRuntimeAppDependencies({
     getCodeEditorShellController,
     getCommandConsoleService,
     getConnectionShellController,
+    getConnectionAddressService,
     getConnectionTransportSession,
     getConnectionUiStateController,
     getConsoleController,
@@ -87,6 +89,7 @@ export function createAppRuntimeAppDependencies({
     connectionIntentWanted,
     getClient: () => state.client,
     getTransport: () => state.transport,
+    getLastStatus: () => state.lastStatus,
     mqttVersion,
     scriptToolbars,
     setReconnectAfterReturn: (value) => {

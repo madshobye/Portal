@@ -14,7 +14,7 @@ export function createUiEnabledStateController({
   updateInstallEnabledState,
   renderFirmwareUpdatePanel,
 } = {}) {
-  const localSettingsTabs = new Set(["generative"]);
+  const localSettingsTabs = new Set(["general", "generative"]);
   const boardSettingsControls = () => [
     fields.deviceNameInput,
     fields.timezoneInput,
@@ -82,7 +82,10 @@ export function createUiEnabledStateController({
     boardSettingsControls().forEach((field) => {
       if (field) field.disabled = !connected || busy;
     });
-    if (!connected && fields.settingsDialog?.open) switchSettingsTab("generative");
+    if (!connected && fields.settingsDialog?.open) {
+      const activePanel = fields.settingsDialog.querySelector(".settings-panel.is-active")?.dataset.settingsPanel || "";
+      if (!localSettingsTabs.has(activePanel)) switchSettingsTab("general");
+    }
   }
 
   function switchSettingsTab(name) {

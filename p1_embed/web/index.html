@@ -26,6 +26,7 @@
         </nav>
         <div class="topbar-status">
           <div class="connection-pill" id="connection-state">not connected</div>
+          <button id="topbar-share-button" class="button compact topbar-share-button icon-buttonish" type="button" title="Share links" aria-label="Share links"><span class="material-symbols-rounded">ios_share</span></button>
           <button id="settings-button" class="button compact topbar-settings icon-buttonish" type="button" disabled title="Settings" aria-label="Settings"><span class="material-symbols-rounded">settings</span></button>
           <a class="button compact topbar-guide icon-buttonish" href="guide/guide.html" target="_blank" rel="noopener" title="Guide" aria-label="Guide"><span class="material-symbols-rounded">info</span></a>
         </div>
@@ -40,7 +41,6 @@
             <button id="stop-button" class="button icon-buttonish" type="button" disabled title="Stop" aria-label="Stop"><span class="material-symbols-rounded">stop</span></button>
             <button id="get-script-button" class="button icon-buttonish" type="button" disabled title="Load running script" aria-label="Load running script"><span class="material-symbols-rounded">file_open</span></button>
             <button id="format-code-button" class="button icon-buttonish" type="button" disabled title="Format code" aria-label="Format code"><span class="material-symbols-rounded">format_align_left</span></button>
-            <button id="editor-theme-button" class="button icon-buttonish" type="button" disabled title="Use Xcode theme" aria-label="Use Xcode theme" aria-pressed="false"><span class="material-symbols-rounded">light_mode</span></button>
             <span class="toolbar-divider toolbar-push" aria-hidden="true"></span>
             <div id="upload-status" class="upload-status is-hidden" aria-live="polite">
               <span class="material-symbols-rounded upload-status-icon">progress_activity</span>
@@ -87,9 +87,6 @@
             <section id="info-panel" class="lower-panel">
               <div class="info-layout">
                 <dl id="device-fields" class="fields"></dl>
-                <aside id="info-share" class="info-share is-hidden" aria-label="Share WebSocket link">
-                  <div id="info-qr" class="info-qr" role="button" tabindex="0" title="Copy WebSocket share link" aria-label="Copy WebSocket share link"></div>
-                </aside>
               </div>
             </section>
           </section>
@@ -184,11 +181,6 @@
       </section>
 
       <section id="ui-view" class="view ui-view" aria-label="Live UI">
-        <header class="workspace-toolbar ui-toolbar">
-          <button id="ui-connect-button" class="button primary icon-buttonish" type="button" title="Connect" aria-label="Connect"><span class="material-symbols-rounded">link</span></button>
-          <span class="toolbar-divider toolbar-push" aria-hidden="true"></span>
-          <button id="ui-copy-link-button" class="button icon-buttonish" type="button" title="Copy UI link" aria-label="Copy UI link"><span class="material-symbols-rounded">link</span></button>
-        </header>
         <section class="ui-shell">
           <div class="ui-canvas-frame">
             <div id="ui-canvas" class="ui-dom" aria-label="Firmware-driven live interface"></div>
@@ -256,6 +248,40 @@
         </section>
       </section>
     </main>
+
+    <dialog id="share-dialog" class="dialog share-dialog" aria-label="Share links">
+      <form method="dialog" class="dialog-panel">
+        <header class="dialog-header">
+          <strong>Share</strong>
+          <button class="icon-button" value="cancel" type="submit" aria-label="Close" title="Close"><span class="material-symbols-rounded">close</span></button>
+        </header>
+        <div class="dialog-grid share-grid" aria-label="Share links">
+          <article id="topbar-share-ui-card" class="dialog-card share-card">
+            <header>
+              <strong>UI link</strong>
+              <button id="topbar-share-ui-copy" class="button compact icon-buttonish" type="button" title="Copy UI link" aria-label="Copy UI link"><span class="material-symbols-rounded">content_copy</span></button>
+            </header>
+            <div id="topbar-share-ui-qr" class="share-qr"></div>
+            <input id="topbar-share-ui-link" type="text" readonly value="not ready" aria-label="UI link">
+          </article>
+          <article id="topbar-share-mqtt-card" class="dialog-card share-card is-hidden">
+            <header>
+              <strong>MQTT link</strong>
+              <button id="topbar-share-mqtt-copy" class="button compact icon-buttonish" type="button" title="Copy MQTT link" aria-label="Copy MQTT link"><span class="material-symbols-rounded">content_copy</span></button>
+            </header>
+            <div id="topbar-share-mqtt-qr" class="share-qr"></div>
+            <input id="topbar-share-mqtt-link" type="text" readonly value="not ready" aria-label="MQTT link">
+          </article>
+          <article class="dialog-card share-card bug-report-card">
+            <header>
+              <strong>Bug report</strong>
+              <button id="bug-report-download" class="button compact" type="button"><span class="material-symbols-rounded">download</span><span>Download</span></button>
+            </header>
+            <textarea id="bug-report-description" rows="5" placeholder="What happened?" aria-label="Bug description"></textarea>
+          </article>
+        </div>
+      </form>
+    </dialog>
 
     <dialog id="connect-dialog" class="dialog">
       <form method="dialog" class="dialog-panel">
@@ -336,6 +362,10 @@
                 <option value="SAST-2">Cape Town / Johannesburg</option>
               </select>
             </label>
+            <button id="app-theme-button" class="button settings-theme-button" type="button" title="Use light UI" aria-label="Use light UI" aria-pressed="false">
+              <span class="material-symbols-rounded">light_mode</span>
+              <span class="settings-theme-label">Light UI</span>
+            </button>
             <button id="device-name-save-button" class="button primary icon-buttonish" type="button" title="Apply board name" aria-label="Apply board name"><span class="material-symbols-rounded">drive_file_rename_outline</span></button>
           </div>
         </section>

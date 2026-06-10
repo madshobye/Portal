@@ -27,8 +27,6 @@ export function createInfoGuinoRegistry({
   getTransport,
   getWebRtcPeerId,
   getWebSocketUrl,
-  infoQr,
-  infoShare,
   isMqttKind,
   isScriptRunning,
   isWebRtcKind,
@@ -86,8 +84,6 @@ export function createInfoGuinoRegistry({
     if (infoPanelRenderer) return infoPanelRenderer;
     infoPanelRenderer = createInfoPanelRenderer({
       fields,
-      infoShare,
-      infoQr,
       brandVersion,
       connectMqtt,
       connectWebSocket,

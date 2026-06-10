@@ -1,5 +1,6 @@
 function normalizeEditorTheme(theme) {
-  return String(theme || "").toLowerCase() === "xcode" ? "xcode" : "chaos";
+  const value = String(theme || "").toLowerCase();
+  return value === "xcode" || value === "light" ? "xcode" : "chaos";
 }
 
 export function createCodeView({
@@ -8,6 +9,7 @@ export function createCodeView({
   themeButton,
   codeStorageKey,
   themeStorageKey,
+  documentRef = document,
   onInput = () => {},
   onValueSet = () => {},
   onLog = () => {},
@@ -28,14 +30,17 @@ export function createCodeView({
     const isXcode = normalized === "xcode";
     themeButton.classList.toggle("is-active", isXcode);
     themeButton.setAttribute("aria-pressed", isXcode ? "true" : "false");
-    themeButton.title = isXcode ? "Use Chaos theme" : "Use Xcode theme";
+    themeButton.title = isXcode ? "Use dark UI" : "Use light UI";
     themeButton.setAttribute("aria-label", themeButton.title);
     const icon = themeButton.querySelector(".material-symbols-rounded");
     if (icon) icon.textContent = isXcode ? "dark_mode" : "light_mode";
+    const label = themeButton.querySelector(".settings-theme-label");
+    if (label) label.textContent = isXcode ? "Dark UI" : "Light UI";
   }
 
   function applyTheme(theme, { persist = false } = {}) {
     currentTheme = normalizeEditorTheme(theme);
+    documentRef.body?.setAttribute("data-theme", currentTheme);
     if (editor) editor.setTheme(`ace/theme/${currentTheme}`);
     if (persist) localStorage.setItem(themeStorageKey, currentTheme);
     updateThemeButton(currentTheme);
@@ -74,7 +79,7 @@ export function createCodeView({
       return;
     }
 
-    if (themeButton) themeButton.disabled = true;
+    applyTheme(getStoredTheme());
     codeInput.addEventListener("input", handleInput);
   }
 

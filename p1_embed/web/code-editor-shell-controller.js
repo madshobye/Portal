@@ -1,4 +1,5 @@
 export function createCodeEditorShellController({
+  documentRef,
   fields,
   storage,
   createCodeView,
@@ -16,9 +17,10 @@ export function createCodeEditorShellController({
     codeView = createCodeView({
       aceHost: fields.aceHost,
       codeInput: fields.code,
-      themeButton: fields.editorTheme,
+      themeButton: fields.appTheme,
       codeStorageKey: storage.code,
-      themeStorageKey: storage.editorTheme,
+      themeStorageKey: storage.appTheme,
+      documentRef,
       onInput: handleInput,
       onValueSet: handleValueSet,
       onLog: logLine,
