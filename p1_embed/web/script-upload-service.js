@@ -25,6 +25,7 @@ export function createScriptUploadService({
   logLine,
   isMqttKind,
   isBinaryTransportKind,
+  onSuccessfulUpload,
 } = {}) {
   async function setScript({ run, save }) {
     await uploadScriptCode(getEditorValue(), { run, save });
@@ -48,6 +49,7 @@ export function createScriptUploadService({
       markEditorError(error.message);
       throw error;
     }
+    onSuccessfulUpload?.();
     await persistProjectMetadataToDevice(savedState.project, savedState.revision);
     updateScriptState(data);
     try {

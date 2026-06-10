@@ -18,6 +18,7 @@ export function createTransferFeatureRegistry({
   getProjectRevisionService,
   getTransport,
   getUploadStatusController,
+  getViewShellController,
   inferCircuitLayout,
   isMqttKind,
   nextRevisionName,
@@ -73,6 +74,7 @@ export function createTransferFeatureRegistry({
       updateConfig: (config = {}) => getDeviceStateController().updateConfig(config),
       updateScriptState: (data = {}) => getDeviceStateController().updateScriptState(data),
       uploadErrorLabel: (message = "") => getDeviceStateController().uploadErrorLabel(message),
+      onSuccessfulUpload: () => getViewShellController().recordSuccessfulUpload(),
     });
     return transferRegistry;
   }

@@ -4,7 +4,7 @@ import { createSettingsShellController } from "./settings-shell-controller.js?v=
 import { createRevisionNameDialog } from "./revision-name-dialog.js?v=0.1.87-ui744";
 import { createConsoleController } from "./console-controller.js?v=0.1.87-ui744";
 import { createCommandConsoleService } from "./command-console-service.js?v=0.1.87-ui744";
-import { product } from "./app-config.js?v=0.1.87-ui744";
+import { product, storage } from "./app-config.js?v=0.1.87-ui744";
 
 export function createUiServicesRegistry({
   copyText,
@@ -79,6 +79,9 @@ export function createUiServicesRegistry({
       requestGuinoRefresh,
       isDeviceConnected: () => getConnectionUiStateController().isDeviceConnected(),
       requestFrame: requestAnimationFrameRef,
+      getHasChatApiKey: () => getChatShellController().hasChatApiKey(),
+      storageArea: window.localStorage,
+      chatIntroUploadCountKey: storage.chatIntroUploadCount,
     });
     return viewShellController;
   }

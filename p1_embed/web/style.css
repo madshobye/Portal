@@ -59,15 +59,24 @@ textarea {
 
 .brand {
   display: flex;
-  align-items: baseline;
+  align-items: center;
   gap: 10px;
   min-width: 0;
   white-space: nowrap;
 }
 
 .brand strong {
-  font-size: 15px;
+  color: #c9c4bb;
+  font-size: clamp(22px, 2vw, 28px);
   line-height: 1;
+}
+
+.brand-xo {
+  font-weight: 100;
+}
+
+.brand-bit {
+  font-weight: 800;
 }
 
 .brand-version,
@@ -82,17 +91,21 @@ textarea {
   flex-direction: column;
   align-items: flex-start;
   min-width: 0;
+  height: 29px;
   max-width: 22ch;
   overflow: hidden;
-  gap: 1px;
-  line-height: 1.05;
+  gap: 0;
+  justify-content: center;
+  line-height: 1;
 }
 
 .brand-version-line {
   display: block;
   max-width: 100%;
+  min-height: 13px;
   overflow: hidden;
   text-overflow: ellipsis;
+  line-height: 13px;
   white-space: nowrap;
 }
 

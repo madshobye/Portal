@@ -11,9 +11,66 @@ export function createViewShellController({
   requestGuinoRefresh,
   isDeviceConnected,
   requestFrame,
+  getHasChatApiKey,
+  storageArea,
+  chatIntroUploadCountKey,
+  chatIntroUploadThreshold = 10,
 } = {}) {
+  let chatTabHidden = false;
+
+  function readChatIntroUploadCount() {
+    try {
+      const raw = Number(storageArea?.getItem?.(chatIntroUploadCountKey));
+      return Number.isFinite(raw) ? Math.max(0, Math.floor(raw)) : 0;
+    } catch {
+      return 0;
+    }
+  }
+
+  function writeChatIntroUploadCount(value) {
+    if (!storageArea || !chatIntroUploadCountKey) return;
+    try {
+      storageArea.setItem(chatIntroUploadCountKey, String(Math.max(0, Math.floor(value))));
+    } catch {
+      // Private browsing or full storage should not block code upload.
+    }
+  }
+
+  function chatTab() {
+    return fields.tabs.find((tab) => tab.dataset.tab === "chat") || null;
+  }
+
+  function shouldHideChatTab() {
+    return readChatIntroUploadCount() >= chatIntroUploadThreshold && !getHasChatApiKey?.();
+  }
+
+  function isViewAvailable(name) {
+    return Boolean(fields.views[name]) && !(name === "chat" && chatTabHidden);
+  }
+
+  function fallbackView(name) {
+    if (isViewAvailable(name)) return name;
+    return isViewAvailable("coding") ? "coding" : Object.keys(fields.views).find(isViewAvailable) || "coding";
+  }
+
+  function refreshChatTabVisibility() {
+    chatTabHidden = shouldHideChatTab();
+    const tab = chatTab();
+    if (tab) {
+      tab.hidden = chatTabHidden;
+      tab.setAttribute("aria-hidden", chatTabHidden ? "true" : "false");
+    }
+    if (chatTabHidden && fields.views.chat?.classList.contains("is-active")) switchTab("coding");
+    return !chatTabHidden;
+  }
+
+  function recordSuccessfulUpload() {
+    writeChatIntroUploadCount(readChatIntroUploadCount() + 1);
+    refreshChatTabVisibility();
+  }
+
   function switchTab(name) {
-    const nextName = fields.views[name] ? name : "coding";
+    const nextName = fallbackView(name);
     fields.tabs.forEach((tab) => tab.classList.toggle("is-active", tab.dataset.tab === nextName));
     Object.entries(fields.views).forEach(([key, view]) => view.classList.toggle("is-active", key === nextName));
     routing.storeActiveView(nextName);
@@ -38,6 +95,7 @@ export function createViewShellController({
   }
 
   function restoreActiveTab() {
+    refreshChatTabVisibility();
     switchTab(routing.initialView());
   }
 
@@ -63,6 +121,8 @@ export function createViewShellController({
 
   return {
     isNarrowGenerativeLayout,
+    recordSuccessfulUpload,
+    refreshChatTabVisibility,
     restoreActiveTab,
     showSingleGenerativePanel,
     switchLowerPanel,

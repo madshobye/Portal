@@ -70,6 +70,7 @@ function makeStorage(namespace) {
     chatMaxOutputTokens: storageKey(namespace, "chat.maxOutputTokens"),
     chatHistory: storageKey(namespace, "chat.history"),
     chatDebugPrompt: storageKey(namespace, "chat.debugPrompt"),
+    chatIntroUploadCount: storageKey(namespace, "chat.introUploadCount"),
     specificationDraft: storageKey(namespace, "project.specificationDraft"),
     revisionDraft: storageKey(namespace, "project.revisionDraft"),
     specificationMode: storageKey(namespace, "project.specificationMode"),

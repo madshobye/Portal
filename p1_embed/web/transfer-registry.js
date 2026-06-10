@@ -37,6 +37,7 @@ export function createTransferRegistry({
   updateConfig,
   updateScriptState,
   uploadErrorLabel,
+  onSuccessfulUpload,
 } = {}) {
   let boardDownloadService = null;
   let scriptDownloadService = null;
@@ -101,6 +102,7 @@ export function createTransferRegistry({
       logLine,
       isMqttKind,
       isBinaryTransportKind,
+      onSuccessfulUpload,
     });
     return scriptUploadService;
   }

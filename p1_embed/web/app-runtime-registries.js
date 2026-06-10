@@ -94,6 +94,7 @@ export function createRuntimeRegistries({
       getProjectLibraryService: accessor("getProjectLibraryService"),
       getProjectRevisionService: accessor("getProjectRevisionService"),
       getUploadStatusController: accessor("getUploadStatusController"),
+      getViewShellController: accessor("getViewShellController"),
       inferCircuitLayout,
       isMqttKind,
       normalizeChatMessages,

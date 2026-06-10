@@ -1,5 +1,18 @@
 [
   {
+    "id": "2026-06-10-ai-tab-and-topbar-polish",
+    "date": "2026-06-10",
+    "scope": "Web",
+    "title": "AI tab soft-hide and topbar polish",
+    "summary": "The AI tab now stays visible for early discovery, then hides after repeated successful uploads when no API key is stored. The topbar logo, version lines, and settings/info controls were also tightened to reduce visual jitter.",
+    "icons": [
+      { "name": "auto_awesome", "label": "AI", "type": "ai" },
+      { "name": "upload", "label": "Upload", "type": "upload" },
+      { "name": "brand_awareness", "label": "Topbar", "type": "topbar" },
+      { "name": "settings", "label": "Settings", "type": "settings" }
+    ]
+  },
+  {
     "id": "2026-06-10-signal-group-qr",
     "date": "2026-06-10",
     "scope": "Guide",

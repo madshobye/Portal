@@ -146,6 +146,7 @@ export function createWorkspaceRegistries({
       getScriptUploadService: accessor("getScriptUploadService"),
       getSpecificationEditorController: accessor("getSpecificationEditorController"),
       getUiActionRunner: accessor("getUiActionRunner"),
+      getViewShellController: accessor("getViewShellController"),
       inferCircuitLayout,
       isEncryptedChatKeyShare,
       mergeGeneratedRevision: mergeGeneratedRevisionFor,

@@ -8,6 +8,7 @@ export function createChatCredentialActions({
   isEncryptedChatKeyShare,
   updateChatEnabledState,
   renderChatTranscript,
+  onApiKeyChanged,
   logLine,
 } = {}) {
   function hasChatApiKey() {
@@ -36,6 +37,7 @@ export function createChatCredentialActions({
       updateChatKeyButton();
       updateChatEnabledState();
       renderChatTranscript();
+      onApiKeyChanged?.();
       logLine("info", "OpenAI API key cleared");
       return;
     }
@@ -54,6 +56,7 @@ export function createChatCredentialActions({
     updateChatKeyButton();
     updateChatEnabledState();
     renderChatTranscript();
+    onApiKeyChanged?.();
     logLine("info", "OpenAI API key stored in this browser");
   }
 
@@ -77,6 +80,7 @@ export function createChatCredentialActions({
     updateChatKeyButton();
     updateChatEnabledState();
     renderChatTranscript();
+    onApiKeyChanged?.();
     logLine("info", "encrypted OpenAI API key imported");
   }
 

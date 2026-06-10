@@ -13,7 +13,7 @@ export function createInfoPanelRenderer({
     const firmwareLine = firmware ? `fw ${firmware}` : "";
     brandVersion.replaceChildren(
       versionLine(webLine),
-      ...(firmwareLine ? [versionLine(firmwareLine)] : []),
+      versionLine(firmwareLine),
     );
     brandVersion.title = firmwareLine ? `${webLine} / ${firmwareLine}` : webLine;
   }

@@ -44,6 +44,7 @@ export function createChatRegistry({
   getScriptUploadService,
   getSpecificationEditorController,
   getUiActionRunner,
+  getViewShellController,
   inferCircuitLayout,
   isEncryptedChatKeyShare,
   isGenericRevisionName,
@@ -125,6 +126,7 @@ export function createChatRegistry({
       isEncryptedChatKeyShare,
       updateChatEnabledState: () => getChatShellController().updateChatEnabledState(),
       renderChatTranscript: () => getChatShellController().renderChatTranscript(),
+      onApiKeyChanged: () => getViewShellController().refreshChatTabVisibility(),
       logLine: (level, message) => getConsoleController().logLine(level, message),
     });
     return chatCredentialActions;
