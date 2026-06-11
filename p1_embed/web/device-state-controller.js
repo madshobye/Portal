@@ -29,6 +29,7 @@ export function createDeviceStateController({
   eventMessage,
   mergeStatusSnapshot,
   nextScriptErrorReport,
+  refreshViewAvailability,
 } = {}) {
   function acceptEvent(event) {
     const data = event?.data || {};
@@ -40,6 +41,7 @@ export function createDeviceStateController({
 
     if (event.name?.startsWith("ui.")) {
       getGuinoController().acceptEvent(event.name, data);
+      refreshViewAvailability?.();
     }
 
     const message = eventMessage(event.name, data);
@@ -69,6 +71,7 @@ export function createDeviceStateController({
 
   function clearGuinoForUploadEvent(data = {}) {
     getGuinoController().clearForUploadEvent(data);
+    refreshViewAvailability?.();
   }
 
   function shouldLogEvent(name, data = {}, message = "") {

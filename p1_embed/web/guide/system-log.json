@@ -1,5 +1,27 @@
 [
   {
+    "id": "2026-06-11-own-llm-guide",
+    "date": "2026-06-11",
+    "scope": "Guide",
+    "title": "Own LLM guide",
+    "summary": "The guide now has a page for using ChatGPT or another LLM with the public XOBIT Wrench context URL, plus copy buttons for guide prompt and code boxes.",
+    "icons": [
+      { "name": "psychology", "label": "Own LLM", "type": "ai" },
+      { "name": "content_copy", "label": "Copy", "type": "copy" },
+      { "name": "menu_book", "label": "Guide", "type": "guide" }
+    ]
+  },
+  {
+    "id": "2026-06-11-smarter-ui-tab",
+    "date": "2026-06-11",
+    "scope": "Web",
+    "title": "Smarter UI tab",
+    "summary": "The workspace UI tab is quieter until a running sketch exposes live controls, so projects without a browser UI do not show an empty UI view as prominently.",
+    "icons": [
+      { "name": "tune", "label": "UI", "type": "ui" }
+    ]
+  },
+  {
     "id": "2026-06-10-web-ui-theme-share-polish",
     "date": "2026-06-10",
     "scope": "Web",

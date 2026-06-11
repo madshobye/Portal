@@ -1,4 +1,4 @@
-import { createInfoFeatureRegistry } from "./info-feature-registry.js?v=0.1.87-ui744";
+import { createInfoFeatureRegistry } from "./info-feature-registry.js?v=0.1.87-ui745";
 
 export function createInfoAppFeatureRegistry({
   brandVersion,
@@ -23,6 +23,7 @@ export function createInfoAppFeatureRegistry({
   isMqttKind,
   isWebRtcKind,
   normalizePeerId,
+  onGuinoAvailabilityChange,
   uiCanvas,
   webVersion,
 } = {}) {
@@ -53,6 +54,7 @@ export function createInfoAppFeatureRegistry({
       isMqttKind,
       isWebRtcKind,
       normalizePeerId,
+      onGuinoAvailabilityChange,
       uiCanvas,
       webVersion,
     });

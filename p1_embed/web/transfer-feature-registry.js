@@ -1,4 +1,4 @@
-import { createTransferRegistry } from "./transfer-registry.js?v=0.1.87-ui744";
+import { createTransferRegistry } from "./transfer-registry.js?v=0.1.87-ui745";
 
 export function createTransferFeatureRegistry({
   buildRevision,
@@ -75,6 +75,7 @@ export function createTransferFeatureRegistry({
       updateScriptState: (data = {}) => getDeviceStateController().updateScriptState(data),
       uploadErrorLabel: (message = "") => getDeviceStateController().uploadErrorLabel(message),
       onSuccessfulUpload: () => getViewShellController().recordSuccessfulUpload(),
+      refreshViewAvailability: () => getViewShellController().refreshViewAvailability(),
     });
     return transferRegistry;
   }

@@ -1,6 +1,6 @@
-import { createBoardDownloadService } from "./board-download-service.js?v=0.1.87-ui744";
-import { createScriptDownloadService } from "./script-download-service.js?v=0.1.87-ui744";
-import { createScriptUploadService } from "./script-upload-service.js?v=0.1.87-ui744";
+import { createBoardDownloadService } from "./board-download-service.js?v=0.1.87-ui745";
+import { createScriptDownloadService } from "./script-download-service.js?v=0.1.87-ui745";
+import { createScriptUploadService } from "./script-upload-service.js?v=0.1.87-ui745";
 
 export function createTransferRegistry({
   buildRevision,
@@ -38,6 +38,7 @@ export function createTransferRegistry({
   updateScriptState,
   uploadErrorLabel,
   onSuccessfulUpload,
+  refreshViewAvailability,
 } = {}) {
   let boardDownloadService = null;
   let scriptDownloadService = null;
@@ -103,6 +104,7 @@ export function createTransferRegistry({
       isMqttKind,
       isBinaryTransportKind,
       onSuccessfulUpload,
+      refreshViewAvailability,
     });
     return scriptUploadService;
   }

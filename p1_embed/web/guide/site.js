@@ -8,6 +8,7 @@
     ["first-run", "Getting Started", "first-run.html"],
     ["wrench", "Script", "wrench-language.html"],
     ["modules", "Modules", "modules.html"],
+    ["custom-llm", "Own LLM", "custom-llm.html"],
     ["security", "Security", "security.html"],
     ["system-log", "Change Log", "system-log.html"],
     ["about", "About", "about.html"]
@@ -18,6 +19,7 @@
     const name = location.pathname.split("/").pop();
     if (name === "first-run.html") return "first-run";
     if (name === "wrench-language.html") return "wrench";
+    if (name === "custom-llm.html") return "custom-llm";
     if (name === "security.html") return "security";
     if (name === "system-log.html") return "system-log";
     if (name === "about.html") return "about";
@@ -114,6 +116,40 @@
     });
     document.addEventListener("keydown", (event) => {
       if (event.key === "Escape" && popup.classList.contains("is-open")) closeImage();
+    });
+  }
+
+  function installCodeCopyButtons() {
+    document.querySelectorAll("pre").forEach((block) => {
+      if (block.closest(".code-copy-wrap")) return;
+      const wrap = document.createElement("div");
+      wrap.className = "code-copy-wrap";
+      const button = document.createElement("button");
+      button.className = "code-copy-button";
+      button.type = "button";
+      button.title = "Copy";
+      button.setAttribute("aria-label", "Copy code");
+      button.innerHTML = '<span class="material-symbols-rounded" aria-hidden="true">content_copy</span>';
+      block.before(wrap);
+      wrap.append(block, button);
+      button.addEventListener("click", async () => {
+        try {
+          await navigator.clipboard.writeText(block.textContent || "");
+          button.classList.add("is-copied");
+          button.title = "Copied";
+          button.setAttribute("aria-label", "Copied");
+          button.querySelector(".material-symbols-rounded").textContent = "check";
+          window.setTimeout(() => {
+            button.classList.remove("is-copied");
+            button.title = "Copy";
+            button.setAttribute("aria-label", "Copy code");
+            button.querySelector(".material-symbols-rounded").textContent = "content_copy";
+          }, 1200);
+        } catch {
+          button.title = "Copy failed";
+          button.setAttribute("aria-label", "Copy failed");
+        }
+      });
     });
   }
 
@@ -289,6 +325,7 @@
   installHeader();
   installFooter();
   installImagePopup();
+  installCodeCopyButtons();
   installChangeLog();
   installQrLinks();
 })();

@@ -1,4 +1,4 @@
-import { createProjectFeatureRegistry } from "./project-feature-registry.js?v=0.1.87-ui744";
+import { createProjectFeatureRegistry } from "./project-feature-registry.js?v=0.1.87-ui745";
 
 export function createProjectAppFeatureRegistry({
   documentRef,

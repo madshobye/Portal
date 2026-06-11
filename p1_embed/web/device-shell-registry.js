@@ -1,11 +1,11 @@
-import { createConnectionStatusRenderer } from "./connection-status-renderer.js?v=0.1.87-ui744";
-import { createUiEnabledStateController } from "./ui-enabled-state-controller.js?v=0.1.87-ui744";
-import { createConnectionUiStateController } from "./connection-ui-state-controller.js?v=0.1.87-ui744";
-import { createUiActionRunner } from "./ui-action-runner.js?v=0.1.87-ui744";
-import { createDeviceRefreshService } from "./device-refresh-service.js?v=0.1.87-ui744";
-import { createUploadStatusController } from "./upload-status-controller.js?v=0.1.87-ui744";
-import { createEventLogFilter } from "./event-status-model.js?v=0.1.87-ui744";
-import { createDeviceStateController } from "./device-state-controller.js?v=0.1.87-ui744";
+import { createConnectionStatusRenderer } from "./connection-status-renderer.js?v=0.1.87-ui745";
+import { createUiEnabledStateController } from "./ui-enabled-state-controller.js?v=0.1.87-ui745";
+import { createConnectionUiStateController } from "./connection-ui-state-controller.js?v=0.1.87-ui745";
+import { createUiActionRunner } from "./ui-action-runner.js?v=0.1.87-ui745";
+import { createDeviceRefreshService } from "./device-refresh-service.js?v=0.1.87-ui745";
+import { createUploadStatusController } from "./upload-status-controller.js?v=0.1.87-ui745";
+import { createEventLogFilter } from "./event-status-model.js?v=0.1.87-ui745";
+import { createDeviceStateController } from "./device-state-controller.js?v=0.1.87-ui745";
 
 export function createDeviceShellRegistry({
   connectionDeviceLabel,
@@ -33,6 +33,7 @@ export function createDeviceShellRegistry({
   getMqttShellService,
   getProjectToolbarController,
   getTransport,
+  getViewShellController,
   getWifiDraftDirty,
   getWifiNetworkListRenderer,
   isBusy,
@@ -122,6 +123,7 @@ export function createDeviceShellRegistry({
       getUiEnabledStateController,
       getConnectionShellController,
       getGuinoController,
+      refreshViewAvailability: () => getViewShellController?.().refreshViewAvailability(),
     });
     return connectionUiStateController;
   }
@@ -205,6 +207,7 @@ export function createDeviceShellRegistry({
       eventMessage,
       mergeStatusSnapshot,
       nextScriptErrorReport,
+      refreshViewAvailability: () => getViewShellController?.().refreshViewAvailability(),
     });
     return deviceStateController;
   }

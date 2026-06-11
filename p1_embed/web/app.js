@@ -1,13 +1,13 @@
 import { MQTT_WEBRTC_TRANSPORT_VERSION } from "./protocol/MqttWebRtcTransport.js?v=0.1.87-ui348";
 import { MQTT_TRANSPORT_VERSION } from "./protocol/MqttTransport.js?v=0.1.87-ui349";
-import { renderProjectControlClusters } from "./ide-toolbar.js?v=0.1.87-ui744";
-import { createDomRefs } from "./dom-refs.js?v=0.1.87-ui744";
-import { createAppState } from "./app-state.js?v=0.1.87-ui744";
-import { createAppControllerAccessors } from "./app-controller-accessors.js?v=0.1.87-ui744";
-import { createAppRegistries } from "./app-registry-factory.js?v=0.1.87-ui744";
-import { migrateLegacyBrowserStorage, product } from "./app-config.js?v=0.1.87-ui744";
+import { renderProjectControlClusters } from "./ide-toolbar.js?v=0.1.87-ui745";
+import { createDomRefs } from "./dom-refs.js?v=0.1.87-ui745";
+import { createAppState } from "./app-state.js?v=0.1.87-ui745";
+import { createAppControllerAccessors } from "./app-controller-accessors.js?v=0.1.87-ui745";
+import { createAppRegistries } from "./app-registry-factory.js?v=0.1.87-ui745";
+import { migrateLegacyBrowserStorage, product } from "./app-config.js?v=0.1.87-ui745";
 
-const WEB_UI_VERSION = "0.1.87-ui744";
+const WEB_UI_VERSION = "0.1.87-ui745";
 console.info(`[${product.logLabel}] loaded ${WEB_UI_VERSION}`, { mqtt: MQTT_TRANSPORT_VERSION, mqttWebRtc: MQTT_WEBRTC_TRANSPORT_VERSION });
 
 const narrowGenerativeQuery = window.matchMedia?.("(max-width: 760px)");

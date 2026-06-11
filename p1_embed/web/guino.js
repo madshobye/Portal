@@ -14,17 +14,18 @@ function colorFromRgb(r, g, b) {
   return `#${toHex(r)}${toHex(g)}${toHex(b)}`;
 }
 
-export function initGuinoView({ canvas, status, widgetList, sendInput, requestRefresh }) {
-  return new GuinoView({ root: canvas, status, widgetList, sendInput, requestRefresh });
+export function initGuinoView({ canvas, status, widgetList, sendInput, requestRefresh, onAvailabilityChange }) {
+  return new GuinoView({ root: canvas, status, widgetList, sendInput, requestRefresh, onAvailabilityChange });
 }
 
 class GuinoView {
-  constructor({ root, status, widgetList, sendInput, requestRefresh }) {
+  constructor({ root, status, widgetList, sendInput, requestRefresh, onAvailabilityChange }) {
     this.root = root;
     this.status = status;
     this.widgetList = widgetList;
     this.sendInput = sendInput;
     this.requestRefresh = requestRefresh;
+    this.onAvailabilityChange = onAvailabilityChange;
     this.title = "Live UI";
     this.widgets = new Map();
     this.connected = false;
@@ -35,6 +36,8 @@ class GuinoView {
     this.renderPending = false;
     this.renderTimer = 0;
     this.inputSendTimers = new Map();
+    this.availability = "unknown";
+    this.emptyAvailabilityTimer = 0;
 
     if (!this.root) return;
     this.root.classList.add("ui-dom");
@@ -50,16 +53,36 @@ class GuinoView {
     const next = Boolean(connected);
     if (this.connected === next) return;
     this.connected = next;
+    if (!next) {
+      this.setAvailability("unknown");
+    } else if (!this.widgets.size) {
+      this.markUiRefreshPending();
+    }
     this.render();
   }
 
   resize() {
   }
 
+  hasActiveUi() {
+    return this.widgets.size > 0;
+  }
+
+  shouldShowUiTab() {
+    return this.widgets.size > 0;
+  }
+
+  markUiRefreshPending() {
+    if (!this.connected) return;
+    this.setAvailability("pending");
+    this.scheduleEmptyAvailabilityCheck();
+  }
+
   clear() {
     this.widgets.clear();
     this.title = "Live UI";
     this.lastInput = "";
+    this.setAvailability("empty");
     this.renderList();
     this.setStatus();
     this.render();
@@ -70,6 +93,8 @@ class GuinoView {
     if (name === "ui.reset" || name === "ui.clear") {
       this.widgets.clear();
       this.title = data.title || "Live UI";
+      this.setAvailability("pending");
+      this.scheduleEmptyAvailabilityCheck();
     } else if (name === "ui.item") {
       this.upsertWidget(data);
     } else if (name === "ui.value") {
@@ -84,7 +109,33 @@ class GuinoView {
     this.renderList();
     this.setStatus();
     this.scheduleRender();
+    this.updateAvailabilityFromWidgets();
     return true;
+  }
+
+  setAvailability(value) {
+    if (this.availability === value) return;
+    this.availability = value;
+    this.onAvailabilityChange?.(value);
+  }
+
+  scheduleEmptyAvailabilityCheck() {
+    window.clearTimeout(this.emptyAvailabilityTimer);
+    this.emptyAvailabilityTimer = window.setTimeout(() => {
+      this.emptyAvailabilityTimer = 0;
+      this.updateAvailabilityFromWidgets({ settleEmpty: true });
+    }, 900);
+  }
+
+  updateAvailabilityFromWidgets({ settleEmpty = false } = {}) {
+    if (this.widgets.size > 0) {
+      window.clearTimeout(this.emptyAvailabilityTimer);
+      this.emptyAvailabilityTimer = 0;
+      this.setAvailability("active");
+      return;
+    }
+    if (this.availability === "pending" && !settleEmpty) return;
+    this.setAvailability("empty");
   }
 
   setStyle(data = {}) {

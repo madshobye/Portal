@@ -26,6 +26,7 @@ export function createScriptUploadService({
   isMqttKind,
   isBinaryTransportKind,
   onSuccessfulUpload,
+  refreshViewAvailability,
 } = {}) {
   async function setScript({ run, save }) {
     await uploadScriptCode(getEditorValue(), { run, save });
@@ -40,6 +41,7 @@ export function createScriptUploadService({
     await openRevision(savedState.project, savedState.revision, { saveCurrent: false });
     getUploadStatusController().markLocalActive();
     getGuinoController().clear();
+    refreshViewAvailability?.();
     setUploadState("uploading", "Uploading code", 8);
     try {
       clearEditorError();

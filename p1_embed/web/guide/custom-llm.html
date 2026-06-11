@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Use Your Own LLM - XOBIT Guide</title>
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@24,400,0,0">
+    <link rel="stylesheet" href="site.css?v=guide-style-4">
+  </head>
+  <body data-guide-section="custom-llm">
+
+    <main>
+      <section class="page-hero panel">
+        <p class="eyebrow">Bring your own model</p>
+        <h1>Use ChatGPT or another LLM</h1>
+        <p class="lead">You can ask any model to generate a XOBIT Wrench script by giving it the same Wrench context file that the built-in assistant uses.</p>
+      </section>
+
+      <section>
+        <h2>Two Ways To Use AI</h2>
+        <p class="section-copy">The built-in XOBIT assistant works best with an OpenAI API key in Settings &gt; AI. That lets the browser keep chat, code, sketch name, and project specification together inside the workspace.</p>
+        <p class="section-copy">If you do not want to create or share an API key, you can still use ChatGPT, another hosted LLM, or a local model outside XOBIT. Give that model the context URL below, ask for a Wrench script, then paste the generated code back into XOBIT.</p>
+      </section>
+
+      <section>
+        <h2>Context URL</h2>
+        <p class="section-copy">Copy this URL into ChatGPT or another LLM that can read links. This Markdown file is the canonical XOBIT prompt context for Wrench syntax, modules, output format, naming, specification cleanup, and circuit comments.</p>
+        <pre class="code">https://madshobye.github.io/Portal/p1_embed/web/wrench_chat_context.md</pre>
+        <p class="section-copy">If the model cannot open links, open the URL yourself and paste the Markdown text into the chat.</p>
+      </section>
+
+      <section>
+        <h2>Paste This Prompt</h2>
+        <p class="section-copy">Use this after the context URL. Replace the project line with the object you want to make.</p>
+        <pre class="code">Use this XOBIT Wrench context:
+https://madshobye.github.io/Portal/p1_embed/web/wrench_chat_context.md
+
+Generate a complete XOBIT Wrench script for this project:
+Make a simple LED blink on GPIO 16.
+
+Follow the response contract in the context file. Return the sketch name, cleaned project specification, complete code, notes, and warnings. Do not generate a circuit diagram.</pre>
+      </section>
+
+      <section>
+        <h2>Use The Result</h2>
+        <ul class="notes">
+          <li><strong>Copy the generated `code`</strong> into the XOBIT Code view and upload it.</li>
+          <li><strong>Copy `project_specification`</strong> into the specification box if you want the revision documented.</li>
+          <li><strong>Use `sketch_name`</strong> as the project or revision name when it describes the result well.</li>
+          <li><strong>Check hardware details</strong> before uploading: pins, LED counts, power, sensors, relays, and any Home Assistant entity names.</li>
+        </ul>
+      </section>
+
+      <section>
+        <h2>Useful Add-on Context</h2>
+        <p class="section-copy">For more specialized sketches, add one module guide link after the Wrench context URL.</p>
+        <div class="reference-grid">
+          <a class="reference-card" href="modules/led-strips.html"><span class="material-symbols-rounded">flare</span><strong>LED strips</strong><p>NeoPixel setup, colors, brightness, palettes, and frame output.</p></a>
+          <a class="reference-card" href="modules/browser-ui.html"><span class="material-symbols-rounded">tune</span><strong>Browser controls</strong><p>Declare controls, read UI events, and update values from the sketch.</p></a>
+          <a class="reference-card" href="modules/gpio-pwm.html"><span class="material-symbols-rounded">memory</span><strong>Pins and actuators</strong><p>Digital pins, analog input, PWM, servos, fans, and simple outputs.</p></a>
+          <a class="reference-card" href="modules/home-assistant.html"><span class="material-symbols-rounded">home_iot_device</span><strong>Home Assistant</strong><p>Expose script-defined entities and consume Home Assistant events.</p></a>
+        </div>
+      </section>
+    </main>
+    <script src="site.js?v=guide-shell-10"></script>
+  </body>
+</html>

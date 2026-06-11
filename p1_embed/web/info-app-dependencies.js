@@ -11,6 +11,7 @@ export function createInfoAppDependencies({
   isMqttKind,
   isWebRtcKind,
   normalizePeerId,
+  onGuinoAvailabilityChange,
   state,
   webVersion,
 } = {}) {
@@ -37,6 +38,7 @@ export function createInfoAppDependencies({
     isMqttKind,
     isWebRtcKind,
     normalizePeerId,
+    onGuinoAvailabilityChange,
     uiCanvas: els.uiCanvas,
     webVersion,
   };

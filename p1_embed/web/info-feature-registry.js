@@ -1,5 +1,5 @@
-import { createInfoGuinoRegistry } from "./info-guino-registry.js?v=0.1.87-ui744";
-import { formatDuration } from "./display-formatters.js?v=0.1.87-ui744";
+import { createInfoGuinoRegistry } from "./info-guino-registry.js?v=0.1.87-ui745";
+import { formatDuration } from "./display-formatters.js?v=0.1.87-ui745";
 import {
   activePeerId as activePeerIdFor,
   memoryStatusLabel as memoryStatusLabelFor,
@@ -8,7 +8,7 @@ import {
   scriptStatusLabel as scriptStatusLabelFor,
   wifiSignalLabel as wifiSignalLabelFor,
   wrenchFpsLabel as wrenchFpsLabelFor,
-} from "./status-model.js?v=0.1.87-ui744";
+} from "./status-model.js?v=0.1.87-ui745";
 
 export function createInfoFeatureRegistry({
   brandVersion,
@@ -33,6 +33,7 @@ export function createInfoFeatureRegistry({
   isMqttKind,
   isWebRtcKind,
   normalizePeerId,
+  onGuinoAvailabilityChange,
   uiCanvas,
   webVersion,
 } = {}) {
@@ -86,6 +87,7 @@ export function createInfoFeatureRegistry({
       memoryStatusLabel: () => memoryStatusLabelFor({ lastStatus: lastStatus(), lastInfo: lastInfo() }),
       mqttSharePeerId: (mqtt = {}) => mqttSharePeerIdFor({ mqtt, transport: transport(), normalizePeerId, isMqttKind }),
       normalizePeerId,
+      onGuinoAvailabilityChange,
       scriptRuntimeLabel: () => scriptRuntimeLabelFor(lastStatus()),
       scriptStatusLabel: () => scriptStatusLabelFor(lastStatus()),
       sharePageUrl: (...args) => getConnectionAddressService().sharePageUrl(...args),

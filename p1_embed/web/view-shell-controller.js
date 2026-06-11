@@ -12,40 +12,27 @@ export function createViewShellController({
   isDeviceConnected,
   requestFrame,
   getHasChatApiKey,
-  storageArea,
-  chatIntroUploadCountKey,
-  chatIntroUploadThreshold = 10,
+  getHasActiveUi,
 } = {}) {
-  let chatTabHidden = false;
+  let hiddenViews = {
+    chat: false,
+    ui: false,
+  };
 
-  function readChatIntroUploadCount() {
-    try {
-      const raw = Number(storageArea?.getItem?.(chatIntroUploadCountKey));
-      return Number.isFinite(raw) ? Math.max(0, Math.floor(raw)) : 0;
-    } catch {
-      return 0;
-    }
-  }
-
-  function writeChatIntroUploadCount(value) {
-    if (!storageArea || !chatIntroUploadCountKey) return;
-    try {
-      storageArea.setItem(chatIntroUploadCountKey, String(Math.max(0, Math.floor(value))));
-    } catch {
-      // Private browsing or full storage should not block code upload.
-    }
-  }
-
-  function chatTab() {
-    return fields.tabs.find((tab) => tab.dataset.tab === "chat") || null;
+  function tabFor(name) {
+    return fields.tabs.find((tab) => tab.dataset.tab === name) || null;
   }
 
   function shouldHideChatTab() {
-    return readChatIntroUploadCount() >= chatIntroUploadThreshold && !getHasChatApiKey?.();
+    return !getHasChatApiKey?.();
+  }
+
+  function shouldHideUiTab() {
+    return !getHasActiveUi?.();
   }
 
   function isViewAvailable(name) {
-    return Boolean(fields.views[name]) && !(name === "chat" && chatTabHidden);
+    return Boolean(fields.views[name]) && !hiddenViews[name];
   }
 
   function fallbackView(name) {
@@ -53,20 +40,36 @@ export function createViewShellController({
     return isViewAvailable("coding") ? "coding" : Object.keys(fields.views).find(isViewAvailable) || "coding";
   }
 
+  function refreshViewAvailability() {
+    hiddenViews = {
+      ...hiddenViews,
+      chat: shouldHideChatTab(),
+      ui: shouldHideUiTab(),
+    };
+    Object.entries(hiddenViews).forEach(([name, hidden]) => {
+      const tab = tabFor(name);
+      if (!tab) return;
+      tab.hidden = hidden;
+      tab.setAttribute("aria-hidden", hidden ? "true" : "false");
+    });
+    const activeHiddenView = Object.keys(hiddenViews).find((name) => hiddenViews[name] && fields.views[name]?.classList.contains("is-active"));
+    if (activeHiddenView) switchTab("coding");
+    return {
+      chat: !hiddenViews.chat,
+      ui: !hiddenViews.ui,
+    };
+  }
+
   function refreshChatTabVisibility() {
-    chatTabHidden = shouldHideChatTab();
-    const tab = chatTab();
-    if (tab) {
-      tab.hidden = chatTabHidden;
-      tab.setAttribute("aria-hidden", chatTabHidden ? "true" : "false");
-    }
-    if (chatTabHidden && fields.views.chat?.classList.contains("is-active")) switchTab("coding");
-    return !chatTabHidden;
+    return refreshViewAvailability().chat;
+  }
+
+  function refreshUiTabVisibility() {
+    return refreshViewAvailability().ui;
   }
 
   function recordSuccessfulUpload() {
-    writeChatIntroUploadCount(readChatIntroUploadCount() + 1);
-    refreshChatTabVisibility();
+    refreshViewAvailability();
   }
 
   function switchTab(name) {
@@ -95,7 +98,7 @@ export function createViewShellController({
   }
 
   function restoreActiveTab() {
-    refreshChatTabVisibility();
+    refreshViewAvailability();
     switchTab(routing.initialView());
   }
 
@@ -123,6 +126,8 @@ export function createViewShellController({
     isNarrowGenerativeLayout,
     recordSuccessfulUpload,
     refreshChatTabVisibility,
+    refreshUiTabVisibility,
+    refreshViewAvailability,
     restoreActiveTab,
     showSingleGenerativePanel,
     switchLowerPanel,

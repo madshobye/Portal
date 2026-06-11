@@ -1,10 +1,11 @@
-import { initGuinoView } from "./guino.js?v=0.1.87-ui563";
+import { initGuinoView } from "./guino.js?v=0.1.87-ui745";
 
 export function createGuinoController({
   canvas,
   isConnected,
   sendCommand,
   logLine,
+  onAvailabilityChange,
 } = {}) {
   let view = null;
 
@@ -13,6 +14,7 @@ export function createGuinoController({
       canvas,
       sendInput,
       requestRefresh: () => requestRefresh({ quiet: false }),
+      onAvailabilityChange,
     });
     return view;
   }
@@ -26,6 +28,7 @@ export function createGuinoController({
 
   async function requestRefresh({ quiet = false } = {}) {
     if (!isConnected()) return;
+    view?.markUiRefreshPending?.();
     try {
       await sendCommand("script.input", { channel: "ui.system", message: "hello" }, { timeoutMs: 5000, quiet: true });
       if (!quiet) logLine("info", "asked sketch to redraw UI");
@@ -36,6 +39,14 @@ export function createGuinoController({
 
   function acceptEvent(name, data) {
     view?.acceptEvent(name, data);
+  }
+
+  function hasActiveUi() {
+    return Boolean(view?.hasActiveUi?.());
+  }
+
+  function shouldShowUiTab() {
+    return Boolean(view?.shouldShowUiTab?.());
   }
 
   function clear() {
@@ -61,10 +72,12 @@ export function createGuinoController({
     acceptEvent,
     clear,
     clearForUploadEvent,
+    hasActiveUi,
     init,
     requestRefresh,
     resize,
     sendInput,
+    shouldShowUiTab,
     syncConnectionState,
   };
 }

@@ -1,4 +1,4 @@
-import { product } from "./app-config.js?v=0.1.87-ui744";
+import { product } from "./app-config.js?v=0.1.87-ui745";
 
 export function createInfoPanelController({
   renderer,

@@ -1,19 +1,19 @@
-import { createDeviceShellRegistry } from "./device-shell-registry.js?v=0.1.87-ui744";
+import { createDeviceShellRegistry } from "./device-shell-registry.js?v=0.1.87-ui745";
 import {
   eventLogLevel as eventLogLevelFor,
   eventMessage as eventMessageFor,
   mergeStatusSnapshot as mergeStatusSnapshotFor,
   nextScriptErrorReport,
-} from "./event-status-model.js?v=0.1.87-ui744";
-import { setSelectValueOrFallback } from "./settings-fields.js?v=0.1.87-ui744";
+} from "./event-status-model.js?v=0.1.87-ui745";
+import { setSelectValueOrFallback } from "./settings-fields.js?v=0.1.87-ui745";
 import {
   memoryStatusLabel as memoryStatusLabelFor,
   scriptStatusLabel as scriptStatusLabelFor,
   transportProtocolLabel as transportProtocolLabelFor,
   wifiStatusLabel as wifiStatusLabelFor,
   wrenchFpsLabel as wrenchFpsLabelFor,
-} from "./status-model.js?v=0.1.87-ui744";
-import { parseWrenchErrorLocation } from "./wrench-error-locator.js?v=0.1.87-ui744";
+} from "./status-model.js?v=0.1.87-ui745";
+import { parseWrenchErrorLocation } from "./wrench-error-locator.js?v=0.1.87-ui745";
 
 export function createDeviceFeatureRegistry({
   documentRef,
@@ -38,6 +38,7 @@ export function createDeviceFeatureRegistry({
   getMqttShellService,
   getProjectToolbarController,
   getTransport,
+  getViewShellController,
   getWifiDraftDirty,
   getWifiNetworkListRenderer,
   isBusy,
@@ -99,6 +100,7 @@ export function createDeviceFeatureRegistry({
       getMqttShellService,
       getProjectToolbarController,
       getTransport,
+      getViewShellController,
       getWifiDraftDirty,
       getWifiNetworkListRenderer,
       isBusy,

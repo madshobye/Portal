@@ -10,6 +10,7 @@ export function createConnectionUiStateController({
   getUiEnabledStateController,
   getConnectionShellController,
   getGuinoController,
+  refreshViewAvailability,
 } = {}) {
   function isDeviceConnected() {
     return Boolean(getClient() && getTransport()?.connected && getConnectionVerified());
@@ -31,8 +32,9 @@ export function createConnectionUiStateController({
     updateEnabledState();
     getConnectionShellController().renderConnectionHistory();
     renderFields();
-    if (connected && fields.views.ui?.classList.contains("is-active")) {
+    if (connected) {
       getGuinoController().requestRefresh({ quiet: true });
+      refreshViewAvailability?.();
     }
   }
 

@@ -1,10 +1,10 @@
-import { createProjectToolbarController } from "./project-toolbar-controller.js?v=0.1.87-ui744";
-import { createViewShellController } from "./view-shell-controller.js?v=0.1.87-ui744";
-import { createSettingsShellController } from "./settings-shell-controller.js?v=0.1.87-ui744";
-import { createRevisionNameDialog } from "./revision-name-dialog.js?v=0.1.87-ui744";
-import { createConsoleController } from "./console-controller.js?v=0.1.87-ui744";
-import { createCommandConsoleService } from "./command-console-service.js?v=0.1.87-ui744";
-import { product, storage } from "./app-config.js?v=0.1.87-ui744";
+import { createProjectToolbarController } from "./project-toolbar-controller.js?v=0.1.87-ui745";
+import { createViewShellController } from "./view-shell-controller.js?v=0.1.87-ui745";
+import { createSettingsShellController } from "./settings-shell-controller.js?v=0.1.87-ui745";
+import { createRevisionNameDialog } from "./revision-name-dialog.js?v=0.1.87-ui745";
+import { createConsoleController } from "./console-controller.js?v=0.1.87-ui745";
+import { createCommandConsoleService } from "./command-console-service.js?v=0.1.87-ui745";
+import { product, storage } from "./app-config.js?v=0.1.87-ui745";
 
 export function createUiServicesRegistry({
   copyText,
@@ -80,8 +80,7 @@ export function createUiServicesRegistry({
       isDeviceConnected: () => getConnectionUiStateController().isDeviceConnected(),
       requestFrame: requestAnimationFrameRef,
       getHasChatApiKey: () => getChatShellController().hasChatApiKey(),
-      storageArea: window.localStorage,
-      chatIntroUploadCountKey: storage.chatIntroUploadCount,
+      getHasActiveUi: () => getGuinoController().shouldShowUiTab(),
     });
     return viewShellController;
   }
