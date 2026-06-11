@@ -1,10 +1,11 @@
-import { createPageLifecycleController } from "./page-lifecycle-controller.js?v=0.1.87-ui747";
-import { createAppBootstrapController } from "./app-bootstrap-controller.js?v=0.1.87-ui747";
-import { createAppControlBindingsController } from "./app-control-bindings-controller.js?v=0.1.87-ui747";
-import { copyTextToClipboard } from "./clipboard.js?v=0.1.87-ui747";
-import { isMqttKind } from "./connection-kinds.js?v=0.1.87-ui747";
-import { mqttSharePeerId } from "./status-model.js?v=0.1.87-ui747";
-import { createTopbarShareController } from "./topbar-share-controller.js?v=0.1.87-ui747";
+import { createPageLifecycleController } from "./page-lifecycle-controller.js?v=0.1.87-ui748";
+import { createAppBootstrapController } from "./app-bootstrap-controller.js?v=0.1.87-ui748";
+import { createAppControlBindingsController } from "./app-control-bindings-controller.js?v=0.1.87-ui748";
+import { copyTextToClipboard } from "./clipboard.js?v=0.1.87-ui748";
+import { isMqttKind } from "./connection-kinds.js?v=0.1.87-ui748";
+import { product } from "./app-config.js?v=0.1.87-ui748";
+import { mqttSharePeerId } from "./status-model.js?v=0.1.87-ui748";
+import { createTopbarShareController } from "./topbar-share-controller.js?v=0.1.87-ui748";
 
 export function createAppRuntimeRegistry({
   defaultPeerIdFromWebSocket,
@@ -48,6 +49,7 @@ export function createAppRuntimeRegistry({
   connectionIntentWanted,
   getClient,
   getTransport,
+  getLastConfig,
   getLastStatus,
   mqttVersion,
   scriptToolbars,
@@ -329,18 +331,35 @@ export function createAppRuntimeRegistry({
     if (!getConnectionShellController().isConnectionKindAvailable("mqtt")) return "";
     const transport = getTransport();
     const mqtt = getLastStatus()?.mqtt || {};
-    if (!isMqttKind(transport?.kind) && !mqtt.connected) return "";
+    const config = getLastConfig?.() || {};
+    if (!isMqttKind(transport?.kind) && !mqtt.connected && !mqttUsableFromStatusOrConfig(mqtt, config)) return "";
     const addressService = getConnectionAddressService();
     const peerId = mqttSharePeerId({
       mqtt,
       transport,
       normalizePeerId: (value) => addressService.normalizePeerId(value),
       isMqttKind,
-    });
+    }) || mqttPeerIdFromConfig(config, addressService.normalizePeerId);
     if (!peerId) return "";
     const url = new URL(addressService.sharePageUrl("mqtt", "", null, peerId));
     url.searchParams.set("view", "ui");
     return url.toString();
+  }
+
+  function mqttUsableFromStatusOrConfig(mqtt = {}, config = {}) {
+    if (mqtt.connected || mqtt.configured || mqtt.begun) return true;
+    if (config.mqttEnabled === false) return false;
+    const users = Array.isArray(config.onlineAuthUsers) ? config.onlineAuthUsers : [];
+    return users.length > 0 || Boolean(config.allowUnauthenticatedAccess);
+  }
+
+  function mqttPeerIdFromConfig(config = {}, normalizePeerId = (value) => value) {
+    const raw = String(config.deviceId || "").trim();
+    if (!raw) return "";
+    const normalized = normalizePeerId(raw);
+    if (!normalized) return "";
+    if (normalized.startsWith(`${product.deviceIdPrefix}-`)) return normalized;
+    return `${product.deviceIdPrefix}-${normalized.slice(-6)}`;
   }
 
   return {

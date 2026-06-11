@@ -1,5 +1,5 @@
 import { drawEmbroideryConnections } from "./circuit-embroidery-router.js?v=0.1.87-ui554";
-import { product, storage } from "./app-config.js?v=0.1.87-ui747";
+import { product, storage } from "./app-config.js?v=0.1.87-ui748";
 import { escapeRegex } from "./string-utils.js?v=0.1.87-ui559";
 
 const CIRCUIT_VERSION = "0.1";

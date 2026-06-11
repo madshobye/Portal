@@ -1,4 +1,4 @@
-import { createConnectionFeatureRegistry } from "./connection-feature-registry.js?v=0.1.87-ui747";
+import { createConnectionFeatureRegistry } from "./connection-feature-registry.js?v=0.1.87-ui748";
 
 export function createConnectionAppFeatureRegistry(options = {}) {
   let connectionFeatureRegistry = null;

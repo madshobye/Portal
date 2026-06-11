@@ -89,6 +89,7 @@ export function createAppRuntimeAppDependencies({
     connectionIntentWanted,
     getClient: () => state.client,
     getTransport: () => state.transport,
+    getLastConfig: () => state.lastConfig,
     getLastStatus: () => state.lastStatus,
     mqttVersion,
     scriptToolbars,

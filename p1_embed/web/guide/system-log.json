@@ -1,5 +1,18 @@
 [
   {
+    "id": "2026-06-12-fresh-board-mqtt-qr",
+    "date": "2026-06-12",
+    "scope": "Web",
+    "title": "MQTT QR after fresh board setup",
+    "summary": "The Share panel can now show the MQTT QR as soon as a USB-connected board has usable online settings saved, instead of waiting for the board to reboot and report a live MQTT session.",
+    "icons": [
+      { "name": "qr_code_2", "label": "QR code", "type": "qr" },
+      { "name": "cloud", "label": "MQTT", "type": "mqtt" },
+      { "name": "settings", "label": "Settings", "type": "settings" },
+      { "name": "usb", "label": "USB setup", "type": "usb" }
+    ]
+  },
+  {
     "id": "2026-06-12-guide-images-modules",
     "date": "2026-06-12",
     "scope": "Guide",

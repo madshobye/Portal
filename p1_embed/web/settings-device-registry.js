@@ -1,9 +1,9 @@
-import { createWifiNetworkListRenderer } from "./wifi-network-list-renderer.js?v=0.1.87-ui747";
-import { createOnlineAuthListRenderer } from "./online-auth-list-renderer.js?v=0.1.87-ui747";
-import { createMqttSigninDialogController } from "./mqtt-signin-dialog-controller.js?v=0.1.87-ui747";
-import { createDeviceSettingsController } from "./device-settings-controller.js?v=0.1.87-ui747";
-import { createMqttSettingsPanelController } from "./mqtt-settings-panel-controller.js?v=0.1.87-ui747";
-import { createMqttShellService } from "./mqtt-shell-service.js?v=0.1.87-ui747";
+import { createWifiNetworkListRenderer } from "./wifi-network-list-renderer.js?v=0.1.87-ui748";
+import { createOnlineAuthListRenderer } from "./online-auth-list-renderer.js?v=0.1.87-ui748";
+import { createMqttSigninDialogController } from "./mqtt-signin-dialog-controller.js?v=0.1.87-ui748";
+import { createDeviceSettingsController } from "./device-settings-controller.js?v=0.1.87-ui748";
+import { createMqttSettingsPanelController } from "./mqtt-settings-panel-controller.js?v=0.1.87-ui748";
+import { createMqttShellService } from "./mqtt-shell-service.js?v=0.1.87-ui748";
 
 export function createSettingsDeviceRegistry({
   deriveOnlineAuthKeyHex,

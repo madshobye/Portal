@@ -1,4 +1,4 @@
-import { renderQrCanvas } from "./qr-renderer.js?v=0.1.87-ui747";
+import { renderQrCanvas } from "./qr-renderer.js?v=0.1.87-ui748";
 
 export function createTopbarShareController({
   fields,

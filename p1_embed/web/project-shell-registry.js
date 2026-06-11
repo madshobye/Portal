@@ -1,14 +1,14 @@
-import { createProjectImporter } from "./project-import.js?v=0.1.87-ui747";
-import { createProjectController } from "./project-controller.js?v=0.1.87-ui747";
-import { createRevisionDraftStore } from "./revision-drafts.js?v=0.1.87-ui747";
-import { createProjectStore } from "./project-store.js?v=0.1.87-ui747";
-import { createProjectDownloadService } from "./project-download-service.js?v=0.1.87-ui747";
-import { createProjectRevisionService } from "./project-revision-service.js?v=0.1.87-ui747";
-import { createCurrentRevisionSession } from "./current-revision-session.js?v=0.1.87-ui747";
-import { createProjectActionsController } from "./project-actions-controller.js?v=0.1.87-ui747";
-import { createProjectHistoryView } from "./project-history-view.js?v=0.1.87-ui747";
-import { createProjectLibraryService } from "./project-library-service.js?v=0.1.87-ui747";
-import { createExamplesProject, isExamplesProject } from "./example-projects.js?v=0.1.87-ui747";
+import { createProjectImporter } from "./project-import.js?v=0.1.87-ui748";
+import { createProjectController } from "./project-controller.js?v=0.1.87-ui748";
+import { createRevisionDraftStore } from "./revision-drafts.js?v=0.1.87-ui748";
+import { createProjectStore } from "./project-store.js?v=0.1.87-ui748";
+import { createProjectDownloadService } from "./project-download-service.js?v=0.1.87-ui748";
+import { createProjectRevisionService } from "./project-revision-service.js?v=0.1.87-ui748";
+import { createCurrentRevisionSession } from "./current-revision-session.js?v=0.1.87-ui748";
+import { createProjectActionsController } from "./project-actions-controller.js?v=0.1.87-ui748";
+import { createProjectHistoryView } from "./project-history-view.js?v=0.1.87-ui748";
+import { createProjectLibraryService } from "./project-library-service.js?v=0.1.87-ui748";
+import { createExamplesProject, isExamplesProject } from "./example-projects.js?v=0.1.87-ui748";
 
 export function createProjectShellRegistry({
   activeRevision,

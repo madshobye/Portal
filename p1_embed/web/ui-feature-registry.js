@@ -1,6 +1,6 @@
-import { copyTextToClipboard } from "./clipboard.js?v=0.1.87-ui747";
-import { setSelectValueOrFallback } from "./settings-fields.js?v=0.1.87-ui747";
-import { createUiServicesRegistry } from "./ui-services-registry.js?v=0.1.87-ui747";
+import { copyTextToClipboard } from "./clipboard.js?v=0.1.87-ui748";
+import { setSelectValueOrFallback } from "./settings-fields.js?v=0.1.87-ui748";
+import { createUiServicesRegistry } from "./ui-services-registry.js?v=0.1.87-ui748";
 
 export function createUiFeatureRegistry({
   fields,

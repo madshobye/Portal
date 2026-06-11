@@ -1,4 +1,4 @@
-import { createAppRuntimeRegistry } from "./app-runtime-registry.js?v=0.1.87-ui747";
+import { createAppRuntimeRegistry } from "./app-runtime-registry.js?v=0.1.87-ui748";
 
 export function createAppRuntimeFeatureRegistry({
   defaultPeerIdFromWebSocket,
@@ -42,6 +42,7 @@ export function createAppRuntimeFeatureRegistry({
   connectionIntentWanted,
   getClient,
   getTransport,
+  getLastConfig,
   getLastStatus,
   mqttVersion,
   scriptToolbars,
@@ -103,6 +104,7 @@ export function createAppRuntimeFeatureRegistry({
       connectionIntentWanted,
       getClient,
       getTransport,
+      getLastConfig,
       getLastStatus,
       mqttVersion,
       scriptToolbars,
