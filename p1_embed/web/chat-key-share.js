@@ -1,4 +1,4 @@
-import { product } from "./app-config.js?v=0.1.87-ui745";
+import { product } from "./app-config.js?v=0.1.87-ui747";
 
 const KEY_SHARE_END_MARKER = ":xobit-key-end";
 const KEY_SHARE_PAYLOAD_PATTERN = "[A-Za-z0-9_-]{80,}";

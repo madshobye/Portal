@@ -1,4 +1,4 @@
-import { createAppRuntimeFeatureRegistry } from "./app-runtime-feature-registry.js?v=0.1.87-ui745";
+import { createAppRuntimeFeatureRegistry } from "./app-runtime-feature-registry.js?v=0.1.87-ui747";
 
 export function createAppRuntimeAppFeatureRegistry(options = {}) {
   let appRuntimeFeatureRegistry = null;

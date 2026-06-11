@@ -1,4 +1,4 @@
-import { createProjectMaintenanceFeatureRegistry } from "./project-maintenance-feature-registry.js?v=0.1.87-ui745";
+import { createProjectMaintenanceFeatureRegistry } from "./project-maintenance-feature-registry.js?v=0.1.87-ui747";
 
 export function createProjectMaintenanceAppFeatureRegistry(options = {}) {
   let projectMaintenanceFeatureRegistry = null;

@@ -69,7 +69,7 @@ export class WebSerialTransport extends EventTarget {
   async disconnect() {
     this.connected = false;
     this.setMsgPackMode(false);
-    this.serial?.disconnect();
+    await this.serial?.disconnect?.();
     this.serial = null;
     this.setState("disconnected");
   }

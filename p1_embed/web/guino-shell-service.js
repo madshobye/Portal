@@ -1,4 +1,4 @@
-import { generateGuestKey, guinoShareUrl } from "./guino-share-link.js?v=0.1.87-ui745";
+import { generateGuestKey, guinoShareUrl } from "./guino-share-link.js?v=0.1.87-ui747";
 
 export function createGuinoShellService({
   getTransport,

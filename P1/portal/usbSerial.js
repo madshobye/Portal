@@ -63,6 +63,7 @@ class PortalUsbSerial {
     this._disconnectRequested = false;
     this._readLoopActive = false;
     this._reconnectTimer = null;
+    this._closePromise = null;
     this._writeQueue = Promise.resolve();
     this._deviceHint = this._loadDeviceHint();
 
@@ -95,6 +96,7 @@ class PortalUsbSerial {
 
   async connectWithPicker() {
     this._ensureReady();
+    if (this._closePromise) await this._closePromise;
     if (this.connecting) return await this._connectPromise;
     if (this.connected) return true;
 
@@ -109,6 +111,7 @@ class PortalUsbSerial {
 
   async tryReconnectKnown() {
     this._ensureReady();
+    if (this._closePromise) await this._closePromise;
     if (this.connecting) return await this._connectPromise;
     if (this.connected) return true;
 
@@ -123,12 +126,12 @@ class PortalUsbSerial {
     return await this._openPort(port, "known");
   }
 
-  disconnect() {
+  async disconnect() {
     this._disconnectRequested = true;
     this._clearReconnectTimer();
-    this._safeClosePort();
     this.connected = false;
     this.connecting = false;
+    await this._safeClosePort();
     this._setState("disconnected");
   }
 
@@ -183,6 +186,7 @@ class PortalUsbSerial {
 
   async _openPort(port, source) {
     if (!port) throw new Error("PortalUsbSerial: port is required");
+    if (this._closePromise) await this._closePromise;
     if (this.connecting) return await this._connectPromise;
 
     this._connectPromise = (async () => {
@@ -192,7 +196,7 @@ class PortalUsbSerial {
       this._clearReconnectTimer();
 
       if (this.port && this.port !== port) {
-        this._safeClosePort();
+        await this._safeClosePort();
       }
 
       this.port = port;
@@ -230,7 +234,7 @@ class PortalUsbSerial {
     } catch (err) {
       this.connecting = false;
       this.connected = false;
-      this._safeClosePort();
+      await this._safeClosePort();
       this._handleError(err);
       if (this.autoReconnect && !this._disconnectRequested) this._scheduleReconnect();
       throw err;
@@ -239,13 +243,13 @@ class PortalUsbSerial {
     }
   }
 
-  _handlePortDisconnected(event) {
+  async _handlePortDisconnected(event) {
     const disconnectedPort = event?.port || event?.target || null;
     if (this.port && disconnectedPort && disconnectedPort !== this.port) return;
 
     this.connected = false;
     this.connecting = false;
-    this._safeClosePort();
+    await this._safeClosePort();
     this._setState("disconnected");
 
     if (this._onDisconnect) {
@@ -287,31 +291,37 @@ class PortalUsbSerial {
     this._reconnectTimer = null;
   }
 
-  _safeClosePort() {
-    try {
-      if (this.reader) {
-        const promise = this.reader.cancel();
-        if (promise?.catch) promise.catch(() => {});
-      }
-    } catch {}
-    try {
-      if (this.reader) this.reader.releaseLock();
-    } catch {}
+  async _safeClosePort() {
+    if (this._closePromise) return await this._closePromise;
+
+    const reader = this.reader;
+    const writer = this.writer;
+    const port = this.port;
     this.reader = null;
+    this.writer = null;
+    this.port = null;
     this._readLoopActive = false;
 
-    try {
-      if (this.writer) this.writer.releaseLock();
-    } catch {}
-    this.writer = null;
+    this._closePromise = (async () => {
+      try {
+        if (reader) await reader.cancel();
+      } catch {}
+      try {
+        reader?.releaseLock?.();
+      } catch {}
+      try {
+        writer?.releaseLock?.();
+      } catch {}
+      try {
+        if (port?.close) await port.close();
+      } catch {}
+    })();
 
     try {
-      if (this.port?.close) {
-        const promise = this.port.close();
-        if (promise?.catch) promise.catch(() => {});
-      }
-    } catch {}
-    this.port = null;
+      await this._closePromise;
+    } finally {
+      this._closePromise = null;
+    }
   }
 
   async _releaseBootSignals() {

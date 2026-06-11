@@ -28,6 +28,7 @@ export function createViewShellController({
   }
 
   function shouldHideUiTab() {
+    if (fields.views.ui?.classList.contains("is-active")) return false;
     return !getHasActiveUi?.();
   }
 
@@ -52,8 +53,7 @@ export function createViewShellController({
       tab.hidden = hidden;
       tab.setAttribute("aria-hidden", hidden ? "true" : "false");
     });
-    const activeHiddenView = Object.keys(hiddenViews).find((name) => hiddenViews[name] && fields.views[name]?.classList.contains("is-active"));
-    if (activeHiddenView) switchTab("coding");
+    if (hiddenViews.chat && fields.views.chat?.classList.contains("is-active")) switchTab("coding");
     return {
       chat: !hiddenViews.chat,
       ui: !hiddenViews.ui,

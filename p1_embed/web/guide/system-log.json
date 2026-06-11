@@ -1,5 +1,29 @@
 [
   {
+    "id": "2026-06-11-usb-msgpack-reconnect",
+    "date": "2026-06-11",
+    "scope": "Web",
+    "title": "Faster USB reconnect recovery",
+    "summary": "USB reconnect now waits for the browser serial port to close cleanly and recovers faster when the board is already speaking MessagePack, while still falling back to JSON if needed.",
+    "icons": [
+      { "name": "usb", "label": "USB", "type": "usb" },
+      { "name": "sync", "label": "Reconnect", "type": "connection" },
+      { "name": "settings_ethernet", "label": "Protocol", "type": "protocol" }
+    ]
+  },
+  {
+    "id": "2026-06-11-ui-tab-cache-refresh",
+    "date": "2026-06-11",
+    "scope": "Web",
+    "title": "UI tab and cache refresh",
+    "summary": "The UI tab now stays available while it is the active view, and the web cache tag was bumped so browsers pick up the latest workspace files together.",
+    "icons": [
+      { "name": "tune", "label": "UI", "type": "ui" },
+      { "name": "tab", "label": "Tabs", "type": "navigation" },
+      { "name": "cached", "label": "Cache", "type": "cache" }
+    ]
+  },
+  {
     "id": "2026-06-11-own-llm-guide",
     "date": "2026-06-11",
     "scope": "Guide",

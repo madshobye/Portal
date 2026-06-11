@@ -1,6 +1,6 @@
-import { createProjectModel } from "./project-model.js?v=0.1.87-ui745";
-import { createProjectMigrationModel } from "./project-migration-model.js?v=0.1.87-ui745";
-import { createSketchNaming } from "./sketch-naming.js?v=0.1.87-ui745";
+import { createProjectModel } from "./project-model.js?v=0.1.87-ui747";
+import { createProjectMigrationModel } from "./project-migration-model.js?v=0.1.87-ui747";
+import { createSketchNaming } from "./sketch-naming.js?v=0.1.87-ui747";
 
 export function createProjectDomain({
   fnv1aHex,

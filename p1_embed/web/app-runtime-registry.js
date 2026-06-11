@@ -1,10 +1,10 @@
-import { createPageLifecycleController } from "./page-lifecycle-controller.js?v=0.1.87-ui745";
-import { createAppBootstrapController } from "./app-bootstrap-controller.js?v=0.1.87-ui745";
-import { createAppControlBindingsController } from "./app-control-bindings-controller.js?v=0.1.87-ui745";
-import { copyTextToClipboard } from "./clipboard.js?v=0.1.87-ui745";
-import { isMqttKind } from "./connection-kinds.js?v=0.1.87-ui745";
-import { mqttSharePeerId } from "./status-model.js?v=0.1.87-ui745";
-import { createTopbarShareController } from "./topbar-share-controller.js?v=0.1.87-ui745";
+import { createPageLifecycleController } from "./page-lifecycle-controller.js?v=0.1.87-ui747";
+import { createAppBootstrapController } from "./app-bootstrap-controller.js?v=0.1.87-ui747";
+import { createAppControlBindingsController } from "./app-control-bindings-controller.js?v=0.1.87-ui747";
+import { copyTextToClipboard } from "./clipboard.js?v=0.1.87-ui747";
+import { isMqttKind } from "./connection-kinds.js?v=0.1.87-ui747";
+import { mqttSharePeerId } from "./status-model.js?v=0.1.87-ui747";
+import { createTopbarShareController } from "./topbar-share-controller.js?v=0.1.87-ui747";
 
 export function createAppRuntimeRegistry({
   defaultPeerIdFromWebSocket,
