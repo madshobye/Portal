@@ -16,21 +16,34 @@
       </section>
 
       <section>
-        <h2>How It Works</h2>
-        <ol class="steps">
-          <li><strong>The browser reads the board version.</strong> The Firmware panel compares the connected board version with the release manifest.</li>
-          <li><strong>A matching delta is selected.</strong> Updates are version-to-version; if a board is several versions behind, it may need one step at a time.</li>
-          <li><strong>The main app downloads first.</strong> The app downloads and verifies the patch before booting the updater.</li>
-          <li><strong>The updater applies the patch.</strong> SafeBoot verifies source and target hashes, applies the delta, clears the request, and returns to the app.</li>
-          <li><strong>USB remains the recovery path.</strong> Full USB install is still used for first install, recovery, partition changes, or updater changes.</li>
-        </ol>
+        <h2>Update Flow</h2>
+        <div class="walkthrough-grid">
+          <article class="walkthrough-step">
+            <div class="walkthrough-copy">
+              <span class="walkthrough-number">01</span>
+              <h3>Check the Firmware tab</h3>
+              <p>The browser compares the connected board version with the release manifest and shows update details when a matching version-to-version patch is available.</p>
+            </div>
+            <figure class="walkthrough-image image-focus" data-image-url="../images/settings-firmware.png">
+              <script type="application/json">
+                {
+                  "title": "Firmware settings",
+                  "alt": "XOBIT settings dialog showing firmware update controls",
+                  "caption": "Firmware settings show update availability for the connected board.",
+                  "note": "Use this tab when the browser reports a firmware update.",
+                  "crop": { "x": 29.5, "y": 14.5, "w": 42, "h": 35 }
+                }
+              </script>
+            </figure>
+          </article>
+        </div>
       </section>
 
       <section>
         <h2>Use With Care</h2>
         <div class="callout">
-          <strong>Recovery rule</strong>
-          <p>Do not treat OTA as a replacement for USB recovery. Keep physical access to the board during experiments, and use the Install page when no exact delta path exists.</p>
+          <strong>Keep USB available</strong>
+          <p>The app downloads and verifies the patch first. SafeBoot then checks source and target hashes, applies the delta, clears the request, and returns to the app. Use the Install page for first install, partition changes, updater changes, or boards without an exact OTA path.</p>
         </div>
       </section>
 

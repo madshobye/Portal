@@ -75,18 +75,24 @@ function loop() {
 - `freeHeap()`.
 - `lastError()`, `clearError()`.
 
-## Math, Time, And Environment
+## Math And Motion
 
 - `lerp(a, b, t)` returns a clamped linear interpolation.
 - `map(value, inMin, inMax, outMin, outMax)` maps a value and returns a float.
 - `constrain(value, min, max)` clamps a value.
-- Top-level math helpers include `sin`, `cos`, `tan`, `atan2`, `sqrt`, `pow`, `floor`, `ceil`, `round`, `abs`, `min`, `max`, `radians`, and `degrees`.
+- Top-level math helpers include `sin`, `cos`, `tan`, `asin`, `acos`, `atan`, `atan2`, `sqrt`, `pow`, `floor`, `ceil`, `round`, `abs`, `min`, `max`, `exp`, `ln`, `log10`, `fmod`, `radians`, and `degrees`.
 - Constants: `PI`, `TWO_PI`, `HALF_PI`.
 - `noiseSeed(seed)`, `simplex3(x, y, z)`, `simplex3_01(x, y, z)`.
+
+## Local Time
+
 - `timeNow()` returns Unix seconds.
 - `timeLocal()` returns `[year, month, day, hour, minute, second]`, or `-1` values before time is synced.
 - `timeLocal(out)` fills a six-element output array and avoids allocation.
 - `timeGet()` returns local time text.
+
+## Sun Location
+
 - `sunLocal(lat, lon)` returns `[elevationDeg, azimuthDeg, brightness, kelvin]`.
 - `sunLocal(lat, lon, out)` fills a four-element output array.
 - `sunLocal(lat, lon, unixSeconds, out)` calculates sun values for an explicit Unix timestamp.
@@ -143,8 +149,8 @@ Paths can address nested object/array values such as `weather.0.main` or `main.t
 - Do not generate non-WS2812B chipsets in normal sketches.
 - `ledReady(strip)`, `ledStripCount()`, `ledCount(strip)`.
 - `ledSet(strip, index, r, g, b)`, `ledSetHsv(strip, index, h, s, v)`, `ledSetRgb(strip, index, rgb)`.
-- `ledGetRgb(strip, index)`, `ledGetRgb(strip, index, out)`.
-- `rgbToHsv(rgb)`, `rgbToHsv(rgb, out)`, `hsvToRgb(hsv)`, `hsvToRgb(hsv, out)`.
+- `ledGetRgb(strip, index)`, `ledGetRgbInto(strip, index, out)`.
+- `rgbToHsv(rgb)`, `rgbToHsvInto(rgb, out)`, `hsvToRgb(hsv)`, `hsvToRgbInto(hsv, out)`.
 - `ledFill(strip, r, g, b)`, `ledClear(strip, show)`, `ledShow()`, `ledBrightness(strip, brightness)`.
 - `paletteSet2(slot, ...)`, `paletteSet3(slot, ...)`, `paletteSet4(slot, ...)`.
 - `paletteGetRgb(slot, t)`, `paletteGetRgb(slot, t, out)`.

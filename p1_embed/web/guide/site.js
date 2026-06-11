@@ -55,7 +55,7 @@
 
   function installImagePopup() {
     document.getElementById("imagePopup")?.remove();
-    if (!document.querySelector(".visual-media img")) return;
+    if (!document.querySelector(".visual-media img, .image-focus")) return;
 
     const popup = document.createElement("div");
     popup.className = "image-popup";
@@ -64,7 +64,13 @@
     popup.setAttribute("aria-hidden", "true");
     popup.innerHTML = `
       <div class="image-popup-frame" role="dialog" aria-modal="true" aria-labelledby="imagePopupTitle">
-        <div class="image-popup-body"><img alt=""></div>
+        <div class="image-popup-body">
+          <div class="image-popup-image-wrap">
+            <img alt="">
+            <div class="image-popup-marker" aria-hidden="true"></div>
+            <div class="image-popup-note"></div>
+          </div>
+        </div>
         <div class="image-popup-titlebar">
           <div class="image-popup-title" id="imagePopupTitle"></div>
           <button class="image-popup-close" type="button" aria-label="Close image preview">
@@ -78,19 +84,88 @@
     const popupFrame = popup.querySelector(".image-popup-frame");
     const popupImage = popup.querySelector(".image-popup-body img");
     const popupTitle = popup.querySelector(".image-popup-title");
+    const popupMarker = popup.querySelector(".image-popup-marker");
+    const popupNote = popup.querySelector(".image-popup-note");
     const closeButton = popup.querySelector(".image-popup-close");
 
     function closeImage() {
       popup.classList.remove("is-open");
       popup.setAttribute("aria-hidden", "true");
       popupImage.removeAttribute("src");
+      popupMarker.hidden = true;
+      popupNote.hidden = true;
     }
 
-    function openImage(image) {
-      const caption = image.closest(".visual-card")?.querySelector("figcaption")?.textContent.trim() || image.alt || "Image preview";
-      popupImage.src = image.currentSrc || image.src;
-      popupImage.alt = image.alt;
-      popupTitle.textContent = caption;
+    function readCrop(source) {
+      const crop = source?.crop || source;
+      if (!crop) return null;
+      const normalized = {
+        x: Number(crop.x),
+        y: Number(crop.y),
+        w: Number(crop.w),
+        h: Number(crop.h)
+      };
+      if ([normalized.x, normalized.y, normalized.w, normalized.h].some((value) => !Number.isFinite(value))) return null;
+      return normalized;
+    }
+
+    function expandCrop(crop, image, scale = 1.65, minimumSize = 34) {
+      if (!crop) return null;
+      const imageWidth = image.naturalWidth || 1;
+      const imageHeight = image.naturalHeight || 1;
+      const centerX = imageWidth * (crop.x + (crop.w / 2)) / 100;
+      const centerY = imageHeight * (crop.y + (crop.h / 2)) / 100;
+      const cropWidth = imageWidth * crop.w * scale / 100;
+      const cropHeight = imageHeight * crop.h * scale / 100;
+      const minimumSide = Math.min(imageWidth, imageHeight) * minimumSize / 100;
+      const side = Math.min(Math.max(cropWidth, cropHeight, minimumSide), imageWidth, imageHeight);
+      const x = Math.max(0, Math.min(imageWidth - side, centerX - (side / 2)));
+      const y = Math.max(0, Math.min(imageHeight - side, centerY - (side / 2)));
+      return {
+        x: x * 100 / imageWidth,
+        y: y * 100 / imageHeight,
+        w: side * 100 / imageWidth,
+        h: side * 100 / imageHeight
+      };
+    }
+
+    function applyPreviewCrop(button, image, crop) {
+      const previewCrop = expandCrop(crop, image);
+      if (!previewCrop) return;
+      button.style.setProperty("--crop-x", previewCrop.x);
+      button.style.setProperty("--crop-y", previewCrop.y);
+      button.style.setProperty("--crop-w", previewCrop.w);
+      button.style.setProperty("--crop-h", previewCrop.h);
+    }
+
+    function paddedMarker(crop, padding = 2.5) {
+      if (!crop) return null;
+      const x = Math.max(0, crop.x - padding);
+      const y = Math.max(0, crop.y - padding);
+      const right = Math.min(100, crop.x + crop.w + padding);
+      const bottom = Math.min(100, crop.y + crop.h + padding);
+      return { x, y, w: right - x, h: bottom - y };
+    }
+
+    function openImage({ src, alt, title, crop = null, note = "" }) {
+      popupImage.src = src;
+      popupImage.alt = alt || title || "Image preview";
+      popupTitle.textContent = title || alt || "Image preview";
+      if (crop) {
+        const markerCrop = paddedMarker(crop);
+        popupMarker.hidden = false;
+        popupMarker.style.left = `${markerCrop.x}%`;
+        popupMarker.style.top = `${markerCrop.y}%`;
+        popupMarker.style.width = `${markerCrop.w}%`;
+        popupMarker.style.height = `${markerCrop.h}%`;
+        popupNote.hidden = !note;
+        popupNote.textContent = note;
+        popupNote.style.left = `${markerCrop.x}%`;
+        popupNote.style.top = `${Math.min(94, markerCrop.y + markerCrop.h)}%`;
+      } else {
+        popupMarker.hidden = true;
+        popupNote.hidden = true;
+      }
       popup.classList.add("is-open");
       popup.setAttribute("aria-hidden", "false");
     }
@@ -101,13 +176,69 @@
       media.tabIndex = 0;
       media.setAttribute("role", "button");
       media.setAttribute("aria-label", `Open larger image: ${image.alt}`);
-      media.addEventListener("click", () => openImage(image));
+      media.addEventListener("click", () => openImage({
+        src: image.currentSrc || image.src,
+        alt: image.alt,
+        title: image.closest(".visual-card")?.querySelector("figcaption")?.textContent.trim() || image.alt
+      }));
       media.addEventListener("keydown", (event) => {
         if (event.key === "Enter" || event.key === " ") {
           event.preventDefault();
-          openImage(image);
+          openImage({
+            src: image.currentSrc || image.src,
+            alt: image.alt,
+            title: image.closest(".visual-card")?.querySelector("figcaption")?.textContent.trim() || image.alt
+          });
         }
       });
+    });
+
+    document.querySelectorAll(".image-focus").forEach((focus) => {
+      const configNode = focus.querySelector('script[type="application/json"]');
+      let config = {};
+      try {
+        config = configNode ? JSON.parse(configNode.textContent || "{}") : {};
+      } catch {
+        config = {};
+      }
+      const imageUrl = focus.dataset.imageUrl || config.imageUrl || "";
+      const title = config.title || "";
+      const alt = config.alt || title || "Guide image";
+      const note = config.note || "";
+      const caption = config.caption || "";
+      const crop = readCrop(config.crop);
+      const button = document.createElement("button");
+      const image = document.createElement("img");
+      const captionNode = document.createElement("figcaption");
+
+      focus.textContent = "";
+      focus.classList.add("image-focus-card");
+      button.className = "image-focus-button";
+      button.type = "button";
+      button.setAttribute("aria-label", `Open full image: ${title || alt}`);
+      image.src = imageUrl;
+      image.alt = alt;
+      button.append(image);
+      focus.append(button);
+      if (caption) {
+        captionNode.textContent = caption;
+        focus.append(captionNode);
+      }
+
+      if (crop) {
+        if (image.complete && image.naturalWidth) {
+          applyPreviewCrop(button, image, crop);
+        } else {
+          image.addEventListener("load", () => applyPreviewCrop(button, image, crop), { once: true });
+        }
+      }
+      button.addEventListener("click", () => openImage({
+        src: image.currentSrc || image.src,
+        alt,
+        title,
+        crop,
+        note
+      }));
     });
 
     closeButton.addEventListener("click", closeImage);

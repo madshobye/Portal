@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>First Object Walkthrough - XOBIT Guide</title>
     <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@24,400,0,0">
-    <link rel="stylesheet" href="site.css?v=guide-style-4">
+    <link rel="stylesheet" href="site.css?v=guide-style-5">
   </head>
   <body data-guide-section="first-run">
 
@@ -25,44 +25,174 @@
 
       <section id="prepare">
         <h2>1. Prepare</h2>
-        <ul class="steps">
-          <li><strong>Use a Chrome-based browser.</strong> Web Serial works in Chrome and Edge. Safari and Firefox do not provide the same install path.</li>
-          <li><strong>Use a data USB cable.</strong> Many USB cables only charge. If the board does not appear, try another cable first.</li>
-          <li><strong>Keep one board connected.</strong> Multiple serial boards can make port selection confusing during first setup.</li>
-          <li><strong>Know that install clears the board firmware.</strong> Use a board that is safe to flash with XOBIT.</li>
-        </ul>
+        <div class="walkthrough-grid">
+          <article class="walkthrough-step">
+            <div class="walkthrough-copy">
+              <span class="walkthrough-number">01</span>
+              <h3>Use Chrome or Edge</h3>
+              <p>Web Serial is the browser feature that lets XOBIT install firmware and talk to the ESP32 over USB. Safari and Firefox do not provide the same setup path.</p>
+            </div>
+            <div class="walkthrough-image image-placeholder" aria-hidden="true"></div>
+          </article>
+          <article class="walkthrough-step">
+            <div class="walkthrough-copy">
+              <span class="walkthrough-number">02</span>
+              <h3>Use a data USB cable</h3>
+              <p>Many USB cables only charge. If the board does not appear in the browser serial chooser, try another cable before changing anything else.</p>
+            </div>
+            <div class="walkthrough-image image-placeholder" aria-hidden="true"></div>
+          </article>
+        </div>
       </section>
 
       <section id="install">
         <h2>2. Install Firmware</h2>
-        <ol class="steps">
-          <li><strong>Open the editor.</strong> Use the Open Editor button in the guide header.</li>
-          <li><strong>Open Install.</strong> Choose the Install tab in the editor.</li>
-          <li><strong>Connect the ESP32 over USB.</strong> Plug in the board, then use the browser’s serial chooser when prompted.</li>
-          <li><strong>Flash the current SafeBoot firmware.</strong> Follow the install panel. Wait until the install reports success before unplugging.</li>
-          <li><strong>Reconnect if needed.</strong> After flashing, the board may reboot and appear as a serial device again.</li>
-        </ol>
-        <div class="callout">
-          <strong>Recovery rule</strong>
-          <p>If something goes wrong during online setup or OTA experiments, return to the Install tab over USB. USB is the trusted recovery path.</p>
+        <div class="walkthrough-grid">
+          <article class="walkthrough-step">
+            <div class="walkthrough-copy">
+              <span class="walkthrough-number">03</span>
+              <h3>Open the Install tab</h3>
+              <p>Use Open Editor in the guide header, then choose Install. This is the clean path for putting XOBIT firmware on a fresh ESP32 Classic board.</p>
+            </div>
+            <figure class="walkthrough-image image-focus" data-image-url="images/install-start.png">
+              <script type="application/json">
+                {
+                  "title": "Install tab",
+                  "alt": "XOBIT install workspace with the Install tab selected",
+                  "caption": "The Install view keeps the firmware upload controls in one place.",
+                  "note": "This is the firmware upload interface you use for the first install.",
+                  "crop": { "x": 54, "y": 46, "w": 42, "h": 18 }
+                }
+              </script>
+            </figure>
+          </article>
+          <article class="walkthrough-step">
+            <div class="walkthrough-copy">
+              <span class="walkthrough-number">04</span>
+              <h3>Set install options only when needed</h3>
+              <p>The default install is enough for most boards. Use the settings panel for a board name, WiFi details, clearing old data, or slow upload when USB is troublesome.</p>
+            </div>
+            <figure class="walkthrough-image image-focus" data-image-url="images/install-settings.png">
+              <script type="application/json">
+                {
+                  "title": "Install settings",
+                  "alt": "XOBIT install settings with name, WiFi, password, and install toggles",
+                  "caption": "Install settings are optional and can stay closed for a simple first flash.",
+                  "note": "Optional install settings sit beside the main firmware upload button.",
+                  "crop": { "x": 55, "y": 35, "w": 39, "h": 35 }
+                }
+              </script>
+            </figure>
+          </article>
+          <article class="walkthrough-step">
+            <div class="walkthrough-copy">
+              <span class="walkthrough-number">05</span>
+              <h3>Install XOBIT firmware</h3>
+              <p>Press Install XOBIT and wait until the progress bar finishes. Do not unplug while the upload is running.</p>
+            </div>
+            <figure class="walkthrough-image image-focus" data-image-url="images/install-ready-to-code.png">
+              <script type="application/json">
+                {
+                  "title": "Ready to code",
+                  "alt": "XOBIT install workspace showing the ready state after firmware upload",
+                  "caption": "When the upload is ready, the install view offers a direct path back to Code.",
+                  "note": "After the firmware upload finishes, use Ready, go to Code to continue.",
+                  "crop": { "x": 8, "y": 62, "w": 22, "h": 10 }
+                }
+              </script>
+            </figure>
+          </article>
         </div>
       </section>
 
       <section id="connect">
         <h2>3. Connect And Name The Board</h2>
-        <ol class="steps">
-          <li><strong>Connect over USB.</strong> Use the editor connection controls to talk to the freshly installed board.</li>
-          <li><strong>Open Settings &gt; General.</strong> Give the board a human name. This appears in the status bar and integrations.</li>
-          <li><strong>Open Settings &gt; WiFi.</strong> Add your WiFi name and password. Save, then reboot if the board asks for it.</li>
-          <li><strong>Watch the status bar.</strong> It should show the board name, transport, running state, WiFi name, fps, and memory percent.</li>
-          <li><strong>Open Settings &gt; Users.</strong> Add an online sign-in user if you want MQTT control without USB. WiFi by itself does not enable online control on a fresh board.</li>
-        </ol>
+        <div class="walkthrough-grid">
+          <article class="walkthrough-step">
+            <div class="walkthrough-copy">
+              <span class="walkthrough-number">06</span>
+              <h3>Connect over USB</h3>
+              <p>Use the connection button in Code to talk to the freshly installed board. Choose the USB device if the browser asks again.</p>
+            </div>
+            <figure class="walkthrough-image image-focus" data-image-url="images/code-workspace.png">
+              <script type="application/json">
+                {
+                  "title": "Connection button",
+                  "alt": "XOBIT code workspace with the connection button in the toolbar",
+                  "caption": "Use the connection button in the Code toolbar to open USB or online connection options.",
+                  "note": "Open the connection button, then choose USB for the first setup.",
+                  "crop": { "x": 5, "y": 18, "w": 5, "h": 5 }
+                }
+              </script>
+            </figure>
+          </article>
+          <article class="walkthrough-step">
+            <div class="walkthrough-copy">
+              <span class="walkthrough-number">07</span>
+              <h3>Name the board</h3>
+              <p>Open Settings &gt; General and give the board a human name. This appears in the status bar and makes online links easier to recognize.</p>
+            </div>
+            <figure class="walkthrough-image image-focus" data-image-url="images/settings-general.png">
+              <script type="application/json">
+                {
+                  "title": "General settings",
+                  "alt": "XOBIT general settings with name and timezone fields",
+                  "caption": "General settings hold the board name, timezone, and identity basics.",
+                  "note": "Set the board name and timezone from General settings.",
+                  "crop": { "x": 29.5, "y": 14.5, "w": 42, "h": 29 }
+                }
+              </script>
+            </figure>
+          </article>
+          <article class="walkthrough-step">
+            <div class="walkthrough-copy">
+              <span class="walkthrough-number">08</span>
+              <h3>Add WiFi</h3>
+              <p>Open Settings &gt; WiFi, enter the network name and password, and save. WiFi makes online control possible, but does not by itself grant access.</p>
+            </div>
+            <figure class="walkthrough-image image-focus" data-image-url="images/settings-wifi.png">
+              <script type="application/json">
+                {
+                  "title": "WiFi settings",
+                  "alt": "XOBIT WiFi settings with network name and password fields",
+                  "caption": "WiFi credentials are configured on the board, not stored in the guide.",
+                  "note": "Save WiFi details on the board so it can come online.",
+                  "crop": { "x": 29.5, "y": 14.5, "w": 42, "h": 29 }
+                }
+              </script>
+            </figure>
+          </article>
+          <article class="walkthrough-step">
+            <div class="walkthrough-copy">
+              <span class="walkthrough-number">09</span>
+              <h3>Add an online user when needed</h3>
+              <p>Open Settings &gt; Users if you want MQTT control without USB. Fresh boards do not allow online control until you add a named user or explicitly enable a guest mode.</p>
+            </div>
+            <figure class="walkthrough-image image-focus" data-image-url="images/settings-users.png">
+              <script type="application/json">
+                {
+                  "title": "Online users",
+                  "alt": "XOBIT users settings for online sign-in users",
+                  "caption": "Users are the safer default for remote control over MQTT.",
+                  "note": "Add an online sign-in user before using authenticated MQTT control.",
+                  "crop": { "x": 29.5, "y": 14.5, "w": 42, "h": 34 }
+                }
+              </script>
+            </figure>
+          </article>
+        </div>
       </section>
 
       <section id="first-sketch">
         <h2>4. Upload A First Sketch</h2>
         <p class="section-copy">Start with a sketch that proves the compile/upload/log loop before adding LEDs or external parts.</p>
-        <pre class="code">// Prints a heartbeat once per second.
+        <div class="walkthrough-grid">
+          <article class="walkthrough-step">
+            <div class="walkthrough-copy">
+              <span class="walkthrough-number">10</span>
+              <h3>Paste a small heartbeat sketch</h3>
+              <p>This sketch proves that editing, uploading, and reading serial logs work before you add LEDs, relays, or external parts.</p>
+              <pre class="code">// Prints a heartbeat once per second.
 var lastPrintAt = 0;
 
 function setup() {
@@ -76,22 +206,62 @@ function loop() {
   }
   delay(10);
 }</pre>
-        <ol class="steps">
-          <li><strong>Create a new project.</strong> Name it after the physical thing you are making.</li>
-          <li><strong>Paste the sketch into Code.</strong> Upload it to the board.</li>
-          <li><strong>Read the console.</strong> You should see `XOBIT ready` and then `alive` once per second.</li>
-          <li><strong>Stop and upload again.</strong> Confirm you can stop the script, edit the message, and upload a revision.</li>
-        </ol>
+            </div>
+            <figure class="walkthrough-image image-focus" data-image-url="images/code-workspace.png">
+              <script type="application/json">
+                {
+                  "title": "Code workspace",
+                  "alt": "XOBIT code workspace with code editor, upload controls, and console",
+                  "caption": "Code view keeps the editor, upload controls, and console together.",
+                  "note": "Paste code in the editor, upload, then read the console output below.",
+                  "crop": { "x": 5, "y": 18, "w": 62, "h": 52 }
+                }
+              </script>
+            </figure>
+          </article>
+        </div>
       </section>
 
       <section id="backup">
         <h2>5. Save The Work</h2>
-        <ul class="notes">
-          <li><strong>Create a named revision.</strong> Use revision names that describe the behavior, not just “test”.</li>
-          <li><strong>Export the project JSON.</strong> XOBIT is local-first; the browser does not automatically back up your sketches to a cloud account.</li>
-          <li><strong>Keep wiring notes with the revision.</strong> Add circuit assumptions before you forget what the pins mean.</li>
-          <li><strong>Move to a real object slowly.</strong> Add one physical part at a time, upload, test, and read the console.</li>
-        </ul>
+        <div class="walkthrough-grid">
+          <article class="walkthrough-step">
+            <div class="walkthrough-copy">
+              <span class="walkthrough-number">11</span>
+              <h3>Keep projects, revisions, and backups</h3>
+              <p>Each generated or uploaded change can become a revision. Use the project and revision menus to move through the work, then export the project JSON when you want a backup outside the browser.</p>
+            </div>
+            <figure class="walkthrough-image image-focus" data-image-url="images/code-workspace.png">
+              <script type="application/json">
+                {
+                  "title": "Project and revision controls",
+                  "alt": "XOBIT project and revision controls in the code workspace",
+                  "caption": "Project and revision controls keep code, chat, specification, and circuit view together.",
+                  "note": "Use these menus to switch projects and revisions before exporting a backup.",
+                  "crop": { "x": 20, "y": 18, "w": 30, "h": 5 }
+                }
+              </script>
+            </figure>
+          </article>
+          <article class="walkthrough-step">
+            <div class="walkthrough-copy">
+              <span class="walkthrough-number">12</span>
+              <h3>Use Circuit to check the physical setup</h3>
+              <p>Move to the physical object slowly. Add one part at a time, upload, test, then compare the generated circuit view with the wiring on the table.</p>
+            </div>
+            <figure class="walkthrough-image image-focus" data-image-url="images/circuit-workspace.png">
+              <script type="application/json">
+                {
+                  "title": "Circuit view",
+                  "alt": "XOBIT circuit workspace with generated wiring and assumptions",
+                  "caption": "Circuit view helps compare generated wiring expectations with the physical build.",
+                  "note": "Use the generated circuit view as a check against the code and the real wiring.",
+                  "crop": { "x": 5, "y": 23, "w": 63, "h": 64 }
+                }
+              </script>
+            </figure>
+          </article>
+        </div>
       </section>
 
       <section>
@@ -103,6 +273,6 @@ function loop() {
         </div>
       </section>
     </main>
-    <script src="site.js?v=guide-shell-10"></script>
+    <script src="site.js?v=guide-shell-11"></script>
   </body>
 </html>

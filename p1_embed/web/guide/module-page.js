@@ -15,15 +15,17 @@ const pages = {
         example: 'print("brightness=");\nprintln(brightness);'
       },
       {
-        name: "log",
-        signature: "log(level, message)",
+        name: "logs and events",
+        signature: "log(level, message)\nemit(channel, message)\nemitJson(channel, pair...)",
         params: [
           ["level", "String such as \"error\", \"warn\", \"info\", \"debug\", or \"trace\"."],
-          ["message", "String message."]
+          ["channel", "Event channel name."],
+          ["message", "String message."],
+          ["pair...", "JSON pair fragments such as jsonPairInt(\"value\", 7)."]
         ],
         returns: "No return value.",
-        notes: ["Use for categorized diagnostics; use println for simple sketch output."],
-        example: 'log("debug", "frame rendered");'
+        notes: ["Use log for categorized diagnostics; use emit/emitJson when the browser or transport should receive a named sketch event."],
+        example: 'log("debug", "frame rendered");\nemit("mode", "night");\nemitJson("sensor", jsonPairInt("value", 7));'
       },
       {
         name: "timing",
@@ -50,18 +52,18 @@ const pages = {
       },
       {
         name: "error and heap",
-        signature: "freeHeap()\nlastError()\nclearError()",
+        signature: "freeHeap()\nlastError()\nclearError()\nscriptState()\nloopCount()",
         params: [],
-        returns: "freeHeap returns available heap. lastError returns the current script error text. clearError clears it.",
+        returns: "freeHeap returns available heap. lastError returns the current script error text. scriptState returns state text. loopCount returns the script loop counter.",
         notes: ["freeHeap is useful for coarse diagnostics; max contiguous heap is a firmware status field, not a script function."],
-        example: "println(freeHeap());\nif (lastError() != \"\") {\n  println(lastError());\n  clearError();\n}"
+        example: "println(freeHeap());\nprintln(scriptState());\nprintln(loopCount());\nif (lastError() != \"\") {\n  println(lastError());\n  clearError();\n}"
       }
     ]
   },
-  "math-time-sun": {
-    title: "Environment",
-    subtitle: "Numeric helpers, simplex noise, local time, and sun-derived brightness/color.",
-    intro: "Use these module functions for animation curves, physical-ish motion, clocks, daylight-aware brightness, and color temperature.",
+  "math-motion": {
+    title: "Math And Motion",
+    subtitle: "Numeric helpers, trigonometry, easing ranges, and simplex noise.",
+    intro: "Use these functions for animation curves, physical-ish motion, sensor scaling, oscillation, and organic variation.",
     calls: [
       {
         name: "range helpers",
@@ -77,7 +79,7 @@ const pages = {
       },
       {
         name: "math functions",
-        signature: "sin(x), cos(x), tan(x), atan2(y, x), sqrt(x), pow(a, b), floor(x), ceil(x), round(x), abs(x), min(a, b), max(a, b), radians(deg), degrees(rad)",
+        signature: "sin(x), cos(x), tan(x), asin(x), acos(x), atan(x), atan2(y, x)\nsqrt(x), pow(a, b), floor(x), ceil(x), round(x), abs(x)\nmin(a, b), max(a, b), exp(x), ln(x), log10(x), fmod(a, b)\nradians(deg), degrees(rad)",
         params: [
           ["x, y, a, b", "Numeric arguments."],
           ["deg, rad", "Angle values in degrees or radians."]
@@ -96,27 +98,41 @@ const pages = {
         returns: "simplex3 returns roughly -1.0..1.0. simplex3_01 returns 0.0..1.0.",
         notes: ["Use a slowly changing time coordinate for organic motion."],
         example: "var t = millis() / 1000.0;\nvar drift = simplex3_01(0.2, 1.7, t);\nprintln(drift);"
-      },
+      }
+    ]
+  },
+  "local-time": {
+    title: "Local Time",
+    subtitle: "Synced Unix time, local date parts, and timezone-aware clock text.",
+    intro: "Use local time when a sketch should react to the current hour, day, or schedule. The timezone comes from Settings > General.",
+    calls: [
       {
-        name: "time",
+        name: "current time",
         signature: "timeNow()\ntimeLocal()\ntimeLocal(out)\ntimeGet()",
         params: [
           ["out", "Six-element array filled as year, month, day, hour, minute, second."]
         ],
-        returns: "timeNow returns Unix seconds. timeLocal returns/fills local parts or -1 values before sync. timeGet returns text.",
-        notes: ["Use timeLocal(out) in loops to avoid allocating a fresh array.", "Timezone is configured in Settings > General."],
-        example: "var parts[] = { 0, 0, 0, 0, 0, 0 };\ntimeLocal(parts);\nif (parts[3] >= 0) {\n  print(\"hour=\");\n  println(parts[3]);\n}"
-      },
+        returns: "timeNow returns Unix seconds. timeLocal returns/fills local parts or -1 values before sync. timeGet returns local time text.",
+        notes: ["Use timeLocal(out) in loops to avoid allocating a fresh array.", "Before time sync, local parts are -1 so sketches can stay in a safe fallback state."],
+        example: "var parts[] = { 0, 0, 0, 0, 0, 0 };\ntimeLocal(parts);\nif (parts[3] >= 0) {\n  print(\"hour=\");\n  println(parts[3]);\n  println(timeGet());\n}"
+      }
+    ]
+  },
+  "sun-location": {
+    title: "Sun Location",
+    subtitle: "Sun elevation, azimuth, daylight brightness, and color temperature.",
+    intro: "Use sun location when the object should follow outdoor light, time of day, or a geographic place rather than only a clock.",
+    calls: [
       {
-        name: "sun",
+        name: "sun position and daylight",
         signature: "sunLocal(lat, lon)\nsunLocal(lat, lon, out)\nsunLocal(lat, lon, unixSeconds, out)",
         params: [
           ["lat, lon", "Latitude and longitude in decimal degrees."],
           ["unixSeconds", "UTC Unix timestamp. Omit to use current device time."],
           ["out", "Four-element array filled as elevationDeg, azimuthDeg, brightness, kelvin."]
         ],
-        returns: "Return-array form returns four integers. Output-buffer forms fill out and return no useful value.",
-        notes: ["Azimuth uses compass degrees: north 0, east 90, south 180, west 270.", "brightness is 0..255; kelvin is roughly 2200..6500."],
+        returns: "Return-array form returns four values. Output-buffer forms fill out and return no useful value.",
+        notes: ["Values are elevation degrees, azimuth degrees, brightness 0..255, and color temperature around 2200..6500 K.", "Azimuth uses compass degrees: north 0, east 90, south 180, west 270.", "Use the output-buffer form in animation loops."],
         example: "var sun[] = { 0, 0, 0, 0 };\nsunLocal(55.652116, 12.610874, timeNow(), sun);\nprintln(sun[0]); // elevation\nprintln(sun[1]); // azimuth\nprintln(sun[2]); // brightness\nprintln(sun[3]); // kelvin"
       }
     ]
@@ -233,9 +249,11 @@ const pages = {
     calls: [
       {
         name: "HTTP GET",
-        signature: "httpGet(url, maxBytes, timeoutMs)",
+        signature: "httpGet(url, maxBytes, timeoutMs)\nhttpPost(url, body, contentType, maxBytes, timeoutMs)",
         params: [
           ["url", "HTTP or HTTPS URL."],
+          ["body", "POST request body text."],
+          ["contentType", "MIME type such as application/json."],
           ["maxBytes", "Maximum response bytes to keep."],
           ["timeoutMs", "Request timeout in milliseconds."]
         ],
@@ -339,7 +357,7 @@ const pages = {
       },
       {
         name: "read and convert color",
-        signature: "ledGetRgb(strip, index)\nledGetRgb(strip, index, out)\nrgbToHsv(rgb)\nrgbToHsv(rgb, out)\nhsvToRgb(hsv)\nhsvToRgb(hsv, out)",
+        signature: "ledGetRgb(strip, index)\nledGetRgbInto(strip, index, out)\nrgbToHsv(rgb)\nrgbToHsvInto(rgb, out)\nhsvToRgb(hsv)\nhsvToRgbInto(hsv, out)",
         params: [
           ["out", "Three-element output array."],
           ["rgb", "Three-element RGB array."],
@@ -347,7 +365,7 @@ const pages = {
         ],
         returns: "Array-return forms allocate and return a three-element array. Output-buffer forms fill the provided array.",
         notes: ["Use output-buffer forms inside loops to avoid repeated allocations."],
-        example: "var rgb[] = { 0, 0, 0 };\nvar hsv[] = { 0, 0, 0 };\nledGetRgb(0, 4, rgb);\nrgbToHsv(rgb, hsv);\nhsv[0] = (hsv[0] + 8) % 255;\nhsvToRgb(hsv, rgb);\nledSetRgb(0, 4, rgb);"
+        example: "var rgb[] = { 0, 0, 0 };\nvar hsv[] = { 0, 0, 0 };\nledGetRgbInto(0, 4, rgb);\nrgbToHsvInto(rgb, hsv);\nhsv[0] = (hsv[0] + 8) % 255;\nhsvToRgbInto(hsv, rgb);\nledSetRgb(0, 4, rgb);"
       },
       {
         name: "frame operations",
@@ -428,7 +446,7 @@ const pages = {
     ]
   },
   "browser-ui": {
-    title: "Browser Controls",
+    title: "Browser UI",
     subtitle: "Sketch-owned live controls rendered in the UI tab.",
     intro: "The sketch declares the UI. The browser renders it and sends interactions back to firmware. Rebuild the interface only when a browser connects or asks for hello.",
     calls: [
@@ -568,14 +586,16 @@ const pages = {
 
 const pageOrder = [
   ["core-runtime", "Sketch Basics"],
-  ["math-time-sun", "Environment"],
+  ["math-motion", "Math And Motion"],
+  ["local-time", "Local Time"],
+  ["sun-location", "Sun Location"],
   ["gpio-pwm", "Pins And Actuators"],
   ["wifi-device", "Device And WiFi"],
   ["http-json", "Online Data"],
   ["led-strips", "LED Strips"],
   ["palettes", "Color Palettes"],
   ["i2c-uart", "External Modules"],
-  ["browser-ui", "Browser Controls"],
+  ["browser-ui", "Browser UI"],
   ["home-assistant", "Home Assistant"],
   ["inbox", "Messages"]
 ];

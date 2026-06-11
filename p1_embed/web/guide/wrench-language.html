@@ -128,7 +128,7 @@ function loop() {
           <li>Use constants such as `OUTPUT`, `HIGH`, and `LOW`, for example `pinMode(16, OUTPUT)` and `digitalWrite(16, HIGH)`.</li>
           <li>Use top-level math helpers such as `sin()`, `cos()`, `map()`, `constrain()`, `radians()`, and `degrees()` for generated sketches.</li>
           <li>Float arithmetic and direct `println(floatValue)` work, but avoid building strings with floats in hot paths.</li>
-          <li>Use `timeLocal(out)`, `sunLocal(..., out)`, `ledGetRgb(..., out)`, and color conversion helpers with reusable output arrays.</li>
+          <li>Use `timeLocal(out)`, `sunLocal(..., out)`, `ledGetRgbInto(...)`, and color conversion `*Into` helpers with reusable output arrays.</li>
           <li>For online data, prefer `fetchJson()` and `getJsonValue()` when you only need a few fields.</li>
         </ul>
       </section>
@@ -138,9 +138,11 @@ function loop() {
         <div class="reference-grid">
           <a class="reference-card" href="modules/core-runtime.html"><span class="material-symbols-rounded">terminal</span><strong>Sketch basics</strong><p>Print, timing, random, heap, and error helpers.</p></a>
           <a class="reference-card" href="modules/gpio-pwm.html"><span class="material-symbols-rounded">memory</span><strong>Pins and actuators</strong><p>Pins, analog input, PWM, servo, and fan helpers.</p></a>
-          <a class="reference-card" href="modules/math-time-sun.html"><span class="material-symbols-rounded">wb_sunny</span><strong>Environment</strong><p>Noise, local time, sun position, daylight brightness, and color temperature.</p></a>
+          <a class="reference-card" href="modules/math-motion.html"><span class="material-symbols-rounded">waves</span><strong>Math and motion</strong><p>Scaling helpers, trigonometry, and noise.</p></a>
+          <a class="reference-card" href="modules/local-time.html"><span class="material-symbols-rounded">schedule</span><strong>Local time</strong><p>Synced clock values and local date parts.</p></a>
+          <a class="reference-card" href="modules/sun-location.html"><span class="material-symbols-rounded">wb_sunny</span><strong>Sun location</strong><p>Sun position, daylight brightness, and color temperature.</p></a>
           <a class="reference-card" href="modules/led-strips.html"><span class="material-symbols-rounded">flare</span><strong>LED strips</strong><p>NeoPixel-style setup, RGB/HSV pixels, brightness, and frames.</p></a>
-          <a class="reference-card" href="modules/browser-ui.html"><span class="material-symbols-rounded">tune</span><strong>Browser controls</strong><p>Controls and events exposed by a running sketch.</p></a>
+          <a class="reference-card" href="modules/browser-ui.html"><span class="material-symbols-rounded">tune</span><strong>Browser UI</strong><p>Controls and events exposed by a running sketch.</p></a>
           <a class="reference-card" href="modules/home-assistant.html"><span class="material-symbols-rounded">home_iot_device</span><strong>Home Assistant</strong><p>Expose entities and consume HA events.</p></a>
           <a class="reference-card" href="modules/http-json.html"><span class="material-symbols-rounded">data_object</span><strong>Online data</strong><p>Fetch web values without excessive heap pressure.</p></a>
         </div>

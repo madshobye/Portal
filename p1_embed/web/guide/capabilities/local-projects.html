@@ -16,21 +16,35 @@
       </section>
 
       <section>
-        <h2>How It Works</h2>
-        <ol class="steps">
-          <li><strong>A project is the container.</strong> It has a name, stable id, revision list, and the currently selected revision.</li>
-          <li><strong>A revision captures a state of thought.</strong> Code, specification, chat history, circuit JSON, source, time, and byte size belong to the revision.</li>
-          <li><strong>Local storage keeps work close.</strong> Projects live in browser local storage unless you explicitly export them.</li>
-          <li><strong>Export is the backup path.</strong> Download a project JSON when the work matters, when changing browsers, or before clearing data.</li>
-        </ol>
+        <h2>Project Flow</h2>
+        <div class="walkthrough-grid">
+          <article class="walkthrough-step">
+            <div class="walkthrough-copy">
+              <span class="walkthrough-number">01</span>
+              <h3>Projects and revisions stay together</h3>
+              <p>A project contains the revision list. Each revision captures a state of work: code, specification, chat history, circuit notes, source, time, and byte size.</p>
+            </div>
+            <figure class="walkthrough-image image-focus" data-image-url="../images/code-workspace.png">
+              <script type="application/json">
+                {
+                  "title": "Project and revision menus",
+                  "alt": "XOBIT code workspace showing project and revision menus",
+                  "caption": "Project and revision menus keep the current browser workspace organized.",
+                  "note": "Use the menus to switch projects and revisions before exporting JSON.",
+                  "crop": { "x": 20, "y": 18, "w": 30, "h": 5 }
+                }
+              </script>
+            </figure>
+          </article>
+        </div>
       </section>
 
       <section>
         <h2>Why It Matters</h2>
         <p class="section-copy">Physical computing work often changes direction. Keeping code, AI reasoning, documentation, and circuit assumptions together makes it easier to return to a previous idea without reconstructing why it existed.</p>
         <div class="callout">
-          <strong>No cloud backup by default</strong>
-          <p>The design is intentionally local-first. The board stores the running sketch, and the browser stores projects and revisions. Export regularly when the work should survive browser resets or machine changes.</p>
+          <strong>Export when the work matters</strong>
+          <p>XOBIT is intentionally local-first. The browser stores projects and revisions, and the board stores the running sketch. Download a project JSON before changing browsers, clearing data, or sharing a complete project state.</p>
         </div>
       </section>
 

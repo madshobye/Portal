@@ -16,22 +16,35 @@
       </section>
 
       <section>
-        <h2>Connection Roles</h2>
+        <h2>Connection Paths</h2>
         <div class="two-grid">
-          <article class="card"><span class="material-symbols-rounded">usb</span><strong>USB</strong><p>Used for first install, recovery, direct development, and trusted local communication through Web Serial in Chrome-based browsers.</p></article>
-          <article class="card"><span class="material-symbols-rounded">cloud</span><strong>Online MQTT</strong><p>Used when the board is on WiFi and should be controlled without a cable through a named online user or an explicit unauthenticated setup. MQTT carries commands, responses, events, logs, and script uploads.</p></article>
+          <article class="card"><span class="material-symbols-rounded">usb</span><strong>USB</strong><p>The desk connection for first install and direct development through Web Serial in Chrome-based browsers.</p></article>
+          <article class="card"><span class="material-symbols-rounded">cloud</span><strong>Online MQTT</strong><p>The WiFi path for commands, responses, events, logs, status, and script uploads under the board topic root.</p></article>
         </div>
       </section>
 
       <section>
-        <h2>How It Works</h2>
-        <ol class="steps">
-          <li><strong>Install or connect over USB.</strong> Web Serial lets the browser talk directly to the ESP32 for install and development.</li>
-          <li><strong>Save WiFi settings.</strong> The board stores network details and reconnects after reboot.</li>
-          <li><strong>Add online users.</strong> Username/password-derived keys are used for online sign-in and encrypted MQTT sessions. Without a user or explicit guest/anonymous mode, MQTT stays inactive.</li>
-          <li><strong>Use MQTT topics.</strong> The board listens for commands and publishes responses, events, and hello/status messages under its configured topic root, for example <code>xobit/my-board</code>.</li>
-          <li><strong>Keep USB as recovery.</strong> If online settings are wrong, USB remains the clean way back in.</li>
-        </ol>
+        <h2>Online Access</h2>
+        <div class="walkthrough-grid">
+          <article class="walkthrough-step">
+            <div class="walkthrough-copy">
+              <span class="walkthrough-number">01</span>
+              <h3>Online users are configured in Settings</h3>
+              <p>MQTT becomes useful once the board is on WiFi and access is configured deliberately. A named online user creates an encrypted sign-in path; guest and unauthenticated modes should be explicit choices.</p>
+            </div>
+            <figure class="walkthrough-image image-focus" data-image-url="../images/settings-users.png">
+              <script type="application/json">
+                {
+                  "title": "Online users",
+                  "alt": "XOBIT settings dialog showing online user settings",
+                  "caption": "Use Settings to choose how online access should work.",
+                  "note": "Add online users or choose an explicit guest mode before using MQTT links.",
+                  "crop": { "x": 29.5, "y": 14.5, "w": 42, "h": 34 }
+                }
+              </script>
+            </figure>
+          </article>
+        </div>
       </section>
 
       <section>

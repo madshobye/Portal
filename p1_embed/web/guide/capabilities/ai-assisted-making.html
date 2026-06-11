@@ -16,14 +16,63 @@
       </section>
 
       <section>
-        <h2>How It Works</h2>
-        <ol class="steps">
-          <li><strong>The current revision provides context.</strong> The assistant sees the project specification, selected code, and API guidance.</li>
-          <li><strong>Chat can generate or revise code.</strong> A useful answer should produce a complete script when the goal is code.</li>
-          <li><strong>The specification records intent.</strong> Good specifications describe behavior, parts, assumptions, and constraints so the next revision has memory.</li>
-          <li><strong>Circuit comments help diagrams.</strong> `// xobit-circuit:` comments near pin variables tell the Circuit view about physical parts the code alone cannot prove.</li>
-          <li><strong>The API key stays local.</strong> AI settings are stored in the browser unless you explicitly create a sharing key.</li>
-        </ol>
+        <h2>Working With AI</h2>
+        <div class="walkthrough-grid">
+          <article class="walkthrough-step">
+            <div class="walkthrough-copy">
+              <span class="walkthrough-number">01</span>
+              <h3>Chat shapes the next change</h3>
+              <p>Ask for a concrete change, explanation, or cleanup. The useful answer is tied to the current revision, so code, notes, and reasoning stay near the work they affect.</p>
+            </div>
+            <figure class="walkthrough-image image-focus" data-image-url="../images/ai-workspace.png">
+              <script type="application/json">
+                {
+                  "title": "AI chat",
+                  "alt": "XOBIT AI workspace with chat on the left",
+                  "caption": "Chat is where you ask for changes and explanations.",
+                  "note": "Use this panel for prompts that should affect the current project.",
+                  "crop": { "x": 5, "y": 23, "w": 32, "h": 62 }
+                }
+              </script>
+            </figure>
+          </article>
+          <article class="walkthrough-step">
+            <div class="walkthrough-copy">
+              <span class="walkthrough-number">02</span>
+              <h3>Specification records intent</h3>
+              <p>The specification is the readable description of what the sketch should do. Keep behavior, parts, assumptions, and constraints clear so later revisions have better memory.</p>
+            </div>
+            <figure class="walkthrough-image image-focus" data-image-url="../images/ai-workspace.png">
+              <script type="application/json">
+                {
+                  "title": "Project specification",
+                  "alt": "XOBIT AI workspace with project specification on the right",
+                  "caption": "The specification captures behavior, parts, assumptions, and constraints.",
+                  "note": "This side describes what the project should do, in readable language.",
+                  "crop": { "x": 38, "y": 25, "w": 58, "h": 59 }
+                }
+              </script>
+            </figure>
+          </article>
+          <article class="walkthrough-step">
+            <div class="walkthrough-copy">
+              <span class="walkthrough-number">03</span>
+              <h3>Add an API key only when you want built-in AI</h3>
+              <p>The OpenAI API key enables the browser AI workflow. It is not needed if you prefer to use the guide with your own LLM account in another tab.</p>
+            </div>
+            <figure class="walkthrough-image image-focus" data-image-url="../images/settings-ai.png">
+              <script type="application/json">
+                {
+                  "title": "AI settings",
+                  "alt": "XOBIT settings dialog showing AI model and API key fields",
+                  "caption": "AI settings hold the model choice and local API key controls.",
+                  "note": "Paste or clear the API key for the AI tab in Settings.",
+                  "crop": { "x": 29.5, "y": 14.5, "w": 42, "h": 47 }
+                }
+              </script>
+            </figure>
+          </article>
+        </div>
       </section>
 
       <section>
@@ -32,6 +81,7 @@
 Add a slider for brightness and a button to reset the animation.
 Update the specification to match this code and list wiring assumptions.
 Explain why this compile error happens before changing the sketch.</pre>
+        <p class="section-copy">When a generated script uses pins, ask for `// xobit-circuit:` comments too. They help the Circuit view understand physical parts the code alone cannot prove.</p>
       </section>
 
       <section>

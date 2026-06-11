@@ -16,18 +16,32 @@
       </section>
 
       <section>
-        <h2>How It Works</h2>
-        <ol class="steps">
-          <li><strong>Code creates evidence.</strong> Pin variables, LED setup calls, servo calls, and comments give the Circuit view clues.</li>
-          <li><strong>Parts are inferred cautiously.</strong> The browser prefers explicit evidence over guessing, especially for power, relays, motors, and sensors.</li>
-          <li><strong>Assumptions stay visible.</strong> The page lists what it inferred and what it could not know, so wiring risk is not hidden.</li>
-          <li><strong>Revision context matters.</strong> Circuit notes belong to the current project revision with the code that produced them.</li>
-        </ol>
+        <h2>Reading The Circuit View</h2>
+        <div class="walkthrough-grid">
+          <article class="walkthrough-step">
+            <div class="walkthrough-copy">
+              <span class="walkthrough-number">01</span>
+              <h3>Check the generated wiring</h3>
+              <p>The diagram is a visual check against the real build. It should make pin choices, parts, power assumptions, and risky gaps easier to notice before you trust the setup.</p>
+            </div>
+            <figure class="walkthrough-image image-focus" data-image-url="../images/circuit-workspace.png">
+              <script type="application/json">
+                {
+                  "title": "Circuit workspace",
+                  "alt": "XOBIT circuit workspace with generated wiring and assumptions",
+                  "caption": "Circuit view shows inferred wiring beside parts and assumptions.",
+                  "note": "Use the generated diagram as a check against the physical setup.",
+                  "crop": { "x": 5, "y": 23, "w": 88, "h": 64 }
+                }
+              </script>
+            </figure>
+          </article>
+        </div>
       </section>
 
       <section>
         <h2>Comment Pattern</h2>
-        <p class="section-copy">Use comments near pin variables when you know the physical role but the code only says “pin”.</p>
+        <p class="section-copy">Pin variables and setup calls give Circuit clues, but a plain number cannot always prove the physical part. Add a short comment near the variable when you know the role.</p>
         <pre class="code">var stripPin = 16; // xobit-circuit: IO16 ledStrip
 var relayPin = 18; // xobit-circuit: IO18 relay
 var knobPin = 34; // xobit-circuit: IO34 potentiometer</pre>

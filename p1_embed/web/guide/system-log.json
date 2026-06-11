@@ -1,5 +1,18 @@
 [
   {
+    "id": "2026-06-12-guide-images-modules",
+    "date": "2026-06-12",
+    "scope": "Guide",
+    "title": "Guide images and clearer modules",
+    "summary": "The guide now uses the latest workspace screenshots with focused image previews on walkthrough pages, and the script modules are split into clearer topics such as Math and motion, Local time, and Sun location.",
+    "icons": [
+      { "name": "image", "label": "Images", "type": "images" },
+      { "name": "travel_explore", "label": "Sun location", "type": "sun-location" },
+      { "name": "schedule", "label": "Local time", "type": "time" },
+      { "name": "menu_book", "label": "Guide", "type": "guide" }
+    ]
+  },
+  {
     "id": "2026-06-11-usb-msgpack-reconnect",
     "date": "2026-06-11",
     "scope": "Web",

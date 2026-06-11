@@ -12,26 +12,39 @@
       <section class="page-hero panel">
         <p class="eyebrow">Capability</p>
         <h1>Live board coding</h1>
-        <p class="lead">XOBIT treats the ESP32 as a live programmable object: edit a script in the browser, upload it to the board, watch logs, stop it, and recover the running code when you need to inspect what is actually on the device.</p>
+        <p class="lead">XOBIT treats the ESP32 as a live programmable object: edit a script in the browser, upload it to the board, watch logs, stop it, and inspect the sketch that is actually on the device.</p>
       </section>
 
       <section>
-        <h2>How It Works</h2>
-        <ol class="steps">
-          <li><strong>The browser editor owns the draft.</strong> The Code view stores your current project and revision locally in the browser.</li>
-          <li><strong>Upload compiles the script on the board.</strong> The firmware receives source text, stops any old script, compiles the new code, and starts it if compilation succeeds.</li>
-          <li><strong>The script runs in a firmware-managed task.</strong> `setup()` runs once, then `loop()` is called repeatedly while USB or online transport remains responsive.</li>
-          <li><strong>Logs and errors come back to the console.</strong> `print()`, `println()`, API errors, compile errors, and runtime status are returned to the browser.</li>
-          <li><strong>Recover reads from the device.</strong> When you need the truth, recover asks the board for the stored/running sketch rather than trusting the browser draft.</li>
-        </ol>
+        <h2>Coding Loop</h2>
+        <div class="walkthrough-grid">
+          <article class="walkthrough-step">
+            <div class="walkthrough-copy">
+              <span class="walkthrough-number">01</span>
+              <h3>Upload from Code</h3>
+              <p>The Code view keeps the editor, upload controls, status, and console in one work surface. Upload sends source text to the firmware, which compiles it, stops the old script, and starts the new one if compilation succeeds.</p>
+            </div>
+            <figure class="walkthrough-image image-focus" data-image-url="../images/code-workspace.png">
+              <script type="application/json">
+                {
+                  "title": "Code upload controls",
+                  "alt": "XOBIT code workspace with editor, upload controls, and console",
+                  "caption": "Use the toolbar to upload or stop a sketch, then read the console below.",
+                  "note": "Upload controls sit between the revision menu and editor.",
+                  "crop": { "x": 44, "y": 18, "w": 17, "h": 5 }
+                }
+              </script>
+            </figure>
+          </article>
+        </div>
       </section>
 
       <section>
         <h2>Good Habits</h2>
         <ul class="notes">
-          <li>Keep `loop()` short; do one frame of work, then return or use a small `delay()`.</li>
-          <li>Upload small changes first when debugging physical behavior.</li>
           <li>Read the console after every upload; compile and runtime errors usually point to the failing boundary.</li>
+          <li>Keep `loop()` short: do one frame of work, return, or use a small `delay()` so USB and online control stay responsive.</li>
+          <li>Upload small changes first when debugging physical behavior.</li>
           <li>Use `lastError()` and `clearError()` when a sketch needs to expose errors in its own UI.</li>
         </ul>
       </section>

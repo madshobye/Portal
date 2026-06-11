@@ -185,7 +185,7 @@ Use Wrench case style:
 - `simplex3()`, `simplex3_01()`, `noiseSeed()`.
 - Use top-level math helpers such as `map()`, `constrain()`, `sin()`, `cos()`, `sqrt()`, `pow()`, `floor()`, `ceil()`, `round()`, `abs()`, `min()`, `max()`, `radians()`, and `degrees()`.
 - Wrench's namespaced math library is also available as `math::...`, but generated sketches should prefer the top-level helpers.
-- `ledGetRgb(strip, index, out)`, `rgbToHsv(rgb, out)`, `hsvToRgb(hsv, out)` in hot LED loops.
+- `ledGetRgbInto(strip, index, out)`, `rgbToHsvInto(rgb, out)`, `hsvToRgbInto(hsv, out)` in hot LED loops.
 - `ledConfig(strip, pin, count, brightness)` configures a WS2812B/NeoPixel-style strip with default GRB packing.
 - `ledConfig(strip, pin, count, brightness, "WS2812B", order)` may be used only when the sketch needs explicit color order: `RGB`, `RBG`, `GRB`, `GBR`, `BRG`, or `BGR`. Do not generate non-WS2812B chipsets in normal sketches; extended chipset support is disabled in the default firmware to preserve RAM.
 - `paletteSet2/3/4` and `paletteGetRgb(slot, t, out)`.

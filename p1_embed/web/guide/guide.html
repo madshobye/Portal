@@ -92,32 +92,32 @@
         <p class="section-copy">Move between AI, code, circuit notes, and live controls as one connected workspace.</p>
         <div class="visual-grid">
           <figure class="visual-card">
-            <div class="visual-media"><img src="assets/p1e-tour-ai-settings.png" alt="XOBIT AI settings dialog"></div>
-            <figcaption>AI settings for model, tokens, API key, and sharing.</figcaption>
-          </figure>
-          <figure class="visual-card">
-            <div class="visual-media"><img src="assets/p1e-tour-general-settings.png" alt="XOBIT general settings dialog"></div>
-            <figcaption>General settings for name, timezone, and board identity.</figcaption>
-          </figure>
-          <figure class="visual-card">
-            <div class="visual-media"><img src="assets/p1e-tour-firmware-settings.png" alt="XOBIT firmware settings dialog"></div>
-            <figcaption>Firmware updates from the browser with patch details.</figcaption>
-          </figure>
-          <figure class="visual-card">
-            <div class="visual-media"><img src="assets/p1e-tour-code-workspace.png" alt="XOBIT code workspace with editor and console"></div>
+            <div class="visual-media"><img src="images/code-workspace.png" alt="XOBIT code workspace with editor and console"></div>
             <figcaption>Code workspace for editing, uploading, and reading logs.</figcaption>
           </figure>
           <figure class="visual-card">
-            <div class="visual-media"><img src="assets/p1e-tour-ai-workspace.png" alt="XOBIT AI workspace with chat and project specification"></div>
+            <div class="visual-media"><img src="images/ai-workspace.png" alt="XOBIT AI workspace with chat and project specification"></div>
             <figcaption>AI workspace with chat and project specification side by side.</figcaption>
           </figure>
           <figure class="visual-card">
-            <div class="visual-media"><img src="assets/p1e-tour-circuit-workspace.png" alt="XOBIT circuit workspace with generated wiring diagram"></div>
+            <div class="visual-media"><img src="images/circuit-workspace.png" alt="XOBIT circuit workspace with generated wiring diagram"></div>
             <figcaption>Circuit workspace for generated wiring and assumptions.</figcaption>
           </figure>
           <figure class="visual-card">
-            <div class="visual-media"><img src="assets/p1e-tour-install-workspace.png" alt="XOBIT install workspace for uploading firmware"></div>
+            <div class="visual-media"><img src="images/ui-live-controls.png" alt="XOBIT live UI controls for a running sketch"></div>
+            <figcaption>Live UI controls declared by the running sketch.</figcaption>
+          </figure>
+          <figure class="visual-card">
+            <div class="visual-media"><img src="images/install-settings.png" alt="XOBIT install workspace with firmware upload settings"></div>
             <figcaption>Install workspace for flashing XOBIT firmware to the board.</figcaption>
+          </figure>
+          <figure class="visual-card">
+            <div class="visual-media"><img src="images/settings-general.png" alt="XOBIT settings dialog with board name and timezone fields"></div>
+            <figcaption>Settings dialog for board identity, WiFi, users, firmware, and AI options.</figcaption>
+          </figure>
+          <figure class="visual-card">
+            <div class="visual-media"><img src="images/share-dialog.png" alt="XOBIT share dialog with QR codes and bug report export"></div>
+            <figcaption>Share dialog for UI links, online links, QR codes, and bug reports.</figcaption>
           </figure>
         </div>
       </section>
@@ -129,9 +129,11 @@
           <a class="reference-card" href="wrench-language.html"><span class="material-symbols-rounded">code</span><strong>Script language</strong><p>Variables, functions, arrays, loops, sketch structure, and XOBIT-specific syntax notes.</p></a>
           <a class="reference-card" href="modules/core-runtime.html"><span class="material-symbols-rounded">terminal</span><strong>Sketch basics</strong><p>Printing, timing, random values, heap checks, and script error helpers.</p></a>
           <a class="reference-card" href="modules/gpio-pwm.html"><span class="material-symbols-rounded">memory</span><strong>Pins and actuators</strong><p>Digital pins, analog input, touch, PWM, servos, fans, and simple physical outputs.</p></a>
-          <a class="reference-card" href="modules/math-time-sun.html"><span class="material-symbols-rounded">wb_sunny</span><strong>Environment</strong><p>Noise, local time, sun position, daylight brightness, and color temperature.</p></a>
+          <a class="reference-card" href="modules/math-motion.html"><span class="material-symbols-rounded">waves</span><strong>Math and motion</strong><p>Scaling helpers, trigonometry, and noise for animation and sensor behavior.</p></a>
+          <a class="reference-card" href="modules/local-time.html"><span class="material-symbols-rounded">schedule</span><strong>Local time</strong><p>Synced clock values, local date parts, and timezone-aware timing.</p></a>
+          <a class="reference-card" href="modules/sun-location.html"><span class="material-symbols-rounded">wb_sunny</span><strong>Sun location</strong><p>Sun position, daylight brightness, and color temperature for place-aware sketches.</p></a>
           <a class="reference-card" href="modules/led-strips.html"><span class="material-symbols-rounded">flare</span><strong>LED strips</strong><p>NeoPixel-style LED setup, RGB/HSV pixels, brightness, palettes, and frame output.</p></a>
-          <a class="reference-card" href="modules/browser-ui.html"><span class="material-symbols-rounded">tune</span><strong>Browser controls</strong><p>Declare live controls, consume UI events, and update values from the running sketch.</p></a>
+          <a class="reference-card" href="modules/browser-ui.html"><span class="material-symbols-rounded">tune</span><strong>Browser UI</strong><p>Declare live controls, consume UI events, and update values from the running sketch.</p></a>
           <a class="reference-card" href="modules/home-assistant.html"><span class="material-symbols-rounded">home_iot_device</span><strong>Home Assistant</strong><p>Expose script-defined entities and consume Home Assistant events.</p></a>
           <a class="reference-card" href="custom-llm.html"><span class="material-symbols-rounded">psychology</span><strong>Use your own LLM</strong><p>Give ChatGPT or another model the XOBIT Wrench context URL and ask for a script.</p></a>
           <a class="reference-card" href="security.html"><span class="material-symbols-rounded">shield_lock</span><strong>Security model</strong><p>How local storage, USB, MQTT sign-in, guest access, and API keys are currently handled.</p></a>

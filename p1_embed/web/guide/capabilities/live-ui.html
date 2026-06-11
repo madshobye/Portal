@@ -16,17 +16,32 @@
       </section>
 
       <section>
-        <h2>How It Works</h2>
-        <ol class="steps">
-          <li><strong>The sketch declares controls.</strong> `uiBegin()` starts a UI definition, then calls such as `uiSlider()` and `uiButton()` describe controls.</li>
-          <li><strong>The browser asks for the UI.</strong> On a hello/reconnect event, the sketch can rebuild the UI so the browser knows what controls exist.</li>
-          <li><strong>Events return to the script.</strong> Button presses, toggles, and slider changes become UI events the sketch can poll.</li>
-          <li><strong>Values can update live.</strong> `uiUpdate()` keeps displayed values and graphs in sync with the running object.</li>
-        </ol>
+        <h2>Live Control Loop</h2>
+        <div class="walkthrough-grid">
+          <article class="walkthrough-step">
+            <div class="walkthrough-copy">
+              <span class="walkthrough-number">01</span>
+              <h3>Controls come from the sketch</h3>
+              <p>The script declares controls with calls such as `uiSlider()` and `uiButton()`. The browser shows those controls, sends user changes back as events, and receives live value updates from the running object.</p>
+            </div>
+            <figure class="walkthrough-image image-focus" data-image-url="../images/ui-live-controls.png">
+              <script type="application/json">
+                {
+                  "title": "Live UI controls",
+                  "alt": "XOBIT UI view showing live controls for a running sketch",
+                  "caption": "The UI view exposes controls declared by the sketch.",
+                  "note": "Use UI controls to tune the running object without editing code.",
+                  "crop": { "x": 5, "y": 20, "w": 86, "h": 19 }
+                }
+              </script>
+            </figure>
+          </article>
+        </div>
       </section>
 
       <section>
         <h2>Minimal Pattern</h2>
+        <p class="section-copy">Rebuild the UI when the browser says hello again, so a refreshed page or shared UI link knows which controls exist.</p>
         <pre class="code">var brightness = 80;
 
 function buildUi() {
