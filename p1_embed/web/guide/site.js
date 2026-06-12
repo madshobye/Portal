@@ -6,7 +6,7 @@
   const navItems = [
     ["overview", "Overview", "guide.html"],
     ["first-run", "Getting Started", "first-run.html"],
-    ["wrench", "Script", "wrench-language.html"],
+    ["wrench", "Syntax", "wrench-language.html"],
     ["modules", "Modules", "modules.html"],
     ["custom-llm", "Own LLM", "custom-llm.html"],
     ["security", "Security", "security.html"],
