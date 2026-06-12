@@ -1,6 +1,6 @@
-import { createLegacyProjectMigrationService } from "./legacy-project-migration-service.js?v=0.1.87-ui749";
-import { createProjectSchemaMigrationService } from "./project-schema-migration-service.js?v=0.1.87-ui749";
-import { createProjectDedupeService } from "./project-dedupe-service.js?v=0.1.87-ui749";
+import { createLegacyProjectMigrationService } from "./legacy-project-migration-service.js?v=0.1.87-ui753";
+import { createProjectSchemaMigrationService } from "./project-schema-migration-service.js?v=0.1.87-ui753";
+import { createProjectDedupeService } from "./project-dedupe-service.js?v=0.1.87-ui753";
 
 export function createProjectMaintenanceRegistry({
   createProjectId,

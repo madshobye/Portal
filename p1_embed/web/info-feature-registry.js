@@ -1,5 +1,5 @@
-import { createInfoGuinoRegistry } from "./info-guino-registry.js?v=0.1.87-ui749";
-import { formatDuration } from "./display-formatters.js?v=0.1.87-ui749";
+import { createInfoGuinoRegistry } from "./info-guino-registry.js?v=0.1.87-ui753";
+import { formatDuration } from "./display-formatters.js?v=0.1.87-ui753";
 import {
   activePeerId as activePeerIdFor,
   memoryStatusLabel as memoryStatusLabelFor,
@@ -8,7 +8,7 @@ import {
   scriptStatusLabel as scriptStatusLabelFor,
   wifiSignalLabel as wifiSignalLabelFor,
   wrenchFpsLabel as wrenchFpsLabelFor,
-} from "./status-model.js?v=0.1.87-ui749";
+} from "./status-model.js?v=0.1.87-ui753";
 
 export function createInfoFeatureRegistry({
   brandVersion,

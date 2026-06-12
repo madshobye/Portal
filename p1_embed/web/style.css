@@ -2287,6 +2287,31 @@ input {
 
 .settings-lab-toggle {
   justify-self: start;
+  position: relative;
+}
+
+.settings-lab-toggle.is-active {
+  border-color: transparent;
+  color: var(--accent);
+  background: var(--button-active-bg);
+}
+
+body[data-theme="xcode"] .settings-lab-toggle.is-active {
+  color: #111111;
+  background-color: var(--button-active-bg);
+}
+
+.settings-toggle-input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.settings-lab-toggle:focus-within {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
 }
 
 .settings-theme-button .material-symbols-rounded {

@@ -77,7 +77,10 @@ export function createViewShellController({
   }
 
   function refreshLabFeatureVisibility() {
-    fields.labFeaturesToggle && (fields.labFeaturesToggle.checked = labFeaturesEnabled);
+    if (fields.labFeaturesToggle) {
+      fields.labFeaturesToggle.checked = labFeaturesEnabled;
+      fields.labFeaturesToggle.closest(".settings-lab-toggle")?.classList.toggle("is-active", labFeaturesEnabled);
+    }
     fields.labFeatureElements?.forEach((element) => {
       element.hidden = !labFeaturesEnabled;
       element.setAttribute("aria-hidden", labFeaturesEnabled ? "false" : "true");

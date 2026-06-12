@@ -9,13 +9,14 @@ export function createMqttSigninDialogController({
   normalizePeerId,
   deriveOnlineAuthKeyHex,
 }) {
-  function request({ remoteId } = {}) {
+  function request({ remoteId, hello } = {}) {
     return new Promise((resolve, reject) => {
       if (!dialog) {
         reject(new Error("MQTT sign in required"));
         return;
       }
       const target = normalizePeerId(remoteId || remoteIdForAuth());
+      const authDeviceId = normalizePeerId(hello?.deviceId || target);
       if (!target) {
         reject(new Error("MQTT board id is required for sign in"));
         return;
@@ -50,7 +51,7 @@ export function createMqttSigninDialogController({
         const password = passwordInput.value;
         if (!username || !password) return;
         try {
-          const keyHex = await deriveOnlineAuthKeyHex(target, username, password);
+          const keyHex = await deriveOnlineAuthKeyHex(authDeviceId, username, password);
           cleanup();
           if (dialog.open) dialog.close("ok");
           resolve({ username, keyHex });

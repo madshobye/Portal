@@ -60,15 +60,18 @@ export function createSettingsShellController({
     const lastInfo = getLastInfo();
     const lastStatus = getLastStatus();
     if (isMqttKind(transport?.kind) && transport?.remoteId) return normalizePeerId(transport.remoteId);
-    const deviceId = lastConfig?.deviceId || lastInfo?.deviceId || lastStatus?.deviceId || "";
-    if (deviceId && deviceId.length >= 6) return `${product?.deviceIdPrefix || "xobit"}-${deviceId.slice(-6)}`.toLowerCase();
+    const deviceId = normalizePeerId(lastConfig?.deviceId || lastInfo?.deviceId || lastStatus?.deviceId || "");
+    if (deviceId) {
+      const prefix = `${product?.deviceIdPrefix || "xobit"}-`;
+      return deviceId.startsWith(prefix) ? deviceId : `${prefix}${deviceId}`;
+    }
     const explicit = normalizePeerId(fields.peerId?.value || "");
     if (explicit) return explicit;
     return normalizePeerId(lastConfig?.deviceName || lastInfo?.deviceName || "");
   }
 
-  function requestMqttSignIn({ remoteId } = {}) {
-    return getMqttSigninDialogController().request({ remoteId });
+  function requestMqttSignIn({ remoteId, hello } = {}) {
+    return getMqttSigninDialogController().request({ remoteId, hello });
   }
 
   function renderOnlineAuthUsersFromConfig() {
