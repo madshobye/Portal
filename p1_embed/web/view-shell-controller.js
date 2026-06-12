@@ -17,11 +17,6 @@ export function createViewShellController({
   storageArea = window.localStorage,
   onLabFeaturesChanged,
 } = {}) {
-  let hiddenViews = {
-    chat: false,
-    ui: false,
-    bugReport: true,
-  };
   let labFeaturesEnabled = false;
 
   function tabFor(name) {
@@ -33,12 +28,11 @@ export function createViewShellController({
   }
 
   function shouldHideUiTab() {
-    if (fields.views.ui?.classList.contains("is-active")) return false;
     return !getHasActiveUi?.();
   }
 
-  function isViewAvailable(name) {
-    return Boolean(fields.views[name]) && !hiddenViews[name];
+  function hasView(name) {
+    return Boolean(fields.views[name]);
   }
 
   function readLabFeaturesEnabled() {
@@ -50,29 +44,30 @@ export function createViewShellController({
   }
 
   function fallbackView(name) {
-    if (isViewAvailable(name)) return name;
-    return isViewAvailable("coding") ? "coding" : Object.keys(fields.views).find(isViewAvailable) || "coding";
+    if (hasView(name)) return name;
+    return hasView("coding") ? "coding" : Object.keys(fields.views).find(hasView) || "coding";
   }
 
-  function refreshViewAvailability() {
-    hiddenViews = {
-      ...hiddenViews,
+  function hiddenTabState() {
+    return {
       chat: shouldHideChatTab(),
       ui: shouldHideUiTab(),
       bugReport: !labFeaturesEnabled,
     };
-    Object.entries(hiddenViews).forEach(([name, hidden]) => {
+  }
+
+  function refreshViewAvailability() {
+    const hiddenTabs = hiddenTabState();
+    Object.entries(hiddenTabs).forEach(([name, hidden]) => {
       const tab = tabFor(name);
       if (!tab) return;
       tab.hidden = hidden;
       tab.setAttribute("aria-hidden", hidden ? "true" : "false");
     });
-    if (hiddenViews.chat && fields.views.chat?.classList.contains("is-active")) switchTab("coding");
-    if (hiddenViews.bugReport && fields.views.bugReport?.classList.contains("is-active")) switchTab("coding");
     return {
-      chat: !hiddenViews.chat,
-      ui: !hiddenViews.ui,
-      bugReport: !hiddenViews.bugReport,
+      chat: !hiddenTabs.chat,
+      ui: !hiddenTabs.ui,
+      bugReport: !hiddenTabs.bugReport,
     };
   }
 

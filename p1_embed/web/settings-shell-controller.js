@@ -59,14 +59,20 @@ export function createSettingsShellController({
     const lastConfig = getLastConfig();
     const lastInfo = getLastInfo();
     const lastStatus = getLastStatus();
+    const mqttDeviceId = normalizePeerId(
+      transport?.hello?.deviceId ||
+      lastStatus?.mqtt?.deviceId ||
+      lastConfig?.mqttDeviceId ||
+      lastConfig?.mqtt?.deviceId ||
+      ""
+    );
+    if (mqttDeviceId) return mqttDeviceId;
     if (isMqttKind(transport?.kind) && transport?.remoteId) return normalizePeerId(transport.remoteId);
-    const deviceId = normalizePeerId(lastConfig?.deviceId || lastInfo?.deviceId || lastStatus?.deviceId || "");
-    if (deviceId) {
-      const prefix = `${product?.deviceIdPrefix || "xobit"}-`;
-      return deviceId.startsWith(prefix) ? deviceId : `${prefix}${deviceId}`;
-    }
     const explicit = normalizePeerId(fields.peerId?.value || "");
     if (explicit) return explicit;
+    const deviceId = normalizePeerId(lastConfig?.deviceId || lastInfo?.deviceId || lastStatus?.deviceId || "");
+    const prefix = `${product?.deviceIdPrefix || "xobit"}-`;
+    if (deviceId && deviceId.startsWith(prefix)) return deviceId;
     return normalizePeerId(lastConfig?.deviceName || lastInfo?.deviceName || "");
   }
 

@@ -4,12 +4,12 @@ import { WebSerialTransport } from "./protocol/WebSerialTransport.js?v=0.1.87-ui
 import { WebSocketTransport } from "./protocol/WebSocketTransport.js";
 import { MqttWebRtcTransport } from "./protocol/MqttWebRtcTransport.js?v=0.1.87-ui348";
 import { MqttTransport } from "./protocol/MqttTransport.js?v=0.1.87-ui349";
-import { createConnectionRuntimeRegistry } from "./connection-runtime-registry.js?v=0.1.87-ui753";
+import { createConnectionRuntimeRegistry } from "./connection-runtime-registry.js?v=0.1.87-ui755";
 import {
   isDroppedTransportState as isDroppedTransportStateFor,
   transportStateLogEntries,
-} from "./connection-lifecycle-model.js?v=0.1.87-ui753";
-import { currentDeviceDisplayName as currentDeviceDisplayNameFor } from "./status-model.js?v=0.1.87-ui753";
+} from "./connection-lifecycle-model.js?v=0.1.87-ui755";
+import { currentDeviceDisplayName as currentDeviceDisplayNameFor } from "./status-model.js?v=0.1.87-ui755";
 
 export function createConnectionFeatureRegistry({
   clearConnectionUrlParams,

@@ -1,4 +1,4 @@
-import { initGuinoView } from "./guino.js?v=0.1.87-ui753";
+import { initGuinoView } from "./guino.js?v=0.1.87-ui755";
 
 export function createGuinoController({
   canvas,

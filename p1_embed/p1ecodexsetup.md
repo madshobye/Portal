@@ -85,8 +85,8 @@ DETOOLS=/private/tmp/p1e-detools-venv/bin/detools ./scripts/esp32/p1embed-safebo
 ## Versioning
 
 - Firmware version is in `p1_embed/firmware/p1_embed/config.h`.
-- Web UI version is in `p1_embed/web/app.js` as `WEB_UI_VERSION`.
-- Cache-busting query strings in `p1_embed/web/index.html` and imports in `app.js` should be bumped when changing web code.
+- Web UI version is in `p1_embed/web/web-version.js` as `WEB_UI_VERSION`.
+- Cache-busting query strings in `p1_embed/web/index.html` and top-level web imports are bumped with `python3 p1_embed/tools/bump_web_cache.py <next-version>`.
 - SafeBoot USB installer manifest version is in `p1_embed/web/bin/p1e-firmware-safeboot.json`.
 - OTA release chain is in `p1_embed/web/bin/p1e-firmware-releases.json`.
 
@@ -128,6 +128,8 @@ Typical MQTT topics:
 - `<mqttRoot>/hello`
 
 `mqttRoot` is the whole topic prefix, for example `xobit/my-board` or the generated default `xobit/xobit-f7a608`. Do not treat the final board id as separate from the root when building URLs or connection history. A public broker plus predictable topic root should be treated as discoverable.
+
+Share modal wording is intentional: UI link is the simplified front-facing control surface, while Admin link is the authenticated MQTT editor/workspace link. Do not make the Admin link open the simplified UI mode.
 
 Security model, do not eagerly simplify:
 

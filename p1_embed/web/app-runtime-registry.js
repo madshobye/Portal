@@ -1,11 +1,11 @@
-import { createPageLifecycleController } from "./page-lifecycle-controller.js?v=0.1.87-ui753";
-import { createAppBootstrapController } from "./app-bootstrap-controller.js?v=0.1.87-ui753";
-import { createAppControlBindingsController } from "./app-control-bindings-controller.js?v=0.1.87-ui753";
-import { copyTextToClipboard } from "./clipboard.js?v=0.1.87-ui753";
-import { isMqttKind } from "./connection-kinds.js?v=0.1.87-ui753";
-import { product } from "./app-config.js?v=0.1.87-ui753";
-import { mqttSharePeerId } from "./status-model.js?v=0.1.87-ui753";
-import { createTopbarShareController } from "./topbar-share-controller.js?v=0.1.87-ui753";
+import { createPageLifecycleController } from "./page-lifecycle-controller.js?v=0.1.87-ui755";
+import { createAppBootstrapController } from "./app-bootstrap-controller.js?v=0.1.87-ui755";
+import { createAppControlBindingsController } from "./app-control-bindings-controller.js?v=0.1.87-ui755";
+import { copyTextToClipboard } from "./clipboard.js?v=0.1.87-ui755";
+import { isMqttKind } from "./connection-kinds.js?v=0.1.87-ui755";
+import { product } from "./app-config.js?v=0.1.87-ui755";
+import { mqttSharePeerId } from "./status-model.js?v=0.1.87-ui755";
+import { createTopbarShareController } from "./topbar-share-controller.js?v=0.1.87-ui755";
 
 export function createAppRuntimeRegistry({
   defaultPeerIdFromWebSocket,
@@ -345,7 +345,10 @@ export function createAppRuntimeRegistry({
     }) || mqttPeerIdFromConfig(config, addressService.normalizePeerId);
     if (!peerId) return "";
     const url = new URL(addressService.sharePageUrl("mqtt", "", null, peerId));
-    url.searchParams.set("view", "ui");
+    url.searchParams.delete("ui");
+    url.searchParams.delete("guest");
+    url.searchParams.delete("guestKey");
+    url.searchParams.set("view", "coding");
     return url.toString();
   }
 

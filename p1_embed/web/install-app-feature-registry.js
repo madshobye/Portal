@@ -1,4 +1,4 @@
-import { createInstallFeatureRegistry } from "./install-feature-registry.js?v=0.1.87-ui753";
+import { createInstallFeatureRegistry } from "./install-feature-registry.js?v=0.1.87-ui755";
 
 export function createInstallAppFeatureRegistry({
   fields,

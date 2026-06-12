@@ -1,4 +1,4 @@
-import { createTransferFeatureRegistry } from "./transfer-feature-registry.js?v=0.1.87-ui753";
+import { createTransferFeatureRegistry } from "./transfer-feature-registry.js?v=0.1.87-ui755";
 
 export function createTransferAppFeatureRegistry(options = {}) {
   let transferFeatureRegistry = null;

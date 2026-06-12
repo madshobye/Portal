@@ -97,7 +97,7 @@ export function createDeviceSettingsController({
     fields.onlineAuthPassword.value = "";
     updateConfig(config);
     renderOnlineAuthUsers();
-    logLine("info", `Online user ${username} saved`);
+    logLine("info", `Online user ${username} saved for ${remoteId}`);
   }
 
   async function removeOnlineAuthUser(username) {

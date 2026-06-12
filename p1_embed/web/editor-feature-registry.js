@@ -1,9 +1,9 @@
-import { createEditorRegistry } from "./editor-registry.js?v=0.1.87-ui753";
+import { createEditorRegistry } from "./editor-registry.js?v=0.1.87-ui755";
 import {
   markdownToSpecificationHtml,
   specificationHtmlToMarkdown,
   specificationNodesToMarkdown,
-} from "./specification-format.js?v=0.1.87-ui753";
+} from "./specification-format.js?v=0.1.87-ui755";
 
 export function createEditorFeatureRegistry({
   documentRef,

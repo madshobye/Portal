@@ -1,4 +1,4 @@
-import { createChatRegistry } from "./chat-registry.js?v=0.1.87-ui753";
+import { createChatRegistry } from "./chat-registry.js?v=0.1.87-ui755";
 
 export function createChatAppFeatureRegistry({
   builtInChatModelOptions,

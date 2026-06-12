@@ -1,4 +1,4 @@
-import { renderQrCanvas } from "./qr-renderer.js?v=0.1.87-ui753";
+import { renderQrCanvas } from "./qr-renderer.js?v=0.1.87-ui755";
 
 export function createTopbarShareController({
   fields,
@@ -60,10 +60,14 @@ export function createTopbarShareController({
     if (!url) return;
     try {
       await copyText(url);
-      logLine("info", `${kind.toUpperCase()} share link copied`);
+      logLine("info", `${shareKindLabel(kind)} copied`);
     } catch (error) {
       logLine("error", error.message || "copy failed");
     }
+  }
+
+  function shareKindLabel(kind) {
+    return kind === "mqtt" ? "Admin link" : "UI link";
   }
 
   async function downloadBugReport() {
