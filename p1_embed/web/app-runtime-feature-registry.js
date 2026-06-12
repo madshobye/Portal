@@ -1,8 +1,9 @@
-import { createAppRuntimeRegistry } from "./app-runtime-registry.js?v=0.1.87-ui748";
+import { createAppRuntimeRegistry } from "./app-runtime-registry.js?v=0.1.87-ui749";
 
 export function createAppRuntimeFeatureRegistry({
   defaultPeerIdFromWebSocket,
   fields,
+  getBugReportViewController,
   getChatSettings,
   getChatShellController,
   getCircuitShellController,
@@ -65,6 +66,7 @@ export function createAppRuntimeFeatureRegistry({
     appRuntimeRegistry = createAppRuntimeRegistry({
       defaultPeerIdFromWebSocket,
       fields,
+      getBugReportViewController,
       getChatSettings,
       getChatShellController,
       getCircuitShellController,

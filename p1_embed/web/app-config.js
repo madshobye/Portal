@@ -74,6 +74,7 @@ function makeStorage(namespace) {
     revisionDraft: storageKey(namespace, "project.revisionDraft"),
     specificationMode: storageKey(namespace, "project.specificationMode"),
     appTheme: storageKey(namespace, "app.theme"),
+    labFeatures: storageKey(namespace, "app.labFeatures"),
     circuitArtMode: storageKey(namespace, "circuit.artMode"),
     circuitRoutingMode: storageKey(namespace, "circuit.routingMode"),
     circuitBoardType: storageKey(namespace, "circuit.boardType"),

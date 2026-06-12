@@ -11,6 +11,7 @@ export function createAppControlBindingsController({
     bindScriptToolbarControls();
     controllers.projectToolbar().bind();
     controllers.topbarShare().bind();
+    controllers.bugReportView().bind();
     fields.usbConnect.addEventListener("click", actions.connectUsb);
     fields.connectForm?.addEventListener("submit", handleConnectSubmit);
     fields.newWsToggle.addEventListener("click", actions.showNewWsField);
@@ -23,6 +24,7 @@ export function createAppControlBindingsController({
     fields.reboot.addEventListener("click", () => actions.runUiAction(() => actions.sendCommand("device.reboot"), "rebooting"));
     fields.formatCode.addEventListener("click", () => actions.runUiAction(actions.formatEditorCode, "formatting"));
     fields.appTheme?.addEventListener("click", actions.toggleAppTheme);
+    fields.labFeaturesToggle?.addEventListener("change", () => actions.toggleLabFeatures(fields.labFeaturesToggle.checked));
     [fields.circuitBoardSelect, fields.circuitRefresh, fields.circuitArtMode, fields.circuitRoutingMode, fields.circuitDownload].forEach((button) => {
       ["pointerdown", "mousedown", "mouseup", "pointerup", "click"].forEach((name) => {
         button?.addEventListener(name, (event) => event.stopPropagation());

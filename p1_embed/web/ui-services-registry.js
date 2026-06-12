@@ -1,10 +1,11 @@
-import { createProjectToolbarController } from "./project-toolbar-controller.js?v=0.1.87-ui748";
-import { createViewShellController } from "./view-shell-controller.js?v=0.1.87-ui748";
-import { createSettingsShellController } from "./settings-shell-controller.js?v=0.1.87-ui748";
-import { createRevisionNameDialog } from "./revision-name-dialog.js?v=0.1.87-ui748";
-import { createConsoleController } from "./console-controller.js?v=0.1.87-ui748";
-import { createCommandConsoleService } from "./command-console-service.js?v=0.1.87-ui748";
-import { product, storage } from "./app-config.js?v=0.1.87-ui748";
+import { createProjectToolbarController } from "./project-toolbar-controller.js?v=0.1.87-ui749";
+import { createViewShellController } from "./view-shell-controller.js?v=0.1.87-ui749";
+import { createSettingsShellController } from "./settings-shell-controller.js?v=0.1.87-ui749";
+import { createRevisionNameDialog } from "./revision-name-dialog.js?v=0.1.87-ui749";
+import { createConsoleController } from "./console-controller.js?v=0.1.87-ui749";
+import { createCommandConsoleService } from "./command-console-service.js?v=0.1.87-ui749";
+import { createBugReportViewController } from "./bug-report-view-controller.js?v=0.1.87-ui749";
+import { product, storage } from "./app-config.js?v=0.1.87-ui749";
 
 export function createUiServicesRegistry({
   copyText,
@@ -12,6 +13,7 @@ export function createUiServicesRegistry({
   formatBytes,
   getChatShellController,
   getCircuitShellController,
+  getCircuitWorkspaceController,
   getCircuitView,
   getCodeEditorShellController,
   getConnectionUiStateController,
@@ -48,6 +50,7 @@ export function createUiServicesRegistry({
   let revisionNameDialog = null;
   let consoleController = null;
   let commandConsoleService = null;
+  let bugReportViewController = null;
 
   function getProjectToolbarController() {
     if (projectToolbarController) return projectToolbarController;
@@ -81,6 +84,8 @@ export function createUiServicesRegistry({
       requestFrame: requestAnimationFrameRef,
       getHasChatApiKey: () => getChatShellController().hasChatApiKey(),
       getHasActiveUi: () => getGuinoController().shouldShowUiTab(),
+      storageKeyLabFeatures: storage.labFeatures,
+      onLabFeaturesChanged: (enabled) => getCircuitWorkspaceController?.()?.setLabFeaturesEnabled?.(enabled),
     });
     return viewShellController;
   }
@@ -146,7 +151,20 @@ export function createUiServicesRegistry({
     return commandConsoleService;
   }
 
+  function getBugReportViewController() {
+    if (bugReportViewController) return bugReportViewController;
+    bugReportViewController = createBugReportViewController({
+      dropZone: fields.bugReportDropZone,
+      fileInput: fields.bugReportFileInput,
+      summary: fields.bugReportSummary,
+      content: fields.bugReportContent,
+      logLine: (level, message) => getConsoleController().logLine(level, message),
+    });
+    return bugReportViewController;
+  }
+
   return {
+    getBugReportViewController,
     getCommandConsoleService,
     getConsoleController,
     getProjectToolbarController,

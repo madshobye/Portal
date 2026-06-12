@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>XOBIT</title>
     <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@24,400,0,0">
-    <link rel="stylesheet" href="style.css?v=0.1.87-ui748">
+    <link rel="stylesheet" href="style.css?v=0.1.87-ui749">
   </head>
   <body>
     <main id="app">
@@ -13,7 +13,7 @@
         <div class="brand">
           <strong><span class="brand-xo">XO</span><span class="brand-bit">BIT</span></strong>
           <span id="brand-version" class="brand-version">
-            <span class="brand-version-line">web 0.1.87-ui748</span>
+            <span class="brand-version-line">web 0.1.87-ui749</span>
             <span class="brand-version-line"></span>
           </span>
         </div>
@@ -22,6 +22,7 @@
           <button id="coding-tab" class="tab" type="button" data-tab="coding">Code</button>
           <button id="circuit-tab" class="tab" type="button" data-tab="circuit">Circuit</button>
           <button id="ui-tab" class="tab" type="button" data-tab="ui">UI</button>
+          <button id="bug-report-tab" class="tab" type="button" data-tab="bugReport" hidden>Bug Report</button>
           <button id="install-tab" class="tab" type="button" data-tab="install">Install</button>
         </nav>
         <div class="topbar-status">
@@ -156,7 +157,7 @@
           </select>
           <button id="circuit-refresh-button" class="button icon-buttonish" type="button" title="Regenerate and save positions" aria-label="Regenerate and save positions"><span class="material-symbols-rounded">refresh</span></button>
           <button id="circuit-download-button" class="button icon-buttonish" type="button" title="Download diagram" aria-label="Download diagram"><span class="material-symbols-rounded">download</span></button>
-          <button id="circuit-routing-mode-button" class="button icon-buttonish circuit-routing-mode-button" type="button" title="Orthogonal routing" aria-label="Toggle experimental embroidery routing" aria-pressed="false"><span class="material-symbols-rounded">route</span></button>
+          <button id="circuit-routing-mode-button" class="button icon-buttonish circuit-routing-mode-button" type="button" title="Orthogonal routing" aria-label="Toggle experimental embroidery routing" aria-pressed="false" data-lab-feature hidden><span class="material-symbols-rounded">route</span></button>
           <button id="circuit-art-mode-button" class="button icon-buttonish circuit-art-mode-button" type="button" title="Circuit symbol mode" aria-label="Toggle circuit artwork mode" aria-pressed="false"><span class="material-symbols-rounded">category</span></button>
         </header>
         <section class="circuit-shell">
@@ -185,6 +186,30 @@
           <div class="ui-canvas-frame">
             <div id="ui-canvas" class="ui-dom" aria-label="Firmware-driven live interface"></div>
           </div>
+        </section>
+      </section>
+
+      <section id="bug-report-view" class="view bug-report-view" aria-label="Bug report">
+        <section class="bug-report-shell">
+          <header class="bug-report-hero">
+            <div>
+              <h1>Bug Report</h1>
+              <p>Drop a XOBIT bug report JSON to inspect the captured state, logs, code, specification, and chat notes.</p>
+            </div>
+            <label id="bug-report-drop-zone" class="bug-report-drop-zone">
+              <input id="bug-report-file-input" type="file" accept="application/json,.json">
+              <span class="material-symbols-rounded">upload_file</span>
+              <strong>Drop report</strong>
+              <span>or choose a JSON file</span>
+            </label>
+          </header>
+          <section id="bug-report-summary" class="bug-report-summary" aria-label="Bug report summary"></section>
+          <section id="bug-report-content" class="bug-report-content" aria-label="Bug report content">
+            <article class="bug-report-empty">
+              <span class="material-symbols-rounded">bug_report</span>
+              <p>No report loaded.</p>
+            </article>
+          </section>
         </section>
       </section>
 
@@ -366,6 +391,10 @@
               <span class="material-symbols-rounded">light_mode</span>
               <span class="settings-theme-label">Light UI</span>
             </button>
+            <label class="field compact-check settings-lab-toggle">
+              <input id="lab-features-toggle" type="checkbox">
+              <span>Lab</span>
+            </label>
             <button id="device-name-save-button" class="button primary icon-buttonish" type="button" title="Apply board name" aria-label="Apply board name"><span class="material-symbols-rounded">drive_file_rename_outline</span></button>
           </div>
         </section>
@@ -554,6 +583,6 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.9.4/p5.min.js" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
     <script src="../../P1/portal/usbSerial.js"></script>
     <script src="../../P1/portal/qrCodeGen.js"></script>
-    <script type="module" src="app.js?v=0.1.87-ui748"></script>
+    <script type="module" src="app.js?v=0.1.87-ui749"></script>
   </body>
 </html>

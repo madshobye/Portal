@@ -432,6 +432,11 @@ body.is-ui-link-mode .connection-pill {
   padding: 7px 12px 12px;
 }
 
+#bug-report-view {
+  grid-template-rows: minmax(0, 1fr);
+  padding: 7px 12px 12px;
+}
+
 .coding-main {
   display: grid;
   grid-template-rows: auto minmax(300px, 1fr) minmax(160px, 30vh);
@@ -2056,6 +2061,155 @@ input {
   resize: vertical;
 }
 
+.bug-report-shell {
+  display: grid;
+  grid-template-rows: auto auto minmax(0, 1fr);
+  gap: 10px;
+  min-height: 0;
+  height: 100%;
+  overflow: hidden;
+}
+
+.bug-report-hero {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(180px, 240px);
+  gap: 12px;
+  align-items: stretch;
+}
+
+.bug-report-hero h1 {
+  margin: 0 0 8px;
+  color: var(--text);
+  font-size: 26px;
+  line-height: 1;
+}
+
+.bug-report-hero p {
+  max-width: 720px;
+  margin: 0;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.bug-report-drop-zone {
+  display: grid;
+  place-items: center;
+  gap: 4px;
+  min-height: 112px;
+  padding: 14px;
+  border: 2px dashed color-mix(in srgb, var(--muted) 35%, transparent);
+  border-radius: 8px;
+  background: var(--surface-1);
+  color: var(--muted);
+  cursor: pointer;
+  text-align: center;
+}
+
+.bug-report-drop-zone input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.bug-report-drop-zone strong {
+  color: var(--text);
+  font-size: 14px;
+}
+
+.bug-report-drop-zone .material-symbols-rounded {
+  color: var(--text);
+  font-size: 28px;
+}
+
+.bug-report-drop-zone.is-dragging {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 14%, var(--surface-1));
+}
+
+.bug-report-summary {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(128px, 1fr));
+  gap: 8px;
+}
+
+.bug-report-stat {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+  padding: 10px;
+  border-radius: 8px;
+  background: var(--surface-1);
+}
+
+.bug-report-stat span {
+  color: var(--muted);
+  font-size: 10px;
+}
+
+.bug-report-stat strong {
+  overflow: hidden;
+  color: var(--text);
+  font-size: 13px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.bug-report-content {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  gap: 10px;
+  min-height: 0;
+  overflow: auto;
+  padding-right: 2px;
+}
+
+.bug-report-section,
+.bug-report-empty {
+  display: grid;
+  align-content: start;
+  gap: 8px;
+  min-width: 0;
+  min-height: 0;
+  padding: 12px;
+  border-radius: 8px;
+  background: var(--surface-1);
+}
+
+.bug-report-section h2 {
+  margin: 0;
+  color: var(--text);
+  font-size: 13px;
+}
+
+.bug-report-section pre {
+  min-width: 0;
+  max-height: 360px;
+  margin: 0;
+  overflow: auto;
+  color: var(--muted);
+  font: 11px/1.45 var(--font);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.bug-report-code {
+  grid-column: 1 / -1;
+}
+
+.bug-report-empty {
+  min-height: 220px;
+  place-items: center;
+  color: var(--muted);
+  text-align: center;
+}
+
+.bug-report-empty .material-symbols-rounded {
+  font-size: 34px;
+}
+
 .share-qr {
   display: grid;
   place-items: center;
@@ -2129,6 +2283,10 @@ input {
 .settings-theme-button {
   justify-self: start;
   min-width: 128px;
+}
+
+.settings-lab-toggle {
+  justify-self: start;
 }
 
 .settings-theme-button .material-symbols-rounded {

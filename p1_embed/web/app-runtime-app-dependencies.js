@@ -3,6 +3,7 @@ export function createAppRuntimeAppDependencies({
   defaultPeerIdFromWebSocket,
   documentRef,
   fields,
+  getBugReportViewController,
   getChatSettings,
   getChatShellController,
   getCircuitShellController,
@@ -50,6 +51,7 @@ export function createAppRuntimeAppDependencies({
   return {
     defaultPeerIdFromWebSocket,
     fields,
+    getBugReportViewController,
     getChatSettings,
     getChatShellController,
     getCircuitShellController,

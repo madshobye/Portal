@@ -33,8 +33,9 @@ export function createCircuitWorkspaceController({
   }
 
   function restorePreferences() {
+    const labFeaturesEnabled = localStorage.getItem(storageKeys.labFeatures) === "1";
     setArtMode(normalizeCircuitArtMode(localStorage.getItem(storageKeys.artMode)), { persist: false });
-    setRoutingMode(normalizeCircuitRoutingMode(localStorage.getItem(storageKeys.routingMode)), { persist: false });
+    setRoutingMode(labFeaturesEnabled ? normalizeCircuitRoutingMode(localStorage.getItem(storageKeys.routingMode)) : "orthogonal", { persist: false });
     setBoardType(normalizeCircuitBoardType(localStorage.getItem(storageKeys.boardType)), { persist: false });
   }
 
@@ -55,6 +56,7 @@ export function createCircuitWorkspaceController({
   }
 
   function toggleRoutingMode() {
+    if (localStorage.getItem(storageKeys.labFeatures) !== "1") return;
     const current = normalizeCircuitRoutingMode(localStorage.getItem(storageKeys.routingMode));
     setRoutingMode(current === "embroidery" ? "orthogonal" : "embroidery");
   }
@@ -89,9 +91,18 @@ export function createCircuitWorkspaceController({
     logLine(ok ? "info" : "warn", ok ? "circuit diagram downloaded" : "circuit diagram not ready");
   }
 
+  function setLabFeaturesEnabled(enabled) {
+    if (!enabled) {
+      setRoutingMode("orthogonal", { persist: false });
+      return;
+    }
+    setRoutingMode(normalizeCircuitRoutingMode(localStorage.getItem(storageKeys.routingMode)), { persist: false });
+  }
+
   return {
     bind,
     restorePreferences,
     setBoardType,
+    setLabFeaturesEnabled,
   };
 }

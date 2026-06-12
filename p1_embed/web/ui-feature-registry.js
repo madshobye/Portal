@@ -1,12 +1,13 @@
-import { copyTextToClipboard } from "./clipboard.js?v=0.1.87-ui748";
-import { setSelectValueOrFallback } from "./settings-fields.js?v=0.1.87-ui748";
-import { createUiServicesRegistry } from "./ui-services-registry.js?v=0.1.87-ui748";
+import { copyTextToClipboard } from "./clipboard.js?v=0.1.87-ui749";
+import { setSelectValueOrFallback } from "./settings-fields.js?v=0.1.87-ui749";
+import { createUiServicesRegistry } from "./ui-services-registry.js?v=0.1.87-ui749";
 
 export function createUiFeatureRegistry({
   fields,
   formatBytes,
   getChatShellController,
   getCircuitShellController,
+  getCircuitWorkspaceController,
   getCircuitView,
   getCodeEditorShellController,
   getConnectionUiStateController,
@@ -51,6 +52,7 @@ export function createUiFeatureRegistry({
       formatBytes,
       getChatShellController,
       getCircuitShellController,
+      getCircuitWorkspaceController,
       getCircuitView,
       getCodeEditorShellController,
       getConnectionUiStateController,
@@ -84,6 +86,7 @@ export function createUiFeatureRegistry({
   }
 
   return {
+    getBugReportViewController: () => getUiServicesRegistry().getBugReportViewController(),
     getCommandConsoleService: (...args) => getUiServicesRegistry().getCommandConsoleService(...args),
     getConsoleController: () => getUiServicesRegistry().getConsoleController(),
     getProjectToolbarController: () => getUiServicesRegistry().getProjectToolbarController(),

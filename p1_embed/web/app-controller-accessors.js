@@ -23,6 +23,7 @@ export function createAppControllerAccessors({
     getAppBootstrapController: () => getAppRuntimeAppFeatureRegistry().getAppBootstrapController(),
     getAppControlBindingsController: () => getAppRuntimeAppFeatureRegistry().getAppControlBindingsController(),
     getBoardDownloadService: () => getTransferAppFeatureRegistry().getBoardDownloadService(),
+    getBugReportViewController: () => getUiFeatureRegistry().getBugReportViewController(),
     getChatCompletionService: () => getChatAppFeatureRegistry().getChatCompletionService(),
     getChatCredentialActions: () => getChatAppFeatureRegistry().getChatCredentialActions(),
     getChatCredentials: () => getChatAppFeatureRegistry().getChatCredentials(),

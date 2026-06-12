@@ -1,5 +1,20 @@
 [
   {
+    "id": "2026-06-12-lab-bug-report-view",
+    "date": "2026-06-12",
+    "scope": "Web",
+    "title": "Lab features and bug report viewer",
+    "summary": "Settings now has a short Lab toggle for extended tools. Lab mode reveals the experimental embroidery routing control and a Bug Report workspace where a downloaded report can be dropped in to inspect captured logs, code, specification, chat, and system state. The AI guide also starts with the optional API key setup for built-in AI.",
+    "icons": [
+      { "name": "science", "label": "Lab", "type": "lab" },
+      { "name": "bug_report", "label": "Bug report", "type": "bugs" },
+      { "name": "settings", "label": "Settings", "type": "settings" },
+      { "name": "route", "label": "Circuit routing", "type": "circuit" },
+      { "name": "psychology", "label": "AI", "type": "ai" },
+      { "name": "menu_book", "label": "Guide", "type": "guide" }
+    ]
+  },
+  {
     "id": "2026-06-12-fresh-board-mqtt-qr",
     "date": "2026-06-12",
     "scope": "Web",

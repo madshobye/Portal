@@ -1,4 +1,4 @@
-import { createProjectMaintenanceRegistry } from "./project-maintenance-registry.js?v=0.1.87-ui748";
+import { createProjectMaintenanceRegistry } from "./project-maintenance-registry.js?v=0.1.87-ui749";
 
 export function createProjectMaintenanceFeatureRegistry({
   createProjectId,

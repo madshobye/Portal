@@ -1,15 +1,16 @@
-import { createPageLifecycleController } from "./page-lifecycle-controller.js?v=0.1.87-ui748";
-import { createAppBootstrapController } from "./app-bootstrap-controller.js?v=0.1.87-ui748";
-import { createAppControlBindingsController } from "./app-control-bindings-controller.js?v=0.1.87-ui748";
-import { copyTextToClipboard } from "./clipboard.js?v=0.1.87-ui748";
-import { isMqttKind } from "./connection-kinds.js?v=0.1.87-ui748";
-import { product } from "./app-config.js?v=0.1.87-ui748";
-import { mqttSharePeerId } from "./status-model.js?v=0.1.87-ui748";
-import { createTopbarShareController } from "./topbar-share-controller.js?v=0.1.87-ui748";
+import { createPageLifecycleController } from "./page-lifecycle-controller.js?v=0.1.87-ui749";
+import { createAppBootstrapController } from "./app-bootstrap-controller.js?v=0.1.87-ui749";
+import { createAppControlBindingsController } from "./app-control-bindings-controller.js?v=0.1.87-ui749";
+import { copyTextToClipboard } from "./clipboard.js?v=0.1.87-ui749";
+import { isMqttKind } from "./connection-kinds.js?v=0.1.87-ui749";
+import { product } from "./app-config.js?v=0.1.87-ui749";
+import { mqttSharePeerId } from "./status-model.js?v=0.1.87-ui749";
+import { createTopbarShareController } from "./topbar-share-controller.js?v=0.1.87-ui749";
 
 export function createAppRuntimeRegistry({
   defaultPeerIdFromWebSocket,
   fields,
+  getBugReportViewController,
   getChatSettings,
   getChatShellController,
   getCircuitShellController,
@@ -154,6 +155,7 @@ export function createAppRuntimeRegistry({
         sendCommand: (...args) => getCommandConsoleService().sendCommand(...args),
         formatEditorCode: () => getCodeEditorShellController().formatCode(),
         toggleAppTheme: () => getCodeEditorShellController().toggleTheme(),
+        toggleLabFeatures: (enabled) => getViewShellController().setLabFeaturesEnabled(enabled),
         bindSketchDrop: () => getEditorRegistry().bindCodeDrop(),
         openSettingsDialog: () => getSettingsShellController().openSettingsDialog(),
         saveDeviceName: () => getDeviceSettingsController().saveDeviceName(),
@@ -197,6 +199,7 @@ export function createAppRuntimeRegistry({
         lowerPanel: getLowerPanelController,
         projectToolbar: getProjectToolbarController,
         topbarShare: getTopbarShareController,
+        bugReportView: getBugReportViewController,
         circuitWorkspace: getCircuitWorkspaceController,
         settingsTabs: getSettingsTabs,
         consolePreferences: getConsolePreferences,

@@ -1,13 +1,13 @@
 import { inferCircuitLayout } from "./circuit.js?v=0.1.87-ui554";
-import { settle } from "./timing.js?v=0.1.87-ui748";
-import { isMqttKind } from "./connection-kinds.js?v=0.1.87-ui748";
-import { defaultPeerIdFromWebSocket } from "./connection-address-utils.js?v=0.1.87-ui748";
-import { createTransferAppFeatureRegistry } from "./transfer-app-feature-registry.js?v=0.1.87-ui748";
-import { normalizeChatMessages } from "./revision-chat-model.js?v=0.1.87-ui748";
-import { createAppRuntimeAppFeatureRegistry } from "./app-runtime-app-feature-registry.js?v=0.1.87-ui748";
-import { createAppRuntimeAppDependencies } from "./app-runtime-app-dependencies.js?v=0.1.87-ui748";
-import { createTransferAppDependencies } from "./transfer-app-dependencies.js?v=0.1.87-ui748";
-import { product, storage } from "./app-config.js?v=0.1.87-ui748";
+import { settle } from "./timing.js?v=0.1.87-ui749";
+import { isMqttKind } from "./connection-kinds.js?v=0.1.87-ui749";
+import { defaultPeerIdFromWebSocket } from "./connection-address-utils.js?v=0.1.87-ui749";
+import { createTransferAppFeatureRegistry } from "./transfer-app-feature-registry.js?v=0.1.87-ui749";
+import { normalizeChatMessages } from "./revision-chat-model.js?v=0.1.87-ui749";
+import { createAppRuntimeAppFeatureRegistry } from "./app-runtime-app-feature-registry.js?v=0.1.87-ui749";
+import { createAppRuntimeAppDependencies } from "./app-runtime-app-dependencies.js?v=0.1.87-ui749";
+import { createTransferAppDependencies } from "./transfer-app-dependencies.js?v=0.1.87-ui749";
+import { product, storage } from "./app-config.js?v=0.1.87-ui749";
 
 export function createRuntimeRegistries({
   context,
@@ -33,6 +33,7 @@ export function createRuntimeRegistries({
       defaultPeerIdFromWebSocket,
       fields,
       product,
+      getBugReportViewController: accessor("getBugReportViewController"),
       getChatSettings: accessor("getChatSettings"),
       getChatShellController: accessor("getChatShellController"),
       getCircuitShellController: accessor("getCircuitShellController"),

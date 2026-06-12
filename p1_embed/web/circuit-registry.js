@@ -1,6 +1,6 @@
-import { createCircuitWorkspaceController } from "./circuit-workspace-controller.js?v=0.1.87-ui748";
-import { createCircuitEditorActions } from "./circuit-editor-actions.js?v=0.1.87-ui748";
-import { createCircuitShellController } from "./circuit-shell-controller.js?v=0.1.87-ui748";
+import { createCircuitWorkspaceController } from "./circuit-workspace-controller.js?v=0.1.87-ui749";
+import { createCircuitEditorActions } from "./circuit-editor-actions.js?v=0.1.87-ui749";
+import { createCircuitShellController } from "./circuit-shell-controller.js?v=0.1.87-ui749";
 
 export function createCircuitRegistry({
   fields,
@@ -64,6 +64,7 @@ export function createCircuitRegistry({
         artMode: storage.circuitArtMode,
         routingMode: storage.circuitRoutingMode,
         boardType: storage.circuitBoardType,
+        labFeatures: storage.labFeatures,
       },
       getCircuitView,
       getCode: () => getCodeEditorShellController().getValue(),
