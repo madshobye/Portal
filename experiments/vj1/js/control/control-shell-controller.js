@@ -13,7 +13,7 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
     bindStaticEvents();
     store.subscribe((state, reason) => {
       latestState = state;
-      if (reason === "output-metrics" || reason === "mapping-state") {
+      if (reason === "output-metrics" || reason === "mapping-state" || reason === "project-autosave" || reason === "project-autosave-error") {
         renderTopbar(state);
         renderLowerStatus(state);
         return;
@@ -53,14 +53,19 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
     });
 
     refs.openFolder.addEventListener("click", openProjectFolder);
-    refs.saveProject.addEventListener("click", saveProject);
 
-    refs.calibrate.addEventListener("click", () => {
-      const next = !latestState.global.calibrating;
-      store.update((draft) => {
-        draft.global.calibrating = next;
-      }, "calibrate-state");
-      bridge.command("set-calibrate", { calibrating: next });
+    refs.workspaceSwitch.querySelectorAll("[data-workspace]").forEach((button) => {
+      button.addEventListener("click", () => {
+        const workspace = button.dataset.workspace === "scene" ? "scene" : "setup";
+        if (typeof store.setWorkspace === "function") store.setWorkspace(workspace);
+        else {
+          store.update((draft) => {
+            draft.ui.workspace = workspace;
+            draft.global.calibrating = workspace === "setup";
+          }, "workspace");
+        }
+        bridge.command("set-calibrate", { calibrating: workspace === "setup" });
+      });
     });
 
     refs.blackout.addEventListener("click", () => {
@@ -82,10 +87,6 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
       return null;
     });
     if (result?.fallback) refs.importFiles.click();
-  }
-
-  async function saveProject() {
-    await projectService.saveProject().catch((error) => setStatus(`Save error: ${error.message || error}`));
   }
 
   async function importFiles(files) {
@@ -114,12 +115,15 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
     setClass(refs.outputStatus, "is-live", state.metrics.clients > 0);
     setText(refs.outputStatusText, state.metrics.clients > 0 ? `${Math.round(state.metrics.fps)} fps` : "output");
     setClass(refs.togglePreview, "is-active", state.ui.debugPreview);
-    setClass(refs.calibrate, "is-active", state.global.calibrating);
     setClass(refs.blackout, "is-active", state.global.blackout);
+    refs.workspaceSwitch.querySelectorAll("[data-workspace]").forEach((button) => {
+      setClass(button, "is-active", button.dataset.workspace === currentWorkspace(state));
+    });
   }
 
   function renderProjectRail(state) {
     const hasProject = !!state.project.folderName || state.media.length > 0;
+    const workspace = currentWorkspace(state);
     refs.projectRail.innerHTML = `
       <button class="project-card ${state.project.folderName ? "is-ready" : ""}" type="button" data-open-folder>
         <span class="material-symbols-rounded">folder_open</span>
@@ -128,7 +132,7 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
           <small>${state.media.length ? `${state.media.length} media files` : "Media, scenes, shaders, mappings"}</small>
         </span>
       </button>
-      ${hasProject ? projectToolsTemplate(state) : `
+      ${hasProject ? (workspace === "setup" ? setupToolsTemplate(state) : projectToolsTemplate(state)) : `
         <div class="folder-first-note">
           <span class="material-symbols-rounded">gesture</span>
           <p>Open a folder first. The set, media, scenes, shaders, and mappings will live there together.</p>
@@ -170,17 +174,33 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
     `;
   }
 
+  function setupToolsTemplate(state) {
+    return `
+      <div class="rail-section">
+        <div class="rail-title"><span class="material-symbols-rounded">select_all</span><span>Surfaces</span></div>
+        <div class="surface-pills">
+          ${state.surfaces.map((surface) => setupSurfacePillTemplate(surface, state)).join("")}
+        </div>
+        <button type="button" data-add-surface>${icon("add")} Add surface</button>
+      </div>
+      <div class="rail-section">
+        <div class="rail-title"><span class="material-symbols-rounded">grid_on</span><span>Mapping</span></div>
+        <div class="soft-note">Drag anchors or surfaces in the preview. Changes are saved automatically in the project folder.</div>
+      </div>
+    `;
+  }
+
   function renderStudio(state) {
     const hasProject = !!state.project.folderName || state.media.length > 0;
+    const workspace = currentWorkspace(state);
     refs.studio.innerHTML = `
       <section class="studio-stage">
         <div class="stage-head">
           <div>
-            <h2>Visual Studio</h2>
-            <p>${hasProject ? "Shape the live image directly." : "Start with a folder so the set has a home."}</p>
+            <h2>${workspace === "setup" ? "Setup" : "Scene"}</h2>
+            <p>${stageSubtitle(state, hasProject)}</p>
           </div>
-          <div class="stage-actions">
-            <button type="button" data-save-mapping title="Save mapping" aria-label="Save mapping">${icon("grid_on")}</button>
+          <div class="stage-actions ${workspace === "setup" && hasProject ? "" : "is-hidden"}">
             <button type="button" data-reset-mapping title="Reset mapping" aria-label="Reset mapping">${icon("restart_alt")}</button>
           </div>
         </div>
@@ -217,6 +237,20 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
       `;
       return;
     }
+    if (currentWorkspace(state) === "setup") {
+      const selectedSurface = state.surfaces.find((surface) => surface.id === state.ui.selectedSurfaceId) || state.surfaces[0];
+      refs.inspector.innerHTML = `
+        <section class="glass-panel focus-panel">
+          <header class="panel-title">
+            <span class="material-symbols-rounded">select_all</span>
+            <span>Physical surface</span>
+          </header>
+          ${selectedSurface ? setupSurfaceTemplate(selectedSurface, state) : emptyNote("No surface")}
+        </section>
+      `;
+      bindInputs(refs.inspector, state);
+      return;
+    }
     const selectedLayer = state.layers.find((layer) => layer.id === state.ui.selectedLayerId) || state.layers[0];
     const selectedSurface = state.surfaces.find((surface) => surface.id === state.ui.selectedSurfaceId) || state.surfaces[0];
     refs.inspector.innerHTML = `
@@ -249,6 +283,10 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
       `;
       return;
     }
+    if (currentWorkspace(state) === "setup") {
+      refs.mixDock.innerHTML = "";
+      return;
+    }
     refs.mixDock.innerHTML = `
       <div class="dock-strip">
         <button type="button" class="dock-add" data-add-layer title="Add layer" aria-label="Add layer">${icon("add")}</button>
@@ -278,6 +316,12 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
 
   function bindRailEvents() {
     refs.projectRail.querySelector("[data-open-folder]")?.addEventListener("click", openProjectFolder);
+    refs.projectRail.querySelectorAll("[data-select-surface]").forEach((button) => {
+      button.addEventListener("click", () => store.selectSurface(button.dataset.selectSurface));
+    });
+    refs.projectRail.querySelectorAll("[data-add-surface]").forEach((button) => {
+      button.addEventListener("click", () => store.addSurface());
+    });
     refs.projectRail.querySelector("[data-save-scene]")?.addEventListener("click", () => {
       const name = refs.projectRail.querySelector("[data-scene-name]")?.value?.trim() || `Scene ${latestState.scenes.length + 1}`;
       store.saveScene(name);
@@ -302,7 +346,6 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
   function bindStudioEvents() {
     refs.studio.querySelector("[data-open-folder]")?.addEventListener("click", openProjectFolder);
     refs.studio.querySelector("[data-import-files]")?.addEventListener("click", () => refs.importFiles.click());
-    refs.studio.querySelector("[data-save-mapping]")?.addEventListener("click", () => bridge.command("save-mapping"));
     refs.studio.querySelector("[data-reset-mapping]")?.addEventListener("click", () => bridge.command("reset-mapping"));
   }
 
@@ -323,6 +366,17 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
     });
     scope.querySelectorAll("[data-remove-pass]").forEach((button) => {
       button.addEventListener("click", () => removeShaderPass(button.dataset.target, button.dataset.targetId, Number(button.dataset.passIndex)));
+    });
+    scope.querySelectorAll("[data-remove-surface]").forEach((button) => {
+      button.addEventListener("click", () => store.removeSurface(button.dataset.removeSurface));
+    });
+    scope.querySelectorAll("[data-reset-surface-mapping]").forEach((button) => {
+      button.addEventListener("click", () => {
+        bridge.command("reset-mapping", { surfaceId: button.dataset.resetSurfaceMapping });
+      });
+    });
+    scope.querySelectorAll("[data-reset-mapping]").forEach((button) => {
+      button.addEventListener("click", () => bridge.command("reset-mapping"));
     });
   }
 
@@ -367,10 +421,12 @@ function shellTemplate() {
           </div>
         </div>
         <div class="top-actions">
+          <div id="workspace-switch" class="workspace-switch" role="group" aria-label="Workspace">
+            <button type="button" data-workspace="setup" class="is-active">${icon("grid_on")}<span>Setup</span></button>
+            <button type="button" data-workspace="scene">${icon("auto_awesome")}<span>Scene</span></button>
+          </div>
           <button id="open-folder-main" class="icon-buttonish primary" type="button" title="Open project folder" aria-label="Open project folder">${icon("folder_open")}</button>
-          <button id="save-project-main" class="icon-buttonish" type="button" title="Save project" aria-label="Save project">${icon("save")}</button>
           <button id="toggle-preview" class="icon-buttonish" type="button" title="Toggle preview" aria-label="Toggle preview">${icon("visibility")}</button>
-          <button id="calibrate-main" class="icon-buttonish" type="button" title="Calibrate mapping" aria-label="Calibrate mapping">${icon("grid_on")}</button>
           <button id="blackout-main" class="icon-buttonish danger" type="button" title="Blackout" aria-label="Blackout">${icon("brightness_1")}</button>
           <button id="open-output" class="icon-buttonish" type="button" title="Open output" aria-label="Open output">${icon("open_in_new")}</button>
           <span id="output-status" class="status-pill"><span class="status-dot"></span><span id="output-status-text">output</span></span>
@@ -398,10 +454,9 @@ function collectRefs(root) {
     outputStatusText: root.querySelector("#output-status-text"),
     openOutput: root.querySelector("#open-output"),
     togglePreview: root.querySelector("#toggle-preview"),
-    calibrate: root.querySelector("#calibrate-main"),
     blackout: root.querySelector("#blackout-main"),
+    workspaceSwitch: root.querySelector("#workspace-switch"),
     openFolder: root.querySelector("#open-folder-main"),
-    saveProject: root.querySelector("#save-project-main"),
     importFiles: root.querySelector("#import-files-main"),
     projectRail: root.querySelector("#project-rail"),
     studio: root.querySelector("#studio"),
@@ -409,6 +464,36 @@ function collectRefs(root) {
     mixDock: root.querySelector("#mix-dock"),
     lowerStatus: root.querySelector("#lower-status"),
   };
+}
+
+function setupSurfacePillTemplate(surface, state) {
+  const selected = state.ui.selectedSurfaceId === surface.id;
+  return `
+    <button type="button" class="${selected ? "is-selected" : ""}" data-select-surface="${surface.id}">
+      ${icon(surface.enabled ? "crop_free" : "hide_source")}
+      <span>${esc(surface.name)}</span>
+      <small>${surface.enabled ? "mapped" : "off"}</small>
+    </button>
+  `;
+}
+
+function setupSurfaceTemplate(surface, state) {
+  const base = pathForSurface(state, surface);
+  return `
+    <article class="sculpt-card">
+      <div class="sculpt-head">
+        <input type="text" data-update="${base}.name" value="${esc(surface.name)}" spellcheck="false" data-gramm="false" data-gramm_editor="false" data-enable-grammarly="false" />
+        <label class="mini-toggle">${icon("power_settings_new")}<input type="checkbox" data-update="${base}.enabled" ${surface.enabled ? "checked" : ""} /></label>
+      </div>
+      <label class="toggle-line">${icon("label")}<span>Show calibration label</span><input type="checkbox" data-update="${base}.showLabel" ${surface.showLabel ? "checked" : ""} /></label>
+      <label class="toggle-line">${icon("lock")}<span>Lock mapping later</span><input type="checkbox" data-update="${base}.calibrationLocked" ${surface.calibrationLocked ? "checked" : ""} /></label>
+      <div class="setup-actions">
+        <button type="button" data-reset-surface-mapping="${surface.id}">${icon("restart_alt")} Reset surface</button>
+        <button type="button" class="danger" data-remove-surface="${surface.id}">${icon("delete")} Remove</button>
+      </div>
+      <div class="soft-note">This surface defines where light lands. Scene content is assigned separately in Scene.</div>
+    </article>
+  `;
 }
 
 function layerSculptTemplate(layer, state) {
@@ -526,6 +611,17 @@ function scenePillTemplate(scene) {
       <span>${esc(scene.name)}</span>
     </button>
   `;
+}
+
+function currentWorkspace(state) {
+  return state.ui?.workspace === "scene" ? "scene" : "setup";
+}
+
+function stageSubtitle(state, hasProject) {
+  if (!hasProject) return "Start with a folder so the set has a home.";
+  return currentWorkspace(state) === "setup"
+    ? "Place and correct the physical projection surfaces."
+    : "Choose what each surface becomes.";
 }
 
 function rangeTemplate(label, path, value) {

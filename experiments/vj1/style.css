@@ -118,6 +118,10 @@ canvas {
   display: none !important;
 }
 
+.is-hidden {
+  display: none !important;
+}
+
 .studio-app {
   display: grid;
   width: 100vw;
@@ -185,6 +189,33 @@ small {
   align-items: center;
   justify-content: flex-end;
   gap: 8px;
+}
+
+.workspace-switch {
+  display: inline-flex;
+  gap: 4px;
+  padding: 3px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: rgba(255, 255, 255, 0.035);
+}
+
+.workspace-switch button {
+  min-height: 32px;
+  padding: 5px 10px;
+  border-color: transparent;
+  background: transparent;
+  color: var(--muted);
+}
+
+.workspace-switch button span:last-child {
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.workspace-switch button.is-active {
+  background: rgba(101, 224, 211, 0.14);
+  color: var(--ink);
 }
 
 .icon-buttonish {
@@ -315,6 +346,7 @@ small {
 }
 
 .media-pills,
+.surface-pills,
 .scene-pills,
 .effect-palette,
 .chain-list {
@@ -323,10 +355,21 @@ small {
 }
 
 .media-pills button,
+.surface-pills button,
 .scene-pills button,
 .effect-palette button {
   justify-content: flex-start;
   min-width: 0;
+}
+
+.surface-pills button {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+}
+
+.surface-pills button.is-selected {
+  border-color: rgba(101, 224, 211, 0.62);
+  background: rgba(101, 224, 211, 0.12);
 }
 
 .media-pills span:last-child,
@@ -496,6 +539,22 @@ small {
   width: 30px;
   min-height: 30px;
   padding: 0;
+}
+
+.setup-actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.setup-actions button {
+  justify-content: center;
+}
+
+.setup-actions .danger {
+  grid-column: 1 / -1;
+  border-color: rgba(255, 107, 107, 0.36);
+  color: #ffd9d9;
 }
 
 .studio-dock {

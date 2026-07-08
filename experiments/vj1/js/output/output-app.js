@@ -1,7 +1,7 @@
 import { VJ1 } from "../constants.js";
 import { sanitizeState } from "../domain/models.js";
 import { createOutputBridge } from "../services/output-bridge-service.js";
-import { OutputRenderer } from "./output-renderer.js?v=drag-fix-2";
+import { OutputRenderer } from "./output-renderer.js?v=reset-surface-1";
 
 export function installOutputApp({ root, mode }) {
   document.body.classList.add("output-client");
@@ -85,7 +85,7 @@ export function installOutputApp({ root, mode }) {
     onCommand(command, payload) {
       if (command === "set-calibrate") renderer?.setCalibrate(!!payload.calibrating);
       if (command === "save-mapping") renderer?.saveMapping();
-      if (command === "reset-mapping") renderer?.resetMapping();
+      if (command === "reset-mapping") renderer?.resetMapping(payload.surfaceId);
       if (command === "export-mapping") renderer?.exportMapping();
     },
   });

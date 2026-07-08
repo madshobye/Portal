@@ -19,6 +19,7 @@ export class OutputRenderer {
     this.mainMix = null;
     this.surfaceScratch = null;
     this.mapperSurfaces = new Map();
+    this.mappingSignature = "";
     this.lastMetricsAt = 0;
     this.frameStart = 0;
     this.shaderBuilder = createShaderBuilder({
@@ -54,6 +55,7 @@ export class OutputRenderer {
     this.mapper.setAutoSave(true, 80);
     this.rebuildSurfaces();
     this.mapper.loadAll();
+    this.applyProjectMapping();
   }
 
   rebuildSurfaces() {
@@ -85,9 +87,11 @@ export class OutputRenderer {
   setState(nextState) {
     const previousSurfaceIds = (this.state?.surfaces || []).map((surface) => surface.id).join(",");
     const previousSize = this.state ? `${this.state.render.width}x${this.state.render.height}:${this.state.render.surfaceWidth}x${this.state.render.surfaceHeight}` : "";
+    const previousMappingSignature = this.mappingSignature;
     this.state = sanitizeState(nextState);
     const nextSurfaceIds = this.state.surfaces.map((surface) => surface.id).join(",");
     const nextSize = `${this.state.render.width}x${this.state.render.height}:${this.state.render.surfaceWidth}x${this.state.render.surfaceHeight}`;
+    const nextMappingSignature = this.currentMappingSignature();
     if (previousSize && previousSize !== nextSize) {
       this.createBuffers();
     }
@@ -95,7 +99,26 @@ export class OutputRenderer {
       this.rebuildSurfaces();
       this.mapper.loadAll();
     }
+    if (previousMappingSignature !== nextMappingSignature) {
+      this.applyProjectMapping(nextMappingSignature);
+    }
     this.setCalibrate(this.state.global.calibrating);
+  }
+
+  currentMappingSignature() {
+    try {
+      return JSON.stringify(this.state?.mappings?.local || null);
+    } catch {
+      return "";
+    }
+  }
+
+  applyProjectMapping(signature = this.currentMappingSignature()) {
+    const mapping = this.state?.mappings?.local;
+    if (mapping?.surfaces?.length) {
+      this.mapper?.importConfig?.(mapping, { replace: false });
+    }
+    this.mappingSignature = signature;
   }
 
   importFiles(files) {
@@ -261,7 +284,11 @@ export class OutputRenderer {
   }
 
   mouseReleased() {
+    const wasMappingActive = !!this.mapper?.isActive?.();
     this.mapper?.mouseReleased?.();
+    if (wasMappingActive) {
+      this.sendMapping?.("local", this.mapper?.exportData?.() || {}, "Mapping updated");
+    }
   }
 
   isCalibrating() {
@@ -277,7 +304,12 @@ export class OutputRenderer {
     this.mapper?.loadAll();
   }
 
-  resetMapping() {
+  resetMapping(surfaceId = "") {
+    if (surfaceId) {
+      this.mapper?.resetSurface?.(surfaceId);
+      this.sendMapping?.("local", this.mapper?.exportData?.() || {}, "Surface mapping reset");
+      return;
+    }
     this.mapper?.resetAll();
     this.sendMapping?.("local", this.mapper?.exportData?.() || {}, "Mapping reset");
   }

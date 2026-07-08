@@ -65,6 +65,8 @@ class ProjectionMapper {
     this._overlayLabelLayer = null;
     this._dragSurf = -1; // index of surface being dragged
     this._dragCorner = -1; // which corner in that surface
+    this._dragMode = ""; // "corner" or "surface"
+    this._dragStart = null;
     this.defaultMargin = 60;
     this._shortcutHandler = null;
     this._renderResolution = [0, 0];
@@ -109,7 +111,7 @@ class ProjectionMapper {
     return !!this.calibrate;
   }
   isActive() {
-    return this._dragSurf !== -1 && this._dragCorner !== -1;
+    return this._dragSurf !== -1;
   }
   screenToSurface(mx, my, { surface = null, padding = 0 } = {}) {
     const touchX = Number(mx);
@@ -338,6 +340,26 @@ class ProjectionMapper {
     this._saveNow();
   }
 
+  resetSurface(surface) {
+    const refs = this._resolveSurfaceRefs(surface);
+    if (!refs.length) return false;
+
+    const W = width,
+      H = height;
+    const m = this.defaultMargin;
+    refs.forEach(({ s }) => {
+      s.corners = [
+        createVector(m, m),
+        createVector(W - m, m),
+        createVector(W - m, H - m),
+        createVector(m, H - m),
+      ];
+      this._invalidateSurface(s);
+    });
+    this._saveNow();
+    return true;
+  }
+
   // Call in draw(): renders all surfaces with inverse-homography per-pixel mapping.
   render() {
     this._ensureUiSlimFrame();
@@ -401,17 +423,46 @@ class ProjectionMapper {
     if (pick) {
       this._dragSurf = pick.si;
       this._dragCorner = pick.ci;
+      this._dragMode = "corner";
+      this._dragStart = null;
       this.surfaces[pick.si].dragging = pick.ci;
      /* console.log(
         `Drag start ${this.surfaces[pick.si].name} corner #${pick.ci}`
       );*/
+      return;
+    }
+
+    const hit = this.screenToSurface(mx, my);
+    if (hit) {
+      const s = this.surfaces[hit.surfaceIndex];
+      this._dragSurf = hit.surfaceIndex;
+      this._dragCorner = -1;
+      this._dragMode = "surface";
+      this._dragStart = {
+        x: Number(mx),
+        y: Number(my),
+        corners: s.corners.map((corner) => ({ x: corner.x, y: corner.y })),
+      };
+      s.dragging = -2;
     }
   }
 
   mouseDragged(mx = mouseX, my = mouseY) {
     if (this.calibrate && this._dragSurf !== -1) {
       const s = this.surfaces[this._dragSurf];
-      s.corners[this._dragCorner].set(mx, my);
+      if (!s) return;
+      if (this._dragMode === "surface" && this._dragStart) {
+        const dx = Number(mx) - this._dragStart.x;
+        const dy = Number(my) - this._dragStart.y;
+        for (let i = 0; i < 4; i++) {
+          s.corners[i].set(
+            this._dragStart.corners[i].x + dx,
+            this._dragStart.corners[i].y + dy
+          );
+        }
+      } else if (this._dragCorner !== -1) {
+        s.corners[this._dragCorner].set(mx, my);
+      }
       this._invalidateSurface(s);
     }
   }
@@ -423,6 +474,8 @@ class ProjectionMapper {
     }
     this._dragSurf = -1;
     this._dragCorner = -1;
+    this._dragMode = "";
+    this._dragStart = null;
   }
 
   // -------------------- Internals --------------------
@@ -658,8 +711,9 @@ class ProjectionMapper {
     }
     this.surfaces.forEach((s) => {
       // outline
+      const isSurfaceActive = s.dragging === -2;
       stroke(0, 255, 255);
-      strokeWeight(2);
+      strokeWeight(isSurfaceActive ? 4 : 2);
       noFill();
       beginShape();
       for (let i = 0; i < 4; i++)

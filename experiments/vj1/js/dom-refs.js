@@ -9,8 +9,6 @@ export function getDomRefs(root = document) {
     openOutput: byId("open-output"),
     togglePreview: byId("toggle-preview"),
     openFolder: byId("open-folder-main"),
-    saveProject: byId("save-project-main"),
-    calibrate: byId("calibrate-main"),
     blackout: byId("blackout-main"),
     projectRail: byId("project-rail"),
     studio: byId("studio"),

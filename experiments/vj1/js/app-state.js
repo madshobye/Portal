@@ -57,6 +57,12 @@ export function createAppState(initial = null) {
         draft.ui.selectedSurfaceId = id;
       }, "select-surface");
     },
+    setWorkspace(workspace) {
+      update((draft) => {
+        draft.ui.workspace = workspace === "scene" ? "scene" : "setup";
+        draft.global.calibrating = draft.ui.workspace === "setup";
+      }, "workspace");
+    },
     addLayer() {
       update((draft) => {
         const layer = createDefaultLayer(draft.layers.length);

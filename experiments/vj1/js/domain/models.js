@@ -80,6 +80,7 @@ export function createInitialState() {
     },
     ui: {
       view: "studio",
+      workspace: "setup",
       selectedLayerId: layers[0].id,
       selectedSurfaceId: "surface-main",
       debugPreview: true,
@@ -93,7 +94,7 @@ export function createInitialState() {
       bpm: 120,
       crossfade: 1,
       showHud: true,
-      calibrating: false,
+      calibrating: true,
     },
     render: {
       width: 960,
@@ -159,6 +160,8 @@ export function sanitizeState(input = {}) {
   next.ui.selectedSurfaceId = next.surfaces.some((surface) => surface.id === next.ui.selectedSurfaceId)
     ? next.ui.selectedSurfaceId
     : next.surfaces[0]?.id || "";
+  next.ui.workspace = next.ui.workspace === "scene" ? "scene" : "setup";
+  next.global.calibrating = next.ui.workspace === "setup";
   return next;
 }
 
