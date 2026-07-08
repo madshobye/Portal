@@ -71,7 +71,9 @@ class ProjectionMapper {
 
     // optional overlay font for labels (set via setFont)
     this._overlayFont = null;
-    print("Mapper: Option+S save, Option+C calibrate, Option+R reset");
+    if (opts.logShortcuts) {
+      print("Mapper: Option+S save, Option+C calibrate, Option+R reset");
+    }
     this._installShortcutHandler();
 
     if (Number.isFinite(opts.pixelDensity)) {
