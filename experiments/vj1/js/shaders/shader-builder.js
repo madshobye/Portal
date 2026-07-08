@@ -3,14 +3,16 @@ import { getShaderComponent } from "./shader-registry.js";
 export function createShaderBuilder({ getCustomCode, onStatus }) {
   const cache = new Map();
 
-  function getShader(pass) {
+  function getShader(pass, target = null) {
     const component = getShaderComponent(pass.id);
     const code = pass.id === "custom" ? getCustomCode() : component?.code;
     if (!code) return null;
-    const key = `${pass.id}:${code}`;
+    const contextId = getContextId(target);
+    const key = `${contextId}:${pass.id}:${code}`;
     if (cache.has(key)) return cache.get(key);
     try {
-      const shader = createShader(vertexShaderSource(), fragmentShaderSource(code));
+      const factory = typeof target?.createShader === "function" ? target : globalThis;
+      const shader = factory.createShader(vertexShaderSource(), fragmentShaderSource(code));
       cache.set(key, shader);
       onStatus?.("Shader ready", "");
       return shader;
@@ -27,6 +29,19 @@ export function createShaderBuilder({ getCustomCode, onStatus }) {
   }
 
   return { getShader, invalidateCustom };
+}
+
+let nextContextId = 1;
+
+function getContextId(target) {
+  if (!target) return "global";
+  if (!target.__vj1ShaderContextId) {
+    Object.defineProperty(target, "__vj1ShaderContextId", {
+      value: `ctx${nextContextId++}`,
+      configurable: false,
+    });
+  }
+  return target.__vj1ShaderContextId;
 }
 
 function vertexShaderSource() {

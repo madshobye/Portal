@@ -11,6 +11,7 @@ export function createControlBridge({ store, mediaLibrary }) {
       sendState();
       sendMediaFiles(mediaLibrary.getAllFiles());
     }
+    if (msg.type === "request-media-files") sendMediaFiles(mediaLibrary.getAllFiles());
     if (msg.type === "metrics") {
       clients.set(msg.clientId || "output", performance.now());
       store.update((draft) => {
@@ -69,9 +70,13 @@ export function createOutputBridge({ onState, onMediaFiles, onCommand, mode }) {
     channel.postMessage({ type: "mapping-state", clientId, mappingId, mapping, status });
   }
 
+  function requestMediaFiles(mediaIds = []) {
+    channel.postMessage({ type: "request-media-files", clientId, mode, mediaIds });
+  }
+
   hello();
   setInterval(hello, 2000);
-  return { hello, metrics, mappingState, close: () => channel.close(), clientId };
+  return { hello, metrics, mappingState, requestMediaFiles, close: () => channel.close(), clientId };
 }
 
 function activeClientCount(clients) {

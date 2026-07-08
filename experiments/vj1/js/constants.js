@@ -7,7 +7,8 @@ export const VJ1 = Object.freeze({
   surfaceWidth: 800,
   surfaceHeight: 450,
   p5Script: "https://cdn.jsdelivr.net/npm/p5@2.2.0/lib/p5.js",
-  mapperScript: "../../P1/portal/mapper2.js?v=surface-drag-1",
+  portalScript: "../../P1/portal/portal.js?v=vj1-camera-1",
+  mapperScript: "../../P1/portal/mapper2.js?v=folder-primary-3",
 });
 
 export const VIEWS = Object.freeze([

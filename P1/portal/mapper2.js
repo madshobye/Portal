@@ -60,6 +60,12 @@ class ProjectionMapper {
     this._bottomLeftHoldStartMs = 0;
     this._bottomLeftHoldFired = false;
     this.autoSave = true;
+    this.storageEnabled = opts.storage !== false && opts.storageEnabled !== false;
+    this.storageNamespace = String(opts.storageNamespace || opts.storageKeyPrefix || "pm").replace(/[^a-zA-Z0-9_-]/g, "_") || "pm";
+    this.onConfigChange =
+      typeof opts.onConfigChange === "function" ? opts.onConfigChange :
+      typeof opts.onChange === "function" ? opts.onChange :
+      null;
     this.autoSaveDelayMs = 0;
     this._autoSaveTimer = null;
     this._overlayLabelLayer = null;
@@ -153,6 +159,9 @@ class ProjectionMapper {
     this.autoSave = !!on;
     this.autoSaveDelayMs = Math.max(0, Number(delayMs) || 0);
   }
+  setConfigChangeHandler(handler = null) {
+    this.onConfigChange = typeof handler === "function" ? handler : null;
+  }
   setPickRadius(px) {
     this.pickRadius = px;
   }
@@ -193,7 +202,7 @@ class ProjectionMapper {
       createVector(m, H - m),
     ];
 
-    const storageKey = `pm_surface_${name}`;
+    const storageKey = `${this.storageNamespace}_surface_${name}`;
 
     this.surfaces.push({
       name,
@@ -212,7 +221,7 @@ class ProjectionMapper {
   removeLastSurface({ clearStorage = true } = {}) {
     if (!this.surfaces.length) return null;
     const removed = this.surfaces.pop();
-    if (clearStorage && removed?.storageKey) {
+    if (this.storageEnabled && clearStorage && removed?.storageKey) {
       try {
         localStorage.removeItem(removed.storageKey);
       } catch {}
@@ -221,6 +230,7 @@ class ProjectionMapper {
   }
 
   saveAll() {
+    if (!this.storageEnabled) return false;
     this.surfaces.forEach((s) => {
       try {
         const payload = s.corners.map((v) => ({ x: v.x, y: v.y }));
@@ -230,6 +240,8 @@ class ProjectionMapper {
         );
       } catch (e) {}
     });
+    this._emitConfigChange("save-all");
+    return true;
   }
 
   exportConfig() {
@@ -262,7 +274,7 @@ class ProjectionMapper {
     return true;
   }
 
-  importConfig(config, { replace = true } = {}) {
+  importConfig(config, { replace = true, silent = false } = {}) {
     if (!config || typeof config !== "object") {
       throw new Error("ProjectionMapper importConfig requires an object");
     }
@@ -279,14 +291,18 @@ class ProjectionMapper {
       s.corners = incoming.corners.map((p) => createVector(p.x, p.y));
       this._invalidateSurface(s);
     });
+    if (!silent) this._emitConfigChange("import");
   }
 
-  saveToStorage(key = "pm_config") {
+  saveToStorage(key = `${this.storageNamespace}_config`) {
+    if (!this.storageEnabled) return false;
     localStorage.setItem(String(key), JSON.stringify(this.exportConfig()));
+    this._emitConfigChange("save");
     return true;
   }
 
-  loadFromStorage(key = "pm_config", opts = {}) {
+  loadFromStorage(key = `${this.storageNamespace}_config`, opts = {}) {
+    if (!this.storageEnabled) return false;
     const raw = localStorage.getItem(String(key));
     if (!raw) return false;
     const cfg = JSON.parse(raw);
@@ -304,13 +320,15 @@ class ProjectionMapper {
     return true;
   }
 
-  savetostorage(key = "pm_config") { return this.saveToStorage(key); }
-  loadfromstorage(key = "pm_config", opts = {}) { return this.loadFromStorage(key, opts); }
+  savetostorage(key = `${this.storageNamespace}_config`) { return this.saveToStorage(key); }
+  loadfromstorage(key = `${this.storageNamespace}_config`, opts = {}) { return this.loadFromStorage(key, opts); }
   loadfromurl(url, opts = {}) { return this.loadFromURL(url, opts); }
   exportdata() { return this.exportData(); }
   downloadexport(filename = "projection_mapper_config.json") { return this.downloadExport(filename); }
 
   loadAll() {
+    if (!this.storageEnabled) return false;
+    let changed = false;
     this.surfaces.forEach((s) => {
       try {
         const raw = localStorage.getItem(s.storageKey);
@@ -319,9 +337,12 @@ class ProjectionMapper {
         if (Array.isArray(arr) && arr.length === 4) {
           s.corners = arr.map((p) => createVector(p.x, p.y));
           this._invalidateSurface(s);
+          changed = true;
         }
       } catch (e) {}
     });
+    if (changed) this._emitConfigChange("load-all");
+    return changed;
   }
 
   resetAll() {
@@ -470,7 +491,7 @@ class ProjectionMapper {
   mouseReleased() {
     if (this._dragSurf !== -1) {
       this.surfaces[this._dragSurf].dragging = -1;
-      this.saveAll();
+      if (this.autoSave) this._persistAutoSave();
     }
     this._dragSurf = -1;
     this._dragCorner = -1;
@@ -985,6 +1006,19 @@ class ProjectionMapper {
 
   _persistAutoSave() {
     this.saveAll();
+    if (!this.storageEnabled) this._emitConfigChange("autosave");
+  }
+
+  _emitConfigChange(reason = "change") {
+    if (!this.onConfigChange) return;
+    try {
+      this.onConfigChange(this.exportConfig(), {
+        reason,
+        mapper: this,
+      });
+    } catch (err) {
+      console.warn("ProjectionMapper onConfigChange failed", err);
+    }
   }
 
   _handleBottomLeftToggle() {

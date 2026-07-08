@@ -1,13 +1,12 @@
 import { VJ1 } from "../constants.js";
 import { sanitizeState } from "../domain/models.js";
 import { createOutputBridge } from "../services/output-bridge-service.js";
-import { OutputRenderer } from "./output-renderer.js?v=reset-surface-1";
+import { OutputRenderer } from "./output-renderer.js?v=scene-snapshots-25";
 
 export function installOutputApp({ root, mode }) {
   document.body.classList.add("output-client");
   root.innerHTML = `
     <div id="output-stage" class="output-stage"></div>
-    <div id="output-hud" class="output-hud">starting ${mode}</div>
   `;
 
   let renderer = null;
@@ -18,12 +17,15 @@ export function installOutputApp({ root, mode }) {
     const canvas = createCanvas(windowWidth, windowHeight, WEBGL);
     canvas.parent("output-stage");
     pixelDensity(1);
+    frameRate(120);
+    await loadClassicScript(VJ1.portalScript);
     await loadClassicScript(VJ1.mapperScript);
     renderer = new OutputRenderer({
       mode,
-      hud: document.getElementById("output-hud"),
+      hud: null,
       sendMetrics: (metrics) => bridge?.metrics(metrics),
       sendMapping: (id, mapping, status) => bridge?.mappingState(id, mapping, status),
+      requestMediaFiles: (ids) => bridge?.requestMediaFiles(ids),
     });
     await renderer.setup(pendingState ? sanitizeState(pendingState) : null);
   };

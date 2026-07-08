@@ -1,11 +1,15 @@
 import {
   applySceneSnapshot,
+  applySceneSnapshotToState,
   clone,
+  createDefaultComposition,
   createDefaultLayer,
   createDefaultSurface,
   createInitialState,
+  createSceneSurfaceSnapshot,
   createSceneFromState,
   sanitizeState,
+  uid,
 } from "./domain/models.js";
 
 export function createAppState(initial = null) {
@@ -57,11 +61,42 @@ export function createAppState(initial = null) {
         draft.ui.selectedSurfaceId = id;
       }, "select-surface");
     },
+    selectComposition(id) {
+      update((draft) => {
+        draft.ui.selectedCompositionId = id;
+      }, "select-composition");
+    },
     setWorkspace(workspace) {
       update((draft) => {
-        draft.ui.workspace = workspace === "scene" ? "scene" : "setup";
-        draft.global.calibrating = draft.ui.workspace === "setup";
+        draft.ui.workspace = ["setup", "compose", "scene"].includes(workspace) ? workspace : "setup";
+        draft.global.calibrating = draft.ui.workspace === "setup" || draft.ui.workspace === "scene";
       }, "workspace");
+    },
+    addComposition() {
+      update((draft) => {
+        const composition = createDefaultComposition(draft.compositions.length);
+        composition.name = `Composition ${draft.compositions.length + 1}`;
+        draft.compositions.push(composition);
+        draft.ui.selectedCompositionId = composition.id;
+        for (const surface of draft.surfaces) {
+          if (!surface.compositionId) surface.compositionId = composition.id;
+        }
+      }, "add-composition");
+    },
+    removeComposition(id) {
+      update((draft) => {
+        if (draft.compositions.length <= 1) return;
+        draft.compositions = draft.compositions.filter((composition) => composition.id !== id);
+        draft.ui.selectedCompositionId = draft.compositions[0]?.id || "";
+        for (const surface of draft.surfaces) {
+          if (surface.compositionId === id) surface.compositionId = draft.ui.selectedCompositionId;
+        }
+        for (const scene of draft.scenes) {
+          for (const surface of scene.snapshot?.surfaces || []) {
+            if (surface.compositionId === id) surface.compositionId = draft.ui.selectedCompositionId;
+          }
+        }
+      }, "remove-composition");
     },
     addLayer() {
       update((draft) => {
@@ -84,11 +119,16 @@ export function createAppState(initial = null) {
     addSurface() {
       update((draft) => {
         const surface = createDefaultSurface(draft.surfaces.length, draft.layers[0]?.id || "");
-        surface.id = `surface-${draft.surfaces.length + 1}`;
+        surface.id = uid("surface");
         surface.name = `Surface ${draft.surfaces.length + 1}`;
         surface.mappingId = surface.id;
+        surface.compositionId = draft.compositions[draft.surfaces.length % Math.max(1, draft.compositions.length)]?.id || "";
         draft.surfaces.push(surface);
         draft.ui.selectedSurfaceId = surface.id;
+        for (const scene of draft.scenes) {
+          scene.snapshot ||= { surfaces: [] };
+          scene.snapshot.surfaces.push(createSceneSurfaceSnapshot(surface));
+        }
       }, "add-surface");
     },
     removeSurface(id) {
@@ -96,21 +136,34 @@ export function createAppState(initial = null) {
         if (draft.surfaces.length <= 1) return;
         draft.surfaces = draft.surfaces.filter((surface) => surface.id !== id);
         draft.ui.selectedSurfaceId = draft.surfaces[0]?.id || "";
+        if (Array.isArray(draft.mappings?.local?.surfaces)) {
+          draft.mappings.local.surfaces = draft.mappings.local.surfaces.filter((surface) => surface.name !== id);
+        }
+        for (const scene of draft.scenes) {
+          if (scene.snapshot?.surfaces) {
+            scene.snapshot.surfaces = scene.snapshot.surfaces.filter((surface) => surface.id !== id);
+          }
+        }
       }, "remove-surface");
     },
     saveScene(name) {
       update((draft) => {
-        draft.scenes.push(createSceneFromState(draft, name));
+        const scene = createSceneFromState(draft, name);
+        draft.scenes.push(scene);
+        draft.ui.selectedSceneId = scene.id;
       }, "save-scene");
     },
     recallScene(id) {
       const current = getState();
-      const scene = current.scenes.find((item) => item.id === id);
+      const scene = current.scenes.find((item) => String(item.id) === String(id));
       if (scene) replace(applySceneSnapshot(current, scene), "recall-scene");
     },
     deleteScene(id) {
       update((draft) => {
-        draft.scenes = draft.scenes.filter((scene) => scene.id !== id);
+        draft.scenes = draft.scenes.filter((scene) => String(scene.id) !== String(id));
+        if (String(draft.ui.selectedSceneId) === String(id)) draft.ui.selectedSceneId = draft.scenes[0]?.id || "";
+        const selectedScene = draft.scenes.find((scene) => scene.id === draft.ui.selectedSceneId);
+        if (selectedScene) applySceneSnapshotToState(draft, selectedScene);
       }, "delete-scene");
     },
   };

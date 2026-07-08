@@ -39,7 +39,7 @@ export function createMediaLibrary() {
       return files.get(id) || null;
     },
     getAllFiles() {
-      return Array.from(files.values());
+      return Array.from(files.entries()).map(([id, file]) => ({ id, file }));
     },
     clear() {
       files.clear();
@@ -53,7 +53,7 @@ export async function collectFilesFromDirectory(dirHandle, prefix = "") {
     const path = prefix ? `${prefix}/${name}` : name;
     if (handle.kind === "file") {
       const file = await handle.getFile();
-      file.relativePath = path;
+      Object.defineProperty(file, "relativePath", { value: path, configurable: true });
       files.push(file);
     } else if (handle.kind === "directory") {
       files.push(...(await collectFilesFromDirectory(handle, path)));
@@ -64,6 +64,10 @@ export async function collectFilesFromDirectory(dirHandle, prefix = "") {
 
 export function isMediaFile(path) {
   return VIDEO_RE.test(path) || IMAGE_RE.test(path);
+}
+
+export function isShaderFile(path) {
+  return SHADER_RE.test(path);
 }
 
 export function getMediaType(path) {

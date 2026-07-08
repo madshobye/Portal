@@ -1,11 +1,13 @@
-import { BLEND_MODES, GENERATORS, ROUTE_TYPES, SOURCE_TYPES } from "../constants.js";
-import { clamp01 } from "../domain/models.js";
+import { BLEND_MODES, GENERATORS, SOURCE_TYPES } from "../constants.js";
+import { applySceneSnapshotToState, createSceneSnapshot } from "../domain/models.js";
 import { buildOutputUrl } from "../view-routing.js";
 import { listShaderComponents } from "../shaders/shader-registry.js";
+import { createEmbeddedPreviewApp } from "../output/embedded-preview-app.js?v=scene-snapshots-25";
 
 export function createControlShell({ root, store, bridge, mediaLibrary, projectService }) {
   let refs = {};
   let latestState = store.getState();
+  const embeddedPreview = createEmbeddedPreviewApp({ store, mediaLibrary });
 
   function mount() {
     root.innerHTML = shellTemplate();
@@ -13,11 +15,16 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
     bindStaticEvents();
     store.subscribe((state, reason) => {
       latestState = state;
-      if (reason === "output-metrics" || reason === "mapping-state" || reason === "project-autosave" || reason === "project-autosave-error") {
+      if (reason === "mapping-state") {
         renderTopbar(state);
-        renderLowerStatus(state);
+        renderPreview(state);
         return;
       }
+      if (reason === "output-metrics" || reason === "project-autosave" || reason === "project-autosave-error") {
+        renderTopbar(state);
+        return;
+      }
+      if (reason.startsWith("scrub:")) return;
       render(state);
     });
   }
@@ -27,8 +34,6 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
     renderProjectRail(state);
     renderStudio(state);
     renderInspector(state);
-    renderMixDock(state);
-    renderLowerStatus(state);
     renderPreview(state);
   }
 
@@ -56,15 +61,17 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
 
     refs.workspaceSwitch.querySelectorAll("[data-workspace]").forEach((button) => {
       button.addEventListener("click", () => {
-        const workspace = button.dataset.workspace === "scene" ? "scene" : "setup";
+        const workspace = ["setup", "compose", "scene"].includes(button.dataset.workspace) ? button.dataset.workspace : "setup";
+        const mappingActive = workspace === "setup" || workspace === "scene";
         if (typeof store.setWorkspace === "function") store.setWorkspace(workspace);
         else {
           store.update((draft) => {
             draft.ui.workspace = workspace;
-            draft.global.calibrating = workspace === "setup";
+            draft.global.calibrating = mappingActive;
           }, "workspace");
         }
-        bridge.command("set-calibrate", { calibrating: workspace === "setup" });
+        embeddedPreview.command("set-calibrate", { calibrating: mappingActive });
+        bridge.command("set-calibrate", { calibrating: mappingActive });
       });
     });
 
@@ -90,30 +97,35 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
   }
 
   async function importFiles(files) {
-    const imported = await mediaLibrary.importFiles(files);
-    store.update((draft) => {
-      draft.media = mergeMedia(draft.media, imported.media);
-      if (!draft.project.folderName && imported.media[0]?.path?.includes("/")) {
-        draft.project.name = imported.media[0].path.split("/")[0];
-        draft.project.folderName = draft.project.name;
+    let result = await projectService.importExternalFiles(files).catch((error) => {
+      setStatus(`Import error: ${error.message || error}`);
+      return null;
+    });
+    if (result?.needsFolder) {
+      const opened = await projectService.openFolder().catch((error) => {
+        setStatus(`Folder error: ${error.message || error}`);
+        return null;
+      });
+      if (opened?.fallback) {
+        setStatus("Open a project folder before importing files");
+        return;
       }
-      if (imported.shaders[0]) {
-        draft.shaders.customName = imported.shaders[0].name;
-        draft.shaders.customCode = imported.shaders[0].code;
-        draft.ui.shaderStatus = "Shader loaded";
-      }
-    }, "import-files");
-    bridge.sendMediaFiles(mediaLibrary.getAllFiles());
+      result = await projectService.importExternalFiles(files).catch((error) => {
+        setStatus(`Import error: ${error.message || error}`);
+        return null;
+      });
+    }
+    if (result?.imported) setStatus(`Imported ${result.imported} file${result.imported === 1 ? "" : "s"}`);
   }
 
   function renderTopbar(state) {
     setText(refs.projectName, state.project.name || "VJ1");
     setText(
       refs.projectMeta,
-      state.project.folderName ? state.project.folderName : "Choose a project folder to begin"
+      state.project.warnings?.[0] || (state.project.folderName ? state.project.folderName : "Choose a project folder to begin")
     );
     setClass(refs.outputStatus, "is-live", state.metrics.clients > 0);
-    setText(refs.outputStatusText, state.metrics.clients > 0 ? `${Math.round(state.metrics.fps)} fps` : "output");
+    setText(refs.outputStatusText, state.metrics.clients > 0 ? `${Math.round(state.metrics.fps || 0)} fps` : "output");
     setClass(refs.togglePreview, "is-active", state.ui.debugPreview);
     setClass(refs.blackout, "is-active", state.global.blackout);
     refs.workspaceSwitch.querySelectorAll("[data-workspace]").forEach((button) => {
@@ -125,14 +137,7 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
     const hasProject = !!state.project.folderName || state.media.length > 0;
     const workspace = currentWorkspace(state);
     refs.projectRail.innerHTML = `
-      <button class="project-card ${state.project.folderName ? "is-ready" : ""}" type="button" data-open-folder>
-        <span class="material-symbols-rounded">folder_open</span>
-        <span>
-          <strong>${esc(state.project.folderName || "Open project folder")}</strong>
-          <small>${state.media.length ? `${state.media.length} media files` : "Media, scenes, shaders, mappings"}</small>
-        </span>
-      </button>
-      ${hasProject ? (workspace === "setup" ? setupToolsTemplate(state) : projectToolsTemplate(state)) : `
+      ${hasProject ? railToolsTemplate(state, workspace) : `
         <div class="folder-first-note">
           <span class="material-symbols-rounded">gesture</span>
           <p>Open a folder first. The set, media, scenes, shaders, and mappings will live there together.</p>
@@ -142,33 +147,42 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
     bindRailEvents();
   }
 
-  function projectToolsTemplate(state) {
+  function railToolsTemplate(state, workspace) {
+    if (workspace === "setup") return setupToolsTemplate(state);
+    if (workspace === "compose") return compositionToolsTemplate(state);
+    return sceneToolsTemplate(state);
+  }
+
+  function compositionToolsTemplate(state) {
     return `
       <div class="rail-section">
-        <div class="rail-title"><span class="material-symbols-rounded">movie</span><span>Sources</span></div>
-        <div class="media-pills">
-          ${state.media.slice(0, 9).map((item) => mediaPillTemplate(item)).join("") || emptyNote("Drop a folder or add media")}
+        <div class="rail-title"><span class="material-symbols-rounded">account_tree</span><span>Compositions</span></div>
+        <div class="scene-pills">
+          ${state.compositions.map((composition) => compositionPillTemplate(composition, state)).join("") || emptyNote("Create visual recipes")}
         </div>
+        <button type="button" data-add-composition>${icon("add")} Add composition</button>
       </div>
+    `;
+  }
+
+  function sceneToolsTemplate(state) {
+    const selectedScene = getSelectedScene(state);
+    return `
       <div class="rail-section">
         <div class="rail-title"><span class="material-symbols-rounded">auto_awesome_motion</span><span>Scenes</span></div>
         <div class="scene-pills">
-          ${state.scenes.map((scene) => scenePillTemplate(scene)).join("") || emptyNote("Capture looks as scenes")}
+          ${state.scenes.map((scene) => scenePillTemplate(scene, state)).join("") || emptyNote("Capture surface assignments")}
         </div>
+        ${selectedScene ? `<div class="scene-active">${icon("edit")}<span>Editing ${esc(selectedScene.name)}</span></div>` : ""}
         <div class="capture-row">
           <input type="text" data-scene-name value="Scene ${state.scenes.length + 1}" spellcheck="false" data-gramm="false" data-gramm_editor="false" data-enable-grammarly="false" />
           <button class="icon-buttonish" type="button" data-save-scene title="Capture scene" aria-label="Capture scene">${icon("add")}</button>
         </div>
       </div>
       <div class="rail-section">
-        <div class="rail-title"><span class="material-symbols-rounded">blur_on</span><span>Effects</span></div>
-        <div class="effect-palette">
-          ${listShaderComponents().map((shader) => `
-            <button type="button" data-add-shader="${shader.id}" title="${esc(shader.name)}">
-              ${icon(effectIcon(shader.id))}
-              <span>${esc(shader.name)}</span>
-            </button>
-          `).join("")}
+        <div class="rail-title"><span class="material-symbols-rounded">select_all</span><span>Assignments</span></div>
+        <div class="surface-pills">
+          ${state.surfaces.map((surface) => sceneSurfacePillTemplate(surface, state)).join("")}
         </div>
       </div>
     `;
@@ -192,24 +206,21 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
 
   function renderStudio(state) {
     const hasProject = !!state.project.folderName || state.media.length > 0;
-    const workspace = currentWorkspace(state);
-    refs.studio.innerHTML = `
-      <section class="studio-stage">
-        <div class="stage-head">
-          <div>
-            <h2>${workspace === "setup" ? "Setup" : "Scene"}</h2>
-            <p>${stageSubtitle(state, hasProject)}</p>
-          </div>
-          <div class="stage-actions ${workspace === "setup" && hasProject ? "" : "is-hidden"}">
-            <button type="button" data-reset-mapping title="Reset mapping" aria-label="Reset mapping">${icon("restart_alt")}</button>
-          </div>
-        </div>
-        <div class="visual-frame ${hasProject ? "" : "is-empty"}" data-preview-host>
-          ${hasProject ? "" : projectEmptyTemplate()}
+    if (!refs.studio.querySelector("[data-studio-stage]")) {
+      refs.studio.innerHTML = `
+      <section class="studio-stage" data-studio-stage>
+        <div class="visual-frame" data-preview-host>
         </div>
       </section>
     `;
-    bindStudioEvents();
+      bindStudioEvents();
+    }
+    const previewHost = refs.studio.querySelector("[data-preview-host]");
+    setClass(previewHost, "is-empty", !hasProject);
+    if (!hasProject) {
+      previewHost.innerHTML = projectEmptyTemplate();
+      embeddedPreview.pause();
+    }
   }
 
   function renderPreview(state) {
@@ -217,10 +228,23 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
     if (!previewHost || previewHost.classList.contains("is-empty")) return;
     if (!state.ui.debugPreview) {
       previewHost.innerHTML = `<div class="empty-preview">${icon("visibility_off")} Preview hidden</div>`;
+      embeddedPreview.pause();
       return;
     }
-    if (previewHost.querySelector("iframe")) return;
-    previewHost.innerHTML = `<iframe class="preview-frame" src="${buildOutputUrl("preview")}" title="VJ1 output preview"></iframe>`;
+    const kind = currentWorkspace(state) === "compose" ? "composition" : "preview";
+    if (!previewHost.querySelector("[data-embedded-preview-stage]")) {
+      previewHost.innerHTML = `
+        <div class="embedded-preview-stage" data-embedded-preview-stage></div>
+        <div class="preview-fps" data-preview-fps>0 fps</div>
+      `;
+    }
+    embeddedPreview.mount({
+      host: previewHost,
+      stage: previewHost.querySelector("[data-embedded-preview-stage]"),
+      hud: previewHost.querySelector("[data-preview-fps]"),
+      mode: kind,
+      state,
+    });
   }
 
   function renderInspector(state) {
@@ -251,73 +275,43 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
       bindInputs(refs.inspector, state);
       return;
     }
-    const selectedLayer = state.layers.find((layer) => layer.id === state.ui.selectedLayerId) || state.layers[0];
     const selectedSurface = state.surfaces.find((surface) => surface.id === state.ui.selectedSurfaceId) || state.surfaces[0];
+    if (currentWorkspace(state) === "compose") {
+      const selectedComposition = state.compositions.find((composition) => composition.id === state.ui.selectedCompositionId) || state.compositions[0];
+      refs.inspector.innerHTML = `
+        <section class="glass-panel focus-panel">
+          <header class="panel-title">
+            <span class="material-symbols-rounded">account_tree</span>
+            <span>Composition</span>
+          </header>
+          ${selectedComposition ? compositionTemplate(selectedComposition, state) : emptyNote("No composition")}
+        </section>
+      `;
+      bindInputs(refs.inspector, state);
+      return;
+    }
     refs.inspector.innerHTML = `
       <section class="glass-panel focus-panel">
         <header class="panel-title">
-          <span class="material-symbols-rounded">tune</span>
-          <span>Look</span>
-        </header>
-        ${selectedLayer ? layerSculptTemplate(selectedLayer, state) : emptyNote("No layer")}
-      </section>
-      <section class="glass-panel focus-panel">
-        <header class="panel-title">
           <span class="material-symbols-rounded">select_all</span>
-          <span>Surface</span>
+          <span>Surface assignment</span>
         </header>
-        ${selectedSurface ? surfaceSculptTemplate(selectedSurface, state) : emptyNote("No surface")}
+        ${selectedSurface ? sceneSurfaceTemplate(selectedSurface, state) : emptyNote("No surface")}
       </section>
     `;
     bindInputs(refs.inspector, state);
-  }
-
-  function renderMixDock(state) {
-    const hasProject = !!state.project.folderName || state.media.length > 0;
-    if (!hasProject) {
-      refs.mixDock.innerHTML = `
-        <div class="dock-strip folder-waiting">
-          <span class="material-symbols-rounded">folder_open</span>
-          <span>Waiting for a project folder</span>
-        </div>
-      `;
-      return;
-    }
-    if (currentWorkspace(state) === "setup") {
-      refs.mixDock.innerHTML = "";
-      return;
-    }
-    refs.mixDock.innerHTML = `
-      <div class="dock-strip">
-        <button type="button" class="dock-add" data-add-layer title="Add layer" aria-label="Add layer">${icon("add")}</button>
-        ${state.layers.map((layer) => layerDockTemplate(layer, state)).join("")}
-      </div>
-      <div class="dock-strip surfaces">
-        <button type="button" class="dock-add" data-add-surface title="Add surface" aria-label="Add surface">${icon("add")}</button>
-        ${state.surfaces.map((surface) => surfaceDockTemplate(surface, state)).join("")}
-      </div>
-    `;
-    bindInputs(refs.mixDock, state);
-    refs.mixDock.querySelectorAll("[data-add-layer]").forEach((button) => {
-      button.addEventListener("click", () => store.addLayer());
-    });
-    refs.mixDock.querySelectorAll("[data-add-surface]").forEach((button) => {
-      button.addEventListener("click", () => store.addSurface());
-    });
-  }
-
-  function renderLowerStatus(state) {
-    setHTML(refs.lowerStatus, `
-      <span>${icon("sensors")} ${state.metrics.message || "No output connected"}</span>
-      <span>${icon("speed")} ${Math.round(state.metrics.fps || 0)} fps / ${Number(state.metrics.frameMs || 0).toFixed(1)} ms</span>
-      <span>${icon("data_object")} ${state.ui.shaderError || state.ui.shaderStatus}</span>
-    `);
   }
 
   function bindRailEvents() {
     refs.projectRail.querySelector("[data-open-folder]")?.addEventListener("click", openProjectFolder);
     refs.projectRail.querySelectorAll("[data-select-surface]").forEach((button) => {
       button.addEventListener("click", () => store.selectSurface(button.dataset.selectSurface));
+    });
+    refs.projectRail.querySelectorAll("[data-select-composition]").forEach((button) => {
+      button.addEventListener("click", () => store.selectComposition(button.dataset.selectComposition));
+    });
+    refs.projectRail.querySelectorAll("[data-add-composition]").forEach((button) => {
+      button.addEventListener("click", () => store.addComposition());
     });
     refs.projectRail.querySelectorAll("[data-add-surface]").forEach((button) => {
       button.addEventListener("click", () => store.addSurface());
@@ -330,14 +324,14 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
       button.addEventListener("click", () => store.recallScene(button.dataset.recallScene));
     });
     refs.projectRail.querySelectorAll("[data-add-shader]").forEach((button) => {
-      button.addEventListener("click", () => addShaderPass(button.dataset.addShader, "layer", latestState.ui.selectedLayerId));
+      button.addEventListener("click", () => addShaderPass(button.dataset.addShader, "composition", latestState.ui.selectedCompositionId));
     });
     refs.projectRail.querySelectorAll("[data-assign-media]").forEach((button) => {
       button.addEventListener("click", () => {
         const mediaId = button.dataset.assignMedia;
         store.update((draft) => {
-          const layer = draft.layers.find((item) => item.id === draft.ui.selectedLayerId);
-          if (layer) layer.source = { type: "media", mediaId, generatorId: layer.source.generatorId };
+          const composition = draft.compositions.find((item) => item.id === draft.ui.selectedCompositionId);
+          if (composition) composition.source = { type: "media", mediaId, generatorId: composition.source.generatorId };
         }, "assign-media");
       });
     });
@@ -346,17 +340,26 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
   function bindStudioEvents() {
     refs.studio.querySelector("[data-open-folder]")?.addEventListener("click", openProjectFolder);
     refs.studio.querySelector("[data-import-files]")?.addEventListener("click", () => refs.importFiles.click());
-    refs.studio.querySelector("[data-reset-mapping]")?.addEventListener("click", () => bridge.command("reset-mapping"));
+    refs.studio.querySelector("[data-reset-mapping]")?.addEventListener("click", () => {
+      embeddedPreview.command("reset-mapping");
+      bridge.command("reset-mapping");
+    });
   }
 
   function bindInputs(scope, state) {
     scope.querySelectorAll("[data-update]").forEach((input) => {
-      const eventName = input.type === "range" || input.type === "text" || input.tagName === "TEXTAREA" ? "input" : "change";
-      input.addEventListener(eventName, () => {
-        store.update((draft) => {
-          setByPath(draft, input.dataset.update, readInputValue(input));
-        }, `update:${input.dataset.update}`);
-      });
+      if (input.type === "range") {
+        input.addEventListener("input", () => {
+          updateRangeLabel(input);
+          updatePathFromInput(input, `scrub:${input.dataset.update}`);
+        });
+        input.addEventListener("change", () => {
+          updatePathFromInput(input, `update:${input.dataset.update}`);
+        });
+        return;
+      }
+      const eventName = input.type === "text" || input.tagName === "TEXTAREA" ? "input" : "change";
+      input.addEventListener(eventName, () => updatePathFromInput(input, `update:${input.dataset.update}`));
     });
     scope.querySelectorAll("[data-select-layer]").forEach((button) => {
       button.addEventListener("click", () => store.selectLayer(button.dataset.selectLayer));
@@ -364,46 +367,86 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
     scope.querySelectorAll("[data-select-surface]").forEach((button) => {
       button.addEventListener("click", () => store.selectSurface(button.dataset.selectSurface));
     });
+    scope.querySelectorAll("[data-select-composition]").forEach((button) => {
+      button.addEventListener("click", () => store.selectComposition(button.dataset.selectComposition));
+    });
     scope.querySelectorAll("[data-remove-pass]").forEach((button) => {
       button.addEventListener("click", () => removeShaderPass(button.dataset.target, button.dataset.targetId, Number(button.dataset.passIndex)));
+    });
+    scope.querySelectorAll("[data-add-shader]").forEach((button) => {
+      button.addEventListener("click", () => {
+        addShaderPass(
+          button.dataset.addShader,
+          button.dataset.target || "composition",
+          button.dataset.targetId || latestState.ui.selectedCompositionId
+        );
+      });
     });
     scope.querySelectorAll("[data-remove-surface]").forEach((button) => {
       button.addEventListener("click", () => store.removeSurface(button.dataset.removeSurface));
     });
+    scope.querySelectorAll("[data-remove-composition]").forEach((button) => {
+      button.addEventListener("click", () => store.removeComposition(button.dataset.removeComposition));
+    });
     scope.querySelectorAll("[data-reset-surface-mapping]").forEach((button) => {
       button.addEventListener("click", () => {
+        embeddedPreview.command("reset-mapping", { surfaceId: button.dataset.resetSurfaceMapping });
         bridge.command("reset-mapping", { surfaceId: button.dataset.resetSurfaceMapping });
       });
     });
     scope.querySelectorAll("[data-reset-mapping]").forEach((button) => {
-      button.addEventListener("click", () => bridge.command("reset-mapping"));
+      button.addEventListener("click", () => {
+        embeddedPreview.command("reset-mapping");
+        bridge.command("reset-mapping");
+      });
     });
   }
 
   function addShaderPass(id, target, targetId) {
     store.update((draft) => {
-      const owner = target === "surface"
-        ? draft.surfaces.find((surface) => surface.id === targetId)
-        : draft.layers.find((layer) => layer.id === targetId);
+      const owner = getShaderOwner(draft, target, targetId);
       const chainKey = target === "surface" ? "finalShaderChain" : "shaderChain";
       owner?.[chainKey].push({ id, enabled: true, amount: id === "custom" ? 0.5 : 0.32 });
+      if (target === "surface" && currentWorkspace(draft) === "scene") applySelectedSceneSnapshot(draft);
     }, "add-shader-pass");
   }
 
   function removeShaderPass(target, targetId, index) {
     store.update((draft) => {
-      const owner = target === "surface"
-        ? draft.surfaces.find((surface) => surface.id === targetId)
-        : draft.layers.find((layer) => layer.id === targetId);
+      const owner = getShaderOwner(draft, target, targetId);
       const chainKey = target === "surface" ? "finalShaderChain" : "shaderChain";
       owner?.[chainKey].splice(index, 1);
+      if (target === "surface" && currentWorkspace(draft) === "scene") applySelectedSceneSnapshot(draft);
     }, "remove-shader-pass");
+  }
+
+  function getShaderOwner(state, target, targetId) {
+    if (target === "surface" && currentWorkspace(state) === "scene") {
+      const scene = getSelectedScene(state);
+      return sceneSurfaceSnapshot(scene, targetId);
+    }
+    if (target === "surface") return state.surfaces.find((surface) => surface.id === targetId);
+    if (target === "composition") return state.compositions.find((composition) => composition.id === targetId);
+    return null;
   }
 
   function setStatus(message) {
     store.update((draft) => {
       draft.metrics.message = message;
     }, "status");
+  }
+
+  function updatePathFromInput(input, reason) {
+    store.update((draft) => {
+      setByPath(draft, input.dataset.update, readInputValue(input));
+      if (currentWorkspace(draft) === "scene") {
+        if (input.dataset.update.startsWith("scenes.")) {
+          applySelectedSceneSnapshot(draft);
+        } else if (input.dataset.update.startsWith("surfaces.")) {
+          syncSelectedSceneSnapshot(draft);
+        }
+      }
+    }, reason);
   }
 
   return { mount };
@@ -415,17 +458,20 @@ function shellTemplate() {
       <header class="topbar studio-topbar">
         <div class="brand">
           <div class="brand-mark">VJ</div>
-          <div>
-            <h1 id="project-name">VJ1</h1>
-            <p id="project-meta">Choose a project folder</p>
-          </div>
+          <button id="open-folder-main" class="project-button" type="button" title="Open project folder">
+            <span class="material-symbols-rounded">folder_open</span>
+            <span>
+              <strong id="project-name">VJ1</strong>
+              <small id="project-meta">Choose a project folder</small>
+            </span>
+          </button>
         </div>
         <div class="top-actions">
           <div id="workspace-switch" class="workspace-switch" role="group" aria-label="Workspace">
             <button type="button" data-workspace="setup" class="is-active">${icon("grid_on")}<span>Setup</span></button>
+            <button type="button" data-workspace="compose">${icon("account_tree")}<span>Compositions</span></button>
             <button type="button" data-workspace="scene">${icon("auto_awesome")}<span>Scene</span></button>
           </div>
-          <button id="open-folder-main" class="icon-buttonish primary" type="button" title="Open project folder" aria-label="Open project folder">${icon("folder_open")}</button>
           <button id="toggle-preview" class="icon-buttonish" type="button" title="Toggle preview" aria-label="Toggle preview">${icon("visibility")}</button>
           <button id="blackout-main" class="icon-buttonish danger" type="button" title="Blackout" aria-label="Blackout">${icon("brightness_1")}</button>
           <button id="open-output" class="icon-buttonish" type="button" title="Open output" aria-label="Open output">${icon("open_in_new")}</button>
@@ -438,10 +484,6 @@ function shellTemplate() {
         <main id="studio" class="studio-main"></main>
         <aside id="inspector" class="studio-inspector"></aside>
       </div>
-      <footer class="studio-dock">
-        <div id="mix-dock" class="mix-dock"></div>
-        <div id="lower-status" class="lower-status"></div>
-      </footer>
     </div>
   `;
 }
@@ -461,18 +503,50 @@ function collectRefs(root) {
     projectRail: root.querySelector("#project-rail"),
     studio: root.querySelector("#studio"),
     inspector: root.querySelector("#inspector"),
-    mixDock: root.querySelector("#mix-dock"),
-    lowerStatus: root.querySelector("#lower-status"),
   };
 }
 
 function setupSurfacePillTemplate(surface, state) {
-  const selected = state.ui.selectedSurfaceId === surface.id;
+  return selectablePillTemplate({
+    selected: state.ui.selectedSurfaceId === surface.id,
+    action: "data-select-surface",
+    id: surface.id,
+    iconName: surface.enabled ? "crop_free" : "hide_source",
+    label: surface.name,
+    meta: surface.enabled ? "mapped" : "off",
+  });
+}
+
+function compositionPillTemplate(composition, state) {
+  return selectablePillTemplate({
+    selected: state.ui.selectedCompositionId === composition.id,
+    action: "data-select-composition",
+    id: composition.id,
+    iconName: composition.enabled ? "account_tree" : "hide_source",
+    label: composition.name,
+    meta: `${composition.shaderChain?.length || 0} fx`,
+  });
+}
+
+function sceneSurfacePillTemplate(surface, state) {
+  const sceneSurface = getSceneSurfaceView(surface, state);
+  const composition = state.compositions.find((item) => item.id === sceneSurface.compositionId);
+  return selectablePillTemplate({
+    selected: state.ui.selectedSurfaceId === surface.id,
+    action: "data-select-surface",
+    id: surface.id,
+    iconName: sceneSurface.enabled ? "crop_free" : "hide_source",
+    label: surface.name,
+    meta: composition?.name || "None",
+  });
+}
+
+function selectablePillTemplate({ selected, action, id, iconName, label, meta }) {
   return `
-    <button type="button" class="${selected ? "is-selected" : ""}" data-select-surface="${surface.id}">
-      ${icon(surface.enabled ? "crop_free" : "hide_source")}
-      <span>${esc(surface.name)}</span>
-      <small>${surface.enabled ? "mapped" : "off"}</small>
+    <button type="button" class="${selected ? "is-selected" : ""}" ${action}="${esc(id)}">
+      ${icon(iconName)}
+      <span>${esc(label)}</span>
+      <small>${esc(meta)}</small>
     </button>
   `;
 }
@@ -496,73 +570,72 @@ function setupSurfaceTemplate(surface, state) {
   `;
 }
 
-function layerSculptTemplate(layer, state) {
-  const base = pathForLayer(state, layer);
+function compositionTemplate(composition, state) {
+  const base = pathForComposition(state, composition);
   return `
     <article class="sculpt-card">
       <div class="sculpt-head">
-        <input type="text" data-update="${base}.name" value="${esc(layer.name)}" spellcheck="false" data-gramm="false" data-gramm_editor="false" data-enable-grammarly="false" />
-        <label class="mini-toggle">${icon("power_settings_new")}<input type="checkbox" data-update="${base}.enabled" ${layer.enabled ? "checked" : ""} /></label>
+        <input type="text" data-update="${base}.name" value="${esc(composition.name)}" spellcheck="false" data-gramm="false" data-gramm_editor="false" data-enable-grammarly="false" />
+        <label class="mini-toggle">${icon("power_settings_new")}<input type="checkbox" data-update="${base}.enabled" ${composition.enabled ? "checked" : ""} /></label>
       </div>
-      ${rangeTemplate("Intensity", `${base}.opacity`, layer.opacity)}
       <div class="field-pair">
-        <label class="field">Source ${selectTemplate(`${base}.source.type`, SOURCE_TYPES, layer.source.type)}</label>
-        <label class="field">Generator ${selectTemplate(`${base}.source.generatorId`, GENERATORS, layer.source.generatorId)}</label>
+        <label class="field">Source ${selectTemplate(`${base}.source.type`, SOURCE_TYPES, composition.source.type)}</label>
+        <label class="field">Generator ${selectTemplate(`${base}.source.generatorId`, GENERATORS, composition.source.generatorId)}</label>
       </div>
-      <label class="field">Media ${mediaSelectTemplate(`${base}.source.mediaId`, state.media, layer.source.mediaId)}</label>
+      <label class="field">Media ${mediaSelectTemplate(`${base}.source.mediaId`, state.media, composition.source.mediaId)}</label>
       <div class="field-pair">
-        <label class="field">Blend ${selectValuesTemplate(`${base}.blend`, BLEND_MODES, layer.blend)}</label>
-        <label class="field">Speed <input type="number" min="0" step="0.05" data-update="${base}.speed" value="${layer.speed}" /></label>
+        <label class="field">Blend ${selectValuesTemplate(`${base}.blend`, BLEND_MODES, composition.blend)}</label>
+        <label class="field">Speed <input type="number" min="0" step="0.05" data-update="${base}.speed" value="${composition.speed}" /></label>
       </div>
-      ${shaderChainTemplate(layer.shaderChain, "layer", layer.id, base)}
+      ${rangeTemplate("Intensity", `${base}.opacity`, composition.opacity)}
+      ${compositionChainTemplate(composition, base)}
+      <div class="setup-actions">
+        <button type="button" class="danger" data-remove-composition="${composition.id}">${icon("delete")} Remove composition</button>
+      </div>
     </article>
   `;
 }
 
-function surfaceSculptTemplate(surface, state) {
-  const base = pathForSurface(state, surface);
+function sceneSurfaceTemplate(surface, state) {
+  const scene = getSelectedScene(state);
+  if (!scene) return emptyNote("Capture a scene before editing assignments");
+  const sceneIndex = state.scenes.findIndex((item) => item.id === scene.id);
+  const surfaceIndex = scene.snapshot?.surfaces?.findIndex((item) => item.id === surface.id) ?? -1;
+  if (sceneIndex < 0 || surfaceIndex < 0) return emptyNote("This scene has no assignment for the selected surface");
+  const sceneSurface = scene.snapshot.surfaces[surfaceIndex];
+  const surfaceBase = pathForSurface(state, surface);
+  const sceneBase = `scenes.${sceneIndex}.snapshot.surfaces.${surfaceIndex}`;
   return `
     <article class="sculpt-card">
       <div class="sculpt-head">
-        <input type="text" data-update="${base}.name" value="${esc(surface.name)}" spellcheck="false" data-gramm="false" data-gramm_editor="false" data-enable-grammarly="false" />
-        <label class="mini-toggle">${icon("power_settings_new")}<input type="checkbox" data-update="${base}.enabled" ${surface.enabled ? "checked" : ""} /></label>
+        <input type="text" data-update="${surfaceBase}.name" value="${esc(surface.name)}" spellcheck="false" data-gramm="false" data-gramm_editor="false" data-enable-grammarly="false" />
+        <label class="mini-toggle">${icon("power_settings_new")}<input type="checkbox" data-update="${sceneBase}.enabled" ${sceneSurface.enabled ? "checked" : ""} /></label>
       </div>
-      ${rangeTemplate("Presence", `${base}.opacity`, surface.opacity)}
-      <div class="field-pair">
-        <label class="field">Route ${selectTemplate(`${base}.route.type`, ROUTE_TYPES, surface.route.type)}</label>
-        <label class="field">Layer ${layerSelectTemplate(`${base}.route.layerId`, state.layers, surface.route.layerId)}</label>
-      </div>
-      <div class="field-pair">
-        <label class="field">Generator ${selectTemplate(`${base}.route.generatorId`, GENERATORS, surface.route.generatorId)}</label>
-        <label class="field">Blend ${selectValuesTemplate(`${base}.finalBlend`, BLEND_MODES, surface.finalBlend)}</label>
-      </div>
-      <label class="toggle-line">${icon("label")}<span>Surface label</span><input type="checkbox" data-update="${base}.showLabel" ${surface.showLabel ? "checked" : ""} /></label>
-      ${shaderChainTemplate(surface.finalShaderChain, "surface", surface.id, base, "finalShaderChain")}
+      <label class="field">Composition ${compositionSelectTemplate(`${sceneBase}.compositionId`, state.compositions, sceneSurface.compositionId)}</label>
+      ${rangeTemplate("Presence", `${sceneBase}.opacity`, sceneSurface.opacity)}
+      <label class="field">Blend ${selectValuesTemplate(`${sceneBase}.finalBlend`, BLEND_MODES, sceneSurface.finalBlend)}</label>
+      <label class="toggle-line">${icon("label")}<span>Surface label</span><input type="checkbox" data-update="${sceneBase}.showLabel" ${sceneSurface.showLabel ? "checked" : ""} /></label>
     </article>
   `;
 }
 
-function layerDockTemplate(layer, state) {
-  const selected = state.ui.selectedLayerId === layer.id;
-  const base = pathForLayer(state, layer);
+function compositionChainTemplate(composition, ownerPath) {
   return `
-    <button class="dock-tile ${selected ? "is-selected" : ""}" type="button" data-select-layer="${layer.id}">
-      ${icon(layer.enabled ? "layers" : "layers_clear")}
-      <span>${esc(layer.name)}</span>
-      <small>${Math.round(clamp01(layer.opacity) * 100)}%</small>
-    </button>
-    <input class="dock-slider" type="range" min="0" max="1" step="0.01" data-update="${base}.opacity" value="${layer.opacity}" />
-  `;
-}
-
-function surfaceDockTemplate(surface, state) {
-  const selected = state.ui.selectedSurfaceId === surface.id;
-  return `
-    <button class="dock-tile ${selected ? "is-selected" : ""}" type="button" data-select-surface="${surface.id}">
-      ${icon("crop_free")}
-      <span>${esc(surface.name)}</span>
-      <small>${esc(surface.route.type)}</small>
-    </button>
+    <div class="chain-column">
+      <div class="rail-title"><span class="material-symbols-rounded">blur_on</span><span>Chain</span></div>
+      ${shaderChainTemplate(composition.shaderChain, "composition", composition.id, ownerPath)}
+      <details class="chain-add">
+        <summary>${icon("add")} Add effect</summary>
+        <div class="effect-palette">
+          ${listShaderComponents().map((shader) => `
+            <button type="button" data-add-shader="${shader.id}" data-target="composition" data-target-id="${composition.id}" title="${esc(shader.name)}">
+              ${icon(effectIcon(shader.id))}
+              <span>${esc(shader.name)}</span>
+            </button>
+          `).join("")}
+        </div>
+      </details>
+    </div>
   `;
 }
 
@@ -604,24 +677,41 @@ function mediaPillTemplate(item) {
   `;
 }
 
-function scenePillTemplate(scene) {
+function scenePillTemplate(scene, state) {
   return `
-    <button type="button" data-recall-scene="${scene.id}">
+    <button type="button" class="${state.ui.selectedSceneId === scene.id ? "is-selected" : ""}" data-recall-scene="${scene.id}">
       ${icon("play_arrow")}
       <span>${esc(scene.name)}</span>
     </button>
   `;
 }
 
-function currentWorkspace(state) {
-  return state.ui?.workspace === "scene" ? "scene" : "setup";
+function syncSelectedSceneSnapshot(state) {
+  const scene = state.scenes.find((item) => item.id === state.ui.selectedSceneId);
+  if (!scene) return;
+  scene.snapshot = createSceneSnapshot(state);
 }
 
-function stageSubtitle(state, hasProject) {
-  if (!hasProject) return "Start with a folder so the set has a home.";
-  return currentWorkspace(state) === "setup"
-    ? "Place and correct the physical projection surfaces."
-    : "Choose what each surface becomes.";
+function applySelectedSceneSnapshot(state) {
+  const scene = getSelectedScene(state);
+  if (scene) applySceneSnapshotToState(state, scene);
+}
+
+function getSelectedScene(state) {
+  return state.scenes.find((scene) => scene.id === state.ui.selectedSceneId) || null;
+}
+
+function sceneSurfaceSnapshot(scene, surfaceId) {
+  return scene?.snapshot?.surfaces?.find((surface) => surface.id === surfaceId) || null;
+}
+
+function getSceneSurfaceView(surface, state) {
+  const snapshot = sceneSurfaceSnapshot(getSelectedScene(state), surface.id);
+  return snapshot ? { ...surface, ...snapshot } : surface;
+}
+
+function currentWorkspace(state) {
+  return ["setup", "compose", "scene"].includes(state.ui?.workspace) ? state.ui.workspace : "setup";
 }
 
 function rangeTemplate(label, path, value) {
@@ -658,10 +748,10 @@ function mediaSelectTemplate(path, media, value) {
   `;
 }
 
-function layerSelectTemplate(path, layers, value) {
+function compositionSelectTemplate(path, compositions, value) {
   return `
     <select data-update="${path}">
-      ${layers.map((layer) => `<option value="${esc(layer.id)}" ${layer.id === value ? "selected" : ""}>${esc(layer.name)}</option>`).join("")}
+      ${compositions.map((composition) => `<option value="${esc(composition.id)}" ${composition.id === value ? "selected" : ""}>${esc(composition.name)}</option>`).join("")}
     </select>
   `;
 }
@@ -684,18 +774,18 @@ function readInputValue(input) {
   return input.value;
 }
 
-function pathForLayer(state, layer) {
-  return `layers.${state.layers.findIndex((item) => item.id === layer.id)}`;
+function updateRangeLabel(input) {
+  const label = input.closest(".range-field");
+  const value = label?.querySelector("strong");
+  if (value) value.textContent = Number(input.value).toFixed(2);
 }
 
 function pathForSurface(state, surface) {
   return `surfaces.${state.surfaces.findIndex((item) => item.id === surface.id)}`;
 }
 
-function mergeMedia(current, incoming) {
-  const byId = new Map(current.map((item) => [item.id, item]));
-  for (const item of incoming) byId.set(item.id, item);
-  return Array.from(byId.values()).sort((a, b) => a.name.localeCompare(b.name));
+function pathForComposition(state, composition) {
+  return `compositions.${state.compositions.findIndex((item) => item.id === composition.id)}`;
 }
 
 function emptyNote(text) {

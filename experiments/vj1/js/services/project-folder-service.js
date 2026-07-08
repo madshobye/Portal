@@ -1,4 +1,9 @@
-import { collectFilesFromDirectory } from "./media-library-service.js";
+import { collectFilesFromDirectory, isMediaFile, isShaderFile } from "./media-library-service.js";
+import {
+  canPersistDirectoryHandles,
+  loadProjectDirectoryHandle,
+  saveProjectDirectoryHandle,
+} from "./directory-handle-store.js";
 
 export function createProjectFolderService({ mediaLibrary, store, bridge }) {
   let dirHandle = null;
@@ -6,6 +11,8 @@ export function createProjectFolderService({ mediaLibrary, store, bridge }) {
   let saveInFlight = false;
   let saveQueued = false;
   let lastSavedSignature = "";
+  let lastDirectorySignature = "";
+  let refreshInFlight = false;
   let isOpening = false;
   const autosaveDelayMs = 700;
   const skipAutosaveReasons = new Set([
@@ -13,6 +20,7 @@ export function createProjectFolderService({ mediaLibrary, store, bridge }) {
     "view",
     "output-metrics",
     "project-load",
+    "project-refresh",
     "project-autosave",
     "project-autosave-status",
     "project-autosave-error",
@@ -23,21 +31,15 @@ export function createProjectFolderService({ mediaLibrary, store, bridge }) {
     isOpening = true;
     let opened = false;
     try {
-      dirHandle = await window.showDirectoryPicker({ mode: "readwrite" });
+      const storedHandle = dirHandle ? null : await loadStoredHandle();
+      if (storedHandle && await verifyPermission(storedHandle, "readwrite", true)) {
+        dirHandle = storedHandle;
+      } else {
+        dirHandle = await window.showDirectoryPicker({ mode: "readwrite" });
+      }
       opened = true;
-      const files = await collectFilesFromDirectory(dirHandle);
-      const imported = await mediaLibrary.importFiles(files);
-      store.update((draft) => {
-        draft.project.name = dirHandle.name;
-        draft.project.folderName = dirHandle.name;
-        draft.media = mergeMedia(draft.media, imported.media);
-        if (imported.shaders[0]) {
-          draft.shaders.customName = imported.shaders[0].name;
-          draft.shaders.customCode = imported.shaders[0].code;
-        }
-      }, "project-open-media");
-      await loadProject();
-      bridge.sendMediaFiles(mediaLibrary.getAllFiles());
+      await saveStoredHandle(dirHandle);
+      await loadDirectory("project-open-media");
       return { fallback: false };
     } finally {
       isOpening = false;
@@ -45,31 +47,108 @@ export function createProjectFolderService({ mediaLibrary, store, bridge }) {
     }
   }
 
-  async function loadProject() {
+  async function restoreStoredFolder() {
+    if (!canPersistDirectoryHandles()) return false;
+    isOpening = true;
+    try {
+      const storedHandle = await loadStoredHandle();
+      if (!storedHandle) return false;
+      const permission = await queryPermission(storedHandle, "readwrite");
+      if (permission !== "granted") {
+        store.update((draft) => {
+          draft.project.folderName = "";
+          draft.media = [];
+          draft.project.warnings = [`Click the folder button to restore access to ${storedHandle.name}.`];
+        }, "project-folder-needs-permission");
+        return false;
+      }
+      dirHandle = storedHandle;
+      await loadDirectory("project-restore-media");
+      return true;
+    } finally {
+      isOpening = false;
+    }
+  }
+
+  async function importExternalFiles(fileList) {
+    const files = Array.from(fileList || []).filter((file) => file?.name);
+    if (!files.length) return { imported: 0 };
+    if (!dirHandle) {
+      return { needsFolder: true };
+    }
+
+    let imported = 0;
+    for (const file of files) {
+      const path = file.relativePath || file.webkitRelativePath || file.name || "";
+      const rootName = isShaderFile(path) ? "shaders" : isMediaFile(path) ? "media" : "";
+      if (!rootName) continue;
+      await writeFileIntoProject(dirHandle, file, rootName, path);
+      imported++;
+    }
+    if (imported) await loadDirectory("project-import-files");
+    return { imported };
+  }
+
+  async function refreshFolder({ force = false } = {}) {
+    if (!dirHandle || isOpening || refreshInFlight) return false;
+    refreshInFlight = true;
+    try {
+      const files = await collectFilesFromDirectory(dirHandle);
+      const signature = directorySignature(files);
+      if (!force && signature === lastDirectorySignature) return false;
+      mediaLibrary.clear();
+      const imported = await mediaLibrary.importFiles(files);
+      await loadProject("project-refresh", imported, signature);
+      bridge.sendMediaFiles(mediaLibrary.getAllFiles());
+      return true;
+    } finally {
+      refreshInFlight = false;
+    }
+  }
+
+  async function loadDirectory(reason) {
+    mediaLibrary.clear();
+    const files = await collectFilesFromDirectory(dirHandle);
+    const signature = directorySignature(files);
+    const imported = await mediaLibrary.importFiles(files);
+    await loadProject(reason, imported, signature);
+    bridge.sendMediaFiles(mediaLibrary.getAllFiles());
+  }
+
+  async function loadProject(reason = "project-load", imported = { media: [], shaders: [] }, directorySig = "") {
     if (!dirHandle) return;
+    let data = {};
     try {
       const handle = await dirHandle.getFileHandle("project.json");
       const text = await (await handle.getFile()).text();
-      const data = JSON.parse(text);
-      store.replace(
-        {
-          ...store.getState(),
-          ...data,
-          project: {
-            ...store.getState().project,
-            ...(data.project || {}),
-            name: data.project?.name || dirHandle.name,
-            folderName: dirHandle.name,
-          },
-        },
-        "project-load"
-      );
-      lastSavedSignature = payloadSignature(buildPayload(store.getState(), data.project?.savedAt || ""));
+      data = JSON.parse(text);
     } catch {
-      store.update((draft) => {
-        draft.project.warnings = [`No project.json found in ${dirHandle.name}`];
-      }, "project-load-missing");
+      data = {};
     }
+    store.replace(
+      {
+        ...store.getState(),
+        ...data,
+        project: {
+          ...store.getState().project,
+          ...(data.project || {}),
+          name: data.project?.name || dirHandle.name,
+          folderName: dirHandle.name,
+          warnings: data.version ? [] : [`No project.json found in ${dirHandle.name}`],
+        },
+        media: imported.media,
+        shaders: imported.shaders[0]
+          ? {
+              ...(data.shaders || store.getState().shaders),
+              customName: imported.shaders[0].name,
+              customCode: imported.shaders[0].code,
+            }
+          : (data.shaders || store.getState().shaders),
+      },
+      reason
+    );
+    lastDirectorySignature = directorySig;
+    lastSavedSignature = payloadSignature(buildPayload(store.getState(), data.project?.savedAt || ""));
   }
 
   function scheduleAutoSave(reason = "change", { immediate = false } = {}) {
@@ -151,7 +230,45 @@ export function createProjectFolderService({ mediaLibrary, store, bridge }) {
     await writable.close();
   }
 
-  return { openFolder, saveProject, scheduleAutoSave, flushAutoSave };
+  return { openFolder, restoreStoredFolder, saveProject, scheduleAutoSave, flushAutoSave, importExternalFiles, refreshFolder };
+}
+
+async function loadStoredHandle() {
+  if (!canPersistDirectoryHandles()) return null;
+  try {
+    return await loadProjectDirectoryHandle();
+  } catch {
+    return null;
+  }
+}
+
+async function saveStoredHandle(handle) {
+  if (!handle || !canPersistDirectoryHandles()) return;
+  try {
+    await saveProjectDirectoryHandle(handle);
+  } catch {
+    // The app can still run with the active handle; only refresh restore is lost.
+  }
+}
+
+async function queryPermission(handle, mode) {
+  if (!handle?.queryPermission) return "granted";
+  try {
+    return await handle.queryPermission({ mode });
+  } catch {
+    return "prompt";
+  }
+}
+
+async function verifyPermission(handle, mode, requestIfNeeded) {
+  const permission = await queryPermission(handle, mode);
+  if (permission === "granted") return true;
+  if (!requestIfNeeded || !handle?.requestPermission) return false;
+  try {
+    return await handle.requestPermission({ mode }) === "granted";
+  } catch {
+    return false;
+  }
 }
 
 function buildPayload(state, savedAt = new Date().toISOString()) {
@@ -162,6 +279,7 @@ function buildPayload(state, savedAt = new Date().toISOString()) {
     render: state.render,
     media: state.media,
     layers: state.layers,
+    compositions: state.compositions,
     surfaces: state.surfaces,
     scenes: state.scenes,
     mappings: state.mappings,
@@ -176,12 +294,64 @@ function payloadSignature(payload) {
   });
 }
 
+function directorySignature(files) {
+  return JSON.stringify(Array.from(files || [])
+    .map((file) => ({
+      path: file.relativePath || file.webkitRelativePath || file.name || "",
+      size: file.size || 0,
+      modified: file.lastModified || 0,
+    }))
+    .sort((a, b) => a.path.localeCompare(b.path)));
+}
+
 function safeTimestamp(value) {
   return String(value || new Date().toISOString()).replace(/[:.]/g, "-");
 }
 
-function mergeMedia(current, incoming) {
-  const byId = new Map(current.map((item) => [item.id, item]));
-  for (const item of incoming) byId.set(item.id, item);
-  return Array.from(byId.values()).sort((a, b) => a.name.localeCompare(b.name));
+async function writeFileIntoProject(projectDirHandle, file, rootName, sourcePath) {
+  let directory = await currentDirectoryForPath(projectDirHandle, rootName, sourcePath);
+  const originalName = safeFilename((sourcePath || file.name).split("/").pop() || file.name || "file");
+  const filename = await uniqueFilename(directory, originalName);
+  const handle = await directory.getFileHandle(filename, { create: true });
+  const writable = await handle.createWritable();
+  await writable.write(file);
+  await writable.close();
+}
+
+async function currentDirectoryForPath(projectDirHandle, rootName, sourcePath) {
+  let directory = await projectDirHandle.getDirectoryHandle(rootName, { create: true });
+  const parts = String(sourcePath || "").split("/").filter(Boolean).slice(0, -1);
+  for (const part of parts) {
+    directory = await directory.getDirectoryHandle(safeFilename(part), { create: true });
+  }
+  return directory;
+}
+
+async function uniqueFilename(directory, filename) {
+  const dot = filename.lastIndexOf(".");
+  const base = dot > 0 ? filename.slice(0, dot) : filename;
+  const ext = dot > 0 ? filename.slice(dot) : "";
+  let candidate = filename;
+  let index = 1;
+  while (await fileExists(directory, candidate)) {
+    candidate = `${base}-${index}${ext}`;
+    index++;
+  }
+  return candidate;
+}
+
+async function fileExists(directory, filename) {
+  try {
+    await directory.getFileHandle(filename);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function safeFilename(value) {
+  return String(value || "file")
+    .replace(/[\\/:*?"<>|]/g, "-")
+    .replace(/^\.+$/, "file")
+    .trim() || "file";
 }
