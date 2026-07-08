@@ -31,6 +31,9 @@ export class OutputRenderer {
     this.lastMetricsAt = 0;
     this.lastMediaRequestAt = 0;
     this.frameStart = 0;
+    this.lastTickMs = 0;
+    this.visualTime = 0;
+    this.compositionTimes = new Map();
     this.shaderBuilder = createShaderBuilder({
       getCustomCode: () => this.state?.shaders?.customCode || "",
       onStatus: (status, error) => {
@@ -44,10 +47,11 @@ export class OutputRenderer {
     this.state = sanitizeState(initialState || {});
     this.createBuffers();
     this.createMapper();
-    this.setCalibrate(this.mode === "preview" || this.state.global.calibrating);
+    this.setCalibrate(this.shouldCalibrateFromState());
   }
 
   createBuffers() {
+    this.disposeBuffers();
     const { width: rw, height: rh, surfaceWidth, surfaceHeight } = this.state.render;
     this.sourcePg = createGraphics(rw, rh);
     this.mainMix = createGraphics(rw, rh);
@@ -56,6 +60,23 @@ export class OutputRenderer {
     this.fxB = createGraphics(rw, rh, WEBGL);
     this.fxA.noStroke();
     this.fxB.noStroke();
+  }
+
+  disposeBuffers() {
+    disposeGraphics(this.sourcePg);
+    disposeGraphics(this.mainMix);
+    disposeGraphics(this.surfaceScratch);
+    disposeGraphics(this.fxA);
+    disposeGraphics(this.fxB);
+    disposeGraphicsMap(this.compositionSource);
+    disposeGraphicsMap(this.compositionOutput);
+    disposeGraphicsMap(this.compositionBuffer);
+    this.sourcePg = null;
+    this.mainMix = null;
+    this.surfaceScratch = null;
+    this.fxA = null;
+    this.fxB = null;
+    this.shaderBuilder.clear?.();
   }
 
   createMapper() {
@@ -82,7 +103,11 @@ export class OutputRenderer {
         ? surface.corners.map((corner) => ({ x: corner.x, y: corner.y }))
         : null,
     ]));
-    while (this.mapper.surfaces.length) this.mapper.removeLastSurface({ clearStorage: false });
+    while (this.mapper.surfaces.length) {
+      const removed = this.mapper.removeLastSurface({ clearStorage: false });
+      disposeGraphics(removed?.pg);
+      disposeGraphics(removed?.renderCache);
+    }
     this.mapperSurfaces.clear();
     const cols = Math.max(1, Math.ceil(Math.sqrt(this.state.surfaces.length)));
     const gap = 40;
@@ -131,7 +156,12 @@ export class OutputRenderer {
     ) {
       this.applyProjectMapping(nextMappingSignature);
     }
-    this.setCalibrate(this.state.global.calibrating);
+    this.setCalibrate(this.shouldCalibrateFromState());
+  }
+
+  shouldCalibrateFromState() {
+    if (this.mode === "output") return false;
+    return this.mode === "preview" || !!this.state.global.calibrating;
   }
 
   currentMappingSignature() {
@@ -212,6 +242,7 @@ export class OutputRenderer {
   draw() {
     if (!this.state) return;
     this.frameStart = performance.now();
+    this.tickClock(this.frameStart);
     background(0);
     this.renderCompositions();
     if (this.mode === "composition") {
@@ -224,8 +255,57 @@ export class OutputRenderer {
     const restoreCalibrate = outputBlackout && this.mapper?.isCalibrating?.();
     if (restoreCalibrate) this.mapper.setCalibrate(false);
     this.mapper.render();
+    this.renderSelectedSurfaceOverlay();
     if (restoreCalibrate) this.mapper.setCalibrate(true);
     this.updateHudAndMetrics();
+  }
+
+  tickClock(nowMs) {
+    if (!this.lastTickMs) {
+      this.lastTickMs = nowMs;
+      return;
+    }
+    const dt = Math.min(0.1, Math.max(0, (nowMs - this.lastTickMs) / 1000));
+    this.lastTickMs = nowMs;
+    this.visualTime += dt;
+    const liveCompositionIds = new Set((this.state.compositions || []).map((composition) => composition.id));
+    for (const id of this.compositionTimes.keys()) {
+      if (!liveCompositionIds.has(id)) this.compositionTimes.delete(id);
+    }
+    for (const composition of this.state.compositions || []) {
+      const speed = Math.max(0, Number(composition.speed) || 0);
+      this.compositionTimes.set(composition.id, (this.compositionTimes.get(composition.id) || 0) + dt * speed);
+    }
+  }
+
+  renderSelectedSurfaceOverlay() {
+    if (this.mode === "output" || !this.mapper?.isCalibrating?.()) return;
+    const surfaceId = this.state?.ui?.selectedSurfaceId;
+    if (!surfaceId) return;
+    const mapped = this.mapperSurfaces.get(surfaceId);
+    const corners = mapped?.mapperSurface?.corners;
+    if (!Array.isArray(corners) || corners.length !== 4) return;
+
+    const gl = drawingContext;
+    if (gl?.disable) gl.disable(gl.DEPTH_TEST);
+    push();
+    const w2 = width * 0.5;
+    const h2 = height * 0.5;
+    noFill();
+    stroke(255, 232, 92);
+    strokeWeight(5);
+    beginShape();
+    for (const corner of corners) vertex(corner.x - w2, corner.y - h2, 1);
+    endShape(CLOSE);
+    noStroke();
+    for (const corner of corners) {
+      fill(255, 232, 92, 170);
+      circle(corner.x - w2, corner.y - h2, 34);
+      fill(255);
+      circle(corner.x - w2, corner.y - h2, 14);
+    }
+    pop();
+    if (gl?.enable) gl.enable(gl.DEPTH_TEST);
   }
 
   renderCompositions() {
@@ -241,8 +321,9 @@ export class OutputRenderer {
     for (const composition of this.state.compositions || []) {
       if (!composition.enabled) continue;
       if (neededCompositionIds.size && !neededCompositionIds.has(composition.id)) continue;
-      const source = this.renderCompositionSource(composition);
-      const effected = this.renderShaderChain(source, composition.shaderChain, this.state.render.width, this.state.render.height);
+      const compositionTime = this.compositionTimes.get(composition.id) || 0;
+      const source = this.renderCompositionSource(composition, compositionTime);
+      const effected = this.renderShaderChain(source, composition.shaderChain, this.state.render.width, this.state.render.height, compositionTime);
       const output = this.getCompositionBuffer(composition.id);
       output.push();
       output.clear();
@@ -273,7 +354,7 @@ export class OutputRenderer {
     return ids;
   }
 
-  renderCompositionSource(composition) {
+  renderCompositionSource(composition, compositionTime = this.visualTime) {
     let pg = this.compositionSource.get(composition.id);
     if (!pg || pg.width !== this.state.render.width || pg.height !== this.state.render.height) {
       pg = createGraphics(this.state.render.width, this.state.render.height);
@@ -283,7 +364,10 @@ export class OutputRenderer {
     pg.background(0);
     if (composition.source.type === "media") {
       const item = this.media.get(composition.source.mediaId);
-      if (item?.video && isDrawableMedia(item.video)) drawCover(pg, item.video, 0, 0, pg.width, pg.height);
+      if (item?.video && isDrawableMedia(item.video)) {
+        syncVideoSpeed(item.video, composition.speed);
+        drawCover(pg, item.video, 0, 0, pg.width, pg.height);
+      }
       else if (item?.image && isDrawableMedia(item.image)) drawCover(pg, item.image, 0, 0, pg.width, pg.height);
       else if (item) drawStandby(pg, "loading media");
       else {
@@ -298,7 +382,7 @@ export class OutputRenderer {
       pg.background(0);
     } else {
       try {
-        drawGenerator(pg, composition.source.generatorId, millis() * 0.001 * Math.max(0.01, composition.speed || 1));
+        drawGenerator(pg, composition.source.generatorId, compositionTime);
       } catch (error) {
         console.error("[VJ1_GENERATOR_CRASH]", {
           compositionId: composition.id,
@@ -326,7 +410,7 @@ export class OutputRenderer {
     return pg;
   }
 
-  renderShaderChain(input, chain, rw, rh) {
+  renderShaderChain(input, chain, rw, rh, timeSeconds = this.visualTime) {
     let current = input;
     let passCount = 0;
     for (const pass of chain || []) {
@@ -339,7 +423,7 @@ export class OutputRenderer {
       target.shader(shader);
       shader.setUniform("tex0", current);
       shader.setUniform("resolution", [rw, rh]);
-      shader.setUniform("time", millis() * 0.001);
+      shader.setUniform("time", timeSeconds);
       shader.setUniform("amount", Number(pass.amount) || 0);
       target.rect(-rw / 2, -rh / 2, rw, rh);
       target.resetShader();
@@ -385,7 +469,7 @@ export class OutputRenderer {
     pg.pop();
 
     if (surface.finalShaderChain?.length) {
-      const effected = this.renderShaderChain(pg, surface.finalShaderChain, this.state.render.surfaceWidth, this.state.render.surfaceHeight);
+      const effected = this.renderShaderChain(pg, surface.finalShaderChain, this.state.render.surfaceWidth, this.state.render.surfaceHeight, this.visualTime);
       drawBuffer(pg, effected, 0, 0, pg.width, pg.height, this.isShaderBuffer(effected));
     }
   }
@@ -482,7 +566,7 @@ export class OutputRenderer {
     const frameMs = performance.now() - this.frameStart;
     const fps = frameRate();
     if (this.hud) {
-      this.hud.classList.toggle("is-hidden", !this.state.global.showHud || this.mode === "output");
+      this.hud.classList.toggle("is-hidden", !this.state.global.showHud);
       this.hud.textContent = `${Math.round(fps)} fps`;
     }
     if (millis() - this.lastMetricsAt > 500) {
@@ -514,6 +598,19 @@ function mappingSignature(mapping) {
   } catch {
     return "";
   }
+}
+
+function disposeGraphicsMap(map) {
+  if (!map) return;
+  for (const item of map.values()) disposeGraphics(item);
+  map.clear();
+}
+
+function disposeGraphics(item) {
+  if (!item) return;
+  try {
+    item.remove?.();
+  } catch {}
 }
 
 function getPortalWebcameraSetup() {
@@ -564,6 +661,28 @@ function isDrawableMedia(media) {
   if (elt?.naturalWidth > 1 && elt?.naturalHeight > 1) return true;
   if (media.width > 1 && media.height > 1) return true;
   return false;
+}
+
+function syncVideoSpeed(video, speedValue = 1) {
+  const speed = Math.max(0, Number(speedValue) || 0);
+  const elt = video?.elt || video;
+  if (!elt) return;
+  if (speed <= 0.001) {
+    if (!elt.paused) video.pause?.();
+    return;
+  }
+  if (Math.abs((elt.playbackRate || 1) - speed) > 0.001) {
+    try {
+      if (typeof video.speed === "function") video.speed(speed);
+      else elt.playbackRate = speed;
+    } catch {}
+  }
+  if (elt.paused) {
+    try {
+      video.loop?.();
+      video.play?.();
+    } catch {}
+  }
 }
 
 function drawStandby(pg, label) {

@@ -68,8 +68,8 @@ export function createAppState(initial = null) {
     },
     setWorkspace(workspace) {
       update((draft) => {
-        draft.ui.workspace = ["setup", "compose", "scene"].includes(workspace) ? workspace : "setup";
-        draft.global.calibrating = draft.ui.workspace === "setup" || draft.ui.workspace === "scene";
+        draft.ui.workspace = ["compose", "scene"].includes(workspace) ? workspace : "scene";
+        draft.global.calibrating = draft.ui.workspace === "scene";
       }, "workspace");
     },
     addComposition() {

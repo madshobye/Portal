@@ -2,7 +2,7 @@ import { BLEND_MODES, GENERATORS, SOURCE_TYPES } from "../constants.js";
 import { applySceneSnapshotToState, createSceneSnapshot } from "../domain/models.js";
 import { buildOutputUrl } from "../view-routing.js";
 import { listShaderComponents } from "../shaders/shader-registry.js";
-import { createEmbeddedPreviewApp } from "../output/embedded-preview-app.js?v=scene-snapshots-31";
+import { createEmbeddedPreviewApp } from "../output/embedded-preview-app.js?v=scene-snapshots-48";
 
 export function createControlShell({ root, store, bridge, mediaLibrary, projectService }) {
   let refs = {};
@@ -75,8 +75,8 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
 
     refs.workspaceSwitch.querySelectorAll("[data-workspace]").forEach((button) => {
       button.addEventListener("click", () => {
-        const workspace = ["setup", "compose", "scene"].includes(button.dataset.workspace) ? button.dataset.workspace : "setup";
-        const mappingActive = workspace === "setup" || workspace === "scene";
+        const workspace = ["compose", "scene"].includes(button.dataset.workspace) ? button.dataset.workspace : "scene";
+        const mappingActive = workspace === "scene";
         if (typeof store.setWorkspace === "function") store.setWorkspace(workspace);
         else {
           store.update((draft) => {
@@ -162,7 +162,6 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
   }
 
   function railToolsTemplate(state, workspace) {
-    if (workspace === "setup") return setupToolsTemplate(state);
     if (workspace === "compose") return compositionToolsTemplate(state);
     return sceneToolsTemplate(state);
   }
@@ -180,40 +179,23 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
   }
 
   function sceneToolsTemplate(state) {
-    const selectedScene = getSelectedScene(state);
     return `
       <div class="rail-section">
         <div class="rail-title"><span class="material-symbols-rounded">auto_awesome_motion</span><span>Scenes</span></div>
         <div class="scene-pills">
           ${state.scenes.map((scene) => scenePillTemplate(scene, state)).join("") || emptyNote("Capture surface assignments")}
         </div>
-        ${selectedScene ? `<div class="scene-active">${icon("edit")}<span>Editing ${esc(selectedScene.name)}</span></div>` : ""}
         <div class="capture-row">
           <input type="text" data-scene-name value="Scene ${state.scenes.length + 1}" spellcheck="false" data-gramm="false" data-gramm_editor="false" data-enable-grammarly="false" />
           <button class="icon-buttonish" type="button" data-save-scene title="Capture scene" aria-label="Capture scene">${icon("add")}</button>
         </div>
       </div>
       <div class="rail-section">
-        <div class="rail-title"><span class="material-symbols-rounded">select_all</span><span>Assignments</span></div>
+        <div class="rail-title"><span class="material-symbols-rounded">select_all</span><span>Surfaces</span></div>
         <div class="surface-pills">
           ${state.surfaces.map((surface) => sceneSurfacePillTemplate(surface, state)).join("")}
         </div>
-      </div>
-    `;
-  }
-
-  function setupToolsTemplate(state) {
-    return `
-      <div class="rail-section">
-        <div class="rail-title"><span class="material-symbols-rounded">select_all</span><span>Surfaces</span></div>
-        <div class="surface-pills">
-          ${state.surfaces.map((surface) => setupSurfacePillTemplate(surface, state)).join("")}
-        </div>
         <button type="button" data-add-surface>${icon("add")} Add surface</button>
-      </div>
-      <div class="rail-section">
-        <div class="rail-title"><span class="material-symbols-rounded">grid_on</span><span>Mapping</span></div>
-        <div class="soft-note">Drag anchors or surfaces in the preview. Changes are saved automatically in the project folder.</div>
       </div>
     `;
   }
@@ -241,10 +223,11 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
     const previewHost = refs.studio.querySelector("[data-preview-host]");
     if (!previewHost || previewHost.classList.contains("is-empty")) return;
     if (!state.ui.debugPreview) {
-      previewHost.innerHTML = `<div class="empty-preview">${icon("visibility_off")} Preview hidden</div>`;
       embeddedPreview.pause();
+      ensurePreviewHiddenOverlay(previewHost);
       return;
     }
+    removePreviewHiddenOverlay(previewHost);
     const kind = currentWorkspace(state) === "compose" ? "composition" : "preview";
     if (!previewHost.querySelector("[data-embedded-preview-stage]")) {
       previewHost.innerHTML = `
@@ -262,6 +245,7 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
   }
 
   function updatePreviewState(state) {
+    if (!state.ui.debugPreview) return;
     const kind = currentWorkspace(state) === "compose" ? "composition" : "preview";
     embeddedPreview.setState(state, kind);
   }
@@ -278,20 +262,6 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
           <div class="soft-note">The controls appear after you choose a folder. That keeps every look connected to a real local show file.</div>
         </section>
       `;
-      return;
-    }
-    if (currentWorkspace(state) === "setup") {
-      const selectedSurface = state.surfaces.find((surface) => surface.id === state.ui.selectedSurfaceId) || state.surfaces[0];
-      refs.inspector.innerHTML = `
-        <section class="glass-panel focus-panel">
-          <header class="panel-title">
-            <span class="material-symbols-rounded">select_all</span>
-            <span>Physical surface</span>
-          </header>
-          ${selectedSurface ? setupSurfaceTemplate(selectedSurface, state) : emptyNote("No surface")}
-        </section>
-      `;
-      bindInputs(refs.inspector, state);
       return;
     }
     const selectedSurface = state.surfaces.find((surface) => surface.id === state.ui.selectedSurfaceId) || state.surfaces[0];
@@ -313,7 +283,7 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
       <section class="glass-panel focus-panel">
         <header class="panel-title">
           <span class="material-symbols-rounded">select_all</span>
-          <span>Surface assignment</span>
+          <span>Surface</span>
         </header>
         ${selectedSurface ? sceneSurfaceTemplate(selectedSurface, state) : emptyNote("No surface")}
       </section>
@@ -341,6 +311,15 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
     });
     refs.projectRail.querySelectorAll("[data-recall-scene]").forEach((button) => {
       button.addEventListener("click", () => store.recallScene(button.dataset.recallScene));
+    });
+    refs.projectRail.querySelectorAll("[data-delete-scene]").forEach((button) => {
+      button.addEventListener("click", () => store.deleteScene(button.dataset.deleteScene));
+    });
+    refs.projectRail.querySelectorAll("[data-remove-surface]").forEach((button) => {
+      button.addEventListener("click", () => store.removeSurface(button.dataset.removeSurface));
+    });
+    refs.projectRail.querySelectorAll("[data-remove-composition]").forEach((button) => {
+      button.addEventListener("click", () => store.removeComposition(button.dataset.removeComposition));
     });
     refs.projectRail.querySelectorAll("[data-add-shader]").forEach((button) => {
       button.addEventListener("click", () => addShaderPass(button.dataset.addShader, "composition", latestState.ui.selectedCompositionId));
@@ -491,9 +470,8 @@ function shellTemplate() {
         </div>
         <div class="top-actions">
           <div id="workspace-switch" class="workspace-switch" role="group" aria-label="Workspace">
-            <button type="button" data-workspace="setup" class="is-active">${icon("grid_on")}<span>Setup</span></button>
             <button type="button" data-workspace="compose">${icon("account_tree")}<span>Compositions</span></button>
-            <button type="button" data-workspace="scene">${icon("auto_awesome")}<span>Scene</span></button>
+            <button type="button" data-workspace="scene" class="is-active">${icon("auto_awesome")}<span>Scene</span></button>
           </div>
           <button id="toggle-preview" class="icon-buttonish" type="button" title="Toggle preview" aria-label="Toggle preview">${icon("visibility")}</button>
           <button id="blackout-main" class="icon-buttonish danger" type="button" title="Blackout" aria-label="Blackout">${icon("brightness_1")}</button>
@@ -529,15 +507,14 @@ function collectRefs(root) {
   };
 }
 
-function setupSurfacePillTemplate(surface, state) {
-  return selectablePillTemplate({
-    selected: state.ui.selectedSurfaceId === surface.id,
-    action: "data-select-surface",
-    id: surface.id,
-    iconName: surface.enabled ? "crop_free" : "hide_source",
-    label: surface.name,
-    meta: surface.enabled ? "mapped" : "off",
-  });
+function ensurePreviewHiddenOverlay(host) {
+  if (!host.querySelector("[data-preview-hidden-overlay]")) {
+    host.insertAdjacentHTML("beforeend", `<div class="preview-hidden-overlay" data-preview-hidden-overlay>${icon("visibility_off")} Preview hidden</div>`);
+  }
+}
+
+function removePreviewHiddenOverlay(host) {
+  host.querySelector("[data-preview-hidden-overlay]")?.remove();
 }
 
 function compositionPillTemplate(composition, state) {
@@ -548,6 +525,8 @@ function compositionPillTemplate(composition, state) {
     iconName: composition.enabled ? "account_tree" : "hide_source",
     label: composition.name,
     meta: `${composition.shaderChain?.length || 0} fx`,
+    removeAction: "data-remove-composition",
+    removeDisabled: state.compositions.length <= 1,
   });
 }
 
@@ -561,35 +540,21 @@ function sceneSurfacePillTemplate(surface, state) {
     iconName: sceneSurface.enabled ? "crop_free" : "hide_source",
     label: surface.name,
     meta: composition?.name || "None",
+    removeAction: "data-remove-surface",
+    removeDisabled: state.surfaces.length <= 1,
   });
 }
 
-function selectablePillTemplate({ selected, action, id, iconName, label, meta }) {
+function selectablePillTemplate({ selected, action, id, iconName, label, meta, removeAction = "", removeDisabled = false }) {
   return `
-    <button type="button" class="${selected ? "is-selected" : ""}" ${action}="${esc(id)}">
-      ${icon(iconName)}
-      <span>${esc(label)}</span>
-      <small>${esc(meta)}</small>
-    </button>
-  `;
-}
-
-function setupSurfaceTemplate(surface, state) {
-  const base = pathForSurface(state, surface);
-  return `
-    <article class="sculpt-card">
-      <div class="sculpt-head">
-        <input type="text" data-update="${base}.name" value="${esc(surface.name)}" spellcheck="false" data-gramm="false" data-gramm_editor="false" data-enable-grammarly="false" />
-        <label class="mini-toggle">${icon("power_settings_new")}<input type="checkbox" data-update="${base}.enabled" ${surface.enabled ? "checked" : ""} /></label>
-      </div>
-      <label class="toggle-line">${icon("label")}<span>Show calibration label</span><input type="checkbox" data-update="${base}.showLabel" ${surface.showLabel ? "checked" : ""} /></label>
-      <label class="toggle-line">${icon("lock")}<span>Lock mapping later</span><input type="checkbox" data-update="${base}.calibrationLocked" ${surface.calibrationLocked ? "checked" : ""} /></label>
-      <div class="setup-actions">
-        <button type="button" data-reset-surface-mapping="${surface.id}">${icon("restart_alt")} Reset surface</button>
-        <button type="button" class="danger" data-remove-surface="${surface.id}">${icon("delete")} Remove</button>
-      </div>
-      <div class="soft-note">This surface defines where light lands. Scene content is assigned separately in Scene.</div>
-    </article>
+    <div class="list-row">
+      <button type="button" class="list-select ${selected ? "is-selected" : ""}" ${action}="${esc(id)}">
+        ${icon(iconName)}
+        <span>${esc(label)}</span>
+        <small>${esc(meta)}</small>
+      </button>
+      ${removeAction ? `<button type="button" class="list-remove" ${removeAction}="${esc(id)}" title="Remove" aria-label="Remove ${esc(label)}" ${removeDisabled ? "disabled" : ""}>${icon("close")}</button>` : ""}
+    </div>
   `;
 }
 
@@ -612,32 +577,36 @@ function compositionTemplate(composition, state) {
       </div>
       ${rangeTemplate("Intensity", `${base}.opacity`, composition.opacity)}
       ${compositionChainTemplate(composition, base)}
-      <div class="setup-actions">
-        <button type="button" class="danger" data-remove-composition="${composition.id}">${icon("delete")} Remove composition</button>
-      </div>
     </article>
   `;
 }
 
 function sceneSurfaceTemplate(surface, state) {
   const scene = getSelectedScene(state);
-  if (!scene) return emptyNote("Capture a scene before editing assignments");
-  const sceneIndex = state.scenes.findIndex((item) => item.id === scene.id);
-  const surfaceIndex = scene.snapshot?.surfaces?.findIndex((item) => item.id === surface.id) ?? -1;
-  if (sceneIndex < 0 || surfaceIndex < 0) return emptyNote("This scene has no assignment for the selected surface");
-  const sceneSurface = scene.snapshot.surfaces[surfaceIndex];
   const surfaceBase = pathForSurface(state, surface);
+  const sceneIndex = scene ? state.scenes.findIndex((item) => item.id === scene.id) : -1;
+  const surfaceIndex = scene?.snapshot?.surfaces?.findIndex((item) => item.id === surface.id) ?? -1;
+  const hasSceneSurface = sceneIndex >= 0 && surfaceIndex >= 0;
+  const sceneSurface = hasSceneSurface ? scene.snapshot.surfaces[surfaceIndex] : null;
   const sceneBase = `scenes.${sceneIndex}.snapshot.surfaces.${surfaceIndex}`;
   return `
     <article class="sculpt-card">
       <div class="sculpt-head">
         <input type="text" data-update="${surfaceBase}.name" value="${esc(surface.name)}" spellcheck="false" data-gramm="false" data-gramm_editor="false" data-enable-grammarly="false" />
-        <label class="mini-toggle">${icon("power_settings_new")}<input type="checkbox" data-update="${sceneBase}.enabled" ${sceneSurface.enabled ? "checked" : ""} /></label>
+        <label class="mini-toggle">${icon("power_settings_new")}<input type="checkbox" data-update="${surfaceBase}.enabled" ${surface.enabled ? "checked" : ""} /></label>
       </div>
-      <label class="field">Composition ${compositionSelectTemplate(`${sceneBase}.compositionId`, state.compositions, sceneSurface.compositionId)}</label>
-      ${rangeTemplate("Presence", `${sceneBase}.opacity`, sceneSurface.opacity)}
-      <label class="field">Blend ${selectValuesTemplate(`${sceneBase}.finalBlend`, BLEND_MODES, sceneSurface.finalBlend)}</label>
-      <label class="toggle-line">${icon("label")}<span>Surface label</span><input type="checkbox" data-update="${sceneBase}.showLabel" ${sceneSurface.showLabel ? "checked" : ""} /></label>
+      <label class="toggle-line">${icon("label")}<span>Show mapping label</span><input type="checkbox" data-update="${surfaceBase}.showLabel" ${surface.showLabel ? "checked" : ""} /></label>
+      <label class="toggle-line">${icon("lock")}<span>Lock mapping later</span><input type="checkbox" data-update="${surfaceBase}.calibrationLocked" ${surface.calibrationLocked ? "checked" : ""} /></label>
+      <div class="setup-actions">
+        <button type="button" data-reset-surface-mapping="${surface.id}">${icon("restart_alt")} Reset surface</button>
+      </div>
+      <div class="rail-title"><span class="material-symbols-rounded">auto_awesome</span><span>Scene assignment</span></div>
+      ${hasSceneSurface ? `
+        <label class="field">Composition ${compositionSelectTemplate(`${sceneBase}.compositionId`, state.compositions, sceneSurface.compositionId)}</label>
+        ${rangeTemplate("Presence", `${sceneBase}.opacity`, sceneSurface.opacity)}
+        <label class="field">Blend ${selectValuesTemplate(`${sceneBase}.finalBlend`, BLEND_MODES, sceneSurface.finalBlend)}</label>
+        <label class="toggle-line">${icon("label")}<span>Scene label</span><input type="checkbox" data-update="${sceneBase}.showLabel" ${sceneSurface.showLabel ? "checked" : ""} /></label>
+      ` : `<div class="soft-note">Capture a scene to store composition assignments for this surface.</div>`}
     </article>
   `;
 }
@@ -702,10 +671,14 @@ function mediaPillTemplate(item) {
 
 function scenePillTemplate(scene, state) {
   return `
-    <button type="button" class="${state.ui.selectedSceneId === scene.id ? "is-selected" : ""}" data-recall-scene="${scene.id}">
-      ${icon("play_arrow")}
-      <span>${esc(scene.name)}</span>
-    </button>
+    <div class="list-row">
+      <button type="button" class="list-select ${state.ui.selectedSceneId === scene.id ? "is-selected" : ""}" data-recall-scene="${esc(scene.id)}">
+        ${icon("play_arrow")}
+        <span>${esc(scene.name)}</span>
+        <small>${scene.snapshot?.surfaces?.length || 0} surfaces</small>
+      </button>
+      <button type="button" class="list-remove" data-delete-scene="${esc(scene.id)}" title="Remove" aria-label="Remove ${esc(scene.name)}">${icon("close")}</button>
+    </div>
   `;
 }
 
@@ -734,7 +707,7 @@ function getSceneSurfaceView(surface, state) {
 }
 
 function currentWorkspace(state) {
-  return ["setup", "compose", "scene"].includes(state.ui?.workspace) ? state.ui.workspace : "setup";
+  return ["compose", "scene"].includes(state.ui?.workspace) ? state.ui.workspace : "scene";
 }
 
 function rangeTemplate(label, path, value) {

@@ -212,8 +212,8 @@ export function sanitizeState(input = {}) {
   next.ui.selectedSceneId = next.scenes.some((scene) => scene.id === next.ui.selectedSceneId)
     ? next.ui.selectedSceneId
     : next.scenes[0]?.id || "";
-  next.ui.workspace = ["setup", "compose", "scene"].includes(next.ui.workspace) ? next.ui.workspace : "setup";
-  next.global.calibrating = next.ui.workspace === "setup" || next.ui.workspace === "scene";
+  next.ui.workspace = ["compose", "scene"].includes(next.ui.workspace) ? next.ui.workspace : "scene";
+  next.global.calibrating = next.ui.workspace === "scene";
   return next;
 }
 

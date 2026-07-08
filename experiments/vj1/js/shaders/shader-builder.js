@@ -28,7 +28,11 @@ export function createShaderBuilder({ getCustomCode, onStatus }) {
     }
   }
 
-  return { getShader, invalidateCustom };
+  function clear() {
+    cache.clear();
+  }
+
+  return { getShader, invalidateCustom, clear };
 }
 
 let nextContextId = 1;

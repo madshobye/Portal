@@ -1,6 +1,6 @@
 import { VJ1 } from "../constants.js";
 import { sanitizeState } from "../domain/models.js";
-import { OutputRenderer } from "./output-renderer.js?v=scene-snapshots-31";
+import { OutputRenderer } from "./output-renderer.js?v=scene-snapshots-48";
 
 export function createEmbeddedPreviewApp({ store, mediaLibrary }) {
   let host = null;
@@ -16,6 +16,7 @@ export function createEmbeddedPreviewApp({ store, mediaLibrary }) {
   let canvasWidth = 0;
   let canvasHeight = 0;
   let pointerActive = false;
+  let paused = false;
 
   function mount({ host: nextHost, stage: nextStage, hud: nextHud, mode, state }) {
     host = nextHost;
@@ -24,14 +25,16 @@ export function createEmbeddedPreviewApp({ store, mediaLibrary }) {
     pendingMode = mode;
     pendingState = sanitizeState(state || pendingState || {});
     host?.classList.remove("is-paused");
+    paused = false;
+    if (typeof loop === "function") loop();
     if (canvas && stage) canvas.parent(stage);
     if (renderer) {
       renderer.mode = pendingMode;
       renderer.hud = hud;
-      renderer.setState(pendingState);
+      resizeToStage();
+      renderer.setState(previewSizedState());
       renderer.importFiles(mediaLibrary.getAllFiles());
       renderer.setCalibrate(pendingMode === "preview" && pendingState.global.calibrating);
-      resizeToStage();
     }
     if (!started) start();
   }
@@ -41,7 +44,8 @@ export function createEmbeddedPreviewApp({ store, mediaLibrary }) {
     pendingState = sanitizeState(state || {});
     if (!renderer) return;
     renderer.mode = pendingMode;
-    renderer.setState(pendingState);
+    resizeToStage();
+    renderer.setState(previewSizedState());
     renderer.importFiles(mediaLibrary.getAllFiles());
   }
 
@@ -53,6 +57,8 @@ export function createEmbeddedPreviewApp({ store, mediaLibrary }) {
 
   function pause() {
     host?.classList.add("is-paused");
+    paused = true;
+    if (typeof noLoop === "function") noLoop();
   }
 
   function start() {
@@ -79,6 +85,7 @@ export function createEmbeddedPreviewApp({ store, mediaLibrary }) {
     const size = stageSize();
     canvas = createCanvas(size.width, size.height, WEBGL);
     canvas.parent(stage);
+    fitCanvasToStage(size);
     canvas.mousePressed(() => {
       if (pendingMode !== "composition") {
         pointerActive = true;
@@ -101,13 +108,14 @@ export function createEmbeddedPreviewApp({ store, mediaLibrary }) {
       requestMediaFiles: () => renderer?.importFiles(mediaLibrary.getAllFiles()),
       onSurfaceSelect: selectSurface,
     });
-    await renderer.setup(pendingState);
+    await renderer.setup(previewSizedState(size));
     renderer.importFiles(mediaLibrary.getAllFiles());
     resizeObserver = new ResizeObserver(resizeToStage);
     if (stage) resizeObserver.observe(stage);
   }
 
   function draw() {
+    if (paused) return;
     renderer?.draw();
   }
 
@@ -131,7 +139,8 @@ export function createEmbeddedPreviewApp({ store, mediaLibrary }) {
     canvasWidth = size.width;
     canvasHeight = size.height;
     resizeCanvas(size.width, size.height);
-    renderer?.resize();
+    fitCanvasToStage(size);
+    renderer?.setState(previewSizedState(size));
   }
 
   function stageSize() {
@@ -140,6 +149,28 @@ export function createEmbeddedPreviewApp({ store, mediaLibrary }) {
       width: Math.max(320, Math.floor(rect?.width || window.innerWidth || 960)),
       height: Math.max(180, Math.floor(rect?.height || window.innerHeight || 540)),
     };
+  }
+
+  function fitCanvasToStage(size = stageSize()) {
+    const elt = canvas?.elt;
+    if (!elt) return;
+    elt.style.width = `${size.width}px`;
+    elt.style.height = `${size.height}px`;
+    elt.width = size.width;
+    elt.height = size.height;
+  }
+
+  function previewSizedState(size = stageSize()) {
+    const state = sanitizeState(pendingState || {});
+    const renderScale = state.ui?.outputWindowOpen ? 0.5 : 1;
+    state.render = {
+      ...state.render,
+      width: Math.max(1, Math.floor(size.width * renderScale)),
+      height: Math.max(1, Math.floor(size.height * renderScale)),
+      surfaceWidth: Math.max(1, Math.floor((state.render.surfaceWidth || size.width) * renderScale)),
+      surfaceHeight: Math.max(1, Math.floor((state.render.surfaceHeight || size.height) * renderScale)),
+    };
+    return state;
   }
 
   function updateMetrics() {}

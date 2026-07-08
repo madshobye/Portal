@@ -21,6 +21,7 @@ export function createProjectFolderService({ mediaLibrary, store, bridge }) {
     "output-metrics",
     "project-load",
     "project-refresh",
+    "project-refresh-assets",
     "project-autosave",
     "project-autosave-status",
     "project-autosave-error",
@@ -98,7 +99,7 @@ export function createProjectFolderService({ mediaLibrary, store, bridge }) {
       if (!force && signature === lastDirectorySignature) return false;
       mediaLibrary.clear();
       const imported = await mediaLibrary.importFiles(files);
-      await loadProject("project-refresh", imported, signature);
+      refreshProjectAssets(imported, signature);
       bridge.sendMediaFiles(mediaLibrary.getAllFiles());
       return true;
     } finally {
@@ -149,6 +150,21 @@ export function createProjectFolderService({ mediaLibrary, store, bridge }) {
     );
     lastDirectorySignature = directorySig;
     lastSavedSignature = payloadSignature(buildPayload(store.getState(), data.project?.savedAt || ""));
+  }
+
+  function refreshProjectAssets(imported = { media: [], shaders: [] }, directorySig = "") {
+    store.update((draft) => {
+      draft.project.folderName = dirHandle?.name || draft.project.folderName;
+      draft.media = imported.media;
+      if (imported.shaders[0]) {
+        draft.shaders = {
+          ...draft.shaders,
+          customName: imported.shaders[0].name,
+          customCode: imported.shaders[0].code,
+        };
+      }
+    }, "project-refresh-assets");
+    lastDirectorySignature = directorySig;
   }
 
   function scheduleAutoSave(reason = "change", { immediate = false } = {}) {
