@@ -1,7 +1,7 @@
 import { VJ1 } from "../constants.js";
 import { sanitizeState } from "../domain/models.js";
 import { createOutputBridge } from "../services/output-bridge-service.js";
-import { OutputRenderer } from "./output-renderer.js?v=scene-snapshots-25";
+import { OutputRenderer } from "./output-renderer.js?v=scene-snapshots-31";
 
 export function installOutputApp({ root, mode }) {
   document.body.classList.add("output-client");
@@ -18,6 +18,9 @@ export function installOutputApp({ root, mode }) {
     canvas.parent("output-stage");
     pixelDensity(1);
     frameRate(120);
+    if (window.p5) window.p5.disableFriendlyErrors = true;
+    window.PORTAL_CANVAS_RESIZE_MODE = "none";
+    console.info("[VJ1_PORTAL_RESIZE_DISABLED]", { mode });
     await loadClassicScript(VJ1.portalScript);
     await loadClassicScript(VJ1.mapperScript);
     renderer = new OutputRenderer({

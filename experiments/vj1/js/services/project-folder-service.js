@@ -152,6 +152,7 @@ export function createProjectFolderService({ mediaLibrary, store, bridge }) {
   }
 
   function scheduleAutoSave(reason = "change", { immediate = false } = {}) {
+    if (String(reason).startsWith("edit:") || String(reason).startsWith("scrub:")) return;
     if (!dirHandle || isOpening || skipAutosaveReasons.has(reason)) return;
     if (autosaveTimer) clearTimeout(autosaveTimer);
     autosaveTimer = setTimeout(() => {

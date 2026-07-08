@@ -2,11 +2,12 @@ import { BLEND_MODES, GENERATORS, SOURCE_TYPES } from "../constants.js";
 import { applySceneSnapshotToState, createSceneSnapshot } from "../domain/models.js";
 import { buildOutputUrl } from "../view-routing.js";
 import { listShaderComponents } from "../shaders/shader-registry.js";
-import { createEmbeddedPreviewApp } from "../output/embedded-preview-app.js?v=scene-snapshots-25";
+import { createEmbeddedPreviewApp } from "../output/embedded-preview-app.js?v=scene-snapshots-31";
 
 export function createControlShell({ root, store, bridge, mediaLibrary, projectService }) {
   let refs = {};
   let latestState = store.getState();
+  let renderFrame = 0;
   const embeddedPreview = createEmbeddedPreviewApp({ store, mediaLibrary });
 
   function mount() {
@@ -24,7 +25,20 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
         renderTopbar(state);
         return;
       }
+      if (reason.startsWith("edit:")) {
+        renderTopbar(state);
+        updatePreviewState(state);
+        return;
+      }
       if (reason.startsWith("scrub:")) return;
+      scheduleRender(state);
+    });
+  }
+
+  function scheduleRender(state) {
+    if (renderFrame) cancelAnimationFrame(renderFrame);
+    renderFrame = requestAnimationFrame(() => {
+      renderFrame = 0;
       render(state);
     });
   }
@@ -247,6 +261,11 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
     });
   }
 
+  function updatePreviewState(state) {
+    const kind = currentWorkspace(state) === "compose" ? "composition" : "preview";
+    embeddedPreview.setState(state, kind);
+  }
+
   function renderInspector(state) {
     const hasProject = !!state.project.folderName || state.media.length > 0;
     if (!hasProject) {
@@ -358,8 +377,12 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
         });
         return;
       }
-      const eventName = input.type === "text" || input.tagName === "TEXTAREA" ? "input" : "change";
-      input.addEventListener(eventName, () => updatePathFromInput(input, `update:${input.dataset.update}`));
+      if (input.type === "text" || input.tagName === "TEXTAREA") {
+        input.addEventListener("input", () => updatePathFromInput(input, `edit:${input.dataset.update}`));
+        input.addEventListener("change", () => updatePathFromInput(input, `update:${input.dataset.update}`));
+        return;
+      }
+      input.addEventListener("change", () => updatePathFromInput(input, `update:${input.dataset.update}`));
     });
     scope.querySelectorAll("[data-select-layer]").forEach((button) => {
       button.addEventListener("click", () => store.selectLayer(button.dataset.selectLayer));

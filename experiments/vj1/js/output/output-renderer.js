@@ -26,6 +26,8 @@ export class OutputRenderer {
     this.cameraError = "";
     this.mapperSurfaces = new Map();
     this.mappingSignature = "";
+    this.localMappingSignature = "";
+    this.localMappingProtectedUntil = 0;
     this.lastMetricsAt = 0;
     this.lastMediaRequestAt = 0;
     this.frameStart = 0;
@@ -63,6 +65,7 @@ export class OutputRenderer {
       storage: false,
       storageNamespace: "vj1",
       onConfigChange: (mapping, meta = {}) => {
+        this.markLocalMapping(mapping);
         this.sendMapping?.("local", mapping, mappingStatusForReason(meta.reason));
       },
     });
@@ -121,7 +124,11 @@ export class OutputRenderer {
     if (surfacesChanged) {
       this.rebuildSurfaces();
     }
-    if (surfacesChanged || previousMappingSignature !== nextMappingSignature) {
+    if (
+      (surfacesChanged || previousMappingSignature !== nextMappingSignature) &&
+      !this.mapper?.isActive?.() &&
+      !this.shouldIgnoreIncomingMapping(nextMappingSignature)
+    ) {
       this.applyProjectMapping(nextMappingSignature);
     }
     this.setCalibrate(this.state.global.calibrating);
@@ -141,6 +148,19 @@ export class OutputRenderer {
       this.mapper?.importConfig?.(mapping, { replace: false, silent: true });
     }
     this.mappingSignature = signature;
+  }
+
+  markLocalMapping(mapping = this.mapper?.exportData?.()) {
+    this.localMappingSignature = mappingSignature(mapping);
+    this.localMappingProtectedUntil = performance.now() + 1200;
+    this.mappingSignature = this.localMappingSignature;
+  }
+
+  shouldIgnoreIncomingMapping(signature) {
+    return performance.now() < this.localMappingProtectedUntil &&
+      this.localMappingSignature &&
+      signature &&
+      signature !== this.localMappingSignature;
   }
 
   importFiles(files) {
@@ -277,7 +297,21 @@ export class OutputRenderer {
     } else if (composition.source.type === "black") {
       pg.background(0);
     } else {
-      drawGenerator(pg, composition.source.generatorId, millis() * 0.001 * Math.max(0.01, composition.speed || 1));
+      try {
+        drawGenerator(pg, composition.source.generatorId, millis() * 0.001 * Math.max(0.01, composition.speed || 1));
+      } catch (error) {
+        console.error("[VJ1_GENERATOR_CRASH]", {
+          compositionId: composition.id,
+          compositionName: composition.name,
+          generatorId: composition.source.generatorId,
+          width: pg.width,
+          height: pg.height,
+          name: error?.name,
+          message: error?.message,
+          stack: error?.stack,
+        });
+        pg.background(0);
+      }
     }
     pg.pop();
     return pg;
@@ -403,7 +437,9 @@ export class OutputRenderer {
     const wasMappingActive = !!this.mapper?.isActive?.();
     this.mapper?.mouseReleased?.();
     if (wasMappingActive) {
-      this.sendMapping?.("local", this.mapper?.exportData?.() || {}, "Mapping updated");
+      const mapping = this.mapper?.exportData?.() || {};
+      this.markLocalMapping(mapping);
+      this.sendMapping?.("local", mapping, "Mapping updated");
     }
   }
 
@@ -470,6 +506,14 @@ function mappingStatusForReason(reason = "") {
   if (reason === "reset") return "Mapping reset";
   if (reason === "save" || reason === "save-all") return "Mapping saved";
   return "Mapping updated";
+}
+
+function mappingSignature(mapping) {
+  try {
+    return JSON.stringify(mapping || null);
+  } catch {
+    return "";
+  }
 }
 
 function getPortalWebcameraSetup() {
@@ -584,13 +628,21 @@ function drawNoise(pg, t) {
 function drawPlasma(pg, t) {
   pg.noStroke();
   const cell = Math.max(12, Math.floor(pg.width / 80));
+  const ctx = pg.drawingContext;
   for (let y = 0; y < pg.height; y += cell) {
     for (let x = 0; x < pg.width; x += cell) {
       const u = x / pg.width;
       const v = y / pg.height;
       const q = sin((u + t * 0.08) * 18) + sin((v - t * 0.06) * 21) + sin((u + v + t * 0.05) * 16);
-      pg.fill(120 + 90 * sin(q), 80 + 130 * sin(q + 2.1), 130 + 90 * sin(q + 4.2));
-      pg.rect(x, y, cell, cell);
+      const r = 120 + 90 * sin(q);
+      const g = 80 + 130 * sin(q + 2.1);
+      const b = 130 + 90 * sin(q + 4.2);
+      if (!Number.isFinite(r) || !Number.isFinite(g) || !Number.isFinite(b)) {
+        console.warn("[VJ1_PLASMA_BAD_COLOR]", { width: pg.width, height: pg.height, t, x, y, q, r, g, b });
+        continue;
+      }
+      ctx.fillStyle = `rgb(${Math.round(r)}, ${Math.round(g)}, ${Math.round(b)})`;
+      ctx.fillRect(x, y, cell, cell);
     }
   }
 }

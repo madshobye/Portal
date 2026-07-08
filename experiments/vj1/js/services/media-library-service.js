@@ -52,11 +52,19 @@ export async function collectFilesFromDirectory(dirHandle, prefix = "") {
   for await (const [name, handle] of dirHandle.entries()) {
     const path = prefix ? `${prefix}/${name}` : name;
     if (handle.kind === "file") {
-      const file = await handle.getFile();
-      Object.defineProperty(file, "relativePath", { value: path, configurable: true });
-      files.push(file);
+      try {
+        const file = await handle.getFile();
+        Object.defineProperty(file, "relativePath", { value: path, configurable: true });
+        files.push(file);
+      } catch (error) {
+        console.warn("[VJ1_FOLDER_SCAN_MISSING]", { path, name: error?.name, message: error?.message });
+      }
     } else if (handle.kind === "directory") {
-      files.push(...(await collectFilesFromDirectory(handle, path)));
+      try {
+        files.push(...(await collectFilesFromDirectory(handle, path)));
+      } catch (error) {
+        console.warn("[VJ1_FOLDER_SCAN_DIRECTORY_SKIPPED]", { path, name: error?.name, message: error?.message });
+      }
     }
   }
   return files;
