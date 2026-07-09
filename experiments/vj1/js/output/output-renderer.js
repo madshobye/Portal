@@ -1,20 +1,34 @@
 import { VJ1 } from "../constants.js";
 import { clamp01, sanitizeState } from "../domain/models.js";
 import { createManualScheduler } from "../graph/manual-scheduler.js";
+import { planCompositorInputs, planPatchExecution } from "../graph/patch-planner.js";
 import { compileCompositionPatch, compileShaderSchedule } from "../graph/render-scheduler.js";
 import { createShaderBuilder } from "../shaders/shader-builder.js";
 import { applyBlend } from "./blend-utils.js";
+import { applyFontToGlobal, applyFontToTarget } from "./font-loader.js?v=world-frame-13";
 import { drawGenerator, drawStandby } from "./generators.js";
 import { drawCover, isDrawableMedia, syncVideoSpeed } from "./media-utils.js";
+import {
+  createRenderRequest,
+  frameRenderRequest,
+  frameSize,
+  outputFrameOffset,
+  renderRequestKey,
+  surfaceTextureSize,
+  worldSize,
+} from "./render-geometry.js";
+import { mediaRenditionKey } from "../services/media-rendition-service.js";
 
 export class OutputRenderer {
-  constructor({ mode, hud, sendMetrics, sendMapping, sendThumbnail, sendChainTransform, requestMediaFiles, onSurfaceSelect }) {
+  constructor({ mode, hud, font, sendMetrics, sendMapping, sendThumbnail, sendChainTransform, sendMediaRendition, requestMediaFiles, onSurfaceSelect }) {
     this.mode = mode;
     this.hud = hud;
+    this.font = font || null;
     this.sendMetrics = sendMetrics;
     this.sendMapping = sendMapping;
     this.sendThumbnail = sendThumbnail;
     this.sendChainTransform = sendChainTransform;
+    this.sendMediaRendition = sendMediaRendition;
     this.requestMediaFiles = requestMediaFiles;
     this.onSurfaceSelect = onSurfaceSelect;
     this.state = null;
@@ -22,12 +36,15 @@ export class OutputRenderer {
     this.compositionSource = new Map();
     this.compositionOutput = new Map();
     this.compositionBuffer = new Map();
+    this.compositionSourceUse = new Map();
+    this.compositionBufferUse = new Map();
     this.compositionPatches = new Map();
     this.thumbnailImages = new Map();
     this.media = new Map();
+    this.pendingRenditionSaves = new Set();
     this.sourcePg = null;
-    this.fxA = null;
-    this.fxB = null;
+    this.fxTarget = null;
+    this.fxTargetKey = "";
     this.mainMix = null;
     this.surfaceScratch = null;
     this.cameraCapture = null;
@@ -63,37 +80,80 @@ export class OutputRenderer {
 
   async setup(initialState) {
     this.state = sanitizeState(initialState || {});
+    this.applyGlobalFont();
     this.createBuffers();
     this.createMapper();
     this.setCalibrate(this.shouldCalibrateFromState());
   }
 
+  dispose() {
+    this.disposeBuffers();
+    for (const entry of this.mapperSurfaces?.values?.() || []) {
+      disposeGraphics(entry?.pg);
+      disposeGraphics(entry?.mapperSurface?.renderCache);
+    }
+    this.mapperSurfaces?.clear?.();
+    this.mapper?.surfaces?.splice?.(0);
+    this.cameraCapture?.remove?.();
+    this.cameraCapture = null;
+    for (const item of this.media?.values?.() || []) {
+      if (item?.url) URL.revokeObjectURL(item.url);
+      for (const url of item?.renditionUrls?.values?.() || []) URL.revokeObjectURL(url);
+    }
+    this.media?.clear?.();
+  }
+
+  applyGlobalFont() {
+    applyFontToGlobal(this.font);
+    this.applyFontToAllGraphics();
+  }
+
+  applyGraphicsFont(pg) {
+    applyFontToTarget(pg, this.font);
+  }
+
+  applyFontToAllGraphics() {
+    this.applyGraphicsFont(this.sourcePg);
+    this.applyGraphicsFont(this.mainMix);
+    this.applyGraphicsFont(this.surfaceScratch);
+    this.applyGraphicsFont(this.fxTarget);
+    for (const pg of this.compositionSource?.values?.() || []) this.applyGraphicsFont(pg);
+    for (const pg of this.compositionOutput?.values?.() || []) this.applyGraphicsFont(pg);
+    for (const pg of this.compositionBuffer?.values?.() || []) this.applyGraphicsFont(pg);
+    for (const entry of this.mapperSurfaces?.values?.() || []) {
+      this.applyGraphicsFont(entry?.pg);
+      this.applyGraphicsFont(entry?.mapperSurface?.pg);
+    }
+    this.mapper?.setFont?.(this.font);
+  }
+
   createBuffers() {
     this.disposeBuffers();
-    const { width: rw, height: rh, surfaceWidth, surfaceHeight } = this.state.render;
+    const { width: rw, height: rh } = frameSize(this.state.render);
+    const { width: surfaceWidth, height: surfaceHeight } = surfaceTextureSize(this.state.render);
     this.sourcePg = createGraphics(rw, rh);
     this.mainMix = createGraphics(rw, rh);
     this.surfaceScratch = createGraphics(surfaceWidth, surfaceHeight);
-    this.fxA = createGraphics(rw, rh, WEBGL);
-    this.fxB = createGraphics(rw, rh, WEBGL);
-    this.fxA.noStroke();
-    this.fxB.noStroke();
+    this.applyGraphicsFont(this.sourcePg);
+    this.applyGraphicsFont(this.mainMix);
+    this.applyGraphicsFont(this.surfaceScratch);
   }
 
   disposeBuffers() {
     disposeGraphics(this.sourcePg);
     disposeGraphics(this.mainMix);
     disposeGraphics(this.surfaceScratch);
-    disposeGraphics(this.fxA);
-    disposeGraphics(this.fxB);
+    disposeGraphics(this.fxTarget);
     disposeGraphicsMap(this.compositionSource);
     disposeGraphicsMap(this.compositionOutput);
     disposeGraphicsMap(this.compositionBuffer);
+    this.compositionSourceUse?.clear?.();
+    this.compositionBufferUse?.clear?.();
     this.sourcePg = null;
     this.mainMix = null;
     this.surfaceScratch = null;
-    this.fxA = null;
-    this.fxB = null;
+    this.fxTarget = null;
+    this.fxTargetKey = "";
     this.shaderBuilder.clear?.();
   }
 
@@ -104,10 +164,10 @@ export class OutputRenderer {
       storage: false,
       storageNamespace: "vj1",
       onConfigChange: (mapping, meta = {}) => {
-        this.markLocalMapping(mapping);
-        this.sendMapping?.("local", mapping, mappingStatusForReason(meta.reason));
+        this.emitMapping(mapping, mappingStatusForReason(meta.reason));
       },
     });
+    this.mapper.setFont?.(this.font);
     this.mapper.setAutoSave(true);
     this.syncMapperOverlayMode();
     this.rebuildSurfaces();
@@ -131,9 +191,11 @@ export class OutputRenderer {
     const cols = Math.max(1, Math.ceil(Math.sqrt(this.state.surfaces.length)));
     const gap = 40;
     const cellW = (width - gap * (cols + 1)) / cols;
-    const cellH = cellW * (this.state.render.surfaceHeight / this.state.render.surfaceWidth);
+    const texture = surfaceTextureSize(this.state.render);
+    const cellH = cellW * (texture.height / texture.width);
     this.state.surfaces.forEach((surface, index) => {
-      const pg = this.mapper.add(this.state.render.surfaceWidth, this.state.render.surfaceHeight, surface.id);
+      const pg = this.mapper.add(texture.width, texture.height, surface.id);
+      this.applyGraphicsFont(pg);
       const mapperSurface = this.mapper.surfaces[this.mapper.surfaces.length - 1];
       const col = index % cols;
       const row = Math.floor(index / cols);
@@ -155,11 +217,11 @@ export class OutputRenderer {
 
   setState(nextState) {
     const previousSurfaceIds = (this.state?.surfaces || []).map((surface) => surface.id).join(",");
-    const previousSize = this.state ? `${this.state.render.width}x${this.state.render.height}:${this.state.render.surfaceWidth}x${this.state.render.surfaceHeight}` : "";
+    const previousSize = this.state ? this.renderSizeSignature(this.state.render) : "";
     const previousMappingSignature = this.mappingSignature;
     this.state = sanitizeState(nextState);
     const nextSurfaceIds = this.state.surfaces.map((surface) => surface.id).join(",");
-    const nextSize = `${this.state.render.width}x${this.state.render.height}:${this.state.render.surfaceWidth}x${this.state.render.surfaceHeight}`;
+    const nextSize = this.renderSizeSignature(this.state.render);
     const nextMappingSignature = this.currentMappingSignature();
     if (previousSize && previousSize !== nextSize) {
       this.createBuffers();
@@ -177,6 +239,13 @@ export class OutputRenderer {
     }
     this.setCalibrate(this.shouldCalibrateFromState());
     this.syncMapperOverlayMode();
+  }
+
+  renderSizeSignature(render = {}) {
+    const frame = frameSize(render);
+    const world = worldSize(render);
+    const texture = surfaceTextureSize(render);
+    return `${frame.width}x${frame.height}:${world.width}x${world.height}:${texture.width}x${texture.height}`;
   }
 
   syncMapperOverlayMode() {
@@ -199,12 +268,36 @@ export class OutputRenderer {
   applyProjectMapping(signature = this.currentMappingSignature()) {
     const mapping = this.state?.mappings?.local;
     if (mapping?.surfaces?.length) {
-      this.mapper?.importConfig?.(mapping, { replace: false, silent: true });
+      this.mapper?.importConfig?.(this.mappingForRenderMode(mapping), { replace: false, silent: true });
     }
     this.mappingSignature = signature;
   }
 
-  markLocalMapping(mapping = this.mapper?.exportData?.()) {
+  mappingForRenderMode(mapping) {
+    if (this.mode !== "output") return mapping;
+    const offset = this.outputFrameOffset();
+    if (!offset.x && !offset.y) return mapping;
+    return offsetMapping(mapping, -offset.x, -offset.y);
+  }
+
+  mappingFromRenderMode(mapping) {
+    if (this.mode !== "output") return mapping;
+    const offset = this.outputFrameOffset();
+    if (!offset.x && !offset.y) return mapping;
+    return offsetMapping(mapping, offset.x, offset.y);
+  }
+
+  emitMapping(mapping = this.mapper?.exportData?.(), status = "Mapping updated") {
+    const projectMapping = this.mappingFromRenderMode(mapping || {});
+    this.markLocalMapping(projectMapping);
+    this.sendMapping?.("local", projectMapping, status);
+  }
+
+  outputFrameOffset() {
+    return outputFrameOffset(this.state?.render || {});
+  }
+
+  markLocalMapping(mapping = this.mappingFromRenderMode(this.mapper?.exportData?.())) {
     this.localMappingSignature = mappingSignature(mapping);
     this.localMappingProtectedUntil = performance.now() + 1200;
     this.mappingSignature = this.localMappingSignature;
@@ -221,24 +314,51 @@ export class OutputRenderer {
     for (const entry of files || []) {
       const file = entry?.file || entry;
       const id = entry?.id || file?.relativePath || file?.webkitRelativePath || file?.name;
-      if (!id || this.media.has(id)) continue;
-      const url = URL.createObjectURL(file);
-      const item = { id, file, url, video: null, image: null, ready: false };
-      this.media.set(id, item);
-      if (/\.(mp4|m4v|mov|webm|ogv)$/i.test(id)) {
-        item.video = createVideo(url, () => {
+      if (!id) continue;
+      let item = this.media.get(id);
+      if (!item) {
+        const url = URL.createObjectURL(file);
+        item = { id, file, url, video: null, image: null, imageRenditions: new Map(), imageRenditionOrder: [], ready: false };
+        this.media.set(id, item);
+        if (/\.(mp4|m4v|mov|webm|ogv)$/i.test(id)) {
+          item.video = createVideo(url, () => {
+            item.video.hide();
+            item.video.volume?.(0);
+            item.video.loop();
+            item.ready = true;
+          });
           item.video.hide();
-          item.video.volume?.(0);
-          item.video.loop();
-          item.ready = true;
-        });
-        item.video.hide();
-      } else if (/\.(png|jpe?g|gif|webp|bmp)$/i.test(id)) {
-        loadImage(url, (img) => {
-          item.image = img;
-          item.ready = true;
-        });
+        } else if (/\.(png|jpe?g|gif|webp|bmp)$/i.test(id)) {
+          loadImage(url, (img) => {
+            item.image = img;
+            item.ready = true;
+          });
+        }
       }
+      this.importMediaRenditions(item, entry?.renditions || []);
+    }
+  }
+
+  importMediaRenditions(item, renditions) {
+    if (!item || !Array.isArray(renditions)) return;
+    item.imageRenditions ||= new Map();
+    item.imageRenditionOrder ||= [];
+    item.renditionUrls ||= new Map();
+    for (const rendition of renditions) {
+      if (!rendition?.key || !rendition?.file || item.imageRenditions.has(rendition.key)) continue;
+      const url = URL.createObjectURL(rendition.file);
+      item.renditionUrls.set(rendition.key, url);
+      loadImage(
+        url,
+        (img) => {
+          item.imageRenditions.set(rendition.key, img);
+          if (!item.imageRenditionOrder.includes(rendition.key)) item.imageRenditionOrder.push(rendition.key);
+        },
+        () => {
+          URL.revokeObjectURL(url);
+          item.renditionUrls.delete(rendition.key);
+        }
+      );
     }
   }
 
@@ -251,7 +371,8 @@ export class OutputRenderer {
       this.cameraError = "camera unavailable";
       return null;
     }
-    setupWebcamera(true, this.state.render.width, this.state.render.height, false, false)
+    const frame = frameSize(this.state.render);
+    setupWebcamera(true, frame.width, frame.height, false, false)
       .then((camera) => {
         this.cameraCapture = camera;
         this.cameraError = "";
@@ -278,6 +399,7 @@ export class OutputRenderer {
       this.renderCompositionPreview();
       this.captureSelectedCompositionThumbnail();
       this.updateHudAndMetrics();
+      this.pruneRenderCaches();
       return;
     }
     this.renderSurfaces();
@@ -285,9 +407,11 @@ export class OutputRenderer {
     const restoreCalibrate = outputBlackout && this.mapper?.isCalibrating?.();
     if (restoreCalibrate) this.mapper.setCalibrate(false);
     this.mapper.render();
+    this.renderOutputFrameOverlay();
     this.renderSelectedSurfaceOverlay();
     if (restoreCalibrate) this.mapper.setCalibrate(true);
     this.updateHudAndMetrics();
+    this.pruneRenderCaches();
   }
 
   tickClock(nowMs) {
@@ -339,6 +463,30 @@ export class OutputRenderer {
     if (gl?.enable) gl.enable(gl.DEPTH_TEST);
   }
 
+  renderOutputFrameOverlay() {
+    if (this.mode === "output" || !this.mapper?.isCalibrating?.()) return;
+    const frameWidth = Math.max(1, Number(this.state?.render?.frameWidth || this.state?.render?.width) || width);
+    const frameHeight = Math.max(1, Number(this.state?.render?.frameHeight || this.state?.render?.height) || height);
+    if (frameWidth >= width && frameHeight >= height) return;
+    const offset = this.outputFrameOffset();
+    const gl = drawingContext;
+    if (gl?.disable) gl.disable(gl.DEPTH_TEST);
+    resetShader();
+    push();
+    noFill();
+    stroke(255, 255, 255, 135);
+    strokeWeight(2);
+    rectMode(CORNER);
+    rect(-width * 0.5 + offset.x, -height * 0.5 + offset.y, frameWidth, frameHeight);
+    noStroke();
+    fill(255, 255, 255, 150);
+    textSize(12);
+    textAlign(LEFT, TOP);
+    text("output frame", -width * 0.5 + offset.x + 10, -height * 0.5 + offset.y + 8);
+    pop();
+    if (gl?.enable) gl.enable(gl.DEPTH_TEST);
+  }
+
   shouldRevealSurfaceOverlay(surfaceId) {
     const mapped = this.mapperSurfaces.get(surfaceId);
     const corners = mapped?.mapperSurface?.corners;
@@ -362,16 +510,16 @@ export class OutputRenderer {
       this.mainMix.pop();
       return;
     }
+    if (this.mode !== "composition") {
+      this.mainMix.pop();
+      return;
+    }
 
     const neededCompositionIds = this.neededCompositionIds();
     for (const composition of this.state.compositions || []) {
       if (neededCompositionIds.size && !neededCompositionIds.has(composition.id)) continue;
       const compositionTime = this.compositionTimes.get(composition.id) || 0;
-      this.compositionPatches.set(composition.id, compileCompositionPatch(composition));
-      const output = composition.chain?.length
-        ? this.renderCompositionChain(composition, compositionTime)
-        : this.renderLegacyComposition(composition, compositionTime);
-      this.compositionOutput.set(composition.id, output);
+      const output = this.renderCompositionForRequest(composition, compositionTime, frameRenderRequest(this.state.render, { reason: "composition-preview" }));
       this.mainMix.push();
       applyBlend(this.mainMix, composition.blend);
       this.mainMix.tint(255, 255 * clamp01(composition.opacity));
@@ -383,10 +531,83 @@ export class OutputRenderer {
     this.mainMix.pop();
   }
 
-  renderLegacyComposition(composition, compositionTime) {
-    const source = this.renderCompositionSource(composition, compositionTime);
-    const effected = this.renderShaderChain(source, composition.shaderChain, this.state.render.width, this.state.render.height, compositionTime);
-    const output = this.getCompositionBuffer(composition.id);
+  renderCompositionAtSize(composition, compositionTime, rw, rh) {
+    return this.renderCompositionForRequest(composition, compositionTime, createRenderRequest("texture", { width: rw, height: rh }));
+  }
+
+  renderCompositionForRequest(composition, compositionTime, request = frameRenderRequest(this.state.render)) {
+    const renderRequest = this.normalizeRenderRequest(request, "composition");
+    const outputKey = renderBufferKey(composition.id, renderRequestKey(renderRequest));
+    const cached = this.compositionOutput.get(outputKey);
+    if (cached) return cached;
+    const patch = compileCompositionPatch(composition, renderRequest);
+    this.compositionPatches.set(composition.id, patch);
+    const output = this.renderCompositionPatch(composition, patch, compositionTime, renderRequest);
+    this.compositionOutput.set(outputKey, output);
+    if (renderRequest.width === this.mainMix.width && renderRequest.height === this.mainMix.height) {
+      this.compositionOutput.set(composition.id, output);
+    }
+    return output;
+  }
+
+  renderCompositionPatch(composition, patch, compositionTime, request = frameRenderRequest(this.state.render)) {
+    const renderRequest = this.normalizeRenderRequest(patch?.renderRequest || request, "composition");
+    const plan = planPatchExecution(patch);
+    const compositor = planCompositorInputs(plan);
+    const output = this.getCompositionBuffer(composition.id, renderRequest);
+    output.push();
+    output.clear();
+    output.pop();
+
+    if (compositor.inputs.length) {
+      for (const input of compositor.inputs) {
+        if (input.source?.enabled === false) continue;
+        const source = this.renderPatchSourceNode(composition, input.source, compositionTime, renderRequest);
+        const effects = input.effects.filter((node) => node.enabled !== false);
+        const effected = effects.length
+          ? this.renderShaderNodes(source, effects, renderRequest, compositionTime)
+          : source;
+        const layer = patchLayerForNode(input.source);
+        const drawable = this.materializeDrawableBuffer(effected, `${composition.id}:${layer.id}:drawable`, renderRequest);
+        this.drawChainLayer(output, drawable, layer);
+      }
+      return output;
+    }
+
+    let current = null;
+    let layer = null;
+    let pendingEffects = [];
+    const flushLayer = () => {
+      if (!current || !layer) return;
+      const effected = pendingEffects.length
+        ? this.renderShaderNodes(current, pendingEffects, renderRequest, compositionTime)
+        : current;
+      const drawable = this.materializeDrawableBuffer(effected, `${composition.id}:${layer.id}:drawable`, renderRequest);
+      this.drawChainLayer(output, drawable, layer);
+      current = null;
+      layer = null;
+      pendingEffects = [];
+    };
+
+    for (const node of plan.nodes) {
+      if (node.enabled === false || node.role === "output") continue;
+      if (isSourceNode(node)) {
+        flushLayer();
+        layer = patchLayerForNode(node);
+        current = this.renderPatchSourceNode(composition, node, compositionTime, renderRequest);
+        continue;
+      }
+      if (isEffectNode(node) && current) pendingEffects.push(node);
+    }
+    flushLayer();
+    return output;
+  }
+
+  renderLegacyComposition(composition, compositionTime, request = frameRenderRequest(this.state.render)) {
+    const renderRequest = this.normalizeRenderRequest(request, "composition");
+    const source = this.renderCompositionSource(composition, compositionTime, renderRequest);
+    const effected = this.renderShaderChain(source, composition.shaderChain, renderRequest, compositionTime);
+    const output = this.getCompositionBuffer(composition.id, renderRequest);
     output.push();
     output.clear();
     drawBuffer(output, effected, 0, 0, output.width, output.height, this.isShaderBuffer(effected));
@@ -394,8 +615,9 @@ export class OutputRenderer {
     return output;
   }
 
-  renderCompositionChain(composition, compositionTime) {
-    const output = this.getCompositionBuffer(composition.id);
+  renderCompositionChain(composition, compositionTime, request = frameRenderRequest(this.state.render)) {
+    const renderRequest = this.normalizeRenderRequest(request, "composition");
+    const output = this.getCompositionBuffer(composition.id, renderRequest);
     output.push();
     output.clear();
     output.pop();
@@ -405,9 +627,9 @@ export class OutputRenderer {
     const flushLayer = () => {
       if (!current || !layer) return;
       const effected = pendingEffects.length
-        ? this.renderShaderChain(current, pendingEffects, this.state.render.width, this.state.render.height, compositionTime)
+        ? this.renderShaderChain(current, pendingEffects, renderRequest, compositionTime)
         : current;
-      const drawable = this.materializeDrawableBuffer(effected, `${composition.id}:${layer.id}:drawable`);
+      const drawable = this.materializeDrawableBuffer(effected, `${composition.id}:${layer.id}:drawable`, renderRequest);
       this.drawChainLayer(output, drawable, layer);
       current = null;
       layer = null;
@@ -419,7 +641,7 @@ export class OutputRenderer {
       if (item.kind === "source") {
         flushLayer();
         layer = item;
-        current = this.renderCompositionSourceItem(composition, item, compositionTime);
+        current = this.renderCompositionSourceItem(composition, item, compositionTime, renderRequest);
         continue;
       }
       if (item.kind === "effect" && current) {
@@ -450,12 +672,16 @@ export class OutputRenderer {
     return ids;
   }
 
-  renderCompositionSource(composition, compositionTime = this.visualTime) {
-    let pg = this.compositionSource.get(composition.id);
-    if (!pg || pg.width !== this.state.render.width || pg.height !== this.state.render.height) {
-      pg = createGraphics(this.state.render.width, this.state.render.height);
-      this.compositionSource.set(composition.id, pg);
+  renderCompositionSource(composition, compositionTime = this.visualTime, request = frameRenderRequest(this.state.render)) {
+    const renderRequest = this.normalizeRenderRequest(request, "source");
+    const key = renderBufferKey(composition.id, renderRequestKey(renderRequest));
+    let pg = this.compositionSource.get(key);
+    if (!pg || pg.width !== renderRequest.width || pg.height !== renderRequest.height) {
+      pg = createGraphics(renderRequest.width, renderRequest.height);
+      this.applyGraphicsFont(pg);
+      this.compositionSource.set(key, pg);
     }
+    this.touchRenderCache(this.compositionSourceUse, key);
     pg.push();
     pg.background(0);
     this.safeDrawSourceToGraphics(pg, composition.source, composition, compositionTime);
@@ -463,16 +689,36 @@ export class OutputRenderer {
     return pg;
   }
 
-  renderCompositionSourceItem(composition, item, compositionTime = this.visualTime) {
-    const key = `${composition.id}:${item.id}`;
+  renderCompositionSourceItem(composition, item, compositionTime = this.visualTime, request = frameRenderRequest(this.state.render)) {
+    const renderRequest = this.normalizeRenderRequest(request, "source");
+    const key = renderBufferKey(composition.id, item.id, renderRequestKey(renderRequest));
     let pg = this.compositionSource.get(key);
-    if (!pg || pg.width !== this.state.render.width || pg.height !== this.state.render.height) {
-      pg = createGraphics(this.state.render.width, this.state.render.height);
+    if (!pg || pg.width !== renderRequest.width || pg.height !== renderRequest.height) {
+      pg = createGraphics(renderRequest.width, renderRequest.height);
+      this.applyGraphicsFont(pg);
       this.compositionSource.set(key, pg);
     }
+    this.touchRenderCache(this.compositionSourceUse, key);
     pg.push();
     pg.background(0);
     this.safeDrawSourceToGraphics(pg, item.source || composition.source, composition, compositionTime);
+    pg.pop();
+    return pg;
+  }
+
+  renderPatchSourceNode(composition, node, compositionTime = this.visualTime, request = frameRenderRequest(this.state.render)) {
+    const renderRequest = this.normalizeRenderRequest(node?.state?.renderRequest || request, "source");
+    const key = renderBufferKey(composition.id, node.id, renderRequestKey(renderRequest));
+    let pg = this.compositionSource.get(key);
+    if (!pg || pg.width !== renderRequest.width || pg.height !== renderRequest.height) {
+      pg = createGraphics(renderRequest.width, renderRequest.height);
+      this.applyGraphicsFont(pg);
+      this.compositionSource.set(key, pg);
+    }
+    this.touchRenderCache(this.compositionSourceUse, key);
+    pg.push();
+    pg.background(0);
+    this.safeDrawSourceToGraphics(pg, sourceFromPatchNode(node), composition, compositionTime);
     pg.pop();
     return pg;
   }
@@ -502,7 +748,10 @@ export class OutputRenderer {
         syncVideoSpeed(item.video, composition.speed);
         drawCover(pg, item.video, 0, 0, pg.width, pg.height);
       }
-      else if (item?.image && isDrawableMedia(item.image)) drawCover(pg, item.image, 0, 0, pg.width, pg.height);
+      else if (item?.image && isDrawableMedia(item.image)) {
+        const image = this.getImageRendition(item, pg.width, pg.height) || item.image;
+        drawCover(pg, image, 0, 0, pg.width, pg.height);
+      }
       else if (item) drawStandby(pg, "loading media");
       else {
         this.requestMissingMedia(source.mediaId);
@@ -519,23 +768,79 @@ export class OutputRenderer {
     }
   }
 
-  getCompositionBuffer(id) {
-    let pg = this.compositionBuffer.get(id);
-    if (!pg || pg.width !== this.state.render.width || pg.height !== this.state.render.height) {
-      pg = createGraphics(this.state.render.width, this.state.render.height);
-      this.compositionBuffer.set(id, pg);
+  getCompositionBuffer(id, request = frameRenderRequest(this.state.render)) {
+    const renderRequest = this.normalizeRenderRequest(request, "buffer");
+    const key = renderBufferKey(id, renderRequestKey(renderRequest));
+    let pg = this.compositionBuffer.get(key);
+    if (!pg || pg.width !== renderRequest.width || pg.height !== renderRequest.height) {
+      pg = createGraphics(renderRequest.width, renderRequest.height);
+      this.applyGraphicsFont(pg);
+      this.compositionBuffer.set(key, pg);
     }
+    this.touchRenderCache(this.compositionBufferUse, key);
     return pg;
   }
 
-  materializeDrawableBuffer(source, key) {
+  materializeDrawableBuffer(source, key, request = frameRenderRequest(this.state.render)) {
     if (!this.isShaderBuffer(source)) return source;
-    const pg = this.getCompositionBuffer(key);
+    const pg = this.getCompositionBuffer(key, request);
     pg.push();
     pg.clear();
     drawBuffer(pg, source, 0, 0, pg.width, pg.height, true);
     pg.pop();
     return pg;
+  }
+
+  getFxTarget(request = frameRenderRequest(this.state.render)) {
+    const renderRequest = this.normalizeRenderRequest(request, "effect");
+    const widthPx = renderRequest.width;
+    const heightPx = renderRequest.height;
+    const key = renderBufferKey(widthPx, heightPx);
+    if (!this.fxTarget) {
+      this.fxTarget = createGraphics(widthPx, heightPx, WEBGL);
+      this.fxTargetKey = key;
+      this.applyGraphicsFont(this.fxTarget);
+      this.fxTarget.noStroke();
+      this.shaderBuilder.clear?.();
+      return this.fxTarget;
+    }
+    if (this.fxTargetKey !== key || this.fxTarget.width !== widthPx || this.fxTarget.height !== heightPx) {
+      try {
+        this.fxTarget.resizeCanvas(widthPx, heightPx);
+      } catch {
+        disposeGraphics(this.fxTarget);
+        this.fxTarget = createGraphics(widthPx, heightPx, WEBGL);
+      }
+      this.fxTargetKey = key;
+      this.applyGraphicsFont(this.fxTarget);
+      this.fxTarget.noStroke();
+      this.shaderBuilder.clear?.();
+    }
+    return this.fxTarget;
+  }
+
+  normalizeRenderRequest(request, role = "texture") {
+    if (request && typeof request === "object") {
+      return createRenderRequest(request.role || role, request, request);
+    }
+    return createRenderRequest(role, frameSize(this.state?.render || {}));
+  }
+
+  touchRenderCache(useMap, key) {
+    useMap?.set?.(key, this.frameIndex);
+  }
+
+  pruneRenderCaches() {
+    pruneGraphicsMap(this.compositionSource, this.compositionSourceUse, {
+      maxItems: 48,
+      currentFrame: this.frameIndex,
+      idleFrames: 900,
+    });
+    pruneGraphicsMap(this.compositionBuffer, this.compositionBufferUse, {
+      maxItems: 48,
+      currentFrame: this.frameIndex,
+      idleFrames: 900,
+    });
   }
 
   drawChainLayer(output, source, layer) {
@@ -558,13 +863,19 @@ export class OutputRenderer {
     output.pop();
   }
 
-  renderShaderChain(input, chain, rw, rh, timeSeconds = this.visualTime) {
+  renderShaderChain(input, chain, request = frameRenderRequest(this.state.render), timeSeconds = this.visualTime) {
+    const renderRequest = this.normalizeRenderRequest(request, "effect");
+    const rw = renderRequest.width;
+    const rh = renderRequest.height;
     let current = input;
     let passCount = 0;
     const schedule = compileShaderSchedule(chain);
     for (const job of schedule) {
       const pass = job.pass;
-      const target = passCount % 2 === 0 ? this.fxA : this.fxB;
+      if (this.isShaderBuffer(current)) {
+        current = this.materializeDrawableBuffer(current, `fx-handoff:${renderRequestKey(renderRequest)}:${passCount}`, renderRequest);
+      }
+      const target = this.getFxTarget(renderRequest);
       const shader = this.shaderBuilder.getShader(pass, target);
       if (!shader) continue;
       target.push();
@@ -586,6 +897,10 @@ export class OutputRenderer {
       passCount++;
     }
     return current;
+  }
+
+  renderShaderNodes(input, nodes, request = frameRenderRequest(this.state.render), timeSeconds = this.visualTime) {
+    return this.renderShaderChain(input, nodes.map(shaderPassFromNode), request, timeSeconds);
   }
 
   setShaderParamUniforms(shader, component, params = {}) {
@@ -611,6 +926,7 @@ export class OutputRenderer {
     for (const surface of this.state.surfaces) {
       const mapped = this.mapperSurfaces.get(surface.id);
       if (!mapped) continue;
+      this.ensureSurfaceTexture(surface, mapped);
       const pg = mapped.pg;
       pg.push();
       pg.background(0);
@@ -625,6 +941,27 @@ export class OutputRenderer {
     }
   }
 
+  ensureSurfaceTexture(surface, mapped) {
+    const mapperSurface = mapped?.mapperSurface;
+    if (!surface || !mapperSurface?.corners) return;
+    if (mapperSurface.dragging !== -1) return;
+    const target = stableSurfaceRenderRequest(this.state.render, { surfaceId: surface.id });
+    const current = mapped.pg || mapperSurface.pg;
+    if (current?.width === target.width && current?.height === target.height) return;
+
+    const nextPg = createGraphics(target.width, target.height);
+    nextPg.pixelDensity?.(1);
+    this.applyGraphicsFont(nextPg);
+    this.mapper?.setFont?.(this.font);
+    disposeGraphics(current);
+    mapperSurface.pg = nextPg;
+    mapperSurface.w = target.width;
+    mapperSurface.h = target.height;
+    mapperSurface.renderCache = null;
+    mapped.pg = nextPg;
+    mapped.renderRequest = target;
+  }
+
   drawSurfaceRoute(pg, surface) {
     if (!surface.compositionId) {
       pg.background(0);
@@ -634,7 +971,12 @@ export class OutputRenderer {
       this.drawSurfaceThumbnailRoute(pg, surface);
       return;
     }
-    const source = this.compositionOutput.get(surface.compositionId) || this.mainMix;
+    const composition = this.state.compositions.find((item) => item.id === surface.compositionId);
+    const compositionTime = this.compositionTimes.get(surface.compositionId) || 0;
+    const request = stableSurfaceRenderRequest(this.state.render, { surfaceId: surface.id });
+    const source = composition
+      ? this.renderCompositionForRequest(composition, compositionTime, request)
+      : this.mainMix;
 
     pg.push();
     applyBlend(pg, surface.finalBlend);
@@ -645,7 +987,7 @@ export class OutputRenderer {
     pg.pop();
 
     if (surface.finalShaderChain?.length) {
-      const effected = this.renderShaderChain(pg, surface.finalShaderChain, this.state.render.surfaceWidth, this.state.render.surfaceHeight, this.visualTime);
+      const effected = this.renderShaderChain(pg, surface.finalShaderChain, request, this.visualTime);
       drawBuffer(pg, effected, 0, 0, pg.width, pg.height, this.isShaderBuffer(effected));
     }
   }
@@ -686,13 +1028,55 @@ export class OutputRenderer {
   }
 
   isShaderBuffer(buffer) {
-    return buffer === this.fxA || buffer === this.fxB;
+    return !!buffer && buffer === this.fxTarget;
   }
 
   requestMissingMedia(mediaId) {
     if (!mediaId || millis() - this.lastMediaRequestAt < 1200) return;
     this.lastMediaRequestAt = millis();
     this.requestMediaFiles?.([mediaId]);
+  }
+
+  getImageRendition(item, rw, rh) {
+    if (!item?.image || !isDrawableMedia(item.image)) return null;
+    const widthPx = Math.max(1, Math.floor(Number(rw) || 1));
+    const heightPx = Math.max(1, Math.floor(Number(rh) || 1));
+    const key = mediaRenditionKey(item.id, widthPx, heightPx);
+    const existing = item.imageRenditions?.get?.(key);
+    if (existing) return existing;
+    const source = item.image.elt || item.image;
+    const sourceWidth = source.naturalWidth || source.width || item.image.width || widthPx;
+    const sourceHeight = source.naturalHeight || source.height || item.image.height || heightPx;
+    if (sourceWidth <= widthPx * 1.15 && sourceHeight <= heightPx * 1.15) return item.image;
+    const pg = createGraphics(widthPx, heightPx);
+    pg.pixelDensity?.(1);
+    this.applyGraphicsFont(pg);
+    pg.push();
+    pg.background(0);
+    drawCover(pg, item.image, 0, 0, widthPx, heightPx);
+    pg.pop();
+    item.imageRenditions ||= new Map();
+    item.imageRenditionOrder ||= [];
+    item.imageRenditions.set(key, pg);
+    item.imageRenditionOrder.push(key);
+    this.queueMediaRenditionSave(item.id, widthPx, heightPx, pg);
+    while (item.imageRenditionOrder.length > 4) {
+      const staleKey = item.imageRenditionOrder.shift();
+      const stale = item.imageRenditions.get(staleKey);
+      item.imageRenditions.delete(staleKey);
+      disposeGraphics(stale);
+    }
+    return pg;
+  }
+
+  queueMediaRenditionSave(mediaId, widthPx, heightPx, pg) {
+    if (!this.sendMediaRendition || !pg || !mediaId) return;
+    const key = mediaRenditionKey(mediaId, widthPx, heightPx);
+    if (this.pendingRenditionSaves.has(key)) return;
+    this.pendingRenditionSaves.add(key);
+    graphicsToJpegBlob(pg)
+      .then((blob) => blob ? this.sendMediaRendition(mediaId, widthPx, heightPx, blob) : false)
+      .catch(() => false);
   }
 
   renderCompositionPreview() {
@@ -772,9 +1156,7 @@ export class OutputRenderer {
     const wasMappingActive = !!this.mapper?.isActive?.();
     this.mapper?.mouseReleased?.();
     if (wasMappingActive) {
-      const mapping = this.mapper?.exportData?.() || {};
-      this.markLocalMapping(mapping);
-      this.sendMapping?.("local", mapping, "Mapping updated");
+      this.emitMapping(this.mapper?.exportData?.() || {}, "Mapping updated");
     }
   }
 
@@ -783,7 +1165,7 @@ export class OutputRenderer {
   }
 
   saveMapping() {
-    this.sendMapping?.("local", this.mapper?.exportData?.() || {}, "Mapping saved");
+    this.emitMapping(this.mapper?.exportData?.() || {}, "Mapping saved");
   }
 
   schedule(event) {
@@ -865,14 +1247,18 @@ export class OutputRenderer {
   resetMapping(surfaceId = "") {
     if (surfaceId) {
       this.mapper?.resetSurface?.(surfaceId);
-      this.sendMapping?.("local", this.mapper?.exportData?.() || {}, "Surface mapping reset");
+      this.emitMapping(this.mapper?.exportData?.() || {}, "Surface mapping reset");
       return;
     }
     this.mapper?.resetAll();
-    this.sendMapping?.("local", this.mapper?.exportData?.() || {}, "Mapping reset");
+    this.emitMapping(this.mapper?.exportData?.() || {}, "Mapping reset");
   }
 
   exportMapping() {
+    if (this.mode === "output") {
+      downloadJson(this.mappingFromRenderMode(this.mapper?.exportData?.() || {}), "vj1-mapping.json");
+      return;
+    }
     this.mapper?.downloadExport?.("vj1-mapping.json");
   }
 
@@ -960,9 +1346,112 @@ function mappingSignature(mapping) {
   }
 }
 
+function offsetMapping(mapping = {}, dx = 0, dy = 0) {
+  return {
+    ...mapping,
+    surfaces: (mapping.surfaces || []).map((surface) => ({
+      ...surface,
+      corners: (surface.corners || []).map((corner) => ({
+        ...corner,
+        x: Number(corner.x) + dx,
+        y: Number(corner.y) + dy,
+      })),
+    })),
+  };
+}
+
+function downloadJson(data, filename) {
+  const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = filename;
+  link.click();
+  setTimeout(() => URL.revokeObjectURL(url), 0);
+}
+
+function stableSurfaceRenderRequest(render = {}, meta = {}) {
+  return createRenderRequest("surface", surfaceTextureSize(render), meta);
+}
+
+function isSourceNode(node = {}) {
+  return node.role === "source" || node.kind === "source" || node.kind === "generator";
+}
+
+function isEffectNode(node = {}) {
+  return node.role === "effect" || node.kind === "effect";
+}
+
+function patchLayerForNode(node = {}) {
+  const layer = node.state?.layer || {};
+  return {
+    id: layer.id || node.id || "layer",
+    name: layer.name || node.componentId || node.id || "Layer",
+    opacity: layer.opacity ?? 1,
+    blend: layer.blend || "normal",
+    transform: layer.transform || {},
+  };
+}
+
+function sourceFromPatchNode(node = {}) {
+  if (node.state?.source) return node.state.source;
+  const params = node.params || {};
+  if (node.kind === "generator" || node.componentId === "testPattern" || params.generatorId) {
+    return { type: "generator", generatorId: params.generatorId || node.componentId || "testPattern" };
+  }
+  if (node.componentId === "source.media" || params.mediaId) {
+    return { type: "media", mediaId: params.mediaId || "" };
+  }
+  if (node.componentId === "source.camera") return { type: "camera" };
+  if (node.componentId === "source.black") return { type: "black" };
+  return { type: "generator", generatorId: "testPattern" };
+}
+
+function shaderPassFromNode(node = {}) {
+  return {
+    id: node.componentId || node.id || "",
+    enabled: node.enabled !== false,
+    params: { ...(node.params || {}) },
+    amount: node.params?.amount,
+  };
+}
+
+function renderBufferKey(...parts) {
+  return parts.map((part) => String(part)).join(":");
+}
+
+function pruneGraphicsMap(map, useMap, { maxItems, currentFrame, idleFrames }) {
+  if (!map || !useMap) return 0;
+  const stale = staleRenderCacheKeys(useMap, { maxItems, currentFrame, idleFrames });
+  for (const key of stale) {
+    const item = map.get(key);
+    map.delete(key);
+    useMap.delete(key);
+    disposeGraphics(item);
+  }
+  return stale.length;
+}
+
+function staleRenderCacheKeys(useMap, { maxItems, currentFrame, idleFrames }) {
+  const entries = Array.from(useMap.entries()).sort((a, b) => a[1] - b[1]);
+  const stale = [];
+  for (const [key, frame] of entries) {
+    if (frame === currentFrame) continue;
+    const overLimit = entries.length - stale.length > maxItems;
+    const idle = currentFrame - frame > idleFrames;
+    if (overLimit || idle) stale.push(key);
+  }
+  return stale;
+}
+
 function disposeGraphicsMap(map) {
   if (!map) return;
-  for (const item of map.values()) disposeGraphics(item);
+  const seen = new Set();
+  for (const item of map.values()) {
+    if (!item || seen.has(item)) continue;
+    seen.add(item);
+    disposeGraphics(item);
+  }
   map.clear();
 }
 
@@ -973,6 +1462,12 @@ function disposeGraphics(item) {
   } catch {}
 }
 
+function graphicsToJpegBlob(pg) {
+  const canvas = pg?.canvas || pg?.elt;
+  if (!canvas?.toBlob) return Promise.resolve(null);
+  return new Promise((resolve) => canvas.toBlob(resolve, "image/jpeg", 0.84));
+}
+
 function compositionThumbnailSignature(composition) {
   try {
     return JSON.stringify({
@@ -980,6 +1475,7 @@ function compositionThumbnailSignature(composition) {
       opacity: composition.opacity,
       blend: composition.blend,
       speed: composition.speed,
+      chain: composition.chain,
       shaderChain: composition.shaderChain,
     });
   } catch {

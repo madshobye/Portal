@@ -759,14 +759,14 @@ small {
 .embedded-preview-stage {
   position: absolute;
   inset: 0;
-  display: grid;
-  place-items: center;
+  display: block;
   overflow: hidden;
   background: #000;
 }
 
 .embedded-preview-stage canvas {
   display: block;
+  transform-origin: center center;
 }
 
 .preview-tools {
@@ -1456,6 +1456,28 @@ small {
   width: min(920px, calc(100vw - 32px));
 }
 
+.settings-modal {
+  width: min(640px, calc(100vw - 32px));
+}
+
+.settings-modal-body {
+  display: grid;
+  gap: 12px;
+  min-height: 0;
+  overflow: auto;
+}
+
+.settings-preset-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.settings-preset-row button {
+  min-height: 34px;
+  padding: 6px 10px;
+}
+
 .element-modal-body {
   display: grid;
   gap: 14px;
@@ -1588,7 +1610,13 @@ small {
 .output-stage {
   position: fixed;
   inset: 0;
+  overflow: hidden;
   background: #000;
+}
+
+.output-stage canvas {
+  display: block;
+  transform-origin: center center;
 }
 
 .output-fps {

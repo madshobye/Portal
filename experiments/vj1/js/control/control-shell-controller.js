@@ -1,11 +1,13 @@
 import { BLEND_MODES, SOURCE_TYPES, WORKSPACES } from "../constants.js";
-import { applySceneSnapshotToState, createLiveCompositionView, createLiveRenderState, createSceneSnapshot, createShaderPass } from "../domain/models.js";
+import { applySceneSnapshotToState, createLiveCompositionView, createLiveRenderState, createSceneSnapshot, createShaderPass, normalizeRenderSettings } from "../domain/models.js";
 import { defaultParamValues, normalizeParamValue } from "../graph/component-schema.js";
 import { listGeneratorComponents } from "../graph/generator-registry.js";
+import { patchNodeDegree, planCompositorInputs, planPatchExecution, summarizeTextureBranches } from "../graph/patch-planner.js";
 import { compileCompositionPatch } from "../graph/render-scheduler.js";
 import { buildOutputUrl } from "../view-routing.js";
 import { getShaderComponent, listShaderComponents } from "../shaders/shader-registry.js";
-import { createEmbeddedPreviewApp } from "../output/embedded-preview-app.js?v=scene-snapshots-99";
+import { createEmbeddedPreviewApp } from "../output/embedded-preview-app.js?v=world-frame-13";
+import { frameFitViewport, resetViewport, zoomViewport } from "../output/preview-viewport.js";
 import { createHtmlCache, isInteractiveNode, isTextEditingNode, setClass, setText } from "./dom-utils.js";
 import { bindReorderList } from "./reorder-list.js";
 import { collectRefs, shellTemplate } from "./shell-view.js";
@@ -22,9 +24,10 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
   let interactionHoldUntil = 0;
   let mediaPicker = null;
   let elementPicker = null;
+  let settingsOpen = false;
   const replaceHtmlIfChanged = createHtmlCache();
   const mediaPreviewUrls = new Map();
-  const embeddedPreview = createEmbeddedPreviewApp({ store, mediaLibrary });
+  const embeddedPreview = createEmbeddedPreviewApp({ store, mediaLibrary, projectService });
   const interactionQuietMs = 160;
 
   function mount() {
@@ -131,6 +134,13 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
       store.update((draft) => {
         draft.global.showLabels = !draft.global.showLabels;
       }, "toggle-labels");
+    });
+
+    refs.openSettings.addEventListener("click", () => {
+      settingsOpen = true;
+      mediaPicker = null;
+      elementPicker = null;
+      renderModal(latestState);
     });
 
     refs.importFiles.addEventListener("change", async () => {
@@ -407,11 +417,16 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
       replaceHtmlIfChanged(previewHost, `
         <div class="embedded-preview-stage" data-embedded-preview-stage></div>
         <div class="preview-tools">
+          <button type="button" class="preview-tool" data-preview-zoom-out title="Zoom out" aria-label="Zoom out">${icon("remove")}</button>
+          <button type="button" class="preview-tool" data-preview-fit-world title="Fit world" aria-label="Fit world">${icon("public")}</button>
+          <button type="button" class="preview-tool" data-preview-fit-frame title="Fit output frame" aria-label="Fit output frame">${icon("fit_screen")}</button>
+          <button type="button" class="preview-tool" data-preview-zoom-in title="Zoom in" aria-label="Zoom in">${icon("add")}</button>
           <button type="button" class="preview-tool" data-toggle-mapping-handles title="Toggle mapping handles" aria-label="Toggle mapping handles">${icon("control_point_duplicate")}</button>
           <div class="preview-fps" data-preview-fps>0 fps</div>
         </div>
       `);
     }
+    bindPreviewViewportTools(previewHost);
     const handleButton = previewHost.querySelector("[data-toggle-mapping-handles]");
     setClass(handleButton, "is-subtle", state.global.mappingHandleMode === "near");
     setClass(handleButton, "is-hidden", kind !== "preview");
@@ -538,8 +553,22 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
   function renderModal(state) {
     const host = refs.modalHost;
     if (!host) return;
-    if (!mediaPicker && !elementPicker) {
+    if (!mediaPicker && !elementPicker && !settingsOpen) {
       replaceHtmlIfChanged(host, "");
+      return;
+    }
+    if (settingsOpen) {
+      if (!replaceHtmlIfChanged(host, settingsModalTemplate(state))) return;
+      host.querySelector("[data-close-modal]")?.addEventListener("click", closeSettings);
+      host.querySelector(".modal-backdrop")?.addEventListener("click", closeSettings);
+      host.querySelectorAll("[data-settings-update]").forEach((input) => {
+        input.addEventListener("input", () => updateRenderSetting(input, `scrub:${input.dataset.settingsUpdate}`));
+        input.addEventListener("change", () => updateRenderSetting(input, `update:${input.dataset.settingsUpdate}`));
+      });
+      host.querySelectorAll("[data-render-preset]").forEach((button) => {
+        button.addEventListener("click", () => applyRenderPreset(button.dataset.renderPreset));
+      });
+      host.querySelector("[data-fit-world]")?.addEventListener("click", () => fitWorldFromFrame());
       return;
     }
     if (elementPicker) {
@@ -595,6 +624,7 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
   function openMediaPicker(path) {
     mediaPicker = { path };
     elementPicker = null;
+    settingsOpen = false;
     renderModal(latestState);
   }
 
@@ -606,12 +636,84 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
   function openElementPicker(compositionId) {
     elementPicker = { compositionId };
     mediaPicker = null;
+    settingsOpen = false;
     renderModal(latestState);
   }
 
   function closeElementPicker() {
     elementPicker = null;
     renderModal(latestState);
+  }
+
+  function closeSettings() {
+    settingsOpen = false;
+    renderModal(latestState);
+  }
+
+  function updateRenderSetting(input, reason) {
+    store.update((draft) => {
+      setByPath(draft, input.dataset.settingsUpdate, readInputValue(input));
+      draft.render = normalizeRenderSettings(draft.render);
+    }, reason);
+  }
+
+  function applyRenderPreset(preset) {
+    const [frameWidth, frameHeight] = preset === "xga" ? [1024, 768] : preset === "hd" ? [1280, 720] : [960, 540];
+    store.update((draft) => {
+      draft.render = normalizeRenderSettings({
+        ...draft.render,
+        frameWidth,
+        frameHeight,
+        worldWidth: Math.round(frameWidth * 1.5),
+        worldHeight: Math.round(frameHeight * 1.5),
+      });
+    }, "render-preset");
+  }
+
+  function fitWorldFromFrame() {
+    store.update((draft) => {
+      const render = normalizeRenderSettings(draft.render);
+      draft.render = normalizeRenderSettings({
+        ...render,
+        worldWidth: Math.round(render.frameWidth * 1.5),
+        worldHeight: Math.round(render.frameHeight * 1.5),
+      });
+    }, "render-world-fit");
+  }
+
+  function bindPreviewViewportTools(previewHost) {
+    const bindButton = (selector, handler) => {
+      const button = previewHost.querySelector(selector);
+      if (!button || button.dataset.bound) return;
+      button.dataset.bound = "true";
+      button.addEventListener("click", handler);
+    };
+    bindButton("[data-preview-zoom-out]", () => nudgePreviewZoom(1 / 1.2));
+    bindButton("[data-preview-zoom-in]", () => nudgePreviewZoom(1.2));
+    bindButton("[data-preview-fit-world]", () => {
+      store.update((draft) => {
+        draft.ui.previewViewport = resetViewport();
+      }, "preview-fit-world");
+    });
+    bindButton("[data-preview-fit-frame]", () => {
+      const stage = previewHost.querySelector("[data-embedded-preview-stage]");
+      const rect = stage?.getBoundingClientRect?.();
+      store.update((draft) => {
+        draft.ui.previewViewport = frameFitViewport({
+          stageSize: {
+            width: Math.max(1, Math.floor(rect?.width || previewHost.clientWidth || 960)),
+            height: Math.max(1, Math.floor(rect?.height || previewHost.clientHeight || 540)),
+          },
+          render: draft.render,
+        });
+      }, "preview-fit-frame");
+    });
+  }
+
+  function nudgePreviewZoom(multiplier) {
+    store.update((draft) => {
+      draft.ui.previewViewport = zoomViewport(draft.ui.previewViewport, multiplier);
+    }, "preview-zoom");
   }
 
   function bindStudioEvents() {
@@ -818,15 +920,14 @@ function compositionPillTemplate(composition, state) {
 function mappingStudioTemplate(state) {
   const composition = state.compositions.find((item) => item.id === state.ui.selectedCompositionId) || state.compositions[0];
   const patch = compileCompositionPatch(composition || {});
+  const plan = planPatchExecution(patch);
+  const compositor = planCompositorInputs(plan);
   return `
     <section class="mapping-stage" data-mapping-stage>
       <div class="mapping-board">
-        <div class="mapping-flow-row">
-          ${patch.nodes.map((node, index) => `
-            ${index > 0 ? `<div class="mapping-wire"><span></span></div>` : ""}
-            ${mappingNodeTemplate(node, index)}
-          `).join("")}
-        </div>
+        ${compositor.inputs.length
+          ? compositor.inputs.map((input, index) => mappingBranchRowTemplate(input, index, plan)).join("")
+          : mappingPlanRowTemplate(plan)}
         <div class="mapping-flow-row mapping-control-row">
           ${mappingSchedulerNodeTemplate(state)}
           <div class="mapping-wire"><span></span></div>
@@ -837,7 +938,31 @@ function mappingStudioTemplate(state) {
   `;
 }
 
-function mappingNodeTemplate(node, index) {
+function mappingPlanRowTemplate(plan) {
+  return `
+    <div class="mapping-flow-row">
+      ${plan.nodes.map((node, index) => `
+        ${index > 0 ? `<div class="mapping-wire"><span></span></div>` : ""}
+        ${mappingNodeTemplate(node, index, plan)}
+      `).join("")}
+    </div>
+  `;
+}
+
+function mappingBranchRowTemplate(input, branchIndex, plan) {
+  const nodes = [input.source, ...(input.effects || []), input.output].filter(Boolean);
+  return `
+    <div class="mapping-flow-row" data-branch="${branchIndex + 1}">
+      ${nodes.map((node, index) => `
+        ${index > 0 ? `<div class="mapping-wire"><span></span></div>` : ""}
+        ${mappingNodeTemplate(node, index, plan)}
+      `).join("")}
+    </div>
+  `;
+}
+
+function mappingNodeTemplate(node, index, plan = null) {
+  const degree = plan ? patchNodeDegree(plan, node.id) : { in: node.inlets?.length || 0, out: node.outlets?.length || 0 };
   return `
     <article class="mapping-node mapping-node-${esc(node.role || node.kind)}" style="--node-index: ${index};">
       <header>
@@ -853,6 +978,10 @@ function mappingNodeTemplate(node, index) {
           ${Object.entries(node.params).map(([key, value]) => `<span>${esc(key)} <small>${esc(formatMappingValue(value))}</small></span>`).join("")}
         </div>
       ` : ""}
+      <div class="mapping-param-pills">
+        <span>degree <small>${degree.in} in / ${degree.out} out</small></span>
+        ${node.state?.renderRequest ? `<span>request <small>${esc(formatRenderRequest(node.state.renderRequest))}</small></span>` : ""}
+      </div>
     </article>
   `;
 }
@@ -901,6 +1030,13 @@ function mappingPortsTemplate(label, ports = []) {
 
 function mappingInspectorTemplate(composition, state) {
   const patch = compileCompositionPatch(composition || {});
+  const plan = planPatchExecution(patch);
+  const compositorPlan = planCompositorInputs(plan);
+  const branchSummaries = summarizeTextureBranches(plan);
+  const outputNode = patch.nodes.find((node) => node.role === "output");
+  const compositor = outputNode?.state?.compositor || {};
+  const branchWarnings = branchSummaries.flatMap((branch) => branch.warnings || []);
+  const compositorWarnings = compositorPlan.warnings || [];
   const generators = listGeneratorComponents();
   const effects = listShaderComponents();
   return `
@@ -917,8 +1053,22 @@ function mappingInspectorTemplate(composition, state) {
       <div class="mapping-stat-grid">
         <span><strong>${patch.nodes.length}</strong><small>nodes</small></span>
         <span><strong>${patch.edges.length}</strong><small>edges</small></span>
-        <span><strong>${effects.length}</strong><small>effects</small></span>
+        <span><strong>${compositorPlan.inputs.length}</strong><small>branches</small></span>
       </div>
+      <div class="soft-note">${esc(compositor.type === "layered" ? `${compositor.inputCount} layered compositor inputs` : "Single texture passthrough")}</div>
+      ${plan.warnings.length ? `<div class="soft-note">${esc(plan.warnings.length)} graph warning${plan.warnings.length === 1 ? "" : "s"}</div>` : ""}
+      ${branchWarnings.length ? `<div class="soft-note">${esc(branchWarnings.length)} branch warning${branchWarnings.length === 1 ? "" : "s"}</div>` : ""}
+      ${compositorWarnings.length ? `<div class="soft-note">${esc(compositorWarnings.length)} compositor warning${compositorWarnings.length === 1 ? "" : "s"}</div>` : ""}
+      ${branchSummaries.length ? `
+        <div class="node-chip-list compact">
+          ${branchSummaries.map((branch) => `
+            <div class="node-chip">
+              <span>${esc(branch.inletId || `texture-${branch.index || 1}`)}</span>
+              <small>${esc(branch.sourceLabel)} -> ${esc(branch.effectComponentIds.join(" -> ") || "output")}</small>
+            </div>
+          `).join("")}
+        </div>
+      ` : ""}
       <div class="rail-title"><span class="material-symbols-rounded">auto_awesome</span><span>Generators</span></div>
       <div class="node-chip-list compact">
         ${generators.map((component) => componentChipTemplate(component)).join("")}
@@ -933,8 +1083,9 @@ function mappingInspectorTemplate(composition, state) {
 
 function mappingInletsTemplate(composition) {
   const patch = compileCompositionPatch(composition || {});
+  const plan = planPatchExecution(patch);
   const ports = [];
-  for (const node of patch.nodes) {
+  for (const node of plan.nodes) {
     for (const inlet of node.inlets || []) {
       ports.push({ node, inlet });
     }
@@ -976,6 +1127,13 @@ function formatMappingValue(value) {
   const number = Number(value);
   if (Number.isFinite(number)) return number.toFixed(2);
   return value;
+}
+
+function formatRenderRequest(request = {}) {
+  const role = request.role || "texture";
+  const width = Math.max(1, Math.floor(Number(request.width) || 1));
+  const height = Math.max(1, Math.floor(Number(request.height) || 1));
+  return `${role} ${width}x${height}`;
 }
 
 function sceneSurfacePillTemplate(surface, state) {
@@ -1292,6 +1450,54 @@ function projectEmptyTemplate() {
         <button type="button" data-import-files>${icon("upload_file")} Import files</button>
       </div>
     </div>
+  `;
+}
+
+function settingsModalTemplate(state) {
+  const render = normalizeRenderSettings(state.render || {});
+  return `
+    <div class="modal-backdrop"></div>
+    <section class="modal-panel settings-modal" role="dialog" aria-modal="true" aria-label="Project settings">
+      <header class="modal-header">
+        <div>
+          <strong>Project settings</strong>
+          <small>Frame, world, and texture resolution.</small>
+        </div>
+        <button type="button" class="icon-buttonish" data-close-modal title="Close" aria-label="Close">${icon("close")}</button>
+      </header>
+      <div class="settings-modal-body">
+        <section class="element-section">
+          <div class="rail-title"><span class="material-symbols-rounded">crop_16_9</span><span>Output frame</span></div>
+          <div class="settings-preset-row">
+            <button type="button" data-render-preset="wide">960 x 540</button>
+            <button type="button" data-render-preset="xga">XGA</button>
+            <button type="button" data-render-preset="hd">HD</button>
+          </div>
+          <div class="field-pair">
+            <label class="field">Width <input type="number" min="128" max="8192" step="1" data-settings-update="render.frameWidth" value="${render.frameWidth}" /></label>
+            <label class="field">Height <input type="number" min="128" max="8192" step="1" data-settings-update="render.frameHeight" value="${render.frameHeight}" /></label>
+          </div>
+        </section>
+        <section class="element-section">
+          <div class="rail-title"><span class="material-symbols-rounded">grid_on</span><span>Mapping world</span></div>
+          <div class="settings-preset-row">
+            <button type="button" data-fit-world>Frame + 50%</button>
+          </div>
+          <div class="field-pair">
+            <label class="field">Width <input type="number" min="${render.frameWidth}" max="12288" step="1" data-settings-update="render.worldWidth" value="${render.worldWidth}" /></label>
+            <label class="field">Height <input type="number" min="${render.frameHeight}" max="12288" step="1" data-settings-update="render.worldHeight" value="${render.worldHeight}" /></label>
+          </div>
+          <div class="soft-note">The output window renders the frame. The preview can show the larger world so mapped surfaces can sit outside the final crop.</div>
+        </section>
+        <section class="element-section">
+          <div class="rail-title"><span class="material-symbols-rounded">texture</span><span>Surface texture</span></div>
+          <div class="field-pair">
+            <label class="field">Width <input type="number" min="64" max="8192" step="1" data-settings-update="render.surfaceWidth" value="${render.surfaceWidth}" /></label>
+            <label class="field">Height <input type="number" min="64" max="8192" step="1" data-settings-update="render.surfaceHeight" value="${render.surfaceHeight}" /></label>
+          </div>
+        </section>
+      </div>
+    </section>
   `;
 }
 

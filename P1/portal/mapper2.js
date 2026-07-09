@@ -724,16 +724,6 @@ class ProjectionMapper {
     push();
     const W2 = width * 0.5,
       H2 = height * 0.5;
-    const labelLayer = this._overlayFont ? this._getOverlayLabelLayer() : null;
-    if (labelLayer) {
-      labelLayer.clear();
-      labelLayer.push();
-      labelLayer.fill(255);
-      labelLayer.noStroke();
-      labelLayer.textFont(this._overlayFont);
-      labelLayer.textSize(13);
-      labelLayer.textAlign(LEFT, BOTTOM);
-    }
     this.surfaces.forEach((s, si) => {
       const isSurfaceActive = s.dragging === -2 || this._dragSurf === si;
       const shouldDrawSurface =
@@ -762,20 +752,9 @@ class ProjectionMapper {
         );
         fill(isActive ? 255 : 210);
         circle(sx, sy, 16);
-        if (labelLayer) {
-          labelLayer.text(`${s.name} #${i}`, s.corners[i].x + 14, s.corners[i].y - 8);
-        }
       }
     });
     pop();
-
-    if (labelLayer) {
-      labelLayer.pop();
-      push();
-      imageMode(CORNER);
-      image(labelLayer, -W2, -H2, width, height);
-      pop();
-    }
 
     if (gl && gl.enable) gl.enable(gl.DEPTH_TEST);
   }

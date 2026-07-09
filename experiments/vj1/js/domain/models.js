@@ -1,4 +1,4 @@
-import { defaultCustomShaderCode, WORKSPACES } from "../constants.js";
+import { VJ1, defaultCustomShaderCode, WORKSPACES } from "../constants.js";
 
 export function uid(prefix) {
   return `${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
@@ -73,6 +73,11 @@ export function createInitialState() {
         selectedSceneId: "",
         compositionOverrides: {},
       },
+      previewViewport: {
+        zoom: 1,
+        x: 0,
+        y: 0,
+      },
       shaderStatus: "Shader ready",
       shaderError: "",
       mappingStatus: "Mapping idle",
@@ -89,10 +94,15 @@ export function createInitialState() {
       mappingHandleMode: "always",
     },
     render: {
-      width: 960,
-      height: 540,
-      surfaceWidth: 800,
-      surfaceHeight: 450,
+      width: VJ1.renderWidth,
+      height: VJ1.renderHeight,
+      frameWidth: VJ1.renderWidth,
+      frameHeight: VJ1.renderHeight,
+      worldScale: 1.5,
+      worldWidth: Math.round(VJ1.renderWidth * 1.5),
+      worldHeight: Math.round(VJ1.renderHeight * 1.5),
+      surfaceWidth: VJ1.surfaceWidth,
+      surfaceHeight: VJ1.surfaceHeight,
     },
     scheduler: {
       mode: "hardconfigured",
@@ -150,6 +160,8 @@ export function sanitizeState(input = {}) {
   next.surfaces = Array.isArray(input.surfaces) && input.surfaces.length
     ? input.surfaces.map((surface) => normalizeSurface(surface))
     : [createDefaultSurface(0), createDefaultSurface(1)];
+  next.render = normalizeRenderSettings(next.render);
+  next.ui.previewViewport = normalizePreviewViewport(next.ui.previewViewport);
   next.media = Array.isArray(input.media) ? input.media.map(normalizeMediaMeta) : [];
   next.mappings = input.mappings && typeof input.mappings === "object" ? input.mappings : {};
   next.ui.selectedCompositionId = next.compositions.some((composition) => composition.id === next.ui.selectedCompositionId)
@@ -180,6 +192,46 @@ export function sanitizeState(input = {}) {
   next.scheduler.mode = next.scheduler.mode || "hardconfigured";
   next.scheduler.manualLane = next.scheduler.manualLane !== false;
   return next;
+}
+
+export function normalizeRenderSettings(render = {}) {
+  const frameWidth = positiveInt(render.frameWidth ?? render.width, VJ1.renderWidth, 128, 8192);
+  const frameHeight = positiveInt(render.frameHeight ?? render.height, VJ1.renderHeight, 128, 8192);
+  const worldScale = clampNumber(render.worldScale, 1, 3, 1.5);
+  const defaultWorldWidth = Math.round(frameWidth * worldScale);
+  const defaultWorldHeight = Math.round(frameHeight * worldScale);
+  return {
+    ...render,
+    width: frameWidth,
+    height: frameHeight,
+    frameWidth,
+    frameHeight,
+    worldScale,
+    worldWidth: positiveInt(render.worldWidth, defaultWorldWidth, frameWidth, 12288),
+    worldHeight: positiveInt(render.worldHeight, defaultWorldHeight, frameHeight, 12288),
+    surfaceWidth: positiveInt(render.surfaceWidth, VJ1.surfaceWidth, 64, 8192),
+    surfaceHeight: positiveInt(render.surfaceHeight, VJ1.surfaceHeight, 64, 8192),
+  };
+}
+
+export function normalizePreviewViewport(viewport = {}) {
+  return {
+    zoom: clampNumber(viewport.zoom, 0.1, 6, 1),
+    x: clampNumber(viewport.x, -100000, 100000, 0),
+    y: clampNumber(viewport.y, -100000, 100000, 0),
+  };
+}
+
+function positiveInt(value, fallback, min = 1, max = 8192) {
+  const number = Math.round(Number(value));
+  if (!Number.isFinite(number)) return fallback;
+  return Math.min(max, Math.max(min, number));
+}
+
+function clampNumber(value, min, max, fallback) {
+  const number = Number(value);
+  if (!Number.isFinite(number)) return fallback;
+  return Math.min(max, Math.max(min, number));
 }
 
 export function createLiveRenderState(state = createInitialState()) {

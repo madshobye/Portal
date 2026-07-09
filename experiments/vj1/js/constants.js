@@ -8,6 +8,7 @@ export const VJ1 = Object.freeze({
   p5Script: "https://cdn.jsdelivr.net/npm/p5@2.2.0/lib/p5.js",
   portalScript: "../../P1/portal/portal.js?v=vj1-camera-1",
   mapperScript: "../../P1/portal/mapper2.js?v=folder-primary-4",
+  renderFont: "assets/RobotoMono-Regular.ttf",
 });
 
 export const WORKSPACES = Object.freeze(["compose", "scene", "mapping", "live"]);

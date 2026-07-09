@@ -1,0 +1,111 @@
+import { fittedCssRect, frameSize, worldSize } from "./render-geometry.js";
+
+export function fitPreviewCanvasElement({ canvas, mode, stageSize, logicalSize, viewport }) {
+  const elt = canvas?.elt || canvas;
+  if (!elt) return;
+  const zoom = mode === "preview" ? clampNumber(viewport?.zoom, 0.1, 6, 1) : 1;
+  const pan = mode === "preview" ? viewport : {};
+  const rect = fittedCssRect(stageSize, logicalSize, zoom, pan);
+  elt.style.position = "absolute";
+  elt.style.left = "50%";
+  elt.style.top = "50%";
+  elt.style.width = `${rect.width}px`;
+  elt.style.height = `${rect.height}px`;
+  elt.style.transform = `translate(${Number(pan?.x) || 0}px, ${Number(pan?.y) || 0}px) translate(-50%, -50%)`;
+}
+
+export function createPreviewViewportController({ stage, store, getMode, getViewport, onPanStart }) {
+  let panDrag = null;
+  const cleanup = [];
+  if (!stage) return { destroy() {} };
+
+  const add = (type, handler, options) => {
+    stage.addEventListener(type, handler, options);
+    cleanup.push(() => stage.removeEventListener(type, handler, options));
+  };
+
+  add("wheel", (event) => {
+    if (getMode?.() !== "preview") return;
+    event.preventDefault();
+    const factor = event.deltaY < 0 ? 1.08 : 1 / 1.08;
+    store.update((draft) => {
+      draft.ui.previewViewport = zoomViewport(draft.ui.previewViewport, factor);
+    }, "scrub:preview-zoom");
+  }, { passive: false });
+
+  add("pointerdown", (event) => {
+    if (getMode?.() !== "preview" || (!event.altKey && event.button !== 1)) return;
+    event.preventDefault();
+    onPanStart?.();
+    const viewport = getViewport?.() || {};
+    panDrag = {
+      pointerId: event.pointerId,
+      startX: event.clientX,
+      startY: event.clientY,
+      x: Number(viewport.x) || 0,
+      y: Number(viewport.y) || 0,
+    };
+    stage.setPointerCapture?.(event.pointerId);
+  }, true);
+
+  add("pointermove", (event) => {
+    if (!panDrag || panDrag.pointerId !== event.pointerId) return;
+    event.preventDefault();
+    store.update((draft) => {
+      draft.ui.previewViewport = {
+        ...(draft.ui.previewViewport || {}),
+        x: panDrag.x + event.clientX - panDrag.startX,
+        y: panDrag.y + event.clientY - panDrag.startY,
+      };
+    }, "scrub:preview-pan");
+  }, true);
+
+  const endPan = (event) => {
+    if (!panDrag || panDrag.pointerId !== event.pointerId) return;
+    panDrag = null;
+    stage.releasePointerCapture?.(event.pointerId);
+  };
+  add("pointerup", endPan, true);
+  add("pointercancel", endPan, true);
+
+  return {
+    destroy() {
+      cleanup.splice(0).forEach((fn) => fn());
+      panDrag = null;
+    },
+  };
+}
+
+export function zoomViewport(viewport = {}, multiplier = 1) {
+  const current = clampNumber(viewport.zoom, 0.1, 6, 1);
+  return {
+    ...viewport,
+    zoom: clampNumber(current * multiplier, 0.1, 6, 1),
+  };
+}
+
+export function resetViewport() {
+  return { zoom: 1, x: 0, y: 0 };
+}
+
+export function frameFitViewport({ stageSize, render }) {
+  const frame = frameSize(render);
+  const world = worldSize(render);
+  const stage = {
+    width: Math.max(1, Number(stageSize?.width) || frame.width),
+    height: Math.max(1, Number(stageSize?.height) || frame.height),
+  };
+  const worldFit = fittedCssRect(stage, world, 1);
+  const frameFit = fittedCssRect(stage, frame, 1);
+  return {
+    zoom: clampNumber(frameFit.scale / Math.max(0.0001, worldFit.scale), 0.1, 6, 1),
+    x: 0,
+    y: 0,
+  };
+}
+
+function clampNumber(value, min, max, fallback) {
+  const number = Number(value);
+  if (!Number.isFinite(number)) return fallback;
+  return Math.min(max, Math.max(min, number));
+}

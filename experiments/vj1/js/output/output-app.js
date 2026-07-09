@@ -1,7 +1,9 @@
 import { VJ1 } from "../constants.js";
 import { sanitizeState } from "../domain/models.js";
 import { createOutputBridge } from "../services/output-bridge-service.js";
-import { OutputRenderer } from "./output-renderer.js?v=scene-snapshots-99";
+import { OutputRenderer } from "./output-renderer.js?v=world-frame-13";
+import { applyFontToGlobal, loadVjRenderFont } from "./font-loader.js?v=world-frame-13";
+import { fittedCssRect, frameSize } from "./render-geometry.js";
 
 export function installOutputApp({ root, mode }) {
   document.body.classList.add("output-client");
@@ -14,21 +16,31 @@ export function installOutputApp({ root, mode }) {
   let renderer = null;
   let pendingState = null;
   let bridge = null;
+  let renderFont = null;
+
+  window.addEventListener("pagehide", () => {
+    renderer?.dispose?.();
+    renderer = null;
+  }, { once: true });
 
   window.setup = async function setup() {
     const size = outputSize();
     const canvas = createCanvas(size.width, size.height, WEBGL);
     canvas.parent("output-stage");
-    fitOutputCanvas();
+    applyLoadedFont();
+    fitOutputCanvas(size);
     pixelDensity(1);
     frameRate(120);
     if (window.p5) window.p5.disableFriendlyErrors = true;
     window.PORTAL_CANVAS_RESIZE_MODE = "none";
     await loadClassicScript(VJ1.portalScript);
+    renderFont = await loadVjRenderFont();
+    applyLoadedFont(renderFont);
     await loadClassicScript(VJ1.mapperScript);
     renderer = new OutputRenderer({
       mode,
       hud: root.querySelector("[data-output-fps]"),
+      font: renderFont,
       sendMetrics: (metrics) => bridge?.metrics(metrics),
       sendMapping: (id, mapping, status) => bridge?.mappingState(id, mapping, status),
       requestMediaFiles: (ids) => bridge?.requestMediaFiles(ids),
@@ -37,6 +49,7 @@ export function installOutputApp({ root, mode }) {
   };
 
   window.draw = function draw() {
+    fitOutputCanvas(outputSize(pendingState));
     renderer?.draw();
   };
 
@@ -77,7 +90,7 @@ export function installOutputApp({ root, mode }) {
   };
 
   window.windowResized = function windowResized() {
-    fitOutputCanvas();
+    fitOutputCanvas(outputSize(pendingState));
   };
 
   bridge = createOutputBridge({
@@ -104,10 +117,15 @@ export function installOutputApp({ root, mode }) {
   });
 }
 
+function applyLoadedFont(font) {
+  applyFontToGlobal(font);
+}
+
 function outputSize(state = null) {
+  const size = frameSize(state?.render || {});
   return {
-    width: Math.max(320, Math.floor(state?.render?.width || VJ1.renderWidth)),
-    height: Math.max(180, Math.floor(state?.render?.height || VJ1.renderHeight)),
+    width: Math.max(320, Math.floor(size.width || VJ1.renderWidth)),
+    height: Math.max(180, Math.floor(size.height || VJ1.renderHeight)),
   };
 }
 
@@ -115,13 +133,39 @@ function resizeOutputIfNeeded(state) {
   const size = outputSize(state);
   if (width === size.width && height === size.height) return;
   resizeCanvas(size.width, size.height);
+  fitOutputCanvas(size);
 }
 
-function fitOutputCanvas() {
+function fitOutputCanvas(size = outputSize()) {
   const canvas = document.querySelector("#output-stage canvas");
   if (!canvas) return;
-  canvas.style.width = "100vw";
-  canvas.style.height = "100vh";
+  const stage = document.querySelector("#output-stage");
+  const stageRect = stage?.getBoundingClientRect?.();
+  const rect = fittedCssRect(
+    {
+      width: Math.max(1, Math.floor(stageRect?.width || window.innerWidth || size.width)),
+      height: Math.max(1, Math.floor(stageRect?.height || window.innerHeight || size.height)),
+    },
+    size,
+    1
+  );
+  const desiredWidth = `${rect.width}px`;
+  const desiredHeight = `${rect.height}px`;
+  const desiredTransform = "translate(-50%, -50%)";
+  if (
+    canvas.style.position === "absolute" &&
+    canvas.style.left === "50%" &&
+    canvas.style.top === "50%" &&
+    canvas.style.width === desiredWidth &&
+    canvas.style.height === desiredHeight &&
+    canvas.style.transform === desiredTransform
+  ) return;
+  canvas.style.position = "absolute";
+  canvas.style.left = "50%";
+  canvas.style.top = "50%";
+  canvas.style.width = desiredWidth;
+  canvas.style.height = desiredHeight;
+  canvas.style.transform = desiredTransform;
 }
 
 function loadClassicScript(src) {

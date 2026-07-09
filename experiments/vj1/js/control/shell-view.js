@@ -23,6 +23,7 @@ export function shellTemplate() {
           </div>
           <button id="toggle-preview" class="icon-buttonish" type="button" title="Toggle preview" aria-label="Toggle preview">${icon("visibility")}</button>
           <button id="toggle-labels" class="icon-buttonish" type="button" title="Show labels" aria-label="Show labels">${icon("label")}</button>
+          <button id="open-settings" class="icon-buttonish" type="button" title="Settings" aria-label="Settings">${icon("settings")}</button>
           <button id="undo-project" class="icon-buttonish" type="button" title="Undo" aria-label="Undo" disabled>${icon("undo")}</button>
           <button id="redo-project" class="icon-buttonish" type="button" title="Redo" aria-label="Redo" disabled>${icon("redo")}</button>
           <button id="blackout-main" class="icon-buttonish danger" type="button" title="Blackout" aria-label="Blackout">${icon("brightness_1")}</button>
@@ -53,6 +54,7 @@ export function collectRefs(root) {
     openOutput: root.querySelector("#open-output"),
     togglePreview: root.querySelector("#toggle-preview"),
     toggleLabels: root.querySelector("#toggle-labels"),
+    openSettings: root.querySelector("#open-settings"),
     undo: root.querySelector("#undo-project"),
     redo: root.querySelector("#redo-project"),
     blackout: root.querySelector("#blackout-main"),

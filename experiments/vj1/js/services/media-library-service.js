@@ -1,4 +1,5 @@
 import { uid } from "../domain/models.js";
+import { isMediaRenditionPath, parseMediaRenditionPath } from "./media-rendition-service.js";
 
 const VIDEO_RE = /\.(mp4|m4v|mov|webm|ogv)$/i;
 const IMAGE_RE = /\.(png|jpe?g|gif|webp|bmp)$/i;
@@ -6,6 +7,7 @@ const SHADER_RE = /\.(frag|glsl|fs)$/i;
 
 export function createMediaLibrary() {
   const files = new Map();
+  const renditions = new Map();
 
   function getMeta(file) {
     const path = file.relativePath || file.webkitRelativePath || file.name || uid("media");
@@ -25,7 +27,10 @@ export function createMediaLibrary() {
       const shaders = [];
       for (const file of incoming) {
         const path = file.relativePath || file.webkitRelativePath || file.name || "";
-        if (isMediaFile(path)) {
+        if (isMediaRenditionPath(path)) {
+          const parsed = parseMediaRenditionPath(path);
+          if (parsed) renditions.set(parsed.key, { ...parsed, file });
+        } else if (isMediaFile(path)) {
           const meta = getMeta(file);
           files.set(meta.id, file);
           media.push(meta);
@@ -33,16 +38,34 @@ export function createMediaLibrary() {
           shaders.push({ path, name: path.split("/").pop() || path, code: await file.text() });
         }
       }
-      return { media, shaders, files: incoming.filter((file) => isMediaFile(file.name || file.relativePath || "")) };
+      return { media, shaders, files: incoming.filter((file) => isMediaFile(file.relativePath || file.webkitRelativePath || file.name || "")) };
     },
     getFile(id) {
       return files.get(id) || null;
     },
     getAllFiles() {
-      return Array.from(files.entries()).map(([id, file]) => ({ id, file }));
+      return Array.from(files.entries()).map(([id, file]) => ({
+        id,
+        file,
+        renditions: Array.from(renditions.values())
+          .filter((entry) => entry.mediaId === id)
+          .map((entry) => ({ ...entry })),
+      }));
+    },
+    getRendition(key) {
+      return renditions.get(key)?.file || null;
+    },
+    getAllRenditions() {
+      return Array.from(renditions.values()).map((entry) => ({ ...entry }));
+    },
+    getRenditionsForMedia(mediaId) {
+      return Array.from(renditions.values())
+        .filter((entry) => entry.mediaId === mediaId)
+        .map((entry) => ({ ...entry }));
     },
     clear() {
       files.clear();
+      renditions.clear();
     },
   };
 }
@@ -67,6 +90,7 @@ export async function collectFilesFromDirectory(dirHandle, prefix = "") {
 }
 
 export function isMediaFile(path) {
+  if (isMediaRenditionPath(path)) return false;
   return VIDEO_RE.test(path) || IMAGE_RE.test(path);
 }
 

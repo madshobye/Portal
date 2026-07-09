@@ -1,4 +1,5 @@
 import { collectFilesFromDirectory, isMediaFile, isShaderFile } from "./media-library-service.js";
+import { RENDITION_DIR, RENDITION_ROOT, mediaRenditionPath } from "./media-rendition-service.js";
 import {
   canPersistDirectoryHandles,
   loadProjectDirectoryHandle,
@@ -17,6 +18,7 @@ export function createProjectFolderService({ mediaLibrary, store, bridge }) {
   let isOpening = false;
   let historyInFlight = false;
   let historyState = { canUndo: false, canRedo: false };
+  const writtenRenditions = new Set();
   const autosaveDelayMs = 700;
   const skipAutosaveReasons = new Set([
     "init",
@@ -433,7 +435,30 @@ export function createProjectFolderService({ mediaLibrary, store, bridge }) {
     }, "project-history");
   }
 
-  return { openFolder, restoreStoredFolder, saveProject, scheduleAutoSave, flushAutoSave, importExternalFiles, refreshFolder, undoProject, redoProject, getHistoryState };
+  async function writeMediaRendition(mediaId, width, height, blob) {
+    if (!dirHandle || !blob || !mediaId) return false;
+    const path = mediaRenditionPath(mediaId, width, height);
+    if (writtenRenditions.has(path)) return false;
+    const directory = await renditionDirectory();
+    const filename = path.split("/").pop();
+    const handle = await directory.getFileHandle(filename, { create: true });
+    const writable = await handle.createWritable();
+    await writable.write(blob);
+    await writable.close();
+    writtenRenditions.add(path);
+    const file = await handle.getFile();
+    Object.defineProperty(file, "relativePath", { value: path, configurable: true });
+    await mediaLibrary.importFiles([file]);
+    bridge.sendMediaFiles(mediaLibrary.getAllFiles());
+    return true;
+  }
+
+  async function renditionDirectory() {
+    const root = await dirHandle.getDirectoryHandle(RENDITION_ROOT, { create: true });
+    return await root.getDirectoryHandle(RENDITION_DIR, { create: true });
+  }
+
+  return { openFolder, restoreStoredFolder, saveProject, scheduleAutoSave, flushAutoSave, importExternalFiles, refreshFolder, undoProject, redoProject, getHistoryState, writeMediaRendition };
 }
 
 function isHistoryReason(reason) {

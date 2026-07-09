@@ -12,6 +12,24 @@ export const PARAM_TYPES = Object.freeze({
   COLOR: "color",
 });
 
+export const RENDER_SIZE_POLICIES = Object.freeze({
+  NONE: "none",
+  REQUESTED: "requested",
+  SOURCE: "source",
+});
+
+export function textureRenderContract({
+  input = RENDER_SIZE_POLICIES.REQUESTED,
+  output = RENDER_SIZE_POLICIES.REQUESTED,
+  preservesAspect = true,
+} = {}) {
+  return Object.freeze({
+    input,
+    output,
+    preservesAspect: preservesAspect !== false,
+  });
+}
+
 export function createNumberParam(id, label, {
   min = 0,
   max = 1,
@@ -75,6 +93,7 @@ export function defineVisualComponent(definition = {}) {
     inlets: Object.freeze([...(definition.inlets || [])]),
     outlets: Object.freeze([...(definition.outlets || [])]),
     params: Object.freeze([...(definition.params || [])]),
+    render: textureRenderContract(definition.render || {}),
     code: definition.code ?? null,
     type: definition.type || "effect",
   });
@@ -121,6 +140,7 @@ export function createVisualNode(component, {
   enabled = true,
   params = {},
   state = {},
+  render = {},
 } = {}) {
   const normalizedParams = normalizeParamValues(component, params);
   return {
@@ -132,6 +152,10 @@ export function createVisualNode(component, {
     inlets: component?.inlets || [],
     outlets: component?.outlets || [],
     params: normalizedParams,
+    render: {
+      ...(component?.render || textureRenderContract()),
+      ...render,
+    },
     state: { ...state },
     scheduler: component?.scheduler || "frame",
   };
