@@ -67,6 +67,10 @@ export function createInitialState() {
       selectedSurfaceId: "surface-main",
       debugPreview: true,
       outputWindowOpen: false,
+      live: {
+        selectedSceneId: "",
+        compositionOverrides: {},
+      },
       shaderStatus: "Shader ready",
       shaderError: "",
       mappingStatus: "Mapping idle",
@@ -166,9 +170,79 @@ export function sanitizeState(input = {}) {
   next.ui.selectedSceneId = next.scenes.some((scene) => scene.id === next.ui.selectedSceneId)
     ? next.ui.selectedSceneId
     : next.scenes[0]?.id || "";
-  next.ui.workspace = ["compose", "scene"].includes(next.ui.workspace) ? next.ui.workspace : "scene";
+  next.ui.live = normalizeLiveUi(next.ui.live);
+  next.ui.workspace = ["compose", "scene", "live"].includes(next.ui.workspace) ? next.ui.workspace : "scene";
   next.global.calibrating = next.ui.workspace === "scene";
   return next;
+}
+
+export function createLiveRenderState(state = createInitialState()) {
+  const next = clone(state);
+  const live = next.ui?.live || {};
+  const sceneId = live.selectedSceneId || next.ui?.selectedSceneId || "";
+  const scene = next.scenes?.find((item) => item.id === sceneId);
+  if (scene) applySceneSnapshotToState(next, scene);
+  next.ui.selectedSceneId = scene?.id || next.ui.selectedSceneId || "";
+  next.global.calibrating = false;
+  for (const composition of next.compositions || []) {
+    const override = live.compositionOverrides?.[composition.id];
+    if (!override) continue;
+    if (override.opacity !== undefined) composition.opacity = clamp01(override.opacity);
+    if (override.speed !== undefined) composition.speed = Math.max(0, Number(override.speed) || 0);
+    if (override.blend) composition.blend = override.blend;
+    if (Array.isArray(override.shaderChain)) {
+      composition.shaderChain = composition.shaderChain.map((pass, index) => ({
+        ...pass,
+        ...(override.shaderChain[index] || {}),
+        amount: clamp01(override.shaderChain[index]?.amount ?? pass.amount),
+        enabled: override.shaderChain[index]?.enabled ?? pass.enabled,
+      }));
+    }
+  }
+  return next;
+}
+
+export function createLiveCompositionView(composition = {}, state = createInitialState()) {
+  const override = state.ui?.live?.compositionOverrides?.[composition.id] || {};
+  return {
+    ...composition,
+    opacity: override.opacity !== undefined ? clamp01(override.opacity) : composition.opacity,
+    speed: override.speed !== undefined ? Math.max(0, Number(override.speed) || 0) : composition.speed,
+    blend: override.blend || composition.blend,
+    shaderChain: Array.isArray(composition.shaderChain)
+      ? composition.shaderChain.map((pass, index) => ({
+          ...pass,
+          ...(override.shaderChain?.[index] || {}),
+          amount: clamp01(override.shaderChain?.[index]?.amount ?? pass.amount),
+          enabled: override.shaderChain?.[index]?.enabled ?? pass.enabled,
+        }))
+      : [],
+  };
+}
+
+function normalizeLiveUi(live = {}) {
+  const compositionOverrides = {};
+  for (const [id, override] of Object.entries(live.compositionOverrides || {})) {
+    compositionOverrides[id] = {
+      ...(override.opacity !== undefined ? { opacity: clamp01(override.opacity) } : {}),
+      ...(override.speed !== undefined ? { speed: Math.max(0, Number(override.speed) || 0) } : {}),
+      ...(override.blend ? { blend: override.blend } : {}),
+      ...(Array.isArray(override.shaderChain)
+        ? { shaderChain: override.shaderChain.map(normalizeLiveShaderPassOverride) }
+        : {}),
+    };
+  }
+  return {
+    selectedSceneId: live.selectedSceneId ? String(live.selectedSceneId) : "",
+    compositionOverrides,
+  };
+}
+
+function normalizeLiveShaderPassOverride(pass = {}) {
+  return {
+    ...(pass.enabled !== undefined ? { enabled: pass.enabled !== false } : {}),
+    ...(pass.amount !== undefined ? { amount: clamp01(pass.amount) } : {}),
+  };
 }
 
 function normalizeCompositions(input, base) {

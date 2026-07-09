@@ -22,8 +22,6 @@ export class OutputRenderer {
     this.sourcePg = null;
     this.fxA = null;
     this.fxB = null;
-    this.filterA = null;
-    this.filterB = null;
     this.mainMix = null;
     this.surfaceScratch = null;
     this.cameraCapture = null;
@@ -44,7 +42,6 @@ export class OutputRenderer {
     this.lastTickMs = 0;
     this.visualTime = 0;
     this.compositionTimes = new Map();
-    this.unavailableP5Filters = new Set();
     this.shaderBuilder = createShaderBuilder({
       getCustomCode: () => this.state?.shaders?.customCode || "",
       onStatus: (status, error) => {
@@ -69,8 +66,6 @@ export class OutputRenderer {
     this.surfaceScratch = createGraphics(surfaceWidth, surfaceHeight);
     this.fxA = createGraphics(rw, rh, WEBGL);
     this.fxB = createGraphics(rw, rh, WEBGL);
-    this.filterA = createGraphics(rw, rh);
-    this.filterB = createGraphics(rw, rh);
     this.fxA.noStroke();
     this.fxB.noStroke();
   }
@@ -81,8 +76,6 @@ export class OutputRenderer {
     disposeGraphics(this.surfaceScratch);
     disposeGraphics(this.fxA);
     disposeGraphics(this.fxB);
-    disposeGraphics(this.filterA);
-    disposeGraphics(this.filterB);
     disposeGraphicsMap(this.compositionSource);
     disposeGraphicsMap(this.compositionOutput);
     disposeGraphicsMap(this.compositionBuffer);
@@ -91,8 +84,6 @@ export class OutputRenderer {
     this.surfaceScratch = null;
     this.fxA = null;
     this.fxB = null;
-    this.filterA = null;
-    this.filterB = null;
     this.shaderBuilder.clear?.();
   }
 
@@ -460,16 +451,8 @@ export class OutputRenderer {
   renderShaderChain(input, chain, rw, rh, timeSeconds = this.visualTime) {
     let current = input;
     let passCount = 0;
-    let filterCount = 0;
     for (const pass of chain || []) {
       if (!pass.enabled) continue;
-      const component = getShaderComponent(pass.id);
-      if (component?.type === "p5Filter") {
-        const target = this.getFilterBuffer(filterCount % 2, rw, rh);
-        current = this.renderP5FilterPass(current, pass, component, target, rw, rh);
-        filterCount++;
-        continue;
-      }
       const target = passCount % 2 === 0 ? this.fxA : this.fxB;
       const shader = this.shaderBuilder.getShader(pass, target);
       if (!shader) continue;
@@ -489,45 +472,6 @@ export class OutputRenderer {
       passCount++;
     }
     return current;
-  }
-
-  getFilterBuffer(slot, rw, rh) {
-    const key = slot === 0 ? "filterA" : "filterB";
-    const existing = this[key];
-    if (existing && existing.width === rw && existing.height === rh) return existing;
-    disposeGraphics(existing);
-    this[key] = createGraphics(rw, rh);
-    this[key].pixelDensity(1);
-    return this[key];
-  }
-
-  renderP5FilterPass(input, pass, component, target, rw, rh) {
-    if (!target) return input;
-    target.push();
-    target.clear();
-    drawBuffer(target, input, 0, 0, rw, rh, this.isShaderBuffer(input));
-    target.pop();
-    const filterType = resolveP5Constant(component.filter);
-    if (typeof filterType === "undefined" || typeof target.filter !== "function") {
-      const key = `${pass.id}:${component.filter}`;
-      if (!this.unavailableP5Filters.has(key)) {
-        this.unavailableP5Filters.add(key);
-        console.warn("[VJ1_P5_FILTER_UNAVAILABLE]", { id: pass.id, filter: component.filter });
-      }
-      return target;
-    }
-    try {
-      const param = p5FilterParam(component, pass);
-      if (param === null) target.filter(filterType);
-      else target.filter(filterType, param);
-    } catch (error) {
-      console.warn("[VJ1_P5_FILTER_FAILED]", {
-        id: pass.id,
-        filter: component.filter,
-        message: error?.message || String(error),
-      });
-    }
-    return target;
   }
 
   renderSurfaces() {
@@ -852,22 +796,6 @@ function applyP5BlendMode(pg, modeName) {
   pg.blendMode(typeof mode !== "undefined" ? mode : BLEND);
 }
 
-function p5FilterParam(component, pass) {
-  if (!component || component.min === undefined || component.max === undefined) return null;
-  const amount = clamp01(Number(pass.amount) || 0);
-  return component.min + (component.max - component.min) * amount;
-}
-
-function resolveP5Constant(name) {
-  if (!name) return undefined;
-  if (typeof globalThis[name] !== "undefined") return globalThis[name];
-  try {
-    return Function("name", "return typeof globalThis[name] !== 'undefined' ? globalThis[name] : (typeof eval(name) !== 'undefined' ? eval(name) : undefined);")(name);
-  } catch {
-    return String(name).toLowerCase();
-  }
-}
-
 function drawCover(pg, media, x, y, w, h) {
   const element = media.elt || media;
   const mw = element.videoWidth || element.naturalWidth || media.width || element.width || w;
@@ -878,14 +806,18 @@ function drawCover(pg, media, x, y, w, h) {
   pg.image(media, x + (w - dw) / 2, y + (h - dh) / 2, dw, dh);
 }
 
-function drawBuffer(pg, source, x, y, w, h, flipShaderBuffer = false) {
-  if (!flipShaderBuffer) {
+function drawBuffer(pg, source, x, y, w, h, sourceIsWebGL = false) {
+  if (!sourceIsWebGL) {
     pg.image(source, x, y, w, h);
     return;
   }
+  drawWebGLBuffer(pg, source, x, y, w, h);
+}
+
+function drawWebGLBuffer(pg, source, x, y, w, h) {
   pg.push();
-  pg.translate(x + w, y + h);
-  pg.scale(-1, -1);
+  pg.translate(x, y + h);
+  pg.scale(1, -1);
   pg.image(source, 0, 0, w, h);
   pg.pop();
 }

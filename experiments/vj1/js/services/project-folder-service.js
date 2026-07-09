@@ -32,6 +32,8 @@ export function createProjectFolderService({ mediaLibrary, store, bridge }) {
     "project-history",
     "project-undo",
     "project-redo",
+    "live:scene",
+    "live:update",
     ]);
 
   async function openFolder() {

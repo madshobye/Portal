@@ -17,7 +17,7 @@ export function getInitialView() {
 export function getInitialWorkspace() {
   const params = new URLSearchParams(window.location.search);
   const requested = params.get("workspace") || sessionStorage.getItem(VJ1.localWorkspaceKey) || "scene";
-  return ["compose", "scene"].includes(requested) ? requested : "scene";
+  return ["compose", "scene", "live"].includes(requested) ? requested : "scene";
 }
 
 export function persistView(view) {
@@ -29,7 +29,7 @@ export function persistView(view) {
 }
 
 export function persistWorkspace(workspace) {
-  if (!["compose", "scene"].includes(workspace)) return;
+  if (!["compose", "scene", "live"].includes(workspace)) return;
   sessionStorage.setItem(VJ1.localWorkspaceKey, workspace);
   const url = new URL(window.location.href);
   url.searchParams.set("workspace", workspace);

@@ -1,8 +1,8 @@
 import { BLEND_MODES, GENERATORS, SOURCE_TYPES } from "../constants.js";
-import { applySceneSnapshotToState, createSceneSnapshot } from "../domain/models.js";
+import { applySceneSnapshotToState, createLiveCompositionView, createLiveRenderState, createSceneSnapshot } from "../domain/models.js";
 import { buildOutputUrl } from "../view-routing.js";
 import { listShaderComponents } from "../shaders/shader-registry.js";
-import { createEmbeddedPreviewApp } from "../output/embedded-preview-app.js?v=scene-snapshots-77";
+import { createEmbeddedPreviewApp } from "../output/embedded-preview-app.js?v=scene-snapshots-80";
 
 export function createControlShell({ root, store, bridge, mediaLibrary, projectService }) {
   let refs = {};
@@ -32,7 +32,10 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
         updatePreviewState(state);
         return;
       }
-      if (reason.startsWith("scrub:")) return;
+      if (reason.startsWith("scrub:")) {
+        updatePreviewState(state);
+        return;
+      }
       scheduleRender(state);
     });
   }
@@ -84,7 +87,7 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
 
     refs.workspaceSwitch.querySelectorAll("[data-workspace]").forEach((button) => {
       button.addEventListener("click", () => {
-        const workspace = ["compose", "scene"].includes(button.dataset.workspace) ? button.dataset.workspace : "scene";
+        const workspace = ["compose", "scene", "live"].includes(button.dataset.workspace) ? button.dataset.workspace : "scene";
         const mappingActive = workspace === "scene";
         if (typeof store.setWorkspace === "function") store.setWorkspace(workspace);
         else {
@@ -192,6 +195,7 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
 
   function railToolsTemplate(state, workspace) {
     if (workspace === "compose") return compositionToolsTemplate(state);
+    if (workspace === "live") return liveToolsTemplate(state);
     return sceneToolsTemplate(state);
   }
 
@@ -230,6 +234,17 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
     `;
   }
 
+  function liveToolsTemplate(state) {
+    return `
+      <div class="rail-section">
+        <div class="rail-title"><span class="material-symbols-rounded">play_circle</span><span>Live Scenes</span></div>
+        <div class="scene-card-list live-scene-list">
+          ${state.scenes.map((scene) => liveScenePillTemplate(scene, state)).join("") || emptyNote("Capture scenes first")}
+        </div>
+      </div>
+    `;
+  }
+
   function renderStudio(state) {
     const hasProject = !!state.project.folderName || state.media.length > 0;
     if (!refs.studio.querySelector("[data-studio-stage]")) {
@@ -252,7 +267,9 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
   function renderPreview(state) {
     const previewHost = refs.studio.querySelector("[data-preview-host]");
     if (!previewHost || previewHost.classList.contains("is-empty")) return;
-    const kind = currentWorkspace(state) === "compose" ? "composition" : "preview";
+    const workspace = currentWorkspace(state);
+    const kind = workspace === "compose" ? "composition" : "preview";
+    const previewState = workspace === "live" ? createLiveRenderState(state) : state;
     if (!previewHost.querySelector("[data-embedded-preview-stage]")) {
       previewHost.innerHTML = `
         <div class="embedded-preview-stage" data-embedded-preview-stage></div>
@@ -278,13 +295,14 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
       stage: previewHost.querySelector("[data-embedded-preview-stage]"),
       hud: previewHost.querySelector("[data-preview-fps]"),
       mode: kind,
-      state,
+      state: previewState,
     });
   }
 
   function updatePreviewState(state) {
-    const kind = currentWorkspace(state) === "compose" ? "composition" : "preview";
-    embeddedPreview.setState(state, kind);
+    const workspace = currentWorkspace(state);
+    const kind = workspace === "compose" ? "composition" : "preview";
+    embeddedPreview.setState(workspace === "live" ? createLiveRenderState(state) : state, kind);
   }
 
   function renderInspector(state) {
@@ -304,6 +322,15 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
         "account_tree",
         "Composition",
         selectedComposition ? compositionTemplate(selectedComposition, state) : emptyNote("No composition")
+      );
+      bindInputs(refs.inspector, state);
+      return;
+    }
+    if (currentWorkspace(state) === "live") {
+      refs.inspector.innerHTML = panelTemplate(
+        "tune",
+        "Live",
+        liveInspectorTemplate(state)
       );
       bindInputs(refs.inspector, state);
       return;
@@ -340,6 +367,14 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
     });
     refs.projectRail.querySelectorAll("[data-recall-scene]").forEach((button) => {
       button.addEventListener("click", () => store.recallScene(button.dataset.recallScene));
+    });
+    refs.projectRail.querySelectorAll("[data-live-scene]").forEach((button) => {
+      button.addEventListener("click", () => {
+        store.update((draft) => {
+          draft.ui.live.selectedSceneId = button.dataset.liveScene;
+          draft.ui.live.compositionOverrides = {};
+        }, "live:scene");
+      });
     });
     refs.projectRail.querySelectorAll("[data-delete-scene]").forEach((button) => {
       button.addEventListener("click", () => store.deleteScene(button.dataset.deleteScene));
@@ -415,6 +450,17 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
         return;
       }
       input.addEventListener("change", () => updatePathFromInput(input, `update:${input.dataset.update}`));
+    });
+    scope.querySelectorAll("[data-live-update]").forEach((input) => {
+      if (input.type === "range") {
+        input.addEventListener("input", () => {
+          updateRangeLabel(input);
+          updateLivePathFromInput(input, "scrub:live");
+        });
+        input.addEventListener("change", () => updateLivePathFromInput(input, "live:update"));
+        return;
+      }
+      input.addEventListener("change", () => updateLivePathFromInput(input, "live:update"));
     });
     scope.querySelectorAll("[data-select-layer]").forEach((button) => {
       button.addEventListener("click", () => store.selectLayer(button.dataset.selectLayer));
@@ -531,6 +577,16 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
     }, reason);
   }
 
+  function updateLivePathFromInput(input, reason) {
+    store.update((draft) => {
+      const compositionId = input.dataset.liveCompositionId;
+      if (!compositionId) return;
+      draft.ui.live.compositionOverrides ||= {};
+      const override = draft.ui.live.compositionOverrides[compositionId] ||= {};
+      setByPathCreate(override, input.dataset.liveUpdate, readInputValue(input));
+    }, reason);
+  }
+
   return { mount };
 }
 
@@ -552,6 +608,7 @@ function shellTemplate() {
           <div id="workspace-switch" class="workspace-switch" role="group" aria-label="Workspace">
             <button type="button" data-workspace="compose">${icon("account_tree")}<span>Compositions</span></button>
             <button type="button" data-workspace="scene" class="is-active">${icon("auto_awesome")}<span>Scenes</span></button>
+            <button type="button" data-workspace="live">${icon("play_circle")}<span>Live</span></button>
           </div>
           <button id="toggle-preview" class="icon-buttonish" type="button" title="Toggle preview" aria-label="Toggle preview">${icon("visibility")}</button>
           <button id="toggle-labels" class="icon-buttonish" type="button" title="Show labels" aria-label="Show labels">${icon("label")}</button>
@@ -885,6 +942,82 @@ function scenePillTemplate(scene, state) {
   `;
 }
 
+function liveScenePillTemplate(scene, state) {
+  const selected = liveSelectedSceneId(state) === scene.id;
+  const compositions = sceneFingerprintCompositions(scene, state);
+  return `
+    <button type="button" class="composition-card scene-card live-scene-card ${selected ? "is-selected" : ""}" data-live-scene="${esc(scene.id)}">
+      ${sceneFingerprintTemplate(compositions)}
+      <span>${esc(scene.name)}</span>
+    </button>
+  `;
+}
+
+function liveInspectorTemplate(state) {
+  const scene = getLiveSelectedScene(state);
+  if (!scene) return emptyNote("No scenes");
+  const compositions = liveSceneCompositions(scene, state);
+  return `
+    <div class="live-panel">
+      <div class="live-scene-name">${esc(scene.name)}</div>
+      <div class="live-composition-list">
+        ${compositions.map((composition) => liveCompositionTemplate(composition, state)).join("") || emptyNote("No compositions")}
+      </div>
+    </div>
+  `;
+}
+
+function liveCompositionTemplate(composition, state) {
+  const view = createLiveCompositionView(composition, state);
+  return `
+    <article class="live-composition-card">
+      <header class="live-composition-head">
+        ${composition.thumbnail
+          ? `<img src="${esc(composition.thumbnail)}" alt="" loading="lazy" />`
+          : `<div class="composition-card-empty">${icon("account_tree")}</div>`}
+        <strong>${esc(composition.name)}</strong>
+      </header>
+      ${liveRangeTemplate("Presence", composition.id, "opacity", view.opacity)}
+      <div class="field-pair live-field-pair">
+        <label class="field">Blend ${liveSelectValuesTemplate(composition.id, "blend", BLEND_MODES, view.blend)}</label>
+        <label class="field">Speed <input type="number" min="0" step="0.05" data-live-composition-id="${esc(composition.id)}" data-live-update="speed" value="${view.speed}" /></label>
+      </div>
+      ${liveShaderChainTemplate(view.shaderChain, composition.id)}
+    </article>
+  `;
+}
+
+function liveShaderChainTemplate(chain, compositionId) {
+  if (!chain?.length) return "";
+  return `
+    <div class="live-chain-list">
+      ${chain.map((pass, index) => `
+        <div class="live-chain-pass">
+          <label>${icon(effectIcon(pass.id))}<input type="checkbox" data-live-composition-id="${esc(compositionId)}" data-live-update="shaderChain.${index}.enabled" ${pass.enabled ? "checked" : ""} />${esc(pass.id)}</label>
+          <input type="range" min="0" max="1" step="0.01" data-live-composition-id="${esc(compositionId)}" data-live-update="shaderChain.${index}.amount" value="${pass.amount}" />
+        </div>
+      `).join("")}
+    </div>
+  `;
+}
+
+function liveRangeTemplate(label, compositionId, path, value) {
+  return `
+    <label class="field range-field">
+      <span><span>${label}</span><strong>${Number(value).toFixed(2)}</strong></span>
+      <input type="range" min="0" max="1" step="0.01" data-live-composition-id="${esc(compositionId)}" data-live-update="${path}" value="${value}" />
+    </label>
+  `;
+}
+
+function liveSelectValuesTemplate(compositionId, path, values, value) {
+  return `
+    <select data-live-composition-id="${esc(compositionId)}" data-live-update="${path}">
+      ${values.map((option) => `<option value="${option}" ${option === value ? "selected" : ""}>${esc(option)}</option>`).join("")}
+    </select>
+  `;
+}
+
 function sceneFingerprintCompositions(scene, state) {
   const ids = [];
   for (const surface of scene.snapshot?.surfaces || []) {
@@ -928,6 +1061,19 @@ function getSelectedScene(state) {
   return state.scenes.find((scene) => scene.id === state.ui.selectedSceneId) || null;
 }
 
+function getLiveSelectedScene(state) {
+  const id = liveSelectedSceneId(state);
+  return state.scenes.find((scene) => scene.id === id) || null;
+}
+
+function liveSelectedSceneId(state) {
+  return state.ui?.live?.selectedSceneId || state.ui?.selectedSceneId || state.scenes[0]?.id || "";
+}
+
+function liveSceneCompositions(scene, state) {
+  return sceneFingerprintCompositions(scene, state);
+}
+
 function sceneSurfaceSnapshot(scene, surfaceId) {
   return scene?.snapshot?.surfaces?.find((surface) => surface.id === surfaceId) || null;
 }
@@ -938,7 +1084,7 @@ function getSceneSurfaceView(surface, state) {
 }
 
 function currentWorkspace(state) {
-  return ["compose", "scene"].includes(state.ui?.workspace) ? state.ui.workspace : "scene";
+  return ["compose", "scene", "live"].includes(state.ui?.workspace) ? state.ui.workspace : "scene";
 }
 
 function sourceTypeIcon(type) {
@@ -1005,6 +1151,19 @@ function setByPath(target, path, value) {
     const part = parts[i];
     cursor = cursor?.[Number.isNaN(Number(part)) ? part : Number(part)];
     if (!cursor) return;
+  }
+  const last = parts[parts.length - 1];
+  cursor[Number.isNaN(Number(last)) ? last : Number(last)] = value;
+}
+
+function setByPathCreate(target, path, value) {
+  const parts = path.split(".");
+  let cursor = target;
+  for (let i = 0; i < parts.length - 1; i++) {
+    const part = Number.isNaN(Number(parts[i])) ? parts[i] : Number(parts[i]);
+    const nextPart = parts[i + 1];
+    if (cursor[part] === undefined) cursor[part] = Number.isNaN(Number(nextPart)) ? {} : [];
+    cursor = cursor[part];
   }
   const last = parts[parts.length - 1];
   cursor[Number.isNaN(Number(last)) ? last : Number(last)] = value;

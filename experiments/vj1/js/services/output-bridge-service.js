@@ -31,8 +31,8 @@ export function createControlBridge({ store, mediaLibrary }) {
     }
   };
 
-  function sendState() {
-    channel.postMessage({ type: "state", state: store.getState() });
+  function sendState(stateOverride = null) {
+    channel.postMessage({ type: "state", state: stateOverride || store.getRenderState?.() || store.getState() });
   }
 
   function sendMediaFiles(files) {

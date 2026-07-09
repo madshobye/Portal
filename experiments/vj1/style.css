@@ -434,6 +434,14 @@ small {
   gap: 6px;
 }
 
+.live-scene-list {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.live-scene-card {
+  min-height: 0;
+}
+
 .composition-card-row {
   position: relative;
   min-width: 0;
@@ -465,6 +473,18 @@ small {
   border-radius: 4px;
   background: #000;
   object-fit: cover;
+}
+
+.composition-card:not(.is-selected) img,
+.composition-card:not(.is-selected) .scene-fingerprint,
+.media-picker-card:not(.is-selected) img {
+  filter: grayscale(1) saturate(0.2) contrast(0.92) brightness(0.82);
+}
+
+.composition-card.is-selected img,
+.composition-card.is-selected .scene-fingerprint,
+.media-picker-card.is-selected img {
+  filter: none;
 }
 
 .scene-fingerprint {
@@ -552,6 +572,90 @@ small {
 
 .assignment-card {
   min-height: 0;
+}
+
+.live-panel,
+.live-composition-list {
+  display: grid;
+  gap: 8px;
+}
+
+.live-scene-name {
+  overflow: hidden;
+  color: var(--ink);
+  font-size: 13px;
+  font-weight: 800;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.live-composition-card {
+  display: grid;
+  gap: 8px;
+  padding: 9px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: rgba(255, 255, 255, 0.032);
+}
+
+.live-composition-head {
+  display: grid;
+  grid-template-columns: 72px minmax(0, 1fr);
+  align-items: center;
+  gap: 9px;
+}
+
+.live-composition-head img,
+.live-composition-head .composition-card-empty {
+  width: 72px;
+  aspect-ratio: 16 / 9;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 4px;
+  background: #000;
+  object-fit: cover;
+}
+
+.live-composition-head strong {
+  overflow: hidden;
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.live-field-pair {
+  grid-template-columns: minmax(0, 1fr) 78px;
+}
+
+.live-chain-list {
+  display: grid;
+  gap: 5px;
+}
+
+.live-chain-pass {
+  display: grid;
+  grid-template-columns: minmax(95px, 0.72fr) minmax(80px, 1fr);
+  align-items: center;
+  gap: 7px;
+  padding: 5px 6px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.035);
+}
+
+.live-chain-pass label {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 6px;
+  overflow: hidden;
+  font-size: 11px;
+  font-weight: 700;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.live-chain-pass .material-symbols-rounded {
+  flex: 0 0 auto;
 }
 
 .surface-pills .list-select > .material-symbols-rounded,

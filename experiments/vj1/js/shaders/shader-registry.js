@@ -9,7 +9,7 @@ vec4 runEffect(vec2 uv, vec4 color) {
   float d = length(p);
   float wave = sin(d * 48.0 - time * 4.5) * 0.012 * amount;
   vec2 warped = uv + normalize(p + 0.0001) * wave;
-  return texture2D(tex0, vec2(warped.x, 1.0 - warped.y));
+  return sampleSource(warped);
 }`,
   },
   rgbSplit: {
@@ -19,9 +19,9 @@ vec4 runEffect(vec2 uv, vec4 color) {
     code: `
 vec4 runEffect(vec2 uv, vec4 color) {
   vec2 dir = vec2(sin(time * 1.3), cos(time * 1.7)) * amount * 0.035;
-  float r = texture2D(tex0, vec2(uv.x + dir.x, 1.0 - (uv.y + dir.y))).r;
+  float r = sampleSource(uv + dir).r;
   float g = color.g;
-  float b = texture2D(tex0, vec2(uv.x - dir.x, 1.0 - (uv.y - dir.y))).b;
+  float b = sampleSource(uv - dir).b;
   return vec4(r, g, b, color.a);
 }`,
   },
@@ -29,69 +29,35 @@ vec4 runEffect(vec2 uv, vec4 color) {
     id: "labelChromatic",
     name: "Label Chromatic",
     category: "color",
-    type: "fragment",
     code: `
-precision highp float;
-uniform sampler2D tex0;
-uniform vec2 texelSize;
-uniform float amount;
-varying vec2 vTexCoord;
-
-void main() {
-  vec2 uv = vec2(vTexCoord.x, 1.0 - vTexCoord.y);
-  vec2 offset = vec2(texelSize.x * mix(2.0, 28.0, amount), 0.0);
-  vec4 baseColor = texture2D(tex0, uv);
-  vec4 redColor = texture2D(tex0, uv - offset);
-  vec4 blueColor = texture2D(tex0, uv + offset);
-  gl_FragColor = vec4(redColor.r, baseColor.g, blueColor.b, baseColor.a);
+vec4 runEffect(vec2 uv, vec4 color) {
+  vec2 px = vec2(1.0 / max(resolution.x, 1.0), 1.0 / max(resolution.y, 1.0));
+  vec2 offset = vec2(px.x * mix(2.0, 28.0, amount), 0.0);
+  vec4 redColor = sampleSource(uv - offset);
+  vec4 blueColor = sampleSource(uv + offset);
+  return vec4(redColor.r, color.g, blueColor.b, color.a);
 }`,
   },
   labelGrain: {
     id: "labelGrain",
     name: "Label Grain",
     category: "texture",
-    type: "fragment",
     code: `
-precision highp float;
-uniform sampler2D tex0;
-uniform float amount;
-uniform float time;
-varying vec2 vTexCoord;
-
-float hash(vec2 p) {
-  return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453123);
-}
-
-void main() {
-  vec2 uv = vec2(vTexCoord.x, 1.0 - vTexCoord.y);
-  vec4 color = texture2D(tex0, uv);
+vec4 runEffect(vec2 uv, vec4 color) {
   float fine = hash(uv * vec2(16000.0, 12000.0) + time);
   float rough = hash(uv * vec2(1700.0, 2100.0) + vec2(19.0, 73.0 + time * 0.37));
   float grain = ((fine - 0.5) * 0.75 + (rough - 0.5) * 0.55) * mix(0.08, 0.55, amount);
   float scanline = step(0.82, fract(uv.y * 900.0)) * mix(0.02, 0.22, amount);
   vec3 nextColor = color.rgb + vec3(grain) - vec3(scanline);
-  gl_FragColor = vec4(clamp(nextColor, 0.0, 1.0), color.a);
+  return vec4(clamp(nextColor, 0.0, 1.0), color.a);
 }`,
   },
   labelThresholdGrain: {
     id: "labelThresholdGrain",
     name: "Grain Threshold",
     category: "key",
-    type: "fragment",
     code: `
-precision highp float;
-uniform sampler2D tex0;
-uniform float amount;
-uniform float time;
-varying vec2 vTexCoord;
-
-float hash(vec2 p) {
-  return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453123);
-}
-
-void main() {
-  vec2 uv = vec2(vTexCoord.x, 1.0 - vTexCoord.y);
-  vec4 color = texture2D(tex0, uv);
+vec4 runEffect(vec2 uv, vec4 color) {
   float fine = hash(uv * vec2(16000.0, 12000.0) + time);
   float rough = hash(uv * vec2(2200.0, 2200.0) + vec2(37.0, 91.0 + time * 0.41));
   float grain = (fine - 0.5) * 0.9 + (rough - 0.5) * 0.55;
@@ -100,7 +66,7 @@ void main() {
   float threshold = mix(0.28, 0.74, amount);
   float ink = step(threshold, luma);
   float scanline = step(0.82, fract(uv.y * 900.0)) * 0.2;
-  gl_FragColor = vec4(vec3(clamp(ink - scanline, 0.0, 1.0)), color.a);
+  return vec4(vec3(clamp(ink - scanline, 0.0, 1.0)), color.a);
 }`,
   },
   hardBlack: {
@@ -119,40 +85,113 @@ vec4 runEffect(vec2 uv, vec4 color) {
     id: "blur",
     name: "Blur",
     category: "filter",
-    type: "p5Filter",
-    filter: "BLUR",
-    min: 0,
-    max: 8,
+    code: `
+vec4 sampleBlur(vec2 uv) {
+  return sampleSource(uv);
+}
+
+vec4 runEffect(vec2 uv, vec4 color) {
+  float radius = mix(0.0, 12.0, amount);
+  vec2 px = radius / max(resolution, vec2(1.0));
+  vec4 sum = color * 0.20;
+  sum += sampleBlur(uv + px * vec2( 1.0,  0.0)) * 0.12;
+  sum += sampleBlur(uv + px * vec2(-1.0,  0.0)) * 0.12;
+  sum += sampleBlur(uv + px * vec2( 0.0,  1.0)) * 0.12;
+  sum += sampleBlur(uv + px * vec2( 0.0, -1.0)) * 0.12;
+  sum += sampleBlur(uv + px * vec2( 0.707,  0.707)) * 0.07;
+  sum += sampleBlur(uv + px * vec2(-0.707,  0.707)) * 0.07;
+  sum += sampleBlur(uv + px * vec2( 0.707, -0.707)) * 0.07;
+  sum += sampleBlur(uv + px * vec2(-0.707, -0.707)) * 0.07;
+  sum += sampleBlur(uv + px * vec2( 2.0,  0.0)) * 0.01;
+  sum += sampleBlur(uv + px * vec2(-2.0,  0.0)) * 0.01;
+  sum += sampleBlur(uv + px * vec2( 0.0,  2.0)) * 0.01;
+  sum += sampleBlur(uv + px * vec2( 0.0, -2.0)) * 0.01;
+  return sum;
+}`,
   },
   erode: {
     id: "erode",
     name: "Erode",
     category: "filter",
-    type: "p5Filter",
-    filter: "ERODE",
+    code: `
+vec4 sampleMorph(vec2 uv) {
+  return sampleSource(uv);
+}
+
+float morphLuma(vec3 rgb) {
+  return dot(rgb, vec3(0.2126, 0.7152, 0.0722));
+}
+
+vec4 darkerOf(vec4 current, vec4 candidate) {
+  return morphLuma(candidate.rgb) < morphLuma(current.rgb) ? candidate : current;
+}
+
+vec4 runEffect(vec2 uv, vec4 color) {
+  vec2 px = mix(1.0, 3.0, amount) / max(resolution, vec2(1.0));
+  vec4 selected = color;
+  selected = darkerOf(selected, sampleMorph(uv + px * vec2(-1.0, -1.0)));
+  selected = darkerOf(selected, sampleMorph(uv + px * vec2( 0.0, -1.0)));
+  selected = darkerOf(selected, sampleMorph(uv + px * vec2( 1.0, -1.0)));
+  selected = darkerOf(selected, sampleMorph(uv + px * vec2(-1.0,  0.0)));
+  selected = darkerOf(selected, sampleMorph(uv + px * vec2( 1.0,  0.0)));
+  selected = darkerOf(selected, sampleMorph(uv + px * vec2(-1.0,  1.0)));
+  selected = darkerOf(selected, sampleMorph(uv + px * vec2( 0.0,  1.0)));
+  selected = darkerOf(selected, sampleMorph(uv + px * vec2( 1.0,  1.0)));
+  return mix(color, selected, amount);
+}`,
   },
   dilate: {
     id: "dilate",
     name: "Dilate",
     category: "filter",
-    type: "p5Filter",
-    filter: "DILATE",
+    code: `
+vec4 sampleMorph(vec2 uv) {
+  return sampleSource(uv);
+}
+
+float morphLuma(vec3 rgb) {
+  return dot(rgb, vec3(0.2126, 0.7152, 0.0722));
+}
+
+vec4 lighterOf(vec4 current, vec4 candidate) {
+  return morphLuma(candidate.rgb) > morphLuma(current.rgb) ? candidate : current;
+}
+
+vec4 runEffect(vec2 uv, vec4 color) {
+  vec2 px = mix(1.0, 3.0, amount) / max(resolution, vec2(1.0));
+  vec4 selected = color;
+  selected = lighterOf(selected, sampleMorph(uv + px * vec2(-1.0, -1.0)));
+  selected = lighterOf(selected, sampleMorph(uv + px * vec2( 0.0, -1.0)));
+  selected = lighterOf(selected, sampleMorph(uv + px * vec2( 1.0, -1.0)));
+  selected = lighterOf(selected, sampleMorph(uv + px * vec2(-1.0,  0.0)));
+  selected = lighterOf(selected, sampleMorph(uv + px * vec2( 1.0,  0.0)));
+  selected = lighterOf(selected, sampleMorph(uv + px * vec2(-1.0,  1.0)));
+  selected = lighterOf(selected, sampleMorph(uv + px * vec2( 0.0,  1.0)));
+  selected = lighterOf(selected, sampleMorph(uv + px * vec2( 1.0,  1.0)));
+  return mix(color, selected, amount);
+}`,
   },
   gray: {
     id: "gray",
     name: "Gray",
     category: "filter",
-    type: "p5Filter",
-    filter: "GRAY",
+    code: `
+vec4 runEffect(vec2 uv, vec4 color) {
+  float gray = dot(color.rgb, vec3(0.2126, 0.7152, 0.0722));
+  return vec4(mix(color.rgb, vec3(gray), amount), color.a);
+}`,
   },
   threshold: {
     id: "threshold",
     name: "Threshold",
     category: "filter",
-    type: "p5Filter",
-    filter: "THRESHOLD",
-    min: 0.05,
-    max: 0.95,
+    code: `
+vec4 runEffect(vec2 uv, vec4 color) {
+  float gray = dot(color.rgb, vec3(0.2126, 0.7152, 0.0722));
+  float threshold = floor(mix(0.05, 0.95, amount) * 255.0) / 255.0;
+  float ink = step(threshold, gray);
+  return vec4(vec3(ink), color.a);
+}`,
   },
   invert: {
     id: "invert",
@@ -176,7 +215,7 @@ vec4 runEffect(vec2 uv, vec4 color) {
   angle = mod(angle, 6.28318530718 / slices);
   angle = abs(angle - 3.14159265359 / slices);
   vec2 k = 0.5 + vec2(cos(angle), sin(angle)) * radius;
-  return texture2D(tex0, vec2(k.x, 1.0 - k.y));
+  return sampleSource(k);
 }`,
   },
   pixelate: {
@@ -188,7 +227,7 @@ vec4 runEffect(vec2 uv, vec4 color) {
   float cells = mix(220.0, 18.0, amount);
   vec2 grid = vec2(cells, cells * resolution.y / resolution.x);
   vec2 blockUv = (floor(uv * grid) + 0.5) / grid;
-  return texture2D(tex0, vec2(blockUv.x, 1.0 - blockUv.y));
+  return sampleSource(blockUv);
 }`,
   },
   plasma: {

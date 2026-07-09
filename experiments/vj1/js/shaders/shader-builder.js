@@ -76,11 +76,20 @@ float hash(vec2 p) {
   return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453123);
 }
 
+vec2 sourceUv(vec2 uv) {
+  vec2 safeUv = clamp(uv, vec2(0.0), vec2(1.0));
+  return vec2(safeUv.x, 1.0 - safeUv.y);
+}
+
+vec4 sampleSource(vec2 uv) {
+  return texture2D(tex0, sourceUv(uv));
+}
+
 ${effectCode}
 
 void main() {
   vec2 uv = vTexCoord;
-  vec4 color = texture2D(tex0, vec2(uv.x, 1.0 - uv.y));
+  vec4 color = sampleSource(uv);
   gl_FragColor = runEffect(uv, color);
 }`;
 }

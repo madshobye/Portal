@@ -6,6 +6,7 @@ import {
   createDefaultLayer,
   createDefaultSurface,
   createInitialState,
+  createLiveRenderState,
   createSceneSurfaceSnapshot,
   createSceneFromState,
   sanitizeState,
@@ -68,9 +69,16 @@ export function createAppState(initial = null) {
     },
     setWorkspace(workspace) {
       update((draft) => {
-        draft.ui.workspace = ["compose", "scene"].includes(workspace) ? workspace : "scene";
+        draft.ui.workspace = ["compose", "scene", "live"].includes(workspace) ? workspace : "scene";
         draft.global.calibrating = draft.ui.workspace === "scene";
+        if (draft.ui.workspace === "live" && !draft.ui.live.selectedSceneId) {
+          draft.ui.live.selectedSceneId = draft.ui.selectedSceneId || draft.scenes[0]?.id || "";
+        }
       }, "workspace");
+    },
+    getRenderState() {
+      const current = getState();
+      return current.ui.workspace === "live" ? createLiveRenderState(current) : current;
     },
     addComposition() {
       update((draft) => {
