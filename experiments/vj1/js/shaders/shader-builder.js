@@ -68,6 +68,7 @@ function fragmentShaderSource(effectCode) {
 precision mediump float;
 uniform sampler2D tex0;
 uniform vec2 resolution;
+uniform bool sourceFlipY;
 uniform float time;
 uniform float amount;
 varying vec2 vTexCoord;
@@ -78,7 +79,7 @@ float hash(vec2 p) {
 
 vec2 sourceUv(vec2 uv) {
   vec2 safeUv = clamp(uv, vec2(0.0), vec2(1.0));
-  return vec2(safeUv.x, 1.0 - safeUv.y);
+  return sourceFlipY ? vec2(safeUv.x, 1.0 - safeUv.y) : safeUv;
 }
 
 vec4 sampleSource(vec2 uv) {

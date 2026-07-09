@@ -42,6 +42,7 @@ export class OutputRenderer {
     this.lastTickMs = 0;
     this.visualTime = 0;
     this.compositionTimes = new Map();
+    this.orientationDiagnostics = new Set();
     this.shaderBuilder = createShaderBuilder({
       getCustomCode: () => this.state?.shaders?.customCode || "",
       onStatus: (status, error) => {
@@ -360,6 +361,7 @@ export class OutputRenderer {
       output.clear();
       drawBuffer(output, effected, 0, 0, output.width, output.height, this.isShaderBuffer(effected));
       output.pop();
+      this.checkCompositionOrientation(composition, output);
       this.compositionOutput.set(composition.id, output);
       this.mainMix.push();
       applyBlend(this.mainMix, composition.blend);
@@ -463,6 +465,7 @@ export class OutputRenderer {
       shader.setUniform("resolution", [rw, rh]);
       shader.setUniform("canvasSize", [rw, rh]);
       shader.setUniform("texelSize", [1 / Math.max(1, rw), 1 / Math.max(1, rh)]);
+      shader.setUniform("sourceFlipY", !this.isShaderBuffer(current));
       shader.setUniform("time", timeSeconds);
       shader.setUniform("amount", Number(pass.amount) || 0);
       target.rect(-rw / 2, -rh / 2, rw, rh);
@@ -472,6 +475,25 @@ export class OutputRenderer {
       passCount++;
     }
     return current;
+  }
+
+  checkCompositionOrientation(composition, output) {
+    if (!shouldCheckOrientation(composition)) return;
+    const key = `${composition.id}:${orientationChainSignature(composition.shaderChain)}`;
+    if (this.orientationDiagnostics.has(key)) return;
+    this.orientationDiagnostics.add(key);
+    const result = readOrientationSignature(output);
+    if (!result) return;
+    const level = result.status === "ok" ? "debug" : "warn";
+    console[level]("[VJ1_ORIENTATION_CHECK]", JSON.stringify({
+      compositionId: composition.id,
+      compositionName: composition.name,
+      status: result.status,
+      expected: result.expected,
+      observed: result.observed,
+      samples: result.samples,
+      chain: (composition.shaderChain || []).filter((pass) => pass.enabled !== false).map((pass) => pass.id),
+    }));
   }
 
   renderSurfaces() {
@@ -856,6 +878,135 @@ function syncVideoSpeed(video, speedValue = 1) {
   }
 }
 
+const ORIENTATION_POINTS = Object.freeze([
+  { key: "topLeft", label: "TL", x: 0.09, y: 0.1 },
+  { key: "topRight", label: "TR", x: 0.91, y: 0.1 },
+  { key: "bottomLeft", label: "BL", x: 0.09, y: 0.9 },
+  { key: "bottomRight", label: "BR", x: 0.91, y: 0.9 },
+]);
+
+const ORIENTATION_COLORS = Object.freeze({
+  TL: [255, 79, 79],
+  TR: [89, 227, 109],
+  BL: [77, 117, 255],
+  BR: [255, 228, 94],
+});
+
+function shouldCheckOrientation(composition) {
+  return composition?.source?.type === "generator" &&
+    composition.source.generatorId === "testPattern" &&
+    (composition.shaderChain || []).some((pass) => pass.enabled !== false);
+}
+
+function orientationChainSignature(chain = []) {
+  return JSON.stringify(chain
+    .filter((pass) => pass.enabled !== false)
+    .map((pass) => pass.id));
+}
+
+function readOrientationSignature(pg) {
+  if (!pg || typeof pg.get !== "function" || !pg.width || !pg.height) return null;
+  const samples = {};
+  const observed = [];
+  for (const point of ORIENTATION_POINTS) {
+    const sample = sampleOrientationPoint(pg, point);
+    const nearest = sample.nearest;
+    samples[point.key] = {
+      expected: point.label,
+      observed: nearest.label,
+      distance: Math.round(nearest.distance),
+      x: sample.x,
+      y: sample.y,
+      rgba: sample.rgba,
+    };
+    observed.push(nearest.label);
+  }
+  const expected = ORIENTATION_POINTS.map((point) => point.label);
+  return {
+    status: orientationStatus(observed),
+    expected,
+    observed,
+    samples,
+  };
+}
+
+function sampleOrientationPoint(pg, point) {
+  const centerX = Math.round(pg.width * point.x);
+  const centerY = Math.round(pg.height * point.y);
+  const radius = Math.max(8, Math.round(Math.min(pg.width, pg.height) * 0.045));
+  const step = Math.max(2, Math.round(radius / 4));
+  let best = {
+    x: centerX,
+    y: centerY,
+    rgba: rgbaSample(pg, centerX, centerY),
+    nearest: nearestOrientationColor(rgbaSample(pg, centerX, centerY)),
+  };
+  for (let dy = -radius; dy <= radius; dy += step) {
+    for (let dx = -radius; dx <= radius; dx += step) {
+      const x = Math.max(0, Math.min(pg.width - 1, centerX + dx));
+      const y = Math.max(0, Math.min(pg.height - 1, centerY + dy));
+      const rgba = rgbaSample(pg, x, y);
+      const nearest = nearestOrientationColor(rgba);
+      if (nearest.label === point.label && best.nearest.label !== point.label) {
+        best = { x, y, rgba, nearest };
+      } else if (nearest.label === point.label && nearest.distance < best.nearest.distance) {
+        best = { x, y, rgba, nearest };
+      } else if (best.nearest.label !== point.label && nearest.distance < best.nearest.distance) {
+        best = { x, y, rgba, nearest };
+      }
+    }
+  }
+  return best;
+}
+
+function rgbaSample(pg, x, y) {
+  const rgba = pg.get(x, y);
+  return Array.isArray(rgba) ? rgba.slice(0, 4).map((value) => Math.round(value)) : [0, 0, 0, 0];
+}
+
+function nearestOrientationColor(rgba) {
+  if (!Array.isArray(rgba) || rgba.length < 3) return { label: "unknown", distance: Infinity };
+  const dominant = dominantOrientationColor(rgba);
+  if (dominant) return dominant;
+  let best = { label: "unknown", distance: Infinity };
+  for (const [label, color] of Object.entries(ORIENTATION_COLORS)) {
+    const distance = colorDistance(rgba, color);
+    if (distance < best.distance) best = { label, distance };
+  }
+  return best.distance < 140 ? best : { label: "unknown", distance: best.distance };
+}
+
+function dominantOrientationColor(rgba) {
+  const r = Number(rgba[0]) || 0;
+  const g = Number(rgba[1]) || 0;
+  const b = Number(rgba[2]) || 0;
+  if (r + g + b < 70) return null;
+  if (r > g * 1.35 && r > b * 1.35) return { label: "TL", distance: colorDistance(rgba, ORIENTATION_COLORS.TL) };
+  if (g > r * 1.35 && g > b * 1.35) return { label: "TR", distance: colorDistance(rgba, ORIENTATION_COLORS.TR) };
+  if (b > r * 1.25 && b > g * 1.25) return { label: "BL", distance: colorDistance(rgba, ORIENTATION_COLORS.BL) };
+  if (Math.min(r, g) > Math.max(38, b * 1.45) && Math.abs(r - g) < Math.max(90, (r + g) * 0.32)) {
+    return { label: "BR", distance: colorDistance(rgba, ORIENTATION_COLORS.BR) };
+  }
+  return null;
+}
+
+function colorDistance(a, b) {
+  const dr = (Number(a[0]) || 0) - b[0];
+  const dg = (Number(a[1]) || 0) - b[1];
+  const db = (Number(a[2]) || 0) - b[2];
+  return Math.sqrt(dr * dr + dg * dg + db * db);
+}
+
+function orientationStatus(observed) {
+  const signature = observed.join(",");
+  if (observed.includes("unknown")) return "unknown";
+  if (signature === "TL,TR,BL,BR") return "ok";
+  if (signature === "TR,TL,BR,BL") return "horizontal-flip";
+  if (signature === "BL,BR,TL,TR") return "vertical-flip";
+  if (signature === "BR,BL,TR,TL") return "double-flip";
+  return "mixed";
+}
+
 function drawStandby(pg, label) {
   pg.background("#080a0e");
   pg.noStroke();
@@ -912,6 +1063,34 @@ function drawTestPattern(pg) {
   pg.textAlign(CENTER, CENTER);
   pg.textSize(Math.max(18, pg.height * 0.04));
   pg.text("TEST PATTERN", cx, cy + size * 0.92);
+  drawOrientationBadge(pg, pg.width * 0.09, pg.height * 0.1, "TL", "#ff4f4f");
+  drawOrientationBadge(pg, pg.width * 0.91, pg.height * 0.1, "TR", "#59e36d");
+  drawOrientationBadge(pg, pg.width * 0.09, pg.height * 0.9, "BL", "#4d75ff");
+  drawOrientationBadge(pg, pg.width * 0.91, pg.height * 0.9, "BR", "#ffe45e");
+  pg.stroke("#f4f6ef");
+  pg.strokeWeight(3);
+  pg.line(pg.width * 0.5, pg.height * 0.18, pg.width * 0.5, pg.height * 0.05);
+  pg.line(pg.width * 0.5, pg.height * 0.05, pg.width * 0.47, pg.height * 0.1);
+  pg.line(pg.width * 0.5, pg.height * 0.05, pg.width * 0.53, pg.height * 0.1);
+  pg.noStroke();
+  pg.fill("#f4f6ef");
+  pg.textSize(Math.max(12, pg.height * 0.028));
+  pg.text("UP", pg.width * 0.5, pg.height * 0.22);
+}
+
+function drawOrientationBadge(pg, x, y, label, color) {
+  const radius = Math.max(20, Math.min(pg.width, pg.height) * 0.045);
+  pg.push();
+  pg.noStroke();
+  pg.fill(color);
+  pg.circle(x, y, radius * 2);
+  pg.fill("#050608");
+  pg.textAlign(CENTER, CENTER);
+  pg.textSize(Math.max(12, radius * 0.72));
+  pg.textStyle(BOLD);
+  pg.text(label, x, y);
+  pg.textStyle(NORMAL);
+  pg.pop();
 }
 
 function drawWaves(pg, t) {

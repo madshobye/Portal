@@ -2,15 +2,22 @@ import { BLEND_MODES, GENERATORS, SOURCE_TYPES } from "../constants.js";
 import { applySceneSnapshotToState, createLiveCompositionView, createLiveRenderState, createSceneSnapshot } from "../domain/models.js";
 import { buildOutputUrl } from "../view-routing.js";
 import { listShaderComponents } from "../shaders/shader-registry.js";
-import { createEmbeddedPreviewApp } from "../output/embedded-preview-app.js?v=scene-snapshots-80";
+import { createEmbeddedPreviewApp } from "../output/embedded-preview-app.js?v=scene-snapshots-89";
 
 export function createControlShell({ root, store, bridge, mediaLibrary, projectService }) {
   let refs = {};
   let latestState = store.getState();
   let renderFrame = 0;
+  let renderPending = false;
+  let deferredRenderState = null;
+  let deferredRenderTimer = 0;
+  let activePointerCount = 0;
+  let interactionHoldUntil = 0;
   let mediaPicker = null;
+  const renderedHtml = new WeakMap();
   const mediaPreviewUrls = new Map();
   const embeddedPreview = createEmbeddedPreviewApp({ store, mediaLibrary });
+  const interactionQuietMs = 160;
 
   function mount() {
     root.innerHTML = shellTemplate();
@@ -23,7 +30,7 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
         renderPreview(state);
         return;
       }
-      if (reason === "output-metrics" || reason === "preview-metrics" || reason === "project-autosave" || reason === "project-autosave-error") {
+      if (reason === "output-metrics" || reason === "preview-metrics" || reason === "project-history" || reason === "project-autosave" || reason === "project-autosave-error") {
         renderTopbar(state);
         return;
       }
@@ -41,11 +48,49 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
   }
 
   function scheduleRender(state) {
+    if (shouldDeferRender()) {
+      deferRender(state);
+      return;
+    }
+    scheduleRenderNow(state);
+  }
+
+  function scheduleRenderNow(state) {
     if (renderFrame) cancelAnimationFrame(renderFrame);
     renderFrame = requestAnimationFrame(() => {
       renderFrame = 0;
+      if (shouldDeferRender()) {
+        deferRender(state);
+        return;
+      }
       render(state);
     });
+  }
+
+  function deferRender(state) {
+    deferredRenderState = state;
+    renderPending = true;
+    renderTopbar(state);
+    updatePreviewState(state);
+    scheduleDeferredRenderFlush();
+  }
+
+  function scheduleDeferredRenderFlush() {
+    if (deferredRenderTimer) clearTimeout(deferredRenderTimer);
+    deferredRenderTimer = setTimeout(flushDeferredRender, interactionQuietMs);
+  }
+
+  function flushDeferredRender() {
+    deferredRenderTimer = 0;
+    if (!renderPending || !deferredRenderState) return;
+    if (shouldDeferRender()) {
+      scheduleDeferredRenderFlush();
+      return;
+    }
+    const state = deferredRenderState;
+    deferredRenderState = null;
+    renderPending = false;
+    scheduleRenderNow(state);
   }
 
   function render(state) {
@@ -57,7 +102,18 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
     renderModal(state);
   }
 
+  function replaceHtmlIfChanged(node, html) {
+    if (!node) return false;
+    const next = String(html ?? "");
+    if (renderedHtml.get(node) === next) return false;
+    node.innerHTML = next;
+    renderedHtml.set(node, next);
+    return true;
+  }
+
   function bindStaticEvents() {
+    bindInteractionDeferral();
+
     refs.openOutput.addEventListener("click", () => {
       window.open(buildOutputUrl("output"), "vj1-output", "popup=yes,width=1280,height=720");
       store.update((draft) => {
@@ -124,6 +180,51 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
     });
   }
 
+  function bindInteractionDeferral() {
+    root.addEventListener("pointerdown", (event) => {
+      if (!isInteractiveNode(event.target)) return;
+      activePointerCount += 1;
+      beginInteractionHold();
+    }, true);
+    window.addEventListener("pointerup", endPointerInteractionSoon, true);
+    window.addEventListener("pointercancel", endPointerInteractionSoon, true);
+    root.addEventListener("focusin", (event) => {
+      if (isInteractiveNode(event.target)) beginInteractionHold();
+    }, true);
+    root.addEventListener("focusout", () => {
+      interactionHoldUntil = performance.now() + interactionQuietMs;
+      scheduleDeferredRenderFlush();
+    }, true);
+    root.addEventListener("input", (event) => {
+      if (isInteractiveNode(event.target)) beginInteractionHold();
+    }, true);
+    root.addEventListener("change", (event) => {
+      if (!isInteractiveNode(event.target)) return;
+      interactionHoldUntil = performance.now() + interactionQuietMs;
+      scheduleDeferredRenderFlush();
+    }, true);
+  }
+
+  function beginInteractionHold() {
+    interactionHoldUntil = performance.now() + interactionQuietMs;
+    if (deferredRenderTimer) clearTimeout(deferredRenderTimer);
+  }
+
+  function endPointerInteractionSoon() {
+    activePointerCount = Math.max(0, activePointerCount - 1);
+    interactionHoldUntil = performance.now() + interactionQuietMs;
+    scheduleDeferredRenderFlush();
+  }
+
+  function shouldDeferRender() {
+    const now = performance.now();
+    return activePointerCount > 0 || now < interactionHoldUntil || hasFocusedEditor();
+  }
+
+  function hasFocusedEditor() {
+    return isTextEditingNode(document.activeElement);
+  }
+
   async function openProjectFolder() {
     const result = await projectService.openFolder().catch((error) => {
       setStatus(`Folder error: ${error.message || error}`);
@@ -182,7 +283,7 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
   function renderProjectRail(state) {
     const hasProject = !!state.project.folderName || state.media.length > 0;
     const workspace = currentWorkspace(state);
-    refs.projectRail.innerHTML = `
+    const html = `
       ${hasProject ? railToolsTemplate(state, workspace) : `
         <div class="folder-first-note">
           <span class="material-symbols-rounded">gesture</span>
@@ -190,7 +291,7 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
         </div>
       `}
     `;
-    bindRailEvents();
+    if (replaceHtmlIfChanged(refs.projectRail, html)) bindRailEvents();
   }
 
   function railToolsTemplate(state, workspace) {
@@ -259,7 +360,7 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
     const previewHost = refs.studio.querySelector("[data-preview-host]");
     setClass(previewHost, "is-empty", !hasProject);
     if (!hasProject) {
-      previewHost.innerHTML = projectEmptyTemplate();
+      replaceHtmlIfChanged(previewHost, projectEmptyTemplate());
       embeddedPreview.pause();
     }
   }
@@ -271,13 +372,13 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
     const kind = workspace === "compose" ? "composition" : "preview";
     const previewState = workspace === "live" ? createLiveRenderState(state) : state;
     if (!previewHost.querySelector("[data-embedded-preview-stage]")) {
-      previewHost.innerHTML = `
+      replaceHtmlIfChanged(previewHost, `
         <div class="embedded-preview-stage" data-embedded-preview-stage></div>
         <div class="preview-tools">
           <button type="button" class="preview-tool" data-toggle-mapping-handles title="Toggle mapping handles" aria-label="Toggle mapping handles">${icon("control_point_duplicate")}</button>
           <div class="preview-fps" data-preview-fps>0 fps</div>
         </div>
-      `;
+      `);
     }
     const handleButton = previewHost.querySelector("[data-toggle-mapping-handles]");
     setClass(handleButton, "is-subtle", state.global.mappingHandleMode === "near");
@@ -308,37 +409,38 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
   function renderInspector(state) {
     const hasProject = !!state.project.folderName || state.media.length > 0;
     if (!hasProject) {
-      refs.inspector.innerHTML = panelTemplate(
+      replaceHtmlIfChanged(refs.inspector, panelTemplate(
         "folder_open",
         "Project first",
         `<div class="soft-note">The controls appear after you choose a folder. That keeps every look connected to a real local show file.</div>`
-      );
+      ));
       return;
     }
     const selectedSurface = state.surfaces.find((surface) => surface.id === state.ui.selectedSurfaceId) || state.surfaces[0];
+    let html = "";
     if (currentWorkspace(state) === "compose") {
       const selectedComposition = state.compositions.find((composition) => composition.id === state.ui.selectedCompositionId) || state.compositions[0];
-      refs.inspector.innerHTML = panelTemplate(
+      html = panelTemplate(
         "account_tree",
         "Composition",
         selectedComposition ? compositionTemplate(selectedComposition, state) : emptyNote("No composition")
       );
-      bindInputs(refs.inspector, state);
+      if (replaceHtmlIfChanged(refs.inspector, html)) bindInputs(refs.inspector, state);
       return;
     }
     if (currentWorkspace(state) === "live") {
-      refs.inspector.innerHTML = panelTemplate(
+      html = panelTemplate(
         "tune",
         "Live",
         liveInspectorTemplate(state)
       );
-      bindInputs(refs.inspector, state);
+      if (replaceHtmlIfChanged(refs.inspector, html)) bindInputs(refs.inspector, state);
       return;
     }
-    refs.inspector.innerHTML = `
+    html = `
       ${panelTemplate("select_all", "Surface", selectedSurface ? sceneSurfaceTemplate(selectedSurface, state) : emptyNote("No surface"))}
     `;
-    bindInputs(refs.inspector, state);
+    if (replaceHtmlIfChanged(refs.inspector, html)) bindInputs(refs.inspector, state);
   }
 
   function bindRailEvents() {
@@ -394,10 +496,10 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
     const host = refs.modalHost;
     if (!host) return;
     if (!mediaPicker) {
-      host.innerHTML = "";
+      replaceHtmlIfChanged(host, "");
       return;
     }
-    host.innerHTML = mediaPickerTemplate(state, mediaPicker, mediaLibrary, mediaPreviewUrls);
+    if (!replaceHtmlIfChanged(host, mediaPickerTemplate(state, mediaPicker, mediaLibrary, mediaPreviewUrls))) return;
     host.querySelector("[data-close-modal]")?.addEventListener("click", closeMediaPicker);
     host.querySelector(".modal-backdrop")?.addEventListener("click", closeMediaPicker);
     host.querySelectorAll("[data-pick-media]").forEach((button) => {
@@ -1216,6 +1318,19 @@ function setClass(node, className, on) {
   const hasClass = node.classList.contains(className);
   if (on && !hasClass) node.classList.add(className);
   if (!on && hasClass) node.classList.remove(className);
+}
+
+function isInteractiveNode(node) {
+  return !!node?.closest?.("input, select, textarea, button, label, [contenteditable='true'], [data-update], [data-action]");
+}
+
+function isTextEditingNode(node) {
+  if (!node) return false;
+  if (node.isContentEditable) return true;
+  const tag = node.tagName;
+  if (tag === "TEXTAREA" || tag === "SELECT") return true;
+  if (tag !== "INPUT") return false;
+  return !["button", "checkbox", "radio", "range", "submit", "reset", "file", "color"].includes(node.type);
 }
 
 function effectIcon(id) {

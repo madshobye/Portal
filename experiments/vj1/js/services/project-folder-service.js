@@ -508,11 +508,15 @@ function payloadSignature(payload) {
 
 function directorySignature(files) {
   return JSON.stringify(Array.from(files || [])
-    .map((file) => ({
-      path: file.relativePath || file.webkitRelativePath || file.name || "",
-      size: file.size || 0,
-      modified: file.lastModified || 0,
-    }))
+    .map((file) => {
+      const path = file.relativePath || file.webkitRelativePath || file.name || "";
+      return {
+        path,
+        size: file.size || 0,
+        modified: file.lastModified || 0,
+      };
+    })
+    .filter((file) => isMediaFile(file.path) || isShaderFile(file.path))
     .sort((a, b) => a.path.localeCompare(b.path)));
 }
 
