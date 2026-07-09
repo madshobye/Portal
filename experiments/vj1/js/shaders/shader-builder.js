@@ -1,4 +1,4 @@
-import { getShaderComponent } from "./shader-registry.js";
+import { getShaderComponent } from "./shader-registry.js?v=world-frame-24";
 
 export function createShaderBuilder({ getCustomCode, onStatus }) {
   const cache = new Map();
@@ -73,6 +73,7 @@ uniform bool sourceFlipY;
 uniform bool sourceForceOpaque;
 uniform float time;
 uniform float amount;
+uniform vec4 effectTransform;
 ${paramUniformDeclarations(component)}
 varying vec2 vTexCoord;
 
@@ -90,17 +91,28 @@ vec4 sampleSource(vec2 uv) {
   return sourceForceOpaque ? vec4(sampled.rgb, 1.0) : sampled;
 }
 
+vec2 transformEffectUv(vec2 uv) {
+  vec2 center = vec2(0.5) + effectTransform.xy * 0.5;
+  float scale = max(effectTransform.z, 0.0001);
+  float rotation = effectTransform.w;
+  vec2 p = uv - center;
+  float c = cos(-rotation);
+  float s = sin(-rotation);
+  p = vec2(c * p.x - s * p.y, s * p.x + c * p.y) / scale;
+  return p + vec2(0.5);
+}
+
 ${effectCode}
 
 void main() {
-  vec2 uv = vTexCoord;
+  vec2 uv = transformEffectUv(vTexCoord);
   vec4 color = sampleSource(uv);
   gl_FragColor = runEffect(uv, color);
 }`;
 }
 
 function paramUniformDeclarations(component) {
-  const reserved = new Set(["tex0", "resolution", "sourceFlipY", "sourceForceOpaque", "time", "amount", "canvasSize", "texelSize"]);
+  const reserved = new Set(["tex0", "resolution", "sourceFlipY", "sourceForceOpaque", "time", "amount", "effectTransform", "canvasSize", "texelSize"]);
   return (component?.params || [])
     .filter((param) => param?.id && !reserved.has(param.id))
     .map((param) => `uniform ${uniformTypeForParam(param)} ${param.id};`)

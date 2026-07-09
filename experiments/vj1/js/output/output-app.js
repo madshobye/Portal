@@ -1,9 +1,11 @@
 import { VJ1 } from "../constants.js";
-import { sanitizeState } from "../domain/models.js";
+import { sanitizeState } from "../domain/models.js?v=world-frame-24";
 import { createOutputBridge } from "../services/output-bridge-service.js";
-import { OutputRenderer } from "./output-renderer.js?v=world-frame-14";
-import { applyFontToGlobal, loadVjRenderFont } from "./font-loader.js?v=world-frame-14";
-import { fittedCssRect, frameSize } from "./render-geometry.js";
+import { OutputRenderer } from "./output-renderer.js?v=world-frame-24";
+import { applyFontToGlobal, loadVjRenderFont } from "./font-loader.js?v=world-frame-24";
+import { frameSize } from "./render-geometry.js";
+
+let outputFitSignature = "";
 
 export function installOutputApp({ root, mode }) {
   document.body.classList.add("output-client");
@@ -17,10 +19,13 @@ export function installOutputApp({ root, mode }) {
   let pendingState = null;
   let bridge = null;
   let renderFont = null;
+  let resizeObserver = null;
 
   window.addEventListener("pagehide", () => {
     renderer?.dispose?.();
     renderer = null;
+    resizeObserver?.disconnect?.();
+    resizeObserver = null;
   }, { once: true });
 
   window.setup = async function setup() {
@@ -29,6 +34,11 @@ export function installOutputApp({ root, mode }) {
     canvas.parent("output-stage");
     applyLoadedFont();
     fitOutputCanvas(size);
+    const stage = document.querySelector("#output-stage");
+    resizeObserver = typeof ResizeObserver === "function"
+      ? new ResizeObserver(() => fitOutputCanvas(outputSize(pendingState)))
+      : null;
+    if (resizeObserver && stage) resizeObserver.observe(stage);
     pixelDensity(1);
     frameRate(120);
     if (window.p5) window.p5.disableFriendlyErrors = true;
@@ -48,7 +58,6 @@ export function installOutputApp({ root, mode }) {
   };
 
   window.draw = function draw() {
-    fitOutputCanvas(outputSize(pendingState));
     renderer?.draw();
   };
 
@@ -140,25 +149,21 @@ function fitOutputCanvas(size = outputSize()) {
   if (!canvas) return;
   const stage = document.querySelector("#output-stage");
   const stageRect = stage?.getBoundingClientRect?.();
-  const rect = fittedCssRect(
-    {
-      width: Math.max(1, Math.floor(stageRect?.width || window.innerWidth || size.width)),
-      height: Math.max(1, Math.floor(stageRect?.height || window.innerHeight || size.height)),
-    },
-    size,
-    1
-  );
+  const stageSize = {
+    width: Math.max(1, Math.floor(stageRect?.width || window.innerWidth || size.width)),
+    height: Math.max(1, Math.floor(stageRect?.height || window.innerHeight || size.height)),
+  };
+  const scale = Math.max(stageSize.width / size.width, stageSize.height / size.height);
+  const rect = {
+    width: Math.ceil(size.width * scale),
+    height: Math.ceil(size.height * scale),
+  };
   const desiredWidth = `${rect.width}px`;
   const desiredHeight = `${rect.height}px`;
   const desiredTransform = "translate(-50%, -50%)";
-  if (
-    canvas.style.position === "absolute" &&
-    canvas.style.left === "50%" &&
-    canvas.style.top === "50%" &&
-    canvas.style.width === desiredWidth &&
-    canvas.style.height === desiredHeight &&
-    canvas.style.transform === desiredTransform
-  ) return;
+  const signature = `${desiredWidth}:${desiredHeight}:${desiredTransform}`;
+  if (signature === outputFitSignature) return;
+  outputFitSignature = signature;
   canvas.style.position = "absolute";
   canvas.style.left = "50%";
   canvas.style.top = "50%";

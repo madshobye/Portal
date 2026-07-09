@@ -5,6 +5,7 @@ export class VjMapper {
     this.calibrate = true;
     this.overlayMode = "always";
     this.pickRadius = 60;
+    this.edgeSoftness = 0;
     this.onConfigChange = typeof onConfigChange === "function" ? onConfigChange : null;
     this._dragSurf = -1;
     this._dragCorner = -1;
@@ -23,6 +24,11 @@ export class VjMapper {
 
   setOverlayMode(mode = "always") {
     this.overlayMode = mode === "near" ? "near" : "always";
+  }
+
+  setEdgeSoftness(value = 0) {
+    const next = Math.max(0, Math.min(8, Number(value) || 0));
+    this.edgeSoftness = next;
   }
 
   isCalibrating() {
@@ -129,6 +135,8 @@ export class VjMapper {
     this.shader.setUniform("tex", texture);
     this.shader.setUniform("uResolution", this._renderResolution);
     this.shader.setUniform("uHinv", cache.Hc);
+    this.shader.setUniform("uSurfaceSize", [surface.w, surface.h]);
+    this.shader.setUniform("uEdgeSoftness", this.edgeSoftness);
     this._drawSurfaceBounds(cache.bounds);
     resetShader();
   }
@@ -251,13 +259,21 @@ export class VjMapper {
       uniform sampler2D tex;
       uniform mat3 uHinv;
       uniform vec2 uResolution;
+      uniform vec2 uSurfaceSize;
+      uniform float uEdgeSoftness;
       void main() {
         vec2 screen = vec2(gl_FragCoord.x, uResolution.y - gl_FragCoord.y);
         vec3 q = uHinv * vec3(screen, 1.0);
         float w = (q.z != 0.0) ? q.z : 1e-6;
         vec2 uv = q.xy / w;
         if (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0) discard;
-        gl_FragColor = texture2D(tex, uv);
+        vec4 color = texture2D(tex, uv);
+        if (uEdgeSoftness > 0.0) {
+          vec2 edgePx = min(uv, 1.0 - uv) * uSurfaceSize;
+          float edge = min(edgePx.x, edgePx.y);
+          color.a *= smoothstep(0.0, uEdgeSoftness, edge);
+        }
+        gl_FragColor = color;
       }
     `;
     this.shader = createShader(vertexSource, fragmentSource);

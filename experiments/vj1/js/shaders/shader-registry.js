@@ -8,6 +8,7 @@ export const SHADER_COMPONENTS = Object.freeze({
     id: "ripple",
     name: "Ripple",
     category: "warp",
+    spatial: true,
     code: `
 vec4 runEffect(vec2 uv, vec4 color) {
   vec2 p = uv - 0.5;
@@ -223,6 +224,7 @@ vec4 runEffect(vec2 uv, vec4 color) {
     id: "kaleido",
     name: "Kaleido",
     category: "geometry",
+    spatial: true,
     code: `
 vec4 runEffect(vec2 uv, vec4 color) {
   vec2 p = uv - 0.5;
@@ -239,6 +241,7 @@ vec4 runEffect(vec2 uv, vec4 color) {
     id: "pixelate",
     name: "Pixelate",
     category: "texture",
+    spatial: true,
     code: `
 vec4 runEffect(vec2 uv, vec4 color) {
   float cells = mix(220.0, 18.0, amount);
@@ -251,6 +254,7 @@ vec4 runEffect(vec2 uv, vec4 color) {
     id: "plasma",
     name: "Plasma Tint",
     category: "color",
+    spatial: true,
     code: `
 vec4 runEffect(vec2 uv, vec4 color) {
   vec2 p = (uv - 0.5) * 2.0;

@@ -1,6 +1,6 @@
 import { createVisualNode, normalizeParamValues, paramValue, textureInlet, textureOutlet, textureRenderContract } from "./component-schema.js";
 import { getGeneratorComponent } from "./generator-registry.js";
-import { getShaderComponent } from "../shaders/shader-registry.js";
+import { getShaderComponent } from "../shaders/shader-registry.js?v=world-frame-24";
 
 export function compileCompositionPatch(composition = {}, renderRequest = {}) {
   const request = normalizePatchRenderRequest(renderRequest);
@@ -143,6 +143,7 @@ function chainNodeForItem(composition, item, index) {
       enabled: item.enabled,
       params: item.params,
       amount: item.amount,
+      transform: item.transform,
     }, index);
   }
   const component = sourceComponentFor(item.source);
@@ -225,10 +226,12 @@ function effectNodeForPass(composition, pass, index) {
     enabled: pass.enabled !== false,
     params: passParams(component, pass),
     state: {
+      transform: pass.transform || {},
       pass: {
         id: pass.id,
         enabled: pass.enabled !== false,
         params: passParams(component, pass),
+        transform: pass.transform || {},
       },
     },
   });

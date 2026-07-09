@@ -1,10 +1,12 @@
 import { fittedCssRect, frameSize, worldSize } from "./render-geometry.js";
 
-export function fitPreviewCanvasElement({ canvas, mode, stageSize, logicalSize, viewport }) {
+export function fitPreviewCanvasElement({ canvas, mode, stageSize, logicalSize, viewport, render }) {
   const elt = canvas?.elt || canvas;
   if (!elt) return;
-  const zoom = mode === "preview" ? clampNumber(viewport?.zoom, 0.1, 6, 1) : 1;
-  const pan = mode === "preview" ? viewport : {};
+  const canNavigate = isNavigablePreviewMode(mode);
+  const resolvedViewport = resolveViewportForFit({ mode, stageSize, viewport, render });
+  const zoom = canNavigate ? clampNumber(resolvedViewport?.zoom, 0.1, 6, 1) : 1;
+  const pan = canNavigate ? resolvedViewport : {};
   const rect = fittedCssRect(stageSize, logicalSize, zoom, pan);
   elt.style.position = "absolute";
   elt.style.left = "50%";
@@ -25,16 +27,16 @@ export function createPreviewViewportController({ stage, store, getMode, getView
   };
 
   add("wheel", (event) => {
-    if (getMode?.() !== "preview") return;
+    if (!isNavigablePreviewMode(getMode?.())) return;
     event.preventDefault();
-    const factor = event.deltaY < 0 ? 1.08 : 1 / 1.08;
+    const factor = Math.pow(1.0025, -event.deltaY);
     store.update((draft) => {
       draft.ui.previewViewport = zoomViewport(draft.ui.previewViewport, factor);
     }, "scrub:preview-zoom");
   }, { passive: false });
 
   add("pointerdown", (event) => {
-    if (getMode?.() !== "preview" || (!event.altKey && event.button !== 1)) return;
+    if (!isNavigablePreviewMode(getMode?.()) || (!event.altKey && event.button !== 1)) return;
     event.preventDefault();
     onPanStart?.();
     const viewport = getViewport?.() || {};
@@ -54,6 +56,7 @@ export function createPreviewViewportController({ stage, store, getMode, getView
     store.update((draft) => {
       draft.ui.previewViewport = {
         ...(draft.ui.previewViewport || {}),
+        fit: "manual",
         x: panDrag.x + event.clientX - panDrag.startX,
         y: panDrag.y + event.clientY - panDrag.startY,
       };
@@ -76,16 +79,21 @@ export function createPreviewViewportController({ stage, store, getMode, getView
   };
 }
 
+function isNavigablePreviewMode(mode) {
+  return mode === "preview" || mode === "composition";
+}
+
 export function zoomViewport(viewport = {}, multiplier = 1) {
   const current = clampNumber(viewport.zoom, 0.1, 6, 1);
   return {
     ...viewport,
+    fit: "manual",
     zoom: clampNumber(current * multiplier, 0.1, 6, 1),
   };
 }
 
 export function resetViewport() {
-  return { zoom: 1, x: 0, y: 0 };
+  return { zoom: 1, x: 0, y: 0, fit: "world" };
 }
 
 export function frameFitViewport({ stageSize, render }) {
@@ -101,7 +109,15 @@ export function frameFitViewport({ stageSize, render }) {
     zoom: clampNumber(frameFit.scale / Math.max(0.0001, worldFit.scale), 0.1, 6, 1),
     x: 0,
     y: 0,
+    fit: "frame",
   };
+}
+
+function resolveViewportForFit({ mode, stageSize, viewport = {}, render = {} }) {
+  if (mode === "preview" && viewport.fit === "frame") {
+    return frameFitViewport({ stageSize, render });
+  }
+  return viewport;
 }
 
 function clampNumber(value, min, max, fallback) {

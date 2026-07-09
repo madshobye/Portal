@@ -1,11 +1,10 @@
 import { VJ1 } from "../constants.js";
-import { clamp01, sanitizeState } from "../domain/models.js";
+import { clamp01, sanitizeState } from "../domain/models.js?v=world-frame-24";
 import { createManualScheduler } from "../graph/manual-scheduler.js";
-import { planCompositorInputs, planPatchExecution } from "../graph/patch-planner.js";
-import { compileCompositionPatch, compileShaderSchedule } from "../graph/render-scheduler.js";
-import { createShaderBuilder } from "../shaders/shader-builder.js";
+import { compileCompositionPatch, compileShaderSchedule } from "../graph/render-scheduler.js?v=world-frame-24";
+import { createShaderBuilder } from "../shaders/shader-builder.js?v=world-frame-24";
 import { applyBlend } from "./blend-utils.js";
-import { applyFontToGlobal, applyFontToTarget } from "./font-loader.js?v=world-frame-14";
+import { applyFontToGlobal, applyFontToTarget } from "./font-loader.js?v=world-frame-24";
 import { drawGenerator, drawStandby } from "./generators.js";
 import { drawCover, isDrawableMedia, syncVideoSpeed } from "./media-utils.js";
 import {
@@ -17,7 +16,7 @@ import {
   surfaceTextureSize,
   worldSize,
 } from "./render-geometry.js";
-import { VjMapper } from "./vj-mapper.js?v=world-frame-14";
+import { VjMapper } from "./vj-mapper.js?v=world-frame-24";
 import { mediaRenditionKey } from "../services/media-rendition-service.js";
 
 export class OutputRenderer {
@@ -64,6 +63,7 @@ export class OutputRenderer {
     this.smoothedFrameMs = 0;
     this.smoothedFps = 0;
     this.smoothedRenderCost = 0;
+    this.lastPixelDensity = 0;
     this.frameStart = 0;
     this.lastTickMs = 0;
     this.visualTime = 0;
@@ -82,6 +82,7 @@ export class OutputRenderer {
 
   async setup(initialState) {
     this.state = sanitizeState(initialState || {});
+    this.applyPixelDensity();
     this.applyGlobalFont();
     this.createBuffers();
     this.createMapper();
@@ -123,12 +124,17 @@ export class OutputRenderer {
 
   createBuffers() {
     this.disposeBuffers();
+    this.applyPixelDensity();
     const { width: rw, height: rh } = frameSize(this.state.render);
     const { width: surfaceWidth, height: surfaceHeight } = surfaceTextureSize(this.state.render);
     this.sourcePg = createGraphics(rw, rh);
     this.mainMix = createGraphics(rw, rh);
     this.surfaceScratch = createGraphics(surfaceWidth, surfaceHeight);
     this.surfaceTexture = createGraphics(surfaceWidth, surfaceHeight);
+    this.applyGraphicsPixelDensity(this.sourcePg);
+    this.applyGraphicsPixelDensity(this.mainMix);
+    this.applyGraphicsPixelDensity(this.surfaceScratch);
+    this.applyGraphicsPixelDensity(this.surfaceTexture);
     this.applyGraphicsFont(this.sourcePg);
     this.applyGraphicsFont(this.mainMix);
     this.applyGraphicsFont(this.surfaceScratch);
@@ -162,6 +168,7 @@ export class OutputRenderer {
       },
     });
     this.syncMapperOverlayMode();
+    this.syncMapperEdgeSoftness();
     this.rebuildSurfaces();
     this.applyProjectMapping();
   }
@@ -176,16 +183,23 @@ export class OutputRenderer {
     ]));
     this.mapper.clearSurfaces();
     this.mapperSurfaces.clear();
+    const frame = frameSize(this.state.render);
+    const offset = this.mode === "output" ? { x: 0, y: 0 } : this.outputFrameOffset();
     const cols = Math.max(1, Math.ceil(Math.sqrt(this.state.surfaces.length)));
-    const gap = 40;
-    const cellW = (width - gap * (cols + 1)) / cols;
+    const rows = Math.max(1, Math.ceil(this.state.surfaces.length / cols));
+    const gap = Math.max(24, Math.round(Math.min(frame.width, frame.height) * 0.035));
+    const cellW = Math.max(1, (frame.width - gap * (cols + 1)) / cols);
     const texture = surfaceTextureSize(this.state.render);
-    const cellH = cellW * (texture.height / texture.width);
+    const idealCellH = cellW * (texture.height / texture.width);
+    const maxCellH = Math.max(1, (frame.height - gap * (rows + 1)) / rows);
+    const cellH = Math.min(idealCellH, maxCellH);
+    const frameX = offset.x;
+    const frameY = offset.y;
     this.state.surfaces.forEach((surface, index) => {
       const col = index % cols;
       const row = Math.floor(index / cols);
-      const x = gap + col * (cellW + gap);
-      const y = gap + row * (cellH + gap);
+      const x = frameX + gap + col * (cellW + gap);
+      const y = frameY + gap + row * (cellH + gap);
       const preserved = existingCorners.get(surface.id);
       const corners = preserved?.length === 4
         ? preserved
@@ -230,17 +244,36 @@ export class OutputRenderer {
     }
     this.setCalibrate(this.shouldCalibrateFromState());
     this.syncMapperOverlayMode();
+    this.syncMapperEdgeSoftness();
   }
 
   renderSizeSignature(render = {}) {
     const frame = frameSize(render);
     const world = worldSize(render);
     const texture = surfaceTextureSize(render);
-    return `${frame.width}x${frame.height}:${world.width}x${world.height}:${texture.width}x${texture.height}`;
+    const density = Math.max(0.5, Math.min(2, Number(render.pixelDensity) || 1));
+    return `${frame.width}x${frame.height}:${world.width}x${world.height}:${texture.width}x${texture.height}:pd${density}`;
   }
 
   syncMapperOverlayMode() {
     this.mapper?.setOverlayMode?.(this.state?.global?.mappingHandleMode || "always");
+  }
+
+  syncMapperEdgeSoftness() {
+    this.mapper?.setEdgeSoftness?.(this.state?.render?.edgeSoftness || 0);
+  }
+
+  applyPixelDensity() {
+    const density = Math.max(0.5, Math.min(2, Number(this.state?.render?.pixelDensity) || 1));
+    if (this.lastPixelDensity === density) return;
+    if (typeof pixelDensity === "function") pixelDensity(density);
+    this.lastPixelDensity = density;
+  }
+
+  applyGraphicsPixelDensity(pg) {
+    if (!pg?.pixelDensity) return;
+    const density = Math.max(0.5, Math.min(2, Number(this.state?.render?.pixelDensity) || 1));
+    pg.pixelDensity(density);
   }
 
   shouldCalibrateFromState() {
@@ -424,10 +457,13 @@ export class OutputRenderer {
   }
 
   renderSelectedSurfaceOverlay() {
-    if (this.mode === "output" || !this.mapper?.isCalibrating?.()) return;
+    if (this.mode === "output") return;
     const surfaceId = this.state?.ui?.selectedSurfaceId;
     if (!surfaceId) return;
-    if (this.state?.global?.mappingHandleMode === "near" && !this.shouldRevealSurfaceOverlay(surfaceId)) return;
+    const calibrating = !!this.mapper?.isCalibrating?.();
+    const revealHandles = calibrating && (
+      this.state?.global?.mappingHandleMode !== "near" || this.shouldRevealSurfaceOverlay(surfaceId)
+    );
     const mapped = this.mapperSurfaces.get(surfaceId);
     const corners = mapped?.mapperSurface?.corners;
     if (!Array.isArray(corners) || corners.length !== 4) return;
@@ -439,10 +475,15 @@ export class OutputRenderer {
     const h2 = height * 0.5;
     noFill();
     stroke(255, 232, 92);
-    strokeWeight(5);
+    strokeWeight(revealHandles ? 5 : 3);
     beginShape();
     for (const corner of corners) vertex(corner.x - w2, corner.y - h2, 1);
     endShape(CLOSE);
+    if (!revealHandles) {
+      pop();
+      if (gl?.enable) gl.enable(gl.DEPTH_TEST);
+      return;
+    }
     noStroke();
     for (const corner of corners) {
       fill(255, 232, 92, 170);
@@ -543,54 +584,28 @@ export class OutputRenderer {
 
   renderCompositionPatch(composition, patch, compositionTime, request = frameRenderRequest(this.state.render)) {
     const renderRequest = this.normalizeRenderRequest(patch?.renderRequest || request, "composition");
-    const plan = planPatchExecution(patch);
-    const compositor = planCompositorInputs(plan);
     const output = this.getCompositionBuffer(composition.id, renderRequest);
     output.push();
     output.clear();
     output.pop();
 
-    if (compositor.inputs.length) {
-      for (const input of compositor.inputs) {
-        if (input.source?.enabled === false) continue;
-        const source = this.renderPatchSourceNode(composition, input.source, compositionTime, renderRequest);
-        const effects = input.effects.filter((node) => node.enabled !== false);
-        const effected = effects.length
-          ? this.renderShaderNodes(source, effects, renderRequest, compositionTime)
-          : source;
-        const layer = patchLayerForNode(input.source);
-        const drawable = this.materializeDrawableBuffer(effected, `${composition.id}:${layer.id}:drawable`, renderRequest);
-        this.drawChainLayer(output, drawable, layer);
-      }
-      return output;
-    }
-
-    let current = null;
-    let layer = null;
-    let pendingEffects = [];
-    const flushLayer = () => {
-      if (!current || !layer) return;
-      const effected = pendingEffects.length
-        ? this.renderShaderNodes(current, pendingEffects, renderRequest, compositionTime)
-        : current;
-      const drawable = this.materializeDrawableBuffer(effected, `${composition.id}:${layer.id}:drawable`, renderRequest);
-      this.drawChainLayer(output, drawable, layer);
-      current = null;
-      layer = null;
-      pendingEffects = [];
-    };
-
-    for (const node of plan.nodes) {
+    const orderedNodes = nodesInCompositionChainOrder(composition, patch);
+    for (const node of orderedNodes) {
       if (node.enabled === false || node.role === "output") continue;
       if (isSourceNode(node)) {
-        flushLayer();
-        layer = patchLayerForNode(node);
-        current = this.renderPatchSourceNode(composition, node, compositionTime, renderRequest);
+        const layer = patchLayerForNode(node);
+        const source = this.renderPatchSourceNode(composition, node, compositionTime, renderRequest);
+        this.drawChainLayer(output, source, layer);
         continue;
       }
-      if (isEffectNode(node) && current) pendingEffects.push(node);
+      if (isEffectNode(node)) {
+        const effected = this.renderShaderNodes(output, [node], renderRequest, compositionTime);
+        output.push();
+        output.clear();
+        drawBuffer(output, effected, 0, 0, output.width, output.height, this.isShaderBuffer(effected));
+        output.pop();
+      }
     }
-    flushLayer();
     return output;
   }
 
@@ -612,34 +627,22 @@ export class OutputRenderer {
     output.push();
     output.clear();
     output.pop();
-    let current = null;
-    let layer = null;
-    let pendingEffects = [];
-    const flushLayer = () => {
-      if (!current || !layer) return;
-      const effected = pendingEffects.length
-        ? this.renderShaderChain(current, pendingEffects, renderRequest, compositionTime)
-        : current;
-      const drawable = this.materializeDrawableBuffer(effected, `${composition.id}:${layer.id}:drawable`, renderRequest);
-      this.drawChainLayer(output, drawable, layer);
-      current = null;
-      layer = null;
-      pendingEffects = [];
-    };
 
     for (const item of composition.chain || []) {
       if (item.enabled === false) continue;
       if (item.kind === "source") {
-        flushLayer();
-        layer = item;
-        current = this.renderCompositionSourceItem(composition, item, compositionTime, renderRequest);
+        const source = this.renderCompositionSourceItem(composition, item, compositionTime, renderRequest);
+        this.drawChainLayer(output, source, item);
         continue;
       }
-      if (item.kind === "effect" && current) {
-        pendingEffects.push(chainItemToShaderPass(item));
+      if (item.kind === "effect") {
+        const effected = this.renderShaderChain(output, [chainItemToShaderPass(item)], renderRequest, compositionTime);
+        output.push();
+        output.clear();
+        drawBuffer(output, effected, 0, 0, output.width, output.height, this.isShaderBuffer(effected));
+        output.pop();
       }
     }
-    flushLayer();
     return output;
   }
 
@@ -880,6 +883,7 @@ export class OutputRenderer {
       shader.setUniform("sourceFlipY", !sourceIsShaderBuffer);
       shader.setUniform("sourceForceOpaque", !sourceIsShaderBuffer);
       shader.setUniform("time", timeSeconds);
+      shader.setUniform("effectTransform", effectTransformUniform(pass.transform));
       this.setShaderParamUniforms(shader, job.component, pass.params);
       target.rect(-rw / 2, -rh / 2, rw, rh);
       target.resetShader();
@@ -921,8 +925,10 @@ export class OutputRenderer {
       if (!pg) continue;
       pg.push();
       pg.background(0);
-      if (!outputBlackout && surface.enabled) {
-        this.drawSurfaceRoute(pg, surface);
+      if (!outputBlackout) {
+        if (surface.enabled) {
+          this.drawSurfaceRoute(pg, surface);
+        }
       }
       if (!outputBlackout && this.state.global.showLabels !== false && this.mapper.isCalibrating()) {
         const composition = this.state.compositions.find((item) => item.id === surface.compositionId);
@@ -952,7 +958,7 @@ export class OutputRenderer {
     pg.push();
     applyBlend(pg, surface.finalBlend);
     pg.tint(255, 255 * clamp01(surface.opacity));
-    pg.image(source, 0, 0, pg.width, pg.height);
+    drawCover(pg, source, 0, 0, pg.width, pg.height);
     pg.noTint();
     pg.blendMode(BLEND);
     pg.pop();
@@ -1082,17 +1088,24 @@ export class OutputRenderer {
     const rotation = Number(transform.rotation) || 0;
     const boxW = width * scale;
     const boxH = height * scale;
+    const scaleHandleX = 42;
+    const scaleHandleY = 0;
+    const rotateHandleX = 0;
+    const rotateHandleY = -42;
     translate(cx, cy, 2);
     rotate(rotation);
     rectMode(CENTER);
     rect(0, 0, boxW, boxH);
+    stroke(101, 224, 211, 170);
+    line(0, 0, scaleHandleX, scaleHandleY);
+    stroke(255, 228, 94, 180);
+    line(0, 0, rotateHandleX, rotateHandleY);
     noStroke();
     fill(101, 224, 211, 230);
-    circle(boxW * 0.5, boxH * 0.5, 18);
+    circle(0, 0, 20);
+    circle(scaleHandleX, scaleHandleY, 18);
     fill(255, 228, 94, 230);
-    circle(0, -boxH * 0.5 - 34, 16);
-    stroke(255, 228, 94, 180);
-    line(0, -boxH * 0.5, 0, -boxH * 0.5 - 34);
+    circle(rotateHandleX, rotateHandleY, 16);
     pop();
   }
 
@@ -1162,10 +1175,10 @@ export class OutputRenderer {
     const local = screenToLayerLocal(x, y, cx, cy, rotation);
     const boxW = width * scale;
     const boxH = height * scale;
-    const scaleDx = local.x - boxW * 0.5;
-    const scaleDy = local.y - boxH * 0.5;
+    const scaleDx = local.x - 42;
+    const scaleDy = local.y;
     const rotateDx = local.x;
-    const rotateDy = local.y - (-boxH * 0.5 - 34);
+    const rotateDy = local.y + 42;
     const inside = Math.abs(local.x) <= boxW * 0.5 && Math.abs(local.y) <= boxH * 0.5;
     let mode = "";
     if (scaleDx * scaleDx + scaleDy * scaleDy <= 28 * 28) mode = "scale";
@@ -1252,7 +1265,8 @@ export class OutputRenderer {
     const renderCost = frameMs / (1000 / 120);
     this.updateSmoothedMetrics({ fps, frameMs, renderCost });
     if (this.hud) {
-      this.hud.classList.toggle("is-hidden", !this.state.global.showHud);
+      const hideOutputHud = this.mode === "output" && this.state?.global?.showLabels === false;
+      this.hud.classList.toggle("is-hidden", !this.state.global.showHud || hideOutputHud);
       this.hud.textContent = `${Math.round(this.smoothedFps || fps)} fps`;
     }
     if (millis() - this.lastMetricsAt > 500) {
@@ -1348,6 +1362,19 @@ function isEffectNode(node = {}) {
   return node.role === "effect" || node.kind === "effect";
 }
 
+function nodesInCompositionChainOrder(composition = {}, patch = {}) {
+  const nodes = (patch.nodes || []).filter((node) => isSourceNode(node) || isEffectNode(node));
+  if (!Array.isArray(composition.chain) || !composition.chain.length) return nodes;
+  const nodeById = new Map(nodes.map((node) => [node.id, node]));
+  return composition.chain
+    .map((item, index) => {
+      if (item.kind === "source") return nodeById.get(`${composition.id || "composition"}:source:${index}:${item.id}`);
+      if (item.kind === "effect") return nodeById.get(`${composition.id || "composition"}:effect:${index}:${item.componentId}`);
+      return null;
+    })
+    .filter(Boolean);
+}
+
 function patchLayerForNode(node = {}) {
   const layer = node.state?.layer || {};
   return {
@@ -1379,6 +1406,7 @@ function shaderPassFromNode(node = {}) {
     enabled: node.enabled !== false,
     params: { ...(node.params || {}) },
     amount: node.params?.amount,
+    transform: node.state?.transform || node.transform || {},
   };
 }
 
@@ -1493,7 +1521,17 @@ function chainItemToShaderPass(item) {
     enabled: item.enabled !== false,
     params: item.params || {},
     amount: item.amount,
+    transform: item.transform || {},
   };
+}
+
+function effectTransformUniform(transform = {}) {
+  return [
+    Number(transform.x) || 0,
+    Number(transform.y) || 0,
+    Math.max(0.0001, Number(transform.scale) || 1),
+    Number(transform.rotation) || 0,
+  ];
 }
 
 function screenToLayerLocal(x, y, cx, cy, rotation) {

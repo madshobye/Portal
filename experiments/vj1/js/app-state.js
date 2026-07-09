@@ -12,7 +12,7 @@ import {
   createSceneFromState,
   sanitizeState,
   uid,
-} from "./domain/models.js";
+} from "./domain/models.js?v=world-frame-24";
 import { WORKSPACES } from "./constants.js";
 
 export function createAppState(initial = null) {

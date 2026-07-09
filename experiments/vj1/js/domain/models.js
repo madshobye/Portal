@@ -77,6 +77,7 @@ export function createInitialState() {
         zoom: 1,
         x: 0,
         y: 0,
+        fit: "frame",
       },
       shaderStatus: "Shader ready",
       shaderError: "",
@@ -103,6 +104,8 @@ export function createInitialState() {
       worldHeight: Math.round(VJ1.renderHeight * 1.5),
       surfaceWidth: VJ1.surfaceWidth,
       surfaceHeight: VJ1.surfaceHeight,
+      pixelDensity: 1,
+      edgeSoftness: 0,
     },
     scheduler: {
       mode: "hardconfigured",
@@ -197,9 +200,9 @@ export function sanitizeState(input = {}) {
 export function normalizeRenderSettings(render = {}) {
   const frameWidth = positiveInt(render.frameWidth ?? render.width, VJ1.renderWidth, 128, 8192);
   const frameHeight = positiveInt(render.frameHeight ?? render.height, VJ1.renderHeight, 128, 8192);
-  const worldScale = clampNumber(render.worldScale, 1, 3, 1.5);
-  const defaultWorldWidth = Math.round(frameWidth * worldScale);
-  const defaultWorldHeight = Math.round(frameHeight * worldScale);
+  const worldScale = 1.5;
+  const worldWidth = Math.round(frameWidth * worldScale);
+  const worldHeight = Math.round(frameHeight * worldScale);
   return {
     ...render,
     width: frameWidth,
@@ -207,18 +210,22 @@ export function normalizeRenderSettings(render = {}) {
     frameWidth,
     frameHeight,
     worldScale,
-    worldWidth: positiveInt(render.worldWidth, defaultWorldWidth, frameWidth, 12288),
-    worldHeight: positiveInt(render.worldHeight, defaultWorldHeight, frameHeight, 12288),
+    worldWidth,
+    worldHeight,
     surfaceWidth: positiveInt(render.surfaceWidth, VJ1.surfaceWidth, 64, 8192),
     surfaceHeight: positiveInt(render.surfaceHeight, VJ1.surfaceHeight, 64, 8192),
+    pixelDensity: clampNumber(render.pixelDensity, 0.5, 2, 1),
+    edgeSoftness: clampNumber(render.edgeSoftness, 0, 8, 0),
   };
 }
 
 export function normalizePreviewViewport(viewport = {}) {
+  const fit = ["frame", "world", "manual"].includes(viewport.fit) ? viewport.fit : "frame";
   return {
     zoom: clampNumber(viewport.zoom, 0.1, 6, 1),
     x: clampNumber(viewport.x, -100000, 100000, 0),
     y: clampNumber(viewport.y, -100000, 100000, 0),
+    fit,
   };
 }
 
@@ -345,7 +352,16 @@ export function normalizeComposition(composition = {}) {
     ? compositionData.shaderChain.map(normalizeShaderPass)
     : [];
   const chain = Array.isArray(compositionData.chain) && compositionData.chain.length
-    ? compositionData.chain.map(normalizeCompositionChainItem)
+    ? [
+        ...compositionData.chain.map(normalizeCompositionChainItem),
+        ...shaderChain.map((pass) => normalizeCompositionChainItem({
+          kind: "effect",
+          componentId: pass.id,
+          enabled: pass.enabled,
+          params: pass.params,
+          amount: pass.amount,
+        })),
+      ]
     : legacyCompositionChain(source, shaderChain);
   return {
     ...fallback,
@@ -358,7 +374,7 @@ export function normalizeComposition(composition = {}) {
     blend: compositionData.blend || fallback.blend,
     thumbnail: typeof compositionData.thumbnail === "string" ? compositionData.thumbnail : "",
     chain,
-    shaderChain,
+    shaderChain: [],
   };
 }
 
@@ -378,6 +394,7 @@ export function normalizeCompositionChainItem(item = {}) {
       enabled: pass.enabled,
       params: pass.params,
       amount: pass.amount,
+      transform: normalizeTransform(item.transform),
     };
   }
   const source = normalizeSource(item.source || { type: "generator", generatorId: item.componentId || "testPattern" });
@@ -507,6 +524,9 @@ function mergeCompositionChainItemOverride(item = {}, override = {}) {
       enabled: pass.enabled,
       params: pass.params,
       amount: pass.amount,
+      ...(override.transform && typeof override.transform === "object"
+        ? { transform: normalizeTransform({ ...(item.transform || {}), ...override.transform }) }
+        : {}),
     };
   }
   return {
@@ -549,7 +569,6 @@ export function normalizeScene(scene = {}, state = createInitialState()) {
   return {
     id: String(scene.id || uid("scene")),
     name: scene.name || "Scene",
-    transitionMs: Math.max(0, Number(scene.transitionMs) || 0),
     notes: scene.notes || "",
     snapshot: normalizeSceneSnapshot(scene.snapshot, state),
   };
@@ -600,7 +619,6 @@ export function createSceneFromState(state, name) {
   return {
     id: uid("scene"),
     name,
-    transitionMs: 0,
     notes: "",
     snapshot: createSceneSnapshot(state),
   };

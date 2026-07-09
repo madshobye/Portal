@@ -1115,9 +1115,18 @@ small {
 
 .generator-card {
   display: grid;
-  gap: 6px;
-  padding: 6px;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
+  min-height: 38px;
+  padding: 7px 8px;
   text-align: left;
+}
+
+.generator-card .material-symbols-rounded,
+.element-card > .material-symbols-rounded {
+  color: var(--ink);
+  font-size: 22px;
 }
 
 .generator-card strong,
@@ -1366,7 +1375,7 @@ small {
 }
 
 .chain-add-button:hover {
-  color: var(--text);
+  color: var(--ink);
   border-color: rgba(101, 224, 211, 0.5);
   background: rgba(101, 224, 211, 0.08);
 }
@@ -1383,6 +1392,8 @@ small {
 
 .chain-add .effect-palette {
   padding-top: 6px;
+  max-height: 220px;
+  overflow: auto;
 }
 
 .chain-pass button {
@@ -1424,6 +1435,7 @@ small {
   top: 50%;
   z-index: 31;
   display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
   width: min(720px, calc(100vw - 32px));
   max-height: min(720px, calc(100vh - 32px));
   transform: translate(-50%, -50%);
@@ -1510,7 +1522,9 @@ small {
 
 .element-card {
   display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
   min-width: 0;
+  align-items: center;
   justify-items: start;
   gap: 5px;
   padding: 8px;
@@ -1527,6 +1541,7 @@ small {
 
 .element-card img,
 .element-card .media-picker-placeholder {
+  grid-column: 1 / -1;
   width: 100%;
   aspect-ratio: 16 / 9;
   border: 1px solid rgba(255, 255, 255, 0.1);

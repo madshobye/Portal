@@ -1,7 +1,7 @@
 import { VJ1 } from "../constants.js";
-import { sanitizeState } from "../domain/models.js";
-import { OutputRenderer } from "./output-renderer.js?v=world-frame-14";
-import { applyFontToGlobal, loadVjRenderFont } from "./font-loader.js?v=world-frame-14";
+import { sanitizeState } from "../domain/models.js?v=world-frame-24";
+import { OutputRenderer } from "./output-renderer.js?v=world-frame-24";
+import { applyFontToGlobal, loadVjRenderFont } from "./font-loader.js?v=world-frame-24";
 import { createPreviewViewportController, fitPreviewCanvasElement } from "./preview-viewport.js";
 import { canvasSizeForMode } from "./render-geometry.js";
 
@@ -22,6 +22,8 @@ export function createEmbeddedPreviewApp({ store, mediaLibrary, projectService }
   let viewportController = null;
   let paused = false;
   let renderFont = null;
+  let appliedFrameRate = 0;
+  let mediaFilesSignature = "";
 
   function mount({ host: nextHost, stage: nextStage, hud: nextHud, mode, state }) {
     host = nextHost;
@@ -32,6 +34,7 @@ export function createEmbeddedPreviewApp({ store, mediaLibrary, projectService }
     host?.classList.remove("is-paused");
     paused = false;
     if (typeof loop === "function") loop();
+    applyPreviewFrameRate();
     bindStageViewportEvents();
     if (canvas && stage) canvas.parent(stage);
     if (renderer) {
@@ -39,7 +42,7 @@ export function createEmbeddedPreviewApp({ store, mediaLibrary, projectService }
       renderer.hud = hud;
       resizeToStage(true);
       renderer.setState(previewSizedState());
-      renderer.importFiles(mediaLibrary.getAllFiles());
+      importMediaFilesIfChanged();
       renderer.setCalibrate(pendingMode === "preview" && pendingState.global.calibrating);
     }
     if (!started) start();
@@ -48,11 +51,12 @@ export function createEmbeddedPreviewApp({ store, mediaLibrary, projectService }
   function setState(state, mode = pendingMode) {
     pendingMode = mode;
     pendingState = sanitizeState(state || {});
+    applyPreviewFrameRate();
     if (!renderer) return;
     renderer.mode = pendingMode;
     resizeToStage(true);
     renderer.setState(previewSizedState());
-    renderer.importFiles(mediaLibrary.getAllFiles());
+    importMediaFilesIfChanged();
   }
 
   function command(name, payload = {}) {
@@ -110,7 +114,7 @@ export function createEmbeddedPreviewApp({ store, mediaLibrary, projectService }
       return false;
     });
     pixelDensity(1);
-    frameRate(120);
+    applyPreviewFrameRate();
     if (window.p5) window.p5.disableFriendlyErrors = true;
     window.PORTAL_CANVAS_RESIZE_MODE = "none";
     await loadClassicScript(VJ1.portalScript);
@@ -125,11 +129,11 @@ export function createEmbeddedPreviewApp({ store, mediaLibrary, projectService }
       sendThumbnail: updateThumbnail,
       sendChainTransform: updateChainTransform,
       sendMediaRendition: (mediaId, width, height, blob) => projectService?.writeMediaRendition?.(mediaId, width, height, blob),
-      requestMediaFiles: () => renderer?.importFiles(mediaLibrary.getAllFiles()),
+      requestMediaFiles: () => importMediaFilesIfChanged(true),
       onSurfaceSelect: selectSurface,
     });
     await renderer.setup(previewSizedState(size));
-    renderer.importFiles(mediaLibrary.getAllFiles());
+    importMediaFilesIfChanged(true);
     resizeObserver = new ResizeObserver(resizeToStage);
     if (stage) resizeObserver.observe(stage);
   }
@@ -140,6 +144,7 @@ export function createEmbeddedPreviewApp({ store, mediaLibrary, projectService }
 
   function draw() {
     if (paused) return;
+    applyPreviewFrameRate();
     renderer?.draw();
   }
 
@@ -194,12 +199,40 @@ export function createEmbeddedPreviewApp({ store, mediaLibrary, projectService }
       stageSize: size,
       logicalSize: logical,
       viewport: pendingState?.ui?.previewViewport || {},
+      render: pendingState?.render || {},
     });
   }
 
   function previewSizedState(size = stageSize()) {
     const state = sanitizeState(pendingState || {});
     return state;
+  }
+
+  function applyPreviewFrameRate() {
+    if (typeof frameRate !== "function") return;
+    const target = pendingState?.ui?.debugPreview === false
+      ? 60
+      : pendingState?.ui?.outputWindowOpen
+        ? 30
+        : 120;
+    if (appliedFrameRate === target) return;
+    frameRate(target);
+    appliedFrameRate = target;
+  }
+
+  function importMediaFilesIfChanged(force = false) {
+    if (!renderer) return;
+    const files = mediaLibrary.getAllFiles();
+    const signature = mediaFilesSignatureFor(files);
+    if (!force && signature === mediaFilesSignature) return;
+    mediaFilesSignature = signature;
+    renderer.importFiles(files);
+  }
+
+  function mediaFilesSignatureFor(files = []) {
+    return (files || [])
+      .map((file) => `${file.name || ""}:${file.size || 0}:${file.lastModified || 0}`)
+      .join("|");
   }
 
   function bindStageViewportEvents() {

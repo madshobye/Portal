@@ -1,12 +1,12 @@
-import { BLEND_MODES, SOURCE_TYPES, WORKSPACES } from "../constants.js";
-import { applySceneSnapshotToState, createLiveCompositionView, createLiveRenderState, createSceneSnapshot, createShaderPass, normalizeRenderSettings } from "../domain/models.js";
-import { defaultParamValues, normalizeParamValue } from "../graph/component-schema.js";
+import { BLEND_MODES, SOURCE_TYPES, VJ1, WORKSPACES } from "../constants.js";
+import { applySceneSnapshotToState, createLiveCompositionView, createLiveRenderState, createSceneSnapshot, normalizeRenderSettings } from "../domain/models.js?v=world-frame-24";
+import { normalizeParamValue } from "../graph/component-schema.js";
 import { listGeneratorComponents } from "../graph/generator-registry.js";
 import { patchNodeDegree, planCompositorInputs, planPatchExecution, summarizeTextureBranches } from "../graph/patch-planner.js";
-import { compileCompositionPatch } from "../graph/render-scheduler.js";
+import { compileCompositionPatch } from "../graph/render-scheduler.js?v=world-frame-24";
 import { buildOutputUrl } from "../view-routing.js";
-import { getShaderComponent, listShaderComponents } from "../shaders/shader-registry.js";
-import { createEmbeddedPreviewApp } from "../output/embedded-preview-app.js?v=world-frame-14";
+import { getShaderComponent, listShaderComponents } from "../shaders/shader-registry.js?v=world-frame-24";
+import { createEmbeddedPreviewApp } from "../output/embedded-preview-app.js?v=world-frame-24";
 import { frameFitViewport, resetViewport, zoomViewport } from "../output/preview-viewport.js";
 import { createHtmlCache, isInteractiveNode, isTextEditingNode, setClass, setText } from "./dom-utils.js";
 import { bindReorderList } from "./reorder-list.js";
@@ -34,6 +34,7 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
     root.innerHTML = shellTemplate();
     refs = collectRefs(root);
     bindStaticEvents();
+    restorePreviewPreference();
     store.subscribe((state, reason) => {
       latestState = state;
       if (reason === "mapping-state") {
@@ -127,6 +128,7 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
     refs.togglePreview.addEventListener("click", () => {
       store.update((draft) => {
         draft.ui.debugPreview = !draft.ui.debugPreview;
+        rememberPreviewPreference(draft.ui.debugPreview);
       }, "toggle-preview");
     });
 
@@ -187,6 +189,27 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
       event.preventDefault();
       await importFiles(event.dataTransfer?.files || []);
     });
+  }
+
+  function restorePreviewPreference() {
+    let stored = "";
+    try {
+      stored = sessionStorage.getItem(VJ1.localPreviewKey) || "";
+    } catch {
+      stored = "";
+    }
+    if (!stored) return;
+    store.update((draft) => {
+      draft.ui.debugPreview = stored === "1";
+    }, "restore-preview-preference");
+  }
+
+  function rememberPreviewPreference(value) {
+    try {
+      sessionStorage.setItem(VJ1.localPreviewKey, value ? "1" : "0");
+    } catch {
+      // This is only a tab preference; project data stays in the project folder.
+    }
   }
 
   function bindInteractionDeferral() {
@@ -523,7 +546,9 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
       if (input.type === "text" || input.tagName === "TEXTAREA") {
         input.addEventListener("input", () => updatePathFromInput(input, `edit:${input.dataset.update}`));
         input.addEventListener("change", () => updatePathFromInput(input, `update:${input.dataset.update}`));
+        return;
       }
+      input.addEventListener("change", () => updatePathFromInput(input, `update:${input.dataset.update}`));
     });
     refs.projectRail.querySelectorAll("[data-select-scene]").forEach((button) => {
       button.addEventListener("click", () => store.selectScene(button.dataset.selectScene));
@@ -531,7 +556,8 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
     refs.projectRail.querySelectorAll("[data-live-scene]").forEach((button) => {
       button.addEventListener("click", () => {
         store.update((draft) => {
-          draft.ui.live.selectedSceneId = button.dataset.liveScene;
+          const nextSceneId = button.dataset.liveScene;
+          draft.ui.live.selectedSceneId = nextSceneId;
           draft.ui.live.compositionOverrides = {};
         }, "live:scene");
       });
@@ -544,9 +570,6 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
     });
     refs.projectRail.querySelectorAll("[data-remove-composition]").forEach((button) => {
       button.addEventListener("click", () => store.removeComposition(button.dataset.removeComposition));
-    });
-    refs.projectRail.querySelectorAll("[data-add-shader]").forEach((button) => {
-      button.addEventListener("click", () => addShaderPass(button.dataset.addShader, "composition", latestState.ui.selectedCompositionId));
     });
   }
 
@@ -568,7 +591,6 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
       host.querySelectorAll("[data-render-preset]").forEach((button) => {
         button.addEventListener("click", () => applyRenderPreset(button.dataset.renderPreset));
       });
-      host.querySelector("[data-fit-world]")?.addEventListener("click", () => fitWorldFromFrame());
       return;
     }
     if (elementPicker) {
@@ -658,27 +680,22 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
   }
 
   function applyRenderPreset(preset) {
-    const [frameWidth, frameHeight] = preset === "xga" ? [1024, 768] : preset === "hd" ? [1280, 720] : [960, 540];
+    const presets = {
+      wide: [960, 540],
+      xga: [1024, 768],
+      hd: [1280, 720],
+      fhd: [1920, 1080],
+      "2k": [2048, 1080],
+      "4k": [3840, 2160],
+    };
+    const [frameWidth, frameHeight] = presets[preset] || presets.wide;
     store.update((draft) => {
       draft.render = normalizeRenderSettings({
         ...draft.render,
         frameWidth,
         frameHeight,
-        worldWidth: Math.round(frameWidth * 1.5),
-        worldHeight: Math.round(frameHeight * 1.5),
       });
     }, "render-preset");
-  }
-
-  function fitWorldFromFrame() {
-    store.update((draft) => {
-      const render = normalizeRenderSettings(draft.render);
-      draft.render = normalizeRenderSettings({
-        ...render,
-        worldWidth: Math.round(render.frameWidth * 1.5),
-        worldHeight: Math.round(render.frameHeight * 1.5),
-      });
-    }, "render-world-fit");
   }
 
   function bindPreviewViewportTools(previewHost) {
@@ -788,18 +805,6 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
         }, `update:${button.dataset.compositionPath}`);
       });
     });
-    scope.querySelectorAll("[data-remove-pass]").forEach((button) => {
-      button.addEventListener("click", () => removeShaderPass(button.dataset.target, button.dataset.targetId, Number(button.dataset.passIndex)));
-    });
-    scope.querySelectorAll("[data-add-shader]").forEach((button) => {
-      button.addEventListener("click", () => {
-        addShaderPass(
-          button.dataset.addShader,
-          button.dataset.target || "composition",
-          button.dataset.targetId || latestState.ui.selectedCompositionId
-        );
-      });
-    });
     scope.querySelectorAll("[data-open-element-picker]").forEach((button) => {
       button.addEventListener("click", () => openElementPicker(button.dataset.compositionId || latestState.ui.selectedCompositionId));
     });
@@ -834,25 +839,6 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
     });
   }
 
-  function addShaderPass(id, target, targetId) {
-    store.update((draft) => {
-      const owner = getShaderOwner(draft, target, targetId);
-      const chainKey = target === "surface" ? "finalShaderChain" : "shaderChain";
-      const component = getShaderComponent(id);
-      owner?.[chainKey].push(createShaderPass(id, defaultParamValues(component)));
-      if (target === "surface" && currentWorkspace(draft) === "scene") applySelectedSceneSnapshot(draft);
-    }, "add-shader-pass");
-  }
-
-  function removeShaderPass(target, targetId, index) {
-    store.update((draft) => {
-      const owner = getShaderOwner(draft, target, targetId);
-      const chainKey = target === "surface" ? "finalShaderChain" : "shaderChain";
-      owner?.[chainKey].splice(index, 1);
-      if (target === "surface" && currentWorkspace(draft) === "scene") applySelectedSceneSnapshot(draft);
-    }, "remove-shader-pass");
-  }
-
   function removeChainItem(compositionId, itemId) {
     store.update((draft) => {
       const composition = draft.compositions.find((item) => item.id === compositionId);
@@ -860,16 +846,6 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
       composition.chain = composition.chain.filter((item) => item.id !== itemId);
       if (draft.ui.selectedChainItemId === itemId) draft.ui.selectedChainItemId = composition.chain[0]?.id || "";
     }, "remove-chain-item");
-  }
-
-  function getShaderOwner(state, target, targetId) {
-    if (target === "surface" && currentWorkspace(state) === "scene") {
-      const scene = getSelectedScene(state);
-      return sceneSurfaceSnapshot(scene, targetId);
-    }
-    if (target === "surface") return state.surfaces.find((surface) => surface.id === targetId);
-    if (target === "composition") return state.compositions.find((composition) => composition.id === targetId);
-    return null;
   }
 
   function setStatus(message) {
@@ -1212,6 +1188,7 @@ function selectedChainItemTemplate(item, composition, state, base) {
       <div class="rail-title"><span class="material-symbols-rounded">${effectIcon(item.componentId)}</span><span>${esc(component?.name || item.componentId)}</span></div>
       <label class="toggle-line">${icon("power_settings_new")}<input type="checkbox" data-update="${base}.enabled" ${item.enabled ? "checked" : ""} /> Enabled</label>
       ${shaderParamControlsTemplate(component, item, base)}
+      ${component?.spatial ? effectTransformControlsTemplate(item, base) : ""}
     </section>
   `;
 }
@@ -1236,6 +1213,19 @@ function sourceChainItemTemplate(item, state, base) {
         ${rangeTemplate("Rotate", `${base}.transform.rotation`, item.transform?.rotation || 0, -3.14, 3.14, 0.01)}
       </div>
     </section>
+  `;
+}
+
+function effectTransformControlsTemplate(item, base) {
+  return `
+    <div class="field-pair">
+      ${rangeTemplate("X", `${base}.transform.x`, item.transform?.x || 0, -1, 1, 0.01)}
+      ${rangeTemplate("Y", `${base}.transform.y`, item.transform?.y || 0, -1, 1, 0.01)}
+    </div>
+    <div class="field-pair">
+      ${rangeTemplate("Scale", `${base}.transform.scale`, item.transform?.scale ?? 1, 0.1, 3, 0.01)}
+      ${rangeTemplate("Rotate", `${base}.transform.rotation`, item.transform?.rotation || 0, -3.14, 3.14, 0.01)}
+    </div>
   `;
 }
 
@@ -1274,7 +1264,7 @@ function generatorPickerTemplate(path, value) {
       <div class="generator-grid">
         ${listGeneratorComponents().filter((generator) => generator.id !== "black").map((generator) => `
           <button type="button" class="generator-card ${generator.id === value ? "is-selected" : ""}" data-set-generator="${generator.id}" data-generator-path="${path}">
-            <span class="generator-swatch generator-${generator.id}"></span>
+            ${icon("auto_awesome")}
             <strong>${esc(generator.label || generator.name)}</strong>
           </button>
         `).join("")}
@@ -1353,43 +1343,6 @@ function panelTemplate(iconName, title, body) {
   `;
 }
 
-function compositionChainTemplate(composition, ownerPath) {
-  return `
-    <div class="chain-column">
-      <div class="rail-title"><span class="material-symbols-rounded">blur_on</span><span>Chain</span></div>
-      ${shaderChainTemplate(composition.shaderChain, "composition", composition.id, ownerPath)}
-      <details class="chain-add">
-        <summary>${icon("add")} Add effect</summary>
-        <div class="effect-palette">
-          ${listShaderComponents().map((shader) => `
-            <button type="button" data-add-shader="${shader.id}" data-target="composition" data-target-id="${composition.id}" title="${esc(shader.name)}">
-              ${icon(effectIcon(shader.id))}
-              <span>${esc(shader.name)}</span>
-            </button>
-          `).join("")}
-        </div>
-      </details>
-    </div>
-  `;
-}
-
-function shaderChainTemplate(chain, target, targetId, ownerPath, chainKey = "shaderChain") {
-  if (!chain?.length) return `<div class="soft-note">No effects on this ${target}</div>`;
-  return `
-    <div class="chain-list">
-      ${chain.map((pass, index) => {
-        const component = getShaderComponent(pass.id);
-        return `
-        <div class="chain-pass">
-          <label class="chain-pass-title">${icon(effectIcon(pass.id))}<input type="checkbox" data-update="${ownerPath}.${chainKey}.${index}.enabled" ${pass.enabled ? "checked" : ""} />${esc(component?.name || pass.id)}</label>
-          ${shaderParamControlsTemplate(component, pass, `${ownerPath}.${chainKey}.${index}`)}
-          <button type="button" data-remove-pass data-target="${target}" data-target-id="${targetId}" data-pass-index="${index}" title="Remove effect" aria-label="Remove effect">${icon("close")}</button>
-        </div>
-      `;}).join("")}
-    </div>
-  `;
-}
-
 function shaderParamControlsTemplate(component, pass, basePath) {
   if (!component?.params?.length) return "";
   return `
@@ -1461,7 +1414,7 @@ function settingsModalTemplate(state) {
       <header class="modal-header">
         <div>
           <strong>Project settings</strong>
-          <small>Frame, world, and texture resolution.</small>
+          <small>Output frame and rendering budget.</small>
         </div>
         <button type="button" class="icon-buttonish" data-close-modal title="Close" aria-label="Close">${icon("close")}</button>
       </header>
@@ -1472,6 +1425,9 @@ function settingsModalTemplate(state) {
             <button type="button" data-render-preset="wide">960 x 540</button>
             <button type="button" data-render-preset="xga">XGA</button>
             <button type="button" data-render-preset="hd">HD</button>
+            <button type="button" data-render-preset="fhd">Full HD</button>
+            <button type="button" data-render-preset="2k">2K</button>
+            <button type="button" data-render-preset="4k">4K</button>
           </div>
           <div class="field-pair">
             <label class="field">Width <input type="number" min="128" max="8192" step="1" data-settings-update="render.frameWidth" value="${render.frameWidth}" /></label>
@@ -1479,21 +1435,17 @@ function settingsModalTemplate(state) {
           </div>
         </section>
         <section class="element-section">
-          <div class="rail-title"><span class="material-symbols-rounded">grid_on</span><span>Mapping world</span></div>
-          <div class="settings-preset-row">
-            <button type="button" data-fit-world>Frame + 50%</button>
-          </div>
-          <div class="field-pair">
-            <label class="field">Width <input type="number" min="${render.frameWidth}" max="12288" step="1" data-settings-update="render.worldWidth" value="${render.worldWidth}" /></label>
-            <label class="field">Height <input type="number" min="${render.frameHeight}" max="12288" step="1" data-settings-update="render.worldHeight" value="${render.worldHeight}" /></label>
-          </div>
-          <div class="soft-note">The output window renders the frame. The preview can show the larger world so mapped surfaces can sit outside the final crop.</div>
-        </section>
-        <section class="element-section">
           <div class="rail-title"><span class="material-symbols-rounded">texture</span><span>Surface texture</span></div>
           <div class="field-pair">
             <label class="field">Width <input type="number" min="64" max="8192" step="1" data-settings-update="render.surfaceWidth" value="${render.surfaceWidth}" /></label>
             <label class="field">Height <input type="number" min="64" max="8192" step="1" data-settings-update="render.surfaceHeight" value="${render.surfaceHeight}" /></label>
+          </div>
+        </section>
+        <section class="element-section">
+          <div class="rail-title"><span class="material-symbols-rounded">speed</span><span>Performance</span></div>
+          <div class="field-pair">
+            <label class="field">Pixel density <input type="number" min="0.5" max="2" step="0.25" data-settings-update="render.pixelDensity" value="${render.pixelDensity}" /></label>
+            <label class="field">Edge softness <input type="number" min="0" max="8" step="0.5" data-settings-update="render.edgeSoftness" value="${render.edgeSoftness}" /></label>
           </div>
         </section>
       </div>
@@ -1540,7 +1492,7 @@ function elementPickerTemplate(state, picker, mediaLibrary, urlCache) {
           <div class="element-grid compact-element-grid">
             ${listGeneratorComponents().filter((generator) => generator.id !== "black").map((generator) => `
               <button type="button" class="element-card" data-add-element-generator="${esc(generator.id)}">
-                <span class="generator-swatch generator-${esc(generator.id)}"></span>
+                ${icon("auto_awesome")}
                 <strong>${esc(generator.label || generator.name)}</strong>
                 <small>generator</small>
               </button>
