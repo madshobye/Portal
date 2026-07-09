@@ -1,6 +1,6 @@
 import { VJ1 } from "../constants.js";
 import { sanitizeState } from "../domain/models.js";
-import { OutputRenderer } from "./output-renderer.js?v=scene-snapshots-48";
+import { OutputRenderer } from "./output-renderer.js?v=scene-snapshots-51";
 
 export function createEmbeddedPreviewApp({ store, mediaLibrary }) {
   let host = null;

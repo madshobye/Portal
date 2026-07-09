@@ -15,7 +15,18 @@ export const VIEWS = Object.freeze([
   { id: "studio", label: "Studio" },
 ]);
 
-export const BLEND_MODES = Object.freeze(["normal", "add", "screen", "multiply"]);
+export const BLEND_MODES = Object.freeze([
+  "normal",
+  "add",
+  "screen",
+  "multiply",
+  "darkest",
+  "lightest",
+  "difference",
+  "exclusion",
+  "overlay",
+  "remove",
+]);
 
 export const GENERATORS = Object.freeze([
   { id: "waves", label: "Waves" },

@@ -2,7 +2,7 @@ import { BLEND_MODES, GENERATORS, SOURCE_TYPES } from "../constants.js";
 import { applySceneSnapshotToState, createSceneSnapshot } from "../domain/models.js";
 import { buildOutputUrl } from "../view-routing.js";
 import { listShaderComponents } from "../shaders/shader-registry.js";
-import { createEmbeddedPreviewApp } from "../output/embedded-preview-app.js?v=scene-snapshots-48";
+import { createEmbeddedPreviewApp } from "../output/embedded-preview-app.js?v=scene-snapshots-51";
 
 export function createControlShell({ root, store, bridge, mediaLibrary, projectService }) {
   let refs = {};

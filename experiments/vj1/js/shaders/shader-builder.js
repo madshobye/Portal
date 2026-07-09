@@ -8,11 +8,12 @@ export function createShaderBuilder({ getCustomCode, onStatus }) {
     const code = pass.id === "custom" ? getCustomCode() : component?.code;
     if (!code) return null;
     const contextId = getContextId(target);
-    const key = `${contextId}:${pass.id}:${code}`;
+    const key = `${contextId}:${pass.id}:${component?.type || "effect"}:${code}`;
     if (cache.has(key)) return cache.get(key);
     try {
       const factory = typeof target?.createShader === "function" ? target : globalThis;
-      const shader = factory.createShader(vertexShaderSource(), fragmentShaderSource(code));
+      const fragmentSource = component?.type === "fragment" ? code : fragmentShaderSource(code);
+      const shader = factory.createShader(vertexShaderSource(), fragmentSource);
       cache.set(key, shader);
       onStatus?.("Shader ready", "");
       return shader;
