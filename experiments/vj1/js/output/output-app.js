@@ -1,8 +1,8 @@
 import { VJ1 } from "../constants.js";
 import { sanitizeState } from "../domain/models.js";
 import { createOutputBridge } from "../services/output-bridge-service.js";
-import { OutputRenderer } from "./output-renderer.js?v=world-frame-13";
-import { applyFontToGlobal, loadVjRenderFont } from "./font-loader.js?v=world-frame-13";
+import { OutputRenderer } from "./output-renderer.js?v=world-frame-14";
+import { applyFontToGlobal, loadVjRenderFont } from "./font-loader.js?v=world-frame-14";
 import { fittedCssRect, frameSize } from "./render-geometry.js";
 
 export function installOutputApp({ root, mode }) {
@@ -36,7 +36,6 @@ export function installOutputApp({ root, mode }) {
     await loadClassicScript(VJ1.portalScript);
     renderFont = await loadVjRenderFont();
     applyLoadedFont(renderFont);
-    await loadClassicScript(VJ1.mapperScript);
     renderer = new OutputRenderer({
       mode,
       hud: root.querySelector("[data-output-fps]"),

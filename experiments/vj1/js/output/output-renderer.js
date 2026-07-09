@@ -5,7 +5,7 @@ import { planCompositorInputs, planPatchExecution } from "../graph/patch-planner
 import { compileCompositionPatch, compileShaderSchedule } from "../graph/render-scheduler.js";
 import { createShaderBuilder } from "../shaders/shader-builder.js";
 import { applyBlend } from "./blend-utils.js";
-import { applyFontToGlobal, applyFontToTarget } from "./font-loader.js?v=world-frame-13";
+import { applyFontToGlobal, applyFontToTarget } from "./font-loader.js?v=world-frame-14";
 import { drawGenerator, drawStandby } from "./generators.js";
 import { drawCover, isDrawableMedia, syncVideoSpeed } from "./media-utils.js";
 import {
@@ -17,6 +17,7 @@ import {
   surfaceTextureSize,
   worldSize,
 } from "./render-geometry.js";
+import { VjMapper } from "./vj-mapper.js?v=world-frame-14";
 import { mediaRenditionKey } from "../services/media-rendition-service.js";
 
 export class OutputRenderer {
@@ -47,6 +48,7 @@ export class OutputRenderer {
     this.fxTargetKey = "";
     this.mainMix = null;
     this.surfaceScratch = null;
+    this.surfaceTexture = null;
     this.cameraCapture = null;
     this.cameraRequested = false;
     this.cameraError = "";
@@ -88,10 +90,6 @@ export class OutputRenderer {
 
   dispose() {
     this.disposeBuffers();
-    for (const entry of this.mapperSurfaces?.values?.() || []) {
-      disposeGraphics(entry?.pg);
-      disposeGraphics(entry?.mapperSurface?.renderCache);
-    }
     this.mapperSurfaces?.clear?.();
     this.mapper?.surfaces?.splice?.(0);
     this.cameraCapture?.remove?.();
@@ -116,15 +114,11 @@ export class OutputRenderer {
     this.applyGraphicsFont(this.sourcePg);
     this.applyGraphicsFont(this.mainMix);
     this.applyGraphicsFont(this.surfaceScratch);
+    this.applyGraphicsFont(this.surfaceTexture);
     this.applyGraphicsFont(this.fxTarget);
     for (const pg of this.compositionSource?.values?.() || []) this.applyGraphicsFont(pg);
     for (const pg of this.compositionOutput?.values?.() || []) this.applyGraphicsFont(pg);
     for (const pg of this.compositionBuffer?.values?.() || []) this.applyGraphicsFont(pg);
-    for (const entry of this.mapperSurfaces?.values?.() || []) {
-      this.applyGraphicsFont(entry?.pg);
-      this.applyGraphicsFont(entry?.mapperSurface?.pg);
-    }
-    this.mapper?.setFont?.(this.font);
   }
 
   createBuffers() {
@@ -134,15 +128,18 @@ export class OutputRenderer {
     this.sourcePg = createGraphics(rw, rh);
     this.mainMix = createGraphics(rw, rh);
     this.surfaceScratch = createGraphics(surfaceWidth, surfaceHeight);
+    this.surfaceTexture = createGraphics(surfaceWidth, surfaceHeight);
     this.applyGraphicsFont(this.sourcePg);
     this.applyGraphicsFont(this.mainMix);
     this.applyGraphicsFont(this.surfaceScratch);
+    this.applyGraphicsFont(this.surfaceTexture);
   }
 
   disposeBuffers() {
     disposeGraphics(this.sourcePg);
     disposeGraphics(this.mainMix);
     disposeGraphics(this.surfaceScratch);
+    disposeGraphics(this.surfaceTexture);
     disposeGraphics(this.fxTarget);
     disposeGraphicsMap(this.compositionSource);
     disposeGraphicsMap(this.compositionOutput);
@@ -152,23 +149,18 @@ export class OutputRenderer {
     this.sourcePg = null;
     this.mainMix = null;
     this.surfaceScratch = null;
+    this.surfaceTexture = null;
     this.fxTarget = null;
     this.fxTargetKey = "";
     this.shaderBuilder.clear?.();
   }
 
   createMapper() {
-    const ProjectionMapperClass = getProjectionMapperClass();
-    this.mapper = new ProjectionMapperClass({
-      pixelDensity: 1,
-      storage: false,
-      storageNamespace: "vj1",
+    this.mapper = new VjMapper({
       onConfigChange: (mapping, meta = {}) => {
         this.emitMapping(mapping, mappingStatusForReason(meta.reason));
       },
     });
-    this.mapper.setFont?.(this.font);
-    this.mapper.setAutoSave(true);
     this.syncMapperOverlayMode();
     this.rebuildSurfaces();
     this.applyProjectMapping();
@@ -177,16 +169,12 @@ export class OutputRenderer {
   rebuildSurfaces() {
     if (!this.mapper) return;
     const existingCorners = new Map((this.mapper.surfaces || []).map((surface) => [
-      surface.name,
+      surface.id || surface.name,
       Array.isArray(surface.corners)
         ? surface.corners.map((corner) => ({ x: corner.x, y: corner.y }))
         : null,
     ]));
-    while (this.mapper.surfaces.length) {
-      const removed = this.mapper.removeLastSurface({ clearStorage: false });
-      disposeGraphics(removed?.pg);
-      disposeGraphics(removed?.renderCache);
-    }
+    this.mapper.clearSurfaces();
     this.mapperSurfaces.clear();
     const cols = Math.max(1, Math.ceil(Math.sqrt(this.state.surfaces.length)));
     const gap = 40;
@@ -194,24 +182,27 @@ export class OutputRenderer {
     const texture = surfaceTextureSize(this.state.render);
     const cellH = cellW * (texture.height / texture.width);
     this.state.surfaces.forEach((surface, index) => {
-      const pg = this.mapper.add(texture.width, texture.height, surface.id);
-      this.applyGraphicsFont(pg);
-      const mapperSurface = this.mapper.surfaces[this.mapper.surfaces.length - 1];
       const col = index % cols;
       const row = Math.floor(index / cols);
       const x = gap + col * (cellW + gap);
       const y = gap + row * (cellH + gap);
       const preserved = existingCorners.get(surface.id);
-      mapperSurface.corners = preserved?.length === 4
-        ? preserved.map((corner) => createVector(corner.x, corner.y))
+      const corners = preserved?.length === 4
+        ? preserved
         : [
-            createVector(x, y),
-            createVector(x + cellW, y),
-            createVector(x + cellW, y + cellH),
-            createVector(x, y + cellH),
+            { x, y },
+            { x: x + cellW, y },
+            { x: x + cellW, y: y + cellH },
+            { x, y: y + cellH },
           ];
-      this.mapper._invalidateSurface?.(mapperSurface);
-      this.mapperSurfaces.set(surface.id, { pg, mapperSurface });
+      const mapperSurface = this.mapper.addSurface({
+        id: surface.id,
+        name: surface.id,
+        width: texture.width,
+        height: texture.height,
+        corners,
+      });
+      this.mapperSurfaces.set(surface.id, { mapperSurface, renderRequest: stableSurfaceRenderRequest(this.state.render, { surfaceId: surface.id }) });
     });
   }
 
@@ -406,7 +397,7 @@ export class OutputRenderer {
     const outputBlackout = this.isOutputBlackout();
     const restoreCalibrate = outputBlackout && this.mapper?.isCalibrating?.();
     if (restoreCalibrate) this.mapper.setCalibrate(false);
-    this.mapper.render();
+    this.mapper.drawOverlays();
     this.renderOutputFrameOverlay();
     this.renderSelectedSurfaceOverlay();
     if (restoreCalibrate) this.mapper.setCalibrate(true);
@@ -926,8 +917,8 @@ export class OutputRenderer {
     for (const surface of this.state.surfaces) {
       const mapped = this.mapperSurfaces.get(surface.id);
       if (!mapped) continue;
-      this.ensureSurfaceTexture(surface, mapped);
-      const pg = mapped.pg;
+      const pg = this.surfaceTexture;
+      if (!pg) continue;
       pg.push();
       pg.background(0);
       if (!outputBlackout && surface.enabled) {
@@ -938,28 +929,8 @@ export class OutputRenderer {
         drawSurfaceLabel(pg, surface, composition);
       }
       pg.pop();
+      this.mapper.drawTexture(pg, mapped.mapperSurface);
     }
-  }
-
-  ensureSurfaceTexture(surface, mapped) {
-    const mapperSurface = mapped?.mapperSurface;
-    if (!surface || !mapperSurface?.corners) return;
-    if (mapperSurface.dragging !== -1) return;
-    const target = stableSurfaceRenderRequest(this.state.render, { surfaceId: surface.id });
-    const current = mapped.pg || mapperSurface.pg;
-    if (current?.width === target.width && current?.height === target.height) return;
-
-    const nextPg = createGraphics(target.width, target.height);
-    nextPg.pixelDensity?.(1);
-    this.applyGraphicsFont(nextPg);
-    this.mapper?.setFont?.(this.font);
-    disposeGraphics(current);
-    mapperSurface.pg = nextPg;
-    mapperSurface.w = target.width;
-    mapperSurface.h = target.height;
-    mapperSurface.renderCache = null;
-    mapped.pg = nextPg;
-    mapped.renderRequest = target;
   }
 
   drawSurfaceRoute(pg, surface) {
@@ -1324,11 +1295,6 @@ export class OutputRenderer {
     this.thumbnailSignatures.set(composition.id, signature);
     this.sendThumbnail(composition.id, thumbnail);
   }
-}
-
-function getProjectionMapperClass() {
-  if (globalThis.ProjectionMapper) return globalThis.ProjectionMapper;
-  return Function("return ProjectionMapper")();
 }
 
 function mappingStatusForReason(reason = "") {

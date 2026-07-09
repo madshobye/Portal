@@ -1,7 +1,7 @@
 import { VJ1 } from "../constants.js";
 import { sanitizeState } from "../domain/models.js";
-import { OutputRenderer } from "./output-renderer.js?v=world-frame-13";
-import { applyFontToGlobal, loadVjRenderFont } from "./font-loader.js?v=world-frame-13";
+import { OutputRenderer } from "./output-renderer.js?v=world-frame-14";
+import { applyFontToGlobal, loadVjRenderFont } from "./font-loader.js?v=world-frame-14";
 import { createPreviewViewportController, fitPreviewCanvasElement } from "./preview-viewport.js";
 import { canvasSizeForMode } from "./render-geometry.js";
 
@@ -116,7 +116,6 @@ export function createEmbeddedPreviewApp({ store, mediaLibrary, projectService }
     await loadClassicScript(VJ1.portalScript);
     renderFont = await loadVjRenderFont();
     applyLoadedFont();
-    await loadClassicScript(VJ1.mapperScript);
     renderer = new OutputRenderer({
       mode: pendingMode,
       hud,

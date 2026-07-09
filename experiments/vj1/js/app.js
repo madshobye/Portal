@@ -1,10 +1,10 @@
 import { createAppState } from "./app-state.js";
-import { createControlShell } from "./control/control-shell-controller.js?v=world-frame-13";
+import { createControlShell } from "./control/control-shell-controller.js?v=world-frame-14";
 import { getInitialWorkspace, getClientMode, persistWorkspace } from "./view-routing.js";
 import { createMediaLibrary } from "./services/media-library-service.js";
-import { createProjectFolderService } from "./services/project-folder-service.js?v=world-frame-13";
+import { createProjectFolderService } from "./services/project-folder-service.js?v=world-frame-14";
 import { createControlBridge } from "./services/output-bridge-service.js";
-import { installOutputApp } from "./output/output-app.js?v=world-frame-13";
+import { installOutputApp } from "./output/output-app.js?v=world-frame-14";
 
 const root = document.getElementById("app");
 const mode = getClientMode();
