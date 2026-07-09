@@ -2,7 +2,7 @@ import { BLEND_MODES, GENERATORS, SOURCE_TYPES } from "../constants.js";
 import { applySceneSnapshotToState, createLiveCompositionView, createLiveRenderState, createSceneSnapshot } from "../domain/models.js";
 import { buildOutputUrl } from "../view-routing.js";
 import { listShaderComponents } from "../shaders/shader-registry.js";
-import { createEmbeddedPreviewApp } from "../output/embedded-preview-app.js?v=scene-snapshots-89";
+import { createEmbeddedPreviewApp } from "../output/embedded-preview-app.js?v=scene-snapshots-90";
 
 export function createControlShell({ root, store, bridge, mediaLibrary, projectService }) {
   let refs = {};
@@ -467,8 +467,8 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
         input.addEventListener("change", () => updatePathFromInput(input, `update:${input.dataset.update}`));
       }
     });
-    refs.projectRail.querySelectorAll("[data-recall-scene]").forEach((button) => {
-      button.addEventListener("click", () => store.recallScene(button.dataset.recallScene));
+    refs.projectRail.querySelectorAll("[data-select-scene]").forEach((button) => {
+      button.addEventListener("click", () => store.selectScene(button.dataset.selectScene));
     });
     refs.projectRail.querySelectorAll("[data-live-scene]").forEach((button) => {
       button.addEventListener("click", () => {
@@ -1035,7 +1035,7 @@ function scenePillTemplate(scene, state) {
   const compositions = sceneFingerprintCompositions(scene, state);
   return `
     <div class="composition-card-row">
-      <button type="button" class="composition-card scene-card ${selected ? "is-selected" : ""}" data-recall-scene="${esc(scene.id)}">
+      <button type="button" class="composition-card scene-card ${selected ? "is-selected" : ""}" data-select-scene="${esc(scene.id)}">
         ${sceneFingerprintTemplate(compositions)}
         <span>${esc(scene.name)}</span>
       </button>
@@ -1169,7 +1169,7 @@ function getLiveSelectedScene(state) {
 }
 
 function liveSelectedSceneId(state) {
-  return state.ui?.live?.selectedSceneId || state.ui?.selectedSceneId || state.scenes[0]?.id || "";
+  return state.ui?.live?.selectedSceneId || state.scenes[0]?.id || "";
 }
 
 function liveSceneCompositions(scene, state) {

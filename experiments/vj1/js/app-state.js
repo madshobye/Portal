@@ -77,8 +77,7 @@ export function createAppState(initial = null) {
       }, "workspace");
     },
     getRenderState() {
-      const current = getState();
-      return current.ui.workspace === "live" ? createLiveRenderState(current) : current;
+      return createLiveRenderState(getState());
     },
     addComposition() {
       update((draft) => {
@@ -160,6 +159,11 @@ export function createAppState(initial = null) {
         draft.ui.selectedSceneId = scene.id;
       }, "save-scene");
     },
+    selectScene(id) {
+      const current = getState();
+      const scene = current.scenes.find((item) => String(item.id) === String(id));
+      if (scene) replace(applySceneSnapshot(current, scene), "select-scene");
+    },
     recallScene(id) {
       const current = getState();
       const scene = current.scenes.find((item) => String(item.id) === String(id));
@@ -169,6 +173,7 @@ export function createAppState(initial = null) {
       update((draft) => {
         draft.scenes = draft.scenes.filter((scene) => String(scene.id) !== String(id));
         if (String(draft.ui.selectedSceneId) === String(id)) draft.ui.selectedSceneId = draft.scenes[0]?.id || "";
+        if (String(draft.ui.live?.selectedSceneId) === String(id)) draft.ui.live.selectedSceneId = draft.scenes[0]?.id || "";
         const selectedScene = draft.scenes.find((scene) => scene.id === draft.ui.selectedSceneId);
         if (selectedScene) applySceneSnapshotToState(draft, selectedScene);
       }, "delete-scene");

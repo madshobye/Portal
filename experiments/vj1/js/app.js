@@ -1,11 +1,11 @@
 import { createAppState } from "./app-state.js";
-import { createControlShell } from "./control/control-shell-controller.js?v=scene-snapshots-89";
+import { createControlShell } from "./control/control-shell-controller.js?v=scene-snapshots-90";
 import { getInitialView, getInitialWorkspace, getClientMode, persistWorkspace } from "./view-routing.js";
 import { loadPersistedState, persistState } from "./services/state-persistence-service.js";
 import { createMediaLibrary } from "./services/media-library-service.js";
-import { createProjectFolderService } from "./services/project-folder-service.js?v=scene-snapshots-89";
+import { createProjectFolderService } from "./services/project-folder-service.js?v=scene-snapshots-90";
 import { createControlBridge } from "./services/output-bridge-service.js";
-import { installOutputApp } from "./output/output-app.js?v=scene-snapshots-89";
+import { installOutputApp } from "./output/output-app.js?v=scene-snapshots-90";
 
 const root = document.getElementById("app");
 const mode = getClientMode();

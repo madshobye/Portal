@@ -179,7 +179,7 @@ export function sanitizeState(input = {}) {
 export function createLiveRenderState(state = createInitialState()) {
   const next = clone(state);
   const live = next.ui?.live || {};
-  const sceneId = live.selectedSceneId || next.ui?.selectedSceneId || "";
+  const sceneId = live.selectedSceneId || next.scenes?.[0]?.id || "";
   const scene = next.scenes?.find((item) => item.id === sceneId);
   if (scene) applySceneSnapshotToState(next, scene);
   next.ui.selectedSceneId = scene?.id || next.ui.selectedSceneId || "";
