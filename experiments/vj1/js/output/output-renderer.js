@@ -4,11 +4,12 @@ import { createShaderBuilder } from "../shaders/shader-builder.js";
 import { getShaderComponent } from "../shaders/shader-registry.js";
 
 export class OutputRenderer {
-  constructor({ mode, hud, sendMetrics, sendMapping, requestMediaFiles, onSurfaceSelect }) {
+  constructor({ mode, hud, sendMetrics, sendMapping, sendThumbnail, requestMediaFiles, onSurfaceSelect }) {
     this.mode = mode;
     this.hud = hud;
     this.sendMetrics = sendMetrics;
     this.sendMapping = sendMapping;
+    this.sendThumbnail = sendThumbnail;
     this.requestMediaFiles = requestMediaFiles;
     this.onSurfaceSelect = onSurfaceSelect;
     this.state = null;
@@ -16,6 +17,7 @@ export class OutputRenderer {
     this.compositionSource = new Map();
     this.compositionOutput = new Map();
     this.compositionBuffer = new Map();
+    this.thumbnailImages = new Map();
     this.media = new Map();
     this.sourcePg = null;
     this.fxA = null;
@@ -33,6 +35,11 @@ export class OutputRenderer {
     this.localMappingProtectedUntil = 0;
     this.lastMetricsAt = 0;
     this.lastMediaRequestAt = 0;
+    this.lastThumbnailAt = 0;
+    this.thumbnailSignatures = new Map();
+    this.smoothedFrameMs = 0;
+    this.smoothedFps = 0;
+    this.smoothedRenderCost = 0;
     this.frameStart = 0;
     this.lastTickMs = 0;
     this.visualTime = 0;
@@ -101,6 +108,7 @@ export class OutputRenderer {
       },
     });
     this.mapper.setAutoSave(true);
+    this.syncMapperOverlayMode();
     this.rebuildSurfaces();
     this.applyProjectMapping();
   }
@@ -167,6 +175,11 @@ export class OutputRenderer {
       this.applyProjectMapping(nextMappingSignature);
     }
     this.setCalibrate(this.shouldCalibrateFromState());
+    this.syncMapperOverlayMode();
+  }
+
+  syncMapperOverlayMode() {
+    this.mapper?.setOverlayMode?.(this.state?.global?.mappingHandleMode || "always");
   }
 
   shouldCalibrateFromState() {
@@ -254,9 +267,11 @@ export class OutputRenderer {
     this.frameStart = performance.now();
     this.tickClock(this.frameStart);
     background(0);
-    this.renderCompositions();
+    if (this.shouldUseThumbnailPreview()) this.renderThumbnailCompositions();
+    else this.renderCompositions();
     if (this.mode === "composition") {
       this.renderCompositionPreview();
+      this.captureSelectedCompositionThumbnail();
       this.updateHudAndMetrics();
       return;
     }
@@ -292,6 +307,7 @@ export class OutputRenderer {
     if (this.mode === "output" || !this.mapper?.isCalibrating?.()) return;
     const surfaceId = this.state?.ui?.selectedSurfaceId;
     if (!surfaceId) return;
+    if (this.state?.global?.mappingHandleMode === "near" && !this.shouldRevealSurfaceOverlay(surfaceId)) return;
     const mapped = this.mapperSurfaces.get(surfaceId);
     const corners = mapped?.mapperSurface?.corners;
     if (!Array.isArray(corners) || corners.length !== 4) return;
@@ -318,6 +334,21 @@ export class OutputRenderer {
     if (gl?.enable) gl.enable(gl.DEPTH_TEST);
   }
 
+  shouldRevealSurfaceOverlay(surfaceId) {
+    const mapped = this.mapperSurfaces.get(surfaceId);
+    const corners = mapped?.mapperSurface?.corners;
+    if (!Array.isArray(corners)) return false;
+    if (mapped?.mapperSurface?.dragging !== -1) return true;
+    const px = typeof mouseX === "number" ? mouseX : -99999;
+    const py = typeof mouseY === "number" ? mouseY : -99999;
+    const radius = this.mapper?.pickRadius || 60;
+    return corners.some((corner) => {
+      const dx = px - corner.x;
+      const dy = py - corner.y;
+      return dx * dx + dy * dy <= radius * radius;
+    });
+  }
+
   renderCompositions() {
     this.compositionOutput.clear();
     this.mainMix.push();
@@ -329,7 +360,6 @@ export class OutputRenderer {
 
     const neededCompositionIds = this.neededCompositionIds();
     for (const composition of this.state.compositions || []) {
-      if (!composition.enabled) continue;
       if (neededCompositionIds.size && !neededCompositionIds.has(composition.id)) continue;
       const compositionTime = this.compositionTimes.get(composition.id) || 0;
       const source = this.renderCompositionSource(composition, compositionTime);
@@ -348,6 +378,13 @@ export class OutputRenderer {
       this.mainMix.blendMode(BLEND);
       this.mainMix.pop();
     }
+    this.mainMix.pop();
+  }
+
+  renderThumbnailCompositions() {
+    this.compositionOutput.clear();
+    this.mainMix.push();
+    this.mainMix.background(0);
     this.mainMix.pop();
   }
 
@@ -504,7 +541,7 @@ export class OutputRenderer {
       if (!outputBlackout && surface.enabled) {
         this.drawSurfaceRoute(pg, surface);
       }
-      if (!outputBlackout && surface.showLabel && this.mapper.isCalibrating()) {
+      if (!outputBlackout && this.state.global.showLabels !== false && this.mapper.isCalibrating()) {
         const composition = this.state.compositions.find((item) => item.id === surface.compositionId);
         drawSurfaceLabel(pg, surface, composition);
       }
@@ -515,6 +552,10 @@ export class OutputRenderer {
   drawSurfaceRoute(pg, surface) {
     if (!surface.compositionId) {
       pg.background(0);
+      return;
+    }
+    if (this.shouldUseThumbnailPreview()) {
+      this.drawSurfaceThumbnailRoute(pg, surface);
       return;
     }
     const source = this.compositionOutput.get(surface.compositionId) || this.mainMix;
@@ -531,6 +572,41 @@ export class OutputRenderer {
       const effected = this.renderShaderChain(pg, surface.finalShaderChain, this.state.render.surfaceWidth, this.state.render.surfaceHeight, this.visualTime);
       drawBuffer(pg, effected, 0, 0, pg.width, pg.height, this.isShaderBuffer(effected));
     }
+  }
+
+  drawSurfaceThumbnailRoute(pg, surface) {
+    const composition = this.state.compositions.find((item) => item.id === surface.compositionId);
+    const thumbnail = this.getThumbnailImage(composition);
+    pg.push();
+    applyBlend(pg, surface.finalBlend);
+    pg.tint(255, 255 * clamp01(surface.opacity));
+    if (thumbnail?.ready && thumbnail.img) {
+      drawCover(pg, thumbnail.img, 0, 0, pg.width, pg.height);
+    } else {
+      drawStandby(pg, composition?.thumbnail ? "loading thumbnail" : "no thumbnail");
+    }
+    pg.noTint();
+    pg.blendMode(BLEND);
+    pg.pop();
+  }
+
+  getThumbnailImage(composition) {
+    if (!composition?.thumbnail) return null;
+    const existing = this.thumbnailImages.get(composition.id);
+    if (existing?.src === composition.thumbnail) return existing;
+    const item = { src: composition.thumbnail, img: null, ready: false };
+    this.thumbnailImages.set(composition.id, item);
+    loadImage(
+      composition.thumbnail,
+      (img) => {
+        item.img = img;
+        item.ready = true;
+      },
+      () => {
+        item.ready = false;
+      }
+    );
+    return item;
   }
 
   isShaderBuffer(buffer) {
@@ -621,21 +697,58 @@ export class OutputRenderer {
     return this.mode === "output" && !!this.state.global.blackout;
   }
 
+  shouldUseThumbnailPreview() {
+    return this.mode === "preview" && this.state?.ui?.debugPreview === false;
+  }
+
   updateHudAndMetrics() {
     const frameMs = performance.now() - this.frameStart;
     const fps = frameRate();
+    const renderCost = frameMs / (1000 / 120);
+    this.updateSmoothedMetrics({ fps, frameMs, renderCost });
     if (this.hud) {
       this.hud.classList.toggle("is-hidden", !this.state.global.showHud);
-      this.hud.textContent = `${Math.round(fps)} fps`;
+      this.hud.textContent = `${Math.round(this.smoothedFps || fps)} fps`;
     }
     if (millis() - this.lastMetricsAt > 500) {
       this.lastMetricsAt = millis();
       this.sendMetrics?.({
-        fps,
-        frameMs,
-        message: this.mode === "composition" ? "composition preview" : `${this.mode} rendering`,
+        fps: this.smoothedFps || fps,
+        frameMs: this.smoothedFrameMs || frameMs,
+        renderCost: this.smoothedRenderCost || renderCost,
+        message: this.shouldUseThumbnailPreview()
+          ? "thumbnail preview"
+          : this.mode === "composition" ? "composition preview" : `${this.mode} rendering`,
       });
     }
+  }
+
+  updateSmoothedMetrics({ fps, frameMs, renderCost }) {
+    const alpha = 0.12;
+    if (!this.smoothedFrameMs) {
+      this.smoothedFrameMs = frameMs;
+      this.smoothedFps = fps;
+      this.smoothedRenderCost = renderCost;
+      return;
+    }
+    this.smoothedFrameMs += (frameMs - this.smoothedFrameMs) * alpha;
+    this.smoothedFps += (fps - this.smoothedFps) * alpha;
+    this.smoothedRenderCost += (renderCost - this.smoothedRenderCost) * alpha;
+  }
+
+  captureSelectedCompositionThumbnail() {
+    if (!this.sendThumbnail || millis() - this.lastThumbnailAt < 1200) return;
+    const composition = this.state.compositions.find((item) => item.id === this.state.ui.selectedCompositionId) || this.state.compositions[0];
+    if (!composition) return;
+    const output = this.compositionOutput.get(composition.id);
+    if (!output?.canvas) return;
+    const signature = compositionThumbnailSignature(composition);
+    if (composition.thumbnail && this.thumbnailSignatures.get(composition.id) === signature) return;
+    const thumbnail = graphicsToThumbnail(output);
+    if (!thumbnail) return;
+    this.lastThumbnailAt = millis();
+    this.thumbnailSignatures.set(composition.id, signature);
+    this.sendThumbnail(composition.id, thumbnail);
   }
 }
 
@@ -670,6 +783,46 @@ function disposeGraphics(item) {
   try {
     item.remove?.();
   } catch {}
+}
+
+function compositionThumbnailSignature(composition) {
+  try {
+    return JSON.stringify({
+      source: composition.source,
+      opacity: composition.opacity,
+      blend: composition.blend,
+      speed: composition.speed,
+      shaderChain: composition.shaderChain,
+    });
+  } catch {
+    return `${composition.id}:${millis()}`;
+  }
+}
+
+function graphicsToThumbnail(pg, width = 160, height = 90) {
+  try {
+    const source = pg.canvas || pg.elt;
+    if (!source) return "";
+    const canvas = document.createElement("canvas");
+    canvas.width = width;
+    canvas.height = height;
+    const context = canvas.getContext("2d");
+    if (!context) return "";
+    const sourceWidth = source.videoWidth || source.naturalWidth || source.width || width;
+    const sourceHeight = source.videoHeight || source.naturalHeight || source.height || height;
+    const scale = Math.max(width / Math.max(1, sourceWidth), height / Math.max(1, sourceHeight));
+    const drawWidth = sourceWidth * scale;
+    const drawHeight = sourceHeight * scale;
+    const dx = (width - drawWidth) * 0.5;
+    const dy = (height - drawHeight) * 0.5;
+    context.fillStyle = "#000";
+    context.fillRect(0, 0, width, height);
+    context.drawImage(source, dx, dy, drawWidth, drawHeight);
+    return canvas.toDataURL("image/jpeg", 0.72);
+  } catch (error) {
+    console.warn("[VJ1_THUMBNAIL_CAPTURE_FAILED]", { message: error?.message || String(error) });
+    return "";
+  }
 }
 
 function getPortalWebcameraSetup() {
@@ -787,11 +940,46 @@ function drawStandby(pg, label) {
 }
 
 function drawGenerator(pg, id, t) {
+  if (id === "testPattern") return drawTestPattern(pg);
   if (id === "noise") return drawNoise(pg, t);
   if (id === "plasma") return drawPlasma(pg, t);
   if (id === "checker") return drawChecker(pg, t);
   if (id === "black") return pg.background(0);
-  return drawWaves(pg, t);
+  return drawTestPattern(pg);
+}
+
+function drawTestPattern(pg) {
+  const stripeCount = 8;
+  const stripeWidth = pg.width / stripeCount;
+  const colors = ["#ffffff", "#ffe45e", "#59e36d", "#4ee3e5", "#4d75ff", "#d35cff", "#ff4f92", "#0b0d11"];
+  pg.noStroke();
+  for (let i = 0; i < stripeCount; i++) {
+    pg.fill(colors[i]);
+    pg.rect(i * stripeWidth, 0, stripeWidth + 1, pg.height * 0.68);
+  }
+  const blockHeight = pg.height * 0.16;
+  const y1 = pg.height * 0.68;
+  for (let i = 0; i < stripeCount; i++) {
+    pg.fill(i % 2 === 0 ? "#111820" : "#d7dcd4");
+    pg.rect(i * stripeWidth, y1, stripeWidth + 1, blockHeight);
+  }
+  const y2 = y1 + blockHeight;
+  pg.fill("#07090c");
+  pg.rect(0, y2, pg.width, pg.height - y2);
+  pg.stroke("#f4f6ef");
+  pg.strokeWeight(2);
+  pg.noFill();
+  const cx = pg.width * 0.5;
+  const cy = y2 + (pg.height - y2) * 0.5;
+  const size = Math.min(pg.width, pg.height) * 0.14;
+  pg.rect(cx - size, cy - size * 0.55, size * 2, size * 1.1);
+  pg.line(cx - size, cy, cx + size, cy);
+  pg.line(cx, cy - size * 0.55, cx, cy + size * 0.55);
+  pg.noStroke();
+  pg.fill("#f4f6ef");
+  pg.textAlign(CENTER, CENTER);
+  pg.textSize(Math.max(18, pg.height * 0.04));
+  pg.text("TEST PATTERN", cx, cy + size * 0.92);
 }
 
 function drawWaves(pg, t) {

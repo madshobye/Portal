@@ -2,13 +2,14 @@ export const VJ1 = Object.freeze({
   channelName: "vj1-output-bridge",
   localStateKey: "vj1-state-v2",
   localViewKey: "vj1-view",
+  localWorkspaceKey: "vj1-workspace",
   renderWidth: 960,
   renderHeight: 540,
   surfaceWidth: 800,
   surfaceHeight: 450,
   p5Script: "https://cdn.jsdelivr.net/npm/p5@2.2.0/lib/p5.js",
   portalScript: "../../P1/portal/portal.js?v=vj1-camera-1",
-  mapperScript: "../../P1/portal/mapper2.js?v=folder-primary-3",
+  mapperScript: "../../P1/portal/mapper2.js?v=folder-primary-4",
 });
 
 export const VIEWS = Object.freeze([
@@ -29,6 +30,7 @@ export const BLEND_MODES = Object.freeze([
 ]);
 
 export const GENERATORS = Object.freeze([
+  { id: "testPattern", label: "Test Pattern" },
   { id: "waves", label: "Waves" },
   { id: "noise", label: "Noise" },
   { id: "plasma", label: "Plasma" },

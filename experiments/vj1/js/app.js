@@ -1,11 +1,11 @@
 import { createAppState } from "./app-state.js";
-import { createControlShell } from "./control/control-shell-controller.js?v=scene-snapshots-51";
-import { getInitialView, getClientMode } from "./view-routing.js";
+import { createControlShell } from "./control/control-shell-controller.js?v=scene-snapshots-77";
+import { getInitialView, getInitialWorkspace, getClientMode, persistWorkspace } from "./view-routing.js";
 import { loadPersistedState, persistState } from "./services/state-persistence-service.js";
 import { createMediaLibrary } from "./services/media-library-service.js";
-import { createProjectFolderService } from "./services/project-folder-service.js?v=scene-snapshots-51";
+import { createProjectFolderService } from "./services/project-folder-service.js?v=scene-snapshots-77";
 import { createControlBridge } from "./services/output-bridge-service.js";
-import { installOutputApp } from "./output/output-app.js?v=scene-snapshots-51";
+import { installOutputApp } from "./output/output-app.js?v=scene-snapshots-77";
 
 const root = document.getElementById("app");
 const mode = getClientMode();
@@ -16,6 +16,9 @@ if (mode === "output" || mode === "preview" || mode === "composition") {
   const initial = loadPersistedState();
   const store = createAppState(initial);
   store.setView(getInitialView());
+  const initialWorkspace = getInitialWorkspace();
+  store.setWorkspace(initialWorkspace);
+  persistWorkspace(initialWorkspace);
   const mediaLibrary = createMediaLibrary();
   const bridge = createControlBridge({ store, mediaLibrary });
   const projectService = createProjectFolderService({ mediaLibrary, store, bridge });
@@ -24,6 +27,7 @@ if (mode === "output" || mode === "preview" || mode === "composition") {
 
   store.subscribe((state, reason) => {
     persistState(state);
+    if (reason === "workspace") persistWorkspace(state.ui.workspace);
     projectService.scheduleAutoSave(reason);
     if (String(reason).startsWith("edit:")) {
       return;
@@ -33,7 +37,7 @@ if (mode === "output" || mode === "preview" || mode === "composition") {
       bridgeScrubTimer = setTimeout(() => bridge.sendState(), 90);
       return;
     }
-    if (!["init", "output-metrics", "view", "project-autosave", "project-autosave-error"].includes(reason)) {
+    if (!["init", "output-metrics", "preview-metrics", "view", "project-history", "project-undo", "project-redo", "project-autosave", "project-autosave-error"].includes(reason)) {
       bridge.sendState();
     }
   });

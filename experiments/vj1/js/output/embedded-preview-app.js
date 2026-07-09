@@ -1,6 +1,6 @@
 import { VJ1 } from "../constants.js";
 import { sanitizeState } from "../domain/models.js";
-import { OutputRenderer } from "./output-renderer.js?v=scene-snapshots-51";
+import { OutputRenderer } from "./output-renderer.js?v=scene-snapshots-77";
 
 export function createEmbeddedPreviewApp({ store, mediaLibrary }) {
   let host = null;
@@ -105,6 +105,7 @@ export function createEmbeddedPreviewApp({ store, mediaLibrary }) {
       hud,
       sendMetrics: updateMetrics,
       sendMapping: updateMapping,
+      sendThumbnail: updateThumbnail,
       requestMediaFiles: () => renderer?.importFiles(mediaLibrary.getAllFiles()),
       onSurfaceSelect: selectSurface,
     });
@@ -173,13 +174,29 @@ export function createEmbeddedPreviewApp({ store, mediaLibrary }) {
     return state;
   }
 
-  function updateMetrics() {}
+  function updateMetrics(metrics = {}) {
+    store.update((draft) => {
+      draft.metrics.previewFps = metrics.fps || 0;
+      draft.metrics.previewFrameMs = metrics.frameMs || 0;
+      draft.metrics.previewRenderCost = metrics.renderCost || 0;
+    }, "preview-metrics");
+  }
 
   function updateMapping(mappingId, mapping, status) {
     store.update((draft) => {
       draft.mappings[mappingId || "local"] = mapping;
       draft.ui.mappingStatus = status || "Mapping updated";
     }, "mapping-state");
+  }
+
+  function updateThumbnail(compositionId, thumbnail) {
+    if (!compositionId || !thumbnail) return;
+    store.update((draft) => {
+      const composition = draft.compositions.find((item) => item.id === compositionId);
+      if (composition && composition.thumbnail !== thumbnail) {
+        composition.thumbnail = thumbnail;
+      }
+    }, "composition-thumbnail");
   }
 
   function selectSurface(surfaceId) {

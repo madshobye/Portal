@@ -14,6 +14,12 @@ export function getInitialView() {
   return VIEWS.some((view) => view.id === requested) ? requested : "studio";
 }
 
+export function getInitialWorkspace() {
+  const params = new URLSearchParams(window.location.search);
+  const requested = params.get("workspace") || sessionStorage.getItem(VJ1.localWorkspaceKey) || "scene";
+  return ["compose", "scene"].includes(requested) ? requested : "scene";
+}
+
 export function persistView(view) {
   if (!VIEWS.some((item) => item.id === view)) return;
   sessionStorage.setItem(VJ1.localViewKey, view);
@@ -22,9 +28,18 @@ export function persistView(view) {
   window.history.replaceState({}, "", url);
 }
 
+export function persistWorkspace(workspace) {
+  if (!["compose", "scene"].includes(workspace)) return;
+  sessionStorage.setItem(VJ1.localWorkspaceKey, workspace);
+  const url = new URL(window.location.href);
+  url.searchParams.set("workspace", workspace);
+  window.history.replaceState({}, "", url);
+}
+
 export function buildOutputUrl(kind = "output") {
   const url = new URL(window.location.href);
   url.searchParams.delete("view");
+  url.searchParams.delete("workspace");
   url.searchParams.delete("preview");
   url.searchParams.delete("output");
   url.searchParams.delete("composition");

@@ -2,12 +2,14 @@ import { BLEND_MODES, GENERATORS, SOURCE_TYPES } from "../constants.js";
 import { applySceneSnapshotToState, createSceneSnapshot } from "../domain/models.js";
 import { buildOutputUrl } from "../view-routing.js";
 import { listShaderComponents } from "../shaders/shader-registry.js";
-import { createEmbeddedPreviewApp } from "../output/embedded-preview-app.js?v=scene-snapshots-51";
+import { createEmbeddedPreviewApp } from "../output/embedded-preview-app.js?v=scene-snapshots-77";
 
 export function createControlShell({ root, store, bridge, mediaLibrary, projectService }) {
   let refs = {};
   let latestState = store.getState();
   let renderFrame = 0;
+  let mediaPicker = null;
+  const mediaPreviewUrls = new Map();
   const embeddedPreview = createEmbeddedPreviewApp({ store, mediaLibrary });
 
   function mount() {
@@ -21,7 +23,7 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
         renderPreview(state);
         return;
       }
-      if (reason === "output-metrics" || reason === "project-autosave" || reason === "project-autosave-error") {
+      if (reason === "output-metrics" || reason === "preview-metrics" || reason === "project-autosave" || reason === "project-autosave-error") {
         renderTopbar(state);
         return;
       }
@@ -49,6 +51,7 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
     renderStudio(state);
     renderInspector(state);
     renderPreview(state);
+    renderModal(state);
   }
 
   function bindStaticEvents() {
@@ -64,6 +67,12 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
       store.update((draft) => {
         draft.ui.debugPreview = !draft.ui.debugPreview;
       }, "toggle-preview");
+    });
+
+    refs.toggleLabels.addEventListener("click", () => {
+      store.update((draft) => {
+        draft.global.showLabels = !draft.global.showLabels;
+      }, "toggle-labels");
     });
 
     refs.importFiles.addEventListener("change", async () => {
@@ -93,6 +102,16 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
       store.update((draft) => {
         draft.global.blackout = !draft.global.blackout;
       }, "blackout");
+    });
+
+    refs.undo.addEventListener("click", async () => {
+      refs.undo.disabled = true;
+      await projectService.undoProject().catch((error) => setStatus(`Undo error: ${error.message || error}`));
+    });
+
+    refs.redo.addEventListener("click", async () => {
+      refs.redo.disabled = true;
+      await projectService.redoProject().catch((error) => setStatus(`Redo error: ${error.message || error}`));
     });
 
     window.addEventListener("dragover", (event) => event.preventDefault());
@@ -133,15 +152,25 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
   }
 
   function renderTopbar(state) {
-    setText(refs.projectName, state.project.name || "VJ1");
-    setText(
-      refs.projectMeta,
-      state.project.warnings?.[0] || (state.project.folderName ? state.project.folderName : "Choose a project folder to begin")
+    const projectName = state.project.name || "VJ1";
+    const projectMeta = state.project.warnings?.[0] || (
+      state.project.folderName && state.project.folderName !== projectName
+        ? state.project.folderName
+        : ""
     );
+    setText(refs.projectName, projectName);
+    setText(refs.projectMeta, projectMeta || "Choose a project folder to begin");
+    setClass(refs.projectMeta, "is-hidden", !projectMeta && !!state.project.folderName);
     setClass(refs.outputStatus, "is-live", state.metrics.clients > 0);
     setText(refs.outputStatusText, state.metrics.clients > 0 ? `${Math.round(state.metrics.fps || 0)} fps` : "output");
+    const renderCost = activeRenderCost(state);
+    setClass(refs.renderCost, "is-hot", renderCost > 0.8);
+    setText(refs.renderCostText, formatRenderCost(renderCost));
     setClass(refs.togglePreview, "is-active", state.ui.debugPreview);
+    setClass(refs.toggleLabels, "is-active", state.global.showLabels !== false);
     setClass(refs.blackout, "is-active", state.global.blackout);
+    refs.undo.disabled = !state.ui.canUndo;
+    refs.redo.disabled = !state.ui.canRedo;
     refs.workspaceSwitch.querySelectorAll("[data-workspace]").forEach((button) => {
       setClass(button, "is-active", button.dataset.workspace === currentWorkspace(state));
     });
@@ -170,7 +199,7 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
     return `
       <div class="rail-section">
         <div class="rail-title"><span class="material-symbols-rounded">account_tree</span><span>Compositions</span></div>
-        <div class="scene-pills">
+        <div class="composition-card-list">
           ${state.compositions.map((composition) => compositionPillTemplate(composition, state)).join("") || emptyNote("Create visual recipes")}
         </div>
         <button type="button" data-add-composition>${icon("add")} Add composition</button>
@@ -182,7 +211,7 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
     return `
       <div class="rail-section">
         <div class="rail-title"><span class="material-symbols-rounded">auto_awesome_motion</span><span>Scenes</span></div>
-        <div class="scene-pills">
+        <div class="scene-card-list">
           ${state.scenes.map((scene) => scenePillTemplate(scene, state)).join("") || emptyNote("Capture surface assignments")}
         </div>
         <div class="capture-row">
@@ -190,6 +219,7 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
           <button class="icon-buttonish" type="button" data-save-scene title="Capture scene" aria-label="Capture scene">${icon("add")}</button>
         </div>
       </div>
+      ${sceneRailConfigTemplate(state)}
       <div class="rail-section">
         <div class="rail-title"><span class="material-symbols-rounded">select_all</span><span>Surfaces</span></div>
         <div class="surface-pills">
@@ -222,18 +252,26 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
   function renderPreview(state) {
     const previewHost = refs.studio.querySelector("[data-preview-host]");
     if (!previewHost || previewHost.classList.contains("is-empty")) return;
-    if (!state.ui.debugPreview) {
-      embeddedPreview.pause();
-      ensurePreviewHiddenOverlay(previewHost);
-      return;
-    }
-    removePreviewHiddenOverlay(previewHost);
     const kind = currentWorkspace(state) === "compose" ? "composition" : "preview";
     if (!previewHost.querySelector("[data-embedded-preview-stage]")) {
       previewHost.innerHTML = `
         <div class="embedded-preview-stage" data-embedded-preview-stage></div>
-        <div class="preview-fps" data-preview-fps>0 fps</div>
+        <div class="preview-tools">
+          <button type="button" class="preview-tool" data-toggle-mapping-handles title="Toggle mapping handles" aria-label="Toggle mapping handles">${icon("control_point_duplicate")}</button>
+          <div class="preview-fps" data-preview-fps>0 fps</div>
+        </div>
       `;
+    }
+    const handleButton = previewHost.querySelector("[data-toggle-mapping-handles]");
+    setClass(handleButton, "is-subtle", state.global.mappingHandleMode === "near");
+    setClass(handleButton, "is-hidden", kind !== "preview");
+    if (handleButton && !handleButton.dataset.bound) {
+      handleButton.dataset.bound = "true";
+      handleButton.addEventListener("click", () => {
+        store.update((draft) => {
+          draft.global.mappingHandleMode = draft.global.mappingHandleMode === "near" ? "always" : "near";
+        }, "toggle-mapping-handles");
+      });
     }
     embeddedPreview.mount({
       host: previewHost,
@@ -245,7 +283,6 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
   }
 
   function updatePreviewState(state) {
-    if (!state.ui.debugPreview) return;
     const kind = currentWorkspace(state) === "compose" ? "composition" : "preview";
     embeddedPreview.setState(state, kind);
   }
@@ -253,40 +290,26 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
   function renderInspector(state) {
     const hasProject = !!state.project.folderName || state.media.length > 0;
     if (!hasProject) {
-      refs.inspector.innerHTML = `
-        <section class="glass-panel focus-panel">
-          <header class="panel-title">
-            <span class="material-symbols-rounded">folder_open</span>
-            <span>Project first</span>
-          </header>
-          <div class="soft-note">The controls appear after you choose a folder. That keeps every look connected to a real local show file.</div>
-        </section>
-      `;
+      refs.inspector.innerHTML = panelTemplate(
+        "folder_open",
+        "Project first",
+        `<div class="soft-note">The controls appear after you choose a folder. That keeps every look connected to a real local show file.</div>`
+      );
       return;
     }
     const selectedSurface = state.surfaces.find((surface) => surface.id === state.ui.selectedSurfaceId) || state.surfaces[0];
     if (currentWorkspace(state) === "compose") {
       const selectedComposition = state.compositions.find((composition) => composition.id === state.ui.selectedCompositionId) || state.compositions[0];
-      refs.inspector.innerHTML = `
-        <section class="glass-panel focus-panel">
-          <header class="panel-title">
-            <span class="material-symbols-rounded">account_tree</span>
-            <span>Composition</span>
-          </header>
-          ${selectedComposition ? compositionTemplate(selectedComposition, state) : emptyNote("No composition")}
-        </section>
-      `;
+      refs.inspector.innerHTML = panelTemplate(
+        "account_tree",
+        "Composition",
+        selectedComposition ? compositionTemplate(selectedComposition, state) : emptyNote("No composition")
+      );
       bindInputs(refs.inspector, state);
       return;
     }
     refs.inspector.innerHTML = `
-      <section class="glass-panel focus-panel">
-        <header class="panel-title">
-          <span class="material-symbols-rounded">select_all</span>
-          <span>Surface</span>
-        </header>
-        ${selectedSurface ? sceneSurfaceTemplate(selectedSurface, state) : emptyNote("No surface")}
-      </section>
+      ${panelTemplate("select_all", "Surface", selectedSurface ? sceneSurfaceTemplate(selectedSurface, state) : emptyNote("No surface"))}
     `;
     bindInputs(refs.inspector, state);
   }
@@ -309,6 +332,12 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
       const name = refs.projectRail.querySelector("[data-scene-name]")?.value?.trim() || `Scene ${latestState.scenes.length + 1}`;
       store.saveScene(name);
     });
+    refs.projectRail.querySelectorAll("[data-update]").forEach((input) => {
+      if (input.type === "text" || input.tagName === "TEXTAREA") {
+        input.addEventListener("input", () => updatePathFromInput(input, `edit:${input.dataset.update}`));
+        input.addEventListener("change", () => updatePathFromInput(input, `update:${input.dataset.update}`));
+      }
+    });
     refs.projectRail.querySelectorAll("[data-recall-scene]").forEach((button) => {
       button.addEventListener("click", () => store.recallScene(button.dataset.recallScene));
     });
@@ -324,15 +353,39 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
     refs.projectRail.querySelectorAll("[data-add-shader]").forEach((button) => {
       button.addEventListener("click", () => addShaderPass(button.dataset.addShader, "composition", latestState.ui.selectedCompositionId));
     });
-    refs.projectRail.querySelectorAll("[data-assign-media]").forEach((button) => {
+  }
+
+  function renderModal(state) {
+    const host = refs.modalHost;
+    if (!host) return;
+    if (!mediaPicker) {
+      host.innerHTML = "";
+      return;
+    }
+    host.innerHTML = mediaPickerTemplate(state, mediaPicker, mediaLibrary, mediaPreviewUrls);
+    host.querySelector("[data-close-modal]")?.addEventListener("click", closeMediaPicker);
+    host.querySelector(".modal-backdrop")?.addEventListener("click", closeMediaPicker);
+    host.querySelectorAll("[data-pick-media]").forEach((button) => {
       button.addEventListener("click", () => {
-        const mediaId = button.dataset.assignMedia;
+        const mediaId = button.dataset.pickMedia || "";
         store.update((draft) => {
-          const composition = draft.compositions.find((item) => item.id === draft.ui.selectedCompositionId);
-          if (composition) composition.source = { type: "media", mediaId, generatorId: composition.source.generatorId };
-        }, "assign-media");
+          setByPath(draft, mediaPicker.path, mediaId);
+          const sourcePath = mediaPicker.path.replace(/\.mediaId$/, "");
+          setByPath(draft, `${sourcePath}.type`, "media");
+        }, `update:${mediaPicker.path}`);
+        closeMediaPicker();
       });
     });
+  }
+
+  function openMediaPicker(path) {
+    mediaPicker = { path };
+    renderModal(latestState);
+  }
+
+  function closeMediaPicker() {
+    mediaPicker = null;
+    renderModal(latestState);
   }
 
   function bindStudioEvents() {
@@ -371,6 +424,33 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
     });
     scope.querySelectorAll("[data-select-composition]").forEach((button) => {
       button.addEventListener("click", () => store.selectComposition(button.dataset.selectComposition));
+    });
+    scope.querySelectorAll("[data-set-source-type]").forEach((button) => {
+      button.addEventListener("click", () => {
+        store.update((draft) => {
+          setByPath(draft, button.dataset.sourcePath, button.dataset.setSourceType);
+        }, `update:${button.dataset.sourcePath}`);
+      });
+    });
+    scope.querySelectorAll("[data-set-generator]").forEach((button) => {
+      button.addEventListener("click", () => {
+        store.update((draft) => {
+          setByPath(draft, button.dataset.generatorPath, button.dataset.setGenerator);
+        }, `update:${button.dataset.generatorPath}`);
+      });
+    });
+    scope.querySelectorAll("[data-open-media-picker]").forEach((button) => {
+      button.addEventListener("click", () => openMediaPicker(button.dataset.mediaPath));
+    });
+    scope.querySelectorAll("[data-set-composition]").forEach((button) => {
+      button.addEventListener("click", () => {
+        store.update((draft) => {
+          setByPath(draft, button.dataset.compositionPath, button.dataset.setComposition);
+          if (currentWorkspace(draft) === "scene" && button.dataset.compositionPath?.startsWith("scenes.")) {
+            applySelectedSceneSnapshot(draft);
+          }
+        }, `update:${button.dataset.compositionPath}`);
+      });
     });
     scope.querySelectorAll("[data-remove-pass]").forEach((button) => {
       button.addEventListener("click", () => removeShaderPass(button.dataset.target, button.dataset.targetId, Number(button.dataset.passIndex)));
@@ -471,20 +551,25 @@ function shellTemplate() {
         <div class="top-actions">
           <div id="workspace-switch" class="workspace-switch" role="group" aria-label="Workspace">
             <button type="button" data-workspace="compose">${icon("account_tree")}<span>Compositions</span></button>
-            <button type="button" data-workspace="scene" class="is-active">${icon("auto_awesome")}<span>Scene</span></button>
+            <button type="button" data-workspace="scene" class="is-active">${icon("auto_awesome")}<span>Scenes</span></button>
           </div>
           <button id="toggle-preview" class="icon-buttonish" type="button" title="Toggle preview" aria-label="Toggle preview">${icon("visibility")}</button>
+          <button id="toggle-labels" class="icon-buttonish" type="button" title="Show labels" aria-label="Show labels">${icon("label")}</button>
+          <button id="undo-project" class="icon-buttonish" type="button" title="Undo" aria-label="Undo" disabled>${icon("undo")}</button>
+          <button id="redo-project" class="icon-buttonish" type="button" title="Redo" aria-label="Redo" disabled>${icon("redo")}</button>
           <button id="blackout-main" class="icon-buttonish danger" type="button" title="Blackout" aria-label="Blackout">${icon("brightness_1")}</button>
           <button id="open-output" class="icon-buttonish" type="button" title="Open output" aria-label="Open output">${icon("open_in_new")}</button>
+          <span id="render-cost" class="status-pill cost-pill" title="Render cost"><span class="material-symbols-rounded">speed</span><span id="render-cost-text">0%</span></span>
           <span id="output-status" class="status-pill"><span class="status-dot"></span><span id="output-status-text">output</span></span>
           <input id="import-files-main" class="hidden" type="file" multiple webkitdirectory data-gramm="false" data-gramm_editor="false" data-enable-grammarly="false" />
         </div>
       </header>
       <div class="studio-layout">
         <aside id="project-rail" class="project-rail"></aside>
-        <main id="studio" class="studio-main"></main>
         <aside id="inspector" class="studio-inspector"></aside>
+        <main id="studio" class="studio-main"></main>
       </div>
+      <div id="modal-host"></div>
     </div>
   `;
 }
@@ -495,8 +580,13 @@ function collectRefs(root) {
     projectMeta: root.querySelector("#project-meta"),
     outputStatus: root.querySelector("#output-status"),
     outputStatusText: root.querySelector("#output-status-text"),
+    renderCost: root.querySelector("#render-cost"),
+    renderCostText: root.querySelector("#render-cost-text"),
     openOutput: root.querySelector("#open-output"),
     togglePreview: root.querySelector("#toggle-preview"),
+    toggleLabels: root.querySelector("#toggle-labels"),
+    undo: root.querySelector("#undo-project"),
+    redo: root.querySelector("#redo-project"),
     blackout: root.querySelector("#blackout-main"),
     workspaceSwitch: root.querySelector("#workspace-switch"),
     openFolder: root.querySelector("#open-folder-main"),
@@ -504,30 +594,23 @@ function collectRefs(root) {
     projectRail: root.querySelector("#project-rail"),
     studio: root.querySelector("#studio"),
     inspector: root.querySelector("#inspector"),
+    modalHost: root.querySelector("#modal-host"),
   };
 }
 
-function ensurePreviewHiddenOverlay(host) {
-  if (!host.querySelector("[data-preview-hidden-overlay]")) {
-    host.insertAdjacentHTML("beforeend", `<div class="preview-hidden-overlay" data-preview-hidden-overlay>${icon("visibility_off")} Preview hidden</div>`);
-  }
-}
-
-function removePreviewHiddenOverlay(host) {
-  host.querySelector("[data-preview-hidden-overlay]")?.remove();
-}
-
 function compositionPillTemplate(composition, state) {
-  return selectablePillTemplate({
-    selected: state.ui.selectedCompositionId === composition.id,
-    action: "data-select-composition",
-    id: composition.id,
-    iconName: composition.enabled ? "account_tree" : "hide_source",
-    label: composition.name,
-    meta: `${composition.shaderChain?.length || 0} fx`,
-    removeAction: "data-remove-composition",
-    removeDisabled: state.compositions.length <= 1,
-  });
+  const selected = state.ui.selectedCompositionId === composition.id;
+  return `
+    <div class="composition-card-row">
+      <button type="button" class="composition-card ${selected ? "is-selected" : ""}" data-select-composition="${esc(composition.id)}">
+        ${composition.thumbnail
+          ? `<img src="${esc(composition.thumbnail)}" alt="" loading="lazy" />`
+          : `<div class="composition-card-empty">${icon("account_tree")}</div>`}
+        <span>${esc(composition.name)}</span>
+      </button>
+      <button type="button" class="composition-card-remove" data-remove-composition="${esc(composition.id)}" title="Remove" aria-label="Remove ${esc(composition.name)}" ${state.compositions.length <= 1 ? "disabled" : ""}>${icon("close")}</button>
+    </div>
+  `;
 }
 
 function sceneSurfacePillTemplate(surface, state) {
@@ -564,13 +647,8 @@ function compositionTemplate(composition, state) {
     <article class="sculpt-card">
       <div class="sculpt-head">
         <input type="text" data-update="${base}.name" value="${esc(composition.name)}" spellcheck="false" data-gramm="false" data-gramm_editor="false" data-enable-grammarly="false" />
-        <label class="mini-toggle">${icon("power_settings_new")}<input type="checkbox" data-update="${base}.enabled" ${composition.enabled ? "checked" : ""} /></label>
       </div>
-      <div class="field-pair">
-        <label class="field">Source ${selectTemplate(`${base}.source.type`, SOURCE_TYPES, composition.source.type)}</label>
-        <label class="field">Generator ${selectTemplate(`${base}.source.generatorId`, GENERATORS, composition.source.generatorId)}</label>
-      </div>
-      <label class="field">Media ${mediaSelectTemplate(`${base}.source.mediaId`, state.media, composition.source.mediaId)}</label>
+      ${sourcePickerTemplate(composition, state, base)}
       <div class="field-pair">
         <label class="field">Blend ${selectValuesTemplate(`${base}.blend`, BLEND_MODES, composition.blend)}</label>
         <label class="field">Speed <input type="number" min="0" step="0.05" data-update="${base}.speed" value="${composition.speed}" /></label>
@@ -578,6 +656,59 @@ function compositionTemplate(composition, state) {
       ${rangeTemplate("Intensity", `${base}.opacity`, composition.opacity)}
       ${compositionChainTemplate(composition, base)}
     </article>
+  `;
+}
+
+function sourcePickerTemplate(composition, state, base) {
+  const source = composition.source || {};
+  const media = state.media.find((item) => item.id === source.mediaId);
+  return `
+    <div class="source-section">
+      <div class="field">
+        <span>Source</span>
+        <div class="segmented-pills">
+          ${SOURCE_TYPES.map((type) => `
+            <button type="button" class="${source.type === type.id ? "is-selected" : ""}" data-set-source-type="${type.id}" data-source-path="${base}.source.type">
+              ${icon(sourceTypeIcon(type.id))}
+              <span>${esc(type.label)}</span>
+            </button>
+          `).join("")}
+        </div>
+      </div>
+      ${source.type === "generator" ? generatorPickerTemplate(`${base}.source.generatorId`, source.generatorId) : ""}
+      ${source.type === "media" ? mediaPickerButtonTemplate(`${base}.source.mediaId`, media) : ""}
+      ${source.type === "camera" ? `<div class="soft-note">Using the portal camera feed.</div>` : ""}
+      ${source.type === "black" ? `<div class="soft-note">Black source selected.</div>` : ""}
+    </div>
+  `;
+}
+
+function generatorPickerTemplate(path, value) {
+  return `
+    <div class="field">
+      <span>Generator</span>
+      <div class="generator-grid">
+        ${GENERATORS.filter((generator) => generator.id !== "black").map((generator) => `
+          <button type="button" class="generator-card ${generator.id === value ? "is-selected" : ""}" data-set-generator="${generator.id}" data-generator-path="${path}">
+            <span class="generator-swatch generator-${generator.id}"></span>
+            <strong>${esc(generator.label)}</strong>
+          </button>
+        `).join("")}
+      </div>
+    </div>
+  `;
+}
+
+function mediaPickerButtonTemplate(path, media) {
+  return `
+    <div class="field">
+      <span>Media</span>
+      <button type="button" class="media-select-button" data-open-media-picker data-media-path="${path}">
+        ${icon(media?.type === "video" ? "movie" : media?.type === "image" ? "image" : "perm_media")}
+        <span>${esc(media?.name || "Choose media")}</span>
+        ${icon("chevron_right")}
+      </button>
+    </div>
   `;
 }
 
@@ -595,19 +726,46 @@ function sceneSurfaceTemplate(surface, state) {
         <input type="text" data-update="${surfaceBase}.name" value="${esc(surface.name)}" spellcheck="false" data-gramm="false" data-gramm_editor="false" data-enable-grammarly="false" />
         <label class="mini-toggle">${icon("power_settings_new")}<input type="checkbox" data-update="${surfaceBase}.enabled" ${surface.enabled ? "checked" : ""} /></label>
       </div>
-      <label class="toggle-line">${icon("label")}<span>Show mapping label</span><input type="checkbox" data-update="${surfaceBase}.showLabel" ${surface.showLabel ? "checked" : ""} /></label>
-      <label class="toggle-line">${icon("lock")}<span>Lock mapping later</span><input type="checkbox" data-update="${surfaceBase}.calibrationLocked" ${surface.calibrationLocked ? "checked" : ""} /></label>
       <div class="setup-actions">
         <button type="button" data-reset-surface-mapping="${surface.id}">${icon("restart_alt")} Reset surface</button>
       </div>
       <div class="rail-title"><span class="material-symbols-rounded">auto_awesome</span><span>Scene assignment</span></div>
       ${hasSceneSurface ? `
-        <label class="field">Composition ${compositionSelectTemplate(`${sceneBase}.compositionId`, state.compositions, sceneSurface.compositionId)}</label>
         ${rangeTemplate("Presence", `${sceneBase}.opacity`, sceneSurface.opacity)}
-        <label class="field">Blend ${selectValuesTemplate(`${sceneBase}.finalBlend`, BLEND_MODES, sceneSurface.finalBlend)}</label>
-        <label class="toggle-line">${icon("label")}<span>Scene label</span><input type="checkbox" data-update="${sceneBase}.showLabel" ${sceneSurface.showLabel ? "checked" : ""} /></label>
+        ${compositionAssignmentTemplate(`${sceneBase}.compositionId`, state.compositions, sceneSurface.compositionId)}
       ` : `<div class="soft-note">Capture a scene to store composition assignments for this surface.</div>`}
     </article>
+  `;
+}
+
+function sceneRailConfigTemplate(state) {
+  const scene = getSelectedScene(state);
+  if (!scene) {
+    return `
+      <div class="rail-section">
+        <div class="rail-title"><span class="material-symbols-rounded">auto_awesome_motion</span><span>Scene</span></div>
+        ${emptyNote("Capture a scene to edit scene settings.")}
+      </div>
+    `;
+  }
+  const base = pathForScene(state, scene);
+  return `
+    <div class="rail-section">
+      <div class="rail-title"><span class="material-symbols-rounded">auto_awesome_motion</span><span>Scene</span></div>
+      <label class="field">Name <input type="text" data-update="${base}.name" value="${esc(scene.name)}" spellcheck="false" data-gramm="false" data-gramm_editor="false" data-enable-grammarly="false" /></label>
+    </div>
+  `;
+}
+
+function panelTemplate(iconName, title, body) {
+  return `
+    <section class="glass-panel focus-panel">
+      <header class="panel-title">
+        <span class="material-symbols-rounded">${iconName}</span>
+        <span>${esc(title)}</span>
+      </header>
+      ${body}
+    </section>
   `;
 }
 
@@ -660,24 +818,97 @@ function projectEmptyTemplate() {
   `;
 }
 
-function mediaPillTemplate(item) {
+function mediaPickerTemplate(state, picker, mediaLibrary, urlCache) {
   return `
-    <button type="button" data-assign-media="${esc(item.id)}" title="${esc(item.path)}">
-      ${icon(item.type === "image" ? "image" : "movie")}
+    <div class="modal-backdrop"></div>
+    <section class="modal-panel media-modal" role="dialog" aria-modal="true" aria-label="Choose media">
+      <header class="modal-header">
+        <div>
+          <strong>Choose media</strong>
+          <small>${state.media.length} file${state.media.length === 1 ? "" : "s"}</small>
+        </div>
+        <button type="button" class="icon-buttonish" data-close-modal title="Close" aria-label="Close">${icon("close")}</button>
+      </header>
+      <div class="media-picker-grid">
+        ${state.media.length ? state.media.map((item) => mediaPickerCardTemplate(item, picker, state, mediaLibrary, urlCache)).join("") : `
+          <div class="soft-note">Drop image or video files into the browser, or add them to the project folder.</div>
+        `}
+      </div>
+    </section>
+  `;
+}
+
+function mediaPickerCardTemplate(item, picker, state, mediaLibrary, urlCache) {
+  const selected = item.id === currentMediaValue(picker, state);
+  const imageUrl = item.type === "image" ? mediaPreviewUrl(item.id, mediaLibrary, urlCache) : "";
+  return `
+    <button type="button" class="media-picker-card ${selected ? "is-selected" : ""}" data-pick-media="${esc(item.id)}" title="${esc(item.path || item.name)}">
+      ${imageUrl
+        ? `<img src="${esc(imageUrl)}" alt="" loading="lazy" />`
+        : `<div class="media-picker-placeholder">${icon(item.type === "video" ? "movie" : "image")}</div>`}
       <span>${esc(item.name)}</span>
+      <small>${esc(item.type)}</small>
     </button>
   `;
 }
 
+function currentMediaValue(picker, state) {
+  if (!picker?.path || !state) return "";
+  const parts = picker.path.split(".");
+  let cursor = state;
+  for (const part of parts) {
+    cursor = cursor?.[Number.isNaN(Number(part)) ? part : Number(part)];
+  }
+  return typeof cursor === "string" ? cursor : "";
+}
+
+function mediaPreviewUrl(id, mediaLibrary, urlCache) {
+  if (urlCache.has(id)) return urlCache.get(id);
+  const file = mediaLibrary.getFile(id);
+  if (!file) return "";
+  const url = URL.createObjectURL(file);
+  urlCache.set(id, url);
+  return url;
+}
+
 function scenePillTemplate(scene, state) {
+  const selected = state.ui.selectedSceneId === scene.id;
+  const compositions = sceneFingerprintCompositions(scene, state);
   return `
-    <div class="list-row">
-      <button type="button" class="list-select ${state.ui.selectedSceneId === scene.id ? "is-selected" : ""}" data-recall-scene="${esc(scene.id)}">
-        ${icon("play_arrow")}
+    <div class="composition-card-row">
+      <button type="button" class="composition-card scene-card ${selected ? "is-selected" : ""}" data-recall-scene="${esc(scene.id)}">
+        ${sceneFingerprintTemplate(compositions)}
         <span>${esc(scene.name)}</span>
-        <small>${scene.snapshot?.surfaces?.length || 0} surfaces</small>
       </button>
-      <button type="button" class="list-remove" data-delete-scene="${esc(scene.id)}" title="Remove" aria-label="Remove ${esc(scene.name)}">${icon("close")}</button>
+      <button type="button" class="composition-card-remove" data-delete-scene="${esc(scene.id)}" title="Remove" aria-label="Remove ${esc(scene.name)}">${icon("close")}</button>
+    </div>
+  `;
+}
+
+function sceneFingerprintCompositions(scene, state) {
+  const ids = [];
+  for (const surface of scene.snapshot?.surfaces || []) {
+    if (surface.compositionId && !ids.includes(surface.compositionId)) ids.push(surface.compositionId);
+  }
+  return ids
+    .map((id) => state.compositions.find((composition) => composition.id === id))
+    .filter(Boolean);
+}
+
+function sceneFingerprintTemplate(compositions) {
+  if (!compositions.length) return `<div class="composition-card-empty">${icon("auto_awesome_motion")}</div>`;
+  const withThumbs = compositions.filter((composition) => composition.thumbnail);
+  if (!withThumbs.length) return `<div class="composition-card-empty">${icon("auto_awesome_motion")}</div>`;
+  return `
+    <div class="scene-fingerprint">
+      ${withThumbs.slice(0, 5).map((composition, index) => `
+        <img
+          src="${esc(composition.thumbnail)}"
+          alt=""
+          loading="lazy"
+          style="--fingerprint-index: ${index}; --fingerprint-count: ${withThumbs.length};"
+        />
+      `).join("")}
     </div>
   `;
 }
@@ -710,20 +941,31 @@ function currentWorkspace(state) {
   return ["compose", "scene"].includes(state.ui?.workspace) ? state.ui.workspace : "scene";
 }
 
+function sourceTypeIcon(type) {
+  if (type === "media") return "perm_media";
+  if (type === "camera") return "photo_camera";
+  if (type === "black") return "brightness_1";
+  return "auto_awesome";
+}
+
+function activeRenderCost(state) {
+  const previewCost = Number(state.metrics.previewRenderCost);
+  if (state.ui?.debugPreview && Number.isFinite(previewCost)) return previewCost;
+  const outputCost = Number(state.metrics.renderCost);
+  return Number.isFinite(outputCost) ? outputCost : 0;
+}
+
+function formatRenderCost(cost) {
+  const percent = Math.max(0, Math.min(999, Number(cost) * 100 || 0));
+  return `${percent > 0 && percent < 10 ? percent.toFixed(1) : Math.round(percent)}%`;
+}
+
 function rangeTemplate(label, path, value) {
   return `
     <label class="field range-field">
       <span><span>${label}</span><strong>${Number(value).toFixed(2)}</strong></span>
       <input type="range" min="0" max="1" step="0.01" data-update="${path}" value="${value}" />
     </label>
-  `;
-}
-
-function selectTemplate(path, options, value) {
-  return `
-    <select data-update="${path}">
-      ${options.map((option) => `<option value="${option.id}" ${option.id === value ? "selected" : ""}>${esc(option.label)}</option>`).join("")}
-    </select>
   `;
 }
 
@@ -735,20 +977,24 @@ function selectValuesTemplate(path, values, value) {
   `;
 }
 
-function mediaSelectTemplate(path, media, value) {
+function compositionAssignmentTemplate(path, compositions, value) {
   return `
-    <select data-update="${path}">
-      <option value="">None</option>
-      ${media.map((item) => `<option value="${esc(item.id)}" ${item.id === value ? "selected" : ""}>${esc(item.name)}</option>`).join("")}
-    </select>
-  `;
-}
-
-function compositionSelectTemplate(path, compositions, value) {
-  return `
-    <select data-update="${path}">
-      ${compositions.map((composition) => `<option value="${esc(composition.id)}" ${composition.id === value ? "selected" : ""}>${esc(composition.name)}</option>`).join("")}
-    </select>
+    <div class="field composition-assignment-field">
+      <span>Composition</span>
+      <div class="composition-card-list assignment-card-list">
+        ${compositions.map((composition) => {
+          const selected = composition.id === value;
+          return `
+            <button type="button" class="composition-card assignment-card ${selected ? "is-selected" : ""}" data-set-composition="${esc(composition.id)}" data-composition-path="${esc(path)}">
+              ${composition.thumbnail
+                ? `<img src="${esc(composition.thumbnail)}" alt="" loading="lazy" />`
+                : `<div class="composition-card-empty">${icon("account_tree")}</div>`}
+              <span>${esc(composition.name)}</span>
+            </button>
+          `;
+        }).join("")}
+      </div>
+    </div>
   `;
 }
 
@@ -778,6 +1024,10 @@ function updateRangeLabel(input) {
 
 function pathForSurface(state, surface) {
   return `surfaces.${state.surfaces.findIndex((item) => item.id === surface.id)}`;
+}
+
+function pathForScene(state, scene) {
+  return `scenes.${state.scenes.findIndex((item) => item.id === scene.id)}`;
 }
 
 function pathForComposition(state, composition) {

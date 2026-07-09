@@ -75,7 +75,6 @@ export function createAppState(initial = null) {
     addComposition() {
       update((draft) => {
         const composition = createDefaultComposition(draft.compositions.length);
-        composition.name = `Composition ${draft.compositions.length + 1}`;
         draft.compositions.push(composition);
         draft.ui.selectedCompositionId = composition.id;
         for (const surface of draft.surfaces) {
@@ -122,7 +121,7 @@ export function createAppState(initial = null) {
         surface.id = uid("surface");
         surface.name = `Surface ${draft.surfaces.length + 1}`;
         surface.mappingId = surface.id;
-        surface.compositionId = draft.compositions[draft.surfaces.length % Math.max(1, draft.compositions.length)]?.id || "";
+        surface.compositionId = draft.compositions[0]?.id || "";
         draft.surfaces.push(surface);
         draft.ui.selectedSurfaceId = surface.id;
         for (const scene of draft.scenes) {

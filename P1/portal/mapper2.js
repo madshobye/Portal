@@ -52,6 +52,7 @@ class ProjectionMapper {
     this.debugPassthrough = false; // shader on, but no homography
     this.pickRadius = 60;
     this.calibrate = true; // draw & interact with corner handles
+    this.overlayMode = "always"; // "always" or "near"; interaction still follows calibrate
     this.followDebugOverlay = false;
     this._onDebugOverlayChange = null;
     this.bottomLeftToggleEnabled = true;
@@ -103,6 +104,9 @@ class ProjectionMapper {
   }
   setCalibrate(on) {
     this.calibrate = !!on;
+  }
+  setOverlayMode(mode = "always") {
+    this.overlayMode = mode === "near" ? "near" : "always";
   }
   setShowCorners(on) {
     this.setCalibrate(on);
@@ -730,9 +734,12 @@ class ProjectionMapper {
       labelLayer.textSize(13);
       labelLayer.textAlign(LEFT, BOTTOM);
     }
-    this.surfaces.forEach((s) => {
+    this.surfaces.forEach((s, si) => {
+      const isSurfaceActive = s.dragging === -2 || this._dragSurf === si;
+      const shouldDrawSurface =
+        this.overlayMode !== "near" || isSurfaceActive || s.hoverIndex !== -1;
+      if (!shouldDrawSurface) return;
       // outline
-      const isSurfaceActive = s.dragging === -2;
       stroke(0, 255, 255);
       strokeWeight(isSurfaceActive ? 4 : 2);
       noFill();

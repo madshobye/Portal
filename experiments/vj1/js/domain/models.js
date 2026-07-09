@@ -5,105 +5,51 @@ export function uid(prefix) {
 }
 
 export function createDefaultLayer(index = 0) {
-  const presets = [
-    {
-      name: "Loop A",
-      source: { type: "generator", mediaId: "", generatorId: "waves" },
-      opacity: 1,
-      blend: "normal",
-      shaderChain: [{ id: "ripple", enabled: true, amount: 0.22 }],
-    },
-    {
-      name: "Texture B",
-      source: { type: "generator", mediaId: "", generatorId: "plasma" },
-      opacity: 0.58,
-      blend: "add",
-      shaderChain: [{ id: "rgbSplit", enabled: true, amount: 0.14 }],
-    },
-  ];
-  const preset = presets[index % presets.length];
   return {
     id: uid("layer"),
-    name: preset.name,
+    name: index === 0 ? "Layer 1" : `Layer ${index + 1}`,
     enabled: true,
-    source: { ...preset.source },
-    opacity: preset.opacity,
-    blend: preset.blend,
+    source: { type: "generator", mediaId: "", generatorId: "testPattern" },
+    opacity: 1,
+    blend: "normal",
     speed: 1,
-    shaderChain: preset.shaderChain.map((pass) => ({ ...pass })),
+    shaderChain: [],
   };
 }
 
 export function createDefaultComposition(index = 0) {
-  const presets = [
-    {
-      name: "Live Camera Ripple",
-      source: { type: "camera", mediaId: "", generatorId: "waves" },
-      opacity: 1,
-      blend: "normal",
-      speed: 1,
-      shaderChain: [{ id: "ripple", enabled: true, amount: 0.28 }],
-    },
-    {
-      name: "Noise Kaleido",
-      source: { type: "generator", mediaId: "", generatorId: "noise" },
-      opacity: 1,
-      blend: "normal",
-      speed: 1,
-      shaderChain: [{ id: "kaleido", enabled: true, amount: 0.35 }],
-    },
-  ];
-  const preset = presets[index % presets.length];
   return {
     id: uid("composition"),
-    name: preset.name,
-    enabled: true,
-    source: { ...preset.source },
-    opacity: preset.opacity,
-    blend: preset.blend,
-    speed: preset.speed,
-    shaderChain: preset.shaderChain.map((pass) => ({ ...pass })),
+    name: index === 0 ? "Test Pattern" : `Composition ${index + 1}`,
+    source: { type: "generator", mediaId: "", generatorId: "testPattern" },
+    opacity: 1,
+    blend: "normal",
+    speed: 1,
+    thumbnail: "",
+    shaderChain: [],
   };
 }
 
 export function createDefaultSurface(index = 0, layerId = "") {
-  const presets = [
-    {
-      id: "surface-main",
-      name: "Main",
-      route: { type: "mainMix", layerId: "", generatorId: "waves" },
-      opacity: 1,
-      finalBlend: "normal",
-      showLabel: true,
-    },
-    {
-      id: "surface-accent",
-      name: "Accent",
-      route: { type: "layer", layerId, generatorId: "noise" },
-      opacity: 0.82,
-      finalBlend: "add",
-      showLabel: true,
-    },
-  ];
-  const preset = presets[index % presets.length];
+  const id = index === 0 ? "surface-main" : uid("surface");
   return {
-    id: preset.id,
-    name: preset.name,
+    id,
+    name: index === 0 ? "Main" : `Surface ${index + 1}`,
     enabled: true,
-    route: { ...preset.route },
-    opacity: preset.opacity,
-    finalBlend: preset.finalBlend,
+    route: { type: "mainMix", layerId: "", generatorId: "testPattern" },
+    opacity: 1,
+    finalBlend: "normal",
     finalShaderChain: [],
     compositionId: "",
-    mappingId: preset.id,
-    showLabel: preset.showLabel,
+    mappingId: id,
+    showLabel: true,
     calibrationLocked: false,
   };
 }
 
 export function createInitialState() {
   const layers = [createDefaultLayer(0), createDefaultLayer(1)];
-  const compositions = [createDefaultComposition(0), createDefaultComposition(1)];
+  const compositions = [createDefaultComposition(0)];
   return {
     version: 3,
     project: {
@@ -124,13 +70,17 @@ export function createInitialState() {
       shaderStatus: "Shader ready",
       shaderError: "",
       mappingStatus: "Mapping idle",
+      canUndo: false,
+      canRedo: false,
     },
     global: {
       blackout: false,
       bpm: 120,
       crossfade: 1,
       showHud: true,
+      showLabels: true,
       calibrating: true,
+      mappingHandleMode: "always",
     },
     render: {
       width: 960,
@@ -151,6 +101,10 @@ export function createInitialState() {
     metrics: {
       fps: 0,
       frameMs: 0,
+      renderCost: 0,
+      previewFps: 0,
+      previewFrameMs: 0,
+      previewRenderCost: 0,
       clients: 0,
       message: "No output connected",
     },
@@ -204,7 +158,7 @@ export function sanitizeState(input = {}) {
     ...surface,
     compositionId: next.compositions.some((composition) => composition.id === surface.compositionId)
       ? surface.compositionId
-      : next.compositions[index % Math.max(1, next.compositions.length)]?.id || "",
+      : next.compositions[0]?.id || "",
   }));
   next.scenes = Array.isArray(input.scenes)
     ? input.scenes.map((scene) => normalizeScene(scene, next))
@@ -221,22 +175,7 @@ function normalizeCompositions(input, base) {
   if (Array.isArray(input.compositions) && input.compositions.length) {
     return input.compositions.map(normalizeComposition);
   }
-  if (Array.isArray(input.layers) && input.layers.length) {
-    return input.layers.map((layer) => {
-      const normalized = normalizeLayer(layer);
-      return normalizeComposition({
-        id: normalized.id.replace(/^layer/, "composition"),
-        name: normalized.name,
-        enabled: normalized.enabled,
-        source: normalized.source,
-        opacity: normalized.opacity,
-        blend: normalized.blend,
-        speed: normalized.speed,
-        shaderChain: normalized.shaderChain,
-      });
-    });
-  }
-  return base.compositions;
+  return [createDefaultComposition(0)];
 }
 
 export function normalizeLayer(layer = {}) {
@@ -263,22 +202,23 @@ export function normalizeLayer(layer = {}) {
 
 export function normalizeComposition(composition = {}) {
   const fallback = createDefaultComposition(0);
+  const { enabled, ...compositionData } = composition;
   return {
     ...fallback,
-    ...composition,
-    id: composition.id || uid("composition"),
-    name: composition.name || fallback.name,
-    enabled: composition.enabled !== false,
+    ...compositionData,
+    id: compositionData.id || uid("composition"),
+    name: compositionData.name || fallback.name,
     source: {
-      type: composition.source?.type || fallback.source.type,
-      mediaId: composition.source?.mediaId || "",
-      generatorId: composition.source?.generatorId || fallback.source.generatorId,
+      type: compositionData.source?.type || fallback.source.type,
+      mediaId: compositionData.source?.mediaId || "",
+      generatorId: compositionData.source?.generatorId || fallback.source.generatorId,
     },
-    opacity: clamp01(composition.opacity ?? fallback.opacity),
-    speed: Math.max(0, Number(composition.speed ?? fallback.speed) || 0),
-    blend: composition.blend || fallback.blend,
-    shaderChain: Array.isArray(composition.shaderChain)
-      ? composition.shaderChain.map(normalizeShaderPass)
+    opacity: clamp01(compositionData.opacity ?? fallback.opacity),
+    speed: Math.max(0, Number(compositionData.speed ?? fallback.speed) || 0),
+    blend: compositionData.blend || fallback.blend,
+    thumbnail: typeof compositionData.thumbnail === "string" ? compositionData.thumbnail : "",
+    shaderChain: Array.isArray(compositionData.shaderChain)
+      ? compositionData.shaderChain.map(normalizeShaderPass)
       : [],
   };
 }
