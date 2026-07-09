@@ -1,7 +1,8 @@
 import { VJ1 } from "../constants.js";
 import { clamp01, sanitizeState } from "../domain/models.js";
+import { createManualScheduler } from "../graph/manual-scheduler.js";
+import { compileCompositionPatch, compileShaderSchedule } from "../graph/render-scheduler.js";
 import { createShaderBuilder } from "../shaders/shader-builder.js";
-import { getShaderComponent } from "../shaders/shader-registry.js";
 import { applyBlend } from "./blend-utils.js";
 import { drawGenerator, drawStandby } from "./generators.js";
 import { drawCover, isDrawableMedia, syncVideoSpeed } from "./media-utils.js";
@@ -20,6 +21,7 @@ export class OutputRenderer {
     this.compositionSource = new Map();
     this.compositionOutput = new Map();
     this.compositionBuffer = new Map();
+    this.compositionPatches = new Map();
     this.thumbnailImages = new Map();
     this.media = new Map();
     this.sourcePg = null;
@@ -44,6 +46,9 @@ export class OutputRenderer {
     this.frameStart = 0;
     this.lastTickMs = 0;
     this.visualTime = 0;
+    this.frameIndex = 0;
+    this.scheduledEvents = [];
+    this.manualScheduler = createManualScheduler();
     this.compositionTimes = new Map();
     this.shaderBuilder = createShaderBuilder({
       getCustomCode: () => this.state?.shaders?.customCode || "",
@@ -259,7 +264,11 @@ export class OutputRenderer {
   draw() {
     if (!this.state) return;
     this.frameStart = performance.now();
+    this.frameIndex++;
     this.tickClock(this.frameStart);
+    this.scheduledEvents = this.state.scheduler?.manualLane === false
+      ? []
+      : this.manualScheduler.drain({ frame: this.frameIndex, time: this.visualTime });
     background(0);
     if (this.shouldUseThumbnailPreview()) this.renderThumbnailCompositions();
     else this.renderCompositions();
@@ -356,6 +365,7 @@ export class OutputRenderer {
     for (const composition of this.state.compositions || []) {
       if (neededCompositionIds.size && !neededCompositionIds.has(composition.id)) continue;
       const compositionTime = this.compositionTimes.get(composition.id) || 0;
+      this.compositionPatches.set(composition.id, compileCompositionPatch(composition));
       const source = this.renderCompositionSource(composition, compositionTime);
       const effected = this.renderShaderChain(source, composition.shaderChain, this.state.render.width, this.state.render.height, compositionTime);
       const output = this.getCompositionBuffer(composition.id);
@@ -454,8 +464,9 @@ export class OutputRenderer {
   renderShaderChain(input, chain, rw, rh, timeSeconds = this.visualTime) {
     let current = input;
     let passCount = 0;
-    for (const pass of chain || []) {
-      if (!pass.enabled) continue;
+    const schedule = compileShaderSchedule(chain);
+    for (const job of schedule) {
+      const pass = job.pass;
       const target = passCount % 2 === 0 ? this.fxA : this.fxB;
       const shader = this.shaderBuilder.getShader(pass, target);
       if (!shader) continue;
@@ -468,7 +479,7 @@ export class OutputRenderer {
       shader.setUniform("texelSize", [1 / Math.max(1, rw), 1 / Math.max(1, rh)]);
       shader.setUniform("sourceFlipY", !this.isShaderBuffer(current));
       shader.setUniform("time", timeSeconds);
-      shader.setUniform("amount", Number(pass.amount) || 0);
+      this.setShaderParamUniforms(shader, job.component, pass.params);
       target.rect(-rw / 2, -rh / 2, rw, rh);
       target.resetShader();
       target.pop();
@@ -476,6 +487,24 @@ export class OutputRenderer {
       passCount++;
     }
     return current;
+  }
+
+  setShaderParamUniforms(shader, component, params = {}) {
+    for (const param of component?.params || []) {
+      const value = params[param.id];
+      if (param.type === "boolean") {
+        shader.setUniform(param.id, value !== false);
+      } else if (param.type === "color") {
+        shader.setUniform(param.id, colorUniform(value));
+      } else if (param.type === "enum") {
+        shader.setUniform(param.id, enumUniform(param, value));
+      } else {
+        shader.setUniform(param.id, Number(value) || 0);
+      }
+    }
+    if (!component?.params?.some((param) => param.id === "amount")) {
+      shader.setUniform("amount", 0);
+    }
   }
 
   renderSurfaces() {
@@ -616,6 +645,11 @@ export class OutputRenderer {
 
   saveMapping() {
     this.sendMapping?.("local", this.mapper?.exportData?.() || {}, "Mapping saved");
+  }
+
+  schedule(event) {
+    if (this.state?.scheduler?.manualLane === false) return;
+    this.manualScheduler.enqueue(event);
   }
 
   loadMapping() {
@@ -771,6 +805,23 @@ function graphicsToThumbnail(pg, width = 160, height = 90) {
     console.warn("[VJ1_THUMBNAIL_CAPTURE_FAILED]", { message: error?.message || String(error) });
     return "";
   }
+}
+
+function colorUniform(value) {
+  if (Array.isArray(value)) return value.slice(0, 4);
+  const match = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})?$/i.exec(String(value || ""));
+  if (!match) return [1, 1, 1, 1];
+  return [
+    parseInt(match[1], 16) / 255,
+    parseInt(match[2], 16) / 255,
+    parseInt(match[3], 16) / 255,
+    match[4] ? parseInt(match[4], 16) / 255 : 1,
+  ];
+}
+
+function enumUniform(param, value) {
+  const index = (param.values || []).indexOf(value);
+  return Math.max(0, index);
 }
 
 function getPortalWebcameraSetup() {

@@ -626,7 +626,7 @@ small {
 .live-chain-pass {
   display: grid;
   grid-template-columns: minmax(95px, 0.72fr) minmax(80px, 1fr);
-  align-items: center;
+  align-items: start;
   gap: 7px;
   padding: 5px 6px;
   border: 1px solid var(--line);
@@ -648,6 +648,10 @@ small {
 
 .live-chain-pass .material-symbols-rounded {
   flex: 0 0 auto;
+}
+
+.live-chain-pass .chain-param-list {
+  gap: 4px;
 }
 
 .surface-pills .list-select > .material-symbols-rounded,
@@ -1037,13 +1041,37 @@ small {
 
 .chain-pass {
   display: grid;
-  grid-template-columns: minmax(88px, 1fr) 1fr 32px;
-  align-items: center;
+  grid-template-columns: minmax(110px, 0.8fr) minmax(0, 1.4fr) 32px;
+  align-items: start;
   gap: 7px;
   padding: 6px;
   border: 1px solid var(--line);
   border-radius: 7px;
   background: var(--panel-soft);
+}
+
+.chain-pass-title {
+  min-width: 0;
+  overflow: hidden;
+  font-size: 11px;
+  font-weight: 700;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.chain-param-list {
+  display: grid;
+  min-width: 0;
+  gap: 5px;
+}
+
+.chain-param {
+  min-width: 0;
+}
+
+.inline-param {
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
 }
 
 .chain-column {

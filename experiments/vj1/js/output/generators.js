@@ -1,3 +1,5 @@
+import { getGeneratorComponent } from "../graph/generator-registry.js";
+
 export function drawStandby(pg, label) {
   pg.background("#080a0e");
   pg.noStroke();
@@ -14,11 +16,13 @@ export function drawStandby(pg, label) {
 }
 
 export function drawGenerator(pg, id, t) {
-  if (id === "testPattern") return drawTestPattern(pg);
-  if (id === "noise") return drawNoise(pg, t);
-  if (id === "plasma") return drawPlasma(pg, t);
-  if (id === "checker") return drawChecker(pg, t);
-  if (id === "black") return pg.background(0);
+  const generatorId = getGeneratorComponent(id).id;
+  if (generatorId === "testPattern") return drawTestPattern(pg);
+  if (generatorId === "waves") return drawWaves(pg, t);
+  if (generatorId === "noise") return drawNoise(pg, t);
+  if (generatorId === "plasma") return drawPlasma(pg, t);
+  if (generatorId === "checker") return drawChecker(pg, t);
+  if (generatorId === "black") return pg.background(0);
   return drawTestPattern(pg);
 }
 

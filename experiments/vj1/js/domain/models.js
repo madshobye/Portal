@@ -36,7 +36,7 @@ export function createDefaultSurface(index = 0) {
 export function createInitialState() {
   const compositions = [createDefaultComposition(0)];
   return {
-    version: 4,
+    version: 5,
     project: {
       name: "Untitled VJ Set",
       folderName: "",
@@ -74,6 +74,10 @@ export function createInitialState() {
       height: 540,
       surfaceWidth: 800,
       surfaceHeight: 450,
+    },
+    scheduler: {
+      mode: "hardconfigured",
+      manualLane: true,
     },
     media: [],
     compositions,
@@ -118,6 +122,7 @@ export function sanitizeState(input = {}) {
     ui: { ...base.ui, ...(input.ui || {}) },
     global: { ...base.global, ...(input.global || {}) },
     render: { ...base.render, ...(input.render || {}) },
+    scheduler: { ...base.scheduler, ...(input.scheduler || {}) },
     shaders: { ...base.shaders, ...(input.shaders || {}) },
     metrics: { ...base.metrics, ...(input.metrics || {}) },
   };
@@ -149,6 +154,8 @@ export function sanitizeState(input = {}) {
   next.ui.live = normalizeLiveUi(next.ui.live);
   next.ui.workspace = ["compose", "scene", "live"].includes(next.ui.workspace) ? next.ui.workspace : "scene";
   next.global.calibrating = next.ui.workspace === "scene";
+  next.scheduler.mode = next.scheduler.mode || "hardconfigured";
+  next.scheduler.manualLane = next.scheduler.manualLane !== false;
   return next;
 }
 
@@ -167,12 +174,9 @@ export function createLiveRenderState(state = createInitialState()) {
     if (override.speed !== undefined) composition.speed = Math.max(0, Number(override.speed) || 0);
     if (override.blend) composition.blend = override.blend;
     if (Array.isArray(override.shaderChain)) {
-      composition.shaderChain = composition.shaderChain.map((pass, index) => ({
-        ...pass,
-        ...(override.shaderChain[index] || {}),
-        amount: clamp01(override.shaderChain[index]?.amount ?? pass.amount),
-        enabled: override.shaderChain[index]?.enabled ?? pass.enabled,
-      }));
+      composition.shaderChain = composition.shaderChain.map((pass, index) =>
+        mergeShaderPassOverride(pass, override.shaderChain[index] || {})
+      );
     }
   }
   return next;
@@ -186,12 +190,9 @@ export function createLiveCompositionView(composition = {}, state = createInitia
     speed: override.speed !== undefined ? Math.max(0, Number(override.speed) || 0) : composition.speed,
     blend: override.blend || composition.blend,
     shaderChain: Array.isArray(composition.shaderChain)
-      ? composition.shaderChain.map((pass, index) => ({
-          ...pass,
-          ...(override.shaderChain?.[index] || {}),
-          amount: clamp01(override.shaderChain?.[index]?.amount ?? pass.amount),
-          enabled: override.shaderChain?.[index]?.enabled ?? pass.enabled,
-        }))
+      ? composition.shaderChain.map((pass, index) =>
+          mergeShaderPassOverride(pass, override.shaderChain?.[index] || {})
+        )
       : [],
   };
 }
@@ -215,9 +216,12 @@ function normalizeLiveUi(live = {}) {
 }
 
 function normalizeLiveShaderPassOverride(pass = {}) {
+  const params = normalizeShaderPassParams(pass);
+  const hasParams = pass.params && typeof pass.params === "object";
   return {
     ...(pass.enabled !== undefined ? { enabled: pass.enabled !== false } : {}),
-    ...(pass.amount !== undefined ? { amount: clamp01(pass.amount) } : {}),
+    ...(hasParams || pass.amount !== undefined ? { params } : {}),
+    ...(pass.amount !== undefined ? { amount: params.amount } : {}),
   };
 }
 
@@ -272,11 +276,38 @@ export function normalizeSurface(surface = {}) {
 }
 
 export function normalizeShaderPass(pass = {}) {
+  const params = normalizeShaderPassParams(pass);
   return {
     id: pass.id || "ripple",
     enabled: pass.enabled !== false,
-    amount: clamp01(pass.amount ?? 0.35),
+    params,
+    amount: params.amount,
   };
+}
+
+export function createShaderPass(id = "ripple", params = {}) {
+  return normalizeShaderPass({ id, enabled: true, params });
+}
+
+function normalizeShaderPassParams(pass = {}) {
+  const params = pass.params && typeof pass.params === "object" ? { ...pass.params } : {};
+  params.amount = clamp01(params.amount ?? pass.amount ?? 0.35);
+  return params;
+}
+
+function mergeShaderPassOverride(pass = {}, override = {}) {
+  const params = {
+    ...(pass.params && typeof pass.params === "object" ? pass.params : {}),
+    ...(override.params && typeof override.params === "object" ? override.params : {}),
+  };
+  if (override.amount !== undefined) params.amount = override.amount;
+  return normalizeShaderPass({
+    ...pass,
+    ...(override.id ? { id: override.id } : {}),
+    enabled: override.enabled ?? pass.enabled,
+    params,
+    amount: params.amount ?? pass.amount,
+  });
 }
 
 export function normalizeMediaMeta(item = {}) {

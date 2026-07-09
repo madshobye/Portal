@@ -1,6 +1,6 @@
 import { VJ1 } from "../constants.js";
 import { sanitizeState } from "../domain/models.js";
-import { OutputRenderer } from "./output-renderer.js?v=scene-snapshots-91";
+import { OutputRenderer } from "./output-renderer.js?v=scene-snapshots-92";
 
 export function createEmbeddedPreviewApp({ store, mediaLibrary }) {
   let host = null;
@@ -53,6 +53,7 @@ export function createEmbeddedPreviewApp({ store, mediaLibrary }) {
     if (name === "set-calibrate") renderer?.setCalibrate(!!payload.calibrating);
     if (name === "reset-mapping") renderer?.resetMapping(payload.surfaceId);
     if (name === "export-mapping") renderer?.exportMapping();
+    if (name === "schedule") renderer?.schedule(payload);
   }
 
   function pause() {

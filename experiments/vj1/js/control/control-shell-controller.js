@@ -1,8 +1,10 @@
-import { BLEND_MODES, GENERATORS, SOURCE_TYPES } from "../constants.js";
-import { applySceneSnapshotToState, createLiveCompositionView, createLiveRenderState, createSceneSnapshot } from "../domain/models.js";
+import { BLEND_MODES, SOURCE_TYPES } from "../constants.js";
+import { applySceneSnapshotToState, createLiveCompositionView, createLiveRenderState, createSceneSnapshot, createShaderPass } from "../domain/models.js";
+import { defaultParamValues, normalizeParamValue } from "../graph/component-schema.js";
+import { listGeneratorComponents } from "../graph/generator-registry.js";
 import { buildOutputUrl } from "../view-routing.js";
-import { listShaderComponents } from "../shaders/shader-registry.js";
-import { createEmbeddedPreviewApp } from "../output/embedded-preview-app.js?v=scene-snapshots-91";
+import { getShaderComponent, listShaderComponents } from "../shaders/shader-registry.js";
+import { createEmbeddedPreviewApp } from "../output/embedded-preview-app.js?v=scene-snapshots-92";
 import { createHtmlCache, isInteractiveNode, isTextEditingNode, setClass, setText } from "./dom-utils.js";
 import { collectRefs, shellTemplate } from "./shell-view.js";
 import { effectIcon, emptyNote, esc, icon, rangeTemplate, selectValuesTemplate, sourceTypeIcon, thumbnailTemplate } from "./template-utils.js";
@@ -627,7 +629,8 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
     store.update((draft) => {
       const owner = getShaderOwner(draft, target, targetId);
       const chainKey = target === "surface" ? "finalShaderChain" : "shaderChain";
-      owner?.[chainKey].push({ id, enabled: true, amount: id === "custom" ? 0.5 : 0.32 });
+      const component = getShaderComponent(id);
+      owner?.[chainKey].push(createShaderPass(id, defaultParamValues(component)));
       if (target === "surface" && currentWorkspace(draft) === "scene") applySelectedSceneSnapshot(draft);
     }, "add-shader-pass");
   }
@@ -771,10 +774,10 @@ function generatorPickerTemplate(path, value) {
     <div class="field">
       <span>Generator</span>
       <div class="generator-grid">
-        ${GENERATORS.filter((generator) => generator.id !== "black").map((generator) => `
+        ${listGeneratorComponents().filter((generator) => generator.id !== "black").map((generator) => `
           <button type="button" class="generator-card ${generator.id === value ? "is-selected" : ""}" data-set-generator="${generator.id}" data-generator-path="${path}">
             <span class="generator-swatch generator-${generator.id}"></span>
-            <strong>${esc(generator.label)}</strong>
+            <strong>${esc(generator.label || generator.name)}</strong>
           </button>
         `).join("")}
       </div>
@@ -876,15 +879,66 @@ function shaderChainTemplate(chain, target, targetId, ownerPath, chainKey = "sha
   if (!chain?.length) return `<div class="soft-note">No effects on this ${target}</div>`;
   return `
     <div class="chain-list">
-      ${chain.map((pass, index) => `
+      ${chain.map((pass, index) => {
+        const component = getShaderComponent(pass.id);
+        return `
         <div class="chain-pass">
-          <label>${icon(effectIcon(pass.id))}<input type="checkbox" data-update="${ownerPath}.${chainKey}.${index}.enabled" ${pass.enabled ? "checked" : ""} />${esc(pass.id)}</label>
-          <input type="range" min="0" max="1" step="0.01" data-update="${ownerPath}.${chainKey}.${index}.amount" value="${pass.amount}" />
+          <label class="chain-pass-title">${icon(effectIcon(pass.id))}<input type="checkbox" data-update="${ownerPath}.${chainKey}.${index}.enabled" ${pass.enabled ? "checked" : ""} />${esc(component?.name || pass.id)}</label>
+          ${shaderParamControlsTemplate(component, pass, `${ownerPath}.${chainKey}.${index}`)}
           <button type="button" data-remove-pass data-target="${target}" data-target-id="${targetId}" data-pass-index="${index}" title="Remove effect" aria-label="Remove effect">${icon("close")}</button>
         </div>
-      `).join("")}
+      `;}).join("")}
     </div>
   `;
+}
+
+function shaderParamControlsTemplate(component, pass, basePath) {
+  if (!component?.params?.length) return "";
+  return `
+    <div class="chain-param-list">
+      ${component.params.map((param) => paramControlTemplate(param, `${basePath}.params.${param.id}`, paramCurrentValue(component, pass, param))).join("")}
+    </div>
+  `;
+}
+
+function paramControlTemplate(param, path, value, attrs = "data-update") {
+  if (param.type === "boolean") {
+    return `
+      <label class="field inline-param">
+        <span>${esc(param.label || param.id)}</span>
+        <input type="checkbox" ${attrs}="${esc(path)}" ${value ? "checked" : ""} />
+      </label>
+    `;
+  }
+  if (param.type === "enum") {
+    return `
+      <label class="field chain-param">
+        <span>${esc(param.label || param.id)}</span>
+        <select ${attrs}="${esc(path)}">
+          ${(param.values || []).map((option) => `<option value="${esc(option)}" ${option === value ? "selected" : ""}>${esc(option)}</option>`).join("")}
+        </select>
+      </label>
+    `;
+  }
+  return `
+    <label class="field range-field chain-param">
+      <span><span>${esc(param.label || param.id)}</span><strong>${formatParamValue(value)}</strong></span>
+      <input type="range" min="${param.min ?? 0}" max="${param.max ?? 1}" step="${param.step ?? 0.01}" ${attrs}="${esc(path)}" value="${value}" />
+    </label>
+  `;
+}
+
+function paramCurrentValue(component, pass, param) {
+  const values = {
+    ...(pass.params && typeof pass.params === "object" ? pass.params : {}),
+  };
+  if (param.id === "amount" && values.amount === undefined) values.amount = pass.amount;
+  return normalizeParamValue(param, values[param.id]);
+}
+
+function formatParamValue(value) {
+  const number = Number(value);
+  return Number.isFinite(number) ? number.toFixed(2) : esc(value);
 }
 
 function projectEmptyTemplate() {
@@ -1015,13 +1069,55 @@ function liveShaderChainTemplate(chain, compositionId) {
   if (!chain?.length) return "";
   return `
     <div class="live-chain-list">
-      ${chain.map((pass, index) => `
+      ${chain.map((pass, index) => {
+        const component = getShaderComponent(pass.id);
+        return `
         <div class="live-chain-pass">
-          <label>${icon(effectIcon(pass.id))}<input type="checkbox" data-live-composition-id="${esc(compositionId)}" data-live-update="shaderChain.${index}.enabled" ${pass.enabled ? "checked" : ""} />${esc(pass.id)}</label>
-          <input type="range" min="0" max="1" step="0.01" data-live-composition-id="${esc(compositionId)}" data-live-update="shaderChain.${index}.amount" value="${pass.amount}" />
+          <label>${icon(effectIcon(pass.id))}<input type="checkbox" data-live-composition-id="${esc(compositionId)}" data-live-update="shaderChain.${index}.enabled" ${pass.enabled ? "checked" : ""} />${esc(component?.name || pass.id)}</label>
+          ${liveShaderParamControlsTemplate(component, pass, compositionId, index)}
         </div>
-      `).join("")}
+      `;}).join("")}
     </div>
+  `;
+}
+
+function liveShaderParamControlsTemplate(component, pass, compositionId, index) {
+  if (!component?.params?.length) return "";
+  return `
+    <div class="chain-param-list">
+      ${component.params.map((param) => {
+        const path = `shaderChain.${index}.params.${param.id}`;
+        const attrs = `data-live-composition-id="${esc(compositionId)}" data-live-update`;
+        return liveParamControlTemplate(param, path, paramCurrentValue(component, pass, param), attrs);
+      }).join("")}
+    </div>
+  `;
+}
+
+function liveParamControlTemplate(param, path, value, attrs) {
+  if (param.type === "boolean") {
+    return `
+      <label class="field inline-param">
+        <span>${esc(param.label || param.id)}</span>
+        <input type="checkbox" ${attrs}="${esc(path)}" ${value ? "checked" : ""} />
+      </label>
+    `;
+  }
+  if (param.type === "enum") {
+    return `
+      <label class="field chain-param">
+        <span>${esc(param.label || param.id)}</span>
+        <select ${attrs}="${esc(path)}">
+          ${(param.values || []).map((option) => `<option value="${esc(option)}" ${option === value ? "selected" : ""}>${esc(option)}</option>`).join("")}
+        </select>
+      </label>
+    `;
+  }
+  return `
+    <label class="field range-field chain-param">
+      <span><span>${esc(param.label || param.id)}</span><strong>${formatParamValue(value)}</strong></span>
+      <input type="range" min="${param.min ?? 0}" max="${param.max ?? 1}" step="${param.step ?? 0.01}" ${attrs}="${esc(path)}" value="${value}" />
+    </label>
   `;
 }
 

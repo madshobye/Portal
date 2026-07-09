@@ -8,11 +8,12 @@ export function createShaderBuilder({ getCustomCode, onStatus }) {
     const code = pass.id === "custom" ? getCustomCode() : component?.code;
     if (!code) return null;
     const contextId = getContextId(target);
-    const key = `${contextId}:${pass.id}:${component?.type || "effect"}:${code}`;
+    const paramsKey = (component?.params || []).map((param) => `${param.type}:${param.id}`).join(",");
+    const key = `${contextId}:${pass.id}:${component?.type || "effect"}:${paramsKey}:${code}`;
     if (cache.has(key)) return cache.get(key);
     try {
       const factory = typeof target?.createShader === "function" ? target : globalThis;
-      const fragmentSource = component?.type === "fragment" ? code : fragmentShaderSource(code);
+      const fragmentSource = component?.type === "fragment" ? code : fragmentShaderSource(code, component);
       const shader = factory.createShader(vertexShaderSource(), fragmentSource);
       cache.set(key, shader);
       onStatus?.("Shader ready", "");
@@ -63,7 +64,7 @@ void main() {
 }`;
 }
 
-function fragmentShaderSource(effectCode) {
+function fragmentShaderSource(effectCode, component = null) {
   return `
 precision mediump float;
 uniform sampler2D tex0;
@@ -71,6 +72,7 @@ uniform vec2 resolution;
 uniform bool sourceFlipY;
 uniform float time;
 uniform float amount;
+${paramUniformDeclarations(component)}
 varying vec2 vTexCoord;
 
 float hash(vec2 p) {
@@ -93,4 +95,18 @@ void main() {
   vec4 color = sampleSource(uv);
   gl_FragColor = runEffect(uv, color);
 }`;
+}
+
+function paramUniformDeclarations(component) {
+  const reserved = new Set(["tex0", "resolution", "sourceFlipY", "time", "amount", "canvasSize", "texelSize"]);
+  return (component?.params || [])
+    .filter((param) => param?.id && !reserved.has(param.id))
+    .map((param) => `uniform ${uniformTypeForParam(param)} ${param.id};`)
+    .join("\n");
+}
+
+function uniformTypeForParam(param) {
+  if (param.type === "boolean") return "bool";
+  if (param.type === "color") return "vec4";
+  return "float";
 }

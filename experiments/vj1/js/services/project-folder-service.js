@@ -489,6 +489,7 @@ function buildPayload(state, savedAt = new Date().toISOString()) {
     },
     global: state.global,
     render: state.render,
+    scheduler: state.scheduler,
     media: state.media,
     compositions: state.compositions,
     surfaces: state.surfaces,

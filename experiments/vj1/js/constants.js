@@ -23,15 +23,6 @@ export const BLEND_MODES = Object.freeze([
   "remove",
 ]);
 
-export const GENERATORS = Object.freeze([
-  { id: "testPattern", label: "Test Pattern" },
-  { id: "waves", label: "Waves" },
-  { id: "noise", label: "Noise" },
-  { id: "plasma", label: "Plasma" },
-  { id: "checker", label: "Checker" },
-  { id: "black", label: "Black" },
-]);
-
 export const SOURCE_TYPES = Object.freeze([
   { id: "generator", label: "Generator" },
   { id: "media", label: "Media" },

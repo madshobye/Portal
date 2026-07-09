@@ -1,3 +1,8 @@
+import { createNumberParam, defineVisualComponent, textureInlet, textureOutlet } from "../graph/component-schema.js";
+
+const effectInlets = Object.freeze([textureInlet("texture", "Texture")]);
+const effectOutlets = Object.freeze([textureOutlet("texture", "Texture")]);
+
 export const SHADER_COMPONENTS = Object.freeze({
   ripple: {
     id: "ripple",
@@ -16,9 +21,15 @@ vec4 runEffect(vec2 uv, vec4 color) {
     id: "rgbSplit",
     name: "RGB Split",
     category: "color",
+    params: [
+      createNumberParam("amount", "Amount", { min: 0, max: 1, step: 0.01, defaultValue: 0.35 }),
+      createNumberParam("angle", "Angle", { min: -3.14, max: 3.14, step: 0.01, defaultValue: 0 }),
+      createNumberParam("motion", "Motion", { min: 0, max: 1, step: 0.01, defaultValue: 1 }),
+    ],
     code: `
 vec4 runEffect(vec2 uv, vec4 color) {
-  vec2 dir = vec2(sin(time * 1.3), cos(time * 1.7)) * amount * 0.035;
+  float a = angle + time * mix(0.0, 1.7, motion);
+  vec2 dir = vec2(cos(a), sin(a)) * amount * 0.035;
   float r = sampleSource(uv + dir).r;
   float g = color.g;
   float b = sampleSource(uv - dir).b;
@@ -260,14 +271,36 @@ vec4 runEffect(vec2 uv, vec4 color) {
     id: "custom",
     name: "Custom",
     category: "user",
+    defaultAmount: 0.5,
     code: null,
   },
 });
 
 export function getShaderComponent(id) {
-  return SHADER_COMPONENTS[id] || null;
+  return normalizeShaderComponent(SHADER_COMPONENTS[id]);
 }
 
 export function listShaderComponents() {
-  return Object.values(SHADER_COMPONENTS);
+  return Object.values(SHADER_COMPONENTS).map(normalizeShaderComponent).filter(Boolean);
+}
+
+function normalizeShaderComponent(component) {
+  if (!component) return null;
+  return defineVisualComponent({
+    ...component,
+    kind: "effect",
+    family: "shader",
+    processor: "shader",
+    scheduler: "frame",
+    inlets: component.inlets || effectInlets,
+    outlets: component.outlets || effectOutlets,
+    params: component.params || [
+      createNumberParam("amount", "Amount", {
+        min: 0,
+        max: 1,
+        step: 0.01,
+        defaultValue: component.defaultAmount ?? 0.35,
+      }),
+    ],
+  });
 }
