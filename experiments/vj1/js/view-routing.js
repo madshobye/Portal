@@ -1,4 +1,4 @@
-import { VIEWS, VJ1 } from "./constants.js";
+import { VJ1 } from "./constants.js";
 
 export function getClientMode() {
   const params = new URLSearchParams(window.location.search);
@@ -8,24 +8,10 @@ export function getClientMode() {
   return "control";
 }
 
-export function getInitialView() {
-  const params = new URLSearchParams(window.location.search);
-  const requested = params.get("view") || sessionStorage.getItem(VJ1.localViewKey) || "studio";
-  return VIEWS.some((view) => view.id === requested) ? requested : "studio";
-}
-
 export function getInitialWorkspace() {
   const params = new URLSearchParams(window.location.search);
   const requested = params.get("workspace") || sessionStorage.getItem(VJ1.localWorkspaceKey) || "scene";
   return ["compose", "scene", "live"].includes(requested) ? requested : "scene";
-}
-
-export function persistView(view) {
-  if (!VIEWS.some((item) => item.id === view)) return;
-  sessionStorage.setItem(VJ1.localViewKey, view);
-  const url = new URL(window.location.href);
-  url.searchParams.set("view", view);
-  window.history.replaceState({}, "", url);
 }
 
 export function persistWorkspace(workspace) {

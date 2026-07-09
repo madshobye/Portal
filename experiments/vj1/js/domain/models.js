@@ -4,19 +4,6 @@ export function uid(prefix) {
   return `${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
 }
 
-export function createDefaultLayer(index = 0) {
-  return {
-    id: uid("layer"),
-    name: index === 0 ? "Layer 1" : `Layer ${index + 1}`,
-    enabled: true,
-    source: { type: "generator", mediaId: "", generatorId: "testPattern" },
-    opacity: 1,
-    blend: "normal",
-    speed: 1,
-    shaderChain: [],
-  };
-}
-
 export function createDefaultComposition(index = 0) {
   return {
     id: uid("composition"),
@@ -30,13 +17,12 @@ export function createDefaultComposition(index = 0) {
   };
 }
 
-export function createDefaultSurface(index = 0, layerId = "") {
+export function createDefaultSurface(index = 0) {
   const id = index === 0 ? "surface-main" : uid("surface");
   return {
     id,
     name: index === 0 ? "Main" : `Surface ${index + 1}`,
     enabled: true,
-    route: { type: "mainMix", layerId: "", generatorId: "testPattern" },
     opacity: 1,
     finalBlend: "normal",
     finalShaderChain: [],
@@ -48,10 +34,9 @@ export function createDefaultSurface(index = 0, layerId = "") {
 }
 
 export function createInitialState() {
-  const layers = [createDefaultLayer(0), createDefaultLayer(1)];
   const compositions = [createDefaultComposition(0)];
   return {
-    version: 3,
+    version: 4,
     project: {
       name: "Untitled VJ Set",
       folderName: "",
@@ -59,9 +44,7 @@ export function createInitialState() {
       warnings: [],
     },
     ui: {
-      view: "studio",
-      workspace: "setup",
-      selectedLayerId: layers[0].id,
+      workspace: "scene",
       selectedCompositionId: compositions[0].id,
       selectedSceneId: "",
       selectedSurfaceId: "surface-main",
@@ -93,9 +76,8 @@ export function createInitialState() {
       surfaceHeight: 450,
     },
     media: [],
-    layers,
     compositions,
-    surfaces: [createDefaultSurface(0, layers[0].id), createDefaultSurface(1, layers[1].id)],
+    surfaces: [createDefaultSurface(0), createDefaultSurface(1)],
     scenes: [],
     mappings: {},
     shaders: {
@@ -140,18 +122,12 @@ export function sanitizeState(input = {}) {
     metrics: { ...base.metrics, ...(input.metrics || {}) },
   };
 
-  next.layers = Array.isArray(input.layers) && input.layers.length
-    ? input.layers.map(normalizeLayer)
-    : base.layers;
   next.compositions = normalizeCompositions(input, base);
   next.surfaces = Array.isArray(input.surfaces) && input.surfaces.length
-    ? input.surfaces.map((surface, index) => normalizeSurface(surface, next.layers[index]?.id || ""))
-    : [createDefaultSurface(0, next.layers[0]?.id), createDefaultSurface(1, next.layers[1]?.id)];
+    ? input.surfaces.map((surface) => normalizeSurface(surface))
+    : [createDefaultSurface(0), createDefaultSurface(1)];
   next.media = Array.isArray(input.media) ? input.media.map(normalizeMediaMeta) : [];
   next.mappings = input.mappings && typeof input.mappings === "object" ? input.mappings : {};
-  next.ui.selectedLayerId = next.layers.some((layer) => layer.id === next.ui.selectedLayerId)
-    ? next.ui.selectedLayerId
-    : next.layers[0]?.id || "";
   next.ui.selectedCompositionId = next.compositions.some((composition) => composition.id === next.ui.selectedCompositionId)
     ? next.ui.selectedCompositionId
     : next.compositions[0]?.id || "";
@@ -252,28 +228,6 @@ function normalizeCompositions(input, base) {
   return [createDefaultComposition(0)];
 }
 
-export function normalizeLayer(layer = {}) {
-  const fallback = createDefaultLayer(0);
-  return {
-    ...fallback,
-    ...layer,
-    id: layer.id || uid("layer"),
-    name: layer.name || fallback.name,
-    enabled: layer.enabled !== false,
-    source: {
-      type: layer.source?.type || fallback.source.type,
-      mediaId: layer.source?.mediaId || "",
-      generatorId: layer.source?.generatorId || fallback.source.generatorId,
-    },
-    opacity: clamp01(layer.opacity ?? fallback.opacity),
-    speed: Math.max(0, Number(layer.speed ?? fallback.speed) || 0),
-    blend: layer.blend || fallback.blend,
-    shaderChain: Array.isArray(layer.shaderChain)
-      ? layer.shaderChain.map(normalizeShaderPass)
-      : [],
-  };
-}
-
 export function normalizeComposition(composition = {}) {
   const fallback = createDefaultComposition(0);
   const { enabled, ...compositionData } = composition;
@@ -297,19 +251,14 @@ export function normalizeComposition(composition = {}) {
   };
 }
 
-export function normalizeSurface(surface = {}, layerId = "") {
-  const fallback = createDefaultSurface(0, layerId);
+export function normalizeSurface(surface = {}) {
+  const fallback = createDefaultSurface(0);
   return {
     ...fallback,
     ...surface,
     id: surface.id || uid("surface"),
     name: surface.name || fallback.name,
     enabled: surface.enabled !== false,
-    route: {
-      type: surface.route?.type || fallback.route.type,
-      layerId: surface.route?.layerId || layerId || "",
-      generatorId: surface.route?.generatorId || fallback.route.generatorId,
-    },
     opacity: clamp01(surface.opacity ?? fallback.opacity),
     finalBlend: surface.finalBlend || fallback.finalBlend,
     finalShaderChain: Array.isArray(surface.finalShaderChain)
@@ -407,7 +356,7 @@ export function createSceneSnapshot(state) {
   };
 }
 
-export function applySceneSnapshot(state, scene) {
+export function applySceneForEditing(state, scene) {
   if (!scene?.snapshot) return state;
   const next = sanitizeState(applySceneSnapshotToState(clone(state), scene));
   next.ui.selectedSceneId = scene.id;

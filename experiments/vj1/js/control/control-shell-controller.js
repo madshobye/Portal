@@ -2,7 +2,10 @@ import { BLEND_MODES, GENERATORS, SOURCE_TYPES } from "../constants.js";
 import { applySceneSnapshotToState, createLiveCompositionView, createLiveRenderState, createSceneSnapshot } from "../domain/models.js";
 import { buildOutputUrl } from "../view-routing.js";
 import { listShaderComponents } from "../shaders/shader-registry.js";
-import { createEmbeddedPreviewApp } from "../output/embedded-preview-app.js?v=scene-snapshots-90";
+import { createEmbeddedPreviewApp } from "../output/embedded-preview-app.js?v=scene-snapshots-91";
+import { createHtmlCache, isInteractiveNode, isTextEditingNode, setClass, setText } from "./dom-utils.js";
+import { collectRefs, shellTemplate } from "./shell-view.js";
+import { effectIcon, emptyNote, esc, icon, rangeTemplate, selectValuesTemplate, sourceTypeIcon, thumbnailTemplate } from "./template-utils.js";
 
 export function createControlShell({ root, store, bridge, mediaLibrary, projectService }) {
   let refs = {};
@@ -14,7 +17,7 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
   let activePointerCount = 0;
   let interactionHoldUntil = 0;
   let mediaPicker = null;
-  const renderedHtml = new WeakMap();
+  const replaceHtmlIfChanged = createHtmlCache();
   const mediaPreviewUrls = new Map();
   const embeddedPreview = createEmbeddedPreviewApp({ store, mediaLibrary });
   const interactionQuietMs = 160;
@@ -100,15 +103,6 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
     renderInspector(state);
     renderPreview(state);
     renderModal(state);
-  }
-
-  function replaceHtmlIfChanged(node, html) {
-    if (!node) return false;
-    const next = String(html ?? "");
-    if (renderedHtml.get(node) === next) return false;
-    node.innerHTML = next;
-    renderedHtml.set(node, next);
-    return true;
   }
 
   function bindStaticEvents() {
@@ -564,9 +558,6 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
       }
       input.addEventListener("change", () => updateLivePathFromInput(input, "live:update"));
     });
-    scope.querySelectorAll("[data-select-layer]").forEach((button) => {
-      button.addEventListener("click", () => store.selectLayer(button.dataset.selectLayer));
-    });
     scope.querySelectorAll("[data-select-surface]").forEach((button) => {
       button.addEventListener("click", () => store.selectSurface(button.dataset.selectSurface));
     });
@@ -692,79 +683,12 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
   return { mount };
 }
 
-function shellTemplate() {
-  return `
-    <div class="control-app studio-app" data-gramm="false" data-gramm_editor="false" data-enable-grammarly="false">
-      <header class="topbar studio-topbar">
-        <div class="brand">
-          <div class="brand-mark">VJ</div>
-          <button id="open-folder-main" class="project-button" type="button" title="Open project folder">
-            <span class="material-symbols-rounded">folder_open</span>
-            <span>
-              <strong id="project-name">VJ1</strong>
-              <small id="project-meta">Choose a project folder</small>
-            </span>
-          </button>
-        </div>
-        <div class="top-actions">
-          <div id="workspace-switch" class="workspace-switch" role="group" aria-label="Workspace">
-            <button type="button" data-workspace="compose">${icon("account_tree")}<span>Compositions</span></button>
-            <button type="button" data-workspace="scene" class="is-active">${icon("auto_awesome")}<span>Scenes</span></button>
-            <button type="button" data-workspace="live">${icon("play_circle")}<span>Live</span></button>
-          </div>
-          <button id="toggle-preview" class="icon-buttonish" type="button" title="Toggle preview" aria-label="Toggle preview">${icon("visibility")}</button>
-          <button id="toggle-labels" class="icon-buttonish" type="button" title="Show labels" aria-label="Show labels">${icon("label")}</button>
-          <button id="undo-project" class="icon-buttonish" type="button" title="Undo" aria-label="Undo" disabled>${icon("undo")}</button>
-          <button id="redo-project" class="icon-buttonish" type="button" title="Redo" aria-label="Redo" disabled>${icon("redo")}</button>
-          <button id="blackout-main" class="icon-buttonish danger" type="button" title="Blackout" aria-label="Blackout">${icon("brightness_1")}</button>
-          <button id="open-output" class="icon-buttonish" type="button" title="Open output" aria-label="Open output">${icon("open_in_new")}</button>
-          <span id="render-cost" class="status-pill cost-pill" title="Render cost"><span class="material-symbols-rounded">speed</span><span id="render-cost-text">0%</span></span>
-          <span id="output-status" class="status-pill"><span class="status-dot"></span><span id="output-status-text">output</span></span>
-          <input id="import-files-main" class="hidden" type="file" multiple webkitdirectory data-gramm="false" data-gramm_editor="false" data-enable-grammarly="false" />
-        </div>
-      </header>
-      <div class="studio-layout">
-        <aside id="project-rail" class="project-rail"></aside>
-        <aside id="inspector" class="studio-inspector"></aside>
-        <main id="studio" class="studio-main"></main>
-      </div>
-      <div id="modal-host"></div>
-    </div>
-  `;
-}
-
-function collectRefs(root) {
-  return {
-    projectName: root.querySelector("#project-name"),
-    projectMeta: root.querySelector("#project-meta"),
-    outputStatus: root.querySelector("#output-status"),
-    outputStatusText: root.querySelector("#output-status-text"),
-    renderCost: root.querySelector("#render-cost"),
-    renderCostText: root.querySelector("#render-cost-text"),
-    openOutput: root.querySelector("#open-output"),
-    togglePreview: root.querySelector("#toggle-preview"),
-    toggleLabels: root.querySelector("#toggle-labels"),
-    undo: root.querySelector("#undo-project"),
-    redo: root.querySelector("#redo-project"),
-    blackout: root.querySelector("#blackout-main"),
-    workspaceSwitch: root.querySelector("#workspace-switch"),
-    openFolder: root.querySelector("#open-folder-main"),
-    importFiles: root.querySelector("#import-files-main"),
-    projectRail: root.querySelector("#project-rail"),
-    studio: root.querySelector("#studio"),
-    inspector: root.querySelector("#inspector"),
-    modalHost: root.querySelector("#modal-host"),
-  };
-}
-
 function compositionPillTemplate(composition, state) {
   const selected = state.ui.selectedCompositionId === composition.id;
   return `
     <div class="composition-card-row">
       <button type="button" class="composition-card ${selected ? "is-selected" : ""}" data-select-composition="${esc(composition.id)}">
-        ${composition.thumbnail
-          ? `<img src="${esc(composition.thumbnail)}" alt="" loading="lazy" />`
-          : `<div class="composition-card-empty">${icon("account_tree")}</div>`}
+        ${thumbnailTemplate(composition.thumbnail)}
         <span>${esc(composition.name)}</span>
       </button>
       <button type="button" class="composition-card-remove" data-remove-composition="${esc(composition.id)}" title="Remove" aria-label="Remove ${esc(composition.name)}" ${state.compositions.length <= 1 ? "disabled" : ""}>${icon("close")}</button>
@@ -885,7 +809,7 @@ function sceneSurfaceTemplate(surface, state) {
         <input type="text" data-update="${surfaceBase}.name" value="${esc(surface.name)}" spellcheck="false" data-gramm="false" data-gramm_editor="false" data-enable-grammarly="false" />
         <label class="mini-toggle">${icon("power_settings_new")}<input type="checkbox" data-update="${surfaceBase}.enabled" ${surface.enabled ? "checked" : ""} /></label>
       </div>
-      <div class="setup-actions">
+      <div class="surface-actions">
         <button type="button" data-reset-surface-mapping="${surface.id}">${icon("restart_alt")} Reset surface</button>
       </div>
       <div class="rail-title"><span class="material-symbols-rounded">auto_awesome</span><span>Scene assignment</span></div>
@@ -1074,9 +998,7 @@ function liveCompositionTemplate(composition, state) {
   return `
     <article class="live-composition-card">
       <header class="live-composition-head">
-        ${composition.thumbnail
-          ? `<img src="${esc(composition.thumbnail)}" alt="" loading="lazy" />`
-          : `<div class="composition-card-empty">${icon("account_tree")}</div>`}
+        ${thumbnailTemplate(composition.thumbnail)}
         <strong>${esc(composition.name)}</strong>
       </header>
       ${liveRangeTemplate("Presence", composition.id, "opacity", view.opacity)}
@@ -1189,13 +1111,6 @@ function currentWorkspace(state) {
   return ["compose", "scene", "live"].includes(state.ui?.workspace) ? state.ui.workspace : "scene";
 }
 
-function sourceTypeIcon(type) {
-  if (type === "media") return "perm_media";
-  if (type === "camera") return "photo_camera";
-  if (type === "black") return "brightness_1";
-  return "auto_awesome";
-}
-
 function activeRenderCost(state) {
   const previewCost = Number(state.metrics.previewRenderCost);
   if (state.ui?.debugPreview && Number.isFinite(previewCost)) return previewCost;
@@ -1208,23 +1123,6 @@ function formatRenderCost(cost) {
   return `${percent > 0 && percent < 10 ? percent.toFixed(1) : Math.round(percent)}%`;
 }
 
-function rangeTemplate(label, path, value) {
-  return `
-    <label class="field range-field">
-      <span><span>${label}</span><strong>${Number(value).toFixed(2)}</strong></span>
-      <input type="range" min="0" max="1" step="0.01" data-update="${path}" value="${value}" />
-    </label>
-  `;
-}
-
-function selectValuesTemplate(path, values, value) {
-  return `
-    <select data-update="${path}">
-      ${values.map((option) => `<option value="${option}" ${option === value ? "selected" : ""}>${esc(option)}</option>`).join("")}
-    </select>
-  `;
-}
-
 function compositionAssignmentTemplate(path, compositions, value) {
   return `
     <div class="field composition-assignment-field">
@@ -1234,9 +1132,7 @@ function compositionAssignmentTemplate(path, compositions, value) {
           const selected = composition.id === value;
           return `
             <button type="button" class="composition-card assignment-card ${selected ? "is-selected" : ""}" data-set-composition="${esc(composition.id)}" data-composition-path="${esc(path)}">
-              ${composition.thumbnail
-                ? `<img src="${esc(composition.thumbnail)}" alt="" loading="lazy" />`
-                : `<div class="composition-card-empty">${icon("account_tree")}</div>`}
+              ${thumbnailTemplate(composition.thumbnail)}
               <span>${esc(composition.name)}</span>
             </button>
           `;
@@ -1293,62 +1189,4 @@ function pathForScene(state, scene) {
 
 function pathForComposition(state, composition) {
   return `compositions.${state.compositions.findIndex((item) => item.id === composition.id)}`;
-}
-
-function emptyNote(text) {
-  return `<div class="soft-note">${esc(text)}</div>`;
-}
-
-function icon(name) {
-  return `<span class="material-symbols-rounded" aria-hidden="true">${name}</span>`;
-}
-
-function setText(node, text) {
-  const next = String(text ?? "");
-  if (node && node.textContent !== next) node.textContent = next;
-}
-
-function setHTML(node, html) {
-  const next = String(html ?? "");
-  if (node && node.innerHTML !== next) node.innerHTML = next;
-}
-
-function setClass(node, className, on) {
-  if (!node) return;
-  const hasClass = node.classList.contains(className);
-  if (on && !hasClass) node.classList.add(className);
-  if (!on && hasClass) node.classList.remove(className);
-}
-
-function isInteractiveNode(node) {
-  return !!node?.closest?.("input, select, textarea, button, label, [contenteditable='true'], [data-update], [data-action]");
-}
-
-function isTextEditingNode(node) {
-  if (!node) return false;
-  if (node.isContentEditable) return true;
-  const tag = node.tagName;
-  if (tag === "TEXTAREA" || tag === "SELECT") return true;
-  if (tag !== "INPUT") return false;
-  return !["button", "checkbox", "radio", "range", "submit", "reset", "file", "color"].includes(node.type);
-}
-
-function effectIcon(id) {
-  return {
-    ripple: "water",
-    rgbSplit: "gradient",
-    kaleido: "filter_vintage",
-    pixelate: "grid_view",
-    plasma: "blur_on",
-    lumaKey: "tonality",
-    custom: "data_object",
-  }[id] || "auto_awesome";
-}
-
-function esc(value) {
-  return String(value ?? "")
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;")
-    .replaceAll('"', "&quot;");
 }

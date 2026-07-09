@@ -1,9 +1,8 @@
 import {
-  applySceneSnapshot,
+  applySceneForEditing,
   applySceneSnapshotToState,
   clone,
   createDefaultComposition,
-  createDefaultLayer,
   createDefaultSurface,
   createInitialState,
   createLiveRenderState,
@@ -47,16 +46,6 @@ export function createAppState(initial = null) {
     replace,
     update,
     subscribe,
-    setView(view) {
-      update((draft) => {
-        draft.ui.view = view;
-      }, "view");
-    },
-    selectLayer(id) {
-      update((draft) => {
-        draft.ui.selectedLayerId = id;
-      }, "select-layer");
-    },
     selectSurface(id) {
       update((draft) => {
         draft.ui.selectedSurfaceId = id;
@@ -104,27 +93,9 @@ export function createAppState(initial = null) {
         }
       }, "remove-composition");
     },
-    addLayer() {
-      update((draft) => {
-        const layer = createDefaultLayer(draft.layers.length);
-        layer.name = `Layer ${draft.layers.length + 1}`;
-        draft.layers.push(layer);
-        draft.ui.selectedLayerId = layer.id;
-      }, "add-layer");
-    },
-    removeLayer(id) {
-      update((draft) => {
-        if (draft.layers.length <= 1) return;
-        draft.layers = draft.layers.filter((layer) => layer.id !== id);
-        draft.ui.selectedLayerId = draft.layers[0]?.id || "";
-        for (const surface of draft.surfaces) {
-          if (surface.route.layerId === id) surface.route.layerId = draft.ui.selectedLayerId;
-        }
-      }, "remove-layer");
-    },
     addSurface() {
       update((draft) => {
-        const surface = createDefaultSurface(draft.surfaces.length, draft.layers[0]?.id || "");
+        const surface = createDefaultSurface(draft.surfaces.length);
         surface.id = uid("surface");
         surface.name = `Surface ${draft.surfaces.length + 1}`;
         surface.mappingId = surface.id;
@@ -162,12 +133,7 @@ export function createAppState(initial = null) {
     selectScene(id) {
       const current = getState();
       const scene = current.scenes.find((item) => String(item.id) === String(id));
-      if (scene) replace(applySceneSnapshot(current, scene), "select-scene");
-    },
-    recallScene(id) {
-      const current = getState();
-      const scene = current.scenes.find((item) => String(item.id) === String(id));
-      if (scene) replace(applySceneSnapshot(current, scene), "recall-scene");
+      if (scene) replace(applySceneForEditing(current, scene), "select-scene");
     },
     deleteScene(id) {
       update((draft) => {

@@ -422,13 +422,9 @@ small {
   text-align: left;
 }
 
-.composition-card-list {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 6px;
-}
-
-.scene-card-list {
+.composition-card-list,
+.scene-card-list,
+.assignment-card-list {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 6px;
@@ -564,10 +560,6 @@ small {
 
 .composition-assignment-field {
   gap: 7px;
-}
-
-.assignment-card-list {
-  grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
 .assignment-card {
@@ -1089,20 +1081,14 @@ small {
   padding: 0;
 }
 
-.setup-actions {
+.surface-actions {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 8px;
 }
 
-.setup-actions button {
+.surface-actions button {
   justify-content: center;
-}
-
-.setup-actions .danger {
-  grid-column: 1 / -1;
-  border-color: rgba(255, 107, 107, 0.36);
-  color: #ffd9d9;
 }
 
 .empty-preview {

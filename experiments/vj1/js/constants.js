@@ -1,7 +1,5 @@
 export const VJ1 = Object.freeze({
   channelName: "vj1-output-bridge",
-  localStateKey: "vj1-state-v2",
-  localViewKey: "vj1-view",
   localWorkspaceKey: "vj1-workspace",
   renderWidth: 960,
   renderHeight: 540,
@@ -11,10 +9,6 @@ export const VJ1 = Object.freeze({
   portalScript: "../../P1/portal/portal.js?v=vj1-camera-1",
   mapperScript: "../../P1/portal/mapper2.js?v=folder-primary-4",
 });
-
-export const VIEWS = Object.freeze([
-  { id: "studio", label: "Studio" },
-]);
 
 export const BLEND_MODES = Object.freeze([
   "normal",
@@ -42,13 +36,6 @@ export const SOURCE_TYPES = Object.freeze([
   { id: "generator", label: "Generator" },
   { id: "media", label: "Media" },
   { id: "camera", label: "Camera" },
-  { id: "black", label: "Black" },
-]);
-
-export const ROUTE_TYPES = Object.freeze([
-  { id: "mainMix", label: "Main mix" },
-  { id: "layer", label: "Layer" },
-  { id: "generator", label: "Generator" },
   { id: "black", label: "Black" },
 ]);
 

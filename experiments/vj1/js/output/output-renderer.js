@@ -2,6 +2,9 @@ import { VJ1 } from "../constants.js";
 import { clamp01, sanitizeState } from "../domain/models.js";
 import { createShaderBuilder } from "../shaders/shader-builder.js";
 import { getShaderComponent } from "../shaders/shader-registry.js";
+import { applyBlend } from "./blend-utils.js";
+import { drawGenerator, drawStandby } from "./generators.js";
+import { drawCover, isDrawableMedia, syncVideoSpeed } from "./media-utils.js";
 
 export class OutputRenderer {
   constructor({ mode, hud, sendMetrics, sendMapping, sendThumbnail, requestMediaFiles, onSurfaceSelect }) {
@@ -42,7 +45,6 @@ export class OutputRenderer {
     this.lastTickMs = 0;
     this.visualTime = 0;
     this.compositionTimes = new Map();
-    this.orientationDiagnostics = new Set();
     this.shaderBuilder = createShaderBuilder({
       getCustomCode: () => this.state?.shaders?.customCode || "",
       onStatus: (status, error) => {
@@ -361,7 +363,6 @@ export class OutputRenderer {
       output.clear();
       drawBuffer(output, effected, 0, 0, output.width, output.height, this.isShaderBuffer(effected));
       output.pop();
-      this.checkCompositionOrientation(composition, output);
       this.compositionOutput.set(composition.id, output);
       this.mainMix.push();
       applyBlend(this.mainMix, composition.blend);
@@ -475,25 +476,6 @@ export class OutputRenderer {
       passCount++;
     }
     return current;
-  }
-
-  checkCompositionOrientation(composition, output) {
-    if (!shouldCheckOrientation(composition)) return;
-    const key = `${composition.id}:${orientationChainSignature(composition.shaderChain)}`;
-    if (this.orientationDiagnostics.has(key)) return;
-    this.orientationDiagnostics.add(key);
-    const result = readOrientationSignature(output);
-    if (!result) return;
-    const level = result.status === "ok" ? "debug" : "warn";
-    console[level]("[VJ1_ORIENTATION_CHECK]", JSON.stringify({
-      compositionId: composition.id,
-      compositionName: composition.name,
-      status: result.status,
-      expected: result.expected,
-      observed: result.observed,
-      samples: result.samples,
-      chain: (composition.shaderChain || []).filter((pass) => pass.enabled !== false).map((pass) => pass.id),
-    }));
   }
 
   renderSurfaces() {
@@ -800,34 +782,6 @@ function getPortalWebcameraSetup() {
   }
 }
 
-function applyBlend(pg, blend) {
-  if (blend === "add") pg.blendMode(ADD);
-  else if (blend === "screen") pg.blendMode(SCREEN);
-  else if (blend === "multiply") pg.blendMode(MULTIPLY);
-  else if (blend === "darkest") applyP5BlendMode(pg, "DARKEST");
-  else if (blend === "lightest") applyP5BlendMode(pg, "LIGHTEST");
-  else if (blend === "difference") applyP5BlendMode(pg, "DIFFERENCE");
-  else if (blend === "exclusion") applyP5BlendMode(pg, "EXCLUSION");
-  else if (blend === "overlay") applyP5BlendMode(pg, "OVERLAY");
-  else if (blend === "remove") applyP5BlendMode(pg, "REMOVE");
-  else pg.blendMode(BLEND);
-}
-
-function applyP5BlendMode(pg, modeName) {
-  const mode = globalThis[modeName];
-  pg.blendMode(typeof mode !== "undefined" ? mode : BLEND);
-}
-
-function drawCover(pg, media, x, y, w, h) {
-  const element = media.elt || media;
-  const mw = element.videoWidth || element.naturalWidth || media.width || element.width || w;
-  const mh = element.videoHeight || element.naturalHeight || media.height || element.height || h;
-  const scale = Math.max(w / mw, h / mh);
-  const dw = mw * scale;
-  const dh = mh * scale;
-  pg.image(media, x + (w - dw) / 2, y + (h - dh) / 2, dw, dh);
-}
-
 function drawBuffer(pg, source, x, y, w, h, sourceIsWebGL = false) {
   if (!sourceIsWebGL) {
     pg.image(source, x, y, w, h);
@@ -842,330 +796,6 @@ function drawWebGLBuffer(pg, source, x, y, w, h) {
   pg.scale(1, -1);
   pg.image(source, 0, 0, w, h);
   pg.pop();
-}
-
-function isDrawableMedia(media) {
-  if (!media) return false;
-  const elt = media.elt || media;
-  if (elt?.tagName === "VIDEO") {
-    return elt.videoWidth > 1 && elt.videoHeight > 1 && elt.readyState >= 2;
-  }
-  if (elt?.videoWidth > 1 && elt?.videoHeight > 1 && elt.readyState >= 2) return true;
-  if (elt?.naturalWidth > 1 && elt?.naturalHeight > 1) return true;
-  if (media.width > 1 && media.height > 1) return true;
-  return false;
-}
-
-function syncVideoSpeed(video, speedValue = 1) {
-  const speed = Math.max(0, Number(speedValue) || 0);
-  const elt = video?.elt || video;
-  if (!elt) return;
-  if (speed <= 0.001) {
-    if (!elt.paused) video.pause?.();
-    return;
-  }
-  if (Math.abs((elt.playbackRate || 1) - speed) > 0.001) {
-    try {
-      if (typeof video.speed === "function") video.speed(speed);
-      else elt.playbackRate = speed;
-    } catch {}
-  }
-  if (elt.paused) {
-    try {
-      video.loop?.();
-      video.play?.();
-    } catch {}
-  }
-}
-
-const ORIENTATION_POINTS = Object.freeze([
-  { key: "topLeft", label: "TL", x: 0.09, y: 0.1 },
-  { key: "topRight", label: "TR", x: 0.91, y: 0.1 },
-  { key: "bottomLeft", label: "BL", x: 0.09, y: 0.9 },
-  { key: "bottomRight", label: "BR", x: 0.91, y: 0.9 },
-]);
-
-const ORIENTATION_COLORS = Object.freeze({
-  TL: [255, 79, 79],
-  TR: [89, 227, 109],
-  BL: [77, 117, 255],
-  BR: [255, 228, 94],
-});
-
-function shouldCheckOrientation(composition) {
-  return composition?.source?.type === "generator" &&
-    composition.source.generatorId === "testPattern" &&
-    (composition.shaderChain || []).some((pass) => pass.enabled !== false);
-}
-
-function orientationChainSignature(chain = []) {
-  return JSON.stringify(chain
-    .filter((pass) => pass.enabled !== false)
-    .map((pass) => pass.id));
-}
-
-function readOrientationSignature(pg) {
-  if (!pg || typeof pg.get !== "function" || !pg.width || !pg.height) return null;
-  const samples = {};
-  const observed = [];
-  for (const point of ORIENTATION_POINTS) {
-    const sample = sampleOrientationPoint(pg, point);
-    const nearest = sample.nearest;
-    samples[point.key] = {
-      expected: point.label,
-      observed: nearest.label,
-      distance: Math.round(nearest.distance),
-      x: sample.x,
-      y: sample.y,
-      rgba: sample.rgba,
-    };
-    observed.push(nearest.label);
-  }
-  const expected = ORIENTATION_POINTS.map((point) => point.label);
-  return {
-    status: orientationStatus(observed),
-    expected,
-    observed,
-    samples,
-  };
-}
-
-function sampleOrientationPoint(pg, point) {
-  const centerX = Math.round(pg.width * point.x);
-  const centerY = Math.round(pg.height * point.y);
-  const radius = Math.max(8, Math.round(Math.min(pg.width, pg.height) * 0.045));
-  const step = Math.max(2, Math.round(radius / 4));
-  let best = {
-    x: centerX,
-    y: centerY,
-    rgba: rgbaSample(pg, centerX, centerY),
-    nearest: nearestOrientationColor(rgbaSample(pg, centerX, centerY)),
-  };
-  for (let dy = -radius; dy <= radius; dy += step) {
-    for (let dx = -radius; dx <= radius; dx += step) {
-      const x = Math.max(0, Math.min(pg.width - 1, centerX + dx));
-      const y = Math.max(0, Math.min(pg.height - 1, centerY + dy));
-      const rgba = rgbaSample(pg, x, y);
-      const nearest = nearestOrientationColor(rgba);
-      if (nearest.label === point.label && best.nearest.label !== point.label) {
-        best = { x, y, rgba, nearest };
-      } else if (nearest.label === point.label && nearest.distance < best.nearest.distance) {
-        best = { x, y, rgba, nearest };
-      } else if (best.nearest.label !== point.label && nearest.distance < best.nearest.distance) {
-        best = { x, y, rgba, nearest };
-      }
-    }
-  }
-  return best;
-}
-
-function rgbaSample(pg, x, y) {
-  const rgba = pg.get(x, y);
-  return Array.isArray(rgba) ? rgba.slice(0, 4).map((value) => Math.round(value)) : [0, 0, 0, 0];
-}
-
-function nearestOrientationColor(rgba) {
-  if (!Array.isArray(rgba) || rgba.length < 3) return { label: "unknown", distance: Infinity };
-  const dominant = dominantOrientationColor(rgba);
-  if (dominant) return dominant;
-  let best = { label: "unknown", distance: Infinity };
-  for (const [label, color] of Object.entries(ORIENTATION_COLORS)) {
-    const distance = colorDistance(rgba, color);
-    if (distance < best.distance) best = { label, distance };
-  }
-  return best.distance < 140 ? best : { label: "unknown", distance: best.distance };
-}
-
-function dominantOrientationColor(rgba) {
-  const r = Number(rgba[0]) || 0;
-  const g = Number(rgba[1]) || 0;
-  const b = Number(rgba[2]) || 0;
-  if (r + g + b < 70) return null;
-  if (r > g * 1.35 && r > b * 1.35) return { label: "TL", distance: colorDistance(rgba, ORIENTATION_COLORS.TL) };
-  if (g > r * 1.35 && g > b * 1.35) return { label: "TR", distance: colorDistance(rgba, ORIENTATION_COLORS.TR) };
-  if (b > r * 1.25 && b > g * 1.25) return { label: "BL", distance: colorDistance(rgba, ORIENTATION_COLORS.BL) };
-  if (Math.min(r, g) > Math.max(38, b * 1.45) && Math.abs(r - g) < Math.max(90, (r + g) * 0.32)) {
-    return { label: "BR", distance: colorDistance(rgba, ORIENTATION_COLORS.BR) };
-  }
-  return null;
-}
-
-function colorDistance(a, b) {
-  const dr = (Number(a[0]) || 0) - b[0];
-  const dg = (Number(a[1]) || 0) - b[1];
-  const db = (Number(a[2]) || 0) - b[2];
-  return Math.sqrt(dr * dr + dg * dg + db * db);
-}
-
-function orientationStatus(observed) {
-  const signature = observed.join(",");
-  if (observed.includes("unknown")) return "unknown";
-  if (signature === "TL,TR,BL,BR") return "ok";
-  if (signature === "TR,TL,BR,BL") return "horizontal-flip";
-  if (signature === "BL,BR,TL,TR") return "vertical-flip";
-  if (signature === "BR,BL,TR,TL") return "double-flip";
-  return "mixed";
-}
-
-function drawStandby(pg, label) {
-  pg.background("#080a0e");
-  pg.noStroke();
-  pg.fill("#171d25");
-  for (let y = 0; y < pg.height; y += 56) {
-    for (let x = 0; x < pg.width; x += 56) {
-      if (((x / 56 + y / 56) | 0) % 2 === 0) pg.rect(x, y, 56, 56);
-    }
-  }
-  pg.fill("#f2f4ee");
-  pg.textAlign(CENTER, CENTER);
-  pg.textSize(28);
-  pg.text(label, pg.width / 2, pg.height / 2);
-}
-
-function drawGenerator(pg, id, t) {
-  if (id === "testPattern") return drawTestPattern(pg);
-  if (id === "noise") return drawNoise(pg, t);
-  if (id === "plasma") return drawPlasma(pg, t);
-  if (id === "checker") return drawChecker(pg, t);
-  if (id === "black") return pg.background(0);
-  return drawTestPattern(pg);
-}
-
-function drawTestPattern(pg) {
-  const stripeCount = 8;
-  const stripeWidth = pg.width / stripeCount;
-  const colors = ["#ffffff", "#ffe45e", "#59e36d", "#4ee3e5", "#4d75ff", "#d35cff", "#ff4f92", "#0b0d11"];
-  pg.noStroke();
-  for (let i = 0; i < stripeCount; i++) {
-    pg.fill(colors[i]);
-    pg.rect(i * stripeWidth, 0, stripeWidth + 1, pg.height * 0.68);
-  }
-  const blockHeight = pg.height * 0.16;
-  const y1 = pg.height * 0.68;
-  for (let i = 0; i < stripeCount; i++) {
-    pg.fill(i % 2 === 0 ? "#111820" : "#d7dcd4");
-    pg.rect(i * stripeWidth, y1, stripeWidth + 1, blockHeight);
-  }
-  const y2 = y1 + blockHeight;
-  pg.fill("#07090c");
-  pg.rect(0, y2, pg.width, pg.height - y2);
-  pg.stroke("#f4f6ef");
-  pg.strokeWeight(2);
-  pg.noFill();
-  const cx = pg.width * 0.5;
-  const cy = y2 + (pg.height - y2) * 0.5;
-  const size = Math.min(pg.width, pg.height) * 0.14;
-  pg.rect(cx - size, cy - size * 0.55, size * 2, size * 1.1);
-  pg.line(cx - size, cy, cx + size, cy);
-  pg.line(cx, cy - size * 0.55, cx, cy + size * 0.55);
-  pg.noStroke();
-  pg.fill("#f4f6ef");
-  pg.textAlign(CENTER, CENTER);
-  pg.textSize(Math.max(18, pg.height * 0.04));
-  pg.text("TEST PATTERN", cx, cy + size * 0.92);
-  drawOrientationBadge(pg, pg.width * 0.09, pg.height * 0.1, "TL", "#ff4f4f");
-  drawOrientationBadge(pg, pg.width * 0.91, pg.height * 0.1, "TR", "#59e36d");
-  drawOrientationBadge(pg, pg.width * 0.09, pg.height * 0.9, "BL", "#4d75ff");
-  drawOrientationBadge(pg, pg.width * 0.91, pg.height * 0.9, "BR", "#ffe45e");
-  pg.stroke("#f4f6ef");
-  pg.strokeWeight(3);
-  pg.line(pg.width * 0.5, pg.height * 0.18, pg.width * 0.5, pg.height * 0.05);
-  pg.line(pg.width * 0.5, pg.height * 0.05, pg.width * 0.47, pg.height * 0.1);
-  pg.line(pg.width * 0.5, pg.height * 0.05, pg.width * 0.53, pg.height * 0.1);
-  pg.noStroke();
-  pg.fill("#f4f6ef");
-  pg.textSize(Math.max(12, pg.height * 0.028));
-  pg.text("UP", pg.width * 0.5, pg.height * 0.22);
-}
-
-function drawOrientationBadge(pg, x, y, label, color) {
-  const radius = Math.max(20, Math.min(pg.width, pg.height) * 0.045);
-  pg.push();
-  pg.noStroke();
-  pg.fill(color);
-  pg.circle(x, y, radius * 2);
-  pg.fill("#050608");
-  pg.textAlign(CENTER, CENTER);
-  pg.textSize(Math.max(12, radius * 0.72));
-  pg.textStyle(BOLD);
-  pg.text(label, x, y);
-  pg.textStyle(NORMAL);
-  pg.pop();
-}
-
-function drawWaves(pg, t) {
-  pg.background("#050608");
-  pg.noFill();
-  for (let i = 0; i < 34; i++) {
-    const hue = i / 34;
-    pg.stroke(
-      70 + 150 * sin(t + hue * 6.28),
-      100 + 110 * sin(t * 0.7 + hue * 4.1),
-      150 + 95 * cos(t * 0.8 + hue * 5.0),
-      210
-    );
-    pg.strokeWeight(2);
-    pg.beginShape();
-    for (let x = -20; x <= pg.width + 20; x += 18) {
-      const y =
-        pg.height * (0.12 + i * 0.024) +
-        sin(x * 0.018 + t * (1.4 + i * 0.04)) * 34 +
-        sin(x * 0.006 - t * 0.8 + i) * 58;
-      pg.vertex(x, y);
-    }
-    pg.endShape();
-  }
-}
-
-function drawNoise(pg, t) {
-  pg.noStroke();
-  const cell = Math.max(14, Math.floor(pg.width / 64));
-  for (let y = 0; y < pg.height; y += cell) {
-    for (let x = 0; x < pg.width; x += cell) {
-      const n = noise(x * 0.006, y * 0.006, t * 0.3);
-      pg.fill(30 + n * 210, 35 + n * 120, 70 + n * 175);
-      pg.rect(x, y, cell, cell);
-    }
-  }
-}
-
-function drawPlasma(pg, t) {
-  pg.noStroke();
-  const cell = Math.max(12, Math.floor(pg.width / 80));
-  const ctx = pg.drawingContext;
-  for (let y = 0; y < pg.height; y += cell) {
-    for (let x = 0; x < pg.width; x += cell) {
-      const u = x / pg.width;
-      const v = y / pg.height;
-      const q = sin((u + t * 0.08) * 18) + sin((v - t * 0.06) * 21) + sin((u + v + t * 0.05) * 16);
-      const r = 120 + 90 * sin(q);
-      const g = 80 + 130 * sin(q + 2.1);
-      const b = 130 + 90 * sin(q + 4.2);
-      if (!Number.isFinite(r) || !Number.isFinite(g) || !Number.isFinite(b)) {
-        console.warn("[VJ1_PLASMA_BAD_COLOR]", { width: pg.width, height: pg.height, t, x, y, q, r, g, b });
-        continue;
-      }
-      ctx.fillStyle = `rgb(${Math.round(r)}, ${Math.round(g)}, ${Math.round(b)})`;
-      ctx.fillRect(x, y, cell, cell);
-    }
-  }
-}
-
-function drawChecker(pg, t) {
-  const cell = 72;
-  pg.background("#0b0d11");
-  pg.noStroke();
-  for (let y = 0; y < pg.height; y += cell) {
-    for (let x = 0; x < pg.width; x += cell) {
-      const on = (((x / cell) | 0) + ((y / cell) | 0)) % 2 === 0;
-      pg.fill(on ? "#e8ece2" : "#252d37");
-      pg.rect(x, y, cell, cell);
-    }
-  }
-  pg.fill("#ff4f92");
-  pg.rect(((sin(t) * 0.5 + 0.5) * (pg.width - 40)) | 0, 0, 40, pg.height);
-  pg.fill("#44d7c8");
-  pg.rect(0, ((cos(t * 0.7) * 0.5 + 0.5) * (pg.height - 40)) | 0, pg.width, 40);
 }
 
 function drawSurfaceLabel(pg, surface, composition) {
