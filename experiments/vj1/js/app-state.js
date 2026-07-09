@@ -4,6 +4,8 @@ import {
   clone,
   createDefaultComposition,
   createDefaultSurface,
+  createCompositionEffect,
+  createCompositionLayer,
   createInitialState,
   createLiveRenderState,
   createSceneSurfaceSnapshot,
@@ -55,6 +57,8 @@ export function createAppState(initial = null) {
     selectComposition(id) {
       update((draft) => {
         draft.ui.selectedCompositionId = id;
+        const composition = draft.compositions.find((item) => item.id === id);
+        draft.ui.selectedChainItemId = composition?.chain?.[0]?.id || "";
       }, "select-composition");
     },
     setWorkspace(workspace) {
@@ -74,10 +78,48 @@ export function createAppState(initial = null) {
         const composition = createDefaultComposition(draft.compositions.length);
         draft.compositions.push(composition);
         draft.ui.selectedCompositionId = composition.id;
+        draft.ui.selectedChainItemId = composition.chain[0]?.id || "";
         for (const surface of draft.surfaces) {
           if (!surface.compositionId) surface.compositionId = composition.id;
         }
       }, "add-composition");
+    },
+    selectChainItem(id) {
+      update((draft) => {
+        draft.ui.selectedChainItemId = id;
+      }, "select-chain-item");
+    },
+    addChainSource(compositionId, source = { type: "generator", generatorId: "testPattern" }) {
+      update((draft) => {
+        const composition = draft.compositions.find((item) => item.id === compositionId);
+        if (!composition) return;
+        const layer = createCompositionLayer(composition.chain?.length || 0, source);
+        composition.chain ||= [];
+        composition.chain.push(layer);
+        draft.ui.selectedChainItemId = layer.id;
+      }, "add-chain-source");
+    },
+    addChainEffect(compositionId, effectId) {
+      update((draft) => {
+        const composition = draft.compositions.find((item) => item.id === compositionId);
+        if (!composition) return;
+        const effect = createCompositionEffect(effectId);
+        composition.chain ||= [];
+        composition.chain.push(effect);
+        draft.ui.selectedChainItemId = effect.id;
+      }, "add-chain-effect");
+    },
+    reorderChain(compositionId, fromId, toId) {
+      update((draft) => {
+        const composition = draft.compositions.find((item) => item.id === compositionId);
+        const chain = composition?.chain;
+        if (!Array.isArray(chain)) return;
+        const fromIndex = chain.findIndex((item) => item.id === fromId);
+        const toIndex = chain.findIndex((item) => item.id === toId);
+        if (fromIndex < 0 || toIndex < 0 || fromIndex === toIndex) return;
+        const [item] = chain.splice(fromIndex, 1);
+        chain.splice(toIndex, 0, item);
+      }, "reorder-chain");
     },
     removeComposition(id) {
       update((draft) => {

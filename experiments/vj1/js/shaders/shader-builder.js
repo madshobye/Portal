@@ -70,6 +70,7 @@ precision mediump float;
 uniform sampler2D tex0;
 uniform vec2 resolution;
 uniform bool sourceFlipY;
+uniform bool sourceForceOpaque;
 uniform float time;
 uniform float amount;
 ${paramUniformDeclarations(component)}
@@ -85,7 +86,8 @@ vec2 sourceUv(vec2 uv) {
 }
 
 vec4 sampleSource(vec2 uv) {
-  return texture2D(tex0, sourceUv(uv));
+  vec4 sampled = texture2D(tex0, sourceUv(uv));
+  return sourceForceOpaque ? vec4(sampled.rgb, 1.0) : sampled;
 }
 
 ${effectCode}
@@ -98,7 +100,7 @@ void main() {
 }
 
 function paramUniformDeclarations(component) {
-  const reserved = new Set(["tex0", "resolution", "sourceFlipY", "time", "amount", "canvasSize", "texelSize"]);
+  const reserved = new Set(["tex0", "resolution", "sourceFlipY", "sourceForceOpaque", "time", "amount", "canvasSize", "texelSize"]);
   return (component?.params || [])
     .filter((param) => param?.id && !reserved.has(param.id))
     .map((param) => `uniform ${uniformTypeForParam(param)} ${param.id};`)

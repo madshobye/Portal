@@ -19,11 +19,11 @@ export function sourceTypeIcon(type) {
   return "auto_awesome";
 }
 
-export function rangeTemplate(label, path, value) {
+export function rangeTemplate(label, path, value, min = 0, max = 1, step = 0.01) {
   return `
     <label class="field range-field">
       <span><span>${label}</span><strong>${Number(value).toFixed(2)}</strong></span>
-      <input type="range" min="0" max="1" step="0.01" data-update="${path}" value="${value}" />
+      <input type="range" min="${min}" max="${max}" step="${step}" data-update="${path}" value="${value}" />
     </label>
   `;
 }

@@ -5,15 +5,33 @@ export function uid(prefix) {
 }
 
 export function createDefaultComposition(index = 0) {
+  const source = { type: "generator", mediaId: "", generatorId: "testPattern" };
   return {
     id: uid("composition"),
     name: index === 0 ? "Test Pattern" : `Composition ${index + 1}`,
-    source: { type: "generator", mediaId: "", generatorId: "testPattern" },
+    source,
     opacity: 1,
     blend: "normal",
     speed: 1,
     thumbnail: "",
+    chain: [createCompositionLayer(index, source)],
     shaderChain: [],
+  };
+}
+
+export function createCompositionLayer(index = 0, source = { type: "generator", mediaId: "", generatorId: "testPattern" }) {
+  const normalizedSource = normalizeSource(source);
+  return {
+    id: uid("chain"),
+    kind: "source",
+    componentId: sourceComponentId(normalizedSource),
+    name: index === 0 ? sourceLabel(normalizedSource) : `Layer ${index + 1}`,
+    enabled: true,
+    source: normalizedSource,
+    opacity: 1,
+    blend: "normal",
+    transform: createDefaultTransform(),
+    params: {},
   };
 }
 
@@ -46,6 +64,7 @@ export function createInitialState() {
     ui: {
       workspace: "scene",
       selectedCompositionId: compositions[0].id,
+      selectedChainItemId: compositions[0].chain[0]?.id || "",
       selectedSceneId: "",
       selectedSurfaceId: "surface-main",
       debugPreview: true,
@@ -136,6 +155,10 @@ export function sanitizeState(input = {}) {
   next.ui.selectedCompositionId = next.compositions.some((composition) => composition.id === next.ui.selectedCompositionId)
     ? next.ui.selectedCompositionId
     : next.compositions[0]?.id || "";
+  const selectedComposition = next.compositions.find((composition) => composition.id === next.ui.selectedCompositionId) || next.compositions[0];
+  next.ui.selectedChainItemId = selectedComposition?.chain?.some((item) => item.id === next.ui.selectedChainItemId)
+    ? next.ui.selectedChainItemId
+    : selectedComposition?.chain?.[0]?.id || "";
   next.ui.selectedSurfaceId = next.surfaces.some((surface) => surface.id === next.ui.selectedSurfaceId)
     ? next.ui.selectedSurfaceId
     : next.surfaces[0]?.id || "";
@@ -173,6 +196,11 @@ export function createLiveRenderState(state = createInitialState()) {
     if (override.opacity !== undefined) composition.opacity = clamp01(override.opacity);
     if (override.speed !== undefined) composition.speed = Math.max(0, Number(override.speed) || 0);
     if (override.blend) composition.blend = override.blend;
+    if (Array.isArray(override.chain)) {
+      composition.chain = composition.chain.map((item, index) =>
+        mergeCompositionChainItemOverride(item, override.chain[index] || {})
+      );
+    }
     if (Array.isArray(override.shaderChain)) {
       composition.shaderChain = composition.shaderChain.map((pass, index) =>
         mergeShaderPassOverride(pass, override.shaderChain[index] || {})
@@ -189,6 +217,11 @@ export function createLiveCompositionView(composition = {}, state = createInitia
     opacity: override.opacity !== undefined ? clamp01(override.opacity) : composition.opacity,
     speed: override.speed !== undefined ? Math.max(0, Number(override.speed) || 0) : composition.speed,
     blend: override.blend || composition.blend,
+    chain: Array.isArray(composition.chain)
+      ? composition.chain.map((item, index) =>
+          mergeCompositionChainItemOverride(item, override.chain?.[index] || {})
+        )
+      : [],
     shaderChain: Array.isArray(composition.shaderChain)
       ? composition.shaderChain.map((pass, index) =>
           mergeShaderPassOverride(pass, override.shaderChain?.[index] || {})
@@ -204,6 +237,9 @@ function normalizeLiveUi(live = {}) {
       ...(override.opacity !== undefined ? { opacity: clamp01(override.opacity) } : {}),
       ...(override.speed !== undefined ? { speed: Math.max(0, Number(override.speed) || 0) } : {}),
       ...(override.blend ? { blend: override.blend } : {}),
+      ...(Array.isArray(override.chain)
+        ? { chain: override.chain.map(normalizeLiveChainItemOverride) }
+        : {}),
       ...(Array.isArray(override.shaderChain)
         ? { shaderChain: override.shaderChain.map(normalizeLiveShaderPassOverride) }
         : {}),
@@ -212,6 +248,19 @@ function normalizeLiveUi(live = {}) {
   return {
     selectedSceneId: live.selectedSceneId ? String(live.selectedSceneId) : "",
     compositionOverrides,
+  };
+}
+
+function normalizeLiveChainItemOverride(item = {}) {
+  if (!item || typeof item !== "object") return {};
+  const params = item.params && typeof item.params === "object" ? { ...item.params } : {};
+  return {
+    ...(item.enabled !== undefined ? { enabled: item.enabled !== false } : {}),
+    ...(item.opacity !== undefined ? { opacity: clamp01(item.opacity) } : {}),
+    ...(item.blend ? { blend: item.blend } : {}),
+    ...(Object.keys(params).length ? { params } : {}),
+    ...(item.amount !== undefined ? { amount: clamp01(item.amount) } : {}),
+    ...(item.transform && typeof item.transform === "object" ? { transform: normalizeTransform(item.transform) } : {}),
   };
 }
 
@@ -235,23 +284,62 @@ function normalizeCompositions(input, base) {
 export function normalizeComposition(composition = {}) {
   const fallback = createDefaultComposition(0);
   const { enabled, ...compositionData } = composition;
+  const source = normalizeSource({
+    type: compositionData.source?.type || fallback.source.type,
+    mediaId: compositionData.source?.mediaId || "",
+    generatorId: compositionData.source?.generatorId || fallback.source.generatorId,
+  });
+  const shaderChain = Array.isArray(compositionData.shaderChain)
+    ? compositionData.shaderChain.map(normalizeShaderPass)
+    : [];
+  const chain = Array.isArray(compositionData.chain) && compositionData.chain.length
+    ? compositionData.chain.map(normalizeCompositionChainItem)
+    : legacyCompositionChain(source, shaderChain);
   return {
     ...fallback,
     ...compositionData,
     id: compositionData.id || uid("composition"),
     name: compositionData.name || fallback.name,
-    source: {
-      type: compositionData.source?.type || fallback.source.type,
-      mediaId: compositionData.source?.mediaId || "",
-      generatorId: compositionData.source?.generatorId || fallback.source.generatorId,
-    },
+    source,
     opacity: clamp01(compositionData.opacity ?? fallback.opacity),
     speed: Math.max(0, Number(compositionData.speed ?? fallback.speed) || 0),
     blend: compositionData.blend || fallback.blend,
     thumbnail: typeof compositionData.thumbnail === "string" ? compositionData.thumbnail : "",
-    shaderChain: Array.isArray(compositionData.shaderChain)
-      ? compositionData.shaderChain.map(normalizeShaderPass)
-      : [],
+    chain,
+    shaderChain,
+  };
+}
+
+export function normalizeCompositionChainItem(item = {}) {
+  if (item.kind === "effect") {
+    const pass = normalizeShaderPass({
+      id: item.componentId || item.id || "ripple",
+      enabled: item.enabled,
+      params: item.params,
+      amount: item.amount,
+    });
+    return {
+      id: item.id || uid("chain"),
+      kind: "effect",
+      componentId: pass.id,
+      name: item.name || pass.id,
+      enabled: pass.enabled,
+      params: pass.params,
+      amount: pass.amount,
+    };
+  }
+  const source = normalizeSource(item.source || { type: "generator", generatorId: item.componentId || "testPattern" });
+  return {
+    id: item.id || uid("chain"),
+    kind: "source",
+    componentId: sourceComponentId(source),
+    name: item.name || sourceLabel(source),
+    enabled: item.enabled !== false,
+    source,
+    opacity: clamp01(item.opacity ?? 1),
+    blend: item.blend || "normal",
+    transform: normalizeTransform(item.transform),
+    params: item.params && typeof item.params === "object" ? { ...item.params } : {},
   };
 }
 
@@ -289,10 +377,95 @@ export function createShaderPass(id = "ripple", params = {}) {
   return normalizeShaderPass({ id, enabled: true, params });
 }
 
+export function createCompositionEffect(id = "ripple", params = {}) {
+  const pass = createShaderPass(id, params);
+  return normalizeCompositionChainItem({
+    id: uid("chain"),
+    kind: "effect",
+    componentId: pass.id,
+    enabled: pass.enabled,
+    params: pass.params,
+    amount: pass.amount,
+  });
+}
+
+function legacyCompositionChain(source, shaderChain) {
+  return [
+    createCompositionLayer(0, source),
+    ...shaderChain.map((pass) => normalizeCompositionChainItem({
+      kind: "effect",
+      componentId: pass.id,
+      enabled: pass.enabled,
+      params: pass.params,
+      amount: pass.amount,
+    })),
+  ];
+}
+
+function normalizeSource(source = {}) {
+  return {
+    type: source.type || "generator",
+    mediaId: source.mediaId || "",
+    generatorId: source.generatorId || "testPattern",
+  };
+}
+
+function sourceComponentId(source = {}) {
+  if (source.type === "generator") return source.generatorId || "testPattern";
+  return `source.${source.type || "black"}`;
+}
+
+function sourceLabel(source = {}) {
+  if (source.type === "media") return source.mediaId || "Media";
+  if (source.type === "camera") return "Camera";
+  if (source.type === "black") return "Black";
+  return source.generatorId || "Generator";
+}
+
+function createDefaultTransform() {
+  return { x: 0, y: 0, scale: 1, rotation: 0 };
+}
+
+function normalizeTransform(transform = {}) {
+  return {
+    x: Number(transform.x) || 0,
+    y: Number(transform.y) || 0,
+    scale: Math.max(0.01, Number(transform.scale) || 1),
+    rotation: Number(transform.rotation) || 0,
+  };
+}
+
 function normalizeShaderPassParams(pass = {}) {
   const params = pass.params && typeof pass.params === "object" ? { ...pass.params } : {};
   params.amount = clamp01(params.amount ?? pass.amount ?? 0.35);
   return params;
+}
+
+function mergeCompositionChainItemOverride(item = {}, override = {}) {
+  if (!override || typeof override !== "object") return item;
+  if (item.kind === "effect") {
+    const pass = mergeShaderPassOverride({
+      id: item.componentId || item.id,
+      enabled: item.enabled,
+      params: item.params,
+      amount: item.amount,
+    }, override);
+    return {
+      ...item,
+      enabled: pass.enabled,
+      params: pass.params,
+      amount: pass.amount,
+    };
+  }
+  return {
+    ...item,
+    ...(override.enabled !== undefined ? { enabled: override.enabled !== false } : {}),
+    ...(override.opacity !== undefined ? { opacity: clamp01(override.opacity) } : {}),
+    ...(override.blend ? { blend: override.blend } : {}),
+    ...(override.transform && typeof override.transform === "object"
+      ? { transform: normalizeTransform({ ...(item.transform || {}), ...override.transform }) }
+      : {}),
+  };
 }
 
 function mergeShaderPassOverride(pass = {}, override = {}) {

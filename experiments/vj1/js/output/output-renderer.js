@@ -8,12 +8,13 @@ import { drawGenerator, drawStandby } from "./generators.js";
 import { drawCover, isDrawableMedia, syncVideoSpeed } from "./media-utils.js";
 
 export class OutputRenderer {
-  constructor({ mode, hud, sendMetrics, sendMapping, sendThumbnail, requestMediaFiles, onSurfaceSelect }) {
+  constructor({ mode, hud, sendMetrics, sendMapping, sendThumbnail, sendChainTransform, requestMediaFiles, onSurfaceSelect }) {
     this.mode = mode;
     this.hud = hud;
     this.sendMetrics = sendMetrics;
     this.sendMapping = sendMapping;
     this.sendThumbnail = sendThumbnail;
+    this.sendChainTransform = sendChainTransform;
     this.requestMediaFiles = requestMediaFiles;
     this.onSurfaceSelect = onSurfaceSelect;
     this.state = null;
@@ -32,6 +33,7 @@ export class OutputRenderer {
     this.cameraCapture = null;
     this.cameraRequested = false;
     this.cameraError = "";
+    this.chainTransformDrag = null;
     this.mapperSurfaces = new Map();
     this.mappingSignature = "";
     this.localMappingSignature = "";
@@ -366,13 +368,9 @@ export class OutputRenderer {
       if (neededCompositionIds.size && !neededCompositionIds.has(composition.id)) continue;
       const compositionTime = this.compositionTimes.get(composition.id) || 0;
       this.compositionPatches.set(composition.id, compileCompositionPatch(composition));
-      const source = this.renderCompositionSource(composition, compositionTime);
-      const effected = this.renderShaderChain(source, composition.shaderChain, this.state.render.width, this.state.render.height, compositionTime);
-      const output = this.getCompositionBuffer(composition.id);
-      output.push();
-      output.clear();
-      drawBuffer(output, effected, 0, 0, output.width, output.height, this.isShaderBuffer(effected));
-      output.pop();
+      const output = composition.chain?.length
+        ? this.renderCompositionChain(composition, compositionTime)
+        : this.renderLegacyComposition(composition, compositionTime);
       this.compositionOutput.set(composition.id, output);
       this.mainMix.push();
       applyBlend(this.mainMix, composition.blend);
@@ -383,6 +381,53 @@ export class OutputRenderer {
       this.mainMix.pop();
     }
     this.mainMix.pop();
+  }
+
+  renderLegacyComposition(composition, compositionTime) {
+    const source = this.renderCompositionSource(composition, compositionTime);
+    const effected = this.renderShaderChain(source, composition.shaderChain, this.state.render.width, this.state.render.height, compositionTime);
+    const output = this.getCompositionBuffer(composition.id);
+    output.push();
+    output.clear();
+    drawBuffer(output, effected, 0, 0, output.width, output.height, this.isShaderBuffer(effected));
+    output.pop();
+    return output;
+  }
+
+  renderCompositionChain(composition, compositionTime) {
+    const output = this.getCompositionBuffer(composition.id);
+    output.push();
+    output.clear();
+    output.pop();
+    let current = null;
+    let layer = null;
+    let pendingEffects = [];
+    const flushLayer = () => {
+      if (!current || !layer) return;
+      const effected = pendingEffects.length
+        ? this.renderShaderChain(current, pendingEffects, this.state.render.width, this.state.render.height, compositionTime)
+        : current;
+      const drawable = this.materializeDrawableBuffer(effected, `${composition.id}:${layer.id}:drawable`);
+      this.drawChainLayer(output, drawable, layer);
+      current = null;
+      layer = null;
+      pendingEffects = [];
+    };
+
+    for (const item of composition.chain || []) {
+      if (item.enabled === false) continue;
+      if (item.kind === "source") {
+        flushLayer();
+        layer = item;
+        current = this.renderCompositionSourceItem(composition, item, compositionTime);
+        continue;
+      }
+      if (item.kind === "effect" && current) {
+        pendingEffects.push(chainItemToShaderPass(item));
+      }
+    }
+    flushLayer();
+    return output;
   }
 
   renderThumbnailCompositions() {
@@ -413,8 +458,46 @@ export class OutputRenderer {
     }
     pg.push();
     pg.background(0);
-    if (composition.source.type === "media") {
-      const item = this.media.get(composition.source.mediaId);
+    this.safeDrawSourceToGraphics(pg, composition.source, composition, compositionTime);
+    pg.pop();
+    return pg;
+  }
+
+  renderCompositionSourceItem(composition, item, compositionTime = this.visualTime) {
+    const key = `${composition.id}:${item.id}`;
+    let pg = this.compositionSource.get(key);
+    if (!pg || pg.width !== this.state.render.width || pg.height !== this.state.render.height) {
+      pg = createGraphics(this.state.render.width, this.state.render.height);
+      this.compositionSource.set(key, pg);
+    }
+    pg.push();
+    pg.background(0);
+    this.safeDrawSourceToGraphics(pg, item.source || composition.source, composition, compositionTime);
+    pg.pop();
+    return pg;
+  }
+
+  safeDrawSourceToGraphics(pg, source, composition, compositionTime) {
+    try {
+      this.drawSourceToGraphics(pg, source, composition, compositionTime);
+    } catch (error) {
+      console.error("[VJ1_SOURCE_CRASH]", {
+        compositionId: composition.id,
+        compositionName: composition.name,
+        source,
+        width: pg.width,
+        height: pg.height,
+        name: error?.name,
+        message: error?.message,
+        stack: error?.stack,
+      });
+      pg.background(0);
+    }
+  }
+
+  drawSourceToGraphics(pg, source, composition, compositionTime) {
+    if (source.type === "media") {
+      const item = this.media.get(source.mediaId);
       if (item?.video && isDrawableMedia(item.video)) {
         syncVideoSpeed(item.video, composition.speed);
         drawCover(pg, item.video, 0, 0, pg.width, pg.height);
@@ -422,34 +505,18 @@ export class OutputRenderer {
       else if (item?.image && isDrawableMedia(item.image)) drawCover(pg, item.image, 0, 0, pg.width, pg.height);
       else if (item) drawStandby(pg, "loading media");
       else {
-        this.requestMissingMedia(composition.source.mediaId);
+        this.requestMissingMedia(source.mediaId);
         drawStandby(pg, "media file not loaded");
       }
-    } else if (composition.source.type === "camera") {
+    } else if (source.type === "camera") {
       const camera = this.ensureCameraCapture();
       if (camera && isDrawableMedia(camera)) drawCover(pg, camera, 0, 0, pg.width, pg.height);
       else drawStandby(pg, this.cameraError || "camera");
-    } else if (composition.source.type === "black") {
+    } else if (source.type === "black") {
       pg.background(0);
     } else {
-      try {
-        drawGenerator(pg, composition.source.generatorId, compositionTime);
-      } catch (error) {
-        console.error("[VJ1_GENERATOR_CRASH]", {
-          compositionId: composition.id,
-          compositionName: composition.name,
-          generatorId: composition.source.generatorId,
-          width: pg.width,
-          height: pg.height,
-          name: error?.name,
-          message: error?.message,
-          stack: error?.stack,
-        });
-        pg.background(0);
-      }
+      drawGenerator(pg, source.generatorId, compositionTime);
     }
-    pg.pop();
-    return pg;
   }
 
   getCompositionBuffer(id) {
@@ -459,6 +526,36 @@ export class OutputRenderer {
       this.compositionBuffer.set(id, pg);
     }
     return pg;
+  }
+
+  materializeDrawableBuffer(source, key) {
+    if (!this.isShaderBuffer(source)) return source;
+    const pg = this.getCompositionBuffer(key);
+    pg.push();
+    pg.clear();
+    drawBuffer(pg, source, 0, 0, pg.width, pg.height, true);
+    pg.pop();
+    return pg;
+  }
+
+  drawChainLayer(output, source, layer) {
+    const transform = layer.transform || {};
+    output.push();
+    applyBlend(output, layer.blend);
+    output.tint(255, 255 * clamp01(layer.opacity));
+    output.imageMode(CENTER);
+    output.translate(
+      output.width * 0.5 + (Number(transform.x) || 0) * output.width * 0.5,
+      output.height * 0.5 + (Number(transform.y) || 0) * output.height * 0.5
+    );
+    output.rotate(Number(transform.rotation) || 0);
+    const scale = Math.max(0.01, Number(transform.scale) || 1);
+    output.scale(scale);
+    output.image(source, 0, 0, output.width, output.height);
+    output.imageMode(CORNER);
+    output.noTint();
+    output.blendMode(BLEND);
+    output.pop();
   }
 
   renderShaderChain(input, chain, rw, rh, timeSeconds = this.visualTime) {
@@ -473,11 +570,13 @@ export class OutputRenderer {
       target.push();
       target.clear();
       target.shader(shader);
+      const sourceIsShaderBuffer = this.isShaderBuffer(current);
       shader.setUniform("tex0", current);
       shader.setUniform("resolution", [rw, rh]);
       shader.setUniform("canvasSize", [rw, rh]);
       shader.setUniform("texelSize", [1 / Math.max(1, rw), 1 / Math.max(1, rh)]);
-      shader.setUniform("sourceFlipY", !this.isShaderBuffer(current));
+      shader.setUniform("sourceFlipY", !sourceIsShaderBuffer);
+      shader.setUniform("sourceForceOpaque", !sourceIsShaderBuffer);
       shader.setUniform("time", timeSeconds);
       this.setShaderParamUniforms(shader, job.component, pass.params);
       target.rect(-rw / 2, -rh / 2, rw, rh);
@@ -609,6 +708,37 @@ export class OutputRenderer {
       image(fallback, -width / 2, -height / 2, width, height);
     }
     pop();
+    this.renderSelectedChainTransformOverlay();
+  }
+
+  renderSelectedChainTransformOverlay() {
+    if (this.mode !== "composition") return;
+    const item = this.selectedSourceChainItem();
+    if (!item) return;
+    const transform = item.transform || {};
+    resetShader();
+    push();
+    noFill();
+    stroke(101, 224, 211, 230);
+    strokeWeight(2);
+    const cx = (Number(transform.x) || 0) * width * 0.5;
+    const cy = (Number(transform.y) || 0) * height * 0.5;
+    const scale = Math.max(0.01, Number(transform.scale) || 1);
+    const rotation = Number(transform.rotation) || 0;
+    const boxW = width * scale;
+    const boxH = height * scale;
+    translate(cx, cy, 2);
+    rotate(rotation);
+    rectMode(CENTER);
+    rect(0, 0, boxW, boxH);
+    noStroke();
+    fill(101, 224, 211, 230);
+    circle(boxW * 0.5, boxH * 0.5, 18);
+    fill(255, 228, 94, 230);
+    circle(0, -boxH * 0.5 - 34, 16);
+    stroke(255, 228, 94, 180);
+    line(0, -boxH * 0.5, 0, -boxH * 0.5 - 34);
+    pop();
   }
 
   setCalibrate(on) {
@@ -617,6 +747,7 @@ export class OutputRenderer {
   }
 
   mousePressed(x, y) {
+    if (this.mode === "composition" && this.startChainTransformDrag(x, y)) return;
     this.mapper?.mousePressed?.(x, y);
     const surfaceIndex = Number(this.mapper?._dragSurf);
     const surfaceName = Number.isInteger(surfaceIndex) && surfaceIndex >= 0
@@ -626,10 +757,18 @@ export class OutputRenderer {
   }
 
   mouseDragged(x, y) {
+    if (this.chainTransformDrag) {
+      this.updateChainTransformDrag(x, y);
+      return;
+    }
     this.mapper?.mouseDragged?.(x, y);
   }
 
   mouseReleased() {
+    if (this.chainTransformDrag) {
+      this.chainTransformDrag = null;
+      return;
+    }
     const wasMappingActive = !!this.mapper?.isActive?.();
     this.mapper?.mouseReleased?.();
     if (wasMappingActive) {
@@ -650,6 +789,73 @@ export class OutputRenderer {
   schedule(event) {
     if (this.state?.scheduler?.manualLane === false) return;
     this.manualScheduler.enqueue(event);
+  }
+
+  selectedSourceChainItem() {
+    const composition = this.state?.compositions?.find((item) => item.id === this.state?.ui?.selectedCompositionId);
+    if (!composition?.chain?.length) return null;
+    const selected = composition.chain.find((item) => item.id === this.state.ui.selectedChainItemId);
+    return selected?.kind === "source" ? selected : null;
+  }
+
+  startChainTransformDrag(x, y) {
+    const item = this.selectedSourceChainItem();
+    if (!item) return false;
+    const transform = item.transform || {};
+    const cx = width * 0.5 + (Number(transform.x) || 0) * width * 0.5;
+    const cy = height * 0.5 + (Number(transform.y) || 0) * height * 0.5;
+    const scale = Math.max(0.01, Number(transform.scale) || 1);
+    const rotation = Number(transform.rotation) || 0;
+    const local = screenToLayerLocal(x, y, cx, cy, rotation);
+    const boxW = width * scale;
+    const boxH = height * scale;
+    const scaleDx = local.x - boxW * 0.5;
+    const scaleDy = local.y - boxH * 0.5;
+    const rotateDx = local.x;
+    const rotateDy = local.y - (-boxH * 0.5 - 34);
+    const inside = Math.abs(local.x) <= boxW * 0.5 && Math.abs(local.y) <= boxH * 0.5;
+    let mode = "";
+    if (scaleDx * scaleDx + scaleDy * scaleDy <= 28 * 28) mode = "scale";
+    else if (rotateDx * rotateDx + rotateDy * rotateDy <= 30 * 30) mode = "rotate";
+    else if (inside) mode = "move";
+    if (!mode) return false;
+    this.chainTransformDrag = {
+      itemId: item.id,
+      compositionId: this.state.ui.selectedCompositionId,
+      mode,
+      startX: x,
+      startY: y,
+      centerX: cx,
+      centerY: cy,
+      transform: { x: Number(transform.x) || 0, y: Number(transform.y) || 0, scale, rotation },
+      startDistance: Math.max(1, dist(x, y, cx, cy)),
+      startAngle: Math.atan2(y - cy, x - cx),
+    };
+    return true;
+  }
+
+  updateChainTransformDrag(x, y) {
+    const drag = this.chainTransformDrag;
+    if (!drag) return;
+    const next = { ...drag.transform };
+    if (drag.mode === "move") {
+      next.x = drag.transform.x + ((x - drag.startX) / Math.max(1, width * 0.5));
+      next.y = drag.transform.y + ((y - drag.startY) / Math.max(1, height * 0.5));
+    } else if (drag.mode === "scale") {
+      const distance = Math.max(1, dist(x, y, drag.centerX, drag.centerY));
+      next.scale = Math.max(0.05, drag.transform.scale * (distance / drag.startDistance));
+    } else if (drag.mode === "rotate") {
+      const angle = Math.atan2(y - drag.centerY, x - drag.centerX);
+      next.rotation = drag.transform.rotation + (angle - drag.startAngle);
+    }
+    this.applyLocalChainTransform(drag.compositionId, drag.itemId, next);
+    this.sendChainTransform?.(drag.compositionId, drag.itemId, next);
+  }
+
+  applyLocalChainTransform(compositionId, itemId, transform) {
+    const composition = this.state?.compositions?.find((item) => item.id === compositionId);
+    const item = composition?.chain?.find((chainItem) => chainItem.id === itemId);
+    if (item) item.transform = { ...item.transform, ...transform };
   }
 
   loadMapping() {
@@ -817,6 +1023,26 @@ function colorUniform(value) {
     parseInt(match[3], 16) / 255,
     match[4] ? parseInt(match[4], 16) / 255 : 1,
   ];
+}
+
+function chainItemToShaderPass(item) {
+  return {
+    id: item.componentId || item.id,
+    enabled: item.enabled !== false,
+    params: item.params || {},
+    amount: item.amount,
+  };
+}
+
+function screenToLayerLocal(x, y, cx, cy, rotation) {
+  const dx = x - cx;
+  const dy = y - cy;
+  const c = Math.cos(-rotation);
+  const s = Math.sin(-rotation);
+  return {
+    x: dx * c - dy * s,
+    y: dx * s + dy * c,
+  };
 }
 
 function enumUniform(param, value) {

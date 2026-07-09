@@ -5,8 +5,9 @@ import { listGeneratorComponents } from "../graph/generator-registry.js";
 import { compileCompositionPatch } from "../graph/render-scheduler.js";
 import { buildOutputUrl } from "../view-routing.js";
 import { getShaderComponent, listShaderComponents } from "../shaders/shader-registry.js";
-import { createEmbeddedPreviewApp } from "../output/embedded-preview-app.js?v=scene-snapshots-93";
+import { createEmbeddedPreviewApp } from "../output/embedded-preview-app.js?v=scene-snapshots-99";
 import { createHtmlCache, isInteractiveNode, isTextEditingNode, setClass, setText } from "./dom-utils.js";
+import { bindReorderList } from "./reorder-list.js";
 import { collectRefs, shellTemplate } from "./shell-view.js";
 import { effectIcon, emptyNote, esc, icon, rangeTemplate, selectValuesTemplate, sourceTypeIcon, thumbnailTemplate } from "./template-utils.js";
 
@@ -20,6 +21,7 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
   let activePointerCount = 0;
   let interactionHoldUntil = 0;
   let mediaPicker = null;
+  let elementPicker = null;
   const replaceHtmlIfChanged = createHtmlCache();
   const mediaPreviewUrls = new Map();
   const embeddedPreview = createEmbeddedPreviewApp({ store, mediaLibrary });
@@ -536,8 +538,42 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
   function renderModal(state) {
     const host = refs.modalHost;
     if (!host) return;
-    if (!mediaPicker) {
+    if (!mediaPicker && !elementPicker) {
       replaceHtmlIfChanged(host, "");
+      return;
+    }
+    if (elementPicker) {
+      if (!replaceHtmlIfChanged(host, elementPickerTemplate(state, elementPicker, mediaLibrary, mediaPreviewUrls))) return;
+      host.querySelector("[data-close-modal]")?.addEventListener("click", closeElementPicker);
+      host.querySelector(".modal-backdrop")?.addEventListener("click", closeElementPicker);
+      host.querySelectorAll("[data-add-element-media]").forEach((button) => {
+        button.addEventListener("click", () => {
+          store.addChainSource(elementPicker.compositionId, {
+            type: "media",
+            mediaId: button.dataset.addElementMedia || "",
+          });
+          closeElementPicker();
+        });
+      });
+      host.querySelector("[data-add-element-camera]")?.addEventListener("click", () => {
+        store.addChainSource(elementPicker.compositionId, { type: "camera" });
+        closeElementPicker();
+      });
+      host.querySelectorAll("[data-add-element-generator]").forEach((button) => {
+        button.addEventListener("click", () => {
+          store.addChainSource(elementPicker.compositionId, {
+            type: "generator",
+            generatorId: button.dataset.addElementGenerator || "testPattern",
+          });
+          closeElementPicker();
+        });
+      });
+      host.querySelectorAll("[data-add-element-effect]").forEach((button) => {
+        button.addEventListener("click", () => {
+          store.addChainEffect(elementPicker.compositionId, button.dataset.addElementEffect);
+          closeElementPicker();
+        });
+      });
       return;
     }
     if (!replaceHtmlIfChanged(host, mediaPickerTemplate(state, mediaPicker, mediaLibrary, mediaPreviewUrls))) return;
@@ -558,11 +594,23 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
 
   function openMediaPicker(path) {
     mediaPicker = { path };
+    elementPicker = null;
     renderModal(latestState);
   }
 
   function closeMediaPicker() {
     mediaPicker = null;
+    renderModal(latestState);
+  }
+
+  function openElementPicker(compositionId) {
+    elementPicker = { compositionId };
+    mediaPicker = null;
+    renderModal(latestState);
+  }
+
+  function closeElementPicker() {
+    elementPicker = null;
     renderModal(latestState);
   }
 
@@ -650,6 +698,20 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
         );
       });
     });
+    scope.querySelectorAll("[data-open-element-picker]").forEach((button) => {
+      button.addEventListener("click", () => openElementPicker(button.dataset.compositionId || latestState.ui.selectedCompositionId));
+    });
+    scope.querySelectorAll("[data-select-chain-item]").forEach((button) => {
+      button.addEventListener("click", () => store.selectChainItem(button.dataset.selectChainItem));
+    });
+    scope.querySelectorAll("[data-remove-chain-item]").forEach((button) => {
+      button.addEventListener("click", () => removeChainItem(button.dataset.compositionId, button.dataset.removeChainItem));
+    });
+    scope.querySelectorAll("[data-chain-reorder-list]").forEach((list) => {
+      bindReorderList(list, {
+        onReorder: (fromId, toId) => store.reorderChain(list.dataset.compositionId, fromId, toId),
+      });
+    });
     scope.querySelectorAll("[data-remove-surface]").forEach((button) => {
       button.addEventListener("click", () => store.removeSurface(button.dataset.removeSurface));
     });
@@ -687,6 +749,15 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
       owner?.[chainKey].splice(index, 1);
       if (target === "surface" && currentWorkspace(draft) === "scene") applySelectedSceneSnapshot(draft);
     }, "remove-shader-pass");
+  }
+
+  function removeChainItem(compositionId, itemId) {
+    store.update((draft) => {
+      const composition = draft.compositions.find((item) => item.id === compositionId);
+      if (!composition?.chain || composition.chain.length <= 1) return;
+      composition.chain = composition.chain.filter((item) => item.id !== itemId);
+      if (draft.ui.selectedChainItemId === itemId) draft.ui.selectedChainItemId = composition.chain[0]?.id || "";
+    }, "remove-chain-item");
   }
 
   function getShaderOwner(state, target, targetId) {
@@ -942,15 +1013,76 @@ function compositionTemplate(composition, state) {
       <div class="sculpt-head">
         <input type="text" data-update="${base}.name" value="${esc(composition.name)}" spellcheck="false" data-gramm="false" data-gramm_editor="false" data-enable-grammarly="false" />
       </div>
-      ${sourcePickerTemplate(composition, state, base)}
-      <div class="field-pair">
-        <label class="field">Blend ${selectValuesTemplate(`${base}.blend`, BLEND_MODES, composition.blend)}</label>
-        <label class="field">Speed <input type="number" min="0" step="0.05" data-update="${base}.speed" value="${composition.speed}" /></label>
-      </div>
-      ${rangeTemplate("Intensity", `${base}.opacity`, composition.opacity)}
-      ${compositionChainTemplate(composition, base)}
+      ${compositionUnifiedChainTemplate(composition, state, base)}
     </article>
   `;
+}
+
+function compositionUnifiedChainTemplate(composition, state, ownerPath) {
+  const selected = selectedChainItem(composition, state);
+  return `
+    <div class="chain-column">
+      <div class="rail-title"><span class="material-symbols-rounded">account_tree</span><span>Chain</span></div>
+      <div class="composition-chain-list" data-chain-reorder-list data-composition-id="${esc(composition.id)}">
+        ${(composition.chain || []).map((item, index) => chainItemRowTemplate(item, composition, state, index)).join("")}
+      </div>
+      <button type="button" class="chain-add-button" data-open-element-picker data-composition-id="${esc(composition.id)}">${icon("add")} Add element</button>
+      ${selected ? selectedChainItemTemplate(selected, composition, state, `${ownerPath}.chain.${composition.chain.findIndex((item) => item.id === selected.id)}`) : emptyNote("Select a chain item")}
+    </div>
+  `;
+}
+
+function chainItemRowTemplate(item, composition, state, index) {
+  const selected = state.ui.selectedChainItemId === item.id;
+  return `
+    <div class="chain-item-row ${selected ? "is-selected" : ""}" data-reorder-id="${esc(item.id)}">
+      <button type="button" class="chain-item-select" data-select-chain-item="${esc(item.id)}">
+        ${icon(item.kind === "source" ? sourceTypeIcon(item.source?.type || "generator") : effectIcon(item.componentId))}
+        <span>${esc(item.name || item.componentId)}</span>
+        <small>${item.kind === "source" ? esc(item.source?.type || "source") : "effect"}</small>
+      </button>
+      <button type="button" class="chain-item-remove" data-composition-id="${esc(composition.id)}" data-remove-chain-item="${esc(item.id)}" title="Remove" aria-label="Remove ${esc(item.name || item.componentId)}" ${composition.chain.length <= 1 ? "disabled" : ""}>${icon("close")}</button>
+    </div>
+  `;
+}
+
+function selectedChainItemTemplate(item, composition, state, base) {
+  if (item.kind === "source") return sourceChainItemTemplate(item, state, base);
+  const component = getShaderComponent(item.componentId);
+  return `
+    <section class="chain-item-editor">
+      <div class="rail-title"><span class="material-symbols-rounded">${effectIcon(item.componentId)}</span><span>${esc(component?.name || item.componentId)}</span></div>
+      <label class="toggle-line">${icon("power_settings_new")}<input type="checkbox" data-update="${base}.enabled" ${item.enabled ? "checked" : ""} /> Enabled</label>
+      ${shaderParamControlsTemplate(component, item, base)}
+    </section>
+  `;
+}
+
+function sourceChainItemTemplate(item, state, base) {
+  return `
+    <section class="chain-item-editor">
+      <div class="rail-title"><span class="material-symbols-rounded">layers</span><span>Layer</span></div>
+      <label class="field">Name <input type="text" data-update="${base}.name" value="${esc(item.name)}" spellcheck="false" data-gramm="false" data-gramm_editor="false" data-enable-grammarly="false" /></label>
+      <label class="toggle-line">${icon("power_settings_new")}<input type="checkbox" data-update="${base}.enabled" ${item.enabled ? "checked" : ""} /> Enabled</label>
+      ${sourcePickerTemplate(item, state, base)}
+      <div class="field-pair">
+        <label class="field">Blend ${selectValuesTemplate(`${base}.blend`, BLEND_MODES, item.blend)}</label>
+        ${rangeTemplate("Opacity", `${base}.opacity`, item.opacity)}
+      </div>
+      <div class="field-pair">
+        ${rangeTemplate("X", `${base}.transform.x`, item.transform?.x || 0, -1, 1, 0.01)}
+        ${rangeTemplate("Y", `${base}.transform.y`, item.transform?.y || 0, -1, 1, 0.01)}
+      </div>
+      <div class="field-pair">
+        ${rangeTemplate("Scale", `${base}.transform.scale`, item.transform?.scale ?? 1, 0.1, 3, 0.01)}
+        ${rangeTemplate("Rotate", `${base}.transform.rotation`, item.transform?.rotation || 0, -3.14, 3.14, 0.01)}
+      </div>
+    </section>
+  `;
+}
+
+function selectedChainItem(composition, state) {
+  return composition.chain?.find((item) => item.id === state.ui.selectedChainItemId) || composition.chain?.[0] || null;
 }
 
 function sourcePickerTemplate(composition, state, base) {
@@ -1163,6 +1295,83 @@ function projectEmptyTemplate() {
   `;
 }
 
+function elementPickerTemplate(state, picker, mediaLibrary, urlCache) {
+  const mediaItems = state.media || [];
+  return `
+    <div class="modal-backdrop"></div>
+    <section class="modal-panel element-modal" role="dialog" aria-modal="true" aria-label="Add element">
+      <header class="modal-header">
+        <div>
+          <strong>Add element</strong>
+          <small>Choose a source layer or an effect for this composition.</small>
+        </div>
+        <button type="button" class="icon-buttonish" data-close-modal title="Close" aria-label="Close">${icon("close")}</button>
+      </header>
+
+      <div class="element-modal-body">
+        <section class="element-section">
+          <div class="rail-title"><span class="material-symbols-rounded">perm_media</span><span>Media layers</span></div>
+          <div class="element-grid media-element-grid">
+            ${mediaItems.length ? mediaItems.map((item) => elementMediaCardTemplate(item, mediaLibrary, urlCache)).join("") : `
+              <div class="soft-note">Drop image or video files into the browser, or add them to the project folder.</div>
+            `}
+          </div>
+        </section>
+
+        <section class="element-section">
+          <div class="rail-title"><span class="material-symbols-rounded">videocam</span><span>Live input</span></div>
+          <div class="element-grid compact-element-grid">
+            <button type="button" class="element-card" data-add-element-camera>
+              ${icon("photo_camera")}
+              <strong>Live camera</strong>
+              <small>Portal camera feed</small>
+            </button>
+          </div>
+        </section>
+
+        <section class="element-section">
+          <div class="rail-title"><span class="material-symbols-rounded">auto_awesome</span><span>Generators</span></div>
+          <div class="element-grid compact-element-grid">
+            ${listGeneratorComponents().filter((generator) => generator.id !== "black").map((generator) => `
+              <button type="button" class="element-card" data-add-element-generator="${esc(generator.id)}">
+                <span class="generator-swatch generator-${esc(generator.id)}"></span>
+                <strong>${esc(generator.label || generator.name)}</strong>
+                <small>generator</small>
+              </button>
+            `).join("")}
+          </div>
+        </section>
+
+        <section class="element-section">
+          <div class="rail-title"><span class="material-symbols-rounded">blur_on</span><span>Effects</span></div>
+          <div class="element-grid compact-element-grid">
+            ${listShaderComponents().map((shader) => `
+              <button type="button" class="element-card" data-add-element-effect="${esc(shader.id)}">
+                ${icon(effectIcon(shader.id))}
+                <strong>${esc(shader.name)}</strong>
+                <small>${esc(shader.category || "effect")}</small>
+              </button>
+            `).join("")}
+          </div>
+        </section>
+      </div>
+    </section>
+  `;
+}
+
+function elementMediaCardTemplate(item, mediaLibrary, urlCache) {
+  const imageUrl = item.type === "image" ? mediaPreviewUrl(item.id, mediaLibrary, urlCache) : "";
+  return `
+    <button type="button" class="element-card media-element-card" data-add-element-media="${esc(item.id)}" title="${esc(item.path || item.name)}">
+      ${imageUrl
+        ? `<img src="${esc(imageUrl)}" alt="" loading="lazy" />`
+        : `<div class="media-picker-placeholder">${icon(item.type === "video" ? "movie" : "image")}</div>`}
+      <strong>${esc(item.name)}</strong>
+      <small>${esc(item.type)}</small>
+    </button>
+  `;
+}
+
 function mediaPickerTemplate(state, picker, mediaLibrary, urlCache) {
   return `
     <div class="modal-backdrop"></div>
@@ -1263,40 +1472,47 @@ function liveCompositionTemplate(composition, state) {
         ${thumbnailTemplate(composition.thumbnail)}
         <strong>${esc(composition.name)}</strong>
       </header>
-      ${liveRangeTemplate("Presence", composition.id, "opacity", view.opacity)}
-      <div class="field-pair live-field-pair">
-        <label class="field">Blend ${liveSelectValuesTemplate(composition.id, "blend", BLEND_MODES, view.blend)}</label>
-        <label class="field">Speed <input type="number" min="0" step="0.05" data-live-composition-id="${esc(composition.id)}" data-live-update="speed" value="${view.speed}" /></label>
-      </div>
-      ${liveShaderChainTemplate(view.shaderChain, composition.id)}
+      ${liveUnifiedChainTemplate(view.chain, composition.id)}
     </article>
   `;
 }
 
-function liveShaderChainTemplate(chain, compositionId) {
+function liveUnifiedChainTemplate(chain, compositionId) {
   if (!chain?.length) return "";
   return `
     <div class="live-chain-list">
-      ${chain.map((pass, index) => {
-        const component = getShaderComponent(pass.id);
-        return `
-        <div class="live-chain-pass">
-          <label>${icon(effectIcon(pass.id))}<input type="checkbox" data-live-composition-id="${esc(compositionId)}" data-live-update="shaderChain.${index}.enabled" ${pass.enabled ? "checked" : ""} />${esc(component?.name || pass.id)}</label>
-          ${liveShaderParamControlsTemplate(component, pass, compositionId, index)}
-        </div>
-      `;}).join("")}
+      ${chain.map((item, index) => liveChainItemTemplate(item, compositionId, index)).join("")}
     </div>
   `;
 }
 
-function liveShaderParamControlsTemplate(component, pass, compositionId, index) {
+function liveChainItemTemplate(item, compositionId, index) {
+  if (item.kind === "effect") {
+    const component = getShaderComponent(item.componentId);
+    return `
+      <div class="live-chain-pass">
+        <label>${icon(effectIcon(item.componentId))}<input type="checkbox" data-live-composition-id="${esc(compositionId)}" data-live-update="chain.${index}.enabled" ${item.enabled ? "checked" : ""} />${esc(component?.name || item.componentId)}</label>
+        ${liveShaderParamControlsTemplate(component, item, compositionId, index)}
+      </div>
+    `;
+  }
+  return `
+    <div class="live-chain-pass">
+      <label>${icon(sourceTypeIcon(item.source?.type || "generator"))}<input type="checkbox" data-live-composition-id="${esc(compositionId)}" data-live-update="chain.${index}.enabled" ${item.enabled ? "checked" : ""} />${esc(item.name || item.componentId || "Layer")}</label>
+      ${liveRangeTemplate("Opacity", compositionId, `chain.${index}.opacity`, item.opacity ?? 1)}
+      <label class="field chain-param">Blend ${liveSelectValuesTemplate(compositionId, `chain.${index}.blend`, BLEND_MODES, item.blend || "normal")}</label>
+    </div>
+  `;
+}
+
+function liveShaderParamControlsTemplate(component, item, compositionId, index) {
   if (!component?.params?.length) return "";
   return `
     <div class="chain-param-list">
       ${component.params.map((param) => {
-        const path = `shaderChain.${index}.params.${param.id}`;
+        const path = `chain.${index}.params.${param.id}`;
         const attrs = `data-live-composition-id="${esc(compositionId)}" data-live-update`;
-        return liveParamControlTemplate(param, path, paramCurrentValue(component, pass, param), attrs);
+        return liveParamControlTemplate(param, path, paramCurrentValue(component, item, param), attrs);
       }).join("")}
     </div>
   `;

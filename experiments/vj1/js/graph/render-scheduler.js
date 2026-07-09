@@ -3,13 +3,9 @@ import { getGeneratorComponent } from "./generator-registry.js";
 import { getShaderComponent } from "../shaders/shader-registry.js";
 
 export function compileCompositionPatch(composition = {}) {
-  const sourceComponent = sourceComponentFor(composition.source);
-  const sourceNode = createVisualNode(sourceComponent, {
-    id: `${composition.id || "composition"}:source`,
-    role: "source",
-    params: sourceParams(composition.source),
-  });
-  const effectNodes = (composition.shaderChain || []).map((pass, index) => effectNodeForPass(composition, pass, index));
+  const chainNodes = Array.isArray(composition.chain) && composition.chain.length
+    ? composition.chain.map((item, index) => chainNodeForItem(composition, item, index))
+    : legacyNodesForComposition(composition);
   const outputNode = {
     id: `${composition.id || "composition"}:output`,
     componentId: "output.texture",
@@ -22,7 +18,7 @@ export function compileCompositionPatch(composition = {}) {
     state: {},
     scheduler: "frame",
   };
-  const nodes = [sourceNode, ...effectNodes, outputNode];
+  const nodes = [...chainNodes, outputNode];
   const edges = [];
   for (let i = 0; i < nodes.length - 1; i++) {
     edges.push({
@@ -38,6 +34,38 @@ export function compileCompositionPatch(composition = {}) {
     nodes,
     edges,
   };
+}
+
+function legacyNodesForComposition(composition = {}) {
+  const sourceComponent = sourceComponentFor(composition.source);
+  const sourceNode = createVisualNode(sourceComponent, {
+    id: `${composition.id || "composition"}:source`,
+    role: "source",
+    params: sourceParams(composition.source),
+  });
+  const effectNodes = (composition.shaderChain || []).map((pass, index) => effectNodeForPass(composition, pass, index));
+  return [sourceNode, ...effectNodes];
+}
+
+function chainNodeForItem(composition, item, index) {
+  if (item.kind === "effect") {
+    return effectNodeForPass(composition, {
+      id: item.componentId,
+      enabled: item.enabled,
+      params: item.params,
+      amount: item.amount,
+    }, index);
+  }
+  const component = sourceComponentFor(item.source);
+  return createVisualNode(component, {
+    id: `${composition.id || "composition"}:source:${index}:${item.id}`,
+    role: "source",
+    enabled: item.enabled !== false,
+    params: {
+      ...sourceParams(item.source),
+      ...item.params,
+    },
+  });
 }
 
 export function compileShaderSchedule(chain = []) {
@@ -105,4 +133,3 @@ function sourceParams(source = {}) {
   if (source.type === "media") return { mediaId: source.mediaId || "" };
   return {};
 }
-

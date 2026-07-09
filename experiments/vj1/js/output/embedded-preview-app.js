@@ -1,6 +1,6 @@
 import { VJ1 } from "../constants.js";
 import { sanitizeState } from "../domain/models.js";
-import { OutputRenderer } from "./output-renderer.js?v=scene-snapshots-93";
+import { OutputRenderer } from "./output-renderer.js?v=scene-snapshots-99";
 
 export function createEmbeddedPreviewApp({ store, mediaLibrary }) {
   let host = null;
@@ -88,10 +88,8 @@ export function createEmbeddedPreviewApp({ store, mediaLibrary }) {
     canvas.parent(stage);
     fitCanvasToStage(size);
     canvas.mousePressed(() => {
-      if (pendingMode !== "composition") {
-        pointerActive = true;
-        renderer?.mousePressed?.(mouseX, mouseY);
-      }
+      pointerActive = true;
+      renderer?.mousePressed?.(mouseX, mouseY);
       return false;
     });
     pixelDensity(1);
@@ -106,6 +104,7 @@ export function createEmbeddedPreviewApp({ store, mediaLibrary }) {
       sendMetrics: updateMetrics,
       sendMapping: updateMapping,
       sendThumbnail: updateThumbnail,
+      sendChainTransform: updateChainTransform,
       requestMediaFiles: () => renderer?.importFiles(mediaLibrary.getAllFiles()),
       onSurfaceSelect: selectSurface,
     });
@@ -121,13 +120,13 @@ export function createEmbeddedPreviewApp({ store, mediaLibrary }) {
   }
 
   function mouseDragged() {
-    if (!pointerActive || pendingMode === "composition") return;
+    if (!pointerActive) return;
     renderer?.mouseDragged?.(mouseX, mouseY);
     return false;
   }
 
   function mouseReleased() {
-    if (!pointerActive || pendingMode === "composition") return;
+    if (!pointerActive) return;
     pointerActive = false;
     renderer?.mouseReleased?.();
     return false;
@@ -197,6 +196,14 @@ export function createEmbeddedPreviewApp({ store, mediaLibrary }) {
         composition.thumbnail = thumbnail;
       }
     }, "composition-thumbnail");
+  }
+
+  function updateChainTransform(compositionId, itemId, transform) {
+    store.update((draft) => {
+      const composition = draft.compositions.find((item) => item.id === compositionId);
+      const item = composition?.chain?.find((chainItem) => chainItem.id === itemId);
+      if (item) item.transform = { ...item.transform, ...transform };
+    }, "scrub:chain-transform");
   }
 
   function selectSurface(surfaceId) {
