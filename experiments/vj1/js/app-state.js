@@ -11,6 +11,7 @@ import {
   sanitizeState,
   uid,
 } from "./domain/models.js";
+import { WORKSPACES } from "./constants.js";
 
 export function createAppState(initial = null) {
   let state = sanitizeState(initial || createInitialState());
@@ -58,7 +59,7 @@ export function createAppState(initial = null) {
     },
     setWorkspace(workspace) {
       update((draft) => {
-        draft.ui.workspace = ["compose", "scene", "live"].includes(workspace) ? workspace : "scene";
+        draft.ui.workspace = WORKSPACES.includes(workspace) ? workspace : "scene";
         draft.global.calibrating = draft.ui.workspace === "scene";
         if (draft.ui.workspace === "live" && !draft.ui.live.selectedSceneId) {
           draft.ui.live.selectedSceneId = draft.ui.selectedSceneId || draft.scenes[0]?.id || "";

@@ -1,4 +1,4 @@
-import { defaultCustomShaderCode } from "../constants.js";
+import { defaultCustomShaderCode, WORKSPACES } from "../constants.js";
 
 export function uid(prefix) {
   return `${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
@@ -152,7 +152,7 @@ export function sanitizeState(input = {}) {
     ? next.ui.selectedSceneId
     : next.scenes[0]?.id || "";
   next.ui.live = normalizeLiveUi(next.ui.live);
-  next.ui.workspace = ["compose", "scene", "live"].includes(next.ui.workspace) ? next.ui.workspace : "scene";
+  next.ui.workspace = WORKSPACES.includes(next.ui.workspace) ? next.ui.workspace : "scene";
   next.global.calibrating = next.ui.workspace === "scene";
   next.scheduler.mode = next.scheduler.mode || "hardconfigured";
   next.scheduler.manualLane = next.scheduler.manualLane !== false;

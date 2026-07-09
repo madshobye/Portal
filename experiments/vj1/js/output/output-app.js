@@ -1,7 +1,7 @@
 import { VJ1 } from "../constants.js";
 import { sanitizeState } from "../domain/models.js";
 import { createOutputBridge } from "../services/output-bridge-service.js";
-import { OutputRenderer } from "./output-renderer.js?v=scene-snapshots-92";
+import { OutputRenderer } from "./output-renderer.js?v=scene-snapshots-93";
 
 export function installOutputApp({ root, mode }) {
   document.body.classList.add("output-client");

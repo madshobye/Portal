@@ -10,6 +10,8 @@ export const VJ1 = Object.freeze({
   mapperScript: "../../P1/portal/mapper2.js?v=folder-primary-4",
 });
 
+export const WORKSPACES = Object.freeze(["compose", "scene", "mapping", "live"]);
+
 export const BLEND_MODES = Object.freeze([
   "normal",
   "add",

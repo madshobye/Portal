@@ -1,10 +1,11 @@
-import { BLEND_MODES, SOURCE_TYPES } from "../constants.js";
+import { BLEND_MODES, SOURCE_TYPES, WORKSPACES } from "../constants.js";
 import { applySceneSnapshotToState, createLiveCompositionView, createLiveRenderState, createSceneSnapshot, createShaderPass } from "../domain/models.js";
 import { defaultParamValues, normalizeParamValue } from "../graph/component-schema.js";
 import { listGeneratorComponents } from "../graph/generator-registry.js";
+import { compileCompositionPatch } from "../graph/render-scheduler.js";
 import { buildOutputUrl } from "../view-routing.js";
 import { getShaderComponent, listShaderComponents } from "../shaders/shader-registry.js";
-import { createEmbeddedPreviewApp } from "../output/embedded-preview-app.js?v=scene-snapshots-92";
+import { createEmbeddedPreviewApp } from "../output/embedded-preview-app.js?v=scene-snapshots-93";
 import { createHtmlCache, isInteractiveNode, isTextEditingNode, setClass, setText } from "./dom-utils.js";
 import { collectRefs, shellTemplate } from "./shell-view.js";
 import { effectIcon, emptyNote, esc, icon, rangeTemplate, selectValuesTemplate, sourceTypeIcon, thumbnailTemplate } from "./template-utils.js";
@@ -139,7 +140,7 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
 
     refs.workspaceSwitch.querySelectorAll("[data-workspace]").forEach((button) => {
       button.addEventListener("click", () => {
-        const workspace = ["compose", "scene", "live"].includes(button.dataset.workspace) ? button.dataset.workspace : "scene";
+        const workspace = WORKSPACES.includes(button.dataset.workspace) ? button.dataset.workspace : "scene";
         const mappingActive = workspace === "scene";
         if (typeof store.setWorkspace === "function") store.setWorkspace(workspace);
         else {
@@ -280,7 +281,7 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
     const hasProject = !!state.project.folderName || state.media.length > 0;
     const workspace = currentWorkspace(state);
     const html = `
-      ${hasProject ? railToolsTemplate(state, workspace) : `
+      ${hasProject || workspace === "mapping" ? railToolsTemplate(state, workspace) : `
         <div class="folder-first-note">
           <span class="material-symbols-rounded">gesture</span>
           <p>Open a folder first. The set, media, scenes, shaders, and mappings will live there together.</p>
@@ -292,6 +293,7 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
 
   function railToolsTemplate(state, workspace) {
     if (workspace === "compose") return compositionToolsTemplate(state);
+    if (workspace === "mapping") return mappingToolsTemplate(state);
     if (workspace === "live") return liveToolsTemplate(state);
     return sceneToolsTemplate(state);
   }
@@ -342,8 +344,39 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
     `;
   }
 
+  function mappingToolsTemplate(state) {
+    const selectedComposition = state.compositions.find((composition) => composition.id === state.ui.selectedCompositionId) || state.compositions[0];
+    return `
+      <div class="rail-section">
+        <div class="rail-title"><span class="material-symbols-rounded">schema</span><span>Mapping Patch</span></div>
+        <div class="composition-card-list">
+          ${state.compositions.map((composition) => compositionPillTemplate(composition, state)).join("") || emptyNote("Create a composition")}
+        </div>
+      </div>
+      <div class="rail-section">
+        <div class="rail-title"><span class="material-symbols-rounded">input</span><span>Inlets</span></div>
+        <div class="node-chip-list">
+          ${mappingInletsTemplate(selectedComposition)}
+        </div>
+      </div>
+      <div class="rail-section">
+        <div class="rail-title"><span class="material-symbols-rounded">output</span><span>Outlets</span></div>
+        <div class="node-chip-list">
+          <div class="node-chip"><span>texture</span><small>composition output</small></div>
+          <div class="node-chip"><span>event</span><small>manual lane</small></div>
+        </div>
+      </div>
+    `;
+  }
+
   function renderStudio(state) {
     const hasProject = !!state.project.folderName || state.media.length > 0;
+    if (currentWorkspace(state) === "mapping") {
+      embeddedPreview.pause();
+      const html = mappingStudioTemplate(state);
+      if (replaceHtmlIfChanged(refs.studio, html)) bindStudioEvents();
+      return;
+    }
     if (!refs.studio.querySelector("[data-studio-stage]")) {
       refs.studio.innerHTML = `
       <section class="studio-stage" data-studio-stage>
@@ -362,6 +395,7 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
   }
 
   function renderPreview(state) {
+    if (currentWorkspace(state) === "mapping") return;
     const previewHost = refs.studio.querySelector("[data-preview-host]");
     if (!previewHost || previewHost.classList.contains("is-empty")) return;
     const workspace = currentWorkspace(state);
@@ -398,13 +432,14 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
 
   function updatePreviewState(state) {
     const workspace = currentWorkspace(state);
+    if (workspace === "mapping") return;
     const kind = workspace === "compose" ? "composition" : "preview";
     embeddedPreview.setState(workspace === "live" ? createLiveRenderState(state) : state, kind);
   }
 
   function renderInspector(state) {
     const hasProject = !!state.project.folderName || state.media.length > 0;
-    if (!hasProject) {
+    if (!hasProject && currentWorkspace(state) !== "mapping") {
       replaceHtmlIfChanged(refs.inspector, panelTemplate(
         "folder_open",
         "Project first",
@@ -420,6 +455,16 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
         "account_tree",
         "Composition",
         selectedComposition ? compositionTemplate(selectedComposition, state) : emptyNote("No composition")
+      );
+      if (replaceHtmlIfChanged(refs.inspector, html)) bindInputs(refs.inspector, state);
+      return;
+    }
+    if (currentWorkspace(state) === "mapping") {
+      const selectedComposition = state.compositions.find((composition) => composition.id === state.ui.selectedCompositionId) || state.compositions[0];
+      html = panelTemplate(
+        "schema",
+        "Node Mapping",
+        mappingInspectorTemplate(selectedComposition, state)
       );
       if (replaceHtmlIfChanged(refs.inspector, html)) bindInputs(refs.inspector, state);
       return;
@@ -697,6 +742,169 @@ function compositionPillTemplate(composition, state) {
       <button type="button" class="composition-card-remove" data-remove-composition="${esc(composition.id)}" title="Remove" aria-label="Remove ${esc(composition.name)}" ${state.compositions.length <= 1 ? "disabled" : ""}>${icon("close")}</button>
     </div>
   `;
+}
+
+function mappingStudioTemplate(state) {
+  const composition = state.compositions.find((item) => item.id === state.ui.selectedCompositionId) || state.compositions[0];
+  const patch = compileCompositionPatch(composition || {});
+  return `
+    <section class="mapping-stage" data-mapping-stage>
+      <div class="mapping-board">
+        <div class="mapping-flow-row">
+          ${patch.nodes.map((node, index) => `
+            ${index > 0 ? `<div class="mapping-wire"><span></span></div>` : ""}
+            ${mappingNodeTemplate(node, index)}
+          `).join("")}
+        </div>
+        <div class="mapping-flow-row mapping-control-row">
+          ${mappingSchedulerNodeTemplate(state)}
+          <div class="mapping-wire"><span></span></div>
+          ${mappingEventNodeTemplate(composition)}
+        </div>
+      </div>
+    </section>
+  `;
+}
+
+function mappingNodeTemplate(node, index) {
+  return `
+    <article class="mapping-node mapping-node-${esc(node.role || node.kind)}" style="--node-index: ${index};">
+      <header>
+        ${icon(mappingNodeIcon(node))}
+        <strong>${esc(nodeLabel(node))}</strong>
+      </header>
+      <div class="mapping-port-columns">
+        ${mappingPortsTemplate("in", node.inlets)}
+        ${mappingPortsTemplate("out", node.outlets)}
+      </div>
+      ${node.params && Object.keys(node.params).length ? `
+        <div class="mapping-param-pills">
+          ${Object.entries(node.params).map(([key, value]) => `<span>${esc(key)} <small>${esc(formatMappingValue(value))}</small></span>`).join("")}
+        </div>
+      ` : ""}
+    </article>
+  `;
+}
+
+function mappingSchedulerNodeTemplate(state) {
+  return `
+    <article class="mapping-node mapping-node-scheduler">
+      <header>${icon("schedule")}<strong>Manual Scheduler</strong></header>
+      <div class="mapping-port-columns">
+        ${mappingPortsTemplate("in", [{ id: "event", label: "event", type: "event" }])}
+        ${mappingPortsTemplate("out", [{ id: "event", label: "event", type: "event" }])}
+      </div>
+      <div class="mapping-param-pills">
+        <span>lane <small>${state.scheduler?.manualLane === false ? "off" : "on"}</small></span>
+        <span>mode <small>${esc(state.scheduler?.mode || "hardconfigured")}</small></span>
+      </div>
+    </article>
+  `;
+}
+
+function mappingEventNodeTemplate(composition) {
+  return `
+    <article class="mapping-node mapping-node-event">
+      <header>${icon("bolt")}<strong>Param Event</strong></header>
+      <div class="mapping-port-columns">
+        ${mappingPortsTemplate("in", [{ id: "event", label: "event", type: "event" }])}
+        ${mappingPortsTemplate("out", [{ id: "params", label: composition?.name || "composition", type: "number" }])}
+      </div>
+      <div class="mapping-param-pills">
+        <span>target <small>${esc(composition?.name || "composition")}</small></span>
+      </div>
+    </article>
+  `;
+}
+
+function mappingPortsTemplate(label, ports = []) {
+  return `
+    <div class="mapping-ports">
+      <small>${esc(label)}</small>
+      ${ports.length ? ports.map((port) => `
+        <span><i></i>${esc(port.label || port.id)}<em>${esc(port.type)}</em></span>
+      `).join("") : `<span class="is-empty"><i></i>none<em>-</em></span>`}
+    </div>
+  `;
+}
+
+function mappingInspectorTemplate(composition, state) {
+  const patch = compileCompositionPatch(composition || {});
+  const generators = listGeneratorComponents();
+  const effects = listShaderComponents();
+  return `
+    <article class="sculpt-card mapping-inspector">
+      <label class="field">Composition
+        <select data-update="ui.selectedCompositionId">
+          ${state.compositions.map((item) => `<option value="${esc(item.id)}" ${item.id === composition?.id ? "selected" : ""}>${esc(item.name)}</option>`).join("")}
+        </select>
+      </label>
+      <label class="field inline-param">
+        <span>Manual scheduler</span>
+        <input type="checkbox" data-update="scheduler.manualLane" ${state.scheduler?.manualLane === false ? "" : "checked"} />
+      </label>
+      <div class="mapping-stat-grid">
+        <span><strong>${patch.nodes.length}</strong><small>nodes</small></span>
+        <span><strong>${patch.edges.length}</strong><small>edges</small></span>
+        <span><strong>${effects.length}</strong><small>effects</small></span>
+      </div>
+      <div class="rail-title"><span class="material-symbols-rounded">auto_awesome</span><span>Generators</span></div>
+      <div class="node-chip-list compact">
+        ${generators.map((component) => componentChipTemplate(component)).join("")}
+      </div>
+      <div class="rail-title"><span class="material-symbols-rounded">blur_on</span><span>Effects</span></div>
+      <div class="node-chip-list compact">
+        ${effects.map((component) => componentChipTemplate(component)).join("")}
+      </div>
+    </article>
+  `;
+}
+
+function mappingInletsTemplate(composition) {
+  const patch = compileCompositionPatch(composition || {});
+  const ports = [];
+  for (const node of patch.nodes) {
+    for (const inlet of node.inlets || []) {
+      ports.push({ node, inlet });
+    }
+    for (const param of Object.keys(node.params || {})) {
+      ports.push({ node, inlet: { id: param, label: param, type: "number" } });
+    }
+  }
+  return ports.length
+    ? ports.map(({ node, inlet }) => `<div class="node-chip"><span>${esc(inlet.label || inlet.id)}</span><small>${esc(nodeLabel(node))} / ${esc(inlet.type)}</small></div>`).join("")
+    : `<div class="node-chip"><span>texture</span><small>source</small></div>`;
+}
+
+function componentChipTemplate(component) {
+  const inletCount = component.inlets?.length || 0;
+  const outletCount = component.outlets?.length || 0;
+  const paramCount = component.params?.length || 0;
+  return `
+    <div class="node-chip">
+      <span>${esc(component.name || component.id)}</span>
+      <small>${inletCount} in / ${outletCount} out / ${paramCount} param${paramCount === 1 ? "" : "s"}</small>
+    </div>
+  `;
+}
+
+function mappingNodeIcon(node) {
+  if (node.role === "source" || node.kind === "generator") return "input";
+  if (node.role === "effect") return effectIcon(node.componentId);
+  if (node.role === "output") return "output";
+  return "schema";
+}
+
+function nodeLabel(node) {
+  if (node.role === "source" && node.params?.generatorId) return node.params.generatorId;
+  if (node.role === "output") return "Output";
+  return node.componentId || node.id || "Node";
+}
+
+function formatMappingValue(value) {
+  const number = Number(value);
+  if (Number.isFinite(number)) return number.toFixed(2);
+  return value;
 }
 
 function sceneSurfacePillTemplate(surface, state) {
@@ -1204,7 +1412,7 @@ function getSceneSurfaceView(surface, state) {
 }
 
 function currentWorkspace(state) {
-  return ["compose", "scene", "live"].includes(state.ui?.workspace) ? state.ui.workspace : "scene";
+  return WORKSPACES.includes(state.ui?.workspace) ? state.ui.workspace : "scene";
 }
 
 function activeRenderCost(state) {

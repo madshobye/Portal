@@ -18,6 +18,7 @@ export function shellTemplate() {
           <div id="workspace-switch" class="workspace-switch" role="group" aria-label="Workspace">
             <button type="button" data-workspace="compose">${icon("account_tree")}<span>Compositions</span></button>
             <button type="button" data-workspace="scene" class="is-active">${icon("auto_awesome")}<span>Scenes</span></button>
+            <button type="button" data-workspace="mapping">${icon("schema")}<span>Mapping</span></button>
             <button type="button" data-workspace="live">${icon("play_circle")}<span>Live</span></button>
           </div>
           <button id="toggle-preview" class="icon-buttonish" type="button" title="Toggle preview" aria-label="Toggle preview">${icon("visibility")}</button>
