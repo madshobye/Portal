@@ -22,7 +22,7 @@ export function shellTemplate() {
             <button type="button" data-workspace="live">${icon("play_circle")}<span>Live</span></button>
           </div>
           <button id="toggle-preview" class="icon-buttonish" type="button" title="Toggle preview" aria-label="Toggle preview">${icon("visibility")}</button>
-          <button id="toggle-labels" class="icon-buttonish" type="button" title="Show labels" aria-label="Show labels">${icon("label")}</button>
+          <button id="toggle-labels" class="icon-buttonish" type="button" title="Debug overlays" aria-label="Debug overlays">${icon("bug_report")}</button>
           <button id="open-settings" class="icon-buttonish" type="button" title="Settings" aria-label="Settings">${icon("settings")}</button>
           <button id="undo-project" class="icon-buttonish" type="button" title="Undo" aria-label="Undo" disabled>${icon("undo")}</button>
           <button id="redo-project" class="icon-buttonish" type="button" title="Redo" aria-label="Redo" disabled>${icon("redo")}</button>

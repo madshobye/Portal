@@ -1,6 +1,6 @@
 import { createVisualNode, normalizeParamValues, paramValue, textureInlet, textureOutlet, textureRenderContract } from "./component-schema.js";
 import { getGeneratorComponent } from "./generator-registry.js";
-import { getShaderComponent } from "../shaders/shader-registry.js?v=world-frame-24";
+import { getShaderComponent } from "../shaders/shader-registry.js?v=world-frame-27";
 
 export function compileCompositionPatch(composition = {}, renderRequest = {}) {
   const request = normalizePatchRenderRequest(renderRequest);

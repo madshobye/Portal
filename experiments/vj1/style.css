@@ -473,13 +473,15 @@ small {
 
 .composition-card:not(.is-selected) img,
 .composition-card:not(.is-selected) .scene-fingerprint,
-.media-picker-card:not(.is-selected) img {
+.media-picker-card:not(.is-selected) img,
+.media-picker-card:not(.is-selected) video {
   filter: grayscale(1) saturate(0.2) contrast(0.92) brightness(0.82);
 }
 
 .composition-card.is-selected img,
 .composition-card.is-selected .scene-fingerprint,
-.media-picker-card.is-selected img {
+.media-picker-card.is-selected img,
+.media-picker-card.is-selected video {
   filter: none;
 }
 
@@ -654,6 +656,14 @@ small {
   gap: 4px;
 }
 
+.live-chain-pass .range-field {
+  width: 100%;
+}
+
+.live-chain-pass .range-field > span {
+  display: block;
+}
+
 .surface-pills .list-select > .material-symbols-rounded,
 .scene-pills .list-select > .material-symbols-rounded {
   justify-self: center;
@@ -804,9 +814,10 @@ small {
   font-size: 17px;
 }
 
-.preview-tool.is-subtle {
+.preview-tool.is-active {
   color: var(--cyan);
   border-color: rgba(101, 224, 211, 0.45);
+  background: rgba(101, 224, 211, 0.13);
 }
 
 .preview-tool.is-hidden {
@@ -1291,6 +1302,12 @@ small {
   gap: 9px;
 }
 
+.chain-list-section,
+.chain-selected-section {
+  display: grid;
+  gap: 9px;
+}
+
 .composition-chain-list {
   display: grid;
   gap: 6px;
@@ -1540,6 +1557,7 @@ small {
 }
 
 .element-card img,
+.element-card video,
 .element-card .media-picker-placeholder {
   grid-column: 1 / -1;
   width: 100%;
@@ -1594,6 +1612,7 @@ small {
 }
 
 .media-picker-card img,
+.media-picker-card video,
 .media-picker-placeholder {
   width: 100%;
   aspect-ratio: 16 / 9;

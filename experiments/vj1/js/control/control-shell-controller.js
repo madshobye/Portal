@@ -1,12 +1,12 @@
 import { BLEND_MODES, SOURCE_TYPES, VJ1, WORKSPACES } from "../constants.js";
-import { applySceneSnapshotToState, createLiveCompositionView, createLiveRenderState, createSceneSnapshot, normalizeRenderSettings } from "../domain/models.js?v=world-frame-24";
+import { applySceneSnapshotToState, createLiveCompositionView, createLiveRenderState, createSceneSnapshot, normalizeRenderSettings } from "../domain/models.js?v=world-frame-27";
 import { normalizeParamValue } from "../graph/component-schema.js";
 import { listGeneratorComponents } from "../graph/generator-registry.js";
 import { patchNodeDegree, planCompositorInputs, planPatchExecution, summarizeTextureBranches } from "../graph/patch-planner.js";
-import { compileCompositionPatch } from "../graph/render-scheduler.js?v=world-frame-24";
+import { compileCompositionPatch } from "../graph/render-scheduler.js?v=world-frame-27";
 import { buildOutputUrl } from "../view-routing.js";
-import { getShaderComponent, listShaderComponents } from "../shaders/shader-registry.js?v=world-frame-24";
-import { createEmbeddedPreviewApp } from "../output/embedded-preview-app.js?v=world-frame-24";
+import { getShaderComponent, listShaderComponents } from "../shaders/shader-registry.js?v=world-frame-27";
+import { createEmbeddedPreviewApp } from "../output/embedded-preview-app.js?v=world-frame-27";
 import { frameFitViewport, resetViewport, zoomViewport } from "../output/preview-viewport.js";
 import { createHtmlCache, isInteractiveNode, isTextEditingNode, setClass, setText } from "./dom-utils.js";
 import { bindReorderList } from "./reorder-list.js";
@@ -451,7 +451,7 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
     }
     bindPreviewViewportTools(previewHost);
     const handleButton = previewHost.querySelector("[data-toggle-mapping-handles]");
-    setClass(handleButton, "is-subtle", state.global.mappingHandleMode === "near");
+    setClass(handleButton, "is-active", state.global.mappingHandleMode !== "near");
     setClass(handleButton, "is-hidden", kind !== "preview");
     if (handleButton && !handleButton.dataset.bound) {
       handleButton.dataset.bound = "true";
@@ -674,8 +674,10 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
 
   function updateRenderSetting(input, reason) {
     store.update((draft) => {
+      const previousRender = normalizeRenderSettings(draft.render);
       setByPath(draft, input.dataset.settingsUpdate, readInputValue(input));
       draft.render = normalizeRenderSettings(draft.render);
+      scaleMappingForRenderChange(draft, previousRender, draft.render);
     }, reason);
   }
 
@@ -690,12 +692,32 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
     };
     const [frameWidth, frameHeight] = presets[preset] || presets.wide;
     store.update((draft) => {
+      const previousRender = normalizeRenderSettings(draft.render);
       draft.render = normalizeRenderSettings({
         ...draft.render,
         frameWidth,
         frameHeight,
       });
+      scaleMappingForRenderChange(draft, previousRender, draft.render);
     }, "render-preset");
+  }
+
+  function scaleMappingForRenderChange(draft, previousRender, nextRender) {
+    const previous = normalizeRenderSettings(previousRender);
+    const next = normalizeRenderSettings(nextRender);
+    const sx = next.worldWidth / Math.max(1, previous.worldWidth);
+    const sy = next.worldHeight / Math.max(1, previous.worldHeight);
+    if (!Number.isFinite(sx) || !Number.isFinite(sy)) return;
+    if (Math.abs(sx - 1) < 0.0001 && Math.abs(sy - 1) < 0.0001) return;
+    const mapping = draft.mappings?.local;
+    if (!Array.isArray(mapping?.surfaces)) return;
+    for (const mappedSurface of mapping.surfaces) {
+      if (!Array.isArray(mappedSurface.corners)) continue;
+      mappedSurface.corners = mappedSurface.corners.map((corner) => ({
+        x: Math.round((Number(corner.x) || 0) * sx * 1000) / 1000,
+        y: Math.round((Number(corner.y) || 0) * sy * 1000) / 1000,
+      }));
+    }
   }
 
   function bindPreviewViewportTools(previewHost) {
@@ -1156,12 +1178,16 @@ function compositionUnifiedChainTemplate(composition, state, ownerPath) {
   const selected = selectedChainItem(composition, state);
   return `
     <div class="chain-column">
-      <div class="rail-title"><span class="material-symbols-rounded">account_tree</span><span>Chain</span></div>
-      <div class="composition-chain-list" data-chain-reorder-list data-composition-id="${esc(composition.id)}">
-        ${(composition.chain || []).map((item, index) => chainItemRowTemplate(item, composition, state, index)).join("")}
-      </div>
-      <button type="button" class="chain-add-button" data-open-element-picker data-composition-id="${esc(composition.id)}">${icon("add")} Add element</button>
-      ${selected ? selectedChainItemTemplate(selected, composition, state, `${ownerPath}.chain.${composition.chain.findIndex((item) => item.id === selected.id)}`) : emptyNote("Select a chain item")}
+      <section class="chain-list-section">
+        <div class="rail-title"><span class="material-symbols-rounded">account_tree</span><span>Chain</span></div>
+        <div class="composition-chain-list" data-chain-reorder-list data-composition-id="${esc(composition.id)}">
+          ${(composition.chain || []).map((item, index) => chainItemRowTemplate(item, composition, state, index)).join("")}
+        </div>
+        <button type="button" class="chain-add-button" data-open-element-picker data-composition-id="${esc(composition.id)}">${icon("add")} Add element</button>
+      </section>
+      <section class="chain-selected-section">
+        ${selected ? selectedChainItemTemplate(selected, composition, state, `${ownerPath}.chain.${composition.chain.findIndex((item) => item.id === selected.id)}`) : emptyNote("Select a chain item")}
+      </section>
     </div>
   `;
 }
@@ -1518,11 +1544,11 @@ function elementPickerTemplate(state, picker, mediaLibrary, urlCache) {
 }
 
 function elementMediaCardTemplate(item, mediaLibrary, urlCache) {
-  const imageUrl = item.type === "image" ? mediaPreviewUrl(item.id, mediaLibrary, urlCache) : "";
+  const previewUrl = item.type === "image" || item.type === "video" ? mediaPreviewUrl(item.id, mediaLibrary, urlCache) : "";
   return `
     <button type="button" class="element-card media-element-card" data-add-element-media="${esc(item.id)}" title="${esc(item.path || item.name)}">
-      ${imageUrl
-        ? `<img src="${esc(imageUrl)}" alt="" loading="lazy" />`
+      ${previewUrl
+        ? mediaPreviewElementTemplate(item, previewUrl)
         : `<div class="media-picker-placeholder">${icon(item.type === "video" ? "movie" : "image")}</div>`}
       <strong>${esc(item.name)}</strong>
       <small>${esc(item.type)}</small>
@@ -1552,16 +1578,22 @@ function mediaPickerTemplate(state, picker, mediaLibrary, urlCache) {
 
 function mediaPickerCardTemplate(item, picker, state, mediaLibrary, urlCache) {
   const selected = item.id === currentMediaValue(picker, state);
-  const imageUrl = item.type === "image" ? mediaPreviewUrl(item.id, mediaLibrary, urlCache) : "";
+  const previewUrl = item.type === "image" || item.type === "video" ? mediaPreviewUrl(item.id, mediaLibrary, urlCache) : "";
   return `
     <button type="button" class="media-picker-card ${selected ? "is-selected" : ""}" data-pick-media="${esc(item.id)}" title="${esc(item.path || item.name)}">
-      ${imageUrl
-        ? `<img src="${esc(imageUrl)}" alt="" loading="lazy" />`
+      ${previewUrl
+        ? mediaPreviewElementTemplate(item, previewUrl)
         : `<div class="media-picker-placeholder">${icon(item.type === "video" ? "movie" : "image")}</div>`}
       <span>${esc(item.name)}</span>
       <small>${esc(item.type)}</small>
     </button>
   `;
+}
+
+function mediaPreviewElementTemplate(item, previewUrl) {
+  return item.type === "video"
+    ? `<video src="${esc(previewUrl)}" muted playsinline preload="metadata"></video>`
+    : `<img src="${esc(previewUrl)}" alt="" loading="lazy" />`;
 }
 
 function currentMediaValue(picker, state) {
@@ -1697,7 +1729,7 @@ function liveParamControlTemplate(param, path, value, attrs) {
   }
   return `
     <label class="field range-field chain-param">
-      <span><span>${esc(param.label || param.id)}</span><strong>${formatParamValue(value)}</strong></span>
+      <span><span>${esc(param.label || param.id)}</span></span>
       <input type="range" min="${param.min ?? 0}" max="${param.max ?? 1}" step="${param.step ?? 0.01}" ${attrs}="${esc(path)}" value="${value}" />
     </label>
   `;
@@ -1706,7 +1738,7 @@ function liveParamControlTemplate(param, path, value, attrs) {
 function liveRangeTemplate(label, compositionId, path, value) {
   return `
     <label class="field range-field">
-      <span><span>${label}</span><strong>${Number(value).toFixed(2)}</strong></span>
+      <span><span>${label}</span></span>
       <input type="range" min="0" max="1" step="0.01" data-live-composition-id="${esc(compositionId)}" data-live-update="${path}" value="${value}" />
     </label>
   `;

@@ -1,8 +1,8 @@
 import { VJ1 } from "../constants.js";
-import { sanitizeState } from "../domain/models.js?v=world-frame-24";
+import { sanitizeState } from "../domain/models.js?v=world-frame-27";
 import { createOutputBridge } from "../services/output-bridge-service.js";
-import { OutputRenderer } from "./output-renderer.js?v=world-frame-24";
-import { applyFontToGlobal, loadVjRenderFont } from "./font-loader.js?v=world-frame-24";
+import { OutputRenderer } from "./output-renderer.js?v=world-frame-27";
+import { applyFontToGlobal, loadVjRenderFont } from "./font-loader.js?v=world-frame-27";
 import { frameSize } from "./render-geometry.js";
 
 let outputFitSignature = "";
@@ -153,7 +153,7 @@ function fitOutputCanvas(size = outputSize()) {
     width: Math.max(1, Math.floor(stageRect?.width || window.innerWidth || size.width)),
     height: Math.max(1, Math.floor(stageRect?.height || window.innerHeight || size.height)),
   };
-  const scale = Math.max(stageSize.width / size.width, stageSize.height / size.height);
+  const scale = stageSize.height / size.height;
   const rect = {
     width: Math.ceil(size.width * scale),
     height: Math.ceil(size.height * scale),

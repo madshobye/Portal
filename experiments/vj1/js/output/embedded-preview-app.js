@@ -1,7 +1,7 @@
 import { VJ1 } from "../constants.js";
-import { sanitizeState } from "../domain/models.js?v=world-frame-24";
-import { OutputRenderer } from "./output-renderer.js?v=world-frame-24";
-import { applyFontToGlobal, loadVjRenderFont } from "./font-loader.js?v=world-frame-24";
+import { sanitizeState } from "../domain/models.js?v=world-frame-27";
+import { OutputRenderer } from "./output-renderer.js?v=world-frame-27";
+import { applyFontToGlobal, loadVjRenderFont } from "./font-loader.js?v=world-frame-27";
 import { createPreviewViewportController, fitPreviewCanvasElement } from "./preview-viewport.js";
 import { canvasSizeForMode } from "./render-geometry.js";
 
@@ -214,7 +214,7 @@ export function createEmbeddedPreviewApp({ store, mediaLibrary, projectService }
       ? 60
       : pendingState?.ui?.outputWindowOpen
         ? 30
-        : 120;
+        : 60;
     if (appliedFrameRate === target) return;
     frameRate(target);
     appliedFrameRate = target;

@@ -1,11 +1,11 @@
-import { collectFilesFromDirectory, isMediaFile, isShaderFile } from "./media-library-service.js?v=world-frame-24";
+import { collectFilesFromDirectory, isMediaFile, isShaderFile } from "./media-library-service.js?v=world-frame-27";
 import { RENDITION_DIR, RENDITION_ROOT, mediaRenditionPath } from "./media-rendition-service.js";
 import {
   canPersistDirectoryHandles,
   loadProjectDirectoryHandle,
   saveProjectDirectoryHandle,
 } from "./directory-handle-store.js";
-import { applySceneSnapshotToState } from "../domain/models.js?v=world-frame-24";
+import { applySceneSnapshotToState } from "../domain/models.js?v=world-frame-27";
 
 export function createProjectFolderService({ mediaLibrary, store, bridge }) {
   let dirHandle = null;

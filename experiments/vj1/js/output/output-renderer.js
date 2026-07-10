@@ -1,10 +1,10 @@
 import { VJ1 } from "../constants.js";
-import { clamp01, sanitizeState } from "../domain/models.js?v=world-frame-24";
+import { clamp01, sanitizeState } from "../domain/models.js?v=world-frame-27";
 import { createManualScheduler } from "../graph/manual-scheduler.js";
-import { compileCompositionPatch, compileShaderSchedule } from "../graph/render-scheduler.js?v=world-frame-24";
-import { createShaderBuilder } from "../shaders/shader-builder.js?v=world-frame-24";
+import { compileCompositionPatch, compileShaderSchedule } from "../graph/render-scheduler.js?v=world-frame-27";
+import { createShaderBuilder } from "../shaders/shader-builder.js?v=world-frame-27";
 import { applyBlend } from "./blend-utils.js";
-import { applyFontToGlobal, applyFontToTarget } from "./font-loader.js?v=world-frame-24";
+import { applyFontToGlobal, applyFontToTarget } from "./font-loader.js?v=world-frame-27";
 import { drawGenerator, drawStandby } from "./generators.js";
 import { drawCover, isDrawableMedia, syncVideoSpeed } from "./media-utils.js";
 import {
@@ -16,7 +16,7 @@ import {
   surfaceTextureSize,
   worldSize,
 } from "./render-geometry.js";
-import { VjMapper } from "./vj-mapper.js?v=world-frame-24";
+import { VjMapper } from "./vj-mapper.js?v=world-frame-27";
 import { mediaRenditionKey } from "../services/media-rendition-service.js";
 
 export class OutputRenderer {
@@ -278,7 +278,7 @@ export class OutputRenderer {
 
   shouldCalibrateFromState() {
     if (this.mode === "output") return false;
-    return this.mode === "preview" || !!this.state.global.calibrating;
+    return this.mode === "preview" && !!this.state.global.calibrating;
   }
 
   currentMappingSignature() {
@@ -458,6 +458,7 @@ export class OutputRenderer {
 
   renderSelectedSurfaceOverlay() {
     if (this.mode === "output") return;
+    if (this.state?.ui?.workspace !== "scene") return;
     const surfaceId = this.state?.ui?.selectedSurfaceId;
     if (!surfaceId) return;
     const calibrating = !!this.mapper?.isCalibrating?.();
@@ -919,6 +920,7 @@ export class OutputRenderer {
   renderSurfaces() {
     const outputBlackout = this.isOutputBlackout();
     for (const surface of this.state.surfaces) {
+      if (!surface.enabled) continue;
       const mapped = this.mapperSurfaces.get(surface.id);
       if (!mapped) continue;
       const pg = this.surfaceTexture;
@@ -926,9 +928,7 @@ export class OutputRenderer {
       pg.push();
       pg.background(0);
       if (!outputBlackout) {
-        if (surface.enabled) {
-          this.drawSurfaceRoute(pg, surface);
-        }
+        this.drawSurfaceRoute(pg, surface);
       }
       if (!outputBlackout && this.state.global.showLabels !== false && this.mapper.isCalibrating()) {
         const composition = this.state.compositions.find((item) => item.id === surface.compositionId);
@@ -1053,7 +1053,12 @@ export class OutputRenderer {
     this.pendingRenditionSaves.add(key);
     graphicsToJpegBlob(pg)
       .then((blob) => blob ? this.sendMediaRendition(mediaId, widthPx, heightPx, blob) : false)
-      .catch(() => false);
+      .then((saved) => {
+        if (!saved) this.pendingRenditionSaves.delete(key);
+      })
+      .catch(() => {
+        this.pendingRenditionSaves.delete(key);
+      });
   }
 
   renderCompositionPreview() {
@@ -1137,11 +1142,7 @@ export class OutputRenderer {
       this.chainTransformDrag = null;
       return;
     }
-    const wasMappingActive = !!this.mapper?.isActive?.();
     this.mapper?.mouseReleased?.();
-    if (wasMappingActive) {
-      this.emitMapping(this.mapper?.exportData?.() || {}, "Mapping updated");
-    }
   }
 
   isCalibrating() {
@@ -1239,11 +1240,7 @@ export class OutputRenderer {
   }
 
   exportMapping() {
-    if (this.mode === "output") {
-      downloadJson(this.mappingFromRenderMode(this.mapper?.exportData?.() || {}), "vj1-mapping.json");
-      return;
-    }
-    this.mapper?.downloadExport?.("vj1-mapping.json");
+    downloadJson(this.mappingFromRenderMode(this.mapper?.exportData?.() || {}), "vj1-mapping.json");
   }
 
   resize() {
@@ -1477,7 +1474,7 @@ function compositionThumbnailSignature(composition) {
   }
 }
 
-function graphicsToThumbnail(pg, width = 160, height = 90) {
+function graphicsToThumbnail(pg, width = 512, height = 288) {
   try {
     const source = pg.canvas || pg.elt;
     if (!source) return "";
@@ -1496,7 +1493,7 @@ function graphicsToThumbnail(pg, width = 160, height = 90) {
     context.fillStyle = "#000";
     context.fillRect(0, 0, width, height);
     context.drawImage(source, dx, dy, drawWidth, drawHeight);
-    return canvas.toDataURL("image/jpeg", 0.72);
+    return canvas.toDataURL("image/jpeg", 0.82);
   } catch (error) {
     console.warn("[VJ1_THUMBNAIL_CAPTURE_FAILED]", { message: error?.message || String(error) });
     return "";

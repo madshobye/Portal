@@ -1,4 +1,4 @@
-import { getShaderComponent } from "./shader-registry.js?v=world-frame-24";
+import { getShaderComponent } from "./shader-registry.js?v=world-frame-27";
 
 export function createShaderBuilder({ getCustomCode, onStatus }) {
   const cache = new Map();
@@ -26,7 +26,7 @@ export function createShaderBuilder({ getCustomCode, onStatus }) {
 
   function invalidateCustom() {
     for (const key of Array.from(cache.keys())) {
-      if (key.startsWith("custom:")) cache.delete(key);
+      if (key.includes(":custom:")) cache.delete(key);
     }
   }
 
