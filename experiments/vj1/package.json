@@ -1,0 +1,7 @@
+{
+  "type": "module",
+  "scripts": {
+    "test:metrics": "node --test tests/composition-metrics.test.mjs",
+    "metrics": "node tests/metrics-runner.mjs"
+  }
+}

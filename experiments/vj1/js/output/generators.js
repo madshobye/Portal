@@ -117,11 +117,36 @@ function drawNoise(pg, t) {
   const cell = Math.max(14, Math.floor(pg.width / 64));
   for (let y = 0; y < pg.height; y += cell) {
     for (let x = 0; x < pg.width; x += cell) {
-      const n = noise(x * 0.006, y * 0.006, t * 0.3);
+      const n = valueNoise2d(x * 0.006 + t * 0.07, y * 0.006 - t * 0.05);
       pg.fill(30 + n * 210, 35 + n * 120, 70 + n * 175);
       pg.rect(x, y, cell, cell);
     }
   }
+}
+
+function valueNoise2d(x, y) {
+  const ix = Math.floor(x);
+  const iy = Math.floor(y);
+  const fx = smoothstep01(x - ix);
+  const fy = smoothstep01(y - iy);
+  const a = hash2(ix, iy);
+  const b = hash2(ix + 1, iy);
+  const c = hash2(ix, iy + 1);
+  const d = hash2(ix + 1, iy + 1);
+  return mix(mix(a, b, fx), mix(c, d, fx), fy);
+}
+
+function hash2(x, y) {
+  const n = Math.sin(x * 127.1 + y * 311.7) * 43758.5453123;
+  return n - Math.floor(n);
+}
+
+function smoothstep01(value) {
+  return value * value * (3 - 2 * value);
+}
+
+function mix(a, b, t) {
+  return a + (b - a) * t;
 }
 
 function drawPlasma(pg, t) {

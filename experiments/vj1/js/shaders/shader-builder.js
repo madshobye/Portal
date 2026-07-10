@@ -4,7 +4,7 @@ export function createShaderBuilder({ getCustomCode, onStatus }) {
   const cache = new Map();
 
   function getShader(pass, target = null) {
-    const component = getShaderComponent(pass.id);
+    const component = pass.component || getShaderComponent(pass.id);
     const code = pass.id === "custom" ? getCustomCode() : component?.code;
     if (!code) return null;
     const contextId = getContextId(target);

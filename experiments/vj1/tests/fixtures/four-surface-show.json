@@ -1,0 +1,558 @@
+{
+  "version": 5,
+  "project": {
+    "name": "Four Surface Metrics Show",
+    "folderName": "fixtures",
+    "savedAt": "",
+    "warnings": []
+  },
+  "ui": {
+    "workspace": "scene",
+    "selectedCompositionId": "composition-test-pattern",
+    "selectedChainItemId": "chain-test-source",
+    "selectedSceneId": "scene-four-surfaces",
+    "selectedSurfaceId": "surface-main",
+    "debugPreview": true,
+    "live": {
+      "selectedSceneId": "scene-four-surfaces",
+      "compositionOverrides": {}
+    }
+  },
+  "global": {
+    "blackout": false,
+    "bpm": 120,
+    "crossfade": 1,
+    "showHud": true,
+    "showLabels": true,
+    "calibrating": true,
+    "mappingHandleMode": "always"
+  },
+  "render": {
+    "frameWidth": 960,
+    "frameHeight": 540,
+    "surfaceWidth": 800,
+    "surfaceHeight": 450,
+    "pixelDensity": 1,
+    "edgeSoftness": 0
+  },
+  "scheduler": {
+    "mode": "hardconfigured",
+    "manualLane": true
+  },
+  "media": [],
+  "compositions": [
+    {
+      "id": "composition-test-pattern",
+      "name": "Test Pattern Stack",
+      "source": {
+        "type": "generator",
+        "generatorId": "testPattern"
+      },
+      "opacity": 1,
+      "blend": "normal",
+      "speed": 1,
+      "thumbnail": "",
+      "chain": [
+        {
+          "id": "chain-test-source",
+          "kind": "source",
+          "componentId": "testPattern",
+          "name": "Test Pattern",
+          "enabled": true,
+          "source": {
+            "type": "generator",
+            "generatorId": "testPattern"
+          },
+          "opacity": 1,
+          "blend": "normal",
+          "transform": {
+            "x": 0,
+            "y": 0,
+            "scale": 1,
+            "rotation": 0
+          },
+          "params": {}
+        },
+        {
+          "id": "chain-test-ripple",
+          "kind": "effect",
+          "componentId": "ripple",
+          "name": "Ripple",
+          "enabled": true,
+          "params": {
+            "amount": 0.28
+          },
+          "amount": 0.28
+        },
+        {
+          "id": "chain-test-rgb",
+          "kind": "effect",
+          "componentId": "rgbSplit",
+          "name": "RGB Split",
+          "enabled": true,
+          "params": {
+            "amount": 0.22,
+            "angle": 0.35,
+            "motion": 0.45
+          },
+          "amount": 0.22
+        },
+        {
+          "id": "chain-test-pixelate",
+          "kind": "effect",
+          "componentId": "pixelate",
+          "name": "Pixelate",
+          "enabled": true,
+          "params": {
+            "amount": 0.18
+          },
+          "amount": 0.18
+        }
+      ],
+      "shaderChain": []
+    },
+    {
+      "id": "composition-waves",
+      "name": "Waves Luma Stack",
+      "source": {
+        "type": "generator",
+        "generatorId": "waves"
+      },
+      "opacity": 0.95,
+      "blend": "screen",
+      "speed": 0.85,
+      "thumbnail": "",
+      "chain": [
+        {
+          "id": "chain-waves-source",
+          "kind": "source",
+          "componentId": "waves",
+          "name": "Waves",
+          "enabled": true,
+          "source": {
+            "type": "generator",
+            "generatorId": "waves"
+          },
+          "opacity": 1,
+          "blend": "normal",
+          "transform": {
+            "x": 0,
+            "y": 0,
+            "scale": 1,
+            "rotation": 0
+          },
+          "params": {}
+        },
+        {
+          "id": "chain-waves-plasma",
+          "kind": "effect",
+          "componentId": "plasma",
+          "name": "Plasma Tint",
+          "enabled": true,
+          "params": {
+            "amount": 0.35
+          },
+          "amount": 0.35
+        },
+        {
+          "id": "chain-waves-blur",
+          "kind": "effect",
+          "componentId": "blur",
+          "name": "Blur",
+          "enabled": true,
+          "params": {
+            "amount": 0.18
+          },
+          "amount": 0.18
+        },
+        {
+          "id": "chain-waves-luma",
+          "kind": "effect",
+          "componentId": "lumaKey",
+          "name": "Luma Key",
+          "enabled": true,
+          "params": {
+            "amount": 0.42
+          },
+          "amount": 0.42
+        },
+        {
+          "id": "chain-waves-invert",
+          "kind": "effect",
+          "componentId": "invert",
+          "name": "Invert",
+          "enabled": true,
+          "params": {
+            "amount": 0.12
+          },
+          "amount": 0.12
+        }
+      ],
+      "shaderChain": []
+    },
+    {
+      "id": "composition-noise",
+      "name": "Noise Key Stack",
+      "source": {
+        "type": "generator",
+        "generatorId": "noise"
+      },
+      "opacity": 0.9,
+      "blend": "add",
+      "speed": 1.25,
+      "thumbnail": "",
+      "chain": [
+        {
+          "id": "chain-noise-source",
+          "kind": "source",
+          "componentId": "noise",
+          "name": "Noise",
+          "enabled": true,
+          "source": {
+            "type": "generator",
+            "generatorId": "noise"
+          },
+          "opacity": 1,
+          "blend": "normal",
+          "transform": {
+            "x": 0,
+            "y": 0,
+            "scale": 1,
+            "rotation": 0
+          },
+          "params": {}
+        },
+        {
+          "id": "chain-noise-gray",
+          "kind": "effect",
+          "componentId": "gray",
+          "name": "Gray",
+          "enabled": true,
+          "params": {
+            "amount": 0.5
+          },
+          "amount": 0.5
+        },
+        {
+          "id": "chain-noise-threshold",
+          "kind": "effect",
+          "componentId": "threshold",
+          "name": "Threshold",
+          "enabled": true,
+          "params": {
+            "amount": 0.55,
+            "cutoff": 0.48
+          },
+          "amount": 0.55
+        },
+        {
+          "id": "chain-noise-erode",
+          "kind": "effect",
+          "componentId": "erode",
+          "name": "Erode",
+          "enabled": true,
+          "params": {
+            "amount": 0.25
+          },
+          "amount": 0.25
+        },
+        {
+          "id": "chain-noise-dilate",
+          "kind": "effect",
+          "componentId": "dilate",
+          "name": "Dilate",
+          "enabled": true,
+          "params": {
+            "amount": 0.2
+          },
+          "amount": 0.2
+        },
+        {
+          "id": "chain-noise-grain",
+          "kind": "effect",
+          "componentId": "labelGrain",
+          "name": "Label Grain",
+          "enabled": true,
+          "params": {
+            "amount": 0.3
+          },
+          "amount": 0.3
+        }
+      ],
+      "shaderChain": []
+    },
+    {
+      "id": "composition-plasma",
+      "name": "Plasma Geometry Stack",
+      "source": {
+        "type": "generator",
+        "generatorId": "plasma"
+      },
+      "opacity": 1,
+      "blend": "overlay",
+      "speed": 0.7,
+      "thumbnail": "",
+      "chain": [
+        {
+          "id": "chain-plasma-source",
+          "kind": "source",
+          "componentId": "plasma",
+          "name": "Plasma",
+          "enabled": true,
+          "source": {
+            "type": "generator",
+            "generatorId": "plasma"
+          },
+          "opacity": 1,
+          "blend": "normal",
+          "transform": {
+            "x": 0,
+            "y": 0,
+            "scale": 1,
+            "rotation": 0
+          },
+          "params": {}
+        },
+        {
+          "id": "chain-plasma-kaleido",
+          "kind": "effect",
+          "componentId": "kaleido",
+          "name": "Kaleido",
+          "enabled": true,
+          "params": {
+            "amount": 0.46
+          },
+          "amount": 0.46
+        },
+        {
+          "id": "chain-plasma-ripple",
+          "kind": "effect",
+          "componentId": "ripple",
+          "name": "Ripple",
+          "enabled": true,
+          "params": {
+            "amount": 0.2
+          },
+          "amount": 0.2
+        },
+        {
+          "id": "chain-plasma-rgb",
+          "kind": "effect",
+          "componentId": "rgbSplit",
+          "name": "RGB Split",
+          "enabled": true,
+          "params": {
+            "amount": 0.16,
+            "angle": -0.55,
+            "motion": 0.7
+          },
+          "amount": 0.16
+        }
+      ],
+      "shaderChain": []
+    }
+  ],
+  "surfaces": [
+    {
+      "id": "surface-main",
+      "name": "Main",
+      "enabled": true,
+      "opacity": 1,
+      "finalBlend": "normal",
+      "finalShaderChain": [],
+      "compositionId": "composition-test-pattern",
+      "mappingId": "surface-main",
+      "showLabel": true,
+      "calibrationLocked": false
+    },
+    {
+      "id": "surface-left",
+      "name": "Left",
+      "enabled": true,
+      "opacity": 1,
+      "finalBlend": "screen",
+      "finalShaderChain": [],
+      "compositionId": "composition-waves",
+      "mappingId": "surface-left",
+      "showLabel": true,
+      "calibrationLocked": false
+    },
+    {
+      "id": "surface-right",
+      "name": "Right",
+      "enabled": true,
+      "opacity": 1,
+      "finalBlend": "add",
+      "finalShaderChain": [],
+      "compositionId": "composition-noise",
+      "mappingId": "surface-right",
+      "showLabel": true,
+      "calibrationLocked": false
+    },
+    {
+      "id": "surface-top",
+      "name": "Top",
+      "enabled": true,
+      "opacity": 1,
+      "finalBlend": "overlay",
+      "finalShaderChain": [],
+      "compositionId": "composition-plasma",
+      "mappingId": "surface-top",
+      "showLabel": true,
+      "calibrationLocked": false
+    }
+  ],
+  "scenes": [
+    {
+      "id": "scene-four-surfaces",
+      "name": "Four Surface Scene",
+      "notes": "Fixture scene with one composition per active surface.",
+      "snapshot": {
+        "surfaces": [
+          {
+            "id": "surface-main",
+            "enabled": true,
+            "compositionId": "composition-test-pattern",
+            "opacity": 1,
+            "finalBlend": "normal",
+            "finalShaderChain": [],
+            "showLabel": true
+          },
+          {
+            "id": "surface-left",
+            "enabled": true,
+            "compositionId": "composition-waves",
+            "opacity": 1,
+            "finalBlend": "screen",
+            "finalShaderChain": [],
+            "showLabel": true
+          },
+          {
+            "id": "surface-right",
+            "enabled": true,
+            "compositionId": "composition-noise",
+            "opacity": 1,
+            "finalBlend": "add",
+            "finalShaderChain": [],
+            "showLabel": true
+          },
+          {
+            "id": "surface-top",
+            "enabled": true,
+            "compositionId": "composition-plasma",
+            "opacity": 1,
+            "finalBlend": "overlay",
+            "finalShaderChain": [],
+            "showLabel": true
+          }
+        ]
+      }
+    }
+  ],
+  "mappings": {
+    "local": {
+      "surfaces": [
+        {
+          "id": "surface-main",
+          "name": "surface-main",
+          "w": 800,
+          "h": 450,
+          "corners": [
+            {
+              "x": 340,
+              "y": 190
+            },
+            {
+              "x": 740,
+              "y": 190
+            },
+            {
+              "x": 740,
+              "y": 415
+            },
+            {
+              "x": 340,
+              "y": 415
+            }
+          ]
+        },
+        {
+          "id": "surface-left",
+          "name": "surface-left",
+          "w": 800,
+          "h": 450,
+          "corners": [
+            {
+              "x": 80,
+              "y": 215
+            },
+            {
+              "x": 310,
+              "y": 170
+            },
+            {
+              "x": 310,
+              "y": 505
+            },
+            {
+              "x": 80,
+              "y": 460
+            }
+          ]
+        },
+        {
+          "id": "surface-right",
+          "name": "surface-right",
+          "w": 800,
+          "h": 450,
+          "corners": [
+            {
+              "x": 770,
+              "y": 170
+            },
+            {
+              "x": 1000,
+              "y": 215
+            },
+            {
+              "x": 1000,
+              "y": 460
+            },
+            {
+              "x": 770,
+              "y": 505
+            }
+          ]
+        },
+        {
+          "id": "surface-top",
+          "name": "surface-top",
+          "w": 800,
+          "h": 450,
+          "corners": [
+            {
+              "x": 365,
+              "y": 30
+            },
+            {
+              "x": 715,
+              "y": 30
+            },
+            {
+              "x": 760,
+              "y": 160
+            },
+            {
+              "x": 320,
+              "y": 160
+            }
+          ]
+        }
+      ]
+    }
+  },
+  "shaders": {
+    "customCode": "vec4 runEffect(vec2 uv, vec4 color) {\n  return color;\n}",
+    "customName": "Fixture Passthrough"
+  }
+}

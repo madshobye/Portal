@@ -1,0 +1,105 @@
+{
+  "generatedAt": "2026-07-10T09:37:50.832Z",
+  "project": {
+    "name": "Untitled VJ Set",
+    "version": 5,
+    "scenes": 0,
+    "media": 0
+  },
+  "render": {
+    "frameWidth": 960,
+    "frameHeight": 540,
+    "framePixels": 518400,
+    "surfaceWidth": 800,
+    "surfaceHeight": 450,
+    "surfacePixels": 360000,
+    "worldWidth": 1440,
+    "worldHeight": 810,
+    "worldPixels": 1166400,
+    "pixelDensity": 1,
+    "edgeSoftness": 0
+  },
+  "aggregate": {
+    "compositionCount": 1,
+    "sceneCount": 0,
+    "surfaceCount": 2,
+    "activeSurfaceCount": 2,
+    "mediaCount": 0,
+    "mappedSurfaceCount": 0,
+    "totalSources": 1,
+    "totalEffects": 0,
+    "enabledEffects": 0,
+    "estimatedWork": 1.47
+  },
+  "runtime": {
+    "sampleCount": 0,
+    "fpsAvg": 0,
+    "fpsMin": 0,
+    "frameMsAvg": 0,
+    "frameMsP95": 0,
+    "renderCostAvg": 0,
+    "renderCostP95": 0,
+    "bottlenecks": []
+  },
+  "compositions": [
+    {
+      "id": "composition-mreqsqun-dkptq",
+      "name": "Test Pattern",
+      "selected": true,
+      "surfaces": [
+        "surface-main",
+        "surface-mreqsqun-3a1mi"
+      ],
+      "chainItems": {
+        "total": 1,
+        "enabled": 1
+      },
+      "sources": {
+        "total": 1,
+        "enabled": 1,
+        "media": 0,
+        "video": 0,
+        "missingMedia": 0
+      },
+      "effects": {
+        "total": 0,
+        "enabled": 0,
+        "spatial": 0,
+        "custom": 0
+      },
+      "branches": 1,
+      "maxEffectDepth": 0,
+      "estimatedWork": 0.97,
+      "thumbnailBytes": 0,
+      "blend": "normal",
+      "patchWarnings": [],
+      "bottlenecks": []
+    }
+  ],
+  "mapping": {
+    "mappedSurfaceCount": 0,
+    "configuredSurfaceCount": 0,
+    "missingActiveSurfaceCount": 2,
+    "degenerateSurfaceCount": 0,
+    "offWorldCornerCount": 0,
+    "bottlenecks": [
+      {
+        "severity": "info",
+        "scope": "mapping",
+        "message": "2 active surface(s) have no saved mapping and will use generated defaults."
+      }
+    ]
+  },
+  "bottlenecks": [
+    {
+      "severity": "info",
+      "scope": "project",
+      "message": "No captured scenes; live workflow has nothing stable to select."
+    },
+    {
+      "severity": "info",
+      "scope": "mapping",
+      "message": "2 active surface(s) have no saved mapping and will use generated defaults."
+    }
+  ]
+}

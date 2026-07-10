@@ -1,0 +1,971 @@
+{
+  "generatedAt": "2026-07-10T10:36:14.705Z",
+  "project": {
+    "name": "Four Surface Metrics Show",
+    "version": 5,
+    "scenes": 1,
+    "media": 0
+  },
+  "render": {
+    "frameWidth": 960,
+    "frameHeight": 540,
+    "framePixels": 518400,
+    "surfaceWidth": 800,
+    "surfaceHeight": 450,
+    "surfacePixels": 360000,
+    "worldWidth": 1440,
+    "worldHeight": 810,
+    "worldPixels": 1166400,
+    "pixelDensity": 1,
+    "edgeSoftness": 0
+  },
+  "aggregate": {
+    "compositionCount": 4,
+    "sceneCount": 1,
+    "surfaceCount": 4,
+    "activeSurfaceCount": 4,
+    "mediaCount": 0,
+    "mappedSurfaceCount": 4,
+    "totalSources": 4,
+    "totalEffects": 15,
+    "enabledEffects": 15,
+    "estimatedWork": 24.65,
+    "topCostContributor": {
+      "compositionId": "composition-noise",
+      "compositionName": "Noise Key Stack",
+      "id": "chain-noise-dilate",
+      "name": "Dilate",
+      "kind": "effect",
+      "componentId": "dilate",
+      "index": 4,
+      "effectDepth": 4,
+      "estimatedWork": 1.89,
+      "reason": "dilate shader, depth 4"
+    }
+  },
+  "runtime": {
+    "sampleCount": 78,
+    "fpsAvg": 38.60982189147152,
+    "fpsMin": 34.278833047659916,
+    "frameMsAvg": 1.4734066319181456,
+    "frameMsP95": 4.203059100642848,
+    "renderCostAvg": 0.1768087958301775,
+    "renderCostP95": 0.5043670920771417,
+    "warmupSampleCount": 3,
+    "steady": {
+      "sampleCount": 75,
+      "fpsAvg": 38.4367968318203,
+      "fpsMin": 34.278833047659916,
+      "frameMsAvg": 1.0923459206189687,
+      "frameMsP95": 3.6967821752608945,
+      "renderCostAvg": 0.13108151047427627,
+      "renderCostP95": 0.44361386103130734,
+      "profile": {
+        "sampleCount": 75,
+        "shaderPassesAvg": 15,
+        "shaderChainsAvg": 4,
+        "shaderHandoffsAvg": 0,
+        "maxShaderChainLengthMax": 5,
+        "shaderMsP95": 0.8,
+        "compositionMsP95": 2.5,
+        "slowPasses": [
+          {
+            "compositionId": "composition-test-pattern",
+            "compositionName": "Test Pattern Stack",
+            "height": 450,
+            "ms": 1.6,
+            "type": "composition",
+            "width": 800
+          },
+          {
+            "compositionId": "composition-test-pattern",
+            "compositionName": "Test Pattern Stack",
+            "height": 450,
+            "ms": 1.6,
+            "type": "composition",
+            "width": 800
+          },
+          {
+            "compositionId": "composition-test-pattern",
+            "compositionName": "Test Pattern Stack",
+            "height": 450,
+            "ms": 1.5,
+            "type": "composition",
+            "width": 800
+          },
+          {
+            "compositionId": "composition-test-pattern",
+            "compositionName": "Test Pattern Stack",
+            "height": 450,
+            "ms": 1.4,
+            "type": "composition",
+            "width": 800
+          },
+          {
+            "compositionId": "composition-test-pattern",
+            "compositionName": "Test Pattern Stack",
+            "height": 450,
+            "ms": 1.2,
+            "type": "composition",
+            "width": 800
+          },
+          {
+            "compositionId": "composition-test-pattern",
+            "compositionName": "Test Pattern Stack",
+            "height": 450,
+            "ms": 1.2,
+            "type": "composition",
+            "width": 800
+          },
+          {
+            "compositionId": "composition-test-pattern",
+            "compositionName": "Test Pattern Stack",
+            "height": 450,
+            "ms": 1,
+            "type": "composition",
+            "width": 800
+          },
+          {
+            "compositionId": "composition-test-pattern",
+            "compositionName": "Test Pattern Stack",
+            "height": 450,
+            "ms": 0.9,
+            "passId": "testPattern",
+            "passName": "Test Pattern",
+            "type": "source",
+            "width": 800
+          },
+          {
+            "compositionId": "composition-test-pattern",
+            "compositionName": "Test Pattern Stack",
+            "height": 450,
+            "ms": 0.9,
+            "type": "composition",
+            "width": 800
+          },
+          {
+            "compositionId": "composition-test-pattern",
+            "compositionName": "Test Pattern Stack",
+            "height": 450,
+            "ms": 0.7,
+            "passId": "testPattern",
+            "passName": "Test Pattern",
+            "type": "source",
+            "width": 800
+          },
+          {
+            "compositionId": "composition-test-pattern",
+            "compositionName": "Test Pattern Stack",
+            "height": 450,
+            "ms": 0.7,
+            "passId": "testPattern",
+            "passName": "Test Pattern",
+            "type": "source",
+            "width": 800
+          },
+          {
+            "compositionId": "composition-test-pattern",
+            "compositionName": "Test Pattern Stack",
+            "height": 450,
+            "ms": 0.7,
+            "type": "composition",
+            "width": 800
+          }
+        ]
+      }
+    },
+    "profile": {
+      "sampleCount": 78,
+      "shaderPassesAvg": 15,
+      "shaderChainsAvg": 4,
+      "shaderHandoffsAvg": 0,
+      "maxShaderChainLengthMax": 5,
+      "shaderMsP95": 0.9,
+      "compositionMsP95": 2.6,
+      "slowPasses": [
+        {
+          "compositionId": "composition-test-pattern",
+          "compositionName": "Test Pattern Stack",
+          "height": 450,
+          "ms": 1.6,
+          "type": "composition",
+          "width": 800
+        },
+        {
+          "compositionId": "composition-test-pattern",
+          "compositionName": "Test Pattern Stack",
+          "height": 450,
+          "ms": 1.6,
+          "type": "composition",
+          "width": 800
+        },
+        {
+          "compositionId": "composition-test-pattern",
+          "compositionName": "Test Pattern Stack",
+          "height": 450,
+          "ms": 1.6,
+          "type": "composition",
+          "width": 800
+        },
+        {
+          "compositionId": "composition-test-pattern",
+          "compositionName": "Test Pattern Stack",
+          "height": 450,
+          "ms": 1.6,
+          "type": "composition",
+          "width": 800
+        },
+        {
+          "compositionId": "composition-test-pattern",
+          "compositionName": "Test Pattern Stack",
+          "height": 450,
+          "ms": 1.5,
+          "type": "composition",
+          "width": 800
+        },
+        {
+          "compositionId": "composition-test-pattern",
+          "compositionName": "Test Pattern Stack",
+          "height": 450,
+          "ms": 1.4,
+          "type": "composition",
+          "width": 800
+        },
+        {
+          "compositionId": "composition-test-pattern",
+          "compositionName": "Test Pattern Stack",
+          "height": 450,
+          "ms": 1.2,
+          "type": "composition",
+          "width": 800
+        },
+        {
+          "compositionId": "composition-test-pattern",
+          "compositionName": "Test Pattern Stack",
+          "height": 450,
+          "ms": 1.2,
+          "type": "composition",
+          "width": 800
+        },
+        {
+          "compositionId": "composition-test-pattern",
+          "compositionName": "Test Pattern Stack",
+          "height": 450,
+          "ms": 1.2,
+          "type": "composition",
+          "width": 800
+        },
+        {
+          "compositionId": "composition-test-pattern",
+          "compositionName": "Test Pattern Stack",
+          "height": 450,
+          "ms": 1,
+          "type": "composition",
+          "width": 800
+        },
+        {
+          "compositionId": "composition-test-pattern",
+          "compositionName": "Test Pattern Stack",
+          "height": 450,
+          "ms": 0.9,
+          "passId": "testPattern",
+          "passName": "Test Pattern",
+          "type": "source",
+          "width": 800
+        },
+        {
+          "compositionId": "composition-test-pattern",
+          "compositionName": "Test Pattern Stack",
+          "height": 450,
+          "ms": 0.9,
+          "type": "composition",
+          "width": 800
+        }
+      ]
+    },
+    "bottlenecks": [
+      {
+        "severity": "warn",
+        "scope": "runtime",
+        "message": "Average FPS is 38.6."
+      },
+      {
+        "severity": "info",
+        "scope": "runtime",
+        "message": "Longest observed shader chain was 5 pass(es)."
+      }
+    ]
+  },
+  "compositions": [
+    {
+      "id": "composition-test-pattern",
+      "name": "Test Pattern Stack",
+      "selected": true,
+      "surfaces": [
+        "surface-main"
+      ],
+      "chainItems": {
+        "total": 4,
+        "enabled": 4
+      },
+      "sources": {
+        "total": 1,
+        "enabled": 1,
+        "media": 0,
+        "video": 0,
+        "missingMedia": 0
+      },
+      "effects": {
+        "total": 3,
+        "enabled": 3,
+        "spatial": 0,
+        "custom": 0
+      },
+      "branches": 1,
+      "maxEffectDepth": 3,
+      "estimatedWork": 4.9,
+      "costItems": [
+        {
+          "compositionId": "composition-test-pattern",
+          "compositionName": "Test Pattern Stack",
+          "id": "chain-test-rgb",
+          "name": "RGB Split",
+          "kind": "effect",
+          "componentId": "rgbSplit",
+          "index": 2,
+          "effectDepth": 2,
+          "estimatedWork": 1.58,
+          "reason": "rgbSplit shader, depth 2"
+        },
+        {
+          "compositionId": "composition-test-pattern",
+          "compositionName": "Test Pattern Stack",
+          "id": "chain-test-pixelate",
+          "name": "Pixelate",
+          "kind": "effect",
+          "componentId": "pixelate",
+          "index": 3,
+          "effectDepth": 3,
+          "estimatedWork": 1.51,
+          "reason": "pixelate shader, depth 3"
+        },
+        {
+          "compositionId": "composition-test-pattern",
+          "compositionName": "Test Pattern Stack",
+          "id": "chain-test-ripple",
+          "name": "Ripple",
+          "kind": "effect",
+          "componentId": "ripple",
+          "index": 1,
+          "effectDepth": 1,
+          "estimatedWork": 1.35,
+          "reason": "ripple shader"
+        },
+        {
+          "compositionId": "composition-test-pattern",
+          "compositionName": "Test Pattern Stack",
+          "id": "chain-test-source",
+          "name": "Test Pattern",
+          "kind": "source",
+          "componentId": "testPattern",
+          "index": 0,
+          "effectDepth": 0,
+          "estimatedWork": 0.75,
+          "reason": "testPattern generator"
+        }
+      ],
+      "thumbnailBytes": 0,
+      "blend": "normal",
+      "patchWarnings": [],
+      "bottlenecks": []
+    },
+    {
+      "id": "composition-waves",
+      "name": "Waves Luma Stack",
+      "selected": false,
+      "surfaces": [
+        "surface-left"
+      ],
+      "chainItems": {
+        "total": 5,
+        "enabled": 5
+      },
+      "sources": {
+        "total": 1,
+        "enabled": 1,
+        "media": 0,
+        "video": 0,
+        "missingMedia": 0
+      },
+      "effects": {
+        "total": 4,
+        "enabled": 4,
+        "spatial": 0,
+        "custom": 0
+      },
+      "branches": 1,
+      "maxEffectDepth": 4,
+      "estimatedWork": 6.25,
+      "costItems": [
+        {
+          "compositionId": "composition-waves",
+          "compositionName": "Waves Luma Stack",
+          "id": "chain-waves-blur",
+          "name": "Blur",
+          "kind": "effect",
+          "componentId": "blur",
+          "index": 2,
+          "effectDepth": 2,
+          "estimatedWork": 1.88,
+          "reason": "blur shader, depth 2"
+        },
+        {
+          "compositionId": "composition-waves",
+          "compositionName": "Waves Luma Stack",
+          "id": "chain-waves-luma",
+          "name": "Luma Key",
+          "kind": "effect",
+          "componentId": "lumaKey",
+          "index": 3,
+          "effectDepth": 3,
+          "estimatedWork": 1.41,
+          "reason": "lumaKey shader, depth 3"
+        },
+        {
+          "compositionId": "composition-waves",
+          "compositionName": "Waves Luma Stack",
+          "id": "chain-waves-plasma",
+          "name": "Plasma Tint",
+          "kind": "effect",
+          "componentId": "plasma",
+          "index": 1,
+          "effectDepth": 1,
+          "estimatedWork": 1.3,
+          "reason": "plasma shader"
+        },
+        {
+          "compositionId": "composition-waves",
+          "compositionName": "Waves Luma Stack",
+          "id": "chain-waves-invert",
+          "name": "Invert",
+          "kind": "effect",
+          "componentId": "invert",
+          "index": 4,
+          "effectDepth": 4,
+          "estimatedWork": 1.24,
+          "reason": "invert shader, depth 4"
+        },
+        {
+          "compositionId": "composition-waves",
+          "compositionName": "Waves Luma Stack",
+          "id": "chain-waves-source",
+          "name": "Waves",
+          "kind": "source",
+          "componentId": "waves",
+          "index": 0,
+          "effectDepth": 0,
+          "estimatedWork": 0.75,
+          "reason": "waves generator"
+        }
+      ],
+      "thumbnailBytes": 0,
+      "blend": "screen",
+      "patchWarnings": [],
+      "bottlenecks": [
+        {
+          "severity": "info",
+          "scope": "Waves Luma Stack",
+          "message": "Cost contributor: Blur (1.88, blur shader, depth 2)."
+        }
+      ]
+    },
+    {
+      "id": "composition-noise",
+      "name": "Noise Key Stack",
+      "selected": false,
+      "surfaces": [
+        "surface-right"
+      ],
+      "chainItems": {
+        "total": 6,
+        "enabled": 6
+      },
+      "sources": {
+        "total": 1,
+        "enabled": 1,
+        "media": 0,
+        "video": 0,
+        "missingMedia": 0
+      },
+      "effects": {
+        "total": 5,
+        "enabled": 5,
+        "spatial": 0,
+        "custom": 0
+      },
+      "branches": 1,
+      "maxEffectDepth": 5,
+      "estimatedWork": 7.6,
+      "costItems": [
+        {
+          "compositionId": "composition-noise",
+          "compositionName": "Noise Key Stack",
+          "id": "chain-noise-dilate",
+          "name": "Dilate",
+          "kind": "effect",
+          "componentId": "dilate",
+          "index": 4,
+          "effectDepth": 4,
+          "estimatedWork": 1.89,
+          "reason": "dilate shader, depth 4"
+        },
+        {
+          "compositionId": "composition-noise",
+          "compositionName": "Noise Key Stack",
+          "id": "chain-noise-grain",
+          "name": "Label Grain",
+          "kind": "effect",
+          "componentId": "labelGrain",
+          "index": 5,
+          "effectDepth": 5,
+          "estimatedWork": 1.87,
+          "reason": "labelGrain shader, depth 5"
+        },
+        {
+          "compositionId": "composition-noise",
+          "compositionName": "Noise Key Stack",
+          "id": "chain-noise-erode",
+          "name": "Erode",
+          "kind": "effect",
+          "componentId": "erode",
+          "index": 3,
+          "effectDepth": 3,
+          "estimatedWork": 1.81,
+          "reason": "erode shader, depth 3"
+        },
+        {
+          "compositionId": "composition-noise",
+          "compositionName": "Noise Key Stack",
+          "id": "chain-noise-threshold",
+          "name": "Threshold",
+          "kind": "effect",
+          "componentId": "threshold",
+          "index": 2,
+          "effectDepth": 2,
+          "estimatedWork": 1.53,
+          "reason": "threshold shader, depth 2"
+        },
+        {
+          "compositionId": "composition-noise",
+          "compositionName": "Noise Key Stack",
+          "id": "chain-noise-gray",
+          "name": "Gray",
+          "kind": "effect",
+          "componentId": "gray",
+          "index": 1,
+          "effectDepth": 1,
+          "estimatedWork": 1.05,
+          "reason": "gray shader"
+        },
+        {
+          "compositionId": "composition-noise",
+          "compositionName": "Noise Key Stack",
+          "id": "chain-noise-source",
+          "name": "Noise",
+          "kind": "source",
+          "componentId": "noise",
+          "index": 0,
+          "effectDepth": 0,
+          "estimatedWork": 0.75,
+          "reason": "noise generator"
+        }
+      ],
+      "thumbnailBytes": 0,
+      "blend": "add",
+      "patchWarnings": [],
+      "bottlenecks": [
+        {
+          "severity": "warn",
+          "scope": "Noise Key Stack",
+          "message": "Longest branch has 5 sequential effects."
+        },
+        {
+          "severity": "info",
+          "scope": "Noise Key Stack",
+          "message": "Cost contributor: Dilate (1.89, dilate shader, depth 4)."
+        },
+        {
+          "severity": "info",
+          "scope": "Noise Key Stack",
+          "message": "Cost contributor: Label Grain (1.87, labelGrain shader, depth 5)."
+        }
+      ]
+    },
+    {
+      "id": "composition-plasma",
+      "name": "Plasma Geometry Stack",
+      "selected": false,
+      "surfaces": [
+        "surface-top"
+      ],
+      "chainItems": {
+        "total": 4,
+        "enabled": 4
+      },
+      "sources": {
+        "total": 1,
+        "enabled": 1,
+        "media": 0,
+        "video": 0,
+        "missingMedia": 0
+      },
+      "effects": {
+        "total": 3,
+        "enabled": 3,
+        "spatial": 0,
+        "custom": 0
+      },
+      "branches": 1,
+      "maxEffectDepth": 3,
+      "estimatedWork": 4.9,
+      "costItems": [
+        {
+          "compositionId": "composition-plasma",
+          "compositionName": "Plasma Geometry Stack",
+          "id": "chain-plasma-rgb",
+          "name": "RGB Split",
+          "kind": "effect",
+          "componentId": "rgbSplit",
+          "index": 3,
+          "effectDepth": 3,
+          "estimatedWork": 1.66,
+          "reason": "rgbSplit shader, depth 3"
+        },
+        {
+          "compositionId": "composition-plasma",
+          "compositionName": "Plasma Geometry Stack",
+          "id": "chain-plasma-kaleido",
+          "name": "Kaleido",
+          "kind": "effect",
+          "componentId": "kaleido",
+          "index": 1,
+          "effectDepth": 1,
+          "estimatedWork": 1.45,
+          "reason": "kaleido shader"
+        },
+        {
+          "compositionId": "composition-plasma",
+          "compositionName": "Plasma Geometry Stack",
+          "id": "chain-plasma-ripple",
+          "name": "Ripple",
+          "kind": "effect",
+          "componentId": "ripple",
+          "index": 2,
+          "effectDepth": 2,
+          "estimatedWork": 1.43,
+          "reason": "ripple shader, depth 2"
+        },
+        {
+          "compositionId": "composition-plasma",
+          "compositionName": "Plasma Geometry Stack",
+          "id": "chain-plasma-source",
+          "name": "Plasma",
+          "kind": "source",
+          "componentId": "plasma",
+          "index": 0,
+          "effectDepth": 0,
+          "estimatedWork": 0.75,
+          "reason": "plasma generator"
+        }
+      ],
+      "thumbnailBytes": 0,
+      "blend": "overlay",
+      "patchWarnings": [],
+      "bottlenecks": []
+    }
+  ],
+  "costliestChainItems": [
+    {
+      "compositionId": "composition-noise",
+      "compositionName": "Noise Key Stack",
+      "id": "chain-noise-dilate",
+      "name": "Dilate",
+      "kind": "effect",
+      "componentId": "dilate",
+      "index": 4,
+      "effectDepth": 4,
+      "estimatedWork": 1.89,
+      "reason": "dilate shader, depth 4"
+    },
+    {
+      "compositionId": "composition-waves",
+      "compositionName": "Waves Luma Stack",
+      "id": "chain-waves-blur",
+      "name": "Blur",
+      "kind": "effect",
+      "componentId": "blur",
+      "index": 2,
+      "effectDepth": 2,
+      "estimatedWork": 1.88,
+      "reason": "blur shader, depth 2"
+    },
+    {
+      "compositionId": "composition-noise",
+      "compositionName": "Noise Key Stack",
+      "id": "chain-noise-grain",
+      "name": "Label Grain",
+      "kind": "effect",
+      "componentId": "labelGrain",
+      "index": 5,
+      "effectDepth": 5,
+      "estimatedWork": 1.87,
+      "reason": "labelGrain shader, depth 5"
+    },
+    {
+      "compositionId": "composition-noise",
+      "compositionName": "Noise Key Stack",
+      "id": "chain-noise-erode",
+      "name": "Erode",
+      "kind": "effect",
+      "componentId": "erode",
+      "index": 3,
+      "effectDepth": 3,
+      "estimatedWork": 1.81,
+      "reason": "erode shader, depth 3"
+    },
+    {
+      "compositionId": "composition-plasma",
+      "compositionName": "Plasma Geometry Stack",
+      "id": "chain-plasma-rgb",
+      "name": "RGB Split",
+      "kind": "effect",
+      "componentId": "rgbSplit",
+      "index": 3,
+      "effectDepth": 3,
+      "estimatedWork": 1.66,
+      "reason": "rgbSplit shader, depth 3"
+    },
+    {
+      "compositionId": "composition-test-pattern",
+      "compositionName": "Test Pattern Stack",
+      "id": "chain-test-rgb",
+      "name": "RGB Split",
+      "kind": "effect",
+      "componentId": "rgbSplit",
+      "index": 2,
+      "effectDepth": 2,
+      "estimatedWork": 1.58,
+      "reason": "rgbSplit shader, depth 2"
+    },
+    {
+      "compositionId": "composition-noise",
+      "compositionName": "Noise Key Stack",
+      "id": "chain-noise-threshold",
+      "name": "Threshold",
+      "kind": "effect",
+      "componentId": "threshold",
+      "index": 2,
+      "effectDepth": 2,
+      "estimatedWork": 1.53,
+      "reason": "threshold shader, depth 2"
+    },
+    {
+      "compositionId": "composition-test-pattern",
+      "compositionName": "Test Pattern Stack",
+      "id": "chain-test-pixelate",
+      "name": "Pixelate",
+      "kind": "effect",
+      "componentId": "pixelate",
+      "index": 3,
+      "effectDepth": 3,
+      "estimatedWork": 1.51,
+      "reason": "pixelate shader, depth 3"
+    },
+    {
+      "compositionId": "composition-plasma",
+      "compositionName": "Plasma Geometry Stack",
+      "id": "chain-plasma-kaleido",
+      "name": "Kaleido",
+      "kind": "effect",
+      "componentId": "kaleido",
+      "index": 1,
+      "effectDepth": 1,
+      "estimatedWork": 1.45,
+      "reason": "kaleido shader"
+    },
+    {
+      "compositionId": "composition-plasma",
+      "compositionName": "Plasma Geometry Stack",
+      "id": "chain-plasma-ripple",
+      "name": "Ripple",
+      "kind": "effect",
+      "componentId": "ripple",
+      "index": 2,
+      "effectDepth": 2,
+      "estimatedWork": 1.43,
+      "reason": "ripple shader, depth 2"
+    },
+    {
+      "compositionId": "composition-waves",
+      "compositionName": "Waves Luma Stack",
+      "id": "chain-waves-luma",
+      "name": "Luma Key",
+      "kind": "effect",
+      "componentId": "lumaKey",
+      "index": 3,
+      "effectDepth": 3,
+      "estimatedWork": 1.41,
+      "reason": "lumaKey shader, depth 3"
+    },
+    {
+      "compositionId": "composition-test-pattern",
+      "compositionName": "Test Pattern Stack",
+      "id": "chain-test-ripple",
+      "name": "Ripple",
+      "kind": "effect",
+      "componentId": "ripple",
+      "index": 1,
+      "effectDepth": 1,
+      "estimatedWork": 1.35,
+      "reason": "ripple shader"
+    }
+  ],
+  "engineHotspots": [
+    {
+      "priority": "high",
+      "step": "Sequential shader passes",
+      "reason": "15 enabled effect pass(es) across active compositions; each pass is still a full texture render even when ping-pong buffers avoid intermediate handoff copies.",
+      "evidence": {
+        "totalEnabledEffects": 15,
+        "maxEffectDepth": 5
+      }
+    },
+    {
+      "priority": "high",
+      "step": "Heavy shader components",
+      "reason": "Noise Key Stack/Dilate, Waves Luma Stack/Blur, Noise Key Stack/Label Grain, Noise Key Stack/Erode are likely expensive fragment passes.",
+      "evidence": {
+        "items": [
+          {
+            "compositionId": "composition-noise",
+            "compositionName": "Noise Key Stack",
+            "id": "chain-noise-dilate",
+            "name": "Dilate",
+            "kind": "effect",
+            "componentId": "dilate",
+            "index": 4,
+            "effectDepth": 4,
+            "estimatedWork": 1.89,
+            "reason": "dilate shader, depth 4"
+          },
+          {
+            "compositionId": "composition-waves",
+            "compositionName": "Waves Luma Stack",
+            "id": "chain-waves-blur",
+            "name": "Blur",
+            "kind": "effect",
+            "componentId": "blur",
+            "index": 2,
+            "effectDepth": 2,
+            "estimatedWork": 1.88,
+            "reason": "blur shader, depth 2"
+          },
+          {
+            "compositionId": "composition-noise",
+            "compositionName": "Noise Key Stack",
+            "id": "chain-noise-grain",
+            "name": "Label Grain",
+            "kind": "effect",
+            "componentId": "labelGrain",
+            "index": 5,
+            "effectDepth": 5,
+            "estimatedWork": 1.87,
+            "reason": "labelGrain shader, depth 5"
+          },
+          {
+            "compositionId": "composition-noise",
+            "compositionName": "Noise Key Stack",
+            "id": "chain-noise-erode",
+            "name": "Erode",
+            "kind": "effect",
+            "componentId": "erode",
+            "index": 3,
+            "effectDepth": 3,
+            "estimatedWork": 1.81,
+            "reason": "erode shader, depth 3"
+          },
+          {
+            "compositionId": "composition-plasma",
+            "compositionName": "Plasma Geometry Stack",
+            "id": "chain-plasma-rgb",
+            "name": "RGB Split",
+            "kind": "effect",
+            "componentId": "rgbSplit",
+            "index": 3,
+            "effectDepth": 3,
+            "estimatedWork": 1.66,
+            "reason": "rgbSplit shader, depth 3"
+          }
+        ]
+      }
+    },
+    {
+      "priority": "medium",
+      "step": "Per-surface texture and mapper draw",
+      "reason": "4 active surface(s) each require a surface texture draw plus a homography mapper pass at 800x450.",
+      "evidence": {
+        "activeSurfaceCount": 4,
+        "surfacePixels": 360000
+      }
+    },
+    {
+      "priority": "low",
+      "step": "Calibration overlays and labels",
+      "reason": "Calibration mode draws handles, output-frame overlays, and per-surface text labels on top of render output.",
+      "evidence": {
+        "calibrating": true,
+        "showLabels": true
+      }
+    }
+  ],
+  "mapping": {
+    "mappedSurfaceCount": 4,
+    "configuredSurfaceCount": 4,
+    "missingActiveSurfaceCount": 0,
+    "degenerateSurfaceCount": 0,
+    "offWorldCornerCount": 0,
+    "bottlenecks": []
+  },
+  "bottlenecks": [
+    {
+      "severity": "warn",
+      "scope": "Noise Key Stack",
+      "message": "Longest branch has 5 sequential effects."
+    },
+    {
+      "severity": "warn",
+      "scope": "runtime",
+      "message": "Average FPS is 38.6."
+    },
+    {
+      "severity": "info",
+      "scope": "Waves Luma Stack",
+      "message": "Cost contributor: Blur (1.88, blur shader, depth 2)."
+    },
+    {
+      "severity": "info",
+      "scope": "Noise Key Stack",
+      "message": "Cost contributor: Dilate (1.89, dilate shader, depth 4)."
+    },
+    {
+      "severity": "info",
+      "scope": "Noise Key Stack",
+      "message": "Cost contributor: Label Grain (1.87, labelGrain shader, depth 5)."
+    },
+    {
+      "severity": "info",
+      "scope": "runtime",
+      "message": "Longest observed shader chain was 5 pass(es)."
+    }
+  ]
+}

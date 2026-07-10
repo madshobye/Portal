@@ -75,3 +75,12 @@ git diff --check
 ```
 
 `experiments/vj1/todo.md` should be empty when a work iteration is done.
+
+## Metrics Suite
+
+- Static and runtime metrics live under `experiments/vj1/tests` and `experiments/vj1/js/metrics`.
+- Run from `experiments/vj1` with `npm run test:metrics`.
+- Analyze a project with `npm run metrics -- /path/to/project.json --save`.
+- Compare against an old run with `npm run metrics -- /path/to/project.json --compare metrics-results/runs/OLD.metrics.json`.
+- Historical and baseline reports belong in `experiments/vj1/metrics-results`; see that folder's README for naming and retention rules.
+- Browser/manual collection is available at `experiments/vj1/metrics.html`; use it on the same origin as VJ1 to collect BroadcastChannel runtime samples.

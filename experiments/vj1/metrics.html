@@ -1,0 +1,163 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>VJ1 Metrics</title>
+    <style>
+      :root {
+        color-scheme: dark;
+        font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+        background: #101214;
+        color: #e9eef2;
+      }
+      body {
+        margin: 0;
+        padding: 24px;
+      }
+      main {
+        max-width: 1120px;
+        margin: 0 auto;
+      }
+      h1 {
+        font-size: 24px;
+        margin: 0 0 16px;
+      }
+      .toolbar {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+        align-items: center;
+        padding: 14px;
+        background: #171b1f;
+        border: 1px solid #283039;
+        border-radius: 8px;
+      }
+      button,
+      input::file-selector-button {
+        background: #d8ff5f;
+        color: #101214;
+        border: 0;
+        border-radius: 6px;
+        padding: 8px 10px;
+        font: inherit;
+        cursor: pointer;
+      }
+      input {
+        font: inherit;
+      }
+      .status {
+        color: #a7b1bb;
+        margin-left: auto;
+      }
+      .panels {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+        gap: 14px;
+        margin-top: 14px;
+      }
+      pre {
+        min-height: 520px;
+        overflow: auto;
+        white-space: pre-wrap;
+        background: #060708;
+        border: 1px solid #283039;
+        border-radius: 8px;
+        padding: 14px;
+        line-height: 1.45;
+      }
+      @media (max-width: 900px) {
+        .panels {
+          grid-template-columns: 1fr;
+        }
+        .status {
+          width: 100%;
+          margin-left: 0;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>VJ1 Metrics</h1>
+      <div class="toolbar">
+        <input id="project-file" type="file" accept="application/json,.json" />
+        <button id="analyze-default" type="button">Analyze Default State</button>
+        <button id="listen-runtime" type="button">Listen 10s Runtime</button>
+        <button id="download-json" type="button">Download JSON</button>
+        <span id="status" class="status">Choose a project.json file.</span>
+      </div>
+      <div class="panels">
+        <pre id="markdown"></pre>
+        <pre id="json"></pre>
+      </div>
+    </main>
+    <script type="module">
+      import { VJ1 } from "./js/constants.js";
+      import { createInitialState } from "./js/domain/models.js?v=world-frame-27";
+      import { analyzeVj1Project, reportVj1MetricsMarkdown } from "./js/metrics/composition-metrics.js";
+
+      const fileInput = document.querySelector("#project-file");
+      const markdownEl = document.querySelector("#markdown");
+      const jsonEl = document.querySelector("#json");
+      const statusEl = document.querySelector("#status");
+      const runtimeSamples = [];
+      let currentProject = null;
+      let currentMetrics = null;
+
+      fileInput.addEventListener("change", async () => {
+        const file = fileInput.files?.[0];
+        if (!file) return;
+        currentProject = JSON.parse(await file.text());
+        renderMetrics();
+      });
+
+      document.querySelector("#analyze-default").addEventListener("click", () => {
+        currentProject = createInitialState();
+        renderMetrics();
+      });
+
+      document.querySelector("#listen-runtime").addEventListener("click", () => {
+        listenRuntimeMetrics(10000);
+      });
+
+      document.querySelector("#download-json").addEventListener("click", () => {
+        if (!currentMetrics) return;
+        const blob = new Blob([JSON.stringify(currentMetrics, null, 2)], { type: "application/json" });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement("a");
+        link.href = url;
+        link.download = "vj1-metrics.json";
+        link.click();
+        setTimeout(() => URL.revokeObjectURL(url), 0);
+      });
+
+      function renderMetrics() {
+        currentMetrics = analyzeVj1Project(currentProject || createInitialState(), { runtimeSamples });
+        markdownEl.textContent = reportVj1MetricsMarkdown(currentMetrics);
+        jsonEl.textContent = JSON.stringify(currentMetrics, null, 2);
+        statusEl.textContent = `${currentMetrics.bottlenecks.length} bottleneck(s), ${runtimeSamples.length} runtime sample(s).`;
+      }
+
+      function listenRuntimeMetrics(durationMs) {
+        const channel = new BroadcastChannel(VJ1.channelName);
+        const started = performance.now();
+        statusEl.textContent = "Listening for output/preview metrics...";
+        channel.onmessage = (event) => {
+          const msg = event.data || {};
+          if (msg.type !== "metrics") return;
+          runtimeSamples.push({ ...(msg.metrics || {}), clientId: msg.clientId || "", receivedAt: new Date().toISOString() });
+          statusEl.textContent = `Runtime samples: ${runtimeSamples.length}`;
+        };
+        const timer = setInterval(() => {
+          if (performance.now() - started < durationMs) return;
+          clearInterval(timer);
+          channel.close();
+          renderMetrics();
+        }, 250);
+      }
+
+      renderMetrics();
+    </script>
+  </body>
+</html>

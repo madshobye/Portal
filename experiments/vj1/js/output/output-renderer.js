@@ -2,7 +2,9 @@ import { VJ1 } from "../constants.js";
 import { clamp01, sanitizeState } from "../domain/models.js?v=world-frame-27";
 import { createManualScheduler } from "../graph/manual-scheduler.js";
 import { compileCompositionPatch, compileShaderSchedule } from "../graph/render-scheduler.js?v=world-frame-27";
+import { getGeneratorComponent } from "../graph/generator-registry.js";
 import { createShaderBuilder } from "../shaders/shader-builder.js?v=world-frame-27";
+import { getGeneratorShaderComponent } from "../shaders/generator-shaders.js";
 import { applyBlend } from "./blend-utils.js";
 import { applyFontToGlobal, applyFontToTarget } from "./font-loader.js?v=world-frame-27";
 import { drawGenerator, drawStandby } from "./generators.js";
@@ -43,7 +45,7 @@ export class OutputRenderer {
     this.media = new Map();
     this.pendingRenditionSaves = new Set();
     this.sourcePg = null;
-    this.fxTarget = null;
+    this.fxTargets = [null, null];
     this.fxTargetKey = "";
     this.mainMix = null;
     this.surfaceScratch = null;
@@ -65,6 +67,8 @@ export class OutputRenderer {
     this.smoothedRenderCost = 0;
     this.lastPixelDensity = 0;
     this.frameStart = 0;
+    this.frameProfile = createEmptyFrameProfile();
+    this.lastFrameProfile = createEmptyFrameProfile();
     this.lastTickMs = 0;
     this.visualTime = 0;
     this.frameIndex = 0;
@@ -116,7 +120,7 @@ export class OutputRenderer {
     this.applyGraphicsFont(this.mainMix);
     this.applyGraphicsFont(this.surfaceScratch);
     this.applyGraphicsFont(this.surfaceTexture);
-    this.applyGraphicsFont(this.fxTarget);
+    for (const target of this.fxTargets || []) this.applyGraphicsFont(target);
     for (const pg of this.compositionSource?.values?.() || []) this.applyGraphicsFont(pg);
     for (const pg of this.compositionOutput?.values?.() || []) this.applyGraphicsFont(pg);
     for (const pg of this.compositionBuffer?.values?.() || []) this.applyGraphicsFont(pg);
@@ -125,7 +129,7 @@ export class OutputRenderer {
   createBuffers() {
     this.disposeBuffers();
     this.applyPixelDensity();
-    const { width: rw, height: rh } = frameSize(this.state.render);
+    const { width: rw, height: rh } = this.outputFrameSize(this.state.render);
     const { width: surfaceWidth, height: surfaceHeight } = surfaceTextureSize(this.state.render);
     this.sourcePg = createGraphics(rw, rh);
     this.mainMix = createGraphics(rw, rh);
@@ -146,7 +150,7 @@ export class OutputRenderer {
     disposeGraphics(this.mainMix);
     disposeGraphics(this.surfaceScratch);
     disposeGraphics(this.surfaceTexture);
-    disposeGraphics(this.fxTarget);
+    for (const target of this.fxTargets || []) disposeGraphics(target);
     disposeGraphicsMap(this.compositionSource);
     disposeGraphicsMap(this.compositionOutput);
     disposeGraphicsMap(this.compositionBuffer);
@@ -156,7 +160,7 @@ export class OutputRenderer {
     this.mainMix = null;
     this.surfaceScratch = null;
     this.surfaceTexture = null;
-    this.fxTarget = null;
+    this.fxTargets = [null, null];
     this.fxTargetKey = "";
     this.shaderBuilder.clear?.();
   }
@@ -183,7 +187,7 @@ export class OutputRenderer {
     ]));
     this.mapper.clearSurfaces();
     this.mapperSurfaces.clear();
-    const frame = frameSize(this.state.render);
+    const frame = this.outputFrameSize(this.state.render);
     const offset = this.mode === "output" ? { x: 0, y: 0 } : this.outputFrameOffset();
     const cols = Math.max(1, Math.ceil(Math.sqrt(this.state.surfaces.length)));
     const rows = Math.max(1, Math.ceil(this.state.surfaces.length / cols));
@@ -248,11 +252,25 @@ export class OutputRenderer {
   }
 
   renderSizeSignature(render = {}) {
-    const frame = frameSize(render);
+    const frame = this.outputFrameSize(render);
+    const projectFrame = frameSize(render);
     const world = worldSize(render);
     const texture = surfaceTextureSize(render);
     const density = Math.max(0.5, Math.min(2, Number(render.pixelDensity) || 1));
-    return `${frame.width}x${frame.height}:${world.width}x${world.height}:${texture.width}x${texture.height}:pd${density}`;
+    return `${frame.width}x${frame.height}:project${projectFrame.width}x${projectFrame.height}:${world.width}x${world.height}:${texture.width}x${texture.height}:pd${density}`;
+  }
+
+  outputFrameSize(render = this.state?.render || {}) {
+    if (this.mode === "output") {
+      const fallback = frameSize(render);
+      const canvasWidth = typeof width === "number" ? width : fallback.width;
+      const canvasHeight = typeof height === "number" ? height : fallback.height;
+      return {
+        width: Math.max(1, Math.floor(Number(canvasWidth) || fallback.width)),
+        height: Math.max(1, Math.floor(Number(canvasHeight) || fallback.height)),
+      };
+    }
+    return frameSize(render);
   }
 
   syncMapperOverlayMode() {
@@ -300,21 +318,37 @@ export class OutputRenderer {
   mappingForRenderMode(mapping) {
     if (this.mode !== "output") return mapping;
     const offset = this.outputFrameOffset();
-    if (!offset.x && !offset.y) return mapping;
-    return offsetMapping(mapping, -offset.x, -offset.y);
+    const frameMapping = offset.x || offset.y
+      ? offsetMapping(mapping, -offset.x, -offset.y)
+      : mapping;
+    const transform = this.outputFrameTransform();
+    if (transform.scale === 1 && !transform.x && !transform.y) return frameMapping;
+    return transformMapping(frameMapping, transform.scale, transform.scale, transform.x, transform.y);
+  }
+
+  outputFrameTransform() {
+    const projectFrame = frameSize(this.state?.render || {});
+    const outputFrame = this.outputFrameSize(this.state?.render || {});
+    const scale = Math.max(
+      outputFrame.width / Math.max(1, projectFrame.width),
+      outputFrame.height / Math.max(1, projectFrame.height)
+    );
+    return {
+      scale,
+      x: (outputFrame.width - projectFrame.width * scale) * 0.5,
+      y: (outputFrame.height - projectFrame.height * scale) * 0.5,
+    };
   }
 
   mappingFromRenderMode(mapping) {
     if (this.mode !== "output") return mapping;
+    const transform = this.outputFrameTransform();
+    const projectFrameMapping = transform.scale === 1 && !transform.x && !transform.y
+      ? mapping
+      : transformMapping(mapping, 1 / transform.scale, 1 / transform.scale, -transform.x / transform.scale, -transform.y / transform.scale);
     const offset = this.outputFrameOffset();
-    if (!offset.x && !offset.y) return mapping;
-    return offsetMapping(mapping, offset.x, offset.y);
-  }
-
-  emitMapping(mapping = this.mapper?.exportData?.(), status = "Mapping updated") {
-    const projectMapping = this.mappingFromRenderMode(mapping || {});
-    this.markLocalMapping(projectMapping);
-    this.sendMapping?.("local", projectMapping, status);
+    if (!offset.x && !offset.y) return projectFrameMapping;
+    return offsetMapping(projectFrameMapping, offset.x, offset.y);
   }
 
   outputFrameOffset() {
@@ -361,6 +395,11 @@ export class OutputRenderer {
       }
       this.importMediaRenditions(item, entry?.renditions || []);
     }
+  }
+  emitMapping(mapping = this.mapper?.exportData?.(), status = "Mapping updated") {
+    const projectMapping = this.mappingFromRenderMode(mapping || {});
+    this.markLocalMapping(projectMapping);
+    this.sendMapping?.("local", projectMapping, status);
   }
 
   importMediaRenditions(item, renditions) {
@@ -411,6 +450,7 @@ export class OutputRenderer {
   draw() {
     if (!this.state) return;
     this.frameStart = performance.now();
+    this.frameProfile = createEmptyFrameProfile();
     this.frameIndex++;
     this.tickClock(this.frameStart);
     this.scheduledEvents = this.state.scheduler?.manualLane === false
@@ -422,6 +462,7 @@ export class OutputRenderer {
     if (this.mode === "composition") {
       this.renderCompositionPreview();
       this.captureSelectedCompositionThumbnail();
+      this.finishFrameProfile();
       this.updateHudAndMetrics();
       this.pruneRenderCaches();
       return;
@@ -434,6 +475,7 @@ export class OutputRenderer {
     this.renderOutputFrameOverlay();
     this.renderSelectedSurfaceOverlay();
     if (restoreCalibrate) this.mapper.setCalibrate(true);
+    this.finishFrameProfile();
     this.updateHudAndMetrics();
     this.pruneRenderCaches();
   }
@@ -572,10 +614,19 @@ export class OutputRenderer {
     const renderRequest = this.normalizeRenderRequest(request, "composition");
     const outputKey = renderBufferKey(composition.id, renderRequestKey(renderRequest));
     const cached = this.compositionOutput.get(outputKey);
-    if (cached) return cached;
+    if (cached) {
+      this.frameProfile.compositionCacheHits++;
+      return cached;
+    }
     const patch = compileCompositionPatch(composition, renderRequest);
     this.compositionPatches.set(composition.id, patch);
-    const output = this.renderCompositionPatch(composition, patch, compositionTime, renderRequest);
+    const output = this.measureProfile("compositionMs", {
+      type: "composition",
+      compositionId: composition.id,
+      compositionName: composition.name || composition.id || "Composition",
+      width: renderRequest.width,
+      height: renderRequest.height,
+    }, () => this.renderCompositionPatch(composition, patch, compositionTime, renderRequest));
     this.compositionOutput.set(outputKey, output);
     if (renderRequest.width === this.mainMix.width && renderRequest.height === this.mainMix.height) {
       this.compositionOutput.set(composition.id, output);
@@ -591,16 +642,43 @@ export class OutputRenderer {
     output.pop();
 
     const orderedNodes = nodesInCompositionChainOrder(composition, patch);
-    for (const node of orderedNodes) {
+    for (let index = 0; index < orderedNodes.length; index++) {
+      const node = orderedNodes[index];
       if (node.enabled === false || node.role === "output") continue;
       if (isSourceNode(node)) {
         const layer = patchLayerForNode(node);
-        const source = this.renderPatchSourceNode(composition, node, compositionTime, renderRequest);
+        const directSourceRun = this.renderDirectShaderSourceRun({
+          composition,
+          orderedNodes,
+          index,
+          layer,
+          compositionTime,
+          renderRequest,
+          output,
+        });
+        if (directSourceRun) {
+          index = directSourceRun.index;
+          continue;
+        }
+        const source = this.measureProfile("sourceMs", {
+          type: "source",
+          compositionId: composition.id,
+          compositionName: composition.name || composition.id || "Composition",
+          passId: node.componentId || node.id,
+          passName: layer.name || node.componentId || node.id,
+          width: renderRequest.width,
+          height: renderRequest.height,
+        }, () => this.renderPatchSourceNode(composition, node, compositionTime, renderRequest));
         this.drawChainLayer(output, source, layer);
         continue;
       }
       if (isEffectNode(node)) {
-        const effected = this.renderShaderNodes(output, [node], renderRequest, compositionTime);
+        const effectRun = [node];
+        while (isEffectNode(orderedNodes[index + 1]) && orderedNodes[index + 1].enabled !== false) {
+          effectRun.push(orderedNodes[index + 1]);
+          index++;
+        }
+        const effected = this.renderShaderNodes(output, effectRun, renderRequest, compositionTime);
         output.push();
         output.clear();
         drawBuffer(output, effected, 0, 0, output.width, output.height, this.isShaderBuffer(effected));
@@ -608,6 +686,37 @@ export class OutputRenderer {
       }
     }
     return output;
+  }
+
+  renderDirectShaderSourceRun({ composition, orderedNodes, index, layer, compositionTime, renderRequest, output }) {
+    if (!isSimpleLayer(layer)) return null;
+    const node = orderedNodes[index];
+    const sourceState = sourceFromPatchNode(node);
+    if (sourceState.type !== "generator" || !getGeneratorShaderComponent(getGeneratorComponent(sourceState.generatorId).id)) return null;
+    const source = this.measureProfile("sourceMs", {
+      type: "source",
+      compositionId: composition.id,
+      compositionName: composition.name || composition.id || "Composition",
+      passId: node.componentId || node.id,
+      passName: layer.name || node.componentId || node.id,
+      width: renderRequest.width,
+      height: renderRequest.height,
+    }, () => this.renderShaderGeneratorSource(sourceState.generatorId, compositionTime, renderRequest));
+    if (!source) return null;
+
+    const effectRun = [];
+    let nextIndex = index;
+    while (isEffectNode(orderedNodes[nextIndex + 1]) && orderedNodes[nextIndex + 1].enabled !== false) {
+      effectRun.push(orderedNodes[nextIndex + 1]);
+      nextIndex++;
+    }
+    const effected = effectRun.length
+      ? this.renderShaderNodes(source, effectRun, renderRequest, compositionTime)
+      : source;
+    output.push();
+    drawBuffer(output, effected, 0, 0, output.width, output.height, this.isShaderBuffer(effected));
+    output.pop();
+    return { index: nextIndex };
   }
 
   renderLegacyComposition(composition, compositionTime, request = frameRenderRequest(this.state.render)) {
@@ -629,7 +738,8 @@ export class OutputRenderer {
     output.clear();
     output.pop();
 
-    for (const item of composition.chain || []) {
+    for (let index = 0; index < (composition.chain || []).length; index++) {
+      const item = composition.chain[index];
       if (item.enabled === false) continue;
       if (item.kind === "source") {
         const source = this.renderCompositionSourceItem(composition, item, compositionTime, renderRequest);
@@ -637,7 +747,12 @@ export class OutputRenderer {
         continue;
       }
       if (item.kind === "effect") {
-        const effected = this.renderShaderChain(output, [chainItemToShaderPass(item)], renderRequest, compositionTime);
+        const effectRun = [item];
+        while (composition.chain[index + 1]?.kind === "effect" && composition.chain[index + 1]?.enabled !== false) {
+          effectRun.push(composition.chain[index + 1]);
+          index++;
+        }
+        const effected = this.renderShaderChain(output, effectRun.map(chainItemToShaderPass), renderRequest, compositionTime);
         output.push();
         output.clear();
         drawBuffer(output, effected, 0, 0, output.width, output.height, this.isShaderBuffer(effected));
@@ -759,8 +874,55 @@ export class OutputRenderer {
     } else if (source.type === "black") {
       pg.background(0);
     } else {
+      if (this.drawShaderGenerator(pg, source.generatorId, compositionTime)) return;
       drawGenerator(pg, source.generatorId, compositionTime);
     }
+  }
+
+  drawShaderGenerator(pg, id, compositionTime = this.visualTime) {
+    const request = createRenderRequest("source", { width: pg.width, height: pg.height });
+    const target = this.renderShaderGeneratorSource(id, compositionTime, request);
+    if (!target) return false;
+    pg.push();
+    pg.clear();
+    drawBuffer(pg, target, 0, 0, pg.width, pg.height, true);
+    pg.pop();
+    return true;
+  }
+
+  renderShaderGeneratorSource(id, compositionTime = this.visualTime, request = frameRenderRequest(this.state.render)) {
+    const generatorId = getGeneratorComponent(id).id;
+    const component = getGeneratorShaderComponent(generatorId);
+    if (!component) return null;
+    const renderRequest = this.normalizeRenderRequest(request, "source");
+    const target = this.getFxPingPongTarget(request, 0);
+    const shader = this.shaderBuilder.getShader({ id: component.id, component }, target);
+    if (!shader) return null;
+    const started = performance.now();
+    const sample = {
+      type: "shader-generator",
+      passId: generatorId,
+      passName: component.name || generatorId,
+      width: renderRequest.width,
+      height: renderRequest.height,
+      ms: 0,
+    };
+    try {
+      target.push();
+      target.clear();
+      target.shader(shader);
+      shader.setUniform("resolution", [renderRequest.width, renderRequest.height]);
+      shader.setUniform("canvasSize", [renderRequest.width, renderRequest.height]);
+      shader.setUniform("texelSize", [1 / Math.max(1, renderRequest.width), 1 / Math.max(1, renderRequest.height)]);
+      shader.setUniform("time", compositionTime);
+      target.rect(-renderRequest.width / 2, -renderRequest.height / 2, renderRequest.width, renderRequest.height);
+      target.resetShader();
+      target.pop();
+    } finally {
+      sample.ms = roundMetric(performance.now() - started);
+      this.frameProfile.passSamples.push(sample);
+    }
+    return target;
   }
 
   getCompositionBuffer(id, request = frameRenderRequest(this.state.render)) {
@@ -787,31 +949,43 @@ export class OutputRenderer {
   }
 
   getFxTarget(request = frameRenderRequest(this.state.render)) {
+    return this.getFxPingPongTarget(request, 0);
+  }
+
+  getFxPingPongTarget(request = frameRenderRequest(this.state.render), slot = 0) {
     const renderRequest = this.normalizeRenderRequest(request, "effect");
     const widthPx = renderRequest.width;
     const heightPx = renderRequest.height;
     const key = renderBufferKey(widthPx, heightPx);
-    if (!this.fxTarget) {
-      this.fxTarget = createGraphics(widthPx, heightPx, WEBGL);
-      this.fxTargetKey = key;
-      this.applyGraphicsFont(this.fxTarget);
-      this.fxTarget.noStroke();
+    const targetSlot = slot === 1 ? 1 : 0;
+    if (this.fxTargetKey && this.fxTargetKey !== key) {
+      for (const target of this.fxTargets || []) disposeGraphics(target);
+      this.fxTargets = [null, null];
       this.shaderBuilder.clear?.();
-      return this.fxTarget;
     }
-    if (this.fxTargetKey !== key || this.fxTarget.width !== widthPx || this.fxTarget.height !== heightPx) {
+    let target = this.fxTargets[targetSlot];
+    if (!target) {
+      target = createGraphics(widthPx, heightPx, WEBGL);
+      this.fxTargets[targetSlot] = target;
+      this.fxTargetKey = key;
+      this.applyGraphicsFont(target);
+      target.noStroke();
+      return target;
+    }
+    if (target.width !== widthPx || target.height !== heightPx) {
       try {
-        this.fxTarget.resizeCanvas(widthPx, heightPx);
+        target.resizeCanvas(widthPx, heightPx);
       } catch {
-        disposeGraphics(this.fxTarget);
-        this.fxTarget = createGraphics(widthPx, heightPx, WEBGL);
+        disposeGraphics(target);
+        target = createGraphics(widthPx, heightPx, WEBGL);
+        this.fxTargets[targetSlot] = target;
       }
       this.fxTargetKey = key;
-      this.applyGraphicsFont(this.fxTarget);
-      this.fxTarget.noStroke();
+      this.applyGraphicsFont(target);
+      target.noStroke();
       this.shaderBuilder.clear?.();
     }
-    return this.fxTarget;
+    return target;
   }
 
   normalizeRenderRequest(request, role = "texture") {
@@ -865,34 +1039,95 @@ export class OutputRenderer {
     let current = input;
     let passCount = 0;
     const schedule = compileShaderSchedule(chain);
+    if (schedule.length) {
+      this.frameProfile.shaderChains++;
+      this.frameProfile.maxShaderChainLength = Math.max(this.frameProfile.maxShaderChainLength, schedule.length);
+    }
     for (const job of schedule) {
       const pass = job.pass;
-      if (this.isShaderBuffer(current)) {
+      let handoff = false;
+      if (this.isShaderBuffer(current) && schedule.length <= 1) {
+        handoff = true;
         current = this.materializeDrawableBuffer(current, `fx-handoff:${renderRequestKey(renderRequest)}:${passCount}`, renderRequest);
       }
-      const target = this.getFxTarget(renderRequest);
+      const target = this.getFxPingPongTarget(renderRequest, this.isShaderBuffer(current) ? nextFxTargetSlot(this.fxTargets, current) : passCount % 2);
       const shader = this.shaderBuilder.getShader(pass, target);
       if (!shader) continue;
-      target.push();
-      target.clear();
-      target.shader(shader);
       const sourceIsShaderBuffer = this.isShaderBuffer(current);
-      shader.setUniform("tex0", current);
-      shader.setUniform("resolution", [rw, rh]);
-      shader.setUniform("canvasSize", [rw, rh]);
-      shader.setUniform("texelSize", [1 / Math.max(1, rw), 1 / Math.max(1, rh)]);
-      shader.setUniform("sourceFlipY", !sourceIsShaderBuffer);
-      shader.setUniform("sourceForceOpaque", !sourceIsShaderBuffer);
-      shader.setUniform("time", timeSeconds);
-      shader.setUniform("effectTransform", effectTransformUniform(pass.transform));
-      this.setShaderParamUniforms(shader, job.component, pass.params);
-      target.rect(-rw / 2, -rh / 2, rw, rh);
-      target.resetShader();
-      target.pop();
+      this.measureShaderPass(pass, job.component, renderRequest, {
+        handoff,
+        sourceIsShaderBuffer,
+        targetSlot: this.fxTargets?.[1] === target ? 1 : 0,
+      }, () => {
+        target.push();
+        target.clear();
+        target.shader(shader);
+        shader.setUniform("tex0", current);
+        shader.setUniform("resolution", [rw, rh]);
+        shader.setUniform("canvasSize", [rw, rh]);
+        shader.setUniform("texelSize", [1 / Math.max(1, rw), 1 / Math.max(1, rh)]);
+        shader.setUniform("sourceFlipY", !sourceIsShaderBuffer);
+        shader.setUniform("sourceForceOpaque", !sourceIsShaderBuffer);
+        shader.setUniform("time", timeSeconds);
+        shader.setUniform("effectTransform", effectTransformUniform(pass.transform));
+        this.setShaderParamUniforms(shader, job.component, pass.params);
+        target.rect(-rw / 2, -rh / 2, rw, rh);
+        target.resetShader();
+        target.pop();
+      });
       current = target;
       passCount++;
     }
     return current;
+  }
+
+  measureShaderPass(pass, component, renderRequest, meta, drawPass) {
+    const item = {
+      type: "shader-pass",
+      passId: pass.id || "",
+      passName: component?.name || pass.id || "Shader",
+      width: renderRequest.width,
+      height: renderRequest.height,
+      pixels: renderRequest.width * renderRequest.height,
+      source: meta.sourceIsShaderBuffer ? "webgl" : "drawable",
+      targetSlot: meta.targetSlot,
+      handoff: !!meta.handoff,
+      ms: 0,
+    };
+    this.frameProfile.shaderPasses++;
+    if (meta.handoff) this.frameProfile.shaderHandoffs++;
+    const started = performance.now();
+    const result = drawPass();
+    item.ms = performance.now() - started;
+    this.frameProfile.shaderMs += item.ms;
+    this.frameProfile.passSamples.push(item);
+    return result;
+  }
+
+  measureProfile(bucket, meta, fn) {
+    const started = performance.now();
+    const result = fn();
+    const ms = performance.now() - started;
+    this.frameProfile[bucket] += ms;
+    this.frameProfile.passSamples.push({ ...meta, ms });
+    return result;
+  }
+
+  finishFrameProfile() {
+    const profile = {
+      ...this.frameProfile,
+      totalMs: performance.now() - this.frameStart,
+      passSamples: this.frameProfile.passSamples
+        .slice()
+        .sort((a, b) => b.ms - a.ms)
+        .slice(0, 12)
+        .map((item) => ({ ...item, ms: roundMetric(item.ms) })),
+    };
+    profile.shaderMs = roundMetric(profile.shaderMs);
+    profile.sourceMs = roundMetric(profile.sourceMs);
+    profile.compositionMs = roundMetric(profile.compositionMs);
+    profile.totalMs = roundMetric(profile.totalMs);
+    this.lastFrameProfile = profile;
   }
 
   renderShaderNodes(input, nodes, request = frameRenderRequest(this.state.render), timeSeconds = this.visualTime) {
@@ -1005,7 +1240,7 @@ export class OutputRenderer {
   }
 
   isShaderBuffer(buffer) {
-    return !!buffer && buffer === this.fxTarget;
+    return !!buffer && (this.fxTargets || []).includes(buffer);
   }
 
   requestMissingMedia(mediaId) {
@@ -1244,6 +1479,7 @@ export class OutputRenderer {
   }
 
   resize() {
+    this.createBuffers();
     this.rebuildSurfaces();
     this.applyProjectMapping();
   }
@@ -1272,6 +1508,7 @@ export class OutputRenderer {
         fps: this.smoothedFps || fps,
         frameMs: this.smoothedFrameMs || frameMs,
         renderCost: this.smoothedRenderCost || renderCost,
+        profile: this.lastFrameProfile,
         message: this.shouldUseThumbnailPreview()
           ? "thumbnail preview"
           : this.mode === "composition" ? "composition preview" : `${this.mode} rendering`,
@@ -1337,6 +1574,20 @@ function offsetMapping(mapping = {}, dx = 0, dy = 0) {
   };
 }
 
+function transformMapping(mapping = {}, sx = 1, sy = 1, dx = 0, dy = 0) {
+  return {
+    ...mapping,
+    surfaces: (mapping.surfaces || []).map((surface) => ({
+      ...surface,
+      corners: (surface.corners || []).map((corner) => ({
+        ...corner,
+        x: Number(corner.x) * sx + dx,
+        y: Number(corner.y) * sy + dy,
+      })),
+    })),
+  };
+}
+
 function downloadJson(data, filename) {
   const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
   const url = URL.createObjectURL(blob);
@@ -1383,6 +1634,17 @@ function patchLayerForNode(node = {}) {
   };
 }
 
+function isSimpleLayer(layer = {}) {
+  const transform = layer.transform || {};
+  const opacity = layer.opacity === undefined ? 1 : Number(layer.opacity);
+  return (layer.blend || "normal") === "normal" &&
+    opacity === 1 &&
+    !Number(transform.x) &&
+    !Number(transform.y) &&
+    !Number(transform.rotation) &&
+    (transform.scale === undefined || Number(transform.scale) === 1);
+}
+
 function sourceFromPatchNode(node = {}) {
   if (node.state?.source) return node.state.source;
   const params = node.params || {};
@@ -1409,6 +1671,29 @@ function shaderPassFromNode(node = {}) {
 
 function renderBufferKey(...parts) {
   return parts.map((part) => String(part)).join(":");
+}
+
+function createEmptyFrameProfile() {
+  return {
+    shaderPasses: 0,
+    shaderChains: 0,
+    maxShaderChainLength: 0,
+    shaderHandoffs: 0,
+    compositionCacheHits: 0,
+    shaderMs: 0,
+    sourceMs: 0,
+    compositionMs: 0,
+    totalMs: 0,
+    passSamples: [],
+  };
+}
+
+function nextFxTargetSlot(targets = [], current = null) {
+  return targets[0] === current ? 1 : 0;
+}
+
+function roundMetric(value) {
+  return Math.round((Number(value) || 0) * 1000) / 1000;
 }
 
 function pruneGraphicsMap(map, useMap, { maxItems, currentFrame, idleFrames }) {
