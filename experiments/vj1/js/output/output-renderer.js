@@ -1436,7 +1436,7 @@ export class OutputRenderer {
     applyBlend(pg, surface.finalBlend);
     pg.tint(255, 255 * clamp01(surface.opacity));
     if (thumbnail?.ready && thumbnail.img) {
-      drawCover(pg, thumbnail.img, 0, 0, pg.width, pg.height);
+      drawBuffer(pg, thumbnail.img, 0, 0, pg.width, pg.height);
     } else {
       drawStandby(pg, composition?.thumbnail ? "loading thumbnail" : "no thumbnail");
     }

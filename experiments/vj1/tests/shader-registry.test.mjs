@@ -45,6 +45,37 @@ test("heartbeat pulse exposes double-beat radial distortion controls", () => {
   assert.ok(component.code.includes("sampleSource(warped)"));
 });
 
+test("spatial field effects place the effect without transforming the source image", () => {
+  for (const id of ["ripple", "kaleido", "pixelate", "plasma", "glitchDistort", "spinRotate", "echoFade", "mirrorFold", "heatShimmer"]) {
+    const component = getShaderComponent(id);
+
+    assert.equal(component.spatial, true, `${id} should expose transform handles`);
+    assert.equal(component.transformSource, false, `${id} should keep source sampling in screen space`);
+    assert.ok(component.code.includes("transformEffectUv("), `${id} should read local effect coordinates`);
+  }
+
+  for (const id of ["ripple", "kaleido", "pixelate", "glitchDistort", "spinRotate", "echoFade", "mirrorFold", "heatShimmer"]) {
+    const component = getShaderComponent(id);
+
+    assert.ok(component.code.includes("inverseTransformEffectUv("), `${id} should map local effect coordinates back to source space`);
+  }
+});
+
+test("echo fade masks delayed taps to the transformed effect field", () => {
+  const component = getShaderComponent("echoFade");
+
+  assert.ok(component.code.includes("float tapField = effectFieldMask(shifted);"));
+  assert.ok(component.code.includes("* tapField"));
+  assert.ok(!component.code.includes("echoed.a = max"));
+});
+
+test("heat shimmer uses screen-oriented y coordinates for handle translation", () => {
+  const component = getShaderComponent("heatShimmer");
+
+  assert.ok(component.code.includes("transformEffectUv(effectScreenUv())"));
+  assert.ok(component.code.includes("textureUvFromEffectScreenUv(inverseTransformEffectUv(warped))"));
+});
+
 test("fireflies generator keeps the background transparent", () => {
   const component = getGeneratorShaderComponent("fireflies");
 

@@ -93,6 +93,14 @@ vec4 sampleSource(vec2 uv) {
   return sourceForceOpaque ? vec4(sampled.rgb, 1.0) : sampled;
 }
 
+vec2 effectScreenUv() {
+  return vec2(vTexCoord.x, 1.0 - vTexCoord.y);
+}
+
+vec2 textureUvFromEffectScreenUv(vec2 uv) {
+  return vec2(uv.x, 1.0 - uv.y);
+}
+
 vec2 transformEffectUv(vec2 uv) {
   vec2 center = vec2(0.5) + effectTransform.xy * 0.5;
   float scale = max(effectTransform.z, 0.0001);
@@ -102,6 +110,22 @@ vec2 transformEffectUv(vec2 uv) {
   float s = sin(-rotation);
   p = vec2(c * p.x - s * p.y, s * p.x + c * p.y) / scale;
   return p + vec2(0.5);
+}
+
+vec2 inverseTransformEffectUv(vec2 uv) {
+  vec2 center = vec2(0.5) + effectTransform.xy * 0.5;
+  float scale = max(effectTransform.z, 0.0001);
+  float rotation = effectTransform.w;
+  vec2 p = (uv - vec2(0.5)) * scale;
+  float c = cos(rotation);
+  float s = sin(rotation);
+  p = vec2(c * p.x - s * p.y, s * p.x + c * p.y);
+  return p + center;
+}
+
+float effectFieldMask(vec2 uv) {
+  vec2 edge = abs(uv - vec2(0.5));
+  return 1.0 - smoothstep(0.5, 0.535, max(edge.x, edge.y));
 }
 
 ${effectCode}

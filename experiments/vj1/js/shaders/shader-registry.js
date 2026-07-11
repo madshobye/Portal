@@ -9,13 +9,16 @@ export const SHADER_COMPONENTS = Object.freeze({
     name: "Ripple",
     category: "warp",
     spatial: true,
+    transformSource: false,
     code: `
 vec4 runEffect(vec2 uv, vec4 color) {
-  vec2 p = uv - 0.5;
+  vec2 localUv = transformEffectUv(vTexCoord);
+  float field = effectFieldMask(localUv);
+  vec2 p = localUv - 0.5;
   float d = length(p);
   float wave = sin(d * 48.0 - time * 4.5) * 0.012 * amount;
-  vec2 warped = uv + normalize(p + 0.0001) * wave;
-  return sampleSource(warped);
+  vec2 warped = inverseTransformEffectUv(localUv + normalize(p + 0.0001) * wave);
+  return mix(color, sampleSource(warped), field);
 }`,
   },
   rgbSplit: {
@@ -314,16 +317,19 @@ vec4 runEffect(vec2 uv, vec4 color) {
     name: "Kaleido",
     category: "geometry",
     spatial: true,
+    transformSource: false,
     code: `
 vec4 runEffect(vec2 uv, vec4 color) {
-  vec2 p = uv - 0.5;
+  vec2 localUv = transformEffectUv(vTexCoord);
+  float field = effectFieldMask(localUv);
+  vec2 p = localUv - 0.5;
   float angle = atan(p.y, p.x);
   float radius = length(p);
   float slices = floor(mix(3.0, 10.0, amount));
   angle = mod(angle, 6.28318530718 / slices);
   angle = abs(angle - 3.14159265359 / slices);
   vec2 k = 0.5 + vec2(cos(angle), sin(angle)) * radius;
-  return sampleSource(k);
+  return mix(color, sampleSource(inverseTransformEffectUv(k)), field);
 }`,
   },
   pixelate: {
@@ -331,12 +337,15 @@ vec4 runEffect(vec2 uv, vec4 color) {
     name: "Pixelate",
     category: "texture",
     spatial: true,
+    transformSource: false,
     code: `
 vec4 runEffect(vec2 uv, vec4 color) {
+  vec2 localUv = transformEffectUv(vTexCoord);
+  float field = effectFieldMask(localUv);
   float cells = mix(220.0, 18.0, amount);
   vec2 grid = vec2(cells, cells * resolution.y / resolution.x);
-  vec2 blockUv = (floor(uv * grid) + 0.5) / grid;
-  return sampleSource(blockUv);
+  vec2 blockUv = (floor(localUv * grid) + 0.5) / grid;
+  return mix(color, sampleSource(inverseTransformEffectUv(blockUv)), field);
 }`,
   },
   plasma: {
@@ -344,9 +353,12 @@ vec4 runEffect(vec2 uv, vec4 color) {
     name: "Plasma Tint",
     category: "color",
     spatial: true,
+    transformSource: false,
     code: `
 vec4 runEffect(vec2 uv, vec4 color) {
-  vec2 p = (uv - 0.5) * 2.0;
+  vec2 localUv = transformEffectUv(vTexCoord);
+  float field = effectFieldMask(localUv);
+  vec2 p = (localUv - 0.5) * 2.0;
   float v = sin((p.x + time * 0.25) * 8.0);
   v += sin((p.y - time * 0.18) * 11.0);
   v += sin((p.x + p.y + time * 0.2) * 7.0);
@@ -354,7 +366,8 @@ vec4 runEffect(vec2 uv, vec4 color) {
   vec3 plasma = 0.5 + 0.5 * cos(6.28318 * (vec3(0.0, 0.33, 0.67) + v + time * 0.05));
   float alpha = color.a;
   vec3 straight = alpha > 0.0001 ? color.rgb / alpha : vec3(0.0);
-  return vec4(mix(straight, plasma, amount) * alpha, alpha);
+  vec4 tinted = vec4(mix(straight, plasma, amount) * alpha, alpha);
+  return mix(color, tinted, field);
 }`,
   },
   lumaKey: {
@@ -394,6 +407,7 @@ vec4 runEffect(vec2 uv, vec4 color) {
     name: "Glitch Distort",
     category: "warp",
     spatial: true,
+    transformSource: false,
     params: [
       createNumberParam("amount", "Amount", { min: 0, max: 1, step: 0.01, defaultValue: 0.45 }),
       createNumberParam("blocks", "Blocks", { min: 4, max: 80, step: 1, defaultValue: 24 }),
@@ -401,20 +415,22 @@ vec4 runEffect(vec2 uv, vec4 color) {
     ],
     code: `
 vec4 runEffect(vec2 uv, vec4 color) {
-  float row = floor(uv.y * blocks);
+  vec2 localUv = transformEffectUv(vTexCoord);
+  float field = effectFieldMask(localUv);
+  float row = floor(localUv.y * blocks);
   float rowNoise = hash(vec2(row, floor(time * 18.0)));
   float burst = step(0.58, rowNoise) * rowNoise;
   float jitter = (hash(vec2(row * 13.7, floor(time * 9.0))) - 0.5) * amount * 0.17 * burst;
-  float tear = (hash(vec2(floor(uv.y * 9.0), floor(time * 3.0))) - 0.5) * amount * 0.045;
-  vec2 warped = uv + vec2(jitter + tear, sin(uv.y * 80.0 + time * 12.0) * amount * 0.0025);
-  float scan = step(0.985 - amount * 0.18, fract(uv.y * resolution.y * 0.5 + time * 20.0));
+  float tear = (hash(vec2(floor(localUv.y * 9.0), floor(time * 3.0))) - 0.5) * amount * 0.045;
+  vec2 warped = localUv + vec2(jitter + tear, sin(localUv.y * 80.0 + time * 12.0) * amount * 0.0025);
+  float scan = step(0.985 - amount * 0.18, fract(localUv.y * resolution.y * 0.5 + time * 20.0));
   vec2 split = vec2((0.002 + 0.018 * amount) * colorSplit, 0.0);
-  vec4 r = sampleSource(warped + split);
-  vec4 g = sampleSource(warped);
-  vec4 b = sampleSource(warped - split);
+  vec4 r = sampleSource(inverseTransformEffectUv(warped + split));
+  vec4 g = sampleSource(inverseTransformEffectUv(warped));
+  vec4 b = sampleSource(inverseTransformEffectUv(warped - split));
   vec4 mixedColor = vec4(r.r, g.g, b.b, max(max(r.a, g.a), b.a));
   mixedColor.rgb += scan * vec3(0.24, 0.08, 0.18) * mixedColor.a;
-  return mix(color, mixedColor, amount);
+  return mix(color, mixedColor, amount * field);
 }`,
   },
   spinRotate: {
@@ -422,6 +438,7 @@ vec4 runEffect(vec2 uv, vec4 color) {
     name: "Spin Rotate",
     category: "geometry",
     spatial: true,
+    transformSource: false,
     params: [
       createNumberParam("amount", "Amount", { min: 0, max: 1, step: 0.01, defaultValue: 0.35 }),
       createNumberParam("turns", "Turns", { min: -2, max: 2, step: 0.01, defaultValue: 0.25 }),
@@ -429,13 +446,15 @@ vec4 runEffect(vec2 uv, vec4 color) {
     ],
     code: `
 vec4 runEffect(vec2 uv, vec4 color) {
+  vec2 localUv = transformEffectUv(vTexCoord);
+  float field = effectFieldMask(localUv);
   vec2 aspect = vec2(resolution.x / max(resolution.y, 1.0), 1.0);
-  vec2 p = (uv - 0.5) * aspect;
+  vec2 p = (localUv - 0.5) * aspect;
   float angle = amount * turns * 6.28318530718 + time * speed;
   float c = cos(angle);
   float s = sin(angle);
   vec2 rotated = (vec2(c * p.x - s * p.y, s * p.x + c * p.y) / aspect) + 0.5;
-  return sampleSource(rotated);
+  return mix(color, sampleSource(inverseTransformEffectUv(rotated)), field);
 }`,
   },
   echoFade: {
@@ -443,6 +462,7 @@ vec4 runEffect(vec2 uv, vec4 color) {
     name: "Echo Fade",
     category: "motion",
     spatial: true,
+    transformSource: false,
     params: [
       createNumberParam("amount", "Amount", { min: 0, max: 1, step: 0.01, defaultValue: 0.42 }),
       createNumberParam("distance", "Distance", { min: 0, max: 0.35, step: 0.01, defaultValue: 0.12 }),
@@ -457,20 +477,22 @@ vec2 rotateAroundCenter(vec2 uv, float angle, float scale) {
 }
 
 vec4 runEffect(vec2 uv, vec4 color) {
+  vec2 localUv = transformEffectUv(vTexCoord);
+  float field = effectFieldMask(localUv);
   vec2 dir = normalize(vec2(cos(time * 0.33), sin(time * 0.27)) + vec2(0.01));
   vec4 sum = color * 0.46;
   float total = 0.46;
   for (int i = 1; i <= 5; i++) {
     float f = float(i) / 5.0;
-    vec2 shifted = rotateAroundCenter(uv - dir * distance * f * amount, twist * amount * f, 1.0 + amount * 0.035 * f);
-    float weight = pow(1.0 - f, 1.65) * 0.42;
-    vec4 tap = sampleSource(shifted);
+    vec2 shifted = rotateAroundCenter(localUv - dir * distance * f * amount, twist * amount * f, 1.0 + amount * 0.035 * f);
+    float tapField = effectFieldMask(shifted);
+    float weight = pow(1.0 - f, 1.65) * 0.42 * tapField;
+    vec4 tap = sampleSource(inverseTransformEffectUv(shifted));
     sum += tap * weight;
     total += weight;
   }
   vec4 echoed = sum / max(total, 0.0001);
-  echoed.a = max(color.a, echoed.a * (0.72 + amount * 0.2));
-  return mix(color, echoed, amount);
+  return mix(color, echoed, amount * field);
 }`,
   },
   mirrorFold: {
@@ -478,20 +500,23 @@ vec4 runEffect(vec2 uv, vec4 color) {
     name: "Mirror Fold",
     category: "geometry",
     spatial: true,
+    transformSource: false,
     params: [
       createNumberParam("amount", "Amount", { min: 0, max: 1, step: 0.01, defaultValue: 0.55 }),
       createNumberParam("folds", "Folds", { min: 2, max: 12, step: 1, defaultValue: 6 }),
     ],
     code: `
 vec4 runEffect(vec2 uv, vec4 color) {
-  vec2 p = uv - 0.5;
+  vec2 localUv = transformEffectUv(vTexCoord);
+  float field = effectFieldMask(localUv);
+  vec2 p = localUv - 0.5;
   float radius = length(p);
   float angle = atan(p.y, p.x) + time * amount * 0.25;
   float sector = 6.28318530718 / max(2.0, folds);
   angle = mod(angle, sector);
   angle = abs(angle - sector * 0.5);
   vec2 folded = 0.5 + vec2(cos(angle), sin(angle)) * radius;
-  return mix(color, sampleSource(folded), amount);
+  return mix(color, sampleSource(inverseTransformEffectUv(folded)), amount * field);
 }`,
   },
   heatShimmer: {
@@ -499,19 +524,22 @@ vec4 runEffect(vec2 uv, vec4 color) {
     name: "Heat Shimmer",
     category: "warp",
     spatial: true,
+    transformSource: false,
     params: [
       createNumberParam("amount", "Amount", { min: 0, max: 1, step: 0.01, defaultValue: 0.34 }),
       createNumberParam("frequency", "Frequency", { min: 2, max: 48, step: 1, defaultValue: 18 }),
     ],
     code: `
 vec4 runEffect(vec2 uv, vec4 color) {
-  float n = hash(floor(uv * vec2(42.0, 24.0)) + floor(time * 14.0));
+  vec2 localUv = transformEffectUv(effectScreenUv());
+  float field = effectFieldMask(localUv);
+  float n = hash(floor(localUv * vec2(42.0, 24.0)) + floor(time * 14.0));
   vec2 wave = vec2(
-    sin(uv.y * frequency + time * 4.3 + n * 6.28318),
-    cos(uv.x * frequency * 0.7 - time * 3.1 + n * 6.28318)
+    sin(localUv.y * frequency + time * 4.3 + n * 6.28318),
+    cos(localUv.x * frequency * 0.7 - time * 3.1 + n * 6.28318)
   );
-  vec2 warped = uv + wave * amount * 0.018;
-  return sampleSource(warped);
+  vec2 warped = localUv + wave * amount * 0.018;
+  return mix(color, sampleSource(textureUvFromEffectScreenUv(inverseTransformEffectUv(warped))), field);
 }`,
   },
   heartbeatPulse: {
