@@ -162,6 +162,18 @@ function paramNumber(params, id, fallback, min = -Infinity, max = Infinity) {
   return clampNumber(params?.[id], min, max, fallback);
 }
 
+function paramColor(params, id, fallback = [255, 255, 255, 255]) {
+  const value = String(params?.[id] || "");
+  const match = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})?$/i.exec(value);
+  if (!match) return fallback;
+  return [
+    parseInt(match[1], 16),
+    parseInt(match[2], 16),
+    parseInt(match[3], 16),
+    match[4] ? parseInt(match[4], 16) : 255,
+  ];
+}
+
 function randomGaze(seed) {
   return {
     x: (hash2(seed * 17.1, 2.3) * 2 - 1) * 0.72,
@@ -257,6 +269,7 @@ function drawFireflies(pg, t, params = {}) {
   const trailAmount = paramNumber(params, "trail", 0.25, 0, 1);
   const brightness = paramNumber(params, "brightness", 1, 0, 2);
   const twinkle = paramNumber(params, "twinkle", 0.75, 0, 1);
+  const tint = paramColor(params, "tintColor", [255, 240, 109, 255]);
   for (let i = 0; i < count; i++) {
     const sx = hash2(i * 17.13, 3.7);
     const sy = hash2(i * 41.71, 9.2);
@@ -269,14 +282,14 @@ function drawFireflies(pg, t, params = {}) {
     const blink = mix(1, smoothstep01(blinkWave), twinkle);
     const size = Math.min(pg.width, pg.height) * (0.006 + sy * 0.012) * glowSize;
     if (trailAmount > 0.001) {
-      pg.fill(120, 255, 185, 45 * blink * brightness * trailAmount);
+      pg.fill(tint[0], tint[1], tint[2], tint[3] * 0.18 * blink * brightness * trailAmount);
       pg.ellipse(px - size * 2.8, py, size * 8, size * 2.2);
     }
-    pg.fill(255, 230, 90, 34 * blink * brightness);
+    pg.fill(tint[0], tint[1], tint[2], tint[3] * 0.13 * blink * brightness);
     pg.circle(px, py, size * 9);
-    pg.fill(120, 255, 185, 110 * blink * brightness);
+    pg.fill(tint[0], tint[1], tint[2], tint[3] * 0.43 * blink * brightness);
     pg.circle(px, py, size * 3.4);
-    pg.fill(255, 255, 220, 230 * blink * brightness);
+    pg.fill(255, 255, 255, tint[3] * 0.9 * blink * brightness);
     pg.circle(px, py, size);
   }
 }

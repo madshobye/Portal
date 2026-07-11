@@ -207,6 +207,7 @@ uniform float speed;
 uniform float trail;
 uniform float brightness;
 uniform float twinkle;
+uniform vec4 tintColor;
 varying vec2 vTexCoord;
 
 float hash(float n) {
@@ -262,9 +263,9 @@ void main() {
       trailGlow = exp(-abs(dot(trailDelta, vec2(-velocity.y, velocity.x))) * 70.0 / sizeScale) * along * along * blink * 0.18 * trailAmount;
     }
 
-    vec3 firefly = mix(vec3(0.35, 0.9, 0.62), vec3(1.0, 0.92, 0.38), seed.x);
-    color += firefly * (glow * 0.48 + core * 1.8 + trailGlow) * lightAmount;
-    alpha += glow * 0.34 + core + trailGlow * 0.75;
+    float light = (glow * 0.48 + core * 1.8 + trailGlow) * lightAmount;
+    color += tintColor.rgb * light;
+    alpha += (glow * 0.34 + core + trailGlow * 0.75) * tintColor.a;
   }
 
   alpha = clamp(alpha, 0.0, 1.0);

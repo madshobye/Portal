@@ -1,7 +1,15 @@
-import { createBooleanParam, createNumberParam, defineVisualComponent, textureInlet, textureOutlet } from "../graph/component-schema.js";
+import { createBooleanParam, createEnumParam, createNumberParam, defineVisualComponent, textureInlet, textureOutlet } from "../graph/component-schema.js";
 
 const effectInlets = Object.freeze([textureInlet("texture", "Texture")]);
 const effectOutlets = Object.freeze([textureOutlet("texture", "Texture")]);
+const SEED_MODE_VALUES = ["animated", "fixed"];
+
+function noiseSeedParams(defaultSeed = 0) {
+  return [
+    createEnumParam("seedMode", "Seed mode", SEED_MODE_VALUES, "animated"),
+    createNumberParam("seed", "Seed", { min: 0, max: 999, step: 1, defaultValue: defaultSeed }),
+  ];
+}
 
 export const SHADER_COMPONENTS = Object.freeze({
   ripple: {
@@ -46,6 +54,7 @@ vec4 runEffect(vec2 uv, vec4 color) {
     category: "color",
     params: [
       createNumberParam("amount", "Amount", { min: 0, max: 1, step: 0.01, defaultValue: 1 }),
+      createNumberParam("invert", "Invert", { min: 0, max: 1, step: 0.01, defaultValue: 0 }),
       createNumberParam("exposure", "Exposure", { min: -2, max: 2, step: 0.01, defaultValue: 0 }),
       createNumberParam("brightness", "Brightness", { min: -1, max: 1, step: 0.01, defaultValue: 0 }),
       createNumberParam("contrast", "Contrast", { min: -1, max: 1, step: 0.01, defaultValue: 0 }),
@@ -61,6 +70,7 @@ vec4 runEffect(vec2 uv, vec4 color) {
       createNumberParam("noise", "Noise", { min: 0, max: 1, step: 0.01, defaultValue: 0 }),
       createNumberParam("distort", "Distort", { min: 0, max: 1, step: 0.01, defaultValue: 0 }),
       createNumberParam("vignette", "Vignette", { min: 0, max: 1, step: 0.01, defaultValue: 0 }),
+      ...noiseSeedParams(11),
     ],
     code: `
 vec3 applySaturation(vec3 rgb, float sat) {
@@ -69,12 +79,15 @@ vec3 applySaturation(vec3 rgb, float sat) {
 }
 
 vec4 runEffect(vec2 uv, vec4 color) {
+  if (amount <= 0.0001) return color;
   vec2 gradeUv = uv;
+  float noiseClock = seedMode < 0.5 ? time : seed;
+  float noiseFrame = seed + (seedMode < 0.5 ? floor(time * 24.0) : 0.0);
   if (distort > 0.001) {
-    float n = hash(floor(uv * resolution * 0.12) + vec2(time * 11.0, time * 7.0));
+    float n = hash(floor(uv * resolution * 0.12) + vec2(noiseFrame * 11.0, noiseFrame * 7.0));
     vec2 wobble = vec2(
-      sin((uv.y + n) * 38.0 + time * 2.2),
-      cos((uv.x - n) * 31.0 - time * 1.7)
+      sin((uv.y + n) * 38.0 + noiseClock * 2.2),
+      cos((uv.x - n) * 31.0 - noiseClock * 1.7)
     ) * distort * 0.006;
     gradeUv = clamp(uv + wobble, vec2(0.0), vec2(1.0));
     color = sampleSource(gradeUv);
@@ -83,40 +96,58 @@ vec4 runEffect(vec2 uv, vec4 color) {
   float alpha = color.a;
   vec3 original = alpha > 0.0001 ? color.rgb / alpha : color.rgb;
   vec3 rgb = original;
-  rgb *= exp2(exposure);
-  rgb += brightness;
-  rgb = (rgb - 0.5) * (1.0 + contrast * 1.45) + 0.5;
+  if (abs(exposure) > 0.001) rgb *= exp2(exposure);
+  if (abs(brightness) > 0.001) rgb += brightness;
+  if (abs(contrast) > 0.001) rgb = (rgb - 0.5) * (1.0 + contrast * 1.45) + 0.5;
 
-  float luma = dot(rgb, vec3(0.2126, 0.7152, 0.0722));
-  float shadowMask = 1.0 - smoothstep(0.18, 0.74, luma);
-  float highlightMask = smoothstep(0.35, 0.92, luma);
-  rgb += shadows * shadowMask * 0.38;
-  rgb += highlights * highlightMask * 0.34;
+  if (abs(shadows) > 0.001 || abs(highlights) > 0.001) {
+    float luma = dot(rgb, vec3(0.2126, 0.7152, 0.0722));
+    float shadowMask = 1.0 - smoothstep(0.18, 0.74, luma);
+    float highlightMask = smoothstep(0.35, 0.92, luma);
+    rgb += shadows * shadowMask * 0.38;
+    rgb += highlights * highlightMask * 0.34;
+  }
 
-  rgb.r += temperature * 0.10;
-  rgb.b -= temperature * 0.10;
-  rgb.g += tint * 0.075;
-  rgb.r -= tint * 0.035;
-  rgb.b -= tint * 0.035;
+  if (abs(temperature) > 0.001 || abs(tint) > 0.001) {
+    rgb.r += temperature * 0.10;
+    rgb.b -= temperature * 0.10;
+    rgb.g += tint * 0.075;
+    rgb.r -= tint * 0.035;
+    rgb.b -= tint * 0.035;
+  }
 
-  float sat = 1.0 + saturation * 1.35;
-  rgb = applySaturation(rgb, max(0.0, sat));
-  float chroma = max(rgb.r, max(rgb.g, rgb.b)) - min(rgb.r, min(rgb.g, rgb.b));
-  float vibranceBoost = vibrance * (1.0 - clamp(chroma, 0.0, 1.0)) * (1.0 - smoothstep(0.72, 1.0, luma));
-  rgb = applySaturation(rgb, max(0.0, 1.0 + vibranceBoost * 1.4));
+  if (abs(saturation) > 0.001) {
+    float sat = 1.0 + saturation * 1.35;
+    rgb = applySaturation(rgb, max(0.0, sat));
+  }
+  if (abs(vibrance) > 0.001) {
+    float luma = dot(rgb, vec3(0.2126, 0.7152, 0.0722));
+    float chroma = max(rgb.r, max(rgb.g, rgb.b)) - min(rgb.r, min(rgb.g, rgb.b));
+    float vibranceBoost = vibrance * (1.0 - clamp(chroma, 0.0, 1.0)) * (1.0 - smoothstep(0.72, 1.0, luma));
+    rgb = applySaturation(rgb, max(0.0, 1.0 + vibranceBoost * 1.4));
+  }
 
-  float gammaValue = exp2(-gamma);
-  rgb = pow(max(rgb, vec3(0.0)), vec3(gammaValue));
-  rgb = mix(rgb, rgb * 0.82 + vec3(0.055), fade);
+  if (abs(gamma) > 0.001) {
+    float gammaValue = exp2(-gamma);
+    rgb = pow(max(rgb, vec3(0.0)), vec3(gammaValue));
+  }
+  if (fade > 0.001) rgb = mix(rgb, rgb * 0.82 + vec3(0.055), fade);
+  if (invert > 0.001) rgb = mix(rgb, 1.0 - rgb, invert);
 
-  float grainValue = hash(uv * resolution + vec2(time * 37.0, time * 19.0)) - 0.5;
-  float coarseNoise = hash(floor(uv * resolution * 0.14) + vec2(time * 3.0, -time * 2.0)) - 0.5;
-  rgb += grainValue * grain * 0.16;
-  rgb += coarseNoise * noise * 0.18;
+  if (grain > 0.001) {
+    float grainValue = hash(uv * resolution + vec2(noiseFrame * 37.0, noiseFrame * 19.0)) - 0.5;
+    rgb += grainValue * grain * 0.16;
+  }
+  if (noise > 0.001) {
+    float coarseNoise = hash(floor(uv * resolution * 0.14) + vec2(noiseFrame * 3.0, -noiseFrame * 2.0)) - 0.5;
+    rgb += coarseNoise * noise * 0.18;
+  }
 
-  vec2 p = (uv - 0.5) * vec2(resolution.x / max(resolution.y, 1.0), 1.0);
-  float vignetteMask = smoothstep(0.86, 0.18, length(p));
-  rgb *= mix(1.0, mix(0.62, 1.0, vignetteMask), vignette);
+  if (vignette > 0.001) {
+    vec2 p = (uv - 0.5) * vec2(resolution.x / max(resolution.y, 1.0), 1.0);
+    float vignetteMask = smoothstep(0.86, 0.18, length(p));
+    rgb *= mix(1.0, mix(0.62, 1.0, vignetteMask), vignette);
+  }
 
   rgb = clamp(rgb, 0.0, 1.0);
   vec3 mixed = mix(original, rgb, amount);
@@ -140,10 +171,15 @@ vec4 runEffect(vec2 uv, vec4 color) {
     id: "labelGrain",
     name: "Label Grain",
     category: "texture",
+    params: [
+      createNumberParam("amount", "Amount", { min: 0, max: 1, step: 0.01, defaultValue: 0.35 }),
+      ...noiseSeedParams(23),
+    ],
     code: `
 vec4 runEffect(vec2 uv, vec4 color) {
-  float fine = hash(uv * vec2(16000.0, 12000.0) + time);
-  float rough = hash(uv * vec2(1700.0, 2100.0) + vec2(19.0, 73.0 + time * 0.37));
+  float noiseFrame = seed + (seedMode < 0.5 ? floor(time * 24.0) : 0.0);
+  float fine = hash(uv * vec2(16000.0, 12000.0) + noiseFrame);
+  float rough = hash(uv * vec2(1700.0, 2100.0) + vec2(19.0, 73.0 + noiseFrame * 0.37));
   float grain = ((fine - 0.5) * 0.75 + (rough - 0.5) * 0.55) * mix(0.08, 0.55, amount);
   float scanline = step(0.82, fract(uv.y * 900.0)) * mix(0.02, 0.22, amount);
   float alpha = color.a;
@@ -156,6 +192,10 @@ vec4 runEffect(vec2 uv, vec4 color) {
     id: "labelThresholdGrain",
     name: "Grain Threshold",
     category: "key",
+    params: [
+      createNumberParam("amount", "Amount", { min: 0, max: 1, step: 0.01, defaultValue: 0.35 }),
+      ...noiseSeedParams(37),
+    ],
     code: `
 float fastThresholdGrain(vec2 p) {
   vec3 p3 = fract(vec3(p.xyx) * 0.1031);
@@ -167,12 +207,99 @@ vec4 runEffect(vec2 uv, vec4 color) {
   float alpha = color.a;
   vec3 straight = alpha > 0.0001 ? color.rgb / alpha : vec3(0.0);
   vec2 grainCell = floor(uv * resolution * mix(0.9, 1.8, amount));
-  float grain = fastThresholdGrain(grainCell + floor(time * 24.0)) - 0.5;
+  float noiseFrame = seed + (seedMode < 0.5 ? floor(time * 24.0) : 0.0);
+  float grain = fastThresholdGrain(grainCell + noiseFrame) - 0.5;
   float luma = dot(straight, vec3(0.299, 0.587, 0.114)) + grain * mix(0.35, 1.05, amount);
   float threshold = mix(0.28, 0.74, amount);
   float ink = step(threshold, luma);
   float scanline = step(0.82, fract(uv.y * 900.0)) * 0.2;
   return vec4(vec3(clamp(ink - scanline, 0.0, 1.0)) * alpha, alpha);
+}`,
+  },
+  smear: {
+    id: "smear",
+    name: "Smear",
+    category: "texture",
+    params: [
+      createNumberParam("amount", "Amount", { min: 0, max: 1, step: 0.01, defaultValue: 1 }),
+      createNumberParam("cctvAmount", "CCTV", { min: 0, max: 1, step: 0.01, defaultValue: 0.45 }),
+      createNumberParam("screenPrintAmount", "Screen print", { min: 0, max: 1, step: 0.01, defaultValue: 0 }),
+      createNumberParam("dotMatrixAmount", "Dot matrix", { min: 0, max: 1, step: 0.01, defaultValue: 0 }),
+      createNumberParam("receiptAmount", "Receipt", { min: 0, max: 1, step: 0.01, defaultValue: 0 }),
+      createNumberParam("ditherAmount", "Dither", { min: 0, max: 1, step: 0.01, defaultValue: 0 }),
+      createNumberParam("smearAmount", "Smear", { min: 0, max: 1, step: 0.01, defaultValue: 0 }),
+      createNumberParam("scale", "Scale", { min: 0.25, max: 4, step: 0.01, defaultValue: 1 }),
+      ...noiseSeedParams(83),
+    ],
+    code: `
+float stableSmearNoise(vec2 p) {
+  vec3 p3 = fract(vec3(p.xyx) * 0.1031);
+  p3 += dot(p3, p3.yzx + 33.33);
+  return fract((p3.x + p3.y) * p3.z);
+}
+
+float dotPattern(vec2 uv, float density, float luma) {
+  vec2 grid = uv * density;
+  vec2 cell = fract(grid) - 0.5;
+  float radius = mix(0.42, 0.10, clamp(luma, 0.0, 1.0));
+  return 1.0 - smoothstep(radius, radius + 0.035, length(cell));
+}
+
+vec4 runEffect(vec2 uv, vec4 color) {
+  if (amount <= 0.0001) return color;
+  float totalLocal = cctvAmount + screenPrintAmount + dotMatrixAmount + receiptAmount + ditherAmount + smearAmount;
+  if (totalLocal <= 0.0001) return color;
+  float alpha = color.a;
+  vec3 straight = alpha > 0.0001 ? color.rgb / alpha : vec3(0.0);
+  float luma = dot(straight, vec3(0.299, 0.587, 0.114));
+  float noiseFrame = seed + (seedMode < 0.5 ? floor(time * 18.0) : 0.0);
+  float density = mix(90.0, 360.0, clamp(scale, 0.25, 4.0) / 4.0);
+  float line = fract(uv.y * resolution.y * mix(0.45, 1.35, scale));
+  float grain = stableSmearNoise(floor(uv * resolution * mix(0.45, 1.8, scale)) + noiseFrame) - 0.5;
+  vec3 effected = straight;
+
+  if (cctvAmount > 0.001) {
+    float localAmount = amount * cctvAmount;
+    float scan = smoothstep(0.52, 1.0, line) * 0.22;
+    vec3 smearTap = sampleSource(clamp(uv - vec2((grain + 0.5) * localAmount * 0.018, 0.0), vec2(0.0), vec2(1.0))).rgb;
+    effected = mix(effected, smearTap + grain * 0.10 - scan, localAmount);
+  }
+  if (screenPrintAmount > 0.001) {
+    float localAmount = amount * screenPrintAmount;
+    float dots = dotPattern(uv, density * 0.42, luma);
+    vec3 ink = mix(vec3(0.08), effected, dots);
+    effected = mix(effected, ink + grain * 0.06, localAmount);
+  }
+  if (dotMatrixAmount > 0.001) {
+    float localAmount = amount * dotMatrixAmount;
+    vec2 cellUv = (floor(uv * density * 0.32) + 0.5) / (density * 0.32);
+    vec3 block = sampleSource(clamp(cellUv, vec2(0.0), vec2(1.0))).rgb;
+    float dots = dotPattern(uv, density * 0.32, dot(block, vec3(0.299, 0.587, 0.114)));
+    effected = mix(effected, block * dots, localAmount);
+  }
+  if (receiptAmount > 0.001) {
+    float localAmount = amount * receiptAmount;
+    float threshold = stableSmearNoise(floor(uv * resolution * 0.72) + noiseFrame);
+    float ink = step(threshold, luma + grain * 0.25);
+    float receiptLine = 1.0 - step(0.88, line) * 0.28;
+    effected = mix(effected, vec3(ink * receiptLine), localAmount);
+  }
+  if (ditherAmount > 0.001) {
+    float localAmount = amount * ditherAmount;
+    float dither = stableSmearNoise(floor(uv * resolution * mix(0.55, 1.7, scale)) + noiseFrame);
+    float levels = floor((luma + (dither - 0.5) * localAmount * 0.65) * 5.0) / 4.0;
+    effected = mix(effected, vec3(clamp(levels, 0.0, 1.0)), localAmount);
+  }
+  if (smearAmount > 0.001) {
+    float localAmount = amount * smearAmount;
+    float offset = localAmount * mix(0.004, 0.035, scale / 4.0);
+    vec3 smearA = sampleSource(clamp(uv - vec2(offset, 0.0), vec2(0.0), vec2(1.0))).rgb;
+    vec3 smearB = sampleSource(clamp(uv - vec2(offset * 2.1, 0.0), vec2(0.0), vec2(1.0))).rgb;
+    effected = mix(effected, effected * 0.55 + smearA * 0.30 + smearB * 0.15 + grain * 0.08, localAmount);
+  }
+
+  effected = clamp(effected, 0.0, 1.0);
+  return vec4(effected * alpha, alpha);
 }`,
   },
   hardBlack: {
@@ -418,18 +545,21 @@ vec4 runEffect(vec2 uv, vec4 color) {
       createNumberParam("amount", "Amount", { min: 0, max: 1, step: 0.01, defaultValue: 0.45 }),
       createNumberParam("blocks", "Blocks", { min: 4, max: 80, step: 1, defaultValue: 24 }),
       createNumberParam("colorSplit", "Color Split", { min: 0, max: 1, step: 0.01, defaultValue: 0.42 }),
+      ...noiseSeedParams(51),
     ],
     code: `
 vec4 runEffect(vec2 uv, vec4 color) {
   vec2 localUv = transformEffectUv(effectScreenUv());
   float field = effectFieldMask(localUv);
+  float noiseClock = seedMode < 0.5 ? time : seed;
+  float noiseFrame = seed + (seedMode < 0.5 ? floor(time * 18.0) : 0.0);
   float row = floor(localUv.y * blocks);
-  float rowNoise = hash(vec2(row, floor(time * 18.0)));
+  float rowNoise = hash(vec2(row, noiseFrame));
   float burst = step(0.58, rowNoise) * rowNoise;
-  float jitter = (hash(vec2(row * 13.7, floor(time * 9.0))) - 0.5) * amount * 0.17 * burst;
-  float tear = (hash(vec2(floor(localUv.y * 9.0), floor(time * 3.0))) - 0.5) * amount * 0.045;
-  vec2 warped = localUv + vec2(jitter + tear, sin(localUv.y * 80.0 + time * 12.0) * amount * 0.0025);
-  float scan = step(0.985 - amount * 0.18, fract(localUv.y * resolution.y * 0.5 + time * 20.0));
+  float jitter = (hash(vec2(row * 13.7, noiseFrame * 0.5)) - 0.5) * amount * 0.17 * burst;
+  float tear = (hash(vec2(floor(localUv.y * 9.0), noiseFrame * 0.17)) - 0.5) * amount * 0.045;
+  vec2 warped = localUv + vec2(jitter + tear, sin(localUv.y * 80.0 + noiseClock * 12.0) * amount * 0.0025);
+  float scan = step(0.985 - amount * 0.18, fract(localUv.y * resolution.y * 0.5 + noiseClock * 20.0));
   vec2 split = vec2((0.002 + 0.018 * amount) * colorSplit, 0.0);
   vec4 r = sampleSource(textureUvFromEffectScreenUv(inverseTransformEffectUv(warped + split)));
   vec4 g = sampleSource(textureUvFromEffectScreenUv(inverseTransformEffectUv(warped)));
@@ -553,15 +683,20 @@ vec4 runEffect(vec2 uv, vec4 color) {
     params: [
       createNumberParam("amount", "Amount", { min: 0, max: 1, step: 0.01, defaultValue: 0.34 }),
       createNumberParam("frequency", "Frequency", { min: 2, max: 48, step: 1, defaultValue: 18 }),
+      ...noiseSeedParams(67),
     ],
     code: `
 vec4 runEffect(vec2 uv, vec4 color) {
   vec2 localUv = transformEffectUv(effectScreenUv());
   float field = effectFieldMask(localUv);
-  float n = hash(floor(localUv * vec2(42.0, 24.0)) + floor(time * 14.0));
+  float shimmerTime = seedMode < 0.5 ? time : 0.0;
+  float phase = seed * 0.071;
+  float waveA = sin(localUv.y * frequency + shimmerTime * 4.1 + phase);
+  float waveB = sin((localUv.y + localUv.x * 0.35) * frequency * 0.62 - shimmerTime * 2.7 + phase * 1.7);
+  float waveC = cos((localUv.x - localUv.y * 0.22) * frequency * 0.48 + shimmerTime * 1.9 + phase * 2.3);
   vec2 wave = vec2(
-    sin(localUv.y * frequency + time * 4.3 + n * 6.28318),
-    cos(localUv.x * frequency * 0.7 - time * 3.1 + n * 6.28318)
+    waveA * 0.62 + waveB * 0.28,
+    waveC * 0.22 + waveB * 0.10
   );
   vec2 warped = localUv + wave * amount * 0.018;
   return mix(color, sampleSource(textureUvFromEffectScreenUv(inverseTransformEffectUv(warped))), field);

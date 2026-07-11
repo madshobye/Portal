@@ -46,6 +46,7 @@ export function effectIcon(id) {
     echoFade: "motion_blur",
     mirrorFold: "filter_vintage",
     heatShimmer: "local_fire_department",
+    smear: "texture",
     ripple: "water",
     rgbSplit: "gradient",
     kaleido: "filter_vintage",

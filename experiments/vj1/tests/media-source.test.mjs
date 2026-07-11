@@ -1,10 +1,11 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { createCompositionLayer, createDefaultComposition, createInitialState, sanitizeState } from "../js/domain/models.js?v=world-frame-27";
+import { createCompositionEffect, createCompositionLayer, createDefaultComposition, createInitialState, sanitizeState } from "../js/domain/models.js?v=world-frame-27";
 import { normalizeParamValue } from "../js/graph/component-schema.js";
 import { getGeneratorComponent } from "../js/graph/generator-registry.js";
 import { compileCompositionPatch } from "../js/graph/render-scheduler.js?v=world-frame-27";
+import { shouldHoldCurrentOutputState } from "../js/output/output-app.js";
 import { OutputRenderer } from "../js/output/output-renderer.js?v=world-frame-27";
 import { getMediaType, isMediaFile } from "../js/services/media-library-service.js";
 
@@ -80,10 +81,13 @@ test("generator sources keep personality params through normalization and graph 
 test("fireflies generator exposes cost and motion controls", () => {
   const component = getGeneratorComponent("fireflies");
   const ids = component.params.map((param) => param.id);
+  const tintParam = component.params.find((param) => param.id === "tintColor");
 
-  assert.deepEqual(ids, ["count", "glowSize", "speed", "trail", "brightness", "twinkle"]);
+  assert.deepEqual(ids, ["count", "glowSize", "speed", "trail", "brightness", "twinkle", "tintColor"]);
   assert.equal(normalizeParamValue(component.params.find((param) => param.id === "count"), undefined), 18);
   assert.equal(normalizeParamValue(component.params.find((param) => param.id === "trail"), undefined), 0.25);
+  assert.equal(tintParam.type, "color");
+  assert.equal(normalizeParamValue(tintParam, undefined), "#fff06dff");
 });
 
 test("gradient generator exposes rgba color stops", () => {
@@ -184,4 +188,59 @@ test("output renderer blackouts while active media sources are missing or loadin
     if (previousMillis === undefined) delete globalThis.millis;
     else globalThis.millis = previousMillis;
   }
+});
+
+test("output client holds current project state during control window refresh boot state", () => {
+  const current = createInitialState();
+  current.project.folderName = "Loaded show";
+  current.media = [{ id: "media/a.png", name: "a.png", type: "image" }];
+  const boot = createInitialState();
+
+  assert.equal(shouldHoldCurrentOutputState(boot, current), true);
+
+  const restored = createInitialState();
+  restored.project.folderName = "Loaded show";
+  restored.media = [{ id: "media/a.png", name: "a.png", type: "image" }];
+  assert.equal(shouldHoldCurrentOutputState(restored, current), false);
+  assert.equal(shouldHoldCurrentOutputState(boot, null), false);
+});
+
+test("dirty cache classifier keeps static photo chains cacheable and animated noise dynamic", () => {
+  const renderer = new OutputRenderer({ mode: "composition" });
+  const state = createInitialState();
+  state.media = [{ id: "media/a.png", path: "media/a.png", type: "image", size: 42 }];
+  renderer.state = state;
+  renderer.media.set("media/a.png", { ready: true });
+  const composition = createDefaultComposition(0);
+  composition.chain = [
+    createCompositionLayer(0, { type: "media", mediaId: "media/a.png" }),
+    createCompositionEffect("photoGrade"),
+  ];
+  composition.chain[1].params = { exposure: 0.25, contrast: 0.15 };
+
+  assert.ok(renderer.stableCompositionSignature(composition, { role: "composition", width: 640, height: 360 }));
+
+  composition.chain[1].params = { grain: 0.5, seedMode: "animated" };
+  assert.equal(renderer.stableCompositionSignature(composition, { role: "composition", width: 640, height: 360 }), "");
+
+  composition.chain[1].params = { grain: 0.5, seedMode: "fixed", seed: 9 };
+  assert.ok(renderer.stableCompositionSignature(composition, { role: "composition", width: 640, height: 360 }));
+
+  composition.chain[1] = createCompositionEffect("smear");
+  composition.chain[1].params = {
+    cctvAmount: 0,
+    screenPrintAmount: 0,
+    dotMatrixAmount: 0,
+    receiptAmount: 0,
+    ditherAmount: 0,
+    smearAmount: 0,
+    seedMode: "animated",
+  };
+  assert.ok(renderer.stableCompositionSignature(composition, { role: "composition", width: 640, height: 360 }));
+
+  composition.chain[1].params = { cctvAmount: 0.35, seedMode: "animated" };
+  assert.equal(renderer.stableCompositionSignature(composition, { role: "composition", width: 640, height: 360 }), "");
+
+  composition.chain[1].params = { cctvAmount: 0.35, screenPrintAmount: 0.25, seedMode: "fixed", seed: 4 };
+  assert.ok(renderer.stableCompositionSignature(composition, { role: "composition", width: 640, height: 360 }));
 });

@@ -31,6 +31,7 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
   let mediaPicker = null;
   let elementPicker = null;
   let sourceChoicePicker = null;
+  let focusElementPickerSearch = false;
   let settingsOpen = false;
   const replaceHtmlIfChanged = createHtmlCache();
   const mediaPreviewUrls = new Map();
@@ -685,6 +686,7 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
       host.querySelector("[data-close-modal]")?.addEventListener("click", closeElementPicker);
       host.querySelector(".modal-backdrop")?.addEventListener("click", closeElementPicker);
       bindElementPickerSearch(host);
+      focusPendingElementPickerSearch(host);
       host.querySelectorAll("[data-add-element-media]").forEach((button) => {
         button.addEventListener("click", () => {
           activateElementPickerTarget();
@@ -758,7 +760,23 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
       const cards = Array.from(section.querySelectorAll("[data-element-search-card]"));
       const visibleCount = cards.filter((card) => !card.classList.contains("is-search-hidden")).length;
       const empty = section.querySelector("[data-element-empty]");
-      if (empty) empty.hidden = visibleCount > 0 || !query;
+      const sectionHidden = visibleCount <= 0;
+      section.hidden = sectionHidden;
+      section.classList.toggle("is-search-hidden", sectionHidden);
+      if (empty) empty.hidden = true;
+    });
+    const sections = Array.from(host.querySelectorAll("[data-element-section]"));
+    const hasVisibleSection = sections.some((section) => !section.hidden);
+    const noResults = host.querySelector("[data-element-no-results]");
+    if (noResults) noResults.hidden = hasVisibleSection || !query;
+  }
+
+  function focusPendingElementPickerSearch(host) {
+    if (!focusElementPickerSearch) return;
+    focusElementPickerSearch = false;
+    requestAnimationFrame(() => {
+      const input = host.querySelector("[data-element-search]");
+      if (input && document.activeElement !== input) input.focus({ preventScroll: true });
     });
   }
 
@@ -781,6 +799,7 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
 
   function openElementPicker(compositionId, selectedChainItemId = "") {
     elementPicker = { compositionId, selectedChainItemId };
+    focusElementPickerSearch = true;
     mediaPicker = null;
     sourceChoicePicker = null;
     settingsOpen = false;
@@ -1199,11 +1218,25 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
   function bindColorParamControl(control) {
     const rgbInput = control.querySelector("[data-color-rgb]");
     const alphaInput = control.querySelector("[data-color-alpha]");
-    const update = (reason) => updateColorParamFromControl(control, reason);
-    rgbInput?.addEventListener("input", () => update(`scrub:${control.dataset.colorPath}`));
-    rgbInput?.addEventListener("change", () => update(`update:${control.dataset.colorPath}`));
-    alphaInput?.addEventListener("input", () => update(`scrub:${control.dataset.colorPath}`));
-    alphaInput?.addEventListener("change", () => update(`update:${control.dataset.colorPath}`));
+    const hueInput = control.querySelector("[data-color-hue]");
+    const satInput = control.querySelector("[data-color-sat]");
+    const valInput = control.querySelector("[data-color-val]");
+    const updateFromRgb = (reason) => {
+      syncColorHsvFieldsFromRgb(control);
+      updateColorParamFromControl(control, reason);
+    };
+    const updateFromHsv = (reason) => {
+      syncColorRgbFromHsvFields(control);
+      updateColorParamFromControl(control, reason);
+    };
+    rgbInput?.addEventListener("input", () => updateFromRgb(`scrub:${control.dataset.colorPath}`));
+    rgbInput?.addEventListener("change", () => updateFromRgb(`update:${control.dataset.colorPath}`));
+    alphaInput?.addEventListener("input", () => updateColorParamFromControl(control, `scrub:${control.dataset.colorPath}`));
+    alphaInput?.addEventListener("change", () => updateColorParamFromControl(control, `update:${control.dataset.colorPath}`));
+    [hueInput, satInput, valInput].forEach((input) => {
+      input?.addEventListener("input", () => updateFromHsv(`scrub:${control.dataset.colorPath}`));
+      input?.addEventListener("change", () => updateFromHsv(`update:${control.dataset.colorPath}`));
+    });
   }
 
   function updateColorParamFromControl(control, reason) {
@@ -2326,12 +2359,18 @@ function colorParamControlTemplate(param, path, value, attrs = "data-update") {
   const rgba = normalizeColorHex(value || param.defaultValue || "#ffffffff");
   const rgb = rgba.slice(0, 7);
   const alpha = colorAlphaFromHex(rgba);
+  const hsv = rgbHexToHsv(rgb);
   return `
     <div class="field color-param chain-param" data-color-param data-color-mode="${mode}" data-color-path="${esc(path)}" ${liveCompositionId ? `data-live-composition-id="${esc(liveCompositionId)}"` : ""}>
       <span><span>${esc(param.label || param.id)}</span><strong data-color-alpha-label>${alpha.toFixed(2)}</strong></span>
       <div class="color-param-row">
         <input type="color" data-color-rgb value="${esc(rgb)}" aria-label="${esc(param.label || param.id)} color" />
         <input type="range" min="0" max="1" step="0.01" data-color-alpha value="${alpha}" aria-label="${esc(param.label || param.id)} alpha" />
+      </div>
+      <div class="color-picker-sliders">
+        <label><span>Hue</span><input type="range" min="0" max="360" step="1" data-color-hue value="${hsv.h}" /></label>
+        <label><span>Sat</span><input type="range" min="0" max="1" step="0.01" data-color-sat value="${hsv.s}" /></label>
+        <label><span>Bright</span><input type="range" min="0" max="1" step="0.01" data-color-val value="${hsv.v}" /></label>
       </div>
     </div>
   `;
@@ -2472,6 +2511,7 @@ function sourceChoicePickerTemplate(state, picker, mediaLibrary, urlCache) {
           </div>
           <div class="soft-note" data-element-empty hidden>No matching sources.</div>
         </section>
+        <div class="soft-note" data-element-no-results hidden>No matching sources.</div>
       </div>
     </section>
   `;
@@ -2573,6 +2613,7 @@ function elementPickerTemplate(state, picker, mediaLibrary, urlCache) {
           </div>
           <div class="soft-note" data-element-empty hidden>No matching effects.</div>
         </section>
+        <div class="soft-note" data-element-no-results hidden>No matching elements.</div>
       </div>
     </section>
   `;
@@ -2996,6 +3037,26 @@ function colorValueFromControl(control) {
   return `${rgb}${Math.round(alpha * 255).toString(16).padStart(2, "0")}`;
 }
 
+function syncColorHsvFieldsFromRgb(control) {
+  const rgb = normalizeColorHex(control.querySelector("[data-color-rgb]")?.value || "#ffffff").slice(0, 7);
+  const hsv = rgbHexToHsv(rgb);
+  const hue = control.querySelector("[data-color-hue]");
+  const sat = control.querySelector("[data-color-sat]");
+  const val = control.querySelector("[data-color-val]");
+  if (hue) hue.value = String(Math.round(hsv.h));
+  if (sat) sat.value = hsv.s.toFixed(2);
+  if (val) val.value = hsv.v.toFixed(2);
+}
+
+function syncColorRgbFromHsvFields(control) {
+  const rgbInput = control.querySelector("[data-color-rgb]");
+  if (!rgbInput) return;
+  const h = Number(control.querySelector("[data-color-hue]")?.value) || 0;
+  const s = Number(control.querySelector("[data-color-sat]")?.value) || 0;
+  const v = Number(control.querySelector("[data-color-val]")?.value) || 0;
+  rgbInput.value = hsvToRgbHex(h, s, v);
+}
+
 function normalizeColorHex(value = "#ffffffff") {
   const text = String(value || "").trim();
   const match = /^#?([a-f\d]{6})([a-f\d]{2})?$/i.exec(text);
@@ -3006,6 +3067,50 @@ function normalizeColorHex(value = "#ffffffff") {
 function colorAlphaFromHex(value = "#ffffffff") {
   const rgba = normalizeColorHex(value);
   return parseInt(rgba.slice(7, 9), 16) / 255;
+}
+
+function rgbHexToHsv(value = "#ffffff") {
+  const rgb = normalizeColorHex(value).slice(1, 7);
+  const r = parseInt(rgb.slice(0, 2), 16) / 255;
+  const g = parseInt(rgb.slice(2, 4), 16) / 255;
+  const b = parseInt(rgb.slice(4, 6), 16) / 255;
+  const max = Math.max(r, g, b);
+  const min = Math.min(r, g, b);
+  const delta = max - min;
+  let h = 0;
+  if (delta > 0) {
+    if (max === r) h = 60 * (((g - b) / delta) % 6);
+    else if (max === g) h = 60 * ((b - r) / delta + 2);
+    else h = 60 * ((r - g) / delta + 4);
+  }
+  if (h < 0) h += 360;
+  return {
+    h,
+    s: max <= 0 ? 0 : delta / max,
+    v: max,
+  };
+}
+
+function hsvToRgbHex(h, s, v) {
+  const hue = ((Number(h) || 0) % 360 + 360) % 360;
+  const sat = clampNumberLocal(Number(s) || 0, 0, 1);
+  const val = clampNumberLocal(Number(v) || 0, 0, 1);
+  const c = val * sat;
+  const x = c * (1 - Math.abs(((hue / 60) % 2) - 1));
+  const m = val - c;
+  let r = 0;
+  let g = 0;
+  let b = 0;
+  if (hue < 60) [r, g, b] = [c, x, 0];
+  else if (hue < 120) [r, g, b] = [x, c, 0];
+  else if (hue < 180) [r, g, b] = [0, c, x];
+  else if (hue < 240) [r, g, b] = [0, x, c];
+  else if (hue < 300) [r, g, b] = [x, 0, c];
+  else [r, g, b] = [c, 0, x];
+  return `#${[r, g, b].map((channel) => {
+    const value = Math.round((channel + m) * 255);
+    return value.toString(16).padStart(2, "0");
+  }).join("")}`;
 }
 
 function updateRangeLabel(input) {

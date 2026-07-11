@@ -2,7 +2,7 @@ import { VJ1 } from "../constants.js";
 import { clamp01, sanitizeState } from "../domain/models.js?v=world-frame-27";
 import { normalizeParamValue } from "../graph/component-schema.js";
 import { createManualScheduler } from "../graph/manual-scheduler.js";
-import { compileCompositionPatch, compileShaderSchedule } from "../graph/render-scheduler.js?v=world-frame-27";
+import { compileCompositionPatch, compileShaderSchedule, flattenCompositionChain } from "../graph/render-scheduler.js?v=world-frame-27";
 import { getGeneratorComponent } from "../graph/generator-registry.js";
 import { createShaderBuilder } from "../shaders/shader-builder.js?v=world-frame-27";
 import { getGeneratorShaderComponent } from "../shaders/generator-shaders.js?v=world-frame-27";
@@ -40,6 +40,7 @@ export class OutputRenderer {
     this.compositionSource = new Map();
     this.compositionOutput = new Map();
     this.compositionBuffer = new Map();
+    this.stableCompositionSignatures = new Map();
     this.compositionSourceUse = new Map();
     this.compositionBufferUse = new Map();
     this.compositionPatches = new Map();
@@ -686,6 +687,18 @@ export class OutputRenderer {
       this.frameProfile.compositionCacheHits++;
       return cached;
     }
+    const stableSignature = this.stableCompositionSignature(composition, renderRequest);
+    const stableKey = renderBufferKey("stable", outputKey);
+    const stableCached = stableSignature ? this.compositionBuffer.get(stableKey) : null;
+    if (stableCached &&
+        stableCached.width === renderRequest.width &&
+        stableCached.height === renderRequest.height &&
+        this.stableCompositionSignatures.get(stableKey) === stableSignature) {
+      this.touchRenderCache(this.compositionBufferUse, stableKey);
+      this.frameProfile.compositionCacheHits++;
+      this.cacheCompositionOutput(composition, outputKey, stableCached, renderRequest);
+      return stableCached;
+    }
     if (composition.type === "canvas") {
       const output = this.measureProfile("compositionMs", {
         type: "composition",
@@ -694,10 +707,8 @@ export class OutputRenderer {
         width: renderRequest.width,
         height: renderRequest.height,
       }, () => this.renderCanvasComposition(composition, compositionTime, renderRequest));
-      this.compositionOutput.set(outputKey, output);
-      if (renderRequest.width === this.mainMix.width && renderRequest.height === this.mainMix.height) {
-        this.compositionOutput.set(composition.id, output);
-      }
+      this.cacheCompositionOutput(composition, outputKey, output, renderRequest);
+      if (stableSignature) this.storeStableCompositionOutput(stableKey, stableSignature, output, renderRequest);
       return output;
     }
     const patch = compileCompositionPatch(composition, renderRequest);
@@ -709,11 +720,25 @@ export class OutputRenderer {
       width: renderRequest.width,
       height: renderRequest.height,
     }, () => this.renderCompositionPatch(composition, patch, compositionTime, renderRequest));
+    this.cacheCompositionOutput(composition, outputKey, output, renderRequest);
+    if (stableSignature) this.storeStableCompositionOutput(stableKey, stableSignature, output, renderRequest);
+    return output;
+  }
+
+  cacheCompositionOutput(composition, outputKey, output, renderRequest) {
     this.compositionOutput.set(outputKey, output);
-    if (renderRequest.width === this.mainMix.width && renderRequest.height === this.mainMix.height) {
+    if (this.mainMix && renderRequest.width === this.mainMix.width && renderRequest.height === this.mainMix.height) {
       this.compositionOutput.set(composition.id, output);
     }
-    return output;
+  }
+
+  storeStableCompositionOutput(stableKey, signature, source, renderRequest) {
+    const stable = this.getCompositionBuffer(stableKey, renderRequest);
+    stable.push();
+    stable.clear();
+    drawBuffer(stable, source, 0, 0, stable.width, stable.height, this.isShaderBuffer(source));
+    stable.pop();
+    this.stableCompositionSignatures.set(stableKey, signature);
   }
 
   renderCanvasComposition(composition, compositionTime, request = frameRenderRequest(this.state.render)) {
@@ -901,6 +926,102 @@ export class OutputRenderer {
       if (surface.enabled && surface.compositionId) ids.add(surface.compositionId);
     }
     return ids;
+  }
+
+  stableCompositionSignature(composition, renderRequest, seen = new Set()) {
+    if (composition?.type === "canvas") return "";
+    if (!composition?.id || this.compositionIsFrameDynamic(composition, seen)) return "";
+    return stableStringify({
+      version: 1,
+      request: {
+        role: renderRequest.role || "composition",
+        width: renderRequest.width,
+        height: renderRequest.height,
+      },
+      composition: staticCompositionState(composition),
+      media: staticMediaState(this.state?.media || [], composition),
+    });
+  }
+
+  compositionIsFrameDynamic(composition, seen = new Set()) {
+    if (!composition || seen.has(composition.id)) return true;
+    seen.add(composition.id);
+    if (composition.type === "canvas") {
+      for (const layer of composition.canvas?.layers || []) {
+        if (layer.enabled === false) continue;
+        const sourceComposition = this.state?.compositions?.find((item) => item.id === layer.compositionId);
+        if (!sourceComposition || this.compositionIsFrameDynamic(sourceComposition, seen)) return true;
+      }
+      seen.delete(composition.id);
+      return false;
+    }
+    if (Array.isArray(composition.chain) && composition.chain.length) {
+      const dynamic = this.chainItemsAreFrameDynamic(composition.chain);
+      seen.delete(composition.id);
+      return dynamic;
+    }
+    const sourceDynamic = this.sourceIsFrameDynamic(composition.source, composition);
+    const effectsDynamic = (composition.shaderChain || []).some((pass) => this.effectPassIsFrameDynamic(pass));
+    seen.delete(composition.id);
+    return sourceDynamic || effectsDynamic;
+  }
+
+  chainItemsAreFrameDynamic(chain = []) {
+    for (const item of chain || []) {
+      if (item.enabled === false) continue;
+      if (item.kind === "group" && this.chainItemsAreFrameDynamic(item.chain || [])) return true;
+      if (item.kind === "source" && this.sourceIsFrameDynamic(item.source || {}, item)) return true;
+      if (item.kind === "effect" && this.effectPassIsFrameDynamic({ id: item.componentId, params: item.params, amount: item.amount })) return true;
+    }
+    return false;
+  }
+
+  sourceIsFrameDynamic(source = {}, owner = {}) {
+    if (!source || source.type === "black") return false;
+    if (source.type === "camera") return true;
+    if (source.type === "generator") return !STATIC_GENERATOR_IDS.has(source.generatorId || "testPattern");
+    if (source.type !== "media") return true;
+    const mediaId = source.mediaId || "";
+    const mediaMeta = (this.state?.media || []).find((item) => item.id === mediaId);
+    const runtimeItem = this.media.get(mediaId);
+    if (!mediaMeta || !isReadyMediaItem(runtimeItem)) return true;
+    if (mediaMeta.type === "video" || runtimeItem?.video) return true;
+    if (mediaMeta.type === "model" || runtimeItem?.model || runtimeItem?.modelData) {
+      const params = source.params || owner.params || {};
+      return Math.abs(Number(params.spinX) || 0) > 0.0001 ||
+        Math.abs(Number(params.spinY) || 0) > 0.0001 ||
+        Math.abs(Number(params.spinZ) || 0) > 0.0001;
+    }
+    return false;
+  }
+
+  effectPassIsFrameDynamic(pass = {}) {
+    const id = pass.id || pass.componentId || "";
+    const component = getShaderComponent(id);
+    if (!component?.code?.includes("time")) return false;
+    const params = {
+      ...(pass.params && typeof pass.params === "object" ? pass.params : {}),
+    };
+    if (pass.amount !== undefined && params.amount === undefined) params.amount = pass.amount;
+    const amount = effectParamNumber(component, params, "amount", 0.35);
+    if (amount <= 0.0001) return false;
+    if (id === "photoGrade") {
+      const noiseActive = effectParamNumber(component, params, "grain", 0) > 0.0001 ||
+        effectParamNumber(component, params, "noise", 0) > 0.0001 ||
+        effectParamNumber(component, params, "distort", 0) > 0.0001;
+      return noiseActive && effectParamValue(component, params, "seedMode", "animated") !== "fixed";
+    }
+    if (id === "smear") {
+      const textureActive = ["cctvAmount", "screenPrintAmount", "dotMatrixAmount", "receiptAmount", "ditherAmount", "smearAmount"]
+        .some((paramId) => effectParamNumber(component, params, paramId, paramId === "cctvAmount" ? 0.45 : 0) > 0.0001);
+      return textureActive && effectParamValue(component, params, "seedMode", "animated") !== "fixed";
+    }
+    if (SEED_CONTROLLED_EFFECT_IDS.has(id)) {
+      return effectParamValue(component, params, "seedMode", "animated") !== "fixed";
+    }
+    if (id === "rgbSplit") return effectParamNumber(component, params, "motion", 1) > 0.0001;
+    if (id === "spinRotate") return Math.abs(effectParamNumber(component, params, "speed", 0.2)) > 0.0001;
+    return true;
   }
 
   renderCompositionSource(composition, compositionTime = this.visualTime, request = frameRenderRequest(this.state.render)) {
@@ -1245,6 +1366,9 @@ export class OutputRenderer {
       currentFrame: this.frameIndex,
       idleFrames: 900,
     });
+    for (const key of Array.from(this.stableCompositionSignatures.keys())) {
+      if (!this.compositionBuffer.has(key)) this.stableCompositionSignatures.delete(key);
+    }
   }
 
   drawChainLayer(output, source, layer) {
@@ -1958,19 +2082,6 @@ function nodesInCompositionChainOrder(composition = {}, patch = {}) {
     .filter(Boolean);
 }
 
-function flattenCompositionChain(chain = []) {
-  const flat = [];
-  for (const item of chain || []) {
-    if (item.enabled === false) continue;
-    if (item.kind === "group") {
-      flat.push(...flattenCompositionChain(item.chain || []));
-      continue;
-    }
-    flat.push(item);
-  }
-  return flat;
-}
-
 function patchLayerForNode(node = {}) {
   const layer = node.state?.layer || {};
   return {
@@ -2038,6 +2149,121 @@ function shaderPassFromNode(node = {}) {
 
 function renderBufferKey(...parts) {
   return parts.map((part) => String(part)).join(":");
+}
+
+const STATIC_GENERATOR_IDS = new Set(["gradient", "checker", "black"]);
+const SEED_CONTROLLED_EFFECT_IDS = new Set(["photoGrade", "labelGrain", "labelThresholdGrain", "glitchDistort", "heatShimmer", "smear"]);
+
+function staticCompositionState(composition = {}) {
+  return {
+    id: composition.id || "",
+    type: composition.type || "composition",
+    source: staticSourceState(composition.source),
+    shaderChain: staticEffectChainState(composition.shaderChain || []),
+    chain: staticChainState(composition.chain || []),
+  };
+}
+
+function staticChainState(chain = []) {
+  return (chain || []).map((item) => {
+    if (item.kind === "group") {
+      return {
+        id: item.id || "",
+        kind: "group",
+        enabled: item.enabled !== false,
+        transform: item.transform || {},
+        opacity: item.opacity ?? 1,
+        blend: item.blend || "normal",
+        chain: staticChainState(item.chain || []),
+      };
+    }
+    if (item.kind === "effect") {
+      return {
+        id: item.id || "",
+        kind: "effect",
+        enabled: item.enabled !== false,
+        componentId: item.componentId || "",
+        amount: item.amount,
+        params: item.params || {},
+        transform: item.transform || {},
+      };
+    }
+    return {
+      id: item.id || "",
+      kind: item.kind || "source",
+      enabled: item.enabled !== false,
+      source: staticSourceState(item.source),
+      params: item.params || {},
+      transform: item.transform || {},
+      opacity: item.opacity ?? 1,
+      blend: item.blend || "normal",
+    };
+  });
+}
+
+function staticEffectChainState(chain = []) {
+  return (chain || []).map((pass) => ({
+    id: pass.id || pass.componentId || "",
+    enabled: pass.enabled !== false,
+    amount: pass.amount,
+    params: pass.params || {},
+    transform: pass.transform || {},
+  }));
+}
+
+function staticSourceState(source = {}) {
+  return {
+    type: source.type || "black",
+    mediaId: source.mediaId || "",
+    generatorId: source.generatorId || "",
+    start: source.start,
+    end: source.end,
+    speed: source.speed,
+    params: source.params || {},
+  };
+}
+
+function staticMediaState(media = [], composition = {}) {
+  const ids = new Set();
+  collectMediaIdsFromSource(composition.source, ids);
+  collectMediaIdsFromChain(composition.chain || [], ids);
+  return (media || [])
+    .filter((item) => ids.has(item.id))
+    .map((item) => ({
+      id: item.id || "",
+      path: item.path || "",
+      type: item.type || "",
+      size: item.size || 0,
+    }));
+}
+
+function collectMediaIdsFromChain(chain = [], ids) {
+  for (const item of chain || []) {
+    if (item.kind === "group") collectMediaIdsFromChain(item.chain || [], ids);
+    else collectMediaIdsFromSource(item.source, ids);
+  }
+}
+
+function collectMediaIdsFromSource(source = {}, ids) {
+  if (source?.type === "media" && source.mediaId) ids.add(source.mediaId);
+}
+
+function effectParamValue(component, params = {}, id, fallback = undefined) {
+  const param = (component?.params || []).find((item) => item.id === id);
+  return param ? normalizeParamValue(param, params[id]) : (params[id] ?? fallback);
+}
+
+function effectParamNumber(component, params = {}, id, fallback = 0) {
+  const value = Number(effectParamValue(component, params, id, fallback));
+  return Number.isFinite(value) ? value : fallback;
+}
+
+function stableStringify(value) {
+  if (Array.isArray(value)) return `[${value.map(stableStringify).join(",")}]`;
+  if (value && typeof value === "object") {
+    return `{${Object.keys(value).sort().map((key) => `${JSON.stringify(key)}:${stableStringify(value[key])}`).join(",")}}`;
+  }
+  return JSON.stringify(value);
 }
 
 function createMediaReadinessStatus() {

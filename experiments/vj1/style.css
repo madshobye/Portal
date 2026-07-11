@@ -1740,6 +1740,25 @@ small {
   background: var(--panel-2);
 }
 
+.color-picker-sliders {
+  display: grid;
+  gap: 5px;
+  margin-top: 6px;
+}
+
+.color-picker-sliders label {
+  display: grid;
+  grid-template-columns: 42px minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
+  color: var(--muted);
+  font-size: var(--label-font-size);
+}
+
+.color-picker-sliders input[type="range"] {
+  width: 100%;
+}
+
 .inline-param {
   grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
@@ -2047,6 +2066,12 @@ small {
   border: 1px solid var(--line);
   border-radius: 8px;
   background: rgba(255, 255, 255, 0.025);
+}
+
+.element-section[hidden],
+.element-section.is-search-hidden,
+.element-modal [hidden] {
+  display: none !important;
 }
 
 .element-grid {

@@ -18,6 +18,7 @@ export function installOutputApp({ root, mode }) {
 
   let renderer = null;
   let pendingState = null;
+  let acceptedState = null;
   let bridge = null;
   let renderFont = null;
   let resizeObserver = null;
@@ -110,7 +111,9 @@ export function installOutputApp({ root, mode }) {
     mode,
     onState(state) {
       if (fixtureUrl) return;
+      if (shouldHoldCurrentOutputState(state, acceptedState)) return;
       pendingState = state;
+      acceptedState = state;
       if (renderer) resizeOutputIfNeeded(state, mode, renderer);
       renderer?.setState(state);
     },
@@ -141,6 +144,26 @@ export function installOutputApp({ root, mode }) {
   loadClassicScript(VJ1.p5Script).catch((error) => {
     root.innerHTML = `<div class="empty-preview">${error.message}</div>`;
   });
+}
+
+export function shouldHoldCurrentOutputState(nextState, currentState) {
+  if (!currentState || hasLoadedProjectState(nextState)) return false;
+  return hasLoadedProjectState(currentState) && isEmptyStartupState(nextState);
+}
+
+export function hasLoadedProjectState(state) {
+  if (!state || typeof state !== "object") return false;
+  return !!state.project?.folderName ||
+    (Array.isArray(state.media) && state.media.length > 0) ||
+    (Array.isArray(state.scenes) && state.scenes.length > 0);
+}
+
+export function isEmptyStartupState(state) {
+  if (!state || typeof state !== "object") return false;
+  return !state.project?.folderName &&
+    (!Array.isArray(state.media) || state.media.length === 0) &&
+    (!Array.isArray(state.scenes) || state.scenes.length === 0) &&
+    (state.project?.name === "Untitled VJ Set" || !state.project?.name);
 }
 
 function applyLoadedFont(font) {

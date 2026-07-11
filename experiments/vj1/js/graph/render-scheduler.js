@@ -65,7 +65,7 @@ function graphForCompositionChain(composition, request, outputId) {
   };
 }
 
-function flattenCompositionChain(chain = []) {
+export function flattenCompositionChain(chain = []) {
   const flat = [];
   for (const item of chain || []) {
     if (item.enabled === false) continue;

@@ -48,6 +48,7 @@ const RAW_GENERATORS = Object.freeze({
       createNumberParam("trail", "Trail", { min: 0, max: 1, step: 0.01, defaultValue: 0.25 }),
       createNumberParam("brightness", "Brightness", { min: 0, max: 2, step: 0.01, defaultValue: 1 }),
       createNumberParam("twinkle", "Twinkle", { min: 0, max: 1, step: 0.01, defaultValue: 0.75 }),
+      createColorParam("tintColor", "Color", "#fff06dff"),
     ],
   },
   eyeball: {

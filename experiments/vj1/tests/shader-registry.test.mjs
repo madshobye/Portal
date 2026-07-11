@@ -18,6 +18,20 @@ test("photo grade exposes common one-pass image tweak controls", () => {
   assert.ok(ids.includes("temperature"));
   assert.ok(ids.includes("grain"));
   assert.ok(ids.includes("distort"));
+  assert.ok(ids.includes("invert"));
+  assert.ok(ids.includes("seedMode"));
+  assert.ok(ids.includes("seed"));
+});
+
+test("photo grade skips neutral costly sections with uniform gates", () => {
+  const component = getShaderComponent("photoGrade");
+
+  assert.ok(component.code.includes("if (amount <= 0.0001) return color;"));
+  assert.ok(component.code.includes("if (abs(gamma) > 0.001)"));
+  assert.ok(component.code.includes("if (vignette > 0.001)"));
+  assert.ok(component.code.includes("if (grain > 0.001)"));
+  assert.ok(component.code.includes("if (noise > 0.001)"));
+  assert.ok(component.code.includes("if (abs(vibrance) > 0.001)"));
 });
 
 test("alpha-sensitive effects keep transparent pixels premultiplied", () => {
@@ -35,6 +49,44 @@ test("grain threshold uses a single cheap grain hash", () => {
   assert.ok(component.code.includes("vec2 grainCell = floor(uv * resolution"));
   assert.ok(!component.code.includes("hash("));
   assert.ok(!component.code.includes("vec3 noisy"));
+});
+
+test("noisy effects expose animated or fixed seed controls", () => {
+  for (const id of ["photoGrade", "labelGrain", "labelThresholdGrain", "glitchDistort", "heatShimmer", "smear"]) {
+    const component = getShaderComponent(id);
+    const params = Object.fromEntries(component.params.map((param) => [param.id, param]));
+
+    assert.equal(params.seedMode?.type, "enum", `${id} should expose seed mode`);
+    assert.deepEqual(params.seedMode?.values, ["animated", "fixed"]);
+    assert.equal(params.seedMode?.defaultValue, "animated");
+    assert.equal(params.seed?.type, "number", `${id} should expose numeric seed`);
+    assert.ok(component.code.includes("seedMode < 0.5"), `${id} should use seed mode in shader code`);
+  }
+});
+
+test("smear effect exposes fast stable print texture modes", () => {
+  const component = getShaderComponent("smear");
+  const params = Object.fromEntries(component.params.map((param) => [param.id, param]));
+
+  assert.equal(component.name, "Smear");
+  assert.equal(component.category, "texture");
+  assert.equal(component.spatial, false);
+  assert.equal(params.amount.defaultValue, 1);
+  assert.equal(params.cctvAmount.defaultValue, 0.45);
+  for (const id of ["screenPrintAmount", "dotMatrixAmount", "receiptAmount", "ditherAmount", "smearAmount"]) {
+    assert.equal(params[id].defaultValue, 0);
+  }
+  assert.equal(params.seedMode.defaultValue, "animated");
+  assert.ok(component.code.includes("stableSmearNoise"));
+  assert.ok(component.code.includes("dotPattern"));
+  assert.ok(component.code.includes("if (cctvAmount > 0.001)"));
+  assert.ok(component.code.includes("if (screenPrintAmount > 0.001)"));
+  assert.ok(component.code.includes("if (dotMatrixAmount > 0.001)"));
+  assert.ok(component.code.includes("if (receiptAmount > 0.001)"));
+  assert.ok(component.code.includes("if (ditherAmount > 0.001)"));
+  assert.ok(component.code.includes("if (smearAmount > 0.001)"));
+  assert.ok(!component.code.includes("if (mode <"));
+  assert.ok(component.code.includes("return vec4(effected * alpha, alpha);"));
 });
 
 test("heartbeat pulse exposes double-beat radial distortion controls", () => {
@@ -116,14 +168,20 @@ test("heat shimmer uses screen-oriented y coordinates for handle translation", (
 
   assert.ok(component.code.includes("transformEffectUv(effectScreenUv())"));
   assert.ok(component.code.includes("textureUvFromEffectScreenUv(inverseTransformEffectUv(warped))"));
+  assert.ok(component.code.includes("float waveA = sin"));
+  assert.ok(!component.code.includes("hash(floor(localUv"));
 });
 
-test("fireflies generator keeps the background transparent", () => {
+test("fireflies generator keeps the background transparent and uses one tint color", () => {
   const component = getGeneratorShaderComponent("fireflies");
 
   for (const id of ["count", "glowSize", "speed", "trail", "brightness", "twinkle"]) {
     assert.ok(component.code.includes(`uniform float ${id};`), `missing fireflies uniform ${id}`);
   }
+  assert.ok(component.code.includes("uniform vec4 tintColor;"));
+  assert.ok(component.code.includes("color += tintColor.rgb * light;"));
+  assert.ok(component.code.includes("* tintColor.a"));
+  assert.ok(!component.code.includes("mix(vec3(0.35, 0.9, 0.62)"));
   assert.ok(component.code.includes("float alpha = 0.0"));
   assert.ok(component.code.includes("gl_FragColor = vec4(color * alpha, alpha)"));
 });
