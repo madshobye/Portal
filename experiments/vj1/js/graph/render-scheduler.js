@@ -41,7 +41,8 @@ export function compileCompositionPatch(composition = {}, renderRequest = {}) {
 }
 
 function graphForCompositionChain(composition, request, outputId) {
-  const nodes = (composition.chain || [])
+  const flatChain = flattenCompositionChain(composition.chain || []);
+  const nodes = flatChain
     .map((item, index) => withRenderRequest(chainNodeForItem(composition, item, index), request));
   const edges = [];
   for (let index = 0; index < nodes.length - 1; index++) {
@@ -62,6 +63,19 @@ function graphForCompositionChain(composition, request, outputId) {
       layer: null,
     }] : [],
   };
+}
+
+function flattenCompositionChain(chain = []) {
+  const flat = [];
+  for (const item of chain || []) {
+    if (item.enabled === false) continue;
+    if (item.kind === "group") {
+      flat.push(...flattenCompositionChain(item.chain || []));
+      continue;
+    }
+    flat.push(item);
+  }
+  return flat;
 }
 
 function graphForLegacyComposition(composition, request, outputId) {

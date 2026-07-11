@@ -278,7 +278,7 @@ export function createEmbeddedPreviewApp({ store, mediaLibrary, projectService }
   function updateChainTransform(compositionId, itemId, transform) {
     store.update((draft) => {
       const composition = draft.compositions.find((item) => item.id === compositionId);
-      const item = composition?.chain?.find((chainItem) => chainItem.id === itemId);
+      const item = findChainItemById(composition?.chain, itemId);
       if (item) item.transform = { ...item.transform, ...transform };
     }, "scrub:chain-transform");
   }
@@ -294,6 +294,16 @@ export function createEmbeddedPreviewApp({ store, mediaLibrary, projectService }
   }
 
   return { mount, setState, command, pause };
+}
+
+function findChainItemById(chain = [], id = "") {
+  if (!Array.isArray(chain) || !id) return null;
+  for (const item of chain) {
+    if (item.id === id) return item;
+    const nested = item.kind === "group" ? findChainItemById(item.chain, id) : null;
+    if (nested) return nested;
+  }
+  return null;
 }
 
 function loadClassicScript(src) {

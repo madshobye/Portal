@@ -72,6 +72,17 @@ export function createCompositionLayer(index = 0, source = { type: "generator", 
   };
 }
 
+export function createCompositionGroup(index = 0) {
+  return normalizeCompositionChainItem({
+    id: uid("chain"),
+    kind: "group",
+    name: index === 0 ? "Group 1" : `Group ${index + 1}`,
+    enabled: true,
+    collapsed: false,
+    chain: [],
+  });
+}
+
 export function createDefaultSurface(index = 0) {
   const id = index === 0 ? "surface-main" : uid("surface");
   return {
@@ -213,7 +224,7 @@ export function sanitizeState(input = {}) {
     ? next.ui.selectedCompositionId
     : next.compositions[0]?.id || "";
   const selectedComposition = next.compositions.find((composition) => composition.id === next.ui.selectedCompositionId) || next.compositions[0];
-  next.ui.selectedChainItemId = selectedComposition?.chain?.some((item) => item.id === next.ui.selectedChainItemId)
+  next.ui.selectedChainItemId = chainContainsItemId(selectedComposition?.chain, next.ui.selectedChainItemId)
     ? next.ui.selectedChainItemId
     : selectedComposition?.chain?.[0]?.id || "";
   next.ui.selectedSurfaceId = next.surfaces.some((surface) => surface.id === next.ui.selectedSurfaceId)
@@ -357,11 +368,13 @@ function normalizeLiveChainItemOverride(item = {}) {
   const params = item.params && typeof item.params === "object" ? { ...item.params } : {};
   return {
     ...(item.enabled !== undefined ? { enabled: item.enabled !== false } : {}),
+    ...(item.collapsed !== undefined ? { collapsed: !!item.collapsed } : {}),
     ...(item.opacity !== undefined ? { opacity: clamp01(item.opacity) } : {}),
     ...(item.blend ? { blend: item.blend } : {}),
     ...(Object.keys(params).length ? { params } : {}),
     ...(item.amount !== undefined ? { amount: clamp01(item.amount) } : {}),
     ...(item.transform && typeof item.transform === "object" ? { transform: normalizeTransform(item.transform) } : {}),
+    ...(Array.isArray(item.chain) ? { chain: item.chain.map(normalizeLiveChainItemOverride) } : {}),
   };
 }
 
@@ -469,6 +482,17 @@ export function normalizeCompositionChainItem(item = {}) {
       params: pass.params,
       amount: pass.amount,
       transform: normalizeTransform(item.transform),
+    };
+  }
+  if (item.kind === "group") {
+    return {
+      id: item.id || uid("chain"),
+      kind: "group",
+      name: item.name || "Group",
+      enabled: item.enabled !== false,
+      collapsed: !!item.collapsed,
+      transform: normalizeTransform(item.transform),
+      chain: Array.isArray(item.chain) ? item.chain.map(normalizeCompositionChainItem) : [],
     };
   }
   const source = normalizeSource(item.source || { type: "generator", generatorId: item.componentId || "testPattern" });
@@ -646,7 +670,20 @@ function mergeCompositionChainItemOverride(item = {}, override = {}) {
       amount: pass.amount,
       ...(override.transform && typeof override.transform === "object"
         ? { transform: normalizeTransform({ ...(item.transform || {}), ...override.transform }) }
+      : {}),
+    };
+  }
+  if (item.kind === "group") {
+    return {
+      ...item,
+      ...(override.enabled !== undefined ? { enabled: override.enabled !== false } : {}),
+      ...(override.collapsed !== undefined ? { collapsed: !!override.collapsed } : {}),
+      ...(override.transform && typeof override.transform === "object"
+        ? { transform: normalizeTransform({ ...(item.transform || {}), ...override.transform }) }
         : {}),
+      chain: Array.isArray(item.chain)
+        ? item.chain.map((child, index) => mergeCompositionChainItemOverride(child, override.chain?.[index] || {}))
+        : [],
     };
   }
   return {
@@ -658,6 +695,15 @@ function mergeCompositionChainItemOverride(item = {}, override = {}) {
       ? { transform: normalizeTransform({ ...(item.transform || {}), ...override.transform }) }
       : {}),
   };
+}
+
+function chainContainsItemId(chain = [], id = "") {
+  if (!Array.isArray(chain) || !id) return false;
+  for (const item of chain) {
+    if (item.id === id) return true;
+    if (item.kind === "group" && chainContainsItemId(item.chain, id)) return true;
+  }
+  return false;
 }
 
 function mergeShaderPassOverride(pass = {}, override = {}) {

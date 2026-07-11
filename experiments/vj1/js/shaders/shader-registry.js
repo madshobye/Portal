@@ -1,4 +1,4 @@
-import { createNumberParam, defineVisualComponent, textureInlet, textureOutlet } from "../graph/component-schema.js";
+import { createBooleanParam, createNumberParam, defineVisualComponent, textureInlet, textureOutlet } from "../graph/component-schema.js";
 
 const effectInlets = Object.freeze([textureInlet("texture", "Texture")]);
 const effectOutlets = Object.freeze([textureOutlet("texture", "Texture")]);
@@ -12,13 +12,13 @@ export const SHADER_COMPONENTS = Object.freeze({
     transformSource: false,
     code: `
 vec4 runEffect(vec2 uv, vec4 color) {
-  vec2 localUv = transformEffectUv(vTexCoord);
+  vec2 localUv = transformEffectUv(effectScreenUv());
   float field = effectFieldMask(localUv);
   vec2 p = localUv - 0.5;
   float d = length(p);
   float wave = sin(d * 48.0 - time * 4.5) * 0.012 * amount;
   vec2 warped = inverseTransformEffectUv(localUv + normalize(p + 0.0001) * wave);
-  return mix(color, sampleSource(warped), field);
+  return mix(color, sampleSource(textureUvFromEffectScreenUv(warped)), field);
 }`,
   },
   rgbSplit: {
@@ -157,16 +157,22 @@ vec4 runEffect(vec2 uv, vec4 color) {
     name: "Grain Threshold",
     category: "key",
     code: `
+float fastThresholdGrain(vec2 p) {
+  vec3 p3 = fract(vec3(p.xyx) * 0.1031);
+  p3 += dot(p3, p3.yzx + 33.33);
+  return fract((p3.x + p3.y) * p3.z);
+}
+
 vec4 runEffect(vec2 uv, vec4 color) {
-  float fine = hash(uv * vec2(16000.0, 12000.0) + time);
-  float rough = hash(uv * vec2(2200.0, 2200.0) + vec2(37.0, 91.0 + time * 0.41));
-  float grain = (fine - 0.5) * 0.9 + (rough - 0.5) * 0.55;
-  vec3 noisy = clamp(color.rgb + vec3(grain * mix(0.25, 1.15, amount)), 0.0, 1.0);
-  float luma = dot(noisy, vec3(0.299, 0.587, 0.114));
+  float alpha = color.a;
+  vec3 straight = alpha > 0.0001 ? color.rgb / alpha : vec3(0.0);
+  vec2 grainCell = floor(uv * resolution * mix(0.9, 1.8, amount));
+  float grain = fastThresholdGrain(grainCell + floor(time * 24.0)) - 0.5;
+  float luma = dot(straight, vec3(0.299, 0.587, 0.114)) + grain * mix(0.35, 1.05, amount);
   float threshold = mix(0.28, 0.74, amount);
   float ink = step(threshold, luma);
   float scanline = step(0.82, fract(uv.y * 900.0)) * 0.2;
-  return vec4(vec3(clamp(ink - scanline, 0.0, 1.0)) * color.a, color.a);
+  return vec4(vec3(clamp(ink - scanline, 0.0, 1.0)) * alpha, alpha);
 }`,
   },
   hardBlack: {
@@ -320,7 +326,7 @@ vec4 runEffect(vec2 uv, vec4 color) {
     transformSource: false,
     code: `
 vec4 runEffect(vec2 uv, vec4 color) {
-  vec2 localUv = transformEffectUv(vTexCoord);
+  vec2 localUv = transformEffectUv(effectScreenUv());
   float field = effectFieldMask(localUv);
   vec2 p = localUv - 0.5;
   float angle = atan(p.y, p.x);
@@ -329,7 +335,7 @@ vec4 runEffect(vec2 uv, vec4 color) {
   angle = mod(angle, 6.28318530718 / slices);
   angle = abs(angle - 3.14159265359 / slices);
   vec2 k = 0.5 + vec2(cos(angle), sin(angle)) * radius;
-  return mix(color, sampleSource(inverseTransformEffectUv(k)), field);
+  return mix(color, sampleSource(textureUvFromEffectScreenUv(inverseTransformEffectUv(k))), field);
 }`,
   },
   pixelate: {
@@ -340,12 +346,12 @@ vec4 runEffect(vec2 uv, vec4 color) {
     transformSource: false,
     code: `
 vec4 runEffect(vec2 uv, vec4 color) {
-  vec2 localUv = transformEffectUv(vTexCoord);
+  vec2 localUv = transformEffectUv(effectScreenUv());
   float field = effectFieldMask(localUv);
   float cells = mix(220.0, 18.0, amount);
   vec2 grid = vec2(cells, cells * resolution.y / resolution.x);
   vec2 blockUv = (floor(localUv * grid) + 0.5) / grid;
-  return mix(color, sampleSource(inverseTransformEffectUv(blockUv)), field);
+  return mix(color, sampleSource(textureUvFromEffectScreenUv(inverseTransformEffectUv(blockUv))), field);
 }`,
   },
   plasma: {
@@ -356,7 +362,7 @@ vec4 runEffect(vec2 uv, vec4 color) {
     transformSource: false,
     code: `
 vec4 runEffect(vec2 uv, vec4 color) {
-  vec2 localUv = transformEffectUv(vTexCoord);
+  vec2 localUv = transformEffectUv(effectScreenUv());
   float field = effectFieldMask(localUv);
   vec2 p = (localUv - 0.5) * 2.0;
   float v = sin((p.x + time * 0.25) * 8.0);
@@ -415,7 +421,7 @@ vec4 runEffect(vec2 uv, vec4 color) {
     ],
     code: `
 vec4 runEffect(vec2 uv, vec4 color) {
-  vec2 localUv = transformEffectUv(vTexCoord);
+  vec2 localUv = transformEffectUv(effectScreenUv());
   float field = effectFieldMask(localUv);
   float row = floor(localUv.y * blocks);
   float rowNoise = hash(vec2(row, floor(time * 18.0)));
@@ -425,9 +431,9 @@ vec4 runEffect(vec2 uv, vec4 color) {
   vec2 warped = localUv + vec2(jitter + tear, sin(localUv.y * 80.0 + time * 12.0) * amount * 0.0025);
   float scan = step(0.985 - amount * 0.18, fract(localUv.y * resolution.y * 0.5 + time * 20.0));
   vec2 split = vec2((0.002 + 0.018 * amount) * colorSplit, 0.0);
-  vec4 r = sampleSource(inverseTransformEffectUv(warped + split));
-  vec4 g = sampleSource(inverseTransformEffectUv(warped));
-  vec4 b = sampleSource(inverseTransformEffectUv(warped - split));
+  vec4 r = sampleSource(textureUvFromEffectScreenUv(inverseTransformEffectUv(warped + split)));
+  vec4 g = sampleSource(textureUvFromEffectScreenUv(inverseTransformEffectUv(warped)));
+  vec4 b = sampleSource(textureUvFromEffectScreenUv(inverseTransformEffectUv(warped - split)));
   vec4 mixedColor = vec4(r.r, g.g, b.b, max(max(r.a, g.a), b.a));
   mixedColor.rgb += scan * vec3(0.24, 0.08, 0.18) * mixedColor.a;
   return mix(color, mixedColor, amount * field);
@@ -446,7 +452,7 @@ vec4 runEffect(vec2 uv, vec4 color) {
     ],
     code: `
 vec4 runEffect(vec2 uv, vec4 color) {
-  vec2 localUv = transformEffectUv(vTexCoord);
+  vec2 localUv = transformEffectUv(effectScreenUv());
   float field = effectFieldMask(localUv);
   vec2 aspect = vec2(resolution.x / max(resolution.y, 1.0), 1.0);
   vec2 p = (localUv - 0.5) * aspect;
@@ -454,7 +460,26 @@ vec4 runEffect(vec2 uv, vec4 color) {
   float c = cos(angle);
   float s = sin(angle);
   vec2 rotated = (vec2(c * p.x - s * p.y, s * p.x + c * p.y) / aspect) + 0.5;
-  return mix(color, sampleSource(inverseTransformEffectUv(rotated)), field);
+  return mix(color, sampleSource(textureUvFromEffectScreenUv(inverseTransformEffectUv(rotated))), field);
+}`,
+  },
+  flip: {
+    id: "flip",
+    name: "Flip",
+    category: "geometry",
+    params: [
+      createNumberParam("amount", "Amount", { min: 0, max: 1, step: 0.01, defaultValue: 1 }),
+      createBooleanParam("flipX", "Flip X", true),
+      createBooleanParam("flipY", "Flip Y", false),
+    ],
+    code: `
+vec4 runEffect(vec2 uv, vec4 color) {
+  vec2 flippedUv = vec2(
+    flipX ? 1.0 - uv.x : uv.x,
+    flipY ? 1.0 - uv.y : uv.y
+  );
+  vec4 flipped = sampleSource(flippedUv);
+  return mix(color, flipped, amount);
 }`,
   },
   echoFade: {
@@ -477,7 +502,7 @@ vec2 rotateAroundCenter(vec2 uv, float angle, float scale) {
 }
 
 vec4 runEffect(vec2 uv, vec4 color) {
-  vec2 localUv = transformEffectUv(vTexCoord);
+  vec2 localUv = transformEffectUv(effectScreenUv());
   float field = effectFieldMask(localUv);
   vec2 dir = normalize(vec2(cos(time * 0.33), sin(time * 0.27)) + vec2(0.01));
   vec4 sum = color * 0.46;
@@ -487,7 +512,7 @@ vec4 runEffect(vec2 uv, vec4 color) {
     vec2 shifted = rotateAroundCenter(localUv - dir * distance * f * amount, twist * amount * f, 1.0 + amount * 0.035 * f);
     float tapField = effectFieldMask(shifted);
     float weight = pow(1.0 - f, 1.65) * 0.42 * tapField;
-    vec4 tap = sampleSource(inverseTransformEffectUv(shifted));
+    vec4 tap = sampleSource(textureUvFromEffectScreenUv(inverseTransformEffectUv(shifted)));
     sum += tap * weight;
     total += weight;
   }
@@ -507,7 +532,7 @@ vec4 runEffect(vec2 uv, vec4 color) {
     ],
     code: `
 vec4 runEffect(vec2 uv, vec4 color) {
-  vec2 localUv = transformEffectUv(vTexCoord);
+  vec2 localUv = transformEffectUv(effectScreenUv());
   float field = effectFieldMask(localUv);
   vec2 p = localUv - 0.5;
   float radius = length(p);
@@ -516,7 +541,7 @@ vec4 runEffect(vec2 uv, vec4 color) {
   angle = mod(angle, sector);
   angle = abs(angle - sector * 0.5);
   vec2 folded = 0.5 + vec2(cos(angle), sin(angle)) * radius;
-  return mix(color, sampleSource(inverseTransformEffectUv(folded)), amount * field);
+  return mix(color, sampleSource(textureUvFromEffectScreenUv(inverseTransformEffectUv(folded))), amount * field);
 }`,
   },
   heatShimmer: {
@@ -555,32 +580,33 @@ vec4 runEffect(vec2 uv, vec4 color) {
       createNumberParam("spread", "Spread", { min: 0.4, max: 2.2, step: 0.01, defaultValue: 1 }),
     ],
     code: `
-float beatImpulse(float phase, float center, float width, float strength) {
-  float d = abs(phase - center);
+float beatImpulse(float beatTime, float center, float width, float strength) {
+  float d = abs(beatTime - center);
   return exp(-(d * d) / max(width * width, 0.0001)) * strength;
 }
 
 vec4 runEffect(vec2 uv, vec4 color) {
   vec2 aspect = vec2(resolution.x / max(resolution.y, 1.0), 1.0);
-  vec2 screenUv = vTexCoord;
+  vec2 screenUv = effectScreenUv();
   vec2 center = vec2(0.5) + effectTransform.xy * 0.5;
   float fieldScale = max(effectTransform.z, 0.0001);
   vec2 p = (screenUv - center) * aspect / fieldScale;
   float radius = length(p);
   vec2 dir = radius > 0.0001 ? p / radius : vec2(0.0);
 
-  float phase = fract(time * max(rate, 0.001));
-  float beat = beatImpulse(phase, 0.08, 0.035, 1.0) +
-    beatImpulse(phase, 0.27, 0.050, 0.62);
-  float after = exp(-phase * 3.2) * 0.18;
+  float cycleDuration = 1.0 / max(rate, 0.001);
+  float beatTime = mod(time, cycleDuration);
+  float beat = beatImpulse(beatTime, 0.08, 0.035, 1.0) +
+    beatImpulse(beatTime, 0.27, 0.050, 0.62);
+  float after = exp(-beatTime * 3.2) * 0.18;
   float pulse = beat + after;
 
-  float ringPhase = radius * mix(3.2, 1.05, clamp(spread, 0.0, 2.2) / 2.2) - phase * 1.75;
+  float ringPhase = radius * mix(3.2, 1.05, clamp(spread, 0.0, 2.2) / 2.2) - beatTime * 1.75;
   float ring = exp(-(ringPhase * ringPhase) / max(ringWidth * ringWidth, 0.0001));
   float falloff = smoothstep(1.35, 0.02, radius);
   float displacement = amount * pulse * ring * falloff * 0.055;
   vec2 warped = screenUv + (dir * displacement * fieldScale) / aspect;
-  return sampleSource(warped);
+  return sampleSource(textureUvFromEffectScreenUv(warped));
 }`,
   },
   custom: {

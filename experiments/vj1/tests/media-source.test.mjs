@@ -5,6 +5,7 @@ import { createCompositionLayer, createDefaultComposition, createInitialState, s
 import { normalizeParamValue } from "../js/graph/component-schema.js";
 import { getGeneratorComponent } from "../js/graph/generator-registry.js";
 import { compileCompositionPatch } from "../js/graph/render-scheduler.js?v=world-frame-27";
+import { OutputRenderer } from "../js/output/output-renderer.js?v=world-frame-27";
 import { getMediaType, isMediaFile } from "../js/services/media-library-service.js";
 
 test("media sources keep trim and playback speed through normalization and graph compile", () => {
@@ -88,7 +89,11 @@ test("fireflies generator exposes cost and motion controls", () => {
 test("gradient generator exposes rgba color stops", () => {
   const component = getGeneratorComponent("gradient");
   const colorParams = component.params.filter((param) => param.type === "color");
+  const modeParam = component.params.find((param) => param.id === "mode");
 
+  assert.equal(modeParam.type, "enum");
+  assert.deepEqual(modeParam.values, ["linear", "radial", "single"]);
+  assert.equal(modeParam.defaultValue, "linear");
   assert.deepEqual(colorParams.map((param) => param.id), ["colorA", "colorB", "colorC", "colorD"]);
   assert.equal(normalizeParamValue(colorParams[3], undefined), "#00000000");
   assert.equal(normalizeParamValue(colorParams[0], "#11223380"), "#11223380");
@@ -137,4 +142,46 @@ test("3d model media is detected and keeps render params", () => {
   assert.equal(sourceNode.params.spinY, 0.2);
   assert.equal(sourceNode.params.surfaceColor, "#3366ccaa");
   assert.equal(sourceNode.params.wireColor, "#ffcc00ff");
+});
+
+test("output renderer blackouts while active media sources are missing or loading", () => {
+  const previousMillis = globalThis.millis;
+  globalThis.millis = () => 2000;
+  try {
+    const state = createInitialState();
+    const composition = createDefaultComposition(0);
+    composition.chain = [
+      createCompositionLayer(0, { type: "media", mediaId: "clips/loop.mov" }),
+    ];
+    state.compositions = [composition];
+    state.surfaces = [{ ...state.surfaces[0], enabled: true, compositionId: composition.id }];
+    const requested = [];
+    const renderer = new OutputRenderer({
+      mode: "output",
+      requestMediaFiles: (ids) => requested.push(ids),
+    });
+    renderer.state = sanitizeState(state);
+
+    let status = renderer.outputMediaReadiness();
+    renderer.outputMediaStatus = status;
+    assert.equal(status.blocked, true);
+    assert.equal(status.missingIds.has("clips/loop.mov"), true);
+    assert.deepEqual(requested, [["clips/loop.mov"]]);
+    assert.equal(renderer.isOutputBlackout(), true);
+
+    renderer.media.set("clips/loop.mov", { id: "clips/loop.mov", video: null, image: null, ready: false });
+    status = renderer.outputMediaReadiness();
+    renderer.outputMediaStatus = status;
+    assert.equal(status.blocked, true);
+    assert.equal(status.loadingIds.has("clips/loop.mov"), true);
+
+    renderer.media.set("clips/loop.mov", { id: "clips/loop.mov", image: { width: 64, height: 64 }, ready: true });
+    status = renderer.outputMediaReadiness();
+    renderer.outputMediaStatus = status;
+    assert.equal(status.blocked, false);
+    assert.equal(renderer.isOutputBlackout(), false);
+  } finally {
+    if (previousMillis === undefined) delete globalThis.millis;
+    else globalThis.millis = previousMillis;
+  }
 });

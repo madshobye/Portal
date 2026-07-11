@@ -7,6 +7,7 @@ import {
   createDefaultComposition,
   createDefaultSurface,
   createCompositionEffect,
+  createCompositionGroup,
   createCompositionLayer,
   createInitialState,
   createLiveRenderState,
@@ -133,9 +134,7 @@ export function createAppState(initial = null) {
         if (!composition) return;
         const layer = createCompositionLayer(composition.chain?.length || 0, source);
         composition.chain ||= [];
-        const selectedIndex = composition.chain.findIndex((item) => item.id === draft.ui.selectedChainItemId);
-        const insertIndex = selectedIndex >= 0 ? selectedIndex + 1 : composition.chain.length;
-        composition.chain.splice(insertIndex, 0, layer);
+        insertChainItemNearSelection(composition.chain, draft.ui.selectedChainItemId, layer);
         draft.ui.selectedChainItemId = layer.id;
       }, "add-chain-source");
     },
@@ -145,20 +144,26 @@ export function createAppState(initial = null) {
         if (!composition) return;
         const effect = createCompositionEffect(effectId);
         composition.chain ||= [];
-        composition.chain.push(effect);
+        insertChainItemNearSelection(composition.chain, draft.ui.selectedChainItemId, effect);
         draft.ui.selectedChainItemId = effect.id;
       }, "add-chain-effect");
     },
-    reorderChain(compositionId, fromId, toId) {
+    addChainGroup(compositionId) {
+      update((draft) => {
+        const composition = draft.compositions.find((item) => item.id === compositionId);
+        if (!composition) return;
+        composition.chain ||= [];
+        const group = createCompositionGroup(countChainGroups(composition.chain));
+        insertChainItemNearSelection(composition.chain, draft.ui.selectedChainItemId, group);
+        draft.ui.selectedChainItemId = group.id;
+      }, "add-chain-group");
+    },
+    reorderChain(compositionId, fromId, toId, position = "before") {
       update((draft) => {
         const composition = draft.compositions.find((item) => item.id === compositionId);
         const chain = composition?.chain;
         if (!Array.isArray(chain)) return;
-        const fromIndex = chain.findIndex((item) => item.id === fromId);
-        const toIndex = chain.findIndex((item) => item.id === toId);
-        if (fromIndex < 0 || toIndex < 0 || fromIndex === toIndex) return;
-        const [item] = chain.splice(fromIndex, 1);
-        chain.splice(toIndex, 0, item);
+        moveChainItem(chain, fromId, toId, position);
       }, "reorder-chain");
     },
     reorderSurfaces(fromId, toId) {
@@ -252,4 +257,78 @@ function moveById(list, fromId, toId) {
   const [item] = list.splice(fromIndex, 1);
   list.splice(toIndex, 0, item);
   return true;
+}
+
+function insertChainItemNearSelection(chain = [], selectedId = "", item = null) {
+  if (!item) return;
+  const selected = findChainItemLocation(chain, selectedId);
+  if (selected?.item?.kind === "group") {
+    selected.item.chain ||= [];
+    selected.item.chain.push(item);
+    return;
+  }
+  if (selected?.chain) {
+    selected.chain.splice(selected.index + 1, 0, item);
+    return;
+  }
+  chain.push(item);
+}
+
+function findChainItemLocation(chain = [], id = "") {
+  if (!Array.isArray(chain) || !id) return null;
+  for (let index = 0; index < chain.length; index++) {
+    const item = chain[index];
+    if (item.id === id) return { chain, item, index };
+    const nested = item.kind === "group" ? findChainItemLocation(item.chain, id) : null;
+    if (nested) return nested;
+  }
+  return null;
+}
+
+function countChainGroups(chain = []) {
+  let count = 0;
+  for (const item of chain || []) {
+    if (item.kind === "group") count++;
+    if (item.kind === "group") count += countChainGroups(item.chain);
+  }
+  return count;
+}
+
+function moveChainItem(rootChain = [], fromId = "", toId = "", position = "before") {
+  if (!fromId || !toId || !Array.isArray(rootChain)) return false;
+  if (position === "inside" && (fromId === toId || chainItemContainsId(findChainItemLocation(rootChain, fromId)?.item, toId))) {
+    return false;
+  }
+  const from = findChainItemLocation(rootChain, fromId);
+  const target = findChainItemLocation(rootChain, toId);
+  if (!from || !target) return false;
+  if (position === "inside" && target.item.kind !== "group") return false;
+  if ((position === "before" || position === "after") && from.chain === target.chain && from.index === target.index) return false;
+  if (chainItemContainsId(from.item, toId)) return false;
+
+  const [moved] = from.chain.splice(from.index, 1);
+  if (!moved) return false;
+
+  if (position === "inside") {
+    target.item.chain ||= [];
+    target.item.chain.push(moved);
+    return true;
+  }
+
+  const adjustedTarget = findChainItemLocation(rootChain, toId);
+  if (!adjustedTarget) {
+    rootChain.push(moved);
+    return true;
+  }
+  const insertIndex = adjustedTarget.index + (position === "after" ? 1 : 0);
+  adjustedTarget.chain.splice(insertIndex, 0, moved);
+  return true;
+}
+
+function chainItemContainsId(item = null, id = "") {
+  if (!item || !id || item.kind !== "group") return false;
+  for (const child of item.chain || []) {
+    if (child.id === id || chainItemContainsId(child, id)) return true;
+  }
+  return false;
 }

@@ -137,6 +137,7 @@ void main() {
 precision mediump float;
 uniform vec2 resolution;
 uniform float time;
+uniform float mode;
 uniform float colorCount;
 uniform float angle;
 uniform float offset;
@@ -156,12 +157,23 @@ vec4 mixPremul(vec4 a, vec4 b, float t) {
 }
 
 void main() {
+  if (mode > 1.5) {
+    gl_FragColor = vec4(colorA.rgb * colorA.a, colorA.a);
+    return;
+  }
+
   vec2 uv = vTexCoord - 0.5;
   vec2 aspect = vec2(resolution.x / max(resolution.y, 1.0), 1.0);
   uv *= aspect;
-  vec2 dir = vec2(cos(angle), sin(angle));
-  float span = max(abs(dir.x) * aspect.x + abs(dir.y), 0.0001);
-  float t = dot(uv, dir) / span + 0.5 + offset;
+  float t = 0.0;
+  if (mode > 0.5) {
+    float maxRadius = max(length(vec2(0.5 * aspect.x, 0.5)), 0.0001);
+    t = length(uv) / maxRadius + offset;
+  } else {
+    vec2 dir = vec2(cos(angle), sin(angle));
+    float span = max(abs(dir.x) * aspect.x + abs(dir.y), 0.0001);
+    t = dot(uv, dir) / span + 0.5 + offset;
+  }
   t = clamp(t, 0.0, 1.0);
   float shaped = pow(t, max(0.05, softness));
   float count = floor(clamp(colorCount + 0.5, 2.0, 4.0));

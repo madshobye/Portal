@@ -687,6 +687,7 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
       bindElementPickerSearch(host);
       host.querySelectorAll("[data-add-element-media]").forEach((button) => {
         button.addEventListener("click", () => {
+          activateElementPickerTarget();
           store.addChainSource(elementPicker.compositionId, {
             type: "media",
             mediaId: button.dataset.addElementMedia || "",
@@ -695,11 +696,18 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
         });
       });
       host.querySelector("[data-add-element-camera]")?.addEventListener("click", () => {
+        activateElementPickerTarget();
         store.addChainSource(elementPicker.compositionId, { type: "camera" });
+        closeElementPicker();
+      });
+      host.querySelector("[data-add-element-group]")?.addEventListener("click", () => {
+        activateElementPickerTarget();
+        store.addChainGroup(elementPicker.compositionId);
         closeElementPicker();
       });
       host.querySelectorAll("[data-add-element-generator]").forEach((button) => {
         button.addEventListener("click", () => {
+          activateElementPickerTarget();
           store.addChainSource(elementPicker.compositionId, {
             type: "generator",
             generatorId: button.dataset.addElementGenerator || "testPattern",
@@ -709,6 +717,7 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
       });
       host.querySelectorAll("[data-add-element-effect]").forEach((button) => {
         button.addEventListener("click", () => {
+          activateElementPickerTarget();
           store.addChainEffect(elementPicker.compositionId, button.dataset.addElementEffect);
           closeElementPicker();
         });
@@ -770,12 +779,16 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
     renderModal(latestState);
   }
 
-  function openElementPicker(compositionId) {
-    elementPicker = { compositionId };
+  function openElementPicker(compositionId, selectedChainItemId = "") {
+    elementPicker = { compositionId, selectedChainItemId };
     mediaPicker = null;
     sourceChoicePicker = null;
     settingsOpen = false;
     renderModal(latestState);
+  }
+
+  function activateElementPickerTarget() {
+    if (elementPicker?.selectedChainItemId) store.selectChainItem(elementPicker.selectedChainItemId);
   }
 
   function closeElementPicker() {
@@ -992,7 +1005,10 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
       });
     });
     scope.querySelectorAll("[data-open-element-picker]").forEach((button) => {
-      button.addEventListener("click", () => openElementPicker(button.dataset.compositionId || latestState.ui.selectedCompositionId));
+      button.addEventListener("click", () => openElementPicker(
+        button.dataset.compositionId || latestState.ui.selectedCompositionId,
+        button.dataset.targetChainItem || ""
+      ));
     });
     scope.querySelectorAll("[data-add-canvas-composition]").forEach((button) => {
       button.addEventListener("click", () => store.addCanvasComposition?.());
@@ -1014,7 +1030,9 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
     });
     scope.querySelectorAll("[data-chain-reorder-list]").forEach((list) => {
       bindReorderList(list, {
-        onReorder: (fromId, toId) => store.reorderChain(list.dataset.compositionId, fromId, toId),
+        itemSelector: ".chain-item-row[data-reorder-id]",
+        dropSelector: "[data-reorder-id]",
+        onReorder: (fromId, toId, position) => store.reorderChain(list.dataset.compositionId, fromId, toId, position),
       });
     });
     scope.querySelectorAll("[data-remove-surface]").forEach((button) => {
@@ -1057,9 +1075,9 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
   function removeChainItem(compositionId, itemId) {
     store.update((draft) => {
       const composition = draft.compositions.find((item) => item.id === compositionId);
-      if (!composition?.chain || composition.chain.length <= 1) return;
-      composition.chain = composition.chain.filter((item) => item.id !== itemId);
-      if (draft.ui.selectedChainItemId === itemId) draft.ui.selectedChainItemId = composition.chain[0]?.id || "";
+      if (!composition?.chain) return;
+      const removed = removeChainItemFromChain(composition.chain, itemId, true);
+      if (removed && draft.ui.selectedChainItemId === itemId) draft.ui.selectedChainItemId = firstChainItemId(composition.chain);
     }, "remove-chain-item");
   }
 
@@ -1810,41 +1828,55 @@ function compositionTemplate(composition, state) {
 }
 
 function compositionUnifiedChainTemplate(composition, state, ownerPath) {
-  const selected = selectedChainItem(composition, state);
+  const selected = selectedChainItemSelection(composition, state);
   return `
     <div class="chain-column">
       <section class="chain-list-section">
         <div class="rail-title"><span class="material-symbols-rounded">account_tree</span><span>Chain</span></div>
         <div class="composition-chain-list" data-chain-reorder-list data-composition-id="${esc(composition.id)}">
-          ${(composition.chain || []).map((item, index) => chainItemRowTemplate(item, composition, state, index, `${ownerPath}.chain.${index}`)).join("")}
+          ${chainItemsTemplate(composition.chain || [], composition, state, `${ownerPath}.chain`, 0, true)}
         </div>
-        <button type="button" class="chain-add-button" data-open-element-picker data-composition-id="${esc(composition.id)}">${icon("add")} Add element</button>
+        <button type="button" class="chain-add-button" data-open-element-picker data-composition-id="${esc(composition.id)}" title="Add element" aria-label="Add element">${icon("add")}</button>
       </section>
       <section class="chain-selected-section">
-        ${selected ? selectedChainItemTemplate(selected, composition, state, `${ownerPath}.chain.${composition.chain.findIndex((item) => item.id === selected.id)}`) : emptyNote("Select a chain item")}
+        ${selected ? selectedChainItemTemplate(selected.item, composition, state, selected.path) : emptyNote("Select a chain item")}
       </section>
     </div>
   `;
 }
 
-function chainItemRowTemplate(item, composition, state, index, base) {
+function chainItemsTemplate(chain, composition, state, base, depth = 0, topLevel = false) {
+  if (!chain?.length) return depth ? `<div class="soft-note chain-group-empty">Group is empty</div>` : "";
+  return chain.map((item, index) => chainItemRowTemplate(item, composition, state, index, `${base}.${index}`, depth, topLevel ? chain.length : null)).join("");
+}
+
+function chainItemRowTemplate(item, composition, state, index, base, depth = 0, topLevelLength = null) {
   const selected = state.ui.selectedChainItemId === item.id;
   const media = state.media?.find((entry) => entry.id === item.source?.mediaId) || null;
-  const label = item.kind === "source" ? sourceChainItemDisplayName(item, media) : item.name || item.componentId;
-  const iconName = item.kind === "source" ? sourceIcon(item.source || {}) : effectIcon(item.componentId);
+  const label = chainItemLabel(item, media);
+  const iconName = chainItemIcon(item);
+  const kindLabel = item.kind === "source" ? item.source?.type || "source" : item.kind === "group" ? `${item.chain?.length || 0} item group` : "effect";
+  const canRemove = item.kind === "group" || depth > 0 || topLevelLength === null || topLevelLength > 1;
   return `
-    <div class="chain-item-row ${selected ? "is-selected" : ""}" data-reorder-id="${esc(item.id)}">
-      ${enableToggleButton({
-        path: `${base}.enabled`,
-        value: item.enabled !== false,
-        iconName,
-        label,
-      })}
-      <button type="button" class="chain-item-select" data-select-chain-item="${esc(item.id)}">
-        <span>${esc(label)}</span>
-        <small>${item.kind === "source" ? esc(item.source?.type || "source") : "effect"}</small>
-      </button>
-      <button type="button" class="chain-item-remove" data-composition-id="${esc(composition.id)}" data-remove-chain-item="${esc(item.id)}" title="Remove" aria-label="Remove ${esc(label)}" ${composition.chain.length <= 1 ? "disabled" : ""}>${icon("close")}</button>
+    <div class="chain-item-block ${item.kind === "group" ? "is-group" : ""}" style="--chain-depth: ${depth};">
+      <div class="chain-item-row ${selected ? "is-selected" : ""}" data-reorder-id="${esc(item.id)}">
+        ${enableToggleButton({
+          path: `${base}.enabled`,
+          value: item.enabled !== false,
+          iconName,
+          label,
+        })}
+        <button type="button" class="chain-item-select" data-select-chain-item="${esc(item.id)}">
+          <span>${esc(label)}</span>
+          <small>${esc(kindLabel)}</small>
+        </button>
+        <button type="button" class="chain-item-remove" data-composition-id="${esc(composition.id)}" data-remove-chain-item="${esc(item.id)}" title="Remove" aria-label="Remove ${esc(label)}" ${canRemove ? "" : "disabled"}>${icon("close")}</button>
+      </div>
+      ${item.kind === "group" ? `
+        <div class="chain-group-drop-zone" data-reorder-id="${esc(item.id)}" data-drop-position="inside" title="Drop inside ${esc(label)}" aria-label="Drop inside ${esc(label)}"></div>
+        ${!item.collapsed ? `<div class="chain-group-children" data-reorder-id="${esc(item.id)}" data-drop-position="inside">${chainItemsTemplate(item.chain || [], composition, state, `${base}.chain`, depth + 1)}</div>` : ""}
+        <div class="chain-group-drop-zone is-after" data-reorder-id="${esc(item.id)}" data-drop-position="after" title="Drop after ${esc(label)}" aria-label="Drop after ${esc(label)}"></div>
+      ` : ""}
     </div>
   `;
 }
@@ -1853,12 +1885,28 @@ const SHOW_CHAIN_ITEM_TRANSFORM_CONTROLS = false;
 
 function selectedChainItemTemplate(item, composition, state, base) {
   if (item.kind === "source") return sourceChainItemTemplate(item, state, base);
+  if (item.kind === "group") return groupChainItemTemplate(item, composition, base);
   const component = getShaderComponent(item.componentId);
   return `
     <section class="chain-item-editor">
       <div class="rail-title"><span class="material-symbols-rounded">${effectIcon(item.componentId)}</span><span>${esc(component?.name || item.componentId)}</span></div>
       ${shaderParamControlsTemplate(component, item, base)}
       ${component?.spatial && SHOW_CHAIN_ITEM_TRANSFORM_CONTROLS ? effectTransformControlsTemplate(item, base) : ""}
+    </section>
+  `;
+}
+
+function groupChainItemTemplate(item, composition, base) {
+  return `
+    <section class="chain-item-editor">
+      <div class="rail-title"><span class="material-symbols-rounded">account_tree</span><span>${esc(item.name || "Group")}</span></div>
+      <label class="field">Name <input type="text" data-update="${base}.name" value="${esc(item.name || "Group")}" spellcheck="false" data-gramm="false" data-gramm_editor="false" data-enable-grammarly="false" /></label>
+      <label class="field inline-param">
+        <span>Collapsed</span>
+        <input type="checkbox" data-update="${base}.collapsed" ${item.collapsed ? "checked" : ""} />
+      </label>
+      <button type="button" class="chain-add-button" data-open-element-picker data-composition-id="${esc(composition.id)}" data-target-chain-item="${esc(item.id)}" title="Add element to group" aria-label="Add element to group">${icon("add")}</button>
+      <div class="soft-note">Use the preview handles to move, scale, or rotate the group as one unit.</div>
     </section>
   `;
 }
@@ -1906,8 +1954,9 @@ function effectTransformControlsTemplate(item, base) {
   `;
 }
 
-function selectedChainItem(composition, state) {
-  return composition.chain?.find((item) => item.id === state.ui.selectedChainItemId) || composition.chain?.[0] || null;
+function selectedChainItemSelection(composition, state) {
+  const selected = findChainItemSelection(composition.chain || [], state.ui.selectedChainItemId, `${pathForComposition(state, composition)}.chain`);
+  return selected || firstChainItemSelection(composition.chain || [], `${pathForComposition(state, composition)}.chain`);
 }
 
 function sourcePickerTemplate(composition, state, base) {
@@ -1969,6 +2018,54 @@ function sourceSubtitle(source = {}, media = null) {
 function sourceChainItemDisplayName(item = {}, media = null) {
   if (!item.name || isGenericLayerName(item.name)) return sourceTitle(item.source || {}, media);
   return item.name;
+}
+
+function chainItemLabel(item = {}, media = null) {
+  if (item.kind === "source") return sourceChainItemDisplayName(item, media);
+  if (item.kind === "group") return item.name || "Group";
+  return item.name || item.componentId || "Effect";
+}
+
+function chainItemIcon(item = {}) {
+  if (item.kind === "source") return sourceIcon(item.source || {});
+  if (item.kind === "group") return "account_tree";
+  return effectIcon(item.componentId);
+}
+
+function findChainItemSelection(chain = [], id = "", base = "chain") {
+  if (!Array.isArray(chain) || !id) return null;
+  for (let index = 0; index < chain.length; index++) {
+    const item = chain[index];
+    const path = `${base}.${index}`;
+    if (item.id === id) return { item, path };
+    const nested = item.kind === "group" ? findChainItemSelection(item.chain || [], id, `${path}.chain`) : null;
+    if (nested) return nested;
+  }
+  return null;
+}
+
+function firstChainItemSelection(chain = [], base = "chain") {
+  if (!Array.isArray(chain) || !chain.length) return null;
+  return { item: chain[0], path: `${base}.0` };
+}
+
+function firstChainItemId(chain = []) {
+  if (!Array.isArray(chain) || !chain.length) return "";
+  return chain[0]?.id || "";
+}
+
+function removeChainItemFromChain(chain = [], itemId = "", topLevel = false) {
+  if (!Array.isArray(chain) || !itemId) return false;
+  const index = chain.findIndex((item) => item.id === itemId);
+  if (index >= 0) {
+    if (topLevel && chain.length <= 1) return false;
+    chain.splice(index, 1);
+    return true;
+  }
+  for (const item of chain) {
+    if (item.kind === "group" && removeChainItemFromChain(item.chain || [], itemId, false)) return true;
+  }
+  return false;
 }
 
 function isGenericLayerName(value) {
@@ -2438,6 +2535,18 @@ function elementPickerTemplate(state, picker, mediaLibrary, urlCache) {
         </section>
 
         <section class="element-section" data-element-section>
+          <div class="rail-title"><span class="material-symbols-rounded">account_tree</span><span>Structure</span></div>
+          <div class="element-grid compact-element-grid">
+            <button type="button" class="element-card" data-add-element-group data-element-search-card="group folder chain nested structure">
+              ${icon("account_tree")}
+              <strong>Group</strong>
+              <small>nested chain</small>
+            </button>
+          </div>
+          <div class="soft-note" data-element-empty hidden>No matching structure elements.</div>
+        </section>
+
+        <section class="element-section" data-element-section>
           <div class="rail-title"><span class="material-symbols-rounded">auto_awesome</span><span>Generators</span></div>
           <div class="element-grid compact-element-grid">
             ${generators.map((generator) => `
@@ -2609,12 +2718,12 @@ function liveUnifiedChainTemplate(chain, compositionId) {
   if (!chain?.length) return "";
   return `
     <div class="live-chain-list">
-      ${chain.map((item, index) => liveChainItemTemplate(item, compositionId, index)).join("")}
+      ${chain.map((item, index) => liveChainItemTemplate(item, compositionId, index, `chain.${index}`)).join("")}
     </div>
   `;
 }
 
-function liveChainItemTemplate(item, compositionId, index) {
+function liveChainItemTemplate(item, compositionId, index, path = `chain.${index}`) {
   if (item.kind === "effect") {
     const component = getShaderComponent(item.componentId);
     const label = component?.name || item.componentId;
@@ -2622,7 +2731,7 @@ function liveChainItemTemplate(item, compositionId, index) {
       <div class="live-chain-pass">
         <div class="live-chain-title">
           ${enableToggleButton({
-            livePath: `chain.${index}.enabled`,
+            livePath: `${path}.enabled`,
             compositionId,
             value: item.enabled !== false,
             iconName: effectIcon(item.componentId),
@@ -2630,7 +2739,25 @@ function liveChainItemTemplate(item, compositionId, index) {
           })}
           <span>${esc(label)}</span>
         </div>
-        ${liveShaderParamControlsTemplate(component, item, compositionId, index)}
+        ${liveShaderParamControlsTemplate(component, item, compositionId, path)}
+      </div>
+    `;
+  }
+  if (item.kind === "group") {
+    const label = item.name || "Group";
+    return `
+      <div class="live-chain-pass live-chain-group">
+        <div class="live-chain-title">
+          ${enableToggleButton({
+            livePath: `${path}.enabled`,
+            compositionId,
+            value: item.enabled !== false,
+            iconName: "account_tree",
+            label,
+          })}
+          <span>${esc(label)}</span>
+        </div>
+        ${item.chain?.length ? `<div class="live-chain-list">${item.chain.map((child, childIndex) => liveChainItemTemplate(child, compositionId, childIndex, `${path}.chain.${childIndex}`)).join("")}</div>` : ""}
       </div>
     `;
   }
@@ -2640,7 +2767,7 @@ function liveChainItemTemplate(item, compositionId, index) {
     <div class="live-chain-pass">
       <div class="live-chain-title">
         ${enableToggleButton({
-          livePath: `chain.${index}.enabled`,
+          livePath: `${path}.enabled`,
           compositionId,
           value: item.enabled !== false,
           iconName,
@@ -2648,18 +2775,18 @@ function liveChainItemTemplate(item, compositionId, index) {
         })}
         <span>${esc(label)}</span>
       </div>
-      ${liveRangeTemplate("Opacity", compositionId, `chain.${index}.opacity`, item.opacity ?? 1)}
-      <label class="field chain-param">Blend ${liveSelectValuesTemplate(compositionId, `chain.${index}.blend`, BLEND_MODES, item.blend || "normal")}</label>
+      ${liveRangeTemplate("Opacity", compositionId, `${path}.opacity`, item.opacity ?? 1)}
+      <label class="field chain-param">Blend ${liveSelectValuesTemplate(compositionId, `${path}.blend`, BLEND_MODES, item.blend || "normal")}</label>
     </div>
   `;
 }
 
-function liveShaderParamControlsTemplate(component, item, compositionId, index) {
+function liveShaderParamControlsTemplate(component, item, compositionId, itemPath) {
   if (!component?.params?.length) return "";
   return `
     <div class="chain-param-list">
       ${component.params.map((param) => {
-        const path = `chain.${index}.params.${param.id}`;
+        const path = `${itemPath}.params.${param.id}`;
         const attrs = `data-live-composition-id="${esc(compositionId)}" data-live-update`;
         return liveParamControlTemplate(param, path, paramCurrentValue(component, item, param), attrs);
       }).join("")}

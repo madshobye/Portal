@@ -575,7 +575,7 @@ function effectCost(item, effectDepth = 1) {
     erode: 1.65,
     dilate: 1.65,
     labelGrain: 1.55,
-    labelThresholdGrain: 1.65,
+    labelThresholdGrain: 1.28,
     threshold: 1.45,
     rgbSplit: 1.5,
     glitchDistort: 1.7,

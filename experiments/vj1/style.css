@@ -676,6 +676,14 @@ small {
   background: rgba(255, 255, 255, 0.035);
 }
 
+.live-chain-group {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.live-chain-group > .live-chain-list {
+  padding-left: 16px;
+}
+
 .live-chain-pass label {
   display: flex;
   min-width: 0;
@@ -1753,6 +1761,15 @@ small {
   gap: 6px;
 }
 
+.chain-item-block {
+  display: grid;
+  gap: 6px;
+}
+
+.chain-item-block.is-group {
+  padding-left: calc(var(--chain-depth, 0) * 14px);
+}
+
 .chain-item-row {
   display: grid;
   grid-template-columns: 32px minmax(0, 1fr) 32px;
@@ -1801,6 +1818,43 @@ small {
   width: 32px;
   min-height: 38px;
   padding: 0;
+}
+
+.chain-group-children {
+  display: grid;
+  gap: 6px;
+  padding-left: 18px;
+  border-left: 1px solid rgba(101, 224, 211, 0.24);
+}
+
+.chain-group-children.is-drop-target {
+  border-left-color: rgba(255, 228, 94, 0.78);
+  background: rgba(255, 228, 94, 0.06);
+}
+
+.chain-group-drop-zone {
+  min-height: 24px;
+  padding: 5px 9px;
+  border: 1px dashed rgba(101, 224, 211, 0.28);
+  border-radius: 7px;
+  color: var(--dim);
+  font-family: var(--mono);
+  font-size: 10px;
+  text-align: center;
+}
+
+.chain-group-drop-zone.is-after {
+  border-color: rgba(255, 228, 94, 0.28);
+}
+
+.chain-group-drop-zone.is-drop-target {
+  border-color: rgba(255, 228, 94, 0.78);
+  color: var(--text);
+  background: rgba(255, 228, 94, 0.1);
+}
+
+.chain-group-empty {
+  margin-left: 18px;
 }
 
 .chain-item-editor {
@@ -2164,6 +2218,9 @@ small {
   right: 10px;
   top: 10px;
   z-index: 10;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
   padding: 4px 7px;
   border: 1px solid rgba(255, 255, 255, 0.16);
   border-radius: 6px;
@@ -2173,6 +2230,35 @@ small {
   font-size: 11px;
   line-height: 1;
   pointer-events: none;
+}
+
+.output-loading-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 999px;
+  background: #65e0d3;
+  box-shadow: 0 0 0 0 rgba(101, 224, 211, 0.7);
+  animation: output-loading-pulse 0.9s ease-in-out infinite;
+}
+
+@keyframes output-loading-pulse {
+  0% {
+    opacity: 0.38;
+    transform: scale(0.78);
+    box-shadow: 0 0 0 0 rgba(101, 224, 211, 0.5);
+  }
+
+  55% {
+    opacity: 1;
+    transform: scale(1);
+    box-shadow: 0 0 0 4px rgba(101, 224, 211, 0);
+  }
+
+  100% {
+    opacity: 0.38;
+    transform: scale(0.78);
+    box-shadow: 0 0 0 0 rgba(101, 224, 211, 0);
+  }
 }
 
 @media (max-width: 1220px) {

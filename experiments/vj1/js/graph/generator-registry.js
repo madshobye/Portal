@@ -1,4 +1,4 @@
-import { createColorParam, createNumberParam, defineVisualComponent, textureInlet, textureOutlet } from "./component-schema.js";
+import { createColorParam, createEnumParam, createNumberParam, defineVisualComponent, textureInlet, textureOutlet } from "./component-schema.js";
 
 const RAW_GENERATORS = Object.freeze({
   testPattern: {
@@ -26,6 +26,7 @@ const RAW_GENERATORS = Object.freeze({
     name: "Gradient",
     category: "color",
     params: [
+      createEnumParam("mode", "Mode", ["linear", "radial", "single"], "linear"),
       createNumberParam("colorCount", "Colors", { min: 2, max: 4, step: 1, defaultValue: 2 }),
       createNumberParam("angle", "Angle", { min: -3.14, max: 3.14, step: 0.01, defaultValue: 0 }),
       createNumberParam("offset", "Offset", { min: -1, max: 1, step: 0.01, defaultValue: 0 }),

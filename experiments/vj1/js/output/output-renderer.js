@@ -76,6 +76,7 @@ export class OutputRenderer {
     this.lastTickMs = 0;
     this.visualTime = 0;
     this.frameIndex = 0;
+    this.outputMediaStatus = createMediaReadinessStatus();
     this.scheduledEvents = [];
     this.manualScheduler = createManualScheduler();
     this.compositionTimes = new Map();
@@ -515,6 +516,7 @@ export class OutputRenderer {
     this.frameProfile = createEmptyFrameProfile();
     this.frameIndex++;
     this.tickClock(this.frameStart);
+    this.outputMediaStatus = this.outputMediaReadiness();
     this.scheduledEvents = this.state.scheduler?.manualLane === false
       ? []
       : this.manualScheduler.drain({ frame: this.frameIndex, time: this.visualTime });
@@ -838,8 +840,13 @@ export class OutputRenderer {
     output.clear();
     output.pop();
 
-    for (let index = 0; index < (composition.chain || []).length; index++) {
-      const item = composition.chain[index];
+    this.renderCompositionChainItems(composition, composition.chain || [], output, compositionTime, renderRequest);
+    return output;
+  }
+
+  renderCompositionChainItems(composition, chain, output, compositionTime, renderRequest) {
+    for (let index = 0; index < (chain || []).length; index++) {
+      const item = chain[index];
       if (item.enabled === false) continue;
       if (item.kind === "source") {
         const source = this.renderCompositionSourceItem(composition, item, compositionTime, renderRequest);
@@ -849,9 +856,9 @@ export class OutputRenderer {
       if (item.kind === "effect") {
         const effectRun = [item];
         let nextIndex = index;
-        while (composition.chain[nextIndex + 1]?.kind === "effect") {
+        while (chain[nextIndex + 1]?.kind === "effect") {
           nextIndex++;
-          if (composition.chain[nextIndex]?.enabled !== false) effectRun.push(composition.chain[nextIndex]);
+          if (chain[nextIndex]?.enabled !== false) effectRun.push(chain[nextIndex]);
         }
         const effected = this.renderShaderChain(output, effectRun.map(chainItemToShaderPass), renderRequest, compositionTime);
         output.push();
@@ -859,9 +866,21 @@ export class OutputRenderer {
         drawBuffer(output, effected, 0, 0, output.width, output.height, this.isShaderBuffer(effected));
         output.pop();
         index = nextIndex;
+        continue;
+      }
+      if (item.kind === "group") {
+        const groupOutput = this.getCompositionBuffer(`${composition.id}:${item.id}:group`, renderRequest);
+        groupOutput.push();
+        groupOutput.clear();
+        drawBuffer(groupOutput, output, 0, 0, groupOutput.width, groupOutput.height, this.isShaderBuffer(output));
+        groupOutput.pop();
+        this.renderCompositionChainItems(composition, item.chain || [], groupOutput, compositionTime, renderRequest);
+        output.push();
+        output.clear();
+        output.pop();
+        this.drawChainLayer(output, groupOutput, item);
       }
     }
-    return output;
   }
 
   renderThumbnailCompositions() {
@@ -1232,7 +1251,7 @@ export class OutputRenderer {
     const transform = layer.transform || {};
     output.push();
     applyBlend(output, layer.blend);
-    output.tint(255, 255 * clamp01(layer.opacity));
+    output.tint(255, 255 * clamp01(layer.opacity ?? 1));
     output.imageMode(CENTER);
     output.translate(
       output.width * 0.5 + (Number(transform.x) || 0) * output.width * 0.5,
@@ -1625,8 +1644,9 @@ export class OutputRenderer {
   selectedTransformableChainItem() {
     const composition = this.state?.compositions?.find((item) => item.id === this.state?.ui?.selectedCompositionId);
     if (!composition?.chain?.length) return null;
-    const selected = composition.chain.find((item) => item.id === this.state.ui.selectedChainItemId);
+    const selected = findChainItemById(composition.chain, this.state.ui.selectedChainItemId);
     if (selected?.kind === "source") return selected;
+    if (selected?.kind === "group") return selected;
     const component = selected?.kind === "effect" ? getShaderComponent(selected.componentId) : null;
     return component?.spatial ? selected : null;
   }
@@ -1687,7 +1707,7 @@ export class OutputRenderer {
 
   applyLocalChainTransform(compositionId, itemId, transform) {
     const composition = this.state?.compositions?.find((item) => item.id === compositionId);
-    const item = composition?.chain?.find((chainItem) => chainItem.id === itemId);
+    const item = findChainItemById(composition?.chain, itemId);
     if (item) item.transform = { ...item.transform, ...transform };
   }
 
@@ -1717,8 +1737,68 @@ export class OutputRenderer {
     this.applyProjectMapping();
   }
 
+  outputMediaReadiness() {
+    const status = createMediaReadinessStatus();
+    if (this.mode !== "output" || !this.state) return status;
+    const compositionsById = new Map((this.state.compositions || []).map((composition) => [composition.id, composition]));
+    for (const surface of this.state.surfaces || []) {
+      if (surface.enabled === false || !surface.compositionId) continue;
+      this.collectCompositionMediaReadiness(compositionsById.get(surface.compositionId), status, compositionsById, new Set());
+    }
+    status.blocked = status.loadingIds.size > 0 || status.missingIds.size > 0 || status.errorIds.size > 0;
+    return status;
+  }
+
+  collectCompositionMediaReadiness(composition, status, compositionsById, visited) {
+    if (!composition || !status || visited.has(composition.id)) return;
+    visited.add(composition.id);
+    if (composition.type === "canvas") {
+      for (const layer of composition.canvas?.layers || []) {
+        if (layer.enabled === false || !layer.compositionId || layer.compositionId === composition.id) continue;
+        this.collectCompositionMediaReadiness(compositionsById.get(layer.compositionId), status, compositionsById, visited);
+      }
+      visited.delete(composition.id);
+      return;
+    }
+    if (Array.isArray(composition.chain) && composition.chain.length) {
+      this.collectChainMediaReadiness(composition.chain, status);
+    } else {
+      this.collectSourceMediaReadiness(composition.source, status);
+    }
+    visited.delete(composition.id);
+  }
+
+  collectChainMediaReadiness(chain, status) {
+    for (const item of chain || []) {
+      if (item.enabled === false) continue;
+      if (item.kind === "group") {
+        this.collectChainMediaReadiness(item.chain || [], status);
+        continue;
+      }
+      if (item.kind === "source") this.collectSourceMediaReadiness(item.source, status);
+    }
+  }
+
+  collectSourceMediaReadiness(source, status) {
+    if (source?.type !== "media") return;
+    const mediaId = source.mediaId || "";
+    if (!mediaId) return;
+    status.total++;
+    const item = this.media.get(mediaId);
+    if (!item) {
+      status.missingIds.add(mediaId);
+      this.requestMissingMedia(mediaId);
+      return;
+    }
+    if (item.imageError || item.modelError) {
+      status.errorIds.add(mediaId);
+      return;
+    }
+    if (!isReadyMediaItem(item)) status.loadingIds.add(mediaId);
+  }
+
   isOutputBlackout() {
-    return this.mode === "output" && !!this.state.global.blackout;
+    return this.mode === "output" && (!!this.state.global.blackout || !!this.outputMediaStatus?.blocked);
   }
 
   shouldUseThumbnailPreview() {
@@ -1732,8 +1812,10 @@ export class OutputRenderer {
     this.updateSmoothedMetrics({ fps, frameMs, renderCost });
     if (this.hud) {
       const hideOutputHud = this.mode === "output" && this.state?.global?.showLabels === false;
-      this.hud.classList.toggle("is-hidden", !this.state.global.showHud || hideOutputHud);
-      this.hud.textContent = `${Math.round(this.smoothedFps || fps)} fps`;
+      const mediaLoading = this.mode === "output" && !!this.outputMediaStatus?.blocked;
+      this.hud.classList.toggle("is-hidden", !this.state.global.showHud || (hideOutputHud && !mediaLoading));
+      this.hud.classList.toggle("is-loading", mediaLoading);
+      this.hud.innerHTML = `${mediaLoading ? `<span class="output-loading-dot" aria-hidden="true"></span>` : ""}<span>${Math.round(this.smoothedFps || fps)} fps</span>`;
     }
     if (millis() - this.lastMetricsAt > 500) {
       this.lastMetricsAt = millis();
@@ -1853,17 +1935,40 @@ function isEffectNode(node = {}) {
   return node.role === "effect" || node.kind === "effect";
 }
 
+function findChainItemById(chain = [], id = "") {
+  if (!Array.isArray(chain) || !id) return null;
+  for (const item of chain) {
+    if (item.id === id) return item;
+    const nested = item.kind === "group" ? findChainItemById(item.chain, id) : null;
+    if (nested) return nested;
+  }
+  return null;
+}
+
 function nodesInCompositionChainOrder(composition = {}, patch = {}) {
   const nodes = (patch.nodes || []).filter((node) => isSourceNode(node) || isEffectNode(node));
   if (!Array.isArray(composition.chain) || !composition.chain.length) return nodes;
   const nodeById = new Map(nodes.map((node) => [node.id, node]));
-  return composition.chain
+  return flattenCompositionChain(composition.chain)
     .map((item, index) => {
       if (item.kind === "source") return nodeById.get(`${composition.id || "composition"}:source:${index}:${item.id}`);
       if (item.kind === "effect") return nodeById.get(`${composition.id || "composition"}:effect:${index}:${item.componentId}`);
       return null;
     })
     .filter(Boolean);
+}
+
+function flattenCompositionChain(chain = []) {
+  const flat = [];
+  for (const item of chain || []) {
+    if (item.enabled === false) continue;
+    if (item.kind === "group") {
+      flat.push(...flattenCompositionChain(item.chain || []));
+      continue;
+    }
+    flat.push(item);
+  }
+  return flat;
 }
 
 function patchLayerForNode(node = {}) {
@@ -1933,6 +2038,24 @@ function shaderPassFromNode(node = {}) {
 
 function renderBufferKey(...parts) {
   return parts.map((part) => String(part)).join(":");
+}
+
+function createMediaReadinessStatus() {
+  return {
+    blocked: false,
+    total: 0,
+    loadingIds: new Set(),
+    missingIds: new Set(),
+    errorIds: new Set(),
+  };
+}
+
+function isReadyMediaItem(item = {}) {
+  if (!item) return false;
+  if (item.video) return isDrawableMedia(item.video);
+  if (item.image) return isDrawableMedia(item.image);
+  if (item.model || item.modelData) return true;
+  return item.ready === true;
 }
 
 function createEmptyFrameProfile() {

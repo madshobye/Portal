@@ -42,6 +42,7 @@ export function effectIcon(id) {
     photoGrade: "tune",
     glitchDistort: "broken_image",
     spinRotate: "rotate_right",
+    flip: "flip",
     echoFade: "motion_blur",
     mirrorFold: "filter_vintage",
     heatShimmer: "local_fire_department",
