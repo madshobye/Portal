@@ -211,7 +211,9 @@ uniform vec4 tintColor;
 varying vec2 vTexCoord;
 
 float hash(float n) {
-  return fract(sin(n) * 43758.5453123);
+  vec3 p3 = fract(vec3(n, n + 19.19, n + 47.77) * 0.1031);
+  p3 += dot(p3, p3.yzx + 33.33);
+  return fract((p3.x + p3.y) * p3.z);
 }
 
 vec2 hash2(float n) {
@@ -293,7 +295,9 @@ uniform float veinAmount;
 varying vec2 vTexCoord;
 
 float hash(vec2 p) {
-  return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453123);
+  vec3 p3 = fract(vec3(p.xyx) * 0.1031);
+  p3 += dot(p3, p3.yzx + 33.33);
+  return fract((p3.x + p3.y) * p3.z);
 }
 
 vec2 randomGaze(float seed) {
@@ -378,7 +382,8 @@ void main() {
   vec3 color = mix(sclera, iris, irisMask);
   color = mix(color, vec3(0.005, 0.003, 0.002), pupilMask);
   float wet = pow(max(dot(reflect(-light, normal), vec3(0.0, 0.0, 1.0)), 0.0), 34.0);
-  float corneaGlint = smoothstep(0.07, 0.0, length(p - vec2(-0.32, -0.30)));
+  vec2 glintDelta = p - vec2(-0.32, -0.30);
+  float corneaGlint = 1.0 - smoothstep(0.0, 0.0049, dot(glintDelta, glintDelta));
   color += vec3(1.0) * (wet * 0.42 + corneaGlint * 0.55);
 
   float blinkClock = time * max(blinkRate, 0.0) * 0.55;
@@ -415,19 +420,23 @@ uniform float time;
 varying vec2 vTexCoord;
 
 float hash(float n) {
-  return fract(sin(n) * 43758.5453123);
+  vec3 p3 = fract(vec3(n, n + 19.19, n + 47.77) * 0.1031);
+  p3 += dot(p3, p3.yzx + 33.33);
+  return fract((p3.x + p3.y) * p3.z);
 }
 
-float sdSegment(vec2 p, vec2 a, vec2 b) {
+float sdSegment2(vec2 p, vec2 a, vec2 b) {
   vec2 pa = p - a;
   vec2 ba = b - a;
   float h = clamp(dot(pa, ba) / max(dot(ba, ba), 0.00001), 0.0, 1.0);
-  return length(pa - ba * h);
+  vec2 delta = pa - ba * h;
+  return dot(delta, delta);
 }
 
 float softLine(vec2 p, vec2 a, vec2 b, float width) {
-  float d = sdSegment(p, a, b);
-  return 1.0 - smoothstep(width, width * 2.65, d);
+  float d2 = sdSegment2(p, a, b);
+  float outer = width * 2.65;
+  return 1.0 - smoothstep(width * width, outer * outer, d2);
 }
 
 float leafShape(vec2 p, vec2 center, vec2 scale, float angle, float seed) {
@@ -436,7 +445,7 @@ float leafShape(vec2 p, vec2 center, vec2 scale, float angle, float seed) {
   vec2 q = p - center;
   q = vec2(c * q.x + s * q.y, -s * q.x + c * q.y);
   q /= scale;
-  float body = 1.0 - smoothstep(0.74, 1.0, length(q));
+  float body = 1.0 - smoothstep(0.5476, 1.0, dot(q, q));
   float taper = smoothstep(-0.98, -0.08, q.y) * (1.0 - smoothstep(0.16, 0.98, q.y));
   float vein = (1.0 - smoothstep(0.012, 0.055, abs(q.x))) * body * 0.14;
   float fleck = hash(floor((q.x + 2.0) * 13.0 + floor((q.y + 2.0) * 17.0) + seed));

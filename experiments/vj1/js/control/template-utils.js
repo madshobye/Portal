@@ -22,7 +22,7 @@ export function sourceTypeIcon(type) {
 export function rangeTemplate(label, path, value, min = 0, max = 1, step = 0.01) {
   return `
     <label class="field range-field">
-      <span><span>${label}</span><strong>${Number(value).toFixed(2)}</strong></span>
+      <span>${esc(label)}</span>
       <input type="range" min="${min}" max="${max}" step="${step}" data-update="${path}" value="${value}" />
     </label>
   `;

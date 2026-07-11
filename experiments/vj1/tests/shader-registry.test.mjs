@@ -1,5 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 
 import { getShaderComponent } from "../js/shaders/shader-registry.js";
 import { getGeneratorShaderComponent } from "../js/shaders/generator-shaders.js";
@@ -32,6 +33,24 @@ test("photo grade skips neutral costly sections with uniform gates", () => {
   assert.ok(component.code.includes("if (grain > 0.001)"));
   assert.ok(component.code.includes("if (noise > 0.001)"));
   assert.ok(component.code.includes("if (abs(vibrance) > 0.001)"));
+});
+
+test("label chromatic uses a cheap default path", () => {
+  const component = getShaderComponent("labelChromatic");
+  const params = Object.fromEntries(component.params.map((param) => [param.id, param]));
+
+  assert.equal(component.category, "color");
+  assert.equal(params.amount.defaultValue, 0.35);
+  assert.equal(params.fullSplit.type, "boolean");
+  assert.equal(params.fullSplit.defaultValue, false);
+  assert.ok(component.code.includes("if (amount <= 0.0001) return color;"));
+  assert.ok(component.code.includes("if (!fullSplit) return vec4(redColor.r, color.g, color.b, color.a);"));
+});
+
+test("zero amount shader passes are skipped before drawing", () => {
+  const source = readFileSync(new URL("../js/output/output-renderer.js", import.meta.url), "utf8");
+
+  assert.ok(source.includes("if (pass.amount <= 0.0001) continue;"));
 });
 
 test("alpha-sensitive effects keep transparent pixels premultiplied", () => {
@@ -79,6 +98,8 @@ test("smear effect exposes fast stable print texture modes", () => {
   assert.equal(params.seedMode.defaultValue, "animated");
   assert.ok(component.code.includes("stableSmearNoise"));
   assert.ok(component.code.includes("dotPattern"));
+  assert.ok(component.code.includes("dot(cell, cell)"));
+  assert.ok(!component.code.includes("length(cell)"));
   assert.ok(component.code.includes("if (cctvAmount > 0.001)"));
   assert.ok(component.code.includes("if (screenPrintAmount > 0.001)"));
   assert.ok(component.code.includes("if (dotMatrixAmount > 0.001)"));
@@ -87,6 +108,19 @@ test("smear effect exposes fast stable print texture modes", () => {
   assert.ok(component.code.includes("if (smearAmount > 0.001)"));
   assert.ok(!component.code.includes("if (mode <"));
   assert.ok(component.code.includes("return vec4(effected * alpha, alpha);"));
+});
+
+test("shared procedural hashes avoid shader trig", () => {
+  const shaderBuilderSource = readFileSync(new URL("../js/shaders/shader-builder.js", import.meta.url), "utf8");
+  const generatorShaderSource = readFileSync(new URL("../js/shaders/generator-shaders.js", import.meta.url), "utf8");
+  const fallbackGeneratorSource = readFileSync(new URL("../js/output/generators.js", import.meta.url), "utf8");
+
+  assert.ok(shaderBuilderSource.includes("p3 += dot(p3, p3.yzx + 33.33);"));
+  assert.ok(generatorShaderSource.includes("p3 += dot(p3, p3.yzx + 33.33);"));
+  assert.ok(fallbackGeneratorSource.includes("function fract(value)"));
+  assert.ok(!shaderBuilderSource.includes("fract(sin"));
+  assert.ok(!generatorShaderSource.includes("fract(sin"));
+  assert.ok(!fallbackGeneratorSource.includes("Math.sin(x * 127.1"));
 });
 
 test("heartbeat pulse exposes double-beat radial distortion controls", () => {

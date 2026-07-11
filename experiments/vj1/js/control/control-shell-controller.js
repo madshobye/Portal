@@ -18,6 +18,21 @@ const MODEL_RENDER_MODES = ["surface", "wireframe", "surfaceWire", "points"];
 const MEDIA_FIT_MODES = ["contain", "cover"];
 const MODEL_SURFACE_COLOR_PARAM = { id: "surfaceColor", label: "Surface color", type: "color", defaultValue: "#dce1dcff" };
 const MODEL_WIRE_COLOR_PARAM = { id: "wireColor", label: "Wire color", type: "color", defaultValue: "#141414dd" };
+const MEDIA_FIT_PARAM = { id: "fit", label: "Fit", type: "enum", values: MEDIA_FIT_MODES, defaultValue: "contain" };
+const MODEL_SOURCE_PARAMS = [
+  { id: "renderMode", label: "Draw mode", type: "enum", values: MODEL_RENDER_MODES, defaultValue: "surface" },
+  MODEL_SURFACE_COLOR_PARAM,
+  MODEL_WIRE_COLOR_PARAM,
+  { id: "rotationX", label: "Rotate X", type: "number", min: -3.14, max: 3.14, step: 0.01, defaultValue: 0 },
+  { id: "rotationY", label: "Rotate Y", type: "number", min: -3.14, max: 3.14, step: 0.01, defaultValue: 0 },
+  { id: "rotationZ", label: "Rotate Z", type: "number", min: -3.14, max: 3.14, step: 0.01, defaultValue: 0 },
+  { id: "modelScale", label: "Scale", type: "number", min: 0.1, max: 5, step: 0.01, defaultValue: 1 },
+  { id: "spinX", label: "Spin X", type: "number", min: -3, max: 3, step: 0.01, defaultValue: 0 },
+  { id: "spinY", label: "Spin Y", type: "number", min: -3, max: 3, step: 0.01, defaultValue: 0 },
+  { id: "spinZ", label: "Spin Z", type: "number", min: -3, max: 3, step: 0.01, defaultValue: 0 },
+  { id: "depth", label: "Depth", type: "number", min: 0.2, max: 3, step: 0.01, defaultValue: 1 },
+  { id: "pointBudget", label: "Point budget", type: "number", min: 500, max: 50000, step: 500, defaultValue: 4000 },
+];
 
 export function createControlShell({ root, store, bridge, mediaLibrary, projectService }) {
   let refs = {};
@@ -60,6 +75,10 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
         return;
       }
       if (reason.startsWith("scrub:")) {
+        updatePreviewState(state);
+        return;
+      }
+      if (reason.startsWith("color:")) {
         updatePreviewState(state);
         return;
       }
@@ -114,6 +133,8 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
   }
 
   function render(state) {
+    setClass(root, "has-project-open", hasOpenProject(state));
+    setClass(root, "no-project-open", !hasOpenProject(state));
     renderTopbar(state);
     renderProjectRail(state);
     renderStudio(state);
@@ -160,9 +181,11 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
     });
 
     refs.openFolder.addEventListener("click", openProjectFolder);
+    refs.closeProject?.addEventListener("click", closeProject);
 
     refs.workspaceSwitch.querySelectorAll("[data-workspace]").forEach((button) => {
       button.addEventListener("click", () => {
+        if (!hasOpenProject(latestState)) return;
         const workspace = WORKSPACES.includes(button.dataset.workspace) ? button.dataset.workspace : "scene";
         const mappingActive = workspace === "scene";
         if (typeof store.setWorkspace === "function") store.setWorkspace(workspace);
@@ -274,6 +297,10 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
     if (result?.fallback) refs.importFiles.click();
   }
 
+  async function closeProject() {
+    await projectService.closeProject?.().catch((error) => setStatus(`Close error: ${error.message || error}`));
+  }
+
   async function importFiles(files) {
     let result = await projectService.importExternalFiles(files).catch((error) => {
       setStatus(`Import error: ${error.message || error}`);
@@ -297,15 +324,17 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
   }
 
   function renderTopbar(state) {
-    const projectName = state.project.name || "VJ1";
+    const hasProject = hasOpenProject(state);
+    const projectName = hasProject ? (state.project.name || state.project.folderName || "VJ1") : "No project open";
     const projectMeta = state.project.warnings?.[0] || (
-      state.project.folderName && state.project.folderName !== projectName
+      hasProject && state.project.folderName && state.project.folderName !== projectName
         ? state.project.folderName
         : ""
     );
     setText(refs.projectName, projectName);
-    setText(refs.projectMeta, projectMeta || "Choose a project folder to begin");
-    setClass(refs.projectMeta, "is-hidden", !projectMeta && !!state.project.folderName);
+    setText(refs.projectMeta, hasProject ? projectMeta : "Choose a folder to begin");
+    setClass(refs.projectMeta, "is-hidden", hasProject && !projectMeta);
+    setClass(refs.closeProject, "is-hidden", !hasProject);
     setClass(refs.outputStatus, "is-live", state.metrics.clients > 0);
     setText(refs.outputStatusText, state.metrics.clients > 0 ? `${Math.round(state.metrics.fps || 0)} fps` : "output");
     const renderCost = activeRenderCost(state);
@@ -317,21 +346,15 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
     refs.undo.disabled = !state.ui.canUndo;
     refs.redo.disabled = !state.ui.canRedo;
     refs.workspaceSwitch.querySelectorAll("[data-workspace]").forEach((button) => {
+      button.disabled = !hasProject;
       setClass(button, "is-active", button.dataset.workspace === currentWorkspace(state));
     });
   }
 
   function renderProjectRail(state) {
-    const hasProject = !!state.project.folderName || state.media.length > 0;
+    const hasProject = hasOpenProject(state);
     const workspace = currentWorkspace(state);
-    const html = `
-      ${hasProject || workspace === "mapping" || workspace === "canvas" ? railToolsTemplate(state, workspace) : `
-        <div class="folder-first-note">
-          <span class="material-symbols-rounded">gesture</span>
-          <p>Open a folder first. The set, media, scenes, shaders, and mappings will live there together.</p>
-        </div>
-      `}
-    `;
+    const html = hasProject ? railToolsTemplate(state, workspace) : "";
     if (replaceHtmlIfChanged(refs.projectRail, html)) bindRailEvents();
   }
 
@@ -432,7 +455,18 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
   }
 
   function renderStudio(state) {
-    const hasProject = !!state.project.folderName || state.media.length > 0;
+    const hasProject = hasOpenProject(state);
+    if (!hasProject) {
+      embeddedPreview.pause();
+      if (replaceHtmlIfChanged(refs.studio, `
+        <section class="studio-stage project-empty-stage">
+          <div class="visual-frame is-empty" data-preview-host>
+            ${projectEmptyTemplate()}
+          </div>
+        </section>
+      `)) bindStudioEvents();
+      return;
+    }
     if (currentWorkspace(state) === "mapping") {
       embeddedPreview.pause();
       const html = mappingStudioTemplate(state);
@@ -515,13 +549,9 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
   }
 
   function renderInspector(state) {
-    const hasProject = !!state.project.folderName || state.media.length > 0;
-    if (!hasProject && currentWorkspace(state) !== "mapping" && currentWorkspace(state) !== "canvas") {
-      replaceHtmlIfChanged(refs.inspector, panelTemplate(
-        "folder_open",
-        "Project first",
-        `<div class="soft-note">The controls appear after you choose a folder. That keeps every look connected to a real local show file.</div>`
-      ));
+    const hasProject = hasOpenProject(state);
+    if (!hasProject) {
+      replaceHtmlIfChanged(refs.inspector, "");
       return;
     }
     const selectedSurface = state.surfaces.find((surface) => surface.id === state.ui.selectedSurfaceId) || state.surfaces[0];
@@ -949,7 +979,6 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
       if (input.dataset.videoTrimInput) return;
       if (input.type === "range") {
         input.addEventListener("input", () => {
-          updateRangeLabel(input);
           updatePathFromInput(input, `scrub:${input.dataset.update}`);
         });
         input.addEventListener("change", () => {
@@ -973,7 +1002,6 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
     scope.querySelectorAll("[data-live-update]").forEach((input) => {
       if (input.type === "range") {
         input.addEventListener("input", () => {
-          updateRangeLabel(input);
           updateLivePathFromInput(input, "scrub:live");
         });
         input.addEventListener("change", () => updateLivePathFromInput(input, "live:update"));
@@ -1230,12 +1258,12 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
       updateColorParamFromControl(control, reason);
     };
     rgbInput?.addEventListener("input", () => updateFromRgb(`scrub:${control.dataset.colorPath}`));
-    rgbInput?.addEventListener("change", () => updateFromRgb(`update:${control.dataset.colorPath}`));
+    rgbInput?.addEventListener("change", () => updateFromRgb(`color:${control.dataset.colorPath}`));
     alphaInput?.addEventListener("input", () => updateColorParamFromControl(control, `scrub:${control.dataset.colorPath}`));
-    alphaInput?.addEventListener("change", () => updateColorParamFromControl(control, `update:${control.dataset.colorPath}`));
+    alphaInput?.addEventListener("change", () => updateColorParamFromControl(control, `color:${control.dataset.colorPath}`));
     [hueInput, satInput, valInput].forEach((input) => {
       input?.addEventListener("input", () => updateFromHsv(`scrub:${control.dataset.colorPath}`));
-      input?.addEventListener("change", () => updateFromHsv(`update:${control.dataset.colorPath}`));
+      input?.addEventListener("change", () => updateFromHsv(`color:${control.dataset.colorPath}`));
     });
   }
 
@@ -1243,8 +1271,6 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
     const path = control.dataset.colorPath;
     if (!path) return;
     const value = colorValueFromControl(control);
-    const label = control.querySelector("[data-color-alpha-label]");
-    if (label) label.textContent = colorAlphaFromHex(value).toFixed(2);
     store.update((draft) => {
       if (control.dataset.colorMode === "live") {
         const compositionId = control.dataset.liveCompositionId;
@@ -2207,6 +2233,7 @@ function modelSourceControlsTemplate(base, source = {}) {
         ${rangeTemplate("Spin Z", `${base}.params.spinZ`, params.spinZ || 0, -3, 3, 0.01)}
         ${rangeTemplate("Depth", `${base}.params.depth`, params.depth ?? 1, 0.2, 3, 0.01)}
       </div>
+      ${rangeTemplate("Point budget", `${base}.params.pointBudget`, params.pointBudget ?? 4000, 500, 50000, 500)}
     </div>
   `;
 }
@@ -2346,7 +2373,7 @@ function paramControlTemplate(param, path, value, attrs = "data-update") {
   if (param.type === "color") return colorParamControlTemplate(param, path, value, attrs);
   return `
     <label class="field range-field chain-param">
-      <span><span>${esc(param.label || param.id)}</span><strong>${formatParamValue(value)}</strong></span>
+      <span>${esc(param.label || param.id)}</span>
       <input type="range" min="${param.min ?? 0}" max="${param.max ?? 1}" step="${param.step ?? 0.01}" ${attrs}="${esc(path)}" value="${value}" />
     </label>
   `;
@@ -2362,7 +2389,7 @@ function colorParamControlTemplate(param, path, value, attrs = "data-update") {
   const hsv = rgbHexToHsv(rgb);
   return `
     <div class="field color-param chain-param" data-color-param data-color-mode="${mode}" data-color-path="${esc(path)}" ${liveCompositionId ? `data-live-composition-id="${esc(liveCompositionId)}"` : ""}>
-      <span><span>${esc(param.label || param.id)}</span><strong data-color-alpha-label>${alpha.toFixed(2)}</strong></span>
+      <span>${esc(param.label || param.id)}</span>
       <div class="color-param-row">
         <input type="color" data-color-rgb value="${esc(rgb)}" aria-label="${esc(param.label || param.id)} color" />
         <input type="range" min="0" max="1" step="0.01" data-color-alpha value="${alpha}" aria-label="${esc(param.label || param.id)} alpha" />
@@ -2384,20 +2411,14 @@ function paramCurrentValue(component, pass, param) {
   return normalizeParamValue(param, values[param.id]);
 }
 
-function formatParamValue(value) {
-  const number = Number(value);
-  return Number.isFinite(number) ? number.toFixed(2) : esc(value);
-}
-
 function projectEmptyTemplate() {
   return `
     <div class="project-empty">
       <span class="material-symbols-rounded">folder_open</span>
       <h2>Open a folder to begin</h2>
-      <p>Your folder becomes the show: media, shaders, scenes, mappings, and project settings live together.</p>
+      <p>Choose an empty folder or an existing VJ1 project folder.</p>
       <div class="button-row">
         <button type="button" class="primary" data-open-folder>${icon("folder_open")} Open folder</button>
-        <button type="button" data-import-files>${icon("upload_file")} Import files</button>
       </div>
     </div>
   `;
@@ -2818,6 +2839,7 @@ function liveChainItemTemplate(item, compositionId, index, path = `chain.${index
       </div>
       ${liveRangeTemplate("Opacity", compositionId, `${path}.opacity`, item.opacity ?? 1)}
       <label class="field chain-param">Blend ${liveSelectValuesTemplate(compositionId, `${path}.blend`, BLEND_MODES, item.blend || "normal")}</label>
+      ${liveSourceParamControlsTemplate(item, compositionId, path)}
     </div>
   `;
 }
@@ -2828,45 +2850,48 @@ function liveShaderParamControlsTemplate(component, item, compositionId, itemPat
     <div class="chain-param-list">
       ${component.params.map((param) => {
         const path = `${itemPath}.params.${param.id}`;
-        const attrs = `data-live-composition-id="${esc(compositionId)}" data-live-update`;
-        return liveParamControlTemplate(param, path, paramCurrentValue(component, item, param), attrs);
+        return paramControlTemplate(param, path, paramCurrentValue(component, item, param), liveParamAttrs(compositionId));
       }).join("")}
     </div>
   `;
 }
 
-function liveParamControlTemplate(param, path, value, attrs) {
-  if (param.type === "boolean") {
-    return `
-      <label class="field inline-param">
-        <span>${esc(param.label || param.id)}</span>
-        <input type="checkbox" ${attrs}="${esc(path)}" ${value ? "checked" : ""} />
-      </label>
-    `;
-  }
-  if (param.type === "enum") {
-    return `
-      <label class="field chain-param">
-        <span>${esc(param.label || param.id)}</span>
-        <select ${attrs}="${esc(path)}">
-          ${(param.values || []).map((option) => `<option value="${esc(option)}" ${option === value ? "selected" : ""}>${esc(option)}</option>`).join("")}
-        </select>
-      </label>
-    `;
-  }
-  if (param.type === "color") return colorParamControlTemplate(param, path, value, attrs);
+function liveSourceParamControlsTemplate(item, compositionId, itemPath) {
+  const params = sourceLiveParams(item.source || {});
+  if (!params.length) return "";
+  const values = {
+    ...(item.source?.params && typeof item.source.params === "object" ? item.source.params : {}),
+    ...(item.params && typeof item.params === "object" ? item.params : {}),
+  };
   return `
-    <label class="field range-field chain-param">
-      <span><span>${esc(param.label || param.id)}</span></span>
-      <input type="range" min="${param.min ?? 0}" max="${param.max ?? 1}" step="${param.step ?? 0.01}" ${attrs}="${esc(path)}" value="${value}" />
-    </label>
+    <div class="chain-param-list">
+      ${params.map((param) => paramControlTemplate(
+        param,
+        `${itemPath}.params.${param.id}`,
+        normalizeParamValue(param, values[param.id]),
+        liveParamAttrs(compositionId)
+      )).join("")}
+    </div>
   `;
+}
+
+function sourceLiveParams(source = {}) {
+  if (source.type === "generator") return getGeneratorComponent(source.generatorId || "testPattern").params || [];
+  if (source.type === "media") {
+    if (isModelMediaSource(source)) return MODEL_SOURCE_PARAMS;
+    return [MEDIA_FIT_PARAM];
+  }
+  return [];
+}
+
+function liveParamAttrs(compositionId) {
+  return `data-live-composition-id="${esc(compositionId)}" data-live-update`;
 }
 
 function liveRangeTemplate(label, compositionId, path, value) {
   return `
-    <label class="field range-field">
-      <span><span>${label}</span></span>
+    <label class="field range-field chain-param">
+      <span>${esc(label)}</span>
       <input type="range" min="0" max="1" step="0.01" data-live-composition-id="${esc(compositionId)}" data-live-update="${path}" value="${value}" />
     </label>
   `;
@@ -2958,6 +2983,10 @@ function getSceneSurfaceView(surface, state) {
 
 function currentWorkspace(state) {
   return WORKSPACES.includes(state.ui?.workspace) ? state.ui.workspace : "scene";
+}
+
+function hasOpenProject(state) {
+  return !!state?.project?.folderName;
 }
 
 function activeRenderCost(state) {
@@ -3111,12 +3140,6 @@ function hsvToRgbHex(h, s, v) {
     const value = Math.round((channel + m) * 255);
     return value.toString(16).padStart(2, "0");
   }).join("")}`;
-}
-
-function updateRangeLabel(input) {
-  const label = input.closest(".range-field");
-  const value = label?.querySelector("strong");
-  if (value) value.textContent = Number(input.value).toFixed(2);
 }
 
 function syncVideoTrimControl(control, start, end, max) {

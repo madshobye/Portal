@@ -1,7 +1,8 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 
-import { createCompositionEffect, createCompositionLayer, createDefaultComposition, createInitialState, sanitizeState } from "../js/domain/models.js?v=world-frame-27";
+import { createCompositionEffect, createCompositionLayer, createDefaultComposition, createInitialState, createLiveCompositionView, sanitizeState } from "../js/domain/models.js?v=world-frame-27";
 import { normalizeParamValue } from "../js/graph/component-schema.js";
 import { getGeneratorComponent } from "../js/graph/generator-registry.js";
 import { compileCompositionPatch } from "../js/graph/render-scheduler.js?v=world-frame-27";
@@ -103,6 +104,44 @@ test("gradient generator exposes rgba color stops", () => {
   assert.equal(normalizeParamValue(colorParams[0], "#11223380"), "#11223380");
 });
 
+test("live source param overrides compile through node params", () => {
+  const state = createInitialState();
+  const composition = createDefaultComposition(0);
+  composition.chain = [
+    createCompositionLayer(0, {
+      type: "generator",
+      generatorId: "gradient",
+      params: {
+        colorA: "#111111ff",
+        colorB: "#222222ff",
+      },
+    }),
+  ];
+  state.compositions = [composition];
+  state.ui.live = {
+    selectedSceneId: "",
+    compositionOverrides: {
+      [composition.id]: {
+        chain: [{
+          params: {
+            colorA: "#ff000080",
+            mode: "single",
+          },
+        }],
+      },
+    },
+  };
+
+  const liveView = createLiveCompositionView(composition, state);
+  assert.equal(liveView.chain[0].params.colorA, "#ff000080");
+  assert.equal(liveView.chain[0].params.mode, "single");
+
+  const patch = compileCompositionPatch(liveView);
+  const sourceNode = patch.nodes.find((node) => node.role === "source");
+  assert.equal(sourceNode.params.colorA, "#ff000080");
+  assert.equal(sourceNode.params.mode, "single");
+});
+
 test("3d model media is detected and keeps render params", () => {
   assert.equal(isMediaFile("models/head.stl"), true);
   assert.equal(isMediaFile("models/head.obj"), true);
@@ -122,6 +161,7 @@ test("3d model media is detected and keeps render params", () => {
         rotationY: -0.25,
         rotationZ: 0.1,
         modelScale: 1.4,
+        pointBudget: 8000,
         spinY: 0.2,
         surfaceColor: "#3366ccaa",
         wireColor: "#ffcc00ff",
@@ -136,6 +176,7 @@ test("3d model media is detected and keeps render params", () => {
   assert.equal(source.params.renderMode, "wireframe");
   assert.equal(source.params.rotationX, 0.4);
   assert.equal(source.params.modelScale, 1.4);
+  assert.equal(source.params.pointBudget, 8000);
   assert.equal(source.params.surfaceColor, "#3366ccaa");
   assert.equal(source.params.wireColor, "#ffcc00ff");
 
@@ -144,8 +185,49 @@ test("3d model media is detected and keeps render params", () => {
   assert.equal(sourceNode.params.mediaId, "models/head.stl");
   assert.equal(sourceNode.params.renderMode, "wireframe");
   assert.equal(sourceNode.params.spinY, 0.2);
+  assert.equal(sourceNode.params.pointBudget, 8000);
   assert.equal(sourceNode.params.surfaceColor, "#3366ccaa");
   assert.equal(sourceNode.params.wireColor, "#ffcc00ff");
+});
+
+test("3d model point mode uses cached bounded point clouds", () => {
+  const source = readFileSync(new URL("../js/output/output-renderer.js", import.meta.url), "utf8");
+
+  assert.ok(source.includes("drawRawParsedModel(target, item, params, compositionTime, \"points\""));
+  assert.ok(source.includes("drawRawParsedModel(target, item, params, compositionTime, \"wireframe\""));
+  assert.ok(source.includes("gl.drawArrays(mode === \"wireframe\" ? gl.LINES : gl.POINTS"));
+  assert.ok(source.includes("ensureParsedModelPointCloud(item, pointBudget)"));
+  assert.ok(source.includes("ensureParsedModelWireLines(item)"));
+  assert.ok(source.includes("ensureP5ModelPointCloud(item, pointBudget)"));
+  assert.ok(source.includes("Math.min(50000"));
+  assert.ok(!source.includes("function drawModelPoints"));
+});
+
+test("renderer source extraction merges source node params", () => {
+  const source = readFileSync(new URL("../js/output/output-renderer.js", import.meta.url), "utf8");
+
+  assert.ok(source.includes("sourceWithNodeParams(node.state.source, node.params || {}"));
+  assert.ok(source.includes("...generatorParams"));
+  assert.ok(source.includes("...mediaParams"));
+});
+
+test("live source controls use dynamic param metadata", () => {
+  const source = readFileSync(new URL("../js/control/control-shell-controller.js", import.meta.url), "utf8");
+
+  assert.ok(source.includes("liveSourceParamControlsTemplate(item, compositionId, path)"));
+  assert.ok(source.includes("getGeneratorComponent(source.generatorId || \"testPattern\").params"));
+  assert.ok(source.includes("MODEL_SOURCE_PARAMS"));
+  assert.ok(source.includes("paramControlTemplate(param,"));
+  assert.ok(!source.includes("function liveParamControlTemplate"));
+});
+
+test("color picker commits do not rebuild the inspector while open", () => {
+  const source = readFileSync(new URL("../js/control/control-shell-controller.js", import.meta.url), "utf8");
+
+  assert.ok(source.includes("reason.startsWith(\"color:\")"));
+  assert.ok(source.includes("rgbInput?.addEventListener(\"change\", () => updateFromRgb(`color:${control.dataset.colorPath}`));"));
+  assert.ok(source.includes("alphaInput?.addEventListener(\"change\", () => updateColorParamFromControl(control, `color:${control.dataset.colorPath}`));"));
+  assert.ok(source.includes("input?.addEventListener(\"change\", () => updateFromHsv(`color:${control.dataset.colorPath}`));"));
 });
 
 test("output renderer blackouts while active media sources are missing or loading", () => {

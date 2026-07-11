@@ -2,10 +2,11 @@ import { collectFilesFromDirectory, isMediaFile, isShaderFile } from "./media-li
 import { RENDITION_DIR, RENDITION_ROOT, mediaRenditionPath } from "./media-rendition-service.js";
 import {
   canPersistDirectoryHandles,
+  clearProjectDirectoryHandle,
   loadProjectDirectoryHandle,
   saveProjectDirectoryHandle,
 } from "./directory-handle-store.js";
-import { applySceneSnapshotToState } from "../domain/models.js?v=world-frame-27";
+import { applySceneSnapshotToState, createInitialState } from "../domain/models.js?v=world-frame-27";
 
 export function createProjectFolderService({ mediaLibrary, store, bridge }) {
   let dirHandle = null;
@@ -18,8 +19,10 @@ export function createProjectFolderService({ mediaLibrary, store, bridge }) {
   let isOpening = false;
   let historyInFlight = false;
   let historyState = { canUndo: false, canRedo: false };
+  let lastRevisionGroup = { key: "", at: 0 };
   const writtenRenditions = new Set();
   const autosaveDelayMs = 700;
+  const revisionCoalesceMs = 6000;
   const skipAutosaveReasons = new Set([
     "init",
     "view",
@@ -51,6 +54,7 @@ export function createProjectFolderService({ mediaLibrary, store, bridge }) {
       }
       opened = true;
       await saveStoredHandle(dirHandle);
+      await ensureProjectScaffold(dirHandle);
       await loadDirectory("project-open-media");
       return { fallback: false };
     } finally {
@@ -75,6 +79,7 @@ export function createProjectFolderService({ mediaLibrary, store, bridge }) {
         return false;
       }
       dirHandle = storedHandle;
+      await ensureProjectScaffold(dirHandle);
       await loadDirectory("project-restore-media");
       return true;
     } finally {
@@ -99,6 +104,26 @@ export function createProjectFolderService({ mediaLibrary, store, bridge }) {
     }
     if (imported) await loadDirectory("project-import-files");
     return { imported };
+  }
+
+  async function closeProject() {
+    if (autosaveTimer) {
+      clearTimeout(autosaveTimer);
+      autosaveTimer = null;
+    }
+    dirHandle = null;
+    saveInFlight = false;
+    saveQueued = false;
+    lastSavedSignature = "";
+    lastDirectorySignature = "";
+    writtenRenditions.clear();
+    mediaLibrary.clear();
+    bridge.sendMediaFiles([]);
+    await clearStoredHandle();
+    setHistoryState(false, false);
+    store.replace(createInitialState(), "project-close");
+    bridge.sendState();
+    return true;
   }
 
   async function refreshFolder({ force = false } = {}) {
@@ -242,9 +267,13 @@ export function createProjectFolderService({ mediaLibrary, store, bridge }) {
       handle = await dirHandle.getFileHandle("project.json", { create: true });
     }
 
-    if (reason !== "composition-thumbnail" && previousText.trim() && previousText !== json) {
-      await writeRevision(previousText, savedAt);
-      if (!isHistoryReason(reason)) await clearRedoRevisions();
+    if (shouldWriteHistoryRevision(previousText, payload, json, reason)) {
+      const group = historyGroupForReason(reason);
+      const now = Date.now();
+      const coalesced = shouldCoalesceHistoryRevision(lastRevisionGroup, group, now, revisionCoalesceMs);
+      if (!coalesced) await writeRevision(previousText, savedAt);
+      lastRevisionGroup = { key: group, at: now };
+      if (!isHistoryReason(reason) && !coalesced) await clearRedoRevisions();
     }
 
     const writable = await handle.createWritable();
@@ -279,6 +308,7 @@ export function createProjectFolderService({ mediaLibrary, store, bridge }) {
       if (currentText.trim()) await writeRedoRevision(currentText, new Date().toISOString());
       await writeProjectText(undoText);
       await removeRevisionEntry(entry);
+      lastRevisionGroup = { key: "", at: 0 };
       await reloadProjectFromDisk("project-undo");
       return true;
     } finally {
@@ -300,6 +330,7 @@ export function createProjectFolderService({ mediaLibrary, store, bridge }) {
       if (currentText.trim()) await writeRevision(currentText, new Date().toISOString());
       await writeProjectText(redoText);
       await removeRevisionEntry(entry);
+      lastRevisionGroup = { key: "", at: 0 };
       await reloadProjectFromDisk("project-redo");
       return true;
     } finally {
@@ -458,11 +489,67 @@ export function createProjectFolderService({ mediaLibrary, store, bridge }) {
     return await root.getDirectoryHandle(RENDITION_DIR, { create: true });
   }
 
-  return { openFolder, restoreStoredFolder, saveProject, scheduleAutoSave, flushAutoSave, importExternalFiles, refreshFolder, undoProject, redoProject, getHistoryState, writeMediaRendition };
+  return { openFolder, restoreStoredFolder, closeProject, saveProject, scheduleAutoSave, flushAutoSave, importExternalFiles, refreshFolder, undoProject, redoProject, getHistoryState, writeMediaRendition };
+}
+
+async function ensureProjectScaffold(handle) {
+  if (!handle?.getDirectoryHandle) return;
+  for (const name of ["media", "shaders", "scenes", "mappings", RENDITION_ROOT]) {
+    await handle.getDirectoryHandle(name, { create: true });
+  }
 }
 
 function isHistoryReason(reason) {
   return ["history-checkpoint", "project-undo", "project-redo"].includes(reason);
+}
+
+function shouldWriteHistoryRevision(previousText = "", nextPayload = {}, nextText = "", reason = "") {
+  if (reason === "composition-thumbnail") return false;
+  if (!previousText.trim() || previousText === nextText) return false;
+  const previousPayload = parseProjectText(previousText);
+  if (!previousPayload) return true;
+  return projectHistorySignature(previousPayload) !== projectHistorySignature(nextPayload);
+}
+
+export function projectHistorySignature(payload = {}) {
+  const {
+    ui: _ui,
+    metrics: _metrics,
+    ...rest
+  } = payload || {};
+  return JSON.stringify({
+    ...rest,
+    project: {
+      ...(rest.project || {}),
+      savedAt: "",
+      warnings: [],
+    },
+  });
+}
+
+export function historyGroupForReason(reason = "") {
+  const value = String(reason || "change");
+  if (isHistoryReason(value)) return value;
+  const separator = value.indexOf(":");
+  if (separator === -1) return value;
+  const kind = value.slice(0, separator);
+  const path = value.slice(separator + 1);
+  if (kind === "update" || kind === "color" || kind === "toggle" || kind === "live") return `${kind}:${path}`;
+  return value;
+}
+
+export function shouldCoalesceHistoryRevision(lastGroup = {}, nextKey = "", now = Date.now(), windowMs = 6000) {
+  if (!nextKey || isHistoryReason(nextKey)) return false;
+  if (!lastGroup?.key || lastGroup.key !== nextKey) return false;
+  return Math.max(0, Number(now) || 0) - Math.max(0, Number(lastGroup.at) || 0) <= windowMs;
+}
+
+function parseProjectText(text = "") {
+  try {
+    return JSON.parse(text);
+  } catch {
+    return null;
+  }
 }
 
 async function loadStoredHandle() {
@@ -480,6 +567,15 @@ async function saveStoredHandle(handle) {
     await saveProjectDirectoryHandle(handle);
   } catch {
     // The app can still run with the active handle; only refresh restore is lost.
+  }
+}
+
+async function clearStoredHandle() {
+  if (!canPersistDirectoryHandles()) return;
+  try {
+    await clearProjectDirectoryHandle();
+  } catch {
+    // Closing the in-memory project is still valid if handle persistence cleanup fails.
   }
 }
 

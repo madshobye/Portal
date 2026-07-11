@@ -20,6 +20,8 @@
   --control-font-size: 12px;
   --control-font-weight: 650;
   --label-font-size: 11px;
+  --param-slider-width: 176px;
+  --param-color-control-width: 222px;
 }
 
 * {
@@ -231,6 +233,11 @@ small {
   display: none;
 }
 
+.close-project-button {
+  width: 30px;
+  min-width: 30px;
+}
+
 .top-actions {
   display: flex;
   align-items: center;
@@ -263,6 +270,11 @@ small {
 .workspace-switch button.is-active {
   background: rgba(101, 224, 211, 0.14);
   color: var(--ink);
+}
+
+.workspace-switch button:disabled {
+  opacity: 0.34;
+  cursor: default;
 }
 
 .icon-buttonish {
@@ -322,6 +334,15 @@ small {
   grid-template-columns: 220px 330px minmax(0, 1fr);
   gap: 12px;
   padding: 12px;
+}
+
+.no-project-open .studio-layout {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.no-project-open .project-rail,
+.no-project-open .studio-inspector {
+  display: none;
 }
 
 .project-rail,
@@ -726,12 +747,13 @@ small {
   gap: 4px;
 }
 
-.live-chain-pass .range-field {
-  width: 100%;
+.live-chain-pass > .chain-param-list {
+  grid-column: 1 / -1;
 }
 
-.live-chain-pass .range-field > span {
-  display: block;
+.live-chain-pass .range-field {
+  display: grid;
+  width: 100%;
 }
 
 .surface-pills .list-select span:not(.material-symbols-rounded),
@@ -827,6 +849,10 @@ small {
   overflow: hidden;
 }
 
+.project-empty-stage {
+  min-height: 0;
+}
+
 .button-row {
   display: flex;
   align-items: center;
@@ -916,6 +942,10 @@ small {
 }
 
 .preview-fps {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
   pointer-events: none;
 }
 
@@ -1556,6 +1586,13 @@ small {
   gap: 7px;
 }
 
+.chain-pass .range-field,
+.live-chain-pass .range-field {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(128px, var(--param-slider-width));
+  gap: 10px;
+}
+
 .field {
   display: grid;
   gap: 5px;
@@ -1563,17 +1600,24 @@ small {
   font-size: var(--label-font-size);
 }
 
-.range-field > span {
-  display: flex;
+.range-field {
+  grid-template-columns: minmax(0, 1fr) minmax(128px, var(--param-slider-width));
   align-items: center;
-  justify-content: space-between;
+  gap: 10px;
 }
 
-.range-field strong {
-  color: var(--muted);
-  font-family: var(--mono);
-  font-size: var(--label-font-size);
-  font-weight: 500;
+.range-field > span {
+  min-width: 0;
+  overflow: hidden;
+  font-weight: 700;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.range-field input[type="range"] {
+  width: 100%;
+  min-width: 0;
+  justify-self: end;
 }
 
 .video-source-controls,
@@ -1711,17 +1755,18 @@ small {
   min-width: 0;
 }
 
-.color-param > span {
-  display: flex;
+.color-param {
+  grid-template-columns: minmax(0, 1fr) minmax(170px, var(--param-color-control-width));
   align-items: center;
-  justify-content: space-between;
+  column-gap: 10px;
 }
 
-.color-param strong {
-  color: var(--muted);
-  font-family: var(--mono);
-  font-size: var(--label-font-size);
-  font-weight: 500;
+.color-param > span {
+  min-width: 0;
+  overflow: hidden;
+  font-weight: 700;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .color-param-row {
@@ -1729,6 +1774,9 @@ small {
   grid-template-columns: 38px minmax(0, 1fr);
   gap: 8px;
   align-items: center;
+  min-width: 0;
+  justify-self: end;
+  width: 100%;
 }
 
 .color-param-row input[type="color"] {
@@ -1742,21 +1790,32 @@ small {
 
 .color-picker-sliders {
   display: grid;
+  grid-column: 1 / -1;
   gap: 5px;
   margin-top: 6px;
 }
 
 .color-picker-sliders label {
   display: grid;
-  grid-template-columns: 42px minmax(0, 1fr);
+  grid-template-columns: minmax(0, 1fr) minmax(128px, var(--param-slider-width));
   align-items: center;
   gap: 8px;
   color: var(--muted);
   font-size: var(--label-font-size);
 }
 
+.color-picker-sliders label > span {
+  min-width: 0;
+  overflow: hidden;
+  font-weight: 700;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .color-picker-sliders input[type="range"] {
   width: 100%;
+  min-width: 0;
+  justify-self: end;
 }
 
 .inline-param {
@@ -2254,7 +2313,12 @@ small {
   font-family: var(--mono);
   font-size: 11px;
   line-height: 1;
+  white-space: nowrap;
   pointer-events: none;
+}
+
+.output-resolution {
+  color: rgba(255, 255, 255, 0.54);
 }
 
 .output-loading-dot {

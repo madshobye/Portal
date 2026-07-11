@@ -140,12 +140,22 @@ function valueNoise2d(x, y) {
 }
 
 function hash2(x, y) {
-  const n = Math.sin(x * 127.1 + y * 311.7) * 43758.5453123;
-  return n - Math.floor(n);
+  let p0 = fract(x * 0.1031);
+  let p1 = fract(y * 0.1031);
+  let p2 = fract((x + y) * 0.0973);
+  const d = p0 * (p1 + 33.33) + p1 * (p2 + 33.33) + p2 * (p0 + 33.33);
+  p0 = fract(p0 + d);
+  p1 = fract(p1 + d);
+  p2 = fract(p2 + d);
+  return fract((p0 + p1) * p2);
 }
 
 function smoothstep01(value) {
   return value * value * (3 - 2 * value);
+}
+
+function fract(value) {
+  return value - Math.floor(value);
 }
 
 function mix(a, b, t) {

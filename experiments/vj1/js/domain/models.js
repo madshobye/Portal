@@ -691,6 +691,9 @@ function mergeCompositionChainItemOverride(item = {}, override = {}) {
     ...(override.enabled !== undefined ? { enabled: override.enabled !== false } : {}),
     ...(override.opacity !== undefined ? { opacity: clamp01(override.opacity) } : {}),
     ...(override.blend ? { blend: override.blend } : {}),
+    ...(override.params && typeof override.params === "object"
+      ? { params: { ...(item.params && typeof item.params === "object" ? item.params : {}), ...override.params } }
+      : {}),
     ...(override.transform && typeof override.transform === "object"
       ? { transform: normalizeTransform({ ...(item.transform || {}), ...override.transform }) }
       : {}),

@@ -308,6 +308,26 @@ export class OutputRenderer {
     };
   }
 
+  renderPixelDensity(render = this.state?.render || {}) {
+    return Math.max(0.5, Math.min(2, Number(render.pixelDensity) || 1));
+  }
+
+  renderResolutionSize(render = this.state?.render || {}) {
+    const frame = this.outputFrameSize(render);
+    const density = this.renderPixelDensity(render);
+    return {
+      width: Math.max(1, Math.round(frame.width * density)),
+      height: Math.max(1, Math.round(frame.height * density)),
+      density,
+    };
+  }
+
+  renderResolutionLabel(render = this.state?.render || {}) {
+    const size = this.renderResolutionSize(render);
+    const densityLabel = size.density === 1 ? "" : ` @${formatDensity(size.density)}x`;
+    return `${size.width}x${size.height}${densityLabel}`;
+  }
+
   syncMapperOverlayMode() {
     this.mapper?.setOverlayMode?.(this.state?.global?.mappingHandleMode || "always");
   }
@@ -317,7 +337,7 @@ export class OutputRenderer {
   }
 
   applyPixelDensity() {
-    const density = Math.max(0.5, Math.min(2, Number(this.state?.render?.pixelDensity) || 1));
+    const density = this.renderPixelDensity(this.state?.render || {});
     if (this.lastPixelDensity === density) return;
     if (typeof pixelDensity === "function") pixelDensity(density);
     this.lastPixelDensity = density;
@@ -325,7 +345,7 @@ export class OutputRenderer {
 
   applyGraphicsPixelDensity(pg) {
     if (!pg?.pixelDensity) return;
-    const density = Math.max(0.5, Math.min(2, Number(this.state?.render?.pixelDensity) || 1));
+    const density = this.renderPixelDensity(this.state?.render || {});
     pg.pixelDensity(density);
   }
 
@@ -411,7 +431,7 @@ export class OutputRenderer {
       let item = this.media.get(id);
       if (!item) {
         const url = URL.createObjectURL(file);
-        item = { id, file, url, video: null, image: null, imageError: "", model: null, modelData: null, modelGeometry: null, modelGeometryFailed: false, modelError: "", imageRenditions: new Map(), imageRenditionOrder: [], ready: false };
+        item = { id, file, url, video: null, image: null, imageError: "", model: null, modelData: null, modelGeometry: null, modelGeometryFailed: false, modelPointCloud: null, modelPointCloudKey: "", modelRawRenderers: null, modelError: "", imageRenditions: new Map(), imageRenditionOrder: [], ready: false };
         this.media.set(id, item);
         if (/\.(mp4|m4v|mov|webm|ogv)$/i.test(id)) {
           item.video = createVideo(url, () => {
@@ -1138,6 +1158,7 @@ export class OutputRenderer {
     const renderMode = params.renderMode || "surface";
     const modelScale = Math.max(0.01, Number(params.modelScale) || 1);
     const depth = Math.max(0.05, Number(params.depth) || 1);
+    const pointBudget = Math.max(128, Math.min(50000, Math.round(Number(params.pointBudget) || 4000)));
     const surfaceColor = modelColor(params.surfaceColor, [220, 225, 220, 255]);
     const wireColor = modelColor(params.wireColor, [20, 20, 20, 220]);
     target.push();
@@ -1152,21 +1173,29 @@ export class OutputRenderer {
     const scale = Math.min(target.width, target.height) * 0.0065 * modelScale;
     target.scale(scale, scale, scale * depth);
     if (item.modelData) {
-      const geometry = ensureParsedModelGeometry(item);
-      if (geometry && renderMode !== "points") {
-        try {
-          drawGeometryModel(target, geometry, renderMode, surfaceColor, wireColor);
-        } catch (error) {
-          item.modelGeometryFailed = true;
-          item.modelGeometry = null;
-          item.modelGeometryError = error?.message || String(error || "geometry render failed");
+      if (renderMode === "points" && drawRawParsedModel(target, item, params, compositionTime, "points", wireColor, pointBudget)) {
+        // Cached WebGL point buffer path.
+      } else if (renderMode === "wireframe" && drawRawParsedModel(target, item, params, compositionTime, "wireframe", wireColor, pointBudget)) {
+        // Cached WebGL line buffer path.
+      } else if (renderMode === "points") {
+        drawPointCloud(target, ensureParsedModelPointCloud(item, pointBudget), wireColor);
+      } else {
+        const geometry = ensureParsedModelGeometry(item);
+        if (geometry) {
+          try {
+            drawGeometryModel(target, geometry, renderMode, surfaceColor, wireColor);
+          } catch (error) {
+            item.modelGeometryFailed = true;
+            item.modelGeometry = null;
+            item.modelGeometryError = error?.message || String(error || "geometry render failed");
+            drawParsedModel(target, item.modelData, renderMode, surfaceColor, wireColor);
+          }
+        } else {
           drawParsedModel(target, item.modelData, renderMode, surfaceColor, wireColor);
         }
-      } else {
-        drawParsedModel(target, item.modelData, renderMode, surfaceColor, wireColor);
       }
     } else if (renderMode === "points") {
-      drawModelPoints(target, item.model, wireColor);
+      drawPointCloud(target, ensureP5ModelPointCloud(item, pointBudget), wireColor);
     } else if (renderMode === "wireframe") {
       target.noFill();
       target.stroke(...wireColor);
@@ -1405,6 +1434,7 @@ export class OutputRenderer {
     }
     for (const job of schedule) {
       const pass = job.pass;
+      if (pass.amount <= 0.0001) continue;
       let handoff = false;
       if (this.isShaderBuffer(current) && schedule.length <= 1) {
         handoff = true;
@@ -1937,16 +1967,22 @@ export class OutputRenderer {
     if (this.hud) {
       const hideOutputHud = this.mode === "output" && this.state?.global?.showLabels === false;
       const mediaLoading = this.mode === "output" && !!this.outputMediaStatus?.blocked;
+      const showResolution = this.mode !== "output" || this.state?.global?.showLabels !== false;
+      const resolution = showResolution ? `<span class="output-resolution">${this.renderResolutionLabel()}</span>` : "";
       this.hud.classList.toggle("is-hidden", !this.state.global.showHud || (hideOutputHud && !mediaLoading));
       this.hud.classList.toggle("is-loading", mediaLoading);
-      this.hud.innerHTML = `${mediaLoading ? `<span class="output-loading-dot" aria-hidden="true"></span>` : ""}<span>${Math.round(this.smoothedFps || fps)} fps</span>`;
+      this.hud.innerHTML = `${mediaLoading ? `<span class="output-loading-dot" aria-hidden="true"></span>` : ""}<span>${Math.round(this.smoothedFps || fps)} fps</span>${resolution}`;
     }
     if (millis() - this.lastMetricsAt > 500) {
       this.lastMetricsAt = millis();
+      const renderResolution = this.renderResolutionSize();
       this.sendMetrics?.({
         fps: this.smoothedFps || fps,
         frameMs: this.smoothedFrameMs || frameMs,
         renderCost: this.smoothedRenderCost || renderCost,
+        renderWidth: renderResolution.width,
+        renderHeight: renderResolution.height,
+        renderPixelDensity: renderResolution.density,
         profile: this.lastFrameProfile,
         message: this.shouldUseThumbnailPreview()
           ? "thumbnail preview"
@@ -1989,6 +2025,11 @@ function mappingStatusForReason(reason = "") {
   if (reason === "reset") return "Mapping reset";
   if (reason === "save" || reason === "save-all") return "Mapping saved";
   return "Mapping updated";
+}
+
+function formatDensity(value = 1) {
+  const rounded = Math.round(Number(value) * 100) / 100;
+  return Number.isInteger(rounded) ? String(rounded) : rounded.toFixed(2).replace(/0+$/, "").replace(/\.$/, "");
 }
 
 function mappingSignature(mapping) {
@@ -2105,7 +2146,7 @@ function isSimpleLayer(layer = {}) {
 }
 
 function sourceFromPatchNode(node = {}) {
-  if (node.state?.source) return withSourceInstance(node.state.source, node.id || node.state?.layer?.id);
+  if (node.state?.source) return sourceWithNodeParams(node.state.source, node.params || {}, node.id || node.state?.layer?.id);
   const params = node.params || {};
   if (node.kind === "generator" || node.componentId === "testPattern" || params.generatorId) {
     const { generatorId, ...generatorParams } = params;
@@ -2130,6 +2171,36 @@ function sourceFromPatchNode(node = {}) {
   if (node.componentId === "source.camera") return { type: "camera" };
   if (node.componentId === "source.black") return { type: "black" };
   return { type: "generator", generatorId: "testPattern" };
+}
+
+function sourceWithNodeParams(source = {}, params = {}, instanceId = "") {
+  const base = withSourceInstance(source, instanceId);
+  if (base.type === "generator") {
+    const { generatorId, ...generatorParams } = params || {};
+    return {
+      ...base,
+      generatorId: base.generatorId || generatorId || "testPattern",
+      params: {
+        ...(base.params && typeof base.params === "object" ? base.params : {}),
+        ...generatorParams,
+      },
+    };
+  }
+  if (base.type === "media") {
+    const { mediaId, start, end, speed, ...mediaParams } = params || {};
+    return {
+      ...base,
+      mediaId: base.mediaId || mediaId || "",
+      ...(start !== undefined ? { start: Math.max(0, Number(start) || 0) } : {}),
+      ...(end !== undefined ? { end: Math.max(0, Number(end) || 0) } : {}),
+      ...(speed !== undefined ? { speed: Math.max(0, Number(speed) || 1) } : {}),
+      params: {
+        ...(base.params && typeof base.params === "object" ? base.params : {}),
+        ...mediaParams,
+      },
+    };
+  }
+  return base;
 }
 
 function mediaSourceFit(source = {}) {
@@ -2370,7 +2441,11 @@ function compositionThumbnailSignature(composition) {
   }
 }
 
-function graphicsToThumbnail(pg, width = 512, height = 288) {
+const COMPOSITION_THUMBNAIL_WIDTH = 768;
+const COMPOSITION_THUMBNAIL_HEIGHT = 432;
+const COMPOSITION_THUMBNAIL_QUALITY = 0.92;
+
+function graphicsToThumbnail(pg, width = COMPOSITION_THUMBNAIL_WIDTH, height = COMPOSITION_THUMBNAIL_HEIGHT) {
   try {
     const source = pg.canvas || pg.elt;
     if (!source) return "";
@@ -2388,8 +2463,12 @@ function graphicsToThumbnail(pg, width = 512, height = 288) {
     const dy = (height - drawHeight) * 0.5;
     context.fillStyle = "#000";
     context.fillRect(0, 0, width, height);
+    context.imageSmoothingEnabled = true;
+    context.imageSmoothingQuality = "high";
     context.drawImage(source, dx, dy, drawWidth, drawHeight);
-    return canvas.toDataURL("image/jpeg", 0.82);
+    const webp = canvas.toDataURL("image/webp", COMPOSITION_THUMBNAIL_QUALITY);
+    if (webp.startsWith("data:image/webp")) return webp;
+    return canvas.toDataURL("image/png");
   } catch (error) {
     console.warn("[VJ1_THUMBNAIL_CAPTURE_FAILED]", { message: error?.message || String(error) });
     return "";
@@ -2505,28 +2584,262 @@ function drawBuffer(pg, source, x, y, w, h, sourceIsWebGL = false) {
   drawWebGLBuffer(pg, source, x, y, w, h);
 }
 
-function drawModelPoints(target, model, wireColor = [245, 245, 245, 255]) {
-  const vertices = Array.isArray(model?.vertices) ? model.vertices : [];
+function drawRawParsedModel(target, item, params = {}, compositionTime = 0, mode = "points", color = [245, 245, 245, 255], pointBudget = 4000) {
+  const gl = target?.drawingContext;
+  const mesh = item?.modelData;
+  if (!gl || !mesh) return false;
+  const resources = ensureRawModelResources(gl, item, mode, pointBudget);
+  if (!resources?.buffer || !resources.count || !resources.program) return false;
+  const width = Math.max(1, gl.drawingBufferWidth || target.width || 1);
+  const height = Math.max(1, gl.drawingBufferHeight || target.height || 1);
+  const modelScale = Math.max(0.01, Number(params.modelScale) || 1);
+  const depth = Math.max(0.05, Number(params.depth) || 1);
+  const scale = Math.min(target.width || width, target.height || height) * 0.0065 * modelScale;
+  const rotation = [
+    (Number(params.rotationX) || 0) + compositionTime * (Number(params.spinX) || 0),
+    (Number(params.rotationY) || 0) + compositionTime * (Number(params.spinY) || 0),
+    (Number(params.rotationZ) || 0) + compositionTime * (Number(params.spinZ) || 0),
+  ];
+  const mvp = rawModelMvp(width, height, scale, depth, rotation);
+  const rgba = color.map((channel) => Math.max(0, Math.min(1, Number(channel) / 255 || 0)));
+
+  gl.useProgram(resources.program);
+  gl.viewport(0, 0, width, height);
+  gl.enable(gl.DEPTH_TEST);
+  gl.depthFunc(gl.LEQUAL);
+  gl.enable(gl.BLEND);
+  gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+  gl.disable(gl.CULL_FACE);
+  gl.bindBuffer(gl.ARRAY_BUFFER, resources.buffer);
+  gl.enableVertexAttribArray(resources.position);
+  gl.vertexAttribPointer(resources.position, 3, gl.FLOAT, false, 0, 0);
+  gl.uniformMatrix4fv(resources.mvp, false, mvp);
+  gl.uniform4fv(resources.color, rgba);
+  gl.uniform1f(resources.pointSize, Math.max(1, Number(params.pointSize) || 2));
+  gl.drawArrays(mode === "wireframe" ? gl.LINES : gl.POINTS, 0, resources.count);
+  gl.disableVertexAttribArray(resources.position);
+  gl.bindBuffer(gl.ARRAY_BUFFER, null);
+  gl.useProgram(null);
+  return true;
+}
+
+function ensureRawModelResources(gl, item, mode = "points", pointBudget = 4000) {
+  item.modelRawRenderers ||= new WeakMap();
+  let contextResources = item.modelRawRenderers.get(gl);
+  if (!contextResources) {
+    contextResources = {
+      program: createRawModelProgram(gl),
+      buffers: new Map(),
+    };
+    item.modelRawRenderers.set(gl, contextResources);
+  }
+  if (!contextResources.program) return null;
+  const budget = Math.max(128, Math.min(50000, Math.round(Number(pointBudget) || 4000)));
+  const meshKey = `${item.modelData?.triangles?.length || 0}`;
+  const key = mode === "wireframe" ? `wire:${meshKey}` : `points:${meshKey}:${budget}`;
+  let buffer = contextResources.buffers.get(key);
+  if (!buffer) {
+    const data = mode === "wireframe"
+      ? ensureParsedModelWireLines(item)
+      : ensureParsedModelPointCloud(item, budget);
+    if (!data?.length) return null;
+    const glBuffer = gl.createBuffer();
+    gl.bindBuffer(gl.ARRAY_BUFFER, glBuffer);
+    gl.bufferData(gl.ARRAY_BUFFER, data, gl.STATIC_DRAW);
+    buffer = {
+      buffer: glBuffer,
+      count: Math.floor(data.length / 3),
+    };
+    contextResources.buffers.set(key, buffer);
+  }
+  return {
+    ...buffer,
+    program: contextResources.program.program,
+    position: contextResources.program.position,
+    mvp: contextResources.program.mvp,
+    color: contextResources.program.color,
+    pointSize: contextResources.program.pointSize,
+  };
+}
+
+function createRawModelProgram(gl) {
+  const vertex = compileRawShader(gl, gl.VERTEX_SHADER, `
+    attribute vec3 aPosition;
+    uniform mat4 uMvp;
+    uniform float uPointSize;
+    void main() {
+      gl_Position = uMvp * vec4(aPosition, 1.0);
+      gl_PointSize = uPointSize;
+    }
+  `);
+  const fragment = compileRawShader(gl, gl.FRAGMENT_SHADER, `
+    precision mediump float;
+    uniform vec4 uColor;
+    void main() {
+      gl_FragColor = uColor;
+    }
+  `);
+  if (!vertex || !fragment) return null;
+  const program = gl.createProgram();
+  gl.attachShader(program, vertex);
+  gl.attachShader(program, fragment);
+  gl.linkProgram(program);
+  if (!gl.getProgramParameter(program, gl.LINK_STATUS)) {
+    gl.deleteProgram(program);
+    return null;
+  }
+  return {
+    program,
+    position: gl.getAttribLocation(program, "aPosition"),
+    mvp: gl.getUniformLocation(program, "uMvp"),
+    color: gl.getUniformLocation(program, "uColor"),
+    pointSize: gl.getUniformLocation(program, "uPointSize"),
+  };
+}
+
+function compileRawShader(gl, type, source) {
+  const shader = gl.createShader(type);
+  gl.shaderSource(shader, source);
+  gl.compileShader(shader);
+  if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) {
+    gl.deleteShader(shader);
+    return null;
+  }
+  return shader;
+}
+
+function rawModelMvp(width = 1, height = 1, scale = 1, depth = 1, rotation = [0, 0, 0]) {
+  const projection = mat4Perspective(Math.PI / 3, width / Math.max(1, height), 0.1, 5000);
+  const cameraZ = Math.max(width, height) * 0.92;
+  const view = mat4LookAt([0, 0, cameraZ], [0, 0, 0], [0, 1, 0]);
+  let model = mat4Identity();
+  model = mat4Multiply(model, mat4RotationX(rotation[0] || 0));
+  model = mat4Multiply(model, mat4RotationY(rotation[1] || 0));
+  model = mat4Multiply(model, mat4RotationZ(rotation[2] || 0));
+  model = mat4Multiply(model, mat4Scale(scale, scale, scale * depth));
+  return mat4Multiply(mat4Multiply(projection, view), model);
+}
+
+function mat4Identity() {
+  return new Float32Array([
+    1, 0, 0, 0,
+    0, 1, 0, 0,
+    0, 0, 1, 0,
+    0, 0, 0, 1,
+  ]);
+}
+
+function mat4Perspective(fovy, aspect, near, far) {
+  const f = 1 / Math.tan(fovy * 0.5);
+  const nf = 1 / (near - far);
+  return new Float32Array([
+    f / aspect, 0, 0, 0,
+    0, f, 0, 0,
+    0, 0, (far + near) * nf, -1,
+    0, 0, (2 * far * near) * nf, 0,
+  ]);
+}
+
+function mat4LookAt(eye, center, up) {
+  const z = normalize3([eye[0] - center[0], eye[1] - center[1], eye[2] - center[2]]);
+  const x = normalize3(cross3(up, z));
+  const y = cross3(z, x);
+  return new Float32Array([
+    x[0], y[0], z[0], 0,
+    x[1], y[1], z[1], 0,
+    x[2], y[2], z[2], 0,
+    -dot3(x, eye), -dot3(y, eye), -dot3(z, eye), 1,
+  ]);
+}
+
+function mat4RotationX(angle) {
+  const c = Math.cos(angle);
+  const s = Math.sin(angle);
+  return new Float32Array([
+    1, 0, 0, 0,
+    0, c, s, 0,
+    0, -s, c, 0,
+    0, 0, 0, 1,
+  ]);
+}
+
+function mat4RotationY(angle) {
+  const c = Math.cos(angle);
+  const s = Math.sin(angle);
+  return new Float32Array([
+    c, 0, -s, 0,
+    0, 1, 0, 0,
+    s, 0, c, 0,
+    0, 0, 0, 1,
+  ]);
+}
+
+function mat4RotationZ(angle) {
+  const c = Math.cos(angle);
+  const s = Math.sin(angle);
+  return new Float32Array([
+    c, s, 0, 0,
+    -s, c, 0, 0,
+    0, 0, 1, 0,
+    0, 0, 0, 1,
+  ]);
+}
+
+function mat4Scale(x, y, z) {
+  return new Float32Array([
+    x, 0, 0, 0,
+    0, y, 0, 0,
+    0, 0, z, 0,
+    0, 0, 0, 1,
+  ]);
+}
+
+function mat4Multiply(a, b) {
+  const out = new Float32Array(16);
+  for (let col = 0; col < 4; col++) {
+    for (let row = 0; row < 4; row++) {
+      out[col * 4 + row] =
+        a[0 * 4 + row] * b[col * 4 + 0] +
+        a[1 * 4 + row] * b[col * 4 + 1] +
+        a[2 * 4 + row] * b[col * 4 + 2] +
+        a[3 * 4 + row] * b[col * 4 + 3];
+    }
+  }
+  return out;
+}
+
+function normalize3(vector) {
+  const length = Math.hypot(vector[0], vector[1], vector[2]) || 1;
+  return [vector[0] / length, vector[1] / length, vector[2] / length];
+}
+
+function cross3(a, b) {
+  return [
+    a[1] * b[2] - a[2] * b[1],
+    a[2] * b[0] - a[0] * b[2],
+    a[0] * b[1] - a[1] * b[0],
+  ];
+}
+
+function dot3(a, b) {
+  return a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+}
+
+function drawPointCloud(target, points, wireColor = [245, 245, 245, 255]) {
+  if (!points?.length) return;
   target.noFill();
   target.stroke(...wireColor);
   target.strokeWeight(2);
   target.beginShape(POINTS);
-  for (const vertex of vertices) {
-    target.vertex(Number(vertex.x) || 0, Number(vertex.y) || 0, Number(vertex.z) || 0);
+  for (let index = 0; index + 2 < points.length; index += 3) {
+    target.vertex(points[index], points[index + 1], points[index + 2]);
   }
   target.endShape();
 }
 
 function drawParsedModel(target, mesh, renderMode = "surface", surfaceColor = [220, 225, 220, 255], wireColor = [20, 20, 20, 220]) {
   if (renderMode === "points") {
-    target.noFill();
-    target.stroke(...wireColor);
-    target.strokeWeight(2);
-    target.beginShape(POINTS);
-    for (const triangle of mesh.triangles || []) {
-      for (const vertex of triangle.vertices || []) target.vertex(vertex[0], vertex[1], vertex[2]);
-    }
-    target.endShape();
+    drawPointCloud(target, buildParsedModelPointCloud(mesh, 4000), wireColor);
     return;
   }
   if (renderMode !== "wireframe") {
@@ -2586,6 +2899,110 @@ function ensureParsedModelGeometry(item) {
   geometry._edgesToVertices?.();
   item.modelGeometry = geometry;
   return geometry;
+}
+
+function ensureParsedModelPointCloud(item, pointBudget = 4000) {
+  const budget = Math.max(128, Math.min(50000, Math.round(Number(pointBudget) || 4000)));
+  const mesh = item?.modelData;
+  const key = `stl:${mesh?.triangles?.length || 0}:${budget}`;
+  if (item?.modelPointCloud && item.modelPointCloudKey === key) return item.modelPointCloud;
+  const points = buildParsedModelPointCloud(mesh, budget);
+  if (item) {
+    item.modelPointCloud = points;
+    item.modelPointCloudKey = key;
+  }
+  return points;
+}
+
+function ensureParsedModelWireLines(item) {
+  const mesh = item?.modelData;
+  const key = `wire:${mesh?.triangles?.length || 0}`;
+  if (item?.modelWireLines && item.modelWireLinesKey === key) return item.modelWireLines;
+  const lines = buildParsedModelWireLines(mesh);
+  if (item) {
+    item.modelWireLines = lines;
+    item.modelWireLinesKey = key;
+  }
+  return lines;
+}
+
+function ensureP5ModelPointCloud(item, pointBudget = 4000) {
+  const budget = Math.max(128, Math.min(50000, Math.round(Number(pointBudget) || 4000)));
+  const vertices = Array.isArray(item?.model?.vertices) ? item.model.vertices : [];
+  const key = `p5:${vertices.length}:${budget}`;
+  if (item?.modelPointCloud && item.modelPointCloudKey === key) return item.modelPointCloud;
+  const stride = Math.max(1, Math.ceil(vertices.length / budget));
+  const count = Math.ceil(vertices.length / stride);
+  const points = new Float32Array(count * 3);
+  let write = 0;
+  for (let index = 0; index < vertices.length && write + 2 < points.length; index += stride) {
+    const vertex = vertices[index] || {};
+    points[write++] = Number(vertex.x) || 0;
+    points[write++] = Number(vertex.y) || 0;
+    points[write++] = Number(vertex.z) || 0;
+  }
+  if (item) {
+    item.modelPointCloud = points.subarray(0, write);
+    item.modelPointCloudKey = key;
+  }
+  return item?.modelPointCloud || points.subarray(0, write);
+}
+
+function buildParsedModelPointCloud(mesh, pointBudget = 4000) {
+  const triangles = Array.isArray(mesh?.triangles) ? mesh.triangles : [];
+  const totalVertices = triangles.length * 3;
+  if (!totalVertices) return new Float32Array(0);
+  const budget = Math.max(128, Math.min(50000, Math.round(Number(pointBudget) || 4000)));
+  const stride = Math.max(1, Math.ceil(totalVertices / budget));
+  const count = Math.ceil(totalVertices / stride);
+  const points = new Float32Array(count * 3);
+  let seen = 0;
+  let write = 0;
+  for (const triangle of triangles) {
+    for (const vertex of triangle.vertices || []) {
+      if (seen % stride === 0 && write + 2 < points.length) {
+        points[write++] = Number(vertex[0]) || 0;
+        points[write++] = Number(vertex[1]) || 0;
+        points[write++] = Number(vertex[2]) || 0;
+      }
+      seen++;
+    }
+  }
+  return points.subarray(0, write);
+}
+
+function buildParsedModelWireLines(mesh) {
+  const triangles = Array.isArray(mesh?.triangles) ? mesh.triangles : [];
+  if (!triangles.length) return new Float32Array(0);
+  const edges = new Map();
+  for (const triangle of triangles) {
+    const vertices = triangle.vertices || [];
+    addWireEdge(edges, vertices[0], vertices[1]);
+    addWireEdge(edges, vertices[1], vertices[2]);
+    addWireEdge(edges, vertices[2], vertices[0]);
+  }
+  const lines = new Float32Array(edges.size * 6);
+  let write = 0;
+  for (const edge of edges.values()) {
+    lines[write++] = edge[0][0];
+    lines[write++] = edge[0][1];
+    lines[write++] = edge[0][2];
+    lines[write++] = edge[1][0];
+    lines[write++] = edge[1][1];
+    lines[write++] = edge[1][2];
+  }
+  return lines;
+}
+
+function addWireEdge(edges, a = [0, 0, 0], b = [0, 0, 0]) {
+  const keyA = wireVertexKey(a);
+  const keyB = wireVertexKey(b);
+  const key = keyA < keyB ? `${keyA}|${keyB}` : `${keyB}|${keyA}`;
+  if (!edges.has(key)) edges.set(key, [a, b]);
+}
+
+function wireVertexKey(vertex = [0, 0, 0]) {
+  return `${Math.round((Number(vertex[0]) || 0) * 10000)},${Math.round((Number(vertex[1]) || 0) * 10000)},${Math.round((Number(vertex[2]) || 0) * 10000)}`;
 }
 
 function createGeometryVector(x = 0, y = 0, z = 0) {

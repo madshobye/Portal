@@ -13,6 +13,7 @@ export function shellTemplate() {
               <small id="project-meta">Choose a project folder</small>
             </span>
           </button>
+          <button id="close-project" class="icon-buttonish close-project-button is-hidden" type="button" title="Close project" aria-label="Close project">${icon("close")}</button>
         </div>
         <div class="top-actions">
           <div id="workspace-switch" class="workspace-switch" role="group" aria-label="Workspace">
@@ -61,6 +62,7 @@ export function collectRefs(root) {
     blackout: root.querySelector("#blackout-main"),
     workspaceSwitch: root.querySelector("#workspace-switch"),
     openFolder: root.querySelector("#open-folder-main"),
+    closeProject: root.querySelector("#close-project"),
     importFiles: root.querySelector("#import-files-main"),
     projectRail: root.querySelector("#project-rail"),
     studio: root.querySelector("#studio"),

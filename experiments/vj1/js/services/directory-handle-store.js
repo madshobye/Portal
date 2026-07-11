@@ -7,6 +7,11 @@ export async function saveProjectDirectoryHandle(handle) {
   await request(store.put(handle, PROJECT_KEY));
 }
 
+export async function clearProjectDirectoryHandle() {
+  const store = await getStore("readwrite");
+  await request(store.delete(PROJECT_KEY));
+}
+
 export async function loadProjectDirectoryHandle() {
   const store = await getStore("readonly");
   return await request(store.get(PROJECT_KEY));

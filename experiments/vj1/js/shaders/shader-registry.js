@@ -145,7 +145,7 @@ vec4 runEffect(vec2 uv, vec4 color) {
 
   if (vignette > 0.001) {
     vec2 p = (uv - 0.5) * vec2(resolution.x / max(resolution.y, 1.0), 1.0);
-    float vignetteMask = smoothstep(0.86, 0.18, length(p));
+    float vignetteMask = 1.0 - smoothstep(0.0324, 0.7396, dot(p, p));
     rgb *= mix(1.0, mix(0.62, 1.0, vignetteMask), vignette);
   }
 
@@ -158,11 +158,17 @@ vec4 runEffect(vec2 uv, vec4 color) {
     id: "labelChromatic",
     name: "Label Chromatic",
     category: "color",
+    params: [
+      createNumberParam("amount", "Amount", { min: 0, max: 1, step: 0.01, defaultValue: 0.35 }),
+      createBooleanParam("fullSplit", "Full split", false),
+    ],
     code: `
 vec4 runEffect(vec2 uv, vec4 color) {
+  if (amount <= 0.0001) return color;
   vec2 px = vec2(1.0 / max(resolution.x, 1.0), 1.0 / max(resolution.y, 1.0));
   vec2 offset = vec2(px.x * mix(2.0, 28.0, amount), 0.0);
   vec4 redColor = sampleSource(uv - offset);
+  if (!fullSplit) return vec4(redColor.r, color.g, color.b, color.a);
   vec4 blueColor = sampleSource(uv + offset);
   return vec4(redColor.r, color.g, blueColor.b, color.a);
 }`,
@@ -242,7 +248,9 @@ float dotPattern(vec2 uv, float density, float luma) {
   vec2 grid = uv * density;
   vec2 cell = fract(grid) - 0.5;
   float radius = mix(0.42, 0.10, clamp(luma, 0.0, 1.0));
-  return 1.0 - smoothstep(radius, radius + 0.035, length(cell));
+  float radius2 = radius * radius;
+  float outer = radius + 0.035;
+  return 1.0 - smoothstep(radius2, outer * outer, dot(cell, cell));
 }
 
 vec4 runEffect(vec2 uv, vec4 color) {
