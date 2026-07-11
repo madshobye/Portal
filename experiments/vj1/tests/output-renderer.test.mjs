@@ -71,6 +71,20 @@ test("composition thumbnails preserve more detail with high quality webp", () =>
   assert.ok(source.includes('return canvas.toDataURL("image/png");'));
 });
 
+test("composition groups render isolated from earlier parent layers", () => {
+  const source = readFileSync(new URL("../js/output/output-renderer.js", import.meta.url), "utf8");
+  const groupRenderSource = source.slice(
+    source.indexOf('      if (item.kind === "group") {'),
+    source.indexOf("  renderThumbnailCompositions()")
+  );
+
+  assert.ok(groupRenderSource.includes("groupOutput.clear();"));
+  assert.ok(groupRenderSource.includes("this.renderCompositionChainItems(composition, item.chain || [], groupOutput"));
+  assert.ok(groupRenderSource.includes("this.drawChainLayer(output, groupOutput, item);"));
+  assert.ok(!groupRenderSource.includes("drawBuffer(groupOutput, output"));
+  assert.ok(!groupRenderSource.includes("output.clear();"));
+});
+
 test("scene surfaces render compositions within surface texture budget while preserving frame aspect", () => {
   const source = readFileSync(new URL("../js/output/output-renderer.js", import.meta.url), "utf8");
   const drawSurfaceRoute = source.slice(

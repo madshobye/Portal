@@ -212,7 +212,7 @@ function isSourceNode(node = {}) {
 }
 
 function isEffectNode(node = {}) {
-  return node.role === "effect" || node.kind === "effect";
+  return node.role === "effect" || node.kind === "effect" || node.role === "group" || node.kind === "group";
 }
 
 function findOutputNode(plan = {}, outputNodeId = "") {

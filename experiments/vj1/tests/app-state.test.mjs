@@ -220,7 +220,7 @@ test("composition chain compiles as one accumulated image pipeline", () => {
   );
 });
 
-test("composition chain compiles grouped items into the same image pipeline", () => {
+test("composition chain compiles groups as isolated structure nodes", () => {
   const composition = createDefaultComposition(0);
   const group = createCompositionGroup(0);
   group.chain = [
@@ -241,6 +241,9 @@ test("composition chain compiles grouped items into the same image pipeline", ()
   assert.equal(compositor.inputs.length, 1);
   assert.deepEqual(
     compositor.inputs[0].effectComponentIds,
-    ["pixelate", "invert", "glitchDistort"]
+    ["structure.group", "glitchDistort"]
   );
+  const groupNode = patch.nodes.find((node) => node.role === "group");
+  assert.equal(groupNode?.state?.group?.name, "Group 1");
+  assert.equal(groupNode?.params?.items, 2);
 });

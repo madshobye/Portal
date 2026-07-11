@@ -812,6 +812,11 @@ export class OutputRenderer {
     output.clear();
     output.pop();
 
+    if (Array.isArray(composition.chain) && composition.chain.length) {
+      this.renderCompositionChainItems(composition, composition.chain, output, compositionTime, renderRequest);
+      return output;
+    }
+
     const orderedNodes = nodesInCompositionChainOrder(composition, patch);
     for (let index = 0; index < orderedNodes.length; index++) {
       const node = orderedNodes[index];
@@ -921,12 +926,8 @@ export class OutputRenderer {
         const groupOutput = this.getCompositionBuffer(`${composition.id}:${item.id}:group`, renderRequest);
         groupOutput.push();
         groupOutput.clear();
-        drawBuffer(groupOutput, output, 0, 0, groupOutput.width, groupOutput.height, this.isShaderBuffer(output));
         groupOutput.pop();
         this.renderCompositionChainItems(composition, item.chain || [], groupOutput, compositionTime, renderRequest);
-        output.push();
-        output.clear();
-        output.pop();
         this.drawChainLayer(output, groupOutput, item);
       }
     }

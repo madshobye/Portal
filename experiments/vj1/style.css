@@ -1186,6 +1186,10 @@ small {
   border-color: rgba(255, 90, 150, 0.34);
 }
 
+.mapping-node-group {
+  border-color: rgba(92, 232, 221, 0.34);
+}
+
 .mapping-node-output {
   border-color: rgba(121, 228, 127, 0.34);
 }

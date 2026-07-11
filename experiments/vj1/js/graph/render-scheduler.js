@@ -41,8 +41,8 @@ export function compileCompositionPatch(composition = {}, renderRequest = {}) {
 }
 
 function graphForCompositionChain(composition, request, outputId) {
-  const flatChain = flattenCompositionChain(composition.chain || []);
-  const nodes = flatChain
+  const chain = (composition.chain || []).filter((item) => item.enabled !== false);
+  const nodes = chain
     .map((item, index) => withRenderRequest(chainNodeForItem(composition, item, index), request));
   const edges = [];
   for (let index = 0; index < nodes.length - 1; index++) {
@@ -133,6 +133,24 @@ function chainNodeForItem(composition, item, index) {
       transform: item.transform,
     }, index);
   }
+  if (item.kind === "group") {
+    return createVisualNode(groupComponentFor(), {
+      id: `${composition.id || "composition"}:group:${index}:${item.id}`,
+      role: "group",
+      enabled: item.enabled !== false,
+      params: {
+        items: flattenCompositionChain(item.chain || []).length,
+      },
+      state: {
+        group: {
+          id: item.id,
+          name: item.name || "Group",
+          itemCount: flattenCompositionChain(item.chain || []).length,
+        },
+        layer: layerStateForItem(item),
+      },
+    });
+  }
   const component = sourceComponentFor(item.source);
   return createVisualNode(component, {
     id: `${composition.id || "composition"}:source:${index}:${item.id}`,
@@ -147,6 +165,21 @@ function chainNodeForItem(composition, item, index) {
       layer: layerStateForItem(item),
     },
   });
+}
+
+function groupComponentFor() {
+  return {
+    id: "structure.group",
+    kind: "group",
+    family: "structure",
+    name: "Group",
+    processor: "group",
+    scheduler: "frame",
+    inlets: [textureInlet("texture", "Texture")],
+    outlets: [textureOutlet("texture", "Texture")],
+    params: [],
+    render: textureRenderContract(),
+  };
 }
 
 export function compileShaderSchedule(chain = []) {

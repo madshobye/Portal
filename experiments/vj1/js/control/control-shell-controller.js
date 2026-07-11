@@ -1793,12 +1793,14 @@ function componentChipTemplate(component) {
 function mappingNodeIcon(node) {
   if (node.role === "source" || node.kind === "generator") return "input";
   if (node.role === "effect") return effectIcon(node.componentId);
+  if (node.role === "group" || node.kind === "group") return "account_tree";
   if (node.role === "output") return "output";
   return "schema";
 }
 
 function nodeLabel(node) {
   if (node.role === "source" && node.params?.generatorId) return node.params.generatorId;
+  if (node.role === "group" || node.kind === "group") return node.state?.group?.name || "Group";
   if (node.role === "output") return "Output";
   return node.componentId || node.id || "Node";
 }
