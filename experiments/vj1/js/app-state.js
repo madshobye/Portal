@@ -2,6 +2,8 @@ import {
   applySceneForEditing,
   applySceneSnapshotToState,
   clone,
+  createCanvasComposition,
+  createCanvasLayer,
   createDefaultComposition,
   createDefaultSurface,
   createCompositionEffect,
@@ -71,7 +73,13 @@ export function createAppState(initial = null) {
       }, "workspace");
     },
     getRenderState() {
-      return createLiveRenderState(getState());
+      const current = getState();
+      if (current.ui?.workspace === "live") return createLiveRenderState(current);
+      if (current.ui?.workspace === "scene") {
+        const scene = current.scenes.find((item) => item.id === current.ui.selectedSceneId) || current.scenes[0];
+        return scene ? applySceneForEditing(current, scene) : current;
+      }
+      return current;
     },
     addComposition() {
       update((draft) => {
@@ -84,6 +92,36 @@ export function createAppState(initial = null) {
         }
       }, "add-composition");
     },
+    addCanvasComposition() {
+      update((draft) => {
+        const firstChainComposition = draft.compositions.find((composition) => composition.type !== "canvas");
+        const composition = createCanvasComposition(
+          draft.compositions.filter((item) => item.type === "canvas").length,
+          firstChainComposition?.id || ""
+        );
+        draft.compositions.push(composition);
+        draft.ui.selectedCompositionId = composition.id;
+        draft.ui.selectedChainItemId = "";
+      }, "add-canvas-composition");
+    },
+    addCanvasLayer(canvasCompositionId, sourceCompositionId = "") {
+      update((draft) => {
+        const composition = draft.compositions.find((item) => item.id === canvasCompositionId && item.type === "canvas");
+        if (!composition) return;
+        const fallbackSource = draft.compositions.find((item) => item.id !== canvasCompositionId && item.type !== "canvas")?.id || "";
+        composition.canvas ||= { width: 3840, height: 2160, layers: [] };
+        const layer = createCanvasLayer(composition.canvas.layers?.length || 0, sourceCompositionId || fallbackSource);
+        composition.canvas.layers ||= [];
+        composition.canvas.layers.push(layer);
+      }, "add-canvas-layer");
+    },
+    removeCanvasLayer(canvasCompositionId, layerId) {
+      update((draft) => {
+        const composition = draft.compositions.find((item) => item.id === canvasCompositionId && item.type === "canvas");
+        if (!composition?.canvas?.layers) return;
+        composition.canvas.layers = composition.canvas.layers.filter((layer) => layer.id !== layerId);
+      }, "remove-canvas-layer");
+    },
     selectChainItem(id) {
       update((draft) => {
         draft.ui.selectedChainItemId = id;
@@ -95,7 +133,9 @@ export function createAppState(initial = null) {
         if (!composition) return;
         const layer = createCompositionLayer(composition.chain?.length || 0, source);
         composition.chain ||= [];
-        composition.chain.push(layer);
+        const selectedIndex = composition.chain.findIndex((item) => item.id === draft.ui.selectedChainItemId);
+        const insertIndex = selectedIndex >= 0 ? selectedIndex + 1 : composition.chain.length;
+        composition.chain.splice(insertIndex, 0, layer);
         draft.ui.selectedChainItemId = layer.id;
       }, "add-chain-source");
     },
@@ -121,6 +161,14 @@ export function createAppState(initial = null) {
         chain.splice(toIndex, 0, item);
       }, "reorder-chain");
     },
+    reorderSurfaces(fromId, toId) {
+      update((draft) => {
+        moveById(draft.surfaces, fromId, toId);
+        for (const scene of draft.scenes || []) {
+          moveById(scene.snapshot?.surfaces, fromId, toId);
+        }
+      }, "reorder-surfaces");
+    },
     removeComposition(id) {
       update((draft) => {
         if (draft.compositions.length <= 1) return;
@@ -133,6 +181,12 @@ export function createAppState(initial = null) {
           for (const surface of scene.snapshot?.surfaces || []) {
             if (surface.compositionId === id) surface.compositionId = draft.ui.selectedCompositionId;
           }
+        }
+        for (const composition of draft.compositions) {
+          if (composition.type !== "canvas" || !Array.isArray(composition.canvas?.layers)) continue;
+          composition.canvas.layers = composition.canvas.layers.map((layer) => (
+            layer.compositionId === id ? { ...layer, compositionId: "" } : layer
+          ));
         }
       }, "remove-composition");
     },
@@ -188,4 +242,14 @@ export function createAppState(initial = null) {
       }, "delete-scene");
     },
   };
+}
+
+function moveById(list, fromId, toId) {
+  if (!Array.isArray(list)) return false;
+  const fromIndex = list.findIndex((item) => item.id === fromId);
+  const toIndex = list.findIndex((item) => item.id === toId);
+  if (fromIndex < 0 || toIndex < 0 || fromIndex === toIndex) return false;
+  const [item] = list.splice(fromIndex, 1);
+  list.splice(toIndex, 0, item);
+  return true;
 }

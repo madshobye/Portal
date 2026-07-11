@@ -1,14 +1,16 @@
 import { VJ1 } from "../constants.js";
 import { clamp01, sanitizeState } from "../domain/models.js?v=world-frame-27";
+import { normalizeParamValue } from "../graph/component-schema.js";
 import { createManualScheduler } from "../graph/manual-scheduler.js";
 import { compileCompositionPatch, compileShaderSchedule } from "../graph/render-scheduler.js?v=world-frame-27";
 import { getGeneratorComponent } from "../graph/generator-registry.js";
 import { createShaderBuilder } from "../shaders/shader-builder.js?v=world-frame-27";
-import { getGeneratorShaderComponent } from "../shaders/generator-shaders.js";
+import { getGeneratorShaderComponent } from "../shaders/generator-shaders.js?v=world-frame-27";
+import { getShaderComponent } from "../shaders/shader-registry.js?v=world-frame-27";
 import { applyBlend } from "./blend-utils.js";
 import { applyFontToGlobal, applyFontToTarget } from "./font-loader.js?v=world-frame-27";
 import { drawGenerator, drawStandby } from "./generators.js";
-import { drawCover, isDrawableMedia, syncVideoSpeed } from "./media-utils.js";
+import { drawCover, drawMediaFit, isDrawableMedia, syncVideoPlayback } from "./media-utils.js";
 import {
   createRenderRequest,
   frameRenderRequest,
@@ -43,10 +45,12 @@ export class OutputRenderer {
     this.compositionPatches = new Map();
     this.thumbnailImages = new Map();
     this.media = new Map();
+    this.modelTargets = new Map();
     this.pendingRenditionSaves = new Set();
     this.sourcePg = null;
     this.fxTargets = [null, null];
     this.fxTargetKey = "";
+    this.fxTargetGroups = new Map();
     this.mainMix = null;
     this.surfaceScratch = null;
     this.surfaceTexture = null;
@@ -120,7 +124,9 @@ export class OutputRenderer {
     this.applyGraphicsFont(this.mainMix);
     this.applyGraphicsFont(this.surfaceScratch);
     this.applyGraphicsFont(this.surfaceTexture);
-    for (const target of this.fxTargets || []) this.applyGraphicsFont(target);
+    for (const group of this.fxTargetGroups?.values?.() || []) {
+      for (const target of group.targets || []) this.applyGraphicsFont(target);
+    }
     for (const pg of this.compositionSource?.values?.() || []) this.applyGraphicsFont(pg);
     for (const pg of this.compositionOutput?.values?.() || []) this.applyGraphicsFont(pg);
     for (const pg of this.compositionBuffer?.values?.() || []) this.applyGraphicsFont(pg);
@@ -145,12 +151,27 @@ export class OutputRenderer {
     this.applyGraphicsFont(this.surfaceTexture);
   }
 
+  buffersMatchRenderSize() {
+    if (!this.state) return false;
+    const { width: rw, height: rh } = this.outputFrameSize(this.state.render);
+    const { width: surfaceWidth, height: surfaceHeight } = surfaceTextureSize(this.state.render);
+    return this.sourcePg?.width === rw &&
+      this.sourcePg?.height === rh &&
+      this.mainMix?.width === rw &&
+      this.mainMix?.height === rh &&
+      this.surfaceScratch?.width === surfaceWidth &&
+      this.surfaceScratch?.height === surfaceHeight &&
+      this.surfaceTexture?.width === surfaceWidth &&
+      this.surfaceTexture?.height === surfaceHeight;
+  }
+
   disposeBuffers() {
     disposeGraphics(this.sourcePg);
     disposeGraphics(this.mainMix);
     disposeGraphics(this.surfaceScratch);
     disposeGraphics(this.surfaceTexture);
-    for (const target of this.fxTargets || []) disposeGraphics(target);
+    this.disposeFxTargetGroups();
+    disposeGraphicsMap(this.modelTargets);
     disposeGraphicsMap(this.compositionSource);
     disposeGraphicsMap(this.compositionOutput);
     disposeGraphicsMap(this.compositionBuffer);
@@ -162,7 +183,20 @@ export class OutputRenderer {
     this.surfaceTexture = null;
     this.fxTargets = [null, null];
     this.fxTargetKey = "";
+    this.modelTargets?.clear?.();
     this.shaderBuilder.clear?.();
+  }
+
+  disposeFxTargetGroups() {
+    const seen = new Set();
+    for (const group of this.fxTargetGroups?.values?.() || []) {
+      for (const target of group.targets || []) {
+        if (!target || seen.has(target)) continue;
+        seen.add(target);
+        disposeGraphics(target);
+      }
+    }
+    this.fxTargetGroups?.clear?.();
   }
 
   createMapper() {
@@ -261,16 +295,15 @@ export class OutputRenderer {
   }
 
   outputFrameSize(render = this.state?.render || {}) {
-    if (this.mode === "output") {
-      const fallback = frameSize(render);
-      const canvasWidth = typeof width === "number" ? width : fallback.width;
-      const canvasHeight = typeof height === "number" ? height : fallback.height;
-      return {
-        width: Math.max(1, Math.floor(Number(canvasWidth) || fallback.width)),
-        height: Math.max(1, Math.floor(Number(canvasHeight) || fallback.height)),
-      };
-    }
     return frameSize(render);
+  }
+
+  displayCanvasSize(render = this.state?.render || {}) {
+    const fallback = frameSize(render);
+    return {
+      width: Math.max(1, Math.floor(Number(typeof width === "number" ? width : fallback.width) || fallback.width)),
+      height: Math.max(1, Math.floor(Number(typeof height === "number" ? height : fallback.height) || fallback.height)),
+    };
   }
 
   syncMapperOverlayMode() {
@@ -328,7 +361,7 @@ export class OutputRenderer {
 
   outputFrameTransform() {
     const projectFrame = frameSize(this.state?.render || {});
-    const outputFrame = this.outputFrameSize(this.state?.render || {});
+    const outputFrame = this.displayCanvasSize(this.state?.render || {});
     const scale = Math.max(
       outputFrame.width / Math.max(1, projectFrame.width),
       outputFrame.height / Math.max(1, projectFrame.height)
@@ -376,7 +409,7 @@ export class OutputRenderer {
       let item = this.media.get(id);
       if (!item) {
         const url = URL.createObjectURL(file);
-        item = { id, file, url, video: null, image: null, imageRenditions: new Map(), imageRenditionOrder: [], ready: false };
+        item = { id, file, url, video: null, image: null, imageError: "", model: null, modelData: null, modelGeometry: null, modelGeometryFailed: false, modelError: "", imageRenditions: new Map(), imageRenditionOrder: [], ready: false };
         this.media.set(id, item);
         if (/\.(mp4|m4v|mov|webm|ogv)$/i.test(id)) {
           item.video = createVideo(url, () => {
@@ -386,11 +419,40 @@ export class OutputRenderer {
             item.ready = true;
           });
           item.video.hide();
+        } else if (/\.svg$/i.test(id)) {
+          loadSvgImage(url, item);
         } else if (/\.(png|jpe?g|gif|webp|bmp)$/i.test(id)) {
           loadImage(url, (img) => {
             item.image = img;
             item.ready = true;
+            item.imageError = "";
+          }, (error) => {
+            item.imageError = error?.message || String(error || "image load failed");
           });
+        } else if (/\.stl$/i.test(id)) {
+          file.arrayBuffer()
+            .then((buffer) => {
+              item.modelData = parseStlMesh(buffer);
+              item.ready = true;
+              item.modelError = "";
+            })
+            .catch((error) => {
+              item.modelError = error?.message || String(error || "model load failed");
+            });
+        } else if (/\.obj$/i.test(id)) {
+          loadModel(
+            url,
+            true,
+            (model) => {
+              item.model = model;
+              item.ready = true;
+              item.modelError = "";
+            },
+            (error) => {
+              item.modelError = error?.message || String(error || "model load failed");
+            },
+            "obj"
+          );
         }
       }
       this.importMediaRenditions(item, entry?.renditions || []);
@@ -580,7 +642,7 @@ export class OutputRenderer {
   renderCompositions() {
     this.compositionOutput.clear();
     this.mainMix.push();
-    this.mainMix.background(0);
+    this.mainMix.clear();
     if (this.isOutputBlackout()) {
       this.mainMix.pop();
       return;
@@ -594,7 +656,11 @@ export class OutputRenderer {
     for (const composition of this.state.compositions || []) {
       if (neededCompositionIds.size && !neededCompositionIds.has(composition.id)) continue;
       const compositionTime = this.compositionTimes.get(composition.id) || 0;
-      const output = this.renderCompositionForRequest(composition, compositionTime, frameRenderRequest(this.state.render, { reason: "composition-preview" }));
+      const output = this.renderCompositionForRequest(
+        composition,
+        compositionTime,
+        createRenderRequest("texture", this.outputFrameSize(this.state.render), { reason: "composition-preview" })
+      );
       this.mainMix.push();
       applyBlend(this.mainMix, composition.blend);
       this.mainMix.tint(255, 255 * clamp01(composition.opacity));
@@ -618,6 +684,20 @@ export class OutputRenderer {
       this.frameProfile.compositionCacheHits++;
       return cached;
     }
+    if (composition.type === "canvas") {
+      const output = this.measureProfile("compositionMs", {
+        type: "composition",
+        compositionId: composition.id,
+        compositionName: composition.name || composition.id || "Canvas",
+        width: renderRequest.width,
+        height: renderRequest.height,
+      }, () => this.renderCanvasComposition(composition, compositionTime, renderRequest));
+      this.compositionOutput.set(outputKey, output);
+      if (renderRequest.width === this.mainMix.width && renderRequest.height === this.mainMix.height) {
+        this.compositionOutput.set(composition.id, output);
+      }
+      return output;
+    }
     const patch = compileCompositionPatch(composition, renderRequest);
     this.compositionPatches.set(composition.id, patch);
     const output = this.measureProfile("compositionMs", {
@@ -634,6 +714,46 @@ export class OutputRenderer {
     return output;
   }
 
+  renderCanvasComposition(composition, compositionTime, request = frameRenderRequest(this.state.render)) {
+    const renderRequest = this.normalizeRenderRequest(request, "composition");
+    const output = this.getCompositionBuffer(composition.id, renderRequest);
+    const canvas = composition.canvas || {};
+    const canvasWidth = Math.max(1, Number(canvas.width) || renderRequest.width);
+    const canvasHeight = Math.max(1, Number(canvas.height) || renderRequest.height);
+    const scaleX = renderRequest.width / canvasWidth;
+    const scaleY = renderRequest.height / canvasHeight;
+    output.push();
+    output.clear();
+    for (const layer of canvas.layers || []) {
+      if (layer.enabled === false || !layer.compositionId || layer.compositionId === composition.id) continue;
+      const sourceComposition = this.state.compositions.find((item) => item.id === layer.compositionId);
+      if (!sourceComposition || sourceComposition.type === "canvas") continue;
+      const layerWidth = Math.max(1, Math.round((Number(layer.width) || 1) * scaleX));
+      const layerHeight = Math.max(1, Math.round((Number(layer.height) || 1) * scaleY));
+      const sourceTime = this.compositionTimes.get(sourceComposition.id) || compositionTime;
+      const source = this.renderCompositionForRequest(
+        sourceComposition,
+        sourceTime,
+        createRenderRequest("texture", surfaceTextureSize(this.state.render), { reason: "canvas-layer" })
+      );
+      output.push();
+      applyBlend(output, layer.blend);
+      output.tint(255, 255 * clamp01(layer.opacity));
+      output.image(
+        source,
+        (Number(layer.x) || 0) * scaleX,
+        (Number(layer.y) || 0) * scaleY,
+        layerWidth,
+        layerHeight
+      );
+      output.noTint();
+      output.blendMode(BLEND);
+      output.pop();
+    }
+    output.pop();
+    return output;
+  }
+
   renderCompositionPatch(composition, patch, compositionTime, request = frameRenderRequest(this.state.render)) {
     const renderRequest = this.normalizeRenderRequest(patch?.renderRequest || request, "composition");
     const output = this.getCompositionBuffer(composition.id, renderRequest);
@@ -647,52 +767,46 @@ export class OutputRenderer {
       if (node.enabled === false || node.role === "output") continue;
       if (isSourceNode(node)) {
         const layer = patchLayerForNode(node);
-        const directSourceRun = this.renderDirectShaderSourceRun({
-          composition,
-          orderedNodes,
-          index,
-          layer,
-          compositionTime,
-          renderRequest,
-          output,
-        });
-        if (directSourceRun) {
-          index = directSourceRun.index;
-          continue;
-        }
-        const source = this.measureProfile("sourceMs", {
-          type: "source",
-          compositionId: composition.id,
-          compositionName: composition.name || composition.id || "Composition",
-          passId: node.componentId || node.id,
-          passName: layer.name || node.componentId || node.id,
-          width: renderRequest.width,
-          height: renderRequest.height,
-        }, () => this.renderPatchSourceNode(composition, node, compositionTime, renderRequest));
+        const source = this.renderPatchSourceTexture(composition, node, layer, compositionTime, renderRequest);
         this.drawChainLayer(output, source, layer);
         continue;
       }
       if (isEffectNode(node)) {
         const effectRun = [node];
-        while (isEffectNode(orderedNodes[index + 1]) && orderedNodes[index + 1].enabled !== false) {
-          effectRun.push(orderedNodes[index + 1]);
-          index++;
+        let nextIndex = index;
+        while (isEffectNode(orderedNodes[nextIndex + 1])) {
+          nextIndex++;
+          if (orderedNodes[nextIndex].enabled !== false) effectRun.push(orderedNodes[nextIndex]);
         }
         const effected = this.renderShaderNodes(output, effectRun, renderRequest, compositionTime);
         output.push();
         output.clear();
         drawBuffer(output, effected, 0, 0, output.width, output.height, this.isShaderBuffer(effected));
         output.pop();
+        index = nextIndex;
       }
     }
     return output;
   }
 
-  renderDirectShaderSourceRun({ composition, orderedNodes, index, layer, compositionTime, renderRequest, output }) {
-    if (!isSimpleLayer(layer)) return null;
-    const node = orderedNodes[index];
+  renderPatchSourceTexture(composition, node, layer, compositionTime, renderRequest) {
     const sourceState = sourceFromPatchNode(node);
-    if (sourceState.type !== "generator" || !getGeneratorShaderComponent(getGeneratorComponent(sourceState.generatorId).id)) return null;
+    if (isSimpleLayer(layer) && sourceState.type === "generator" && getGeneratorShaderComponent(getGeneratorComponent(sourceState.generatorId).id)) {
+      return this.measureProfile("sourceMs", {
+        type: "source",
+        compositionId: composition.id,
+        compositionName: composition.name || composition.id || "Composition",
+        passId: node.componentId || node.id,
+        passName: layer.name || node.componentId || node.id,
+        width: renderRequest.width,
+        height: renderRequest.height,
+      }, () => this.renderShaderGeneratorSource(
+        sourceState.generatorId,
+        instanceTime(sourceState.instanceId || node.id, compositionTime),
+        renderRequest,
+        sourceState.params || {}
+      ));
+    }
     const source = this.measureProfile("sourceMs", {
       type: "source",
       compositionId: composition.id,
@@ -701,28 +815,14 @@ export class OutputRenderer {
       passName: layer.name || node.componentId || node.id,
       width: renderRequest.width,
       height: renderRequest.height,
-    }, () => this.renderShaderGeneratorSource(sourceState.generatorId, compositionTime, renderRequest));
-    if (!source) return null;
-
-    const effectRun = [];
-    let nextIndex = index;
-    while (isEffectNode(orderedNodes[nextIndex + 1]) && orderedNodes[nextIndex + 1].enabled !== false) {
-      effectRun.push(orderedNodes[nextIndex + 1]);
-      nextIndex++;
-    }
-    const effected = effectRun.length
-      ? this.renderShaderNodes(source, effectRun, renderRequest, compositionTime)
-      : source;
-    output.push();
-    drawBuffer(output, effected, 0, 0, output.width, output.height, this.isShaderBuffer(effected));
-    output.pop();
-    return { index: nextIndex };
+    }, () => this.renderPatchSourceNode(composition, node, compositionTime, renderRequest));
+    return source;
   }
 
   renderLegacyComposition(composition, compositionTime, request = frameRenderRequest(this.state.render)) {
     const renderRequest = this.normalizeRenderRequest(request, "composition");
     const source = this.renderCompositionSource(composition, compositionTime, renderRequest);
-    const effected = this.renderShaderChain(source, composition.shaderChain, renderRequest, compositionTime);
+    const effected = this.renderShaderChain(source, withShaderInstancePrefix(composition.shaderChain, composition.id), renderRequest, compositionTime);
     const output = this.getCompositionBuffer(composition.id, renderRequest);
     output.push();
     output.clear();
@@ -748,15 +848,17 @@ export class OutputRenderer {
       }
       if (item.kind === "effect") {
         const effectRun = [item];
-        while (composition.chain[index + 1]?.kind === "effect" && composition.chain[index + 1]?.enabled !== false) {
-          effectRun.push(composition.chain[index + 1]);
-          index++;
+        let nextIndex = index;
+        while (composition.chain[nextIndex + 1]?.kind === "effect") {
+          nextIndex++;
+          if (composition.chain[nextIndex]?.enabled !== false) effectRun.push(composition.chain[nextIndex]);
         }
         const effected = this.renderShaderChain(output, effectRun.map(chainItemToShaderPass), renderRequest, compositionTime);
         output.push();
         output.clear();
         drawBuffer(output, effected, 0, 0, output.width, output.height, this.isShaderBuffer(effected));
         output.pop();
+        index = nextIndex;
       }
     }
     return output;
@@ -765,7 +867,7 @@ export class OutputRenderer {
   renderThumbnailCompositions() {
     this.compositionOutput.clear();
     this.mainMix.push();
-    this.mainMix.background(0);
+    this.mainMix.clear();
     this.mainMix.pop();
   }
 
@@ -793,8 +895,8 @@ export class OutputRenderer {
     }
     this.touchRenderCache(this.compositionSourceUse, key);
     pg.push();
-    pg.background(0);
-    this.safeDrawSourceToGraphics(pg, composition.source, composition, compositionTime);
+    pg.clear();
+    this.safeDrawSourceToGraphics(pg, withSourceInstance(composition.source, `${composition.id}:source`), composition, compositionTime);
     pg.pop();
     return pg;
   }
@@ -810,8 +912,8 @@ export class OutputRenderer {
     }
     this.touchRenderCache(this.compositionSourceUse, key);
     pg.push();
-    pg.background(0);
-    this.safeDrawSourceToGraphics(pg, item.source || composition.source, composition, compositionTime);
+    pg.clear();
+    this.safeDrawSourceToGraphics(pg, withSourceInstance(item.source || composition.source, item.id), composition, compositionTime);
     pg.pop();
     return pg;
   }
@@ -827,7 +929,7 @@ export class OutputRenderer {
     }
     this.touchRenderCache(this.compositionSourceUse, key);
     pg.push();
-    pg.background(0);
+    pg.clear();
     this.safeDrawSourceToGraphics(pg, sourceFromPatchNode(node), composition, compositionTime);
     pg.pop();
     return pg;
@@ -855,13 +957,23 @@ export class OutputRenderer {
     if (source.type === "media") {
       const item = this.media.get(source.mediaId);
       if (item?.video && isDrawableMedia(item.video)) {
-        syncVideoSpeed(item.video, composition.speed);
-        drawCover(pg, item.video, 0, 0, pg.width, pg.height);
+        syncVideoPlayback(item.video, {
+          start: source.start,
+          end: source.end,
+          speed: (Number(source.speed) || 1) * Math.max(0, Number(composition.speed) || 0),
+        });
+        drawMediaFit(pg, item.video, 0, 0, pg.width, pg.height, mediaSourceFit(source));
       }
       else if (item?.image && isDrawableMedia(item.image)) {
-        const image = this.getImageRendition(item, pg.width, pg.height) || item.image;
-        drawCover(pg, image, 0, 0, pg.width, pg.height);
+        const fit = mediaSourceFit(source);
+        const image = fit === "cover" ? this.getImageRendition(item, pg.width, pg.height) || item.image : item.image;
+        drawMediaFit(pg, image, 0, 0, pg.width, pg.height, fit);
       }
+      else if (item?.model || item?.modelData) {
+        this.drawModelSource(pg, item, source, compositionTime);
+      }
+      else if (item?.imageError) drawStandby(pg, "image load failed");
+      else if (item?.modelError) drawStandby(pg, "model load failed");
       else if (item) drawStandby(pg, "loading media");
       else {
         this.requestMissingMedia(source.mediaId);
@@ -874,14 +986,103 @@ export class OutputRenderer {
     } else if (source.type === "black") {
       pg.background(0);
     } else {
-      if (this.drawShaderGenerator(pg, source.generatorId, compositionTime)) return;
-      drawGenerator(pg, source.generatorId, compositionTime);
+      const generatorTime = instanceTime(source.instanceId || source.generatorId, compositionTime);
+      if (this.drawShaderGenerator(pg, source, generatorTime)) return;
+      drawGenerator(pg, source.generatorId, generatorTime, source.params || {});
     }
   }
 
-  drawShaderGenerator(pg, id, compositionTime = this.visualTime) {
+  drawModelSource(pg, item, source = {}, compositionTime = this.visualTime) {
+    const target = this.getModelTarget(pg.width, pg.height);
+    const params = source.params || {};
+    const renderMode = params.renderMode || "surface";
+    const modelScale = Math.max(0.01, Number(params.modelScale) || 1);
+    const depth = Math.max(0.05, Number(params.depth) || 1);
+    const surfaceColor = modelColor(params.surfaceColor, [220, 225, 220, 255]);
+    const wireColor = modelColor(params.wireColor, [20, 20, 20, 220]);
+    target.push();
+    target.clear();
+    target.perspective?.(Math.PI / 3, target.width / Math.max(1, target.height), 0.1, 5000);
+    target.camera?.(0, 0, Math.max(target.width, target.height) * 0.92, 0, 0, 0, 0, 1, 0);
+    target.ambientLight?.(95);
+    target.directionalLight?.(220, 220, 220, -0.35, -0.45, -0.75);
+    target.rotateX((Number(params.rotationX) || 0) + compositionTime * (Number(params.spinX) || 0));
+    target.rotateY((Number(params.rotationY) || 0) + compositionTime * (Number(params.spinY) || 0));
+    target.rotateZ((Number(params.rotationZ) || 0) + compositionTime * (Number(params.spinZ) || 0));
+    const scale = Math.min(target.width, target.height) * 0.0065 * modelScale;
+    target.scale(scale, scale, scale * depth);
+    if (item.modelData) {
+      const geometry = ensureParsedModelGeometry(item);
+      if (geometry && renderMode !== "points") {
+        try {
+          drawGeometryModel(target, geometry, renderMode, surfaceColor, wireColor);
+        } catch (error) {
+          item.modelGeometryFailed = true;
+          item.modelGeometry = null;
+          item.modelGeometryError = error?.message || String(error || "geometry render failed");
+          drawParsedModel(target, item.modelData, renderMode, surfaceColor, wireColor);
+        }
+      } else {
+        drawParsedModel(target, item.modelData, renderMode, surfaceColor, wireColor);
+      }
+    } else if (renderMode === "points") {
+      drawModelPoints(target, item.model, wireColor);
+    } else if (renderMode === "wireframe") {
+      target.noFill();
+      target.stroke(...wireColor);
+      target.strokeWeight(1);
+      target.model(item.model);
+    } else {
+      target.noStroke();
+      target.ambientMaterial?.(...surfaceColor);
+      target.fill?.(...surfaceColor);
+      target.model(item.model);
+      if (renderMode === "surfaceWire") {
+        target.noFill();
+        target.stroke(...wireColor);
+        target.strokeWeight(0.8);
+        target.model(item.model);
+      }
+    }
+    target.pop();
+    pg.push();
+    pg.clear();
+    drawBuffer(pg, target, 0, 0, pg.width, pg.height, true);
+    pg.pop();
+  }
+
+  getModelTarget(width, height) {
+    const widthPx = Math.max(1, Math.round(Number(width) || 1));
+    const heightPx = Math.max(1, Math.round(Number(height) || 1));
+    const key = renderBufferKey(widthPx, heightPx);
+    let target = this.modelTargets.get(key);
+    if (!target) {
+      target = createGraphics(widthPx, heightPx, WEBGL);
+      this.applyGraphicsPixelDensity(target);
+      target.noStroke();
+      this.modelTargets.set(key, target);
+      return target;
+    }
+    if (target.width !== widthPx || target.height !== heightPx) {
+      try {
+        target.resizeCanvas(widthPx, heightPx);
+      } catch {
+        disposeGraphics(target);
+        target = createGraphics(widthPx, heightPx, WEBGL);
+        this.modelTargets.set(key, target);
+      }
+      this.applyGraphicsPixelDensity(target);
+      target.noStroke();
+    }
+    return target;
+  }
+
+  drawShaderGenerator(pg, sourceOrId, compositionTime = this.visualTime) {
+    const source = typeof sourceOrId === "object"
+      ? sourceOrId
+      : { generatorId: sourceOrId, params: {} };
     const request = createRenderRequest("source", { width: pg.width, height: pg.height });
-    const target = this.renderShaderGeneratorSource(id, compositionTime, request);
+    const target = this.renderShaderGeneratorSource(source.generatorId, compositionTime, request, source.params || {});
     if (!target) return false;
     pg.push();
     pg.clear();
@@ -890,9 +1091,11 @@ export class OutputRenderer {
     return true;
   }
 
-  renderShaderGeneratorSource(id, compositionTime = this.visualTime, request = frameRenderRequest(this.state.render)) {
-    const generatorId = getGeneratorComponent(id).id;
-    const component = getGeneratorShaderComponent(generatorId);
+  renderShaderGeneratorSource(id, compositionTime = this.visualTime, request = frameRenderRequest(this.state.render), params = {}) {
+    const generatorComponent = getGeneratorComponent(id);
+    const generatorId = generatorComponent.id;
+    const shaderComponent = getGeneratorShaderComponent(generatorId);
+    const component = shaderComponent ? { ...shaderComponent, params: generatorComponent.params || shaderComponent.params || [] } : null;
     if (!component) return null;
     const renderRequest = this.normalizeRenderRequest(request, "source");
     const target = this.getFxPingPongTarget(request, 0);
@@ -912,9 +1115,8 @@ export class OutputRenderer {
       target.clear();
       target.shader(shader);
       shader.setUniform("resolution", [renderRequest.width, renderRequest.height]);
-      shader.setUniform("canvasSize", [renderRequest.width, renderRequest.height]);
-      shader.setUniform("texelSize", [1 / Math.max(1, renderRequest.width), 1 / Math.max(1, renderRequest.height)]);
       shader.setUniform("time", compositionTime);
+      this.setShaderParamUniforms(shader, component, params, { setDefaultAmount: false });
       target.rect(-renderRequest.width / 2, -renderRequest.height / 2, renderRequest.width, renderRequest.height);
       target.resetShader();
       target.pop();
@@ -958,16 +1160,19 @@ export class OutputRenderer {
     const heightPx = renderRequest.height;
     const key = renderBufferKey(widthPx, heightPx);
     const targetSlot = slot === 1 ? 1 : 0;
-    if (this.fxTargetKey && this.fxTargetKey !== key) {
-      for (const target of this.fxTargets || []) disposeGraphics(target);
-      this.fxTargets = [null, null];
-      this.shaderBuilder.clear?.();
+    let group = this.fxTargetGroups.get(key);
+    if (!group) {
+      this.pruneFxTargetGroups(3);
+      group = { targets: [null, null], lastUsed: this.frameIndex };
+      this.fxTargetGroups.set(key, group);
     }
-    let target = this.fxTargets[targetSlot];
+    group.lastUsed = this.frameIndex;
+    this.fxTargets = group.targets;
+    this.fxTargetKey = key;
+    let target = group.targets[targetSlot];
     if (!target) {
       target = createGraphics(widthPx, heightPx, WEBGL);
-      this.fxTargets[targetSlot] = target;
-      this.fxTargetKey = key;
+      group.targets[targetSlot] = target;
       this.applyGraphicsFont(target);
       target.noStroke();
       return target;
@@ -978,14 +1183,25 @@ export class OutputRenderer {
       } catch {
         disposeGraphics(target);
         target = createGraphics(widthPx, heightPx, WEBGL);
-        this.fxTargets[targetSlot] = target;
+        group.targets[targetSlot] = target;
       }
-      this.fxTargetKey = key;
       this.applyGraphicsFont(target);
       target.noStroke();
       this.shaderBuilder.clear?.();
     }
     return target;
+  }
+
+  pruneFxTargetGroups(maxGroups = 3) {
+    if (this.fxTargetGroups.size < maxGroups) return;
+    const stale = Array.from(this.fxTargetGroups.entries())
+      .sort((a, b) => (a[1].lastUsed || 0) - (b[1].lastUsed || 0));
+    const removeCount = Math.max(1, this.fxTargetGroups.size - maxGroups + 1);
+    for (const [key, group] of stale.slice(0, removeCount)) {
+      for (const target of group.targets || []) disposeGraphics(target);
+      this.fxTargetGroups.delete(key);
+    }
+    this.shaderBuilder.clear?.();
   }
 
   normalizeRenderRequest(request, role = "texture") {
@@ -1025,7 +1241,8 @@ export class OutputRenderer {
     output.rotate(Number(transform.rotation) || 0);
     const scale = Math.max(0.01, Number(transform.scale) || 1);
     output.scale(scale);
-    output.image(source, 0, 0, output.width, output.height);
+    if (this.isShaderBuffer(source)) drawBuffer(output, source, -output.width / 2, -output.height / 2, output.width, output.height, true);
+    else output.image(source, 0, 0, output.width, output.height);
     output.imageMode(CORNER);
     output.noTint();
     output.blendMode(BLEND);
@@ -1067,8 +1284,8 @@ export class OutputRenderer {
         shader.setUniform("canvasSize", [rw, rh]);
         shader.setUniform("texelSize", [1 / Math.max(1, rw), 1 / Math.max(1, rh)]);
         shader.setUniform("sourceFlipY", !sourceIsShaderBuffer);
-        shader.setUniform("sourceForceOpaque", !sourceIsShaderBuffer);
-        shader.setUniform("time", timeSeconds);
+        shader.setUniform("sourceForceOpaque", false);
+        shader.setUniform("time", instanceTime(pass.instanceId || pass.id, timeSeconds));
         shader.setUniform("effectTransform", effectTransformUniform(pass.transform));
         this.setShaderParamUniforms(shader, job.component, pass.params);
         target.rect(-rw / 2, -rh / 2, rw, rh);
@@ -1134,9 +1351,9 @@ export class OutputRenderer {
     return this.renderShaderChain(input, nodes.map(shaderPassFromNode), request, timeSeconds);
   }
 
-  setShaderParamUniforms(shader, component, params = {}) {
+  setShaderParamUniforms(shader, component, params = {}, options = {}) {
     for (const param of component?.params || []) {
-      const value = params[param.id];
+      const value = normalizeParamValue(param, params[param.id]);
       if (param.type === "boolean") {
         shader.setUniform(param.id, value !== false);
       } else if (param.type === "color") {
@@ -1147,7 +1364,7 @@ export class OutputRenderer {
         shader.setUniform(param.id, Number(value) || 0);
       }
     }
-    if (!component?.params?.some((param) => param.id === "amount")) {
+    if (options.setDefaultAmount !== false && !component?.params?.some((param) => param.id === "amount")) {
       shader.setUniform("amount", 0);
     }
   }
@@ -1161,9 +1378,11 @@ export class OutputRenderer {
       const pg = this.surfaceTexture;
       if (!pg) continue;
       pg.push();
-      pg.background(0);
+      pg.clear();
       if (!outputBlackout) {
         this.drawSurfaceRoute(pg, surface);
+      } else {
+        pg.background(0);
       }
       if (!outputBlackout && this.state.global.showLabels !== false && this.mapper.isCalibrating()) {
         const composition = this.state.compositions.find((item) => item.id === surface.compositionId);
@@ -1176,7 +1395,7 @@ export class OutputRenderer {
 
   drawSurfaceRoute(pg, surface) {
     if (!surface.compositionId) {
-      pg.background(0);
+      pg.clear();
       return;
     }
     if (this.shouldUseThumbnailPreview()) {
@@ -1184,8 +1403,10 @@ export class OutputRenderer {
       return;
     }
     const composition = this.state.compositions.find((item) => item.id === surface.compositionId);
-    const compositionTime = this.compositionTimes.get(surface.compositionId) || 0;
-    const request = stableSurfaceRenderRequest(this.state.render, { surfaceId: surface.id });
+    const compositionTime = instanceTime(`surface:${surface.id}`, this.compositionTimes.get(surface.compositionId) || 0);
+    const request = composition?.type === "canvas"
+      ? canvasCompositionRenderRequest(composition, { surfaceId: surface.id })
+      : stableFrameRenderRequest(this.state.render, { surfaceId: surface.id });
     const source = composition
       ? this.renderCompositionForRequest(composition, compositionTime, request)
       : this.mainMix;
@@ -1193,13 +1414,17 @@ export class OutputRenderer {
     pg.push();
     applyBlend(pg, surface.finalBlend);
     pg.tint(255, 255 * clamp01(surface.opacity));
-    drawCover(pg, source, 0, 0, pg.width, pg.height);
+    if (composition?.type === "canvas") {
+      drawSampleRect(pg, source, surface.sourceRect, 0, 0, pg.width, pg.height);
+    } else {
+      drawBuffer(pg, source, 0, 0, pg.width, pg.height, this.isShaderBuffer(source));
+    }
     pg.noTint();
     pg.blendMode(BLEND);
     pg.pop();
 
     if (surface.finalShaderChain?.length) {
-      const effected = this.renderShaderChain(pg, surface.finalShaderChain, request, this.visualTime);
+      const effected = this.renderShaderChain(pg, withShaderInstancePrefix(surface.finalShaderChain, surface.id), request, this.visualTime);
       drawBuffer(pg, effected, 0, 0, pg.width, pg.height, this.isShaderBuffer(effected));
     }
   }
@@ -1240,7 +1465,11 @@ export class OutputRenderer {
   }
 
   isShaderBuffer(buffer) {
-    return !!buffer && (this.fxTargets || []).includes(buffer);
+    if (!buffer) return false;
+    for (const group of this.fxTargetGroups?.values?.() || []) {
+      if ((group.targets || []).includes(buffer)) return true;
+    }
+    return false;
   }
 
   requestMissingMedia(mediaId) {
@@ -1264,7 +1493,7 @@ export class OutputRenderer {
     pg.pixelDensity?.(1);
     this.applyGraphicsFont(pg);
     pg.push();
-    pg.background(0);
+    pg.clear();
     drawCover(pg, item.image, 0, 0, widthPx, heightPx);
     pg.pop();
     item.imageRenditions ||= new Map();
@@ -1314,7 +1543,7 @@ export class OutputRenderer {
 
   renderSelectedChainTransformOverlay() {
     if (this.mode !== "composition") return;
-    const item = this.selectedSourceChainItem();
+    const item = this.selectedTransformableChainItem();
     if (!item) return;
     const transform = item.transform || {};
     resetShader();
@@ -1393,15 +1622,17 @@ export class OutputRenderer {
     this.manualScheduler.enqueue(event);
   }
 
-  selectedSourceChainItem() {
+  selectedTransformableChainItem() {
     const composition = this.state?.compositions?.find((item) => item.id === this.state?.ui?.selectedCompositionId);
     if (!composition?.chain?.length) return null;
     const selected = composition.chain.find((item) => item.id === this.state.ui.selectedChainItemId);
-    return selected?.kind === "source" ? selected : null;
+    if (selected?.kind === "source") return selected;
+    const component = selected?.kind === "effect" ? getShaderComponent(selected.componentId) : null;
+    return component?.spatial ? selected : null;
   }
 
   startChainTransformDrag(x, y) {
-    const item = this.selectedSourceChainItem();
+    const item = this.selectedTransformableChainItem();
     if (!item) return false;
     const transform = item.transform || {};
     const cx = width * 0.5 + (Number(transform.x) || 0) * width * 0.5;
@@ -1479,7 +1710,9 @@ export class OutputRenderer {
   }
 
   resize() {
-    this.createBuffers();
+    if (!this.buffersMatchRenderSize()) {
+      this.createBuffers();
+    }
     this.rebuildSurfaces();
     this.applyProjectMapping();
   }
@@ -1599,7 +1832,17 @@ function downloadJson(data, filename) {
 }
 
 function stableSurfaceRenderRequest(render = {}, meta = {}) {
-  return createRenderRequest("surface", surfaceTextureSize(render), meta);
+  return createRenderRequest("surface", surfaceTextureSize(render), {
+    ...meta,
+    instanceId: meta.instanceId || meta.surfaceId || "",
+  });
+}
+
+function stableFrameRenderRequest(render = {}, meta = {}) {
+  return createRenderRequest("frame", frameSize(render), {
+    ...meta,
+    instanceId: meta.instanceId || meta.surfaceId || "",
+  });
 }
 
 function isSourceNode(node = {}) {
@@ -1646,22 +1889,41 @@ function isSimpleLayer(layer = {}) {
 }
 
 function sourceFromPatchNode(node = {}) {
-  if (node.state?.source) return node.state.source;
+  if (node.state?.source) return withSourceInstance(node.state.source, node.id || node.state?.layer?.id);
   const params = node.params || {};
   if (node.kind === "generator" || node.componentId === "testPattern" || params.generatorId) {
-    return { type: "generator", generatorId: params.generatorId || node.componentId || "testPattern" };
+    const { generatorId, ...generatorParams } = params;
+    return {
+      type: "generator",
+      generatorId: generatorId || node.componentId || "testPattern",
+      params: generatorParams,
+      instanceId: node.id || node.componentId || generatorId || "generator",
+    };
   }
   if (node.componentId === "source.media" || params.mediaId) {
-    return { type: "media", mediaId: params.mediaId || "" };
+    const { mediaId, start, end, speed, ...mediaParams } = params;
+    return {
+      type: "media",
+      mediaId: mediaId || "",
+      start: Math.max(0, Number(start) || 0),
+      end: Math.max(0, Number(end) || 0),
+      speed: Math.max(0, Number(speed) || 1),
+      params: mediaParams,
+    };
   }
   if (node.componentId === "source.camera") return { type: "camera" };
   if (node.componentId === "source.black") return { type: "black" };
   return { type: "generator", generatorId: "testPattern" };
 }
 
+function mediaSourceFit(source = {}) {
+  return source.params?.fit === "cover" ? "cover" : "contain";
+}
+
 function shaderPassFromNode(node = {}) {
   return {
     id: node.componentId || node.id || "",
+    instanceId: node.id || node.componentId || "",
     enabled: node.enabled !== false,
     params: { ...(node.params || {}) },
     amount: node.params?.amount,
@@ -1800,11 +2062,42 @@ function colorUniform(value) {
 function chainItemToShaderPass(item) {
   return {
     id: item.componentId || item.id,
+    instanceId: item.id || item.componentId || "",
     enabled: item.enabled !== false,
     params: item.params || {},
     amount: item.amount,
     transform: item.transform || {},
   };
+}
+
+function withSourceInstance(source = {}, instanceId = "") {
+  if (!source || typeof source !== "object") return source;
+  return {
+    ...source,
+    instanceId: instanceId || source.instanceId || source.generatorId || source.type || "source",
+  };
+}
+
+function withShaderInstancePrefix(chain = [], prefix = "") {
+  return (chain || []).map((pass, index) => ({
+    ...pass,
+    instanceId: pass.instanceId || `${prefix || "shader"}:${index}:${pass.componentId || pass.id || "pass"}`,
+  }));
+}
+
+function instanceTime(instanceId, baseTime = 0) {
+  return Number(baseTime) + instanceTimeOffset(instanceId);
+}
+
+function instanceTimeOffset(instanceId = "") {
+  const text = String(instanceId || "");
+  if (!text) return 0;
+  let hash = 2166136261;
+  for (let index = 0; index < text.length; index++) {
+    hash ^= text.charCodeAt(index);
+    hash = Math.imul(hash, 16777619);
+  }
+  return ((hash >>> 0) / 4294967295) * 97.0;
 }
 
 function effectTransformUniform(transform = {}) {
@@ -1841,6 +2134,20 @@ function getPortalWebcameraSetup() {
   }
 }
 
+function loadSvgImage(url, item) {
+  const image = new Image();
+  image.onload = () => {
+    item.image = image;
+    item.ready = true;
+    item.imageError = "";
+  };
+  image.onerror = (error) => {
+    item.imageError = error?.message || "svg load failed";
+  };
+  image.decoding = "async";
+  image.src = url;
+}
+
 function drawBuffer(pg, source, x, y, w, h, sourceIsWebGL = false) {
   if (!sourceIsWebGL) {
     pg.image(source, x, y, w, h);
@@ -1849,12 +2156,249 @@ function drawBuffer(pg, source, x, y, w, h, sourceIsWebGL = false) {
   drawWebGLBuffer(pg, source, x, y, w, h);
 }
 
+function drawModelPoints(target, model, wireColor = [245, 245, 245, 255]) {
+  const vertices = Array.isArray(model?.vertices) ? model.vertices : [];
+  target.noFill();
+  target.stroke(...wireColor);
+  target.strokeWeight(2);
+  target.beginShape(POINTS);
+  for (const vertex of vertices) {
+    target.vertex(Number(vertex.x) || 0, Number(vertex.y) || 0, Number(vertex.z) || 0);
+  }
+  target.endShape();
+}
+
+function drawParsedModel(target, mesh, renderMode = "surface", surfaceColor = [220, 225, 220, 255], wireColor = [20, 20, 20, 220]) {
+  if (renderMode === "points") {
+    target.noFill();
+    target.stroke(...wireColor);
+    target.strokeWeight(2);
+    target.beginShape(POINTS);
+    for (const triangle of mesh.triangles || []) {
+      for (const vertex of triangle.vertices || []) target.vertex(vertex[0], vertex[1], vertex[2]);
+    }
+    target.endShape();
+    return;
+  }
+  if (renderMode !== "wireframe") {
+    target.noStroke();
+    target.ambientMaterial?.(...surfaceColor);
+    target.fill?.(...surfaceColor);
+    drawParsedTriangles(target, mesh);
+  }
+  if (renderMode === "wireframe" || renderMode === "surfaceWire") {
+    target.noFill();
+    target.stroke(...wireColor);
+    target.strokeWeight(renderMode === "wireframe" ? 1 : 0.8);
+    drawParsedTriangles(target, mesh);
+  }
+}
+
+function drawGeometryModel(target, geometry, renderMode = "surface", surfaceColor = [220, 225, 220, 255], wireColor = [20, 20, 20, 220]) {
+  if (renderMode !== "wireframe") {
+    target.noStroke();
+    target.ambientMaterial?.(...surfaceColor);
+    target.fill?.(...surfaceColor);
+    target.model(geometry);
+  }
+  if (renderMode === "wireframe" || renderMode === "surfaceWire") {
+    target.noFill();
+    target.stroke(...wireColor);
+    target.strokeWeight(renderMode === "wireframe" ? 1 : 0.8);
+    target.model(geometry);
+  }
+}
+
+function modelColor(value, fallback = [255, 255, 255, 255]) {
+  const rgba = colorUniform(value);
+  if (!rgba) return fallback;
+  return rgba.map((channel) => Math.round(Math.max(0, Math.min(1, Number(channel) || 0)) * 255));
+}
+
+function ensureParsedModelGeometry(item) {
+  if (item.modelGeometryFailed) return null;
+  if (item.modelGeometry) return item.modelGeometry;
+  const mesh = item.modelData;
+  const Geometry = globalThis.p5?.Geometry;
+  if (!mesh || typeof Geometry !== "function") return null;
+  const geometry = new Geometry();
+  geometry.gid = `vj1-stl-${stableGeometryId(item.id)}`;
+  for (const triangle of mesh.triangles || []) {
+    const base = geometry.vertices.length;
+    const normal = normalizeVector(triangle.normal || triangleNormal(triangle.vertices || []));
+    for (const vertex of triangle.vertices || []) {
+      geometry.vertices.push(createGeometryVector(vertex[0], vertex[1], vertex[2]));
+      geometry.vertexNormals?.push?.(createGeometryVector(normal[0], normal[1], normal[2]));
+    }
+    geometry.faces.push([base, base + 1, base + 2]);
+  }
+  if (!geometry.vertices.length || !geometry.faces.length) return null;
+  geometry._makeTriangleEdges?.();
+  geometry._edgesToVertices?.();
+  item.modelGeometry = geometry;
+  return geometry;
+}
+
+function createGeometryVector(x = 0, y = 0, z = 0) {
+  const Vector = globalThis.p5?.Vector;
+  if (typeof Vector === "function") return new Vector(Number(x) || 0, Number(y) || 0, Number(z) || 0);
+  if (typeof globalThis.createVector === "function") return globalThis.createVector(Number(x) || 0, Number(y) || 0, Number(z) || 0);
+  return { x: Number(x) || 0, y: Number(y) || 0, z: Number(z) || 0 };
+}
+
+function stableGeometryId(id = "") {
+  let hash = 2166136261;
+  const text = String(id || "model");
+  for (let index = 0; index < text.length; index++) {
+    hash ^= text.charCodeAt(index);
+    hash = Math.imul(hash, 16777619);
+  }
+  return (hash >>> 0).toString(36);
+}
+
+function drawParsedTriangles(target, mesh) {
+  target.beginShape(TRIANGLES);
+  for (const triangle of mesh.triangles || []) {
+    const normal = triangle.normal || [0, 0, 1];
+    target.normal?.(normal[0], normal[1], normal[2]);
+    for (const vertex of triangle.vertices || []) target.vertex(vertex[0], vertex[1], vertex[2]);
+  }
+  target.endShape();
+}
+
+function parseStlMesh(buffer) {
+  const bytes = buffer instanceof ArrayBuffer ? new Uint8Array(buffer) : new Uint8Array(buffer?.buffer || buffer || []);
+  if (bytes.byteLength < 15) throw new Error("STL file is empty");
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  const declaredTriangles = bytes.byteLength >= 84 ? view.getUint32(80, true) : 0;
+  const expectedBinarySize = 84 + declaredTriangles * 50;
+  const triangles = declaredTriangles > 0 && expectedBinarySize === bytes.byteLength
+    ? parseBinaryStl(view, declaredTriangles)
+    : parseAsciiStl(new TextDecoder("utf-8").decode(bytes));
+  if (!triangles.length) throw new Error("STL contained no triangles");
+  return normalizeParsedMesh(triangles);
+}
+
+function parseBinaryStl(view, count) {
+  const triangles = [];
+  let offset = 84;
+  for (let index = 0; index < count && offset + 50 <= view.byteLength; index++) {
+    const normal = [
+      view.getFloat32(offset, true),
+      view.getFloat32(offset + 4, true),
+      view.getFloat32(offset + 8, true),
+    ];
+    offset += 12;
+    const vertices = [];
+    for (let vertexIndex = 0; vertexIndex < 3; vertexIndex++) {
+      vertices.push([
+        view.getFloat32(offset, true),
+        view.getFloat32(offset + 4, true),
+        view.getFloat32(offset + 8, true),
+      ]);
+      offset += 12;
+    }
+    offset += 2;
+    triangles.push({ normal, vertices });
+  }
+  return triangles;
+}
+
+function parseAsciiStl(text = "") {
+  const values = [];
+  const vertexRe = /vertex\s+([-+]?\d*\.?\d+(?:e[-+]?\d+)?)\s+([-+]?\d*\.?\d+(?:e[-+]?\d+)?)\s+([-+]?\d*\.?\d+(?:e[-+]?\d+)?)/gi;
+  let match;
+  while ((match = vertexRe.exec(text))) {
+    values.push([Number(match[1]), Number(match[2]), Number(match[3])]);
+  }
+  const triangles = [];
+  for (let index = 0; index + 2 < values.length; index += 3) {
+    const vertices = [values[index], values[index + 1], values[index + 2]];
+    triangles.push({ normal: triangleNormal(vertices), vertices });
+  }
+  return triangles;
+}
+
+function normalizeParsedMesh(triangles) {
+  const bounds = {
+    min: [Infinity, Infinity, Infinity],
+    max: [-Infinity, -Infinity, -Infinity],
+  };
+  for (const triangle of triangles) {
+    for (const vertex of triangle.vertices) {
+      for (let axis = 0; axis < 3; axis++) {
+        bounds.min[axis] = Math.min(bounds.min[axis], vertex[axis]);
+        bounds.max[axis] = Math.max(bounds.max[axis], vertex[axis]);
+      }
+    }
+  }
+  const center = bounds.min.map((min, axis) => (min + bounds.max[axis]) * 0.5);
+  const extent = Math.max(...bounds.max.map((max, axis) => Math.abs(max - bounds.min[axis])), 0.0001);
+  const scale = 100 / extent;
+  const normalizedTriangles = triangles.map((triangle) => {
+    const vertices = triangle.vertices.map((vertex) => vertex.map((value, axis) => (value - center[axis]) * scale));
+    return {
+      normal: normalizeVector(vectorLength(triangle.normal) > 0.0001 ? triangle.normal : triangleNormal(vertices)),
+      vertices,
+    };
+  });
+  return { triangles: normalizedTriangles, bounds };
+}
+
+function triangleNormal(vertices) {
+  const a = vertices[0] || [0, 0, 0];
+  const b = vertices[1] || [0, 0, 0];
+  const c = vertices[2] || [0, 0, 0];
+  const ab = [b[0] - a[0], b[1] - a[1], b[2] - a[2]];
+  const ac = [c[0] - a[0], c[1] - a[1], c[2] - a[2]];
+  return normalizeVector([
+    ab[1] * ac[2] - ab[2] * ac[1],
+    ab[2] * ac[0] - ab[0] * ac[2],
+    ab[0] * ac[1] - ab[1] * ac[0],
+  ]);
+}
+
+function normalizeVector(vector = [0, 0, 1]) {
+  const length = vectorLength(vector);
+  if (length <= 0.0001) return [0, 0, 1];
+  return vector.map((value) => value / length);
+}
+
+function vectorLength(vector = []) {
+  return Math.hypot(Number(vector[0]) || 0, Number(vector[1]) || 0, Number(vector[2]) || 0);
+}
+
+function drawSampleRect(pg, source, rect = {}, x = 0, y = 0, w = pg.width, h = pg.height) {
+  const sx = Math.max(0, Number(rect.x) || 0);
+  const sy = Math.max(0, Number(rect.y) || 0);
+  const sw = Math.max(1, Number(rect.width) || source?.width || w);
+  const sh = Math.max(1, Number(rect.height) || source?.height || h);
+  try {
+    pg.image(source, x, y, w, h, sx, sy, sw, sh);
+  } catch {
+    const drawable = source?.canvas || source?.elt || source;
+    pg.drawingContext?.drawImage?.(drawable, sx, sy, sw, sh, x, y, w, h);
+  }
+}
+
 function drawWebGLBuffer(pg, source, x, y, w, h) {
   pg.push();
   pg.translate(x, y + h);
   pg.scale(1, -1);
   pg.image(source, 0, 0, w, h);
   pg.pop();
+}
+
+function canvasCompositionRenderRequest(composition = {}, meta = {}) {
+  const canvas = composition.canvas || {};
+  return createRenderRequest("texture", {
+    width: Math.max(1, Math.round(Number(canvas.width) || 3840)),
+    height: Math.max(1, Math.round(Number(canvas.height) || 2160)),
+    reason: "canvas-sample",
+  }, {
+    ...meta,
+    instanceId: meta.instanceId || meta.surfaceId || "",
+  });
 }
 
 function drawSurfaceLabel(pg, surface, composition) {

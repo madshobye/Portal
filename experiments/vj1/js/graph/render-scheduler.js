@@ -41,53 +41,26 @@ export function compileCompositionPatch(composition = {}, renderRequest = {}) {
 }
 
 function graphForCompositionChain(composition, request, outputId) {
-  const nodes = [];
+  const nodes = (composition.chain || [])
+    .map((item, index) => withRenderRequest(chainNodeForItem(composition, item, index), request));
   const edges = [];
-  const outputInlets = [];
-  const branches = [];
-  let branchCount = 0;
-  let previous = null;
-  let branchSource = null;
-
-  const connectToOutput = () => {
-    if (!previous) return;
-    const inletId = `texture-${branchCount}`;
-    outputInlets.push(textureInlet(inletId, `Texture ${branchCount}`));
-    edges.push(textureEdge(previous.id, outputId, "texture", inletId));
-    branches.push({
-      index: branchCount,
-      inletId,
-      sourceNodeId: branchSource?.id || "",
-      terminalNodeId: previous.id,
-      layer: branchSource?.state?.layer || null,
-    });
-    previous = null;
-    branchSource = null;
-  };
-
-  for (const [index, item] of (composition.chain || []).entries()) {
-    const node = withRenderRequest(chainNodeForItem(composition, item, index), request);
-    nodes.push(node);
-    if (node.role === "source") {
-      connectToOutput();
-      branchCount++;
-      previous = node;
-      branchSource = node;
-      continue;
-    }
-    if (node.role === "effect" && previous) {
-      edges.push(textureEdge(previous.id, node.id));
-      previous = node;
-    }
+  for (let index = 0; index < nodes.length - 1; index++) {
+    edges.push(textureEdge(nodes[index].id, nodes[index + 1].id));
   }
-  connectToOutput();
+  if (nodes.length) edges.push(textureEdge(nodes[nodes.length - 1].id, outputId, "texture", "texture"));
 
   return {
     nodes,
     edges,
-    outputInlets,
-    branchCount: Math.max(1, branchCount),
-    branches,
+    outputInlets: [textureInlet("texture", "Texture")],
+    branchCount: 1,
+    branches: nodes.length ? [{
+      index: 1,
+      inletId: "texture",
+      sourceNodeId: nodes[0]?.id || "",
+      terminalNodeId: nodes[nodes.length - 1]?.id || "",
+      layer: null,
+    }] : [],
   };
 }
 
@@ -246,15 +219,28 @@ function sourceComponentFor(source = {}) {
     name: source.type || "Source",
     processor: source.type || "source",
     scheduler: "frame",
-    inlets: [],
+    inlets: [textureInlet("image", "Image")],
     outlets: [textureOutlet("texture", "Texture")],
     params: [],
   };
 }
 
 function sourceParams(source = {}) {
-  if (source.type === "generator") return { generatorId: source.generatorId || "testPattern" };
-  if (source.type === "media") return { mediaId: source.mediaId || "" };
+  if (source.type === "generator") {
+    return {
+      generatorId: source.generatorId || "testPattern",
+      ...(source.params && typeof source.params === "object" ? source.params : {}),
+    };
+  }
+  if (source.type === "media") {
+    return {
+      mediaId: source.mediaId || "",
+      start: Math.max(0, Number(source.start) || 0),
+      end: Math.max(0, Number(source.end) || 0),
+      speed: Math.max(0, Number(source.speed) || 1),
+      ...(source.params && typeof source.params === "object" ? source.params : {}),
+    };
+  }
   return {};
 }
 

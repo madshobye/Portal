@@ -559,6 +559,7 @@ function sourceCost(item, mediaById) {
   if (source.type === "media") {
     const media = mediaById.get(source.mediaId);
     if (media?.type === "video") return { work: 1.65, reason: "video decode and texture upload" };
+    if (media?.type === "model") return { work: 1.35, reason: "3d model render" };
     if (media?.type === "image") return { work: 1.0, reason: "image texture draw" };
     return { work: 1.25, reason: "missing or unknown media source" };
   }
@@ -577,11 +578,18 @@ function effectCost(item, effectDepth = 1) {
     labelThresholdGrain: 1.65,
     threshold: 1.45,
     rgbSplit: 1.5,
+    glitchDistort: 1.7,
+    photoGrade: 1.42,
+    echoFade: 1.62,
     kaleido: 1.45,
+    mirrorFold: 1.42,
+    heatShimmer: 1.38,
+    spinRotate: 1.28,
     pixelate: 1.35,
     ripple: 1.35,
     plasma: 1.3,
     lumaKey: 1.25,
+    alphaVignette: 1.18,
     hardBlack: 1.2,
     gray: 1.05,
     invert: 1.0,

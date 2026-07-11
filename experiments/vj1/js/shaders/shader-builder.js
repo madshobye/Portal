@@ -9,7 +9,8 @@ export function createShaderBuilder({ getCustomCode, onStatus }) {
     if (!code) return null;
     const contextId = getContextId(target);
     const paramsKey = (component?.params || []).map((param) => `${param.type}:${param.id}`).join(",");
-    const key = `${contextId}:${pass.id}:${component?.type || "effect"}:${paramsKey}:${code}`;
+    const transformMode = component?.transformSource === false ? "field-transform" : "source-transform";
+    const key = `${contextId}:${pass.id}:${component?.type || "effect"}:${transformMode}:${paramsKey}:${code}`;
     if (cache.has(key)) return cache.get(key);
     try {
       const factory = typeof target?.createShader === "function" ? target : globalThis;
@@ -65,6 +66,7 @@ void main() {
 }
 
 function fragmentShaderSource(effectCode, component = null) {
+  const uvExpression = component?.transformSource === false ? "vTexCoord" : "transformEffectUv(vTexCoord)";
   return `
 precision mediump float;
 uniform sampler2D tex0;
@@ -105,7 +107,7 @@ vec2 transformEffectUv(vec2 uv) {
 ${effectCode}
 
 void main() {
-  vec2 uv = transformEffectUv(vTexCoord);
+  vec2 uv = ${uvExpression};
   vec4 color = sampleSource(uv);
   gl_FragColor = runEffect(uv, color);
 }`;

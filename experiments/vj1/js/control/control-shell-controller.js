@@ -1,17 +1,23 @@
-import { BLEND_MODES, SOURCE_TYPES, VJ1, WORKSPACES } from "../constants.js";
+import { BLEND_MODES, VJ1, WORKSPACES } from "../constants.js";
 import { applySceneSnapshotToState, createLiveCompositionView, createLiveRenderState, createSceneSnapshot, normalizeRenderSettings } from "../domain/models.js?v=world-frame-27";
 import { normalizeParamValue } from "../graph/component-schema.js";
-import { listGeneratorComponents } from "../graph/generator-registry.js";
+import { getGeneratorComponent, listGeneratorComponents } from "../graph/generator-registry.js";
 import { patchNodeDegree, planCompositorInputs, planPatchExecution, summarizeTextureBranches } from "../graph/patch-planner.js";
 import { compileCompositionPatch } from "../graph/render-scheduler.js?v=world-frame-27";
 import { buildOutputUrl } from "../view-routing.js";
 import { getShaderComponent, listShaderComponents } from "../shaders/shader-registry.js?v=world-frame-27";
 import { createEmbeddedPreviewApp } from "../output/embedded-preview-app.js?v=world-frame-27";
 import { frameFitViewport, resetViewport, zoomViewport } from "../output/preview-viewport.js";
+import { defaultProjectSurfaceMapping } from "../output/render-geometry.js";
 import { createHtmlCache, isInteractiveNode, isTextEditingNode, setClass, setText } from "./dom-utils.js";
 import { bindReorderList } from "./reorder-list.js";
 import { collectRefs, shellTemplate } from "./shell-view.js";
 import { effectIcon, emptyNote, esc, icon, rangeTemplate, selectValuesTemplate, sourceTypeIcon, thumbnailTemplate } from "./template-utils.js";
+
+const MODEL_RENDER_MODES = ["surface", "wireframe", "surfaceWire", "points"];
+const MEDIA_FIT_MODES = ["contain", "cover"];
+const MODEL_SURFACE_COLOR_PARAM = { id: "surfaceColor", label: "Surface color", type: "color", defaultValue: "#dce1dcff" };
+const MODEL_WIRE_COLOR_PARAM = { id: "wireColor", label: "Wire color", type: "color", defaultValue: "#141414dd" };
 
 export function createControlShell({ root, store, bridge, mediaLibrary, projectService }) {
   let refs = {};
@@ -24,6 +30,7 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
   let interactionHoldUntil = 0;
   let mediaPicker = null;
   let elementPicker = null;
+  let sourceChoicePicker = null;
   let settingsOpen = false;
   const replaceHtmlIfChanged = createHtmlCache();
   const mediaPreviewUrls = new Map();
@@ -142,6 +149,7 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
       settingsOpen = true;
       mediaPicker = null;
       elementPicker = null;
+      sourceChoicePicker = null;
       renderModal(latestState);
     });
 
@@ -316,7 +324,7 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
     const hasProject = !!state.project.folderName || state.media.length > 0;
     const workspace = currentWorkspace(state);
     const html = `
-      ${hasProject || workspace === "mapping" ? railToolsTemplate(state, workspace) : `
+      ${hasProject || workspace === "mapping" || workspace === "canvas" ? railToolsTemplate(state, workspace) : `
         <div class="folder-first-note">
           <span class="material-symbols-rounded">gesture</span>
           <p>Open a folder first. The set, media, scenes, shaders, and mappings will live there together.</p>
@@ -328,6 +336,7 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
 
   function railToolsTemplate(state, workspace) {
     if (workspace === "compose") return compositionToolsTemplate(state);
+    if (workspace === "canvas") return canvasToolsTemplate(state);
     if (workspace === "mapping") return mappingToolsTemplate(state);
     if (workspace === "live") return liveToolsTemplate(state);
     return sceneToolsTemplate(state);
@@ -341,6 +350,23 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
           ${state.compositions.map((composition) => compositionPillTemplate(composition, state)).join("") || emptyNote("Create visual recipes")}
         </div>
         <button type="button" data-add-composition>${icon("add")} Add composition</button>
+      </div>
+    `;
+  }
+
+  function canvasToolsTemplate(state) {
+    const canvases = canvasCompositions(state);
+    return `
+      <div class="rail-section">
+        <div class="rail-title"><span class="material-symbols-rounded">dashboard_customize</span><span>Canvas compositions</span></div>
+        <div class="composition-card-list">
+          ${canvases.map((composition) => compositionPillTemplate(composition, state)).join("") || emptyNote("Create a canvas composition")}
+        </div>
+        <button type="button" data-add-canvas-composition>${icon("add")} Add canvas</button>
+      </div>
+      <div class="rail-section">
+        <div class="rail-title"><span class="material-symbols-rounded">texture</span><span>Sampling</span></div>
+        <div class="soft-note">Assign a surface to a canvas composition, then set its source rectangle here. Projection mapping still happens after this sample.</div>
       </div>
     `;
   }
@@ -360,7 +386,7 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
       ${sceneRailConfigTemplate(state)}
       <div class="rail-section">
         <div class="rail-title"><span class="material-symbols-rounded">select_all</span><span>Surfaces</span></div>
-        <div class="surface-pills">
+        <div class="surface-pills" data-surface-reorder-list>
           ${state.surfaces.map((surface) => sceneSurfacePillTemplate(surface, state)).join("")}
         </div>
         <button type="button" data-add-surface>${icon("add")} Add surface</button>
@@ -383,7 +409,7 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
     const selectedComposition = state.compositions.find((composition) => composition.id === state.ui.selectedCompositionId) || state.compositions[0];
     return `
       <div class="rail-section">
-        <div class="rail-title"><span class="material-symbols-rounded">schema</span><span>Mapping Patch</span></div>
+        <div class="rail-title"><span class="material-symbols-rounded">schema</span><span>Node Patch</span></div>
         <div class="composition-card-list">
           ${state.compositions.map((composition) => compositionPillTemplate(composition, state)).join("") || emptyNote("Create a composition")}
         </div>
@@ -412,6 +438,15 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
       if (replaceHtmlIfChanged(refs.studio, html)) bindStudioEvents();
       return;
     }
+    if (currentWorkspace(state) === "canvas") {
+      embeddedPreview.pause();
+      const html = canvasStudioTemplate(state);
+      if (replaceHtmlIfChanged(refs.studio, html)) {
+        bindStudioEvents();
+        bindInputs(refs.studio, state);
+      }
+      return;
+    }
     if (!refs.studio.querySelector("[data-studio-stage]")) {
       refs.studio.innerHTML = `
       <section class="studio-stage" data-studio-stage>
@@ -431,6 +466,7 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
 
   function renderPreview(state) {
     if (currentWorkspace(state) === "mapping") return;
+    if (currentWorkspace(state) === "canvas") return;
     const previewHost = refs.studio.querySelector("[data-preview-host]");
     if (!previewHost || previewHost.classList.contains("is-empty")) return;
     const workspace = currentWorkspace(state);
@@ -472,14 +508,14 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
 
   function updatePreviewState(state) {
     const workspace = currentWorkspace(state);
-    if (workspace === "mapping") return;
+    if (workspace === "mapping" || workspace === "canvas") return;
     const kind = workspace === "compose" ? "composition" : "preview";
     embeddedPreview.setState(workspace === "live" ? createLiveRenderState(state) : state, kind);
   }
 
   function renderInspector(state) {
     const hasProject = !!state.project.folderName || state.media.length > 0;
-    if (!hasProject && currentWorkspace(state) !== "mapping") {
+    if (!hasProject && currentWorkspace(state) !== "mapping" && currentWorkspace(state) !== "canvas") {
       replaceHtmlIfChanged(refs.inspector, panelTemplate(
         "folder_open",
         "Project first",
@@ -503,8 +539,18 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
       const selectedComposition = state.compositions.find((composition) => composition.id === state.ui.selectedCompositionId) || state.compositions[0];
       html = panelTemplate(
         "schema",
-        "Node Mapping",
+        "Nodes",
         mappingInspectorTemplate(selectedComposition, state)
+      );
+      if (replaceHtmlIfChanged(refs.inspector, html)) bindInputs(refs.inspector, state);
+      return;
+    }
+    if (currentWorkspace(state) === "canvas") {
+      const selectedCanvas = selectedCanvasComposition(state);
+      html = panelTemplate(
+        "dashboard_customize",
+        "Canvas",
+        selectedCanvas ? canvasInspectorTemplate(selectedCanvas, state) : emptyNote("Create a canvas composition")
       );
       if (replaceHtmlIfChanged(refs.inspector, html)) bindInputs(refs.inspector, state);
       return;
@@ -535,6 +581,9 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
     refs.projectRail.querySelectorAll("[data-add-composition]").forEach((button) => {
       button.addEventListener("click", () => store.addComposition());
     });
+    refs.projectRail.querySelectorAll("[data-add-canvas-composition]").forEach((button) => {
+      button.addEventListener("click", () => store.addCanvasComposition?.());
+    });
     refs.projectRail.querySelectorAll("[data-add-surface]").forEach((button) => {
       button.addEventListener("click", () => store.addSurface());
     });
@@ -549,6 +598,12 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
         return;
       }
       input.addEventListener("change", () => updatePathFromInput(input, `update:${input.dataset.update}`));
+    });
+    refs.projectRail.querySelectorAll("[data-toggle-path]").forEach((button) => {
+      button.addEventListener("click", (event) => {
+        event.stopPropagation();
+        togglePathFromButton(button, `toggle:${button.dataset.togglePath}`);
+      });
     });
     refs.projectRail.querySelectorAll("[data-select-scene]").forEach((button) => {
       button.addEventListener("click", () => store.selectScene(button.dataset.selectScene));
@@ -568,6 +623,11 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
     refs.projectRail.querySelectorAll("[data-remove-surface]").forEach((button) => {
       button.addEventListener("click", () => store.removeSurface(button.dataset.removeSurface));
     });
+    refs.projectRail.querySelectorAll("[data-surface-reorder-list]").forEach((list) => {
+      bindReorderList(list, {
+        onReorder: (fromId, toId) => store.reorderSurfaces?.(fromId, toId),
+      });
+    });
     refs.projectRail.querySelectorAll("[data-remove-composition]").forEach((button) => {
       button.addEventListener("click", () => store.removeComposition(button.dataset.removeComposition));
     });
@@ -576,7 +636,7 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
   function renderModal(state) {
     const host = refs.modalHost;
     if (!host) return;
-    if (!mediaPicker && !elementPicker && !settingsOpen) {
+    if (!mediaPicker && !elementPicker && !sourceChoicePicker && !settingsOpen) {
       replaceHtmlIfChanged(host, "");
       return;
     }
@@ -593,10 +653,38 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
       });
       return;
     }
+    if (sourceChoicePicker) {
+      if (!replaceHtmlIfChanged(host, sourceChoicePickerTemplate(state, sourceChoicePicker, mediaLibrary, mediaPreviewUrls))) return;
+      host.querySelector("[data-close-modal]")?.addEventListener("click", closeSourceChoicePicker);
+      host.querySelector(".modal-backdrop")?.addEventListener("click", closeSourceChoicePicker);
+      bindElementPickerSearch(host);
+      host.querySelectorAll("[data-pick-source-media]").forEach((button) => {
+        button.addEventListener("click", () => {
+          setSourceChoice({ type: "media", mediaId: button.dataset.pickSourceMedia || "" });
+          closeSourceChoicePicker();
+        });
+      });
+      host.querySelector("[data-pick-source-camera]")?.addEventListener("click", () => {
+        setSourceChoice({ type: "camera" });
+        closeSourceChoicePicker();
+      });
+      host.querySelector("[data-pick-source-black]")?.addEventListener("click", () => {
+        setSourceChoice({ type: "black" });
+        closeSourceChoicePicker();
+      });
+      host.querySelectorAll("[data-pick-source-generator]").forEach((button) => {
+        button.addEventListener("click", () => {
+          setSourceChoice({ type: "generator", generatorId: button.dataset.pickSourceGenerator || "testPattern" });
+          closeSourceChoicePicker();
+        });
+      });
+      return;
+    }
     if (elementPicker) {
       if (!replaceHtmlIfChanged(host, elementPickerTemplate(state, elementPicker, mediaLibrary, mediaPreviewUrls))) return;
       host.querySelector("[data-close-modal]")?.addEventListener("click", closeElementPicker);
       host.querySelector(".modal-backdrop")?.addEventListener("click", closeElementPicker);
+      bindElementPickerSearch(host);
       host.querySelectorAll("[data-add-element-media]").forEach((button) => {
         button.addEventListener("click", () => {
           store.addChainSource(elementPicker.compositionId, {
@@ -643,9 +731,36 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
     });
   }
 
+  function bindElementPickerSearch(host) {
+    const input = host.querySelector("[data-element-search]");
+    if (!input) return;
+    const applyFilter = () => filterElementPicker(host, input.value || "");
+    input.addEventListener("input", applyFilter);
+    applyFilter();
+  }
+
+  function filterElementPicker(host, value) {
+    const query = normalizeSearchText(value);
+    host.querySelectorAll("[data-element-search-card]").forEach((card) => {
+      const haystack = normalizeSearchText(card.dataset.elementSearchCard || "");
+      card.classList.toggle("is-search-hidden", !!query && !haystack.includes(query));
+    });
+    host.querySelectorAll("[data-element-section]").forEach((section) => {
+      const cards = Array.from(section.querySelectorAll("[data-element-search-card]"));
+      const visibleCount = cards.filter((card) => !card.classList.contains("is-search-hidden")).length;
+      const empty = section.querySelector("[data-element-empty]");
+      if (empty) empty.hidden = visibleCount > 0 || !query;
+    });
+  }
+
+  function normalizeSearchText(value) {
+    return String(value || "").trim().toLowerCase();
+  }
+
   function openMediaPicker(path) {
     mediaPicker = { path };
     elementPicker = null;
+    sourceChoicePicker = null;
     settingsOpen = false;
     renderModal(latestState);
   }
@@ -658,6 +773,7 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
   function openElementPicker(compositionId) {
     elementPicker = { compositionId };
     mediaPicker = null;
+    sourceChoicePicker = null;
     settingsOpen = false;
     renderModal(latestState);
   }
@@ -665,6 +781,36 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
   function closeElementPicker() {
     elementPicker = null;
     renderModal(latestState);
+  }
+
+  function openSourceChoicePicker(path) {
+    sourceChoicePicker = { path };
+    mediaPicker = null;
+    elementPicker = null;
+    settingsOpen = false;
+    renderModal(latestState);
+  }
+
+  function closeSourceChoicePicker() {
+    sourceChoicePicker = null;
+    renderModal(latestState);
+  }
+
+  function setSourceChoice(source) {
+    if (!sourceChoicePicker?.path) return;
+    store.update((draft) => {
+      const previous = getByPath(draft, sourceChoicePicker.path) || {};
+      const next = { ...source };
+      if (next.type === "generator" && previous.type === "generator" && previous.generatorId === next.generatorId && previous.params) {
+        next.params = previous.params;
+      }
+      if (next.type === "media" && previous.type === "media" && previous.mediaId === next.mediaId) {
+        next.start = previous.start;
+        next.end = previous.end;
+        next.speed = previous.speed;
+      }
+      setByPath(draft, sourceChoicePicker.path, next);
+    }, `update:${sourceChoicePicker.path}`);
   }
 
   function closeSettings() {
@@ -759,13 +905,16 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
     refs.studio.querySelector("[data-open-folder]")?.addEventListener("click", openProjectFolder);
     refs.studio.querySelector("[data-import-files]")?.addEventListener("click", () => refs.importFiles.click());
     refs.studio.querySelector("[data-reset-mapping]")?.addEventListener("click", () => {
-      embeddedPreview.command("reset-mapping");
-      bridge.command("reset-mapping");
+      resetProjectMapping();
     });
+    bindCanvasRectInteractions(refs.studio);
   }
 
   function bindInputs(scope, state) {
+    scope.querySelectorAll("[data-video-trim]").forEach(bindVideoTrimControl);
+    scope.querySelectorAll("[data-color-param]").forEach(bindColorParamControl);
     scope.querySelectorAll("[data-update]").forEach((input) => {
+      if (input.dataset.videoTrimInput) return;
       if (input.type === "range") {
         input.addEventListener("input", () => {
           updateRangeLabel(input);
@@ -783,6 +932,12 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
       }
       input.addEventListener("change", () => updatePathFromInput(input, `update:${input.dataset.update}`));
     });
+    scope.querySelectorAll("[data-toggle-path]").forEach((button) => {
+      button.addEventListener("click", (event) => {
+        event.stopPropagation();
+        togglePathFromButton(button, `toggle:${button.dataset.togglePath}`);
+      });
+    });
     scope.querySelectorAll("[data-live-update]").forEach((input) => {
       if (input.type === "range") {
         input.addEventListener("input", () => {
@@ -793,6 +948,12 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
         return;
       }
       input.addEventListener("change", () => updateLivePathFromInput(input, "live:update"));
+    });
+    scope.querySelectorAll("[data-live-toggle]").forEach((button) => {
+      button.addEventListener("click", (event) => {
+        event.stopPropagation();
+        toggleLivePathFromButton(button, "live:toggle");
+      });
     });
     scope.querySelectorAll("[data-select-surface]").forEach((button) => {
       button.addEventListener("click", () => store.selectSurface(button.dataset.selectSurface));
@@ -817,6 +978,9 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
     scope.querySelectorAll("[data-open-media-picker]").forEach((button) => {
       button.addEventListener("click", () => openMediaPicker(button.dataset.mediaPath));
     });
+    scope.querySelectorAll("[data-open-source-choice]").forEach((button) => {
+      button.addEventListener("click", () => openSourceChoicePicker(button.dataset.openSourceChoice));
+    });
     scope.querySelectorAll("[data-set-composition]").forEach((button) => {
       button.addEventListener("click", () => {
         store.update((draft) => {
@@ -829,6 +993,18 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
     });
     scope.querySelectorAll("[data-open-element-picker]").forEach((button) => {
       button.addEventListener("click", () => openElementPicker(button.dataset.compositionId || latestState.ui.selectedCompositionId));
+    });
+    scope.querySelectorAll("[data-add-canvas-composition]").forEach((button) => {
+      button.addEventListener("click", () => store.addCanvasComposition?.());
+    });
+    scope.querySelectorAll("[data-add-canvas-layer]").forEach((button) => {
+      button.addEventListener("click", () => store.addCanvasLayer?.(button.dataset.canvasCompositionId || latestState.ui.selectedCompositionId));
+    });
+    scope.querySelectorAll("[data-add-source-rect]").forEach((button) => {
+      button.addEventListener("click", () => addCanvasSourceRect(button.dataset.addSourceRect, button.dataset.canvasCompositionId));
+    });
+    scope.querySelectorAll("[data-remove-canvas-layer]").forEach((button) => {
+      button.addEventListener("click", () => store.removeCanvasLayer?.(button.dataset.canvasCompositionId, button.dataset.removeCanvasLayer));
     });
     scope.querySelectorAll("[data-select-chain-item]").forEach((button) => {
       button.addEventListener("click", () => store.selectChainItem(button.dataset.selectChainItem));
@@ -849,16 +1025,33 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
     });
     scope.querySelectorAll("[data-reset-surface-mapping]").forEach((button) => {
       button.addEventListener("click", () => {
-        embeddedPreview.command("reset-mapping", { surfaceId: button.dataset.resetSurfaceMapping });
-        bridge.command("reset-mapping", { surfaceId: button.dataset.resetSurfaceMapping });
+        resetProjectMapping(button.dataset.resetSurfaceMapping);
       });
     });
     scope.querySelectorAll("[data-reset-mapping]").forEach((button) => {
       button.addEventListener("click", () => {
-        embeddedPreview.command("reset-mapping");
-        bridge.command("reset-mapping");
+        resetProjectMapping();
       });
     });
+  }
+
+  function bindVideoTrimControl(control) {
+    const startInput = control.querySelector("[data-video-trim-input='start']");
+    const endInput = control.querySelector("[data-video-trim-input='end']");
+    if (!startInput || !endInput) return;
+    const onInput = (event) => {
+      const role = event.currentTarget.dataset.videoTrimInput;
+      updateVideoTrimFromInputs(control, role, `scrub:${event.currentTarget.dataset.update}`);
+    };
+    const onChange = (event) => {
+      const role = event.currentTarget.dataset.videoTrimInput;
+      updateVideoTrimFromInputs(control, role, `update:${event.currentTarget.dataset.update}`);
+    };
+    startInput.addEventListener("input", onInput);
+    startInput.addEventListener("change", onChange);
+    endInput.addEventListener("input", onInput);
+    endInput.addEventListener("change", onChange);
+    syncVideoTrimControl(control, Number(startInput.value) || 0, Number(endInput.value) || 0, Number(startInput.max) || 60);
   }
 
   function removeChainItem(compositionId, itemId) {
@@ -870,6 +1063,100 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
     }, "remove-chain-item");
   }
 
+  function bindCanvasRectInteractions(scope) {
+    scope.querySelectorAll("[data-canvas-source-rect]").forEach((rectEl) => {
+      rectEl.addEventListener("pointerdown", (event) => startCanvasSourceRectDrag(event, rectEl));
+      rectEl.addEventListener("keydown", (event) => {
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault();
+          store.selectSurface(rectEl.dataset.canvasSourceRect);
+        }
+      });
+    });
+  }
+
+  function startCanvasSourceRectDrag(event, rectEl) {
+    if (event.button !== 0) return;
+    const board = rectEl.closest("[data-canvas-board]");
+    const surfaceId = rectEl.dataset.canvasSourceRect;
+    if (!board || !surfaceId) return;
+    event.preventDefault();
+    event.stopPropagation();
+    rectEl.setPointerCapture?.(event.pointerId);
+    store.selectSurface(surfaceId);
+
+    const boardRect = board.getBoundingClientRect();
+    const canvasWidth = Math.max(1, Number(board.dataset.canvasWidth) || boardRect.width || 1);
+    const canvasHeight = Math.max(1, Number(board.dataset.canvasHeight) || boardRect.height || 1);
+    const scaleX = canvasWidth / Math.max(1, boardRect.width || 1);
+    const scaleY = canvasHeight / Math.max(1, boardRect.height || 1);
+    const state = latestState;
+    const surface = state.surfaces.find((item) => item.id === surfaceId);
+    const startRect = clampSourceRect(surface?.sourceRect || createCanvasSourceRect(canvasWidth, canvasHeight), canvasWidth, canvasHeight);
+    const mode = event.target?.dataset?.canvasRectHandle || "move";
+    const startPointer = { x: event.clientX, y: event.clientY };
+    rectEl.classList.add("is-dragging");
+
+    const onMove = (moveEvent) => {
+      moveEvent.preventDefault();
+      const dx = (moveEvent.clientX - startPointer.x) * scaleX;
+      const dy = (moveEvent.clientY - startPointer.y) * scaleY;
+      const nextRect = resizeCanvasSourceRect(startRect, mode, dx, dy, canvasWidth, canvasHeight);
+      applyCanvasSourceRect(surfaceId, nextRect, "scrub:canvas-source-rect");
+    };
+
+    const onEnd = (endEvent) => {
+      rectEl.releasePointerCapture?.(event.pointerId);
+      rectEl.classList.remove("is-dragging");
+      window.removeEventListener("pointermove", onMove, true);
+      window.removeEventListener("pointerup", onEnd, true);
+      window.removeEventListener("pointercancel", onEnd, true);
+      const dx = (endEvent.clientX - startPointer.x) * scaleX;
+      const dy = (endEvent.clientY - startPointer.y) * scaleY;
+      const nextRect = resizeCanvasSourceRect(startRect, mode, dx, dy, canvasWidth, canvasHeight);
+      applyCanvasSourceRect(surfaceId, nextRect, "update:canvas-source-rect");
+    };
+
+    window.addEventListener("pointermove", onMove, true);
+    window.addEventListener("pointerup", onEnd, true);
+    window.addEventListener("pointercancel", onEnd, true);
+  }
+
+  function applyCanvasSourceRect(surfaceId, rect, reason) {
+    store.update((draft) => {
+      const surface = draft.surfaces.find((item) => item.id === surfaceId);
+      if (!surface) return;
+      surface.sourceRect = rect;
+    }, reason);
+  }
+
+  function addCanvasSourceRect(surfaceId, canvasCompositionId) {
+    const composition = latestState.compositions.find((item) => item.id === canvasCompositionId) || selectedCanvasComposition(latestState);
+    const canvas = composition?.canvas || {};
+    const canvasWidth = Math.max(1, Number(canvas.width) || 3840);
+    const canvasHeight = Math.max(1, Number(canvas.height) || 2160);
+    applyCanvasSourceRect(surfaceId, createCanvasSourceRect(canvasWidth, canvasHeight), "update:canvas-source-rect-add");
+  }
+
+  function resetProjectMapping(surfaceId = "") {
+    store.update((draft) => {
+      draft.mappings ||= {};
+      const defaults = defaultProjectSurfaceMapping(draft.render, draft.surfaces);
+      const existing = Array.isArray(draft.mappings.local?.surfaces) ? draft.mappings.local.surfaces : [];
+      const existingById = new Map(existing.map((surface) => [surface.id || surface.name, surface]));
+      const defaultById = new Map(defaults.map((surface) => [surface.id || surface.name, surface]));
+      draft.mappings.local = {
+        ...(draft.mappings.local || {}),
+        surfaces: draft.surfaces.map((surface) => {
+          const id = surface.id || surface.name;
+          const fallback = defaultById.get(id);
+          if (!surfaceId || id === surfaceId) return fallback;
+          return existingById.get(id) || fallback;
+        }).filter(Boolean),
+      };
+    }, surfaceId ? "reset-surface-mapping" : "reset-mapping");
+  }
+
   function setStatus(message) {
     store.update((draft) => {
       draft.metrics.message = message;
@@ -877,12 +1164,87 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
   }
 
   function updatePathFromInput(input, reason) {
+    const path = input.dataset.update;
     store.update((draft) => {
-      setByPath(draft, input.dataset.update, readInputValue(input));
+      const setter = path.includes(".source.params.") ? setByPathCreate : setByPath;
+      setter(draft, path, readInputValue(input));
       if (currentWorkspace(draft) === "scene") {
-        if (input.dataset.update.startsWith("scenes.")) {
+        if (path.startsWith("scenes.")) {
           applySelectedSceneSnapshot(draft);
-        } else if (input.dataset.update.startsWith("surfaces.")) {
+        } else if (path.startsWith("surfaces.")) {
+          syncSelectedSceneSnapshot(draft);
+        }
+      }
+    }, reason);
+  }
+
+  function bindColorParamControl(control) {
+    const rgbInput = control.querySelector("[data-color-rgb]");
+    const alphaInput = control.querySelector("[data-color-alpha]");
+    const update = (reason) => updateColorParamFromControl(control, reason);
+    rgbInput?.addEventListener("input", () => update(`scrub:${control.dataset.colorPath}`));
+    rgbInput?.addEventListener("change", () => update(`update:${control.dataset.colorPath}`));
+    alphaInput?.addEventListener("input", () => update(`scrub:${control.dataset.colorPath}`));
+    alphaInput?.addEventListener("change", () => update(`update:${control.dataset.colorPath}`));
+  }
+
+  function updateColorParamFromControl(control, reason) {
+    const path = control.dataset.colorPath;
+    if (!path) return;
+    const value = colorValueFromControl(control);
+    const label = control.querySelector("[data-color-alpha-label]");
+    if (label) label.textContent = colorAlphaFromHex(value).toFixed(2);
+    store.update((draft) => {
+      if (control.dataset.colorMode === "live") {
+        const compositionId = control.dataset.liveCompositionId;
+        if (!compositionId) return;
+        draft.ui.live.compositionOverrides ||= {};
+        const override = draft.ui.live.compositionOverrides[compositionId] ||= {};
+        setByPathCreate(override, path, value);
+        return;
+      }
+      const setter = path.includes(".source.params.") ? setByPathCreate : setByPath;
+      setter(draft, path, value);
+      if (currentWorkspace(draft) === "scene") {
+        if (path.startsWith("scenes.")) applySelectedSceneSnapshot(draft);
+        else if (path.startsWith("surfaces.")) syncSelectedSceneSnapshot(draft);
+      }
+    }, reason);
+  }
+
+  function updateVideoTrimFromInputs(control, activeRole, reason) {
+    const startInput = control.querySelector("[data-video-trim-input='start']");
+    const endInput = control.querySelector("[data-video-trim-input='end']");
+    const startPath = startInput?.dataset.update;
+    const endPath = endInput?.dataset.update;
+    if (!startInput || !endInput || !startPath || !endPath) return;
+    const max = Math.max(0.01, Number(startInput.max) || Number(endInput.max) || 60);
+    let start = clampNumberLocal(Number(startInput.value) || 0, 0, max);
+    let end = clampNumberLocal(Number(endInput.value) || max, 0, max);
+    if (start > end) {
+      if (activeRole === "start") end = start;
+      else start = end;
+    }
+    startInput.value = String(start);
+    endInput.value = String(end);
+    syncVideoTrimControl(control, start, end, max);
+    const keepImplicitEnd = control.dataset.videoTrimImplicitEnd === "true" && activeRole !== "end";
+    store.update((draft) => {
+      setByPath(draft, startPath, roundTrimTime(start));
+      setByPath(draft, endPath, keepImplicitEnd ? 0 : roundTrimTime(end));
+    }, reason);
+  }
+
+  function togglePathFromButton(button, reason) {
+    const path = button.dataset.togglePath;
+    if (!path) return;
+    const nextValue = button.dataset.toggleValue !== "true";
+    store.update((draft) => {
+      setByPath(draft, path, nextValue);
+      if (currentWorkspace(draft) === "scene") {
+        if (path.startsWith("scenes.")) {
+          applySelectedSceneSnapshot(draft);
+        } else if (path.startsWith("surfaces.")) {
           syncSelectedSceneSnapshot(draft);
         }
       }
@@ -899,19 +1261,261 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
     }, reason);
   }
 
+  function toggleLivePathFromButton(button, reason) {
+    const compositionId = button.dataset.liveCompositionId;
+    const path = button.dataset.liveToggle;
+    if (!compositionId || !path) return;
+    const nextValue = button.dataset.toggleValue !== "true";
+    store.update((draft) => {
+      draft.ui.live.compositionOverrides ||= {};
+      const override = draft.ui.live.compositionOverrides[compositionId] ||= {};
+      setByPathCreate(override, path, nextValue);
+    }, reason);
+  }
+
   return { mount };
 }
 
 function compositionPillTemplate(composition, state) {
   const selected = state.ui.selectedCompositionId === composition.id;
+  const fallbackIcon = composition.type === "canvas" ? "dashboard_customize" : "account_tree";
   return `
     <div class="composition-card-row">
       <button type="button" class="composition-card ${selected ? "is-selected" : ""}" data-select-composition="${esc(composition.id)}">
-        ${thumbnailTemplate(composition.thumbnail)}
+        ${thumbnailTemplate(composition.thumbnail, fallbackIcon)}
         <span>${esc(composition.name)}</span>
       </button>
       <button type="button" class="composition-card-remove" data-remove-composition="${esc(composition.id)}" title="Remove" aria-label="Remove ${esc(composition.name)}" ${state.compositions.length <= 1 ? "disabled" : ""}>${icon("close")}</button>
     </div>
+  `;
+}
+
+function canvasStudioTemplate(state) {
+  const composition = selectedCanvasComposition(state);
+  if (!composition) {
+    return `
+      <section class="canvas-stage">
+        <div class="project-empty">
+          <span class="material-symbols-rounded">dashboard_customize</span>
+          <h2>Canvas composition</h2>
+          <p>Create a canvas composition to place existing compositions on a large source canvas.</p>
+          <button type="button" class="primary" data-add-canvas-composition>${icon("add")} Add canvas</button>
+        </div>
+      </section>
+    `;
+  }
+  const canvas = composition.canvas || { width: 3840, height: 2160, layers: [] };
+  const width = Math.max(1, Number(canvas.width) || 3840);
+  const height = Math.max(1, Number(canvas.height) || 2160);
+  const assignedSurfaces = state.surfaces.filter((surface) => surface.compositionId === composition.id);
+  return `
+    <section class="canvas-stage">
+      <div class="canvas-board-shell">
+        <div class="canvas-board-meta">
+          <strong>${esc(composition.name)}</strong>
+          <span>${Math.round(width)} x ${Math.round(height)}</span>
+        </div>
+        <div class="canvas-board" data-canvas-board data-canvas-width="${width}" data-canvas-height="${height}" style="aspect-ratio: ${width} / ${height};">
+          <div class="canvas-grid"></div>
+          ${(canvas.layers || []).map((layer, index) => canvasLayerRectTemplate(layer, index, state, width, height)).join("")}
+          ${assignedSurfaces.map((surface) => canvasSurfaceRectTemplate(surface, state, width, height)).join("")}
+          ${!(canvas.layers || []).length ? `<div class="canvas-empty-note">Add layers from existing compositions</div>` : ""}
+        </div>
+      </div>
+    </section>
+  `;
+}
+
+function canvasLayerRectTemplate(layer, index, state, canvasWidth, canvasHeight) {
+  const source = state.compositions.find((composition) => composition.id === layer.compositionId);
+  const left = percent(layer.x, canvasWidth);
+  const top = percent(layer.y, canvasHeight);
+  const width = percent(layer.width, canvasWidth);
+  const height = percent(layer.height, canvasHeight);
+  return `
+    <div
+      class="canvas-layer-rect"
+      style="left:${left}%; top:${top}%; width:${width}%; height:${height}%; --layer-index:${index};"
+      title="${esc(layer.name || source?.name || "Layer")}"
+    >
+      <span>${esc(source?.name || layer.name || "Missing composition")}</span>
+      <small>${Math.round(layer.x || 0)}, ${Math.round(layer.y || 0)} / ${Math.round(layer.width || 0)} x ${Math.round(layer.height || 0)}</small>
+    </div>
+  `;
+}
+
+function canvasSurfaceRectTemplate(surface, state, canvasWidth, canvasHeight) {
+  const rect = clampSourceRect(surface.sourceRect || createCanvasSourceRect(canvasWidth, canvasHeight), canvasWidth, canvasHeight);
+  const left = percent(rect.x, canvasWidth);
+  const top = percent(rect.y, canvasHeight);
+  const width = percent(rect.width, canvasWidth);
+  const height = percent(rect.height, canvasHeight);
+  const selected = state.ui.selectedSurfaceId === surface.id;
+  return `
+    <div
+      role="button"
+      tabindex="0"
+      class="canvas-surface-rect ${selected ? "is-selected" : ""}"
+      style="left:${left}%; top:${top}%; width:${width}%; height:${height}%;"
+      data-canvas-source-rect="${esc(surface.id)}"
+      data-select-surface="${esc(surface.id)}"
+      title="Sample rect for ${esc(surface.name)}"
+    >
+      <span>${esc(surface.name)}</span>
+      <i data-canvas-rect-handle="nw" aria-hidden="true"></i>
+      <i data-canvas-rect-handle="ne" aria-hidden="true"></i>
+      <i data-canvas-rect-handle="sw" aria-hidden="true"></i>
+      <i data-canvas-rect-handle="se" aria-hidden="true"></i>
+    </div>
+  `;
+}
+
+function percent(value, total) {
+  return Math.max(0, Math.min(100, (Number(value) || 0) / Math.max(1, Number(total) || 1) * 100));
+}
+
+function createCanvasSourceRect(canvasWidth, canvasHeight) {
+  const width = Math.max(64, Math.round(canvasWidth * 0.25));
+  const height = Math.max(64, Math.round(canvasHeight * 0.25));
+  return {
+    x: Math.round((canvasWidth - width) * 0.5),
+    y: Math.round((canvasHeight - height) * 0.5),
+    width,
+    height,
+  };
+}
+
+function clampSourceRect(rect = {}, canvasWidth = 1, canvasHeight = 1) {
+  const minSize = 16;
+  const width = Math.max(minSize, Math.min(canvasWidth, Number(rect.width) || Math.min(960, canvasWidth)));
+  const height = Math.max(minSize, Math.min(canvasHeight, Number(rect.height) || Math.min(540, canvasHeight)));
+  return {
+    x: Math.round(Math.max(0, Math.min(canvasWidth - width, Number(rect.x) || 0))),
+    y: Math.round(Math.max(0, Math.min(canvasHeight - height, Number(rect.y) || 0))),
+    width: Math.round(width),
+    height: Math.round(height),
+  };
+}
+
+function resizeCanvasSourceRect(startRect, mode, dx, dy, canvasWidth, canvasHeight) {
+  const minSize = 16;
+  const rect = { ...startRect };
+  if (mode === "move") {
+    rect.x += dx;
+    rect.y += dy;
+    return clampSourceRect(rect, canvasWidth, canvasHeight);
+  }
+  if (mode.includes("w")) {
+    rect.x += dx;
+    rect.width -= dx;
+  }
+  if (mode.includes("e")) {
+    rect.width += dx;
+  }
+  if (mode.includes("n")) {
+    rect.y += dy;
+    rect.height -= dy;
+  }
+  if (mode.includes("s")) {
+    rect.height += dy;
+  }
+  if (rect.width < minSize) {
+    if (mode.includes("w")) rect.x = startRect.x + startRect.width - minSize;
+    rect.width = minSize;
+  }
+  if (rect.height < minSize) {
+    if (mode.includes("n")) rect.y = startRect.y + startRect.height - minSize;
+    rect.height = minSize;
+  }
+  return clampSourceRect(rect, canvasWidth, canvasHeight);
+}
+
+function canvasInspectorTemplate(composition, state) {
+  const base = pathForComposition(state, composition);
+  const canvas = composition.canvas || { width: 3840, height: 2160, layers: [] };
+  return `
+    <article class="sculpt-card">
+      <div class="sculpt-head">
+        <input type="text" data-update="${base}.name" value="${esc(composition.name)}" spellcheck="false" data-gramm="false" data-gramm_editor="false" data-enable-grammarly="false" />
+      </div>
+      <div class="field-pair">
+        <label class="field">Width <input type="number" min="128" max="8192" step="1" data-update="${base}.canvas.width" value="${canvas.width}" /></label>
+        <label class="field">Height <input type="number" min="128" max="8192" step="1" data-update="${base}.canvas.height" value="${canvas.height}" /></label>
+      </div>
+      <section class="canvas-inspector-section">
+        <div class="rail-title"><span class="material-symbols-rounded">layers</span><span>Layers</span></div>
+        <button type="button" data-add-canvas-layer data-canvas-composition-id="${esc(composition.id)}">${icon("add")} Add layer</button>
+        <div class="canvas-layer-list">
+          ${(canvas.layers || []).map((layer, index) => canvasLayerEditorTemplate(layer, index, composition, state, `${base}.canvas.layers.${index}`)).join("") || emptyNote("Add a layer to place an existing composition on this canvas.")}
+        </div>
+      </section>
+      <section class="canvas-inspector-section">
+        <div class="rail-title"><span class="material-symbols-rounded">select_all</span><span>Surface sample rects</span></div>
+        <div class="canvas-surface-list">
+          ${state.surfaces.map((surface) => canvasSurfaceEditorTemplate(surface, composition, state)).join("")}
+        </div>
+      </section>
+    </article>
+  `;
+}
+
+function canvasLayerEditorTemplate(layer, index, composition, state, base) {
+  return `
+    <article class="canvas-layer-editor">
+      <header>
+        <strong>${esc(layer.name || `Layer ${index + 1}`)}</strong>
+        <button type="button" class="icon-buttonish" data-canvas-composition-id="${esc(composition.id)}" data-remove-canvas-layer="${esc(layer.id)}" title="Remove layer" aria-label="Remove ${esc(layer.name || `Layer ${index + 1}`)}">${icon("close")}</button>
+      </header>
+      <label class="field">Source ${compositionSelectTemplate(`${base}.compositionId`, state, layer.compositionId, composition.id)}</label>
+      <div class="field-pair">
+        <label class="field">X <input type="number" step="1" data-update="${base}.x" value="${Number(layer.x) || 0}" /></label>
+        <label class="field">Y <input type="number" step="1" data-update="${base}.y" value="${Number(layer.y) || 0}" /></label>
+      </div>
+      <div class="field-pair">
+        <label class="field">W <input type="number" min="1" step="1" data-update="${base}.width" value="${Number(layer.width) || 1}" /></label>
+        <label class="field">H <input type="number" min="1" step="1" data-update="${base}.height" value="${Number(layer.height) || 1}" /></label>
+      </div>
+      <div class="field-pair">
+        <label class="field">Blend ${selectValuesTemplate(`${base}.blend`, BLEND_MODES, layer.blend || "normal")}</label>
+        ${rangeTemplate("Opacity", `${base}.opacity`, layer.opacity ?? 1)}
+      </div>
+    </article>
+  `;
+}
+
+function canvasSurfaceEditorTemplate(surface, composition, state) {
+  const surfaceBase = pathForSurface(state, surface);
+  const assigned = surface.compositionId === composition.id;
+  const rect = surface.sourceRect || {};
+  return `
+    <article class="canvas-surface-editor ${assigned ? "is-assigned" : ""}">
+      <header>
+        <strong>${esc(surface.name)}</strong>
+        ${assigned
+          ? `<button type="button" data-add-source-rect="${esc(surface.id)}" data-canvas-composition-id="${esc(composition.id)}">${icon("crop_free")} Add rect</button>`
+          : `<button type="button" data-set-composition="${esc(composition.id)}" data-composition-path="${surfaceBase}.compositionId">${icon("ads_click")} Use canvas</button>`}
+      </header>
+      ${assigned ? `
+        <div class="field-pair">
+          <label class="field">X <input type="number" min="0" step="1" data-update="${surfaceBase}.sourceRect.x" value="${Number(rect.x) || 0}" /></label>
+          <label class="field">Y <input type="number" min="0" step="1" data-update="${surfaceBase}.sourceRect.y" value="${Number(rect.y) || 0}" /></label>
+        </div>
+        <div class="field-pair">
+          <label class="field">W <input type="number" min="1" step="1" data-update="${surfaceBase}.sourceRect.width" value="${Number(rect.width) || 960}" /></label>
+          <label class="field">H <input type="number" min="1" step="1" data-update="${surfaceBase}.sourceRect.height" value="${Number(rect.height) || 540}" /></label>
+        </div>
+      ` : ""}
+    </article>
+  `;
+}
+
+function compositionSelectTemplate(path, state, value, excludeId = "") {
+  const options = state.compositions.filter((composition) => composition.id !== excludeId && composition.type !== "canvas");
+  return `
+    <select data-update="${esc(path)}">
+      <option value="">None</option>
+      ${options.map((composition) => `<option value="${esc(composition.id)}" ${composition.id === value ? "selected" : ""}>${esc(composition.name)}</option>`).join("")}
+    </select>
   `;
 }
 
@@ -1134,26 +1738,47 @@ function formatRenderRequest(request = {}) {
   return `${role} ${width}x${height}`;
 }
 
+function enableToggleButton({ path = "", livePath = "", compositionId = "", value = true, iconName = "power_settings_new", label = "" }) {
+  const enabled = value !== false;
+  const toggleAttrs = livePath
+    ? `data-live-composition-id="${esc(compositionId)}" data-live-toggle="${esc(livePath)}"`
+    : `data-toggle-path="${esc(path)}"`;
+  const action = enabled ? "Disable" : "Enable";
+  return `
+    <button type="button" class="enable-toggle ${enabled ? "is-enabled" : ""}" ${toggleAttrs} data-toggle-value="${enabled ? "true" : "false"}" title="${action} ${esc(label)}" aria-label="${action} ${esc(label)}">
+      ${icon(enabled ? iconName : "hide_source")}
+    </button>
+  `;
+}
+
 function sceneSurfacePillTemplate(surface, state) {
   const sceneSurface = getSceneSurfaceView(surface, state);
   const composition = state.compositions.find((item) => item.id === sceneSurface.compositionId);
+  const enabled = surface.enabled !== false;
   return selectablePillTemplate({
     selected: state.ui.selectedSurfaceId === surface.id,
     action: "data-select-surface",
     id: surface.id,
-    iconName: sceneSurface.enabled ? "crop_free" : "hide_source",
+    iconName: enabled ? "crop_free" : "hide_source",
     label: surface.name,
     meta: composition?.name || "None",
+    togglePath: `${pathForSurface(state, surface)}.enabled`,
+    toggleValue: enabled,
     removeAction: "data-remove-surface",
     removeDisabled: state.surfaces.length <= 1,
   });
 }
 
-function selectablePillTemplate({ selected, action, id, iconName, label, meta, removeAction = "", removeDisabled = false }) {
+function selectablePillTemplate({ selected, action, id, iconName, label, meta, togglePath = "", toggleValue = true, removeAction = "", removeDisabled = false }) {
   return `
-    <div class="list-row">
+    <div class="list-row ${togglePath ? "has-enable-toggle" : ""}" data-reorder-id="${esc(id)}">
+      ${togglePath ? enableToggleButton({
+        path: togglePath,
+        value: toggleValue,
+        iconName,
+        label,
+      }) : ""}
       <button type="button" class="list-select ${selected ? "is-selected" : ""}" ${action}="${esc(id)}">
-        ${icon(iconName)}
         <span>${esc(label)}</span>
         <small>${esc(meta)}</small>
       </button>
@@ -1164,6 +1789,16 @@ function selectablePillTemplate({ selected, action, id, iconName, label, meta, r
 
 function compositionTemplate(composition, state) {
   const base = pathForComposition(state, composition);
+  if (composition.type === "canvas") {
+    return `
+      <article class="sculpt-card">
+        <div class="sculpt-head">
+          <input type="text" data-update="${base}.name" value="${esc(composition.name)}" spellcheck="false" data-gramm="false" data-gramm_editor="false" data-enable-grammarly="false" />
+        </div>
+        <div class="soft-note">This is a canvas composition. Use the Canvas workspace to place layers and set surface sample rectangles.</div>
+      </article>
+    `;
+  }
   return `
     <article class="sculpt-card">
       <div class="sculpt-head">
@@ -1181,7 +1816,7 @@ function compositionUnifiedChainTemplate(composition, state, ownerPath) {
       <section class="chain-list-section">
         <div class="rail-title"><span class="material-symbols-rounded">account_tree</span><span>Chain</span></div>
         <div class="composition-chain-list" data-chain-reorder-list data-composition-id="${esc(composition.id)}">
-          ${(composition.chain || []).map((item, index) => chainItemRowTemplate(item, composition, state, index)).join("")}
+          ${(composition.chain || []).map((item, index) => chainItemRowTemplate(item, composition, state, index, `${ownerPath}.chain.${index}`)).join("")}
         </div>
         <button type="button" class="chain-add-button" data-open-element-picker data-composition-id="${esc(composition.id)}">${icon("add")} Add element</button>
       </section>
@@ -1192,19 +1827,29 @@ function compositionUnifiedChainTemplate(composition, state, ownerPath) {
   `;
 }
 
-function chainItemRowTemplate(item, composition, state, index) {
+function chainItemRowTemplate(item, composition, state, index, base) {
   const selected = state.ui.selectedChainItemId === item.id;
+  const media = state.media?.find((entry) => entry.id === item.source?.mediaId) || null;
+  const label = item.kind === "source" ? sourceChainItemDisplayName(item, media) : item.name || item.componentId;
+  const iconName = item.kind === "source" ? sourceIcon(item.source || {}) : effectIcon(item.componentId);
   return `
     <div class="chain-item-row ${selected ? "is-selected" : ""}" data-reorder-id="${esc(item.id)}">
+      ${enableToggleButton({
+        path: `${base}.enabled`,
+        value: item.enabled !== false,
+        iconName,
+        label,
+      })}
       <button type="button" class="chain-item-select" data-select-chain-item="${esc(item.id)}">
-        ${icon(item.kind === "source" ? sourceTypeIcon(item.source?.type || "generator") : effectIcon(item.componentId))}
-        <span>${esc(item.name || item.componentId)}</span>
+        <span>${esc(label)}</span>
         <small>${item.kind === "source" ? esc(item.source?.type || "source") : "effect"}</small>
       </button>
-      <button type="button" class="chain-item-remove" data-composition-id="${esc(composition.id)}" data-remove-chain-item="${esc(item.id)}" title="Remove" aria-label="Remove ${esc(item.name || item.componentId)}" ${composition.chain.length <= 1 ? "disabled" : ""}>${icon("close")}</button>
+      <button type="button" class="chain-item-remove" data-composition-id="${esc(composition.id)}" data-remove-chain-item="${esc(item.id)}" title="Remove" aria-label="Remove ${esc(label)}" ${composition.chain.length <= 1 ? "disabled" : ""}>${icon("close")}</button>
     </div>
   `;
 }
+
+const SHOW_CHAIN_ITEM_TRANSFORM_CONTROLS = false;
 
 function selectedChainItemTemplate(item, composition, state, base) {
   if (item.kind === "source") return sourceChainItemTemplate(item, state, base);
@@ -1212,33 +1857,39 @@ function selectedChainItemTemplate(item, composition, state, base) {
   return `
     <section class="chain-item-editor">
       <div class="rail-title"><span class="material-symbols-rounded">${effectIcon(item.componentId)}</span><span>${esc(component?.name || item.componentId)}</span></div>
-      <label class="toggle-line">${icon("power_settings_new")}<input type="checkbox" data-update="${base}.enabled" ${item.enabled ? "checked" : ""} /> Enabled</label>
       ${shaderParamControlsTemplate(component, item, base)}
-      ${component?.spatial ? effectTransformControlsTemplate(item, base) : ""}
+      ${component?.spatial && SHOW_CHAIN_ITEM_TRANSFORM_CONTROLS ? effectTransformControlsTemplate(item, base) : ""}
     </section>
   `;
 }
 
 function sourceChainItemTemplate(item, state, base) {
+  const media = state.media?.find((entry) => entry.id === item.source?.mediaId) || null;
+  const displayName = sourceChainItemDisplayName(item, media);
   return `
     <section class="chain-item-editor">
-      <div class="rail-title"><span class="material-symbols-rounded">layers</span><span>Layer</span></div>
-      <label class="field">Name <input type="text" data-update="${base}.name" value="${esc(item.name)}" spellcheck="false" data-gramm="false" data-gramm_editor="false" data-enable-grammarly="false" /></label>
-      <label class="toggle-line">${icon("power_settings_new")}<input type="checkbox" data-update="${base}.enabled" ${item.enabled ? "checked" : ""} /> Enabled</label>
+      <div class="rail-title"><span class="material-symbols-rounded">${sourceIcon(item.source)}</span><span>${esc(displayName)}</span></div>
+      <label class="field">Name <input type="text" data-update="${base}.name" value="${esc(displayName)}" spellcheck="false" data-gramm="false" data-gramm_editor="false" data-enable-grammarly="false" /></label>
       ${sourcePickerTemplate(item, state, base)}
       <div class="field-pair">
         <label class="field">Blend ${selectValuesTemplate(`${base}.blend`, BLEND_MODES, item.blend)}</label>
         ${rangeTemplate("Opacity", `${base}.opacity`, item.opacity)}
       </div>
-      <div class="field-pair">
-        ${rangeTemplate("X", `${base}.transform.x`, item.transform?.x || 0, -1, 1, 0.01)}
-        ${rangeTemplate("Y", `${base}.transform.y`, item.transform?.y || 0, -1, 1, 0.01)}
-      </div>
-      <div class="field-pair">
-        ${rangeTemplate("Scale", `${base}.transform.scale`, item.transform?.scale ?? 1, 0.1, 3, 0.01)}
-        ${rangeTemplate("Rotate", `${base}.transform.rotation`, item.transform?.rotation || 0, -3.14, 3.14, 0.01)}
-      </div>
+      ${SHOW_CHAIN_ITEM_TRANSFORM_CONTROLS ? sourceTransformControlsTemplate(item, base) : ""}
     </section>
+  `;
+}
+
+function sourceTransformControlsTemplate(item, base) {
+  return `
+    <div class="field-pair">
+      ${rangeTemplate("X", `${base}.transform.x`, item.transform?.x || 0, -1, 1, 0.01)}
+      ${rangeTemplate("Y", `${base}.transform.y`, item.transform?.y || 0, -1, 1, 0.01)}
+    </div>
+    <div class="field-pair">
+      ${rangeTemplate("Scale", `${base}.transform.scale`, item.transform?.scale ?? 1, 0.1, 3, 0.01)}
+      ${rangeTemplate("Rotate", `${base}.transform.rotation`, item.transform?.rotation || 0, -3.14, 3.14, 0.01)}
+    </div>
   `;
 }
 
@@ -1266,50 +1917,196 @@ function sourcePickerTemplate(composition, state, base) {
     <div class="source-section">
       <div class="field">
         <span>Source</span>
-        <div class="segmented-pills">
-          ${SOURCE_TYPES.map((type) => `
-            <button type="button" class="${source.type === type.id ? "is-selected" : ""}" data-set-source-type="${type.id}" data-source-path="${base}.source.type">
-              ${icon(sourceTypeIcon(type.id))}
-              <span>${esc(type.label)}</span>
-            </button>
-          `).join("")}
-        </div>
+        <button type="button" class="source-choice-button" data-open-source-choice="${esc(`${base}.source`)}">
+          ${icon(sourceIcon(source))}
+          <span>
+            <strong>${esc(sourceTitle(source, media))}</strong>
+            <small>${esc(sourceSubtitle(source, media))}</small>
+          </span>
+          ${icon("chevron_right")}
+        </button>
       </div>
-      ${source.type === "generator" ? generatorPickerTemplate(`${base}.source.generatorId`, source.generatorId) : ""}
-      ${source.type === "media" ? mediaPickerButtonTemplate(`${base}.source.mediaId`, media) : ""}
+      ${source.type === "generator" ? generatorParamControlsTemplate(`${base}.source`, source) : ""}
+      ${source.type === "media" && !isModelMediaSource(source, media) ? mediaSourceFitControlsTemplate(`${base}.source`, source) : ""}
+      ${source.type === "media" && isVideoMediaSource(source, media) ? videoSourceControlsTemplate(`${base}.source`, source, media) : ""}
+      ${source.type === "media" && isModelMediaSource(source, media) ? modelSourceControlsTemplate(`${base}.source`, source) : ""}
       ${source.type === "camera" ? `<div class="soft-note">Using the portal camera feed.</div>` : ""}
       ${source.type === "black" ? `<div class="soft-note">Black source selected.</div>` : ""}
     </div>
   `;
 }
 
-function generatorPickerTemplate(path, value) {
+function mediaSourceFitControlsTemplate(base, source = {}) {
   return `
-    <div class="field">
-      <span>Generator</span>
-      <div class="generator-grid">
-        ${listGeneratorComponents().filter((generator) => generator.id !== "black").map((generator) => `
-          <button type="button" class="generator-card ${generator.id === value ? "is-selected" : ""}" data-set-generator="${generator.id}" data-generator-path="${path}">
-            ${icon("auto_awesome")}
-            <strong>${esc(generator.label || generator.name)}</strong>
-          </button>
-        `).join("")}
+    <label class="field chain-param">Fit ${selectValuesTemplate(`${base}.params.fit`, MEDIA_FIT_MODES, source.params?.fit || "contain")}</label>
+  `;
+}
+
+function sourceIcon(source = {}) {
+  if (source.type === "generator") return generatorIcon(source.generatorId || "testPattern");
+  if (source.type === "media") return isModelMediaSource(source) ? "deployed_code" : "perm_media";
+  if (source.type === "camera") return "photo_camera";
+  if (source.type === "black") return "radio_button_unchecked";
+  return sourceTypeIcon(source.type || "generator");
+}
+
+function sourceTitle(source = {}, media = null) {
+  if (source.type === "generator") return getGeneratorComponent(source.generatorId || "testPattern").label || getGeneratorComponent(source.generatorId || "testPattern").name;
+  if (source.type === "media") return media?.name || source.mediaId || "Media";
+  if (source.type === "camera") return "Live camera";
+  if (source.type === "black") return "Black";
+  return "Choose source";
+}
+
+function sourceSubtitle(source = {}, media = null) {
+  if (source.type === "generator") return "Generator";
+  if (source.type === "media") return media?.type === "model" || isModelMediaSource(source) ? "3D model" : media?.type ? `Media ${media.type}` : "Media";
+  if (source.type === "camera") return "Portal camera feed";
+  if (source.type === "black") return "Empty black source";
+  return "Source";
+}
+
+function sourceChainItemDisplayName(item = {}, media = null) {
+  if (!item.name || isGenericLayerName(item.name)) return sourceTitle(item.source || {}, media);
+  return item.name;
+}
+
+function isGenericLayerName(value) {
+  return /^Layer(?:\s+\d+)?$/i.test(String(value || "").trim());
+}
+
+function videoSourceControlsTemplate(base, source = {}, media = null) {
+  const trim = videoTrimValues(source, media);
+  return `
+    <div class="video-source-controls">
+      <div class="rail-title"><span class="material-symbols-rounded">content_cut</span><span>Movie segment</span></div>
+      ${videoTrimTemplate(base, trim)}
+      ${rangeTemplate("Movie speed", `${base}.speed`, source.speed ?? 1, 0, 4, 0.01)}
+    </div>
+  `;
+}
+
+function videoTrimTemplate(base, trim) {
+  const startPercent = trim.max ? (trim.start / trim.max) * 100 : 0;
+  const endPercent = trim.max ? (trim.end / trim.max) * 100 : 100;
+  return `
+    <div
+      class="video-trim-control"
+      data-video-trim
+      data-video-trim-implicit-end="${trim.implicitEnd ? "true" : "false"}"
+      style="--trim-start: ${startPercent.toFixed(3)}%; --trim-end: ${endPercent.toFixed(3)}%;"
+    >
+      <div class="video-trim-labels">
+        <span>Start <strong data-video-trim-label="start">${formatTrimTime(trim.start)}</strong></span>
+        <span>End <strong data-video-trim-label="end">${formatTrimTime(trim.end)}</strong></span>
+      </div>
+      <div class="video-trim-slider">
+        <div class="video-trim-track" aria-hidden="true"></div>
+        <input
+          type="range"
+          min="0"
+          max="${trim.max}"
+          step="0.01"
+          value="${trim.start}"
+          data-update="${base}.start"
+          data-video-trim-input="start"
+          aria-label="Movie segment start"
+        />
+        <input
+          type="range"
+          min="0"
+          max="${trim.max}"
+          step="0.01"
+          value="${trim.end}"
+          data-update="${base}.end"
+          data-video-trim-input="end"
+          aria-label="Movie segment end"
+        />
       </div>
     </div>
   `;
 }
 
-function mediaPickerButtonTemplate(path, media) {
+function videoTrimValues(source = {}, media = null) {
+  const duration = Number(media?.duration) > 0 ? Number(media.duration) : 0;
+  const start = Math.max(0, Number(source.start) || 0);
+  const explicitEnd = Math.max(0, Number(source.end) || 0);
+  const max = Math.max(duration, explicitEnd, start, 60);
+  const end = explicitEnd > start ? explicitEnd : max;
+  return {
+    start: roundTrimTime(Math.min(start, max)),
+    end: roundTrimTime(Math.min(Math.max(end, start), max)),
+    max: roundTrimTime(max),
+    implicitEnd: !(explicitEnd > start),
+  };
+}
+
+function isVideoMediaSource(source = {}, media = null) {
+  if (media?.type === "video") return true;
+  return /\.(mp4|m4v|mov|webm|ogv)$/i.test(String(source.mediaId || ""));
+}
+
+function isModelMediaSource(source = {}, media = null) {
+  if (media?.type === "model") return true;
+  return /\.(stl|obj)$/i.test(String(source.mediaId || ""));
+}
+
+function modelSourceControlsTemplate(base, source = {}) {
+  const params = source.params || {};
   return `
-    <div class="field">
-      <span>Media</span>
-      <button type="button" class="media-select-button" data-open-media-picker data-media-path="${path}">
-        ${icon(media?.type === "video" ? "movie" : media?.type === "image" ? "image" : "perm_media")}
-        <span>${esc(media?.name || "Choose media")}</span>
-        ${icon("chevron_right")}
-      </button>
+    <div class="model-source-controls">
+      <div class="rail-title"><span class="material-symbols-rounded">deployed_code</span><span>3D model</span></div>
+      <label class="field chain-param">Draw mode ${selectValuesTemplate(`${base}.params.renderMode`, MODEL_RENDER_MODES, params.renderMode || "surface")}</label>
+      <div class="field-pair">
+        ${colorParamControlTemplate(MODEL_SURFACE_COLOR_PARAM, `${base}.params.surfaceColor`, params.surfaceColor || MODEL_SURFACE_COLOR_PARAM.defaultValue)}
+        ${colorParamControlTemplate(MODEL_WIRE_COLOR_PARAM, `${base}.params.wireColor`, params.wireColor || MODEL_WIRE_COLOR_PARAM.defaultValue)}
+      </div>
+      <div class="field-pair">
+        ${rangeTemplate("Rotate X", `${base}.params.rotationX`, params.rotationX || 0, -3.14, 3.14, 0.01)}
+        ${rangeTemplate("Rotate Y", `${base}.params.rotationY`, params.rotationY || 0, -3.14, 3.14, 0.01)}
+      </div>
+      <div class="field-pair">
+        ${rangeTemplate("Rotate Z", `${base}.params.rotationZ`, params.rotationZ || 0, -3.14, 3.14, 0.01)}
+        ${rangeTemplate("Scale", `${base}.params.modelScale`, params.modelScale ?? 1, 0.1, 5, 0.01)}
+      </div>
+      <div class="field-pair">
+        ${rangeTemplate("Spin X", `${base}.params.spinX`, params.spinX || 0, -3, 3, 0.01)}
+        ${rangeTemplate("Spin Y", `${base}.params.spinY`, params.spinY || 0, -3, 3, 0.01)}
+      </div>
+      <div class="field-pair">
+        ${rangeTemplate("Spin Z", `${base}.params.spinZ`, params.spinZ || 0, -3, 3, 0.01)}
+        ${rangeTemplate("Depth", `${base}.params.depth`, params.depth ?? 1, 0.2, 3, 0.01)}
+      </div>
     </div>
   `;
+}
+
+function generatorParamControlsTemplate(base, source = {}) {
+  const component = getGeneratorComponent(source.generatorId || "testPattern");
+  if (!component?.params?.length) return "";
+  return `
+    <div class="chain-param-list">
+      ${component.params.map((param) => paramControlTemplate(
+        param,
+        `${base}.params.${param.id}`,
+        paramCurrentValue(component, { params: source.params || {} }, param)
+      )).join("")}
+    </div>
+  `;
+}
+
+function generatorIcon(id) {
+  return {
+    fireflies: "flare",
+    eyeball: "visibility",
+    swayingTrees: "forest",
+    waves: "waves",
+    noise: "grain",
+    plasma: "blur_on",
+    gradient: "gradient",
+    checker: "grid_view",
+    testPattern: "featured_video",
+  }[id] || "auto_awesome";
 }
 
 function sceneSurfaceTemplate(surface, state) {
@@ -1320,11 +2117,13 @@ function sceneSurfaceTemplate(surface, state) {
   const hasSceneSurface = sceneIndex >= 0 && surfaceIndex >= 0;
   const sceneSurface = hasSceneSurface ? scene.snapshot.surfaces[surfaceIndex] : null;
   const sceneBase = `scenes.${sceneIndex}.snapshot.surfaces.${surfaceIndex}`;
+  const assignedComposition = state.compositions.find((composition) => composition.id === (sceneSurface?.compositionId || surface.compositionId));
+  const rectBase = hasSceneSurface ? `${sceneBase}.sourceRect` : `${surfaceBase}.sourceRect`;
+  const sourceRect = sceneSurface?.sourceRect || surface.sourceRect || {};
   return `
     <article class="sculpt-card">
       <div class="sculpt-head">
         <input type="text" data-update="${surfaceBase}.name" value="${esc(surface.name)}" spellcheck="false" data-gramm="false" data-gramm_editor="false" data-enable-grammarly="false" />
-        <label class="mini-toggle">${icon("power_settings_new")}<input type="checkbox" data-update="${surfaceBase}.enabled" ${surface.enabled ? "checked" : ""} /></label>
       </div>
       <div class="surface-actions">
         <button type="button" data-reset-surface-mapping="${surface.id}">${icon("restart_alt")} Reset surface</button>
@@ -1333,8 +2132,25 @@ function sceneSurfaceTemplate(surface, state) {
       ${hasSceneSurface ? `
         ${rangeTemplate("Presence", `${sceneBase}.opacity`, sceneSurface.opacity)}
         ${compositionAssignmentTemplate(`${sceneBase}.compositionId`, state.compositions, sceneSurface.compositionId)}
+        ${assignedComposition?.type === "canvas" ? surfaceSourceRectTemplate(rectBase, sourceRect) : ""}
       ` : `<div class="soft-note">Capture a scene to store composition assignments for this surface.</div>`}
     </article>
+  `;
+}
+
+function surfaceSourceRectTemplate(base, rect = {}) {
+  return `
+    <div class="canvas-surface-editor is-assigned">
+      <header><strong>Canvas sample rect</strong><small>source pixels</small></header>
+      <div class="field-pair">
+        <label class="field">X <input type="number" min="0" step="1" data-update="${base}.x" value="${Number(rect.x) || 0}" /></label>
+        <label class="field">Y <input type="number" min="0" step="1" data-update="${base}.y" value="${Number(rect.y) || 0}" /></label>
+      </div>
+      <div class="field-pair">
+        <label class="field">W <input type="number" min="1" step="1" data-update="${base}.width" value="${Number(rect.width) || 960}" /></label>
+        <label class="field">H <input type="number" min="1" step="1" data-update="${base}.height" value="${Number(rect.height) || 540}" /></label>
+      </div>
+    </div>
   `;
 }
 
@@ -1397,11 +2213,30 @@ function paramControlTemplate(param, path, value, attrs = "data-update") {
       </label>
     `;
   }
+  if (param.type === "color") return colorParamControlTemplate(param, path, value, attrs);
   return `
     <label class="field range-field chain-param">
       <span><span>${esc(param.label || param.id)}</span><strong>${formatParamValue(value)}</strong></span>
       <input type="range" min="${param.min ?? 0}" max="${param.max ?? 1}" step="${param.step ?? 0.01}" ${attrs}="${esc(path)}" value="${value}" />
     </label>
+  `;
+}
+
+function colorParamControlTemplate(param, path, value, attrs = "data-update") {
+  const mode = attrs.includes("data-live-update") ? "live" : "state";
+  const liveCompositionMatch = /data-live-composition-id="([^"]*)"/.exec(attrs);
+  const liveCompositionId = liveCompositionMatch?.[1] || "";
+  const rgba = normalizeColorHex(value || param.defaultValue || "#ffffffff");
+  const rgb = rgba.slice(0, 7);
+  const alpha = colorAlphaFromHex(rgba);
+  return `
+    <div class="field color-param chain-param" data-color-param data-color-mode="${mode}" data-color-path="${esc(path)}" ${liveCompositionId ? `data-live-composition-id="${esc(liveCompositionId)}"` : ""}>
+      <span><span>${esc(param.label || param.id)}</span><strong data-color-alpha-label>${alpha.toFixed(2)}</strong></span>
+      <div class="color-param-row">
+        <input type="color" data-color-rgb value="${esc(rgb)}" aria-label="${esc(param.label || param.id)} color" />
+        <input type="range" min="0" max="1" step="0.01" data-color-alpha value="${alpha}" aria-label="${esc(param.label || param.id)} alpha" />
+      </div>
+    </div>
   `;
 }
 
@@ -1479,64 +2314,155 @@ function settingsModalTemplate(state) {
   `;
 }
 
+function sourceChoicePickerTemplate(state, picker, mediaLibrary, urlCache) {
+  const source = currentSourceValue(picker, state);
+  const mediaItems = state.media || [];
+  const generators = listGeneratorComponents().filter((generator) => generator.id !== "black");
+  return `
+    <div class="modal-backdrop"></div>
+    <section class="modal-panel element-modal" role="dialog" aria-modal="true" aria-label="Choose source">
+      <header class="modal-header">
+        <div>
+          <strong>Choose source</strong>
+          <small>Pick one source for this element.</small>
+        </div>
+        <button type="button" class="icon-buttonish" data-close-modal title="Close" aria-label="Close">${icon("close")}</button>
+      </header>
+
+      <label class="element-search-field">
+        ${icon("search")}
+        <input type="search" data-element-search placeholder="Search media and generators" autocomplete="off" />
+      </label>
+
+      <div class="element-modal-body">
+        <section class="element-section" data-element-section>
+          <div class="rail-title"><span class="material-symbols-rounded">perm_media</span><span>Media</span></div>
+          <div class="element-grid media-element-grid">
+            ${mediaItems.length ? mediaItems.map((item) => sourceMediaCardTemplate(item, source, mediaLibrary, urlCache)).join("") : `
+              <div class="soft-note">Drop image, video, or 3D model files into the browser, or add them to the project folder.</div>
+            `}
+          </div>
+          <div class="soft-note" data-element-empty hidden>No matching media.</div>
+        </section>
+
+        <section class="element-section" data-element-section>
+          <div class="rail-title"><span class="material-symbols-rounded">auto_awesome</span><span>Generators</span></div>
+          <div class="element-grid compact-element-grid">
+            ${generators.map((generator) => `
+              <button type="button" class="element-card ${source.type === "generator" && source.generatorId === generator.id ? "is-selected" : ""}" data-pick-source-generator="${esc(generator.id)}" data-element-search-card="${esc(elementSearchText(generator.id, generator.label, generator.name, generator.category, "generator"))}">
+                ${icon(generatorIcon(generator.id))}
+                <strong>${esc(generator.label || generator.name)}</strong>
+                <small>generator</small>
+              </button>
+            `).join("")}
+          </div>
+          <div class="soft-note" data-element-empty hidden>No matching generators.</div>
+        </section>
+
+        <section class="element-section" data-element-section>
+          <div class="rail-title"><span class="material-symbols-rounded">input</span><span>Other sources</span></div>
+          <div class="element-grid compact-element-grid">
+            <button type="button" class="element-card ${source.type === "camera" ? "is-selected" : ""}" data-pick-source-camera data-element-search-card="live camera portal camera feed video input">
+              ${icon("photo_camera")}
+              <strong>Live camera</strong>
+              <small>Portal camera feed</small>
+            </button>
+            <button type="button" class="element-card ${source.type === "black" ? "is-selected" : ""}" data-pick-source-black data-element-search-card="black empty blank source">
+              ${icon("radio_button_unchecked")}
+              <strong>Black</strong>
+              <small>Empty black source</small>
+            </button>
+          </div>
+          <div class="soft-note" data-element-empty hidden>No matching sources.</div>
+        </section>
+      </div>
+    </section>
+  `;
+}
+
+function sourceMediaCardTemplate(item, source, mediaLibrary, urlCache) {
+  const previewUrl = item.type === "image" || item.type === "video" ? mediaPreviewUrl(item.id, mediaLibrary, urlCache) : "";
+  const selected = source.type === "media" && source.mediaId === item.id;
+  return `
+    <button type="button" class="element-card media-element-card ${selected ? "is-selected" : ""}" data-pick-source-media="${esc(item.id)}" data-element-search-card="${esc(elementSearchText(item.id, item.name, item.type, item.path, "media"))}" title="${esc(item.path || item.name)}">
+      ${previewUrl
+        ? mediaPreviewElementTemplate(item, previewUrl)
+        : `<div class="media-picker-placeholder">${icon(mediaTypeIcon(item.type))}</div>`}
+      <strong>${esc(item.name)}</strong>
+      <small>${esc(item.type)}</small>
+    </button>
+  `;
+}
+
 function elementPickerTemplate(state, picker, mediaLibrary, urlCache) {
   const mediaItems = state.media || [];
+  const generators = listGeneratorComponents().filter((generator) => generator.id !== "black");
+  const effects = listShaderComponents();
   return `
     <div class="modal-backdrop"></div>
     <section class="modal-panel element-modal" role="dialog" aria-modal="true" aria-label="Add element">
       <header class="modal-header">
         <div>
           <strong>Add element</strong>
-          <small>Choose a source layer or an effect for this composition.</small>
+          <small>Choose a source or an effect for this composition.</small>
         </div>
         <button type="button" class="icon-buttonish" data-close-modal title="Close" aria-label="Close">${icon("close")}</button>
       </header>
 
+      <label class="element-search-field">
+        ${icon("search")}
+        <input type="search" data-element-search placeholder="Search media, generators, effects" autocomplete="off" />
+      </label>
+
       <div class="element-modal-body">
-        <section class="element-section">
-          <div class="rail-title"><span class="material-symbols-rounded">perm_media</span><span>Media layers</span></div>
+        <section class="element-section" data-element-section>
+          <div class="rail-title"><span class="material-symbols-rounded">perm_media</span><span>Media</span></div>
           <div class="element-grid media-element-grid">
             ${mediaItems.length ? mediaItems.map((item) => elementMediaCardTemplate(item, mediaLibrary, urlCache)).join("") : `
-              <div class="soft-note">Drop image or video files into the browser, or add them to the project folder.</div>
+              <div class="soft-note">Drop image, video, or 3D model files into the browser, or add them to the project folder.</div>
             `}
           </div>
+          <div class="soft-note" data-element-empty hidden>No matching media.</div>
         </section>
 
-        <section class="element-section">
+        <section class="element-section" data-element-section>
           <div class="rail-title"><span class="material-symbols-rounded">videocam</span><span>Live input</span></div>
           <div class="element-grid compact-element-grid">
-            <button type="button" class="element-card" data-add-element-camera>
+            <button type="button" class="element-card" data-add-element-camera data-element-search-card="live camera portal camera feed video input">
               ${icon("photo_camera")}
               <strong>Live camera</strong>
               <small>Portal camera feed</small>
             </button>
           </div>
+          <div class="soft-note" data-element-empty hidden>No matching live inputs.</div>
         </section>
 
-        <section class="element-section">
+        <section class="element-section" data-element-section>
           <div class="rail-title"><span class="material-symbols-rounded">auto_awesome</span><span>Generators</span></div>
           <div class="element-grid compact-element-grid">
-            ${listGeneratorComponents().filter((generator) => generator.id !== "black").map((generator) => `
-              <button type="button" class="element-card" data-add-element-generator="${esc(generator.id)}">
-                ${icon("auto_awesome")}
+            ${generators.map((generator) => `
+              <button type="button" class="element-card" data-add-element-generator="${esc(generator.id)}" data-element-search-card="${esc(elementSearchText(generator.id, generator.label, generator.name, generator.category, "generator"))}">
+                ${icon(generatorIcon(generator.id))}
                 <strong>${esc(generator.label || generator.name)}</strong>
                 <small>generator</small>
               </button>
             `).join("")}
           </div>
+          <div class="soft-note" data-element-empty hidden>No matching generators.</div>
         </section>
 
-        <section class="element-section">
+        <section class="element-section" data-element-section>
           <div class="rail-title"><span class="material-symbols-rounded">blur_on</span><span>Effects</span></div>
           <div class="element-grid compact-element-grid">
-            ${listShaderComponents().map((shader) => `
-              <button type="button" class="element-card" data-add-element-effect="${esc(shader.id)}">
+            ${effects.map((shader) => `
+              <button type="button" class="element-card" data-add-element-effect="${esc(shader.id)}" data-element-search-card="${esc(elementSearchText(shader.id, shader.name, shader.category, "effect"))}">
                 ${icon(effectIcon(shader.id))}
                 <strong>${esc(shader.name)}</strong>
                 <small>${esc(shader.category || "effect")}</small>
               </button>
             `).join("")}
           </div>
+          <div class="soft-note" data-element-empty hidden>No matching effects.</div>
         </section>
       </div>
     </section>
@@ -1546,14 +2472,18 @@ function elementPickerTemplate(state, picker, mediaLibrary, urlCache) {
 function elementMediaCardTemplate(item, mediaLibrary, urlCache) {
   const previewUrl = item.type === "image" || item.type === "video" ? mediaPreviewUrl(item.id, mediaLibrary, urlCache) : "";
   return `
-    <button type="button" class="element-card media-element-card" data-add-element-media="${esc(item.id)}" title="${esc(item.path || item.name)}">
+    <button type="button" class="element-card media-element-card" data-add-element-media="${esc(item.id)}" data-element-search-card="${esc(elementSearchText(item.id, item.name, item.type, item.path, "media"))}" title="${esc(item.path || item.name)}">
       ${previewUrl
         ? mediaPreviewElementTemplate(item, previewUrl)
-        : `<div class="media-picker-placeholder">${icon(item.type === "video" ? "movie" : "image")}</div>`}
+        : `<div class="media-picker-placeholder">${icon(mediaTypeIcon(item.type))}</div>`}
       <strong>${esc(item.name)}</strong>
       <small>${esc(item.type)}</small>
     </button>
   `;
+}
+
+function elementSearchText(...parts) {
+  return parts.filter(Boolean).join(" ").toLowerCase();
 }
 
 function mediaPickerTemplate(state, picker, mediaLibrary, urlCache) {
@@ -1569,7 +2499,7 @@ function mediaPickerTemplate(state, picker, mediaLibrary, urlCache) {
       </header>
       <div class="media-picker-grid">
         ${state.media.length ? state.media.map((item) => mediaPickerCardTemplate(item, picker, state, mediaLibrary, urlCache)).join("") : `
-          <div class="soft-note">Drop image or video files into the browser, or add them to the project folder.</div>
+          <div class="soft-note">Drop image, video, or 3D model files into the browser, or add them to the project folder.</div>
         `}
       </div>
     </section>
@@ -1583,7 +2513,7 @@ function mediaPickerCardTemplate(item, picker, state, mediaLibrary, urlCache) {
     <button type="button" class="media-picker-card ${selected ? "is-selected" : ""}" data-pick-media="${esc(item.id)}" title="${esc(item.path || item.name)}">
       ${previewUrl
         ? mediaPreviewElementTemplate(item, previewUrl)
-        : `<div class="media-picker-placeholder">${icon(item.type === "video" ? "movie" : "image")}</div>`}
+        : `<div class="media-picker-placeholder">${icon(mediaTypeIcon(item.type))}</div>`}
       <span>${esc(item.name)}</span>
       <small>${esc(item.type)}</small>
     </button>
@@ -1596,14 +2526,22 @@ function mediaPreviewElementTemplate(item, previewUrl) {
     : `<img src="${esc(previewUrl)}" alt="" loading="lazy" />`;
 }
 
+function mediaTypeIcon(type = "") {
+  if (type === "video") return "movie";
+  if (type === "model") return "deployed_code";
+  return "image";
+}
+
 function currentMediaValue(picker, state) {
   if (!picker?.path || !state) return "";
-  const parts = picker.path.split(".");
-  let cursor = state;
-  for (const part of parts) {
-    cursor = cursor?.[Number.isNaN(Number(part)) ? part : Number(part)];
-  }
+  const cursor = getByPath(state, picker.path);
   return typeof cursor === "string" ? cursor : "";
+}
+
+function currentSourceValue(picker, state) {
+  if (!picker?.path || !state) return {};
+  const source = getByPath(state, picker.path);
+  return source && typeof source === "object" ? source : {};
 }
 
 function mediaPreviewUrl(id, mediaLibrary, urlCache) {
@@ -1679,16 +2617,37 @@ function liveUnifiedChainTemplate(chain, compositionId) {
 function liveChainItemTemplate(item, compositionId, index) {
   if (item.kind === "effect") {
     const component = getShaderComponent(item.componentId);
+    const label = component?.name || item.componentId;
     return `
       <div class="live-chain-pass">
-        <label>${icon(effectIcon(item.componentId))}<input type="checkbox" data-live-composition-id="${esc(compositionId)}" data-live-update="chain.${index}.enabled" ${item.enabled ? "checked" : ""} />${esc(component?.name || item.componentId)}</label>
+        <div class="live-chain-title">
+          ${enableToggleButton({
+            livePath: `chain.${index}.enabled`,
+            compositionId,
+            value: item.enabled !== false,
+            iconName: effectIcon(item.componentId),
+            label,
+          })}
+          <span>${esc(label)}</span>
+        </div>
         ${liveShaderParamControlsTemplate(component, item, compositionId, index)}
       </div>
     `;
   }
+  const label = sourceChainItemDisplayName(item);
+  const iconName = sourceIcon(item.source || {});
   return `
     <div class="live-chain-pass">
-      <label>${icon(sourceTypeIcon(item.source?.type || "generator"))}<input type="checkbox" data-live-composition-id="${esc(compositionId)}" data-live-update="chain.${index}.enabled" ${item.enabled ? "checked" : ""} />${esc(item.name || item.componentId || "Layer")}</label>
+      <div class="live-chain-title">
+        ${enableToggleButton({
+          livePath: `chain.${index}.enabled`,
+          compositionId,
+          value: item.enabled !== false,
+          iconName,
+          label,
+        })}
+        <span>${esc(label)}</span>
+      </div>
       ${liveRangeTemplate("Opacity", compositionId, `chain.${index}.opacity`, item.opacity ?? 1)}
       <label class="field chain-param">Blend ${liveSelectValuesTemplate(compositionId, `chain.${index}.blend`, BLEND_MODES, item.blend || "normal")}</label>
     </div>
@@ -1727,6 +2686,7 @@ function liveParamControlTemplate(param, path, value, attrs) {
       </label>
     `;
   }
+  if (param.type === "color") return colorParamControlTemplate(param, path, value, attrs);
   return `
     <label class="field range-field chain-param">
       <span><span>${esc(param.label || param.id)}</span></span>
@@ -1755,6 +2715,7 @@ function liveSelectValuesTemplate(compositionId, path, values, value) {
 function sceneFingerprintCompositions(scene, state) {
   const ids = [];
   for (const surface of scene.snapshot?.surfaces || []) {
+    if (surface.enabled === false) continue;
     if (surface.compositionId && !ids.includes(surface.compositionId)) ids.push(surface.compositionId);
   }
   return ids
@@ -1806,6 +2767,16 @@ function liveSelectedSceneId(state) {
 
 function liveSceneCompositions(scene, state) {
   return sceneFingerprintCompositions(scene, state);
+}
+
+function canvasCompositions(state) {
+  return (state.compositions || []).filter((composition) => composition.type === "canvas");
+}
+
+function selectedCanvasComposition(state) {
+  return canvasCompositions(state).find((composition) => composition.id === state.ui.selectedCompositionId)
+    || canvasCompositions(state)[0]
+    || null;
 }
 
 function sceneSurfaceSnapshot(scene, surfaceId) {
@@ -1864,6 +2835,15 @@ function setByPath(target, path, value) {
   cursor[Number.isNaN(Number(last)) ? last : Number(last)] = value;
 }
 
+function getByPath(target, path) {
+  const parts = String(path || "").split(".").filter(Boolean);
+  let cursor = target;
+  for (const part of parts) {
+    cursor = cursor?.[Number.isNaN(Number(part)) ? part : Number(part)];
+  }
+  return cursor;
+}
+
 function setByPathCreate(target, path, value) {
   const parts = path.split(".");
   let cursor = target;
@@ -1883,10 +2863,56 @@ function readInputValue(input) {
   return input.value;
 }
 
+function colorValueFromControl(control) {
+  const rgb = normalizeColorHex(control.querySelector("[data-color-rgb]")?.value || "#ffffff").slice(0, 7);
+  const alpha = clampNumberLocal(Number(control.querySelector("[data-color-alpha]")?.value) || 0, 0, 1);
+  return `${rgb}${Math.round(alpha * 255).toString(16).padStart(2, "0")}`;
+}
+
+function normalizeColorHex(value = "#ffffffff") {
+  const text = String(value || "").trim();
+  const match = /^#?([a-f\d]{6})([a-f\d]{2})?$/i.exec(text);
+  if (!match) return "#ffffffff";
+  return `#${match[1].toLowerCase()}${(match[2] || "ff").toLowerCase()}`;
+}
+
+function colorAlphaFromHex(value = "#ffffffff") {
+  const rgba = normalizeColorHex(value);
+  return parseInt(rgba.slice(7, 9), 16) / 255;
+}
+
 function updateRangeLabel(input) {
   const label = input.closest(".range-field");
   const value = label?.querySelector("strong");
   if (value) value.textContent = Number(input.value).toFixed(2);
+}
+
+function syncVideoTrimControl(control, start, end, max) {
+  const safeMax = Math.max(0.01, Number(max) || 60);
+  const safeStart = clampNumberLocal(Number(start) || 0, 0, safeMax);
+  const safeEnd = clampNumberLocal(Number(end) || safeMax, safeStart, safeMax);
+  control.style.setProperty("--trim-start", `${((safeStart / safeMax) * 100).toFixed(3)}%`);
+  control.style.setProperty("--trim-end", `${((safeEnd / safeMax) * 100).toFixed(3)}%`);
+  const startLabel = control.querySelector("[data-video-trim-label='start']");
+  const endLabel = control.querySelector("[data-video-trim-label='end']");
+  if (startLabel) startLabel.textContent = formatTrimTime(safeStart);
+  if (endLabel) endLabel.textContent = formatTrimTime(safeEnd);
+}
+
+function formatTrimTime(value) {
+  const seconds = roundTrimTime(Math.max(0, Number(value) || 0));
+  const minutes = Math.floor(seconds / 60);
+  const wholeSeconds = Math.floor(seconds % 60);
+  const centiseconds = Math.round((seconds - Math.floor(seconds)) * 100);
+  return `${minutes}:${String(wholeSeconds).padStart(2, "0")}.${String(centiseconds).padStart(2, "0")}`;
+}
+
+function roundTrimTime(value) {
+  return Math.round((Number(value) || 0) * 100) / 100;
+}
+
+function clampNumberLocal(value, min, max) {
+  return Math.min(max, Math.max(min, value));
 }
 
 function pathForSurface(state, surface) {

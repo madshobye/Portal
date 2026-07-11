@@ -68,6 +68,15 @@ export function createEnumParam(id, label, values, defaultValue = values?.[0] ||
   };
 }
 
+export function createColorParam(id, label, defaultValue = "#ffffffff") {
+  return {
+    id,
+    label,
+    type: PARAM_TYPES.COLOR,
+    defaultValue,
+  };
+}
+
 export function textureInlet(id = "input", label = "Input") {
   return { id, label, type: PORT_TYPES.TEXTURE };
 }
@@ -90,6 +99,8 @@ export function defineVisualComponent(definition = {}) {
     category: definition.category || "misc",
     processor: definition.processor || definition.kind || "effect",
     scheduler: definition.scheduler || "frame",
+    spatial: !!definition.spatial,
+    transformSource: definition.transformSource !== false,
     inlets: Object.freeze([...(definition.inlets || [])]),
     outlets: Object.freeze([...(definition.outlets || [])]),
     params: Object.freeze([...(definition.params || [])]),

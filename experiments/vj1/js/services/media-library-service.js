@@ -2,7 +2,8 @@ import { uid } from "../domain/models.js?v=world-frame-27";
 import { isMediaRenditionPath, parseMediaRenditionPath } from "./media-rendition-service.js";
 
 const VIDEO_RE = /\.(mp4|m4v|mov|webm|ogv)$/i;
-const IMAGE_RE = /\.(png|jpe?g|gif|webp|bmp)$/i;
+const IMAGE_RE = /\.(png|jpe?g|gif|webp|bmp|svg)$/i;
+const MODEL_RE = /\.(stl|obj)$/i;
 const SHADER_RE = /\.(frag|glsl|fs)$/i;
 
 export function createMediaLibrary() {
@@ -91,7 +92,7 @@ export async function collectFilesFromDirectory(dirHandle, prefix = "") {
 
 export function isMediaFile(path) {
   if (isMediaRenditionPath(path)) return false;
-  return VIDEO_RE.test(path) || IMAGE_RE.test(path);
+  return VIDEO_RE.test(path) || IMAGE_RE.test(path) || MODEL_RE.test(path);
 }
 
 export function isShaderFile(path) {
@@ -101,5 +102,6 @@ export function isShaderFile(path) {
 export function getMediaType(path) {
   if (VIDEO_RE.test(path)) return "video";
   if (IMAGE_RE.test(path)) return "image";
+  if (MODEL_RE.test(path)) return "model";
   return "unknown";
 }

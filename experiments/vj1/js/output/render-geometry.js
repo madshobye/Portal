@@ -53,7 +53,9 @@ export function renderRequestKey(request = {}) {
   const role = request.role || "texture";
   const width = positiveInt(request.width, VJ1.renderWidth, 1);
   const height = positiveInt(request.height, VJ1.renderHeight, 1);
-  return `${role}:${width}x${height}`;
+  const requestInstance = request.instanceId || request.surfaceId || "";
+  const instance = requestInstance ? `:${requestInstance}` : "";
+  return `${role}:${width}x${height}${instance}`;
 }
 
 export function mappedSurfaceSize(corners = []) {
@@ -84,6 +86,40 @@ export function outputFrameOffset(render = {}) {
     x: Math.max(0, (world.width - frame.width) * 0.5),
     y: Math.max(0, (world.height - frame.height) * 0.5),
   };
+}
+
+export function defaultProjectSurfaceMapping(render = {}, surfaces = []) {
+  const frame = frameSize(render);
+  const offset = outputFrameOffset(render);
+  const texture = surfaceTextureSize(render);
+  const surfaceList = Array.isArray(surfaces) ? surfaces : [];
+  const cols = Math.max(1, Math.ceil(Math.sqrt(surfaceList.length || 1)));
+  const rows = Math.max(1, Math.ceil((surfaceList.length || 1) / cols));
+  const gap = Math.max(24, Math.round(Math.min(frame.width, frame.height) * 0.035));
+  const cellW = Math.max(1, (frame.width - gap * (cols + 1)) / cols);
+  const idealCellH = cellW * (texture.height / texture.width);
+  const maxCellH = Math.max(1, (frame.height - gap * (rows + 1)) / rows);
+  const cellH = Math.min(idealCellH, maxCellH);
+
+  return surfaceList.map((surface, index) => {
+    const col = index % cols;
+    const row = Math.floor(index / cols);
+    const x = offset.x + gap + col * (cellW + gap);
+    const y = offset.y + gap + row * (cellH + gap);
+    const id = surface.id || surface.name || `surface-${index + 1}`;
+    return {
+      id,
+      name: id,
+      w: texture.width,
+      h: texture.height,
+      corners: [
+        { x, y },
+        { x: x + cellW, y },
+        { x: x + cellW, y: y + cellH },
+        { x, y: y + cellH },
+      ],
+    };
+  });
 }
 
 export function fittedCssRect(container, content, zoom = 1, pan = {}) {

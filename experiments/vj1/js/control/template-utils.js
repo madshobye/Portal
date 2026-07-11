@@ -38,6 +38,13 @@ export function selectValuesTemplate(path, values, value) {
 
 export function effectIcon(id) {
   return {
+    alphaVignette: "vignette",
+    photoGrade: "tune",
+    glitchDistort: "broken_image",
+    spinRotate: "rotate_right",
+    echoFade: "motion_blur",
+    mirrorFold: "filter_vintage",
+    heatShimmer: "local_fire_department",
     ripple: "water",
     rgbSplit: "gradient",
     kaleido: "filter_vintage",

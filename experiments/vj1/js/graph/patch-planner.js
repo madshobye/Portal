@@ -48,7 +48,10 @@ export function patchNodeDegree(plan, nodeId) {
 export function planTextureBranches(plan = {}) {
   const nodeById = new Map((plan.nodes || []).map((node) => [node.id, node]));
   const branches = [];
-  const sourceNodes = (plan.nodes || []).filter(isSourceNode);
+  const sourceNodes = (plan.nodes || []).filter((node) => {
+    const incomingTextures = (plan.incoming?.get?.(node.id) || []).filter((edge) => edge.type === "texture");
+    return incomingTextures.length === 0 && (isSourceNode(node) || isEffectNode(node));
+  });
 
   for (const source of sourceNodes) {
     const branch = {
@@ -88,7 +91,7 @@ export function planTextureBranches(plan = {}) {
         branch.index = textureInletIndex(branch.inletId, branches.length + 1);
         break;
       }
-      if (isEffectNode(next)) {
+      if (isEffectNode(next) || isSourceNode(next)) {
         branch.effects.push(next);
         current = next;
         continue;

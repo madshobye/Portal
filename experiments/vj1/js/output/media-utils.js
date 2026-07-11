@@ -1,11 +1,25 @@
 export function drawCover(pg, media, x, y, w, h) {
+  drawMediaFit(pg, media, x, y, w, h, "cover");
+}
+
+export function drawContain(pg, media, x, y, w, h) {
+  drawMediaFit(pg, media, x, y, w, h, "contain");
+}
+
+export function drawMediaFit(pg, media, x, y, w, h, fit = "cover") {
   const element = media.elt || media;
   const mw = element.videoWidth || element.naturalWidth || media.width || element.width || w;
   const mh = element.videoHeight || element.naturalHeight || media.height || element.height || h;
-  const scale = Math.max(w / mw, h / mh);
+  const scale = fit === "contain" ? Math.min(w / mw, h / mh) : Math.max(w / mw, h / mh);
   const dw = mw * scale;
   const dh = mh * scale;
-  pg.image(media, x + (w - dw) / 2, y + (h - dh) / 2, dw, dh);
+  const dx = x + (w - dw) / 2;
+  const dy = y + (h - dh) / 2;
+  try {
+    pg.image(media, dx, dy, dw, dh);
+  } catch {
+    pg.drawingContext?.drawImage?.(element, dx, dy, dw, dh);
+  }
 }
 
 export function isDrawableMedia(media) {
@@ -20,10 +34,21 @@ export function isDrawableMedia(media) {
   return false;
 }
 
-export function syncVideoSpeed(video, speedValue = 1) {
-  const speed = Math.max(0, Number(speedValue) || 0);
+export function syncVideoPlayback(video, options = {}) {
+  const speed = Math.max(0, Number(options.speed ?? options.speedValue ?? 1) || 0);
+  const start = Math.max(0, Number(options.start) || 0);
+  const requestedEnd = Math.max(0, Number(options.end) || 0);
   const elt = video?.elt || video;
   if (!elt) return;
+  const duration = Number.isFinite(elt.duration) && elt.duration > 0 ? elt.duration : 0;
+  const end = requestedEnd > start ? Math.min(requestedEnd, duration || requestedEnd) : duration;
+  const hasSegment = start > 0 || (end && end > start && end < duration - 0.02);
+  const current = Number(elt.currentTime) || 0;
+  if (hasSegment && (current < start - 0.04 || (end && current >= end - 0.035))) {
+    try {
+      elt.currentTime = start;
+    } catch {}
+  }
   if (speed <= 0.001) {
     if (!elt.paused) video.pause?.();
     return;
@@ -36,8 +61,12 @@ export function syncVideoSpeed(video, speedValue = 1) {
   }
   if (elt.paused) {
     try {
-      video.loop?.();
+      if (!hasSegment) video.loop?.();
       video.play?.();
     } catch {}
   }
+}
+
+export function syncVideoSpeed(video, speedValue = 1) {
+  syncVideoPlayback(video, { speed: speedValue });
 }
