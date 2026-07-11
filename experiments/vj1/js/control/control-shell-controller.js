@@ -2239,7 +2239,7 @@ function generatorParamControlsTemplate(base, source = {}) {
   if (!component?.params?.length) return "";
   return `
     <div class="chain-param-list">
-      ${component.params.map((param) => paramControlTemplate(
+      ${visibleParamControls(component.params).map((param) => paramControlTemplate(
         param,
         `${base}.params.${param.id}`,
         paramCurrentValue(component, { params: source.params || {} }, param)
@@ -2257,6 +2257,7 @@ function generatorIcon(id) {
     noise: "grain",
     plasma: "blur_on",
     gradient: "gradient",
+    anatomy: "accessibility_new",
     checker: "grid_view",
     testPattern: "featured_video",
   }[id] || "auto_awesome";
@@ -2342,9 +2343,13 @@ function shaderParamControlsTemplate(component, pass, basePath) {
   if (!component?.params?.length) return "";
   return `
     <div class="chain-param-list">
-      ${component.params.map((param) => paramControlTemplate(param, `${basePath}.params.${param.id}`, paramCurrentValue(component, pass, param))).join("")}
+      ${visibleParamControls(component.params).map((param) => paramControlTemplate(param, `${basePath}.params.${param.id}`, paramCurrentValue(component, pass, param))).join("")}
     </div>
   `;
+}
+
+function visibleParamControls(params = []) {
+  return (params || []).filter((param) => param?.id !== "seed");
 }
 
 function paramControlTemplate(param, path, value, attrs = "data-update") {
@@ -2844,7 +2849,7 @@ function liveShaderParamControlsTemplate(component, item, compositionId, itemPat
   if (!component?.params?.length) return "";
   return `
     <div class="chain-param-list">
-      ${component.params.map((param) => {
+      ${visibleParamControls(component.params).map((param) => {
         const path = `${itemPath}.params.${param.id}`;
         return paramControlTemplate(param, path, paramCurrentValue(component, item, param), liveParamAttrs(compositionId));
       }).join("")}
@@ -2861,7 +2866,7 @@ function liveSourceParamControlsTemplate(item, compositionId, itemPath) {
   };
   return `
     <div class="chain-param-list">
-      ${params.map((param) => paramControlTemplate(
+      ${visibleParamControls(params).map((param) => paramControlTemplate(
         param,
         `${itemPath}.params.${param.id}`,
         normalizeParamValue(param, values[param.id]),

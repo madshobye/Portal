@@ -59,3 +59,11 @@ test("3d model controls use full-width slider rows", () => {
   assert.ok(!modelControls.includes("field-pair"));
   assert.ok(styleSource.includes(".model-param-list"));
 });
+
+test("seed params stay internal and are not rendered as sliders", () => {
+  const controllerSource = readFileSync(new URL("../js/control/control-shell-controller.js", import.meta.url), "utf8");
+
+  assert.ok(controllerSource.includes('param?.id !== "seed"'));
+  assert.ok(controllerSource.includes("visibleParamControls(component.params).map"));
+  assert.ok(controllerSource.includes("visibleParamControls(params).map"));
+});

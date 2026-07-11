@@ -104,6 +104,38 @@ test("gradient generator exposes rgba color stops", () => {
   assert.equal(normalizeParamValue(colorParams[0], "#11223380"), "#11223380");
 });
 
+test("low poly anatomy generator exposes body part and stl-style 3d controls", () => {
+  const component = getGeneratorComponent("anatomy");
+  const params = Object.fromEntries(component.params.map((param) => [param.id, param]));
+  const rendererSource = readFileSync(new URL("../js/output/output-renderer.js", import.meta.url), "utf8");
+  const controllerSource = readFileSync(new URL("../js/control/control-shell-controller.js", import.meta.url), "utf8");
+
+  assert.equal(component.name, "Low Poly Anatomy");
+  assert.equal(component.category, "character");
+  assert.deepEqual(params.part.values, ["face", "body", "hand", "arm", "leg", "heart"]);
+  assert.deepEqual(params.renderMode.values, ["surface", "wireframe", "surfaceWire", "points"]);
+  assert.equal(params.renderMode.defaultValue, "surface");
+  assert.equal(params.detail.defaultValue, 8);
+  for (const id of ["surfaceColor", "wireColor", "modelScale", "rotationX", "rotationY", "rotationZ", "spinX", "spinY", "spinZ", "depth", "wireThickness", "detail"]) {
+    assert.ok(params[id], `missing ${id}`);
+  }
+  for (const id of ["expression", "mouthOpen", "brow", "eyeSquint", "fingerBend", "limbBend", "heartPulse"]) {
+    assert.ok(params[id], `missing anatomy behavior param ${id}`);
+  }
+  assert.ok(rendererSource.includes('source.generatorId === "anatomy"'));
+  assert.ok(rendererSource.includes("drawProceduralAnatomy("));
+  assert.ok(rendererSource.includes("anatomyTaperedSegment("));
+  assert.ok(rendererSource.includes("anatomyProfileVolume("));
+  assert.ok(rendererSource.includes("anatomyPathVolume("));
+  assert.ok(rendererSource.includes("anatomyPartFitScale("));
+  assert.ok(rendererSource.includes("target.scale(scale, -scale, scale * depth);"));
+  assert.ok(rendererSource.includes("drawAnatomyFinger("));
+  assert.ok(rendererSource.includes("drawAnatomyArmChain("));
+  assert.ok(rendererSource.includes("drawAnatomyLegChain("));
+  assert.ok(rendererSource.includes("drawLowPolyHeart("));
+  assert.ok(controllerSource.includes("anatomy: \"accessibility_new\""));
+});
+
 test("live source param overrides compile through node params", () => {
   const state = createInitialState();
   const composition = createDefaultComposition(0);
@@ -355,4 +387,17 @@ test("dirty cache classifier keeps static photo chains cacheable and animated no
 
   composition.chain[1].params = { cctvAmount: 0.35, screenPrintAmount: 0.25, seedMode: "fixed", seed: 4 };
   assert.ok(renderer.stableCompositionSignature(composition, { role: "composition", width: 640, height: 360 }));
+
+  composition.chain = [createCompositionLayer(0, { type: "generator", generatorId: "anatomy" })];
+  composition.chain[0].params = { part: "arm", spinY: 0 };
+  assert.ok(renderer.stableCompositionSignature(composition, { role: "composition", width: 640, height: 360 }));
+
+  composition.chain[0].params = { part: "arm", spinY: 0.2 };
+  assert.equal(renderer.stableCompositionSignature(composition, { role: "composition", width: 640, height: 360 }), "");
+
+  composition.chain[0].params = { part: "heart", heartPulse: 0 };
+  assert.ok(renderer.stableCompositionSignature(composition, { role: "composition", width: 640, height: 360 }));
+
+  composition.chain[0].params = { part: "heart", heartPulse: 0.35 };
+  assert.equal(renderer.stableCompositionSignature(composition, { role: "composition", width: 640, height: 360 }), "");
 });

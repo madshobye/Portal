@@ -1,0 +1,217 @@
+{
+  "version": 5,
+  "project": {
+    "name": "Low Poly Anatomy Showcase",
+    "folderName": "fixtures",
+    "savedAt": "",
+    "warnings": []
+  },
+  "media": [],
+  "shaders": {
+    "customCode": "vec4 runEffect(vec2 uv, vec4 color) { return color; }",
+    "customName": "Fixture Passthrough"
+  },
+  "compositions": [
+    {
+      "id": "anatomy-face",
+      "name": "Face",
+      "source": { "type": "generator", "generatorId": "anatomy", "params": { "part": "face", "modelScale": 1, "renderMode": "surface" } },
+      "opacity": 1,
+      "blend": "normal",
+      "speed": 1,
+      "thumbnail": "",
+      "chain": [
+        {
+          "id": "anatomy-face-source",
+          "kind": "source",
+          "componentId": "anatomy",
+          "name": "Face",
+          "enabled": true,
+          "source": { "type": "generator", "generatorId": "anatomy", "params": { "part": "face", "modelScale": 1, "renderMode": "surface" } },
+          "params": { "part": "face", "modelScale": 1, "renderMode": "surface" },
+          "opacity": 1,
+          "blend": "normal",
+          "transform": { "x": 0, "y": 0, "scale": 1, "rotation": 0 }
+        }
+      ],
+      "shaderChain": []
+    },
+    {
+      "id": "anatomy-body",
+      "name": "Body",
+      "source": { "type": "generator", "generatorId": "anatomy", "params": { "part": "body", "modelScale": 1, "renderMode": "surface" } },
+      "opacity": 1,
+      "blend": "normal",
+      "speed": 1,
+      "thumbnail": "",
+      "chain": [
+        {
+          "id": "anatomy-body-source",
+          "kind": "source",
+          "componentId": "anatomy",
+          "name": "Body",
+          "enabled": true,
+          "source": { "type": "generator", "generatorId": "anatomy", "params": { "part": "body", "modelScale": 1, "renderMode": "surface" } },
+          "params": { "part": "body", "modelScale": 1, "renderMode": "surface" },
+          "opacity": 1,
+          "blend": "normal",
+          "transform": { "x": 0, "y": 0, "scale": 1, "rotation": 0 }
+        }
+      ],
+      "shaderChain": []
+    },
+    {
+      "id": "anatomy-hand",
+      "name": "Hand",
+      "source": { "type": "generator", "generatorId": "anatomy", "params": { "part": "hand", "modelScale": 1, "renderMode": "surface", "fingerBend": 0.32 } },
+      "opacity": 1,
+      "blend": "normal",
+      "speed": 1,
+      "thumbnail": "",
+      "chain": [
+        {
+          "id": "anatomy-hand-source",
+          "kind": "source",
+          "componentId": "anatomy",
+          "name": "Hand",
+          "enabled": true,
+          "source": { "type": "generator", "generatorId": "anatomy", "params": { "part": "hand", "modelScale": 1, "renderMode": "surface", "fingerBend": 0.32 } },
+          "params": { "part": "hand", "modelScale": 1, "renderMode": "surface", "fingerBend": 0.32 },
+          "opacity": 1,
+          "blend": "normal",
+          "transform": { "x": 0, "y": 0, "scale": 1, "rotation": 0 }
+        }
+      ],
+      "shaderChain": []
+    },
+    {
+      "id": "anatomy-arm",
+      "name": "Arm",
+      "source": { "type": "generator", "generatorId": "anatomy", "params": { "part": "arm", "modelScale": 1, "renderMode": "surface", "limbBend": 0.45 } },
+      "opacity": 1,
+      "blend": "normal",
+      "speed": 1,
+      "thumbnail": "",
+      "chain": [
+        {
+          "id": "anatomy-arm-source",
+          "kind": "source",
+          "componentId": "anatomy",
+          "name": "Arm",
+          "enabled": true,
+          "source": { "type": "generator", "generatorId": "anatomy", "params": { "part": "arm", "modelScale": 1, "renderMode": "surface", "limbBend": 0.45 } },
+          "params": { "part": "arm", "modelScale": 1, "renderMode": "surface", "limbBend": 0.45 },
+          "opacity": 1,
+          "blend": "normal",
+          "transform": { "x": 0, "y": 0, "scale": 1, "rotation": 0 }
+        }
+      ],
+      "shaderChain": []
+    },
+    {
+      "id": "anatomy-leg",
+      "name": "Leg",
+      "source": { "type": "generator", "generatorId": "anatomy", "params": { "part": "leg", "modelScale": 1, "renderMode": "surface", "limbBend": 0.35 } },
+      "opacity": 1,
+      "blend": "normal",
+      "speed": 1,
+      "thumbnail": "",
+      "chain": [
+        {
+          "id": "anatomy-leg-source",
+          "kind": "source",
+          "componentId": "anatomy",
+          "name": "Leg",
+          "enabled": true,
+          "source": { "type": "generator", "generatorId": "anatomy", "params": { "part": "leg", "modelScale": 1, "renderMode": "surface", "limbBend": 0.35 } },
+          "params": { "part": "leg", "modelScale": 1, "renderMode": "surface", "limbBend": 0.35 },
+          "opacity": 1,
+          "blend": "normal",
+          "transform": { "x": 0, "y": 0, "scale": 1, "rotation": 0 }
+        }
+      ],
+      "shaderChain": []
+    },
+    {
+      "id": "anatomy-heart",
+      "name": "Heart",
+      "source": { "type": "generator", "generatorId": "anatomy", "params": { "part": "heart", "modelScale": 1, "renderMode": "surface", "heartPulse": 0.35 } },
+      "opacity": 1,
+      "blend": "normal",
+      "speed": 1,
+      "thumbnail": "",
+      "chain": [
+        {
+          "id": "anatomy-heart-source",
+          "kind": "source",
+          "componentId": "anatomy",
+          "name": "Heart",
+          "enabled": true,
+          "source": { "type": "generator", "generatorId": "anatomy", "params": { "part": "heart", "modelScale": 1, "renderMode": "surface", "heartPulse": 0.35 } },
+          "params": { "part": "heart", "modelScale": 1, "renderMode": "surface", "heartPulse": 0.35 },
+          "opacity": 1,
+          "blend": "normal",
+          "transform": { "x": 0, "y": 0, "scale": 1, "rotation": 0 }
+        }
+      ],
+      "shaderChain": []
+    }
+  ],
+  "surfaces": [
+    { "id": "surface-face", "name": "Face", "enabled": true, "opacity": 1, "finalBlend": "normal", "finalShaderChain": [], "compositionId": "anatomy-face", "mappingId": "surface-face", "showLabel": false, "calibrationLocked": true },
+    { "id": "surface-body", "name": "Body", "enabled": true, "opacity": 1, "finalBlend": "normal", "finalShaderChain": [], "compositionId": "anatomy-body", "mappingId": "surface-body", "showLabel": false, "calibrationLocked": true },
+    { "id": "surface-hand", "name": "Hand", "enabled": true, "opacity": 1, "finalBlend": "normal", "finalShaderChain": [], "compositionId": "anatomy-hand", "mappingId": "surface-hand", "showLabel": false, "calibrationLocked": true },
+    { "id": "surface-arm", "name": "Arm", "enabled": true, "opacity": 1, "finalBlend": "normal", "finalShaderChain": [], "compositionId": "anatomy-arm", "mappingId": "surface-arm", "showLabel": false, "calibrationLocked": true },
+    { "id": "surface-leg", "name": "Leg", "enabled": true, "opacity": 1, "finalBlend": "normal", "finalShaderChain": [], "compositionId": "anatomy-leg", "mappingId": "surface-leg", "showLabel": false, "calibrationLocked": true },
+    { "id": "surface-heart", "name": "Heart", "enabled": true, "opacity": 1, "finalBlend": "normal", "finalShaderChain": [], "compositionId": "anatomy-heart", "mappingId": "surface-heart", "showLabel": false, "calibrationLocked": true }
+  ],
+  "scenes": [
+    {
+      "id": "scene-anatomy-showcase",
+      "name": "Anatomy Showcase",
+      "notes": "Visual regression fixture for all procedural anatomy parts.",
+      "snapshot": {
+        "surfaces": [
+          { "id": "surface-face", "enabled": true, "compositionId": "anatomy-face", "opacity": 1, "finalBlend": "normal", "finalShaderChain": [], "showLabel": false },
+          { "id": "surface-body", "enabled": true, "compositionId": "anatomy-body", "opacity": 1, "finalBlend": "normal", "finalShaderChain": [], "showLabel": false },
+          { "id": "surface-hand", "enabled": true, "compositionId": "anatomy-hand", "opacity": 1, "finalBlend": "normal", "finalShaderChain": [], "showLabel": false },
+          { "id": "surface-arm", "enabled": true, "compositionId": "anatomy-arm", "opacity": 1, "finalBlend": "normal", "finalShaderChain": [], "showLabel": false },
+          { "id": "surface-leg", "enabled": true, "compositionId": "anatomy-leg", "opacity": 1, "finalBlend": "normal", "finalShaderChain": [], "showLabel": false },
+          { "id": "surface-heart", "enabled": true, "compositionId": "anatomy-heart", "opacity": 1, "finalBlend": "normal", "finalShaderChain": [], "showLabel": false }
+        ]
+      }
+    }
+  ],
+  "render": {
+    "frameWidth": 1308,
+    "frameHeight": 664,
+    "surfaceWidth": 436,
+    "surfaceHeight": 332,
+    "pixelDensity": 1,
+    "edgeSoftness": 0
+  },
+  "global": {
+    "blackout": false,
+    "bpm": 120,
+    "crossfade": 1,
+    "showHud": false,
+    "showLabels": false,
+    "calibrating": false,
+    "mappingHandleMode": "near"
+  },
+  "mappings": {
+    "local": {
+      "surfaces": []
+    }
+  },
+  "scheduler": { "mode": "hardconfigured", "manualLane": true },
+  "ui": {
+    "workspace": "scene",
+    "selectedCompositionId": "anatomy-face",
+    "selectedChainItemId": "anatomy-face-source",
+    "selectedSceneId": "scene-anatomy-showcase",
+    "selectedSurfaceId": "surface-face",
+    "debugPreview": false,
+    "live": { "selectedSceneId": "scene-anatomy-showcase", "compositionOverrides": {} }
+  }
+}
