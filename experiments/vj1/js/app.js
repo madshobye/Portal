@@ -19,7 +19,19 @@ if (mode === "output" || mode === "preview" || mode === "composition") {
   const mediaLibrary = createMediaLibrary();
   const bridge = createControlBridge({ store, mediaLibrary });
   const projectService = createProjectFolderService({ mediaLibrary, store, bridge });
-  let bridgeScrubTimer = null;
+  let bridgeScrubFrame = 0;
+
+  function sendScrubState() {
+    if (bridgeScrubFrame) return;
+    const scheduleFrame = typeof requestAnimationFrame === "function"
+      ? requestAnimationFrame
+      : (callback) => setTimeout(callback, 0);
+    bridgeScrubFrame = scheduleFrame(() => {
+      bridgeScrubFrame = 0;
+      bridge.sendState();
+    });
+  }
+
   createControlShell({ root, store, bridge, mediaLibrary, projectService }).mount();
 
   store.subscribe((state, reason) => {
@@ -29,8 +41,7 @@ if (mode === "output" || mode === "preview" || mode === "composition") {
       return;
     }
     if (String(reason).startsWith("scrub:")) {
-      clearTimeout(bridgeScrubTimer);
-      bridgeScrubTimer = setTimeout(() => bridge.sendState(), 90);
+      sendScrubState();
       return;
     }
     if (!["init", "output-metrics", "preview-metrics", "view", "project-history", "project-undo", "project-redo", "project-autosave", "project-autosave-error"].includes(reason)) {

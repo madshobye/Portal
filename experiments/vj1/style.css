@@ -1626,6 +1626,11 @@ small {
   gap: 8px;
 }
 
+.model-param-list {
+  display: grid;
+  gap: 6px;
+}
+
 .video-trim-control {
   display: grid;
   gap: 7px;

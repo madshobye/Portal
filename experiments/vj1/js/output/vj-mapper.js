@@ -135,7 +135,7 @@ export class VjMapper {
     this.shader.setUniform("tex", texture);
     this.shader.setUniform("uResolution", this._renderResolution);
     this.shader.setUniform("uHinv", cache.Hc);
-    this.shader.setUniform("uSurfaceSize", [surface.w, surface.h]);
+    this.shader.setUniform("uSurfaceSize", [texture.width || surface.w, texture.height || surface.h]);
     this.shader.setUniform("uEdgeSoftness", this.edgeSoftness);
     this._drawSurfaceBounds(cache.bounds);
     resetShader();
@@ -246,7 +246,7 @@ export class VjMapper {
   _ensureShader() {
     if (this.shader) return;
     const vertexSource = `
-      precision mediump float;
+      precision highp float;
       attribute vec3 aPosition;
       uniform mat4 uProjectionMatrix;
       uniform mat4 uModelViewMatrix;
@@ -255,7 +255,7 @@ export class VjMapper {
       }
     `;
     const fragmentSource = `
-      precision mediump float;
+      precision highp float;
       uniform sampler2D tex;
       uniform mat3 uHinv;
       uniform vec2 uResolution;

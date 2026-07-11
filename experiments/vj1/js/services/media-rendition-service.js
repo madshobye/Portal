@@ -7,16 +7,16 @@ export function mediaRenditionKey(mediaId, width, height) {
 }
 
 export function mediaRenditionPath(mediaId, width, height) {
-  return `${RENDITION_PREFIX}${encodeURIComponent(String(mediaId || "media"))}__${positiveInt(width)}x${positiveInt(height)}.jpg`;
+  return `${RENDITION_PREFIX}${encodeURIComponent(String(mediaId || "media"))}__${positiveInt(width)}x${positiveInt(height)}.png`;
 }
 
 export function isMediaRenditionPath(path = "") {
-  return String(path).startsWith(RENDITION_PREFIX) && /\.jpe?g$/i.test(String(path));
+  return String(path).startsWith(RENDITION_PREFIX) && /\.(png|jpe?g)$/i.test(String(path));
 }
 
 export function parseMediaRenditionPath(path = "") {
   const name = String(path).slice(RENDITION_PREFIX.length);
-  const match = /^(.+)__(\d+)x(\d+)\.jpe?g$/i.exec(name);
+  const match = /^(.+)__(\d+)x(\d+)\.(?:png|jpe?g)$/i.exec(name);
   if (!match) return null;
   try {
     return {

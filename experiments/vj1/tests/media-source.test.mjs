@@ -162,6 +162,7 @@ test("3d model media is detected and keeps render params", () => {
         rotationZ: 0.1,
         modelScale: 1.4,
         pointBudget: 8000,
+        wireThickness: 3.5,
         spinY: 0.2,
         surfaceColor: "#3366ccaa",
         wireColor: "#ffcc00ff",
@@ -177,6 +178,7 @@ test("3d model media is detected and keeps render params", () => {
   assert.equal(source.params.rotationX, 0.4);
   assert.equal(source.params.modelScale, 1.4);
   assert.equal(source.params.pointBudget, 8000);
+  assert.equal(source.params.wireThickness, 3.5);
   assert.equal(source.params.surfaceColor, "#3366ccaa");
   assert.equal(source.params.wireColor, "#ffcc00ff");
 
@@ -186,6 +188,7 @@ test("3d model media is detected and keeps render params", () => {
   assert.equal(sourceNode.params.renderMode, "wireframe");
   assert.equal(sourceNode.params.spinY, 0.2);
   assert.equal(sourceNode.params.pointBudget, 8000);
+  assert.equal(sourceNode.params.wireThickness, 3.5);
   assert.equal(sourceNode.params.surfaceColor, "#3366ccaa");
   assert.equal(sourceNode.params.wireColor, "#ffcc00ff");
 });
@@ -194,13 +197,40 @@ test("3d model point mode uses cached bounded point clouds", () => {
   const source = readFileSync(new URL("../js/output/output-renderer.js", import.meta.url), "utf8");
 
   assert.ok(source.includes("drawRawParsedModel(target, item, params, compositionTime, \"points\""));
-  assert.ok(source.includes("drawRawParsedModel(target, item, params, compositionTime, \"wireframe\""));
-  assert.ok(source.includes("gl.drawArrays(mode === \"wireframe\" ? gl.LINES : gl.POINTS"));
+  assert.ok(source.includes("drawRawParsedWire(target, item, params, compositionTime, wireColor, pointBudget, viewport)"));
+  assert.ok(source.includes("gl.drawArrays(gl.TRIANGLES, 0, resources.count);"));
   assert.ok(source.includes("ensureParsedModelPointCloud(item, pointBudget)"));
-  assert.ok(source.includes("ensureParsedModelWireLines(item)"));
+  assert.ok(source.includes("ensureParsedModelWireLines(item, budget)"));
+  assert.ok(source.includes("ensureParsedModelThickWireVertices(item, budget)"));
   assert.ok(source.includes("ensureP5ModelPointCloud(item, pointBudget)"));
+  assert.ok(source.includes("uniform float uThickness;"));
+  assert.ok(source.includes("gl.uniform1f(resources.thickness, modelWireThickness(params));"));
   assert.ok(source.includes("Math.min(50000"));
   assert.ok(!source.includes("function drawModelPoints"));
+});
+
+test("3d model scale uses logical render viewport instead of backing pixels", () => {
+  const source = readFileSync(new URL("../js/output/output-renderer.js", import.meta.url), "utf8");
+
+  assert.ok(source.includes("const viewport = modelViewportMetrics(target, renderRequest);"));
+  assert.ok(source.includes("target.camera?.(0, 0, viewport.cameraZ"));
+  assert.ok(source.includes("const scale = viewport.unitScale * modelScale;"));
+  assert.ok(source.includes("const drawingWidth = Math.max(1, gl.drawingBufferWidth || target.width || 1);"));
+  assert.ok(source.includes("gl.viewport(0, 0, drawingWidth, drawingHeight);"));
+  assert.ok(source.includes("const mvp = rawModelMvp(metrics.width, metrics.height, scale, depth, rotation);"));
+  assert.ok(source.includes("const cameraZ = Math.max(1, height) * 0.92;"));
+  assert.ok(!source.includes("Math.max(width, height) * 0.92"));
+});
+
+test("parsed STL surface and wire modes use one raw WebGL renderer family", () => {
+  const source = readFileSync(new URL("../js/output/output-renderer.js", import.meta.url), "utf8");
+
+  assert.ok(source.includes("drawRawParsedModelMode(target, item, params"));
+  assert.ok(source.includes("function drawRawParsedSurface("));
+  assert.ok(source.includes("function ensureRawSurfaceResources("));
+  assert.ok(source.includes("function createRawSurfaceProgram("));
+  assert.ok(source.includes("function ensureParsedModelSurfaceArrays("));
+  assert.ok(source.includes('if (drewSurface && renderMode === "surfaceWire")'));
 });
 
 test("renderer source extraction merges source node params", () => {
