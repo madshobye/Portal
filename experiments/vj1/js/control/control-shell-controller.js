@@ -1,17 +1,17 @@
 import { BLEND_MODES, VJ1, WORKSPACES } from "../constants.js";
-import { applySceneSnapshotToState, createLiveCompositionView, createLiveRenderState, createSceneSnapshot, normalizeRenderSettings } from "../domain/models.js?v=world-frame-27";
-import { normalizeParamValue } from "../graph/component-schema.js";
-import { getGeneratorComponent, listGeneratorComponents } from "../graph/generator-registry.js";
+import { applySceneSnapshotToState, createLiveCompositionView, createLiveRenderState, createSceneSnapshot, normalizeRenderSettings } from "../domain/models.js?v=output-playback-1";
+import { normalizeParamValue } from "../graph/component-schema.js?v=number-log-scale-1";
+import { getGeneratorComponent, listGeneratorComponents } from "../graph/generator-registry.js?v=terrain-direction-colors-1";
 import { patchNodeDegree, planCompositorInputs, planPatchExecution, summarizeTextureBranches } from "../graph/patch-planner.js";
-import { compileCompositionPatch } from "../graph/render-scheduler.js?v=world-frame-27";
+import { compileCompositionPatch } from "../graph/render-scheduler.js?v=photo-grade-invert-1";
 import { buildOutputUrl } from "../view-routing.js";
-import { getShaderComponent, listShaderComponents } from "../shaders/shader-registry.js?v=world-frame-27";
-import { createEmbeddedPreviewApp } from "../output/embedded-preview-app.js?v=world-frame-27";
+import { getShaderComponent, listShaderComponents } from "../shaders/shader-registry.js?v=photo-grade-invert-1";
+import { createEmbeddedPreviewApp } from "../output/embedded-preview-app.js?v=output-playback-live-source-params-1";
 import { frameFitViewport, resetViewport, zoomViewport } from "../output/preview-viewport.js";
 import { defaultProjectSurfaceMapping } from "../output/render-geometry.js";
 import { createHtmlCache, isInteractiveNode, isTextEditingNode, setClass, setText } from "./dom-utils.js";
 import { bindReorderList } from "./reorder-list.js";
-import { collectRefs, shellTemplate } from "./shell-view.js";
+import { collectRefs, shellTemplate } from "./shell-view.js?v=output-playback-1";
 import { effectIcon, emptyNote, esc, icon, rangeTemplate, selectValuesTemplate, sourceTypeIcon, thumbnailTemplate } from "./template-utils.js";
 
 const MODEL_RENDER_MODES = ["surface", "wireframe", "surfaceWire", "points"];
@@ -30,7 +30,8 @@ const MODEL_SOURCE_PARAMS = [
   { id: "spinX", label: "Spin X", type: "number", min: -3, max: 3, step: 0.01, defaultValue: 0 },
   { id: "spinY", label: "Spin Y", type: "number", min: -3, max: 3, step: 0.01, defaultValue: 0 },
   { id: "spinZ", label: "Spin Z", type: "number", min: -3, max: 3, step: 0.01, defaultValue: 0 },
-  { id: "depth", label: "Depth", type: "number", min: 0.2, max: 3, step: 0.01, defaultValue: 1 },
+  { id: "depth", label: "Depth scale", type: "number", min: 0.2, max: 3, step: 0.01, defaultValue: 1 },
+  { id: "visibleDepth", label: "Visible depth", type: "number", min: 0.02, max: 1, step: 0.01, defaultValue: 1 },
   { id: "wireThickness", label: "Wire thickness", type: "number", min: 0.5, max: 12, step: 0.1, defaultValue: 1 },
   { id: "pointBudget", label: "Point budget", type: "number", min: 500, max: 50000, step: 500, defaultValue: 4000 },
 ];
@@ -166,6 +167,13 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
       store.update((draft) => {
         draft.global.showLabels = !draft.global.showLabels;
       }, "toggle-labels");
+    });
+
+    refs.toggleOutputPlayback.addEventListener("click", () => {
+      if (latestState.metrics.clients <= 0) return;
+      store.update((draft) => {
+        draft.global.playing = draft.global.playing === false;
+      }, "toggle-output-playback");
     });
 
     refs.openSettings.addEventListener("click", () => {
@@ -343,6 +351,13 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
     setText(refs.renderCostText, formatRenderCost(renderCost));
     setClass(refs.togglePreview, "is-active", state.ui.debugPreview);
     setClass(refs.toggleLabels, "is-active", state.global.showLabels !== false);
+    const outputConnected = state.metrics.clients > 0;
+    const outputPlaying = state.global.playing !== false;
+    refs.toggleOutputPlayback.disabled = !outputConnected;
+    refs.toggleOutputPlayback.title = outputPlaying ? "Pause output" : "Play output";
+    refs.toggleOutputPlayback.setAttribute("aria-label", refs.toggleOutputPlayback.title);
+    setText(refs.toggleOutputPlayback.querySelector(".material-symbols-rounded"), outputPlaying ? "pause" : "play_arrow");
+    setClass(refs.toggleOutputPlayback, "is-active", outputConnected && !outputPlaying);
     setClass(refs.blackout, "is-active", state.global.blackout);
     refs.undo.disabled = !state.ui.canUndo;
     refs.redo.disabled = !state.ui.canRedo;
@@ -1247,25 +1262,10 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
   function bindColorParamControl(control) {
     const rgbInput = control.querySelector("[data-color-rgb]");
     const alphaInput = control.querySelector("[data-color-alpha]");
-    const hueInput = control.querySelector("[data-color-hue]");
-    const satInput = control.querySelector("[data-color-sat]");
-    const valInput = control.querySelector("[data-color-val]");
-    const updateFromRgb = (reason) => {
-      syncColorHsvFieldsFromRgb(control);
-      updateColorParamFromControl(control, reason);
-    };
-    const updateFromHsv = (reason) => {
-      syncColorRgbFromHsvFields(control);
-      updateColorParamFromControl(control, reason);
-    };
-    rgbInput?.addEventListener("input", () => updateFromRgb(`scrub:${control.dataset.colorPath}`));
-    rgbInput?.addEventListener("change", () => updateFromRgb(`color:${control.dataset.colorPath}`));
+    rgbInput?.addEventListener("input", () => updateColorParamFromControl(control, `scrub:${control.dataset.colorPath}`));
+    rgbInput?.addEventListener("change", () => updateColorParamFromControl(control, `color:${control.dataset.colorPath}`));
     alphaInput?.addEventListener("input", () => updateColorParamFromControl(control, `scrub:${control.dataset.colorPath}`));
     alphaInput?.addEventListener("change", () => updateColorParamFromControl(control, `color:${control.dataset.colorPath}`));
-    [hueInput, satInput, valInput].forEach((input) => {
-      input?.addEventListener("input", () => updateFromHsv(`scrub:${control.dataset.colorPath}`));
-      input?.addEventListener("change", () => updateFromHsv(`color:${control.dataset.colorPath}`));
-    });
   }
 
   function updateColorParamFromControl(control, reason) {
@@ -2226,7 +2226,8 @@ function modelSourceControlsTemplate(base, source = {}) {
         ${rangeTemplate("Spin X", `${base}.params.spinX`, params.spinX || 0, -3, 3, 0.01)}
         ${rangeTemplate("Spin Y", `${base}.params.spinY`, params.spinY || 0, -3, 3, 0.01)}
         ${rangeTemplate("Spin Z", `${base}.params.spinZ`, params.spinZ || 0, -3, 3, 0.01)}
-        ${rangeTemplate("Depth", `${base}.params.depth`, params.depth ?? 1, 0.2, 3, 0.01)}
+        ${rangeTemplate("Depth scale", `${base}.params.depth`, params.depth ?? 1, 0.2, 3, 0.01)}
+        ${rangeTemplate("Visible depth", `${base}.params.visibleDepth`, params.visibleDepth ?? 1, 0.02, 1, 0.01)}
         ${rangeTemplate("Wire thickness", `${base}.params.wireThickness`, params.wireThickness ?? 1, 0.5, 12, 0.1)}
         ${rangeTemplate("Point budget", `${base}.params.pointBudget`, params.pointBudget ?? 4000, 500, 50000, 500)}
       </div>
@@ -2258,6 +2259,8 @@ function generatorIcon(id) {
     plasma: "blur_on",
     gradient: "gradient",
     anatomy: "accessibility_new",
+  terrainFlyover: "landscape",
+  bezierStrokes: "gesture",
     checker: "grid_view",
     testPattern: "featured_video",
   }[id] || "auto_awesome";
@@ -2372,10 +2375,21 @@ function paramControlTemplate(param, path, value, attrs = "data-update") {
     `;
   }
   if (param.type === "color") return colorParamControlTemplate(param, path, value, attrs);
+  const logarithmic = param.scale === "log" && Number(param.min) > 0 && Number(param.max) > Number(param.min);
+  const sliderMin = logarithmic ? 0 : param.min ?? 0;
+  const sliderMax = logarithmic ? 1 : param.max ?? 1;
+  const sliderStep = logarithmic ? 0.001 : param.step ?? 0.01;
+  const safeValue = clampNumberLocal(Number(value), Number(param.min), Number(param.max));
+  const sliderValue = logarithmic
+    ? Math.log(safeValue / Number(param.min)) / Math.log(Number(param.max) / Number(param.min))
+    : value;
+  const scaleAttrs = logarithmic
+    ? `data-number-scale="log" data-value-min="${param.min}" data-value-max="${param.max}"`
+    : "";
   return `
     <label class="field range-field chain-param">
       <span>${esc(param.label || param.id)}</span>
-      <input type="range" min="${param.min ?? 0}" max="${param.max ?? 1}" step="${param.step ?? 0.01}" ${attrs}="${esc(path)}" value="${value}" />
+      <input type="range" min="${sliderMin}" max="${sliderMax}" step="${sliderStep}" ${scaleAttrs} ${attrs}="${esc(path)}" value="${sliderValue}" />
     </label>
   `;
 }
@@ -2387,18 +2401,12 @@ function colorParamControlTemplate(param, path, value, attrs = "data-update") {
   const rgba = normalizeColorHex(value || param.defaultValue || "#ffffffff");
   const rgb = rgba.slice(0, 7);
   const alpha = colorAlphaFromHex(rgba);
-  const hsv = rgbHexToHsv(rgb);
   return `
     <div class="field color-param chain-param" data-color-param data-color-mode="${mode}" data-color-path="${esc(path)}" ${liveCompositionId ? `data-live-composition-id="${esc(liveCompositionId)}"` : ""}>
       <span>${esc(param.label || param.id)}</span>
       <div class="color-param-row">
         <input type="color" data-color-rgb value="${esc(rgb)}" aria-label="${esc(param.label || param.id)} color" />
         <input type="range" min="0" max="1" step="0.01" data-color-alpha value="${alpha}" aria-label="${esc(param.label || param.id)} alpha" />
-      </div>
-      <div class="color-picker-sliders">
-        <label><span>Hue</span><input type="range" min="0" max="360" step="1" data-color-hue value="${hsv.h}" /></label>
-        <label><span>Sat</span><input type="range" min="0" max="1" step="0.01" data-color-sat value="${hsv.s}" /></label>
-        <label><span>Bright</span><input type="range" min="0" max="1" step="0.01" data-color-val value="${hsv.v}" /></label>
       </div>
     </div>
   `;
@@ -3057,7 +3065,15 @@ function setByPathCreate(target, path, value) {
 
 function readInputValue(input) {
   if (input.type === "checkbox") return input.checked;
-  if (input.type === "range" || input.type === "number") return Number(input.value);
+  if (input.type === "range" || input.type === "number") {
+    const value = Number(input.value);
+    if (input.dataset.numberScale === "log") {
+      const min = Number(input.dataset.valueMin);
+      const max = Number(input.dataset.valueMax);
+      if (min > 0 && max > min) return min * Math.pow(max / min, clampNumberLocal(value, 0, 1));
+    }
+    return value;
+  }
   return input.value;
 }
 
@@ -3065,26 +3081,6 @@ function colorValueFromControl(control) {
   const rgb = normalizeColorHex(control.querySelector("[data-color-rgb]")?.value || "#ffffff").slice(0, 7);
   const alpha = clampNumberLocal(Number(control.querySelector("[data-color-alpha]")?.value) || 0, 0, 1);
   return `${rgb}${Math.round(alpha * 255).toString(16).padStart(2, "0")}`;
-}
-
-function syncColorHsvFieldsFromRgb(control) {
-  const rgb = normalizeColorHex(control.querySelector("[data-color-rgb]")?.value || "#ffffff").slice(0, 7);
-  const hsv = rgbHexToHsv(rgb);
-  const hue = control.querySelector("[data-color-hue]");
-  const sat = control.querySelector("[data-color-sat]");
-  const val = control.querySelector("[data-color-val]");
-  if (hue) hue.value = String(Math.round(hsv.h));
-  if (sat) sat.value = hsv.s.toFixed(2);
-  if (val) val.value = hsv.v.toFixed(2);
-}
-
-function syncColorRgbFromHsvFields(control) {
-  const rgbInput = control.querySelector("[data-color-rgb]");
-  if (!rgbInput) return;
-  const h = Number(control.querySelector("[data-color-hue]")?.value) || 0;
-  const s = Number(control.querySelector("[data-color-sat]")?.value) || 0;
-  const v = Number(control.querySelector("[data-color-val]")?.value) || 0;
-  rgbInput.value = hsvToRgbHex(h, s, v);
 }
 
 function normalizeColorHex(value = "#ffffffff") {
@@ -3097,50 +3093,6 @@ function normalizeColorHex(value = "#ffffffff") {
 function colorAlphaFromHex(value = "#ffffffff") {
   const rgba = normalizeColorHex(value);
   return parseInt(rgba.slice(7, 9), 16) / 255;
-}
-
-function rgbHexToHsv(value = "#ffffff") {
-  const rgb = normalizeColorHex(value).slice(1, 7);
-  const r = parseInt(rgb.slice(0, 2), 16) / 255;
-  const g = parseInt(rgb.slice(2, 4), 16) / 255;
-  const b = parseInt(rgb.slice(4, 6), 16) / 255;
-  const max = Math.max(r, g, b);
-  const min = Math.min(r, g, b);
-  const delta = max - min;
-  let h = 0;
-  if (delta > 0) {
-    if (max === r) h = 60 * (((g - b) / delta) % 6);
-    else if (max === g) h = 60 * ((b - r) / delta + 2);
-    else h = 60 * ((r - g) / delta + 4);
-  }
-  if (h < 0) h += 360;
-  return {
-    h,
-    s: max <= 0 ? 0 : delta / max,
-    v: max,
-  };
-}
-
-function hsvToRgbHex(h, s, v) {
-  const hue = ((Number(h) || 0) % 360 + 360) % 360;
-  const sat = clampNumberLocal(Number(s) || 0, 0, 1);
-  const val = clampNumberLocal(Number(v) || 0, 0, 1);
-  const c = val * sat;
-  const x = c * (1 - Math.abs(((hue / 60) % 2) - 1));
-  const m = val - c;
-  let r = 0;
-  let g = 0;
-  let b = 0;
-  if (hue < 60) [r, g, b] = [c, x, 0];
-  else if (hue < 120) [r, g, b] = [x, c, 0];
-  else if (hue < 180) [r, g, b] = [0, c, x];
-  else if (hue < 240) [r, g, b] = [0, x, c];
-  else if (hue < 300) [r, g, b] = [x, 0, c];
-  else [r, g, b] = [c, 0, x];
-  return `#${[r, g, b].map((channel) => {
-    const value = Math.round((channel + m) * 255);
-    return value.toString(16).padStart(2, "0");
-  }).join("")}`;
 }
 
 function syncVideoTrimControl(control, start, end, max) {

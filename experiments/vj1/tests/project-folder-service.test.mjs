@@ -3,10 +3,35 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 
 import {
+  buildProjectPayload,
   historyGroupForReason,
   projectHistorySignature,
   shouldCoalesceHistoryRevision,
 } from "../js/services/project-folder-service.js";
+
+test("project payload preserves the selected composition chain item", () => {
+  const state = {
+    version: 5,
+    project: {},
+    ui: {
+      selectedSceneId: "scene-a",
+      selectedSurfaceId: "surface-a",
+      selectedCompositionId: "composition-a",
+      selectedChainItemId: "chain-effect-b",
+    },
+  };
+
+  assert.equal(buildProjectPayload(state, "2026-07-12T00:00:00.000Z").ui.selectedChainItemId, "chain-effect-b");
+  const source = readFileSync(new URL("../js/services/project-folder-service.js", import.meta.url), "utf8");
+  assert.ok(source.includes("selectedChainItemId: projectUi?.selectedChainItemId || currentUi.selectedChainItemId"));
+});
+
+test("folder permission prompt does not discard a project recovered from output", () => {
+  const source = readFileSync(new URL("../js/services/project-folder-service.js", import.meta.url), "utf8");
+
+  assert.ok(source.includes("const recoveredFromOutput = !!draft.project.folderName"));
+  assert.ok(source.includes("if (!recoveredFromOutput)"));
+});
 
 test("project history signature ignores UI-only save noise", () => {
   const base = {

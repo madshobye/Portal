@@ -21,12 +21,12 @@
   <body>
     <pre id="result">running...</pre>
     <script type="module">
-      import { getShaderComponent } from "../js/shaders/shader-registry.js?v=world-frame-27";
-      import { getGeneratorShaderComponent } from "../js/shaders/generator-shaders.js?v=shader-smoke-draw-1";
+      import { getShaderComponent } from "../js/shaders/shader-registry.js?v=noise-field-1";
+      import { getGeneratorShaderComponent } from "../js/shaders/generator-shaders.js?v=noise-field-1";
       import { createShaderBuilder } from "../js/shaders/shader-builder.js";
 
-      const effects = ["photoGrade", "alphaVignette", "glitchDistort", "spinRotate", "echoFade", "mirrorFold", "heatShimmer"];
-      const generators = ["gradient", "fireflies", "eyeball", "swayingTrees"];
+      const effects = ["photoGrade", "labelThresholdGrain", "smear", "alphaVignette", "glitchDistort", "spinRotate", "echoFade", "mirrorFold", "heatShimmer", "crayonStroke"];
+      const generators = ["gradient", "fireflies", "eyeball", "swayingTrees", "terrainFlyover", "bezierStrokes"];
       const result = document.getElementById("result");
 
       new p5((sketch) => {

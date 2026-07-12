@@ -15,7 +15,7 @@ import {
   createSceneFromState,
   sanitizeState,
   uid,
-} from "./domain/models.js?v=world-frame-27";
+} from "./domain/models.js?v=output-playback-1";
 import { WORKSPACES } from "./constants.js";
 
 export function createAppState(initial = null) {

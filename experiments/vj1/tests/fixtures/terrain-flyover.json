@@ -1,0 +1,164 @@
+{
+  "version": 5,
+  "project": {
+    "name": "Terrain Flyover Fixture",
+    "folderName": "fixtures",
+    "savedAt": "",
+    "warnings": []
+  },
+  "media": [],
+  "shaders": {
+    "customCode": "vec4 runEffect(vec2 uv, vec4 color) { return color; }",
+    "customName": "Fixture Passthrough"
+  },
+  "compositions": [
+    {
+      "id": "composition-terrain-flyover",
+      "name": "Terrain Flyover",
+      "source": {
+        "type": "generator",
+        "generatorId": "terrainFlyover",
+        "params": {
+          "style": "hybrid",
+          "flightSpeed": 0.65,
+          "turn": 0.08,
+          "altitude": 2.5,
+          "pitch": 0.28,
+          "mountainHeight": 2.4,
+          "terrainScale": 0.62,
+          "lakeLevel": -0.12,
+          "viewDistance": 0.85,
+          "gridDensity": 1,
+          "wireWidth": 0.85,
+          "waterColor": "#147bc1ff",
+          "grassColor": "#23843bff",
+          "rockColor": "#4c4037ff",
+          "snowColor": "#e8edf1ff",
+          "wireColor": "#f2f5efff",
+          "skyColor": "#6ca5d4ff"
+        }
+      },
+      "opacity": 1,
+      "blend": "normal",
+      "speed": 1,
+      "thumbnail": "",
+      "chain": [
+        {
+          "id": "chain-terrain-flyover",
+          "kind": "source",
+          "componentId": "terrainFlyover",
+          "name": "Terrain Flyover",
+          "enabled": true,
+          "source": {
+            "type": "generator",
+            "generatorId": "terrainFlyover",
+            "params": {
+              "style": "hybrid",
+              "flightSpeed": 0.65,
+              "turn": 0.08,
+              "altitude": 2.5,
+              "pitch": 0.28,
+              "mountainHeight": 2.4,
+              "terrainScale": 0.62,
+              "lakeLevel": -0.12,
+              "viewDistance": 0.85,
+              "gridDensity": 1,
+              "wireWidth": 0.85,
+              "waterColor": "#147bc1ff",
+              "grassColor": "#23843bff",
+              "rockColor": "#4c4037ff",
+              "snowColor": "#e8edf1ff",
+              "wireColor": "#f2f5efff",
+              "skyColor": "#6ca5d4ff"
+            }
+          },
+          "params": {
+            "style": "hybrid",
+            "flightSpeed": 0.65,
+            "turn": 0.08,
+            "altitude": 2.5,
+            "pitch": 0.28,
+            "mountainHeight": 2.4,
+            "terrainScale": 0.62,
+            "lakeLevel": -0.12,
+            "viewDistance": 0.85,
+            "gridDensity": 1,
+            "wireWidth": 0.85,
+            "waterColor": "#147bc1ff",
+            "grassColor": "#23843bff",
+            "rockColor": "#4c4037ff",
+            "snowColor": "#e8edf1ff",
+            "wireColor": "#f2f5efff",
+            "skyColor": "#6ca5d4ff"
+          },
+          "opacity": 1,
+          "blend": "normal",
+          "transform": { "x": 0, "y": 0, "scale": 1, "rotation": 0 }
+        }
+      ],
+      "shaderChain": []
+    }
+  ],
+  "surfaces": [
+    {
+      "id": "surface-terrain",
+      "name": "Terrain",
+      "enabled": true,
+      "opacity": 1,
+      "finalBlend": "normal",
+      "finalShaderChain": [],
+      "compositionId": "composition-terrain-flyover",
+      "mappingId": "surface-terrain",
+      "showLabel": false,
+      "calibrationLocked": true
+    }
+  ],
+  "scenes": [
+    {
+      "id": "scene-terrain-flyover",
+      "name": "Terrain Flyover",
+      "notes": "GPU terrain generator visual fixture.",
+      "snapshot": {
+        "surfaces": [
+          {
+            "id": "surface-terrain",
+            "enabled": true,
+            "compositionId": "composition-terrain-flyover",
+            "opacity": 1,
+            "finalBlend": "normal",
+            "finalShaderChain": [],
+            "showLabel": false
+          }
+        ]
+      }
+    }
+  ],
+  "render": {
+    "frameWidth": 960,
+    "frameHeight": 540,
+    "surfaceWidth": 800,
+    "surfaceHeight": 450,
+    "pixelDensity": 1,
+    "edgeSoftness": 0
+  },
+  "global": {
+    "blackout": false,
+    "bpm": 120,
+    "crossfade": 1,
+    "showHud": false,
+    "showLabels": false,
+    "calibrating": false,
+    "mappingHandleMode": "near"
+  },
+  "mappings": { "local": { "surfaces": [] } },
+  "scheduler": { "mode": "hardconfigured", "manualLane": true },
+  "ui": {
+    "workspace": "compose",
+    "selectedCompositionId": "composition-terrain-flyover",
+    "selectedChainItemId": "chain-terrain-flyover",
+    "selectedSceneId": "scene-terrain-flyover",
+    "selectedSurfaceId": "surface-terrain",
+    "debugPreview": false,
+    "live": { "selectedSceneId": "scene-terrain-flyover", "compositionOverrides": {} }
+  }
+}

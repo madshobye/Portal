@@ -1,4 +1,4 @@
-import { createColorParam, createEnumParam, createNumberParam, defineVisualComponent, textureInlet, textureOutlet } from "./component-schema.js";
+import { createColorParam, createEnumParam, createNumberParam, defaultParamValues, defineVisualComponent, normalizeParamValues, textureInlet, textureOutlet } from "./component-schema.js?v=number-log-scale-1";
 
 const RAW_GENERATORS = Object.freeze({
   testPattern: {
@@ -95,6 +95,65 @@ const RAW_GENERATORS = Object.freeze({
       createNumberParam("heartPulse", "Heart pulse", { min: 0, max: 1, step: 0.01, defaultValue: 0.35 }),
     ],
   },
+  terrainFlyover: {
+    id: "terrainFlyover",
+    name: "Terrain Flyover",
+    category: "organic",
+    params: [
+      createEnumParam("style", "Style", ["biome", "wire", "hybrid"], "hybrid"),
+      createEnumParam("flightMode", "Flight mode", ["free", "terrainFollow"], "free"),
+      createNumberParam("flightSpeed", "Flight speed", { min: 0, max: 3, step: 0.01, defaultValue: 0.65 }),
+      createNumberParam("turn", "Direction", { min: -1, max: 1, step: 0.01, defaultValue: 0 }),
+      createNumberParam("altitude", "Altitude", { min: 0.2, max: 10000, step: 0.01, defaultValue: 2.5, scale: "log" }),
+      createNumberParam("pitch", "View pitch", { min: -1.4, max: 1.4, step: 0.01, defaultValue: 0.28 }),
+      createNumberParam("fieldOfView", "Field of view", { min: 20, max: 120, step: 0.1, defaultValue: 60 }),
+      createNumberParam("nearClip", "Near clip", { min: 0.01, max: 20, step: 0.01, defaultValue: 0.1, scale: "log" }),
+      createNumberParam("farClip", "Far clip", { min: 100, max: 50000, step: 10, defaultValue: 20000, scale: "log" }),
+      createNumberParam("lookAhead", "Follow look ahead", { min: 2, max: 60, step: 0.1, defaultValue: 14 }),
+      createNumberParam("noseFollow", "Nose response", { min: 0, max: 2, step: 0.01, defaultValue: 1 }),
+      createNumberParam("mountainHeight", "Mountain height", { min: 0.05, max: 100, step: 0.1, defaultValue: 2.4, scale: "log" }),
+      createNumberParam("terrainScale", "Terrain scale", { min: 0.02, max: 5, step: 0.01, defaultValue: 0.62, scale: "log" }),
+      createNumberParam("textureGrain", "Texture grain", { min: 0, max: 2, step: 0.01, defaultValue: 0 }),
+      createNumberParam("textureDepth", "Texture depth", { min: 0, max: 3, step: 0.01, defaultValue: 0 }),
+      createNumberParam("colorDirection", "Color direction", { min: -3.14, max: 3.14, step: 0.01, defaultValue: 0 }),
+      createNumberParam("lakeLevel", "Lake level", { min: -100, max: 100, step: 0.1, defaultValue: -0.12 }),
+      createNumberParam("viewDistance", "View distance", { min: 0.1, max: 3, step: 0.01, defaultValue: 0.85 }),
+      createNumberParam("globeRadius", "Globe radius", { min: 60, max: 10000, step: 5, defaultValue: 280, scale: "log" }),
+      createNumberParam("gridWidth", "Grid width", { min: 8, max: 144, step: 1, defaultValue: 48 }),
+      createNumberParam("gridDepth", "Grid depth", { min: 8, max: 144, step: 1, defaultValue: 48 }),
+      createNumberParam("gridDensity", "Grid density", { min: 0.25, max: 4, step: 0.01, defaultValue: 1, scale: "log" }),
+      createNumberParam("gridScale", "Grid scale", { min: 0.1, max: 20, step: 0.01, defaultValue: 1, scale: "log" }),
+      createNumberParam("gridJitter", "Grid irregularity", { min: 0, max: 1, step: 0.01, defaultValue: 0.62 }),
+      createNumberParam("wireWidth", "Wire width", { min: 0.1, max: 8, step: 0.01, defaultValue: 0.85 }),
+      createColorParam("waterColor", "Water", "#147bc1ff"),
+      createColorParam("grassColor", "Grass", "#23843bff"),
+      createColorParam("rockColor", "Rock", "#4c4037ff"),
+      createColorParam("snowColor", "Snow", "#e8edf1ff"),
+      createColorParam("downSlopeColor", "Down-slope color", "#202a38aa"),
+      createColorParam("directionColor", "Direction color", "#d88a42aa"),
+      createColorParam("wireColor", "Wire", "#f2f5efff"),
+      createColorParam("skyColor", "Sky", "#6ca5d4ff"),
+    ],
+  },
+  bezierStrokes: {
+    id: "bezierStrokes",
+    name: "Bezier Strokes",
+    category: "motion",
+    params: [
+      createEnumParam("style", "Style", ["pen", "crayon", "brush"], "brush"),
+      createNumberParam("count", "Strokes", { min: 1, max: 8, step: 1, defaultValue: 5 }),
+      createNumberParam("speed", "Speed", { min: 0, max: 3, step: 0.01, defaultValue: 0.8 }),
+      createNumberParam("lifetime", "Lifetime", { min: 0.4, max: 6, step: 0.01, defaultValue: 2.4 }),
+      createNumberParam("fade", "Fade", { min: 0.05, max: 1, step: 0.01, defaultValue: 0.55 }),
+      createNumberParam("width", "Width", { min: 0.002, max: 0.16, step: 0.001, defaultValue: 0.045 }),
+      createNumberParam("strokeLength", "Length", { min: 0.15, max: 1.4, step: 0.01, defaultValue: 0.95 }),
+      createNumberParam("curve", "Curve", { min: 0, max: 1.5, step: 0.01, defaultValue: 0.7 }),
+      createNumberParam("direction", "Direction", { min: -3.14, max: 3.14, step: 0.01, defaultValue: 0 }),
+      createNumberParam("spread", "Spread", { min: 0, max: 1, step: 0.01, defaultValue: 0.72 }),
+      createNumberParam("roughness", "Roughness", { min: 0, max: 1, step: 0.01, defaultValue: 0.7 }),
+      createColorParam("strokeColor", "Stroke color", "#161314ee"),
+    ],
+  },
   swayingTrees: {
     id: "swayingTrees",
     name: "Swaying Trees",
@@ -134,4 +193,15 @@ export function getGeneratorComponent(id) {
 
 export function listGeneratorComponents() {
   return Object.values(GENERATOR_COMPONENTS);
+}
+
+export function createGeneratorSource(id = "testPattern", params = {}) {
+  const component = getGeneratorComponent(id);
+  return {
+    type: "generator",
+    generatorId: component.id,
+    params: Object.keys(params || {}).length
+      ? normalizeParamValues(component, params)
+      : defaultParamValues(component),
+  };
 }

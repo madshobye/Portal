@@ -1,10 +1,10 @@
-import { createAppState } from "./app-state.js?v=world-frame-27";
-import { createControlShell } from "./control/control-shell-controller.js?v=world-frame-27";
+import { createAppState } from "./app-state.js?v=output-playback-1";
+import { createControlShell } from "./control/control-shell-controller.js?v=output-playback-live-source-params-1";
 import { getInitialWorkspace, getClientMode, persistWorkspace } from "./view-routing.js";
 import { createMediaLibrary } from "./services/media-library-service.js?v=world-frame-27";
-import { createProjectFolderService } from "./services/project-folder-service.js?v=world-frame-27";
-import { createControlBridge } from "./services/output-bridge-service.js";
-import { installOutputApp } from "./output/output-app.js?v=world-frame-27";
+import { createProjectFolderService } from "./services/project-folder-service.js?v=output-recovery-1";
+import { createControlBridge } from "./services/output-bridge-service.js?v=output-playback-1";
+import { installOutputApp } from "./output/output-app.js?v=output-playback-live-source-params-1";
 
 const root = document.getElementById("app");
 const mode = getClientMode();

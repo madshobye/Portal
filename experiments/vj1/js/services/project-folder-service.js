@@ -72,8 +72,11 @@ export function createProjectFolderService({ mediaLibrary, store, bridge }) {
       const permission = await queryPermission(storedHandle, "readwrite");
       if (permission !== "granted") {
         store.update((draft) => {
-          draft.project.folderName = "";
-          draft.media = [];
+          const recoveredFromOutput = !!draft.project.folderName;
+          if (!recoveredFromOutput) {
+            draft.project.folderName = "";
+            draft.media = [];
+          }
           draft.project.warnings = [`Click the folder button to restore access to ${storedHandle.name}.`];
         }, "project-folder-needs-permission");
         return false;
@@ -174,6 +177,7 @@ export function createProjectFolderService({ mediaLibrary, store, bridge }) {
         selectedSceneId: projectUi?.selectedSceneId || currentUi.selectedSceneId,
         selectedSurfaceId: projectUi?.selectedSurfaceId || currentUi.selectedSurfaceId,
         selectedCompositionId: projectUi?.selectedCompositionId || currentUi.selectedCompositionId,
+        selectedChainItemId: projectUi?.selectedChainItemId || currentUi.selectedChainItemId,
       },
       project: {
         ...store.getState().project,
@@ -195,7 +199,7 @@ export function createProjectFolderService({ mediaLibrary, store, bridge }) {
     if (selectedScene) applySceneSnapshotToState(nextState, selectedScene);
     store.replace(nextState, reason);
     lastDirectorySignature = directorySig;
-    lastSavedSignature = payloadSignature(buildPayload(store.getState(), projectData.project?.savedAt || ""));
+    lastSavedSignature = payloadSignature(buildProjectPayload(store.getState(), projectData.project?.savedAt || ""));
   }
 
   function refreshProjectAssets(imported = { media: [], shaders: [] }, directorySig = "") {
@@ -249,7 +253,7 @@ export function createProjectFolderService({ mediaLibrary, store, bridge }) {
   async function saveProject({ reason = "manual" } = {}) {
     const state = store.getState();
     const savedAt = new Date().toISOString();
-    const payload = buildPayload(state, savedAt);
+    const payload = buildProjectPayload(state, savedAt);
     const signature = payloadSignature(payload);
     if (signature === lastSavedSignature) return false;
 
@@ -599,7 +603,7 @@ async function verifyPermission(handle, mode, requestIfNeeded) {
   }
 }
 
-function buildPayload(state, savedAt = new Date().toISOString()) {
+export function buildProjectPayload(state, savedAt = new Date().toISOString()) {
   return {
     version: state.version,
     project: { ...state.project, warnings: [], savedAt },
@@ -607,6 +611,7 @@ function buildPayload(state, savedAt = new Date().toISOString()) {
       selectedSceneId: state.ui.selectedSceneId,
       selectedSurfaceId: state.ui.selectedSurfaceId,
       selectedCompositionId: state.ui.selectedCompositionId,
+      selectedChainItemId: state.ui.selectedChainItemId,
     },
     global: state.global,
     render: state.render,

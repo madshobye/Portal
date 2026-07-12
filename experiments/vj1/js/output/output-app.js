@@ -1,7 +1,7 @@
 import { VJ1 } from "../constants.js";
-import { sanitizeState } from "../domain/models.js?v=world-frame-27";
-import { createOutputBridge } from "../services/output-bridge-service.js";
-import { OutputRenderer } from "./output-renderer.js?v=world-frame-27";
+import { sanitizeState } from "../domain/models.js?v=output-playback-1";
+import { createOutputBridge } from "../services/output-bridge-service.js?v=output-playback-1";
+import { OutputRenderer } from "./output-renderer.js?v=output-playback-live-source-params-1";
 import { applyFontToGlobal, loadVjRenderFont } from "./font-loader.js?v=world-frame-27";
 import { frameSize } from "./render-geometry.js";
 
@@ -19,6 +19,7 @@ export function installOutputApp({ root, mode }) {
   let renderer = null;
   let pendingState = null;
   let acceptedState = null;
+  let acceptedFiles = [];
   let bridge = null;
   let renderFont = null;
   let resizeObserver = null;
@@ -118,7 +119,11 @@ export function installOutputApp({ root, mode }) {
       renderer?.setState(state);
     },
     onMediaFiles(files) {
+      acceptedFiles = files || [];
       renderer?.importFiles(files);
+    },
+    onControlHello() {
+      bridge?.recoveryState(acceptedState, acceptedFiles);
     },
     onCommand(command, payload) {
       if (command === "set-calibrate") renderer?.setCalibrate(!!payload.calibrating);

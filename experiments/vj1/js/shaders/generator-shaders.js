@@ -193,6 +193,97 @@ void main() {
   gl_FragColor = vec4(result.rgb * result.a, result.a);
 }`,
   },
+  bezierStrokes: {
+    id: "generator.bezierStrokes",
+    name: "Bezier Strokes Generator",
+    type: "fragment",
+    code: `
+precision highp float;
+uniform vec2 resolution;
+uniform float time;
+uniform float style;
+uniform float count;
+uniform float speed;
+uniform float lifetime;
+uniform float fade;
+uniform float width;
+uniform float strokeLength;
+uniform float curve;
+uniform float direction;
+uniform float spread;
+uniform float roughness;
+uniform vec4 strokeColor;
+varying vec2 vTexCoord;
+
+float strokeHash(float n) {
+  vec3 p3 = fract(vec3(n, n + 17.17, n + 43.31) * 0.1031);
+  p3 += dot(p3, p3.yzx + 33.33);
+  return fract((p3.x + p3.y) * p3.z);
+}
+
+float strokeHash2(vec2 p) {
+  vec3 p3 = fract(vec3(p.xyx) * 0.1031);
+  p3 += dot(p3, p3.yzx + 33.33);
+  return fract((p3.x + p3.y) * p3.z);
+}
+
+float smoothStrokeNoise(vec2 p) {
+  vec2 cell = floor(p);
+  vec2 local = fract(p);
+  vec2 blend = local * local * (3.0 - 2.0 * local);
+  float a = strokeHash2(cell);
+  float b = strokeHash2(cell + vec2(1.0, 0.0));
+  float c = strokeHash2(cell + vec2(0.0, 1.0));
+  float d = strokeHash2(cell + vec2(1.0, 1.0));
+  return mix(mix(a, b, blend.x), mix(c, d, blend.x), blend.y);
+}
+
+void main() {
+  vec2 aspect = vec2(resolution.x / max(resolution.y, 1.0), 1.0);
+  vec2 p = (vTexCoord - 0.5) * aspect;
+  float cs = cos(direction);
+  float sn = sin(direction);
+  p = mat2(cs, -sn, sn, cs) * p;
+  float outputAlpha = 0.0;
+  float cycle = max(lifetime, 0.4) + 0.75;
+  float clock = time * max(speed, 0.0);
+
+  for (int i = 0; i < 8; i++) {
+    float index = float(i);
+    if (index >= floor(count + 0.5)) continue;
+    float seed = index * 19.73 + 4.17;
+    float phase = strokeHash(seed + 2.0) * cycle;
+    float age = mod(clock + phase, cycle);
+    float active = 1.0 - step(lifetime, age);
+    float drawProgress = clamp(age / max(lifetime * 0.34, 0.05), 0.0, 1.0);
+    float fadeStart = lifetime * (1.0 - clamp(fade, 0.05, 1.0));
+    float lifeAlpha = active * (1.0 - smoothstep(fadeStart, lifetime, age));
+
+    float currentLength = max(0.04, strokeLength) * aspect.x;
+    float centerX = (strokeHash(seed + 3.0) - 0.5) * aspect.x * 0.18;
+    float along = (p.x - centerX) / currentLength + 0.5;
+    float startY = (strokeHash(seed + 5.0) - 0.5) * spread * 0.92;
+    float endY = startY + (strokeHash(seed + 7.0) - 0.5) * spread * 0.42;
+    float controlY = mix(startY, endY, 0.5) + (strokeHash(seed + 11.0) - 0.5) * curve * 0.72;
+    float t = clamp(along, 0.0, 1.0);
+    float curveY = mix(mix(startY, controlY, t), mix(controlY, endY, t), t);
+    float localWidth = width * mix(0.72, 1.32, strokeHash(seed + floor(t * 9.0) + 13.0));
+    float grain = smoothStrokeNoise((p + seed) * resolution.y * mix(0.24, 0.9, roughness));
+    float distanceToCurve = abs(p.y - curveY) + (grain - 0.5) * localWidth * roughness * 1.7;
+    float edgeSoftness = style > 1.5 ? 0.42 : style > 0.5 ? 0.72 : 0.28;
+    float stroke = 1.0 - smoothstep(localWidth, localWidth * (1.0 + edgeSoftness), distanceToCurve);
+    float taper = smoothstep(0.0, 0.045, along) * smoothstep(1.0, 0.92, along);
+    float reveal = 1.0 - smoothstep(drawProgress, drawProgress + 0.035, along);
+    float material = 1.0;
+    if (style > 0.5 && style < 1.5) material = smoothstep(roughness * 0.72, 1.0, grain);
+    if (style > 1.5) material = mix(0.68, 1.0, smoothstep(0.08, 0.68, grain));
+    float strokeAlpha = stroke * taper * reveal * lifeAlpha * material * strokeColor.a;
+    outputAlpha = 1.0 - (1.0 - outputAlpha) * (1.0 - clamp(strokeAlpha, 0.0, 1.0));
+  }
+
+  gl_FragColor = vec4(strokeColor.rgb * outputAlpha, outputAlpha);
+}`,
+  },
   fireflies: {
     id: "generator.fireflies",
     name: "Fireflies Generator",
@@ -407,6 +498,150 @@ void main() {
   float edge = smoothstep(1.0, 0.985, r);
   float alpha = sphere * edge;
   gl_FragColor = vec4(clamp(color, 0.0, 1.0) * alpha, alpha);
+}`,
+  },
+  terrainFlyover: {
+    id: "generator.terrainFlyover",
+    name: "Terrain Flyover Generator",
+    type: "fragment",
+    code: `
+precision highp float;
+uniform vec2 resolution;
+uniform float time;
+uniform float style;
+uniform float flightSpeed;
+uniform float turn;
+uniform float altitude;
+uniform float pitch;
+uniform float mountainHeight;
+uniform float terrainScale;
+uniform float lakeLevel;
+uniform float viewDistance;
+uniform float gridDensity;
+uniform float wireWidth;
+uniform vec4 waterColor;
+uniform vec4 grassColor;
+uniform vec4 rockColor;
+uniform vec4 snowColor;
+uniform vec4 wireColor;
+uniform vec4 skyColor;
+varying vec2 vTexCoord;
+
+float hash12(vec2 p) {
+  vec3 p3 = fract(vec3(p.xyx) * 0.1031);
+  p3 += dot(p3, p3.yzx + 33.33);
+  return fract((p3.x + p3.y) * p3.z);
+}
+
+float simplexLikeNoise(vec2 p) {
+  const float skew = 0.36602540378;
+  const float unskew = 0.2113248654;
+  vec2 cell = floor(p + (p.x + p.y) * skew);
+  vec2 local0 = p - cell + (cell.x + cell.y) * unskew;
+  vec2 corner = local0.x > local0.y ? vec2(1.0, 0.0) : vec2(0.0, 1.0);
+  vec2 local1 = local0 - corner + unskew;
+  vec2 local2 = local0 - 1.0 + 2.0 * unskew;
+  vec3 weight = max(0.5 - vec3(dot(local0, local0), dot(local1, local1), dot(local2, local2)), 0.0);
+  weight *= weight;
+  weight *= weight;
+  vec3 value = vec3(hash12(cell), hash12(cell + corner), hash12(cell + 1.0));
+  return dot(weight, value) / max(dot(weight, vec3(1.0)), 0.0001);
+}
+
+float terrainHeight(vec2 world) {
+  vec2 p = world * max(terrainScale, 0.02);
+  float base = simplexLikeNoise(p * 0.34);
+  float ridge = 1.0 - abs(base * 2.0 - 1.0);
+  return (base * 1.05 + ridge * ridge * 0.45 - 0.72) * max(mountainHeight, 0.01);
+}
+
+float surfaceHeight(vec2 world) {
+  return max(terrainHeight(world), lakeLevel);
+}
+
+void main() {
+  vec2 screen = vTexCoord * 2.0 - 1.0;
+  screen.x *= resolution.x / max(resolution.y, 1.0);
+
+  float yaw = clamp(turn, -1.0, 1.0) * 0.72;
+  vec3 travel = vec3(sin(yaw), 0.0, cos(yaw));
+  vec3 rayForward = normalize(vec3(travel.x, -max(pitch, 0.01), travel.z));
+  vec3 rayRight = normalize(cross(vec3(0.0, 1.0, 0.0), rayForward));
+  vec3 rayUp = normalize(cross(rayForward, rayRight));
+  vec3 rayOrigin = vec3(0.0, max(altitude, 0.1), 0.0) + travel * time * max(flightSpeed, 0.0) * 2.3;
+  vec3 rayDirection = normalize(rayForward * 1.28 + rayRight * screen.x + rayUp * screen.y);
+
+  float maximumDistance = mix(18.0, 62.0, clamp(viewDistance, 0.0, 1.5) / 1.5);
+  float distanceAlongRay = 0.0;
+  float hit = 0.0;
+  vec3 position = rayOrigin;
+  float rawHeight = 0.0;
+
+  // Height fields can be intersected directly: solve the ray distance from the
+  // sampled elevation, then repeat a few times to converge on steep terrain.
+  // This avoids the many samples and ridge skipping of a conventional ray march.
+  if (rayDirection.y < -0.002) {
+    distanceAlongRay = (rayOrigin.y - lakeLevel) / -rayDirection.y;
+  }
+  for (int step = 0; step < 5; step++) {
+    position = rayOrigin + rayDirection * distanceAlongRay;
+    rawHeight = terrainHeight(position.xz);
+    float targetHeight = max(rawHeight, lakeLevel);
+    float nextDistance = (rayOrigin.y - targetHeight) / max(-rayDirection.y, 0.002);
+    distanceAlongRay = mix(distanceAlongRay, nextDistance, 0.72);
+  }
+  position = rayOrigin + rayDirection * distanceAlongRay;
+  rawHeight = terrainHeight(position.xz);
+  float surfaceDelta = abs(position.y - max(rawHeight, lakeLevel));
+  if (rayDirection.y < -0.002 && distanceAlongRay > 0.0 && distanceAlongRay <= maximumDistance && surfaceDelta < 0.16) hit = 1.0;
+
+  vec3 sky = mix(skyColor.rgb * 0.48, min(vec3(1.0), skyColor.rgb * 1.22 + vec3(0.12)), clamp(screen.y * 0.35 + 0.55, 0.0, 1.0));
+  bool wireOnly = style > 0.5 && style < 1.5;
+  if (hit < 0.5) {
+    gl_FragColor = vec4(wireOnly ? vec3(0.0) : sky, 1.0);
+    return;
+  }
+
+  bool water = rawHeight < lakeLevel + 0.018;
+  float normalStep = 0.10 + distanceAlongRay * 0.003;
+  float centerHeight = max(rawHeight, lakeLevel);
+  float rightHeight = surfaceHeight(position.xz + vec2(normalStep, 0.0));
+  float frontHeight = surfaceHeight(position.xz + vec2(0.0, normalStep));
+  vec3 normal = water
+    ? vec3(0.0, 1.0, 0.0)
+    : normalize(vec3(centerHeight - rightHeight, normalStep, centerHeight - frontHeight));
+  float slope = 1.0 - clamp(normal.y, 0.0, 1.0);
+  vec3 lightDirection = normalize(vec3(-0.42, 0.78, -0.46));
+  float lighting = clamp(dot(normal, lightDirection) * 0.55 + 0.58, 0.22, 1.15);
+
+  vec3 shoreColor = mix(rockColor.rgb, snowColor.rgb, 0.58);
+  float aboveWater = rawHeight - lakeLevel;
+  float grassBand = smoothstep(0.015, 0.20, aboveWater);
+  vec3 terrainColor = mix(shoreColor, grassColor.rgb, grassBand);
+  float rockBand = clamp(smoothstep(0.30, 0.78, aboveWater) + slope * 0.78, 0.0, 1.0);
+  terrainColor = mix(terrainColor, rockColor.rgb, rockBand);
+  float snowBand = smoothstep(0.76, 1.16, aboveWater) * smoothstep(0.72, 0.18, slope);
+  terrainColor = mix(terrainColor, snowColor.rgb, snowBand);
+
+  vec3 color = terrainColor * lighting;
+  if (water) {
+    float viewLight = pow(max(dot(reflect(-lightDirection, normal), -rayDirection), 0.0), 22.0);
+    color = waterColor.rgb * mix(0.62, 1.08, lighting) + snowColor.rgb * viewLight * 0.42;
+  }
+
+  vec2 gridCell = abs(fract(position.xz * max(gridDensity, 0.05)) - 0.5);
+  float nearestGrid = min(gridCell.x, gridCell.y);
+  float depthRatio = clamp(distanceAlongRay / maximumDistance, 0.0, 1.0);
+  float lineSize = max(wireWidth, 0.05) * mix(0.012, 0.036, depthRatio);
+  float gridLine = 1.0 - smoothstep(lineSize, lineSize * 1.75, nearestGrid);
+  float fog = 1.0 - exp(-distanceAlongRay / max(maximumDistance * 0.42, 0.01));
+  vec3 fogColor = wireOnly ? vec3(0.0) : sky * 0.82;
+  color = mix(color, fogColor, fog * 0.72);
+
+  if (wireOnly) color = wireColor.rgb * gridLine * (1.0 - fog * 0.78);
+  else if (style > 1.5) color = mix(color, wireColor.rgb, gridLine * wireColor.a * (1.0 - fog * 0.66));
+
+  gl_FragColor = vec4(clamp(color, 0.0, 1.0), 1.0);
 }`,
   },
   swayingTrees: {

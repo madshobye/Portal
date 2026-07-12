@@ -28,6 +28,7 @@ export function shellTemplate() {
           <button id="open-settings" class="icon-buttonish" type="button" title="Settings" aria-label="Settings">${icon("settings")}</button>
           <button id="undo-project" class="icon-buttonish" type="button" title="Undo" aria-label="Undo" disabled>${icon("undo")}</button>
           <button id="redo-project" class="icon-buttonish" type="button" title="Redo" aria-label="Redo" disabled>${icon("redo")}</button>
+          <button id="toggle-output-playback" class="icon-buttonish" type="button" title="Pause output" aria-label="Pause output" disabled>${icon("pause")}</button>
           <button id="blackout-main" class="icon-buttonish danger" type="button" title="Blackout" aria-label="Blackout">${icon("brightness_1")}</button>
           <button id="open-output" class="icon-buttonish" type="button" title="Open output" aria-label="Open output">${icon("open_in_new")}</button>
           <span id="render-cost" class="status-pill cost-pill" title="Render cost"><span class="material-symbols-rounded">speed</span><span id="render-cost-text">0%</span></span>
@@ -59,6 +60,7 @@ export function collectRefs(root) {
     openSettings: root.querySelector("#open-settings"),
     undo: root.querySelector("#undo-project"),
     redo: root.querySelector("#redo-project"),
+    toggleOutputPlayback: root.querySelector("#toggle-output-playback"),
     blackout: root.querySelector("#blackout-main"),
     workspaceSwitch: root.querySelector("#workspace-switch"),
     openFolder: root.querySelector("#open-folder-main"),

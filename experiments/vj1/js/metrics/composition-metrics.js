@@ -1,8 +1,8 @@
 import { BLEND_MODES, VJ1 } from "../constants.js";
 import { sanitizeState } from "../domain/models.js?v=world-frame-27";
-import { compileCompositionPatch } from "../graph/render-scheduler.js?v=world-frame-27";
+import { compileCompositionPatch } from "../graph/render-scheduler.js?v=noise-field-1";
 import { planCompositorInputs, planPatchExecution, summarizeTextureBranches } from "../graph/patch-planner.js";
-import { getShaderComponent } from "../shaders/shader-registry.js?v=world-frame-27";
+import { getShaderComponent } from "../shaders/shader-registry.js?v=photo-grade-invert-1";
 import { surfaceTextureSize, worldSize } from "../output/render-geometry.js";
 
 const BASE_SURFACE_PIXELS = VJ1.surfaceWidth * VJ1.surfaceHeight;

@@ -102,6 +102,8 @@ test("adding a generator inserts a visible chain element without replacing media
   assert.equal(chain[0].source.mediaId, "models/head.stl");
   assert.equal(chain[1].kind, "source");
   assert.equal(chain[1].source.generatorId, "gradient");
+  assert.equal(chain[1].source.params.colorA, "#ff4f92ff");
+  assert.equal(chain[1].source.params.colorD, "#00000000");
   assert.equal(chain[2].componentId, "pixelate");
 });
 

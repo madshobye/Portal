@@ -1,12 +1,12 @@
 import { VJ1 } from "../constants.js";
 import { clamp01, sanitizeState } from "../domain/models.js?v=world-frame-27";
-import { normalizeParamValue } from "../graph/component-schema.js";
+import { normalizeParamValue } from "../graph/component-schema.js?v=number-log-scale-1";
 import { createManualScheduler } from "../graph/manual-scheduler.js";
-import { compileCompositionPatch, compileShaderSchedule, flattenCompositionChain } from "../graph/render-scheduler.js?v=world-frame-27";
-import { getGeneratorComponent } from "../graph/generator-registry.js";
-import { createShaderBuilder } from "../shaders/shader-builder.js?v=world-frame-27";
-import { getGeneratorShaderComponent } from "../shaders/generator-shaders.js?v=world-frame-27";
-import { getShaderComponent } from "../shaders/shader-registry.js?v=world-frame-27";
+import { compileCompositionPatch, compileShaderSchedule, flattenCompositionChain } from "../graph/render-scheduler.js?v=photo-grade-invert-1";
+import { getGeneratorComponent } from "../graph/generator-registry.js?v=terrain-direction-colors-1";
+import { createShaderBuilder } from "../shaders/shader-builder.js?v=photo-grade-invert-1";
+import { getGeneratorShaderComponent } from "../shaders/generator-shaders.js?v=noise-field-1";
+import { getShaderComponent } from "../shaders/shader-registry.js?v=photo-grade-invert-1";
 import { applyBlend } from "./blend-utils.js";
 import { applyFontToGlobal, applyFontToTarget } from "./font-loader.js?v=world-frame-27";
 import { drawGenerator, drawStandby } from "./generators.js";
@@ -22,6 +22,214 @@ import {
 } from "./render-geometry.js";
 import { VjMapper } from "./vj-mapper.js?v=world-frame-27";
 import { mediaRenditionKey } from "../services/media-rendition-service.js";
+
+const TERRAIN_GRID_CELLS = 48;
+
+const TERRAIN_VERTEX_SHADER = `
+precision highp float;
+attribute vec3 aPosition;
+attribute vec2 aTexCoord;
+uniform float time;
+uniform float flightSpeed;
+uniform float flightMode;
+uniform float turn;
+uniform float altitude;
+uniform float pitch;
+uniform float fieldOfView;
+uniform float nearClip;
+uniform float farClip;
+uniform float aspectRatio;
+uniform float lookAhead;
+uniform float noseFollow;
+uniform float mountainHeight;
+uniform float terrainScale;
+uniform vec2 terrainPhase;
+uniform float lakeLevel;
+uniform float viewDistance;
+uniform float rowSpacing;
+uniform float globeRadius;
+uniform float gridDensity;
+uniform vec2 gridCells;
+uniform float cellScale;
+uniform vec2 planeSize;
+varying vec2 vTerrainUv;
+varying vec2 vWorldCoord;
+varying vec2 vTerrainGradient;
+varying float vRawHeight;
+varying float vSurfaceHeight;
+varying float vSlope;
+varying float vDepth;
+
+float terrainHash(vec2 p) {
+  vec3 p3 = fract(vec3(p.xyx) * 0.1031);
+  p3 += dot(p3, p3.yzx + 33.33);
+  return fract((p3.x + p3.y) * p3.z);
+}
+
+float terrainNoise(vec2 p) {
+  const float skew = 0.36602540378;
+  const float unskew = 0.2113248654;
+  vec2 cell = floor(p + (p.x + p.y) * skew);
+  vec2 local0 = p - cell + (cell.x + cell.y) * unskew;
+  vec2 corner = local0.x > local0.y ? vec2(1.0, 0.0) : vec2(0.0, 1.0);
+  vec2 local1 = local0 - corner + unskew;
+  vec2 local2 = local0 - 1.0 + 2.0 * unskew;
+  vec3 weight = max(0.5 - vec3(dot(local0, local0), dot(local1, local1), dot(local2, local2)), 0.0);
+  weight *= weight;
+  weight *= weight;
+  vec3 value = vec3(terrainHash(cell), terrainHash(cell + corner), terrainHash(cell + 1.0));
+  return dot(weight, value) / max(dot(weight, vec3(1.0)), 0.0001);
+}
+
+float terrainHeightAt(vec2 world) {
+  vec2 p = (world * max(terrainScale, 0.02) + terrainPhase) * 0.055;
+  float broad = terrainNoise(p * 0.55);
+  float detail = terrainNoise(p * 1.42);
+  float base = mix(broad, detail, 0.28);
+  float ridge = 1.0 - abs(broad * 2.0 - 1.0);
+  return (base * 0.92 + ridge * ridge * 0.52 - 0.68) * max(mountainHeight, 0.01);
+}
+
+void main() {
+  vec2 meshUv = aTexCoord;
+  float yaw = clamp(turn, -1.0, 1.0) * 0.72;
+  vec2 travel = vec2(sin(yaw), cos(yaw));
+  float farDistance = mix(42.0, 86.0, clamp(viewDistance, 0.0, 3.0) / 1.5);
+  float cameraTravel = time * max(flightSpeed, 0.0) * 7.0;
+  float distance = meshUv.y * rowSpacing - cameraTravel;
+  float nearAmount = 1.0 - clamp(distance / farDistance, 0.0, 1.0);
+  vec2 right = vec2(travel.y, -travel.x);
+  float worldLateral = (meshUv.x - 0.5) * gridCells.x * cellScale * 1.44;
+  vec2 world = travel * (cameraTravel + distance) + right * worldLateral;
+  float rawHeight = terrainHeightAt(world);
+  float surfaceHeight = max(rawHeight, lakeLevel);
+  vec2 cameraWorld = travel * cameraTravel;
+  float cameraSurfaceHeight = max(terrainHeightAt(cameraWorld), lakeLevel);
+  float aheadDistance = max(lookAhead, 0.1);
+  float aheadSurfaceHeight = max(terrainHeightAt(cameraWorld + travel * aheadDistance), lakeLevel);
+  float followAmount = step(0.5, flightMode);
+  float slopePitch = atan((aheadSurfaceHeight - cameraSurfaceHeight) / aheadDistance) * noseFollow;
+  float effectivePitch = pitch - slopePitch * followAmount;
+  float relativeSurfaceHeight = surfaceHeight - cameraSurfaceHeight * followAmount;
+  float sampleStep = mix(1.4, 0.18, nearAmount);
+  float rightHeight = max(terrainHeightAt(world + vec2(sampleStep, 0.0)), lakeLevel);
+  float frontHeight = max(terrainHeightAt(world + vec2(0.0, sampleStep)), lakeLevel);
+  vec2 gradient = vec2(rightHeight - surfaceHeight, frontHeight - surfaceHeight);
+  vTerrainUv = meshUv;
+  vWorldCoord = world;
+  vTerrainGradient = gradient;
+  vRawHeight = rawHeight;
+  vSurfaceHeight = surfaceHeight;
+  vSlope = clamp(length(gradient) * 1.6, 0.0, 1.0);
+  vDepth = clamp(distance / farDistance, 0.0, 1.0);
+  float planetRadius = max(globeRadius, farDistance * 1.05);
+  float radialDistance = min(length(vec2(worldLateral, distance)), planetRadius * 0.98);
+  float globeDrop = planetRadius - sqrt(max(planetRadius * planetRadius - radialDistance * radialDistance, 0.0));
+  float verticalWorld = relativeSurfaceHeight - globeDrop - max(altitude, 0.0);
+  float pitchCos = cos(effectivePitch);
+  float pitchSin = sin(effectivePitch);
+  float cameraY = verticalWorld * pitchCos + distance * pitchSin;
+  float cameraZ = distance * pitchCos - verticalWorld * pitchSin;
+  float focalLength = 1.0 / tan(radians(clamp(fieldOfView, 20.0, 120.0)) * 0.5);
+  float nearPlane = max(nearClip, 0.01);
+  float farPlane = max(farClip, nearPlane + 1.0);
+  float clipZ = ((farPlane + nearPlane) / (farPlane - nearPlane)) * cameraZ
+    - (2.0 * farPlane * nearPlane) / (farPlane - nearPlane);
+  gl_Position = vec4(
+    worldLateral * focalLength / max(aspectRatio, 0.01),
+    -cameraY * focalLength,
+    clipZ,
+    cameraZ
+  );
+}
+`;
+
+const TERRAIN_FRAGMENT_SHADER = `
+precision highp float;
+uniform float style;
+uniform float lakeLevel;
+uniform float viewDistance;
+uniform float gridDensity;
+uniform float wireWidth;
+uniform float textureGrain;
+uniform float textureDepth;
+uniform float colorDirection;
+uniform vec4 waterColor;
+uniform vec4 grassColor;
+uniform vec4 rockColor;
+uniform vec4 snowColor;
+uniform vec4 downSlopeColor;
+uniform vec4 directionColor;
+uniform vec4 wireColor;
+uniform vec4 skyColor;
+varying vec2 vTerrainUv;
+varying vec2 vWorldCoord;
+varying vec2 vTerrainGradient;
+varying float vRawHeight;
+varying float vSurfaceHeight;
+varying float vSlope;
+varying float vDepth;
+
+float terrainTextureHash(vec2 p) {
+  vec3 p3 = fract(vec3(p.xyx) * 0.1031);
+  p3 += dot(p3, p3.yzx + 33.33);
+  return fract((p3.x + p3.y) * p3.z);
+}
+
+float terrainTextureNoise(vec2 p) {
+  vec2 cell = floor(p);
+  vec2 local = fract(p);
+  vec2 blend = local * local * (3.0 - 2.0 * local);
+  float a = terrainTextureHash(cell);
+  float b = terrainTextureHash(cell + vec2(1.0, 0.0));
+  float c = terrainTextureHash(cell + vec2(0.0, 1.0));
+  float d = terrainTextureHash(cell + vec2(1.0, 1.0));
+  return mix(mix(a, b, blend.x), mix(c, d, blend.x), blend.y);
+}
+
+void main() {
+  bool water = vRawHeight < lakeLevel + 0.018;
+  float aboveWater = vRawHeight - lakeLevel;
+  vec3 shoreColor = mix(rockColor.rgb, snowColor.rgb, 0.58);
+  float shoreAlpha = mix(rockColor.a, snowColor.a, 0.58);
+  float grassBand = smoothstep(0.015, 0.20, aboveWater);
+  vec3 terrainColor = mix(shoreColor, grassColor.rgb, grassBand);
+  float terrainAlpha = mix(shoreAlpha, grassColor.a, grassBand);
+  float rockBand = clamp(smoothstep(0.46, 1.10, aboveWater) + vSlope * 0.42, 0.0, 1.0);
+  terrainColor = mix(terrainColor, rockColor.rgb, rockBand);
+  terrainAlpha = mix(terrainAlpha, rockColor.a, rockBand);
+  float snowBand = smoothstep(0.76, 1.16, aboveWater) * (1.0 - vSlope * 0.72);
+  terrainColor = mix(terrainColor, snowColor.rgb, snowBand);
+  terrainAlpha = mix(terrainAlpha, snowColor.a, snowBand);
+  float downSlopeBlend = smoothstep(0.10, 0.82, vSlope) * downSlopeColor.a;
+  terrainColor = mix(terrainColor, downSlopeColor.rgb, downSlopeBlend);
+  vec2 surfaceAspect = length(vTerrainGradient) > 0.0001 ? normalize(-vTerrainGradient) : vec2(0.0);
+  vec2 colorHeading = vec2(cos(colorDirection), sin(colorDirection));
+  float directionFacing = smoothstep(-0.15, 0.85, dot(surfaceAspect, colorHeading));
+  float directionBlend = directionFacing * smoothstep(0.04, 0.64, vSlope) * directionColor.a;
+  terrainColor = mix(terrainColor, directionColor.rgb, directionBlend);
+  float lighting = mix(1.02, 0.55, vSlope);
+  vec3 color = water ? waterColor.rgb * mix(1.05, 0.66, vDepth) : terrainColor * lighting;
+  float alpha = water ? waterColor.a : terrainAlpha;
+  float textureMask = water ? 0.18 : 1.0;
+  float textureLight = 1.0;
+  if (textureDepth > 0.001) {
+    float coarseTexture = terrainTextureNoise(vWorldCoord * 0.42) - 0.5;
+    textureLight += textureMask * coarseTexture * textureDepth * 0.55;
+  }
+  if (textureGrain > 0.001) {
+    float fineTexture = terrainTextureNoise(vWorldCoord * 3.2 + vec2(31.7, 19.3)) - 0.5;
+    textureLight += textureMask * fineTexture * textureGrain * 0.32;
+  }
+  color *= max(textureLight, 0.05);
+
+  float fogStart = mix(0.94, 0.58, clamp(viewDistance, 0.0, 3.0) / 1.5);
+  float fog = smoothstep(fogStart, 1.0, vDepth);
+  color = mix(color, skyColor.rgb * 0.76, fog);
+  alpha *= 1.0 - fog;
+  gl_FragColor = vec4(clamp(color, 0.0, 1.0), clamp(alpha, 0.0, 1.0));
+}
+`;
 
 export class OutputRenderer {
   constructor({ mode, hud, font, sendMetrics, sendMapping, sendThumbnail, sendChainTransform, sendMediaRendition, requestMediaFiles, onSurfaceSelect }) {
@@ -47,6 +255,8 @@ export class OutputRenderer {
     this.thumbnailImages = new Map();
     this.media = new Map();
     this.modelTargets = new Map();
+    this.terrainShaders = new WeakMap();
+    this.terrainWireResources = new Map();
     this.pendingRenditionSaves = new Set();
     this.sourcePg = null;
     this.fxTargets = [null, null];
@@ -82,6 +292,8 @@ export class OutputRenderer {
     this.scheduledEvents = [];
     this.manualScheduler = createManualScheduler();
     this.compositionTimes = new Map();
+    this.rateClocks = new Map();
+    this.terrainScalePhases = new Map();
     this.shaderBuilder = createShaderBuilder({
       getCustomCode: () => this.state?.shaders?.customCode || "",
       onStatus: (status, error) => {
@@ -170,6 +382,7 @@ export class OutputRenderer {
   }
 
   disposeBuffers() {
+    this.resetTerrainResources();
     disposeGraphics(this.sourcePg);
     disposeGraphics(this.mainMix);
     disposeGraphics(this.surfaceScratch);
@@ -191,6 +404,14 @@ export class OutputRenderer {
     this.fxTargetKey = "";
     this.modelTargets?.clear?.();
     this.shaderBuilder.clear?.();
+  }
+
+  resetTerrainResources() {
+    for (const [gl, resources] of this.terrainWireResources?.entries?.() || []) {
+      disposeTerrainWireResources(gl, resources);
+    }
+    this.terrainWireResources?.clear?.();
+    this.terrainShaders = new WeakMap();
   }
 
   disposeFxTargetGroups() {
@@ -268,10 +489,15 @@ export class OutputRenderer {
     const previousSurfaceIds = (this.state?.surfaces || []).map((surface) => surface.id).join(",");
     const previousSize = this.state ? this.renderSizeSignature(this.state.render) : "";
     const previousMappingSignature = this.mappingSignature;
+    const previousLiveSceneId = this.state?.ui?.live?.selectedSceneId || "";
     this.state = sanitizeState(nextState);
     const nextSurfaceIds = this.state.surfaces.map((surface) => surface.id).join(",");
     const nextSize = this.renderSizeSignature(this.state.render);
     const nextMappingSignature = this.currentMappingSignature();
+    const nextLiveSceneId = this.state?.ui?.live?.selectedSceneId || "";
+    if (previousLiveSceneId && previousLiveSceneId !== nextLiveSceneId) {
+      this.resetTerrainResources();
+    }
     if (previousSize && previousSize !== nextSize) {
       this.createBuffers();
     }
@@ -466,19 +692,15 @@ export class OutputRenderer {
               item.modelError = error?.message || String(error || "model load failed");
             });
         } else if (/\.obj$/i.test(id)) {
-          loadModel(
-            url,
-            true,
-            (model) => {
-              item.model = model;
+          file.text()
+            .then((text) => {
+              item.modelData = parseObjMesh(text);
               item.ready = true;
               item.modelError = "";
-            },
-            (error) => {
+            })
+            .catch((error) => {
               item.modelError = error?.message || String(error || "model load failed");
-            },
-            "obj"
-          );
+            });
         }
       }
       this.importMediaRenditions(item, entry?.renditions || []);
@@ -550,7 +772,7 @@ export class OutputRenderer {
     else this.renderCompositions();
     if (this.mode === "composition") {
       this.renderCompositionPreview();
-      this.captureSelectedCompositionThumbnail();
+      if (!this.shouldUseThumbnailPreview()) this.captureSelectedCompositionThumbnail();
       this.finishFrameProfile();
       this.updateHudAndMetrics();
       this.pruneRenderCaches();
@@ -576,6 +798,7 @@ export class OutputRenderer {
     }
     const dt = Math.min(0.1, Math.max(0, (nowMs - this.lastTickMs) / 1000));
     this.lastTickMs = nowMs;
+    if (this.state?.global?.playing === false) return;
     this.visualTime += dt;
     const liveCompositionIds = new Set((this.state.compositions || []).map((composition) => composition.id));
     for (const id of this.compositionTimes.keys()) {
@@ -847,7 +1070,7 @@ export class OutputRenderer {
 
   renderPatchSourceTexture(composition, node, layer, compositionTime, renderRequest) {
     const sourceState = sourceFromPatchNode(node);
-    if (isSimpleLayer(layer) && sourceState.type === "generator" && getGeneratorShaderComponent(getGeneratorComponent(sourceState.generatorId).id)) {
+    if (isSimpleLayer(layer) && sourceState.type === "generator" && sourceState.generatorId !== "terrainFlyover" && getGeneratorShaderComponent(getGeneratorComponent(sourceState.generatorId).id)) {
       return this.measureProfile("sourceMs", {
         type: "source",
         compositionId: composition.id,
@@ -860,7 +1083,8 @@ export class OutputRenderer {
         sourceState.generatorId,
         instanceTime(sourceState.instanceId || node.id, compositionTime),
         renderRequest,
-        sourceState.params || {}
+        sourceState.params || {},
+        sourceState.instanceId || node.id
       ));
     }
     const source = this.measureProfile("sourceMs", {
@@ -1085,7 +1309,8 @@ export class OutputRenderer {
     this.touchRenderCache(this.compositionSourceUse, key);
     pg.push();
     pg.clear();
-    this.safeDrawSourceToGraphics(pg, withSourceInstance(item.source || composition.source, item.id), composition, compositionTime, renderRequest);
+    const source = sourceWithNodeParams(item.source || composition.source, item.params || {}, item.id);
+    this.safeDrawSourceToGraphics(pg, source, composition, compositionTime, renderRequest);
     pg.pop();
     return pg;
   }
@@ -1132,7 +1357,7 @@ export class OutputRenderer {
         syncVideoPlayback(item.video, {
           start: source.start,
           end: source.end,
-          speed: (Number(source.speed) || 1) * Math.max(0, Number(composition.speed) || 0),
+          speed: (this.state?.global?.playing === false ? 0 : 1) * (Number(source.speed) || 1) * Math.max(0, Number(composition.speed) || 0),
         });
         drawMediaFit(pg, item.video, 0, 0, pg.width, pg.height, mediaSourceFit(source));
       }
@@ -1161,6 +1386,10 @@ export class OutputRenderer {
       const generatorTime = instanceTime(source.instanceId || source.generatorId, compositionTime);
       if (source.generatorId === "anatomy") {
         this.drawAnatomyGenerator(pg, source, generatorTime, renderRequest);
+        return;
+      }
+      if (source.generatorId === "terrainFlyover") {
+        this.drawTerrainGenerator(pg, source, generatorTime, renderRequest);
         return;
       }
       if (this.drawShaderGenerator(pg, source, generatorTime)) return;
@@ -1198,6 +1427,56 @@ export class OutputRenderer {
     pg.clear();
     drawBuffer(pg, target, 0, 0, pg.width, pg.height, true);
     pg.pop();
+  }
+
+  drawTerrainGenerator(pg, source = {}, compositionTime = this.visualTime, renderRequest = frameRenderRequest(this.state.render)) {
+    const target = this.getModelTarget(pg.width, pg.height);
+    const params = source.params || {};
+    let shader = this.terrainShaders.get(target);
+    if (!shader) {
+      shader = target.createShader(TERRAIN_VERTEX_SHADER, TERRAIN_FRAGMENT_SHADER);
+      this.terrainShaders.set(target, shader);
+    }
+    const style = params.style === "wire" ? 1 : params.style === "hybrid" ? 2 : 0;
+    const flightSpeed = Math.max(0, Number(params.flightSpeed) || 0);
+    const flightTime = this.continuousRateTime(`${source.instanceId || source.generatorId || "terrain"}:flight`, compositionTime, flightSpeed);
+    const turn = Math.max(-1, Math.min(1, Number(params.turn) || 0));
+    const yaw = turn * 0.72;
+    const cameraAnchor = [Math.sin(yaw) * flightTime * 7, Math.cos(yaw) * flightTime * 7];
+    const scaleKey = `${source.instanceId || source.generatorId || "terrain"}:scale`;
+    const scaleState = advanceSpatialScale(this.terrainScalePhases.get(scaleKey), params.terrainScale, cameraAnchor);
+    this.terrainScalePhases.set(scaleKey, scaleState);
+    const flightParams = { ...params, flightSpeed: 1, terrainScale: scaleState.scale, terrainPhase: scaleState.phase };
+    const sky = normalizedModelColor(params.skyColor, [108, 165, 212, 255]);
+
+    target.push();
+    target.clear();
+    if (style !== 1) target.background(sky[0] * 255, sky[1] * 255, sky[2] * 255, sky[3] * 255);
+    if (style !== 1) {
+      target.shader(shader);
+      setTerrainP5Uniforms(shader, flightParams, flightTime, style, target.width, target.height, sky);
+      target.noStroke();
+      target.fill(255);
+      drawWithPolygonOffset(target, style === 2, () => {
+        drawTerrainSurfaceMesh(target, params.gridJitter, params.gridWidth, params.gridDepth, flightTime, 1, params.gridDensity, params.gridScale);
+      });
+      target.resetShader();
+    }
+    if (style >= 1) {
+      drawTerrainWireframe(target, this.terrainWireResources, flightParams, flightTime, target.width, target.height);
+    }
+    target.pop();
+
+    pg.push();
+    pg.clear();
+    drawBuffer(pg, target, 0, 0, pg.width, pg.height, true);
+    pg.pop();
+  }
+
+  continuousRateTime(key, baseTime, rate) {
+    const next = advanceRateClock(this.rateClocks.get(key), baseTime, rate);
+    this.rateClocks.set(key, next);
+    return next.time;
   }
 
   drawModelSource(pg, item, source = {}, compositionTime = this.visualTime, renderRequest = frameRenderRequest(this.state.render)) {
@@ -1252,7 +1531,7 @@ export class OutputRenderer {
         target.noStroke();
         target.ambientMaterial?.(...surfaceColor);
         target.fill?.(...surfaceColor);
-        target.model(item.model);
+        drawWithPolygonOffset(target, renderMode === "surfaceWire", () => target.model(item.model));
         if (renderMode === "surfaceWire") {
           target.noFill();
           target.stroke(...wireColor);
@@ -1299,7 +1578,7 @@ export class OutputRenderer {
       ? sourceOrId
       : { generatorId: sourceOrId, params: {} };
     const request = createRenderRequest("source", { width: pg.width, height: pg.height });
-    const target = this.renderShaderGeneratorSource(source.generatorId, compositionTime, request, source.params || {});
+    const target = this.renderShaderGeneratorSource(source.generatorId, compositionTime, request, source.params || {}, source.instanceId || source.generatorId);
     if (!target) return false;
     pg.push();
     pg.clear();
@@ -1308,7 +1587,7 @@ export class OutputRenderer {
     return true;
   }
 
-  renderShaderGeneratorSource(id, compositionTime = this.visualTime, request = frameRenderRequest(this.state.render), params = {}) {
+  renderShaderGeneratorSource(id, compositionTime = this.visualTime, request = frameRenderRequest(this.state.render), params = {}, instanceId = id) {
     const generatorComponent = getGeneratorComponent(id);
     const generatorId = generatorComponent.id;
     const shaderComponent = getGeneratorShaderComponent(generatorId);
@@ -1318,6 +1597,12 @@ export class OutputRenderer {
     const target = this.getFxPingPongTarget(request, 0);
     const shader = this.shaderBuilder.getShader({ id: component.id, component }, target);
     if (!shader) return null;
+    const rateParam = generatorRateParam(generatorId);
+    const rate = rateParam ? Math.max(0, Number(params[rateParam]) || 0) : 1;
+    const shaderTime = rateParam
+      ? this.continuousRateTime(`${instanceId || generatorId}:${rateParam}`, compositionTime, rate)
+      : compositionTime;
+    const shaderParams = rateParam ? { ...params, [rateParam]: 1 } : params;
     const started = performance.now();
     const sample = {
       type: "shader-generator",
@@ -1332,8 +1617,8 @@ export class OutputRenderer {
       target.clear();
       target.shader(shader);
       shader.setUniform("resolution", [renderRequest.width, renderRequest.height]);
-      shader.setUniform("time", compositionTime);
-      this.setShaderParamUniforms(shader, component, params, { setDefaultAmount: false });
+      shader.setUniform("time", shaderTime);
+      this.setShaderParamUniforms(shader, component, shaderParams, { setDefaultAmount: false });
       target.rect(-renderRequest.width / 2, -renderRequest.height / 2, renderRequest.width, renderRequest.height);
       target.resetShader();
       target.pop();
@@ -1767,18 +2052,22 @@ export class OutputRenderer {
 
   renderCompositionPreview() {
     const compositionId = this.state.ui.selectedCompositionId || this.state.compositions[0]?.id || "";
+    const composition = this.state.compositions.find((item) => item.id === compositionId);
     const source = this.compositionOutput.get(compositionId);
     resetShader();
     push();
     imageMode(CORNER);
-    if (source) {
+    if (this.shouldUseThumbnailPreview()) {
+      const thumbnail = this.getThumbnailImage(composition);
+      if (thumbnail?.ready && thumbnail.img) image(thumbnail.img, -width / 2, -height / 2, width, height);
+    } else if (source) {
       image(source, -width / 2, -height / 2, width, height);
     } else {
       const fallback = this.mainMix;
       image(fallback, -width / 2, -height / 2, width, height);
     }
     pop();
-    this.renderSelectedChainTransformOverlay();
+    if (!this.shouldUseThumbnailPreview()) this.renderSelectedChainTransformOverlay();
   }
 
   renderSelectedChainTransformOverlay() {
@@ -2023,7 +2312,7 @@ export class OutputRenderer {
   }
 
   shouldUseThumbnailPreview() {
-    return this.mode === "preview" && this.state?.ui?.debugPreview === false;
+    return (this.mode === "preview" || this.mode === "composition") && this.state?.ui?.debugPreview === false;
   }
 
   updateHudAndMetrics() {
@@ -2246,7 +2535,7 @@ function sourceFromPatchNode(node = {}) {
   return { type: "generator", generatorId: "testPattern" };
 }
 
-function sourceWithNodeParams(source = {}, params = {}, instanceId = "") {
+export function sourceWithNodeParams(source = {}, params = {}, instanceId = "") {
   const base = withSourceInstance(source, instanceId);
   if (base.type === "generator") {
     const { generatorId, ...generatorParams } = params || {};
@@ -2590,6 +2879,37 @@ function instanceTime(instanceId, baseTime = 0) {
   return Number(baseTime) + instanceTimeOffset(instanceId);
 }
 
+export function advanceRateClock(previous, baseTime, rate) {
+  const now = Number(baseTime) || 0;
+  const speed = Math.max(0, Number(rate) || 0);
+  if (!previous || now < previous.baseTime) {
+    return { baseTime: now, time: now * speed };
+  }
+  return {
+    baseTime: now,
+    time: previous.time + Math.max(0, now - previous.baseTime) * speed,
+  };
+}
+
+export function advanceSpatialScale(previous, scale, anchor = [0, 0]) {
+  const nextScale = Math.max(0.02, Number(scale) || 0.62);
+  const point = [Number(anchor[0]) || 0, Number(anchor[1]) || 0];
+  if (!previous) return { scale: nextScale, phase: [0, 0] };
+  const delta = previous.scale - nextScale;
+  return {
+    scale: nextScale,
+    phase: [
+      previous.phase[0] + point[0] * delta,
+      previous.phase[1] + point[1] * delta,
+    ],
+  };
+}
+
+function generatorRateParam(generatorId) {
+  if (generatorId === "fireflies" || generatorId === "bezierStrokes") return "speed";
+  return "";
+}
+
 function instanceTimeOffset(instanceId = "") {
   const text = String(instanceId || "");
   if (!text) return 0;
@@ -2657,6 +2977,505 @@ function drawBuffer(pg, source, x, y, w, h, sourceIsWebGL = false) {
   drawWebGLBuffer(pg, source, x, y, w, h);
 }
 
+function setTerrainP5Uniforms(shader, params, compositionTime, style, planeWidth, planeDepth, sky) {
+  shader.setUniform("time", compositionTime);
+  shader.setUniform("flightSpeed", Math.max(0, Number(params.flightSpeed) || 0));
+  shader.setUniform("flightMode", params.flightMode === "terrainFollow" ? 1 : 0);
+  shader.setUniform("turn", Math.max(-1, Math.min(1, Number(params.turn) || 0)));
+  shader.setUniform("altitude", Math.max(0.2, Number(params.altitude) || 2.5));
+  shader.setUniform("pitch", Math.max(-1.4, Number(params.pitch) || 0.28));
+  shader.setUniform("fieldOfView", Math.max(20, Math.min(120, Number(params.fieldOfView) || 60)));
+  shader.setUniform("nearClip", Math.max(0.01, Number(params.nearClip) || 0.1));
+  shader.setUniform("farClip", Math.max(100, Number(params.farClip) || 20000));
+  shader.setUniform("aspectRatio", planeWidth / Math.max(1, planeDepth));
+  shader.setUniform("lookAhead", Math.max(0.1, Number(params.lookAhead) || 14));
+  shader.setUniform("noseFollow", Number.isFinite(Number(params.noseFollow)) ? Math.max(0, Number(params.noseFollow)) : 1);
+  shader.setUniform("mountainHeight", Math.max(0.05, Number(params.mountainHeight) || 2.4));
+  shader.setUniform("terrainScale", Math.max(0.02, Number(params.terrainScale) || 0.62));
+  shader.setUniform("textureGrain", Math.max(0, Number(params.textureGrain) || 0));
+  shader.setUniform("textureDepth", Math.max(0, Number(params.textureDepth) || 0));
+  shader.setUniform("colorDirection", Math.max(-3.14, Math.min(3.14, Number(params.colorDirection) || 0)));
+  shader.setUniform("terrainPhase", params.terrainPhase || [0, 0]);
+  shader.setUniform("lakeLevel", Number.isFinite(Number(params.lakeLevel)) ? Number(params.lakeLevel) : -0.12);
+  shader.setUniform("planeSize", [planeWidth, planeDepth]);
+  shader.setUniform("viewDistance", Math.max(0, Number(params.viewDistance) || 0));
+  const gridMetrics = terrainRowMetrics(compositionTime, Math.max(0, Number(params.flightSpeed) || 0), params.gridDepth, params.gridDensity, params.gridScale);
+  shader.setUniform("rowSpacing", gridMetrics.rowSpacing);
+  shader.setUniform("cellScale", gridMetrics.cellScale);
+  shader.setUniform("globeRadius", Math.max(60, Number(params.globeRadius) || 280));
+  shader.setUniform("gridDensity", Math.max(0.25, Number(params.gridDensity) || 1));
+  shader.setUniform("gridCells", [terrainGridSize(params.gridWidth), terrainGridSize(params.gridDepth)]);
+  shader.setUniform("wireWidth", Math.max(0.05, Number(params.wireWidth) || 0.85));
+  shader.setUniform("style", style);
+  shader.setUniform("waterColor", normalizedModelColor(params.waterColor, [20, 123, 193, 255]));
+  shader.setUniform("grassColor", normalizedModelColor(params.grassColor, [35, 132, 59, 255]));
+  shader.setUniform("rockColor", normalizedModelColor(params.rockColor, [76, 64, 55, 255]));
+  shader.setUniform("snowColor", normalizedModelColor(params.snowColor, [232, 237, 241, 255]));
+  shader.setUniform("downSlopeColor", normalizedModelColor(params.downSlopeColor, [32, 42, 56, 170]));
+  shader.setUniform("directionColor", normalizedModelColor(params.directionColor, [216, 138, 66, 170]));
+  shader.setUniform("wireColor", normalizedModelColor(params.wireColor, [242, 245, 239, 255]));
+  shader.setUniform("skyColor", sky);
+}
+
+function drawTerrainWireframe(target, resourceCache, params, compositionTime, planeWidth, planeDepth) {
+  const gl = target?.drawingContext;
+  if (!gl) return false;
+  const previousProgram = gl.getParameter(gl.CURRENT_PROGRAM);
+  let resources = resourceCache.get(gl);
+  if (resources && !terrainWireResourcesValid(gl, resources)) {
+    disposeTerrainWireResources(gl, resources);
+    resourceCache.delete(gl);
+    resources = null;
+  }
+  if (!resources) {
+    resources = createTerrainWireResources(gl);
+    if (!resources) return false;
+    resourceCache.set(gl, resources);
+  }
+  const flightSpeed = Math.max(0, Number(params.flightSpeed) || 0);
+  const widthCells = terrainGridSize(params.gridWidth);
+  const depthCells = terrainGridSize(params.gridDepth);
+  const tessellatedWidth = terrainTessellationSize(widthCells, params.gridDensity);
+  const tessellatedDepth = terrainTessellationSize(depthCells, params.gridDensity);
+  const { travelRows } = terrainRowMetrics(compositionTime, flightSpeed, depthCells, params.gridDensity, params.gridScale);
+  const previousArrayBuffer = gl.getParameter(gl.ARRAY_BUFFER_BINDING);
+  const previousElementBuffer = gl.getParameter(gl.ELEMENT_ARRAY_BUFFER_BINDING);
+  const previousDepthTest = gl.isEnabled(gl.DEPTH_TEST);
+  const previousBlend = gl.isEnabled(gl.BLEND);
+  const previousCullFace = gl.isEnabled(gl.CULL_FACE);
+  const previousDepthFunc = gl.getParameter(gl.DEPTH_FUNC);
+  const previousBlendSrcRgb = gl.getParameter(gl.BLEND_SRC_RGB);
+  const previousBlendDstRgb = gl.getParameter(gl.BLEND_DST_RGB);
+  const previousBlendSrcAlpha = gl.getParameter(gl.BLEND_SRC_ALPHA);
+  const previousBlendDstAlpha = gl.getParameter(gl.BLEND_DST_ALPHA);
+  const attributeStates = [resources.start, resources.end, resources.side, resources.along]
+    .map((location) => captureVertexAttributeState(gl, location));
+  updateTerrainWireBuffer(gl, resources, tessellatedWidth, tessellatedDepth, params.gridJitter, travelRows);
+  const wireColor = normalizedModelColor(params.wireColor, [242, 245, 239, 255]);
+  gl.useProgram(resources.program);
+  gl.viewport(0, 0, gl.drawingBufferWidth || target.width, gl.drawingBufferHeight || target.height);
+  gl.enable(gl.DEPTH_TEST);
+  gl.depthFunc(gl.LEQUAL);
+  gl.enable(gl.BLEND);
+  gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
+  gl.disable(gl.CULL_FACE);
+  const stride = 6 * 4;
+  gl.bindBuffer(gl.ARRAY_BUFFER, resources.vertexBuffer);
+  gl.enableVertexAttribArray(resources.start);
+  gl.vertexAttribPointer(resources.start, 2, gl.FLOAT, false, stride, 0);
+  gl.enableVertexAttribArray(resources.end);
+  gl.vertexAttribPointer(resources.end, 2, gl.FLOAT, false, stride, 2 * 4);
+  gl.enableVertexAttribArray(resources.side);
+  gl.vertexAttribPointer(resources.side, 1, gl.FLOAT, false, stride, 4 * 4);
+  gl.enableVertexAttribArray(resources.along);
+  gl.vertexAttribPointer(resources.along, 1, gl.FLOAT, false, stride, 5 * 4);
+  setTerrainRawUniforms(gl, resources, params, compositionTime, planeWidth, planeDepth, wireColor);
+  gl.uniform2f(resources.resolution, gl.drawingBufferWidth || target.width, gl.drawingBufferHeight || target.height);
+  gl.uniform1f(resources.thickness, Math.max(0.5, Number(params.wireWidth) || 0.85));
+  gl.drawArrays(gl.TRIANGLES, 0, resources.count);
+  for (const state of attributeStates) restoreVertexAttributeState(gl, state);
+  gl.bindBuffer(gl.ARRAY_BUFFER, previousArrayBuffer);
+  gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, previousElementBuffer);
+  previousDepthTest ? gl.enable(gl.DEPTH_TEST) : gl.disable(gl.DEPTH_TEST);
+  previousBlend ? gl.enable(gl.BLEND) : gl.disable(gl.BLEND);
+  previousCullFace ? gl.enable(gl.CULL_FACE) : gl.disable(gl.CULL_FACE);
+  gl.depthFunc(previousDepthFunc);
+  gl.blendFuncSeparate(previousBlendSrcRgb, previousBlendDstRgb, previousBlendSrcAlpha, previousBlendDstAlpha);
+  gl.useProgram(previousProgram);
+  return true;
+}
+
+function terrainWireResourcesValid(gl, resources) {
+  if (!gl || !resources?.program || !resources?.vertexBuffer) return false;
+  try {
+    return gl.isProgram(resources.program) &&
+      gl.getProgramParameter(resources.program, gl.LINK_STATUS) &&
+      gl.isBuffer(resources.vertexBuffer);
+  } catch {
+    return false;
+  }
+}
+
+function disposeTerrainWireResources(gl, resources) {
+  if (!gl || !resources) return;
+  try {
+    if (resources.vertexBuffer && gl.isBuffer(resources.vertexBuffer)) gl.deleteBuffer(resources.vertexBuffer);
+    if (resources.program && gl.isProgram(resources.program)) gl.deleteProgram(resources.program);
+  } catch {}
+}
+
+function captureVertexAttributeState(gl, location) {
+  if (location < 0) return null;
+  return {
+    location,
+    enabled: gl.getVertexAttrib(location, gl.VERTEX_ATTRIB_ARRAY_ENABLED),
+    buffer: gl.getVertexAttrib(location, gl.VERTEX_ATTRIB_ARRAY_BUFFER_BINDING),
+    size: gl.getVertexAttrib(location, gl.VERTEX_ATTRIB_ARRAY_SIZE),
+    type: gl.getVertexAttrib(location, gl.VERTEX_ATTRIB_ARRAY_TYPE),
+    normalized: gl.getVertexAttrib(location, gl.VERTEX_ATTRIB_ARRAY_NORMALIZED),
+    stride: gl.getVertexAttrib(location, gl.VERTEX_ATTRIB_ARRAY_STRIDE),
+    offset: gl.getVertexAttribOffset(location, gl.VERTEX_ATTRIB_ARRAY_POINTER),
+  };
+}
+
+function restoreVertexAttributeState(gl, state) {
+  if (!state) return;
+  if (state.buffer) {
+    gl.bindBuffer(gl.ARRAY_BUFFER, state.buffer);
+    gl.vertexAttribPointer(state.location, state.size, state.type, state.normalized, state.stride, state.offset);
+  }
+  state.enabled ? gl.enableVertexAttribArray(state.location) : gl.disableVertexAttribArray(state.location);
+}
+
+function createTerrainWireResources(gl) {
+  const vertex = compileRawShader(gl, gl.VERTEX_SHADER, `
+    precision highp float;
+    attribute vec2 aStart;
+    attribute vec2 aEnd;
+    attribute float aSide;
+    attribute float aAlong;
+    uniform float time;
+    uniform float flightSpeed;
+    uniform float flightMode;
+    uniform float turn;
+    uniform float altitude;
+    uniform float pitch;
+    uniform float fieldOfView;
+    uniform float nearClip;
+    uniform float farClip;
+    uniform float aspectRatio;
+    uniform float lookAhead;
+    uniform float noseFollow;
+    uniform float mountainHeight;
+    uniform float terrainScale;
+    uniform vec2 terrainPhase;
+    uniform float lakeLevel;
+    uniform float viewDistance;
+    uniform float rowSpacing;
+    uniform float globeRadius;
+    uniform float gridDensity;
+    uniform vec2 gridCells;
+    uniform float cellScale;
+    uniform vec2 resolution;
+    uniform float thickness;
+    varying float vDepth;
+
+    float terrainHash(vec2 p) {
+      vec3 p3 = fract(vec3(p.xyx) * 0.1031);
+      p3 += dot(p3, p3.yzx + 33.33);
+      return fract((p3.x + p3.y) * p3.z);
+    }
+
+    float terrainNoise(vec2 p) {
+      const float skew = 0.36602540378;
+      const float unskew = 0.2113248654;
+      vec2 cell = floor(p + (p.x + p.y) * skew);
+      vec2 local0 = p - cell + (cell.x + cell.y) * unskew;
+      vec2 corner = local0.x > local0.y ? vec2(1.0, 0.0) : vec2(0.0, 1.0);
+      vec2 local1 = local0 - corner + unskew;
+      vec2 local2 = local0 - 1.0 + 2.0 * unskew;
+      vec3 weight = max(0.5 - vec3(dot(local0, local0), dot(local1, local1), dot(local2, local2)), 0.0);
+      weight *= weight;
+      weight *= weight;
+      vec3 value = vec3(terrainHash(cell), terrainHash(cell + corner), terrainHash(cell + 1.0));
+      return dot(weight, value) / max(dot(weight, vec3(1.0)), 0.0001);
+    }
+
+    float terrainHeightAt(vec2 world) {
+      vec2 p = (world * max(terrainScale, 0.02) + terrainPhase) * 0.055;
+      float broad = terrainNoise(p * 0.55);
+      float detail = terrainNoise(p * 1.42);
+      float base = mix(broad, detail, 0.28);
+      float ridge = 1.0 - abs(broad * 2.0 - 1.0);
+      return (base * 0.92 + ridge * ridge * 0.52 - 0.68) * max(mountainHeight, 0.01);
+    }
+
+    vec4 terrainClip(vec2 uv) {
+      float yaw = clamp(turn, -1.0, 1.0) * 0.72;
+      vec2 travel = vec2(sin(yaw), cos(yaw));
+      float farDistance = mix(42.0, 86.0, clamp(viewDistance, 0.0, 3.0) / 1.5);
+      float cameraTravel = time * max(flightSpeed, 0.0) * 7.0;
+      float distance = uv.y * rowSpacing - cameraTravel;
+      vec2 right = vec2(travel.y, -travel.x);
+      float worldLateral = (uv.x - 0.5) * gridCells.x * cellScale * 1.44;
+      vec2 world = travel * (cameraTravel + distance) + right * worldLateral;
+      float surfaceHeight = max(terrainHeightAt(world), lakeLevel);
+      vec2 cameraWorld = travel * cameraTravel;
+      float cameraSurfaceHeight = max(terrainHeightAt(cameraWorld), lakeLevel);
+      float aheadDistance = max(lookAhead, 0.1);
+      float aheadSurfaceHeight = max(terrainHeightAt(cameraWorld + travel * aheadDistance), lakeLevel);
+      float followAmount = step(0.5, flightMode);
+      float slopePitch = atan((aheadSurfaceHeight - cameraSurfaceHeight) / aheadDistance) * noseFollow;
+      float effectivePitch = pitch - slopePitch * followAmount;
+      float relativeSurfaceHeight = surfaceHeight - cameraSurfaceHeight * followAmount;
+      float planetRadius = max(globeRadius, farDistance * 1.05);
+      float radialDistance = min(length(vec2(worldLateral, distance)), planetRadius * 0.98);
+      float globeDrop = planetRadius - sqrt(max(planetRadius * planetRadius - radialDistance * radialDistance, 0.0));
+      float verticalWorld = relativeSurfaceHeight - globeDrop - max(altitude, 0.0);
+      float pitchCos = cos(effectivePitch);
+      float pitchSin = sin(effectivePitch);
+      float cameraY = verticalWorld * pitchCos + distance * pitchSin;
+      float cameraZ = distance * pitchCos - verticalWorld * pitchSin;
+      float focalLength = 1.0 / tan(radians(clamp(fieldOfView, 20.0, 120.0)) * 0.5);
+      float nearPlane = max(nearClip, 0.01);
+      float farPlane = max(farClip, nearPlane + 1.0);
+      float clipZ = ((farPlane + nearPlane) / (farPlane - nearPlane)) * cameraZ
+        - (2.0 * farPlane * nearPlane) / (farPlane - nearPlane);
+      return vec4(
+        worldLateral * focalLength / max(aspectRatio, 0.01),
+        -cameraY * focalLength,
+        clipZ,
+        cameraZ
+      );
+    }
+
+    void main() {
+      vec4 startClip = terrainClip(aStart);
+      vec4 endClip = terrainClip(aEnd);
+      float clipNear = max(nearClip, 0.01);
+      if (startClip.w < clipNear && endClip.w < clipNear) {
+        vDepth = 1.0;
+        gl_Position = vec4(2.0, 2.0, 2.0, 1.0);
+        return;
+      }
+      if (startClip.w < clipNear) {
+        float amount = clamp((clipNear - startClip.w) / max(endClip.w - startClip.w, 0.000001), 0.0, 1.0);
+        startClip = mix(startClip, endClip, amount);
+      } else if (endClip.w < clipNear) {
+        float amount = clamp((clipNear - endClip.w) / max(startClip.w - endClip.w, 0.000001), 0.0, 1.0);
+        endClip = mix(endClip, startClip, amount);
+      }
+      vec2 startNdc = startClip.xy / startClip.w;
+      vec2 endNdc = endClip.xy / endClip.w;
+      vec2 direction = endNdc - startNdc;
+      float lineLength = length(direction);
+      vec2 normal = lineLength > 0.000001 ? vec2(-direction.y, direction.x) / lineLength : vec2(0.0, 1.0);
+      vec4 clip = mix(startClip, endClip, aAlong);
+      clip.xy += normal * vec2(2.0 / max(resolution.x, 1.0), 2.0 / max(resolution.y, 1.0)) * thickness * 0.5 * aSide * clip.w;
+      float farDistance = mix(42.0, 86.0, clamp(viewDistance, 0.0, 3.0) / 1.5);
+      float cameraTravel = time * max(flightSpeed, 0.0) * 7.0;
+      float startDepth = clamp((aStart.y * rowSpacing - cameraTravel) / farDistance, 0.0, 1.0);
+      float endDepth = clamp((aEnd.y * rowSpacing - cameraTravel) / farDistance, 0.0, 1.0);
+      vDepth = mix(startDepth, endDepth, aAlong);
+      gl_Position = clip;
+    }
+  `);
+  const fragment = compileRawShader(gl, gl.FRAGMENT_SHADER, `
+    precision highp float;
+    uniform vec4 wireColor;
+    uniform float viewDistance;
+    varying float vDepth;
+    void main() {
+      float fogStart = mix(0.94, 0.58, clamp(viewDistance, 0.0, 3.0) / 1.5);
+      float alpha = wireColor.a * (1.0 - smoothstep(fogStart, 1.0, vDepth));
+      gl_FragColor = vec4(wireColor.rgb * alpha, alpha);
+    }
+  `);
+  if (!vertex || !fragment) return null;
+  const program = gl.createProgram();
+  gl.attachShader(program, vertex);
+  gl.attachShader(program, fragment);
+  gl.linkProgram(program);
+  if (!gl.getProgramParameter(program, gl.LINK_STATUS)) {
+    gl.deleteProgram(program);
+    return null;
+  }
+  const vertexBuffer = gl.createBuffer();
+  gl.bindBuffer(gl.ARRAY_BUFFER, vertexBuffer);
+  gl.bufferData(gl.ARRAY_BUFFER, 0, gl.DYNAMIC_DRAW);
+  gl.bindBuffer(gl.ARRAY_BUFFER, null);
+  return {
+    program,
+    vertexBuffer,
+    count: 0,
+    meshKey: "",
+    start: gl.getAttribLocation(program, "aStart"),
+    end: gl.getAttribLocation(program, "aEnd"),
+    side: gl.getAttribLocation(program, "aSide"),
+    along: gl.getAttribLocation(program, "aAlong"),
+    time: gl.getUniformLocation(program, "time"),
+    flightSpeed: gl.getUniformLocation(program, "flightSpeed"),
+    flightMode: gl.getUniformLocation(program, "flightMode"),
+    turn: gl.getUniformLocation(program, "turn"),
+    altitude: gl.getUniformLocation(program, "altitude"),
+    pitch: gl.getUniformLocation(program, "pitch"),
+    fieldOfView: gl.getUniformLocation(program, "fieldOfView"),
+    nearClip: gl.getUniformLocation(program, "nearClip"),
+    farClip: gl.getUniformLocation(program, "farClip"),
+    aspectRatio: gl.getUniformLocation(program, "aspectRatio"),
+    lookAhead: gl.getUniformLocation(program, "lookAhead"),
+    noseFollow: gl.getUniformLocation(program, "noseFollow"),
+    mountainHeight: gl.getUniformLocation(program, "mountainHeight"),
+    terrainScale: gl.getUniformLocation(program, "terrainScale"),
+    terrainPhase: gl.getUniformLocation(program, "terrainPhase"),
+    lakeLevel: gl.getUniformLocation(program, "lakeLevel"),
+    viewDistance: gl.getUniformLocation(program, "viewDistance"),
+    rowSpacing: gl.getUniformLocation(program, "rowSpacing"),
+    globeRadius: gl.getUniformLocation(program, "globeRadius"),
+    gridDensity: gl.getUniformLocation(program, "gridDensity"),
+    gridCells: gl.getUniformLocation(program, "gridCells"),
+    cellScale: gl.getUniformLocation(program, "cellScale"),
+    planeSize: gl.getUniformLocation(program, "planeSize"),
+    wireColor: gl.getUniformLocation(program, "wireColor"),
+    resolution: gl.getUniformLocation(program, "resolution"),
+    thickness: gl.getUniformLocation(program, "thickness"),
+  };
+}
+
+function updateTerrainWireBuffer(gl, resources, widthCells, depthCells, irregularity, travelRows = 0) {
+  const amount = normalizedTerrainIrregularity(irregularity);
+  const meshKey = `${widthCells}:${depthCells}:${Math.round(amount * 100)}:${Math.floor(travelRows)}`;
+  if (resources.meshKey === meshKey) return;
+  const vertices = terrainExpandedWireVertices(widthCells, amount, travelRows, depthCells);
+  gl.bindBuffer(gl.ARRAY_BUFFER, resources.vertexBuffer);
+  gl.bufferData(gl.ARRAY_BUFFER, vertices, gl.DYNAMIC_DRAW);
+  resources.count = vertices.length / 6;
+  resources.meshKey = meshKey;
+}
+
+const TERRAIN_MESH_CACHE = new Map();
+
+function normalizedTerrainIrregularity(value) {
+  const number = Number(value);
+  return Number.isFinite(number) ? Math.max(0, Math.min(1, number)) : 0.62;
+}
+
+function terrainMeshHash(x, y, salt = 0) {
+  let value = Math.imul((x + 101 + salt) | 0, 374761393) ^ Math.imul((y + 313 - salt) | 0, 668265263);
+  value = Math.imul(value ^ (value >>> 13), 1274126177);
+  return ((value ^ (value >>> 16)) >>> 0) / 4294967295;
+}
+
+function terrainIrregularMesh(widthCells = TERRAIN_GRID_CELLS, depthCells = TERRAIN_GRID_CELLS, irregularity = 0.62, travelRows = null) {
+  const amount = normalizedTerrainIrregularity(irregularity);
+  const moving = Number.isFinite(travelRows);
+  const baseRow = moving ? Math.floor(travelRows) - 1 : 0;
+  const rowCount = moving ? depthCells + 2 : depthCells + 1;
+  const key = `${widthCells}:${depthCells}:${Math.round(amount * 100)}:${baseRow}:${moving ? 1 : 0}`;
+  if (TERRAIN_MESH_CACHE.has(key)) return TERRAIN_MESH_CACHE.get(key);
+  const points = [];
+  const maxOffset = 0.44 * amount;
+  for (let y = 0; y < rowCount; y++) {
+    const worldRow = baseRow + y;
+    for (let x = 0; x <= widthCells; x++) {
+      const offsetX = x === 0 || x === widthCells ? 0 : (terrainMeshHash(x, worldRow, 17) * 2 - 1) * maxOffset / widthCells;
+      const offsetY = moving || (y !== 0 && y !== depthCells) ? (terrainMeshHash(0, worldRow, 43) * 2 - 1) * maxOffset : 0;
+      points.push([x / widthCells + offsetX, moving ? worldRow + offsetY : y / depthCells + offsetY / depthCells]);
+    }
+  }
+  const faces = [];
+  const row = widthCells + 1;
+  for (let y = 0; y < rowCount - 1; y++) {
+    for (let x = 0; x < widthCells; x++) {
+      const a = y * row + x;
+      const b = a + 1;
+      const d = a + row;
+      const c = d + 1;
+      if (terrainMeshHash(x, baseRow + y, 79) < 0.5) faces.push([a, b, d], [d, b, c]);
+      else faces.push([a, b, c], [a, c, d]);
+    }
+  }
+  const mesh = { points, faces };
+  TERRAIN_MESH_CACHE.set(key, mesh);
+  while (TERRAIN_MESH_CACHE.size > 12) TERRAIN_MESH_CACHE.delete(TERRAIN_MESH_CACHE.keys().next().value);
+  return mesh;
+}
+
+export function terrainGridSize(value) {
+  const size = Number.isFinite(Number(value)) ? Number(value) : TERRAIN_GRID_CELLS;
+  return Math.max(8, Math.min(144, Math.round(size)));
+}
+
+function terrainTessellationSize(extent, gridDensity = 1) {
+  const density = Math.max(0.25, Math.min(4, Number(gridDensity) || 1));
+  return Math.max(4, Math.min(144, Math.round(terrainGridSize(extent) * density)));
+}
+
+function terrainRowMetrics(compositionTime, flightSpeed, gridDepth, gridDensity = 1, gridScale = 1) {
+  const logicalDepth = terrainGridSize(gridDepth);
+  const tessellatedDepth = terrainTessellationSize(logicalDepth, gridDensity);
+  const cellScale = 1.5 * Math.max(0.1, Math.min(20, Number(gridScale) || 1));
+  const rowSpacing = cellScale * logicalDepth / tessellatedDepth;
+  const cameraTravel = Number(compositionTime) * Math.max(0, Number(flightSpeed) || 0) * 7.0;
+  return { cellScale, rowSpacing, travelRows: cameraTravel / rowSpacing };
+}
+
+function drawTerrainSurfaceMesh(target, irregularity, gridWidth, gridDepth, compositionTime, flightSpeed, gridDensity, gridScale) {
+  const widthCells = terrainTessellationSize(gridWidth, gridDensity);
+  const depthCells = terrainTessellationSize(gridDepth, gridDensity);
+  const { travelRows } = terrainRowMetrics(compositionTime, flightSpeed, gridDepth, gridDensity, gridScale);
+  const mesh = terrainIrregularMesh(widthCells, depthCells, irregularity, travelRows);
+  target.beginShape(TRIANGLES);
+  for (const face of mesh.faces) {
+    for (const index of face) {
+      const uv = mesh.points[index];
+      target.vertex(uv[0] * 2 - 1, uv[1] * 2 - 1, 0, uv[0], uv[1]);
+    }
+  }
+  target.endShape();
+}
+
+export function terrainTriangleEdgeUvs(widthCells = TERRAIN_GRID_CELLS, irregularity = 0.62, travelRows = null, depthCells = widthCells) {
+  const mesh = terrainIrregularMesh(widthCells, depthCells, irregularity, travelRows);
+  const uniqueEdges = new Map();
+  for (const face of mesh.faces) {
+    for (const [start, end] of [[face[0], face[1]], [face[1], face[2]], [face[2], face[0]]]) {
+      const key = start < end ? `${start}:${end}` : `${end}:${start}`;
+      if (!uniqueEdges.has(key)) uniqueEdges.set(key, [start, end]);
+    }
+  }
+  const values = [];
+  for (const [start, end] of uniqueEdges.values()) values.push(...mesh.points[start], ...mesh.points[end]);
+  return new Float32Array(values);
+}
+
+export function terrainExpandedWireVertices(widthCells = TERRAIN_GRID_CELLS, irregularity = 0.62, travelRows = null, depthCells = widthCells) {
+  const edges = terrainTriangleEdgeUvs(widthCells, irregularity, travelRows, depthCells);
+  const vertices = [];
+  for (let index = 0; index < edges.length; index += 4) {
+    const startX = edges[index];
+    const startY = edges[index + 1];
+    const endX = edges[index + 2];
+    const endY = edges[index + 3];
+    const vertex = (side, along) => vertices.push(startX, startY, endX, endY, side, along);
+    vertex(-1, 0);
+    vertex(-1, 1);
+    vertex(1, 1);
+    vertex(-1, 0);
+    vertex(1, 1);
+    vertex(1, 0);
+  }
+  return new Float32Array(vertices);
+}
+
+function setTerrainRawUniforms(gl, resources, params, compositionTime, planeWidth, planeDepth, wireColor) {
+  gl.uniform1f(resources.time, compositionTime);
+  gl.uniform1f(resources.flightSpeed, Math.max(0, Number(params.flightSpeed) || 0));
+  gl.uniform1f(resources.flightMode, params.flightMode === "terrainFollow" ? 1 : 0);
+  gl.uniform1f(resources.turn, Math.max(-1, Math.min(1, Number(params.turn) || 0)));
+  gl.uniform1f(resources.altitude, Math.max(0.2, Number(params.altitude) || 2.5));
+  gl.uniform1f(resources.pitch, Math.max(-1.4, Number(params.pitch) || 0.28));
+  gl.uniform1f(resources.fieldOfView, Math.max(20, Math.min(120, Number(params.fieldOfView) || 60)));
+  gl.uniform1f(resources.nearClip, Math.max(0.01, Number(params.nearClip) || 0.1));
+  gl.uniform1f(resources.farClip, Math.max(100, Number(params.farClip) || 20000));
+  gl.uniform1f(resources.aspectRatio, planeWidth / Math.max(1, planeDepth));
+  gl.uniform1f(resources.lookAhead, Math.max(0.1, Number(params.lookAhead) || 14));
+  gl.uniform1f(resources.noseFollow, Number.isFinite(Number(params.noseFollow)) ? Math.max(0, Number(params.noseFollow)) : 1);
+  gl.uniform1f(resources.mountainHeight, Math.max(0.05, Number(params.mountainHeight) || 2.4));
+  gl.uniform1f(resources.terrainScale, Math.max(0.02, Number(params.terrainScale) || 0.62));
+  gl.uniform2fv(resources.terrainPhase, params.terrainPhase || [0, 0]);
+  gl.uniform1f(resources.lakeLevel, Number.isFinite(Number(params.lakeLevel)) ? Number(params.lakeLevel) : -0.12);
+  gl.uniform1f(resources.viewDistance, Math.max(0, Number(params.viewDistance) || 0));
+  const gridMetrics = terrainRowMetrics(compositionTime, Math.max(0, Number(params.flightSpeed) || 0), params.gridDepth, params.gridDensity, params.gridScale);
+  gl.uniform1f(resources.rowSpacing, gridMetrics.rowSpacing);
+  gl.uniform1f(resources.cellScale, gridMetrics.cellScale);
+  gl.uniform1f(resources.globeRadius, Math.max(60, Number(params.globeRadius) || 280));
+  gl.uniform1f(resources.gridDensity, Math.max(0.25, Number(params.gridDensity) || 1));
+  gl.uniform2f(resources.gridCells, terrainGridSize(params.gridWidth), terrainGridSize(params.gridDepth));
+  gl.uniform2f(resources.planeSize, planeWidth, planeDepth);
+  gl.uniform4fv(resources.wireColor, wireColor);
+}
+
 function drawRawParsedModelMode(target, item, params = {}, compositionTime = 0, renderMode = "surface", surfaceColor = [220, 225, 220, 255], wireColor = [20, 20, 20, 220], pointBudget = 4000, viewport = null) {
   if (renderMode === "points") {
     return drawRawParsedModel(target, item, params, compositionTime, "points", wireColor, pointBudget, viewport);
@@ -2664,7 +3483,9 @@ function drawRawParsedModelMode(target, item, params = {}, compositionTime = 0, 
   if (renderMode === "wireframe") {
     return drawRawParsedWire(target, item, params, compositionTime, wireColor, pointBudget, viewport);
   }
-  const drewSurface = drawRawParsedSurface(target, item, params, compositionTime, surfaceColor, viewport);
+  const drewSurface = drawWithPolygonOffset(target, renderMode === "surfaceWire", () => (
+    drawRawParsedSurface(target, item, params, compositionTime, surfaceColor, viewport)
+  ));
   if (drewSurface && renderMode === "surfaceWire") {
     drawRawParsedWire(target, item, params, compositionTime, wireColor, pointBudget, viewport);
   }
@@ -2684,7 +3505,7 @@ function drawRawParsedModel(target, item, params = {}, compositionTime = 0, mode
   const depth = Math.max(0.05, Number(params.depth) || 1);
   const scale = metrics.unitScale * modelScale;
   const rotation = modelRotation(params, compositionTime);
-  const mvp = rawModelMvp(metrics.width, metrics.height, scale, depth, rotation);
+  const matrices = rawModelMatrices(metrics.width, metrics.height, scale, depth, rotation);
   const rgba = color.map((channel) => Math.max(0, Math.min(1, Number(channel) / 255 || 0)));
 
   gl.useProgram(resources.program);
@@ -2698,7 +3519,9 @@ function drawRawParsedModel(target, item, params = {}, compositionTime = 0, mode
   gl.bindBuffer(gl.ARRAY_BUFFER, resources.buffer);
   gl.enableVertexAttribArray(resources.position);
   gl.vertexAttribPointer(resources.position, 3, gl.FLOAT, false, 0, 0);
-  gl.uniformMatrix4fv(resources.mvp, false, mvp);
+  gl.uniformMatrix4fv(resources.mvp, false, matrices.mvp);
+  gl.uniformMatrix4fv(resources.model, false, matrices.model);
+  gl.uniform1f(resources.depthCutoff, modelDepthCutoff(params, scale, depth));
   gl.uniform4fv(resources.color, rgba);
   gl.uniform1f(resources.pointSize, Math.max(1, Number(params.pointSize) || 2));
   gl.drawArrays(mode === "wireframe" ? gl.LINES : gl.POINTS, 0, resources.count);
@@ -2722,7 +3545,7 @@ function drawRawParsedWire(target, item, params = {}, compositionTime = 0, color
   const depth = Math.max(0.05, Number(params.depth) || 1);
   const scale = metrics.unitScale * modelScale;
   const rotation = modelRotation(params, compositionTime);
-  const mvp = rawModelMvp(metrics.width, metrics.height, scale, depth, rotation);
+  const matrices = rawModelMatrices(metrics.width, metrics.height, scale, depth, rotation);
   const rgba = color.map((channel) => Math.max(0, Math.min(1, Number(channel) / 255 || 0)));
   const stride = 8 * 4;
 
@@ -2742,7 +3565,9 @@ function drawRawParsedWire(target, item, params = {}, compositionTime = 0, color
   gl.vertexAttribPointer(resources.side, 1, gl.FLOAT, false, stride, 6 * 4);
   gl.enableVertexAttribArray(resources.along);
   gl.vertexAttribPointer(resources.along, 1, gl.FLOAT, false, stride, 7 * 4);
-  gl.uniformMatrix4fv(resources.mvp, false, mvp);
+  gl.uniformMatrix4fv(resources.mvp, false, matrices.mvp);
+  gl.uniformMatrix4fv(resources.model, false, matrices.model);
+  gl.uniform1f(resources.depthCutoff, modelDepthCutoff(params, scale, depth));
   gl.uniform2f(resources.resolution, drawingWidth, drawingHeight);
   gl.uniform1f(resources.thickness, modelWireThickness(params));
   gl.uniform4fv(resources.color, rgba);
@@ -2787,6 +3612,7 @@ function drawRawParsedSurface(target, item, params = {}, compositionTime = 0, co
   gl.vertexAttribPointer(resources.normal, 3, gl.FLOAT, false, 0, 0);
   gl.uniformMatrix4fv(resources.mvp, false, matrices.mvp);
   gl.uniformMatrix4fv(resources.model, false, matrices.model);
+  gl.uniform1f(resources.depthCutoff, modelDepthCutoff(params, scale, depth));
   gl.uniform4fv(resources.color, rgba);
   gl.drawArrays(gl.TRIANGLES, 0, resources.count);
   gl.disableVertexAttribArray(resources.position);
@@ -2817,7 +3643,7 @@ function drawAnatomyShape(target, renderMode, surfaceColor, wireColor, wireThick
     target.noStroke();
     target.ambientMaterial?.(...surfaceColor);
     target.fill?.(...surfaceColor);
-    drawShape();
+    drawWithPolygonOffset(target, renderMode === "surfaceWire", drawShape);
   }
   if (renderMode === "wireframe" || renderMode === "surfaceWire" || renderMode === "points") {
     target.noFill();
@@ -2911,7 +3737,7 @@ function drawAnatomyMesh(target, renderMode, surfaceColor, wireColor, wireThickn
     target.noStroke();
     target.ambientMaterial?.(...surfaceColor);
     target.fill?.(...surfaceColor);
-    emitTriangles();
+    drawWithPolygonOffset(target, renderMode === "surfaceWire", emitTriangles);
   }
   if (renderMode === "wireframe" || renderMode === "surfaceWire") {
     target.noFill();
@@ -3214,6 +4040,12 @@ function modelWireThickness(params = {}) {
   return Math.max(0.5, Math.min(12, Number(params.wireThickness) || 1));
 }
 
+function modelDepthCutoff(params = {}, scale = 1, depthScale = 1) {
+  const visibleDepth = Math.max(0.02, Math.min(1, Number(params.visibleDepth) || 1));
+  const normalizedRadius = 86.7 * Math.max(0.01, scale) * Math.max(1, depthScale);
+  return normalizedRadius * (1 - visibleDepth * 2);
+}
+
 function modelViewportMetrics(target, request = {}) {
   const width = Math.max(1, Math.round(Number(request?.width || target?.width) || 1));
   const height = Math.max(1, Math.round(Number(request?.height || target?.height) || 1));
@@ -3262,8 +4094,10 @@ function ensureRawModelResources(gl, item, mode = "points", pointBudget = 4000) 
     program: contextResources.program.program,
     position: contextResources.program.position,
     mvp: contextResources.program.mvp,
+    model: contextResources.program.model,
     color: contextResources.program.color,
     pointSize: contextResources.program.pointSize,
+    depthCutoff: contextResources.program.depthCutoff,
   };
 }
 
@@ -3310,6 +4144,7 @@ function ensureRawSurfaceResources(gl, item) {
     mvp: contextResources.surfaceProgram.mvp,
     model: contextResources.surfaceProgram.model,
     color: contextResources.surfaceProgram.color,
+    depthCutoff: contextResources.surfaceProgram.depthCutoff,
   };
 }
 
@@ -3353,9 +4188,11 @@ function ensureRawWireResources(gl, item, pointBudget = 4000) {
     side: contextResources.wireProgram.side,
     along: contextResources.wireProgram.along,
     mvp: contextResources.wireProgram.mvp,
+    model: contextResources.wireProgram.model,
     resolution: contextResources.wireProgram.resolution,
     thickness: contextResources.wireProgram.thickness,
     color: contextResources.wireProgram.color,
+    depthCutoff: contextResources.wireProgram.depthCutoff,
   };
 }
 
@@ -3363,16 +4200,22 @@ function createRawModelProgram(gl) {
   const vertex = compileRawShader(gl, gl.VERTEX_SHADER, `
     attribute vec3 aPosition;
     uniform mat4 uMvp;
+    uniform mat4 uModel;
     uniform float uPointSize;
+    varying float vModelDepth;
     void main() {
       gl_Position = uMvp * vec4(aPosition, 1.0);
+      vModelDepth = (uModel * vec4(aPosition, 1.0)).z;
       gl_PointSize = uPointSize;
     }
   `);
   const fragment = compileRawShader(gl, gl.FRAGMENT_SHADER, `
     precision mediump float;
     uniform vec4 uColor;
+    uniform float uDepthCutoff;
+    varying float vModelDepth;
     void main() {
+      if (vModelDepth < uDepthCutoff) discard;
       gl_FragColor = uColor;
     }
   `);
@@ -3389,8 +4232,10 @@ function createRawModelProgram(gl) {
     program,
     position: gl.getAttribLocation(program, "aPosition"),
     mvp: gl.getUniformLocation(program, "uMvp"),
+    model: gl.getUniformLocation(program, "uModel"),
     color: gl.getUniformLocation(program, "uColor"),
     pointSize: gl.getUniformLocation(program, "uPointSize"),
+    depthCutoff: gl.getUniformLocation(program, "uDepthCutoff"),
   };
 }
 
@@ -3401,18 +4246,23 @@ function createRawSurfaceProgram(gl) {
     uniform mat4 uMvp;
     uniform mat4 uModel;
     varying float vLight;
+    varying float vModelDepth;
     void main() {
       vec3 n = normalize((uModel * vec4(aNormal, 0.0)).xyz);
       vec3 keyLight = normalize(vec3(-0.35, -0.45, 0.75));
       vLight = clamp(dot(n, keyLight) * 0.55 + 0.45, 0.0, 1.0);
+      vModelDepth = (uModel * vec4(aPosition, 1.0)).z;
       gl_Position = uMvp * vec4(aPosition, 1.0);
     }
   `);
   const fragment = compileRawShader(gl, gl.FRAGMENT_SHADER, `
     precision mediump float;
     uniform vec4 uColor;
+    uniform float uDepthCutoff;
     varying float vLight;
+    varying float vModelDepth;
     void main() {
+      if (vModelDepth < uDepthCutoff) discard;
       gl_FragColor = vec4(uColor.rgb * vLight, uColor.a);
     }
   `);
@@ -3432,6 +4282,7 @@ function createRawSurfaceProgram(gl) {
     mvp: gl.getUniformLocation(program, "uMvp"),
     model: gl.getUniformLocation(program, "uModel"),
     color: gl.getUniformLocation(program, "uColor"),
+    depthCutoff: gl.getUniformLocation(program, "uDepthCutoff"),
   };
 }
 
@@ -3442,8 +4293,10 @@ function createRawWireProgram(gl) {
     attribute float aSide;
     attribute float aAlong;
     uniform mat4 uMvp;
+    uniform mat4 uModel;
     uniform vec2 uResolution;
     uniform float uThickness;
+    varying float vModelDepth;
     void main() {
       vec4 startClip = uMvp * vec4(aStart, 1.0);
       vec4 endClip = uMvp * vec4(aEnd, 1.0);
@@ -3455,6 +4308,7 @@ function createRawWireProgram(gl) {
       float len = length(dir);
       vec2 normal = len > 0.000001 ? vec2(-dir.y, dir.x) / len : vec2(0.0, 1.0);
       vec4 clip = mix(startClip, endClip, aAlong);
+      vModelDepth = (uModel * vec4(mix(aStart, aEnd, aAlong), 1.0)).z;
       vec2 pixelToNdc = vec2(2.0 / max(1.0, uResolution.x), 2.0 / max(1.0, uResolution.y));
       clip.xy += normal * pixelToNdc * (max(0.5, uThickness) * 0.5) * aSide * clip.w;
       gl_Position = clip;
@@ -3463,7 +4317,10 @@ function createRawWireProgram(gl) {
   const fragment = compileRawShader(gl, gl.FRAGMENT_SHADER, `
     precision mediump float;
     uniform vec4 uColor;
+    uniform float uDepthCutoff;
+    varying float vModelDepth;
     void main() {
+      if (vModelDepth < uDepthCutoff) discard;
       gl_FragColor = uColor;
     }
   `);
@@ -3483,9 +4340,11 @@ function createRawWireProgram(gl) {
     side: gl.getAttribLocation(program, "aSide"),
     along: gl.getAttribLocation(program, "aAlong"),
     mvp: gl.getUniformLocation(program, "uMvp"),
+    model: gl.getUniformLocation(program, "uModel"),
     resolution: gl.getUniformLocation(program, "uResolution"),
     thickness: gl.getUniformLocation(program, "uThickness"),
     color: gl.getUniformLocation(program, "uColor"),
+    depthCutoff: gl.getUniformLocation(program, "uDepthCutoff"),
   };
 }
 
@@ -3645,7 +4504,7 @@ function drawParsedModel(target, mesh, renderMode = "surface", surfaceColor = [2
     target.noStroke();
     target.ambientMaterial?.(...surfaceColor);
     target.fill?.(...surfaceColor);
-    drawParsedTriangles(target, mesh);
+    drawWithPolygonOffset(target, renderMode === "surfaceWire", () => drawParsedTriangles(target, mesh));
   }
   if (renderMode === "wireframe" || renderMode === "surfaceWire") {
     target.noFill();
@@ -3660,7 +4519,7 @@ function drawGeometryModel(target, geometry, renderMode = "surface", surfaceColo
     target.noStroke();
     target.ambientMaterial?.(...surfaceColor);
     target.fill?.(...surfaceColor);
-    target.model(geometry);
+    drawWithPolygonOffset(target, renderMode === "surfaceWire", () => target.model(geometry));
   }
   if (renderMode === "wireframe" || renderMode === "surfaceWire") {
     target.noFill();
@@ -3674,6 +4533,26 @@ function modelColor(value, fallback = [255, 255, 255, 255]) {
   const rgba = colorUniform(value);
   if (!rgba) return fallback;
   return rgba.map((channel) => Math.round(Math.max(0, Math.min(1, Number(channel) || 0)) * 255));
+}
+
+function normalizedModelColor(value, fallback = [255, 255, 255, 255]) {
+  return modelColor(value, fallback).map((channel) => channel / 255);
+}
+
+function drawWithPolygonOffset(target, enabled, draw) {
+  const gl = target?.drawingContext;
+  if (!enabled || !gl?.polygonOffset || typeof draw !== "function") return draw?.();
+  const wasEnabled = gl.isEnabled(gl.POLYGON_OFFSET_FILL);
+  const previousFactor = gl.getParameter(gl.POLYGON_OFFSET_FACTOR);
+  const previousUnits = gl.getParameter(gl.POLYGON_OFFSET_UNITS);
+  gl.enable(gl.POLYGON_OFFSET_FILL);
+  gl.polygonOffset(1, 2);
+  try {
+    return draw();
+  } finally {
+    gl.polygonOffset(previousFactor, previousUnits);
+    if (!wasEnabled) gl.disable(gl.POLYGON_OFFSET_FILL);
+  }
 }
 
 function ensureParsedModelGeometry(item) {
@@ -3921,6 +4800,52 @@ function parseStlMesh(buffer) {
     : parseAsciiStl(new TextDecoder("utf-8").decode(bytes));
   if (!triangles.length) throw new Error("STL contained no triangles");
   return normalizeParsedMesh(triangles);
+}
+
+export function parseObjMesh(text = "") {
+  const vertices = [];
+  const normals = [];
+  const faces = [];
+  for (const rawLine of String(text || "").split(/\r?\n/)) {
+    const line = rawLine.trim();
+    if (!line || line.startsWith("#")) continue;
+    const parts = line.split(/\s+/);
+    const type = parts.shift();
+    if (type === "v" && parts.length >= 3) {
+      vertices.push(parts.slice(0, 3).map((value) => Number(value) || 0));
+    } else if (type === "vn" && parts.length >= 3) {
+      normals.push(normalizeVector(parts.slice(0, 3).map((value) => Number(value) || 0)));
+    } else if (type === "f" && parts.length >= 3) {
+      faces.push(parts.map((token) => {
+        const [vertexToken, , normalToken] = token.split("/");
+        return {
+          vertex: resolveObjIndex(vertexToken, vertices.length),
+          normal: resolveObjIndex(normalToken, normals.length),
+        };
+      }));
+    }
+  }
+  const triangles = [];
+  for (const face of faces) {
+    for (let index = 1; index + 1 < face.length; index++) {
+      const corners = [face[0], face[index], face[index + 1]];
+      const triangleVertices = corners.map((corner) => vertices[corner.vertex]).filter(Boolean);
+      if (triangleVertices.length !== 3) continue;
+      const cornerNormals = corners.map((corner) => normals[corner.normal]).filter(Boolean);
+      const normal = cornerNormals.length === 3
+        ? normalizeVector(cornerNormals.reduce((sum, value) => sum.map((item, axis) => item + value[axis]), [0, 0, 0]))
+        : triangleNormal(triangleVertices);
+      triangles.push({ normal, vertices: triangleVertices });
+    }
+  }
+  if (!triangles.length) throw new Error("OBJ contained no polygon faces");
+  return normalizeParsedMesh(triangles);
+}
+
+function resolveObjIndex(token, length) {
+  const value = Number.parseInt(token, 10);
+  if (!Number.isFinite(value) || value === 0) return -1;
+  return value < 0 ? length + value : value - 1;
 }
 
 function parseBinaryStl(view, count) {

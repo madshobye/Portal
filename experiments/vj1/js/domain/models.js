@@ -1,4 +1,5 @@
 import { VJ1, defaultCustomShaderCode, WORKSPACES } from "../constants.js";
+import { createGeneratorSource } from "../graph/generator-registry.js?v=generator-defaults-1";
 
 export function uid(prefix) {
   return `${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
@@ -139,6 +140,7 @@ export function createInitialState() {
       canRedo: false,
     },
     global: {
+      playing: true,
       blackout: false,
       bpm: 120,
       crossfade: 1,
@@ -586,14 +588,17 @@ function normalizeSource(source = {}) {
   const start = Math.max(0, Number(source.start ?? source.startTime) || 0);
   const end = Math.max(0, Number(source.end ?? source.endTime) || 0);
   const params = source.params && typeof source.params === "object" ? { ...source.params } : {};
+  const generatorSource = source.type === "generator" || !source.type
+    ? createGeneratorSource(source.generatorId, params)
+    : null;
   return {
     type: source.type || "generator",
     mediaId: source.mediaId || "",
-    generatorId: source.generatorId || "testPattern",
+    generatorId: generatorSource?.generatorId || source.generatorId || "testPattern",
     start,
     end: end > start ? end : 0,
     speed,
-    ...(Object.keys(params).length ? { params } : {}),
+    ...(generatorSource ? { params: generatorSource.params } : Object.keys(params).length ? { params } : {}),
   };
 }
 

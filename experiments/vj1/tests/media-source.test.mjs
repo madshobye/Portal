@@ -7,7 +7,7 @@ import { normalizeParamValue } from "../js/graph/component-schema.js";
 import { getGeneratorComponent } from "../js/graph/generator-registry.js";
 import { compileCompositionPatch } from "../js/graph/render-scheduler.js?v=world-frame-27";
 import { shouldHoldCurrentOutputState } from "../js/output/output-app.js";
-import { OutputRenderer } from "../js/output/output-renderer.js?v=world-frame-27";
+import { advanceRateClock, advanceSpatialScale, OutputRenderer, parseObjMesh, sourceWithNodeParams, terrainExpandedWireVertices, terrainGridSize, terrainTriangleEdgeUvs } from "../js/output/output-renderer.js?v=world-frame-27";
 import { getMediaType, isMediaFile } from "../js/services/media-library-service.js";
 
 test("media sources keep trim and playback speed through normalization and graph compile", () => {
@@ -136,6 +136,142 @@ test("low poly anatomy generator exposes body part and stl-style 3d controls", (
   assert.ok(controllerSource.includes("anatomy: \"accessibility_new\""));
 });
 
+test("terrain flyover exposes flight, terrain, wire, and biome controls", () => {
+  const component = getGeneratorComponent("terrainFlyover");
+  const params = Object.fromEntries(component.params.map((param) => [param.id, param]));
+  const controllerSource = readFileSync(new URL("../js/control/control-shell-controller.js", import.meta.url), "utf8");
+  const rendererSource = readFileSync(new URL("../js/output/output-renderer.js", import.meta.url), "utf8");
+
+  assert.equal(component.name, "Terrain Flyover");
+  assert.equal(component.category, "organic");
+  assert.deepEqual(params.style.values, ["biome", "wire", "hybrid"]);
+  assert.deepEqual(params.flightMode.values, ["free", "terrainFollow"]);
+  assert.equal(params.style.defaultValue, "hybrid");
+  for (const id of ["flightSpeed", "turn", "altitude", "pitch", "fieldOfView", "nearClip", "farClip", "lookAhead", "noseFollow", "mountainHeight", "terrainScale", "textureGrain", "textureDepth", "colorDirection", "lakeLevel", "viewDistance", "globeRadius", "gridWidth", "gridDepth", "gridDensity", "gridScale", "gridJitter", "wireWidth"]) {
+    assert.equal(params[id].type, "number", `missing numeric terrain param ${id}`);
+  }
+  for (const id of ["waterColor", "grassColor", "rockColor", "snowColor", "downSlopeColor", "directionColor", "wireColor", "skyColor"]) {
+    assert.equal(params[id].type, "color", `missing terrain color ${id}`);
+  }
+  assert.ok(controllerSource.includes("terrainFlyover: \"landscape\""));
+  assert.ok(rendererSource.includes("source.generatorId === \"terrainFlyover\""));
+  assert.ok(rendererSource.includes("drawTerrainSurfaceMesh(target, params.gridJitter, params.gridWidth, params.gridDepth, flightTime, 1, params.gridDensity, params.gridScale)"));
+  assert.ok(rendererSource.includes("continuousRateTime(`${source.instanceId || source.generatorId || \"terrain\"}:flight`"));
+  assert.ok(rendererSource.includes("gl.drawArrays(gl.TRIANGLES, 0, resources.count)"));
+  assert.ok(rendererSource.includes("drawWithPolygonOffset(target, style === 2"));
+  assert.ok(rendererSource.includes("gl.polygonOffset(1, 2)"));
+  assert.ok(rendererSource.includes("if (style !== 1) target.background"));
+  assert.ok(rendererSource.includes("const previousProgram = gl.getParameter(gl.CURRENT_PROGRAM)"));
+  assert.ok(rendererSource.includes("gl.useProgram(previousProgram)"));
+  assert.ok(rendererSource.includes("previousLiveSceneId !== nextLiveSceneId"));
+  assert.ok(rendererSource.includes("terrainWireResourcesValid(gl, resources)"));
+  assert.ok(rendererSource.includes("disposeTerrainWireResources(gl, resources)"));
+  assert.ok(rendererSource.includes("captureVertexAttributeState(gl, location)"));
+  assert.ok(rendererSource.includes("restoreVertexAttributeState(gl, state)"));
+  assert.ok(rendererSource.includes("function terrainIrregularMesh("));
+  assert.ok(!rendererSource.includes("float rowTravel = fract("));
+  assert.ok(rendererSource.includes("float distance = meshUv.y * rowSpacing - cameraTravel"));
+  assert.ok(rendererSource.includes("travel * (cameraTravel + distance) + right * worldLateral"));
+  assert.ok(rendererSource.includes("planetRadius - sqrt(max(planetRadius * planetRadius - radialDistance * radialDistance"));
+  assert.equal(params.altitude.max, 10000);
+  assert.equal(params.altitude.scale, "log");
+  assert.equal(params.flightSpeed.max, 3);
+  assert.equal(params.globeRadius.max, 10000);
+  assert.equal(params.mountainHeight.max, 100);
+  assert.equal(params.lakeLevel.min, -100);
+  assert.equal(params.lakeLevel.max, 100);
+  assert.equal(params.gridWidth.defaultValue, 48);
+  assert.equal(params.gridDepth.defaultValue, 48);
+  assert.equal(params.gridDensity.defaultValue, 1);
+  assert.equal(params.gridScale.max, 20);
+  assert.equal(terrainGridSize(2), 8);
+  assert.equal(terrainGridSize(48), 48);
+  assert.equal(terrainGridSize(200), 144);
+  assert.equal(params.pitch.min, -1.4);
+  assert.equal(params.fieldOfView.defaultValue, 60);
+  assert.equal(params.nearClip.defaultValue, 0.1);
+  assert.equal(params.farClip.defaultValue, 20000);
+  assert.ok(controllerSource.includes('data-number-scale="log"'));
+  assert.ok(rendererSource.includes("float focalLength = 1.0 / tan(radians(clamp(fieldOfView"));
+  assert.ok(rendererSource.includes("worldLateral * focalLength / max(aspectRatio, 0.01)"));
+  assert.ok(rendererSource.includes("(meshUv.x - 0.5) * gridCells.x * cellScale * 1.44"));
+  assert.ok(rendererSource.includes("terrainTessellationSize(widthCells, params.gridDensity)"));
+  assert.ok(rendererSource.includes("-cameraY * focalLength"));
+  assert.ok(rendererSource.includes("float verticalWorld = relativeSurfaceHeight - globeDrop - max(altitude, 0.0)"));
+  assert.ok(rendererSource.includes("float alpha = water ? waterColor.a : terrainAlpha"));
+  assert.ok(rendererSource.includes("if (textureDepth > 0.001)"));
+  assert.ok(rendererSource.includes("if (textureGrain > 0.001)"));
+  assert.ok(rendererSource.includes("float downSlopeBlend = smoothstep"));
+  assert.ok(rendererSource.includes("dot(surfaceAspect, colorHeading)"));
+  assert.ok(rendererSource.includes("terrainAlpha = mix(terrainAlpha, snowColor.a, snowBand)"));
+  assert.ok(rendererSource.includes("float relativeSurfaceHeight = surfaceHeight - cameraSurfaceHeight * followAmount"));
+  assert.ok(rendererSource.includes("float slopePitch = atan((aheadSurfaceHeight - cameraSurfaceHeight) / aheadDistance) * noseFollow"));
+  assert.ok(rendererSource.includes("* thickness * 0.5 * aSide * clip.w"));
+  assert.ok(rendererSource.includes("if (startClip.w < clipNear && endClip.w < clipNear)"));
+  assert.ok(!rendererSource.includes("surfaceHeight * mix(0.0, 0.50, nearAmount) * horizonRelief / max(altitude"));
+  assert.ok(!rendererSource.includes("vTerrainUv * 40.0"));
+});
+
+test("terrain flight speed changes preserve travel phase", () => {
+  const first = advanceRateClock(null, 10, 1);
+  const beforeChange = advanceRateClock(first, 11, 1);
+  const changed = advanceRateClock(beforeChange, 11, 4);
+  const afterChange = advanceRateClock(changed, 11.25, 4);
+
+  assert.equal(beforeChange.time, 11);
+  assert.equal(changed.time, beforeChange.time);
+  assert.equal(afterChange.time, 12);
+});
+
+test("terrain scale changes preserve noise phase at the camera anchor", () => {
+  const anchor = [18, 42];
+  const first = advanceSpatialScale(null, 0.5, anchor);
+  const changed = advanceSpatialScale(first, 1.25, anchor);
+
+  assert.deepEqual(first.phase, [0, 0]);
+  assert.equal(anchor[0] * first.scale + first.phase[0], anchor[0] * changed.scale + changed.phase[0]);
+  assert.equal(anchor[1] * first.scale + first.phase[1], anchor[1] * changed.scale + changed.phase[1]);
+});
+
+test("random generator speed controls use phase-continuous clocks", () => {
+  const rendererSource = readFileSync(new URL("../js/output/output-renderer.js", import.meta.url), "utf8");
+
+  assert.ok(rendererSource.includes('generatorId === "fireflies" || generatorId === "bezierStrokes"'));
+  assert.ok(rendererSource.includes("this.continuousRateTime(`${instanceId || generatorId}:${rateParam}`"));
+  assert.ok(rendererSource.includes("const shaderParams = rateParam ? { ...params, [rateParam]: 1 } : params"));
+});
+
+test("terrain wireframe contains every real grid and triangle edge", () => {
+  const cells = 2;
+  const edges = Array.from(terrainTriangleEdgeUvs(cells));
+  const horizontalEdges = (cells + 1) * cells;
+  const verticalEdges = (cells + 1) * cells;
+  const diagonalEdges = cells * cells;
+
+  assert.equal(edges.length, (horizontalEdges + verticalEdges + diagonalEdges) * 4);
+  const regularEdges = Array.from(terrainTriangleEdgeUvs(cells, 0));
+  assert.notDeepEqual(edges, regularEdges);
+  assert.equal(edges.every((value) => value >= 0 && value <= 1), true);
+  const expanded = terrainExpandedWireVertices(cells);
+  assert.equal(expanded.length, (horizontalEdges + verticalEdges + diagonalEdges) * 6 * 6);
+  assert.deepEqual(Array.from(expanded.slice(4, 6)), [-1, 0]);
+});
+
+test("bezier strokes exposes bounded curve, timing, material, and alpha controls", () => {
+  const component = getGeneratorComponent("bezierStrokes");
+  const params = Object.fromEntries(component.params.map((param) => [param.id, param]));
+  const controllerSource = readFileSync(new URL("../js/control/control-shell-controller.js", import.meta.url), "utf8");
+
+  assert.equal(component.name, "Bezier Strokes");
+  assert.deepEqual(params.style.values, ["pen", "crayon", "brush"]);
+  assert.equal(params.count.max, 8);
+  for (const id of ["count", "speed", "lifetime", "fade", "width", "strokeLength", "curve", "direction", "spread", "roughness"]) {
+    assert.equal(params[id].type, "number", `missing bezier stroke param ${id}`);
+  }
+  assert.equal(params.strokeColor.type, "color");
+  assert.ok(controllerSource.includes("bezierStrokes: \"gesture\""));
+});
+
 test("live source param overrides compile through node params", () => {
   const state = createInitialState();
   const composition = createDefaultComposition(0);
@@ -172,6 +308,18 @@ test("live source param overrides compile through node params", () => {
   const sourceNode = patch.nodes.find((node) => node.role === "source");
   assert.equal(sourceNode.params.colorA, "#ff000080");
   assert.equal(sourceNode.params.mode, "single");
+
+  const renderedSource = sourceWithNodeParams(liveView.chain[0].source, liveView.chain[0].params, liveView.chain[0].id);
+  assert.equal(renderedSource.params.colorA, "#ff000080");
+  assert.equal(renderedSource.params.mode, "single");
+
+  const terrainSource = sourceWithNodeParams({
+    type: "generator",
+    generatorId: "terrainFlyover",
+    params: { altitude: 2.5, style: "hybrid" },
+  }, { altitude: 900, style: "wire" }, "terrain-live");
+  assert.equal(terrainSource.params.altitude, 900);
+  assert.equal(terrainSource.params.style, "wire");
 });
 
 test("3d model media is detected and keeps render params", () => {
@@ -193,6 +341,7 @@ test("3d model media is detected and keeps render params", () => {
         rotationY: -0.25,
         rotationZ: 0.1,
         modelScale: 1.4,
+        visibleDepth: 0.42,
         pointBudget: 8000,
         wireThickness: 3.5,
         spinY: 0.2,
@@ -209,6 +358,7 @@ test("3d model media is detected and keeps render params", () => {
   assert.equal(source.params.renderMode, "wireframe");
   assert.equal(source.params.rotationX, 0.4);
   assert.equal(source.params.modelScale, 1.4);
+  assert.equal(source.params.visibleDepth, 0.42);
   assert.equal(source.params.pointBudget, 8000);
   assert.equal(source.params.wireThickness, 3.5);
   assert.equal(source.params.surfaceColor, "#3366ccaa");
@@ -220,9 +370,24 @@ test("3d model media is detected and keeps render params", () => {
   assert.equal(sourceNode.params.renderMode, "wireframe");
   assert.equal(sourceNode.params.spinY, 0.2);
   assert.equal(sourceNode.params.pointBudget, 8000);
+  assert.equal(sourceNode.params.visibleDepth, 0.42);
   assert.equal(sourceNode.params.wireThickness, 3.5);
   assert.equal(sourceNode.params.surfaceColor, "#3366ccaa");
   assert.equal(sourceNode.params.wireColor, "#ffcc00ff");
+});
+
+test("obj parser triangulates polygon faces and supports negative indices", () => {
+  const mesh = parseObjMesh(`
+v -1 -1 0
+v 1 -1 0
+v 1 1 0
+v -1 1 0
+vn 0 0 1
+f -4//1 -3//1 -2//1 -1//1
+`);
+  assert.equal(mesh.triangles.length, 2);
+  assert.equal(mesh.triangles.every((triangle) => triangle.vertices.length === 3), true);
+  assert.equal(mesh.triangles.every((triangle) => triangle.normal[2] > 0.99), true);
 });
 
 test("3d model point mode uses cached bounded point clouds", () => {
@@ -249,12 +414,12 @@ test("3d model scale uses logical render viewport instead of backing pixels", ()
   assert.ok(source.includes("const scale = viewport.unitScale * modelScale;"));
   assert.ok(source.includes("const drawingWidth = Math.max(1, gl.drawingBufferWidth || target.width || 1);"));
   assert.ok(source.includes("gl.viewport(0, 0, drawingWidth, drawingHeight);"));
-  assert.ok(source.includes("const mvp = rawModelMvp(metrics.width, metrics.height, scale, depth, rotation);"));
+  assert.ok(source.includes("const matrices = rawModelMatrices(metrics.width, metrics.height, scale, depth, rotation);"));
   assert.ok(source.includes("const cameraZ = Math.max(1, height) * 0.92;"));
   assert.ok(!source.includes("Math.max(width, height) * 0.92"));
 });
 
-test("parsed STL surface and wire modes use one raw WebGL renderer family", () => {
+test("parsed STL and OBJ models use one clipped raw WebGL renderer family", () => {
   const source = readFileSync(new URL("../js/output/output-renderer.js", import.meta.url), "utf8");
 
   assert.ok(source.includes("drawRawParsedModelMode(target, item, params"));
@@ -262,13 +427,18 @@ test("parsed STL surface and wire modes use one raw WebGL renderer family", () =
   assert.ok(source.includes("function ensureRawSurfaceResources("));
   assert.ok(source.includes("function createRawSurfaceProgram("));
   assert.ok(source.includes("function ensureParsedModelSurfaceArrays("));
+  assert.ok(source.includes("item.modelData = parseObjMesh(text);"));
+  assert.ok(source.includes("if (vModelDepth < uDepthCutoff) discard;"));
+  assert.ok(source.includes("modelDepthCutoff(params, scale, depth)"));
   assert.ok(source.includes('if (drewSurface && renderMode === "surfaceWire")'));
+  assert.ok(source.includes('drawWithPolygonOffset(target, renderMode === "surfaceWire"'));
 });
 
 test("renderer source extraction merges source node params", () => {
   const source = readFileSync(new URL("../js/output/output-renderer.js", import.meta.url), "utf8");
 
   assert.ok(source.includes("sourceWithNodeParams(node.state.source, node.params || {}"));
+  assert.ok(source.includes("sourceWithNodeParams(item.source || composition.source, item.params || {}, item.id)"));
   assert.ok(source.includes("...generatorParams"));
   assert.ok(source.includes("...mediaParams"));
 });
@@ -283,13 +453,15 @@ test("live source controls use dynamic param metadata", () => {
   assert.ok(!source.includes("function liveParamControlTemplate"));
 });
 
-test("color picker commits do not rebuild the inspector while open", () => {
+test("color picker exposes color and opacity without redundant hsv sliders", () => {
   const source = readFileSync(new URL("../js/control/control-shell-controller.js", import.meta.url), "utf8");
 
   assert.ok(source.includes("reason.startsWith(\"color:\")"));
-  assert.ok(source.includes("rgbInput?.addEventListener(\"change\", () => updateFromRgb(`color:${control.dataset.colorPath}`));"));
+  assert.ok(source.includes("rgbInput?.addEventListener(\"change\", () => updateColorParamFromControl(control, `color:${control.dataset.colorPath}`));"));
   assert.ok(source.includes("alphaInput?.addEventListener(\"change\", () => updateColorParamFromControl(control, `color:${control.dataset.colorPath}`));"));
-  assert.ok(source.includes("input?.addEventListener(\"change\", () => updateFromHsv(`color:${control.dataset.colorPath}`));"));
+  assert.ok(!source.includes("data-color-hue"));
+  assert.ok(!source.includes("data-color-sat"));
+  assert.ok(!source.includes("data-color-val"));
 });
 
 test("output renderer blackouts while active media sources are missing or loading", () => {
@@ -347,6 +519,41 @@ test("output client holds current project state during control window refresh bo
   restored.media = [{ id: "media/a.png", name: "a.png", type: "image" }];
   assert.equal(shouldHoldCurrentOutputState(restored, current), false);
   assert.equal(shouldHoldCurrentOutputState(boot, null), false);
+});
+
+test("active output can return project state and files to a refreshed control window", () => {
+  const bridgeSource = readFileSync(new URL("../js/services/output-bridge-service.js", import.meta.url), "utf8");
+  const outputSource = readFileSync(new URL("../js/output/output-app.js", import.meta.url), "utf8");
+
+  assert.ok(bridgeSource.includes('channel.postMessage({ type: "control-hello" })'));
+  assert.ok(bridgeSource.includes('msg.type === "recovery-state"'));
+  assert.ok(bridgeSource.includes('store.replace(msg.state, "project-output-recovery")'));
+  assert.ok(outputSource.includes("bridge?.recoveryState(acceptedState, acceptedFiles)"));
+});
+
+test("composition preview follows the shared preview toggle", () => {
+  const rendererSource = readFileSync(new URL("../js/output/output-renderer.js", import.meta.url), "utf8");
+
+  assert.ok(rendererSource.includes('(this.mode === "preview" || this.mode === "composition") && this.state?.ui?.debugPreview === false'));
+  assert.ok(rendererSource.includes("if (!this.shouldUseThumbnailPreview()) this.captureSelectedCompositionThumbnail()"));
+  assert.ok(rendererSource.includes("if (!this.shouldUseThumbnailPreview()) this.renderSelectedChainTransformOverlay()"));
+});
+
+test("output playback control is persistent and pauses renderer and video clocks", () => {
+  const shellSource = readFileSync(new URL("../js/control/shell-view.js", import.meta.url), "utf8");
+  const controllerSource = readFileSync(new URL("../js/control/control-shell-controller.js", import.meta.url), "utf8");
+  const rendererSource = readFileSync(new URL("../js/output/output-renderer.js", import.meta.url), "utf8");
+  const bridgeSource = readFileSync(new URL("../js/services/output-bridge-service.js", import.meta.url), "utf8");
+  const paused = createInitialState();
+  paused.global.playing = false;
+
+  assert.equal(sanitizeState(paused).global.playing, false);
+  assert.ok(shellSource.includes('id="toggle-output-playback"'));
+  assert.ok(controllerSource.includes("refs.toggleOutputPlayback.disabled = !outputConnected"));
+  assert.ok(controllerSource.includes('outputPlaying ? "pause" : "play_arrow"'));
+  assert.ok(rendererSource.includes("if (this.state?.global?.playing === false) return"));
+  assert.ok(rendererSource.includes("this.state?.global?.playing === false ? 0 : 1"));
+  assert.ok(bridgeSource.includes("const clientWatchdog = setInterval"));
 });
 
 test("dirty cache classifier keeps static photo chains cacheable and animated noise dynamic", () => {

@@ -33,6 +33,7 @@ test("photo grade skips neutral costly sections with uniform gates", () => {
   assert.ok(component.code.includes("if (grain > 0.001)"));
   assert.ok(component.code.includes("if (noise > 0.001)"));
   assert.ok(component.code.includes("if (abs(vibrance) > 0.001)"));
+  assert.ok(component.code.includes("rgb = mix(rgb, 1.0 - rgb, invert)"));
 });
 
 test("label chromatic uses a cheap default path", () => {
@@ -61,13 +62,31 @@ test("alpha-sensitive effects keep transparent pixels premultiplied", () => {
   }
 });
 
-test("grain threshold uses a single cheap grain hash", () => {
+test("grain threshold interpolates its slider-scaled random field", () => {
   const component = getShaderComponent("labelThresholdGrain");
 
   assert.ok(component.code.includes("fastThresholdGrain"));
-  assert.ok(component.code.includes("vec2 grainCell = floor(uv * resolution"));
+  assert.ok(component.code.includes("smoothThresholdGrain"));
+  assert.ok(component.code.includes("vec2 grainCoord = uv * resolution"));
+  assert.ok(!component.code.includes("fastThresholdGrain(grainCell"));
   assert.ok(!component.code.includes("hash("));
   assert.ok(!component.code.includes("vec3 noisy"));
+});
+
+test("procedural scale controls interpolate random fields instead of rehashing floored coordinates", () => {
+  const smear = getShaderComponent("smear").code;
+  const crayon = getShaderComponent("crayonStroke").code;
+  const glitch = getShaderComponent("glitchDistort").code;
+  const strokes = getGeneratorShaderComponent("bezierStrokes").code;
+
+  assert.ok(smear.includes("smoothSmearNoise(uv * resolution * mix(0.45, 1.8, scale)"));
+  assert.ok(smear.includes("smoothSmearNoise(uv * resolution * mix(0.55, 1.7, scale)"));
+  assert.ok(crayon.includes("smoothCrayonNoise(uv * resolution * mix(0.48, 1.8, strokeScale)"));
+  assert.ok(!crayon.includes("crayonHash(floor(uv * resolution"));
+  assert.ok(glitch.includes("smoothGlitchNoise(rowCoord"));
+  assert.ok(!glitch.includes("float row = floor(localUv.y * blocks)"));
+  assert.ok(strokes.includes("smoothStrokeNoise((p + seed) * resolution.y"));
+  assert.ok(!strokes.includes("strokeHash2(floor((p + seed)"));
 });
 
 test("noisy effects expose animated or fixed seed controls", () => {
@@ -220,6 +239,23 @@ test("fireflies generator keeps the background transparent and uses one tint col
   assert.ok(component.code.includes("gl_FragColor = vec4(color * alpha, alpha)"));
 });
 
+test("terrain flyover uses a bounded hash-noise height field", () => {
+  const component = getGeneratorShaderComponent("terrainFlyover");
+
+  for (const id of ["style", "flightSpeed", "turn", "altitude", "pitch", "mountainHeight", "terrainScale", "lakeLevel", "viewDistance", "gridDensity", "wireWidth"]) {
+    assert.ok(component.code.includes(`uniform float ${id};`), `missing terrain uniform ${id}`);
+  }
+  for (const id of ["waterColor", "grassColor", "rockColor", "snowColor", "wireColor", "skyColor"]) {
+    assert.ok(component.code.includes(`uniform vec4 ${id};`), `missing terrain color ${id}`);
+  }
+  assert.ok(component.code.includes("float simplexLikeNoise(vec2 p)"));
+  assert.ok(component.code.includes("for (int step = 0; step < 5; step++)"));
+  assert.ok(component.code.includes("max(rawHeight, lakeLevel)"));
+  assert.ok(component.code.includes("vec2 gridCell = abs(fract(position.xz"));
+  assert.ok(!component.code.includes("texture2D("));
+  assert.ok(!component.code.slice(component.code.indexOf("float hash12"), component.code.indexOf("float terrainHeight")).includes("sin("));
+});
+
 test("gradient generator supports efficient linear radial and single modes", () => {
   const component = getGeneratorShaderComponent("gradient");
 
@@ -229,4 +265,33 @@ test("gradient generator supports efficient linear radial and single modes", () 
   assert.ok(component.code.includes("float maxRadius = max(length(vec2(0.5 * aspect.x, 0.5)), 0.0001);"));
   assert.ok(component.code.includes("t = length(uv) / maxRadius + offset;"));
   assert.ok(component.code.includes("vec2 dir = vec2(cos(angle), sin(angle));"));
+});
+
+test("crayon stroke effect derives bounded static marks from source luminance and edges", () => {
+  const component = getShaderComponent("crayonStroke");
+  const params = Object.fromEntries(component.params.map((param) => [param.id, param]));
+
+  assert.deepEqual(params.style.values, ["crayon", "pen", "ink"]);
+  for (const id of ["amount", "strokeScale", "roughness", "contrast", "edgeStrength", "angle", "sourceColor"]) {
+    assert.equal(params[id].type, "number", `missing stroke effect param ${id}`);
+  }
+  assert.equal(params.strokeColor.type, "color");
+  assert.equal(params.paperColor.type, "color");
+  assert.ok(component.code.includes("float edge = abs(crayonLuma(sampleSource"));
+  assert.ok(component.code.includes("return vec4(mix(straight, effected, amount) * color.a, color.a);"));
+  assert.ok(!component.code.includes("for ("));
+  assert.ok(!component.code.includes("time"));
+});
+
+test("bezier stroke generator uses a bounded transparent phased stroke field", () => {
+  const component = getGeneratorShaderComponent("bezierStrokes");
+
+  for (const id of ["style", "count", "speed", "lifetime", "fade", "width", "strokeLength", "curve", "direction", "spread", "roughness"]) {
+    assert.ok(component.code.includes(`uniform float ${id};`), `missing bezier stroke uniform ${id}`);
+  }
+  assert.ok(component.code.includes("uniform vec4 strokeColor;"));
+  assert.ok(component.code.includes("for (int i = 0; i < 8; i++)"));
+  assert.ok(component.code.includes("float phase = strokeHash(seed + 2.0) * cycle;"));
+  assert.ok(component.code.includes("mix(mix(startY, controlY, t), mix(controlY, endY, t), t)"));
+  assert.ok(component.code.includes("gl_FragColor = vec4(strokeColor.rgb * outputAlpha, outputAlpha);"));
 });

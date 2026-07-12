@@ -36,6 +36,7 @@ export function createNumberParam(id, label, {
   step = 0.01,
   defaultValue = 0,
   ui = "slider",
+  scale = "linear",
 } = {}) {
   return {
     id,
@@ -46,6 +47,7 @@ export function createNumberParam(id, label, {
     step,
     defaultValue,
     ui,
+    scale,
   };
 }
 

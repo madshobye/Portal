@@ -1797,36 +1797,6 @@ small {
   background: var(--panel-2);
 }
 
-.color-picker-sliders {
-  display: grid;
-  grid-column: 1 / -1;
-  gap: 5px;
-  margin-top: 6px;
-}
-
-.color-picker-sliders label {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(128px, var(--param-slider-width));
-  align-items: center;
-  gap: 8px;
-  color: var(--muted);
-  font-size: var(--label-font-size);
-}
-
-.color-picker-sliders label > span {
-  min-width: 0;
-  overflow: hidden;
-  font-weight: 700;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.color-picker-sliders input[type="range"] {
-  width: 100%;
-  min-width: 0;
-  justify-self: end;
-}
-
 .inline-param {
   grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
