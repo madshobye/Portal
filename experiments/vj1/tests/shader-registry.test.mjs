@@ -4,6 +4,7 @@ import { readFileSync } from "node:fs";
 
 import { getShaderComponent } from "../js/shaders/shader-registry.js";
 import { getGeneratorShaderComponent } from "../js/shaders/generator-shaders.js";
+import { createShaderBuilder } from "../js/shaders/shader-builder.js";
 
 test("photo grade exposes common one-pass image tweak controls", () => {
   const component = getShaderComponent("photoGrade");
@@ -138,7 +139,9 @@ test("shared procedural hashes avoid shader trig", () => {
   assert.ok(generatorShaderSource.includes("p3 += dot(p3, p3.yzx + 33.33);"));
   assert.ok(fallbackGeneratorSource.includes("function fract(value)"));
   assert.ok(!shaderBuilderSource.includes("fract(sin"));
-  assert.ok(!generatorShaderSource.includes("fract(sin"));
+  for (const id of ["waves", "noise", "plasma", "gradient", "bezierStrokes", "fireflies", "eyeball", "terrainFlyover", "swayingTrees"]) {
+    assert.ok(!getGeneratorShaderComponent(id).code.includes("fract(sin"), `${id} regressed to a trig hash`);
+  }
   assert.ok(!fallbackGeneratorSource.includes("Math.sin(x * 127.1"));
 });
 
@@ -265,6 +268,150 @@ test("gradient generator supports efficient linear radial and single modes", () 
   assert.ok(component.code.includes("float maxRadius = max(length(vec2(0.5 * aspect.x, 0.5)), 0.0001);"));
   assert.ok(component.code.includes("t = length(uv) / maxRadius + offset;"));
   assert.ok(component.code.includes("vec2 dir = vec2(cos(angle), sin(angle));"));
+});
+
+test("Shadertoy generator keeps mainImage source behind the compatibility wrapper", () => {
+  const component = getGeneratorShaderComponent("shadertoyBaseWarp");
+  let fragmentSource = "";
+  const target = {
+    createShader(_vertex, fragment) {
+      fragmentSource = fragment;
+      return {};
+    },
+  };
+  createShaderBuilder({}).getShader({ id: component.id, component }, target);
+
+  assert.equal(component.type, "shadertoy");
+  assert.equal(component.name, "Base Warp Generator");
+  assert.ok(component.code.includes("https://www.shadertoy.com/view/tdG3Rd"));
+  assert.ok(component.code.includes("void mainImage(out vec4 fragColor, in vec2 fragCoord)"));
+  assert.ok(component.code.includes("fragCoord / iResolution.x"));
+  assert.ok(component.code.includes("noise(p + iTime)"));
+  for (const id of ["scale", "rotation", "offsetX", "offsetY", "warpAmount", "contrast", "brightness", "paletteShift", "paletteBalance", "saturation", "amount"]) {
+    assert.ok(component.code.includes(`uniform float ${id};`), `missing Base Warp uniform ${id}`);
+  }
+  for (const id of ["shadowColor", "midtoneColor", "highlightColor"]) {
+    assert.ok(component.code.includes(`uniform vec4 ${id};`), `missing Base Warp color uniform ${id}`);
+  }
+  assert.ok(component.code.includes("secondWarp * warpAmount"));
+  assert.ok(component.code.includes("* contrast + 0.5 + brightness"));
+  assert.ok(component.code.includes("0.38 + paletteBalance"));
+  assert.ok(component.code.includes("shade * amount"));
+  assert.ok(!component.code.includes("void main()"));
+  assert.ok(fragmentSource.includes("void main()"));
+  assert.ok(fragmentSource.includes("void vj1MainImage(out vec4 fragColor, in vec2 fragCoord)"));
+  assert.ok(fragmentSource.includes("iResolution.y - gl_FragCoord.y"));
+  assert.ok(fragmentSource.includes("vj1MainImage(fragColor, shadertoyFragCoord)"));
+  assert.ok(!fragmentSource.includes("void mainImage"));
+  const [beforeP5Main, afterP5Main] = fragmentSource.split("void main");
+  const p5PreprocessedSource = `${beforeP5Main}void main${afterP5Main}`;
+  assert.ok(p5PreprocessedSource.includes("void main()"), "p5 hook preprocessing must retain the real entry point");
+
+  fragmentSource = "";
+  createShaderBuilder({}).getShader({
+    id: `${component.id}.detected`,
+    component: { ...component, type: "fragment" },
+  }, target);
+  assert.ok(fragmentSource.includes("void main()"), "mainImage source should be detected even without type metadata");
+});
+
+test("Seascape preserves attribution and maps artistic controls into bounded shader work", () => {
+  const component = getGeneratorShaderComponent("seascape");
+
+  assert.equal(component.type, "shadertoy");
+  assert.ok(component.code.includes("Alexander Alekseev aka TDM"));
+  assert.ok(component.code.includes("Creative Commons Attribution-NonCommercial-ShareAlike 3.0"));
+  assert.ok(component.code.includes("https://www.shadertoy.com/view/Ms2SD1"));
+  for (const id of ["waveHeight", "choppiness", "waveScale", "seaDetail", "raySteps", "cameraHeight", "cameraPitch", "cameraMotion", "fieldOfView", "horizonCurve", "skyBrightness", "sunAngle", "sunElevation", "specularStrength", "saturation", "gamma"]) {
+    assert.ok(component.code.includes(`uniform float ${id};`), `missing Seascape uniform ${id}`);
+  }
+  for (const id of ["waterBaseColor", "waterLightColor", "skyTint"]) {
+    assert.ok(component.code.includes(`uniform vec4 ${id};`), `missing Seascape color uniform ${id}`);
+  }
+  assert.ok(component.code.includes("const int NUM_STEPS = 32"));
+  assert.ok(component.code.includes("const int ITER_FRAGMENT = 5"));
+  assert.ok(component.code.includes("if (float(i) >= raySteps) break"));
+  assert.ok(component.code.includes("if (float(i) >= seaDetail) break"));
+  assert.ok(component.code.includes("if (seaBlend <= 0.0001) return sky"));
+});
+
+test("Paint Drips preserves attribution and avoids texture-channel dependencies", () => {
+  const component = getGeneratorShaderComponent("paintDrips");
+
+  assert.equal(component.type, "shadertoy");
+  assert.ok(component.code.includes("https://www.shadertoy.com/view/WdBXD1"));
+  for (const id of ["variation", "dripSpacing", "dripDensity", "dripThickness", "bounceCurve", "cycleLength", "bounceRange", "fallSpeed", "ceilingDepth", "ceilingRoughness", "edgeSoftness", "amount"]) {
+    assert.ok(component.code.includes(`uniform float ${id};`), `missing Paint Drips uniform ${id}`);
+  }
+  for (const id of ["paintColor", "backgroundColor"]) {
+    assert.ok(component.code.includes(`uniform vec4 ${id};`), `missing Paint Drips color uniform ${id}`);
+  }
+  assert.ok(component.code.includes("for (int i = -24; i <= 24; i++)"));
+  assert.ok(component.code.includes("float alpha = mix(backgroundColor.a, paintColor.a, mask) * amount"));
+  assert.ok(!component.code.includes("textureLod("));
+  assert.ok(!component.code.includes("for( int i=0; i<1000"));
+});
+
+test("Cloudy Tunnel preserves attribution and bounds its procedural ray march", () => {
+  const component = getGeneratorShaderComponent("cloudyTunnel");
+
+  assert.equal(component.type, "shadertoy");
+  assert.ok(component.code.includes("Stephane Cuillerdier - Aiekick/2015"));
+  assert.ok(component.code.includes("Creative Commons Attribution-NonCommercial-ShareAlike 3.0"));
+  assert.ok(component.code.includes("https://www.shadertoy.com/view/XlSSzV"));
+  assert.ok(component.code.includes("https://www.shadertoy.com/view/MljXDw"));
+  for (const id of ["raySteps", "cloudDensity", "cloudScale", "cloudDetail", "tunnelRadius", "tunnelSpread", "pathBend", "pathFrequency", "cameraSway", "fieldOfView", "fogStrength", "vignette", "amount"]) {
+    assert.ok(component.code.includes(`uniform float ${id};`), `missing Cloudy Tunnel uniform ${id}`);
+  }
+  for (const id of ["tunnelColor", "fogColor"]) {
+    assert.ok(component.code.includes(`uniform vec4 ${id};`), `missing Cloudy Tunnel color uniform ${id}`);
+  }
+  assert.ok(component.code.includes("for (int i = 0; i < 160; i++)"));
+  assert.ok(component.code.includes("if (float(i) >= raySteps"));
+  assert.ok(!component.code.includes("textureLod("));
+  assert.ok(!component.code.includes("for(float i=0.;i<200.;i++)"));
+});
+
+test("Cherenkov Volume preserves attribution and reuses its normal center sample", () => {
+  const component = getGeneratorShaderComponent("cherenkovVolume");
+
+  assert.equal(component.type, "shadertoy");
+  assert.ok(component.code.includes("carandiru / supersinfulsilicon"));
+  assert.ok(component.code.includes("Creative Commons Attribution-ShareAlike 4.0"));
+  assert.ok(component.code.includes("https://www.shadertoy.com/view/l3yBzV"));
+  assert.ok(component.code.includes("https://www.shadertoy.com/view/tsdfDf"));
+  for (const id of ["raySteps", "zoom", "rotationSpeed", "verticalOffset", "patternScale", "emissionStrength", "absorption", "brightness", "amount"]) {
+    assert.ok(component.code.includes(`uniform float ${id};`), `missing Cherenkov Volume uniform ${id}`);
+  }
+  for (const id of ["farColor", "nearColor", "backgroundColor"]) {
+    assert.ok(component.code.includes(`uniform vec4 ${id};`), `missing Cherenkov Volume color uniform ${id}`);
+  }
+  assert.ok(component.code.includes("for (int i = 0; i < 199; i++)"));
+  assert.ok(component.code.includes("if (float(i) >= raySteps"));
+  assert.ok(component.code.includes("cherenkovNormal(p, dt, distanceField)"));
+  assert.ok(component.code.includes("- centerDistance"));
+  assert.ok(!component.code.includes("0.000000001f"));
+});
+
+test("Biomine Lite preserves attribution and removes expensive secondary passes", () => {
+  const component = getGeneratorShaderComponent("biomineLite");
+
+  assert.equal(component.type, "shadertoy");
+  assert.ok(component.code.includes("https://www.shadertoy.com/view/4lyGzR"));
+  assert.ok(component.code.includes("https://www.shadertoy.com/view/4scXz2"));
+  for (const id of ["raySteps", "viewDistance", "fieldOfView", "pathAmount", "organicMotion", "gyroidScale", "tubeThickness", "tunnelRadius", "surfaceDetail", "specularStrength", "fogStrength", "amount"]) {
+    assert.ok(component.code.includes(`uniform float ${id};`), `missing Biomine Lite uniform ${id}`);
+  }
+  for (const id of ["tubeColor", "wallColor", "glowColor", "skyColor"]) {
+    assert.ok(component.code.includes(`uniform vec4 ${id};`), `missing Biomine Lite color uniform ${id}`);
+  }
+  assert.ok(component.code.includes("for (int i = 0; i < 72; i++)"));
+  assert.ok(component.code.includes("if (float(i) >= raySteps) break"));
+  assert.ok(component.code.includes("Tetrahedral normal: four scene evaluations"));
+  assert.ok(!component.code.includes("calculateAO("));
+  assert.ok(!component.code.includes("thickness("));
+  assert.ok(!component.code.includes("doBumpMap("));
+  assert.ok(!component.code.includes("vec3 eMap("));
 });
 
 test("crayon stroke effect derives bounded static marks from source luminance and edges", () => {

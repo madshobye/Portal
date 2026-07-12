@@ -14,7 +14,9 @@ export function createShaderBuilder({ getCustomCode, onStatus }) {
     if (cache.has(key)) return cache.get(key);
     try {
       const factory = typeof target?.createShader === "function" ? target : globalThis;
-      const fragmentSource = component?.type === "fragment" ? code : fragmentShaderSource(code, component);
+      const fragmentSource = usesShadertoyInterface(component, code)
+        ? shadertoyFragmentSource(code)
+        : component?.type === "fragment" ? code : fragmentShaderSource(code, component);
       const shader = factory.createShader(vertexShaderSource(), fragmentSource);
       cache.set(key, shader);
       onStatus?.("Shader ready", "");
@@ -36,6 +38,11 @@ export function createShaderBuilder({ getCustomCode, onStatus }) {
   }
 
   return { getShader, invalidateCustom, clear };
+}
+
+function usesShadertoyInterface(component, code = "") {
+  if (component?.type === "shadertoy") return true;
+  return /\bvoid\s+mainImage\s*\(/.test(code) && !/\bvoid\s+main\s*\(/.test(code);
 }
 
 let nextContextId = 1;
@@ -136,6 +143,32 @@ void main() {
   vec2 uv = ${uvExpression};
   vec4 color = sampleSource(uv);
   gl_FragColor = runEffect(uv, color);
+}`;
+}
+
+function shadertoyFragmentSource(code) {
+  const adaptedCode = String(code || "").replace(/\bmainImage\b/g, "vj1MainImage");
+  return `
+precision highp float;
+uniform vec3 iResolution;
+uniform float iTime;
+uniform float iTimeDelta;
+uniform int iFrame;
+uniform float iFrameRate;
+uniform vec4 iMouse;
+uniform vec4 iDate;
+uniform sampler2D iChannel0;
+uniform sampler2D iChannel1;
+uniform sampler2D iChannel2;
+uniform sampler2D iChannel3;
+
+${adaptedCode}
+
+void main() {
+  vec4 fragColor = vec4(0.0);
+  vec2 shadertoyFragCoord = vec2(gl_FragCoord.x, iResolution.y - gl_FragCoord.y);
+  vj1MainImage(fragColor, shadertoyFragCoord);
+  gl_FragColor = fragColor;
 }`;
 }
 

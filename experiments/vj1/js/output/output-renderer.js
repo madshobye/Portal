@@ -3,9 +3,9 @@ import { clamp01, sanitizeState } from "../domain/models.js?v=world-frame-27";
 import { normalizeParamValue } from "../graph/component-schema.js?v=number-log-scale-1";
 import { createManualScheduler } from "../graph/manual-scheduler.js";
 import { compileCompositionPatch, compileShaderSchedule, flattenCompositionChain } from "../graph/render-scheduler.js?v=photo-grade-invert-1";
-import { getGeneratorComponent } from "../graph/generator-registry.js?v=terrain-direction-colors-1";
-import { createShaderBuilder } from "../shaders/shader-builder.js?v=photo-grade-invert-1";
-import { getGeneratorShaderComponent } from "../shaders/generator-shaders.js?v=noise-field-1";
+import { getGeneratorComponent } from "../graph/generator-registry.js?v=shadertoy-generator-14";
+import { createShaderBuilder } from "../shaders/shader-builder.js?v=shadertoy-generator-14";
+import { getGeneratorShaderComponent } from "../shaders/generator-shaders.js?v=shadertoy-generator-14";
 import { getShaderComponent } from "../shaders/shader-registry.js?v=photo-grade-invert-1";
 import { applyBlend } from "./blend-utils.js";
 import { applyFontToGlobal, applyFontToTarget } from "./font-loader.js?v=world-frame-27";
@@ -255,6 +255,7 @@ export class OutputRenderer {
     this.thumbnailImages = new Map();
     this.media = new Map();
     this.modelTargets = new Map();
+    this.terrainTargets = new Map();
     this.terrainShaders = new WeakMap();
     this.terrainWireResources = new Map();
     this.pendingRenditionSaves = new Set();
@@ -286,6 +287,7 @@ export class OutputRenderer {
     this.frameProfile = createEmptyFrameProfile();
     this.lastFrameProfile = createEmptyFrameProfile();
     this.lastTickMs = 0;
+    this.frameDeltaSeconds = 0;
     this.visualTime = 0;
     this.frameIndex = 0;
     this.outputMediaStatus = createMediaReadinessStatus();
@@ -390,6 +392,7 @@ export class OutputRenderer {
     disposeGraphicsMap(this.surfaceTextures);
     this.disposeFxTargetGroups();
     disposeGraphicsMap(this.modelTargets);
+    disposeGraphicsMap(this.terrainTargets);
     disposeGraphicsMap(this.compositionSource);
     disposeGraphicsMap(this.compositionOutput);
     disposeGraphicsMap(this.compositionBuffer);
@@ -403,6 +406,7 @@ export class OutputRenderer {
     this.fxTargets = [null, null];
     this.fxTargetKey = "";
     this.modelTargets?.clear?.();
+    this.terrainTargets?.clear?.();
     this.shaderBuilder.clear?.();
   }
 
@@ -489,15 +493,10 @@ export class OutputRenderer {
     const previousSurfaceIds = (this.state?.surfaces || []).map((surface) => surface.id).join(",");
     const previousSize = this.state ? this.renderSizeSignature(this.state.render) : "";
     const previousMappingSignature = this.mappingSignature;
-    const previousLiveSceneId = this.state?.ui?.live?.selectedSceneId || "";
     this.state = sanitizeState(nextState);
     const nextSurfaceIds = this.state.surfaces.map((surface) => surface.id).join(",");
     const nextSize = this.renderSizeSignature(this.state.render);
     const nextMappingSignature = this.currentMappingSignature();
-    const nextLiveSceneId = this.state?.ui?.live?.selectedSceneId || "";
-    if (previousLiveSceneId && previousLiveSceneId !== nextLiveSceneId) {
-      this.resetTerrainResources();
-    }
     if (previousSize && previousSize !== nextSize) {
       this.createBuffers();
     }
@@ -797,6 +796,7 @@ export class OutputRenderer {
       return;
     }
     const dt = Math.min(0.1, Math.max(0, (nowMs - this.lastTickMs) / 1000));
+    this.frameDeltaSeconds = dt;
     this.lastTickMs = nowMs;
     if (this.state?.global?.playing === false) return;
     this.visualTime += dt;
@@ -1430,9 +1430,13 @@ export class OutputRenderer {
   }
 
   drawTerrainGenerator(pg, source = {}, compositionTime = this.visualTime, renderRequest = frameRenderRequest(this.state.render)) {
-    const target = this.getModelTarget(pg.width, pg.height);
+    const target = this.getTerrainTarget(pg.width, pg.height);
     const params = source.params || {};
     let shader = this.terrainShaders.get(target);
+    if (shader && !terrainP5ShaderValid(target, shader)) {
+      this.terrainShaders.delete(target);
+      shader = null;
+    }
     if (!shader) {
       shader = target.createShader(TERRAIN_VERTEX_SHADER, TERRAIN_FRAGMENT_SHADER);
       this.terrainShaders.set(target, shader);
@@ -1454,6 +1458,7 @@ export class OutputRenderer {
     if (style !== 1) target.background(sky[0] * 255, sky[1] * 255, sky[2] * 255, sky[3] * 255);
     if (style !== 1) {
       target.shader(shader);
+      bindTerrainP5Shader(target, shader);
       setTerrainP5Uniforms(shader, flightParams, flightTime, style, target.width, target.height, sky);
       target.noStroke();
       target.fill(255);
@@ -1573,6 +1578,33 @@ export class OutputRenderer {
     return target;
   }
 
+  getTerrainTarget(width, height) {
+    const widthPx = Math.max(1, Math.round(Number(width) || 1));
+    const heightPx = Math.max(1, Math.round(Number(height) || 1));
+    const key = renderBufferKey(widthPx, heightPx);
+    let target = this.terrainTargets.get(key);
+    if (!target) {
+      target = createGraphics(widthPx, heightPx, WEBGL);
+      this.applyGraphicsPixelDensity(target);
+      target.noStroke();
+      this.terrainTargets.set(key, target);
+      return target;
+    }
+    if (target.width !== widthPx || target.height !== heightPx) {
+      this.resetTerrainResources();
+      try {
+        target.resizeCanvas(widthPx, heightPx);
+      } catch {
+        disposeGraphics(target);
+        target = createGraphics(widthPx, heightPx, WEBGL);
+        this.terrainTargets.set(key, target);
+      }
+      this.applyGraphicsPixelDensity(target);
+      target.noStroke();
+    }
+    return target;
+  }
+
   drawShaderGenerator(pg, sourceOrId, compositionTime = this.visualTime) {
     const source = typeof sourceOrId === "object"
       ? sourceOrId
@@ -1616,9 +1648,24 @@ export class OutputRenderer {
       target.push();
       target.clear();
       target.shader(shader);
-      shader.setUniform("resolution", [renderRequest.width, renderRequest.height]);
-      shader.setUniform("time", shaderTime);
-      this.setShaderParamUniforms(shader, component, shaderParams, { setDefaultAmount: false });
+      const shadertoyInterface = usesShadertoyInterface(component);
+      if (shadertoyInterface) {
+        const now = new Date();
+        setShaderUniformIfPresent(shader, "iResolution", [renderRequest.width, renderRequest.height, 1]);
+        setShaderUniformIfPresent(shader, "iTime", shaderTime);
+        setShaderUniformIfPresent(shader, "iTimeDelta", this.frameDeltaSeconds);
+        setShaderUniformIfPresent(shader, "iFrame", this.frameIndex);
+        setShaderUniformIfPresent(shader, "iFrameRate", frameRate());
+        setShaderUniformIfPresent(shader, "iMouse", [0, 0, 0, 0]);
+        setShaderUniformIfPresent(shader, "iDate", [now.getFullYear(), now.getMonth() + 1, now.getDate(), now.getHours() * 3600 + now.getMinutes() * 60 + now.getSeconds()]);
+      } else {
+        shader.setUniform("resolution", [renderRequest.width, renderRequest.height]);
+        shader.setUniform("time", shaderTime);
+      }
+      this.setShaderParamUniforms(shader, component, shaderParams, {
+        setDefaultAmount: false,
+        onlyPresent: shadertoyInterface,
+      });
       target.rect(-renderRequest.width / 2, -renderRequest.height / 2, renderRequest.width, renderRequest.height);
       target.resetShader();
       target.pop();
@@ -1859,6 +1906,7 @@ export class OutputRenderer {
 
   setShaderParamUniforms(shader, component, params = {}, options = {}) {
     for (const param of component?.params || []) {
+      if (options.onlyPresent && !shader?.uniforms?.[param.id]) continue;
       const value = normalizeParamValue(param, params[param.id]);
       if (param.type === "boolean") {
         shader.setUniform(param.id, value !== false);
@@ -2906,8 +2954,18 @@ export function advanceSpatialScale(previous, scale, anchor = [0, 0]) {
 }
 
 function generatorRateParam(generatorId) {
-  if (generatorId === "fireflies" || generatorId === "bezierStrokes") return "speed";
+  if (generatorId === "fireflies" || generatorId === "bezierStrokes" || generatorId === "shadertoyBaseWarp" || generatorId === "seascape" || generatorId === "paintDrips" || generatorId === "cloudyTunnel" || generatorId === "cherenkovVolume" || generatorId === "biomineLite") return "speed";
   return "";
+}
+
+function usesShadertoyInterface(component = {}) {
+  if (component.type === "shadertoy") return true;
+  const code = String(component.code || "");
+  return /\bvoid\s+mainImage\s*\(/.test(code) && !/\bvoid\s+main\s*\(/.test(code);
+}
+
+function setShaderUniformIfPresent(shader, name, value) {
+  if (shader?.uniforms?.[name]) shader.setUniform(name, value);
 }
 
 function instanceTimeOffset(instanceId = "") {
@@ -3015,6 +3073,31 @@ function setTerrainP5Uniforms(shader, params, compositionTime, style, planeWidth
   shader.setUniform("directionColor", normalizedModelColor(params.directionColor, [216, 138, 66, 170]));
   shader.setUniform("wireColor", normalizedModelColor(params.wireColor, [242, 245, 239, 255]));
   shader.setUniform("skyColor", sky);
+}
+
+function bindTerrainP5Shader(target, shader) {
+  if (!shader) return;
+  if (typeof shader.bindShader === "function") {
+    shader.bindShader("fill");
+  } else {
+    shader.init?.();
+  }
+  const gl = target?.drawingContext;
+  if (gl && shader._glProgram && gl.isProgram(shader._glProgram)) {
+    gl.useProgram(shader._glProgram);
+  }
+}
+
+function terrainP5ShaderValid(target, shader) {
+  if (!target || !shader) return false;
+  const gl = target.drawingContext;
+  if (!gl || shader._renderer !== target._renderer) return false;
+  if (!shader._glProgram) return true;
+  try {
+    return gl.isProgram(shader._glProgram) && gl.getProgramParameter(shader._glProgram, gl.LINK_STATUS);
+  } catch {
+    return false;
+  }
 }
 
 function drawTerrainWireframe(target, resourceCache, params, compositionTime, planeWidth, planeDepth) {

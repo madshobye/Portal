@@ -104,6 +104,115 @@ test("gradient generator exposes rgba color stops", () => {
   assert.equal(normalizeParamValue(colorParams[0], "#11223380"), "#11223380");
 });
 
+test("Shadertoy base warp is exposed as a generator with clock speed", () => {
+  const component = getGeneratorComponent("shadertoyBaseWarp");
+  const ids = component.params.map((param) => param.id);
+  const speed = component.params.find((param) => param.id === "speed");
+  const builderSource = readFileSync(new URL("../js/shaders/shader-builder.js", import.meta.url), "utf8");
+  const rendererSource = readFileSync(new URL("../js/output/output-renderer.js", import.meta.url), "utf8");
+
+  assert.equal(component.name, "Base Warp");
+  assert.equal(component.category, "shadertoy");
+  assert.equal(speed.defaultValue, 1);
+  assert.deepEqual(ids, ["speed", "scale", "rotation", "offsetX", "offsetY", "warpAmount", "contrast", "brightness", "paletteShift", "paletteBalance", "shadowColor", "midtoneColor", "highlightColor", "saturation", "amount"]);
+  for (const id of ["shadowColor", "midtoneColor", "highlightColor"]) {
+    assert.equal(component.params.find((param) => param.id === id).type, "color");
+  }
+  assert.equal(component.params.find((param) => param.id === "amount").defaultValue, 1);
+  assert.ok(builderSource.includes('component?.type === "shadertoy"'));
+  assert.ok(builderSource.includes("uniform vec3 iResolution"));
+  assert.ok(builderSource.includes("iResolution.y - gl_FragCoord.y"));
+  assert.ok(builderSource.includes("vj1MainImage(fragColor, shadertoyFragCoord)"));
+  assert.ok(rendererSource.includes('setShaderUniformIfPresent(shader, "iTime", shaderTime)'));
+  assert.ok(rendererSource.includes('generatorId === "shadertoyBaseWarp"'));
+});
+
+test("Seascape exposes bounded artistic controls", () => {
+  const component = getGeneratorComponent("seascape");
+  const params = Object.fromEntries(component.params.map((param) => [param.id, param]));
+  const rendererSource = readFileSync(new URL("../js/output/output-renderer.js", import.meta.url), "utf8");
+
+  assert.equal(component.name, "Seascape");
+  assert.equal(component.category, "shadertoy");
+  for (const id of ["speed", "waveHeight", "choppiness", "waveScale", "seaDetail", "raySteps", "cameraHeight", "cameraPitch", "cameraMotion", "fieldOfView", "horizonCurve", "skyBrightness", "sunAngle", "sunElevation", "specularStrength", "saturation", "gamma"]) {
+    assert.equal(params[id].type, "number", `missing numeric Seascape control ${id}`);
+  }
+  for (const id of ["waterBaseColor", "waterLightColor", "skyTint"]) {
+    assert.equal(params[id].type, "color", `missing Seascape color ${id}`);
+  }
+  assert.equal(params.seaDetail.max, 5);
+  assert.equal(params.raySteps.defaultValue, 18);
+  assert.ok(rendererSource.includes('generatorId === "seascape"'));
+});
+
+test("Paint Drips exposes self-contained artistic controls", () => {
+  const component = getGeneratorComponent("paintDrips");
+  const params = Object.fromEntries(component.params.map((param) => [param.id, param]));
+  const rendererSource = readFileSync(new URL("../js/output/output-renderer.js", import.meta.url), "utf8");
+
+  assert.equal(component.name, "Paint Drips");
+  assert.equal(component.category, "shadertoy");
+  for (const id of ["speed", "variation", "dripSpacing", "dripDensity", "dripThickness", "bounceCurve", "cycleLength", "bounceRange", "fallSpeed", "ceilingDepth", "ceilingRoughness", "edgeSoftness", "amount"]) {
+    assert.equal(params[id].type, "number", `missing numeric Paint Drips control ${id}`);
+  }
+  for (const id of ["paintColor", "backgroundColor"]) {
+    assert.equal(params[id].type, "color", `missing Paint Drips color ${id}`);
+  }
+  assert.ok(rendererSource.includes('generatorId === "paintDrips"'));
+});
+
+test("Cloudy Tunnel exposes bounded self-contained controls", () => {
+  const component = getGeneratorComponent("cloudyTunnel");
+  const params = Object.fromEntries(component.params.map((param) => [param.id, param]));
+  const rendererSource = readFileSync(new URL("../js/output/output-renderer.js", import.meta.url), "utf8");
+
+  assert.equal(component.name, "Cloudy Tunnel");
+  assert.equal(component.category, "shadertoy");
+  for (const id of ["speed", "raySteps", "cloudDensity", "cloudScale", "cloudDetail", "tunnelRadius", "tunnelSpread", "pathBend", "pathFrequency", "cameraSway", "fieldOfView", "fogStrength", "vignette", "amount"]) {
+    assert.equal(params[id].type, "number", `missing numeric Cloudy Tunnel control ${id}`);
+  }
+  for (const id of ["tunnelColor", "fogColor"]) {
+    assert.equal(params[id].type, "color", `missing Cloudy Tunnel color ${id}`);
+  }
+  assert.equal(params.raySteps.defaultValue, 72);
+  assert.ok(rendererSource.includes('generatorId === "cloudyTunnel"'));
+});
+
+test("Cherenkov Volume exposes bounded volumetric controls", () => {
+  const component = getGeneratorComponent("cherenkovVolume");
+  const params = Object.fromEntries(component.params.map((param) => [param.id, param]));
+  const rendererSource = readFileSync(new URL("../js/output/output-renderer.js", import.meta.url), "utf8");
+
+  assert.equal(component.name, "Cherenkov Volume");
+  assert.equal(component.category, "shadertoy");
+  for (const id of ["speed", "raySteps", "zoom", "rotationSpeed", "verticalOffset", "patternScale", "emissionStrength", "absorption", "brightness", "amount"]) {
+    assert.equal(params[id].type, "number", `missing numeric Cherenkov Volume control ${id}`);
+  }
+  for (const id of ["farColor", "nearColor", "backgroundColor"]) {
+    assert.equal(params[id].type, "color", `missing Cherenkov Volume color ${id}`);
+  }
+  assert.equal(params.raySteps.defaultValue, 96);
+  assert.ok(rendererSource.includes('generatorId === "cherenkovVolume"'));
+});
+
+test("Biomine Lite exposes performance and material controls", () => {
+  const component = getGeneratorComponent("biomineLite");
+  const params = Object.fromEntries(component.params.map((param) => [param.id, param]));
+  const rendererSource = readFileSync(new URL("../js/output/output-renderer.js", import.meta.url), "utf8");
+
+  assert.equal(component.name, "Biomine Lite");
+  assert.equal(component.category, "shadertoy");
+  for (const id of ["speed", "raySteps", "viewDistance", "fieldOfView", "pathAmount", "organicMotion", "gyroidScale", "tubeThickness", "tunnelRadius", "surfaceDetail", "specularStrength", "fogStrength", "amount"]) {
+    assert.equal(params[id].type, "number", `missing numeric Biomine Lite control ${id}`);
+  }
+  for (const id of ["tubeColor", "wallColor", "glowColor", "skyColor"]) {
+    assert.equal(params[id].type, "color", `missing Biomine Lite color ${id}`);
+  }
+  assert.equal(params.raySteps.defaultValue, 36);
+  assert.equal(params.surfaceDetail.defaultValue, 1);
+  assert.ok(rendererSource.includes('generatorId === "biomineLite"'));
+});
+
 test("low poly anatomy generator exposes body part and stl-style 3d controls", () => {
   const component = getGeneratorComponent("anatomy");
   const params = Object.fromEntries(component.params.map((param) => [param.id, param]));
@@ -155,6 +264,12 @@ test("terrain flyover exposes flight, terrain, wire, and biome controls", () => 
   }
   assert.ok(controllerSource.includes("terrainFlyover: \"landscape\""));
   assert.ok(rendererSource.includes("source.generatorId === \"terrainFlyover\""));
+  assert.ok(rendererSource.includes("this.terrainTargets = new Map()"));
+  assert.ok(rendererSource.includes("const target = this.getTerrainTarget(pg.width, pg.height)"));
+  assert.ok(rendererSource.includes("disposeGraphicsMap(this.terrainTargets)"));
+  assert.ok(rendererSource.includes('shader.bindShader("fill")'));
+  assert.ok(rendererSource.includes("bindTerrainP5Shader(target, shader)"));
+  assert.ok(rendererSource.includes("gl.useProgram(shader._glProgram)"));
   assert.ok(rendererSource.includes("drawTerrainSurfaceMesh(target, params.gridJitter, params.gridWidth, params.gridDepth, flightTime, 1, params.gridDensity, params.gridScale)"));
   assert.ok(rendererSource.includes("continuousRateTime(`${source.instanceId || source.generatorId || \"terrain\"}:flight`"));
   assert.ok(rendererSource.includes("gl.drawArrays(gl.TRIANGLES, 0, resources.count)"));
@@ -163,7 +278,8 @@ test("terrain flyover exposes flight, terrain, wire, and biome controls", () => 
   assert.ok(rendererSource.includes("if (style !== 1) target.background"));
   assert.ok(rendererSource.includes("const previousProgram = gl.getParameter(gl.CURRENT_PROGRAM)"));
   assert.ok(rendererSource.includes("gl.useProgram(previousProgram)"));
-  assert.ok(rendererSource.includes("previousLiveSceneId !== nextLiveSceneId"));
+  assert.ok(!rendererSource.includes("previousLiveSceneId !== nextLiveSceneId"));
+  assert.ok(rendererSource.includes("terrainP5ShaderValid(target, shader)"));
   assert.ok(rendererSource.includes("terrainWireResourcesValid(gl, resources)"));
   assert.ok(rendererSource.includes("disposeTerrainWireResources(gl, resources)"));
   assert.ok(rendererSource.includes("captureVertexAttributeState(gl, location)"));

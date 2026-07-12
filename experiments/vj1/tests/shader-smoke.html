@@ -22,11 +22,11 @@
     <pre id="result">running...</pre>
     <script type="module">
       import { getShaderComponent } from "../js/shaders/shader-registry.js?v=noise-field-1";
-      import { getGeneratorShaderComponent } from "../js/shaders/generator-shaders.js?v=noise-field-1";
-      import { createShaderBuilder } from "../js/shaders/shader-builder.js";
+      import { getGeneratorShaderComponent } from "../js/shaders/generator-shaders.js?v=shadertoy-generator-14";
+      import { createShaderBuilder } from "../js/shaders/shader-builder.js?v=shadertoy-generator-14";
 
       const effects = ["photoGrade", "labelThresholdGrain", "smear", "alphaVignette", "glitchDistort", "spinRotate", "echoFade", "mirrorFold", "heatShimmer", "crayonStroke"];
-      const generators = ["gradient", "fireflies", "eyeball", "swayingTrees", "terrainFlyover", "bezierStrokes"];
+      const generators = ["gradient", "fireflies", "eyeball", "swayingTrees", "terrainFlyover", "bezierStrokes", "shadertoyBaseWarp", "seascape", "paintDrips", "cloudyTunnel", "cherenkovVolume", "biomineLite"];
       const result = document.getElementById("result");
 
       new p5((sketch) => {
@@ -52,8 +52,13 @@
                 target.push();
                 target.clear();
                 target.shader(shader);
-                shader.setUniform("resolution", [target.width, target.height]);
-                shader.setUniform("time", 1);
+                if (component.type === "shadertoy") {
+                  shader.setUniform("iResolution", [target.width, target.height, 1]);
+                  shader.setUniform("iTime", 1);
+                } else {
+                  shader.setUniform("resolution", [target.width, target.height]);
+                  shader.setUniform("time", 1);
+                }
                 target.rect(-target.width / 2, -target.height / 2, target.width, target.height);
                 target.resetShader();
                 target.pop();

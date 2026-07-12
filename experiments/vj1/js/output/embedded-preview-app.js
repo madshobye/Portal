@@ -1,6 +1,6 @@
 import { VJ1 } from "../constants.js";
 import { sanitizeState } from "../domain/models.js?v=output-playback-1";
-import { OutputRenderer } from "./output-renderer.js?v=output-playback-live-source-params-1";
+import { OutputRenderer } from "./output-renderer.js?v=shadertoy-generator-14";
 import { applyFontToGlobal, loadVjRenderFont } from "./font-loader.js?v=world-frame-27";
 import { createPreviewViewportController, fitPreviewCanvasElement } from "./preview-viewport.js";
 import { canvasSizeForMode } from "./render-geometry.js";

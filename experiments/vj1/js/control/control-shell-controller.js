@@ -1,12 +1,12 @@
 import { BLEND_MODES, VJ1, WORKSPACES } from "../constants.js";
 import { applySceneSnapshotToState, createLiveCompositionView, createLiveRenderState, createSceneSnapshot, normalizeRenderSettings } from "../domain/models.js?v=output-playback-1";
 import { normalizeParamValue } from "../graph/component-schema.js?v=number-log-scale-1";
-import { getGeneratorComponent, listGeneratorComponents } from "../graph/generator-registry.js?v=terrain-direction-colors-1";
+import { getGeneratorComponent, listGeneratorComponents } from "../graph/generator-registry.js?v=shadertoy-generator-14";
 import { patchNodeDegree, planCompositorInputs, planPatchExecution, summarizeTextureBranches } from "../graph/patch-planner.js";
 import { compileCompositionPatch } from "../graph/render-scheduler.js?v=photo-grade-invert-1";
 import { buildOutputUrl } from "../view-routing.js";
 import { getShaderComponent, listShaderComponents } from "../shaders/shader-registry.js?v=photo-grade-invert-1";
-import { createEmbeddedPreviewApp } from "../output/embedded-preview-app.js?v=output-playback-live-source-params-1";
+import { createEmbeddedPreviewApp } from "../output/embedded-preview-app.js?v=shadertoy-generator-14";
 import { frameFitViewport, resetViewport, zoomViewport } from "../output/preview-viewport.js";
 import { defaultProjectSurfaceMapping } from "../output/render-geometry.js";
 import { createHtmlCache, isInteractiveNode, isTextEditingNode, setClass, setText } from "./dom-utils.js";
@@ -2259,8 +2259,14 @@ function generatorIcon(id) {
     plasma: "blur_on",
     gradient: "gradient",
     anatomy: "accessibility_new",
-  terrainFlyover: "landscape",
-  bezierStrokes: "gesture",
+    terrainFlyover: "landscape",
+    bezierStrokes: "gesture",
+    shadertoyBaseWarp: "auto_awesome_mosaic",
+    seascape: "water",
+    paintDrips: "format_color_fill",
+    cloudyTunnel: "blur_circular",
+    cherenkovVolume: "bubble_chart",
+    biomineLite: "biotech",
     checker: "grid_view",
     testPattern: "featured_video",
   }[id] || "auto_awesome";
