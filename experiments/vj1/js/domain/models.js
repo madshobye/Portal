@@ -1,5 +1,5 @@
 import { VJ1, defaultCustomShaderCode, WORKSPACES } from "../constants.js";
-import { createGeneratorSource } from "../graph/generator-registry.js?v=shadertoy-generator-14";
+import { createGeneratorSource } from "../graph/generator-registry.js?v=shadertoy-generator-15";
 
 export function uid(prefix) {
   return `${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;

@@ -1,12 +1,12 @@
 import { BLEND_MODES, VJ1, WORKSPACES } from "../constants.js";
 import { applySceneSnapshotToState, createLiveCompositionView, createLiveRenderState, createSceneSnapshot, normalizeRenderSettings } from "../domain/models.js?v=output-playback-1";
 import { normalizeParamValue } from "../graph/component-schema.js?v=number-log-scale-1";
-import { getGeneratorComponent, listGeneratorComponents } from "../graph/generator-registry.js?v=shadertoy-generator-14";
+import { getGeneratorComponent, listGeneratorComponents } from "../graph/generator-registry.js?v=shadertoy-generator-15";
 import { patchNodeDegree, planCompositorInputs, planPatchExecution, summarizeTextureBranches } from "../graph/patch-planner.js";
 import { compileCompositionPatch } from "../graph/render-scheduler.js?v=photo-grade-invert-1";
 import { buildOutputUrl } from "../view-routing.js";
 import { getShaderComponent, listShaderComponents } from "../shaders/shader-registry.js?v=photo-grade-invert-1";
-import { createEmbeddedPreviewApp } from "../output/embedded-preview-app.js?v=shadertoy-generator-14";
+import { createEmbeddedPreviewApp } from "../output/embedded-preview-app.js?v=shadertoy-generator-15";
 import { frameFitViewport, resetViewport, zoomViewport } from "../output/preview-viewport.js";
 import { defaultProjectSurfaceMapping } from "../output/render-geometry.js";
 import { createHtmlCache, isInteractiveNode, isTextEditingNode, setClass, setText } from "./dom-utils.js";

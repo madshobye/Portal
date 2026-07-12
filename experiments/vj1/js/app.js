@@ -1,10 +1,10 @@
 import { createAppState } from "./app-state.js?v=output-playback-1";
-import { createControlShell } from "./control/control-shell-controller.js?v=shadertoy-generator-14";
+import { createControlShell } from "./control/control-shell-controller.js?v=shadertoy-generator-15";
 import { getInitialWorkspace, getClientMode, persistWorkspace } from "./view-routing.js";
 import { createMediaLibrary } from "./services/media-library-service.js?v=world-frame-27";
 import { createProjectFolderService } from "./services/project-folder-service.js?v=output-recovery-1";
 import { createControlBridge } from "./services/output-bridge-service.js?v=output-playback-1";
-import { installOutputApp } from "./output/output-app.js?v=shadertoy-generator-14";
+import { installOutputApp } from "./output/output-app.js?v=shadertoy-generator-15";
 
 const root = document.getElementById("app");
 const mode = getClientMode();

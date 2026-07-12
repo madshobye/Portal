@@ -1156,7 +1156,8 @@ vec2 tunnelCylinder(vec3 p, vec2 position, float radius, vec3 cosinePath, vec3 s
 float tunnelMap(vec3 p) {
   float cloud = tunnelFbm(p * 13.0) * cloudDensity;
   float path = pathBend * sin(p.z * pathFrequency);
-  float field = -999.0;
+  float field = 0.0;
+  vec2 previousCylinder = vec2(0.0);
   for (int i = 0; i < 6; i++) {
     float index = float(i);
     float x = index;
@@ -1170,7 +1171,13 @@ float tunnelMap(vec3 p) {
       vec3(x, y, z),
       vec3(z, x, y)
     );
-    field = max(field, radius - length(cylinder));
+    if (i > 0) {
+      // The source shader builds each section from the current and previous
+      // cylinder, with the final pair defining the tunnel field. Treating all
+      // six as one union creates the hard four-quadrant pattern.
+      field = radius - min(length(cylinder), length(previousCylinder));
+    }
+    previousCylinder = cylinder;
   }
   return min(field + cloud, p.y + cloud);
 }

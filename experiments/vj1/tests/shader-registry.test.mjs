@@ -368,6 +368,9 @@ test("Cloudy Tunnel preserves attribution and bounds its procedural ray march", 
   }
   assert.ok(component.code.includes("for (int i = 0; i < 160; i++)"));
   assert.ok(component.code.includes("if (float(i) >= raySteps"));
+  assert.ok(component.code.includes("field = radius - min(length(cylinder), length(previousCylinder))"));
+  assert.ok(component.code.includes("previousCylinder = cylinder"));
+  assert.ok(!component.code.includes("field = max(field, radius - length(cylinder))"));
   assert.ok(!component.code.includes("textureLod("));
   assert.ok(!component.code.includes("for(float i=0.;i<200.;i++)"));
 });
