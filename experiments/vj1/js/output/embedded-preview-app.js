@@ -1,6 +1,6 @@
 import { VJ1 } from "../constants.js";
-import { sanitizeState } from "../domain/models.js?v=projection-fit-1";
-import { OutputRenderer } from "./output-renderer.js?v=thumbnail-fit-2";
+import { sanitizeState } from "../domain/models.js?v=live-program-1";
+import { OutputRenderer } from "./output-renderer.js?v=live-program-1";
 import { applyFontToGlobal, loadVjRenderFont } from "./font-loader.js?v=world-frame-27";
 import { createPreviewViewportController, fitPreviewCanvasElement } from "./preview-viewport.js";
 import { canvasSizeForMode } from "./render-geometry.js";
@@ -261,11 +261,11 @@ export function createEmbeddedPreviewApp({ store, mediaLibrary, projectService }
     }, "preview-metrics");
   }
 
-  function updateMapping(mappingId, mapping, status) {
+  function updateMapping(mappingId, mapping, status, meta = {}) {
     store.update((draft) => {
       draft.mappings[mappingId || "local"] = mapping;
       draft.ui.mappingStatus = status || "Mapping updated";
-    }, "mapping-state");
+    }, meta.live ? "scrub:mapping-state" : "mapping-state");
   }
 
   function updateThumbnail(compositionId, thumbnail) {

@@ -6,7 +6,7 @@ import {
   normalizeCompositionFrameShape,
   normalizeCompositionResolutionScale,
 } from "../js/domain/composition-frame.js";
-import { createDefaultComposition, createDefaultSurface, createSceneFromState, normalizeCompositionPipelineSettings, normalizeProjectionFit, sanitizeState } from "../js/domain/models.js";
+import { createCanvasComposition, createDefaultComposition, createDefaultSurface, createSceneFromState, normalizeCompositionPipelineSettings, normalizeProjectionFit, sanitizeState } from "../js/domain/models.js";
 
 const render = {
   surfaceWidth: 1000,
@@ -95,6 +95,55 @@ test("surface projection fit defaults to cover and persists in scene snapshots",
   const scene = createSceneFromState(state, "Fit scene");
   assert.equal(state.surfaces[0].projectionFit, "contain");
   assert.equal(scene.snapshot.surfaces[0].projectionFit, "contain");
+});
+
+test("legacy canvas layers migrate into the shared chain without retaining a parallel layer model", () => {
+  const source = createDefaultComposition(0);
+  source.id = "composition-source";
+  const state = sanitizeState({
+    compositions: [source, {
+      id: "legacy-canvas",
+      type: "canvas",
+      name: "Legacy Canvas",
+      chain: [],
+      canvas: {
+        width: 2000,
+        height: 1000,
+        layers: [{
+          id: "legacy-layer",
+          compositionId: source.id,
+          name: "Hero",
+          x: 120,
+          y: 80,
+          width: 640,
+          height: 360,
+          opacity: 0.7,
+          blend: "screen",
+        }],
+      },
+    }],
+  });
+  const canvas = state.compositions.find((composition) => composition.id === "legacy-canvas");
+  assert.equal("layers" in canvas.canvas, false);
+  assert.equal(canvas.chain.length, 1);
+  assert.equal(canvas.chain[0].role, "canvas-layer");
+  assert.deepEqual(canvas.chain[0].layout, { x: 120, y: 80, width: 640, height: 360 });
+  assert.equal(canvas.chain[0].opacity, 0.7);
+  assert.equal(canvas.chain[0].blend, "screen");
+  assert.equal(canvas.chain[0].chain[0].source.compositionId, source.id);
+});
+
+test("canvas frame routes persist in active surfaces and scene snapshots", () => {
+  const source = createDefaultComposition(0);
+  const canvas = createCanvasComposition(0, source.id);
+  const frameId = canvas.canvas.frames[0].id;
+  const state = sanitizeState({
+    compositions: [source, canvas],
+    surfaces: [{ id: "surface-a", compositionId: canvas.id, outputFrameId: frameId }],
+  });
+  const scene = createSceneFromState(state, "Frame scene");
+  assert.equal(state.surfaces[0].outputFrameId, frameId);
+  assert.equal(scene.snapshot.surfaces[0].outputFrameId, frameId);
 });
 
 function pickSize(metrics) {

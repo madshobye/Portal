@@ -1,13 +1,14 @@
 import { VJ1 } from "../constants.js";
-import { sanitizeState } from "../domain/models.js?v=projection-fit-1";
-import { createOutputBridge } from "../services/output-bridge-service.js?v=output-playback-1";
-import { OutputRenderer } from "./output-renderer.js?v=thumbnail-fit-2";
+import { sanitizeState } from "../domain/models.js?v=live-program-1";
+import { createOutputBridge } from "../services/output-bridge-service.js?v=live-program-1";
+import { OutputRenderer } from "./output-renderer.js?v=live-program-1";
 import { applyFontToGlobal, loadVjRenderFont } from "./font-loader.js?v=world-frame-27";
 import { frameSize } from "./render-geometry.js";
 
 let outputFitSignature = "";
 
 export function installOutputApp({ root, mode }) {
+  const initialSceneId = consumeInitialSceneId(mode);
   document.body.classList.add("output-client");
   root.innerHTML = `
     <div id="output-stage" class="output-stage">
@@ -58,7 +59,7 @@ export function installOutputApp({ root, mode }) {
         recordRuntimeMetric(metrics);
         bridge?.metrics(metrics);
       },
-      sendMapping: (id, mapping, status) => bridge?.mappingState(id, mapping, status),
+      sendMapping: (id, mapping, status, meta) => bridge?.mappingState(id, mapping, status, meta),
       requestMediaFiles: (ids) => bridge?.requestMediaFiles(ids),
     });
     await renderer.setup(pendingState ? sanitizeState(pendingState) : null);
@@ -110,6 +111,7 @@ export function installOutputApp({ root, mode }) {
 
   bridge = createOutputBridge({
     mode,
+    initialSceneId,
     onState(state) {
       if (fixtureUrl) return;
       if (shouldHoldCurrentOutputState(state, acceptedState)) return;
@@ -126,6 +128,24 @@ export function installOutputApp({ root, mode }) {
       bridge?.recoveryState(acceptedState, acceptedFiles);
     },
     onCommand(command, payload) {
+      if (command === "sync-mapping" && acceptedState) {
+        const nextState = {
+          ...acceptedState,
+          mappings: payload.mappings || acceptedState.mappings,
+        };
+        pendingState = nextState;
+        acceptedState = nextState;
+        renderer?.setState(nextState);
+      }
+      if (command === "sync-global" && acceptedState) {
+        const nextState = {
+          ...acceptedState,
+          global: payload.global || acceptedState.global,
+        };
+        pendingState = nextState;
+        acceptedState = nextState;
+        renderer?.setState(nextState);
+      }
       if (command === "set-calibrate") renderer?.setCalibrate(!!payload.calibrating);
       if (command === "save-mapping") renderer?.saveMapping();
       if (command === "reset-mapping") renderer?.resetMapping(payload.surfaceId);
@@ -149,6 +169,17 @@ export function installOutputApp({ root, mode }) {
   loadClassicScript(VJ1.p5Script).catch((error) => {
     root.innerHTML = `<div class="empty-preview">${error.message}</div>`;
   });
+}
+
+export function consumeInitialSceneId(mode = "output") {
+  if (mode !== "output" || typeof window === "undefined") return "";
+  const url = new URL(window.location.href);
+  const initialSceneId = url.searchParams.get("initialSceneId") || "";
+  if (initialSceneId) {
+    url.searchParams.delete("initialSceneId");
+    window.history.replaceState({}, "", url);
+  }
+  return initialSceneId;
 }
 
 export function shouldHoldCurrentOutputState(nextState, currentState) {

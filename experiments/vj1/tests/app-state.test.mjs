@@ -6,6 +6,7 @@ import {
   createCompositionEffect,
   createCompositionGroup,
   createCompositionLayer,
+  createCanvasComposition,
   createDefaultComposition,
   createInitialState,
   createSceneFromState,
@@ -39,6 +40,49 @@ test("render state uses selected scene in scene workspace and live scene in live
   assert.equal(store.getRenderState().surfaces[0].compositionId, liveComposition.id);
 });
 
+test("scene editing cannot mutate the captured live program scene", () => {
+  const state = createInitialState();
+  const first = createDefaultComposition(0);
+  first.id = "composition-first";
+  const second = createDefaultComposition(1);
+  second.id = "composition-second";
+  state.compositions = [first, second];
+  state.surfaces[0].compositionId = first.id;
+  const firstScene = createSceneFromState(state, "First");
+  state.surfaces[0].compositionId = second.id;
+  const secondScene = createSceneFromState(state, "Second");
+  state.scenes = [firstScene, secondScene];
+  state.ui.live.selectedSceneId = firstScene.id;
+
+  const store = createAppState(state);
+  assert.equal(store.getLiveRenderState().surfaces[0].compositionId, first.id);
+
+  store.update((draft) => {
+    draft.scenes[0].snapshot.surfaces[0].compositionId = second.id;
+  }, "scene-edit");
+  assert.equal(store.getLiveRenderState().surfaces[0].compositionId, first.id);
+
+  store.selectLiveScene(secondScene.id);
+  assert.equal(store.getLiveRenderState().surfaces[0].compositionId, second.id);
+});
+
+test("an empty Live selection initializes independently from the Scene selection", () => {
+  const state = createInitialState();
+  const firstScene = createSceneFromState(state, "First");
+  const secondScene = createSceneFromState(state, "Second");
+  state.scenes = [firstScene, secondScene];
+  state.ui.selectedSceneId = secondScene.id;
+  state.ui.live.selectedSceneId = "";
+  state.ui.live.sceneSnapshot = null;
+
+  const store = createAppState(state);
+  assert.equal(store.getState().ui.live.selectedSceneId, firstScene.id);
+
+  store.setWorkspace("live");
+  assert.equal(store.getState().ui.live.selectedSceneId, firstScene.id);
+  assert.notEqual(store.getState().ui.live.selectedSceneId, store.getState().ui.selectedSceneId);
+});
+
 test("surface reorder updates active surfaces and scene snapshots", () => {
   const state = createInitialState();
   state.scenes = [createSceneFromState(state, "Scene 1")];
@@ -52,6 +96,48 @@ test("surface reorder updates active surfaces and scene snapshots", () => {
   assert.equal(next.surfaces[1].id, firstSurface.id);
   assert.equal(next.scenes[0].snapshot.surfaces[0].id, secondSurface.id);
   assert.equal(next.scenes[0].snapshot.surfaces[1].id, firstSurface.id);
+});
+
+test("canvas layers are shared chain groups and accept ordinary effects", () => {
+  const state = createInitialState();
+  const source = createDefaultComposition(0);
+  source.id = "source-composition";
+  const canvas = createCanvasComposition(0, source.id);
+  canvas.id = "canvas-composition";
+  state.compositions = [source, canvas];
+  state.ui.selectedCompositionId = canvas.id;
+  state.ui.selectedChainItemId = canvas.chain[0].id;
+  const store = createAppState(state);
+
+  store.addChainEffect(canvas.id, "pixelate");
+  const nextCanvas = store.getState().compositions.find((composition) => composition.id === canvas.id);
+  const layer = nextCanvas.chain[0];
+
+  assert.equal(layer.kind, "group");
+  assert.equal(layer.role, "canvas-layer");
+  assert.equal(layer.chain[0].source.type, "composition");
+  assert.equal(layer.chain[0].source.compositionId, source.id);
+  assert.equal(layer.chain[1].kind, "effect");
+  assert.equal(layer.chain[1].componentId, "pixelate");
+  assert.deepEqual(layer.layout, { x: 0, y: 0, width: 960, height: 540 });
+});
+
+test("canvas recording frames are owned by canvases and removed routes clear safely", () => {
+  const state = createInitialState();
+  const source = createDefaultComposition(0);
+  const canvas = createCanvasComposition(0, source.id);
+  state.compositions = [source, canvas];
+  const frameId = canvas.canvas.frames[0].id;
+  state.surfaces[0].compositionId = canvas.id;
+  state.surfaces[0].outputFrameId = frameId;
+  state.scenes = [createSceneFromState(state, "Canvas scene")];
+  const store = createAppState(state);
+
+  store.removeCanvasFrame(canvas.id, frameId);
+  const next = store.getState();
+  assert.equal(next.compositions.find((composition) => composition.id === canvas.id).canvas.frames.length, 0);
+  assert.equal(next.surfaces[0].outputFrameId, "");
+  assert.equal(next.scenes[0].snapshot.surfaces[0].outputFrameId, "");
 });
 
 test("composition chain preserves source elements and later effects", () => {

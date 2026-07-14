@@ -11,8 +11,8 @@ This document describes the whole VJ1 application as it currently exists. Read i
 The application has five workspaces:
 
 1. **Compositions** (`compose`) builds reusable image-processing chains.
-2. **Canvas** (`canvas`) places compositions on a larger canvas and defines rectangular sample regions for surfaces.
-3. **Scenes** (`scene`) assigns compositions to projection surfaces and edits their quadrilateral mappings.
+2. **Canvas** (`canvas`) places reusable compositions on a larger composition and defines named recording frames.
+3. **Scenes** (`scene`) routes compositions or Canvas recording frames to projection surfaces and edits their quadrilateral mappings.
 4. **Nodes** (`mapping`) exposes the compiled composition graph and scheduler state for inspection.
 5. **Live** (`live`) selects the scene sent to the output window and provides temporary performance controls and parameter overrides.
 
@@ -156,9 +156,11 @@ Older project files may still contain top-level `composition.source` and `compos
 
 ### Canvas composition
 
-A canvas composition has a large logical canvas and layers referencing ordinary chain compositions. Scene surfaces can select rectangular `sourceRect` regions from that canvas. Rectangles can be created, moved, and resized in the Canvas workspace. This lets several surfaces sample different areas of one coordinated visual composition. Canvas-in-canvas nesting and self-reference are rejected during selection and normalization.
+A Canvas is a composition with a large logical frame. Its `composition.chain` uses the same source, effect, and isolated-group abstractions as an ordinary composition. A placed composition is represented by a group with `role: "canvas-layer"`, layout, blend, and opacity; its nested chain starts with a composition-reference source and can contain the ordinary effect components. Effects after a layer group process the combined Canvas, so composition features should be implemented once in the shared chain architecture rather than copied into a Canvas-only renderer.
 
-Canvas compositions are routable to scene surfaces like ordinary compositions. The Canvas workspace is currently a DOM layout editor: surface sample rectangles are directly draggable/resizable, while layer position and size are edited numerically. Canvas compositions normalize with an empty `chain`, and `renderCanvasComposition()` renders enabled child compositions into one GPU target at the canvas's logical dimensions. Applying a post-effect to the complete canvas is a known missing capability. Large canvas dimensions are also a direct texture-memory and fill-rate cost.
+`composition.canvas.frames` contains named recording rectangles owned by the Canvas. Frames can be created, moved, resized, and renamed in the Canvas workspace. In Scenes, each frame is offered beside ordinary compositions and can be routed to a surface through `surface.outputFrameId`. The surface owns the route and projection fit; the Canvas does not own or list surfaces. Legacy `canvas.layers` data migrates to shared chain groups, while legacy surface `sourceRect` values remain a renderer fallback for old projects. Canvas-in-canvas nesting and self-reference are rejected during selection and normalization.
+
+`renderCanvasComposition()` evaluates the shared chain into one GPU target at the Canvas's logical dimensions. A routed frame is sampled from that result into the bounded surface texture before projection mapping. Large Canvas dimensions remain a direct texture-memory and fill-rate cost.
 
 ## Generators and Effects
 
@@ -193,7 +195,7 @@ Important details:
 8. Surface textures are bounded by `render.surfaceWidth`/`surfaceHeight` and can be reduced to the mapped surface size.
 9. Composition previews use the current preview frame or requested texture resolution, not the popup window's dimensions.
 10. The output canvas follows the window size, while the logical output frame keeps the configured frame aspect and fills/crops according to output fitting rules.
-11. Canvas containers render at their logical canvas dimensions so `sourceRect` coordinates remain exact; their child compositions can still reuse the normal composition cache.
+11. Canvas containers render at their logical dimensions so recording-frame coordinates remain exact; their referenced compositions can still reuse the normal composition cache.
 
 Project settings can enable an experimental composition output pipeline. When enabled, chain compositions render at `render.upscaling.amount` of their normal physical texture size while retaining their original logical dimensions, then pass through one fast spatial upscale at the normal composition target size. Optional grayscale and animated monochrome noise are combined into a second post pass at that full target size. The pipeline is off by default, canvas containers do not receive a second upscale over their already-processed child compositions, and animated post noise disables stable-frame caching for the affected output.
 
@@ -221,13 +223,15 @@ These dimensions have different jobs and must not be conflated:
 
 - **Frame size** is the configured final output resolution/aspect.
 - **World size** is currently fixed to 1.5 times the frame and gives scene mapping room around the output frame.
-- **Surface texture size** is the normal maximum per-surface composition render budget. Canvas compositions use their logical canvas size before sampling.
+- **Surface texture size** is the normal maximum per-surface composition render budget. Canvas recording frames are sampled into this budget after the full logical Canvas is evaluated.
 - **Preview canvas size** is a UI/display concern and must not silently increase render resolution.
 - **Popup window size** controls the HTML/p5 canvas display, not composition texture quality.
 
 Mappings are stored in world coordinates. `VjMapper` computes and caches a homography from four corners, applies the inverse transform at the quad vertices, and rasterizes the routed texture as a real projective quadrilateral. Mapping reset, import, resize, and scene snapshots must use the same coordinate convention. Surface order is draw order.
 
-Each surface and scene-surface snapshot stores `projectionFit`. The default is `cover`; `contain` preserves the whole texture with transparent unused space, and `stretch` ignores source proportions. Fit is implemented in the existing mapper shader, so it does not add a render pass. Canvas `sourceRect` sampling happens before projection fit.
+Projection handle and whole-surface drags emit live `scrub:mapping-state` updates so connected outputs follow the pointer before release. These live updates are animation-frame throttled by the control bridge and excluded from autosave; pointer release emits the final `mapping-state` update through the normal persistence path.
+
+Each surface and scene-surface snapshot stores `projectionFit`. The default is `cover`; `contain` preserves the whole texture with transparent unused space, and `stretch` ignores source proportions. Fit is implemented in the existing mapper shader, so it does not add a render pass. Canvas recording-frame sampling happens before projection fit.
 
 The output window and embedded preview must show the same crop, aspect, and mapping. When they differ, inspect `render-geometry.js`, `surfaceRouteRenderRequest()`, `drawSurfaceRoute()`, and the output frame transform before changing source-fit behavior.
 
@@ -254,9 +258,9 @@ Control and output clients use `BroadcastChannel("vj1-output-bridge")`.
 - Control responds with render state and media files.
 - Output sends FPS, frame time, render cost, pass profiles, mapping updates, and media requests.
 - Slider scrubs are transmitted on the next animation frame for low-latency live performance.
-- Normal edits send immediately unless excluded as UI-only state.
+- Live and non-Scene edits send immediately unless excluded as UI-only state. Scene editing does not broadcast full program state; projection changes use the mapping-only sync command so live mapping remains responsive without changing the routed program scene.
 
-Scene editing and Live selection are deliberately separate. Editing a scene must not switch the live output scene. Opening the output while in scene mode should initially show the selected scene, while later Live selection remains explicit.
+Scene editing and Live selection are deliberately separate. Live owns a captured `ui.live.sceneSnapshot`; editing or selecting scenes does not mutate that program snapshot. Selecting a scene in Live explicitly replaces it. The Live scene ID and captured snapshot persist in the project UI payload, while temporary composition overrides do not. An empty Live selector initializes from its own first-scene fallback and must never copy `ui.selectedSceneId` during a workspace change. Opening an output while in Scene adds a one-use `initialSceneId` to the popup URL: the bridge sends that Scene snapshot only to the newly announced client, acknowledges it, and sends the captured Live state for all later updates. Targeted startup state must never change already-open outputs.
 
 The top-bar play/pause button is always present but disabled until an output client is connected. It controls the shared visual clock, including time-based generators and video playback, without tearing down the renderer. The control UI can refresh or restore its project while an already-open output window remains connected; output clients announce themselves periodically and receive the current render state and requested media files.
 

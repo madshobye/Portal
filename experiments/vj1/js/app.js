@@ -1,10 +1,10 @@
-import { createAppState } from "./app-state.js?v=projection-fit-1";
-import { createControlShell } from "./control/control-shell-controller.js?v=thumbnail-fit-2";
-import { getInitialWorkspace, getClientMode, persistWorkspace } from "./view-routing.js";
-import { createMediaLibrary } from "./services/media-library-service.js?v=projection-fit-1";
-import { createProjectFolderService } from "./services/project-folder-service.js?v=projection-fit-1";
-import { createControlBridge } from "./services/output-bridge-service.js?v=output-playback-1";
-import { installOutputApp } from "./output/output-app.js?v=thumbnail-fit-2";
+import { createAppState } from "./app-state.js?v=live-selection-1";
+import { createControlShell } from "./control/control-shell-controller.js?v=live-program-1";
+import { getInitialWorkspace, getClientMode, persistWorkspace } from "./view-routing.js?v=live-program-1";
+import { createMediaLibrary } from "./services/media-library-service.js?v=live-program-1";
+import { createProjectFolderService } from "./services/project-folder-service.js?v=live-selection-1";
+import { createControlBridge } from "./services/output-bridge-service.js?v=live-program-1";
+import { installOutputApp } from "./output/output-app.js?v=live-program-1";
 
 const root = document.getElementById("app");
 const mode = getClientMode();
@@ -38,6 +38,15 @@ if (mode === "output" || mode === "preview" || mode === "composition") {
   store.subscribe((state, reason) => {
     if (reason === "workspace") persistWorkspace(state.ui.workspace);
     projectService.scheduleAutoSave(reason);
+    if (state.ui.workspace === "scene" && (reason === "mapping-state" || String(reason).startsWith("scrub:mapping-state"))) {
+      bridge.command("sync-mapping", { mappings: state.mappings });
+      return;
+    }
+    if (state.ui.workspace === "scene" && ["blackout", "toggle-output-playback", "toggle-labels"].includes(reason)) {
+      bridge.command("sync-global", { global: state.global });
+      return;
+    }
+    if (state.ui.workspace === "scene") return;
     if (String(reason).startsWith("edit:")) {
       return;
     }

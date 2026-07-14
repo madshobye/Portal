@@ -1,6 +1,6 @@
 import { VJ1 } from "../constants.js";
 import { compositionFrameMetrics } from "../domain/composition-frame.js";
-import { clamp01, normalizeCompositionPipelineSettings, sanitizeState } from "../domain/models.js?v=projection-fit-1";
+import { clamp01, normalizeCompositionPipelineSettings, sanitizeState } from "../domain/models.js?v=live-program-1";
 import { normalizeParamValue, normalizeParamValues, renderQualityScale, renderQualityValue } from "../graph/component-schema.js?v=range-pair-1";
 import { createManualScheduler } from "../graph/manual-scheduler.js";
 import { RenderNodeRuntime, textureStateKey } from "../graph/render-node-runtime.js?v=node-dirty-runtime-1";
@@ -27,7 +27,7 @@ import {
   surfaceTextureSize,
   worldSize,
 } from "./render-geometry.js";
-import { VjMapper } from "./vj-mapper.js?v=projection-fit-1";
+import { VjMapper } from "./vj-mapper.js?v=mapping-live-1";
 import { mediaRenditionKey } from "../services/media-rendition-service.js";
 
 const TERRAIN_GRID_CELLS = 48;
@@ -658,7 +658,9 @@ export class OutputRenderer {
   createMapper() {
     this.mapper = new VjMapper({
       onConfigChange: (mapping, meta = {}) => {
-        this.emitMapping(mapping, mappingStatusForReason(meta.reason));
+        this.emitMapping(mapping, mappingStatusForReason(meta.reason), {
+          live: meta.reason === "drag",
+        });
       },
     });
     this.syncMapperOverlayMode();
@@ -933,10 +935,10 @@ export class OutputRenderer {
       this.importMediaRenditions(item, entry?.renditions || []);
     }
   }
-  emitMapping(mapping = this.mapper?.exportData?.(), status = "Mapping updated") {
+  emitMapping(mapping = this.mapper?.exportData?.(), status = "Mapping updated", meta = {}) {
     const projectMapping = this.mappingFromRenderMode(mapping || {});
     this.markLocalMapping(projectMapping);
-    this.sendMapping?.("local", projectMapping, status);
+    this.sendMapping?.("local", projectMapping, status, meta);
   }
 
   importMediaRenditions(item, renditions) {
@@ -1361,45 +1363,86 @@ export class OutputRenderer {
 
   renderCanvasComposition(composition, compositionTime, request = frameRenderRequest(this.state.render)) {
     const renderRequest = this.normalizeRenderRequest(request, "composition");
-    const output = this.getCompositionGpuBuffer(composition.id, renderRequest);
     const canvas = composition.canvas || {};
     const canvasWidth = Math.max(1, Number(canvas.width) || renderRequest.width);
     const canvasHeight = Math.max(1, Number(canvas.height) || renderRequest.height);
     const scaleX = renderRequest.width / canvasWidth;
     const scaleY = renderRequest.height / canvasHeight;
-    output.push();
-    output.clear();
-    for (const layer of canvas.layers || []) {
-      if (layer.enabled === false || !layer.compositionId || layer.compositionId === composition.id) continue;
-      const sourceComposition = this.state.compositions.find((item) => item.id === layer.compositionId);
-      if (!sourceComposition || sourceComposition.type === "canvas") continue;
-      const layerWidth = Math.max(1, Math.round((Number(layer.width) || 1) * scaleX));
-      const layerHeight = Math.max(1, Math.round((Number(layer.height) || 1) * scaleY));
-      const sourceTime = this.compositionTimes.get(sourceComposition.id) || compositionTime;
-      const source = this.renderCompositionForRequest(
-        sourceComposition,
-        sourceTime,
-        compositionRenderRequest(this.state.render, sourceComposition, "texture", {
-          reason: "canvas-layer",
-          renderIdentity: sourceComposition.id,
-        })
-      );
+    let state = this.transparentChainState(composition, renderRequest);
+    const chain = composition.chain || [];
+    for (let index = 0; index < chain.length; index++) {
+      const item = chain[index];
+      if (item.enabled === false) continue;
+      const nodeId = renderBufferKey(composition.id, "canvas", index, item.id || item.componentId || item.kind);
+      if (item.kind === "group" && item.role === "canvas-layer") {
+        const layout = item.layout || {};
+        const layerRequest = createRenderRequest("canvas-layer", {
+          width: Math.max(1, Math.round((Number(layout.width) || 1) * scaleX)),
+          height: Math.max(1, Math.round((Number(layout.height) || 1) * scaleY)),
+        }, {
+          logicalWidth: Math.max(1, Number(layout.width) || 1),
+          logicalHeight: Math.max(1, Number(layout.height) || 1),
+          renderIdentity: item.id,
+        });
+        const layerState = this.renderCompositionChainState(
+          composition,
+          item.chain || [],
+          compositionTime,
+          layerRequest,
+          renderBufferKey("canvas-layer", item.id || index)
+        );
+        state = this.renderCanvasLayerNodeState(nodeId, state, layerState, item, renderRequest, scaleX, scaleY);
+        continue;
+      }
+      if (item.kind === "effect") {
+        state = this.renderEffectNodeState(nodeId, state, item, compositionTime, renderRequest);
+        continue;
+      }
+      if (item.kind === "group") {
+        const groupState = this.renderCompositionChainState(
+          composition,
+          item.chain || [],
+          compositionTime,
+          renderRequest,
+          renderBufferKey("canvas-group", item.id || index)
+        );
+        state = this.renderLayerNodeState(nodeId, state, groupState, item, renderRequest);
+        continue;
+      }
+      if (item.kind === "source") {
+        const sourceState = this.renderCompositionSourceItemState(composition, item, compositionTime, renderRequest, nodeId);
+        state = this.renderLayerNodeState(nodeId, state, sourceState, { ...item, transform: {} }, renderRequest);
+      }
+    }
+    return state.buffer;
+  }
+
+  renderCanvasLayerNodeState(nodeId, inputState, layerState, layer, renderRequest, scaleX, scaleY) {
+    const layout = layer.layout || {};
+    const rect = {
+      x: (Number(layout.x) || 0) * scaleX,
+      y: (Number(layout.y) || 0) * scaleY,
+      width: Math.max(1, (Number(layout.width) || 1) * scaleX),
+      height: Math.max(1, (Number(layout.height) || 1) * scaleY),
+    };
+    const signature = stableStringify({
+      input: textureStateKey(inputState),
+      layer: textureStateKey(layerState),
+      state: chainLayerState(layer),
+      rect,
+      request: renderRequestKey(renderRequest),
+    });
+    return this.evaluateChainNode(nodeId, signature, renderRequest, (output) => {
       output.push();
+      output.clear();
+      drawBuffer(output, inputState.buffer, 0, 0, output.width, output.height, this.isShaderBuffer(inputState.buffer));
       applyBlend(output, layer.blend);
       output.tint(255, 255 * clamp01(layer.opacity));
-      output.image(
-        source,
-        (Number(layer.x) || 0) * scaleX,
-        (Number(layer.y) || 0) * scaleY,
-        layerWidth,
-        layerHeight
-      );
+      drawBuffer(output, layerState.buffer, rect.x, rect.y, rect.width, rect.height, this.isShaderBuffer(layerState.buffer));
       output.noTint();
       output.blendMode(BLEND);
       output.pop();
-    }
-    output.pop();
-    return output;
+    }, "canvas-layer");
   }
 
   renderCompositionPatch(composition, patch, compositionTime, request = frameRenderRequest(this.state.render)) {
@@ -1804,17 +1847,8 @@ export class OutputRenderer {
   compositionIsFrameDynamic(composition, seen = new Set()) {
     if (!composition || seen.has(composition.id)) return true;
     seen.add(composition.id);
-    if (composition.type === "canvas") {
-      for (const layer of composition.canvas?.layers || []) {
-        if (layer.enabled === false) continue;
-        const sourceComposition = this.state?.compositions?.find((item) => item.id === layer.compositionId);
-        if (!sourceComposition || this.compositionIsFrameDynamic(sourceComposition, seen)) return true;
-      }
-      seen.delete(composition.id);
-      return false;
-    }
     if (Array.isArray(composition.chain) && composition.chain.length) {
-      const dynamic = this.chainItemsAreFrameDynamic(composition.chain);
+      const dynamic = this.chainItemsAreFrameDynamic(composition.chain, seen);
       seen.delete(composition.id);
       return dynamic;
     }
@@ -1824,10 +1858,15 @@ export class OutputRenderer {
     return sourceDynamic || effectsDynamic;
   }
 
-  chainItemsAreFrameDynamic(chain = []) {
+  chainItemsAreFrameDynamic(chain = [], seen = new Set()) {
     for (const item of chain || []) {
       if (item.enabled === false) continue;
-      if (item.kind === "group" && this.chainItemsAreFrameDynamic(item.chain || [])) return true;
+      if (item.kind === "group" && this.chainItemsAreFrameDynamic(item.chain || [], seen)) return true;
+      if (item.kind === "source" && item.source?.type === "composition") {
+        const sourceComposition = this.state?.compositions?.find((composition) => composition.id === item.source.compositionId);
+        if (!sourceComposition || this.compositionIsFrameDynamic(sourceComposition, seen)) return true;
+        continue;
+      }
       if (item.kind === "source" && this.sourceIsFrameDynamic(item.source || {}, item)) return true;
       if (item.kind === "effect" && this.effectPassIsFrameDynamic({ id: item.componentId, params: item.params, amount: item.amount })) return true;
     }
@@ -1845,6 +1884,7 @@ export class OutputRenderer {
       });
       return component.runtime?.cacheable === false || component.runtime?.timeDependent?.(params) === true;
     }
+    if (source.type === "composition") return true;
     if (source.type !== "media") return true;
     const mediaId = source.mediaId || "";
     const mediaMeta = (this.state?.media || []).find((item) => item.id === mediaId);
@@ -1962,6 +2002,7 @@ export class OutputRenderer {
       });
       return componentRuntimeTimeKey(component, params, runtimeContext);
     }
+    if (source.type === "composition") return runtimeContext.frame;
     if (source.type !== "media") return runtimeContext.frame;
     const mediaId = source.mediaId || "";
     const mediaMeta = (this.state?.media || []).find((entry) => entry.id === mediaId);
@@ -2024,7 +2065,20 @@ export class OutputRenderer {
   }
 
   drawSourceToGraphics(pg, source, composition, compositionTime, renderRequest = frameRenderRequest(this.state.render)) {
-    if (source.type === "media") {
+    if (source.type === "composition") {
+      const sourceComposition = this.state.compositions.find((item) => item.id === source.compositionId);
+      if (!sourceComposition || sourceComposition.id === composition.id || sourceComposition.type === "canvas") return;
+      const sourceTime = this.compositionTimes.get(sourceComposition.id) || compositionTime;
+      const sourceOutput = this.renderCompositionForRequest(
+        sourceComposition,
+        sourceTime,
+        compositionRenderRequest(this.state.render, sourceComposition, "texture", {
+          reason: "composition-reference",
+          renderIdentity: sourceComposition.id,
+        })
+      );
+      drawBuffer(pg, sourceOutput, 0, 0, pg.width, pg.height, this.isShaderBuffer(sourceOutput));
+    } else if (source.type === "media") {
       const item = this.media.get(source.mediaId);
       if (item?.video && isDrawableMedia(item.video)) {
         syncVideoPlayback(item.video, {
@@ -2817,7 +2871,9 @@ export class OutputRenderer {
       timingId: surface.id,
       renderIdentity: composition?.id || surface.compositionId || "unrouted",
     };
-    if (composition?.type === "canvas") return canvasCompositionRenderRequest(composition, meta);
+    if (composition?.type === "canvas") {
+      return canvasFrameSurfaceRenderRequest(this.state.render, canvasRouteFrameRect(composition, surface), meta);
+    }
     if (composition) return compositionRenderRequest(this.state.render, composition, "surface", meta);
     return stableSurfaceRenderRequest(this.state.render, meta);
   }
@@ -2853,15 +2909,18 @@ export class OutputRenderer {
     // surface. Per-surface final effects retain their own instance identity.
     const compositionTime = this.compositionTimes.get(surface.compositionId) || 0;
     request ||= this.surfaceRouteRenderRequest(surface, composition);
+    const compositionRequest = composition?.type === "canvas"
+      ? canvasCompositionRenderRequest(composition, { reason: "canvas-surface-source", renderIdentity: composition.id })
+      : request;
     const source = composition
-      ? this.renderCompositionForRequest(composition, compositionTime, request)
+      ? this.renderCompositionForRequest(composition, compositionTime, compositionRequest)
       : this.mainMix;
 
     pg.push();
     applyBlend(pg, surface.finalBlend);
     pg.tint(255, 255 * clamp01(surface.opacity));
     if (composition?.type === "canvas") {
-      drawSampleRect(pg, source, surface.sourceRect, 0, 0, pg.width, pg.height);
+      drawSampleRect(pg, source, canvasRouteFrameRect(composition, surface), 0, 0, pg.width, pg.height);
     } else {
       drawBuffer(pg, source, 0, 0, pg.width, pg.height, this.isShaderBuffer(source));
     }
@@ -2887,7 +2946,7 @@ export class OutputRenderer {
         const logicalHeight = Math.max(1, Number(composition.canvas?.height) || thumbnail.img.height || 1);
         const scaleX = Math.max(1, Number(thumbnail.img.width) || 1) / logicalWidth;
         const scaleY = Math.max(1, Number(thumbnail.img.height) || 1) / logicalHeight;
-        const sourceRect = surface.sourceRect || {};
+        const sourceRect = canvasRouteFrameRect(composition, surface);
         drawSampleRect(pg, thumbnail.img, {
           x: (Number(sourceRect.x) || 0) * scaleX,
           y: (Number(sourceRect.y) || 0) * scaleY,
@@ -3237,30 +3296,26 @@ export class OutputRenderer {
   collectCompositionMediaReadiness(composition, status, compositionsById, visited) {
     if (!composition || !status || visited.has(composition.id)) return;
     visited.add(composition.id);
-    if (composition.type === "canvas") {
-      for (const layer of composition.canvas?.layers || []) {
-        if (layer.enabled === false || !layer.compositionId || layer.compositionId === composition.id) continue;
-        this.collectCompositionMediaReadiness(compositionsById.get(layer.compositionId), status, compositionsById, visited);
-      }
-      visited.delete(composition.id);
-      return;
-    }
     if (Array.isArray(composition.chain) && composition.chain.length) {
-      this.collectChainMediaReadiness(composition.chain, status);
+      this.collectChainMediaReadiness(composition.chain, status, compositionsById, visited);
     } else {
       this.collectSourceMediaReadiness(composition.source, status);
     }
     visited.delete(composition.id);
   }
 
-  collectChainMediaReadiness(chain, status) {
+  collectChainMediaReadiness(chain, status, compositionsById, visited) {
     for (const item of chain || []) {
       if (item.enabled === false) continue;
       if (item.kind === "group") {
-        this.collectChainMediaReadiness(item.chain || [], status);
+        this.collectChainMediaReadiness(item.chain || [], status, compositionsById, visited);
         continue;
       }
-      if (item.kind === "source") this.collectSourceMediaReadiness(item.source, status);
+      if (item.kind === "source" && item.source?.type === "composition") {
+        this.collectCompositionMediaReadiness(compositionsById.get(item.source.compositionId), status, compositionsById, visited);
+      } else if (item.kind === "source") {
+        this.collectSourceMediaReadiness(item.source, status);
+      }
     }
   }
 
@@ -3646,6 +3701,8 @@ function staticChainState(chain = []) {
         transform: item.transform || {},
         opacity: item.opacity ?? 1,
         blend: item.blend || "normal",
+        role: item.role || "group",
+        layout: item.layout || {},
         chain: staticChainState(item.chain || []),
       };
     }
@@ -3687,6 +3744,7 @@ function staticSourceState(source = {}) {
   return {
     type: source.type || "black",
     mediaId: source.mediaId || "",
+    compositionId: source.compositionId || "",
     generatorId: source.generatorId || "",
     start: source.start,
     end: source.end,
@@ -6752,6 +6810,34 @@ function canvasCompositionRenderRequest(composition = {}, meta = {}) {
     ...meta,
     timingId: meta.timingId || meta.surfaceId || "",
     renderIdentity: meta.renderIdentity ?? meta.instanceId ?? composition.id ?? "",
+  });
+}
+
+function canvasRouteFrameRect(composition = {}, surface = {}) {
+  const canvas = composition.canvas || {};
+  const frame = (canvas.frames || []).find((item) => item.id === surface.outputFrameId);
+  if (frame) return frame;
+  if (surface.sourceRect) return surface.sourceRect;
+  return {
+    x: 0,
+    y: 0,
+    width: Math.max(1, Number(canvas.width) || 3840),
+    height: Math.max(1, Number(canvas.height) || 2160),
+  };
+}
+
+function canvasFrameSurfaceRenderRequest(render = {}, frame = {}, meta = {}) {
+  const max = surfaceTextureSize(render);
+  const width = Math.max(1, Number(frame.width) || max.width);
+  const height = Math.max(1, Number(frame.height) || max.height);
+  const scale = Math.min(max.width / width, max.height / height, 1);
+  return createRenderRequest("surface", {
+    width: Math.max(1, Math.round(width * scale)),
+    height: Math.max(1, Math.round(height * scale)),
+  }, {
+    ...meta,
+    logicalWidth: width,
+    logicalHeight: height,
   });
 }
 

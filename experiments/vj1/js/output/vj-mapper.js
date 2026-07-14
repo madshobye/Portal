@@ -224,6 +224,7 @@ export class VjMapper {
       surface.corners[this._dragCorner] = { x: Number(mx), y: Number(my) };
     }
     this._invalidateSurface(surface);
+    this._emitConfigChange("drag");
   }
 
   mouseReleased() {

@@ -4,6 +4,33 @@ import { readFileSync } from "node:fs";
 
 import { averageGpuQueryNanoseconds, compositionPipelineSourceRequest, eyeballFrameUniforms, fittedThumbnailSize, OutputRenderer, qualityScaledRenderRequest } from "../js/output/output-renderer.js";
 import { renderRequestKey } from "../js/output/render-geometry.js";
+import { VjMapper } from "../js/output/vj-mapper.js";
+
+test("projection corner drags emit live mapping updates before release", () => {
+  const changes = [];
+  const mapper = new VjMapper({
+    onConfigChange: (mapping, meta) => changes.push({ mapping, reason: meta.reason }),
+  });
+  mapper.addSurface({
+    id: "surface-main",
+    name: "Main",
+    width: 100,
+    height: 100,
+    corners: [{ x: 0, y: 0 }, { x: 100, y: 0 }, { x: 100, y: 100 }, { x: 0, y: 100 }],
+  });
+  mapper._dragSurf = 0;
+  mapper._dragCorner = 0;
+  mapper._dragMode = "corner";
+
+  mapper.mouseDragged(12, 18);
+
+  assert.equal(changes.length, 1);
+  assert.equal(changes[0].reason, "drag");
+  assert.deepEqual(changes[0].mapping.surfaces[0].corners[0], { x: 12, y: 18 });
+
+  mapper.mouseReleased();
+  assert.equal(changes[1].reason, "autosave");
+});
 
 test("GPU timing averages query samples instead of adding overlapping work", () => {
   assert.equal(averageGpuQueryNanoseconds([30_000_000, 10_000_000, 5_000_000]), 15_000_000);
@@ -178,6 +205,17 @@ test("paused previews contain thumbnails and canvas surface routes preserve samp
   assert.ok(source.includes('if (composition?.type === "canvas")'));
   assert.ok(source.includes("drawSampleRect(pg, thumbnail.img"));
   assert.ok(source.includes("this.mapper.drawTexture(pg, mapped.mapperSurface, surface.projectionFit)"));
+});
+
+test("canvas rendering evaluates shared layer groups, effects, and canvas-owned route frames", () => {
+  const source = readFileSync(new URL("../js/output/output-renderer.js", import.meta.url), "utf8");
+  assert.ok(source.includes('item.role === "canvas-layer"'));
+  assert.ok(source.includes("this.renderCompositionChainState("));
+  assert.ok(source.includes("this.renderEffectNodeState(nodeId, state, item, compositionTime, renderRequest)"));
+  assert.ok(source.includes("renderCanvasLayerNodeState("));
+  assert.ok(source.includes('source.type === "composition"'));
+  assert.ok(source.includes("canvasRouteFrameRect(composition, surface)"));
+  assert.ok(source.includes("surface.outputFrameId"));
 });
 
 test("composition groups render isolated from earlier parent layers", () => {

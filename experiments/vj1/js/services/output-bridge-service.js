@@ -21,9 +21,18 @@ export function createControlBridge({ store, mediaLibrary }) {
       return;
     }
     if (msg.type === "hello") {
+      const isNewClient = !clients.has(msg.clientId || "output");
       clients.set(msg.clientId || "output", performance.now());
-      sendState();
-      sendMediaFiles(mediaLibrary.getAllFiles());
+      if (isNewClient || msg.initialSceneId) {
+        const initialState = msg.initialSceneId
+          ? store.getSceneRenderState?.(msg.initialSceneId)
+          : null;
+        sendState(initialState, {
+          targetClientId: msg.clientId || "",
+          initialSceneAccepted: !!msg.initialSceneId,
+        });
+        sendMediaFiles(mediaLibrary.getAllFiles());
+      }
     }
     if (msg.type === "request-media-files") sendMediaFiles(mediaLibrary.getAllFiles());
     if (msg.type === "metrics") {
@@ -41,14 +50,19 @@ export function createControlBridge({ store, mediaLibrary }) {
       store.update((draft) => {
         draft.mappings[msg.mappingId || "default"] = msg.mapping;
         draft.ui.mappingStatus = msg.status || "Mapping updated";
-      }, "mapping-state");
+      }, msg.live ? "scrub:mapping-state" : "mapping-state");
     }
   };
 
   channel.postMessage({ type: "control-hello" });
 
-  function sendState(stateOverride = null) {
-    channel.postMessage({ type: "state", state: stateOverride || store.getRenderState?.() || store.getState() });
+  function sendState(stateOverride = null, { targetClientId = "", initialSceneAccepted = false } = {}) {
+    channel.postMessage({
+      type: "state",
+      state: stateOverride || store.getLiveRenderState?.() || store.getRenderState?.() || store.getState(),
+      targetClientId,
+      initialSceneAccepted,
+    });
   }
 
   function sendMediaFiles(files) {
@@ -71,28 +85,32 @@ export function createControlBridge({ store, mediaLibrary }) {
   };
 }
 
-export function createOutputBridge({ onState, onMediaFiles, onCommand, onControlHello, mode }) {
+export function createOutputBridge({ onState, onMediaFiles, onCommand, onControlHello, mode, initialSceneId = "" }) {
   const channel = new BroadcastChannel(VJ1.channelName);
   const clientId = `${mode}-${Math.random().toString(36).slice(2)}`;
+  let pendingInitialSceneId = initialSceneId;
 
   channel.onmessage = (event) => {
     const msg = event.data || {};
-    if (msg.type === "state") onState?.(msg.state);
+    if (msg.type === "state" && (!msg.targetClientId || msg.targetClientId === clientId)) {
+      if (msg.initialSceneAccepted) pendingInitialSceneId = "";
+      onState?.(msg.state);
+    }
     if (msg.type === "media-files") onMediaFiles?.(msg.files || []);
     if (msg.type === "command") onCommand?.(msg.command, msg.payload || {});
     if (msg.type === "control-hello") onControlHello?.();
   };
 
   function hello() {
-    channel.postMessage({ type: "hello", clientId, mode });
+    channel.postMessage({ type: "hello", clientId, mode, initialSceneId: pendingInitialSceneId });
   }
 
   function metrics(metrics) {
     channel.postMessage({ type: "metrics", clientId, metrics });
   }
 
-  function mappingState(mappingId, mapping, status) {
-    channel.postMessage({ type: "mapping-state", clientId, mappingId, mapping, status });
+  function mappingState(mappingId, mapping, status, meta = {}) {
+    channel.postMessage({ type: "mapping-state", clientId, mappingId, mapping, status, live: meta.live === true });
   }
 
   function requestMediaFiles(mediaIds = []) {

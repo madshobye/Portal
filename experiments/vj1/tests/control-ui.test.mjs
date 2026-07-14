@@ -66,6 +66,17 @@ test("scene surfaces expose projection cover contain and stretch", () => {
   assert.ok(source.includes("sceneBase}.projectionFit"));
 });
 
+test("canvas uses the shared chain and exposes recording frames as scene routes", () => {
+  const source = readFileSync(new URL("../js/control/control-shell-controller.js", import.meta.url), "utf8");
+  assert.ok(source.includes("compositionUnifiedChainTemplate(composition, state, base)"));
+  assert.ok(source.includes("data-add-canvas-frame"));
+  assert.ok(source.includes("data-canvas-frame"));
+  assert.ok(source.includes("data-set-route-frame"));
+  assert.ok(source.includes("composition.canvas?.frames"));
+  assert.ok(!source.includes("Surface sample rects"));
+  assert.ok(!source.includes("Canvas sample rect"));
+});
+
 test("project settings expose composition upscaling and native-resolution post filters", () => {
   const controllerSource = readFileSync(new URL("../js/control/control-shell-controller.js", import.meta.url), "utf8");
 
@@ -89,6 +100,21 @@ test("scrub changes are sent to live output on the next animation frame", () => 
   assert.ok(appSource.includes("requestAnimationFrame"));
   assert.ok(appSource.includes("sendScrubState();"));
   assert.ok(!appSource.includes("setTimeout(() => bridge.sendState(), 90)"));
+});
+
+test("popup outputs are live-controlled after a targeted Scene startup", () => {
+  const appSource = readFileSync(new URL("../js/app.js", import.meta.url), "utf8");
+  const controllerSource = readFileSync(new URL("../js/control/control-shell-controller.js", import.meta.url), "utf8");
+  const bridgeSource = readFileSync(new URL("../js/services/output-bridge-service.js", import.meta.url), "utf8");
+
+  assert.ok(controllerSource.includes('buildOutputUrl("output", { initialSceneId })'));
+  assert.ok(controllerSource.includes("store.selectLiveScene(button.dataset.liveScene)"));
+  assert.ok(bridgeSource.includes("store.getLiveRenderState?.()"));
+  assert.ok(bridgeSource.includes("targetClientId"));
+  assert.ok(bridgeSource.includes("initialSceneAccepted"));
+  assert.ok(appSource.includes('state.ui.workspace === "scene"'));
+  assert.ok(appSource.includes('bridge.command("sync-mapping"'));
+  assert.ok(!controllerSource.includes("setTimeout(() => bridge.sendState(), 350)"));
 });
 
 test("topbar shows separate active-renderer CPU and GPU work timers", () => {

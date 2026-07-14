@@ -1,4 +1,4 @@
-import { collectFilesFromDirectory, isMediaFile, isShaderFile } from "./media-library-service.js?v=world-frame-27";
+import { collectFilesFromDirectory, isMediaFile, isShaderFile } from "./media-library-service.js?v=live-program-1";
 import { RENDITION_DIR, RENDITION_ROOT, mediaRenditionPath } from "./media-rendition-service.js";
 import {
   canPersistDirectoryHandles,
@@ -6,7 +6,7 @@ import {
   loadProjectDirectoryHandle,
   saveProjectDirectoryHandle,
 } from "./directory-handle-store.js";
-import { applySceneSnapshotToState, createInitialState } from "../domain/models.js?v=projection-fit-1";
+import { applySceneSnapshotToState, createInitialState } from "../domain/models.js?v=live-program-1";
 
 export function createProjectFolderService({ mediaLibrary, store, bridge }) {
   let dirHandle = null;
@@ -178,6 +178,11 @@ export function createProjectFolderService({ mediaLibrary, store, bridge }) {
         selectedSurfaceId: projectUi?.selectedSurfaceId || currentUi.selectedSurfaceId,
         selectedCompositionId: projectUi?.selectedCompositionId || currentUi.selectedCompositionId,
         selectedChainItemId: projectUi?.selectedChainItemId || currentUi.selectedChainItemId,
+        live: {
+          ...currentUi.live,
+          ...(projectUi?.live || {}),
+          compositionOverrides: currentUi.live?.compositionOverrides || {},
+        },
       },
       project: {
         ...store.getState().project,
@@ -612,6 +617,10 @@ export function buildProjectPayload(state, savedAt = new Date().toISOString()) {
       selectedSurfaceId: state.ui.selectedSurfaceId,
       selectedCompositionId: state.ui.selectedCompositionId,
       selectedChainItemId: state.ui.selectedChainItemId,
+      live: {
+        selectedSceneId: state.ui.live?.selectedSceneId || "",
+        sceneSnapshot: state.ui.live?.sceneSnapshot || null,
+      },
     },
     global: state.global,
     render: state.render,
