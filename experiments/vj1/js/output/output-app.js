@@ -1,7 +1,7 @@
 import { VJ1 } from "../constants.js";
 import { sanitizeState } from "../domain/models.js?v=live-program-1";
 import { createOutputBridge } from "../services/output-bridge-service.js?v=live-program-1";
-import { OutputRenderer } from "./output-renderer.js?v=live-program-1";
+import { OutputRenderer } from "./output-renderer.js?v=output-markers-off-1";
 import { applyFontToGlobal, loadVjRenderFont } from "./font-loader.js?v=world-frame-27";
 import { frameSize } from "./render-geometry.js";
 

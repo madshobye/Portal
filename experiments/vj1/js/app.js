@@ -1,10 +1,10 @@
 import { createAppState } from "./app-state.js?v=live-selection-1";
-import { createControlShell } from "./control/control-shell-controller.js?v=live-program-1";
+import { createControlShell } from "./control/control-shell-controller.js?v=output-markers-off-1";
 import { getInitialWorkspace, getClientMode, persistWorkspace } from "./view-routing.js?v=live-program-1";
 import { createMediaLibrary } from "./services/media-library-service.js?v=live-program-1";
 import { createProjectFolderService } from "./services/project-folder-service.js?v=live-selection-1";
 import { createControlBridge } from "./services/output-bridge-service.js?v=live-program-1";
-import { installOutputApp } from "./output/output-app.js?v=live-program-1";
+import { installOutputApp } from "./output/output-app.js?v=output-markers-off-1";
 
 const root = document.getElementById("app");
 const mode = getClientMode();

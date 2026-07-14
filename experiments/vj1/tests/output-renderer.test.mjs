@@ -32,6 +32,26 @@ test("projection corner drags emit live mapping updates before release", () => {
   assert.equal(changes[1].reason, "autosave");
 });
 
+test("standalone output permanently rejects calibration markers", () => {
+  const renderer = new OutputRenderer({ mode: "output" });
+  let mapperCalibrating = true;
+  renderer.state = { global: { calibrating: true } };
+  renderer.mapper = {
+    setCalibrate(value) {
+      mapperCalibrating = value;
+    },
+    isCalibrating() {
+      return mapperCalibrating;
+    },
+  };
+
+  renderer.setCalibrate(true);
+
+  assert.equal(renderer.state.global.calibrating, false);
+  assert.equal(mapperCalibrating, false);
+  assert.equal(renderer.isCalibrating(), false);
+});
+
 test("GPU timing averages query samples instead of adding overlapping work", () => {
   assert.equal(averageGpuQueryNanoseconds([30_000_000, 10_000_000, 5_000_000]), 15_000_000);
   assert.equal(averageGpuQueryNanoseconds([]), 0);

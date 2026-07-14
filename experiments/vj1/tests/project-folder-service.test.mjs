@@ -18,10 +18,19 @@ test("project payload preserves the selected composition chain item", () => {
       selectedSurfaceId: "surface-a",
       selectedCompositionId: "composition-a",
       selectedChainItemId: "chain-effect-b",
+      live: {
+        selectedSceneId: "scene-live",
+        sceneSnapshot: { surfaces: [{ id: "surface-a", compositionId: "composition-a" }] },
+        compositionOverrides: { "composition-a": { opacity: 0.5 } },
+      },
     },
   };
 
-  assert.equal(buildProjectPayload(state, "2026-07-12T00:00:00.000Z").ui.selectedChainItemId, "chain-effect-b");
+  const payload = buildProjectPayload(state, "2026-07-12T00:00:00.000Z");
+  assert.equal(payload.ui.selectedChainItemId, "chain-effect-b");
+  assert.equal(payload.ui.live.selectedSceneId, "scene-live");
+  assert.deepEqual(payload.ui.live.sceneSnapshot, state.ui.live.sceneSnapshot);
+  assert.equal(payload.ui.live.compositionOverrides, undefined);
   const source = readFileSync(new URL("../js/services/project-folder-service.js", import.meta.url), "utf8");
   assert.ok(source.includes("selectedChainItemId: projectUi?.selectedChainItemId || currentUi.selectedChainItemId"));
 });

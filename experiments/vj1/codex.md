@@ -231,6 +231,8 @@ Mappings are stored in world coordinates. `VjMapper` computes and caches a homog
 
 Projection handle and whole-surface drags emit live `scrub:mapping-state` updates so connected outputs follow the pointer before release. These live updates are animation-frame throttled by the control bridge and excluded from autosave; pointer release emits the final `mapping-state` update through the normal persistence path.
 
+Standalone output renderers hard-disable mapper calibration regardless of incoming workspace commands or stale state. Surface corner markers, frame guides, and calibration labels must only appear in the embedded Scene preview, never in an output window.
+
 Each surface and scene-surface snapshot stores `projectionFit`. The default is `cover`; `contain` preserves the whole texture with transparent unused space, and `stretch` ignores source proportions. Fit is implemented in the existing mapper shader, so it does not add a render pass. Canvas recording-frame sampling happens before projection fit.
 
 The output window and embedded preview must show the same crop, aspect, and mapping. When they differ, inspect `render-geometry.js`, `surfaceRouteRenderRequest()`, `drawSurfaceRoute()`, and the output frame transform before changing source-fit behavior.

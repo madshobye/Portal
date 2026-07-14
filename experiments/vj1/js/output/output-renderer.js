@@ -2857,7 +2857,7 @@ export class OutputRenderer {
       } else {
         pg.background(0);
       }
-      if (!outputBlackout && this.state.global.showLabels !== false && this.mapper.isCalibrating()) {
+      if (this.mode !== "output" && !outputBlackout && this.state.global.showLabels !== false && this.mapper.isCalibrating()) {
         drawSurfaceLabel(pg, surface, composition);
       }
       pg.pop();
@@ -3140,8 +3140,9 @@ export class OutputRenderer {
   }
 
   setCalibrate(on) {
-    this.state.global.calibrating = !!on;
-    this.mapper?.setCalibrate(!!on);
+    const enabled = this.mode !== "output" && !!on;
+    if (this.state?.global) this.state.global.calibrating = enabled;
+    this.mapper?.setCalibrate(enabled);
   }
 
   mousePressed(x, y) {
@@ -3171,7 +3172,7 @@ export class OutputRenderer {
   }
 
   isCalibrating() {
-    return !!this.mapper?.isCalibrating();
+    return this.mode !== "output" && !!this.mapper?.isCalibrating();
   }
 
   saveMapping() {

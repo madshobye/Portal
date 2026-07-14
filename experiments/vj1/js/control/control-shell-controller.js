@@ -7,7 +7,7 @@ import { patchNodeDegree, planCompositorInputs, planPatchExecution, summarizeTex
 import { compileCompositionPatch } from "../graph/render-scheduler.js?v=hsv-alpha-key-1";
 import { buildOutputUrl } from "../view-routing.js?v=live-program-1";
 import { getShaderComponent, listShaderComponents } from "../shaders/shader-registry.js?v=hsv-alpha-key-1";
-import { createEmbeddedPreviewApp } from "../output/embedded-preview-app.js?v=live-program-1";
+import { createEmbeddedPreviewApp } from "../output/embedded-preview-app.js?v=output-markers-off-1";
 import { frameFitViewport, resetViewport, zoomViewport } from "../output/preview-viewport.js";
 import { defaultProjectSurfaceMapping } from "../output/render-geometry.js";
 import { createHtmlCache, isInteractiveNode, isTextEditingNode, setClass, setText } from "./dom-utils.js";
