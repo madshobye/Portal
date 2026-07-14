@@ -542,13 +542,20 @@ small {
   background: rgba(101, 224, 211, 0.12);
 }
 
-.composition-card img,
+.composition-thumbnail,
 .composition-card-empty {
   width: 100%;
   aspect-ratio: 16 / 9;
+  overflow: hidden;
   border: 1px solid rgba(255, 255, 255, 0.1);
   border-radius: 4px;
   background: #000;
+}
+
+.composition-thumbnail img {
+  display: block;
+  width: 100%;
+  height: 100%;
   object-fit: cover;
 }
 
@@ -680,14 +687,13 @@ small {
   gap: 9px;
 }
 
-.live-composition-head img,
+.live-composition-head .composition-thumbnail,
 .live-composition-head .composition-card-empty {
   width: 72px;
   aspect-ratio: 16 / 9;
   border: 1px solid rgba(255, 255, 255, 0.1);
   border-radius: 4px;
   background: #000;
-  object-fit: cover;
 }
 
 .live-composition-head strong {

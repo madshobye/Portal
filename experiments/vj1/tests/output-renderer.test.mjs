@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 
-import { averageGpuQueryNanoseconds, compositionPipelineSourceRequest, eyeballFrameUniforms, OutputRenderer, qualityScaledRenderRequest } from "../js/output/output-renderer.js";
+import { averageGpuQueryNanoseconds, compositionPipelineSourceRequest, eyeballFrameUniforms, fittedThumbnailSize, OutputRenderer, qualityScaledRenderRequest } from "../js/output/output-renderer.js";
 import { renderRequestKey } from "../js/output/render-geometry.js";
 
 test("GPU timing averages query samples instead of adding overlapping work", () => {
@@ -158,7 +158,7 @@ test("terrain and STL WebGL targets use project pixel density", () => {
   }
 });
 
-test("composition thumbnails preserve more detail with high quality webp", () => {
+test("composition thumbnails retain their aspect within the thumbnail bounds", () => {
   const source = readFileSync(new URL("../js/output/output-renderer.js", import.meta.url), "utf8");
 
   assert.ok(source.includes("const COMPOSITION_THUMBNAIL_WIDTH = 768;"));
@@ -166,9 +166,18 @@ test("composition thumbnails preserve more detail with high quality webp", () =>
   assert.ok(source.includes("const COMPOSITION_THUMBNAIL_QUALITY = 0.92;"));
   assert.ok(source.includes('canvas.toDataURL("image/webp", COMPOSITION_THUMBNAIL_QUALITY)'));
   assert.ok(source.includes('return canvas.toDataURL("image/png");'));
-  assert.ok(source.includes("const targetAspect = width / Math.max(1, height);"));
-  assert.ok(source.includes("context.drawImage(source, sx, sy, sw, sh, 0, 0, width, height);"));
-  assert.ok(!source.includes("const scale = Math.min(width / Math.max(1, sourceWidth)"));
+  assert.deepEqual(fittedThumbnailSize(1920, 1080), { width: 768, height: 432 });
+  assert.deepEqual(fittedThumbnailSize(1080, 1920), { width: 243, height: 432 });
+  assert.deepEqual(fittedThumbnailSize(1000, 1000), { width: 432, height: 432 });
+  assert.ok(source.includes("context.drawImage(source, 0, 0, sourceWidth, sourceHeight, 0, 0, thumbnailSize.width, thumbnailSize.height);"));
+});
+
+test("paused previews contain thumbnails and canvas surface routes preserve sampling", () => {
+  const source = readFileSync(new URL("../js/output/output-renderer.js", import.meta.url), "utf8");
+  assert.ok(source.includes("const rect = this.compositionPreviewRect(composition, thumbnail.img);"));
+  assert.ok(source.includes('if (composition?.type === "canvas")'));
+  assert.ok(source.includes("drawSampleRect(pg, thumbnail.img"));
+  assert.ok(source.includes("this.mapper.drawTexture(pg, mapped.mapperSurface, surface.projectionFit)"));
 });
 
 test("composition groups render isolated from earlier parent layers", () => {

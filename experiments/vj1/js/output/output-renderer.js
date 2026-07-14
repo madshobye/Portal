@@ -2882,7 +2882,21 @@ export class OutputRenderer {
     applyBlend(pg, surface.finalBlend);
     pg.tint(255, 255 * clamp01(surface.opacity));
     if (thumbnail?.ready && thumbnail.img) {
-      drawBuffer(pg, thumbnail.img, 0, 0, pg.width, pg.height);
+      if (composition?.type === "canvas") {
+        const logicalWidth = Math.max(1, Number(composition.canvas?.width) || thumbnail.img.width || 1);
+        const logicalHeight = Math.max(1, Number(composition.canvas?.height) || thumbnail.img.height || 1);
+        const scaleX = Math.max(1, Number(thumbnail.img.width) || 1) / logicalWidth;
+        const scaleY = Math.max(1, Number(thumbnail.img.height) || 1) / logicalHeight;
+        const sourceRect = surface.sourceRect || {};
+        drawSampleRect(pg, thumbnail.img, {
+          x: (Number(sourceRect.x) || 0) * scaleX,
+          y: (Number(sourceRect.y) || 0) * scaleY,
+          width: (Number(sourceRect.width) || logicalWidth) * scaleX,
+          height: (Number(sourceRect.height) || logicalHeight) * scaleY,
+        }, 0, 0, pg.width, pg.height);
+      } else {
+        drawBuffer(pg, thumbnail.img, 0, 0, pg.width, pg.height);
+      }
     } else {
       drawStandby(pg, composition?.thumbnail ? "loading thumbnail" : "no thumbnail");
     }
@@ -2982,7 +2996,10 @@ export class OutputRenderer {
     imageMode(CORNER);
     if (this.shouldUseThumbnailPreview()) {
       const thumbnail = this.getThumbnailImage(composition);
-      if (thumbnail?.ready && thumbnail.img) image(thumbnail.img, -width / 2, -height / 2, width, height);
+      if (thumbnail?.ready && thumbnail.img) {
+        const rect = this.compositionPreviewRect(composition, thumbnail.img);
+        image(thumbnail.img, rect.x - width / 2, rect.y - height / 2, rect.width, rect.height);
+      }
     } else if (source) {
       const rect = this.compositionPreviewRect(composition, source);
       image(unwrapRenderTarget(source), rect.x - width / 2, rect.y - height / 2, rect.width, rect.height);
@@ -4176,29 +4193,17 @@ function graphicsToThumbnail(pg, width = COMPOSITION_THUMBNAIL_WIDTH, height = C
   try {
     const source = pg.canvas || pg.elt;
     if (!source) return "";
-    const canvas = document.createElement("canvas");
-    canvas.width = width;
-    canvas.height = height;
-    const context = canvas.getContext("2d");
-    if (!context) return "";
     const sourceWidth = source.videoWidth || source.naturalWidth || source.width || width;
     const sourceHeight = source.videoHeight || source.naturalHeight || source.height || height;
-    const targetAspect = width / Math.max(1, height);
-    const sourceAspect = sourceWidth / Math.max(1, sourceHeight);
-    let sx = 0;
-    let sy = 0;
-    let sw = sourceWidth;
-    let sh = sourceHeight;
-    if (sourceAspect > targetAspect) {
-      sw = sourceHeight * targetAspect;
-      sx = (sourceWidth - sw) * 0.5;
-    } else if (sourceAspect < targetAspect) {
-      sh = sourceWidth / targetAspect;
-      sy = (sourceHeight - sh) * 0.5;
-    }
+    const thumbnailSize = fittedThumbnailSize(sourceWidth, sourceHeight, width, height);
+    const canvas = document.createElement("canvas");
+    canvas.width = thumbnailSize.width;
+    canvas.height = thumbnailSize.height;
+    const context = canvas.getContext("2d");
+    if (!context) return "";
     context.imageSmoothingEnabled = true;
     context.imageSmoothingQuality = "high";
-    context.drawImage(source, sx, sy, sw, sh, 0, 0, width, height);
+    context.drawImage(source, 0, 0, sourceWidth, sourceHeight, 0, 0, thumbnailSize.width, thumbnailSize.height);
     const webp = canvas.toDataURL("image/webp", COMPOSITION_THUMBNAIL_QUALITY);
     if (webp.startsWith("data:image/webp")) return webp;
     return canvas.toDataURL("image/png");
@@ -4206,6 +4211,18 @@ function graphicsToThumbnail(pg, width = COMPOSITION_THUMBNAIL_WIDTH, height = C
     console.warn("[VJ1_THUMBNAIL_CAPTURE_FAILED]", { message: error?.message || String(error) });
     return "";
   }
+}
+
+export function fittedThumbnailSize(sourceWidth, sourceHeight, maxWidth = COMPOSITION_THUMBNAIL_WIDTH, maxHeight = COMPOSITION_THUMBNAIL_HEIGHT) {
+  const sw = Math.max(1, Number(sourceWidth) || 1);
+  const sh = Math.max(1, Number(sourceHeight) || 1);
+  const mw = Math.max(1, Number(maxWidth) || COMPOSITION_THUMBNAIL_WIDTH);
+  const mh = Math.max(1, Number(maxHeight) || COMPOSITION_THUMBNAIL_HEIGHT);
+  const scale = Math.min(mw / sw, mh / sh);
+  return {
+    width: Math.max(1, Math.round(sw * scale)),
+    height: Math.max(1, Math.round(sh * scale)),
+  };
 }
 
 function colorUniform(value) {

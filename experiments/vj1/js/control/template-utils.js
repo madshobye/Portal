@@ -8,8 +8,8 @@ export function icon(name) {
 
 export function thumbnailTemplate(src, fallbackIcon = "account_tree") {
   return src
-    ? `<img src="${esc(src)}" alt="" loading="lazy" />`
-    : `<div class="composition-card-empty">${icon(fallbackIcon)}</div>`;
+    ? `<div class="composition-thumbnail"><img src="${esc(src)}" alt="" loading="lazy" /></div>`
+    : `<div class="composition-thumbnail composition-card-empty">${icon(fallbackIcon)}</div>`;
 }
 
 export function sourceTypeIcon(type) {

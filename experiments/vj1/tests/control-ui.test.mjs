@@ -136,7 +136,10 @@ test("topbar metric readouts reserve stable widths", () => {
 
 test("list thumbnails crop to fill and brighten their grayscale state", () => {
   const source = readFileSync(new URL("../style.css", import.meta.url), "utf8");
-  assert.ok(source.includes("object-fit: cover;"));
+  const templates = readFileSync(new URL("../js/control/template-utils.js", import.meta.url), "utf8");
+  assert.ok(templates.includes('<div class="composition-thumbnail"><img'));
+  assert.match(source, /\.composition-thumbnail,\n\.composition-card-empty \{[\s\S]*?aspect-ratio: 16 \/ 9;[\s\S]*?overflow: hidden;/);
+  assert.match(source, /\.composition-thumbnail img \{[\s\S]*?width: 100%;[\s\S]*?height: 100%;[\s\S]*?object-fit: cover;/);
   assert.ok(source.includes("filter: grayscale(1) contrast(1.16) brightness(1.08);"));
 });
 

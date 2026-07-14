@@ -242,7 +242,7 @@ Supported media includes images, videos, SVG, STL, and OBJ. Camera input is supp
 - Model draw mode, colors, rotations, spin, scale, depth, visible-depth cutoff, wire thickness, and point budget are source parameters.
 - Media renditions are PNG to avoid noise damage from lossy JPEG compression.
 
-Composition thumbnails are fixed `768 x 432` images generated with a centered cover crop. The list UI also uses `object-fit: cover`, so thumbnails fill their cards without distortion or baked-in letterboxing. Existing project thumbnails retain their old pixels until that composition is selected and captured again. Unselected composition and media thumbnails use a brighter, higher-contrast grayscale treatment for legibility.
+Composition thumbnails retain their source aspect within a maximum `768 x 432` image. Paused composition previews contain the complete thumbnail, while list cards use `object-fit: cover` so they fill without distortion. Scene surfaces route thumbnails through canvas sampling and the surface's projection-fit logic. Existing project thumbnails retain their old pixels until that composition is selected and captured again. Unselected composition and media thumbnails use a brighter, higher-contrast grayscale treatment for legibility.
 
 When media is missing in an output client, the entire output blacks out and shows only the small loading indicator/HUD. Do not render effects over loading placeholders.
 
