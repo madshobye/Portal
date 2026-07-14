@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 
-import { rangeTemplate } from "../js/control/template-utils.js";
+import { paramRangePairTemplate, rangeTemplate } from "../js/control/template-utils.js";
 
 test("range params render as label plus slider without numeric value text", () => {
   const sharedRange = rangeTemplate("Opacity", "compositions.0.opacity", 0.42);
@@ -18,6 +18,45 @@ test("range params render as label plus slider without numeric value text", () =
   assert.ok(styleSource.includes("grid-template-columns: minmax(0, 1fr) minmax(128px, var(--param-slider-width));"));
   assert.ok(styleSource.includes(".live-chain-pass > .chain-param-list"));
   assert.ok(styleSource.includes("grid-column: 1 / -1;"));
+});
+
+test("paired HSV ranges render two accessible handles and shared range state", () => {
+  const html = paramRangePairTemplate({
+    minParam: { id: "hueMin", label: "Hue", min: 0, max: 360, step: 1, rangeKind: "hue", rangeDisplay: "degrees" },
+    maxParam: { id: "hueMax", label: "Hue", min: 0, max: 360, step: 1, rangeKind: "hue", rangeDisplay: "degrees" },
+    minPath: "compositions.0.chain.1.params.hueMin",
+    maxPath: "compositions.0.chain.1.params.hueMax",
+    minValue: 200,
+    maxValue: 260,
+  });
+  const controllerSource = readFileSync(new URL("../js/control/control-shell-controller.js", import.meta.url), "utf8");
+  const styleSource = readFileSync(new URL("../style.css", import.meta.url), "utf8");
+
+  assert.ok(html.includes("data-param-range"));
+  assert.ok(html.includes('data-param-range-input="min"'));
+  assert.ok(html.includes('data-param-range-input="max"'));
+  assert.ok(html.includes('aria-label="Hue minimum"'));
+  assert.ok(html.includes('aria-label="Hue maximum"'));
+  assert.ok(html.includes("200°"));
+  assert.ok(html.includes("260°"));
+  assert.ok(controllerSource.includes("bindParamRangeControl"));
+  assert.ok(controllerSource.includes("updateParamRangeFromInputs"));
+  assert.ok(controllerSource.includes("syncParamRangeControl"));
+  assert.ok(styleSource.includes('.param-range-pair[data-range-kind="hue"]'));
+});
+
+test("composition panel exposes frame shape and relative resolution controls", () => {
+  const controllerSource = readFileSync(new URL("../js/control/control-shell-controller.js", import.meta.url), "utf8");
+  const styleSource = readFileSync(new URL("../style.css", import.meta.url), "utf8");
+
+  assert.ok(controllerSource.includes('data-set-path="${base}.frameShape"'));
+  assert.ok(controllerSource.includes('data-set-path="${base}.resolutionScale"'));
+  assert.ok(controllerSource.includes('["landscape", "Landscape"]'));
+  assert.ok(controllerSource.includes('["portrait", "Portrait"]'));
+  assert.ok(controllerSource.includes('["square", "Square"]'));
+  assert.ok(controllerSource.includes("const scaleOptions = [0.5, 1, 2];"));
+  assert.ok(controllerSource.includes("composition-frame-summary"));
+  assert.ok(styleSource.includes(".composition-option-grid"));
 });
 
 test("scrub changes are sent to live output on the next animation frame", () => {
@@ -113,6 +152,7 @@ test("seed params stay internal and are not rendered as sliders", () => {
   const controllerSource = readFileSync(new URL("../js/control/control-shell-controller.js", import.meta.url), "utf8");
 
   assert.ok(controllerSource.includes('param?.id !== "seed"'));
-  assert.ok(controllerSource.includes("visibleParamControls(component.params).map"));
-  assert.ok(controllerSource.includes("visibleParamControls(params).map"));
+  assert.ok(controllerSource.includes("const visible = visibleParamControls(params);"));
+  assert.ok(controllerSource.includes("paramControlsTemplate(component.params"));
+  assert.ok(controllerSource.includes("paramControlsTemplate(params"));
 });

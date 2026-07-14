@@ -1,10 +1,10 @@
-import { createAppState } from "./app-state.js?v=output-playback-1";
-import { createControlShell } from "./control/control-shell-controller.js?v=render-quality-2";
+import { createAppState } from "./app-state.js?v=composition-frame-1";
+import { createControlShell } from "./control/control-shell-controller.js?v=gpu-query-average-1";
 import { getInitialWorkspace, getClientMode, persistWorkspace } from "./view-routing.js";
 import { createMediaLibrary } from "./services/media-library-service.js?v=world-frame-27";
 import { createProjectFolderService } from "./services/project-folder-service.js?v=output-recovery-1";
 import { createControlBridge } from "./services/output-bridge-service.js?v=output-playback-1";
-import { installOutputApp } from "./output/output-app.js?v=architecture-9";
+import { installOutputApp } from "./output/output-app.js?v=gpu-query-average-1";
 
 const root = document.getElementById("app");
 const mode = getClientMode();
@@ -14,6 +14,7 @@ if (mode === "output" || mode === "preview" || mode === "composition") {
 } else {
   const store = createAppState();
   const initialWorkspace = getInitialWorkspace();
+  const fixtureUrl = fixtureStateUrl();
   store.setWorkspace(initialWorkspace);
   persistWorkspace(initialWorkspace);
   const mediaLibrary = createMediaLibrary();
@@ -48,10 +49,33 @@ if (mode === "output" || mode === "preview" || mode === "composition") {
       bridge.sendState();
     }
   });
-  projectService.restoreStoredFolder();
-  window.addEventListener("focus", () => projectService.refreshFolder());
-  document.addEventListener("visibilitychange", () => {
-    if (document.visibilityState === "visible") projectService.refreshFolder();
-  });
-  setInterval(() => projectService.refreshFolder(), 5000);
+  if (fixtureUrl) {
+    loadFixtureState(fixtureUrl)
+      .then((state) => {
+        state.ui = { ...state.ui, workspace: initialWorkspace };
+        store.replace(state, "fixture");
+      })
+      .catch((error) => {
+        console.warn(`[vj1] Could not load fixture state: ${error.message}`);
+      });
+  } else {
+    projectService.restoreStoredFolder();
+    window.addEventListener("focus", () => projectService.refreshFolder());
+    document.addEventListener("visibilitychange", () => {
+      if (document.visibilityState === "visible") projectService.refreshFolder();
+    });
+    setInterval(() => projectService.refreshFolder(), 5000);
+  }
+}
+
+function fixtureStateUrl() {
+  const value = new URLSearchParams(window.location.search).get("fixture");
+  if (!value) return "";
+  return new URL(value, window.location.href).toString();
+}
+
+async function loadFixtureState(url) {
+  const response = await fetch(url, { cache: "no-store" });
+  if (!response.ok) throw new Error(`${response.status} ${response.statusText}`);
+  return response.json();
 }

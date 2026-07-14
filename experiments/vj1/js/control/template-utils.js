@@ -28,6 +28,38 @@ export function rangeTemplate(label, path, value, min = 0, max = 1, step = 0.01)
   `;
 }
 
+export function paramRangePairTemplate({ minParam, maxParam, minPath, maxPath, minValue, maxValue, attrs = "data-update" }) {
+  const lowerBound = Number(minParam.min) || 0;
+  const upperBound = Number(minParam.max) || 1;
+  const span = Math.max(0.000001, upperBound - lowerBound);
+  const safeMin = clampTemplateNumber(Number(minValue), lowerBound, upperBound);
+  const safeMax = clampTemplateNumber(Number(maxValue), safeMin, upperBound);
+  const startPercent = ((safeMin - lowerBound) / span) * 100;
+  const endPercent = ((safeMax - lowerBound) / span) * 100;
+  const display = minParam.rangeDisplay || "number";
+  const label = minParam.label || minParam.rangePair || minParam.id;
+  const kind = minParam.rangeKind || "plain";
+  return `
+    <div
+      class="param-range-pair chain-param"
+      data-param-range
+      data-range-kind="${esc(kind)}"
+      data-range-display="${esc(display)}"
+      style="--range-start: ${startPercent.toFixed(3)}%; --range-end: ${endPercent.toFixed(3)}%;"
+    >
+      <div class="param-range-labels">
+        <span>${esc(label)}</span>
+        <span><strong data-param-range-label="min">${esc(formatTemplateRangeValue(safeMin, display, minParam.step))}</strong><span aria-hidden="true">–</span><strong data-param-range-label="max">${esc(formatTemplateRangeValue(safeMax, display, maxParam.step))}</strong></span>
+      </div>
+      <div class="param-range-slider">
+        <div class="param-range-track" aria-hidden="true"></div>
+        <input type="range" min="${lowerBound}" max="${upperBound}" step="${minParam.step ?? 0.01}" value="${safeMin}" ${attrs}="${esc(minPath)}" data-param-range-input="min" aria-label="${esc(label)} minimum" />
+        <input type="range" min="${lowerBound}" max="${upperBound}" step="${maxParam.step ?? 0.01}" value="${safeMax}" ${attrs}="${esc(maxPath)}" data-param-range-input="max" aria-label="${esc(label)} maximum" />
+      </div>
+    </div>
+  `;
+}
+
 export function selectValuesTemplate(path, values, value) {
   return `
     <select data-update="${path}">
@@ -53,6 +85,7 @@ export function effectIcon(id) {
     pixelate: "grid_view",
     plasma: "blur_on",
     lumaKey: "tonality",
+    hsvAlphaKey: "colorize",
     custom: "data_object",
   }[id] || "auto_awesome";
 }
@@ -63,4 +96,16 @@ export function esc(value) {
     .replaceAll("<", "&lt;")
     .replaceAll(">", "&gt;")
     .replaceAll('"', "&quot;");
+}
+
+function clampTemplateNumber(value, min, max) {
+  const safe = Number.isFinite(value) ? value : min;
+  return Math.min(max, Math.max(min, safe));
+}
+
+function formatTemplateRangeValue(value, display = "number", step = 0.01) {
+  if (display === "degrees") return `${Math.round(value)}°`;
+  if (display === "percent") return `${Math.round(value * 100)}%`;
+  const decimals = step >= 1 ? 0 : Math.min(3, Math.max(0, String(step).split(".")[1]?.length || 0));
+  return Number(value).toFixed(decimals);
 }

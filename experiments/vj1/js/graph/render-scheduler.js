@@ -1,6 +1,6 @@
-import { createVisualNode, normalizeParamValues, paramValue, textureInlet, textureOutlet, textureRenderContract } from "./component-schema.js?v=render-quality-2";
+import { createVisualNode, normalizeParamValues, paramValue, textureInlet, textureOutlet, textureRenderContract } from "./component-schema.js?v=range-pair-1";
 import { getGeneratorComponent } from "./generator-registry.js?v=render-quality-2";
-import { getShaderComponent } from "../shaders/shader-registry.js?v=render-quality-2";
+import { getShaderComponent } from "../shaders/shader-registry.js?v=hsv-alpha-key-1";
 
 export function compileCompositionPatch(composition = {}, renderRequest = {}) {
   const request = normalizePatchRenderRequest(renderRequest);

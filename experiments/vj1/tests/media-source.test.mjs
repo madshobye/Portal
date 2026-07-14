@@ -155,7 +155,8 @@ test("Shadertoy base warp is exposed as a generator with clock speed", () => {
   assert.equal(component.params.find((param) => param.id === "amount").defaultValue, 1);
   assert.ok(builderSource.includes('component?.type === "shadertoy"'));
   assert.ok(builderSource.includes("uniform vec3 iResolution"));
-  assert.ok(builderSource.includes("iResolution.y - gl_FragCoord.y"));
+  assert.ok(builderSource.includes("1.0 - gl_FragCoord.y / iResolution.y"));
+  assert.ok(builderSource.includes("shadertoyFragCoord = shaderUv * iResolution.xy"));
   assert.ok(builderSource.includes("vj1MainImage(fragColor, shadertoyFragCoord)"));
   assert.ok(rendererSource.includes('setShaderUniformIfPresent(shader, "iTime", shaderTime)'));
   assert.ok(rendererSource.includes("shaderDrawingBufferSize(target"));
@@ -301,7 +302,7 @@ test("terrain flyover exposes flight, terrain, wire, and biome controls", () => 
   assert.ok(controllerSource.includes("terrainFlyover: \"landscape\""));
   assert.ok(rendererSource.includes("source.generatorId === \"terrainFlyover\""));
   assert.ok(rendererSource.includes("this.terrainTargets = new Map()"));
-  assert.ok(rendererSource.includes("const target = this.getTerrainTarget(renderRequest.width, renderRequest.height)"));
+  assert.ok(rendererSource.includes("this.getTerrainTarget(renderRequest.width, renderRequest.height, this.requestPixelDensity(renderRequest))"));
   assert.ok(rendererSource.includes("disposeGraphicsMap(this.terrainTargets)"));
   assert.ok(rendererSource.includes("this.terrainSurfaceResources = new Map()"));
   assert.ok(rendererSource.includes("drawTerrainSurface(target, this.terrainSurfaceResources"));

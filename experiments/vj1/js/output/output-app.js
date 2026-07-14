@@ -1,7 +1,7 @@
 import { VJ1 } from "../constants.js";
-import { sanitizeState } from "../domain/models.js?v=output-playback-1";
+import { sanitizeState } from "../domain/models.js?v=composition-frame-1";
 import { createOutputBridge } from "../services/output-bridge-service.js?v=output-playback-1";
-import { OutputRenderer } from "./output-renderer.js?v=architecture-9";
+import { OutputRenderer } from "./output-renderer.js?v=gpu-query-average-1";
 import { applyFontToGlobal, loadVjRenderFont } from "./font-loader.js?v=world-frame-27";
 import { frameSize } from "./render-geometry.js";
 

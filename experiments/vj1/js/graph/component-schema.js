@@ -45,6 +45,10 @@ export function createNumberParam(id, label, {
   defaultValue = 0,
   ui = "slider",
   scale = "linear",
+  rangePair = "",
+  rangeRole = "",
+  rangeKind = "",
+  rangeDisplay = "number",
 } = {}) {
   return {
     id,
@@ -56,7 +60,35 @@ export function createNumberParam(id, label, {
     defaultValue,
     ui,
     scale,
+    ...(rangePair ? { rangePair } : {}),
+    ...(rangeRole ? { rangeRole } : {}),
+    ...(rangeKind ? { rangeKind } : {}),
+    ...(rangeDisplay !== "number" ? { rangeDisplay } : {}),
   };
+}
+
+export function createRangePairParams(id, label, {
+  min = 0,
+  max = 1,
+  step = 0.01,
+  defaultMin = min,
+  defaultMax = max,
+  kind = "",
+  display = "number",
+} = {}) {
+  const shared = {
+    min,
+    max,
+    step,
+    ui: "range-pair",
+    rangePair: id,
+    rangeKind: kind,
+    rangeDisplay: display,
+  };
+  return [
+    createNumberParam(`${id}Min`, label, { ...shared, rangeRole: "min", defaultValue: defaultMin }),
+    createNumberParam(`${id}Max`, label, { ...shared, rangeRole: "max", defaultValue: defaultMax }),
+  ];
 }
 
 export function createBooleanParam(id, label, defaultValue = false) {

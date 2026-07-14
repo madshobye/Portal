@@ -1,4 +1,4 @@
-import { getShaderComponent } from "./shader-registry.js?v=render-quality-2";
+import { getShaderComponent } from "./shader-registry.js?v=hsv-alpha-key-1";
 
 export function createShaderBuilder({ getCustomCode, onStatus }) {
   const cache = new Map();
@@ -81,14 +81,17 @@ function getContextId(target) {
 
 function vertexShaderSource() {
   return `
-precision mediump float;
+precision highp float;
 attribute vec3 aPosition;
 attribute vec2 aTexCoord;
 uniform mat4 uModelViewMatrix;
 uniform mat4 uProjectionMatrix;
+uniform float useContentTransform;
+uniform mat3 contentUvMatrix;
 varying vec2 vTexCoord;
 void main() {
-  vTexCoord = aTexCoord;
+  vec2 transformedUv = (contentUvMatrix * vec3(aTexCoord, 1.0)).xy;
+  vTexCoord = mix(aTexCoord, transformedUv, step(0.5, useContentTransform));
   gl_Position = uProjectionMatrix * uModelViewMatrix * vec4(aPosition, 1.0);
 }`;
 }
@@ -149,7 +152,9 @@ vec2 inverseTransformEffectUv(vec2 uv) {
 }
 
 float effectFieldMask(vec2 uv) {
-  vec2 edge = abs(uv - vec2(0.5));
+  // Transforms change the effect coordinate field, not the composition frame.
+  // Keep the boundary fixed to the full composition instead of a node rectangle.
+  vec2 edge = abs(vTexCoord - vec2(0.5));
   return 1.0 - smoothstep(0.5, 0.535, max(edge.x, edge.y));
 }
 
@@ -254,13 +259,20 @@ uniform sampler2D iChannel0;
 uniform sampler2D iChannel1;
 uniform sampler2D iChannel2;
 uniform sampler2D iChannel3;
+uniform float useContentTransform;
+uniform mat3 contentUvMatrix;
 ${qualityUniform}
 
 ${adaptedCode}
 
 void main() {
   vec4 fragColor = vec4(0.0);
-  vec2 shadertoyFragCoord = vec2(gl_FragCoord.x, iResolution.y - gl_FragCoord.y);
+  // Preserve the existing top-left Shadertoy orientation exactly, then apply
+  // the same normalized source-coordinate transform used by native generators.
+  vec2 baseUv = vec2(gl_FragCoord.x / iResolution.x, 1.0 - gl_FragCoord.y / iResolution.y);
+  vec2 transformedUv = (contentUvMatrix * vec3(baseUv, 1.0)).xy;
+  vec2 shaderUv = mix(baseUv, transformedUv, step(0.5, useContentTransform));
+  vec2 shadertoyFragCoord = shaderUv * iResolution.xy;
   vj1MainImage(fragColor, shadertoyFragCoord);
   gl_FragColor = fragColor;
 }`;

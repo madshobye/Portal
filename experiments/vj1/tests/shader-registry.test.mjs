@@ -72,6 +72,24 @@ test("alpha-sensitive effects keep transparent pixels premultiplied", () => {
   }
 });
 
+test("HSV alpha key exposes paired color ranges and preserves premultiplied alpha", () => {
+  const component = getShaderComponent("hsvAlphaKey");
+  const params = Object.fromEntries(component.params.map((param) => [param.id, param]));
+
+  assert.equal(component.name, "HSV Alpha Key");
+  assert.equal(component.category, "key");
+  assert.equal(params.hueMin.rangePair, "hue");
+  assert.equal(params.hueMin.rangeRole, "min");
+  assert.equal(params.hueMax.rangeRole, "max");
+  assert.equal(params.hueMin.defaultValue, 200);
+  assert.equal(params.hueMax.defaultValue, 260);
+  assert.equal(params.saturationMin.defaultValue, 0.4);
+  assert.equal(params.valueMax.defaultValue, 0.45);
+  assert.equal(params.feather.defaultValue, 0.08);
+  assert.match(component.code, /rgbToHsv/);
+  assert.match(component.code, /color\.rgb \* keep, color\.a \* keep/);
+});
+
 test("grain threshold interpolates its slider-scaled random field", () => {
   const component = getShaderComponent("labelThresholdGrain");
 
@@ -154,6 +172,19 @@ test("shared procedural hashes avoid shader trig", () => {
   assert.ok(!fallbackGeneratorSource.includes("Math.sin(x * 127.1"));
 });
 
+test("eyeball keeps frame-constant animation out of per-pixel work", () => {
+  const code = getGeneratorShaderComponent("eyeball").code;
+
+  assert.ok(code.includes("uniform vec3 eyeGazeDir;"));
+  assert.ok(code.includes("uniform float eyeBlink;"));
+  assert.ok(code.includes("if (irisMask > 0.001)"));
+  assert.ok(code.includes("if (eyeBlink > 0.02)"));
+  assert.ok(!code.includes("randomGaze"));
+  assert.ok(!code.includes("shutterBlink"));
+  assert.ok(!code.includes("atan("));
+  assert.ok(!code.includes("pow("));
+});
+
 test("heartbeat pulse exposes double-beat radial distortion controls", () => {
   const component = getShaderComponent("heartbeatPulse");
   const ids = component.params.map((param) => param.id);
@@ -204,6 +235,26 @@ test("spatial field effects place the effect without transforming the source ima
 
     assert.ok(component.code.includes("inverseTransformEffectUv("), `${id} should map local effect coordinates back to source space`);
   }
+});
+
+test("spatial effect transforms keep the effect boundary on the composition frame", () => {
+  const builderSource = readFileSync(new URL("../js/shaders/shader-builder.js", import.meta.url), "utf8");
+  const maskSource = builderSource.slice(
+    builderSource.indexOf("float effectFieldMask("),
+    builderSource.indexOf("${effectCode}")
+  );
+
+  assert.ok(maskSource.includes("abs(vTexCoord - vec2(0.5))"));
+  assert.ok(!maskSource.includes("abs(uv - vec2(0.5))"));
+});
+
+test("generator transforms change UV coordinates without changing the render target", () => {
+  const builderSource = readFileSync(new URL("../js/shaders/shader-builder.js", import.meta.url), "utf8");
+
+  assert.ok(builderSource.includes("uniform mat3 contentUvMatrix;"));
+  assert.ok(builderSource.includes("contentUvMatrix * vec3(aTexCoord, 1.0)"));
+  assert.ok(builderSource.includes("contentUvMatrix * vec3(baseUv, 1.0)"));
+  assert.ok(!builderSource.includes("vec2(gl_FragCoord.x, iResolution.y - gl_FragCoord.y)"));
 });
 
 test("spatial field effects use screen-oriented y coordinates for handle translation", () => {
@@ -329,7 +380,8 @@ test("Shadertoy generator keeps mainImage source behind the compatibility wrappe
   assert.ok(!component.code.includes("void main()"));
   assert.ok(fragmentSource.includes("void main()"));
   assert.ok(fragmentSource.includes("void vj1MainImage(out vec4 fragColor, in vec2 fragCoord)"));
-  assert.ok(fragmentSource.includes("iResolution.y - gl_FragCoord.y"));
+  assert.ok(fragmentSource.includes("1.0 - gl_FragCoord.y / iResolution.y"));
+  assert.ok(fragmentSource.includes("shadertoyFragCoord = shaderUv * iResolution.xy"));
   assert.ok(fragmentSource.includes("vj1MainImage(fragColor, shadertoyFragCoord)"));
   assert.ok(fragmentSource.includes("uniform float renderQuality;"));
   assert.ok(!fragmentSource.includes("void mainImage"));

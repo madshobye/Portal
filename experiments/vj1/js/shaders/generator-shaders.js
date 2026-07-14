@@ -377,46 +377,15 @@ void main() {
     code: `
 precision mediump float;
 uniform vec2 resolution;
-uniform float time;
 uniform float irisSize;
 uniform float pupilSize;
-uniform float gazeRange;
-uniform float motionSpeed;
-uniform float pauseAmount;
-uniform float jitter;
-uniform float blinkRate;
 uniform float lidAmount;
 uniform float veinAmount;
+uniform vec3 eyeGazeDir;
+uniform vec3 eyeIrisRight;
+uniform vec3 eyeIrisUp;
+uniform float eyeBlink;
 varying vec2 vTexCoord;
-
-float hash(vec2 p) {
-  vec3 p3 = fract(vec3(p.xyx) * 0.1031);
-  p3 += dot(p3, p3.yzx + 33.33);
-  return fract((p3.x + p3.y) * p3.z);
-}
-
-vec2 randomGaze(float seed) {
-  vec2 raw = vec2(hash(vec2(seed, 2.31)), hash(vec2(seed, 7.77))) * 2.0 - 1.0;
-  raw.x *= 0.72;
-  raw.y *= 0.38;
-  return raw;
-}
-
-float easeHold(float f, float pause) {
-  float movePortion = mix(0.98, 0.08, clamp(pause, 0.0, 1.0));
-  float m = clamp(f / movePortion, 0.0, 1.0);
-  return m * m * (3.0 - 2.0 * m);
-}
-
-float pulse(float f, float start, float end) {
-  return smoothstep(start, start + 0.025, f) * (1.0 - smoothstep(end - 0.025, end, f));
-}
-
-float shutterBlink(float f) {
-  float close = smoothstep(0.015, 0.045, f);
-  float open = 1.0 - smoothstep(0.078, 0.125, f);
-  return close * open;
-}
 
 void main() {
   vec2 uv = vTexCoord;
@@ -429,32 +398,22 @@ void main() {
     return;
   }
 
-  float z = sqrt(max(0.0, 1.0 - r * r));
-  vec3 normal = normalize(vec3(p, z));
-  vec3 light = normalize(vec3(-0.42, -0.58, 0.72));
+  vec2 sphereP = p / max(1.0, r);
+  float z = sqrt(max(0.0, 1.0 - dot(sphereP, sphereP)));
+  vec3 normal = vec3(sphereP, z);
+  const vec3 light = vec3(-0.413594, -0.570912, 0.708902);
   float diffuse = clamp(dot(normal, light) * 0.5 + 0.5, 0.0, 1.0);
   float limbShade = smoothstep(0.02, 0.82, z);
   vec3 sclera = mix(vec3(0.44, 0.42, 0.39), vec3(1.0, 0.96, 0.86), diffuse);
   sclera *= mix(0.50, 1.08, limbShade);
-  float speed = max(motionSpeed, 0.05);
-  float gazeClock = time * speed * 0.85;
-  float gazeSeg = floor(gazeClock);
-  float gazeF = fract(gazeClock);
-  vec2 gaze = mix(randomGaze(gazeSeg), randomGaze(gazeSeg + 1.0), easeHold(gazeF, pauseAmount));
-  vec2 micro = vec2(
-    sin(time * 18.7 + hash(vec2(gazeSeg, 1.2)) * 6.28318530718),
-    sin(time * 23.1 + hash(vec2(gazeSeg, 8.2)) * 6.28318530718)
-  ) * 0.018 * jitter;
-  gaze = (gaze + micro) * gazeRange;
-  vec3 gazeDir = normalize(vec3(gaze, 1.0));
-  vec3 irisRight = normalize(vec3(gazeDir.z, 0.0, -gazeDir.x));
-  vec3 irisUp = normalize(cross(irisRight, gazeDir));
-  float facing = max(0.001, dot(normal, gazeDir));
-  vec2 surfaceUv = vec2(dot(normal, irisRight), dot(normal, irisUp));
-  float veinWave = sin((surfaceUv.x * 5.4 + sin(surfaceUv.y * 8.0) * 0.18) * 8.5);
-  float veins = smoothstep(0.985, 1.0, veinWave) * smoothstep(0.18, 0.92, r) * smoothstep(0.92, 0.42, r);
-  sclera = mix(sclera, vec3(0.55, 0.16, 0.13), veins * 0.13 * veinAmount);
-  vec2 irisUv = vec2(dot(normal, irisRight), dot(normal, irisUp)) / facing;
+  float facing = max(0.001, dot(normal, eyeGazeDir));
+  vec2 surfaceUv = vec2(dot(normal, eyeIrisRight), dot(normal, eyeIrisUp));
+  if (veinAmount > 0.001) {
+    float veinWave = sin((surfaceUv.x * 5.4 + sin(surfaceUv.y * 8.0) * 0.18) * 8.5);
+    float veins = smoothstep(0.985, 1.0, veinWave) * smoothstep(0.18, 0.92, r) * smoothstep(0.92, 0.42, r);
+    sclera = mix(sclera, vec3(0.55, 0.16, 0.13), veins * 0.13 * veinAmount);
+  }
+  vec2 irisUv = surfaceUv / facing;
   irisUv.y *= 1.08;
   float irisR = length(irisUv);
   float onCornea = smoothstep(0.80, 0.90, facing);
@@ -462,42 +421,45 @@ void main() {
   float pupilScale = max(0.05, pupilSize);
   float irisMask = smoothstep(0.850 * irisScale, 0.756 * irisScale, irisR) * onCornea * sphere;
   float pupilMask = smoothstep(0.252 * pupilScale, 0.190 * pupilScale, irisR) * onCornea * sphere;
-  float angle = atan(irisUv.y, irisUv.x);
-  float irisUnit = irisR / irisScale;
-  float fibers = hash(floor(vec2(angle * 44.0, irisUnit * 22.0)));
-  float radial = smoothstep(0.806, 0.101, irisUnit);
-  float limbus = smoothstep(0.850, 0.720, irisUnit) - smoothstep(0.655, 0.569, irisUnit);
-  float innerRing = smoothstep(0.418, 0.310, irisUnit) - smoothstep(0.238, 0.170, irisUnit);
-  vec3 iris = mix(vec3(0.045, 0.12, 0.14), vec3(0.12, 0.66, 0.58), radial);
-  iris += vec3(0.75, 0.54, 0.28) * innerRing * 0.35;
-  iris += vec3(0.95, 0.85, 0.48) * fibers * radial * 0.10;
-  iris = mix(iris, vec3(0.01, 0.025, 0.025), limbus * 0.78);
-  iris *= mix(0.62, 1.12, diffuse);
-
-  vec3 color = mix(sclera, iris, irisMask);
+  vec3 color = sclera;
+  if (irisMask > 0.001) {
+    float irisUnit = irisR / irisScale;
+    float angleWave = sin((irisUv.x * 0.87 + irisUv.y * 1.13) * 48.0 + floor(irisUnit * 22.0) * 1.73);
+    float fibers = angleWave * 0.5 + 0.5;
+    float radial = smoothstep(0.806, 0.101, irisUnit);
+    float limbus = smoothstep(0.850, 0.720, irisUnit) - smoothstep(0.655, 0.569, irisUnit);
+    float innerRing = smoothstep(0.418, 0.310, irisUnit) - smoothstep(0.238, 0.170, irisUnit);
+    vec3 iris = mix(vec3(0.045, 0.12, 0.14), vec3(0.12, 0.66, 0.58), radial);
+    iris += vec3(0.75, 0.54, 0.28) * innerRing * 0.35;
+    iris += vec3(0.95, 0.85, 0.48) * fibers * radial * 0.10;
+    iris = mix(iris, vec3(0.01, 0.025, 0.025), limbus * 0.78);
+    iris *= mix(0.62, 1.12, diffuse);
+    color = mix(color, iris, irisMask);
+  }
   color = mix(color, vec3(0.005, 0.003, 0.002), pupilMask);
-  float wet = pow(max(dot(reflect(-light, normal), vec3(0.0, 0.0, 1.0)), 0.0), 34.0);
+  float wetBase = max(-light.z + 2.0 * dot(normal, light) * normal.z, 0.0);
+  float wet2 = wetBase * wetBase;
+  float wet4 = wet2 * wet2;
+  float wet8 = wet4 * wet4;
+  float wet16 = wet8 * wet8;
+  float wet = wet16 * wet16 * wet2;
   vec2 glintDelta = p - vec2(-0.32, -0.30);
   float corneaGlint = 1.0 - smoothstep(0.0, 0.0049, dot(glintDelta, glintDelta));
   color += vec3(1.0) * (wet * 0.42 + corneaGlint * 0.55);
 
-  float blinkClock = time * max(blinkRate, 0.0) * 0.55;
-  float blinkSeg = floor(blinkClock);
-  float blinkPhase = fract(blinkClock);
-  float blinkChance = step(0.34, hash(vec2(blinkSeg, 11.1))) * step(0.001, blinkRate);
-  float blink = shutterBlink(blinkPhase) * blinkChance;
-  blink = max(blink, shutterBlink(blinkPhase - 0.20) * step(0.78, hash(vec2(blinkSeg, 19.4))) * blinkChance);
-  float blinkMask = smoothstep(0.02, 0.16, blink);
-  float lidCurve = (1.0 - p.x * p.x) * 0.12;
-  float lidSoftness = mix(0.024, 0.052, clamp(lidAmount / 1.5, 0.0, 1.0));
-  float openHalf = mix(1.08, -0.12, clamp(blink, 0.0, 1.0));
-  float upperLid = -openHalf - lidCurve;
-  float lowerLid = openHalf + lidCurve * 0.72;
-  float lidTop = 1.0 - smoothstep(upperLid - lidSoftness, upperLid + lidSoftness, p.y);
-  float lidBottom = smoothstep(lowerLid - lidSoftness, lowerLid + lidSoftness, p.y);
-  float lid = max(lidTop, lidBottom) * sphere * blinkMask;
-  vec3 lidColor = mix(vec3(0.18, 0.08, 0.065), vec3(0.48, 0.21, 0.18), diffuse);
-  color = mix(color, lidColor, lid);
+  if (eyeBlink > 0.02) {
+    float blinkMask = smoothstep(0.02, 0.16, eyeBlink);
+    float lidCurve = (1.0 - p.x * p.x) * 0.12;
+    float lidSoftness = mix(0.024, 0.052, clamp(lidAmount / 1.5, 0.0, 1.0));
+    float openHalf = mix(1.08, -0.12, clamp(eyeBlink, 0.0, 1.0));
+    float upperLid = -openHalf - lidCurve;
+    float lowerLid = openHalf + lidCurve * 0.72;
+    float lidTop = 1.0 - smoothstep(upperLid - lidSoftness, upperLid + lidSoftness, p.y);
+    float lidBottom = smoothstep(lowerLid - lidSoftness, lowerLid + lidSoftness, p.y);
+    float lid = max(lidTop, lidBottom) * sphere * blinkMask;
+    vec3 lidColor = mix(vec3(0.18, 0.08, 0.065), vec3(0.48, 0.21, 0.18), diffuse);
+    color = mix(color, lidColor, lid);
+  }
 
   float edge = smoothstep(1.0, 0.985, r);
   float alpha = sphere * edge;

@@ -36,7 +36,7 @@ Groups are isolated subchains. Their children render into a transparent intermed
 | `?output=1` | Popup/live projection output |
 | `?preview=1` | Standalone scene preview |
 | `?composition=1` | Standalone composition preview |
-| `?fixture=tests/fixtures/FILE.json` | Load a deterministic fixture in output/preview mode |
+| `?fixture=tests/fixtures/FILE.json` | Load a deterministic fixture in control, output, or preview mode |
 
 The control app creates the state store, media library, project-folder service, BroadcastChannel bridge, control shell, and one embedded p5/WebGL preview.
 
@@ -157,9 +157,11 @@ Canvas compositions are routable to scene surfaces like ordinary compositions. T
 
 Current generators include test pattern, waves, noise, plasma, gradient, fireflies, 3D eyeball, low-poly anatomy, terrain flyover, Bezier strokes, swaying trees, checker, and black.
 
-Current effects include ripple, RGB split, photo grade, label chromatic/grain/threshold grain, smear, crayon/pen stroke, hard black, blur, erode, dilate, grayscale, threshold, invert, kaleido, pixelate, plasma, luma key, alpha vignette, glitch distortion, spin/rotate, flip, echo fade, mirror fold, heat shimmer, heartbeat pulse, and custom GLSL.
+Current effects include ripple, RGB split, photo grade, label chromatic/grain/threshold grain, smear, crayon/pen stroke, hard black, blur, erode, dilate, grayscale, threshold, invert, kaleido, pixelate, plasma, luma key, HSV alpha key, alpha vignette, glitch distortion, spin/rotate, flip, echo fade, mirror fold, heat shimmer, heartbeat pulse, and custom GLSL.
 
-Parameter controls are generated from component schemas. Number, enum, boolean, and RGBA color types must work in both composition and Live views. Do not add a one-off UI control when the schema can describe it.
+Parameter controls are generated from component schemas. Number, paired numeric range, enum, boolean, and RGBA color types must work in both composition and Live views. Paired ranges use two handles on one track and keep the lower and upper values ordered. Do not add a one-off UI control when the schema can describe it.
+
+The HSV alpha key removes pixels inside a selected hue, saturation, and value box, with a feathered boundary. Its defaults target dark blues: `200–260°` hue, `40–100%` saturation, and `0–45%` value. It converts premultiplied input to straight RGB only for HSV classification, then applies the resulting keep factor back to both premultiplied RGB and alpha.
 
 Timing-based effects and generators use instance-derived offsets so separate chain instances and separate surface routes do not synchronize unintentionally.
 
@@ -297,7 +299,7 @@ The shader smoke page must be used for new GLSL because Node tests only inspect 
 
 The VJ1 worktree contains uncommitted changes spanning terrain, low-poly anatomy, STL/OBJ rendering, render geometry, output synchronization, UI controls, crayon stroke, Bezier strokes, the GPU-resident composition architecture, fixtures, metrics reports, and tests. Do not discard or broadly rewrite these changes. Read the diff before touching files that already changed.
 
-The test suite currently has 115 passing Node tests. The shared-framebuffer composition pipeline, effect fusion, projective quad mapper, cached shader noise, shader smoke page, popup output, scene preview, and composition preview were last verified together on 2026-07-14. The representative before/after runtime comparison is stored under `metrics-results/runs/four-surface-show-gpu-architecture.*`.
+The test suite currently has 127 passing Node tests. The shared-framebuffer composition pipeline, effect fusion, projective quad mapper, cached shader noise, shader smoke page, popup output, scene preview, and composition preview were last verified together on 2026-07-14. The representative before/after runtime comparison is stored under `metrics-results/runs/four-surface-show-gpu-architecture.*`.
 
 ## Change Discipline
 

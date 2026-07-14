@@ -1,18 +1,19 @@
 import { BLEND_MODES, VJ1, WORKSPACES } from "../constants.js";
-import { applySceneSnapshotToState, createLiveCompositionView, createLiveRenderState, createSceneSnapshot, normalizeRenderSettings } from "../domain/models.js?v=output-playback-1";
-import { normalizeParamValue, RENDER_QUALITY_PARAM } from "../graph/component-schema.js?v=render-quality-2";
+import { compositionFrameMetrics } from "../domain/composition-frame.js";
+import { applySceneSnapshotToState, createLiveCompositionView, createLiveRenderState, createSceneSnapshot, normalizeRenderSettings } from "../domain/models.js?v=composition-frame-1";
+import { normalizeParamValue, RENDER_QUALITY_PARAM } from "../graph/component-schema.js?v=range-pair-1";
 import { getGeneratorComponent, listGeneratorComponents } from "../graph/generator-registry.js?v=render-quality-2";
 import { patchNodeDegree, planCompositorInputs, planPatchExecution, summarizeTextureBranches } from "../graph/patch-planner.js";
-import { compileCompositionPatch } from "../graph/render-scheduler.js?v=render-quality-2";
+import { compileCompositionPatch } from "../graph/render-scheduler.js?v=hsv-alpha-key-1";
 import { buildOutputUrl } from "../view-routing.js";
-import { getShaderComponent, listShaderComponents } from "../shaders/shader-registry.js?v=render-quality-2";
-import { createEmbeddedPreviewApp } from "../output/embedded-preview-app.js?v=render-quality-2";
+import { getShaderComponent, listShaderComponents } from "../shaders/shader-registry.js?v=hsv-alpha-key-1";
+import { createEmbeddedPreviewApp } from "../output/embedded-preview-app.js?v=gpu-query-average-1";
 import { frameFitViewport, resetViewport, zoomViewport } from "../output/preview-viewport.js";
 import { defaultProjectSurfaceMapping } from "../output/render-geometry.js";
 import { createHtmlCache, isInteractiveNode, isTextEditingNode, setClass, setText } from "./dom-utils.js";
 import { bindReorderList } from "./reorder-list.js";
 import { collectRefs, shellTemplate } from "./shell-view.js?v=view-icons-1";
-import { effectIcon, emptyNote, esc, icon, rangeTemplate, selectValuesTemplate, sourceTypeIcon, thumbnailTemplate } from "./template-utils.js";
+import { effectIcon, emptyNote, esc, icon, paramRangePairTemplate, rangeTemplate, selectValuesTemplate, sourceTypeIcon, thumbnailTemplate } from "./template-utils.js?v=range-pair-1";
 
 const MODEL_RENDER_MODES = ["surface", "wireframe", "surfaceWire", "points"];
 const MEDIA_FIT_MODES = ["contain", "cover"];
@@ -999,9 +1000,10 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
 
   function bindInputs(scope, state) {
     scope.querySelectorAll("[data-video-trim]").forEach(bindVideoTrimControl);
+    scope.querySelectorAll("[data-param-range]").forEach(bindParamRangeControl);
     scope.querySelectorAll("[data-color-param]").forEach(bindColorParamControl);
     scope.querySelectorAll("[data-update]").forEach((input) => {
-      if (input.dataset.videoTrimInput) return;
+      if (input.dataset.videoTrimInput || input.dataset.paramRangeInput) return;
       if (input.type === "range") {
         input.addEventListener("input", () => {
           updatePathFromInput(input, `scrub:${input.dataset.update}`);
@@ -1018,6 +1020,15 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
       }
       input.addEventListener("change", () => updatePathFromInput(input, `update:${input.dataset.update}`));
     });
+    scope.querySelectorAll("[data-set-path]").forEach((button) => {
+      button.addEventListener("click", () => {
+        const path = button.dataset.setPath;
+        const value = button.dataset.setValueType === "number"
+          ? Number(button.dataset.setValue)
+          : button.dataset.setValue;
+        store.update((draft) => setByPath(draft, path, value), `update:${path}`);
+      });
+    });
     scope.querySelectorAll("[data-toggle-path]").forEach((button) => {
       button.addEventListener("click", (event) => {
         event.stopPropagation();
@@ -1025,6 +1036,7 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
       });
     });
     scope.querySelectorAll("[data-live-update]").forEach((input) => {
+      if (input.dataset.paramRangeInput) return;
       if (input.type === "range") {
         input.addEventListener("input", () => {
           updateLivePathFromInput(input, "scrub:live");
@@ -1142,6 +1154,26 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
     endInput.addEventListener("input", onInput);
     endInput.addEventListener("change", onChange);
     syncVideoTrimControl(control, Number(startInput.value) || 0, Number(endInput.value) || 0, Number(startInput.max) || 60);
+  }
+
+  function bindParamRangeControl(control) {
+    const minInput = control.querySelector("[data-param-range-input='min']");
+    const maxInput = control.querySelector("[data-param-range-input='max']");
+    if (!minInput || !maxInput) return;
+    const isLive = !!minInput.dataset.liveUpdate;
+    const onInput = (event) => {
+      const role = event.currentTarget.dataset.paramRangeInput;
+      updateParamRangeFromInputs(control, role, isLive ? "scrub:live" : `scrub:${event.currentTarget.dataset.update}`);
+    };
+    const onChange = (event) => {
+      const role = event.currentTarget.dataset.paramRangeInput;
+      updateParamRangeFromInputs(control, role, isLive ? "live:update" : `update:${event.currentTarget.dataset.update}`);
+    };
+    minInput.addEventListener("input", onInput);
+    minInput.addEventListener("change", onChange);
+    maxInput.addEventListener("input", onInput);
+    maxInput.addEventListener("change", onChange);
+    syncParamRangeControl(control, Number(minInput.value), Number(maxInput.value));
   }
 
   function removeChainItem(compositionId, itemId) {
@@ -1319,6 +1351,43 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
     store.update((draft) => {
       setByPath(draft, startPath, roundTrimTime(start));
       setByPath(draft, endPath, keepImplicitEnd ? 0 : roundTrimTime(end));
+    }, reason);
+  }
+
+  function updateParamRangeFromInputs(control, activeRole, reason) {
+    const minInput = control.querySelector("[data-param-range-input='min']");
+    const maxInput = control.querySelector("[data-param-range-input='max']");
+    if (!minInput || !maxInput) return;
+    const minPath = minInput.dataset.update || minInput.dataset.liveUpdate;
+    const maxPath = maxInput.dataset.update || maxInput.dataset.liveUpdate;
+    if (!minPath || !maxPath) return;
+    const lowerBound = Number(minInput.min);
+    const upperBound = Number(minInput.max);
+    let minValue = clampNumberLocal(Number(minInput.value), lowerBound, upperBound);
+    let maxValue = clampNumberLocal(Number(maxInput.value), lowerBound, upperBound);
+    if (minValue > maxValue) {
+      if (activeRole === "min") maxValue = minValue;
+      else minValue = maxValue;
+    }
+    minInput.value = String(minValue);
+    maxInput.value = String(maxValue);
+    syncParamRangeControl(control, minValue, maxValue);
+    store.update((draft) => {
+      if (minInput.dataset.liveUpdate) {
+        const compositionId = minInput.dataset.liveCompositionId;
+        if (!compositionId) return;
+        draft.ui.live.compositionOverrides ||= {};
+        const override = draft.ui.live.compositionOverrides[compositionId] ||= {};
+        setByPathCreate(override, minPath, minValue);
+        setByPathCreate(override, maxPath, maxValue);
+        return;
+      }
+      setByPathCreate(draft, minPath, minValue);
+      setByPathCreate(draft, maxPath, maxValue);
+      if (currentWorkspace(draft) === "scene") {
+        if (minPath.startsWith("scenes.")) applySelectedSceneSnapshot(draft);
+        else if (minPath.startsWith("surfaces.")) syncSelectedSceneSnapshot(draft);
+      }
     }, reason);
   }
 
@@ -1893,8 +1962,41 @@ function compositionTemplate(composition, state) {
       <div class="sculpt-head">
         <input type="text" data-update="${base}.name" value="${esc(composition.name)}" spellcheck="false" data-gramm="false" data-gramm_editor="false" data-enable-grammarly="false" />
       </div>
+      ${compositionFrameControlsTemplate(composition, state, base)}
       ${compositionUnifiedChainTemplate(composition, state, base)}
     </article>
+  `;
+}
+
+function compositionFrameControlsTemplate(composition, state, base) {
+  const metrics = compositionFrameMetrics(state.render || {}, composition);
+  const megapixels = (metrics.width * metrics.height / 1000000).toFixed(2);
+  const shapeOptions = [
+    ["landscape", "Landscape"],
+    ["portrait", "Portrait"],
+    ["square", "Square"],
+  ];
+  const scaleOptions = [0.5, 1, 2];
+  return `
+    <section class="composition-frame-controls">
+      <div class="rail-title"><span class="material-symbols-rounded">aspect_ratio</span><span>Frame</span></div>
+      <div class="segmented-pills composition-option-grid" role="group" aria-label="Composition frame shape">
+        ${shapeOptions.map(([value, label]) => `
+          <button type="button" class="${metrics.frameShape === value ? "is-selected" : ""}" data-set-path="${base}.frameShape" data-set-value="${value}" aria-pressed="${metrics.frameShape === value}">${label}</button>
+        `).join("")}
+      </div>
+      <div class="rail-title"><span class="material-symbols-rounded">high_quality</span><span>Resolution scale</span></div>
+      <div class="segmented-pills composition-option-grid" role="group" aria-label="Composition resolution scale">
+        ${scaleOptions.map((value) => `
+          <button type="button" class="${metrics.resolutionScale === value ? "is-selected" : ""}" data-set-path="${base}.resolutionScale" data-set-value="${value}" data-set-value-type="number" aria-pressed="${metrics.resolutionScale === value}">${value}×</button>
+        `).join("")}
+      </div>
+      <div class="composition-frame-summary">
+        <span>${metrics.baseWidth} × ${metrics.baseHeight} frame</span>
+        <strong>${metrics.width} × ${metrics.height}</strong>
+        <small>${metrics.effectiveScale}× effective · ${megapixels} MP</small>
+      </div>
+    </section>
   `;
 }
 
@@ -2251,11 +2353,10 @@ function generatorParamControlsTemplate(base, source = {}) {
   if (!component?.params?.length) return "";
   return `
     <div class="chain-param-list">
-      ${visibleParamControls(component.params).map((param) => paramControlTemplate(
-        param,
-        `${base}.params.${param.id}`,
-        paramCurrentValue(component, { params: source.params || {} }, param)
-      )).join("")}
+      ${paramControlsTemplate(component.params, {
+        pathFor: (param) => `${base}.params.${param.id}`,
+        valueFor: (param) => paramCurrentValue(component, { params: source.params || {} }, param),
+      })}
     </div>
   `;
 }
@@ -2363,13 +2464,49 @@ function shaderParamControlsTemplate(component, pass, basePath) {
   if (!component?.params?.length) return "";
   return `
     <div class="chain-param-list">
-      ${visibleParamControls(component.params).map((param) => paramControlTemplate(param, `${basePath}.params.${param.id}`, paramCurrentValue(component, pass, param))).join("")}
+      ${paramControlsTemplate(component.params, {
+        pathFor: (param) => `${basePath}.params.${param.id}`,
+        valueFor: (param) => paramCurrentValue(component, pass, param),
+      })}
     </div>
   `;
 }
 
 function visibleParamControls(params = []) {
   return (params || []).filter((param) => param?.id !== "seed");
+}
+
+function paramControlsTemplate(params = [], {
+  pathFor = (param) => param.id,
+  valueFor = (param) => param.defaultValue,
+  attrs = "data-update",
+} = {}) {
+  const visible = visibleParamControls(params);
+  const byPair = new Map();
+  for (const param of visible) {
+    if (param.ui === "range-pair" && param.rangePair) {
+      const pair = byPair.get(param.rangePair) || {};
+      pair[param.rangeRole] = param;
+      byPair.set(param.rangePair, pair);
+    }
+  }
+  return visible.map((param) => {
+    if (param.ui !== "range-pair" || !param.rangePair) {
+      return paramControlTemplate(param, pathFor(param), valueFor(param), attrs);
+    }
+    if (param.rangeRole === "max") return "";
+    const pair = byPair.get(param.rangePair);
+    if (!pair?.min || !pair?.max) return paramControlTemplate(param, pathFor(param), valueFor(param), attrs);
+    return paramRangePairTemplate({
+      minParam: pair.min,
+      maxParam: pair.max,
+      minPath: pathFor(pair.min),
+      maxPath: pathFor(pair.max),
+      minValue: valueFor(pair.min),
+      maxValue: valueFor(pair.max),
+      attrs,
+    });
+  }).join("");
 }
 
 function paramControlTemplate(param, path, value, attrs = "data-update") {
@@ -2874,10 +3011,11 @@ function liveShaderParamControlsTemplate(component, item, compositionId, itemPat
   if (!component?.params?.length) return "";
   return `
     <div class="chain-param-list">
-      ${visibleParamControls(component.params).map((param) => {
-        const path = `${itemPath}.params.${param.id}`;
-        return paramControlTemplate(param, path, paramCurrentValue(component, item, param), liveParamAttrs(compositionId));
-      }).join("")}
+      ${paramControlsTemplate(component.params, {
+        pathFor: (param) => `${itemPath}.params.${param.id}`,
+        valueFor: (param) => paramCurrentValue(component, item, param),
+        attrs: liveParamAttrs(compositionId),
+      })}
     </div>
   `;
 }
@@ -2891,12 +3029,11 @@ function liveSourceParamControlsTemplate(item, compositionId, itemPath) {
   };
   return `
     <div class="chain-param-list">
-      ${visibleParamControls(params).map((param) => paramControlTemplate(
-        param,
-        `${itemPath}.params.${param.id}`,
-        normalizeParamValue(param, values[param.id]),
-        liveParamAttrs(compositionId)
-      )).join("")}
+      ${paramControlsTemplate(params, {
+        pathFor: (param) => `${itemPath}.params.${param.id}`,
+        valueFor: (param) => normalizeParamValue(param, values[param.id]),
+        attrs: liveParamAttrs(compositionId),
+      })}
     </div>
   `;
 }
@@ -3090,7 +3227,7 @@ function cpuTimeTitle(metric) {
 
 function gpuTimeTitle(metric) {
   if (!metric?.gpuSupported) return "GPU render work: timer queries unavailable in this browser/GPU";
-  return `GPU render work: ${formatTimeMs(metric.gpuMs)} (${metric.source})\nAsynchronous result from completed WebGL timer queries`;
+  return `GPU average query: ${formatTimeMs(metric.gpuMs)} (${metric.source})\nRolling average of completed non-overlapping WebGL timer queries; not a frame duration`;
 }
 
 function formatRenderCost(cost) {
@@ -3193,6 +3330,31 @@ function syncVideoTrimControl(control, start, end, max) {
   const endLabel = control.querySelector("[data-video-trim-label='end']");
   if (startLabel) startLabel.textContent = formatTrimTime(safeStart);
   if (endLabel) endLabel.textContent = formatTrimTime(safeEnd);
+}
+
+function syncParamRangeControl(control, minValue, maxValue) {
+  const minInput = control.querySelector("[data-param-range-input='min']");
+  const maxInput = control.querySelector("[data-param-range-input='max']");
+  if (!minInput || !maxInput) return;
+  const lowerBound = Number(minInput.min);
+  const upperBound = Number(minInput.max);
+  const span = Math.max(0.000001, upperBound - lowerBound);
+  const safeMin = clampNumberLocal(Number(minValue), lowerBound, upperBound);
+  const safeMax = clampNumberLocal(Number(maxValue), safeMin, upperBound);
+  control.style.setProperty("--range-start", `${(((safeMin - lowerBound) / span) * 100).toFixed(3)}%`);
+  control.style.setProperty("--range-end", `${(((safeMax - lowerBound) / span) * 100).toFixed(3)}%`);
+  const display = control.dataset.rangeDisplay || "number";
+  const minLabel = control.querySelector("[data-param-range-label='min']");
+  const maxLabel = control.querySelector("[data-param-range-label='max']");
+  if (minLabel) minLabel.textContent = formatParamRangeValue(safeMin, display, Number(minInput.step));
+  if (maxLabel) maxLabel.textContent = formatParamRangeValue(safeMax, display, Number(maxInput.step));
+}
+
+function formatParamRangeValue(value, display = "number", step = 0.01) {
+  if (display === "degrees") return `${Math.round(value)}°`;
+  if (display === "percent") return `${Math.round(value * 100)}%`;
+  const decimals = step >= 1 ? 0 : Math.min(3, Math.max(0, String(step).split(".")[1]?.length || 0));
+  return Number(value).toFixed(decimals);
 }
 
 function formatTrimTime(value) {

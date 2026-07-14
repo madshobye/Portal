@@ -1,5 +1,6 @@
 import { VJ1, defaultCustomShaderCode, WORKSPACES } from "../constants.js";
 import { createGeneratorSource } from "../graph/generator-registry.js?v=node-dirty-runtime-1";
+import { normalizeCompositionFrameShape, normalizeCompositionResolutionScale } from "./composition-frame.js";
 
 export function uid(prefix) {
   return `${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
@@ -15,6 +16,8 @@ export function createDefaultComposition(index = 0) {
     opacity: 1,
     blend: "normal",
     speed: 1,
+    frameShape: "landscape",
+    resolutionScale: 1,
     thumbnail: "",
     chain: [createCompositionLayer(index, source)],
     shaderChain: [],
@@ -31,6 +34,8 @@ export function createCanvasComposition(index = 0, sourceCompositionId = "") {
     opacity: 1,
     blend: "normal",
     speed: 1,
+    frameShape: "landscape",
+    resolutionScale: 1,
     thumbnail: "",
     chain: [],
     shaderChain: [],
@@ -438,6 +443,8 @@ export function normalizeComposition(composition = {}) {
     opacity: clamp01(compositionData.opacity ?? fallback.opacity),
     speed: Math.max(0, Number(compositionData.speed ?? fallback.speed) || 0),
     blend: compositionData.blend || fallback.blend,
+    frameShape: normalizeCompositionFrameShape(compositionData.frameShape),
+    resolutionScale: normalizeCompositionResolutionScale(compositionData.resolutionScale),
     thumbnail: typeof compositionData.thumbnail === "string" ? compositionData.thumbnail : "",
     chain: type === "canvas" ? [] : chain,
     shaderChain: [],
