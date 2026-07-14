@@ -4,7 +4,7 @@ import { getInitialWorkspace, getClientMode, persistWorkspace } from "./view-rou
 import { createMediaLibrary } from "./services/media-library-service.js?v=world-frame-27";
 import { createProjectFolderService } from "./services/project-folder-service.js?v=output-recovery-1";
 import { createControlBridge } from "./services/output-bridge-service.js?v=output-playback-1";
-import { installOutputApp } from "./output/output-app.js?v=render-quality-2";
+import { installOutputApp } from "./output/output-app.js?v=architecture-9";
 
 const root = document.getElementById("app");
 const mode = getClientMode();

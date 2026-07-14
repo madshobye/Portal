@@ -132,12 +132,12 @@ export class VjMapper {
     const cache = this._getRenderCache(surface, dpr);
     if (!cache) return;
     shader(this.shader);
-    this.shader.setUniform("tex", texture);
-    this.shader.setUniform("uResolution", this._renderResolution);
+    this.shader.setUniform("tex", texture?.framebuffer || texture);
+    this.shader.setUniform("uCanvasSize", [width, height]);
     this.shader.setUniform("uHinv", cache.Hc);
     this.shader.setUniform("uSurfaceSize", [texture.width || surface.w, texture.height || surface.h]);
     this.shader.setUniform("uEdgeSoftness", this.edgeSoftness);
-    this._drawSurfaceBounds(cache.bounds);
+    this._drawSurfaceQuad(surface.corners);
     resetShader();
   }
 
@@ -245,50 +245,15 @@ export class VjMapper {
 
   _ensureShader() {
     if (this.shader) return;
-    const vertexSource = `
-      precision highp float;
-      attribute vec3 aPosition;
-      uniform mat4 uProjectionMatrix;
-      uniform mat4 uModelViewMatrix;
-      void main() {
-        gl_Position = uProjectionMatrix * uModelViewMatrix * vec4(aPosition, 1.0);
-      }
-    `;
-    const fragmentSource = `
-      precision highp float;
-      uniform sampler2D tex;
-      uniform mat3 uHinv;
-      uniform vec2 uResolution;
-      uniform vec2 uSurfaceSize;
-      uniform float uEdgeSoftness;
-      void main() {
-        vec2 screen = vec2(gl_FragCoord.x, uResolution.y - gl_FragCoord.y);
-        vec3 q = uHinv * vec3(screen, 1.0);
-        float w = (q.z != 0.0) ? q.z : 1e-6;
-        vec2 uv = q.xy / w;
-        if (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0) discard;
-        vec4 color = texture2D(tex, uv);
-        if (uEdgeSoftness > 0.0) {
-          vec2 edgePx = min(uv, 1.0 - uv) * uSurfaceSize;
-          float edge = min(edgePx.x, edgePx.y);
-          color.a *= smoothstep(0.0, uEdgeSoftness, edge);
-        }
-        gl_FragColor = color;
-      }
-    `;
-    this.shader = createShader(vertexSource, fragmentSource);
+    this.shader = createShader(mapperVertexShaderSource(), mapperFragmentShaderSource());
   }
 
-  _drawSurfaceBounds(bounds) {
-    if (!bounds) return;
+  _drawSurfaceQuad(corners) {
+    if (!Array.isArray(corners) || corners.length !== 4) return;
     noStroke();
-    const halfWidth = width * 0.5;
-    const halfHeight = height * 0.5;
+    const vertices = surfaceQuadVertices(corners, width, height);
     beginShape(TRIANGLE_STRIP);
-    vertex(bounds.x0 - halfWidth, bounds.y0 - halfHeight, 0);
-    vertex(bounds.x1 - halfWidth, bounds.y0 - halfHeight, 0);
-    vertex(bounds.x0 - halfWidth, bounds.y1 - halfHeight, 0);
-    vertex(bounds.x1 - halfWidth, bounds.y1 - halfHeight, 0);
+    for (const point of vertices) vertex(point.x, point.y, 0);
     endShape();
   }
 
@@ -375,6 +340,58 @@ export class VjMapper {
   _emitConfigChange(reason = "change") {
     this.onConfigChange?.(this.exportConfig(), { reason, mapper: this });
   }
+}
+
+export function mapperVertexShaderSource() {
+  return `
+      precision highp float;
+      attribute vec3 aPosition;
+      uniform mat4 uProjectionMatrix;
+      uniform mat4 uModelViewMatrix;
+      uniform mat3 uHinv;
+      uniform vec2 uCanvasSize;
+      varying vec3 vProjectiveUv;
+      void main() {
+        vec4 clipPosition = uProjectionMatrix * uModelViewMatrix * vec4(aPosition, 1.0);
+        vec2 ndc = clipPosition.xy / max(abs(clipPosition.w), 1e-6);
+        vec2 screen = vec2(
+          (ndc.x * 0.5 + 0.5) * uCanvasSize.x,
+          (0.5 - ndc.y * 0.5) * uCanvasSize.y
+        );
+        vProjectiveUv = uHinv * vec3(screen, 1.0);
+        gl_Position = clipPosition;
+      }
+    `;
+}
+
+export function mapperFragmentShaderSource() {
+  return `
+      precision highp float;
+      uniform sampler2D tex;
+      uniform vec2 uSurfaceSize;
+      uniform float uEdgeSoftness;
+      varying vec3 vProjectiveUv;
+      void main() {
+        float w = abs(vProjectiveUv.z) > 1e-6 ? vProjectiveUv.z : 1e-6;
+        vec2 uv = clamp(vProjectiveUv.xy / w, vec2(0.0), vec2(1.0));
+        vec4 color = texture2D(tex, uv);
+        if (uEdgeSoftness > 0.0) {
+          vec2 edgePx = min(uv, 1.0 - uv) * uSurfaceSize;
+          float edge = min(edgePx.x, edgePx.y);
+          color.a *= smoothstep(0.0, uEdgeSoftness, edge);
+        }
+        gl_FragColor = color;
+      }
+    `;
+}
+
+export function surfaceQuadVertices(corners, canvasWidth, canvasHeight) {
+  if (!Array.isArray(corners) || corners.length !== 4) return [];
+  const [tl, tr, br, bl] = corners;
+  return [tl, tr, bl, br].map((point) => ({
+    x: point.x - Number(canvasWidth) * 0.5,
+    y: point.y - Number(canvasHeight) * 0.5,
+  }));
 }
 
 function normalizeCorners(corners = []) {

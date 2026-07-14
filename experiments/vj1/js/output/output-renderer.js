@@ -3,12 +3,17 @@ import { clamp01, sanitizeState } from "../domain/models.js?v=world-frame-27";
 import { normalizeParamValue, normalizeParamValues, renderQualityScale, renderQualityValue } from "../graph/component-schema.js?v=render-quality-2";
 import { createManualScheduler } from "../graph/manual-scheduler.js";
 import { RenderNodeRuntime, textureStateKey } from "../graph/render-node-runtime.js?v=node-dirty-runtime-1";
-import { compileCompositionPatch, compileShaderSchedule, flattenCompositionChain } from "../graph/render-scheduler.js?v=render-quality-2";
+import { compileCompositionPatch, compileShaderSchedule, flattenCompositionChain, fuseLocalShaderSchedule, isFusibleShaderJob } from "../graph/render-scheduler.js?v=shader-fusion-1";
 import { getGeneratorComponent } from "../graph/generator-registry.js?v=render-quality-2";
-import { createShaderBuilder } from "../shaders/shader-builder.js?v=render-quality-2";
+import { createShaderBuilder, fusedUniformName } from "../shaders/shader-builder.js?v=shader-fusion-1";
 import { getGeneratorShaderComponent } from "../shaders/generator-shaders.js?v=render-quality-2";
 import { getShaderComponent } from "../shaders/shader-registry.js?v=render-quality-2";
 import { applyBlend } from "./blend-utils.js";
+import {
+  createSharedFramebufferTarget,
+  isSharedFramebufferTarget,
+  unwrapRenderTarget,
+} from "./shared-framebuffer-target.js?v=shared-fbo-6";
 import { applyFontToGlobal, applyFontToTarget } from "./font-loader.js?v=world-frame-27";
 import { drawGenerator, drawStandby } from "./generators.js?v=render-quality-2";
 import { drawCover, drawMediaFit, isDrawableMedia, syncVideoPlayback } from "./media-utils.js";
@@ -21,10 +26,60 @@ import {
   surfaceTextureSize,
   worldSize,
 } from "./render-geometry.js";
-import { VjMapper } from "./vj-mapper.js?v=world-frame-27";
+import { VjMapper } from "./vj-mapper.js?v=projective-quad-4";
 import { mediaRenditionKey } from "../services/media-rendition-service.js";
 
 const TERRAIN_GRID_CELLS = 48;
+
+const OVERLAY_BLEND_VERTEX_SHADER = `
+precision mediump float;
+attribute vec3 aPosition;
+attribute vec2 aTexCoord;
+uniform mat4 uModelViewMatrix;
+uniform mat4 uProjectionMatrix;
+varying vec2 vTexCoord;
+void main() {
+  vTexCoord = aTexCoord;
+  gl_Position = uProjectionMatrix * uModelViewMatrix * vec4(aPosition, 1.0);
+}`;
+
+const OVERLAY_BLEND_FRAGMENT_SHADER = `
+precision mediump float;
+uniform sampler2D baseTex;
+uniform sampler2D layerTex;
+uniform bool baseFlipY;
+uniform bool layerFlipY;
+uniform mat3 layerUvMatrix;
+uniform float layerOpacity;
+varying vec2 vTexCoord;
+
+vec2 sourceUv(vec2 uv, bool flipY) {
+  return flipY ? vec2(uv.x, 1.0 - uv.y) : uv;
+}
+
+vec3 overlayColor(vec3 base, vec3 layer) {
+  vec3 low = 2.0 * base * layer;
+  vec3 high = 1.0 - 2.0 * (1.0 - base) * (1.0 - layer);
+  return mix(low, high, step(vec3(0.5), base));
+}
+
+void main() {
+  vec4 base = texture2D(baseTex, sourceUv(vTexCoord, baseFlipY));
+  vec2 layerUv = (layerUvMatrix * vec3(vTexCoord, 1.0)).xy;
+  float inside = step(0.0, layerUv.x) * step(layerUv.x, 1.0) *
+    step(0.0, layerUv.y) * step(layerUv.y, 1.0);
+  vec4 layer = texture2D(layerTex, sourceUv(clamp(layerUv, 0.0, 1.0), layerFlipY));
+  layer *= layerOpacity * inside;
+  float baseAlpha = base.a;
+  float layerAlpha = layer.a;
+  vec3 baseStraight = baseAlpha > 0.0001 ? base.rgb / baseAlpha : vec3(0.0);
+  vec3 layerStraight = layerAlpha > 0.0001 ? layer.rgb / layerAlpha : vec3(0.0);
+  vec3 blended = overlayColor(baseStraight, layerStraight);
+  float outAlpha = baseAlpha + layerAlpha - baseAlpha * layerAlpha;
+  vec3 outRgb = base.rgb * (1.0 - layerAlpha) +
+    layer.rgb * (1.0 - baseAlpha) + blended * baseAlpha * layerAlpha;
+  gl_FragColor = vec4(outRgb, outAlpha);
+}`;
 
 const TERRAIN_VERTEX_SHADER = `
 precision highp float;
@@ -264,11 +319,13 @@ export class OutputRenderer {
     this.compositionSource = new Map();
     this.compositionOutput = new Map();
     this.compositionBuffer = new Map();
+    this.compositionGpuBuffer = new Map();
     this.stableCompositionSignatures = new Map();
     this.chainNodeRuntimes = new Map();
     this.sourceNodeRuntimes = new Map();
     this.compositionSourceUse = new Map();
     this.compositionBufferUse = new Map();
+    this.compositionGpuBufferUse = new Map();
     this.compositionPatches = new Map();
     this.thumbnailImages = new Map();
     this.media = new Map();
@@ -318,6 +375,8 @@ export class OutputRenderer {
     this.compositionTimes = new Map();
     this.rateClocks = new Map();
     this.terrainScalePhases = new Map();
+    this.cachedNoiseTexture = null;
+    this.overlayBlendShader = null;
     this.shaderBuilder = createShaderBuilder({
       getCustomCode: () => this.state?.shaders?.customCode || "",
       onStatus: (status, error) => {
@@ -379,9 +438,9 @@ export class OutputRenderer {
     const { width: rw, height: rh } = this.outputFrameSize(this.state.render);
     const { width: surfaceWidth, height: surfaceHeight } = surfaceTextureSize(this.state.render);
     this.sourcePg = createGraphics(rw, rh);
-    this.mainMix = createGraphics(rw, rh);
+    this.mainMix = createSharedFramebufferTarget(rw, rh) || createGraphics(rw, rh);
     this.surfaceScratch = createGraphics(surfaceWidth, surfaceHeight);
-    this.surfaceTexture = createGraphics(surfaceWidth, surfaceHeight);
+    this.surfaceTexture = createSharedFramebufferTarget(surfaceWidth, surfaceHeight) || createGraphics(surfaceWidth, surfaceHeight);
     this.applyGraphicsPixelDensity(this.sourcePg);
     this.applyGraphicsPixelDensity(this.mainMix);
     this.applyGraphicsPixelDensity(this.surfaceScratch);
@@ -417,13 +476,16 @@ export class OutputRenderer {
     disposeGraphicsMap(this.modelTargets);
     disposeGraphicsMap(this.terrainTargets);
     disposeGraphicsMap(this.compositionSource);
-    disposeGraphicsMap(this.compositionOutput);
+    // Frame-local aliases; compositionGpuBuffer owns these targets.
+    this.compositionOutput.clear();
     disposeGraphicsMap(this.compositionBuffer);
+    disposeGraphicsMap(this.compositionGpuBuffer);
     this.stableCompositionSignatures?.clear?.();
     this.chainNodeRuntimes?.clear?.();
     this.sourceNodeRuntimes?.clear?.();
     this.compositionSourceUse?.clear?.();
     this.compositionBufferUse?.clear?.();
+    this.compositionGpuBufferUse?.clear?.();
     this.sourcePg = null;
     this.mainMix = null;
     this.surfaceScratch = null;
@@ -434,6 +496,43 @@ export class OutputRenderer {
     this.modelTargets?.clear?.();
     this.terrainTargets?.clear?.();
     this.shaderBuilder.clear?.();
+    this.cachedNoiseTexture = null;
+    this.overlayBlendShader = null;
+  }
+
+  getCachedNoiseTexture() {
+    if (this.cachedNoiseTexture) return this.cachedNoiseTexture;
+    if (typeof createImage !== "function") return null;
+    const size = 256;
+    const noiseImage = createImage(size, size);
+    noiseImage.loadPixels();
+    let state = 0x9e3779b9;
+    for (let index = 0; index < size * size; index++) {
+      state ^= state << 13;
+      state ^= state >>> 17;
+      state ^= state << 5;
+      const value = state >>> 24;
+      const offset = index * 4;
+      noiseImage.pixels[offset] = value;
+      noiseImage.pixels[offset + 1] = value;
+      noiseImage.pixels[offset + 2] = value;
+      noiseImage.pixels[offset + 3] = 255;
+    }
+    noiseImage.updatePixels();
+    this.cachedNoiseTexture = noiseImage;
+    return noiseImage;
+  }
+
+  setEffectInfrastructureUniforms(shaderProgram, transform = {}) {
+    const uniforms = effectTransformUniforms(transform);
+    shaderProgram.setUniform("effectTransform", uniforms.transform);
+    shaderProgram.setUniform("effectUvMatrix", uniforms.forward);
+    shaderProgram.setUniform("inverseEffectUvMatrix", uniforms.inverse);
+    const noiseTexture = this.getCachedNoiseTexture();
+    if (noiseTexture) {
+      setShaderUniformIfPresent(shaderProgram, "noiseTex", noiseTexture);
+      setShaderUniformIfPresent(shaderProgram, "noiseTextureSize", [noiseTexture.width, noiseTexture.height]);
+    }
   }
 
   resetTerrainResources() {
@@ -980,7 +1079,9 @@ export class OutputRenderer {
     }
     const stableSignature = this.stableCompositionSignature(composition, renderRequest);
     const stableKey = renderBufferKey("stable", outputKey);
-    const stableCached = stableSignature ? this.compositionBuffer.get(stableKey) : null;
+    const stableCached = stableSignature
+      ? this.compositionGpuBuffer.get(renderBufferKey(stableKey, renderRequestKey(renderRequest))) || this.compositionBuffer.get(stableKey)
+      : null;
     if (stableCached &&
         stableCached.width === renderRequest.width &&
         stableCached.height === renderRequest.height &&
@@ -1024,7 +1125,7 @@ export class OutputRenderer {
   }
 
   storeStableCompositionOutput(stableKey, signature, source, renderRequest) {
-    const stable = this.getCompositionBuffer(stableKey, renderRequest);
+    const stable = this.getCompositionGpuBuffer(stableKey, renderRequest);
     stable.push();
     stable.clear();
     drawBuffer(stable, source, 0, 0, stable.width, stable.height, this.isShaderBuffer(source));
@@ -1034,7 +1135,7 @@ export class OutputRenderer {
 
   renderCanvasComposition(composition, compositionTime, request = frameRenderRequest(this.state.render)) {
     const renderRequest = this.normalizeRenderRequest(request, "composition");
-    const output = this.getCompositionBuffer(composition.id, renderRequest);
+    const output = this.getCompositionGpuBuffer(composition.id, renderRequest);
     const canvas = composition.canvas || {};
     const canvasWidth = Math.max(1, Number(canvas.width) || renderRequest.width);
     const canvasHeight = Math.max(1, Number(canvas.height) || renderRequest.height);
@@ -1074,15 +1175,19 @@ export class OutputRenderer {
 
   renderCompositionPatch(composition, patch, compositionTime, request = frameRenderRequest(this.state.render)) {
     const renderRequest = this.normalizeRenderRequest(patch?.renderRequest || request, "composition");
-    const output = this.getCompositionBuffer(composition.id, renderRequest);
+    if (Array.isArray(composition.chain) && composition.chain.length) {
+      return this.renderCompositionChainState(
+        composition,
+        composition.chain,
+        compositionTime,
+        renderRequest
+      ).buffer;
+    }
+
+    const output = this.getCompositionGpuBuffer(composition.id, renderRequest);
     output.push();
     output.clear();
     output.pop();
-
-    if (Array.isArray(composition.chain) && composition.chain.length) {
-      this.renderCompositionChainItems(composition, composition.chain, output, compositionTime, renderRequest);
-      return output;
-    }
 
     const orderedNodes = nodesInCompositionChainOrder(composition, patch);
     for (let index = 0; index < orderedNodes.length; index++) {
@@ -1147,7 +1252,7 @@ export class OutputRenderer {
     const renderRequest = this.normalizeRenderRequest(request, "composition");
     const source = this.renderCompositionSource(composition, compositionTime, renderRequest);
     const effected = this.renderShaderChain(source, withShaderInstancePrefix(composition.shaderChain, composition.id), renderRequest, compositionTime);
-    const output = this.getCompositionBuffer(composition.id, renderRequest);
+    const output = this.getCompositionGpuBuffer(composition.id, renderRequest);
     output.push();
     output.clear();
     drawBuffer(output, effected, 0, 0, output.width, output.height, this.isShaderBuffer(effected));
@@ -1157,13 +1262,12 @@ export class OutputRenderer {
 
   renderCompositionChain(composition, compositionTime, request = frameRenderRequest(this.state.render)) {
     const renderRequest = this.normalizeRenderRequest(request, "composition");
-    const output = this.getCompositionBuffer(composition.id, renderRequest);
-    output.push();
-    output.clear();
-    output.pop();
-
-    this.renderCompositionChainItems(composition, composition.chain || [], output, compositionTime, renderRequest);
-    return output;
+    return this.renderCompositionChainState(
+      composition,
+      composition.chain || [],
+      compositionTime,
+      renderRequest
+    ).buffer;
   }
 
   renderCompositionChainItems(composition, chain, output, compositionTime, renderRequest, scopeId = composition.id) {
@@ -1188,6 +1292,30 @@ export class OutputRenderer {
         continue;
       }
       if (item.kind === "effect") {
+        const firstPass = chainItemToShaderPass(item);
+        const firstJob = compileShaderSchedule([firstPass])[0];
+        if (isFusibleShaderJob(firstJob)) {
+          const run = [item];
+          let nextIndex = index + 1;
+          while (nextIndex < (chain || []).length) {
+            const nextItem = chain[nextIndex];
+            if (nextItem?.enabled === false) {
+              nextIndex++;
+              continue;
+            }
+            if (nextItem?.kind !== "effect") break;
+            const nextJob = compileShaderSchedule([chainItemToShaderPass(nextItem)])[0];
+            if (!isFusibleShaderJob(nextJob)) break;
+            run.push(nextItem);
+            nextIndex++;
+          }
+          if (run.length > 1) {
+            const runNodeId = renderBufferKey(nodeId, "fused", run.length);
+            state = this.renderEffectRunNodeState(runNodeId, state, run, compositionTime, renderRequest);
+            index = nextIndex - 1;
+            continue;
+          }
+        }
         state = this.renderEffectNodeState(nodeId, state, item, compositionTime, renderRequest);
         continue;
       }
@@ -1226,12 +1354,45 @@ export class OutputRenderer {
       request: renderRequestKey(renderRequest),
     });
     return this.evaluateChainNode(nodeId, signature, renderRequest, (output) => {
+      if (layer.blend === "overlay" && isSharedFramebufferTarget(output)) {
+        this.renderOverlayLayerToTarget(output, inputState.buffer, layerState.buffer, layer);
+        return;
+      }
       output.push();
       output.clear();
       drawBuffer(output, inputState.buffer, 0, 0, output.width, output.height, this.isShaderBuffer(inputState.buffer));
       output.pop();
       this.drawChainLayer(output, layerState.buffer, layer);
     }, "layer");
+  }
+
+  renderOverlayLayerToTarget(target, base, layerSource, layer = {}) {
+    const shaderProgram = this.getOverlayBlendShader(target);
+    if (!shaderProgram) return;
+    const matrix = effectTransformUniforms(layer.transform || {}).forward;
+    drawShaderTarget(target, () => {
+      clearShaderTarget(target);
+      applyShaderTarget(target, shaderProgram);
+      shaderProgram.setUniform("baseTex", unwrapRenderTarget(base));
+      shaderProgram.setUniform("layerTex", unwrapRenderTarget(layerSource));
+      shaderProgram.setUniform("baseFlipY", !this.isShaderBuffer(base));
+      shaderProgram.setUniform("layerFlipY", !this.isShaderBuffer(layerSource));
+      shaderProgram.setUniform("layerUvMatrix", matrix);
+      shaderProgram.setUniform("layerOpacity", clamp01(layer.opacity ?? 1));
+      drawShaderTargetRect(target, target.width, target.height);
+      resetShaderTarget(target);
+    });
+  }
+
+  getOverlayBlendShader(target) {
+    if (this.overlayBlendShader) return this.overlayBlendShader;
+    try {
+      this.overlayBlendShader = target.createShader(OVERLAY_BLEND_VERTEX_SHADER, OVERLAY_BLEND_FRAGMENT_SHADER);
+    } catch (error) {
+      console.error("[VJ1_OVERLAY_SHADER_FAILED]", error?.message || error);
+      return null;
+    }
+    return this.overlayBlendShader;
   }
 
   renderEffectNodeState(nodeId, inputState, item, compositionTime, renderRequest) {
@@ -1256,6 +1417,12 @@ export class OutputRenderer {
     return this.evaluateChainNode(nodeId, signature, renderRequest, (output) => {
       const pass = chainItemToShaderPass({ ...item, params, amount });
       const qualityRequest = qualityScaledRenderRequest(renderRequest, params);
+      if (isSharedFramebufferTarget(output) &&
+          output.width === qualityRequest.width &&
+          output.height === qualityRequest.height) {
+        this.renderShaderPassToTarget(inputState.buffer, pass, output, qualityRequest, compositionTime);
+        return;
+      }
       const effected = this.renderShaderChain(inputState.buffer, [pass], qualityRequest, compositionTime);
       output.push();
       output.clear();
@@ -1264,10 +1431,30 @@ export class OutputRenderer {
     }, "effect");
   }
 
+  renderEffectRunNodeState(nodeId, inputState, items, compositionTime, renderRequest) {
+    const passes = items.map((item) => chainItemToShaderPass(item));
+    const signature = stableStringify({
+      input: textureStateKey(inputState),
+      passes,
+      time: passes.map((pass) => {
+        const component = getShaderComponent(pass.id);
+        return componentRuntimeTimeKey(component, pass.params, this.nodeRuntimeContext(compositionTime));
+      }),
+      request: renderRequestKey(renderRequest),
+    });
+    return this.evaluateChainNode(nodeId, signature, renderRequest, (output) => {
+      const effected = this.renderShaderChain(inputState.buffer, passes, renderRequest, compositionTime);
+      output.push();
+      output.clear();
+      drawBuffer(output, effected, 0, 0, output.width, output.height, this.isShaderBuffer(effected));
+      output.pop();
+    }, "fused-effect-run");
+  }
+
   evaluateChainNode(nodeId, signature, renderRequest, render, dirtyReason) {
     const bufferId = renderBufferKey("node", nodeId);
     const runtimeKey = renderBufferKey(bufferId, renderRequestKey(renderRequest));
-    const output = this.getCompositionBuffer(bufferId, renderRequest);
+    const output = this.getCompositionGpuBuffer(bufferId, renderRequest);
     let runtime = this.chainNodeRuntimes.get(runtimeKey);
     if (!runtime) {
       runtime = new RenderNodeRuntime(runtimeKey);
@@ -1436,8 +1623,9 @@ export class OutputRenderer {
     const key = renderBufferKey(nodeId, "source", renderRequestKey(renderRequest));
     let pg = this.compositionSource.get(key);
     if (!pg || pg.width !== renderRequest.width || pg.height !== renderRequest.height) {
-      pg = createGraphics(renderRequest.width, renderRequest.height);
-      this.applyGraphicsFont(pg);
+      disposeGraphics(pg);
+      pg = createSharedFramebufferTarget(renderRequest.width, renderRequest.height) || createGraphics(renderRequest.width, renderRequest.height);
+      if (!isSharedFramebufferTarget(pg)) this.applyGraphicsFont(pg);
       this.compositionSource.set(key, pg);
     }
     this.touchRenderCache(this.compositionSourceUse, key);
@@ -1852,9 +2040,9 @@ export class OutputRenderer {
     };
     const gpuToken = this.gpuTimer.begin(target, this.frameIndex);
     try {
-      target.push();
-      target.clear();
-      target.shader(shader);
+      drawShaderTarget(target, () => {
+      clearShaderTarget(target);
+      applyShaderTarget(target, shader);
       const shadertoyInterface = usesShadertoyInterface(component);
       if (shadertoyInterface) {
         const now = new Date();
@@ -1874,9 +2062,9 @@ export class OutputRenderer {
         setDefaultAmount: false,
         onlyPresent: shadertoyInterface,
       });
-      target.rect(-renderRequest.width / 2, -renderRequest.height / 2, renderRequest.width, renderRequest.height);
-      target.resetShader();
-      target.pop();
+      drawShaderTargetRect(target, renderRequest.width, renderRequest.height);
+      resetShaderTarget(target);
+      });
     } finally {
       this.gpuTimer.end(gpuToken);
       sample.ms = roundMetric(performance.now() - started);
@@ -1896,6 +2084,20 @@ export class OutputRenderer {
     }
     this.touchRenderCache(this.compositionBufferUse, key);
     return pg;
+  }
+
+  getCompositionGpuBuffer(id, request = frameRenderRequest(this.state.render)) {
+    const renderRequest = this.normalizeRenderRequest(request, "gpu-buffer");
+    const key = renderBufferKey(id, renderRequestKey(renderRequest));
+    let target = this.compositionGpuBuffer.get(key);
+    if (!target || target.width !== renderRequest.width || target.height !== renderRequest.height) {
+      disposeGraphics(target);
+      target = createSharedFramebufferTarget(renderRequest.width, renderRequest.height);
+      if (!target) return this.getCompositionBuffer(id, renderRequest);
+      this.compositionGpuBuffer.set(key, target);
+    }
+    this.touchRenderCache(this.compositionGpuBufferUse, key);
+    return target;
   }
 
   materializeDrawableBuffer(source, key, request = frameRenderRequest(this.state.render)) {
@@ -1929,10 +2131,12 @@ export class OutputRenderer {
     this.fxTargetKey = key;
     let target = group.targets[targetSlot];
     if (!target) {
-      target = createGraphics(widthPx, heightPx, WEBGL);
+      target = createSharedFramebufferTarget(widthPx, heightPx) || createGraphics(widthPx, heightPx, WEBGL);
       group.targets[targetSlot] = target;
-      this.applyGraphicsFont(target);
-      target.noStroke();
+      if (!isSharedFramebufferTarget(target)) {
+        this.applyGraphicsFont(target);
+        target.noStroke();
+      }
       return target;
     }
     if (target.width !== widthPx || target.height !== heightPx) {
@@ -1940,11 +2144,13 @@ export class OutputRenderer {
         target.resizeCanvas(widthPx, heightPx);
       } catch {
         disposeGraphics(target);
-        target = createGraphics(widthPx, heightPx, WEBGL);
+        target = createSharedFramebufferTarget(widthPx, heightPx) || createGraphics(widthPx, heightPx, WEBGL);
         group.targets[targetSlot] = target;
       }
-      this.applyGraphicsFont(target);
-      target.noStroke();
+      if (!isSharedFramebufferTarget(target)) {
+        this.applyGraphicsFont(target);
+        target.noStroke();
+      }
       this.shaderBuilder.clear?.();
     }
     return target;
@@ -1984,11 +2190,18 @@ export class OutputRenderer {
       currentFrame: this.frameIndex,
       idleFrames: 900,
     });
+    pruneGraphicsMap(this.compositionGpuBuffer, this.compositionGpuBufferUse, {
+      maxItems: 64,
+      currentFrame: this.frameIndex,
+      idleFrames: 900,
+    });
     for (const key of Array.from(this.stableCompositionSignatures.keys())) {
-      if (!this.compositionBuffer.has(key)) this.stableCompositionSignatures.delete(key);
+      const hasGpuEntry = Array.from(this.compositionGpuBuffer.keys()).some((bufferKey) => bufferKey.startsWith(`${key}:`));
+      if (!this.compositionBuffer.has(key) && !hasGpuEntry) this.stableCompositionSignatures.delete(key);
     }
     for (const key of Array.from(this.chainNodeRuntimes.keys())) {
-      if (!this.compositionBuffer.has(key)) this.chainNodeRuntimes.delete(key);
+      const hasGpuEntry = Array.from(this.compositionGpuBuffer.keys()).some((bufferKey) => bufferKey.includes(key));
+      if (!this.compositionBuffer.has(key) && !hasGpuEntry) this.chainNodeRuntimes.delete(key);
     }
     for (const key of Array.from(this.sourceNodeRuntimes.keys())) {
       if (!this.compositionSource.has(key)) this.sourceNodeRuntimes.delete(key);
@@ -2027,21 +2240,24 @@ export class OutputRenderer {
     const logicalHeight = Math.max(1, Number(renderRequest.logicalHeight) || rh);
     let current = input;
     let passCount = 0;
-    const schedule = compileShaderSchedule(chain);
+    const logicalSchedule = compileShaderSchedule(chain);
+    const schedule = fuseLocalShaderSchedule(logicalSchedule);
     if (schedule.length) {
       this.frameProfile.shaderChains++;
-      this.frameProfile.maxShaderChainLength = Math.max(this.frameProfile.maxShaderChainLength, schedule.length);
+      this.frameProfile.maxShaderChainLength = Math.max(this.frameProfile.maxShaderChainLength, logicalSchedule.length);
     }
     for (const job of schedule) {
       const pass = job.pass;
       if (pass.amount <= 0.0001) continue;
       let handoff = false;
-      if (this.isShaderBuffer(current) && schedule.length <= 1) {
+      if (this.isShaderBuffer(current) && !isSharedFramebufferTarget(current) && schedule.length <= 1) {
         handoff = true;
         current = this.materializeDrawableBuffer(current, `fx-handoff:${renderRequestKey(renderRequest)}:${passCount}`, renderRequest);
       }
       const target = this.getFxPingPongTarget(renderRequest, this.isShaderBuffer(current) ? nextFxTargetSlot(this.fxTargets, current) : passCount % 2);
-      const shader = this.shaderBuilder.getShader(pass, target);
+      const shader = job.fused
+        ? this.shaderBuilder.getFusedShader(job.jobs, target)
+        : this.shaderBuilder.getShader(pass, target);
       if (!shader) continue;
       const sourceIsShaderBuffer = this.isShaderBuffer(current);
       this.measureShaderPass(pass, job.component, renderRequest, {
@@ -2049,26 +2265,81 @@ export class OutputRenderer {
         sourceIsShaderBuffer,
         targetSlot: this.fxTargets?.[1] === target ? 1 : 0,
       }, target, () => {
-        target.push();
-        target.clear();
-        target.shader(shader);
-        shader.setUniform("tex0", current);
+        drawShaderTarget(target, () => {
+        clearShaderTarget(target);
+        applyShaderTarget(target, shader);
+        shader.setUniform("tex0", unwrapRenderTarget(current));
         shader.setUniform("resolution", [logicalWidth, logicalHeight]);
         shader.setUniform("canvasSize", [logicalWidth, logicalHeight]);
         shader.setUniform("texelSize", [1 / logicalWidth, 1 / logicalHeight]);
         shader.setUniform("sourceFlipY", !sourceIsShaderBuffer);
         shader.setUniform("sourceForceOpaque", false);
-        shader.setUniform("time", instanceTime(pass.instanceId || pass.id, timeSeconds));
-        shader.setUniform("effectTransform", effectTransformUniform(pass.transform));
-        this.setShaderParamUniforms(shader, job.component, pass.params);
-        target.rect(-rw / 2, -rh / 2, rw, rh);
-        target.resetShader();
-        target.pop();
+        if (job.fused) this.setFusedShaderUniforms(shader, job.jobs, timeSeconds);
+        else {
+          shader.setUniform("time", instanceTime(pass.instanceId || pass.id, timeSeconds));
+          this.setEffectInfrastructureUniforms(shader, pass.transform);
+          this.setShaderParamUniforms(shader, job.component, pass.params);
+        }
+        drawShaderTargetRect(target, rw, rh);
+        resetShaderTarget(target);
+        });
       });
       current = target;
       passCount++;
     }
     return current;
+  }
+
+  renderShaderPassToTarget(input, pass, target, request, timeSeconds = this.visualTime) {
+    const renderRequest = this.normalizeRenderRequest(request, "effect");
+    const job = compileShaderSchedule([pass])[0];
+    if (!job || job.pass.amount <= 0.0001) return input;
+    const shaderProgram = this.shaderBuilder.getShader(job.pass, target);
+    if (!shaderProgram) return input;
+    const logicalWidth = Math.max(1, Number(renderRequest.logicalWidth) || renderRequest.width);
+    const logicalHeight = Math.max(1, Number(renderRequest.logicalHeight) || renderRequest.height);
+    const sourceIsShaderBuffer = this.isShaderBuffer(input);
+    this.frameProfile.shaderChains++;
+    this.frameProfile.maxShaderChainLength = Math.max(this.frameProfile.maxShaderChainLength, 1);
+    this.measureShaderPass(job.pass, job.component, renderRequest, {
+      handoff: false,
+      sourceIsShaderBuffer,
+      targetSlot: -1,
+    }, target, () => {
+      drawShaderTarget(target, () => {
+        clearShaderTarget(target);
+        applyShaderTarget(target, shaderProgram);
+        shaderProgram.setUniform("tex0", unwrapRenderTarget(input));
+        shaderProgram.setUniform("resolution", [logicalWidth, logicalHeight]);
+        shaderProgram.setUniform("canvasSize", [logicalWidth, logicalHeight]);
+        shaderProgram.setUniform("texelSize", [1 / logicalWidth, 1 / logicalHeight]);
+        shaderProgram.setUniform("sourceFlipY", !sourceIsShaderBuffer);
+        shaderProgram.setUniform("sourceForceOpaque", false);
+        shaderProgram.setUniform("time", instanceTime(job.pass.instanceId || job.pass.id, timeSeconds));
+        this.setEffectInfrastructureUniforms(shaderProgram, job.pass.transform);
+        this.setShaderParamUniforms(shaderProgram, job.component, job.pass.params);
+        drawShaderTargetRect(target, renderRequest.width, renderRequest.height);
+        resetShaderTarget(target);
+      });
+    });
+    return target;
+  }
+
+  setFusedShaderUniforms(shaderProgram, jobs, timeSeconds) {
+    jobs.forEach((part, index) => {
+      shaderProgram.setUniform(
+        fusedUniformName(index, "time"),
+        instanceTime(part.pass.instanceId || part.pass.id, timeSeconds)
+      );
+      this.setShaderParamUniforms(shaderProgram, part.component, part.pass.params, {
+        uniformPrefix: `f${index}_`,
+      });
+    });
+    const noiseTexture = this.getCachedNoiseTexture();
+    if (noiseTexture) {
+      setShaderUniformIfPresent(shaderProgram, "noiseTex", noiseTexture);
+      setShaderUniformIfPresent(shaderProgram, "noiseTextureSize", [noiseTexture.width, noiseTexture.height]);
+    }
   }
 
   measureShaderPass(pass, component, renderRequest, meta, target, drawPass) {
@@ -2147,18 +2418,19 @@ export class OutputRenderer {
     for (const param of component?.params || []) {
       if (options.onlyPresent && !shader?.uniforms?.[param.id]) continue;
       const value = normalizeParamValue(param, params[param.id]);
+      const uniformId = `${options.uniformPrefix || ""}${param.id}`;
       if (param.type === "boolean") {
-        shader.setUniform(param.id, value !== false);
+        shader.setUniform(uniformId, value !== false);
       } else if (param.type === "color") {
-        shader.setUniform(param.id, colorUniform(value));
+        shader.setUniform(uniformId, colorUniform(value));
       } else if (param.type === "enum") {
-        shader.setUniform(param.id, enumUniform(param, value));
+        shader.setUniform(uniformId, enumUniform(param, value));
       } else {
-        shader.setUniform(param.id, Number(value) || 0);
+        shader.setUniform(uniformId, Number(value) || 0);
       }
     }
     if (options.setDefaultAmount !== false && !component?.params?.some((param) => param.id === "amount")) {
-      shader.setUniform("amount", 0);
+      shader.setUniform(`${options.uniformPrefix || ""}amount`, 0);
     }
   }
 
@@ -2188,8 +2460,13 @@ export class OutputRenderer {
   }
 
   surfaceRouteRenderRequest(surface, composition = null) {
-    if (composition?.type === "canvas") return canvasCompositionRenderRequest(composition, { surfaceId: surface.id });
-    return stableSurfaceRenderRequest(this.state.render, { surfaceId: surface.id });
+    const meta = {
+      surfaceId: surface.id,
+      timingId: surface.id,
+      renderIdentity: composition?.id || surface.compositionId || "unrouted",
+    };
+    if (composition?.type === "canvas") return canvasCompositionRenderRequest(composition, meta);
+    return stableSurfaceRenderRequest(this.state.render, meta);
   }
 
   getSurfaceTexture(request = stableSurfaceRenderRequest(this.state?.render || {})) {
@@ -2199,9 +2476,11 @@ export class OutputRenderer {
     const key = `${widthPx}x${heightPx}`;
     let pg = this.surfaceTextures.get(key);
     if (!pg) {
-      pg = createGraphics(widthPx, heightPx);
-      this.applyGraphicsPixelDensity(pg);
-      this.applyGraphicsFont(pg);
+      pg = createSharedFramebufferTarget(widthPx, heightPx) || createGraphics(widthPx, heightPx);
+      if (!isSharedFramebufferTarget(pg)) {
+        this.applyGraphicsPixelDensity(pg);
+        this.applyGraphicsFont(pg);
+      }
       this.surfaceTextures.set(key, pg);
     }
     return pg;
@@ -2217,7 +2496,9 @@ export class OutputRenderer {
       return;
     }
     composition ||= this.state.compositions.find((item) => item.id === surface.compositionId);
-    const compositionTime = instanceTime(`surface:${surface.id}`, this.compositionTimes.get(surface.compositionId) || 0);
+    // Composition time belongs to the composition, not to the projector
+    // surface. Per-surface final effects retain their own instance identity.
+    const compositionTime = this.compositionTimes.get(surface.compositionId) || 0;
     request ||= this.surfaceRouteRenderRequest(surface, composition);
     const source = composition
       ? this.renderCompositionForRequest(composition, compositionTime, request)
@@ -2278,6 +2559,7 @@ export class OutputRenderer {
 
   isShaderBuffer(buffer) {
     if (!buffer) return false;
+    if (isSharedFramebufferTarget(buffer)) return true;
     for (const group of this.fxTargetGroups?.values?.() || []) {
       if ((group.targets || []).includes(buffer)) return true;
     }
@@ -2348,10 +2630,10 @@ export class OutputRenderer {
       const thumbnail = this.getThumbnailImage(composition);
       if (thumbnail?.ready && thumbnail.img) image(thumbnail.img, -width / 2, -height / 2, width, height);
     } else if (source) {
-      image(source, -width / 2, -height / 2, width, height);
+      image(unwrapRenderTarget(source), -width / 2, -height / 2, width, height);
     } else {
       const fallback = this.mainMix;
-      image(fallback, -width / 2, -height / 2, width, height);
+      image(unwrapRenderTarget(fallback), -width / 2, -height / 2, width, height);
     }
     pop();
     if (!this.shouldUseThumbnailPreview()) this.renderSelectedChainTransformOverlay();
@@ -2665,10 +2947,10 @@ export class OutputRenderer {
     const composition = this.state.compositions.find((item) => item.id === this.state.ui.selectedCompositionId) || this.state.compositions[0];
     if (!composition) return;
     const output = this.compositionOutput.get(composition.id);
-    if (!output?.canvas) return;
     const signature = compositionThumbnailSignature(composition);
     if (composition.thumbnail && this.thumbnailSignatures.get(composition.id) === signature) return;
-    const thumbnail = graphicsToThumbnail(output);
+    const thumbnailSource = isSharedFramebufferTarget(output) ? output.get() : output;
+    const thumbnail = graphicsToThumbnail(thumbnailSource);
     if (!thumbnail) return;
     this.lastThumbnailAt = millis();
     this.thumbnailSignatures.set(composition.id, signature);
@@ -2737,7 +3019,8 @@ function downloadJson(data, filename) {
 function stableSurfaceRenderRequest(render = {}, meta = {}) {
   return createRenderRequest("surface", aspectPreservingSurfaceTextureSize(render), {
     ...meta,
-    instanceId: meta.instanceId || meta.surfaceId || "",
+    timingId: meta.timingId || meta.surfaceId || "",
+    renderIdentity: meta.renderIdentity ?? meta.instanceId ?? "",
   });
 }
 
@@ -3452,6 +3735,12 @@ function usesShadertoyInterface(component = {}) {
 }
 
 function shaderDrawingBufferSize(target, fallbackWidth, fallbackHeight) {
+  if (isSharedFramebufferTarget(target)) {
+    return {
+      width: Math.max(1, Number(target.width) || Number(fallbackWidth) || 1),
+      height: Math.max(1, Number(target.height) || Number(fallbackHeight) || 1),
+    };
+  }
   const gl = target?._renderer?.GL || target?.drawingContext;
   return {
     width: Math.max(1, Number(gl?.drawingBufferWidth) || Number(fallbackWidth) || Number(target?.width) || 1),
@@ -3474,13 +3763,36 @@ function instanceTimeOffset(instanceId = "") {
   return ((hash >>> 0) / 4294967295) * 97.0;
 }
 
-function effectTransformUniform(transform = {}) {
-  return [
-    Number(transform.x) || 0,
-    Number(transform.y) || 0,
-    Math.max(0.0001, Number(transform.scale) || 1),
-    Number(transform.rotation) || 0,
-  ];
+export function effectTransformUniforms(transform = {}) {
+  const x = Number(transform.x) || 0;
+  const y = Number(transform.y) || 0;
+  const scale = Math.max(0.0001, Number(transform.scale) || 1);
+  const rotation = Number(transform.rotation) || 0;
+  const centerX = 0.5 + x * 0.5;
+  const centerY = 0.5 + y * 0.5;
+  const c = Math.cos(-rotation);
+  const s = Math.sin(-rotation);
+  const a = c / scale;
+  const b = -s / scale;
+  const d = s / scale;
+  const e = c / scale;
+  const tx = 0.5 - a * centerX - b * centerY;
+  const ty = 0.5 - d * centerX - e * centerY;
+
+  const ic = Math.cos(rotation) * scale;
+  const is = Math.sin(rotation) * scale;
+  const ia = ic;
+  const ib = -is;
+  const id = is;
+  const ie = ic;
+  const itx = centerX - ia * 0.5 - ib * 0.5;
+  const ity = centerY - id * 0.5 - ie * 0.5;
+  return {
+    transform: [x, y, scale, rotation],
+    // WebGL matrices are supplied in column-major order.
+    forward: [a, d, 0, b, e, 0, tx, ty, 1],
+    inverse: [ia, id, 0, ib, ie, 0, itx, ity, 1],
+  };
 }
 
 function screenToLayerLocal(x, y, cx, cy, rotation) {
@@ -3523,11 +3835,61 @@ function loadSvgImage(url, item) {
 }
 
 function drawBuffer(pg, source, x, y, w, h, sourceIsWebGL = false) {
+  if (isSharedFramebufferTarget(source)) {
+    // drawBuffer coordinates are always top-left based. Shared framebuffers
+    // inherit p5's global imageMode, so isolate this copy from callers that
+    // temporarily use CENTER for layer transforms.
+    pg.push();
+    pg.imageMode(CORNER);
+    pg.image(unwrapRenderTarget(source), x, y, w, h);
+    pg.pop();
+    return;
+  }
   if (!sourceIsWebGL) {
     pg.image(source, x, y, w, h);
     return;
   }
   drawWebGLBuffer(pg, source, x, y, w, h);
+}
+
+function drawShaderTarget(target, draw) {
+  if (isSharedFramebufferTarget(target)) {
+    return target.drawWebGL(() => {
+      push();
+      try {
+        noStroke();
+        return draw();
+      } finally {
+        pop();
+      }
+    });
+  }
+  target.push();
+  try {
+    return draw();
+  } finally {
+    target.pop();
+  }
+}
+
+function clearShaderTarget(target) {
+  if (isSharedFramebufferTarget(target)) clear();
+  else target.clear();
+}
+
+function applyShaderTarget(target, shaderProgram) {
+  if (isSharedFramebufferTarget(target)) shader(shaderProgram);
+  else target.shader(shaderProgram);
+}
+
+function resetShaderTarget(target) {
+  if (isSharedFramebufferTarget(target)) resetShader();
+  else target.resetShader();
+}
+
+function drawShaderTargetRect(target, widthPx, heightPx) {
+  if (isSharedFramebufferTarget(target)) rect(-widthPx / 2, -heightPx / 2, widthPx, heightPx);
+  else target.rect(-widthPx / 2, -heightPx / 2, widthPx, heightPx);
 }
 
 function drawTerrainSurface(target, resourceCache, params, compositionTime, planeWidth, planeDepth, style, sky) {
@@ -5739,7 +6101,8 @@ function canvasCompositionRenderRequest(composition = {}, meta = {}) {
     reason: "canvas-sample",
   }, {
     ...meta,
-    instanceId: meta.instanceId || meta.surfaceId || "",
+    timingId: meta.timingId || meta.surfaceId || "",
+    renderIdentity: meta.renderIdentity ?? meta.instanceId ?? composition.id ?? "",
   });
 }
 

@@ -209,6 +209,45 @@ export function compileShaderSchedule(chain = []) {
     .filter((job) => job?.pass.enabled);
 }
 
+export function fuseLocalShaderSchedule(schedule = []) {
+  const fused = [];
+  let run = [];
+  const flush = () => {
+    if (run.length === 1) fused.push(run[0]);
+    else if (run.length > 1) {
+      fused.push({
+        fused: true,
+        jobs: run,
+        component: { name: run.map((job) => job.component.name).join(" + "), sampling: "local" },
+        pass: {
+          id: `fused:${run.map((job) => job.pass.id).join("+")}`,
+          amount: 1,
+          params: {},
+        },
+      });
+    }
+    run = [];
+  };
+  for (const job of schedule || []) {
+    if (isFusibleShaderJob(job)) run.push(job);
+    else {
+      flush();
+      fused.push(job);
+    }
+  }
+  flush();
+  return fused;
+}
+
+export function isFusibleShaderJob(job) {
+  if (!job?.component?.fusible || job.pass?.amount <= 0.0001) return false;
+  const transform = job.pass?.transform || {};
+  return Math.abs(Number(transform.x) || 0) < 1e-9 &&
+    Math.abs(Number(transform.y) || 0) < 1e-9 &&
+    Math.abs((Number(transform.scale) || 1) - 1) < 1e-9 &&
+    Math.abs(Number(transform.rotation) || 0) < 1e-9;
+}
+
 export function passParams(component, pass = {}) {
   const params = {
     ...(pass.params && typeof pass.params === "object" ? pass.params : {}),

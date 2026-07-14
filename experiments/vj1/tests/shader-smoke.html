@@ -21,11 +21,12 @@
   <body>
     <pre id="result">running...</pre>
     <script type="module">
-      import { getShaderComponent } from "../js/shaders/shader-registry.js?v=noise-field-1";
+      import { listShaderComponents } from "../js/shaders/shader-registry.js?v=architecture-1";
       import { getGeneratorShaderComponent } from "../js/shaders/generator-shaders.js?v=shadertoy-generator-16";
-      import { createShaderBuilder } from "../js/shaders/shader-builder.js?v=shadertoy-generator-16";
+      import { getGeneratorComponent } from "../js/graph/generator-registry.js?v=render-quality-2";
+      import { createShaderBuilder } from "../js/shaders/shader-builder.js?v=architecture-1";
+      import { compileShaderSchedule } from "../js/graph/render-scheduler.js?v=architecture-1";
 
-      const effects = ["photoGrade", "labelThresholdGrain", "smear", "alphaVignette", "glitchDistort", "spinRotate", "echoFade", "mirrorFold", "heatShimmer", "crayonStroke", "pixelArtUpscale"];
       const generators = ["gradient", "fireflies", "eyeball", "swayingTrees", "terrainFlyover", "bezierStrokes", "shadertoyBaseWarp", "seascape", "paintDrips", "cloudyTunnel", "cherenkovVolume", "biomineLite"];
       const result = document.getElementById("result");
 
@@ -37,13 +38,68 @@
             getCustomCode: () => "",
             onStatus: (status, error) => statuses.push({ status, error }),
           });
-          const effectResults = effects.map((id) => {
-            const component = getShaderComponent(id);
+          const source = sketch.createImage(2, 2);
+          source.loadPixels();
+          source.pixels.fill(255);
+          source.updatePixels();
+          const effects = listShaderComponents().filter((component) => component.code);
+          const effectResults = effects.map((component) => {
+            const id = component.id;
             const shader = builder.getShader({ id, component }, target);
-            return { id, found: !!component, compiled: !!shader, name: component?.name || "" };
+            let rendered = false;
+            let renderError = "";
+            if (shader) {
+              try {
+                target.push();
+                target.clear();
+                target.shader(shader);
+                setCommonEffectUniforms(shader, component, source, target);
+                target.rect(-target.width / 2, -target.height / 2, target.width, target.height);
+                target.resetShader();
+                target.pop();
+                rendered = true;
+              } catch (error) {
+                renderError = error?.message || String(error);
+              }
+            }
+            return { id, found: true, compiled: !!shader, rendered, renderError, name: component.name || "" };
           });
+          const fusedJobs = compileShaderSchedule([
+            { id: "invert", amount: 0.75 },
+            { id: "gray", amount: 0.5 },
+          ]);
+          const fusedShader = builder.getFusedShader(fusedJobs, target);
+          let fusedRendered = false;
+          let fusedRenderError = "";
+          if (fusedShader) {
+            try {
+              target.push();
+              target.clear();
+              target.shader(fusedShader);
+              fusedShader.setUniform("tex0", source);
+              fusedShader.setUniform("resolution", [target.width, target.height]);
+              fusedShader.setUniform("sourceFlipY", false);
+              fusedShader.setUniform("sourceForceOpaque", false);
+              fusedJobs.forEach((job, index) => {
+                fusedShader.setUniform(`f${index}_time`, 1);
+                for (const param of job.component.params || []) {
+                  fusedShader.setUniform(`f${index}_${param.id}`, smokeParamValue(param));
+                }
+              });
+              target.rect(-target.width / 2, -target.height / 2, target.width, target.height);
+              target.resetShader();
+              target.pop();
+              fusedRendered = true;
+            } catch (error) {
+              fusedRenderError = error?.message || String(error);
+            }
+          }
           const generatorResults = generators.map((id) => {
-            const component = getGeneratorShaderComponent(id);
+            const rawComponent = getGeneratorShaderComponent(id);
+            const generatorComponent = getGeneratorComponent(id);
+            const component = rawComponent
+              ? { ...rawComponent, params: generatorComponent?.params || rawComponent.params || [] }
+              : null;
             const shader = builder.getShader({ id: component?.id || id, component }, target);
             let rendered = false;
             let renderError = "";
@@ -60,6 +116,7 @@
                   shader.setUniform("resolution", [target.width, target.height]);
                   shader.setUniform("time", 1);
                 }
+                for (const param of component.params || []) shader.setUniform(param.id, smokeParamValue(param));
                 target.rect(-target.width / 2, -target.height / 2, target.width, target.height);
                 target.resetShader();
                 target.pop();
@@ -70,15 +127,42 @@
             }
             return { id, found: !!component, compiled: !!shader, rendered, renderError, name: component?.name || "" };
           });
-          const ok = effectResults.every((item) => item.found && item.compiled) &&
-            generatorResults.every((item) => item.found && item.compiled && item.rendered);
-          const payload = { ok, effectResults, generatorResults, statuses };
+          const fusedResult = { compiled: !!fusedShader, rendered: fusedRendered, renderError: fusedRenderError };
+          const ok = effectResults.every((item) => item.found && item.compiled && item.rendered) &&
+            generatorResults.every((item) => item.found && item.compiled && item.rendered) &&
+            fusedResult.compiled && fusedResult.rendered;
+          const payload = { ok, effectResults, fusedResult, generatorResults, statuses };
           document.body.dataset.status = ok ? "ok" : "failed";
           result.textContent = JSON.stringify(payload, null, 2);
           target.remove?.();
           sketch.noLoop();
         };
       });
+
+      function setCommonEffectUniforms(shader, component, source, target) {
+        shader.setUniform("tex0", source);
+        shader.setUniform("resolution", [target.width, target.height]);
+        shader.setUniform("canvasSize", [target.width, target.height]);
+        shader.setUniform("texelSize", [1 / target.width, 1 / target.height]);
+        shader.setUniform("sourceFlipY", false);
+        shader.setUniform("sourceForceOpaque", false);
+        shader.setUniform("time", 1);
+        shader.setUniform("effectTransform", [0, 0, 1, 0]);
+        shader.setUniform("effectUvMatrix", [1, 0, 0, 0, 1, 0, 0, 0, 1]);
+        shader.setUniform("inverseEffectUvMatrix", [1, 0, 0, 0, 1, 0, 0, 0, 1]);
+        shader.setUniform("noiseTex", source);
+        shader.setUniform("noiseTextureSize", [2, 2]);
+        shader.setUniform("iResolution", [target.width, target.height, 1]);
+        shader.setUniform("iTime", 1);
+        for (const param of component.params || []) shader.setUniform(param.id, smokeParamValue(param));
+      }
+
+      function smokeParamValue(param) {
+        if (param.type === "boolean") return param.defaultValue !== false;
+        if (param.type === "color") return [1, 1, 1, 1];
+        if (param.type === "enum") return Math.max(0, (param.values || []).indexOf(param.defaultValue));
+        return Number(param.defaultValue) || 0;
+      }
     </script>
   </body>
 </html>

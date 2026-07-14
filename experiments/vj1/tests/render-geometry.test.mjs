@@ -43,17 +43,17 @@ test("default project surface mapping uses world-centered frame coordinates", ()
   assert.deepEqual(mapping[1].corners[0], { x: 762, y: 224 });
 });
 
-test("surface render requests are keyed per surface instance", () => {
+test("surface presentation identity is separate from render identity", () => {
   const size = { width: 640, height: 360 };
-  const surfaceA = createRenderRequest("surface", size, { surfaceId: "surface-a" });
-  const surfaceB = createRenderRequest("surface", size, { surfaceId: "surface-b" });
+  const surfaceA = createRenderRequest("surface", size, { surfaceId: "surface-a", renderIdentity: "composition-a" });
+  const surfaceB = createRenderRequest("surface", size, { surfaceId: "surface-b", renderIdentity: "composition-a" });
   const explicitInstance = createRenderRequest("surface", size, {
     instanceId: "manual-instance",
     surfaceId: "surface-a",
   });
 
-  assert.equal(renderRequestKey(surfaceA), "surface:640x360:surface-a");
-  assert.equal(renderRequestKey(surfaceB), "surface:640x360:surface-b");
-  assert.notEqual(renderRequestKey(surfaceA), renderRequestKey(surfaceB));
+  assert.equal(renderRequestKey(surfaceA), "surface:640x360:composition-a");
+  assert.equal(renderRequestKey(surfaceB), "surface:640x360:composition-a");
+  assert.equal(renderRequestKey(surfaceA), renderRequestKey(surfaceB));
   assert.equal(renderRequestKey(explicitInstance), "surface:640x360:manual-instance");
 });

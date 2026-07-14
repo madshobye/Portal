@@ -158,11 +158,11 @@ vec4 runEffect(vec2 uv, vec4 color) {
   if (invert > 0.001) rgb = mix(rgb, 1.0 - rgb, invert);
 
   if (grain > 0.001) {
-    float grainValue = hash(uv * resolution + vec2(noiseFrame * 37.0, noiseFrame * 19.0)) - 0.5;
+    float grainValue = cachedNoise(uv * resolution + vec2(noiseFrame * 37.0, noiseFrame * 19.0)) - 0.5;
     rgb += grainValue * grain * 0.16;
   }
   if (noise > 0.001) {
-    float coarseNoise = hash(floor(uv * resolution * 0.14) + vec2(noiseFrame * 3.0, -noiseFrame * 2.0)) - 0.5;
+    float coarseNoise = cachedNoise(floor(uv * resolution * 0.14) + vec2(noiseFrame * 3.0, -noiseFrame * 2.0)) - 0.5;
     rgb += coarseNoise * noise * 0.18;
   }
 
@@ -208,8 +208,8 @@ vec4 runEffect(vec2 uv, vec4 color) {
     code: `
 vec4 runEffect(vec2 uv, vec4 color) {
   float noiseFrame = seed + (seedMode < 0.5 ? floor(time * 24.0) : 0.0);
-  float fine = hash(uv * vec2(16000.0, 12000.0) + noiseFrame);
-  float rough = hash(uv * vec2(1700.0, 2100.0) + vec2(19.0, 73.0 + noiseFrame * 0.37));
+  float fine = cachedNoise(uv * vec2(16000.0, 12000.0) + noiseFrame);
+  float rough = cachedNoise(uv * vec2(1700.0, 2100.0) + vec2(19.0, 73.0 + noiseFrame * 0.37));
   float grain = ((fine - 0.5) * 0.75 + (rough - 0.5) * 0.55) * mix(0.08, 0.55, amount);
   float scanline = step(0.82, fract(uv.y * 900.0)) * mix(0.02, 0.22, amount);
   float alpha = color.a;
@@ -1006,8 +1006,18 @@ export function listShaderComponents() {
 
 function normalizeShaderComponent(component) {
   if (!component) return null;
+  const sampling = component.sampling || inferSampling(component.code);
   return defineVisualComponent({
     ...component,
+    sampling,
+    requiresBaseSample: component.requiresBaseSample ?? effectUsesBaseColor(component.code),
+    fusible: component.fusible ?? (
+      sampling === "local" &&
+      component.type !== "fragment" &&
+      component.type !== "shadertoy" &&
+      component.id !== "custom" &&
+      component.transformSource !== false
+    ),
     kind: "effect",
     family: "shader",
     processor: "shader",
@@ -1024,4 +1034,14 @@ function normalizeShaderComponent(component) {
       }),
     ],
   });
+}
+
+function inferSampling(code = "") {
+  const sourceSamples = (String(code).match(/\bsampleSource\s*\(/g) || []).length;
+  return sourceSamples > 0 ? "neighborhood" : "local";
+}
+
+function effectUsesBaseColor(code = "") {
+  const body = String(code).replace(/runEffect\s*\(\s*vec2\s+\w+\s*,\s*vec4\s+color\s*\)/, "runEffect()");
+  return /\bcolor\b/.test(body);
 }

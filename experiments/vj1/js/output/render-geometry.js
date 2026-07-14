@@ -53,7 +53,10 @@ export function renderRequestKey(request = {}) {
   const role = request.role || "texture";
   const width = positiveInt(request.width, VJ1.renderWidth, 1);
   const height = positiveInt(request.height, VJ1.renderHeight, 1);
-  const requestInstance = request.instanceId || request.surfaceId || "";
+  // Rendering identity is intentionally separate from presentation/timing
+  // identity. Two surfaces can map the same composition texture without
+  // forcing the composition chain to render twice.
+  const requestInstance = request.renderIdentity ?? request.instanceId ?? "";
   const instance = requestInstance ? `:${requestInstance}` : "";
   return `${role}:${width}x${height}${instance}`;
 }

@@ -27,6 +27,23 @@ export function createShaderBuilder({ getCustomCode, onStatus }) {
     }
   }
 
+  function getFusedShader(jobs, target = null) {
+    if (!Array.isArray(jobs) || jobs.length < 2) return jobs?.[0] ? getShader(jobs[0].pass, target) : null;
+    const contextId = getContextId(target);
+    const key = `${contextId}:fused:${jobs.map((job) => `${job.pass.id}:${job.component.code}`).join("|")}`;
+    if (cache.has(key)) return cache.get(key);
+    try {
+      const factory = typeof target?.createShader === "function" ? target : globalThis;
+      const shader = factory.createShader(vertexShaderSource(), fusedFragmentShaderSource(jobs));
+      cache.set(key, shader);
+      onStatus?.("Fused shader ready", "");
+      return shader;
+    } catch (error) {
+      onStatus?.("Fused shader compile failed", error?.message || String(error));
+      return null;
+    }
+  }
+
   function invalidateCustom() {
     for (const key of Array.from(cache.keys())) {
       if (key.includes(":custom:")) cache.delete(key);
@@ -37,7 +54,11 @@ export function createShaderBuilder({ getCustomCode, onStatus }) {
     cache.clear();
   }
 
-  return { getShader, invalidateCustom, clear };
+  return { getShader, getFusedShader, invalidateCustom, clear };
+}
+
+export function fusedUniformName(index, id) {
+  return `f${index}_${id}`;
 }
 
 function usesShadertoyInterface(component, code = "") {
@@ -83,6 +104,10 @@ uniform bool sourceForceOpaque;
 uniform float time;
 uniform float amount;
 uniform vec4 effectTransform;
+uniform mat3 effectUvMatrix;
+uniform mat3 inverseEffectUvMatrix;
+uniform sampler2D noiseTex;
+uniform vec2 noiseTextureSize;
 ${paramUniformDeclarations(component)}
 varying vec2 vTexCoord;
 
@@ -90,6 +115,11 @@ float hash(vec2 p) {
   vec3 p3 = fract(vec3(p.xyx) * 0.1031);
   p3 += dot(p3, p3.yzx + 33.33);
   return fract((p3.x + p3.y) * p3.z);
+}
+
+float cachedNoise(vec2 p) {
+  vec2 size = max(noiseTextureSize, vec2(1.0));
+  return texture2D(noiseTex, fract((floor(p) + 0.5) / size)).r;
 }
 
 vec2 sourceUv(vec2 uv) {
@@ -111,25 +141,11 @@ vec2 textureUvFromEffectScreenUv(vec2 uv) {
 }
 
 vec2 transformEffectUv(vec2 uv) {
-  vec2 center = vec2(0.5) + effectTransform.xy * 0.5;
-  float scale = max(effectTransform.z, 0.0001);
-  float rotation = effectTransform.w;
-  vec2 p = uv - center;
-  float c = cos(-rotation);
-  float s = sin(-rotation);
-  p = vec2(c * p.x - s * p.y, s * p.x + c * p.y) / scale;
-  return p + vec2(0.5);
+  return (effectUvMatrix * vec3(uv, 1.0)).xy;
 }
 
 vec2 inverseTransformEffectUv(vec2 uv) {
-  vec2 center = vec2(0.5) + effectTransform.xy * 0.5;
-  float scale = max(effectTransform.z, 0.0001);
-  float rotation = effectTransform.w;
-  vec2 p = (uv - vec2(0.5)) * scale;
-  float c = cos(rotation);
-  float s = sin(rotation);
-  p = vec2(c * p.x - s * p.y, s * p.x + c * p.y);
-  return p + center;
+  return (inverseEffectUvMatrix * vec3(uv, 1.0)).xy;
 }
 
 float effectFieldMask(vec2 uv) {
@@ -141,9 +157,74 @@ ${effectCode}
 
 void main() {
   vec2 uv = ${uvExpression};
-  vec4 color = sampleSource(uv);
+  vec4 color = ${component?.requiresBaseSample === false ? "vec4(0.0)" : "sampleSource(uv)"};
   gl_FragColor = runEffect(uv, color);
 }`;
+}
+
+function fusedFragmentShaderSource(jobs) {
+  const declarations = [];
+  const codeBlocks = [];
+  const calls = [];
+  jobs.forEach((job, index) => {
+    const component = job.component;
+    declarations.push(`uniform float ${fusedUniformName(index, "time")};`);
+    for (const param of component.params || []) {
+      declarations.push(`uniform ${uniformTypeForParam(param)} ${fusedUniformName(index, param.id)};`);
+    }
+    codeBlocks.push(namespaceEffectCode(component.code, component, index));
+    calls.push(`color = ${fusedUniformName(index, "runEffect")}(vTexCoord, color);`);
+  });
+  return `
+precision mediump float;
+uniform sampler2D tex0;
+uniform vec2 resolution;
+uniform bool sourceFlipY;
+uniform bool sourceForceOpaque;
+uniform sampler2D noiseTex;
+uniform vec2 noiseTextureSize;
+${declarations.join("\n")}
+varying vec2 vTexCoord;
+
+float hash(vec2 p) {
+  vec3 p3 = fract(vec3(p.xyx) * 0.1031);
+  p3 += dot(p3, p3.yzx + 33.33);
+  return fract((p3.x + p3.y) * p3.z);
+}
+float cachedNoise(vec2 p) {
+  vec2 size = max(noiseTextureSize, vec2(1.0));
+  return texture2D(noiseTex, fract((floor(p) + 0.5) / size)).r;
+}
+vec2 sourceUv(vec2 uv) {
+  vec2 safeUv = clamp(uv, vec2(0.0), vec2(1.0));
+  return sourceFlipY ? vec2(safeUv.x, 1.0 - safeUv.y) : safeUv;
+}
+vec4 sampleSource(vec2 uv) {
+  vec4 sampled = texture2D(tex0, sourceUv(uv));
+  return sourceForceOpaque ? vec4(sampled.rgb, 1.0) : sampled;
+}
+${codeBlocks.join("\n")}
+void main() {
+  vec4 color = sampleSource(vTexCoord);
+  ${calls.join("\n  ")}
+  gl_FragColor = color;
+}`;
+}
+
+function namespaceEffectCode(code, component, index) {
+  const names = new Set(["runEffect", "time"]);
+  for (const param of component.params || []) names.add(param.id);
+  const functionPattern = /\b(?:float|vec[234]|mat[234]|bool|int)\s+([A-Za-z_]\w*)\s*\(/g;
+  for (const match of String(code || "").matchAll(functionPattern)) names.add(match[1]);
+  let namespaced = String(code || "");
+  for (const name of Array.from(names).sort((a, b) => b.length - a.length)) {
+    namespaced = namespaced.replace(new RegExp(`\\b${escapeRegExp(name)}\\b`, "g"), fusedUniformName(index, name));
+  }
+  return namespaced;
+}
+
+function escapeRegExp(value) {
+  return String(value).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
 function standaloneFragmentSource(code, component) {
@@ -190,7 +271,7 @@ function hasRenderQualityParam(component) {
 }
 
 function paramUniformDeclarations(component) {
-  const reserved = new Set(["tex0", "resolution", "sourceFlipY", "sourceForceOpaque", "time", "amount", "effectTransform", "canvasSize", "texelSize"]);
+  const reserved = new Set(["tex0", "resolution", "sourceFlipY", "sourceForceOpaque", "time", "amount", "effectTransform", "effectUvMatrix", "inverseEffectUvMatrix", "noiseTex", "noiseTextureSize", "canvasSize", "texelSize"]);
   return (component?.params || [])
     .filter((param) => param?.id && !reserved.has(param.id))
     .map((param) => `uniform ${uniformTypeForParam(param)} ${param.id};`)

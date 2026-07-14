@@ -1,6 +1,6 @@
 # VJ1 Project Handover
 
-Last updated: 2026-07-12
+Last updated: 2026-07-14
 
 VJ1 is an experimental browser-based VJ, visual-composition, and projection-mapping application. It runs directly from `experiments/vj1` without a build step and uses p5.js/WebGL for rendering. A selected local folder is the project and is the authoritative home for project JSON, media, shaders, mappings, revisions, and generated renditions.
 
@@ -68,11 +68,12 @@ The output clients create their own p5/WebGL canvas and `OutputRenderer`. They r
 - `js/graph/render-scheduler.js`: compiles chains into visual nodes and texture edges.
 - `js/graph/manual-scheduler.js`: manual scheduling support.
 - `js/graph/patch-planner.js`: patch planning.
-- `js/shaders/shader-builder.js`: compiles effect GLSL into p5 shaders and caches per WebGL context.
+- `js/shaders/shader-builder.js`: compiles effect GLSL, fuses safe pixel-local effect runs, precomputes transform uniforms, and caches shaders per WebGL context.
 
 ### Rendering and mapping
 
-- `js/output/output-renderer.js`: the primary renderer. It owns composition evaluation, groups, canvas compositions, render-size requests, specialized sources, media, shader passes, ping-pong buffers, caching, surfaces, mapper integration, thumbnails, handles, readiness blackout, and runtime profiling.
+- `js/output/output-renderer.js`: the primary renderer. It owns composition evaluation, groups, canvas compositions, render-size requests, specialized sources, media, pooled shared-context framebuffer targets, shader passes, caching, surfaces, mapper integration, thumbnails, handles, readiness blackout, and runtime profiling.
+- `js/output/shared-framebuffer-target.js`: a top-left 2D facade over p5 framebuffers. It keeps composition and effect targets in the main WebGL context and prevents centered p5 drawing state from shifting buffer copies.
 - `js/output/output-app.js`: popup/standalone p5 client, resizing, fixture loading, and output bridge.
 - `js/output/embedded-preview-app.js`: embedded preview lifecycle, sizing, local media import, thumbnails, mapping updates, and transform handles.
 - `js/output/render-geometry.js`: frame, world, surface-texture, mapping, and preview sizing contracts.
@@ -176,12 +177,13 @@ Important details:
 1. Only compositions required by the current workspace/scene are rendered.
 2. Static compositions are signature-cached.
 3. Dynamic sources and effects invalidate per frame.
-4. Effects use reusable WebGL ping-pong buffers.
-5. Groups use isolated transparent intermediates.
-6. Each surface route has an instance-specific render request and timing identity.
-7. Surface textures are bounded by `render.surfaceWidth`/`surfaceHeight` and can be reduced to the mapped surface size.
-8. Composition previews use the current preview frame or requested texture resolution, not the popup window's dimensions.
-9. The output canvas follows the window size, while the logical output frame keeps the configured frame aspect and fills/crops according to output fitting rules.
+4. Composition, group, source, and effect intermediates prefer pooled p5 framebuffers in the output canvas's WebGL context, so compatible chains remain GPU-resident.
+5. Consecutive safe pixel-local effects are fused into one physical shader draw; neighborhood and stateful effects remain separate.
+6. Groups use isolated transparent intermediates.
+7. Surface presentation/timing identity is separate from composition render identity, so two surfaces can share the same composition result without synchronizing route-specific timing.
+8. Surface textures are bounded by `render.surfaceWidth`/`surfaceHeight` and can be reduced to the mapped surface size.
+9. Composition previews use the current preview frame or requested texture resolution, not the popup window's dimensions.
+10. The output canvas follows the window size, while the logical output frame keeps the configured frame aspect and fills/crops according to output fitting rules.
 
 Alpha is premultiplied through shader passes. Effects must not turn transparent black into opaque white or black. Shader output should generally follow:
 
@@ -213,7 +215,7 @@ These dimensions have different jobs and must not be conflated:
 - **Preview canvas size** is a UI/display concern and must not silently increase render resolution.
 - **Popup window size** controls the HTML/p5 canvas display, not composition texture quality.
 
-Mappings are stored in world coordinates. `VjMapper` computes a homography from four corners and draws the routed texture into that quadrilateral. Mapping reset, import, resize, and scene snapshots must use the same coordinate convention. Surface order is draw order.
+Mappings are stored in world coordinates. `VjMapper` computes and caches a homography from four corners, applies the inverse transform at the quad vertices, and rasterizes the routed texture as a real projective quadrilateral. Mapping reset, import, resize, and scene snapshots must use the same coordinate convention. Surface order is draw order.
 
 The output window and embedded preview must show the same crop, aspect, and mapping. When they differ, inspect `render-geometry.js`, `surfaceRouteRenderRequest()`, `drawSurfaceRoute()`, and the output frame transform before changing source-fit behavior.
 
@@ -250,6 +252,7 @@ The main risks are pixel count, pass count, duplicate WebGL contexts, unnecessar
 
 - Keep one embedded WebGL preview and one context per actual output window. Dispose graphics and renderer resources on page hide.
 - Reuse WebGL targets; do not create graphics buffers on resize or every frame without cache/disposal rules.
+- Keep framebuffer copies on the shared top-left drawing contract; p5's main WEBGL renderer otherwise inherits centered image state across targets.
 - Prefer one bounded shader pass over chains of small passes where behavior can be combined cleanly.
 - Skip neutral/zero-amount passes before drawing.
 - Preserve static-composition caching by accurately reporting whether sources/effects are dynamic.
@@ -292,16 +295,9 @@ The shader smoke page must be used for new GLSL because Node tests only inspect 
 
 ## Current Handover Status
 
-The VJ1 worktree contains uncommitted changes spanning terrain, low-poly anatomy, STL/OBJ rendering, render geometry, output synchronization, UI controls, crayon stroke, Bezier strokes, fixtures, and tests. Do not discard or broadly rewrite these changes. Read the diff before touching files that already changed.
+The VJ1 worktree contains uncommitted changes spanning terrain, low-poly anatomy, STL/OBJ rendering, render geometry, output synchronization, UI controls, crayon stroke, Bezier strokes, the GPU-resident composition architecture, fixtures, metrics reports, and tests. Do not discard or broadly rewrite these changes. Read the diff before touching files that already changed.
 
-The test suite currently has 73 passing Node tests. The most recently verified additions are the Crayon / Pen Stroke effect and Bezier Strokes generator, including browser rendering fixtures.
-
-Immediate known follow-up from the latest terrain discussion:
-
-1. Make terrain wires correspond exactly to the real polygon grid.
-2. Make terrain background pixels transparent.
-3. Improve terrain perspective while retaining the polygon-mesh renderer.
-4. Remove or clearly retire the stale ray-marched terrain shader after confirming no fixture or fallback still depends on it.
+The test suite currently has 115 passing Node tests. The shared-framebuffer composition pipeline, effect fusion, projective quad mapper, cached shader noise, shader smoke page, popup output, scene preview, and composition preview were last verified together on 2026-07-14. The representative before/after runtime comparison is stored under `metrics-results/runs/four-surface-show-gpu-architecture.*`.
 
 ## Change Discipline
 
