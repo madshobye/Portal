@@ -3,12 +3,12 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 
 import { createCompositionEffect, createCompositionLayer, createDefaultComposition, createInitialState, createLiveCompositionView, sanitizeState } from "../js/domain/models.js?v=world-frame-27";
-import { normalizeParamValue } from "../js/graph/component-schema.js";
-import { getGeneratorComponent } from "../js/graph/generator-registry.js";
+import { normalizeParamValue, renderQualityScale } from "../js/graph/component-schema.js";
+import { getGeneratorComponent, listGeneratorComponents } from "../js/graph/generator-registry.js";
 import { RenderNodeRuntime, textureStateKey } from "../js/graph/render-node-runtime.js";
 import { compileCompositionPatch } from "../js/graph/render-scheduler.js?v=world-frame-27";
 import { shouldHoldCurrentOutputState } from "../js/output/output-app.js";
-import { advanceRateClock, advanceSpatialScale, OutputRenderer, parseObjMesh, sourceWithNodeParams, terrainExpandedGridWireVertices, terrainExpandedWireVertices, terrainGridSize, terrainSurfaceGridVertices, terrainSurfaceTriangleIndices, terrainTriangleEdgeUvs } from "../js/output/output-renderer.js?v=world-frame-27";
+import { advanceRateClock, advanceSpatialScale, OutputRenderer, parseObjMesh, qualityAdjustedGeneratorParams, qualityScaledRenderRequest, sourceWithNodeParams, terrainExpandedGridWireVertices, terrainExpandedWireVertices, terrainGridSize, terrainSurfaceGridVertices, terrainSurfaceTriangleIndices, terrainTriangleEdgeUvs } from "../js/output/output-renderer.js?v=world-frame-27";
 import { getMediaType, isMediaFile } from "../js/services/media-library-service.js";
 
 test("media sources keep trim and playback speed through normalization and graph compile", () => {
@@ -80,12 +80,45 @@ test("generator sources keep personality params through normalization and graph 
   assert.equal(sourceNode.params.jitter, 0.8);
 });
 
+test("every generator exposes the shared render quality budget at the current midpoint", () => {
+  for (const component of listGeneratorComponents()) {
+    const quality = component.params.find((param) => param.id === "renderQuality");
+    assert.ok(quality, `${component.id} is missing renderQuality`);
+    assert.equal(quality.defaultValue, 0.5);
+  }
+  assert.equal(renderQualityScale({ renderQuality: 0.5 }), 1);
+  assert.ok(renderQualityScale({ renderQuality: 0 }) < renderQualityScale({ renderQuality: 0.5 }));
+  assert.equal(renderQualityScale({ renderQuality: 1 }), 1);
+});
+
+test("render quality preserves current work at midpoint and scales expensive work around it", () => {
+  const rendererSource = readFileSync(new URL("../js/output/output-renderer.js", import.meta.url), "utf8");
+  const request = { role: "composition", width: 1280, height: 720 };
+  assert.deepEqual(qualityScaledRenderRequest(request, { renderQuality: 0.5 }), request);
+  assert.deepEqual(qualityScaledRenderRequest(request, { renderQuality: 1 }), request);
+  assert.deepEqual(qualityScaledRenderRequest(request, { renderQuality: 0 }), {
+    ...request,
+    width: 448,
+    height: 252,
+    logicalWidth: 1280,
+    logicalHeight: 720,
+    qualityScale: 0.35,
+  });
+
+  assert.equal(qualityAdjustedGeneratorParams("cloudyTunnel", { renderQuality: 0.5, raySteps: 72 }).raySteps, 72);
+  assert.equal(qualityAdjustedGeneratorParams("cloudyTunnel", { renderQuality: 0, raySteps: 72 }).raySteps, 25);
+  assert.equal(qualityAdjustedGeneratorParams("cloudyTunnel", { renderQuality: 1, raySteps: 72 }).raySteps, 108);
+  assert.ok(rendererSource.includes("this.getFxPingPongTarget(renderRequest, 0)"));
+  assert.ok(rendererSource.includes('shader.setUniform("resolution", [logicalWidth, logicalHeight])'));
+  assert.ok(rendererSource.includes('shader.setUniform("texelSize", [1 / logicalWidth, 1 / logicalHeight])'));
+});
+
 test("fireflies generator exposes cost and motion controls", () => {
   const component = getGeneratorComponent("fireflies");
   const ids = component.params.map((param) => param.id);
   const tintParam = component.params.find((param) => param.id === "tintColor");
 
-  assert.deepEqual(ids, ["count", "glowSize", "speed", "trail", "brightness", "twinkle", "tintColor"]);
+  assert.deepEqual(ids, ["renderQuality", "count", "glowSize", "speed", "trail", "brightness", "twinkle", "tintColor"]);
   assert.equal(normalizeParamValue(component.params.find((param) => param.id === "count"), undefined), 18);
   assert.equal(normalizeParamValue(component.params.find((param) => param.id === "trail"), undefined), 0.25);
   assert.equal(tintParam.type, "color");
@@ -115,7 +148,7 @@ test("Shadertoy base warp is exposed as a generator with clock speed", () => {
   assert.equal(component.name, "Base Warp");
   assert.equal(component.category, "shadertoy");
   assert.equal(speed.defaultValue, 1);
-  assert.deepEqual(ids, ["speed", "scale", "rotation", "offsetX", "offsetY", "warpAmount", "contrast", "brightness", "paletteShift", "paletteBalance", "shadowColor", "midtoneColor", "highlightColor", "saturation", "amount"]);
+  assert.deepEqual(ids, ["renderQuality", "speed", "scale", "rotation", "offsetX", "offsetY", "warpAmount", "contrast", "brightness", "paletteShift", "paletteBalance", "shadowColor", "midtoneColor", "highlightColor", "saturation", "amount"]);
   for (const id of ["shadowColor", "midtoneColor", "highlightColor"]) {
     assert.equal(component.params.find((param) => param.id === id).type, "color");
   }
@@ -268,7 +301,7 @@ test("terrain flyover exposes flight, terrain, wire, and biome controls", () => 
   assert.ok(controllerSource.includes("terrainFlyover: \"landscape\""));
   assert.ok(rendererSource.includes("source.generatorId === \"terrainFlyover\""));
   assert.ok(rendererSource.includes("this.terrainTargets = new Map()"));
-  assert.ok(rendererSource.includes("const target = this.getTerrainTarget(pg.width, pg.height)"));
+  assert.ok(rendererSource.includes("const target = this.getTerrainTarget(renderRequest.width, renderRequest.height)"));
   assert.ok(rendererSource.includes("disposeGraphicsMap(this.terrainTargets)"));
   assert.ok(rendererSource.includes("this.terrainSurfaceResources = new Map()"));
   assert.ok(rendererSource.includes("drawTerrainSurface(target, this.terrainSurfaceResources"));
@@ -366,7 +399,7 @@ test("random generator speed controls use phase-continuous clocks", () => {
 
   assert.ok(rendererSource.includes('generatorId === "fireflies" || generatorId === "bezierStrokes"'));
   assert.ok(rendererSource.includes("this.continuousRateTime(`${instanceId || generatorId}:${rateParam}`"));
-  assert.ok(rendererSource.includes("const shaderParams = rateParam ? { ...params, [rateParam]: 1 } : params"));
+  assert.ok(rendererSource.includes("const shaderParams = rateParam ? { ...qualityParams, [rateParam]: 1 } : qualityParams"));
 });
 
 test("terrain wireframe contains every real grid and triangle edge", () => {
@@ -856,6 +889,42 @@ test("static source textures repaint only when their own source state changes", 
 
     item.params = { fit: "cover" };
     renderer.renderCompositionSourceItem(state.compositions[0], item, 2, request);
+    assert.equal(paints, 2);
+  } finally {
+    if (previousCreateGraphics === undefined) delete globalThis.createGraphics;
+    else globalThis.createGraphics = previousCreateGraphics;
+  }
+});
+
+test("media readiness invalidates a cached loading placeholder", () => {
+  const previousCreateGraphics = globalThis.createGraphics;
+  const renderer = new OutputRenderer({ mode: "composition" });
+  const state = createInitialState();
+  state.media = [{ id: "media/a.png", path: "media/a.png", type: "image", size: 42 }];
+  renderer.state = state;
+  const runtimeMedia = { ready: false };
+  renderer.media.set("media/a.png", runtimeMedia);
+  renderer.applyGraphicsFont = () => {};
+  let paints = 0;
+  renderer.safeDrawSourceToGraphics = () => { paints++; };
+  globalThis.createGraphics = (width, height) => ({
+    width,
+    height,
+    push() {},
+    pop() {},
+    clear() {},
+  });
+
+  try {
+    const item = createCompositionLayer(0, { type: "media", mediaId: "media/a.png" });
+    const request = { role: "composition", width: 640, height: 360 };
+    renderer.renderCompositionSourceItem(state.compositions[0], item, 0, request);
+    renderer.renderCompositionSourceItem(state.compositions[0], item, 1, request);
+    assert.equal(paints, 1);
+
+    runtimeMedia.ready = true;
+    renderer.renderCompositionSourceItem(state.compositions[0], item, 2, request);
+    renderer.renderCompositionSourceItem(state.compositions[0], item, 3, request);
     assert.equal(paints, 2);
   } finally {
     if (previousCreateGraphics === undefined) delete globalThis.createGraphics;

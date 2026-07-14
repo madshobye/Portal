@@ -1,4 +1,4 @@
-import { createColorParam, createEnumParam, createNumberParam, defaultParamValues, defineVisualComponent, normalizeParamValues, textureInlet, textureOutlet } from "./component-schema.js?v=node-dirty-runtime-1";
+import { createColorParam, createEnumParam, createNumberParam, defaultParamValues, defineVisualComponent, normalizeParamValues, textureInlet, textureOutlet } from "./component-schema.js?v=render-quality-2";
 
 const ALWAYS_TIME_RUNTIME = Object.freeze({ timeDependent: () => true });
 

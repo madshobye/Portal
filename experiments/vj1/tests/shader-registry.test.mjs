@@ -2,9 +2,18 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 
-import { getShaderComponent } from "../js/shaders/shader-registry.js";
+import { getShaderComponent, listShaderComponents } from "../js/shaders/shader-registry.js";
+import { getGeneratorComponent } from "../js/graph/generator-registry.js";
 import { getGeneratorShaderComponent } from "../js/shaders/generator-shaders.js";
 import { createShaderBuilder } from "../js/shaders/shader-builder.js";
+
+test("every effect exposes the shared render quality budget", () => {
+  for (const component of listShaderComponents()) {
+    const quality = component.params.find((param) => param.id === "renderQuality");
+    assert.ok(quality, `${component.id} is missing renderQuality`);
+    assert.equal(quality.defaultValue, 0.5);
+  }
+});
 
 test("photo grade exposes common one-pass image tweak controls", () => {
   const component = getShaderComponent("photoGrade");
@@ -153,7 +162,7 @@ test("heartbeat pulse exposes double-beat radial distortion controls", () => {
   assert.equal(component.category, "warp");
   assert.equal(component.spatial, true);
   assert.equal(component.transformSource, false);
-  assert.deepEqual(ids, ["amount", "rate", "ringWidth", "spread"]);
+  assert.deepEqual(ids, ["renderQuality", "amount", "rate", "ringWidth", "spread"]);
   assert.ok(component.code.includes("float cycleDuration = 1.0 / max(rate, 0.001);"));
   assert.ok(component.code.includes("float beatTime = mod(time, cycleDuration);"));
   assert.ok(component.code.includes("beatImpulse(beatTime, 0.08"));
@@ -172,7 +181,7 @@ test("flip effect exposes whole-image x and y controls", () => {
   assert.equal(component.name, "Flip");
   assert.equal(component.category, "geometry");
   assert.equal(component.spatial, false);
-  assert.deepEqual(component.params.map((param) => param.id), ["amount", "flipX", "flipY"]);
+  assert.deepEqual(component.params.map((param) => param.id), ["renderQuality", "amount", "flipX", "flipY"]);
   assert.equal(params.flipX.type, "boolean");
   assert.equal(params.flipX.defaultValue, true);
   assert.equal(params.flipY.type, "boolean");
@@ -290,7 +299,8 @@ test("gradient generator supports efficient linear radial and single modes", () 
 });
 
 test("Shadertoy generator keeps mainImage source behind the compatibility wrapper", () => {
-  const component = getGeneratorShaderComponent("shadertoyBaseWarp");
+  const rawComponent = getGeneratorShaderComponent("shadertoyBaseWarp");
+  const component = { ...rawComponent, params: getGeneratorComponent("shadertoyBaseWarp").params };
   let fragmentSource = "";
   const target = {
     createShader(_vertex, fragment) {
@@ -321,6 +331,7 @@ test("Shadertoy generator keeps mainImage source behind the compatibility wrappe
   assert.ok(fragmentSource.includes("void vj1MainImage(out vec4 fragColor, in vec2 fragCoord)"));
   assert.ok(fragmentSource.includes("iResolution.y - gl_FragCoord.y"));
   assert.ok(fragmentSource.includes("vj1MainImage(fragColor, shadertoyFragCoord)"));
+  assert.ok(fragmentSource.includes("uniform float renderQuality;"));
   assert.ok(!fragmentSource.includes("void mainImage"));
   const [beforeP5Main, afterP5Main] = fragmentSource.split("void main");
   const p5PreprocessedSource = `${beforeP5Main}void main${afterP5Main}`;
@@ -332,6 +343,22 @@ test("Shadertoy generator keeps mainImage source behind the compatibility wrappe
     component: { ...component, type: "fragment" },
   }, target);
   assert.ok(fragmentSource.includes("void main()"), "mainImage source should be detected even without type metadata");
+});
+
+test("standalone generator shaders receive the shared quality uniform", () => {
+  const rawComponent = getGeneratorShaderComponent("fireflies");
+  const component = { ...rawComponent, params: getGeneratorComponent("fireflies").params };
+  let fragmentSource = "";
+  const target = {
+    createShader(_vertex, fragment) {
+      fragmentSource = fragment;
+      return {};
+    },
+  };
+  createShaderBuilder({}).getShader({ id: component.id, component }, target);
+
+  assert.ok(fragmentSource.includes("precision mediump float;\nuniform float renderQuality;"));
+  assert.equal((fragmentSource.match(/uniform float renderQuality;/g) || []).length, 1);
 });
 
 test("Seascape preserves attribution and maps artistic controls into bounded shader work", () => {

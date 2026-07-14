@@ -318,14 +318,17 @@ void main() {
   vec3 color = vec3(0.0);
   float alpha = 0.0;
 
-  float activeCount = clamp(floor(count + 0.5), 1.0, 24.0);
+  float qualityMultiplier = renderQuality <= 0.5
+    ? mix(0.35, 1.0, renderQuality * 2.0)
+    : mix(1.0, 1.34, (renderQuality - 0.5) * 2.0);
+  float activeCount = clamp(floor(count * qualityMultiplier + 0.5), 1.0, 32.0);
   float motionSpeed = max(speed, 0.0);
   float sizeScale = max(glowSize, 0.05);
   float trailAmount = clamp(trail, 0.0, 1.0);
   float lightAmount = max(brightness, 0.0);
   float twinkleAmount = clamp(twinkle, 0.0, 1.0);
 
-  for (int i = 0; i < 24; i++) {
+  for (int i = 0; i < 32; i++) {
     float fi = float(i);
     if (fi >= activeCount) continue;
     vec2 seed = hash2(fi + 3.0);
@@ -342,11 +345,12 @@ void main() {
     float size = mix(0.0045, 0.014, seed.y) * sizeScale;
     vec2 delta = p - pos;
     float dist2 = dot(delta, delta);
-    float glow = exp(-dist2 / (size * size * 18.0)) * blink;
     float core = exp(-dist2 / (size * size)) * blink;
+    float glow = renderQuality > 0.12 ? exp(-dist2 / (size * size * 18.0)) * blink : 0.0;
+    float wideGlow = renderQuality > 0.72 ? exp(-dist2 / (size * size * 42.0)) * blink : 0.0;
 
     float trailGlow = 0.0;
-    if (trailAmount > 0.001) {
+    if (trailAmount > 0.001 && renderQuality > 0.22) {
       vec2 velocity = normalize(vec2(
         cos(orbit * 0.7 + fi * 1.37) * 0.11 - sin(orbit * 0.31) * 0.03,
         -sin(orbit * 0.9 + fi * 0.73) * 0.13 + cos(orbit * 0.43) * 0.03
@@ -356,9 +360,9 @@ void main() {
       trailGlow = exp(-abs(dot(trailDelta, vec2(-velocity.y, velocity.x))) * 70.0 / sizeScale) * along * along * blink * 0.18 * trailAmount;
     }
 
-    float light = (glow * 0.48 + core * 1.8 + trailGlow) * lightAmount;
+    float light = (glow * 0.48 + wideGlow * 0.12 + core * 1.8 + trailGlow) * lightAmount;
     color += tintColor.rgb * light;
-    alpha += (glow * 0.34 + core + trailGlow * 0.75) * tintColor.a;
+    alpha += (glow * 0.34 + wideGlow * 0.08 + core + trailGlow * 0.75) * tintColor.a;
   }
 
   alpha = clamp(alpha, 0.0, 1.0);

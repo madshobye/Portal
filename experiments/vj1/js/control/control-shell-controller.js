@@ -1,12 +1,12 @@
 import { BLEND_MODES, VJ1, WORKSPACES } from "../constants.js";
 import { applySceneSnapshotToState, createLiveCompositionView, createLiveRenderState, createSceneSnapshot, normalizeRenderSettings } from "../domain/models.js?v=output-playback-1";
-import { normalizeParamValue } from "../graph/component-schema.js?v=node-dirty-runtime-1";
-import { getGeneratorComponent, listGeneratorComponents } from "../graph/generator-registry.js?v=node-dirty-runtime-1";
+import { normalizeParamValue, RENDER_QUALITY_PARAM } from "../graph/component-schema.js?v=render-quality-2";
+import { getGeneratorComponent, listGeneratorComponents } from "../graph/generator-registry.js?v=render-quality-2";
 import { patchNodeDegree, planCompositorInputs, planPatchExecution, summarizeTextureBranches } from "../graph/patch-planner.js";
-import { compileCompositionPatch } from "../graph/render-scheduler.js?v=node-dirty-runtime-1";
+import { compileCompositionPatch } from "../graph/render-scheduler.js?v=render-quality-2";
 import { buildOutputUrl } from "../view-routing.js";
-import { getShaderComponent, listShaderComponents } from "../shaders/shader-registry.js?v=node-dirty-runtime-1";
-import { createEmbeddedPreviewApp } from "../output/embedded-preview-app.js?v=node-dirty-runtime-1";
+import { getShaderComponent, listShaderComponents } from "../shaders/shader-registry.js?v=render-quality-2";
+import { createEmbeddedPreviewApp } from "../output/embedded-preview-app.js?v=render-quality-2";
 import { frameFitViewport, resetViewport, zoomViewport } from "../output/preview-viewport.js";
 import { defaultProjectSurfaceMapping } from "../output/render-geometry.js";
 import { createHtmlCache, isInteractiveNode, isTextEditingNode, setClass, setText } from "./dom-utils.js";
@@ -20,6 +20,7 @@ const MODEL_SURFACE_COLOR_PARAM = { id: "surfaceColor", label: "Surface color", 
 const MODEL_WIRE_COLOR_PARAM = { id: "wireColor", label: "Wire color", type: "color", defaultValue: "#141414dd" };
 const MEDIA_FIT_PARAM = { id: "fit", label: "Fit", type: "enum", values: MEDIA_FIT_MODES, defaultValue: "contain" };
 const MODEL_SOURCE_PARAMS = [
+  RENDER_QUALITY_PARAM,
   { id: "renderMode", label: "Draw mode", type: "enum", values: MODEL_RENDER_MODES, defaultValue: "surface" },
   MODEL_SURFACE_COLOR_PARAM,
   MODEL_WIRE_COLOR_PARAM,
@@ -2057,6 +2058,7 @@ function sourcePickerTemplate(composition, state, base) {
 
 function mediaSourceFitControlsTemplate(base, source = {}) {
   return `
+    ${rangeTemplate("Render quality", `${base}.params.renderQuality`, source.params?.renderQuality ?? 0.5, 0, 1, 0.01)}
     <label class="field chain-param">Fit ${selectValuesTemplate(`${base}.params.fit`, MEDIA_FIT_MODES, source.params?.fit || "contain")}</label>
   `;
 }
@@ -2223,6 +2225,7 @@ function modelSourceControlsTemplate(base, source = {}) {
   return `
     <div class="model-source-controls">
       <div class="rail-title"><span class="material-symbols-rounded">deployed_code</span><span>3D model</span></div>
+      ${rangeTemplate("Render quality", `${base}.params.renderQuality`, params.renderQuality ?? 0.5, 0, 1, 0.01)}
       <label class="field chain-param">Draw mode ${selectValuesTemplate(`${base}.params.renderMode`, MODEL_RENDER_MODES, params.renderMode || "surface")}</label>
       ${colorParamControlTemplate(MODEL_SURFACE_COLOR_PARAM, `${base}.params.surfaceColor`, params.surfaceColor || MODEL_SURFACE_COLOR_PARAM.defaultValue)}
       ${colorParamControlTemplate(MODEL_WIRE_COLOR_PARAM, `${base}.params.wireColor`, params.wireColor || MODEL_WIRE_COLOR_PARAM.defaultValue)}
@@ -2902,7 +2905,7 @@ function sourceLiveParams(source = {}) {
   if (source.type === "generator") return getGeneratorComponent(source.generatorId || "testPattern").params || [];
   if (source.type === "media") {
     if (isModelMediaSource(source)) return MODEL_SOURCE_PARAMS;
-    return [MEDIA_FIT_PARAM];
+    return [RENDER_QUALITY_PARAM, MEDIA_FIT_PARAM];
   }
   return [];
 }

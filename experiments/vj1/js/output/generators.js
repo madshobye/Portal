@@ -273,7 +273,11 @@ function drawChecker(pg, t) {
 function drawFireflies(pg, t, params = {}) {
   pg.clear();
   pg.noStroke();
-  const count = Math.round(paramNumber(params, "count", 18, 4, 24));
+  const quality = paramNumber(params, "renderQuality", 0.5, 0, 1);
+  const qualityMultiplier = quality <= 0.5
+    ? mix(0.35, 1, quality * 2)
+    : mix(1, 1.34, (quality - 0.5) * 2);
+  const count = Math.round(paramNumber(params, "count", 18, 4, 24) * qualityMultiplier);
   const glowSize = paramNumber(params, "glowSize", 1, 0.35, 2.5);
   const speedParam = paramNumber(params, "speed", 1, 0, 3);
   const trailAmount = paramNumber(params, "trail", 0.25, 0, 1);
@@ -291,12 +295,18 @@ function drawFireflies(pg, t, params = {}) {
     const blinkWave = Math.max(0, sin(t * speedParam * (2 + sx * 4.5) + i * 4.1) * 0.5 + 0.5);
     const blink = mix(1, smoothstep01(blinkWave), twinkle);
     const size = Math.min(pg.width, pg.height) * (0.006 + sy * 0.012) * glowSize;
-    if (trailAmount > 0.001) {
+    if (trailAmount > 0.001 && quality > 0.22) {
       pg.fill(tint[0], tint[1], tint[2], tint[3] * 0.18 * blink * brightness * trailAmount);
       pg.ellipse(px - size * 2.8, py, size * 8, size * 2.2);
     }
-    pg.fill(tint[0], tint[1], tint[2], tint[3] * 0.13 * blink * brightness);
-    pg.circle(px, py, size * 9);
+    if (quality > 0.12) {
+      pg.fill(tint[0], tint[1], tint[2], tint[3] * 0.13 * blink * brightness);
+      pg.circle(px, py, size * 9);
+    }
+    if (quality > 0.72) {
+      pg.fill(tint[0], tint[1], tint[2], tint[3] * 0.05 * blink * brightness);
+      pg.circle(px, py, size * 14);
+    }
     pg.fill(tint[0], tint[1], tint[2], tint[3] * 0.43 * blink * brightness);
     pg.circle(px, py, size * 3.4);
     pg.fill(255, 255, 255, tint[3] * 0.9 * blink * brightness);

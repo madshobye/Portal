@@ -1,4 +1,4 @@
-import { createBooleanParam, createColorParam, createEnumParam, createNumberParam, defineVisualComponent, textureInlet, textureOutlet } from "../graph/component-schema.js";
+import { createBooleanParam, createColorParam, createEnumParam, createNumberParam, defineVisualComponent, textureInlet, textureOutlet } from "../graph/component-schema.js?v=render-quality-2";
 
 const effectInlets = Object.freeze([textureInlet("texture", "Texture")]);
 const effectOutlets = Object.freeze([textureOutlet("texture", "Texture")]);
@@ -975,6 +975,11 @@ vec4 runEffect(vec2 uv, vec4 color) {
 
   float ringPhase = radius * mix(3.2, 1.05, clamp(spread, 0.0, 2.2) / 2.2) - beatTime * 1.75;
   float ring = exp(-(ringPhase * ringPhase) / max(ringWidth * ringWidth, 0.0001));
+  if (renderQuality > 0.65) {
+    float detailPhase = ringPhase * 1.8 + beatTime * 2.4;
+    ring += exp(-(detailPhase * detailPhase) / max(ringWidth * ringWidth * 0.55, 0.0001))
+      * mix(0.0, 0.28, (renderQuality - 0.65) / 0.35);
+  }
   float falloff = smoothstep(1.35, 0.02, radius);
   float displacement = amount * pulse * ring * falloff * 0.055;
   vec2 warped = screenUv + (dir * displacement * fieldScale) / aspect;

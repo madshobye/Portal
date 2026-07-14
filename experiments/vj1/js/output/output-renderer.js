@@ -1,16 +1,16 @@
 import { VJ1 } from "../constants.js";
 import { clamp01, sanitizeState } from "../domain/models.js?v=world-frame-27";
-import { normalizeParamValue, normalizeParamValues } from "../graph/component-schema.js?v=node-dirty-runtime-1";
+import { normalizeParamValue, normalizeParamValues, renderQualityScale, renderQualityValue } from "../graph/component-schema.js?v=render-quality-2";
 import { createManualScheduler } from "../graph/manual-scheduler.js";
 import { RenderNodeRuntime, textureStateKey } from "../graph/render-node-runtime.js?v=node-dirty-runtime-1";
-import { compileCompositionPatch, compileShaderSchedule, flattenCompositionChain } from "../graph/render-scheduler.js?v=node-dirty-runtime-1";
-import { getGeneratorComponent } from "../graph/generator-registry.js?v=node-dirty-runtime-1";
-import { createShaderBuilder } from "../shaders/shader-builder.js?v=node-dirty-runtime-1";
-import { getGeneratorShaderComponent } from "../shaders/generator-shaders.js?v=shadertoy-generator-16";
-import { getShaderComponent } from "../shaders/shader-registry.js?v=node-dirty-runtime-1";
+import { compileCompositionPatch, compileShaderSchedule, flattenCompositionChain } from "../graph/render-scheduler.js?v=render-quality-2";
+import { getGeneratorComponent } from "../graph/generator-registry.js?v=render-quality-2";
+import { createShaderBuilder } from "../shaders/shader-builder.js?v=render-quality-2";
+import { getGeneratorShaderComponent } from "../shaders/generator-shaders.js?v=render-quality-2";
+import { getShaderComponent } from "../shaders/shader-registry.js?v=render-quality-2";
 import { applyBlend } from "./blend-utils.js";
 import { applyFontToGlobal, applyFontToTarget } from "./font-loader.js?v=world-frame-27";
-import { drawGenerator, drawStandby } from "./generators.js";
+import { drawGenerator, drawStandby } from "./generators.js?v=render-quality-2";
 import { drawCover, drawMediaFit, isDrawableMedia, syncVideoPlayback } from "./media-utils.js";
 import {
   createRenderRequest,
@@ -1255,7 +1255,8 @@ export class OutputRenderer {
     });
     return this.evaluateChainNode(nodeId, signature, renderRequest, (output) => {
       const pass = chainItemToShaderPass({ ...item, params, amount });
-      const effected = this.renderShaderChain(inputState.buffer, [pass], renderRequest, compositionTime);
+      const qualityRequest = qualityScaledRenderRequest(renderRequest, params);
+      const effected = this.renderShaderChain(inputState.buffer, [pass], qualityRequest, compositionTime);
       output.push();
       output.clear();
       drawBuffer(output, effected, 0, 0, output.width, output.height, this.isShaderBuffer(effected));
@@ -1445,6 +1446,7 @@ export class OutputRenderer {
     const sourceSignature = stableStringify({
       source: staticSourceState(source),
       media: staticMediaStateForSource(this.state?.media || [], source),
+      runtimeMedia: runtimeMediaStateForSource(this.media, source),
       time: this.sourceRuntimeTimeKey(source, item, runtimeContext),
       external: this.sourceRuntimeExternalKey(source, item, runtimeContext),
       request: renderRequestKey(renderRequest),
@@ -1556,7 +1558,10 @@ export class OutputRenderer {
       }
       else if (item?.image && isDrawableMedia(item.image)) {
         const fit = mediaSourceFit(source);
-        const image = fit === "cover" ? this.getImageRendition(item, pg.width, pg.height) || item.image : item.image;
+        const qualityRequest = qualityScaledRenderRequest({ width: pg.width, height: pg.height }, source.params || {});
+        const image = fit === "cover"
+          ? this.getImageRendition(item, qualityRequest.width, qualityRequest.height) || item.image
+          : item.image;
         drawMediaFit(pg, image, 0, 0, pg.width, pg.height, fit);
       }
       else if (item?.model || item?.modelData) {
@@ -1591,15 +1596,17 @@ export class OutputRenderer {
   }
 
   drawAnatomyGenerator(pg, source = {}, compositionTime = this.visualTime, renderRequest = frameRenderRequest(this.state.render)) {
-    const target = this.getModelTarget(pg.width, pg.height);
-    const viewport = modelViewportMetrics(target, renderRequest);
     const params = source.params || {};
+    const target = this.getModelTarget(renderRequest.width, renderRequest.height);
+    const viewport = modelViewportMetrics(target, renderRequest);
     const renderMode = params.renderMode || "surface";
     const surfaceColor = modelColor(params.surfaceColor, [217, 212, 201, 255]);
     const wireColor = modelColor(params.wireColor, [75, 73, 68, 204]);
     const wireThickness = modelWireThickness(params);
     const rotation = modelRotation(params, compositionTime);
-    const detail = Math.max(4, Math.min(14, Math.round(Number(params.detail) || 8)));
+    const detail = Math.max(4, Math.min(14, Math.round(
+      (Number(params.detail) || 8) * qualityComputeMultiplier(params, { minimum: 0.55, maximum: 1.35 })
+    )));
     const modelScale = Math.max(0.01, Number(params.modelScale) || 1);
     const depth = Math.max(0.05, Number(params.depth) || 1);
     this.measureGpu(target, () => {
@@ -1625,8 +1632,8 @@ export class OutputRenderer {
   }
 
   drawTerrainGenerator(pg, source = {}, compositionTime = this.visualTime, renderRequest = frameRenderRequest(this.state.render)) {
-    const target = this.getTerrainTarget(pg.width, pg.height);
     const params = source.params || {};
+    const target = this.getTerrainTarget(renderRequest.width, renderRequest.height);
     const style = params.style === "wire" ? 1 : params.style === "hybrid" ? 2 : 0;
     const flightSpeed = Math.max(0, Number(params.flightSpeed) || 0);
     const flightTime = this.continuousRateTime(`${source.instanceId || source.generatorId || "terrain"}:flight`, compositionTime, flightSpeed);
@@ -1636,7 +1643,15 @@ export class OutputRenderer {
     const scaleKey = `${source.instanceId || source.generatorId || "terrain"}:scale`;
     const scaleState = advanceSpatialScale(this.terrainScalePhases.get(scaleKey), params.terrainScale, cameraAnchor);
     this.terrainScalePhases.set(scaleKey, scaleState);
-    const flightParams = { ...params, flightSpeed: 1, terrainScale: scaleState.scale, terrainPhase: scaleState.phase };
+    const flightParams = {
+      ...params,
+      flightSpeed: 1,
+      terrainScale: scaleState.scale,
+      terrainPhase: scaleState.phase,
+      gridDensity: Math.max(0.25, Math.min(4,
+        (Number(params.gridDensity) || 1) * qualityComputeMultiplier(params, { minimum: 0.4, maximum: 1.5 })
+      )),
+    };
     const sky = normalizedModelColor(params.skyColor, [108, 165, 212, 255]);
 
     this.measureGpu(target, () => {
@@ -1665,13 +1680,15 @@ export class OutputRenderer {
   }
 
   drawModelSource(pg, item, source = {}, compositionTime = this.visualTime, renderRequest = frameRenderRequest(this.state.render)) {
-    const target = this.getModelTarget(pg.width, pg.height);
-    const viewport = modelViewportMetrics(target, renderRequest);
     const params = source.params || {};
+    const target = this.getModelTarget(renderRequest.width, renderRequest.height);
+    const viewport = modelViewportMetrics(target, renderRequest);
     const renderMode = params.renderMode || "surface";
     const modelScale = Math.max(0.01, Number(params.modelScale) || 1);
     const depth = Math.max(0.05, Number(params.depth) || 1);
-    const pointBudget = Math.max(128, Math.min(50000, Math.round(Number(params.pointBudget) || 4000)));
+    const pointBudget = Math.max(128, Math.min(50000, Math.round(
+      (Number(params.pointBudget) || 4000) * qualityComputeMultiplier(params, { minimum: 0.25, maximum: 1.75 })
+    )));
     const surfaceColor = modelColor(params.surfaceColor, [220, 225, 220, 255]);
     const wireColor = modelColor(params.wireColor, [20, 20, 20, 220]);
     const wireThickness = modelWireThickness(params);
@@ -1810,16 +1827,20 @@ export class OutputRenderer {
     const shaderComponent = getGeneratorShaderComponent(generatorId);
     const component = shaderComponent ? { ...shaderComponent, params: generatorComponent.params || shaderComponent.params || [] } : null;
     if (!component) return null;
-    const renderRequest = this.normalizeRenderRequest(request, "source");
-    const target = this.getFxPingPongTarget(request, 0);
+    const renderRequest = qualityScaledRenderRequest(this.normalizeRenderRequest(request, "source"), params);
+    // The target must match the quality-scaled viewport. Drawing a smaller rect
+    // into a full-size target changes the apparent size of normalized generators
+    // (most visibly Eyeball and Gradient) instead of merely reducing pixel work.
+    const target = this.getFxPingPongTarget(renderRequest, 0);
     const shader = this.shaderBuilder.getShader({ id: component.id, component }, target);
     if (!shader) return null;
+    const qualityParams = qualityAdjustedGeneratorParams(generatorId, params);
     const rateParam = generatorRateParam(generatorId);
-    const rate = rateParam ? Math.max(0, Number(params[rateParam]) || 0) : 1;
+    const rate = rateParam ? Math.max(0, Number(qualityParams[rateParam]) || 0) : 1;
     const shaderTime = rateParam
       ? this.continuousRateTime(`${instanceId || generatorId}:${rateParam}`, compositionTime, rate)
       : compositionTime;
-    const shaderParams = rateParam ? { ...params, [rateParam]: 1 } : params;
+    const shaderParams = rateParam ? { ...qualityParams, [rateParam]: 1 } : qualityParams;
     const started = performance.now();
     const sample = {
       type: "shader-generator",
@@ -1999,6 +2020,11 @@ export class OutputRenderer {
     const renderRequest = this.normalizeRenderRequest(request, "effect");
     const rw = renderRequest.width;
     const rh = renderRequest.height;
+    // Effects use normalized UVs, but many convert their artistic sizes to pixels
+    // through `resolution`. Keep that coordinate system at the composition size
+    // even when the physical target is rendered at a lower quality resolution.
+    const logicalWidth = Math.max(1, Number(renderRequest.logicalWidth) || rw);
+    const logicalHeight = Math.max(1, Number(renderRequest.logicalHeight) || rh);
     let current = input;
     let passCount = 0;
     const schedule = compileShaderSchedule(chain);
@@ -2027,9 +2053,9 @@ export class OutputRenderer {
         target.clear();
         target.shader(shader);
         shader.setUniform("tex0", current);
-        shader.setUniform("resolution", [rw, rh]);
-        shader.setUniform("canvasSize", [rw, rh]);
-        shader.setUniform("texelSize", [1 / Math.max(1, rw), 1 / Math.max(1, rh)]);
+        shader.setUniform("resolution", [logicalWidth, logicalHeight]);
+        shader.setUniform("canvasSize", [logicalWidth, logicalHeight]);
+        shader.setUniform("texelSize", [1 / logicalWidth, 1 / logicalHeight]);
         shader.setUniform("sourceFlipY", !sourceIsShaderBuffer);
         shader.setUniform("sourceForceOpaque", false);
         shader.setUniform("time", instanceTime(pass.instanceId || pass.id, timeSeconds));
@@ -2946,6 +2972,18 @@ function staticMediaStateForSource(media = [], source = {}) {
   return staticMediaStateForIds(media, ids);
 }
 
+function runtimeMediaStateForSource(media = new Map(), source = {}) {
+  if (source?.type !== "media" || !source.mediaId) return null;
+  const item = media?.get?.(source.mediaId);
+  if (!item) return { present: false, ready: false, error: "" };
+  return {
+    present: true,
+    ready: isReadyMediaItem(item),
+    error: item.imageError || item.modelError || "",
+    kind: item.video ? "video" : item.image ? "image" : (item.model || item.modelData) ? "model" : "loading",
+  };
+}
+
 function staticMediaStateForIds(media = [], ids = new Set()) {
   return (media || [])
     .filter((item) => ids.has(item.id))
@@ -2970,6 +3008,54 @@ function componentRuntimeTimeKey(component, params = {}, context = {}) {
   if (component?.runtime?.cacheable === false) return context.frame;
   if (!component?.runtime?.timeDependent?.(params)) return null;
   return component.runtime.timeKey?.(params, context) ?? context.time;
+}
+
+export function qualityScaledRenderRequest(request = {}, params = {}, minimum = 0.35) {
+  const scale = renderQualityScale(params, { minimum });
+  if (scale >= 0.999) return request;
+  const logicalWidth = Math.max(1, Number(request.logicalWidth) || Number(request.width) || 1);
+  const logicalHeight = Math.max(1, Number(request.logicalHeight) || Number(request.height) || 1);
+  return {
+    ...request,
+    width: Math.max(32, Math.round(logicalWidth * scale)),
+    height: Math.max(32, Math.round(logicalHeight * scale)),
+    logicalWidth,
+    logicalHeight,
+    qualityScale: scale,
+  };
+}
+
+function qualityComputeMultiplier(params = {}, { minimum = 0.35, maximum = 1.5 } = {}) {
+  const quality = renderQualityValue(params);
+  if (quality <= 0.5) return minimum + (1 - minimum) * (quality / 0.5);
+  return 1 + (maximum - 1) * ((quality - 0.5) / 0.5);
+}
+
+export function qualityAdjustedGeneratorParams(generatorId, params = {}) {
+  const multiplier = qualityComputeMultiplier(params, { minimum: 0.35, maximum: 1.5 });
+  const adjusted = { ...params };
+  if (["seascape", "cloudyTunnel", "cherenkovVolume", "biomineLite"].includes(generatorId)) {
+    adjusted.raySteps = Math.max(1, Math.round((Number(params.raySteps) || 1) * multiplier));
+  }
+  if (generatorId === "seascape") {
+    adjusted.seaDetail = Math.max(1, Math.round((Number(params.seaDetail) || 1) * qualityComputeMultiplier(params, {
+      minimum: 0.5,
+      maximum: 1.2,
+    })));
+  }
+  if (generatorId === "cloudyTunnel") {
+    adjusted.cloudDetail = Math.max(1, Math.round((Number(params.cloudDetail) || 1) * qualityComputeMultiplier(params, {
+      minimum: 0.5,
+      maximum: 1.25,
+    })));
+  }
+  if (generatorId === "biomineLite") {
+    adjusted.surfaceDetail = Math.max(0, Math.round((Number(params.surfaceDetail) || 0) * qualityComputeMultiplier(params, {
+      minimum: 0.5,
+      maximum: 1.25,
+    })));
+  }
+  return adjusted;
 }
 
 function collectMediaIdsFromChain(chain = [], ids) {

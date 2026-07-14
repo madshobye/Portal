@@ -1,4 +1,4 @@
-import { getShaderComponent } from "./shader-registry.js?v=node-dirty-runtime-1";
+import { getShaderComponent } from "./shader-registry.js?v=render-quality-2";
 
 export function createShaderBuilder({ getCustomCode, onStatus }) {
   const cache = new Map();
@@ -15,8 +15,8 @@ export function createShaderBuilder({ getCustomCode, onStatus }) {
     try {
       const factory = typeof target?.createShader === "function" ? target : globalThis;
       const fragmentSource = usesShadertoyInterface(component, code)
-        ? shadertoyFragmentSource(code)
-        : component?.type === "fragment" ? code : fragmentShaderSource(code, component);
+        ? shadertoyFragmentSource(code, component)
+        : component?.type === "fragment" ? standaloneFragmentSource(code, component) : fragmentShaderSource(code, component);
       const shader = factory.createShader(vertexShaderSource(), fragmentSource);
       cache.set(key, shader);
       onStatus?.("Shader ready", "");
@@ -146,8 +146,20 @@ void main() {
 }`;
 }
 
-function shadertoyFragmentSource(code) {
+function standaloneFragmentSource(code, component) {
+  if (!hasRenderQualityParam(component) || /uniform\s+float\s+renderQuality\s*;/.test(code)) return code;
+  const declaration = "uniform float renderQuality;";
+  if (/precision\s+\w+\s+float\s*;/.test(code)) {
+    return String(code).replace(/(precision\s+\w+\s+float\s*;)/, `$1\n${declaration}`);
+  }
+  return `precision mediump float;\n${declaration}\n${code}`;
+}
+
+function shadertoyFragmentSource(code, component) {
   const adaptedCode = String(code || "").replace(/\bmainImage\b/g, "vj1MainImage");
+  const qualityUniform = hasRenderQualityParam(component) && !/uniform\s+float\s+renderQuality\s*;/.test(code)
+    ? "uniform float renderQuality;"
+    : "";
   return `
 precision highp float;
 uniform vec3 iResolution;
@@ -161,6 +173,7 @@ uniform sampler2D iChannel0;
 uniform sampler2D iChannel1;
 uniform sampler2D iChannel2;
 uniform sampler2D iChannel3;
+${qualityUniform}
 
 ${adaptedCode}
 
@@ -170,6 +183,10 @@ void main() {
   vj1MainImage(fragColor, shadertoyFragCoord);
   gl_FragColor = fragColor;
 }`;
+}
+
+function hasRenderQualityParam(component) {
+  return component?.params?.some((param) => param?.id === "renderQuality");
 }
 
 function paramUniformDeclarations(component) {

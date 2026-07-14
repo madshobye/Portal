@@ -18,6 +18,14 @@ export const RENDER_SIZE_POLICIES = Object.freeze({
   SOURCE: "source",
 });
 
+export const RENDER_QUALITY_PARAM_ID = "renderQuality";
+export const RENDER_QUALITY_DEFAULT = 0.5;
+export const RENDER_QUALITY_PARAM = Object.freeze(createNumberParam(
+  RENDER_QUALITY_PARAM_ID,
+  "Render quality",
+  { min: 0, max: 1, step: 0.01, defaultValue: RENDER_QUALITY_DEFAULT }
+));
+
 export function textureRenderContract({
   input = RENDER_SIZE_POLICIES.REQUESTED,
   output = RENDER_SIZE_POLICIES.REQUESTED,
@@ -92,6 +100,10 @@ export function eventInlet(id = "trigger", label = "Trigger") {
 }
 
 export function defineVisualComponent(definition = {}) {
+  const declaredParams = [...(definition.params || [])];
+  const params = declaredParams.some((param) => param?.id === RENDER_QUALITY_PARAM_ID)
+    ? declaredParams
+    : [RENDER_QUALITY_PARAM, ...declaredParams];
   return Object.freeze({
     id: definition.id || "",
     kind: definition.kind || "effect",
@@ -106,11 +118,21 @@ export function defineVisualComponent(definition = {}) {
     transformSource: definition.transformSource !== false,
     inlets: Object.freeze([...(definition.inlets || [])]),
     outlets: Object.freeze([...(definition.outlets || [])]),
-    params: Object.freeze([...(definition.params || [])]),
+    params: Object.freeze(params),
     render: textureRenderContract(definition.render || {}),
     code: definition.code ?? null,
     type: definition.type || "effect",
   });
+}
+
+export function renderQualityValue(values = {}) {
+  return normalizeParamValue(RENDER_QUALITY_PARAM, values?.[RENDER_QUALITY_PARAM_ID]);
+}
+
+export function renderQualityScale(values = {}, { minimum = 0.35 } = {}) {
+  const quality = renderQualityValue(values);
+  if (quality >= RENDER_QUALITY_DEFAULT) return 1;
+  return minimum + (1 - minimum) * (quality / RENDER_QUALITY_DEFAULT);
 }
 
 function normalizeRuntimePolicy(runtime = {}) {
