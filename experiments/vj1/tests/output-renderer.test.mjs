@@ -2,12 +2,50 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 
-import { averageGpuQueryNanoseconds, eyeballFrameUniforms, OutputRenderer, qualityScaledRenderRequest } from "../js/output/output-renderer.js";
+import { averageGpuQueryNanoseconds, compositionPipelineSourceRequest, eyeballFrameUniforms, OutputRenderer, qualityScaledRenderRequest } from "../js/output/output-renderer.js";
 import { renderRequestKey } from "../js/output/render-geometry.js";
 
 test("GPU timing averages query samples instead of adding overlapping work", () => {
   assert.equal(averageGpuQueryNanoseconds([30_000_000, 10_000_000, 5_000_000]), 15_000_000);
   assert.equal(averageGpuQueryNanoseconds([]), 0);
+});
+
+test("composition pipeline lowers physical render pixels but preserves logical output dimensions", () => {
+  const request = {
+    role: "surface",
+    width: 1200,
+    height: 800,
+    logicalWidth: 1200,
+    logicalHeight: 800,
+    renderIdentity: "composition-a",
+  };
+  const scaled = compositionPipelineSourceRequest(request, {
+    upscaling: { enabled: true, amount: 0.65 },
+  });
+
+  assert.equal(scaled.width, 780);
+  assert.equal(scaled.height, 520);
+  assert.equal(scaled.logicalWidth, 1200);
+  assert.equal(scaled.logicalHeight, 800);
+  assert.equal(scaled.renderIdentity, "composition-a");
+  assert.equal(scaled.pipelineSource, true);
+  assert.strictEqual(compositionPipelineSourceRequest(request, {
+    upscaling: { enabled: false, amount: 0.5 },
+  }), request);
+});
+
+test("composition post filters run after the upscale target", () => {
+  const source = readFileSync(new URL("../js/output/output-renderer.js", import.meta.url), "utf8");
+  const pipelineSource = source.slice(
+    source.indexOf("  renderCompositionOutputPipeline("),
+    source.indexOf("  cacheCompositionOutput(")
+  );
+
+  assert.ok(pipelineSource.indexOf('`${composition.id}:upscale`') < pipelineSource.indexOf('`${composition.id}:post`'));
+  assert.ok(source.includes("COMPOSITION_UPSCALE_FRAGMENT_SHADER"));
+  assert.ok(source.includes("COMPOSITION_POST_FRAGMENT_SHADER"));
+  assert.ok(source.includes('shaderProgram.setUniform("noiseAmount"'));
+  assert.ok(source.includes('shaderProgram.setUniform("grayscaleAmount"'));
 });
 
 test("output resize keeps render buffers tied to configured frame size", () => {
@@ -128,6 +166,9 @@ test("composition thumbnails preserve more detail with high quality webp", () =>
   assert.ok(source.includes("const COMPOSITION_THUMBNAIL_QUALITY = 0.92;"));
   assert.ok(source.includes('canvas.toDataURL("image/webp", COMPOSITION_THUMBNAIL_QUALITY)'));
   assert.ok(source.includes('return canvas.toDataURL("image/png");'));
+  assert.ok(source.includes("const targetAspect = width / Math.max(1, height);"));
+  assert.ok(source.includes("context.drawImage(source, sx, sy, sw, sh, 0, 0, width, height);"));
+  assert.ok(!source.includes("const scale = Math.min(width / Math.max(1, sourceWidth)"));
 });
 
 test("composition groups render isolated from earlier parent layers", () => {
@@ -322,9 +363,12 @@ test("every generator path is tied to the composition source target", () => {
 
 test("projection mapper uses actual texture size for surface sampling math", () => {
   const source = readFileSync(new URL("../js/output/vj-mapper.js", import.meta.url), "utf8");
+  const rendererSource = readFileSync(new URL("../js/output/output-renderer.js", import.meta.url), "utf8");
 
   assert.ok(source.includes("texture.width || surface.w"));
   assert.ok(source.includes("texture.height || surface.h"));
+  assert.ok(source.includes('projectionFit = "cover"'));
+  assert.ok(rendererSource.includes("this.mapper.drawTexture(pg, mapped.mapperSurface, surface.projectionFit)"));
 });
 
 test("media renditions are saved without lossy jpeg compression", () => {

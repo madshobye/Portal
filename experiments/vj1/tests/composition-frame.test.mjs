@@ -6,7 +6,7 @@ import {
   normalizeCompositionFrameShape,
   normalizeCompositionResolutionScale,
 } from "../js/domain/composition-frame.js";
-import { createDefaultComposition, sanitizeState } from "../js/domain/models.js";
+import { createDefaultComposition, createDefaultSurface, createSceneFromState, normalizeCompositionPipelineSettings, normalizeProjectionFit, sanitizeState } from "../js/domain/models.js";
 
 const render = {
   surfaceWidth: 1000,
@@ -52,6 +52,49 @@ test("composition frame settings normalize to backward-compatible defaults", () 
   });
   assert.equal(state.compositions[0].frameShape, "portrait");
   assert.equal(state.compositions[0].resolutionScale, 2);
+});
+
+test("composition upscale and post settings normalize with neutral defaults", () => {
+  assert.deepEqual(normalizeCompositionPipelineSettings({}), {
+    upscaling: { enabled: false, amount: 0.67 },
+    postProcessing: {
+      noiseEnabled: false,
+      noiseAmount: 0.035,
+      grayscaleEnabled: false,
+      grayscaleAmount: 1,
+    },
+  });
+
+  const state = sanitizeState({
+    render: {
+      upscaling: { enabled: true, amount: 0.1 },
+      postProcessing: {
+        noiseEnabled: true,
+        noiseAmount: 4,
+        grayscaleEnabled: true,
+        grayscaleAmount: 0.4,
+      },
+    },
+  });
+  assert.deepEqual(state.render.upscaling, { enabled: true, amount: 0.35 });
+  assert.deepEqual(state.render.postProcessing, {
+    noiseEnabled: true,
+    noiseAmount: 0.2,
+    grayscaleEnabled: true,
+    grayscaleAmount: 0.4,
+  });
+});
+
+test("surface projection fit defaults to cover and persists in scene snapshots", () => {
+  assert.equal(createDefaultSurface(0).projectionFit, "cover");
+  assert.equal(normalizeProjectionFit("contain"), "contain");
+  assert.equal(normalizeProjectionFit("stretch"), "stretch");
+  assert.equal(normalizeProjectionFit("invalid"), "cover");
+
+  const state = sanitizeState({ surfaces: [{ id: "surface-a", projectionFit: "contain" }] });
+  const scene = createSceneFromState(state, "Fit scene");
+  assert.equal(state.surfaces[0].projectionFit, "contain");
+  assert.equal(scene.snapshot.surfaces[0].projectionFit, "contain");
 });
 
 function pickSize(metrics) {

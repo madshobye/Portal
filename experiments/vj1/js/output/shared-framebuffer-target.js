@@ -136,11 +136,18 @@ export class SharedFramebufferTarget {
   }
 
   drawWebGL(draw) {
-    this.framebuffer.begin();
+    const nestedIn2D = this._twoDDepth > 0;
+    if (!nestedIn2D) this.framebuffer.begin();
+    callP5("push");
+    // Shader quads use WEBGL's centered origin. When a shader is rendered
+    // directly into a source target that is already inside push(), undo the
+    // facade's top-left translation for the duration of the WebGL draw.
+    if (nestedIn2D) callP5("translate", this.width * 0.5, this.height * 0.5);
     try {
       return draw();
     } finally {
-      this.framebuffer.end();
+      callP5("pop");
+      if (!nestedIn2D) this.framebuffer.end();
     }
   }
 

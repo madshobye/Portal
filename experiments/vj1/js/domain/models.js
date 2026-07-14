@@ -96,6 +96,7 @@ export function createDefaultSurface(index = 0) {
     name: index === 0 ? "Main" : `Surface ${index + 1}`,
     enabled: true,
     opacity: 1,
+    projectionFit: "cover",
     finalBlend: "normal",
     finalShaderChain: [],
     compositionId: "",
@@ -166,6 +167,16 @@ export function createInitialState() {
       surfaceHeight: VJ1.surfaceHeight,
       pixelDensity: 1,
       edgeSoftness: 0,
+      upscaling: {
+        enabled: false,
+        amount: 0.67,
+      },
+      postProcessing: {
+        noiseEnabled: false,
+        noiseAmount: 0.035,
+        grayscaleEnabled: false,
+        grayscaleAmount: 1,
+      },
     },
     scheduler: {
       mode: "hardconfigured",
@@ -282,6 +293,24 @@ export function normalizeRenderSettings(render = {}) {
     surfaceHeight: positiveInt(render.surfaceHeight, VJ1.surfaceHeight, 64, 8192),
     pixelDensity: clampNumber(render.pixelDensity, 0.5, 2, 1),
     edgeSoftness: clampNumber(render.edgeSoftness, 0, 8, 0),
+    ...normalizeCompositionPipelineSettings(render),
+  };
+}
+
+export function normalizeCompositionPipelineSettings(render = {}) {
+  const upscaling = render.upscaling && typeof render.upscaling === "object" ? render.upscaling : {};
+  const postProcessing = render.postProcessing && typeof render.postProcessing === "object" ? render.postProcessing : {};
+  return {
+    upscaling: {
+      enabled: upscaling.enabled === true,
+      amount: clampNumber(upscaling.amount, 0.35, 1, 0.67),
+    },
+    postProcessing: {
+      noiseEnabled: postProcessing.noiseEnabled === true,
+      noiseAmount: clampNumber(postProcessing.noiseAmount, 0, 0.2, 0.035),
+      grayscaleEnabled: postProcessing.grayscaleEnabled === true,
+      grayscaleAmount: clampNumber(postProcessing.grayscaleAmount, 0, 1, 1),
+    },
   };
 }
 
@@ -535,6 +564,7 @@ export function normalizeSurface(surface = {}) {
     name: surface.name || fallback.name,
     enabled: surface.enabled !== false,
     opacity: clamp01(surface.opacity ?? fallback.opacity),
+    projectionFit: normalizeProjectionFit(surface.projectionFit),
     finalBlend: surface.finalBlend || fallback.finalBlend,
     finalShaderChain: Array.isArray(surface.finalShaderChain)
       ? surface.finalShaderChain.map(normalizeShaderPass)
@@ -545,6 +575,10 @@ export function normalizeSurface(surface = {}) {
     showLabel: surface.showLabel !== false,
     calibrationLocked: !!surface.calibrationLocked,
   };
+}
+
+export function normalizeProjectionFit(value) {
+  return value === "contain" || value === "stretch" ? value : "cover";
 }
 
 function normalizeSourceRect(rect = {}) {
@@ -778,6 +812,7 @@ export function createSceneSurfaceSnapshot(surface = {}) {
     compositionId: surface.compositionId || "",
     sourceRect: normalizeSourceRect(surface.sourceRect),
     opacity: clamp01(surface.opacity ?? 1),
+    projectionFit: normalizeProjectionFit(surface.projectionFit),
     finalBlend: surface.finalBlend || "normal",
     finalShaderChain: Array.isArray(surface.finalShaderChain)
       ? surface.finalShaderChain.map(normalizeShaderPass)
@@ -796,6 +831,7 @@ export function normalizeSceneSurfaceSnapshot(surface = {}, state = createInitia
       : fallbackCompositionId,
     sourceRect: normalizeSourceRect(surface.sourceRect),
     opacity: clamp01(surface.opacity ?? 1),
+    projectionFit: normalizeProjectionFit(surface.projectionFit),
     finalBlend: surface.finalBlend || "normal",
     finalShaderChain: Array.isArray(surface.finalShaderChain)
       ? surface.finalShaderChain.map(normalizeShaderPass)

@@ -1,20 +1,20 @@
 import { VJ1 } from "../constants.js";
 import { compositionFrameMetrics } from "../domain/composition-frame.js";
-import { clamp01, sanitizeState } from "../domain/models.js?v=composition-frame-1";
+import { clamp01, normalizeCompositionPipelineSettings, sanitizeState } from "../domain/models.js?v=projection-fit-1";
 import { normalizeParamValue, normalizeParamValues, renderQualityScale, renderQualityValue } from "../graph/component-schema.js?v=range-pair-1";
 import { createManualScheduler } from "../graph/manual-scheduler.js";
 import { RenderNodeRuntime, textureStateKey } from "../graph/render-node-runtime.js?v=node-dirty-runtime-1";
 import { compileCompositionPatch, compileShaderSchedule, flattenCompositionChain, fuseLocalShaderSchedule, isFusibleShaderJob } from "../graph/render-scheduler.js?v=hsv-alpha-key-1";
 import { getGeneratorComponent } from "../graph/generator-registry.js?v=render-quality-2";
 import { createShaderBuilder, fusedUniformName } from "../shaders/shader-builder.js?v=hsv-alpha-key-1";
-import { getGeneratorShaderComponent } from "../shaders/generator-shaders.js?v=direct-shader-source-2";
+import { getGeneratorShaderComponent } from "../shaders/generator-shaders.js?v=direct-shader-source-3";
 import { getShaderComponent } from "../shaders/shader-registry.js?v=hsv-alpha-key-1";
 import { applyBlend } from "./blend-utils.js";
 import {
   createSharedFramebufferTarget,
   isSharedFramebufferTarget,
   unwrapRenderTarget,
-} from "./shared-framebuffer-target.js?v=shared-fbo-6";
+} from "./shared-framebuffer-target.js?v=shared-fbo-7";
 import { applyFontToGlobal, applyFontToTarget } from "./font-loader.js?v=world-frame-27";
 import { drawGenerator, drawStandby } from "./generators.js?v=render-quality-2";
 import { drawCover, drawMediaFit, isDrawableMedia, syncVideoPlayback } from "./media-utils.js";
@@ -27,7 +27,7 @@ import {
   surfaceTextureSize,
   worldSize,
 } from "./render-geometry.js";
-import { VjMapper } from "./vj-mapper.js?v=projective-quad-4";
+import { VjMapper } from "./vj-mapper.js?v=projection-fit-1";
 import { mediaRenditionKey } from "../services/media-rendition-service.js";
 
 const TERRAIN_GRID_CELLS = 48;
@@ -101,6 +101,77 @@ void main() {
     step(0.0, uv.y) * step(uv.y, 1.0);
   vec4 color = texture2D(sourceTex, sourceUv(clamp(uv, 0.0, 1.0)));
   gl_FragColor = color * inside;
+}`;
+
+const COMPOSITION_UPSCALE_FRAGMENT_SHADER = `
+precision mediump float;
+uniform sampler2D sourceTex;
+uniform vec2 sourceResolution;
+uniform bool sourceFlipY;
+varying vec2 vTexCoord;
+
+vec2 sourceUv(vec2 uv) {
+  return sourceFlipY ? vec2(uv.x, 1.0 - uv.y) : uv;
+}
+
+float luma(vec3 color) {
+  return dot(color, vec3(0.2126, 0.7152, 0.0722));
+}
+
+void main() {
+  vec2 texel = 1.0 / max(sourceResolution, vec2(1.0));
+  vec2 uv = sourceUv(vTexCoord);
+  vec4 center = texture2D(sourceTex, uv);
+  vec4 left = texture2D(sourceTex, uv - vec2(texel.x, 0.0));
+  vec4 right = texture2D(sourceTex, uv + vec2(texel.x, 0.0));
+  vec4 up = texture2D(sourceTex, uv - vec2(0.0, texel.y));
+  vec4 down = texture2D(sourceTex, uv + vec2(0.0, texel.y));
+  vec4 neighborhood = (left + right + up + down) * 0.25;
+  float edge = clamp(
+    abs(luma(left.rgb) - luma(right.rgb)) +
+    abs(luma(up.rgb) - luma(down.rgb)),
+    0.0,
+    1.0
+  );
+  float sharpen = mix(0.06, 0.18, edge);
+  vec4 color = center + (center - neighborhood) * sharpen;
+  color.a = clamp(color.a, 0.0, 1.0);
+  color.rgb = clamp(color.rgb, vec3(0.0), vec3(color.a));
+  gl_FragColor = color;
+}`;
+
+const COMPOSITION_POST_FRAGMENT_SHADER = `
+precision mediump float;
+uniform sampler2D sourceTex;
+uniform bool sourceFlipY;
+uniform float time;
+uniform float noiseAmount;
+uniform float grayscaleAmount;
+varying vec2 vTexCoord;
+
+vec2 sourceUv(vec2 uv) {
+  return sourceFlipY ? vec2(uv.x, 1.0 - uv.y) : uv;
+}
+
+float hash(vec2 point) {
+  vec3 p3 = fract(vec3(point.xyx) * 0.1031);
+  p3 += dot(p3, p3.yzx + 33.33);
+  return fract((p3.x + p3.y) * p3.z);
+}
+
+void main() {
+  vec4 color = texture2D(sourceTex, sourceUv(vTexCoord));
+  if (color.a <= 0.0001) {
+    gl_FragColor = vec4(0.0);
+    return;
+  }
+  vec3 straight = color.rgb / color.a;
+  float gray = dot(straight, vec3(0.2126, 0.7152, 0.0722));
+  straight = mix(straight, vec3(gray), clamp(grayscaleAmount, 0.0, 1.0));
+  vec2 noiseSeed = gl_FragCoord.xy + floor(time * 60.0) * vec2(37.0, 17.0);
+  float grain = hash(noiseSeed) * 2.0 - 1.0;
+  straight = clamp(straight + grain * noiseAmount, 0.0, 1.0);
+  gl_FragColor = vec4(straight * color.a, color.a);
 }`;
 
 const TERRAIN_VERTEX_SHADER = `
@@ -400,6 +471,7 @@ export class OutputRenderer {
     this.cachedNoiseTexture = null;
     this.overlayBlendShader = null;
     this.layerTransformShader = null;
+    this.compositionPipelineShaders = new Map();
     this.shaderBuilder = createShaderBuilder({
       getCustomCode: () => this.state?.shaders?.customCode || "",
       onStatus: (status, error) => {
@@ -522,6 +594,7 @@ export class OutputRenderer {
     this.cachedNoiseTexture = null;
     this.overlayBlendShader = null;
     this.layerTransformShader = null;
+    this.compositionPipelineShaders?.clear?.();
   }
 
   getCachedNoiseTexture() {
@@ -1102,25 +1175,29 @@ export class OutputRenderer {
   }
 
   renderCompositionForRequest(composition, compositionTime, request = frameRenderRequest(this.state.render)) {
-    const renderRequest = this.normalizeRenderRequest(request, "composition");
-    const outputKey = renderBufferKey(composition.id, renderRequestKey(renderRequest));
+    const outputRequest = this.normalizeRenderRequest(request, "composition");
+    const pipeline = normalizeCompositionPipelineSettings(this.state?.render || {});
+    const renderRequest = composition?.type === "canvas"
+      ? outputRequest
+      : compositionPipelineSourceRequest(outputRequest, pipeline);
+    const outputKey = renderBufferKey(composition.id, renderRequestKey(outputRequest));
     const cached = this.compositionOutput.get(outputKey);
     if (cached) {
       this.frameProfile.compositionCacheHits++;
       return cached;
     }
-    const stableSignature = this.stableCompositionSignature(composition, renderRequest);
+    const stableSignature = this.stableCompositionSignature(composition, outputRequest);
     const stableKey = renderBufferKey("stable", outputKey);
     const stableCached = stableSignature
-      ? this.compositionGpuBuffer.get(renderBufferKey(stableKey, renderRequestKey(renderRequest))) || this.compositionBuffer.get(stableKey)
+      ? this.compositionGpuBuffer.get(renderBufferKey(stableKey, renderRequestKey(outputRequest))) || this.compositionBuffer.get(stableKey)
       : null;
     if (stableCached &&
-        stableCached.width === renderRequest.width &&
-        stableCached.height === renderRequest.height &&
+        stableCached.width === outputRequest.width &&
+        stableCached.height === outputRequest.height &&
         this.stableCompositionSignatures.get(stableKey) === stableSignature) {
       this.touchRenderCache(this.compositionBufferUse, stableKey);
       this.frameProfile.compositionCacheHits++;
-      this.cacheCompositionOutput(composition, outputKey, stableCached, renderRequest);
+      this.cacheCompositionOutput(composition, outputKey, stableCached, outputRequest);
       return stableCached;
     }
     if (composition.type === "canvas") {
@@ -1128,11 +1205,11 @@ export class OutputRenderer {
         type: "composition",
         compositionId: composition.id,
         compositionName: composition.name || composition.id || "Canvas",
-        width: renderRequest.width,
-        height: renderRequest.height,
+        width: outputRequest.width,
+        height: outputRequest.height,
       }, () => this.renderCanvasComposition(composition, compositionTime, renderRequest));
-      this.cacheCompositionOutput(composition, outputKey, output, renderRequest);
-      if (stableSignature) this.storeStableCompositionOutput(stableKey, stableSignature, output, renderRequest);
+      this.cacheCompositionOutput(composition, outputKey, output, outputRequest);
+      if (stableSignature) this.storeStableCompositionOutput(stableKey, stableSignature, output, outputRequest);
       return output;
     }
     const patch = compileCompositionPatch(composition, renderRequest);
@@ -1143,10 +1220,127 @@ export class OutputRenderer {
       compositionName: composition.name || composition.id || "Composition",
       width: renderRequest.width,
       height: renderRequest.height,
-    }, () => this.renderCompositionPatch(composition, patch, compositionTime, renderRequest));
-    this.cacheCompositionOutput(composition, outputKey, output, renderRequest);
-    if (stableSignature) this.storeStableCompositionOutput(stableKey, stableSignature, output, renderRequest);
+      outputWidth: outputRequest.width,
+      outputHeight: outputRequest.height,
+    }, () => {
+      const source = this.renderCompositionPatch(composition, patch, compositionTime, renderRequest);
+      return this.renderCompositionOutputPipeline(
+        composition,
+        source,
+        renderRequest,
+        outputRequest,
+        compositionTime,
+        pipeline
+      );
+    });
+    this.cacheCompositionOutput(composition, outputKey, output, outputRequest);
+    if (stableSignature) this.storeStableCompositionOutput(stableKey, stableSignature, output, outputRequest);
     return output;
+  }
+
+  renderCompositionOutputPipeline(composition, source, sourceRequest, outputRequest, compositionTime, pipeline) {
+    const upscalingEnabled = pipeline.upscaling.enabled && pipeline.upscaling.amount < 0.999;
+    const post = pipeline.postProcessing;
+    const postEnabled = (post.noiseEnabled && post.noiseAmount > 0.0001) ||
+      (post.grayscaleEnabled && post.grayscaleAmount > 0.0001);
+    if (!upscalingEnabled && !postEnabled) return source;
+
+    let current = source;
+    if (upscalingEnabled) {
+      const target = this.getCompositionPipelineTarget(`${composition.id}:upscale`, outputRequest);
+      const shaderProgram = this.getCompositionPipelineShader("upscale", target);
+      if (shaderProgram) {
+        current = this.drawCompositionPipelinePass({
+          target,
+          shaderProgram,
+          source: current,
+          request: outputRequest,
+          passName: "Composition upscale",
+          uniforms: () => {
+            shaderProgram.setUniform("sourceResolution", [sourceRequest.width, sourceRequest.height]);
+          },
+        });
+      }
+    }
+
+    if (postEnabled) {
+      const target = this.getCompositionPipelineTarget(`${composition.id}:post`, outputRequest);
+      const shaderProgram = this.getCompositionPipelineShader("post", target);
+      if (shaderProgram) {
+        current = this.drawCompositionPipelinePass({
+          target,
+          shaderProgram,
+          source: current,
+          request: outputRequest,
+          passName: "Composition post",
+          uniforms: () => {
+            shaderProgram.setUniform("time", compositionTime);
+            shaderProgram.setUniform("noiseAmount", post.noiseEnabled ? post.noiseAmount : 0);
+            shaderProgram.setUniform("grayscaleAmount", post.grayscaleEnabled ? post.grayscaleAmount : 0);
+          },
+        });
+      }
+    }
+    return current;
+  }
+
+  getCompositionPipelineTarget(id, request) {
+    const renderRequest = this.normalizeRenderRequest(request, "composition-pipeline");
+    const key = renderBufferKey("composition-pipeline", id, renderRequestKey(renderRequest));
+    let target = this.compositionGpuBuffer.get(key);
+    if (!target || target.width !== renderRequest.width || target.height !== renderRequest.height) {
+      disposeGraphics(target);
+      target = createSharedFramebufferTarget(renderRequest.width, renderRequest.height) || createGraphics(renderRequest.width, renderRequest.height, WEBGL);
+      if (!isSharedFramebufferTarget(target)) {
+        target.__vj1ShaderBuffer = true;
+        this.applyGraphicsPixelDensity(target, this.requestPixelDensity(renderRequest));
+        this.applyGraphicsFont(target);
+        target.noStroke();
+      }
+      this.compositionGpuBuffer.set(key, target);
+    }
+    this.touchRenderCache(this.compositionGpuBufferUse, key);
+    return target;
+  }
+
+  getCompositionPipelineShader(kind, target) {
+    const contextKey = target?.__vj1ShaderContextId || target?._renderer || "global";
+    let shaders = this.compositionPipelineShaders.get(contextKey);
+    if (!shaders) {
+      shaders = {};
+      this.compositionPipelineShaders.set(contextKey, shaders);
+    }
+    if (shaders[kind]) return shaders[kind];
+    try {
+      const fragment = kind === "upscale" ? COMPOSITION_UPSCALE_FRAGMENT_SHADER : COMPOSITION_POST_FRAGMENT_SHADER;
+      shaders[kind] = target.createShader(OVERLAY_BLEND_VERTEX_SHADER, fragment);
+      return shaders[kind];
+    } catch (error) {
+      console.error("[VJ1_COMPOSITION_PIPELINE_SHADER_FAILED]", { kind, message: error?.message || String(error) });
+      return null;
+    }
+  }
+
+  drawCompositionPipelinePass({ target, shaderProgram, source, request, passName, uniforms }) {
+    this.frameProfile.shaderPasses++;
+    this.frameProfile.shaderChains++;
+    return this.measureProfile("shaderMs", {
+      type: "composition-pipeline",
+      passName,
+      width: request.width,
+      height: request.height,
+    }, () => this.measureGpu(target, () => {
+      drawShaderTarget(target, () => {
+        clearShaderTarget(target);
+        applyShaderTarget(target, shaderProgram);
+        shaderProgram.setUniform("sourceTex", unwrapRenderTarget(source));
+        shaderProgram.setUniform("sourceFlipY", !this.isShaderBuffer(source));
+        uniforms?.();
+        drawShaderTargetRect(target, request.width, request.height);
+        resetShaderTarget(target);
+      });
+      return target;
+    }));
   }
 
   cacheCompositionOutput(composition, outputKey, output, renderRequest) {
@@ -1590,9 +1784,11 @@ export class OutputRenderer {
 
   stableCompositionSignature(composition, renderRequest, seen = new Set()) {
     if (composition?.type === "canvas") return "";
+    const pipeline = normalizeCompositionPipelineSettings(this.state?.render || {});
+    if (pipeline.postProcessing.noiseEnabled && pipeline.postProcessing.noiseAmount > 0.0001) return "";
     if (!composition?.id || this.compositionIsFrameDynamic(composition, seen)) return "";
     return stableStringify({
-      version: 1,
+      version: 2,
       request: {
         role: renderRequest.role || "composition",
         width: renderRequest.width,
@@ -1601,6 +1797,7 @@ export class OutputRenderer {
       composition: staticCompositionState(composition),
       media: staticMediaState(this.state?.media || [], composition),
       customShader: this.state?.shaders?.customCode || "",
+      pipeline,
     });
   }
 
@@ -1996,11 +2193,8 @@ export class OutputRenderer {
     target.push();
     target.clear();
     const scale = viewport.unitScale * modelScale;
-    // Raw model matrices intentionally bypass p5's model matrix. Use the p5
-    // geometry path when a chain transform is active so it can share the same
-    // fixed-frame coordinate semantics as the procedural model renderer.
-    const rawParsedDrawn = item.modelData && isIdentityTransform(source.contentTransform) &&
-      drawRawParsedModelMode(target, item, params, compositionTime, renderMode, surfaceColor, wireColor, pointBudget, viewport);
+    const rawParsedDrawn = item.modelData &&
+      drawRawParsedModelMode(target, item, params, compositionTime, renderMode, surfaceColor, wireColor, pointBudget, viewport, source.contentTransform);
     if (!rawParsedDrawn) {
       target.perspective?.(Math.PI / 3, viewport.width / Math.max(1, viewport.height), 0.1, 5000);
       target.camera?.(0, 0, viewport.cameraZ, 0, 0, 0, 0, 1, 0);
@@ -2613,7 +2807,7 @@ export class OutputRenderer {
         drawSurfaceLabel(pg, surface, composition);
       }
       pg.pop();
-      this.measureGpu(drawingContext, () => this.mapper.drawTexture(pg, mapped.mapperSurface));
+      this.measureGpu(drawingContext, () => this.mapper.drawTexture(pg, mapped.mapperSurface, surface.projectionFit));
     }
   }
 
@@ -2719,6 +2913,7 @@ export class OutputRenderer {
   isShaderBuffer(buffer) {
     if (!buffer) return false;
     if (isSharedFramebufferTarget(buffer)) return true;
+    if (buffer.__vj1ShaderBuffer) return true;
     for (const group of this.fxTargetGroups?.values?.() || []) {
       if ((group.targets || []).includes(buffer)) return true;
     }
@@ -3230,6 +3425,22 @@ function compositionRenderRequest(render = {}, composition = {}, role = "texture
     effectiveScale: metrics.effectiveScale,
     timingId: meta.timingId || meta.surfaceId || "",
     renderIdentity: meta.renderIdentity ?? meta.instanceId ?? composition.id ?? "",
+  });
+}
+
+export function compositionPipelineSourceRequest(request = {}, pipeline = {}) {
+  const upscaling = pipeline?.upscaling || {};
+  if (upscaling.enabled !== true || Number(upscaling.amount) >= 0.999) return request;
+  const amount = Math.min(1, Math.max(0.35, Number(upscaling.amount) || 0.67));
+  return createRenderRequest(request.role || "texture", {
+    width: Math.max(1, Math.round((Number(request.width) || 1) * amount)),
+    height: Math.max(1, Math.round((Number(request.height) || 1) * amount)),
+  }, {
+    ...request,
+    logicalWidth: Math.max(1, Number(request.logicalWidth) || Number(request.width) || 1),
+    logicalHeight: Math.max(1, Number(request.logicalHeight) || Number(request.height) || 1),
+    pipelineSource: true,
+    pipelineScale: amount,
   });
 }
 
@@ -3972,16 +4183,22 @@ function graphicsToThumbnail(pg, width = COMPOSITION_THUMBNAIL_WIDTH, height = C
     if (!context) return "";
     const sourceWidth = source.videoWidth || source.naturalWidth || source.width || width;
     const sourceHeight = source.videoHeight || source.naturalHeight || source.height || height;
-    const scale = Math.min(width / Math.max(1, sourceWidth), height / Math.max(1, sourceHeight));
-    const drawWidth = sourceWidth * scale;
-    const drawHeight = sourceHeight * scale;
-    const dx = (width - drawWidth) * 0.5;
-    const dy = (height - drawHeight) * 0.5;
-    context.fillStyle = "#000";
-    context.fillRect(0, 0, width, height);
+    const targetAspect = width / Math.max(1, height);
+    const sourceAspect = sourceWidth / Math.max(1, sourceHeight);
+    let sx = 0;
+    let sy = 0;
+    let sw = sourceWidth;
+    let sh = sourceHeight;
+    if (sourceAspect > targetAspect) {
+      sw = sourceHeight * targetAspect;
+      sx = (sourceWidth - sw) * 0.5;
+    } else if (sourceAspect < targetAspect) {
+      sh = sourceWidth / targetAspect;
+      sy = (sourceHeight - sh) * 0.5;
+    }
     context.imageSmoothingEnabled = true;
     context.imageSmoothingQuality = "high";
-    context.drawImage(source, dx, dy, drawWidth, drawHeight);
+    context.drawImage(source, sx, sy, sw, sh, 0, 0, width, height);
     const webp = canvas.toDataURL("image/webp", COMPOSITION_THUMBNAIL_QUALITY);
     if (webp.startsWith("data:image/webp")) return webp;
     return canvas.toDataURL("image/png");
@@ -4984,23 +5201,23 @@ function setTerrainRawUniforms(gl, resources, params, compositionTime, planeWidt
   gl.uniform4fv(resources.wireColor, wireColor);
 }
 
-function drawRawParsedModelMode(target, item, params = {}, compositionTime = 0, renderMode = "surface", surfaceColor = [220, 225, 220, 255], wireColor = [20, 20, 20, 220], pointBudget = 4000, viewport = null) {
+function drawRawParsedModelMode(target, item, params = {}, compositionTime = 0, renderMode = "surface", surfaceColor = [220, 225, 220, 255], wireColor = [20, 20, 20, 220], pointBudget = 4000, viewport = null, contentTransform = {}) {
   if (renderMode === "points") {
-    return drawRawParsedModel(target, item, params, compositionTime, "points", wireColor, pointBudget, viewport);
+    return drawRawParsedModel(target, item, params, compositionTime, "points", wireColor, pointBudget, viewport, contentTransform);
   }
   if (renderMode === "wireframe") {
-    return drawRawParsedWire(target, item, params, compositionTime, wireColor, pointBudget, viewport);
+    return drawRawParsedWire(target, item, params, compositionTime, wireColor, pointBudget, viewport, contentTransform);
   }
   const drewSurface = drawWithPolygonOffset(target, renderMode === "surfaceWire", () => (
-    drawRawParsedSurface(target, item, params, compositionTime, surfaceColor, viewport)
+    drawRawParsedSurface(target, item, params, compositionTime, surfaceColor, viewport, contentTransform)
   ));
   if (drewSurface && renderMode === "surfaceWire") {
-    drawRawParsedWire(target, item, params, compositionTime, wireColor, pointBudget, viewport);
+    drawRawParsedWire(target, item, params, compositionTime, wireColor, pointBudget, viewport, contentTransform);
   }
   return drewSurface;
 }
 
-function drawRawParsedModel(target, item, params = {}, compositionTime = 0, mode = "points", color = [245, 245, 245, 255], pointBudget = 4000, viewport = null) {
+function drawRawParsedModel(target, item, params = {}, compositionTime = 0, mode = "points", color = [245, 245, 245, 255], pointBudget = 4000, viewport = null, contentTransform = {}) {
   const gl = target?.drawingContext;
   const mesh = item?.modelData;
   if (!gl || !mesh) return false;
@@ -5013,7 +5230,7 @@ function drawRawParsedModel(target, item, params = {}, compositionTime = 0, mode
   const depth = Math.max(0.05, Number(params.depth) || 1);
   const scale = metrics.unitScale * modelScale;
   const rotation = modelRotation(params, compositionTime);
-  const matrices = rawModelMatrices(metrics.width, metrics.height, scale, depth, rotation);
+  const matrices = rawModelMatrices(metrics.width, metrics.height, scale, depth, rotation, contentTransform);
   const rgba = color.map((channel) => Math.max(0, Math.min(1, Number(channel) / 255 || 0)));
 
   gl.useProgram(resources.program);
@@ -5029,7 +5246,7 @@ function drawRawParsedModel(target, item, params = {}, compositionTime = 0, mode
   gl.vertexAttribPointer(resources.position, 3, gl.FLOAT, false, 0, 0);
   gl.uniformMatrix4fv(resources.mvp, false, matrices.mvp);
   gl.uniformMatrix4fv(resources.model, false, matrices.model);
-  gl.uniform1f(resources.depthCutoff, modelDepthCutoff(params, scale, depth));
+  gl.uniform1f(resources.depthCutoff, modelDepthCutoff(params, mesh.bounds, matrices.model));
   gl.uniform4fv(resources.color, rgba);
   gl.uniform1f(resources.pointSize, Math.max(1, Number(params.pointSize) || 2));
   gl.drawArrays(mode === "wireframe" ? gl.LINES : gl.POINTS, 0, resources.count);
@@ -5040,7 +5257,7 @@ function drawRawParsedModel(target, item, params = {}, compositionTime = 0, mode
   return true;
 }
 
-function drawRawParsedWire(target, item, params = {}, compositionTime = 0, color = [20, 20, 20, 220], pointBudget = 4000, viewport = null) {
+function drawRawParsedWire(target, item, params = {}, compositionTime = 0, color = [20, 20, 20, 220], pointBudget = 4000, viewport = null, contentTransform = {}) {
   const gl = target?.drawingContext;
   const mesh = item?.modelData;
   if (!gl || !mesh) return false;
@@ -5053,7 +5270,7 @@ function drawRawParsedWire(target, item, params = {}, compositionTime = 0, color
   const depth = Math.max(0.05, Number(params.depth) || 1);
   const scale = metrics.unitScale * modelScale;
   const rotation = modelRotation(params, compositionTime);
-  const matrices = rawModelMatrices(metrics.width, metrics.height, scale, depth, rotation);
+  const matrices = rawModelMatrices(metrics.width, metrics.height, scale, depth, rotation, contentTransform);
   const rgba = color.map((channel) => Math.max(0, Math.min(1, Number(channel) / 255 || 0)));
   const stride = 8 * 4;
 
@@ -5075,7 +5292,7 @@ function drawRawParsedWire(target, item, params = {}, compositionTime = 0, color
   gl.vertexAttribPointer(resources.along, 1, gl.FLOAT, false, stride, 7 * 4);
   gl.uniformMatrix4fv(resources.mvp, false, matrices.mvp);
   gl.uniformMatrix4fv(resources.model, false, matrices.model);
-  gl.uniform1f(resources.depthCutoff, modelDepthCutoff(params, scale, depth));
+  gl.uniform1f(resources.depthCutoff, modelDepthCutoff(params, mesh.bounds, matrices.model));
   gl.uniform2f(resources.resolution, drawingWidth, drawingHeight);
   gl.uniform1f(resources.thickness, modelWireThickness(params));
   gl.uniform4fv(resources.color, rgba);
@@ -5089,7 +5306,7 @@ function drawRawParsedWire(target, item, params = {}, compositionTime = 0, color
   return true;
 }
 
-function drawRawParsedSurface(target, item, params = {}, compositionTime = 0, color = [220, 225, 220, 255], viewport = null) {
+function drawRawParsedSurface(target, item, params = {}, compositionTime = 0, color = [220, 225, 220, 255], viewport = null, contentTransform = {}) {
   const gl = target?.drawingContext;
   const mesh = item?.modelData;
   if (!gl || !mesh) return false;
@@ -5102,7 +5319,7 @@ function drawRawParsedSurface(target, item, params = {}, compositionTime = 0, co
   const depth = Math.max(0.05, Number(params.depth) || 1);
   const scale = metrics.unitScale * modelScale;
   const rotation = modelRotation(params, compositionTime);
-  const matrices = rawModelMatrices(metrics.width, metrics.height, scale, depth, rotation);
+  const matrices = rawModelMatrices(metrics.width, metrics.height, scale, depth, rotation, contentTransform);
   const rgba = color.map((channel) => Math.max(0, Math.min(1, Number(channel) / 255 || 0)));
 
   gl.useProgram(resources.program);
@@ -5120,7 +5337,7 @@ function drawRawParsedSurface(target, item, params = {}, compositionTime = 0, co
   gl.vertexAttribPointer(resources.normal, 3, gl.FLOAT, false, 0, 0);
   gl.uniformMatrix4fv(resources.mvp, false, matrices.mvp);
   gl.uniformMatrix4fv(resources.model, false, matrices.model);
-  gl.uniform1f(resources.depthCutoff, modelDepthCutoff(params, scale, depth));
+  gl.uniform1f(resources.depthCutoff, modelDepthCutoff(params, mesh.bounds, matrices.model));
   gl.uniform4fv(resources.color, rgba);
   gl.drawArrays(gl.TRIANGLES, 0, resources.count);
   gl.disableVertexAttribArray(resources.position);
@@ -5548,10 +5765,37 @@ function modelWireThickness(params = {}) {
   return Math.max(0.5, Math.min(12, Number(params.wireThickness) || 1));
 }
 
-function modelDepthCutoff(params = {}, scale = 1, depthScale = 1) {
-  const visibleDepth = Math.max(0.02, Math.min(1, Number(params.visibleDepth) || 1));
-  const normalizedRadius = 86.7 * Math.max(0.01, scale) * Math.max(1, depthScale);
-  return normalizedRadius * (1 - visibleDepth * 2);
+export function modelDepthCutoff(params = {}, bounds = null, modelMatrix = null) {
+  const requestedDepth = Number(params.visibleDepth);
+  const visibleDepth = Math.max(0.02, Math.min(1, Number.isFinite(requestedDepth) ? requestedDepth : 1));
+  const range = transformedModelDepthRange(bounds, modelMatrix);
+  return range.max - visibleDepth * (range.max - range.min);
+}
+
+export function transformedModelDepthRange(bounds = null, modelMatrix = null) {
+  const min = validModelBound(bounds?.min, [-50, -50, -50]);
+  const max = validModelBound(bounds?.max, [50, 50, 50]);
+  const matrix = modelMatrix?.length === 16 ? modelMatrix : mat4Identity();
+  let minDepth = Infinity;
+  let maxDepth = -Infinity;
+  for (const x of [min[0], max[0]]) {
+    for (const y of [min[1], max[1]]) {
+      for (const z of [min[2], max[2]]) {
+        const depth = matrix[2] * x + matrix[6] * y + matrix[10] * z + matrix[14];
+        minDepth = Math.min(minDepth, depth);
+        maxDepth = Math.max(maxDepth, depth);
+      }
+    }
+  }
+  return Number.isFinite(minDepth) && Number.isFinite(maxDepth)
+    ? { min: minDepth, max: maxDepth }
+    : { min: -50, max: 50 };
+}
+
+function validModelBound(value, fallback) {
+  return Array.isArray(value) && value.length >= 3 && value.every((entry) => Number.isFinite(Number(entry)))
+    ? value.slice(0, 3).map(Number)
+    : fallback;
 }
 
 function modelViewportMetrics(target, request = {}) {
@@ -5867,15 +6111,17 @@ function compileRawShader(gl, type, source) {
   return shader;
 }
 
-function rawModelMvp(width = 1, height = 1, scale = 1, depth = 1, rotation = [0, 0, 0]) {
-  return rawModelMatrices(width, height, scale, depth, rotation).mvp;
-}
-
-function rawModelMatrices(width = 1, height = 1, scale = 1, depth = 1, rotation = [0, 0, 0]) {
+function rawModelMatrices(width = 1, height = 1, scale = 1, depth = 1, rotation = [0, 0, 0], contentTransform = {}) {
   const projection = mat4Perspective(Math.PI / 3, width / Math.max(1, height), 0.1, 5000);
   const cameraZ = Math.max(1, height) * 0.92;
   const view = mat4LookAt([0, 0, cameraZ], [0, 0, 0], [0, 1, 0]);
   let model = mat4Identity();
+  if (!isIdentityTransform(contentTransform)) {
+    const content = normalizedContentTransform(contentTransform);
+    model = mat4Multiply(model, mat4Translation(content.x * width * 0.5, content.y * height * 0.5, 0));
+    model = mat4Multiply(model, mat4RotationZ(content.rotation));
+    model = mat4Multiply(model, mat4Scale(content.scale, content.scale, content.scale));
+  }
   model = mat4Multiply(model, mat4RotationX(rotation[0] || 0));
   model = mat4Multiply(model, mat4RotationY(rotation[1] || 0));
   model = mat4Multiply(model, mat4RotationZ(rotation[2] || 0));
@@ -5957,6 +6203,15 @@ function mat4Scale(x, y, z) {
     0, y, 0, 0,
     0, 0, z, 0,
     0, 0, 0, 1,
+  ]);
+}
+
+function mat4Translation(x, y, z) {
+  return new Float32Array([
+    1, 0, 0, 0,
+    0, 1, 0, 0,
+    0, 0, 1, 0,
+    x, y, z, 1,
   ]);
 }
 
@@ -6419,7 +6674,11 @@ function normalizeParsedMesh(triangles) {
       vertices,
     };
   });
-  return { triangles: normalizedTriangles, bounds };
+  const normalizedBounds = {
+    min: bounds.min.map((value, axis) => (value - center[axis]) * scale),
+    max: bounds.max.map((value, axis) => (value - center[axis]) * scale),
+  };
+  return { triangles: normalizedTriangles, bounds: normalizedBounds, sourceBounds: bounds };
 }
 
 function triangleNormal(vertices) {

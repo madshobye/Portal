@@ -59,6 +59,29 @@ test("composition panel exposes frame shape and relative resolution controls", (
   assert.ok(styleSource.includes(".composition-option-grid"));
 });
 
+test("scene surfaces expose projection cover contain and stretch", () => {
+  const source = readFileSync(new URL("../js/control/control-shell-controller.js", import.meta.url), "utf8");
+  assert.ok(source.includes('const PROJECTION_FIT_MODES = ["cover", "contain", "stretch"]'));
+  assert.ok(source.includes("Projection fit"));
+  assert.ok(source.includes("sceneBase}.projectionFit"));
+});
+
+test("project settings expose composition upscaling and native-resolution post filters", () => {
+  const controllerSource = readFileSync(new URL("../js/control/control-shell-controller.js", import.meta.url), "utf8");
+
+  for (const path of [
+    "render.upscaling.enabled",
+    "render.upscaling.amount",
+    "render.postProcessing.grayscaleEnabled",
+    "render.postProcessing.grayscaleAmount",
+    "render.postProcessing.noiseEnabled",
+    "render.postProcessing.noiseAmount",
+  ]) {
+    assert.ok(controllerSource.includes(`data-settings-update="${path}"`));
+  }
+  assert.ok(controllerSource.includes("These filters run at the composition’s full target resolution after upscaling."));
+});
+
 test("scrub changes are sent to live output on the next animation frame", () => {
   const appSource = readFileSync(new URL("../js/app.js", import.meta.url), "utf8");
 
@@ -101,6 +124,20 @@ test("topbar shows separate active-renderer CPU and GPU work timers", () => {
   assert.ok(rendererSource.includes("this.pruneRenderCaches();\n    this.gpuTimer.sealFrame"));
   assert.ok(rendererSource.includes("gpuSupported: this.gpuTimer.supported"));
   assert.ok(previewSource.includes("draft.metrics.previewGpuMs = metrics.gpuMs || 0"));
+});
+
+test("topbar metric readouts reserve stable widths", () => {
+  const source = readFileSync(new URL("../style.css", import.meta.url), "utf8");
+  assert.ok(source.includes(".cost-pill #render-cost-text {\n  width: 4ch;"));
+  assert.ok(source.includes(".work-time-pill #cpu-time-text,\n.work-time-pill #gpu-time-text {\n  width: 6ch;"));
+  assert.ok(source.includes("#output-status-text {\n  display: inline-block;\n  width: 7ch;"));
+  assert.ok(source.includes("font-variant-numeric: tabular-nums;"));
+});
+
+test("list thumbnails crop to fill and brighten their grayscale state", () => {
+  const source = readFileSync(new URL("../style.css", import.meta.url), "utf8");
+  assert.ok(source.includes("object-fit: cover;"));
+  assert.ok(source.includes("filter: grayscale(1) contrast(1.16) brightness(1.08);"));
 });
 
 test("workspace view buttons are compact icons with accessible names", () => {

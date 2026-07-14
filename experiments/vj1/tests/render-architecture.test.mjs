@@ -4,7 +4,7 @@ import assert from "node:assert/strict";
 import { compileShaderSchedule, fuseLocalShaderSchedule } from "../js/graph/render-scheduler.js";
 import { effectTransformUniforms } from "../js/output/output-renderer.js";
 import { SharedFramebufferTarget, unwrapRenderTarget } from "../js/output/shared-framebuffer-target.js";
-import { mapperFragmentShaderSource, mapperVertexShaderSource, surfaceQuadVertices } from "../js/output/vj-mapper.js";
+import { mapperFragmentShaderSource, mapperVertexShaderSource, projectionFitMode, surfaceQuadVertices } from "../js/output/vj-mapper.js";
 import { createShaderBuilder } from "../js/shaders/shader-builder.js";
 import { getShaderComponent } from "../js/shaders/shader-registry.js";
 
@@ -107,6 +107,43 @@ test("shared framebuffer facade re-establishes the top-left 2D contract", () => 
   }
 });
 
+test("shared framebuffer shader draws undo an active top-left translation", () => {
+  const calls = [];
+  const names = ["push", "translate", "imageMode", "rectMode", "pop"];
+  const previous = Object.fromEntries(names.map((name) => [name, globalThis[name]]));
+  for (const name of names) globalThis[name] = (...args) => calls.push([name, ...args]);
+  const framebuffer = {
+    width: 640,
+    height: 360,
+    begin: () => calls.push(["begin"]),
+    end: () => calls.push(["end"]),
+  };
+  try {
+    const target = new SharedFramebufferTarget(framebuffer);
+    target.push();
+    target.drawWebGL(() => calls.push(["draw"]));
+    target.pop();
+    assert.deepEqual(calls, [
+      ["begin"],
+      ["push"],
+      ["translate", -320, -180],
+      ["imageMode", "corner"],
+      ["rectMode", "corner"],
+      ["push"],
+      ["translate", 320, 180],
+      ["draw"],
+      ["pop"],
+      ["pop"],
+      ["end"],
+    ]);
+  } finally {
+    for (const name of names) {
+      if (previous[name] === undefined) delete globalThis[name];
+      else globalThis[name] = previous[name];
+    }
+  }
+});
+
 test("mapper applies homography per vertex and draws centered projective quads", () => {
   const vertexSource = mapperVertexShaderSource();
   const fragmentSource = mapperFragmentShaderSource();
@@ -123,6 +160,18 @@ test("mapper applies homography per vertex and draws centered projective quads",
     { x: -320, y: 180 },
     { x: 320, y: 180 },
   ]);
+});
+
+test("projection mapping exposes cover contain and stretch without another render pass", () => {
+  const fragmentSource = mapperFragmentShaderSource();
+  assert.equal(projectionFitMode(), 1);
+  assert.equal(projectionFitMode("cover"), 1);
+  assert.equal(projectionFitMode("contain"), 2);
+  assert.equal(projectionFitMode("stretch"), 0);
+  assert.match(fragmentSource, /uniform float uSourceAspect/);
+  assert.match(fragmentSource, /uniform float uTargetAspect/);
+  assert.match(fragmentSource, /uniform float uProjectionFit/);
+  assert.match(fragmentSource, /texture2D\(tex, clamp\(sampleUv/);
 });
 
 function applyMat3(matrix, [x, y]) {

@@ -8,7 +8,7 @@ import { getGeneratorComponent, listGeneratorComponents } from "../js/graph/gene
 import { RenderNodeRuntime, textureStateKey } from "../js/graph/render-node-runtime.js";
 import { compileCompositionPatch } from "../js/graph/render-scheduler.js?v=world-frame-27";
 import { shouldHoldCurrentOutputState } from "../js/output/output-app.js";
-import { advanceRateClock, advanceSpatialScale, OutputRenderer, parseObjMesh, qualityAdjustedGeneratorParams, qualityScaledRenderRequest, sourceWithNodeParams, terrainExpandedGridWireVertices, terrainExpandedWireVertices, terrainGridSize, terrainSurfaceGridVertices, terrainSurfaceTriangleIndices, terrainTriangleEdgeUvs } from "../js/output/output-renderer.js?v=world-frame-27";
+import { advanceRateClock, advanceSpatialScale, modelDepthCutoff, OutputRenderer, parseObjMesh, qualityAdjustedGeneratorParams, qualityScaledRenderRequest, sourceWithNodeParams, terrainExpandedGridWireVertices, terrainExpandedWireVertices, terrainGridSize, terrainSurfaceGridVertices, terrainSurfaceTriangleIndices, terrainTriangleEdgeUvs, transformedModelDepthRange } from "../js/output/output-renderer.js?v=world-frame-27";
 import { getMediaType, isMediaFile } from "../js/services/media-library-service.js";
 
 test("media sources keep trim and playback speed through normalization and graph compile", () => {
@@ -566,13 +566,30 @@ f -4//1 -3//1 -2//1 -1//1
   assert.equal(mesh.triangles.length, 2);
   assert.equal(mesh.triangles.every((triangle) => triangle.vertices.length === 3), true);
   assert.equal(mesh.triangles.every((triangle) => triangle.normal[2] > 0.99), true);
+  assert.deepEqual(mesh.bounds.min, [-50, -50, 0]);
+  assert.deepEqual(mesh.bounds.max, [50, 50, 0]);
+});
+
+test("3d model visible depth follows transformed normalized model bounds", () => {
+  const bounds = { min: [-10, -20, -5], max: [10, 20, 15] };
+  const modelMatrix = new Float32Array([
+    2, 0, 0, 0,
+    0, 3, 0, 0,
+    0, 0, 2, 0,
+    0, 0, 7, 1,
+  ]);
+
+  assert.deepEqual(transformedModelDepthRange(bounds, modelMatrix), { min: -3, max: 37 });
+  assert.equal(modelDepthCutoff({ visibleDepth: 1 }, bounds, modelMatrix), -3);
+  assert.equal(modelDepthCutoff({ visibleDepth: 0.5 }, bounds, modelMatrix), 17);
+  assert.equal(modelDepthCutoff({ visibleDepth: 0.25 }, bounds, modelMatrix), 27);
 });
 
 test("3d model point mode uses cached bounded point clouds", () => {
   const source = readFileSync(new URL("../js/output/output-renderer.js", import.meta.url), "utf8");
 
   assert.ok(source.includes("drawRawParsedModel(target, item, params, compositionTime, \"points\""));
-  assert.ok(source.includes("drawRawParsedWire(target, item, params, compositionTime, wireColor, pointBudget, viewport)"));
+  assert.ok(source.includes("drawRawParsedWire(target, item, params, compositionTime, wireColor, pointBudget, viewport, contentTransform)"));
   assert.ok(source.includes("gl.drawArrays(gl.TRIANGLES, 0, resources.count);"));
   assert.ok(source.includes("ensureParsedModelPointCloud(item, pointBudget)"));
   assert.ok(source.includes("ensureParsedModelWireLines(item, budget)"));
@@ -592,7 +609,7 @@ test("3d model scale uses logical render viewport instead of backing pixels", ()
   assert.ok(source.includes("const scale = viewport.unitScale * modelScale;"));
   assert.ok(source.includes("const drawingWidth = Math.max(1, gl.drawingBufferWidth || target.width || 1);"));
   assert.ok(source.includes("gl.viewport(0, 0, drawingWidth, drawingHeight);"));
-  assert.ok(source.includes("const matrices = rawModelMatrices(metrics.width, metrics.height, scale, depth, rotation);"));
+  assert.ok(source.includes("const matrices = rawModelMatrices(metrics.width, metrics.height, scale, depth, rotation, contentTransform);"));
   assert.ok(source.includes("const cameraZ = Math.max(1, height) * 0.92;"));
   assert.ok(!source.includes("Math.max(width, height) * 0.92"));
 });
@@ -607,7 +624,7 @@ test("parsed STL and OBJ models use one clipped raw WebGL renderer family", () =
   assert.ok(source.includes("function ensureParsedModelSurfaceArrays("));
   assert.ok(source.includes("item.modelData = parseObjMesh(text);"));
   assert.ok(source.includes("if (vModelDepth < uDepthCutoff) discard;"));
-  assert.ok(source.includes("modelDepthCutoff(params, scale, depth)"));
+  assert.ok(source.includes("modelDepthCutoff(params, mesh.bounds, matrices.model)"));
   assert.ok(source.includes('if (drewSurface && renderMode === "surfaceWire")'));
   assert.ok(source.includes('drawWithPolygonOffset(target, renderMode === "surfaceWire"'));
 });

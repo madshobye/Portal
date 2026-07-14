@@ -314,14 +314,31 @@ small {
 .work-time-pill #cpu-time-text,
 .work-time-pill #gpu-time-text {
   display: inline-block;
-  min-width: 4ch;
   text-align: right;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.cost-pill #render-cost-text {
+  width: 4ch;
+}
+
+.work-time-pill #cpu-time-text,
+.work-time-pill #gpu-time-text {
+  width: 6ch;
+}
+
+#output-status-text {
+  display: inline-block;
+  width: 7ch;
+  text-align: left;
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
 
 .cost-pill .material-symbols-rounded,
 .work-time-pill .material-symbols-rounded {
+  flex: 0 0 16px;
   font-size: 16px;
 }
 
@@ -539,7 +556,7 @@ small {
 .composition-card:not(.is-selected) .scene-fingerprint,
 .media-picker-card:not(.is-selected) img,
 .media-picker-card:not(.is-selected) video {
-  filter: grayscale(1) saturate(0.2) contrast(0.92) brightness(0.82);
+  filter: grayscale(1) contrast(1.16) brightness(1.08);
 }
 
 .composition-card.is-selected img,
@@ -2208,6 +2225,23 @@ small {
   gap: 12px;
   min-height: 0;
   overflow: auto;
+}
+
+.settings-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 34px;
+  color: var(--muted);
+  font-size: var(--label-font-size);
+  font-weight: 700;
+}
+
+.settings-toggle input[type="checkbox"] {
+  width: 18px;
+  height: 18px;
+  accent-color: var(--cyan);
 }
 
 .settings-preset-row {

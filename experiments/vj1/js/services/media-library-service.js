@@ -1,4 +1,4 @@
-import { uid } from "../domain/models.js?v=composition-frame-1";
+import { uid } from "../domain/models.js?v=projection-fit-1";
 import { isMediaRenditionPath, parseMediaRenditionPath } from "./media-rendition-service.js";
 
 const VIDEO_RE = /\.(mp4|m4v|mov|webm|ogv)$/i;

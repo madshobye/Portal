@@ -166,7 +166,7 @@ test("shared procedural hashes avoid shader trig", () => {
   assert.ok(generatorShaderSource.includes("p3 += dot(p3, p3.yzx + 33.33);"));
   assert.ok(fallbackGeneratorSource.includes("function fract(value)"));
   assert.ok(!shaderBuilderSource.includes("fract(sin"));
-  for (const id of ["waves", "noise", "plasma", "gradient", "bezierStrokes", "fireflies", "eyeball", "terrainFlyover", "swayingTrees"]) {
+  for (const id of ["waves", "noise", "plasma", "gradient", "bezierStrokes", "fireflies", "eyeball", "swayingTrees"]) {
     assert.ok(!getGeneratorShaderComponent(id).code.includes("fract(sin"), `${id} regressed to a trig hash`);
   }
   assert.ok(!fallbackGeneratorSource.includes("Math.sin(x * 127.1"));
@@ -321,21 +321,10 @@ test("fireflies generator keeps the background transparent and uses one tint col
   assert.ok(component.code.includes("gl_FragColor = vec4(color * alpha, alpha)"));
 });
 
-test("terrain flyover uses a bounded hash-noise height field", () => {
-  const component = getGeneratorShaderComponent("terrainFlyover");
-
-  for (const id of ["style", "flightSpeed", "turn", "altitude", "pitch", "mountainHeight", "terrainScale", "lakeLevel", "viewDistance", "gridDensity", "wireWidth"]) {
-    assert.ok(component.code.includes(`uniform float ${id};`), `missing terrain uniform ${id}`);
-  }
-  for (const id of ["waterColor", "grassColor", "rockColor", "snowColor", "wireColor", "skyColor"]) {
-    assert.ok(component.code.includes(`uniform vec4 ${id};`), `missing terrain color ${id}`);
-  }
-  assert.ok(component.code.includes("float simplexLikeNoise(vec2 p)"));
-  assert.ok(component.code.includes("for (int step = 0; step < 5; step++)"));
-  assert.ok(component.code.includes("max(rawHeight, lakeLevel)"));
-  assert.ok(component.code.includes("vec2 gridCell = abs(fract(position.xz"));
-  assert.ok(!component.code.includes("texture2D("));
-  assert.ok(!component.code.slice(component.code.indexOf("float hash12"), component.code.indexOf("float terrainHeight")).includes("sin("));
+test("terrain flyover does not expose the obsolete full-frame fallback shader", () => {
+  const source = readFileSync(new URL("../js/shaders/generator-shaders.js", import.meta.url), "utf8");
+  assert.equal(getGeneratorShaderComponent("terrainFlyover"), null);
+  assert.ok(!source.includes("simplexLikeNoise"));
 });
 
 test("gradient generator supports efficient linear radial and single modes", () => {

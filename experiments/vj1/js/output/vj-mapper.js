@@ -123,7 +123,7 @@ export class VjMapper {
     this._emitConfigChange("reset");
   }
 
-  drawTexture(texture, surface) {
+  drawTexture(texture, surface, projectionFit = "cover") {
     if (!texture || !surface) return;
     this._ensureShader();
     const dpr = currentPixelDensity();
@@ -136,6 +136,9 @@ export class VjMapper {
     this.shader.setUniform("uCanvasSize", [width, height]);
     this.shader.setUniform("uHinv", cache.Hc);
     this.shader.setUniform("uSurfaceSize", [texture.width || surface.w, texture.height || surface.h]);
+    this.shader.setUniform("uSourceAspect", Math.max(0.0001, Number(texture.width) || 1) / Math.max(1, Number(texture.height) || 1));
+    this.shader.setUniform("uTargetAspect", Math.max(0.0001, Number(surface.w) || 1) / Math.max(1, Number(surface.h) || 1));
+    this.shader.setUniform("uProjectionFit", projectionFitMode(projectionFit));
     this.shader.setUniform("uEdgeSoftness", this.edgeSoftness);
     this._drawSurfaceQuad(surface.corners);
     resetShader();
@@ -369,12 +372,32 @@ export function mapperFragmentShaderSource() {
       precision highp float;
       uniform sampler2D tex;
       uniform vec2 uSurfaceSize;
+      uniform float uSourceAspect;
+      uniform float uTargetAspect;
+      uniform float uProjectionFit;
       uniform float uEdgeSoftness;
       varying vec3 vProjectiveUv;
       void main() {
         float w = abs(vProjectiveUv.z) > 1e-6 ? vProjectiveUv.z : 1e-6;
         vec2 uv = clamp(vProjectiveUv.xy / w, vec2(0.0), vec2(1.0));
-        vec4 color = texture2D(tex, uv);
+        vec2 sampleUv = uv;
+        float inside = 1.0;
+        if (uProjectionFit > 0.5 && uProjectionFit < 1.5) {
+          if (uSourceAspect > uTargetAspect) {
+            sampleUv.x = 0.5 + (uv.x - 0.5) * (uTargetAspect / uSourceAspect);
+          } else {
+            sampleUv.y = 0.5 + (uv.y - 0.5) * (uSourceAspect / uTargetAspect);
+          }
+        } else if (uProjectionFit >= 1.5) {
+          if (uSourceAspect > uTargetAspect) {
+            sampleUv.y = 0.5 + (uv.y - 0.5) * (uSourceAspect / uTargetAspect);
+          } else {
+            sampleUv.x = 0.5 + (uv.x - 0.5) * (uTargetAspect / uSourceAspect);
+          }
+          inside = step(0.0, sampleUv.x) * step(sampleUv.x, 1.0) *
+            step(0.0, sampleUv.y) * step(sampleUv.y, 1.0);
+        }
+        vec4 color = texture2D(tex, clamp(sampleUv, vec2(0.0), vec2(1.0))) * inside;
         if (uEdgeSoftness > 0.0) {
           vec2 edgePx = min(uv, 1.0 - uv) * uSurfaceSize;
           float edge = min(edgePx.x, edgePx.y);
@@ -383,6 +406,12 @@ export function mapperFragmentShaderSource() {
         gl_FragColor = color;
       }
     `;
+}
+
+export function projectionFitMode(value = "cover") {
+  if (value === "stretch") return 0;
+  if (value === "contain") return 2;
+  return 1;
 }
 
 export function surfaceQuadVertices(corners, canvasWidth, canvasHeight) {

@@ -6,7 +6,7 @@ import {
   loadProjectDirectoryHandle,
   saveProjectDirectoryHandle,
 } from "./directory-handle-store.js";
-import { applySceneSnapshotToState, createInitialState } from "../domain/models.js?v=composition-frame-1";
+import { applySceneSnapshotToState, createInitialState } from "../domain/models.js?v=projection-fit-1";
 
 export function createProjectFolderService({ mediaLibrary, store, bridge }) {
   let dirHandle = null;

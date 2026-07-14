@@ -15,7 +15,7 @@ import {
   createSceneFromState,
   sanitizeState,
   uid,
-} from "./domain/models.js?v=composition-frame-1";
+} from "./domain/models.js?v=projection-fit-1";
 import { WORKSPACES } from "./constants.js";
 
 export function createAppState(initial = null) {

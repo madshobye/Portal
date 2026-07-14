@@ -1,13 +1,13 @@
 import { BLEND_MODES, VJ1, WORKSPACES } from "../constants.js";
 import { compositionFrameMetrics } from "../domain/composition-frame.js";
-import { applySceneSnapshotToState, createLiveCompositionView, createLiveRenderState, createSceneSnapshot, normalizeRenderSettings } from "../domain/models.js?v=composition-frame-1";
+import { applySceneSnapshotToState, createLiveCompositionView, createLiveRenderState, createSceneSnapshot, normalizeRenderSettings } from "../domain/models.js?v=projection-fit-1";
 import { normalizeParamValue, RENDER_QUALITY_PARAM } from "../graph/component-schema.js?v=range-pair-1";
 import { getGeneratorComponent, listGeneratorComponents } from "../graph/generator-registry.js?v=render-quality-2";
 import { patchNodeDegree, planCompositorInputs, planPatchExecution, summarizeTextureBranches } from "../graph/patch-planner.js";
 import { compileCompositionPatch } from "../graph/render-scheduler.js?v=hsv-alpha-key-1";
 import { buildOutputUrl } from "../view-routing.js";
 import { getShaderComponent, listShaderComponents } from "../shaders/shader-registry.js?v=hsv-alpha-key-1";
-import { createEmbeddedPreviewApp } from "../output/embedded-preview-app.js?v=gpu-query-average-1";
+import { createEmbeddedPreviewApp } from "../output/embedded-preview-app.js?v=thumbnail-cover-1";
 import { frameFitViewport, resetViewport, zoomViewport } from "../output/preview-viewport.js";
 import { defaultProjectSurfaceMapping } from "../output/render-geometry.js";
 import { createHtmlCache, isInteractiveNode, isTextEditingNode, setClass, setText } from "./dom-utils.js";
@@ -17,6 +17,7 @@ import { effectIcon, emptyNote, esc, icon, paramRangePairTemplate, rangeTemplate
 
 const MODEL_RENDER_MODES = ["surface", "wireframe", "surfaceWire", "points"];
 const MEDIA_FIT_MODES = ["contain", "cover"];
+const PROJECTION_FIT_MODES = ["cover", "contain", "stretch"];
 const MODEL_SURFACE_COLOR_PARAM = { id: "surfaceColor", label: "Surface color", type: "color", defaultValue: "#dce1dcff" };
 const MODEL_WIRE_COLOR_PARAM = { id: "wireColor", label: "Wire color", type: "color", defaultValue: "#141414dd" };
 const MEDIA_FIT_PARAM = { id: "fit", label: "Fit", type: "enum", values: MEDIA_FIT_MODES, defaultValue: "contain" };
@@ -2407,6 +2408,7 @@ function sceneSurfaceTemplate(surface, state) {
       ${hasSceneSurface ? `
         ${rangeTemplate("Presence", `${sceneBase}.opacity`, sceneSurface.opacity)}
         ${compositionAssignmentTemplate(`${sceneBase}.compositionId`, state.compositions, sceneSurface.compositionId)}
+        <label class="field">Projection fit ${selectValuesTemplate(`${sceneBase}.projectionFit`, PROJECTION_FIT_MODES, sceneSurface.projectionFit || "cover")}</label>
         ${assignedComposition?.type === "canvas" ? surfaceSourceRectTemplate(rectBase, sourceRect) : ""}
       ` : `<div class="soft-note">Capture a scene to store composition assignments for this surface.</div>`}
     </article>
@@ -2628,6 +2630,38 @@ function settingsModalTemplate(state) {
             <label class="field">Pixel density <input type="number" min="0.5" max="2" step="0.25" data-settings-update="render.pixelDensity" value="${render.pixelDensity}" /></label>
             <label class="field">Edge softness <input type="number" min="0" max="8" step="0.5" data-settings-update="render.edgeSoftness" value="${render.edgeSoftness}" /></label>
           </div>
+        </section>
+        <section class="element-section">
+          <div class="rail-title"><span class="material-symbols-rounded">high_quality</span><span>Composition upscaling</span></div>
+          <label class="settings-toggle">
+            <span>Enable upscaling pipeline</span>
+            <input type="checkbox" data-settings-update="render.upscaling.enabled" ${render.upscaling.enabled ? "checked" : ""} />
+          </label>
+          <label class="field range-field">
+            <span>Internal render amount · ${Math.round(render.upscaling.amount * 100)}%</span>
+            <input type="range" min="0.35" max="1" step="0.01" data-settings-update="render.upscaling.amount" value="${render.upscaling.amount}" />
+          </label>
+          <div class="soft-note">Renders each chain composition at this fraction, then applies one fast edge-aware upscale before projection.</div>
+        </section>
+        <section class="element-section">
+          <div class="rail-title"><span class="material-symbols-rounded">grain</span><span>Post processing</span></div>
+          <label class="settings-toggle">
+            <span>Grayscale</span>
+            <input type="checkbox" data-settings-update="render.postProcessing.grayscaleEnabled" ${render.postProcessing.grayscaleEnabled ? "checked" : ""} />
+          </label>
+          <label class="field range-field">
+            <span>Grayscale amount · ${Math.round(render.postProcessing.grayscaleAmount * 100)}%</span>
+            <input type="range" min="0" max="1" step="0.05" data-settings-update="render.postProcessing.grayscaleAmount" value="${render.postProcessing.grayscaleAmount}" />
+          </label>
+          <label class="settings-toggle">
+            <span>Monochrome noise</span>
+            <input type="checkbox" data-settings-update="render.postProcessing.noiseEnabled" ${render.postProcessing.noiseEnabled ? "checked" : ""} />
+          </label>
+          <label class="field range-field">
+            <span>Noise amount · ${Math.round(render.postProcessing.noiseAmount * 1000) / 10}%</span>
+            <input type="range" min="0" max="0.2" step="0.005" data-settings-update="render.postProcessing.noiseAmount" value="${render.postProcessing.noiseAmount}" />
+          </label>
+          <div class="soft-note">These filters run at the composition’s full target resolution after upscaling.</div>
         </section>
       </div>
     </section>
