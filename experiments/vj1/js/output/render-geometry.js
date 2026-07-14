@@ -1,17 +1,42 @@
 import { VJ1 } from "../constants.js";
 
-export function frameSize(render = {}) {
-  return {
+export function outputDefinitions(render = {}) {
+  if (Array.isArray(render.outputs) && render.outputs.length) {
+    return render.outputs.map((output, index) => ({
+      id: String(output.id || (index === 0 ? "output-main" : `output-${index + 1}`)),
+      name: output.name || (index === 0 ? "Main output" : `Output ${index + 1}`),
+      width: positiveInt(output.width, VJ1.renderWidth, 1),
+      height: positiveInt(output.height, VJ1.renderHeight, 1),
+    }));
+  }
+  return [{
+    id: "output-main",
+    name: "Main output",
     width: positiveInt(render.frameWidth ?? render.width, VJ1.renderWidth, 1),
     height: positiveInt(render.frameHeight ?? render.height, VJ1.renderHeight, 1),
+  }];
+}
+
+export function frameSize(render = {}, outputId = "") {
+  const outputs = outputDefinitions(render);
+  const output = outputs.find((item) => item.id === outputId) || outputs[0];
+  return {
+    width: output.width,
+    height: output.height,
   };
 }
 
 export function worldSize(render = {}) {
   const frame = frameSize(render);
+  const outputs = outputDefinitions(render);
+  const gap = 0;
+  const contentWidth = outputs.reduce((sum, output) => sum + output.width, 0) + gap * Math.max(0, outputs.length - 1);
+  const contentHeight = Math.max(...outputs.map((output) => output.height));
+  const fallbackWidth = contentWidth + Math.round(Math.max(...outputs.map((output) => output.width)) * 0.5);
+  const fallbackHeight = Math.round(contentHeight * 1.5);
   return {
-    width: Math.max(frame.width, positiveInt(render.worldWidth, Math.round(frame.width * 1.5), 1)),
-    height: Math.max(frame.height, positiveInt(render.worldHeight, Math.round(frame.height * 1.5), 1)),
+    width: Math.max(frame.width, positiveInt(render.worldWidth, fallbackWidth, 1)),
+    height: Math.max(frame.height, positiveInt(render.worldHeight, fallbackHeight, 1)),
   };
 }
 
@@ -83,12 +108,30 @@ export function canvasSizeForMode(mode, render = {}) {
 }
 
 export function outputFrameOffset(render = {}) {
-  const frame = frameSize(render);
+  const frame = outputFrames(render)[0];
+  return { x: frame?.x || 0, y: frame?.y || 0 };
+}
+
+export function outputFrames(render = {}) {
+  const outputs = outputDefinitions(render);
   const world = worldSize(render);
-  return {
-    x: Math.max(0, (world.width - frame.width) * 0.5),
-    y: Math.max(0, (world.height - frame.height) * 0.5),
-  };
+  const gap = 0;
+  const contentWidth = outputs.reduce((sum, output) => sum + output.width, 0) + gap * Math.max(0, outputs.length - 1);
+  let x = Math.max(0, (world.width - contentWidth) * 0.5);
+  return outputs.map((output) => {
+    const frame = {
+      ...output,
+      x,
+      y: Math.max(0, (world.height - output.height) * 0.5),
+    };
+    x += output.width + gap;
+    return frame;
+  });
+}
+
+export function outputFrameForId(render = {}, outputId = "") {
+  const frames = outputFrames(render);
+  return frames.find((frame) => frame.id === outputId) || frames[0];
 }
 
 export function defaultProjectSurfaceMapping(render = {}, surfaces = []) {

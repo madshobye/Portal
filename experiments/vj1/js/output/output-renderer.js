@@ -1,6 +1,6 @@
 import { VJ1 } from "../constants.js";
 import { compositionFrameMetrics } from "../domain/composition-frame.js";
-import { clamp01, normalizeCompositionPipelineSettings, sanitizeState } from "../domain/models.js?v=live-program-1";
+import { clamp01, normalizeCompositionPipelineSettings, sanitizeState } from "../domain/models.js?v=multi-output-2";
 import { normalizeParamValue, normalizeParamValues, renderQualityScale, renderQualityValue } from "../graph/component-schema.js?v=range-pair-1";
 import { createManualScheduler } from "../graph/manual-scheduler.js";
 import { RenderNodeRuntime, textureStateKey } from "../graph/render-node-runtime.js?v=node-dirty-runtime-1";
@@ -22,11 +22,13 @@ import {
   createRenderRequest,
   frameRenderRequest,
   frameSize,
+  outputFrameForId,
+  outputFrames,
   outputFrameOffset,
   renderRequestKey,
   surfaceTextureSize,
   worldSize,
-} from "./render-geometry.js";
+} from "./render-geometry.js?v=multi-output-2";
 import { VjMapper } from "./vj-mapper.js?v=mapping-live-1";
 import { mediaRenditionKey } from "../services/media-rendition-service.js";
 
@@ -396,8 +398,9 @@ void main() {
 `;
 
 export class OutputRenderer {
-  constructor({ mode, hud, font, sendMetrics, sendMapping, sendThumbnail, sendChainTransform, sendMediaRendition, requestMediaFiles, onSurfaceSelect }) {
+  constructor({ mode, outputId = "", hud, font, sendMetrics, sendMapping, sendThumbnail, sendChainTransform, sendMediaRendition, requestMediaFiles, onSurfaceSelect }) {
     this.mode = mode;
+    this.outputId = outputId;
     this.hud = hud;
     this.font = font || null;
     this.sendMetrics = sendMetrics;
@@ -745,15 +748,15 @@ export class OutputRenderer {
 
   renderSizeSignature(render = {}) {
     const frame = this.outputFrameSize(render);
-    const projectFrame = frameSize(render);
     const world = worldSize(render);
     const texture = surfaceTextureSize(render);
     const density = Math.max(0.5, Math.min(2, Number(render.pixelDensity) || 1));
-    return `${frame.width}x${frame.height}:project${projectFrame.width}x${projectFrame.height}:${world.width}x${world.height}:${texture.width}x${texture.height}:pd${density}`;
+    const outputs = outputFrames(render).map((output) => `${output.id}:${output.width}x${output.height}@${output.x},${output.y}`).join("|");
+    return `${this.outputId}:${frame.width}x${frame.height}:${outputs}:${world.width}x${world.height}:${texture.width}x${texture.height}:pd${density}`;
   }
 
   outputFrameSize(render = this.state?.render || {}) {
-    return frameSize(render);
+    return frameSize(render, this.mode === "output" ? this.outputId : "");
   }
 
   displayCanvasSize(render = this.state?.render || {}) {
@@ -841,7 +844,7 @@ export class OutputRenderer {
   }
 
   outputFrameTransform() {
-    const projectFrame = frameSize(this.state?.render || {});
+    const projectFrame = this.outputFrameSize(this.state?.render || {});
     const outputFrame = this.displayCanvasSize(this.state?.render || {});
     const scale = Math.max(
       outputFrame.width / Math.max(1, projectFrame.width),
@@ -866,6 +869,10 @@ export class OutputRenderer {
   }
 
   outputFrameOffset() {
+    if (this.mode === "output") {
+      const frame = outputFrameForId(this.state?.render || {}, this.outputId);
+      return { x: frame?.x || 0, y: frame?.y || 0 };
+    }
     return outputFrameOffset(this.state?.render || {});
   }
 
@@ -1097,10 +1104,8 @@ export class OutputRenderer {
 
   renderOutputFrameOverlay() {
     if (this.mode === "output" || !this.mapper?.isCalibrating?.()) return;
-    const frameWidth = Math.max(1, Number(this.state?.render?.frameWidth || this.state?.render?.width) || width);
-    const frameHeight = Math.max(1, Number(this.state?.render?.frameHeight || this.state?.render?.height) || height);
-    if (frameWidth >= width && frameHeight >= height) return;
-    const offset = this.outputFrameOffset();
+    const frames = outputFrames(this.state?.render || {});
+    if (!frames.length) return;
     const gl = drawingContext;
     if (gl?.disable) gl.disable(gl.DEPTH_TEST);
     resetShader();
@@ -1109,12 +1114,16 @@ export class OutputRenderer {
     stroke(255, 255, 255, 135);
     strokeWeight(2);
     rectMode(CORNER);
-    rect(-width * 0.5 + offset.x, -height * 0.5 + offset.y, frameWidth, frameHeight);
-    noStroke();
-    fill(255, 255, 255, 150);
-    textSize(12);
-    textAlign(LEFT, TOP);
-    text("output frame", -width * 0.5 + offset.x + 10, -height * 0.5 + offset.y + 8);
+    for (const frame of frames) {
+      noFill();
+      stroke(255, 255, 255, 135);
+      rect(-width * 0.5 + frame.x, -height * 0.5 + frame.y, frame.width, frame.height);
+      noStroke();
+      fill(255, 255, 255, 150);
+      textSize(12);
+      textAlign(LEFT, TOP);
+      text(`${frame.name} · ${frame.width}×${frame.height}`, -width * 0.5 + frame.x + 10, -height * 0.5 + frame.y + 8);
+    }
     pop();
     if (gl?.enable) gl.enable(gl.DEPTH_TEST);
   }

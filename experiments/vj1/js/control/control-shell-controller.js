@@ -1,18 +1,18 @@
 import { BLEND_MODES, VJ1, WORKSPACES } from "../constants.js";
 import { compositionFrameMetrics } from "../domain/composition-frame.js";
-import { applySceneSnapshotToState, createLiveCompositionView, createLiveRenderState, createSceneSnapshot, normalizeRenderSettings } from "../domain/models.js?v=live-program-1";
+import { applySceneSnapshotToState, createLiveCompositionView, createLiveRenderState, createOutputDefinition, createSceneSnapshot, normalizeRenderSettings, syncLiveSnapshotFromScene } from "../domain/models.js?v=surface-live-sync-1";
 import { normalizeParamValue, RENDER_QUALITY_PARAM } from "../graph/component-schema.js?v=range-pair-1";
 import { getGeneratorComponent, listGeneratorComponents } from "../graph/generator-registry.js?v=render-quality-2";
 import { patchNodeDegree, planCompositorInputs, planPatchExecution, summarizeTextureBranches } from "../graph/patch-planner.js";
 import { compileCompositionPatch } from "../graph/render-scheduler.js?v=hsv-alpha-key-1";
-import { buildOutputUrl } from "../view-routing.js?v=live-program-1";
+import { buildOutputUrl } from "../view-routing.js?v=multi-output-2";
 import { getShaderComponent, listShaderComponents } from "../shaders/shader-registry.js?v=hsv-alpha-key-1";
-import { createEmbeddedPreviewApp } from "../output/embedded-preview-app.js?v=output-markers-off-1";
-import { frameFitViewport, resetViewport, zoomViewport } from "../output/preview-viewport.js";
-import { defaultProjectSurfaceMapping } from "../output/render-geometry.js";
+import { createEmbeddedPreviewApp } from "../output/embedded-preview-app.js?v=multi-output-2";
+import { frameFitViewport, resetViewport, zoomViewport } from "../output/preview-viewport.js?v=multi-output-2";
+import { defaultProjectSurfaceMapping } from "../output/render-geometry.js?v=multi-output-2";
 import { createHtmlCache, isInteractiveNode, isTextEditingNode, setClass, setText } from "./dom-utils.js";
 import { bindReorderList } from "./reorder-list.js";
-import { collectRefs, shellTemplate } from "./shell-view.js?v=view-icons-1";
+import { collectRefs, shellTemplate } from "./shell-view.js?v=multi-output-2";
 import { effectIcon, emptyNote, esc, icon, paramRangePairTemplate, rangeTemplate, selectValuesTemplate, sourceTypeIcon, thumbnailTemplate } from "./template-utils.js?v=thumbnail-fit-2";
 
 const MODEL_RENDER_MODES = ["surface", "wireframe", "surfaceWire", "points"];
@@ -151,10 +151,22 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
   function bindStaticEvents() {
     bindInteractionDeferral();
 
-    refs.openOutput.addEventListener("click", () => {
+    refs.outputMenu.addEventListener("click", (event) => {
+      const button = event.target.closest("[data-open-output-id], [data-open-all-outputs]");
+      if (!button) return;
       const state = store.getState();
       const initialSceneId = state.ui.workspace === "scene" ? state.ui.selectedSceneId : "";
-      window.open(buildOutputUrl("output", { initialSceneId }), "vj1-output", "popup=yes,width=1280,height=720");
+      const outputs = button.hasAttribute("data-open-all-outputs")
+        ? state.render.outputs
+        : state.render.outputs.filter((output) => output.id === button.dataset.openOutputId);
+      for (const output of outputs) {
+        window.open(
+          buildOutputUrl("output", { initialSceneId, outputId: output.id }),
+          `vj1-output-${output.id}`,
+          `popup=yes,width=${output.width},height=${output.height}`
+        );
+      }
+      refs.outputMenu.open = false;
       store.update((draft) => {
         draft.ui.outputWindowOpen = true;
       }, "open-output");
@@ -371,6 +383,16 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
     setText(refs.toggleOutputPlayback.querySelector(".material-symbols-rounded"), outputPlaying ? "pause" : "play_arrow");
     setClass(refs.toggleOutputPlayback, "is-active", outputConnected && !outputPlaying);
     setClass(refs.blackout, "is-active", state.global.blackout);
+    if (refs.outputMenuItems) {
+      refs.outputMenuItems.innerHTML = `
+        ${(state.render.outputs || []).map((output) => `
+          <button type="button" data-open-output-id="${esc(output.id)}">
+            <span>${state.metrics.outputs?.[output.id] ? "● " : ""}${esc(output.name)}</span><small>${output.width}×${output.height}</small>
+          </button>
+        `).join("")}
+        ${(state.render.outputs || []).length > 1 ? `<button type="button" data-open-all-outputs><span>Open all outputs</span></button>` : ""}
+      `;
+    }
     refs.undo.disabled = !state.ui.canUndo;
     refs.redo.disabled = !state.ui.canRedo;
     refs.workspaceSwitch.querySelectorAll("[data-workspace]").forEach((button) => {
@@ -541,7 +563,7 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
         <div class="preview-tools">
           <button type="button" class="preview-tool" data-preview-zoom-out title="Zoom out" aria-label="Zoom out">${icon("remove")}</button>
           <button type="button" class="preview-tool" data-preview-fit-world title="Fit world" aria-label="Fit world">${icon("public")}</button>
-          <button type="button" class="preview-tool" data-preview-fit-frame title="Fit output frame" aria-label="Fit output frame">${icon("fit_screen")}</button>
+          <button type="button" class="preview-tool" data-preview-fit-frame title="Fit outputs" aria-label="Fit outputs">${icon("fit_screen")}</button>
           <button type="button" class="preview-tool" data-preview-zoom-in title="Zoom in" aria-label="Zoom in">${icon("add")}</button>
           <button type="button" class="preview-tool" data-toggle-mapping-handles title="Toggle mapping handles" aria-label="Toggle mapping handles">${icon("control_point_duplicate")}</button>
           <div class="preview-fps" data-preview-fps>0 fps</div>
@@ -703,6 +725,10 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
       });
       host.querySelectorAll("[data-render-preset]").forEach((button) => {
         button.addEventListener("click", () => applyRenderPreset(button.dataset.renderPreset));
+      });
+      host.querySelector("[data-add-output]")?.addEventListener("click", addConfiguredOutput);
+      host.querySelectorAll("[data-remove-output]").forEach((button) => {
+        button.addEventListener("click", () => removeConfiguredOutput(button.dataset.removeOutput));
       });
       return;
     }
@@ -925,11 +951,31 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
       const previousRender = normalizeRenderSettings(draft.render);
       draft.render = normalizeRenderSettings({
         ...draft.render,
-        frameWidth,
-        frameHeight,
+        outputs: (draft.render.outputs || []).map((output, index) => index === 0
+          ? { ...output, width: frameWidth, height: frameHeight }
+          : output),
       });
       scaleMappingForRenderChange(draft, previousRender, draft.render);
     }, "render-preset");
+  }
+
+  function addConfiguredOutput() {
+    store.update((draft) => {
+      const previousRender = normalizeRenderSettings(draft.render);
+      const output = createOutputDefinition(previousRender.outputs.length, previousRender.frameWidth, previousRender.frameHeight);
+      if (previousRender.outputs.some((item) => item.id === output.id)) output.id = `output-${Date.now().toString(36)}`;
+      const outputs = [...previousRender.outputs, output];
+      draft.render = normalizeRenderSettings({ ...previousRender, outputs });
+    }, "add-output");
+  }
+
+  function removeConfiguredOutput(outputId) {
+    store.update((draft) => {
+      const previousRender = normalizeRenderSettings(draft.render);
+      if (previousRender.outputs.length <= 1) return;
+      const outputs = previousRender.outputs.filter((output) => output.id !== outputId);
+      draft.render = normalizeRenderSettings({ ...previousRender, outputs });
+    }, "remove-output");
   }
 
   function scaleMappingForRenderChange(draft, previousRender, nextRender) {
@@ -2579,7 +2625,7 @@ function settingsModalTemplate(state) {
       </header>
       <div class="settings-modal-body">
         <section class="element-section">
-          <div class="rail-title"><span class="material-symbols-rounded">crop_16_9</span><span>Output frame</span></div>
+          <div class="rail-title"><span class="material-symbols-rounded">crop_16_9</span><span>Outputs</span></div>
           <div class="settings-preset-row">
             <button type="button" data-render-preset="wide">960 x 540</button>
             <button type="button" data-render-preset="xga">XGA</button>
@@ -2588,10 +2634,23 @@ function settingsModalTemplate(state) {
             <button type="button" data-render-preset="2k">2K</button>
             <button type="button" data-render-preset="4k">4K</button>
           </div>
-          <div class="field-pair">
-            <label class="field">Width <input type="number" min="128" max="8192" step="1" data-settings-update="render.frameWidth" value="${render.frameWidth}" /></label>
-            <label class="field">Height <input type="number" min="128" max="8192" step="1" data-settings-update="render.frameHeight" value="${render.frameHeight}" /></label>
+          <div class="configured-output-list">
+            ${render.outputs.map((output, index) => `
+              <article class="configured-output-card">
+                <div class="configured-output-head">
+                  <strong>Output ${index + 1}</strong>
+                  <button type="button" class="list-remove" data-remove-output="${esc(output.id)}" title="Remove output" aria-label="Remove ${esc(output.name)}" ${render.outputs.length <= 1 ? "disabled" : ""}>${icon("close")}</button>
+                </div>
+                <label class="field">Name <input type="text" data-settings-update="render.outputs.${index}.name" value="${esc(output.name)}" /></label>
+                <div class="field-pair">
+                  <label class="field">Width <input type="number" min="128" max="8192" step="1" data-settings-update="render.outputs.${index}.width" value="${output.width}" /></label>
+                  <label class="field">Height <input type="number" min="128" max="8192" step="1" data-settings-update="render.outputs.${index}.height" value="${output.height}" /></label>
+                </div>
+              </article>
+            `).join("")}
           </div>
+          <button type="button" class="chain-add-button" data-add-output>${icon("add")} Add output</button>
+          <div class="soft-note">Outputs are arranged side by side in the Scene mapping workspace.</div>
         </section>
         <section class="element-section">
           <div class="rail-title"><span class="material-symbols-rounded">texture</span><span>Surface texture</span></div>
@@ -3115,7 +3174,9 @@ function syncSelectedSceneSnapshot(state) {
 
 function applySelectedSceneSnapshot(state) {
   const scene = getSelectedScene(state);
-  if (scene) applySceneSnapshotToState(state, scene);
+  if (!scene) return;
+  applySceneSnapshotToState(state, scene);
+  syncLiveSnapshotFromScene(state, scene);
 }
 
 function getSelectedScene(state) {

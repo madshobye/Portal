@@ -110,7 +110,7 @@ The major state sections are:
 - `project`: name, folder name, save information, warnings.
 - `ui`: current workspace and selected composition, chain item, scene, surface, preview viewport, live overrides, and UI status.
 - `global`: blackout, BPM, crossfade, HUD/debug labels, calibration, and mapping-handle mode.
-- `render`: output frame, world size, surface texture budget, pixel density, edge softness, composition upscaling, and full-resolution post-filter settings.
+- `render`: ordered projector output definitions, shared mapping-world size, surface texture budget, pixel density, edge softness, composition upscaling, and full-resolution post-filter settings.
 - `media`: serializable media metadata only.
 - `compositions`: chain and canvas compositions.
 - `surfaces`: global surface definitions and ordering.
@@ -194,7 +194,7 @@ Important details:
 7. Surface presentation/timing identity is separate from composition render identity, so two surfaces can share the same composition result without synchronizing route-specific timing.
 8. Surface textures are bounded by `render.surfaceWidth`/`surfaceHeight` and can be reduced to the mapped surface size.
 9. Composition previews use the current preview frame or requested texture resolution, not the popup window's dimensions.
-10. The output canvas follows the window size, while the logical output frame keeps the configured frame aspect and fills/crops according to output fitting rules.
+10. Each output canvas follows its window size, while its selected logical projector viewport keeps the configured aspect and fills/crops according to output fitting rules.
 11. Canvas containers render at their logical dimensions so recording-frame coordinates remain exact; their referenced compositions can still reuse the normal composition cache.
 
 Project settings can enable an experimental composition output pipeline. When enabled, chain compositions render at `render.upscaling.amount` of their normal physical texture size while retaining their original logical dimensions, then pass through one fast spatial upscale at the normal composition target size. Optional grayscale and animated monochrome noise are combined into a second post pass at that full target size. The pipeline is off by default, canvas containers do not receive a second upscale over their already-processed child compositions, and animated post noise disables stable-frame caching for the affected output.
@@ -221,8 +221,8 @@ Terrain is polygon-based, not a full-screen ray marcher. Grid width and depth de
 
 These dimensions have different jobs and must not be conflated:
 
-- **Frame size** is the configured final output resolution/aspect.
-- **World size** is currently fixed to 1.5 times the frame and gives scene mapping room around the output frame.
+- **Output size** is one configured projector's logical resolution/aspect. `render.outputs` is ordered and old `frameWidth`/`frameHeight` projects migrate to one `output-main` definition.
+- **World size** contains every output frame arranged edge-to-edge horizontally, with outer margins but no gap between projectors. Scene mapping operates in this shared coordinate system, so a surface may lie inside one output or span several.
 - **Surface texture size** is the normal maximum per-surface composition render budget. Canvas recording frames are sampled into this budget after the full logical Canvas is evaluated.
 - **Preview canvas size** is a UI/display concern and must not silently increase render resolution.
 - **Popup window size** controls the HTML/p5 canvas display, not composition texture quality.
@@ -235,7 +235,7 @@ Standalone output renderers hard-disable mapper calibration regardless of incomi
 
 Each surface and scene-surface snapshot stores `projectionFit`. The default is `cover`; `contain` preserves the whole texture with transparent unused space, and `stretch` ignores source proportions. Fit is implemented in the existing mapper shader, so it does not add a render pass. Canvas recording-frame sampling happens before projection fit.
 
-The output window and embedded preview must show the same crop, aspect, and mapping. When they differ, inspect `render-geometry.js`, `surfaceRouteRenderRequest()`, `drawSurfaceRoute()`, and the output frame transform before changing source-fit behavior.
+Each output window carries an `outputId`, subtracts that output frame's shared-world origin, and renders only that viewport. The embedded Scene preview shows every named output frame together. When a popup and its Scene frame differ, inspect `render-geometry.js`, `mappingForRenderMode()`, `surfaceRouteRenderRequest()`, and the output frame transform before changing source-fit behavior.
 
 ## Media
 
@@ -257,12 +257,15 @@ When media is missing in an output client, the entire output blacks out and show
 Control and output clients use `BroadcastChannel("vj1-output-bridge")`.
 
 - Output clients announce themselves every two seconds.
+- Output clients include their configured `outputId`; connection status is tracked per output.
 - Control responds with render state and media files.
 - Output sends FPS, frame time, render cost, pass profiles, mapping updates, and media requests.
 - Slider scrubs are transmitted on the next animation frame for low-latency live performance.
 - Live and non-Scene edits send immediately unless excluded as UI-only state. Scene editing does not broadcast full program state; projection changes use the mapping-only sync command so live mapping remains responsive without changing the routed program scene.
 
 Scene editing and Live selection are deliberately separate. Live owns a captured `ui.live.sceneSnapshot`; editing or selecting scenes does not mutate that program snapshot. Selecting a scene in Live explicitly replaces it. The Live scene ID and captured snapshot persist in the project UI payload, while temporary composition overrides do not. An empty Live selector initializes from its own first-scene fallback and must never copy `ui.selectedSceneId` during a workspace change. Opening an output while in Scene adds a one-use `initialSceneId` to the popup URL: the bridge sends that Scene snapshot only to the newly announced client, acknowledges it, and sends the captured Live state for all later updates. Targeted startup state must never change already-open outputs.
+
+The top-bar Output menu opens one named popup per configured output, or all outputs. Popup names include the output ID so repeated opens focus/reuse the same window. Browser window dimensions are only presentation hints; the output definition remains the authoritative logical resolution.
 
 The top-bar play/pause button is always present but disabled until an output client is connected. It controls the shared visual clock, including time-based generators and video playback, without tearing down the renderer. The control UI can refresh or restore its project while an already-open output window remains connected; output clients announce themselves periodically and receive the current render state and requested media files.
 

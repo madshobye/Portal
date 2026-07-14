@@ -1,14 +1,15 @@
 import { VJ1 } from "../constants.js";
-import { sanitizeState } from "../domain/models.js?v=live-program-1";
-import { createOutputBridge } from "../services/output-bridge-service.js?v=live-program-1";
-import { OutputRenderer } from "./output-renderer.js?v=output-markers-off-1";
+import { sanitizeState } from "../domain/models.js?v=multi-output-2";
+import { createOutputBridge } from "../services/output-bridge-service.js?v=multi-output-2";
+import { OutputRenderer } from "./output-renderer.js?v=multi-output-2";
 import { applyFontToGlobal, loadVjRenderFont } from "./font-loader.js?v=world-frame-27";
-import { frameSize } from "./render-geometry.js";
+import { frameSize } from "./render-geometry.js?v=multi-output-2";
 
 let outputFitSignature = "";
 
 export function installOutputApp({ root, mode }) {
   const initialSceneId = consumeInitialSceneId(mode);
+  const outputId = mode === "output" ? new URL(window.location.href).searchParams.get("outputId") || "" : "";
   document.body.classList.add("output-client");
   root.innerHTML = `
     <div id="output-stage" class="output-stage">
@@ -53,6 +54,7 @@ export function installOutputApp({ root, mode }) {
     applyLoadedFont(renderFont);
     renderer = new OutputRenderer({
       mode,
+      outputId,
       hud: root.querySelector("[data-output-fps]"),
       font: renderFont,
       sendMetrics: (metrics) => {
@@ -111,6 +113,7 @@ export function installOutputApp({ root, mode }) {
 
   bridge = createOutputBridge({
     mode,
+    outputId,
     initialSceneId,
     onState(state) {
       if (fixtureUrl) return;

@@ -10,6 +10,7 @@ import {
   createDefaultComposition,
   createInitialState,
   createSceneFromState,
+  syncLiveSnapshotFromScene,
 } from "../js/domain/models.js?v=world-frame-27";
 import { compileCompositionPatch } from "../js/graph/render-scheduler.js?v=world-frame-27";
 import { planCompositorInputs, planPatchExecution } from "../js/graph/patch-planner.js";
@@ -96,6 +97,49 @@ test("surface reorder updates active surfaces and scene snapshots", () => {
   assert.equal(next.surfaces[1].id, firstSurface.id);
   assert.equal(next.scenes[0].snapshot.surfaces[0].id, secondSurface.id);
   assert.equal(next.scenes[0].snapshot.surfaces[1].id, firstSurface.id);
+});
+
+test("new surfaces and route edits update the pending Live snapshot for the same scene", () => {
+  const state = createInitialState();
+  const second = createDefaultComposition(1);
+  second.id = "composition-second";
+  state.compositions.push(second);
+  const scene = createSceneFromState(state, "Shared scene");
+  state.scenes = [scene];
+  state.ui.selectedSceneId = scene.id;
+  state.ui.live.selectedSceneId = scene.id;
+  state.ui.live.sceneSnapshot = structuredClone(scene.snapshot);
+
+  const store = createAppState(state);
+  store.addSurface();
+  let next = store.getState();
+  const added = next.surfaces.at(-1);
+  assert.ok(next.ui.live.sceneSnapshot.surfaces.some((surface) => surface.id === added.id));
+
+  const selectedScene = next.scenes.find((item) => item.id === scene.id);
+  selectedScene.snapshot.surfaces.find((surface) => surface.id === added.id).compositionId = second.id;
+  syncLiveSnapshotFromScene(next, selectedScene);
+  store.replace(next, "scene-route-edit");
+
+  assert.equal(
+    store.getLiveRenderState().surfaces.find((surface) => surface.id === added.id).compositionId,
+    second.id
+  );
+});
+
+test("route edits in a different Scene do not replace Live's selected scene", () => {
+  const state = createInitialState();
+  const liveScene = createSceneFromState(state, "Live scene");
+  const editedScene = createSceneFromState(state, "Edited scene");
+  state.scenes = [liveScene, editedScene];
+  state.ui.selectedSceneId = editedScene.id;
+  state.ui.live.selectedSceneId = liveScene.id;
+  state.ui.live.sceneSnapshot = structuredClone(liveScene.snapshot);
+  const original = structuredClone(state.ui.live.sceneSnapshot);
+
+  syncLiveSnapshotFromScene(state, editedScene);
+
+  assert.deepEqual(state.ui.live.sceneSnapshot, original);
 });
 
 test("canvas layers are shared chain groups and accept ordinary effects", () => {

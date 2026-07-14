@@ -102,19 +102,34 @@ test("scrub changes are sent to live output on the next animation frame", () => 
   assert.ok(!appSource.includes("setTimeout(() => bridge.sendState(), 90)"));
 });
 
-test("popup outputs are live-controlled after a targeted Scene startup", () => {
+test("popup outputs are live-controlled while Scene surface edits refresh their mapping", () => {
   const appSource = readFileSync(new URL("../js/app.js", import.meta.url), "utf8");
   const controllerSource = readFileSync(new URL("../js/control/control-shell-controller.js", import.meta.url), "utf8");
   const bridgeSource = readFileSync(new URL("../js/services/output-bridge-service.js", import.meta.url), "utf8");
 
-  assert.ok(controllerSource.includes('buildOutputUrl("output", { initialSceneId })'));
+  assert.ok(controllerSource.includes('buildOutputUrl("output", { initialSceneId, outputId: output.id })'));
   assert.ok(controllerSource.includes("store.selectLiveScene(button.dataset.liveScene)"));
   assert.ok(bridgeSource.includes("store.getLiveRenderState?.()"));
   assert.ok(bridgeSource.includes("targetClientId"));
   assert.ok(bridgeSource.includes("initialSceneAccepted"));
   assert.ok(appSource.includes('state.ui.workspace === "scene"'));
   assert.ok(appSource.includes('bridge.command("sync-mapping"'));
+  assert.ok(appSource.includes("isSceneSurfaceOutputChange(reason)"));
+  assert.ok(appSource.includes("bridge.sendState(store.getRenderState())"));
+  assert.ok(appSource.includes('value === "add-surface"'));
+  assert.ok(appSource.includes('value === "update:surface-route"'));
   assert.ok(!controllerSource.includes("setTimeout(() => bridge.sendState(), 350)"));
+});
+
+test("multiple configured outputs have individual popup actions", () => {
+  const controllerSource = readFileSync(new URL("../js/control/control-shell-controller.js", import.meta.url), "utf8");
+  const shellSource = readFileSync(new URL("../js/control/shell-view.js", import.meta.url), "utf8");
+
+  assert.ok(shellSource.includes('id="output-menu"'));
+  assert.ok(controllerSource.includes("data-open-output-id"));
+  assert.ok(controllerSource.includes("data-open-all-outputs"));
+  assert.ok(controllerSource.includes("render.outputs.${index}.width"));
+  assert.ok(controllerSource.includes("data-add-output"));
 });
 
 test("topbar shows separate active-renderer CPU and GPU work timers", () => {

@@ -1,4 +1,4 @@
-import { fittedCssRect, frameSize, worldSize } from "./render-geometry.js";
+import { fittedCssRect, frameSize, outputFrames, worldSize } from "./render-geometry.js?v=multi-output-2";
 
 export function fitPreviewCanvasElement({ canvas, mode, stageSize, logicalSize, viewport, render }) {
   const elt = canvas?.elt || canvas;
@@ -97,7 +97,11 @@ export function resetViewport() {
 }
 
 export function frameFitViewport({ stageSize, render }) {
-  const frame = frameSize(render);
+  const frames = outputFrames(render);
+  const frame = frames.length ? {
+    width: Math.max(...frames.map((item) => item.x + item.width)) - Math.min(...frames.map((item) => item.x)),
+    height: Math.max(...frames.map((item) => item.y + item.height)) - Math.min(...frames.map((item) => item.y)),
+  } : frameSize(render);
   const world = worldSize(render);
   const stage = {
     width: Math.max(1, Number(stageSize?.width) || frame.width),

@@ -5,8 +5,27 @@ import {
   canvasSizeForMode,
   createRenderRequest,
   defaultProjectSurfaceMapping,
+  outputFrameForId,
+  outputFrames,
   renderRequestKey,
 } from "../js/output/render-geometry.js";
+
+test("configured projector outputs form side-by-side viewports in one world", () => {
+  const render = {
+    outputs: [
+      { id: "left", name: "Left", width: 1920, height: 1080 },
+      { id: "right", name: "Right", width: 1280, height: 800 },
+    ],
+    outputGap: 0,
+    worldWidth: 4160,
+    worldHeight: 1620,
+  };
+  const frames = outputFrames(render);
+
+  assert.deepEqual(frames[0], { id: "left", name: "Left", width: 1920, height: 1080, x: 480, y: 270 });
+  assert.deepEqual(frames[1], { id: "right", name: "Right", width: 1280, height: 800, x: 2400, y: 410 });
+  assert.deepEqual(outputFrameForId(render, "right"), frames[1]);
+});
 
 test("embedded preview sizing keeps composition aspect independent from surface texture", () => {
   const render = {

@@ -1,9 +1,9 @@
 import { VJ1 } from "../constants.js";
-import { sanitizeState } from "../domain/models.js?v=live-program-1";
-import { OutputRenderer } from "./output-renderer.js?v=output-markers-off-1";
+import { sanitizeState } from "../domain/models.js?v=multi-output-2";
+import { OutputRenderer } from "./output-renderer.js?v=multi-output-2";
 import { applyFontToGlobal, loadVjRenderFont } from "./font-loader.js?v=world-frame-27";
-import { createPreviewViewportController, fitPreviewCanvasElement } from "./preview-viewport.js";
-import { canvasSizeForMode } from "./render-geometry.js";
+import { createPreviewViewportController, fitPreviewCanvasElement } from "./preview-viewport.js?v=multi-output-2";
+import { canvasSizeForMode } from "./render-geometry.js?v=multi-output-2";
 
 export function createEmbeddedPreviewApp({ store, mediaLibrary, projectService }) {
   let host = null;

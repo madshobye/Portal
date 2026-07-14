@@ -15,8 +15,9 @@ import {
   createSceneSurfaceSnapshot,
   createSceneFromState,
   sanitizeState,
+  syncLiveSnapshotFromScene,
   uid,
-} from "./domain/models.js?v=live-program-1";
+} from "./domain/models.js?v=surface-live-sync-1";
 import { WORKSPACES } from "./constants.js";
 
 export function createAppState(initial = null) {
@@ -238,6 +239,8 @@ export function createAppState(initial = null) {
           scene.snapshot ||= { surfaces: [] };
           scene.snapshot.surfaces.push(createSceneSurfaceSnapshot(surface));
         }
+        const liveScene = draft.scenes.find((scene) => String(scene.id) === String(draft.ui.live?.selectedSceneId || ""));
+        syncLiveSnapshotFromScene(draft, liveScene);
       }, "add-surface");
     },
     removeSurface(id) {

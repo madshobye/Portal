@@ -1,10 +1,10 @@
-import { createAppState } from "./app-state.js?v=live-selection-1";
-import { createControlShell } from "./control/control-shell-controller.js?v=output-markers-off-1";
-import { getInitialWorkspace, getClientMode, persistWorkspace } from "./view-routing.js?v=live-program-1";
-import { createMediaLibrary } from "./services/media-library-service.js?v=live-program-1";
-import { createProjectFolderService } from "./services/project-folder-service.js?v=live-selection-1";
-import { createControlBridge } from "./services/output-bridge-service.js?v=live-program-1";
-import { installOutputApp } from "./output/output-app.js?v=output-markers-off-1";
+import { createAppState } from "./app-state.js?v=surface-live-sync-1";
+import { createControlShell } from "./control/control-shell-controller.js?v=surface-live-sync-1";
+import { getInitialWorkspace, getClientMode, persistWorkspace } from "./view-routing.js?v=multi-output-2";
+import { createMediaLibrary } from "./services/media-library-service.js?v=multi-output-2";
+import { createProjectFolderService } from "./services/project-folder-service.js?v=multi-output-2";
+import { createControlBridge } from "./services/output-bridge-service.js?v=multi-output-2";
+import { installOutputApp } from "./output/output-app.js?v=multi-output-2";
 
 const root = document.getElementById("app");
 const mode = getClientMode();
@@ -46,6 +46,10 @@ if (mode === "output" || mode === "preview" || mode === "composition") {
       bridge.command("sync-global", { global: state.global });
       return;
     }
+    if (state.ui.workspace === "scene" && isSceneSurfaceOutputChange(reason)) {
+      bridge.sendState(store.getRenderState());
+      return;
+    }
     if (state.ui.workspace === "scene") return;
     if (String(reason).startsWith("edit:")) {
       return;
@@ -75,6 +79,16 @@ if (mode === "output" || mode === "preview" || mode === "composition") {
     });
     setInterval(() => projectService.refreshFolder(), 5000);
   }
+}
+
+function isSceneSurfaceOutputChange(reason = "") {
+  const value = String(reason);
+  return value === "add-surface" ||
+    value === "remove-surface" ||
+    value === "reorder-surfaces" ||
+    value === "update:surface-route" ||
+    value.startsWith("update:scenes.") ||
+    value.startsWith("toggle:scenes.");
 }
 
 function fixtureStateUrl() {

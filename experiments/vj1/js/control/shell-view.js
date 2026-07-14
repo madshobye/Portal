@@ -30,7 +30,10 @@ export function shellTemplate() {
           <button id="redo-project" class="icon-buttonish" type="button" title="Redo" aria-label="Redo" disabled>${icon("redo")}</button>
           <button id="toggle-output-playback" class="icon-buttonish" type="button" title="Pause output" aria-label="Pause output" disabled>${icon("pause")}</button>
           <button id="blackout-main" class="icon-buttonish danger" type="button" title="Blackout" aria-label="Blackout">${icon("brightness_1")}</button>
-          <button id="open-output" class="icon-buttonish" type="button" title="Open output" aria-label="Open output">${icon("open_in_new")}</button>
+          <details id="output-menu" class="output-menu">
+            <summary class="icon-buttonish" title="Open output" aria-label="Open output">${icon("open_in_new")}</summary>
+            <div id="output-menu-items" class="output-menu-items"></div>
+          </details>
           <span id="render-cost" class="status-pill cost-pill" title="Render cost"><span class="material-symbols-rounded">speed</span><span id="render-cost-text">0%</span></span>
           <span id="cpu-time" class="status-pill work-time-pill" title="CPU render work"><span class="material-symbols-rounded">timer</span><span id="cpu-time-text">0.0 ms</span></span>
           <span id="gpu-time" class="status-pill work-time-pill" title="GPU render work"><span class="material-symbols-rounded">memory</span><span id="gpu-time-text">--</span></span>
@@ -60,7 +63,8 @@ export function collectRefs(root) {
     cpuTimeText: root.querySelector("#cpu-time-text"),
     gpuTime: root.querySelector("#gpu-time"),
     gpuTimeText: root.querySelector("#gpu-time-text"),
-    openOutput: root.querySelector("#open-output"),
+    outputMenu: root.querySelector("#output-menu"),
+    outputMenuItems: root.querySelector("#output-menu-items"),
     togglePreview: root.querySelector("#toggle-preview"),
     toggleLabels: root.querySelector("#toggle-labels"),
     openSettings: root.querySelector("#open-settings"),

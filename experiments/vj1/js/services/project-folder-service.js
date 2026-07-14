@@ -1,4 +1,4 @@
-import { collectFilesFromDirectory, isMediaFile, isShaderFile } from "./media-library-service.js?v=live-program-1";
+import { collectFilesFromDirectory, isMediaFile, isShaderFile } from "./media-library-service.js?v=multi-output-2";
 import { RENDITION_DIR, RENDITION_ROOT, mediaRenditionPath } from "./media-rendition-service.js";
 import {
   canPersistDirectoryHandles,
@@ -6,7 +6,7 @@ import {
   loadProjectDirectoryHandle,
   saveProjectDirectoryHandle,
 } from "./directory-handle-store.js";
-import { applySceneSnapshotToState, createInitialState } from "../domain/models.js?v=live-program-1";
+import { applySceneSnapshotToState, createInitialState } from "../domain/models.js?v=multi-output-2";
 
 export function createProjectFolderService({ mediaLibrary, store, bridge }) {
   let dirHandle = null;

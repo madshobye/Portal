@@ -131,6 +131,15 @@ export function createDefaultSourceRect() {
   return { x: 0, y: 0, width: 960, height: 540 };
 }
 
+export function createOutputDefinition(index = 0, width = VJ1.renderWidth, height = VJ1.renderHeight) {
+  return {
+    id: index === 0 ? "output-main" : `output-${index + 1}`,
+    name: index === 0 ? "Main output" : `Output ${index + 1}`,
+    width: positiveInt(width, VJ1.renderWidth, 128, 8192),
+    height: positiveInt(height, VJ1.renderHeight, 128, 8192),
+  };
+}
+
 export function createInitialState() {
   const compositions = [createDefaultComposition(0)];
   return {
@@ -184,6 +193,7 @@ export function createInitialState() {
       worldScale: 1.5,
       worldWidth: Math.round(VJ1.renderWidth * 1.5),
       worldHeight: Math.round(VJ1.renderHeight * 1.5),
+      outputs: [createOutputDefinition(0)],
       surfaceWidth: VJ1.surfaceWidth,
       surfaceHeight: VJ1.surfaceHeight,
       pixelDensity: 1,
@@ -226,6 +236,7 @@ export function createInitialState() {
       previewRenderCost: 0,
       previewProfile: null,
       clients: 0,
+      outputs: {},
       message: "No output connected",
     },
   };
@@ -261,7 +272,11 @@ export function sanitizeState(input = {}) {
   next.surfaces = Array.isArray(input.surfaces) && input.surfaces.length
     ? input.surfaces.map((surface) => normalizeSurface(surface))
     : [createDefaultSurface(0), createDefaultSurface(1)];
-  next.render = normalizeRenderSettings(next.render);
+  next.render = normalizeRenderSettings(
+    Array.isArray(input.render?.outputs) && input.render.outputs.length
+      ? next.render
+      : { ...next.render, outputs: undefined }
+  );
   next.ui.previewViewport = normalizePreviewViewport(next.ui.previewViewport);
   next.media = Array.isArray(input.media) ? input.media.map(normalizeMediaMeta) : [];
   next.mappings = input.mappings && typeof input.mappings === "object" ? input.mappings : {};
@@ -304,15 +319,26 @@ export function sanitizeState(input = {}) {
 export function normalizeRenderSettings(render = {}) {
   const frameWidth = positiveInt(render.frameWidth ?? render.width, VJ1.renderWidth, 128, 8192);
   const frameHeight = positiveInt(render.frameHeight ?? render.height, VJ1.renderHeight, 128, 8192);
+  const outputs = Array.isArray(render.outputs) && render.outputs.length
+    ? render.outputs.map((output, index) => normalizeOutputDefinition(output, index, frameWidth, frameHeight))
+    : [createOutputDefinition(0, frameWidth, frameHeight)];
+  const primary = outputs[0];
+  const gap = 0;
+  const contentWidth = outputs.reduce((sum, output) => sum + output.width, 0) + gap * Math.max(0, outputs.length - 1);
+  const contentHeight = Math.max(...outputs.map((output) => output.height));
+  const marginX = Math.round(Math.max(...outputs.map((output) => output.width)) * 0.25);
+  const marginY = Math.round(contentHeight * 0.25);
   const worldScale = 1.5;
-  const worldWidth = Math.round(frameWidth * worldScale);
-  const worldHeight = Math.round(frameHeight * worldScale);
+  const worldWidth = contentWidth + marginX * 2;
+  const worldHeight = contentHeight + marginY * 2;
   return {
     ...render,
-    width: frameWidth,
-    height: frameHeight,
-    frameWidth,
-    frameHeight,
+    width: primary.width,
+    height: primary.height,
+    frameWidth: primary.width,
+    frameHeight: primary.height,
+    outputs,
+    outputGap: gap,
     worldScale,
     worldWidth,
     worldHeight,
@@ -321,6 +347,16 @@ export function normalizeRenderSettings(render = {}) {
     pixelDensity: clampNumber(render.pixelDensity, 0.5, 2, 1),
     edgeSoftness: clampNumber(render.edgeSoftness, 0, 8, 0),
     ...normalizeCompositionPipelineSettings(render),
+  };
+}
+
+function normalizeOutputDefinition(output = {}, index = 0, fallbackWidth = VJ1.renderWidth, fallbackHeight = VJ1.renderHeight) {
+  const fallback = createOutputDefinition(index, fallbackWidth, fallbackHeight);
+  return {
+    id: String(output.id || fallback.id),
+    name: output.name || fallback.name,
+    width: positiveInt(output.width ?? output.frameWidth, fallback.width, 128, 8192),
+    height: positiveInt(output.height ?? output.frameHeight, fallback.height, 128, 8192),
   };
 }
 
@@ -943,6 +979,12 @@ export function createSceneSnapshot(state) {
   return {
     surfaces: clone(state.surfaces.map(createSceneSurfaceSnapshot)),
   };
+}
+
+export function syncLiveSnapshotFromScene(state, scene) {
+  if (!scene?.snapshot || String(state.ui?.live?.selectedSceneId || "") !== String(scene.id || "")) return state;
+  state.ui.live.sceneSnapshot = clone(scene.snapshot);
+  return state;
 }
 
 export function applySceneForEditing(state, scene) {

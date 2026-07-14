@@ -85,6 +85,24 @@ test("composition upscale and post settings normalize with neutral defaults", ()
   });
 });
 
+test("legacy frame settings migrate to one output and multiple outputs persist", () => {
+  const legacy = sanitizeState({ render: { frameWidth: 1280, frameHeight: 720 } });
+  assert.deepEqual(legacy.render.outputs, [{ id: "output-main", name: "Main output", width: 1280, height: 720 }]);
+
+  const multi = sanitizeState({
+    render: {
+      outputs: [
+        { id: "left", name: "Left projector", width: 1920, height: 1080 },
+        { id: "right", name: "Right projector", width: 1280, height: 800 },
+      ],
+    },
+  });
+  assert.equal(multi.render.outputs.length, 2);
+  assert.equal(multi.render.frameWidth, 1920);
+  assert.equal(multi.render.worldWidth, 4160);
+  assert.equal(multi.render.worldHeight, 1620);
+});
+
 test("surface projection fit defaults to cover and persists in scene snapshots", () => {
   assert.equal(createDefaultSurface(0).projectionFit, "cover");
   assert.equal(normalizeProjectionFit("contain"), "contain");

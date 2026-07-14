@@ -5,9 +5,11 @@ export function createControlBridge({ store, mediaLibrary }) {
   const clients = new Map();
   const clientWatchdog = setInterval(() => {
     const count = activeClientCount(clients);
-    if (count === store.getState().metrics.clients) return;
+    const outputs = activeOutputClients(clients);
+    if (count === store.getState().metrics.clients && JSON.stringify(outputs) === JSON.stringify(store.getState().metrics.outputs || {})) return;
     store.update((draft) => {
       draft.metrics.clients = count;
+      draft.metrics.outputs = outputs;
       if (!count) draft.metrics.message = "Output disconnected";
     }, "output-metrics");
   }, 1000);
@@ -22,7 +24,7 @@ export function createControlBridge({ store, mediaLibrary }) {
     }
     if (msg.type === "hello") {
       const isNewClient = !clients.has(msg.clientId || "output");
-      clients.set(msg.clientId || "output", performance.now());
+      clients.set(msg.clientId || "output", { at: performance.now(), outputId: msg.outputId || "output-main" });
       if (isNewClient || msg.initialSceneId) {
         const initialState = msg.initialSceneId
           ? store.getSceneRenderState?.(msg.initialSceneId)
@@ -36,12 +38,13 @@ export function createControlBridge({ store, mediaLibrary }) {
     }
     if (msg.type === "request-media-files") sendMediaFiles(mediaLibrary.getAllFiles());
     if (msg.type === "metrics") {
-      clients.set(msg.clientId || "output", performance.now());
+      clients.set(msg.clientId || "output", { at: performance.now(), outputId: msg.outputId || "output-main" });
       store.update((draft) => {
         draft.metrics = {
           ...draft.metrics,
           ...msg.metrics,
           clients: activeClientCount(clients),
+          outputs: activeOutputClients(clients),
           message: msg.metrics?.message || "Output connected",
         };
       }, "output-metrics");
@@ -85,9 +88,9 @@ export function createControlBridge({ store, mediaLibrary }) {
   };
 }
 
-export function createOutputBridge({ onState, onMediaFiles, onCommand, onControlHello, mode, initialSceneId = "" }) {
+export function createOutputBridge({ onState, onMediaFiles, onCommand, onControlHello, mode, outputId = "", initialSceneId = "" }) {
   const channel = new BroadcastChannel(VJ1.channelName);
-  const clientId = `${mode}-${Math.random().toString(36).slice(2)}`;
+  const clientId = `${mode}-${outputId || "default"}-${Math.random().toString(36).slice(2)}`;
   let pendingInitialSceneId = initialSceneId;
 
   channel.onmessage = (event) => {
@@ -102,11 +105,11 @@ export function createOutputBridge({ onState, onMediaFiles, onCommand, onControl
   };
 
   function hello() {
-    channel.postMessage({ type: "hello", clientId, mode, initialSceneId: pendingInitialSceneId });
+    channel.postMessage({ type: "hello", clientId, mode, outputId, initialSceneId: pendingInitialSceneId });
   }
 
   function metrics(metrics) {
-    channel.postMessage({ type: "metrics", clientId, metrics });
+    channel.postMessage({ type: "metrics", clientId, outputId, metrics });
   }
 
   function mappingState(mappingId, mapping, status, meta = {}) {
@@ -129,8 +132,18 @@ export function createOutputBridge({ onState, onMediaFiles, onCommand, onControl
 
 function activeClientCount(clients) {
   const now = performance.now();
-  for (const [id, lastSeen] of clients) {
-    if (now - lastSeen > 5000) clients.delete(id);
+  for (const [id, client] of clients) {
+    if (now - Number(client?.at || client || 0) > 5000) clients.delete(id);
   }
   return clients.size;
+}
+
+function activeOutputClients(clients) {
+  activeClientCount(clients);
+  const outputs = {};
+  for (const client of clients.values()) {
+    const outputId = client?.outputId || "output-main";
+    outputs[outputId] = (outputs[outputId] || 0) + 1;
+  }
+  return outputs;
 }

@@ -22,7 +22,7 @@ export function persistWorkspace(workspace) {
   window.history.replaceState({}, "", url);
 }
 
-export function buildOutputUrl(kind = "output", { initialSceneId = "" } = {}) {
+export function buildOutputUrl(kind = "output", { initialSceneId = "", outputId = "" } = {}) {
   const url = new URL(window.location.href);
   url.searchParams.delete("view");
   url.searchParams.delete("workspace");
@@ -34,5 +34,7 @@ export function buildOutputUrl(kind = "output", { initialSceneId = "" } = {}) {
   else url.searchParams.set("output", "1");
   if (kind === "output" && initialSceneId) url.searchParams.set("initialSceneId", initialSceneId);
   else url.searchParams.delete("initialSceneId");
+  if (kind === "output" && outputId) url.searchParams.set("outputId", outputId);
+  else url.searchParams.delete("outputId");
   return url.toString();
 }

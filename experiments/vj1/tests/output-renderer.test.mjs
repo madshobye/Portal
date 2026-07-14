@@ -52,6 +52,40 @@ test("standalone output permanently rejects calibration markers", () => {
   assert.equal(renderer.isCalibrating(), false);
 });
 
+test("standalone outputs crop the shared mapping world to their configured viewport", () => {
+  const previousWidth = globalThis.width;
+  const previousHeight = globalThis.height;
+  const renderer = new OutputRenderer({ mode: "output", outputId: "right" });
+  renderer.state = {
+    render: {
+      outputs: [
+        { id: "left", name: "Left", width: 1920, height: 1080 },
+        { id: "right", name: "Right", width: 1280, height: 800 },
+      ],
+      outputGap: 0,
+      worldWidth: 4160,
+      worldHeight: 1620,
+    },
+  };
+  globalThis.width = 1280;
+  globalThis.height = 800;
+
+  try {
+    assert.deepEqual(renderer.outputFrameSize(), { width: 1280, height: 800 });
+    assert.deepEqual(renderer.outputFrameOffset(), { x: 2400, y: 410 });
+    const mapped = renderer.mappingForRenderMode({
+      surfaces: [{ id: "surface", corners: [{ x: 2400, y: 410 }, { x: 3680, y: 410 }, { x: 3680, y: 1210 }, { x: 2400, y: 1210 }] }],
+    });
+    assert.deepEqual(mapped.surfaces[0].corners[0], { x: 0, y: 0 });
+    assert.deepEqual(mapped.surfaces[0].corners[2], { x: 1280, y: 800 });
+  } finally {
+    if (previousWidth === undefined) delete globalThis.width;
+    else globalThis.width = previousWidth;
+    if (previousHeight === undefined) delete globalThis.height;
+    else globalThis.height = previousHeight;
+  }
+});
+
 test("GPU timing averages query samples instead of adding overlapping work", () => {
   assert.equal(averageGpuQueryNanoseconds([30_000_000, 10_000_000, 5_000_000]), 15_000_000);
   assert.equal(averageGpuQueryNanoseconds([]), 0);
