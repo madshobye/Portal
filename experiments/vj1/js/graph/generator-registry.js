@@ -1,4 +1,12 @@
-import { createColorParam, createEnumParam, createNumberParam, defaultParamValues, defineVisualComponent, normalizeParamValues, textureInlet, textureOutlet } from "./component-schema.js?v=number-log-scale-1";
+import { createColorParam, createEnumParam, createNumberParam, defaultParamValues, defineVisualComponent, normalizeParamValues, textureInlet, textureOutlet } from "./component-schema.js?v=node-dirty-runtime-1";
+
+const ALWAYS_TIME_RUNTIME = Object.freeze({ timeDependent: () => true });
+
+function timeParamRuntime(paramId) {
+  return Object.freeze({
+    timeDependent: (params = {}) => Math.abs(Number(params[paramId]) || 0) > 0.0001,
+  });
+}
 
 const RAW_GENERATORS = Object.freeze({
   testPattern: {
@@ -10,16 +18,19 @@ const RAW_GENERATORS = Object.freeze({
     id: "waves",
     name: "Waves",
     category: "motion",
+    runtime: ALWAYS_TIME_RUNTIME,
   },
   noise: {
     id: "noise",
     name: "Noise",
     category: "texture",
+    runtime: ALWAYS_TIME_RUNTIME,
   },
   plasma: {
     id: "plasma",
     name: "Plasma",
     category: "color",
+    runtime: ALWAYS_TIME_RUNTIME,
   },
   gradient: {
     id: "gradient",
@@ -41,6 +52,7 @@ const RAW_GENERATORS = Object.freeze({
     id: "fireflies",
     name: "Fireflies",
     category: "particles",
+    runtime: timeParamRuntime("speed"),
     params: [
       createNumberParam("count", "Count", { min: 4, max: 24, step: 1, defaultValue: 18 }),
       createNumberParam("glowSize", "Glow size", { min: 0.35, max: 2.5, step: 0.01, defaultValue: 1 }),
@@ -55,6 +67,11 @@ const RAW_GENERATORS = Object.freeze({
     id: "eyeball",
     name: "3D Eyeball",
     category: "character",
+    runtime: {
+      timeDependent: (params = {}) =>
+        (Number(params.gazeRange) || 0) > 0.0001 ||
+        (Number(params.blinkRate) || 0) > 0.0001,
+    },
     params: [
       createNumberParam("irisSize", "Iris size", { min: 0.5, max: 1.6, step: 0.01, defaultValue: 1 }),
       createNumberParam("pupilSize", "Pupil size", { min: 0.5, max: 1.8, step: 0.01, defaultValue: 1 }),
@@ -71,6 +88,13 @@ const RAW_GENERATORS = Object.freeze({
     id: "anatomy",
     name: "Low Poly Anatomy",
     category: "character",
+    runtime: {
+      timeDependent: (params = {}) =>
+        Math.abs(Number(params.spinX) || 0) +
+          Math.abs(Number(params.spinY) || 0) +
+          Math.abs(Number(params.spinZ) || 0) > 0.0001 ||
+        (params.part === "heart" && (Number(params.heartPulse) || 0) > 0.0001),
+    },
     params: [
       createEnumParam("part", "Part", ["face", "body", "hand", "arm", "leg", "heart"], "face"),
       createEnumParam("renderMode", "Draw mode", ["surface", "wireframe", "surfaceWire", "points"], "surface"),
@@ -99,6 +123,7 @@ const RAW_GENERATORS = Object.freeze({
     id: "terrainFlyover",
     name: "Terrain Flyover",
     category: "organic",
+    runtime: timeParamRuntime("flightSpeed"),
     params: [
       createEnumParam("style", "Style", ["biome", "wire", "hybrid"], "hybrid"),
       createEnumParam("flightMode", "Flight mode", ["free", "terrainFollow"], "free"),
@@ -139,6 +164,7 @@ const RAW_GENERATORS = Object.freeze({
     id: "bezierStrokes",
     name: "Bezier Strokes",
     category: "motion",
+    runtime: timeParamRuntime("speed"),
     params: [
       createEnumParam("style", "Style", ["pen", "crayon", "brush"], "brush"),
       createNumberParam("count", "Strokes", { min: 1, max: 8, step: 1, defaultValue: 5 }),
@@ -158,6 +184,7 @@ const RAW_GENERATORS = Object.freeze({
     id: "shadertoyBaseWarp",
     name: "Base Warp",
     category: "shadertoy",
+    runtime: timeParamRuntime("speed"),
     params: [
       createNumberParam("speed", "Speed", { min: 0, max: 3, step: 0.01, defaultValue: 1 }),
       createNumberParam("scale", "Scale", { min: 0.2, max: 8, step: 0.01, defaultValue: 1, scale: "log" }),
@@ -180,6 +207,7 @@ const RAW_GENERATORS = Object.freeze({
     id: "seascape",
     name: "Seascape",
     category: "shadertoy",
+    runtime: timeParamRuntime("speed"),
     params: [
       createNumberParam("speed", "Speed", { min: 0, max: 3, step: 0.01, defaultValue: 1 }),
       createNumberParam("waveHeight", "Wave height", { min: 0.05, max: 2.5, step: 0.01, defaultValue: 0.6, scale: "log" }),
@@ -207,6 +235,7 @@ const RAW_GENERATORS = Object.freeze({
     id: "paintDrips",
     name: "Paint Drips",
     category: "shadertoy",
+    runtime: timeParamRuntime("speed"),
     params: [
       createNumberParam("speed", "Speed", { min: 0, max: 3, step: 0.01, defaultValue: 1 }),
       createNumberParam("variation", "Variation", { min: 0, max: 10, step: 0.01, defaultValue: 0.25 }),
@@ -229,6 +258,7 @@ const RAW_GENERATORS = Object.freeze({
     id: "cloudyTunnel",
     name: "Cloudy Tunnel",
     category: "shadertoy",
+    runtime: timeParamRuntime("speed"),
     params: [
       createNumberParam("speed", "Speed", { min: 0, max: 3, step: 0.01, defaultValue: 1 }),
       createNumberParam("raySteps", "Ray steps", { min: 24, max: 160, step: 1, defaultValue: 72 }),
@@ -252,6 +282,7 @@ const RAW_GENERATORS = Object.freeze({
     id: "cherenkovVolume",
     name: "Cherenkov Volume",
     category: "shadertoy",
+    runtime: timeParamRuntime("speed"),
     params: [
       createNumberParam("speed", "Speed", { min: 0, max: 3, step: 0.01, defaultValue: 1 }),
       createNumberParam("raySteps", "Ray steps", { min: 24, max: 199, step: 1, defaultValue: 96 }),
@@ -272,6 +303,7 @@ const RAW_GENERATORS = Object.freeze({
     id: "biomineLite",
     name: "Biomine Lite",
     category: "shadertoy",
+    runtime: timeParamRuntime("speed"),
     params: [
       createNumberParam("speed", "Speed", { min: 0, max: 3, step: 0.01, defaultValue: 1 }),
       createNumberParam("raySteps", "Ray steps", { min: 12, max: 72, step: 1, defaultValue: 36 }),
@@ -296,11 +328,13 @@ const RAW_GENERATORS = Object.freeze({
     id: "swayingTrees",
     name: "Swaying Trees",
     category: "organic",
+    runtime: ALWAYS_TIME_RUNTIME,
   },
   checker: {
     id: "checker",
     name: "Checker",
     category: "utility",
+    runtime: ALWAYS_TIME_RUNTIME,
   },
   black: {
     id: "black",

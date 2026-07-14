@@ -74,15 +74,15 @@ test("composition thumbnails preserve more detail with high quality webp", () =>
 test("composition groups render isolated from earlier parent layers", () => {
   const source = readFileSync(new URL("../js/output/output-renderer.js", import.meta.url), "utf8");
   const groupRenderSource = source.slice(
-    source.indexOf('      if (item.kind === "group") {'),
+    source.indexOf("  renderCompositionChainState("),
     source.indexOf("  renderThumbnailCompositions()")
   );
 
-  assert.ok(groupRenderSource.includes("groupOutput.clear();"));
-  assert.ok(groupRenderSource.includes("this.renderCompositionChainItems(composition, item.chain || [], groupOutput"));
-  assert.ok(groupRenderSource.includes("this.drawChainLayer(output, groupOutput, item);"));
-  assert.ok(!groupRenderSource.includes("drawBuffer(groupOutput, output"));
-  assert.ok(!groupRenderSource.includes("output.clear();"));
+  assert.ok(groupRenderSource.includes("let state = this.transparentChainState(composition, renderRequest);"));
+  assert.ok(groupRenderSource.includes("const groupState = this.renderCompositionChainState("));
+  assert.ok(groupRenderSource.includes("item.chain || []"));
+  assert.ok(groupRenderSource.includes("state = this.renderLayerNodeState(nodeId, state, groupState, item, renderRequest);"));
+  assert.ok(!groupRenderSource.includes("drawBuffer(groupState.buffer, state.buffer"));
 });
 
 test("scene surfaces render compositions within surface texture budget while preserving frame aspect", () => {

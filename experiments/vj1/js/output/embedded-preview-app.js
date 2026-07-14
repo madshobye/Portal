@@ -1,6 +1,6 @@
 import { VJ1 } from "../constants.js";
 import { sanitizeState } from "../domain/models.js?v=output-playback-1";
-import { OutputRenderer } from "./output-renderer.js?v=shadertoy-generator-15";
+import { OutputRenderer } from "./output-renderer.js?v=node-dirty-runtime-1";
 import { applyFontToGlobal, loadVjRenderFont } from "./font-loader.js?v=world-frame-27";
 import { createPreviewViewportController, fitPreviewCanvasElement } from "./preview-viewport.js";
 import { canvasSizeForMode } from "./render-geometry.js";
@@ -254,7 +254,10 @@ export function createEmbeddedPreviewApp({ store, mediaLibrary, projectService }
     store.update((draft) => {
       draft.metrics.previewFps = metrics.fps || 0;
       draft.metrics.previewFrameMs = metrics.frameMs || 0;
+      draft.metrics.previewGpuMs = metrics.gpuMs || 0;
+      draft.metrics.previewGpuSupported = metrics.gpuSupported === true;
       draft.metrics.previewRenderCost = metrics.renderCost || 0;
+      draft.metrics.previewProfile = metrics.profile || null;
     }, "preview-metrics");
   }
 

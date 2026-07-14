@@ -17,11 +17,11 @@ export function shellTemplate() {
         </div>
         <div class="top-actions">
           <div id="workspace-switch" class="workspace-switch" role="group" aria-label="Workspace">
-            <button type="button" data-workspace="compose">${icon("account_tree")}<span>Compositions</span></button>
-            <button type="button" data-workspace="canvas">${icon("dashboard_customize")}<span>Canvas</span></button>
-            <button type="button" data-workspace="scene" class="is-active">${icon("auto_awesome")}<span>Scenes</span></button>
-            <button type="button" data-workspace="mapping">${icon("schema")}<span>Nodes</span></button>
-            <button type="button" data-workspace="live">${icon("play_circle")}<span>Live</span></button>
+            <button type="button" data-workspace="compose" title="Compositions" aria-label="Compositions">${icon("account_tree")}</button>
+            <button type="button" data-workspace="canvas" title="Canvas" aria-label="Canvas">${icon("dashboard_customize")}</button>
+            <button type="button" data-workspace="scene" class="is-active" title="Scenes" aria-label="Scenes">${icon("auto_awesome")}</button>
+            <button type="button" data-workspace="mapping" title="Nodes" aria-label="Nodes">${icon("schema")}</button>
+            <button type="button" data-workspace="live" title="Live" aria-label="Live">${icon("play_circle")}</button>
           </div>
           <button id="toggle-preview" class="icon-buttonish" type="button" title="Toggle preview" aria-label="Toggle preview">${icon("visibility")}</button>
           <button id="toggle-labels" class="icon-buttonish" type="button" title="Debug overlays" aria-label="Debug overlays">${icon("bug_report")}</button>
@@ -32,6 +32,8 @@ export function shellTemplate() {
           <button id="blackout-main" class="icon-buttonish danger" type="button" title="Blackout" aria-label="Blackout">${icon("brightness_1")}</button>
           <button id="open-output" class="icon-buttonish" type="button" title="Open output" aria-label="Open output">${icon("open_in_new")}</button>
           <span id="render-cost" class="status-pill cost-pill" title="Render cost"><span class="material-symbols-rounded">speed</span><span id="render-cost-text">0%</span></span>
+          <span id="cpu-time" class="status-pill work-time-pill" title="CPU render work"><span class="material-symbols-rounded">timer</span><span id="cpu-time-text">0.0 ms</span></span>
+          <span id="gpu-time" class="status-pill work-time-pill" title="GPU render work"><span class="material-symbols-rounded">memory</span><span id="gpu-time-text">--</span></span>
           <span id="output-status" class="status-pill"><span class="status-dot"></span><span id="output-status-text">output</span></span>
           <input id="import-files-main" class="hidden" type="file" multiple webkitdirectory data-gramm="false" data-gramm_editor="false" data-enable-grammarly="false" />
         </div>
@@ -54,6 +56,10 @@ export function collectRefs(root) {
     outputStatusText: root.querySelector("#output-status-text"),
     renderCost: root.querySelector("#render-cost"),
     renderCostText: root.querySelector("#render-cost-text"),
+    cpuTime: root.querySelector("#cpu-time"),
+    cpuTimeText: root.querySelector("#cpu-time-text"),
+    gpuTime: root.querySelector("#gpu-time"),
+    gpuTimeText: root.querySelector("#gpu-time-text"),
     openOutput: root.querySelector("#open-output"),
     togglePreview: root.querySelector("#toggle-preview"),
     toggleLabels: root.querySelector("#toggle-labels"),

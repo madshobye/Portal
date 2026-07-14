@@ -1,12 +1,13 @@
 import { VJ1 } from "../constants.js";
 import { clamp01, sanitizeState } from "../domain/models.js?v=world-frame-27";
-import { normalizeParamValue } from "../graph/component-schema.js?v=number-log-scale-1";
+import { normalizeParamValue, normalizeParamValues } from "../graph/component-schema.js?v=node-dirty-runtime-1";
 import { createManualScheduler } from "../graph/manual-scheduler.js";
-import { compileCompositionPatch, compileShaderSchedule, flattenCompositionChain } from "../graph/render-scheduler.js?v=photo-grade-invert-1";
-import { getGeneratorComponent } from "../graph/generator-registry.js?v=shadertoy-generator-15";
-import { createShaderBuilder } from "../shaders/shader-builder.js?v=shadertoy-generator-15";
-import { getGeneratorShaderComponent } from "../shaders/generator-shaders.js?v=shadertoy-generator-15";
-import { getShaderComponent } from "../shaders/shader-registry.js?v=photo-grade-invert-1";
+import { RenderNodeRuntime, textureStateKey } from "../graph/render-node-runtime.js?v=node-dirty-runtime-1";
+import { compileCompositionPatch, compileShaderSchedule, flattenCompositionChain } from "../graph/render-scheduler.js?v=node-dirty-runtime-1";
+import { getGeneratorComponent } from "../graph/generator-registry.js?v=node-dirty-runtime-1";
+import { createShaderBuilder } from "../shaders/shader-builder.js?v=node-dirty-runtime-1";
+import { getGeneratorShaderComponent } from "../shaders/generator-shaders.js?v=shadertoy-generator-16";
+import { getShaderComponent } from "../shaders/shader-registry.js?v=node-dirty-runtime-1";
 import { applyBlend } from "./blend-utils.js";
 import { applyFontToGlobal, applyFontToTarget } from "./font-loader.js?v=world-frame-27";
 import { drawGenerator, drawStandby } from "./generators.js";
@@ -27,8 +28,7 @@ const TERRAIN_GRID_CELLS = 48;
 
 const TERRAIN_VERTEX_SHADER = `
 precision highp float;
-attribute vec3 aPosition;
-attribute vec2 aTexCoord;
+attribute vec2 aGridCoord;
 uniform float time;
 uniform float flightSpeed;
 uniform float flightMode;
@@ -50,6 +50,9 @@ uniform float rowSpacing;
 uniform float globeRadius;
 uniform float gridDensity;
 uniform vec2 gridCells;
+uniform vec2 meshCells;
+uniform float gridBaseRow;
+uniform float gridIrregularity;
 uniform float cellScale;
 uniform vec2 planeSize;
 varying vec2 vTerrainUv;
@@ -90,8 +93,21 @@ float terrainHeightAt(vec2 world) {
   return (base * 0.92 + ridge * ridge * 0.52 - 0.68) * max(mountainHeight, 0.01);
 }
 
+float terrainGridHash(vec2 point, float salt) {
+  return terrainHash(vec2(point.x + 101.0 + salt, point.y + 313.0 - salt));
+}
+
+vec2 terrainMeshUv(vec2 gridCoord) {
+  float worldRow = gridBaseRow + gridCoord.y;
+  float amount = clamp(gridIrregularity, 0.0, 1.0) * 0.44;
+  float interior = step(0.5, gridCoord.x) * step(gridCoord.x, meshCells.x - 0.5);
+  float offsetX = (terrainGridHash(vec2(gridCoord.x, worldRow), 17.0) * 2.0 - 1.0) * amount * interior;
+  float offsetY = (terrainGridHash(vec2(0.0, worldRow), 43.0) * 2.0 - 1.0) * amount;
+  return vec2((gridCoord.x + offsetX) / max(meshCells.x, 1.0), worldRow + offsetY);
+}
+
 void main() {
-  vec2 meshUv = aTexCoord;
+  vec2 meshUv = terrainMeshUv(aGridCoord);
   float yaw = clamp(turn, -1.0, 1.0) * 0.72;
   vec2 travel = vec2(sin(yaw), cos(yaw));
   float farDistance = mix(42.0, 86.0, clamp(viewDistance, 0.0, 3.0) / 1.5);
@@ -249,6 +265,8 @@ export class OutputRenderer {
     this.compositionOutput = new Map();
     this.compositionBuffer = new Map();
     this.stableCompositionSignatures = new Map();
+    this.chainNodeRuntimes = new Map();
+    this.sourceNodeRuntimes = new Map();
     this.compositionSourceUse = new Map();
     this.compositionBufferUse = new Map();
     this.compositionPatches = new Map();
@@ -256,7 +274,7 @@ export class OutputRenderer {
     this.media = new Map();
     this.modelTargets = new Map();
     this.terrainTargets = new Map();
-    this.terrainShaders = new WeakMap();
+    this.terrainSurfaceResources = new Map();
     this.terrainWireResources = new Map();
     this.pendingRenditionSaves = new Set();
     this.sourcePg = null;
@@ -282,10 +300,14 @@ export class OutputRenderer {
     this.smoothedFrameMs = 0;
     this.smoothedFps = 0;
     this.smoothedRenderCost = 0;
+    this.smoothedGpuMs = 0;
+    this.lastGpuSampleId = -1;
+    this.gpuTimer = new GpuTimerTracker();
     this.lastPixelDensity = 0;
     this.frameStart = 0;
     this.frameProfile = createEmptyFrameProfile();
     this.lastFrameProfile = createEmptyFrameProfile();
+    this.compositionProfileDepth = 0;
     this.lastTickMs = 0;
     this.frameDeltaSeconds = 0;
     this.visualTime = 0;
@@ -315,6 +337,7 @@ export class OutputRenderer {
   }
 
   dispose() {
+    this.gpuTimer?.dispose?.();
     this.disposeBuffers();
     this.mapperSurfaces?.clear?.();
     this.mapper?.surfaces?.splice?.(0);
@@ -396,6 +419,9 @@ export class OutputRenderer {
     disposeGraphicsMap(this.compositionSource);
     disposeGraphicsMap(this.compositionOutput);
     disposeGraphicsMap(this.compositionBuffer);
+    this.stableCompositionSignatures?.clear?.();
+    this.chainNodeRuntimes?.clear?.();
+    this.sourceNodeRuntimes?.clear?.();
     this.compositionSourceUse?.clear?.();
     this.compositionBufferUse?.clear?.();
     this.sourcePg = null;
@@ -411,11 +437,14 @@ export class OutputRenderer {
   }
 
   resetTerrainResources() {
+    for (const [gl, resources] of this.terrainSurfaceResources?.entries?.() || []) {
+      disposeTerrainSurfaceResources(gl, resources);
+    }
     for (const [gl, resources] of this.terrainWireResources?.entries?.() || []) {
       disposeTerrainWireResources(gl, resources);
     }
+    this.terrainSurfaceResources?.clear?.();
     this.terrainWireResources?.clear?.();
-    this.terrainShaders = new WeakMap();
   }
 
   disposeFxTargetGroups() {
@@ -758,8 +787,10 @@ export class OutputRenderer {
 
   draw() {
     if (!this.state) return;
+    this.gpuTimer.poll(this.frameIndex);
     this.frameStart = performance.now();
     this.frameProfile = createEmptyFrameProfile();
+    this.compositionProfileDepth = 0;
     this.frameIndex++;
     this.tickClock(this.frameStart);
     this.outputMediaStatus = this.outputMediaReadiness();
@@ -770,24 +801,37 @@ export class OutputRenderer {
     if (this.shouldUseThumbnailPreview()) this.renderThumbnailCompositions();
     else this.renderCompositions();
     if (this.mode === "composition") {
-      this.renderCompositionPreview();
+      this.measureGpu(drawingContext, () => this.renderCompositionPreview());
       if (!this.shouldUseThumbnailPreview()) this.captureSelectedCompositionThumbnail();
+      this.pruneRenderCaches();
+      this.gpuTimer.sealFrame(this.frameIndex);
       this.finishFrameProfile();
       this.updateHudAndMetrics();
-      this.pruneRenderCaches();
       return;
     }
     this.renderSurfaces();
-    const outputBlackout = this.isOutputBlackout();
-    const restoreCalibrate = outputBlackout && this.mapper?.isCalibrating?.();
-    if (restoreCalibrate) this.mapper.setCalibrate(false);
-    this.mapper.drawOverlays();
-    this.renderOutputFrameOverlay();
-    this.renderSelectedSurfaceOverlay();
-    if (restoreCalibrate) this.mapper.setCalibrate(true);
+    this.measureGpu(drawingContext, () => {
+      const outputBlackout = this.isOutputBlackout();
+      const restoreCalibrate = outputBlackout && this.mapper?.isCalibrating?.();
+      if (restoreCalibrate) this.mapper.setCalibrate(false);
+      this.mapper.drawOverlays();
+      this.renderOutputFrameOverlay();
+      this.renderSelectedSurfaceOverlay();
+      if (restoreCalibrate) this.mapper.setCalibrate(true);
+    });
+    this.pruneRenderCaches();
+    this.gpuTimer.sealFrame(this.frameIndex);
     this.finishFrameProfile();
     this.updateHudAndMetrics();
-    this.pruneRenderCaches();
+  }
+
+  measureGpu(target, draw) {
+    const token = this.gpuTimer.begin(target, this.frameIndex);
+    try {
+      return draw();
+    } finally {
+      this.gpuTimer.end(token);
+    }
   }
 
   tickClock(nowMs) {
@@ -947,7 +991,7 @@ export class OutputRenderer {
       return stableCached;
     }
     if (composition.type === "canvas") {
-      const output = this.measureProfile("compositionMs", {
+      const output = this.measureCompositionProfile({
         type: "composition",
         compositionId: composition.id,
         compositionName: composition.name || composition.id || "Canvas",
@@ -960,7 +1004,7 @@ export class OutputRenderer {
     }
     const patch = compileCompositionPatch(composition, renderRequest);
     this.compositionPatches.set(composition.id, patch);
-    const output = this.measureProfile("compositionMs", {
+    const output = this.measureCompositionProfile({
       type: "composition",
       compositionId: composition.id,
       compositionName: composition.name || composition.id || "Composition",
@@ -1122,39 +1166,133 @@ export class OutputRenderer {
     return output;
   }
 
-  renderCompositionChainItems(composition, chain, output, compositionTime, renderRequest) {
+  renderCompositionChainItems(composition, chain, output, compositionTime, renderRequest, scopeId = composition.id) {
+    const state = this.renderCompositionChainState(composition, chain, compositionTime, renderRequest, scopeId);
+    if (state.buffer === output) return state;
+    output.push();
+    output.clear();
+    drawBuffer(output, state.buffer, 0, 0, output.width, output.height, this.isShaderBuffer(state.buffer));
+    output.pop();
+    return state;
+  }
+
+  renderCompositionChainState(composition, chain, compositionTime, renderRequest, scopeId = composition.id) {
+    let state = this.transparentChainState(composition, renderRequest);
     for (let index = 0; index < (chain || []).length; index++) {
       const item = chain[index];
       if (item.enabled === false) continue;
+      const nodeId = renderBufferKey(composition.id, scopeId, index, item.id || item.componentId || item.kind);
       if (item.kind === "source") {
-        const source = this.renderCompositionSourceItem(composition, item, compositionTime, renderRequest);
-        this.drawChainLayer(output, source, item);
+        const sourceState = this.renderCompositionSourceItemState(composition, item, compositionTime, renderRequest, nodeId);
+        state = this.renderLayerNodeState(nodeId, state, sourceState, item, renderRequest);
         continue;
       }
       if (item.kind === "effect") {
-        const effectRun = [item];
-        let nextIndex = index;
-        while (chain[nextIndex + 1]?.kind === "effect") {
-          nextIndex++;
-          if (chain[nextIndex]?.enabled !== false) effectRun.push(chain[nextIndex]);
-        }
-        const effected = this.renderShaderChain(output, effectRun.map(chainItemToShaderPass), renderRequest, compositionTime);
-        output.push();
-        output.clear();
-        drawBuffer(output, effected, 0, 0, output.width, output.height, this.isShaderBuffer(effected));
-        output.pop();
-        index = nextIndex;
+        state = this.renderEffectNodeState(nodeId, state, item, compositionTime, renderRequest);
         continue;
       }
       if (item.kind === "group") {
-        const groupOutput = this.getCompositionBuffer(`${composition.id}:${item.id}:group`, renderRequest);
-        groupOutput.push();
-        groupOutput.clear();
-        groupOutput.pop();
-        this.renderCompositionChainItems(composition, item.chain || [], groupOutput, compositionTime, renderRequest);
-        this.drawChainLayer(output, groupOutput, item);
+        const groupState = this.renderCompositionChainState(
+          composition,
+          item.chain || [],
+          compositionTime,
+          renderRequest,
+          renderBufferKey(scopeId, item.id || index)
+        );
+        state = this.renderLayerNodeState(nodeId, state, groupState, item, renderRequest);
       }
     }
+    return state;
+  }
+
+  transparentChainState(composition, renderRequest) {
+    const nodeId = renderBufferKey(composition.id, "transparent");
+    const signature = stableStringify({
+      transparent: true,
+      request: renderRequestKey(renderRequest),
+    });
+    return this.evaluateChainNode(nodeId, signature, renderRequest, (output) => {
+      output.push();
+      output.clear();
+      output.pop();
+    }, "initial");
+  }
+
+  renderLayerNodeState(nodeId, inputState, layerState, layer, renderRequest) {
+    const signature = stableStringify({
+      input: textureStateKey(inputState),
+      layer: textureStateKey(layerState),
+      state: chainLayerState(layer),
+      request: renderRequestKey(renderRequest),
+    });
+    return this.evaluateChainNode(nodeId, signature, renderRequest, (output) => {
+      output.push();
+      output.clear();
+      drawBuffer(output, inputState.buffer, 0, 0, output.width, output.height, this.isShaderBuffer(inputState.buffer));
+      output.pop();
+      this.drawChainLayer(output, layerState.buffer, layer);
+    }, "layer");
+  }
+
+  renderEffectNodeState(nodeId, inputState, item, compositionTime, renderRequest) {
+    const component = getShaderComponent(item.componentId);
+    if (!component) return inputState;
+    const params = normalizeParamValues(component, {
+      ...(item.params || {}),
+      ...(item.amount !== undefined ? { amount: item.amount } : {}),
+    });
+    const amount = effectParamNumber(component, params, "amount", item.amount ?? 0.35);
+    if (amount <= 0.0001) return inputState;
+    const runtimeContext = this.nodeRuntimeContext(compositionTime);
+    const signature = stableStringify({
+      input: textureStateKey(inputState),
+      params,
+      transform: item.transform || {},
+      time: componentRuntimeTimeKey(component, params, runtimeContext),
+      external: component.runtime?.externalKey?.(params, runtimeContext) ?? null,
+      customShader: item.componentId === "custom" ? this.state?.shaders?.customCode || "" : "",
+      request: renderRequestKey(renderRequest),
+    });
+    return this.evaluateChainNode(nodeId, signature, renderRequest, (output) => {
+      const pass = chainItemToShaderPass({ ...item, params, amount });
+      const effected = this.renderShaderChain(inputState.buffer, [pass], renderRequest, compositionTime);
+      output.push();
+      output.clear();
+      drawBuffer(output, effected, 0, 0, output.width, output.height, this.isShaderBuffer(effected));
+      output.pop();
+    }, "effect");
+  }
+
+  evaluateChainNode(nodeId, signature, renderRequest, render, dirtyReason) {
+    const bufferId = renderBufferKey("node", nodeId);
+    const runtimeKey = renderBufferKey(bufferId, renderRequestKey(renderRequest));
+    const output = this.getCompositionBuffer(bufferId, renderRequest);
+    let runtime = this.chainNodeRuntimes.get(runtimeKey);
+    if (!runtime) {
+      runtime = new RenderNodeRuntime(runtimeKey);
+      this.chainNodeRuntimes.set(runtimeKey, runtime);
+    }
+    runtime.bindOutput(output);
+    const result = runtime.evaluate(signature, () => {
+      render(output);
+      return output;
+    }, { frame: this.frameIndex, dirtyReason });
+    if (!result.rendered) this.frameProfile.stageCacheHits++;
+    else this.frameProfile.stageRenders++;
+    return {
+      buffer: result.output,
+      outputVersion: result.outputVersion,
+      nodeKey: runtimeKey,
+      dirtyReason: result.dirtyReason,
+    };
+  }
+
+  nodeRuntimeContext(time) {
+    return {
+      time: Number(time) || 0,
+      frame: this.frameIndex,
+      playing: this.state?.global?.playing !== false,
+    };
   }
 
   renderThumbnailCompositions() {
@@ -1189,6 +1327,7 @@ export class OutputRenderer {
       },
       composition: staticCompositionState(composition),
       media: staticMediaState(this.state?.media || [], composition),
+      customShader: this.state?.shaders?.customCode || "",
     });
   }
 
@@ -1229,12 +1368,12 @@ export class OutputRenderer {
     if (!source || source.type === "black") return false;
     if (source.type === "camera") return true;
     if (source.type === "generator") {
-      if (source.generatorId === "anatomy") {
-        const params = { ...(source.params || {}), ...(owner.params || {}) };
-        const spins = Math.abs(Number(params.spinX) || 0) + Math.abs(Number(params.spinY) || 0) + Math.abs(Number(params.spinZ) || 0);
-        return spins > 0.0001 || (params.part === "heart" && clamp01(Number(params.heartPulse) || 0) > 0.0001);
-      }
-      return !STATIC_GENERATOR_IDS.has(source.generatorId || "testPattern");
+      const component = getGeneratorComponent(source.generatorId || "testPattern");
+      const params = normalizeParamValues(component, {
+        ...(source.params || {}),
+        ...(owner.params || {}),
+      });
+      return component.runtime?.cacheable === false || component.runtime?.timeDependent?.(params) === true;
     }
     if (source.type !== "media") return true;
     const mediaId = source.mediaId || "";
@@ -1254,30 +1393,14 @@ export class OutputRenderer {
   effectPassIsFrameDynamic(pass = {}) {
     const id = pass.id || pass.componentId || "";
     const component = getShaderComponent(id);
-    if (!component?.code?.includes("time")) return false;
-    const params = {
+    if (!component) return false;
+    const params = normalizeParamValues(component, {
       ...(pass.params && typeof pass.params === "object" ? pass.params : {}),
-    };
-    if (pass.amount !== undefined && params.amount === undefined) params.amount = pass.amount;
+      ...(pass.amount !== undefined ? { amount: pass.amount } : {}),
+    });
     const amount = effectParamNumber(component, params, "amount", 0.35);
     if (amount <= 0.0001) return false;
-    if (id === "photoGrade") {
-      const noiseActive = effectParamNumber(component, params, "grain", 0) > 0.0001 ||
-        effectParamNumber(component, params, "noise", 0) > 0.0001 ||
-        effectParamNumber(component, params, "distort", 0) > 0.0001;
-      return noiseActive && effectParamValue(component, params, "seedMode", "animated") !== "fixed";
-    }
-    if (id === "smear") {
-      const textureActive = ["cctvAmount", "screenPrintAmount", "dotMatrixAmount", "receiptAmount", "ditherAmount", "smearAmount"]
-        .some((paramId) => effectParamNumber(component, params, paramId, paramId === "cctvAmount" ? 0.45 : 0) > 0.0001);
-      return textureActive && effectParamValue(component, params, "seedMode", "animated") !== "fixed";
-    }
-    if (SEED_CONTROLLED_EFFECT_IDS.has(id)) {
-      return effectParamValue(component, params, "seedMode", "animated") !== "fixed";
-    }
-    if (id === "rgbSplit") return effectParamNumber(component, params, "motion", 1) > 0.0001;
-    if (id === "spinRotate") return Math.abs(effectParamNumber(component, params, "speed", 0.2)) > 0.0001;
-    return true;
+    return component.runtime?.cacheable === false || component.runtime?.timeDependent?.(params) === true;
   }
 
   renderCompositionSource(composition, compositionTime = this.visualTime, request = frameRenderRequest(this.state.render)) {
@@ -1298,8 +1421,18 @@ export class OutputRenderer {
   }
 
   renderCompositionSourceItem(composition, item, compositionTime = this.visualTime, request = frameRenderRequest(this.state.render)) {
+    return this.renderCompositionSourceItemState(
+      composition,
+      item,
+      compositionTime,
+      request,
+      renderBufferKey(composition.id, item.id || "source")
+    ).buffer;
+  }
+
+  renderCompositionSourceItemState(composition, item, compositionTime, request, nodeId) {
     const renderRequest = this.normalizeRenderRequest(request, "source");
-    const key = renderBufferKey(composition.id, item.id, renderRequestKey(renderRequest));
+    const key = renderBufferKey(nodeId, "source", renderRequestKey(renderRequest));
     let pg = this.compositionSource.get(key);
     if (!pg || pg.width !== renderRequest.width || pg.height !== renderRequest.height) {
       pg = createGraphics(renderRequest.width, renderRequest.height);
@@ -1307,12 +1440,72 @@ export class OutputRenderer {
       this.compositionSource.set(key, pg);
     }
     this.touchRenderCache(this.compositionSourceUse, key);
-    pg.push();
-    pg.clear();
     const source = sourceWithNodeParams(item.source || composition.source, item.params || {}, item.id);
-    this.safeDrawSourceToGraphics(pg, source, composition, compositionTime, renderRequest);
-    pg.pop();
-    return pg;
+    const runtimeContext = this.nodeRuntimeContext(compositionTime);
+    const sourceSignature = stableStringify({
+      source: staticSourceState(source),
+      media: staticMediaStateForSource(this.state?.media || [], source),
+      time: this.sourceRuntimeTimeKey(source, item, runtimeContext),
+      external: this.sourceRuntimeExternalKey(source, item, runtimeContext),
+      request: renderRequestKey(renderRequest),
+    });
+    let runtime = this.sourceNodeRuntimes.get(key);
+    if (!runtime) {
+      runtime = new RenderNodeRuntime(key);
+      this.sourceNodeRuntimes.set(key, runtime);
+    }
+    runtime.bindOutput(pg);
+    const result = runtime.evaluate(sourceSignature, () => {
+      pg.push();
+      pg.clear();
+      this.safeDrawSourceToGraphics(pg, source, composition, compositionTime, renderRequest);
+      pg.pop();
+      return pg;
+    }, { frame: this.frameIndex, dirtyReason: "source" });
+    if (!result.rendered) this.frameProfile.stageCacheHits++;
+    else this.frameProfile.stageRenders++;
+    return {
+      buffer: result.output,
+      outputVersion: result.outputVersion,
+      nodeKey: key,
+      dirtyReason: result.dirtyReason,
+    };
+  }
+
+  sourceRuntimeTimeKey(source = {}, owner = {}, runtimeContext = {}) {
+    if (!source || source.type === "black") return null;
+    if (source.type === "camera") return runtimeContext.frame;
+    if (source.type === "generator") {
+      const component = getGeneratorComponent(source.generatorId || "testPattern");
+      const params = normalizeParamValues(component, {
+        ...(source.params || {}),
+        ...(owner.params || {}),
+      });
+      return componentRuntimeTimeKey(component, params, runtimeContext);
+    }
+    if (source.type !== "media") return runtimeContext.frame;
+    const mediaId = source.mediaId || "";
+    const mediaMeta = (this.state?.media || []).find((entry) => entry.id === mediaId);
+    const runtimeItem = this.media.get(mediaId);
+    if (mediaMeta?.type === "video" || runtimeItem?.video) return runtimeContext.frame;
+    if (mediaMeta?.type === "model" || runtimeItem?.model || runtimeItem?.modelData) {
+      const params = source.params || owner.params || {};
+      const spinning = Math.abs(Number(params.spinX) || 0) +
+        Math.abs(Number(params.spinY) || 0) +
+        Math.abs(Number(params.spinZ) || 0) > 0.0001;
+      return spinning ? runtimeContext.time : null;
+    }
+    return null;
+  }
+
+  sourceRuntimeExternalKey(source = {}, owner = {}, runtimeContext = {}) {
+    if (source?.type !== "generator") return null;
+    const component = getGeneratorComponent(source.generatorId || "testPattern");
+    const params = normalizeParamValues(component, {
+      ...(source.params || {}),
+      ...(owner.params || {}),
+    });
+    return component.runtime?.externalKey?.(params, runtimeContext) ?? null;
   }
 
   renderPatchSourceNode(composition, node, compositionTime = this.visualTime, request = frameRenderRequest(this.state.render)) {
@@ -1409,20 +1602,22 @@ export class OutputRenderer {
     const detail = Math.max(4, Math.min(14, Math.round(Number(params.detail) || 8)));
     const modelScale = Math.max(0.01, Number(params.modelScale) || 1);
     const depth = Math.max(0.05, Number(params.depth) || 1);
-    target.push();
-    target.clear();
-    target.perspective?.(Math.PI / 3, viewport.width / Math.max(1, viewport.height), 0.1, 5000);
-    target.camera?.(0, 0, viewport.cameraZ, 0, 0, 0, 0, 1, 0);
-    target.ambientLight?.(96);
-    target.directionalLight?.(238, 232, 220, -0.45, -0.55, -0.75);
-    target.directionalLight?.(82, 94, 108, 0.7, 0.15, -0.35);
-    target.rotateX(rotation[0]);
-    target.rotateY(rotation[1]);
-    target.rotateZ(rotation[2]);
-    const scale = viewport.unitScale * modelScale * anatomyPartFitScale(params.part);
-    target.scale(scale, -scale, scale * depth);
-    drawProceduralAnatomy(target, params, compositionTime, renderMode, surfaceColor, wireColor, wireThickness, detail);
-    target.pop();
+    this.measureGpu(target, () => {
+      target.push();
+      target.clear();
+      target.perspective?.(Math.PI / 3, viewport.width / Math.max(1, viewport.height), 0.1, 5000);
+      target.camera?.(0, 0, viewport.cameraZ, 0, 0, 0, 0, 1, 0);
+      target.ambientLight?.(96);
+      target.directionalLight?.(238, 232, 220, -0.45, -0.55, -0.75);
+      target.directionalLight?.(82, 94, 108, 0.7, 0.15, -0.35);
+      target.rotateX(rotation[0]);
+      target.rotateY(rotation[1]);
+      target.rotateZ(rotation[2]);
+      const scale = viewport.unitScale * modelScale * anatomyPartFitScale(params.part);
+      target.scale(scale, -scale, scale * depth);
+      drawProceduralAnatomy(target, params, compositionTime, renderMode, surfaceColor, wireColor, wireThickness, detail);
+      target.pop();
+    });
     pg.push();
     pg.clear();
     drawBuffer(pg, target, 0, 0, pg.width, pg.height, true);
@@ -1432,15 +1627,6 @@ export class OutputRenderer {
   drawTerrainGenerator(pg, source = {}, compositionTime = this.visualTime, renderRequest = frameRenderRequest(this.state.render)) {
     const target = this.getTerrainTarget(pg.width, pg.height);
     const params = source.params || {};
-    let shader = this.terrainShaders.get(target);
-    if (shader && !terrainP5ShaderValid(target, shader)) {
-      this.terrainShaders.delete(target);
-      shader = null;
-    }
-    if (!shader) {
-      shader = target.createShader(TERRAIN_VERTEX_SHADER, TERRAIN_FRAGMENT_SHADER);
-      this.terrainShaders.set(target, shader);
-    }
     const style = params.style === "wire" ? 1 : params.style === "hybrid" ? 2 : 0;
     const flightSpeed = Math.max(0, Number(params.flightSpeed) || 0);
     const flightTime = this.continuousRateTime(`${source.instanceId || source.generatorId || "terrain"}:flight`, compositionTime, flightSpeed);
@@ -1453,24 +1639,18 @@ export class OutputRenderer {
     const flightParams = { ...params, flightSpeed: 1, terrainScale: scaleState.scale, terrainPhase: scaleState.phase };
     const sky = normalizedModelColor(params.skyColor, [108, 165, 212, 255]);
 
-    target.push();
-    target.clear();
-    if (style !== 1) target.background(sky[0] * 255, sky[1] * 255, sky[2] * 255, sky[3] * 255);
-    if (style !== 1) {
-      target.shader(shader);
-      bindTerrainP5Shader(target, shader);
-      setTerrainP5Uniforms(shader, flightParams, flightTime, style, target.width, target.height, sky);
-      target.noStroke();
-      target.fill(255);
-      drawWithPolygonOffset(target, style === 2, () => {
-        drawTerrainSurfaceMesh(target, params.gridJitter, params.gridWidth, params.gridDepth, flightTime, 1, params.gridDensity, params.gridScale);
-      });
-      target.resetShader();
-    }
-    if (style >= 1) {
-      drawTerrainWireframe(target, this.terrainWireResources, flightParams, flightTime, target.width, target.height);
-    }
-    target.pop();
+    this.measureGpu(target, () => {
+      target.push();
+      target.clear();
+      if (style !== 1) target.background(sky[0] * 255, sky[1] * 255, sky[2] * 255, sky[3] * 255);
+      if (style !== 1) {
+        drawTerrainSurface(target, this.terrainSurfaceResources, flightParams, flightTime, target.width, target.height, style, sky);
+      }
+      if (style >= 1) {
+        drawTerrainWireframe(target, this.terrainWireResources, flightParams, flightTime, target.width, target.height);
+      }
+      target.pop();
+    });
 
     pg.push();
     pg.clear();
@@ -1496,6 +1676,8 @@ export class OutputRenderer {
     const wireColor = modelColor(params.wireColor, [20, 20, 20, 220]);
     const wireThickness = modelWireThickness(params);
     const rotation = modelRotation(params, compositionTime);
+    const gpuToken = this.gpuTimer.begin(target, this.frameIndex);
+    try {
     target.push();
     target.clear();
     const scale = viewport.unitScale * modelScale;
@@ -1546,6 +1728,9 @@ export class OutputRenderer {
       }
     }
     target.pop();
+    } finally {
+      this.gpuTimer.end(gpuToken);
+    }
     pg.push();
     pg.clear();
     drawBuffer(pg, target, 0, 0, pg.width, pg.height, true);
@@ -1644,6 +1829,7 @@ export class OutputRenderer {
       height: renderRequest.height,
       ms: 0,
     };
+    const gpuToken = this.gpuTimer.begin(target, this.frameIndex);
     try {
       target.push();
       target.clear();
@@ -1651,7 +1837,8 @@ export class OutputRenderer {
       const shadertoyInterface = usesShadertoyInterface(component);
       if (shadertoyInterface) {
         const now = new Date();
-        setShaderUniformIfPresent(shader, "iResolution", [renderRequest.width, renderRequest.height, 1]);
+        const drawingSize = shaderDrawingBufferSize(target, renderRequest.width, renderRequest.height);
+        setShaderUniformIfPresent(shader, "iResolution", [drawingSize.width, drawingSize.height, 1]);
         setShaderUniformIfPresent(shader, "iTime", shaderTime);
         setShaderUniformIfPresent(shader, "iTimeDelta", this.frameDeltaSeconds);
         setShaderUniformIfPresent(shader, "iFrame", this.frameIndex);
@@ -1670,6 +1857,7 @@ export class OutputRenderer {
       target.resetShader();
       target.pop();
     } finally {
+      this.gpuTimer.end(gpuToken);
       sample.ms = roundMetric(performance.now() - started);
       this.frameProfile.passSamples.push(sample);
     }
@@ -1778,6 +1966,12 @@ export class OutputRenderer {
     for (const key of Array.from(this.stableCompositionSignatures.keys())) {
       if (!this.compositionBuffer.has(key)) this.stableCompositionSignatures.delete(key);
     }
+    for (const key of Array.from(this.chainNodeRuntimes.keys())) {
+      if (!this.compositionBuffer.has(key)) this.chainNodeRuntimes.delete(key);
+    }
+    for (const key of Array.from(this.sourceNodeRuntimes.keys())) {
+      if (!this.compositionSource.has(key)) this.sourceNodeRuntimes.delete(key);
+    }
   }
 
   drawChainLayer(output, source, layer) {
@@ -1828,7 +2022,7 @@ export class OutputRenderer {
         handoff,
         sourceIsShaderBuffer,
         targetSlot: this.fxTargets?.[1] === target ? 1 : 0,
-      }, () => {
+      }, target, () => {
         target.push();
         target.clear();
         target.shader(shader);
@@ -1851,7 +2045,7 @@ export class OutputRenderer {
     return current;
   }
 
-  measureShaderPass(pass, component, renderRequest, meta, drawPass) {
+  measureShaderPass(pass, component, renderRequest, meta, target, drawPass) {
     const item = {
       type: "shader-pass",
       passId: pass.id || "",
@@ -1867,7 +2061,7 @@ export class OutputRenderer {
     this.frameProfile.shaderPasses++;
     if (meta.handoff) this.frameProfile.shaderHandoffs++;
     const started = performance.now();
-    const result = drawPass();
+    const result = this.measureGpu(target, drawPass);
     item.ms = performance.now() - started;
     this.frameProfile.shaderMs += item.ms;
     this.frameProfile.passSamples.push(item);
@@ -1880,6 +2074,24 @@ export class OutputRenderer {
     const ms = performance.now() - started;
     this.frameProfile[bucket] += ms;
     this.frameProfile.passSamples.push({ ...meta, ms });
+    return result;
+  }
+
+  measureCompositionProfile(meta, fn) {
+    const started = performance.now();
+    const outermost = this.compositionProfileDepth === 0;
+    this.compositionProfileDepth++;
+    let result;
+    try {
+      result = fn();
+    } finally {
+      this.compositionProfileDepth--;
+      const ms = performance.now() - started;
+      this.frameProfile.compositionMs += ms;
+      if (outermost) this.frameProfile.compositionWallMs += ms;
+      this.frameProfile.compositionRenders++;
+      this.frameProfile.passSamples.push({ ...meta, ms });
+    }
     return result;
   }
 
@@ -1896,6 +2108,7 @@ export class OutputRenderer {
     profile.shaderMs = roundMetric(profile.shaderMs);
     profile.sourceMs = roundMetric(profile.sourceMs);
     profile.compositionMs = roundMetric(profile.compositionMs);
+    profile.compositionWallMs = roundMetric(profile.compositionWallMs);
     profile.totalMs = roundMetric(profile.totalMs);
     this.lastFrameProfile = profile;
   }
@@ -1944,7 +2157,7 @@ export class OutputRenderer {
         drawSurfaceLabel(pg, surface, composition);
       }
       pg.pop();
-      this.mapper.drawTexture(pg, mapped.mapperSurface);
+      this.measureGpu(drawingContext, () => this.mapper.drawTexture(pg, mapped.mapperSurface));
     }
   }
 
@@ -2364,10 +2577,12 @@ export class OutputRenderer {
   }
 
   updateHudAndMetrics() {
-    const frameMs = performance.now() - this.frameStart;
+    this.gpuTimer.poll(this.frameIndex);
+    const frameMs = Math.max(0, Number(this.lastFrameProfile?.totalMs) || (performance.now() - this.frameStart));
     const fps = frameRate();
     const renderCost = frameMs / (1000 / 120);
     this.updateSmoothedMetrics({ fps, frameMs, renderCost });
+    this.updateGpuMetric();
     if (this.hud) {
       const hideOutputHud = this.mode === "output" && this.state?.global?.showLabels === false;
       const mediaLoading = this.mode === "output" && !!this.outputMediaStatus?.blocked;
@@ -2383,6 +2598,8 @@ export class OutputRenderer {
       this.sendMetrics?.({
         fps: this.smoothedFps || fps,
         frameMs: this.smoothedFrameMs || frameMs,
+        gpuMs: this.smoothedGpuMs || this.gpuTimer.latestMs || 0,
+        gpuSupported: this.gpuTimer.supported,
         renderCost: this.smoothedRenderCost || renderCost,
         renderWidth: renderResolution.width,
         renderHeight: renderResolution.height,
@@ -2406,6 +2623,15 @@ export class OutputRenderer {
     this.smoothedFrameMs += (frameMs - this.smoothedFrameMs) * alpha;
     this.smoothedFps += (fps - this.smoothedFps) * alpha;
     this.smoothedRenderCost += (renderCost - this.smoothedRenderCost) * alpha;
+  }
+
+  updateGpuMetric() {
+    if (this.gpuTimer.sampleId === this.lastGpuSampleId) return;
+    this.lastGpuSampleId = this.gpuTimer.sampleId;
+    const value = Math.max(0, Number(this.gpuTimer.latestMs) || 0);
+    this.smoothedGpuMs = this.smoothedGpuMs
+      ? this.smoothedGpuMs + (value - this.smoothedGpuMs) * 0.12
+      : value;
   }
 
   captureSelectedCompositionThumbnail() {
@@ -2632,9 +2858,6 @@ function renderBufferKey(...parts) {
   return parts.map((part) => String(part)).join(":");
 }
 
-const STATIC_GENERATOR_IDS = new Set(["gradient", "checker", "black"]);
-const SEED_CONTROLLED_EFFECT_IDS = new Set(["photoGrade", "labelGrain", "labelThresholdGrain", "glitchDistort", "heatShimmer", "smear"]);
-
 function staticCompositionState(composition = {}) {
   return {
     id: composition.id || "",
@@ -2708,6 +2931,22 @@ function staticMediaState(media = [], composition = {}) {
   const ids = new Set();
   collectMediaIdsFromSource(composition.source, ids);
   collectMediaIdsFromChain(composition.chain || [], ids);
+  return staticMediaStateForIds(media, ids);
+}
+
+function staticMediaStateForChain(media = [], chain = []) {
+  const ids = new Set();
+  collectMediaIdsFromChain(chain, ids);
+  return staticMediaStateForIds(media, ids);
+}
+
+function staticMediaStateForSource(media = [], source = {}) {
+  const ids = new Set();
+  collectMediaIdsFromSource(source, ids);
+  return staticMediaStateForIds(media, ids);
+}
+
+function staticMediaStateForIds(media = [], ids = new Set()) {
   return (media || [])
     .filter((item) => ids.has(item.id))
     .map((item) => ({
@@ -2716,6 +2955,21 @@ function staticMediaState(media = [], composition = {}) {
       type: item.type || "",
       size: item.size || 0,
     }));
+}
+
+function chainLayerState(item = {}) {
+  return {
+    enabled: item.enabled !== false,
+    transform: item.transform || {},
+    opacity: item.opacity ?? 1,
+    blend: item.blend || "normal",
+  };
+}
+
+function componentRuntimeTimeKey(component, params = {}, context = {}) {
+  if (component?.runtime?.cacheable === false) return context.frame;
+  if (!component?.runtime?.timeDependent?.(params)) return null;
+  return component.runtime.timeKey?.(params, context) ?? context.time;
 }
 
 function collectMediaIdsFromChain(chain = [], ids) {
@@ -2765,6 +3019,149 @@ function isReadyMediaItem(item = {}) {
   return item.ready === true;
 }
 
+class GpuTimerTracker {
+  constructor() {
+    this.apis = new WeakMap();
+    this.pending = [];
+    this.frames = new Map();
+    this.latestMs = 0;
+    this.latestFrameId = -1;
+    this.sampleId = 0;
+    this.supported = false;
+  }
+
+  begin(target, frameId) {
+    const gl = webglContextFrom(target);
+    const api = this.apiFor(gl);
+    if (!api || api.active) return null;
+    const query = api.createQuery();
+    if (!query) return null;
+    try {
+      api.begin(query);
+    } catch {
+      api.deleteQuery(query);
+      return null;
+    }
+    api.active = true;
+    const frame = this.frameRecord(frameId);
+    frame.expected++;
+    return { api, query, frameId };
+  }
+
+  end(token) {
+    if (!token) return;
+    try {
+      token.api.end();
+      this.pending.push(token);
+    } catch {
+      const frame = this.frameRecord(token.frameId);
+      frame.resolved++;
+      frame.invalid = true;
+      token.api.deleteQuery(token.query);
+    } finally {
+      token.api.active = false;
+    }
+  }
+
+  sealFrame(frameId) {
+    this.frameRecord(frameId).sealed = true;
+    this.resolveFrames();
+  }
+
+  poll(currentFrame = 0) {
+    for (let index = this.pending.length - 1; index >= 0; index--) {
+      const token = this.pending[index];
+      let available = false;
+      try {
+        available = token.api.available(token.query);
+      } catch {
+        available = true;
+      }
+      if (!available && currentFrame - token.frameId < 240) continue;
+      const frame = this.frameRecord(token.frameId);
+      try {
+        if (available && !token.api.disjoint()) frame.totalNs += Number(token.api.result(token.query)) || 0;
+        else frame.invalid = true;
+      } catch {
+        frame.invalid = true;
+      }
+      frame.resolved++;
+      token.api.deleteQuery(token.query);
+      this.pending.splice(index, 1);
+    }
+    this.resolveFrames();
+  }
+
+  apiFor(gl) {
+    if (!gl || typeof gl.getExtension !== "function") return null;
+    if (this.apis.has(gl)) return this.apis.get(gl);
+    let api = null;
+    const webgl2Ext = gl.getExtension("EXT_disjoint_timer_query_webgl2");
+    if (webgl2Ext && typeof gl.createQuery === "function") {
+      api = {
+        active: false,
+        createQuery: () => gl.createQuery(),
+        deleteQuery: (query) => gl.deleteQuery(query),
+        begin: (query) => gl.beginQuery(webgl2Ext.TIME_ELAPSED_EXT, query),
+        end: () => gl.endQuery(webgl2Ext.TIME_ELAPSED_EXT),
+        available: (query) => !!gl.getQueryParameter(query, gl.QUERY_RESULT_AVAILABLE),
+        result: (query) => gl.getQueryParameter(query, gl.QUERY_RESULT),
+        disjoint: () => !!gl.getParameter(webgl2Ext.GPU_DISJOINT_EXT),
+      };
+    } else {
+      const webgl1Ext = gl.getExtension("EXT_disjoint_timer_query");
+      if (webgl1Ext) {
+        api = {
+          active: false,
+          createQuery: () => webgl1Ext.createQueryEXT(),
+          deleteQuery: (query) => webgl1Ext.deleteQueryEXT(query),
+          begin: (query) => webgl1Ext.beginQueryEXT(webgl1Ext.TIME_ELAPSED_EXT, query),
+          end: () => webgl1Ext.endQueryEXT(webgl1Ext.TIME_ELAPSED_EXT),
+          available: (query) => !!webgl1Ext.getQueryObjectEXT(query, webgl1Ext.QUERY_RESULT_AVAILABLE_EXT),
+          result: (query) => webgl1Ext.getQueryObjectEXT(query, webgl1Ext.QUERY_RESULT_EXT),
+          disjoint: () => !!gl.getParameter(webgl1Ext.GPU_DISJOINT_EXT),
+        };
+      }
+    }
+    this.apis.set(gl, api);
+    if (api) this.supported = true;
+    return api;
+  }
+
+  frameRecord(frameId) {
+    let frame = this.frames.get(frameId);
+    if (!frame) {
+      frame = { expected: 0, resolved: 0, totalNs: 0, sealed: false, invalid: false };
+      this.frames.set(frameId, frame);
+    }
+    return frame;
+  }
+
+  resolveFrames() {
+    for (const [frameId, frame] of this.frames) {
+      if (!frame.sealed || frame.resolved < frame.expected) continue;
+      if (!frame.invalid && frame.expected > 0 && frameId > this.latestFrameId) {
+        this.latestMs = frame.totalNs / 1000000;
+        this.latestFrameId = frameId;
+        this.sampleId++;
+      }
+      this.frames.delete(frameId);
+    }
+  }
+
+  dispose() {
+    for (const token of this.pending) token.api.deleteQuery(token.query);
+    this.pending.length = 0;
+    this.frames.clear();
+  }
+}
+
+function webglContextFrom(target) {
+  if (!target) return null;
+  if (typeof target.getExtension === "function") return target;
+  return target?._renderer?.GL || target?.drawingContext || null;
+}
+
 function createEmptyFrameProfile() {
   return {
     shaderPasses: 0,
@@ -2772,9 +3169,13 @@ function createEmptyFrameProfile() {
     maxShaderChainLength: 0,
     shaderHandoffs: 0,
     compositionCacheHits: 0,
+    stageCacheHits: 0,
+    stageRenders: 0,
     shaderMs: 0,
     sourceMs: 0,
     compositionMs: 0,
+    compositionWallMs: 0,
+    compositionRenders: 0,
     totalMs: 0,
     passSamples: [],
   };
@@ -2964,6 +3365,14 @@ function usesShadertoyInterface(component = {}) {
   return /\bvoid\s+mainImage\s*\(/.test(code) && !/\bvoid\s+main\s*\(/.test(code);
 }
 
+function shaderDrawingBufferSize(target, fallbackWidth, fallbackHeight) {
+  const gl = target?._renderer?.GL || target?.drawingContext;
+  return {
+    width: Math.max(1, Number(gl?.drawingBufferWidth) || Number(fallbackWidth) || Number(target?.width) || 1),
+    height: Math.max(1, Number(gl?.drawingBufferHeight) || Number(fallbackHeight) || Number(target?.height) || 1),
+  };
+}
+
 function setShaderUniformIfPresent(shader, name, value) {
   if (shader?.uniforms?.[name]) shader.setUniform(name, value);
 }
@@ -3035,68 +3444,233 @@ function drawBuffer(pg, source, x, y, w, h, sourceIsWebGL = false) {
   drawWebGLBuffer(pg, source, x, y, w, h);
 }
 
-function setTerrainP5Uniforms(shader, params, compositionTime, style, planeWidth, planeDepth, sky) {
-  shader.setUniform("time", compositionTime);
-  shader.setUniform("flightSpeed", Math.max(0, Number(params.flightSpeed) || 0));
-  shader.setUniform("flightMode", params.flightMode === "terrainFollow" ? 1 : 0);
-  shader.setUniform("turn", Math.max(-1, Math.min(1, Number(params.turn) || 0)));
-  shader.setUniform("altitude", Math.max(0.2, Number(params.altitude) || 2.5));
-  shader.setUniform("pitch", Math.max(-1.4, Number(params.pitch) || 0.28));
-  shader.setUniform("fieldOfView", Math.max(20, Math.min(120, Number(params.fieldOfView) || 60)));
-  shader.setUniform("nearClip", Math.max(0.01, Number(params.nearClip) || 0.1));
-  shader.setUniform("farClip", Math.max(100, Number(params.farClip) || 20000));
-  shader.setUniform("aspectRatio", planeWidth / Math.max(1, planeDepth));
-  shader.setUniform("lookAhead", Math.max(0.1, Number(params.lookAhead) || 14));
-  shader.setUniform("noseFollow", Number.isFinite(Number(params.noseFollow)) ? Math.max(0, Number(params.noseFollow)) : 1);
-  shader.setUniform("mountainHeight", Math.max(0.05, Number(params.mountainHeight) || 2.4));
-  shader.setUniform("terrainScale", Math.max(0.02, Number(params.terrainScale) || 0.62));
-  shader.setUniform("textureGrain", Math.max(0, Number(params.textureGrain) || 0));
-  shader.setUniform("textureDepth", Math.max(0, Number(params.textureDepth) || 0));
-  shader.setUniform("colorDirection", Math.max(-3.14, Math.min(3.14, Number(params.colorDirection) || 0)));
-  shader.setUniform("terrainPhase", params.terrainPhase || [0, 0]);
-  shader.setUniform("lakeLevel", Number.isFinite(Number(params.lakeLevel)) ? Number(params.lakeLevel) : -0.12);
-  shader.setUniform("planeSize", [planeWidth, planeDepth]);
-  shader.setUniform("viewDistance", Math.max(0, Number(params.viewDistance) || 0));
-  const gridMetrics = terrainRowMetrics(compositionTime, Math.max(0, Number(params.flightSpeed) || 0), params.gridDepth, params.gridDensity, params.gridScale);
-  shader.setUniform("rowSpacing", gridMetrics.rowSpacing);
-  shader.setUniform("cellScale", gridMetrics.cellScale);
-  shader.setUniform("globeRadius", Math.max(60, Number(params.globeRadius) || 280));
-  shader.setUniform("gridDensity", Math.max(0.25, Number(params.gridDensity) || 1));
-  shader.setUniform("gridCells", [terrainGridSize(params.gridWidth), terrainGridSize(params.gridDepth)]);
-  shader.setUniform("wireWidth", Math.max(0.05, Number(params.wireWidth) || 0.85));
-  shader.setUniform("style", style);
-  shader.setUniform("waterColor", normalizedModelColor(params.waterColor, [20, 123, 193, 255]));
-  shader.setUniform("grassColor", normalizedModelColor(params.grassColor, [35, 132, 59, 255]));
-  shader.setUniform("rockColor", normalizedModelColor(params.rockColor, [76, 64, 55, 255]));
-  shader.setUniform("snowColor", normalizedModelColor(params.snowColor, [232, 237, 241, 255]));
-  shader.setUniform("downSlopeColor", normalizedModelColor(params.downSlopeColor, [32, 42, 56, 170]));
-  shader.setUniform("directionColor", normalizedModelColor(params.directionColor, [216, 138, 66, 170]));
-  shader.setUniform("wireColor", normalizedModelColor(params.wireColor, [242, 245, 239, 255]));
-  shader.setUniform("skyColor", sky);
-}
-
-function bindTerrainP5Shader(target, shader) {
-  if (!shader) return;
-  if (typeof shader.bindShader === "function") {
-    shader.bindShader("fill");
-  } else {
-    shader.init?.();
-  }
+function drawTerrainSurface(target, resourceCache, params, compositionTime, planeWidth, planeDepth, style, sky) {
   const gl = target?.drawingContext;
-  if (gl && shader._glProgram && gl.isProgram(shader._glProgram)) {
-    gl.useProgram(shader._glProgram);
+  if (!gl) return false;
+  const previousProgram = gl.getParameter(gl.CURRENT_PROGRAM);
+  const previousArrayBuffer = gl.getParameter(gl.ARRAY_BUFFER_BINDING);
+  const previousElementBuffer = gl.getParameter(gl.ELEMENT_ARRAY_BUFFER_BINDING);
+  let resources = resourceCache.get(gl);
+  if (resources && !terrainSurfaceResourcesValid(gl, resources)) {
+    disposeTerrainSurfaceResources(gl, resources);
+    resourceCache.delete(gl);
+    resources = null;
   }
+  if (!resources) {
+    resources = createTerrainSurfaceResources(gl);
+    if (!resources) return false;
+    resourceCache.set(gl, resources);
+  }
+
+  const widthCells = terrainTessellationSize(terrainGridSize(params.gridWidth), params.gridDensity);
+  const depthCells = terrainTessellationSize(terrainGridSize(params.gridDepth), params.gridDensity);
+  const gridMetrics = terrainRowMetrics(compositionTime, Math.max(0, Number(params.flightSpeed) || 0), params.gridDepth, params.gridDensity, params.gridScale);
+  const baseRow = Math.floor(gridMetrics.travelRows) - 1;
+  const previousDepthTest = gl.isEnabled(gl.DEPTH_TEST);
+  const previousBlend = gl.isEnabled(gl.BLEND);
+  const previousCullFace = gl.isEnabled(gl.CULL_FACE);
+  const previousPolygonOffset = gl.isEnabled(gl.POLYGON_OFFSET_FILL);
+  const previousDepthFunc = gl.getParameter(gl.DEPTH_FUNC);
+  const previousBlendSrcRgb = gl.getParameter(gl.BLEND_SRC_RGB);
+  const previousBlendDstRgb = gl.getParameter(gl.BLEND_DST_RGB);
+  const previousBlendSrcAlpha = gl.getParameter(gl.BLEND_SRC_ALPHA);
+  const previousBlendDstAlpha = gl.getParameter(gl.BLEND_DST_ALPHA);
+  const previousPolygonFactor = gl.getParameter(gl.POLYGON_OFFSET_FACTOR);
+  const previousPolygonUnits = gl.getParameter(gl.POLYGON_OFFSET_UNITS);
+  const attributeState = captureVertexAttributeState(gl, resources.gridCoord);
+  updateTerrainSurfaceBuffers(gl, resources, widthCells, depthCells, baseRow);
+
+  gl.useProgram(resources.program);
+  gl.viewport(0, 0, gl.drawingBufferWidth || target.width, gl.drawingBufferHeight || target.height);
+  gl.enable(gl.DEPTH_TEST);
+  gl.depthFunc(gl.LEQUAL);
+  gl.enable(gl.BLEND);
+  gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+  gl.disable(gl.CULL_FACE);
+  if (style === 2) {
+    gl.enable(gl.POLYGON_OFFSET_FILL);
+    gl.polygonOffset(1, 2);
+  }
+  gl.bindBuffer(gl.ARRAY_BUFFER, resources.vertexBuffer);
+  gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, resources.indexBuffer);
+  gl.enableVertexAttribArray(resources.gridCoord);
+  gl.vertexAttribPointer(resources.gridCoord, 2, gl.FLOAT, false, 0, 0);
+  setTerrainRawUniforms(gl, resources, params, compositionTime, planeWidth, planeDepth, normalizedModelColor(params.wireColor, [242, 245, 239, 255]));
+  gl.uniform2f(resources.meshCells, widthCells, depthCells);
+  gl.uniform1f(resources.gridBaseRow, baseRow);
+  gl.uniform1f(resources.gridIrregularity, normalizedTerrainIrregularity(params.gridJitter));
+  gl.uniform1f(resources.style, style);
+  gl.uniform1f(resources.wireWidth, Math.max(0.05, Number(params.wireWidth) || 0.85));
+  gl.uniform1f(resources.textureGrain, Math.max(0, Number(params.textureGrain) || 0));
+  gl.uniform1f(resources.textureDepth, Math.max(0, Number(params.textureDepth) || 0));
+  gl.uniform1f(resources.colorDirection, Math.max(-3.14, Math.min(3.14, Number(params.colorDirection) || 0)));
+  gl.uniform4fv(resources.waterColor, normalizedModelColor(params.waterColor, [20, 123, 193, 255]));
+  gl.uniform4fv(resources.grassColor, normalizedModelColor(params.grassColor, [35, 132, 59, 255]));
+  gl.uniform4fv(resources.rockColor, normalizedModelColor(params.rockColor, [76, 64, 55, 255]));
+  gl.uniform4fv(resources.snowColor, normalizedModelColor(params.snowColor, [232, 237, 241, 255]));
+  gl.uniform4fv(resources.downSlopeColor, normalizedModelColor(params.downSlopeColor, [32, 42, 56, 170]));
+  gl.uniform4fv(resources.directionColor, normalizedModelColor(params.directionColor, [216, 138, 66, 170]));
+  gl.uniform4fv(resources.skyColor, sky);
+  gl.drawElements(gl.TRIANGLES, resources.count, gl.UNSIGNED_SHORT, 0);
+
+  restoreVertexAttributeState(gl, attributeState);
+  gl.bindBuffer(gl.ARRAY_BUFFER, previousArrayBuffer);
+  gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, previousElementBuffer);
+  previousDepthTest ? gl.enable(gl.DEPTH_TEST) : gl.disable(gl.DEPTH_TEST);
+  previousBlend ? gl.enable(gl.BLEND) : gl.disable(gl.BLEND);
+  previousCullFace ? gl.enable(gl.CULL_FACE) : gl.disable(gl.CULL_FACE);
+  gl.polygonOffset(previousPolygonFactor, previousPolygonUnits);
+  previousPolygonOffset ? gl.enable(gl.POLYGON_OFFSET_FILL) : gl.disable(gl.POLYGON_OFFSET_FILL);
+  gl.depthFunc(previousDepthFunc);
+  gl.blendFuncSeparate(previousBlendSrcRgb, previousBlendDstRgb, previousBlendSrcAlpha, previousBlendDstAlpha);
+  gl.useProgram(previousProgram);
+  return true;
 }
 
-function terrainP5ShaderValid(target, shader) {
-  if (!target || !shader) return false;
-  const gl = target.drawingContext;
-  if (!gl || shader._renderer !== target._renderer) return false;
-  if (!shader._glProgram) return true;
+function createTerrainSurfaceResources(gl) {
+  const vertex = compileRawShader(gl, gl.VERTEX_SHADER, TERRAIN_VERTEX_SHADER);
+  const fragment = compileRawShader(gl, gl.FRAGMENT_SHADER, TERRAIN_FRAGMENT_SHADER);
+  if (!vertex || !fragment) return null;
+  const program = gl.createProgram();
+  gl.attachShader(program, vertex);
+  gl.attachShader(program, fragment);
+  gl.linkProgram(program);
+  if (!gl.getProgramParameter(program, gl.LINK_STATUS)) {
+    gl.deleteProgram(program);
+    return null;
+  }
+  return {
+    program,
+    vertexBuffer: gl.createBuffer(),
+    indexBuffer: gl.createBuffer(),
+    count: 0,
+    meshSizeKey: "",
+    topologyKey: "",
+    gridCoord: gl.getAttribLocation(program, "aGridCoord"),
+    ...terrainRawUniformLocations(gl, program),
+    meshCells: gl.getUniformLocation(program, "meshCells"),
+    gridBaseRow: gl.getUniformLocation(program, "gridBaseRow"),
+    gridIrregularity: gl.getUniformLocation(program, "gridIrregularity"),
+    style: gl.getUniformLocation(program, "style"),
+    wireWidth: gl.getUniformLocation(program, "wireWidth"),
+    textureGrain: gl.getUniformLocation(program, "textureGrain"),
+    textureDepth: gl.getUniformLocation(program, "textureDepth"),
+    colorDirection: gl.getUniformLocation(program, "colorDirection"),
+    waterColor: gl.getUniformLocation(program, "waterColor"),
+    grassColor: gl.getUniformLocation(program, "grassColor"),
+    rockColor: gl.getUniformLocation(program, "rockColor"),
+    snowColor: gl.getUniformLocation(program, "snowColor"),
+    downSlopeColor: gl.getUniformLocation(program, "downSlopeColor"),
+    directionColor: gl.getUniformLocation(program, "directionColor"),
+    skyColor: gl.getUniformLocation(program, "skyColor"),
+  };
+}
+
+function terrainSurfaceResourcesValid(gl, resources) {
+  if (!gl || !resources?.program || !resources?.vertexBuffer || !resources?.indexBuffer) return false;
   try {
-    return gl.isProgram(shader._glProgram) && gl.getProgramParameter(shader._glProgram, gl.LINK_STATUS);
+    return gl.isProgram(resources.program) && gl.getProgramParameter(resources.program, gl.LINK_STATUS) &&
+      gl.isBuffer(resources.vertexBuffer) && gl.isBuffer(resources.indexBuffer);
   } catch {
     return false;
+  }
+}
+
+function disposeTerrainSurfaceResources(gl, resources) {
+  if (!gl || !resources) return;
+  try {
+    if (resources.vertexBuffer && gl.isBuffer(resources.vertexBuffer)) gl.deleteBuffer(resources.vertexBuffer);
+    if (resources.indexBuffer && gl.isBuffer(resources.indexBuffer)) gl.deleteBuffer(resources.indexBuffer);
+    if (resources.program && gl.isProgram(resources.program)) gl.deleteProgram(resources.program);
+  } catch {}
+}
+
+function terrainRawUniformLocations(gl, program) {
+  return {
+    time: gl.getUniformLocation(program, "time"),
+    flightSpeed: gl.getUniformLocation(program, "flightSpeed"),
+    flightMode: gl.getUniformLocation(program, "flightMode"),
+    turn: gl.getUniformLocation(program, "turn"),
+    altitude: gl.getUniformLocation(program, "altitude"),
+    pitch: gl.getUniformLocation(program, "pitch"),
+    fieldOfView: gl.getUniformLocation(program, "fieldOfView"),
+    nearClip: gl.getUniformLocation(program, "nearClip"),
+    farClip: gl.getUniformLocation(program, "farClip"),
+    aspectRatio: gl.getUniformLocation(program, "aspectRatio"),
+    lookAhead: gl.getUniformLocation(program, "lookAhead"),
+    noseFollow: gl.getUniformLocation(program, "noseFollow"),
+    mountainHeight: gl.getUniformLocation(program, "mountainHeight"),
+    terrainScale: gl.getUniformLocation(program, "terrainScale"),
+    terrainPhase: gl.getUniformLocation(program, "terrainPhase"),
+    lakeLevel: gl.getUniformLocation(program, "lakeLevel"),
+    viewDistance: gl.getUniformLocation(program, "viewDistance"),
+    rowSpacing: gl.getUniformLocation(program, "rowSpacing"),
+    globeRadius: gl.getUniformLocation(program, "globeRadius"),
+    gridDensity: gl.getUniformLocation(program, "gridDensity"),
+    gridCells: gl.getUniformLocation(program, "gridCells"),
+    cellScale: gl.getUniformLocation(program, "cellScale"),
+    planeSize: gl.getUniformLocation(program, "planeSize"),
+    wireColor: gl.getUniformLocation(program, "wireColor"),
+  };
+}
+
+export function terrainSurfaceGridVertices(widthCells = TERRAIN_GRID_CELLS, depthCells = widthCells) {
+  const width = Math.max(1, Math.round(Number(widthCells) || 1));
+  const depth = Math.max(1, Math.round(Number(depthCells) || 1));
+  const vertices = new Float32Array((width + 1) * (depth + 2) * 2);
+  let offset = 0;
+  for (let y = 0; y <= depth + 1; y++) {
+    for (let x = 0; x <= width; x++) {
+      vertices[offset++] = x;
+      vertices[offset++] = y;
+    }
+  }
+  return vertices;
+}
+
+function terrainSurfaceUsesForwardDiagonal(x, worldRow) {
+  const selector = ((x * 17 + worldRow * 31 + x * worldRow * 13 + 79) % 11 + 11) % 11;
+  return selector >= 5;
+}
+
+export function terrainSurfaceTriangleIndices(widthCells = TERRAIN_GRID_CELLS, depthCells = widthCells, baseRow = -1) {
+  const width = Math.max(1, Math.round(Number(widthCells) || 1));
+  const depth = Math.max(1, Math.round(Number(depthCells) || 1));
+  const indices = new Uint16Array(width * (depth + 1) * 6);
+  const row = width + 1;
+  let offset = 0;
+  for (let y = 0; y <= depth; y++) {
+    for (let x = 0; x < width; x++) {
+      const a = y * row + x;
+      const b = a + 1;
+      const d = a + row;
+      const c = d + 1;
+      if (terrainSurfaceUsesForwardDiagonal(x, baseRow + y)) {
+        indices.set([a, b, c, a, c, d], offset);
+      } else {
+        indices.set([a, b, d, d, b, c], offset);
+      }
+      offset += 6;
+    }
+  }
+  return indices;
+}
+
+function updateTerrainSurfaceBuffers(gl, resources, widthCells, depthCells, baseRow) {
+  const sizeKey = `${widthCells}:${depthCells}`;
+  if (resources.meshSizeKey !== sizeKey) {
+    gl.bindBuffer(gl.ARRAY_BUFFER, resources.vertexBuffer);
+    gl.bufferData(gl.ARRAY_BUFFER, terrainSurfaceGridVertices(widthCells, depthCells), gl.STATIC_DRAW);
+    resources.meshSizeKey = sizeKey;
+    resources.topologyKey = "";
+  }
+  const topologyKey = `${sizeKey}:${baseRow}`;
+  if (resources.topologyKey !== topologyKey) {
+    const indices = terrainSurfaceTriangleIndices(widthCells, depthCells, baseRow);
+    gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, resources.indexBuffer);
+    gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, indices, gl.DYNAMIC_DRAW);
+    resources.count = indices.length;
+    resources.topologyKey = topologyKey;
   }
 }
 
@@ -3104,6 +3678,8 @@ function drawTerrainWireframe(target, resourceCache, params, compositionTime, pl
   const gl = target?.drawingContext;
   if (!gl) return false;
   const previousProgram = gl.getParameter(gl.CURRENT_PROGRAM);
+  const previousArrayBuffer = gl.getParameter(gl.ARRAY_BUFFER_BINDING);
+  const previousElementBuffer = gl.getParameter(gl.ELEMENT_ARRAY_BUFFER_BINDING);
   let resources = resourceCache.get(gl);
   if (resources && !terrainWireResourcesValid(gl, resources)) {
     disposeTerrainWireResources(gl, resources);
@@ -3121,8 +3697,7 @@ function drawTerrainWireframe(target, resourceCache, params, compositionTime, pl
   const tessellatedWidth = terrainTessellationSize(widthCells, params.gridDensity);
   const tessellatedDepth = terrainTessellationSize(depthCells, params.gridDensity);
   const { travelRows } = terrainRowMetrics(compositionTime, flightSpeed, depthCells, params.gridDensity, params.gridScale);
-  const previousArrayBuffer = gl.getParameter(gl.ARRAY_BUFFER_BINDING);
-  const previousElementBuffer = gl.getParameter(gl.ELEMENT_ARRAY_BUFFER_BINDING);
+  const baseRow = Math.floor(travelRows) - 1;
   const previousDepthTest = gl.isEnabled(gl.DEPTH_TEST);
   const previousBlend = gl.isEnabled(gl.BLEND);
   const previousCullFace = gl.isEnabled(gl.CULL_FACE);
@@ -3133,7 +3708,7 @@ function drawTerrainWireframe(target, resourceCache, params, compositionTime, pl
   const previousBlendDstAlpha = gl.getParameter(gl.BLEND_DST_ALPHA);
   const attributeStates = [resources.start, resources.end, resources.side, resources.along]
     .map((location) => captureVertexAttributeState(gl, location));
-  updateTerrainWireBuffer(gl, resources, tessellatedWidth, tessellatedDepth, params.gridJitter, travelRows);
+  updateTerrainWireBuffer(gl, resources, tessellatedWidth, tessellatedDepth);
   const wireColor = normalizedModelColor(params.wireColor, [242, 245, 239, 255]);
   gl.useProgram(resources.program);
   gl.viewport(0, 0, gl.drawingBufferWidth || target.width, gl.drawingBufferHeight || target.height);
@@ -3153,6 +3728,9 @@ function drawTerrainWireframe(target, resourceCache, params, compositionTime, pl
   gl.enableVertexAttribArray(resources.along);
   gl.vertexAttribPointer(resources.along, 1, gl.FLOAT, false, stride, 5 * 4);
   setTerrainRawUniforms(gl, resources, params, compositionTime, planeWidth, planeDepth, wireColor);
+  gl.uniform2f(resources.meshCells, tessellatedWidth, tessellatedDepth);
+  gl.uniform1f(resources.gridBaseRow, baseRow);
+  gl.uniform1f(resources.gridIrregularity, normalizedTerrainIrregularity(params.gridJitter));
   gl.uniform2f(resources.resolution, gl.drawingBufferWidth || target.width, gl.drawingBufferHeight || target.height);
   gl.uniform1f(resources.thickness, Math.max(0.5, Number(params.wireWidth) || 0.85));
   gl.drawArrays(gl.TRIANGLES, 0, resources.count);
@@ -3238,6 +3816,9 @@ function createTerrainWireResources(gl) {
     uniform float globeRadius;
     uniform float gridDensity;
     uniform vec2 gridCells;
+    uniform vec2 meshCells;
+    uniform float gridBaseRow;
+    uniform float gridIrregularity;
     uniform float cellScale;
     uniform vec2 resolution;
     uniform float thickness;
@@ -3273,7 +3854,32 @@ function createTerrainWireResources(gl) {
       return (base * 0.92 + ridge * ridge * 0.52 - 0.68) * max(mountainHeight, 0.01);
     }
 
-    vec4 terrainClip(vec2 uv) {
+    float terrainGridHash(vec2 point, float salt) {
+      return terrainHash(vec2(point.x + 101.0 + salt, point.y + 313.0 - salt));
+    }
+
+    vec2 terrainMeshUv(vec2 gridCoord) {
+      float worldRow = gridBaseRow + gridCoord.y;
+      float amount = clamp(gridIrregularity, 0.0, 1.0) * 0.44;
+      float interior = step(0.5, gridCoord.x) * step(gridCoord.x, meshCells.x - 0.5);
+      float offsetX = (terrainGridHash(vec2(gridCoord.x, worldRow), 17.0) * 2.0 - 1.0) * amount * interior;
+      float offsetY = (terrainGridHash(vec2(0.0, worldRow), 43.0) * 2.0 - 1.0) * amount;
+      return vec2((gridCoord.x + offsetX) / max(meshCells.x, 1.0), worldRow + offsetY);
+    }
+
+    float terrainEdgeEnabled(vec2 startGrid, vec2 endGrid) {
+      vec2 delta = endGrid - startGrid;
+      if (abs(delta.x) < 0.5 || abs(delta.y) < 0.5) return 1.0;
+      float cellX = min(startGrid.x, endGrid.x);
+      float worldRow = gridBaseRow + min(startGrid.y, endGrid.y);
+      float forwardDiagonal = step(0.0, delta.x * delta.y);
+      float selector = mod(cellX * 17.0 + worldRow * 31.0 + cellX * worldRow * 13.0 + 79.0, 11.0);
+      float selectedDiagonal = step(5.0, selector);
+      return 1.0 - abs(forwardDiagonal - selectedDiagonal);
+    }
+
+    vec4 terrainClip(vec2 gridCoord) {
+      vec2 uv = terrainMeshUv(gridCoord);
       float yaw = clamp(turn, -1.0, 1.0) * 0.72;
       vec2 travel = vec2(sin(yaw), cos(yaw));
       float farDistance = mix(42.0, 86.0, clamp(viewDistance, 0.0, 3.0) / 1.5);
@@ -3315,6 +3921,11 @@ function createTerrainWireResources(gl) {
     void main() {
       vec4 startClip = terrainClip(aStart);
       vec4 endClip = terrainClip(aEnd);
+      if (terrainEdgeEnabled(aStart, aEnd) < 0.5) {
+        vDepth = 1.0;
+        gl_Position = vec4(2.0, 2.0, 2.0, 1.0);
+        return;
+      }
       float clipNear = max(nearClip, 0.01);
       if (startClip.w < clipNear && endClip.w < clipNear) {
         vDepth = 1.0;
@@ -3337,8 +3948,8 @@ function createTerrainWireResources(gl) {
       clip.xy += normal * vec2(2.0 / max(resolution.x, 1.0), 2.0 / max(resolution.y, 1.0)) * thickness * 0.5 * aSide * clip.w;
       float farDistance = mix(42.0, 86.0, clamp(viewDistance, 0.0, 3.0) / 1.5);
       float cameraTravel = time * max(flightSpeed, 0.0) * 7.0;
-      float startDepth = clamp((aStart.y * rowSpacing - cameraTravel) / farDistance, 0.0, 1.0);
-      float endDepth = clamp((aEnd.y * rowSpacing - cameraTravel) / farDistance, 0.0, 1.0);
+      float startDepth = clamp((terrainMeshUv(aStart).y * rowSpacing - cameraTravel) / farDistance, 0.0, 1.0);
+      float endDepth = clamp((terrainMeshUv(aEnd).y * rowSpacing - cameraTravel) / farDistance, 0.0, 1.0);
       vDepth = mix(startDepth, endDepth, aAlong);
       gl_Position = clip;
     }
@@ -3365,7 +3976,7 @@ function createTerrainWireResources(gl) {
   }
   const vertexBuffer = gl.createBuffer();
   gl.bindBuffer(gl.ARRAY_BUFFER, vertexBuffer);
-  gl.bufferData(gl.ARRAY_BUFFER, 0, gl.DYNAMIC_DRAW);
+  gl.bufferData(gl.ARRAY_BUFFER, 0, gl.STATIC_DRAW);
   gl.bindBuffer(gl.ARRAY_BUFFER, null);
   return {
     program,
@@ -3376,42 +3987,50 @@ function createTerrainWireResources(gl) {
     end: gl.getAttribLocation(program, "aEnd"),
     side: gl.getAttribLocation(program, "aSide"),
     along: gl.getAttribLocation(program, "aAlong"),
-    time: gl.getUniformLocation(program, "time"),
-    flightSpeed: gl.getUniformLocation(program, "flightSpeed"),
-    flightMode: gl.getUniformLocation(program, "flightMode"),
-    turn: gl.getUniformLocation(program, "turn"),
-    altitude: gl.getUniformLocation(program, "altitude"),
-    pitch: gl.getUniformLocation(program, "pitch"),
-    fieldOfView: gl.getUniformLocation(program, "fieldOfView"),
-    nearClip: gl.getUniformLocation(program, "nearClip"),
-    farClip: gl.getUniformLocation(program, "farClip"),
-    aspectRatio: gl.getUniformLocation(program, "aspectRatio"),
-    lookAhead: gl.getUniformLocation(program, "lookAhead"),
-    noseFollow: gl.getUniformLocation(program, "noseFollow"),
-    mountainHeight: gl.getUniformLocation(program, "mountainHeight"),
-    terrainScale: gl.getUniformLocation(program, "terrainScale"),
-    terrainPhase: gl.getUniformLocation(program, "terrainPhase"),
-    lakeLevel: gl.getUniformLocation(program, "lakeLevel"),
-    viewDistance: gl.getUniformLocation(program, "viewDistance"),
-    rowSpacing: gl.getUniformLocation(program, "rowSpacing"),
-    globeRadius: gl.getUniformLocation(program, "globeRadius"),
-    gridDensity: gl.getUniformLocation(program, "gridDensity"),
-    gridCells: gl.getUniformLocation(program, "gridCells"),
-    cellScale: gl.getUniformLocation(program, "cellScale"),
-    planeSize: gl.getUniformLocation(program, "planeSize"),
-    wireColor: gl.getUniformLocation(program, "wireColor"),
+    ...terrainRawUniformLocations(gl, program),
+    meshCells: gl.getUniformLocation(program, "meshCells"),
+    gridBaseRow: gl.getUniformLocation(program, "gridBaseRow"),
+    gridIrregularity: gl.getUniformLocation(program, "gridIrregularity"),
     resolution: gl.getUniformLocation(program, "resolution"),
     thickness: gl.getUniformLocation(program, "thickness"),
   };
 }
 
-function updateTerrainWireBuffer(gl, resources, widthCells, depthCells, irregularity, travelRows = 0) {
-  const amount = normalizedTerrainIrregularity(irregularity);
-  const meshKey = `${widthCells}:${depthCells}:${Math.round(amount * 100)}:${Math.floor(travelRows)}`;
+export function terrainExpandedGridWireVertices(widthCells = TERRAIN_GRID_CELLS, depthCells = widthCells) {
+  const width = Math.max(1, Math.round(Number(widthCells) || 1));
+  const depth = Math.max(1, Math.round(Number(depthCells) || 1));
+  const edgeCount = width * (depth + 2) + (width + 1) * (depth + 1) + width * (depth + 1) * 2;
+  const vertices = new Float32Array(edgeCount * 6 * 6);
+  let offset = 0;
+  const edge = (startX, startY, endX, endY) => {
+    for (const [side, along] of [[-1, 0], [-1, 1], [1, 1], [-1, 0], [1, 1], [1, 0]]) {
+      vertices[offset++] = startX;
+      vertices[offset++] = startY;
+      vertices[offset++] = endX;
+      vertices[offset++] = endY;
+      vertices[offset++] = side;
+      vertices[offset++] = along;
+    }
+  };
+  for (let y = 0; y <= depth + 1; y++) {
+    for (let x = 0; x < width; x++) edge(x, y, x + 1, y);
+  }
+  for (let y = 0; y <= depth; y++) {
+    for (let x = 0; x <= width; x++) edge(x, y, x, y + 1);
+    for (let x = 0; x < width; x++) {
+      edge(x, y, x + 1, y + 1);
+      edge(x + 1, y, x, y + 1);
+    }
+  }
+  return vertices;
+}
+
+function updateTerrainWireBuffer(gl, resources, widthCells, depthCells) {
+  const meshKey = `${widthCells}:${depthCells}`;
   if (resources.meshKey === meshKey) return;
-  const vertices = terrainExpandedWireVertices(widthCells, amount, travelRows, depthCells);
+  const vertices = terrainExpandedGridWireVertices(widthCells, depthCells);
   gl.bindBuffer(gl.ARRAY_BUFFER, resources.vertexBuffer);
-  gl.bufferData(gl.ARRAY_BUFFER, vertices, gl.DYNAMIC_DRAW);
+  gl.bufferData(gl.ARRAY_BUFFER, vertices, gl.STATIC_DRAW);
   resources.count = vertices.length / 6;
   resources.meshKey = meshKey;
 }
@@ -3481,21 +4100,6 @@ function terrainRowMetrics(compositionTime, flightSpeed, gridDepth, gridDensity 
   const rowSpacing = cellScale * logicalDepth / tessellatedDepth;
   const cameraTravel = Number(compositionTime) * Math.max(0, Number(flightSpeed) || 0) * 7.0;
   return { cellScale, rowSpacing, travelRows: cameraTravel / rowSpacing };
-}
-
-function drawTerrainSurfaceMesh(target, irregularity, gridWidth, gridDepth, compositionTime, flightSpeed, gridDensity, gridScale) {
-  const widthCells = terrainTessellationSize(gridWidth, gridDensity);
-  const depthCells = terrainTessellationSize(gridDepth, gridDensity);
-  const { travelRows } = terrainRowMetrics(compositionTime, flightSpeed, gridDepth, gridDensity, gridScale);
-  const mesh = terrainIrregularMesh(widthCells, depthCells, irregularity, travelRows);
-  target.beginShape(TRIANGLES);
-  for (const face of mesh.faces) {
-    for (const index of face) {
-      const uv = mesh.points[index];
-      target.vertex(uv[0] * 2 - 1, uv[1] * 2 - 1, 0, uv[0], uv[1]);
-    }
-  }
-  target.endShape();
 }
 
 export function terrainTriangleEdgeUvs(widthCells = TERRAIN_GRID_CELLS, irregularity = 0.62, travelRows = null, depthCells = widthCells) {

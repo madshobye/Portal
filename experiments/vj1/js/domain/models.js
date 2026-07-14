@@ -1,5 +1,5 @@
 import { VJ1, defaultCustomShaderCode, WORKSPACES } from "../constants.js";
-import { createGeneratorSource } from "../graph/generator-registry.js?v=shadertoy-generator-15";
+import { createGeneratorSource } from "../graph/generator-registry.js?v=node-dirty-runtime-1";
 
 export function uid(prefix) {
   return `${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
@@ -178,10 +178,16 @@ export function createInitialState() {
     metrics: {
       fps: 0,
       frameMs: 0,
+      gpuMs: 0,
+      gpuSupported: false,
       renderCost: 0,
+      profile: null,
       previewFps: 0,
       previewFrameMs: 0,
+      previewGpuMs: 0,
+      previewGpuSupported: false,
       previewRenderCost: 0,
+      previewProfile: null,
       clients: 0,
       message: "No output connected",
     },

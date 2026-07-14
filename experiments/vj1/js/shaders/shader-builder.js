@@ -1,4 +1,4 @@
-import { getShaderComponent } from "./shader-registry.js?v=photo-grade-invert-1";
+import { getShaderComponent } from "./shader-registry.js?v=node-dirty-runtime-1";
 
 export function createShaderBuilder({ getCustomCode, onStatus }) {
   const cache = new Map();

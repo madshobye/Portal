@@ -228,6 +228,25 @@ test("heat shimmer uses screen-oriented y coordinates for handle translation", (
   assert.ok(!component.code.includes("hash(floor(localUv"));
 });
 
+test("pixel art upscale preserves its license and adapts texelFetch to the source sampler", () => {
+  const component = getShaderComponent("pixelArtUpscale");
+  const params = Object.fromEntries(component.params.map((param) => [param.id, param]));
+
+  assert.equal(component.name, "Pixel Art Upscale");
+  assert.equal(component.category, "texture");
+  assert.ok(component.code.includes("Copyright 2020 Ethan Alexander Shulman"));
+  assert.ok(component.code.includes("Permission is hereby granted, free of charge"));
+  assert.ok(component.code.includes("https://www.shadertoy.com/view/tsdcRM"));
+  for (const id of ["amount", "upscale", "colorThreshold", "lineThickness", "antiAlias"]) {
+    assert.equal(params[id].type, "number", `missing Pixel Art Upscale control ${id}`);
+  }
+  assert.ok(component.code.includes("bool pixelArtDiagonal("));
+  assert.ok(component.code.includes("sampleSource((floor(logicalPixel) + 0.5) / grid)"));
+  assert.ok(component.code.includes("return mix(color, result, amount)"));
+  assert.ok(!component.code.includes("texelFetch("));
+  assert.ok(!component.code.includes("iMouse"));
+});
+
 test("fireflies generator keeps the background transparent and uses one tint color", () => {
   const component = getGeneratorShaderComponent("fireflies");
 

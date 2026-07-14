@@ -101,6 +101,7 @@ export function defineVisualComponent(definition = {}) {
     category: definition.category || "misc",
     processor: definition.processor || definition.kind || "effect",
     scheduler: definition.scheduler || "frame",
+    runtime: normalizeRuntimePolicy(definition.runtime),
     spatial: !!definition.spatial,
     transformSource: definition.transformSource !== false,
     inlets: Object.freeze([...(definition.inlets || [])]),
@@ -109,6 +110,21 @@ export function defineVisualComponent(definition = {}) {
     render: textureRenderContract(definition.render || {}),
     code: definition.code ?? null,
     type: definition.type || "effect",
+  });
+}
+
+function normalizeRuntimePolicy(runtime = {}) {
+  return Object.freeze({
+    cacheable: runtime?.cacheable !== false,
+    timeDependent: typeof runtime?.timeDependent === "function"
+      ? runtime.timeDependent
+      : () => false,
+    timeKey: typeof runtime?.timeKey === "function"
+      ? runtime.timeKey
+      : (_params, context = {}) => context.time,
+    externalKey: typeof runtime?.externalKey === "function"
+      ? runtime.externalKey
+      : () => null,
   });
 }
 

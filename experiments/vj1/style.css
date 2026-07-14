@@ -255,16 +255,13 @@ small {
 }
 
 .workspace-switch button {
+  width: 36px;
+  min-width: 36px;
   min-height: 30px;
-  padding: 4px 8px;
+  padding: 0;
   border-color: transparent;
   background: transparent;
   color: var(--muted);
-}
-
-.workspace-switch button span:last-child {
-  font-size: 12px;
-  font-weight: 700;
 }
 
 .workspace-switch button.is-active {
@@ -308,22 +305,28 @@ small {
   box-shadow: 0 0 14px rgba(121, 228, 127, 0.68);
 }
 
-.cost-pill {
+.cost-pill,
+.work-time-pill {
   gap: 5px;
 }
 
-.cost-pill #render-cost-text {
+.cost-pill #render-cost-text,
+.work-time-pill #cpu-time-text,
+.work-time-pill #gpu-time-text {
   display: inline-block;
   min-width: 4ch;
   text-align: right;
   font-variant-numeric: tabular-nums;
+  white-space: nowrap;
 }
 
-.cost-pill .material-symbols-rounded {
+.cost-pill .material-symbols-rounded,
+.work-time-pill .material-symbols-rounded {
   font-size: 16px;
 }
 
-.cost-pill.is-hot {
+.cost-pill.is-hot,
+.work-time-pill.is-hot {
   border-color: rgba(248, 99, 99, 0.56);
   color: var(--danger);
 }

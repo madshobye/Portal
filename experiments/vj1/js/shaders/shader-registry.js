@@ -3,6 +3,16 @@ import { createBooleanParam, createColorParam, createEnumParam, createNumberPara
 const effectInlets = Object.freeze([textureInlet("texture", "Texture")]);
 const effectOutlets = Object.freeze([textureOutlet("texture", "Texture")]);
 const SEED_MODE_VALUES = ["animated", "fixed"];
+const ALWAYS_TIME_RUNTIME = Object.freeze({ timeDependent: () => true });
+
+function animatedSeedRuntime({ active = () => true, fps = 0 } = {}) {
+  return Object.freeze({
+    timeDependent: (params = {}) => params.seedMode !== "fixed" && active(params),
+    timeKey: (_params, context = {}) => fps > 0
+      ? Math.floor((Number(context.time) || 0) * fps)
+      : context.time,
+  });
+}
 
 function noiseSeedParams(defaultSeed = 0) {
   return [
@@ -33,6 +43,9 @@ vec4 runEffect(vec2 uv, vec4 color) {
     id: "rgbSplit",
     name: "RGB Split",
     category: "color",
+    runtime: {
+      timeDependent: (params = {}) => (Number(params.motion) || 0) > 0.0001,
+    },
     params: [
       createNumberParam("amount", "Amount", { min: 0, max: 1, step: 0.01, defaultValue: 0.35 }),
       createNumberParam("angle", "Angle", { min: -3.14, max: 3.14, step: 0.01, defaultValue: 0 }),
@@ -52,6 +65,16 @@ vec4 runEffect(vec2 uv, vec4 color) {
     id: "photoGrade",
     name: "Photo Grade",
     category: "color",
+    runtime: {
+      timeDependent: (params = {}) => params.seedMode !== "fixed" && (
+        (Number(params.grain) || 0) > 0.0001 ||
+        (Number(params.noise) || 0) > 0.0001 ||
+        (Number(params.distort) || 0) > 0.0001
+      ),
+      timeKey: (params = {}, context = {}) => (Number(params.distort) || 0) > 0.0001
+        ? context.time
+        : Math.floor((Number(context.time) || 0) * 24),
+    },
     params: [
       createNumberParam("amount", "Amount", { min: 0, max: 1, step: 0.01, defaultValue: 1 }),
       createNumberParam("invert", "Invert", { min: 0, max: 1, step: 0.01, defaultValue: 0 }),
@@ -177,6 +200,7 @@ vec4 runEffect(vec2 uv, vec4 color) {
     id: "labelGrain",
     name: "Label Grain",
     category: "texture",
+    runtime: animatedSeedRuntime({ fps: 24 }),
     params: [
       createNumberParam("amount", "Amount", { min: 0, max: 1, step: 0.01, defaultValue: 0.35 }),
       ...noiseSeedParams(23),
@@ -198,6 +222,7 @@ vec4 runEffect(vec2 uv, vec4 color) {
     id: "labelThresholdGrain",
     name: "Grain Threshold",
     category: "key",
+    runtime: animatedSeedRuntime({ fps: 24 }),
     params: [
       createNumberParam("amount", "Amount", { min: 0, max: 1, step: 0.01, defaultValue: 0.35 }),
       ...noiseSeedParams(37),
@@ -237,6 +262,11 @@ vec4 runEffect(vec2 uv, vec4 color) {
     id: "smear",
     name: "Smear",
     category: "texture",
+    runtime: animatedSeedRuntime({
+      active: (params = {}) => ["cctvAmount", "screenPrintAmount", "dotMatrixAmount", "receiptAmount", "ditherAmount", "smearAmount"]
+        .some((id) => (Number(params[id]) || 0) > 0.0001),
+      fps: 18,
+    }),
     params: [
       createNumberParam("amount", "Amount", { min: 0, max: 1, step: 0.01, defaultValue: 1 }),
       createNumberParam("cctvAmount", "CCTV", { min: 0, max: 1, step: 0.01, defaultValue: 0.45 }),
@@ -581,6 +611,101 @@ vec4 runEffect(vec2 uv, vec4 color) {
   return mix(color, sampleSource(textureUvFromEffectScreenUv(inverseTransformEffectUv(blockUv))), field);
 }`,
   },
+  pixelArtUpscale: {
+    id: "pixelArtUpscale",
+    name: "Pixel Art Upscale",
+    category: "texture",
+    params: [
+      createNumberParam("amount", "Amount", { min: 0, max: 1, step: 0.01, defaultValue: 1 }),
+      createNumberParam("upscale", "Pixel size", { min: 2, max: 32, step: 1, defaultValue: 10 }),
+      createNumberParam("colorThreshold", "Color threshold", { min: 0.01, max: 1, step: 0.01, defaultValue: 0.1 }),
+      createNumberParam("lineThickness", "Line thickness", { min: 0.05, max: 0.8, step: 0.01, defaultValue: 0.4 }),
+      createNumberParam("antiAlias", "Antialiasing", { min: 0.1, max: 3, step: 0.01, defaultValue: 1 }),
+    ],
+    code: `
+/*
+Copyright 2020 Ethan Alexander Shulman
+
+Permission is hereby granted, free of charge, to any person obtaining a copy of
+this software and associated documentation files (the "Software"), to deal in
+the Software without restriction, including without limitation the rights to
+use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies
+of the Software, and to permit persons to whom the Software is furnished to do
+so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+Original shader: https://www.shadertoy.com/view/tsdcRM
+The WebGL2 texelFetch operations are expressed through Portal's normalized
+source sampler so the effect works in the existing WebGL shader pipeline.
+*/
+
+vec4 pixelArtSample(vec2 logicalPixel, vec2 grid) {
+  return sampleSource((floor(logicalPixel) + 0.5) / grid);
+}
+
+bool pixelArtDiagonal(
+  inout vec4 sum,
+  vec2 logicalPixel,
+  vec2 grid,
+  vec2 p1,
+  vec2 p2,
+  float thickness
+) {
+  vec4 v1 = pixelArtSample(logicalPixel + p1, grid);
+  vec4 v2 = pixelArtSample(logicalPixel + p2, grid);
+  if (length(v1 - v2) < colorThreshold) {
+    vec2 direction = p2 - p1;
+    vec2 linePosition = logicalPixel - (floor(logicalPixel + p1) + 0.5);
+    direction = normalize(vec2(direction.y, -direction.x));
+    float line = clamp(
+      (thickness - dot(linePosition, direction)) * upscale * antiAlias,
+      0.0,
+      1.0
+    );
+    sum = mix(sum, v1, line);
+    return true;
+  }
+  return false;
+}
+
+vec4 runEffect(vec2 uv, vec4 color) {
+  vec2 grid = max(resolution / max(upscale, 1.0), vec2(1.0));
+  vec2 logicalPixel = uv * grid;
+  vec4 result = pixelArtSample(logicalPixel, grid);
+  float primary = lineThickness;
+  float secondary = lineThickness * 0.75;
+
+  if (pixelArtDiagonal(result, logicalPixel, grid, vec2(-1.0, 0.0), vec2(0.0, 1.0), primary)) {
+    pixelArtDiagonal(result, logicalPixel, grid, vec2(-1.0, 0.0), vec2(1.0, 1.0), secondary);
+    pixelArtDiagonal(result, logicalPixel, grid, vec2(-1.0, -1.0), vec2(0.0, 1.0), secondary);
+  }
+  if (pixelArtDiagonal(result, logicalPixel, grid, vec2(0.0, 1.0), vec2(1.0, 0.0), primary)) {
+    pixelArtDiagonal(result, logicalPixel, grid, vec2(0.0, 1.0), vec2(1.0, -1.0), secondary);
+    pixelArtDiagonal(result, logicalPixel, grid, vec2(-1.0, 1.0), vec2(1.0, 0.0), secondary);
+  }
+  if (pixelArtDiagonal(result, logicalPixel, grid, vec2(1.0, 0.0), vec2(0.0, -1.0), primary)) {
+    pixelArtDiagonal(result, logicalPixel, grid, vec2(1.0, 0.0), vec2(-1.0, -1.0), secondary);
+    pixelArtDiagonal(result, logicalPixel, grid, vec2(1.0, 1.0), vec2(0.0, -1.0), secondary);
+  }
+  if (pixelArtDiagonal(result, logicalPixel, grid, vec2(0.0, -1.0), vec2(-1.0, 0.0), primary)) {
+    pixelArtDiagonal(result, logicalPixel, grid, vec2(0.0, -1.0), vec2(-1.0, 1.0), secondary);
+    pixelArtDiagonal(result, logicalPixel, grid, vec2(1.0, -1.0), vec2(-1.0, 0.0), secondary);
+  }
+
+  return mix(color, result, amount);
+}
+`,
+  },
   plasma: {
     id: "plasma",
     name: "Plasma Tint",
@@ -641,6 +766,7 @@ vec4 runEffect(vec2 uv, vec4 color) {
     category: "warp",
     spatial: true,
     transformSource: false,
+    runtime: animatedSeedRuntime(),
     params: [
       createNumberParam("amount", "Amount", { min: 0, max: 1, step: 0.01, defaultValue: 0.45 }),
       createNumberParam("blocks", "Blocks", { min: 4, max: 80, step: 1, defaultValue: 24 }),
@@ -682,6 +808,9 @@ vec4 runEffect(vec2 uv, vec4 color) {
     category: "geometry",
     spatial: true,
     transformSource: false,
+    runtime: {
+      timeDependent: (params = {}) => Math.abs(Number(params.speed) || 0) > 0.0001,
+    },
     params: [
       createNumberParam("amount", "Amount", { min: 0, max: 1, step: 0.01, defaultValue: 0.35 }),
       createNumberParam("turns", "Turns", { min: -2, max: 2, step: 0.01, defaultValue: 0.25 }),
@@ -787,6 +916,7 @@ vec4 runEffect(vec2 uv, vec4 color) {
     category: "warp",
     spatial: true,
     transformSource: false,
+    runtime: animatedSeedRuntime(),
     params: [
       createNumberParam("amount", "Amount", { min: 0, max: 1, step: 0.01, defaultValue: 0.34 }),
       createNumberParam("frequency", "Frequency", { min: 2, max: 48, step: 1, defaultValue: 18 }),
@@ -855,6 +985,7 @@ vec4 runEffect(vec2 uv, vec4 color) {
     id: "custom",
     name: "Custom",
     category: "user",
+    runtime: ALWAYS_TIME_RUNTIME,
     defaultAmount: 0.5,
     code: null,
   },
@@ -876,6 +1007,7 @@ function normalizeShaderComponent(component) {
     family: "shader",
     processor: "shader",
     scheduler: "frame",
+    runtime: component.runtime || (component.code?.includes("time") ? ALWAYS_TIME_RUNTIME : undefined),
     inlets: component.inlets || effectInlets,
     outlets: component.outlets || effectOutlets,
     params: component.params || [

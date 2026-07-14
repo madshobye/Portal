@@ -1,8 +1,8 @@
 import { BLEND_MODES, VJ1 } from "../constants.js";
 import { sanitizeState } from "../domain/models.js?v=world-frame-27";
-import { compileCompositionPatch } from "../graph/render-scheduler.js?v=noise-field-1";
+import { compileCompositionPatch } from "../graph/render-scheduler.js?v=node-dirty-runtime-1";
 import { planCompositorInputs, planPatchExecution, summarizeTextureBranches } from "../graph/patch-planner.js";
-import { getShaderComponent } from "../shaders/shader-registry.js?v=photo-grade-invert-1";
+import { getShaderComponent } from "../shaders/shader-registry.js?v=node-dirty-runtime-1";
 import { surfaceTextureSize, worldSize } from "../output/render-geometry.js";
 
 const BASE_SURFACE_PIXELS = VJ1.surfaceWidth * VJ1.surfaceHeight;
@@ -261,7 +261,7 @@ function summarizeRuntimeProfiles(profiles = []) {
     shaderHandoffsAvg: average(clean.map((profile) => Number(profile.shaderHandoffs) || 0)),
     maxShaderChainLengthMax: clean.length ? Math.max(...clean.map((profile) => Number(profile.maxShaderChainLength) || 0)) : 0,
     shaderMsP95: percentile(clean.map((profile) => Number(profile.shaderMs) || 0), 0.95),
-    compositionMsP95: percentile(clean.map((profile) => Number(profile.compositionMs) || 0), 0.95),
+    compositionMsP95: percentile(clean.map((profile) => Number(profile.compositionWallMs ?? profile.compositionMs) || 0), 0.95),
     slowPasses,
   };
 }

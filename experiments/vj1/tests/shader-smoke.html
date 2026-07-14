@@ -22,10 +22,10 @@
     <pre id="result">running...</pre>
     <script type="module">
       import { getShaderComponent } from "../js/shaders/shader-registry.js?v=noise-field-1";
-      import { getGeneratorShaderComponent } from "../js/shaders/generator-shaders.js?v=shadertoy-generator-15";
-      import { createShaderBuilder } from "../js/shaders/shader-builder.js?v=shadertoy-generator-15";
+      import { getGeneratorShaderComponent } from "../js/shaders/generator-shaders.js?v=shadertoy-generator-16";
+      import { createShaderBuilder } from "../js/shaders/shader-builder.js?v=shadertoy-generator-16";
 
-      const effects = ["photoGrade", "labelThresholdGrain", "smear", "alphaVignette", "glitchDistort", "spinRotate", "echoFade", "mirrorFold", "heatShimmer", "crayonStroke"];
+      const effects = ["photoGrade", "labelThresholdGrain", "smear", "alphaVignette", "glitchDistort", "spinRotate", "echoFade", "mirrorFold", "heatShimmer", "crayonStroke", "pixelArtUpscale"];
       const generators = ["gradient", "fireflies", "eyeball", "swayingTrees", "terrainFlyover", "bezierStrokes", "shadertoyBaseWarp", "seascape", "paintDrips", "cloudyTunnel", "cherenkovVolume", "biomineLite"];
       const result = document.getElementById("result");
 
@@ -53,7 +53,8 @@
                 target.clear();
                 target.shader(shader);
                 if (component.type === "shadertoy") {
-                  shader.setUniform("iResolution", [target.width, target.height, 1]);
+                  const gl = target?._renderer?.GL || target?.drawingContext;
+                  shader.setUniform("iResolution", [gl?.drawingBufferWidth || target.width, gl?.drawingBufferHeight || target.height, 1]);
                   shader.setUniform("iTime", 1);
                 } else {
                   shader.setUniform("resolution", [target.width, target.height]);

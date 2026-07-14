@@ -5,9 +5,10 @@ import { readFileSync } from "node:fs";
 import { createCompositionEffect, createCompositionLayer, createDefaultComposition, createInitialState, createLiveCompositionView, sanitizeState } from "../js/domain/models.js?v=world-frame-27";
 import { normalizeParamValue } from "../js/graph/component-schema.js";
 import { getGeneratorComponent } from "../js/graph/generator-registry.js";
+import { RenderNodeRuntime, textureStateKey } from "../js/graph/render-node-runtime.js";
 import { compileCompositionPatch } from "../js/graph/render-scheduler.js?v=world-frame-27";
 import { shouldHoldCurrentOutputState } from "../js/output/output-app.js";
-import { advanceRateClock, advanceSpatialScale, OutputRenderer, parseObjMesh, sourceWithNodeParams, terrainExpandedWireVertices, terrainGridSize, terrainTriangleEdgeUvs } from "../js/output/output-renderer.js?v=world-frame-27";
+import { advanceRateClock, advanceSpatialScale, OutputRenderer, parseObjMesh, sourceWithNodeParams, terrainExpandedGridWireVertices, terrainExpandedWireVertices, terrainGridSize, terrainSurfaceGridVertices, terrainSurfaceTriangleIndices, terrainTriangleEdgeUvs } from "../js/output/output-renderer.js?v=world-frame-27";
 import { getMediaType, isMediaFile } from "../js/services/media-library-service.js";
 
 test("media sources keep trim and playback speed through normalization and graph compile", () => {
@@ -124,6 +125,8 @@ test("Shadertoy base warp is exposed as a generator with clock speed", () => {
   assert.ok(builderSource.includes("iResolution.y - gl_FragCoord.y"));
   assert.ok(builderSource.includes("vj1MainImage(fragColor, shadertoyFragCoord)"));
   assert.ok(rendererSource.includes('setShaderUniformIfPresent(shader, "iTime", shaderTime)'));
+  assert.ok(rendererSource.includes("shaderDrawingBufferSize(target"));
+  assert.ok(rendererSource.includes("gl?.drawingBufferWidth"));
   assert.ok(rendererSource.includes('generatorId === "shadertoyBaseWarp"'));
 });
 
@@ -267,24 +270,33 @@ test("terrain flyover exposes flight, terrain, wire, and biome controls", () => 
   assert.ok(rendererSource.includes("this.terrainTargets = new Map()"));
   assert.ok(rendererSource.includes("const target = this.getTerrainTarget(pg.width, pg.height)"));
   assert.ok(rendererSource.includes("disposeGraphicsMap(this.terrainTargets)"));
-  assert.ok(rendererSource.includes('shader.bindShader("fill")'));
-  assert.ok(rendererSource.includes("bindTerrainP5Shader(target, shader)"));
-  assert.ok(rendererSource.includes("gl.useProgram(shader._glProgram)"));
-  assert.ok(rendererSource.includes("drawTerrainSurfaceMesh(target, params.gridJitter, params.gridWidth, params.gridDepth, flightTime, 1, params.gridDensity, params.gridScale)"));
+  assert.ok(rendererSource.includes("this.terrainSurfaceResources = new Map()"));
+  assert.ok(rendererSource.includes("drawTerrainSurface(target, this.terrainSurfaceResources"));
+  assert.ok(rendererSource.includes("updateTerrainSurfaceBuffers(gl, resources, widthCells, depthCells, baseRow)"));
+  assert.ok(rendererSource.includes("gl.drawElements(gl.TRIANGLES, resources.count, gl.UNSIGNED_SHORT, 0)"));
+  assert.ok(rendererSource.includes("terrainSurfaceGridVertices(widthCells, depthCells)"));
+  assert.ok(rendererSource.includes("terrainSurfaceTriangleIndices(widthCells, depthCells, baseRow)"));
+  assert.ok(!rendererSource.includes("function drawTerrainSurfaceMesh("));
   assert.ok(rendererSource.includes("continuousRateTime(`${source.instanceId || source.generatorId || \"terrain\"}:flight`"));
   assert.ok(rendererSource.includes("gl.drawArrays(gl.TRIANGLES, 0, resources.count)"));
-  assert.ok(rendererSource.includes("drawWithPolygonOffset(target, style === 2"));
+  assert.ok(rendererSource.includes("if (style === 2)"));
   assert.ok(rendererSource.includes("gl.polygonOffset(1, 2)"));
   assert.ok(rendererSource.includes("if (style !== 1) target.background"));
   assert.ok(rendererSource.includes("const previousProgram = gl.getParameter(gl.CURRENT_PROGRAM)"));
   assert.ok(rendererSource.includes("gl.useProgram(previousProgram)"));
   assert.ok(!rendererSource.includes("previousLiveSceneId !== nextLiveSceneId"));
-  assert.ok(rendererSource.includes("terrainP5ShaderValid(target, shader)"));
+  assert.ok(rendererSource.includes("terrainSurfaceResourcesValid(gl, resources)"));
+  assert.ok(rendererSource.includes("disposeTerrainSurfaceResources(gl, resources)"));
   assert.ok(rendererSource.includes("terrainWireResourcesValid(gl, resources)"));
   assert.ok(rendererSource.includes("disposeTerrainWireResources(gl, resources)"));
   assert.ok(rendererSource.includes("captureVertexAttributeState(gl, location)"));
   assert.ok(rendererSource.includes("restoreVertexAttributeState(gl, state)"));
   assert.ok(rendererSource.includes("function terrainIrregularMesh("));
+  assert.ok(rendererSource.includes("terrainExpandedGridWireVertices(widthCells, depthCells)"));
+  assert.ok(rendererSource.includes("gl.bufferData(gl.ARRAY_BUFFER, vertices, gl.STATIC_DRAW)"));
+  assert.ok(rendererSource.includes("measureCompositionProfile(meta, fn)"));
+  assert.ok(rendererSource.includes("const outermost = this.compositionProfileDepth === 0"));
+  assert.ok(rendererSource.includes("if (outermost) this.frameProfile.compositionWallMs += ms"));
   assert.ok(!rendererSource.includes("float rowTravel = fract("));
   assert.ok(rendererSource.includes("float distance = meshUv.y * rowSpacing - cameraTravel"));
   assert.ok(rendererSource.includes("travel * (cameraTravel + distance) + right * worldLateral"));
@@ -371,6 +383,22 @@ test("terrain wireframe contains every real grid and triangle edge", () => {
   const expanded = terrainExpandedWireVertices(cells);
   assert.equal(expanded.length, (horizontalEdges + verticalEdges + diagonalEdges) * 6 * 6);
   assert.deepEqual(Array.from(expanded.slice(4, 6)), [-1, 0]);
+});
+
+test("terrain GPU buffers keep vertex data static while world-row topology advances", () => {
+  const width = 2;
+  const depth = 3;
+  const vertices = terrainSurfaceGridVertices(width, depth);
+  const firstIndices = terrainSurfaceTriangleIndices(width, depth, -1);
+  const nextIndices = terrainSurfaceTriangleIndices(width, depth, 0);
+  const expandedWire = terrainExpandedGridWireVertices(width, depth);
+  const edgeCount = width * (depth + 2) + (width + 1) * (depth + 1) + width * (depth + 1) * 2;
+
+  assert.equal(vertices.length, (width + 1) * (depth + 2) * 2);
+  assert.equal(firstIndices.length, width * (depth + 1) * 6);
+  assert.equal(Math.max(...firstIndices), (width + 1) * (depth + 2) - 1);
+  assert.notDeepEqual(Array.from(firstIndices), Array.from(nextIndices));
+  assert.equal(expandedWire.length, edgeCount * 6 * 6);
 });
 
 test("bezier strokes exposes bounded curve, timing, material, and alpha controls", () => {
@@ -723,4 +751,114 @@ test("dirty cache classifier keeps static photo chains cacheable and animated no
 
   composition.chain[0].params = { part: "heart", heartPulse: 0.35 };
   assert.equal(renderer.stableCompositionSignature(composition, { role: "composition", width: 640, height: 360 }), "");
+});
+
+test("component runtime policies decide whether generators and effects need time", () => {
+  const renderer = new OutputRenderer({ mode: "composition" });
+  const state = createInitialState();
+  renderer.state = state;
+  const composition = state.compositions[0];
+  const request = { role: "composition", width: 640, height: 360 };
+
+  const cloudy = createCompositionLayer(0, { type: "generator", generatorId: "cloudyTunnel" });
+  cloudy.params = { speed: 0 };
+  const grain = createCompositionEffect("labelThresholdGrain");
+  grain.params = { amount: 0.6, seedMode: "fixed", seed: 37 };
+  composition.chain = [cloudy, grain];
+  assert.ok(renderer.stableCompositionSignature(composition, request));
+
+  cloudy.params.speed = 0.1;
+  assert.equal(renderer.stableCompositionSignature(composition, request), "");
+
+  cloudy.params.speed = 0;
+  grain.params.seedMode = "animated";
+  assert.equal(renderer.stableCompositionSignature(composition, request), "");
+});
+
+test("render node runtime keeps its output version stable until its signature changes", () => {
+  const output = { id: "buffer-a" };
+  const runtime = new RenderNodeRuntime("node-a");
+  runtime.bindOutput(output);
+  let renders = 0;
+
+  const first = runtime.evaluate("input@1|params:a", () => { renders++; return output; });
+  const clean = runtime.evaluate("input@1|params:a", () => { renders++; return output; });
+  const changed = runtime.evaluate("input@2|params:a", () => { renders++; return output; });
+
+  assert.equal(first.rendered, true);
+  assert.equal(first.outputVersion, 1);
+  assert.equal(clean.rendered, false);
+  assert.equal(clean.outputVersion, 1);
+  assert.equal(changed.rendered, true);
+  assert.equal(changed.outputVersion, 2);
+  assert.equal(renders, 2);
+});
+
+test("node output versions propagate dirtiness only to downstream nodes", () => {
+  const renderer = new OutputRenderer({ mode: "composition" });
+  const request = { role: "composition", width: 640, height: 360 };
+  const buffers = new Map();
+  renderer.getCompositionBuffer = (id) => {
+    if (!buffers.has(id)) buffers.set(id, { id });
+    return buffers.get(id);
+  };
+  let sourceRenders = 0;
+  let gradeRenders = 0;
+  let tailRenders = 0;
+  const evaluate = (sourceSignature, gradeSignature = "grade:a", tailSignature = "tail:a") => {
+    const source = renderer.evaluateChainNode("source", sourceSignature, request, () => { sourceRenders++; }, "source");
+    const grade = renderer.evaluateChainNode("grade", `${textureStateKey(source)}|${gradeSignature}`, request, () => { gradeRenders++; }, "effect");
+    const tail = renderer.evaluateChainNode("tail", `${textureStateKey(grade)}|${tailSignature}`, request, () => { tailRenders++; }, "effect");
+    return { source, grade, tail };
+  };
+
+  const first = evaluate("source:a");
+  const clean = evaluate("source:a");
+  const tailOnly = evaluate("source:a", "grade:a", "tail:b");
+  const sourceChanged = evaluate("source:b", "grade:a", "tail:b");
+
+  assert.deepEqual([sourceRenders, gradeRenders, tailRenders], [2, 2, 3]);
+  assert.equal(clean.source.outputVersion, first.source.outputVersion);
+  assert.equal(clean.grade.outputVersion, first.grade.outputVersion);
+  assert.equal(tailOnly.grade.outputVersion, first.grade.outputVersion);
+  assert.equal(tailOnly.tail.outputVersion, first.tail.outputVersion + 1);
+  assert.equal(sourceChanged.source.outputVersion, first.source.outputVersion + 1);
+  assert.equal(sourceChanged.grade.outputVersion, first.grade.outputVersion + 1);
+  assert.equal(sourceChanged.tail.outputVersion, tailOnly.tail.outputVersion + 1);
+  assert.equal(renderer.frameProfile.stageRenders, 7);
+  assert.equal(renderer.frameProfile.stageCacheHits, 5);
+});
+
+test("static source textures repaint only when their own source state changes", () => {
+  const previousCreateGraphics = globalThis.createGraphics;
+  const renderer = new OutputRenderer({ mode: "composition" });
+  const state = createInitialState();
+  state.media = [{ id: "media/a.png", path: "media/a.png", type: "image", size: 42 }];
+  renderer.state = state;
+  renderer.media.set("media/a.png", { ready: true });
+  renderer.applyGraphicsFont = () => {};
+  let paints = 0;
+  renderer.safeDrawSourceToGraphics = () => { paints++; };
+  globalThis.createGraphics = (width, height) => ({
+    width,
+    height,
+    push() {},
+    pop() {},
+    clear() {},
+  });
+
+  try {
+    const item = createCompositionLayer(0, { type: "media", mediaId: "media/a.png", params: { fit: "contain" } });
+    const request = { role: "composition", width: 640, height: 360 };
+    renderer.renderCompositionSourceItem(state.compositions[0], item, 0, request);
+    renderer.renderCompositionSourceItem(state.compositions[0], item, 1, request);
+    assert.equal(paints, 1);
+
+    item.params = { fit: "cover" };
+    renderer.renderCompositionSourceItem(state.compositions[0], item, 2, request);
+    assert.equal(paints, 2);
+  } finally {
+    if (previousCreateGraphics === undefined) delete globalThis.createGraphics;
+    else globalThis.createGraphics = previousCreateGraphics;
+  }
 });

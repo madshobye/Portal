@@ -1,6 +1,6 @@
 import { createVisualNode, normalizeParamValues, paramValue, textureInlet, textureOutlet, textureRenderContract } from "./component-schema.js";
 import { getGeneratorComponent } from "./generator-registry.js";
-import { getShaderComponent } from "../shaders/shader-registry.js?v=photo-grade-invert-1";
+import { getShaderComponent } from "../shaders/shader-registry.js?v=node-dirty-runtime-1";
 
 export function compileCompositionPatch(composition = {}, renderRequest = {}) {
   const request = normalizePatchRenderRequest(renderRequest);

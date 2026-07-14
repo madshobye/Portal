@@ -63,14 +63,15 @@ test("flags mapping problems against active surfaces", () => {
 
 test("summarizes runtime sample bottlenecks", () => {
   const runtime = summarizeRuntimeSamples([
-    { fps: 38, frameMs: 31, renderCost: 1.3, profile: { shaderPasses: 5, shaderChains: 1, maxShaderChainLength: 5, shaderHandoffs: 0, shaderMs: 8, passSamples: [{ passName: "Blur", ms: 3.2, width: 800, height: 450, source: "webgl" }] } },
-    { fps: 42, frameMs: 28, renderCost: 1.1, profile: { shaderPasses: 5, shaderChains: 1, maxShaderChainLength: 5, shaderHandoffs: 0, shaderMs: 7, passSamples: [{ passName: "Dilate", ms: 2.8, width: 800, height: 450, source: "webgl" }] } },
-    { fps: 40, frameMs: 26, renderCost: 1.2, profile: { shaderPasses: 4, shaderChains: 1, maxShaderChainLength: 4, shaderHandoffs: 0, shaderMs: 6, passSamples: [{ passName: "Erode", ms: 2.4, width: 800, height: 450, source: "webgl" }] } },
+    { fps: 38, frameMs: 31, renderCost: 1.3, profile: { shaderPasses: 5, shaderChains: 1, maxShaderChainLength: 5, shaderHandoffs: 0, shaderMs: 8, compositionMs: 12, compositionWallMs: 7, passSamples: [{ passName: "Blur", ms: 3.2, width: 800, height: 450, source: "webgl" }] } },
+    { fps: 42, frameMs: 28, renderCost: 1.1, profile: { shaderPasses: 5, shaderChains: 1, maxShaderChainLength: 5, shaderHandoffs: 0, shaderMs: 7, compositionMs: 11, compositionWallMs: 6, passSamples: [{ passName: "Dilate", ms: 2.8, width: 800, height: 450, source: "webgl" }] } },
+    { fps: 40, frameMs: 26, renderCost: 1.2, profile: { shaderPasses: 4, shaderChains: 1, maxShaderChainLength: 4, shaderHandoffs: 0, shaderMs: 6, compositionMs: 10, compositionWallMs: 5, passSamples: [{ passName: "Erode", ms: 2.4, width: 800, height: 450, source: "webgl" }] } },
   ]);
   assert.equal(runtime.sampleCount, 3);
   assert.ok(runtime.fpsAvg < 45);
   assert.equal(runtime.profile.maxShaderChainLengthMax, 5);
   assert.equal(runtime.profile.shaderHandoffsAvg, 0);
+  assert.equal(runtime.profile.compositionMsP95, 7);
   assert.equal(runtime.profile.slowPasses[0].passName, "Blur");
   assert.ok(runtime.bottlenecks.some((item) => item.scope === "runtime"));
 });

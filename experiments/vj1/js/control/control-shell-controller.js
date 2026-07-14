@@ -1,17 +1,17 @@
 import { BLEND_MODES, VJ1, WORKSPACES } from "../constants.js";
 import { applySceneSnapshotToState, createLiveCompositionView, createLiveRenderState, createSceneSnapshot, normalizeRenderSettings } from "../domain/models.js?v=output-playback-1";
-import { normalizeParamValue } from "../graph/component-schema.js?v=number-log-scale-1";
-import { getGeneratorComponent, listGeneratorComponents } from "../graph/generator-registry.js?v=shadertoy-generator-15";
+import { normalizeParamValue } from "../graph/component-schema.js?v=node-dirty-runtime-1";
+import { getGeneratorComponent, listGeneratorComponents } from "../graph/generator-registry.js?v=node-dirty-runtime-1";
 import { patchNodeDegree, planCompositorInputs, planPatchExecution, summarizeTextureBranches } from "../graph/patch-planner.js";
-import { compileCompositionPatch } from "../graph/render-scheduler.js?v=photo-grade-invert-1";
+import { compileCompositionPatch } from "../graph/render-scheduler.js?v=node-dirty-runtime-1";
 import { buildOutputUrl } from "../view-routing.js";
-import { getShaderComponent, listShaderComponents } from "../shaders/shader-registry.js?v=photo-grade-invert-1";
-import { createEmbeddedPreviewApp } from "../output/embedded-preview-app.js?v=shadertoy-generator-15";
+import { getShaderComponent, listShaderComponents } from "../shaders/shader-registry.js?v=node-dirty-runtime-1";
+import { createEmbeddedPreviewApp } from "../output/embedded-preview-app.js?v=node-dirty-runtime-1";
 import { frameFitViewport, resetViewport, zoomViewport } from "../output/preview-viewport.js";
 import { defaultProjectSurfaceMapping } from "../output/render-geometry.js";
 import { createHtmlCache, isInteractiveNode, isTextEditingNode, setClass, setText } from "./dom-utils.js";
 import { bindReorderList } from "./reorder-list.js";
-import { collectRefs, shellTemplate } from "./shell-view.js?v=output-playback-1";
+import { collectRefs, shellTemplate } from "./shell-view.js?v=view-icons-1";
 import { effectIcon, emptyNote, esc, icon, rangeTemplate, selectValuesTemplate, sourceTypeIcon, thumbnailTemplate } from "./template-utils.js";
 
 const MODEL_RENDER_MODES = ["surface", "wireframe", "surfaceWire", "points"];
@@ -344,14 +344,22 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
     setText(refs.projectMeta, hasProject ? projectMeta : "Choose a folder to begin");
     setClass(refs.projectMeta, "is-hidden", hasProject && !projectMeta);
     setClass(refs.closeProject, "is-hidden", !hasProject);
-    setClass(refs.outputStatus, "is-live", state.metrics.clients > 0);
-    setText(refs.outputStatusText, state.metrics.clients > 0 ? `${Math.round(state.metrics.fps || 0)} fps` : "output");
+    const outputConnected = state.metrics.clients > 0;
+    const outputFps = outputConnected ? Math.max(0, Number(state.metrics.fps) || 0) : 0;
+    setClass(refs.outputStatus, "is-live", outputConnected);
+    setText(refs.outputStatusText, outputConnected ? `${Math.round(outputFps)} fps` : "output");
     const renderCost = activeRenderCost(state);
     setClass(refs.renderCost, "is-hot", renderCost > 0.8);
     setText(refs.renderCostText, formatRenderCost(renderCost));
+    const workMetric = activeWorkMetric(state, outputFps);
+    setClass(refs.cpuTime, "is-hot", workMetric.cpuMs > 8.33);
+    setText(refs.cpuTimeText, formatTimeMs(workMetric.cpuMs));
+    refs.cpuTime.title = cpuTimeTitle(workMetric);
+    setClass(refs.gpuTime, "is-hot", workMetric.gpuSupported && workMetric.gpuMs > 8.33);
+    setText(refs.gpuTimeText, workMetric.gpuSupported ? formatTimeMs(workMetric.gpuMs) : "--");
+    refs.gpuTime.title = gpuTimeTitle(workMetric);
     setClass(refs.togglePreview, "is-active", state.ui.debugPreview);
     setClass(refs.toggleLabels, "is-active", state.global.showLabels !== false);
-    const outputConnected = state.metrics.clients > 0;
     const outputPlaying = state.global.playing !== false;
     refs.toggleOutputPlayback.disabled = !outputConnected;
     refs.toggleOutputPlayback.title = outputPlaying ? "Pause output" : "Play output";
@@ -3006,9 +3014,80 @@ function hasOpenProject(state) {
 
 function activeRenderCost(state) {
   const previewCost = Number(state.metrics.previewRenderCost);
-  if (state.ui?.debugPreview && Number.isFinite(previewCost)) return previewCost;
+  if (state.ui?.debugPreview && Number(state.metrics.previewFps) > 0 && Number.isFinite(previewCost)) return previewCost;
   const outputCost = Number(state.metrics.renderCost);
   return Number.isFinite(outputCost) ? outputCost : 0;
+}
+
+function activeWorkMetric(state, outputFps = 0) {
+  const previewFps = Math.max(0, Number(state.metrics.previewFps) || 0);
+  if (state.ui?.debugPreview && previewFps > 0) {
+    return {
+      fps: previewFps,
+      cpuMs: Math.max(0, Number(state.metrics.previewFrameMs) || 0),
+      gpuMs: Math.max(0, Number(state.metrics.previewGpuMs) || 0),
+      gpuSupported: state.metrics.previewGpuSupported === true,
+      profile: state.metrics.previewProfile || null,
+      source: "preview",
+    };
+  }
+  return {
+    fps: outputFps,
+    cpuMs: Math.max(0, Number(state.metrics.frameMs) || 0),
+    gpuMs: Math.max(0, Number(state.metrics.gpuMs) || 0),
+    gpuSupported: state.metrics.gpuSupported === true,
+    profile: state.metrics.profile || null,
+    source: "output",
+  };
+}
+
+function compositionRenderTime(profile) {
+  const value = Number(profile?.compositionWallMs ?? profile?.compositionMs);
+  return Number.isFinite(value) ? Math.max(0, value) : 0;
+}
+
+function formatTimeMs(ms) {
+  const value = Math.max(0, Number(ms) || 0);
+  return `${value < 10 ? value.toFixed(1) : Math.round(value)} ms`;
+}
+
+function frameTimeFromFps(fps) {
+  const value = Number(fps);
+  return Number.isFinite(value) && value > 0 ? 1000 / value : 0;
+}
+
+function cpuTimeTitle(metric) {
+  if (!(Number(metric?.fps) > 0)) return "CPU render work: no active renderer sample";
+  const interval = frameTimeFromFps(metric.fps);
+  const lines = [
+    `CPU render work: ${formatTimeMs(metric.cpuMs)} (${metric.source})`,
+    `Frame interval: ${formatTimeMs(interval)} from ${Math.round(metric.fps)} fps`,
+  ];
+  const profile = metric.profile;
+  if (!profile) return lines.join("\n");
+  const compositionMs = compositionRenderTime(profile);
+  const sampledTotal = Math.max(0, Number(profile.totalMs) || 0);
+  const renders = Math.max(0, Math.round(Number(profile.compositionRenders) || 0));
+  const cacheHits = Math.max(0, Math.round(Number(profile.compositionCacheHits) || 0));
+  const stageRenders = Math.max(0, Math.round(Number(profile.stageRenders) || 0));
+  const stageCacheHits = Math.max(0, Math.round(Number(profile.stageCacheHits) || 0));
+  const slowest = (profile.passSamples || [])
+    .filter((sample) => sample?.type === "composition")
+    .slice()
+    .sort((a, b) => (Number(b.ms) || 0) - (Number(a.ms) || 0))
+    .slice(0, 3);
+  lines.push(`Sampled composition: ${formatTimeMs(compositionMs)}`);
+  lines.push(`Sampled other work: ${formatTimeMs(Math.max(0, sampledTotal - compositionMs))}`);
+  lines.push(`${renders} rendered, ${cacheHits} composition cache hit${cacheHits === 1 ? "" : "s"}, ${stageRenders} stage render${stageRenders === 1 ? "" : "s"}, ${stageCacheHits} stage reuse${stageCacheHits === 1 ? "" : "s"}`);
+  for (const sample of slowest) {
+    lines.push(`${sample.compositionName || sample.compositionId || "Composition"}: ${formatTimeMs(sample.ms)}`);
+  }
+  return lines.join("\n");
+}
+
+function gpuTimeTitle(metric) {
+  if (!metric?.gpuSupported) return "GPU render work: timer queries unavailable in this browser/GPU";
+  return `GPU render work: ${formatTimeMs(metric.gpuMs)} (${metric.source})\nAsynchronous result from completed WebGL timer queries`;
 }
 
 function formatRenderCost(cost) {

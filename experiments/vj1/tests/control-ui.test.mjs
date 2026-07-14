@@ -29,6 +29,52 @@ test("scrub changes are sent to live output on the next animation frame", () => 
   assert.ok(!appSource.includes("setTimeout(() => bridge.sendState(), 90)"));
 });
 
+test("topbar shows separate active-renderer CPU and GPU work timers", () => {
+  const controllerSource = readFileSync(new URL("../js/control/control-shell-controller.js", import.meta.url), "utf8");
+  const shellSource = readFileSync(new URL("../js/control/shell-view.js", import.meta.url), "utf8");
+  const styleSource = readFileSync(new URL("../style.css", import.meta.url), "utf8");
+  const rendererSource = readFileSync(new URL("../js/output/output-renderer.js", import.meta.url), "utf8");
+  const previewSource = readFileSync(new URL("../js/output/embedded-preview-app.js", import.meta.url), "utf8");
+
+  assert.ok(shellSource.includes('id="cpu-time"'));
+  assert.ok(shellSource.includes('id="gpu-time"'));
+  assert.ok(shellSource.includes('id="cpu-time-text">0.0 ms'));
+  assert.ok(shellSource.includes('id="gpu-time-text">--'));
+  assert.ok(!shellSource.includes('id="cpu-time-text">CPU'));
+  assert.ok(!shellSource.includes('id="gpu-time-text">GPU'));
+  assert.ok(controllerSource.includes("activeWorkMetric(state, outputFps)"));
+  assert.ok(controllerSource.includes("state.ui?.debugPreview && previewFps > 0"));
+  assert.ok(controllerSource.includes('source: "preview"'));
+  assert.ok(controllerSource.includes("state.metrics.previewFrameMs"));
+  assert.ok(controllerSource.includes("state.metrics.previewGpuMs"));
+  assert.ok(controllerSource.includes("1000 / value"));
+  assert.ok(controllerSource.includes("profile?.compositionWallMs ?? profile?.compositionMs"));
+  assert.ok(controllerSource.includes("CPU render work:"));
+  assert.ok(controllerSource.includes("GPU render work:"));
+  assert.ok(!controllerSource.includes('`CPU ${formatTimeMs'));
+  assert.ok(!controllerSource.includes('`GPU ${formatTimeMs'));
+  assert.ok(controllerSource.includes('sample?.type === "composition"'));
+  assert.ok(controllerSource.includes("cache hit"));
+  assert.ok(controllerSource.includes("stage reuse"));
+  assert.match(styleSource, /\.work-time-pill #gpu-time-text[\s\S]*?white-space: nowrap;/);
+  assert.ok(rendererSource.includes('getExtension("EXT_disjoint_timer_query_webgl2")'));
+  assert.ok(rendererSource.includes('getExtension("EXT_disjoint_timer_query")'));
+  assert.ok(rendererSource.includes("this.pruneRenderCaches();\n    this.gpuTimer.sealFrame"));
+  assert.ok(rendererSource.includes("gpuSupported: this.gpuTimer.supported"));
+  assert.ok(previewSource.includes("draft.metrics.previewGpuMs = metrics.gpuMs || 0"));
+});
+
+test("workspace view buttons are compact icons with accessible names", () => {
+  const shellSource = readFileSync(new URL("../js/control/shell-view.js", import.meta.url), "utf8");
+  const styleSource = readFileSync(new URL("../style.css", import.meta.url), "utf8");
+
+  for (const label of ["Compositions", "Canvas", "Scenes", "Nodes", "Live"]) {
+    assert.ok(shellSource.includes(`title="${label}" aria-label="${label}"`));
+    assert.ok(!shellSource.includes(`<span>${label}</span>`));
+  }
+  assert.match(styleSource, /\.workspace-switch button \{[\s\S]*?width: 36px;[\s\S]*?padding: 0;/);
+});
+
 test("empty project start shows one folder action and disables project views", () => {
   const controllerSource = readFileSync(new URL("../js/control/control-shell-controller.js", import.meta.url), "utf8");
   const shellSource = readFileSync(new URL("../js/control/shell-view.js", import.meta.url), "utf8");
