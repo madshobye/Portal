@@ -1,18 +1,18 @@
 import { BLEND_MODES, VJ1, WORKSPACES } from "../constants.js";
 import { compositionFrameMetrics } from "../domain/composition-frame.js";
-import { applySceneSourceNode, applySceneSnapshotToState, createLiveCompositionView, createLiveRenderState, createOutputDefinition, createSceneSnapshot, normalizeRenderSettings, resolveSceneSourceNode, sceneSourceNodes, syncLiveSnapshotFromScene } from "../domain/models.js?v=surface-feather-1";
+import { applySceneSourceNode, applySceneSnapshotToState, createLiveCompositionView, createLiveRenderState, createOutputDefinition, createSceneSnapshot, normalizeRenderSettings, resolveSceneSourceNode, sceneSourceNodes, syncLiveSnapshotFromScene } from "../domain/models.js?v=batch-fixes-1";
 import { normalizeParamValue, RENDER_QUALITY_PARAM } from "../graph/component-schema.js?v=range-pair-1";
 import { getGeneratorComponent, listGeneratorComponents } from "../graph/generator-registry.js?v=render-quality-2";
 import { patchNodeDegree, planCompositorInputs, planPatchExecution, summarizeTextureBranches } from "../graph/patch-planner.js";
 import { compileCompositionPatch } from "../graph/render-scheduler.js?v=hsv-alpha-key-1";
 import { buildOutputUrl } from "../view-routing.js?v=multi-output-2";
 import { getShaderComponent, listShaderComponents } from "../shaders/shader-registry.js?v=hsv-alpha-key-1";
-import { createEmbeddedPreviewApp } from "../output/embedded-preview-app.js?v=thumbnail-readback-1";
+import { createEmbeddedPreviewApp } from "../output/embedded-preview-app.js?v=stl-buffer-lifecycle-1";
 import { frameFitViewport, resetViewport, zoomViewport } from "../output/preview-viewport.js?v=multi-output-2";
 import { defaultProjectSurfaceMapping } from "../output/render-geometry.js?v=render-demand-1";
 import { createHtmlCache, isInteractiveNode, isTextEditingNode, setClass, setText } from "./dom-utils.js";
 import { bindReorderList } from "./reorder-list.js";
-import { collectRefs, shellTemplate } from "./shell-view.js?v=nodes-first-1";
+import { collectRefs, shellTemplate } from "./shell-view.js?v=nodes-hidden-1";
 import { effectIcon, emptyNote, esc, icon, paramRangePairTemplate, rangeTemplate, selectValuesTemplate, sourceTypeIcon, thumbnailTemplate } from "./template-utils.js?v=thumbnail-fit-2";
 
 const MODEL_RENDER_MODES = ["surface", "wireframe", "surfaceWire", "points"];
@@ -85,6 +85,12 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
       }
       if (reason.startsWith("color:")) {
         updatePreviewState(state);
+        return;
+      }
+      if (reason === "workspace") {
+        if (renderFrame) cancelAnimationFrame(renderFrame);
+        renderFrame = 0;
+        render(state);
         return;
       }
       scheduleRender(state);
@@ -419,8 +425,9 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
   function compositionToolsTemplate(state) {
     const compositions = ordinaryCompositions(state);
     return `
-      <div class="rail-section">
+      <div class="rail-section" data-composition-filter-scope>
         <div class="rail-title"><span class="material-symbols-rounded">account_tree</span><span>Compositions</span></div>
+        ${compositionFilterTemplate()}
         <div class="composition-card-list">
           ${compositions.map((composition) => compositionPillTemplate(composition, state)).join("") || emptyNote("Create visual recipes")}
         </div>
@@ -432,8 +439,9 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
   function canvasToolsTemplate(state) {
     const canvases = canvasCompositions(state);
     return `
-      <div class="rail-section">
+      <div class="rail-section" data-composition-filter-scope>
         <div class="rail-title"><span class="material-symbols-rounded">dashboard_customize</span><span>Canvas compositions</span></div>
+        ${compositionFilterTemplate("Filter canvases")}
         <div class="composition-card-list">
           ${canvases.map((composition) => compositionPillTemplate(composition, state)).join("") || emptyNote("Create a canvas composition")}
         </div>
@@ -454,7 +462,7 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
           ${state.scenes.map((scene) => scenePillTemplate(scene, state)).join("") || emptyNote("Capture surface assignments")}
         </div>
         <div class="capture-row">
-          <input type="text" data-scene-name value="Scene ${state.scenes.length + 1}" spellcheck="false" data-gramm="false" data-gramm_editor="false" data-enable-grammarly="false" />
+          <input type="text" data-scene-name value="Scn ${state.scenes.length + 1}" spellcheck="false" data-gramm="false" data-gramm_editor="false" data-enable-grammarly="false" />
           <button class="icon-buttonish" type="button" data-save-scene title="Capture scene" aria-label="Capture scene">${icon("add")}</button>
         </div>
       </div>
@@ -483,8 +491,9 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
   function mappingToolsTemplate(state) {
     const selectedComposition = state.compositions.find((composition) => composition.id === state.ui.selectedCompositionId) || state.compositions[0];
     return `
-      <div class="rail-section">
+      <div class="rail-section" data-composition-filter-scope>
         <div class="rail-title"><span class="material-symbols-rounded">schema</span><span>Node Patch</span></div>
+        ${compositionFilterTemplate()}
         <div class="composition-card-list">
           ${state.compositions.map((composition) => compositionPillTemplate(composition, state)).join("") || emptyNote("Create a composition")}
         </div>
@@ -660,7 +669,7 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
       button.addEventListener("click", () => store.addSurface());
     });
     refs.projectRail.querySelector("[data-save-scene]")?.addEventListener("click", () => {
-      const name = refs.projectRail.querySelector("[data-scene-name]")?.value?.trim() || `Scene ${latestState.scenes.length + 1}`;
+      const name = refs.projectRail.querySelector("[data-scene-name]")?.value?.trim() || `Scn ${latestState.scenes.length + 1}`;
       store.saveScene(name);
     });
     refs.projectRail.querySelectorAll("[data-update]").forEach((input) => {
@@ -683,6 +692,12 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
     refs.projectRail.querySelectorAll("[data-live-scene]").forEach((button) => {
       button.addEventListener("click", () => store.selectLiveScene(button.dataset.liveScene));
     });
+    refs.projectRail.querySelectorAll("[data-reset-live-scene]").forEach((button) => {
+      button.addEventListener("click", (event) => {
+        event.stopPropagation();
+        store.resetLiveScene?.(button.dataset.resetLiveScene);
+      });
+    });
     refs.projectRail.querySelectorAll("[data-delete-scene]").forEach((button) => {
       button.addEventListener("click", () => store.deleteScene(button.dataset.deleteScene));
     });
@@ -697,6 +712,7 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
     refs.projectRail.querySelectorAll("[data-remove-composition]").forEach((button) => {
       button.addEventListener("click", () => store.removeComposition(button.dataset.removeComposition));
     });
+    bindCompositionFilters(refs.projectRail);
   }
 
   function renderModal(state) {
@@ -1041,6 +1057,7 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
   }
 
   function bindInputs(scope, state) {
+    bindCompositionFilters(scope);
     scope.querySelectorAll("[data-video-trim]").forEach(bindVideoTrimControl);
     scope.querySelectorAll("[data-param-range]").forEach(bindParamRangeControl);
     scope.querySelectorAll("[data-color-param]").forEach(bindColorParamControl);
@@ -1291,8 +1308,8 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
       if (control.dataset.colorMode === "live") {
         const compositionId = control.dataset.liveCompositionId;
         if (!compositionId) return;
-        draft.ui.live.compositionOverrides ||= {};
-        const override = draft.ui.live.compositionOverrides[compositionId] ||= {};
+        const overrides = activeLiveOverrideBank(draft);
+        const override = overrides[compositionId] ||= {};
         setByPathCreate(override, path, value);
         return;
       }
@@ -1350,8 +1367,8 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
       if (minInput.dataset.liveUpdate) {
         const compositionId = minInput.dataset.liveCompositionId;
         if (!compositionId) return;
-        draft.ui.live.compositionOverrides ||= {};
-        const override = draft.ui.live.compositionOverrides[compositionId] ||= {};
+        const overrides = activeLiveOverrideBank(draft);
+        const override = overrides[compositionId] ||= {};
         setByPathCreate(override, minPath, minValue);
         setByPathCreate(override, maxPath, maxValue);
         return;
@@ -1371,6 +1388,7 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
     const nextValue = button.dataset.toggleValue !== "true";
     store.update((draft) => {
       setByPath(draft, path, nextValue);
+      invalidateCompositionPreviewAssets(draft, path);
       if (currentWorkspace(draft) === "scene") {
         if (path.startsWith("scenes.")) {
           applySelectedSceneSnapshot(draft);
@@ -1385,8 +1403,8 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
     store.update((draft) => {
       const compositionId = input.dataset.liveCompositionId;
       if (!compositionId) return;
-      draft.ui.live.compositionOverrides ||= {};
-      const override = draft.ui.live.compositionOverrides[compositionId] ||= {};
+      const overrides = activeLiveOverrideBank(draft);
+      const override = overrides[compositionId] ||= {};
       setByPathCreate(override, input.dataset.liveUpdate, readInputValue(input));
     }, reason);
   }
@@ -1397,8 +1415,8 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
     if (!compositionId || !path) return;
     const nextValue = button.dataset.toggleValue !== "true";
     store.update((draft) => {
-      draft.ui.live.compositionOverrides ||= {};
-      const override = draft.ui.live.compositionOverrides[compositionId] ||= {};
+      const overrides = activeLiveOverrideBank(draft);
+      const override = overrides[compositionId] ||= {};
       setByPathCreate(override, path, nextValue);
     }, reason);
   }
@@ -1413,7 +1431,7 @@ function compositionPillTemplate(composition, state) {
     ? ordinaryCompositions(state).length <= 1
     : state.compositions.length <= 1;
   return `
-    <div class="composition-card-row">
+    <div class="composition-card-row" data-composition-filter-card="${esc(composition.name.toLowerCase())}">
       <button type="button" class="composition-card ${selected ? "is-selected" : ""}" data-select-composition="${esc(composition.id)}">
         ${thumbnailTemplate(composition.thumbnail, fallbackIcon)}
         <span>${esc(composition.name)}</span>
@@ -2215,8 +2233,8 @@ function sceneSurfaceTemplate(surface, state) {
       <div class="rail-title"><span class="material-symbols-rounded">auto_awesome</span><span>Scene assignment</span></div>
       ${hasSceneSurface ? `
         ${rangeTemplate("Presence", `${sceneBase}.opacity`, sceneSurface.opacity)}
-        ${compositionAssignmentTemplate(sceneBase, state, sceneSurface)}
         <label class="field">Projection fit ${selectValuesTemplate(`${sceneBase}.projectionFit`, PROJECTION_FIT_MODES, sceneSurface.projectionFit || "cover")}</label>
+        ${compositionAssignmentTemplate(sceneBase, state, sceneSurface)}
       ` : `<div class="soft-note">Capture a scene to store composition assignments for this surface.</div>`}
     </article>
   `;
@@ -2555,7 +2573,10 @@ function sourceMediaCardTemplate(item, source, mediaLibrary, urlCache) {
 
 function elementPickerTemplate(state, picker, mediaLibrary, urlCache) {
   const mediaItems = state.media || [];
-  const compositions = state.compositions.filter((composition) => composition.id !== picker.compositionId && composition.type !== "canvas");
+  const owner = state.compositions.find((composition) => composition.id === picker.compositionId);
+  const compositions = owner?.type === "canvas"
+    ? state.compositions.filter((composition) => composition.id !== picker.compositionId && composition.type !== "canvas")
+    : [];
   const generators = listGeneratorComponents().filter((generator) => generator.id !== "black");
   const effects = listShaderComponents();
   return `
@@ -2757,11 +2778,16 @@ function scenePillTemplate(scene, state) {
 function liveScenePillTemplate(scene, state) {
   const selected = liveSelectedSceneId(state) === scene.id;
   const compositions = sceneFingerprintCompositions(scene, state);
+  const sceneOverrides = state.ui?.live?.sceneOverrides?.[scene.id] || (selected ? state.ui?.live?.compositionOverrides || {} : {});
+  const hasOverrides = Object.keys(sceneOverrides).length > 0;
   return `
-    <button type="button" class="composition-card scene-card live-scene-card ${selected ? "is-selected" : ""}" data-live-scene="${esc(scene.id)}">
-      ${sceneFingerprintTemplate(compositions)}
-      <span>${esc(scene.name)}</span>
-    </button>
+    <div class="composition-card-row">
+      <button type="button" class="composition-card scene-card live-scene-card ${selected ? "is-selected" : ""}" data-live-scene="${esc(scene.id)}">
+        ${sceneFingerprintTemplate(compositions)}
+        <span>${esc(scene.name)}</span>
+      </button>
+      <button type="button" class="composition-card-remove" data-reset-live-scene="${esc(scene.id)}" title="Reset temporary settings" aria-label="Reset temporary settings for ${esc(scene.name)}" ${hasOverrides ? "" : "disabled"}>${icon("restart_alt")}</button>
+    </div>
   `;
 }
 
@@ -2970,6 +2996,7 @@ function syncSelectedSceneSnapshot(state) {
   const scene = state.scenes.find((item) => item.id === state.ui.selectedSceneId);
   if (!scene) return;
   scene.snapshot = createSceneSnapshot(state);
+  syncLiveSnapshotFromScene(state, scene);
 }
 
 function applySelectedSceneSnapshot(state) {
@@ -3113,13 +3140,14 @@ function formatRenderCost(cost) {
 function compositionAssignmentTemplate(routeBase, state, route = {}) {
   const options = sceneSourceNodes(state);
   return `
-    <div class="field composition-assignment-field">
+    <div class="field composition-assignment-field" data-composition-filter-scope>
       <span>Composition</span>
+      ${compositionFilterTemplate("Filter sources")}
       <div class="composition-card-list assignment-card-list">
         ${options.map((node) => {
           const selected = node.id === route.sourceNodeId;
           return `
-            <button type="button" class="composition-card assignment-card ${selected ? "is-selected" : ""}" data-set-route-source-node="${esc(node.id)}" data-route-base="${esc(routeBase)}">
+            <button type="button" class="composition-card assignment-card ${selected ? "is-selected" : ""}" data-composition-filter-card="${esc(node.name.toLowerCase())}" data-set-route-source-node="${esc(node.id)}" data-route-base="${esc(routeBase)}">
               ${thumbnailTemplate(node.thumbnail, node.type === "recording-frame" ? "select_all" : "account_tree")}
               <span>${esc(node.name)}</span>
             </button>
@@ -3128,6 +3156,40 @@ function compositionAssignmentTemplate(routeBase, state, route = {}) {
       </div>
     </div>
   `;
+}
+
+function compositionFilterTemplate(placeholder = "Filter compositions") {
+  return `<label class="composition-filter-field">${icon("search")}<input type="search" data-composition-filter placeholder="${esc(placeholder)}" autocomplete="off" /></label>`;
+}
+
+function bindCompositionFilters(scope) {
+  scope?.querySelectorAll?.("[data-composition-filter]").forEach((input) => {
+    input.addEventListener("input", () => {
+      const filterScope = input.closest("[data-composition-filter-scope]");
+      const query = input.value.trim().toLowerCase();
+      filterScope?.querySelectorAll?.("[data-composition-filter-card]").forEach((card) => {
+        card.hidden = !!query && !String(card.dataset.compositionFilterCard || "").includes(query);
+      });
+    });
+  });
+}
+
+function activeLiveOverrideBank(state) {
+  state.ui.live ||= {};
+  state.ui.live.compositionOverrides ||= {};
+  state.ui.live.sceneOverrides ||= {};
+  const sceneId = String(state.ui.live.selectedSceneId || "");
+  if (sceneId) state.ui.live.sceneOverrides[sceneId] = state.ui.live.compositionOverrides;
+  return state.ui.live.compositionOverrides;
+}
+
+function invalidateCompositionPreviewAssets(state, path = "") {
+  const match = String(path).match(/^compositions\.(\d+)\.(chain|shaderChain|source|opacity|blend|speed)/);
+  if (!match) return;
+  const composition = state.compositions?.[Number(match[1])];
+  if (!composition) return;
+  composition.thumbnail = "";
+  if (composition.type === "canvas" && composition.canvas) composition.canvas.frameThumbnails = {};
 }
 
 function setByPath(target, path, value) {

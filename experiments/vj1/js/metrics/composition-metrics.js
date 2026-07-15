@@ -1,5 +1,5 @@
 import { BLEND_MODES, VJ1 } from "../constants.js";
-import { sanitizeState } from "../domain/models.js?v=surface-feather-1";
+import { sanitizeState } from "../domain/models.js?v=batch-fixes-1";
 import { compileCompositionPatch } from "../graph/render-scheduler.js?v=hsv-alpha-key-1";
 import { planCompositorInputs, planPatchExecution, summarizeTextureBranches } from "../graph/patch-planner.js";
 import { getShaderComponent } from "../shaders/shader-registry.js?v=hsv-alpha-key-1";

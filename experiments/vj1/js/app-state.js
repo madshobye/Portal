@@ -16,11 +16,12 @@ import {
   sanitizeState,
   syncLiveSnapshotFromScene,
   uid,
-} from "./domain/models.js?v=surface-feather-1";
+} from "./domain/models.js?v=batch-fixes-1";
 import { WORKSPACES } from "./constants.js";
 
 export function createAppState(initial = null) {
   let state = sanitizeState(initial || createInitialState());
+  refreshLiveSelectedSceneSnapshot(state);
   const listeners = new Set();
 
   function emit(reason = "change") {
@@ -32,7 +33,10 @@ export function createAppState(initial = null) {
   }
 
   function replace(next, reason = "replace") {
+    const previous = state;
     state = sanitizeState(next);
+    if (!isLiveOverrideReason(reason)) reconcileLiveOverridesWithPersistentEdits(previous, state);
+    refreshLiveSelectedSceneSnapshot(state);
     emit(reason);
   }
 
@@ -109,7 +113,7 @@ export function createAppState(initial = null) {
     },
     addComposition() {
       update((draft) => {
-        const composition = createDefaultComposition(draft.compositions.length);
+        const composition = createDefaultComposition(draft.compositions.filter((item) => item.type !== "canvas").length);
         draft.compositions.push(composition);
         draft.ui.selectedCompositionId = composition.id;
         draft.ui.selectedChainItemId = composition.chain[0]?.id || "";
@@ -176,6 +180,7 @@ export function createAppState(initial = null) {
       update((draft) => {
         const composition = draft.compositions.find((item) => item.id === compositionId);
         if (!composition) return;
+        if (source.type === "composition" && composition.type !== "canvas") return;
         const layer = createCompositionLayer(composition.chain?.length || 0, source);
         composition.chain ||= [];
         insertChainItemNearSelection(composition.chain, draft.ui.selectedChainItemId, layer);
@@ -238,7 +243,7 @@ export function createAppState(initial = null) {
       update((draft) => {
         const surface = createDefaultSurface(draft.surfaces.length);
         surface.id = uid("surface");
-        surface.name = `Surface ${draft.surfaces.length + 1}`;
+        surface.name = `Srf ${draft.surfaces.length + 1}`;
         surface.mappingId = surface.id;
         surface.compositionId = draft.compositions[0]?.id || "";
         draft.surfaces.push(surface);
@@ -282,25 +287,124 @@ export function createAppState(initial = null) {
       update((draft) => {
         const scene = draft.scenes.find((item) => String(item.id) === String(id));
         if (!scene) return;
+        draft.ui.live.sceneOverrides ||= {};
+        const previousSceneId = String(draft.ui.live.selectedSceneId || "");
+        if (previousSceneId && Object.keys(draft.ui.live.compositionOverrides || {}).length) {
+          draft.ui.live.sceneOverrides[previousSceneId] = clone(draft.ui.live.compositionOverrides);
+        }
         draft.ui.live.selectedSceneId = scene.id;
         draft.ui.live.sceneSnapshot = clone(scene.snapshot);
-        draft.ui.live.compositionOverrides = {};
+        draft.ui.live.compositionOverrides = clone(draft.ui.live.sceneOverrides[scene.id] || {});
       }, "live:scene");
+    },
+    resetLiveScene(id) {
+      update((draft) => {
+        const sceneId = String(id || draft.ui.live?.selectedSceneId || "");
+        if (!sceneId) return;
+        draft.ui.live.sceneOverrides ||= {};
+        delete draft.ui.live.sceneOverrides[sceneId];
+        if (String(draft.ui.live.selectedSceneId || "") === sceneId) {
+          draft.ui.live.compositionOverrides = {};
+        }
+      }, "live:reset");
     },
     deleteScene(id) {
       update((draft) => {
         draft.scenes = draft.scenes.filter((scene) => String(scene.id) !== String(id));
+        if (draft.ui.live?.sceneOverrides) delete draft.ui.live.sceneOverrides[String(id)];
         if (String(draft.ui.selectedSceneId) === String(id)) draft.ui.selectedSceneId = draft.scenes[0]?.id || "";
         if (String(draft.ui.live?.selectedSceneId) === String(id)) {
           const fallback = draft.scenes[0];
           draft.ui.live.selectedSceneId = fallback?.id || "";
           draft.ui.live.sceneSnapshot = fallback?.snapshot ? clone(fallback.snapshot) : null;
+          draft.ui.live.compositionOverrides = clone(draft.ui.live.sceneOverrides?.[fallback?.id] || {});
         }
         const selectedScene = draft.scenes.find((scene) => scene.id === draft.ui.selectedSceneId);
         if (selectedScene) applySceneSnapshotToState(draft, selectedScene);
       }, "delete-scene");
     },
   };
+}
+
+function isLiveOverrideReason(reason = "") {
+  return String(reason).startsWith("live:") || String(reason) === "scrub:live";
+}
+
+function refreshLiveSelectedSceneSnapshot(state) {
+  const liveSceneId = String(state.ui?.live?.selectedSceneId || "");
+  const liveScene = state.scenes?.find((scene) => String(scene.id) === liveSceneId);
+  syncLiveSnapshotFromScene(state, liveScene);
+}
+
+function reconcileLiveOverridesWithPersistentEdits(previous, next) {
+  const previousCompositions = new Map((previous?.compositions || []).map((composition) => [String(composition.id), composition]));
+  const nextCompositions = new Map((next?.compositions || []).map((composition) => [String(composition.id), composition]));
+  const rebaseBank = (bank = {}) => Object.fromEntries(Object.entries(bank || {}).flatMap(([compositionId, override]) => {
+    const rebased = pruneChangedLiveOverride(
+      override,
+      previousCompositions.get(String(compositionId)),
+      nextCompositions.get(String(compositionId))
+    );
+    return hasLiveOverrideContent(rebased) ? [[compositionId, rebased]] : [];
+  }));
+
+  next.ui.live.compositionOverrides = rebaseBank(next.ui.live.compositionOverrides);
+  next.ui.live.sceneOverrides = Object.fromEntries(Object.entries(next.ui.live.sceneOverrides || {}).map(([sceneId, bank]) => [
+    sceneId,
+    rebaseBank(bank),
+  ]));
+  const selectedSceneId = String(next.ui.live.selectedSceneId || "");
+  if (selectedSceneId) {
+    if (Object.keys(next.ui.live.compositionOverrides).length) {
+      next.ui.live.sceneOverrides[selectedSceneId] = clone(next.ui.live.compositionOverrides);
+    } else {
+      delete next.ui.live.sceneOverrides[selectedSceneId];
+    }
+  }
+}
+
+function pruneChangedLiveOverride(override, before, after, path = "") {
+  if (Array.isArray(override)) {
+    if (path !== "chain" && path !== "shaderChain") {
+      return persistentValuesEqual(before, after) ? clone(override) : undefined;
+    }
+    const result = override.map((entry, index) => (
+      pruneChangedLiveOverride(entry, before?.[index], after?.[index], "")
+    ));
+    return result.some(hasLiveOverrideContent) ? result : undefined;
+  }
+  if (override && typeof override === "object") {
+    const result = {};
+    for (const [key, value] of Object.entries(override)) {
+      const rebased = pruneChangedLiveOverride(value, before?.[key], after?.[key], key);
+      if (hasLiveOverrideContent(rebased)) result[key] = rebased;
+    }
+    return Object.keys(result).length ? result : undefined;
+  }
+  return persistentValuesEqual(before, after) ? override : undefined;
+}
+
+function hasLiveOverrideContent(value) {
+  if (value === undefined) return false;
+  if (Array.isArray(value)) return value.some(hasLiveOverrideContent);
+  if (value && typeof value === "object") return Object.values(value).some(hasLiveOverrideContent);
+  return true;
+}
+
+function persistentValuesEqual(a, b) {
+  if (Object.is(a, b)) return true;
+  if (Array.isArray(a) || Array.isArray(b)) {
+    if (!Array.isArray(a) || !Array.isArray(b) || a.length !== b.length) return false;
+    return a.every((value, index) => persistentValuesEqual(value, b[index]));
+  }
+  if (a && b && typeof a === "object" && typeof b === "object") {
+    const aKeys = Object.keys(a);
+    const bKeys = Object.keys(b);
+    return aKeys.length === bKeys.length && aKeys.every((key) => (
+      Object.prototype.hasOwnProperty.call(b, key) && persistentValuesEqual(a[key], b[key])
+    ));
+  }
+  return false;
 }
 
 function moveById(list, fromId, toId) {

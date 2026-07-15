@@ -14,6 +14,12 @@ const render = {
   pixelDensity: 0.5,
 };
 
+test("generated visual objects use compact default names", () => {
+  assert.equal(createDefaultComposition(1).name, "Comp 2");
+  assert.equal(createCanvasComposition(1).name, "Canv 2");
+  assert.equal(createDefaultSurface(1).name, "Srf 2");
+});
+
 test("composition frame shape derives landscape portrait and square from the surface texture", () => {
   assert.deepEqual(
     pickSize(compositionFrameMetrics(render, { frameShape: "landscape", resolutionScale: 1 })),

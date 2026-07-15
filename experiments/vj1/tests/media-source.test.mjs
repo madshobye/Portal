@@ -301,9 +301,9 @@ test("terrain flyover exposes flight, terrain, wire, and biome controls", () => 
   }
   assert.ok(controllerSource.includes("terrainFlyover: \"landscape\""));
   assert.ok(rendererSource.includes("source.generatorId === \"terrainFlyover\""));
-  assert.ok(rendererSource.includes("this.terrainTargets = new Map()"));
+  assert.ok(rendererSource.includes("this.specializedWebglTargets = new Map()"));
   assert.ok(rendererSource.includes("this.getTerrainTarget(renderRequest.width, renderRequest.height, this.requestPixelDensity(renderRequest))"));
-  assert.ok(rendererSource.includes("disposeGraphicsMap(this.terrainTargets)"));
+  assert.ok(rendererSource.includes("disposeGraphicsMap(this.specializedWebglTargets)"));
   assert.ok(rendererSource.includes("this.terrainSurfaceResources = new Map()"));
   assert.ok(rendererSource.includes("drawTerrainSurface(target, this.terrainSurfaceResources"));
   assert.ok(rendererSource.includes("updateTerrainSurfaceBuffers(gl, resources, widthCells, depthCells, baseRow)"));
@@ -621,7 +621,12 @@ test("parsed STL and OBJ models use one clipped raw WebGL renderer family", () =
   assert.ok(source.includes("function drawRawParsedSurface("));
   assert.ok(source.includes("function ensureRawSurfaceResources("));
   assert.ok(source.includes("function createRawSurfaceProgram("));
-  assert.ok(source.includes("function ensureParsedModelSurfaceArrays("));
+  assert.ok(source.includes("function buildParsedModelSurfaceVertices("));
+  assert.ok(source.includes("const stride = 6 * 4;"));
+  assert.ok(source.includes("pruneRawModelBufferVariants(gl, contextResources"));
+  assert.ok(source.includes("function disposeRawModelContextResources("));
+  assert.ok(source.includes("onContextDiscard: (gl) => this.resetModelResources(gl)"));
+  assert.ok(!source.includes("modelRawRenderers ||= new WeakMap()"));
   assert.ok(source.includes("item.modelData = parseObjMesh(text);"));
   assert.ok(source.includes("if (vModelDepth < uDepthCutoff) discard;"));
   assert.ok(source.includes("modelDepthCutoff(params, mesh.bounds, matrices.model)"));
@@ -731,7 +736,9 @@ test("composition preview follows the shared preview toggle", () => {
 
   assert.ok(rendererSource.includes('(this.mode === "preview" || this.mode === "composition") && this.state?.ui?.debugPreview === false'));
   assert.ok(rendererSource.includes("if (!this.shouldUseThumbnailPreview()) this.captureSelectedCompositionThumbnail()"));
-  assert.ok(rendererSource.includes("if (!this.shouldUseThumbnailPreview()) this.renderSelectedChainTransformOverlay()"));
+  assert.ok(rendererSource.includes("this.renderSelectedChainTransformOverlay()"));
+  assert.ok(rendererSource.includes("renderCanvasThumbnailEditPreview(composition)"));
+  assert.ok(rendererSource.includes("renderFlattenedThumbnailEditPreview(composition)"));
 });
 
 test("output playback control is persistent and pauses renderer and video clocks", () => {

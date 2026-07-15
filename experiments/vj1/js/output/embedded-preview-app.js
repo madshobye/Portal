@@ -1,6 +1,6 @@
 import { VJ1 } from "../constants.js";
-import { sanitizeState } from "../domain/models.js?v=surface-feather-1";
-import { OutputRenderer } from "./output-renderer.js?v=thumbnail-readback-1";
+import { sanitizeState } from "../domain/models.js?v=batch-fixes-1";
+import { OutputRenderer } from "./output-renderer.js?v=stl-buffer-lifecycle-1";
 import { applyFontToGlobal, loadVjRenderFont } from "./font-loader.js?v=world-frame-27";
 import { createPreviewViewportController, fitPreviewCanvasElement } from "./preview-viewport.js?v=zoom-transition-1";
 import { canvasSizeForMode } from "./render-geometry.js?v=render-demand-1";
@@ -16,6 +16,11 @@ export function createEmbeddedPreviewApp({ store, mediaLibrary, projectService }
   let started = false;
   let setupStarted = false;
   let resizeObserver = null;
+  let observedStage = null;
+  let settleResizeFrame = 0;
+  let settleResizeToken = 0;
+  let layoutSettleActive = false;
+  let revealCanvasAfterDraw = false;
   let canvasWidth = 0;
   let canvasHeight = 0;
   let pointerActive = false;
@@ -26,6 +31,7 @@ export function createEmbeddedPreviewApp({ store, mediaLibrary, projectService }
   let mediaFilesSignature = "";
 
   function mount({ host: nextHost, stage: nextStage, hud: nextHud, mode, state }) {
+    const modeChanged = !!renderer && pendingMode !== mode;
     host = nextHost;
     stage = nextStage;
     hud = nextHud;
@@ -36,14 +42,17 @@ export function createEmbeddedPreviewApp({ store, mediaLibrary, projectService }
     if (typeof loop === "function") loop();
     applyPreviewFrameRate();
     bindStageViewportEvents();
+    observeCurrentStage();
     if (canvas && stage) canvas.parent(stage);
     if (renderer) {
       renderer.mode = pendingMode;
       renderer.hud = hud;
-      resizeToStage(true);
+      if (modeChanged) hideCanvasUntilSettledDraw();
+      else resizeToStage(true);
       renderer.setState(previewSizedState());
       importMediaFilesIfChanged();
       renderer.setCalibrate(pendingMode === "preview" && pendingState.global.calibrating);
+      scheduleSettledResize({ revealAfterDraw: modeChanged });
     }
     if (!started) start();
   }
@@ -77,6 +86,12 @@ export function createEmbeddedPreviewApp({ store, mediaLibrary, projectService }
     renderer = null;
     resizeObserver?.disconnect?.();
     resizeObserver = null;
+    observedStage = null;
+    if (settleResizeFrame) cancelAnimationFrame(settleResizeFrame);
+    settleResizeFrame = 0;
+    settleResizeToken++;
+    layoutSettleActive = false;
+    revealCanvasAfterDraw = false;
     viewportController?.destroy?.();
     viewportController = null;
   }
@@ -135,8 +150,10 @@ export function createEmbeddedPreviewApp({ store, mediaLibrary, projectService }
     });
     await renderer.setup(previewSizedState(size));
     importMediaFilesIfChanged(true);
-    resizeObserver = new ResizeObserver(resizeToStage);
-    if (stage) resizeObserver.observe(stage);
+    resizeObserver = new ResizeObserver(() => {
+      if (!layoutSettleActive) resizeToStage();
+    });
+    observeCurrentStage();
   }
 
   function applyLoadedFont() {
@@ -147,6 +164,11 @@ export function createEmbeddedPreviewApp({ store, mediaLibrary, projectService }
     if (paused) return;
     applyPreviewFrameRate();
     renderer?.draw();
+    if (revealCanvasAfterDraw) {
+      revealCanvasAfterDraw = false;
+      const element = canvas?.elt || canvas;
+      if (element?.style) element.style.visibility = "visible";
+    }
   }
 
   function mouseDragged() {
@@ -175,6 +197,49 @@ export function createEmbeddedPreviewApp({ store, mediaLibrary, projectService }
     resizeCanvas(logical.width, logical.height);
     fitCanvasToStage(size, logical);
     renderer?.setState(previewSizedState(size));
+  }
+
+  function observeCurrentStage() {
+    if (!resizeObserver || observedStage === stage) return;
+    if (observedStage) resizeObserver.unobserve?.(observedStage);
+    observedStage = stage;
+    if (observedStage) resizeObserver.observe(observedStage);
+  }
+
+  function scheduleSettledResize({ revealAfterDraw = false } = {}) {
+    if (settleResizeFrame) cancelAnimationFrame(settleResizeFrame);
+    const token = ++settleResizeToken;
+    const targetStage = stage;
+    let previousSize = null;
+    let stableMeasurements = 0;
+    let attempts = 0;
+    layoutSettleActive = true;
+    const measure = () => {
+      if (token !== settleResizeToken || targetStage !== stage) return;
+      attempts++;
+      const size = stageSize();
+      if (previousSize && size.width === previousSize.width && size.height === previousSize.height) {
+        stableMeasurements++;
+      } else {
+        stableMeasurements = 0;
+      }
+      previousSize = size;
+      if (stableMeasurements < 1 && attempts < 8) {
+        settleResizeFrame = requestAnimationFrame(measure);
+        return;
+      }
+      settleResizeFrame = 0;
+      layoutSettleActive = false;
+      if (revealAfterDraw) revealCanvasAfterDraw = true;
+      resizeToStage(true);
+    };
+    settleResizeFrame = requestAnimationFrame(measure);
+  }
+
+  function hideCanvasUntilSettledDraw() {
+    const element = canvas?.elt || canvas;
+    if (element?.style) element.style.visibility = "hidden";
+    revealCanvasAfterDraw = false;
   }
 
   function stageSize() {

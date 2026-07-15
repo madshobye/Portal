@@ -11,7 +11,7 @@ export function createDefaultComposition(index = 0) {
   return {
     id: uid("composition"),
     type: "chain",
-    name: index === 0 ? "Test Pattern" : `Composition ${index + 1}`,
+    name: `Comp ${index + 1}`,
     source,
     opacity: 1,
     blend: "normal",
@@ -31,7 +31,7 @@ export function createCanvasComposition(index = 0, sourceCompositionId = "") {
   return {
     id,
     type: "canvas",
-    name: index === 0 ? "Canvas" : `Canvas ${index + 1}`,
+    name: `Canv ${index + 1}`,
     source: { type: "generator", mediaId: "", generatorId: "black" },
     opacity: 1,
     blend: "normal",
@@ -94,7 +94,7 @@ export function createDefaultSurface(index = 0) {
   const id = index === 0 ? "surface-main" : uid("surface");
   return {
     id,
-    name: index === 0 ? "Main" : `Surface ${index + 1}`,
+    name: `Srf ${index + 1}`,
     enabled: true,
     opacity: 1,
     feather: 0,
@@ -146,6 +146,7 @@ export function createInitialState() {
         selectedSceneId: "",
         sceneSnapshot: null,
         compositionOverrides: {},
+        sceneOverrides: {},
       },
       previewViewport: {
         zoom: 1,
@@ -446,9 +447,7 @@ export function createLiveCompositionView(composition = {}, state = createInitia
 }
 
 function normalizeLiveUi(live = {}, state = createInitialState()) {
-  const compositionOverrides = {};
-  for (const [id, override] of Object.entries(live.compositionOverrides || {})) {
-    compositionOverrides[id] = {
+  const normalizeCompositionOverrides = (overrides = {}) => Object.fromEntries(Object.entries(overrides || {}).map(([id, override]) => [id, {
       ...(override.opacity !== undefined ? { opacity: clamp01(override.opacity) } : {}),
       ...(override.speed !== undefined ? { speed: Math.max(0, Number(override.speed) || 0) } : {}),
       ...(override.blend ? { blend: override.blend } : {}),
@@ -458,18 +457,26 @@ function normalizeLiveUi(live = {}, state = createInitialState()) {
       ...(Array.isArray(override.shaderChain)
         ? { shaderChain: override.shaderChain.map(normalizeLiveShaderPassOverride) }
         : {}),
-    };
-  }
+    }]));
   const selectedSceneId = live.selectedSceneId && state.scenes?.some((scene) => String(scene.id) === String(live.selectedSceneId))
     ? String(live.selectedSceneId)
     : state.scenes?.[0]?.id || "";
   const selectedScene = state.scenes?.find((scene) => String(scene.id) === selectedSceneId);
+  const sceneOverrides = Object.fromEntries(Object.entries(live.sceneOverrides || {}).map(([sceneId, overrides]) => [
+    String(sceneId),
+    normalizeCompositionOverrides(overrides),
+  ]));
+  const compositionOverrides = normalizeCompositionOverrides(
+    sceneOverrides[selectedSceneId] || live.compositionOverrides || {}
+  );
+  if (selectedSceneId && Object.keys(compositionOverrides).length) sceneOverrides[selectedSceneId] = clone(compositionOverrides);
   return {
     selectedSceneId,
     sceneSnapshot: live.sceneSnapshot
       ? normalizeSceneSnapshot(live.sceneSnapshot, state)
       : selectedScene?.snapshot ? clone(selectedScene.snapshot) : null,
     compositionOverrides,
+    sceneOverrides,
   };
 }
 

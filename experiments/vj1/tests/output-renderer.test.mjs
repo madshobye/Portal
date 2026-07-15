@@ -243,7 +243,7 @@ test("hud render resolution reports GPU render pixels, not window size", () => {
   }
 });
 
-test("terrain and STL WebGL targets use project pixel density", () => {
+test("terrain and STL reuse stable WebGL scratch targets across demand sizes", () => {
   const previousCreateGraphics = globalThis.createGraphics;
   const previousWebgl = globalThis.WEBGL;
   const created = [];
@@ -257,6 +257,11 @@ test("terrain and STL WebGL targets use project pixel density", () => {
       pixelDensity(value) {
         if (value !== undefined) this.appliedDensity = value;
         return this.appliedDensity;
+      },
+      resizeCanvas(nextWidth, nextHeight) {
+        this.width = nextWidth;
+        this.height = nextHeight;
+        this.resizeCount = (this.resizeCount || 0) + 1;
       },
       noStroke() {},
     };
@@ -280,14 +285,19 @@ test("terrain and STL WebGL targets use project pixel density", () => {
     const modelHigh = renderer.getModelTarget(1000, 563);
     assert.equal(terrainHigh.appliedDensity, 1.5);
     assert.equal(modelHigh.appliedDensity, 1.5);
-    assert.notStrictEqual(terrainHigh, terrainLow);
-    assert.notStrictEqual(modelHigh, modelLow);
+    assert.strictEqual(terrainHigh, terrainLow);
+    assert.strictEqual(modelHigh, modelLow);
 
     const terrainResolved = renderer.getTerrainTarget(500, 282, 1);
     const modelResolved = renderer.getModelTarget(500, 282, 1);
     assert.equal(terrainResolved.appliedDensity, 1);
     assert.equal(modelResolved.appliedDensity, 1);
-    assert.equal(created.length, 6);
+    assert.strictEqual(terrainResolved, terrainLow);
+    assert.strictEqual(modelResolved, modelLow);
+    assert.equal(terrainResolved.resizeCount, 1);
+    assert.equal(modelResolved.resizeCount, 1);
+    assert.equal(renderer.specializedWebglTargets.size, 2);
+    assert.equal(created.length, 2);
   } finally {
     if (previousCreateGraphics === undefined) delete globalThis.createGraphics;
     else globalThis.createGraphics = previousCreateGraphics;
@@ -331,10 +341,23 @@ test("current composition thumbnails bypass full WebGL framebuffer readback", ()
 
 test("paused previews contain thumbnails and canvas surface routes preserve sampling", () => {
   const source = readFileSync(new URL("../js/output/output-renderer.js", import.meta.url), "utf8");
-  assert.ok(source.includes("const rect = this.compositionPreviewRect(composition, thumbnail.img);"));
+  assert.ok(source.includes("const rect = this.compositionPreviewRect(composition);"));
   assert.ok(source.includes('if (composition?.type === "canvas")'));
   assert.ok(source.includes("drawSampleRect(pg, thumbnail.img"));
   assert.ok(source.includes("this.mapper.drawTexture(pg, mapped.mapperSurface, surface.projectionFit, surface.feather)"));
+});
+
+test("thumbnail preview remains an active transform editor without live composition rendering", () => {
+  const source = readFileSync(new URL("../js/output/output-renderer.js", import.meta.url), "utf8");
+
+  assert.ok(source.includes("captureThumbnailEditTransformBaselines()"));
+  assert.ok(source.includes("renderCanvasThumbnailEditPreview(composition)"));
+  assert.ok(source.includes("combineContentTransforms(parentTransform, item.transform)"));
+  assert.ok(source.includes("this.renderSelectedChainTransformOverlay();"));
+  assert.ok(source.includes("if (this.shouldUseThumbnailPreview()) this.renderThumbnailCompositions();"));
+  assert.ok(source.includes("const rect = this.compositionPreviewRect(composition);"));
+  assert.ok(source.includes("withScreenScissor(rect"));
+  assert.ok(source.includes("drawImageCoverCrop(thumbnail.img"));
 });
 
 test("canvas rendering evaluates ordinary sources, Groups, effects, and shared route frames", () => {

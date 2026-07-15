@@ -65,6 +65,36 @@ test("scene surfaces expose projection cover contain and stretch", () => {
   assert.ok(source.includes("Projection fit"));
   assert.ok(source.includes("sceneBase}.projectionFit"));
   assert.ok(source.includes('rangeTemplate("Feather", `${surfaceBase}.feather`'));
+  assert.ok(source.indexOf("Projection fit") < source.indexOf("compositionAssignmentTemplate(sceneBase"));
+});
+
+test("composition catalogs expose shared local filtering", () => {
+  const source = readFileSync(new URL("../js/control/control-shell-controller.js", import.meta.url), "utf8");
+  const style = readFileSync(new URL("../style.css", import.meta.url), "utf8");
+  assert.ok(source.includes("compositionFilterTemplate"));
+  assert.ok(source.includes("data-composition-filter-card"));
+  assert.ok(source.includes("bindCompositionFilters"));
+  assert.ok(style.includes(".composition-filter-field"));
+});
+
+test("Live scene cards expose reset only for retained temporary overrides", () => {
+  const source = readFileSync(new URL("../js/control/control-shell-controller.js", import.meta.url), "utf8");
+  assert.ok(source.includes("data-reset-live-scene"));
+  assert.ok(source.includes("state.ui?.live?.sceneOverrides"));
+  assert.ok(source.includes("store.resetLiveScene"));
+});
+
+test("embedded preview retargets resize observation after workspace DOM replacement", () => {
+  const source = readFileSync(new URL("../js/output/embedded-preview-app.js", import.meta.url), "utf8");
+  const controllerSource = readFileSync(new URL("../js/control/control-shell-controller.js", import.meta.url), "utf8");
+  assert.ok(source.includes("function observeCurrentStage()"));
+  assert.ok(source.includes("resizeObserver.unobserve?.(observedStage)"));
+  assert.ok(source.includes("function scheduleSettledResize("));
+  assert.ok(source.includes("stableMeasurements < 1 && attempts < 8"));
+  assert.ok(source.includes("hideCanvasUntilSettledDraw()"));
+  assert.ok(source.includes("if (revealCanvasAfterDraw)"));
+  assert.ok(controllerSource.includes('if (reason === "workspace")'));
+  assert.ok(controllerSource.includes("render(state);"));
 });
 
 test("canvas uses the shared chain and exposes recording frames as scene routes", () => {
@@ -127,7 +157,7 @@ test("scrub changes are sent to live output on the next animation frame", () => 
   assert.ok(!appSource.includes("setTimeout(() => bridge.sendState(), 90)"));
 });
 
-test("popup outputs are live-controlled while Scene surface edits refresh their mapping", () => {
+test("popup outputs keep Live scene selection while accepting edits from every workspace", () => {
   const appSource = readFileSync(new URL("../js/app.js", import.meta.url), "utf8");
   const controllerSource = readFileSync(new URL("../js/control/control-shell-controller.js", import.meta.url), "utf8");
   const bridgeSource = readFileSync(new URL("../js/services/output-bridge-service.js", import.meta.url), "utf8");
@@ -139,10 +169,10 @@ test("popup outputs are live-controlled while Scene surface edits refresh their 
   assert.ok(bridgeSource.includes("initialSceneAccepted"));
   assert.ok(appSource.includes('state.ui.workspace === "scene"'));
   assert.ok(appSource.includes('bridge.command("sync-mapping"'));
-  assert.ok(appSource.includes("isSceneSurfaceOutputChange(reason)"));
-  assert.ok(appSource.includes("bridge.sendState(store.getRenderState())"));
-  assert.ok(appSource.includes('value === "add-surface"'));
-  assert.ok(appSource.includes('value === "update:surface-route"'));
+  assert.ok(appSource.includes("bridge.sendState();"));
+  assert.ok(!appSource.includes("isSceneSurfaceOutputChange(reason)"));
+  assert.ok(!appSource.includes("bridge.sendState(store.getRenderState())"));
+  assert.ok(!appSource.includes('if (state.ui.workspace === "scene") return;'));
   assert.ok(!controllerSource.includes("setTimeout(() => bridge.sendState(), 350)"));
 });
 
@@ -224,11 +254,11 @@ test("workspace view buttons are compact icons with accessible names", () => {
   const shellSource = readFileSync(new URL("../js/control/shell-view.js", import.meta.url), "utf8");
   const styleSource = readFileSync(new URL("../style.css", import.meta.url), "utf8");
 
-  for (const label of ["Compositions", "Canvas", "Scenes", "Nodes", "Live"]) {
+  for (const label of ["Compositions", "Canvas", "Scenes", "Live"]) {
     assert.ok(shellSource.includes(`title="${label}" aria-label="${label}"`));
     assert.ok(!shellSource.includes(`<span>${label}</span>`));
   }
-  assert.ok(shellSource.indexOf('data-workspace="mapping"') < shellSource.indexOf('data-workspace="compose"'));
+  assert.ok(!shellSource.includes('data-workspace="mapping"'));
   assert.match(styleSource, /\.workspace-switch button \{[\s\S]*?width: 36px;[\s\S]*?padding: 0;/);
 });
 

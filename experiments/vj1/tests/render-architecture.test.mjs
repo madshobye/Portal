@@ -174,7 +174,10 @@ test("projection mapping exposes cover contain and stretch without another rende
   assert.match(fragmentSource, /uniform float uProjectionFit/);
   assert.doesNotMatch(fragmentSource, /uFeather/);
   assert.match(featherSource, /uniform float uFeather/);
-  assert.match(featherSource, /smoothstep\(0\.0, uFeather, min\(edgeUv\.x, edgeUv\.y\)\)/);
+  assert.match(featherSource, /float cornerRadius = min\(0\.08, max\(0\.012, uFeather \* 0\.35\)\)/);
+  assert.match(featherSource, /length\(max\(roundedDelta, 0\.0\)\)/);
+  assert.match(featherSource, /smoothstep\(0\.0, uFeather, -roundedDistance\)/);
+  assert.match(featherSource, /color \*= featherMask/);
   assert.match(fragmentSource, /texture2D\(tex, clamp\(sampleUv/);
 });
 

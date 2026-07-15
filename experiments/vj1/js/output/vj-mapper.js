@@ -378,8 +378,17 @@ export function mapperVertexShaderSource() {
 export function mapperFragmentShaderSource({ feather = false } = {}) {
   const featherUniform = feather ? "uniform float uFeather;" : "";
   const featherCode = feather ? `
-        vec2 edgeUv = min(uv, 1.0 - uv);
-        color.a *= smoothstep(0.0, uFeather, min(edgeUv.x, edgeUv.y));` : "";
+        vec2 targetAspect = uTargetAspect >= 1.0
+          ? vec2(uTargetAspect, 1.0)
+          : vec2(1.0, 1.0 / max(uTargetAspect, 0.0001));
+        float cornerRadius = min(0.08, max(0.012, uFeather * 0.35));
+        vec2 roundedPoint = abs(uv - 0.5) * targetAspect;
+        vec2 roundedHalfSize = 0.5 * targetAspect - vec2(cornerRadius);
+        vec2 roundedDelta = roundedPoint - roundedHalfSize;
+        float roundedDistance = length(max(roundedDelta, 0.0)) +
+          min(max(roundedDelta.x, roundedDelta.y), 0.0) - cornerRadius;
+        float featherMask = smoothstep(0.0, uFeather, -roundedDistance);
+        color *= featherMask;` : "";
   return `
       precision highp float;
       uniform sampler2D tex;

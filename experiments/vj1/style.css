@@ -2199,6 +2199,33 @@ small {
   color: var(--muted);
 }
 
+.composition-filter-field {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 30px;
+  padding: 0 9px;
+  margin-bottom: 8px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel-2);
+}
+
+.composition-filter-field .material-symbols-rounded {
+  color: var(--muted);
+  font-size: 16px;
+}
+
+.composition-filter-field input {
+  min-width: 0;
+  width: 100%;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+  font-size: 12px;
+}
+
 .element-modal-body {
   display: grid;
   gap: 14px;

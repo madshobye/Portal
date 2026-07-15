@@ -41,7 +41,7 @@ test("render state uses selected scene in scene workspace and live scene in live
   assert.equal(store.getRenderState().surfaces[0].compositionId, liveComposition.id);
 });
 
-test("scene editing cannot mutate the captured live program scene", () => {
+test("edits refresh the scene selected by Live without changing Live's scene selection", () => {
   const state = createInitialState();
   const first = createDefaultComposition(0);
   first.id = "composition-first";
@@ -54,6 +54,7 @@ test("scene editing cannot mutate the captured live program scene", () => {
   const secondScene = createSceneFromState(state, "Second");
   state.scenes = [firstScene, secondScene];
   state.ui.live.selectedSceneId = firstScene.id;
+  state.ui.live.sceneSnapshot = structuredClone(secondScene.snapshot);
 
   const store = createAppState(state);
   assert.equal(store.getLiveRenderState().surfaces[0].compositionId, first.id);
@@ -61,7 +62,8 @@ test("scene editing cannot mutate the captured live program scene", () => {
   store.update((draft) => {
     draft.scenes[0].snapshot.surfaces[0].compositionId = second.id;
   }, "scene-edit");
-  assert.equal(store.getLiveRenderState().surfaces[0].compositionId, first.id);
+  assert.equal(store.getState().ui.live.selectedSceneId, firstScene.id);
+  assert.equal(store.getLiveRenderState().surfaces[0].compositionId, second.id);
 
   store.selectLiveScene(secondScene.id);
   assert.equal(store.getLiveRenderState().surfaces[0].compositionId, second.id);
@@ -82,6 +84,79 @@ test("an empty Live selection initializes independently from the Scene selection
   store.setWorkspace("live");
   assert.equal(store.getState().ui.live.selectedSceneId, firstScene.id);
   assert.notEqual(store.getState().ui.live.selectedSceneId, store.getState().ui.selectedSceneId);
+});
+
+test("Live temporary overrides persist per scene until explicitly reset", () => {
+  const state = createInitialState();
+  const firstScene = createSceneFromState(state, "First");
+  const secondScene = createSceneFromState(state, "Second");
+  state.scenes = [firstScene, secondScene];
+  state.ui.live.selectedSceneId = firstScene.id;
+  state.ui.live.sceneSnapshot = structuredClone(firstScene.snapshot);
+  const compositionId = state.compositions[0].id;
+  const store = createAppState(state);
+
+  store.update((draft) => {
+    draft.ui.live.compositionOverrides[compositionId] = { opacity: 0.25 };
+  }, "live:update");
+  store.selectLiveScene(secondScene.id);
+  assert.deepEqual(store.getState().ui.live.compositionOverrides, {});
+
+  store.update((draft) => {
+    draft.ui.live.compositionOverrides[compositionId] = { speed: 2 };
+  }, "live:update");
+  store.selectLiveScene(firstScene.id);
+  assert.equal(store.getState().ui.live.compositionOverrides[compositionId].opacity, 0.25);
+
+  store.resetLiveScene(firstScene.id);
+  assert.deepEqual(store.getState().ui.live.compositionOverrides, {});
+  store.selectLiveScene(secondScene.id);
+  assert.equal(store.getState().ui.live.compositionOverrides[compositionId].speed, 2);
+});
+
+test("persistent composition edits overwrite conflicting Live params but retain unrelated temporary params", () => {
+  const state = createInitialState();
+  const scene = createSceneFromState(state, "Live scene");
+  state.scenes = [scene];
+  state.ui.live.selectedSceneId = scene.id;
+  const compositionId = state.compositions[0].id;
+  const source = state.compositions[0].chain[0];
+  source.params = { modelScale: 1, depth: 1 };
+  state.ui.live.compositionOverrides = {
+    [compositionId]: {
+      chain: [{ params: { modelScale: 2, depth: 3 } }],
+    },
+  };
+  state.ui.live.sceneOverrides = {
+    [scene.id]: structuredClone(state.ui.live.compositionOverrides),
+  };
+  const store = createAppState(state);
+
+  store.update((draft) => {
+    draft.compositions[0].chain[0].params.modelScale = 1.5;
+  }, "update:compositions.0.chain.0.params.modelScale");
+
+  const overrides = store.getState().ui.live.compositionOverrides[compositionId];
+  assert.equal(overrides.chain[0].params.modelScale, undefined);
+  assert.equal(overrides.chain[0].params.depth, 3);
+  assert.equal(store.getLiveRenderState().compositions[0].chain[0].params.modelScale, 1.5);
+  assert.equal(store.getLiveRenderState().compositions[0].chain[0].params.depth, 3);
+});
+
+test("ordinary compositions reject nested composition sources while Canvas accepts them", () => {
+  const state = createInitialState();
+  const source = createDefaultComposition(1);
+  const canvas = createCanvasComposition(0);
+  state.compositions.push(source, canvas);
+  const store = createAppState(state);
+  const ordinary = store.getState().compositions[0];
+  const ordinaryLength = ordinary.chain.length;
+
+  store.addChainSource(ordinary.id, { type: "composition", compositionId: source.id });
+  assert.equal(store.getState().compositions.find((item) => item.id === ordinary.id).chain.length, ordinaryLength);
+
+  store.addChainSource(canvas.id, { type: "composition", compositionId: source.id });
+  assert.equal(store.getState().compositions.find((item) => item.id === canvas.id).chain.at(-1).source.compositionId, source.id);
 });
 
 test("surface reorder updates active surfaces and scene snapshots", () => {

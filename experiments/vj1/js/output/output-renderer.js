@@ -1,6 +1,6 @@
 import { VJ1 } from "../constants.js";
 import { compositionFrameMetrics } from "../domain/composition-frame.js";
-import { clamp01, normalizeCompositionPipelineSettings, resolveSceneSourceNode, sanitizeState } from "../domain/models.js?v=surface-feather-1";
+import { clamp01, normalizeCompositionPipelineSettings, resolveSceneSourceNode, sanitizeState } from "../domain/models.js?v=batch-fixes-1";
 import { normalizeParamValue, normalizeParamValues, renderQualityScale, renderQualityValue } from "../graph/component-schema.js?v=range-pair-1";
 import { createManualScheduler } from "../graph/manual-scheduler.js";
 import { RenderNodeRuntime, textureStateKey } from "../graph/render-node-runtime.js?v=node-dirty-runtime-1";
@@ -31,7 +31,7 @@ import {
   surfaceTextureSize,
   worldSize,
 } from "./render-geometry.js?v=render-demand-1";
-import { VjMapper } from "./vj-mapper.js?v=surface-feather-1";
+import { VjMapper } from "./vj-mapper.js?v=rounded-feather-1";
 import { mediaRenditionKey } from "../services/media-rendition-service.js";
 
 const TERRAIN_GRID_CELLS = 48;
@@ -427,9 +427,13 @@ export class OutputRenderer {
     this.compositionGpuBufferUse = new Map();
     this.compositionPatches = new Map();
     this.thumbnailImages = new Map();
+    this.thumbnailEditTransformBaselines = new Map();
     this.media = new Map();
-    this.modelTargets = new Map();
-    this.terrainTargets = new Map();
+    // Specialized 3D sources render sequentially and are copied into the
+    // composition target immediately. Keep one stable scratch context per
+    // source kind instead of retaining a new WebGL context for every demand
+    // size encountered while a Canvas placement is being scaled.
+    this.specializedWebglTargets = new Map();
     this.terrainSurfaceResources = new Map();
     this.terrainWireResources = new Map();
     this.pendingRenditionSaves = new Set();
@@ -490,6 +494,7 @@ export class OutputRenderer {
 
   async setup(initialState) {
     this.state = sanitizeState(initialState || {});
+    if (this.shouldUseThumbnailPreview()) this.captureThumbnailEditTransformBaselines();
     this.applyPixelDensity();
     this.applyGlobalFont();
     this.createBuffers();
@@ -568,6 +573,7 @@ export class OutputRenderer {
   }
 
   disposeBuffers() {
+    this.resetModelResources();
     this.resetTerrainResources();
     disposeGraphics(this.sourcePg);
     disposeGraphics(this.mainMix);
@@ -575,8 +581,7 @@ export class OutputRenderer {
     disposeGraphics(this.surfaceTexture);
     disposeGraphicsMap(this.surfaceTextures);
     this.disposeFxTargetGroups();
-    disposeGraphicsMap(this.modelTargets);
-    disposeGraphicsMap(this.terrainTargets);
+    disposeGraphicsMap(this.specializedWebglTargets);
     disposeGraphicsMap(this.compositionSource);
     // Frame-local aliases; compositionGpuBuffer owns these targets.
     this.compositionOutput.clear();
@@ -595,8 +600,7 @@ export class OutputRenderer {
     this.surfaceTextures?.clear?.();
     this.fxTargets = [null, null];
     this.fxTargetKey = "";
-    this.modelTargets?.clear?.();
-    this.terrainTargets?.clear?.();
+    this.specializedWebglTargets?.clear?.();
     this.shaderBuilder.clear?.();
     this.cachedNoiseTexture = null;
     this.overlayBlendShader = null;
@@ -648,6 +652,18 @@ export class OutputRenderer {
     }
     this.terrainSurfaceResources?.clear?.();
     this.terrainWireResources?.clear?.();
+  }
+
+  resetModelResources(gl = null) {
+    for (const item of this.media?.values?.() || []) {
+      const renderers = item?.modelRawRenderers;
+      if (!(renderers instanceof Map)) continue;
+      for (const [context, resources] of renderers) {
+        if (gl && context !== gl) continue;
+        disposeRawModelContextResources(context, resources);
+        renderers.delete(context);
+      }
+    }
   }
 
   disposeFxTargetGroups() {
@@ -724,10 +740,14 @@ export class OutputRenderer {
   }
 
   setState(nextState) {
+    const wasThumbnailPreview = this.shouldUseThumbnailPreview();
     const previousSurfaceIds = (this.state?.surfaces || []).map((surface) => surface.id).join(",");
     const previousSize = this.state ? this.renderSizeSignature(this.state.render) : "";
     const previousMappingSignature = this.mappingSignature;
     this.state = sanitizeState(nextState);
+    const isThumbnailPreview = this.shouldUseThumbnailPreview();
+    if (isThumbnailPreview && !wasThumbnailPreview) this.captureThumbnailEditTransformBaselines();
+    if (!isThumbnailPreview && wasThumbnailPreview) this.thumbnailEditTransformBaselines.clear();
     const nextSurfaceIds = this.state.surfaces.map((surface) => surface.id).join(",");
     const nextSize = this.renderSizeSignature(this.state.render);
     const nextMappingSignature = this.currentMappingSignature();
@@ -2411,55 +2431,44 @@ export class OutputRenderer {
   }
 
   getModelTarget(width, height, density = this.renderPixelDensity(this.state?.render || {})) {
-    const widthPx = Math.max(1, Math.round(Number(width) || 1));
-    const heightPx = Math.max(1, Math.round(Number(height) || 1));
-    const targetDensity = Math.max(0.25, Math.min(4, Number(density) || 1));
-    const key = renderBufferKey(widthPx, heightPx, `pd${targetDensity}`);
-    let target = this.modelTargets.get(key);
-    if (!target) {
-      target = createGraphics(widthPx, heightPx, WEBGL);
-      this.applyGraphicsPixelDensity(target, targetDensity);
-      target.noStroke();
-      this.modelTargets.set(key, target);
-      return target;
-    }
-    if (target.width !== widthPx || target.height !== heightPx) {
-      try {
-        target.resizeCanvas(widthPx, heightPx);
-      } catch {
-        disposeGraphics(target);
-        target = createGraphics(widthPx, heightPx, WEBGL);
-        this.modelTargets.set(key, target);
-      }
-      this.applyGraphicsPixelDensity(target, targetDensity);
-      target.noStroke();
-    }
-    return target;
+    return this.getSpecializedWebglTarget("model", width, height, density, {
+      onContextDiscard: (gl) => this.resetModelResources(gl),
+    });
   }
 
   getTerrainTarget(width, height, density = this.renderPixelDensity(this.state?.render || {})) {
+    return this.getSpecializedWebglTarget("terrain", width, height, density, {
+      onContextDiscard: () => this.resetTerrainResources(),
+    });
+  }
+
+  getSpecializedWebglTarget(kind, width, height, density = this.renderPixelDensity(this.state?.render || {}), { onContextDiscard = null } = {}) {
     const widthPx = Math.max(1, Math.round(Number(width) || 1));
     const heightPx = Math.max(1, Math.round(Number(height) || 1));
     const targetDensity = Math.max(0.25, Math.min(4, Number(density) || 1));
-    const key = renderBufferKey(widthPx, heightPx, `pd${targetDensity}`);
-    let target = this.terrainTargets.get(key);
+    let target = this.specializedWebglTargets.get(kind);
     if (!target) {
       target = createGraphics(widthPx, heightPx, WEBGL);
       this.applyGraphicsPixelDensity(target, targetDensity);
+      target.__vj1PixelDensity = targetDensity;
       target.noStroke();
-      this.terrainTargets.set(key, target);
+      this.specializedWebglTargets.set(kind, target);
       return target;
     }
-    if (target.width !== widthPx || target.height !== heightPx) {
-      this.resetTerrainResources();
+    const sizeChanged = target.width !== widthPx || target.height !== heightPx;
+    const densityChanged = target.__vj1PixelDensity !== targetDensity;
+    if (sizeChanged || densityChanged) {
       try {
-        target.resizeCanvas(widthPx, heightPx);
+        if (sizeChanged) target.resizeCanvas(widthPx, heightPx);
+        this.applyGraphicsPixelDensity(target, targetDensity);
       } catch {
+        onContextDiscard?.(target?.drawingContext);
         disposeGraphics(target);
         target = createGraphics(widthPx, heightPx, WEBGL);
-        this.terrainTargets.set(key, target);
+        this.applyGraphicsPixelDensity(target, targetDensity);
+        this.specializedWebglTargets.set(kind, target);
       }
-      this.applyGraphicsPixelDensity(target, targetDensity);
+      target.__vj1PixelDensity = targetDensity;
       target.noStroke();
     }
     return target;
@@ -3132,6 +3141,15 @@ export class OutputRenderer {
     return item;
   }
 
+  captureThumbnailEditTransformBaselines() {
+    this.thumbnailEditTransformBaselines.clear();
+    for (const composition of this.state?.compositions || []) {
+      for (const item of flattenCompositionChain(composition.chain || [])) {
+        if (item?.id) this.thumbnailEditTransformBaselines.set(`${composition.id}:${item.id}`, normalizedContentTransform(item.transform));
+      }
+    }
+  }
+
   isShaderBuffer(buffer) {
     if (!buffer) return false;
     if (isSharedFramebufferTarget(buffer)) return true;
@@ -3203,11 +3221,8 @@ export class OutputRenderer {
     push();
     imageMode(CORNER);
     if (this.shouldUseThumbnailPreview()) {
-      const thumbnail = this.getThumbnailImage(composition);
-      if (thumbnail?.ready && thumbnail.img) {
-        const rect = this.compositionPreviewRect(composition, thumbnail.img);
-        image(thumbnail.img, rect.x - width / 2, rect.y - height / 2, rect.width, rect.height);
-      }
+      const drewEditableCanvas = composition?.type === "canvas" && this.renderCanvasThumbnailEditPreview(composition);
+      if (!drewEditableCanvas) this.renderFlattenedThumbnailEditPreview(composition);
     } else if (source) {
       const rect = this.compositionPreviewRect(composition, source);
       image(unwrapRenderTarget(source), rect.x - width / 2, rect.y - height / 2, rect.width, rect.height);
@@ -3218,7 +3233,79 @@ export class OutputRenderer {
     pop();
     this.renderCompositionFrameOverlay(composition, source);
     this.renderCanvasRecordingFrames(composition, source);
-    if (!this.shouldUseThumbnailPreview()) this.renderSelectedChainTransformOverlay();
+    this.renderSelectedChainTransformOverlay();
+  }
+
+  renderFlattenedThumbnailEditPreview(composition) {
+    const thumbnail = this.getThumbnailImage(composition);
+    if (!thumbnail?.ready || !thumbnail.img) return false;
+    // The current composition frame is authoritative. Older thumbnails may
+    // have been captured under a different aspect and must never resize or
+    // escape the current editing frame.
+    const rect = this.compositionPreviewRect(composition);
+    const item = this.selectedTransformableChainItem();
+    const current = normalizedContentTransform(item?.transform);
+    const baseline = item
+      ? this.thumbnailEditTransformBaselines.get(`${composition.id}:${item.id}`) || current
+      : current;
+    const editScale = current.scale / Math.max(0.01, baseline.scale);
+    withScreenScissor(rect, () => {
+      push();
+      translate(
+        rect.x - width * 0.5 + rect.width * (0.5 + (current.x - baseline.x) * 0.5),
+        rect.y - height * 0.5 + rect.height * (0.5 + (current.y - baseline.y) * 0.5)
+      );
+      rotate(current.rotation - baseline.rotation);
+      scale(editScale);
+      drawImageCoverCrop(thumbnail.img, -rect.width * 0.5, -rect.height * 0.5, rect.width, rect.height);
+      pop();
+    });
+    return true;
+  }
+
+  renderCanvasThumbnailEditPreview(composition) {
+    const rect = this.compositionPreviewRect(composition);
+    let drawn = 0;
+    const drawChain = (chain, parentTransform = normalizedContentTransform(), parentOpacity = 1) => {
+      for (const item of chain || []) {
+        if (item?.enabled === false) continue;
+        if (item.kind === "group") {
+          drawChain(
+            item.chain || [],
+            combineContentTransforms(parentTransform, item.transform),
+            parentOpacity * clamp01(item.opacity ?? 1)
+          );
+          continue;
+        }
+        if (item.kind !== "source" || item.source?.type !== "composition") continue;
+        const dependency = this.state.compositions.find((candidate) => candidate.id === item.source.compositionId);
+        if (!dependency || dependency.type === "canvas") continue;
+        const thumbnail = this.getThumbnailImage(dependency);
+        if (!thumbnail?.ready || !thumbnail.img) continue;
+        const placement = compositionReferencePlacement(composition, dependency, this.state.render, rect);
+        const transform = combineContentTransforms(parentTransform, item.transform);
+        push();
+        translate(
+          rect.x - width * 0.5 + rect.width * (0.5 + transform.x * 0.5),
+          rect.y - height * 0.5 + rect.height * (0.5 + transform.y * 0.5)
+        );
+        rotate(transform.rotation);
+        scale(transform.scale);
+        tint(255, 255 * parentOpacity * clamp01(item.opacity ?? 1));
+        drawImageCoverCrop(
+          thumbnail.img,
+          placement.x - rect.width * 0.5,
+          placement.y - rect.height * 0.5,
+          placement.width,
+          placement.height
+        );
+        noTint();
+        pop();
+        drawn++;
+      }
+    };
+    withScreenScissor(rect, () => drawChain(composition.chain || []));
+    return drawn > 0;
   }
 
   compositionPreviewRect(composition, source = null) {
@@ -3851,6 +3938,68 @@ function findChainItemById(chain = [], id = "") {
     if (nested) return nested;
   }
   return null;
+}
+
+function combineContentTransforms(parent = {}, child = {}) {
+  const outer = normalizedContentTransform(parent);
+  const inner = normalizedContentTransform(child);
+  const cosAngle = Math.cos(outer.rotation);
+  const sinAngle = Math.sin(outer.rotation);
+  const childX = inner.x * outer.scale;
+  const childY = inner.y * outer.scale;
+  return {
+    x: outer.x + childX * cosAngle - childY * sinAngle,
+    y: outer.y + childX * sinAngle + childY * cosAngle,
+    scale: outer.scale * inner.scale,
+    rotation: outer.rotation + inner.rotation,
+  };
+}
+
+function drawImageCoverCrop(source, x, y, targetWidth, targetHeight) {
+  const sourceWidth = Math.max(1, Number(source?.width || source?.naturalWidth || source?.elt?.naturalWidth) || targetWidth);
+  const sourceHeight = Math.max(1, Number(source?.height || source?.naturalHeight || source?.elt?.naturalHeight) || targetHeight);
+  const sourceAspect = sourceWidth / sourceHeight;
+  const targetAspect = Math.max(1, targetWidth) / Math.max(1, targetHeight);
+  let sx = 0;
+  let sy = 0;
+  let sw = sourceWidth;
+  let sh = sourceHeight;
+  if (sourceAspect > targetAspect) {
+    sw = sourceHeight * targetAspect;
+    sx = (sourceWidth - sw) * 0.5;
+  } else if (sourceAspect < targetAspect) {
+    sh = sourceWidth / targetAspect;
+    sy = (sourceHeight - sh) * 0.5;
+  }
+  image(source, x, y, targetWidth, targetHeight, sx, sy, sw, sh);
+}
+
+function withScreenScissor(rect = {}, draw) {
+  const gl = typeof drawingContext !== "undefined" ? drawingContext : null;
+  if (!gl?.scissor || !gl?.enable || typeof draw !== "function") return draw?.();
+  const canvasWidth = Math.max(1, Number(typeof width === "number" ? width : gl.drawingBufferWidth) || 1);
+  const canvasHeight = Math.max(1, Number(typeof height === "number" ? height : gl.drawingBufferHeight) || 1);
+  const scaleX = Math.max(0.0001, Number(gl.drawingBufferWidth) || canvasWidth) / canvasWidth;
+  const scaleY = Math.max(0.0001, Number(gl.drawingBufferHeight) || canvasHeight) / canvasHeight;
+  const left = Math.max(0, Math.min(canvasWidth, Number(rect.x) || 0));
+  const top = Math.max(0, Math.min(canvasHeight, Number(rect.y) || 0));
+  const right = Math.max(left, Math.min(canvasWidth, left + Math.max(0, Number(rect.width) || 0)));
+  const bottom = Math.max(top, Math.min(canvasHeight, top + Math.max(0, Number(rect.height) || 0)));
+  const wasEnabled = gl.isEnabled?.(gl.SCISSOR_TEST) === true;
+  const previousBox = gl.getParameter?.(gl.SCISSOR_BOX);
+  gl.enable(gl.SCISSOR_TEST);
+  gl.scissor(
+    Math.floor(left * scaleX),
+    Math.floor((canvasHeight - bottom) * scaleY),
+    Math.max(1, Math.ceil((right - left) * scaleX)),
+    Math.max(1, Math.ceil((bottom - top) * scaleY))
+  );
+  try {
+    return draw();
+  } finally {
+    if (previousBox?.length === 4) gl.scissor(previousBox[0], previousBox[1], previousBox[2], previousBox[3]);
+    if (!wasEnabled) gl.disable(gl.SCISSOR_TEST);
+  }
 }
 
 function nodesInCompositionChainOrder(composition = {}, patch = {}) {
@@ -5003,15 +5152,8 @@ function drawTerrainSurface(target, resourceCache, params, compositionTime, plan
 function createTerrainSurfaceResources(gl) {
   const vertex = compileRawShader(gl, gl.VERTEX_SHADER, TERRAIN_VERTEX_SHADER);
   const fragment = compileRawShader(gl, gl.FRAGMENT_SHADER, TERRAIN_FRAGMENT_SHADER);
-  if (!vertex || !fragment) return null;
-  const program = gl.createProgram();
-  gl.attachShader(program, vertex);
-  gl.attachShader(program, fragment);
-  gl.linkProgram(program);
-  if (!gl.getProgramParameter(program, gl.LINK_STATUS)) {
-    gl.deleteProgram(program);
-    return null;
-  }
+  const program = linkSpecializedProgram(gl, vertex, fragment);
+  if (!program) return null;
   return {
     program,
     vertexBuffer: gl.createBuffer(),
@@ -5438,15 +5580,8 @@ function createTerrainWireResources(gl) {
       gl_FragColor = vec4(wireColor.rgb * alpha, alpha);
     }
   `);
-  if (!vertex || !fragment) return null;
-  const program = gl.createProgram();
-  gl.attachShader(program, vertex);
-  gl.attachShader(program, fragment);
-  gl.linkProgram(program);
-  if (!gl.getProgramParameter(program, gl.LINK_STATUS)) {
-    gl.deleteProgram(program);
-    return null;
-  }
+  const program = linkSpecializedProgram(gl, vertex, fragment);
+  if (!program) return null;
   const vertexBuffer = gl.createBuffer();
   gl.bindBuffer(gl.ARRAY_BUFFER, vertexBuffer);
   gl.bufferData(gl.ARRAY_BUFFER, 0, gl.STATIC_DRAW);
@@ -5746,7 +5881,7 @@ function drawRawParsedSurface(target, item, params = {}, compositionTime = 0, co
   const mesh = item?.modelData;
   if (!gl || !mesh) return false;
   const resources = ensureRawSurfaceResources(gl, item);
-  if (!resources?.positionBuffer || !resources.normalBuffer || !resources.count || !resources.program) return false;
+  if (!resources?.buffer || !resources.count || !resources.program) return false;
   const drawingWidth = Math.max(1, gl.drawingBufferWidth || target.width || 1);
   const drawingHeight = Math.max(1, gl.drawingBufferHeight || target.height || 1);
   const metrics = modelViewportMetrics(target, viewport);
@@ -5764,12 +5899,12 @@ function drawRawParsedSurface(target, item, params = {}, compositionTime = 0, co
   gl.enable(gl.BLEND);
   gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
   gl.disable(gl.CULL_FACE);
-  gl.bindBuffer(gl.ARRAY_BUFFER, resources.positionBuffer);
+  const stride = 6 * 4;
+  gl.bindBuffer(gl.ARRAY_BUFFER, resources.buffer);
   gl.enableVertexAttribArray(resources.position);
-  gl.vertexAttribPointer(resources.position, 3, gl.FLOAT, false, 0, 0);
-  gl.bindBuffer(gl.ARRAY_BUFFER, resources.normalBuffer);
+  gl.vertexAttribPointer(resources.position, 3, gl.FLOAT, false, stride, 0);
   gl.enableVertexAttribArray(resources.normal);
-  gl.vertexAttribPointer(resources.normal, 3, gl.FLOAT, false, 0, 0);
+  gl.vertexAttribPointer(resources.normal, 3, gl.FLOAT, false, stride, 3 * 4);
   gl.uniformMatrix4fv(resources.mvp, false, matrices.mvp);
   gl.uniformMatrix4fv(resources.model, false, matrices.model);
   gl.uniform1f(resources.depthCutoff, modelDepthCutoff(params, mesh.bounds, matrices.model));
@@ -6246,27 +6381,27 @@ function modelViewportMetrics(target, request = {}) {
 }
 
 function ensureRawModelResources(gl, item, mode = "points", pointBudget = 4000) {
-  item.modelRawRenderers ||= new WeakMap();
-  let contextResources = item.modelRawRenderers.get(gl);
-  if (!contextResources) {
-    contextResources = {
-      program: createRawModelProgram(gl),
-      surfaceProgram: createRawSurfaceProgram(gl),
-      wireProgram: createRawWireProgram(gl),
-      buffers: new Map(),
-    };
-    item.modelRawRenderers.set(gl, contextResources);
+  const contextResources = ensureRawModelContextResources(gl, item);
+  if (!rawModelProgramValid(gl, contextResources.program)) {
+    disposeRawModelProgram(gl, contextResources.program);
+    contextResources.program = createRawModelProgram(gl);
   }
   if (!contextResources.program) return null;
   const budget = Math.max(128, Math.min(50000, Math.round(Number(pointBudget) || 4000)));
   const meshKey = `${item.modelData?.triangles?.length || 0}`;
   const key = mode === "wireframe" ? `wire:${meshKey}` : `points:${meshKey}:${budget}`;
   let buffer = contextResources.buffers.get(key);
+  if (buffer && !rawModelBufferValid(gl, buffer)) {
+    disposeRawModelBuffer(gl, buffer);
+    contextResources.buffers.delete(key);
+    buffer = null;
+  }
   if (!buffer) {
     const data = mode === "wireframe"
       ? ensureParsedModelWireLines(item, budget)
       : ensureParsedModelPointCloud(item, budget);
     if (!data?.length) return null;
+    pruneRawModelBufferVariants(gl, contextResources, mode === "wireframe" ? `wire:${meshKey}` : `points:${meshKey}:`, key);
     const glBuffer = gl.createBuffer();
     gl.bindBuffer(gl.ARRAY_BUFFER, glBuffer);
     gl.bufferData(gl.ARRAY_BUFFER, data, gl.STATIC_DRAW);
@@ -6289,37 +6424,30 @@ function ensureRawModelResources(gl, item, mode = "points", pointBudget = 4000) 
 }
 
 function ensureRawSurfaceResources(gl, item) {
-  item.modelRawRenderers ||= new WeakMap();
-  let contextResources = item.modelRawRenderers.get(gl);
-  if (!contextResources) {
-    contextResources = {
-      program: createRawModelProgram(gl),
-      surfaceProgram: createRawSurfaceProgram(gl),
-      wireProgram: createRawWireProgram(gl),
-      buffers: new Map(),
-    };
-    item.modelRawRenderers.set(gl, contextResources);
-  } else if (!contextResources.surfaceProgram) {
+  const contextResources = ensureRawModelContextResources(gl, item);
+  if (!rawModelProgramValid(gl, contextResources.surfaceProgram)) {
+    disposeRawModelProgram(gl, contextResources.surfaceProgram);
     contextResources.surfaceProgram = createRawSurfaceProgram(gl);
   }
   if (!contextResources.surfaceProgram) return null;
   const meshKey = `${item.modelData?.triangles?.length || 0}`;
   const key = `surface:${meshKey}`;
   let buffer = contextResources.buffers.get(key);
+  if (buffer && !rawModelBufferValid(gl, buffer)) {
+    disposeRawModelBuffer(gl, buffer);
+    contextResources.buffers.delete(key);
+    buffer = null;
+  }
   if (!buffer) {
-    const data = ensureParsedModelSurfaceArrays(item);
-    if (!data?.positions?.length || !data?.normals?.length) return null;
-    const positionBuffer = gl.createBuffer();
-    gl.bindBuffer(gl.ARRAY_BUFFER, positionBuffer);
-    gl.bufferData(gl.ARRAY_BUFFER, data.positions, gl.STATIC_DRAW);
-    const normalBuffer = gl.createBuffer();
-    gl.bindBuffer(gl.ARRAY_BUFFER, normalBuffer);
-    gl.bufferData(gl.ARRAY_BUFFER, data.normals, gl.STATIC_DRAW);
+    const data = buildParsedModelSurfaceVertices(item.modelData);
+    if (!data?.length) return null;
+    const glBuffer = gl.createBuffer();
+    gl.bindBuffer(gl.ARRAY_BUFFER, glBuffer);
+    gl.bufferData(gl.ARRAY_BUFFER, data, gl.STATIC_DRAW);
     gl.bindBuffer(gl.ARRAY_BUFFER, null);
     buffer = {
-      positionBuffer,
-      normalBuffer,
-      count: Math.floor(data.positions.length / 3),
+      buffer: glBuffer,
+      count: Math.floor(data.length / 6),
     };
     contextResources.buffers.set(key, buffer);
   }
@@ -6336,17 +6464,9 @@ function ensureRawSurfaceResources(gl, item) {
 }
 
 function ensureRawWireResources(gl, item, pointBudget = 4000) {
-  item.modelRawRenderers ||= new WeakMap();
-  let contextResources = item.modelRawRenderers.get(gl);
-  if (!contextResources) {
-    contextResources = {
-      program: createRawModelProgram(gl),
-      surfaceProgram: createRawSurfaceProgram(gl),
-      wireProgram: createRawWireProgram(gl),
-      buffers: new Map(),
-    };
-    item.modelRawRenderers.set(gl, contextResources);
-  } else if (!contextResources.wireProgram) {
+  const contextResources = ensureRawModelContextResources(gl, item);
+  if (!rawModelProgramValid(gl, contextResources.wireProgram)) {
+    disposeRawModelProgram(gl, contextResources.wireProgram);
     contextResources.wireProgram = createRawWireProgram(gl);
   }
   if (!contextResources.wireProgram) return null;
@@ -6354,9 +6474,15 @@ function ensureRawWireResources(gl, item, pointBudget = 4000) {
   const meshKey = `${item.modelData?.triangles?.length || 0}`;
   const key = `thickWire:${meshKey}:${budget}`;
   let buffer = contextResources.buffers.get(key);
+  if (buffer && !rawModelBufferValid(gl, buffer)) {
+    disposeRawModelBuffer(gl, buffer);
+    contextResources.buffers.delete(key);
+    buffer = null;
+  }
   if (!buffer) {
     const data = ensureParsedModelThickWireVertices(item, budget);
     if (!data?.length) return null;
+    pruneRawModelBufferVariants(gl, contextResources, `thickWire:${meshKey}:`, key);
     const glBuffer = gl.createBuffer();
     gl.bindBuffer(gl.ARRAY_BUFFER, glBuffer);
     gl.bufferData(gl.ARRAY_BUFFER, data, gl.STATIC_DRAW);
@@ -6383,6 +6509,59 @@ function ensureRawWireResources(gl, item, pointBudget = 4000) {
   };
 }
 
+function ensureRawModelContextResources(gl, item) {
+  if (!(item.modelRawRenderers instanceof Map)) item.modelRawRenderers = new Map();
+  let resources = item.modelRawRenderers.get(gl);
+  if (!resources) {
+    resources = {
+      program: null,
+      surfaceProgram: null,
+      wireProgram: null,
+      buffers: new Map(),
+    };
+    item.modelRawRenderers.set(gl, resources);
+  }
+  return resources;
+}
+
+function rawModelProgramValid(gl, resource) {
+  return !!resource?.program && (typeof gl.isProgram !== "function" || gl.isProgram(resource.program));
+}
+
+function rawModelBufferValid(gl, resource) {
+  const buffers = [resource?.buffer, resource?.positionBuffer, resource?.normalBuffer].filter(Boolean);
+  return buffers.length > 0 && (typeof gl.isBuffer !== "function" || buffers.every((buffer) => gl.isBuffer(buffer)));
+}
+
+function pruneRawModelBufferVariants(gl, resources, prefix, keepKey) {
+  for (const [key, buffer] of resources.buffers) {
+    if (key !== keepKey && key.startsWith(prefix)) {
+      disposeRawModelBuffer(gl, buffer);
+      resources.buffers.delete(key);
+    }
+  }
+}
+
+function disposeRawModelBuffer(gl, resource) {
+  const buffers = new Set([resource?.buffer, resource?.positionBuffer, resource?.normalBuffer].filter(Boolean));
+  for (const buffer of buffers) {
+    try { gl.deleteBuffer(buffer); } catch {}
+  }
+}
+
+function disposeRawModelProgram(gl, resource) {
+  if (!resource?.program) return;
+  try { gl.deleteProgram(resource.program); } catch {}
+}
+
+function disposeRawModelContextResources(gl, resources) {
+  for (const buffer of resources?.buffers?.values?.() || []) disposeRawModelBuffer(gl, buffer);
+  resources?.buffers?.clear?.();
+  disposeRawModelProgram(gl, resources?.program);
+  disposeRawModelProgram(gl, resources?.surfaceProgram);
+  disposeRawModelProgram(gl, resources?.wireProgram);
+}
+
 function createRawModelProgram(gl) {
   const vertex = compileRawShader(gl, gl.VERTEX_SHADER, `
     attribute vec3 aPosition;
@@ -6406,15 +6585,8 @@ function createRawModelProgram(gl) {
       gl_FragColor = uColor;
     }
   `);
-  if (!vertex || !fragment) return null;
-  const program = gl.createProgram();
-  gl.attachShader(program, vertex);
-  gl.attachShader(program, fragment);
-  gl.linkProgram(program);
-  if (!gl.getProgramParameter(program, gl.LINK_STATUS)) {
-    gl.deleteProgram(program);
-    return null;
-  }
+  const program = linkSpecializedProgram(gl, vertex, fragment);
+  if (!program) return null;
   return {
     program,
     position: gl.getAttribLocation(program, "aPosition"),
@@ -6453,15 +6625,8 @@ function createRawSurfaceProgram(gl) {
       gl_FragColor = vec4(uColor.rgb * vLight, uColor.a);
     }
   `);
-  if (!vertex || !fragment) return null;
-  const program = gl.createProgram();
-  gl.attachShader(program, vertex);
-  gl.attachShader(program, fragment);
-  gl.linkProgram(program);
-  if (!gl.getProgramParameter(program, gl.LINK_STATUS)) {
-    gl.deleteProgram(program);
-    return null;
-  }
+  const program = linkSpecializedProgram(gl, vertex, fragment);
+  if (!program) return null;
   return {
     program,
     position: gl.getAttribLocation(program, "aPosition"),
@@ -6511,15 +6676,8 @@ function createRawWireProgram(gl) {
       gl_FragColor = uColor;
     }
   `);
-  if (!vertex || !fragment) return null;
-  const program = gl.createProgram();
-  gl.attachShader(program, vertex);
-  gl.attachShader(program, fragment);
-  gl.linkProgram(program);
-  if (!gl.getProgramParameter(program, gl.LINK_STATUS)) {
-    gl.deleteProgram(program);
-    return null;
-  }
+  const program = linkSpecializedProgram(gl, vertex, fragment);
+  if (!program) return null;
   return {
     program,
     start: gl.getAttribLocation(program, "aStart"),
@@ -6544,6 +6702,27 @@ function compileRawShader(gl, type, source) {
     return null;
   }
   return shader;
+}
+
+function linkSpecializedProgram(gl, vertex, fragment) {
+  if (!vertex || !fragment) {
+    if (vertex) gl.deleteShader(vertex);
+    if (fragment) gl.deleteShader(fragment);
+    return null;
+  }
+  const program = gl.createProgram();
+  gl.attachShader(program, vertex);
+  gl.attachShader(program, fragment);
+  gl.linkProgram(program);
+  gl.detachShader?.(program, vertex);
+  gl.detachShader?.(program, fragment);
+  gl.deleteShader(vertex);
+  gl.deleteShader(fragment);
+  if (!gl.getProgramParameter(program, gl.LINK_STATUS)) {
+    gl.deleteProgram(program);
+    return null;
+  }
+  return program;
 }
 
 function rawModelMatrices(width = 1, height = 1, scale = 1, depth = 1, rotation = [0, 0, 0], contentTransform = {}) {
@@ -6816,18 +6995,6 @@ function ensureParsedModelThickWireVertices(item, lineBudget = 4000) {
   return vertices;
 }
 
-function ensureParsedModelSurfaceArrays(item) {
-  const mesh = item?.modelData;
-  const key = `surface:${mesh?.triangles?.length || 0}`;
-  if (item?.modelSurfaceArrays && item.modelSurfaceArraysKey === key) return item.modelSurfaceArrays;
-  const arrays = buildParsedModelSurfaceArrays(mesh);
-  if (item) {
-    item.modelSurfaceArrays = arrays;
-    item.modelSurfaceArraysKey = key;
-  }
-  return arrays;
-}
-
 function ensureP5ModelPointCloud(item, pointBudget = 4000) {
   const budget = Math.max(128, Math.min(50000, Math.round(Number(pointBudget) || 4000)));
   const vertices = Array.isArray(item?.model?.vertices) ? item.model.vertices : [];
@@ -6850,27 +7017,23 @@ function ensureP5ModelPointCloud(item, pointBudget = 4000) {
   return item?.modelPointCloud || points.subarray(0, write);
 }
 
-function buildParsedModelSurfaceArrays(mesh) {
+function buildParsedModelSurfaceVertices(mesh) {
   const triangles = Array.isArray(mesh?.triangles) ? mesh.triangles : [];
-  if (!triangles.length) return { positions: new Float32Array(0), normals: new Float32Array(0) };
-  const positions = new Float32Array(triangles.length * 9);
-  const normals = new Float32Array(triangles.length * 9);
+  if (!triangles.length) return new Float32Array(0);
+  const vertices = new Float32Array(triangles.length * 18);
   let write = 0;
   for (const triangle of triangles) {
     const normal = normalizeVector(triangle.normal || triangleNormal(triangle.vertices || []));
     for (const vertex of triangle.vertices || []) {
-      positions[write] = Number(vertex[0]) || 0;
-      normals[write++] = normal[0];
-      positions[write] = Number(vertex[1]) || 0;
-      normals[write++] = normal[1];
-      positions[write] = Number(vertex[2]) || 0;
-      normals[write++] = normal[2];
+      vertices[write++] = Number(vertex[0]) || 0;
+      vertices[write++] = Number(vertex[1]) || 0;
+      vertices[write++] = Number(vertex[2]) || 0;
+      vertices[write++] = normal[0];
+      vertices[write++] = normal[1];
+      vertices[write++] = normal[2];
     }
   }
-  return {
-    positions: positions.subarray(0, write),
-    normals: normals.subarray(0, write),
-  };
+  return vertices.subarray(0, write);
 }
 
 function buildParsedModelPointCloud(mesh, pointBudget = 4000) {
