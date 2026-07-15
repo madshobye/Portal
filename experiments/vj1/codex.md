@@ -18,6 +18,8 @@ The application has five workspaces:
 
 The Compositions workspace catalog contains only ordinary compositions. Canvas containers and their derived recording-frame source nodes belong to the Canvas and Scenes workspaces and must not appear in the Compositions rail. Switching from Canvas to Compositions selects an ordinary composition rather than leaving a hidden Canvas active.
 
+The top bar groups the three authoring views—Compositions, Canvas, and Scenes—immediately after the project-folder name on the left. Live remains a separate performance/output action at the start of the right-side controls. All four buttons still use the same workspace state and active/disabled behavior.
+
 The core mental model is one component type:
 
 ```text
@@ -234,6 +236,8 @@ All specialized 3D sources use the same bounded scratch-target lifecycle. Model 
 
 STL/OBJ surface geometry is uploaded once per context as one interleaved position/normal `STATIC_DRAW` buffer; the temporary interleaved CPU array is not retained after upload. Point and thick-wire buffers are also static, but only the currently requested budget variant is retained for each mesh and mode. Model programs are created lazily by render mode, checked with `isProgram`/`isBuffer` when available, and explicitly deleted together with every model buffer before its specialized context is discarded. Arbitrary imported meshes must retain their actual vertex geometry; unlike terrain, they cannot be reduced to a small regular grid displaced procedurally in the vertex shader.
 
+Specialized wire widths are authored in logical composition pixels. Before either p5 geometry or raw WebGL draws, `resolutionScaledStrokeWidth()` converts that width once to the requested raster scale; raw STL and terrain additionally account for the actual WebGL backing-buffer density. This keeps the apparent STL, anatomy, and terrain wire thickness stable when composition resolution, render quality, demand size, or pixel density changes without adding per-fragment resolution work.
+
 ## Mapping, Frame, World, and Texture Sizes
 
 These dimensions have different jobs and must not be conflated:
@@ -354,7 +358,7 @@ The shader smoke page must be used for new GLSL because Node tests only inspect 
 
 The VJ1 worktree contains uncommitted changes. The current diff primarily covers the optional composition upscale/post pipeline, projection fit, STL/OBJ transform and visible-depth behavior, project refresh/selection preservation, output metrics and controls, thumbnail generation/styling, cache-busting imports, and focused tests. Do not discard or broadly rewrite these changes. Read the diff before touching files that already changed.
 
-The test suite currently has 195 passing Node tests. Coverage includes per-scene Live selection and override reconciliation, compact naming, nesting guards, composition filtering, composition sizing, workspace-specific preview fitting and observer retargeting, generic render demand and viewport culling, direct placed-texture compositing, bounded GPU timing instrumentation, nested/Canvas dependency caching, shared-framebuffer placement, effect fusion, projective mapping and premultiplied surface feather, composition upscale/post settings, model transforms and depth cutoff, guarded thumbnail readback and cover cropping, control UI contracts, media loading, and project persistence. The shader smoke page is still required for real GLSL compilation. The representative before/after runtime comparison is stored under `metrics-results/runs/four-surface-show-gpu-architecture.*`.
+The test suite currently has 196 passing Node tests. Coverage includes per-scene Live selection and override reconciliation, compact naming, nesting guards, composition filtering, composition sizing, workspace-specific preview fitting and observer retargeting, generic render demand and viewport culling, direct placed-texture compositing, bounded GPU timing instrumentation, nested/Canvas dependency caching, shared-framebuffer placement, effect fusion, projective mapping and premultiplied surface feather, composition upscale/post settings, resolution-relative specialized wire widths, model transforms and depth cutoff, guarded thumbnail readback and cover cropping, control UI contracts, media loading, and project persistence. The shader smoke page is still required for real GLSL compilation. The representative before/after runtime comparison is stored under `metrics-results/runs/four-surface-show-gpu-architecture.*`.
 
 ## Change Discipline
 

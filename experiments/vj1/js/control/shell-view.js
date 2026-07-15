@@ -13,15 +13,15 @@ export function shellTemplate() {
               <small id="project-meta">Choose a project folder</small>
             </span>
           </button>
-          <button id="close-project" class="icon-buttonish close-project-button is-hidden" type="button" title="Close project" aria-label="Close project">${icon("close")}</button>
-        </div>
-        <div class="top-actions">
-          <div id="workspace-switch" class="workspace-switch" role="group" aria-label="Workspace">
+          <div id="workspace-switch" class="workspace-switch workspace-view-switch" role="group" aria-label="Views">
             <button type="button" data-workspace="compose" title="Compositions" aria-label="Compositions">${icon("account_tree")}</button>
             <button type="button" data-workspace="canvas" title="Canvas" aria-label="Canvas">${icon("dashboard_customize")}</button>
             <button type="button" data-workspace="scene" class="is-active" title="Scenes" aria-label="Scenes">${icon("auto_awesome")}</button>
-            <button type="button" data-workspace="live" title="Live" aria-label="Live">${icon("play_circle")}</button>
           </div>
+          <button id="close-project" class="icon-buttonish close-project-button is-hidden" type="button" title="Close project" aria-label="Close project">${icon("close")}</button>
+        </div>
+        <div class="top-actions">
+          <button type="button" class="icon-buttonish workspace-live-button" data-workspace="live" title="Live" aria-label="Live">${icon("play_circle")}</button>
           <button id="toggle-preview" class="icon-buttonish" type="button" title="Toggle preview" aria-label="Toggle preview">${icon("visibility")}</button>
           <button id="toggle-labels" class="icon-buttonish" type="button" title="Debug overlays" aria-label="Debug overlays">${icon("bug_report")}</button>
           <button id="open-settings" class="icon-buttonish" type="button" title="Settings" aria-label="Settings">${icon("settings")}</button>
@@ -71,7 +71,7 @@ export function collectRefs(root) {
     redo: root.querySelector("#redo-project"),
     toggleOutputPlayback: root.querySelector("#toggle-output-playback"),
     blackout: root.querySelector("#blackout-main"),
-    workspaceSwitch: root.querySelector("#workspace-switch"),
+    workspaceButtons: root.querySelectorAll("[data-workspace]"),
     openFolder: root.querySelector("#open-folder-main"),
     closeProject: root.querySelector("#close-project"),
     importFiles: root.querySelector("#import-files-main"),

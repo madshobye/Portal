@@ -2269,7 +2269,7 @@ export class OutputRenderer {
     const renderMode = params.renderMode || "surface";
     const surfaceColor = modelColor(params.surfaceColor, [217, 212, 201, 255]);
     const wireColor = modelColor(params.wireColor, [75, 73, 68, 204]);
-    const wireThickness = modelWireThickness(params);
+    const wireThickness = resolutionScaledStrokeWidth(modelWireThickness(params), renderRequest);
     const rotation = modelRotation(params, compositionTime);
     const detail = Math.max(4, Math.min(14, Math.round(
       (Number(params.detail) || 8) * qualityComputeMultiplier(params, { minimum: 0.55, maximum: 1.35 })
@@ -2336,7 +2336,7 @@ export class OutputRenderer {
         drawTerrainSurface(target, this.terrainSurfaceResources, flightParams, flightTime, target.width, target.height, style, sky);
       }
       if (style >= 1) {
-        drawTerrainWireframe(target, this.terrainWireResources, flightParams, flightTime, target.width, target.height);
+        drawTerrainWireframe(target, this.terrainWireResources, flightParams, flightTime, target.width, target.height, renderRequest);
       }
       target.pop();
     });
@@ -2365,7 +2365,7 @@ export class OutputRenderer {
     )));
     const surfaceColor = modelColor(params.surfaceColor, [220, 225, 220, 255]);
     const wireColor = modelColor(params.wireColor, [20, 20, 20, 220]);
-    const wireThickness = modelWireThickness(params);
+    const wireThickness = resolutionScaledStrokeWidth(modelWireThickness(params), renderRequest);
     const rotation = modelRotation(params, compositionTime);
     const gpuToken = this.gpuTimer.begin(target, this.frameIndex);
     try {
@@ -4310,6 +4310,17 @@ export function qualityScaledRenderRequest(request = {}, params = {}, minimum = 
   };
 }
 
+export function resolutionScaledStrokeWidth(strokeWidth, request = {}, backingSize = null) {
+  const width = Math.max(0, Number(strokeWidth) || 0);
+  if (width <= 0) return 0;
+  const logicalWidth = Math.max(1, Number(request.logicalWidth) || Number(request.width) || 1);
+  const logicalHeight = Math.max(1, Number(request.logicalHeight) || Number(request.height) || 1);
+  const rasterWidth = Math.max(1, Number(backingSize?.width) || Number(request.width) || logicalWidth);
+  const rasterHeight = Math.max(1, Number(backingSize?.height) || Number(request.height) || logicalHeight);
+  const rasterScale = Math.max(0.01, Math.min(rasterWidth / logicalWidth, rasterHeight / logicalHeight));
+  return Math.max(0.125, width * rasterScale);
+}
+
 function qualityComputeMultiplier(params = {}, { minimum = 0.35, maximum = 1.5 } = {}) {
   const quality = renderQualityValue(params);
   if (quality <= 0.5) return minimum + (1 - minimum) * (quality / 0.5);
@@ -5289,7 +5300,7 @@ function updateTerrainSurfaceBuffers(gl, resources, widthCells, depthCells, base
   }
 }
 
-function drawTerrainWireframe(target, resourceCache, params, compositionTime, planeWidth, planeDepth) {
+function drawTerrainWireframe(target, resourceCache, params, compositionTime, planeWidth, planeDepth, renderRequest = {}) {
   const gl = target?.drawingContext;
   if (!gl) return false;
   const previousProgram = gl.getParameter(gl.CURRENT_PROGRAM);
@@ -5347,7 +5358,11 @@ function drawTerrainWireframe(target, resourceCache, params, compositionTime, pl
   gl.uniform1f(resources.gridBaseRow, baseRow);
   gl.uniform1f(resources.gridIrregularity, normalizedTerrainIrregularity(params.gridJitter));
   gl.uniform2f(resources.resolution, gl.drawingBufferWidth || target.width, gl.drawingBufferHeight || target.height);
-  gl.uniform1f(resources.thickness, Math.max(0.5, Number(params.wireWidth) || 0.85));
+  gl.uniform1f(resources.thickness, resolutionScaledStrokeWidth(
+    Math.max(0.5, Number(params.wireWidth) || 0.85),
+    renderRequest,
+    { width: gl.drawingBufferWidth || target.width, height: gl.drawingBufferHeight || target.height }
+  ));
   gl.drawArrays(gl.TRIANGLES, 0, resources.count);
   for (const state of attributeStates) restoreVertexAttributeState(gl, state);
   gl.bindBuffer(gl.ARRAY_BUFFER, previousArrayBuffer);
@@ -5864,7 +5879,11 @@ function drawRawParsedWire(target, item, params = {}, compositionTime = 0, color
   gl.uniformMatrix4fv(resources.model, false, matrices.model);
   gl.uniform1f(resources.depthCutoff, modelDepthCutoff(params, mesh.bounds, matrices.model));
   gl.uniform2f(resources.resolution, drawingWidth, drawingHeight);
-  gl.uniform1f(resources.thickness, modelWireThickness(params));
+  gl.uniform1f(resources.thickness, resolutionScaledStrokeWidth(
+    modelWireThickness(params),
+    metrics,
+    { width: drawingWidth, height: drawingHeight }
+  ));
   gl.uniform4fv(resources.color, rgba);
   gl.drawArrays(gl.TRIANGLES, 0, resources.count);
   gl.disableVertexAttribArray(resources.start);
@@ -6371,10 +6390,14 @@ function validModelBound(value, fallback) {
 function modelViewportMetrics(target, request = {}) {
   const width = Math.max(1, Math.round(Number(request?.width || target?.width) || 1));
   const height = Math.max(1, Math.round(Number(request?.height || target?.height) || 1));
+  const logicalWidth = Math.max(1, Number(request?.logicalWidth) || width);
+  const logicalHeight = Math.max(1, Number(request?.logicalHeight) || height);
   const verticalUnit = height;
   return {
     width,
     height,
+    logicalWidth,
+    logicalHeight,
     cameraZ: verticalUnit * 0.92,
     unitScale: verticalUnit * 0.0065,
   };
@@ -6662,7 +6685,7 @@ function createRawWireProgram(gl) {
       vec4 clip = mix(startClip, endClip, aAlong);
       vModelDepth = (uModel * vec4(mix(aStart, aEnd, aAlong), 1.0)).z;
       vec2 pixelToNdc = vec2(2.0 / max(1.0, uResolution.x), 2.0 / max(1.0, uResolution.y));
-      clip.xy += normal * pixelToNdc * (max(0.5, uThickness) * 0.5) * aSide * clip.w;
+      clip.xy += normal * pixelToNdc * (max(0.125, uThickness) * 0.5) * aSide * clip.w;
       gl_Position = clip;
     }
   `);

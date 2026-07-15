@@ -8,7 +8,7 @@ import { getGeneratorComponent, listGeneratorComponents } from "../js/graph/gene
 import { RenderNodeRuntime, textureStateKey } from "../js/graph/render-node-runtime.js";
 import { compileCompositionPatch } from "../js/graph/render-scheduler.js?v=world-frame-27";
 import { shouldHoldCurrentOutputState } from "../js/output/output-app.js";
-import { advanceRateClock, advanceSpatialScale, modelDepthCutoff, OutputRenderer, parseObjMesh, qualityAdjustedGeneratorParams, qualityScaledRenderRequest, sourceWithNodeParams, terrainExpandedGridWireVertices, terrainExpandedWireVertices, terrainGridSize, terrainSurfaceGridVertices, terrainSurfaceTriangleIndices, terrainTriangleEdgeUvs, transformedModelDepthRange } from "../js/output/output-renderer.js?v=world-frame-27";
+import { advanceRateClock, advanceSpatialScale, modelDepthCutoff, OutputRenderer, parseObjMesh, qualityAdjustedGeneratorParams, qualityScaledRenderRequest, resolutionScaledStrokeWidth, sourceWithNodeParams, terrainExpandedGridWireVertices, terrainExpandedWireVertices, terrainGridSize, terrainSurfaceGridVertices, terrainSurfaceTriangleIndices, terrainTriangleEdgeUvs, transformedModelDepthRange } from "../js/output/output-renderer.js?v=world-frame-27";
 import { getMediaType, isMediaFile } from "../js/services/media-library-service.js";
 
 test("media sources keep trim and playback speed through normalization and graph compile", () => {
@@ -596,9 +596,24 @@ test("3d model point mode uses cached bounded point clouds", () => {
   assert.ok(source.includes("ensureParsedModelThickWireVertices(item, budget)"));
   assert.ok(source.includes("ensureP5ModelPointCloud(item, pointBudget)"));
   assert.ok(source.includes("uniform float uThickness;"));
-  assert.ok(source.includes("gl.uniform1f(resources.thickness, modelWireThickness(params));"));
+  assert.ok(source.includes("resolutionScaledStrokeWidth("));
   assert.ok(source.includes("Math.min(50000"));
   assert.ok(!source.includes("function drawModelPoints"));
+});
+
+test("specialized wire thickness is scaled once from logical to raster resolution", () => {
+  const request = { width: 650, height: 500, logicalWidth: 1300, logicalHeight: 1000 };
+
+  assert.equal(resolutionScaledStrokeWidth(2, request), 1);
+  assert.equal(resolutionScaledStrokeWidth(2, request, { width: 1300, height: 1000 }), 2);
+  assert.equal(resolutionScaledStrokeWidth(2, { width: 1300, height: 1000 }), 2);
+  assert.equal(resolutionScaledStrokeWidth(0.5, { width: 32, height: 32, logicalWidth: 1000, logicalHeight: 1000 }), 0.125);
+
+  const source = readFileSync(new URL("../js/output/output-renderer.js", import.meta.url), "utf8");
+  assert.ok(source.includes("drawTerrainWireframe(target, this.terrainWireResources"));
+  assert.ok(source.includes("{ width: gl.drawingBufferWidth || target.width, height: gl.drawingBufferHeight || target.height }"));
+  assert.ok(source.includes("{ width: drawingWidth, height: drawingHeight }"));
+  assert.ok(source.includes("max(0.125, uThickness)"));
 });
 
 test("3d model scale uses logical render viewport instead of backing pixels", () => {

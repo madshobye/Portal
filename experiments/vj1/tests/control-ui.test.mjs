@@ -259,6 +259,14 @@ test("workspace view buttons are compact icons with accessible names", () => {
     assert.ok(!shellSource.includes(`<span>${label}</span>`));
   }
   assert.ok(!shellSource.includes('data-workspace="mapping"'));
+  const projectButtonIndex = shellSource.indexOf('id="open-folder-main"');
+  const viewSwitchIndex = shellSource.indexOf('class="workspace-switch workspace-view-switch"');
+  const closeProjectIndex = shellSource.indexOf('id="close-project"');
+  const topActionsIndex = shellSource.indexOf('class="top-actions"');
+  const liveButtonIndex = shellSource.indexOf('class="icon-buttonish workspace-live-button"');
+  assert.ok(projectButtonIndex < viewSwitchIndex && viewSwitchIndex < closeProjectIndex);
+  assert.ok(topActionsIndex < liveButtonIndex);
+  assert.equal((shellSource.slice(viewSwitchIndex, closeProjectIndex).match(/data-workspace=/g) || []).length, 3);
   assert.match(styleSource, /\.workspace-switch button \{[\s\S]*?width: 36px;[\s\S]*?padding: 0;/);
 });
 

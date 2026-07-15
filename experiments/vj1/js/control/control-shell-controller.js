@@ -7,12 +7,12 @@ import { patchNodeDegree, planCompositorInputs, planPatchExecution, summarizeTex
 import { compileCompositionPatch } from "../graph/render-scheduler.js?v=hsv-alpha-key-1";
 import { buildOutputUrl } from "../view-routing.js?v=multi-output-2";
 import { getShaderComponent, listShaderComponents } from "../shaders/shader-registry.js?v=hsv-alpha-key-1";
-import { createEmbeddedPreviewApp } from "../output/embedded-preview-app.js?v=stl-buffer-lifecycle-1";
+import { createEmbeddedPreviewApp } from "../output/embedded-preview-app.js?v=wire-resolution-1";
 import { frameFitViewport, resetViewport, zoomViewport } from "../output/preview-viewport.js?v=multi-output-2";
 import { defaultProjectSurfaceMapping } from "../output/render-geometry.js?v=render-demand-1";
 import { createHtmlCache, isInteractiveNode, isTextEditingNode, setClass, setText } from "./dom-utils.js";
 import { bindReorderList } from "./reorder-list.js";
-import { collectRefs, shellTemplate } from "./shell-view.js?v=nodes-hidden-1";
+import { collectRefs, shellTemplate } from "./shell-view.js?v=topbar-views-left-1";
 import { effectIcon, emptyNote, esc, icon, paramRangePairTemplate, rangeTemplate, selectValuesTemplate, sourceTypeIcon, thumbnailTemplate } from "./template-utils.js?v=thumbnail-fit-2";
 
 const MODEL_RENDER_MODES = ["surface", "wireframe", "surfaceWire", "points"];
@@ -214,7 +214,7 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
     refs.openFolder.addEventListener("click", openProjectFolder);
     refs.closeProject?.addEventListener("click", closeProject);
 
-    refs.workspaceSwitch.querySelectorAll("[data-workspace]").forEach((button) => {
+    refs.workspaceButtons.forEach((button) => {
       button.addEventListener("click", () => {
         if (!hasOpenProject(latestState)) return;
         const workspace = WORKSPACES.includes(button.dataset.workspace) ? button.dataset.workspace : "scene";
@@ -401,7 +401,7 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
     }
     refs.undo.disabled = !state.ui.canUndo;
     refs.redo.disabled = !state.ui.canRedo;
-    refs.workspaceSwitch.querySelectorAll("[data-workspace]").forEach((button) => {
+    refs.workspaceButtons.forEach((button) => {
       button.disabled = !hasProject;
       setClass(button, "is-active", button.dataset.workspace === currentWorkspace(state));
     });

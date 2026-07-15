@@ -1,10 +1,10 @@
 import { createAppState } from "./app-state.js?v=live-scene-sync-1";
-import { createControlShell } from "./control/control-shell-controller.js?v=live-scene-sync-1";
+import { createControlShell } from "./control/control-shell-controller.js?v=topbar-views-left-1";
 import { getInitialWorkspace, getClientMode, persistWorkspace } from "./view-routing.js?v=multi-output-2";
 import { createMediaLibrary } from "./services/media-library-service.js?v=multi-output-2";
 import { createProjectFolderService } from "./services/project-folder-service.js?v=batch-fixes-1";
 import { createControlBridge } from "./services/output-bridge-service.js?v=multi-output-2";
-import { installOutputApp } from "./output/output-app.js?v=stl-buffer-lifecycle-1";
+import { installOutputApp } from "./output/output-app.js?v=wire-resolution-1";
 
 const root = document.getElementById("app");
 const mode = getClientMode();
