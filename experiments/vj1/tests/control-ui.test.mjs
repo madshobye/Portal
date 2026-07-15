@@ -64,17 +64,42 @@ test("scene surfaces expose projection cover contain and stretch", () => {
   assert.ok(source.includes('const PROJECTION_FIT_MODES = ["cover", "contain", "stretch"]'));
   assert.ok(source.includes("Projection fit"));
   assert.ok(source.includes("sceneBase}.projectionFit"));
+  assert.ok(source.includes('rangeTemplate("Feather", `${surfaceBase}.feather`'));
 });
 
 test("canvas uses the shared chain and exposes recording frames as scene routes", () => {
   const source = readFileSync(new URL("../js/control/control-shell-controller.js", import.meta.url), "utf8");
   assert.ok(source.includes("compositionUnifiedChainTemplate(composition, state, base)"));
+  assert.ok(source.includes('workspace === "compose" || workspace === "canvas" ? "composition"'));
+  assert.ok(source.includes("data-add-element-composition"));
+  assert.ok(source.includes('type: "composition"'));
+  assert.ok(source.includes('ownerComposition?.type === "canvas" && item.source?.type === "composition"'));
+  assert.ok(source.includes('isCanvasCompositionPlacement ? "" : `<label class="field">Composition'));
+  assert.ok(source.includes('if (item.source?.type === "composition") return sourceTitle'));
+  assert.ok(source.includes("canvas.previewQuality"));
+  assert.ok(source.includes("Auto · preview size"));
   assert.ok(source.includes("data-add-canvas-frame"));
-  assert.ok(source.includes("data-canvas-frame"));
-  assert.ok(source.includes("data-set-route-frame"));
-  assert.ok(source.includes("composition.canvas?.frames"));
+  assert.ok(source.includes("data-set-route-source-node"));
+  assert.ok(!source.includes("data-assign-scene-source"));
+  assert.ok(source.includes("sceneSourceNodes(state)"));
+  assert.ok(source.includes("const compositions = ordinaryCompositions(state)"));
+  assert.ok(source.includes('filter((composition) => composition.type !== "canvas")'));
+  assert.ok(!source.includes("data-set-route-frame"));
+  assert.ok(source.includes("state.recordingFrames || []"));
+  assert.ok(!source.includes("composition.canvas?.frames"));
   assert.ok(!source.includes("Surface sample rects"));
   assert.ok(!source.includes("Canvas sample rect"));
+  assert.ok(!source.includes("data-add-canvas-layer"));
+  assert.ok(!source.includes('item.role === "canvas-layer"'));
+  assert.ok(!source.includes('data-update="${base}.x"'));
+});
+
+test("Live expands Canvas composition placements into referenced element controls", () => {
+  const source = readFileSync(new URL("../js/control/control-shell-controller.js", import.meta.url), "utf8");
+  assert.ok(source.includes("live-referenced-composition"));
+  assert.ok(source.includes("createLiveCompositionView(referencedComposition, state)"));
+  assert.ok(source.includes("liveUnifiedChainTemplate(referencedView.chain, referencedComposition.id, state, nextAncestry)"));
+  assert.ok(source.includes("!ancestry.has(referencedComposition.id)"));
 });
 
 test("project settings expose composition upscaling and native-resolution post filters", () => {
@@ -184,6 +209,17 @@ test("list thumbnails crop to fill and brighten their grayscale state", () => {
   assert.ok(source.includes("filter: grayscale(1) contrast(1.16) brightness(1.08);"));
 });
 
+test("media cards use one full-width text column without the generic icon inset", () => {
+  const source = readFileSync(new URL("../style.css", import.meta.url), "utf8");
+  assert.ok(source.includes(".media-element-card {\n  grid-template-columns: minmax(0, 1fr);"));
+  assert.match(source, /\.media-element-card > \.composition-thumbnail,\n\.media-element-card > \.media-picker-placeholder \{\n  grid-column: 1;\n  grid-row: 3;/);
+});
+
+test("composition picker cards use the same thumbnail layout as media cards", () => {
+  const source = readFileSync(new URL("../js/control/control-shell-controller.js", import.meta.url), "utf8");
+  assert.match(source, /Compositions[\s\S]*?<div class="element-grid media-element-grid">[\s\S]*?class="element-card media-element-card" data-add-element-composition=/);
+});
+
 test("workspace view buttons are compact icons with accessible names", () => {
   const shellSource = readFileSync(new URL("../js/control/shell-view.js", import.meta.url), "utf8");
   const styleSource = readFileSync(new URL("../style.css", import.meta.url), "utf8");
@@ -192,6 +228,7 @@ test("workspace view buttons are compact icons with accessible names", () => {
     assert.ok(shellSource.includes(`title="${label}" aria-label="${label}"`));
     assert.ok(!shellSource.includes(`<span>${label}</span>`));
   }
+  assert.ok(shellSource.indexOf('data-workspace="mapping"') < shellSource.indexOf('data-workspace="compose"'));
   assert.match(styleSource, /\.workspace-switch button \{[\s\S]*?width: 36px;[\s\S]*?padding: 0;/);
 });
 

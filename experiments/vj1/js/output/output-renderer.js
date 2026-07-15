@@ -1,6 +1,6 @@
 import { VJ1 } from "../constants.js";
 import { compositionFrameMetrics } from "../domain/composition-frame.js";
-import { clamp01, normalizeCompositionPipelineSettings, sanitizeState } from "../domain/models.js?v=multi-output-2";
+import { clamp01, normalizeCompositionPipelineSettings, resolveSceneSourceNode, sanitizeState } from "../domain/models.js?v=surface-feather-1";
 import { normalizeParamValue, normalizeParamValues, renderQualityScale, renderQualityValue } from "../graph/component-schema.js?v=range-pair-1";
 import { createManualScheduler } from "../graph/manual-scheduler.js";
 import { RenderNodeRuntime, textureStateKey } from "../graph/render-node-runtime.js?v=node-dirty-runtime-1";
@@ -26,10 +26,11 @@ import {
   outputFrames,
   outputFrameOffset,
   renderRequestKey,
+  sourceRenderDemand,
   surfaceTextureSize,
   worldSize,
-} from "./render-geometry.js?v=multi-output-2";
-import { VjMapper } from "./vj-mapper.js?v=mapping-live-1";
+} from "./render-geometry.js?v=render-demand-1";
+import { VjMapper } from "./vj-mapper.js?v=surface-feather-1";
 import { mediaRenditionKey } from "../services/media-rendition-service.js";
 
 const TERRAIN_GRID_CELLS = 48;
@@ -398,7 +399,7 @@ void main() {
 `;
 
 export class OutputRenderer {
-  constructor({ mode, outputId = "", hud, font, sendMetrics, sendMapping, sendThumbnail, sendChainTransform, sendMediaRendition, requestMediaFiles, onSurfaceSelect }) {
+  constructor({ mode, outputId = "", hud, font, sendMetrics, sendMapping, sendThumbnail, sendChainTransform, sendCanvasFrame, sendMediaRendition, requestMediaFiles, onSurfaceSelect }) {
     this.mode = mode;
     this.outputId = outputId;
     this.hud = hud;
@@ -407,6 +408,7 @@ export class OutputRenderer {
     this.sendMapping = sendMapping;
     this.sendThumbnail = sendThumbnail;
     this.sendChainTransform = sendChainTransform;
+    this.sendCanvasFrame = sendCanvasFrame;
     this.sendMediaRendition = sendMediaRendition;
     this.requestMediaFiles = requestMediaFiles;
     this.onSurfaceSelect = onSurfaceSelect;
@@ -442,6 +444,7 @@ export class OutputRenderer {
     this.cameraRequested = false;
     this.cameraError = "";
     this.chainTransformDrag = null;
+    this.canvasFrameDrag = null;
     this.mapperSurfaces = new Map();
     this.mappingSignature = "";
     this.localMappingSignature = "";
@@ -750,7 +753,7 @@ export class OutputRenderer {
     const frame = this.outputFrameSize(render);
     const world = worldSize(render);
     const texture = surfaceTextureSize(render);
-    const density = Math.max(0.5, Math.min(2, Number(render.pixelDensity) || 1));
+    const density = this.renderPixelDensity(render);
     const outputs = outputFrames(render).map((output) => `${output.id}:${output.width}x${output.height}@${output.x},${output.y}`).join("|");
     return `${this.outputId}:${frame.width}x${frame.height}:${outputs}:${world.width}x${world.height}:${texture.width}x${texture.height}:pd${density}`;
   }
@@ -768,7 +771,9 @@ export class OutputRenderer {
   }
 
   renderPixelDensity(render = this.state?.render || {}) {
-    return Math.max(0.5, Math.min(2, Number(render.pixelDensity) || 1));
+    const configured = Math.max(0.5, Math.min(2, Number(render.pixelDensity) || 1));
+    const demandScale = Math.max(0.125, Math.min(1, Number(render.previewRasterScale) || 1));
+    return Math.max(0.125, configured * demandScale);
   }
 
   renderResolutionSize(render = this.state?.render || {}) {
@@ -1161,7 +1166,7 @@ export class OutputRenderer {
       if (neededCompositionIds.size && !neededCompositionIds.has(composition.id)) continue;
       const compositionTime = this.compositionTimes.get(composition.id) || 0;
       const request = composition.type === "canvas"
-        ? canvasCompositionRenderRequest(composition, { reason: "composition-preview", renderIdentity: composition.id })
+        ? canvasPreviewRenderRequest(composition, width, height, { reason: "composition-preview", renderIdentity: composition.id })
         : compositionRenderRequest(this.state.render, composition, "texture", { reason: "composition-preview", renderIdentity: composition.id });
       const output = this.renderCompositionForRequest(
         composition,
@@ -1375,34 +1380,12 @@ export class OutputRenderer {
     const canvas = composition.canvas || {};
     const canvasWidth = Math.max(1, Number(canvas.width) || renderRequest.width);
     const canvasHeight = Math.max(1, Number(canvas.height) || renderRequest.height);
-    const scaleX = renderRequest.width / canvasWidth;
-    const scaleY = renderRequest.height / canvasHeight;
     let state = this.transparentChainState(composition, renderRequest);
     const chain = composition.chain || [];
     for (let index = 0; index < chain.length; index++) {
       const item = chain[index];
       if (item.enabled === false) continue;
       const nodeId = renderBufferKey(composition.id, "canvas", index, item.id || item.componentId || item.kind);
-      if (item.kind === "group" && item.role === "canvas-layer") {
-        const layout = item.layout || {};
-        const layerRequest = createRenderRequest("canvas-layer", {
-          width: Math.max(1, Math.round((Number(layout.width) || 1) * scaleX)),
-          height: Math.max(1, Math.round((Number(layout.height) || 1) * scaleY)),
-        }, {
-          logicalWidth: Math.max(1, Number(layout.width) || 1),
-          logicalHeight: Math.max(1, Number(layout.height) || 1),
-          renderIdentity: item.id,
-        });
-        const layerState = this.renderCompositionChainState(
-          composition,
-          item.chain || [],
-          compositionTime,
-          layerRequest,
-          renderBufferKey("canvas-layer", item.id || index)
-        );
-        state = this.renderCanvasLayerNodeState(nodeId, state, layerState, item, renderRequest, scaleX, scaleY);
-        continue;
-      }
       if (item.kind === "effect") {
         state = this.renderEffectNodeState(nodeId, state, item, compositionTime, renderRequest);
         continue;
@@ -1420,38 +1403,10 @@ export class OutputRenderer {
       }
       if (item.kind === "source") {
         const sourceState = this.renderCompositionSourceItemState(composition, item, compositionTime, renderRequest, nodeId);
-        state = this.renderLayerNodeState(nodeId, state, sourceState, { ...item, transform: {} }, renderRequest);
+        state = this.renderLayerNodeState(nodeId, state, sourceState, item, renderRequest);
       }
     }
     return state.buffer;
-  }
-
-  renderCanvasLayerNodeState(nodeId, inputState, layerState, layer, renderRequest, scaleX, scaleY) {
-    const layout = layer.layout || {};
-    const rect = {
-      x: (Number(layout.x) || 0) * scaleX,
-      y: (Number(layout.y) || 0) * scaleY,
-      width: Math.max(1, (Number(layout.width) || 1) * scaleX),
-      height: Math.max(1, (Number(layout.height) || 1) * scaleY),
-    };
-    const signature = stableStringify({
-      input: textureStateKey(inputState),
-      layer: textureStateKey(layerState),
-      state: chainLayerState(layer),
-      rect,
-      request: renderRequestKey(renderRequest),
-    });
-    return this.evaluateChainNode(nodeId, signature, renderRequest, (output) => {
-      output.push();
-      output.clear();
-      drawBuffer(output, inputState.buffer, 0, 0, output.width, output.height, this.isShaderBuffer(inputState.buffer));
-      applyBlend(output, layer.blend);
-      output.tint(255, 255 * clamp01(layer.opacity));
-      drawBuffer(output, layerState.buffer, rect.x, rect.y, rect.width, rect.height, this.isShaderBuffer(layerState.buffer));
-      output.noTint();
-      output.blendMode(BLEND);
-      output.pop();
-    }, "canvas-layer");
   }
 
   renderCompositionPatch(composition, patch, compositionTime, request = frameRenderRequest(this.state.render)) {
@@ -1835,19 +1790,18 @@ export class OutputRenderer {
   }
 
   stableCompositionSignature(composition, renderRequest, seen = new Set()) {
-    if (composition?.type === "canvas") return "";
     const pipeline = normalizeCompositionPipelineSettings(this.state?.render || {});
     if (pipeline.postProcessing.noiseEnabled && pipeline.postProcessing.noiseAmount > 0.0001) return "";
     if (!composition?.id || this.compositionIsFrameDynamic(composition, seen)) return "";
     return stableStringify({
-      version: 2,
+      version: 3,
       request: {
         role: renderRequest.role || "composition",
         width: renderRequest.width,
         height: renderRequest.height,
       },
-      composition: staticCompositionState(composition),
-      media: staticMediaState(this.state?.media || [], composition),
+      composition: staticCompositionGraphState(composition, this.state?.compositions || []),
+      media: staticCompositionGraphMediaState(this.state?.media || [], composition, this.state?.compositions || []),
       customShader: this.state?.shaders?.customCode || "",
       pipeline,
     });
@@ -1861,7 +1815,7 @@ export class OutputRenderer {
       seen.delete(composition.id);
       return dynamic;
     }
-    const sourceDynamic = this.sourceIsFrameDynamic(composition.source, composition);
+    const sourceDynamic = this.sourceIsFrameDynamic(composition.source, composition, seen);
     const effectsDynamic = (composition.shaderChain || []).some((pass) => this.effectPassIsFrameDynamic(pass));
     seen.delete(composition.id);
     return sourceDynamic || effectsDynamic;
@@ -1876,13 +1830,13 @@ export class OutputRenderer {
         if (!sourceComposition || this.compositionIsFrameDynamic(sourceComposition, seen)) return true;
         continue;
       }
-      if (item.kind === "source" && this.sourceIsFrameDynamic(item.source || {}, item)) return true;
+      if (item.kind === "source" && this.sourceIsFrameDynamic(item.source || {}, item, seen)) return true;
       if (item.kind === "effect" && this.effectPassIsFrameDynamic({ id: item.componentId, params: item.params, amount: item.amount })) return true;
     }
     return false;
   }
 
-  sourceIsFrameDynamic(source = {}, owner = {}) {
+  sourceIsFrameDynamic(source = {}, owner = {}, seen = new Set()) {
     if (!source || source.type === "black") return false;
     if (source.type === "camera") return true;
     if (source.type === "generator") {
@@ -1893,7 +1847,10 @@ export class OutputRenderer {
       });
       return component.runtime?.cacheable === false || component.runtime?.timeDependent?.(params) === true;
     }
-    if (source.type === "composition") return true;
+    if (source.type === "composition") {
+      const dependency = this.state?.compositions?.find((composition) => composition.id === source.compositionId);
+      return !dependency || this.compositionIsFrameDynamic(dependency, seen);
+    }
     if (source.type !== "media") return true;
     const mediaId = source.mediaId || "";
     const mediaMeta = (this.state?.media || []).find((item) => item.id === mediaId);
@@ -2011,7 +1968,14 @@ export class OutputRenderer {
       });
       return componentRuntimeTimeKey(component, params, runtimeContext);
     }
-    if (source.type === "composition") return runtimeContext.frame;
+    if (source.type === "composition") {
+      const dependency = this.state?.compositions?.find((composition) => composition.id === source.compositionId);
+      if (!dependency || this.compositionIsFrameDynamic(dependency)) return runtimeContext.frame;
+      return stableStringify({
+        composition: staticCompositionGraphState(dependency, this.state?.compositions || []),
+        media: staticCompositionGraphMediaState(this.state?.media || [], dependency, this.state?.compositions || []),
+      });
+    }
     if (source.type !== "media") return runtimeContext.frame;
     const mediaId = source.mediaId || "";
     const mediaMeta = (this.state?.media || []).find((entry) => entry.id === mediaId);
@@ -2078,15 +2042,29 @@ export class OutputRenderer {
       const sourceComposition = this.state.compositions.find((item) => item.id === source.compositionId);
       if (!sourceComposition || sourceComposition.id === composition.id || sourceComposition.type === "canvas") return;
       const sourceTime = this.compositionTimes.get(sourceComposition.id) || compositionTime;
+      const placement = compositionReferencePlacement(
+        composition,
+        sourceComposition,
+        this.state.render,
+        { width: pg.width, height: pg.height }
+      );
       const sourceOutput = this.renderCompositionForRequest(
         sourceComposition,
         sourceTime,
-        compositionRenderRequest(this.state.render, sourceComposition, "texture", {
+        compositionReferenceRenderRequest(this.state.render, sourceComposition, placement, {
           reason: "composition-reference",
           renderIdentity: sourceComposition.id,
         })
       );
-      drawBuffer(pg, sourceOutput, 0, 0, pg.width, pg.height, this.isShaderBuffer(sourceOutput));
+      drawBuffer(
+        pg,
+        sourceOutput,
+        placement.x,
+        placement.y,
+        placement.width,
+        placement.height,
+        this.isShaderBuffer(sourceOutput)
+      );
     } else if (source.type === "media") {
       const item = this.media.get(source.mediaId);
       if (item?.video && isDrawableMedia(item.video)) {
@@ -2851,18 +2829,15 @@ export class OutputRenderer {
 
   renderSurfaces() {
     const outputBlackout = this.isOutputBlackout();
-    for (const surface of this.state.surfaces) {
-      if (!surface.enabled) continue;
-      const mapped = this.mapperSurfaces.get(surface.id);
-      if (!mapped) continue;
-      const composition = this.state.compositions.find((item) => item.id === surface.compositionId);
-      const request = this.surfaceRouteRenderRequest(surface, composition);
+    const routes = this.buildSurfaceRenderPlan();
+    for (const route of routes) {
+      const { surface, mapped, composition, surfaceRequest: request } = route;
       const pg = this.getSurfaceTexture(request);
       if (!pg) continue;
       pg.push();
       pg.clear();
       if (!outputBlackout) {
-        this.drawSurfaceRoute(pg, surface, composition, request);
+        this.drawSurfaceRoute(pg, route);
       } else {
         pg.background(0);
       }
@@ -2870,21 +2845,87 @@ export class OutputRenderer {
         drawSurfaceLabel(pg, surface, composition);
       }
       pg.pop();
-      this.measureGpu(drawingContext, () => this.mapper.drawTexture(pg, mapped.mapperSurface, surface.projectionFit));
+      this.measureGpu(drawingContext, () => this.mapper.drawTexture(pg, mapped.mapperSurface, surface.projectionFit, surface.feather));
     }
   }
 
-  surfaceRouteRenderRequest(surface, composition = null) {
-    const meta = {
-      surfaceId: surface.id,
-      timingId: surface.id,
-      renderIdentity: composition?.id || surface.compositionId || "unrouted",
+  buildSurfaceRenderPlan() {
+    const routes = [];
+    const viewport = this.displayCanvasSize(this.state?.render || {});
+    const pixelScale = this.renderPixelDensity(this.state?.render || {});
+    const maxSurface = surfaceTextureSize(this.state?.render || {});
+    const maxSurfaceSize = {
+      width: Math.max(1, Math.round(maxSurface.width * pixelScale)),
+      height: Math.max(1, Math.round(maxSurface.height * pixelScale)),
     };
-    if (composition?.type === "canvas") {
-      return canvasFrameSurfaceRenderRequest(this.state.render, canvasRouteFrameRect(composition, surface), meta);
+    for (const storedSurface of this.state.surfaces || []) {
+      if (!storedSurface.enabled) continue;
+      this.frameProfile.surfaceRouteCandidates++;
+      const sourceNode = resolveSceneSourceNode(this.state, storedSurface.sourceNodeId, storedSurface);
+      if (!sourceNode) continue;
+      const surface = {
+        ...storedSurface,
+        sourceNodeId: sourceNode.id,
+        compositionId: sourceNode.compositionId,
+        outputFrameId: sourceNode.outputFrameId,
+      };
+      const mapped = this.mapperSurfaces.get(surface.id);
+      const composition = this.state.compositions.find((item) => item.id === surface.compositionId);
+      if (!mapped?.mapperSurface || !composition) continue;
+      const sourceView = compositionSourceView(this.state.render, composition, surface, this.state.recordingFrames);
+      const demand = sourceRenderDemand({
+        ...sourceView,
+        maxSurfaceSize,
+        corners: mapped.mapperSurface.corners,
+        viewport,
+        pixelScale,
+      });
+      if (!demand) {
+        this.frameProfile.surfaceRoutesCulled++;
+        continue;
+      }
+      routes.push({ surface, mapped, composition, sourceView, demand });
     }
-    if (composition) return compositionRenderRequest(this.state.render, composition, "surface", meta);
-    return stableSurfaceRenderRequest(this.state.render, meta);
+
+    const compositionScales = new Map();
+    for (const route of routes) {
+      compositionScales.set(route.composition.id, Math.max(
+        compositionScales.get(route.composition.id) || 0,
+        route.demand.rasterScale
+      ));
+    }
+    for (const route of routes) {
+      const scale = compositionScales.get(route.composition.id) || route.demand.rasterScale;
+      const maxWidth = route.sourceView.maxRasterSize.width;
+      const maxHeight = route.sourceView.maxRasterSize.height;
+      const widthPx = quantizedRenderDimension(route.sourceView.logicalSize.width * scale, maxWidth);
+      const heightPx = quantizedRenderDimension(route.sourceView.logicalSize.height * scale, maxHeight);
+      const meta = {
+        surfaceId: route.surface.id,
+        timingId: route.surface.id,
+        renderIdentity: route.composition.id,
+      };
+      route.compositionRequest = createRenderRequest("texture", { width: widthPx, height: heightPx }, {
+        ...meta,
+        logicalWidth: route.sourceView.logicalSize.width,
+        logicalHeight: route.sourceView.logicalSize.height,
+        demandScale: scale,
+      });
+      route.surfaceRequest = createRenderRequest("surface", route.demand.surfaceSize, {
+        ...meta,
+        logicalWidth: route.demand.sampleRect.width,
+        logicalHeight: route.demand.sampleRect.height,
+        demandScale: scale,
+      });
+      this.frameProfile.surfaceRasterPixels += route.surfaceRequest.width * route.surfaceRequest.height;
+    }
+    this.frameProfile.surfaceRoutesVisible += routes.length;
+    const plannedCompositions = new Map();
+    for (const route of routes) plannedCompositions.set(route.composition.id, route.compositionRequest);
+    for (const request of plannedCompositions.values()) {
+      this.frameProfile.compositionRasterPixels += request.width * request.height;
+    }
+    return routes;
   }
 
   getSurfaceTexture(request = stableSurfaceRenderRequest(this.state?.render || {})) {
@@ -2904,23 +2945,19 @@ export class OutputRenderer {
     return pg;
   }
 
-  drawSurfaceRoute(pg, surface, composition = null, request = null) {
+  drawSurfaceRoute(pg, route = {}) {
+    const { surface = {}, composition = null, surfaceRequest: request = null, compositionRequest = null, demand = null } = route;
     if (!surface.compositionId) {
       pg.clear();
       return;
     }
     if (this.shouldUseThumbnailPreview()) {
-      this.drawSurfaceThumbnailRoute(pg, surface);
+      this.drawSurfaceThumbnailRoute(pg, surface, demand);
       return;
     }
-    composition ||= this.state.compositions.find((item) => item.id === surface.compositionId);
     // Composition time belongs to the composition, not to the projector
     // surface. Per-surface final effects retain their own instance identity.
     const compositionTime = this.compositionTimes.get(surface.compositionId) || 0;
-    request ||= this.surfaceRouteRenderRequest(surface, composition);
-    const compositionRequest = composition?.type === "canvas"
-      ? canvasCompositionRenderRequest(composition, { reason: "canvas-surface-source", renderIdentity: composition.id })
-      : request;
     const source = composition
       ? this.renderCompositionForRequest(composition, compositionTime, compositionRequest)
       : this.mainMix;
@@ -2928,11 +2965,8 @@ export class OutputRenderer {
     pg.push();
     applyBlend(pg, surface.finalBlend);
     pg.tint(255, 255 * clamp01(surface.opacity));
-    if (composition?.type === "canvas") {
-      drawSampleRect(pg, source, canvasRouteFrameRect(composition, surface), 0, 0, pg.width, pg.height);
-    } else {
-      drawBuffer(pg, source, 0, 0, pg.width, pg.height, this.isShaderBuffer(source));
-    }
+    const sampleRect = scaledCompositionSampleRect(demand?.sampleRect, demand?.logicalSize, source);
+    drawSampleRect(pg, source, sampleRect, 0, 0, pg.width, pg.height);
     pg.noTint();
     pg.blendMode(BLEND);
     pg.pop();
@@ -2943,28 +2977,15 @@ export class OutputRenderer {
     }
   }
 
-  drawSurfaceThumbnailRoute(pg, surface) {
+  drawSurfaceThumbnailRoute(pg, surface, demand = null) {
     const composition = this.state.compositions.find((item) => item.id === surface.compositionId);
     const thumbnail = this.getThumbnailImage(composition);
     pg.push();
     applyBlend(pg, surface.finalBlend);
     pg.tint(255, 255 * clamp01(surface.opacity));
     if (thumbnail?.ready && thumbnail.img) {
-      if (composition?.type === "canvas") {
-        const logicalWidth = Math.max(1, Number(composition.canvas?.width) || thumbnail.img.width || 1);
-        const logicalHeight = Math.max(1, Number(composition.canvas?.height) || thumbnail.img.height || 1);
-        const scaleX = Math.max(1, Number(thumbnail.img.width) || 1) / logicalWidth;
-        const scaleY = Math.max(1, Number(thumbnail.img.height) || 1) / logicalHeight;
-        const sourceRect = canvasRouteFrameRect(composition, surface);
-        drawSampleRect(pg, thumbnail.img, {
-          x: (Number(sourceRect.x) || 0) * scaleX,
-          y: (Number(sourceRect.y) || 0) * scaleY,
-          width: (Number(sourceRect.width) || logicalWidth) * scaleX,
-          height: (Number(sourceRect.height) || logicalHeight) * scaleY,
-        }, 0, 0, pg.width, pg.height);
-      } else {
-        drawBuffer(pg, thumbnail.img, 0, 0, pg.width, pg.height);
-      }
+      const sampleRect = scaledCompositionSampleRect(demand?.sampleRect, demand?.logicalSize, thumbnail.img);
+      drawSampleRect(pg, thumbnail.img, sampleRect, 0, 0, pg.width, pg.height);
     } else {
       drawStandby(pg, composition?.thumbnail ? "loading thumbnail" : "no thumbnail");
     }
@@ -3077,6 +3098,7 @@ export class OutputRenderer {
     }
     pop();
     this.renderCompositionFrameOverlay(composition, source);
+    this.renderCanvasRecordingFrames(composition, source);
     if (!this.shouldUseThumbnailPreview()) this.renderSelectedChainTransformOverlay();
   }
 
@@ -3106,6 +3128,41 @@ export class OutputRenderer {
       Math.max(0, frame.height - inset * 2)
     );
     pop();
+  }
+
+  renderCanvasRecordingFrames(composition, source = null) {
+    if (this.mode !== "composition" || composition?.type !== "canvas") return;
+    resetShader();
+    push();
+    noFill();
+    stroke(255, 228, 94, 235);
+    strokeWeight(2);
+    rectMode(CORNER);
+    for (const item of this.canvasRecordingFrameRects(composition, source)) {
+      rect(item.x - width * 0.5, item.y - height * 0.5, item.width, item.height);
+      noStroke();
+      fill(255, 228, 94, 245);
+      for (const corner of canvasRectCorners(item)) {
+        rect(corner.x - width * 0.5 - 5, corner.y - height * 0.5 - 5, 10, 10);
+      }
+      noFill();
+      stroke(255, 228, 94, 235);
+    }
+    pop();
+  }
+
+  canvasRecordingFrameRects(composition, source = null) {
+    if (composition?.type !== "canvas") return [];
+    const canvasWidth = Math.max(1, Number(composition.canvas?.width) || 3840);
+    const canvasHeight = Math.max(1, Number(composition.canvas?.height) || 2160);
+    const preview = this.compositionPreviewRect(composition, source);
+    return (this.state?.recordingFrames || []).map((frame) => ({
+      frame,
+      x: preview.x + (Math.max(0, Number(frame.x) || 0) / canvasWidth) * preview.width,
+      y: preview.y + (Math.max(0, Number(frame.y) || 0) / canvasHeight) * preview.height,
+      width: (Math.max(1, Number(frame.width) || 1) / canvasWidth) * preview.width,
+      height: (Math.max(1, Number(frame.height) || 1) / canvasHeight) * preview.height,
+    }));
   }
 
   renderSelectedChainTransformOverlay() {
@@ -3155,6 +3212,7 @@ export class OutputRenderer {
   }
 
   mousePressed(x, y) {
+    if (this.mode === "composition" && this.startCanvasFrameDrag(x, y)) return;
     if (this.mode === "composition" && this.startChainTransformDrag(x, y)) return;
     this.mapper?.mousePressed?.(x, y);
     const surfaceIndex = Number(this.mapper?._dragSurf);
@@ -3165,6 +3223,10 @@ export class OutputRenderer {
   }
 
   mouseDragged(x, y) {
+    if (this.canvasFrameDrag) {
+      this.updateCanvasFrameDrag(x, y);
+      return;
+    }
     if (this.chainTransformDrag) {
       this.updateChainTransformDrag(x, y);
       return;
@@ -3173,11 +3235,72 @@ export class OutputRenderer {
   }
 
   mouseReleased() {
+    if (this.canvasFrameDrag) {
+      const drag = this.canvasFrameDrag;
+      this.canvasFrameDrag = null;
+      if (drag.lastRect) this.sendCanvasFrame?.(drag.compositionId, drag.frameId, drag.lastRect, { commit: true });
+      return;
+    }
     if (this.chainTransformDrag) {
       this.chainTransformDrag = null;
       return;
     }
     this.mapper?.mouseReleased?.();
+  }
+
+  startCanvasFrameDrag(x, y) {
+    const composition = this.state?.compositions?.find((item) => item.id === this.state?.ui?.selectedCompositionId);
+    if (composition?.type !== "canvas") return false;
+    const source = this.compositionOutput.get(composition.id);
+    const rects = this.canvasRecordingFrameRects(composition, source);
+    for (let index = rects.length - 1; index >= 0; index--) {
+      const item = rects[index];
+      const corners = canvasRectCorners(item);
+      const corner = corners.find((entry) => distanceSquared(x, y, entry.x, entry.y) <= 15 * 15);
+      const border = canvasFrameBorderHit(item, x, y);
+      if (!corner && !border) continue;
+      const canvasWidth = Math.max(1, Number(composition.canvas?.width) || 3840);
+      const canvasHeight = Math.max(1, Number(composition.canvas?.height) || 2160);
+      const frame = item.frame;
+      this.canvasFrameDrag = {
+        compositionId: composition.id,
+        frameId: frame.id,
+        mode: corner?.id || "move",
+        startX: x,
+        startY: y,
+        previewWidth: Math.max(1, this.compositionPreviewRect(composition, source).width),
+        previewHeight: Math.max(1, this.compositionPreviewRect(composition, source).height),
+        canvasWidth,
+        canvasHeight,
+        rect: {
+          x: Math.max(0, Number(frame.x) || 0),
+          y: Math.max(0, Number(frame.y) || 0),
+          width: Math.max(16, Number(frame.width) || 16),
+          height: Math.max(16, Number(frame.height) || 16),
+        },
+        lastRect: null,
+      };
+      return true;
+    }
+    return false;
+  }
+
+  updateCanvasFrameDrag(x, y) {
+    const drag = this.canvasFrameDrag;
+    if (!drag) return;
+    const dx = (x - drag.startX) * drag.canvasWidth / drag.previewWidth;
+    const dy = (y - drag.startY) * drag.canvasHeight / drag.previewHeight;
+    const next = drag.mode === "move"
+      ? moveCanvasFrameRect(drag.rect, dx, dy, drag.canvasWidth, drag.canvasHeight)
+      : resizeCanvasFrameRect(drag.rect, drag.mode, dx, dy, drag.canvasWidth, drag.canvasHeight);
+    drag.lastRect = next;
+    this.applyLocalCanvasFrame(drag.compositionId, drag.frameId, next);
+    this.sendCanvasFrame?.(drag.compositionId, drag.frameId, next, { commit: false });
+  }
+
+  applyLocalCanvasFrame(compositionId, frameId, rect) {
+    const frame = this.state?.recordingFrames?.find((item) => item.id === frameId);
+    if (frame) Object.assign(frame, rect);
   }
 
   isCalibrating() {
@@ -3418,14 +3541,41 @@ export class OutputRenderer {
     const composition = this.state.compositions.find((item) => item.id === this.state.ui.selectedCompositionId) || this.state.compositions[0];
     if (!composition) return;
     const output = this.compositionOutput.get(composition.id);
+    if (!output) return;
     const signature = compositionThumbnailSignature(composition);
-    if (composition.thumbnail && this.thumbnailSignatures.get(composition.id) === signature) return;
     const thumbnailSource = isSharedFramebufferTarget(output) ? output.get() : output;
-    const thumbnail = graphicsToThumbnail(thumbnailSource);
-    if (!thumbnail) return;
+    let captured = false;
+    if (!composition.thumbnail || this.thumbnailSignatures.get(composition.id) !== signature) {
+      const thumbnail = graphicsToThumbnail(thumbnailSource);
+      if (thumbnail) {
+        this.thumbnailSignatures.set(composition.id, signature);
+        this.sendThumbnail(composition.id, thumbnail);
+        captured = true;
+      }
+    }
+    if (composition.type === "canvas") {
+      const sourceWidth = Math.max(1, Number(thumbnailSource?.width || thumbnailSource?.canvas?.width) || 1);
+      const sourceHeight = Math.max(1, Number(thumbnailSource?.height || thumbnailSource?.canvas?.height) || 1);
+      const logicalWidth = Math.max(1, Number(composition.canvas?.width) || sourceWidth);
+      const logicalHeight = Math.max(1, Number(composition.canvas?.height) || sourceHeight);
+      for (const frame of this.state.recordingFrames || []) {
+        const frameKey = `${composition.id}:${frame.id}`;
+        const frameSignature = `${signature}:${frame.x},${frame.y},${frame.width},${frame.height}`;
+        if (composition.canvas?.frameThumbnails?.[frame.id] && this.thumbnailSignatures.get(frameKey) === frameSignature) continue;
+        const frameThumbnail = graphicsToThumbnail(thumbnailSource, COMPOSITION_THUMBNAIL_WIDTH, COMPOSITION_THUMBNAIL_HEIGHT, {
+          x: Number(frame.x) * sourceWidth / logicalWidth,
+          y: Number(frame.y) * sourceHeight / logicalHeight,
+          width: Number(frame.width) * sourceWidth / logicalWidth,
+          height: Number(frame.height) * sourceHeight / logicalHeight,
+        });
+        if (!frameThumbnail) continue;
+        this.thumbnailSignatures.set(frameKey, frameSignature);
+        this.sendThumbnail(composition.id, frameThumbnail, { frameId: frame.id });
+        captured = true;
+      }
+    }
+    if (!captured) return;
     this.lastThumbnailAt = millis();
-    this.thumbnailSignatures.set(composition.id, signature);
-    this.sendThumbnail(composition.id, thumbnail);
   }
 }
 
@@ -3695,10 +3845,53 @@ function staticCompositionState(composition = {}) {
     type: composition.type || "composition",
     frameShape: composition.frameShape || "landscape",
     resolutionScale: Number(composition.resolutionScale) || 1,
+    canvas: composition.type === "canvas" ? {
+      width: Math.max(1, Number(composition.canvas?.width) || 3840),
+      height: Math.max(1, Number(composition.canvas?.height) || 2160),
+    } : null,
     source: staticSourceState(composition.source),
     shaderChain: staticEffectChainState(composition.shaderChain || []),
     chain: staticChainState(composition.chain || []),
   };
+}
+
+function staticCompositionGraphState(composition = {}, compositions = [], seen = new Set()) {
+  if (!composition?.id || seen.has(composition.id)) return { id: composition?.id || "", cycle: true };
+  const nextSeen = new Set(seen);
+  nextSeen.add(composition.id);
+  const dependencies = Array.from(compositionDependencyIds(composition))
+    .sort()
+    .map((id) => staticCompositionGraphState(
+      compositions.find((item) => item.id === id) || { id, missing: true },
+      compositions,
+      nextSeen
+    ));
+  return { ...staticCompositionState(composition), dependencies };
+}
+
+function staticCompositionGraphMediaState(media = [], composition = {}, compositions = [], seen = new Set()) {
+  const ids = new Set();
+  collectCompositionGraphMediaIds(composition, compositions, ids, seen);
+  return staticMediaStateForIds(media, ids);
+}
+
+function collectCompositionGraphMediaIds(composition = {}, compositions = [], ids = new Set(), seen = new Set()) {
+  if (!composition?.id || seen.has(composition.id)) return ids;
+  seen.add(composition.id);
+  collectMediaIdsFromSource(composition.source, ids);
+  collectMediaIdsFromChain(composition.chain || [], ids);
+  for (const dependencyId of compositionDependencyIds(composition)) {
+    const dependency = compositions.find((item) => item.id === dependencyId);
+    if (dependency) collectCompositionGraphMediaIds(dependency, compositions, ids, seen);
+  }
+  return ids;
+}
+
+function compositionDependencyIds(composition = {}) {
+  const ids = new Set();
+  collectCompositionIdsFromSource(composition.source, ids);
+  collectCompositionIdsFromChain(composition.chain || [], ids);
+  return ids;
 }
 
 function staticChainState(chain = []) {
@@ -3970,6 +4163,17 @@ function collectMediaIdsFromChain(chain = [], ids) {
   }
 }
 
+function collectCompositionIdsFromChain(chain = [], ids) {
+  for (const item of chain || []) {
+    if (item.kind === "group") collectCompositionIdsFromChain(item.chain || [], ids);
+    else collectCompositionIdsFromSource(item.source, ids);
+  }
+}
+
+function collectCompositionIdsFromSource(source = {}, ids) {
+  if (source?.type === "composition" && source.compositionId) ids.add(source.compositionId);
+}
+
 function collectMediaIdsFromSource(source = {}, ids) {
   if (source?.type === "media" && source.mediaId) ids.add(source.mediaId);
 }
@@ -4175,6 +4379,11 @@ function createEmptyFrameProfile() {
     compositionMs: 0,
     compositionWallMs: 0,
     compositionRenders: 0,
+    surfaceRouteCandidates: 0,
+    surfaceRoutesVisible: 0,
+    surfaceRoutesCulled: 0,
+    compositionRasterPixels: 0,
+    surfaceRasterPixels: 0,
     totalMs: 0,
     passSamples: [],
   };
@@ -4257,13 +4466,17 @@ const COMPOSITION_THUMBNAIL_WIDTH = 768;
 const COMPOSITION_THUMBNAIL_HEIGHT = 432;
 const COMPOSITION_THUMBNAIL_QUALITY = 0.92;
 
-function graphicsToThumbnail(pg, width = COMPOSITION_THUMBNAIL_WIDTH, height = COMPOSITION_THUMBNAIL_HEIGHT) {
+function graphicsToThumbnail(pg, width = COMPOSITION_THUMBNAIL_WIDTH, height = COMPOSITION_THUMBNAIL_HEIGHT, sourceRect = null) {
   try {
     const source = pg.canvas || pg.elt;
     if (!source) return "";
     const sourceWidth = source.videoWidth || source.naturalWidth || source.width || width;
     const sourceHeight = source.videoHeight || source.naturalHeight || source.height || height;
-    const thumbnailSize = fittedThumbnailSize(sourceWidth, sourceHeight, width, height);
+    const sx = Math.max(0, Math.min(sourceWidth - 1, Number(sourceRect?.x) || 0));
+    const sy = Math.max(0, Math.min(sourceHeight - 1, Number(sourceRect?.y) || 0));
+    const sw = Math.max(1, Math.min(sourceWidth - sx, Number(sourceRect?.width) || sourceWidth));
+    const sh = Math.max(1, Math.min(sourceHeight - sy, Number(sourceRect?.height) || sourceHeight));
+    const thumbnailSize = fittedThumbnailSize(sw, sh, width, height);
     const canvas = document.createElement("canvas");
     canvas.width = thumbnailSize.width;
     canvas.height = thumbnailSize.height;
@@ -4271,7 +4484,8 @@ function graphicsToThumbnail(pg, width = COMPOSITION_THUMBNAIL_WIDTH, height = C
     if (!context) return "";
     context.imageSmoothingEnabled = true;
     context.imageSmoothingQuality = "high";
-    context.drawImage(source, 0, 0, sourceWidth, sourceHeight, 0, 0, thumbnailSize.width, thumbnailSize.height);
+    if (sourceRect) context.drawImage(source, sx, sy, sw, sh, 0, 0, thumbnailSize.width, thumbnailSize.height);
+    else context.drawImage(source, 0, 0, sourceWidth, sourceHeight, 0, 0, thumbnailSize.width, thumbnailSize.height);
     const webp = canvas.toDataURL("image/webp", COMPOSITION_THUMBNAIL_QUALITY);
     if (webp.startsWith("data:image/webp")) return webp;
     return canvas.toDataURL("image/png");
@@ -6810,22 +7024,126 @@ function drawWebGLBuffer(pg, source, x, y, w, h) {
   pg.pop();
 }
 
-function canvasCompositionRenderRequest(composition = {}, meta = {}) {
-  const canvas = composition.canvas || {};
+function canvasRectCorners(rect = {}) {
+  return [
+    { id: "nw", x: rect.x, y: rect.y },
+    { id: "ne", x: rect.x + rect.width, y: rect.y },
+    { id: "sw", x: rect.x, y: rect.y + rect.height },
+    { id: "se", x: rect.x + rect.width, y: rect.y + rect.height },
+  ];
+}
+
+function distanceSquared(ax, ay, bx, by) {
+  const dx = ax - bx;
+  const dy = ay - by;
+  return dx * dx + dy * dy;
+}
+
+export function canvasFrameBorderHit(rect = {}, x = 0, y = 0, tolerance = 8) {
+  const inset = Math.max(0, Number(tolerance) || 0);
+  const left = Number(rect.x) || 0;
+  const top = Number(rect.y) || 0;
+  const right = left + Math.max(0, Number(rect.width) || 0);
+  const bottom = top + Math.max(0, Number(rect.height) || 0);
+  const withinX = x >= left - inset && x <= right + inset;
+  const withinY = y >= top - inset && y <= bottom + inset;
+  return (withinY && (Math.abs(x - left) <= inset || Math.abs(x - right) <= inset))
+    || (withinX && (Math.abs(y - top) <= inset || Math.abs(y - bottom) <= inset));
+}
+
+export function moveCanvasFrameRect(rect, dx, dy, canvasWidth, canvasHeight) {
+  return {
+    ...rect,
+    x: Math.round(Math.max(0, Math.min(canvasWidth - rect.width, rect.x + dx))),
+    y: Math.round(Math.max(0, Math.min(canvasHeight - rect.height, rect.y + dy))),
+  };
+}
+
+export function canvasCompositionPlacementRect(canvas = {}, sourceMetrics = {}, target = {}) {
+  const canvasWidth = Math.max(1, Number(canvas.width) || 3840);
+  const canvasHeight = Math.max(1, Number(canvas.height) || 2160);
+  const targetWidth = Math.max(1, Number(target.width) || canvasWidth);
+  const targetHeight = Math.max(1, Number(target.height) || canvasHeight);
+  const scaleX = targetWidth / canvasWidth;
+  const scaleY = targetHeight / canvasHeight;
+  const width = Math.max(1, (Number(sourceMetrics.baseWidth) || Number(sourceMetrics.width) || 1) * scaleX);
+  const height = Math.max(1, (Number(sourceMetrics.baseHeight) || Number(sourceMetrics.height) || 1) * scaleY);
+  return {
+    x: Math.round((targetWidth - width) * 0.5),
+    y: Math.round((targetHeight - height) * 0.5),
+    width: Math.round(width),
+    height: Math.round(height),
+  };
+}
+
+export function compositionReferencePlacement(parent = {}, child = {}, render = {}, target = {}) {
+  const targetWidth = Math.max(1, Number(target.width) || 1);
+  const targetHeight = Math.max(1, Number(target.height) || 1);
+  if (parent.type !== "canvas") return { x: 0, y: 0, width: targetWidth, height: targetHeight };
+  return canvasCompositionPlacementRect(parent.canvas, compositionFrameMetrics(render, child), target);
+}
+
+export function compositionReferenceRenderRequest(render = {}, composition = {}, placement = {}, meta = {}) {
+  const metrics = compositionFrameMetrics(render, composition);
+  const desiredScale = Math.max(
+    Math.max(1, Number(placement.width) || 1) / metrics.baseWidth,
+    Math.max(1, Number(placement.height) || 1) / metrics.baseHeight
+  );
+  const maximumScale = Math.min(metrics.width / metrics.baseWidth, metrics.height / metrics.baseHeight);
+  const scale = Math.min(maximumScale, desiredScale);
   return createRenderRequest("texture", {
-    width: Math.max(1, Math.round(Number(canvas.width) || 3840)),
-    height: Math.max(1, Math.round(Number(canvas.height) || 2160)),
-    reason: "canvas-sample",
+    width: quantizedRenderDimension(metrics.baseWidth * scale, metrics.width),
+    height: quantizedRenderDimension(metrics.baseHeight * scale, metrics.height),
   }, {
     ...meta,
-    timingId: meta.timingId || meta.surfaceId || "",
-    renderIdentity: meta.renderIdentity ?? meta.instanceId ?? composition.id ?? "",
+    logicalWidth: metrics.baseWidth,
+    logicalHeight: metrics.baseHeight,
+    demandScale: scale,
   });
 }
 
-function canvasRouteFrameRect(composition = {}, surface = {}) {
+export function canvasPreviewRenderRequest(composition = {}, viewportWidth = 1, viewportHeight = 1, meta = {}) {
   const canvas = composition.canvas || {};
-  const frame = (canvas.frames || []).find((item) => item.id === surface.outputFrameId);
+  const canvasWidth = Math.max(1, Math.round(Number(canvas.width) || 3840));
+  const canvasHeight = Math.max(1, Math.round(Number(canvas.height) || 2160));
+  const quality = ["auto", "low", "full"].includes(canvas.previewQuality) ? canvas.previewQuality : "auto";
+  const fitScale = Math.min(
+    Math.max(1, Number(viewportWidth) || 1) / canvasWidth,
+    Math.max(1, Number(viewportHeight) || 1) / canvasHeight,
+    1
+  );
+  const scale = quality === "full" ? 1 : quality === "low" ? fitScale * 0.5 : fitScale;
+  return createRenderRequest("texture", {
+    width: Math.max(1, Math.round(canvasWidth * scale)),
+    height: Math.max(1, Math.round(canvasHeight * scale)),
+  }, meta);
+}
+
+export function resizeCanvasFrameRect(rect, corner, dx, dy, canvasWidth, canvasHeight) {
+  const minSize = 16;
+  const east = corner.includes("e");
+  const south = corner.includes("s");
+  const anchorX = east ? rect.x : rect.x + rect.width;
+  const anchorY = south ? rect.y : rect.y + rect.height;
+  const draggedX = (east ? rect.x + rect.width : rect.x) + dx;
+  const draggedY = (south ? rect.y + rect.height : rect.y) + dy;
+  const cornerX = east
+    ? Math.max(anchorX + minSize, Math.min(canvasWidth, draggedX))
+    : Math.max(0, Math.min(anchorX - minSize, draggedX));
+  const cornerY = south
+    ? Math.max(anchorY + minSize, Math.min(canvasHeight, draggedY))
+    : Math.max(0, Math.min(anchorY - minSize, draggedY));
+  return {
+    x: Math.round(east ? anchorX : cornerX),
+    y: Math.round(south ? anchorY : cornerY),
+    width: Math.round(Math.abs(cornerX - anchorX)),
+    height: Math.round(Math.abs(cornerY - anchorY)),
+  };
+}
+
+function canvasRouteFrameRect(composition = {}, surface = {}, recordingFrames = []) {
+  const canvas = composition.canvas || {};
+  const frame = recordingFrames.find((item) => item.id === surface.outputFrameId);
   if (frame) return frame;
   if (surface.sourceRect) return surface.sourceRect;
   return {
@@ -6836,19 +7154,45 @@ function canvasRouteFrameRect(composition = {}, surface = {}) {
   };
 }
 
-function canvasFrameSurfaceRenderRequest(render = {}, frame = {}, meta = {}) {
-  const max = surfaceTextureSize(render);
-  const width = Math.max(1, Number(frame.width) || max.width);
-  const height = Math.max(1, Number(frame.height) || max.height);
-  const scale = Math.min(max.width / width, max.height / height, 1);
-  return createRenderRequest("surface", {
-    width: Math.max(1, Math.round(width * scale)),
-    height: Math.max(1, Math.round(height * scale)),
-  }, {
-    ...meta,
-    logicalWidth: width,
-    logicalHeight: height,
-  });
+export function compositionSourceView(render = {}, composition = {}, surface = {}, recordingFrames = []) {
+  if (composition.type === "canvas") {
+    const logicalSize = {
+      width: Math.max(1, Number(composition.canvas?.width) || 3840),
+      height: Math.max(1, Number(composition.canvas?.height) || 2160),
+    };
+    return {
+      logicalSize,
+      sampleRect: canvasRouteFrameRect(composition, surface, recordingFrames),
+      maxRasterSize: logicalSize,
+    };
+  }
+  const metrics = compositionFrameMetrics(render, composition);
+  const logicalSize = { width: metrics.baseWidth, height: metrics.baseHeight };
+  return {
+    logicalSize,
+    sampleRect: { x: 0, y: 0, width: logicalSize.width, height: logicalSize.height },
+    maxRasterSize: { width: metrics.width, height: metrics.height },
+  };
+}
+
+export function scaledCompositionSampleRect(sampleRect = {}, logicalSize = {}, source = {}) {
+  const logicalWidth = Math.max(1, Number(logicalSize?.width) || Number(source?.width) || 1);
+  const logicalHeight = Math.max(1, Number(logicalSize?.height) || Number(source?.height) || 1);
+  const sourceWidth = Math.max(1, Number(source?.width) || logicalWidth);
+  const sourceHeight = Math.max(1, Number(source?.height) || logicalHeight);
+  return {
+    x: (Math.max(0, Number(sampleRect?.x) || 0) / logicalWidth) * sourceWidth,
+    y: (Math.max(0, Number(sampleRect?.y) || 0) / logicalHeight) * sourceHeight,
+    width: (Math.max(1, Number(sampleRect?.width) || logicalWidth) / logicalWidth) * sourceWidth,
+    height: (Math.max(1, Number(sampleRect?.height) || logicalHeight) / logicalHeight) * sourceHeight,
+  };
+}
+
+function quantizedRenderDimension(value, max) {
+  const upper = Math.max(1, Math.round(Number(max) || 1));
+  const next = Math.min(upper, Math.max(1, Math.round(Number(value) || 1)));
+  if (next < 16) return next;
+  return Math.min(upper, Math.max(16, Math.round(next / 16) * 16));
 }
 
 function drawSurfaceLabel(pg, surface, composition) {

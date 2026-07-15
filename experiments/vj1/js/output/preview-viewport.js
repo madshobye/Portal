@@ -1,4 +1,4 @@
-import { fittedCssRect, frameSize, outputFrames, worldSize } from "./render-geometry.js?v=multi-output-2";
+import { fittedCssRect, frameSize, outputFrames, worldSize } from "./render-geometry.js?v=render-demand-1";
 
 export function fitPreviewCanvasElement({ canvas, mode, stageSize, logicalSize, viewport, render }) {
   const elt = canvas?.elt || canvas;
@@ -117,9 +117,15 @@ export function frameFitViewport({ stageSize, render }) {
   };
 }
 
-function resolveViewportForFit({ mode, stageSize, viewport = {}, render = {} }) {
+export function resolveViewportForFit({ mode, stageSize, viewport = {}, render = {} }) {
+  if (viewport.fit !== "manual" && mode === "composition") {
+    return { ...viewport, zoom: 1, x: 0, y: 0 };
+  }
   if (mode === "preview" && viewport.fit === "frame") {
     return frameFitViewport({ stageSize, render });
+  }
+  if (mode === "preview" && viewport.fit === "world") {
+    return { ...viewport, zoom: 1, x: 0, y: 0 };
   }
   return viewport;
 }

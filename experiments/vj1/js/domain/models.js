@@ -39,33 +39,15 @@ export function createCanvasComposition(index = 0, sourceCompositionId = "") {
     frameShape: "landscape",
     resolutionScale: 1,
     thumbnail: "",
-    chain: sourceCompositionId ? [createCanvasLayer(0, sourceCompositionId)] : [],
+    chain: sourceCompositionId ? [createCompositionLayer(0, { type: "composition", compositionId: sourceCompositionId })] : [],
     shaderChain: [],
     canvas: {
       width,
       height,
-      frames: [createCanvasFrame(0, width, height)],
+      previewQuality: "auto",
+      frameThumbnails: {},
     },
   };
-}
-
-export function createCanvasLayer(index = 0, compositionId = "") {
-  return normalizeCompositionChainItem({
-    id: uid("chain"),
-    kind: "group",
-    role: "canvas-layer",
-    name: index === 0 ? "Layer 1" : `Layer ${index + 1}`,
-    enabled: true,
-    opacity: 1,
-    blend: "normal",
-    layout: {
-      x: index * 120,
-      y: index * 80,
-      width: 960,
-      height: 540,
-    },
-    chain: compositionId ? [createCompositionLayer(0, { type: "composition", compositionId })] : [],
-  });
 }
 
 export function createCanvasFrame(index = 0, canvasWidth = 3840, canvasHeight = 2160) {
@@ -74,8 +56,8 @@ export function createCanvasFrame(index = 0, canvasWidth = 3840, canvasHeight = 
   return {
     id: uid("canvas-frame"),
     name: index === 0 ? "Frame 1" : `Frame ${index + 1}`,
-    x: 0,
-    y: 0,
+    x: Math.round((Number(canvasWidth) - width) * 0.5),
+    y: Math.round((Number(canvasHeight) - height) * 0.5),
     width,
     height,
   };
@@ -115,9 +97,11 @@ export function createDefaultSurface(index = 0) {
     name: index === 0 ? "Main" : `Surface ${index + 1}`,
     enabled: true,
     opacity: 1,
+    feather: 0,
     projectionFit: "cover",
     finalBlend: "normal",
     finalShaderChain: [],
+    sourceNodeId: "",
     compositionId: "",
     outputFrameId: "",
     sourceRect: createDefaultSourceRect(),
@@ -215,6 +199,7 @@ export function createInitialState() {
     },
     media: [],
     compositions,
+    recordingFrames: [createCanvasFrame(0)],
     surfaces: [createDefaultSurface(0), createDefaultSurface(1)],
     scenes: [],
     mappings: {},
@@ -269,6 +254,22 @@ export function sanitizeState(input = {}) {
   };
 
   next.compositions = normalizeCompositions(input, base);
+  const canvasFrameBounds = next.compositions.find((composition) => composition.type === "canvas")?.canvas || { width: 3840, height: 2160 };
+  const inputCompositions = Array.isArray(input.compositions) ? input.compositions : [];
+  const legacyRecordingFrames = inputCompositions.flatMap((composition) =>
+    composition?.type === "canvas" && Array.isArray(composition.canvas?.frames) ? composition.canvas.frames : []
+  );
+  const recordingFrames = Array.isArray(input.recordingFrames)
+    ? input.recordingFrames
+    : legacyRecordingFrames.length ? legacyRecordingFrames : base.recordingFrames;
+  const seenRecordingFrameIds = new Set();
+  next.recordingFrames = recordingFrames
+    .map((frame, index) => normalizeCanvasFrame(frame, index, canvasFrameBounds.width, canvasFrameBounds.height))
+    .filter((frame) => {
+      if (seenRecordingFrameIds.has(frame.id)) return false;
+      seenRecordingFrameIds.add(frame.id);
+      return true;
+    });
   next.surfaces = Array.isArray(input.surfaces) && input.surfaces.length
     ? input.surfaces.map((surface) => normalizeSurface(surface))
     : [createDefaultSurface(0), createDefaultSurface(1)];
@@ -295,13 +296,7 @@ export function sanitizeState(input = {}) {
     compositionId: next.compositions.some((composition) => composition.id === surface.compositionId)
       ? surface.compositionId
       : next.compositions[0]?.id || "",
-  })).map((surface) => {
-    const canvas = next.compositions.find((composition) => composition.id === surface.compositionId && composition.type === "canvas");
-    return {
-      ...surface,
-      outputFrameId: canvas?.canvas?.frames?.some((frame) => frame.id === surface.outputFrameId) ? surface.outputFrameId : "",
-    };
-  });
+  })).map((surface) => applySceneSourceNode(surface, resolveSceneSourceNode(next, surface.sourceNodeId, surface)));
   next.scenes = Array.isArray(input.scenes)
     ? input.scenes.map((scene) => normalizeScene(scene, next))
     : [];
@@ -539,7 +534,7 @@ export function normalizeComposition(composition = {}) {
   const canvasChain = type === "canvas"
     ? (Array.isArray(compositionData.chain) && compositionData.chain.length
       ? [
-          ...compositionData.chain.map(normalizeCompositionChainItem),
+          ...compositionData.chain.map(normalizeCanvasChainItem),
           ...shaderChain.map((pass) => normalizeCompositionChainItem({
             kind: "effect",
             componentId: pass.id,
@@ -572,32 +567,33 @@ export function normalizeComposition(composition = {}) {
 function normalizeCanvasCompositionData(canvas = {}, selfId = "") {
   const width = positiveInt(canvas.width, 3840, 128, 8192);
   const height = positiveInt(canvas.height, 2160, 128, 8192);
-  const frames = Array.isArray(canvas.frames)
-    ? canvas.frames.map((frame, index) => normalizeCanvasFrame(frame, index, width, height))
-    : [];
-  return { width, height, frames };
+  const previewQuality = ["auto", "low", "full"].includes(canvas.previewQuality) ? canvas.previewQuality : "auto";
+  const frameThumbnails = Object.fromEntries(Object.entries(canvas.frameThumbnails || {})
+    .filter(([frameId, thumbnail]) => frameId && typeof thumbnail === "string" && thumbnail));
+  return { width, height, previewQuality, frameThumbnails };
 }
 
 function canvasLayerGroupFromLegacy(layer = {}, index = 0, selfId = "") {
-  const fallback = createCanvasLayer(index, "");
+  const fallback = createCompositionGroup(index);
   const compositionId = layer.compositionId && layer.compositionId !== selfId ? String(layer.compositionId) : "";
   return normalizeCompositionChainItem({
     ...fallback,
     id: layer.id || uid("chain"),
     kind: "group",
-    role: "canvas-layer",
+    role: "group",
     name: layer.name || fallback.name,
     enabled: layer.enabled !== false,
     opacity: clamp01(layer.opacity ?? fallback.opacity),
     blend: layer.blend || fallback.blend,
-    layout: {
-      x: Number.isFinite(Number(layer.x)) ? Number(layer.x) : fallback.layout.x,
-      y: Number.isFinite(Number(layer.y)) ? Number(layer.y) : fallback.layout.y,
-      width: positiveInt(layer.width, fallback.layout.width, 1, 8192),
-      height: positiveInt(layer.height, fallback.layout.height, 1, 8192),
-    },
     chain: compositionId ? [createCompositionLayer(0, { type: "composition", compositionId })] : [],
   });
+}
+
+function normalizeCanvasChainItem(item = {}) {
+  const normalized = normalizeCompositionChainItem(item);
+  if (normalized.kind !== "group" || normalized.role !== "canvas-layer") return normalized;
+  const { layout, ...group } = normalized;
+  return { ...group, role: "group" };
 }
 
 function normalizeCanvasFrame(frame = {}, index = 0, canvasWidth = 3840, canvasHeight = 2160) {
@@ -673,11 +669,13 @@ export function normalizeSurface(surface = {}) {
     name: surface.name || fallback.name,
     enabled: surface.enabled !== false,
     opacity: clamp01(surface.opacity ?? fallback.opacity),
+    feather: clampNumber(surface.feather, 0, 0.5, fallback.feather),
     projectionFit: normalizeProjectionFit(surface.projectionFit),
     finalBlend: surface.finalBlend || fallback.finalBlend,
     finalShaderChain: Array.isArray(surface.finalShaderChain)
       ? surface.finalShaderChain.map(normalizeShaderPass)
       : [],
+    sourceNodeId: surface.sourceNodeId || "",
     compositionId: surface.compositionId || "",
     outputFrameId: surface.outputFrameId || "",
     sourceRect: normalizeSourceRect(surface.sourceRect),
@@ -689,6 +687,58 @@ export function normalizeSurface(surface = {}) {
 
 export function normalizeProjectionFit(value) {
   return value === "contain" || value === "stretch" ? value : "cover";
+}
+
+export function sceneSourceNodeId(compositionId = "", frameId = "") {
+  return frameId
+    ? `recording-frame:${encodeURIComponent(compositionId)}:${encodeURIComponent(frameId)}`
+    : `composition:${encodeURIComponent(compositionId)}`;
+}
+
+export function sceneSourceNodes(state = {}) {
+  const frames = Array.isArray(state.recordingFrames) ? state.recordingFrames : [];
+  return (state.compositions || []).flatMap((composition) => {
+    if (composition.type !== "canvas") {
+      return [{
+        id: sceneSourceNodeId(composition.id),
+        type: "composition",
+        name: composition.name,
+        thumbnail: composition.thumbnail || "",
+        compositionId: composition.id,
+        outputFrameId: "",
+      }];
+    }
+    return frames.map((frame) => ({
+      id: sceneSourceNodeId(composition.id, frame.id),
+      type: "recording-frame",
+      name: `${composition.name} · ${frame.name}`,
+      thumbnail: composition.canvas?.frameThumbnails?.[frame.id] || composition.thumbnail || "",
+      compositionId: composition.id,
+      outputFrameId: frame.id,
+      frameId: frame.id,
+    }));
+  });
+}
+
+export function resolveSceneSourceNode(state = {}, sourceNodeId = "", legacyRoute = {}) {
+  const nodes = sceneSourceNodes(state);
+  const byId = nodes.find((node) => node.id === sourceNodeId);
+  const byLegacyRoute = nodes.find((node) => node.compositionId === legacyRoute.compositionId && node.outputFrameId === (legacyRoute.outputFrameId || ""));
+  return byLegacyRoute && (!byId || byId.compositionId !== legacyRoute.compositionId || byId.outputFrameId !== (legacyRoute.outputFrameId || ""))
+    ? byLegacyRoute
+    : byId
+    || byLegacyRoute
+    || nodes[0]
+    || null;
+}
+
+export function applySceneSourceNode(route = {}, node = null) {
+  return {
+    ...route,
+    sourceNodeId: node?.id || "",
+    compositionId: node?.compositionId || "",
+    outputFrameId: node?.outputFrameId || "",
+  };
 }
 
 function normalizeSourceRect(rect = {}) {
@@ -931,6 +981,7 @@ export function createSceneSurfaceSnapshot(surface = {}) {
   return {
     id: surface.id,
     enabled: surface.enabled !== false,
+    sourceNodeId: surface.sourceNodeId || "",
     compositionId: surface.compositionId || "",
     outputFrameId: surface.outputFrameId || "",
     sourceRect: normalizeSourceRect(surface.sourceRect),
@@ -945,16 +996,13 @@ export function createSceneSurfaceSnapshot(surface = {}) {
 }
 
 export function normalizeSceneSurfaceSnapshot(surface = {}, state = createInitialState()) {
-  const fallbackCompositionId = state.compositions[0]?.id || "";
-  const compositionId = state.compositions.some((composition) => composition.id === surface.compositionId)
-    ? surface.compositionId
-    : fallbackCompositionId;
-  const canvas = state.compositions.find((composition) => composition.id === compositionId && composition.type === "canvas");
+  const route = applySceneSourceNode(surface, resolveSceneSourceNode(state, surface.sourceNodeId, surface));
   return {
     id: surface.id || "",
     enabled: surface.enabled !== false,
-    compositionId,
-    outputFrameId: canvas?.canvas?.frames?.some((frame) => frame.id === surface.outputFrameId) ? surface.outputFrameId : "",
+    sourceNodeId: route.sourceNodeId,
+    compositionId: route.compositionId,
+    outputFrameId: route.outputFrameId,
     sourceRect: normalizeSourceRect(surface.sourceRect),
     opacity: clamp01(surface.opacity ?? 1),
     projectionFit: normalizeProjectionFit(surface.projectionFit),

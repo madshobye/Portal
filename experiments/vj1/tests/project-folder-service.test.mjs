@@ -13,6 +13,7 @@ test("project payload preserves the selected composition chain item", () => {
   const state = {
     version: 5,
     project: {},
+    recordingFrames: [{ id: "frame-a", x: 10, y: 20, width: 640, height: 360 }],
     ui: {
       selectedSceneId: "scene-a",
       selectedSurfaceId: "surface-a",
@@ -31,8 +32,10 @@ test("project payload preserves the selected composition chain item", () => {
   assert.equal(payload.ui.live.selectedSceneId, "scene-live");
   assert.deepEqual(payload.ui.live.sceneSnapshot, state.ui.live.sceneSnapshot);
   assert.equal(payload.ui.live.compositionOverrides, undefined);
+  assert.deepEqual(payload.recordingFrames, state.recordingFrames);
   const source = readFileSync(new URL("../js/services/project-folder-service.js", import.meta.url), "utf8");
   assert.ok(source.includes("selectedChainItemId: projectUi?.selectedChainItemId || currentUi.selectedChainItemId"));
+  assert.ok(source.includes("const legacyRecordingFrames = Array.isArray(projectData.compositions)"));
 });
 
 test("folder permission prompt does not discard a project recovered from output", () => {

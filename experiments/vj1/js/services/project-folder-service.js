@@ -6,7 +6,7 @@ import {
   loadProjectDirectoryHandle,
   saveProjectDirectoryHandle,
 } from "./directory-handle-store.js";
-import { applySceneSnapshotToState, createInitialState } from "../domain/models.js?v=multi-output-2";
+import { applySceneSnapshotToState, createInitialState } from "../domain/models.js?v=surface-feather-1";
 
 export function createProjectFolderService({ mediaLibrary, store, bridge }) {
   let dirHandle = null;
@@ -169,9 +169,18 @@ export function createProjectFolderService({ mediaLibrary, store, bridge }) {
     }
     const { ui: projectUi, metrics: _projectMetrics, ...projectData } = data;
     const currentUi = store.getState().ui;
+    const legacyRecordingFrames = Array.isArray(projectData.compositions)
+      ? projectData.compositions.flatMap((composition) =>
+          composition?.type === "canvas" && Array.isArray(composition.canvas?.frames) ? composition.canvas.frames : []
+        )
+      : [];
+    const recordingFrames = Array.isArray(projectData.recordingFrames)
+      ? projectData.recordingFrames
+      : Array.isArray(projectData.compositions) ? legacyRecordingFrames : store.getState().recordingFrames;
     const nextState = {
       ...store.getState(),
       ...projectData,
+      recordingFrames,
       ui: {
         ...currentUi,
         selectedSceneId: projectUi?.selectedSceneId || currentUi.selectedSceneId,
@@ -627,6 +636,7 @@ export function buildProjectPayload(state, savedAt = new Date().toISOString()) {
     scheduler: state.scheduler,
     media: state.media,
     compositions: state.compositions,
+    recordingFrames: state.recordingFrames,
     surfaces: state.surfaces,
     scenes: state.scenes,
     mappings: state.mappings,

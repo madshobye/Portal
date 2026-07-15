@@ -17,10 +17,10 @@ export function shellTemplate() {
         </div>
         <div class="top-actions">
           <div id="workspace-switch" class="workspace-switch" role="group" aria-label="Workspace">
+            <button type="button" data-workspace="mapping" title="Nodes" aria-label="Nodes">${icon("schema")}</button>
             <button type="button" data-workspace="compose" title="Compositions" aria-label="Compositions">${icon("account_tree")}</button>
             <button type="button" data-workspace="canvas" title="Canvas" aria-label="Canvas">${icon("dashboard_customize")}</button>
             <button type="button" data-workspace="scene" class="is-active" title="Scenes" aria-label="Scenes">${icon("auto_awesome")}</button>
-            <button type="button" data-workspace="mapping" title="Nodes" aria-label="Nodes">${icon("schema")}</button>
             <button type="button" data-workspace="live" title="Live" aria-label="Live">${icon("play_circle")}</button>
           </div>
           <button id="toggle-preview" class="icon-buttonish" type="button" title="Toggle preview" aria-label="Toggle preview">${icon("visibility")}</button>

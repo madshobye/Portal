@@ -6,7 +6,7 @@ import {
   normalizeCompositionFrameShape,
   normalizeCompositionResolutionScale,
 } from "../js/domain/composition-frame.js";
-import { createCanvasComposition, createDefaultComposition, createDefaultSurface, createSceneFromState, normalizeCompositionPipelineSettings, normalizeProjectionFit, sanitizeState } from "../js/domain/models.js";
+import { createCanvasComposition, createCanvasFrame, createDefaultComposition, createDefaultSurface, createSceneFromState, normalizeCompositionPipelineSettings, normalizeProjectionFit, resolveSceneSourceNode, sanitizeState, sceneSourceNodes } from "../js/domain/models.js";
 
 const render = {
   surfaceWidth: 1000,
@@ -105,6 +105,7 @@ test("legacy frame settings migrate to one output and multiple outputs persist",
 
 test("surface projection fit defaults to cover and persists in scene snapshots", () => {
   assert.equal(createDefaultSurface(0).projectionFit, "cover");
+  assert.equal(createDefaultSurface(0).feather, 0);
   assert.equal(normalizeProjectionFit("contain"), "contain");
   assert.equal(normalizeProjectionFit("stretch"), "stretch");
   assert.equal(normalizeProjectionFit("invalid"), "cover");
@@ -115,7 +116,14 @@ test("surface projection fit defaults to cover and persists in scene snapshots",
   assert.equal(scene.snapshot.surfaces[0].projectionFit, "contain");
 });
 
-test("legacy canvas layers migrate into the shared chain without retaining a parallel layer model", () => {
+test("surface feather is a physical surface property and is clamped", () => {
+  const state = sanitizeState({ surfaces: [{ id: "surface-a", feather: 0.75 }] });
+  assert.equal(state.surfaces[0].feather, 0.5);
+  const scene = createSceneFromState(state, "Feather scene");
+  assert.equal("feather" in scene.snapshot.surfaces[0], false);
+});
+
+test("legacy canvas layers migrate into ordinary Groups without retaining a parallel layer model", () => {
   const source = createDefaultComposition(0);
   source.id = "composition-source";
   const state = sanitizeState({
@@ -144,24 +152,61 @@ test("legacy canvas layers migrate into the shared chain without retaining a par
   const canvas = state.compositions.find((composition) => composition.id === "legacy-canvas");
   assert.equal("layers" in canvas.canvas, false);
   assert.equal(canvas.chain.length, 1);
-  assert.equal(canvas.chain[0].role, "canvas-layer");
-  assert.deepEqual(canvas.chain[0].layout, { x: 120, y: 80, width: 640, height: 360 });
+  assert.equal(canvas.chain[0].role, "group");
+  assert.equal("layout" in canvas.chain[0], false);
   assert.equal(canvas.chain[0].opacity, 0.7);
   assert.equal(canvas.chain[0].blend, "screen");
   assert.equal(canvas.chain[0].chain[0].source.compositionId, source.id);
 });
 
-test("canvas frame routes persist in active surfaces and scene snapshots", () => {
+test("legacy canvas frames migrate to the shared registry and routes persist", () => {
   const source = createDefaultComposition(0);
   const canvas = createCanvasComposition(0, source.id);
-  const frameId = canvas.canvas.frames[0].id;
+  const frameId = "legacy-recording-frame";
+  canvas.canvas.frames = [{ id: frameId, name: "Legacy frame", x: 10, y: 20, width: 640, height: 360 }];
   const state = sanitizeState({
     compositions: [source, canvas],
     surfaces: [{ id: "surface-a", compositionId: canvas.id, outputFrameId: frameId }],
   });
   const scene = createSceneFromState(state, "Frame scene");
+  assert.equal("frames" in state.compositions.find((composition) => composition.id === canvas.id).canvas, false);
+  assert.equal(state.recordingFrames[0].id, frameId);
+  assert.equal(state.surfaces[0].sourceNodeId, `recording-frame:${canvas.id}:${frameId}`);
   assert.equal(state.surfaces[0].outputFrameId, frameId);
   assert.equal(scene.snapshot.surfaces[0].outputFrameId, frameId);
+});
+
+test("ordinary compositions and recording frames share one Scene source-node abstraction", () => {
+  const composition = createDefaultComposition(0);
+  composition.id = "composition-a";
+  composition.name = "Visual A";
+  const canvas = createCanvasComposition(0, composition.id);
+  canvas.id = "canvas-a";
+  canvas.name = "Wide Canvas";
+  const state = sanitizeState({ compositions: [composition, canvas] });
+  const nodes = sceneSourceNodes(state);
+  assert.deepEqual(nodes.map((node) => ({ type: node.type, name: node.name })), [
+    { type: "composition", name: "Visual A" },
+    { type: "recording-frame", name: "Wide Canvas · Frame 1" },
+  ]);
+  assert.equal(resolveSceneSourceNode(state, nodes[1].id).outputFrameId, state.recordingFrames[0].id);
+});
+
+test("recording-frame source nodes prefer their Canvas-specific cropped thumbnail", () => {
+  const canvas = createCanvasComposition(0);
+  const frame = createCanvasFrame(0);
+  canvas.thumbnail = "whole-canvas";
+  canvas.canvas.frameThumbnails = { [frame.id]: "cropped-frame" };
+  const nodes = sceneSourceNodes({ compositions: [canvas], recordingFrames: [frame] });
+  assert.equal(nodes[0].thumbnail, "cropped-frame");
+});
+
+test("an intentionally empty shared recording-frame registry stays empty", () => {
+  const state = sanitizeState({
+    compositions: [createCanvasComposition(0)],
+    recordingFrames: [],
+  });
+  assert.deepEqual(state.recordingFrames, []);
 });
 
 function pickSize(metrics) {

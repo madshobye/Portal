@@ -142,7 +142,7 @@ test("route edits in a different Scene do not replace Live's selected scene", ()
   assert.deepEqual(state.ui.live.sceneSnapshot, original);
 });
 
-test("canvas layers are shared chain groups and accept ordinary effects", () => {
+test("Canvas compositions use ordinary source and effect chain items", () => {
   const state = createInitialState();
   const source = createDefaultComposition(0);
   source.id = "source-composition";
@@ -155,33 +155,70 @@ test("canvas layers are shared chain groups and accept ordinary effects", () => 
 
   store.addChainEffect(canvas.id, "pixelate");
   const nextCanvas = store.getState().compositions.find((composition) => composition.id === canvas.id);
-  const layer = nextCanvas.chain[0];
-
-  assert.equal(layer.kind, "group");
-  assert.equal(layer.role, "canvas-layer");
-  assert.equal(layer.chain[0].source.type, "composition");
-  assert.equal(layer.chain[0].source.compositionId, source.id);
-  assert.equal(layer.chain[1].kind, "effect");
-  assert.equal(layer.chain[1].componentId, "pixelate");
-  assert.deepEqual(layer.layout, { x: 0, y: 0, width: 960, height: 540 });
+  assert.equal(nextCanvas.chain[0].kind, "source");
+  assert.equal(nextCanvas.chain[0].source.type, "composition");
+  assert.equal(nextCanvas.chain[0].source.compositionId, source.id);
+  assert.equal(nextCanvas.chain[1].kind, "effect");
+  assert.equal(nextCanvas.chain[1].componentId, "pixelate");
+  assert.ok(!nextCanvas.chain.some((item) => item.role === "canvas-layer"));
 });
 
-test("canvas recording frames are owned by canvases and removed routes clear safely", () => {
+test("Canvas workspace selects a Canvas and compositions are added as ordinary sources", () => {
   const state = createInitialState();
   const source = createDefaultComposition(0);
-  const canvas = createCanvasComposition(0, source.id);
+  source.id = "source-composition";
+  const canvas = createCanvasComposition(0);
+  canvas.id = "canvas-composition";
+  canvas.canvas.width = 2000;
+  canvas.canvas.height = 1000;
   state.compositions = [source, canvas];
-  const frameId = canvas.canvas.frames[0].id;
-  state.surfaces[0].compositionId = canvas.id;
+  state.ui.selectedCompositionId = source.id;
+  const store = createAppState(state);
+
+  store.setWorkspace("canvas");
+  store.addChainSource(canvas.id, { type: "composition", compositionId: source.id });
+  const next = store.getState();
+  const nextCanvas = next.compositions.find((composition) => composition.id === canvas.id);
+
+  assert.equal(next.ui.selectedCompositionId, canvas.id);
+  assert.equal(nextCanvas.chain[0].kind, "source");
+  assert.equal(nextCanvas.chain[0].source.compositionId, source.id);
+  assert.ok(!("layout" in nextCanvas.chain[0]));
+
+  store.setWorkspace("compose");
+  assert.equal(store.getState().ui.selectedCompositionId, source.id);
+});
+
+test("canvas recording frames are shared across canvases and removed routes clear safely", () => {
+  const state = createInitialState();
+  const source = createDefaultComposition(0);
+  const firstCanvas = createCanvasComposition(0, source.id);
+  const secondCanvas = createCanvasComposition(1, source.id);
+  state.compositions = [source, firstCanvas, secondCanvas];
+  const frameId = state.recordingFrames[0].id;
+  firstCanvas.canvas.frameThumbnails = { [frameId]: "first-crop" };
+  secondCanvas.canvas.frameThumbnails = { [frameId]: "second-crop" };
+  state.surfaces[0].compositionId = firstCanvas.id;
   state.surfaces[0].outputFrameId = frameId;
+  state.surfaces[1].compositionId = secondCanvas.id;
+  state.surfaces[1].outputFrameId = frameId;
   state.scenes = [createSceneFromState(state, "Canvas scene")];
   const store = createAppState(state);
 
-  store.removeCanvasFrame(canvas.id, frameId);
+  store.addCanvasFrame(firstCanvas.id);
+  assert.equal(store.getState().recordingFrames.length, 2);
+  assert.equal("frames" in store.getState().compositions.find((composition) => composition.id === firstCanvas.id).canvas, false);
+  assert.equal("frames" in store.getState().compositions.find((composition) => composition.id === secondCanvas.id).canvas, false);
+
+  store.removeCanvasFrame(firstCanvas.id, frameId);
   const next = store.getState();
-  assert.equal(next.compositions.find((composition) => composition.id === canvas.id).canvas.frames.length, 0);
+  assert.equal(next.recordingFrames.some((frame) => frame.id === frameId), false);
+  assert.equal(frameId in next.compositions.find((composition) => composition.id === firstCanvas.id).canvas.frameThumbnails, false);
+  assert.equal(frameId in next.compositions.find((composition) => composition.id === secondCanvas.id).canvas.frameThumbnails, false);
   assert.equal(next.surfaces[0].outputFrameId, "");
+  assert.equal(next.surfaces[1].outputFrameId, "");
   assert.equal(next.scenes[0].snapshot.surfaces[0].outputFrameId, "");
+  assert.equal(next.scenes[0].snapshot.surfaces[1].outputFrameId, "");
 });
 
 test("composition chain preserves source elements and later effects", () => {

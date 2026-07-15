@@ -8,6 +8,8 @@ import {
   outputFrameForId,
   outputFrames,
   renderRequestKey,
+  sourceRenderDemand,
+  visibleMappedSurfaceSize,
 } from "../js/output/render-geometry.js";
 
 test("configured projector outputs form side-by-side viewports in one world", () => {
@@ -75,4 +77,22 @@ test("surface presentation identity is separate from render identity", () => {
   assert.equal(renderRequestKey(surfaceB), "surface:640x360:composition-a");
   assert.equal(renderRequestKey(surfaceA), renderRequestKey(surfaceB));
   assert.equal(renderRequestKey(explicitInstance), "surface:640x360:manual-instance");
+});
+
+test("generic source demand follows visible mapped pixels and culls outside viewports", () => {
+  const corners = [{ x: 100, y: 100 }, { x: 500, y: 100 }, { x: 500, y: 300 }, { x: 100, y: 300 }];
+  assert.deepEqual(visibleMappedSurfaceSize(corners, { width: 1000, height: 600 }).width, 400);
+  assert.equal(visibleMappedSurfaceSize(corners.map((point) => ({ x: point.x + 1200, y: point.y })), { width: 1000, height: 600 }), null);
+
+  const demand = sourceRenderDemand({
+    logicalSize: { width: 3840, height: 2160 },
+    sampleRect: { x: 0, y: 0, width: 1920, height: 1080 },
+    maxRasterSize: { width: 3840, height: 2160 },
+    maxSurfaceSize: { width: 1920, height: 1080 },
+    corners,
+    viewport: { width: 1000, height: 600 },
+    overscan: 1,
+  });
+  assert.deepEqual(demand.rasterSize, { width: 800, height: 448 });
+  assert.deepEqual(demand.surfaceSize, { width: 400, height: 224 });
 });

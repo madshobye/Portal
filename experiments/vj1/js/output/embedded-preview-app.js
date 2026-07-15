@@ -1,9 +1,9 @@
 import { VJ1 } from "../constants.js";
-import { sanitizeState } from "../domain/models.js?v=multi-output-2";
-import { OutputRenderer } from "./output-renderer.js?v=multi-output-2";
+import { sanitizeState } from "../domain/models.js?v=surface-feather-1";
+import { OutputRenderer } from "./output-renderer.js?v=render-demand-1";
 import { applyFontToGlobal, loadVjRenderFont } from "./font-loader.js?v=world-frame-27";
-import { createPreviewViewportController, fitPreviewCanvasElement } from "./preview-viewport.js?v=multi-output-2";
-import { canvasSizeForMode } from "./render-geometry.js?v=multi-output-2";
+import { createPreviewViewportController, fitPreviewCanvasElement } from "./preview-viewport.js?v=zoom-transition-1";
+import { canvasSizeForMode } from "./render-geometry.js?v=render-demand-1";
 
 export function createEmbeddedPreviewApp({ store, mediaLibrary, projectService }) {
   let host = null;
@@ -128,6 +128,7 @@ export function createEmbeddedPreviewApp({ store, mediaLibrary, projectService }
       sendMapping: updateMapping,
       sendThumbnail: updateThumbnail,
       sendChainTransform: updateChainTransform,
+      sendCanvasFrame: updateCanvasFrame,
       sendMediaRendition: (mediaId, width, height, blob) => projectService?.writeMediaRendition?.(mediaId, width, height, blob),
       requestMediaFiles: () => importMediaFilesIfChanged(true),
       onSurfaceSelect: selectSurface,
@@ -205,7 +206,20 @@ export function createEmbeddedPreviewApp({ store, mediaLibrary, projectService }
 
   function previewSizedState(size = stageSize()) {
     const state = sanitizeState(pendingState || {});
-    return state;
+    const logical = canvasLogicalSize();
+    const deviceScale = Math.max(1, Math.min(2, Number(window.devicePixelRatio) || 1));
+    const displayScale = Math.min(size.width / logical.width, size.height / logical.height, 1);
+    const configuredDensity = Math.max(0.5, Math.min(2, Number(state.render?.pixelDensity) || 1));
+    const previewDensity = Math.min(configuredDensity, Math.max(0.125, displayScale * deviceScale));
+    return {
+      ...state,
+      render: {
+        ...state.render,
+        // Transient demand hint: logical coordinates stay project-sized while
+        // physical buffers follow the pixels the embedded preview can display.
+        previewRasterScale: previewDensity / configuredDensity,
+      },
+    };
   }
 
   function applyPreviewFrameRate() {
@@ -268,11 +282,18 @@ export function createEmbeddedPreviewApp({ store, mediaLibrary, projectService }
     }, meta.live ? "scrub:mapping-state" : "mapping-state");
   }
 
-  function updateThumbnail(compositionId, thumbnail) {
+  function updateThumbnail(compositionId, thumbnail, meta = {}) {
     if (!compositionId || !thumbnail) return;
     store.update((draft) => {
       const composition = draft.compositions.find((item) => item.id === compositionId);
-      if (composition && composition.thumbnail !== thumbnail) {
+      if (!composition) return;
+      if (meta.frameId && composition.type === "canvas") {
+        composition.canvas ||= {};
+        composition.canvas.frameThumbnails ||= {};
+        if (composition.canvas.frameThumbnails[meta.frameId] !== thumbnail) {
+          composition.canvas.frameThumbnails[meta.frameId] = thumbnail;
+        }
+      } else if (composition.thumbnail !== thumbnail) {
         composition.thumbnail = thumbnail;
       }
     }, "composition-thumbnail");
@@ -284,6 +305,13 @@ export function createEmbeddedPreviewApp({ store, mediaLibrary, projectService }
       const item = findChainItemById(composition?.chain, itemId);
       if (item) item.transform = { ...item.transform, ...transform };
     }, "scrub:chain-transform");
+  }
+
+  function updateCanvasFrame(compositionId, frameId, rect, meta = {}) {
+    store.update((draft) => {
+      const frame = draft.recordingFrames?.find((item) => item.id === frameId);
+      if (frame) Object.assign(frame, rect);
+    }, meta.commit ? "update:canvas-frame" : "scrub:canvas-frame");
   }
 
   function selectSurface(surfaceId) {

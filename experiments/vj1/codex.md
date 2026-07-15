@@ -16,6 +16,8 @@ The application has five workspaces:
 4. **Nodes** (`mapping`) exposes the compiled composition graph and scheduler state for inspection.
 5. **Live** (`live`) selects the scene sent to the output window and provides temporary performance controls and parameter overrides.
 
+The Compositions workspace catalog contains only ordinary compositions. Canvas containers and their derived recording-frame source nodes belong to the Canvas and Scenes workspaces and must not appear in the Compositions rail. Switching from Canvas to Compositions selects an ordinary composition rather than leaving a hidden Canvas active.
+
 The core mental model is one component type:
 
 ```text
@@ -57,7 +59,7 @@ The output clients create their own p5/WebGL canvas and `OutputRenderer`. They r
 
 ### Control UI
 
-- `js/control/control-shell-controller.js`: the main UI controller and most templates and event binding. It owns composition/group editing, drag reorder, canvas rectangle interaction, scene/surface controls, live controls, dynamic parameter controls, color controls, media pickers, and modal state.
+- `js/control/control-shell-controller.js`: the main UI controller and most templates and event binding. It owns composition/group editing, drag reorder, scene/surface controls, live controls, dynamic parameter controls, color controls, media pickers, and modal state.
 - `js/control/shell-view.js`: top-level shell markup.
 - `js/control/reorder-list.js`: drag-reorder behavior.
 - `style.css`: all application styling. Several UI regressions have come from overlapping selectors, so prefer one shared control style rather than workspace-specific duplicates.
@@ -113,6 +115,7 @@ The major state sections are:
 - `render`: ordered projector output definitions, shared mapping-world size, surface texture budget, pixel density, edge softness, composition upscaling, and full-resolution post-filter settings.
 - `media`: serializable media metadata only.
 - `compositions`: chain and canvas compositions.
+- `recordingFrames`: project-level recording rectangles shared by every canvas composition.
 - `surfaces`: global surface definitions and ordering.
 - `scenes`: snapshots of surface assignment, presence, enable state, order, and composition selection.
 - `mappings`: local quadrilateral mapping data.
@@ -156,11 +159,17 @@ Older project files may still contain top-level `composition.source` and `compos
 
 ### Canvas composition
 
-A Canvas is a composition with a large logical frame. Its `composition.chain` uses the same source, effect, and isolated-group abstractions as an ordinary composition. A placed composition is represented by a group with `role: "canvas-layer"`, layout, blend, and opacity; its nested chain starts with a composition-reference source and can contain the ordinary effect components. Effects after a layer group process the combined Canvas, so composition features should be implemented once in the shared chain architecture rather than copied into a Canvas-only renderer.
+A Canvas is a composition with a large logical frame. Its `composition.chain` uses exactly the same source, effect, and Group abstractions as an ordinary composition. Referenced compositions are ordinary source items added through the shared plus menu; Groups are optional and never created implicitly. A referenced composition is initially centered at its own logical width, height, and aspect ratio instead of being expanded to the Canvas. Its row and inspector derive the label directly from the referenced composition and do not expose an editable placement-wrapper name or composition-replacement dropdown. To replace a Canvas placement, remove it and add the desired composition through the plus menu. Placement blend and opacity remain instance properties on the Canvas source item. Sources and Groups use the standard preview transform handles for movement, scale, and rotation. Effects process the accumulated Canvas chain, so composition features should be implemented once rather than copied into a Canvas-only abstraction.
 
-`composition.canvas.frames` contains named recording rectangles owned by the Canvas. Frames can be created, moved, resized, and renamed in the Canvas workspace. In Scenes, each frame is offered beside ordinary compositions and can be routed to a surface through `surface.outputFrameId`. The surface owns the route and projection fit; the Canvas does not own or list surfaces. Legacy `canvas.layers` data migrates to shared chain groups, while legacy surface `sourceRect` values remain a renderer fallback for old projects. Canvas-in-canvas nesting and self-reference are rejected during selection and normalization.
+Project-level `recordingFrames` contains the named recording rectangles shared by every Canvas, just as surfaces are shared across scenes. Adding, moving, resizing, or removing a frame from any Canvas therefore updates the same frame in every Canvas. The real rendered Canvas preview draws each frame with direct manipulation: drag its outline to move it or drag any corner to change width and height independently while keeping the frame rectangular and inside the Canvas. The frame interior is deliberately not hit-active, allowing composition and Group handles beneath it to remain draggable. The inspector only creates and removes frames; it does not duplicate geometry controls. In Scenes, each Canvas/frame output is exposed as a generic source node beside ordinary composition nodes and routed to a surface through `surface.sourceNodeId`. The surface owns the route and projection fit; Canvases do not own or list surfaces. Legacy per-Canvas `canvas.frames` values migrate into the shared registry, legacy `canvas.layers` data migrates to ordinary Groups, and legacy surface `sourceRect` values remain a renderer fallback for old projects. Canvas-in-canvas nesting and self-reference are rejected during selection and normalization.
 
-`renderCanvasComposition()` evaluates the shared chain into one GPU target at the Canvas's logical dimensions. A routed frame is sampled from that result into the bounded surface texture before projection mapping. Large Canvas dimensions remain a direct texture-memory and fill-rate cost.
+Scene routing is based on generic derived source nodes from `sceneSourceNodes()`. An ordinary composition produces one `composition` node; each Canvas and shared recording-frame pair produces one `recording-frame` node. Both kinds appear in the selected surface's Scene assignment list and are selected through `surface.sourceNodeId`. Each Canvas stores frame thumbnails keyed by the shared recording-frame ID; the preview renderer crops these from that Canvas's rendered pixels using the frame geometry, so derived nodes show their own sampled region rather than the whole Canvas. The whole-Canvas thumbnail is only a fallback until a frame crop is captured. The node resolves to the underlying Canvas/composition and optional frame geometry at the renderer boundary. `compositionId` and `outputFrameId` remain synchronized on surfaces and snapshots only for project-format compatibility and old-project migration; new UI paths must select a source node rather than maintaining those fields independently.
+
+Surface `feather` is a physical per-surface projection property, clamped from `0` to `0.5` and intentionally excluded from scene snapshots. The mapper applies it as an edge-alpha smoothstep in the existing projective sampling shader, so feathering adds no render pass and remains stable when Scenes change. The default zero value selects the original mapper shader variant, which contains no feather uniform, branch, or edge math; the feather-enabled shader is selected only for surfaces with a nonzero value.
+
+`renderCanvasComposition()` evaluates the shared chain into one GPU target whose physical size comes from the current demand request while transforms and recording frames retain Canvas-logical coordinates. A routed frame is sampled from that adaptively sized Canvas raster into an adaptively bounded surface texture before projection mapping. Large logical Canvas dimensions therefore do not require a same-sized GPU texture unless Full-quality preview or a sufficiently large mapped route actually demands it.
+
+Canvas logical dimensions and editor render density are separate. The default `canvas.previewQuality: "auto"` renders the editor target at approximately its visible preview size, `"low"` uses half that width and height, and `"full"` renders the complete logical Canvas. This preview policy must not alter recording-frame coordinates. Routed output continues to make its own render request and is not reduced by the editor preview-quality setting.
 
 ## Generators and Effects
 
@@ -223,9 +232,11 @@ These dimensions have different jobs and must not be conflated:
 
 - **Output size** is one configured projector's logical resolution/aspect. `render.outputs` is ordered and old `frameWidth`/`frameHeight` projects migrate to one `output-main` definition.
 - **World size** contains every output frame arranged edge-to-edge horizontally, with outer margins but no gap between projectors. Scene mapping operates in this shared coordinate system, so a surface may lie inside one output or span several.
-- **Surface texture size** is the normal maximum per-surface composition render budget. Canvas recording frames are sampled into this budget after the full logical Canvas is evaluated.
-- **Preview canvas size** is a UI/display concern and must not silently increase render resolution.
+- **Surface texture size** is the maximum per-surface render budget, not a mandatory allocation size.
+- **Preview canvas size** is a UI/display concern. The embedded renderer keeps logical world coordinates intact but adds a transient `previewRasterScale`, so physical canvas and intermediate buffers follow the pixels the preview can actually display.
 - **Popup window size** controls the HTML/p5 canvas display, not composition texture quality.
+
+Preview viewport fit modes are semantic rather than reusable numeric zooms. Scene/Live resolves `fit: "frame"` against the shared output world, while Composition/Canvas resolves automatic fits to its already frame-sized logical canvas. Only `fit: "manual"` deliberately carries the exact zoom and pan between workspaces; otherwise a Scene frame-fit zoom must never leak into Canvas and cause a transition overscale.
 
 Mappings are stored in world coordinates. `VjMapper` computes and caches a homography from four corners, applies the inverse transform at the quad vertices, and rasterizes the routed texture as a real projective quadrilateral. Mapping reset, import, resize, and scene snapshots must use the same coordinate convention. Surface order is draw order.
 
@@ -235,7 +246,7 @@ Standalone output renderers hard-disable mapper calibration regardless of incomi
 
 Each surface and scene-surface snapshot stores `projectionFit`. The default is `cover`; `contain` preserves the whole texture with transparent unused space, and `stretch` ignores source proportions. Fit is implemented in the existing mapper shader, so it does not add a render pass. Canvas recording-frame sampling happens before projection fit.
 
-Each output window carries an `outputId`, subtracts that output frame's shared-world origin, and renders only that viewport. The embedded Scene preview shows every named output frame together. When a popup and its Scene frame differ, inspect `render-geometry.js`, `mappingForRenderMode()`, `surfaceRouteRenderRequest()`, and the output frame transform before changing source-fit behavior.
+Each output window carries an `outputId`, subtracts that output frame's shared-world origin, and renders only that viewport. The embedded Scene preview shows every named output frame together. When a popup and its Scene frame differ, inspect `render-geometry.js`, `mappingForRenderMode()`, `buildSurfaceRenderPlan()`, and the output frame transform before changing source-fit behavior.
 
 ## Media
 
@@ -265,6 +276,8 @@ Control and output clients use `BroadcastChannel("vj1-output-bridge")`.
 
 Scene editing and Live selection are deliberately separate. Live owns a captured `ui.live.sceneSnapshot`; editing or selecting scenes does not mutate that program snapshot. Selecting a scene in Live explicitly replaces it. The Live scene ID and captured snapshot persist in the project UI payload, while temporary composition overrides do not. An empty Live selector initializes from its own first-scene fallback and must never copy `ui.selectedSceneId` during a workspace change. Opening an output while in Scene adds a one-use `initialSceneId` to the popup URL: the bridge sends that Scene snapshot only to the newly announced client, acknowledges it, and sends the captured Live state for all later updates. Targeted startup state must never change already-open outputs.
 
+When a routed Canvas appears in Live, each composition placement expands into the referenced composition's element tree and schema-generated parameters. Nested controls write to that referenced composition's entry in `ui.live.compositionOverrides`, while the placement's own opacity and blend remain overrides on the Canvas chain item. Expansion tracks composition ancestry to avoid recursive UI cycles.
+
 The top-bar Output menu opens one named popup per configured output, or all outputs. Popup names include the output ID so repeated opens focus/reuse the same window. Browser window dimensions are only presentation hints; the output definition remains the authoritative logical resolution.
 
 The top-bar play/pause button is always present but disabled until an output client is connected. It controls the shared visual clock, including time-based generators and video playback, without tearing down the renderer. The control UI can refresh or restore its project while an already-open output window remains connected; output clients announce themselves periodically and receive the current render state and requested media files.
@@ -286,6 +299,12 @@ The main risks are pixel count, pass count, duplicate WebGL contexts, unnecessar
 - Bound loops at compile time for WebGL compatibility.
 - For 3D terrain, prefer a reusable displaced polygon grid over per-pixel ray marching.
 - Treat CPU and GPU metrics as related but different signals. GPU timer data is not universally available, and GPU work can overlap CPU submission or remain queued.
+
+Mapped rendering uses one generic demand path for ordinary compositions and Canvas recording-frame sources. `compositionSourceView()` describes logical source size and the sampled rectangle; `sourceRenderDemand()` intersects the mapped quad with the current renderer viewport and derives the physical composition raster plus final surface raster. Multiple routes sampling one composition share the largest required composition raster for that renderer/frame. Routes outside an output viewport are culled before source rendering or surface allocation. Canvas is special only when resolving its recording-frame sample rectangle; crop, demand, cache, and projection code remain shared.
+
+Logical composition/Canvas dimensions must never be reduced to improve performance. Physical raster demand is allowed to vary by preview size, projector viewport, mapped footprint, and nested placement. Composition references inherit the pixel demand of their placement and remain capped by the referenced composition's configured maximum. Static caching follows the complete composition dependency graph, including Canvas dimensions and nested media; thumbnail data is excluded from render signatures. A static Canvas must be cacheable under the same rules as a static ordinary composition.
+
+Runtime profiles expose `surfaceRouteCandidates`, `surfaceRoutesVisible`, `surfaceRoutesCulled`, `compositionRasterPixels`, and `surfaceRasterPixels`. Use these with wall-clock frame time and FPS to verify that an optimization removes planned work. The GPU readout is an averaged query signal and must not be interpreted as total frame GPU time.
 
 The debug HUD displays FPS and active render resolution. Runtime profiles contain source, shader-pass, ping-pong, surface, and frame information where available. The top-bar CPU value is smoothed main-thread render work, not requestAnimationFrame interval. The GPU value is a rolling average of completed non-overlapping WebGL timer queries, not a wall-clock frame duration. FPS remains the definitive presentation-rate measurement. The load, CPU, GPU, and output readouts use fixed-width tabular fields to avoid top-bar layout jumps.
 
@@ -322,7 +341,7 @@ The shader smoke page must be used for new GLSL because Node tests only inspect 
 
 The VJ1 worktree contains uncommitted changes. The current diff primarily covers the optional composition upscale/post pipeline, projection fit, STL/OBJ transform and visible-depth behavior, project refresh/selection preservation, output metrics and controls, thumbnail generation/styling, cache-busting imports, and focused tests. Do not discard or broadly rewrite these changes. Read the diff before touching files that already changed.
 
-The test suite currently has 144 passing Node tests. Coverage includes composition sizing, shared-framebuffer placement, effect fusion, projective mapping and projection fit, composition upscale/post settings, model transforms and depth cutoff, thumbnail cover cropping, control UI contracts, media loading, and project persistence. The shader smoke page is still required for real GLSL compilation. The representative before/after runtime comparison is stored under `metrics-results/runs/four-surface-show-gpu-architecture.*`.
+The test suite currently has 180 passing Node tests. Coverage includes composition sizing, workspace-specific preview fitting, generic render demand and viewport culling, nested/Canvas dependency caching, shared-framebuffer placement, effect fusion, projective mapping and projection fit, composition upscale/post settings, model transforms and depth cutoff, thumbnail cover cropping, control UI contracts, media loading, and project persistence. The shader smoke page is still required for real GLSL compilation. The representative before/after runtime comparison is stored under `metrics-results/runs/four-surface-show-gpu-architecture.*`.
 
 ## Change Discipline
 

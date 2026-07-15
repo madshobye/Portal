@@ -2,9 +2,13 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 
-import { averageGpuQueryNanoseconds, compositionPipelineSourceRequest, eyeballFrameUniforms, fittedThumbnailSize, OutputRenderer, qualityScaledRenderRequest } from "../js/output/output-renderer.js";
+import { averageGpuQueryNanoseconds, canvasCompositionPlacementRect, canvasFrameBorderHit, canvasPreviewRenderRequest, compositionPipelineSourceRequest, compositionReferencePlacement, compositionReferenceRenderRequest, eyeballFrameUniforms, fittedThumbnailSize, moveCanvasFrameRect, OutputRenderer, qualityScaledRenderRequest, resizeCanvasFrameRect } from "../js/output/output-renderer.js";
 import { renderRequestKey } from "../js/output/render-geometry.js";
-import { VjMapper } from "../js/output/vj-mapper.js";
+import { mapperFragmentShaderSource, VjMapper } from "../js/output/vj-mapper.js";
+
+function pickRequestSize(request) {
+  return { width: request.width, height: request.height };
+}
 
 test("projection corner drags emit live mapping updates before release", () => {
   const changes = [];
@@ -253,23 +257,117 @@ test("composition thumbnails retain their aspect within the thumbnail bounds", (
   assert.ok(source.includes("context.drawImage(source, 0, 0, sourceWidth, sourceHeight, 0, 0, thumbnailSize.width, thumbnailSize.height);"));
 });
 
+test("Canvas recording-frame thumbnails crop the rendered Canvas by logical frame geometry", () => {
+  const source = readFileSync(new URL("../js/output/output-renderer.js", import.meta.url), "utf8");
+  assert.ok(source.includes("composition.canvas?.frameThumbnails?.[frame.id]"));
+  assert.ok(source.includes("this.sendThumbnail(composition.id, frameThumbnail, { frameId: frame.id })"));
+  assert.ok(source.includes("if (sourceRect) context.drawImage(source, sx, sy, sw, sh"));
+});
+
 test("paused previews contain thumbnails and canvas surface routes preserve sampling", () => {
   const source = readFileSync(new URL("../js/output/output-renderer.js", import.meta.url), "utf8");
   assert.ok(source.includes("const rect = this.compositionPreviewRect(composition, thumbnail.img);"));
   assert.ok(source.includes('if (composition?.type === "canvas")'));
   assert.ok(source.includes("drawSampleRect(pg, thumbnail.img"));
-  assert.ok(source.includes("this.mapper.drawTexture(pg, mapped.mapperSurface, surface.projectionFit)"));
+  assert.ok(source.includes("this.mapper.drawTexture(pg, mapped.mapperSurface, surface.projectionFit, surface.feather)"));
 });
 
-test("canvas rendering evaluates shared layer groups, effects, and canvas-owned route frames", () => {
+test("canvas rendering evaluates ordinary sources, Groups, effects, and shared route frames", () => {
   const source = readFileSync(new URL("../js/output/output-renderer.js", import.meta.url), "utf8");
-  assert.ok(source.includes('item.role === "canvas-layer"'));
   assert.ok(source.includes("this.renderCompositionChainState("));
   assert.ok(source.includes("this.renderEffectNodeState(nodeId, state, item, compositionTime, renderRequest)"));
-  assert.ok(source.includes("renderCanvasLayerNodeState("));
+  assert.ok(source.includes("this.renderLayerNodeState(nodeId, state, sourceState, item, renderRequest)"));
   assert.ok(source.includes('source.type === "composition"'));
-  assert.ok(source.includes("canvasRouteFrameRect(composition, surface)"));
+  assert.ok(source.includes("compositionSourceView(this.state.render, composition, surface, this.state.recordingFrames)"));
+  assert.ok(source.includes("this.state?.recordingFrames || []"));
+  assert.ok(source.includes("renderCanvasRecordingFrames(composition, source)"));
   assert.ok(source.includes("surface.outputFrameId"));
+  assert.ok(source.includes("resolveSceneSourceNode(this.state, storedSurface.sourceNodeId, storedSurface)"));
+  assert.ok(!source.includes('item.role === "canvas-layer"'));
+});
+
+test("Canvas recording frames move within bounds and corner resize changes both dimensions independently", () => {
+  const moved = moveCanvasFrameRect({ x: 100, y: 100, width: 400, height: 200 }, 900, 900, 1200, 800);
+  assert.deepEqual(moved, { x: 800, y: 600, width: 400, height: 200 });
+
+  const resized = resizeCanvasFrameRect(
+    { x: 100, y: 100, width: 400, height: 200 },
+    "se",
+    200,
+    20,
+    1200,
+    800
+  );
+  assert.deepEqual(resized, { x: 100, y: 100, width: 600, height: 220 });
+
+  const northwest = resizeCanvasFrameRect(
+    { x: 100, y: 100, width: 400, height: 200 },
+    "nw",
+    -200,
+    -300,
+    1200,
+    800
+  );
+  assert.deepEqual(northwest, { x: 0, y: 0, width: 500, height: 300 });
+});
+
+test("Canvas recording frames drag only from their border so the interior passes through", () => {
+  const frame = { x: 100, y: 100, width: 400, height: 200 };
+  assert.equal(canvasFrameBorderHit(frame, 102, 180), true);
+  assert.equal(canvasFrameBorderHit(frame, 300, 296), true);
+  assert.equal(canvasFrameBorderHit(frame, 300, 200), false);
+  assert.equal(canvasFrameBorderHit(frame, 50, 200), false);
+});
+
+test("Canvas composition placements retain the referenced composition's logical dimensions", () => {
+  assert.deepEqual(
+    canvasCompositionPlacementRect(
+      { width: 3840, height: 2160 },
+      { baseWidth: 1080, baseHeight: 1920, width: 540, height: 960 }
+    ),
+    { x: 1380, y: 120, width: 1080, height: 1920 }
+  );
+  assert.deepEqual(
+    canvasCompositionPlacementRect(
+      { width: 3840, height: 2160 },
+      { baseWidth: 1920, baseHeight: 1080 },
+      { width: 960, height: 540 }
+    ),
+    { x: 240, y: 135, width: 480, height: 270 }
+  );
+});
+
+test("nested compositions inherit physical demand from their placement for every parent type", () => {
+  const render = { frameWidth: 1000, frameHeight: 700, pixelDensity: 1 };
+  const child = { id: "child", type: "chain", frameShape: "landscape", resolutionScale: 2 };
+  const canvasParent = { type: "canvas", canvas: { width: 4000, height: 2800 } };
+  const canvasPlacement = compositionReferencePlacement(canvasParent, child, render, { width: 1000, height: 700 });
+  const regularPlacement = compositionReferencePlacement({ type: "chain" }, child, render, { width: 640, height: 360 });
+  const request = compositionReferenceRenderRequest(render, child, canvasPlacement);
+
+  assert.equal(canvasPlacement.x, Math.round((1000 - canvasPlacement.width) * 0.5));
+  assert.equal(canvasPlacement.y, Math.round((700 - canvasPlacement.height) * 0.5));
+  assert.ok(canvasPlacement.width < regularPlacement.width);
+  assert.ok(canvasPlacement.height < regularPlacement.height);
+  assert.deepEqual(regularPlacement, { x: 0, y: 0, width: 640, height: 360 });
+  assert.ok(request.width <= canvasPlacement.width + 16);
+  assert.ok(request.height <= canvasPlacement.height + 16);
+  assert.equal(request.logicalWidth / request.logicalHeight, 16 / 9);
+});
+
+test("Canvas preview requests follow the viewport with auto low and full quality modes", () => {
+  assert.deepEqual(
+    pickRequestSize(canvasPreviewRenderRequest({ canvas: { width: 3840, height: 2160, previewQuality: "auto" } }, 1200, 800)),
+    { width: 1200, height: 675 }
+  );
+  assert.deepEqual(
+    pickRequestSize(canvasPreviewRenderRequest({ canvas: { width: 3840, height: 2160, previewQuality: "low" } }, 1200, 800)),
+    { width: 600, height: 338 }
+  );
+  assert.deepEqual(
+    pickRequestSize(canvasPreviewRenderRequest({ canvas: { width: 3840, height: 2160, previewQuality: "full" } }, 1200, 800)),
+    { width: 3840, height: 2160 }
+  );
 });
 
 test("composition groups render isolated from earlier parent layers", () => {
@@ -330,32 +428,21 @@ test("composition preview always draws its overarching frame independently of se
 test("scene surfaces render compositions at their configured shape and relative resolution", () => {
   const source = readFileSync(new URL("../js/output/output-renderer.js", import.meta.url), "utf8");
   const drawSurfaceRoute = source.slice(
-    source.indexOf("  drawSurfaceRoute(pg, surface)"),
+    source.indexOf("  drawSurfaceRoute(pg, route = {})"),
     source.indexOf("  drawSurfaceThumbnailRoute(pg, surface)")
   );
-  const surfaceRouteRenderRequest = source.slice(
-    source.indexOf("  surfaceRouteRenderRequest(surface, composition = null)"),
+  const surfaceRenderPlan = source.slice(
+    source.indexOf("  buildSurfaceRenderPlan()"),
     source.indexOf("  getSurfaceTexture(request")
   );
 
-  assert.ok(surfaceRouteRenderRequest.includes("compositionRenderRequest(this.state.render, composition"));
+  assert.ok(surfaceRenderPlan.includes("sourceRenderDemand({"));
+  assert.ok(surfaceRenderPlan.includes("compositionSourceView(this.state.render, composition"));
+  assert.ok(surfaceRenderPlan.includes("compositionScales"));
   assert.ok(!drawSurfaceRoute.includes("stableFrameRenderRequest(this.state.render"));
+  assert.ok(drawSurfaceRoute.includes("scaledCompositionSampleRect("));
   assert.ok(source.includes("getSurfaceTexture(request)"));
   assert.ok(source.includes("createGraphics(widthPx, heightPx)"));
-
-  const renderer = new OutputRenderer({ mode: "output" });
-  renderer.state = {
-    render: { surfaceWidth: 1000, surfaceHeight: 700, pixelDensity: 0.5 },
-  };
-  const composition = { id: "portrait", type: "chain", frameShape: "portrait", resolutionScale: 2 };
-  const first = renderer.surfaceRouteRenderRequest({ id: "surface-a", compositionId: composition.id }, composition);
-  const second = renderer.surfaceRouteRenderRequest({ id: "surface-b", compositionId: composition.id }, composition);
-  assert.equal(first.width, 700);
-  assert.equal(first.height, 1000);
-  assert.equal(first.logicalWidth, 700);
-  assert.equal(first.logicalHeight, 1000);
-  assert.equal(first.pixelDensityApplied, true);
-  assert.equal(renderRequestKey(first), renderRequestKey(second));
 });
 
 test("element render quality scales physical composition pixels without changing logical proportions", () => {
@@ -469,7 +556,7 @@ test("projection mapper uses actual texture size for surface sampling math", () 
   assert.ok(source.includes("texture.width || surface.w"));
   assert.ok(source.includes("texture.height || surface.h"));
   assert.ok(source.includes('projectionFit = "cover"'));
-  assert.ok(rendererSource.includes("this.mapper.drawTexture(pg, mapped.mapperSurface, surface.projectionFit)"));
+  assert.ok(rendererSource.includes("this.mapper.drawTexture(pg, mapped.mapperSurface, surface.projectionFit, surface.feather)"));
 });
 
 test("media renditions are saved without lossy jpeg compression", () => {
@@ -483,8 +570,7 @@ test("media renditions are saved without lossy jpeg compression", () => {
 });
 
 test("projection mapper uses high precision for homography sampling", () => {
-  const source = readFileSync(new URL("../js/output/vj-mapper.js", import.meta.url), "utf8");
-  const shaderSource = source.slice(source.indexOf("  _ensureShader()"));
+  const shaderSource = mapperFragmentShaderSource();
 
   assert.ok(shaderSource.includes("precision highp float;"));
   assert.ok(!shaderSource.includes("precision mediump float;"));

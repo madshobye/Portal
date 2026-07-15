@@ -1,18 +1,18 @@
 import { BLEND_MODES, VJ1, WORKSPACES } from "../constants.js";
 import { compositionFrameMetrics } from "../domain/composition-frame.js";
-import { applySceneSnapshotToState, createLiveCompositionView, createLiveRenderState, createOutputDefinition, createSceneSnapshot, normalizeRenderSettings, syncLiveSnapshotFromScene } from "../domain/models.js?v=surface-live-sync-1";
+import { applySceneSourceNode, applySceneSnapshotToState, createLiveCompositionView, createLiveRenderState, createOutputDefinition, createSceneSnapshot, normalizeRenderSettings, resolveSceneSourceNode, sceneSourceNodes, syncLiveSnapshotFromScene } from "../domain/models.js?v=surface-feather-1";
 import { normalizeParamValue, RENDER_QUALITY_PARAM } from "../graph/component-schema.js?v=range-pair-1";
 import { getGeneratorComponent, listGeneratorComponents } from "../graph/generator-registry.js?v=render-quality-2";
 import { patchNodeDegree, planCompositorInputs, planPatchExecution, summarizeTextureBranches } from "../graph/patch-planner.js";
 import { compileCompositionPatch } from "../graph/render-scheduler.js?v=hsv-alpha-key-1";
 import { buildOutputUrl } from "../view-routing.js?v=multi-output-2";
 import { getShaderComponent, listShaderComponents } from "../shaders/shader-registry.js?v=hsv-alpha-key-1";
-import { createEmbeddedPreviewApp } from "../output/embedded-preview-app.js?v=multi-output-2";
+import { createEmbeddedPreviewApp } from "../output/embedded-preview-app.js?v=zoom-transition-1";
 import { frameFitViewport, resetViewport, zoomViewport } from "../output/preview-viewport.js?v=multi-output-2";
-import { defaultProjectSurfaceMapping } from "../output/render-geometry.js?v=multi-output-2";
+import { defaultProjectSurfaceMapping } from "../output/render-geometry.js?v=render-demand-1";
 import { createHtmlCache, isInteractiveNode, isTextEditingNode, setClass, setText } from "./dom-utils.js";
 import { bindReorderList } from "./reorder-list.js";
-import { collectRefs, shellTemplate } from "./shell-view.js?v=multi-output-2";
+import { collectRefs, shellTemplate } from "./shell-view.js?v=nodes-first-1";
 import { effectIcon, emptyNote, esc, icon, paramRangePairTemplate, rangeTemplate, selectValuesTemplate, sourceTypeIcon, thumbnailTemplate } from "./template-utils.js?v=thumbnail-fit-2";
 
 const MODEL_RENDER_MODES = ["surface", "wireframe", "surfaceWire", "points"];
@@ -417,11 +417,12 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
   }
 
   function compositionToolsTemplate(state) {
+    const compositions = ordinaryCompositions(state);
     return `
       <div class="rail-section">
         <div class="rail-title"><span class="material-symbols-rounded">account_tree</span><span>Compositions</span></div>
         <div class="composition-card-list">
-          ${state.compositions.map((composition) => compositionPillTemplate(composition, state)).join("") || emptyNote("Create visual recipes")}
+          ${compositions.map((composition) => compositionPillTemplate(composition, state)).join("") || emptyNote("Create visual recipes")}
         </div>
         <button type="button" data-add-composition>${icon("add")} Add composition</button>
       </div>
@@ -440,7 +441,7 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
       </div>
       <div class="rail-section">
         <div class="rail-title"><span class="material-symbols-rounded">texture</span><span>Sampling</span></div>
-        <div class="soft-note">Build a larger visual from composition layers, shared effects, and named recording frames. Recording frames become sources in Scenes.</div>
+        <div class="soft-note">Build a larger visual with the same sources, Groups, and effects as Composition, then expose named recording frames to Scenes.</div>
       </div>
     `;
   }
@@ -523,15 +524,6 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
       if (replaceHtmlIfChanged(refs.studio, html)) bindStudioEvents();
       return;
     }
-    if (currentWorkspace(state) === "canvas") {
-      embeddedPreview.pause();
-      const html = canvasStudioTemplate(state);
-      if (replaceHtmlIfChanged(refs.studio, html)) {
-        bindStudioEvents();
-        bindInputs(refs.studio, state);
-      }
-      return;
-    }
     if (!refs.studio.querySelector("[data-studio-stage]")) {
       refs.studio.innerHTML = `
       <section class="studio-stage" data-studio-stage>
@@ -551,11 +543,10 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
 
   function renderPreview(state) {
     if (currentWorkspace(state) === "mapping") return;
-    if (currentWorkspace(state) === "canvas") return;
     const previewHost = refs.studio.querySelector("[data-preview-host]");
     if (!previewHost || previewHost.classList.contains("is-empty")) return;
     const workspace = currentWorkspace(state);
-    const kind = workspace === "compose" ? "composition" : "preview";
+    const kind = workspace === "compose" || workspace === "canvas" ? "composition" : "preview";
     const previewState = workspace === "live" ? createLiveRenderState(state) : state;
     if (!previewHost.querySelector("[data-embedded-preview-stage]")) {
       replaceHtmlIfChanged(previewHost, `
@@ -593,8 +584,8 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
 
   function updatePreviewState(state) {
     const workspace = currentWorkspace(state);
-    if (workspace === "mapping" || workspace === "canvas") return;
-    const kind = workspace === "compose" ? "composition" : "preview";
+    if (workspace === "mapping") return;
+    const kind = workspace === "compose" || workspace === "canvas" ? "composition" : "preview";
     embeddedPreview.setState(workspace === "live" ? createLiveRenderState(state) : state, kind);
   }
 
@@ -771,6 +762,16 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
           store.addChainSource(elementPicker.compositionId, {
             type: "media",
             mediaId: button.dataset.addElementMedia || "",
+          });
+          closeElementPicker();
+        });
+      });
+      host.querySelectorAll("[data-add-element-composition]").forEach((button) => {
+        button.addEventListener("click", () => {
+          activateElementPickerTarget();
+          store.addChainSource(elementPicker.compositionId, {
+            type: "composition",
+            compositionId: button.dataset.addElementComposition || "",
           });
           closeElementPicker();
         });
@@ -1037,7 +1038,6 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
     refs.studio.querySelector("[data-reset-mapping]")?.addEventListener("click", () => {
       resetProjectMapping();
     });
-    bindCanvasRectInteractions(refs.studio);
   }
 
   function bindInputs(scope, state) {
@@ -1139,25 +1139,20 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
     scope.querySelectorAll("[data-add-canvas-composition]").forEach((button) => {
       button.addEventListener("click", () => store.addCanvasComposition?.());
     });
-    scope.querySelectorAll("[data-add-canvas-layer]").forEach((button) => {
-      button.addEventListener("click", () => store.addCanvasLayer?.(button.dataset.canvasCompositionId || latestState.ui.selectedCompositionId));
-    });
     scope.querySelectorAll("[data-add-canvas-frame]").forEach((button) => {
       button.addEventListener("click", () => store.addCanvasFrame?.(button.dataset.canvasCompositionId || latestState.ui.selectedCompositionId));
-    });
-    scope.querySelectorAll("[data-remove-canvas-layer]").forEach((button) => {
-      button.addEventListener("click", () => store.removeCanvasLayer?.(button.dataset.canvasCompositionId, button.dataset.removeCanvasLayer));
     });
     scope.querySelectorAll("[data-remove-canvas-frame]").forEach((button) => {
       button.addEventListener("click", () => store.removeCanvasFrame?.(button.dataset.canvasCompositionId, button.dataset.removeCanvasFrame));
     });
-    scope.querySelectorAll("[data-set-route-composition]").forEach((button) => {
+    scope.querySelectorAll("[data-set-route-source-node]").forEach((button) => {
       button.addEventListener("click", () => {
         store.update((draft) => {
-          setByPath(draft, `${button.dataset.routeBase}.compositionId`, button.dataset.setRouteComposition);
-          setByPath(draft, `${button.dataset.routeBase}.outputFrameId`, button.dataset.setRouteFrame || "");
+          const route = getByPath(draft, button.dataset.routeBase);
+          const node = resolveSceneSourceNode(draft, button.dataset.setRouteSourceNode);
+          if (route && node) Object.assign(route, applySceneSourceNode(route, node));
           if (currentWorkspace(draft) === "scene") applySelectedSceneSnapshot(draft);
-        }, "update:surface-route");
+        }, "update:surface-source-node");
       });
     });
     scope.querySelectorAll("[data-select-chain-item]").forEach((button) => {
@@ -1237,68 +1232,6 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
       const removed = removeChainItemFromChain(composition.chain, itemId, composition.type !== "canvas");
       if (removed && draft.ui.selectedChainItemId === itemId) draft.ui.selectedChainItemId = firstChainItemId(composition.chain);
     }, "remove-chain-item");
-  }
-
-  function bindCanvasRectInteractions(scope) {
-    scope.querySelectorAll("[data-canvas-frame]").forEach((rectEl) => {
-      rectEl.addEventListener("pointerdown", (event) => startCanvasFrameDrag(event, rectEl));
-    });
-  }
-
-  function startCanvasFrameDrag(event, rectEl) {
-    if (event.button !== 0) return;
-    const board = rectEl.closest("[data-canvas-board]");
-    const frameId = rectEl.dataset.canvasFrame;
-    const compositionId = rectEl.dataset.canvasCompositionId;
-    if (!board || !frameId || !compositionId) return;
-    event.preventDefault();
-    event.stopPropagation();
-    rectEl.setPointerCapture?.(event.pointerId);
-
-    const boardRect = board.getBoundingClientRect();
-    const canvasWidth = Math.max(1, Number(board.dataset.canvasWidth) || boardRect.width || 1);
-    const canvasHeight = Math.max(1, Number(board.dataset.canvasHeight) || boardRect.height || 1);
-    const scaleX = canvasWidth / Math.max(1, boardRect.width || 1);
-    const scaleY = canvasHeight / Math.max(1, boardRect.height || 1);
-    const composition = latestState.compositions.find((item) => item.id === compositionId);
-    const frame = composition?.canvas?.frames?.find((item) => item.id === frameId);
-    const startRect = clampSourceRect(frame || createCanvasSourceRect(canvasWidth, canvasHeight), canvasWidth, canvasHeight);
-    const mode = event.target?.dataset?.canvasRectHandle || "move";
-    const startPointer = { x: event.clientX, y: event.clientY };
-    rectEl.classList.add("is-dragging");
-
-    const onMove = (moveEvent) => {
-      moveEvent.preventDefault();
-      const dx = (moveEvent.clientX - startPointer.x) * scaleX;
-      const dy = (moveEvent.clientY - startPointer.y) * scaleY;
-      const nextRect = resizeCanvasSourceRect(startRect, mode, dx, dy, canvasWidth, canvasHeight);
-      applyCanvasFrameRect(compositionId, frameId, nextRect, "scrub:canvas-frame");
-    };
-
-    const onEnd = (endEvent) => {
-      rectEl.releasePointerCapture?.(event.pointerId);
-      rectEl.classList.remove("is-dragging");
-      window.removeEventListener("pointermove", onMove, true);
-      window.removeEventListener("pointerup", onEnd, true);
-      window.removeEventListener("pointercancel", onEnd, true);
-      const dx = (endEvent.clientX - startPointer.x) * scaleX;
-      const dy = (endEvent.clientY - startPointer.y) * scaleY;
-      const nextRect = resizeCanvasSourceRect(startRect, mode, dx, dy, canvasWidth, canvasHeight);
-      applyCanvasFrameRect(compositionId, frameId, nextRect, "update:canvas-frame");
-    };
-
-    window.addEventListener("pointermove", onMove, true);
-    window.addEventListener("pointerup", onEnd, true);
-    window.addEventListener("pointercancel", onEnd, true);
-  }
-
-  function applyCanvasFrameRect(compositionId, frameId, rect, reason) {
-    store.update((draft) => {
-      const composition = draft.compositions.find((item) => item.id === compositionId);
-      const frame = composition?.canvas?.frames?.find((item) => item.id === frameId);
-      if (!frame) return;
-      Object.assign(frame, rect);
-    }, reason);
   }
 
   function resetProjectMapping(surfaceId = "") {
@@ -1476,160 +1409,23 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
 function compositionPillTemplate(composition, state) {
   const selected = state.ui.selectedCompositionId === composition.id;
   const fallbackIcon = composition.type === "canvas" ? "dashboard_customize" : "account_tree";
+  const removeDisabled = composition.type !== "canvas"
+    ? ordinaryCompositions(state).length <= 1
+    : state.compositions.length <= 1;
   return `
     <div class="composition-card-row">
       <button type="button" class="composition-card ${selected ? "is-selected" : ""}" data-select-composition="${esc(composition.id)}">
         ${thumbnailTemplate(composition.thumbnail, fallbackIcon)}
         <span>${esc(composition.name)}</span>
       </button>
-      <button type="button" class="composition-card-remove" data-remove-composition="${esc(composition.id)}" title="Remove" aria-label="Remove ${esc(composition.name)}" ${state.compositions.length <= 1 ? "disabled" : ""}>${icon("close")}</button>
+      <button type="button" class="composition-card-remove" data-remove-composition="${esc(composition.id)}" title="Remove" aria-label="Remove ${esc(composition.name)}" ${removeDisabled ? "disabled" : ""}>${icon("close")}</button>
     </div>
   `;
-}
-
-function canvasStudioTemplate(state) {
-  const composition = selectedCanvasComposition(state);
-  if (!composition) {
-    return `
-      <section class="canvas-stage">
-        <div class="project-empty">
-          <span class="material-symbols-rounded">dashboard_customize</span>
-          <h2>Canvas composition</h2>
-          <p>Create a canvas composition to place existing compositions on a large source canvas.</p>
-          <button type="button" class="primary" data-add-canvas-composition>${icon("add")} Add canvas</button>
-        </div>
-      </section>
-    `;
-  }
-  const canvas = composition.canvas || { width: 3840, height: 2160, frames: [] };
-  const width = Math.max(1, Number(canvas.width) || 3840);
-  const height = Math.max(1, Number(canvas.height) || 2160);
-  const layers = canvasLayerGroups(composition);
-  return `
-    <section class="canvas-stage">
-      <div class="canvas-board-shell">
-        <div class="canvas-board-meta">
-          <strong>${esc(composition.name)}</strong>
-          <span>${Math.round(width)} x ${Math.round(height)}</span>
-        </div>
-        <div class="canvas-board" data-canvas-board data-canvas-width="${width}" data-canvas-height="${height}" style="aspect-ratio: ${width} / ${height};">
-          <div class="canvas-grid"></div>
-          ${layers.map((layer, index) => canvasLayerRectTemplate(layer, index, state, width, height)).join("")}
-          ${(canvas.frames || []).map((frame) => canvasFrameRectTemplate(frame, composition, width, height)).join("")}
-          ${!layers.length ? `<div class="canvas-empty-note">Add compositions as layers, then add effects from the shared chain.</div>` : ""}
-        </div>
-      </div>
-    </section>
-  `;
-}
-
-function canvasLayerRectTemplate(layer, index, state, canvasWidth, canvasHeight) {
-  const layout = layer.layout || {};
-  const source = state.compositions.find((composition) => composition.id === canvasLayerCompositionId(layer));
-  const left = percent(layout.x, canvasWidth);
-  const top = percent(layout.y, canvasHeight);
-  const width = percent(layout.width, canvasWidth);
-  const height = percent(layout.height, canvasHeight);
-  return `
-    <div
-      class="canvas-layer-rect"
-      style="left:${left}%; top:${top}%; width:${width}%; height:${height}%; --layer-index:${index};"
-      title="${esc(layer.name || source?.name || "Layer")}"
-    >
-      <span>${esc(source?.name || layer.name || "Missing composition")}</span>
-      <small>${Math.round(layout.x || 0)}, ${Math.round(layout.y || 0)} / ${Math.round(layout.width || 0)} x ${Math.round(layout.height || 0)}</small>
-    </div>
-  `;
-}
-
-function canvasFrameRectTemplate(frame, composition, canvasWidth, canvasHeight) {
-  const rect = clampSourceRect(frame, canvasWidth, canvasHeight);
-  const left = percent(rect.x, canvasWidth);
-  const top = percent(rect.y, canvasHeight);
-  const width = percent(rect.width, canvasWidth);
-  const height = percent(rect.height, canvasHeight);
-  return `
-    <div
-      role="button"
-      tabindex="0"
-      class="canvas-surface-rect canvas-recording-frame"
-      style="left:${left}%; top:${top}%; width:${width}%; height:${height}%;"
-      data-canvas-frame="${esc(frame.id)}"
-      data-canvas-composition-id="${esc(composition.id)}"
-      title="Recording frame ${esc(frame.name)}"
-    >
-      <span>${esc(frame.name)}</span>
-      <i data-canvas-rect-handle="nw" aria-hidden="true"></i>
-      <i data-canvas-rect-handle="ne" aria-hidden="true"></i>
-      <i data-canvas-rect-handle="sw" aria-hidden="true"></i>
-      <i data-canvas-rect-handle="se" aria-hidden="true"></i>
-    </div>
-  `;
-}
-
-function percent(value, total) {
-  return Math.max(0, Math.min(100, (Number(value) || 0) / Math.max(1, Number(total) || 1) * 100));
-}
-
-function createCanvasSourceRect(canvasWidth, canvasHeight) {
-  const width = Math.max(64, Math.round(canvasWidth * 0.25));
-  const height = Math.max(64, Math.round(canvasHeight * 0.25));
-  return {
-    x: Math.round((canvasWidth - width) * 0.5),
-    y: Math.round((canvasHeight - height) * 0.5),
-    width,
-    height,
-  };
-}
-
-function clampSourceRect(rect = {}, canvasWidth = 1, canvasHeight = 1) {
-  const minSize = 16;
-  const width = Math.max(minSize, Math.min(canvasWidth, Number(rect.width) || Math.min(960, canvasWidth)));
-  const height = Math.max(minSize, Math.min(canvasHeight, Number(rect.height) || Math.min(540, canvasHeight)));
-  return {
-    x: Math.round(Math.max(0, Math.min(canvasWidth - width, Number(rect.x) || 0))),
-    y: Math.round(Math.max(0, Math.min(canvasHeight - height, Number(rect.y) || 0))),
-    width: Math.round(width),
-    height: Math.round(height),
-  };
-}
-
-function resizeCanvasSourceRect(startRect, mode, dx, dy, canvasWidth, canvasHeight) {
-  const minSize = 16;
-  const rect = { ...startRect };
-  if (mode === "move") {
-    rect.x += dx;
-    rect.y += dy;
-    return clampSourceRect(rect, canvasWidth, canvasHeight);
-  }
-  if (mode.includes("w")) {
-    rect.x += dx;
-    rect.width -= dx;
-  }
-  if (mode.includes("e")) {
-    rect.width += dx;
-  }
-  if (mode.includes("n")) {
-    rect.y += dy;
-    rect.height -= dy;
-  }
-  if (mode.includes("s")) {
-    rect.height += dy;
-  }
-  if (rect.width < minSize) {
-    if (mode.includes("w")) rect.x = startRect.x + startRect.width - minSize;
-    rect.width = minSize;
-  }
-  if (rect.height < minSize) {
-    if (mode.includes("n")) rect.y = startRect.y + startRect.height - minSize;
-    rect.height = minSize;
-  }
-  return clampSourceRect(rect, canvasWidth, canvasHeight);
 }
 
 function canvasInspectorTemplate(composition, state) {
   const base = pathForComposition(state, composition);
-  const canvas = composition.canvas || { width: 3840, height: 2160, frames: [] };
+  const canvas = composition.canvas || { width: 3840, height: 2160, previewQuality: "auto" };
   return `
     <article class="sculpt-card">
       <div class="sculpt-head">
@@ -1639,38 +1435,32 @@ function canvasInspectorTemplate(composition, state) {
         <label class="field">Width <input type="number" min="128" max="8192" step="1" data-update="${base}.canvas.width" value="${canvas.width}" /></label>
         <label class="field">Height <input type="number" min="128" max="8192" step="1" data-update="${base}.canvas.height" value="${canvas.height}" /></label>
       </div>
-      <section class="canvas-inspector-section">
-        <div class="rail-title"><span class="material-symbols-rounded">layers</span><span>Composition layers</span></div>
-        <button type="button" data-add-canvas-layer data-canvas-composition-id="${esc(composition.id)}">${icon("add")} Add layer</button>
-        <div class="soft-note">Layers are isolated chain groups. Select one to place it or add effects inside it.</div>
-      </section>
+      <label class="field">Preview quality
+        <select data-update="${base}.canvas.previewQuality">
+          <option value="auto" ${canvas.previewQuality !== "low" && canvas.previewQuality !== "full" ? "selected" : ""}>Auto · preview size</option>
+          <option value="low" ${canvas.previewQuality === "low" ? "selected" : ""}>Low · half preview size</option>
+          <option value="full" ${canvas.previewQuality === "full" ? "selected" : ""}>Full Canvas resolution</option>
+        </select>
+      </label>
       ${compositionUnifiedChainTemplate(composition, state, base)}
       <section class="canvas-inspector-section">
         <div class="rail-title"><span class="material-symbols-rounded">select_all</span><span>Recording frames</span></div>
         <button type="button" data-add-canvas-frame data-canvas-composition-id="${esc(composition.id)}">${icon("add")} Add recording frame</button>
         <div class="canvas-surface-list">
-          ${(canvas.frames || []).map((frame, index) => canvasFrameEditorTemplate(frame, index, composition, `${base}.canvas.frames.${index}`)).join("") || emptyNote("Add a recording frame to make a canvas region available in Scenes.")}
+          ${(state.recordingFrames || []).map((frame, index) => canvasFrameEditorTemplate(frame, index, composition)).join("") || emptyNote("Add a recording frame to make a shared Canvas region available in Scenes.")}
         </div>
       </section>
     </article>
   `;
 }
 
-function canvasFrameEditorTemplate(frame, index, composition, base) {
+function canvasFrameEditorTemplate(frame, index, composition) {
   return `
     <article class="canvas-surface-editor is-assigned">
       <header>
-        <input type="text" data-update="${base}.name" value="${esc(frame.name || `Frame ${index + 1}`)}" aria-label="Recording frame name" />
+        <strong>${esc(frame.name || `Frame ${index + 1}`)}</strong>
         <button type="button" class="icon-buttonish" data-canvas-composition-id="${esc(composition.id)}" data-remove-canvas-frame="${esc(frame.id)}" title="Remove recording frame" aria-label="Remove ${esc(frame.name || `Frame ${index + 1}`)}">${icon("close")}</button>
       </header>
-      <div class="field-pair">
-        <label class="field">X <input type="number" min="0" step="1" data-update="${base}.x" value="${Number(frame.x) || 0}" /></label>
-        <label class="field">Y <input type="number" min="0" step="1" data-update="${base}.y" value="${Number(frame.y) || 0}" /></label>
-      </div>
-      <div class="field-pair">
-        <label class="field">W <input type="number" min="16" step="1" data-update="${base}.width" value="${Number(frame.width) || 960}" /></label>
-        <label class="field">H <input type="number" min="16" step="1" data-update="${base}.height" value="${Number(frame.height) || 540}" /></label>
-      </div>
     </article>
   `;
 }
@@ -1963,7 +1753,7 @@ function compositionTemplate(composition, state) {
         <div class="sculpt-head">
           <input type="text" data-update="${base}.name" value="${esc(composition.name)}" spellcheck="false" data-gramm="false" data-gramm_editor="false" data-enable-grammarly="false" />
         </div>
-        <div class="soft-note">This Canvas uses the shared composition chain. Use the Canvas workspace to place composition layers, add effects, and define recording frames.</div>
+        <div class="soft-note">This Canvas uses the shared composition chain. Add compositions as sources with the plus button, organize them in Groups when needed, and define recording frames.</div>
       </article>
     `;
   }
@@ -2068,7 +1858,7 @@ function chainItemRowTemplate(item, composition, state, index, base, depth = 0, 
 const SHOW_CHAIN_ITEM_TRANSFORM_CONTROLS = false;
 
 function selectedChainItemTemplate(item, composition, state, base) {
-  if (item.kind === "source") return sourceChainItemTemplate(item, state, base);
+  if (item.kind === "source") return sourceChainItemTemplate(item, composition, state, base);
   if (item.kind === "group") return groupChainItemTemplate(item, composition, state, base);
   const component = getShaderComponent(item.componentId);
   return `
@@ -2081,30 +1871,6 @@ function selectedChainItemTemplate(item, composition, state, base) {
 }
 
 function groupChainItemTemplate(item, composition, state, base) {
-  if (item.role === "canvas-layer") {
-    const layout = item.layout || {};
-    return `
-      <section class="chain-item-editor">
-        <div class="rail-title"><span class="material-symbols-rounded">layers</span><span>${esc(item.name || "Layer")}</span></div>
-        <label class="field">Name <input type="text" data-update="${base}.name" value="${esc(item.name || "Layer")}" /></label>
-        <label class="field">Composition ${compositionSelectTemplate(`${base}.chain.0.source.compositionId`, state, canvasLayerCompositionId(item), composition.id)}</label>
-        <div class="field-pair">
-          <label class="field">X <input type="number" step="1" data-update="${base}.layout.x" value="${Number(layout.x) || 0}" /></label>
-          <label class="field">Y <input type="number" step="1" data-update="${base}.layout.y" value="${Number(layout.y) || 0}" /></label>
-        </div>
-        <div class="field-pair">
-          <label class="field">W <input type="number" min="1" step="1" data-update="${base}.layout.width" value="${Number(layout.width) || 960}" /></label>
-          <label class="field">H <input type="number" min="1" step="1" data-update="${base}.layout.height" value="${Number(layout.height) || 540}" /></label>
-        </div>
-        <div class="field-pair">
-          <label class="field">Blend ${selectValuesTemplate(`${base}.blend`, BLEND_MODES, item.blend || "normal")}</label>
-          ${rangeTemplate("Opacity", `${base}.opacity`, item.opacity ?? 1)}
-        </div>
-        <button type="button" class="chain-add-button" data-open-element-picker data-composition-id="${esc(composition.id)}" data-target-chain-item="${esc(item.id)}" title="Add effect to layer" aria-label="Add effect to layer">${icon("add")} Add effect</button>
-        <div class="soft-note">Everything inside this layer is isolated before it is placed on the Canvas.</div>
-      </section>
-    `;
-  }
   return `
     <section class="chain-item-editor">
       <div class="rail-title"><span class="material-symbols-rounded">account_tree</span><span>${esc(item.name || "Group")}</span></div>
@@ -2119,16 +1885,17 @@ function groupChainItemTemplate(item, composition, state, base) {
   `;
 }
 
-function sourceChainItemTemplate(item, state, base) {
+function sourceChainItemTemplate(item, ownerComposition, state, base) {
   const media = state.media?.find((entry) => entry.id === item.source?.mediaId) || null;
   const referencedComposition = state.compositions?.find((entry) => entry.id === item.source?.compositionId) || null;
   const displayName = sourceChainItemDisplayName(item, media, referencedComposition);
+  const isCanvasCompositionPlacement = ownerComposition?.type === "canvas" && item.source?.type === "composition";
   return `
     <section class="chain-item-editor">
       <div class="rail-title"><span class="material-symbols-rounded">${sourceIcon(item.source)}</span><span>${esc(displayName)}</span></div>
-      <label class="field">Name <input type="text" data-update="${base}.name" value="${esc(displayName)}" spellcheck="false" data-gramm="false" data-gramm_editor="false" data-enable-grammarly="false" /></label>
+      ${isCanvasCompositionPlacement ? "" : `<label class="field">Name <input type="text" data-update="${base}.name" value="${esc(displayName)}" spellcheck="false" data-gramm="false" data-gramm_editor="false" data-enable-grammarly="false" /></label>`}
       ${item.source?.type === "composition"
-        ? `<label class="field">Composition ${compositionSelectTemplate(`${base}.source.compositionId`, state, item.source.compositionId)}</label>`
+        ? (isCanvasCompositionPlacement ? "" : `<label class="field">Composition ${compositionSelectTemplate(`${base}.source.compositionId`, state, item.source.compositionId)}</label>`)
         : sourcePickerTemplate(item, state, base)}
       <div class="field-pair">
         <label class="field">Blend ${selectValuesTemplate(`${base}.blend`, BLEND_MODES, item.blend)}</label>
@@ -2231,6 +1998,7 @@ function sourceSubtitle(source = {}, media = null) {
 }
 
 function sourceChainItemDisplayName(item = {}, media = null, composition = null) {
+  if (item.source?.type === "composition") return sourceTitle(item.source, media, composition);
   if (!item.name || isGenericLayerName(item.name) || item.name === item.source?.compositionId) {
     return sourceTitle(item.source || {}, media, composition);
   }
@@ -2443,10 +2211,11 @@ function sceneSurfaceTemplate(surface, state) {
       <div class="surface-actions">
         <button type="button" data-reset-surface-mapping="${surface.id}">${icon("restart_alt")} Reset surface</button>
       </div>
+      ${rangeTemplate("Feather", `${surfaceBase}.feather`, surface.feather ?? 0, 0, 0.5, 0.005)}
       <div class="rail-title"><span class="material-symbols-rounded">auto_awesome</span><span>Scene assignment</span></div>
       ${hasSceneSurface ? `
         ${rangeTemplate("Presence", `${sceneBase}.opacity`, sceneSurface.opacity)}
-        ${compositionAssignmentTemplate(sceneBase, state.compositions, sceneSurface)}
+        ${compositionAssignmentTemplate(sceneBase, state, sceneSurface)}
         <label class="field">Projection fit ${selectValuesTemplate(`${sceneBase}.projectionFit`, PROJECTION_FIT_MODES, sceneSurface.projectionFit || "cover")}</label>
       ` : `<div class="soft-note">Capture a scene to store composition assignments for this surface.</div>`}
     </article>
@@ -2786,6 +2555,7 @@ function sourceMediaCardTemplate(item, source, mediaLibrary, urlCache) {
 
 function elementPickerTemplate(state, picker, mediaLibrary, urlCache) {
   const mediaItems = state.media || [];
+  const compositions = state.compositions.filter((composition) => composition.id !== picker.compositionId && composition.type !== "canvas");
   const generators = listGeneratorComponents().filter((generator) => generator.id !== "black");
   const effects = listShaderComponents();
   return `
@@ -2805,6 +2575,20 @@ function elementPickerTemplate(state, picker, mediaLibrary, urlCache) {
       </label>
 
       <div class="element-modal-body">
+        ${compositions.length ? `<section class="element-section" data-element-section>
+          <div class="rail-title"><span class="material-symbols-rounded">account_tree</span><span>Compositions</span></div>
+          <div class="element-grid media-element-grid">
+            ${compositions.map((composition) => `
+              <button type="button" class="element-card media-element-card" data-add-element-composition="${esc(composition.id)}" data-element-search-card="${esc(elementSearchText(composition.name, "composition source"))}">
+                ${thumbnailTemplate(composition.thumbnail)}
+                <strong>${esc(composition.name)}</strong>
+                <small>composition</small>
+              </button>
+            `).join("")}
+          </div>
+          <div class="soft-note" data-element-empty hidden>No matching compositions.</div>
+        </section>` : ""}
+
         <section class="element-section" data-element-section>
           <div class="rail-title"><span class="material-symbols-rounded">perm_media</span><span>Media</span></div>
           <div class="element-grid media-element-grid">
@@ -3003,21 +2787,21 @@ function liveCompositionTemplate(composition, state) {
         ${thumbnailTemplate(composition.thumbnail)}
         <strong>${esc(composition.name)}</strong>
       </header>
-      ${liveUnifiedChainTemplate(view.chain, composition.id)}
+      ${liveUnifiedChainTemplate(view.chain, composition.id, state, new Set([composition.id]))}
     </article>
   `;
 }
 
-function liveUnifiedChainTemplate(chain, compositionId) {
+function liveUnifiedChainTemplate(chain, compositionId, state, ancestry = new Set([compositionId])) {
   if (!chain?.length) return "";
   return `
     <div class="live-chain-list">
-      ${chain.map((item, index) => liveChainItemTemplate(item, compositionId, index, `chain.${index}`)).join("")}
+      ${chain.map((item, index) => liveChainItemTemplate(item, compositionId, index, `chain.${index}`, state, ancestry)).join("")}
     </div>
   `;
 }
 
-function liveChainItemTemplate(item, compositionId, index, path = `chain.${index}`) {
+function liveChainItemTemplate(item, compositionId, index, path = `chain.${index}`, state = {}, ancestry = new Set([compositionId])) {
   if (item.kind === "effect") {
     const component = getShaderComponent(item.componentId);
     const label = component?.name || item.componentId;
@@ -3051,12 +2835,27 @@ function liveChainItemTemplate(item, compositionId, index, path = `chain.${index
           })}
           <span>${esc(label)}</span>
         </div>
-        ${item.chain?.length ? `<div class="live-chain-list">${item.chain.map((child, childIndex) => liveChainItemTemplate(child, compositionId, childIndex, `${path}.chain.${childIndex}`)).join("")}</div>` : ""}
+        ${item.chain?.length ? `<div class="live-chain-list">${item.chain.map((child, childIndex) => liveChainItemTemplate(child, compositionId, childIndex, `${path}.chain.${childIndex}`, state, ancestry)).join("")}</div>` : ""}
       </div>
     `;
   }
-  const label = sourceChainItemDisplayName(item);
+  const referencedComposition = item.source?.type === "composition"
+    ? state.compositions?.find((composition) => composition.id === item.source.compositionId)
+    : null;
+  const label = sourceChainItemDisplayName(item, null, referencedComposition);
   const iconName = sourceIcon(item.source || {});
+  let referencedElements = "";
+  if (referencedComposition && !ancestry.has(referencedComposition.id)) {
+    const referencedView = createLiveCompositionView(referencedComposition, state);
+    const nextAncestry = new Set(ancestry);
+    nextAncestry.add(referencedComposition.id);
+    referencedElements = `
+      <div class="live-referenced-composition">
+        <div class="live-referenced-title">${icon("account_tree")}<span>${esc(referencedComposition.name)} elements</span></div>
+        ${liveUnifiedChainTemplate(referencedView.chain, referencedComposition.id, state, nextAncestry)}
+      </div>
+    `;
+  }
   return `
     <div class="live-chain-pass">
       <div class="live-chain-title">
@@ -3072,6 +2871,7 @@ function liveChainItemTemplate(item, compositionId, index, path = `chain.${index
       ${liveRangeTemplate("Opacity", compositionId, `${path}.opacity`, item.opacity ?? 1)}
       <label class="field chain-param">Blend ${liveSelectValuesTemplate(compositionId, `${path}.blend`, BLEND_MODES, item.blend || "normal")}</label>
       ${liveSourceParamControlsTemplate(item, compositionId, path)}
+      ${referencedElements}
     </div>
   `;
 }
@@ -3200,19 +3000,14 @@ function canvasCompositions(state) {
   return (state.compositions || []).filter((composition) => composition.type === "canvas");
 }
 
+function ordinaryCompositions(state) {
+  return (state.compositions || []).filter((composition) => composition.type !== "canvas");
+}
+
 function selectedCanvasComposition(state) {
   return canvasCompositions(state).find((composition) => composition.id === state.ui.selectedCompositionId)
     || canvasCompositions(state)[0]
     || null;
-}
-
-function canvasLayerGroups(composition = {}) {
-  return (composition.chain || []).filter((item) => item.kind === "group" && item.role === "canvas-layer");
-}
-
-function canvasLayerCompositionId(layer = {}) {
-  const source = (layer.chain || []).find((item) => item.kind === "source" && item.source?.type === "composition");
-  return source?.source?.compositionId || "";
 }
 
 function sceneSurfaceSnapshot(scene, surfaceId) {
@@ -3315,22 +3110,18 @@ function formatRenderCost(cost) {
   return `${percent > 0 && percent < 10 ? percent.toFixed(1) : Math.round(percent)}%`;
 }
 
-function compositionAssignmentTemplate(routeBase, compositions, route = {}) {
-  const options = compositions.flatMap((composition) => {
-    if (composition.type !== "canvas") return [{ composition, frame: null }];
-    return (composition.canvas?.frames || []).map((frame) => ({ composition, frame }));
-  });
+function compositionAssignmentTemplate(routeBase, state, route = {}) {
+  const options = sceneSourceNodes(state);
   return `
     <div class="field composition-assignment-field">
       <span>Composition</span>
       <div class="composition-card-list assignment-card-list">
-        ${options.map(({ composition, frame }) => {
-          const selected = composition.id === route.compositionId && (frame?.id || "") === (route.outputFrameId || "");
-          const label = frame ? `${composition.name} · ${frame.name}` : composition.name;
+        ${options.map((node) => {
+          const selected = node.id === route.sourceNodeId;
           return `
-            <button type="button" class="composition-card assignment-card ${selected ? "is-selected" : ""}" data-set-route-composition="${esc(composition.id)}" data-set-route-frame="${esc(frame?.id || "")}" data-route-base="${esc(routeBase)}">
-              ${thumbnailTemplate(composition.thumbnail)}
-              <span>${esc(label)}</span>
+            <button type="button" class="composition-card assignment-card ${selected ? "is-selected" : ""}" data-set-route-source-node="${esc(node.id)}" data-route-base="${esc(routeBase)}">
+              ${thumbnailTemplate(node.thumbnail, node.type === "recording-frame" ? "select_all" : "account_tree")}
+              <span>${esc(node.name)}</span>
             </button>
           `;
         }).join("")}

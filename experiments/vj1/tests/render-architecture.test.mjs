@@ -164,6 +164,7 @@ test("mapper applies homography per vertex and draws centered projective quads",
 
 test("projection mapping exposes cover contain and stretch without another render pass", () => {
   const fragmentSource = mapperFragmentShaderSource();
+  const featherSource = mapperFragmentShaderSource({ feather: true });
   assert.equal(projectionFitMode(), 1);
   assert.equal(projectionFitMode("cover"), 1);
   assert.equal(projectionFitMode("contain"), 2);
@@ -171,6 +172,9 @@ test("projection mapping exposes cover contain and stretch without another rende
   assert.match(fragmentSource, /uniform float uSourceAspect/);
   assert.match(fragmentSource, /uniform float uTargetAspect/);
   assert.match(fragmentSource, /uniform float uProjectionFit/);
+  assert.doesNotMatch(fragmentSource, /uFeather/);
+  assert.match(featherSource, /uniform float uFeather/);
+  assert.match(featherSource, /smoothstep\(0\.0, uFeather, min\(edgeUv\.x, edgeUv\.y\)\)/);
   assert.match(fragmentSource, /texture2D\(tex, clamp\(sampleUv/);
 });
 

@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 
-import { createCompositionEffect, createCompositionLayer, createDefaultComposition, createInitialState, createLiveCompositionView, sanitizeState } from "../js/domain/models.js?v=world-frame-27";
+import { createCanvasComposition, createCompositionEffect, createCompositionLayer, createDefaultComposition, createInitialState, createLiveCompositionView, sanitizeState } from "../js/domain/models.js?v=world-frame-27";
 import { normalizeParamValue, renderQualityScale } from "../js/graph/component-schema.js";
 import { getGeneratorComponent, listGeneratorComponents } from "../js/graph/generator-registry.js";
 import { RenderNodeRuntime, textureStateKey } from "../js/graph/render-node-runtime.js";
@@ -802,6 +802,28 @@ test("dirty cache classifier keeps static photo chains cacheable and animated no
 
   composition.chain[0].params = { part: "heart", heartPulse: 0.35 };
   assert.equal(renderer.stableCompositionSignature(composition, { role: "composition", width: 640, height: 360 }), "");
+});
+
+test("Canvas and ordinary compositions share dependency-aware static caching", () => {
+  const renderer = new OutputRenderer({ mode: "composition" });
+  const state = createInitialState();
+  const child = createDefaultComposition(1);
+  child.chain = [createCompositionLayer(0, { type: "generator", generatorId: "gradient", params: {} })];
+  const canvas = createCanvasComposition(0, child.id);
+  state.compositions = [child, canvas];
+  renderer.state = state;
+  const request = { role: "composition", width: 640, height: 360 };
+
+  const first = renderer.stableCompositionSignature(canvas, request);
+  assert.ok(first);
+
+  child.chain[0].params = { color1: "#ff0000" };
+  const changed = renderer.stableCompositionSignature(canvas, request);
+  assert.ok(changed);
+  assert.notEqual(changed, first);
+
+  child.chain[0] = createCompositionLayer(0, { type: "generator", generatorId: "cloudyTunnel", params: { speed: 0.2 } });
+  assert.equal(renderer.stableCompositionSignature(canvas, request), "");
 });
 
 test("component runtime policies decide whether generators and effects need time", () => {

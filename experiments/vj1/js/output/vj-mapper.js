@@ -2,6 +2,7 @@ export class VjMapper {
   constructor({ onConfigChange } = {}) {
     this.surfaces = [];
     this.shader = null;
+    this.featherShader = null;
     this.calibrate = true;
     this.overlayMode = "always";
     this.pickRadius = 60;
@@ -123,23 +124,25 @@ export class VjMapper {
     this._emitConfigChange("reset");
   }
 
-  drawTexture(texture, surface, projectionFit = "cover") {
+  drawTexture(texture, surface, projectionFit = "cover", feather = 0) {
     if (!texture || !surface) return;
-    this._ensureShader();
+    const featherAmount = Math.max(0, Math.min(0.5, Number(feather) || 0));
+    const shaderProgram = this._ensureShader(featherAmount > 0);
     const dpr = currentPixelDensity();
     this._renderResolution[0] = width * dpr;
     this._renderResolution[1] = height * dpr;
     const cache = this._getRenderCache(surface, dpr);
     if (!cache) return;
-    shader(this.shader);
-    this.shader.setUniform("tex", texture?.framebuffer || texture);
-    this.shader.setUniform("uCanvasSize", [width, height]);
-    this.shader.setUniform("uHinv", cache.Hc);
-    this.shader.setUniform("uSurfaceSize", [texture.width || surface.w, texture.height || surface.h]);
-    this.shader.setUniform("uSourceAspect", Math.max(0.0001, Number(texture.width) || 1) / Math.max(1, Number(texture.height) || 1));
-    this.shader.setUniform("uTargetAspect", Math.max(0.0001, Number(surface.w) || 1) / Math.max(1, Number(surface.h) || 1));
-    this.shader.setUniform("uProjectionFit", projectionFitMode(projectionFit));
-    this.shader.setUniform("uEdgeSoftness", this.edgeSoftness);
+    shader(shaderProgram);
+    shaderProgram.setUniform("tex", texture?.framebuffer || texture);
+    shaderProgram.setUniform("uCanvasSize", [width, height]);
+    shaderProgram.setUniform("uHinv", cache.Hc);
+    shaderProgram.setUniform("uSurfaceSize", [texture.width || surface.w, texture.height || surface.h]);
+    shaderProgram.setUniform("uSourceAspect", Math.max(0.0001, Number(texture.width) || 1) / Math.max(1, Number(texture.height) || 1));
+    shaderProgram.setUniform("uTargetAspect", Math.max(0.0001, Number(surface.w) || 1) / Math.max(1, Number(surface.h) || 1));
+    shaderProgram.setUniform("uProjectionFit", projectionFitMode(projectionFit));
+    if (featherAmount > 0) shaderProgram.setUniform("uFeather", featherAmount);
+    shaderProgram.setUniform("uEdgeSoftness", this.edgeSoftness);
     this._drawSurfaceQuad(surface.corners);
     resetShader();
   }
@@ -247,9 +250,13 @@ export class VjMapper {
     return null;
   }
 
-  _ensureShader() {
-    if (this.shader) return;
-    this.shader = createShader(mapperVertexShaderSource(), mapperFragmentShaderSource());
+  _ensureShader(withFeather = false) {
+    if (withFeather) {
+      if (!this.featherShader) this.featherShader = createShader(mapperVertexShaderSource(), mapperFragmentShaderSource({ feather: true }));
+      return this.featherShader;
+    }
+    if (!this.shader) this.shader = createShader(mapperVertexShaderSource(), mapperFragmentShaderSource());
+    return this.shader;
   }
 
   _drawSurfaceQuad(corners) {
@@ -368,7 +375,11 @@ export function mapperVertexShaderSource() {
     `;
 }
 
-export function mapperFragmentShaderSource() {
+export function mapperFragmentShaderSource({ feather = false } = {}) {
+  const featherUniform = feather ? "uniform float uFeather;" : "";
+  const featherCode = feather ? `
+        vec2 edgeUv = min(uv, 1.0 - uv);
+        color.a *= smoothstep(0.0, uFeather, min(edgeUv.x, edgeUv.y));` : "";
   return `
       precision highp float;
       uniform sampler2D tex;
@@ -376,6 +387,7 @@ export function mapperFragmentShaderSource() {
       uniform float uSourceAspect;
       uniform float uTargetAspect;
       uniform float uProjectionFit;
+      ${featherUniform}
       uniform float uEdgeSoftness;
       varying vec3 vProjectiveUv;
       void main() {
@@ -399,6 +411,7 @@ export function mapperFragmentShaderSource() {
             step(0.0, sampleUv.y) * step(sampleUv.y, 1.0);
         }
         vec4 color = texture2D(tex, clamp(sampleUv, vec2(0.0), vec2(1.0))) * inside;
+        ${featherCode}
         if (uEdgeSoftness > 0.0) {
           vec2 edgePx = min(uv, 1.0 - uv) * uSurfaceSize;
           float edge = min(edgePx.x, edgePx.y);

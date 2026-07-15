@@ -102,6 +102,74 @@ export function mappedSurfaceSize(corners = []) {
   };
 }
 
+export function mappedSurfaceBounds(corners = []) {
+  if (!Array.isArray(corners) || corners.length !== 4) return null;
+  const points = corners.map((point) => ({ x: Number(point?.x), y: Number(point?.y) }));
+  if (!points.every((point) => Number.isFinite(point.x) && Number.isFinite(point.y))) return null;
+  const xs = points.map((point) => point.x);
+  const ys = points.map((point) => point.y);
+  const left = Math.min(...xs);
+  const right = Math.max(...xs);
+  const top = Math.min(...ys);
+  const bottom = Math.max(...ys);
+  return { left, top, right, bottom, width: Math.max(1, right - left), height: Math.max(1, bottom - top) };
+}
+
+export function visibleMappedSurfaceSize(corners = [], viewport = {}) {
+  const mapped = mappedSurfaceSize(corners);
+  const bounds = mappedSurfaceBounds(corners);
+  if (!mapped || !bounds) return null;
+  const viewportWidth = Math.max(1, Number(viewport.width) || 1);
+  const viewportHeight = Math.max(1, Number(viewport.height) || 1);
+  const visibleWidth = Math.min(bounds.right, viewportWidth) - Math.max(bounds.left, 0);
+  const visibleHeight = Math.min(bounds.bottom, viewportHeight) - Math.max(bounds.top, 0);
+  if (visibleWidth <= 0 || visibleHeight <= 0) return null;
+  return {
+    width: Math.max(1, mapped.width * Math.min(1, visibleWidth / bounds.width)),
+    height: Math.max(1, mapped.height * Math.min(1, visibleHeight / bounds.height)),
+    bounds,
+  };
+}
+
+export function sourceRenderDemand({
+  logicalSize = {},
+  sampleRect = {},
+  maxRasterSize = {},
+  maxSurfaceSize = {},
+  corners = [],
+  viewport = {},
+  pixelScale = 1,
+  overscan = 1.08,
+} = {}) {
+  const footprint = visibleMappedSurfaceSize(corners, viewport);
+  if (!footprint) return null;
+  const logicalWidth = Math.max(1, Number(logicalSize.width) || 1);
+  const logicalHeight = Math.max(1, Number(logicalSize.height) || 1);
+  const rect = clampLogicalRect(sampleRect, logicalWidth, logicalHeight);
+  const scaleToPixels = Math.max(0.05, Number(pixelScale) || 1) * Math.max(1, Number(overscan) || 1);
+  const desiredScale = Math.max(
+    footprint.width * scaleToPixels / rect.width,
+    footprint.height * scaleToPixels / rect.height
+  );
+  const rasterLimit = Math.min(
+    Math.max(1, Number(maxRasterSize.width) || logicalWidth) / logicalWidth,
+    Math.max(1, Number(maxRasterSize.height) || logicalHeight) / logicalHeight
+  );
+  const rasterScale = Math.max(1 / Math.max(logicalWidth, logicalHeight), Math.min(rasterLimit, desiredScale));
+  const rasterSize = {
+    width: quantizedDemandInt(logicalWidth * rasterScale, Math.max(1, Number(maxRasterSize.width) || logicalWidth)),
+    height: quantizedDemandInt(logicalHeight * rasterScale, Math.max(1, Number(maxRasterSize.height) || logicalHeight)),
+  };
+  const effectiveScale = Math.min(rasterSize.width / logicalWidth, rasterSize.height / logicalHeight);
+  const maxSurfaceWidth = Math.max(1, Number(maxSurfaceSize.width) || rect.width);
+  const maxSurfaceHeight = Math.max(1, Number(maxSurfaceSize.height) || rect.height);
+  const surfaceSize = {
+    width: quantizedDemandInt(rect.width * effectiveScale, maxSurfaceWidth),
+    height: quantizedDemandInt(rect.height * effectiveScale, maxSurfaceHeight),
+  };
+  return { footprint, logicalSize: { width: logicalWidth, height: logicalHeight }, sampleRect: rect, rasterScale: effectiveScale, rasterSize, surfaceSize };
+}
+
 export function canvasSizeForMode(mode, render = {}) {
   if (mode === "preview") return worldSize(render);
   return frameSize(render);
@@ -194,6 +262,21 @@ function quantizedInt(value, min, max) {
   const upper = Math.max(min, Number(max) || min);
   const clamped = Math.min(Math.max(min, number || min), upper);
   return Math.min(upper, Math.max(min, Math.round(clamped / 16) * 16));
+}
+
+function quantizedDemandInt(value, max) {
+  const upper = Math.max(1, Math.round(Number(max) || 1));
+  const clamped = Math.min(upper, Math.max(1, Math.round(Number(value) || 1)));
+  if (clamped < 16) return clamped;
+  return Math.min(upper, Math.max(16, Math.round(clamped / 16) * 16));
+}
+
+function clampLogicalRect(rect = {}, logicalWidth = 1, logicalHeight = 1) {
+  const x = Math.max(0, Math.min(logicalWidth - 1, Number(rect.x) || 0));
+  const y = Math.max(0, Math.min(logicalHeight - 1, Number(rect.y) || 0));
+  const width = Math.max(1, Math.min(logicalWidth - x, Number(rect.width) || logicalWidth));
+  const height = Math.max(1, Math.min(logicalHeight - y, Number(rect.height) || logicalHeight));
+  return { x, y, width, height };
 }
 
 function pointDistance(a, b) {

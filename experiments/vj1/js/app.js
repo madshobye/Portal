@@ -1,10 +1,10 @@
-import { createAppState } from "./app-state.js?v=surface-live-sync-1";
-import { createControlShell } from "./control/control-shell-controller.js?v=surface-live-sync-1";
+import { createAppState } from "./app-state.js?v=surface-feather-1";
+import { createControlShell } from "./control/control-shell-controller.js?v=zoom-transition-1";
 import { getInitialWorkspace, getClientMode, persistWorkspace } from "./view-routing.js?v=multi-output-2";
 import { createMediaLibrary } from "./services/media-library-service.js?v=multi-output-2";
-import { createProjectFolderService } from "./services/project-folder-service.js?v=multi-output-2";
+import { createProjectFolderService } from "./services/project-folder-service.js?v=surface-feather-1";
 import { createControlBridge } from "./services/output-bridge-service.js?v=multi-output-2";
-import { installOutputApp } from "./output/output-app.js?v=multi-output-2";
+import { installOutputApp } from "./output/output-app.js?v=render-demand-1";
 
 const root = document.getElementById("app");
 const mode = getClientMode();
