@@ -3,6 +3,8 @@ export class VjMapper {
     this.surfaces = [];
     this.shader = null;
     this.featherShader = null;
+    this.transitionShader = null;
+    this.transitionFeatherShader = null;
     this.calibrate = true;
     this.overlayMode = "always";
     this.pickRadius = 60;
@@ -147,6 +149,39 @@ export class VjMapper {
     resetShader();
   }
 
+  drawTransitionTextures(fromTexture, toTexture, surface, {
+    fromProjectionFit = "cover",
+    toProjectionFit = "cover",
+    feather = 0,
+    progress = 0,
+  } = {}) {
+    if (!fromTexture || !toTexture || !surface) return;
+    const featherAmount = Math.max(0, Math.min(0.5, Number(feather) || 0));
+    const shaderProgram = this._ensureTransitionShader(featherAmount > 0);
+    const dpr = currentPixelDensity();
+    this._renderResolution[0] = width * dpr;
+    this._renderResolution[1] = height * dpr;
+    const cache = this._getRenderCache(surface, dpr);
+    if (!cache) return;
+    shader(shaderProgram);
+    shaderProgram.setUniform("fromTex", fromTexture?.framebuffer || fromTexture);
+    shaderProgram.setUniform("toTex", toTexture?.framebuffer || toTexture);
+    shaderProgram.setUniform("uCanvasSize", [width, height]);
+    shaderProgram.setUniform("uHinv", cache.Hc);
+    shaderProgram.setUniform("uFromSurfaceSize", [fromTexture.width || surface.w, fromTexture.height || surface.h]);
+    shaderProgram.setUniform("uToSurfaceSize", [toTexture.width || surface.w, toTexture.height || surface.h]);
+    shaderProgram.setUniform("uFromSourceAspect", Math.max(0.0001, Number(fromTexture.width) || 1) / Math.max(1, Number(fromTexture.height) || 1));
+    shaderProgram.setUniform("uToSourceAspect", Math.max(0.0001, Number(toTexture.width) || 1) / Math.max(1, Number(toTexture.height) || 1));
+    shaderProgram.setUniform("uTargetAspect", Math.max(0.0001, Number(surface.w) || 1) / Math.max(1, Number(surface.h) || 1));
+    shaderProgram.setUniform("uFromProjectionFit", projectionFitMode(fromProjectionFit));
+    shaderProgram.setUniform("uToProjectionFit", projectionFitMode(toProjectionFit));
+    shaderProgram.setUniform("uTransition", Math.max(0, Math.min(1, Number(progress) || 0)));
+    if (featherAmount > 0) shaderProgram.setUniform("uFeather", featherAmount);
+    shaderProgram.setUniform("uEdgeSoftness", this.edgeSoftness);
+    this._drawSurfaceQuad(surface.corners);
+    resetShader();
+  }
+
   drawOverlays() {
     if (!this.calibrate) return;
     const pick = this._pickCorner(mouseX, mouseY);
@@ -257,6 +292,15 @@ export class VjMapper {
     }
     if (!this.shader) this.shader = createShader(mapperVertexShaderSource(), mapperFragmentShaderSource());
     return this.shader;
+  }
+
+  _ensureTransitionShader(withFeather = false) {
+    if (withFeather) {
+      if (!this.transitionFeatherShader) this.transitionFeatherShader = createShader(mapperVertexShaderSource(), mapperTransitionFragmentShaderSource({ feather: true }));
+      return this.transitionFeatherShader;
+    }
+    if (!this.transitionShader) this.transitionShader = createShader(mapperVertexShaderSource(), mapperTransitionFragmentShaderSource());
+    return this.transitionShader;
   }
 
   _drawSurfaceQuad(corners) {
@@ -425,6 +469,90 @@ export function mapperFragmentShaderSource({ feather = false } = {}) {
           vec2 edgePx = min(uv, 1.0 - uv) * uSurfaceSize;
           float edge = min(edgePx.x, edgePx.y);
           color.a *= smoothstep(0.0, uEdgeSoftness, edge);
+        }
+        gl_FragColor = color;
+      }
+    `;
+}
+
+export function mapperTransitionFragmentShaderSource({ feather = false } = {}) {
+  const featherUniform = feather ? "uniform float uFeather;" : "";
+  const featherCode = feather ? `
+        vec2 targetAspect = uTargetAspect >= 1.0
+          ? vec2(uTargetAspect, 1.0)
+          : vec2(1.0, 1.0 / max(uTargetAspect, 0.0001));
+        float cornerRadius = min(0.08, max(0.012, uFeather * 0.35));
+        vec2 roundedPoint = abs(uv - 0.5) * targetAspect;
+        vec2 roundedHalfSize = 0.5 * targetAspect - vec2(cornerRadius);
+        vec2 roundedDelta = roundedPoint - roundedHalfSize;
+        float roundedDistance = length(max(roundedDelta, 0.0)) +
+          min(max(roundedDelta.x, roundedDelta.y), 0.0) - cornerRadius;
+        float featherMask = smoothstep(0.0, uFeather, -roundedDistance);
+        color *= featherMask;` : "";
+  return `
+      precision highp float;
+      uniform sampler2D fromTex;
+      uniform sampler2D toTex;
+      uniform vec2 uFromSurfaceSize;
+      uniform vec2 uToSurfaceSize;
+      uniform float uFromSourceAspect;
+      uniform float uToSourceAspect;
+      uniform float uTargetAspect;
+      uniform float uFromProjectionFit;
+      uniform float uToProjectionFit;
+      uniform float uTransition;
+      ${featherUniform}
+      uniform float uEdgeSoftness;
+      varying vec3 vProjectiveUv;
+      void main() {
+        float w = abs(vProjectiveUv.z) > 1e-6 ? vProjectiveUv.z : 1e-6;
+        vec2 uv = clamp(vProjectiveUv.xy / w, vec2(0.0), vec2(1.0));
+        vec2 fromUv = uv;
+        float fromInside = 1.0;
+        if (uFromProjectionFit > 0.5 && uFromProjectionFit < 1.5) {
+          if (uFromSourceAspect > uTargetAspect) {
+            fromUv.x = 0.5 + (uv.x - 0.5) * (uTargetAspect / uFromSourceAspect);
+          } else {
+            fromUv.y = 0.5 + (uv.y - 0.5) * (uFromSourceAspect / uTargetAspect);
+          }
+        } else if (uFromProjectionFit >= 1.5) {
+          if (uFromSourceAspect > uTargetAspect) {
+            fromUv.y = 0.5 + (uv.y - 0.5) * (uFromSourceAspect / uTargetAspect);
+          } else {
+            fromUv.x = 0.5 + (uv.x - 0.5) * (uTargetAspect / uFromSourceAspect);
+          }
+          fromInside = step(0.0, fromUv.x) * step(fromUv.x, 1.0) *
+            step(0.0, fromUv.y) * step(fromUv.y, 1.0);
+        }
+
+        vec2 toUv = uv;
+        float toInside = 1.0;
+        if (uToProjectionFit > 0.5 && uToProjectionFit < 1.5) {
+          if (uToSourceAspect > uTargetAspect) {
+            toUv.x = 0.5 + (uv.x - 0.5) * (uTargetAspect / uToSourceAspect);
+          } else {
+            toUv.y = 0.5 + (uv.y - 0.5) * (uToSourceAspect / uTargetAspect);
+          }
+        } else if (uToProjectionFit >= 1.5) {
+          if (uToSourceAspect > uTargetAspect) {
+            toUv.y = 0.5 + (uv.y - 0.5) * (uToSourceAspect / uTargetAspect);
+          } else {
+            toUv.x = 0.5 + (uv.x - 0.5) * (uTargetAspect / uToSourceAspect);
+          }
+          toInside = step(0.0, toUv.x) * step(toUv.x, 1.0) *
+            step(0.0, toUv.y) * step(toUv.y, 1.0);
+        }
+
+        vec4 fromColor = texture2D(fromTex, clamp(fromUv, vec2(0.0), vec2(1.0))) * fromInside;
+        vec4 toColor = texture2D(toTex, clamp(toUv, vec2(0.0), vec2(1.0))) * toInside;
+        vec4 color = mix(fromColor, toColor, clamp(uTransition, 0.0, 1.0));
+        ${featherCode}
+        if (uEdgeSoftness > 0.0) {
+          vec2 surfaceSize = mix(uFromSurfaceSize, uToSurfaceSize, clamp(uTransition, 0.0, 1.0));
+          vec2 edgePx = min(uv, 1.0 - uv) * surfaceSize;
+          float edge = min(edgePx.x, edgePx.y);
+          float edgeMask = smoothstep(0.0, uEdgeSoftness, edge);
+          color *= edgeMask;
         }
         gl_FragColor = color;
       }

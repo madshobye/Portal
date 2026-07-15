@@ -147,6 +147,8 @@ export function createInitialState() {
         sceneSnapshot: null,
         compositionOverrides: {},
         sceneOverrides: {},
+        transitionDuration: 0,
+        transition: null,
       },
       previewViewport: {
         zoom: 1,
@@ -406,8 +408,35 @@ export function createLiveRenderState(state = createInitialState()) {
   if (programScene) applySceneSnapshotToState(next, programScene);
   next.ui.selectedSceneId = scene?.id || next.ui.selectedSceneId || "";
   next.global.calibrating = false;
-  for (const composition of next.compositions || []) {
-    const override = live.compositionOverrides?.[composition.id];
+  applyLiveCompositionOverrides(next, live.compositionOverrides);
+
+  const transition = live.transition;
+  const durationMs = Math.max(0, Number(transition?.durationMs) || 0);
+  const startedAtMs = Number(transition?.startedAtMs) || 0;
+  if (durationMs > 0 && startedAtMs + durationMs > Date.now() && transition?.fromSnapshot) {
+    const fromState = clone(state);
+    applySceneSnapshotToState(fromState, {
+      id: transition.fromSceneId || "",
+      snapshot: transition.fromSnapshot,
+    });
+    fromState.ui.selectedSceneId = transition.fromSceneId || fromState.ui.selectedSceneId || "";
+    fromState.global.calibrating = false;
+    applyLiveCompositionOverrides(fromState, transition.fromCompositionOverrides);
+    fromState.ui.live.transition = null;
+    next.liveTransition = {
+      id: transition.id || `${transition.fromSceneId || "scene"}:${sceneId}:${startedAtMs}`,
+      startedAtMs,
+      durationMs,
+      compositionsShared: JSON.stringify(transition.fromCompositionOverrides || {}) === JSON.stringify(live.compositionOverrides || {}),
+      fromState,
+    };
+  }
+  return next;
+}
+
+function applyLiveCompositionOverrides(state, overrides = {}) {
+  for (const composition of state.compositions || []) {
+    const override = overrides?.[composition.id];
     if (!override) continue;
     if (override.opacity !== undefined) composition.opacity = clamp01(override.opacity);
     if (override.speed !== undefined) composition.speed = Math.max(0, Number(override.speed) || 0);
@@ -423,7 +452,6 @@ export function createLiveRenderState(state = createInitialState()) {
       );
     }
   }
-  return next;
 }
 
 export function createLiveCompositionView(composition = {}, state = createInitialState()) {
@@ -470,6 +498,19 @@ function normalizeLiveUi(live = {}, state = createInitialState()) {
     sceneOverrides[selectedSceneId] || live.compositionOverrides || {}
   );
   if (selectedSceneId && Object.keys(compositionOverrides).length) sceneOverrides[selectedSceneId] = clone(compositionOverrides);
+  const transitionDuration = clampNumber(live.transitionDuration, 0, 30, 0);
+  const transitionDurationMs = Math.max(0, Number(live.transition?.durationMs) || 0);
+  const transitionStartedAtMs = Number(live.transition?.startedAtMs) || 0;
+  const transition = transitionDurationMs > 0 && transitionStartedAtMs > 0 && live.transition?.fromSnapshot
+    ? {
+        id: String(live.transition.id || ""),
+        fromSceneId: String(live.transition.fromSceneId || ""),
+        fromSnapshot: normalizeSceneSnapshot(live.transition.fromSnapshot, state),
+        fromCompositionOverrides: normalizeCompositionOverrides(live.transition.fromCompositionOverrides || {}),
+        startedAtMs: transitionStartedAtMs,
+        durationMs: Math.min(30000, transitionDurationMs),
+      }
+    : null;
   return {
     selectedSceneId,
     sceneSnapshot: live.sceneSnapshot
@@ -477,6 +518,8 @@ function normalizeLiveUi(live = {}, state = createInitialState()) {
       : selectedScene?.snapshot ? clone(selectedScene.snapshot) : null,
     compositionOverrides,
     sceneOverrides,
+    transitionDuration,
+    transition,
   };
 }
 

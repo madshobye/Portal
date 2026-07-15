@@ -86,6 +86,43 @@ test("an empty Live selection initializes independently from the Scene selection
   assert.notEqual(store.getState().ui.live.selectedSceneId, store.getState().ui.selectedSceneId);
 });
 
+test("Live scene transitions default to an immediate cut with no transition render state", () => {
+  const state = createInitialState();
+  const firstScene = createSceneFromState(state, "First");
+  const secondScene = createSceneFromState(state, "Second");
+  state.scenes = [firstScene, secondScene];
+  state.ui.live.selectedSceneId = firstScene.id;
+  state.ui.live.sceneSnapshot = structuredClone(firstScene.snapshot);
+  const store = createAppState(state);
+
+  store.selectLiveScene(secondScene.id);
+
+  assert.equal(store.getState().ui.live.transitionDuration, 0);
+  assert.equal(store.getState().ui.live.transition, null);
+  assert.equal(store.getLiveRenderState().liveTransition, undefined);
+  assert.equal(store.getState().ui.live.selectedSceneId, secondScene.id);
+});
+
+test("nonzero Live transition duration retains the source scene for synchronized rendering", () => {
+  const state = createInitialState();
+  const firstScene = createSceneFromState(state, "First");
+  state.surfaces[0].opacity = 0.25;
+  const secondScene = createSceneFromState(state, "Second");
+  state.scenes = [firstScene, secondScene];
+  state.ui.live.selectedSceneId = firstScene.id;
+  state.ui.live.sceneSnapshot = structuredClone(firstScene.snapshot);
+  state.ui.live.transitionDuration = 1.5;
+  const store = createAppState(state);
+
+  store.selectLiveScene(secondScene.id);
+
+  const renderState = store.getLiveRenderState();
+  assert.equal(renderState.liveTransition.durationMs, 1500);
+  assert.equal(renderState.liveTransition.fromState.surfaces[0].opacity, firstScene.snapshot.surfaces[0].opacity);
+  assert.equal(renderState.surfaces[0].opacity, secondScene.snapshot.surfaces[0].opacity);
+  assert.ok(renderState.liveTransition.startedAtMs > Date.now());
+});
+
 test("Live temporary overrides persist per scene until explicitly reset", () => {
   const state = createInitialState();
   const firstScene = createSceneFromState(state, "First");
@@ -236,6 +273,20 @@ test("Canvas compositions use ordinary source and effect chain items", () => {
   assert.equal(nextCanvas.chain[1].kind, "effect");
   assert.equal(nextCanvas.chain[1].componentId, "pixelate");
   assert.ok(!nextCanvas.chain.some((item) => item.role === "canvas-layer"));
+});
+
+test("new Canvas compositions start empty", () => {
+  const state = createInitialState();
+  state.compositions[0].name = "Loop A";
+  const store = createAppState(state);
+
+  store.addCanvasComposition();
+
+  const canvas = store.getState().compositions.find((composition) => composition.type === "canvas");
+  assert.ok(canvas);
+  assert.deepEqual(canvas.chain, []);
+  assert.equal(store.getState().ui.selectedCompositionId, canvas.id);
+  assert.equal(store.getState().ui.selectedChainItemId, "");
 });
 
 test("Canvas workspace selects a Canvas and compositions are added as ordinary sources", () => {

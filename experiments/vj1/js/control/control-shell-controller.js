@@ -1,13 +1,13 @@
 import { BLEND_MODES, VJ1, WORKSPACES } from "../constants.js";
 import { compositionFrameMetrics } from "../domain/composition-frame.js";
-import { applySceneSourceNode, applySceneSnapshotToState, createLiveCompositionView, createLiveRenderState, createOutputDefinition, createSceneSnapshot, normalizeRenderSettings, resolveSceneSourceNode, sceneSourceNodes, syncLiveSnapshotFromScene } from "../domain/models.js?v=batch-fixes-1";
+import { applySceneSourceNode, applySceneSnapshotToState, createLiveCompositionView, createLiveRenderState, createOutputDefinition, createSceneSnapshot, normalizeRenderSettings, resolveSceneSourceNode, sceneSourceNodes, syncLiveSnapshotFromScene } from "../domain/models.js?v=scene-transition-1";
 import { normalizeParamValue, RENDER_QUALITY_PARAM } from "../graph/component-schema.js?v=range-pair-1";
 import { getGeneratorComponent, listGeneratorComponents } from "../graph/generator-registry.js?v=render-quality-2";
 import { patchNodeDegree, planCompositorInputs, planPatchExecution, summarizeTextureBranches } from "../graph/patch-planner.js";
 import { compileCompositionPatch } from "../graph/render-scheduler.js?v=hsv-alpha-key-1";
 import { buildOutputUrl } from "../view-routing.js?v=multi-output-2";
 import { getShaderComponent, listShaderComponents } from "../shaders/shader-registry.js?v=hsv-alpha-key-1";
-import { createEmbeddedPreviewApp } from "../output/embedded-preview-app.js?v=wire-resolution-1";
+import { createEmbeddedPreviewApp } from "../output/embedded-preview-app.js?v=scene-transition-1";
 import { frameFitViewport, resetViewport, zoomViewport } from "../output/preview-viewport.js?v=multi-output-2";
 import { defaultProjectSurfaceMapping } from "../output/render-geometry.js?v=render-demand-1";
 import { createHtmlCache, isInteractiveNode, isTextEditingNode, setClass, setText } from "./dom-utils.js";
@@ -478,9 +478,14 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
   }
 
   function liveToolsTemplate(state) {
+    const transitionDuration = Math.max(0, Number(state.ui?.live?.transitionDuration) || 0);
     return `
       <div class="rail-section">
         <div class="rail-title"><span class="material-symbols-rounded">play_circle</span><span>Live Scenes</span></div>
+        <label class="field range-field live-transition-duration">
+          <span>Transition <strong>${transitionDuration.toFixed(1)} s</strong></span>
+          <input type="range" min="0" max="10" step="0.1" data-update="ui.live.transitionDuration" value="${transitionDuration}" />
+        </label>
         <div class="scene-card-list live-scene-list">
           ${state.scenes.map((scene) => liveScenePillTemplate(scene, state)).join("") || emptyNote("Capture scenes first")}
         </div>

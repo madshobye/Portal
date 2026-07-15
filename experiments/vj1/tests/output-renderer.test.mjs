@@ -722,6 +722,14 @@ test("projection mapper uses actual texture size for surface sampling math", () 
   assert.ok(rendererSource.includes("this.mapper.drawTexture(pg, mapped.mapperSurface, surface.projectionFit, surface.feather)"));
 });
 
+test("zero-duration Live output retains the original single-scene surface path", () => {
+  const source = readFileSync(new URL("../js/output/output-renderer.js", import.meta.url), "utf8");
+  assert.ok(source.includes("if (transition) {"));
+  assert.ok(source.includes("this.renderSingleSceneSurfaces();"));
+  assert.ok(source.includes("this.releaseTransitionSurfaceTextures();"));
+  assert.ok(source.includes("this.mapper.drawTransitionTextures("));
+});
+
 test("media renditions are saved without lossy jpeg compression", () => {
   const rendererSource = readFileSync(new URL("../js/output/output-renderer.js", import.meta.url), "utf8");
   const renditionSource = readFileSync(new URL("../js/services/media-rendition-service.js", import.meta.url), "utf8");

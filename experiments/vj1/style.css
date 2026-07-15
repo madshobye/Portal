@@ -2238,6 +2238,10 @@ small {
   font-size: 12px;
 }
 
+[data-composition-filter-card][hidden] {
+  display: none !important;
+}
+
 .element-modal-body {
   display: grid;
   gap: 14px;

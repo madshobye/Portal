@@ -23,6 +23,8 @@ test("project payload preserves the selected composition chain item", () => {
         selectedSceneId: "scene-live",
         sceneSnapshot: { surfaces: [{ id: "surface-a", compositionId: "composition-a" }] },
         compositionOverrides: { "composition-a": { opacity: 0.5 } },
+        transitionDuration: 2.5,
+        transition: { id: "runtime-only" },
       },
     },
   };
@@ -31,6 +33,8 @@ test("project payload preserves the selected composition chain item", () => {
   assert.equal(payload.ui.selectedChainItemId, "chain-effect-b");
   assert.equal(payload.ui.live.selectedSceneId, "scene-live");
   assert.deepEqual(payload.ui.live.sceneSnapshot, state.ui.live.sceneSnapshot);
+  assert.equal(payload.ui.live.transitionDuration, 2.5);
+  assert.equal(payload.ui.live.transition, undefined);
   assert.equal(payload.ui.live.compositionOverrides, undefined);
   assert.deepEqual(payload.recordingFrames, state.recordingFrames);
   const source = readFileSync(new URL("../js/services/project-folder-service.js", import.meta.url), "utf8");

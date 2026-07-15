@@ -16,7 +16,7 @@ import {
   sanitizeState,
   syncLiveSnapshotFromScene,
   uid,
-} from "./domain/models.js?v=batch-fixes-1";
+} from "./domain/models.js?v=scene-transition-1";
 import { WORKSPACES } from "./constants.js";
 
 export function createAppState(initial = null) {
@@ -124,10 +124,8 @@ export function createAppState(initial = null) {
     },
     addCanvasComposition() {
       update((draft) => {
-        const firstChainComposition = draft.compositions.find((composition) => composition.type !== "canvas");
         const composition = createCanvasComposition(
-          draft.compositions.filter((item) => item.type === "canvas").length,
-          firstChainComposition?.id || ""
+          draft.compositions.filter((item) => item.type === "canvas").length
         );
         draft.compositions.push(composition);
         draft.ui.selectedCompositionId = composition.id;
@@ -289,9 +287,24 @@ export function createAppState(initial = null) {
         if (!scene) return;
         draft.ui.live.sceneOverrides ||= {};
         const previousSceneId = String(draft.ui.live.selectedSceneId || "");
+        if (previousSceneId === String(scene.id)) return;
+        const previousScene = draft.scenes.find((item) => String(item.id) === previousSceneId);
+        const previousSnapshot = draft.ui.live.sceneSnapshot || previousScene?.snapshot || null;
+        const previousOverrides = clone(draft.ui.live.compositionOverrides || {});
         if (previousSceneId && Object.keys(draft.ui.live.compositionOverrides || {}).length) {
           draft.ui.live.sceneOverrides[previousSceneId] = clone(draft.ui.live.compositionOverrides);
         }
+        const durationMs = Math.round(Math.max(0, Number(draft.ui.live.transitionDuration) || 0) * 1000);
+        draft.ui.live.transition = durationMs > 0 && previousSceneId && previousSnapshot
+          ? {
+              id: uid("live-transition"),
+              fromSceneId: previousSceneId,
+              fromSnapshot: clone(previousSnapshot),
+              fromCompositionOverrides: previousOverrides,
+              startedAtMs: Date.now() + 50,
+              durationMs,
+            }
+          : null;
         draft.ui.live.selectedSceneId = scene.id;
         draft.ui.live.sceneSnapshot = clone(scene.snapshot);
         draft.ui.live.compositionOverrides = clone(draft.ui.live.sceneOverrides[scene.id] || {});

@@ -75,6 +75,8 @@ test("composition catalogs expose shared local filtering", () => {
   assert.ok(source.includes("data-composition-filter-card"));
   assert.ok(source.includes("bindCompositionFilters"));
   assert.ok(style.includes(".composition-filter-field"));
+  assert.ok(style.includes("[data-composition-filter-card][hidden]"));
+  assert.ok(style.includes("display: none !important;"));
 });
 
 test("Live scene cards expose reset only for retained temporary overrides", () => {
@@ -82,6 +84,14 @@ test("Live scene cards expose reset only for retained temporary overrides", () =
   assert.ok(source.includes("data-reset-live-scene"));
   assert.ok(source.includes("state.ui?.live?.sceneOverrides"));
   assert.ok(source.includes("store.resetLiveScene"));
+});
+
+test("Live scenes expose an opt-in transition duration that defaults to zero", () => {
+  const source = readFileSync(new URL("../js/control/control-shell-controller.js", import.meta.url), "utf8");
+  const models = readFileSync(new URL("../js/domain/models.js", import.meta.url), "utf8");
+  assert.ok(source.includes('data-update="ui.live.transitionDuration"'));
+  assert.ok(source.includes('min="0" max="10" step="0.1"'));
+  assert.ok(models.includes("transitionDuration: 0"));
 });
 
 test("embedded preview retargets resize observation after workspace DOM replacement", () => {

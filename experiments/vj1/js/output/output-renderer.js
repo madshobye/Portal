@@ -1,6 +1,6 @@
 import { VJ1 } from "../constants.js";
 import { compositionFrameMetrics } from "../domain/composition-frame.js";
-import { clamp01, normalizeCompositionPipelineSettings, resolveSceneSourceNode, sanitizeState } from "../domain/models.js?v=batch-fixes-1";
+import { clamp01, normalizeCompositionPipelineSettings, resolveSceneSourceNode, sanitizeState } from "../domain/models.js?v=scene-transition-1";
 import { normalizeParamValue, normalizeParamValues, renderQualityScale, renderQualityValue } from "../graph/component-schema.js?v=range-pair-1";
 import { createManualScheduler } from "../graph/manual-scheduler.js";
 import { RenderNodeRuntime, textureStateKey } from "../graph/render-node-runtime.js?v=node-dirty-runtime-1";
@@ -31,7 +31,7 @@ import {
   surfaceTextureSize,
   worldSize,
 } from "./render-geometry.js?v=render-demand-1";
-import { VjMapper } from "./vj-mapper.js?v=rounded-feather-1";
+import { VjMapper } from "./vj-mapper.js?v=scene-transition-1";
 import { mediaRenditionKey } from "../services/media-rendition-service.js";
 
 const TERRAIN_GRID_CELLS = 48;
@@ -445,6 +445,10 @@ export class OutputRenderer {
     this.surfaceScratch = null;
     this.surfaceTexture = null;
     this.surfaceTextures = new Map();
+    this.transitionSurfaceTextures = new Map();
+    this.activeTransitionTextureId = "";
+    this.surfaceRenderIdentityPrefix = "";
+    this.transitionSurfaceEffectPrefix = "";
     this.cameraCapture = null;
     this.cameraRequested = false;
     this.cameraError = "";
@@ -531,6 +535,7 @@ export class OutputRenderer {
     this.applyGraphicsFont(this.surfaceScratch);
     this.applyGraphicsFont(this.surfaceTexture);
     for (const pg of this.surfaceTextures?.values?.() || []) this.applyGraphicsFont(pg);
+    for (const pg of this.transitionSurfaceTextures?.values?.() || []) this.applyGraphicsFont(pg);
     for (const group of this.fxTargetGroups?.values?.() || []) {
       for (const target of group.targets || []) this.applyGraphicsFont(target);
     }
@@ -580,6 +585,7 @@ export class OutputRenderer {
     disposeGraphics(this.surfaceScratch);
     disposeGraphics(this.surfaceTexture);
     disposeGraphicsMap(this.surfaceTextures);
+    disposeGraphicsMap(this.transitionSurfaceTextures);
     this.disposeFxTargetGroups();
     disposeGraphicsMap(this.specializedWebglTargets);
     disposeGraphicsMap(this.compositionSource);
@@ -598,6 +604,8 @@ export class OutputRenderer {
     this.surfaceScratch = null;
     this.surfaceTexture = null;
     this.surfaceTextures?.clear?.();
+    this.transitionSurfaceTextures?.clear?.();
+    this.activeTransitionTextureId = "";
     this.fxTargets = [null, null];
     this.fxTargetKey = "";
     this.specializedWebglTargets?.clear?.();
@@ -2956,6 +2964,16 @@ export class OutputRenderer {
   }
 
   renderSurfaces() {
+    const transition = this.currentLiveTransition();
+    if (transition) {
+      this.renderTransitionSurfaces(transition);
+      return;
+    }
+    this.releaseTransitionSurfaceTextures();
+    this.renderSingleSceneSurfaces();
+  }
+
+  renderSingleSceneSurfaces() {
     const outputBlackout = this.isOutputBlackout();
     const routes = this.buildSurfaceRenderPlan();
     for (const route of routes) {
@@ -2977,7 +2995,138 @@ export class OutputRenderer {
     }
   }
 
+  currentLiveTransition(nowMs = Date.now()) {
+    const transition = this.state?.liveTransition;
+    const durationMs = Math.max(0, Number(transition?.durationMs) || 0);
+    const startedAtMs = Number(transition?.startedAtMs) || 0;
+    if (!transition?.fromState || !durationMs || !startedAtMs) return null;
+    const progress = Math.max(0, Math.min(1, (Number(nowMs) - startedAtMs) / durationMs));
+    if (progress >= 1) return null;
+    return { ...transition, progress };
+  }
+
+  renderTransitionSurfaces(transition) {
+    const targetState = this.state;
+    if (this.isOutputBlackout()) return;
+    if (this.activeTransitionTextureId !== transition.id) {
+      this.releaseTransitionSurfaceTextures();
+      this.activeTransitionTextureId = transition.id;
+    }
+
+    const compositionsShared = transition.compositionsShared === true;
+    this.compositionOutput.clear();
+    const fromRoutes = this.withRenderState(transition.fromState, () =>
+      this.withSurfaceRenderIdentityPrefix(compositionsShared ? "" : "transition-from:", () => this.buildSurfaceRenderPlan())
+    );
+    const toRoutes = this.withSurfaceRenderIdentityPrefix(
+      compositionsShared ? "" : "transition-to:",
+      () => this.buildSurfaceRenderPlan()
+    );
+    const fromTextures = this.renderTransitionRouteTextures(fromRoutes, transition.fromState, "from");
+    const toTextures = this.renderTransitionRouteTextures(toRoutes, targetState, "to");
+    const fromBySurface = new Map(fromRoutes.map((route) => [route.surface.id, route]));
+    const toBySurface = new Map(toRoutes.map((route) => [route.surface.id, route]));
+    const surfaceIds = [];
+    for (const surface of targetState.surfaces || []) {
+      if ((fromBySurface.has(surface.id) || toBySurface.has(surface.id)) && !surfaceIds.includes(surface.id)) surfaceIds.push(surface.id);
+    }
+    for (const route of fromRoutes) if (!surfaceIds.includes(route.surface.id)) surfaceIds.push(route.surface.id);
+
+    for (const surfaceId of surfaceIds) {
+      const fromRoute = fromBySurface.get(surfaceId);
+      const toRoute = toBySurface.get(surfaceId);
+      const route = toRoute || fromRoute;
+      const mapped = route?.mapped;
+      if (!mapped?.mapperSurface) continue;
+      const fromTexture = fromTextures.get(surfaceId) || this.getTransparentTransitionTexture("from", surfaceId, toRoute?.surfaceRequest);
+      const toTexture = toTextures.get(surfaceId) || this.getTransparentTransitionTexture("to", surfaceId, fromRoute?.surfaceRequest);
+      if (!fromTexture || !toTexture) continue;
+      const feather = toRoute?.surface?.feather ?? fromRoute?.surface?.feather ?? 0;
+      this.measureGpu(drawingContext, () => this.mapper.drawTransitionTextures(fromTexture, toTexture, mapped.mapperSurface, {
+        fromProjectionFit: fromRoute?.surface?.projectionFit || "cover",
+        toProjectionFit: toRoute?.surface?.projectionFit || "cover",
+        feather,
+        progress: transition.progress,
+      }));
+    }
+  }
+
+  renderTransitionRouteTextures(routes, renderState, side) {
+    const textures = new Map();
+    this.withRenderState(renderState, () => {
+      for (const route of routes) {
+        const texture = this.getTransitionSurfaceTexture(side, route.surface.id, route.surfaceRequest);
+        if (!texture) continue;
+        texture.push();
+        texture.clear();
+        const previousEffectPrefix = this.transitionSurfaceEffectPrefix;
+        this.transitionSurfaceEffectPrefix = side;
+        try {
+          this.drawSurfaceRoute(texture, route);
+        } finally {
+          this.transitionSurfaceEffectPrefix = previousEffectPrefix;
+        }
+        texture.pop();
+        textures.set(route.surface.id, texture);
+      }
+    });
+    return textures;
+  }
+
+  getTransitionSurfaceTexture(side, surfaceId, request = stableSurfaceRenderRequest(this.state?.render || {})) {
+    const widthPx = Math.max(1, Math.round(Number(request?.width) || 1));
+    const heightPx = Math.max(1, Math.round(Number(request?.height) || 1));
+    const key = `${side}:${surfaceId}`;
+    let target = this.transitionSurfaceTextures.get(key);
+    if (!target || target.width !== widthPx || target.height !== heightPx) {
+      disposeGraphics(target);
+      target = createSharedFramebufferTarget(widthPx, heightPx) || createGraphics(widthPx, heightPx);
+      if (!isSharedFramebufferTarget(target)) {
+        this.applyGraphicsPixelDensity(target, this.requestPixelDensity(request));
+        this.applyGraphicsFont(target);
+      }
+      this.transitionSurfaceTextures.set(key, target);
+    }
+    return target;
+  }
+
+  getTransparentTransitionTexture(side, surfaceId, request) {
+    const target = this.getTransitionSurfaceTexture(side, `${surfaceId}:empty`, request);
+    target?.push?.();
+    target?.clear?.();
+    target?.pop?.();
+    return target;
+  }
+
+  releaseTransitionSurfaceTextures() {
+    if (!this.transitionSurfaceTextures?.size && !this.activeTransitionTextureId) return;
+    disposeGraphicsMap(this.transitionSurfaceTextures);
+    this.transitionSurfaceTextures.clear();
+    this.activeTransitionTextureId = "";
+  }
+
+  withRenderState(renderState, callback) {
+    const previous = this.state;
+    this.state = renderState;
+    try {
+      return callback();
+    } finally {
+      this.state = previous;
+    }
+  }
+
+  withSurfaceRenderIdentityPrefix(prefix, callback) {
+    const previous = this.surfaceRenderIdentityPrefix;
+    this.surfaceRenderIdentityPrefix = prefix;
+    try {
+      return callback();
+    } finally {
+      this.surfaceRenderIdentityPrefix = previous;
+    }
+  }
+
   buildSurfaceRenderPlan() {
+    const renderIdentityPrefix = this.surfaceRenderIdentityPrefix || "";
     const routes = [];
     const viewport = this.displayCanvasSize(this.state?.render || {});
     const pixelScale = this.renderPixelDensity(this.state?.render || {});
@@ -3031,7 +3180,7 @@ export class OutputRenderer {
       const meta = {
         surfaceId: route.surface.id,
         timingId: route.surface.id,
-        renderIdentity: route.composition.id,
+        renderIdentity: `${renderIdentityPrefix}${route.composition.id}`,
       };
       route.compositionRequest = createRenderRequest("texture", { width: widthPx, height: heightPx }, {
         ...meta,
@@ -3100,7 +3249,8 @@ export class OutputRenderer {
     pg.pop();
 
     if (surface.finalShaderChain?.length) {
-      const effected = this.renderShaderChain(pg, withShaderInstancePrefix(surface.finalShaderChain, surface.id), request, this.visualTime);
+      const effectIdentity = this.transitionSurfaceEffectPrefix ? `${this.transitionSurfaceEffectPrefix}:${surface.id}` : surface.id;
+      const effected = this.renderShaderChain(pg, withShaderInstancePrefix(surface.finalShaderChain, effectIdentity), request, this.visualTime);
       drawBuffer(pg, effected, 0, 0, pg.width, pg.height, this.isShaderBuffer(effected));
     }
   }

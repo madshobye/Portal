@@ -6,7 +6,7 @@ import {
   loadProjectDirectoryHandle,
   saveProjectDirectoryHandle,
 } from "./directory-handle-store.js";
-import { applySceneSnapshotToState, createInitialState } from "../domain/models.js?v=batch-fixes-1";
+import { applySceneSnapshotToState, createInitialState } from "../domain/models.js?v=scene-transition-1";
 
 export function createProjectFolderService({ mediaLibrary, store, bridge }) {
   let dirHandle = null;
@@ -629,6 +629,7 @@ export function buildProjectPayload(state, savedAt = new Date().toISOString()) {
       live: {
         selectedSceneId: state.ui.live?.selectedSceneId || "",
         sceneSnapshot: state.ui.live?.sceneSnapshot || null,
+        transitionDuration: Math.max(0, Number(state.ui.live?.transitionDuration) || 0),
       },
     },
     global: state.global,

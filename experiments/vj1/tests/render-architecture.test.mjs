@@ -4,7 +4,7 @@ import assert from "node:assert/strict";
 import { compileShaderSchedule, fuseLocalShaderSchedule } from "../js/graph/render-scheduler.js";
 import { effectTransformUniforms } from "../js/output/output-renderer.js";
 import { SharedFramebufferTarget, unwrapRenderTarget } from "../js/output/shared-framebuffer-target.js";
-import { mapperFragmentShaderSource, mapperVertexShaderSource, projectionFitMode, surfaceQuadVertices } from "../js/output/vj-mapper.js";
+import { mapperFragmentShaderSource, mapperTransitionFragmentShaderSource, mapperVertexShaderSource, projectionFitMode, surfaceQuadVertices } from "../js/output/vj-mapper.js";
 import { createShaderBuilder } from "../js/shaders/shader-builder.js";
 import { getShaderComponent } from "../js/shaders/shader-registry.js";
 
@@ -179,6 +179,14 @@ test("projection mapping exposes cover contain and stretch without another rende
   assert.match(featherSource, /smoothstep\(0\.0, uFeather, -roundedDistance\)/);
   assert.match(featherSource, /color \*= featherMask/);
   assert.match(fragmentSource, /texture2D\(tex, clamp\(sampleUv/);
+});
+
+test("scene dissolve mixes premultiplied surface routes inside one projection shader", () => {
+  const source = mapperTransitionFragmentShaderSource({ feather: true });
+  assert.match(source, /uniform sampler2D fromTex/);
+  assert.match(source, /uniform sampler2D toTex/);
+  assert.match(source, /vec4 color = mix\(fromColor, toColor/);
+  assert.match(source, /color \*= featherMask/);
 });
 
 function applyMat3(matrix, [x, y]) {

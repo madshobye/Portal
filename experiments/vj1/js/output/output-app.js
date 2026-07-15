@@ -1,7 +1,7 @@
 import { VJ1 } from "../constants.js";
-import { sanitizeState } from "../domain/models.js?v=batch-fixes-1";
+import { sanitizeState } from "../domain/models.js?v=scene-transition-1";
 import { createOutputBridge } from "../services/output-bridge-service.js?v=multi-output-2";
-import { OutputRenderer } from "./output-renderer.js?v=wire-resolution-1";
+import { OutputRenderer } from "./output-renderer.js?v=scene-transition-1";
 import { applyFontToGlobal, loadVjRenderFont } from "./font-loader.js?v=world-frame-27";
 import { frameSize } from "./render-geometry.js?v=render-demand-1";
 
