@@ -1,6 +1,6 @@
 # VJ1 Project Handover
 
-Last updated: 2026-07-14
+Last updated: 2026-07-15
 
 VJ1 is an experimental browser-based VJ, visual-composition, and projection-mapping application. It runs directly from `experiments/vj1` without a build step and uses p5.js plus raw WebGL where tighter control is required. A selected local folder is the project and is the authoritative home for project JSON, media, shaders, mappings, revisions, and generated renditions.
 
@@ -102,6 +102,10 @@ The output clients create their own p5/WebGL canvas and `OutputRenderer`. They r
 - `tests/shader-smoke.html`: real WebGL shader compilation smoke test.
 - `tests/fixtures`: deterministic browser fixtures.
 - `metrics-results`: checked-in baselines and representative old runs.
+
+GPU timer queries are diagnostic sampling, not part of the render contract. The renderer samples them periodically and strictly bounds unresolved queries so unsupported or slow query delivery cannot create a growing per-frame polling workload. Render-buffer liveness must be refreshed in the usage map with the exact key of the CPU or GPU cache that supplied the active buffer; otherwise the idle-cache pruner can dispose a buffer that is still in use.
+
+Composition and Canvas thumbnail maintenance must decide staleness from signatures before reading pixels. Calling `get()` on a shared WebGL framebuffer is a synchronous full-frame GPU-to-CPU readback; it must never run merely to discover that the stored thumbnail is already current. The thumbnail interval throttles both stale checks and actual captures.
 
 ## State and Persistence
 
@@ -304,7 +308,9 @@ Mapped rendering uses one generic demand path for ordinary compositions and Canv
 
 Logical composition/Canvas dimensions must never be reduced to improve performance. Physical raster demand is allowed to vary by preview size, projector viewport, mapped footprint, and nested placement. Composition references inherit the pixel demand of their placement and remain capped by the referenced composition's configured maximum. Static caching follows the complete composition dependency graph, including Canvas dimensions and nested media; thumbnail data is excluded from render signatures. A static Canvas must be cacheable under the same rules as a static ordinary composition.
 
-Runtime profiles expose `surfaceRouteCandidates`, `surfaceRoutesVisible`, `surfaceRoutesCulled`, `compositionRasterPixels`, and `surfaceRasterPixels`. Use these with wall-clock frame time and FPS to verify that an optimization removes planned work. The GPU readout is an averaged query signal and must not be interpreted as total frame GPU time.
+Composition chains use the shared placed-render-result contract from `js/graph/placed-render-result.js`. A drawable 2D media, camera, or referenced-composition source may remain a texture plus destination rectangle, fit, transform, opacity, and blend until it is drawn directly into the next accumulation target. This applies identically to ordinary and Canvas compositions. It avoids allocating, clearing, writing, and resampling a transparent parent-sized source buffer. Effects and isolated Groups are explicit materialization boundaries; shader generators, 3D/model sources, unavailable media placeholders, Canvas nesting, and overlay blend retain the conservative materialized path. Eligibility is centralized in `directPlacementKind()` rather than duplicated as Canvas/source-type branches. A placement scale increases the referenced composition's raster demand without changing its logical destination rectangle.
+
+Runtime profiles expose `surfaceRouteCandidates`, `surfaceRoutesVisible`, `surfaceRoutesCulled`, `compositionRasterPixels`, `surfaceRasterPixels`, `directSourceComposites`, and `avoidedSourceRasterPixels`. Use these with wall-clock frame time and FPS to verify that an optimization removes planned work. The GPU readout is an averaged query signal and must not be interpreted as total frame GPU time.
 
 The debug HUD displays FPS and active render resolution. Runtime profiles contain source, shader-pass, ping-pong, surface, and frame information where available. The top-bar CPU value is smoothed main-thread render work, not requestAnimationFrame interval. The GPU value is a rolling average of completed non-overlapping WebGL timer queries, not a wall-clock frame duration. FPS remains the definitive presentation-rate measurement. The load, CPU, GPU, and output readouts use fixed-width tabular fields to avoid top-bar layout jumps.
 
@@ -341,7 +347,7 @@ The shader smoke page must be used for new GLSL because Node tests only inspect 
 
 The VJ1 worktree contains uncommitted changes. The current diff primarily covers the optional composition upscale/post pipeline, projection fit, STL/OBJ transform and visible-depth behavior, project refresh/selection preservation, output metrics and controls, thumbnail generation/styling, cache-busting imports, and focused tests. Do not discard or broadly rewrite these changes. Read the diff before touching files that already changed.
 
-The test suite currently has 180 passing Node tests. Coverage includes composition sizing, workspace-specific preview fitting, generic render demand and viewport culling, nested/Canvas dependency caching, shared-framebuffer placement, effect fusion, projective mapping and projection fit, composition upscale/post settings, model transforms and depth cutoff, thumbnail cover cropping, control UI contracts, media loading, and project persistence. The shader smoke page is still required for real GLSL compilation. The representative before/after runtime comparison is stored under `metrics-results/runs/four-surface-show-gpu-architecture.*`.
+The test suite currently has 187 passing Node tests. Coverage includes composition sizing, workspace-specific preview fitting, generic render demand and viewport culling, direct placed-texture compositing, bounded GPU timing instrumentation, nested/Canvas dependency caching, shared-framebuffer placement, effect fusion, projective mapping and projection fit, composition upscale/post settings, model transforms and depth cutoff, guarded thumbnail readback and cover cropping, control UI contracts, media loading, and project persistence. The shader smoke page is still required for real GLSL compilation. The representative before/after runtime comparison is stored under `metrics-results/runs/four-surface-show-gpu-architecture.*`.
 
 ## Change Discipline
 

@@ -4,6 +4,7 @@ import { clamp01, normalizeCompositionPipelineSettings, resolveSceneSourceNode, 
 import { normalizeParamValue, normalizeParamValues, renderQualityScale, renderQualityValue } from "../graph/component-schema.js?v=range-pair-1";
 import { createManualScheduler } from "../graph/manual-scheduler.js";
 import { RenderNodeRuntime, textureStateKey } from "../graph/render-node-runtime.js?v=node-dirty-runtime-1";
+import { createPlacedRenderResult, directPlacementKind, transformedPlacementDemandRect } from "../graph/placed-render-result.js?v=direct-placement-1";
 import { compileCompositionPatch, compileShaderSchedule, flattenCompositionChain, fuseLocalShaderSchedule, isFusibleShaderJob } from "../graph/render-scheduler.js?v=hsv-alpha-key-1";
 import { getGeneratorComponent } from "../graph/generator-registry.js?v=render-quality-2";
 import { createShaderBuilder, fusedUniformName } from "../shaders/shader-builder.js?v=hsv-alpha-key-1";
@@ -1204,14 +1205,16 @@ export class OutputRenderer {
     }
     const stableSignature = this.stableCompositionSignature(composition, outputRequest);
     const stableKey = renderBufferKey("stable", outputKey);
-    const stableCached = stableSignature
-      ? this.compositionGpuBuffer.get(renderBufferKey(stableKey, renderRequestKey(outputRequest))) || this.compositionBuffer.get(stableKey)
-      : null;
+    const stableGpuKey = renderBufferKey(stableKey, renderRequestKey(outputRequest));
+    const stableGpuCached = stableSignature ? this.compositionGpuBuffer.get(stableGpuKey) : null;
+    const stableCpuCached = stableSignature ? this.compositionBuffer.get(stableGpuKey) : null;
+    const stableCached = stableGpuCached || stableCpuCached;
     if (stableCached &&
         stableCached.width === outputRequest.width &&
         stableCached.height === outputRequest.height &&
         this.stableCompositionSignatures.get(stableKey) === stableSignature) {
-      this.touchRenderCache(this.compositionBufferUse, stableKey);
+      if (stableGpuCached) this.touchRenderCache(this.compositionGpuBufferUse, stableGpuKey);
+      else this.touchRenderCache(this.compositionBufferUse, stableGpuKey);
       this.frameProfile.compositionCacheHits++;
       this.cacheCompositionOutput(composition, outputKey, stableCached, outputRequest);
       return stableCached;
@@ -1377,36 +1380,13 @@ export class OutputRenderer {
 
   renderCanvasComposition(composition, compositionTime, request = frameRenderRequest(this.state.render)) {
     const renderRequest = this.normalizeRenderRequest(request, "composition");
-    const canvas = composition.canvas || {};
-    const canvasWidth = Math.max(1, Number(canvas.width) || renderRequest.width);
-    const canvasHeight = Math.max(1, Number(canvas.height) || renderRequest.height);
-    let state = this.transparentChainState(composition, renderRequest);
-    const chain = composition.chain || [];
-    for (let index = 0; index < chain.length; index++) {
-      const item = chain[index];
-      if (item.enabled === false) continue;
-      const nodeId = renderBufferKey(composition.id, "canvas", index, item.id || item.componentId || item.kind);
-      if (item.kind === "effect") {
-        state = this.renderEffectNodeState(nodeId, state, item, compositionTime, renderRequest);
-        continue;
-      }
-      if (item.kind === "group") {
-        const groupState = this.renderCompositionChainState(
-          composition,
-          item.chain || [],
-          compositionTime,
-          renderRequest,
-          renderBufferKey("canvas-group", item.id || index)
-        );
-        state = this.renderLayerNodeState(nodeId, state, groupState, item, renderRequest);
-        continue;
-      }
-      if (item.kind === "source") {
-        const sourceState = this.renderCompositionSourceItemState(composition, item, compositionTime, renderRequest, nodeId);
-        state = this.renderLayerNodeState(nodeId, state, sourceState, item, renderRequest);
-      }
-    }
-    return state.buffer;
+    return this.renderCompositionChainState(
+      composition,
+      composition.chain || [],
+      compositionTime,
+      renderRequest,
+      renderBufferKey(composition.id, "canvas")
+    ).buffer;
   }
 
   renderCompositionPatch(composition, patch, compositionTime, request = frameRenderRequest(this.state.render)) {
@@ -1523,6 +1503,10 @@ export class OutputRenderer {
       if (item.enabled === false) continue;
       const nodeId = renderBufferKey(composition.id, scopeId, index, item.id || item.componentId || item.kind);
       if (item.kind === "source") {
+        if (this.canDirectCompositeSource(item)) {
+          state = this.renderDirectSourceNodeState(nodeId, state, composition, item, compositionTime, renderRequest);
+          continue;
+        }
         const sourceState = this.renderCompositionSourceItemState(composition, item, compositionTime, renderRequest, nodeId);
         // Source transforms are evaluated inside the source coordinate system.
         // The source framebuffer itself always remains the composition size.
@@ -1569,6 +1553,143 @@ export class OutputRenderer {
       }
     }
     return state;
+  }
+
+  canDirectCompositeSource(item = {}) {
+    const source = item.source || {};
+    const dependency = source.type === "composition"
+      ? this.state?.compositions?.find((composition) => composition.id === source.compositionId)
+      : null;
+    const media = this.media.get(source.mediaId);
+    return !!directPlacementKind({
+      source,
+      blend: item.blend || "normal",
+      dependency,
+      mediaDrawable: !!media && (
+        (media.video && isDrawableMedia(media.video)) ||
+        (media.image && isDrawableMedia(media.image))
+      ),
+      mediaIsModel: !!(media?.model || media?.modelData),
+      cameraDrawable: !!this.cameraCapture && isDrawableMedia(this.cameraCapture),
+    });
+  }
+
+  renderDirectSourceNodeState(nodeId, inputState, composition, item, compositionTime, renderRequest) {
+    const source = {
+      ...sourceWithNodeParams(item.source || composition.source, item.params || {}, item.id),
+      contentTransform: item.transform || {},
+    };
+    const runtimeContext = this.nodeRuntimeContext(compositionTime);
+    const signature = stableStringify({
+      input: textureStateKey(inputState),
+      source: staticSourceState(source),
+      media: staticMediaStateForSource(this.state?.media || [], source),
+      runtimeMedia: runtimeMediaStateForSource(this.media, source),
+      time: this.sourceRuntimeTimeKey(source, item, runtimeContext),
+      external: this.sourceRuntimeExternalKey(source, item, runtimeContext),
+      layer: chainLayerState(item),
+      request: renderRequestKey(renderRequest),
+    });
+    return this.evaluateChainNode(nodeId, signature, renderRequest, (output) => {
+      output.push();
+      output.clear();
+      drawBuffer(output, inputState.buffer, 0, 0, output.width, output.height, this.isShaderBuffer(inputState.buffer));
+      output.pop();
+      const placed = this.resolvePlacedSourceResult(output, source, composition, compositionTime, renderRequest);
+      if (placed) this.drawPlacedSourceResult(output, placed, item);
+      this.frameProfile.directSourceComposites++;
+      this.frameProfile.avoidedSourceRasterPixels += renderRequest.width * renderRequest.height;
+    }, "direct-source");
+  }
+
+  resolvePlacedSourceResult(output, source, composition, compositionTime, renderRequest) {
+    const target = { width: output.width, height: output.height };
+    if (source.type === "composition") {
+      const dependency = this.state.compositions.find((item) => item.id === source.compositionId);
+      if (!dependency || dependency.id === composition.id || dependency.type === "canvas") return null;
+      const placement = compositionReferencePlacement(composition, dependency, this.state.render, target);
+      const demandRect = transformedPlacementDemandRect(placement, source.contentTransform);
+      const dependencyTime = this.compositionTimes.get(dependency.id) || compositionTime;
+      const texture = this.renderCompositionForRequest(
+        dependency,
+        dependencyTime,
+        compositionReferenceRenderRequest(this.state.render, dependency, demandRect, {
+          reason: "direct-composition-reference",
+          renderIdentity: dependency.id,
+        })
+      );
+      return createPlacedRenderResult(texture, {
+        destinationRect: placement,
+        transform: source.contentTransform,
+        sourceIsWebGL: this.isShaderBuffer(texture),
+      });
+    }
+    if (source.type === "media") {
+      const media = this.media.get(source.mediaId);
+      if (media?.video && isDrawableMedia(media.video)) {
+        syncVideoPlayback(media.video, {
+          start: source.start,
+          end: source.end,
+          speed: (this.state?.global?.playing === false ? 0 : 1) * (Number(source.speed) || 1) * Math.max(0, Number(composition.speed) || 0),
+        });
+        return createPlacedRenderResult(media.video, {
+          destinationRect: fullTargetRect(target),
+          fit: mediaSourceFit(source),
+          transform: source.contentTransform,
+        });
+      }
+      if (media?.image && isDrawableMedia(media.image)) {
+        const fit = mediaSourceFit(source);
+        const qualityRequest = qualityScaledRenderRequest(renderRequest, source.params || {});
+        const texture = fit === "cover"
+          ? this.getImageRendition(media, qualityRequest.width, qualityRequest.height) || media.image
+          : media.image;
+        return createPlacedRenderResult(texture, {
+          destinationRect: fullTargetRect(target),
+          fit,
+          transform: source.contentTransform,
+        });
+      }
+      return null;
+    }
+    if (source.type === "camera" && this.cameraCapture && isDrawableMedia(this.cameraCapture)) {
+      return createPlacedRenderResult(this.cameraCapture, {
+        destinationRect: fullTargetRect(target),
+        fit: "cover",
+        transform: source.contentTransform,
+      });
+    }
+    return null;
+  }
+
+  drawPlacedSourceResult(output, placed, layer = {}) {
+    output.push();
+    applyBlend(output, layer.blend);
+    output.tint(255, 255 * clamp01(layer.opacity ?? 1));
+    this.drawPlacedResultGeometry(output, placed);
+    output.noTint();
+    output.blendMode(BLEND);
+    output.pop();
+  }
+
+  drawPlacedResultGeometry(output, placed) {
+    const rect = placed.destinationRect;
+    const transform = normalizedContentTransform(placed.transform);
+    output.push();
+    output.translate(
+      output.width * (0.5 + transform.x * 0.5),
+      output.height * (0.5 + transform.y * 0.5)
+    );
+    output.rotate(transform.rotation);
+    output.scale(transform.scale);
+    const x = rect.x - output.width * 0.5;
+    const y = rect.y - output.height * 0.5;
+    if (placed.fit === "stretch") {
+      drawBuffer(output, placed.texture, x, y, rect.width, rect.height, placed.sourceIsWebGL);
+    } else {
+      drawMediaFit(output, placed.texture, x, y, rect.width, rect.height, placed.fit);
+    }
+    output.pop();
   }
 
   transparentChainState(composition, renderRequest) {
@@ -2048,23 +2169,20 @@ export class OutputRenderer {
         this.state.render,
         { width: pg.width, height: pg.height }
       );
+      const demandRect = transformedPlacementDemandRect(placement, source.contentTransform);
       const sourceOutput = this.renderCompositionForRequest(
         sourceComposition,
         sourceTime,
-        compositionReferenceRenderRequest(this.state.render, sourceComposition, placement, {
+        compositionReferenceRenderRequest(this.state.render, sourceComposition, demandRect, {
           reason: "composition-reference",
           renderIdentity: sourceComposition.id,
         })
       );
-      drawBuffer(
-        pg,
-        sourceOutput,
-        placement.x,
-        placement.y,
-        placement.width,
-        placement.height,
-        this.isShaderBuffer(sourceOutput)
-      );
+      this.drawPlacedResultGeometry(pg, createPlacedRenderResult(sourceOutput, {
+        destinationRect: placement,
+        transform: source.contentTransform,
+        sourceIsWebGL: this.isShaderBuffer(sourceOutput),
+      }));
     } else if (source.type === "media") {
       const item = this.media.get(source.mediaId);
       if (item?.video && isDrawableMedia(item.video)) {
@@ -2584,8 +2702,9 @@ export class OutputRenderer {
       idleFrames: 900,
     });
     for (const key of Array.from(this.stableCompositionSignatures.keys())) {
+      const hasCpuEntry = Array.from(this.compositionBuffer.keys()).some((bufferKey) => bufferKey.startsWith(`${key}:`));
       const hasGpuEntry = Array.from(this.compositionGpuBuffer.keys()).some((bufferKey) => bufferKey.startsWith(`${key}:`));
-      if (!this.compositionBuffer.has(key) && !hasGpuEntry) this.stableCompositionSignatures.delete(key);
+      if (!hasCpuEntry && !hasGpuEntry) this.stableCompositionSignatures.delete(key);
     }
     for (const key of Array.from(this.chainNodeRuntimes.keys())) {
       const hasGpuEntry = Array.from(this.compositionGpuBuffer.keys()).some((bufferKey) => bufferKey.includes(key));
@@ -3543,9 +3662,22 @@ export class OutputRenderer {
     const output = this.compositionOutput.get(composition.id);
     if (!output) return;
     const signature = compositionThumbnailSignature(composition);
-    const thumbnailSource = isSharedFramebufferTarget(output) ? output.get() : output;
+    const needsCompositionThumbnail = !composition.thumbnail || this.thumbnailSignatures.get(composition.id) !== signature;
+    const framesNeedingThumbnails = composition.type === "canvas"
+      ? (this.state.recordingFrames || []).filter((frame) => {
+          const frameKey = `${composition.id}:${frame.id}`;
+          const frameSignature = `${signature}:${frame.x},${frame.y},${frame.width},${frame.height}`;
+          return !composition.canvas?.frameThumbnails?.[frame.id] || this.thumbnailSignatures.get(frameKey) !== frameSignature;
+        })
+      : [];
+    // Throttle checks as well as captures. In particular, never call get() on a
+    // full WebGL framebuffer until metadata proves that a thumbnail is stale.
+    this.lastThumbnailAt = millis();
+    if (!needsCompositionThumbnail && !framesNeedingThumbnails.length) return;
+    const readback = isSharedFramebufferTarget(output);
+    const thumbnailSource = readback ? output.get() : output;
     let captured = false;
-    if (!composition.thumbnail || this.thumbnailSignatures.get(composition.id) !== signature) {
+    if (needsCompositionThumbnail) {
       const thumbnail = graphicsToThumbnail(thumbnailSource);
       if (thumbnail) {
         this.thumbnailSignatures.set(composition.id, signature);
@@ -3558,10 +3690,9 @@ export class OutputRenderer {
       const sourceHeight = Math.max(1, Number(thumbnailSource?.height || thumbnailSource?.canvas?.height) || 1);
       const logicalWidth = Math.max(1, Number(composition.canvas?.width) || sourceWidth);
       const logicalHeight = Math.max(1, Number(composition.canvas?.height) || sourceHeight);
-      for (const frame of this.state.recordingFrames || []) {
+      for (const frame of framesNeedingThumbnails) {
         const frameKey = `${composition.id}:${frame.id}`;
         const frameSignature = `${signature}:${frame.x},${frame.y},${frame.width},${frame.height}`;
-        if (composition.canvas?.frameThumbnails?.[frame.id] && this.thumbnailSignatures.get(frameKey) === frameSignature) continue;
         const frameThumbnail = graphicsToThumbnail(thumbnailSource, COMPOSITION_THUMBNAIL_WIDTH, COMPOSITION_THUMBNAIL_HEIGHT, {
           x: Number(frame.x) * sourceWidth / logicalWidth,
           y: Number(frame.y) * sourceHeight / logicalHeight,
@@ -3574,8 +3705,7 @@ export class OutputRenderer {
         captured = true;
       }
     }
-    if (!captured) return;
-    this.lastThumbnailAt = millis();
+    if (readback) thumbnailSource?.remove?.();
   }
 }
 
@@ -4214,8 +4344,8 @@ function isReadyMediaItem(item = {}) {
   return item.ready === true;
 }
 
-class GpuTimerTracker {
-  constructor() {
+export class GpuTimerTracker {
+  constructor({ sampleInterval = 6, maxPending = 12, maxQueryAgeFrames = 60 } = {}) {
     this.apis = new WeakMap();
     this.pending = [];
     this.frames = new Map();
@@ -4223,9 +4353,13 @@ class GpuTimerTracker {
     this.latestFrameId = -1;
     this.sampleId = 0;
     this.supported = false;
+    this.sampleInterval = Math.max(1, Math.floor(Number(sampleInterval) || 1));
+    this.maxPending = Math.max(1, Math.floor(Number(maxPending) || 1));
+    this.maxQueryAgeFrames = Math.max(1, Math.floor(Number(maxQueryAgeFrames) || 1));
   }
 
   begin(target, frameId) {
+    if (frameId % this.sampleInterval !== 0 || this.pending.length >= this.maxPending) return null;
     const gl = webglContextFrom(target);
     const api = this.apiFor(gl);
     if (!api || api.active) return null;
@@ -4272,7 +4406,7 @@ class GpuTimerTracker {
       } catch {
         available = true;
       }
-      if (!available && currentFrame - token.frameId < 240) continue;
+      if (!available && currentFrame - token.frameId < this.maxQueryAgeFrames) continue;
       const frame = this.frameRecord(token.frameId);
       try {
         if (available && !token.api.disjoint()) {
@@ -4384,6 +4518,8 @@ function createEmptyFrameProfile() {
     surfaceRoutesCulled: 0,
     compositionRasterPixels: 0,
     surfaceRasterPixels: 0,
+    directSourceComposites: 0,
+    avoidedSourceRasterPixels: 0,
     totalMs: 0,
     passSamples: [],
   };
@@ -7081,6 +7217,15 @@ export function compositionReferencePlacement(parent = {}, child = {}, render = 
   const targetHeight = Math.max(1, Number(target.height) || 1);
   if (parent.type !== "canvas") return { x: 0, y: 0, width: targetWidth, height: targetHeight };
   return canvasCompositionPlacementRect(parent.canvas, compositionFrameMetrics(render, child), target);
+}
+
+function fullTargetRect(target = {}) {
+  return {
+    x: 0,
+    y: 0,
+    width: Math.max(1, Number(target.width) || 1),
+    height: Math.max(1, Number(target.height) || 1),
+  };
 }
 
 export function compositionReferenceRenderRequest(render = {}, composition = {}, placement = {}, meta = {}) {
