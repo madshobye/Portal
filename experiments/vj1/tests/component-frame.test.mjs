@@ -6,7 +6,7 @@ import {
   normalizeComponentFrameShape,
   normalizeComponentResolutionScale,
 } from "../js/domain/component-frame.js";
-import { createCanvasComponent, createCanvasFrame, createDefaultComponent, createDefaultSurface, createInitialState, createSceneFromState, directOutputSurfaceId, normalizeCameraSettings, normalizeComponentPipelineSettings, normalizeProjectionFit, resolveSceneSourceNode, sanitizeState, sceneSourceNodes } from "../js/domain/models.js";
+import { createCanvasComponent, createCanvasFrame, createDefaultComponent, createDefaultSurface, createInitialState, createSceneFromState, directOutputSurfaceId, normalizeCameraSettings, normalizeComponentPipelineSettings, normalizeProjectionFit, normalizeSamplingSettings, resolveSceneSourceNode, sanitizeState, sceneSourceNodes } from "../js/domain/models.js";
 
 const render = {
   componentTexture: { width: 1000, height: 700 },
@@ -88,6 +88,21 @@ test("component resolution follows its independent texture dimensions", () => {
     pixelDensity: 1,
   }, { frameShape: "landscape", resolutionScale: 1 });
   assert.deepEqual(pickSize(metrics), { baseWidth: 1920, baseHeight: 1080, width: 1920, height: 1080 });
+});
+
+test("adaptive sampling settings remain independent and accept half scale", () => {
+  assert.deepEqual(normalizeSamplingSettings({}), {
+    surfaceOverscan: 1,
+    recordingFrameScale: 1,
+  });
+  assert.deepEqual(normalizeSamplingSettings({ surfaceOverscan: 0.5, recordingFrameScale: 0.5 }), {
+    surfaceOverscan: 0.5,
+    recordingFrameScale: 0.5,
+  });
+  assert.deepEqual(normalizeSamplingSettings({ surfaceOverscan: 0.1, recordingFrameScale: 8 }), {
+    surfaceOverscan: 0.5,
+    recordingFrameScale: 2,
+  });
 });
 
 test("component upscale and post settings normalize with neutral defaults", () => {

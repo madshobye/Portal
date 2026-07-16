@@ -1,9 +1,9 @@
 import { VJ1, defaultCustomShaderCode, WORKSPACES } from "../constants.js";
-import { createGeneratorSource } from "../graph/generator-registry.js?v=adaptive-component-demand-18";
+import { createGeneratorSource } from "../graph/generator-registry.js?v=adaptive-component-demand-24";
 import { normalizeComponentFrameShape, normalizeComponentResolutionScale } from "./component-frame.js";
-import { createProjectActivity, latestProjectActivity, normalizeProjectActivity } from "./component-activity.js?v=adaptive-component-demand-18";
-import { CURRENT_PROJECT_VERSION, migrateProjectData } from "./project-migrations.js?v=adaptive-component-demand-18";
-import { normalizeComponentTextureSettings, normalizeSurfaceTextureSettings } from "./render-resolution.js?v=adaptive-component-demand-18";
+import { createProjectActivity, latestProjectActivity, normalizeProjectActivity } from "./component-activity.js?v=adaptive-component-demand-24";
+import { CURRENT_PROJECT_VERSION, migrateProjectData } from "./project-migrations.js?v=adaptive-component-demand-24";
+import { normalizeComponentTextureSettings, normalizeSurfaceTextureSettings } from "./render-resolution.js?v=adaptive-component-demand-24";
 
 export function uid(prefix) {
   return `${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
@@ -262,6 +262,10 @@ export function createInitialState() {
       },
       pixelDensity: 1,
       edgeSoftness: 0,
+      sampling: {
+        surfaceOverscan: 1,
+        recordingFrameScale: 1,
+      },
       camera: {
         width: VJ1.renderWidth,
         height: VJ1.renderHeight,
@@ -474,8 +478,16 @@ export function normalizeRenderSettings(render = {}) {
     surfaceTexture: normalizeSurfaceTextureSettings(render.surfaceTexture, primary),
     pixelDensity: clampNumber(render.pixelDensity, 0.5, 2, 1),
     edgeSoftness: clampNumber(render.edgeSoftness, 0, 8, 0),
+    sampling: normalizeSamplingSettings(render.sampling),
     camera: normalizeCameraSettings(render.camera, primary.width, primary.height),
     ...normalizeComponentPipelineSettings(render),
+  };
+}
+
+export function normalizeSamplingSettings(sampling = {}) {
+  return {
+    surfaceOverscan: clampNumber(sampling?.surfaceOverscan, 0.5, 2, 1),
+    recordingFrameScale: clampNumber(sampling?.recordingFrameScale, 0.5, 2, 1),
   };
 }
 

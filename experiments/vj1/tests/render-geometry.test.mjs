@@ -17,8 +17,8 @@ import {
 } from "../js/output/render-geometry.js";
 
 test("adaptive sampling safety multipliers are named render-contract constants", () => {
-  assert.equal(SURFACE_DEMAND_OVERSCAN, 1.08);
-  assert.equal(RECORDING_FRAME_DEMAND_SCALE, 1.5);
+  assert.equal(SURFACE_DEMAND_OVERSCAN, 1);
+  assert.equal(RECORDING_FRAME_DEMAND_SCALE, 1);
 });
 
 test("configured projector outputs form side-by-side viewports in one world", () => {
@@ -173,6 +173,21 @@ test("generic source demand propagates an upstream sampling requirement", () => 
   const reduced = sourceRenderDemand({ ...input, samplingScale: 0.5 });
   assert.ok(reduced.rasterSize.width < normal.rasterSize.width);
   assert.ok(reduced.rasterSize.height < normal.rasterSize.height);
+});
+
+test("surface overscan can reduce mapped demand to half resolution", () => {
+  const input = {
+    logicalSize: { width: 1000, height: 500 },
+    sampleRect: { x: 0, y: 0, width: 1000, height: 500 },
+    maxRasterSize: { width: 2000, height: 1000 },
+    maxSurfaceSize: { width: 2000, height: 1000 },
+    corners: [{ x: 0, y: 0 }, { x: 1000, y: 0 }, { x: 1000, y: 500 }, { x: 0, y: 500 }],
+    viewport: { width: 1000, height: 500 },
+    pixelScale: 1,
+  };
+  const normal = sourceRenderDemand({ ...input, overscan: 1 }).rasterScale;
+  const reduced = sourceRenderDemand({ ...input, overscan: 0.5 }).rasterScale;
+  assert.ok(Math.abs(reduced / normal - 0.5) < 0.01);
 });
 
 test("projective demand follows the longest edge instead of undersampling trapezoids", () => {

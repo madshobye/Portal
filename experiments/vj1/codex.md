@@ -42,7 +42,7 @@ Sources composite into the accumulated image; they do not implicitly replace it.
 Core files:
 
 - `js/app.js`, `js/app-state.js`, `js/domain/models.js`: startup, state, normalization, and domain models.
-- `js/domain/project-migrations.js`: sequential project-schema migrations; current version is **13**.
+- `js/domain/project-migrations.js`: sequential project-schema migrations; current version is **14**.
 - `js/control/control-shell-controller.js`, `js/control/shell-view.js`, `style.css`: control UI.
 - `js/graph/render-scheduler.js`, `js/graph/placed-render-result.js`: graph compilation and placed-source contract.
 - `js/shaders/*`: generator/effect schemas, GLSL, fusion, and shader caching.
@@ -72,6 +72,7 @@ Important recent migrations:
 - v11: removes persisted `sourceRect` and derived render geometry; `render.outputs` is authoritative.
 - v12: captures Canvas placement independently from Component initial dimensions.
 - v13: stores one normalized Canvas placement scale while the referenced Component remains authoritative for aspect.
+- v14: persists independent mapped-surface overscan and recording-frame sampling multipliers.
 
 The local project folder owns project state. `localStorage` is never authoritative. Autosave is debounced by 700 ms; revision files implement undo/redo, with repeated control edits coalesced for six seconds. UI-only state and metrics are excluded from history signatures. Folder refresh must update assets without replacing state or losing valid selections.
 
@@ -106,8 +107,8 @@ Do not conflate logical geometry, physical render demand, sampling, and UI displ
 | Component raster | Visible consumer demand × pixel density × resolution scale, aspect-preserving and bounded to 8192 per axis. |
 | Canvas logical frame | `component.canvas.width/height`; placement and recording-frame coordinate system. |
 | Canvas editor raster | `previewQuality`: Auto follows visible demand, Low halves it, Full requests logical size. |
-| Recording-frame demand | Generic source rectangle with 1.5× sampling allowance. |
-| Surface texture | Materialized only for final surface effects, transitions, thumbnail fallback, blackout, or labels. Auto follows demand; Manual only caps this intermediate. |
+| Surface/recording-frame sampling | `render.sampling.surfaceOverscan` and `recordingFrameScale`; independent `0.5–2×` demand multipliers defaulting to `1×`. |
+| Surface texture | Materialized only for final surface effects, transitions, thumbnail fallback, or blackout. Auto follows demand; Manual only caps this intermediate. |
 | Projection | Fit and mapping sample the source; they never change source geometry. |
 | Preview zoom/pan | Display-only and must not affect logical or physical render requests. |
 
@@ -180,7 +181,7 @@ Before finishing renderer work:
 
 The implementation baseline is committed. Recent work centers on generic direct projection for Components, full Canvases, and recording-frame source rectangles; adaptive Component raster demand; demand-sized previews; shared 8192 bounds; static performance estimates; cache-busting imports; and focused render-geometry/output tests. Surface textures remain only on explicit materialization paths.
 
-The handover reports **255 passing Node tests**. Real GLSL still requires the shader smoke page. The representative performance comparison is `metrics-results/runs/four-surface-show-gpu-architecture.*`.
+The handover reports **260 passing Node tests**. Real GLSL still requires the shader smoke page. The representative performance comparison is `metrics-results/runs/four-surface-show-gpu-architecture.*`.
 
 ## Change Discipline
 

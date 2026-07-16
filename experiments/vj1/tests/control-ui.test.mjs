@@ -224,10 +224,20 @@ test("project settings expose one adaptive surface texture policy", () => {
   assert.ok(source.includes('data-settings-update="render.surfaceTexture.mode"'));
   assert.ok(source.includes('data-settings-update="render.surfaceTexture.maxWidth"'));
   assert.ok(source.includes('data-settings-update="render.surfaceTexture.maxHeight"'));
+  assert.ok(source.includes('data-settings-update="render.sampling.surfaceOverscan"'));
+  assert.ok(source.includes('data-settings-update="render.sampling.recordingFrameScale"'));
   assert.ok(source.includes("Auto · projected pixel demand"));
   assert.ok(source.includes("it never changes component dimensions"));
   assert.ok(!source.includes('data-settings-update="render.surfaceWidth"'));
   assert.ok(!source.includes('data-settings-update="render.surfaceHeight"'));
+});
+
+test("project settings expose common WXGA and WUXGA projector presets", () => {
+  const source = readFileSync(new URL("../js/control/control-shell-controller.js", import.meta.url), "utf8");
+  assert.ok(source.includes('data-render-preset="wxga" title="1280 x 800"'));
+  assert.ok(source.includes('data-render-preset="wuxga" title="1920 x 1200"'));
+  assert.ok(source.includes("wxga: [1280, 800]"));
+  assert.ok(source.includes("wuxga: [1920, 1200]"));
 });
 
 test("project settings expose camera capture preferences", () => {

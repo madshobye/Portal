@@ -91,6 +91,19 @@ test("mapping-world output-frame text follows the global label toggle", () => {
   assert.ok(overlay.includes("text(`${frame.name} · ${frame.width}×${frame.height}`"));
 });
 
+test("surface calibration keeps direct projection without materialized labels", () => {
+  const renderer = new OutputRenderer({ mode: "preview" });
+  renderer.state = {
+    ui: { debugPreview: true },
+    global: { showLabels: true },
+  };
+  renderer.mapper = { isCalibrating: () => true };
+
+  assert.equal(renderer.canDirectProjectSurfaceRoute({ surface: { finalShaderChain: [] } }), true);
+  const source = readFileSync(new URL("../js/output/output-renderer.js", import.meta.url), "utf8");
+  assert.equal(source.includes("drawSurfaceLabel"), false);
+});
+
 test("standalone outputs crop the shared mapping world to their configured viewport", () => {
   const previousWidth = globalThis.width;
   const previousHeight = globalThis.height;
@@ -480,16 +493,24 @@ test("Canvas recording-frame routes declare extra sampling demand without changi
     outputFrameId: "",
     sourceRect: { x: 0, y: 0, width: 960, height: 540 },
   }, frames);
-  assert.equal(frameView.samplingScale, 1.5);
+  assert.equal(frameView.samplingScale, 1);
   assert.deepEqual(frameView.sampleRect, frames[0]);
   assert.equal(wholeView.samplingScale, 1);
   assert.deepEqual(wholeView.sampleRect, { x: 0, y: 0, width: 3840, height: 2160 });
+
+  const reducedFrameView = componentSourceView(
+    { sampling: { recordingFrameScale: 0.5 } },
+    canvas,
+    { outputFrameId: "frame-a" },
+    frames
+  );
+  assert.equal(reducedFrameView.samplingScale, 0.5);
 });
 
 test("Canvas demand can supersample beyond its logical raster within the shared quality ceiling", () => {
   assert.deepEqual(canvasMaxRasterSize({ pixelDensity: 1 }, { width: 4000, height: 2000 }), {
-    width: 6000,
-    height: 3000,
+    width: 4000,
+    height: 2000,
   });
   assert.deepEqual(canvasMaxRasterSize({ pixelDensity: 2 }, { width: 4000, height: 2000 }), {
     width: 8000,
@@ -805,6 +826,7 @@ test("scene surfaces render components at their configured shape and relative re
 
   assert.ok(surfaceRenderPlan.includes("sourceRenderDemand({"));
   assert.ok(surfaceRenderPlan.includes("componentSourceView(this.state.render, component"));
+  assert.ok(surfaceRenderPlan.includes("this.state.render?.sampling?.surfaceOverscan"));
   assert.ok(surfaceRenderPlan.includes("componentScales"));
   assert.ok(!drawSurfaceRoute.includes("stableFrameRenderRequest(this.state.render"));
   assert.ok(drawSurfaceRoute.includes("scaledComponentSampleRect("));

@@ -14,11 +14,12 @@ import {
   migrateProjectV10ToV11,
   migrateProjectV11ToV12,
   migrateProjectV12ToV13,
+  migrateProjectV13ToV14,
 } from "../js/domain/project-migrations.js";
 import { createInitialState, sanitizeState } from "../js/domain/models.js";
 
 test("current state and sanitized legacy state always use the current project version", () => {
-  assert.equal(CURRENT_PROJECT_VERSION, 13);
+  assert.equal(CURRENT_PROJECT_VERSION, 14);
   assert.equal(createInitialState().version, CURRENT_PROJECT_VERSION);
   assert.equal(sanitizeState({ version: 5 }).version, CURRENT_PROJECT_VERSION);
 });
@@ -67,7 +68,7 @@ test("v7 to v8 migrates the Component workspace and remembered selections", () =
       workspaceCompositionIds: { compose: "comp-a", canvas: "canvas-a" },
     },
   });
-  assert.equal(migrated.version, 13);
+  assert.equal(migrated.version, 14);
   assert.equal(migrated.ui.workspace, "component");
   assert.deepEqual(migrated.ui.workspaceSelectionIds, { component: "comp-a", canvas: "canvas-a" });
   assert.equal(Object.hasOwn(migrated.ui, "workspaceCompositionIds"), false);
@@ -212,6 +213,26 @@ test("v12 to v13 gives Component dimensions authority over one Canvas placement 
     }],
   });
   assert.deepEqual(migrated.components[0].chain[0].chain[0].source.placement, { scale: 0.325 });
+});
+
+test("v13 to v14 persists independent adaptive sampling defaults", () => {
+  const migrated = migrateProjectV13ToV14({
+    version: 13,
+    render: { pixelDensity: 1 },
+  });
+  assert.deepEqual(migrated.render.sampling, {
+    surfaceOverscan: 1,
+    recordingFrameScale: 1,
+  });
+
+  const preserved = migrateProjectV13ToV14({
+    version: 13,
+    render: { sampling: { surfaceOverscan: 0.75, recordingFrameScale: 0.5 } },
+  });
+  assert.deepEqual(preserved.render.sampling, {
+    surfaceOverscan: 0.75,
+    recordingFrameScale: 0.5,
+  });
 });
 
 test("migration runner applies every adjacent step in order", () => {

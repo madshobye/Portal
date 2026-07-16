@@ -1,24 +1,24 @@
 import { VJ1 } from "../constants.js";
 import { componentFrameMetrics } from "../domain/component-frame.js";
-import { componentTextureSize, manualSurfaceTextureLimit } from "../domain/render-resolution.js?v=adaptive-component-demand-18";
-import { clamp01, normalizeComponentPipelineSettings, resolveSceneSourceNode, sanitizeState } from "../domain/models.js?v=adaptive-component-demand-18";
-import { normalizeParamValue, normalizeParamValues, renderQualityScale, renderQualityValue } from "../graph/component-schema.js?v=adaptive-component-demand-18";
+import { componentTextureSize, manualSurfaceTextureLimit } from "../domain/render-resolution.js?v=adaptive-component-demand-24";
+import { clamp01, normalizeComponentPipelineSettings, resolveSceneSourceNode, sanitizeState } from "../domain/models.js?v=adaptive-component-demand-24";
+import { normalizeParamValue, normalizeParamValues, renderQualityScale, renderQualityValue } from "../graph/component-schema.js?v=adaptive-component-demand-24";
 import { createManualScheduler } from "../graph/manual-scheduler.js";
-import { RenderNodeRuntime, textureStateKey } from "../graph/render-node-runtime.js?v=adaptive-component-demand-18";
-import { createPlacedRenderResult, directPlacementKind, transformedPlacementDemandRect } from "../graph/placed-render-result.js?v=adaptive-component-demand-18";
-import { compileComponentPatch, compileShaderSchedule, flattenComponentChain, fuseLocalShaderSchedule, isFusibleShaderJob } from "../graph/render-scheduler.js?v=adaptive-component-demand-18";
-import { getGeneratorComponent } from "../graph/generator-registry.js?v=adaptive-component-demand-18";
-import { createShaderBuilder, fusedUniformName } from "../shaders/shader-builder.js?v=adaptive-component-demand-18";
-import { getGeneratorShaderComponent } from "../shaders/generator-shaders.js?v=adaptive-component-demand-18";
-import { getShaderComponent } from "../shaders/shader-registry.js?v=adaptive-component-demand-18";
+import { RenderNodeRuntime, textureStateKey } from "../graph/render-node-runtime.js?v=adaptive-component-demand-24";
+import { createPlacedRenderResult, directPlacementKind, transformedPlacementDemandRect } from "../graph/placed-render-result.js?v=adaptive-component-demand-24";
+import { compileComponentPatch, compileShaderSchedule, flattenComponentChain, fuseLocalShaderSchedule, isFusibleShaderJob } from "../graph/render-scheduler.js?v=adaptive-component-demand-24";
+import { getGeneratorComponent } from "../graph/generator-registry.js?v=adaptive-component-demand-24";
+import { createShaderBuilder, fusedUniformName } from "../shaders/shader-builder.js?v=adaptive-component-demand-24";
+import { getGeneratorShaderComponent } from "../shaders/generator-shaders.js?v=adaptive-component-demand-24";
+import { getShaderComponent } from "../shaders/shader-registry.js?v=adaptive-component-demand-24";
 import { applyBlend } from "./blend-utils.js";
 import {
   createSharedFramebufferTarget,
   isSharedFramebufferTarget,
   unwrapRenderTarget,
-} from "./shared-framebuffer-target.js?v=adaptive-component-demand-18";
-import { applyFontToGlobal, applyFontToTarget } from "./font-loader.js?v=adaptive-component-demand-18";
-import { drawGenerator, drawStandby } from "./generators.js?v=adaptive-component-demand-18";
+} from "./shared-framebuffer-target.js?v=adaptive-component-demand-24";
+import { applyFontToGlobal, applyFontToTarget } from "./font-loader.js?v=adaptive-component-demand-24";
+import { drawGenerator, drawStandby } from "./generators.js?v=adaptive-component-demand-24";
 import { drawCover, drawMediaFit, isDrawableMedia, syncVideoPlayback } from "./media-utils.js";
 import {
   createRenderRequest,
@@ -29,11 +29,12 @@ import {
   outputFrameOffset,
   renderRequestKey,
   RECORDING_FRAME_DEMAND_SCALE,
+  SURFACE_DEMAND_OVERSCAN,
   sourceRenderDemand,
   outputSpanRect,
   worldSize,
-} from "./render-geometry.js?v=adaptive-component-demand-18";
-import { VjMapper } from "./vj-mapper.js?v=adaptive-component-demand-18";
+} from "./render-geometry.js?v=adaptive-component-demand-24";
+import { VjMapper } from "./vj-mapper.js?v=adaptive-component-demand-24";
 import { mediaRenditionKey } from "../services/media-rendition-service.js";
 
 const TERRAIN_GRID_CELLS = 48;
@@ -3036,7 +3037,7 @@ export class OutputRenderer {
     const outputBlackout = this.isOutputBlackout();
     const routes = this.buildSurfaceRenderPlan();
     for (const route of routes) {
-      const { surface, mapped, component, surfaceRequest: request } = route;
+      const { surface, mapped, surfaceRequest: request } = route;
       if (this.canDirectProjectSurfaceRoute(route, outputBlackout)) {
         const view = this.renderSurfaceRouteView(route);
         if (!view) continue;
@@ -3054,9 +3055,6 @@ export class OutputRenderer {
         this.drawSurfaceRoute(pg, route);
       } else {
         pg.background(0);
-      }
-      if (this.mode !== "output" && !outputBlackout && this.state.global.showLabels !== false && this.mapper.isCalibrating()) {
-        drawSurfaceLabel(pg, surface, component);
       }
       pg.pop();
       this.measureGpu(drawingContext, () => {
@@ -3234,6 +3232,7 @@ export class OutputRenderer {
         corners: mapped.mapperSurface.corners,
         viewport,
         pixelScale,
+        overscan: Number(this.state.render?.sampling?.surfaceOverscan) || SURFACE_DEMAND_OVERSCAN,
         preserveFullFootprint: mapped.direct,
       });
       if (!demand) {
@@ -3331,11 +3330,7 @@ export class OutputRenderer {
   canDirectProjectSurfaceRoute(route = {}, outputBlackout = false) {
     if (outputBlackout || this.shouldUseThumbnailPreview()) return false;
     if (route.surface?.finalShaderChain?.length) return false;
-    return !(
-      this.mode !== "output" &&
-      this.state?.global?.showLabels !== false &&
-      this.mapper?.isCalibrating?.()
-    );
+    return true;
   }
 
   renderSurfaceRouteView(route = {}) {
@@ -7938,10 +7933,11 @@ export function componentSourceView(render = {}, component = {}, surface = {}, r
       logicalSize,
       sampleRect: canvasRouteFrameRect(component, surface, recordingFrames),
       maxRasterSize,
-      // A recording-frame route is cropped and filtered again into its surface
-      // texture before projective sampling. Declare that extra sampling demand
-      // here so the generic planner raises every upstream dependency together.
-      samplingScale: recordingFrame ? RECORDING_FRAME_DEMAND_SCALE : 1,
+      // Recording frames may need extra sampling headroom when a small Canvas
+      // region is enlarged. Keep the policy in the generic source-view contract.
+      samplingScale: recordingFrame
+        ? Math.max(0.5, Math.min(2, Number(render.sampling?.recordingFrameScale) || RECORDING_FRAME_DEMAND_SCALE))
+        : 1,
     };
   }
   const metrics = componentFrameMetrics(render, component);
@@ -7968,10 +7964,14 @@ export function canvasMaxRasterSize(render = {}, logicalSize = {}) {
   const width = Math.max(1, Number(logicalSize.width) || VJ1.canvasWidth);
   const height = Math.max(1, Number(logicalSize.height) || VJ1.canvasHeight);
   const configuredDensity = Math.max(0.5, Math.min(2, Number(render.pixelDensity) || 1));
+  const recordingFrameScale = Math.max(
+    0.5,
+    Math.min(2, Number(render.sampling?.recordingFrameScale) || RECORDING_FRAME_DEMAND_SCALE)
+  );
   // Recording frames are independent views of a Canvas. Keep enough headroom
   // for their declared sampling allowance even at the default density, while
   // retaining the existing pixel-density control as the upper quality policy.
-  const scale = Math.max(1, RECORDING_FRAME_DEMAND_SCALE, configuredDensity);
+  const scale = Math.max(1, recordingFrameScale, configuredDensity);
   return {
     width: Math.min(8192, Math.max(1, Math.round(width * scale))),
     height: Math.min(8192, Math.max(1, Math.round(height * scale))),
@@ -7996,15 +7996,4 @@ function quantizedRenderDimension(value, max) {
   const next = Math.min(upper, Math.max(1, Math.round(Number(value) || 1)));
   if (next < 16) return next;
   return Math.min(upper, Math.max(16, Math.round(next / 16) * 16));
-}
-
-function drawSurfaceLabel(pg, surface, component) {
-  pg.noStroke();
-  pg.fill(255, 230);
-  pg.textAlign(LEFT, TOP);
-  pg.textSize(28);
-  pg.text(surface.name, 28, 24);
-  pg.textSize(16);
-  pg.fill(255, 165);
-  pg.text(`${component?.name || "No component"} / ${surface.finalBlend} / ${Math.round(clamp01(surface.opacity) * 100)}%`, 28, 60);
 }

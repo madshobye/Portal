@@ -1,20 +1,20 @@
 import { BLEND_MODES, VJ1, WORKSPACES } from "../constants.js";
 import { componentFrameMetrics } from "../domain/component-frame.js";
-import { applySceneSourceNode, applySceneSnapshotToState, createLiveComponentView, createLiveRenderState, createOutputDefinition, createSceneSnapshot, normalizeRenderSettings, resolveSceneSourceNode, sceneSourceNodes, syncLiveSnapshotFromScene } from "../domain/models.js?v=adaptive-component-demand-18";
-import { latestProjectActivity, touchComponentUsed, touchRecordingFrameUsed } from "../domain/component-activity.js?v=adaptive-component-demand-18";
-import { normalizeParamValue, RENDER_QUALITY_PARAM } from "../graph/component-schema.js?v=adaptive-component-demand-18";
-import { getGeneratorComponent, listGeneratorComponents } from "../graph/generator-registry.js?v=adaptive-component-demand-18";
+import { applySceneSourceNode, applySceneSnapshotToState, createLiveComponentView, createLiveRenderState, createOutputDefinition, createSceneSnapshot, normalizeRenderSettings, resolveSceneSourceNode, sceneSourceNodes, syncLiveSnapshotFromScene } from "../domain/models.js?v=adaptive-component-demand-24";
+import { latestProjectActivity, touchComponentUsed, touchRecordingFrameUsed } from "../domain/component-activity.js?v=adaptive-component-demand-24";
+import { normalizeParamValue, RENDER_QUALITY_PARAM } from "../graph/component-schema.js?v=adaptive-component-demand-24";
+import { getGeneratorComponent, listGeneratorComponents } from "../graph/generator-registry.js?v=adaptive-component-demand-24";
 import { patchNodeDegree, planCompositorInputs, planPatchExecution, summarizeTextureBranches } from "../graph/patch-planner.js";
-import { compileComponentPatch } from "../graph/render-scheduler.js?v=adaptive-component-demand-18";
-import { buildOutputUrl } from "../view-routing.js?v=adaptive-component-demand-18";
-import { getShaderComponent, listShaderComponents } from "../shaders/shader-registry.js?v=adaptive-component-demand-18";
-import { createEmbeddedPreviewApp } from "../output/embedded-preview-app.js?v=adaptive-component-demand-18";
-import { frameFitViewport, resetViewport, zoomViewport } from "../output/preview-viewport.js?v=adaptive-component-demand-18";
-import { defaultProjectSurfaceMapping } from "../output/render-geometry.js?v=adaptive-component-demand-18";
+import { compileComponentPatch } from "../graph/render-scheduler.js?v=adaptive-component-demand-24";
+import { buildOutputUrl } from "../view-routing.js?v=adaptive-component-demand-24";
+import { getShaderComponent, listShaderComponents } from "../shaders/shader-registry.js?v=adaptive-component-demand-24";
+import { createEmbeddedPreviewApp } from "../output/embedded-preview-app.js?v=adaptive-component-demand-24";
+import { frameFitViewport, resetViewport, zoomViewport } from "../output/preview-viewport.js?v=adaptive-component-demand-24";
+import { defaultProjectSurfaceMapping } from "../output/render-geometry.js?v=adaptive-component-demand-24";
 import { createHtmlCache, isInteractiveNode, isTextEditingNode, setClass, setText } from "./dom-utils.js";
 import { bindReorderList } from "./reorder-list.js";
-import { collectRefs, shellTemplate } from "./shell-view.js?v=adaptive-component-demand-18";
-import { effectIcon, emptyNote, esc, icon, paramRangePairTemplate, rangeTemplate, selectValuesTemplate, sourceTypeIcon, thumbnailTemplate } from "./template-utils.js?v=adaptive-component-demand-18";
+import { collectRefs, shellTemplate } from "./shell-view.js?v=adaptive-component-demand-24";
+import { effectIcon, emptyNote, esc, icon, paramRangePairTemplate, rangeTemplate, selectValuesTemplate, sourceTypeIcon, thumbnailTemplate } from "./template-utils.js?v=adaptive-component-demand-24";
 
 const MODEL_RENDER_MODES = ["surface", "wireframe", "surfaceWire", "points"];
 const MEDIA_FIT_MODES = ["contain", "cover"];
@@ -1155,8 +1155,10 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
     const presets = {
       wide: [960, 540],
       xga: [1024, 768],
+      wxga: [1280, 800],
       hd: [1280, 720],
       fhd: [1920, 1080],
+      wuxga: [1920, 1200],
       "2k": [2048, 1080],
       "4k": [3840, 2160],
     };
@@ -2702,9 +2704,11 @@ function settingsModalTemplate(state, activeTab = "outputs") {
           <div class="rail-title"><span class="material-symbols-rounded">crop_16_9</span><span>Outputs</span></div>
           <div class="settings-preset-row">
             <button type="button" data-render-preset="wide">960 x 540</button>
-            <button type="button" data-render-preset="xga">XGA</button>
-            <button type="button" data-render-preset="hd">HD</button>
-            <button type="button" data-render-preset="fhd">Full HD</button>
+            <button type="button" data-render-preset="xga" title="1024 x 768">XGA</button>
+            <button type="button" data-render-preset="wxga" title="1280 x 800">WXGA</button>
+            <button type="button" data-render-preset="hd" title="1280 x 720">HD</button>
+            <button type="button" data-render-preset="fhd" title="1920 x 1080">Full HD</button>
+            <button type="button" data-render-preset="wuxga" title="1920 x 1200">WUXGA</button>
             <button type="button" data-render-preset="2k">2K</button>
             <button type="button" data-render-preset="4k">4K</button>
           </div>
@@ -2770,6 +2774,14 @@ function settingsModalTemplate(state, activeTab = "outputs") {
             <label class="field">Pixel density <input type="number" min="0.5" max="2" step="0.25" data-settings-update="render.pixelDensity" value="${render.pixelDensity}" /></label>
             <label class="field">Edge softness <input type="number" min="0" max="8" step="0.5" data-settings-update="render.edgeSoftness" value="${render.edgeSoftness}" /></label>
           </div>
+        </section>
+        <section class="element-section" data-settings-panel="rendering" ${activeTab === "rendering" ? "" : "hidden"}>
+          <div class="rail-title"><span class="material-symbols-rounded">tune</span><span>Advanced sampling</span></div>
+          <div class="field-pair">
+            <label class="field">Surface overscan <input type="number" min="0.5" max="2" step="0.05" data-settings-update="render.sampling.surfaceOverscan" value="${render.sampling.surfaceOverscan}" /></label>
+            <label class="field">Recording frame <input type="number" min="0.5" max="2" step="0.05" data-settings-update="render.sampling.recordingFrameScale" value="${render.sampling.recordingFrameScale}" /></label>
+          </div>
+          <div class="soft-note">Independent raster-demand multipliers. Both default to 1×; recording frames can be lowered to 0.5× for lower Canvas cost.</div>
         </section>
         <section class="element-section" data-settings-panel="rendering" ${activeTab === "rendering" ? "" : "hidden"}>
           <div class="rail-title"><span class="material-symbols-rounded">high_quality</span><span>Component upscaling</span></div>

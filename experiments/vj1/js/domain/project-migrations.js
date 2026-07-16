@@ -1,4 +1,4 @@
-export const CURRENT_PROJECT_VERSION = 13;
+export const CURRENT_PROJECT_VERSION = 14;
 export const OLDEST_PROJECT_VERSION = 1;
 
 export class ProjectVersionError extends Error {
@@ -21,8 +21,8 @@ export class UnsupportedProjectVersionError extends ProjectVersionError {
 }
 
 // Every persisted model change adds exactly one adjacent migration here.
-// Never replace several steps with a direct jump: a v5 project opened by v13
-// must run 5→6, 6→7, 7→8, 8→9, 9→10, 10→11, 11→12, and 12→13 in that order.
+// Never replace several steps with a direct jump: a v5 project opened by v14
+// must run every adjacent step from 5→6 through 13→14 in order.
 export const PROJECT_MIGRATIONS = Object.freeze({
   1: migrateProjectV1ToV2,
   2: migrateProjectV2ToV3,
@@ -36,6 +36,7 @@ export const PROJECT_MIGRATIONS = Object.freeze({
   10: migrateProjectV10ToV11,
   11: migrateProjectV11ToV12,
   12: migrateProjectV12ToV13,
+  13: migrateProjectV13ToV14,
 });
 
 export function migrateProjectData(project = {}) {
@@ -344,6 +345,23 @@ export function migrateProjectV12ToV13(project) {
         ? { ...component, chain: migrateCanvasPlacementScale(component.chain) }
         : component)
       : project.components,
+  };
+}
+
+// v14 exposes the two independent adaptive-sampling multipliers as persisted
+// render settings while preserving the render contract's previous defaults.
+export function migrateProjectV13ToV14(project) {
+  const render = project.render && typeof project.render === "object" ? project.render : {};
+  const sampling = render.sampling && typeof render.sampling === "object" ? render.sampling : {};
+  return {
+    ...project,
+    render: {
+      ...render,
+      sampling: {
+        surfaceOverscan: sampling.surfaceOverscan ?? 1,
+        recordingFrameScale: sampling.recordingFrameScale ?? 1,
+      },
+    },
   };
 }
 
