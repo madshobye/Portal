@@ -1,24 +1,24 @@
 import { VJ1 } from "../constants.js";
 import { componentFrameMetrics } from "../domain/component-frame.js";
-import { componentTextureSize, manualSurfaceTextureLimit } from "../domain/render-resolution.js?v=adaptive-component-demand-28";
-import { clamp01, normalizeComponentPipelineSettings, resolveSceneSourceNode, sanitizeState } from "../domain/models.js?v=adaptive-component-demand-28";
-import { normalizeParamValue, normalizeParamValues, renderQualityScale, renderQualityValue } from "../graph/component-schema.js?v=adaptive-component-demand-28";
+import { componentTextureSize, manualSurfaceTextureLimit } from "../domain/render-resolution.js?v=adaptive-component-demand-29";
+import { clamp01, normalizeComponentPipelineSettings, sanitizeState, sceneSourceNodes } from "../domain/models.js?v=adaptive-component-demand-29";
+import { normalizeParamValue, normalizeParamValues, renderQualityScale, renderQualityValue } from "../graph/component-schema.js?v=adaptive-component-demand-29";
 import { createManualScheduler } from "../graph/manual-scheduler.js";
-import { RenderNodeRuntime, textureStateKey } from "../graph/render-node-runtime.js?v=adaptive-component-demand-28";
-import { createPlacedRenderResult, directPlacementKind, transformedPlacementDemandRect } from "../graph/placed-render-result.js?v=adaptive-component-demand-28";
-import { compileComponentPatch, compileShaderSchedule, flattenComponentChain, fuseLocalShaderSchedule, isFusibleShaderJob } from "../graph/render-scheduler.js?v=adaptive-component-demand-28";
-import { getGeneratorComponent } from "../graph/generator-registry.js?v=adaptive-component-demand-28";
-import { createShaderBuilder, fusedUniformName } from "../shaders/shader-builder.js?v=adaptive-component-demand-28";
-import { getGeneratorShaderComponent } from "../shaders/generator-shaders.js?v=adaptive-component-demand-28";
-import { getShaderComponent } from "../shaders/shader-registry.js?v=adaptive-component-demand-28";
+import { RenderNodeRuntime, textureStateKey } from "../graph/render-node-runtime.js?v=adaptive-component-demand-29";
+import { createPlacedRenderResult, directPlacementKind, transformedPlacementDemandRect } from "../graph/placed-render-result.js?v=adaptive-component-demand-29";
+import { compileComponentPatch, compileShaderSchedule, flattenComponentChain, fuseLocalShaderSchedule, isFusibleShaderJob } from "../graph/render-scheduler.js?v=adaptive-component-demand-29";
+import { getGeneratorComponent } from "../graph/generator-registry.js?v=adaptive-component-demand-29";
+import { createShaderBuilder, fusedUniformName } from "../shaders/shader-builder.js?v=adaptive-component-demand-29";
+import { getGeneratorShaderComponent } from "../shaders/generator-shaders.js?v=adaptive-component-demand-29";
+import { getShaderComponent } from "../shaders/shader-registry.js?v=adaptive-component-demand-29";
 import { applyBlend } from "./blend-utils.js";
 import {
   createSharedFramebufferTarget,
   isSharedFramebufferTarget,
   unwrapRenderTarget,
-} from "./shared-framebuffer-target.js?v=adaptive-component-demand-28";
-import { applyFontToGlobal, applyFontToTarget } from "./font-loader.js?v=adaptive-component-demand-28";
-import { drawGenerator, drawStandby } from "./generators.js?v=adaptive-component-demand-28";
+} from "./shared-framebuffer-target.js?v=adaptive-component-demand-29";
+import { applyFontToGlobal, applyFontToTarget } from "./font-loader.js?v=adaptive-component-demand-29";
+import { drawGenerator, drawStandby } from "./generators.js?v=adaptive-component-demand-29";
 import { drawCover, drawMediaFit, isDrawableMedia, syncVideoPlayback } from "./media-utils.js";
 import {
   createRenderRequest,
@@ -33,8 +33,8 @@ import {
   sourceRenderDemand,
   outputSpanRect,
   worldSize,
-} from "./render-geometry.js?v=adaptive-component-demand-28";
-import { VjMapper } from "./vj-mapper.js?v=adaptive-component-demand-28";
+} from "./render-geometry.js?v=adaptive-component-demand-29";
+import { VjMapper } from "./vj-mapper.js?v=adaptive-component-demand-29";
 import { mediaRenditionKey } from "../services/media-rendition-service.js";
 
 const TERRAIN_GRID_CELLS = 48;
@@ -429,6 +429,11 @@ export class OutputRenderer {
     this.componentBufferUse = new Map();
     this.componentGpuBufferUse = new Map();
     this.componentPatches = new Map();
+    this.componentById = new Map();
+    this.recordingFrameById = new Map();
+    this.routeSourceNodeById = new Map();
+    this.routeSourceNodeByLegacyKey = new Map();
+    this.fallbackRouteSourceNode = null;
     this.thumbnailImages = new Map();
     this.thumbnailEditTransformBaselines = new Map();
     this.media = new Map();
@@ -502,6 +507,7 @@ export class OutputRenderer {
 
   async setup(initialState) {
     this.state = sanitizeState(initialState || {});
+    this.rebuildRouteLookups();
     if (this.shouldUseThumbnailPreview()) this.captureThumbnailEditTransformBaselines();
     this.applyPixelDensity();
     this.applyGlobalFont();
@@ -769,6 +775,7 @@ export class OutputRenderer {
     const previousSize = this.state ? this.renderSizeSignature(this.state.render) : "";
     const previousMappingSignature = this.mappingSignature;
     this.state = sanitizeState(nextState);
+    this.rebuildRouteLookups();
     const nextCameraSignature = cameraSettingsSignature(this.state.render);
     if (previousCameraSignature && previousCameraSignature !== nextCameraSignature) this.releaseCameraCapture();
     const isThumbnailPreview = this.shouldUseThumbnailPreview();
@@ -793,6 +800,26 @@ export class OutputRenderer {
     }
     this.setCalibrate(this.shouldCalibrateFromState());
     this.syncMapperOverlayMode();
+  }
+
+  rebuildRouteLookups() {
+    const components = this.state?.components || [];
+    const frames = this.state?.recordingFrames || [];
+    const sourceNodes = sceneSourceNodes(this.state || {});
+    this.componentById = new Map(components.map((component) => [component.id, component]));
+    this.recordingFrameById = new Map(frames.map((frame) => [frame.id, frame]));
+    this.routeSourceNodeById = new Map(sourceNodes.map((node) => [node.id, node]));
+    this.routeSourceNodeByLegacyKey = new Map(sourceNodes.map((node) => [
+      routeSourceLookupKey(node.componentId, node.outputFrameId),
+      node,
+    ]));
+    this.fallbackRouteSourceNode = sourceNodes[0] || null;
+  }
+
+  resolveRouteSourceNode(surface = {}) {
+    return this.routeSourceNodeById.get(surface.sourceNodeId) ||
+      this.routeSourceNodeByLegacyKey.get(routeSourceLookupKey(surface.componentId, surface.outputFrameId)) ||
+      this.fallbackRouteSourceNode;
   }
 
   renderSizeSignature(render = {}) {
@@ -3030,6 +3057,16 @@ export class OutputRenderer {
   renderSingleSceneSurfaces() {
     const outputBlackout = this.isOutputBlackout();
     const routes = this.buildSurfaceRenderPlan();
+    let mapperBatch = [];
+    let mapperBatchBlend = "";
+    const flushMapperBatch = () => {
+      if (!mapperBatch.length) return;
+      const batch = mapperBatch;
+      const blend = mapperBatchBlend;
+      mapperBatch = [];
+      mapperBatchBlend = "";
+      this.measureGpu(drawingContext, () => this.drawSurfaceRouteViewBatch(batch, blend));
+    };
     for (const route of routes) {
       const { surface, mapped, surfaceRequest: request } = route;
       if (this.canDirectProjectSurfaceRoute(route, outputBlackout)) {
@@ -3037,9 +3074,18 @@ export class OutputRenderer {
         if (!view) continue;
         this.frameProfile.directSurfaceSamples++;
         this.frameProfile.avoidedSurfaceRasterPixels += request.width * request.height;
-        this.measureGpu(drawingContext, () => this.drawSurfaceRouteView(view, route));
+        if (mapped.direct && Number(surface.feather) <= 0) {
+          flushMapperBatch();
+          this.measureGpu(drawingContext, () => this.drawSurfaceRouteView(view, route));
+          continue;
+        }
+        const blend = surface.finalBlend || "normal";
+        if (mapperBatch.length && blend !== mapperBatchBlend) flushMapperBatch();
+        mapperBatchBlend = blend;
+        mapperBatch.push({ view, route });
         continue;
       }
+      flushMapperBatch();
       this.frameProfile.surfaceRasterPixels += request.width * request.height;
       const pg = this.getSurfaceTexture(request);
       if (!pg) continue;
@@ -3058,6 +3104,7 @@ export class OutputRenderer {
         else this.mapper.drawTexture(pg, mapped.mapperSurface, surface.projectionFit, surface.feather);
       });
     }
+    flushMapperBatch();
   }
 
   currentLiveTransition(nowMs = Date.now()) {
@@ -3202,7 +3249,7 @@ export class OutputRenderer {
     for (const storedSurface of this.state.surfaces || []) {
       if (!storedSurface.enabled) continue;
       this.frameProfile.surfaceRouteCandidates++;
-      const sourceNode = resolveSceneSourceNode(this.state, storedSurface.sourceNodeId, storedSurface);
+      const sourceNode = this.resolveRouteSourceNode(storedSurface);
       if (!sourceNode) continue;
       const surface = {
         ...storedSurface,
@@ -3211,9 +3258,15 @@ export class OutputRenderer {
         outputFrameId: sourceNode.outputFrameId,
       };
       const mapped = this.mapperSurfaces.get(surface.id);
-      const component = this.state.components.find((item) => item.id === surface.componentId);
+      const component = this.componentById.get(surface.componentId);
       if (!mapped?.mapperSurface || !component) continue;
-      const sourceView = componentSourceView(this.state.render, component, surface, this.state.recordingFrames);
+      const sourceView = componentSourceView(
+        this.state.render,
+        component,
+        surface,
+        this.state.recordingFrames,
+        this.recordingFrameById
+      );
       const maxSurfaceSize = manualSurfaceLimit || {
         // Auto is demand-driven. This is only a conservative WebGL safety
         // bound; source raster limits normally stop demand well before it.
@@ -3346,6 +3399,27 @@ export class OutputRenderer {
           }
         );
       }
+    } finally {
+      blendMode(BLEND);
+      pop();
+    }
+  }
+
+  drawSurfaceRouteViewBatch(items = [], blend = "normal") {
+    if (!items.length) return;
+    push();
+    try {
+      applyBlendGlobal(blend);
+      this.mapper.drawTextureBatch(items.map(({ view, route }) => ({
+        texture: view.texture,
+        surface: route.mapped.mapperSurface,
+        projectionFit: route.surface.projectionFit,
+        feather: route.surface.feather,
+        options: {
+          sourceRect: view.sourceRect,
+          opacity: clamp01(route.surface.opacity),
+        },
+      })));
     } finally {
       blendMode(BLEND);
       pop();
@@ -7887,9 +7961,11 @@ export function resizeCanvasFrameRect(rect, corner, dx, dy, canvasWidth, canvasH
   };
 }
 
-function canvasRouteFrameRect(component = {}, surface = {}, recordingFrames = []) {
+function canvasRouteFrameRect(component = {}, surface = {}, recordingFrames = [], recordingFrameById = null) {
   const canvas = component.canvas || {};
-  const frame = recordingFrames.find((item) => item.id === surface.outputFrameId);
+  const frame = typeof recordingFrameById?.get === "function"
+    ? recordingFrameById.get(surface.outputFrameId)
+    : recordingFrames.find((item) => item.id === surface.outputFrameId);
   if (frame) return frame;
   return {
     x: 0,
@@ -7899,17 +7975,23 @@ function canvasRouteFrameRect(component = {}, surface = {}, recordingFrames = []
   };
 }
 
-export function componentSourceView(render = {}, component = {}, surface = {}, recordingFrames = []) {
+function routeSourceLookupKey(componentId = "", outputFrameId = "") {
+  return `${componentId}\u0000${outputFrameId || ""}`;
+}
+
+export function componentSourceView(render = {}, component = {}, surface = {}, recordingFrames = [], recordingFrameById = null) {
   if (component.type === "canvas") {
     const logicalSize = {
       width: Math.max(1, Number(component.canvas?.width) || VJ1.canvasWidth),
       height: Math.max(1, Number(component.canvas?.height) || VJ1.canvasHeight),
     };
-    const recordingFrame = recordingFrames.find((item) => item.id === surface.outputFrameId);
+    const recordingFrame = typeof recordingFrameById?.get === "function"
+      ? recordingFrameById.get(surface.outputFrameId)
+      : recordingFrames.find((item) => item.id === surface.outputFrameId);
     const maxRasterSize = canvasMaxRasterSize(render, logicalSize);
     return {
       logicalSize,
-      sampleRect: canvasRouteFrameRect(component, surface, recordingFrames),
+      sampleRect: canvasRouteFrameRect(component, surface, recordingFrames, recordingFrameById),
       maxRasterSize,
       // Recording frames may need extra sampling headroom when a small Canvas
       // region is enlarged. Keep the policy in the generic source-view contract.

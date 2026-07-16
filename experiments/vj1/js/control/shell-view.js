@@ -35,7 +35,7 @@ export function shellTemplate() {
             <summary class="icon-buttonish" title="Open output" aria-label="Open output">${icon("open_in_new")}</summary>
             <div id="output-menu-items" class="output-menu-items"></div>
           </details>
-          <span id="render-cost" class="status-pill cost-pill" title="Render cost"><span class="material-symbols-rounded">speed</span><span id="render-cost-text">0%</span></span>
+          <button id="render-cost" class="status-pill cost-pill" type="button" title="Profile rendering for 10 seconds" aria-label="Profile rendering for 10 seconds"><span class="material-symbols-rounded">speed</span><span id="render-cost-text">0%</span></button>
           <span id="cpu-time" class="status-pill work-time-pill" title="CPU render work"><span class="material-symbols-rounded">timer</span><span id="cpu-time-text">0.0 ms</span></span>
           <span id="gpu-time" class="status-pill work-time-pill" title="GPU render work"><span class="material-symbols-rounded">memory</span><span id="gpu-time-text">--</span></span>
           <span id="output-status" class="status-pill"><span class="status-dot"></span><span id="output-status-text">output</span></span>

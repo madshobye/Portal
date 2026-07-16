@@ -1,5 +1,5 @@
 import { VJ1 } from "../constants.js";
-import { componentTextureSize } from "./render-resolution.js?v=adaptive-component-demand-28";
+import { componentTextureSize } from "./render-resolution.js?v=adaptive-component-demand-29";
 
 export const COMPONENT_FRAME_SHAPES = ["landscape", "portrait", "square"];
 export const COMPONENT_RESOLUTION_SCALES = [0.5, 1, 2];

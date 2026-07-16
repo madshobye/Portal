@@ -1,10 +1,10 @@
 import { BLEND_MODES, VJ1 } from "../constants.js";
-import { componentTextureSize } from "../domain/render-resolution.js?v=adaptive-component-demand-28";
-import { sanitizeState } from "../domain/models.js?v=adaptive-component-demand-28";
-import { compileComponentPatch } from "../graph/render-scheduler.js?v=adaptive-component-demand-28";
+import { componentTextureSize } from "../domain/render-resolution.js?v=adaptive-component-demand-29";
+import { sanitizeState } from "../domain/models.js?v=adaptive-component-demand-29";
+import { compileComponentPatch } from "../graph/render-scheduler.js?v=adaptive-component-demand-29";
 import { planCompositorInputs, planPatchExecution, summarizeTextureBranches } from "../graph/patch-planner.js";
-import { getShaderComponent } from "../shaders/shader-registry.js?v=adaptive-component-demand-28";
-import { worldSize } from "../output/render-geometry.js?v=adaptive-component-demand-28";
+import { getShaderComponent } from "../shaders/shader-registry.js?v=adaptive-component-demand-29";
+import { worldSize } from "../output/render-geometry.js?v=adaptive-component-demand-29";
 
 export function analyzeVj1Project(input = {}, options = {}) {
   const state = sanitizeState(input || {});

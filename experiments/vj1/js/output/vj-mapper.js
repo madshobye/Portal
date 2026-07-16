@@ -121,30 +121,47 @@ export class VjMapper {
   }
 
   drawTexture(texture, surface, projectionFit = "cover", feather = 0, options = {}) {
-    if (!texture || !surface) return;
-    const featherAmount = Math.max(0, Math.min(0.5, Number(feather) || 0));
-    const shaderProgram = this._ensureShader(featherAmount > 0);
+    this.drawTextureBatch([{ texture, surface, projectionFit, feather, options }]);
+  }
+
+  drawTextureBatch(items = []) {
+    const drawableItems = items.filter((item) => item?.texture && item?.surface);
+    if (!drawableItems.length) return;
     const dpr = currentPixelDensity();
     this._renderResolution[0] = width * dpr;
     this._renderResolution[1] = height * dpr;
-    const cache = this._getRenderCache(surface, dpr);
-    if (!cache) return;
-    shader(shaderProgram);
-    shaderProgram.setUniform("tex", texture?.framebuffer || texture);
-    const sourceRect = normalizedSourceRect(texture, options.sourceRect);
-    const sourceWidth = sourceRect[2] * Math.max(1, Number(texture.width) || 1);
-    const sourceHeight = sourceRect[3] * Math.max(1, Number(texture.height) || 1);
-    shaderProgram.setUniform("uCanvasSize", [width, height]);
-    shaderProgram.setUniform("uHinv", cache.Hc);
-    shaderProgram.setUniform("uSourceRect", sourceRect);
-    shaderProgram.setUniform("uSourceAspect", Math.max(0.0001, sourceWidth / Math.max(1, sourceHeight)));
-    shaderProgram.setUniform("uTargetAspect", projectedSurfaceAspect(surface.corners, surface.w / surface.h));
-    shaderProgram.setUniform("uProjectionFit", projectionFitMode(projectionFit));
-    const opacity = Number(options.opacity ?? 1);
-    shaderProgram.setUniform("uOpacity", Number.isFinite(opacity) ? Math.max(0, Math.min(1, opacity)) : 1);
-    if (featherAmount > 0) shaderProgram.setUniform("uFeather", featherAmount);
-    this._drawSurfaceQuad(surface.corners);
-    resetShader();
+    let activeShader = null;
+    noStroke();
+    try {
+      for (const item of drawableItems) {
+        const featherAmount = Math.max(0, Math.min(0.5, Number(item.feather) || 0));
+        const shaderProgram = this._ensureShader(featherAmount > 0);
+        const cache = this._getRenderCache(item.surface, dpr);
+        if (!cache) continue;
+        if (shaderProgram !== activeShader) {
+          shader(shaderProgram);
+          shaderProgram.setUniform("uCanvasSize", [width, height]);
+          activeShader = shaderProgram;
+        }
+        const options = item.options || {};
+        const texture = item.texture;
+        const sourceRect = normalizedSourceRect(texture, options.sourceRect);
+        const sourceWidth = sourceRect[2] * Math.max(1, Number(texture.width) || 1);
+        const sourceHeight = sourceRect[3] * Math.max(1, Number(texture.height) || 1);
+        shaderProgram.setUniform("tex", texture?.framebuffer || texture);
+        shaderProgram.setUniform("uHinv", cache.Hc);
+        shaderProgram.setUniform("uSourceRect", sourceRect);
+        shaderProgram.setUniform("uSourceAspect", Math.max(0.0001, sourceWidth / Math.max(1, sourceHeight)));
+        shaderProgram.setUniform("uTargetAspect", cache.targetAspect);
+        shaderProgram.setUniform("uProjectionFit", projectionFitMode(item.projectionFit));
+        const opacity = Number(options.opacity ?? 1);
+        shaderProgram.setUniform("uOpacity", Number.isFinite(opacity) ? Math.max(0, Math.min(1, opacity)) : 1);
+        if (featherAmount > 0) shaderProgram.setUniform("uFeather", featherAmount);
+        this._drawSurfaceQuad(cache.vertices);
+      }
+    } finally {
+      if (activeShader) resetShader();
+    }
   }
 
   drawTransitionTextures(fromTexture, toTexture, surface, {
@@ -168,12 +185,12 @@ export class VjMapper {
     shaderProgram.setUniform("uHinv", cache.Hc);
     shaderProgram.setUniform("uFromSourceAspect", Math.max(0.0001, Number(fromTexture.width) || 1) / Math.max(1, Number(fromTexture.height) || 1));
     shaderProgram.setUniform("uToSourceAspect", Math.max(0.0001, Number(toTexture.width) || 1) / Math.max(1, Number(toTexture.height) || 1));
-    shaderProgram.setUniform("uTargetAspect", projectedSurfaceAspect(surface.corners, surface.w / surface.h));
+    shaderProgram.setUniform("uTargetAspect", cache.targetAspect);
     shaderProgram.setUniform("uFromProjectionFit", projectionFitMode(fromProjectionFit));
     shaderProgram.setUniform("uToProjectionFit", projectionFitMode(toProjectionFit));
     shaderProgram.setUniform("uTransition", Math.max(0, Math.min(1, Number(progress) || 0)));
     if (featherAmount > 0) shaderProgram.setUniform("uFeather", featherAmount);
-    this._drawSurfaceQuad(surface.corners);
+    this._drawSurfaceQuad(cache.vertices);
     resetShader();
   }
 
@@ -298,10 +315,8 @@ export class VjMapper {
     return this.transitionShader;
   }
 
-  _drawSurfaceQuad(corners) {
-    if (!Array.isArray(corners) || corners.length !== 4) return;
-    noStroke();
-    const vertices = surfaceQuadVertices(corners, width, height);
+  _drawSurfaceQuad(vertices) {
+    if (!Array.isArray(vertices) || vertices.length !== 4) return;
     beginShape(TRIANGLE_STRIP);
     for (const point of vertices) vertex(point.x, point.y, 0);
     endShape();
@@ -348,6 +363,8 @@ export class VjMapper {
         inverse[2], inverse[5], inverse[8],
       ],
       bounds,
+      vertices: surfaceQuadVertices(corners, width, height),
+      targetAspect: projectedSurfaceAspect(corners, surface.w / surface.h),
     };
     return surface.renderCache;
   }

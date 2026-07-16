@@ -375,6 +375,18 @@ small {
   gap: 5px;
 }
 
+button.cost-pill {
+  appearance: none;
+  background: transparent;
+  cursor: pointer;
+}
+
+button.cost-pill:hover,
+button.cost-pill.is-active {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
 .cost-pill #render-cost-text,
 .work-time-pill #cpu-time-text,
 .work-time-pill #gpu-time-text {

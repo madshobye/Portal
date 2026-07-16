@@ -135,6 +135,8 @@ Only required components render. Static results are signature-cached; dynamic in
 
 Use the generic source-view and demand path for Components, full Canvases, and recording frames. Cull routes outside the output viewport before rendering or allocation. Multiple routes share the largest required component raster for that renderer/frame. Recording frames are source-rectangle/UV views into that one parent Canvas texture; multiple frames must never allocate or render independent Canvas textures. Never shrink logical geometry as a performance shortcut.
 
+Surface route source, Component, and recording-frame lookups are indexed when renderer state changes. Compatible contiguous mapped routes preserve compositing order while sharing mapper shader/state setup and cached quad geometry. The top-bar render-cost percentage is a button that captures a 10-second Preview/Output profile, downloads an analyzer-ready JSON report, and exposes it as `window.__vj1LastProfileReport`.
+
 Drawable 2D media, cameras, and referenced Components may remain placed textures until composited. Effects and isolated Groups are materialization boundaries. Eligibility belongs in `directPlacementKind()`, not duplicated type-specific branches.
 
 Specialized anatomy, STL/OBJ, and Terrain paths render real 3D internally. They must use one stable resizable scratch target per renderer, not size-keyed context maps. Cache static model buffers per context, dispose them explicitly, and keep logical wire widths resolution-independent. Terrain remains a specialized polygon-grid renderer, not a full-frame shader-registry generator.
@@ -184,7 +186,7 @@ Before finishing renderer work:
 
 The implementation baseline is committed. Recent work centers on generic direct projection for Components, full Canvases, and recording-frame source rectangles; adaptive Component raster demand; demand-sized previews; shared 8192 bounds; static performance estimates; cache-busting imports; and focused render-geometry/output tests. Surface textures remain only on explicit materialization paths.
 
-The handover reports **265 passing Node tests**. Real GLSL still requires the shader smoke page. The representative performance comparison is `metrics-results/runs/four-surface-show-gpu-architecture.*`.
+The handover reports **266 passing Node tests**. Real GLSL still requires the shader smoke page. The representative performance comparison is `metrics-results/runs/four-surface-show-gpu-architecture.*`.
 
 ## Change Discipline
 

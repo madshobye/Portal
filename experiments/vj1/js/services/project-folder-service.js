@@ -1,4 +1,4 @@
-import { collectFilesFromDirectory, isMediaFile, isShaderFile } from "./media-library-service.js?v=adaptive-component-demand-28";
+import { collectFilesFromDirectory, isMediaFile, isShaderFile } from "./media-library-service.js?v=adaptive-component-demand-29";
 import { RENDITION_DIR, RENDITION_ROOT, mediaRenditionPath } from "./media-rendition-service.js";
 import {
   canPersistDirectoryHandles,
@@ -6,8 +6,8 @@ import {
   loadProjectDirectoryHandle,
   saveProjectDirectoryHandle,
 } from "./directory-handle-store.js";
-import { applySceneSnapshotToState, createInitialState } from "../domain/models.js?v=adaptive-component-demand-28";
-import { CURRENT_PROJECT_VERSION, migrateProjectData, ProjectVersionError } from "../domain/project-migrations.js?v=adaptive-component-demand-28";
+import { applySceneSnapshotToState, createInitialState } from "../domain/models.js?v=adaptive-component-demand-29";
+import { CURRENT_PROJECT_VERSION, migrateProjectData, ProjectVersionError } from "../domain/project-migrations.js?v=adaptive-component-demand-29";
 
 export function createProjectFolderService({ mediaLibrary, store, bridge }) {
   let dirHandle = null;

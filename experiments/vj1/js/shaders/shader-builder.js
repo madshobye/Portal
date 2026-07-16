@@ -1,4 +1,4 @@
-import { getShaderComponent } from "./shader-registry.js?v=adaptive-component-demand-28";
+import { getShaderComponent } from "./shader-registry.js?v=adaptive-component-demand-29";
 
 export function createShaderBuilder({ getCustomCode, onStatus }) {
   const cache = new Map();

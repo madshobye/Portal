@@ -1,20 +1,21 @@
 import { BLEND_MODES, VJ1, WORKSPACES } from "../constants.js";
 import { componentFrameMetrics } from "../domain/component-frame.js";
-import { applySceneSourceNode, applySceneSnapshotToState, createLiveComponentView, createLiveRenderState, createOutputDefinition, createSceneSnapshot, normalizeRenderSettings, resolveSceneSourceNode, sceneSourceNodes, syncLiveSnapshotFromScene } from "../domain/models.js?v=adaptive-component-demand-28";
-import { latestProjectActivity, touchComponentUsed, touchRecordingFrameUsed } from "../domain/component-activity.js?v=adaptive-component-demand-28";
-import { normalizeParamValue, RENDER_QUALITY_PARAM } from "../graph/component-schema.js?v=adaptive-component-demand-28";
-import { getGeneratorComponent, listGeneratorComponents } from "../graph/generator-registry.js?v=adaptive-component-demand-28";
+import { applySceneSourceNode, applySceneSnapshotToState, createLiveComponentView, createLiveRenderState, createOutputDefinition, createSceneSnapshot, normalizeRenderSettings, resolveSceneSourceNode, sceneSourceNodes, syncLiveSnapshotFromScene } from "../domain/models.js?v=adaptive-component-demand-29";
+import { latestProjectActivity, touchComponentUsed, touchRecordingFrameUsed } from "../domain/component-activity.js?v=adaptive-component-demand-29";
+import { normalizeParamValue, RENDER_QUALITY_PARAM } from "../graph/component-schema.js?v=adaptive-component-demand-29";
+import { getGeneratorComponent, listGeneratorComponents } from "../graph/generator-registry.js?v=adaptive-component-demand-29";
 import { patchNodeDegree, planCompositorInputs, planPatchExecution, summarizeTextureBranches } from "../graph/patch-planner.js";
-import { compileComponentPatch } from "../graph/render-scheduler.js?v=adaptive-component-demand-28";
-import { buildOutputUrl } from "../view-routing.js?v=adaptive-component-demand-28";
-import { getShaderComponent, listShaderComponents } from "../shaders/shader-registry.js?v=adaptive-component-demand-28";
-import { createEmbeddedPreviewApp } from "../output/embedded-preview-app.js?v=adaptive-component-demand-28";
-import { frameFitViewport, resetViewport, zoomViewport } from "../output/preview-viewport.js?v=adaptive-component-demand-28";
-import { defaultProjectSurfaceMapping } from "../output/render-geometry.js?v=adaptive-component-demand-28";
+import { compileComponentPatch } from "../graph/render-scheduler.js?v=adaptive-component-demand-29";
+import { buildOutputUrl } from "../view-routing.js?v=adaptive-component-demand-29";
+import { getShaderComponent, listShaderComponents } from "../shaders/shader-registry.js?v=adaptive-component-demand-29";
+import { createEmbeddedPreviewApp } from "../output/embedded-preview-app.js?v=adaptive-component-demand-29";
+import { frameFitViewport, resetViewport, zoomViewport } from "../output/preview-viewport.js?v=adaptive-component-demand-29";
+import { defaultProjectSurfaceMapping } from "../output/render-geometry.js?v=adaptive-component-demand-29";
+import { analyzeVj1Project } from "../metrics/component-metrics.js?v=adaptive-component-demand-29";
 import { createHtmlCache, isInteractiveNode, isTextEditingNode, setClass, setText } from "./dom-utils.js";
 import { bindReorderList } from "./reorder-list.js";
-import { collectRefs, shellTemplate } from "./shell-view.js?v=adaptive-component-demand-28";
-import { effectIcon, emptyNote, esc, icon, paramRangePairTemplate, rangeTemplate, selectValuesTemplate, sourceTypeIcon, thumbnailTemplate } from "./template-utils.js?v=adaptive-component-demand-28";
+import { collectRefs, shellTemplate } from "./shell-view.js?v=adaptive-component-demand-29";
+import { effectIcon, emptyNote, esc, icon, paramRangePairTemplate, rangeTemplate, selectValuesTemplate, sourceTypeIcon, thumbnailTemplate } from "./template-utils.js?v=adaptive-component-demand-29";
 
 const MODEL_RENDER_MODES = ["surface", "wireframe", "surfaceWire", "points"];
 const MEDIA_FIT_MODES = ["contain", "cover"];
@@ -56,11 +57,14 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
   let settingsOpen = false;
   let settingsTab = "outputs";
   let activeCatalogViewKey = "";
+  let performanceProfile = null;
+  let performanceProfileTimer = 0;
   const catalogOrderSnapshots = { component: [], scene: [] };
   const replaceHtmlIfChanged = createHtmlCache();
   const mediaPreviewUrls = new Map();
   const embeddedPreview = createEmbeddedPreviewApp({ store, mediaLibrary, projectService });
   const interactionQuietMs = 160;
+  const performanceProfileDurationMs = 10000;
 
   function mount() {
     root.innerHTML = shellTemplate();
@@ -69,6 +73,7 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
     restorePreviewPreference();
     store.subscribe((state, reason) => {
       latestState = state;
+      if (reason === "output-metrics" || reason === "preview-metrics") capturePerformanceProfileSample(state, reason);
       if (reason === "mapping-state") {
         renderTopbar(state);
         renderPreview(state);
@@ -182,6 +187,8 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
       }, "toggle-preview");
     });
 
+    refs.renderCost.addEventListener("click", startPerformanceProfile);
+
     refs.toggleLabels.addEventListener("click", () => {
       store.update((draft) => {
         draft.global.showLabels = !draft.global.showLabels;
@@ -270,6 +277,84 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
     } catch {
       // This is only a tab preference; project data stays in the project folder.
     }
+  }
+
+  function startPerformanceProfile() {
+    if (performanceProfile) return;
+    const startedAt = performance.now();
+    performanceProfile = {
+      startedAt,
+      startedAtIso: new Date().toISOString(),
+      endsAt: startedAt + performanceProfileDurationMs,
+      samples: [],
+    };
+    capturePerformanceProfileSample(latestState);
+    renderTopbar(latestState);
+    performanceProfileTimer = window.setInterval(() => {
+      if (!performanceProfile || performance.now() >= performanceProfile.endsAt) {
+        finishPerformanceProfile();
+        return;
+      }
+      renderTopbar(latestState);
+    }, 250);
+  }
+
+  function capturePerformanceProfileSample(state, reason = "active") {
+    if (!performanceProfile) return;
+    const outputFps = state.metrics?.clients > 0 ? Math.max(0, Number(state.metrics.fps) || 0) : 0;
+    const metric = reason === "preview-metrics"
+      ? {
+          source: "preview",
+          fps: Math.max(0, Number(state.metrics.previewFps) || 0),
+          cpuMs: Math.max(0, Number(state.metrics.previewFrameMs) || 0),
+          gpuMs: Math.max(0, Number(state.metrics.previewGpuMs) || 0),
+          gpuSupported: state.metrics.previewGpuSupported === true,
+          profile: state.metrics.previewProfile || null,
+          renderCost: Math.max(0, Number(state.metrics.previewRenderCost) || 0),
+        }
+      : reason === "output-metrics"
+        ? {
+            source: "output",
+            fps: outputFps,
+            cpuMs: Math.max(0, Number(state.metrics.frameMs) || 0),
+            gpuMs: Math.max(0, Number(state.metrics.gpuMs) || 0),
+            gpuSupported: state.metrics.gpuSupported === true,
+            profile: state.metrics.profile || null,
+            renderCost: Math.max(0, Number(state.metrics.renderCost) || 0),
+          }
+        : { ...activeWorkMetric(state, outputFps), renderCost: activeRenderCost(state) };
+    if (!(metric.fps > 0)) return;
+    performanceProfile.samples.push({
+      sampledAt: new Date().toISOString(),
+      source: metric.source,
+      fps: metric.fps,
+      frameMs: metric.cpuMs,
+      gpuMs: metric.gpuMs,
+      gpuSupported: metric.gpuSupported,
+      renderCost: metric.renderCost,
+      profile: metric.profile ? structuredCloneSafe(metric.profile) : null,
+    });
+  }
+
+  function finishPerformanceProfile() {
+    if (!performanceProfile) return;
+    if (performanceProfileTimer) window.clearInterval(performanceProfileTimer);
+    performanceProfileTimer = 0;
+    const session = performanceProfile;
+    performanceProfile = null;
+    const report = {
+      kind: "vj1-runtime-profile",
+      durationMs: performanceProfileDurationMs,
+      startedAt: session.startedAtIso,
+      completedAt: new Date().toISOString(),
+      runtimeSamples: session.samples,
+      analysis: analyzeVj1Project(latestState, { runtimeSamples: session.samples }),
+    };
+    globalThis.__vj1LastProfileReport = report;
+    downloadPerformanceProfile(report, latestState.project?.name || "vj1");
+    console.info("[VJ1_PROFILE_COMPLETE]", report);
+    setStatus(`Profile complete · ${session.samples.length} samples downloaded`);
+    renderTopbar(latestState);
   }
 
   function bindInteractionDeferral() {
@@ -369,7 +454,14 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
     setText(refs.outputStatusText, outputConnected ? `${Math.round(outputFps)} fps` : "output");
     const renderCost = activeRenderCost(state);
     setClass(refs.renderCost, "is-hot", renderCost > 0.8);
-    setText(refs.renderCostText, formatRenderCost(renderCost));
+    setClass(refs.renderCost, "is-active", !!performanceProfile);
+    const profileSeconds = performanceProfile
+      ? Math.max(1, Math.ceil((performanceProfile.endsAt - performance.now()) / 1000))
+      : 0;
+    setText(refs.renderCostText, performanceProfile ? `${profileSeconds}s` : formatRenderCost(renderCost));
+    refs.renderCost.title = performanceProfile
+      ? `Profiling rendering… ${profileSeconds} second${profileSeconds === 1 ? "" : "s"} remaining`
+      : "Profile rendering for 10 seconds and download an analysis report";
     const workMetric = activeWorkMetric(state, outputFps);
     setClass(refs.cpuTime, "is-hot", workMetric.cpuMs > 8.33);
     setText(refs.cpuTimeText, formatTimeMs(workMetric.cpuMs));
@@ -3417,6 +3509,28 @@ function currentWorkspace(state) {
 
 function hasOpenProject(state) {
   return !!state?.project?.folderName;
+}
+
+function structuredCloneSafe(value) {
+  return typeof structuredClone === "function"
+    ? structuredClone(value)
+    : JSON.parse(JSON.stringify(value));
+}
+
+function downloadPerformanceProfile(report, projectName = "vj1") {
+  const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
+  const safeProjectName = String(projectName || "vj1")
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "") || "vj1";
+  const blob = new Blob([JSON.stringify(report, null, 2)], { type: "application/json" });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = `${timestamp}-${safeProjectName}.profile.json`;
+  link.click();
+  setTimeout(() => URL.revokeObjectURL(url), 0);
 }
 
 function activeRenderCost(state) {

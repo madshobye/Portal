@@ -475,11 +475,11 @@ test("canvas rendering evaluates ordinary sources, Groups, effects, and shared r
   assert.ok(source.includes("this.renderDirectSourceNodeState(nodeId, state, component, item, componentTime, renderRequest)"));
   assert.ok(source.includes("this.renderLayerNodeState(nodeId, state, sourceState, { ...item, transform: {} }, renderRequest)"));
   assert.ok(source.includes('source.type === "component"'));
-  assert.ok(source.includes("componentSourceView(this.state.render, component, surface, this.state.recordingFrames)"));
+  assert.ok(source.includes("this.recordingFrameById"));
   assert.ok(source.includes("this.state?.recordingFrames || []"));
   assert.ok(source.includes("renderCanvasRecordingFrames(component, source)"));
   assert.ok(source.includes("surface.outputFrameId"));
-  assert.ok(source.includes("resolveSceneSourceNode(this.state, storedSurface.sourceNodeId, storedSurface)"));
+  assert.ok(source.includes("this.resolveRouteSourceNode(storedSurface)"));
   assert.ok(!source.includes('item.role === "canvas-layer"'));
   assert.ok(canvasRenderer.includes("this.renderComponentChainState("));
   assert.ok(!canvasRenderer.includes('item.kind === "source"'));
@@ -522,6 +522,25 @@ test("multiple recording frames share one parent Canvas texture request", () => 
   assert.deepEqual(pickRequestSize(requests.get("canvas-a")), { width: 1920, height: 1088 });
   assert.equal(requests.get("canvas-a").renderIdentity, "to:canvas-a");
   assert.equal(requests.get("canvas-a").demandScale, 0.5);
+});
+
+test("surface route lookup indexes components, frames, and source nodes once per state", () => {
+  const renderer = new OutputRenderer({});
+  renderer.state = {
+    components: [{ id: "canvas-a", type: "canvas", name: "Canvas A", canvas: {} }],
+    recordingFrames: [{ id: "frame-a", name: "Frame A" }],
+  };
+  renderer.rebuildRouteLookups();
+
+  const node = renderer.resolveRouteSourceNode({
+    sourceNodeId: "recording-frame:canvas-a:frame-a",
+    componentId: "canvas-a",
+    outputFrameId: "frame-a",
+  });
+  assert.equal(renderer.componentById.get("canvas-a").type, "canvas");
+  assert.equal(renderer.recordingFrameById.get("frame-a").name, "Frame A");
+  assert.equal(node.componentId, "canvas-a");
+  assert.equal(node.outputFrameId, "frame-a");
 });
 
 test("Canvas demand is capped to logical size by default and can opt into supersampling", () => {
@@ -852,7 +871,9 @@ test("scene surfaces render components at their configured shape and relative re
   );
 
   assert.ok(surfaceRenderPlan.includes("sourceRenderDemand({"));
-  assert.ok(surfaceRenderPlan.includes("componentSourceView(this.state.render, component"));
+  assert.ok(surfaceRenderPlan.includes("componentSourceView("));
+  assert.ok(surfaceRenderPlan.includes("this.componentById.get(surface.componentId)"));
+  assert.ok(surfaceRenderPlan.includes("this.resolveRouteSourceNode(storedSurface)"));
   assert.ok(surfaceRenderPlan.includes("this.state.render?.sampling?.surfaceOverscan"));
   assert.ok(surfaceRenderPlan.includes("sharedComponentRenderRequests(routes"));
   assert.ok(surfaceRenderPlan.includes("route.componentRequest = componentRequests.get(route.component.id)"));
@@ -976,6 +997,9 @@ test("projection mapper uses actual texture size for surface sampling math", () 
   assert.ok(rendererSource.includes("this.mapper.drawTexture(pg, mapped.mapperSurface, surface.projectionFit, surface.feather)"));
   assert.ok(rendererSource.includes("sourceRect: view.sourceRect"));
   assert.ok(rendererSource.includes("directSurfaceSamples"));
+  assert.ok(source.includes("drawTextureBatch(items = [])"));
+  assert.ok(source.includes("this._drawSurfaceQuad(cache.vertices)"));
+  assert.ok(rendererSource.includes("drawSurfaceRouteViewBatch(batch, blend)"));
 });
 
 test("zero-duration Live output retains the original single-scene surface path", () => {

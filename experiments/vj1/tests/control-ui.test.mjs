@@ -351,6 +351,11 @@ test("topbar shows separate active-renderer CPU and GPU work timers", () => {
   assert.ok(rendererSource.includes("this.pruneRenderCaches();\n    this.gpuTimer.sealFrame"));
   assert.ok(rendererSource.includes("gpuSupported: this.gpuTimer.supported"));
   assert.ok(previewSource.includes("draft.metrics.previewGpuMs = metrics.gpuMs || 0"));
+  assert.ok(shellSource.includes('id="render-cost" class="status-pill cost-pill" type="button"'));
+  assert.ok(controllerSource.includes("performanceProfileDurationMs = 10000"));
+  assert.ok(controllerSource.includes("analyzeVj1Project(latestState, { runtimeSamples: session.samples })"));
+  assert.ok(controllerSource.includes("globalThis.__vj1LastProfileReport = report"));
+  assert.ok(controllerSource.includes("downloadPerformanceProfile(report"));
 });
 
 test("topbar metric readouts reserve stable widths", () => {
