@@ -1,10 +1,10 @@
-import { createAppState } from "./app-state.js?v=adaptive-component-demand-26";
-import { createControlShell } from "./control/control-shell-controller.js?v=adaptive-component-demand-26";
-import { getInitialWorkspace, getClientMode, persistWorkspace } from "./view-routing.js?v=adaptive-component-demand-26";
-import { createMediaLibrary } from "./services/media-library-service.js?v=adaptive-component-demand-26";
-import { createProjectFolderService } from "./services/project-folder-service.js?v=adaptive-component-demand-26";
-import { createControlBridge } from "./services/output-bridge-service.js?v=adaptive-component-demand-26";
-import { installOutputApp } from "./output/output-app.js?v=adaptive-component-demand-26";
+import { createAppState } from "./app-state.js?v=adaptive-component-demand-28";
+import { createControlShell } from "./control/control-shell-controller.js?v=adaptive-component-demand-28";
+import { getInitialWorkspace, getClientMode, persistWorkspace } from "./view-routing.js?v=adaptive-component-demand-28";
+import { createMediaLibrary } from "./services/media-library-service.js?v=adaptive-component-demand-28";
+import { createProjectFolderService } from "./services/project-folder-service.js?v=adaptive-component-demand-28";
+import { createControlBridge } from "./services/output-bridge-service.js?v=adaptive-component-demand-28";
+import { installOutputApp } from "./output/output-app.js?v=adaptive-component-demand-28";
 
 const root = document.getElementById("app");
 const mode = getClientMode();

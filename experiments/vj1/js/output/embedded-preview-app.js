@@ -1,9 +1,9 @@
 import { VJ1 } from "../constants.js";
-import { sanitizeState } from "../domain/models.js?v=adaptive-component-demand-26";
-import { OutputRenderer } from "./output-renderer.js?v=adaptive-component-demand-26";
-import { applyFontToGlobal, loadVjRenderFont } from "./font-loader.js?v=adaptive-component-demand-26";
-import { createPreviewViewportController, fitPreviewCanvasElement } from "./preview-viewport.js?v=adaptive-component-demand-26";
-import { canvasSizeForMode } from "./render-geometry.js?v=adaptive-component-demand-26";
+import { sanitizeState } from "../domain/models.js?v=adaptive-component-demand-28";
+import { OutputRenderer } from "./output-renderer.js?v=adaptive-component-demand-28";
+import { applyFontToGlobal, loadVjRenderFont } from "./font-loader.js?v=adaptive-component-demand-28";
+import { createPreviewViewportController, fitPreviewCanvasElement } from "./preview-viewport.js?v=adaptive-component-demand-28";
+import { canvasSizeForMode } from "./render-geometry.js?v=adaptive-component-demand-28";
 
 export function createEmbeddedPreviewApp({ store, mediaLibrary, projectService }) {
   let host = null;
@@ -287,7 +287,16 @@ export function createEmbeddedPreviewApp({ store, mediaLibrary, projectService }
     const deviceScale = Math.max(1, Math.min(2, Number(window.devicePixelRatio) || 1));
     const displayScale = Math.min(size.width / logical.width, size.height / logical.height, 1);
     const configuredDensity = Math.max(0.5, Math.min(2, Number(state.render?.pixelDensity) || 1));
-    const previewDensity = Math.min(configuredDensity, Math.max(0.125, displayScale * deviceScale));
+    const workspace = state.ui?.workspace;
+    const previewQuality = pendingMode === "preview" && (workspace === "scene" || workspace === "live")
+      ? state.ui?.previewQualities?.[workspace]
+      : "auto";
+    const previewDensity = previewRasterDensity({
+      configuredDensity,
+      displayScale,
+      deviceScale,
+      quality: previewQuality,
+    });
     return {
       ...state,
       render: {
@@ -405,6 +414,13 @@ export function createEmbeddedPreviewApp({ store, mediaLibrary, projectService }
   }
 
   return { mount, setState, command, pause };
+}
+
+export function previewRasterDensity({ configuredDensity = 1, displayScale = 1, deviceScale = 1, quality = "auto" } = {}) {
+  const configured = Math.max(0.5, Math.min(2, Number(configuredDensity) || 1));
+  if (quality === "full") return configured;
+  const automatic = Math.min(configured, Math.max(0.125, Number(displayScale) * Number(deviceScale) || 0.125));
+  return quality === "low" ? Math.max(0.125, automatic * 0.5) : automatic;
 }
 
 function findChainItemById(chain = [], id = "") {

@@ -1,4 +1,4 @@
-export const CURRENT_PROJECT_VERSION = 16;
+export const CURRENT_PROJECT_VERSION = 17;
 export const OLDEST_PROJECT_VERSION = 1;
 
 export class ProjectVersionError extends Error {
@@ -21,8 +21,8 @@ export class UnsupportedProjectVersionError extends ProjectVersionError {
 }
 
 // Every persisted model change adds exactly one adjacent migration here.
-// Never replace several steps with a direct jump: a v5 project opened by v16
-// must run every adjacent step from 5→6 through 15→16 in order.
+// Never replace several steps with a direct jump: a v5 project opened by v17
+// must run every adjacent step from 5→6 through 16→17 in order.
 export const PROJECT_MIGRATIONS = Object.freeze({
   1: migrateProjectV1ToV2,
   2: migrateProjectV2ToV3,
@@ -39,6 +39,7 @@ export const PROJECT_MIGRATIONS = Object.freeze({
   13: migrateProjectV13ToV14,
   14: migrateProjectV14ToV15,
   15: migrateProjectV15ToV16,
+  16: migrateProjectV16ToV17,
 });
 
 export function migrateProjectData(project = {}) {
@@ -390,6 +391,29 @@ export function migrateProjectV15ToV16(project) {
   const render = project.render && typeof project.render === "object" ? project.render : {};
   const { edgeSoftness: _removedEdgeSoftness, ...currentRender } = render;
   return { ...project, render: currentRender };
+}
+
+// v17 persists independent embedded-preview resolution choices for Scene and
+// Live without changing projector output resolution.
+export function migrateProjectV16ToV17(project) {
+  const ui = project.ui && typeof project.ui === "object" ? project.ui : {};
+  const qualities = ui.previewQualities && typeof ui.previewQualities === "object"
+    ? ui.previewQualities
+    : {};
+  return {
+    ...project,
+    ui: {
+      ...ui,
+      previewQualities: {
+        scene: migratedPreviewQuality(qualities.scene),
+        live: migratedPreviewQuality(qualities.live),
+      },
+    },
+  };
+}
+
+function migratedPreviewQuality(value) {
+  return ["auto", "low", "full"].includes(value) ? value : "auto";
 }
 
 function migrateCanvasPlacementScale(chain) {

@@ -1,20 +1,20 @@
 import { BLEND_MODES, VJ1, WORKSPACES } from "../constants.js";
 import { componentFrameMetrics } from "../domain/component-frame.js";
-import { applySceneSourceNode, applySceneSnapshotToState, createLiveComponentView, createLiveRenderState, createOutputDefinition, createSceneSnapshot, normalizeRenderSettings, resolveSceneSourceNode, sceneSourceNodes, syncLiveSnapshotFromScene } from "../domain/models.js?v=adaptive-component-demand-26";
-import { latestProjectActivity, touchComponentUsed, touchRecordingFrameUsed } from "../domain/component-activity.js?v=adaptive-component-demand-26";
-import { normalizeParamValue, RENDER_QUALITY_PARAM } from "../graph/component-schema.js?v=adaptive-component-demand-26";
-import { getGeneratorComponent, listGeneratorComponents } from "../graph/generator-registry.js?v=adaptive-component-demand-26";
+import { applySceneSourceNode, applySceneSnapshotToState, createLiveComponentView, createLiveRenderState, createOutputDefinition, createSceneSnapshot, normalizeRenderSettings, resolveSceneSourceNode, sceneSourceNodes, syncLiveSnapshotFromScene } from "../domain/models.js?v=adaptive-component-demand-28";
+import { latestProjectActivity, touchComponentUsed, touchRecordingFrameUsed } from "../domain/component-activity.js?v=adaptive-component-demand-28";
+import { normalizeParamValue, RENDER_QUALITY_PARAM } from "../graph/component-schema.js?v=adaptive-component-demand-28";
+import { getGeneratorComponent, listGeneratorComponents } from "../graph/generator-registry.js?v=adaptive-component-demand-28";
 import { patchNodeDegree, planCompositorInputs, planPatchExecution, summarizeTextureBranches } from "../graph/patch-planner.js";
-import { compileComponentPatch } from "../graph/render-scheduler.js?v=adaptive-component-demand-26";
-import { buildOutputUrl } from "../view-routing.js?v=adaptive-component-demand-26";
-import { getShaderComponent, listShaderComponents } from "../shaders/shader-registry.js?v=adaptive-component-demand-26";
-import { createEmbeddedPreviewApp } from "../output/embedded-preview-app.js?v=adaptive-component-demand-26";
-import { frameFitViewport, resetViewport, zoomViewport } from "../output/preview-viewport.js?v=adaptive-component-demand-26";
-import { defaultProjectSurfaceMapping } from "../output/render-geometry.js?v=adaptive-component-demand-26";
+import { compileComponentPatch } from "../graph/render-scheduler.js?v=adaptive-component-demand-28";
+import { buildOutputUrl } from "../view-routing.js?v=adaptive-component-demand-28";
+import { getShaderComponent, listShaderComponents } from "../shaders/shader-registry.js?v=adaptive-component-demand-28";
+import { createEmbeddedPreviewApp } from "../output/embedded-preview-app.js?v=adaptive-component-demand-28";
+import { frameFitViewport, resetViewport, zoomViewport } from "../output/preview-viewport.js?v=adaptive-component-demand-28";
+import { defaultProjectSurfaceMapping } from "../output/render-geometry.js?v=adaptive-component-demand-28";
 import { createHtmlCache, isInteractiveNode, isTextEditingNode, setClass, setText } from "./dom-utils.js";
 import { bindReorderList } from "./reorder-list.js";
-import { collectRefs, shellTemplate } from "./shell-view.js?v=adaptive-component-demand-26";
-import { effectIcon, emptyNote, esc, icon, paramRangePairTemplate, rangeTemplate, selectValuesTemplate, sourceTypeIcon, thumbnailTemplate } from "./template-utils.js?v=adaptive-component-demand-26";
+import { collectRefs, shellTemplate } from "./shell-view.js?v=adaptive-component-demand-28";
+import { effectIcon, emptyNote, esc, icon, paramRangePairTemplate, rangeTemplate, selectValuesTemplate, sourceTypeIcon, thumbnailTemplate } from "./template-utils.js?v=adaptive-component-demand-28";
 
 const MODEL_RENDER_MODES = ["surface", "wireframe", "surfaceWire", "points"];
 const MEDIA_FIT_MODES = ["contain", "cover"];
@@ -667,7 +667,7 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
           <button type="button" class="preview-tool" data-preview-fit-world title="Fit world" aria-label="Fit world">${icon("public")}</button>
           <button type="button" class="preview-tool" data-preview-fit-frame title="Fit outputs" aria-label="Fit outputs">${icon("fit_screen")}</button>
           <button type="button" class="preview-tool" data-preview-zoom-in title="Zoom in" aria-label="Zoom in">${icon("add")}</button>
-          <button type="button" class="preview-tool preview-quality-tool is-hidden" data-canvas-preview-quality title="Canvas preview quality" aria-label="Canvas preview quality"><span data-preview-quality-label>Auto</span></button>
+          <button type="button" class="preview-tool preview-quality-tool is-hidden" data-preview-quality title="Preview resolution" aria-label="Preview resolution"><span data-preview-quality-label>Auto</span></button>
           <button type="button" class="preview-tool" data-toggle-mapping-handles title="Toggle mapping handles" aria-label="Toggle mapping handles">${icon("control_point_duplicate")}</button>
           <div class="preview-fps" data-preview-fps>0 fps</div>
         </div>
@@ -677,21 +677,28 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
     const handleButton = previewHost.querySelector("[data-toggle-mapping-handles]");
     setClass(handleButton, "is-active", state.global.mappingHandleMode !== "near");
     setClass(handleButton, "is-hidden", kind !== "preview");
-    const qualityButton = previewHost.querySelector("[data-canvas-preview-quality]");
+    const qualityButton = previewHost.querySelector("[data-preview-quality]");
     const canvas = workspace === "canvas" ? selectedCanvasComponent(state) : null;
-    const previewQuality = ["low", "full"].includes(canvas?.canvas?.previewQuality) ? canvas.canvas.previewQuality : "auto";
+    const supportsPreviewQuality = !!canvas || workspace === "scene" || workspace === "live";
+    const storedPreviewQuality = canvas?.canvas?.previewQuality || state.ui?.previewQualities?.[workspace];
+    const previewQuality = ["low", "full"].includes(storedPreviewQuality) ? storedPreviewQuality : "auto";
     const qualityLabels = { auto: "Auto", low: "Low", full: "Full" };
-    const qualityDescriptions = {
+    const qualitySubject = canvas ? "Canvas" : workspace === "live" ? "Live" : "Scene";
+    const qualityDescriptions = canvas ? {
       auto: "Auto: internal Canvas raster follows the visible preview size",
       low: "Low: internal Canvas raster uses half the preview width and height",
       full: "Full: internal Canvas raster uses the full Canvas dimensions",
+    } : {
+      auto: `Auto: ${qualitySubject} render demand follows the visible preview size`,
+      low: `Low: ${qualitySubject} render demand uses half the automatic width and height`,
+      full: `Full: ${qualitySubject} render demand uses the configured output density`,
     };
-    setClass(qualityButton, "is-hidden", !canvas);
-    setClass(qualityButton, "is-active", !!canvas && previewQuality !== "auto");
+    setClass(qualityButton, "is-hidden", !supportsPreviewQuality);
+    setClass(qualityButton, "is-active", supportsPreviewQuality && previewQuality !== "auto");
     setText(qualityButton?.querySelector("[data-preview-quality-label]"), qualityLabels[previewQuality]);
     if (qualityButton) {
       qualityButton.title = `${qualityDescriptions[previewQuality]}. Click to change quality.`;
-      qualityButton.setAttribute("aria-label", `Canvas preview quality: ${qualityLabels[previewQuality]}`);
+      qualityButton.setAttribute("aria-label", `${qualitySubject} preview resolution: ${qualityLabels[previewQuality]}`);
     }
     if (handleButton && !handleButton.dataset.bound) {
       handleButton.dataset.bound = "true";
@@ -1243,14 +1250,20 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
     };
     bindButton("[data-preview-zoom-out]", () => nudgePreviewZoom(1 / 1.2));
     bindButton("[data-preview-zoom-in]", () => nudgePreviewZoom(1.2));
-    bindButton("[data-canvas-preview-quality]", () => {
+    bindButton("[data-preview-quality]", () => {
       store.update((draft) => {
-        const canvas = selectedCanvasComponent(draft);
-        if (!canvas) return;
-        canvas.canvas ||= { width: VJ1.canvasWidth, height: VJ1.canvasHeight };
-        const quality = ["low", "full"].includes(canvas.canvas.previewQuality) ? canvas.canvas.previewQuality : "auto";
-        canvas.canvas.previewQuality = quality === "auto" ? "low" : quality === "low" ? "full" : "auto";
-      }, "canvas-preview-quality");
+        const workspace = currentWorkspace(draft);
+        if (workspace === "canvas") {
+          const canvas = selectedCanvasComponent(draft);
+          if (!canvas) return;
+          canvas.canvas ||= { width: VJ1.canvasWidth, height: VJ1.canvasHeight };
+          canvas.canvas.previewQuality = nextPreviewQuality(canvas.canvas.previewQuality);
+          return;
+        }
+        if (workspace !== "scene" && workspace !== "live") return;
+        draft.ui.previewQualities ||= { scene: "auto", live: "auto" };
+        draft.ui.previewQualities[workspace] = nextPreviewQuality(draft.ui.previewQualities[workspace]);
+      }, "preview-quality");
     });
     bindButton("[data-preview-fit-world]", () => {
       store.update((draft) => {
@@ -3391,6 +3404,11 @@ function sceneSurfaceSnapshot(scene, surfaceId) {
 function getSceneSurfaceView(surface, state) {
   const snapshot = sceneSurfaceSnapshot(getSelectedScene(state), surface.id);
   return snapshot ? { ...surface, ...snapshot } : surface;
+}
+
+function nextPreviewQuality(value) {
+  const quality = ["low", "full"].includes(value) ? value : "auto";
+  return quality === "auto" ? "low" : quality === "low" ? "full" : "auto";
 }
 
 function currentWorkspace(state) {

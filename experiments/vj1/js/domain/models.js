@@ -1,9 +1,9 @@
 import { VJ1, defaultCustomShaderCode, WORKSPACES } from "../constants.js";
-import { createGeneratorSource } from "../graph/generator-registry.js?v=adaptive-component-demand-26";
+import { createGeneratorSource } from "../graph/generator-registry.js?v=adaptive-component-demand-28";
 import { normalizeComponentFrameShape, normalizeComponentResolutionScale } from "./component-frame.js";
-import { createProjectActivity, latestProjectActivity, normalizeProjectActivity } from "./component-activity.js?v=adaptive-component-demand-26";
-import { CURRENT_PROJECT_VERSION, migrateProjectData } from "./project-migrations.js?v=adaptive-component-demand-26";
-import { normalizeComponentTextureSettings, normalizeSurfaceTextureSettings } from "./render-resolution.js?v=adaptive-component-demand-26";
+import { createProjectActivity, latestProjectActivity, normalizeProjectActivity } from "./component-activity.js?v=adaptive-component-demand-28";
+import { CURRENT_PROJECT_VERSION, migrateProjectData } from "./project-migrations.js?v=adaptive-component-demand-28";
+import { normalizeComponentTextureSettings, normalizeSurfaceTextureSettings } from "./render-resolution.js?v=adaptive-component-demand-28";
 
 export function uid(prefix) {
   return `${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
@@ -209,6 +209,10 @@ export function createInitialState() {
         component: "recent",
         scene: "recent",
       },
+      previewQualities: {
+        scene: "auto",
+        live: "auto",
+      },
       selectedSceneId: "",
       selectedSurfaceId: "surface-main",
       debugPreview: true,
@@ -397,6 +401,7 @@ export function sanitizeState(input = {}) {
     next.ui.selectedComponentId
   );
   next.ui.catalogSortModes = normalizeCatalogSortModes(next.ui.catalogSortModes);
+  next.ui.previewQualities = normalizePreviewQualities(next.ui.previewQualities);
   const selectedComponent = next.components.find((component) => component.id === next.ui.selectedComponentId) || next.components[0];
   next.ui.selectedChainItemId = chainContainsItemId(selectedComponent?.chain, next.ui.selectedChainItemId)
     ? next.ui.selectedChainItemId
@@ -422,6 +427,14 @@ export function sanitizeState(input = {}) {
   next.scheduler.mode = next.scheduler.mode || "hardconfigured";
   next.scheduler.manualLane = next.scheduler.manualLane !== false;
   return next;
+}
+
+function normalizePreviewQualities(value = {}) {
+  const normalize = (quality) => ["auto", "low", "full"].includes(quality) ? quality : "auto";
+  return {
+    scene: normalize(value?.scene),
+    live: normalize(value?.live),
+  };
 }
 
 function normalizeWorkspaceSelectionIds(value = {}, components = [], selectedComponentId = "") {

@@ -1,5 +1,5 @@
 import { VJ1 } from "../constants.js";
-import { componentTextureSize } from "../domain/render-resolution.js?v=adaptive-component-demand-26";
+import { componentTextureSize } from "../domain/render-resolution.js?v=adaptive-component-demand-28";
 
 export const SURFACE_DEMAND_OVERSCAN = 1;
 export const RECORDING_FRAME_DEMAND_SCALE = 1;

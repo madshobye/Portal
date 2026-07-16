@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 
 import { paramRangePairTemplate, rangeTemplate } from "../js/control/template-utils.js";
+import { previewRasterDensity } from "../js/output/embedded-preview-app.js";
 
 test("range params render as label plus slider without numeric value text", () => {
   const sharedRange = rangeTemplate("Opacity", "components.0.opacity", 0.42);
@@ -154,10 +155,12 @@ test("canvas uses the shared chain and exposes recording frames as scene routes"
   assert.ok(source.includes('ownerComponent?.type === "canvas" && item.source?.type === "component"'));
   assert.ok(source.includes('isCanvasComponentPlacement ? "" : `<label class="field">Component'));
   assert.ok(source.includes('if (item.source?.type === "component") return sourceTitle'));
-  assert.ok(source.includes("data-canvas-preview-quality"));
+  assert.ok(source.includes("data-preview-quality"));
   assert.ok(source.includes("data-preview-quality-label"));
   assert.ok(source.includes('quality === "auto" ? "low" : quality === "low" ? "full" : "auto"'));
   assert.ok(source.includes("internal Canvas raster follows the visible preview size"));
+  assert.ok(source.includes('workspace === "scene" || workspace === "live"'));
+  assert.ok(source.includes("draft.ui.previewQualities[workspace]"));
   assert.ok(!source.includes('data-update="${base}.canvas.previewQuality"'));
   assert.ok(source.includes("data-add-canvas-frame"));
   assert.ok(source.includes("data-set-route-source-node"));
@@ -173,6 +176,13 @@ test("canvas uses the shared chain and exposes recording frames as scene routes"
   assert.ok(!source.includes("data-add-canvas-layer"));
   assert.ok(!source.includes('item.role === "canvas-layer"'));
   assert.ok(!source.includes('data-update="${base}.x"'));
+});
+
+test("Scene and Live preview resolution supports automatic low and full demand", () => {
+  const options = { configuredDensity: 1.5, displayScale: 0.5, deviceScale: 2 };
+  assert.equal(previewRasterDensity({ ...options, quality: "auto" }), 1);
+  assert.equal(previewRasterDensity({ ...options, quality: "low" }), 0.5);
+  assert.equal(previewRasterDensity({ ...options, quality: "full" }), 1.5);
 });
 
 test("compact text lists share one full-width item generator", () => {

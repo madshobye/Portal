@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 
-import { averageGpuQueryNanoseconds, cameraCaptureSettings, cameraSettingsSignature, canvasComponentPlacementRect, canvasFrameBorderHit, canvasMaxRasterSize, canvasPreviewRenderRequest, componentAdaptiveRasterLimit, componentPipelineSourceRequest, componentPreviewRenderRequest, componentReferencePlacement, componentReferenceRenderRequest, componentSourceView, directFitRects, eyeballFrameUniforms, fittedThumbnailSize, GpuTimerTracker, moveCanvasFrameRect, OutputRenderer, qualityScaledRenderRequest, resizeCanvasFrameRect } from "../js/output/output-renderer.js";
+import { averageGpuQueryNanoseconds, cameraCaptureSettings, cameraSettingsSignature, canvasComponentPlacementRect, canvasFrameBorderHit, canvasMaxRasterSize, canvasPreviewRenderRequest, componentAdaptiveRasterLimit, componentPipelineSourceRequest, componentPreviewRenderRequest, componentReferencePlacement, componentReferenceRenderRequest, componentSourceView, directFitRects, eyeballFrameUniforms, fittedThumbnailSize, GpuTimerTracker, moveCanvasFrameRect, OutputRenderer, qualityScaledRenderRequest, resizeCanvasFrameRect, sharedComponentRenderRequests } from "../js/output/output-renderer.js";
 import { createPlacedRenderResult, directPlacementKind, transformedPlacementDemandRect } from "../js/graph/placed-render-result.js";
 import { renderRequestKey } from "../js/output/render-geometry.js";
 import { mapperFragmentShaderSource, VjMapper } from "../js/output/vj-mapper.js";
@@ -507,6 +507,23 @@ test("Canvas recording-frame routes declare extra sampling demand without changi
   assert.equal(reducedFrameView.samplingScale, 0.5);
 });
 
+test("multiple recording frames share one parent Canvas texture request", () => {
+  const component = { id: "canvas-a", type: "canvas" };
+  const sourceView = {
+    logicalSize: { width: 3840, height: 2160 },
+    maxRasterSize: { width: 3840, height: 2160 },
+  };
+  const requests = sharedComponentRenderRequests([
+    { component, sourceView, demand: { rasterScale: 0.25 } },
+    { component, sourceView, demand: { rasterScale: 0.5 } },
+  ], "to:");
+
+  assert.equal(requests.size, 1);
+  assert.deepEqual(pickRequestSize(requests.get("canvas-a")), { width: 1920, height: 1088 });
+  assert.equal(requests.get("canvas-a").renderIdentity, "to:canvas-a");
+  assert.equal(requests.get("canvas-a").demandScale, 0.5);
+});
+
 test("Canvas demand is capped to logical size by default and can opt into supersampling", () => {
   assert.deepEqual(canvasMaxRasterSize({ pixelDensity: 1 }, { width: 4000, height: 2000 }), {
     width: 4000,
@@ -837,7 +854,8 @@ test("scene surfaces render components at their configured shape and relative re
   assert.ok(surfaceRenderPlan.includes("sourceRenderDemand({"));
   assert.ok(surfaceRenderPlan.includes("componentSourceView(this.state.render, component"));
   assert.ok(surfaceRenderPlan.includes("this.state.render?.sampling?.surfaceOverscan"));
-  assert.ok(surfaceRenderPlan.includes("componentScales"));
+  assert.ok(surfaceRenderPlan.includes("sharedComponentRenderRequests(routes"));
+  assert.ok(surfaceRenderPlan.includes("route.componentRequest = componentRequests.get(route.component.id)"));
   assert.ok(!drawSurfaceRoute.includes("stableFrameRenderRequest(this.state.render"));
   assert.ok(drawSurfaceRoute.includes("scaledComponentSampleRect("));
   assert.ok(source.includes("getSurfaceTexture(request)"));

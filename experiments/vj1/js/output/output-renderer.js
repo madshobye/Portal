@@ -1,24 +1,24 @@
 import { VJ1 } from "../constants.js";
 import { componentFrameMetrics } from "../domain/component-frame.js";
-import { componentTextureSize, manualSurfaceTextureLimit } from "../domain/render-resolution.js?v=adaptive-component-demand-26";
-import { clamp01, normalizeComponentPipelineSettings, resolveSceneSourceNode, sanitizeState } from "../domain/models.js?v=adaptive-component-demand-26";
-import { normalizeParamValue, normalizeParamValues, renderQualityScale, renderQualityValue } from "../graph/component-schema.js?v=adaptive-component-demand-26";
+import { componentTextureSize, manualSurfaceTextureLimit } from "../domain/render-resolution.js?v=adaptive-component-demand-28";
+import { clamp01, normalizeComponentPipelineSettings, resolveSceneSourceNode, sanitizeState } from "../domain/models.js?v=adaptive-component-demand-28";
+import { normalizeParamValue, normalizeParamValues, renderQualityScale, renderQualityValue } from "../graph/component-schema.js?v=adaptive-component-demand-28";
 import { createManualScheduler } from "../graph/manual-scheduler.js";
-import { RenderNodeRuntime, textureStateKey } from "../graph/render-node-runtime.js?v=adaptive-component-demand-26";
-import { createPlacedRenderResult, directPlacementKind, transformedPlacementDemandRect } from "../graph/placed-render-result.js?v=adaptive-component-demand-26";
-import { compileComponentPatch, compileShaderSchedule, flattenComponentChain, fuseLocalShaderSchedule, isFusibleShaderJob } from "../graph/render-scheduler.js?v=adaptive-component-demand-26";
-import { getGeneratorComponent } from "../graph/generator-registry.js?v=adaptive-component-demand-26";
-import { createShaderBuilder, fusedUniformName } from "../shaders/shader-builder.js?v=adaptive-component-demand-26";
-import { getGeneratorShaderComponent } from "../shaders/generator-shaders.js?v=adaptive-component-demand-26";
-import { getShaderComponent } from "../shaders/shader-registry.js?v=adaptive-component-demand-26";
+import { RenderNodeRuntime, textureStateKey } from "../graph/render-node-runtime.js?v=adaptive-component-demand-28";
+import { createPlacedRenderResult, directPlacementKind, transformedPlacementDemandRect } from "../graph/placed-render-result.js?v=adaptive-component-demand-28";
+import { compileComponentPatch, compileShaderSchedule, flattenComponentChain, fuseLocalShaderSchedule, isFusibleShaderJob } from "../graph/render-scheduler.js?v=adaptive-component-demand-28";
+import { getGeneratorComponent } from "../graph/generator-registry.js?v=adaptive-component-demand-28";
+import { createShaderBuilder, fusedUniformName } from "../shaders/shader-builder.js?v=adaptive-component-demand-28";
+import { getGeneratorShaderComponent } from "../shaders/generator-shaders.js?v=adaptive-component-demand-28";
+import { getShaderComponent } from "../shaders/shader-registry.js?v=adaptive-component-demand-28";
 import { applyBlend } from "./blend-utils.js";
 import {
   createSharedFramebufferTarget,
   isSharedFramebufferTarget,
   unwrapRenderTarget,
-} from "./shared-framebuffer-target.js?v=adaptive-component-demand-26";
-import { applyFontToGlobal, applyFontToTarget } from "./font-loader.js?v=adaptive-component-demand-26";
-import { drawGenerator, drawStandby } from "./generators.js?v=adaptive-component-demand-26";
+} from "./shared-framebuffer-target.js?v=adaptive-component-demand-28";
+import { applyFontToGlobal, applyFontToTarget } from "./font-loader.js?v=adaptive-component-demand-28";
+import { drawGenerator, drawStandby } from "./generators.js?v=adaptive-component-demand-28";
 import { drawCover, drawMediaFit, isDrawableMedia, syncVideoPlayback } from "./media-utils.js";
 import {
   createRenderRequest,
@@ -33,8 +33,8 @@ import {
   sourceRenderDemand,
   outputSpanRect,
   worldSize,
-} from "./render-geometry.js?v=adaptive-component-demand-26";
-import { VjMapper } from "./vj-mapper.js?v=adaptive-component-demand-26";
+} from "./render-geometry.js?v=adaptive-component-demand-28";
+import { VjMapper } from "./vj-mapper.js?v=adaptive-component-demand-28";
 import { mediaRenditionKey } from "../services/media-rendition-service.js";
 
 const TERRAIN_GRID_CELLS = 48;
@@ -3236,30 +3236,17 @@ export class OutputRenderer {
       routes.push({ surface, mapped, component, sourceView, demand });
     }
 
-    const componentScales = new Map();
+    // A recording frame is only a view into its parent Canvas. Build one
+    // shared render request per Component/Canvas, then let each route crop the
+    // resulting texture through its source rectangle below.
+    const componentRequests = sharedComponentRenderRequests(routes, renderIdentityPrefix);
     for (const route of routes) {
-      componentScales.set(route.component.id, Math.max(
-        componentScales.get(route.component.id) || 0,
-        route.demand.rasterScale
-      ));
-    }
-    for (const route of routes) {
-      const scale = componentScales.get(route.component.id) || route.demand.rasterScale;
-      const maxWidth = route.sourceView.maxRasterSize.width;
-      const maxHeight = route.sourceView.maxRasterSize.height;
-      const widthPx = quantizedRenderDimension(route.sourceView.logicalSize.width * scale, maxWidth);
-      const heightPx = quantizedRenderDimension(route.sourceView.logicalSize.height * scale, maxHeight);
+      const scale = componentRequests.get(route.component.id)?.demandScale || route.demand.rasterScale;
       const meta = {
         surfaceId: route.surface.id,
         timingId: route.surface.id,
-        renderIdentity: `${renderIdentityPrefix}${route.component.id}`,
       };
-      route.componentRequest = createRenderRequest("texture", { width: widthPx, height: heightPx }, {
-        ...meta,
-        logicalWidth: route.sourceView.logicalSize.width,
-        logicalHeight: route.sourceView.logicalSize.height,
-        demandScale: scale,
-      });
+      route.componentRequest = componentRequests.get(route.component.id);
       route.surfaceRequest = createRenderRequest("surface", route.demand.surfaceSize, {
         ...meta,
         logicalWidth: route.demand.sampleRect.width,
@@ -3268,9 +3255,7 @@ export class OutputRenderer {
       });
     }
     this.frameProfile.surfaceRoutesVisible += routes.length;
-    const plannedComponents = new Map();
-    for (const route of routes) plannedComponents.set(route.component.id, route.componentRequest);
-    for (const request of plannedComponents.values()) {
+    for (const request of componentRequests.values()) {
       this.frameProfile.componentRasterPixels += request.width * request.height;
     }
     return routes;
@@ -7983,6 +7968,33 @@ export function scaledComponentSampleRect(sampleRect = {}, logicalSize = {}, sou
     width: (Math.max(1, Number(sampleRect?.width) || logicalWidth) / logicalWidth) * sourceWidth,
     height: (Math.max(1, Number(sampleRect?.height) || logicalHeight) / logicalHeight) * sourceHeight,
   };
+}
+
+export function sharedComponentRenderRequests(routes = [], renderIdentityPrefix = "") {
+  const planned = new Map();
+  for (const route of routes) {
+    const componentId = route?.component?.id;
+    if (!componentId || !route?.sourceView || !route?.demand) continue;
+    const previous = planned.get(componentId);
+    if (!previous || route.demand.rasterScale > previous.scale) {
+      planned.set(componentId, { route, scale: route.demand.rasterScale });
+    }
+  }
+  return new Map(Array.from(planned, ([componentId, { route, scale }]) => {
+    const logicalSize = route.sourceView.logicalSize;
+    const maxRasterSize = route.sourceView.maxRasterSize;
+    const request = createRenderRequest("texture", {
+      width: quantizedRenderDimension(logicalSize.width * scale, maxRasterSize.width),
+      height: quantizedRenderDimension(logicalSize.height * scale, maxRasterSize.height),
+    }, {
+      timingId: componentId,
+      renderIdentity: `${renderIdentityPrefix}${componentId}`,
+      logicalWidth: logicalSize.width,
+      logicalHeight: logicalSize.height,
+      demandScale: scale,
+    });
+    return [componentId, request];
+  }));
 }
 
 function quantizedRenderDimension(value, max) {

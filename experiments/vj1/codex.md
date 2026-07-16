@@ -42,7 +42,7 @@ Sources composite into the accumulated image; they do not implicitly replace it.
 Core files:
 
 - `js/app.js`, `js/app-state.js`, `js/domain/models.js`: startup, state, normalization, and domain models.
-- `js/domain/project-migrations.js`: sequential project-schema migrations; current version is **16**.
+- `js/domain/project-migrations.js`: sequential project-schema migrations; current version is **17**.
 - `js/control/control-shell-controller.js`, `js/control/shell-view.js`, `style.css`: control UI.
 - `js/graph/render-scheduler.js`, `js/graph/placed-render-result.js`: graph compilation and placed-source contract.
 - `js/shaders/*`: generator/effect schemas, GLSL, fusion, and shader caching.
@@ -75,6 +75,7 @@ Important recent migrations:
 - v14: persists independent mapped-surface overscan and recording-frame sampling multipliers.
 - v15: enables a persisted default limit preventing Canvas rasters from exceeding logical Canvas dimensions.
 - v16: removes the obsolete global projection-edge softness setting and mapper shader path.
+- v17: persists independent Auto, Low, or Full embedded-preview resolution choices for Scene and Live.
 
 The local project folder owns project state. `localStorage` is never authoritative. Autosave is debounced by 700 ms; revision files implement undo/redo, with repeated control edits coalesced for six seconds. UI-only state and metrics are excluded from history signatures. Folder refresh must update assets without replacing state or losing valid selections.
 
@@ -132,7 +133,7 @@ state -> visible route demand -> needed Component/Canvas textures
 
 Only required components render. Static results are signature-cached; dynamic inputs invalidate per frame. Compatible intermediates remain in pooled framebuffers in one WebGL context. Safe pixel-local effects may fuse; neighborhood/stateful effects remain separate. Alpha is premultiplied throughout, normally ending shaders with `vec4(rgb * alpha, alpha)`.
 
-Use the generic source-view and demand path for Components, full Canvases, and recording frames. Cull routes outside the output viewport before rendering or allocation. Multiple routes share the largest required component raster for that renderer/frame. Never shrink logical geometry as a performance shortcut.
+Use the generic source-view and demand path for Components, full Canvases, and recording frames. Cull routes outside the output viewport before rendering or allocation. Multiple routes share the largest required component raster for that renderer/frame. Recording frames are source-rectangle/UV views into that one parent Canvas texture; multiple frames must never allocate or render independent Canvas textures. Never shrink logical geometry as a performance shortcut.
 
 Drawable 2D media, cameras, and referenced Components may remain placed textures until composited. Effects and isolated Groups are materialization boundaries. Eligibility belongs in `directPlacementKind()`, not duplicated type-specific branches.
 
@@ -183,7 +184,7 @@ Before finishing renderer work:
 
 The implementation baseline is committed. Recent work centers on generic direct projection for Components, full Canvases, and recording-frame source rectangles; adaptive Component raster demand; demand-sized previews; shared 8192 bounds; static performance estimates; cache-busting imports; and focused render-geometry/output tests. Surface textures remain only on explicit materialization paths.
 
-The handover reports **262 passing Node tests**. Real GLSL still requires the shader smoke page. The representative performance comparison is `metrics-results/runs/four-surface-show-gpu-architecture.*`.
+The handover reports **265 passing Node tests**. Real GLSL still requires the shader smoke page. The representative performance comparison is `metrics-results/runs/four-surface-show-gpu-architecture.*`.
 
 ## Change Discipline
 

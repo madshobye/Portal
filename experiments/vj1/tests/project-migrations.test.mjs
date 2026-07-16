@@ -17,11 +17,12 @@ import {
   migrateProjectV13ToV14,
   migrateProjectV14ToV15,
   migrateProjectV15ToV16,
+  migrateProjectV16ToV17,
 } from "../js/domain/project-migrations.js";
 import { createInitialState, sanitizeState } from "../js/domain/models.js";
 
 test("current state and sanitized legacy state always use the current project version", () => {
-  assert.equal(CURRENT_PROJECT_VERSION, 16);
+  assert.equal(CURRENT_PROJECT_VERSION, 17);
   assert.equal(createInitialState().version, CURRENT_PROJECT_VERSION);
   assert.equal(sanitizeState({ version: 5 }).version, CURRENT_PROJECT_VERSION);
 });
@@ -70,7 +71,7 @@ test("v7 to v8 migrates the Component workspace and remembered selections", () =
       workspaceCompositionIds: { compose: "comp-a", canvas: "canvas-a" },
     },
   });
-  assert.equal(migrated.version, 16);
+  assert.equal(migrated.version, 17);
   assert.equal(migrated.ui.workspace, "component");
   assert.deepEqual(migrated.ui.workspaceSelectionIds, { component: "comp-a", canvas: "canvas-a" });
   assert.equal(Object.hasOwn(migrated.ui, "workspaceCompositionIds"), false);
@@ -261,6 +262,14 @@ test("v15 to v16 removes global projection edge softness", () => {
     render: { pixelDensity: 1, edgeSoftness: 4 },
   });
   assert.deepEqual(migrated.render, { pixelDensity: 1 });
+});
+
+test("v16 to v17 adds independent Scene and Live preview resolution defaults", () => {
+  const migrated = migrateProjectV16ToV17({
+    version: 16,
+    ui: { previewQualities: { scene: "low", live: "invalid" } },
+  });
+  assert.deepEqual(migrated.ui.previewQualities, { scene: "low", live: "auto" });
 });
 
 test("migration runner applies every adjacent step in order", () => {

@@ -22,6 +22,7 @@ test("project payload preserves the selected component chain item", () => {
       selectedChainItemId: "chain-effect-b",
       workspaceSelectionIds: { component: "component-a", canvas: "canvas-b" },
       catalogSortModes: { component: "name", scene: "created" },
+      previewQualities: { scene: "low", live: "full" },
       live: {
         selectedSceneId: "scene-live",
         sceneSnapshot: { surfaces: [{ id: "surface-a", componentId: "component-a" }] },
@@ -33,10 +34,11 @@ test("project payload preserves the selected component chain item", () => {
   };
 
   const payload = buildProjectPayload(state, "2026-07-12T00:00:00.000Z");
-  assert.equal(payload.version, 16);
+  assert.equal(payload.version, 17);
   assert.equal(payload.ui.selectedChainItemId, "chain-effect-b");
   assert.deepEqual(payload.ui.workspaceSelectionIds, state.ui.workspaceSelectionIds);
   assert.deepEqual(payload.ui.catalogSortModes, state.ui.catalogSortModes);
+  assert.deepEqual(payload.ui.previewQualities, state.ui.previewQualities);
   assert.equal(payload.ui.live.selectedSceneId, "scene-live");
   assert.deepEqual(payload.ui.live.sceneSnapshot, state.ui.live.sceneSnapshot);
   assert.equal(payload.ui.live.transitionDuration, 2.5);
@@ -47,6 +49,7 @@ test("project payload preserves the selected component chain item", () => {
   assert.ok(source.includes("selectedChainItemId: projectUi?.selectedChainItemId || currentUi.selectedChainItemId"));
   assert.ok(source.includes("workspaceSelectionIds: projectUi?.workspaceSelectionIds || currentUi.workspaceSelectionIds"));
   assert.ok(source.includes("catalogSortModes: projectUi?.catalogSortModes || currentUi.catalogSortModes"));
+  assert.ok(source.includes("previewQualities: projectUi?.previewQualities || currentUi.previewQualities"));
   assert.ok(source.includes("const legacyRecordingFrames = Array.isArray(projectData.components)"));
   assert.ok(source.includes("data = migrateProjectData(data)"));
   assert.ok(source.includes("projectLoadBlocked = true"));

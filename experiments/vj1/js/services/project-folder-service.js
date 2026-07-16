@@ -1,4 +1,4 @@
-import { collectFilesFromDirectory, isMediaFile, isShaderFile } from "./media-library-service.js?v=adaptive-component-demand-26";
+import { collectFilesFromDirectory, isMediaFile, isShaderFile } from "./media-library-service.js?v=adaptive-component-demand-28";
 import { RENDITION_DIR, RENDITION_ROOT, mediaRenditionPath } from "./media-rendition-service.js";
 import {
   canPersistDirectoryHandles,
@@ -6,8 +6,8 @@ import {
   loadProjectDirectoryHandle,
   saveProjectDirectoryHandle,
 } from "./directory-handle-store.js";
-import { applySceneSnapshotToState, createInitialState } from "../domain/models.js?v=adaptive-component-demand-26";
-import { CURRENT_PROJECT_VERSION, migrateProjectData, ProjectVersionError } from "../domain/project-migrations.js?v=adaptive-component-demand-26";
+import { applySceneSnapshotToState, createInitialState } from "../domain/models.js?v=adaptive-component-demand-28";
+import { CURRENT_PROJECT_VERSION, migrateProjectData, ProjectVersionError } from "../domain/project-migrations.js?v=adaptive-component-demand-28";
 
 export function createProjectFolderService({ mediaLibrary, store, bridge }) {
   let dirHandle = null;
@@ -213,6 +213,7 @@ export function createProjectFolderService({ mediaLibrary, store, bridge }) {
         selectedChainItemId: projectUi?.selectedChainItemId || currentUi.selectedChainItemId,
         workspaceSelectionIds: projectUi?.workspaceSelectionIds || currentUi.workspaceSelectionIds,
         catalogSortModes: projectUi?.catalogSortModes || currentUi.catalogSortModes,
+        previewQualities: projectUi?.previewQualities || currentUi.previewQualities,
         live: {
           ...currentUi.live,
           ...(projectUi?.live || {}),
@@ -664,6 +665,7 @@ export function buildProjectPayload(state, savedAt = new Date().toISOString()) {
       selectedChainItemId: state.ui.selectedChainItemId,
       workspaceSelectionIds: state.ui.workspaceSelectionIds,
       catalogSortModes: state.ui.catalogSortModes,
+      previewQualities: state.ui.previewQualities,
       live: {
         selectedSceneId: state.ui.live?.selectedSceneId || "",
         sceneSnapshot: state.ui.live?.sceneSnapshot || null,
