@@ -1,9 +1,9 @@
 import { VJ1, defaultCustomShaderCode, WORKSPACES } from "../constants.js";
-import { createGeneratorSource } from "../graph/generator-registry.js?v=adaptive-component-demand-24";
+import { createGeneratorSource } from "../graph/generator-registry.js?v=adaptive-component-demand-26";
 import { normalizeComponentFrameShape, normalizeComponentResolutionScale } from "./component-frame.js";
-import { createProjectActivity, latestProjectActivity, normalizeProjectActivity } from "./component-activity.js?v=adaptive-component-demand-24";
-import { CURRENT_PROJECT_VERSION, migrateProjectData } from "./project-migrations.js?v=adaptive-component-demand-24";
-import { normalizeComponentTextureSettings, normalizeSurfaceTextureSettings } from "./render-resolution.js?v=adaptive-component-demand-24";
+import { createProjectActivity, latestProjectActivity, normalizeProjectActivity } from "./component-activity.js?v=adaptive-component-demand-26";
+import { CURRENT_PROJECT_VERSION, migrateProjectData } from "./project-migrations.js?v=adaptive-component-demand-26";
+import { normalizeComponentTextureSettings, normalizeSurfaceTextureSettings } from "./render-resolution.js?v=adaptive-component-demand-26";
 
 export function uid(prefix) {
   return `${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
@@ -261,10 +261,10 @@ export function createInitialState() {
         maxHeight: VJ1.renderHeight,
       },
       pixelDensity: 1,
-      edgeSoftness: 0,
       sampling: {
         surfaceOverscan: 1,
         recordingFrameScale: 1,
+        limitCanvasToLogicalSize: true,
       },
       camera: {
         width: VJ1.renderWidth,
@@ -464,7 +464,13 @@ export function normalizeRenderSettings(render = {}) {
     width: render.surfaceWidth ?? render.surfaceTexture?.maxWidth ?? primary.width,
     height: render.surfaceHeight ?? render.surfaceTexture?.maxHeight ?? primary.height,
   };
-  const { surfaceWidth: _legacySurfaceWidth, surfaceHeight: _legacySurfaceHeight, surfaceTextureMode: _legacySurfaceTextureMode, ...currentRender } = render;
+  const {
+    surfaceWidth: _legacySurfaceWidth,
+    surfaceHeight: _legacySurfaceHeight,
+    surfaceTextureMode: _legacySurfaceTextureMode,
+    edgeSoftness: _removedEdgeSoftness,
+    ...currentRender
+  } = render;
   return {
     ...currentRender,
     width: primary.width,
@@ -477,7 +483,6 @@ export function normalizeRenderSettings(render = {}) {
     componentTexture: normalizeComponentTextureSettings(migratedComponentTexture, primary),
     surfaceTexture: normalizeSurfaceTextureSettings(render.surfaceTexture, primary),
     pixelDensity: clampNumber(render.pixelDensity, 0.5, 2, 1),
-    edgeSoftness: clampNumber(render.edgeSoftness, 0, 8, 0),
     sampling: normalizeSamplingSettings(render.sampling),
     camera: normalizeCameraSettings(render.camera, primary.width, primary.height),
     ...normalizeComponentPipelineSettings(render),
@@ -488,6 +493,7 @@ export function normalizeSamplingSettings(sampling = {}) {
   return {
     surfaceOverscan: clampNumber(sampling?.surfaceOverscan, 0.5, 2, 1),
     recordingFrameScale: clampNumber(sampling?.recordingFrameScale, 0.5, 2, 1),
+    limitCanvasToLogicalSize: sampling?.limitCanvasToLogicalSize !== false,
   };
 }
 

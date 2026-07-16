@@ -1,4 +1,4 @@
-import { collectFilesFromDirectory, isMediaFile, isShaderFile } from "./media-library-service.js?v=adaptive-component-demand-24";
+import { collectFilesFromDirectory, isMediaFile, isShaderFile } from "./media-library-service.js?v=adaptive-component-demand-26";
 import { RENDITION_DIR, RENDITION_ROOT, mediaRenditionPath } from "./media-rendition-service.js";
 import {
   canPersistDirectoryHandles,
@@ -6,8 +6,8 @@ import {
   loadProjectDirectoryHandle,
   saveProjectDirectoryHandle,
 } from "./directory-handle-store.js";
-import { applySceneSnapshotToState, createInitialState } from "../domain/models.js?v=adaptive-component-demand-24";
-import { CURRENT_PROJECT_VERSION, migrateProjectData, ProjectVersionError } from "../domain/project-migrations.js?v=adaptive-component-demand-24";
+import { applySceneSnapshotToState, createInitialState } from "../domain/models.js?v=adaptive-component-demand-26";
+import { CURRENT_PROJECT_VERSION, migrateProjectData, ProjectVersionError } from "../domain/project-migrations.js?v=adaptive-component-demand-26";
 
 export function createProjectFolderService({ mediaLibrary, store, bridge }) {
   let dirHandle = null;
@@ -698,6 +698,7 @@ export function persistedRenderSettings(render = {}) {
     surfaceWidth: _legacySurfaceWidth,
     surfaceHeight: _legacySurfaceHeight,
     surfaceTextureMode: _legacySurfaceTextureMode,
+    edgeSoftness: _removedEdgeSoftness,
     ...canonical
   } = render || {};
   return canonical;

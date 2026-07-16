@@ -1,24 +1,24 @@
 import { VJ1 } from "../constants.js";
 import { componentFrameMetrics } from "../domain/component-frame.js";
-import { componentTextureSize, manualSurfaceTextureLimit } from "../domain/render-resolution.js?v=adaptive-component-demand-24";
-import { clamp01, normalizeComponentPipelineSettings, resolveSceneSourceNode, sanitizeState } from "../domain/models.js?v=adaptive-component-demand-24";
-import { normalizeParamValue, normalizeParamValues, renderQualityScale, renderQualityValue } from "../graph/component-schema.js?v=adaptive-component-demand-24";
+import { componentTextureSize, manualSurfaceTextureLimit } from "../domain/render-resolution.js?v=adaptive-component-demand-26";
+import { clamp01, normalizeComponentPipelineSettings, resolveSceneSourceNode, sanitizeState } from "../domain/models.js?v=adaptive-component-demand-26";
+import { normalizeParamValue, normalizeParamValues, renderQualityScale, renderQualityValue } from "../graph/component-schema.js?v=adaptive-component-demand-26";
 import { createManualScheduler } from "../graph/manual-scheduler.js";
-import { RenderNodeRuntime, textureStateKey } from "../graph/render-node-runtime.js?v=adaptive-component-demand-24";
-import { createPlacedRenderResult, directPlacementKind, transformedPlacementDemandRect } from "../graph/placed-render-result.js?v=adaptive-component-demand-24";
-import { compileComponentPatch, compileShaderSchedule, flattenComponentChain, fuseLocalShaderSchedule, isFusibleShaderJob } from "../graph/render-scheduler.js?v=adaptive-component-demand-24";
-import { getGeneratorComponent } from "../graph/generator-registry.js?v=adaptive-component-demand-24";
-import { createShaderBuilder, fusedUniformName } from "../shaders/shader-builder.js?v=adaptive-component-demand-24";
-import { getGeneratorShaderComponent } from "../shaders/generator-shaders.js?v=adaptive-component-demand-24";
-import { getShaderComponent } from "../shaders/shader-registry.js?v=adaptive-component-demand-24";
+import { RenderNodeRuntime, textureStateKey } from "../graph/render-node-runtime.js?v=adaptive-component-demand-26";
+import { createPlacedRenderResult, directPlacementKind, transformedPlacementDemandRect } from "../graph/placed-render-result.js?v=adaptive-component-demand-26";
+import { compileComponentPatch, compileShaderSchedule, flattenComponentChain, fuseLocalShaderSchedule, isFusibleShaderJob } from "../graph/render-scheduler.js?v=adaptive-component-demand-26";
+import { getGeneratorComponent } from "../graph/generator-registry.js?v=adaptive-component-demand-26";
+import { createShaderBuilder, fusedUniformName } from "../shaders/shader-builder.js?v=adaptive-component-demand-26";
+import { getGeneratorShaderComponent } from "../shaders/generator-shaders.js?v=adaptive-component-demand-26";
+import { getShaderComponent } from "../shaders/shader-registry.js?v=adaptive-component-demand-26";
 import { applyBlend } from "./blend-utils.js";
 import {
   createSharedFramebufferTarget,
   isSharedFramebufferTarget,
   unwrapRenderTarget,
-} from "./shared-framebuffer-target.js?v=adaptive-component-demand-24";
-import { applyFontToGlobal, applyFontToTarget } from "./font-loader.js?v=adaptive-component-demand-24";
-import { drawGenerator, drawStandby } from "./generators.js?v=adaptive-component-demand-24";
+} from "./shared-framebuffer-target.js?v=adaptive-component-demand-26";
+import { applyFontToGlobal, applyFontToTarget } from "./font-loader.js?v=adaptive-component-demand-26";
+import { drawGenerator, drawStandby } from "./generators.js?v=adaptive-component-demand-26";
 import { drawCover, drawMediaFit, isDrawableMedia, syncVideoPlayback } from "./media-utils.js";
 import {
   createRenderRequest,
@@ -33,8 +33,8 @@ import {
   sourceRenderDemand,
   outputSpanRect,
   worldSize,
-} from "./render-geometry.js?v=adaptive-component-demand-24";
-import { VjMapper } from "./vj-mapper.js?v=adaptive-component-demand-24";
+} from "./render-geometry.js?v=adaptive-component-demand-26";
+import { VjMapper } from "./vj-mapper.js?v=adaptive-component-demand-26";
 import { mediaRenditionKey } from "../services/media-rendition-service.js";
 
 const TERRAIN_GRID_CELLS = 48;
@@ -680,7 +680,6 @@ export class OutputRenderer {
       },
     });
     this.syncMapperOverlayMode();
-    this.syncMapperEdgeSoftness();
     this.rebuildSurfaces();
     this.applyProjectMapping();
   }
@@ -794,7 +793,6 @@ export class OutputRenderer {
     }
     this.setCalibrate(this.shouldCalibrateFromState());
     this.syncMapperOverlayMode();
-    this.syncMapperEdgeSoftness();
   }
 
   renderSizeSignature(render = {}) {
@@ -843,10 +841,6 @@ export class OutputRenderer {
 
   syncMapperOverlayMode() {
     this.mapper?.setOverlayMode?.(this.state?.global?.mappingHandleMode || "always");
-  }
-
-  syncMapperEdgeSoftness() {
-    this.mapper?.setEdgeSoftness?.(this.state?.render?.edgeSoftness || 0);
   }
 
   applyPixelDensity() {
@@ -3348,7 +3342,7 @@ export class OutputRenderer {
   }
 
   drawSurfaceRouteView(view, route = {}) {
-    const { surface = {}, mapped = {}, surfaceRequest = {} } = route;
+    const { surface = {}, mapped = {} } = route;
     const opacity = clamp01(surface.opacity);
     push();
     try {
@@ -3363,7 +3357,6 @@ export class OutputRenderer {
           surface.feather,
           {
             sourceRect: view.sourceRect,
-            surfaceSize: surfaceRequest,
             opacity,
           }
         );
@@ -7963,6 +7956,7 @@ export function componentAdaptiveRasterLimit(logicalSize = {}) {
 export function canvasMaxRasterSize(render = {}, logicalSize = {}) {
   const width = Math.max(1, Number(logicalSize.width) || VJ1.canvasWidth);
   const height = Math.max(1, Number(logicalSize.height) || VJ1.canvasHeight);
+  const limitToLogicalSize = render.sampling?.limitCanvasToLogicalSize !== false;
   const configuredDensity = Math.max(0.5, Math.min(2, Number(render.pixelDensity) || 1));
   const recordingFrameScale = Math.max(
     0.5,
@@ -7971,7 +7965,7 @@ export function canvasMaxRasterSize(render = {}, logicalSize = {}) {
   // Recording frames are independent views of a Canvas. Keep enough headroom
   // for their declared sampling allowance even at the default density, while
   // retaining the existing pixel-density control as the upper quality policy.
-  const scale = Math.max(1, recordingFrameScale, configuredDensity);
+  const scale = limitToLogicalSize ? 1 : Math.max(1, recordingFrameScale, configuredDensity);
   return {
     width: Math.min(8192, Math.max(1, Math.round(width * scale))),
     height: Math.min(8192, Math.max(1, Math.round(height * scale))),

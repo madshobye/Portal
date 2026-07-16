@@ -33,7 +33,7 @@ test("project payload preserves the selected component chain item", () => {
   };
 
   const payload = buildProjectPayload(state, "2026-07-12T00:00:00.000Z");
-  assert.equal(payload.version, 14);
+  assert.equal(payload.version, 16);
   assert.equal(payload.ui.selectedChainItemId, "chain-effect-b");
   assert.deepEqual(payload.ui.workspaceSelectionIds, state.ui.workspaceSelectionIds);
   assert.deepEqual(payload.ui.catalogSortModes, state.ui.catalogSortModes);

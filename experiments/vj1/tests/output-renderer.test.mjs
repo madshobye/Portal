@@ -507,16 +507,26 @@ test("Canvas recording-frame routes declare extra sampling demand without changi
   assert.equal(reducedFrameView.samplingScale, 0.5);
 });
 
-test("Canvas demand can supersample beyond its logical raster within the shared quality ceiling", () => {
+test("Canvas demand is capped to logical size by default and can opt into supersampling", () => {
   assert.deepEqual(canvasMaxRasterSize({ pixelDensity: 1 }, { width: 4000, height: 2000 }), {
     width: 4000,
     height: 2000,
   });
   assert.deepEqual(canvasMaxRasterSize({ pixelDensity: 2 }, { width: 4000, height: 2000 }), {
+    width: 4000,
+    height: 2000,
+  });
+  assert.deepEqual(canvasMaxRasterSize({
+    pixelDensity: 2,
+    sampling: { limitCanvasToLogicalSize: false },
+  }, { width: 4000, height: 2000 }), {
     width: 8000,
     height: 4000,
   });
-  assert.deepEqual(canvasMaxRasterSize({ pixelDensity: 2 }, { width: 5000, height: 5000 }), {
+  assert.deepEqual(canvasMaxRasterSize({
+    pixelDensity: 2,
+    sampling: { limitCanvasToLogicalSize: false },
+  }, { width: 5000, height: 5000 }), {
     width: 8192,
     height: 8192,
   });

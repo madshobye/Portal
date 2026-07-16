@@ -15,11 +15,13 @@ import {
   migrateProjectV11ToV12,
   migrateProjectV12ToV13,
   migrateProjectV13ToV14,
+  migrateProjectV14ToV15,
+  migrateProjectV15ToV16,
 } from "../js/domain/project-migrations.js";
 import { createInitialState, sanitizeState } from "../js/domain/models.js";
 
 test("current state and sanitized legacy state always use the current project version", () => {
-  assert.equal(CURRENT_PROJECT_VERSION, 14);
+  assert.equal(CURRENT_PROJECT_VERSION, 16);
   assert.equal(createInitialState().version, CURRENT_PROJECT_VERSION);
   assert.equal(sanitizeState({ version: 5 }).version, CURRENT_PROJECT_VERSION);
 });
@@ -68,7 +70,7 @@ test("v7 to v8 migrates the Component workspace and remembered selections", () =
       workspaceCompositionIds: { compose: "comp-a", canvas: "canvas-a" },
     },
   });
-  assert.equal(migrated.version, 14);
+  assert.equal(migrated.version, 16);
   assert.equal(migrated.ui.workspace, "component");
   assert.deepEqual(migrated.ui.workspaceSelectionIds, { component: "comp-a", canvas: "canvas-a" });
   assert.equal(Object.hasOwn(migrated.ui, "workspaceCompositionIds"), false);
@@ -233,6 +235,32 @@ test("v13 to v14 persists independent adaptive sampling defaults", () => {
     surfaceOverscan: 0.75,
     recordingFrameScale: 0.5,
   });
+});
+
+test("v14 to v15 enables the logical Canvas raster limit", () => {
+  const migrated = migrateProjectV14ToV15({
+    version: 14,
+    render: { sampling: { surfaceOverscan: 0.75, recordingFrameScale: 0.5 } },
+  });
+  assert.deepEqual(migrated.render.sampling, {
+    surfaceOverscan: 0.75,
+    recordingFrameScale: 0.5,
+    limitCanvasToLogicalSize: true,
+  });
+
+  const disabled = migrateProjectV14ToV15({
+    version: 14,
+    render: { sampling: { limitCanvasToLogicalSize: false } },
+  });
+  assert.equal(disabled.render.sampling.limitCanvasToLogicalSize, false);
+});
+
+test("v15 to v16 removes global projection edge softness", () => {
+  const migrated = migrateProjectV15ToV16({
+    version: 15,
+    render: { pixelDensity: 1, edgeSoftness: 4 },
+  });
+  assert.deepEqual(migrated.render, { pixelDensity: 1 });
 });
 
 test("migration runner applies every adjacent step in order", () => {

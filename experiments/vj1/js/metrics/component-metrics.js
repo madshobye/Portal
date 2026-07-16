@@ -1,10 +1,10 @@
 import { BLEND_MODES, VJ1 } from "../constants.js";
-import { componentTextureSize } from "../domain/render-resolution.js?v=adaptive-component-demand-24";
-import { sanitizeState } from "../domain/models.js?v=adaptive-component-demand-24";
-import { compileComponentPatch } from "../graph/render-scheduler.js?v=adaptive-component-demand-24";
+import { componentTextureSize } from "../domain/render-resolution.js?v=adaptive-component-demand-26";
+import { sanitizeState } from "../domain/models.js?v=adaptive-component-demand-26";
+import { compileComponentPatch } from "../graph/render-scheduler.js?v=adaptive-component-demand-26";
 import { planCompositorInputs, planPatchExecution, summarizeTextureBranches } from "../graph/patch-planner.js";
-import { getShaderComponent } from "../shaders/shader-registry.js?v=adaptive-component-demand-24";
-import { worldSize } from "../output/render-geometry.js?v=adaptive-component-demand-24";
+import { getShaderComponent } from "../shaders/shader-registry.js?v=adaptive-component-demand-26";
+import { worldSize } from "../output/render-geometry.js?v=adaptive-component-demand-26";
 
 export function analyzeVj1Project(input = {}, options = {}) {
   const state = sanitizeState(input || {});
@@ -348,7 +348,6 @@ function renderMetrics(state) {
     worldHeight: world.height,
     worldPixels: world.width * world.height,
     pixelDensity: Math.max(0.5, Math.min(2, Number(state.render?.pixelDensity) || 1)),
-    edgeSoftness: Number(state.render?.edgeSoftness) || 0,
   };
 }
 

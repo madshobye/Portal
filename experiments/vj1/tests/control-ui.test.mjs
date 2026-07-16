@@ -226,6 +226,8 @@ test("project settings expose one adaptive surface texture policy", () => {
   assert.ok(source.includes('data-settings-update="render.surfaceTexture.maxHeight"'));
   assert.ok(source.includes('data-settings-update="render.sampling.surfaceOverscan"'));
   assert.ok(source.includes('data-settings-update="render.sampling.recordingFrameScale"'));
+  assert.ok(source.includes('data-settings-update="render.sampling.limitCanvasToLogicalSize"'));
+  assert.equal(source.includes('data-settings-update="render.edgeSoftness"'), false);
   assert.ok(source.includes("Auto · projected pixel demand"));
   assert.ok(source.includes("it never changes component dimensions"));
   assert.ok(!source.includes('data-settings-update="render.surfaceWidth"'));

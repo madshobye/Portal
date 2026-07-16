@@ -1,20 +1,20 @@
 import { BLEND_MODES, VJ1, WORKSPACES } from "../constants.js";
 import { componentFrameMetrics } from "../domain/component-frame.js";
-import { applySceneSourceNode, applySceneSnapshotToState, createLiveComponentView, createLiveRenderState, createOutputDefinition, createSceneSnapshot, normalizeRenderSettings, resolveSceneSourceNode, sceneSourceNodes, syncLiveSnapshotFromScene } from "../domain/models.js?v=adaptive-component-demand-24";
-import { latestProjectActivity, touchComponentUsed, touchRecordingFrameUsed } from "../domain/component-activity.js?v=adaptive-component-demand-24";
-import { normalizeParamValue, RENDER_QUALITY_PARAM } from "../graph/component-schema.js?v=adaptive-component-demand-24";
-import { getGeneratorComponent, listGeneratorComponents } from "../graph/generator-registry.js?v=adaptive-component-demand-24";
+import { applySceneSourceNode, applySceneSnapshotToState, createLiveComponentView, createLiveRenderState, createOutputDefinition, createSceneSnapshot, normalizeRenderSettings, resolveSceneSourceNode, sceneSourceNodes, syncLiveSnapshotFromScene } from "../domain/models.js?v=adaptive-component-demand-26";
+import { latestProjectActivity, touchComponentUsed, touchRecordingFrameUsed } from "../domain/component-activity.js?v=adaptive-component-demand-26";
+import { normalizeParamValue, RENDER_QUALITY_PARAM } from "../graph/component-schema.js?v=adaptive-component-demand-26";
+import { getGeneratorComponent, listGeneratorComponents } from "../graph/generator-registry.js?v=adaptive-component-demand-26";
 import { patchNodeDegree, planCompositorInputs, planPatchExecution, summarizeTextureBranches } from "../graph/patch-planner.js";
-import { compileComponentPatch } from "../graph/render-scheduler.js?v=adaptive-component-demand-24";
-import { buildOutputUrl } from "../view-routing.js?v=adaptive-component-demand-24";
-import { getShaderComponent, listShaderComponents } from "../shaders/shader-registry.js?v=adaptive-component-demand-24";
-import { createEmbeddedPreviewApp } from "../output/embedded-preview-app.js?v=adaptive-component-demand-24";
-import { frameFitViewport, resetViewport, zoomViewport } from "../output/preview-viewport.js?v=adaptive-component-demand-24";
-import { defaultProjectSurfaceMapping } from "../output/render-geometry.js?v=adaptive-component-demand-24";
+import { compileComponentPatch } from "../graph/render-scheduler.js?v=adaptive-component-demand-26";
+import { buildOutputUrl } from "../view-routing.js?v=adaptive-component-demand-26";
+import { getShaderComponent, listShaderComponents } from "../shaders/shader-registry.js?v=adaptive-component-demand-26";
+import { createEmbeddedPreviewApp } from "../output/embedded-preview-app.js?v=adaptive-component-demand-26";
+import { frameFitViewport, resetViewport, zoomViewport } from "../output/preview-viewport.js?v=adaptive-component-demand-26";
+import { defaultProjectSurfaceMapping } from "../output/render-geometry.js?v=adaptive-component-demand-26";
 import { createHtmlCache, isInteractiveNode, isTextEditingNode, setClass, setText } from "./dom-utils.js";
 import { bindReorderList } from "./reorder-list.js";
-import { collectRefs, shellTemplate } from "./shell-view.js?v=adaptive-component-demand-24";
-import { effectIcon, emptyNote, esc, icon, paramRangePairTemplate, rangeTemplate, selectValuesTemplate, sourceTypeIcon, thumbnailTemplate } from "./template-utils.js?v=adaptive-component-demand-24";
+import { collectRefs, shellTemplate } from "./shell-view.js?v=adaptive-component-demand-26";
+import { effectIcon, emptyNote, esc, icon, paramRangePairTemplate, rangeTemplate, selectValuesTemplate, sourceTypeIcon, thumbnailTemplate } from "./template-utils.js?v=adaptive-component-demand-26";
 
 const MODEL_RENDER_MODES = ["surface", "wireframe", "surfaceWire", "points"];
 const MEDIA_FIT_MODES = ["contain", "cover"];
@@ -2770,10 +2770,7 @@ function settingsModalTemplate(state, activeTab = "outputs") {
         </section>
         <section class="element-section" data-settings-panel="rendering" ${activeTab === "rendering" ? "" : "hidden"}>
           <div class="rail-title"><span class="material-symbols-rounded">speed</span><span>Performance</span></div>
-          <div class="field-pair">
-            <label class="field">Pixel density <input type="number" min="0.5" max="2" step="0.25" data-settings-update="render.pixelDensity" value="${render.pixelDensity}" /></label>
-            <label class="field">Edge softness <input type="number" min="0" max="8" step="0.5" data-settings-update="render.edgeSoftness" value="${render.edgeSoftness}" /></label>
-          </div>
+          <label class="field">Pixel density <input type="number" min="0.5" max="2" step="0.25" data-settings-update="render.pixelDensity" value="${render.pixelDensity}" /></label>
         </section>
         <section class="element-section" data-settings-panel="rendering" ${activeTab === "rendering" ? "" : "hidden"}>
           <div class="rail-title"><span class="material-symbols-rounded">tune</span><span>Advanced sampling</span></div>
@@ -2781,6 +2778,10 @@ function settingsModalTemplate(state, activeTab = "outputs") {
             <label class="field">Surface overscan <input type="number" min="0.5" max="2" step="0.05" data-settings-update="render.sampling.surfaceOverscan" value="${render.sampling.surfaceOverscan}" /></label>
             <label class="field">Recording frame <input type="number" min="0.5" max="2" step="0.05" data-settings-update="render.sampling.recordingFrameScale" value="${render.sampling.recordingFrameScale}" /></label>
           </div>
+          <label class="settings-toggle">
+            <span>Limit Canvas raster to logical size</span>
+            <input type="checkbox" data-settings-update="render.sampling.limitCanvasToLogicalSize" ${render.sampling.limitCanvasToLogicalSize ? "checked" : ""} />
+          </label>
           <div class="soft-note">Independent raster-demand multipliers. Both default to 1×; recording frames can be lowered to 0.5× for lower Canvas cost.</div>
         </section>
         <section class="element-section" data-settings-panel="rendering" ${activeTab === "rendering" ? "" : "hidden"}>

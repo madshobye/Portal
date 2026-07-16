@@ -1,4 +1,4 @@
-export const CURRENT_PROJECT_VERSION = 14;
+export const CURRENT_PROJECT_VERSION = 16;
 export const OLDEST_PROJECT_VERSION = 1;
 
 export class ProjectVersionError extends Error {
@@ -21,8 +21,8 @@ export class UnsupportedProjectVersionError extends ProjectVersionError {
 }
 
 // Every persisted model change adds exactly one adjacent migration here.
-// Never replace several steps with a direct jump: a v5 project opened by v14
-// must run every adjacent step from 5→6 through 13→14 in order.
+// Never replace several steps with a direct jump: a v5 project opened by v16
+// must run every adjacent step from 5→6 through 15→16 in order.
 export const PROJECT_MIGRATIONS = Object.freeze({
   1: migrateProjectV1ToV2,
   2: migrateProjectV2ToV3,
@@ -37,6 +37,8 @@ export const PROJECT_MIGRATIONS = Object.freeze({
   11: migrateProjectV11ToV12,
   12: migrateProjectV12ToV13,
   13: migrateProjectV13ToV14,
+  14: migrateProjectV14ToV15,
+  15: migrateProjectV15ToV16,
 });
 
 export function migrateProjectData(project = {}) {
@@ -363,6 +365,31 @@ export function migrateProjectV13ToV14(project) {
       },
     },
   };
+}
+
+// v15 limits adaptive Canvas rasters to their logical design dimensions by
+// default. Projects may explicitly disable the limit to restore supersampling.
+export function migrateProjectV14ToV15(project) {
+  const render = project.render && typeof project.render === "object" ? project.render : {};
+  const sampling = render.sampling && typeof render.sampling === "object" ? render.sampling : {};
+  return {
+    ...project,
+    render: {
+      ...render,
+      sampling: {
+        ...sampling,
+        limitCanvasToLogicalSize: sampling.limitCanvasToLogicalSize !== false,
+      },
+    },
+  };
+}
+
+// v16 removes the obsolete global projection-edge softness control. Physical
+// per-surface feather remains the supported projection-edge treatment.
+export function migrateProjectV15ToV16(project) {
+  const render = project.render && typeof project.render === "object" ? project.render : {};
+  const { edgeSoftness: _removedEdgeSoftness, ...currentRender } = render;
+  return { ...project, render: currentRender };
 }
 
 function migrateCanvasPlacementScale(chain) {

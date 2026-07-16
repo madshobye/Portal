@@ -1,4 +1,4 @@
-import { fittedCssRect, frameSize, outputFrames, worldSize } from "./render-geometry.js?v=adaptive-component-demand-24";
+import { fittedCssRect, frameSize, outputFrames, worldSize } from "./render-geometry.js?v=adaptive-component-demand-26";
 
 export function fitPreviewCanvasElement({ canvas, mode, stageSize, logicalSize, viewport, render }) {
   const elt = canvas?.elt || canvas;

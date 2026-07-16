@@ -94,14 +94,17 @@ test("adaptive sampling settings remain independent and accept half scale", () =
   assert.deepEqual(normalizeSamplingSettings({}), {
     surfaceOverscan: 1,
     recordingFrameScale: 1,
+    limitCanvasToLogicalSize: true,
   });
   assert.deepEqual(normalizeSamplingSettings({ surfaceOverscan: 0.5, recordingFrameScale: 0.5 }), {
     surfaceOverscan: 0.5,
     recordingFrameScale: 0.5,
+    limitCanvasToLogicalSize: true,
   });
-  assert.deepEqual(normalizeSamplingSettings({ surfaceOverscan: 0.1, recordingFrameScale: 8 }), {
+  assert.deepEqual(normalizeSamplingSettings({ surfaceOverscan: 0.1, recordingFrameScale: 8, limitCanvasToLogicalSize: false }), {
     surfaceOverscan: 0.5,
     recordingFrameScale: 2,
+    limitCanvasToLogicalSize: false,
   });
 });
 
