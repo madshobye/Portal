@@ -780,10 +780,10 @@ test("direct placement composites texture geometry without a parent-sized source
 });
 
 test("direct surfaces map normal compositing to BLEND rather than the deprecated NORMAL constant", () => {
-  const source = readFileSync(new URL("../js/output/output-renderer.js", import.meta.url), "utf8");
+  const source = readFileSync(new URL("../js/output/component-render-layout.js", import.meta.url), "utf8");
   const helper = source.slice(
-    source.indexOf("function applyBlendGlobal("),
-    source.indexOf("\n}\n\nfunction drawWebGLBuffer", source.indexOf("function applyBlendGlobal("))
+    source.indexOf("export function applyBlendGlobal("),
+    source.indexOf("\n}\n\nexport function drawWebGLBuffer", source.indexOf("export function applyBlendGlobal("))
   );
   assert.ok(helper.includes('if (!blend || blend === "normal") blendMode(BLEND);'));
   assert.ok(helper.indexOf('blend === "normal"') < helper.indexOf("globalThis"));

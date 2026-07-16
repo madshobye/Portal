@@ -7,7 +7,13 @@ import {
   saveProjectDirectoryHandle,
 } from "./directory-handle-store.js";
 import { applySceneSnapshotToState, createInitialState } from "../domain/models.js?v=adaptive-component-demand-29";
-import { CURRENT_PROJECT_VERSION, migrateProjectData, ProjectVersionError } from "../domain/project-migrations.js?v=adaptive-component-demand-29";
+import { migrateProjectData, ProjectVersionError } from "../domain/project-migrations.js?v=adaptive-component-demand-29";
+import { createChangeEvent } from "../domain/change-event.js?v=adaptive-component-demand-29";
+import { historyGroupForReason, isHistoryReason, projectHistorySignature, shouldCoalesceHistoryRevision } from "./project-history-policy.js?v=adaptive-component-demand-29";
+import { buildProjectPayload } from "./project-serializer.js?v=adaptive-component-demand-29";
+
+export { historyGroupForReason, projectHistorySignature, shouldCoalesceHistoryRevision } from "./project-history-policy.js?v=adaptive-component-demand-29";
+export { buildProjectPayload, persistedRenderSettings } from "./project-serializer.js?v=adaptive-component-demand-29";
 
 export function createProjectFolderService({ mediaLibrary, store, bridge }) {
   let dirHandle = null;
@@ -267,8 +273,10 @@ export function createProjectFolderService({ mediaLibrary, store, bridge }) {
     lastDirectorySignature = directorySig;
   }
 
-  function scheduleAutoSave(reason = "change", { immediate = false } = {}) {
-    if (String(reason).startsWith("edit:") || String(reason).startsWith("scrub:")) return;
+  function scheduleAutoSave(change = "change", { immediate = false } = {}) {
+    const event = createChangeEvent(change);
+    const reason = event.reason;
+    if (event.phase === "edit" || event.phase === "scrub") return;
     if (!dirHandle || isOpening || projectLoadBlocked || skipAutosaveReasons.has(reason)) return;
     if (autosaveTimer) clearTimeout(autosaveTimer);
     autosaveTimer = setTimeout(() => {
@@ -554,49 +562,12 @@ async function ensureProjectScaffold(handle) {
   }
 }
 
-function isHistoryReason(reason) {
-  return ["history-checkpoint", "project-undo", "project-redo"].includes(reason);
-}
-
 function shouldWriteHistoryRevision(previousText = "", nextPayload = {}, nextText = "", reason = "") {
   if (reason === "component-thumbnail") return false;
   if (!previousText.trim() || previousText === nextText) return false;
   const previousPayload = parseProjectText(previousText);
   if (!previousPayload) return true;
   return projectHistorySignature(previousPayload) !== projectHistorySignature(nextPayload);
-}
-
-export function projectHistorySignature(payload = {}) {
-  const {
-    ui: _ui,
-    metrics: _metrics,
-    ...rest
-  } = payload || {};
-  return JSON.stringify({
-    ...rest,
-    project: {
-      ...(rest.project || {}),
-      savedAt: "",
-      warnings: [],
-    },
-  });
-}
-
-export function historyGroupForReason(reason = "") {
-  const value = String(reason || "change");
-  if (isHistoryReason(value)) return value;
-  const separator = value.indexOf(":");
-  if (separator === -1) return value;
-  const kind = value.slice(0, separator);
-  const path = value.slice(separator + 1);
-  if (kind === "update" || kind === "color" || kind === "toggle" || kind === "live") return `${kind}:${path}`;
-  return value;
-}
-
-export function shouldCoalesceHistoryRevision(lastGroup = {}, nextKey = "", now = Date.now(), windowMs = 6000) {
-  if (!nextKey || isHistoryReason(nextKey)) return false;
-  if (!lastGroup?.key || lastGroup.key !== nextKey) return false;
-  return Math.max(0, Number(now) || 0) - Math.max(0, Number(lastGroup.at) || 0) <= windowMs;
 }
 
 function parseProjectText(text = "") {
@@ -652,58 +623,6 @@ async function verifyPermission(handle, mode, requestIfNeeded) {
   } catch {
     return false;
   }
-}
-
-export function buildProjectPayload(state, savedAt = new Date().toISOString()) {
-  return {
-    version: CURRENT_PROJECT_VERSION,
-    project: { ...state.project, warnings: [], savedAt },
-    ui: {
-      selectedSceneId: state.ui.selectedSceneId,
-      selectedSurfaceId: state.ui.selectedSurfaceId,
-      selectedComponentId: state.ui.selectedComponentId,
-      selectedChainItemId: state.ui.selectedChainItemId,
-      workspaceSelectionIds: state.ui.workspaceSelectionIds,
-      catalogSortModes: state.ui.catalogSortModes,
-      previewQualities: state.ui.previewQualities,
-      live: {
-        selectedSceneId: state.ui.live?.selectedSceneId || "",
-        sceneSnapshot: state.ui.live?.sceneSnapshot || null,
-        transitionDuration: Math.max(0, Number(state.ui.live?.transitionDuration) || 0),
-      },
-    },
-    global: state.global,
-    render: persistedRenderSettings(state.render),
-    scheduler: state.scheduler,
-    media: state.media,
-    components: state.components,
-    recordingFrames: state.recordingFrames,
-    surfaces: state.surfaces,
-    scenes: state.scenes,
-    mappings: state.mappings,
-    shaders: state.shaders,
-  };
-}
-
-// Output windows are the persisted authority for output and mapping geometry.
-// The removed aliases are derived by normalizeRenderSettings() at load time.
-export function persistedRenderSettings(render = {}) {
-  const {
-    width: _derivedWidth,
-    height: _derivedHeight,
-    frameWidth: _derivedFrameWidth,
-    frameHeight: _derivedFrameHeight,
-    worldScale: _derivedWorldScale,
-    worldWidth: _derivedWorldWidth,
-    worldHeight: _derivedWorldHeight,
-    outputGap: _derivedOutputGap,
-    surfaceWidth: _legacySurfaceWidth,
-    surfaceHeight: _legacySurfaceHeight,
-    surfaceTextureMode: _legacySurfaceTextureMode,
-    edgeSoftness: _removedEdgeSoftness,
-    ...canonical
-  } = render || {};
-  return canonical;
 }
 
 function payloadSignature(payload) {

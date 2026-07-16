@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
+import { generatorIcon } from "../js/control/picker-view.js";
 
 import { createCanvasComponent, createComponentEffect, createComponentLayer, createDefaultComponent, createInitialState, createLiveComponentView, sanitizeState } from "../js/domain/models.js?v=world-frame-27";
 import { normalizeParamValue, renderQualityScale } from "../js/graph/component-schema.js";
@@ -253,8 +254,10 @@ test("Biomine Lite exposes performance and material controls", () => {
 test("low poly anatomy generator exposes body part and stl-style 3d controls", () => {
   const component = getGeneratorComponent("anatomy");
   const params = Object.fromEntries(component.params.map((param) => [param.id, param]));
-  const rendererSource = readFileSync(new URL("../js/output/output-renderer.js", import.meta.url), "utf8");
-  const controllerSource = readFileSync(new URL("../js/control/control-shell-controller.js", import.meta.url), "utf8");
+  const rendererSource = [
+    readFileSync(new URL("../js/output/output-renderer.js", import.meta.url), "utf8"),
+    readFileSync(new URL("../js/output/specialized/anatomy-renderer.js", import.meta.url), "utf8"),
+  ].join("\n");
 
   assert.equal(component.name, "Low Poly Anatomy");
   assert.equal(component.category, "character");
@@ -279,14 +282,18 @@ test("low poly anatomy generator exposes body part and stl-style 3d controls", (
   assert.ok(rendererSource.includes("drawAnatomyArmChain("));
   assert.ok(rendererSource.includes("drawAnatomyLegChain("));
   assert.ok(rendererSource.includes("drawLowPolyHeart("));
-  assert.ok(controllerSource.includes("anatomy: \"accessibility_new\""));
+  assert.equal(generatorIcon("anatomy"), "accessibility_new");
 });
 
 test("terrain flyover exposes flight, terrain, wire, and biome controls", () => {
   const component = getGeneratorComponent("terrainFlyover");
   const params = Object.fromEntries(component.params.map((param) => [param.id, param]));
   const controllerSource = readFileSync(new URL("../js/control/control-shell-controller.js", import.meta.url), "utf8");
-  const rendererSource = readFileSync(new URL("../js/output/output-renderer.js", import.meta.url), "utf8");
+  const rendererSource = [
+    readFileSync(new URL("../js/output/output-renderer.js", import.meta.url), "utf8"),
+    readFileSync(new URL("../js/output/specialized/terrain-mesh.js", import.meta.url), "utf8"),
+    readFileSync(new URL("../js/output/specialized/terrain-renderer.js", import.meta.url), "utf8"),
+  ].join("\n");
 
   assert.equal(component.name, "Terrain Flyover");
   assert.equal(component.category, "organic");
@@ -299,7 +306,7 @@ test("terrain flyover exposes flight, terrain, wire, and biome controls", () => 
   for (const id of ["waterColor", "grassColor", "rockColor", "snowColor", "downSlopeColor", "directionColor", "wireColor", "skyColor"]) {
     assert.equal(params[id].type, "color", `missing terrain color ${id}`);
   }
-  assert.ok(controllerSource.includes("terrainFlyover: \"landscape\""));
+  assert.equal(generatorIcon("terrainFlyover"), "landscape");
   assert.ok(rendererSource.includes("source.generatorId === \"terrainFlyover\""));
   assert.ok(rendererSource.includes("this.specializedWebglTargets = new Map()"));
   assert.ok(rendererSource.includes("this.getTerrainTarget(renderRequest.width, renderRequest.height, this.requestPixelDensity(renderRequest))"));
@@ -438,7 +445,6 @@ test("terrain GPU buffers keep vertex data static while world-row topology advan
 test("bezier strokes exposes bounded curve, timing, material, and alpha controls", () => {
   const component = getGeneratorComponent("bezierStrokes");
   const params = Object.fromEntries(component.params.map((param) => [param.id, param]));
-  const controllerSource = readFileSync(new URL("../js/control/control-shell-controller.js", import.meta.url), "utf8");
 
   assert.equal(component.name, "Bezier Strokes");
   assert.deepEqual(params.style.values, ["pen", "crayon", "brush"]);
@@ -447,7 +453,7 @@ test("bezier strokes exposes bounded curve, timing, material, and alpha controls
     assert.equal(params[id].type, "number", `missing bezier stroke param ${id}`);
   }
   assert.equal(params.strokeColor.type, "color");
-  assert.ok(controllerSource.includes("bezierStrokes: \"gesture\""));
+  assert.equal(generatorIcon("bezierStrokes"), "gesture");
 });
 
 test("live source param overrides compile through node params", () => {
@@ -609,7 +615,10 @@ test("specialized wire thickness is scaled once from logical to raster resolutio
   assert.equal(resolutionScaledStrokeWidth(2, { width: 1300, height: 1000 }), 2);
   assert.equal(resolutionScaledStrokeWidth(0.5, { width: 32, height: 32, logicalWidth: 1000, logicalHeight: 1000 }), 0.125);
 
-  const source = readFileSync(new URL("../js/output/output-renderer.js", import.meta.url), "utf8");
+  const source = [
+    readFileSync(new URL("../js/output/output-renderer.js", import.meta.url), "utf8"),
+    readFileSync(new URL("../js/output/specialized/terrain-renderer.js", import.meta.url), "utf8"),
+  ].join("\n");
   assert.ok(source.includes("drawTerrainWireframe(target, this.terrainWireResources"));
   assert.ok(source.includes("const viewportSize = renderTargetPixelSize(target);"));
   assert.ok(source.includes("gl.uniform2f(resources.resolution, viewportSize.width, viewportSize.height);"));
@@ -631,7 +640,10 @@ test("3d model scale uses logical render viewport instead of backing pixels", ()
 });
 
 test("parsed STL and OBJ models use one clipped raw WebGL renderer family", () => {
-  const source = readFileSync(new URL("../js/output/output-renderer.js", import.meta.url), "utf8");
+  const source = [
+    readFileSync(new URL("../js/output/output-renderer.js", import.meta.url), "utf8"),
+    readFileSync(new URL("../js/output/specialized/model-geometry.js", import.meta.url), "utf8"),
+  ].join("\n");
 
   assert.ok(source.includes("drawRawParsedModelMode(target, item, params"));
   assert.ok(source.includes("function drawRawParsedSurface("));
@@ -672,7 +684,7 @@ test("live source controls use dynamic param metadata", () => {
 test("color picker exposes color and opacity without redundant hsv sliders", () => {
   const source = readFileSync(new URL("../js/control/control-shell-controller.js", import.meta.url), "utf8");
 
-  assert.ok(source.includes("reason.startsWith(\"color:\")"));
+  assert.ok(source.includes('change.phase === "color"'));
   assert.ok(source.includes("rgbInput?.addEventListener(\"change\", () => updateColorParamFromControl(control, `color:${control.dataset.colorPath}`));"));
   assert.ok(source.includes("alphaInput?.addEventListener(\"change\", () => updateColorParamFromControl(control, `color:${control.dataset.colorPath}`));"));
   assert.ok(!source.includes("data-color-hue"));

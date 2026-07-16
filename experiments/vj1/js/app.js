@@ -1,10 +1,10 @@
 import { createAppState } from "./app-state.js?v=adaptive-component-demand-29";
-import { createControlShell } from "./control/control-shell-controller.js?v=adaptive-component-demand-29";
+import { createControlShell } from "./control/control-shell-controller.js?v=model-geometry-fix-30";
 import { getInitialWorkspace, getClientMode, persistWorkspace } from "./view-routing.js?v=adaptive-component-demand-29";
 import { createMediaLibrary } from "./services/media-library-service.js?v=adaptive-component-demand-29";
 import { createProjectFolderService } from "./services/project-folder-service.js?v=adaptive-component-demand-29";
 import { createControlBridge } from "./services/output-bridge-service.js?v=adaptive-component-demand-29";
-import { installOutputApp } from "./output/output-app.js?v=adaptive-component-demand-29";
+import { installOutputApp } from "./output/output-app.js?v=model-geometry-fix-30";
 
 const root = document.getElementById("app");
 const mode = getClientMode();
@@ -35,10 +35,10 @@ if (mode === "output" || mode === "preview" || mode === "component") {
 
   createControlShell({ root, store, bridge, mediaLibrary, projectService }).mount();
 
-  store.subscribe((state, reason) => {
+  store.subscribe((state, reason, change) => {
     if (reason === "workspace") persistWorkspace(state.ui.workspace);
-    projectService.scheduleAutoSave(reason);
-    if (state.ui.workspace === "scene" && (reason === "mapping-state" || String(reason).startsWith("scrub:mapping-state"))) {
+    projectService.scheduleAutoSave(change);
+    if (state.ui.workspace === "scene" && change.topic === "mapping-state") {
       bridge.command("sync-mapping", { mappings: state.mappings });
       return;
     }
@@ -46,10 +46,10 @@ if (mode === "output" || mode === "preview" || mode === "component") {
       bridge.command("sync-global", { global: state.global });
       return;
     }
-    if (String(reason).startsWith("edit:")) {
+    if (change.phase === "edit") {
       return;
     }
-    if (String(reason).startsWith("scrub:")) {
+    if (change.phase === "scrub") {
       sendScrubState();
       return;
     }

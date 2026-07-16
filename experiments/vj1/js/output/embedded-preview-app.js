@@ -1,6 +1,6 @@
 import { VJ1 } from "../constants.js";
 import { sanitizeState } from "../domain/models.js?v=adaptive-component-demand-29";
-import { OutputRenderer } from "./output-renderer.js?v=adaptive-component-demand-29";
+import { OutputRenderer } from "./output-renderer.js?v=model-geometry-fix-30";
 import { applyFontToGlobal, loadVjRenderFont } from "./font-loader.js?v=adaptive-component-demand-29";
 import { createPreviewViewportController, fitPreviewCanvasElement } from "./preview-viewport.js?v=adaptive-component-demand-29";
 import { canvasSizeForMode } from "./render-geometry.js?v=adaptive-component-demand-29";

@@ -20,38 +20,43 @@ import {
 import { stampChangedProjectItems, touchComponentUsed } from "./domain/component-activity.js?v=adaptive-component-demand-29";
 import { componentFrameMetrics } from "./domain/component-frame.js?v=adaptive-component-demand-29";
 import { VJ1, WORKSPACES } from "./constants.js";
+import { createChangeEvent } from "./domain/change-event.js?v=adaptive-component-demand-29";
+import { clearComponentReferences, countChainGroups, insertChainItemNearSelection, moveById, moveChainItem } from "./domain/chain-operations.js?v=adaptive-component-demand-29";
 
 export function createAppState(initial = null) {
   let state = sanitizeState(initial || createInitialState());
   refreshLiveSelectedSceneSnapshot(state);
   const listeners = new Set();
 
-  function emit(reason = "change") {
-    for (const listener of listeners) listener(getState(), reason);
+  function emit(change = "change") {
+    const event = createChangeEvent(change);
+    for (const listener of listeners) listener(getState(), event.reason, event);
   }
 
   function getState() {
     return clone(state);
   }
 
-  function replace(next, reason = "replace") {
+  function replace(next, change = "replace") {
+    const event = createChangeEvent(change);
     const previous = state;
     const normalized = sanitizeState(next);
-    state = preservesImportedActivity(reason) ? normalized : stampChangedProjectItems(previous, normalized);
-    if (!isLiveOverrideReason(reason)) reconcileLiveOverridesWithPersistentEdits(previous, state);
+    state = event.projectRestore ? normalized : stampChangedProjectItems(previous, normalized);
+    if (event.scope !== "live") reconcileLiveOverridesWithPersistentEdits(previous, state);
     refreshLiveSelectedSceneSnapshot(state);
-    emit(reason);
+    emit(event);
   }
 
-  function update(recipe, reason = "update") {
+  function update(recipe, change = "update") {
     const draft = getState();
     recipe(draft);
-    replace(draft, reason);
+    replace(draft, change);
   }
 
   function subscribe(listener) {
     listeners.add(listener);
-    listener(getState(), "init");
+    const event = createChangeEvent("init");
+    listener(getState(), event.reason, event);
     return () => listeners.delete(listener);
   }
 
@@ -342,11 +347,6 @@ export function createAppState(initial = null) {
   };
 }
 
-function preservesImportedActivity(reason = "") {
-  return ["project-load", "project-open", "project-restore", "project-undo", "project-redo", "project-close"]
-    .some((prefix) => String(reason).startsWith(prefix));
-}
-
 function rememberWorkspaceComponent(draft, workspace, component) {
   if (workspace !== "component" && workspace !== "canvas") return;
   if (!component || (workspace === "canvas") !== (component.type === "canvas")) return;
@@ -366,10 +366,6 @@ function restoreWorkspaceComponent(draft, workspace) {
   draft.ui.workspaceSelectionIds[workspace] = component.id;
   draft.ui.selectedComponentId = component.id;
   draft.ui.selectedChainItemId = component.chain?.[0]?.id || "";
-}
-
-function isLiveOverrideReason(reason = "") {
-  return String(reason).startsWith("live:") || String(reason) === "scrub:live";
 }
 
 function refreshLiveSelectedSceneSnapshot(state) {
@@ -447,97 +443,4 @@ function persistentValuesEqual(a, b) {
     ));
   }
   return false;
-}
-
-function moveById(list, fromId, toId) {
-  if (!Array.isArray(list)) return false;
-  const fromIndex = list.findIndex((item) => item.id === fromId);
-  const toIndex = list.findIndex((item) => item.id === toId);
-  if (fromIndex < 0 || toIndex < 0 || fromIndex === toIndex) return false;
-  const [item] = list.splice(fromIndex, 1);
-  list.splice(toIndex, 0, item);
-  return true;
-}
-
-function insertChainItemNearSelection(chain = [], selectedId = "", item = null) {
-  if (!item) return;
-  const selected = findChainItemLocation(chain, selectedId);
-  if (selected?.item?.kind === "group") {
-    selected.item.chain ||= [];
-    selected.item.chain.push(item);
-    return;
-  }
-  if (selected?.chain) {
-    selected.chain.splice(selected.index + 1, 0, item);
-    return;
-  }
-  chain.push(item);
-}
-
-function findChainItemLocation(chain = [], id = "") {
-  if (!Array.isArray(chain) || !id) return null;
-  for (let index = 0; index < chain.length; index++) {
-    const item = chain[index];
-    if (item.id === id) return { chain, item, index };
-    const nested = item.kind === "group" ? findChainItemLocation(item.chain, id) : null;
-    if (nested) return nested;
-  }
-  return null;
-}
-
-function countChainGroups(chain = []) {
-  let count = 0;
-  for (const item of chain || []) {
-    if (item.kind === "group") count++;
-    if (item.kind === "group") count += countChainGroups(item.chain);
-  }
-  return count;
-}
-
-function moveChainItem(rootChain = [], fromId = "", toId = "", position = "before") {
-  if (!fromId || !toId || !Array.isArray(rootChain)) return false;
-  if (position === "inside" && (fromId === toId || chainItemContainsId(findChainItemLocation(rootChain, fromId)?.item, toId))) {
-    return false;
-  }
-  const from = findChainItemLocation(rootChain, fromId);
-  const target = findChainItemLocation(rootChain, toId);
-  if (!from || !target) return false;
-  if (position === "inside" && target.item.kind !== "group") return false;
-  if ((position === "before" || position === "after") && from.chain === target.chain && from.index === target.index) return false;
-  if (chainItemContainsId(from.item, toId)) return false;
-
-  const [moved] = from.chain.splice(from.index, 1);
-  if (!moved) return false;
-
-  if (position === "inside") {
-    target.item.chain ||= [];
-    target.item.chain.push(moved);
-    return true;
-  }
-
-  const adjustedTarget = findChainItemLocation(rootChain, toId);
-  if (!adjustedTarget) {
-    rootChain.push(moved);
-    return true;
-  }
-  const insertIndex = adjustedTarget.index + (position === "after" ? 1 : 0);
-  adjustedTarget.chain.splice(insertIndex, 0, moved);
-  return true;
-}
-
-function chainItemContainsId(item = null, id = "") {
-  if (!item || !id || item.kind !== "group") return false;
-  for (const child of item.chain || []) {
-    if (child.id === id || chainItemContainsId(child, id)) return true;
-  }
-  return false;
-}
-
-function clearComponentReferences(chain = [], componentId = "") {
-  for (const item of chain || []) {
-    if (item.kind === "source" && item.source?.type === "component" && item.source.componentId === componentId) {
-      item.source.componentId = "";
-    }
-    if (item.kind === "group") clearComponentReferences(item.chain, componentId);
-  }
 }

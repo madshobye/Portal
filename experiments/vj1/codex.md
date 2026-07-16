@@ -42,15 +42,17 @@ Sources composite into the accumulated image; they do not implicitly replace it.
 Core files:
 
 - `js/app.js`, `js/app-state.js`, `js/domain/models.js`: startup, state, normalization, and domain models.
+- `js/domain/change-event.js`, `js/domain/chain-operations.js`: structured state-change metadata and chain mutation rules.
 - `js/domain/project-migrations.js`: sequential project-schema migrations; current version is **17**.
-- `js/control/control-shell-controller.js`, `js/control/shell-view.js`, `style.css`: control UI.
+- `js/control/control-shell-controller.js`, `shell-view.js`, `settings-view.js`, `picker-view.js`, `style.css`: control behavior, shell, and focused HTML views.
 - `js/graph/render-scheduler.js`, `js/graph/placed-render-result.js`: graph compilation and placed-source contract.
 - `js/shaders/*`: generator/effect schemas, GLSL, fusion, and shader caching.
-- `js/output/output-renderer.js`: authoritative pixels, caching, demand planning, groups, sources, surfaces, thumbnails, and profiling.
+- `js/output/output-renderer.js`: render orchestration, caching, groups, sources, surfaces, thumbnails, and profiling.
+- `js/output/component-render-layout.js`, `js/output/specialized/*`: demand/layout math and isolated anatomy, terrain, and model rendering/parsing support.
 - `js/output/shared-framebuffer-target.js`: shared-context top-left framebuffer facade.
 - `js/output/render-geometry.js`, `js/output/vj-mapper.js`: sizing, source views, mapping, homography, fit, and feathering.
 - `js/output/embedded-preview-app.js`, `js/output/output-app.js`: preview and popup lifecycle.
-- `js/services/project-folder-service.js`, `media-library-service.js`, `output-bridge-service.js`: persistence, files, and synchronization.
+- `js/services/project-folder-service.js`, `project-serializer.js`, `project-history-policy.js`, `media-library-service.js`, `output-bridge-service.js`: persistence coordination, pure serialization/history policy, files, and synchronization.
 - `tests/*.test.mjs`, `tests/shader-smoke.html`, `tests/fixtures`: automated and real-WebGL tests.
 
 ## State and Persistence
@@ -186,7 +188,7 @@ Before finishing renderer work:
 
 The implementation baseline is committed. Recent work centers on generic direct projection for Components, full Canvases, and recording-frame source rectangles; adaptive Component raster demand; demand-sized previews; shared 8192 bounds; static performance estimates; cache-busting imports; and focused render-geometry/output tests. Surface textures remain only on explicit materialization paths.
 
-The handover reports **266 passing Node tests**. Real GLSL still requires the shader smoke page. The representative performance comparison is `metrics-results/runs/four-surface-show-gpu-architecture.*`.
+The handover reports **269 passing Node tests**. Real GLSL still requires the shader smoke page. The representative performance comparison is `metrics-results/runs/four-surface-show-gpu-architecture.*`.
 
 ## Change Discipline
 

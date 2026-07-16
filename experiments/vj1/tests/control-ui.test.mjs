@@ -3,6 +3,8 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 
 import { paramRangePairTemplate, rangeTemplate } from "../js/control/template-utils.js";
+import { settingsModalTemplate } from "../js/control/settings-view.js";
+import { createInitialState } from "../js/domain/models.js";
 import { previewRasterDensity } from "../js/output/embedded-preview-app.js";
 
 test("range params render as label plus slider without numeric value text", () => {
@@ -212,7 +214,7 @@ test("Live expands Canvas component placements into referenced element controls"
 });
 
 test("project settings expose component upscaling and native-resolution post filters", () => {
-  const controllerSource = readFileSync(new URL("../js/control/control-shell-controller.js", import.meta.url), "utf8");
+  const controllerSource = settingsModalTemplate(createInitialState());
 
   for (const path of [
     "render.upscaling.enabled",
@@ -228,7 +230,7 @@ test("project settings expose component upscaling and native-resolution post fil
 });
 
 test("project settings expose one adaptive surface texture policy", () => {
-  const source = readFileSync(new URL("../js/control/control-shell-controller.js", import.meta.url), "utf8");
+  const source = settingsModalTemplate(createInitialState());
   assert.ok(source.includes('data-settings-update="render.componentTexture.width"'));
   assert.ok(source.includes('data-settings-update="render.componentTexture.height"'));
   assert.ok(source.includes('data-settings-update="render.surfaceTexture.mode"'));
@@ -245,7 +247,7 @@ test("project settings expose one adaptive surface texture policy", () => {
 });
 
 test("project settings expose common WXGA and WUXGA projector presets", () => {
-  const source = readFileSync(new URL("../js/control/control-shell-controller.js", import.meta.url), "utf8");
+  const source = `${readFileSync(new URL("../js/control/control-shell-controller.js", import.meta.url), "utf8")}\n${settingsModalTemplate(createInitialState())}`;
   assert.ok(source.includes('data-render-preset="wxga" title="1280 x 800"'));
   assert.ok(source.includes('data-render-preset="wuxga" title="1920 x 1200"'));
   assert.ok(source.includes("wxga: [1280, 800]"));
@@ -253,7 +255,7 @@ test("project settings expose common WXGA and WUXGA projector presets", () => {
 });
 
 test("project settings expose camera capture preferences", () => {
-  const source = readFileSync(new URL("../js/control/control-shell-controller.js", import.meta.url), "utf8");
+  const source = settingsModalTemplate(createInitialState(), "camera");
   assert.ok(source.includes("data-camera-preset"));
   assert.ok(source.includes('data-settings-update="render.camera.width"'));
   assert.ok(source.includes('data-settings-update="render.camera.height"'));
@@ -263,7 +265,7 @@ test("project settings expose camera capture preferences", () => {
 });
 
 test("project settings keep one modal DOM and patch tab values in place", () => {
-  const source = readFileSync(new URL("../js/control/control-shell-controller.js", import.meta.url), "utf8");
+  const source = `${readFileSync(new URL("../js/control/control-shell-controller.js", import.meta.url), "utf8")}\n${settingsModalTemplate(createInitialState())}`;
   assert.ok(source.includes('if (!host.querySelector("[data-settings-modal]"))'));
   assert.ok(source.includes("function syncSettingsModal(host, state)"));
   assert.ok(source.includes("function bindSettingsModalControls(host)"));
@@ -308,14 +310,15 @@ test("opening an output from Scene takes that Scene live before opening the Live
 test("multiple configured outputs have individual popup actions", () => {
   const controllerSource = readFileSync(new URL("../js/control/control-shell-controller.js", import.meta.url), "utf8");
   const shellSource = readFileSync(new URL("../js/control/shell-view.js", import.meta.url), "utf8");
+  const settingsHtml = settingsModalTemplate(createInitialState());
 
   assert.ok(shellSource.includes('id="output-menu"'));
   assert.ok(controllerSource.includes("data-open-output-id"));
   assert.ok(!controllerSource.includes("data-open-all-outputs"));
   assert.ok(controllerSource.includes("outputs.length === 1"));
   assert.ok(controllerSource.includes("dataset.outputsSignature"));
-  assert.ok(controllerSource.includes("render.outputs.${index}.width"));
-  assert.ok(controllerSource.includes("data-add-output"));
+  assert.ok(settingsHtml.includes("render.outputs.0.width"));
+  assert.ok(settingsHtml.includes("data-add-output"));
 });
 
 test("topbar shows separate active-renderer CPU and GPU work timers", () => {
@@ -323,6 +326,7 @@ test("topbar shows separate active-renderer CPU and GPU work timers", () => {
   const shellSource = readFileSync(new URL("../js/control/shell-view.js", import.meta.url), "utf8");
   const styleSource = readFileSync(new URL("../style.css", import.meta.url), "utf8");
   const rendererSource = readFileSync(new URL("../js/output/output-renderer.js", import.meta.url), "utf8");
+  const gpuTimerSource = readFileSync(new URL("../js/output/gpu-timer-tracker.js", import.meta.url), "utf8");
   const previewSource = readFileSync(new URL("../js/output/embedded-preview-app.js", import.meta.url), "utf8");
 
   assert.ok(shellSource.includes('id="cpu-time"'));
@@ -346,8 +350,8 @@ test("topbar shows separate active-renderer CPU and GPU work timers", () => {
   assert.ok(controllerSource.includes("cache hit"));
   assert.ok(controllerSource.includes("stage reuse"));
   assert.match(styleSource, /\.work-time-pill #gpu-time-text[\s\S]*?white-space: nowrap;/);
-  assert.ok(rendererSource.includes('getExtension("EXT_disjoint_timer_query_webgl2")'));
-  assert.ok(rendererSource.includes('getExtension("EXT_disjoint_timer_query")'));
+  assert.ok(gpuTimerSource.includes('getExtension("EXT_disjoint_timer_query_webgl2")'));
+  assert.ok(gpuTimerSource.includes('getExtension("EXT_disjoint_timer_query")'));
   assert.ok(rendererSource.includes("this.pruneRenderCaches();\n    this.gpuTimer.sealFrame"));
   assert.ok(rendererSource.includes("gpuSupported: this.gpuTimer.supported"));
   assert.ok(previewSource.includes("draft.metrics.previewGpuMs = metrics.gpuMs || 0"));
@@ -382,7 +386,7 @@ test("media cards use one full-width text column without the generic icon inset"
 });
 
 test("component picker cards use the same thumbnail layout as media cards", () => {
-  const source = readFileSync(new URL("../js/control/control-shell-controller.js", import.meta.url), "utf8");
+  const source = readFileSync(new URL("../js/control/picker-view.js", import.meta.url), "utf8");
   assert.match(source, /Components[\s\S]*?<div class="element-grid media-element-grid">[\s\S]*?class="element-card media-element-card" data-add-element-component=/);
 });
 
