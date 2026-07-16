@@ -2,13 +2,13 @@ import {
   applySceneForEditing,
   applySceneSnapshotToState,
   clone,
-  createCanvasComposition,
+  createCanvasComponent,
   createCanvasFrame,
-  createDefaultComposition,
+  createDefaultComponent,
   createDefaultSurface,
-  createCompositionEffect,
-  createCompositionGroup,
-  createCompositionLayer,
+  createComponentEffect,
+  createComponentGroup,
+  createComponentLayer,
   createInitialState,
   createLiveRenderState,
   createSceneSurfaceSnapshot,
@@ -16,8 +16,10 @@ import {
   sanitizeState,
   syncLiveSnapshotFromScene,
   uid,
-} from "./domain/models.js?v=scene-transition-1";
-import { WORKSPACES } from "./constants.js";
+} from "./domain/models.js?v=label-overlay-16";
+import { stampChangedProjectItems, touchComponentUsed } from "./domain/component-activity.js?v=label-overlay-16";
+import { componentFrameMetrics } from "./domain/component-frame.js?v=label-overlay-16";
+import { VJ1, WORKSPACES } from "./constants.js";
 
 export function createAppState(initial = null) {
   let state = sanitizeState(initial || createInitialState());
@@ -34,7 +36,8 @@ export function createAppState(initial = null) {
 
   function replace(next, reason = "replace") {
     const previous = state;
-    state = sanitizeState(next);
+    const normalized = sanitizeState(next);
+    state = preservesImportedActivity(reason) ? normalized : stampChangedProjectItems(previous, normalized);
     if (!isLiveOverrideReason(reason)) reconcileLiveOverridesWithPersistentEdits(previous, state);
     refreshLiveSelectedSceneSnapshot(state);
     emit(reason);
@@ -62,35 +65,21 @@ export function createAppState(initial = null) {
         draft.ui.selectedSurfaceId = id;
       }, "select-surface");
     },
-    selectComposition(id) {
+    selectComponent(id) {
       update((draft) => {
-        draft.ui.selectedCompositionId = id;
-        const composition = draft.compositions.find((item) => item.id === id);
-        draft.ui.selectedChainItemId = composition?.chain?.[0]?.id || "";
-      }, "select-composition");
+        draft.ui.selectedComponentId = id;
+        touchComponentUsed(draft, id);
+        const component = draft.components.find((item) => item.id === id);
+        draft.ui.selectedChainItemId = component?.chain?.[0]?.id || "";
+        rememberWorkspaceComponent(draft, draft.ui.workspace, component);
+      }, "select-component");
     },
     setWorkspace(workspace) {
       update((draft) => {
+        const current = draft.components.find((component) => component.id === draft.ui.selectedComponentId);
+        rememberWorkspaceComponent(draft, draft.ui.workspace, current);
         draft.ui.workspace = WORKSPACES.includes(workspace) ? workspace : "scene";
-        if (draft.ui.workspace === "canvas") {
-          const selected = draft.compositions.find((composition) => composition.id === draft.ui.selectedCompositionId);
-          const canvas = selected?.type === "canvas"
-            ? selected
-            : draft.compositions.find((composition) => composition.type === "canvas");
-          if (canvas) {
-            draft.ui.selectedCompositionId = canvas.id;
-            draft.ui.selectedChainItemId = canvas.chain?.[0]?.id || "";
-          }
-        } else if (draft.ui.workspace === "compose") {
-          const selected = draft.compositions.find((composition) => composition.id === draft.ui.selectedCompositionId);
-          const composition = selected?.type !== "canvas"
-            ? selected
-            : draft.compositions.find((item) => item.type !== "canvas");
-          if (composition) {
-            draft.ui.selectedCompositionId = composition.id;
-            draft.ui.selectedChainItemId = composition.chain?.[0]?.id || "";
-          }
-        }
+        restoreWorkspaceComponent(draft, draft.ui.workspace);
         draft.global.calibrating = draft.ui.workspace === "scene";
       }, "workspace");
     },
@@ -111,46 +100,48 @@ export function createAppState(initial = null) {
       }
       return current;
     },
-    addComposition() {
+    addComponent() {
       update((draft) => {
-        const composition = createDefaultComposition(draft.compositions.filter((item) => item.type !== "canvas").length);
-        draft.compositions.push(composition);
-        draft.ui.selectedCompositionId = composition.id;
-        draft.ui.selectedChainItemId = composition.chain[0]?.id || "";
+        const component = createDefaultComponent(draft.components.filter((item) => item.type !== "canvas").length);
+        draft.components.push(component);
+        draft.ui.selectedComponentId = component.id;
+        draft.ui.selectedChainItemId = component.chain[0]?.id || "";
+        rememberWorkspaceComponent(draft, "component", component);
         for (const surface of draft.surfaces) {
-          if (!surface.compositionId) surface.compositionId = composition.id;
+          if (!surface.componentId) surface.componentId = component.id;
         }
-      }, "add-composition");
+      }, "add-component");
     },
-    addCanvasComposition() {
+    addCanvasComponent() {
       update((draft) => {
-        const composition = createCanvasComposition(
-          draft.compositions.filter((item) => item.type === "canvas").length
+        const component = createCanvasComponent(
+          draft.components.filter((item) => item.type === "canvas").length
         );
-        draft.compositions.push(composition);
-        draft.ui.selectedCompositionId = composition.id;
-        draft.ui.selectedChainItemId = composition.chain[0]?.id || "";
-      }, "add-canvas-composition");
+        draft.components.push(component);
+        draft.ui.selectedComponentId = component.id;
+        draft.ui.selectedChainItemId = component.chain[0]?.id || "";
+        rememberWorkspaceComponent(draft, "canvas", component);
+      }, "add-canvas-component");
     },
-    addCanvasFrame(canvasCompositionId) {
+    addCanvasFrame(canvasComponentId) {
       update((draft) => {
-        const composition = draft.compositions.find((item) => item.id === canvasCompositionId && item.type === "canvas");
-        if (!composition) return;
-        composition.canvas ||= { width: 3840, height: 2160 };
+        const component = draft.components.find((item) => item.id === canvasComponentId && item.type === "canvas");
+        if (!component) return;
+        component.canvas ||= { width: VJ1.canvasWidth, height: VJ1.canvasHeight };
         draft.recordingFrames ||= [];
         draft.recordingFrames.push(createCanvasFrame(
           draft.recordingFrames.length,
-          composition.canvas.width,
-          composition.canvas.height
+          component.canvas.width,
+          component.canvas.height
         ));
       }, "add-canvas-frame");
     },
-    removeCanvasFrame(canvasCompositionId, frameId) {
+    removeCanvasFrame(canvasComponentId, frameId) {
       update((draft) => {
         draft.recordingFrames = (draft.recordingFrames || []).filter((frame) => frame.id !== frameId);
-        for (const composition of draft.compositions || []) {
-          if (composition.type === "canvas" && composition.canvas?.frameThumbnails) {
-            delete composition.canvas.frameThumbnails[frameId];
+        for (const component of draft.components || []) {
+          if (component.type === "canvas" && component.canvas?.frameThumbnails) {
+            delete component.canvas.frameThumbnails[frameId];
           }
         }
         for (const surface of draft.surfaces || []) {
@@ -174,41 +165,50 @@ export function createAppState(initial = null) {
         draft.ui.selectedChainItemId = id;
       }, "select-chain-item");
     },
-    addChainSource(compositionId, source = { type: "generator", generatorId: "testPattern" }) {
+    addChainSource(componentId, source = { type: "generator", generatorId: "testPattern" }) {
       update((draft) => {
-        const composition = draft.compositions.find((item) => item.id === compositionId);
-        if (!composition) return;
-        if (source.type === "composition" && composition.type !== "canvas") return;
-        const layer = createCompositionLayer(composition.chain?.length || 0, source);
-        composition.chain ||= [];
-        insertChainItemNearSelection(composition.chain, draft.ui.selectedChainItemId, layer);
+        const component = draft.components.find((item) => item.id === componentId);
+        if (!component) return;
+        if (source.type === "component" && component.type !== "canvas") return;
+        const layer = createComponentLayer(component.chain?.length || 0, source);
+        if (source.type === "component" && component.type === "canvas") {
+          const referenced = draft.components.find((item) => item.id === source.componentId && item.type !== "canvas");
+          if (!referenced) return;
+          const metrics = componentFrameMetrics(draft.render, referenced);
+          const canvasWidth = Math.max(1, Number(component.canvas?.width) || VJ1.canvasWidth);
+          layer.source.placement = {
+            scale: metrics.baseWidth / canvasWidth,
+          };
+        }
+        component.chain ||= [];
+        insertChainItemNearSelection(component.chain, draft.ui.selectedChainItemId, layer);
         draft.ui.selectedChainItemId = layer.id;
       }, "add-chain-source");
     },
-    addChainEffect(compositionId, effectId) {
+    addChainEffect(componentId, effectId) {
       update((draft) => {
-        const composition = draft.compositions.find((item) => item.id === compositionId);
-        if (!composition) return;
-        const effect = createCompositionEffect(effectId);
-        composition.chain ||= [];
-        insertChainItemNearSelection(composition.chain, draft.ui.selectedChainItemId, effect);
+        const component = draft.components.find((item) => item.id === componentId);
+        if (!component) return;
+        const effect = createComponentEffect(effectId);
+        component.chain ||= [];
+        insertChainItemNearSelection(component.chain, draft.ui.selectedChainItemId, effect);
         draft.ui.selectedChainItemId = effect.id;
       }, "add-chain-effect");
     },
-    addChainGroup(compositionId) {
+    addChainGroup(componentId) {
       update((draft) => {
-        const composition = draft.compositions.find((item) => item.id === compositionId);
-        if (!composition) return;
-        composition.chain ||= [];
-        const group = createCompositionGroup(countChainGroups(composition.chain));
-        insertChainItemNearSelection(composition.chain, draft.ui.selectedChainItemId, group);
+        const component = draft.components.find((item) => item.id === componentId);
+        if (!component) return;
+        component.chain ||= [];
+        const group = createComponentGroup(countChainGroups(component.chain));
+        insertChainItemNearSelection(component.chain, draft.ui.selectedChainItemId, group);
         draft.ui.selectedChainItemId = group.id;
       }, "add-chain-group");
     },
-    reorderChain(compositionId, fromId, toId, position = "before") {
+    reorderChain(componentId, fromId, toId, position = "before") {
       update((draft) => {
-        const composition = draft.compositions.find((item) => item.id === compositionId);
-        const chain = composition?.chain;
+        const component = draft.components.find((item) => item.id === componentId);
+        const chain = component?.chain;
         if (!Array.isArray(chain)) return;
         moveChainItem(chain, fromId, toId, position);
       }, "reorder-chain");
@@ -221,29 +221,31 @@ export function createAppState(initial = null) {
         }
       }, "reorder-surfaces");
     },
-    removeComposition(id) {
+    removeComponent(id) {
       update((draft) => {
-        if (draft.compositions.length <= 1) return;
-        draft.compositions = draft.compositions.filter((composition) => composition.id !== id);
-        draft.ui.selectedCompositionId = draft.compositions[0]?.id || "";
+        if (draft.components.length <= 1) return;
+        draft.components = draft.components.filter((component) => component.id !== id);
+        draft.ui.selectedComponentId = draft.components[0]?.id || "";
         for (const surface of draft.surfaces) {
-          if (surface.compositionId === id) surface.compositionId = draft.ui.selectedCompositionId;
+          if (surface.componentId === id) surface.componentId = draft.ui.selectedComponentId;
         }
         for (const scene of draft.scenes) {
           for (const surface of scene.snapshot?.surfaces || []) {
-            if (surface.compositionId === id) surface.compositionId = draft.ui.selectedCompositionId;
+            if (surface.componentId === id) surface.componentId = draft.ui.selectedComponentId;
           }
         }
-        for (const composition of draft.compositions) clearCompositionReferences(composition.chain, id);
-      }, "remove-composition");
+        for (const component of draft.components) clearComponentReferences(component.chain, id);
+        restoreWorkspaceComponent(draft, draft.ui.workspace);
+      }, "remove-component");
     },
     addSurface() {
       update((draft) => {
-        const surface = createDefaultSurface(draft.surfaces.length);
+        const mappedSurfaces = draft.surfaces.filter((item) => item.destination?.type !== "direct");
+        const surface = createDefaultSurface(mappedSurfaces.length);
         surface.id = uid("surface");
-        surface.name = `Srf ${draft.surfaces.length + 1}`;
+        surface.name = `Srf ${mappedSurfaces.length + 1}`;
         surface.mappingId = surface.id;
-        surface.compositionId = draft.compositions[0]?.id || "";
+        surface.componentId = draft.components[0]?.id || "";
         draft.surfaces.push(surface);
         draft.ui.selectedSurfaceId = surface.id;
         for (const scene of draft.scenes) {
@@ -256,7 +258,8 @@ export function createAppState(initial = null) {
     },
     removeSurface(id) {
       update((draft) => {
-        if (draft.surfaces.length <= 1) return;
+        const target = draft.surfaces.find((surface) => surface.id === id);
+        if (target?.destination?.type === "direct") return;
         draft.surfaces = draft.surfaces.filter((surface) => surface.id !== id);
         draft.ui.selectedSurfaceId = draft.surfaces[0]?.id || "";
         if (Array.isArray(draft.mappings?.local?.surfaces)) {
@@ -290,9 +293,9 @@ export function createAppState(initial = null) {
         if (previousSceneId === String(scene.id)) return;
         const previousScene = draft.scenes.find((item) => String(item.id) === previousSceneId);
         const previousSnapshot = draft.ui.live.sceneSnapshot || previousScene?.snapshot || null;
-        const previousOverrides = clone(draft.ui.live.compositionOverrides || {});
-        if (previousSceneId && Object.keys(draft.ui.live.compositionOverrides || {}).length) {
-          draft.ui.live.sceneOverrides[previousSceneId] = clone(draft.ui.live.compositionOverrides);
+        const previousOverrides = clone(draft.ui.live.componentOverrides || {});
+        if (previousSceneId && Object.keys(draft.ui.live.componentOverrides || {}).length) {
+          draft.ui.live.sceneOverrides[previousSceneId] = clone(draft.ui.live.componentOverrides);
         }
         const durationMs = Math.round(Math.max(0, Number(draft.ui.live.transitionDuration) || 0) * 1000);
         draft.ui.live.transition = durationMs > 0 && previousSceneId && previousSnapshot
@@ -300,14 +303,14 @@ export function createAppState(initial = null) {
               id: uid("live-transition"),
               fromSceneId: previousSceneId,
               fromSnapshot: clone(previousSnapshot),
-              fromCompositionOverrides: previousOverrides,
+              fromComponentOverrides: previousOverrides,
               startedAtMs: Date.now() + 50,
               durationMs,
             }
           : null;
         draft.ui.live.selectedSceneId = scene.id;
         draft.ui.live.sceneSnapshot = clone(scene.snapshot);
-        draft.ui.live.compositionOverrides = clone(draft.ui.live.sceneOverrides[scene.id] || {});
+        draft.ui.live.componentOverrides = clone(draft.ui.live.sceneOverrides[scene.id] || {});
       }, "live:scene");
     },
     resetLiveScene(id) {
@@ -317,7 +320,7 @@ export function createAppState(initial = null) {
         draft.ui.live.sceneOverrides ||= {};
         delete draft.ui.live.sceneOverrides[sceneId];
         if (String(draft.ui.live.selectedSceneId || "") === sceneId) {
-          draft.ui.live.compositionOverrides = {};
+          draft.ui.live.componentOverrides = {};
         }
       }, "live:reset");
     },
@@ -330,13 +333,39 @@ export function createAppState(initial = null) {
           const fallback = draft.scenes[0];
           draft.ui.live.selectedSceneId = fallback?.id || "";
           draft.ui.live.sceneSnapshot = fallback?.snapshot ? clone(fallback.snapshot) : null;
-          draft.ui.live.compositionOverrides = clone(draft.ui.live.sceneOverrides?.[fallback?.id] || {});
+          draft.ui.live.componentOverrides = clone(draft.ui.live.sceneOverrides?.[fallback?.id] || {});
         }
         const selectedScene = draft.scenes.find((scene) => scene.id === draft.ui.selectedSceneId);
         if (selectedScene) applySceneSnapshotToState(draft, selectedScene);
       }, "delete-scene");
     },
   };
+}
+
+function preservesImportedActivity(reason = "") {
+  return ["project-load", "project-open", "project-restore", "project-undo", "project-redo", "project-close"]
+    .some((prefix) => String(reason).startsWith(prefix));
+}
+
+function rememberWorkspaceComponent(draft, workspace, component) {
+  if (workspace !== "component" && workspace !== "canvas") return;
+  if (!component || (workspace === "canvas") !== (component.type === "canvas")) return;
+  draft.ui.workspaceSelectionIds ||= { component: "", canvas: "" };
+  draft.ui.workspaceSelectionIds[workspace] = component.id;
+}
+
+function restoreWorkspaceComponent(draft, workspace) {
+  if (workspace !== "component" && workspace !== "canvas") return;
+  draft.ui.workspaceSelectionIds ||= { component: "", canvas: "" };
+  const wantsCanvas = workspace === "canvas";
+  const rememberedId = draft.ui.workspaceSelectionIds[workspace];
+  const component = draft.components.find((item) =>
+    item.id === rememberedId && (item.type === "canvas") === wantsCanvas
+  ) || draft.components.find((item) => (item.type === "canvas") === wantsCanvas);
+  if (!component) return;
+  draft.ui.workspaceSelectionIds[workspace] = component.id;
+  draft.ui.selectedComponentId = component.id;
+  draft.ui.selectedChainItemId = component.chain?.[0]?.id || "";
 }
 
 function isLiveOverrideReason(reason = "") {
@@ -350,26 +379,26 @@ function refreshLiveSelectedSceneSnapshot(state) {
 }
 
 function reconcileLiveOverridesWithPersistentEdits(previous, next) {
-  const previousCompositions = new Map((previous?.compositions || []).map((composition) => [String(composition.id), composition]));
-  const nextCompositions = new Map((next?.compositions || []).map((composition) => [String(composition.id), composition]));
-  const rebaseBank = (bank = {}) => Object.fromEntries(Object.entries(bank || {}).flatMap(([compositionId, override]) => {
+  const previousComponents = new Map((previous?.components || []).map((component) => [String(component.id), component]));
+  const nextComponents = new Map((next?.components || []).map((component) => [String(component.id), component]));
+  const rebaseBank = (bank = {}) => Object.fromEntries(Object.entries(bank || {}).flatMap(([componentId, override]) => {
     const rebased = pruneChangedLiveOverride(
       override,
-      previousCompositions.get(String(compositionId)),
-      nextCompositions.get(String(compositionId))
+      previousComponents.get(String(componentId)),
+      nextComponents.get(String(componentId))
     );
-    return hasLiveOverrideContent(rebased) ? [[compositionId, rebased]] : [];
+    return hasLiveOverrideContent(rebased) ? [[componentId, rebased]] : [];
   }));
 
-  next.ui.live.compositionOverrides = rebaseBank(next.ui.live.compositionOverrides);
+  next.ui.live.componentOverrides = rebaseBank(next.ui.live.componentOverrides);
   next.ui.live.sceneOverrides = Object.fromEntries(Object.entries(next.ui.live.sceneOverrides || {}).map(([sceneId, bank]) => [
     sceneId,
     rebaseBank(bank),
   ]));
   const selectedSceneId = String(next.ui.live.selectedSceneId || "");
   if (selectedSceneId) {
-    if (Object.keys(next.ui.live.compositionOverrides).length) {
-      next.ui.live.sceneOverrides[selectedSceneId] = clone(next.ui.live.compositionOverrides);
+    if (Object.keys(next.ui.live.componentOverrides).length) {
+      next.ui.live.sceneOverrides[selectedSceneId] = clone(next.ui.live.componentOverrides);
     } else {
       delete next.ui.live.sceneOverrides[selectedSceneId];
     }
@@ -504,11 +533,11 @@ function chainItemContainsId(item = null, id = "") {
   return false;
 }
 
-function clearCompositionReferences(chain = [], compositionId = "") {
+function clearComponentReferences(chain = [], componentId = "") {
   for (const item of chain || []) {
-    if (item.kind === "source" && item.source?.type === "composition" && item.source.compositionId === compositionId) {
-      item.source.compositionId = "";
+    if (item.kind === "source" && item.source?.type === "component" && item.source.componentId === componentId) {
+      item.source.componentId = "";
     }
-    if (item.kind === "group") clearCompositionReferences(item.chain, compositionId);
+    if (item.kind === "group") clearComponentReferences(item.chain, componentId);
   }
 }

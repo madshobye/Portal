@@ -23,25 +23,29 @@ function drawHopTimelineChart(x, y, w, h, points, title, series, labels = [], st
   const legend = drawTimelineLegend(x + 18, y + 42, w - 36, series, labels, hiddenSeries, hiddenLabels, toggleHits);
   const visibleSeries = series.filter((item) => !hiddenSeries.has(item.key));
   const visibleScaleKeys = [...new Set(visibleSeries.map((item) => item.scale || item.key))];
-  const hasDualAxis = visibleScaleKeys.includes("money") && visibleScaleKeys.includes("count");
   const leftScaleKey = visibleScaleKeys.includes("money") ? "money" : visibleScaleKeys[0];
-  const rightScaleKey = hasDualAxis ? "count" : "";
+  const rightScaleKey = visibleScaleKeys.includes("count") && leftScaleKey !== "count"
+    ? "count"
+    : visibleScaleKeys.find((key) => key !== leftScaleKey) || "";
+  const thirdScaleKey = visibleScaleKeys.find((key) => key !== leftScaleKey && key !== rightScaleKey) || "";
   const leftAxisW = visibleScaleKeys.length ? 58 : 0;
   const rightAxisW = rightScaleKey ? 44 : 0;
+  const thirdAxisW = thirdScaleKey ? 44 : 0;
   const plotX = x + 18 + leftAxisW;
   const plotY = max(y + 72, legend.bottom + 14);
-  const plotW = w - 36 - leftAxisW - rightAxisW;
+  const plotW = w - 36 - leftAxisW - rightAxisW - thirdAxisW;
   const plotH = max(80, h - (plotY - y) - 70);
   const isStacked = state.stackedTimelineLines || state.forceStackedTimelineLines;
   const maxByScale = isStacked
     ? stackedTimelineMaxByScale(points, visibleSeries)
     : timelineMaxByScale(points, visibleSeries);
   for (const scaleKey of Object.keys(maxByScale)) {
-    maxByScale[scaleKey] *= 1.08;
+    maxByScale[scaleKey] = scaleKey === "percent" ? 1 : maxByScale[scaleKey] * 1.08;
   }
 
   drawTimelineYAxis(plotX, plotY, plotW, plotH, leftScaleKey, maxByScale[leftScaleKey] || 1, false);
   if (rightScaleKey) drawTimelineYAxis(plotX, plotY, plotW, plotH, rightScaleKey, maxByScale[rightScaleKey] || 1, true);
+  if (thirdScaleKey) drawTimelineYAxis(plotX, plotY, plotW, plotH, thirdScaleKey, maxByScale[thirdScaleKey] || 1, true, rightAxisW);
   drawTimelineMissingDataEdges(plotX, plotY, plotW, plotH, state);
 
   stroke(210);
@@ -81,7 +85,7 @@ function drawHopTimelineChart(x, y, w, h, points, title, series, labels = [], st
     line(px, plotY, px, plotY + plotH);
     if (mouseY >= plotY && mouseY <= plotY + plotH) {
       line(plotX, mouseY, plotX + plotW, mouseY);
-      drawTimelineCrosshairLabels(plotX, plotY, plotW, plotH, mouseY, point.month, leftScaleKey, maxByScale[leftScaleKey] || 1, rightScaleKey, maxByScale[rightScaleKey] || 1);
+      drawTimelineCrosshairLabels(plotX, plotY, plotW, plotH, mouseY, point.month, leftScaleKey, maxByScale[leftScaleKey] || 1, rightScaleKey, maxByScale[rightScaleKey] || 1, thirdScaleKey, maxByScale[thirdScaleKey] || 1, rightAxisW);
     }
     const lines = [point.month];
     for (const item of visibleSeries) {
@@ -102,7 +106,7 @@ function drawHopTimelineChart(x, y, w, h, points, title, series, labels = [], st
   drawDelayedTimelineLegendInfo(legend.hoveredEntry);
 }
 
-function drawTimelineCrosshairLabels(plotX, plotY, plotW, plotH, y, periodLabel, scaleKey, maxValue, rightScaleKey = "", rightMaxValue = 1) {
+function drawTimelineCrosshairLabels(plotX, plotY, plotW, plotH, y, periodLabel, scaleKey, maxValue, rightScaleKey = "", rightMaxValue = 1, thirdScaleKey = "", thirdMaxValue = 1, thirdAxisOffset = 0) {
   const value = ((plotY + plotH - y) / plotH) * maxValue;
   fill(35);
   noStroke();
@@ -114,14 +118,19 @@ function drawTimelineCrosshairLabels(plotX, plotY, plotW, plotH, y, periodLabel,
     textAlign(LEFT, CENTER);
     text(formatTimelineAxisValue(rightValue, rightScaleKey), plotX + plotW + 8, y);
   }
+  if (thirdScaleKey) {
+    const thirdValue = ((plotY + plotH - y) / plotH) * thirdMaxValue;
+    textAlign(LEFT, CENTER);
+    text(formatTimelineAxisValue(thirdValue, thirdScaleKey), plotX + plotW + thirdAxisOffset + 8, y);
+  }
   textAlign(LEFT, BOTTOM);
   text(periodLabel, constrain(mouseX + 6, plotX + 4, plotX + plotW - 56), y - 4);
 }
 
-function drawTimelineYAxis(plotX, plotY, plotW, plotH, scaleKey, maxValue, rightSide) {
+function drawTimelineYAxis(plotX, plotY, plotW, plotH, scaleKey, maxValue, rightSide, axisOffset = 0) {
   if (!scaleKey) return;
   const ticks = 4;
-  const axisX = rightSide ? plotX + plotW : plotX;
+  const axisX = rightSide ? plotX + plotW + axisOffset : plotX;
   stroke(150);
   strokeWeight(1);
   line(axisX, plotY, axisX, plotY + plotH);
@@ -197,6 +206,7 @@ function stackedTimelineMaxByScale(points, visibleSeries) {
 function formatTimelineAxisValue(value, scaleKey) {
   if (scaleKey === "money") return formatCompactMoney(value);
   if (scaleKey === "count") return formatCompactCount(value);
+  if (scaleKey === "percent") return `${Math.round(value * 100)}%`;
   return formatCompactCount(value);
 }
 

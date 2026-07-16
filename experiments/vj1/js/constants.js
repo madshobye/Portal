@@ -4,14 +4,15 @@ export const VJ1 = Object.freeze({
   localPreviewKey: "vj1-preview-live",
   renderWidth: 960,
   renderHeight: 540,
-  surfaceWidth: 800,
-  surfaceHeight: 450,
+  canvasWidth: 3840,
+  canvasHeight: 2160,
+  outputWorldMarginRatio: 0.25,
   p5Script: "https://cdn.jsdelivr.net/npm/p5@2.2.0/lib/p5.js",
-  portalScript: "../../P1/portal/portal.js?v=vj1-camera-1",
+  portalScript: "../../P1/portal/portal.js?v=label-overlay-16",
   renderFont: "assets/RobotoMono-Regular.ttf",
 });
 
-export const WORKSPACES = Object.freeze(["compose", "canvas", "scene", "mapping", "live"]);
+export const WORKSPACES = Object.freeze(["component", "canvas", "scene", "mapping", "live"]);
 
 export const BLEND_MODES = Object.freeze([
   "normal",

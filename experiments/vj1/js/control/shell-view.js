@@ -6,22 +6,24 @@ export function shellTemplate() {
       <header class="topbar studio-topbar">
         <div class="brand">
           <div class="brand-mark">VJ</div>
-          <button id="open-folder-main" class="project-button" type="button" title="Open project folder">
-            <span class="material-symbols-rounded">folder_open</span>
-            <span>
-              <strong id="project-name">VJ1</strong>
-              <small id="project-meta">Choose a project folder</small>
-            </span>
-          </button>
+          <div class="project-title-control">
+            <button id="open-folder-main" class="project-button" type="button" title="Open project folder">
+              <span class="material-symbols-rounded">folder_open</span>
+              <span>
+                <strong id="project-name">VJ1</strong>
+                <small id="project-meta">Choose a project folder</small>
+              </span>
+            </button>
+            <button id="close-project" class="icon-buttonish close-project-button is-hidden" type="button" title="Close project" aria-label="Close project">${icon("close")}</button>
+          </div>
           <div id="workspace-switch" class="workspace-switch workspace-view-switch" role="group" aria-label="Views">
-            <button type="button" data-workspace="compose" title="Compositions" aria-label="Compositions">${icon("account_tree")}</button>
+            <button type="button" data-workspace="component" title="Components" aria-label="Components">${icon("account_tree")}</button>
             <button type="button" data-workspace="canvas" title="Canvas" aria-label="Canvas">${icon("dashboard_customize")}</button>
             <button type="button" data-workspace="scene" class="is-active" title="Scenes" aria-label="Scenes">${icon("auto_awesome")}</button>
+            <button type="button" data-workspace="live" title="Live" aria-label="Live">${icon("play_circle")}</button>
           </div>
-          <button id="close-project" class="icon-buttonish close-project-button is-hidden" type="button" title="Close project" aria-label="Close project">${icon("close")}</button>
         </div>
         <div class="top-actions">
-          <button type="button" class="icon-buttonish workspace-live-button" data-workspace="live" title="Live" aria-label="Live">${icon("play_circle")}</button>
           <button id="toggle-preview" class="icon-buttonish" type="button" title="Toggle preview" aria-label="Toggle preview">${icon("visibility")}</button>
           <button id="toggle-labels" class="icon-buttonish" type="button" title="Debug overlays" aria-label="Debug overlays">${icon("bug_report")}</button>
           <button id="open-settings" class="icon-buttonish" type="button" title="Settings" aria-label="Settings">${icon("settings")}</button>

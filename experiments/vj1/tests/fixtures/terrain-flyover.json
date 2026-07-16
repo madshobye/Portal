@@ -1,5 +1,5 @@
 {
-  "version": 5,
+  "version": 6,
   "project": {
     "name": "Terrain Flyover Fixture",
     "folderName": "fixtures",
@@ -136,8 +136,8 @@
   "render": {
     "frameWidth": 960,
     "frameHeight": 540,
-    "surfaceWidth": 800,
-    "surfaceHeight": 450,
+    "compositionTexture": { "width": 960, "height": 540 },
+    "surfaceTexture": { "mode": "auto", "maxWidth": 960, "maxHeight": 540 },
     "pixelDensity": 1,
     "edgeSoftness": 0
   },

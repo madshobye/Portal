@@ -1,4 +1,8 @@
 import { VJ1 } from "../constants.js";
+import { componentTextureSize } from "../domain/render-resolution.js?v=label-overlay-16";
+
+export const SURFACE_DEMAND_OVERSCAN = 1.08;
+export const RECORDING_FRAME_DEMAND_SCALE = 1.5;
 
 export function outputDefinitions(render = {}) {
   if (Array.isArray(render.outputs) && render.outputs.length) {
@@ -29,40 +33,20 @@ export function frameSize(render = {}, outputId = "") {
 export function worldSize(render = {}) {
   const frame = frameSize(render);
   const outputs = outputDefinitions(render);
-  const gap = 0;
-  const contentWidth = outputs.reduce((sum, output) => sum + output.width, 0) + gap * Math.max(0, outputs.length - 1);
+  const contentWidth = outputs.reduce((sum, output) => sum + output.width, 0);
   const contentHeight = Math.max(...outputs.map((output) => output.height));
-  const fallbackWidth = contentWidth + Math.round(Math.max(...outputs.map((output) => output.width)) * 0.5);
-  const fallbackHeight = Math.round(contentHeight * 1.5);
+  const fallbackWidth = contentWidth + Math.round(
+    Math.max(...outputs.map((output) => output.width)) * VJ1.outputWorldMarginRatio * 2
+  );
+  const fallbackHeight = Math.round(contentHeight * (1 + VJ1.outputWorldMarginRatio * 2));
   return {
     width: Math.max(frame.width, positiveInt(render.worldWidth, fallbackWidth, 1)),
     height: Math.max(frame.height, positiveInt(render.worldHeight, fallbackHeight, 1)),
   };
 }
 
-export function surfaceTextureSize(render = {}) {
-  return {
-    width: positiveInt(render.surfaceWidth, VJ1.surfaceWidth, 1),
-    height: positiveInt(render.surfaceHeight, VJ1.surfaceHeight, 1),
-  };
-}
-
-export function surfaceTextureSizeForCorners(render = {}, corners = []) {
-  const maxTexture = surfaceTextureSize(render);
-  const mapped = mappedSurfaceSize(corners);
-  if (!mapped) return maxTexture;
-  return {
-    width: quantizedInt(mapped.width, 64, maxTexture.width),
-    height: quantizedInt(mapped.height, 64, maxTexture.height),
-  };
-}
-
 export function frameRenderRequest(render = {}, meta = {}) {
   return createRenderRequest("frame", frameSize(render), meta);
-}
-
-export function surfaceRenderRequest(render = {}, corners = [], meta = {}) {
-  return createRenderRequest("surface", surfaceTextureSizeForCorners(render, corners), meta);
 }
 
 export function createRenderRequest(role = "texture", size = {}, meta = {}) {
@@ -79,8 +63,8 @@ export function renderRequestKey(request = {}) {
   const width = positiveInt(request.width, VJ1.renderWidth, 1);
   const height = positiveInt(request.height, VJ1.renderHeight, 1);
   // Rendering identity is intentionally separate from presentation/timing
-  // identity. Two surfaces can map the same composition texture without
-  // forcing the composition chain to render twice.
+  // identity. Two surfaces can map the same component texture without
+  // forcing the component chain to render twice.
   const requestInstance = request.renderIdentity ?? request.instanceId ?? "";
   const instance = requestInstance ? `:${requestInstance}` : "";
   return `${role}:${width}x${height}${instance}`;
@@ -97,8 +81,10 @@ export function mappedSurfaceSize(corners = []) {
   const left = pointDistance(tl, bl);
   const right = pointDistance(tr, br);
   return {
-    width: Math.max(1, (top + bottom) * 0.5),
-    height: Math.max(1, (left + right) * 0.5),
+    // Projection can magnify one edge far more than its opposite. Demand must
+    // follow the most demanding edge or trapezoids become visibly undersampled.
+    width: Math.max(1, top, bottom),
+    height: Math.max(1, left, right),
   };
 }
 
@@ -139,17 +125,22 @@ export function sourceRenderDemand({
   corners = [],
   viewport = {},
   pixelScale = 1,
-  overscan = 1.08,
+  overscan = SURFACE_DEMAND_OVERSCAN,
+  samplingScale = 1,
+  preserveFullFootprint = false,
 } = {}) {
   const footprint = visibleMappedSurfaceSize(corners, viewport);
   if (!footprint) return null;
+  const demandFootprint = preserveFullFootprint ? mappedSurfaceSize(corners) : footprint;
   const logicalWidth = Math.max(1, Number(logicalSize.width) || 1);
   const logicalHeight = Math.max(1, Number(logicalSize.height) || 1);
   const rect = clampLogicalRect(sampleRect, logicalWidth, logicalHeight);
-  const scaleToPixels = Math.max(0.05, Number(pixelScale) || 1) * Math.max(1, Number(overscan) || 1);
+  const scaleToPixels = Math.max(0.05, Number(pixelScale) || 1) *
+    Math.max(1, Number(overscan) || 1) *
+    Math.max(1, Number(samplingScale) || 1);
   const desiredScale = Math.max(
-    footprint.width * scaleToPixels / rect.width,
-    footprint.height * scaleToPixels / rect.height
+    demandFootprint.width * scaleToPixels / rect.width,
+    demandFootprint.height * scaleToPixels / rect.height
   );
   const rasterLimit = Math.min(
     Math.max(1, Number(maxRasterSize.width) || logicalWidth) / logicalWidth,
@@ -167,7 +158,7 @@ export function sourceRenderDemand({
     width: quantizedDemandInt(rect.width * effectiveScale, maxSurfaceWidth),
     height: quantizedDemandInt(rect.height * effectiveScale, maxSurfaceHeight),
   };
-  return { footprint, logicalSize: { width: logicalWidth, height: logicalHeight }, sampleRect: rect, rasterScale: effectiveScale, rasterSize, surfaceSize };
+  return { footprint, demandFootprint, logicalSize: { width: logicalWidth, height: logicalHeight }, sampleRect: rect, rasterScale: effectiveScale, rasterSize, surfaceSize };
 }
 
 export function canvasSizeForMode(mode, render = {}) {
@@ -202,10 +193,21 @@ export function outputFrameForId(render = {}, outputId = "") {
   return frames.find((frame) => frame.id === outputId) || frames[0];
 }
 
+export function outputSpanRect(render = {}, outputIds = []) {
+  const wanted = new Set((outputIds || []).map(String));
+  const frames = outputFrames(render).filter((frame) => wanted.has(String(frame.id)));
+  if (!frames.length) return null;
+  const left = Math.min(...frames.map((frame) => frame.x));
+  const top = Math.min(...frames.map((frame) => frame.y));
+  const right = Math.max(...frames.map((frame) => frame.x + frame.width));
+  const bottom = Math.max(...frames.map((frame) => frame.y + frame.height));
+  return { x: left, y: top, width: Math.max(1, right - left), height: Math.max(1, bottom - top) };
+}
+
 export function defaultProjectSurfaceMapping(render = {}, surfaces = []) {
   const frame = frameSize(render);
   const offset = outputFrameOffset(render);
-  const texture = surfaceTextureSize(render);
+  const texture = componentTextureSize(render);
   const surfaceList = Array.isArray(surfaces) ? surfaces : [];
   const cols = Math.max(1, Math.ceil(Math.sqrt(surfaceList.length || 1)));
   const rows = Math.max(1, Math.ceil((surfaceList.length || 1) / cols));
@@ -255,13 +257,6 @@ function positiveInt(value, fallback, min = 1) {
   const number = Math.round(Number(value));
   if (!Number.isFinite(number)) return fallback;
   return Math.max(min, number);
-}
-
-function quantizedInt(value, min, max) {
-  const number = Math.round(Number(value));
-  const upper = Math.max(min, Number(max) || min);
-  const clamped = Math.min(Math.max(min, number || min), upper);
-  return Math.min(upper, Math.max(min, Math.round(clamped / 16) * 16));
 }
 
 function quantizedDemandInt(value, max) {

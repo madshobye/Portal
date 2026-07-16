@@ -1,19 +1,20 @@
 import { BLEND_MODES, VJ1, WORKSPACES } from "../constants.js";
-import { compositionFrameMetrics } from "../domain/composition-frame.js";
-import { applySceneSourceNode, applySceneSnapshotToState, createLiveCompositionView, createLiveRenderState, createOutputDefinition, createSceneSnapshot, normalizeRenderSettings, resolveSceneSourceNode, sceneSourceNodes, syncLiveSnapshotFromScene } from "../domain/models.js?v=scene-transition-1";
-import { normalizeParamValue, RENDER_QUALITY_PARAM } from "../graph/component-schema.js?v=range-pair-1";
-import { getGeneratorComponent, listGeneratorComponents } from "../graph/generator-registry.js?v=render-quality-2";
+import { componentFrameMetrics } from "../domain/component-frame.js";
+import { applySceneSourceNode, applySceneSnapshotToState, createLiveComponentView, createLiveRenderState, createOutputDefinition, createSceneSnapshot, normalizeRenderSettings, resolveSceneSourceNode, sceneSourceNodes, syncLiveSnapshotFromScene } from "../domain/models.js?v=label-overlay-16";
+import { latestProjectActivity, touchComponentUsed, touchRecordingFrameUsed } from "../domain/component-activity.js?v=label-overlay-16";
+import { normalizeParamValue, RENDER_QUALITY_PARAM } from "../graph/component-schema.js?v=label-overlay-16";
+import { getGeneratorComponent, listGeneratorComponents } from "../graph/generator-registry.js?v=label-overlay-16";
 import { patchNodeDegree, planCompositorInputs, planPatchExecution, summarizeTextureBranches } from "../graph/patch-planner.js";
-import { compileCompositionPatch } from "../graph/render-scheduler.js?v=hsv-alpha-key-1";
-import { buildOutputUrl } from "../view-routing.js?v=multi-output-2";
-import { getShaderComponent, listShaderComponents } from "../shaders/shader-registry.js?v=hsv-alpha-key-1";
-import { createEmbeddedPreviewApp } from "../output/embedded-preview-app.js?v=scene-transition-1";
-import { frameFitViewport, resetViewport, zoomViewport } from "../output/preview-viewport.js?v=multi-output-2";
-import { defaultProjectSurfaceMapping } from "../output/render-geometry.js?v=render-demand-1";
+import { compileComponentPatch } from "../graph/render-scheduler.js?v=label-overlay-16";
+import { buildOutputUrl } from "../view-routing.js?v=label-overlay-16";
+import { getShaderComponent, listShaderComponents } from "../shaders/shader-registry.js?v=label-overlay-16";
+import { createEmbeddedPreviewApp } from "../output/embedded-preview-app.js?v=label-overlay-16";
+import { frameFitViewport, resetViewport, zoomViewport } from "../output/preview-viewport.js?v=label-overlay-16";
+import { defaultProjectSurfaceMapping } from "../output/render-geometry.js?v=label-overlay-16";
 import { createHtmlCache, isInteractiveNode, isTextEditingNode, setClass, setText } from "./dom-utils.js";
 import { bindReorderList } from "./reorder-list.js";
-import { collectRefs, shellTemplate } from "./shell-view.js?v=topbar-views-left-1";
-import { effectIcon, emptyNote, esc, icon, paramRangePairTemplate, rangeTemplate, selectValuesTemplate, sourceTypeIcon, thumbnailTemplate } from "./template-utils.js?v=thumbnail-fit-2";
+import { collectRefs, shellTemplate } from "./shell-view.js?v=label-overlay-16";
+import { effectIcon, emptyNote, esc, icon, paramRangePairTemplate, rangeTemplate, selectValuesTemplate, sourceTypeIcon, thumbnailTemplate } from "./template-utils.js?v=label-overlay-16";
 
 const MODEL_RENDER_MODES = ["surface", "wireframe", "surfaceWire", "points"];
 const MEDIA_FIT_MODES = ["contain", "cover"];
@@ -53,6 +54,9 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
   let sourceChoicePicker = null;
   let focusElementPickerSearch = false;
   let settingsOpen = false;
+  let settingsTab = "outputs";
+  let activeCatalogViewKey = "";
+  const catalogOrderSnapshots = { component: [], scene: [] };
   const replaceHtmlIfChanged = createHtmlCache();
   const mediaPreviewUrls = new Map();
   const embeddedPreview = createEmbeddedPreviewApp({ store, mediaLibrary, projectService });
@@ -144,6 +148,7 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
   }
 
   function render(state) {
+    prepareCatalogOrder(state);
     setClass(root, "has-project-open", hasOpenProject(state));
     setClass(root, "no-project-open", !hasOpenProject(state));
     renderTopbar(state);
@@ -158,24 +163,16 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
     bindInteractionDeferral();
 
     refs.outputMenu.addEventListener("click", (event) => {
-      const button = event.target.closest("[data-open-output-id], [data-open-all-outputs]");
-      if (!button) return;
       const state = store.getState();
-      const initialSceneId = state.ui.workspace === "scene" ? state.ui.selectedSceneId : "";
-      const outputs = button.hasAttribute("data-open-all-outputs")
-        ? state.render.outputs
-        : state.render.outputs.filter((output) => output.id === button.dataset.openOutputId);
-      for (const output of outputs) {
-        window.open(
-          buildOutputUrl("output", { initialSceneId, outputId: output.id }),
-          `vj1-output-${output.id}`,
-          `popup=yes,width=${output.width},height=${output.height}`
-        );
+      const outputs = state.render.outputs || [];
+      if (event.target.closest("summary") && outputs.length === 1) {
+        event.preventDefault();
+        openOutputWindows(state, outputs);
+        return;
       }
-      refs.outputMenu.open = false;
-      store.update((draft) => {
-        draft.ui.outputWindowOpen = true;
-      }, "open-output");
+      const button = event.target.closest("[data-open-output-id]");
+      if (!button) return;
+      openOutputWindows(state, outputs.filter((output) => output.id === button.dataset.openOutputId));
     });
 
     refs.togglePreview.addEventListener("click", () => {
@@ -389,21 +386,117 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
     setText(refs.toggleOutputPlayback.querySelector(".material-symbols-rounded"), outputPlaying ? "pause" : "play_arrow");
     setClass(refs.toggleOutputPlayback, "is-active", outputConnected && !outputPlaying);
     setClass(refs.blackout, "is-active", state.global.blackout);
-    if (refs.outputMenuItems) {
-      refs.outputMenuItems.innerHTML = `
-        ${(state.render.outputs || []).map((output) => `
-          <button type="button" data-open-output-id="${esc(output.id)}">
-            <span>${state.metrics.outputs?.[output.id] ? "● " : ""}${esc(output.name)}</span><small>${output.width}×${output.height}</small>
-          </button>
-        `).join("")}
-        ${(state.render.outputs || []).length > 1 ? `<button type="button" data-open-all-outputs><span>Open all outputs</span></button>` : ""}
-      `;
-    }
+    renderOutputMenu(state);
     refs.undo.disabled = !state.ui.canUndo;
     refs.redo.disabled = !state.ui.canRedo;
     refs.workspaceButtons.forEach((button) => {
       button.disabled = !hasProject;
       setClass(button, "is-active", button.dataset.workspace === currentWorkspace(state));
+    });
+  }
+
+  function openOutputWindows(state, outputs = []) {
+    // Output windows have one scene authority: Live. Opening from Scene is an
+    // explicit request to take that Scene live before the popup is opened,
+    // rather than giving the popup a temporary private scene that the next
+    // ordinary Live update would immediately replace.
+    if (
+      state.ui.workspace === "scene" &&
+      state.ui.selectedSceneId &&
+      String(state.ui.live?.selectedSceneId || "") !== String(state.ui.selectedSceneId)
+    ) {
+      store.selectLiveScene(state.ui.selectedSceneId);
+    }
+    for (const output of outputs) {
+      window.open(
+        buildOutputUrl("output", { outputId: output.id }),
+        `vj1-output-${output.id}`,
+        `popup=yes,width=${output.width},height=${output.height}`
+      );
+    }
+    refs.outputMenu.open = false;
+    if (!outputs.length) return;
+    store.update((draft) => {
+      draft.ui.outputWindowOpen = true;
+    }, "open-output");
+  }
+
+  function renderOutputMenu(state) {
+    if (!refs.outputMenuItems) return;
+    const outputs = state.render.outputs || [];
+    const direct = outputs.length === 1;
+    const summary = refs.outputMenu.querySelector("summary");
+    const title = direct ? `Open ${outputs[0].name}` : "Open output";
+    summary.title = title;
+    summary.setAttribute("aria-label", title);
+    setClass(refs.outputMenu, "is-direct", direct);
+    if (direct) refs.outputMenu.open = false;
+
+    // Output metrics update the top bar continuously. Only rebuild these
+    // buttons when the configured outputs change, otherwise a render between
+    // pointerdown and click detaches the clicked button and swallows the click.
+    const menuOutputs = direct ? [] : outputs;
+    const signature = JSON.stringify(menuOutputs.map((output) => [output.id, output.name, output.width, output.height]));
+    if (refs.outputMenuItems.dataset.outputsSignature !== signature) {
+      refs.outputMenuItems.dataset.outputsSignature = signature;
+      refs.outputMenuItems.innerHTML = menuOutputs.map((output) => `
+        <button type="button" data-open-output-id="${esc(output.id)}">
+          <span></span><small>${output.width}×${output.height}</small>
+        </button>
+      `).join("");
+    }
+    for (const output of menuOutputs) {
+      const button = [...refs.outputMenuItems.querySelectorAll("[data-open-output-id]")]
+        .find((item) => item.dataset.openOutputId === output.id);
+      if (button) setText(button.querySelector("span"), `${state.metrics.outputs?.[output.id] ? "● " : ""}${output.name}`);
+    }
+  }
+
+  function prepareCatalogOrder(state) {
+    const workspace = currentWorkspace(state);
+    if (!hasOpenProject(state)) {
+      activeCatalogViewKey = "";
+      return;
+    }
+    const viewKey = `${state.project.folderName || state.project.name || "project"}:${workspace}`;
+    if (viewKey === activeCatalogViewKey) return;
+    activeCatalogViewKey = viewKey;
+    if (workspace === "component" || workspace === "scene") captureCatalogOrder(workspace, state);
+  }
+
+  function captureCatalogOrder(scope, state) {
+    const items = scope === "scene" ? sceneSourceNodes(state) : ordinaryComponents(state);
+    catalogOrderSnapshots[scope] = sortComponentCatalog(items, catalogSortMode(state, scope)).map((item) => item.id);
+  }
+
+  function catalogSortMode(state, scope) {
+    const mode = state.ui?.catalogSortModes?.[scope];
+    return ["recent", "name", "created"].includes(mode) ? mode : "recent";
+  }
+
+  function catalogItemsInSnapshot(scope, items = []) {
+    const positions = new Map((catalogOrderSnapshots[scope] || []).map((id, index) => [id, index]));
+    return items.slice().sort((a, b) => {
+      const aPosition = positions.has(a.id) ? positions.get(a.id) : Number.MAX_SAFE_INTEGER;
+      const bPosition = positions.has(b.id) ? positions.get(b.id) : Number.MAX_SAFE_INTEGER;
+      return aPosition - bPosition;
+    });
+  }
+
+  function bindCatalogSortControls(scope) {
+    scope?.querySelectorAll?.("[data-catalog-sort]").forEach((button) => {
+      button.addEventListener("click", () => {
+        const catalog = button.dataset.catalogSortScope;
+        const mode = button.dataset.catalogSort;
+        if (!["component", "scene"].includes(catalog) || !["recent", "name", "created"].includes(mode)) return;
+        store.update((draft) => {
+          draft.ui.catalogSortModes ||= { component: "recent", scene: "recent" };
+          draft.ui.catalogSortModes[catalog] = mode;
+        }, `catalog-sort:${catalog}`);
+        captureCatalogOrder(catalog, latestState);
+        if (catalog === "component") renderProjectRail(latestState);
+        else renderInspector(latestState);
+      });
     });
   }
 
@@ -415,41 +508,45 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
   }
 
   function railToolsTemplate(state, workspace) {
-    if (workspace === "compose") return compositionToolsTemplate(state);
+    if (workspace === "component") return componentToolsTemplate(state);
     if (workspace === "canvas") return canvasToolsTemplate(state);
     if (workspace === "mapping") return mappingToolsTemplate(state);
     if (workspace === "live") return liveToolsTemplate(state);
     return sceneToolsTemplate(state);
   }
 
-  function compositionToolsTemplate(state) {
-    const compositions = ordinaryCompositions(state);
+  function componentToolsTemplate(state) {
+    const components = catalogItemsInSnapshot("component", ordinaryComponents(state));
     return `
-      <div class="rail-section" data-composition-filter-scope>
-        <div class="rail-title"><span class="material-symbols-rounded">account_tree</span><span>Compositions</span></div>
-        ${compositionFilterTemplate()}
-        <div class="composition-card-list">
-          ${compositions.map((composition) => compositionPillTemplate(composition, state)).join("") || emptyNote("Create visual recipes")}
+      <div class="rail-section" data-component-filter-scope>
+        <div class="rail-title"><span class="material-symbols-rounded">account_tree</span><span>Components</span></div>
+        ${componentCatalogToolsTemplate("component", catalogSortMode(state, "component"), "Filter components")}
+        <div class="component-card-list">
+          ${components.map((component) => componentPillTemplate(component, state)).join("") || emptyNote("Create visual recipes")}
         </div>
-        <button type="button" data-add-composition>${icon("add")} Add composition</button>
+        <button type="button" data-add-component>${icon("add")} Add component</button>
       </div>
     `;
   }
 
   function canvasToolsTemplate(state) {
-    const canvases = canvasCompositions(state);
+    const canvases = canvasComponents(state);
+    const selectedCanvas = selectedCanvasComponent(state);
     return `
-      <div class="rail-section" data-composition-filter-scope>
-        <div class="rail-title"><span class="material-symbols-rounded">dashboard_customize</span><span>Canvas compositions</span></div>
-        ${compositionFilterTemplate("Filter canvases")}
-        <div class="composition-card-list">
-          ${canvases.map((composition) => compositionPillTemplate(composition, state)).join("") || emptyNote("Create a canvas composition")}
+      <div class="rail-section" data-component-filter-scope>
+        <div class="rail-title"><span class="material-symbols-rounded">dashboard_customize</span><span>Canvas components</span></div>
+        ${componentFilterTemplate("Filter canvases")}
+        <div class="component-card-list">
+          ${canvases.map((component) => componentPillTemplate(component, state)).join("") || emptyNote("Create a canvas component")}
         </div>
-        <button type="button" data-add-canvas-composition>${icon("add")} Add canvas</button>
+        <button type="button" data-add-canvas-component>${icon("add")} Add canvas</button>
       </div>
       <div class="rail-section">
-        <div class="rail-title"><span class="material-symbols-rounded">texture</span><span>Sampling</span></div>
-        <div class="soft-note">Build a larger visual with the same sources, Groups, and effects as Composition, then expose named recording frames to Scenes.</div>
+        <div class="rail-title"><span class="material-symbols-rounded">select_all</span><span>Recording frames</span></div>
+        <div class="recording-frame-pills">
+          ${(state.recordingFrames || []).map((frame, index) => canvasFramePillTemplate(frame, index, selectedCanvas)).join("") || emptyNote("Add a recording frame")}
+        </div>
+        <button type="button" data-add-canvas-frame data-canvas-component-id="${esc(selectedCanvas?.id || "")}" ${selectedCanvas ? "" : "disabled"}>${icon("add")} Add recording frame</button>
       </div>
     `;
   }
@@ -494,25 +591,25 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
   }
 
   function mappingToolsTemplate(state) {
-    const selectedComposition = state.compositions.find((composition) => composition.id === state.ui.selectedCompositionId) || state.compositions[0];
+    const selectedComponent = state.components.find((component) => component.id === state.ui.selectedComponentId) || state.components[0];
     return `
-      <div class="rail-section" data-composition-filter-scope>
+      <div class="rail-section" data-component-filter-scope>
         <div class="rail-title"><span class="material-symbols-rounded">schema</span><span>Node Patch</span></div>
-        ${compositionFilterTemplate()}
-        <div class="composition-card-list">
-          ${state.compositions.map((composition) => compositionPillTemplate(composition, state)).join("") || emptyNote("Create a composition")}
+        ${componentFilterTemplate()}
+        <div class="component-card-list">
+          ${state.components.map((component) => componentPillTemplate(component, state)).join("") || emptyNote("Create a component")}
         </div>
       </div>
       <div class="rail-section">
         <div class="rail-title"><span class="material-symbols-rounded">input</span><span>Inlets</span></div>
         <div class="node-chip-list">
-          ${mappingInletsTemplate(selectedComposition)}
+          ${mappingInletsTemplate(selectedComponent)}
         </div>
       </div>
       <div class="rail-section">
         <div class="rail-title"><span class="material-symbols-rounded">output</span><span>Outlets</span></div>
         <div class="node-chip-list">
-          <div class="node-chip"><span>texture</span><small>composition output</small></div>
+          <div class="node-chip"><span>texture</span><small>component output</small></div>
           <div class="node-chip"><span>event</span><small>manual lane</small></div>
         </div>
       </div>
@@ -560,7 +657,7 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
     const previewHost = refs.studio.querySelector("[data-preview-host]");
     if (!previewHost || previewHost.classList.contains("is-empty")) return;
     const workspace = currentWorkspace(state);
-    const kind = workspace === "compose" || workspace === "canvas" ? "composition" : "preview";
+    const kind = workspace === "component" || workspace === "canvas" ? "component" : "preview";
     const previewState = workspace === "live" ? createLiveRenderState(state) : state;
     if (!previewHost.querySelector("[data-embedded-preview-stage]")) {
       replaceHtmlIfChanged(previewHost, `
@@ -570,6 +667,7 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
           <button type="button" class="preview-tool" data-preview-fit-world title="Fit world" aria-label="Fit world">${icon("public")}</button>
           <button type="button" class="preview-tool" data-preview-fit-frame title="Fit outputs" aria-label="Fit outputs">${icon("fit_screen")}</button>
           <button type="button" class="preview-tool" data-preview-zoom-in title="Zoom in" aria-label="Zoom in">${icon("add")}</button>
+          <button type="button" class="preview-tool preview-quality-tool is-hidden" data-canvas-preview-quality title="Canvas preview quality" aria-label="Canvas preview quality"><span data-preview-quality-label>Auto</span></button>
           <button type="button" class="preview-tool" data-toggle-mapping-handles title="Toggle mapping handles" aria-label="Toggle mapping handles">${icon("control_point_duplicate")}</button>
           <div class="preview-fps" data-preview-fps>0 fps</div>
         </div>
@@ -579,6 +677,22 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
     const handleButton = previewHost.querySelector("[data-toggle-mapping-handles]");
     setClass(handleButton, "is-active", state.global.mappingHandleMode !== "near");
     setClass(handleButton, "is-hidden", kind !== "preview");
+    const qualityButton = previewHost.querySelector("[data-canvas-preview-quality]");
+    const canvas = workspace === "canvas" ? selectedCanvasComponent(state) : null;
+    const previewQuality = ["low", "full"].includes(canvas?.canvas?.previewQuality) ? canvas.canvas.previewQuality : "auto";
+    const qualityLabels = { auto: "Auto", low: "Low", full: "Full" };
+    const qualityDescriptions = {
+      auto: "Auto: internal Canvas raster follows the visible preview size",
+      low: "Low: internal Canvas raster uses half the preview width and height",
+      full: "Full: internal Canvas raster uses the full Canvas dimensions",
+    };
+    setClass(qualityButton, "is-hidden", !canvas);
+    setClass(qualityButton, "is-active", !!canvas && previewQuality !== "auto");
+    setText(qualityButton?.querySelector("[data-preview-quality-label]"), qualityLabels[previewQuality]);
+    if (qualityButton) {
+      qualityButton.title = `${qualityDescriptions[previewQuality]}. Click to change quality.`;
+      qualityButton.setAttribute("aria-label", `Canvas preview quality: ${qualityLabels[previewQuality]}`);
+    }
     if (handleButton && !handleButton.dataset.bound) {
       handleButton.dataset.bound = "true";
       handleButton.addEventListener("click", () => {
@@ -599,7 +713,7 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
   function updatePreviewState(state) {
     const workspace = currentWorkspace(state);
     if (workspace === "mapping") return;
-    const kind = workspace === "compose" || workspace === "canvas" ? "composition" : "preview";
+    const kind = workspace === "component" || workspace === "canvas" ? "component" : "preview";
     embeddedPreview.setState(workspace === "live" ? createLiveRenderState(state) : state, kind);
   }
 
@@ -611,32 +725,32 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
     }
     const selectedSurface = state.surfaces.find((surface) => surface.id === state.ui.selectedSurfaceId) || state.surfaces[0];
     let html = "";
-    if (currentWorkspace(state) === "compose") {
-      const selectedComposition = state.compositions.find((composition) => composition.id === state.ui.selectedCompositionId) || state.compositions[0];
+    if (currentWorkspace(state) === "component") {
+      const selectedComponent = state.components.find((component) => component.id === state.ui.selectedComponentId) || state.components[0];
       html = panelTemplate(
         "account_tree",
-        "Composition",
-        selectedComposition ? compositionTemplate(selectedComposition, state) : emptyNote("No composition")
+        "Component",
+        selectedComponent ? componentTemplate(selectedComponent, state) : emptyNote("No component")
       );
       if (replaceHtmlIfChanged(refs.inspector, html)) bindInputs(refs.inspector, state);
       return;
     }
     if (currentWorkspace(state) === "mapping") {
-      const selectedComposition = state.compositions.find((composition) => composition.id === state.ui.selectedCompositionId) || state.compositions[0];
+      const selectedComponent = state.components.find((component) => component.id === state.ui.selectedComponentId) || state.components[0];
       html = panelTemplate(
         "schema",
         "Nodes",
-        mappingInspectorTemplate(selectedComposition, state)
+        mappingInspectorTemplate(selectedComponent, state)
       );
       if (replaceHtmlIfChanged(refs.inspector, html)) bindInputs(refs.inspector, state);
       return;
     }
     if (currentWorkspace(state) === "canvas") {
-      const selectedCanvas = selectedCanvasComposition(state);
+      const selectedCanvas = selectedCanvasComponent(state);
       html = panelTemplate(
         "dashboard_customize",
         "Canvas",
-        selectedCanvas ? canvasInspectorTemplate(selectedCanvas, state) : emptyNote("Create a canvas composition")
+        selectedCanvas ? canvasInspectorTemplate(selectedCanvas, state) : emptyNote("Create a canvas component")
       );
       if (replaceHtmlIfChanged(refs.inspector, html)) bindInputs(refs.inspector, state);
       return;
@@ -651,24 +765,34 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
       return;
     }
     html = `
-      ${panelTemplate("select_all", "Surface", selectedSurface ? sceneSurfaceTemplate(selectedSurface, state) : emptyNote("No surface"))}
+      ${panelTemplate("select_all", "Surface", selectedSurface ? sceneSurfaceTemplate(selectedSurface, state, {
+        sources: catalogItemsInSnapshot("scene", sceneSourceNodes(state)),
+        sortMode: catalogSortMode(state, "scene"),
+      }) : emptyNote("No surface"))}
     `;
     if (replaceHtmlIfChanged(refs.inspector, html)) bindInputs(refs.inspector, state);
   }
 
   function bindRailEvents() {
+    bindCatalogSortControls(refs.projectRail);
     refs.projectRail.querySelector("[data-open-folder]")?.addEventListener("click", openProjectFolder);
     refs.projectRail.querySelectorAll("[data-select-surface]").forEach((button) => {
       button.addEventListener("click", () => store.selectSurface(button.dataset.selectSurface));
     });
-    refs.projectRail.querySelectorAll("[data-select-composition]").forEach((button) => {
-      button.addEventListener("click", () => store.selectComposition(button.dataset.selectComposition));
+    refs.projectRail.querySelectorAll("[data-select-component]").forEach((button) => {
+      button.addEventListener("click", () => store.selectComponent(button.dataset.selectComponent));
     });
-    refs.projectRail.querySelectorAll("[data-add-composition]").forEach((button) => {
-      button.addEventListener("click", () => store.addComposition());
+    refs.projectRail.querySelectorAll("[data-add-component]").forEach((button) => {
+      button.addEventListener("click", () => store.addComponent());
     });
-    refs.projectRail.querySelectorAll("[data-add-canvas-composition]").forEach((button) => {
-      button.addEventListener("click", () => store.addCanvasComposition?.());
+    refs.projectRail.querySelectorAll("[data-add-canvas-component]").forEach((button) => {
+      button.addEventListener("click", () => store.addCanvasComponent?.());
+    });
+    refs.projectRail.querySelectorAll("[data-add-canvas-frame]").forEach((button) => {
+      button.addEventListener("click", () => store.addCanvasFrame?.(button.dataset.canvasComponentId || latestState.ui.selectedComponentId));
+    });
+    refs.projectRail.querySelectorAll("[data-remove-canvas-frame]").forEach((button) => {
+      button.addEventListener("click", () => store.removeCanvasFrame?.(button.dataset.canvasComponentId, button.dataset.removeCanvasFrame));
     });
     refs.projectRail.querySelectorAll("[data-add-surface]").forEach((button) => {
       button.addEventListener("click", () => store.addSurface());
@@ -714,10 +838,10 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
         onReorder: (fromId, toId) => store.reorderSurfaces?.(fromId, toId),
       });
     });
-    refs.projectRail.querySelectorAll("[data-remove-composition]").forEach((button) => {
-      button.addEventListener("click", () => store.removeComposition(button.dataset.removeComposition));
+    refs.projectRail.querySelectorAll("[data-remove-component]").forEach((button) => {
+      button.addEventListener("click", () => store.removeComponent(button.dataset.removeComponent));
     });
-    bindCompositionFilters(refs.projectRail);
+    bindComponentFilters(refs.projectRail);
   }
 
   function renderModal(state) {
@@ -728,20 +852,19 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
       return;
     }
     if (settingsOpen) {
-      if (!replaceHtmlIfChanged(host, settingsModalTemplate(state))) return;
-      host.querySelector("[data-close-modal]")?.addEventListener("click", closeSettings);
-      host.querySelector(".modal-backdrop")?.addEventListener("click", closeSettings);
-      host.querySelectorAll("[data-settings-update]").forEach((input) => {
-        input.addEventListener("input", () => updateRenderSetting(input, `scrub:${input.dataset.settingsUpdate}`));
-        input.addEventListener("change", () => updateRenderSetting(input, `update:${input.dataset.settingsUpdate}`));
-      });
-      host.querySelectorAll("[data-render-preset]").forEach((button) => {
-        button.addEventListener("click", () => applyRenderPreset(button.dataset.renderPreset));
-      });
-      host.querySelector("[data-add-output]")?.addEventListener("click", addConfiguredOutput);
-      host.querySelectorAll("[data-remove-output]").forEach((button) => {
-        button.addEventListener("click", () => removeConfiguredOutput(button.dataset.removeOutput));
-      });
+      if (!host.querySelector("[data-settings-modal]")) {
+        replaceHtmlIfChanged(host, settingsModalTemplate(state, settingsTab));
+        host.querySelector("[data-close-modal]")?.addEventListener("click", closeSettings);
+        host.querySelector(".modal-backdrop")?.addEventListener("click", closeSettings);
+        host.querySelectorAll("[data-settings-tab]").forEach((button) => {
+          button.addEventListener("click", () => {
+            settingsTab = button.dataset.settingsTab || "outputs";
+            applySettingsTab(host);
+          });
+        });
+      }
+      syncSettingsModal(host, state);
+      bindSettingsModalControls(host);
       return;
     }
     if (sourceChoicePicker) {
@@ -780,37 +903,37 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
       host.querySelectorAll("[data-add-element-media]").forEach((button) => {
         button.addEventListener("click", () => {
           activateElementPickerTarget();
-          store.addChainSource(elementPicker.compositionId, {
+          store.addChainSource(elementPicker.componentId, {
             type: "media",
             mediaId: button.dataset.addElementMedia || "",
           });
           closeElementPicker();
         });
       });
-      host.querySelectorAll("[data-add-element-composition]").forEach((button) => {
+      host.querySelectorAll("[data-add-element-component]").forEach((button) => {
         button.addEventListener("click", () => {
           activateElementPickerTarget();
-          store.addChainSource(elementPicker.compositionId, {
-            type: "composition",
-            compositionId: button.dataset.addElementComposition || "",
+          store.addChainSource(elementPicker.componentId, {
+            type: "component",
+            componentId: button.dataset.addElementComponent || "",
           });
           closeElementPicker();
         });
       });
       host.querySelector("[data-add-element-camera]")?.addEventListener("click", () => {
         activateElementPickerTarget();
-        store.addChainSource(elementPicker.compositionId, { type: "camera" });
+        store.addChainSource(elementPicker.componentId, { type: "camera" });
         closeElementPicker();
       });
       host.querySelector("[data-add-element-group]")?.addEventListener("click", () => {
         activateElementPickerTarget();
-        store.addChainGroup(elementPicker.compositionId);
+        store.addChainGroup(elementPicker.componentId);
         closeElementPicker();
       });
       host.querySelectorAll("[data-add-element-generator]").forEach((button) => {
         button.addEventListener("click", () => {
           activateElementPickerTarget();
-          store.addChainSource(elementPicker.compositionId, {
+          store.addChainSource(elementPicker.componentId, {
             type: "generator",
             generatorId: button.dataset.addElementGenerator || "testPattern",
           });
@@ -820,7 +943,7 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
       host.querySelectorAll("[data-add-element-effect]").forEach((button) => {
         button.addEventListener("click", () => {
           activateElementPickerTarget();
-          store.addChainEffect(elementPicker.compositionId, button.dataset.addElementEffect);
+          store.addChainEffect(elementPicker.componentId, button.dataset.addElementEffect);
           closeElementPicker();
         });
       });
@@ -839,6 +962,74 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
         }, `update:${mediaPicker.path}`);
         closeMediaPicker();
       });
+    });
+  }
+
+  function bindSettingsModalControls(host) {
+    host.querySelectorAll("[data-settings-update]").forEach((input) => {
+      if (input.dataset.settingsBound) return;
+      input.dataset.settingsBound = "true";
+      input.addEventListener("input", () => updateRenderSetting(input, `scrub:${input.dataset.settingsUpdate}`));
+      input.addEventListener("change", () => updateRenderSetting(input, `update:${input.dataset.settingsUpdate}`));
+    });
+    host.querySelectorAll("[data-render-preset]").forEach((button) => {
+      if (button.dataset.settingsBound) return;
+      button.dataset.settingsBound = "true";
+      button.addEventListener("click", () => applyRenderPreset(button.dataset.renderPreset));
+    });
+    host.querySelectorAll("[data-camera-preset]").forEach((button) => {
+      if (button.dataset.settingsBound) return;
+      button.dataset.settingsBound = "true";
+      button.addEventListener("click", () => applyCameraPreset(button.dataset.cameraPreset));
+    });
+    const addOutput = host.querySelector("[data-add-output]");
+    if (addOutput && !addOutput.dataset.settingsBound) {
+      addOutput.dataset.settingsBound = "true";
+      addOutput.addEventListener("click", addConfiguredOutput);
+    }
+    host.querySelectorAll("[data-remove-output]").forEach((button) => {
+      if (button.dataset.settingsBound) return;
+      button.dataset.settingsBound = "true";
+      button.addEventListener("click", () => removeConfiguredOutput(button.dataset.removeOutput));
+    });
+  }
+
+  function syncSettingsModal(host, state) {
+    const modal = host.querySelector("[data-settings-modal]");
+    if (!modal) return;
+    const render = normalizeRenderSettings(state.render || {});
+    const outputList = modal.querySelector("[data-configured-output-list]");
+    const outputSignature = render.outputs.map((output) => output.id).join("|");
+    if (outputList && outputList.dataset.outputSignature !== outputSignature) {
+      outputList.innerHTML = configuredOutputsTemplate(render);
+      outputList.dataset.outputSignature = outputSignature;
+    }
+    const normalizedState = { ...state, render };
+    modal.querySelectorAll("[data-settings-update]").forEach((input) => {
+      if (input === document.activeElement) return;
+      const value = getByPath(normalizedState, input.dataset.settingsUpdate);
+      if (input.type === "checkbox") input.checked = value === true;
+      else if (value !== undefined && input.value !== String(value)) input.value = String(value);
+    });
+    setText(modal.querySelector("[data-upscaling-amount-label]"), `Internal render amount · ${Math.round(render.upscaling.amount * 100)}%`);
+    setText(modal.querySelector("[data-grayscale-amount-label]"), `Grayscale amount · ${Math.round(render.postProcessing.grayscaleAmount * 100)}%`);
+    setText(modal.querySelector("[data-noise-amount-label]"), `Noise amount · ${Math.round(render.postProcessing.noiseAmount * 1000) / 10}%`);
+    const manualSurfaceTexture = render.surfaceTexture.mode === "manual";
+    modal.querySelectorAll("[data-manual-surface-texture]").forEach((element) => {
+      element.hidden = !manualSurfaceTexture;
+      element.querySelectorAll("input").forEach((input) => { input.disabled = !manualSurfaceTexture; });
+    });
+    applySettingsTab(host);
+  }
+
+  function applySettingsTab(host) {
+    host.querySelectorAll("[data-settings-tab]").forEach((button) => {
+      const active = button.dataset.settingsTab === settingsTab;
+      setClass(button, "is-active", active);
+      button.setAttribute("aria-selected", active ? "true" : "false");
+    });
+    host.querySelectorAll("[data-settings-panel]").forEach((panel) => {
+      panel.hidden = panel.dataset.settingsPanel !== settingsTab;
     });
   }
 
@@ -897,8 +1088,8 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
     renderModal(latestState);
   }
 
-  function openElementPicker(compositionId, selectedChainItemId = "") {
-    elementPicker = { compositionId, selectedChainItemId };
+  function openElementPicker(componentId, selectedChainItemId = "") {
+    elementPicker = { componentId, selectedChainItemId };
     focusElementPickerSearch = true;
     mediaPicker = null;
     sourceChoicePicker = null;
@@ -957,6 +1148,7 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
       draft.render = normalizeRenderSettings(draft.render);
       scaleMappingForRenderChange(draft, previousRender, draft.render);
     }, reason);
+    syncSettingsModal(refs.modalHost, store.getState());
   }
 
   function applyRenderPreset(preset) {
@@ -989,6 +1181,28 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
       const outputs = [...previousRender.outputs, output];
       draft.render = normalizeRenderSettings({ ...previousRender, outputs });
     }, "add-output");
+  }
+
+  function applyCameraPreset(preset) {
+    const presets = {
+      sd: [640, 480],
+      hd: [1280, 720],
+      fhd: [1920, 1080],
+      "4k": [3840, 2160],
+    };
+    const size = presets[preset];
+    if (!size) return;
+    store.update((draft) => {
+      draft.render = normalizeRenderSettings({
+        ...draft.render,
+        camera: {
+          ...draft.render?.camera,
+          width: size[0],
+          height: size[1],
+          maxResolution: false,
+        },
+      });
+    }, "camera-preset");
   }
 
   function removeConfiguredOutput(outputId) {
@@ -1027,6 +1241,15 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
     };
     bindButton("[data-preview-zoom-out]", () => nudgePreviewZoom(1 / 1.2));
     bindButton("[data-preview-zoom-in]", () => nudgePreviewZoom(1.2));
+    bindButton("[data-canvas-preview-quality]", () => {
+      store.update((draft) => {
+        const canvas = selectedCanvasComponent(draft);
+        if (!canvas) return;
+        canvas.canvas ||= { width: VJ1.canvasWidth, height: VJ1.canvasHeight };
+        const quality = ["low", "full"].includes(canvas.canvas.previewQuality) ? canvas.canvas.previewQuality : "auto";
+        canvas.canvas.previewQuality = quality === "auto" ? "low" : quality === "low" ? "full" : "auto";
+      }, "canvas-preview-quality");
+    });
     bindButton("[data-preview-fit-world]", () => {
       store.update((draft) => {
         draft.ui.previewViewport = resetViewport();
@@ -1062,7 +1285,8 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
   }
 
   function bindInputs(scope, state) {
-    bindCompositionFilters(scope);
+    bindComponentFilters(scope);
+    bindCatalogSortControls(scope);
     scope.querySelectorAll("[data-video-trim]").forEach(bindVideoTrimControl);
     scope.querySelectorAll("[data-param-range]").forEach(bindParamRangeControl);
     scope.querySelectorAll("[data-color-param]").forEach(bindColorParamControl);
@@ -1119,8 +1343,8 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
     scope.querySelectorAll("[data-select-surface]").forEach((button) => {
       button.addEventListener("click", () => store.selectSurface(button.dataset.selectSurface));
     });
-    scope.querySelectorAll("[data-select-composition]").forEach((button) => {
-      button.addEventListener("click", () => store.selectComposition(button.dataset.selectComposition));
+    scope.querySelectorAll("[data-select-component]").forEach((button) => {
+      button.addEventListener("click", () => store.selectComponent(button.dataset.selectComponent));
     });
     scope.querySelectorAll("[data-set-source-type]").forEach((button) => {
       button.addEventListener("click", () => {
@@ -1142,37 +1366,41 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
     scope.querySelectorAll("[data-open-source-choice]").forEach((button) => {
       button.addEventListener("click", () => openSourceChoicePicker(button.dataset.openSourceChoice));
     });
-    scope.querySelectorAll("[data-set-composition]").forEach((button) => {
+    scope.querySelectorAll("[data-set-component]").forEach((button) => {
       button.addEventListener("click", () => {
         store.update((draft) => {
-          setByPath(draft, button.dataset.compositionPath, button.dataset.setComposition);
-          if (currentWorkspace(draft) === "scene" && button.dataset.compositionPath?.startsWith("scenes.")) {
+          setByPath(draft, button.dataset.componentPath, button.dataset.setComponent);
+          if (currentWorkspace(draft) === "scene" && button.dataset.componentPath?.startsWith("scenes.")) {
             applySelectedSceneSnapshot(draft);
           }
-        }, `update:${button.dataset.compositionPath}`);
+        }, `update:${button.dataset.componentPath}`);
       });
     });
     scope.querySelectorAll("[data-open-element-picker]").forEach((button) => {
       button.addEventListener("click", () => openElementPicker(
-        button.dataset.compositionId || latestState.ui.selectedCompositionId,
+        button.dataset.componentId || latestState.ui.selectedComponentId,
         button.dataset.targetChainItem || ""
       ));
     });
-    scope.querySelectorAll("[data-add-canvas-composition]").forEach((button) => {
-      button.addEventListener("click", () => store.addCanvasComposition?.());
+    scope.querySelectorAll("[data-add-canvas-component]").forEach((button) => {
+      button.addEventListener("click", () => store.addCanvasComponent?.());
     });
     scope.querySelectorAll("[data-add-canvas-frame]").forEach((button) => {
-      button.addEventListener("click", () => store.addCanvasFrame?.(button.dataset.canvasCompositionId || latestState.ui.selectedCompositionId));
+      button.addEventListener("click", () => store.addCanvasFrame?.(button.dataset.canvasComponentId || latestState.ui.selectedComponentId));
     });
     scope.querySelectorAll("[data-remove-canvas-frame]").forEach((button) => {
-      button.addEventListener("click", () => store.removeCanvasFrame?.(button.dataset.canvasCompositionId, button.dataset.removeCanvasFrame));
+      button.addEventListener("click", () => store.removeCanvasFrame?.(button.dataset.canvasComponentId, button.dataset.removeCanvasFrame));
     });
     scope.querySelectorAll("[data-set-route-source-node]").forEach((button) => {
       button.addEventListener("click", () => {
         store.update((draft) => {
           const route = getByPath(draft, button.dataset.routeBase);
           const node = resolveSceneSourceNode(draft, button.dataset.setRouteSourceNode);
-          if (route && node) Object.assign(route, applySceneSourceNode(route, node));
+          if (route && node) {
+            Object.assign(route, applySceneSourceNode(route, node));
+            touchComponentUsed(draft, node.componentId);
+            if (node.frameId) touchRecordingFrameUsed(draft, node.frameId);
+          }
           if (currentWorkspace(draft) === "scene") applySelectedSceneSnapshot(draft);
         }, "update:surface-source-node");
       });
@@ -1181,20 +1409,20 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
       button.addEventListener("click", () => store.selectChainItem(button.dataset.selectChainItem));
     });
     scope.querySelectorAll("[data-remove-chain-item]").forEach((button) => {
-      button.addEventListener("click", () => removeChainItem(button.dataset.compositionId, button.dataset.removeChainItem));
+      button.addEventListener("click", () => removeChainItem(button.dataset.componentId, button.dataset.removeChainItem));
     });
     scope.querySelectorAll("[data-chain-reorder-list]").forEach((list) => {
       bindReorderList(list, {
         itemSelector: ".chain-item-row[data-reorder-id]",
         dropSelector: "[data-reorder-id]",
-        onReorder: (fromId, toId, position) => store.reorderChain(list.dataset.compositionId, fromId, toId, position),
+        onReorder: (fromId, toId, position) => store.reorderChain(list.dataset.componentId, fromId, toId, position),
       });
     });
     scope.querySelectorAll("[data-remove-surface]").forEach((button) => {
       button.addEventListener("click", () => store.removeSurface(button.dataset.removeSurface));
     });
-    scope.querySelectorAll("[data-remove-composition]").forEach((button) => {
-      button.addEventListener("click", () => store.removeComposition(button.dataset.removeComposition));
+    scope.querySelectorAll("[data-remove-component]").forEach((button) => {
+      button.addEventListener("click", () => store.removeComponent(button.dataset.removeComponent));
     });
     scope.querySelectorAll("[data-reset-surface-mapping]").forEach((button) => {
       button.addEventListener("click", () => {
@@ -1247,25 +1475,26 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
     syncParamRangeControl(control, Number(minInput.value), Number(maxInput.value));
   }
 
-  function removeChainItem(compositionId, itemId) {
+  function removeChainItem(componentId, itemId) {
     store.update((draft) => {
-      const composition = draft.compositions.find((item) => item.id === compositionId);
-      if (!composition?.chain) return;
-      const removed = removeChainItemFromChain(composition.chain, itemId, composition.type !== "canvas");
-      if (removed && draft.ui.selectedChainItemId === itemId) draft.ui.selectedChainItemId = firstChainItemId(composition.chain);
+      const component = draft.components.find((item) => item.id === componentId);
+      if (!component?.chain) return;
+      const removed = removeChainItemFromChain(component.chain, itemId, component.type !== "canvas");
+      if (removed && draft.ui.selectedChainItemId === itemId) draft.ui.selectedChainItemId = firstChainItemId(component.chain);
     }, "remove-chain-item");
   }
 
   function resetProjectMapping(surfaceId = "") {
     store.update((draft) => {
       draft.mappings ||= {};
-      const defaults = defaultProjectSurfaceMapping(draft.render, draft.surfaces);
+      const mappedSurfaces = draft.surfaces.filter((surface) => surface.destination?.type !== "direct");
+      const defaults = defaultProjectSurfaceMapping(draft.render, mappedSurfaces);
       const existing = Array.isArray(draft.mappings.local?.surfaces) ? draft.mappings.local.surfaces : [];
       const existingById = new Map(existing.map((surface) => [surface.id || surface.name, surface]));
       const defaultById = new Map(defaults.map((surface) => [surface.id || surface.name, surface]));
       draft.mappings.local = {
         ...(draft.mappings.local || {}),
-        surfaces: draft.surfaces.map((surface) => {
+        surfaces: mappedSurfaces.map((surface) => {
           const id = surface.id || surface.name;
           const fallback = defaultById.get(id);
           if (!surfaceId || id === surfaceId) return fallback;
@@ -1311,10 +1540,10 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
     const value = colorValueFromControl(control);
     store.update((draft) => {
       if (control.dataset.colorMode === "live") {
-        const compositionId = control.dataset.liveCompositionId;
-        if (!compositionId) return;
+        const componentId = control.dataset.liveComponentId;
+        if (!componentId) return;
         const overrides = activeLiveOverrideBank(draft);
-        const override = overrides[compositionId] ||= {};
+        const override = overrides[componentId] ||= {};
         setByPathCreate(override, path, value);
         return;
       }
@@ -1370,10 +1599,10 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
     syncParamRangeControl(control, minValue, maxValue);
     store.update((draft) => {
       if (minInput.dataset.liveUpdate) {
-        const compositionId = minInput.dataset.liveCompositionId;
-        if (!compositionId) return;
+        const componentId = minInput.dataset.liveComponentId;
+        if (!componentId) return;
         const overrides = activeLiveOverrideBank(draft);
-        const override = overrides[compositionId] ||= {};
+        const override = overrides[componentId] ||= {};
         setByPathCreate(override, minPath, minValue);
         setByPathCreate(override, maxPath, maxValue);
         return;
@@ -1393,7 +1622,7 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
     const nextValue = button.dataset.toggleValue !== "true";
     store.update((draft) => {
       setByPath(draft, path, nextValue);
-      invalidateCompositionPreviewAssets(draft, path);
+      invalidateComponentPreviewAssets(draft, path);
       if (currentWorkspace(draft) === "scene") {
         if (path.startsWith("scenes.")) {
           applySelectedSceneSnapshot(draft);
@@ -1406,22 +1635,22 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
 
   function updateLivePathFromInput(input, reason) {
     store.update((draft) => {
-      const compositionId = input.dataset.liveCompositionId;
-      if (!compositionId) return;
+      const componentId = input.dataset.liveComponentId;
+      if (!componentId) return;
       const overrides = activeLiveOverrideBank(draft);
-      const override = overrides[compositionId] ||= {};
+      const override = overrides[componentId] ||= {};
       setByPathCreate(override, input.dataset.liveUpdate, readInputValue(input));
     }, reason);
   }
 
   function toggleLivePathFromButton(button, reason) {
-    const compositionId = button.dataset.liveCompositionId;
+    const componentId = button.dataset.liveComponentId;
     const path = button.dataset.liveToggle;
-    if (!compositionId || !path) return;
+    if (!componentId || !path) return;
     const nextValue = button.dataset.toggleValue !== "true";
     store.update((draft) => {
       const overrides = activeLiveOverrideBank(draft);
-      const override = overrides[compositionId] ||= {};
+      const override = overrides[componentId] ||= {};
       setByPathCreate(override, path, nextValue);
     }, reason);
   }
@@ -1429,78 +1658,67 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
   return { mount };
 }
 
-function compositionPillTemplate(composition, state) {
-  const selected = state.ui.selectedCompositionId === composition.id;
-  const fallbackIcon = composition.type === "canvas" ? "dashboard_customize" : "account_tree";
-  const removeDisabled = composition.type !== "canvas"
-    ? ordinaryCompositions(state).length <= 1
-    : state.compositions.length <= 1;
+function componentPillTemplate(component, state) {
+  const selected = state.ui.selectedComponentId === component.id;
+  const fallbackIcon = component.type === "canvas" ? "dashboard_customize" : "account_tree";
+  const removeDisabled = component.type !== "canvas"
+    ? ordinaryComponents(state).length <= 1
+    : state.components.length <= 1;
   return `
-    <div class="composition-card-row" data-composition-filter-card="${esc(composition.name.toLowerCase())}">
-      <button type="button" class="composition-card ${selected ? "is-selected" : ""}" data-select-composition="${esc(composition.id)}">
-        ${thumbnailTemplate(composition.thumbnail, fallbackIcon)}
-        <span>${esc(composition.name)}</span>
+    <div class="component-card-row" data-component-filter-card="${esc(component.name.toLowerCase())}">
+      <button type="button" class="component-card ${selected ? "is-selected" : ""}" data-select-component="${esc(component.id)}">
+        ${thumbnailTemplate(component.thumbnail, fallbackIcon)}
+        <span>${esc(component.name)}</span>
       </button>
-      <button type="button" class="composition-card-remove" data-remove-composition="${esc(composition.id)}" title="Remove" aria-label="Remove ${esc(composition.name)}" ${removeDisabled ? "disabled" : ""}>${icon("close")}</button>
+      <button type="button" class="component-card-remove" data-remove-component="${esc(component.id)}" title="Remove" aria-label="Remove ${esc(component.name)}" ${removeDisabled ? "disabled" : ""}>${icon("close")}</button>
     </div>
   `;
 }
 
-function canvasInspectorTemplate(composition, state) {
-  const base = pathForComposition(state, composition);
-  const canvas = composition.canvas || { width: 3840, height: 2160, previewQuality: "auto" };
+function canvasInspectorTemplate(component, state) {
+  const base = pathForComponent(state, component);
+  const canvas = component.canvas || { width: VJ1.canvasWidth, height: VJ1.canvasHeight };
   return `
     <article class="sculpt-card">
       <div class="sculpt-head">
-        <input type="text" data-update="${base}.name" value="${esc(composition.name)}" spellcheck="false" data-gramm="false" data-gramm_editor="false" data-enable-grammarly="false" />
+        <input type="text" data-update="${base}.name" value="${esc(component.name)}" spellcheck="false" data-gramm="false" data-gramm_editor="false" data-enable-grammarly="false" />
       </div>
       <div class="field-pair">
         <label class="field">Width <input type="number" min="128" max="8192" step="1" data-update="${base}.canvas.width" value="${canvas.width}" /></label>
         <label class="field">Height <input type="number" min="128" max="8192" step="1" data-update="${base}.canvas.height" value="${canvas.height}" /></label>
       </div>
-      <label class="field">Preview quality
-        <select data-update="${base}.canvas.previewQuality">
-          <option value="auto" ${canvas.previewQuality !== "low" && canvas.previewQuality !== "full" ? "selected" : ""}>Auto · preview size</option>
-          <option value="low" ${canvas.previewQuality === "low" ? "selected" : ""}>Low · half preview size</option>
-          <option value="full" ${canvas.previewQuality === "full" ? "selected" : ""}>Full Canvas resolution</option>
-        </select>
-      </label>
-      ${compositionUnifiedChainTemplate(composition, state, base)}
-      <section class="canvas-inspector-section">
-        <div class="rail-title"><span class="material-symbols-rounded">select_all</span><span>Recording frames</span></div>
-        <button type="button" data-add-canvas-frame data-canvas-composition-id="${esc(composition.id)}">${icon("add")} Add recording frame</button>
-        <div class="canvas-surface-list">
-          ${(state.recordingFrames || []).map((frame, index) => canvasFrameEditorTemplate(frame, index, composition)).join("") || emptyNote("Add a recording frame to make a shared Canvas region available in Scenes.")}
-        </div>
-      </section>
+      ${componentUnifiedChainTemplate(component, state, base)}
     </article>
   `;
 }
 
-function canvasFrameEditorTemplate(frame, index, composition) {
-  return `
-    <article class="canvas-surface-editor is-assigned">
-      <header>
-        <strong>${esc(frame.name || `Frame ${index + 1}`)}</strong>
-        <button type="button" class="icon-buttonish" data-canvas-composition-id="${esc(composition.id)}" data-remove-canvas-frame="${esc(frame.id)}" title="Remove recording frame" aria-label="Remove ${esc(frame.name || `Frame ${index + 1}`)}">${icon("close")}</button>
-      </header>
-    </article>
-  `;
+function canvasFramePillTemplate(frame, index, component) {
+  const label = frame.name || `Frame ${index + 1}`;
+  return textListItemTemplate({
+    rowClass: "list-row",
+    leadingHtml: `<span class="text-list-static-icon" aria-hidden="true">${icon("select_all")}</span>`,
+    label,
+    meta: "Shared",
+    mainClass: "list-select recording-frame-label",
+    removeClass: "list-remove",
+    removeAttributes: `data-canvas-component-id="${esc(component?.id || "")}" data-remove-canvas-frame="${esc(frame.id)}"`,
+    removeTitle: "Remove recording frame",
+  });
 }
 
-function compositionSelectTemplate(path, state, value, excludeId = "") {
-  const options = state.compositions.filter((composition) => composition.id !== excludeId && composition.type !== "canvas");
+function componentSelectTemplate(path, state, value, excludeId = "") {
+  const options = state.components.filter((component) => component.id !== excludeId && component.type !== "canvas");
   return `
     <select data-update="${esc(path)}">
       <option value="">None</option>
-      ${options.map((composition) => `<option value="${esc(composition.id)}" ${composition.id === value ? "selected" : ""}>${esc(composition.name)}</option>`).join("")}
+      ${options.map((component) => `<option value="${esc(component.id)}" ${component.id === value ? "selected" : ""}>${esc(component.name)}</option>`).join("")}
     </select>
   `;
 }
 
 function mappingStudioTemplate(state) {
-  const composition = state.compositions.find((item) => item.id === state.ui.selectedCompositionId) || state.compositions[0];
-  const patch = compileCompositionPatch(composition || {});
+  const component = state.components.find((item) => item.id === state.ui.selectedComponentId) || state.components[0];
+  const patch = compileComponentPatch(component || {});
   const plan = planPatchExecution(patch);
   const compositor = planCompositorInputs(plan);
   return `
@@ -1512,7 +1730,7 @@ function mappingStudioTemplate(state) {
         <div class="mapping-flow-row mapping-control-row">
           ${mappingSchedulerNodeTemplate(state)}
           <div class="mapping-wire"><span></span></div>
-          ${mappingEventNodeTemplate(composition)}
+          ${mappingEventNodeTemplate(component)}
         </div>
       </div>
     </section>
@@ -1583,16 +1801,16 @@ function mappingSchedulerNodeTemplate(state) {
   `;
 }
 
-function mappingEventNodeTemplate(composition) {
+function mappingEventNodeTemplate(component) {
   return `
     <article class="mapping-node mapping-node-event">
       <header>${icon("bolt")}<strong>Param Event</strong></header>
       <div class="mapping-port-columns">
         ${mappingPortsTemplate("in", [{ id: "event", label: "event", type: "event" }])}
-        ${mappingPortsTemplate("out", [{ id: "params", label: composition?.name || "composition", type: "number" }])}
+        ${mappingPortsTemplate("out", [{ id: "params", label: component?.name || "component", type: "number" }])}
       </div>
       <div class="mapping-param-pills">
-        <span>target <small>${esc(composition?.name || "composition")}</small></span>
+        <span>target <small>${esc(component?.name || "component")}</small></span>
       </div>
     </article>
   `;
@@ -1609,8 +1827,8 @@ function mappingPortsTemplate(label, ports = []) {
   `;
 }
 
-function mappingInspectorTemplate(composition, state) {
-  const patch = compileCompositionPatch(composition || {});
+function mappingInspectorTemplate(component, state) {
+  const patch = compileComponentPatch(component || {});
   const plan = planPatchExecution(patch);
   const compositorPlan = planCompositorInputs(plan);
   const branchSummaries = summarizeTextureBranches(plan);
@@ -1622,9 +1840,9 @@ function mappingInspectorTemplate(composition, state) {
   const effects = listShaderComponents();
   return `
     <article class="sculpt-card mapping-inspector">
-      <label class="field">Composition
-        <select data-update="ui.selectedCompositionId">
-          ${state.compositions.map((item) => `<option value="${esc(item.id)}" ${item.id === composition?.id ? "selected" : ""}>${esc(item.name)}</option>`).join("")}
+      <label class="field">Component
+        <select data-update="ui.selectedComponentId">
+          ${state.components.map((item) => `<option value="${esc(item.id)}" ${item.id === component?.id ? "selected" : ""}>${esc(item.name)}</option>`).join("")}
         </select>
       </label>
       <label class="field inline-param">
@@ -1662,8 +1880,8 @@ function mappingInspectorTemplate(composition, state) {
   `;
 }
 
-function mappingInletsTemplate(composition) {
-  const patch = compileCompositionPatch(composition || {});
+function mappingInletsTemplate(component) {
+  const patch = compileComponentPatch(component || {});
   const plan = planPatchExecution(patch);
   const ports = [];
   for (const node of plan.nodes) {
@@ -1719,10 +1937,10 @@ function formatRenderRequest(request = {}) {
   return `${role} ${width}x${height}`;
 }
 
-function enableToggleButton({ path = "", livePath = "", compositionId = "", value = true, iconName = "power_settings_new", label = "" }) {
+function enableToggleButton({ path = "", livePath = "", componentId = "", value = true, iconName = "power_settings_new", label = "" }) {
   const enabled = value !== false;
   const toggleAttrs = livePath
-    ? `data-live-composition-id="${esc(compositionId)}" data-live-toggle="${esc(livePath)}"`
+    ? `data-live-component-id="${esc(componentId)}" data-live-toggle="${esc(livePath)}"`
     : `data-toggle-path="${esc(path)}"`;
   const action = enabled ? "Disable" : "Enable";
   return `
@@ -1734,65 +1952,114 @@ function enableToggleButton({ path = "", livePath = "", compositionId = "", valu
 
 function sceneSurfacePillTemplate(surface, state) {
   const sceneSurface = getSceneSurfaceView(surface, state);
-  const composition = state.compositions.find((item) => item.id === sceneSurface.compositionId);
+  const component = state.components.find((item) => item.id === sceneSurface.componentId);
   const enabled = surface.enabled !== false;
+  const direct = surface.destination?.type === "direct";
   return selectablePillTemplate({
     selected: state.ui.selectedSurfaceId === surface.id,
     action: "data-select-surface",
     id: surface.id,
-    iconName: enabled ? "crop_free" : "hide_source",
+    iconName: enabled ? (direct ? "desktop_windows" : "crop_free") : "hide_source",
     label: surface.name,
-    meta: composition?.name || "None",
+    meta: component?.name || "None",
     togglePath: `${pathForSurface(state, surface)}.enabled`,
     toggleValue: enabled,
-    removeAction: "data-remove-surface",
-    removeDisabled: state.surfaces.length <= 1,
+    removeAction: direct ? "" : "data-remove-surface",
+    removeDisabled: false,
+    reorderable: true,
   });
 }
 
-function selectablePillTemplate({ selected, action, id, iconName, label, meta, togglePath = "", toggleValue = true, removeAction = "", removeDisabled = false }) {
+function selectablePillTemplate({ selected, action, id, iconName, label, meta, togglePath = "", toggleValue = true, removeAction = "", removeDisabled = false, reorderable = true }) {
+  return textListItemTemplate({
+    rowClass: "list-row",
+    selected,
+    reorderId: reorderable ? id : "",
+    leadingHtml: togglePath ? enableToggleButton({
+      path: togglePath,
+      value: toggleValue,
+      iconName,
+      label,
+    }) : "",
+    label,
+    meta,
+    mainClass: "list-select",
+    mainAction: action,
+    mainActionId: id,
+    removeClass: "list-remove",
+    removeAction,
+    removeActionId: id,
+    removeDisabled,
+  });
+}
+
+function textListItemTemplate({
+  rowClass = "",
+  selected = false,
+  reorderId = "",
+  leadingHtml = "",
+  label = "",
+  meta = "",
+  mainClass = "",
+  mainAction = "",
+  mainActionId = "",
+  removeClass = "",
+  removeAction = "",
+  removeActionId = "",
+  removeAttributes = "",
+  removeTitle = "Remove",
+  removeDisabled = false,
+} = {}) {
+  const hasRemove = Boolean(removeAction || removeAttributes);
+  const mainClasses = ["text-list-main", mainClass, selected ? "is-selected" : ""].filter(Boolean).join(" ");
+  const rowClasses = [
+    "text-list-item",
+    rowClass,
+    leadingHtml ? "has-leading" : "",
+    hasRemove ? "has-remove" : "",
+    selected ? "is-selected" : "",
+  ].filter(Boolean).join(" ");
+  const mainContent = `<span>${esc(label)}</span>${meta ? `<small>${esc(meta)}</small>` : ""}`;
+  const main = mainAction
+    ? `<button type="button" class="${mainClasses}" ${mainAction}="${esc(mainActionId)}">${mainContent}</button>`
+    : `<div class="${mainClasses}">${mainContent}</div>`;
+  const remove = hasRemove
+    ? `<button type="button" class="text-list-remove ${removeClass}" ${removeAction ? `${removeAction}="${esc(removeActionId)}"` : ""} ${removeAttributes} title="${esc(removeTitle)}" aria-label="${esc(removeTitle)} ${esc(label)}" ${removeDisabled ? "disabled" : ""}>${icon("close")}</button>`
+    : "";
   return `
-    <div class="list-row ${togglePath ? "has-enable-toggle" : ""}" data-reorder-id="${esc(id)}">
-      ${togglePath ? enableToggleButton({
-        path: togglePath,
-        value: toggleValue,
-        iconName,
-        label,
-      }) : ""}
-      <button type="button" class="list-select ${selected ? "is-selected" : ""}" ${action}="${esc(id)}">
-        <span>${esc(label)}</span>
-        <small>${esc(meta)}</small>
-      </button>
-      ${removeAction ? `<button type="button" class="list-remove" ${removeAction}="${esc(id)}" title="Remove" aria-label="Remove ${esc(label)}" ${removeDisabled ? "disabled" : ""}>${icon("close")}</button>` : ""}
+    <div class="${rowClasses}" ${reorderId ? `data-reorder-id="${esc(reorderId)}"` : ""}>
+      ${leadingHtml}
+      ${main}
+      ${remove}
     </div>
   `;
 }
 
-function compositionTemplate(composition, state) {
-  const base = pathForComposition(state, composition);
-  if (composition.type === "canvas") {
+function componentTemplate(component, state) {
+  const base = pathForComponent(state, component);
+  if (component.type === "canvas") {
     return `
       <article class="sculpt-card">
         <div class="sculpt-head">
-          <input type="text" data-update="${base}.name" value="${esc(composition.name)}" spellcheck="false" data-gramm="false" data-gramm_editor="false" data-enable-grammarly="false" />
+          <input type="text" data-update="${base}.name" value="${esc(component.name)}" spellcheck="false" data-gramm="false" data-gramm_editor="false" data-enable-grammarly="false" />
         </div>
-        <div class="soft-note">This Canvas uses the shared composition chain. Add compositions as sources with the plus button, organize them in Groups when needed, and define recording frames.</div>
+        <div class="soft-note">This Canvas uses the shared component chain. Add components as sources with the plus button, organize them in Groups when needed, and define recording frames.</div>
       </article>
     `;
   }
   return `
     <article class="sculpt-card">
       <div class="sculpt-head">
-        <input type="text" data-update="${base}.name" value="${esc(composition.name)}" spellcheck="false" data-gramm="false" data-gramm_editor="false" data-enable-grammarly="false" />
+        <input type="text" data-update="${base}.name" value="${esc(component.name)}" spellcheck="false" data-gramm="false" data-gramm_editor="false" data-enable-grammarly="false" />
       </div>
-      ${compositionFrameControlsTemplate(composition, state, base)}
-      ${compositionUnifiedChainTemplate(composition, state, base)}
+      ${componentFrameControlsTemplate(component, state, base)}
+      ${componentUnifiedChainTemplate(component, state, base)}
     </article>
   `;
 }
 
-function compositionFrameControlsTemplate(composition, state, base) {
-  const metrics = compositionFrameMetrics(state.render || {}, composition);
+function componentFrameControlsTemplate(component, state, base) {
+  const metrics = componentFrameMetrics(state.render || {}, component);
   const megapixels = (metrics.width * metrics.height / 1000000).toFixed(2);
   const shapeOptions = [
     ["landscape", "Landscape"],
@@ -1801,20 +2068,20 @@ function compositionFrameControlsTemplate(composition, state, base) {
   ];
   const scaleOptions = [0.5, 1, 2];
   return `
-    <section class="composition-frame-controls">
+    <section class="component-frame-controls">
       <div class="rail-title"><span class="material-symbols-rounded">aspect_ratio</span><span>Frame</span></div>
-      <div class="segmented-pills composition-option-grid" role="group" aria-label="Composition frame shape">
+      <div class="segmented-pills component-option-grid" role="group" aria-label="Component frame shape">
         ${shapeOptions.map(([value, label]) => `
           <button type="button" class="${metrics.frameShape === value ? "is-selected" : ""}" data-set-path="${base}.frameShape" data-set-value="${value}" aria-pressed="${metrics.frameShape === value}">${label}</button>
         `).join("")}
       </div>
       <div class="rail-title"><span class="material-symbols-rounded">high_quality</span><span>Resolution scale</span></div>
-      <div class="segmented-pills composition-option-grid" role="group" aria-label="Composition resolution scale">
+      <div class="segmented-pills component-option-grid" role="group" aria-label="Component resolution scale">
         ${scaleOptions.map((value) => `
           <button type="button" class="${metrics.resolutionScale === value ? "is-selected" : ""}" data-set-path="${base}.resolutionScale" data-set-value="${value}" data-set-value-type="number" aria-pressed="${metrics.resolutionScale === value}">${value}×</button>
         `).join("")}
       </div>
-      <div class="composition-frame-summary">
+      <div class="component-frame-summary">
         <span>${metrics.baseWidth} × ${metrics.baseHeight} frame</span>
         <strong>${metrics.width} × ${metrics.height}</strong>
         <small>${metrics.effectiveScale}× effective · ${megapixels} MP</small>
@@ -1823,55 +2090,62 @@ function compositionFrameControlsTemplate(composition, state, base) {
   `;
 }
 
-function compositionUnifiedChainTemplate(composition, state, ownerPath) {
-  const selected = selectedChainItemSelection(composition, state);
+function componentUnifiedChainTemplate(component, state, ownerPath) {
+  const selected = selectedChainItemSelection(component, state);
   return `
     <div class="chain-column">
       <section class="chain-list-section">
         <div class="rail-title"><span class="material-symbols-rounded">account_tree</span><span>Chain</span></div>
-        <div class="composition-chain-list" data-chain-reorder-list data-composition-id="${esc(composition.id)}">
-          ${chainItemsTemplate(composition.chain || [], composition, state, `${ownerPath}.chain`, 0, true)}
+        <div class="component-chain-list" data-chain-reorder-list data-component-id="${esc(component.id)}">
+          ${chainItemsTemplate(component.chain || [], component, state, `${ownerPath}.chain`, 0, true)}
         </div>
-        <button type="button" class="chain-add-button" data-open-element-picker data-composition-id="${esc(composition.id)}" title="Add element" aria-label="Add element">${icon("add")}</button>
+        <button type="button" class="chain-add-button" data-open-element-picker data-component-id="${esc(component.id)}" title="Add element" aria-label="Add element">${icon("add")}</button>
       </section>
       <section class="chain-selected-section">
-        ${selected ? selectedChainItemTemplate(selected.item, composition, state, selected.path) : emptyNote("Select a chain item")}
+        ${selected ? selectedChainItemTemplate(selected.item, component, state, selected.path) : emptyNote("Select a chain item")}
       </section>
     </div>
   `;
 }
 
-function chainItemsTemplate(chain, composition, state, base, depth = 0, topLevel = false) {
+function chainItemsTemplate(chain, component, state, base, depth = 0, topLevel = false) {
   if (!chain?.length) return depth ? `<div class="soft-note chain-group-empty">Group is empty</div>` : "";
-  return chain.map((item, index) => chainItemRowTemplate(item, composition, state, index, `${base}.${index}`, depth, topLevel ? chain.length : null)).join("");
+  return chain.map((item, index) => chainItemRowTemplate(item, component, state, index, `${base}.${index}`, depth, topLevel ? chain.length : null)).join("");
 }
 
-function chainItemRowTemplate(item, composition, state, index, base, depth = 0, topLevelLength = null) {
+function chainItemRowTemplate(item, component, state, index, base, depth = 0, topLevelLength = null) {
   const selected = state.ui.selectedChainItemId === item.id;
   const media = state.media?.find((entry) => entry.id === item.source?.mediaId) || null;
-  const referencedComposition = state.compositions?.find((entry) => entry.id === item.source?.compositionId) || null;
-  const label = chainItemLabel(item, media, referencedComposition);
+  const referencedComponent = state.components?.find((entry) => entry.id === item.source?.componentId) || null;
+  const label = chainItemLabel(item, media, referencedComponent);
   const iconName = chainItemIcon(item);
   const kindLabel = item.kind === "source" ? item.source?.type || "source" : item.kind === "group" ? `${item.chain?.length || 0} item group` : "effect";
   const canRemove = item.kind === "group" || depth > 0 || topLevelLength === null || topLevelLength > 1;
+  const row = textListItemTemplate({
+    rowClass: "chain-item-row",
+    selected,
+    reorderId: item.id,
+    leadingHtml: enableToggleButton({
+      path: `${base}.enabled`,
+      value: item.enabled !== false,
+      iconName,
+      label,
+    }),
+    label,
+    meta: kindLabel,
+    mainClass: "chain-item-select",
+    mainAction: "data-select-chain-item",
+    mainActionId: item.id,
+    removeClass: "chain-item-remove",
+    removeAttributes: `data-component-id="${esc(component.id)}" data-remove-chain-item="${esc(item.id)}"`,
+    removeDisabled: !canRemove,
+  });
   return `
     <div class="chain-item-block ${item.kind === "group" ? "is-group" : ""}" style="--chain-depth: ${depth};">
-      <div class="chain-item-row ${selected ? "is-selected" : ""}" data-reorder-id="${esc(item.id)}">
-        ${enableToggleButton({
-          path: `${base}.enabled`,
-          value: item.enabled !== false,
-          iconName,
-          label,
-        })}
-        <button type="button" class="chain-item-select" data-select-chain-item="${esc(item.id)}">
-          <span>${esc(label)}</span>
-          <small>${esc(kindLabel)}</small>
-        </button>
-        <button type="button" class="chain-item-remove" data-composition-id="${esc(composition.id)}" data-remove-chain-item="${esc(item.id)}" title="Remove" aria-label="Remove ${esc(label)}" ${canRemove ? "" : "disabled"}>${icon("close")}</button>
-      </div>
+      ${row}
       ${item.kind === "group" ? `
         <div class="chain-group-drop-zone" data-reorder-id="${esc(item.id)}" data-drop-position="inside" title="Drop inside ${esc(label)}" aria-label="Drop inside ${esc(label)}"></div>
-        ${!item.collapsed ? `<div class="chain-group-children" data-reorder-id="${esc(item.id)}" data-drop-position="inside">${chainItemsTemplate(item.chain || [], composition, state, `${base}.chain`, depth + 1)}</div>` : ""}
+        ${!item.collapsed ? `<div class="chain-group-children" data-reorder-id="${esc(item.id)}" data-drop-position="inside">${chainItemsTemplate(item.chain || [], component, state, `${base}.chain`, depth + 1)}</div>` : ""}
         <div class="chain-group-drop-zone is-after" data-reorder-id="${esc(item.id)}" data-drop-position="after" title="Drop after ${esc(label)}" aria-label="Drop after ${esc(label)}"></div>
       ` : ""}
     </div>
@@ -1880,20 +2154,20 @@ function chainItemRowTemplate(item, composition, state, index, base, depth = 0, 
 
 const SHOW_CHAIN_ITEM_TRANSFORM_CONTROLS = false;
 
-function selectedChainItemTemplate(item, composition, state, base) {
-  if (item.kind === "source") return sourceChainItemTemplate(item, composition, state, base);
-  if (item.kind === "group") return groupChainItemTemplate(item, composition, state, base);
-  const component = getShaderComponent(item.componentId);
+function selectedChainItemTemplate(item, component, state, base) {
+  if (item.kind === "source") return sourceChainItemTemplate(item, component, state, base);
+  if (item.kind === "group") return groupChainItemTemplate(item, component, state, base);
+  const effectComponent = getShaderComponent(item.componentId);
   return `
     <section class="chain-item-editor">
-      <div class="rail-title"><span class="material-symbols-rounded">${effectIcon(item.componentId)}</span><span>${esc(component?.name || item.componentId)}</span></div>
-      ${shaderParamControlsTemplate(component, item, base)}
-      ${component?.spatial && SHOW_CHAIN_ITEM_TRANSFORM_CONTROLS ? effectTransformControlsTemplate(item, base) : ""}
+      <div class="rail-title"><span class="material-symbols-rounded">${effectIcon(item.componentId)}</span><span>${esc(effectComponent?.name || item.componentId)}</span></div>
+      ${shaderParamControlsTemplate(effectComponent, item, base)}
+      ${effectComponent?.spatial && SHOW_CHAIN_ITEM_TRANSFORM_CONTROLS ? effectTransformControlsTemplate(item, base) : ""}
     </section>
   `;
 }
 
-function groupChainItemTemplate(item, composition, state, base) {
+function groupChainItemTemplate(item, component, state, base) {
   return `
     <section class="chain-item-editor">
       <div class="rail-title"><span class="material-symbols-rounded">account_tree</span><span>${esc(item.name || "Group")}</span></div>
@@ -1902,23 +2176,23 @@ function groupChainItemTemplate(item, composition, state, base) {
         <span>Collapsed</span>
         <input type="checkbox" data-update="${base}.collapsed" ${item.collapsed ? "checked" : ""} />
       </label>
-      <button type="button" class="chain-add-button" data-open-element-picker data-composition-id="${esc(composition.id)}" data-target-chain-item="${esc(item.id)}" title="Add element to group" aria-label="Add element to group">${icon("add")}</button>
+      <button type="button" class="chain-add-button" data-open-element-picker data-component-id="${esc(component.id)}" data-target-chain-item="${esc(item.id)}" title="Add element to group" aria-label="Add element to group">${icon("add")}</button>
       <div class="soft-note">Use the preview handles to move, scale, or rotate the group as one unit.</div>
     </section>
   `;
 }
 
-function sourceChainItemTemplate(item, ownerComposition, state, base) {
+function sourceChainItemTemplate(item, ownerComponent, state, base) {
   const media = state.media?.find((entry) => entry.id === item.source?.mediaId) || null;
-  const referencedComposition = state.compositions?.find((entry) => entry.id === item.source?.compositionId) || null;
-  const displayName = sourceChainItemDisplayName(item, media, referencedComposition);
-  const isCanvasCompositionPlacement = ownerComposition?.type === "canvas" && item.source?.type === "composition";
+  const referencedComponent = state.components?.find((entry) => entry.id === item.source?.componentId) || null;
+  const displayName = sourceChainItemDisplayName(item, media, referencedComponent);
+  const isCanvasComponentPlacement = ownerComponent?.type === "canvas" && item.source?.type === "component";
   return `
     <section class="chain-item-editor">
       <div class="rail-title"><span class="material-symbols-rounded">${sourceIcon(item.source)}</span><span>${esc(displayName)}</span></div>
-      ${isCanvasCompositionPlacement ? "" : `<label class="field">Name <input type="text" data-update="${base}.name" value="${esc(displayName)}" spellcheck="false" data-gramm="false" data-gramm_editor="false" data-enable-grammarly="false" /></label>`}
-      ${item.source?.type === "composition"
-        ? (isCanvasCompositionPlacement ? "" : `<label class="field">Composition ${compositionSelectTemplate(`${base}.source.compositionId`, state, item.source.compositionId)}</label>`)
+      ${isCanvasComponentPlacement ? "" : `<label class="field">Name <input type="text" data-update="${base}.name" value="${esc(displayName)}" spellcheck="false" data-gramm="false" data-gramm_editor="false" data-enable-grammarly="false" /></label>`}
+      ${item.source?.type === "component"
+        ? (isCanvasComponentPlacement ? "" : `<label class="field">Component ${componentSelectTemplate(`${base}.source.componentId`, state, item.source.componentId)}</label>`)
         : sourcePickerTemplate(item, state, base)}
       <div class="field-pair">
         <label class="field">Blend ${selectValuesTemplate(`${base}.blend`, BLEND_MODES, item.blend)}</label>
@@ -1955,13 +2229,13 @@ function effectTransformControlsTemplate(item, base) {
   `;
 }
 
-function selectedChainItemSelection(composition, state) {
-  const selected = findChainItemSelection(composition.chain || [], state.ui.selectedChainItemId, `${pathForComposition(state, composition)}.chain`);
-  return selected || firstChainItemSelection(composition.chain || [], `${pathForComposition(state, composition)}.chain`);
+function selectedChainItemSelection(component, state) {
+  const selected = findChainItemSelection(component.chain || [], state.ui.selectedChainItemId, `${pathForComponent(state, component)}.chain`);
+  return selected || firstChainItemSelection(component.chain || [], `${pathForComponent(state, component)}.chain`);
 }
 
-function sourcePickerTemplate(composition, state, base) {
-  const source = composition.source || {};
+function sourcePickerTemplate(component, state, base) {
+  const source = component.source || {};
   const media = state.media.find((item) => item.id === source.mediaId);
   return `
     <div class="source-section">
@@ -1994,7 +2268,7 @@ function mediaSourceFitControlsTemplate(base, source = {}) {
 }
 
 function sourceIcon(source = {}) {
-  if (source.type === "composition") return "account_tree";
+  if (source.type === "component") return "account_tree";
   if (source.type === "generator") return generatorIcon(source.generatorId || "testPattern");
   if (source.type === "media") return isModelMediaSource(source) ? "deployed_code" : "perm_media";
   if (source.type === "camera") return "photo_camera";
@@ -2002,8 +2276,8 @@ function sourceIcon(source = {}) {
   return sourceTypeIcon(source.type || "generator");
 }
 
-function sourceTitle(source = {}, media = null, composition = null) {
-  if (source.type === "composition") return composition?.name || source.compositionId || "Composition";
+function sourceTitle(source = {}, media = null, component = null) {
+  if (source.type === "component") return component?.name || source.componentId || "Component";
   if (source.type === "generator") return getGeneratorComponent(source.generatorId || "testPattern").label || getGeneratorComponent(source.generatorId || "testPattern").name;
   if (source.type === "media") return media?.name || source.mediaId || "Media";
   if (source.type === "camera") return "Live camera";
@@ -2012,7 +2286,7 @@ function sourceTitle(source = {}, media = null, composition = null) {
 }
 
 function sourceSubtitle(source = {}, media = null) {
-  if (source.type === "composition") return "Composition reference";
+  if (source.type === "component") return "Component reference";
   if (source.type === "generator") return "Generator";
   if (source.type === "media") return media?.type === "model" || isModelMediaSource(source) ? "3D model" : media?.type ? `Media ${media.type}` : "Media";
   if (source.type === "camera") return "Portal camera feed";
@@ -2020,16 +2294,16 @@ function sourceSubtitle(source = {}, media = null) {
   return "Source";
 }
 
-function sourceChainItemDisplayName(item = {}, media = null, composition = null) {
-  if (item.source?.type === "composition") return sourceTitle(item.source, media, composition);
-  if (!item.name || isGenericLayerName(item.name) || item.name === item.source?.compositionId) {
-    return sourceTitle(item.source || {}, media, composition);
+function sourceChainItemDisplayName(item = {}, media = null, component = null) {
+  if (item.source?.type === "component") return sourceTitle(item.source, media, component);
+  if (!item.name || isGenericLayerName(item.name) || item.name === item.source?.componentId) {
+    return sourceTitle(item.source || {}, media, component);
   }
   return item.name;
 }
 
-function chainItemLabel(item = {}, media = null, composition = null) {
-  if (item.kind === "source") return sourceChainItemDisplayName(item, media, composition);
+function chainItemLabel(item = {}, media = null, component = null) {
+  if (item.kind === "source") return sourceChainItemDisplayName(item, media, component);
   if (item.kind === "group") return item.name || "Group";
   return item.name || item.componentId || "Effect";
 }
@@ -2218,7 +2492,7 @@ function generatorIcon(id) {
   }[id] || "auto_awesome";
 }
 
-function sceneSurfaceTemplate(surface, state) {
+function sceneSurfaceTemplate(surface, state, catalog = {}) {
   const scene = getSelectedScene(state);
   const surfaceBase = pathForSurface(state, surface);
   const sceneIndex = scene ? state.scenes.findIndex((item) => item.id === scene.id) : -1;
@@ -2226,21 +2500,23 @@ function sceneSurfaceTemplate(surface, state) {
   const hasSceneSurface = sceneIndex >= 0 && surfaceIndex >= 0;
   const sceneSurface = hasSceneSurface ? scene.snapshot.surfaces[surfaceIndex] : null;
   const sceneBase = `scenes.${sceneIndex}.snapshot.surfaces.${surfaceIndex}`;
+  const direct = surface.destination?.type === "direct";
   return `
     <article class="sculpt-card">
       <div class="sculpt-head">
-        <input type="text" data-update="${surfaceBase}.name" value="${esc(surface.name)}" spellcheck="false" data-gramm="false" data-gramm_editor="false" data-enable-grammarly="false" />
+        ${direct
+          ? `<strong>${esc(surface.name)}</strong><small>direct output</small>`
+          : `<input type="text" data-update="${surfaceBase}.name" value="${esc(surface.name)}" spellcheck="false" data-gramm="false" data-gramm_editor="false" data-enable-grammarly="false" />`}
       </div>
-      <div class="surface-actions">
+      ${direct ? "" : `<div class="surface-actions">
         <button type="button" data-reset-surface-mapping="${surface.id}">${icon("restart_alt")} Reset surface</button>
-      </div>
+      </div>`}
       ${rangeTemplate("Feather", `${surfaceBase}.feather`, surface.feather ?? 0, 0, 0.5, 0.005)}
-      <div class="rail-title"><span class="material-symbols-rounded">auto_awesome</span><span>Scene assignment</span></div>
       ${hasSceneSurface ? `
         ${rangeTemplate("Presence", `${sceneBase}.opacity`, sceneSurface.opacity)}
-        <label class="field">Projection fit ${selectValuesTemplate(`${sceneBase}.projectionFit`, PROJECTION_FIT_MODES, sceneSurface.projectionFit || "cover")}</label>
-        ${compositionAssignmentTemplate(sceneBase, state, sceneSurface)}
-      ` : `<div class="soft-note">Capture a scene to store composition assignments for this surface.</div>`}
+        <label class="field">${direct ? "Fit" : "Projection fit"} ${selectValuesTemplate(`${sceneBase}.projectionFit`, PROJECTION_FIT_MODES, sceneSurface.projectionFit || (direct ? "contain" : "cover"))}</label>
+        ${componentAssignmentTemplate(sceneBase, state, sceneSurface, catalog)}
+      ` : `<div class="soft-note">Capture a scene to store component assignments for this surface.</div>`}
     </article>
   `;
 }
@@ -2366,13 +2642,13 @@ function paramControlTemplate(param, path, value, attrs = "data-update") {
 
 function colorParamControlTemplate(param, path, value, attrs = "data-update") {
   const mode = attrs.includes("data-live-update") ? "live" : "state";
-  const liveCompositionMatch = /data-live-composition-id="([^"]*)"/.exec(attrs);
-  const liveCompositionId = liveCompositionMatch?.[1] || "";
+  const liveComponentMatch = /data-live-component-id="([^"]*)"/.exec(attrs);
+  const liveComponentId = liveComponentMatch?.[1] || "";
   const rgba = normalizeColorHex(value || param.defaultValue || "#ffffffff");
   const rgb = rgba.slice(0, 7);
   const alpha = colorAlphaFromHex(rgba);
   return `
-    <div class="field color-param chain-param" data-color-param data-color-mode="${mode}" data-color-path="${esc(path)}" ${liveCompositionId ? `data-live-composition-id="${esc(liveCompositionId)}"` : ""}>
+    <div class="field color-param chain-param" data-color-param data-color-mode="${mode}" data-color-path="${esc(path)}" ${liveComponentId ? `data-live-component-id="${esc(liveComponentId)}"` : ""}>
       <span>${esc(param.label || param.id)}</span>
       <div class="color-param-row">
         <input type="color" data-color-rgb value="${esc(rgb)}" aria-label="${esc(param.label || param.id)} color" />
@@ -2403,11 +2679,12 @@ function projectEmptyTemplate() {
   `;
 }
 
-function settingsModalTemplate(state) {
+function settingsModalTemplate(state, activeTab = "outputs") {
   const render = normalizeRenderSettings(state.render || {});
+  const camera = render.camera;
   return `
     <div class="modal-backdrop"></div>
-    <section class="modal-panel settings-modal" role="dialog" aria-modal="true" aria-label="Project settings">
+    <section class="modal-panel settings-modal" data-settings-modal role="dialog" aria-modal="true" aria-label="Project settings">
       <header class="modal-header">
         <div>
           <strong>Project settings</strong>
@@ -2415,8 +2692,13 @@ function settingsModalTemplate(state) {
         </div>
         <button type="button" class="icon-buttonish" data-close-modal title="Close" aria-label="Close">${icon("close")}</button>
       </header>
+      <nav class="settings-tabs" role="tablist" aria-label="Settings sections">
+        <button type="button" role="tab" data-settings-tab="outputs" class="${activeTab === "outputs" ? "is-active" : ""}" aria-selected="${activeTab === "outputs" ? "true" : "false"}">Outputs</button>
+        <button type="button" role="tab" data-settings-tab="camera" class="${activeTab === "camera" ? "is-active" : ""}" aria-selected="${activeTab === "camera" ? "true" : "false"}">Camera</button>
+        <button type="button" role="tab" data-settings-tab="rendering" class="${activeTab === "rendering" ? "is-active" : ""}" aria-selected="${activeTab === "rendering" ? "true" : "false"}">Rendering</button>
+      </nav>
       <div class="settings-modal-body">
-        <section class="element-section">
+        <section class="element-section" data-settings-panel="outputs" ${activeTab === "outputs" ? "" : "hidden"}>
           <div class="rail-title"><span class="material-symbols-rounded">crop_16_9</span><span>Outputs</span></div>
           <div class="settings-preset-row">
             <button type="button" data-render-preset="wide">960 x 540</button>
@@ -2426,58 +2708,89 @@ function settingsModalTemplate(state) {
             <button type="button" data-render-preset="2k">2K</button>
             <button type="button" data-render-preset="4k">4K</button>
           </div>
-          <div class="configured-output-list">
-            ${render.outputs.map((output, index) => `
-              <article class="configured-output-card">
-                <div class="configured-output-head">
-                  <strong>Output ${index + 1}</strong>
-                  <button type="button" class="list-remove" data-remove-output="${esc(output.id)}" title="Remove output" aria-label="Remove ${esc(output.name)}" ${render.outputs.length <= 1 ? "disabled" : ""}>${icon("close")}</button>
-                </div>
-                <label class="field">Name <input type="text" data-settings-update="render.outputs.${index}.name" value="${esc(output.name)}" /></label>
-                <div class="field-pair">
-                  <label class="field">Width <input type="number" min="128" max="8192" step="1" data-settings-update="render.outputs.${index}.width" value="${output.width}" /></label>
-                  <label class="field">Height <input type="number" min="128" max="8192" step="1" data-settings-update="render.outputs.${index}.height" value="${output.height}" /></label>
-                </div>
-              </article>
-            `).join("")}
+          <div class="configured-output-list" data-configured-output-list data-output-signature="${esc(render.outputs.map((output) => output.id).join("|"))}">
+            ${configuredOutputsTemplate(render)}
           </div>
           <button type="button" class="chain-add-button" data-add-output>${icon("add")} Add output</button>
           <div class="soft-note">Outputs are arranged side by side in the Scene mapping workspace.</div>
         </section>
-        <section class="element-section">
-          <div class="rail-title"><span class="material-symbols-rounded">texture</span><span>Surface texture</span></div>
-          <div class="field-pair">
-            <label class="field">Width <input type="number" min="64" max="8192" step="1" data-settings-update="render.surfaceWidth" value="${render.surfaceWidth}" /></label>
-            <label class="field">Height <input type="number" min="64" max="8192" step="1" data-settings-update="render.surfaceHeight" value="${render.surfaceHeight}" /></label>
+        <section class="element-section" data-settings-panel="camera" ${activeTab === "camera" ? "" : "hidden"}>
+          <div class="rail-title"><span class="material-symbols-rounded">photo_camera</span><span>Camera</span></div>
+          <div class="settings-preset-row">
+            <button type="button" data-camera-preset="sd">640 x 480</button>
+            <button type="button" data-camera-preset="hd">HD</button>
+            <button type="button" data-camera-preset="fhd">Full HD</button>
+            <button type="button" data-camera-preset="4k">4K</button>
           </div>
+          <div class="field-pair">
+            <label class="field">Width <input type="number" min="160" max="7680" step="1" data-settings-update="render.camera.width" value="${camera.width}" /></label>
+            <label class="field">Height <input type="number" min="120" max="4320" step="1" data-settings-update="render.camera.height" value="${camera.height}" /></label>
+          </div>
+          <label class="field">Camera direction
+            <select data-settings-update="render.camera.facingMode">
+              <option value="user" ${camera.facingMode === "user" ? "selected" : ""}>Front</option>
+              <option value="environment" ${camera.facingMode === "environment" ? "selected" : ""}>Rear / external</option>
+            </select>
+          </label>
+          <label class="settings-toggle">
+            <span>Mirror camera image</span>
+            <input type="checkbox" data-settings-update="render.camera.mirrored" ${camera.mirrored ? "checked" : ""} />
+          </label>
+          <label class="settings-toggle">
+            <span>Use maximum supported resolution</span>
+            <input type="checkbox" data-settings-update="render.camera.maxResolution" ${camera.maxResolution ? "checked" : ""} />
+          </label>
+          <div class="soft-note">The browser chooses the closest supported mode. Changing Camera settings restarts an active capture.</div>
         </section>
-        <section class="element-section">
+        <section class="element-section" data-settings-panel="rendering" ${activeTab === "rendering" ? "" : "hidden"}>
+          <div class="rail-title"><span class="material-symbols-rounded">aspect_ratio</span><span>Component texture</span></div>
+          <div class="field-pair">
+            <label class="field">Width <input type="number" min="64" max="8192" step="1" data-settings-update="render.componentTexture.width" value="${render.componentTexture.width}" /></label>
+            <label class="field">Height <input type="number" min="64" max="8192" step="1" data-settings-update="render.componentTexture.height" value="${render.componentTexture.height}" /></label>
+          </div>
+          <div class="soft-note">Defines component frame geometry and its available native detail. It remains active in both surface modes.</div>
+        </section>
+        <section class="element-section" data-settings-panel="rendering" ${activeTab === "rendering" ? "" : "hidden"}>
+          <div class="rail-title"><span class="material-symbols-rounded">texture</span><span>Surface texture</span></div>
+          <label class="field">Resolution policy
+            <select data-settings-update="render.surfaceTexture.mode">
+              <option value="auto" ${render.surfaceTexture.mode === "auto" ? "selected" : ""}>Auto · projected pixel demand</option>
+              <option value="manual" ${render.surfaceTexture.mode === "manual" ? "selected" : ""}>Manual maximum</option>
+            </select>
+          </label>
+          <div class="field-pair" data-manual-surface-texture ${render.surfaceTexture.mode === "manual" ? "" : "hidden"}>
+            <label class="field">Max width <input type="number" min="64" max="8192" step="1" data-settings-update="render.surfaceTexture.maxWidth" value="${render.surfaceTexture.maxWidth}" /></label>
+            <label class="field">Max height <input type="number" min="64" max="8192" step="1" data-settings-update="render.surfaceTexture.maxHeight" value="${render.surfaceTexture.maxHeight}" /></label>
+          </div>
+          <div class="soft-note">Auto follows visible projected-pixel demand. Manual only limits the final per-surface raster; it never changes component dimensions.</div>
+        </section>
+        <section class="element-section" data-settings-panel="rendering" ${activeTab === "rendering" ? "" : "hidden"}>
           <div class="rail-title"><span class="material-symbols-rounded">speed</span><span>Performance</span></div>
           <div class="field-pair">
             <label class="field">Pixel density <input type="number" min="0.5" max="2" step="0.25" data-settings-update="render.pixelDensity" value="${render.pixelDensity}" /></label>
             <label class="field">Edge softness <input type="number" min="0" max="8" step="0.5" data-settings-update="render.edgeSoftness" value="${render.edgeSoftness}" /></label>
           </div>
         </section>
-        <section class="element-section">
-          <div class="rail-title"><span class="material-symbols-rounded">high_quality</span><span>Composition upscaling</span></div>
+        <section class="element-section" data-settings-panel="rendering" ${activeTab === "rendering" ? "" : "hidden"}>
+          <div class="rail-title"><span class="material-symbols-rounded">high_quality</span><span>Component upscaling</span></div>
           <label class="settings-toggle">
             <span>Enable upscaling pipeline</span>
             <input type="checkbox" data-settings-update="render.upscaling.enabled" ${render.upscaling.enabled ? "checked" : ""} />
           </label>
           <label class="field range-field">
-            <span>Internal render amount · ${Math.round(render.upscaling.amount * 100)}%</span>
+            <span data-upscaling-amount-label>Internal render amount · ${Math.round(render.upscaling.amount * 100)}%</span>
             <input type="range" min="0.35" max="1" step="0.01" data-settings-update="render.upscaling.amount" value="${render.upscaling.amount}" />
           </label>
-          <div class="soft-note">Renders each chain composition at this fraction, then applies one fast edge-aware upscale before projection.</div>
+          <div class="soft-note">Renders each chain component at this fraction, then applies one fast edge-aware upscale before projection.</div>
         </section>
-        <section class="element-section">
+        <section class="element-section" data-settings-panel="rendering" ${activeTab === "rendering" ? "" : "hidden"}>
           <div class="rail-title"><span class="material-symbols-rounded">grain</span><span>Post processing</span></div>
           <label class="settings-toggle">
             <span>Grayscale</span>
             <input type="checkbox" data-settings-update="render.postProcessing.grayscaleEnabled" ${render.postProcessing.grayscaleEnabled ? "checked" : ""} />
           </label>
           <label class="field range-field">
-            <span>Grayscale amount · ${Math.round(render.postProcessing.grayscaleAmount * 100)}%</span>
+            <span data-grayscale-amount-label>Grayscale amount · ${Math.round(render.postProcessing.grayscaleAmount * 100)}%</span>
             <input type="range" min="0" max="1" step="0.05" data-settings-update="render.postProcessing.grayscaleAmount" value="${render.postProcessing.grayscaleAmount}" />
           </label>
           <label class="settings-toggle">
@@ -2485,14 +2798,30 @@ function settingsModalTemplate(state) {
             <input type="checkbox" data-settings-update="render.postProcessing.noiseEnabled" ${render.postProcessing.noiseEnabled ? "checked" : ""} />
           </label>
           <label class="field range-field">
-            <span>Noise amount · ${Math.round(render.postProcessing.noiseAmount * 1000) / 10}%</span>
+            <span data-noise-amount-label>Noise amount · ${Math.round(render.postProcessing.noiseAmount * 1000) / 10}%</span>
             <input type="range" min="0" max="0.2" step="0.005" data-settings-update="render.postProcessing.noiseAmount" value="${render.postProcessing.noiseAmount}" />
           </label>
-          <div class="soft-note">These filters run at the composition’s full target resolution after upscaling.</div>
+          <div class="soft-note">These filters run at the component’s full target resolution after upscaling.</div>
         </section>
       </div>
     </section>
   `;
+}
+
+function configuredOutputsTemplate(render) {
+  return render.outputs.map((output, index) => `
+    <article class="configured-output-card">
+      <div class="configured-output-head">
+        <strong>Output ${index + 1}</strong>
+        <button type="button" class="list-remove" data-remove-output="${esc(output.id)}" title="Remove output" aria-label="Remove ${esc(output.name)}" ${render.outputs.length <= 1 ? "disabled" : ""}>${icon("close")}</button>
+      </div>
+      <label class="field">Name <input type="text" data-settings-update="render.outputs.${index}.name" value="${esc(output.name)}" /></label>
+      <div class="field-pair">
+        <label class="field">Width <input type="number" min="128" max="8192" step="1" data-settings-update="render.outputs.${index}.width" value="${output.width}" /></label>
+        <label class="field">Height <input type="number" min="128" max="8192" step="1" data-settings-update="render.outputs.${index}.height" value="${output.height}" /></label>
+      </div>
+    </article>
+  `).join("");
 }
 
 function sourceChoicePickerTemplate(state, picker, mediaLibrary, urlCache) {
@@ -2578,9 +2907,9 @@ function sourceMediaCardTemplate(item, source, mediaLibrary, urlCache) {
 
 function elementPickerTemplate(state, picker, mediaLibrary, urlCache) {
   const mediaItems = state.media || [];
-  const owner = state.compositions.find((composition) => composition.id === picker.compositionId);
-  const compositions = owner?.type === "canvas"
-    ? state.compositions.filter((composition) => composition.id !== picker.compositionId && composition.type !== "canvas")
+  const owner = state.components.find((component) => component.id === picker.componentId);
+  const components = owner?.type === "canvas"
+    ? state.components.filter((component) => component.id !== picker.componentId && component.type !== "canvas")
     : [];
   const generators = listGeneratorComponents().filter((generator) => generator.id !== "black");
   const effects = listShaderComponents();
@@ -2590,7 +2919,7 @@ function elementPickerTemplate(state, picker, mediaLibrary, urlCache) {
       <header class="modal-header">
         <div>
           <strong>Add element</strong>
-          <small>Choose a source or an effect for this composition.</small>
+          <small>Choose a source or an effect for this component.</small>
         </div>
         <button type="button" class="icon-buttonish" data-close-modal title="Close" aria-label="Close">${icon("close")}</button>
       </header>
@@ -2601,18 +2930,18 @@ function elementPickerTemplate(state, picker, mediaLibrary, urlCache) {
       </label>
 
       <div class="element-modal-body">
-        ${compositions.length ? `<section class="element-section" data-element-section>
-          <div class="rail-title"><span class="material-symbols-rounded">account_tree</span><span>Compositions</span></div>
+        ${components.length ? `<section class="element-section" data-element-section>
+          <div class="rail-title"><span class="material-symbols-rounded">account_tree</span><span>Components</span></div>
           <div class="element-grid media-element-grid">
-            ${compositions.map((composition) => `
-              <button type="button" class="element-card media-element-card" data-add-element-composition="${esc(composition.id)}" data-element-search-card="${esc(elementSearchText(composition.name, "composition source"))}">
-                ${thumbnailTemplate(composition.thumbnail)}
-                <strong>${esc(composition.name)}</strong>
-                <small>composition</small>
+            ${components.map((component) => `
+              <button type="button" class="element-card media-element-card" data-add-element-component="${esc(component.id)}" data-element-search-card="${esc(elementSearchText(component.name, "component source"))}">
+                ${thumbnailTemplate(component.thumbnail)}
+                <strong>${esc(component.name)}</strong>
+                <small>component</small>
               </button>
             `).join("")}
           </div>
-          <div class="soft-note" data-element-empty hidden>No matching compositions.</div>
+          <div class="soft-note" data-element-empty hidden>No matching components.</div>
         </section>` : ""}
 
         <section class="element-section" data-element-section>
@@ -2768,30 +3097,30 @@ function mediaPreviewUrl(id, mediaLibrary, urlCache) {
 
 function scenePillTemplate(scene, state) {
   const selected = state.ui.selectedSceneId === scene.id;
-  const compositions = sceneFingerprintCompositions(scene, state);
+  const components = sceneFingerprintComponents(scene, state);
   return `
-    <div class="composition-card-row">
-      <button type="button" class="composition-card scene-card ${selected ? "is-selected" : ""}" data-select-scene="${esc(scene.id)}">
-        ${sceneFingerprintTemplate(compositions)}
+    <div class="component-card-row">
+      <button type="button" class="component-card scene-card ${selected ? "is-selected" : ""}" data-select-scene="${esc(scene.id)}">
+        ${sceneFingerprintTemplate(components)}
         <span>${esc(scene.name)}</span>
       </button>
-      <button type="button" class="composition-card-remove" data-delete-scene="${esc(scene.id)}" title="Remove" aria-label="Remove ${esc(scene.name)}">${icon("close")}</button>
+      <button type="button" class="component-card-remove" data-delete-scene="${esc(scene.id)}" title="Remove" aria-label="Remove ${esc(scene.name)}">${icon("close")}</button>
     </div>
   `;
 }
 
 function liveScenePillTemplate(scene, state) {
   const selected = liveSelectedSceneId(state) === scene.id;
-  const compositions = sceneFingerprintCompositions(scene, state);
-  const sceneOverrides = state.ui?.live?.sceneOverrides?.[scene.id] || (selected ? state.ui?.live?.compositionOverrides || {} : {});
+  const components = sceneFingerprintComponents(scene, state);
+  const sceneOverrides = state.ui?.live?.sceneOverrides?.[scene.id] || (selected ? state.ui?.live?.componentOverrides || {} : {});
   const hasOverrides = Object.keys(sceneOverrides).length > 0;
   return `
-    <div class="composition-card-row">
-      <button type="button" class="composition-card scene-card live-scene-card ${selected ? "is-selected" : ""}" data-live-scene="${esc(scene.id)}">
-        ${sceneFingerprintTemplate(compositions)}
+    <div class="component-card-row">
+      <button type="button" class="component-card scene-card live-scene-card ${selected ? "is-selected" : ""}" data-live-scene="${esc(scene.id)}">
+        ${sceneFingerprintTemplate(components)}
         <span>${esc(scene.name)}</span>
       </button>
-      <button type="button" class="composition-card-remove" data-reset-live-scene="${esc(scene.id)}" title="Reset temporary settings" aria-label="Reset temporary settings for ${esc(scene.name)}" ${hasOverrides ? "" : "disabled"}>${icon("restart_alt")}</button>
+      <button type="button" class="component-card-remove" data-reset-live-scene="${esc(scene.id)}" title="Reset temporary settings" aria-label="Reset temporary settings for ${esc(scene.name)}" ${hasOverrides ? "" : "disabled"}>${icon("restart_alt")}</button>
     </div>
   `;
 }
@@ -2799,40 +3128,40 @@ function liveScenePillTemplate(scene, state) {
 function liveInspectorTemplate(state) {
   const scene = getLiveSelectedScene(state);
   if (!scene) return emptyNote("No scenes");
-  const compositions = liveSceneCompositions(scene, state);
+  const components = liveSceneComponents(scene, state);
   return `
     <div class="live-panel">
       <div class="live-scene-name">${esc(scene.name)}</div>
-      <div class="live-composition-list">
-        ${compositions.map((composition) => liveCompositionTemplate(composition, state)).join("") || emptyNote("No compositions")}
+      <div class="live-component-list">
+        ${components.map((component) => liveComponentTemplate(component, state)).join("") || emptyNote("No components")}
       </div>
     </div>
   `;
 }
 
-function liveCompositionTemplate(composition, state) {
-  const view = createLiveCompositionView(composition, state);
+function liveComponentTemplate(component, state) {
+  const view = createLiveComponentView(component, state);
   return `
-    <article class="live-composition-card">
-      <header class="live-composition-head">
-        ${thumbnailTemplate(composition.thumbnail)}
-        <strong>${esc(composition.name)}</strong>
+    <article class="live-component-card">
+      <header class="live-component-head">
+        ${thumbnailTemplate(component.thumbnail)}
+        <strong>${esc(component.name)}</strong>
       </header>
-      ${liveUnifiedChainTemplate(view.chain, composition.id, state, new Set([composition.id]))}
+      ${liveUnifiedChainTemplate(view.chain, component.id, state, new Set([component.id]))}
     </article>
   `;
 }
 
-function liveUnifiedChainTemplate(chain, compositionId, state, ancestry = new Set([compositionId])) {
+function liveUnifiedChainTemplate(chain, componentId, state, ancestry = new Set([componentId])) {
   if (!chain?.length) return "";
   return `
     <div class="live-chain-list">
-      ${chain.map((item, index) => liveChainItemTemplate(item, compositionId, index, `chain.${index}`, state, ancestry)).join("")}
+      ${chain.map((item, index) => liveChainItemTemplate(item, componentId, index, `chain.${index}`, state, ancestry)).join("")}
     </div>
   `;
 }
 
-function liveChainItemTemplate(item, compositionId, index, path = `chain.${index}`, state = {}, ancestry = new Set([compositionId])) {
+function liveChainItemTemplate(item, componentId, index, path = `chain.${index}`, state = {}, ancestry = new Set([componentId])) {
   if (item.kind === "effect") {
     const component = getShaderComponent(item.componentId);
     const label = component?.name || item.componentId;
@@ -2841,14 +3170,14 @@ function liveChainItemTemplate(item, compositionId, index, path = `chain.${index
         <div class="live-chain-title">
           ${enableToggleButton({
             livePath: `${path}.enabled`,
-            compositionId,
+            componentId,
             value: item.enabled !== false,
             iconName: effectIcon(item.componentId),
             label,
           })}
           <span>${esc(label)}</span>
         </div>
-        ${liveShaderParamControlsTemplate(component, item, compositionId, path)}
+        ${liveShaderParamControlsTemplate(component, item, componentId, path)}
       </div>
     `;
   }
@@ -2859,31 +3188,31 @@ function liveChainItemTemplate(item, compositionId, index, path = `chain.${index
         <div class="live-chain-title">
           ${enableToggleButton({
             livePath: `${path}.enabled`,
-            compositionId,
+            componentId,
             value: item.enabled !== false,
             iconName: "account_tree",
             label,
           })}
           <span>${esc(label)}</span>
         </div>
-        ${item.chain?.length ? `<div class="live-chain-list">${item.chain.map((child, childIndex) => liveChainItemTemplate(child, compositionId, childIndex, `${path}.chain.${childIndex}`, state, ancestry)).join("")}</div>` : ""}
+        ${item.chain?.length ? `<div class="live-chain-list">${item.chain.map((child, childIndex) => liveChainItemTemplate(child, componentId, childIndex, `${path}.chain.${childIndex}`, state, ancestry)).join("")}</div>` : ""}
       </div>
     `;
   }
-  const referencedComposition = item.source?.type === "composition"
-    ? state.compositions?.find((composition) => composition.id === item.source.compositionId)
+  const referencedComponent = item.source?.type === "component"
+    ? state.components?.find((component) => component.id === item.source.componentId)
     : null;
-  const label = sourceChainItemDisplayName(item, null, referencedComposition);
+  const label = sourceChainItemDisplayName(item, null, referencedComponent);
   const iconName = sourceIcon(item.source || {});
   let referencedElements = "";
-  if (referencedComposition && !ancestry.has(referencedComposition.id)) {
-    const referencedView = createLiveCompositionView(referencedComposition, state);
+  if (referencedComponent && !ancestry.has(referencedComponent.id)) {
+    const referencedView = createLiveComponentView(referencedComponent, state);
     const nextAncestry = new Set(ancestry);
-    nextAncestry.add(referencedComposition.id);
+    nextAncestry.add(referencedComponent.id);
     referencedElements = `
-      <div class="live-referenced-composition">
-        <div class="live-referenced-title">${icon("account_tree")}<span>${esc(referencedComposition.name)} elements</span></div>
-        ${liveUnifiedChainTemplate(referencedView.chain, referencedComposition.id, state, nextAncestry)}
+      <div class="live-referenced-component">
+        <div class="live-referenced-title">${icon("account_tree")}<span>${esc(referencedComponent.name)} elements</span></div>
+        ${liveUnifiedChainTemplate(referencedView.chain, referencedComponent.id, state, nextAncestry)}
       </div>
     `;
   }
@@ -2892,35 +3221,35 @@ function liveChainItemTemplate(item, compositionId, index, path = `chain.${index
       <div class="live-chain-title">
         ${enableToggleButton({
           livePath: `${path}.enabled`,
-          compositionId,
+          componentId,
           value: item.enabled !== false,
           iconName,
           label,
         })}
         <span>${esc(label)}</span>
       </div>
-      ${liveRangeTemplate("Opacity", compositionId, `${path}.opacity`, item.opacity ?? 1)}
-      <label class="field chain-param">Blend ${liveSelectValuesTemplate(compositionId, `${path}.blend`, BLEND_MODES, item.blend || "normal")}</label>
-      ${liveSourceParamControlsTemplate(item, compositionId, path)}
+      ${liveRangeTemplate("Opacity", componentId, `${path}.opacity`, item.opacity ?? 1)}
+      <label class="field chain-param">Blend ${liveSelectValuesTemplate(componentId, `${path}.blend`, BLEND_MODES, item.blend || "normal")}</label>
+      ${liveSourceParamControlsTemplate(item, componentId, path)}
       ${referencedElements}
     </div>
   `;
 }
 
-function liveShaderParamControlsTemplate(component, item, compositionId, itemPath) {
+function liveShaderParamControlsTemplate(component, item, componentId, itemPath) {
   if (!component?.params?.length) return "";
   return `
     <div class="chain-param-list">
       ${paramControlsTemplate(component.params, {
         pathFor: (param) => `${itemPath}.params.${param.id}`,
         valueFor: (param) => paramCurrentValue(component, item, param),
-        attrs: liveParamAttrs(compositionId),
+        attrs: liveParamAttrs(componentId),
       })}
     </div>
   `;
 }
 
-function liveSourceParamControlsTemplate(item, compositionId, itemPath) {
+function liveSourceParamControlsTemplate(item, componentId, itemPath) {
   const params = sourceLiveParams(item.source || {});
   if (!params.length) return "";
   const values = {
@@ -2932,7 +3261,7 @@ function liveSourceParamControlsTemplate(item, compositionId, itemPath) {
       ${paramControlsTemplate(params, {
         pathFor: (param) => `${itemPath}.params.${param.id}`,
         valueFor: (param) => normalizeParamValue(param, values[param.id]),
-        attrs: liveParamAttrs(compositionId),
+        attrs: liveParamAttrs(componentId),
       })}
     </div>
   `;
@@ -2947,47 +3276,47 @@ function sourceLiveParams(source = {}) {
   return [];
 }
 
-function liveParamAttrs(compositionId) {
-  return `data-live-composition-id="${esc(compositionId)}" data-live-update`;
+function liveParamAttrs(componentId) {
+  return `data-live-component-id="${esc(componentId)}" data-live-update`;
 }
 
-function liveRangeTemplate(label, compositionId, path, value) {
+function liveRangeTemplate(label, componentId, path, value) {
   return `
     <label class="field range-field chain-param">
       <span>${esc(label)}</span>
-      <input type="range" min="0" max="1" step="0.01" data-live-composition-id="${esc(compositionId)}" data-live-update="${path}" value="${value}" />
+      <input type="range" min="0" max="1" step="0.01" data-live-component-id="${esc(componentId)}" data-live-update="${path}" value="${value}" />
     </label>
   `;
 }
 
-function liveSelectValuesTemplate(compositionId, path, values, value) {
+function liveSelectValuesTemplate(componentId, path, values, value) {
   return `
-    <select data-live-composition-id="${esc(compositionId)}" data-live-update="${path}">
+    <select data-live-component-id="${esc(componentId)}" data-live-update="${path}">
       ${values.map((option) => `<option value="${option}" ${option === value ? "selected" : ""}>${esc(option)}</option>`).join("")}
     </select>
   `;
 }
 
-function sceneFingerprintCompositions(scene, state) {
+function sceneFingerprintComponents(scene, state) {
   const ids = [];
   for (const surface of scene.snapshot?.surfaces || []) {
     if (surface.enabled === false) continue;
-    if (surface.compositionId && !ids.includes(surface.compositionId)) ids.push(surface.compositionId);
+    if (surface.componentId && !ids.includes(surface.componentId)) ids.push(surface.componentId);
   }
   return ids
-    .map((id) => state.compositions.find((composition) => composition.id === id))
+    .map((id) => state.components.find((component) => component.id === id))
     .filter(Boolean);
 }
 
-function sceneFingerprintTemplate(compositions) {
-  if (!compositions.length) return `<div class="composition-card-empty">${icon("auto_awesome_motion")}</div>`;
-  const withThumbs = compositions.filter((composition) => composition.thumbnail);
-  if (!withThumbs.length) return `<div class="composition-card-empty">${icon("auto_awesome_motion")}</div>`;
+function sceneFingerprintTemplate(components) {
+  if (!components.length) return `<div class="component-card-empty">${icon("auto_awesome_motion")}</div>`;
+  const withThumbs = components.filter((component) => component.thumbnail);
+  if (!withThumbs.length) return `<div class="component-card-empty">${icon("auto_awesome_motion")}</div>`;
   return `
     <div class="scene-fingerprint">
-      ${withThumbs.slice(0, 5).map((composition, index) => `
+      ${withThumbs.slice(0, 5).map((component, index) => `
         <img
-          src="${esc(composition.thumbnail)}"
+          src="${esc(component.thumbnail)}"
           alt=""
           loading="lazy"
           style="--fingerprint-index: ${index}; --fingerprint-count: ${withThumbs.length};"
@@ -3024,21 +3353,21 @@ function liveSelectedSceneId(state) {
   return state.ui?.live?.selectedSceneId || state.scenes[0]?.id || "";
 }
 
-function liveSceneCompositions(scene, state) {
-  return sceneFingerprintCompositions(scene, state);
+function liveSceneComponents(scene, state) {
+  return sceneFingerprintComponents(scene, state);
 }
 
-function canvasCompositions(state) {
-  return (state.compositions || []).filter((composition) => composition.type === "canvas");
+function canvasComponents(state) {
+  return (state.components || []).filter((component) => component.type === "canvas");
 }
 
-function ordinaryCompositions(state) {
-  return (state.compositions || []).filter((composition) => composition.type !== "canvas");
+function ordinaryComponents(state) {
+  return (state.components || []).filter((component) => component.type !== "canvas");
 }
 
-function selectedCanvasComposition(state) {
-  return canvasCompositions(state).find((composition) => composition.id === state.ui.selectedCompositionId)
-    || canvasCompositions(state)[0]
+function selectedCanvasComponent(state) {
+  return canvasComponents(state).find((component) => component.id === state.ui.selectedComponentId)
+    || canvasComponents(state)[0]
     || null;
 }
 
@@ -3088,8 +3417,8 @@ function activeWorkMetric(state, outputFps = 0) {
   };
 }
 
-function compositionRenderTime(profile) {
-  const value = Number(profile?.compositionWallMs ?? profile?.compositionMs);
+function componentRenderTime(profile) {
+  const value = Number(profile?.componentWallMs ?? profile?.componentMs);
   return Number.isFinite(value) ? Math.max(0, value) : 0;
 }
 
@@ -3112,22 +3441,22 @@ function cpuTimeTitle(metric) {
   ];
   const profile = metric.profile;
   if (!profile) return lines.join("\n");
-  const compositionMs = compositionRenderTime(profile);
+  const componentMs = componentRenderTime(profile);
   const sampledTotal = Math.max(0, Number(profile.totalMs) || 0);
-  const renders = Math.max(0, Math.round(Number(profile.compositionRenders) || 0));
-  const cacheHits = Math.max(0, Math.round(Number(profile.compositionCacheHits) || 0));
+  const renders = Math.max(0, Math.round(Number(profile.componentRenders) || 0));
+  const cacheHits = Math.max(0, Math.round(Number(profile.componentCacheHits) || 0));
   const stageRenders = Math.max(0, Math.round(Number(profile.stageRenders) || 0));
   const stageCacheHits = Math.max(0, Math.round(Number(profile.stageCacheHits) || 0));
   const slowest = (profile.passSamples || [])
-    .filter((sample) => sample?.type === "composition")
+    .filter((sample) => sample?.type === "component")
     .slice()
     .sort((a, b) => (Number(b.ms) || 0) - (Number(a.ms) || 0))
     .slice(0, 3);
-  lines.push(`Sampled composition: ${formatTimeMs(compositionMs)}`);
-  lines.push(`Sampled other work: ${formatTimeMs(Math.max(0, sampledTotal - compositionMs))}`);
-  lines.push(`${renders} rendered, ${cacheHits} composition cache hit${cacheHits === 1 ? "" : "s"}, ${stageRenders} stage render${stageRenders === 1 ? "" : "s"}, ${stageCacheHits} stage reuse${stageCacheHits === 1 ? "" : "s"}`);
+  lines.push(`Sampled component: ${formatTimeMs(componentMs)}`);
+  lines.push(`Sampled other work: ${formatTimeMs(Math.max(0, sampledTotal - componentMs))}`);
+  lines.push(`${renders} rendered, ${cacheHits} component cache hit${cacheHits === 1 ? "" : "s"}, ${stageRenders} stage render${stageRenders === 1 ? "" : "s"}, ${stageCacheHits} stage reuse${stageCacheHits === 1 ? "" : "s"}`);
   for (const sample of slowest) {
-    lines.push(`${sample.compositionName || sample.compositionId || "Composition"}: ${formatTimeMs(sample.ms)}`);
+    lines.push(`${sample.componentName || sample.componentId || "Component"}: ${formatTimeMs(sample.ms)}`);
   }
   return lines.join("\n");
 }
@@ -3142,17 +3471,17 @@ function formatRenderCost(cost) {
   return `${percent > 0 && percent < 10 ? percent.toFixed(1) : Math.round(percent)}%`;
 }
 
-function compositionAssignmentTemplate(routeBase, state, route = {}) {
-  const options = sceneSourceNodes(state);
+function componentAssignmentTemplate(routeBase, state, route = {}, catalog = {}) {
+  const options = catalog.sources || sceneSourceNodes(state);
   return `
-    <div class="field composition-assignment-field" data-composition-filter-scope>
-      <span>Composition</span>
-      ${compositionFilterTemplate("Filter sources")}
-      <div class="composition-card-list assignment-card-list">
+    <div class="field component-assignment-field" data-component-filter-scope>
+      <span>Component</span>
+      ${componentCatalogToolsTemplate("scene", catalog.sortMode || "recent", "Filter sources")}
+      <div class="component-card-list assignment-card-list">
         ${options.map((node) => {
           const selected = node.id === route.sourceNodeId;
           return `
-            <button type="button" class="composition-card assignment-card ${selected ? "is-selected" : ""}" data-composition-filter-card="${esc(node.name.toLowerCase())}" data-set-route-source-node="${esc(node.id)}" data-route-base="${esc(routeBase)}">
+            <button type="button" class="component-card assignment-card ${selected ? "is-selected" : ""}" data-component-filter-card="${esc(node.name.toLowerCase())}" data-set-route-source-node="${esc(node.id)}" data-route-base="${esc(routeBase)}">
               ${thumbnailTemplate(node.thumbnail, node.type === "recording-frame" ? "select_all" : "account_tree")}
               <span>${esc(node.name)}</span>
             </button>
@@ -3163,17 +3492,54 @@ function compositionAssignmentTemplate(routeBase, state, route = {}) {
   `;
 }
 
-function compositionFilterTemplate(placeholder = "Filter compositions") {
-  return `<label class="composition-filter-field">${icon("search")}<input type="search" data-composition-filter placeholder="${esc(placeholder)}" autocomplete="off" /></label>`;
+function componentFilterTemplate(placeholder = "Filter components") {
+  return `<label class="component-filter-field">${icon("search")}<input type="search" data-component-filter placeholder="${esc(placeholder)}" autocomplete="off" /></label>`;
 }
 
-function bindCompositionFilters(scope) {
-  scope?.querySelectorAll?.("[data-composition-filter]").forEach((input) => {
+function componentCatalogToolsTemplate(scope, activeMode = "recent", placeholder = "Filter components") {
+  const modes = [
+    ["recent", "Changed", "history"],
+    ["name", "Name", "sort_by_alpha"],
+    ["created", "Created", "add_circle"],
+  ];
+  const activeIndex = Math.max(0, modes.findIndex(([mode]) => mode === activeMode));
+  const [, activeLabel, activeIcon] = modes[activeIndex];
+  const [nextMode, nextLabel] = modes[(activeIndex + 1) % modes.length];
+  return `
+    <div class="component-catalog-tools">
+      ${componentFilterTemplate(placeholder)}
+      <div class="component-sort-toggle">
+        <button type="button" class="is-active" data-catalog-sort-scope="${scope}" data-catalog-sort="${nextMode}" title="Sorted by ${activeLabel.toLowerCase()}; click to sort by ${nextLabel.toLowerCase()}" aria-label="Sorted by ${activeLabel.toLowerCase()}; click to sort by ${nextLabel.toLowerCase()}">${icon(activeIcon)}<span>${activeLabel}</span></button>
+      </div>
+    </div>
+  `;
+}
+
+export function sortComponentCatalog(items = [], mode = "recent") {
+  const collator = new Intl.Collator(undefined, { numeric: true, sensitivity: "base" });
+  return items.slice().sort((a, b) => {
+    if (mode === "name") return collator.compare(a.name || "", b.name || "") || collator.compare(a.id || "", b.id || "");
+    const field = mode === "created" ? "createdAt" : "recentAt";
+    const aTime = catalogTimestamp(a, field);
+    const bTime = catalogTimestamp(b, field);
+    return bTime - aTime || collator.compare(a.name || "", b.name || "") || collator.compare(a.id || "", b.id || "");
+  });
+}
+
+function catalogTimestamp(item = {}, field = "recentAt") {
+  if (field === "recentAt") return Number(item.recentAt) || latestProjectActivity(item.activity);
+  const value = item[field] || item.activity?.[field];
+  const timestamp = new Date(value || 0).getTime();
+  return Number.isFinite(timestamp) ? timestamp : 0;
+}
+
+function bindComponentFilters(scope) {
+  scope?.querySelectorAll?.("[data-component-filter]").forEach((input) => {
     input.addEventListener("input", () => {
-      const filterScope = input.closest("[data-composition-filter-scope]");
+      const filterScope = input.closest("[data-component-filter-scope]");
       const query = input.value.trim().toLowerCase();
-      filterScope?.querySelectorAll?.("[data-composition-filter-card]").forEach((card) => {
-        card.hidden = !!query && !String(card.dataset.compositionFilterCard || "").includes(query);
+      filterScope?.querySelectorAll?.("[data-component-filter-card]").forEach((card) => {
+        card.hidden = !!query && !String(card.dataset.componentFilterCard || "").includes(query);
       });
     });
   });
@@ -3181,20 +3547,20 @@ function bindCompositionFilters(scope) {
 
 function activeLiveOverrideBank(state) {
   state.ui.live ||= {};
-  state.ui.live.compositionOverrides ||= {};
+  state.ui.live.componentOverrides ||= {};
   state.ui.live.sceneOverrides ||= {};
   const sceneId = String(state.ui.live.selectedSceneId || "");
-  if (sceneId) state.ui.live.sceneOverrides[sceneId] = state.ui.live.compositionOverrides;
-  return state.ui.live.compositionOverrides;
+  if (sceneId) state.ui.live.sceneOverrides[sceneId] = state.ui.live.componentOverrides;
+  return state.ui.live.componentOverrides;
 }
 
-function invalidateCompositionPreviewAssets(state, path = "") {
-  const match = String(path).match(/^compositions\.(\d+)\.(chain|shaderChain|source|opacity|blend|speed)/);
+function invalidateComponentPreviewAssets(state, path = "") {
+  const match = String(path).match(/^components\.(\d+)\.(chain|shaderChain|source|opacity|blend|speed)/);
   if (!match) return;
-  const composition = state.compositions?.[Number(match[1])];
-  if (!composition) return;
-  composition.thumbnail = "";
-  if (composition.type === "canvas" && composition.canvas) composition.canvas.frameThumbnails = {};
+  const component = state.components?.[Number(match[1])];
+  if (!component) return;
+  component.thumbnail = "";
+  if (component.type === "canvas" && component.canvas) component.canvas.frameThumbnails = {};
 }
 
 function setByPath(target, path, value) {
@@ -3324,6 +3690,6 @@ function pathForScene(state, scene) {
   return `scenes.${state.scenes.findIndex((item) => item.id === scene.id)}`;
 }
 
-function pathForComposition(state, composition) {
-  return `compositions.${state.compositions.findIndex((item) => item.id === composition.id)}`;
+function pathForComponent(state, component) {
+  return `components.${state.components.findIndex((item) => item.id === component.id)}`;
 }

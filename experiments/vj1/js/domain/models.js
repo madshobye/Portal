@@ -1,15 +1,18 @@
 import { VJ1, defaultCustomShaderCode, WORKSPACES } from "../constants.js";
-import { createGeneratorSource } from "../graph/generator-registry.js?v=node-dirty-runtime-1";
-import { normalizeCompositionFrameShape, normalizeCompositionResolutionScale } from "./composition-frame.js";
+import { createGeneratorSource } from "../graph/generator-registry.js?v=label-overlay-16";
+import { normalizeComponentFrameShape, normalizeComponentResolutionScale } from "./component-frame.js";
+import { createProjectActivity, latestProjectActivity, normalizeProjectActivity } from "./component-activity.js?v=label-overlay-16";
+import { CURRENT_PROJECT_VERSION, migrateProjectData } from "./project-migrations.js?v=label-overlay-16";
+import { normalizeComponentTextureSettings, normalizeSurfaceTextureSettings } from "./render-resolution.js?v=label-overlay-16";
 
 export function uid(prefix) {
   return `${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
 }
 
-export function createDefaultComposition(index = 0) {
+export function createDefaultComponent(index = 0) {
   const source = createDefaultSource();
   return {
-    id: uid("composition"),
+    id: uid("component"),
     type: "chain",
     name: `Comp ${index + 1}`,
     source,
@@ -19,15 +22,16 @@ export function createDefaultComposition(index = 0) {
     frameShape: "landscape",
     resolutionScale: 1,
     thumbnail: "",
-    chain: [createCompositionLayer(index, source)],
+    chain: [createComponentLayer(index, source)],
     shaderChain: [],
+    activity: createProjectActivity(),
   };
 }
 
-export function createCanvasComposition(index = 0, sourceCompositionId = "") {
-  const id = uid("composition");
-  const width = 3840;
-  const height = 2160;
+export function createCanvasComponent(index = 0, sourceComponentId = "") {
+  const id = uid("component");
+  const width = VJ1.canvasWidth;
+  const height = VJ1.canvasHeight;
   return {
     id,
     type: "canvas",
@@ -39,8 +43,9 @@ export function createCanvasComposition(index = 0, sourceCompositionId = "") {
     frameShape: "landscape",
     resolutionScale: 1,
     thumbnail: "",
-    chain: sourceCompositionId ? [createCompositionLayer(0, { type: "composition", compositionId: sourceCompositionId })] : [],
+    chain: sourceComponentId ? [createComponentLayer(0, { type: "component", componentId: sourceComponentId })] : [],
     shaderChain: [],
+    activity: createProjectActivity(),
     canvas: {
       width,
       height,
@@ -50,7 +55,7 @@ export function createCanvasComposition(index = 0, sourceCompositionId = "") {
   };
 }
 
-export function createCanvasFrame(index = 0, canvasWidth = 3840, canvasHeight = 2160) {
+export function createCanvasFrame(index = 0, canvasWidth = VJ1.canvasWidth, canvasHeight = VJ1.canvasHeight) {
   const width = Math.max(64, Math.round(Number(canvasWidth) * 0.25));
   const height = Math.max(64, Math.round(Number(canvasHeight) * 0.25));
   return {
@@ -60,10 +65,11 @@ export function createCanvasFrame(index = 0, canvasWidth = 3840, canvasHeight = 
     y: Math.round((Number(canvasHeight) - height) * 0.5),
     width,
     height,
+    activity: createProjectActivity(),
   };
 }
 
-export function createCompositionLayer(index = 0, source = { type: "generator", mediaId: "", generatorId: "testPattern" }) {
+export function createComponentLayer(index = 0, source = { type: "generator", mediaId: "", generatorId: "testPattern" }) {
   const normalizedSource = normalizeSource(source);
   return {
     id: uid("chain"),
@@ -79,8 +85,8 @@ export function createCompositionLayer(index = 0, source = { type: "generator", 
   };
 }
 
-export function createCompositionGroup(index = 0) {
-  return normalizeCompositionChainItem({
+export function createComponentGroup(index = 0) {
+  return normalizeComponentChainItem({
     id: uid("chain"),
     kind: "group",
     name: index === 0 ? "Group 1" : `Group ${index + 1}`,
@@ -102,17 +108,74 @@ export function createDefaultSurface(index = 0) {
     finalBlend: "normal",
     finalShaderChain: [],
     sourceNodeId: "",
-    compositionId: "",
+    componentId: "",
     outputFrameId: "",
-    sourceRect: createDefaultSourceRect(),
     mappingId: id,
     showLabel: true,
     calibrationLocked: false,
+    destination: { type: "mapped" },
   };
 }
 
-export function createDefaultSourceRect() {
-  return { x: 0, y: 0, width: 960, height: 540 };
+export function directOutputSurfaceId(outputId = "") {
+  return outputId === "all"
+    ? "surface-direct-all"
+    : `surface-direct-${encodeURIComponent(outputId)}`;
+}
+
+export function directOutputSurfaceDefinitions(render = {}) {
+  const outputs = Array.isArray(render.outputs) ? render.outputs : [];
+  const definitions = [];
+  if (outputs.length > 1) {
+    definitions.push({
+      id: directOutputSurfaceId("all"),
+      name: "All outputs · Direct",
+      outputIds: outputs.map((output) => output.id),
+    });
+  }
+  for (const output of outputs) {
+    definitions.push({
+      id: directOutputSurfaceId(output.id),
+      name: `${output.name} · Direct`,
+      outputIds: [output.id],
+    });
+  }
+  return definitions;
+}
+
+export function reconcileDirectOutputSurfaces(surfaces = [], render = {}) {
+  const expected = directOutputSurfaceDefinitions(render);
+  const expectedById = new Map(expected.map((definition) => [definition.id, definition]));
+  const seen = new Set();
+  const normalized = [];
+  const addDirect = (definition, existing = null) => {
+    seen.add(definition.id);
+    normalized.push(normalizeSurface({
+      ...createDefaultSurface(0),
+      ...(existing || {}),
+      id: definition.id,
+      name: definition.name,
+      enabled: existing ? existing.enabled !== false : false,
+      feather: existing?.feather ?? 0,
+      projectionFit: existing?.projectionFit || "contain",
+      mappingId: "",
+      showLabel: false,
+      calibrationLocked: true,
+      destination: { type: "direct", outputIds: definition.outputIds },
+    }));
+  };
+  for (const surface of surfaces || []) {
+    if (surface?.destination?.type !== "direct") {
+      normalized.push(surface);
+      continue;
+    }
+    const definition = expectedById.get(surface.id);
+    if (definition) addDirect(definition, surface);
+  }
+  for (const definition of expected) {
+    if (!seen.has(definition.id)) addDirect(definition);
+  }
+  return normalized;
 }
 
 export function createOutputDefinition(index = 0, width = VJ1.renderWidth, height = VJ1.renderHeight) {
@@ -125,9 +188,9 @@ export function createOutputDefinition(index = 0, width = VJ1.renderWidth, heigh
 }
 
 export function createInitialState() {
-  const compositions = [createDefaultComposition(0)];
+  const components = [createDefaultComponent(0)];
   return {
-    version: 5,
+    version: CURRENT_PROJECT_VERSION,
     project: {
       name: "Untitled VJ Set",
       folderName: "",
@@ -136,8 +199,16 @@ export function createInitialState() {
     },
     ui: {
       workspace: "scene",
-      selectedCompositionId: compositions[0].id,
-      selectedChainItemId: compositions[0].chain[0]?.id || "",
+      selectedComponentId: components[0].id,
+      selectedChainItemId: components[0].chain[0]?.id || "",
+      workspaceSelectionIds: {
+        component: components[0].id,
+        canvas: "",
+      },
+      catalogSortModes: {
+        component: "recent",
+        scene: "recent",
+      },
       selectedSceneId: "",
       selectedSurfaceId: "surface-main",
       debugPreview: true,
@@ -145,7 +216,7 @@ export function createInitialState() {
       live: {
         selectedSceneId: "",
         sceneSnapshot: null,
-        compositionOverrides: {},
+        componentOverrides: {},
         sceneOverrides: {},
         transitionDuration: 0,
         transition: null,
@@ -177,14 +248,27 @@ export function createInitialState() {
       height: VJ1.renderHeight,
       frameWidth: VJ1.renderWidth,
       frameHeight: VJ1.renderHeight,
-      worldScale: 1.5,
-      worldWidth: Math.round(VJ1.renderWidth * 1.5),
-      worldHeight: Math.round(VJ1.renderHeight * 1.5),
+      worldWidth: Math.round(VJ1.renderWidth * (1 + VJ1.outputWorldMarginRatio * 2)),
+      worldHeight: Math.round(VJ1.renderHeight * (1 + VJ1.outputWorldMarginRatio * 2)),
       outputs: [createOutputDefinition(0)],
-      surfaceWidth: VJ1.surfaceWidth,
-      surfaceHeight: VJ1.surfaceHeight,
+      componentTexture: {
+        width: VJ1.renderWidth,
+        height: VJ1.renderHeight,
+      },
+      surfaceTexture: {
+        mode: "auto",
+        maxWidth: VJ1.renderWidth,
+        maxHeight: VJ1.renderHeight,
+      },
       pixelDensity: 1,
       edgeSoftness: 0,
+      camera: {
+        width: VJ1.renderWidth,
+        height: VJ1.renderHeight,
+        facingMode: "user",
+        mirrored: false,
+        maxResolution: false,
+      },
       upscaling: {
         enabled: false,
         amount: 0.67,
@@ -201,7 +285,7 @@ export function createInitialState() {
       manualLane: true,
     },
     media: [],
-    compositions,
+    components,
     recordingFrames: [createCanvasFrame(0)],
     surfaces: [createDefaultSurface(0), createDefaultSurface(1)],
     scenes: [],
@@ -243,10 +327,12 @@ export function clamp01(value) {
 }
 
 export function sanitizeState(input = {}) {
+  input = migrateProjectData(input);
   const base = createInitialState();
   const next = {
     ...base,
     ...clone(input),
+    version: CURRENT_PROJECT_VERSION,
     project: { ...base.project, ...(input.project || {}) },
     ui: { ...base.ui, ...(input.ui || {}) },
     global: { ...base.global, ...(input.global || {}) },
@@ -256,11 +342,11 @@ export function sanitizeState(input = {}) {
     metrics: { ...base.metrics, ...(input.metrics || {}) },
   };
 
-  next.compositions = normalizeCompositions(input, base);
-  const canvasFrameBounds = next.compositions.find((composition) => composition.type === "canvas")?.canvas || { width: 3840, height: 2160 };
-  const inputCompositions = Array.isArray(input.compositions) ? input.compositions : [];
-  const legacyRecordingFrames = inputCompositions.flatMap((composition) =>
-    composition?.type === "canvas" && Array.isArray(composition.canvas?.frames) ? composition.canvas.frames : []
+  next.components = normalizeComponents(input, base);
+  const canvasFrameBounds = next.components.find((component) => component.type === "canvas")?.canvas || { width: VJ1.canvasWidth, height: VJ1.canvasHeight };
+  const inputComponents = Array.isArray(input.components) ? input.components : [];
+  const legacyRecordingFrames = inputComponents.flatMap((component) =>
+    component?.type === "canvas" && Array.isArray(component.canvas?.frames) ? component.canvas.frames : []
   );
   const recordingFrames = Array.isArray(input.recordingFrames)
     ? input.recordingFrames
@@ -278,27 +364,47 @@ export function sanitizeState(input = {}) {
     : [createDefaultSurface(0), createDefaultSurface(1)];
   next.render = normalizeRenderSettings(
     Array.isArray(input.render?.outputs) && input.render.outputs.length
-      ? next.render
-      : { ...next.render, outputs: undefined }
+      ? {
+          ...next.render,
+          componentTexture: input.render?.componentTexture,
+          surfaceTexture: input.render?.surfaceTexture,
+          surfaceWidth: input.render?.surfaceWidth,
+          surfaceHeight: input.render?.surfaceHeight,
+        }
+      : {
+          ...next.render,
+          outputs: undefined,
+          componentTexture: input.render?.componentTexture,
+          surfaceTexture: input.render?.surfaceTexture,
+          surfaceWidth: input.render?.surfaceWidth,
+          surfaceHeight: input.render?.surfaceHeight,
+        }
   );
+  next.surfaces = reconcileDirectOutputSurfaces(next.surfaces, next.render);
   next.ui.previewViewport = normalizePreviewViewport(next.ui.previewViewport);
   next.media = Array.isArray(input.media) ? input.media.map(normalizeMediaMeta) : [];
   next.mappings = input.mappings && typeof input.mappings === "object" ? input.mappings : {};
-  next.ui.selectedCompositionId = next.compositions.some((composition) => composition.id === next.ui.selectedCompositionId)
-    ? next.ui.selectedCompositionId
-    : next.compositions[0]?.id || "";
-  const selectedComposition = next.compositions.find((composition) => composition.id === next.ui.selectedCompositionId) || next.compositions[0];
-  next.ui.selectedChainItemId = chainContainsItemId(selectedComposition?.chain, next.ui.selectedChainItemId)
+  next.ui.selectedComponentId = next.components.some((component) => component.id === next.ui.selectedComponentId)
+    ? next.ui.selectedComponentId
+    : next.components[0]?.id || "";
+  next.ui.workspaceSelectionIds = normalizeWorkspaceSelectionIds(
+    next.ui.workspaceSelectionIds,
+    next.components,
+    next.ui.selectedComponentId
+  );
+  next.ui.catalogSortModes = normalizeCatalogSortModes(next.ui.catalogSortModes);
+  const selectedComponent = next.components.find((component) => component.id === next.ui.selectedComponentId) || next.components[0];
+  next.ui.selectedChainItemId = chainContainsItemId(selectedComponent?.chain, next.ui.selectedChainItemId)
     ? next.ui.selectedChainItemId
-    : selectedComposition?.chain?.[0]?.id || "";
+    : selectedComponent?.chain?.[0]?.id || "";
   next.ui.selectedSurfaceId = next.surfaces.some((surface) => surface.id === next.ui.selectedSurfaceId)
     ? next.ui.selectedSurfaceId
     : next.surfaces[0]?.id || "";
   next.surfaces = next.surfaces.map((surface, index) => ({
     ...surface,
-    compositionId: next.compositions.some((composition) => composition.id === surface.compositionId)
-      ? surface.compositionId
-      : next.compositions[0]?.id || "",
+    componentId: next.components.some((component) => component.id === surface.componentId)
+      ? surface.componentId
+      : next.components[0]?.id || "",
   })).map((surface) => applySceneSourceNode(surface, resolveSceneSourceNode(next, surface.sourceNodeId, surface)));
   next.scenes = Array.isArray(input.scenes)
     ? input.scenes.map((scene) => normalizeScene(scene, next))
@@ -314,6 +420,27 @@ export function sanitizeState(input = {}) {
   return next;
 }
 
+function normalizeWorkspaceSelectionIds(value = {}, components = [], selectedComponentId = "") {
+  const selected = components.find((component) => component.id === selectedComponentId);
+  const ordinary = components.filter((component) => component.type !== "canvas");
+  const canvases = components.filter((component) => component.type === "canvas");
+  const componentId = ordinary.some((component) => component.id === value?.component)
+    ? value.component
+    : selected?.type !== "canvas" ? selected?.id || ordinary[0]?.id || "" : ordinary[0]?.id || "";
+  const canvasId = canvases.some((component) => component.id === value?.canvas)
+    ? value.canvas
+    : selected?.type === "canvas" ? selected.id : canvases[0]?.id || "";
+  return { component: componentId, canvas: canvasId };
+}
+
+function normalizeCatalogSortModes(value = {}) {
+  const normalize = (mode) => ["recent", "name", "created"].includes(mode) ? mode : "recent";
+  return {
+    component: normalize(value?.component),
+    scene: normalize(value?.scene),
+  };
+}
+
 export function normalizeRenderSettings(render = {}) {
   const frameWidth = positiveInt(render.frameWidth ?? render.width, VJ1.renderWidth, 128, 8192);
   const frameHeight = positiveInt(render.frameHeight ?? render.height, VJ1.renderHeight, 128, 8192);
@@ -321,30 +448,44 @@ export function normalizeRenderSettings(render = {}) {
     ? render.outputs.map((output, index) => normalizeOutputDefinition(output, index, frameWidth, frameHeight))
     : [createOutputDefinition(0, frameWidth, frameHeight)];
   const primary = outputs[0];
-  const gap = 0;
-  const contentWidth = outputs.reduce((sum, output) => sum + output.width, 0) + gap * Math.max(0, outputs.length - 1);
+  const contentWidth = outputs.reduce((sum, output) => sum + output.width, 0);
   const contentHeight = Math.max(...outputs.map((output) => output.height));
-  const marginX = Math.round(Math.max(...outputs.map((output) => output.width)) * 0.25);
-  const marginY = Math.round(contentHeight * 0.25);
-  const worldScale = 1.5;
+  const marginX = Math.round(Math.max(...outputs.map((output) => output.width)) * VJ1.outputWorldMarginRatio);
+  const marginY = Math.round(contentHeight * VJ1.outputWorldMarginRatio);
   const worldWidth = contentWidth + marginX * 2;
   const worldHeight = contentHeight + marginY * 2;
+  // Legacy surface dimensions also defined component design geometry.
+  // Preserve that meaning, but never migrate them into an Auto surface cap.
+  const migratedComponentTexture = render.componentTexture || {
+    width: render.surfaceWidth ?? render.surfaceTexture?.maxWidth ?? primary.width,
+    height: render.surfaceHeight ?? render.surfaceTexture?.maxHeight ?? primary.height,
+  };
+  const { surfaceWidth: _legacySurfaceWidth, surfaceHeight: _legacySurfaceHeight, surfaceTextureMode: _legacySurfaceTextureMode, ...currentRender } = render;
   return {
-    ...render,
+    ...currentRender,
     width: primary.width,
     height: primary.height,
     frameWidth: primary.width,
     frameHeight: primary.height,
     outputs,
-    outputGap: gap,
-    worldScale,
     worldWidth,
     worldHeight,
-    surfaceWidth: positiveInt(render.surfaceWidth, VJ1.surfaceWidth, 64, 8192),
-    surfaceHeight: positiveInt(render.surfaceHeight, VJ1.surfaceHeight, 64, 8192),
+    componentTexture: normalizeComponentTextureSettings(migratedComponentTexture, primary),
+    surfaceTexture: normalizeSurfaceTextureSettings(render.surfaceTexture, primary),
     pixelDensity: clampNumber(render.pixelDensity, 0.5, 2, 1),
     edgeSoftness: clampNumber(render.edgeSoftness, 0, 8, 0),
-    ...normalizeCompositionPipelineSettings(render),
+    camera: normalizeCameraSettings(render.camera, primary.width, primary.height),
+    ...normalizeComponentPipelineSettings(render),
+  };
+}
+
+export function normalizeCameraSettings(camera = {}, fallbackWidth = VJ1.renderWidth, fallbackHeight = VJ1.renderHeight) {
+  return {
+    width: positiveInt(camera?.width, fallbackWidth, 160, 7680),
+    height: positiveInt(camera?.height, fallbackHeight, 120, 4320),
+    facingMode: camera?.facingMode === "environment" ? "environment" : "user",
+    mirrored: camera?.mirrored === true,
+    maxResolution: camera?.maxResolution === true,
   };
 }
 
@@ -358,7 +499,7 @@ function normalizeOutputDefinition(output = {}, index = 0, fallbackWidth = VJ1.r
   };
 }
 
-export function normalizeCompositionPipelineSettings(render = {}) {
+export function normalizeComponentPipelineSettings(render = {}) {
   const upscaling = render.upscaling && typeof render.upscaling === "object" ? render.upscaling : {};
   const postProcessing = render.postProcessing && typeof render.postProcessing === "object" ? render.postProcessing : {};
   return {
@@ -408,7 +549,7 @@ export function createLiveRenderState(state = createInitialState()) {
   if (programScene) applySceneSnapshotToState(next, programScene);
   next.ui.selectedSceneId = scene?.id || next.ui.selectedSceneId || "";
   next.global.calibrating = false;
-  applyLiveCompositionOverrides(next, live.compositionOverrides);
+  applyLiveComponentOverrides(next, live.componentOverrides);
 
   const transition = live.transition;
   const durationMs = Math.max(0, Number(transition?.durationMs) || 0);
@@ -421,53 +562,53 @@ export function createLiveRenderState(state = createInitialState()) {
     });
     fromState.ui.selectedSceneId = transition.fromSceneId || fromState.ui.selectedSceneId || "";
     fromState.global.calibrating = false;
-    applyLiveCompositionOverrides(fromState, transition.fromCompositionOverrides);
+    applyLiveComponentOverrides(fromState, transition.fromComponentOverrides);
     fromState.ui.live.transition = null;
     next.liveTransition = {
       id: transition.id || `${transition.fromSceneId || "scene"}:${sceneId}:${startedAtMs}`,
       startedAtMs,
       durationMs,
-      compositionsShared: JSON.stringify(transition.fromCompositionOverrides || {}) === JSON.stringify(live.compositionOverrides || {}),
+      componentsShared: JSON.stringify(transition.fromComponentOverrides || {}) === JSON.stringify(live.componentOverrides || {}),
       fromState,
     };
   }
   return next;
 }
 
-function applyLiveCompositionOverrides(state, overrides = {}) {
-  for (const composition of state.compositions || []) {
-    const override = overrides?.[composition.id];
+function applyLiveComponentOverrides(state, overrides = {}) {
+  for (const component of state.components || []) {
+    const override = overrides?.[component.id];
     if (!override) continue;
-    if (override.opacity !== undefined) composition.opacity = clamp01(override.opacity);
-    if (override.speed !== undefined) composition.speed = Math.max(0, Number(override.speed) || 0);
-    if (override.blend) composition.blend = override.blend;
+    if (override.opacity !== undefined) component.opacity = clamp01(override.opacity);
+    if (override.speed !== undefined) component.speed = Math.max(0, Number(override.speed) || 0);
+    if (override.blend) component.blend = override.blend;
     if (Array.isArray(override.chain)) {
-      composition.chain = composition.chain.map((item, index) =>
-        mergeCompositionChainItemOverride(item, override.chain[index] || {})
+      component.chain = component.chain.map((item, index) =>
+        mergeComponentChainItemOverride(item, override.chain[index] || {})
       );
     }
     if (Array.isArray(override.shaderChain)) {
-      composition.shaderChain = composition.shaderChain.map((pass, index) =>
+      component.shaderChain = component.shaderChain.map((pass, index) =>
         mergeShaderPassOverride(pass, override.shaderChain[index] || {})
       );
     }
   }
 }
 
-export function createLiveCompositionView(composition = {}, state = createInitialState()) {
-  const override = state.ui?.live?.compositionOverrides?.[composition.id] || {};
+export function createLiveComponentView(component = {}, state = createInitialState()) {
+  const override = state.ui?.live?.componentOverrides?.[component.id] || {};
   return {
-    ...composition,
-    opacity: override.opacity !== undefined ? clamp01(override.opacity) : composition.opacity,
-    speed: override.speed !== undefined ? Math.max(0, Number(override.speed) || 0) : composition.speed,
-    blend: override.blend || composition.blend,
-    chain: Array.isArray(composition.chain)
-      ? composition.chain.map((item, index) =>
-          mergeCompositionChainItemOverride(item, override.chain?.[index] || {})
+    ...component,
+    opacity: override.opacity !== undefined ? clamp01(override.opacity) : component.opacity,
+    speed: override.speed !== undefined ? Math.max(0, Number(override.speed) || 0) : component.speed,
+    blend: override.blend || component.blend,
+    chain: Array.isArray(component.chain)
+      ? component.chain.map((item, index) =>
+          mergeComponentChainItemOverride(item, override.chain?.[index] || {})
         )
       : [],
-    shaderChain: Array.isArray(composition.shaderChain)
-      ? composition.shaderChain.map((pass, index) =>
+    shaderChain: Array.isArray(component.shaderChain)
+      ? component.shaderChain.map((pass, index) =>
           mergeShaderPassOverride(pass, override.shaderChain?.[index] || {})
         )
       : [],
@@ -475,7 +616,7 @@ export function createLiveCompositionView(composition = {}, state = createInitia
 }
 
 function normalizeLiveUi(live = {}, state = createInitialState()) {
-  const normalizeCompositionOverrides = (overrides = {}) => Object.fromEntries(Object.entries(overrides || {}).map(([id, override]) => [id, {
+  const normalizeComponentOverrides = (overrides = {}) => Object.fromEntries(Object.entries(overrides || {}).map(([id, override]) => [id, {
       ...(override.opacity !== undefined ? { opacity: clamp01(override.opacity) } : {}),
       ...(override.speed !== undefined ? { speed: Math.max(0, Number(override.speed) || 0) } : {}),
       ...(override.blend ? { blend: override.blend } : {}),
@@ -492,12 +633,12 @@ function normalizeLiveUi(live = {}, state = createInitialState()) {
   const selectedScene = state.scenes?.find((scene) => String(scene.id) === selectedSceneId);
   const sceneOverrides = Object.fromEntries(Object.entries(live.sceneOverrides || {}).map(([sceneId, overrides]) => [
     String(sceneId),
-    normalizeCompositionOverrides(overrides),
+    normalizeComponentOverrides(overrides),
   ]));
-  const compositionOverrides = normalizeCompositionOverrides(
-    sceneOverrides[selectedSceneId] || live.compositionOverrides || {}
+  const componentOverrides = normalizeComponentOverrides(
+    sceneOverrides[selectedSceneId] || live.componentOverrides || {}
   );
-  if (selectedSceneId && Object.keys(compositionOverrides).length) sceneOverrides[selectedSceneId] = clone(compositionOverrides);
+  if (selectedSceneId && Object.keys(componentOverrides).length) sceneOverrides[selectedSceneId] = clone(componentOverrides);
   const transitionDuration = clampNumber(live.transitionDuration, 0, 30, 0);
   const transitionDurationMs = Math.max(0, Number(live.transition?.durationMs) || 0);
   const transitionStartedAtMs = Number(live.transition?.startedAtMs) || 0;
@@ -506,7 +647,7 @@ function normalizeLiveUi(live = {}, state = createInitialState()) {
         id: String(live.transition.id || ""),
         fromSceneId: String(live.transition.fromSceneId || ""),
         fromSnapshot: normalizeSceneSnapshot(live.transition.fromSnapshot, state),
-        fromCompositionOverrides: normalizeCompositionOverrides(live.transition.fromCompositionOverrides || {}),
+        fromComponentOverrides: normalizeComponentOverrides(live.transition.fromComponentOverrides || {}),
         startedAtMs: transitionStartedAtMs,
         durationMs: Math.min(30000, transitionDurationMs),
       }
@@ -516,7 +657,7 @@ function normalizeLiveUi(live = {}, state = createInitialState()) {
     sceneSnapshot: live.sceneSnapshot
       ? normalizeSceneSnapshot(live.sceneSnapshot, state)
       : selectedScene?.snapshot ? clone(selectedScene.snapshot) : null,
-    compositionOverrides,
+    componentOverrides,
     sceneOverrides,
     transitionDuration,
     transition,
@@ -548,30 +689,30 @@ function normalizeLiveShaderPassOverride(pass = {}) {
   };
 }
 
-function normalizeCompositions(input, base) {
-  if (Array.isArray(input.compositions) && input.compositions.length) {
-    return input.compositions.map(normalizeComposition);
+function normalizeComponents(input, base) {
+  if (Array.isArray(input.components) && input.components.length) {
+    return input.components.map(normalizeComponent);
   }
-  return [createDefaultComposition(0)];
+  return [createDefaultComponent(0)];
 }
 
-export function normalizeComposition(composition = {}) {
-  const fallback = createDefaultComposition(0);
-  const { enabled, ...compositionData } = composition;
-  const type = compositionData.type === "canvas" ? "canvas" : "chain";
+export function normalizeComponent(component = {}) {
+  const fallback = createDefaultComponent(0);
+  const { enabled, ...componentData } = component;
+  const type = componentData.type === "canvas" ? "canvas" : "chain";
   const source = normalizeSource({
-    ...compositionData.source,
-    type: compositionData.source?.type || fallback.source.type,
-    mediaId: compositionData.source?.mediaId || "",
-    generatorId: compositionData.source?.generatorId || fallback.source.generatorId,
+    ...componentData.source,
+    type: componentData.source?.type || fallback.source.type,
+    mediaId: componentData.source?.mediaId || "",
+    generatorId: componentData.source?.generatorId || fallback.source.generatorId,
   });
-  const shaderChain = Array.isArray(compositionData.shaderChain)
-    ? compositionData.shaderChain.map(normalizeShaderPass)
+  const shaderChain = Array.isArray(componentData.shaderChain)
+    ? componentData.shaderChain.map(normalizeShaderPass)
     : [];
-  const legacyChain = Array.isArray(compositionData.chain) && compositionData.chain.length
+  const legacyChain = Array.isArray(componentData.chain) && componentData.chain.length
     ? [
-        ...compositionData.chain.map(normalizeCompositionChainItem),
-        ...shaderChain.map((pass) => normalizeCompositionChainItem({
+        ...componentData.chain.map(normalizeComponentChainItem),
+        ...shaderChain.map((pass) => normalizeComponentChainItem({
           kind: "effect",
           componentId: pass.id,
           enabled: pass.enabled,
@@ -579,13 +720,13 @@ export function normalizeComposition(composition = {}) {
           amount: pass.amount,
         })),
       ]
-    : legacyCompositionChain(source, shaderChain);
-  const canvas = type === "canvas" ? normalizeCanvasCompositionData(compositionData.canvas, compositionData.id) : null;
+    : legacyComponentChain(source, shaderChain);
+  const canvas = type === "canvas" ? normalizeCanvasComponentData(componentData.canvas, componentData.id) : null;
   const canvasChain = type === "canvas"
-    ? (Array.isArray(compositionData.chain) && compositionData.chain.length
+    ? (Array.isArray(componentData.chain) && componentData.chain.length
       ? [
-          ...compositionData.chain.map(normalizeCanvasChainItem),
-          ...shaderChain.map((pass) => normalizeCompositionChainItem({
+          ...componentData.chain.map(normalizeCanvasChainItem),
+          ...shaderChain.map((pass) => normalizeComponentChainItem({
             kind: "effect",
             componentId: pass.id,
             enabled: pass.enabled,
@@ -593,30 +734,31 @@ export function normalizeComposition(composition = {}) {
             amount: pass.amount,
           })),
         ]
-      : (compositionData.canvas?.layers || []).map((layer, index) => canvasLayerGroupFromLegacy(layer, index, compositionData.id)))
+      : (componentData.canvas?.layers || []).map((layer, index) => canvasLayerGroupFromLegacy(layer, index, componentData.id)))
     : legacyChain;
   return {
     ...fallback,
-    ...compositionData,
+    ...componentData,
     type,
-    id: compositionData.id || uid("composition"),
-    name: compositionData.name || fallback.name,
+    id: componentData.id || uid("component"),
+    name: componentData.name || fallback.name,
     source,
-    opacity: clamp01(compositionData.opacity ?? fallback.opacity),
-    speed: Math.max(0, Number(compositionData.speed ?? fallback.speed) || 0),
-    blend: compositionData.blend || fallback.blend,
-    frameShape: normalizeCompositionFrameShape(compositionData.frameShape),
-    resolutionScale: normalizeCompositionResolutionScale(compositionData.resolutionScale),
-    thumbnail: typeof compositionData.thumbnail === "string" ? compositionData.thumbnail : "",
+    opacity: clamp01(componentData.opacity ?? fallback.opacity),
+    speed: Math.max(0, Number(componentData.speed ?? fallback.speed) || 0),
+    blend: componentData.blend || fallback.blend,
+    frameShape: normalizeComponentFrameShape(componentData.frameShape),
+    resolutionScale: normalizeComponentResolutionScale(componentData.resolutionScale),
+    thumbnail: typeof componentData.thumbnail === "string" ? componentData.thumbnail : "",
+    activity: normalizeProjectActivity(componentData.activity, fallback.activity.createdAt),
     chain: canvasChain,
     shaderChain: [],
     ...(type === "canvas" ? { canvas } : {}),
   };
 }
 
-function normalizeCanvasCompositionData(canvas = {}, selfId = "") {
-  const width = positiveInt(canvas.width, 3840, 128, 8192);
-  const height = positiveInt(canvas.height, 2160, 128, 8192);
+function normalizeCanvasComponentData(canvas = {}, selfId = "") {
+  const width = positiveInt(canvas.width, VJ1.canvasWidth, 128, 8192);
+  const height = positiveInt(canvas.height, VJ1.canvasHeight, 128, 8192);
   const previewQuality = ["auto", "low", "full"].includes(canvas.previewQuality) ? canvas.previewQuality : "auto";
   const frameThumbnails = Object.fromEntries(Object.entries(canvas.frameThumbnails || {})
     .filter(([frameId, thumbnail]) => frameId && typeof thumbnail === "string" && thumbnail));
@@ -624,9 +766,9 @@ function normalizeCanvasCompositionData(canvas = {}, selfId = "") {
 }
 
 function canvasLayerGroupFromLegacy(layer = {}, index = 0, selfId = "") {
-  const fallback = createCompositionGroup(index);
-  const compositionId = layer.compositionId && layer.compositionId !== selfId ? String(layer.compositionId) : "";
-  return normalizeCompositionChainItem({
+  const fallback = createComponentGroup(index);
+  const componentId = layer.componentId && layer.componentId !== selfId ? String(layer.componentId) : "";
+  return normalizeComponentChainItem({
     ...fallback,
     id: layer.id || uid("chain"),
     kind: "group",
@@ -635,18 +777,18 @@ function canvasLayerGroupFromLegacy(layer = {}, index = 0, selfId = "") {
     enabled: layer.enabled !== false,
     opacity: clamp01(layer.opacity ?? fallback.opacity),
     blend: layer.blend || fallback.blend,
-    chain: compositionId ? [createCompositionLayer(0, { type: "composition", compositionId })] : [],
+    chain: componentId ? [createComponentLayer(0, { type: "component", componentId })] : [],
   });
 }
 
 function normalizeCanvasChainItem(item = {}) {
-  const normalized = normalizeCompositionChainItem(item);
+  const normalized = normalizeComponentChainItem(item);
   if (normalized.kind !== "group" || normalized.role !== "canvas-layer") return normalized;
   const { layout, ...group } = normalized;
   return { ...group, role: "group" };
 }
 
-function normalizeCanvasFrame(frame = {}, index = 0, canvasWidth = 3840, canvasHeight = 2160) {
+function normalizeCanvasFrame(frame = {}, index = 0, canvasWidth = VJ1.canvasWidth, canvasHeight = VJ1.canvasHeight) {
   const fallback = createCanvasFrame(index, canvasWidth, canvasHeight);
   const width = positiveInt(frame.width, fallback.width, 16, canvasWidth);
   const height = positiveInt(frame.height, fallback.height, 16, canvasHeight);
@@ -657,10 +799,11 @@ function normalizeCanvasFrame(frame = {}, index = 0, canvasWidth = 3840, canvasH
     y: Math.max(0, Math.min(canvasHeight - height, Number(frame.y) || 0)),
     width,
     height,
+    activity: normalizeProjectActivity(frame.activity, fallback.activity.createdAt),
   };
 }
 
-export function normalizeCompositionChainItem(item = {}) {
+export function normalizeComponentChainItem(item = {}) {
   if (item.kind === "effect") {
     const pass = normalizeShaderPass({
       id: item.componentId || item.id || "ripple",
@@ -691,7 +834,7 @@ export function normalizeCompositionChainItem(item = {}) {
       opacity: clamp01(item.opacity ?? 1),
       blend: item.blend || "normal",
       ...(item.role === "canvas-layer" ? { layout: normalizeCanvasLayerLayout(item.layout) } : {}),
-      chain: Array.isArray(item.chain) ? item.chain.map(normalizeCompositionChainItem) : [],
+      chain: Array.isArray(item.chain) ? item.chain.map(normalizeComponentChainItem) : [],
     };
   }
   const source = normalizeSource(item.source || { type: "generator", generatorId: item.componentId || "testPattern" });
@@ -726,78 +869,95 @@ export function normalizeSurface(surface = {}) {
       ? surface.finalShaderChain.map(normalizeShaderPass)
       : [],
     sourceNodeId: surface.sourceNodeId || "",
-    compositionId: surface.compositionId || "",
+    componentId: surface.componentId || "",
     outputFrameId: surface.outputFrameId || "",
-    sourceRect: normalizeSourceRect(surface.sourceRect),
     mappingId: surface.mappingId || surface.id || fallback.mappingId,
     showLabel: surface.showLabel !== false,
     calibrationLocked: !!surface.calibrationLocked,
+    destination: normalizeSurfaceDestination(surface.destination, surface.mappingId || surface.id || fallback.mappingId),
   };
+}
+
+function normalizeSurfaceDestination(destination = {}, mappingId = "") {
+  if (destination?.type === "direct") {
+    return {
+      type: "direct",
+      outputIds: [...new Set((destination.outputIds || []).map(String).filter(Boolean))],
+    };
+  }
+  return { type: "mapped", mappingId: destination?.mappingId || mappingId || "" };
 }
 
 export function normalizeProjectionFit(value) {
   return value === "contain" || value === "stretch" ? value : "cover";
 }
 
-export function sceneSourceNodeId(compositionId = "", frameId = "") {
+export function sceneSourceNodeId(componentId = "", frameId = "") {
   return frameId
-    ? `recording-frame:${encodeURIComponent(compositionId)}:${encodeURIComponent(frameId)}`
-    : `composition:${encodeURIComponent(compositionId)}`;
+    ? `recording-frame:${encodeURIComponent(componentId)}:${encodeURIComponent(frameId)}`
+    : `component:${encodeURIComponent(componentId)}`;
 }
 
 export function sceneSourceNodes(state = {}) {
   const frames = Array.isArray(state.recordingFrames) ? state.recordingFrames : [];
-  return (state.compositions || []).flatMap((composition) => {
-    if (composition.type !== "canvas") {
+  return (state.components || []).flatMap((component) => {
+    if (component.type !== "canvas") {
       return [{
-        id: sceneSourceNodeId(composition.id),
-        type: "composition",
-        name: composition.name,
-        thumbnail: composition.thumbnail || "",
-        compositionId: composition.id,
+        id: sceneSourceNodeId(component.id),
+        type: "component",
+        name: component.name,
+        thumbnail: component.thumbnail || "",
+        componentId: component.id,
         outputFrameId: "",
+        createdAt: component.activity?.createdAt || "",
+        recentAt: latestProjectActivity(component.activity),
       }];
     }
-    return frames.map((frame) => ({
-      id: sceneSourceNodeId(composition.id, frame.id),
-      type: "recording-frame",
-      name: `${composition.name} · ${frame.name}`,
-      thumbnail: composition.canvas?.frameThumbnails?.[frame.id] || composition.thumbnail || "",
-      compositionId: composition.id,
-      outputFrameId: frame.id,
-      frameId: frame.id,
-    }));
+    return [
+      {
+        id: sceneSourceNodeId(component.id),
+        type: "component",
+        name: component.name,
+        thumbnail: component.thumbnail || "",
+        componentId: component.id,
+        outputFrameId: "",
+        createdAt: component.activity?.createdAt || "",
+        recentAt: latestProjectActivity(component.activity),
+      },
+      ...frames.map((frame) => ({
+        id: sceneSourceNodeId(component.id, frame.id),
+        type: "recording-frame",
+        name: `${component.name} · ${frame.name}`,
+        thumbnail: component.canvas?.frameThumbnails?.[frame.id] || component.thumbnail || "",
+        componentId: component.id,
+        outputFrameId: frame.id,
+        frameId: frame.id,
+        createdAt: latestTimestamp(component.activity?.createdAt, frame.activity?.createdAt),
+        recentAt: Math.max(latestProjectActivity(component.activity), latestProjectActivity(frame.activity)),
+      })),
+    ];
   });
+}
+
+function latestTimestamp(...values) {
+  return values.filter(Boolean).sort().at(-1) || "";
 }
 
 export function resolveSceneSourceNode(state = {}, sourceNodeId = "", legacyRoute = {}) {
   const nodes = sceneSourceNodes(state);
   const byId = nodes.find((node) => node.id === sourceNodeId);
-  const byLegacyRoute = nodes.find((node) => node.compositionId === legacyRoute.compositionId && node.outputFrameId === (legacyRoute.outputFrameId || ""));
-  return byLegacyRoute && (!byId || byId.compositionId !== legacyRoute.compositionId || byId.outputFrameId !== (legacyRoute.outputFrameId || ""))
-    ? byLegacyRoute
-    : byId
-    || byLegacyRoute
-    || nodes[0]
-    || null;
+  const byLegacyRoute = nodes.find((node) => node.componentId === legacyRoute.componentId && node.outputFrameId === (legacyRoute.outputFrameId || ""));
+  // sourceNodeId is the current route identity. componentId/outputFrameId are
+  // retained only to recover old projects and must never override a valid ID.
+  return byId || byLegacyRoute || nodes[0] || null;
 }
 
 export function applySceneSourceNode(route = {}, node = null) {
   return {
     ...route,
     sourceNodeId: node?.id || "",
-    compositionId: node?.compositionId || "",
+    componentId: node?.componentId || "",
     outputFrameId: node?.outputFrameId || "",
-  };
-}
-
-function normalizeSourceRect(rect = {}) {
-  const fallback = createDefaultSourceRect();
-  return {
-    x: Math.max(0, Number(rect.x) || fallback.x),
-    y: Math.max(0, Number(rect.y) || fallback.y),
-    width: positiveInt(rect.width, fallback.width, 1, 8192),
-    height: positiveInt(rect.height, fallback.height, 1, 8192),
   };
 }
 
@@ -824,9 +984,9 @@ export function createShaderPass(id = "ripple", params = {}) {
   return normalizeShaderPass({ id, enabled: true, params });
 }
 
-export function createCompositionEffect(id = "ripple", params = {}) {
+export function createComponentEffect(id = "ripple", params = {}) {
   const pass = createShaderPass(id, params);
-  return normalizeCompositionChainItem({
+  return normalizeComponentChainItem({
     id: uid("chain"),
     kind: "effect",
     componentId: pass.id,
@@ -836,10 +996,10 @@ export function createCompositionEffect(id = "ripple", params = {}) {
   });
 }
 
-function legacyCompositionChain(source, shaderChain) {
+function legacyComponentChain(source, shaderChain) {
   return [
-    createCompositionLayer(0, source),
-    ...shaderChain.map((pass) => normalizeCompositionChainItem({
+    createComponentLayer(0, source),
+    ...shaderChain.map((pass) => normalizeComponentChainItem({
       kind: "effect",
       componentId: pass.id,
       enabled: pass.enabled,
@@ -857,16 +1017,25 @@ function normalizeSource(source = {}) {
   const generatorSource = source.type === "generator" || !source.type
     ? createGeneratorSource(source.generatorId, params)
     : null;
+  const placement = normalizeRelativePlacement(source.placement);
   return {
     type: source.type || "generator",
     mediaId: source.mediaId || "",
-    compositionId: source.compositionId || "",
+    componentId: source.componentId || "",
     generatorId: generatorSource?.generatorId || source.generatorId || "testPattern",
     start,
     end: end > start ? end : 0,
     speed,
+    ...(source.type === "component" && placement ? { placement } : {}),
     ...(generatorSource ? { params: generatorSource.params } : Object.keys(params).length ? { params } : {}),
   };
+}
+
+function normalizeRelativePlacement(placement) {
+  if (!placement || typeof placement !== "object") return null;
+  const scale = Number(placement.scale ?? placement.width);
+  if (!Number.isFinite(scale) || scale <= 0) return null;
+  return { scale: Math.min(64, scale) };
 }
 
 function createDefaultSource() {
@@ -882,12 +1051,12 @@ function createDefaultSource() {
 
 function sourceComponentId(source = {}) {
   if (source.type === "generator") return source.generatorId || "testPattern";
-  if (source.type === "composition") return "source.composition";
+  if (source.type === "component") return "source.component";
   return `source.${source.type || "black"}`;
 }
 
 function sourceLabel(source = {}) {
-  if (source.type === "composition") return source.compositionId || "Composition";
+  if (source.type === "component") return source.componentId || "Component";
   if (source.type === "media") return source.mediaId || "Media";
   if (source.type === "camera") return "Camera";
   if (source.type === "black") return "Black";
@@ -928,7 +1097,7 @@ function normalizeShaderPassParams(pass = {}) {
   return params;
 }
 
-function mergeCompositionChainItemOverride(item = {}, override = {}) {
+function mergeComponentChainItemOverride(item = {}, override = {}) {
   if (!override || typeof override !== "object") return item;
   if (item.kind === "effect") {
     const pass = mergeShaderPassOverride({
@@ -956,7 +1125,7 @@ function mergeCompositionChainItemOverride(item = {}, override = {}) {
         ? { transform: normalizeTransform({ ...(item.transform || {}), ...override.transform }) }
         : {}),
       chain: Array.isArray(item.chain)
-        ? item.chain.map((child, index) => mergeCompositionChainItemOverride(child, override.chain?.[index] || {}))
+        ? item.chain.map((child, index) => mergeComponentChainItemOverride(child, override.chain?.[index] || {}))
         : [],
     };
   }
@@ -1032,9 +1201,8 @@ export function createSceneSurfaceSnapshot(surface = {}) {
     id: surface.id,
     enabled: surface.enabled !== false,
     sourceNodeId: surface.sourceNodeId || "",
-    compositionId: surface.compositionId || "",
+    componentId: surface.componentId || "",
     outputFrameId: surface.outputFrameId || "",
-    sourceRect: normalizeSourceRect(surface.sourceRect),
     opacity: clamp01(surface.opacity ?? 1),
     projectionFit: normalizeProjectionFit(surface.projectionFit),
     finalBlend: surface.finalBlend || "normal",
@@ -1051,9 +1219,8 @@ export function normalizeSceneSurfaceSnapshot(surface = {}, state = createInitia
     id: surface.id || "",
     enabled: surface.enabled !== false,
     sourceNodeId: route.sourceNodeId,
-    compositionId: route.compositionId,
+    componentId: route.componentId,
     outputFrameId: route.outputFrameId,
-    sourceRect: normalizeSourceRect(surface.sourceRect),
     opacity: clamp01(surface.opacity ?? 1),
     projectionFit: normalizeProjectionFit(surface.projectionFit),
     finalBlend: surface.finalBlend || "normal",

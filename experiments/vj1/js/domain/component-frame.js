@@ -1,24 +1,26 @@
 import { VJ1 } from "../constants.js";
+import { componentTextureSize } from "./render-resolution.js?v=label-overlay-16";
 
-export const COMPOSITION_FRAME_SHAPES = ["landscape", "portrait", "square"];
-export const COMPOSITION_RESOLUTION_SCALES = [0.5, 1, 2];
+export const COMPONENT_FRAME_SHAPES = ["landscape", "portrait", "square"];
+export const COMPONENT_RESOLUTION_SCALES = [0.5, 1, 2];
 
-export function normalizeCompositionFrameShape(value) {
-  return COMPOSITION_FRAME_SHAPES.includes(value) ? value : "landscape";
+export function normalizeComponentFrameShape(value) {
+  return COMPONENT_FRAME_SHAPES.includes(value) ? value : "landscape";
 }
 
-export function normalizeCompositionResolutionScale(value) {
+export function normalizeComponentResolutionScale(value) {
   const number = Number(value);
-  return COMPOSITION_RESOLUTION_SCALES.includes(number) ? number : 1;
+  return COMPONENT_RESOLUTION_SCALES.includes(number) ? number : 1;
 }
 
-export function compositionFrameMetrics(render = {}, composition = {}) {
-  const textureWidth = positiveInt(render.surfaceWidth, VJ1.surfaceWidth);
-  const textureHeight = positiveInt(render.surfaceHeight, VJ1.surfaceHeight);
+export function componentFrameMetrics(render = {}, component = {}) {
+  const texture = componentTextureSize(render);
+  const textureWidth = positiveInt(texture.width, VJ1.renderWidth);
+  const textureHeight = positiveInt(texture.height, VJ1.renderHeight);
   const longEdge = Math.max(textureWidth, textureHeight);
   const shortEdge = Math.min(textureWidth, textureHeight);
-  const frameShape = normalizeCompositionFrameShape(composition.frameShape);
-  const resolutionScale = normalizeCompositionResolutionScale(composition.resolutionScale);
+  const frameShape = normalizeComponentFrameShape(component.frameShape);
+  const resolutionScale = normalizeComponentResolutionScale(component.resolutionScale);
   const globalDensity = clamp(Number(render.pixelDensity) || 1, 0.5, 2);
   const effectiveScale = globalDensity * resolutionScale;
   const base = frameShape === "portrait"

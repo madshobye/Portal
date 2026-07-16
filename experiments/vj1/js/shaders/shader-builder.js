@@ -1,4 +1,4 @@
-import { getShaderComponent } from "./shader-registry.js?v=hsv-alpha-key-1";
+import { getShaderComponent } from "./shader-registry.js?v=label-overlay-16";
 
 export function createShaderBuilder({ getCustomCode, onStatus }) {
   const cache = new Map();
@@ -152,8 +152,8 @@ vec2 inverseTransformEffectUv(vec2 uv) {
 }
 
 float effectFieldMask(vec2 uv) {
-  // Transforms change the effect coordinate field, not the composition frame.
-  // Keep the boundary fixed to the full composition instead of a node rectangle.
+  // Transforms change the effect coordinate field, not the component frame.
+  // Keep the boundary fixed to the full component instead of a node rectangle.
   vec2 edge = abs(vTexCoord - vec2(0.5));
   return 1.0 - smoothstep(0.5, 0.535, max(edge.x, edge.y));
 }

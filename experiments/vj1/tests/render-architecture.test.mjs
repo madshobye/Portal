@@ -4,7 +4,7 @@ import assert from "node:assert/strict";
 import { compileShaderSchedule, fuseLocalShaderSchedule } from "../js/graph/render-scheduler.js";
 import { effectTransformUniforms } from "../js/output/output-renderer.js";
 import { SharedFramebufferTarget, unwrapRenderTarget } from "../js/output/shared-framebuffer-target.js";
-import { mapperFragmentShaderSource, mapperTransitionFragmentShaderSource, mapperVertexShaderSource, projectionFitMode, surfaceQuadVertices } from "../js/output/vj-mapper.js";
+import { mapperFragmentShaderSource, mapperTransitionFragmentShaderSource, mapperVertexShaderSource, projectedSurfaceAspect, projectionFitMode, surfaceQuadVertices } from "../js/output/vj-mapper.js";
 import { createShaderBuilder } from "../js/shaders/shader-builder.js";
 import { getShaderComponent } from "../js/shaders/shader-registry.js";
 
@@ -176,9 +176,27 @@ test("projection mapping exposes cover contain and stretch without another rende
   assert.match(featherSource, /uniform float uFeather/);
   assert.match(featherSource, /float cornerRadius = min\(0\.08, max\(0\.012, uFeather \* 0\.35\)\)/);
   assert.match(featherSource, /length\(max\(roundedDelta, 0\.0\)\)/);
-  assert.match(featherSource, /smoothstep\(0\.0, uFeather, -roundedDistance\)/);
+  assert.match(featherSource, /return smoothstep\(0\.0, uFeather, -roundedDistance\)/);
+  assert.match(featherSource, /vec2 featherUv = uProjectionFit >= 1\.5 \? sampleUv : uv/);
+  assert.match(featherSource, /float featherAspect = uProjectionFit >= 1\.5 \? uSourceAspect : uTargetAspect/);
   assert.match(featherSource, /color \*= featherMask/);
   assert.match(fragmentSource, /texture2D\(tex, clamp\(sampleUv/);
+});
+
+test("projection fit follows the mapped quadrilateral rather than stored surface dimensions", () => {
+  assert.equal(projectedSurfaceAspect([
+    { x: 20, y: 30 },
+    { x: 820, y: 30 },
+    { x: 820, y: 430 },
+    { x: 20, y: 430 },
+  ], 16 / 9), 2);
+  assert.ok(Math.abs(projectedSurfaceAspect([
+    { x: 0, y: 0 },
+    { x: 800, y: 0 },
+    { x: 600, y: 400 },
+    { x: 200, y: 400 },
+  ]) - (3 / Math.sqrt(5))) < 1e-9);
+  assert.equal(projectedSurfaceAspect([], 16 / 9), 16 / 9);
 });
 
 test("scene dissolve mixes premultiplied surface routes inside one projection shader", () => {
@@ -186,7 +204,9 @@ test("scene dissolve mixes premultiplied surface routes inside one projection sh
   assert.match(source, /uniform sampler2D fromTex/);
   assert.match(source, /uniform sampler2D toTex/);
   assert.match(source, /vec4 color = mix\(fromColor, toColor/);
-  assert.match(source, /color \*= featherMask/);
+  assert.match(source, /fromColor \*= roundedFeatherMask\(fromFeatherUv, fromFeatherAspect\)/);
+  assert.match(source, /toColor \*= roundedFeatherMask\(toFeatherUv, toFeatherAspect\)/);
+  assert.ok(source.indexOf("fromColor *= roundedFeatherMask") < source.indexOf("vec4 color = mix"));
 });
 
 function applyMat3(matrix, [x, y]) {

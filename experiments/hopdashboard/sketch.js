@@ -2,8 +2,15 @@ let hopModel = null;
 let sourceRows = [];
 let sourceCsvText = "";
 let droppedFileName = "";
+let bookingCsvSources = [];
+let sourceBookingRows = [];
+let bookingDuplicateCount = 0;
 let csvSavePending = false;
-let statusMessage = "Drop HOP sales CSV onto the canvas";
+let csvSaveInProgress = false;
+let storageMessage = "";
+let storageMessageIsError = false;
+let storageMessageUntil = 0;
+let statusMessage = "Drop HOP sales CSV and yearly booking CSVs onto the canvas";
 let currentView = "overview";
 let fullStartMs = 0;
 let fullEndMs = 0;
@@ -13,6 +20,10 @@ let timeBucket = "week";
 let buyerPatternWindowIndex = 0;
 let revenueGroupCount = 8;
 let activityPathMode = "ever";
+let activityPathSource = "combined";
+let activityExplorerKey = "";
+let activityExplorerDropdownOpen = false;
+let activityExplorerDropdownOffset = 0;
 let anonymizeNames = true;
 let revenueGroupsExcludeMembership = false;
 let purchaseTimingExcludeMembership = false;
@@ -43,6 +54,8 @@ const URL_DASHBOARD_PARAMS = [
   "revenueNoMembership",
   "purchaseNoMembership",
   "pathMode",
+  "pathSource",
+  "explore",
   "curves",
   "stacked",
   "hiddenSeries",
@@ -59,14 +72,18 @@ const NAV_ITEMS = [
   { id: "usernetwork", label: "User Network", shortLabel: "User Net", icon: "share" },
   { id: "retention", label: "Retention", icon: "calendar_month" },
   { id: "activitypath", label: "Activity Path", shortLabel: "Path", icon: "route" },
+  { id: "introconversion", label: "Intro Conversion", shortLabel: "Intro", icon: "conversion_path" },
   { id: "gateway", label: "Gateway", shortLabel: "Gate", icon: "login" },
   { id: "pipeline", label: "Pipeline", shortLabel: "Pipe", icon: "filter_alt" },
   { id: "producthealth", label: "Product Health", shortLabel: "Health", icon: "monitor_heart" },
+  { id: "activityexplorer", label: "Activity Explorer", shortLabel: "Explore", icon: "travel_explore" },
   { id: "segments", label: "Segments", shortLabel: "Seg", icon: "donut_large" },
   { id: "exitpoints", label: "Exit Points", shortLabel: "Exit", icon: "logout" },
-  { id: "memberlength", label: "Member Length", shortLabel: "Length", icon: "linear_scale" },
-  { id: "memberdistribution", label: "Member Tenure Distribution", shortLabel: "Tenure", icon: "workspace_premium" },
+  { id: "memberlength", label: "Subscription Duration", shortLabel: "Duration", icon: "linear_scale" },
+  { id: "memberdistribution", label: "Subscription Tenure", shortLabel: "Tenure", icon: "workspace_premium" },
+  { id: "memberengagement", label: "Subscription Engagement", shortLabel: "Engage", icon: "event_available" },
   { id: "activity", label: "Activity", icon: "timeline" },
+  { id: "report", label: "July 2026 Report", shortLabel: "Report", icon: "article" },
 ];
 
 async function setup() {
@@ -88,13 +105,20 @@ async function setup() {
   restoreStoredView(dashboardUrlState);
   restoreStoredTimelineVisibility(dashboardUrlState);
   restoreStoredSliders(dashboardUrlState);
-  restoreStoredCsv();
+  await restoreStoredCsv();
 }
 
 function draw() {
   if (hopModel) {
     chartToggleHits = [];
-    const hopUi = drawHopOverview(hopModel, droppedFileName, currentView, NAV_ITEMS, { anonymizeNames, periodLabel: selectedPeriodLabel(), showSaveButton: csvSavePending });
+    const hopUi = drawHopOverview(hopModel, droppedFileName, currentView, NAV_ITEMS, {
+      anonymizeNames,
+      periodLabel: selectedPeriodLabel(),
+      showSaveButton: csvSavePending,
+      activityExplorerKey,
+      activityExplorerDropdownOpen,
+      activityExplorerDropdownOffset,
+    });
     if (hopUi?.clearClicked) {
       confirmClearDashboardData();
       return;
@@ -111,9 +135,11 @@ function draw() {
     if (drawTimelineStackToggle(timelineStackedLines, csvSavePending)) toggleTimelineStacking();
     if (drawCaptureButton(csvSavePending)) setTimeout(saveGraphSnapshot, 0);
     if (drawActivityPathModeToggle(activityPathMode, currentView === "activitypath", csvSavePending)) toggleActivityPathMode();
+    if (drawActivityPathSourceToggle(activityPathSource, currentView === "activitypath", csvSavePending)) toggleActivityPathSource();
     if (drawPurchaseTimingMembershipToggle(purchaseTimingExcludeMembership, currentView === "purchasetiming", csvSavePending)) togglePurchaseTimingMembership();
     drawPortalRangeControls();
     drawDateRangeSlider();
+    drawStorageMessage();
     drawPendingViewInfoTooltip();
   } else {
     drawCenteredMessage(statusMessage);
@@ -138,33 +164,145 @@ function handleCsvDrop(file) {
   }
 }
 
-function restoreStoredCsv() {
+async function restoreStoredCsv() {
   const stored = loadHopCsv();
-  if (!stored?.text) return;
   try {
-    loadCsvText(stored.text, stored.fileName || "Stored CSV");
+    if (stored?.text) loadSalesCsvText(stored.text, stored.fileName || "Stored sales CSV", false);
+    for (const source of await loadHopBookingCsvs()) {
+      loadBookingCsvText(source.text, source.fileName || "Stored booking CSV", false);
+    }
+    rebuildHopDashboardModel();
     csvSavePending = false;
   } catch (error) {
     console.error(error);
     clearHopCsv();
-    statusMessage = "Stored CSV could not be restored. Drop it again.";
+    await clearHopBookingCsvs();
+    statusMessage = "Stored CSV data could not be restored. Drop it again.";
   }
 }
 
+function drawStorageMessage() {
+  if (!storageMessage || millis() > storageMessageUntil) return;
+  fill(storageMessageIsError ? color(255, 145, 135) : color(150, 225, 175));
+  noStroke();
+  textSize(11);
+  textAlign(LEFT, BOTTOM);
+  text(storageMessage, 32, 106);
+}
+
+function showStorageMessage(message, isError = false, durationMs = 6000) {
+  storageMessage = String(message || "");
+  storageMessageIsError = !!isError;
+  storageMessageUntil = millis() + durationMs;
+}
+
 function loadCsvText(text, fileName) {
-  sourceCsvText = String(text || "");
   const parsed = parseCsvText(text);
-  sourceRows = parsed.rows;
+  const csvType = detectHopCsvType(parsed.headers);
+  if (csvType === "sales") {
+    loadSalesCsvText(text, fileName, true, parsed);
+    return;
+  }
+  if (csvType === "bookings") {
+    loadBookingCsvText(text, fileName, true, parsed);
+    return;
+  }
+  throw new Error("Unrecognized CSV. Expected HOP sales columns or Date, Start Time, Customer, Email, Class Type, and Booking Type.");
+}
+
+function detectHopCsvType(headers) {
+  const keys = new Set((headers || []).map((header) => cleanValue(header).toLowerCase()));
+  if (keys.has("invoice #") && keys.has("invoice date/time") && keys.has("total price")) return "sales";
+  const bookingKeys = ["date", "start time", "customer", "email", "class type", "booking type"];
+  if (bookingKeys.every((key) => keys.has(key))) return "bookings";
+  return "unknown";
+}
+
+function loadSalesCsvText(text, fileName, rebuild = true, parsed = null) {
+  sourceCsvText = String(text || "");
+  const sales = parsed || parseCsvText(text);
+  sourceRows = sales.rows;
+  droppedFileName = fileName;
   fullTimelineCacheByBucket = new Map();
-  const fullModel = buildHopModel(sourceRows, timeBucket);
-  fullStartMs = startOfDayMs(fullModel.invoices[0]?.date);
-  fullEndMs = startOfDayMs(fullModel.invoices.at(-1)?.date);
-  selectedStartMs = constrain(Number(storedSliderState.selectedStartMs) || fullStartMs, fullStartMs, fullEndMs);
-  selectedEndMs = constrain(Number(storedSliderState.selectedEndMs) || fullEndMs, fullStartMs, fullEndMs);
+  if (rebuild) rebuildHopDashboardModel(true);
+}
+
+function loadBookingCsvText(text, fileName, rebuild = true, parsed = null) {
+  const bookingCsv = parsed || parseCsvText(text);
+  const datedRows = bookingCsv.rows.filter((row) => parseHopBookingDate(row.Date));
+  if (!datedRows.length) throw new Error(`${fileName} has no valid booking dates`);
+  const times = datedRows.map((row) => startOfDayMs(parseHopBookingDate(row.Date)));
+  const source = {
+    fileName,
+    text: String(text || ""),
+    rows: datedRows,
+    startMs: Math.min(...times),
+    endMs: Math.max(...times),
+  };
+  const exactSourceIndex = bookingCsvSources.findIndex((candidate) => candidate.text === source.text);
+  if (exactSourceIndex >= 0) bookingCsvSources[exactSourceIndex] = source;
+  else bookingCsvSources.push(source);
+  mergeBookingCsvRows();
+  if (rebuild) rebuildHopDashboardModel(true);
+}
+
+function mergeBookingCsvRows() {
+  const byKey = new Map();
+  let totalRows = 0;
+  for (const source of bookingCsvSources) {
+    for (const row of source.rows) {
+      totalRows += 1;
+      const key = rawHopBookingKey(row);
+      if (!byKey.has(key)) byKey.set(key, row);
+    }
+  }
+  sourceBookingRows = Array.from(byKey.values());
+  bookingDuplicateCount = totalRows - sourceBookingRows.length;
+}
+
+function rawHopBookingKey(row) {
+  return [
+    normalizeIdentityEmail(row.Email) || normalizeIdentityName(row.Customer),
+    startOfDayMs(parseHopBookingDate(row.Date)),
+    cleanValue(row["Start Time"]),
+    cleanValue(row["End Time"]),
+    cleanValue(row.Room).toLowerCase(),
+    cleanValue(row["Class Type"]).toLowerCase(),
+  ].join("|");
+}
+
+function bookingSourceSummaries() {
+  return bookingCsvSources.map((source) => ({
+    fileName: source.fileName,
+    startMs: source.startMs,
+    endMs: source.endMs,
+    rowCount: source.rows.length,
+  })).sort((a, b) => a.startMs - b.startMs);
+}
+
+function rebuildHopDashboardModel(resetSelection = false) {
+  if (!sourceRows.length) {
+    hopModel = null;
+    statusMessage = bookingCsvSources.length
+      ? `${bookingCsvSources.length} booking CSV${bookingCsvSources.length === 1 ? "" : "s"} loaded. Drop the HOP sales CSV.`
+      : "Drop HOP sales CSV and yearly booking CSVs onto the canvas";
+    return;
+  }
+  fullTimelineCacheByBucket = new Map();
+  const fullModel = buildHopModel(sourceRows, timeBucket, { bookingRows: sourceBookingRows });
+  const allDates = [
+    ...fullModel.invoices.map((invoice) => startOfDayMs(invoice.date)),
+    ...sourceBookingRows.map((row) => startOfDayMs(parseHopBookingDate(row.Date))),
+  ].filter(Boolean);
+  fullStartMs = Math.min(...allDates);
+  fullEndMs = Math.max(...allDates);
+  const storedStart = resetSelection ? fullStartMs : Number(storedSliderState.selectedStartMs) || fullStartMs;
+  const storedEnd = resetSelection ? fullEndMs : Number(storedSliderState.selectedEndMs) || fullEndMs;
+  selectedStartMs = constrain(storedStart, fullStartMs, fullEndMs);
+  selectedEndMs = constrain(storedEnd, fullStartMs, fullEndMs);
   if (selectedStartMs > selectedEndMs) selectedStartMs = selectedEndMs;
   syncPortalControlState();
   applyDateRange();
-  droppedFileName = fileName;
   statusMessage = "";
   updateDashboardUrl();
 }
@@ -259,7 +397,15 @@ function applyDateRange() {
     const time = startOfDayMs(date);
     return time >= selectedStartMs && time <= selectedEndMs;
   });
+  const filteredBookingRows = sourceBookingRows.filter((row) => {
+    const time = startOfDayMs(parseHopBookingDate(row.Date));
+    return time >= selectedStartMs && time <= selectedEndMs;
+  });
   hopModel = buildHopModel(filteredRows, timeBucket, {
+    bookingRows: filteredBookingRows,
+    historicalBookingRows: sourceBookingRows,
+    bookingDuplicateCount,
+    bookingSources: bookingSourceSummaries(),
     timelineActivity: fullTimeline.activity,
     ticketSalesTimeline: fullTimeline.ticketSalesTimeline,
     timelineRows: sourceRows,
@@ -269,10 +415,16 @@ function applyDateRange() {
     purchaseTimingRows: sourceRows,
     firstTouchpointRows: sourceRows,
     activityPathMode,
+    activityPathSource,
     rangeStartMs: selectedStartMs,
     rangeEndMs: selectedEndMs,
   });
   hopModel.setAnonymizeNames(anonymizeNames);
+  const explorerItems = hopModel.activityExplorer?.items || [];
+  if (!explorerItems.some((item) => item.key === activityExplorerKey)) {
+    activityExplorerKey = hopModel.activityExplorer?.defaultKey || explorerItems[0]?.key || "";
+    activityExplorerDropdownOffset = 0;
+  }
 }
 
 function getFullTimelineCache(bucket) {
@@ -310,6 +462,8 @@ function saveSliderState() {
     revenueGroupCount,
     timeBucket,
     activityPathMode,
+    activityPathSource,
+    activityExplorerKey,
     revenueGroupsExcludeMembership,
     purchaseTimingExcludeMembership,
     timelineSmoothCurves,
@@ -329,6 +483,12 @@ function restoreStoredSliders(urlState = null) {
   if (["ever", "range"].includes(storedSliderState.activityPathMode)) {
     activityPathMode = storedSliderState.activityPathMode;
   }
+  if (["purchase", "subscription", "combined"].includes(storedSliderState.activityPathSource)) {
+    activityPathSource = storedSliderState.activityPathSource;
+  }
+  if (typeof storedSliderState.activityExplorerKey === "string") {
+    activityExplorerKey = storedSliderState.activityExplorerKey;
+  }
   revenueGroupsExcludeMembership = !!storedSliderState.revenueGroupsExcludeMembership;
   purchaseTimingExcludeMembership = !!storedSliderState.purchaseTimingExcludeMembership;
   timelineSmoothCurves = !!storedSliderState.timelineSmoothCurves;
@@ -347,6 +507,18 @@ function startOfDayMs(date) {
 }
 
 function mousePressed() {
+  if (currentView === "activityexplorer") {
+    const explorerHit = getActivityExplorerSelectorHit?.(mouseX, mouseY);
+    if (explorerHit) {
+      handleActivityExplorerSelectorHit(explorerHit);
+      return false;
+    }
+    if (activityExplorerDropdownOpen) {
+      activityExplorerDropdownOpen = false;
+      return false;
+    }
+  }
+
   const dateHandle = getDateRangeHandleHit(mouseX, mouseY);
   if (dateHandle) {
     draggedDateRangeHandle = dateHandle;
@@ -383,6 +555,40 @@ function mousePressed() {
   }
 
   return true;
+}
+
+function mouseWheel(event) {
+  if (currentView !== "activityexplorer" || !activityExplorerDropdownOpen) return true;
+  const itemCount = hopModel?.activityExplorer?.items?.length || 0;
+  const visibleCount = getActivityExplorerDropdownVisibleCount?.() || 10;
+  const direction = Math.sign(Number(event?.deltaY) || 0);
+  activityExplorerDropdownOffset = constrain(activityExplorerDropdownOffset + direction * 3, 0, max(0, itemCount - visibleCount));
+  return false;
+}
+
+function handleActivityExplorerSelectorHit(hit) {
+  if (hit.kind === "toggle") {
+    activityExplorerDropdownOpen = !activityExplorerDropdownOpen;
+    if (activityExplorerDropdownOpen) {
+      const items = hopModel?.activityExplorer?.items || [];
+      const selectedIndex = items.findIndex((item) => item.key === activityExplorerKey);
+      const visibleCount = getActivityExplorerDropdownVisibleCount?.() || 10;
+      if (selectedIndex >= 0 && (selectedIndex < activityExplorerDropdownOffset || selectedIndex >= activityExplorerDropdownOffset + visibleCount)) {
+        activityExplorerDropdownOffset = constrain(selectedIndex - floor(visibleCount / 2), 0, max(0, items.length - visibleCount));
+      }
+    }
+    return;
+  }
+  if (hit.kind === "scroll") {
+    const itemCount = hopModel?.activityExplorer?.items?.length || 0;
+    const visibleCount = getActivityExplorerDropdownVisibleCount?.() || 10;
+    activityExplorerDropdownOffset = constrain(activityExplorerDropdownOffset + hit.direction * visibleCount, 0, max(0, itemCount - visibleCount));
+    return;
+  }
+  if (hit.kind !== "option") return;
+  activityExplorerKey = hit.key;
+  activityExplorerDropdownOpen = false;
+  saveSliderState();
 }
 
 function mouseReleased() {
@@ -576,13 +782,20 @@ function getRevenueGroupsMembershipButtonPosition() {
 
 function clearDashboardData() {
   clearHopCsv();
+  void clearHopBookingCsvs();
   hopModel = null;
   sourceRows = [];
   sourceCsvText = "";
+  bookingCsvSources = [];
+  sourceBookingRows = [];
+  bookingDuplicateCount = 0;
+  activityExplorerKey = "";
+  activityExplorerDropdownOpen = false;
+  activityExplorerDropdownOffset = 0;
   csvSavePending = false;
   fullTimelineCacheByBucket = new Map();
   droppedFileName = "";
-  statusMessage = "Drop HOP sales CSV onto the canvas";
+  statusMessage = "Drop HOP sales CSV and yearly booking CSVs onto the canvas";
   clearDashboardUrl();
 }
 
@@ -604,13 +817,25 @@ function toggleAnonymizeNames() {
   saveSliderState();
 }
 
-function saveCurrentCsvToBrowser() {
+async function saveCurrentCsvToBrowser() {
+  if (csvSaveInProgress) return;
   if (!sourceCsvText) {
     statusMessage = "Drop HOP sales CSV before saving";
     return;
   }
-  saveHopCsv(sourceCsvText, droppedFileName || "CSV");
-  csvSavePending = false;
+  csvSaveInProgress = true;
+  try {
+    saveHopCsv(sourceCsvText, droppedFileName || "CSV");
+    await saveHopBookingCsvs(bookingCsvSources);
+    csvSavePending = false;
+    showStorageMessage(`Saved sales and ${bookingCsvSources.length} booking CSV${bookingCsvSources.length === 1 ? "" : "s"}`);
+  } catch (error) {
+    console.error("[hopdashboard] Could not save dashboard CSV data", error);
+    csvSavePending = true;
+    showStorageMessage(`Could not save dashboard data: ${error?.message || error}`, true, 12000);
+  } finally {
+    csvSaveInProgress = false;
+  }
 }
 
 function toggleTimelineCurves() {
@@ -629,6 +854,14 @@ function toggleActivityPathMode() {
   applyDateRange();
 }
 
+function toggleActivityPathSource() {
+  activityPathSource = activityPathSource === "purchase"
+    ? "subscription"
+    : activityPathSource === "subscription" ? "combined" : "purchase";
+  saveSliderState();
+  applyDateRange();
+}
+
 function togglePurchaseTimingMembership() {
   purchaseTimingExcludeMembership = !purchaseTimingExcludeMembership;
   saveSliderState();
@@ -636,6 +869,11 @@ function togglePurchaseTimingMembership() {
 
 function setCurrentView(view) {
   if (!view || view === currentView) return;
+  if (view === "report") {
+    window.location.href = "report.html";
+    return;
+  }
+  activityExplorerDropdownOpen = false;
   currentView = view;
   saveHopView(currentView);
   updateDashboardUrl();
@@ -702,6 +940,12 @@ function loadDashboardUrlState() {
 
   const pathMode = params.get("pathMode");
   if (["ever", "range"].includes(pathMode)) sliders.activityPathMode = pathMode;
+
+  const pathSource = params.get("pathSource");
+  if (["purchase", "subscription", "combined"].includes(pathSource)) sliders.activityPathSource = pathSource;
+
+  const explore = params.get("explore");
+  if (explore) sliders.activityExplorerKey = explore;
 
   const revenueNoMembership = parseUrlBoolean(params.get("revenueNoMembership"));
   if (revenueNoMembership !== null) sliders.revenueGroupsExcludeMembership = revenueNoMembership;
@@ -779,6 +1023,9 @@ function updateDashboardUrl() {
   url.searchParams.set("revenueNoMembership", revenueGroupsExcludeMembership ? "1" : "0");
   url.searchParams.set("purchaseNoMembership", purchaseTimingExcludeMembership ? "1" : "0");
   url.searchParams.set("pathMode", activityPathMode);
+  url.searchParams.set("pathSource", activityPathSource);
+  if (activityExplorerKey) url.searchParams.set("explore", activityExplorerKey);
+  else url.searchParams.delete("explore");
   url.searchParams.set("curves", timelineSmoothCurves ? "1" : "0");
   url.searchParams.set("stacked", timelineStackedLines ? "1" : "0");
   setOptionalUrlList(url.searchParams, "hiddenSeries", hiddenSeriesKeys);

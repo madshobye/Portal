@@ -25,13 +25,9 @@ export function createControlBridge({ store, mediaLibrary }) {
     if (msg.type === "hello") {
       const isNewClient = !clients.has(msg.clientId || "output");
       clients.set(msg.clientId || "output", { at: performance.now(), outputId: msg.outputId || "output-main" });
-      if (isNewClient || msg.initialSceneId) {
-        const initialState = msg.initialSceneId
-          ? store.getSceneRenderState?.(msg.initialSceneId)
-          : null;
-        sendState(initialState, {
+      if (isNewClient) {
+        sendState(null, {
           targetClientId: msg.clientId || "",
-          initialSceneAccepted: !!msg.initialSceneId,
         });
         sendMediaFiles(mediaLibrary.getAllFiles());
       }
@@ -59,12 +55,11 @@ export function createControlBridge({ store, mediaLibrary }) {
 
   channel.postMessage({ type: "control-hello" });
 
-  function sendState(stateOverride = null, { targetClientId = "", initialSceneAccepted = false } = {}) {
+  function sendState(stateOverride = null, { targetClientId = "" } = {}) {
     channel.postMessage({
       type: "state",
       state: stateOverride || store.getLiveRenderState?.() || store.getRenderState?.() || store.getState(),
       targetClientId,
-      initialSceneAccepted,
     });
   }
 
@@ -88,15 +83,12 @@ export function createControlBridge({ store, mediaLibrary }) {
   };
 }
 
-export function createOutputBridge({ onState, onMediaFiles, onCommand, onControlHello, mode, outputId = "", initialSceneId = "" }) {
+export function createOutputBridge({ onState, onMediaFiles, onCommand, onControlHello, mode, outputId = "" }) {
   const channel = new BroadcastChannel(VJ1.channelName);
   const clientId = `${mode}-${outputId || "default"}-${Math.random().toString(36).slice(2)}`;
-  let pendingInitialSceneId = initialSceneId;
-
   channel.onmessage = (event) => {
     const msg = event.data || {};
     if (msg.type === "state" && (!msg.targetClientId || msg.targetClientId === clientId)) {
-      if (msg.initialSceneAccepted) pendingInitialSceneId = "";
       onState?.(msg.state);
     }
     if (msg.type === "media-files") onMediaFiles?.(msg.files || []);
@@ -105,7 +97,7 @@ export function createOutputBridge({ onState, onMediaFiles, onCommand, onControl
   };
 
   function hello() {
-    channel.postMessage({ type: "hello", clientId, mode, outputId, initialSceneId: pendingInitialSceneId });
+    channel.postMessage({ type: "hello", clientId, mode, outputId });
   }
 
   function metrics(metrics) {

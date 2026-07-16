@@ -7,8 +7,8 @@ export function directPlacementKind({
   cameraDrawable = false,
 } = {}) {
   if (blend === "overlay") return "";
-  if (source.type === "composition") {
-    return dependency && dependency.type !== "canvas" ? "composition-texture" : "";
+  if (source.type === "component") {
+    return dependency && dependency.type !== "canvas" ? "component-texture" : "";
   }
   if (source.type === "media") {
     return mediaDrawable && !mediaIsModel ? "media-texture" : "";

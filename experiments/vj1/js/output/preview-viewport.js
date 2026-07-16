@@ -1,4 +1,4 @@
-import { fittedCssRect, frameSize, outputFrames, worldSize } from "./render-geometry.js?v=render-demand-1";
+import { fittedCssRect, frameSize, outputFrames, worldSize } from "./render-geometry.js?v=label-overlay-16";
 
 export function fitPreviewCanvasElement({ canvas, mode, stageSize, logicalSize, viewport, render }) {
   const elt = canvas?.elt || canvas;
@@ -80,7 +80,7 @@ export function createPreviewViewportController({ stage, store, getMode, getView
 }
 
 function isNavigablePreviewMode(mode) {
-  return mode === "preview" || mode === "composition";
+  return mode === "preview" || mode === "component";
 }
 
 export function zoomViewport(viewport = {}, multiplier = 1) {
@@ -118,7 +118,7 @@ export function frameFitViewport({ stageSize, render }) {
 }
 
 export function resolveViewportForFit({ mode, stageSize, viewport = {}, render = {} }) {
-  if (viewport.fit !== "manual" && mode === "composition") {
+  if (viewport.fit !== "manual" && mode === "component") {
     return { ...viewport, zoom: 1, x: 0, y: 0 };
   }
   if (mode === "preview" && viewport.fit === "frame") {

@@ -1,5 +1,6 @@
 function buildHopModel(rows, timeBucket = "week", options = {}) {
   const normalizedRows = applyTransactionDiscountNetting(rows.map(normalizeSalesRow).filter((row) => row.date));
+  const bookings = normalizeBookingRows(options.bookingRows || [], normalizedRows);
   const activityPathRows = options.activityPathRows
     ? applyTransactionDiscountNetting(options.activityPathRows.map(normalizeSalesRow).filter((row) => row.date))
     : normalizedRows;
@@ -18,6 +19,9 @@ function buildHopModel(rows, timeBucket = "week", options = {}) {
   const timelineRows = options.timelineRows && (!options.timelineActivity || !options.ticketSalesTimeline)
     ? applyTransactionDiscountNetting(options.timelineRows.map(normalizeSalesRow).filter((row) => row.date))
     : normalizedRows;
+  const historicalBookings = options.historicalBookingRows
+    ? normalizeBookingRows(options.historicalBookingRows, activityPathRows)
+    : bookings;
   const invoices = groupInvoices(normalizedRows);
   const customers = groupCustomers(invoices);
   const months = groupMonths(invoices, timeBucket);
@@ -27,30 +31,55 @@ function buildHopModel(rows, timeBucket = "week", options = {}) {
   const ticketSales = groupTicketSales(normalizedRows, timeBucket);
   const ticketSalesTimeline = options.ticketSalesTimeline || groupTicketSales(timelineRows, timeBucket);
   const ticketBuyers = groupTicketBuyers(normalizedRows, timeBucket);
-  const buyerPatterns = groupBuyerPatterns(normalizedRows, timeBucket);
-  const activityNetwork = groupActivityNetwork(normalizedRows);
-  const userNetwork = groupUserNetwork(normalizedRows);
+  const buyerPatterns = groupBuyerPatterns(normalizedRows, timeBucket, bookings);
+  const activityNetwork = groupActivityNetwork(normalizedRows, bookings);
+  const userNetwork = groupUserNetwork(normalizedRows, bookings);
   const retention = groupRetention(retentionRows, timeBucket, {
+    bookingRows: historicalBookings,
     rangeStartMs: options.rangeStartMs,
     rangeEndMs: options.rangeEndMs,
   });
   const activityPath = groupActivityPath(activityPathRows, {
+    bookingRows: historicalBookings,
     mode: options.activityPathMode || "ever",
+    sourceMode: options.activityPathSource || "combined",
+    rangeStartMs: options.rangeStartMs,
+    rangeEndMs: options.rangeEndMs,
+  });
+  const gatewayPath = groupActivityPath(activityPathRows, {
+    bookingRows: historicalBookings,
+    mode: options.activityPathMode || "ever",
+    sourceMode: "purchase",
+    rangeStartMs: options.rangeStartMs,
+    rangeEndMs: options.rangeEndMs,
+  });
+  const introConversion = groupIntroConversion(activityPathRows, historicalBookings, {
     rangeStartMs: options.rangeStartMs,
     rangeEndMs: options.rangeEndMs,
   });
   const membershipPipeline = groupMembershipPipeline(normalizedRows);
-  const productHealth = groupProductHealth(normalizedRows);
-  const customerSegments = groupCustomerSegments(normalizedRows);
-  const exitPoints = groupExitPoints(normalizedRows);
+  const productHealth = groupProductHealth(normalizedRows, bookings);
+  const activityExplorer = groupActivityExplorer(normalizedRows, bookings, {
+    identityRows: activityPathRows,
+  });
+  const customerSegments = groupCustomerSegments(normalizedRows, bookings);
+  const exitPoints = groupExitPoints(normalizedRows, bookings);
   const membershipLength = groupMembershipLength(membershipLengthRows, {
+    bookingRows: historicalBookings,
     rangeStartMs: options.rangeStartMs,
     rangeEndMs: options.rangeEndMs,
     timeBucket,
   });
+  const memberEngagement = groupMemberEngagement(bookings, customers, membershipLength.spans, timeBucket, {
+    rangeStartMs: options.rangeStartMs,
+    rangeEndMs: options.rangeEndMs,
+    duplicateCount: options.bookingDuplicateCount,
+    sources: options.bookingSources,
+  });
 
   return {
     rows: normalizedRows,
+    bookings,
     invoices,
     customers,
     months,
@@ -63,11 +92,15 @@ function buildHopModel(rows, timeBucket = "week", options = {}) {
     userNetwork,
     retention,
     activityPath,
+    gatewayPath,
+    introConversion,
     membershipPipeline,
     productHealth,
+    activityExplorer,
     customerSegments,
     exitPoints,
     membershipLength,
+    memberEngagement,
     purchaseTimingMembershipSignupKeys: firstMembershipSignupRowKeys(purchaseTimingRows),
     anonymizeNames: false,
     setAnonymizeNames(value) {
@@ -649,7 +682,7 @@ function groupTicketBuyers(rows, timeBucket) {
   };
 }
 
-function groupActivityNetwork(rows) {
+function groupActivityNetwork(rows, bookings = []) {
   const ticketRows = rows
     .filter((row) => row.itemType === "class_pass_type" || row.itemType === "event")
     .sort((a, b) => a.date - b.date);
@@ -671,6 +704,8 @@ function groupActivityNetwork(rows) {
         experiencedPurchases: 0,
         experienceSum: 0,
         purchaseCount: 0,
+        memberBookings: 0,
+        bookingMembers: new Set(),
       });
     }
     const node = nodesByKey.get(key);
@@ -682,6 +717,38 @@ function groupActivityNetwork(rows) {
 
     if (!rowsByCustomer.has(row.customerKey)) rowsByCustomer.set(row.customerKey, []);
     rowsByCustomer.get(row.customerKey).push(row);
+  }
+
+  for (const booking of bookings.filter((item) => item.isMembershipBooking)) {
+    const key = activityNodeKey(booking.className);
+    if (!key) continue;
+    if (!nodesByKey.has(key)) {
+      nodesByKey.set(key, {
+        key,
+        label: booking.className || "Unknown class",
+        type: "Activity",
+        revenue: 0,
+        tickets: 0,
+        buyers: new Set(),
+        firstTimerPurchases: 0,
+        experiencedPurchases: 0,
+        experienceSum: 0,
+        purchaseCount: 0,
+        memberBookings: 0,
+        bookingMembers: new Set(),
+      });
+    }
+    const node = nodesByKey.get(key);
+    node.memberBookings += 1;
+    node.bookingMembers.add(booking.customerKey);
+    node.buyers.add(booking.customerKey);
+    if (!rowsByCustomer.has(booking.customerKey)) rowsByCustomer.set(booking.customerKey, []);
+    rowsByCustomer.get(booking.customerKey).push({
+      date: booking.date,
+      text: booking.className,
+      quantity: 1,
+      interactionSource: "booking",
+    });
   }
 
   for (const customerRows of rowsByCustomer.values()) {
@@ -713,8 +780,10 @@ function groupActivityNetwork(rows) {
   const nodes = Array.from(nodesByKey.values()).map((node) => ({
     ...node,
     buyerCount: node.buyers.size,
+    bookingMemberCount: node.bookingMembers.size,
+    totalInteractions: node.tickets + node.memberBookings,
     avgExperience: node.purchaseCount ? node.experienceSum / node.purchaseCount : 0,
-  })).sort((a, b) => b.revenue - a.revenue);
+  })).sort((a, b) => b.totalInteractions - a.totalInteractions || b.revenue - a.revenue);
 
   const nodeKeys = new Set(nodes.map((node) => node.key));
   const links = Array.from(linksByKey.values())
@@ -727,6 +796,7 @@ function groupActivityNetwork(rows) {
     maxRevenue: Math.max(1, ...nodes.map((node) => node.revenue)),
     maxTickets: Math.max(1, ...nodes.map((node) => node.tickets)),
     maxExperience: Math.max(1, ...nodes.map((node) => node.avgExperience)),
+    maxInteractions: Math.max(1, ...nodes.map((node) => node.totalInteractions)),
   };
 }
 
@@ -734,7 +804,7 @@ function activityNodeKey(text) {
   return cleanValue(text).toLowerCase();
 }
 
-function groupProductHealth(rows) {
+function groupProductHealth(rows, bookings = []) {
   const ticketRows = rows
     .filter((row) => row.totalPrice > 0.0001)
     .filter(isActivityOrEventRow)
@@ -743,8 +813,9 @@ function groupProductHealth(rows) {
   const products = new Map();
   const seenTicketCustomers = new Set();
   const buyerProductCount = new Map();
-  const firstDate = ticketRows[0]?.date || null;
-  const lastDate = ticketRows.at(-1)?.date || null;
+  const productDates = [...ticketRows.map((row) => row.date), ...bookings.map((booking) => booking.date)].sort((a, b) => a - b);
+  const firstDate = productDates[0] || null;
+  const lastDate = productDates.at(-1) || null;
   const midpoint = firstDate && lastDate ? new Date((firstDate.getTime() + lastDate.getTime()) / 2) : null;
 
   for (const row of ticketRows) {
@@ -762,6 +833,11 @@ function groupProductHealth(rows) {
         memberBuyers: new Set(),
         earlyRevenue: 0,
         lateRevenue: 0,
+        memberBookings: 0,
+        bookingMembers: new Set(),
+        repeatBookingMembers: new Set(),
+        earlyBookings: 0,
+        lateBookings: 0,
       });
     }
     const product = products.get(key);
@@ -779,10 +855,47 @@ function groupProductHealth(rows) {
     seenTicketCustomers.add(row.customerKey);
   }
 
+  const bookingProductCount = new Map();
+  for (const booking of bookings.filter((item) => item.isMembershipBooking)) {
+    const key = activityNodeKey(booking.className) || "unknown booking";
+    if (!products.has(key)) {
+      products.set(key, {
+        key,
+        label: booking.className || "Unknown class",
+        type: "Activity",
+        revenue: 0,
+        tickets: 0,
+        buyers: new Set(),
+        repeatBuyers: new Set(),
+        firstTimerBuyers: new Set(),
+        memberBuyers: new Set(),
+        earlyRevenue: 0,
+        lateRevenue: 0,
+        memberBookings: 0,
+        bookingMembers: new Set(),
+        repeatBookingMembers: new Set(),
+        earlyBookings: 0,
+        lateBookings: 0,
+      });
+    }
+    const product = products.get(key);
+    const personProductKey = `${booking.customerKey}::${key}`;
+    const previousBookings = bookingProductCount.get(personProductKey) || 0;
+    product.memberBookings += 1;
+    product.bookingMembers.add(booking.customerKey);
+    if (previousBookings > 0) product.repeatBookingMembers.add(booking.customerKey);
+    if (midpoint && booking.date <= midpoint) product.earlyBookings += 1;
+    else product.lateBookings += 1;
+    bookingProductCount.set(personProductKey, previousBookings + 1);
+  }
+
   const items = Array.from(products.values()).map((product) => {
     const buyerCount = product.buyers.size;
     const trendBase = max(1, product.earlyRevenue);
     const trend = (product.lateRevenue - product.earlyRevenue) / trendBase;
+    const bookingTrendBase = max(1, product.earlyBookings);
+    const bookingTrend = (product.lateBookings - product.earlyBookings) / bookingTrendBase;
+    const people = new Set([...product.buyers, ...product.bookingMembers]);
     return {
       key: product.key,
       label: product.label,
@@ -793,19 +906,273 @@ function groupProductHealth(rows) {
       repeatBuyerCount: product.repeatBuyers.size,
       firstTimerShare: buyerCount ? product.firstTimerBuyers.size / buyerCount : 0,
       memberShare: buyerCount ? product.memberBuyers.size / buyerCount : 0,
+      memberBookings: product.memberBookings,
+      bookingMemberCount: product.bookingMembers.size,
+      repeatBookingMemberCount: product.repeatBookingMembers.size,
+      totalDemand: product.tickets + product.memberBookings,
+      totalPeople: people.size,
+      bookingTrend,
       trend,
       earlyRevenue: product.earlyRevenue,
       lateRevenue: product.lateRevenue,
     };
-  }).sort((a, b) => b.revenue - a.revenue || b.buyerCount - a.buyerCount);
+  }).sort((a, b) => b.totalDemand - a.totalDemand || b.revenue - a.revenue);
 
   return {
     items,
     maxRevenue: Math.max(1, ...items.map((item) => item.revenue)),
+    maxDemand: Math.max(1, ...items.map((item) => item.totalDemand)),
   };
 }
 
-function groupCustomerSegments(rows) {
+function groupActivityExplorer(rows, bookings = [], options = {}) {
+  const identityRows = Array.isArray(options.identityRows) ? options.identityRows : rows;
+  const membershipRows = identityRows.filter(isPaidMembershipRow).sort((a, b) => a.date - b.date);
+  const membershipKeys = new Set(membershipRows.map((row) => row.customerKey));
+  const firstMembershipByCustomer = new Map();
+  for (const row of membershipRows) {
+    if (!firstMembershipByCustomer.has(row.customerKey)) firstMembershipByCustomer.set(row.customerKey, row.date.getTime());
+  }
+
+  const catalog = new Map();
+  const eventsByCustomer = new Map();
+  const ensureItem = (key, label, type) => {
+    if (!catalog.has(key)) {
+      catalog.set(key, {
+        key,
+        label: label || "Unknown activity",
+        type: type || "Activity",
+        labelCounts: new Map(),
+        events: [],
+        revenue: 0,
+        paidTickets: 0,
+        bookings: 0,
+        membershipBookings: 0,
+        otherBookings: 0,
+        paidBuyers: new Set(),
+        bookingPeople: new Set(),
+        rooms: new Map(),
+        bookingTimes: new Map(),
+        weekdays: new Map(),
+      });
+    }
+    const item = catalog.get(key);
+    if (type === "Event") item.type = "Event";
+    item.labelCounts.set(label, (item.labelCounts.get(label) || 0) + 1);
+    return item;
+  };
+  const addPersonEvent = (event) => {
+    if (!eventsByCustomer.has(event.customerKey)) eventsByCustomer.set(event.customerKey, []);
+    eventsByCustomer.get(event.customerKey).push(event);
+  };
+
+  for (const row of rows.filter((row) => row.totalPrice > 0.0001 && isActivityOrEventRow(row))) {
+    const label = activityExplorerDisplayLabel(row.text);
+    const key = activityNodeKey(label);
+    if (!key) continue;
+    const type = row.itemType === "event" ? "Event" : "Activity";
+    const units = Math.max(1, Number(row.quantity) || 1);
+    const event = {
+      key,
+      label,
+      type,
+      customerKey: row.customerKey,
+      timestamp: row.date.getTime(),
+      date: row.date,
+      source: "paid",
+      units,
+      revenue: row.totalPrice,
+    };
+    const item = ensureItem(key, label, type);
+    item.events.push(event);
+    item.revenue += row.totalPrice;
+    item.paidTickets += units;
+    item.paidBuyers.add(row.customerKey);
+    addPersonEvent(event);
+  }
+
+  for (const booking of bookings) {
+    const label = activityExplorerDisplayLabel(booking.className);
+    const key = activityNodeKey(label);
+    if (!key) continue;
+    const event = {
+      key,
+      label,
+      type: "Activity",
+      customerKey: booking.customerKey,
+      timestamp: booking.startAt?.getTime?.() || booking.date.getTime(),
+      date: booking.date,
+      source: "booking",
+      units: 1,
+      revenue: 0,
+      isMembershipBooking: booking.isMembershipBooking,
+    };
+    const item = ensureItem(key, label, "Activity");
+    item.events.push(event);
+    item.bookings += 1;
+    if (booking.isMembershipBooking) item.membershipBookings += 1;
+    else item.otherBookings += 1;
+    item.bookingPeople.add(booking.customerKey);
+    const room = cleanValue(booking.room);
+    if (room) item.rooms.set(room, (item.rooms.get(room) || 0) + 1);
+    const start = booking.startAt;
+    if (start instanceof Date && !Number.isNaN(start.getTime())) {
+      const timeLabel = `${String(start.getHours()).padStart(2, "0")}:${String(start.getMinutes()).padStart(2, "0")}`;
+      item.bookingTimes.set(timeLabel, (item.bookingTimes.get(timeLabel) || 0) + 1);
+      const weekdayLabel = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"][start.getDay()];
+      item.weekdays.set(weekdayLabel, (item.weekdays.get(weekdayLabel) || 0) + 1);
+    }
+    addPersonEvent(event);
+  }
+
+  for (const events of eventsByCustomer.values()) events.sort((a, b) => a.timestamp - b.timestamp || a.key.localeCompare(b.key));
+
+  const items = Array.from(catalog.values()).map((item) => {
+    const label = Array.from(item.labelCounts.entries())
+      .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))[0]?.[0] || item.label;
+    const selectedByCustomer = new Map();
+    for (const event of item.events) {
+      if (!selectedByCustomer.has(event.customerKey)) selectedByCustomer.set(event.customerKey, []);
+      selectedByCustomer.get(event.customerKey).push(event);
+    }
+    const people = new Set(selectedByCustomer.keys());
+    const related = new Map();
+    const previous = new Map();
+    const next = new Map();
+    const daysToNext = [];
+    let repeatPeople = 0;
+    let paidOnlyPeople = 0;
+    let bookingOnlyPeople = 0;
+    let mixedPeople = 0;
+    let subscribersAtSelection = 0;
+    let subscribedLater = 0;
+    let neverSubscribed = 0;
+    let firstElementPeople = 0;
+    let lastElementPeople = 0;
+    let singleElementPeople = 0;
+    let multiElementPeople = 0;
+    let explorerPeople = 0;
+
+    for (const [customerKey, selectedEvents] of selectedByCustomer.entries()) {
+      selectedEvents.sort((a, b) => a.timestamp - b.timestamp || a.source.localeCompare(b.source));
+      const allEvents = eventsByCustomer.get(customerKey) || [];
+      const firstSelected = selectedEvents[0];
+      const selectedUse = selectedEvents.reduce((total, event) => total + event.units, 0);
+      if (selectedUse > 1) repeatPeople += 1;
+      const hasPaid = selectedEvents.some((event) => event.source === "paid");
+      const hasBooking = selectedEvents.some((event) => event.source === "booking");
+      if (hasPaid && hasBooking) mixedPeople += 1;
+      else if (hasPaid) paidOnlyPeople += 1;
+      else bookingOnlyPeople += 1;
+
+      const firstMembershipMs = firstMembershipByCustomer.get(customerKey);
+      if (firstMembershipMs != null && firstMembershipMs <= firstSelected.timestamp) subscribersAtSelection += 1;
+      else if (firstMembershipMs != null) subscribedLater += 1;
+      else neverSubscribed += 1;
+
+      const uniqueKeys = new Set(allEvents.map((event) => event.key));
+      if (uniqueKeys.size <= 1) singleElementPeople += 1;
+      else if (uniqueKeys.size <= 3) multiElementPeople += 1;
+      else explorerPeople += 1;
+      if (allEvents[0]?.key === item.key) firstElementPeople += 1;
+      if (allEvents.at(-1)?.key === item.key) lastElementPeople += 1;
+
+      const priorEvent = [...allEvents].reverse().find((event) => event.timestamp < firstSelected.timestamp && event.key !== item.key);
+      const nextEvent = allEvents.find((event) => event.timestamp > firstSelected.timestamp && event.key !== item.key);
+      if (priorEvent) addActivityExplorerRelation(previous, priorEvent, customerKey);
+      if (nextEvent) {
+        addActivityExplorerRelation(next, nextEvent, customerKey);
+        daysToNext.push((nextEvent.timestamp - firstSelected.timestamp) / 86400000);
+      }
+      for (const otherKey of uniqueKeys) {
+        if (otherKey === item.key) continue;
+        const otherEvent = allEvents.find((event) => event.key === otherKey);
+        if (otherEvent) addActivityExplorerRelation(related, otherEvent, customerKey);
+      }
+    }
+
+    const totalPeople = people.size;
+    const relationList = (map) => Array.from(map.values()).map((entry) => ({
+      key: entry.key,
+      label: entry.label,
+      type: entry.type,
+      people: entry.people.size,
+      share: totalPeople ? entry.people.size / totalPeople : 0,
+    })).sort((a, b) => b.people - a.people || a.label.localeCompare(b.label)).slice(0, 10);
+    const rankedCounts = (map, limit = 5) => Array.from(map.entries())
+      .map(([label, count]) => ({ label, count }))
+      .sort((a, b) => b.count - a.count || a.label.localeCompare(b.label))
+      .slice(0, limit);
+    const sourceLabel = item.paidTickets > 0 && item.bookings > 0
+      ? "Paid tickets + bookings"
+      : item.paidTickets > 0 ? "Paid tickets" : "Bookings";
+    return {
+      key: item.key,
+      label,
+      type: item.type,
+      sourceLabel,
+      revenue: item.revenue,
+      paidTickets: item.paidTickets,
+      paidBuyerCount: item.paidBuyers.size,
+      bookings: item.bookings,
+      membershipBookings: item.membershipBookings,
+      otherBookings: item.otherBookings,
+      bookingPeopleCount: item.bookingPeople.size,
+      totalRecordedUse: item.paidTickets + item.bookings,
+      totalPeople,
+      repeatPeople,
+      repeatRate: totalPeople ? repeatPeople / totalPeople : 0,
+      paidOnlyPeople,
+      bookingOnlyPeople,
+      mixedPeople,
+      subscribersAtSelection,
+      subscribedLater,
+      neverSubscribed,
+      knownSubscriberCount: Array.from(people).filter((customerKey) => membershipKeys.has(customerKey)).length,
+      firstElementPeople,
+      firstElementRate: totalPeople ? firstElementPeople / totalPeople : 0,
+      lastElementPeople,
+      lastElementRate: totalPeople ? lastElementPeople / totalPeople : 0,
+      singleElementPeople,
+      multiElementPeople,
+      explorerPeople,
+      medianDaysToNext: median(daysToNext),
+      related: relationList(related),
+      previous: relationList(previous),
+      next: relationList(next),
+      bookingTimes: rankedCounts(item.bookingTimes),
+      weekdays: rankedCounts(item.weekdays, 7),
+      rooms: rankedCounts(item.rooms),
+    };
+  }).sort((a, b) => a.label.localeCompare(b.label));
+
+  const defaultItem = [...items].sort((a, b) => b.totalRecordedUse - a.totalRecordedUse || a.label.localeCompare(b.label))[0];
+  return {
+    items,
+    defaultKey: defaultItem?.key || "",
+    itemCount: items.length,
+    maxUse: items.reduce((highest, item) => Math.max(highest, item.totalRecordedUse), 1),
+  };
+}
+
+function addActivityExplorerRelation(map, event, customerKey) {
+  if (!map.has(event.key)) {
+    map.set(event.key, {
+      key: event.key,
+      label: event.label,
+      type: event.type,
+      people: new Set(),
+    });
+  }
+  map.get(event.key).people.add(customerKey);
+}
+
+function activityExplorerDisplayLabel(value) {
+  const label = cleanValue(value) || "Unknown activity";
+  return label.replace(/\s*\((?=[^)]*(?:free\s+for|non[-\s]?members?|\b\d+[.,]?\d*\s*kr\b))[^)]*\)\s*$/i, "").trim() || label;
+}
+
+function groupCustomerSegments(rows, bookings = []) {
   const journeyRows = rows
     .filter((row) => row.totalPrice > 0.0001 || isCrewMembershipRow(row))
     .filter((row) => isActivityOrEventRow(row) || isMembershipSubscriptionRow(row) || isCrewMembershipRow(row))
@@ -821,7 +1188,10 @@ function groupCustomerSegments(rows) {
         ticketWeeks: new Set(),
         ticketQuarters: new Set(),
         hasMembership: false,
+        hasMembershipSale: false,
         hasCrew: false,
+        bookingCount: 0,
+        bookingWeeks: new Set(),
         firstDate: row.date,
         lastDate: row.date,
         items: new Map(),
@@ -842,6 +1212,7 @@ function groupCustomerSegments(rows) {
     }
     if (isPaidMembershipRow(row)) {
       customer.hasMembership = true;
+      customer.hasMembershipSale = true;
       customer.events.push("membership");
     }
     if (isCrewMembershipRow(row)) {
@@ -850,12 +1221,44 @@ function groupCustomerSegments(rows) {
     }
   }
 
-  const customers = Array.from(byCustomer.values()).filter((customer) => customer.revenue > 0 || customer.ticketCount > 0 || customer.hasCrew);
+  for (const booking of bookings.filter((item) => item.isMembershipBooking)) {
+    if (!byCustomer.has(booking.customerKey)) {
+      byCustomer.set(booking.customerKey, {
+        customerKey: booking.customerKey,
+        revenue: 0,
+        ticketCount: 0,
+        ticketWeeks: new Set(),
+        ticketQuarters: new Set(),
+        hasMembership: true,
+        hasMembershipSale: false,
+        hasCrew: false,
+        bookingCount: 0,
+        bookingWeeks: new Set(),
+        firstDate: booking.date,
+        lastDate: booking.date,
+        items: new Map(),
+        events: [],
+      });
+    }
+    const customer = byCustomer.get(booking.customerKey);
+    customer.hasMembership = true;
+    customer.bookingCount += 1;
+    customer.bookingWeeks.add(periodKey(booking.date, "week"));
+    customer.firstDate = minDate(customer.firstDate, booking.date);
+    customer.lastDate = maxDate(customer.lastDate, booking.date);
+    customer.items.set(booking.className, (customer.items.get(booking.className) || 0) + 1);
+    customer.events.push("booking");
+  }
+
+  const customers = Array.from(byCustomer.values()).filter((customer) => customer.revenue > 0 || customer.ticketCount > 0 || customer.bookingCount > 0 || customer.hasCrew);
   const positiveRevenue = customers.map((customer) => customer.revenue).filter((value) => value > 0).sort((a, b) => a - b);
   const highValueThreshold = positiveRevenue.length ? positiveRevenue[Math.floor(positiveRevenue.length * 0.9)] : Infinity;
   const segmentOrder = [
     "crew",
-    "members",
+    "activeSubscribers",
+    "lowUseSubscribers",
+    "inactiveSubscribers",
+    "bookingOnly",
     "highValue",
     "recurringTickets",
     "seasonalReturners",
@@ -863,7 +1266,10 @@ function groupCustomerSegments(rows) {
   ];
   const segmentLabels = {
     crew: "Crew",
-    members: "Members",
+    activeSubscribers: "High-use paid subscribers",
+    lowUseSubscribers: "Low-use paid subscribers",
+    inactiveSubscribers: "Paid subscribers with no booking",
+    bookingOnly: "Bookings without matched subscription sale",
     highValue: "High-value supporters",
     recurringTickets: "Recurring ticket buyers",
     seasonalReturners: "Seasonal returners",
@@ -900,6 +1306,7 @@ function groupCustomerSegments(rows) {
       revenue: segment.revenue,
       avgRevenue: count ? segment.revenue / count : 0,
       avgTickets: count ? segment.customers.reduce((total, customer) => total + customer.ticketCount, 0) / count : 0,
+      avgBookings: count ? segment.customers.reduce((total, customer) => total + customer.bookingCount, 0) / count : 0,
       favoriteActivities: Array.from(segment.items.entries())
         .map(([label, count]) => ({ label, count }))
         .sort((a, b) => b.count - a.count || a.label.localeCompare(b.label))
@@ -922,7 +1329,10 @@ function groupCustomerSegments(rows) {
 
 function customerSegmentKey(customer, highValueThreshold) {
   if (customer.hasCrew) return "crew";
-  if (customer.hasMembership) return "members";
+  if (customer.hasMembershipSale && customer.bookingCount >= 4) return "activeSubscribers";
+  if (customer.hasMembershipSale && customer.bookingCount > 0) return "lowUseSubscribers";
+  if (customer.hasMembershipSale) return "inactiveSubscribers";
+  if (customer.bookingCount > 0) return "bookingOnly";
   if (customer.revenue >= highValueThreshold && customer.revenue > 0) return "highValue";
   if (customer.ticketCount >= 5 || customer.ticketWeeks.size >= 3) return "recurringTickets";
   if (customer.ticketQuarters.size >= 2) return "seasonalReturners";
@@ -937,12 +1347,13 @@ function customerJourneyPattern(customer) {
   if (!unique.length) return "No ticket journey";
   return unique.slice(0, 4).map((event) => {
     if (event === "ticket") return "Ticket";
-    if (event === "membership") return "Member";
+    if (event === "membership") return "Paid subscription";
+    if (event === "booking") return "Subscription booking";
     return "Crew";
   }).join(" -> ");
 }
 
-function groupExitPoints(rows) {
+function groupExitPoints(rows, bookings = []) {
   const journeyRows = rows
     .filter((row) => row.totalPrice > 0.0001 || isCrewMembershipRow(row))
     .filter((row) => isActivityOrEventRow(row) || isMembershipSubscriptionRow(row) || isCrewMembershipRow(row))
@@ -961,13 +1372,32 @@ function groupExitPoints(rows) {
       });
     }
     const customer = byCustomer.get(row.customerKey);
-    customer.rows.push(row);
+    customer.rows.push({ ...row, source: "sale" });
     customer.revenue += row.totalPrice;
+  }
+
+  for (const booking of bookings.filter((item) => item.isMembershipBooking)) {
+    if (!byCustomer.has(booking.customerKey)) {
+      byCustomer.set(booking.customerKey, {
+        customerKey: booking.customerKey,
+        label: booking.realLabel,
+        realLabel: booking.realLabel,
+        anonymousLabel: booking.anonymousLabel,
+        rows: [],
+        revenue: 0,
+      });
+    }
+    byCustomer.get(booking.customerKey).rows.push({
+      ...booking,
+      source: "booking",
+      totalPrice: 0,
+    });
   }
 
   const exits = new Map();
   const typeTotals = new Map();
   for (const customer of byCustomer.values()) {
+    customer.rows.sort((a, b) => a.date - b.date || (a.source === "sale" ? -1 : 1));
     const last = customer.rows.at(-1);
     if (!last) continue;
     const exit = exitPointForRow(last);
@@ -1022,6 +1452,10 @@ function groupExitPoints(rows) {
 }
 
 function exitPointForRow(row) {
+  if (row.source === "booking") {
+    const key = activityNodeKey(row.className) || "unknown subscription booking";
+    return { key: `booking:${key}`, label: row.className || "Unknown class", type: "Subscription booking" };
+  }
   if (isCrewMembershipRow(row)) return { key: "__crew", label: "Crew membership", type: "Crew" };
   if (isPaidMembershipRow(row)) return { key: "__membership", label: "Membership", type: "Membership" };
   const key = activityNodeKey(row.text) || "unknown exit";
@@ -1035,10 +1469,14 @@ function exitPointForRow(row) {
 function groupMembershipLength(rows, options = {}) {
   const defaultCoverageDays = 35;
   const continuousRenewalDays = 62;
-  const dataEndDate = getLastRowDate(rows);
   const rangeStartMs = Number(options.rangeStartMs) || null;
   const rangeEndMs = Number(options.rangeEndMs) || null;
   const timeBucket = options.timeBucket || "week";
+  const bookingRows = (options.bookingRows || []).filter((booking) => booking.isMembershipBooking);
+  const dataEndDate = [getLastRowDate(rows), ...bookingRows.map((booking) => booking.date)]
+    .filter(Boolean)
+    .sort((a, b) => a - b)
+    .at(-1) || null;
   const paidMembershipRows = rows
     .filter(isPaidMembershipRow)
     .sort((a, b) => a.date - b.date);
@@ -1097,9 +1535,21 @@ function groupMembershipLength(rows, options = {}) {
     }
   }
 
+  for (const span of spans) {
+    const spanBookings = bookingRows.filter((booking) => (
+      booking.customerKey === span.customerKey &&
+      startOfHopDayMs(booking.date) >= startOfHopDayMs(span.startDate) &&
+      startOfHopDayMs(booking.date) <= startOfHopDayMs(span.endDate)
+    )).sort((a, b) => a.date - b.date);
+    span.bookingCount = spanBookings.length;
+    span.bookingPeriods = new Set(spanBookings.map((booking) => periodKey(booking.date, timeBucket))).size;
+    span.lastBookingDate = spanBookings.at(-1)?.date || null;
+    span.bookingsPerMonth = span.months ? span.bookingCount / span.months : 0;
+  }
+
   const visibleSpans = membershipSpansInRange(spans, rangeStartMs, rangeEndMs);
   const buckets = membershipLengthBuckets(visibleSpans);
-  const distribution = membershipDistributionTimeline(spans, rangeStartMs, rangeEndMs, timeBucket, dataEndDate);
+  const distribution = membershipDistributionTimeline(spans, rangeStartMs, rangeEndMs, timeBucket, dataEndDate, bookingRows);
   const activeSpans = visibleSpans.filter((span) => span.active);
   const endedSpans = visibleSpans.filter((span) => !span.active);
   const avgMonths = visibleSpans.length ? visibleSpans.reduce((total, span) => total + span.months, 0) / visibleSpans.length : 0;
@@ -1116,12 +1566,15 @@ function groupMembershipLength(rows, options = {}) {
     endedCount: endedSpans.length,
     avgMonths,
     medianMonths,
+    bookingCount: visibleSpans.reduce((total, span) => total + (span.bookingCount || 0), 0),
+    noBookingCount: visibleSpans.filter((span) => !span.bookingCount).length,
+    avgBookingsPerSpan: visibleSpans.length ? visibleSpans.reduce((total, span) => total + (span.bookingCount || 0), 0) / visibleSpans.length : 0,
     maxBucketCount: Math.max(1, ...buckets.map((bucket) => bucket.total)),
     maxTypeCount: Math.max(1, ...types.map((type) => type.count)),
   };
 }
 
-function membershipDistributionTimeline(spans, rangeStartMs, rangeEndMs, timeBucket, dataEndDate) {
+function membershipDistributionTimeline(spans, rangeStartMs, rangeEndMs, timeBucket, dataEndDate, bookings = []) {
   if (!rangeStartMs || !rangeEndMs || rangeEndMs < rangeStartMs) return { months: [], buckets: membershipDistributionBuckets(), maxTotal: 1 };
   const buckets = membershipDistributionBuckets();
   const months = [];
@@ -1131,7 +1584,15 @@ function membershipDistributionTimeline(spans, rangeStartMs, rangeEndMs, timeBuc
     const key = periodKey(cursor, timeBucket);
     const snapshot = periodSnapshotDate(key, timeBucket, dataEndDate);
     const snapshotMs = Math.min(snapshot.getTime(), rangeEndMs);
-    const entry = { month: key, total: 0 };
+    const periodStart = startOfHopDayMs(cursor);
+    const periodEnd = Math.min(periodEndMsForKey(key, timeBucket), rangeEndMs);
+    const bookingKeys = new Set(bookings
+      .filter((booking) => {
+        const time = startOfHopDayMs(booking.date);
+        return time >= periodStart && time <= periodEnd;
+      })
+      .map((booking) => booking.customerKey));
+    const entry = { month: key, total: 0, bookedMembers: 0, noBookingMembers: 0 };
     for (const bucket of buckets) entry[bucket.key] = 0;
 
     for (const span of spans) {
@@ -1140,6 +1601,8 @@ function membershipDistributionTimeline(spans, rangeStartMs, rangeEndMs, timeBuc
       const bucket = buckets.find((item) => monthsActive > item.min && monthsActive <= item.max) || buckets.at(0);
       entry[bucket.key] += 1;
       entry.total += 1;
+      if (bookingKeys.has(span.customerKey)) entry.bookedMembers += 1;
+      else entry.noBookingMembers += 1;
     }
 
     months.push(entry);
@@ -1197,13 +1660,15 @@ function membershipLengthBuckets(spans) {
     { key: "6-12", label: "6-12 mo", min: 6, max: 12 },
     { key: "12-24", label: "1-2 yr", min: 12, max: 24 },
     { key: "24+", label: "2+ yr", min: 24, max: Infinity },
-  ].map((bucket) => ({ ...bucket, total: 0, active: 0, ended: 0 }));
+  ].map((bucket) => ({ ...bucket, total: 0, active: 0, ended: 0, bookings: 0, noBooking: 0 }));
 
   for (const span of spans) {
     const bucket = buckets.find((item) => span.months >= item.min && span.months < item.max) || buckets.at(-1);
     bucket.total += 1;
     if (span.active) bucket.active += 1;
     else bucket.ended += 1;
+    bucket.bookings += span.bookingCount || 0;
+    if (!span.bookingCount) bucket.noBooking += 1;
   }
   return buckets;
 }
@@ -1211,11 +1676,13 @@ function membershipLengthBuckets(spans) {
 function membershipLengthTypes(spans) {
   const byType = new Map();
   for (const span of spans) {
-    if (!byType.has(span.primaryType)) byType.set(span.primaryType, { label: span.primaryType, count: 0, months: 0, active: 0 });
+    if (!byType.has(span.primaryType)) byType.set(span.primaryType, { label: span.primaryType, count: 0, months: 0, active: 0, bookings: 0, noBooking: 0 });
     const entry = byType.get(span.primaryType);
     entry.count += 1;
     entry.months += span.months;
     if (span.active) entry.active += 1;
+    entry.bookings += span.bookingCount || 0;
+    if (!span.bookingCount) entry.noBooking += 1;
   }
   return Array.from(byType.values()).map((entry) => ({
     ...entry,
@@ -1230,7 +1697,7 @@ function median(values) {
   return sorted.length % 2 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
 }
 
-function groupUserNetwork(rows) {
+function groupUserNetwork(rows, bookings = []) {
   const ticketRows = rows
     .filter((row) => row.itemType === "class_pass_type" || row.itemType === "event")
     .sort((a, b) => a.date - b.date);
@@ -1248,6 +1715,7 @@ function groupUserNetwork(rows) {
         tickets: 0,
         activities: new Set(),
         events: new Set(),
+        memberBookings: 0,
       });
     }
     const user = usersByKey.get(row.customerKey);
@@ -1260,6 +1728,28 @@ function groupUserNetwork(rows) {
 
     if (!buyersByActivity.has(activityKey)) buyersByActivity.set(activityKey, new Set());
     buyersByActivity.get(activityKey).add(row.customerKey);
+  }
+
+  for (const booking of bookings.filter((item) => item.isMembershipBooking)) {
+    if (!usersByKey.has(booking.customerKey)) {
+      usersByKey.set(booking.customerKey, {
+        key: booking.customerKey,
+        label: booking.realLabel,
+        realLabel: booking.realLabel,
+        anonymousLabel: booking.anonymousLabel,
+        revenue: 0,
+        tickets: 0,
+        activities: new Set(),
+        events: new Set(),
+        memberBookings: 0,
+      });
+    }
+    const user = usersByKey.get(booking.customerKey);
+    const activityKey = activityNodeKey(booking.className);
+    user.memberBookings += 1;
+    user.activities.add(activityKey);
+    if (!buyersByActivity.has(activityKey)) buyersByActivity.set(activityKey, new Set());
+    buyersByActivity.get(activityKey).add(booking.customerKey);
   }
 
   const linksByKey = new Map();
@@ -1279,8 +1769,9 @@ function groupUserNetwork(rows) {
     activityCount: user.activities.size,
     eventCount: user.events.size,
     avgExperience: user.activities.size + user.events.size,
+    totalInteractions: user.tickets + user.memberBookings,
     type: user.activities.size + user.events.size > 3 ? "Recurring" : "Occasional",
-  })).sort((a, b) => b.tickets - a.tickets);
+  })).sort((a, b) => b.totalInteractions - a.totalInteractions);
 
   const nodeKeys = new Set(nodes.map((node) => node.key));
   const links = Array.from(linksByKey.values())
@@ -1293,10 +1784,11 @@ function groupUserNetwork(rows) {
     maxRevenue: Math.max(1, ...nodes.map((node) => node.revenue)),
     maxTickets: Math.max(1, ...nodes.map((node) => node.tickets)),
     maxExperience: Math.max(1, ...nodes.map((node) => node.avgExperience)),
+    maxInteractions: Math.max(1, ...nodes.map((node) => node.totalInteractions)),
   };
 }
 
-function groupBuyerPatterns(rows, timeBucket) {
+function groupBuyerPatterns(rows, timeBucket, bookings = []) {
   const journeyRows = rows.filter((row) => row.itemType === "class_pass_type" || row.itemType === "event" || isMembershipSubscriptionRow(row) || isCrewMembershipRow(row));
   const byCustomer = new Map();
 
@@ -1347,20 +1839,67 @@ function groupBuyerPatterns(rows, timeBucket) {
     });
   }
 
+  for (const booking of bookings.filter((item) => item.isMembershipBooking)) {
+    if (!byCustomer.has(booking.customerKey)) {
+      byCustomer.set(booking.customerKey, {
+        customerKey: booking.customerKey,
+        label: booking.realLabel,
+        realLabel: booking.realLabel,
+        anonymousLabel: booking.anonymousLabel,
+        firstDate: booking.date,
+        lastDate: booking.date,
+        firstTouchpointDate: booking.date,
+        firstTouchpointType: "booking",
+        firstTouchpointLabel: "Subscription booking",
+        firstTouchpointText: booking.className,
+        lastTouchpointDate: booking.date,
+        lastTouchpointType: "booking",
+        lastTouchpointLabel: "Subscription booking",
+        lastTouchpointText: booking.className,
+        events: [],
+      });
+    }
+    const buyer = byCustomer.get(booking.customerKey);
+    if (booking.date <= buyer.firstTouchpointDate) {
+      buyer.firstTouchpointDate = booking.date;
+      buyer.firstTouchpointType = "booking";
+      buyer.firstTouchpointLabel = "Subscription booking";
+      buyer.firstTouchpointText = booking.className;
+    }
+    buyer.firstDate = minDate(buyer.firstDate, booking.date);
+    buyer.lastDate = maxDate(buyer.lastDate, booking.date);
+    if (booking.date >= buyer.lastTouchpointDate) {
+      buyer.lastTouchpointDate = booking.date;
+      buyer.lastTouchpointType = "booking";
+      buyer.lastTouchpointLabel = "Subscription booking";
+      buyer.lastTouchpointText = booking.className;
+    }
+    buyer.events.push({
+      date: booking.date,
+      kind: "booking",
+      item: booking.className,
+      revenue: 0,
+      tickets: 0,
+      bookings: 1,
+    });
+  }
+
   const journeys = Array.from(byCustomer.values()).map((buyer) => {
     const periods = new Map();
     for (const event of buyer.events) {
       const offset = journeyOffset(buyer.firstDate, event.date, timeBucket);
       if (!periods.has(offset)) {
-        periods.set(offset, { offset, tickets: 0, revenue: 0, hasTicket: false, hasMembership: false, hasCrew: false, items: new Map() });
+        periods.set(offset, { offset, tickets: 0, bookings: 0, revenue: 0, hasTicket: false, hasMembership: false, hasCrew: false, hasBooking: false, items: new Map() });
       }
       const period = periods.get(offset);
       period.tickets += event.tickets;
+      period.bookings += event.bookings || 0;
       period.revenue += event.revenue;
       if (event.item) period.items.set(event.item, (period.items.get(event.item) || 0) + 1);
       if (event.kind === "ticket") period.hasTicket = true;
       if (event.kind === "membership") period.hasMembership = true;
       if (event.kind === "crew") period.hasCrew = true;
+      if (event.kind === "booking") period.hasBooking = true;
     }
     const sortedPeriods = Array.from(periods.values()).map((period) => ({
       ...period,
@@ -1373,10 +1912,12 @@ function groupBuyerPatterns(rows, timeBucket) {
     const ticketBeforeMembership = firstMembership !== null && sortedPeriods.some((period) => period.hasTicket && period.offset < firstMembership);
     const ticketAfterMembership = firstMembership !== null && sortedPeriods.some((period) => period.hasTicket && period.offset > firstMembership);
     const hasTicket = sortedPeriods.some((period) => period.hasTicket);
+    const hasBooking = sortedPeriods.some((period) => period.hasBooking);
     return {
       ...buyer,
       periods: sortedPeriods,
       totalTickets: sortedPeriods.reduce((total, period) => total + period.tickets, 0),
+      totalBookings: sortedPeriods.reduce((total, period) => total + period.bookings, 0),
       revenue: sortedPeriods.reduce((total, period) => total + period.revenue, 0),
       span: sortedPeriods.at(-1)?.offset || 0,
       firstMembership,
@@ -1386,12 +1927,12 @@ function groupBuyerPatterns(rows, timeBucket) {
         : firstMembership !== null && firstCrew !== null
           ? firstCrew < firstMembership ? "Crew to membership" : "Membership plus crew"
           : firstMembership === null
-        ? "Ticket only"
+        ? hasTicket && hasBooking ? "Tickets plus subscription bookings" : hasTicket ? "Ticket only" : "Booking only"
         : ticketBeforeMembership
-          ? "Ticket to membership"
+          ? hasBooking ? "Ticket to membership to booking" : "Ticket to membership"
           : ticketAfterMembership
             ? "Membership plus tickets"
-            : "Membership only",
+            : hasBooking ? "Membership with bookings" : "Membership no bookings",
     };
   }).sort((a, b) => b.revenue - a.revenue || b.span - a.span);
 
@@ -1401,7 +1942,8 @@ function groupBuyerPatterns(rows, timeBucket) {
       total: journeys.length,
       ticketOnly: journeys.filter((journey) => journey.pattern === "Ticket only").length,
       ticketToMembership: journeys.filter((journey) => journey.pattern === "Ticket to membership").length,
-      membershipOnly: journeys.filter((journey) => journey.pattern === "Membership only").length,
+      membershipOnly: journeys.filter((journey) => journey.pattern === "Membership no bookings").length,
+      membershipWithBookings: journeys.filter((journey) => journey.pattern.includes("booking")).length,
       crew: journeys.filter((journey) => journey.pattern.includes("Crew")).length,
     },
   };
@@ -1413,7 +1955,9 @@ function groupRetention(rows, timeBucket, options = {}) {
     .filter((row) => row.itemType === "class_pass_type" || row.itemType === "event" || (isMembershipSubscriptionRow(row) && !isCrewMembershipRow(row)))
     .sort((a, b) => a.date - b.date);
   const byCustomer = new Map();
-  const dataEndDate = getLastRowDate(activeRows);
+  const bookingRows = (options.bookingRows || []).filter((booking) => booking.isMembershipBooking);
+  const bookingEndDate = bookingRows.reduce((latest, booking) => maxDate(latest, booking.date), null);
+  const dataEndDate = maxDate(getLastRowDate(activeRows), bookingEndDate);
   const rangeStartMs = Number(options.rangeStartMs) || null;
   const rangeEndMs = Number(options.rangeEndMs) || null;
 
@@ -1423,11 +1967,17 @@ function groupRetention(rows, timeBucket, options = {}) {
         customerKey: row.customerKey,
         firstDate: row.date,
         rows: [],
+        bookings: [],
       });
     }
     const customer = byCustomer.get(row.customerKey);
     customer.firstDate = minDate(customer.firstDate, row.date);
     customer.rows.push(row);
+  }
+
+  for (const booking of bookingRows) {
+    const customer = byCustomer.get(booking.customerKey);
+    if (customer && booking.date >= customer.firstDate) customer.bookings.push(booking);
   }
 
   const cohorts = new Map();
@@ -1452,16 +2002,29 @@ function groupRetention(rows, timeBucket, options = {}) {
       const offset = journeyOffset(customer.firstDate, row.date, timeBucket);
       maxOffset = Math.max(maxOffset, offset);
       if (!cohort.offsets.has(offset)) {
-        cohort.offsets.set(offset, { customers: new Set(), revenue: 0 });
+        cohort.offsets.set(offset, { customers: new Set(), purchaseCustomers: new Set(), bookingCustomers: new Set(), revenue: 0 });
       }
       const cell = cohort.offsets.get(offset);
       cell.revenue += row.totalPrice;
       cell.customers.add(customer.customerKey);
+      cell.purchaseCustomers.add(customer.customerKey);
+      seenOffsets.add(offset);
+    }
+
+    for (const booking of customer.bookings) {
+      const offset = journeyOffset(customer.firstDate, booking.date, timeBucket);
+      maxOffset = Math.max(maxOffset, offset);
+      if (!cohort.offsets.has(offset)) {
+        cohort.offsets.set(offset, { customers: new Set(), purchaseCustomers: new Set(), bookingCustomers: new Set(), revenue: 0 });
+      }
+      const cell = cohort.offsets.get(offset);
+      cell.customers.add(customer.customerKey);
+      cell.bookingCustomers.add(customer.customerKey);
       seenOffsets.add(offset);
     }
 
     if (!seenOffsets.has(0)) {
-      if (!cohort.offsets.has(0)) cohort.offsets.set(0, { customers: new Set(), revenue: 0 });
+      if (!cohort.offsets.has(0)) cohort.offsets.set(0, { customers: new Set(), purchaseCustomers: new Set(), bookingCustomers: new Set(), revenue: 0 });
       cohort.offsets.get(0).customers.add(customer.customerKey);
     }
   }
@@ -1473,6 +2036,8 @@ function groupRetention(rows, timeBucket, options = {}) {
     for (let offset = 0; offset <= maxOffset; offset += 1) {
       const cell = cohort.offsets.get(offset);
       const retained = cell?.customers.size || 0;
+      const purchased = cell?.purchaseCustomers.size || 0;
+      const booked = cell?.bookingCustomers.size || 0;
       const periodDate = addPeriods(cohortStartDate, offset, timeBucket);
       const possible = isRetentionOffsetPossible(cohortStartDate, offset, dataEndDate, timeBucket);
       const outOfScope = possible && rangeEndMs ? startOfHopDayMs(periodDate) > rangeEndMs : false;
@@ -1481,8 +2046,12 @@ function groupRetention(rows, timeBucket, options = {}) {
         possible,
         outOfScope,
         retained,
+        purchased,
+        booked,
         revenue: cell?.revenue || 0,
         rate: possible && size ? retained / size : 0,
+        purchaseRate: possible && size ? purchased / size : 0,
+        bookingRate: possible && size ? booked / size : 0,
       });
     }
     return {
@@ -1501,47 +2070,71 @@ function groupRetention(rows, timeBucket, options = {}) {
 
 function groupActivityPath(rows, options = {}) {
   const mode = options.mode === "range" ? "range" : "ever";
+  const sourceMode = ["purchase", "subscription", "combined"].includes(options.sourceMode) ? options.sourceMode : "combined";
   const rangeStartMs = Number(options.rangeStartMs) || null;
   const rangeEndMs = Number(options.rangeEndMs) || null;
-  const paidRows = rows
-    .filter((row) => row.totalPrice > 0.0001)
-    .sort((a, b) => a.date - b.date);
+  const bookingRows = (options.bookingRows || []).filter((booking) => booking.isMembershipBooking);
   const byCustomer = new Map();
+  const subscriberKeys = new Set(rows.filter(isPaidMembershipRow).map((row) => row.customerKey));
 
-  for (const row of paidRows) {
+  for (const row of rows.filter((item) => item.totalPrice > 0.0001)) {
+    if (!isActivityOrEventRow(row) && !isPaidMembershipRow(row)) continue;
     if (!byCustomer.has(row.customerKey)) byCustomer.set(row.customerKey, []);
-    byCustomer.get(row.customerKey).push(row);
+    byCustomer.get(row.customerKey).push({
+      customerKey: row.customerKey,
+      date: row.date,
+      timestamp: row.date.getTime(),
+      key: isPaidMembershipRow(row) ? "__membership" : activityNodeKey(row.text) || "unknown activity",
+      label: isPaidMembershipRow(row) ? "Subscription started" : cleanValue(row.text) || "Unknown activity",
+      type: isPaidMembershipRow(row) ? "Membership" : row.itemType === "event" ? "Event" : "Activity",
+      kind: isPaidMembershipRow(row) ? "membership" : "purchase",
+      revenue: row.totalPrice,
+    });
+  }
+  for (const booking of bookingRows) {
+    if (!byCustomer.has(booking.customerKey)) byCustomer.set(booking.customerKey, []);
+    byCustomer.get(booking.customerKey).push({
+      customerKey: booking.customerKey,
+      date: booking.date,
+      timestamp: booking.startAt?.getTime?.() || booking.date.getTime(),
+      key: `booking:${activityNodeKey(booking.className) || "unknown class"}`,
+      label: booking.className || "Unknown class",
+      type: "Subscription booking",
+      kind: "booking",
+      revenue: 0,
+    });
   }
 
   const rowsByFirst = new Map();
   const columnsByKey = new Map();
   let customerCount = 0;
+  const sourceKinds = sourceMode === "purchase" ? new Set(["purchase"]) : sourceMode === "subscription" ? new Set(["booking"]) : new Set(["purchase", "booking"]);
+  const targetKinds = sourceMode === "purchase" ? new Set(["purchase", "membership"]) : sourceMode === "subscription" ? new Set(["booking"]) : new Set(["purchase", "membership", "booking"]);
 
-  for (const customerRows of byCustomer.values()) {
-    const activityRows = customerRows.filter(isActivityOrEventRow);
+  for (const customerEvents of byCustomer.values()) {
+    const sortedEvents = customerEvents.sort((a, b) => a.timestamp - b.timestamp || a.kind.localeCompare(b.kind));
+    const candidateEvents = sortedEvents.filter((event) => sourceKinds.has(event.kind));
     const first = mode === "range"
-      ? activityRows.find((row) => isRowInActivityPathRange(row, rangeStartMs, rangeEndMs))
-      : activityRows[0];
+      ? candidateEvents.find((event) => isRowInActivityPathRange(event, rangeStartMs, rangeEndMs))
+      : candidateEvents[0];
     if (!first) continue;
     if (mode === "ever" && !isRowInActivityPathRange(first, rangeStartMs, rangeEndMs)) continue;
     customerCount += 1;
 
-    const firstKey = activityNodeKey(first.text) || "unknown first activity";
-    const firstLabel = cleanValue(first.text) || "Unknown activity";
-    if (!rowsByFirst.has(firstKey)) {
-      rowsByFirst.set(firstKey, {
-        key: firstKey,
-        label: firstLabel,
-        type: first.itemType === "event" ? "Event" : "Activity",
+    if (!rowsByFirst.has(first.key)) {
+      rowsByFirst.set(first.key, {
+        key: first.key,
+        label: first.label,
+        type: first.type,
         people: new Set(),
         targets: new Map(),
       });
     }
-    const source = rowsByFirst.get(firstKey);
+    const source = rowsByFirst.get(first.key);
     source.people.add(first.customerKey);
 
-    const next = customerRows.find((row) => row.date > first.date && (isActivityOrEventRow(row) || isPaidMembershipRow(row)));
-    const target = activityPathTarget(next);
+    const next = sortedEvents.find((event) => event.timestamp > first.timestamp && targetKinds.has(event.kind));
+    const target = next || { key: "__no_return", label: sourceMode === "subscription" ? "No further booking" : "No return", type: "No return", revenue: 0 };
     if (!source.targets.has(target.key)) {
       source.targets.set(target.key, {
         key: target.key,
@@ -1549,11 +2142,13 @@ function groupActivityPath(rows, options = {}) {
         type: target.type,
         people: new Set(),
         revenue: 0,
+        totalDays: 0,
       });
     }
     const cell = source.targets.get(target.key);
     cell.people.add(first.customerKey);
-    cell.revenue += next ? next.totalPrice : 0;
+    cell.revenue += target.revenue || 0;
+    if (next) cell.totalDays += Math.max(0, (next.timestamp - first.timestamp) / 86400000);
 
     if (!columnsByKey.has(target.key)) {
       columnsByKey.set(target.key, {
@@ -1578,6 +2173,7 @@ function groupActivityPath(rows, options = {}) {
       count: target.people.size,
       rate: size ? target.people.size / size : 0,
       revenue: target.revenue,
+      avgDaysToNext: target.people.size && target.key !== "__no_return" ? target.totalDays / target.people.size : null,
     })).sort((a, b) => b.count - a.count || a.label.localeCompare(b.label));
     return {
       key: row.key,
@@ -1605,6 +2201,8 @@ function groupActivityPath(rows, options = {}) {
     customerCount,
     maxCount: Math.max(1, ...pathRows.flatMap((row) => row.targets.map((target) => target.count))),
     mode,
+    sourceMode,
+    subscribersWithoutBookings: Array.from(subscriberKeys).filter((key) => !bookingRows.some((booking) => booking.customerKey === key)).length,
   };
 }
 
@@ -1612,6 +2210,230 @@ function isRowInActivityPathRange(row, rangeStartMs, rangeEndMs) {
   if (!rangeStartMs || !rangeEndMs) return true;
   const time = startOfHopDayMs(row.date);
   return time >= rangeStartMs && time <= rangeEndMs;
+}
+
+function groupIntroConversion(rows, bookings, options = {}) {
+  const rangeStartMs = Number(options.rangeStartMs) || null;
+  const rangeEndMs = Number(options.rangeEndMs) || null;
+  const windows = [7, 30, 60, 90];
+  const primaryWindowDays = 90;
+  const dayMs = 86400000;
+  const eventsByCustomer = new Map();
+  const salesByCustomer = new Map();
+  const firstMembershipRowByCustomer = new Map();
+
+  for (const row of rows.filter(isPaidMembershipRow).sort((a, b) => a.date - b.date)) {
+    if (!firstMembershipRowByCustomer.has(row.customerKey)) firstMembershipRowByCustomer.set(row.customerKey, row);
+  }
+
+  for (const row of rows) {
+    if (!salesByCustomer.has(row.customerKey)) salesByCustomer.set(row.customerKey, []);
+    salesByCustomer.get(row.customerKey).push(row);
+    if (!(row.totalPrice > 0.0001)) continue;
+
+    let event = null;
+    if (isActivityOrEventRow(row)) {
+      event = {
+        timestamp: row.date.getTime(),
+        outcomeKey: "paidClass",
+        outcomeLabel: row.itemType === "event" ? "Paid event" : "Paid class",
+        destinationLabel: cleanValue(row.text) || (row.itemType === "event" ? "Paid event" : "Paid class"),
+      };
+    } else if (isPaidMembershipRow(row) && firstMembershipRowByCustomer.get(row.customerKey) === row) {
+      event = {
+        timestamp: row.date.getTime(),
+        outcomeKey: "subscription",
+        outcomeLabel: "Started subscription",
+        destinationLabel: "Started subscription",
+      };
+    }
+    if (!event) continue;
+    if (!eventsByCustomer.has(row.customerKey)) eventsByCustomer.set(row.customerKey, []);
+    eventsByCustomer.get(row.customerKey).push(event);
+  }
+
+  const introSourcesByType = new Map(introConversionDefinitions().map((definition) => [definition.key, new Map()]));
+  for (const booking of bookings) {
+    const intro = introClassInfo(booking.className);
+    const timestamp = booking.startAt?.getTime?.() || booking.date.getTime();
+    const event = intro
+      ? {
+        timestamp,
+        outcomeKey: "anotherIntro",
+        outcomeLabel: "Another free introduction",
+        destinationLabel: intro.label,
+      }
+      : booking.isMembershipBooking
+        ? {
+          timestamp,
+          outcomeKey: "subscriptionBooking",
+          outcomeLabel: "Subscription booking",
+          destinationLabel: booking.className || "Unknown class",
+        }
+        : {
+          timestamp,
+          outcomeKey: "otherBooking",
+          outcomeLabel: "Other booking",
+          destinationLabel: booking.className || "Unknown class",
+        };
+    if (!eventsByCustomer.has(booking.customerKey)) eventsByCustomer.set(booking.customerKey, []);
+    eventsByCustomer.get(booking.customerKey).push(event);
+
+    if (!intro || !isRowInActivityPathRange(booking, rangeStartMs, rangeEndMs)) continue;
+    const sourceByCustomer = introSourcesByType.get(intro.key);
+    const existing = sourceByCustomer.get(booking.customerKey);
+    if (!existing || timestamp < existing.timestamp) {
+      sourceByCustomer.set(booking.customerKey, {
+        customerKey: booking.customerKey,
+        timestamp,
+        date: booking.date,
+        matchMethod: booking.matchMethod,
+      });
+    }
+  }
+
+  for (const events of eventsByCustomer.values()) events.sort((a, b) => a.timestamp - b.timestamp);
+  for (const customerRows of salesByCustomer.values()) customerRows.sort((a, b) => a.date - b.date);
+
+  const salesEndMs = rows.reduce((latest, row) => Math.max(latest, row.date?.getTime?.() || 0), 0);
+  const bookingEndMs = bookings.reduce((latest, booking) => Math.max(
+    latest,
+    booking.endAt?.getTime?.() || booking.startAt?.getTime?.() || booking.date?.getTime?.() || 0,
+  ), 0);
+  const dataEndMs = Math.max(salesEndMs, bookingEndMs);
+  const uniquePeople = new Set();
+  const cohorts = introConversionDefinitions().map((definition) => {
+    const sources = Array.from(introSourcesByType.get(definition.key).values());
+    for (const source of sources) uniquePeople.add(source.customerKey);
+    const journeys = sources.map((source) => {
+      const events = eventsByCustomer.get(source.customerKey) || [];
+      const nextEvents = events.filter((event) => event.timestamp > source.timestamp);
+      const next = nextEvents[0] || null;
+      const daysToNext = next ? (next.timestamp - source.timestamp) / dayMs : null;
+      const revenue90 = (salesByCustomer.get(source.customerKey) || [])
+        .filter((row) => row.date.getTime() > source.timestamp && row.date.getTime() <= source.timestamp + primaryWindowDays * dayMs)
+        .reduce((total, row) => total + row.totalPrice, 0);
+      return {
+        ...source,
+        next,
+        daysToNext,
+        revenue90,
+      };
+    });
+
+    const windowRates = windows.map((days) => {
+      const eligibleJourneys = journeys.filter((journey) => journey.timestamp + days * dayMs <= dataEndMs);
+      const continued = eligibleJourneys.filter((journey) => journey.next && journey.daysToNext <= days).length;
+      return {
+        days,
+        eligible: eligibleJourneys.length,
+        continued,
+        rate: eligibleJourneys.length ? continued / eligibleJourneys.length : 0,
+      };
+    });
+    const eligibleJourneys = journeys.filter((journey) => journey.timestamp + primaryWindowDays * dayMs <= dataEndMs);
+    const continuedJourneys = eligibleJourneys.filter((journey) => journey.next && journey.daysToNext <= primaryWindowDays);
+    const outcomeKeys = ["paidClass", "subscription", "subscriptionBooking", "otherBooking", "anotherIntro"];
+    const outcomes = outcomeKeys.map((key) => {
+      const count = continuedJourneys.filter((journey) => journey.next.outcomeKey === key).length;
+      return {
+        key,
+        label: introOutcomeLabel(key),
+        count,
+        rate: eligibleJourneys.length ? count / eligibleJourneys.length : 0,
+      };
+    });
+    const noReturnCount = Math.max(0, eligibleJourneys.length - continuedJourneys.length);
+    outcomes.push({
+      key: "noReturn",
+      label: "No later interaction",
+      count: noReturnCount,
+      rate: eligibleJourneys.length ? noReturnCount / eligibleJourneys.length : 0,
+    });
+    const destinationCounts = new Map();
+    for (const journey of continuedJourneys) {
+      const key = `${journey.next.outcomeKey}::${journey.next.destinationLabel}`;
+      if (!destinationCounts.has(key)) {
+        destinationCounts.set(key, {
+          key,
+          label: journey.next.destinationLabel,
+          type: journey.next.outcomeKey,
+          count: 0,
+        });
+      }
+      destinationCounts.get(key).count += 1;
+    }
+    const revenue90 = eligibleJourneys.reduce((total, journey) => total + journey.revenue90, 0);
+    return {
+      ...definition,
+      signups: journeys.length,
+      matched: journeys.filter((journey) => journey.matchMethod !== "unmatched").length,
+      matchRate: journeys.length ? journeys.filter((journey) => journey.matchMethod !== "unmatched").length / journeys.length : 0,
+      eligible90: eligibleJourneys.length,
+      pending90: journeys.length - eligibleJourneys.length,
+      continued90: continuedJourneys.length,
+      continuedRate90: eligibleJourneys.length ? continuedJourneys.length / eligibleJourneys.length : 0,
+      medianDays90: median(continuedJourneys.map((journey) => journey.daysToNext)),
+      revenue90,
+      avgRevenue90: eligibleJourneys.length ? revenue90 / eligibleJourneys.length : 0,
+      outcomes,
+      windowRates,
+      topDestinations: Array.from(destinationCounts.values())
+        .sort((a, b) => b.count - a.count || a.label.localeCompare(b.label))
+        .slice(0, 8),
+    };
+  });
+
+  const totalSignups = cohorts.reduce((total, cohort) => total + cohort.signups, 0);
+  const eligible90 = cohorts.reduce((total, cohort) => total + cohort.eligible90, 0);
+  const continued90 = cohorts.reduce((total, cohort) => total + cohort.continued90, 0);
+  const matched = cohorts.reduce((total, cohort) => total + cohort.matched, 0);
+  return {
+    cohorts,
+    windows,
+    dataEndMs,
+    summary: {
+      totalSignups,
+      uniquePeople: uniquePeople.size,
+      eligible90,
+      pending90: cohorts.reduce((total, cohort) => total + cohort.pending90, 0),
+      continued90,
+      continuedRate90: eligible90 ? continued90 / eligible90 : 0,
+      matched,
+      matchRate: totalSignups ? matched / totalSignups : 0,
+      revenue90: cohorts.reduce((total, cohort) => total + cohort.revenue90, 0),
+    },
+  };
+}
+
+function introConversionDefinitions() {
+  return [
+    { key: "houseOfPlay", label: "Introduction to House of Play" },
+    { key: "ropesAbsoluteBeginners", label: "Introduction to Ropes for Absolute Beginners" },
+  ];
+}
+
+function introClassInfo(className) {
+  const normalized = cleanValue(className).toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+  if (normalized.includes("introduction to ropes for absolute beginners")) {
+    return { key: "ropesAbsoluteBeginners", label: "Introduction to Ropes for Absolute Beginners" };
+  }
+  if (normalized.includes("introduction to house of play")) {
+    return { key: "houseOfPlay", label: "Introduction to House of Play" };
+  }
+  return null;
+}
+
+function introOutcomeLabel(key) {
+  const labels = {
+    paidClass: "Paid class or event",
+    subscription: "Started subscription",
+    subscriptionBooking: "Subscription booking",
+    otherBooking: "Other booking",
+    anotherIntro: "Another free introduction",
+    noReturn: "No later interaction",
+  };
+  return labels[key] || "Other interaction";
 }
 
 function startOfHopDayMs(date) {
@@ -1680,7 +2502,7 @@ function groupMembershipPipeline(rows) {
     stages: [
       { key: "ticket", label: "Ticket buyers", count: ticketBuyers.length },
       { key: "recurring", label: "Recurring ticket buyers", count: recurringTicketBuyers.length },
-      { key: "member", label: "Members", count: members.length },
+      { key: "member", label: "Paid subscribers", count: members.length },
       { key: "longterm", label: "Crew / long-term", count: longTermMembers.length },
     ],
     ticketBuyerCount: ticketBuyers.length,
@@ -1963,6 +2785,267 @@ function findStaffCompInvoiceIds(rows) {
     }
   }
   return invoiceIds;
+}
+
+function normalizeBookingRows(rows, salesRows = []) {
+  const identity = buildBookingIdentityIndex(salesRows);
+  return rows.map((row, index) => normalizeBookingRow(row, identity, index)).filter((row) => row.date);
+}
+
+function buildBookingIdentityIndex(salesRows) {
+  const byEmail = new Map();
+  const nameKeys = new Map();
+  const people = new Map();
+
+  for (const row of salesRows) {
+    if (!people.has(row.customerKey)) {
+      people.set(row.customerKey, {
+        customerKey: row.customerKey,
+        customerId: row.customerId,
+        customerName: row.customerName,
+        customerEmail: row.customerEmail,
+        realLabel: row.realLabel,
+        anonymousLabel: row.anonymousLabel,
+      });
+    }
+    const email = normalizeIdentityEmail(row.customerEmail);
+    if (email) byEmail.set(email, row.customerKey);
+    const name = normalizeIdentityName(row.customerName);
+    if (name) {
+      if (!nameKeys.has(name)) nameKeys.set(name, new Set());
+      nameKeys.get(name).add(row.customerKey);
+    }
+  }
+
+  return { byEmail, nameKeys, people };
+}
+
+function normalizeBookingRow(row, identity, sourceIndex = 0) {
+  const date = parseHopBookingDate(row.Date);
+  const startAt = combineHopBookingDateTime(date, row["Start Time"]);
+  let endAt = combineHopBookingDateTime(date, row["End Time"]);
+  if (startAt && endAt && endAt < startAt) endAt = addDays(endAt, 1);
+  const customerName = cleanValue(row.Customer);
+  const customerEmail = normalizeIdentityEmail(row.Email);
+  const normalizedName = normalizeIdentityName(customerName);
+  let customerKey = customerEmail ? identity.byEmail.get(customerEmail) : "";
+  let matchMethod = customerKey ? "email" : "";
+
+  if (!customerKey && normalizedName) {
+    const matches = identity.nameKeys.get(normalizedName);
+    if (matches?.size === 1) {
+      customerKey = Array.from(matches)[0];
+      matchMethod = "name";
+    }
+  }
+  if (!customerKey) {
+    customerKey = customerEmail
+      ? `booking-email:${customerEmail}`
+      : `booking-name:${normalizedName || stableHash(`${sourceIndex}:${customerName}`)}`;
+    matchMethod = "unmatched";
+  }
+
+  const salesPerson = identity.people.get(customerKey);
+  const realLabel = salesPerson?.realLabel || customerName || customerEmail || "Unknown customer";
+  const bookingType = cleanValue(row["Booking Type"]).toLowerCase();
+  const className = cleanValue(row["Class Type"]) || "Unknown class";
+  const booking = {
+    date,
+    startAt,
+    endAt,
+    customerKey,
+    customerName: salesPerson?.customerName || customerName,
+    customerEmail: salesPerson?.customerEmail || customerEmail,
+    label: realLabel,
+    realLabel,
+    anonymousLabel: salesPerson?.anonymousLabel || anonymousCustomerName(customerKey),
+    room: cleanValue(row.Room),
+    branch: cleanValue(row.Branch),
+    className,
+    bookingType,
+    bookingMethod: cleanValue(row["Booking Method"]),
+    isMembershipBooking: bookingType === "membership" || bookingType.includes("member"),
+    matchMethod,
+  };
+  booking.bookingKey = hopBookingKey(booking);
+  return booking;
+}
+
+function parseHopBookingDate(value) {
+  const text = cleanValue(value);
+  if (!text) return null;
+  const european = text.match(/^(\d{1,2})[.\/-](\d{1,2})[.\/-](\d{4})$/);
+  if (european) {
+    const day = Number(european[1]);
+    const month = Number(european[2]) - 1;
+    const year = Number(european[3]);
+    const date = new Date(year, month, day);
+    date.setHours(0, 0, 0, 0);
+    return date.getFullYear() === year && date.getMonth() === month && date.getDate() === day ? date : null;
+  }
+  return parseHopDate(text);
+}
+
+function combineHopBookingDateTime(date, value) {
+  if (!(date instanceof Date)) return null;
+  const match = cleanValue(value).match(/^(\d{1,2}):(\d{2})(?::(\d{2}))?$/);
+  if (!match) return null;
+  const result = new Date(date);
+  result.setHours(Number(match[1]), Number(match[2]), Number(match[3] || 0), 0);
+  return result;
+}
+
+function hopBookingKey(booking) {
+  return [
+    normalizeIdentityEmail(booking.customerEmail) || normalizeIdentityName(booking.customerName) || booking.customerKey,
+    booking.date ? startOfHopDayMs(booking.date) : "",
+    booking.startAt?.getTime?.() || "",
+    booking.endAt?.getTime?.() || "",
+    cleanValue(booking.room).toLowerCase(),
+    cleanValue(booking.className).toLowerCase(),
+  ].join("|");
+}
+
+function normalizeIdentityEmail(value) {
+  return cleanEmail(value).toLowerCase();
+}
+
+function normalizeIdentityName(value) {
+  return cleanValue(value).toLowerCase().replace(/\s+/g, " ");
+}
+
+function groupMemberEngagement(bookings, customers, membershipSpans, timeBucket, options = {}) {
+  const rangeStartMs = Number(options.rangeStartMs) || null;
+  const rangeEndMs = Number(options.rangeEndMs) || null;
+  const visibleBookings = bookings.filter((booking) => {
+    const time = startOfHopDayMs(booking.date);
+    return (!rangeStartMs || time >= rangeStartMs) && (!rangeEndMs || time <= rangeEndMs);
+  });
+  const spans = (membershipSpans || []).filter((span) => {
+    return (!rangeStartMs || startOfHopDayMs(span.endDate) >= rangeStartMs) &&
+      (!rangeEndMs || startOfHopDayMs(span.startDate) <= rangeEndMs);
+  });
+  const customerByKey = new Map((customers || []).map((customer) => [customer.customerKey, customer]));
+  const subscriptionKeys = new Set(spans.map((span) => span.customerKey));
+  const memberBookings = visibleBookings.filter((booking) => booking.isMembershipBooking);
+  const memberEvidenceKeys = new Set([...subscriptionKeys, ...memberBookings.map((booking) => booking.customerKey)]);
+  const bookingsByCustomer = new Map();
+
+  for (const booking of visibleBookings) {
+    if (!bookingsByCustomer.has(booking.customerKey)) bookingsByCustomer.set(booking.customerKey, []);
+    bookingsByCustomer.get(booking.customerKey).push(booking);
+  }
+
+  const members = Array.from(memberEvidenceKeys).map((customerKey) => {
+    const personBookings = bookingsByCustomer.get(customerKey) || [];
+    const membershipBookings = personBookings.filter((booking) => booking.isMembershipBooking);
+    const classCounts = new Map();
+    for (const booking of membershipBookings) {
+      classCounts.set(booking.className, (classCounts.get(booking.className) || 0) + 1);
+    }
+    const customer = customerByKey.get(customerKey);
+    return {
+      customerKey,
+      label: customer?.realLabel || membershipBookings[0]?.realLabel || customerKey,
+      realLabel: customer?.realLabel || membershipBookings[0]?.realLabel || customerKey,
+      anonymousLabel: customer?.anonymousLabel || membershipBookings[0]?.anonymousLabel || anonymousCustomerName(customerKey),
+      subscriptionKnown: subscriptionKeys.has(customerKey),
+      bookingCount: personBookings.length,
+      membershipBookingCount: membershipBookings.length,
+      firstBookingDate: membershipBookings[0]?.date || null,
+      lastBookingDate: membershipBookings.at(-1)?.date || null,
+      favoriteClasses: Array.from(classCounts.entries())
+        .map(([label, count]) => ({ label, count }))
+        .sort((a, b) => b.count - a.count || a.label.localeCompare(b.label))
+        .slice(0, 3),
+    };
+  }).sort((a, b) => b.membershipBookingCount - a.membershipBookingCount || a.realLabel.localeCompare(b.realLabel));
+
+  const classesByName = new Map();
+  for (const booking of memberBookings) {
+    if (!classesByName.has(booking.className)) {
+      classesByName.set(booking.className, { label: booking.className, bookingCount: 0, customerKeys: new Set() });
+    }
+    const entry = classesByName.get(booking.className);
+    entry.bookingCount += 1;
+    entry.customerKeys.add(booking.customerKey);
+  }
+  const classes = Array.from(classesByName.values()).map((entry) => ({
+    label: entry.label,
+    bookingCount: entry.bookingCount,
+    uniqueMembers: entry.customerKeys.size,
+  })).sort((a, b) => b.bookingCount - a.bookingCount || a.label.localeCompare(b.label));
+
+  const periods = memberEngagementPeriods(visibleBookings, spans, timeBucket, rangeStartMs, rangeEndMs);
+  const matchedBookings = visibleBookings.filter((booking) => booking.matchMethod !== "unmatched");
+  return {
+    bookings: visibleBookings,
+    periods,
+    members,
+    classes,
+    sources: Array.isArray(options.sources) ? options.sources : [],
+    bookingCount: visibleBookings.length,
+    membershipBookingCount: memberBookings.length,
+    memberCount: members.length,
+    subscribersWithBookings: members.filter((member) => member.subscriptionKnown && member.membershipBookingCount > 0).length,
+    subscribersWithoutBookings: members.filter((member) => member.subscriptionKnown && member.membershipBookingCount === 0).length,
+    bookingOnlyMembers: members.filter((member) => !member.subscriptionKnown && member.membershipBookingCount > 0).length,
+    duplicateCount: Number(options.duplicateCount) || 0,
+    matchStats: {
+      total: visibleBookings.length,
+      matched: matchedBookings.length,
+      email: visibleBookings.filter((booking) => booking.matchMethod === "email").length,
+      name: visibleBookings.filter((booking) => booking.matchMethod === "name").length,
+      unmatched: visibleBookings.filter((booking) => booking.matchMethod === "unmatched").length,
+      rate: visibleBookings.length ? matchedBookings.length / visibleBookings.length : 0,
+    },
+  };
+}
+
+function memberEngagementPeriods(bookings, spans, timeBucket, rangeStartMs, rangeEndMs) {
+  const dates = [
+    ...bookings.map((booking) => booking.date),
+    ...spans.flatMap((span) => [span.startDate, span.endDate]),
+  ].filter((date) => date instanceof Date && !Number.isNaN(date.getTime()));
+  const startMs = rangeStartMs || (dates.length ? Math.min(...dates.map((date) => startOfHopDayMs(date))) : 0);
+  const endMs = rangeEndMs || (dates.length ? Math.max(...dates.map((date) => startOfHopDayMs(date))) : 0);
+  if (!startMs || !endMs || endMs < startMs) return [];
+
+  const bookingsByPeriod = new Map();
+  for (const booking of bookings) {
+    const key = periodKey(booking.date, timeBucket);
+    if (!bookingsByPeriod.has(key)) bookingsByPeriod.set(key, []);
+    bookingsByPeriod.get(key).push(booking);
+  }
+
+  const periods = [];
+  let cursor = dateFromPeriodKey(periodKey(new Date(startMs), timeBucket), timeBucket);
+  while (cursor.getTime() <= endMs) {
+    const key = periodKey(cursor, timeBucket);
+    const periodBookings = bookingsByPeriod.get(key) || [];
+    const membershipBookings = periodBookings.filter((booking) => booking.isMembershipBooking);
+    const bookingMemberKeys = new Set(membershipBookings.map((booking) => booking.customerKey));
+    const unmatchedMemberBookings = membershipBookings.filter((booking) => booking.matchMethod === "unmatched").length;
+    const snapshotMs = Math.min(periodEndDate(key, timeBucket).getTime(), endMs);
+    const activeSubscriberKeys = new Set(spans
+      .filter((span) => startOfHopDayMs(span.startDate) <= snapshotMs && startOfHopDayMs(span.endDate) >= snapshotMs)
+      .map((span) => span.customerKey));
+    const subscribersWithBooking = Array.from(activeSubscriberKeys).filter((keyValue) => bookingMemberKeys.has(keyValue)).length;
+    periods.push({
+      month: key,
+      bookingCount: periodBookings.length,
+      membershipBookings: membershipBookings.length,
+      uniqueBookingMembers: bookingMemberKeys.size,
+      bookingsPerBookingMember: bookingMemberKeys.size ? membershipBookings.length / bookingMemberKeys.size : 0,
+      unmatchedMemberBookings,
+      activeSubscribers: activeSubscriberKeys.size,
+      subscribersWithBooking,
+      subscribersWithoutBooking: Math.max(0, activeSubscriberKeys.size - subscribersWithBooking),
+      utilizationRate: activeSubscriberKeys.size ? subscribersWithBooking / activeSubscriberKeys.size : 0,
+    });
+    cursor = addPeriods(cursor, 1, timeBucket);
+  }
+  return periods;
 }
 
 function parseHopDate(value) {

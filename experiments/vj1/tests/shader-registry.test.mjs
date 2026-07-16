@@ -237,7 +237,7 @@ test("spatial field effects place the effect without transforming the source ima
   }
 });
 
-test("spatial effect transforms keep the effect boundary on the composition frame", () => {
+test("spatial effect transforms keep the effect boundary on the component frame", () => {
   const builderSource = readFileSync(new URL("../js/shaders/shader-builder.js", import.meta.url), "utf8");
   const maskSource = builderSource.slice(
     builderSource.indexOf("float effectFieldMask("),

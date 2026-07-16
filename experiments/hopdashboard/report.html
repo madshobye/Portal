@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="da">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Spørgsmål til dataanalyse · juli 2026</title>
+    <link rel="icon" href="data:," />
+    <link rel="stylesheet" href="report.css" />
+    <script>
+      window.min = Math.min;
+      window.max = Math.max;
+      window.constrain = (value, low, high) => Math.min(high, Math.max(low, value));
+    </script>
+  </head>
+  <body>
+    <header class="report-header">
+      <a class="back-link" href="./">← Dashboard</a>
+      <div>
+        <p class="eyebrow">House of Play · datarapport</p>
+        <h1>Spørgsmål til dataanalyse</h1>
+        <p class="report-date">Juli 2026</p>
+      </div>
+      <button class="print-button" type="button" onclick="window.print()">Print / PDF</button>
+    </header>
+    <div class="report-shell">
+      <nav class="report-nav" aria-label="Rapportens afsnit">
+        <a href="#overblik">Overblik</a>
+        <a href="#introduktioner">Introduktioner</a>
+        <a href="#intensives">Intensives</a>
+        <a href="#reb-og-play">Rebkurser og Play Parties</a>
+        <a href="#kerneevents">Vigtigste events</a>
+        <a href="#regular-special">Regular vs. special</a>
+        <a href="#nye-events">To nye events</a>
+        <a href="#medlemmer">Medlemmer</a>
+        <a href="#kerne">Kernen</a>
+        <a href="#crew">Crew og facilitatorer</a>
+        <a href="#metode">Metode og datagab</a>
+      </nav>
+      <main id="report" class="report-content" aria-live="polite">
+        <section class="loading-card">
+          <p class="eyebrow">Indlæser</p>
+          <h2>Bygger rapport fra de gemte dashboarddata…</h2>
+        </section>
+      </main>
+    </div>
+    <script src="csvParser.js"></script>
+    <script src="hopModel.js"></script>
+    <script src="hopStorage.js"></script>
+    <script src="hopReportModel.js"></script>
+    <script src="hopReport.js"></script>
+  </body>
+</html>

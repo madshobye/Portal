@@ -23,7 +23,7 @@ export function setClass(node, className, on) {
 }
 
 export function isInteractiveNode(node) {
-  return !!node?.closest?.("input, select, textarea, button, label, [contenteditable='true'], [data-update], [data-action], [role='button'], [data-canvas-source-rect]");
+  return !!node?.closest?.("input, select, textarea, button, label, [contenteditable='true'], [data-update], [data-action], [role='button']");
 }
 
 export function isTextEditingNode(node) {

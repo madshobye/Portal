@@ -3,31 +3,32 @@ import assert from "node:assert/strict";
 
 import { createAppState } from "../js/app-state.js";
 import {
-  createCompositionEffect,
-  createCompositionGroup,
-  createCompositionLayer,
-  createCanvasComposition,
-  createDefaultComposition,
+  createComponentEffect,
+  createComponentGroup,
+  createComponentLayer,
+  createCanvasComponent,
+  createDefaultComponent,
   createInitialState,
   createSceneFromState,
+  sceneSourceNodeId,
   syncLiveSnapshotFromScene,
 } from "../js/domain/models.js?v=world-frame-27";
-import { compileCompositionPatch } from "../js/graph/render-scheduler.js?v=world-frame-27";
+import { compileComponentPatch } from "../js/graph/render-scheduler.js?v=world-frame-27";
 import { planCompositorInputs, planPatchExecution } from "../js/graph/patch-planner.js";
 
 test("render state uses selected scene in scene workspace and live scene in live workspace", () => {
   const state = createInitialState();
-  const sceneComposition = createDefaultComposition(0);
-  sceneComposition.id = "composition-scene";
-  sceneComposition.name = "Scene Composition";
-  const liveComposition = createDefaultComposition(1);
-  liveComposition.id = "composition-live";
-  liveComposition.name = "Live Composition";
-  state.compositions = [sceneComposition, liveComposition];
+  const sceneComponent = createDefaultComponent(0);
+  sceneComponent.id = "component-scene";
+  sceneComponent.name = "Scene Component";
+  const liveComponent = createDefaultComponent(1);
+  liveComponent.id = "component-live";
+  liveComponent.name = "Live Component";
+  state.components = [sceneComponent, liveComponent];
 
-  state.surfaces[0].compositionId = sceneComposition.id;
+  state.surfaces[0].componentId = sceneComponent.id;
   const sceneSnapshot = createSceneFromState(state, "Scene Selected");
-  state.surfaces[0].compositionId = liveComposition.id;
+  state.surfaces[0].componentId = liveComponent.id;
   const liveSnapshot = createSceneFromState(state, "Live Selected");
   state.scenes = [sceneSnapshot, liveSnapshot];
   state.ui.workspace = "scene";
@@ -35,38 +36,39 @@ test("render state uses selected scene in scene workspace and live scene in live
   state.ui.live.selectedSceneId = liveSnapshot.id;
 
   const store = createAppState(state);
-  assert.equal(store.getRenderState().surfaces[0].compositionId, sceneComposition.id);
+  assert.equal(store.getRenderState().surfaces[0].componentId, sceneComponent.id);
 
   store.setWorkspace("live");
-  assert.equal(store.getRenderState().surfaces[0].compositionId, liveComposition.id);
+  assert.equal(store.getRenderState().surfaces[0].componentId, liveComponent.id);
 });
 
 test("edits refresh the scene selected by Live without changing Live's scene selection", () => {
   const state = createInitialState();
-  const first = createDefaultComposition(0);
-  first.id = "composition-first";
-  const second = createDefaultComposition(1);
-  second.id = "composition-second";
-  state.compositions = [first, second];
-  state.surfaces[0].compositionId = first.id;
+  const first = createDefaultComponent(0);
+  first.id = "component-first";
+  const second = createDefaultComponent(1);
+  second.id = "component-second";
+  state.components = [first, second];
+  state.surfaces[0].componentId = first.id;
   const firstScene = createSceneFromState(state, "First");
-  state.surfaces[0].compositionId = second.id;
+  state.surfaces[0].componentId = second.id;
   const secondScene = createSceneFromState(state, "Second");
   state.scenes = [firstScene, secondScene];
   state.ui.live.selectedSceneId = firstScene.id;
   state.ui.live.sceneSnapshot = structuredClone(secondScene.snapshot);
 
   const store = createAppState(state);
-  assert.equal(store.getLiveRenderState().surfaces[0].compositionId, first.id);
+  assert.equal(store.getLiveRenderState().surfaces[0].componentId, first.id);
 
   store.update((draft) => {
-    draft.scenes[0].snapshot.surfaces[0].compositionId = second.id;
+    draft.scenes[0].snapshot.surfaces[0].sourceNodeId = sceneSourceNodeId(second.id);
+    draft.scenes[0].snapshot.surfaces[0].componentId = second.id;
   }, "scene-edit");
   assert.equal(store.getState().ui.live.selectedSceneId, firstScene.id);
-  assert.equal(store.getLiveRenderState().surfaces[0].compositionId, second.id);
+  assert.equal(store.getLiveRenderState().surfaces[0].componentId, second.id);
 
   store.selectLiveScene(secondScene.id);
-  assert.equal(store.getLiveRenderState().surfaces[0].compositionId, second.id);
+  assert.equal(store.getLiveRenderState().surfaces[0].componentId, second.id);
 });
 
 test("an empty Live selection initializes independently from the Scene selection", () => {
@@ -130,70 +132,84 @@ test("Live temporary overrides persist per scene until explicitly reset", () => 
   state.scenes = [firstScene, secondScene];
   state.ui.live.selectedSceneId = firstScene.id;
   state.ui.live.sceneSnapshot = structuredClone(firstScene.snapshot);
-  const compositionId = state.compositions[0].id;
+  const componentId = state.components[0].id;
   const store = createAppState(state);
 
   store.update((draft) => {
-    draft.ui.live.compositionOverrides[compositionId] = { opacity: 0.25 };
+    draft.ui.live.componentOverrides[componentId] = { opacity: 0.25 };
   }, "live:update");
   store.selectLiveScene(secondScene.id);
-  assert.deepEqual(store.getState().ui.live.compositionOverrides, {});
+  assert.deepEqual(store.getState().ui.live.componentOverrides, {});
 
   store.update((draft) => {
-    draft.ui.live.compositionOverrides[compositionId] = { speed: 2 };
+    draft.ui.live.componentOverrides[componentId] = { speed: 2 };
   }, "live:update");
   store.selectLiveScene(firstScene.id);
-  assert.equal(store.getState().ui.live.compositionOverrides[compositionId].opacity, 0.25);
+  assert.equal(store.getState().ui.live.componentOverrides[componentId].opacity, 0.25);
 
   store.resetLiveScene(firstScene.id);
-  assert.deepEqual(store.getState().ui.live.compositionOverrides, {});
+  assert.deepEqual(store.getState().ui.live.componentOverrides, {});
   store.selectLiveScene(secondScene.id);
-  assert.equal(store.getState().ui.live.compositionOverrides[compositionId].speed, 2);
+  assert.equal(store.getState().ui.live.componentOverrides[componentId].speed, 2);
 });
 
-test("persistent composition edits overwrite conflicting Live params but retain unrelated temporary params", () => {
+test("persistent component edits overwrite conflicting Live params but retain unrelated temporary params", () => {
   const state = createInitialState();
   const scene = createSceneFromState(state, "Live scene");
   state.scenes = [scene];
   state.ui.live.selectedSceneId = scene.id;
-  const compositionId = state.compositions[0].id;
-  const source = state.compositions[0].chain[0];
+  const componentId = state.components[0].id;
+  const source = state.components[0].chain[0];
   source.params = { modelScale: 1, depth: 1 };
-  state.ui.live.compositionOverrides = {
-    [compositionId]: {
+  state.ui.live.componentOverrides = {
+    [componentId]: {
       chain: [{ params: { modelScale: 2, depth: 3 } }],
     },
   };
   state.ui.live.sceneOverrides = {
-    [scene.id]: structuredClone(state.ui.live.compositionOverrides),
+    [scene.id]: structuredClone(state.ui.live.componentOverrides),
   };
   const store = createAppState(state);
 
   store.update((draft) => {
-    draft.compositions[0].chain[0].params.modelScale = 1.5;
-  }, "update:compositions.0.chain.0.params.modelScale");
+    draft.components[0].chain[0].params.modelScale = 1.5;
+  }, "update:components.0.chain.0.params.modelScale");
 
-  const overrides = store.getState().ui.live.compositionOverrides[compositionId];
+  const overrides = store.getState().ui.live.componentOverrides[componentId];
   assert.equal(overrides.chain[0].params.modelScale, undefined);
   assert.equal(overrides.chain[0].params.depth, 3);
-  assert.equal(store.getLiveRenderState().compositions[0].chain[0].params.modelScale, 1.5);
-  assert.equal(store.getLiveRenderState().compositions[0].chain[0].params.depth, 3);
+  assert.equal(store.getLiveRenderState().components[0].chain[0].params.modelScale, 1.5);
+  assert.equal(store.getLiveRenderState().components[0].chain[0].params.depth, 3);
 });
 
-test("ordinary compositions reject nested composition sources while Canvas accepts them", () => {
+test("ordinary components reject nested component sources while Canvas accepts them", () => {
   const state = createInitialState();
-  const source = createDefaultComposition(1);
-  const canvas = createCanvasComposition(0);
-  state.compositions.push(source, canvas);
+  const source = createDefaultComponent(1);
+  const canvas = createCanvasComponent(0);
+  state.components.push(source, canvas);
   const store = createAppState(state);
-  const ordinary = store.getState().compositions[0];
+  const ordinary = store.getState().components[0];
   const ordinaryLength = ordinary.chain.length;
 
-  store.addChainSource(ordinary.id, { type: "composition", compositionId: source.id });
-  assert.equal(store.getState().compositions.find((item) => item.id === ordinary.id).chain.length, ordinaryLength);
+  store.addChainSource(ordinary.id, { type: "component", componentId: source.id });
+  assert.equal(store.getState().components.find((item) => item.id === ordinary.id).chain.length, ordinaryLength);
 
-  store.addChainSource(canvas.id, { type: "composition", compositionId: source.id });
-  assert.equal(store.getState().compositions.find((item) => item.id === canvas.id).chain.at(-1).source.compositionId, source.id);
+  store.addChainSource(canvas.id, { type: "component", componentId: source.id });
+  const placed = store.getState().components.find((item) => item.id === canvas.id).chain.at(-1).source;
+  assert.equal(placed.componentId, source.id);
+  assert.deepEqual(placed.placement, {
+    scale: state.render.componentTexture.width / canvas.canvas.width,
+  });
+  const placementBeforeTextureChange = structuredClone(placed.placement);
+  store.update((draft) => {
+    draft.render.componentTexture.width *= 4;
+    draft.render.componentTexture.height *= 4;
+  }, "update:render.componentTexture");
+  assert.deepEqual(
+    store.getState().components.find((item) => item.id === canvas.id).chain.at(-1).source.placement,
+    placementBeforeTextureChange,
+    "texture resolution changes do not rewrite Canvas placement data"
+  );
 });
 
 test("surface reorder updates active surfaces and scene snapshots", () => {
@@ -211,11 +227,22 @@ test("surface reorder updates active surfaces and scene snapshots", () => {
   assert.equal(next.scenes[0].snapshot.surfaces[1].id, firstSurface.id);
 });
 
+test("all user-created projection surfaces can be removed", () => {
+  const store = createAppState(createInitialState());
+  const mappedIds = store.getState().surfaces
+    .filter((surface) => surface.destination?.type !== "direct")
+    .map((surface) => surface.id);
+  for (const id of mappedIds) store.removeSurface(id);
+  const next = store.getState();
+  assert.equal(next.surfaces.filter((surface) => surface.destination?.type !== "direct").length, 0);
+  assert.ok(next.surfaces.some((surface) => surface.destination?.type === "direct"));
+});
+
 test("new surfaces and route edits update the pending Live snapshot for the same scene", () => {
   const state = createInitialState();
-  const second = createDefaultComposition(1);
-  second.id = "composition-second";
-  state.compositions.push(second);
+  const second = createDefaultComponent(1);
+  second.id = "component-second";
+  state.components.push(second);
   const scene = createSceneFromState(state, "Shared scene");
   state.scenes = [scene];
   state.ui.selectedSceneId = scene.id;
@@ -229,12 +256,14 @@ test("new surfaces and route edits update the pending Live snapshot for the same
   assert.ok(next.ui.live.sceneSnapshot.surfaces.some((surface) => surface.id === added.id));
 
   const selectedScene = next.scenes.find((item) => item.id === scene.id);
-  selectedScene.snapshot.surfaces.find((surface) => surface.id === added.id).compositionId = second.id;
+  const selectedRoute = selectedScene.snapshot.surfaces.find((surface) => surface.id === added.id);
+  selectedRoute.sourceNodeId = sceneSourceNodeId(second.id);
+  selectedRoute.componentId = second.id;
   syncLiveSnapshotFromScene(next, selectedScene);
   store.replace(next, "scene-route-edit");
 
   assert.equal(
-    store.getLiveRenderState().surfaces.find((surface) => surface.id === added.id).compositionId,
+    store.getLiveRenderState().surfaces.find((surface) => surface.id === added.id).componentId,
     second.id
   );
 });
@@ -254,117 +283,174 @@ test("route edits in a different Scene do not replace Live's selected scene", ()
   assert.deepEqual(state.ui.live.sceneSnapshot, original);
 });
 
-test("Canvas compositions use ordinary source and effect chain items", () => {
+test("Canvas components use ordinary source and effect chain items", () => {
   const state = createInitialState();
-  const source = createDefaultComposition(0);
-  source.id = "source-composition";
-  const canvas = createCanvasComposition(0, source.id);
-  canvas.id = "canvas-composition";
-  state.compositions = [source, canvas];
-  state.ui.selectedCompositionId = canvas.id;
+  const source = createDefaultComponent(0);
+  source.id = "source-component";
+  const canvas = createCanvasComponent(0, source.id);
+  canvas.id = "canvas-component";
+  state.components = [source, canvas];
+  state.ui.selectedComponentId = canvas.id;
   state.ui.selectedChainItemId = canvas.chain[0].id;
   const store = createAppState(state);
 
   store.addChainEffect(canvas.id, "pixelate");
-  const nextCanvas = store.getState().compositions.find((composition) => composition.id === canvas.id);
+  const nextCanvas = store.getState().components.find((component) => component.id === canvas.id);
   assert.equal(nextCanvas.chain[0].kind, "source");
-  assert.equal(nextCanvas.chain[0].source.type, "composition");
-  assert.equal(nextCanvas.chain[0].source.compositionId, source.id);
+  assert.equal(nextCanvas.chain[0].source.type, "component");
+  assert.equal(nextCanvas.chain[0].source.componentId, source.id);
   assert.equal(nextCanvas.chain[1].kind, "effect");
   assert.equal(nextCanvas.chain[1].componentId, "pixelate");
   assert.ok(!nextCanvas.chain.some((item) => item.role === "canvas-layer"));
 });
 
-test("new Canvas compositions start empty", () => {
+test("new Canvas components start empty", () => {
   const state = createInitialState();
-  state.compositions[0].name = "Loop A";
+  state.components[0].name = "Loop A";
   const store = createAppState(state);
 
-  store.addCanvasComposition();
+  store.addCanvasComponent();
 
-  const canvas = store.getState().compositions.find((composition) => composition.type === "canvas");
+  const canvas = store.getState().components.find((component) => component.type === "canvas");
   assert.ok(canvas);
   assert.deepEqual(canvas.chain, []);
-  assert.equal(store.getState().ui.selectedCompositionId, canvas.id);
+  assert.equal(store.getState().ui.selectedComponentId, canvas.id);
   assert.equal(store.getState().ui.selectedChainItemId, "");
 });
 
-test("Canvas workspace selects a Canvas and compositions are added as ordinary sources", () => {
+test("Canvas workspace selects a Canvas and components are added as ordinary sources", () => {
   const state = createInitialState();
-  const source = createDefaultComposition(0);
-  source.id = "source-composition";
-  const canvas = createCanvasComposition(0);
-  canvas.id = "canvas-composition";
+  const source = createDefaultComponent(0);
+  source.id = "source-component";
+  const canvas = createCanvasComponent(0);
+  canvas.id = "canvas-component";
   canvas.canvas.width = 2000;
   canvas.canvas.height = 1000;
-  state.compositions = [source, canvas];
-  state.ui.selectedCompositionId = source.id;
+  state.components = [source, canvas];
+  state.ui.selectedComponentId = source.id;
   const store = createAppState(state);
 
   store.setWorkspace("canvas");
-  store.addChainSource(canvas.id, { type: "composition", compositionId: source.id });
+  store.addChainSource(canvas.id, { type: "component", componentId: source.id });
   const next = store.getState();
-  const nextCanvas = next.compositions.find((composition) => composition.id === canvas.id);
+  const nextCanvas = next.components.find((component) => component.id === canvas.id);
 
-  assert.equal(next.ui.selectedCompositionId, canvas.id);
+  assert.equal(next.ui.selectedComponentId, canvas.id);
   assert.equal(nextCanvas.chain[0].kind, "source");
-  assert.equal(nextCanvas.chain[0].source.compositionId, source.id);
+  assert.equal(nextCanvas.chain[0].source.componentId, source.id);
   assert.ok(!("layout" in nextCanvas.chain[0]));
 
-  store.setWorkspace("compose");
-  assert.equal(store.getState().ui.selectedCompositionId, source.id);
+  store.setWorkspace("component");
+  assert.equal(store.getState().ui.selectedComponentId, source.id);
+});
+
+test("Component and Canvas workspaces remember their own selected component", () => {
+  const state = createInitialState();
+  const firstComponent = createDefaultComponent(0);
+  firstComponent.id = "component-first";
+  const secondComponent = createDefaultComponent(1);
+  secondComponent.id = "component-second";
+  const firstCanvas = createCanvasComponent(0);
+  firstCanvas.id = "canvas-first";
+  const secondCanvas = createCanvasComponent(1);
+  secondCanvas.id = "canvas-second";
+  state.components = [firstComponent, secondComponent, firstCanvas, secondCanvas];
+  state.ui.workspace = "component";
+  state.ui.selectedComponentId = firstComponent.id;
+  state.ui.workspaceSelectionIds = { component: firstComponent.id, canvas: firstCanvas.id };
+  const store = createAppState(state);
+
+  store.selectComponent(secondComponent.id);
+  store.setWorkspace("canvas");
+  assert.equal(store.getState().ui.selectedComponentId, firstCanvas.id);
+
+  store.selectComponent(secondCanvas.id);
+  store.setWorkspace("scene");
+  store.setWorkspace("component");
+  assert.equal(store.getState().ui.selectedComponentId, secondComponent.id);
+
+  store.setWorkspace("live");
+  store.setWorkspace("canvas");
+  assert.equal(store.getState().ui.selectedComponentId, secondCanvas.id);
+  assert.deepEqual(store.getState().ui.workspaceSelectionIds, {
+    component: secondComponent.id,
+    canvas: secondCanvas.id,
+  });
+});
+
+test("entering Scene view preserves a surface source across catalog reorder", () => {
+  const state = createInitialState();
+  const first = createDefaultComponent(0);
+  first.id = "component-first";
+  first.activity = { createdAt: "2026-01-01T00:00:00.000Z", updatedAt: "2026-01-03T00:00:00.000Z", lastUsedAt: "" };
+  const second = createDefaultComponent(1);
+  second.id = "component-second";
+  second.activity = { createdAt: "2026-01-02T00:00:00.000Z", updatedAt: "2026-01-02T00:00:00.000Z", lastUsedAt: "" };
+  state.components = [first, second];
+  state.surfaces[0].sourceNodeId = `component:${encodeURIComponent(second.id)}`;
+  state.surfaces[0].componentId = first.id;
+  state.scenes = [createSceneFromState(state, "Stable assignment")];
+  state.ui.selectedSceneId = state.scenes[0].id;
+  state.ui.workspace = "component";
+  state.ui.catalogSortModes.scene = "recent";
+  const store = createAppState(state);
+
+  store.setWorkspace("scene");
+  const route = store.getState().scenes[0].snapshot.surfaces.find((surface) => surface.id === state.surfaces[0].id);
+  assert.equal(route.sourceNodeId, `component:${encodeURIComponent(second.id)}`);
+  assert.equal(route.componentId, second.id);
 });
 
 test("canvas recording frames are shared across canvases and removed routes clear safely", () => {
   const state = createInitialState();
-  const source = createDefaultComposition(0);
-  const firstCanvas = createCanvasComposition(0, source.id);
-  const secondCanvas = createCanvasComposition(1, source.id);
-  state.compositions = [source, firstCanvas, secondCanvas];
+  const source = createDefaultComponent(0);
+  const firstCanvas = createCanvasComponent(0, source.id);
+  const secondCanvas = createCanvasComponent(1, source.id);
+  state.components = [source, firstCanvas, secondCanvas];
   const frameId = state.recordingFrames[0].id;
   firstCanvas.canvas.frameThumbnails = { [frameId]: "first-crop" };
   secondCanvas.canvas.frameThumbnails = { [frameId]: "second-crop" };
-  state.surfaces[0].compositionId = firstCanvas.id;
+  state.surfaces[0].componentId = firstCanvas.id;
   state.surfaces[0].outputFrameId = frameId;
-  state.surfaces[1].compositionId = secondCanvas.id;
+  state.surfaces[1].componentId = secondCanvas.id;
   state.surfaces[1].outputFrameId = frameId;
   state.scenes = [createSceneFromState(state, "Canvas scene")];
   const store = createAppState(state);
 
   store.addCanvasFrame(firstCanvas.id);
   assert.equal(store.getState().recordingFrames.length, 2);
-  assert.equal("frames" in store.getState().compositions.find((composition) => composition.id === firstCanvas.id).canvas, false);
-  assert.equal("frames" in store.getState().compositions.find((composition) => composition.id === secondCanvas.id).canvas, false);
+  assert.equal("frames" in store.getState().components.find((component) => component.id === firstCanvas.id).canvas, false);
+  assert.equal("frames" in store.getState().components.find((component) => component.id === secondCanvas.id).canvas, false);
 
   store.removeCanvasFrame(firstCanvas.id, frameId);
   const next = store.getState();
   assert.equal(next.recordingFrames.some((frame) => frame.id === frameId), false);
-  assert.equal(frameId in next.compositions.find((composition) => composition.id === firstCanvas.id).canvas.frameThumbnails, false);
-  assert.equal(frameId in next.compositions.find((composition) => composition.id === secondCanvas.id).canvas.frameThumbnails, false);
+  assert.equal(frameId in next.components.find((component) => component.id === firstCanvas.id).canvas.frameThumbnails, false);
+  assert.equal(frameId in next.components.find((component) => component.id === secondCanvas.id).canvas.frameThumbnails, false);
   assert.equal(next.surfaces[0].outputFrameId, "");
   assert.equal(next.surfaces[1].outputFrameId, "");
   assert.equal(next.scenes[0].snapshot.surfaces[0].outputFrameId, "");
   assert.equal(next.scenes[0].snapshot.surfaces[1].outputFrameId, "");
 });
 
-test("composition chain preserves source elements and later effects", () => {
+test("component chain preserves source elements and later effects", () => {
   const state = createInitialState();
-  const composition = createDefaultComposition(0);
-  const pixelate = createCompositionEffect("pixelate");
-  const invert = createCompositionEffect("invert");
-  const glitch = createCompositionEffect("glitchDistort");
+  const component = createDefaultComponent(0);
+  const pixelate = createComponentEffect("pixelate");
+  const invert = createComponentEffect("invert");
+  const glitch = createComponentEffect("glitchDistort");
   invert.enabled = false;
-  composition.chain = [
-    createCompositionLayer(0, { type: "generator", generatorId: "black" }),
-    createCompositionLayer(1, { type: "generator", generatorId: "gradient" }),
+  component.chain = [
+    createComponentLayer(0, { type: "generator", generatorId: "black" }),
+    createComponentLayer(1, { type: "generator", generatorId: "gradient" }),
     pixelate,
     invert,
     glitch,
   ];
-  state.compositions = [composition];
+  state.components = [component];
 
   const store = createAppState(state);
-  const chain = store.getState().compositions[0].chain;
+  const chain = store.getState().components[0].chain;
 
   assert.equal(chain.length, 5);
   assert.equal(chain[0].kind, "source");
@@ -377,18 +463,18 @@ test("composition chain preserves source elements and later effects", () => {
 
 test("adding a generator inserts a visible chain element without replacing media", () => {
   const state = createInitialState();
-  const composition = createDefaultComposition(0);
-  composition.chain = [
-    createCompositionLayer(0, { type: "media", mediaId: "models/head.stl" }),
-    createCompositionEffect("pixelate"),
+  const component = createDefaultComponent(0);
+  component.chain = [
+    createComponentLayer(0, { type: "media", mediaId: "models/head.stl" }),
+    createComponentEffect("pixelate"),
   ];
-  state.compositions = [composition];
-  state.ui.selectedCompositionId = composition.id;
-  state.ui.selectedChainItemId = composition.chain[0].id;
+  state.components = [component];
+  state.ui.selectedComponentId = component.id;
+  state.ui.selectedChainItemId = component.chain[0].id;
   const store = createAppState(state);
 
-  store.addChainSource(composition.id, { type: "generator", generatorId: "gradient" });
-  const chain = store.getState().compositions[0].chain;
+  store.addChainSource(component.id, { type: "generator", generatorId: "gradient" });
+  const chain = store.getState().components[0].chain;
 
   assert.equal(chain.length, 3);
   assert.equal(chain[0].kind, "source");
@@ -402,20 +488,20 @@ test("adding a generator inserts a visible chain element without replacing media
 
 test("adding an element while a group is selected appends it inside the group", () => {
   const state = createInitialState();
-  const composition = createDefaultComposition(0);
-  const group = createCompositionGroup(0);
-  composition.chain = [
-    createCompositionLayer(0, { type: "generator", generatorId: "gradient" }),
+  const component = createDefaultComponent(0);
+  const group = createComponentGroup(0);
+  component.chain = [
+    createComponentLayer(0, { type: "generator", generatorId: "gradient" }),
     group,
-    createCompositionEffect("invert"),
+    createComponentEffect("invert"),
   ];
-  state.compositions = [composition];
-  state.ui.selectedCompositionId = composition.id;
+  state.components = [component];
+  state.ui.selectedComponentId = component.id;
   state.ui.selectedChainItemId = group.id;
   const store = createAppState(state);
 
-  store.addChainEffect(composition.id, "pixelate");
-  const nextGroup = store.getState().compositions[0].chain[1];
+  store.addChainEffect(component.id, "pixelate");
+  const nextGroup = store.getState().components[0].chain[1];
 
   assert.equal(nextGroup.kind, "group");
   assert.equal(nextGroup.chain.length, 1);
@@ -424,16 +510,16 @@ test("adding an element while a group is selected appends it inside the group", 
 
 test("nested chain items remain selectable after state normalization", () => {
   const state = createInitialState();
-  const composition = createDefaultComposition(0);
-  const group = createCompositionGroup(0);
-  const nested = createCompositionEffect("pixelate");
+  const component = createDefaultComponent(0);
+  const group = createComponentGroup(0);
+  const nested = createComponentEffect("pixelate");
   group.chain = [nested];
-  composition.chain = [
-    createCompositionLayer(0, { type: "generator", generatorId: "gradient" }),
+  component.chain = [
+    createComponentLayer(0, { type: "generator", generatorId: "gradient" }),
     group,
   ];
-  state.compositions = [composition];
-  state.ui.selectedCompositionId = composition.id;
+  state.components = [component];
+  state.ui.selectedComponentId = component.id;
   state.ui.selectedChainItemId = nested.id;
 
   const store = createAppState(state);
@@ -443,16 +529,16 @@ test("nested chain items remain selectable after state normalization", () => {
 
 test("existing chain item can move into a group by drag reorder", () => {
   const state = createInitialState();
-  const composition = createDefaultComposition(0);
-  const source = createCompositionLayer(0, { type: "generator", generatorId: "gradient" });
-  const group = createCompositionGroup(0);
-  const effect = createCompositionEffect("invert");
-  composition.chain = [source, group, effect];
-  state.compositions = [composition];
+  const component = createDefaultComponent(0);
+  const source = createComponentLayer(0, { type: "generator", generatorId: "gradient" });
+  const group = createComponentGroup(0);
+  const effect = createComponentEffect("invert");
+  component.chain = [source, group, effect];
+  state.components = [component];
   const store = createAppState(state);
 
-  store.reorderChain(composition.id, effect.id, group.id, "inside");
-  const chain = store.getState().compositions[0].chain;
+  store.reorderChain(component.id, effect.id, group.id, "inside");
+  const chain = store.getState().components[0].chain;
 
   assert.deepEqual(chain.map((item) => item.id), [source.id, group.id]);
   assert.equal(chain[1].chain.length, 1);
@@ -461,17 +547,17 @@ test("existing chain item can move into a group by drag reorder", () => {
 
 test("nested chain item can move out below a group at the end", () => {
   const state = createInitialState();
-  const composition = createDefaultComposition(0);
-  const source = createCompositionLayer(0, { type: "generator", generatorId: "gradient" });
-  const group = createCompositionGroup(0);
-  const effect = createCompositionEffect("invert");
+  const component = createDefaultComponent(0);
+  const source = createComponentLayer(0, { type: "generator", generatorId: "gradient" });
+  const group = createComponentGroup(0);
+  const effect = createComponentEffect("invert");
   group.chain = [effect];
-  composition.chain = [source, group];
-  state.compositions = [composition];
+  component.chain = [source, group];
+  state.components = [component];
   const store = createAppState(state);
 
-  store.reorderChain(composition.id, effect.id, group.id, "after");
-  const chain = store.getState().compositions[0].chain;
+  store.reorderChain(component.id, effect.id, group.id, "after");
+  const chain = store.getState().components[0].chain;
 
   assert.deepEqual(chain.map((item) => item.id), [source.id, group.id, effect.id]);
   assert.equal(chain[1].chain.length, 0);
@@ -479,35 +565,35 @@ test("nested chain item can move out below a group at the end", () => {
 
 test("group transform survives normalization for preview handles", () => {
   const state = createInitialState();
-  const composition = createDefaultComposition(0);
-  const group = createCompositionGroup(0);
+  const component = createDefaultComponent(0);
+  const group = createComponentGroup(0);
   group.transform = { x: 0.2, y: -0.1, scale: 0.7, rotation: 0.35 };
-  composition.chain = [
-    createCompositionLayer(0, { type: "generator", generatorId: "gradient" }),
+  component.chain = [
+    createComponentLayer(0, { type: "generator", generatorId: "gradient" }),
     group,
   ];
-  state.compositions = [composition];
+  state.components = [component];
 
   const store = createAppState(state);
-  const normalizedGroup = store.getState().compositions[0].chain[1];
+  const normalizedGroup = store.getState().components[0].chain[1];
 
   assert.deepEqual(normalizedGroup.transform, group.transform);
 });
 
-test("composition chain compiles as one accumulated image pipeline", () => {
-  const composition = createDefaultComposition(0);
-  composition.chain = [
-    createCompositionLayer(0, { type: "generator", generatorId: "gradient" }),
-    createCompositionLayer(1, { type: "generator", generatorId: "eyeball" }),
-    createCompositionLayer(2, { type: "media", mediaId: "models/head.stl" }),
-    createCompositionEffect("pixelate"),
+test("component chain compiles as one accumulated image pipeline", () => {
+  const component = createDefaultComponent(0);
+  component.chain = [
+    createComponentLayer(0, { type: "generator", generatorId: "gradient" }),
+    createComponentLayer(1, { type: "generator", generatorId: "eyeball" }),
+    createComponentLayer(2, { type: "media", mediaId: "models/head.stl" }),
+    createComponentEffect("pixelate"),
   ];
 
-  const patch = compileCompositionPatch(composition, { width: 1280, height: 720 });
+  const patch = compileComponentPatch(component, { width: 1280, height: 720 });
   const plan = planPatchExecution(patch);
   const compositor = planCompositorInputs(plan);
 
-  assert.equal(patch.type, "linear-composition");
+  assert.equal(patch.type, "linear-component");
   assert.equal(compositor.inputs.length, 1);
   assert.deepEqual(
     compositor.inputs[0].effectComponentIds,
@@ -515,24 +601,24 @@ test("composition chain compiles as one accumulated image pipeline", () => {
   );
 });
 
-test("composition chain compiles groups as isolated structure nodes", () => {
-  const composition = createDefaultComposition(0);
-  const group = createCompositionGroup(0);
+test("component chain compiles groups as isolated structure nodes", () => {
+  const component = createDefaultComponent(0);
+  const group = createComponentGroup(0);
   group.chain = [
-    createCompositionEffect("pixelate"),
-    createCompositionEffect("invert"),
+    createComponentEffect("pixelate"),
+    createComponentEffect("invert"),
   ];
-  composition.chain = [
-    createCompositionLayer(0, { type: "generator", generatorId: "gradient" }),
+  component.chain = [
+    createComponentLayer(0, { type: "generator", generatorId: "gradient" }),
     group,
-    createCompositionEffect("glitchDistort"),
+    createComponentEffect("glitchDistort"),
   ];
 
-  const patch = compileCompositionPatch(composition, { width: 1280, height: 720 });
+  const patch = compileComponentPatch(component, { width: 1280, height: 720 });
   const plan = planPatchExecution(patch);
   const compositor = planCompositorInputs(plan);
 
-  assert.equal(patch.type, "linear-composition");
+  assert.equal(patch.type, "linear-component");
   assert.equal(compositor.inputs.length, 1);
   assert.deepEqual(
     compositor.inputs[0].effectComponentIds,
@@ -541,4 +627,22 @@ test("composition chain compiles groups as isolated structure nodes", () => {
   const groupNode = patch.nodes.find((node) => node.role === "group");
   assert.equal(groupNode?.state?.group?.name, "Group 1");
   assert.equal(groupNode?.params?.items, 2);
+});
+
+test("app state stamps direct edits but preserves activity imported from disk", () => {
+  const importedAt = "2020-01-01T00:00:00.000Z";
+  const initial = createInitialState();
+  initial.components[0].activity = { createdAt: importedAt, updatedAt: importedAt, lastUsedAt: "" };
+  const store = createAppState(initial);
+  const componentId = store.getState().components[0].id;
+
+  store.update((draft) => {
+    draft.components[0].name = "Changed";
+  }, "update:component-name");
+  assert.notEqual(store.getState().components[0].activity.updatedAt, importedAt);
+
+  const loaded = store.getState();
+  loaded.components[0].activity.updatedAt = importedAt;
+  store.replace(loaded, "project-load");
+  assert.equal(store.getState().components.find((item) => item.id === componentId).activity.updatedAt, importedAt);
 });

@@ -1,9 +1,9 @@
 import { VJ1 } from "../constants.js";
-import { sanitizeState } from "../domain/models.js?v=batch-fixes-1";
-import { OutputRenderer } from "./output-renderer.js?v=scene-transition-1";
-import { applyFontToGlobal, loadVjRenderFont } from "./font-loader.js?v=world-frame-27";
-import { createPreviewViewportController, fitPreviewCanvasElement } from "./preview-viewport.js?v=zoom-transition-1";
-import { canvasSizeForMode } from "./render-geometry.js?v=render-demand-1";
+import { sanitizeState } from "../domain/models.js?v=label-overlay-16";
+import { OutputRenderer } from "./output-renderer.js?v=label-overlay-16";
+import { applyFontToGlobal, loadVjRenderFont } from "./font-loader.js?v=label-overlay-16";
+import { createPreviewViewportController, fitPreviewCanvasElement } from "./preview-viewport.js?v=label-overlay-16";
+import { canvasSizeForMode } from "./render-geometry.js?v=label-overlay-16";
 
 export function createEmbeddedPreviewApp({ store, mediaLibrary, projectService }) {
   let host = null;
@@ -32,6 +32,7 @@ export function createEmbeddedPreviewApp({ store, mediaLibrary, projectService }
 
   function mount({ host: nextHost, stage: nextStage, hud: nextHud, mode, state }) {
     const modeChanged = !!renderer && pendingMode !== mode;
+    const stageChanged = !!canvas && stage !== nextStage;
     host = nextHost;
     stage = nextStage;
     hud = nextHud;
@@ -45,14 +46,15 @@ export function createEmbeddedPreviewApp({ store, mediaLibrary, projectService }
     observeCurrentStage();
     if (canvas && stage) canvas.parent(stage);
     if (renderer) {
+      const needsSettledReveal = modeChanged || stageChanged || canvasElementIsHidden();
       renderer.mode = pendingMode;
       renderer.hud = hud;
-      if (modeChanged) hideCanvasUntilSettledDraw();
+      if (needsSettledReveal) hideCanvasUntilSettledDraw();
       else resizeToStage(true);
       renderer.setState(previewSizedState());
       importMediaFilesIfChanged();
       renderer.setCalibrate(pendingMode === "preview" && pendingState.global.calibrating);
-      scheduleSettledResize({ revealAfterDraw: modeChanged });
+      scheduleSettledResize({ revealAfterDraw: needsSettledReveal });
     }
     if (!started) start();
   }
@@ -78,6 +80,7 @@ export function createEmbeddedPreviewApp({ store, mediaLibrary, projectService }
   function pause() {
     host?.classList.add("is-paused");
     paused = true;
+    cancelSettledResize();
     if (typeof noLoop === "function") noLoop();
   }
 
@@ -87,11 +90,7 @@ export function createEmbeddedPreviewApp({ store, mediaLibrary, projectService }
     resizeObserver?.disconnect?.();
     resizeObserver = null;
     observedStage = null;
-    if (settleResizeFrame) cancelAnimationFrame(settleResizeFrame);
-    settleResizeFrame = 0;
-    settleResizeToken++;
-    layoutSettleActive = false;
-    revealCanvasAfterDraw = false;
+    cancelSettledResize();
     viewportController?.destroy?.();
     viewportController = null;
   }
@@ -207,7 +206,7 @@ export function createEmbeddedPreviewApp({ store, mediaLibrary, projectService }
   }
 
   function scheduleSettledResize({ revealAfterDraw = false } = {}) {
-    if (settleResizeFrame) cancelAnimationFrame(settleResizeFrame);
+    cancelSettledResize();
     const token = ++settleResizeToken;
     const targetStage = stage;
     let previousSize = null;
@@ -236,10 +235,23 @@ export function createEmbeddedPreviewApp({ store, mediaLibrary, projectService }
     settleResizeFrame = requestAnimationFrame(measure);
   }
 
+  function cancelSettledResize() {
+    if (settleResizeFrame) cancelAnimationFrame(settleResizeFrame);
+    settleResizeFrame = 0;
+    settleResizeToken++;
+    layoutSettleActive = false;
+    revealCanvasAfterDraw = false;
+  }
+
   function hideCanvasUntilSettledDraw() {
     const element = canvas?.elt || canvas;
     if (element?.style) element.style.visibility = "hidden";
     revealCanvasAfterDraw = false;
+  }
+
+  function canvasElementIsHidden() {
+    const element = canvas?.elt || canvas;
+    return element?.style?.visibility === "hidden";
   }
 
   function stageSize() {
@@ -347,32 +359,35 @@ export function createEmbeddedPreviewApp({ store, mediaLibrary, projectService }
     }, meta.live ? "scrub:mapping-state" : "mapping-state");
   }
 
-  function updateThumbnail(compositionId, thumbnail, meta = {}) {
-    if (!compositionId || !thumbnail) return;
+  function updateThumbnail(componentId, thumbnail, meta = {}) {
+    if (!componentId || !thumbnail) return;
+    // The store is the newest toggle authority. Reject an in-flight capture
+    // from a frame that started before live preview rendering was disabled.
+    if (store.getState()?.ui?.debugPreview === false) return;
     store.update((draft) => {
-      const composition = draft.compositions.find((item) => item.id === compositionId);
-      if (!composition) return;
-      if (meta.frameId && composition.type === "canvas") {
-        composition.canvas ||= {};
-        composition.canvas.frameThumbnails ||= {};
-        if (composition.canvas.frameThumbnails[meta.frameId] !== thumbnail) {
-          composition.canvas.frameThumbnails[meta.frameId] = thumbnail;
+      const component = draft.components.find((item) => item.id === componentId);
+      if (!component) return;
+      if (meta.frameId && component.type === "canvas") {
+        component.canvas ||= {};
+        component.canvas.frameThumbnails ||= {};
+        if (component.canvas.frameThumbnails[meta.frameId] !== thumbnail) {
+          component.canvas.frameThumbnails[meta.frameId] = thumbnail;
         }
-      } else if (composition.thumbnail !== thumbnail) {
-        composition.thumbnail = thumbnail;
+      } else if (component.thumbnail !== thumbnail) {
+        component.thumbnail = thumbnail;
       }
-    }, "composition-thumbnail");
+    }, "component-thumbnail");
   }
 
-  function updateChainTransform(compositionId, itemId, transform) {
+  function updateChainTransform(componentId, itemId, transform) {
     store.update((draft) => {
-      const composition = draft.compositions.find((item) => item.id === compositionId);
-      const item = findChainItemById(composition?.chain, itemId);
+      const component = draft.components.find((item) => item.id === componentId);
+      const item = findChainItemById(component?.chain, itemId);
       if (item) item.transform = { ...item.transform, ...transform };
     }, "scrub:chain-transform");
   }
 
-  function updateCanvasFrame(compositionId, frameId, rect, meta = {}) {
+  function updateCanvasFrame(componentId, frameId, rect, meta = {}) {
     store.update((draft) => {
       const frame = draft.recordingFrames?.find((item) => item.id === frameId);
       if (frame) Object.assign(frame, rect);

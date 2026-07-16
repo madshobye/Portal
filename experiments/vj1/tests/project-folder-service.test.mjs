@@ -7,9 +7,10 @@ import {
   historyGroupForReason,
   projectHistorySignature,
   shouldCoalesceHistoryRevision,
+  persistedRenderSettings,
 } from "../js/services/project-folder-service.js";
 
-test("project payload preserves the selected composition chain item", () => {
+test("project payload preserves the selected component chain item", () => {
   const state = {
     version: 5,
     project: {},
@@ -17,12 +18,14 @@ test("project payload preserves the selected composition chain item", () => {
     ui: {
       selectedSceneId: "scene-a",
       selectedSurfaceId: "surface-a",
-      selectedCompositionId: "composition-a",
+      selectedComponentId: "component-a",
       selectedChainItemId: "chain-effect-b",
+      workspaceSelectionIds: { component: "component-a", canvas: "canvas-b" },
+      catalogSortModes: { component: "name", scene: "created" },
       live: {
         selectedSceneId: "scene-live",
-        sceneSnapshot: { surfaces: [{ id: "surface-a", compositionId: "composition-a" }] },
-        compositionOverrides: { "composition-a": { opacity: 0.5 } },
+        sceneSnapshot: { surfaces: [{ id: "surface-a", componentId: "component-a" }] },
+        componentOverrides: { "component-a": { opacity: 0.5 } },
         transitionDuration: 2.5,
         transition: { id: "runtime-only" },
       },
@@ -30,16 +33,48 @@ test("project payload preserves the selected composition chain item", () => {
   };
 
   const payload = buildProjectPayload(state, "2026-07-12T00:00:00.000Z");
+  assert.equal(payload.version, 13);
   assert.equal(payload.ui.selectedChainItemId, "chain-effect-b");
+  assert.deepEqual(payload.ui.workspaceSelectionIds, state.ui.workspaceSelectionIds);
+  assert.deepEqual(payload.ui.catalogSortModes, state.ui.catalogSortModes);
   assert.equal(payload.ui.live.selectedSceneId, "scene-live");
   assert.deepEqual(payload.ui.live.sceneSnapshot, state.ui.live.sceneSnapshot);
   assert.equal(payload.ui.live.transitionDuration, 2.5);
   assert.equal(payload.ui.live.transition, undefined);
-  assert.equal(payload.ui.live.compositionOverrides, undefined);
+  assert.equal(payload.ui.live.componentOverrides, undefined);
   assert.deepEqual(payload.recordingFrames, state.recordingFrames);
   const source = readFileSync(new URL("../js/services/project-folder-service.js", import.meta.url), "utf8");
   assert.ok(source.includes("selectedChainItemId: projectUi?.selectedChainItemId || currentUi.selectedChainItemId"));
-  assert.ok(source.includes("const legacyRecordingFrames = Array.isArray(projectData.compositions)"));
+  assert.ok(source.includes("workspaceSelectionIds: projectUi?.workspaceSelectionIds || currentUi.workspaceSelectionIds"));
+  assert.ok(source.includes("catalogSortModes: projectUi?.catalogSortModes || currentUi.catalogSortModes"));
+  assert.ok(source.includes("const legacyRecordingFrames = Array.isArray(projectData.components)"));
+  assert.ok(source.includes("data = migrateProjectData(data)"));
+  assert.ok(source.includes("projectLoadBlocked = true"));
+  assert.ok(source.includes("if (projectLoadBlocked) return false"));
+});
+
+test("project payload persists canonical render settings without derived geometry aliases", () => {
+  const render = {
+    outputs: [{ id: "main", width: 1920, height: 1080 }],
+    componentTexture: { width: 1300, height: 1000 },
+    surfaceTexture: { mode: "auto", maxWidth: 1920, maxHeight: 1080 },
+    pixelDensity: 1.5,
+    width: 1920,
+    height: 1080,
+    frameWidth: 1920,
+    frameHeight: 1080,
+    worldScale: 1.5,
+    worldWidth: 2880,
+    worldHeight: 1620,
+    outputGap: 0,
+  };
+  const persisted = persistedRenderSettings(render);
+  assert.deepEqual(persisted.outputs, render.outputs);
+  assert.deepEqual(persisted.componentTexture, render.componentTexture);
+  assert.equal(persisted.pixelDensity, 1.5);
+  for (const key of ["width", "height", "frameWidth", "frameHeight", "worldScale", "worldWidth", "worldHeight", "outputGap"]) {
+    assert.equal(Object.hasOwn(persisted, key), false);
+  }
 });
 
 test("folder permission prompt does not discard a project recovered from output", () => {
@@ -56,13 +91,13 @@ test("project history signature ignores UI-only save noise", () => {
     ui: {
       selectedSceneId: "scene-a",
       selectedSurfaceId: "surface-a",
-      selectedCompositionId: "composition-a",
+      selectedComponentId: "component-a",
     },
     global: { showLabels: true },
     render: { frameWidth: 1280, frameHeight: 720 },
     scheduler: {},
     media: [],
-    compositions: [{ id: "composition-a", name: "A" }],
+    components: [{ id: "component-a", name: "A" }],
     surfaces: [],
     scenes: [],
     mappings: {},
@@ -74,12 +109,12 @@ test("project history signature ignores UI-only save noise", () => {
     ui: {
       selectedSceneId: "scene-b",
       selectedSurfaceId: "surface-b",
-      selectedCompositionId: "composition-b",
+      selectedComponentId: "component-b",
     },
   };
   const material = {
     ...selectedOnly,
-    compositions: [{ id: "composition-a", name: "Renamed" }],
+    components: [{ id: "component-a", name: "Renamed" }],
   };
 
   assert.equal(projectHistorySignature(base), projectHistorySignature(selectedOnly));
@@ -87,11 +122,11 @@ test("project history signature ignores UI-only save noise", () => {
 });
 
 test("history grouping coalesces repeated commits to the same control path", () => {
-  const first = historyGroupForReason("update:compositions.0.chain.1.params.amount");
-  const sameColor = historyGroupForReason("color:compositions.0.chain.1.params.tintColor");
+  const first = historyGroupForReason("update:components.0.chain.1.params.amount");
+  const sameColor = historyGroupForReason("color:components.0.chain.1.params.tintColor");
 
-  assert.equal(first, "update:compositions.0.chain.1.params.amount");
-  assert.equal(sameColor, "color:compositions.0.chain.1.params.tintColor");
+  assert.equal(first, "update:components.0.chain.1.params.amount");
+  assert.equal(sameColor, "color:components.0.chain.1.params.tintColor");
   assert.equal(shouldCoalesceHistoryRevision({ key: first, at: 1000 }, first, 6500, 6000), true);
   assert.equal(shouldCoalesceHistoryRevision({ key: first, at: 1000 }, first, 8000, 6000), false);
   assert.equal(shouldCoalesceHistoryRevision({ key: first, at: 1000 }, sameColor, 2000, 6000), false);

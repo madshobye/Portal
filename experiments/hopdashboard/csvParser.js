@@ -20,6 +20,8 @@ function parseCsvText(text) {
 function detectCsvDelimiter(headerLine) {
   const commaCount = (headerLine.match(/,/g) || []).length;
   const semicolonCount = (headerLine.match(/;/g) || []).length;
+  const tabCount = (headerLine.match(/\t/g) || []).length;
+  if (tabCount > commaCount && tabCount > semicolonCount) return "\t";
   return semicolonCount > commaCount ? ";" : ",";
 }
 

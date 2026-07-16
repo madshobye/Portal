@@ -2,20 +2,20 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 
-import { createCanvasComposition, createCompositionEffect, createCompositionLayer, createDefaultComposition, createInitialState, createLiveCompositionView, sanitizeState } from "../js/domain/models.js?v=world-frame-27";
+import { createCanvasComponent, createComponentEffect, createComponentLayer, createDefaultComponent, createInitialState, createLiveComponentView, sanitizeState } from "../js/domain/models.js?v=world-frame-27";
 import { normalizeParamValue, renderQualityScale } from "../js/graph/component-schema.js";
 import { getGeneratorComponent, listGeneratorComponents } from "../js/graph/generator-registry.js";
 import { RenderNodeRuntime, textureStateKey } from "../js/graph/render-node-runtime.js";
-import { compileCompositionPatch } from "../js/graph/render-scheduler.js?v=world-frame-27";
+import { compileComponentPatch } from "../js/graph/render-scheduler.js?v=world-frame-27";
 import { shouldHoldCurrentOutputState } from "../js/output/output-app.js";
 import { advanceRateClock, advanceSpatialScale, modelDepthCutoff, OutputRenderer, parseObjMesh, qualityAdjustedGeneratorParams, qualityScaledRenderRequest, resolutionScaledStrokeWidth, sourceWithNodeParams, terrainExpandedGridWireVertices, terrainExpandedWireVertices, terrainGridSize, terrainSurfaceGridVertices, terrainSurfaceTriangleIndices, terrainTriangleEdgeUvs, transformedModelDepthRange } from "../js/output/output-renderer.js?v=world-frame-27";
 import { getMediaType, isMediaFile } from "../js/services/media-library-service.js";
 
 test("media sources keep trim and playback speed through normalization and graph compile", () => {
   const state = createInitialState();
-  const composition = createDefaultComposition(0);
-  composition.chain = [
-    createCompositionLayer(0, {
+  const component = createDefaultComponent(0);
+  component.chain = [
+    createComponentLayer(0, {
       type: "media",
       mediaId: "clips/loop.mov",
       start: 1.25,
@@ -26,16 +26,16 @@ test("media sources keep trim and playback speed through normalization and graph
       },
     }),
   ];
-  state.compositions = [composition];
+  state.components = [component];
 
   const normalized = sanitizeState(state);
-  const source = normalized.compositions[0].chain[0].source;
+  const source = normalized.components[0].chain[0].source;
   assert.equal(source.start, 1.25);
   assert.equal(source.end, 5.5);
   assert.equal(source.speed, 0.65);
   assert.equal(source.params.fit, "contain");
 
-  const patch = compileCompositionPatch(normalized.compositions[0]);
+  const patch = compileComponentPatch(normalized.components[0]);
   const sourceNode = patch.nodes.find((node) => node.role === "source");
   assert.equal(sourceNode.params.start, 1.25);
   assert.equal(sourceNode.params.end, 5.5);
@@ -45,9 +45,9 @@ test("media sources keep trim and playback speed through normalization and graph
 
 test("generator sources keep personality params through normalization and graph compile", () => {
   const state = createInitialState();
-  const composition = createDefaultComposition(0);
-  composition.chain = [
-    createCompositionLayer(0, {
+  const component = createDefaultComponent(0);
+  component.chain = [
+    createComponentLayer(0, {
       type: "generator",
       generatorId: "eyeball",
       params: {
@@ -59,10 +59,10 @@ test("generator sources keep personality params through normalization and graph 
       },
     }),
   ];
-  state.compositions = [composition];
+  state.components = [component];
 
   const normalized = sanitizeState(state);
-  const source = normalized.compositions[0].chain[0].source;
+  const source = normalized.components[0].chain[0].source;
   assert.equal(source.generatorId, "eyeball");
   assert.equal(source.params.irisSize, 1.2);
   assert.equal(source.params.pupilSize, 1.35);
@@ -70,7 +70,7 @@ test("generator sources keep personality params through normalization and graph 
   assert.equal(source.params.pauseAmount, 0.9);
   assert.equal(source.params.jitter, 0.8);
 
-  const patch = compileCompositionPatch(normalized.compositions[0]);
+  const patch = compileComponentPatch(normalized.components[0]);
   const sourceNode = patch.nodes.find((node) => node.role === "source");
   assert.equal(sourceNode.params.generatorId, "eyeball");
   assert.equal(sourceNode.params.irisSize, 1.2);
@@ -93,7 +93,7 @@ test("every generator exposes the shared render quality budget at the current mi
 
 test("render quality preserves current work at midpoint and scales expensive work around it", () => {
   const rendererSource = readFileSync(new URL("../js/output/output-renderer.js", import.meta.url), "utf8");
-  const request = { role: "composition", width: 1280, height: 720 };
+  const request = { role: "component", width: 1280, height: 720 };
   assert.deepEqual(qualityScaledRenderRequest(request, { renderQuality: 0.5 }), request);
   assert.deepEqual(qualityScaledRenderRequest(request, { renderQuality: 1 }), request);
   assert.deepEqual(qualityScaledRenderRequest(request, { renderQuality: 0 }), {
@@ -328,9 +328,9 @@ test("terrain flyover exposes flight, terrain, wire, and biome controls", () => 
   assert.ok(rendererSource.includes("function terrainIrregularMesh("));
   assert.ok(rendererSource.includes("terrainExpandedGridWireVertices(widthCells, depthCells)"));
   assert.ok(rendererSource.includes("gl.bufferData(gl.ARRAY_BUFFER, vertices, gl.STATIC_DRAW)"));
-  assert.ok(rendererSource.includes("measureCompositionProfile(meta, fn)"));
-  assert.ok(rendererSource.includes("const outermost = this.compositionProfileDepth === 0"));
-  assert.ok(rendererSource.includes("if (outermost) this.frameProfile.compositionWallMs += ms"));
+  assert.ok(rendererSource.includes("measureComponentProfile(meta, fn)"));
+  assert.ok(rendererSource.includes("const outermost = this.componentProfileDepth === 0"));
+  assert.ok(rendererSource.includes("if (outermost) this.frameProfile.componentWallMs += ms"));
   assert.ok(!rendererSource.includes("float rowTravel = fract("));
   assert.ok(rendererSource.includes("float distance = meshUv.y * rowSpacing - cameraTravel"));
   assert.ok(rendererSource.includes("travel * (cameraTravel + distance) + right * worldLateral"));
@@ -452,9 +452,9 @@ test("bezier strokes exposes bounded curve, timing, material, and alpha controls
 
 test("live source param overrides compile through node params", () => {
   const state = createInitialState();
-  const composition = createDefaultComposition(0);
-  composition.chain = [
-    createCompositionLayer(0, {
+  const component = createDefaultComponent(0);
+  component.chain = [
+    createComponentLayer(0, {
       type: "generator",
       generatorId: "gradient",
       params: {
@@ -463,11 +463,11 @@ test("live source param overrides compile through node params", () => {
       },
     }),
   ];
-  state.compositions = [composition];
+  state.components = [component];
   state.ui.live = {
     selectedSceneId: "",
-    compositionOverrides: {
-      [composition.id]: {
+    componentOverrides: {
+      [component.id]: {
         chain: [{
           params: {
             colorA: "#ff000080",
@@ -478,11 +478,11 @@ test("live source param overrides compile through node params", () => {
     },
   };
 
-  const liveView = createLiveCompositionView(composition, state);
+  const liveView = createLiveComponentView(component, state);
   assert.equal(liveView.chain[0].params.colorA, "#ff000080");
   assert.equal(liveView.chain[0].params.mode, "single");
 
-  const patch = compileCompositionPatch(liveView);
+  const patch = compileComponentPatch(liveView);
   const sourceNode = patch.nodes.find((node) => node.role === "source");
   assert.equal(sourceNode.params.colorA, "#ff000080");
   assert.equal(sourceNode.params.mode, "single");
@@ -508,9 +508,9 @@ test("3d model media is detected and keeps render params", () => {
   assert.equal(getMediaType("vectors/logo.svg"), "image");
 
   const state = createInitialState();
-  const composition = createDefaultComposition(0);
-  composition.chain = [
-    createCompositionLayer(0, {
+  const component = createDefaultComponent(0);
+  component.chain = [
+    createComponentLayer(0, {
       type: "media",
       mediaId: "models/head.stl",
       params: {
@@ -528,11 +528,11 @@ test("3d model media is detected and keeps render params", () => {
       },
     }),
   ];
-  state.compositions = [composition];
+  state.components = [component];
   state.media = [{ id: "models/head.stl", name: "head.stl", path: "models/head.stl", type: "model" }];
 
   const normalized = sanitizeState(state);
-  const source = normalized.compositions[0].chain[0].source;
+  const source = normalized.components[0].chain[0].source;
   assert.equal(source.params.renderMode, "wireframe");
   assert.equal(source.params.rotationX, 0.4);
   assert.equal(source.params.modelScale, 1.4);
@@ -542,7 +542,7 @@ test("3d model media is detected and keeps render params", () => {
   assert.equal(source.params.surfaceColor, "#3366ccaa");
   assert.equal(source.params.wireColor, "#ffcc00ff");
 
-  const patch = compileCompositionPatch(normalized.compositions[0]);
+  const patch = compileComponentPatch(normalized.components[0]);
   const sourceNode = patch.nodes.find((node) => node.role === "source");
   assert.equal(sourceNode.params.mediaId, "models/head.stl");
   assert.equal(sourceNode.params.renderMode, "wireframe");
@@ -588,8 +588,8 @@ test("3d model visible depth follows transformed normalized model bounds", () =>
 test("3d model point mode uses cached bounded point clouds", () => {
   const source = readFileSync(new URL("../js/output/output-renderer.js", import.meta.url), "utf8");
 
-  assert.ok(source.includes("drawRawParsedModel(target, item, params, compositionTime, \"points\""));
-  assert.ok(source.includes("drawRawParsedWire(target, item, params, compositionTime, wireColor, pointBudget, viewport, contentTransform)"));
+  assert.ok(source.includes("drawRawParsedModel(target, item, params, componentTime, \"points\""));
+  assert.ok(source.includes("drawRawParsedWire(target, item, params, componentTime, wireColor, pointBudget, viewport, contentTransform)"));
   assert.ok(source.includes("gl.drawArrays(gl.TRIANGLES, 0, resources.count);"));
   assert.ok(source.includes("ensureParsedModelPointCloud(item, pointBudget)"));
   assert.ok(source.includes("ensureParsedModelWireLines(item, budget)"));
@@ -611,7 +611,8 @@ test("specialized wire thickness is scaled once from logical to raster resolutio
 
   const source = readFileSync(new URL("../js/output/output-renderer.js", import.meta.url), "utf8");
   assert.ok(source.includes("drawTerrainWireframe(target, this.terrainWireResources"));
-  assert.ok(source.includes("{ width: gl.drawingBufferWidth || target.width, height: gl.drawingBufferHeight || target.height }"));
+  assert.ok(source.includes("const viewportSize = renderTargetPixelSize(target);"));
+  assert.ok(source.includes("gl.uniform2f(resources.resolution, viewportSize.width, viewportSize.height);"));
   assert.ok(source.includes("{ width: drawingWidth, height: drawingHeight }"));
   assert.ok(source.includes("max(0.125, uThickness)"));
 });
@@ -653,7 +654,7 @@ test("renderer source extraction merges source node params", () => {
   const source = readFileSync(new URL("../js/output/output-renderer.js", import.meta.url), "utf8");
 
   assert.ok(source.includes("sourceWithNodeParams(node.state.source, node.params || {}"));
-  assert.ok(source.includes("sourceWithNodeParams(item.source || composition.source, item.params || {}, item.id)"));
+  assert.ok(source.includes("sourceWithNodeParams(item.source || component.source, item.params || {}, item.id)"));
   assert.ok(source.includes("...generatorParams"));
   assert.ok(source.includes("...mediaParams"));
 });
@@ -661,7 +662,7 @@ test("renderer source extraction merges source node params", () => {
 test("live source controls use dynamic param metadata", () => {
   const source = readFileSync(new URL("../js/control/control-shell-controller.js", import.meta.url), "utf8");
 
-  assert.ok(source.includes("liveSourceParamControlsTemplate(item, compositionId, path)"));
+  assert.ok(source.includes("liveSourceParamControlsTemplate(item, componentId, path)"));
   assert.ok(source.includes("getGeneratorComponent(source.generatorId || \"testPattern\").params"));
   assert.ok(source.includes("MODEL_SOURCE_PARAMS"));
   assert.ok(source.includes("paramControlTemplate(param,"));
@@ -684,12 +685,12 @@ test("output renderer blackouts while active media sources are missing or loadin
   globalThis.millis = () => 2000;
   try {
     const state = createInitialState();
-    const composition = createDefaultComposition(0);
-    composition.chain = [
-      createCompositionLayer(0, { type: "media", mediaId: "clips/loop.mov" }),
+    const component = createDefaultComponent(0);
+    component.chain = [
+      createComponentLayer(0, { type: "media", mediaId: "clips/loop.mov" }),
     ];
-    state.compositions = [composition];
-    state.surfaces = [{ ...state.surfaces[0], enabled: true, compositionId: composition.id }];
+    state.components = [component];
+    state.surfaces = [{ ...state.surfaces[0], enabled: true, componentId: component.id }];
     const requested = [];
     const renderer = new OutputRenderer({
       mode: "output",
@@ -746,14 +747,14 @@ test("active output can return project state and files to a refreshed control wi
   assert.ok(outputSource.includes("bridge?.recoveryState(acceptedState, acceptedFiles)"));
 });
 
-test("composition preview follows the shared preview toggle", () => {
+test("component preview follows the shared preview toggle", () => {
   const rendererSource = readFileSync(new URL("../js/output/output-renderer.js", import.meta.url), "utf8");
 
-  assert.ok(rendererSource.includes('(this.mode === "preview" || this.mode === "composition") && this.state?.ui?.debugPreview === false'));
-  assert.ok(rendererSource.includes("if (!this.shouldUseThumbnailPreview()) this.captureSelectedCompositionThumbnail()"));
+  assert.ok(rendererSource.includes('(this.mode === "preview" || this.mode === "component") && this.state?.ui?.debugPreview === false'));
+  assert.ok(rendererSource.includes("if (!this.shouldUseThumbnailPreview()) this.captureSelectedComponentThumbnail()"));
   assert.ok(rendererSource.includes("this.renderSelectedChainTransformOverlay()"));
-  assert.ok(rendererSource.includes("renderCanvasThumbnailEditPreview(composition)"));
-  assert.ok(rendererSource.includes("renderFlattenedThumbnailEditPreview(composition)"));
+  assert.ok(rendererSource.includes("renderCanvasThumbnailEditPreview(component)"));
+  assert.ok(rendererSource.includes("renderFlattenedThumbnailEditPreview(component)"));
 });
 
 test("output playback control is persistent and pauses renderer and video clocks", () => {
@@ -774,28 +775,28 @@ test("output playback control is persistent and pauses renderer and video clocks
 });
 
 test("dirty cache classifier keeps static photo chains cacheable and animated noise dynamic", () => {
-  const renderer = new OutputRenderer({ mode: "composition" });
+  const renderer = new OutputRenderer({ mode: "component" });
   const state = createInitialState();
   state.media = [{ id: "media/a.png", path: "media/a.png", type: "image", size: 42 }];
   renderer.state = state;
   renderer.media.set("media/a.png", { ready: true });
-  const composition = createDefaultComposition(0);
-  composition.chain = [
-    createCompositionLayer(0, { type: "media", mediaId: "media/a.png" }),
-    createCompositionEffect("photoGrade"),
+  const component = createDefaultComponent(0);
+  component.chain = [
+    createComponentLayer(0, { type: "media", mediaId: "media/a.png" }),
+    createComponentEffect("photoGrade"),
   ];
-  composition.chain[1].params = { exposure: 0.25, contrast: 0.15 };
+  component.chain[1].params = { exposure: 0.25, contrast: 0.15 };
 
-  assert.ok(renderer.stableCompositionSignature(composition, { role: "composition", width: 640, height: 360 }));
+  assert.ok(renderer.stableComponentSignature(component, { role: "component", width: 640, height: 360 }));
 
-  composition.chain[1].params = { grain: 0.5, seedMode: "animated" };
-  assert.equal(renderer.stableCompositionSignature(composition, { role: "composition", width: 640, height: 360 }), "");
+  component.chain[1].params = { grain: 0.5, seedMode: "animated" };
+  assert.equal(renderer.stableComponentSignature(component, { role: "component", width: 640, height: 360 }), "");
 
-  composition.chain[1].params = { grain: 0.5, seedMode: "fixed", seed: 9 };
-  assert.ok(renderer.stableCompositionSignature(composition, { role: "composition", width: 640, height: 360 }));
+  component.chain[1].params = { grain: 0.5, seedMode: "fixed", seed: 9 };
+  assert.ok(renderer.stableComponentSignature(component, { role: "component", width: 640, height: 360 }));
 
-  composition.chain[1] = createCompositionEffect("smear");
-  composition.chain[1].params = {
+  component.chain[1] = createComponentEffect("smear");
+  component.chain[1].params = {
     cctvAmount: 0,
     screenPrintAmount: 0,
     dotMatrixAmount: 0,
@@ -804,70 +805,70 @@ test("dirty cache classifier keeps static photo chains cacheable and animated no
     smearAmount: 0,
     seedMode: "animated",
   };
-  assert.ok(renderer.stableCompositionSignature(composition, { role: "composition", width: 640, height: 360 }));
+  assert.ok(renderer.stableComponentSignature(component, { role: "component", width: 640, height: 360 }));
 
-  composition.chain[1].params = { cctvAmount: 0.35, seedMode: "animated" };
-  assert.equal(renderer.stableCompositionSignature(composition, { role: "composition", width: 640, height: 360 }), "");
+  component.chain[1].params = { cctvAmount: 0.35, seedMode: "animated" };
+  assert.equal(renderer.stableComponentSignature(component, { role: "component", width: 640, height: 360 }), "");
 
-  composition.chain[1].params = { cctvAmount: 0.35, screenPrintAmount: 0.25, seedMode: "fixed", seed: 4 };
-  assert.ok(renderer.stableCompositionSignature(composition, { role: "composition", width: 640, height: 360 }));
+  component.chain[1].params = { cctvAmount: 0.35, screenPrintAmount: 0.25, seedMode: "fixed", seed: 4 };
+  assert.ok(renderer.stableComponentSignature(component, { role: "component", width: 640, height: 360 }));
 
-  composition.chain = [createCompositionLayer(0, { type: "generator", generatorId: "anatomy" })];
-  composition.chain[0].params = { part: "arm", spinY: 0 };
-  assert.ok(renderer.stableCompositionSignature(composition, { role: "composition", width: 640, height: 360 }));
+  component.chain = [createComponentLayer(0, { type: "generator", generatorId: "anatomy" })];
+  component.chain[0].params = { part: "arm", spinY: 0 };
+  assert.ok(renderer.stableComponentSignature(component, { role: "component", width: 640, height: 360 }));
 
-  composition.chain[0].params = { part: "arm", spinY: 0.2 };
-  assert.equal(renderer.stableCompositionSignature(composition, { role: "composition", width: 640, height: 360 }), "");
+  component.chain[0].params = { part: "arm", spinY: 0.2 };
+  assert.equal(renderer.stableComponentSignature(component, { role: "component", width: 640, height: 360 }), "");
 
-  composition.chain[0].params = { part: "heart", heartPulse: 0 };
-  assert.ok(renderer.stableCompositionSignature(composition, { role: "composition", width: 640, height: 360 }));
+  component.chain[0].params = { part: "heart", heartPulse: 0 };
+  assert.ok(renderer.stableComponentSignature(component, { role: "component", width: 640, height: 360 }));
 
-  composition.chain[0].params = { part: "heart", heartPulse: 0.35 };
-  assert.equal(renderer.stableCompositionSignature(composition, { role: "composition", width: 640, height: 360 }), "");
+  component.chain[0].params = { part: "heart", heartPulse: 0.35 };
+  assert.equal(renderer.stableComponentSignature(component, { role: "component", width: 640, height: 360 }), "");
 });
 
-test("Canvas and ordinary compositions share dependency-aware static caching", () => {
-  const renderer = new OutputRenderer({ mode: "composition" });
+test("Canvas and ordinary components share dependency-aware static caching", () => {
+  const renderer = new OutputRenderer({ mode: "component" });
   const state = createInitialState();
-  const child = createDefaultComposition(1);
-  child.chain = [createCompositionLayer(0, { type: "generator", generatorId: "gradient", params: {} })];
-  const canvas = createCanvasComposition(0, child.id);
-  state.compositions = [child, canvas];
+  const child = createDefaultComponent(1);
+  child.chain = [createComponentLayer(0, { type: "generator", generatorId: "gradient", params: {} })];
+  const canvas = createCanvasComponent(0, child.id);
+  state.components = [child, canvas];
   renderer.state = state;
-  const request = { role: "composition", width: 640, height: 360 };
+  const request = { role: "component", width: 640, height: 360 };
 
-  const first = renderer.stableCompositionSignature(canvas, request);
+  const first = renderer.stableComponentSignature(canvas, request);
   assert.ok(first);
 
   child.chain[0].params = { color1: "#ff0000" };
-  const changed = renderer.stableCompositionSignature(canvas, request);
+  const changed = renderer.stableComponentSignature(canvas, request);
   assert.ok(changed);
   assert.notEqual(changed, first);
 
-  child.chain[0] = createCompositionLayer(0, { type: "generator", generatorId: "cloudyTunnel", params: { speed: 0.2 } });
-  assert.equal(renderer.stableCompositionSignature(canvas, request), "");
+  child.chain[0] = createComponentLayer(0, { type: "generator", generatorId: "cloudyTunnel", params: { speed: 0.2 } });
+  assert.equal(renderer.stableComponentSignature(canvas, request), "");
 });
 
 test("component runtime policies decide whether generators and effects need time", () => {
-  const renderer = new OutputRenderer({ mode: "composition" });
+  const renderer = new OutputRenderer({ mode: "component" });
   const state = createInitialState();
   renderer.state = state;
-  const composition = state.compositions[0];
-  const request = { role: "composition", width: 640, height: 360 };
+  const component = state.components[0];
+  const request = { role: "component", width: 640, height: 360 };
 
-  const cloudy = createCompositionLayer(0, { type: "generator", generatorId: "cloudyTunnel" });
+  const cloudy = createComponentLayer(0, { type: "generator", generatorId: "cloudyTunnel" });
   cloudy.params = { speed: 0 };
-  const grain = createCompositionEffect("labelThresholdGrain");
+  const grain = createComponentEffect("labelThresholdGrain");
   grain.params = { amount: 0.6, seedMode: "fixed", seed: 37 };
-  composition.chain = [cloudy, grain];
-  assert.ok(renderer.stableCompositionSignature(composition, request));
+  component.chain = [cloudy, grain];
+  assert.ok(renderer.stableComponentSignature(component, request));
 
   cloudy.params.speed = 0.1;
-  assert.equal(renderer.stableCompositionSignature(composition, request), "");
+  assert.equal(renderer.stableComponentSignature(component, request), "");
 
   cloudy.params.speed = 0;
   grain.params.seedMode = "animated";
-  assert.equal(renderer.stableCompositionSignature(composition, request), "");
+  assert.equal(renderer.stableComponentSignature(component, request), "");
 });
 
 test("render node runtime keeps its output version stable until its signature changes", () => {
@@ -890,10 +891,10 @@ test("render node runtime keeps its output version stable until its signature ch
 });
 
 test("node output versions propagate dirtiness only to downstream nodes", () => {
-  const renderer = new OutputRenderer({ mode: "composition" });
-  const request = { role: "composition", width: 640, height: 360 };
+  const renderer = new OutputRenderer({ mode: "component" });
+  const request = { role: "component", width: 640, height: 360 };
   const buffers = new Map();
-  renderer.getCompositionBuffer = (id) => {
+  renderer.getComponentBuffer = (id) => {
     if (!buffers.has(id)) buffers.set(id, { id });
     return buffers.get(id);
   };
@@ -926,7 +927,7 @@ test("node output versions propagate dirtiness only to downstream nodes", () => 
 
 test("static source textures repaint only when their own source state changes", () => {
   const previousCreateGraphics = globalThis.createGraphics;
-  const renderer = new OutputRenderer({ mode: "composition" });
+  const renderer = new OutputRenderer({ mode: "component" });
   const state = createInitialState();
   state.media = [{ id: "media/a.png", path: "media/a.png", type: "image", size: 42 }];
   renderer.state = state;
@@ -943,14 +944,14 @@ test("static source textures repaint only when their own source state changes", 
   });
 
   try {
-    const item = createCompositionLayer(0, { type: "media", mediaId: "media/a.png", params: { fit: "contain" } });
-    const request = { role: "composition", width: 640, height: 360 };
-    renderer.renderCompositionSourceItem(state.compositions[0], item, 0, request);
-    renderer.renderCompositionSourceItem(state.compositions[0], item, 1, request);
+    const item = createComponentLayer(0, { type: "media", mediaId: "media/a.png", params: { fit: "contain" } });
+    const request = { role: "component", width: 640, height: 360 };
+    renderer.renderComponentSourceItem(state.components[0], item, 0, request);
+    renderer.renderComponentSourceItem(state.components[0], item, 1, request);
     assert.equal(paints, 1);
 
     item.params = { fit: "cover" };
-    renderer.renderCompositionSourceItem(state.compositions[0], item, 2, request);
+    renderer.renderComponentSourceItem(state.components[0], item, 2, request);
     assert.equal(paints, 2);
   } finally {
     if (previousCreateGraphics === undefined) delete globalThis.createGraphics;
@@ -960,7 +961,7 @@ test("static source textures repaint only when their own source state changes", 
 
 test("media readiness invalidates a cached loading placeholder", () => {
   const previousCreateGraphics = globalThis.createGraphics;
-  const renderer = new OutputRenderer({ mode: "composition" });
+  const renderer = new OutputRenderer({ mode: "component" });
   const state = createInitialState();
   state.media = [{ id: "media/a.png", path: "media/a.png", type: "image", size: 42 }];
   renderer.state = state;
@@ -978,15 +979,15 @@ test("media readiness invalidates a cached loading placeholder", () => {
   });
 
   try {
-    const item = createCompositionLayer(0, { type: "media", mediaId: "media/a.png" });
-    const request = { role: "composition", width: 640, height: 360 };
-    renderer.renderCompositionSourceItem(state.compositions[0], item, 0, request);
-    renderer.renderCompositionSourceItem(state.compositions[0], item, 1, request);
+    const item = createComponentLayer(0, { type: "media", mediaId: "media/a.png" });
+    const request = { role: "component", width: 640, height: 360 };
+    renderer.renderComponentSourceItem(state.components[0], item, 0, request);
+    renderer.renderComponentSourceItem(state.components[0], item, 1, request);
     assert.equal(paints, 1);
 
     runtimeMedia.ready = true;
-    renderer.renderCompositionSourceItem(state.compositions[0], item, 2, request);
-    renderer.renderCompositionSourceItem(state.compositions[0], item, 3, request);
+    renderer.renderComponentSourceItem(state.components[0], item, 2, request);
+    renderer.renderComponentSourceItem(state.components[0], item, 3, request);
     assert.equal(paints, 2);
   } finally {
     if (previousCreateGraphics === undefined) delete globalThis.createGraphics;

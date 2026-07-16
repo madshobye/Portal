@@ -141,7 +141,7 @@ export class VjMapper {
     shaderProgram.setUniform("uHinv", cache.Hc);
     shaderProgram.setUniform("uSurfaceSize", [texture.width || surface.w, texture.height || surface.h]);
     shaderProgram.setUniform("uSourceAspect", Math.max(0.0001, Number(texture.width) || 1) / Math.max(1, Number(texture.height) || 1));
-    shaderProgram.setUniform("uTargetAspect", Math.max(0.0001, Number(surface.w) || 1) / Math.max(1, Number(surface.h) || 1));
+    shaderProgram.setUniform("uTargetAspect", projectedSurfaceAspect(surface.corners, surface.w / surface.h));
     shaderProgram.setUniform("uProjectionFit", projectionFitMode(projectionFit));
     if (featherAmount > 0) shaderProgram.setUniform("uFeather", featherAmount);
     shaderProgram.setUniform("uEdgeSoftness", this.edgeSoftness);
@@ -172,7 +172,7 @@ export class VjMapper {
     shaderProgram.setUniform("uToSurfaceSize", [toTexture.width || surface.w, toTexture.height || surface.h]);
     shaderProgram.setUniform("uFromSourceAspect", Math.max(0.0001, Number(fromTexture.width) || 1) / Math.max(1, Number(fromTexture.height) || 1));
     shaderProgram.setUniform("uToSourceAspect", Math.max(0.0001, Number(toTexture.width) || 1) / Math.max(1, Number(toTexture.height) || 1));
-    shaderProgram.setUniform("uTargetAspect", Math.max(0.0001, Number(surface.w) || 1) / Math.max(1, Number(surface.h) || 1));
+    shaderProgram.setUniform("uTargetAspect", projectedSurfaceAspect(surface.corners, surface.w / surface.h));
     shaderProgram.setUniform("uFromProjectionFit", projectionFitMode(fromProjectionFit));
     shaderProgram.setUniform("uToProjectionFit", projectionFitMode(toProjectionFit));
     shaderProgram.setUniform("uTransition", Math.max(0, Math.min(1, Number(progress) || 0)));
@@ -421,17 +421,23 @@ export function mapperVertexShaderSource() {
 
 export function mapperFragmentShaderSource({ feather = false } = {}) {
   const featherUniform = feather ? "uniform float uFeather;" : "";
-  const featherCode = feather ? `
-        vec2 targetAspect = uTargetAspect >= 1.0
-          ? vec2(uTargetAspect, 1.0)
-          : vec2(1.0, 1.0 / max(uTargetAspect, 0.0001));
+  const featherFunction = feather ? `
+      float roundedFeatherMask(vec2 maskUv, float maskAspect) {
+        vec2 aspect = maskAspect >= 1.0
+          ? vec2(maskAspect, 1.0)
+          : vec2(1.0, 1.0 / max(maskAspect, 0.0001));
         float cornerRadius = min(0.08, max(0.012, uFeather * 0.35));
-        vec2 roundedPoint = abs(uv - 0.5) * targetAspect;
-        vec2 roundedHalfSize = 0.5 * targetAspect - vec2(cornerRadius);
+        vec2 roundedPoint = abs(maskUv - 0.5) * aspect;
+        vec2 roundedHalfSize = 0.5 * aspect - vec2(cornerRadius);
         vec2 roundedDelta = roundedPoint - roundedHalfSize;
         float roundedDistance = length(max(roundedDelta, 0.0)) +
           min(max(roundedDelta.x, roundedDelta.y), 0.0) - cornerRadius;
-        float featherMask = smoothstep(0.0, uFeather, -roundedDistance);
+        return smoothstep(0.0, uFeather, -roundedDistance);
+      }` : "";
+  const featherCode = feather ? `
+        vec2 featherUv = uProjectionFit >= 1.5 ? sampleUv : uv;
+        float featherAspect = uProjectionFit >= 1.5 ? uSourceAspect : uTargetAspect;
+        float featherMask = roundedFeatherMask(featherUv, featherAspect);
         color *= featherMask;` : "";
   return `
       precision highp float;
@@ -443,6 +449,7 @@ export function mapperFragmentShaderSource({ feather = false } = {}) {
       ${featherUniform}
       uniform float uEdgeSoftness;
       varying vec3 vProjectiveUv;
+      ${featherFunction}
       void main() {
         float w = abs(vProjectiveUv.z) > 1e-6 ? vProjectiveUv.z : 1e-6;
         vec2 uv = clamp(vProjectiveUv.xy / w, vec2(0.0), vec2(1.0));
@@ -477,18 +484,26 @@ export function mapperFragmentShaderSource({ feather = false } = {}) {
 
 export function mapperTransitionFragmentShaderSource({ feather = false } = {}) {
   const featherUniform = feather ? "uniform float uFeather;" : "";
-  const featherCode = feather ? `
-        vec2 targetAspect = uTargetAspect >= 1.0
-          ? vec2(uTargetAspect, 1.0)
-          : vec2(1.0, 1.0 / max(uTargetAspect, 0.0001));
+  const featherFunction = feather ? `
+      float roundedFeatherMask(vec2 maskUv, float maskAspect) {
+        vec2 aspect = maskAspect >= 1.0
+          ? vec2(maskAspect, 1.0)
+          : vec2(1.0, 1.0 / max(maskAspect, 0.0001));
         float cornerRadius = min(0.08, max(0.012, uFeather * 0.35));
-        vec2 roundedPoint = abs(uv - 0.5) * targetAspect;
-        vec2 roundedHalfSize = 0.5 * targetAspect - vec2(cornerRadius);
+        vec2 roundedPoint = abs(maskUv - 0.5) * aspect;
+        vec2 roundedHalfSize = 0.5 * aspect - vec2(cornerRadius);
         vec2 roundedDelta = roundedPoint - roundedHalfSize;
         float roundedDistance = length(max(roundedDelta, 0.0)) +
           min(max(roundedDelta.x, roundedDelta.y), 0.0) - cornerRadius;
-        float featherMask = smoothstep(0.0, uFeather, -roundedDistance);
-        color *= featherMask;` : "";
+        return smoothstep(0.0, uFeather, -roundedDistance);
+      }` : "";
+  const featherCode = feather ? `
+        vec2 fromFeatherUv = uFromProjectionFit >= 1.5 ? fromUv : uv;
+        float fromFeatherAspect = uFromProjectionFit >= 1.5 ? uFromSourceAspect : uTargetAspect;
+        fromColor *= roundedFeatherMask(fromFeatherUv, fromFeatherAspect);
+        vec2 toFeatherUv = uToProjectionFit >= 1.5 ? toUv : uv;
+        float toFeatherAspect = uToProjectionFit >= 1.5 ? uToSourceAspect : uTargetAspect;
+        toColor *= roundedFeatherMask(toFeatherUv, toFeatherAspect);` : "";
   return `
       precision highp float;
       uniform sampler2D fromTex;
@@ -504,6 +519,7 @@ export function mapperTransitionFragmentShaderSource({ feather = false } = {}) {
       ${featherUniform}
       uniform float uEdgeSoftness;
       varying vec3 vProjectiveUv;
+      ${featherFunction}
       void main() {
         float w = abs(vProjectiveUv.z) > 1e-6 ? vProjectiveUv.z : 1e-6;
         vec2 uv = clamp(vProjectiveUv.xy / w, vec2(0.0), vec2(1.0));
@@ -545,8 +561,8 @@ export function mapperTransitionFragmentShaderSource({ feather = false } = {}) {
 
         vec4 fromColor = texture2D(fromTex, clamp(fromUv, vec2(0.0), vec2(1.0))) * fromInside;
         vec4 toColor = texture2D(toTex, clamp(toUv, vec2(0.0), vec2(1.0))) * toInside;
-        vec4 color = mix(fromColor, toColor, clamp(uTransition, 0.0, 1.0));
         ${featherCode}
+        vec4 color = mix(fromColor, toColor, clamp(uTransition, 0.0, 1.0));
         if (uEdgeSoftness > 0.0) {
           vec2 surfaceSize = mix(uFromSurfaceSize, uToSurfaceSize, clamp(uTransition, 0.0, 1.0));
           vec2 edgePx = min(uv, 1.0 - uv) * surfaceSize;
@@ -572,6 +588,30 @@ export function surfaceQuadVertices(corners, canvasWidth, canvasHeight) {
     x: point.x - Number(canvasWidth) * 0.5,
     y: point.y - Number(canvasHeight) * 0.5,
   }));
+}
+
+export function projectedSurfaceAspect(corners = [], fallback = 1) {
+  const safeFallback = Math.max(0.0001, Number(fallback) || 1);
+  if (!Array.isArray(corners) || corners.length !== 4) return safeFallback;
+  const [tl, tr, br, bl] = corners;
+  if (![tl, tr, br, bl].every(validPoint)) return safeFallback;
+  // Projection fit describes the visible mapped quadrilateral, not the
+  // surface's stored logical dimensions. Averaging opposing edges gives one
+  // stable aspect for trapezoids without letting the longest edge dominate.
+  const width = (pointDistance(tl, tr) + pointDistance(bl, br)) * 0.5;
+  const height = (pointDistance(tl, bl) + pointDistance(tr, br)) * 0.5;
+  if (!(width > 0) || !(height > 0)) return safeFallback;
+  return Math.max(0.0001, width / height);
+}
+
+function validPoint(point) {
+  return point && Number.isFinite(Number(point.x)) && Number.isFinite(Number(point.y));
+}
+
+function pointDistance(a, b) {
+  const dx = Number(a.x) - Number(b.x);
+  const dy = Number(a.y) - Number(b.y);
+  return Math.sqrt(dx * dx + dy * dy);
 }
 
 function normalizeCorners(corners = []) {

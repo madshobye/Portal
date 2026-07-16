@@ -1,5 +1,5 @@
 {
-  "version": 5,
+  "version": 6,
   "project": {
     "name": "Low Poly Anatomy Showcase",
     "folderName": "fixtures",
@@ -185,8 +185,8 @@
   "render": {
     "frameWidth": 1308,
     "frameHeight": 664,
-    "surfaceWidth": 436,
-    "surfaceHeight": 332,
+    "compositionTexture": { "width": 1308, "height": 664 },
+    "surfaceTexture": { "mode": "auto", "maxWidth": 1308, "maxHeight": 664 },
     "pixelDensity": 1,
     "edgeSoftness": 0
   },

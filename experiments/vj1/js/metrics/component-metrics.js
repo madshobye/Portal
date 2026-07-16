@@ -1,29 +1,30 @@
 import { BLEND_MODES, VJ1 } from "../constants.js";
-import { sanitizeState } from "../domain/models.js?v=batch-fixes-1";
-import { compileCompositionPatch } from "../graph/render-scheduler.js?v=hsv-alpha-key-1";
+import { componentTextureSize } from "../domain/render-resolution.js?v=label-overlay-16";
+import { sanitizeState } from "../domain/models.js?v=label-overlay-16";
+import { compileComponentPatch } from "../graph/render-scheduler.js?v=label-overlay-16";
 import { planCompositorInputs, planPatchExecution, summarizeTextureBranches } from "../graph/patch-planner.js";
-import { getShaderComponent } from "../shaders/shader-registry.js?v=hsv-alpha-key-1";
-import { surfaceTextureSize, worldSize } from "../output/render-geometry.js?v=render-demand-1";
+import { getShaderComponent } from "../shaders/shader-registry.js?v=label-overlay-16";
+import { worldSize } from "../output/render-geometry.js?v=label-overlay-16";
 
-const BASE_SURFACE_PIXELS = VJ1.surfaceWidth * VJ1.surfaceHeight;
+const BASE_COMPONENT_PIXELS = VJ1.renderWidth * VJ1.renderHeight;
 
 export function analyzeVj1Project(input = {}, options = {}) {
   const state = sanitizeState(input || {});
   const render = renderMetrics(state);
   const mediaById = new Map((state.media || []).map((item) => [item.id, item]));
   const activeSurfaces = (state.surfaces || []).filter((surface) => surface.enabled !== false);
-  const surfaceUsage = compositionSurfaceUsage(activeSurfaces);
+  const surfaceUsage = componentSurfaceUsage(activeSurfaces);
   const mapping = mappingMetrics(state, render);
-  const compositions = (state.compositions || []).map((composition) =>
-    compositionMetrics(composition, { state, render, mediaById, surfaceUsage })
+  const components = (state.components || []).map((component) =>
+    componentMetrics(component, { state, render, mediaById, surfaceUsage })
   );
-  const costliestChainItems = rankCostItems(compositions.flatMap((composition) => composition.costItems || [])).slice(0, 12);
-  const engineHotspots = engineOptimizationTargets({ state, render, compositions, activeSurfaces, costliestChainItems });
-  const aggregate = aggregateMetrics({ state, render, compositions, activeSurfaces, mapping, costliestChainItems });
+  const costliestChainItems = rankCostItems(components.flatMap((component) => component.costItems || [])).slice(0, 12);
+  const engineHotspots = engineOptimizationTargets({ state, render, components, activeSurfaces, costliestChainItems });
+  const aggregate = aggregateMetrics({ state, render, components, activeSurfaces, mapping, costliestChainItems });
   const runtime = summarizeRuntimeSamples(options.runtimeSamples || []);
   const bottlenecks = rankBottlenecks([
-    ...projectBottlenecks({ state, render, activeSurfaces, compositions, mapping }),
-    ...compositions.flatMap((composition) => composition.bottlenecks),
+    ...projectBottlenecks({ state, render, activeSurfaces, components, mapping }),
+    ...components.flatMap((component) => component.bottlenecks),
     ...mapping.bottlenecks,
     ...runtime.bottlenecks,
   ]);
@@ -39,7 +40,7 @@ export function analyzeVj1Project(input = {}, options = {}) {
     render,
     aggregate,
     runtime,
-    compositions,
+    components,
     costliestChainItems,
     engineHotspots,
     mapping,
@@ -55,9 +56,9 @@ export function reportVj1MetricsMarkdown(metrics = {}) {
   lines.push("");
   lines.push("## Summary");
   lines.push("");
-  lines.push(`- Compositions: ${metrics.aggregate?.compositionCount ?? 0}`);
+  lines.push(`- Components: ${metrics.aggregate?.componentCount ?? 0}`);
   lines.push(`- Active surfaces: ${metrics.aggregate?.activeSurfaceCount ?? 0}`);
-  lines.push(`- Surface texture: ${formatPixels(metrics.render?.surfacePixels)} (${metrics.render?.surfaceWidth}x${metrics.render?.surfaceHeight})`);
+  lines.push(`- Component texture: ${formatPixels(metrics.render?.componentPixels)} (${metrics.render?.componentWidth}x${metrics.render?.componentHeight})`);
   lines.push(`- World: ${formatPixels(metrics.render?.worldPixels)} (${metrics.render?.worldWidth}x${metrics.render?.worldHeight})`);
   lines.push(`- Estimated render work: ${formatNumber(metrics.aggregate?.estimatedWork, 2)}`);
   if (metrics.runtime?.sampleCount) {
@@ -82,7 +83,7 @@ export function reportVj1MetricsMarkdown(metrics = {}) {
   lines.push("");
   if (metrics.costliestChainItems?.length) {
     for (const item of metrics.costliestChainItems.slice(0, 10)) {
-      lines.push(`- ${item.compositionName} / ${item.name}: ${formatNumber(item.estimatedWork, 2)} (${item.kind}, ${item.reason})`);
+      lines.push(`- ${item.componentName} / ${item.name}: ${formatNumber(item.estimatedWork, 2)} (${item.kind}, ${item.reason})`);
     }
   } else {
     lines.push("- No enabled chain items.");
@@ -108,10 +109,10 @@ export function reportVj1MetricsMarkdown(metrics = {}) {
     lines.push("- No bottlenecks detected by static heuristics.");
   }
   lines.push("");
-  lines.push("## Compositions");
+  lines.push("## Components");
   lines.push("");
-  for (const composition of metrics.compositions || []) {
-    lines.push(`- ${composition.name}: work ${formatNumber(composition.estimatedWork, 2)}, sources ${composition.sources.enabled}/${composition.sources.total}, effects ${composition.effects.enabled}/${composition.effects.total}, branches ${composition.branches}`);
+  for (const component of metrics.components || []) {
+    lines.push(`- ${component.name}: work ${formatNumber(component.estimatedWork, 2)}, sources ${component.sources.enabled}/${component.sources.total}, effects ${component.effects.enabled}/${component.effects.total}, branches ${component.branches}`);
   }
   lines.push("");
   lines.push("## Mapping");
@@ -131,7 +132,7 @@ export function compareVj1Metrics(current = {}, previous = {}) {
     currentGeneratedAt: current.generatedAt || "",
     previousGeneratedAt: previous.generatedAt || "",
     deltas: {
-      compositionCount: delta(current.aggregate?.compositionCount, previous.aggregate?.compositionCount),
+      componentCount: delta(current.aggregate?.componentCount, previous.aggregate?.componentCount),
       activeSurfaceCount: delta(current.aggregate?.activeSurfaceCount, previous.aggregate?.activeSurfaceCount),
       estimatedWork: delta(current.aggregate?.estimatedWork, previous.aggregate?.estimatedWork),
       mappedSurfaceCount: delta(current.mapping?.mappedSurfaceCount, previous.mapping?.mappedSurfaceCount),
@@ -261,13 +262,13 @@ function summarizeRuntimeProfiles(profiles = []) {
     shaderHandoffsAvg: average(clean.map((profile) => Number(profile.shaderHandoffs) || 0)),
     maxShaderChainLengthMax: clean.length ? Math.max(...clean.map((profile) => Number(profile.maxShaderChainLength) || 0)) : 0,
     shaderMsP95: percentile(clean.map((profile) => Number(profile.shaderMs) || 0), 0.95),
-    compositionMsP95: percentile(clean.map((profile) => Number(profile.compositionWallMs ?? profile.compositionMs) || 0), 0.95),
+    componentMsP95: percentile(clean.map((profile) => Number(profile.componentWallMs ?? profile.componentMs) || 0), 0.95),
     slowPasses,
   };
 }
 
-function compositionMetrics(composition, context) {
-  const chain = Array.isArray(composition.chain) ? composition.chain : [];
+function componentMetrics(component, context) {
+  const chain = Array.isArray(component.chain) ? component.chain : [];
   const enabledChain = chain.filter((item) => item.enabled !== false);
   const sources = chain.filter((item) => item.kind === "source");
   const enabledSources = sources.filter((item) => item.enabled !== false);
@@ -278,18 +279,18 @@ function compositionMetrics(composition, context) {
   const mediaSources = enabledSources.filter((item) => item.source?.type === "media");
   const missingMedia = mediaSources.filter((item) => !context.mediaById.has(item.source?.mediaId));
   const videoSources = mediaSources.filter((item) => context.mediaById.get(item.source?.mediaId)?.type === "video");
-  const patch = compileCompositionPatch(composition, {
+  const patch = compileComponentPatch(component, {
     role: "surface",
-    width: context.render.surfaceWidth,
-    height: context.render.surfaceHeight,
+    width: context.render.componentWidth,
+    height: context.render.componentHeight,
   });
   const plan = planPatchExecution(patch);
   const compositor = planCompositorInputs(plan);
   const branchSummaries = summarizeTextureBranches(plan);
   const branchDepths = branchSummaries.map((branch) => branch.effectComponentIds?.length || 0);
-  const surfaceCount = context.surfaceUsage.get(composition.id)?.length || 0;
-  const pixelScale = context.render.surfacePixels / BASE_SURFACE_PIXELS;
-  const estimatedWork = estimateCompositionWork({
+  const surfaceCount = context.surfaceUsage.get(component.id)?.length || 0;
+  const pixelScale = context.render.componentPixels / BASE_COMPONENT_PIXELS;
+  const estimatedWork = estimateComponentWork({
     enabledSources,
     enabledEffects,
     videoSources,
@@ -298,24 +299,24 @@ function compositionMetrics(composition, context) {
     pixelScale,
   });
   const result = {
-    id: composition.id,
-    name: composition.name || composition.id || "Composition",
-    selected: context.state.ui?.selectedCompositionId === composition.id,
-    surfaces: context.surfaceUsage.get(composition.id) || [],
+    id: component.id,
+    name: component.name || component.id || "Component",
+    selected: context.state.ui?.selectedComponentId === component.id,
+    surfaces: context.surfaceUsage.get(component.id) || [],
     chainItems: { total: chain.length, enabled: enabledChain.length },
     sources: { total: sources.length, enabled: enabledSources.length, media: mediaSources.length, video: videoSources.length, missingMedia: missingMedia.length },
     effects: { total: effects.length, enabled: enabledEffects.length, spatial: spatialEffects.length, custom: customEffects.length },
     branches: Math.max(0, compositor.inputs.length || enabledSources.length),
     maxEffectDepth: Math.max(0, ...branchDepths),
     estimatedWork,
-    costItems: chainCostItems({ composition, enabledChain, mediaById: context.mediaById, pixelScale }),
-    thumbnailBytes: composition.thumbnail ? composition.thumbnail.length : 0,
-    blend: BLEND_MODES.includes(composition.blend) ? composition.blend : "unknown",
+    costItems: chainCostItems({ component, enabledChain, mediaById: context.mediaById, pixelScale }),
+    thumbnailBytes: component.thumbnail ? component.thumbnail.length : 0,
+    blend: BLEND_MODES.includes(component.blend) ? component.blend : "unknown",
     patchWarnings: plan.warnings || [],
     bottlenecks: [],
   };
 
-  if (!surfaceCount) result.bottlenecks.push(bottleneck("info", result.name, "Composition is not assigned to any active surface."));
+  if (!surfaceCount) result.bottlenecks.push(bottleneck("info", result.name, "Component is not assigned to any active surface."));
   if (enabledEffects.length >= 6) result.bottlenecks.push(bottleneck("warn", result.name, `${enabledEffects.length} enabled effects in one chain.`));
   if (result.maxEffectDepth >= 5) result.bottlenecks.push(bottleneck("warn", result.name, `Longest branch has ${result.maxEffectDepth} sequential effects.`));
   if (result.branches >= 5) result.bottlenecks.push(bottleneck("warn", result.name, `${result.branches} source branches increase blend/composite work.`));
@@ -333,7 +334,7 @@ function compositionMetrics(composition, context) {
 }
 
 function renderMetrics(state) {
-  const surface = surfaceTextureSize(state.render || {});
+  const component = componentTextureSize(state.render || {});
   const world = worldSize(state.render || {});
   const frameWidth = positiveInt(state.render?.frameWidth ?? state.render?.width, VJ1.renderWidth);
   const frameHeight = positiveInt(state.render?.frameHeight ?? state.render?.height, VJ1.renderHeight);
@@ -341,9 +342,9 @@ function renderMetrics(state) {
     frameWidth,
     frameHeight,
     framePixels: frameWidth * frameHeight,
-    surfaceWidth: surface.width,
-    surfaceHeight: surface.height,
-    surfacePixels: surface.width * surface.height,
+    componentWidth: component.width,
+    componentHeight: component.height,
+    componentPixels: component.width * component.height,
     worldWidth: world.width,
     worldHeight: world.height,
     worldPixels: world.width * world.height,
@@ -394,53 +395,53 @@ function mappingMetrics(state, render) {
   };
 }
 
-function aggregateMetrics({ state, render, compositions, activeSurfaces, mapping, costliestChainItems }) {
+function aggregateMetrics({ state, render, components, activeSurfaces, mapping, costliestChainItems }) {
   return {
-    compositionCount: compositions.length,
+    componentCount: components.length,
     sceneCount: state.scenes?.length || 0,
     surfaceCount: state.surfaces?.length || 0,
     activeSurfaceCount: activeSurfaces.length,
     mediaCount: state.media?.length || 0,
     mappedSurfaceCount: mapping.mappedSurfaceCount,
-    totalSources: sum(compositions.map((item) => item.sources.total)),
-    totalEffects: sum(compositions.map((item) => item.effects.total)),
-    enabledEffects: sum(compositions.map((item) => item.effects.enabled)),
-    estimatedWork: sum(compositions.map((item) => item.estimatedWork)) + activeSurfaces.length * (render.surfacePixels / BASE_SURFACE_PIXELS) * 0.25,
+    totalSources: sum(components.map((item) => item.sources.total)),
+    totalEffects: sum(components.map((item) => item.effects.total)),
+    enabledEffects: sum(components.map((item) => item.effects.enabled)),
+    estimatedWork: sum(components.map((item) => item.estimatedWork)) + activeSurfaces.length * (render.componentPixels / BASE_COMPONENT_PIXELS) * 0.25,
     topCostContributor: costliestChainItems?.[0] || null,
   };
 }
 
-function projectBottlenecks({ state, render, activeSurfaces, compositions }) {
+function projectBottlenecks({ state, render, activeSurfaces, components }) {
   const items = [];
-  const assignedCompositionIds = new Set(activeSurfaces.map((surface) => surface.compositionId).filter(Boolean));
-  const missingAssignments = activeSurfaces.filter((surface) => !surface.compositionId || !compositions.some((composition) => composition.id === surface.compositionId));
+  const assignedComponentIds = new Set(activeSurfaces.map((surface) => surface.componentId).filter(Boolean));
+  const missingAssignments = activeSurfaces.filter((surface) => !surface.componentId || !components.some((component) => component.id === surface.componentId));
   if (!state.scenes?.length) items.push(bottleneck("info", "project", "No captured scenes; live workflow has nothing stable to select."));
   if (activeSurfaces.length >= 8) items.push(bottleneck("warn", "surfaces", `${activeSurfaces.length} active surfaces increase per-frame mapping work.`));
-  if (missingAssignments.length) items.push(bottleneck("critical", "surfaces", `${missingAssignments.length} active surface(s) are missing a valid composition assignment.`));
-  if (render.surfacePixels > BASE_SURFACE_PIXELS * 4) items.push(bottleneck("warn", "render", `Surface texture is ${formatPixels(render.surfacePixels)}, over 4x the default.`));
+  if (missingAssignments.length) items.push(bottleneck("critical", "surfaces", `${missingAssignments.length} active surface(s) are missing a valid component assignment.`));
+  if (render.componentPixels > BASE_COMPONENT_PIXELS * 4) items.push(bottleneck("warn", "render", `Component texture is ${formatPixels(render.componentPixels)}, over 4x the default.`));
   if (render.worldPixels > 4000000) items.push(bottleneck("warn", "render", `Preview world is ${formatPixels(render.worldPixels)}; embedded preview may be expensive.`));
   if (render.pixelDensity > 1.25) items.push(bottleneck("warn", "render", `Pixel density ${render.pixelDensity} multiplies canvas work.`));
   if (state.ui?.debugPreview === false) {
-    const missingThumbnails = [...assignedCompositionIds].filter((id) => !compositions.find((composition) => composition.id === id)?.thumbnailBytes);
-    if (missingThumbnails.length) items.push(bottleneck("warn", "thumbnail-preview", `${missingThumbnails.length} assigned composition(s) have no thumbnail for cheap preview mode.`));
+    const missingThumbnails = [...assignedComponentIds].filter((id) => !components.find((component) => component.id === id)?.thumbnailBytes);
+    if (missingThumbnails.length) items.push(bottleneck("warn", "thumbnail-preview", `${missingThumbnails.length} assigned component(s) have no thumbnail for cheap preview mode.`));
   }
   return items;
 }
 
-function engineOptimizationTargets({ state, render, compositions, activeSurfaces, costliestChainItems }) {
+function engineOptimizationTargets({ state, render, components, activeSurfaces, costliestChainItems }) {
   const targets = [];
-  const activeCompositionIds = new Set(activeSurfaces.map((surface) => surface.compositionId).filter(Boolean));
-  const activeCompositions = compositions.filter((composition) => activeCompositionIds.has(composition.id));
-  const totalEnabledEffects = sum(activeCompositions.map((composition) => composition.effects.enabled));
-  const maxEffectDepth = Math.max(0, ...activeCompositions.map((composition) => composition.maxEffectDepth || 0));
+  const activeComponentIds = new Set(activeSurfaces.map((surface) => surface.componentId).filter(Boolean));
+  const activeComponents = components.filter((component) => activeComponentIds.has(component.id));
+  const totalEnabledEffects = sum(activeComponents.map((component) => component.effects.enabled));
+  const maxEffectDepth = Math.max(0, ...activeComponents.map((component) => component.maxEffectDepth || 0));
   const heavyShaderItems = (costliestChainItems || []).filter((item) => item.kind === "effect" && item.estimatedWork >= 1.6);
-  const surfacePixelScale = render.surfacePixels / BASE_SURFACE_PIXELS;
+  const componentPixelScale = render.componentPixels / BASE_COMPONENT_PIXELS;
 
   if (totalEnabledEffects) {
     targets.push({
       priority: maxEffectDepth >= 5 || totalEnabledEffects >= 12 ? "high" : "medium",
       step: "Sequential shader passes",
-      reason: `${totalEnabledEffects} enabled effect pass(es) across active compositions; each pass is still a full texture render even when ping-pong buffers avoid intermediate handoff copies.`,
+      reason: `${totalEnabledEffects} enabled effect pass(es) across active components; each pass is still a full texture render even when ping-pong buffers avoid intermediate handoff copies.`,
       evidence: { totalEnabledEffects, maxEffectDepth },
     });
   }
@@ -449,17 +450,17 @@ function engineOptimizationTargets({ state, render, compositions, activeSurfaces
     targets.push({
       priority: heavyShaderItems.length >= 4 ? "high" : "medium",
       step: "Heavy shader components",
-      reason: `${heavyShaderItems.slice(0, 4).map((item) => `${item.compositionName}/${item.name}`).join(", ")} are likely expensive fragment passes.`,
+      reason: `${heavyShaderItems.slice(0, 4).map((item) => `${item.componentName}/${item.name}`).join(", ")} are likely expensive fragment passes.`,
       evidence: { items: heavyShaderItems.slice(0, 6) },
     });
   }
 
   if (activeSurfaces.length) {
     targets.push({
-      priority: activeSurfaces.length >= 6 || surfacePixelScale > 2 ? "high" : "medium",
+      priority: activeSurfaces.length >= 6 || componentPixelScale > 2 ? "high" : "medium",
       step: "Per-surface texture and mapper draw",
-      reason: `${activeSurfaces.length} active surface(s) each require a surface texture draw plus a homography mapper pass at ${render.surfaceWidth}x${render.surfaceHeight}.`,
-      evidence: { activeSurfaceCount: activeSurfaces.length, surfacePixels: render.surfacePixels },
+      reason: `${activeSurfaces.length} active surface(s) each require a demand-sized surface texture draw plus a homography mapper pass sourced from ${render.componentWidth}x${render.componentHeight} component geometry.`,
+      evidence: { activeSurfaceCount: activeSurfaces.length, componentPixels: render.componentPixels },
     });
   }
 
@@ -468,13 +469,13 @@ function engineOptimizationTargets({ state, render, compositions, activeSurfaces
     targets.push({
       priority: finalSurfaceEffects >= 4 ? "high" : "medium",
       step: "Final surface shader chains",
-      reason: `${finalSurfaceEffects} final surface effect pass(es) run after composition rendering and before mapping.`,
+      reason: `${finalSurfaceEffects} final surface effect pass(es) run after component rendering and before mapping.`,
       evidence: { finalSurfaceEffects },
     });
   }
 
-  const activeMediaSources = activeCompositions.flatMap((composition) =>
-    (composition.costItems || []).filter((item) => item.kind === "source" && /media|camera|video/.test(item.reason))
+  const activeMediaSources = activeComponents.flatMap((component) =>
+    (component.costItems || []).filter((item) => item.kind === "source" && /media|camera|video/.test(item.reason))
   );
   if (activeMediaSources.length) {
     targets.push({
@@ -498,7 +499,7 @@ function engineOptimizationTargets({ state, render, compositions, activeSurfaces
     targets.push({
       priority: "low",
       step: "Thumbnail preview mode",
-      reason: "Cheap preview mode avoids most live composition rendering; optimize missing/stale thumbnail generation before optimizing this path.",
+      reason: "Cheap preview mode avoids most live component rendering; optimize missing/stale thumbnail generation before optimizing this path.",
       evidence: { debugPreview: false },
     });
   }
@@ -510,17 +511,17 @@ function priorityWeight(priority) {
   return { high: 0, medium: 1, low: 2 }[priority] ?? 3;
 }
 
-function compositionSurfaceUsage(activeSurfaces) {
+function componentSurfaceUsage(activeSurfaces) {
   const usage = new Map();
   for (const surface of activeSurfaces) {
-    if (!surface.compositionId) continue;
-    if (!usage.has(surface.compositionId)) usage.set(surface.compositionId, []);
-    usage.get(surface.compositionId).push(surface.id);
+    if (!surface.componentId) continue;
+    if (!usage.has(surface.componentId)) usage.set(surface.componentId, []);
+    usage.get(surface.componentId).push(surface.id);
   }
   return usage;
 }
 
-function estimateCompositionWork({ enabledSources, enabledEffects, videoSources, branches, surfaceCount, pixelScale }) {
+function estimateComponentWork({ enabledSources, enabledEffects, videoSources, branches, surfaceCount, pixelScale }) {
   const sourceWork = enabledSources.length * 0.85;
   const videoWork = videoSources.length * 0.7;
   const effectWork = enabledEffects.length * 1.35;
@@ -529,7 +530,7 @@ function estimateCompositionWork({ enabledSources, enabledEffects, videoSources,
   return round2((sourceWork + videoWork + effectWork + branchWork + fanoutWork) * Math.max(0.1, pixelScale));
 }
 
-function chainCostItems({ composition, enabledChain, mediaById, pixelScale }) {
+function chainCostItems({ component, enabledChain, mediaById, pixelScale }) {
   const items = [];
   let effectDepth = 0;
   for (const [index, item] of enabledChain.entries()) {
@@ -539,9 +540,9 @@ function chainCostItems({ composition, enabledChain, mediaById, pixelScale }) {
       ? sourceCost(item, mediaById)
       : effectCost(item, effectDepth);
     items.push({
-      compositionId: composition.id,
-      compositionName: composition.name || composition.id || "Composition",
-      id: item.id || `${composition.id}:${index}`,
+      componentId: component.id,
+      componentName: component.name || component.id || "Component",
+      id: item.id || `${component.id}:${index}`,
       name: item.name || item.componentId || item.source?.generatorId || item.source?.type || "Chain item",
       kind: item.kind || "unknown",
       componentId: item.componentId || item.source?.generatorId || item.source?.type || "",

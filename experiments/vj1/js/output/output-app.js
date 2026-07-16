@@ -1,14 +1,13 @@
 import { VJ1 } from "../constants.js";
-import { sanitizeState } from "../domain/models.js?v=scene-transition-1";
-import { createOutputBridge } from "../services/output-bridge-service.js?v=multi-output-2";
-import { OutputRenderer } from "./output-renderer.js?v=scene-transition-1";
-import { applyFontToGlobal, loadVjRenderFont } from "./font-loader.js?v=world-frame-27";
-import { frameSize } from "./render-geometry.js?v=render-demand-1";
+import { sanitizeState } from "../domain/models.js?v=label-overlay-16";
+import { createOutputBridge } from "../services/output-bridge-service.js?v=label-overlay-16";
+import { OutputRenderer } from "./output-renderer.js?v=label-overlay-16";
+import { applyFontToGlobal, loadVjRenderFont } from "./font-loader.js?v=label-overlay-16";
+import { frameSize } from "./render-geometry.js?v=label-overlay-16";
 
 let outputFitSignature = "";
 
 export function installOutputApp({ root, mode }) {
-  const initialSceneId = consumeInitialSceneId(mode);
   const outputId = mode === "output" ? new URL(window.location.href).searchParams.get("outputId") || "" : "";
   document.body.classList.add("output-client");
   root.innerHTML = `
@@ -114,7 +113,6 @@ export function installOutputApp({ root, mode }) {
   bridge = createOutputBridge({
     mode,
     outputId,
-    initialSceneId,
     onState(state) {
       if (fixtureUrl) return;
       if (shouldHoldCurrentOutputState(state, acceptedState)) return;
@@ -172,17 +170,6 @@ export function installOutputApp({ root, mode }) {
   loadClassicScript(VJ1.p5Script).catch((error) => {
     root.innerHTML = `<div class="empty-preview">${error.message}</div>`;
   });
-}
-
-export function consumeInitialSceneId(mode = "output") {
-  if (mode !== "output" || typeof window === "undefined") return "";
-  const url = new URL(window.location.href);
-  const initialSceneId = url.searchParams.get("initialSceneId") || "";
-  if (initialSceneId) {
-    url.searchParams.delete("initialSceneId");
-    window.history.replaceState({}, "", url);
-  }
-  return initialSceneId;
 }
 
 export function shouldHoldCurrentOutputState(nextState, currentState) {

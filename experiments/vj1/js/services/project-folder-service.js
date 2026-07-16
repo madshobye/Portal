@@ -1,4 +1,4 @@
-import { collectFilesFromDirectory, isMediaFile, isShaderFile } from "./media-library-service.js?v=multi-output-2";
+import { collectFilesFromDirectory, isMediaFile, isShaderFile } from "./media-library-service.js?v=label-overlay-16";
 import { RENDITION_DIR, RENDITION_ROOT, mediaRenditionPath } from "./media-rendition-service.js";
 import {
   canPersistDirectoryHandles,
@@ -6,7 +6,8 @@ import {
   loadProjectDirectoryHandle,
   saveProjectDirectoryHandle,
 } from "./directory-handle-store.js";
-import { applySceneSnapshotToState, createInitialState } from "../domain/models.js?v=scene-transition-1";
+import { applySceneSnapshotToState, createInitialState } from "../domain/models.js?v=label-overlay-16";
+import { CURRENT_PROJECT_VERSION, migrateProjectData, ProjectVersionError } from "../domain/project-migrations.js?v=label-overlay-16";
 
 export function createProjectFolderService({ mediaLibrary, store, bridge }) {
   let dirHandle = null;
@@ -18,6 +19,7 @@ export function createProjectFolderService({ mediaLibrary, store, bridge }) {
   let refreshInFlight = false;
   let isOpening = false;
   let historyInFlight = false;
+  let projectLoadBlocked = false;
   let historyState = { canUndo: false, canRedo: false };
   let lastRevisionGroup = { key: "", at: 0 };
   const writtenRenditions = new Set();
@@ -34,6 +36,7 @@ export function createProjectFolderService({ mediaLibrary, store, bridge }) {
     "project-autosave",
     "project-autosave-status",
     "project-autosave-error",
+    "project-version-error",
     "project-history",
     "project-undo",
     "project-redo",
@@ -59,7 +62,7 @@ export function createProjectFolderService({ mediaLibrary, store, bridge }) {
       return { fallback: false };
     } finally {
       isOpening = false;
-      if (opened) scheduleAutoSave("project-open", { immediate: true });
+      if (opened && !projectLoadBlocked) scheduleAutoSave("project-open", { immediate: true });
     }
   }
 
@@ -119,6 +122,7 @@ export function createProjectFolderService({ mediaLibrary, store, bridge }) {
     saveQueued = false;
     lastSavedSignature = "";
     lastDirectorySignature = "";
+    projectLoadBlocked = false;
     writtenRenditions.clear();
     mediaLibrary.clear();
     bridge.sendMediaFiles([]);
@@ -152,31 +156,51 @@ export function createProjectFolderService({ mediaLibrary, store, bridge }) {
     const files = await collectFilesFromDirectory(dirHandle);
     const signature = directorySignature(files);
     const imported = await mediaLibrary.importFiles(files);
-      await loadProject(reason, imported, signature);
-      bridge.sendMediaFiles(mediaLibrary.getAllFiles());
-      await refreshHistoryState();
+    const loaded = await loadProject(reason, imported, signature);
+    if (!loaded) return false;
+    bridge.sendMediaFiles(mediaLibrary.getAllFiles());
+    await refreshHistoryState();
+    return true;
   }
 
   async function loadProject(reason = "project-load", imported = { media: [], shaders: [] }, directorySig = "") {
     if (!dirHandle) return;
     let data = {};
+    let projectFileFound = false;
     try {
       const handle = await dirHandle.getFileHandle("project.json");
+      projectFileFound = true;
       const text = await (await handle.getFile()).text();
       data = JSON.parse(text);
-    } catch {
+    } catch (error) {
+      if (projectFileFound) {
+        blockProjectLoad(`Cannot open project.json: ${error.message || error}`);
+        return false;
+      }
       data = {};
     }
+    if (projectFileFound) {
+      try {
+        data = migrateProjectData(data);
+      } catch (error) {
+        const message = error instanceof ProjectVersionError
+          ? error.message
+          : `Project migration failed: ${error.message || error}`;
+        blockProjectLoad(message);
+        return false;
+      }
+    }
+    projectLoadBlocked = false;
     const { ui: projectUi, metrics: _projectMetrics, ...projectData } = data;
     const currentUi = store.getState().ui;
-    const legacyRecordingFrames = Array.isArray(projectData.compositions)
-      ? projectData.compositions.flatMap((composition) =>
-          composition?.type === "canvas" && Array.isArray(composition.canvas?.frames) ? composition.canvas.frames : []
+    const legacyRecordingFrames = Array.isArray(projectData.components)
+      ? projectData.components.flatMap((component) =>
+          component?.type === "canvas" && Array.isArray(component.canvas?.frames) ? component.canvas.frames : []
         )
       : [];
     const recordingFrames = Array.isArray(projectData.recordingFrames)
       ? projectData.recordingFrames
-      : Array.isArray(projectData.compositions) ? legacyRecordingFrames : store.getState().recordingFrames;
+      : Array.isArray(projectData.components) ? legacyRecordingFrames : store.getState().recordingFrames;
     const nextState = {
       ...store.getState(),
       ...projectData,
@@ -185,12 +209,14 @@ export function createProjectFolderService({ mediaLibrary, store, bridge }) {
         ...currentUi,
         selectedSceneId: projectUi?.selectedSceneId || currentUi.selectedSceneId,
         selectedSurfaceId: projectUi?.selectedSurfaceId || currentUi.selectedSurfaceId,
-        selectedCompositionId: projectUi?.selectedCompositionId || currentUi.selectedCompositionId,
+        selectedComponentId: projectUi?.selectedComponentId || currentUi.selectedComponentId,
         selectedChainItemId: projectUi?.selectedChainItemId || currentUi.selectedChainItemId,
+        workspaceSelectionIds: projectUi?.workspaceSelectionIds || currentUi.workspaceSelectionIds,
+        catalogSortModes: projectUi?.catalogSortModes || currentUi.catalogSortModes,
         live: {
           ...currentUi.live,
           ...(projectUi?.live || {}),
-          compositionOverrides: currentUi.live?.compositionOverrides || {},
+          componentOverrides: currentUi.live?.componentOverrides || {},
         },
       },
       project: {
@@ -198,7 +224,7 @@ export function createProjectFolderService({ mediaLibrary, store, bridge }) {
         ...(projectData.project || {}),
         name: projectData.project?.name || dirHandle.name,
         folderName: dirHandle.name,
-        warnings: projectData.version ? [] : [`No project.json found in ${dirHandle.name}`],
+        warnings: projectFileFound ? [] : [`No project.json found in ${dirHandle.name}`],
       },
       media: imported.media,
       shaders: imported.shaders[0]
@@ -214,6 +240,15 @@ export function createProjectFolderService({ mediaLibrary, store, bridge }) {
     store.replace(nextState, reason);
     lastDirectorySignature = directorySig;
     lastSavedSignature = payloadSignature(buildProjectPayload(store.getState(), projectData.project?.savedAt || ""));
+    return true;
+  }
+
+  function blockProjectLoad(message) {
+    projectLoadBlocked = true;
+    store.update((draft) => {
+      draft.project.folderName = dirHandle?.name || draft.project.folderName;
+      draft.project.warnings = [message];
+    }, "project-version-error");
   }
 
   function refreshProjectAssets(imported = { media: [], shaders: [] }, directorySig = "") {
@@ -233,7 +268,7 @@ export function createProjectFolderService({ mediaLibrary, store, bridge }) {
 
   function scheduleAutoSave(reason = "change", { immediate = false } = {}) {
     if (String(reason).startsWith("edit:") || String(reason).startsWith("scrub:")) return;
-    if (!dirHandle || isOpening || skipAutosaveReasons.has(reason)) return;
+    if (!dirHandle || isOpening || projectLoadBlocked || skipAutosaveReasons.has(reason)) return;
     if (autosaveTimer) clearTimeout(autosaveTimer);
     autosaveTimer = setTimeout(() => {
       autosaveTimer = null;
@@ -265,6 +300,7 @@ export function createProjectFolderService({ mediaLibrary, store, bridge }) {
   }
 
   async function saveProject({ reason = "manual" } = {}) {
+    if (projectLoadBlocked) return false;
     const state = store.getState();
     const savedAt = new Date().toISOString();
     const payload = buildProjectPayload(state, savedAt);
@@ -522,7 +558,7 @@ function isHistoryReason(reason) {
 }
 
 function shouldWriteHistoryRevision(previousText = "", nextPayload = {}, nextText = "", reason = "") {
-  if (reason === "composition-thumbnail") return false;
+  if (reason === "component-thumbnail") return false;
   if (!previousText.trim() || previousText === nextText) return false;
   const previousPayload = parseProjectText(previousText);
   if (!previousPayload) return true;
@@ -619,13 +655,15 @@ async function verifyPermission(handle, mode, requestIfNeeded) {
 
 export function buildProjectPayload(state, savedAt = new Date().toISOString()) {
   return {
-    version: state.version,
+    version: CURRENT_PROJECT_VERSION,
     project: { ...state.project, warnings: [], savedAt },
     ui: {
       selectedSceneId: state.ui.selectedSceneId,
       selectedSurfaceId: state.ui.selectedSurfaceId,
-      selectedCompositionId: state.ui.selectedCompositionId,
+      selectedComponentId: state.ui.selectedComponentId,
       selectedChainItemId: state.ui.selectedChainItemId,
+      workspaceSelectionIds: state.ui.workspaceSelectionIds,
+      catalogSortModes: state.ui.catalogSortModes,
       live: {
         selectedSceneId: state.ui.live?.selectedSceneId || "",
         sceneSnapshot: state.ui.live?.sceneSnapshot || null,
@@ -633,16 +671,36 @@ export function buildProjectPayload(state, savedAt = new Date().toISOString()) {
       },
     },
     global: state.global,
-    render: state.render,
+    render: persistedRenderSettings(state.render),
     scheduler: state.scheduler,
     media: state.media,
-    compositions: state.compositions,
+    components: state.components,
     recordingFrames: state.recordingFrames,
     surfaces: state.surfaces,
     scenes: state.scenes,
     mappings: state.mappings,
     shaders: state.shaders,
   };
+}
+
+// Output windows are the persisted authority for output and mapping geometry.
+// The removed aliases are derived by normalizeRenderSettings() at load time.
+export function persistedRenderSettings(render = {}) {
+  const {
+    width: _derivedWidth,
+    height: _derivedHeight,
+    frameWidth: _derivedFrameWidth,
+    frameHeight: _derivedFrameHeight,
+    worldScale: _derivedWorldScale,
+    worldWidth: _derivedWorldWidth,
+    worldHeight: _derivedWorldHeight,
+    outputGap: _derivedOutputGap,
+    surfaceWidth: _legacySurfaceWidth,
+    surfaceHeight: _legacySurfaceHeight,
+    surfaceTextureMode: _legacySurfaceTextureMode,
+    ...canonical
+  } = render || {};
+  return canonical;
 }
 
 function payloadSignature(payload) {

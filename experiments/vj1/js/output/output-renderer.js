@@ -1,23 +1,24 @@
 import { VJ1 } from "../constants.js";
-import { compositionFrameMetrics } from "../domain/composition-frame.js";
-import { clamp01, normalizeCompositionPipelineSettings, resolveSceneSourceNode, sanitizeState } from "../domain/models.js?v=scene-transition-1";
-import { normalizeParamValue, normalizeParamValues, renderQualityScale, renderQualityValue } from "../graph/component-schema.js?v=range-pair-1";
+import { componentFrameMetrics } from "../domain/component-frame.js";
+import { componentTextureSize, manualSurfaceTextureLimit } from "../domain/render-resolution.js?v=label-overlay-16";
+import { clamp01, normalizeComponentPipelineSettings, resolveSceneSourceNode, sanitizeState } from "../domain/models.js?v=label-overlay-16";
+import { normalizeParamValue, normalizeParamValues, renderQualityScale, renderQualityValue } from "../graph/component-schema.js?v=label-overlay-16";
 import { createManualScheduler } from "../graph/manual-scheduler.js";
-import { RenderNodeRuntime, textureStateKey } from "../graph/render-node-runtime.js?v=node-dirty-runtime-1";
-import { createPlacedRenderResult, directPlacementKind, transformedPlacementDemandRect } from "../graph/placed-render-result.js?v=direct-placement-1";
-import { compileCompositionPatch, compileShaderSchedule, flattenCompositionChain, fuseLocalShaderSchedule, isFusibleShaderJob } from "../graph/render-scheduler.js?v=hsv-alpha-key-1";
-import { getGeneratorComponent } from "../graph/generator-registry.js?v=render-quality-2";
-import { createShaderBuilder, fusedUniformName } from "../shaders/shader-builder.js?v=hsv-alpha-key-1";
-import { getGeneratorShaderComponent } from "../shaders/generator-shaders.js?v=direct-shader-source-3";
-import { getShaderComponent } from "../shaders/shader-registry.js?v=hsv-alpha-key-1";
+import { RenderNodeRuntime, textureStateKey } from "../graph/render-node-runtime.js?v=label-overlay-16";
+import { createPlacedRenderResult, directPlacementKind, transformedPlacementDemandRect } from "../graph/placed-render-result.js?v=label-overlay-16";
+import { compileComponentPatch, compileShaderSchedule, flattenComponentChain, fuseLocalShaderSchedule, isFusibleShaderJob } from "../graph/render-scheduler.js?v=label-overlay-16";
+import { getGeneratorComponent } from "../graph/generator-registry.js?v=label-overlay-16";
+import { createShaderBuilder, fusedUniformName } from "../shaders/shader-builder.js?v=label-overlay-16";
+import { getGeneratorShaderComponent } from "../shaders/generator-shaders.js?v=label-overlay-16";
+import { getShaderComponent } from "../shaders/shader-registry.js?v=label-overlay-16";
 import { applyBlend } from "./blend-utils.js";
 import {
   createSharedFramebufferTarget,
   isSharedFramebufferTarget,
   unwrapRenderTarget,
-} from "./shared-framebuffer-target.js?v=shared-fbo-7";
-import { applyFontToGlobal, applyFontToTarget } from "./font-loader.js?v=world-frame-27";
-import { drawGenerator, drawStandby } from "./generators.js?v=render-quality-2";
+} from "./shared-framebuffer-target.js?v=label-overlay-16";
+import { applyFontToGlobal, applyFontToTarget } from "./font-loader.js?v=label-overlay-16";
+import { drawGenerator, drawStandby } from "./generators.js?v=label-overlay-16";
 import { drawCover, drawMediaFit, isDrawableMedia, syncVideoPlayback } from "./media-utils.js";
 import {
   createRenderRequest,
@@ -27,11 +28,12 @@ import {
   outputFrames,
   outputFrameOffset,
   renderRequestKey,
+  RECORDING_FRAME_DEMAND_SCALE,
   sourceRenderDemand,
-  surfaceTextureSize,
+  outputSpanRect,
   worldSize,
-} from "./render-geometry.js?v=render-demand-1";
-import { VjMapper } from "./vj-mapper.js?v=scene-transition-1";
+} from "./render-geometry.js?v=label-overlay-16";
+import { VjMapper } from "./vj-mapper.js?v=label-overlay-16";
 import { mediaRenditionKey } from "../services/media-rendition-service.js";
 
 const TERRAIN_GRID_CELLS = 48;
@@ -107,7 +109,7 @@ void main() {
   gl_FragColor = color * inside;
 }`;
 
-const COMPOSITION_UPSCALE_FRAGMENT_SHADER = `
+const COMPONENT_UPSCALE_FRAGMENT_SHADER = `
 precision mediump float;
 uniform sampler2D sourceTex;
 uniform vec2 sourceResolution;
@@ -144,7 +146,7 @@ void main() {
   gl_FragColor = color;
 }`;
 
-const COMPOSITION_POST_FRAGMENT_SHADER = `
+const COMPONENT_POST_FRAGMENT_SHADER = `
 precision mediump float;
 uniform sampler2D sourceTex;
 uniform bool sourceFlipY;
@@ -415,24 +417,25 @@ export class OutputRenderer {
     this.onSurfaceSelect = onSurfaceSelect;
     this.state = null;
     this.mapper = null;
-    this.compositionSource = new Map();
-    this.compositionOutput = new Map();
-    this.compositionBuffer = new Map();
-    this.compositionGpuBuffer = new Map();
-    this.stableCompositionSignatures = new Map();
+    this.componentSource = new Map();
+    this.componentOutput = new Map();
+    this.componentBuffer = new Map();
+    this.componentGpuBuffer = new Map();
+    this.stableComponentSignatures = new Map();
     this.chainNodeRuntimes = new Map();
     this.sourceNodeRuntimes = new Map();
-    this.compositionSourceUse = new Map();
-    this.compositionBufferUse = new Map();
-    this.compositionGpuBufferUse = new Map();
-    this.compositionPatches = new Map();
+    this.componentSourceUse = new Map();
+    this.componentBufferUse = new Map();
+    this.componentGpuBufferUse = new Map();
+    this.componentPatches = new Map();
     this.thumbnailImages = new Map();
     this.thumbnailEditTransformBaselines = new Map();
     this.media = new Map();
     // Specialized 3D sources render sequentially and are copied into the
-    // composition target immediately. Keep one stable scratch context per
-    // source kind instead of retaining a new WebGL context for every demand
-    // size encountered while a Canvas placement is being scaled.
+    // component target immediately. Terrain uses a framebuffer in the main
+    // WebGL context so resizing its scratch target cannot invalidate p5's
+    // cross-context canvas texture cache. Model rendering still falls back to
+    // its dedicated p5.Graphics context because it uses p5's 3D drawing API.
     this.specializedWebglTargets = new Map();
     this.terrainSurfaceResources = new Map();
     this.terrainWireResources = new Map();
@@ -442,8 +445,6 @@ export class OutputRenderer {
     this.fxTargetKey = "";
     this.fxTargetGroups = new Map();
     this.mainMix = null;
-    this.surfaceScratch = null;
-    this.surfaceTexture = null;
     this.surfaceTextures = new Map();
     this.transitionSurfaceTextures = new Map();
     this.activeTransitionTextureId = "";
@@ -452,6 +453,8 @@ export class OutputRenderer {
     this.cameraCapture = null;
     this.cameraRequested = false;
     this.cameraError = "";
+    this.cameraCaptureSignature = "";
+    this.cameraRequestToken = 0;
     this.chainTransformDrag = null;
     this.canvasFrameDrag = null;
     this.mapperSurfaces = new Map();
@@ -472,7 +475,7 @@ export class OutputRenderer {
     this.frameStart = 0;
     this.frameProfile = createEmptyFrameProfile();
     this.lastFrameProfile = createEmptyFrameProfile();
-    this.compositionProfileDepth = 0;
+    this.componentProfileDepth = 0;
     this.lastTickMs = 0;
     this.frameDeltaSeconds = 0;
     this.visualTime = 0;
@@ -480,13 +483,13 @@ export class OutputRenderer {
     this.outputMediaStatus = createMediaReadinessStatus();
     this.scheduledEvents = [];
     this.manualScheduler = createManualScheduler();
-    this.compositionTimes = new Map();
+    this.componentTimes = new Map();
     this.rateClocks = new Map();
     this.terrainScalePhases = new Map();
     this.cachedNoiseTexture = null;
     this.overlayBlendShader = null;
     this.layerTransformShader = null;
-    this.compositionPipelineShaders = new Map();
+    this.componentPipelineShaders = new Map();
     this.shaderBuilder = createShaderBuilder({
       getCustomCode: () => this.state?.shaders?.customCode || "",
       onStatus: (status, error) => {
@@ -511,8 +514,7 @@ export class OutputRenderer {
     this.disposeBuffers();
     this.mapperSurfaces?.clear?.();
     this.mapper?.surfaces?.splice?.(0);
-    this.cameraCapture?.remove?.();
-    this.cameraCapture = null;
+    this.releaseCameraCapture();
     for (const item of this.media?.values?.() || []) {
       if (item?.url) URL.revokeObjectURL(item.url);
       for (const url of item?.renditionUrls?.values?.() || []) URL.revokeObjectURL(url);
@@ -532,49 +534,35 @@ export class OutputRenderer {
   applyFontToAllGraphics() {
     this.applyGraphicsFont(this.sourcePg);
     this.applyGraphicsFont(this.mainMix);
-    this.applyGraphicsFont(this.surfaceScratch);
-    this.applyGraphicsFont(this.surfaceTexture);
     for (const pg of this.surfaceTextures?.values?.() || []) this.applyGraphicsFont(pg);
     for (const pg of this.transitionSurfaceTextures?.values?.() || []) this.applyGraphicsFont(pg);
     for (const group of this.fxTargetGroups?.values?.() || []) {
       for (const target of group.targets || []) this.applyGraphicsFont(target);
     }
-    for (const pg of this.compositionSource?.values?.() || []) this.applyGraphicsFont(pg);
-    for (const pg of this.compositionOutput?.values?.() || []) this.applyGraphicsFont(pg);
-    for (const pg of this.compositionBuffer?.values?.() || []) this.applyGraphicsFont(pg);
+    for (const pg of this.componentSource?.values?.() || []) this.applyGraphicsFont(pg);
+    for (const pg of this.componentOutput?.values?.() || []) this.applyGraphicsFont(pg);
+    for (const pg of this.componentBuffer?.values?.() || []) this.applyGraphicsFont(pg);
   }
 
   createBuffers() {
     this.disposeBuffers();
     this.applyPixelDensity();
     const { width: rw, height: rh } = this.outputFrameSize(this.state.render);
-    const { width: surfaceWidth, height: surfaceHeight } = surfaceTextureSize(this.state.render);
     this.sourcePg = createGraphics(rw, rh);
     this.mainMix = createSharedFramebufferTarget(rw, rh) || createGraphics(rw, rh);
-    this.surfaceScratch = createGraphics(surfaceWidth, surfaceHeight);
-    this.surfaceTexture = createSharedFramebufferTarget(surfaceWidth, surfaceHeight) || createGraphics(surfaceWidth, surfaceHeight);
     this.applyGraphicsPixelDensity(this.sourcePg);
     this.applyGraphicsPixelDensity(this.mainMix);
-    this.applyGraphicsPixelDensity(this.surfaceScratch);
-    this.applyGraphicsPixelDensity(this.surfaceTexture);
     this.applyGraphicsFont(this.sourcePg);
     this.applyGraphicsFont(this.mainMix);
-    this.applyGraphicsFont(this.surfaceScratch);
-    this.applyGraphicsFont(this.surfaceTexture);
   }
 
   buffersMatchRenderSize() {
     if (!this.state) return false;
     const { width: rw, height: rh } = this.outputFrameSize(this.state.render);
-    const { width: surfaceWidth, height: surfaceHeight } = surfaceTextureSize(this.state.render);
     return this.sourcePg?.width === rw &&
       this.sourcePg?.height === rh &&
       this.mainMix?.width === rw &&
-      this.mainMix?.height === rh &&
-      this.surfaceScratch?.width === surfaceWidth &&
-      this.surfaceScratch?.height === surfaceHeight &&
-      this.surfaceTexture?.width === surfaceWidth &&
-      this.surfaceTexture?.height === surfaceHeight;
+      this.mainMix?.height === rh;
   }
 
   disposeBuffers() {
@@ -582,27 +570,23 @@ export class OutputRenderer {
     this.resetTerrainResources();
     disposeGraphics(this.sourcePg);
     disposeGraphics(this.mainMix);
-    disposeGraphics(this.surfaceScratch);
-    disposeGraphics(this.surfaceTexture);
     disposeGraphicsMap(this.surfaceTextures);
     disposeGraphicsMap(this.transitionSurfaceTextures);
     this.disposeFxTargetGroups();
     disposeGraphicsMap(this.specializedWebglTargets);
-    disposeGraphicsMap(this.compositionSource);
-    // Frame-local aliases; compositionGpuBuffer owns these targets.
-    this.compositionOutput.clear();
-    disposeGraphicsMap(this.compositionBuffer);
-    disposeGraphicsMap(this.compositionGpuBuffer);
-    this.stableCompositionSignatures?.clear?.();
+    disposeGraphicsMap(this.componentSource);
+    // Frame-local aliases; componentGpuBuffer owns these targets.
+    this.componentOutput.clear();
+    disposeGraphicsMap(this.componentBuffer);
+    disposeGraphicsMap(this.componentGpuBuffer);
+    this.stableComponentSignatures?.clear?.();
     this.chainNodeRuntimes?.clear?.();
     this.sourceNodeRuntimes?.clear?.();
-    this.compositionSourceUse?.clear?.();
-    this.compositionBufferUse?.clear?.();
-    this.compositionGpuBufferUse?.clear?.();
+    this.componentSourceUse?.clear?.();
+    this.componentBufferUse?.clear?.();
+    this.componentGpuBufferUse?.clear?.();
     this.sourcePg = null;
     this.mainMix = null;
-    this.surfaceScratch = null;
-    this.surfaceTexture = null;
     this.surfaceTextures?.clear?.();
     this.transitionSurfaceTextures?.clear?.();
     this.activeTransitionTextureId = "";
@@ -613,7 +597,7 @@ export class OutputRenderer {
     this.cachedNoiseTexture = null;
     this.overlayBlendShader = null;
     this.layerTransformShader = null;
-    this.compositionPipelineShaders?.clear?.();
+    this.componentPipelineShaders?.clear?.();
   }
 
   getCachedNoiseTexture() {
@@ -712,17 +696,30 @@ export class OutputRenderer {
     this.mapperSurfaces.clear();
     const frame = this.outputFrameSize(this.state.render);
     const offset = this.mode === "output" ? { x: 0, y: 0 } : this.outputFrameOffset();
-    const cols = Math.max(1, Math.ceil(Math.sqrt(this.state.surfaces.length)));
-    const rows = Math.max(1, Math.ceil(this.state.surfaces.length / cols));
+    const mappedSurfaces = this.state.surfaces.filter((surface) => surface.destination?.type !== "direct");
+    const cols = Math.max(1, Math.ceil(Math.sqrt(mappedSurfaces.length || 1)));
+    const rows = Math.max(1, Math.ceil((mappedSurfaces.length || 1) / cols));
     const gap = Math.max(24, Math.round(Math.min(frame.width, frame.height) * 0.035));
     const cellW = Math.max(1, (frame.width - gap * (cols + 1)) / cols);
-    const texture = surfaceTextureSize(this.state.render);
+    const texture = componentTextureSize(this.state.render);
     const idealCellH = cellW * (texture.height / texture.width);
     const maxCellH = Math.max(1, (frame.height - gap * (rows + 1)) / rows);
     const cellH = Math.min(idealCellH, maxCellH);
     const frameX = offset.x;
     const frameY = offset.y;
-    this.state.surfaces.forEach((surface, index) => {
+    for (const surface of this.state.surfaces) {
+      if (surface.destination?.type !== "direct") continue;
+      const corners = this.directSurfaceCorners(surface);
+      if (!corners) continue;
+      const rect = cornersRect(corners);
+      this.mapperSurfaces.set(surface.id, {
+        direct: true,
+        directRect: rect,
+        mapperSurface: { id: surface.id, name: surface.id, w: rect.width, h: rect.height, corners, renderCache: null },
+        renderRequest: stableSurfaceRenderRequest(this.state.render, { surfaceId: surface.id }),
+      });
+    }
+    mappedSurfaces.forEach((surface, index) => {
       const col = index % cols;
       const row = Math.floor(index / cols);
       const x = frameX + gap + col * (cellW + gap);
@@ -747,12 +744,33 @@ export class OutputRenderer {
     });
   }
 
+  directSurfaceCorners(surface) {
+    const rect = outputSpanRect(this.state?.render || {}, surface.destination?.outputIds || []);
+    if (!rect) return null;
+    let x = rect.x;
+    let y = rect.y;
+    let widthPx = rect.width;
+    let heightPx = rect.height;
+    if (this.mode === "output") {
+      const offset = this.outputFrameOffset();
+      const transform = this.outputFrameTransform();
+      x = (x - offset.x) * transform.scale + transform.x;
+      y = (y - offset.y) * transform.scale + transform.y;
+      widthPx *= transform.scale;
+      heightPx *= transform.scale;
+    }
+    return rectToCorners({ x, y, width: widthPx, height: heightPx });
+  }
+
   setState(nextState) {
     const wasThumbnailPreview = this.shouldUseThumbnailPreview();
+    const previousCameraSignature = cameraSettingsSignature(this.state?.render);
     const previousSurfaceIds = (this.state?.surfaces || []).map((surface) => surface.id).join(",");
     const previousSize = this.state ? this.renderSizeSignature(this.state.render) : "";
     const previousMappingSignature = this.mappingSignature;
     this.state = sanitizeState(nextState);
+    const nextCameraSignature = cameraSettingsSignature(this.state.render);
+    if (previousCameraSignature && previousCameraSignature !== nextCameraSignature) this.releaseCameraCapture();
     const isThumbnailPreview = this.shouldUseThumbnailPreview();
     if (isThumbnailPreview && !wasThumbnailPreview) this.captureThumbnailEditTransformBaselines();
     if (!isThumbnailPreview && wasThumbnailPreview) this.thumbnailEditTransformBaselines.clear();
@@ -781,10 +799,11 @@ export class OutputRenderer {
   renderSizeSignature(render = {}) {
     const frame = this.outputFrameSize(render);
     const world = worldSize(render);
-    const texture = surfaceTextureSize(render);
+    const texture = componentTextureSize(render);
+    const surfacePolicy = render.surfaceTexture || {};
     const density = this.renderPixelDensity(render);
     const outputs = outputFrames(render).map((output) => `${output.id}:${output.width}x${output.height}@${output.x},${output.y}`).join("|");
-    return `${this.outputId}:${frame.width}x${frame.height}:${outputs}:${world.width}x${world.height}:${texture.width}x${texture.height}:pd${density}`;
+    return `${this.outputId}:${frame.width}x${frame.height}:${outputs}:${world.width}x${world.height}:ct${texture.width}x${texture.height}:st${surfacePolicy.mode || "auto"}:${surfacePolicy.maxWidth || 0}x${surfacePolicy.maxHeight || 0}:pd${density}`;
   }
 
   outputFrameSize(render = this.state?.render || {}) {
@@ -1006,25 +1025,45 @@ export class OutputRenderer {
   }
 
   ensureCameraCapture() {
-    if (this.cameraCapture || this.cameraRequested) return this.cameraCapture;
+    const settings = cameraCaptureSettings(this.state?.render);
+    const signature = cameraSettingsSignature(this.state?.render);
+    if (this.cameraCapture && this.cameraCaptureSignature === signature) return this.cameraCapture;
+    if (this.cameraRequested && this.cameraCaptureSignature === signature) return null;
+    if (this.cameraCapture || this.cameraRequested) this.releaseCameraCapture();
     this.cameraRequested = true;
     this.cameraError = "";
+    this.cameraCaptureSignature = signature;
+    const requestToken = ++this.cameraRequestToken;
     const setupWebcamera = getPortalWebcameraSetup();
     if (!setupWebcamera) {
       this.cameraError = "camera unavailable";
+      this.cameraRequested = false;
       return null;
     }
-    const frame = frameSize(this.state.render);
-    setupWebcamera(true, frame.width, frame.height, false, false)
+    setupWebcamera(settings.front, settings.width, settings.height, settings.mirrored, settings.maxResolution)
       .then((camera) => {
+        if (requestToken !== this.cameraRequestToken) {
+          camera?.remove?.();
+          return;
+        }
         this.cameraCapture = camera;
+        this.cameraRequested = false;
         this.cameraError = "";
       })
       .catch(() => {
+        if (requestToken !== this.cameraRequestToken) return;
         this.cameraError = "camera blocked";
         this.cameraRequested = false;
       });
     return null;
+  }
+
+  releaseCameraCapture() {
+    this.cameraRequestToken++;
+    this.cameraCapture?.remove?.();
+    this.cameraCapture = null;
+    this.cameraRequested = false;
+    this.cameraCaptureSignature = "";
   }
 
   draw() {
@@ -1032,7 +1071,7 @@ export class OutputRenderer {
     this.gpuTimer.poll(this.frameIndex);
     this.frameStart = performance.now();
     this.frameProfile = createEmptyFrameProfile();
-    this.compositionProfileDepth = 0;
+    this.componentProfileDepth = 0;
     this.frameIndex++;
     this.tickClock(this.frameStart);
     this.outputMediaStatus = this.outputMediaReadiness();
@@ -1040,11 +1079,11 @@ export class OutputRenderer {
       ? []
       : this.manualScheduler.drain({ frame: this.frameIndex, time: this.visualTime });
     background(0);
-    if (this.shouldUseThumbnailPreview()) this.renderThumbnailCompositions();
-    else this.renderCompositions();
-    if (this.mode === "composition") {
-      this.measureGpu(drawingContext, () => this.renderCompositionPreview());
-      if (!this.shouldUseThumbnailPreview()) this.captureSelectedCompositionThumbnail();
+    if (this.shouldUseThumbnailPreview()) this.renderThumbnailComponents();
+    else this.renderComponents();
+    if (this.mode === "component") {
+      this.measureGpu(drawingContext, () => this.renderComponentPreview());
+      if (!this.shouldUseThumbnailPreview()) this.captureSelectedComponentThumbnail();
       this.pruneRenderCaches();
       this.gpuTimer.sealFrame(this.frameIndex);
       this.finishFrameProfile();
@@ -1086,13 +1125,13 @@ export class OutputRenderer {
     this.lastTickMs = nowMs;
     if (this.state?.global?.playing === false) return;
     this.visualTime += dt;
-    const liveCompositionIds = new Set((this.state.compositions || []).map((composition) => composition.id));
-    for (const id of this.compositionTimes.keys()) {
-      if (!liveCompositionIds.has(id)) this.compositionTimes.delete(id);
+    const liveComponentIds = new Set((this.state.components || []).map((component) => component.id));
+    for (const id of this.componentTimes.keys()) {
+      if (!liveComponentIds.has(id)) this.componentTimes.delete(id);
     }
-    for (const composition of this.state.compositions || []) {
-      const speed = Math.max(0, Number(composition.speed) || 0);
-      this.compositionTimes.set(composition.id, (this.compositionTimes.get(composition.id) || 0) + dt * speed);
+    for (const component of this.state.components || []) {
+      const speed = Math.max(0, Number(component.speed) || 0);
+      this.componentTimes.set(component.id, (this.componentTimes.get(component.id) || 0) + dt * speed);
     }
   }
 
@@ -1106,6 +1145,7 @@ export class OutputRenderer {
       this.state?.global?.mappingHandleMode !== "near" || this.shouldRevealSurfaceOverlay(surfaceId)
     );
     const mapped = this.mapperSurfaces.get(surfaceId);
+    if (mapped?.direct) return;
     const corners = mapped?.mapperSurface?.corners;
     if (!Array.isArray(corners) || corners.length !== 4) return;
 
@@ -1140,6 +1180,7 @@ export class OutputRenderer {
     if (this.mode === "output" || !this.mapper?.isCalibrating?.()) return;
     const frames = outputFrames(this.state?.render || {});
     if (!frames.length) return;
+    const showLabels = this.state?.global?.showLabels !== false;
     const gl = drawingContext;
     if (gl?.disable) gl.disable(gl.DEPTH_TEST);
     resetShader();
@@ -1152,11 +1193,13 @@ export class OutputRenderer {
       noFill();
       stroke(255, 255, 255, 135);
       rect(-width * 0.5 + frame.x, -height * 0.5 + frame.y, frame.width, frame.height);
-      noStroke();
-      fill(255, 255, 255, 150);
-      textSize(12);
-      textAlign(LEFT, TOP);
-      text(`${frame.name} · ${frame.width}×${frame.height}`, -width * 0.5 + frame.x + 10, -height * 0.5 + frame.y + 8);
+      if (showLabels) {
+        noStroke();
+        fill(255, 255, 255, 150);
+        textSize(12);
+        textAlign(LEFT, TOP);
+        text(`${frame.name} · ${frame.width}×${frame.height}`, -width * 0.5 + frame.x + 10, -height * 0.5 + frame.y + 8);
+      }
     }
     pop();
     if (gl?.enable) gl.enable(gl.DEPTH_TEST);
@@ -1177,36 +1220,36 @@ export class OutputRenderer {
     });
   }
 
-  renderCompositions() {
-    this.compositionOutput.clear();
+  renderComponents() {
+    this.componentOutput.clear();
     this.mainMix.push();
     this.mainMix.clear();
     if (this.isOutputBlackout()) {
       this.mainMix.pop();
       return;
     }
-    if (this.mode !== "composition") {
+    if (this.mode !== "component") {
       this.mainMix.pop();
       return;
     }
 
-    const neededCompositionIds = this.neededCompositionIds();
-    for (const composition of this.state.compositions || []) {
-      if (neededCompositionIds.size && !neededCompositionIds.has(composition.id)) continue;
-      const compositionTime = this.compositionTimes.get(composition.id) || 0;
-      const request = composition.type === "canvas"
-        ? canvasPreviewRenderRequest(composition, width, height, { reason: "composition-preview", renderIdentity: composition.id })
-        : compositionRenderRequest(this.state.render, composition, "texture", { reason: "composition-preview", renderIdentity: composition.id });
-      const output = this.renderCompositionForRequest(
-        composition,
-        compositionTime,
+    const neededComponentIds = this.neededComponentIds();
+    for (const component of this.state.components || []) {
+      if (neededComponentIds.size && !neededComponentIds.has(component.id)) continue;
+      const componentTime = this.componentTimes.get(component.id) || 0;
+      const request = component.type === "canvas"
+        ? canvasPreviewRenderRequest(component, width, height, { reason: "component-preview", renderIdentity: component.id })
+        : componentRenderRequest(this.state.render, component, "texture", { reason: "component-preview", renderIdentity: component.id });
+      const output = this.renderComponentForRequest(
+        component,
+        componentTime,
         request
       );
-      this.compositionOutput.set(composition.id, output);
+      this.componentOutput.set(component.id, output);
       const rect = containedRect(this.mainMix.width, this.mainMix.height, output.width, output.height);
       this.mainMix.push();
-      applyBlend(this.mainMix, composition.blend);
-      this.mainMix.tint(255, 255 * clamp01(composition.opacity));
+      applyBlend(this.mainMix, component.blend);
+      this.mainMix.tint(255, 255 * clamp01(component.opacity));
       this.mainMix.image(output, rect.x, rect.y, rect.width, rect.height);
       this.mainMix.noTint();
       this.mainMix.blendMode(BLEND);
@@ -1215,77 +1258,77 @@ export class OutputRenderer {
     this.mainMix.pop();
   }
 
-  renderCompositionAtSize(composition, compositionTime, rw, rh) {
-    return this.renderCompositionForRequest(composition, compositionTime, createRenderRequest("texture", { width: rw, height: rh }));
+  renderComponentAtSize(component, componentTime, rw, rh) {
+    return this.renderComponentForRequest(component, componentTime, createRenderRequest("texture", { width: rw, height: rh }));
   }
 
-  renderCompositionForRequest(composition, compositionTime, request = frameRenderRequest(this.state.render)) {
-    const outputRequest = this.normalizeRenderRequest(request, "composition");
-    const pipeline = normalizeCompositionPipelineSettings(this.state?.render || {});
-    const renderRequest = composition?.type === "canvas"
+  renderComponentForRequest(component, componentTime, request = frameRenderRequest(this.state.render)) {
+    const outputRequest = this.normalizeRenderRequest(request, "component");
+    const pipeline = normalizeComponentPipelineSettings(this.state?.render || {});
+    const renderRequest = component?.type === "canvas"
       ? outputRequest
-      : compositionPipelineSourceRequest(outputRequest, pipeline);
-    const outputKey = renderBufferKey(composition.id, renderRequestKey(outputRequest));
-    const cached = this.compositionOutput.get(outputKey);
+      : componentPipelineSourceRequest(outputRequest, pipeline);
+    const outputKey = renderBufferKey(component.id, renderRequestKey(outputRequest));
+    const cached = this.componentOutput.get(outputKey);
     if (cached) {
-      this.frameProfile.compositionCacheHits++;
+      this.frameProfile.componentCacheHits++;
       return cached;
     }
-    const stableSignature = this.stableCompositionSignature(composition, outputRequest);
+    const stableSignature = this.stableComponentSignature(component, outputRequest);
     const stableKey = renderBufferKey("stable", outputKey);
     const stableGpuKey = renderBufferKey(stableKey, renderRequestKey(outputRequest));
-    const stableGpuCached = stableSignature ? this.compositionGpuBuffer.get(stableGpuKey) : null;
-    const stableCpuCached = stableSignature ? this.compositionBuffer.get(stableGpuKey) : null;
+    const stableGpuCached = stableSignature ? this.componentGpuBuffer.get(stableGpuKey) : null;
+    const stableCpuCached = stableSignature ? this.componentBuffer.get(stableGpuKey) : null;
     const stableCached = stableGpuCached || stableCpuCached;
     if (stableCached &&
         stableCached.width === outputRequest.width &&
         stableCached.height === outputRequest.height &&
-        this.stableCompositionSignatures.get(stableKey) === stableSignature) {
-      if (stableGpuCached) this.touchRenderCache(this.compositionGpuBufferUse, stableGpuKey);
-      else this.touchRenderCache(this.compositionBufferUse, stableGpuKey);
-      this.frameProfile.compositionCacheHits++;
-      this.cacheCompositionOutput(composition, outputKey, stableCached, outputRequest);
+        this.stableComponentSignatures.get(stableKey) === stableSignature) {
+      if (stableGpuCached) this.touchRenderCache(this.componentGpuBufferUse, stableGpuKey);
+      else this.touchRenderCache(this.componentBufferUse, stableGpuKey);
+      this.frameProfile.componentCacheHits++;
+      this.cacheComponentOutput(component, outputKey, stableCached, outputRequest);
       return stableCached;
     }
-    if (composition.type === "canvas") {
-      const output = this.measureCompositionProfile({
-        type: "composition",
-        compositionId: composition.id,
-        compositionName: composition.name || composition.id || "Canvas",
+    if (component.type === "canvas") {
+      const output = this.measureComponentProfile({
+        type: "component",
+        componentId: component.id,
+        componentName: component.name || component.id || "Canvas",
         width: outputRequest.width,
         height: outputRequest.height,
-      }, () => this.renderCanvasComposition(composition, compositionTime, renderRequest));
-      this.cacheCompositionOutput(composition, outputKey, output, outputRequest);
-      if (stableSignature) this.storeStableCompositionOutput(stableKey, stableSignature, output, outputRequest);
+      }, () => this.renderCanvasComponent(component, componentTime, renderRequest));
+      this.cacheComponentOutput(component, outputKey, output, outputRequest);
+      if (stableSignature) this.storeStableComponentOutput(stableKey, stableSignature, output, outputRequest);
       return output;
     }
-    const patch = compileCompositionPatch(composition, renderRequest);
-    this.compositionPatches.set(composition.id, patch);
-    const output = this.measureCompositionProfile({
-      type: "composition",
-      compositionId: composition.id,
-      compositionName: composition.name || composition.id || "Composition",
+    const patch = compileComponentPatch(component, renderRequest);
+    this.componentPatches.set(component.id, patch);
+    const output = this.measureComponentProfile({
+      type: "component",
+      componentId: component.id,
+      componentName: component.name || component.id || "Component",
       width: renderRequest.width,
       height: renderRequest.height,
       outputWidth: outputRequest.width,
       outputHeight: outputRequest.height,
     }, () => {
-      const source = this.renderCompositionPatch(composition, patch, compositionTime, renderRequest);
-      return this.renderCompositionOutputPipeline(
-        composition,
+      const source = this.renderComponentPatch(component, patch, componentTime, renderRequest);
+      return this.renderComponentOutputPipeline(
+        component,
         source,
         renderRequest,
         outputRequest,
-        compositionTime,
+        componentTime,
         pipeline
       );
     });
-    this.cacheCompositionOutput(composition, outputKey, output, outputRequest);
-    if (stableSignature) this.storeStableCompositionOutput(stableKey, stableSignature, output, outputRequest);
+    this.cacheComponentOutput(component, outputKey, output, outputRequest);
+    if (stableSignature) this.storeStableComponentOutput(stableKey, stableSignature, output, outputRequest);
     return output;
   }
 
-  renderCompositionOutputPipeline(composition, source, sourceRequest, outputRequest, compositionTime, pipeline) {
+  renderComponentOutputPipeline(component, source, sourceRequest, outputRequest, componentTime, pipeline) {
     const upscalingEnabled = pipeline.upscaling.enabled && pipeline.upscaling.amount < 0.999;
     const post = pipeline.postProcessing;
     const postEnabled = (post.noiseEnabled && post.noiseAmount > 0.0001) ||
@@ -1294,15 +1337,15 @@ export class OutputRenderer {
 
     let current = source;
     if (upscalingEnabled) {
-      const target = this.getCompositionPipelineTarget(`${composition.id}:upscale`, outputRequest);
-      const shaderProgram = this.getCompositionPipelineShader("upscale", target);
+      const target = this.getComponentPipelineTarget(`${component.id}:upscale`, outputRequest);
+      const shaderProgram = this.getComponentPipelineShader("upscale", target);
       if (shaderProgram) {
-        current = this.drawCompositionPipelinePass({
+        current = this.drawComponentPipelinePass({
           target,
           shaderProgram,
           source: current,
           request: outputRequest,
-          passName: "Composition upscale",
+          passName: "Component upscale",
           uniforms: () => {
             shaderProgram.setUniform("sourceResolution", [sourceRequest.width, sourceRequest.height]);
           },
@@ -1311,17 +1354,17 @@ export class OutputRenderer {
     }
 
     if (postEnabled) {
-      const target = this.getCompositionPipelineTarget(`${composition.id}:post`, outputRequest);
-      const shaderProgram = this.getCompositionPipelineShader("post", target);
+      const target = this.getComponentPipelineTarget(`${component.id}:post`, outputRequest);
+      const shaderProgram = this.getComponentPipelineShader("post", target);
       if (shaderProgram) {
-        current = this.drawCompositionPipelinePass({
+        current = this.drawComponentPipelinePass({
           target,
           shaderProgram,
           source: current,
           request: outputRequest,
-          passName: "Composition post",
+          passName: "Component post",
           uniforms: () => {
-            shaderProgram.setUniform("time", compositionTime);
+            shaderProgram.setUniform("time", componentTime);
             shaderProgram.setUniform("noiseAmount", post.noiseEnabled ? post.noiseAmount : 0);
             shaderProgram.setUniform("grayscaleAmount", post.grayscaleEnabled ? post.grayscaleAmount : 0);
           },
@@ -1331,10 +1374,10 @@ export class OutputRenderer {
     return current;
   }
 
-  getCompositionPipelineTarget(id, request) {
-    const renderRequest = this.normalizeRenderRequest(request, "composition-pipeline");
-    const key = renderBufferKey("composition-pipeline", id, renderRequestKey(renderRequest));
-    let target = this.compositionGpuBuffer.get(key);
+  getComponentPipelineTarget(id, request) {
+    const renderRequest = this.normalizeRenderRequest(request, "component-pipeline");
+    const key = renderBufferKey("component-pipeline", id, renderRequestKey(renderRequest));
+    let target = this.componentGpuBuffer.get(key);
     if (!target || target.width !== renderRequest.width || target.height !== renderRequest.height) {
       disposeGraphics(target);
       target = createSharedFramebufferTarget(renderRequest.width, renderRequest.height) || createGraphics(renderRequest.width, renderRequest.height, WEBGL);
@@ -1344,35 +1387,35 @@ export class OutputRenderer {
         this.applyGraphicsFont(target);
         target.noStroke();
       }
-      this.compositionGpuBuffer.set(key, target);
+      this.componentGpuBuffer.set(key, target);
     }
-    this.touchRenderCache(this.compositionGpuBufferUse, key);
+    this.touchRenderCache(this.componentGpuBufferUse, key);
     return target;
   }
 
-  getCompositionPipelineShader(kind, target) {
+  getComponentPipelineShader(kind, target) {
     const contextKey = target?.__vj1ShaderContextId || target?._renderer || "global";
-    let shaders = this.compositionPipelineShaders.get(contextKey);
+    let shaders = this.componentPipelineShaders.get(contextKey);
     if (!shaders) {
       shaders = {};
-      this.compositionPipelineShaders.set(contextKey, shaders);
+      this.componentPipelineShaders.set(contextKey, shaders);
     }
     if (shaders[kind]) return shaders[kind];
     try {
-      const fragment = kind === "upscale" ? COMPOSITION_UPSCALE_FRAGMENT_SHADER : COMPOSITION_POST_FRAGMENT_SHADER;
+      const fragment = kind === "upscale" ? COMPONENT_UPSCALE_FRAGMENT_SHADER : COMPONENT_POST_FRAGMENT_SHADER;
       shaders[kind] = target.createShader(OVERLAY_BLEND_VERTEX_SHADER, fragment);
       return shaders[kind];
     } catch (error) {
-      console.error("[VJ1_COMPOSITION_PIPELINE_SHADER_FAILED]", { kind, message: error?.message || String(error) });
+      console.error("[VJ1_COMPONENT_PIPELINE_SHADER_FAILED]", { kind, message: error?.message || String(error) });
       return null;
     }
   }
 
-  drawCompositionPipelinePass({ target, shaderProgram, source, request, passName, uniforms }) {
+  drawComponentPipelinePass({ target, shaderProgram, source, request, passName, uniforms }) {
     this.frameProfile.shaderPasses++;
     this.frameProfile.shaderChains++;
     return this.measureProfile("shaderMs", {
-      type: "composition-pipeline",
+      type: "component-pipeline",
       passName,
       width: request.width,
       height: request.height,
@@ -1390,56 +1433,56 @@ export class OutputRenderer {
     }));
   }
 
-  cacheCompositionOutput(composition, outputKey, output, renderRequest) {
-    this.compositionOutput.set(outputKey, output);
+  cacheComponentOutput(component, outputKey, output, renderRequest) {
+    this.componentOutput.set(outputKey, output);
     if (this.mainMix && renderRequest.width === this.mainMix.width && renderRequest.height === this.mainMix.height) {
-      this.compositionOutput.set(composition.id, output);
+      this.componentOutput.set(component.id, output);
     }
   }
 
-  storeStableCompositionOutput(stableKey, signature, source, renderRequest) {
-    const stable = this.getCompositionGpuBuffer(stableKey, renderRequest);
+  storeStableComponentOutput(stableKey, signature, source, renderRequest) {
+    const stable = this.getComponentGpuBuffer(stableKey, renderRequest);
     stable.push();
     stable.clear();
     drawBuffer(stable, source, 0, 0, stable.width, stable.height, this.isShaderBuffer(source));
     stable.pop();
-    this.stableCompositionSignatures.set(stableKey, signature);
+    this.stableComponentSignatures.set(stableKey, signature);
   }
 
-  renderCanvasComposition(composition, compositionTime, request = frameRenderRequest(this.state.render)) {
-    const renderRequest = this.normalizeRenderRequest(request, "composition");
-    return this.renderCompositionChainState(
-      composition,
-      composition.chain || [],
-      compositionTime,
+  renderCanvasComponent(component, componentTime, request = frameRenderRequest(this.state.render)) {
+    const renderRequest = this.normalizeRenderRequest(request, "component");
+    return this.renderComponentChainState(
+      component,
+      component.chain || [],
+      componentTime,
       renderRequest,
-      renderBufferKey(composition.id, "canvas")
+      renderBufferKey(component.id, "canvas")
     ).buffer;
   }
 
-  renderCompositionPatch(composition, patch, compositionTime, request = frameRenderRequest(this.state.render)) {
-    const renderRequest = this.normalizeRenderRequest(patch?.renderRequest || request, "composition");
-    if (Array.isArray(composition.chain) && composition.chain.length) {
-      return this.renderCompositionChainState(
-        composition,
-        composition.chain,
-        compositionTime,
+  renderComponentPatch(component, patch, componentTime, request = frameRenderRequest(this.state.render)) {
+    const renderRequest = this.normalizeRenderRequest(patch?.renderRequest || request, "component");
+    if (Array.isArray(component.chain) && component.chain.length) {
+      return this.renderComponentChainState(
+        component,
+        component.chain,
+        componentTime,
         renderRequest
       ).buffer;
     }
 
-    const output = this.getCompositionGpuBuffer(composition.id, renderRequest);
+    const output = this.getComponentGpuBuffer(component.id, renderRequest);
     output.push();
     output.clear();
     output.pop();
 
-    const orderedNodes = nodesInCompositionChainOrder(composition, patch);
+    const orderedNodes = nodesInComponentChainOrder(component, patch);
     for (let index = 0; index < orderedNodes.length; index++) {
       const node = orderedNodes[index];
       if (node.enabled === false || node.role === "output") continue;
       if (isSourceNode(node)) {
         const layer = patchLayerForNode(node);
-        const source = this.renderPatchSourceTexture(composition, node, layer, compositionTime, renderRequest);
+        const source = this.renderPatchSourceTexture(component, node, layer, componentTime, renderRequest);
         this.drawChainLayer(output, source, layer);
         continue;
       }
@@ -1450,7 +1493,7 @@ export class OutputRenderer {
           nextIndex++;
           if (orderedNodes[nextIndex].enabled !== false) effectRun.push(orderedNodes[nextIndex]);
         }
-        const effected = this.renderShaderNodes(output, effectRun, renderRequest, compositionTime);
+        const effected = this.renderShaderNodes(output, effectRun, renderRequest, componentTime);
         output.push();
         output.clear();
         drawBuffer(output, effected, 0, 0, output.width, output.height, this.isShaderBuffer(effected));
@@ -1461,20 +1504,20 @@ export class OutputRenderer {
     return output;
   }
 
-  renderPatchSourceTexture(composition, node, layer, compositionTime, renderRequest) {
+  renderPatchSourceTexture(component, node, layer, componentTime, renderRequest) {
     const sourceState = sourceFromPatchNode(node);
     if (isSimpleLayer(layer) && sourceState.type === "generator" && sourceState.generatorId !== "terrainFlyover" && getGeneratorShaderComponent(getGeneratorComponent(sourceState.generatorId).id)) {
       return this.measureProfile("sourceMs", {
         type: "source",
-        compositionId: composition.id,
-        compositionName: composition.name || composition.id || "Composition",
+        componentId: component.id,
+        componentName: component.name || component.id || "Component",
         passId: node.componentId || node.id,
         passName: layer.name || node.componentId || node.id,
         width: renderRequest.width,
         height: renderRequest.height,
       }, () => this.renderShaderGeneratorSource(
         sourceState.generatorId,
-        instanceTime(sourceState.instanceId || node.id, compositionTime),
+        instanceTime(sourceState.instanceId || node.id, componentTime),
         renderRequest,
         sourceState.params || {},
         sourceState.instanceId || node.id
@@ -1482,21 +1525,21 @@ export class OutputRenderer {
     }
     const source = this.measureProfile("sourceMs", {
       type: "source",
-      compositionId: composition.id,
-      compositionName: composition.name || composition.id || "Composition",
+      componentId: component.id,
+      componentName: component.name || component.id || "Component",
       passId: node.componentId || node.id,
       passName: layer.name || node.componentId || node.id,
       width: renderRequest.width,
       height: renderRequest.height,
-    }, () => this.renderPatchSourceNode(composition, node, compositionTime, renderRequest));
+    }, () => this.renderPatchSourceNode(component, node, componentTime, renderRequest));
     return source;
   }
 
-  renderLegacyComposition(composition, compositionTime, request = frameRenderRequest(this.state.render)) {
-    const renderRequest = this.normalizeRenderRequest(request, "composition");
-    const source = this.renderCompositionSource(composition, compositionTime, renderRequest);
-    const effected = this.renderShaderChain(source, withShaderInstancePrefix(composition.shaderChain, composition.id), renderRequest, compositionTime);
-    const output = this.getCompositionGpuBuffer(composition.id, renderRequest);
+  renderLegacyComponent(component, componentTime, request = frameRenderRequest(this.state.render)) {
+    const renderRequest = this.normalizeRenderRequest(request, "component");
+    const source = this.renderComponentSource(component, componentTime, renderRequest);
+    const effected = this.renderShaderChain(source, withShaderInstancePrefix(component.shaderChain, component.id), renderRequest, componentTime);
+    const output = this.getComponentGpuBuffer(component.id, renderRequest);
     output.push();
     output.clear();
     drawBuffer(output, effected, 0, 0, output.width, output.height, this.isShaderBuffer(effected));
@@ -1504,18 +1547,18 @@ export class OutputRenderer {
     return output;
   }
 
-  renderCompositionChain(composition, compositionTime, request = frameRenderRequest(this.state.render)) {
-    const renderRequest = this.normalizeRenderRequest(request, "composition");
-    return this.renderCompositionChainState(
-      composition,
-      composition.chain || [],
-      compositionTime,
+  renderComponentChain(component, componentTime, request = frameRenderRequest(this.state.render)) {
+    const renderRequest = this.normalizeRenderRequest(request, "component");
+    return this.renderComponentChainState(
+      component,
+      component.chain || [],
+      componentTime,
       renderRequest
     ).buffer;
   }
 
-  renderCompositionChainItems(composition, chain, output, compositionTime, renderRequest, scopeId = composition.id) {
-    const state = this.renderCompositionChainState(composition, chain, compositionTime, renderRequest, scopeId);
+  renderComponentChainItems(component, chain, output, componentTime, renderRequest, scopeId = component.id) {
+    const state = this.renderComponentChainState(component, chain, componentTime, renderRequest, scopeId);
     if (state.buffer === output) return state;
     output.push();
     output.clear();
@@ -1524,20 +1567,20 @@ export class OutputRenderer {
     return state;
   }
 
-  renderCompositionChainState(composition, chain, compositionTime, renderRequest, scopeId = composition.id) {
-    let state = this.transparentChainState(composition, renderRequest);
+  renderComponentChainState(component, chain, componentTime, renderRequest, scopeId = component.id) {
+    let state = this.transparentChainState(component, renderRequest);
     for (let index = 0; index < (chain || []).length; index++) {
       const item = chain[index];
       if (item.enabled === false) continue;
-      const nodeId = renderBufferKey(composition.id, scopeId, index, item.id || item.componentId || item.kind);
+      const nodeId = renderBufferKey(component.id, scopeId, index, item.id || item.componentId || item.kind);
       if (item.kind === "source") {
         if (this.canDirectCompositeSource(item)) {
-          state = this.renderDirectSourceNodeState(nodeId, state, composition, item, compositionTime, renderRequest);
+          state = this.renderDirectSourceNodeState(nodeId, state, component, item, componentTime, renderRequest);
           continue;
         }
-        const sourceState = this.renderCompositionSourceItemState(composition, item, compositionTime, renderRequest, nodeId);
+        const sourceState = this.renderComponentSourceItemState(component, item, componentTime, renderRequest, nodeId);
         // Source transforms are evaluated inside the source coordinate system.
-        // The source framebuffer itself always remains the composition size.
+        // The source framebuffer itself always remains the component size.
         state = this.renderLayerNodeState(nodeId, state, sourceState, { ...item, transform: {} }, renderRequest);
         continue;
       }
@@ -1561,19 +1604,19 @@ export class OutputRenderer {
           }
           if (run.length > 1) {
             const runNodeId = renderBufferKey(nodeId, "fused", run.length);
-            state = this.renderEffectRunNodeState(runNodeId, state, run, compositionTime, renderRequest);
+            state = this.renderEffectRunNodeState(runNodeId, state, run, componentTime, renderRequest);
             index = nextIndex - 1;
             continue;
           }
         }
-        state = this.renderEffectNodeState(nodeId, state, item, compositionTime, renderRequest);
+        state = this.renderEffectNodeState(nodeId, state, item, componentTime, renderRequest);
         continue;
       }
       if (item.kind === "group") {
-        const groupState = this.renderCompositionChainState(
-          composition,
+        const groupState = this.renderComponentChainState(
+          component,
           item.chain || [],
-          compositionTime,
+          componentTime,
           renderRequest,
           renderBufferKey(scopeId, item.id || index)
         );
@@ -1585,8 +1628,8 @@ export class OutputRenderer {
 
   canDirectCompositeSource(item = {}) {
     const source = item.source || {};
-    const dependency = source.type === "composition"
-      ? this.state?.compositions?.find((composition) => composition.id === source.compositionId)
+    const dependency = source.type === "component"
+      ? this.state?.components?.find((component) => component.id === source.componentId)
       : null;
     const media = this.media.get(source.mediaId);
     return !!directPlacementKind({
@@ -1602,12 +1645,12 @@ export class OutputRenderer {
     });
   }
 
-  renderDirectSourceNodeState(nodeId, inputState, composition, item, compositionTime, renderRequest) {
+  renderDirectSourceNodeState(nodeId, inputState, component, item, componentTime, renderRequest) {
     const source = {
-      ...sourceWithNodeParams(item.source || composition.source, item.params || {}, item.id),
+      ...sourceWithNodeParams(item.source || component.source, item.params || {}, item.id),
       contentTransform: item.transform || {},
     };
-    const runtimeContext = this.nodeRuntimeContext(compositionTime);
+    const runtimeContext = this.nodeRuntimeContext(componentTime);
     const signature = stableStringify({
       input: textureStateKey(inputState),
       source: staticSourceState(source),
@@ -1623,26 +1666,26 @@ export class OutputRenderer {
       output.clear();
       drawBuffer(output, inputState.buffer, 0, 0, output.width, output.height, this.isShaderBuffer(inputState.buffer));
       output.pop();
-      const placed = this.resolvePlacedSourceResult(output, source, composition, compositionTime, renderRequest);
+      const placed = this.resolvePlacedSourceResult(output, source, component, componentTime, renderRequest);
       if (placed) this.drawPlacedSourceResult(output, placed, item);
       this.frameProfile.directSourceComposites++;
       this.frameProfile.avoidedSourceRasterPixels += renderRequest.width * renderRequest.height;
     }, "direct-source");
   }
 
-  resolvePlacedSourceResult(output, source, composition, compositionTime, renderRequest) {
+  resolvePlacedSourceResult(output, source, component, componentTime, renderRequest) {
     const target = { width: output.width, height: output.height };
-    if (source.type === "composition") {
-      const dependency = this.state.compositions.find((item) => item.id === source.compositionId);
-      if (!dependency || dependency.id === composition.id || dependency.type === "canvas") return null;
-      const placement = compositionReferencePlacement(composition, dependency, this.state.render, target);
+    if (source.type === "component") {
+      const dependency = this.state.components.find((item) => item.id === source.componentId);
+      if (!dependency || dependency.id === component.id || dependency.type === "canvas") return null;
+      const placement = componentReferencePlacement(component, dependency, this.state.render, target, source.placement);
       const demandRect = transformedPlacementDemandRect(placement, source.contentTransform);
-      const dependencyTime = this.compositionTimes.get(dependency.id) || compositionTime;
-      const texture = this.renderCompositionForRequest(
+      const dependencyTime = this.componentTimes.get(dependency.id) || componentTime;
+      const texture = this.renderComponentForRequest(
         dependency,
         dependencyTime,
-        compositionReferenceRenderRequest(this.state.render, dependency, demandRect, {
-          reason: "direct-composition-reference",
+        componentReferenceRenderRequest(this.state.render, dependency, demandRect, {
+          reason: "direct-component-reference",
           renderIdentity: dependency.id,
         })
       );
@@ -1658,7 +1701,7 @@ export class OutputRenderer {
         syncVideoPlayback(media.video, {
           start: source.start,
           end: source.end,
-          speed: (this.state?.global?.playing === false ? 0 : 1) * (Number(source.speed) || 1) * Math.max(0, Number(composition.speed) || 0),
+          speed: (this.state?.global?.playing === false ? 0 : 1) * (Number(source.speed) || 1) * Math.max(0, Number(component.speed) || 0),
         });
         return createPlacedRenderResult(media.video, {
           destinationRect: fullTargetRect(target),
@@ -1720,8 +1763,8 @@ export class OutputRenderer {
     output.pop();
   }
 
-  transparentChainState(composition, renderRequest) {
-    const nodeId = renderBufferKey(composition.id, "transparent");
+  transparentChainState(component, renderRequest) {
+    const nodeId = renderBufferKey(component.id, "transparent");
     const signature = stableStringify({
       transparent: true,
       request: renderRequestKey(renderRequest),
@@ -1830,7 +1873,7 @@ export class OutputRenderer {
     return this.overlayBlendShader;
   }
 
-  renderEffectNodeState(nodeId, inputState, item, compositionTime, renderRequest) {
+  renderEffectNodeState(nodeId, inputState, item, componentTime, renderRequest) {
     const component = getShaderComponent(item.componentId);
     if (!component) return inputState;
     const params = normalizeParamValues(component, {
@@ -1839,7 +1882,7 @@ export class OutputRenderer {
     });
     const amount = effectParamNumber(component, params, "amount", item.amount ?? 0.35);
     if (amount <= 0.0001) return inputState;
-    const runtimeContext = this.nodeRuntimeContext(compositionTime);
+    const runtimeContext = this.nodeRuntimeContext(componentTime);
     const signature = stableStringify({
       input: textureStateKey(inputState),
       params,
@@ -1855,10 +1898,10 @@ export class OutputRenderer {
       if (isSharedFramebufferTarget(output) &&
           output.width === qualityRequest.width &&
           output.height === qualityRequest.height) {
-        this.renderShaderPassToTarget(inputState.buffer, pass, output, qualityRequest, compositionTime);
+        this.renderShaderPassToTarget(inputState.buffer, pass, output, qualityRequest, componentTime);
         return;
       }
-      const effected = this.renderShaderChain(inputState.buffer, [pass], qualityRequest, compositionTime);
+      const effected = this.renderShaderChain(inputState.buffer, [pass], qualityRequest, componentTime);
       output.push();
       output.clear();
       drawBuffer(output, effected, 0, 0, output.width, output.height, this.isShaderBuffer(effected));
@@ -1866,19 +1909,19 @@ export class OutputRenderer {
     }, "effect");
   }
 
-  renderEffectRunNodeState(nodeId, inputState, items, compositionTime, renderRequest) {
+  renderEffectRunNodeState(nodeId, inputState, items, componentTime, renderRequest) {
     const passes = items.map((item) => chainItemToShaderPass(item));
     const signature = stableStringify({
       input: textureStateKey(inputState),
       passes,
       time: passes.map((pass) => {
         const component = getShaderComponent(pass.id);
-        return componentRuntimeTimeKey(component, pass.params, this.nodeRuntimeContext(compositionTime));
+        return componentRuntimeTimeKey(component, pass.params, this.nodeRuntimeContext(componentTime));
       }),
       request: renderRequestKey(renderRequest),
     });
     return this.evaluateChainNode(nodeId, signature, renderRequest, (output) => {
-      const effected = this.renderShaderChain(inputState.buffer, passes, renderRequest, compositionTime);
+      const effected = this.renderShaderChain(inputState.buffer, passes, renderRequest, componentTime);
       output.push();
       output.clear();
       drawBuffer(output, effected, 0, 0, output.width, output.height, this.isShaderBuffer(effected));
@@ -1889,7 +1932,7 @@ export class OutputRenderer {
   evaluateChainNode(nodeId, signature, renderRequest, render, dirtyReason) {
     const bufferId = renderBufferKey("node", nodeId);
     const runtimeKey = renderBufferKey(bufferId, renderRequestKey(renderRequest));
-    const output = this.getCompositionGpuBuffer(bufferId, renderRequest);
+    const output = this.getComponentGpuBuffer(bufferId, renderRequest);
     let runtime = this.chainNodeRuntimes.get(runtimeKey);
     if (!runtime) {
       runtime = new RenderNodeRuntime(runtimeKey);
@@ -1918,55 +1961,55 @@ export class OutputRenderer {
     };
   }
 
-  renderThumbnailCompositions() {
-    this.compositionOutput.clear();
+  renderThumbnailComponents() {
+    this.componentOutput.clear();
     this.mainMix.push();
     this.mainMix.clear();
     this.mainMix.pop();
   }
 
-  neededCompositionIds() {
+  neededComponentIds() {
     const ids = new Set();
-    if (this.mode === "composition") {
-      const selected = this.state.ui.selectedCompositionId || this.state.compositions[0]?.id || "";
+    if (this.mode === "component") {
+      const selected = this.state.ui.selectedComponentId || this.state.components[0]?.id || "";
       if (selected) ids.add(selected);
       return ids;
     }
     for (const surface of this.state.surfaces || []) {
-      if (surface.enabled && surface.compositionId) ids.add(surface.compositionId);
+      if (surface.enabled && surface.componentId) ids.add(surface.componentId);
     }
     return ids;
   }
 
-  stableCompositionSignature(composition, renderRequest, seen = new Set()) {
-    const pipeline = normalizeCompositionPipelineSettings(this.state?.render || {});
+  stableComponentSignature(component, renderRequest, seen = new Set()) {
+    const pipeline = normalizeComponentPipelineSettings(this.state?.render || {});
     if (pipeline.postProcessing.noiseEnabled && pipeline.postProcessing.noiseAmount > 0.0001) return "";
-    if (!composition?.id || this.compositionIsFrameDynamic(composition, seen)) return "";
+    if (!component?.id || this.componentIsFrameDynamic(component, seen)) return "";
     return stableStringify({
       version: 3,
       request: {
-        role: renderRequest.role || "composition",
+        role: renderRequest.role || "component",
         width: renderRequest.width,
         height: renderRequest.height,
       },
-      composition: staticCompositionGraphState(composition, this.state?.compositions || []),
-      media: staticCompositionGraphMediaState(this.state?.media || [], composition, this.state?.compositions || []),
+      component: staticComponentGraphState(component, this.state?.components || []),
+      media: staticComponentGraphMediaState(this.state?.media || [], component, this.state?.components || []),
       customShader: this.state?.shaders?.customCode || "",
       pipeline,
     });
   }
 
-  compositionIsFrameDynamic(composition, seen = new Set()) {
-    if (!composition || seen.has(composition.id)) return true;
-    seen.add(composition.id);
-    if (Array.isArray(composition.chain) && composition.chain.length) {
-      const dynamic = this.chainItemsAreFrameDynamic(composition.chain, seen);
-      seen.delete(composition.id);
+  componentIsFrameDynamic(component, seen = new Set()) {
+    if (!component || seen.has(component.id)) return true;
+    seen.add(component.id);
+    if (Array.isArray(component.chain) && component.chain.length) {
+      const dynamic = this.chainItemsAreFrameDynamic(component.chain, seen);
+      seen.delete(component.id);
       return dynamic;
     }
-    const sourceDynamic = this.sourceIsFrameDynamic(composition.source, composition, seen);
-    const effectsDynamic = (composition.shaderChain || []).some((pass) => this.effectPassIsFrameDynamic(pass));
-    seen.delete(composition.id);
+    const sourceDynamic = this.sourceIsFrameDynamic(component.source, component, seen);
+    const effectsDynamic = (component.shaderChain || []).some((pass) => this.effectPassIsFrameDynamic(pass));
+    seen.delete(component.id);
     return sourceDynamic || effectsDynamic;
   }
 
@@ -1974,9 +2017,9 @@ export class OutputRenderer {
     for (const item of chain || []) {
       if (item.enabled === false) continue;
       if (item.kind === "group" && this.chainItemsAreFrameDynamic(item.chain || [], seen)) return true;
-      if (item.kind === "source" && item.source?.type === "composition") {
-        const sourceComposition = this.state?.compositions?.find((composition) => composition.id === item.source.compositionId);
-        if (!sourceComposition || this.compositionIsFrameDynamic(sourceComposition, seen)) return true;
+      if (item.kind === "source" && item.source?.type === "component") {
+        const sourceComponent = this.state?.components?.find((component) => component.id === item.source.componentId);
+        if (!sourceComponent || this.componentIsFrameDynamic(sourceComponent, seen)) return true;
         continue;
       }
       if (item.kind === "source" && this.sourceIsFrameDynamic(item.source || {}, item, seen)) return true;
@@ -1996,9 +2039,9 @@ export class OutputRenderer {
       });
       return component.runtime?.cacheable === false || component.runtime?.timeDependent?.(params) === true;
     }
-    if (source.type === "composition") {
-      const dependency = this.state?.compositions?.find((composition) => composition.id === source.compositionId);
-      return !dependency || this.compositionIsFrameDynamic(dependency, seen);
+    if (source.type === "component") {
+      const dependency = this.state?.components?.find((component) => component.id === source.componentId);
+      return !dependency || this.componentIsFrameDynamic(dependency, seen);
     }
     if (source.type !== "media") return true;
     const mediaId = source.mediaId || "";
@@ -2028,38 +2071,38 @@ export class OutputRenderer {
     return component.runtime?.cacheable === false || component.runtime?.timeDependent?.(params) === true;
   }
 
-  renderCompositionSource(composition, compositionTime = this.visualTime, request = frameRenderRequest(this.state.render)) {
+  renderComponentSource(component, componentTime = this.visualTime, request = frameRenderRequest(this.state.render)) {
     const renderRequest = this.normalizeRenderRequest(request, "source");
-    const key = renderBufferKey(composition.id, renderRequestKey(renderRequest));
-    let pg = this.compositionSource.get(key);
+    const key = renderBufferKey(component.id, renderRequestKey(renderRequest));
+    let pg = this.componentSource.get(key);
     if (!pg || pg.width !== renderRequest.width || pg.height !== renderRequest.height) {
       pg = createGraphics(renderRequest.width, renderRequest.height);
       this.applyGraphicsPixelDensity(pg, this.requestPixelDensity(renderRequest));
       this.applyGraphicsFont(pg);
-      this.compositionSource.set(key, pg);
+      this.componentSource.set(key, pg);
     }
-    this.touchRenderCache(this.compositionSourceUse, key);
+    this.touchRenderCache(this.componentSourceUse, key);
     pg.push();
     pg.clear();
-    this.safeDrawSourceToGraphics(pg, withSourceInstance(composition.source, `${composition.id}:source`), composition, compositionTime, renderRequest);
+    this.safeDrawSourceToGraphics(pg, withSourceInstance(component.source, `${component.id}:source`), component, componentTime, renderRequest);
     pg.pop();
     return pg;
   }
 
-  renderCompositionSourceItem(composition, item, compositionTime = this.visualTime, request = frameRenderRequest(this.state.render)) {
-    return this.renderCompositionSourceItemState(
-      composition,
+  renderComponentSourceItem(component, item, componentTime = this.visualTime, request = frameRenderRequest(this.state.render)) {
+    return this.renderComponentSourceItemState(
+      component,
       item,
-      compositionTime,
+      componentTime,
       request,
-      renderBufferKey(composition.id, item.id || "source")
+      renderBufferKey(component.id, item.id || "source")
     ).buffer;
   }
 
-  renderCompositionSourceItemState(composition, item, compositionTime, request, nodeId) {
+  renderComponentSourceItemState(component, item, componentTime, request, nodeId) {
     const renderRequest = this.normalizeRenderRequest(request, "source");
     const key = renderBufferKey(nodeId, "source", renderRequestKey(renderRequest));
-    let pg = this.compositionSource.get(key);
+    let pg = this.componentSource.get(key);
     if (!pg || pg.width !== renderRequest.width || pg.height !== renderRequest.height) {
       disposeGraphics(pg);
       pg = createSharedFramebufferTarget(renderRequest.width, renderRequest.height) || createGraphics(renderRequest.width, renderRequest.height);
@@ -2067,14 +2110,14 @@ export class OutputRenderer {
         this.applyGraphicsPixelDensity(pg, this.requestPixelDensity(renderRequest));
         this.applyGraphicsFont(pg);
       }
-      this.compositionSource.set(key, pg);
+      this.componentSource.set(key, pg);
     }
-    this.touchRenderCache(this.compositionSourceUse, key);
+    this.touchRenderCache(this.componentSourceUse, key);
     const source = {
-      ...sourceWithNodeParams(item.source || composition.source, item.params || {}, item.id),
+      ...sourceWithNodeParams(item.source || component.source, item.params || {}, item.id),
       contentTransform: item.transform || {},
     };
-    const runtimeContext = this.nodeRuntimeContext(compositionTime);
+    const runtimeContext = this.nodeRuntimeContext(componentTime);
     const sourceSignature = stableStringify({
       source: staticSourceState(source),
       media: staticMediaStateForSource(this.state?.media || [], source),
@@ -2092,7 +2135,7 @@ export class OutputRenderer {
     const result = runtime.evaluate(sourceSignature, () => {
       pg.push();
       pg.clear();
-      this.safeDrawSourceToGraphics(pg, source, composition, compositionTime, renderRequest);
+      this.safeDrawSourceToGraphics(pg, source, component, componentTime, renderRequest);
       pg.pop();
       return pg;
     }, { frame: this.frameIndex, dirtyReason: "source" });
@@ -2117,12 +2160,12 @@ export class OutputRenderer {
       });
       return componentRuntimeTimeKey(component, params, runtimeContext);
     }
-    if (source.type === "composition") {
-      const dependency = this.state?.compositions?.find((composition) => composition.id === source.compositionId);
-      if (!dependency || this.compositionIsFrameDynamic(dependency)) return runtimeContext.frame;
+    if (source.type === "component") {
+      const dependency = this.state?.components?.find((component) => component.id === source.componentId);
+      if (!dependency || this.componentIsFrameDynamic(dependency)) return runtimeContext.frame;
       return stableStringify({
-        composition: staticCompositionGraphState(dependency, this.state?.compositions || []),
-        media: staticCompositionGraphMediaState(this.state?.media || [], dependency, this.state?.compositions || []),
+        component: staticComponentGraphState(dependency, this.state?.components || []),
+        media: staticComponentGraphMediaState(this.state?.media || [], dependency, this.state?.components || []),
       });
     }
     if (source.type !== "media") return runtimeContext.frame;
@@ -2150,31 +2193,31 @@ export class OutputRenderer {
     return component.runtime?.externalKey?.(params, runtimeContext) ?? null;
   }
 
-  renderPatchSourceNode(composition, node, compositionTime = this.visualTime, request = frameRenderRequest(this.state.render)) {
+  renderPatchSourceNode(component, node, componentTime = this.visualTime, request = frameRenderRequest(this.state.render)) {
     const renderRequest = this.normalizeRenderRequest(node?.state?.renderRequest || request, "source");
-    const key = renderBufferKey(composition.id, node.id, renderRequestKey(renderRequest));
-    let pg = this.compositionSource.get(key);
+    const key = renderBufferKey(component.id, node.id, renderRequestKey(renderRequest));
+    let pg = this.componentSource.get(key);
     if (!pg || pg.width !== renderRequest.width || pg.height !== renderRequest.height) {
       pg = createGraphics(renderRequest.width, renderRequest.height);
       this.applyGraphicsPixelDensity(pg, this.requestPixelDensity(renderRequest));
       this.applyGraphicsFont(pg);
-      this.compositionSource.set(key, pg);
+      this.componentSource.set(key, pg);
     }
-    this.touchRenderCache(this.compositionSourceUse, key);
+    this.touchRenderCache(this.componentSourceUse, key);
     pg.push();
     pg.clear();
-    this.safeDrawSourceToGraphics(pg, sourceFromPatchNode(node), composition, compositionTime, renderRequest);
+    this.safeDrawSourceToGraphics(pg, sourceFromPatchNode(node), component, componentTime, renderRequest);
     pg.pop();
     return pg;
   }
 
-  safeDrawSourceToGraphics(pg, source, composition, compositionTime, renderRequest = frameRenderRequest(this.state.render)) {
+  safeDrawSourceToGraphics(pg, source, component, componentTime, renderRequest = frameRenderRequest(this.state.render)) {
     try {
-      this.drawSourceToGraphics(pg, source, composition, compositionTime, renderRequest);
+      this.drawSourceToGraphics(pg, source, component, componentTime, renderRequest);
     } catch (error) {
       console.error(`[VJ1_SOURCE_CRASH] ${error?.name || "Error"}: ${error?.message || String(error || "unknown")}`, {
-        compositionId: composition.id,
-        compositionName: composition.name,
+        componentId: component.id,
+        componentName: component.name,
         source,
         width: pg.width,
         height: pg.height,
@@ -2186,24 +2229,25 @@ export class OutputRenderer {
     }
   }
 
-  drawSourceToGraphics(pg, source, composition, compositionTime, renderRequest = frameRenderRequest(this.state.render)) {
-    if (source.type === "composition") {
-      const sourceComposition = this.state.compositions.find((item) => item.id === source.compositionId);
-      if (!sourceComposition || sourceComposition.id === composition.id || sourceComposition.type === "canvas") return;
-      const sourceTime = this.compositionTimes.get(sourceComposition.id) || compositionTime;
-      const placement = compositionReferencePlacement(
-        composition,
-        sourceComposition,
+  drawSourceToGraphics(pg, source, component, componentTime, renderRequest = frameRenderRequest(this.state.render)) {
+    if (source.type === "component") {
+      const sourceComponent = this.state.components.find((item) => item.id === source.componentId);
+      if (!sourceComponent || sourceComponent.id === component.id || sourceComponent.type === "canvas") return;
+      const sourceTime = this.componentTimes.get(sourceComponent.id) || componentTime;
+      const placement = componentReferencePlacement(
+        component,
+        sourceComponent,
         this.state.render,
-        { width: pg.width, height: pg.height }
+        { width: pg.width, height: pg.height },
+        source.placement
       );
       const demandRect = transformedPlacementDemandRect(placement, source.contentTransform);
-      const sourceOutput = this.renderCompositionForRequest(
-        sourceComposition,
+      const sourceOutput = this.renderComponentForRequest(
+        sourceComponent,
         sourceTime,
-        compositionReferenceRenderRequest(this.state.render, sourceComposition, demandRect, {
-          reason: "composition-reference",
-          renderIdentity: sourceComposition.id,
+        componentReferenceRenderRequest(this.state.render, sourceComponent, demandRect, {
+          reason: "component-reference",
+          renderIdentity: sourceComponent.id,
         })
       );
       this.drawPlacedResultGeometry(pg, createPlacedRenderResult(sourceOutput, {
@@ -2217,7 +2261,7 @@ export class OutputRenderer {
         syncVideoPlayback(item.video, {
           start: source.start,
           end: source.end,
-          speed: (this.state?.global?.playing === false ? 0 : 1) * (Number(source.speed) || 1) * Math.max(0, Number(composition.speed) || 0),
+          speed: (this.state?.global?.playing === false ? 0 : 1) * (Number(source.speed) || 1) * Math.max(0, Number(component.speed) || 0),
         });
         drawWithContentTransform(pg, source.contentTransform, () => {
           drawMediaFit(pg, item.video, 0, 0, pg.width, pg.height, mediaSourceFit(source));
@@ -2234,7 +2278,7 @@ export class OutputRenderer {
         });
       }
       else if (item?.model || item?.modelData) {
-        this.drawModelSource(pg, item, source, compositionTime, renderRequest);
+        this.drawModelSource(pg, item, source, componentTime, renderRequest);
       }
       else if (item?.imageError) drawStandby(pg, "image load failed");
       else if (item?.modelError) drawStandby(pg, "model load failed");
@@ -2254,7 +2298,7 @@ export class OutputRenderer {
     } else if (source.type === "black") {
       pg.background(0);
     } else {
-      const generatorTime = instanceTime(source.instanceId || source.generatorId, compositionTime);
+      const generatorTime = instanceTime(source.instanceId || source.generatorId, componentTime);
       if (source.generatorId === "anatomy") {
         this.drawAnatomyGenerator(pg, source, generatorTime, renderRequest);
         return;
@@ -2270,7 +2314,7 @@ export class OutputRenderer {
     }
   }
 
-  drawAnatomyGenerator(pg, source = {}, compositionTime = this.visualTime, renderRequest = frameRenderRequest(this.state.render)) {
+  drawAnatomyGenerator(pg, source = {}, componentTime = this.visualTime, renderRequest = frameRenderRequest(this.state.render)) {
     const params = source.params || {};
     const target = this.getModelTarget(renderRequest.width, renderRequest.height, this.requestPixelDensity(renderRequest));
     const viewport = modelViewportMetrics(target, renderRequest);
@@ -2278,7 +2322,7 @@ export class OutputRenderer {
     const surfaceColor = modelColor(params.surfaceColor, [217, 212, 201, 255]);
     const wireColor = modelColor(params.wireColor, [75, 73, 68, 204]);
     const wireThickness = resolutionScaledStrokeWidth(modelWireThickness(params), renderRequest);
-    const rotation = modelRotation(params, compositionTime);
+    const rotation = modelRotation(params, componentTime);
     const detail = Math.max(4, Math.min(14, Math.round(
       (Number(params.detail) || 8) * qualityComputeMultiplier(params, { minimum: 0.55, maximum: 1.35 })
     )));
@@ -2298,7 +2342,7 @@ export class OutputRenderer {
       target.rotateZ(rotation[2]);
       const scale = viewport.unitScale * modelScale * anatomyPartFitScale(params.part);
       target.scale(scale, -scale, scale * depth);
-      drawProceduralAnatomy(target, params, compositionTime, renderMode, surfaceColor, wireColor, wireThickness, detail);
+      drawProceduralAnatomy(target, params, componentTime, renderMode, surfaceColor, wireColor, wireThickness, detail);
       target.pop();
     });
     pg.push();
@@ -2307,13 +2351,13 @@ export class OutputRenderer {
     pg.pop();
   }
 
-  drawTerrainGenerator(pg, source = {}, compositionTime = this.visualTime, renderRequest = frameRenderRequest(this.state.render)) {
+  drawTerrainGenerator(pg, source = {}, componentTime = this.visualTime, renderRequest = frameRenderRequest(this.state.render)) {
     const params = source.params || {};
     const contentTransform = normalizedContentTransform(source.contentTransform);
     const target = this.getTerrainTarget(renderRequest.width, renderRequest.height, this.requestPixelDensity(renderRequest));
     const style = params.style === "wire" ? 1 : params.style === "hybrid" ? 2 : 0;
     const flightSpeed = Math.max(0, Number(params.flightSpeed) || 0);
-    const flightTime = this.continuousRateTime(`${source.instanceId || source.generatorId || "terrain"}:flight`, compositionTime, flightSpeed);
+    const flightTime = this.continuousRateTime(`${source.instanceId || source.generatorId || "terrain"}:flight`, componentTime, flightSpeed);
     const turn = Math.max(-1, Math.min(1, Number(params.turn) || 0));
     const yaw = turn * 0.72 + contentTransform.rotation;
     const cameraAnchor = [
@@ -2361,7 +2405,7 @@ export class OutputRenderer {
     return next.time;
   }
 
-  drawModelSource(pg, item, source = {}, compositionTime = this.visualTime, renderRequest = frameRenderRequest(this.state.render)) {
+  drawModelSource(pg, item, source = {}, componentTime = this.visualTime, renderRequest = frameRenderRequest(this.state.render)) {
     const params = source.params || {};
     const target = this.getModelTarget(renderRequest.width, renderRequest.height, this.requestPixelDensity(renderRequest));
     const viewport = modelViewportMetrics(target, renderRequest);
@@ -2374,14 +2418,14 @@ export class OutputRenderer {
     const surfaceColor = modelColor(params.surfaceColor, [220, 225, 220, 255]);
     const wireColor = modelColor(params.wireColor, [20, 20, 20, 220]);
     const wireThickness = resolutionScaledStrokeWidth(modelWireThickness(params), renderRequest);
-    const rotation = modelRotation(params, compositionTime);
+    const rotation = modelRotation(params, componentTime);
     const gpuToken = this.gpuTimer.begin(target, this.frameIndex);
     try {
     target.push();
     target.clear();
     const scale = viewport.unitScale * modelScale;
     const rawParsedDrawn = item.modelData &&
-      drawRawParsedModelMode(target, item, params, compositionTime, renderMode, surfaceColor, wireColor, pointBudget, viewport, source.contentTransform);
+      drawRawParsedModelMode(target, item, params, componentTime, renderMode, surfaceColor, wireColor, pointBudget, viewport, source.contentTransform);
     if (!rawParsedDrawn) {
       target.perspective?.(Math.PI / 3, viewport.width / Math.max(1, viewport.height), 0.1, 5000);
       target.camera?.(0, 0, viewport.cameraZ, 0, 0, 0, 0, 1, 0);
@@ -2447,19 +2491,26 @@ export class OutputRenderer {
   getTerrainTarget(width, height, density = this.renderPixelDensity(this.state?.render || {})) {
     return this.getSpecializedWebglTarget("terrain", width, height, density, {
       onContextDiscard: () => this.resetTerrainResources(),
+      preferSharedFramebuffer: true,
+      depth: true,
     });
   }
 
-  getSpecializedWebglTarget(kind, width, height, density = this.renderPixelDensity(this.state?.render || {}), { onContextDiscard = null } = {}) {
+  getSpecializedWebglTarget(kind, width, height, density = this.renderPixelDensity(this.state?.render || {}), {
+    onContextDiscard = null,
+    preferSharedFramebuffer = false,
+    depth = false,
+  } = {}) {
     const widthPx = Math.max(1, Math.round(Number(width) || 1));
     const heightPx = Math.max(1, Math.round(Number(height) || 1));
     const targetDensity = Math.max(0.25, Math.min(4, Number(density) || 1));
     let target = this.specializedWebglTargets.get(kind);
     if (!target) {
-      target = createGraphics(widthPx, heightPx, WEBGL);
-      this.applyGraphicsPixelDensity(target, targetDensity);
+      target = (preferSharedFramebuffer ? createSharedFramebufferTarget(widthPx, heightPx, { depth }) : null)
+        || createGraphics(widthPx, heightPx, WEBGL);
+      if (!isSharedFramebufferTarget(target)) this.applyGraphicsPixelDensity(target, targetDensity);
       target.__vj1PixelDensity = targetDensity;
-      target.noStroke();
+      if (!isSharedFramebufferTarget(target)) target.noStroke();
       this.specializedWebglTargets.set(kind, target);
       return target;
     }
@@ -2468,25 +2519,26 @@ export class OutputRenderer {
     if (sizeChanged || densityChanged) {
       try {
         if (sizeChanged) target.resizeCanvas(widthPx, heightPx);
-        this.applyGraphicsPixelDensity(target, targetDensity);
+        if (!isSharedFramebufferTarget(target)) this.applyGraphicsPixelDensity(target, targetDensity);
       } catch {
         onContextDiscard?.(target?.drawingContext);
         disposeGraphics(target);
-        target = createGraphics(widthPx, heightPx, WEBGL);
-        this.applyGraphicsPixelDensity(target, targetDensity);
+        target = (preferSharedFramebuffer ? createSharedFramebufferTarget(widthPx, heightPx, { depth }) : null)
+          || createGraphics(widthPx, heightPx, WEBGL);
+        if (!isSharedFramebufferTarget(target)) this.applyGraphicsPixelDensity(target, targetDensity);
         this.specializedWebglTargets.set(kind, target);
       }
       target.__vj1PixelDensity = targetDensity;
-      target.noStroke();
+      if (!isSharedFramebufferTarget(target)) target.noStroke();
     }
     return target;
   }
 
-  drawShaderGenerator(pg, sourceOrId, compositionTime = this.visualTime, request = frameRenderRequest(this.state.render)) {
+  drawShaderGenerator(pg, sourceOrId, componentTime = this.visualTime, request = frameRenderRequest(this.state.render)) {
     const source = typeof sourceOrId === "object"
       ? sourceOrId
       : { generatorId: sourceOrId, params: {} };
-    // Keep every generator on the composition's render contract. The old
+    // Keep every generator on the component's render contract. The old
     // shader path rebuilt a width/height-only request here, dropping logical
     // dimensions, resolution scale, pixel-density state, and render identity.
     // Use the actual source target size while preserving that metadata so
@@ -2498,7 +2550,7 @@ export class OutputRenderer {
     }, "source");
     const target = this.renderShaderGeneratorSource(
       source.generatorId,
-      compositionTime,
+      componentTime,
       renderRequest,
       source.params || {},
       source.instanceId || source.generatorId,
@@ -2514,7 +2566,7 @@ export class OutputRenderer {
     return true;
   }
 
-  renderShaderGeneratorSource(id, compositionTime = this.visualTime, request = frameRenderRequest(this.state.render), params = {}, instanceId = id, contentTransform = {}, outputTarget = null) {
+  renderShaderGeneratorSource(id, componentTime = this.visualTime, request = frameRenderRequest(this.state.render), params = {}, instanceId = id, contentTransform = {}, outputTarget = null) {
     const generatorComponent = getGeneratorComponent(id);
     const generatorId = generatorComponent.id;
     const shaderComponent = getGeneratorShaderComponent(generatorId);
@@ -2536,8 +2588,8 @@ export class OutputRenderer {
     const rateParam = generatorRateParam(generatorId);
     const rate = rateParam ? Math.max(0, Number(qualityParams[rateParam]) || 0) : 1;
     const shaderTime = rateParam
-      ? this.continuousRateTime(`${instanceId || generatorId}:${rateParam}`, compositionTime, rate)
-      : compositionTime;
+      ? this.continuousRateTime(`${instanceId || generatorId}:${rateParam}`, componentTime, rate)
+      : componentTime;
     const shaderParams = rateParam ? { ...qualityParams, [rateParam]: 1 } : qualityParams;
     const started = performance.now();
     const sample = {
@@ -2593,37 +2645,37 @@ export class OutputRenderer {
     return target;
   }
 
-  getCompositionBuffer(id, request = frameRenderRequest(this.state.render)) {
+  getComponentBuffer(id, request = frameRenderRequest(this.state.render)) {
     const renderRequest = this.normalizeRenderRequest(request, "buffer");
     const key = renderBufferKey(id, renderRequestKey(renderRequest));
-    let pg = this.compositionBuffer.get(key);
+    let pg = this.componentBuffer.get(key);
     if (!pg || pg.width !== renderRequest.width || pg.height !== renderRequest.height) {
       pg = createGraphics(renderRequest.width, renderRequest.height);
       this.applyGraphicsPixelDensity(pg, this.requestPixelDensity(renderRequest));
       this.applyGraphicsFont(pg);
-      this.compositionBuffer.set(key, pg);
+      this.componentBuffer.set(key, pg);
     }
-    this.touchRenderCache(this.compositionBufferUse, key);
+    this.touchRenderCache(this.componentBufferUse, key);
     return pg;
   }
 
-  getCompositionGpuBuffer(id, request = frameRenderRequest(this.state.render)) {
+  getComponentGpuBuffer(id, request = frameRenderRequest(this.state.render)) {
     const renderRequest = this.normalizeRenderRequest(request, "gpu-buffer");
     const key = renderBufferKey(id, renderRequestKey(renderRequest));
-    let target = this.compositionGpuBuffer.get(key);
+    let target = this.componentGpuBuffer.get(key);
     if (!target || target.width !== renderRequest.width || target.height !== renderRequest.height) {
       disposeGraphics(target);
       target = createSharedFramebufferTarget(renderRequest.width, renderRequest.height);
-      if (!target) return this.getCompositionBuffer(id, renderRequest);
-      this.compositionGpuBuffer.set(key, target);
+      if (!target) return this.getComponentBuffer(id, renderRequest);
+      this.componentGpuBuffer.set(key, target);
     }
-    this.touchRenderCache(this.compositionGpuBufferUse, key);
+    this.touchRenderCache(this.componentGpuBufferUse, key);
     return target;
   }
 
   materializeDrawableBuffer(source, key, request = frameRenderRequest(this.state.render)) {
     if (!this.isShaderBuffer(source)) return source;
-    const pg = this.getCompositionBuffer(key, request);
+    const pg = this.getComponentBuffer(key, request);
     pg.push();
     pg.clear();
     drawBuffer(pg, source, 0, 0, pg.width, pg.height, true);
@@ -2703,32 +2755,32 @@ export class OutputRenderer {
   }
 
   pruneRenderCaches() {
-    pruneGraphicsMap(this.compositionSource, this.compositionSourceUse, {
+    pruneGraphicsMap(this.componentSource, this.componentSourceUse, {
       maxItems: 48,
       currentFrame: this.frameIndex,
       idleFrames: 900,
     });
-    pruneGraphicsMap(this.compositionBuffer, this.compositionBufferUse, {
+    pruneGraphicsMap(this.componentBuffer, this.componentBufferUse, {
       maxItems: 48,
       currentFrame: this.frameIndex,
       idleFrames: 900,
     });
-    pruneGraphicsMap(this.compositionGpuBuffer, this.compositionGpuBufferUse, {
+    pruneGraphicsMap(this.componentGpuBuffer, this.componentGpuBufferUse, {
       maxItems: 64,
       currentFrame: this.frameIndex,
       idleFrames: 900,
     });
-    for (const key of Array.from(this.stableCompositionSignatures.keys())) {
-      const hasCpuEntry = Array.from(this.compositionBuffer.keys()).some((bufferKey) => bufferKey.startsWith(`${key}:`));
-      const hasGpuEntry = Array.from(this.compositionGpuBuffer.keys()).some((bufferKey) => bufferKey.startsWith(`${key}:`));
-      if (!hasCpuEntry && !hasGpuEntry) this.stableCompositionSignatures.delete(key);
+    for (const key of Array.from(this.stableComponentSignatures.keys())) {
+      const hasCpuEntry = Array.from(this.componentBuffer.keys()).some((bufferKey) => bufferKey.startsWith(`${key}:`));
+      const hasGpuEntry = Array.from(this.componentGpuBuffer.keys()).some((bufferKey) => bufferKey.startsWith(`${key}:`));
+      if (!hasCpuEntry && !hasGpuEntry) this.stableComponentSignatures.delete(key);
     }
     for (const key of Array.from(this.chainNodeRuntimes.keys())) {
-      const hasGpuEntry = Array.from(this.compositionGpuBuffer.keys()).some((bufferKey) => bufferKey.includes(key));
-      if (!this.compositionBuffer.has(key) && !hasGpuEntry) this.chainNodeRuntimes.delete(key);
+      const hasGpuEntry = Array.from(this.componentGpuBuffer.keys()).some((bufferKey) => bufferKey.includes(key));
+      if (!this.componentBuffer.has(key) && !hasGpuEntry) this.chainNodeRuntimes.delete(key);
     }
     for (const key of Array.from(this.sourceNodeRuntimes.keys())) {
-      if (!this.compositionSource.has(key)) this.sourceNodeRuntimes.delete(key);
+      if (!this.componentSource.has(key)) this.sourceNodeRuntimes.delete(key);
     }
   }
 
@@ -2763,7 +2815,7 @@ export class OutputRenderer {
     const rw = renderRequest.width;
     const rh = renderRequest.height;
     // Effects use normalized UVs, but many convert their artistic sizes to pixels
-    // through `resolution`. Keep that coordinate system at the composition size
+    // through `resolution`. Keep that coordinate system at the component size
     // even when the physical target is rendered at a lower quality resolution.
     const logicalWidth = Math.max(1, Number(renderRequest.logicalWidth) || rw);
     const logicalHeight = Math.max(1, Number(renderRequest.logicalHeight) || rh);
@@ -2903,19 +2955,19 @@ export class OutputRenderer {
     return result;
   }
 
-  measureCompositionProfile(meta, fn) {
+  measureComponentProfile(meta, fn) {
     const started = performance.now();
-    const outermost = this.compositionProfileDepth === 0;
-    this.compositionProfileDepth++;
+    const outermost = this.componentProfileDepth === 0;
+    this.componentProfileDepth++;
     let result;
     try {
       result = fn();
     } finally {
-      this.compositionProfileDepth--;
+      this.componentProfileDepth--;
       const ms = performance.now() - started;
-      this.frameProfile.compositionMs += ms;
-      if (outermost) this.frameProfile.compositionWallMs += ms;
-      this.frameProfile.compositionRenders++;
+      this.frameProfile.componentMs += ms;
+      if (outermost) this.frameProfile.componentWallMs += ms;
+      this.frameProfile.componentRenders++;
       this.frameProfile.passSamples.push({ ...meta, ms });
     }
     return result;
@@ -2933,8 +2985,8 @@ export class OutputRenderer {
     };
     profile.shaderMs = roundMetric(profile.shaderMs);
     profile.sourceMs = roundMetric(profile.sourceMs);
-    profile.compositionMs = roundMetric(profile.compositionMs);
-    profile.compositionWallMs = roundMetric(profile.compositionWallMs);
+    profile.componentMs = roundMetric(profile.componentMs);
+    profile.componentWallMs = roundMetric(profile.componentWallMs);
     profile.totalMs = roundMetric(profile.totalMs);
     this.lastFrameProfile = profile;
   }
@@ -2977,7 +3029,7 @@ export class OutputRenderer {
     const outputBlackout = this.isOutputBlackout();
     const routes = this.buildSurfaceRenderPlan();
     for (const route of routes) {
-      const { surface, mapped, composition, surfaceRequest: request } = route;
+      const { surface, mapped, component, surfaceRequest: request } = route;
       const pg = this.getSurfaceTexture(request);
       if (!pg) continue;
       pg.push();
@@ -2988,10 +3040,15 @@ export class OutputRenderer {
         pg.background(0);
       }
       if (this.mode !== "output" && !outputBlackout && this.state.global.showLabels !== false && this.mapper.isCalibrating()) {
-        drawSurfaceLabel(pg, surface, composition);
+        drawSurfaceLabel(pg, surface, component);
       }
       pg.pop();
-      this.measureGpu(drawingContext, () => this.mapper.drawTexture(pg, mapped.mapperSurface, surface.projectionFit, surface.feather));
+      this.measureGpu(drawingContext, () => {
+        if (mapped.direct && Number(surface.feather) > 0) {
+          this.mapper.drawTexture(pg, mapped.mapperSurface, surface.projectionFit, surface.feather);
+        } else if (mapped.direct) this.drawDirectSurfaceTexture(pg, route);
+        else this.mapper.drawTexture(pg, mapped.mapperSurface, surface.projectionFit, surface.feather);
+      });
     }
   }
 
@@ -3013,13 +3070,13 @@ export class OutputRenderer {
       this.activeTransitionTextureId = transition.id;
     }
 
-    const compositionsShared = transition.compositionsShared === true;
-    this.compositionOutput.clear();
+    const componentsShared = transition.componentsShared === true;
+    this.componentOutput.clear();
     const fromRoutes = this.withRenderState(transition.fromState, () =>
-      this.withSurfaceRenderIdentityPrefix(compositionsShared ? "" : "transition-from:", () => this.buildSurfaceRenderPlan())
+      this.withSurfaceRenderIdentityPrefix(componentsShared ? "" : "transition-from:", () => this.buildSurfaceRenderPlan())
     );
     const toRoutes = this.withSurfaceRenderIdentityPrefix(
-      compositionsShared ? "" : "transition-to:",
+      componentsShared ? "" : "transition-to:",
       () => this.buildSurfaceRenderPlan()
     );
     const fromTextures = this.renderTransitionRouteTextures(fromRoutes, transition.fromState, "from");
@@ -3042,12 +3099,14 @@ export class OutputRenderer {
       const toTexture = toTextures.get(surfaceId) || this.getTransparentTransitionTexture("to", surfaceId, fromRoute?.surfaceRequest);
       if (!fromTexture || !toTexture) continue;
       const feather = toRoute?.surface?.feather ?? fromRoute?.surface?.feather ?? 0;
-      this.measureGpu(drawingContext, () => this.mapper.drawTransitionTextures(fromTexture, toTexture, mapped.mapperSurface, {
-        fromProjectionFit: fromRoute?.surface?.projectionFit || "cover",
-        toProjectionFit: toRoute?.surface?.projectionFit || "cover",
-        feather,
-        progress: transition.progress,
-      }));
+      this.measureGpu(drawingContext, () => {
+        this.mapper.drawTransitionTextures(fromTexture, toTexture, mapped.mapperSurface, {
+          fromProjectionFit: fromRoute?.surface?.projectionFit || (mapped.direct ? "contain" : "cover"),
+          toProjectionFit: toRoute?.surface?.projectionFit || (mapped.direct ? "contain" : "cover"),
+          feather,
+          progress: transition.progress,
+        });
+      });
     }
   }
 
@@ -3130,11 +3189,7 @@ export class OutputRenderer {
     const routes = [];
     const viewport = this.displayCanvasSize(this.state?.render || {});
     const pixelScale = this.renderPixelDensity(this.state?.render || {});
-    const maxSurface = surfaceTextureSize(this.state?.render || {});
-    const maxSurfaceSize = {
-      width: Math.max(1, Math.round(maxSurface.width * pixelScale)),
-      height: Math.max(1, Math.round(maxSurface.height * pixelScale)),
-    };
+    const manualSurfaceLimit = manualSurfaceTextureLimit(this.state?.render || {}, pixelScale);
     for (const storedSurface of this.state.surfaces || []) {
       if (!storedSurface.enabled) continue;
       this.frameProfile.surfaceRouteCandidates++;
@@ -3143,36 +3198,43 @@ export class OutputRenderer {
       const surface = {
         ...storedSurface,
         sourceNodeId: sourceNode.id,
-        compositionId: sourceNode.compositionId,
+        componentId: sourceNode.componentId,
         outputFrameId: sourceNode.outputFrameId,
       };
       const mapped = this.mapperSurfaces.get(surface.id);
-      const composition = this.state.compositions.find((item) => item.id === surface.compositionId);
-      if (!mapped?.mapperSurface || !composition) continue;
-      const sourceView = compositionSourceView(this.state.render, composition, surface, this.state.recordingFrames);
+      const component = this.state.components.find((item) => item.id === surface.componentId);
+      if (!mapped?.mapperSurface || !component) continue;
+      const sourceView = componentSourceView(this.state.render, component, surface, this.state.recordingFrames);
+      const maxSurfaceSize = manualSurfaceLimit || {
+        // Auto is demand-driven. This is only a conservative WebGL safety
+        // bound; source raster limits normally stop demand well before it.
+        width: 8192,
+        height: 8192,
+      };
       const demand = sourceRenderDemand({
         ...sourceView,
         maxSurfaceSize,
         corners: mapped.mapperSurface.corners,
         viewport,
         pixelScale,
+        preserveFullFootprint: mapped.direct,
       });
       if (!demand) {
         this.frameProfile.surfaceRoutesCulled++;
         continue;
       }
-      routes.push({ surface, mapped, composition, sourceView, demand });
+      routes.push({ surface, mapped, component, sourceView, demand });
     }
 
-    const compositionScales = new Map();
+    const componentScales = new Map();
     for (const route of routes) {
-      compositionScales.set(route.composition.id, Math.max(
-        compositionScales.get(route.composition.id) || 0,
+      componentScales.set(route.component.id, Math.max(
+        componentScales.get(route.component.id) || 0,
         route.demand.rasterScale
       ));
     }
     for (const route of routes) {
-      const scale = compositionScales.get(route.composition.id) || route.demand.rasterScale;
+      const scale = componentScales.get(route.component.id) || route.demand.rasterScale;
       const maxWidth = route.sourceView.maxRasterSize.width;
       const maxHeight = route.sourceView.maxRasterSize.height;
       const widthPx = quantizedRenderDimension(route.sourceView.logicalSize.width * scale, maxWidth);
@@ -3180,9 +3242,9 @@ export class OutputRenderer {
       const meta = {
         surfaceId: route.surface.id,
         timingId: route.surface.id,
-        renderIdentity: `${renderIdentityPrefix}${route.composition.id}`,
+        renderIdentity: `${renderIdentityPrefix}${route.component.id}`,
       };
-      route.compositionRequest = createRenderRequest("texture", { width: widthPx, height: heightPx }, {
+      route.componentRequest = createRenderRequest("texture", { width: widthPx, height: heightPx }, {
         ...meta,
         logicalWidth: route.sourceView.logicalSize.width,
         logicalHeight: route.sourceView.logicalSize.height,
@@ -3197,10 +3259,10 @@ export class OutputRenderer {
       this.frameProfile.surfaceRasterPixels += route.surfaceRequest.width * route.surfaceRequest.height;
     }
     this.frameProfile.surfaceRoutesVisible += routes.length;
-    const plannedCompositions = new Map();
-    for (const route of routes) plannedCompositions.set(route.composition.id, route.compositionRequest);
-    for (const request of plannedCompositions.values()) {
-      this.frameProfile.compositionRasterPixels += request.width * request.height;
+    const plannedComponents = new Map();
+    for (const route of routes) plannedComponents.set(route.component.id, route.componentRequest);
+    for (const request of plannedComponents.values()) {
+      this.frameProfile.componentRasterPixels += request.width * request.height;
     }
     return routes;
   }
@@ -3208,7 +3270,6 @@ export class OutputRenderer {
   getSurfaceTexture(request = stableSurfaceRenderRequest(this.state?.render || {})) {
     const widthPx = Math.max(1, Math.round(Number(request.width) || 1));
     const heightPx = Math.max(1, Math.round(Number(request.height) || 1));
-    if (this.surfaceTexture?.width === widthPx && this.surfaceTexture?.height === heightPx) return this.surfaceTexture;
     const key = `${widthPx}x${heightPx}`;
     let pg = this.surfaceTextures.get(key);
     if (!pg) {
@@ -3222,9 +3283,38 @@ export class OutputRenderer {
     return pg;
   }
 
+  drawDirectSurfaceTexture(texture, route = {}, alpha = 1) {
+    const rect = route.mapped?.directRect || cornersRect(route.mapped?.mapperSurface?.corners || []);
+    if (!texture || !rect || alpha <= 0) return;
+    const fit = directFitRects(texture.width, texture.height, rect, route.surface?.projectionFit || "contain");
+    const drawable = isSharedFramebufferTarget(texture) ? unwrapRenderTarget(texture) : texture;
+    push();
+    try {
+      resetShader();
+      imageMode(CORNER);
+      applyBlendGlobal(route.surface?.finalBlend || "normal");
+      tint(255, 255 * clamp01(alpha));
+      image(
+        drawable,
+        fit.destination.x - width * 0.5,
+        fit.destination.y - height * 0.5,
+        fit.destination.width,
+        fit.destination.height,
+        fit.source.x,
+        fit.source.y,
+        fit.source.width,
+        fit.source.height
+      );
+      noTint();
+      blendMode(BLEND);
+    } finally {
+      pop();
+    }
+  }
+
   drawSurfaceRoute(pg, route = {}) {
-    const { surface = {}, composition = null, surfaceRequest: request = null, compositionRequest = null, demand = null } = route;
-    if (!surface.compositionId) {
+    const { surface = {}, component = null, surfaceRequest: request = null, componentRequest = null, demand = null } = route;
+    if (!surface.componentId) {
       pg.clear();
       return;
     }
@@ -3232,17 +3322,17 @@ export class OutputRenderer {
       this.drawSurfaceThumbnailRoute(pg, surface, demand);
       return;
     }
-    // Composition time belongs to the composition, not to the projector
+    // Component time belongs to the component, not to the projector
     // surface. Per-surface final effects retain their own instance identity.
-    const compositionTime = this.compositionTimes.get(surface.compositionId) || 0;
-    const source = composition
-      ? this.renderCompositionForRequest(composition, compositionTime, compositionRequest)
+    const componentTime = this.componentTimes.get(surface.componentId) || 0;
+    const source = component
+      ? this.renderComponentForRequest(component, componentTime, componentRequest)
       : this.mainMix;
 
     pg.push();
     applyBlend(pg, surface.finalBlend);
     pg.tint(255, 255 * clamp01(surface.opacity));
-    const sampleRect = scaledCompositionSampleRect(demand?.sampleRect, demand?.logicalSize, source);
+    const sampleRect = scaledComponentSampleRect(demand?.sampleRect, demand?.logicalSize, source);
     drawSampleRect(pg, source, sampleRect, 0, 0, pg.width, pg.height);
     pg.noTint();
     pg.blendMode(BLEND);
@@ -3256,30 +3346,30 @@ export class OutputRenderer {
   }
 
   drawSurfaceThumbnailRoute(pg, surface, demand = null) {
-    const composition = this.state.compositions.find((item) => item.id === surface.compositionId);
-    const thumbnail = this.getThumbnailImage(composition);
+    const component = this.state.components.find((item) => item.id === surface.componentId);
+    const thumbnail = this.getThumbnailImage(component);
     pg.push();
     applyBlend(pg, surface.finalBlend);
     pg.tint(255, 255 * clamp01(surface.opacity));
     if (thumbnail?.ready && thumbnail.img) {
-      const sampleRect = scaledCompositionSampleRect(demand?.sampleRect, demand?.logicalSize, thumbnail.img);
+      const sampleRect = scaledComponentSampleRect(demand?.sampleRect, demand?.logicalSize, thumbnail.img);
       drawSampleRect(pg, thumbnail.img, sampleRect, 0, 0, pg.width, pg.height);
     } else {
-      drawStandby(pg, composition?.thumbnail ? "loading thumbnail" : "no thumbnail");
+      drawStandby(pg, component?.thumbnail ? "loading thumbnail" : "no thumbnail");
     }
     pg.noTint();
     pg.blendMode(BLEND);
     pg.pop();
   }
 
-  getThumbnailImage(composition) {
-    if (!composition?.thumbnail) return null;
-    const existing = this.thumbnailImages.get(composition.id);
-    if (existing?.src === composition.thumbnail) return existing;
-    const item = { src: composition.thumbnail, img: null, ready: false };
-    this.thumbnailImages.set(composition.id, item);
+  getThumbnailImage(component) {
+    if (!component?.thumbnail) return null;
+    const existing = this.thumbnailImages.get(component.id);
+    if (existing?.src === component.thumbnail) return existing;
+    const item = { src: component.thumbnail, img: null, ready: false };
+    this.thumbnailImages.set(component.id, item);
     loadImage(
-      composition.thumbnail,
+      component.thumbnail,
       (img) => {
         item.img = img;
         item.ready = true;
@@ -3293,9 +3383,9 @@ export class OutputRenderer {
 
   captureThumbnailEditTransformBaselines() {
     this.thumbnailEditTransformBaselines.clear();
-    for (const composition of this.state?.compositions || []) {
-      for (const item of flattenCompositionChain(composition.chain || [])) {
-        if (item?.id) this.thumbnailEditTransformBaselines.set(`${composition.id}:${item.id}`, normalizedContentTransform(item.transform));
+    for (const component of this.state?.components || []) {
+      for (const item of flattenComponentChain(component.chain || [])) {
+        if (item?.id) this.thumbnailEditTransformBaselines.set(`${component.id}:${item.id}`, normalizedContentTransform(item.transform));
       }
     }
   }
@@ -3363,40 +3453,40 @@ export class OutputRenderer {
       });
   }
 
-  renderCompositionPreview() {
-    const compositionId = this.state.ui.selectedCompositionId || this.state.compositions[0]?.id || "";
-    const composition = this.state.compositions.find((item) => item.id === compositionId);
-    const source = this.compositionOutput.get(compositionId);
+  renderComponentPreview() {
+    const componentId = this.state.ui.selectedComponentId || this.state.components[0]?.id || "";
+    const component = this.state.components.find((item) => item.id === componentId);
+    const source = this.componentOutput.get(componentId);
     resetShader();
     push();
     imageMode(CORNER);
     if (this.shouldUseThumbnailPreview()) {
-      const drewEditableCanvas = composition?.type === "canvas" && this.renderCanvasThumbnailEditPreview(composition);
-      if (!drewEditableCanvas) this.renderFlattenedThumbnailEditPreview(composition);
+      const drewEditableCanvas = component?.type === "canvas" && this.renderCanvasThumbnailEditPreview(component);
+      if (!drewEditableCanvas) this.renderFlattenedThumbnailEditPreview(component);
     } else if (source) {
-      const rect = this.compositionPreviewRect(composition, source);
+      const rect = this.componentPreviewRect(component, source);
       image(unwrapRenderTarget(source), rect.x - width / 2, rect.y - height / 2, rect.width, rect.height);
     } else {
       const fallback = this.mainMix;
       image(unwrapRenderTarget(fallback), -width / 2, -height / 2, width, height);
     }
     pop();
-    this.renderCompositionFrameOverlay(composition, source);
-    this.renderCanvasRecordingFrames(composition, source);
+    this.renderComponentFrameOverlay(component, source);
+    this.renderCanvasRecordingFrames(component, source);
     this.renderSelectedChainTransformOverlay();
   }
 
-  renderFlattenedThumbnailEditPreview(composition) {
-    const thumbnail = this.getThumbnailImage(composition);
+  renderFlattenedThumbnailEditPreview(component) {
+    const thumbnail = this.getThumbnailImage(component);
     if (!thumbnail?.ready || !thumbnail.img) return false;
-    // The current composition frame is authoritative. Older thumbnails may
+    // The current component frame is authoritative. Older thumbnails may
     // have been captured under a different aspect and must never resize or
     // escape the current editing frame.
-    const rect = this.compositionPreviewRect(composition);
+    const rect = this.componentPreviewRect(component);
     const item = this.selectedTransformableChainItem();
     const current = normalizedContentTransform(item?.transform);
     const baseline = item
-      ? this.thumbnailEditTransformBaselines.get(`${composition.id}:${item.id}`) || current
+      ? this.thumbnailEditTransformBaselines.get(`${component.id}:${item.id}`) || current
       : current;
     const editScale = current.scale / Math.max(0.01, baseline.scale);
     withScreenScissor(rect, () => {
@@ -3413,8 +3503,8 @@ export class OutputRenderer {
     return true;
   }
 
-  renderCanvasThumbnailEditPreview(composition) {
-    const rect = this.compositionPreviewRect(composition);
+  renderCanvasThumbnailEditPreview(component) {
+    const rect = this.componentPreviewRect(component);
     let drawn = 0;
     const drawChain = (chain, parentTransform = normalizedContentTransform(), parentOpacity = 1) => {
       for (const item of chain || []) {
@@ -3427,12 +3517,12 @@ export class OutputRenderer {
           );
           continue;
         }
-        if (item.kind !== "source" || item.source?.type !== "composition") continue;
-        const dependency = this.state.compositions.find((candidate) => candidate.id === item.source.compositionId);
+        if (item.kind !== "source" || item.source?.type !== "component") continue;
+        const dependency = this.state.components.find((candidate) => candidate.id === item.source.componentId);
         if (!dependency || dependency.type === "canvas") continue;
         const thumbnail = this.getThumbnailImage(dependency);
         if (!thumbnail?.ready || !thumbnail.img) continue;
-        const placement = compositionReferencePlacement(composition, dependency, this.state.render, rect);
+        const placement = componentReferencePlacement(component, dependency, this.state.render, rect, item.source?.placement);
         const transform = combineContentTransforms(parentTransform, item.transform);
         push();
         translate(
@@ -3454,22 +3544,22 @@ export class OutputRenderer {
         drawn++;
       }
     };
-    withScreenScissor(rect, () => drawChain(composition.chain || []));
+    withScreenScissor(rect, () => drawChain(component.chain || []));
     return drawn > 0;
   }
 
-  compositionPreviewRect(composition, source = null) {
+  componentPreviewRect(component, source = null) {
     if (source?.width && source?.height) return containedRect(width, height, source.width, source.height);
-    if (composition?.type === "canvas") {
-      return containedRect(width, height, composition.canvas?.width, composition.canvas?.height);
+    if (component?.type === "canvas") {
+      return containedRect(width, height, component.canvas?.width, component.canvas?.height);
     }
-    const metrics = compositionFrameMetrics(this.state?.render || {}, composition || {});
+    const metrics = componentFrameMetrics(this.state?.render || {}, component || {});
     return containedRect(width, height, metrics.baseWidth, metrics.baseHeight);
   }
 
-  renderCompositionFrameOverlay(composition, source = null) {
-    if (this.mode !== "composition" || !composition) return;
-    const frame = this.compositionPreviewRect(composition, source);
+  renderComponentFrameOverlay(component, source = null) {
+    if (this.mode !== "component" || !component) return;
+    const frame = this.componentPreviewRect(component, source);
     const inset = 1.5;
     resetShader();
     push();
@@ -3486,15 +3576,15 @@ export class OutputRenderer {
     pop();
   }
 
-  renderCanvasRecordingFrames(composition, source = null) {
-    if (this.mode !== "composition" || composition?.type !== "canvas") return;
+  renderCanvasRecordingFrames(component, source = null) {
+    if (this.mode !== "component" || component?.type !== "canvas") return;
     resetShader();
     push();
     noFill();
     stroke(255, 228, 94, 235);
     strokeWeight(2);
     rectMode(CORNER);
-    for (const item of this.canvasRecordingFrameRects(composition, source)) {
+    for (const item of this.canvasRecordingFrameRects(component, source)) {
       rect(item.x - width * 0.5, item.y - height * 0.5, item.width, item.height);
       noStroke();
       fill(255, 228, 94, 245);
@@ -3507,11 +3597,11 @@ export class OutputRenderer {
     pop();
   }
 
-  canvasRecordingFrameRects(composition, source = null) {
-    if (composition?.type !== "canvas") return [];
-    const canvasWidth = Math.max(1, Number(composition.canvas?.width) || 3840);
-    const canvasHeight = Math.max(1, Number(composition.canvas?.height) || 2160);
-    const preview = this.compositionPreviewRect(composition, source);
+  canvasRecordingFrameRects(component, source = null) {
+    if (component?.type !== "canvas") return [];
+    const canvasWidth = Math.max(1, Number(component.canvas?.width) || VJ1.canvasWidth);
+    const canvasHeight = Math.max(1, Number(component.canvas?.height) || VJ1.canvasHeight);
+    const preview = this.componentPreviewRect(component, source);
     return (this.state?.recordingFrames || []).map((frame) => ({
       frame,
       x: preview.x + (Math.max(0, Number(frame.x) || 0) / canvasWidth) * preview.width,
@@ -3522,11 +3612,11 @@ export class OutputRenderer {
   }
 
   renderSelectedChainTransformOverlay() {
-    if (this.mode !== "composition") return;
+    if (this.mode !== "component") return;
     const item = this.selectedTransformableChainItem();
     if (!item) return;
-    const composition = this.state.compositions.find((entry) => entry.id === this.state.ui.selectedCompositionId);
-    const frame = this.compositionPreviewRect(composition, this.compositionOutput.get(composition?.id));
+    const component = this.state.components.find((entry) => entry.id === this.state.ui.selectedComponentId);
+    const frame = this.componentPreviewRect(component, this.componentOutput.get(component?.id));
     const transform = item.transform || {};
     resetShader();
     push();
@@ -3543,7 +3633,7 @@ export class OutputRenderer {
     const rotateHandleX = 0;
     const rotateHandleY = -42;
 
-    // The composition outline is rendered independently and remains visible
+    // The component outline is rendered independently and remains visible
     // even when no chain element is selected.
     translate(frameCenterX, frameCenterY, 2);
     translate(cx - frameCenterX, cy - frameCenterY, 1);
@@ -3568,8 +3658,8 @@ export class OutputRenderer {
   }
 
   mousePressed(x, y) {
-    if (this.mode === "composition" && this.startCanvasFrameDrag(x, y)) return;
-    if (this.mode === "composition" && this.startChainTransformDrag(x, y)) return;
+    if (this.mode === "component" && this.startCanvasFrameDrag(x, y)) return;
+    if (this.mode === "component" && this.startChainTransformDrag(x, y)) return;
     this.mapper?.mousePressed?.(x, y);
     const surfaceIndex = Number(this.mapper?._dragSurf);
     const surfaceName = Number.isInteger(surfaceIndex) && surfaceIndex >= 0
@@ -3594,7 +3684,7 @@ export class OutputRenderer {
     if (this.canvasFrameDrag) {
       const drag = this.canvasFrameDrag;
       this.canvasFrameDrag = null;
-      if (drag.lastRect) this.sendCanvasFrame?.(drag.compositionId, drag.frameId, drag.lastRect, { commit: true });
+      if (drag.lastRect) this.sendCanvasFrame?.(drag.componentId, drag.frameId, drag.lastRect, { commit: true });
       return;
     }
     if (this.chainTransformDrag) {
@@ -3605,27 +3695,27 @@ export class OutputRenderer {
   }
 
   startCanvasFrameDrag(x, y) {
-    const composition = this.state?.compositions?.find((item) => item.id === this.state?.ui?.selectedCompositionId);
-    if (composition?.type !== "canvas") return false;
-    const source = this.compositionOutput.get(composition.id);
-    const rects = this.canvasRecordingFrameRects(composition, source);
+    const component = this.state?.components?.find((item) => item.id === this.state?.ui?.selectedComponentId);
+    if (component?.type !== "canvas") return false;
+    const source = this.componentOutput.get(component.id);
+    const rects = this.canvasRecordingFrameRects(component, source);
     for (let index = rects.length - 1; index >= 0; index--) {
       const item = rects[index];
       const corners = canvasRectCorners(item);
       const corner = corners.find((entry) => distanceSquared(x, y, entry.x, entry.y) <= 15 * 15);
       const border = canvasFrameBorderHit(item, x, y);
       if (!corner && !border) continue;
-      const canvasWidth = Math.max(1, Number(composition.canvas?.width) || 3840);
-      const canvasHeight = Math.max(1, Number(composition.canvas?.height) || 2160);
+      const canvasWidth = Math.max(1, Number(component.canvas?.width) || VJ1.canvasWidth);
+      const canvasHeight = Math.max(1, Number(component.canvas?.height) || VJ1.canvasHeight);
       const frame = item.frame;
       this.canvasFrameDrag = {
-        compositionId: composition.id,
+        componentId: component.id,
         frameId: frame.id,
         mode: corner?.id || "move",
         startX: x,
         startY: y,
-        previewWidth: Math.max(1, this.compositionPreviewRect(composition, source).width),
-        previewHeight: Math.max(1, this.compositionPreviewRect(composition, source).height),
+        previewWidth: Math.max(1, this.componentPreviewRect(component, source).width),
+        previewHeight: Math.max(1, this.componentPreviewRect(component, source).height),
         canvasWidth,
         canvasHeight,
         rect: {
@@ -3650,11 +3740,11 @@ export class OutputRenderer {
       ? moveCanvasFrameRect(drag.rect, dx, dy, drag.canvasWidth, drag.canvasHeight)
       : resizeCanvasFrameRect(drag.rect, drag.mode, dx, dy, drag.canvasWidth, drag.canvasHeight);
     drag.lastRect = next;
-    this.applyLocalCanvasFrame(drag.compositionId, drag.frameId, next);
-    this.sendCanvasFrame?.(drag.compositionId, drag.frameId, next, { commit: false });
+    this.applyLocalCanvasFrame(drag.componentId, drag.frameId, next);
+    this.sendCanvasFrame?.(drag.componentId, drag.frameId, next, { commit: false });
   }
 
-  applyLocalCanvasFrame(compositionId, frameId, rect) {
+  applyLocalCanvasFrame(componentId, frameId, rect) {
     const frame = this.state?.recordingFrames?.find((item) => item.id === frameId);
     if (frame) Object.assign(frame, rect);
   }
@@ -3673,20 +3763,20 @@ export class OutputRenderer {
   }
 
   selectedTransformableChainItem() {
-    const composition = this.state?.compositions?.find((item) => item.id === this.state?.ui?.selectedCompositionId);
-    if (!composition?.chain?.length) return null;
-    const selected = findChainItemById(composition.chain, this.state.ui.selectedChainItemId);
+    const component = this.state?.components?.find((item) => item.id === this.state?.ui?.selectedComponentId);
+    if (!component?.chain?.length) return null;
+    const selected = findChainItemById(component.chain, this.state.ui.selectedChainItemId);
     if (selected?.kind === "source") return selected;
     if (selected?.kind === "group") return selected;
-    const component = selected?.kind === "effect" ? getShaderComponent(selected.componentId) : null;
-    return component?.spatial ? selected : null;
+    const effectComponent = selected?.kind === "effect" ? getShaderComponent(selected.componentId) : null;
+    return effectComponent?.spatial ? selected : null;
   }
 
   startChainTransformDrag(x, y) {
     const item = this.selectedTransformableChainItem();
     if (!item) return false;
-    const composition = this.state.compositions.find((entry) => entry.id === this.state.ui.selectedCompositionId);
-    const frame = this.compositionPreviewRect(composition, this.compositionOutput.get(composition?.id));
+    const component = this.state.components.find((entry) => entry.id === this.state.ui.selectedComponentId);
+    const frame = this.componentPreviewRect(component, this.componentOutput.get(component?.id));
     const transform = item.transform || {};
     const cx = frame.x + frame.width * 0.5 + (Number(transform.x) || 0) * frame.width * 0.5;
     const cy = frame.y + frame.height * 0.5 + (Number(transform.y) || 0) * frame.height * 0.5;
@@ -3705,7 +3795,7 @@ export class OutputRenderer {
     if (!mode) return false;
     this.chainTransformDrag = {
       itemId: item.id,
-      compositionId: this.state.ui.selectedCompositionId,
+      componentId: this.state.ui.selectedComponentId,
       mode,
       startX: x,
       startY: y,
@@ -3734,13 +3824,13 @@ export class OutputRenderer {
       const angle = Math.atan2(y - drag.centerY, x - drag.centerX);
       next.rotation = drag.transform.rotation + (angle - drag.startAngle);
     }
-    this.applyLocalChainTransform(drag.compositionId, drag.itemId, next);
-    this.sendChainTransform?.(drag.compositionId, drag.itemId, next);
+    this.applyLocalChainTransform(drag.componentId, drag.itemId, next);
+    this.sendChainTransform?.(drag.componentId, drag.itemId, next);
   }
 
-  applyLocalChainTransform(compositionId, itemId, transform) {
-    const composition = this.state?.compositions?.find((item) => item.id === compositionId);
-    const item = findChainItemById(composition?.chain, itemId);
+  applyLocalChainTransform(componentId, itemId, transform) {
+    const component = this.state?.components?.find((item) => item.id === componentId);
+    const item = findChainItemById(component?.chain, itemId);
     if (item) item.transform = { ...item.transform, ...transform };
   }
 
@@ -3773,35 +3863,35 @@ export class OutputRenderer {
   outputMediaReadiness() {
     const status = createMediaReadinessStatus();
     if (this.mode !== "output" || !this.state) return status;
-    const compositionsById = new Map((this.state.compositions || []).map((composition) => [composition.id, composition]));
+    const componentsById = new Map((this.state.components || []).map((component) => [component.id, component]));
     for (const surface of this.state.surfaces || []) {
-      if (surface.enabled === false || !surface.compositionId) continue;
-      this.collectCompositionMediaReadiness(compositionsById.get(surface.compositionId), status, compositionsById, new Set());
+      if (surface.enabled === false || !surface.componentId) continue;
+      this.collectComponentMediaReadiness(componentsById.get(surface.componentId), status, componentsById, new Set());
     }
     status.blocked = status.loadingIds.size > 0 || status.missingIds.size > 0 || status.errorIds.size > 0;
     return status;
   }
 
-  collectCompositionMediaReadiness(composition, status, compositionsById, visited) {
-    if (!composition || !status || visited.has(composition.id)) return;
-    visited.add(composition.id);
-    if (Array.isArray(composition.chain) && composition.chain.length) {
-      this.collectChainMediaReadiness(composition.chain, status, compositionsById, visited);
+  collectComponentMediaReadiness(component, status, componentsById, visited) {
+    if (!component || !status || visited.has(component.id)) return;
+    visited.add(component.id);
+    if (Array.isArray(component.chain) && component.chain.length) {
+      this.collectChainMediaReadiness(component.chain, status, componentsById, visited);
     } else {
-      this.collectSourceMediaReadiness(composition.source, status);
+      this.collectSourceMediaReadiness(component.source, status);
     }
-    visited.delete(composition.id);
+    visited.delete(component.id);
   }
 
-  collectChainMediaReadiness(chain, status, compositionsById, visited) {
+  collectChainMediaReadiness(chain, status, componentsById, visited) {
     for (const item of chain || []) {
       if (item.enabled === false) continue;
       if (item.kind === "group") {
-        this.collectChainMediaReadiness(item.chain || [], status, compositionsById, visited);
+        this.collectChainMediaReadiness(item.chain || [], status, componentsById, visited);
         continue;
       }
-      if (item.kind === "source" && item.source?.type === "composition") {
-        this.collectCompositionMediaReadiness(compositionsById.get(item.source.compositionId), status, compositionsById, visited);
+      if (item.kind === "source" && item.source?.type === "component") {
+        this.collectComponentMediaReadiness(componentsById.get(item.source.componentId), status, componentsById, visited);
       } else if (item.kind === "source") {
         this.collectSourceMediaReadiness(item.source, status);
       }
@@ -3831,7 +3921,7 @@ export class OutputRenderer {
   }
 
   shouldUseThumbnailPreview() {
-    return (this.mode === "preview" || this.mode === "composition") && this.state?.ui?.debugPreview === false;
+    return (this.mode === "preview" || this.mode === "component") && this.state?.ui?.debugPreview === false;
   }
 
   updateHudAndMetrics() {
@@ -3865,7 +3955,7 @@ export class OutputRenderer {
         profile: this.lastFrameProfile,
         message: this.shouldUseThumbnailPreview()
           ? "thumbnail preview"
-          : this.mode === "composition" ? "composition preview" : `${this.mode} rendering`,
+          : this.mode === "component" ? "component preview" : `${this.mode} rendering`,
       });
     }
   }
@@ -3892,45 +3982,48 @@ export class OutputRenderer {
       : value;
   }
 
-  captureSelectedCompositionThumbnail() {
+  captureSelectedComponentThumbnail() {
+    // This method can be reached by a frame that began just before the preview
+    // toggle changed. Never read or publish the thumbnail-mode proxy buffer.
+    if (this.shouldUseThumbnailPreview()) return;
     if (!this.sendThumbnail || millis() - this.lastThumbnailAt < 1200) return;
-    const composition = this.state.compositions.find((item) => item.id === this.state.ui.selectedCompositionId) || this.state.compositions[0];
-    if (!composition) return;
-    const output = this.compositionOutput.get(composition.id);
+    const component = this.state.components.find((item) => item.id === this.state.ui.selectedComponentId) || this.state.components[0];
+    if (!component) return;
+    const output = this.componentOutput.get(component.id);
     if (!output) return;
-    const signature = compositionThumbnailSignature(composition);
-    const needsCompositionThumbnail = !composition.thumbnail || this.thumbnailSignatures.get(composition.id) !== signature;
-    const framesNeedingThumbnails = composition.type === "canvas"
+    const signature = componentThumbnailSignature(component);
+    const needsComponentThumbnail = !component.thumbnail || this.thumbnailSignatures.get(component.id) !== signature;
+    const framesNeedingThumbnails = component.type === "canvas"
       ? (this.state.recordingFrames || []).filter((frame) => {
-          const frameKey = `${composition.id}:${frame.id}`;
+          const frameKey = `${component.id}:${frame.id}`;
           const frameSignature = `${signature}:${frame.x},${frame.y},${frame.width},${frame.height}`;
-          return !composition.canvas?.frameThumbnails?.[frame.id] || this.thumbnailSignatures.get(frameKey) !== frameSignature;
+          return !component.canvas?.frameThumbnails?.[frame.id] || this.thumbnailSignatures.get(frameKey) !== frameSignature;
         })
       : [];
     // Throttle checks as well as captures. In particular, never call get() on a
     // full WebGL framebuffer until metadata proves that a thumbnail is stale.
     this.lastThumbnailAt = millis();
-    if (!needsCompositionThumbnail && !framesNeedingThumbnails.length) return;
+    if (!needsComponentThumbnail && !framesNeedingThumbnails.length) return;
     const readback = isSharedFramebufferTarget(output);
     const thumbnailSource = readback ? output.get() : output;
     let captured = false;
-    if (needsCompositionThumbnail) {
+    if (needsComponentThumbnail) {
       const thumbnail = graphicsToThumbnail(thumbnailSource);
       if (thumbnail) {
-        this.thumbnailSignatures.set(composition.id, signature);
-        this.sendThumbnail(composition.id, thumbnail);
+        this.thumbnailSignatures.set(component.id, signature);
+        this.sendThumbnail(component.id, thumbnail);
         captured = true;
       }
     }
-    if (composition.type === "canvas") {
+    if (component.type === "canvas") {
       const sourceWidth = Math.max(1, Number(thumbnailSource?.width || thumbnailSource?.canvas?.width) || 1);
       const sourceHeight = Math.max(1, Number(thumbnailSource?.height || thumbnailSource?.canvas?.height) || 1);
-      const logicalWidth = Math.max(1, Number(composition.canvas?.width) || sourceWidth);
-      const logicalHeight = Math.max(1, Number(composition.canvas?.height) || sourceHeight);
+      const logicalWidth = Math.max(1, Number(component.canvas?.width) || sourceWidth);
+      const logicalHeight = Math.max(1, Number(component.canvas?.height) || sourceHeight);
       for (const frame of framesNeedingThumbnails) {
-        const frameKey = `${composition.id}:${frame.id}`;
+        const frameKey = `${component.id}:${frame.id}`;
         const frameSignature = `${signature}:${frame.x},${frame.y},${frame.width},${frame.height}`;
-        const frameThumbnail = graphicsToThumbnail(thumbnailSource, COMPOSITION_THUMBNAIL_WIDTH, COMPOSITION_THUMBNAIL_HEIGHT, {
+        const frameThumbnail = graphicsToThumbnail(thumbnailSource, COMPONENT_THUMBNAIL_WIDTH, COMPONENT_THUMBNAIL_HEIGHT, {
           x: Number(frame.x) * sourceWidth / logicalWidth,
           y: Number(frame.y) * sourceHeight / logicalHeight,
           width: Number(frame.width) * sourceWidth / logicalWidth,
@@ -3938,7 +4031,7 @@ export class OutputRenderer {
         });
         if (!frameThumbnail) continue;
         this.thumbnailSignatures.set(frameKey, frameSignature);
-        this.sendThumbnail(composition.id, frameThumbnail, { frameId: frame.id });
+        this.sendThumbnail(component.id, frameThumbnail, { frameId: frame.id });
         captured = true;
       }
     }
@@ -4005,15 +4098,15 @@ function downloadJson(data, filename) {
 }
 
 function stableSurfaceRenderRequest(render = {}, meta = {}) {
-  return createRenderRequest("surface", aspectPreservingSurfaceTextureSize(render), {
+  return createRenderRequest("surface", defaultSurfaceTextureSize(render), {
     ...meta,
     timingId: meta.timingId || meta.surfaceId || "",
     renderIdentity: meta.renderIdentity ?? meta.instanceId ?? "",
   });
 }
 
-function compositionRenderRequest(render = {}, composition = {}, role = "texture", meta = {}) {
-  const metrics = compositionFrameMetrics(render, composition);
+function componentRenderRequest(render = {}, component = {}, role = "texture", meta = {}) {
+  const metrics = componentFrameMetrics(render, component);
   return createRenderRequest(role, metrics, {
     ...meta,
     logicalWidth: metrics.baseWidth,
@@ -4023,11 +4116,11 @@ function compositionRenderRequest(render = {}, composition = {}, role = "texture
     resolutionScale: metrics.resolutionScale,
     effectiveScale: metrics.effectiveScale,
     timingId: meta.timingId || meta.surfaceId || "",
-    renderIdentity: meta.renderIdentity ?? meta.instanceId ?? composition.id ?? "",
+    renderIdentity: meta.renderIdentity ?? meta.instanceId ?? component.id ?? "",
   });
 }
 
-export function compositionPipelineSourceRequest(request = {}, pipeline = {}) {
+export function componentPipelineSourceRequest(request = {}, pipeline = {}) {
   const upscaling = pipeline?.upscaling || {};
   if (upscaling.enabled !== true || Number(upscaling.amount) >= 0.999) return request;
   const amount = Math.min(1, Math.max(0.35, Number(upscaling.amount) || 0.67));
@@ -4043,9 +4136,9 @@ export function compositionPipelineSourceRequest(request = {}, pipeline = {}) {
   });
 }
 
-function aspectPreservingSurfaceTextureSize(render = {}) {
+function defaultSurfaceTextureSize(render = {}) {
   const frame = frameSize(render);
-  const maxTexture = surfaceTextureSize(render);
+  const maxTexture = componentTextureSize(render);
   const scale = Math.min(
     maxTexture.width / Math.max(1, frame.width),
     maxTexture.height / Math.max(1, frame.height)
@@ -4152,14 +4245,14 @@ function withScreenScissor(rect = {}, draw) {
   }
 }
 
-function nodesInCompositionChainOrder(composition = {}, patch = {}) {
+function nodesInComponentChainOrder(component = {}, patch = {}) {
   const nodes = (patch.nodes || []).filter((node) => isSourceNode(node) || isEffectNode(node));
-  if (!Array.isArray(composition.chain) || !composition.chain.length) return nodes;
+  if (!Array.isArray(component.chain) || !component.chain.length) return nodes;
   const nodeById = new Map(nodes.map((node) => [node.id, node]));
-  return flattenCompositionChain(composition.chain)
+  return flattenComponentChain(component.chain)
     .map((item, index) => {
-      if (item.kind === "source") return nodeById.get(`${composition.id || "composition"}:source:${index}:${item.id}`);
-      if (item.kind === "effect") return nodeById.get(`${composition.id || "composition"}:effect:${index}:${item.componentId}`);
+      if (item.kind === "source") return nodeById.get(`${component.id || "component"}:source:${index}:${item.id}`);
+      if (item.kind === "effect") return nodeById.get(`${component.id || "component"}:effect:${index}:${item.componentId}`);
       return null;
     })
     .filter(Boolean);
@@ -4268,58 +4361,58 @@ function renderBufferKey(...parts) {
   return parts.map((part) => String(part)).join(":");
 }
 
-function staticCompositionState(composition = {}) {
+function staticComponentState(component = {}) {
   return {
-    id: composition.id || "",
-    type: composition.type || "composition",
-    frameShape: composition.frameShape || "landscape",
-    resolutionScale: Number(composition.resolutionScale) || 1,
-    canvas: composition.type === "canvas" ? {
-      width: Math.max(1, Number(composition.canvas?.width) || 3840),
-      height: Math.max(1, Number(composition.canvas?.height) || 2160),
+    id: component.id || "",
+    type: component.type || "component",
+    frameShape: component.frameShape || "landscape",
+    resolutionScale: Number(component.resolutionScale) || 1,
+    canvas: component.type === "canvas" ? {
+      width: Math.max(1, Number(component.canvas?.width) || VJ1.canvasWidth),
+      height: Math.max(1, Number(component.canvas?.height) || VJ1.canvasHeight),
     } : null,
-    source: staticSourceState(composition.source),
-    shaderChain: staticEffectChainState(composition.shaderChain || []),
-    chain: staticChainState(composition.chain || []),
+    source: staticSourceState(component.source),
+    shaderChain: staticEffectChainState(component.shaderChain || []),
+    chain: staticChainState(component.chain || []),
   };
 }
 
-function staticCompositionGraphState(composition = {}, compositions = [], seen = new Set()) {
-  if (!composition?.id || seen.has(composition.id)) return { id: composition?.id || "", cycle: true };
+function staticComponentGraphState(component = {}, components = [], seen = new Set()) {
+  if (!component?.id || seen.has(component.id)) return { id: component?.id || "", cycle: true };
   const nextSeen = new Set(seen);
-  nextSeen.add(composition.id);
-  const dependencies = Array.from(compositionDependencyIds(composition))
+  nextSeen.add(component.id);
+  const dependencies = Array.from(componentDependencyIds(component))
     .sort()
-    .map((id) => staticCompositionGraphState(
-      compositions.find((item) => item.id === id) || { id, missing: true },
-      compositions,
+    .map((id) => staticComponentGraphState(
+      components.find((item) => item.id === id) || { id, missing: true },
+      components,
       nextSeen
     ));
-  return { ...staticCompositionState(composition), dependencies };
+  return { ...staticComponentState(component), dependencies };
 }
 
-function staticCompositionGraphMediaState(media = [], composition = {}, compositions = [], seen = new Set()) {
+function staticComponentGraphMediaState(media = [], component = {}, components = [], seen = new Set()) {
   const ids = new Set();
-  collectCompositionGraphMediaIds(composition, compositions, ids, seen);
+  collectComponentGraphMediaIds(component, components, ids, seen);
   return staticMediaStateForIds(media, ids);
 }
 
-function collectCompositionGraphMediaIds(composition = {}, compositions = [], ids = new Set(), seen = new Set()) {
-  if (!composition?.id || seen.has(composition.id)) return ids;
-  seen.add(composition.id);
-  collectMediaIdsFromSource(composition.source, ids);
-  collectMediaIdsFromChain(composition.chain || [], ids);
-  for (const dependencyId of compositionDependencyIds(composition)) {
-    const dependency = compositions.find((item) => item.id === dependencyId);
-    if (dependency) collectCompositionGraphMediaIds(dependency, compositions, ids, seen);
+function collectComponentGraphMediaIds(component = {}, components = [], ids = new Set(), seen = new Set()) {
+  if (!component?.id || seen.has(component.id)) return ids;
+  seen.add(component.id);
+  collectMediaIdsFromSource(component.source, ids);
+  collectMediaIdsFromChain(component.chain || [], ids);
+  for (const dependencyId of componentDependencyIds(component)) {
+    const dependency = components.find((item) => item.id === dependencyId);
+    if (dependency) collectComponentGraphMediaIds(dependency, components, ids, seen);
   }
   return ids;
 }
 
-function compositionDependencyIds(composition = {}) {
+function componentDependencyIds(component = {}) {
   const ids = new Set();
-  collectCompositionIdsFromSource(composition.source, ids);
-  collectCompositionIdsFromChain(composition.chain || [], ids);
+  collectComponentIdsFromSource(component.source, ids);
+  collectComponentIdsFromChain(component.chain || [], ids);
   return ids;
 }
 
@@ -4376,20 +4469,21 @@ function staticSourceState(source = {}) {
   return {
     type: source.type || "black",
     mediaId: source.mediaId || "",
-    compositionId: source.compositionId || "",
+    componentId: source.componentId || "",
     generatorId: source.generatorId || "",
     start: source.start,
     end: source.end,
     speed: source.speed,
     params: source.params || {},
+    placement: source.placement || null,
     contentTransform: source.contentTransform || {},
   };
 }
 
-function staticMediaState(media = [], composition = {}) {
+function staticMediaState(media = [], component = {}) {
   const ids = new Set();
-  collectMediaIdsFromSource(composition.source, ids);
-  collectMediaIdsFromChain(composition.chain || [], ids);
+  collectMediaIdsFromSource(component.source, ids);
+  collectMediaIdsFromChain(component.chain || [], ids);
   return staticMediaStateForIds(media, ids);
 }
 
@@ -4603,15 +4697,15 @@ function collectMediaIdsFromChain(chain = [], ids) {
   }
 }
 
-function collectCompositionIdsFromChain(chain = [], ids) {
+function collectComponentIdsFromChain(chain = [], ids) {
   for (const item of chain || []) {
-    if (item.kind === "group") collectCompositionIdsFromChain(item.chain || [], ids);
-    else collectCompositionIdsFromSource(item.source, ids);
+    if (item.kind === "group") collectComponentIdsFromChain(item.chain || [], ids);
+    else collectComponentIdsFromSource(item.source, ids);
   }
 }
 
-function collectCompositionIdsFromSource(source = {}, ids) {
-  if (source?.type === "composition" && source.compositionId) ids.add(source.compositionId);
+function collectComponentIdsFromSource(source = {}, ids) {
+  if (source?.type === "component" && source.componentId) ids.add(source.componentId);
 }
 
 function collectMediaIdsFromSource(source = {}, ids) {
@@ -4815,18 +4909,18 @@ function createEmptyFrameProfile() {
     shaderChains: 0,
     maxShaderChainLength: 0,
     shaderHandoffs: 0,
-    compositionCacheHits: 0,
+    componentCacheHits: 0,
     stageCacheHits: 0,
     stageRenders: 0,
     shaderMs: 0,
     sourceMs: 0,
-    compositionMs: 0,
-    compositionWallMs: 0,
-    compositionRenders: 0,
+    componentMs: 0,
+    componentWallMs: 0,
+    componentRenders: 0,
     surfaceRouteCandidates: 0,
     surfaceRoutesVisible: 0,
     surfaceRoutesCulled: 0,
-    compositionRasterPixels: 0,
+    componentRasterPixels: 0,
     surfaceRasterPixels: 0,
     directSourceComposites: 0,
     avoidedSourceRasterPixels: 0,
@@ -4891,37 +4985,37 @@ function graphicsToPngBlob(pg) {
   return new Promise((resolve) => canvas.toBlob(resolve, "image/png"));
 }
 
-function compositionThumbnailSignature(composition) {
+function componentThumbnailSignature(component) {
   try {
     return JSON.stringify({
-      source: composition.source,
-      opacity: composition.opacity,
-      blend: composition.blend,
-      speed: composition.speed,
-      frameShape: composition.frameShape,
-      resolutionScale: composition.resolutionScale,
-      chain: composition.chain,
-      shaderChain: composition.shaderChain,
+      source: component.source,
+      opacity: component.opacity,
+      blend: component.blend,
+      speed: component.speed,
+      frameShape: component.frameShape,
+      resolutionScale: component.resolutionScale,
+      chain: component.chain,
+      shaderChain: component.shaderChain,
     });
   } catch {
-    return `${composition.id}:${millis()}`;
+    return `${component.id}:${millis()}`;
   }
 }
 
-const COMPOSITION_THUMBNAIL_WIDTH = 768;
-const COMPOSITION_THUMBNAIL_HEIGHT = 432;
-const COMPOSITION_THUMBNAIL_QUALITY = 0.92;
+const COMPONENT_THUMBNAIL_WIDTH = 768;
+const COMPONENT_THUMBNAIL_HEIGHT = 432;
+const COMPONENT_THUMBNAIL_QUALITY = 0.92;
 
-function graphicsToThumbnail(pg, width = COMPOSITION_THUMBNAIL_WIDTH, height = COMPOSITION_THUMBNAIL_HEIGHT, sourceRect = null) {
+function graphicsToThumbnail(pg, width = COMPONENT_THUMBNAIL_WIDTH, height = COMPONENT_THUMBNAIL_HEIGHT, cropRect = null) {
   try {
     const source = pg.canvas || pg.elt;
     if (!source) return "";
     const sourceWidth = source.videoWidth || source.naturalWidth || source.width || width;
     const sourceHeight = source.videoHeight || source.naturalHeight || source.height || height;
-    const sx = Math.max(0, Math.min(sourceWidth - 1, Number(sourceRect?.x) || 0));
-    const sy = Math.max(0, Math.min(sourceHeight - 1, Number(sourceRect?.y) || 0));
-    const sw = Math.max(1, Math.min(sourceWidth - sx, Number(sourceRect?.width) || sourceWidth));
-    const sh = Math.max(1, Math.min(sourceHeight - sy, Number(sourceRect?.height) || sourceHeight));
+    const sx = Math.max(0, Math.min(sourceWidth - 1, Number(cropRect?.x) || 0));
+    const sy = Math.max(0, Math.min(sourceHeight - 1, Number(cropRect?.y) || 0));
+    const sw = Math.max(1, Math.min(sourceWidth - sx, Number(cropRect?.width) || sourceWidth));
+    const sh = Math.max(1, Math.min(sourceHeight - sy, Number(cropRect?.height) || sourceHeight));
     const thumbnailSize = fittedThumbnailSize(sw, sh, width, height);
     const canvas = document.createElement("canvas");
     canvas.width = thumbnailSize.width;
@@ -4930,9 +5024,9 @@ function graphicsToThumbnail(pg, width = COMPOSITION_THUMBNAIL_WIDTH, height = C
     if (!context) return "";
     context.imageSmoothingEnabled = true;
     context.imageSmoothingQuality = "high";
-    if (sourceRect) context.drawImage(source, sx, sy, sw, sh, 0, 0, thumbnailSize.width, thumbnailSize.height);
+    if (cropRect) context.drawImage(source, sx, sy, sw, sh, 0, 0, thumbnailSize.width, thumbnailSize.height);
     else context.drawImage(source, 0, 0, sourceWidth, sourceHeight, 0, 0, thumbnailSize.width, thumbnailSize.height);
-    const webp = canvas.toDataURL("image/webp", COMPOSITION_THUMBNAIL_QUALITY);
+    const webp = canvas.toDataURL("image/webp", COMPONENT_THUMBNAIL_QUALITY);
     if (webp.startsWith("data:image/webp")) return webp;
     return canvas.toDataURL("image/png");
   } catch (error) {
@@ -4941,11 +5035,11 @@ function graphicsToThumbnail(pg, width = COMPOSITION_THUMBNAIL_WIDTH, height = C
   }
 }
 
-export function fittedThumbnailSize(sourceWidth, sourceHeight, maxWidth = COMPOSITION_THUMBNAIL_WIDTH, maxHeight = COMPOSITION_THUMBNAIL_HEIGHT) {
+export function fittedThumbnailSize(sourceWidth, sourceHeight, maxWidth = COMPONENT_THUMBNAIL_WIDTH, maxHeight = COMPONENT_THUMBNAIL_HEIGHT) {
   const sw = Math.max(1, Number(sourceWidth) || 1);
   const sh = Math.max(1, Number(sourceHeight) || 1);
-  const mw = Math.max(1, Number(maxWidth) || COMPOSITION_THUMBNAIL_WIDTH);
-  const mh = Math.max(1, Number(maxHeight) || COMPOSITION_THUMBNAIL_HEIGHT);
+  const mw = Math.max(1, Number(maxWidth) || COMPONENT_THUMBNAIL_WIDTH);
+  const mh = Math.max(1, Number(maxHeight) || COMPONENT_THUMBNAIL_HEIGHT);
   const scale = Math.min(mw / sw, mh / sh);
   return {
     width: Math.max(1, Math.round(sw * scale)),
@@ -5146,6 +5240,23 @@ function enumUniform(param, value) {
   return Math.max(0, index);
 }
 
+export function cameraCaptureSettings(render = {}) {
+  const frame = frameSize(render);
+  const camera = render?.camera || {};
+  return {
+    width: Math.max(160, Math.min(7680, Math.floor(Number(camera.width) || frame.width))),
+    height: Math.max(120, Math.min(4320, Math.floor(Number(camera.height) || frame.height))),
+    front: camera.facingMode !== "environment",
+    mirrored: camera.mirrored === true,
+    maxResolution: camera.maxResolution === true,
+  };
+}
+
+export function cameraSettingsSignature(render = {}) {
+  const camera = cameraCaptureSettings(render);
+  return `${camera.width}x${camera.height}:${camera.front ? "front" : "rear"}:${camera.mirrored ? "mirror" : "normal"}:${camera.maxResolution ? "max" : "target"}`;
+}
+
 function getPortalWebcameraSetup() {
   if (typeof globalThis.setupWebcamera === "function") return globalThis.setupWebcamera;
   try {
@@ -5227,12 +5338,14 @@ function drawShaderTargetRect(target, widthPx, heightPx) {
   else target.rect(-widthPx / 2, -heightPx / 2, widthPx, heightPx);
 }
 
-function drawTerrainSurface(target, resourceCache, params, compositionTime, planeWidth, planeDepth, style, sky) {
+function drawTerrainSurface(target, resourceCache, params, componentTime, planeWidth, planeDepth, style, sky) {
   const gl = target?.drawingContext;
   if (!gl) return false;
+  const viewportSize = renderTargetPixelSize(target);
   const previousProgram = gl.getParameter(gl.CURRENT_PROGRAM);
   const previousArrayBuffer = gl.getParameter(gl.ARRAY_BUFFER_BINDING);
   const previousElementBuffer = gl.getParameter(gl.ELEMENT_ARRAY_BUFFER_BINDING);
+  const previousViewport = gl.getParameter(gl.VIEWPORT);
   let resources = resourceCache.get(gl);
   if (resources && !terrainSurfaceResourcesValid(gl, resources)) {
     disposeTerrainSurfaceResources(gl, resources);
@@ -5247,7 +5360,7 @@ function drawTerrainSurface(target, resourceCache, params, compositionTime, plan
 
   const widthCells = terrainTessellationSize(terrainGridSize(params.gridWidth), params.gridDensity);
   const depthCells = terrainTessellationSize(terrainGridSize(params.gridDepth), params.gridDensity);
-  const gridMetrics = terrainRowMetrics(compositionTime, Math.max(0, Number(params.flightSpeed) || 0), params.gridDepth, params.gridDensity, params.gridScale);
+  const gridMetrics = terrainRowMetrics(componentTime, Math.max(0, Number(params.flightSpeed) || 0), params.gridDepth, params.gridDensity, params.gridScale);
   const baseRow = Math.floor(gridMetrics.travelRows) - 1;
   const previousDepthTest = gl.isEnabled(gl.DEPTH_TEST);
   const previousBlend = gl.isEnabled(gl.BLEND);
@@ -5264,7 +5377,7 @@ function drawTerrainSurface(target, resourceCache, params, compositionTime, plan
   updateTerrainSurfaceBuffers(gl, resources, widthCells, depthCells, baseRow);
 
   gl.useProgram(resources.program);
-  gl.viewport(0, 0, gl.drawingBufferWidth || target.width, gl.drawingBufferHeight || target.height);
+  gl.viewport(0, 0, viewportSize.width, viewportSize.height);
   gl.enable(gl.DEPTH_TEST);
   gl.depthFunc(gl.LEQUAL);
   gl.enable(gl.BLEND);
@@ -5278,7 +5391,7 @@ function drawTerrainSurface(target, resourceCache, params, compositionTime, plan
   gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, resources.indexBuffer);
   gl.enableVertexAttribArray(resources.gridCoord);
   gl.vertexAttribPointer(resources.gridCoord, 2, gl.FLOAT, false, 0, 0);
-  setTerrainRawUniforms(gl, resources, params, compositionTime, planeWidth, planeDepth, normalizedModelColor(params.wireColor, [242, 245, 239, 255]));
+  setTerrainRawUniforms(gl, resources, params, componentTime, planeWidth, planeDepth, normalizedModelColor(params.wireColor, [242, 245, 239, 255]));
   gl.uniform2f(resources.meshCells, widthCells, depthCells);
   gl.uniform1f(resources.gridBaseRow, baseRow);
   gl.uniform1f(resources.gridIrregularity, normalizedTerrainIrregularity(params.gridJitter));
@@ -5306,6 +5419,7 @@ function drawTerrainSurface(target, resourceCache, params, compositionTime, plan
   previousPolygonOffset ? gl.enable(gl.POLYGON_OFFSET_FILL) : gl.disable(gl.POLYGON_OFFSET_FILL);
   gl.depthFunc(previousDepthFunc);
   gl.blendFuncSeparate(previousBlendSrcRgb, previousBlendDstRgb, previousBlendSrcAlpha, previousBlendDstAlpha);
+  if (previousViewport?.length === 4) gl.viewport(...previousViewport);
   gl.useProgram(previousProgram);
   return true;
 }
@@ -5450,12 +5564,14 @@ function updateTerrainSurfaceBuffers(gl, resources, widthCells, depthCells, base
   }
 }
 
-function drawTerrainWireframe(target, resourceCache, params, compositionTime, planeWidth, planeDepth, renderRequest = {}) {
+function drawTerrainWireframe(target, resourceCache, params, componentTime, planeWidth, planeDepth, renderRequest = {}) {
   const gl = target?.drawingContext;
   if (!gl) return false;
+  const viewportSize = renderTargetPixelSize(target);
   const previousProgram = gl.getParameter(gl.CURRENT_PROGRAM);
   const previousArrayBuffer = gl.getParameter(gl.ARRAY_BUFFER_BINDING);
   const previousElementBuffer = gl.getParameter(gl.ELEMENT_ARRAY_BUFFER_BINDING);
+  const previousViewport = gl.getParameter(gl.VIEWPORT);
   let resources = resourceCache.get(gl);
   if (resources && !terrainWireResourcesValid(gl, resources)) {
     disposeTerrainWireResources(gl, resources);
@@ -5472,7 +5588,7 @@ function drawTerrainWireframe(target, resourceCache, params, compositionTime, pl
   const depthCells = terrainGridSize(params.gridDepth);
   const tessellatedWidth = terrainTessellationSize(widthCells, params.gridDensity);
   const tessellatedDepth = terrainTessellationSize(depthCells, params.gridDensity);
-  const { travelRows } = terrainRowMetrics(compositionTime, flightSpeed, depthCells, params.gridDensity, params.gridScale);
+  const { travelRows } = terrainRowMetrics(componentTime, flightSpeed, depthCells, params.gridDensity, params.gridScale);
   const baseRow = Math.floor(travelRows) - 1;
   const previousDepthTest = gl.isEnabled(gl.DEPTH_TEST);
   const previousBlend = gl.isEnabled(gl.BLEND);
@@ -5487,7 +5603,7 @@ function drawTerrainWireframe(target, resourceCache, params, compositionTime, pl
   updateTerrainWireBuffer(gl, resources, tessellatedWidth, tessellatedDepth);
   const wireColor = normalizedModelColor(params.wireColor, [242, 245, 239, 255]);
   gl.useProgram(resources.program);
-  gl.viewport(0, 0, gl.drawingBufferWidth || target.width, gl.drawingBufferHeight || target.height);
+  gl.viewport(0, 0, viewportSize.width, viewportSize.height);
   gl.enable(gl.DEPTH_TEST);
   gl.depthFunc(gl.LEQUAL);
   gl.enable(gl.BLEND);
@@ -5503,15 +5619,15 @@ function drawTerrainWireframe(target, resourceCache, params, compositionTime, pl
   gl.vertexAttribPointer(resources.side, 1, gl.FLOAT, false, stride, 4 * 4);
   gl.enableVertexAttribArray(resources.along);
   gl.vertexAttribPointer(resources.along, 1, gl.FLOAT, false, stride, 5 * 4);
-  setTerrainRawUniforms(gl, resources, params, compositionTime, planeWidth, planeDepth, wireColor);
+  setTerrainRawUniforms(gl, resources, params, componentTime, planeWidth, planeDepth, wireColor);
   gl.uniform2f(resources.meshCells, tessellatedWidth, tessellatedDepth);
   gl.uniform1f(resources.gridBaseRow, baseRow);
   gl.uniform1f(resources.gridIrregularity, normalizedTerrainIrregularity(params.gridJitter));
-  gl.uniform2f(resources.resolution, gl.drawingBufferWidth || target.width, gl.drawingBufferHeight || target.height);
+  gl.uniform2f(resources.resolution, viewportSize.width, viewportSize.height);
   gl.uniform1f(resources.thickness, resolutionScaledStrokeWidth(
     Math.max(0.5, Number(params.wireWidth) || 0.85),
     renderRequest,
-    { width: gl.drawingBufferWidth || target.width, height: gl.drawingBufferHeight || target.height }
+    viewportSize
   ));
   gl.drawArrays(gl.TRIANGLES, 0, resources.count);
   for (const state of attributeStates) restoreVertexAttributeState(gl, state);
@@ -5522,8 +5638,20 @@ function drawTerrainWireframe(target, resourceCache, params, compositionTime, pl
   previousCullFace ? gl.enable(gl.CULL_FACE) : gl.disable(gl.CULL_FACE);
   gl.depthFunc(previousDepthFunc);
   gl.blendFuncSeparate(previousBlendSrcRgb, previousBlendDstRgb, previousBlendSrcAlpha, previousBlendDstAlpha);
+  if (previousViewport?.length === 4) gl.viewport(...previousViewport);
   gl.useProgram(previousProgram);
   return true;
+}
+
+function renderTargetPixelSize(target) {
+  const shared = isSharedFramebufferTarget(target);
+  const density = shared
+    ? 1
+    : Math.max(0.25, Number(target?.pixelDensity?.()) || Number(target?.__vj1PixelDensity) || 1);
+  return {
+    width: Math.max(1, Math.round((Number(target?.width) || 1) * density)),
+    height: Math.max(1, Math.round((Number(target?.height) || 1) * density)),
+  };
 }
 
 function terrainWireResourcesValid(gl, resources) {
@@ -5866,12 +5994,12 @@ function terrainTessellationSize(extent, gridDensity = 1) {
   return Math.max(4, Math.min(144, Math.round(terrainGridSize(extent) * density)));
 }
 
-function terrainRowMetrics(compositionTime, flightSpeed, gridDepth, gridDensity = 1, gridScale = 1) {
+function terrainRowMetrics(componentTime, flightSpeed, gridDepth, gridDensity = 1, gridScale = 1) {
   const logicalDepth = terrainGridSize(gridDepth);
   const tessellatedDepth = terrainTessellationSize(logicalDepth, gridDensity);
   const cellScale = 1.5 * Math.max(0.1, Math.min(20, Number(gridScale) || 1));
   const rowSpacing = cellScale * logicalDepth / tessellatedDepth;
-  const cameraTravel = Number(compositionTime) * Math.max(0, Number(flightSpeed) || 0) * 7.0;
+  const cameraTravel = Number(componentTime) * Math.max(0, Number(flightSpeed) || 0) * 7.0;
   return { cellScale, rowSpacing, travelRows: cameraTravel / rowSpacing };
 }
 
@@ -5908,8 +6036,8 @@ export function terrainExpandedWireVertices(widthCells = TERRAIN_GRID_CELLS, irr
   return new Float32Array(vertices);
 }
 
-function setTerrainRawUniforms(gl, resources, params, compositionTime, planeWidth, planeDepth, wireColor) {
-  gl.uniform1f(resources.time, compositionTime);
+function setTerrainRawUniforms(gl, resources, params, componentTime, planeWidth, planeDepth, wireColor) {
+  gl.uniform1f(resources.time, componentTime);
   gl.uniform1f(resources.flightSpeed, Math.max(0, Number(params.flightSpeed) || 0));
   gl.uniform1f(resources.flightMode, params.flightMode === "terrainFollow" ? 1 : 0);
   gl.uniform1f(resources.turn, Math.max(-1, Math.min(1, Number(params.turn) || 0)));
@@ -5926,7 +6054,7 @@ function setTerrainRawUniforms(gl, resources, params, compositionTime, planeWidt
   gl.uniform2fv(resources.terrainPhase, params.terrainPhase || [0, 0]);
   gl.uniform1f(resources.lakeLevel, Number.isFinite(Number(params.lakeLevel)) ? Number(params.lakeLevel) : -0.12);
   gl.uniform1f(resources.viewDistance, Math.max(0, Number(params.viewDistance) || 0));
-  const gridMetrics = terrainRowMetrics(compositionTime, Math.max(0, Number(params.flightSpeed) || 0), params.gridDepth, params.gridDensity, params.gridScale);
+  const gridMetrics = terrainRowMetrics(componentTime, Math.max(0, Number(params.flightSpeed) || 0), params.gridDepth, params.gridDensity, params.gridScale);
   gl.uniform1f(resources.rowSpacing, gridMetrics.rowSpacing);
   gl.uniform1f(resources.cellScale, gridMetrics.cellScale);
   gl.uniform1f(resources.globeRadius, Math.max(60, Number(params.globeRadius) || 280));
@@ -5936,23 +6064,23 @@ function setTerrainRawUniforms(gl, resources, params, compositionTime, planeWidt
   gl.uniform4fv(resources.wireColor, wireColor);
 }
 
-function drawRawParsedModelMode(target, item, params = {}, compositionTime = 0, renderMode = "surface", surfaceColor = [220, 225, 220, 255], wireColor = [20, 20, 20, 220], pointBudget = 4000, viewport = null, contentTransform = {}) {
+function drawRawParsedModelMode(target, item, params = {}, componentTime = 0, renderMode = "surface", surfaceColor = [220, 225, 220, 255], wireColor = [20, 20, 20, 220], pointBudget = 4000, viewport = null, contentTransform = {}) {
   if (renderMode === "points") {
-    return drawRawParsedModel(target, item, params, compositionTime, "points", wireColor, pointBudget, viewport, contentTransform);
+    return drawRawParsedModel(target, item, params, componentTime, "points", wireColor, pointBudget, viewport, contentTransform);
   }
   if (renderMode === "wireframe") {
-    return drawRawParsedWire(target, item, params, compositionTime, wireColor, pointBudget, viewport, contentTransform);
+    return drawRawParsedWire(target, item, params, componentTime, wireColor, pointBudget, viewport, contentTransform);
   }
   const drewSurface = drawWithPolygonOffset(target, renderMode === "surfaceWire", () => (
-    drawRawParsedSurface(target, item, params, compositionTime, surfaceColor, viewport, contentTransform)
+    drawRawParsedSurface(target, item, params, componentTime, surfaceColor, viewport, contentTransform)
   ));
   if (drewSurface && renderMode === "surfaceWire") {
-    drawRawParsedWire(target, item, params, compositionTime, wireColor, pointBudget, viewport, contentTransform);
+    drawRawParsedWire(target, item, params, componentTime, wireColor, pointBudget, viewport, contentTransform);
   }
   return drewSurface;
 }
 
-function drawRawParsedModel(target, item, params = {}, compositionTime = 0, mode = "points", color = [245, 245, 245, 255], pointBudget = 4000, viewport = null, contentTransform = {}) {
+function drawRawParsedModel(target, item, params = {}, componentTime = 0, mode = "points", color = [245, 245, 245, 255], pointBudget = 4000, viewport = null, contentTransform = {}) {
   const gl = target?.drawingContext;
   const mesh = item?.modelData;
   if (!gl || !mesh) return false;
@@ -5964,7 +6092,7 @@ function drawRawParsedModel(target, item, params = {}, compositionTime = 0, mode
   const modelScale = Math.max(0.01, Number(params.modelScale) || 1);
   const depth = Math.max(0.05, Number(params.depth) || 1);
   const scale = metrics.unitScale * modelScale;
-  const rotation = modelRotation(params, compositionTime);
+  const rotation = modelRotation(params, componentTime);
   const matrices = rawModelMatrices(metrics.width, metrics.height, scale, depth, rotation, contentTransform);
   const rgba = color.map((channel) => Math.max(0, Math.min(1, Number(channel) / 255 || 0)));
 
@@ -5992,7 +6120,7 @@ function drawRawParsedModel(target, item, params = {}, compositionTime = 0, mode
   return true;
 }
 
-function drawRawParsedWire(target, item, params = {}, compositionTime = 0, color = [20, 20, 20, 220], pointBudget = 4000, viewport = null, contentTransform = {}) {
+function drawRawParsedWire(target, item, params = {}, componentTime = 0, color = [20, 20, 20, 220], pointBudget = 4000, viewport = null, contentTransform = {}) {
   const gl = target?.drawingContext;
   const mesh = item?.modelData;
   if (!gl || !mesh) return false;
@@ -6004,7 +6132,7 @@ function drawRawParsedWire(target, item, params = {}, compositionTime = 0, color
   const modelScale = Math.max(0.01, Number(params.modelScale) || 1);
   const depth = Math.max(0.05, Number(params.depth) || 1);
   const scale = metrics.unitScale * modelScale;
-  const rotation = modelRotation(params, compositionTime);
+  const rotation = modelRotation(params, componentTime);
   const matrices = rawModelMatrices(metrics.width, metrics.height, scale, depth, rotation, contentTransform);
   const rgba = color.map((channel) => Math.max(0, Math.min(1, Number(channel) / 255 || 0)));
   const stride = 8 * 4;
@@ -6045,7 +6173,7 @@ function drawRawParsedWire(target, item, params = {}, compositionTime = 0, color
   return true;
 }
 
-function drawRawParsedSurface(target, item, params = {}, compositionTime = 0, color = [220, 225, 220, 255], viewport = null, contentTransform = {}) {
+function drawRawParsedSurface(target, item, params = {}, componentTime = 0, color = [220, 225, 220, 255], viewport = null, contentTransform = {}) {
   const gl = target?.drawingContext;
   const mesh = item?.modelData;
   if (!gl || !mesh) return false;
@@ -6057,7 +6185,7 @@ function drawRawParsedSurface(target, item, params = {}, compositionTime = 0, co
   const modelScale = Math.max(0.01, Number(params.modelScale) || 1);
   const depth = Math.max(0.05, Number(params.depth) || 1);
   const scale = metrics.unitScale * modelScale;
-  const rotation = modelRotation(params, compositionTime);
+  const rotation = modelRotation(params, componentTime);
   const matrices = rawModelMatrices(metrics.width, metrics.height, scale, depth, rotation, contentTransform);
   const rgba = color.map((channel) => Math.max(0, Math.min(1, Number(channel) / 255 || 0)));
 
@@ -6092,13 +6220,13 @@ function anatomyPartFitScale(part = "face") {
   return ({ face: 0.72, body: 0.4, hand: 0.78, arm: 0.65, leg: 0.61, heart: 0.64 })[part] || 0.72;
 }
 
-function drawProceduralAnatomy(target, params = {}, compositionTime = 0, renderMode = "surface", surfaceColor = [217, 212, 201, 255], wireColor = [75, 73, 68, 204], wireThickness = 1.6, detail = 8) {
+function drawProceduralAnatomy(target, params = {}, componentTime = 0, renderMode = "surface", surfaceColor = [217, 212, 201, 255], wireColor = [75, 73, 68, 204], wireThickness = 1.6, detail = 8) {
   const part = params.part || "face";
   if (part === "body") return drawLowPolyBody(target, params, renderMode, surfaceColor, wireColor, wireThickness, detail);
   if (part === "hand") return drawLowPolyHand(target, params, renderMode, surfaceColor, wireColor, wireThickness, detail);
   if (part === "arm") return drawLowPolyArm(target, params, renderMode, surfaceColor, wireColor, wireThickness, detail);
   if (part === "leg") return drawLowPolyLeg(target, params, renderMode, surfaceColor, wireColor, wireThickness, detail);
-  if (part === "heart") return drawLowPolyHeart(target, params, compositionTime, renderMode, surfaceColor, wireColor, wireThickness, detail);
+  if (part === "heart") return drawLowPolyHeart(target, params, componentTime, renderMode, surfaceColor, wireColor, wireThickness, detail);
   return drawLowPolyFace(target, params, renderMode, surfaceColor, wireColor, wireThickness, detail);
 }
 
@@ -6463,9 +6591,9 @@ function drawLowPolyLeg(target, params, renderMode, surfaceColor, wireColor, wir
   drawAnatomyLegChain(target, renderMode, surfaceColor, wireColor, wireThickness, detail, [0, -105, 0], 1, 1, bend);
 }
 
-function drawLowPolyHeart(target, params, compositionTime, renderMode, surfaceColor, wireColor, wireThickness, detail) {
+function drawLowPolyHeart(target, params, componentTime, renderMode, surfaceColor, wireColor, wireThickness, detail) {
   const pulse = clamp01(Number(params.heartPulse) || 0);
-  const beat = pulse * (0.045 + 0.04 * Math.max(0, Math.sin(compositionTime * 5.4)) + 0.025 * Math.max(0, Math.sin(compositionTime * 10.8 + 0.9)));
+  const beat = pulse * (0.045 + 0.04 * Math.max(0, Math.sin(componentTime * 5.4)) + 0.025 * Math.max(0, Math.sin(componentTime * 10.8 + 0.9)));
   const vesselColor = anatomyShade(surfaceColor, 0.78, 1);
   const coronaryColor = anatomyShade(surfaceColor, 0.48, 1);
   target.push();
@@ -6492,11 +6620,11 @@ function drawLowPolyHeart(target, params, compositionTime, renderMode, surfaceCo
   target.pop();
 }
 
-function modelRotation(params = {}, compositionTime = 0) {
+function modelRotation(params = {}, componentTime = 0) {
   return [
-    (Number(params.rotationX) || 0) + compositionTime * (Number(params.spinX) || 0),
-    (Number(params.rotationY) || 0) + compositionTime * (Number(params.spinY) || 0),
-    (Number(params.rotationZ) || 0) + compositionTime * (Number(params.spinZ) || 0),
+    (Number(params.rotationX) || 0) + componentTime * (Number(params.spinX) || 0),
+    (Number(params.rotationY) || 0) + componentTime * (Number(params.spinY) || 0),
+    (Number(params.rotationZ) || 0) + componentTime * (Number(params.spinZ) || 0),
   ];
 }
 
@@ -7488,6 +7616,77 @@ function drawSampleRect(pg, source, rect = {}, x = 0, y = 0, w = pg.width, h = p
   }
 }
 
+export function directFitRects(sourceWidth, sourceHeight, target = {}, fit = "stretch") {
+  const sw = Math.max(1, Number(sourceWidth) || 1);
+  const sh = Math.max(1, Number(sourceHeight) || 1);
+  const destination = {
+    x: Number(target.x) || 0,
+    y: Number(target.y) || 0,
+    width: Math.max(1, Number(target.width) || 1),
+    height: Math.max(1, Number(target.height) || 1),
+  };
+  const source = { x: 0, y: 0, width: sw, height: sh };
+  if (fit === "contain") {
+    const scale = Math.min(destination.width / sw, destination.height / sh);
+    const widthPx = sw * scale;
+    const heightPx = sh * scale;
+    destination.x += (destination.width - widthPx) * 0.5;
+    destination.y += (destination.height - heightPx) * 0.5;
+    destination.width = widthPx;
+    destination.height = heightPx;
+  } else if (fit === "cover") {
+    const sourceAspect = sw / sh;
+    const targetAspect = destination.width / destination.height;
+    if (sourceAspect > targetAspect) {
+      source.width = sh * targetAspect;
+      source.x = (sw - source.width) * 0.5;
+    } else {
+      source.height = sw / targetAspect;
+      source.y = (sh - source.height) * 0.5;
+    }
+  }
+  return { source, destination };
+}
+
+function rectToCorners(rect = {}) {
+  const x = Number(rect.x) || 0;
+  const y = Number(rect.y) || 0;
+  const widthPx = Math.max(1, Number(rect.width) || 1);
+  const heightPx = Math.max(1, Number(rect.height) || 1);
+  return [
+    { x, y },
+    { x: x + widthPx, y },
+    { x: x + widthPx, y: y + heightPx },
+    { x, y: y + heightPx },
+  ];
+}
+
+function cornersRect(corners = []) {
+  if (!Array.isArray(corners) || corners.length !== 4) return null;
+  const xs = corners.map((corner) => Number(corner?.x));
+  const ys = corners.map((corner) => Number(corner?.y));
+  if (![...xs, ...ys].every(Number.isFinite)) return null;
+  const x = Math.min(...xs);
+  const y = Math.min(...ys);
+  return {
+    x,
+    y,
+    width: Math.max(1, Math.max(...xs) - x),
+    height: Math.max(1, Math.max(...ys) - y),
+  };
+}
+
+function applyBlendGlobal(blend = "normal") {
+  if (!blend || blend === "normal") blendMode(BLEND);
+  else if (blend === "add") blendMode(ADD);
+  else if (blend === "screen") blendMode(SCREEN);
+  else if (blend === "multiply") blendMode(MULTIPLY);
+  else {
+    const mode = globalThis[String(blend || "").toUpperCase()];
+    blendMode(typeof mode !== "undefined" ? mode : BLEND);
+  }
+}
+
 function drawWebGLBuffer(pg, source, x, y, w, h) {
   pg.push();
   pg.translate(x, y + h);
@@ -7531,15 +7730,25 @@ export function moveCanvasFrameRect(rect, dx, dy, canvasWidth, canvasHeight) {
   };
 }
 
-export function canvasCompositionPlacementRect(canvas = {}, sourceMetrics = {}, target = {}) {
-  const canvasWidth = Math.max(1, Number(canvas.width) || 3840);
-  const canvasHeight = Math.max(1, Number(canvas.height) || 2160);
+export function canvasComponentPlacementRect(canvas = {}, sourceMetrics = {}, target = {}, placement = null) {
+  const canvasWidth = Math.max(1, Number(canvas.width) || VJ1.canvasWidth);
+  const canvasHeight = Math.max(1, Number(canvas.height) || VJ1.canvasHeight);
   const targetWidth = Math.max(1, Number(target.width) || canvasWidth);
   const targetHeight = Math.max(1, Number(target.height) || canvasHeight);
   const scaleX = targetWidth / canvasWidth;
   const scaleY = targetHeight / canvasHeight;
-  const width = Math.max(1, (Number(sourceMetrics.baseWidth) || Number(sourceMetrics.width) || 1) * scaleX);
-  const height = Math.max(1, (Number(sourceMetrics.baseHeight) || Number(sourceMetrics.height) || 1) * scaleY);
+  const placementScale = Number(placement?.scale);
+  const hasRelativePlacement = Number.isFinite(placementScale) && placementScale > 0;
+  const sourceWidth = Math.max(1, Number(sourceMetrics.baseWidth) || Number(sourceMetrics.width) || 1);
+  const sourceHeight = Math.max(1, Number(sourceMetrics.baseHeight) || Number(sourceMetrics.height) || 1);
+  const logicalWidth = placementScale * canvasWidth;
+  const logicalHeight = logicalWidth * sourceHeight / sourceWidth;
+  const width = Math.max(1, hasRelativePlacement
+    ? logicalWidth * scaleX
+    : (Number(sourceMetrics.baseWidth) || Number(sourceMetrics.width) || 1) * scaleX);
+  const height = Math.max(1, hasRelativePlacement
+    ? logicalHeight * scaleY
+    : (Number(sourceMetrics.baseHeight) || Number(sourceMetrics.height) || 1) * scaleY);
   return {
     x: Math.round((targetWidth - width) * 0.5),
     y: Math.round((targetHeight - height) * 0.5),
@@ -7548,11 +7757,11 @@ export function canvasCompositionPlacementRect(canvas = {}, sourceMetrics = {}, 
   };
 }
 
-export function compositionReferencePlacement(parent = {}, child = {}, render = {}, target = {}) {
+export function componentReferencePlacement(parent = {}, child = {}, render = {}, target = {}, placement = null) {
   const targetWidth = Math.max(1, Number(target.width) || 1);
   const targetHeight = Math.max(1, Number(target.height) || 1);
   if (parent.type !== "canvas") return { x: 0, y: 0, width: targetWidth, height: targetHeight };
-  return canvasCompositionPlacementRect(parent.canvas, compositionFrameMetrics(render, child), target);
+  return canvasComponentPlacementRect(parent.canvas, componentFrameMetrics(render, child), target, placement);
 }
 
 function fullTargetRect(target = {}) {
@@ -7564,8 +7773,8 @@ function fullTargetRect(target = {}) {
   };
 }
 
-export function compositionReferenceRenderRequest(render = {}, composition = {}, placement = {}, meta = {}) {
-  const metrics = compositionFrameMetrics(render, composition);
+export function componentReferenceRenderRequest(render = {}, component = {}, placement = {}, meta = {}) {
+  const metrics = componentFrameMetrics(render, component);
   const desiredScale = Math.max(
     Math.max(1, Number(placement.width) || 1) / metrics.baseWidth,
     Math.max(1, Number(placement.height) || 1) / metrics.baseHeight
@@ -7583,10 +7792,10 @@ export function compositionReferenceRenderRequest(render = {}, composition = {},
   });
 }
 
-export function canvasPreviewRenderRequest(composition = {}, viewportWidth = 1, viewportHeight = 1, meta = {}) {
-  const canvas = composition.canvas || {};
-  const canvasWidth = Math.max(1, Math.round(Number(canvas.width) || 3840));
-  const canvasHeight = Math.max(1, Math.round(Number(canvas.height) || 2160));
+export function canvasPreviewRenderRequest(component = {}, viewportWidth = 1, viewportHeight = 1, meta = {}) {
+  const canvas = component.canvas || {};
+  const canvasWidth = Math.max(1, Math.round(Number(canvas.width) || VJ1.canvasWidth));
+  const canvasHeight = Math.max(1, Math.round(Number(canvas.height) || VJ1.canvasHeight));
   const quality = ["auto", "low", "full"].includes(canvas.previewQuality) ? canvas.previewQuality : "auto";
   const fitScale = Math.min(
     Math.max(1, Number(viewportWidth) || 1) / canvasWidth,
@@ -7622,32 +7831,36 @@ export function resizeCanvasFrameRect(rect, corner, dx, dy, canvasWidth, canvasH
   };
 }
 
-function canvasRouteFrameRect(composition = {}, surface = {}, recordingFrames = []) {
-  const canvas = composition.canvas || {};
+function canvasRouteFrameRect(component = {}, surface = {}, recordingFrames = []) {
+  const canvas = component.canvas || {};
   const frame = recordingFrames.find((item) => item.id === surface.outputFrameId);
   if (frame) return frame;
-  if (surface.sourceRect) return surface.sourceRect;
   return {
     x: 0,
     y: 0,
-    width: Math.max(1, Number(canvas.width) || 3840),
-    height: Math.max(1, Number(canvas.height) || 2160),
+    width: Math.max(1, Number(canvas.width) || VJ1.canvasWidth),
+    height: Math.max(1, Number(canvas.height) || VJ1.canvasHeight),
   };
 }
 
-export function compositionSourceView(render = {}, composition = {}, surface = {}, recordingFrames = []) {
-  if (composition.type === "canvas") {
+export function componentSourceView(render = {}, component = {}, surface = {}, recordingFrames = []) {
+  if (component.type === "canvas") {
     const logicalSize = {
-      width: Math.max(1, Number(composition.canvas?.width) || 3840),
-      height: Math.max(1, Number(composition.canvas?.height) || 2160),
+      width: Math.max(1, Number(component.canvas?.width) || VJ1.canvasWidth),
+      height: Math.max(1, Number(component.canvas?.height) || VJ1.canvasHeight),
     };
+    const recordingFrame = recordingFrames.find((item) => item.id === surface.outputFrameId);
     return {
       logicalSize,
-      sampleRect: canvasRouteFrameRect(composition, surface, recordingFrames),
+      sampleRect: canvasRouteFrameRect(component, surface, recordingFrames),
       maxRasterSize: logicalSize,
+      // A recording-frame route is cropped and filtered again into its surface
+      // texture before projective sampling. Declare that extra sampling demand
+      // here so the generic planner raises every upstream dependency together.
+      samplingScale: recordingFrame ? RECORDING_FRAME_DEMAND_SCALE : 1,
     };
   }
-  const metrics = compositionFrameMetrics(render, composition);
+  const metrics = componentFrameMetrics(render, component);
   const logicalSize = { width: metrics.baseWidth, height: metrics.baseHeight };
   return {
     logicalSize,
@@ -7656,7 +7869,7 @@ export function compositionSourceView(render = {}, composition = {}, surface = {
   };
 }
 
-export function scaledCompositionSampleRect(sampleRect = {}, logicalSize = {}, source = {}) {
+export function scaledComponentSampleRect(sampleRect = {}, logicalSize = {}, source = {}) {
   const logicalWidth = Math.max(1, Number(logicalSize?.width) || Number(source?.width) || 1);
   const logicalHeight = Math.max(1, Number(logicalSize?.height) || Number(source?.height) || 1);
   const sourceWidth = Math.max(1, Number(source?.width) || logicalWidth);
@@ -7676,7 +7889,7 @@ function quantizedRenderDimension(value, max) {
   return Math.min(upper, Math.max(16, Math.round(next / 16) * 16));
 }
 
-function drawSurfaceLabel(pg, surface, composition) {
+function drawSurfaceLabel(pg, surface, component) {
   pg.noStroke();
   pg.fill(255, 230);
   pg.textAlign(LEFT, TOP);
@@ -7684,5 +7897,5 @@ function drawSurfaceLabel(pg, surface, composition) {
   pg.text(surface.name, 28, 24);
   pg.textSize(16);
   pg.fill(255, 165);
-  pg.text(`${composition?.name || "No composition"} / ${surface.finalBlend} / ${Math.round(clamp01(surface.opacity) * 100)}%`, 28, 60);
+  pg.text(`${component?.name || "No component"} / ${surface.finalBlend} / ${Math.round(clamp01(surface.opacity) * 100)}%`, 28, 60);
 }

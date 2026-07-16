@@ -7,7 +7,7 @@ import {
   compareVj1Metrics,
   reportVj1ComparisonMarkdown,
   reportVj1MetricsMarkdown,
-} from "../js/metrics/composition-metrics.js";
+} from "../js/metrics/component-metrics.js";
 
 const args = process.argv.slice(2);
 const format = args.includes("--json") ? "json" : "markdown";

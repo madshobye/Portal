@@ -1,13 +1,13 @@
-import { createVisualNode, normalizeParamValues, paramValue, textureInlet, textureOutlet, textureRenderContract } from "./component-schema.js?v=range-pair-1";
-import { getGeneratorComponent } from "./generator-registry.js?v=render-quality-2";
-import { getShaderComponent } from "../shaders/shader-registry.js?v=hsv-alpha-key-1";
+import { createVisualNode, normalizeParamValues, paramValue, textureInlet, textureOutlet, textureRenderContract } from "./component-schema.js?v=label-overlay-16";
+import { getGeneratorComponent } from "./generator-registry.js?v=label-overlay-16";
+import { getShaderComponent } from "../shaders/shader-registry.js?v=label-overlay-16";
 
-export function compileCompositionPatch(composition = {}, renderRequest = {}) {
+export function compileComponentPatch(component = {}, renderRequest = {}) {
   const request = normalizePatchRenderRequest(renderRequest);
-  const outputId = `${composition.id || "composition"}:output`;
-  const graph = Array.isArray(composition.chain) && composition.chain.length
-    ? graphForCompositionChain(composition, request, outputId)
-    : graphForLegacyComposition(composition, request, outputId);
+  const outputId = `${component.id || "component"}:output`;
+  const graph = Array.isArray(component.chain) && component.chain.length
+    ? graphForComponentChain(component, request, outputId)
+    : graphForLegacyComponent(component, request, outputId);
   const outputNode = {
     id: outputId,
     componentId: "output.texture",
@@ -30,8 +30,8 @@ export function compileCompositionPatch(composition = {}, renderRequest = {}) {
   };
   const nodes = [...graph.nodes, outputNode];
   return {
-    id: `${composition.id || "composition"}:patch`,
-    type: graph.branchCount > 1 ? "layered-composition" : "linear-composition",
+    id: `${component.id || "component"}:patch`,
+    type: graph.branchCount > 1 ? "layered-component" : "linear-component",
     mode: "hardconfigured",
     renderRequest: request,
     branches: graph.branches,
@@ -40,10 +40,10 @@ export function compileCompositionPatch(composition = {}, renderRequest = {}) {
   };
 }
 
-function graphForCompositionChain(composition, request, outputId) {
-  const chain = (composition.chain || []).filter((item) => item.enabled !== false);
+function graphForComponentChain(component, request, outputId) {
+  const chain = (component.chain || []).filter((item) => item.enabled !== false);
   const nodes = chain
-    .map((item, index) => withRenderRequest(chainNodeForItem(composition, item, index), request));
+    .map((item, index) => withRenderRequest(chainNodeForItem(component, item, index), request));
   const edges = [];
   for (let index = 0; index < nodes.length - 1; index++) {
     edges.push(textureEdge(nodes[index].id, nodes[index + 1].id));
@@ -65,12 +65,12 @@ function graphForCompositionChain(composition, request, outputId) {
   };
 }
 
-export function flattenCompositionChain(chain = []) {
+export function flattenComponentChain(chain = []) {
   const flat = [];
   for (const item of chain || []) {
     if (item.enabled === false) continue;
     if (item.kind === "group") {
-      flat.push(...flattenCompositionChain(item.chain || []));
+      flat.push(...flattenComponentChain(item.chain || []));
       continue;
     }
     flat.push(item);
@@ -78,8 +78,8 @@ export function flattenCompositionChain(chain = []) {
   return flat;
 }
 
-function graphForLegacyComposition(composition, request, outputId) {
-  const nodes = legacyNodesForComposition(composition).map((node) => withRenderRequest(node, request));
+function graphForLegacyComponent(component, request, outputId) {
+  const nodes = legacyNodesForComponent(component).map((node) => withRenderRequest(node, request));
   const edges = [];
   for (let i = 0; i < nodes.length - 1; i++) {
     edges.push(textureEdge(nodes[i].id, nodes[i + 1].id));
@@ -108,24 +108,24 @@ function textureEdge(fromId, toId, outletId = "texture", inletId = "texture") {
   };
 }
 
-function legacyNodesForComposition(composition = {}) {
-  const sourceComponent = sourceComponentFor(composition.source);
+function legacyNodesForComponent(component = {}) {
+  const sourceComponent = sourceComponentFor(component.source);
   const sourceNode = createVisualNode(sourceComponent, {
-    id: `${composition.id || "composition"}:source`,
+    id: `${component.id || "component"}:source`,
     role: "source",
-    params: sourceParams(composition.source),
+    params: sourceParams(component.source),
     state: {
-      source: composition.source,
-      layer: defaultLayerState(`${composition.id || "composition"}:source`),
+      source: component.source,
+      layer: defaultLayerState(`${component.id || "component"}:source`),
     },
   });
-  const effectNodes = (composition.shaderChain || []).map((pass, index) => effectNodeForPass(composition, pass, index));
+  const effectNodes = (component.shaderChain || []).map((pass, index) => effectNodeForPass(component, pass, index));
   return [sourceNode, ...effectNodes];
 }
 
-function chainNodeForItem(composition, item, index) {
+function chainNodeForItem(component, item, index) {
   if (item.kind === "effect") {
-    return effectNodeForPass(composition, {
+    return effectNodeForPass(component, {
       id: item.componentId,
       enabled: item.enabled,
       params: item.params,
@@ -135,25 +135,25 @@ function chainNodeForItem(composition, item, index) {
   }
   if (item.kind === "group") {
     return createVisualNode(groupComponentFor(), {
-      id: `${composition.id || "composition"}:group:${index}:${item.id}`,
+      id: `${component.id || "component"}:group:${index}:${item.id}`,
       role: "group",
       enabled: item.enabled !== false,
       params: {
-        items: flattenCompositionChain(item.chain || []).length,
+        items: flattenComponentChain(item.chain || []).length,
       },
       state: {
         group: {
           id: item.id,
           name: item.name || "Group",
-          itemCount: flattenCompositionChain(item.chain || []).length,
+          itemCount: flattenComponentChain(item.chain || []).length,
         },
         layer: layerStateForItem(item),
       },
     });
   }
-  const component = sourceComponentFor(item.source);
-  return createVisualNode(component, {
-    id: `${composition.id || "composition"}:source:${index}:${item.id}`,
+  const sourceComponent = sourceComponentFor(item.source);
+  return createVisualNode(sourceComponent, {
+    id: `${sourceComponent.id || "component"}:source:${index}:${item.id}`,
     role: "source",
     enabled: item.enabled !== false,
     params: {
@@ -277,19 +277,19 @@ function withRenderRequest(node, request) {
   };
 }
 
-function effectNodeForPass(composition, pass, index) {
-  const component = getShaderComponent(pass.id);
-  return createVisualNode(component, {
-    id: `${composition.id || "composition"}:effect:${index}:${pass.id}`,
+function effectNodeForPass(ownerComponent, pass, index) {
+  const effectComponent = getShaderComponent(pass.id);
+  return createVisualNode(effectComponent, {
+    id: `${ownerComponent.id || "component"}:effect:${index}:${pass.id}`,
     role: "effect",
     enabled: pass.enabled !== false,
-    params: passParams(component, pass),
+    params: passParams(effectComponent, pass),
     state: {
       transform: pass.transform || {},
       pass: {
         id: pass.id,
         enabled: pass.enabled !== false,
-        params: passParams(component, pass),
+        params: passParams(effectComponent, pass),
         transform: pass.transform || {},
       },
     },

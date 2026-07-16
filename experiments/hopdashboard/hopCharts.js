@@ -6,6 +6,8 @@ let userNetworkVisible = null;
 let activeHopModel = null;
 let activePeriodLabel = "";
 let pendingViewInfoTooltip = null;
+let activityExplorerSelectorHits = [];
+let activityExplorerDropdownVisibleCount = 10;
 const HOP_TOP_BUTTON_Y = 12;
 const HOP_TOP_BUTTON_H = 26;
 const HOP_DETAIL_TOP = 52;
@@ -66,24 +68,27 @@ function drawGraphPeriodLabel(viewId) {
 
 function viewInfoDescription(infoKey) {
   const descriptions = {
-    activity: "Timeline of revenue, members, crew, ticket users, and activity/event sales for the selected date range.",
-    activityNetwork: "Network of activities and events. Nodes connect when the same buyers bought both, with first-timer activities pulled left and experienced activities pulled right.",
-    userNetwork: "Network of ticket buyers. People connect when they have bought tickets for the same activities or events.",
+    activity: "Timeline combining sales revenue and paid tickets with subscription booking usage. Subscription bookings are reservations, not confirmed attendance.",
+    activityNetwork: "Network of activities and events. It combines paid ticket purchases and subscription bookings; nodes connect when the same person used both.",
+    userNetwork: "Network of people. They connect when they bought or subscription-booked the same activities or events.",
     ticketSales: "Timeline and ranking of activity and event ticket sales, split by revenue and ticket count.",
     purchaseTiming: "Shows when people buy within the selected date range, grouped by day of month and month of year, with colors for activity, event, and membership purchases.",
     ticketBuyers: "Heatmap of ticket-buying people over time, showing single, occasional, and recurring buyers.",
     revenueGroups: "Groups paying customers by how many activities or tickets they bought in the selected period, then compares revenue and people count.",
-    buyerPattern: "Normalized customer journeys from first purchase onward, showing transitions between ticket-only, membership, and crew patterns.",
-    retention: "Cohort heatmap showing whether first-time paid buyers came back in later periods. Bordered cells are outside the selected slider range but measured from the loaded CSV.",
-    activityPath: "Shows where people go after their first paid activity or event. Rows are first activities; columns are the next paid step, membership, or no return.",
+    buyerPattern: "Normalized customer journeys from their first recorded purchase or subscription booking, showing transitions between ticket-only, subscription, booking, and crew behavior.",
+    retention: "Engagement cohort heatmap: people enter on their first paid purchase and count as returning through either another purchase or a subscription booking. Tooltips separate both behaviors.",
+    activityPath: "Shows what people do after a first purchase, first subscription booking, or either one. Switch the source to compare paid conversion with subscription usage paths.",
+    introConversion: "Follows people after signing up for either free introduction. Outcomes use the first later booking or purchase within 90 days; sign-ups are not confirmed attendance.",
     gateway: "Ranks first activities by how well they create follow-up behavior: return rate, membership conversion, later revenue, and no-return rate.",
     pipeline: "Funnel from ticket buyers to recurring ticket buyers, members, and crew/long-term members, with first activities that feed membership.",
-    productHealth: "One row per activity or event product, showing revenue, buyers, repeat buyers, first-timer share, member share, and recent trend.",
-    segments: "Behavioral customer clusters: one-timers, seasonal returners, recurring ticket buyers, members, crew, and high-value supporters.",
-    exitPoints: "Shows each customer's last meaningful paid touchpoint in the selected period, grouped by activity, event, membership, or crew.",
-    memberLength: "Distribution of paid membership spans, estimating continuous membership from recurring payments and separating active from ended spans.",
-    memberDistribution: "Stacked timeline showing active paid members by tenure: how long they have continuously been members at each period end.",
-    overview: "High-level summary of revenue, customers, invoices, active customers, and invoice mix for the selected date range.",
+    productHealth: "One row per activity or event, combining paid tickets and subscription bookings so demand and repeat use are visible alongside revenue.",
+    activityExplorer: "Select any paid ticket type or booking class to see its audience, source mix, related activities, previous and next destinations, journey role, and booking schedule.",
+    segments: "Behavioral groups combining purchases and subscription bookings, including active, low-use, inactive, and booking-only subscription identities.",
+    exitPoints: "Shows each person's latest recorded interaction, using subscription bookings when they occur after the last purchase. Booking exits carry no revenue.",
+    memberLength: "Distribution of estimated paid subscription spans, with booking totals and subscribers who made no booking during their span.",
+    memberDistribution: "Stacked timeline of estimated active paid subscribers by tenure, overlaid with those who did and did not make a subscription booking.",
+    memberEngagement: "Joins yearly booking exports to sales identities. Shows subscription bookings, subscribers who did or did not book, class preferences, source coverage, duplicates, and match quality. Bookings are not confirmed attendance.",
+    overview: "High-level summary of sales and subscription usage for the selected range: revenue, customers, invoices, bookings, people booking, and utilization.",
     ticketItems: "Largest activity and event products by net revenue and ticket count in the selected date range.",
     activityMix: "Count of invoice item types in the selected date range.",
   };
@@ -103,6 +108,7 @@ function drawHopOverview(model, fileName = "", currentView = "overview", navItem
   activeHopModel = model;
   activePeriodLabel = options.periodLabel || "";
   pendingViewInfoTooltip = null;
+  activityExplorerSelectorHits = [];
   if (Object.prototype.hasOwnProperty.call(options, "anonymizeNames")) {
     model?.setAnonymizeNames?.(options.anonymizeNames);
   }
@@ -121,7 +127,7 @@ function drawHopOverview(model, fileName = "", currentView = "overview", navItem
   drawViewPanelBackground(contentTop);
 
   if (currentView === "activity") {
-    drawActivityView(model.activity, model.ticketSalesTimeline || model.ticketSales, contentPad, contentTop);
+    drawActivityView(model.activity, model.ticketSalesTimeline || model.ticketSales, model.memberEngagement, contentPad, contentTop);
     return uiState;
   }
 
@@ -170,8 +176,13 @@ function drawHopOverview(model, fileName = "", currentView = "overview", navItem
     return uiState;
   }
 
+  if (currentView === "introconversion") {
+    drawIntroConversionView(model.introConversion, contentPad, contentTop);
+    return uiState;
+  }
+
   if (currentView === "gateway") {
-    drawGatewayView(model.activityPath, contentPad, contentTop);
+    drawGatewayView(model.gatewayPath || model.activityPath, contentPad, contentTop);
     return uiState;
   }
 
@@ -182,6 +193,11 @@ function drawHopOverview(model, fileName = "", currentView = "overview", navItem
 
   if (currentView === "producthealth") {
     drawProductHealthView(model.productHealth, contentPad, contentTop);
+    return uiState;
+  }
+
+  if (currentView === "activityexplorer") {
+    drawActivityExplorerView(model.activityExplorer, contentPad, contentTop, options);
     return uiState;
   }
 
@@ -205,18 +221,33 @@ function drawHopOverview(model, fileName = "", currentView = "overview", navItem
     return uiState;
   }
 
+  if (currentView === "memberengagement") {
+    drawMemberEngagementView(model.memberEngagement, contentPad, contentTop);
+    return uiState;
+  }
+
   if (currentView !== "overview") {
     drawPlaceholderView(currentView, contentPad + 16, contentTop + 14);
     return uiState;
   }
 
   const cardY = contentTop + 14;
-  const cardW = (width - pad * 2 - 32) / 3;
-  drawStatCard(pad, cardY, cardW, 96, "Revenue", formatDkk(revenue));
-  drawStatCard(pad + (cardW + 16), cardY, cardW, 96, "Customers", formatInteger(model.customers.length));
-  drawStatCard(pad + (cardW + 16) * 2, cardY, cardW, 96, "Invoices", formatInteger(model.invoices.length));
+  const engagement = model.memberEngagement || {};
+  const latestEngagement = engagement.periods?.at(-1) || {};
+  const cardGap = 8;
+  const cardW = (width - pad * 2 - cardGap * 6) / 7;
+  const overviewCards = [
+    ["Revenue", formatDkk(revenue)],
+    ["Customers", formatInteger(model.customers.length)],
+    ["Invoices", formatInteger(model.invoices.length)],
+    ["Sub. bookings", formatInteger(engagement.membershipBookingCount || 0)],
+    ["People booking", formatInteger((engagement.members || []).filter((member) => member.membershipBookingCount > 0).length)],
+    ["No booking", formatInteger(latestEngagement.subscribersWithoutBooking || 0)],
+    ["Utilization", formatPercent(latestEngagement.utilizationRate || 0)],
+  ];
+  overviewCards.forEach(([label, value], index) => drawStatCard(pad + index * (cardW + cardGap), cardY, cardW, 72, label, value));
 
-  const chartTop = cardY + 132;
+  const chartTop = cardY + 102;
   const chartH = max(180, (height - chartTop - pad * 1.5) * 0.52);
   const bucketLabel = timeBucketLabel(timeBucket).toLowerCase();
   drawLineChart(pad, chartTop, width - pad * 2, chartH, model.months, `${bucketLabel} revenue`, "revenue", formatDkk);
@@ -269,33 +300,44 @@ function drawSoftPanel(x, y, w, h, radius = 4) {
   noStroke();
 }
 
-function drawActivityView(activity, ticketSales, pad, top) {
-  const months = mergeActivityTimeline(activity?.months || [], ticketSales?.weeks || []);
+function drawActivityView(activity, ticketSales, memberEngagement, pad, top) {
+  const bookingPeriods = memberEngagement?.sources?.length ? memberEngagement.periods || [] : [];
+  const months = mergeActivityTimeline(activity?.months || [], ticketSales?.weeks || [], bookingPeriods);
   const membershipSeries = membershipTypeSeries(activity?.membershipTypes || []);
   const moneyScale = "money";
   const countScale = "count";
   const series = [
     { key: "totalRevenue", label: "Revenue", color: [0, 0, 0], formatter: formatDkk, scale: moneyScale, legendOrder: 10 },
     { key: "yearTotalRevenue", label: "Year accumulated revenue", color: [90, 90, 90], formatter: formatDkk, scale: moneyScale, legendOrder: 11 },
-    { key: "revenue", label: "Member revenue", color: [20, 20, 20], formatter: formatDkk, scale: moneyScale, legendOrder: 12 },
+    { key: "revenue", label: "Subscription revenue", color: [20, 20, 20], formatter: formatDkk, scale: moneyScale, legendOrder: 12 },
     { key: "classRevenue", label: "Activity revenue", color: [60, 140, 85], formatter: formatDkk, scale: moneyScale, legendOrder: 13 },
     { key: "eventRevenue", label: "Event revenue", color: [135, 85, 170], formatter: formatDkk, scale: moneyScale, legendOrder: 14 },
     { key: "classTickets", label: "Activity tickets", color: [90, 165, 90], formatter: formatInteger, scale: countScale, legendOrder: 30 },
     { key: "eventTickets", label: "Event tickets", color: [155, 105, 190], formatter: formatInteger, scale: countScale, legendOrder: 31 },
-    { key: "activeTicketUsersWithMembership", label: "Ticket users (w.m)", color: [34, 190, 125], formatter: formatInteger, scale: countScale, legendOrder: 40 },
-    { key: "activeTicketUsersWithoutMembership", label: "Ticket users (wo.m)", color: [68, 145, 255], formatter: formatInteger, scale: countScale, legendOrder: 41 },
+    { key: "activeTicketUsersWithMembership", label: "Ticket buyers with subscription", color: [34, 190, 125], formatter: formatInteger, scale: countScale, legendOrder: 40 },
+    { key: "activeTicketUsersWithoutMembership", label: "Ticket buyers without subscription", color: [68, 145, 255], formatter: formatInteger, scale: countScale, legendOrder: 41 },
     { key: "singleTicketBuyers", label: "Single ticket", color: [255, 165, 45], formatter: formatInteger, scale: countScale, legendOrder: 42 },
+    { key: "membershipBookings", label: "Subscription bookings", color: [35, 145, 95], formatter: formatInteger, scale: countScale, legendOrder: 43 },
+    { key: "uniqueBookingMembers", label: "People booking by subscription", color: [40, 120, 180], formatter: formatInteger, scale: countScale, legendOrder: 44 },
+    { key: "bookingsPerBookingMember", label: "Bookings per person", color: [90, 150, 185], formatter: (value) => (Number(value) || 0).toFixed(1), scale: countScale, legendOrder: 45, stack: false },
+    { key: "unmatchedMemberBookings", label: "Bookings without matched subscription sale", color: [150, 95, 175], formatter: formatInteger, scale: countScale, legendOrder: 46, stack: false },
     { key: "firstTouchpoints", label: "First touchpoints", color: [30, 170, 190], formatter: formatInteger, scale: countScale, legendOrder: 50 },
     { key: "lastTouchpoints", label: "Last touchpoints", color: [220, 95, 95], formatter: formatInteger, scale: countScale, legendOrder: 51 },
-    { key: "memberCount", label: "Member count", color: [190, 90, 35], formatter: formatInteger, scale: countScale, legendOrder: 60 },
+    { key: "memberCount", label: "Estimated active subscribers", color: [190, 90, 35], formatter: formatInteger, scale: countScale, legendOrder: 60 },
     { key: "newMemberships", label: "New memberships", color: [26, 105, 180], formatter: formatInteger, scale: countScale, legendOrder: 61, stack: false },
     { key: "endedMemberships", label: "Ended memberships", color: [210, 55, 55], formatter: formatInteger, scale: countScale, legendOrder: 62, stack: false },
+    { key: "subscribersWithBooking", label: "Active subscribers who booked", color: [35, 180, 115], formatter: formatInteger, scale: countScale, legendOrder: 63 },
+    { key: "subscribersWithoutBooking", label: "Active subscribers with no booking", color: [220, 80, 80], formatter: formatInteger, scale: countScale, legendOrder: 64 },
+    { key: "utilizationRate", label: "Subscription utilization", color: [20, 120, 105], formatter: formatPercent, scale: "percent", legendOrder: 65, stack: false },
     ...membershipSeries,
     { key: "crewCount", label: "Crew count", color: [190, 112, 255], formatter: formatInteger, scale: countScale, legendOrder: 80 },
   ];
-  const labels = ticketItemsToTimelineLabels(ticketSales?.items || []).map((label) => ({
+  const labels = [
+    ...ticketItemsToTimelineLabels(ticketSales?.items || []),
+    ...bookingItemsToTimelineLabels(memberEngagement?.sources?.length ? memberEngagement.bookings || [] : []),
+  ].map((label) => ({
     ...label,
-    legendOrder: label.type === "Event" ? 101 : 100,
+    legendOrder: label.type === "Event" ? 101 : label.type === "Subscription booking" ? 102 : 100,
   }));
   drawHopTimelineChart(pad, top, width - pad * 2, height - top - pad, months, visibleActivityTitle(series, labels), series, labels, { ...timelineChartState(), infoKey: "activity", showMissingDataEdges: true });
 }
@@ -339,7 +381,7 @@ function drawActivityNetworkView(network, pad, top) {
   if (!network?.nodes?.length) {
     fill(80);
     textSize(14);
-    text("No activity or event tickets in this range.", pad + 18, top + 54);
+    text("No paid tickets or subscription bookings in this range.", pad + 18, top + 54);
     return;
   }
 
@@ -354,7 +396,7 @@ function drawActivityNetworkView(network, pad, top) {
 }
 
 function syncActivityNetworkState(network, plotX, plotY, plotW, plotH) {
-  const key = `${network.nodes.length}:${network.links.length}:${network.nodes.map((node) => `${node.key}:${node.tickets}`).join("|")}`;
+  const key = `${network.nodes.length}:${network.links.length}:${network.nodes.map((node) => `${node.key}:${node.totalInteractions}`).join("|")}`;
   if (activityNetworkState?.key === key) return;
   activityNetworkState = {
     key,
@@ -459,7 +501,7 @@ function drawActivityNetwork(plotX, plotY, plotW, plotH, network) {
   for (const node of network.nodes) {
     const state = states.get(node.key);
     if (!state) continue;
-    const radius = map(sqrt(node.revenue), 0, sqrt(network.maxRevenue || 1), 5, 28);
+    const radius = map(sqrt(node.totalInteractions), 0, sqrt(network.maxInteractions || 1), 5, 28);
     const color = node.type === "Event" ? [135, 85, 170] : [60, 140, 85];
     const isHover = hovered?.node.key === node.key;
     const isHighlighted = !highlightKeys || highlightKeys.has(node.key);
@@ -477,12 +519,14 @@ function drawActivityNetwork(plotX, plotY, plotW, plotH, network) {
   }
 
   if (hovered) {
-    drawNetworkNeighborLabels(network.nodes, states, highlightKeys, hovered.node.key, (node) => map(sqrt(node.revenue), 0, sqrt(network.maxRevenue || 1), 5, 28));
+    drawNetworkNeighborLabels(network.nodes, states, highlightKeys, hovered.node.key, (node) => map(sqrt(node.totalInteractions), 0, sqrt(network.maxInteractions || 1), 5, 28));
     drawNetworkSidePanel(plotX, plotY, plotW, [
       hovered.node.label,
       `Type: ${hovered.node.type}`,
       `Buyers: ${formatInteger(hovered.node.buyerCount)}`,
       `Tickets: ${formatInteger(hovered.node.tickets)}`,
+      `Subscription bookings: ${formatInteger(hovered.node.memberBookings || 0)} from ${formatInteger(hovered.node.bookingMemberCount || 0)} people`,
+      `Total recorded use: ${formatInteger(hovered.node.totalInteractions || 0)}`,
       `Revenue: ${formatDkk(hovered.node.revenue)}`,
       `Avg prior tickets: ${hovered.node.avgExperience.toFixed(1)}`,
       `First-timer purchases: ${formatInteger(hovered.node.firstTimerPurchases)}`,
@@ -496,7 +540,7 @@ function getActivityNetworkNodeHit(x, y) {
   for (const node of hopModel.activityNetwork.nodes) {
     const state = activityNetworkState.nodes.get(node.key);
     if (!state) continue;
-    const radius = map(sqrt(node.revenue), 0, sqrt(hopModel.activityNetwork.maxRevenue || 1), 5, 28);
+    const radius = map(sqrt(node.totalInteractions), 0, sqrt(hopModel.activityNetwork.maxInteractions || 1), 5, 28);
     const distance = dist(x, y, state.x, state.y);
     if (distance <= radius + 6 && (!best || distance < best.distance)) {
       best = { node, state, radius, distance };
@@ -548,12 +592,13 @@ function limitUserNetwork(network, maxNodes) {
     links,
     maxRevenue: Math.max(1, ...nodes.map((node) => node.revenue)),
     maxTickets: Math.max(1, ...nodes.map((node) => node.tickets)),
+    maxInteractions: Math.max(1, ...nodes.map((node) => node.totalInteractions)),
     maxExperience: Math.max(1, ...nodes.map((node) => node.avgExperience)),
   };
 }
 
 function syncUserNetworkState(network, plotX, plotY, plotW, plotH) {
-  const key = `${network.nodes.length}:${network.links.length}:${network.nodes.map((node) => `${node.key}:${node.tickets}:${node.activityCount}:${node.eventCount}`).join("|")}`;
+  const key = `${network.nodes.length}:${network.links.length}:${network.nodes.map((node) => `${node.key}:${node.totalInteractions}:${node.activityCount}:${node.eventCount}`).join("|")}`;
   if (userNetworkState?.key === key) return;
   userNetworkState = {
     key,
@@ -634,7 +679,7 @@ function drawUserNetwork(plotX, plotY, plotW, plotH, network, totalNodeCount) {
   text("broader activity history", plotX + plotW, plotY - 22);
   fill(90);
   textAlign(RIGHT, TOP);
-  text(`showing top ${network.nodes.length}/${totalNodeCount} buyers`, plotX + plotW, plotY - 38);
+  text(`showing top ${network.nodes.length}/${totalNodeCount} people with paid tickets or subscription bookings`, plotX + plotW, plotY - 38);
 
   stroke(210);
   strokeWeight(1);
@@ -660,7 +705,7 @@ function drawUserNetwork(plotX, plotY, plotW, plotH, network, totalNodeCount) {
   for (const node of network.nodes) {
     const state = states.get(node.key);
     if (!state) continue;
-    const radius = map(sqrt(node.tickets), 0, sqrt(network.maxTickets || 1), 3, 18);
+    const radius = map(sqrt(node.totalInteractions), 0, sqrt(network.maxInteractions || 1), 3, 18);
     const color = node.type === "Recurring" ? [68, 145, 255] : [120, 120, 120];
     const isHover = hovered?.node.key === node.key;
     const isHighlighted = !highlightKeys || highlightKeys.has(node.key);
@@ -678,11 +723,13 @@ function drawUserNetwork(plotX, plotY, plotW, plotH, network, totalNodeCount) {
   }
 
   if (hovered) {
-    drawNetworkNeighborLabels(network.nodes, states, highlightKeys, hovered.node.key, (node) => map(sqrt(node.tickets), 0, sqrt(network.maxTickets || 1), 3, 18), displayPersonName);
+    drawNetworkNeighborLabels(network.nodes, states, highlightKeys, hovered.node.key, (node) => map(sqrt(node.totalInteractions), 0, sqrt(network.maxInteractions || 1), 3, 18), displayPersonName);
     drawNetworkSidePanel(plotX, plotY, plotW, [
       displayPersonName(hovered.node),
       `Type: ${hovered.node.type}`,
       `Tickets: ${formatInteger(hovered.node.tickets)}`,
+      `Subscription bookings: ${formatInteger(hovered.node.memberBookings || 0)}`,
+      `Total recorded interactions: ${formatInteger(hovered.node.totalInteractions || 0)}`,
       `Revenue: ${formatDkk(hovered.node.revenue)}`,
       `Activities: ${formatInteger(hovered.node.activityCount)}`,
       `Events: ${formatInteger(hovered.node.eventCount)}`,
@@ -762,7 +809,7 @@ function getUserNetworkBounds() {
   return userNetworkBounds;
 }
 
-function mergeActivityTimeline(activityWeeks, ticketWeeks) {
+function mergeActivityTimeline(activityWeeks, ticketWeeks, bookingPeriods = []) {
   const byWeek = new Map();
   for (const week of activityWeeks) {
     const mergedWeek = { ...week };
@@ -781,6 +828,17 @@ function mergeActivityTimeline(activityWeeks, ticketWeeks) {
     merged.activeTicketUsersWithMembership = countSetIntersection(week.customerKeys || new Set(), merged.customerKeys || new Set());
     merged.activeTicketUsersWithoutMembership = (week.customerKeys?.size || 0) - merged.activeTicketUsersWithMembership;
     byWeek.set(week.month, merged);
+  }
+  for (const period of bookingPeriods) {
+    const merged = byWeek.get(period.month) || { month: period.month, revenue: 0, newMemberships: 0, endedMemberships: 0, memberCount: 0 };
+    merged.membershipBookings = period.membershipBookings || 0;
+    merged.uniqueBookingMembers = period.uniqueBookingMembers || 0;
+    merged.bookingsPerBookingMember = period.bookingsPerBookingMember || 0;
+    merged.unmatchedMemberBookings = period.unmatchedMemberBookings || 0;
+    merged.subscribersWithBooking = period.subscribersWithBooking || 0;
+    merged.subscribersWithoutBooking = period.subscribersWithoutBooking || 0;
+    merged.utilizationRate = period.utilizationRate || 0;
+    byWeek.set(period.month, merged);
   }
   let activeYear = "";
   let yearTotalRevenue = 0;
@@ -1037,6 +1095,39 @@ function ticketItemsToTimelineLabels(items) {
   }));
 }
 
+function bookingItemsToTimelineLabels(bookings) {
+  const byClass = new Map();
+  for (const booking of bookings.filter((item) => item.isMembershipBooking)) {
+    const key = cleanValue(booking.className).toLowerCase();
+    if (!byClass.has(key)) {
+      byClass.set(key, {
+        label: booking.className || "Unknown class",
+        count: 0,
+        customerKeys: new Set(),
+        lastDate: booking.date,
+      });
+    }
+    const entry = byClass.get(key);
+    entry.count += 1;
+    entry.customerKeys.add(booking.customerKey);
+    if (booking.date > entry.lastDate) entry.lastDate = booking.date;
+  }
+  return Array.from(byClass.values()).map((entry) => ({
+    type: "Subscription booking",
+    legendLabel: "Subscription-booked classes",
+    label: entry.label,
+    period: periodKey(entry.lastDate, timeBucket),
+    periodLabel: "Last booked",
+    value: entry.count,
+    valueLabel: "Subscription bookings",
+    valueFormatter: formatInteger,
+    count: entry.customerKeys.size,
+    countLabel: "People booking by subscription",
+    countFormatter: formatInteger,
+    color: [35, 145, 95],
+  }));
+}
+
 function timelineChartState() {
   return {
     toggleHits: chartToggleHits,
@@ -1059,7 +1150,7 @@ function drawTicketItemBars(x, y, w, h, items) {
   drawViewHeader("Top activities and events", x + 18, y + 16, "ticketItems");
 
   const entries = items.slice(0, 8);
-  const maxValue = max(1, ...entries.map((entry) => entry.revenue));
+  const maxValue = Math.max(1, ...entries.map((entry) => entry.revenue));
   let by = y + 54;
   for (const entry of entries) {
     const barW = ((w - 36) * entry.revenue) / maxValue;
@@ -1118,8 +1209,8 @@ function drawTicketBuyerHeatmap(x, y, w, h, buyers, periods) {
   const plotW = w - 36;
   const plotH = h - 92;
   const rowH = plotH / max(1, buyers.length);
-  const maxTickets = max(1, ...buyers.flatMap((buyer) => buyer.periods.map((period) => period.tickets)));
-  const maxRevenue = max(1, ...buyers.flatMap((buyer) => buyer.periods.map((period) => period.revenue)));
+  const maxTickets = Math.max(1, ...buyers.flatMap((buyer) => buyer.periods.map((period) => period.tickets)));
+  const maxRevenue = Math.max(1, ...buyers.flatMap((buyer) => buyer.periods.map((period) => period.revenue)));
   const periodIndex = new Map(periods.map((period, index) => [period, index]));
 
   stroke(215, 80);
@@ -1135,8 +1226,8 @@ function drawTicketBuyerHeatmap(x, y, w, h, buyers, periods) {
     const rowIndexes = buyer.periods
       .map((period) => periodIndex.get(period.period))
       .filter((index) => index !== undefined);
-    const firstIndex = rowIndexes.length ? min(...rowIndexes) : 0;
-    const lastIndex = rowIndexes.length ? max(...rowIndexes) : 0;
+    const firstIndex = rowIndexes.length ? Math.min(...rowIndexes) : 0;
+    const lastIndex = rowIndexes.length ? Math.max(...rowIndexes) : 0;
     const startX = plotX + (periods.length <= 1 ? 0 : (firstIndex / (periods.length - 1)) * plotW);
     const endX = plotX + (periods.length <= 1 ? 0 : (lastIndex / (periods.length - 1)) * plotW);
     for (const period of buyer.periods) {
@@ -1230,8 +1321,8 @@ function drawRevenueGroupsView(customers, pad, top, groupCount, excludeMembershi
 
   const groups = buildRevenueFrequencyGroups(payingCustomers, groupCount, excludeMembershipRevenue);
   const totalRevenue = sum(groups, "revenue");
-  const maxRevenue = max(1, ...groups.map((group) => group.revenue));
-  const maxPeople = max(1, ...groups.map((group) => group.people));
+  const maxRevenue = Math.max(1, ...groups.map((group) => group.revenue));
+  const maxPeople = Math.max(1, ...groups.map((group) => group.people));
   const plotX = pad + 28;
   const plotY = top + 86;
   const plotW = width - pad * 2 - 56;
@@ -1455,8 +1546,8 @@ function drawBuyerPatternView(buyerPatterns, pad, top) {
   drawViewHeader("Buyer Pattern", pad + 18, top + 16, "buyerPattern");
   drawStatCard(pad, top + 38, cardW, 82, "Journeys", formatInteger(summary.total || 0));
   drawStatCard(pad + (cardW + 16), top + 38, cardW, 82, "Ticket only", formatInteger(summary.ticketOnly || 0));
-  drawStatCard(pad + (cardW + 16) * 2, top + 38, cardW, 82, "Ticket to member", formatInteger(summary.ticketToMembership || 0));
-  drawStatCard(pad + (cardW + 16) * 3, top + 38, cardW, 82, "Crew", formatInteger(summary.crew || 0));
+  drawStatCard(pad + (cardW + 16) * 2, top + 38, cardW, 82, "With sub. bookings", formatInteger(summary.membershipWithBookings || 0));
+  drawStatCard(pad + (cardW + 16) * 3, top + 38, cardW, 82, "Subscription, no booking", formatInteger(summary.membershipOnly || 0));
   fill(210);
   noStroke();
   textSize(12);
@@ -1478,7 +1569,7 @@ function drawActivityPathView(activityPath, pad, top) {
     fill(80);
     textSize(14);
     textAlign(LEFT, TOP);
-    text("No activity paths in this range.", pad + 18, top + 54);
+    text(activityPath?.sourceMode === "subscription" ? "No subscription-booking paths in this range." : "No activity paths in this range.", pad + 18, top + 54);
     return;
   }
 
@@ -1494,7 +1585,7 @@ function drawActivityPathView(activityPath, pad, top) {
   const plotH = height - plotY - pad - 34;
   const cellW = max(16, plotW / max(1, visibleColumns.length));
   const cellH = max(16, min(28, plotH / max(1, visibleRows.length)));
-  const maxRowSize = max(1, ...visibleRows.map((row) => row.size));
+  const maxRowSize = Math.max(1, ...visibleRows.map((row) => row.size));
   const targetByRow = new Map(visibleRows.map((row) => [
     row.key,
     new Map(row.targets.map((target) => [target.key, target])),
@@ -1505,14 +1596,23 @@ function drawActivityPathView(activityPath, pad, top) {
   textSize(12);
   textAlign(LEFT, CENTER);
   const modeLabel = activityPath.mode === "range" ? "first in selected range" : "first ever";
-  const headerDetail = `${formatInteger(activityPath.customerCount || 0)} buyers · ${modeLabel} · columns are next paid step · showing ${visibleRows.length}/${allRows.length} activities and ${visibleColumns.length}/${allColumns.length} next steps`;
+  const sourceLabels = {
+    purchase: { people: "buyers", first: "first paid activity", next: "next paid step" },
+    subscription: { people: "people booking", first: "first subscription booking", next: "next subscription booking" },
+    combined: { people: "people", first: "first purchase or subscription booking", next: "next recorded interaction" },
+  };
+  const sourceLabel = sourceLabels[activityPath.sourceMode] || sourceLabels.combined;
+  const noBookingDetail = activityPath.sourceMode === "purchase" || !(activityPath.subscribersWithoutBookings > 0)
+    ? ""
+    : ` · ${formatInteger(activityPath.subscribersWithoutBookings)} paid subscribers have no booking`;
+  const headerDetail = `${formatInteger(activityPath.customerCount || 0)} ${sourceLabel.people} · ${modeLabel} · columns are ${sourceLabel.next}${noBookingDetail} · showing ${visibleRows.length}/${allRows.length} starting points and ${visibleColumns.length}/${allColumns.length} next steps`;
   text(trimText(headerDetail, 140), pad + 176, top + 26);
 
   fill(80);
   textSize(10);
   textAlign(LEFT, BOTTOM);
-  text("first activity", labelX, plotY - 8);
-  text("buyers", barX, plotY - 8);
+  text(sourceLabel.first, labelX, plotY - 8);
+  text("people", barX, plotY - 8);
   for (let colIndex = 0; colIndex < visibleColumns.length; colIndex += 1) {
     const column = visibleColumns[colIndex];
     const x = plotX + colIndex * cellW + cellW * 0.5;
@@ -1520,7 +1620,7 @@ function drawActivityPathView(activityPath, pad, top) {
     translate(x, plotY - 12);
     rotate(-PI / 4);
     textAlign(LEFT, CENTER);
-    fill(column.type === "Membership" ? color(40, 120, 90) : column.type === "No return" ? color(120) : color(70));
+    fill(activityPathTypeColor(column.type));
     text(trimText(column.label, 18), 0, 0);
     pop();
   }
@@ -1532,11 +1632,12 @@ function drawActivityPathView(activityPath, pad, top) {
     textSize(10);
     textAlign(LEFT, CENTER);
     text(trimText(row.label, 32), labelX, y + cellH * 0.5);
-    fill(row.type === "Event" ? color(210, 95, 70, 150) : color(60, 120, 170, 150));
+    const rowColor = activityPathTypeColor(row.type);
+    fill(red(rowColor), green(rowColor), blue(rowColor), 150);
     rect(barX, y + cellH * 0.28, map(row.size, 0, maxRowSize, 0, barW), cellH * 0.44, 1);
 
     const targetMap = targetByRow.get(row.key);
-    const maxTargetCount = max(1, ...row.targets.map((target) => target.count || 0));
+    const maxTargetCount = Math.max(1, ...row.targets.map((target) => target.count || 0));
     for (let colIndex = 0; colIndex < visibleColumns.length; colIndex += 1) {
       const column = visibleColumns[colIndex];
       const target = targetMap.get(column.key);
@@ -1560,13 +1661,234 @@ function drawActivityPathView(activityPath, pad, top) {
   if (hovered) {
     const count = hovered.target?.count || 0;
     const rate = hovered.row.size ? count / hovered.row.size : 0;
-    drawTooltip(mouseX, mouseY, [
+    const lines = [
       ...wrapText(`${hovered.row.label} -> ${hovered.column.label}`, 34),
       `People: ${formatInteger(count)} / ${formatInteger(hovered.row.size)} (${formatPercent(rate)})`,
       `Next type: ${hovered.column.type}`,
-      `Later revenue: ${formatDkk(hovered.target?.revenue || 0)}`,
-    ], 300);
+    ];
+    if (hovered.target?.avgDaysToNext != null) lines.push(`Average time to next: ${(Number(hovered.target.avgDaysToNext) || 0).toFixed(1)} days`);
+    if ((hovered.target?.revenue || 0) > 0) lines.push(`Next-step revenue: ${formatDkk(hovered.target.revenue)}`);
+    drawTooltip(mouseX, mouseY, lines, 300);
   }
+}
+
+function drawIntroConversionView(introConversion, pad, top) {
+  const data = introConversion || {};
+  const cohorts = data.cohorts || [];
+  const summary = data.summary || {};
+  const panelW = width - pad * 2;
+  fill(238);
+  noStroke();
+  rect(pad, top, panelW, height - top - pad, 4);
+  drawViewHeader("Intro Conversion", pad + 18, top + 16, "introConversion");
+
+  if (!(summary.totalSignups > 0)) {
+    fill(80);
+    textSize(14);
+    textAlign(LEFT, TOP);
+    text("No sign-ups for the two introduction classes in the selected range.", pad + 18, top + 54);
+    fill(110);
+    textSize(12);
+    text("This view recognizes class names containing ‘Introduction to House of Play’ or ‘Introduction to Ropes for Absolute Beginners’.", pad + 18, top + 78);
+    return;
+  }
+
+  const cardY = top + 48;
+  const cardGap = 8;
+  const cardW = (panelW - 36 - cardGap * 5) / 6;
+  const cards = [
+    ["Intro sign-ups", formatInteger(summary.totalSignups || 0)],
+    ["Unique people", formatInteger(summary.uniquePeople || 0)],
+    ["90-day eligible", formatInteger(summary.eligible90 || 0)],
+    ["Continued in 90d", formatPercent(summary.continuedRate90 || 0)],
+    ["Identity match", formatPercent(summary.matchRate || 0)],
+    ["Revenue within 90d", formatDkk(summary.revenue90 || 0)],
+  ];
+  cards.forEach(([label, value], index) => {
+    drawStatCard(pad + 18 + index * (cardW + cardGap), cardY, cardW, 68, label, value);
+  });
+
+  fill(85);
+  noStroke();
+  textSize(11);
+  textAlign(LEFT, TOP);
+  const coverageLabel = data.dataEndMs ? formatDate(new Date(data.dataEndMs)) : "unknown";
+  text(`Outcome = first later booking or purchase within 90 days · data available through ${coverageLabel} · sign-ups do not confirm attendance`, pad + 18, top + 126);
+
+  const cohortY = top + 154;
+  const cohortGap = 10;
+  const cohortH = 112;
+  let hoveredOutcome = null;
+  for (let index = 0; index < cohorts.length; index += 1) {
+    const cohort = cohorts[index];
+    const y = cohortY + index * (cohortH + cohortGap);
+    drawSoftPanel(pad + 18, y, panelW - 36, cohortH, 3);
+    fill(38);
+    textSize(13);
+    textAlign(LEFT, TOP);
+    drawWrappedLabel(cohort.label, pad + 32, y + 14, 280, 2, 15);
+    fill(95);
+    textSize(10);
+    text(`${formatInteger(cohort.signups)} sign-ups · ${formatInteger(cohort.eligible90)} eligible · ${formatInteger(cohort.pending90)} awaiting 90 days · ${formatPercent(cohort.matchRate)} matched`, pad + 32, y + 51);
+
+    const barX = pad + 332;
+    const metricsW = 215;
+    const barW = max(120, panelW - 36 - 314 - metricsW);
+    const barY = y + 27;
+    const barH = 25;
+    fill(224);
+    noStroke();
+    rect(barX, barY, barW, barH, 2);
+    let segmentX = barX;
+    for (const outcome of cohort.outcomes || []) {
+      const segmentW = cohort.eligible90 ? barW * outcome.count / cohort.eligible90 : 0;
+      if (segmentW <= 0) continue;
+      fill(...introOutcomeColor(outcome.key));
+      rect(segmentX, barY, segmentW, barH);
+      if (mouseX >= segmentX && mouseX <= segmentX + segmentW && mouseY >= barY && mouseY <= barY + barH) {
+        hoveredOutcome = { cohort, outcome };
+      }
+      segmentX += segmentW;
+    }
+    fill(95);
+    textSize(10);
+    textAlign(LEFT, TOP);
+    text("90-day first destination", barX, y + 12);
+    drawIntroOutcomeLegend(cohort.outcomes || [], barX, y + 62, barW);
+
+    const metricsX = barX + barW + 18;
+    fill(45);
+    textSize(11);
+    textAlign(LEFT, TOP);
+    text(`Continued: ${formatInteger(cohort.continued90)} (${formatPercent(cohort.continuedRate90)})`, metricsX, y + 17);
+    text(`Median next step: ${cohort.continued90 ? `${(Number(cohort.medianDays90) || 0).toFixed(1)} days` : "—"}`, metricsX, y + 39);
+    text(`90-day revenue: ${formatDkk(cohort.revenue90 || 0)}`, metricsX, y + 61);
+    text(`Revenue / eligible: ${formatDkk(cohort.avgRevenue90 || 0)}`, metricsX, y + 83);
+  }
+
+  if (hoveredOutcome) {
+    drawTooltip(mouseX, mouseY, [
+      ...wrapText(hoveredOutcome.cohort.label, 38),
+      hoveredOutcome.outcome.label,
+      `People: ${formatInteger(hoveredOutcome.outcome.count)} / ${formatInteger(hoveredOutcome.cohort.eligible90)} (${formatPercent(hoveredOutcome.outcome.rate)})`,
+      "Based on the first later interaction within 90 days",
+    ], 320);
+  }
+
+  const lowerY = cohortY + cohorts.length * (cohortH + cohortGap) + 4;
+  const lowerH = height - lowerY - pad;
+  if (lowerH > 90) {
+    const splitGap = 10;
+    const leftW = (panelW - 36 - splitGap) * 0.43;
+    drawIntroWindowPanel(cohorts, pad + 18, lowerY, leftW, lowerH);
+    drawIntroDestinationPanel(cohorts, pad + 18 + leftW + splitGap, lowerY, panelW - 36 - leftW - splitGap, lowerH);
+  }
+}
+
+function drawIntroOutcomeLegend(outcomes, x, y, w) {
+  let cursorX = x;
+  for (const outcome of outcomes) {
+    const label = `${outcome.label} ${formatInteger(outcome.count)}`;
+    textSize(9);
+    const itemW = textWidth(label) + 20;
+    if (cursorX + itemW > x + w) break;
+    fill(...introOutcomeColor(outcome.key));
+    rect(cursorX, y + 2, 8, 8, 1);
+    fill(75);
+    textAlign(LEFT, TOP);
+    text(label, cursorX + 12, y);
+    cursorX += itemW + 8;
+  }
+}
+
+function drawIntroWindowPanel(cohorts, x, y, w, h) {
+  drawSoftPanel(x, y, w, h, 3);
+  fill(45);
+  textSize(12);
+  textAlign(LEFT, TOP);
+  text("Continued after introduction", x + 14, y + 12);
+  fill(95);
+  textSize(10);
+  text("Only sign-ups with complete follow-up are included", x + 14, y + 31);
+  const tableY = y + 58;
+  const labelW = min(230, w * 0.48);
+  const dayW = (w - 28 - labelW) / 4;
+  fill(90);
+  textAlign(CENTER, TOP);
+  for (let index = 0; index < 4; index += 1) {
+    const days = cohorts[0]?.windowRates?.[index]?.days || [7, 30, 60, 90][index];
+    text(`${days}d`, x + 14 + labelW + dayW * (index + 0.5), tableY);
+  }
+  for (let rowIndex = 0; rowIndex < cohorts.length; rowIndex += 1) {
+    const cohort = cohorts[rowIndex];
+    const rowY = tableY + 25 + rowIndex * 42;
+    fill(55);
+    textSize(10);
+    textAlign(LEFT, CENTER);
+    text(trimText(cohort.label, 30), x + 14, rowY + 12);
+    for (let index = 0; index < cohort.windowRates.length; index += 1) {
+      const windowRate = cohort.windowRates[index];
+      const cellX = x + 14 + labelW + dayW * index;
+      fill(...interpolateRgb([245, 245, 245], [35, 155, 95], windowRate.rate));
+      rect(cellX + 3, rowY, max(1, dayW - 6), 25, 2);
+      fill(windowRate.rate > 0.55 ? 245 : 45);
+      textAlign(CENTER, CENTER);
+      text(windowRate.eligible ? formatPercent(windowRate.rate) : "—", cellX + dayW * 0.5, rowY + 12);
+    }
+  }
+}
+
+function drawIntroDestinationPanel(cohorts, x, y, w, h) {
+  drawSoftPanel(x, y, w, h, 3);
+  fill(45);
+  textSize(12);
+  textAlign(LEFT, TOP);
+  text("Most common next destinations within 90 days", x + 14, y + 12);
+  const columnGap = 18;
+  const columnW = (w - 28 - columnGap) / 2;
+  for (let cohortIndex = 0; cohortIndex < cohorts.length; cohortIndex += 1) {
+    const cohort = cohorts[cohortIndex];
+    const columnX = x + 14 + cohortIndex * (columnW + columnGap);
+    fill(90);
+    textSize(10);
+    drawWrappedLabel(cohort.label, columnX, y + 34, columnW, 2, 12);
+    const destinations = cohort.topDestinations || [];
+    const maxCount = Math.max(1, ...destinations.map((destination) => destination.count));
+    const rowH = min(24, max(17, (h - 76) / max(1, destinations.length)));
+    for (let index = 0; index < destinations.length; index += 1) {
+      const destination = destinations[index];
+      const rowY = y + 68 + index * rowH;
+      const valueW = 34;
+      const labelW = columnW - valueW;
+      const barW = map(destination.count, 0, maxCount, 0, max(10, labelW - 14));
+      fill(...introOutcomeColor(destination.type), 90);
+      rect(columnX, rowY + rowH * 0.25, barW, rowH * 0.5, 1);
+      fill(50);
+      textSize(10);
+      textAlign(LEFT, CENTER);
+      text(trimText(destination.label, 28), columnX + 4, rowY + rowH * 0.5);
+      textAlign(RIGHT, CENTER);
+      text(formatInteger(destination.count), columnX + columnW, rowY + rowH * 0.5);
+    }
+    if (!destinations.length) {
+      fill(115);
+      textSize(10);
+      textAlign(LEFT, TOP);
+      text("No eligible next destinations", columnX, y + 68);
+    }
+  }
+}
+
+function introOutcomeColor(key) {
+  const colors = {
+    paidClass: [60, 125, 185],
+    subscription: [230, 130, 55],
+    subscriptionBooking: [35, 155, 95],
+    otherBooking: [85, 165, 175],
+    anotherIntro: [145, 95, 185],
+    noReturn: [175, 175, 175],
+  };
+  return colors[key] || [110, 110, 110];
 }
 
 function drawGatewayView(activityPath, pad, top) {
@@ -1599,7 +1921,7 @@ function drawGatewayView(activityPath, pad, top) {
   const rateW = 90;
   const revenueX = tableX + nameW + peopleW + rateW * 3 + 22;
   const revenueW = tableX + tableW - revenueX;
-  const maxRevenue = max(1, ...rows.map((row) => row.laterRevenue));
+  const maxRevenue = Math.max(1, ...rows.map((row) => row.laterRevenue));
   let hovered = null;
 
   fill(75);
@@ -1609,7 +1931,7 @@ function drawGatewayView(activityPath, pad, top) {
   textAlign(RIGHT, BOTTOM);
   text("people", tableX + nameW + peopleW - 8, tableY - 8);
   text("return", tableX + nameW + peopleW + rateW - 8, tableY - 8);
-  text("member", tableX + nameW + peopleW + rateW * 2 - 8, tableY - 8);
+  text("subscription", tableX + nameW + peopleW + rateW * 2 - 8, tableY - 8);
   text("no return", tableX + nameW + peopleW + rateW * 3 - 8, tableY - 8);
   text("later revenue", tableX + tableW, tableY - 8);
 
@@ -1694,7 +2016,7 @@ function drawMembershipPipelineView(pipeline, pad, top) {
   fill(85);
   textSize(12);
   textAlign(LEFT, TOP);
-  text("Ticket buyer -> recurring ticket buyer -> member -> crew / long-term", pad + 18, top + 44);
+  text("Ticket buyer -> recurring ticket buyer -> paid subscriber -> crew / long-term", pad + 18, top + 44);
 
   const funnelX = pad + 18;
   const funnelY = top + 86;
@@ -1757,7 +2079,7 @@ function drawPipelineFeeders(feeders, x, y, w, h) {
   }
 
   const entries = feeders.slice(0, 8);
-  const maxPeople = max(1, ...entries.map((entry) => entry.people));
+  const maxPeople = Math.max(1, ...entries.map((entry) => entry.people));
   const rowH = min(28, max(20, (h - 34) / entries.length));
   let hovered = null;
 
@@ -1777,7 +2099,7 @@ function drawPipelineFeeders(feeders, x, y, w, h) {
     textAlign(LEFT, CENTER);
     text(trimText(entry.label, 32), x, rowY + rowH * 0.5);
     textAlign(RIGHT, CENTER);
-    text(`${formatInteger(entry.people)} members`, x + w, rowY + rowH * 0.5);
+    text(`${formatInteger(entry.people)} subscribers`, x + w, rowY + rowH * 0.5);
   }
 
   if (hovered) {
@@ -1807,21 +2129,22 @@ function drawProductHealthView(productHealth, pad, top) {
   fill(85);
   textSize(12);
   textAlign(LEFT, TOP);
-  text("Revenue, buyers, repeat behavior, first-timer share, member share, and late-vs-early trend", pad + 18, top + 44);
+  text("Total class demand combines paid tickets and subscription bookings; revenue remains sales-only", pad + 18, top + 44);
 
   const tableX = pad + 18;
   const tableY = top + 82;
   const tableW = width - pad * 2 - 36;
   const rowH = min(30, max(22, (height - tableY - pad - 22) / items.length));
   const nameW = min(300, tableW * 0.3);
-  const colW = 78;
-  const revenueX = tableX + nameW;
-  const buyerX = revenueX + 150;
-  const repeatX = buyerX + colW;
-  const firstX = repeatX + colW;
-  const memberX = firstX + colW;
-  const trendX = memberX + colW;
-  const maxRevenue = max(1, productHealth.maxRevenue || 1);
+  const colW = max(68, (tableW - nameW) / 7);
+  const demandX = tableX + nameW;
+  const revenueX = demandX + colW;
+  const ticketX = revenueX + colW;
+  const bookingX = ticketX + colW;
+  const peopleX = bookingX + colW;
+  const repeatX = peopleX + colW;
+  const trendX = repeatX + colW;
+  const maxDemand = max(1, productHealth.maxDemand || 1);
   let hovered = null;
 
   fill(75);
@@ -1829,11 +2152,12 @@ function drawProductHealthView(productHealth, pad, top) {
   textAlign(LEFT, BOTTOM);
   text("product", tableX, tableY - 8);
   textAlign(RIGHT, BOTTOM);
-  text("revenue", buyerX - 12, tableY - 8);
-  text("buyers", repeatX - 12, tableY - 8);
-  text("repeat", firstX - 12, tableY - 8);
-  text("first", memberX - 12, tableY - 8);
-  text("member", trendX - 12, tableY - 8);
+  text("total use", revenueX - 12, tableY - 8);
+  text("revenue", ticketX - 12, tableY - 8);
+  text("paid tickets", bookingX - 12, tableY - 8);
+  text("sub. bookings", peopleX - 12, tableY - 8);
+  text("people", repeatX - 12, tableY - 8);
+  text("repeat bookers", trendX - 12, tableY - 8);
   text("trend", tableX + tableW, tableY - 8);
 
   for (let index = 0; index < items.length; index += 1) {
@@ -1852,19 +2176,20 @@ function drawProductHealthView(productHealth, pad, top) {
     textAlign(LEFT, CENTER);
     text(trimText(item.label, 36), tableX + 14, y + rowH * 0.5);
 
-    const barW = map(item.revenue, 0, maxRevenue, 0, 70);
+    const barW = map(item.totalDemand, 0, maxDemand, 0, max(20, colW - 18));
     fill(20, 65);
-    rect(revenueX, y + rowH * 0.3, barW, rowH * 0.4, 1);
+    rect(demandX, y + rowH * 0.3, barW, rowH * 0.4, 1);
 
     fill(55);
     textAlign(RIGHT, CENTER);
-    text(formatDkk(item.revenue), buyerX - 12, y + rowH * 0.5);
-    text(formatInteger(item.buyerCount), repeatX - 12, y + rowH * 0.5);
-    text(formatInteger(item.repeatBuyerCount), firstX - 12, y + rowH * 0.5);
-    text(formatPercent(item.firstTimerShare), memberX - 12, y + rowH * 0.5);
-    text(formatPercent(item.memberShare), trendX - 12, y + rowH * 0.5);
-    fill(productTrendColor(item.trend));
-    text(productTrendLabel(item.trend), tableX + tableW, y + rowH * 0.5);
+    text(formatInteger(item.totalDemand), revenueX - 12, y + rowH * 0.5);
+    text(formatDkk(item.revenue), ticketX - 12, y + rowH * 0.5);
+    text(formatInteger(item.tickets), bookingX - 12, y + rowH * 0.5);
+    text(formatInteger(item.memberBookings), peopleX - 12, y + rowH * 0.5);
+    text(formatInteger(item.totalPeople), repeatX - 12, y + rowH * 0.5);
+    text(formatInteger(item.repeatBookingMemberCount), trendX - 12, y + rowH * 0.5);
+    fill(productTrendColor(item.bookingTrend));
+    text(productTrendLabel(item.bookingTrend), tableX + tableW, y + rowH * 0.5);
   }
 
   if (hovered) {
@@ -1872,12 +2197,15 @@ function drawProductHealthView(productHealth, pad, top) {
       ...wrapText(hovered.label, 34),
       `Type: ${hovered.type}`,
       `Revenue: ${formatDkk(hovered.revenue)}`,
-      `Unique buyers: ${formatInteger(hovered.buyerCount)}`,
-      `Repeat buyers: ${formatInteger(hovered.repeatBuyerCount)}`,
+      `Paid tickets: ${formatInteger(hovered.tickets)} from ${formatInteger(hovered.buyerCount)} buyers`,
+      `Subscription bookings: ${formatInteger(hovered.memberBookings)} from ${formatInteger(hovered.bookingMemberCount)} people`,
+      `Total recorded use: ${formatInteger(hovered.totalDemand)} from ${formatInteger(hovered.totalPeople)} people`,
+      `Repeat subscription bookers: ${formatInteger(hovered.repeatBookingMemberCount)}`,
       `First-timer share: ${formatPercent(hovered.firstTimerShare)}`,
       `Member share: ${formatPercent(hovered.memberShare)}`,
       `Trend: ${productTrendLabel(hovered.trend)} (${formatPercent(hovered.trend)})`,
       `Early/Late revenue: ${formatDkk(hovered.earlyRevenue)} / ${formatDkk(hovered.lateRevenue)}`,
+      `Booking trend: ${productTrendLabel(hovered.bookingTrend)} (${formatPercent(hovered.bookingTrend)})`,
     ], 320);
   }
 }
@@ -1892,6 +2220,300 @@ function productTrendColor(trend) {
   if (trend > 0.2) return color(48, 168, 112);
   if (trend < -0.2) return color(210, 95, 70);
   return color(80);
+}
+
+function drawActivityExplorerView(activityExplorer, pad, top, options = {}) {
+  const data = activityExplorer || {};
+  const items = data.items || [];
+  const panelW = width - pad * 2;
+  fill(238);
+  noStroke();
+  rect(pad, top, panelW, height - top - pad, 4);
+  drawViewHeader("Activity Explorer", pad + 18, top + 16, "activityExplorer");
+  if (!items.length) {
+    fill(80);
+    textSize(14);
+    textAlign(LEFT, TOP);
+    text("No paid ticket types or booking classes in this range.", pad + 18, top + 54);
+    return;
+  }
+
+  const selectedKey = items.some((item) => item.key === options.activityExplorerKey) ? options.activityExplorerKey : data.defaultKey || items[0].key;
+  const selected = items.find((item) => item.key === selectedKey) || items[0];
+  const selectorBounds = { x: pad + 18, y: top + 46, w: min(590, panelW - 36), h: 34 };
+  drawActivityExplorerSelectorBox(selected, items.length, selectorBounds, !!options.activityExplorerDropdownOpen);
+
+  const cardY = top + 92;
+  const cardGap = 8;
+  const cardW = (panelW - 36 - cardGap * 6) / 7;
+  [
+    ["Recorded use", formatInteger(selected.totalRecordedUse)],
+    ["People", formatInteger(selected.totalPeople)],
+    ["Repeat people", formatPercent(selected.repeatRate)],
+    ["Revenue", formatDkk(selected.revenue)],
+    ["Paid tickets", formatInteger(selected.paidTickets)],
+    ["Sub. bookings", formatInteger(selected.membershipBookings)],
+    ["Other bookings", formatInteger(selected.otherBookings)],
+  ].forEach(([label, value], index) => drawStatCard(pad + 18 + index * (cardW + cardGap), cardY, cardW, 68, label, value));
+
+  const bodyY = top + 176;
+  const bodyH = height - bodyY - pad;
+  const gap = 10;
+  const columnW = (panelW - 36 - gap * 2) / 3;
+  const rowH = (bodyH - gap) / 2;
+  const x1 = pad + 18;
+  const x2 = x1 + columnW + gap;
+  const x3 = x2 + columnW + gap;
+  drawActivityExplorerAudiencePanel(selected, x1, bodyY, columnW, rowH);
+  drawActivityExplorerRelationPanel("Related activities", "Shared people in the selected range", selected.related, selected.totalPeople, x2, bodyY, columnW, rowH);
+  drawActivityExplorerRelationPanel("Next different activity", "After the first selected interaction", selected.next, selected.totalPeople, x3, bodyY, columnW, rowH);
+  drawActivityExplorerRelationPanel("Previous different activity", "Before the first selected interaction", selected.previous, selected.totalPeople, x1, bodyY + rowH + gap, columnW, rowH);
+  drawActivityExplorerJourneyPanel(selected, x2, bodyY + rowH + gap, columnW, rowH);
+  drawActivityExplorerSchedulePanel(selected, x3, bodyY + rowH + gap, columnW, rowH);
+  if (options.activityExplorerDropdownOpen) drawActivityExplorerDropdown(items, selected.key, selectorBounds, options.activityExplorerDropdownOffset || 0);
+}
+
+function drawActivityExplorerSelectorBox(selected, itemCount, bounds, open) {
+  const hovered = mouseX >= bounds.x && mouseX <= bounds.x + bounds.w && mouseY >= bounds.y && mouseY <= bounds.y + bounds.h;
+  fill(hovered || open ? 250 : 244);
+  stroke(open ? 70 : 205);
+  strokeWeight(1);
+  rect(bounds.x, bounds.y, bounds.w, bounds.h, 3);
+  noStroke();
+  fill(45);
+  textSize(12);
+  textAlign(LEFT, CENTER);
+  text(trimText(selected.label, 62), bounds.x + 12, bounds.y + bounds.h * 0.5);
+  fill(110);
+  textSize(10);
+  textAlign(RIGHT, CENTER);
+  text(`${selected.sourceLabel} · ${formatInteger(itemCount)} available`, bounds.x + bounds.w - 36, bounds.y + bounds.h * 0.5);
+  fill(65);
+  textSize(16);
+  text(open ? "▴" : "▾", bounds.x + bounds.w - 17, bounds.y + bounds.h * 0.5 - 1);
+  activityExplorerSelectorHits.push({ kind: "toggle", ...bounds });
+}
+
+function drawActivityExplorerDropdown(items, selectedKey, bounds, offset) {
+  const rowH = 27;
+  const listY = bounds.y + bounds.h + 2;
+  const availableRows = max(4, floor((height - listY - 38) / rowH));
+  const visibleCount = min(12, availableRows, items.length);
+  activityExplorerDropdownVisibleCount = visibleCount;
+  const safeOffset = constrain(Math.round(offset), 0, max(0, items.length - visibleCount));
+  const visible = items.slice(safeOffset, safeOffset + visibleCount);
+  const topH = safeOffset > 0 ? 22 : 0;
+  const bottomH = safeOffset + visibleCount < items.length ? 22 : 0;
+  fill(252);
+  stroke(95);
+  strokeWeight(1);
+  rect(bounds.x, listY, bounds.w, topH + visible.length * rowH + bottomH, 3);
+  noStroke();
+  let y = listY;
+  if (topH) {
+    fill(235);
+    rect(bounds.x + 1, y + 1, bounds.w - 2, topH - 1, 2);
+    fill(80);
+    textSize(10);
+    textAlign(CENTER, CENTER);
+    text(`▲ ${formatInteger(safeOffset)} earlier`, bounds.x + bounds.w * 0.5, y + topH * 0.5);
+    activityExplorerSelectorHits.push({ kind: "scroll", direction: -1, x: bounds.x, y, w: bounds.w, h: topH });
+    y += topH;
+  }
+  for (const item of visible) {
+    const hovered = mouseX >= bounds.x && mouseX <= bounds.x + bounds.w && mouseY >= y && mouseY <= y + rowH;
+    fill(item.key === selectedKey ? color(220, 234, 245) : hovered ? color(238) : color(252));
+    rect(bounds.x + 1, y, bounds.w - 2, rowH);
+    fill(45);
+    textSize(10);
+    textAlign(LEFT, CENTER);
+    text(trimText(item.label, 58), bounds.x + 12, y + rowH * 0.5);
+    fill(110);
+    textAlign(RIGHT, CENTER);
+    text(`${item.sourceLabel} · ${formatInteger(item.totalRecordedUse)}`, bounds.x + bounds.w - 12, y + rowH * 0.5);
+    activityExplorerSelectorHits.push({ kind: "option", key: item.key, x: bounds.x, y, w: bounds.w, h: rowH });
+    y += rowH;
+  }
+  if (bottomH) {
+    fill(235);
+    rect(bounds.x + 1, y, bounds.w - 2, bottomH - 1, 2);
+    fill(80);
+    textSize(10);
+    textAlign(CENTER, CENTER);
+    text(`▼ ${formatInteger(items.length - safeOffset - visibleCount)} more`, bounds.x + bounds.w * 0.5, y + bottomH * 0.5);
+    activityExplorerSelectorHits.push({ kind: "scroll", direction: 1, x: bounds.x, y, w: bounds.w, h: bottomH });
+  }
+}
+
+function drawActivityExplorerAudiencePanel(item, x, y, w, h) {
+  drawSoftPanel(x, y, w, h, 3);
+  fill(45);
+  textSize(12);
+  textAlign(LEFT, TOP);
+  text("Types of people", x + 14, y + 12);
+  fill(100);
+  textSize(10);
+  text("Behavioral groups—not demographics", x + 14, y + 30);
+  const sectionGap = max(42, (h - 50) / 3);
+  drawActivityExplorerStack("How they used it", [
+    { label: "Paid only", value: item.paidOnlyPeople, color: [60, 125, 185] },
+    { label: "Booking only", value: item.bookingOnlyPeople, color: [35, 155, 95] },
+    { label: "Both", value: item.mixedPeople, color: [135, 85, 170] },
+  ], item.totalPeople, x + 14, y + 49, w - 28);
+  drawActivityExplorerStack("Subscription relationship", [
+    { label: "Already subscribed", value: item.subscribersAtSelection, color: [230, 130, 55] },
+    { label: "Subscribed later", value: item.subscribedLater, color: [245, 185, 85] },
+    { label: "No paid subscription", value: item.neverSubscribed, color: [175, 175, 175] },
+  ], item.totalPeople, x + 14, y + 49 + sectionGap, w - 28);
+  drawActivityExplorerStack("Breadth of activity", [
+    { label: "Only this", value: item.singleElementPeople, color: [105, 145, 190] },
+    { label: "2–3 types", value: item.multiElementPeople, color: [70, 165, 150] },
+    { label: "4+ types", value: item.explorerPeople, color: [145, 95, 185] },
+  ], item.totalPeople, x + 14, y + 49 + sectionGap * 2, w - 28);
+}
+
+function drawActivityExplorerStack(title, segments, total, x, y, w) {
+  fill(75);
+  textSize(9);
+  textAlign(LEFT, TOP);
+  text(title, x, y);
+  const barY = y + 14;
+  fill(225);
+  rect(x, barY, w, 9, 1);
+  let cursorX = x;
+  for (const segment of segments) {
+    const segmentW = total ? w * segment.value / total : 0;
+    fill(...segment.color);
+    rect(cursorX, barY, segmentW, 9);
+    cursorX += segmentW;
+  }
+  let legendX = x;
+  for (const segment of segments) {
+    const label = `${segment.label} ${formatInteger(segment.value)}`;
+    textSize(8);
+    const labelW = textWidth(label) + 12;
+    if (legendX + labelW > x + w) break;
+    fill(...segment.color);
+    rect(legendX, barY + 15, 6, 6, 1);
+    fill(90);
+    textAlign(LEFT, TOP);
+    text(label, legendX + 9, barY + 12);
+    legendX += labelW + 5;
+  }
+}
+
+function drawActivityExplorerRelationPanel(title, subtitle, relations, totalPeople, x, y, w, h) {
+  drawSoftPanel(x, y, w, h, 3);
+  fill(45);
+  textSize(12);
+  textAlign(LEFT, TOP);
+  text(title, x + 14, y + 12);
+  fill(100);
+  textSize(9);
+  text(subtitle, x + 14, y + 30);
+  const entries = (relations || []).slice(0, max(1, floor((h - 57) / 22)));
+  const maxPeople = Math.max(1, ...entries.map((entry) => entry.people));
+  for (let index = 0; index < entries.length; index += 1) {
+    const entry = entries[index];
+    const rowY = y + 52 + index * 22;
+    const barW = map(entry.people, 0, maxPeople, 0, max(12, w - 130));
+    fill(entry.type === "Event" ? color(135, 85, 170, 80) : color(60, 140, 85, 80));
+    rect(x + 14, rowY + 4, barW, 13, 1);
+    fill(48);
+    textSize(10);
+    textAlign(LEFT, CENTER);
+    text(trimText(entry.label, 34), x + 18, rowY + 11);
+    textAlign(RIGHT, CENTER);
+    text(`${formatInteger(entry.people)} · ${formatPercent(totalPeople ? entry.people / totalPeople : 0)}`, x + w - 14, rowY + 11);
+  }
+  if (!entries.length) {
+    fill(115);
+    textSize(10);
+    textAlign(LEFT, TOP);
+    text("No other activity recorded", x + 14, y + 54);
+  }
+}
+
+function drawActivityExplorerJourneyPanel(item, x, y, w, h) {
+  drawSoftPanel(x, y, w, h, 3);
+  fill(45);
+  textSize(12);
+  textAlign(LEFT, TOP);
+  text("Role in the customer journey", x + 14, y + 12);
+  const rows = [
+    ["First recorded activity", item.firstElementPeople, item.firstElementRate],
+    ["Last recorded activity", item.lastElementPeople, item.lastElementRate],
+    ["Returned to this type", item.repeatPeople, item.repeatRate],
+  ];
+  for (let index = 0; index < rows.length; index += 1) {
+    const [label, count, rate] = rows[index];
+    const rowY = y + 44 + index * 35;
+    fill(90);
+    textSize(10);
+    textAlign(LEFT, TOP);
+    text(label, x + 14, rowY);
+    fill(220);
+    rect(x + 14, rowY + 16, w - 100, 7, 1);
+    fill(60, 125, 185);
+    rect(x + 14, rowY + 16, (w - 100) * rate, 7, 1);
+    fill(50);
+    textAlign(RIGHT, CENTER);
+    text(`${formatInteger(count)} · ${formatPercent(rate)}`, x + w - 14, rowY + 19);
+  }
+  fill(65);
+  textSize(10);
+  textAlign(LEFT, TOP);
+  text(`Median to next different activity: ${item.next?.length ? `${(Number(item.medianDaysToNext) || 0).toFixed(1)} days` : "—"}`, x + 14, min(y + h - 25, y + 155));
+}
+
+function drawActivityExplorerSchedulePanel(item, x, y, w, h) {
+  drawSoftPanel(x, y, w, h, 3);
+  fill(45);
+  textSize(12);
+  textAlign(LEFT, TOP);
+  text("Booking pattern", x + 14, y + 12);
+  fill(100);
+  textSize(9);
+  text("Schedule data comes from booking exports only", x + 14, y + 30);
+  const columns = [
+    { title: "Days", entries: item.weekdays || [] },
+    { title: "Start times", entries: item.bookingTimes || [] },
+    { title: "Rooms", entries: item.rooms || [] },
+  ];
+  const gap = 10;
+  const columnW = (w - 28 - gap * 2) / 3;
+  for (let columnIndex = 0; columnIndex < columns.length; columnIndex += 1) {
+    const column = columns[columnIndex];
+    const columnX = x + 14 + columnIndex * (columnW + gap);
+    fill(75);
+    textSize(9);
+    textAlign(LEFT, TOP);
+    text(column.title, columnX, y + 52);
+    for (let index = 0; index < column.entries.slice(0, 5).length; index += 1) {
+      const entry = column.entries[index];
+      const rowY = y + 70 + index * 19;
+      fill(55);
+      textSize(9);
+      textAlign(LEFT, CENTER);
+      text(trimText(entry.label, 14), columnX, rowY);
+      textAlign(RIGHT, CENTER);
+      text(formatInteger(entry.count), columnX + columnW, rowY);
+    }
+    if (!column.entries.length) {
+      fill(125);
+      textSize(9);
+      textAlign(LEFT, TOP);
+      text("No data", columnX, y + 70);
+    }
+  }
+}
+
+function getActivityExplorerSelectorHit(x, y) {
+  return [...activityExplorerSelectorHits].reverse().find((hit) => x >= hit.x && x <= hit.x + hit.w && y >= hit.y && y <= hit.y + hit.h) || null;
+}
+
+function getActivityExplorerDropdownVisibleCount() {
+  return activityExplorerDropdownVisibleCount;
 }
 
 function drawCustomerSegmentsView(customerSegments, pad, top) {
@@ -1952,7 +2574,7 @@ function drawCustomerSegmentsView(customerSegments, pad, top) {
     drawWrappedLabel(segment.label, tableX + 18, y + 8, nameW - 26, 2, 12);
     fill(85);
     textSize(10);
-    text(`avg ${formatDkk(segment.avgRevenue)} · ${segment.avgTickets.toFixed(1)} tickets`, tableX + 18, y + 36);
+    text(`avg ${formatDkk(segment.avgRevenue)} · ${segment.avgTickets.toFixed(1)} tickets · ${segment.avgBookings.toFixed(1)} bookings`, tableX + 18, y + 36);
 
     fill(20, 70);
     rect(countX, y + 16, map(segment.count, 0, maxCount, 0, 105), 8, 1);
@@ -1983,6 +2605,7 @@ function drawCustomerSegmentsView(customerSegments, pad, top) {
       `Revenue: ${formatDkk(hovered.revenue)}`,
       `Avg revenue/person: ${formatDkk(hovered.avgRevenue)}`,
       `Avg tickets/person: ${hovered.avgTickets.toFixed(1)}`,
+      `Avg subscription bookings/person: ${hovered.avgBookings.toFixed(1)}`,
       `Favorite activities: ${hovered.favoriteActivities.map((item) => `${item.label} (${formatInteger(item.count)})`).join(", ") || "none"}`,
       `Typical journeys: ${hovered.typicalJourneys.map((item) => `${item.label} (${formatInteger(item.count)})`).join(", ") || "none"}`,
     ], 360);
@@ -1992,7 +2615,10 @@ function drawCustomerSegmentsView(customerSegments, pad, top) {
 function customerSegmentColor(key) {
   const colors = {
     crew: color(135, 85, 170),
-    members: color(230, 130, 55),
+    activeSubscribers: color(35, 155, 95),
+    lowUseSubscribers: color(225, 145, 55),
+    inactiveSubscribers: color(210, 85, 75),
+    bookingOnly: color(145, 95, 175),
     highValue: color(40, 120, 180),
     recurringTickets: color(60, 140, 85),
     seasonalReturners: color(217, 130, 43),
@@ -2118,14 +2744,131 @@ function exitTypeColor(type) {
     Event: color(135, 85, 170),
     Membership: color(230, 130, 55),
     Crew: color(120, 95, 180),
+    "Subscription booking": color(35, 155, 95),
   };
   return colors[type] || color(100);
+}
+
+function drawMemberEngagementView(engagement, pad, top) {
+  const data = engagement || {};
+  const panelW = width - pad * 2;
+  fill(238);
+  noStroke();
+  rect(pad, top, panelW, height - top - pad, 4);
+  drawViewHeader("Subscription Engagement", pad + 18, top + 16, "memberEngagement");
+
+  if (!(data.sources || []).length) {
+    fill(80);
+    textSize(14);
+    textAlign(LEFT, TOP);
+    text("Drop one or more yearly booking CSVs to add subscription booking activity.", pad + 18, top + 54);
+    fill(110);
+    textSize(12);
+    text("The sales dashboard remains available; booking files can be added in any order.", pad + 18, top + 78);
+    return;
+  }
+
+  const cardY = top + 50;
+  const cardGap = 10;
+  const cardW = (panelW - 36 - cardGap * 3) / 4;
+  drawStatCard(pad + 18, cardY, cardW, 68, "Subscription bookings", formatInteger(data.membershipBookingCount || 0));
+  drawStatCard(pad + 18 + (cardW + cardGap), cardY, cardW, 68, "People booking by subscription", formatInteger((data.members || []).filter((member) => member.membershipBookingCount > 0).length));
+  drawStatCard(pad + 18 + (cardW + cardGap) * 2, cardY, cardW, 68, "Active subscribers with no booking", formatInteger(data.subscribersWithoutBookings || 0));
+  drawStatCard(pad + 18 + (cardW + cardGap) * 3, cardY, cardW, 68, "Sales identity match", formatPercent(data.matchStats?.rate || 0));
+
+  fill(75);
+  textSize(11);
+  textAlign(LEFT, TOP);
+  const coverage = bookingCoverageSummary(data.sources || []);
+  text(`${coverage.label} · ${(data.sources || []).length} file${(data.sources || []).length === 1 ? "" : "s"} · ${formatInteger(data.duplicateCount || 0)} duplicate bookings removed${coverage.gapLabel}`, pad + 18, top + 128);
+  textAlign(RIGHT, TOP);
+  text(`${formatInteger(data.bookingOnlyMembers || 0)} people booking lack a matching subscription sale`, pad + panelW - 18, top + 128);
+
+  const timelineY = top + 150;
+  const timelineH = max(190, min(310, (height - timelineY - pad) * 0.58));
+  const series = [
+    { key: "membershipBookings", label: "Subscription bookings", color: [35, 145, 95], formatter: formatInteger, scale: "count", legendOrder: 10 },
+    { key: "uniqueBookingMembers", label: "People booking by subscription", color: [40, 120, 180], formatter: formatInteger, scale: "count", legendOrder: 20 },
+    { key: "activeSubscribers", label: "Estimated active paid subscribers", color: [230, 130, 55], formatter: formatInteger, scale: "count", legendOrder: 30, stack: false },
+    { key: "subscribersWithoutBooking", label: "Active subscribers with no booking", color: [205, 75, 75], formatter: formatInteger, scale: "count", legendOrder: 40, stack: false },
+  ];
+  drawHopTimelineChart(pad, timelineY, panelW, timelineH, data.periods || [], "Subscription use", series, [], timelineChartState());
+
+  const lowerY = timelineY + timelineH + 12;
+  const lowerH = height - lowerY - pad;
+  const halfW = (panelW - 10) / 2;
+  drawMemberEngagementClassList(data.classes || [], pad, lowerY, halfW, lowerH);
+  drawMemberEngagementNoBookingList(data.members || [], pad + halfW + 10, lowerY, halfW, lowerH);
+}
+
+function bookingCoverageSummary(sources) {
+  const sorted = (sources || []).filter((source) => source.startMs && source.endMs).sort((a, b) => a.startMs - b.startMs);
+  if (!sorted.length) return { label: "Booking range unavailable", gapLabel: "" };
+  const startMs = sorted[0].startMs;
+  const endMs = Math.max(...sorted.map((source) => source.endMs));
+  let coveredEnd = sorted[0].endMs;
+  let gapCount = 0;
+  for (const source of sorted.slice(1)) {
+    if (source.startMs > coveredEnd + 2 * 86400000) gapCount += 1;
+    coveredEnd = Math.max(coveredEnd, source.endMs);
+  }
+  return {
+    label: `Booking range ${formatDate(new Date(startMs))} - ${formatDate(new Date(endMs))}`,
+    gapLabel: gapCount ? ` · ${gapCount} possible range gap${gapCount === 1 ? "" : "s"}` : "",
+  };
+}
+
+function drawMemberEngagementClassList(classes, x, y, w, h) {
+  drawSoftPanel(x, y, w, h, 4);
+  fill(35);
+  textSize(13);
+  textAlign(LEFT, TOP);
+  text("Most subscription-booked classes", x + 14, y + 12);
+  const visible = classes.slice(0, max(0, floor((h - 42) / 22)));
+  const maxBookings = Math.max(1, ...visible.map((item) => item.bookingCount));
+  visible.forEach((item, index) => {
+    const rowY = y + 38 + index * 22;
+    fill(35, 45);
+    noStroke();
+    rect(x + 14, rowY + 5, map(item.bookingCount, 0, maxBookings, 0, max(30, w * 0.32)), 8, 1);
+    fill(55);
+    textSize(10);
+    textAlign(LEFT, CENTER);
+    text(trimText(item.label, 32), x + 14, rowY);
+    textAlign(RIGHT, CENTER);
+    text(`${formatInteger(item.bookingCount)} bookings · ${formatInteger(item.uniqueMembers)} people`, x + w - 14, rowY + 10);
+  });
+}
+
+function drawMemberEngagementNoBookingList(members, x, y, w, h) {
+  drawSoftPanel(x, y, w, h, 4);
+  fill(35);
+  textSize(13);
+  textAlign(LEFT, TOP);
+  text("Known subscribers with no subscription booking", x + 14, y + 12);
+  const inactive = members.filter((member) => member.subscriptionKnown && member.membershipBookingCount === 0);
+  const visible = inactive.slice(0, max(0, floor((h - 42) / 20)));
+  fill(70);
+  textSize(10);
+  visible.forEach((member, index) => {
+    textAlign(LEFT, CENTER);
+    text(trimText(displayPersonName(member), 38), x + 14, y + 43 + index * 20);
+  });
+  if (!inactive.length) {
+    fill(95);
+    textSize(11);
+    text("None in the selected range", x + 14, y + 44);
+  } else if (inactive.length > visible.length) {
+    fill(95);
+    textAlign(RIGHT, BOTTOM);
+    text(`+${formatInteger(inactive.length - visible.length)} more`, x + w - 14, y + h - 10);
+  }
 }
 
 function drawMembershipLengthView(membershipLength, pad, top) {
   const buckets = membershipLength?.buckets || [];
   drawSoftPanel(pad, top, width - pad * 2, height - top - pad, 4);
-  drawViewHeader("Membership Length", pad + 18, top + 16, "memberLength");
+  drawViewHeader("Subscription Duration", pad + 18, top + 16, "memberLength");
 
   if (!buckets.length) {
     fill(80);
@@ -2138,13 +2881,17 @@ function drawMembershipLengthView(membershipLength, pad, top) {
   const cardGap = 12;
   const cardX = pad + 18;
   const cardW = (width - pad * 2 - 36 - cardGap * 3) / 4;
-  drawStatCard(cardX, top + 48, cardW, 72, "Spans", formatInteger(membershipLength.spanCount || 0));
-  drawStatCard(cardX + (cardW + cardGap), top + 48, cardW, 72, "Still active", formatInteger(membershipLength.activeCount || 0));
-  drawStatCard(cardX + (cardW + cardGap) * 2, top + 48, cardW, 72, "Median length", formatMembershipMonths(membershipLength.medianMonths || 0));
-  drawStatCard(cardX + (cardW + cardGap) * 3, top + 48, cardW, 72, "Avg length", formatMembershipMonths(membershipLength.avgMonths || 0));
+  fill(85);
+  textSize(11);
+  textAlign(LEFT, TOP);
+  text(`Median ${formatMembershipMonths(membershipLength.medianMonths || 0)} · average ${formatMembershipMonths(membershipLength.avgMonths || 0)}`, cardX, top + 42);
+  drawStatCard(cardX, top + 58, cardW, 72, "Subscription spans", formatInteger(membershipLength.spanCount || 0));
+  drawStatCard(cardX + (cardW + cardGap), top + 58, cardW, 72, "Still active", formatInteger(membershipLength.activeCount || 0));
+  drawStatCard(cardX + (cardW + cardGap) * 2, top + 58, cardW, 72, "No booking in span", formatInteger(membershipLength.noBookingCount || 0));
+  drawStatCard(cardX + (cardW + cardGap) * 3, top + 58, cardW, 72, "Avg bookings/span", (membershipLength.avgBookingsPerSpan || 0).toFixed(1));
 
   const chartX = pad + 32;
-  const chartY = top + 170;
+  const chartY = top + 180;
   const chartW = width - pad * 2 - 64;
   const chartH = min(260, max(170, (height - chartY - pad) * 0.52));
   drawMembershipLengthDistribution(chartX, chartY, chartW, chartH, buckets, membershipLength.maxBucketCount || 1);
@@ -2197,6 +2944,8 @@ function drawMembershipLengthDistribution(x, y, w, h, buckets, maxCount) {
       `Total spans: ${formatInteger(hovered.total)}`,
       `Still active: ${formatInteger(hovered.active)}`,
       `Ended: ${formatInteger(hovered.ended)}`,
+      `Subscription bookings: ${formatInteger(hovered.bookings || 0)}`,
+      `Spans with no booking: ${formatInteger(hovered.noBooking || 0)}`,
     ], 220);
   }
 }
@@ -2245,7 +2994,7 @@ function drawMembershipLengthTypes(x, y, w, h, types, maxCount) {
     rect(x + w * 0.48, rowY + rowH * 0.5 - 5, map(type.count, 0, maxCount, 0, w * 0.28), 10, 1);
     fill(70);
     textAlign(LEFT, CENTER);
-    text(`${formatInteger(type.count)} spans · avg ${formatMembershipMonths(type.avgMonths)} · ${formatInteger(type.active)} active`, x + w * 0.8, rowY + rowH * 0.5);
+    text(`${formatInteger(type.count)} spans · ${formatInteger(type.bookings || 0)} bookings · ${formatInteger(type.noBooking || 0)} no-use`, x + w * 0.72, rowY + rowH * 0.5);
   }
 
   if (hovered) {
@@ -2254,6 +3003,8 @@ function drawMembershipLengthTypes(x, y, w, h, types, maxCount) {
       `Spans: ${formatInteger(hovered.count)}`,
       `Still active: ${formatInteger(hovered.active)}`,
       `Average length: ${formatMembershipMonths(hovered.avgMonths)}`,
+      `Subscription bookings: ${formatInteger(hovered.bookings || 0)}`,
+      `Spans with no booking: ${formatInteger(hovered.noBooking || 0)}`,
     ], 280);
   }
 }
@@ -2265,7 +3016,7 @@ function drawMemberDistributionView(distribution, pad, top) {
     fill(238);
     noStroke();
     rect(pad, top, width - pad * 2, height - top - pad, 4);
-    drawViewHeader("Member Tenure Distribution", pad + 18, top + 16, "memberDistribution");
+    drawViewHeader("Subscription Tenure", pad + 18, top + 16, "memberDistribution");
     fill(80);
     textSize(14);
     textAlign(LEFT, TOP);
@@ -2274,14 +3025,19 @@ function drawMemberDistributionView(distribution, pad, top) {
   }
 
   const colors = memberDistributionColors();
-  const series = buckets.map((bucket, index) => ({
+  const tenureSeries = buckets.map((bucket, index) => ({
     key: bucket.key,
     label: bucket.label,
     color: colors[index % colors.length],
     formatter: formatInteger,
     scale: "count",
   })).reverse();
-  drawHopTimelineChart(pad, top, width - pad * 2, height - top - pad, months, "Member Tenure Distribution", series, [], {
+  const series = [
+    ...tenureSeries,
+    { key: "bookedMembers", label: "Subscribers who booked", color: [35, 155, 95], formatter: formatInteger, scale: "count", stack: false },
+    { key: "noBookingMembers", label: "Subscribers with no booking", color: [210, 85, 75], formatter: formatInteger, scale: "count", stack: false },
+  ];
+  drawHopTimelineChart(pad, top, width - pad * 2, height - top - pad, months, "Subscription Tenure", series, [], {
     ...timelineChartState(),
     infoKey: "memberDistribution",
   });
@@ -2319,7 +3075,19 @@ function activityPathCellColor(rate, type) {
     return [180, 180, 180, 70 + amount * 150];
   }
   const amount = constrain(rate, 0, 1);
-  return interpolateRgb([255, 255, 255], [35, 155, 95], amount);
+  const target = type === "Subscription booking"
+    ? [35, 155, 95]
+    : type === "Membership" ? [230, 130, 55]
+      : type === "Event" ? [135, 85, 170] : [60, 120, 170];
+  return interpolateRgb([255, 255, 255], target, amount);
+}
+
+function activityPathTypeColor(type) {
+  if (type === "Subscription booking") return color(35, 145, 95);
+  if (type === "Membership") return color(210, 120, 45);
+  if (type === "Event") return color(135, 85, 170);
+  if (type === "No return") return color(120);
+  return color(60, 120, 170);
 }
 
 function drawRetentionView(retention, pad, top) {
@@ -2351,12 +3119,14 @@ function drawRetentionView(retention, pad, top) {
   }
   const offset1 = retentionSummaryAt(completeCohorts, 1);
   const offset3 = retentionSummaryAt(completeCohorts, 3);
+  const offset1Purchase = retentionSummaryAt(completeCohorts, 1, "purchased");
+  const offset1Booking = retentionSummaryAt(completeCohorts, 1, "booked");
   const completeCustomerCount = completeCohorts.reduce((total, cohort) => total + cohort.size, 0);
   fill(85);
   textSize(12);
   textAlign(LEFT, TOP);
-  text(`${formatInteger(completeCustomerCount)} people · rows are complete first paid ${unit}s · columns are ${unit}s after first purchase`, pad + 18, top + 44);
-  text(`+1 ${unit}: ${formatPercent(offset1)} · +3 ${unit}s: ${formatPercent(offset3)}`, pad + 18, top + 62);
+  text(`${formatInteger(completeCustomerCount)} people · engagement return includes a later purchase or subscription booking`, pad + 18, top + 44);
+  text(`+1 ${unit}: ${formatPercent(offset1)} engaged (${formatPercent(offset1Purchase)} purchased · ${formatPercent(offset1Booking)} booked) · +3: ${formatPercent(offset3)}`, pad + 18, top + 62);
 
   const labelX = pad + 18;
   const barX = pad + 76;
@@ -2368,7 +3138,7 @@ function drawRetentionView(retention, pad, top) {
   const cellH = min(26, plotH / max(1, completeCohorts.length));
   const visibleRows = min(completeCohorts.length, floor(plotH / max(1, cellH)));
   const visibleCohorts = completeCohorts.slice(0, visibleRows);
-  const maxCohortSize = max(1, ...visibleCohorts.map((cohort) => cohort.size));
+  const maxCohortSize = Math.max(1, ...visibleCohorts.map((cohort) => cohort.size));
   let hovered = null;
 
   fill(80);
@@ -2425,6 +3195,8 @@ function drawRetentionView(retention, pad, top) {
       hovered.cell.possible === false ? "Not possible yet" : `Retained: ${formatInteger(hovered.cell.retained)} (${formatPercent(hovered.rate)})`,
       hovered.cell.outOfScope ? "Outside selected range, measured from full loaded data" : "",
       hovered.cell.possible === false ? "" : `Revenue in cell: ${formatDkk(hovered.cell.revenue)}`,
+      hovered.cell.possible === false ? "" : `Purchased again: ${formatInteger(hovered.cell.purchased || 0)} (${formatPercent(hovered.cell.purchaseRate || 0)})`,
+      hovered.cell.possible === false ? "" : `Subscription booking: ${formatInteger(hovered.cell.booked || 0)} (${formatPercent(hovered.cell.bookingRate || 0)})`,
     ], 280);
   }
 }
@@ -2462,13 +3234,13 @@ function interpolateRgb(a, b, t) {
   ];
 }
 
-function retentionSummaryAt(cohorts, offset) {
+function retentionSummaryAt(cohorts, offset, key = "retained") {
   let retained = 0;
   let total = 0;
   for (const cohort of cohorts) {
     const cell = cohort.cells[offset];
     if (!cell || cell.possible === false) continue;
-    retained += cell.retained;
+    retained += cell[key] || 0;
     total += cohort.size;
   }
   return total ? retained / total : 0;
@@ -2496,14 +3268,15 @@ function drawBuyerJourneyMap(x, y, w, h, journeys) {
     };
   });
   drawNormalizedJourneyTimeline(x, y, w, h, normalizedJourneys, {
-    title: "Buyer pattern cumulative revenue from first purchase",
+    title: "Journey pattern from first recorded purchase or subscription booking",
     mode: "cumulative",
     unitLabel: timeBucketLabel(timeBucket).toLowerCase(),
     valueFormatter: formatDkk,
-    emptyText: "No ticket or membership journeys in this range.",
+    emptyText: "No purchase or subscription-booking journeys in this range.",
     legend: [
       { label: "Ticket only", color: [68, 145, 255] },
       { label: "Membership", color: [34, 190, 125] },
+      { label: "Subscription booking", color: [30, 150, 190] },
       { label: "Crew", color: [190, 112, 255] },
       { label: "Ticket + membership", color: [255, 174, 66] },
       { label: "First membership", color: [255, 245, 120] },
@@ -2516,6 +3289,7 @@ function drawBuyerJourneyMap(x, y, w, h, journeys) {
         `Pattern: ${journey.pattern}`,
         `Span: ${formatInteger(journey.span)} ${timeBucketLabel(timeBucket).toLowerCase()}s`,
         `Total tickets: ${formatInteger(journey.totalTickets)}`,
+        `Subscription bookings: ${formatInteger(journey.totalBookings || 0)}`,
         `Revenue: ${formatDkk(journey.revenue)}`,
         lastPeriod ? `Last activity offset: ${lastPeriod.offset}` : "",
       ];
@@ -2524,6 +3298,9 @@ function drawBuyerJourneyMap(x, y, w, h, journeys) {
 }
 
 function buyerPatternColor(period) {
+  if (period.hasBooking && period.hasMembership) return [35, 175, 125];
+  if (period.hasBooking && period.hasTicket) return [45, 155, 205];
+  if (period.hasBooking) return [30, 150, 190];
   if (period.hasCrew && period.hasMembership) return [245, 120, 255];
   if (period.hasCrew && period.hasTicket) return [195, 150, 255];
   if (period.hasCrew) return [190, 112, 255];
@@ -2534,9 +3311,10 @@ function buyerPatternColor(period) {
 
 function buyerJourneyColor(journey) {
   if (journey.pattern.includes("Crew")) return [190, 112, 255];
+  if (journey.pattern.includes("booking")) return [30, 150, 190];
   if (journey.pattern === "Ticket to membership") return [255, 245, 120];
   if (journey.pattern === "Membership plus tickets") return [255, 174, 66];
-  if (journey.pattern === "Membership only") return [34, 190, 125];
+  if (journey.pattern === "Membership no bookings") return [34, 190, 125];
   return [68, 145, 255];
 }
 
@@ -2688,6 +3466,13 @@ function drawActivityPathModeToggle(mode, visible, showSaveButton = false) {
   return drawSlimButton(mode === "range" ? "First in range" : "First ever", item, true);
 }
 
+function drawActivityPathSourceToggle(source, visible, showSaveButton = false) {
+  if (!visible) return false;
+  const item = getActivityPathSourceButton(showSaveButton);
+  const labels = { purchase: "Purchases", subscription: "Sub. use", combined: "Combined" };
+  return drawSlimButton(labels[source] || "Combined", item, true);
+}
+
 function drawPurchaseTimingMembershipToggle(excludeMembership, visible, showSaveButton = false) {
   if (!visible) return false;
   const item = getPurchaseTimingMembershipButton(showSaveButton);
@@ -2749,6 +3534,13 @@ function getActivityPathModeButton(showSaveButton = false) {
   return { x: stack.x - gap - w, y: stack.y, w, h: HOP_TOP_BUTTON_H };
 }
 
+function getActivityPathSourceButton(showSaveButton = false) {
+  const mode = getActivityPathModeButton(showSaveButton);
+  const w = 82;
+  const gap = 6;
+  return { x: mode.x - gap - w, y: mode.y, w, h: HOP_TOP_BUTTON_H };
+}
+
 function getPurchaseTimingMembershipButton(showSaveButton = false) {
   const stack = getTimelineStackButton(showSaveButton);
   const w = 86;
@@ -2793,7 +3585,7 @@ function drawLineChart(x, y, w, h, points, title, key, formatter) {
   text(title, x + 18, y + 16);
 
   const values = points.map((point) => point[key]);
-  const maxValue = max(1, ...values);
+  const maxValue = Math.max(1, ...values);
   const plotX = x + 18;
   const plotY = y + 54;
   const plotW = w - 36;
@@ -2846,7 +3638,7 @@ function drawCategoryBars(x, y, w, h, categories) {
   drawViewHeader("Activity mix", x + 18, y + 16, "activityMix");
 
   const entries = Object.entries(categories).sort((a, b) => b[1] - a[1]).slice(0, 6);
-  const maxValue = max(1, ...entries.map((entry) => entry[1]));
+  const maxValue = Math.max(1, ...entries.map((entry) => entry[1]));
   let by = y + 58;
   for (const [label, value] of entries) {
     const barW = ((w - 36) * value) / maxValue;
@@ -2868,7 +3660,7 @@ function drawCategoryBars(x, y, w, h, categories) {
 function drawTooltip(x, y, lines, maxWidth = 360) {
   textSize(12);
   const wrappedLines = wrapTooltipLines(lines, maxWidth - 24);
-  const tooltipW = min(maxWidth, max(...wrappedLines.map((line) => textWidth(line))) + 24);
+  const tooltipW = min(maxWidth, Math.max(0, ...wrappedLines.map((line) => textWidth(line))) + 24);
   const tooltipH = wrappedLines.length * 18 + 14;
   const tx = min(x + 14, width - tooltipW - 8);
   const ty = min(y + 14, height - tooltipH - 8);
@@ -2954,8 +3746,11 @@ function formatPercent(value) {
 }
 
 function formatDate(date) {
-  if (!(date instanceof Date)) return "";
-  return date.toISOString().slice(0, 10);
+  if (!(date instanceof Date) || Number.isNaN(date.getTime())) return "";
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
 }
 
 function trimText(value, maxLength) {
