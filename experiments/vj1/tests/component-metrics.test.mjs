@@ -79,7 +79,8 @@ test("summarizes runtime sample bottlenecks", () => {
 test("compares current metrics against an older run", () => {
   const previous = analyzeVj1Project(createInitialState());
   const currentState = createInitialState();
-  currentState.render.componentTexture = { width: 2048, height: 2048 };
+  currentState.components[0].resolutionScale = 2;
+  currentState.render.pixelDensity = 2;
   const current = analyzeVj1Project(currentState);
   const comparison = compareVj1Metrics(current, previous);
   assert.ok(comparison.deltas.estimatedWork.change > 0);

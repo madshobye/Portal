@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 
-import { averageGpuQueryNanoseconds, cameraCaptureSettings, cameraSettingsSignature, canvasComponentPlacementRect, canvasFrameBorderHit, canvasMaxRasterSize, canvasPreviewRenderRequest, componentPipelineSourceRequest, componentReferencePlacement, componentReferenceRenderRequest, componentSourceView, directFitRects, eyeballFrameUniforms, fittedThumbnailSize, GpuTimerTracker, moveCanvasFrameRect, OutputRenderer, qualityScaledRenderRequest, resizeCanvasFrameRect } from "../js/output/output-renderer.js";
+import { averageGpuQueryNanoseconds, cameraCaptureSettings, cameraSettingsSignature, canvasComponentPlacementRect, canvasFrameBorderHit, canvasMaxRasterSize, canvasPreviewRenderRequest, componentAdaptiveRasterLimit, componentPipelineSourceRequest, componentPreviewRenderRequest, componentReferencePlacement, componentReferenceRenderRequest, componentSourceView, directFitRects, eyeballFrameUniforms, fittedThumbnailSize, GpuTimerTracker, moveCanvasFrameRect, OutputRenderer, qualityScaledRenderRequest, resizeCanvasFrameRect } from "../js/output/output-renderer.js";
 import { createPlacedRenderResult, directPlacementKind, transformedPlacementDemandRect } from "../js/graph/placed-render-result.js";
 import { renderRequestKey } from "../js/output/render-geometry.js";
 import { mapperFragmentShaderSource, VjMapper } from "../js/output/vj-mapper.js";
@@ -501,6 +501,28 @@ test("Canvas demand can supersample beyond its logical raster within the shared 
   });
 });
 
+test("Component initial dimensions define geometry without capping adaptive render demand", () => {
+  const render = { componentTexture: { width: 1000, height: 500 }, pixelDensity: 1 };
+  const component = { type: "chain", frameShape: "landscape", resolutionScale: 1 };
+  const view = componentSourceView(render, component);
+  assert.deepEqual(view.logicalSize, { width: 1000, height: 500 });
+  assert.deepEqual(view.maxRasterSize, { width: 8192, height: 4096 });
+  assert.deepEqual(componentAdaptiveRasterLimit(view.logicalSize), view.maxRasterSize);
+  assert.deepEqual(
+    pickRequestSize(componentReferenceRenderRequest(render, component, { width: 3000, height: 1500 })),
+    { width: 3008, height: 1504 }
+  );
+});
+
+test("Component preview raster follows visible demand instead of its initial dimensions", () => {
+  const render = { componentTexture: { width: 2000, height: 1000 }, pixelDensity: 1 };
+  const component = { type: "chain", frameShape: "landscape", resolutionScale: 1 };
+  assert.deepEqual(
+    pickRequestSize(componentPreviewRenderRequest(render, component, 800, 600, 1)),
+    { width: 800, height: 400 }
+  );
+});
+
 test("Canvas recording frames move within bounds and corner resize changes both dimensions independently", () => {
   const moved = moveCanvasFrameRect({ x: 100, y: 100, width: 400, height: 200 }, 900, 900, 1200, 800);
   assert.deepEqual(moved, { x: 800, y: 600, width: 400, height: 200 });
@@ -615,8 +637,10 @@ test("nested components inherit physical demand from their placement for every p
   assert.ok(canvasPlacement.width < regularPlacement.width);
   assert.ok(canvasPlacement.height < regularPlacement.height);
   assert.deepEqual(regularPlacement, { x: 0, y: 0, width: 640, height: 360 });
-  assert.ok(request.width <= canvasPlacement.width + 16);
-  assert.ok(request.height <= canvasPlacement.height + 16);
+  assert.ok(request.width <= canvasPlacement.width * 2 + 16);
+  assert.ok(request.height <= canvasPlacement.height * 2 + 16);
+  assert.ok(request.width >= canvasPlacement.width * 2 - 16);
+  assert.ok(request.height >= canvasPlacement.height * 2 - 16);
   assert.equal(request.logicalWidth / request.logicalHeight, 10 / 7);
 });
 

@@ -16,9 +16,9 @@ import {
   sanitizeState,
   syncLiveSnapshotFromScene,
   uid,
-} from "./domain/models.js?v=direct-surface-view-17";
-import { stampChangedProjectItems, touchComponentUsed } from "./domain/component-activity.js?v=direct-surface-view-17";
-import { componentFrameMetrics } from "./domain/component-frame.js?v=direct-surface-view-17";
+} from "./domain/models.js?v=adaptive-component-demand-18";
+import { stampChangedProjectItems, touchComponentUsed } from "./domain/component-activity.js?v=adaptive-component-demand-18";
+import { componentFrameMetrics } from "./domain/component-frame.js?v=adaptive-component-demand-18";
 import { VJ1, WORKSPACES } from "./constants.js";
 
 export function createAppState(initial = null) {

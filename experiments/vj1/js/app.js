@@ -1,10 +1,10 @@
-import { createAppState } from "./app-state.js?v=direct-surface-view-17";
-import { createControlShell } from "./control/control-shell-controller.js?v=direct-surface-view-17";
-import { getInitialWorkspace, getClientMode, persistWorkspace } from "./view-routing.js?v=direct-surface-view-17";
-import { createMediaLibrary } from "./services/media-library-service.js?v=direct-surface-view-17";
-import { createProjectFolderService } from "./services/project-folder-service.js?v=direct-surface-view-17";
-import { createControlBridge } from "./services/output-bridge-service.js?v=direct-surface-view-17";
-import { installOutputApp } from "./output/output-app.js?v=direct-surface-view-17";
+import { createAppState } from "./app-state.js?v=adaptive-component-demand-18";
+import { createControlShell } from "./control/control-shell-controller.js?v=adaptive-component-demand-18";
+import { getInitialWorkspace, getClientMode, persistWorkspace } from "./view-routing.js?v=adaptive-component-demand-18";
+import { createMediaLibrary } from "./services/media-library-service.js?v=adaptive-component-demand-18";
+import { createProjectFolderService } from "./services/project-folder-service.js?v=adaptive-component-demand-18";
+import { createControlBridge } from "./services/output-bridge-service.js?v=adaptive-component-demand-18";
+import { installOutputApp } from "./output/output-app.js?v=adaptive-component-demand-18";
 
 const root = document.getElementById("app");
 const mode = getClientMode();

@@ -1,12 +1,10 @@
 import { BLEND_MODES, VJ1 } from "../constants.js";
-import { componentTextureSize } from "../domain/render-resolution.js?v=direct-surface-view-17";
-import { sanitizeState } from "../domain/models.js?v=direct-surface-view-17";
-import { compileComponentPatch } from "../graph/render-scheduler.js?v=direct-surface-view-17";
+import { componentTextureSize } from "../domain/render-resolution.js?v=adaptive-component-demand-18";
+import { sanitizeState } from "../domain/models.js?v=adaptive-component-demand-18";
+import { compileComponentPatch } from "../graph/render-scheduler.js?v=adaptive-component-demand-18";
 import { planCompositorInputs, planPatchExecution, summarizeTextureBranches } from "../graph/patch-planner.js";
-import { getShaderComponent } from "../shaders/shader-registry.js?v=direct-surface-view-17";
-import { worldSize } from "../output/render-geometry.js?v=direct-surface-view-17";
-
-const BASE_COMPONENT_PIXELS = VJ1.renderWidth * VJ1.renderHeight;
+import { getShaderComponent } from "../shaders/shader-registry.js?v=adaptive-component-demand-18";
+import { worldSize } from "../output/render-geometry.js?v=adaptive-component-demand-18";
 
 export function analyzeVj1Project(input = {}, options = {}) {
   const state = sanitizeState(input || {});
@@ -58,7 +56,7 @@ export function reportVj1MetricsMarkdown(metrics = {}) {
   lines.push("");
   lines.push(`- Components: ${metrics.aggregate?.componentCount ?? 0}`);
   lines.push(`- Active surfaces: ${metrics.aggregate?.activeSurfaceCount ?? 0}`);
-  lines.push(`- Component texture: ${formatPixels(metrics.render?.componentPixels)} (${metrics.render?.componentWidth}x${metrics.render?.componentHeight})`);
+  lines.push(`- Component initial frame: ${formatPixels(metrics.render?.componentPixels)} (${metrics.render?.componentWidth}x${metrics.render?.componentHeight})`);
   lines.push(`- World: ${formatPixels(metrics.render?.worldPixels)} (${metrics.render?.worldWidth}x${metrics.render?.worldHeight})`);
   lines.push(`- Estimated render work: ${formatNumber(metrics.aggregate?.estimatedWork, 2)}`);
   if (metrics.runtime?.sampleCount) {
@@ -289,7 +287,8 @@ function componentMetrics(component, context) {
   const branchSummaries = summarizeTextureBranches(plan);
   const branchDepths = branchSummaries.map((branch) => branch.effectComponentIds?.length || 0);
   const surfaceCount = context.surfaceUsage.get(component.id)?.length || 0;
-  const pixelScale = context.render.componentPixels / BASE_COMPONENT_PIXELS;
+  const resolutionScale = Math.max(0.5, Math.min(2, Number(component.resolutionScale) || 1));
+  const pixelScale = resolutionScale * resolutionScale;
   const estimatedWork = estimateComponentWork({
     enabledSources,
     enabledEffects,
@@ -406,7 +405,7 @@ function aggregateMetrics({ state, render, components, activeSurfaces, mapping, 
     totalSources: sum(components.map((item) => item.sources.total)),
     totalEffects: sum(components.map((item) => item.effects.total)),
     enabledEffects: sum(components.map((item) => item.effects.enabled)),
-    estimatedWork: sum(components.map((item) => item.estimatedWork)) + activeSurfaces.length * (render.componentPixels / BASE_COMPONENT_PIXELS) * 0.25,
+    estimatedWork: sum(components.map((item) => item.estimatedWork)) + activeSurfaces.length * 0.25,
     topCostContributor: costliestChainItems?.[0] || null,
   };
 }
@@ -418,7 +417,6 @@ function projectBottlenecks({ state, render, activeSurfaces, components }) {
   if (!state.scenes?.length) items.push(bottleneck("info", "project", "No captured scenes; live workflow has nothing stable to select."));
   if (activeSurfaces.length >= 8) items.push(bottleneck("warn", "surfaces", `${activeSurfaces.length} active surfaces increase per-frame mapping work.`));
   if (missingAssignments.length) items.push(bottleneck("critical", "surfaces", `${missingAssignments.length} active surface(s) are missing a valid component assignment.`));
-  if (render.componentPixels > BASE_COMPONENT_PIXELS * 4) items.push(bottleneck("warn", "render", `Component texture is ${formatPixels(render.componentPixels)}, over 4x the default.`));
   if (render.worldPixels > 4000000) items.push(bottleneck("warn", "render", `Preview world is ${formatPixels(render.worldPixels)}; embedded preview may be expensive.`));
   if (render.pixelDensity > 1.25) items.push(bottleneck("warn", "render", `Pixel density ${render.pixelDensity} multiplies canvas work.`));
   if (state.ui?.debugPreview === false) {
@@ -435,7 +433,7 @@ function engineOptimizationTargets({ state, render, components, activeSurfaces, 
   const totalEnabledEffects = sum(activeComponents.map((component) => component.effects.enabled));
   const maxEffectDepth = Math.max(0, ...activeComponents.map((component) => component.maxEffectDepth || 0));
   const heavyShaderItems = (costliestChainItems || []).filter((item) => item.kind === "effect" && item.estimatedWork >= 1.6);
-  const componentPixelScale = render.componentPixels / BASE_COMPONENT_PIXELS;
+  const demandPixelScale = render.pixelDensity * render.pixelDensity;
 
   if (totalEnabledEffects) {
     targets.push({
@@ -457,10 +455,10 @@ function engineOptimizationTargets({ state, render, components, activeSurfaces, 
 
   if (activeSurfaces.length) {
     targets.push({
-      priority: activeSurfaces.length >= 6 || componentPixelScale > 2 ? "high" : "medium",
-      step: "Per-surface texture and mapper draw",
-      reason: `${activeSurfaces.length} active surface(s) each require a demand-sized surface texture draw plus a homography mapper pass sourced from ${render.componentWidth}x${render.componentHeight} component geometry.`,
-      evidence: { activeSurfaceCount: activeSurfaces.length, componentPixels: render.componentPixels },
+      priority: activeSurfaces.length >= 6 || demandPixelScale > 2 ? "high" : "medium",
+      step: "Adaptive source demand and mapper draw",
+      reason: `${activeSurfaces.length} active surface(s) contribute projected-pixel demand and a mapper draw; only exception paths materialize a separate surface texture.`,
+      evidence: { activeSurfaceCount: activeSurfaces.length, pixelDensity: render.pixelDensity },
     });
   }
 

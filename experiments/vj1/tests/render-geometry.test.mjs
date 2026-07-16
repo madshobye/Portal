@@ -170,6 +170,9 @@ test("generic source demand propagates an upstream sampling requirement", () => 
   assert.ok(sampled.rasterSize.width > normal.rasterSize.width);
   assert.ok(sampled.rasterSize.height > normal.rasterSize.height);
   assert.ok(sampled.surfaceSize.width > normal.surfaceSize.width);
+  const reduced = sourceRenderDemand({ ...input, samplingScale: 0.5 });
+  assert.ok(reduced.rasterSize.width < normal.rasterSize.width);
+  assert.ok(reduced.rasterSize.height < normal.rasterSize.height);
 });
 
 test("projective demand follows the longest edge instead of undersampling trapezoids", () => {

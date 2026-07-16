@@ -1,9 +1,9 @@
 import { VJ1, defaultCustomShaderCode, WORKSPACES } from "../constants.js";
-import { createGeneratorSource } from "../graph/generator-registry.js?v=direct-surface-view-17";
+import { createGeneratorSource } from "../graph/generator-registry.js?v=adaptive-component-demand-18";
 import { normalizeComponentFrameShape, normalizeComponentResolutionScale } from "./component-frame.js";
-import { createProjectActivity, latestProjectActivity, normalizeProjectActivity } from "./component-activity.js?v=direct-surface-view-17";
-import { CURRENT_PROJECT_VERSION, migrateProjectData } from "./project-migrations.js?v=direct-surface-view-17";
-import { normalizeComponentTextureSettings, normalizeSurfaceTextureSettings } from "./render-resolution.js?v=direct-surface-view-17";
+import { createProjectActivity, latestProjectActivity, normalizeProjectActivity } from "./component-activity.js?v=adaptive-component-demand-18";
+import { CURRENT_PROJECT_VERSION, migrateProjectData } from "./project-migrations.js?v=adaptive-component-demand-18";
+import { normalizeComponentTextureSettings, normalizeSurfaceTextureSettings } from "./render-resolution.js?v=adaptive-component-demand-18";
 
 export function uid(prefix) {
   return `${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;

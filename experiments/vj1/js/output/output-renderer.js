@@ -1,24 +1,24 @@
 import { VJ1 } from "../constants.js";
 import { componentFrameMetrics } from "../domain/component-frame.js";
-import { componentTextureSize, manualSurfaceTextureLimit } from "../domain/render-resolution.js?v=direct-surface-view-17";
-import { clamp01, normalizeComponentPipelineSettings, resolveSceneSourceNode, sanitizeState } from "../domain/models.js?v=direct-surface-view-17";
-import { normalizeParamValue, normalizeParamValues, renderQualityScale, renderQualityValue } from "../graph/component-schema.js?v=direct-surface-view-17";
+import { componentTextureSize, manualSurfaceTextureLimit } from "../domain/render-resolution.js?v=adaptive-component-demand-18";
+import { clamp01, normalizeComponentPipelineSettings, resolveSceneSourceNode, sanitizeState } from "../domain/models.js?v=adaptive-component-demand-18";
+import { normalizeParamValue, normalizeParamValues, renderQualityScale, renderQualityValue } from "../graph/component-schema.js?v=adaptive-component-demand-18";
 import { createManualScheduler } from "../graph/manual-scheduler.js";
-import { RenderNodeRuntime, textureStateKey } from "../graph/render-node-runtime.js?v=direct-surface-view-17";
-import { createPlacedRenderResult, directPlacementKind, transformedPlacementDemandRect } from "../graph/placed-render-result.js?v=direct-surface-view-17";
-import { compileComponentPatch, compileShaderSchedule, flattenComponentChain, fuseLocalShaderSchedule, isFusibleShaderJob } from "../graph/render-scheduler.js?v=direct-surface-view-17";
-import { getGeneratorComponent } from "../graph/generator-registry.js?v=direct-surface-view-17";
-import { createShaderBuilder, fusedUniformName } from "../shaders/shader-builder.js?v=direct-surface-view-17";
-import { getGeneratorShaderComponent } from "../shaders/generator-shaders.js?v=direct-surface-view-17";
-import { getShaderComponent } from "../shaders/shader-registry.js?v=direct-surface-view-17";
+import { RenderNodeRuntime, textureStateKey } from "../graph/render-node-runtime.js?v=adaptive-component-demand-18";
+import { createPlacedRenderResult, directPlacementKind, transformedPlacementDemandRect } from "../graph/placed-render-result.js?v=adaptive-component-demand-18";
+import { compileComponentPatch, compileShaderSchedule, flattenComponentChain, fuseLocalShaderSchedule, isFusibleShaderJob } from "../graph/render-scheduler.js?v=adaptive-component-demand-18";
+import { getGeneratorComponent } from "../graph/generator-registry.js?v=adaptive-component-demand-18";
+import { createShaderBuilder, fusedUniformName } from "../shaders/shader-builder.js?v=adaptive-component-demand-18";
+import { getGeneratorShaderComponent } from "../shaders/generator-shaders.js?v=adaptive-component-demand-18";
+import { getShaderComponent } from "../shaders/shader-registry.js?v=adaptive-component-demand-18";
 import { applyBlend } from "./blend-utils.js";
 import {
   createSharedFramebufferTarget,
   isSharedFramebufferTarget,
   unwrapRenderTarget,
-} from "./shared-framebuffer-target.js?v=direct-surface-view-17";
-import { applyFontToGlobal, applyFontToTarget } from "./font-loader.js?v=direct-surface-view-17";
-import { drawGenerator, drawStandby } from "./generators.js?v=direct-surface-view-17";
+} from "./shared-framebuffer-target.js?v=adaptive-component-demand-18";
+import { applyFontToGlobal, applyFontToTarget } from "./font-loader.js?v=adaptive-component-demand-18";
+import { drawGenerator, drawStandby } from "./generators.js?v=adaptive-component-demand-18";
 import { drawCover, drawMediaFit, isDrawableMedia, syncVideoPlayback } from "./media-utils.js";
 import {
   createRenderRequest,
@@ -32,8 +32,8 @@ import {
   sourceRenderDemand,
   outputSpanRect,
   worldSize,
-} from "./render-geometry.js?v=direct-surface-view-17";
-import { VjMapper } from "./vj-mapper.js?v=direct-surface-view-17";
+} from "./render-geometry.js?v=adaptive-component-demand-18";
+import { VjMapper } from "./vj-mapper.js?v=adaptive-component-demand-18";
 import { mediaRenditionKey } from "../services/media-rendition-service.js";
 
 const TERRAIN_GRID_CELLS = 48;
@@ -1239,7 +1239,14 @@ export class OutputRenderer {
       const componentTime = this.componentTimes.get(component.id) || 0;
       const request = component.type === "canvas"
         ? canvasPreviewRenderRequest(component, width, height, { reason: "component-preview", renderIdentity: component.id })
-        : componentRenderRequest(this.state.render, component, "texture", { reason: "component-preview", renderIdentity: component.id });
+        : componentPreviewRenderRequest(
+            this.state.render,
+            component,
+            width,
+            height,
+            this.renderPixelDensity(this.state.render),
+            { reason: "component-preview", renderIdentity: component.id }
+          );
       const output = this.renderComponentForRequest(
         component,
         componentTime,
@@ -4189,21 +4196,6 @@ function stableSurfaceRenderRequest(render = {}, meta = {}) {
   });
 }
 
-function componentRenderRequest(render = {}, component = {}, role = "texture", meta = {}) {
-  const metrics = componentFrameMetrics(render, component);
-  return createRenderRequest(role, metrics, {
-    ...meta,
-    logicalWidth: metrics.baseWidth,
-    logicalHeight: metrics.baseHeight,
-    pixelDensityApplied: true,
-    frameShape: metrics.frameShape,
-    resolutionScale: metrics.resolutionScale,
-    effectiveScale: metrics.effectiveScale,
-    timingId: meta.timingId || meta.surfaceId || "",
-    renderIdentity: meta.renderIdentity ?? meta.instanceId ?? component.id ?? "",
-  });
-}
-
 export function componentPipelineSourceRequest(request = {}, pipeline = {}) {
   const upscaling = pipeline?.upscaling || {};
   if (upscaling.enabled !== true || Number(upscaling.amount) >= 0.999) return request;
@@ -4222,14 +4214,9 @@ export function componentPipelineSourceRequest(request = {}, pipeline = {}) {
 
 function defaultSurfaceTextureSize(render = {}) {
   const frame = frameSize(render);
-  const maxTexture = componentTextureSize(render);
-  const scale = Math.min(
-    maxTexture.width / Math.max(1, frame.width),
-    maxTexture.height / Math.max(1, frame.height)
-  );
   return {
-    width: Math.max(1, Math.round(frame.width * scale)),
-    height: Math.max(1, Math.round(frame.height * scale)),
+    width: Math.max(1, Math.round(frame.width)),
+    height: Math.max(1, Math.round(frame.height)),
   };
 }
 
@@ -7861,21 +7848,31 @@ function fullTargetRect(target = {}) {
 
 export function componentReferenceRenderRequest(render = {}, component = {}, placement = {}, meta = {}) {
   const metrics = componentFrameMetrics(render, component);
-  const desiredScale = Math.max(
+  const demandScale = Math.max(
     Math.max(1, Number(placement.width) || 1) / metrics.baseWidth,
     Math.max(1, Number(placement.height) || 1) / metrics.baseHeight
-  );
-  const maximumScale = Math.min(metrics.width / metrics.baseWidth, metrics.height / metrics.baseHeight);
-  const scale = Math.min(maximumScale, desiredScale);
+  ) * Math.max(0.05, Number(metrics.resolutionScale) || 1);
+  const limit = componentAdaptiveRasterLimit(metrics);
+  const maximumScale = Math.min(limit.width / metrics.baseWidth, limit.height / metrics.baseHeight);
+  const scale = Math.min(maximumScale, demandScale);
   return createRenderRequest("texture", {
-    width: quantizedRenderDimension(metrics.baseWidth * scale, metrics.width),
-    height: quantizedRenderDimension(metrics.baseHeight * scale, metrics.height),
+    width: quantizedRenderDimension(metrics.baseWidth * scale, limit.width),
+    height: quantizedRenderDimension(metrics.baseHeight * scale, limit.height),
   }, {
     ...meta,
     logicalWidth: metrics.baseWidth,
     logicalHeight: metrics.baseHeight,
     demandScale: scale,
   });
+}
+
+export function componentPreviewRenderRequest(render = {}, component = {}, viewportWidth = 1, viewportHeight = 1, pixelScale = 1, meta = {}) {
+  const metrics = componentFrameMetrics(render, component);
+  const fitted = containedRect(viewportWidth, viewportHeight, metrics.baseWidth, metrics.baseHeight);
+  return componentReferenceRenderRequest(render, component, {
+    width: fitted.width * Math.max(0.05, Number(pixelScale) || 1),
+    height: fitted.height * Math.max(0.05, Number(pixelScale) || 1),
+  }, meta);
 }
 
 export function canvasPreviewRenderRequest(component = {}, viewportWidth = 1, viewportHeight = 1, meta = {}) {
@@ -7952,7 +7949,18 @@ export function componentSourceView(render = {}, component = {}, surface = {}, r
   return {
     logicalSize,
     sampleRect: { x: 0, y: 0, width: logicalSize.width, height: logicalSize.height },
-    maxRasterSize: { width: metrics.width, height: metrics.height },
+    maxRasterSize: componentAdaptiveRasterLimit(logicalSize),
+    samplingScale: Math.max(0.05, Number(metrics.resolutionScale) || 1),
+  };
+}
+
+export function componentAdaptiveRasterLimit(logicalSize = {}) {
+  const width = Math.max(1, Number(logicalSize.baseWidth ?? logicalSize.width) || 1);
+  const height = Math.max(1, Number(logicalSize.baseHeight ?? logicalSize.height) || 1);
+  const scale = Math.min(8192 / width, 8192 / height);
+  return {
+    width: Math.max(1, Math.round(width * scale)),
+    height: Math.max(1, Math.round(height * scale)),
   };
 }
 

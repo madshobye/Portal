@@ -1,20 +1,20 @@
 import { BLEND_MODES, VJ1, WORKSPACES } from "../constants.js";
 import { componentFrameMetrics } from "../domain/component-frame.js";
-import { applySceneSourceNode, applySceneSnapshotToState, createLiveComponentView, createLiveRenderState, createOutputDefinition, createSceneSnapshot, normalizeRenderSettings, resolveSceneSourceNode, sceneSourceNodes, syncLiveSnapshotFromScene } from "../domain/models.js?v=direct-surface-view-17";
-import { latestProjectActivity, touchComponentUsed, touchRecordingFrameUsed } from "../domain/component-activity.js?v=direct-surface-view-17";
-import { normalizeParamValue, RENDER_QUALITY_PARAM } from "../graph/component-schema.js?v=direct-surface-view-17";
-import { getGeneratorComponent, listGeneratorComponents } from "../graph/generator-registry.js?v=direct-surface-view-17";
+import { applySceneSourceNode, applySceneSnapshotToState, createLiveComponentView, createLiveRenderState, createOutputDefinition, createSceneSnapshot, normalizeRenderSettings, resolveSceneSourceNode, sceneSourceNodes, syncLiveSnapshotFromScene } from "../domain/models.js?v=adaptive-component-demand-18";
+import { latestProjectActivity, touchComponentUsed, touchRecordingFrameUsed } from "../domain/component-activity.js?v=adaptive-component-demand-18";
+import { normalizeParamValue, RENDER_QUALITY_PARAM } from "../graph/component-schema.js?v=adaptive-component-demand-18";
+import { getGeneratorComponent, listGeneratorComponents } from "../graph/generator-registry.js?v=adaptive-component-demand-18";
 import { patchNodeDegree, planCompositorInputs, planPatchExecution, summarizeTextureBranches } from "../graph/patch-planner.js";
-import { compileComponentPatch } from "../graph/render-scheduler.js?v=direct-surface-view-17";
-import { buildOutputUrl } from "../view-routing.js?v=direct-surface-view-17";
-import { getShaderComponent, listShaderComponents } from "../shaders/shader-registry.js?v=direct-surface-view-17";
-import { createEmbeddedPreviewApp } from "../output/embedded-preview-app.js?v=direct-surface-view-17";
-import { frameFitViewport, resetViewport, zoomViewport } from "../output/preview-viewport.js?v=direct-surface-view-17";
-import { defaultProjectSurfaceMapping } from "../output/render-geometry.js?v=direct-surface-view-17";
+import { compileComponentPatch } from "../graph/render-scheduler.js?v=adaptive-component-demand-18";
+import { buildOutputUrl } from "../view-routing.js?v=adaptive-component-demand-18";
+import { getShaderComponent, listShaderComponents } from "../shaders/shader-registry.js?v=adaptive-component-demand-18";
+import { createEmbeddedPreviewApp } from "../output/embedded-preview-app.js?v=adaptive-component-demand-18";
+import { frameFitViewport, resetViewport, zoomViewport } from "../output/preview-viewport.js?v=adaptive-component-demand-18";
+import { defaultProjectSurfaceMapping } from "../output/render-geometry.js?v=adaptive-component-demand-18";
 import { createHtmlCache, isInteractiveNode, isTextEditingNode, setClass, setText } from "./dom-utils.js";
 import { bindReorderList } from "./reorder-list.js";
-import { collectRefs, shellTemplate } from "./shell-view.js?v=direct-surface-view-17";
-import { effectIcon, emptyNote, esc, icon, paramRangePairTemplate, rangeTemplate, selectValuesTemplate, sourceTypeIcon, thumbnailTemplate } from "./template-utils.js?v=direct-surface-view-17";
+import { collectRefs, shellTemplate } from "./shell-view.js?v=adaptive-component-demand-18";
+import { effectIcon, emptyNote, esc, icon, paramRangePairTemplate, rangeTemplate, selectValuesTemplate, sourceTypeIcon, thumbnailTemplate } from "./template-utils.js?v=adaptive-component-demand-18";
 
 const MODEL_RENDER_MODES = ["surface", "wireframe", "surfaceWire", "points"];
 const MEDIA_FIT_MODES = ["contain", "cover"];
@@ -2743,12 +2743,12 @@ function settingsModalTemplate(state, activeTab = "outputs") {
           <div class="soft-note">The browser chooses the closest supported mode. Changing Camera settings restarts an active capture.</div>
         </section>
         <section class="element-section" data-settings-panel="rendering" ${activeTab === "rendering" ? "" : "hidden"}>
-          <div class="rail-title"><span class="material-symbols-rounded">aspect_ratio</span><span>Component texture</span></div>
+          <div class="rail-title"><span class="material-symbols-rounded">aspect_ratio</span><span>Component initial size</span></div>
           <div class="field-pair">
             <label class="field">Width <input type="number" min="64" max="8192" step="1" data-settings-update="render.componentTexture.width" value="${render.componentTexture.width}" /></label>
             <label class="field">Height <input type="number" min="64" max="8192" step="1" data-settings-update="render.componentTexture.height" value="${render.componentTexture.height}" /></label>
           </div>
-          <div class="soft-note">Defines component frame geometry and its available native detail. It remains active in both surface modes.</div>
+          <div class="soft-note">Defines the starting frame geometry and aspect. Runtime texture resolution follows the largest visible render demand.</div>
         </section>
         <section class="element-section" data-settings-panel="rendering" ${activeTab === "rendering" ? "" : "hidden"}>
           <div class="rail-title"><span class="material-symbols-rounded">texture</span><span>Surface texture</span></div>

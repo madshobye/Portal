@@ -1,9 +1,9 @@
 import { VJ1 } from "../constants.js";
-import { sanitizeState } from "../domain/models.js?v=direct-surface-view-17";
-import { OutputRenderer } from "./output-renderer.js?v=direct-surface-view-17";
-import { applyFontToGlobal, loadVjRenderFont } from "./font-loader.js?v=direct-surface-view-17";
-import { createPreviewViewportController, fitPreviewCanvasElement } from "./preview-viewport.js?v=direct-surface-view-17";
-import { canvasSizeForMode } from "./render-geometry.js?v=direct-surface-view-17";
+import { sanitizeState } from "../domain/models.js?v=adaptive-component-demand-18";
+import { OutputRenderer } from "./output-renderer.js?v=adaptive-component-demand-18";
+import { applyFontToGlobal, loadVjRenderFont } from "./font-loader.js?v=adaptive-component-demand-18";
+import { createPreviewViewportController, fitPreviewCanvasElement } from "./preview-viewport.js?v=adaptive-component-demand-18";
+import { canvasSizeForMode } from "./render-geometry.js?v=adaptive-component-demand-18";
 
 export function createEmbeddedPreviewApp({ store, mediaLibrary, projectService }) {
   let host = null;

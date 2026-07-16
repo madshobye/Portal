@@ -1,5 +1,5 @@
 import { VJ1 } from "../constants.js";
-import { componentTextureSize } from "../domain/render-resolution.js?v=direct-surface-view-17";
+import { componentTextureSize } from "../domain/render-resolution.js?v=adaptive-component-demand-18";
 
 export const SURFACE_DEMAND_OVERSCAN = 1.08;
 export const RECORDING_FRAME_DEMAND_SCALE = 1.5;
@@ -137,7 +137,7 @@ export function sourceRenderDemand({
   const rect = clampLogicalRect(sampleRect, logicalWidth, logicalHeight);
   const scaleToPixels = Math.max(0.05, Number(pixelScale) || 1) *
     Math.max(1, Number(overscan) || 1) *
-    Math.max(1, Number(samplingScale) || 1);
+    Math.max(0.05, Number(samplingScale) || 1);
   const desiredScale = Math.max(
     demandFootprint.width * scaleToPixels / rect.width,
     demandFootprint.height * scaleToPixels / rect.height

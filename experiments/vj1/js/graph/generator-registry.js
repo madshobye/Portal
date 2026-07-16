@@ -1,4 +1,4 @@
-import { createColorParam, createEnumParam, createNumberParam, defaultParamValues, defineVisualComponent, normalizeParamValues, textureInlet, textureOutlet } from "./component-schema.js?v=direct-surface-view-17";
+import { createColorParam, createEnumParam, createNumberParam, defaultParamValues, defineVisualComponent, normalizeParamValues, textureInlet, textureOutlet } from "./component-schema.js?v=adaptive-component-demand-18";
 
 const ALWAYS_TIME_RUNTIME = Object.freeze({ timeDependent: () => true });
 
