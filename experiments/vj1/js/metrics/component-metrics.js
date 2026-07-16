@@ -1,10 +1,10 @@
 import { BLEND_MODES, VJ1 } from "../constants.js";
-import { componentTextureSize } from "../domain/render-resolution.js?v=label-overlay-16";
-import { sanitizeState } from "../domain/models.js?v=label-overlay-16";
-import { compileComponentPatch } from "../graph/render-scheduler.js?v=label-overlay-16";
+import { componentTextureSize } from "../domain/render-resolution.js?v=direct-surface-view-17";
+import { sanitizeState } from "../domain/models.js?v=direct-surface-view-17";
+import { compileComponentPatch } from "../graph/render-scheduler.js?v=direct-surface-view-17";
 import { planCompositorInputs, planPatchExecution, summarizeTextureBranches } from "../graph/patch-planner.js";
-import { getShaderComponent } from "../shaders/shader-registry.js?v=label-overlay-16";
-import { worldSize } from "../output/render-geometry.js?v=label-overlay-16";
+import { getShaderComponent } from "../shaders/shader-registry.js?v=direct-surface-view-17";
+import { worldSize } from "../output/render-geometry.js?v=direct-surface-view-17";
 
 const BASE_COMPONENT_PIXELS = VJ1.renderWidth * VJ1.renderHeight;
 

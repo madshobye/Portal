@@ -1,9 +1,9 @@
 import { VJ1 } from "../constants.js";
-import { sanitizeState } from "../domain/models.js?v=label-overlay-16";
-import { OutputRenderer } from "./output-renderer.js?v=label-overlay-16";
-import { applyFontToGlobal, loadVjRenderFont } from "./font-loader.js?v=label-overlay-16";
-import { createPreviewViewportController, fitPreviewCanvasElement } from "./preview-viewport.js?v=label-overlay-16";
-import { canvasSizeForMode } from "./render-geometry.js?v=label-overlay-16";
+import { sanitizeState } from "../domain/models.js?v=direct-surface-view-17";
+import { OutputRenderer } from "./output-renderer.js?v=direct-surface-view-17";
+import { applyFontToGlobal, loadVjRenderFont } from "./font-loader.js?v=direct-surface-view-17";
+import { createPreviewViewportController, fitPreviewCanvasElement } from "./preview-viewport.js?v=direct-surface-view-17";
+import { canvasSizeForMode } from "./render-geometry.js?v=direct-surface-view-17";
 
 export function createEmbeddedPreviewApp({ store, mediaLibrary, projectService }) {
   let host = null;

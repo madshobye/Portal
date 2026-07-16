@@ -1,4 +1,4 @@
-import { getShaderComponent } from "./shader-registry.js?v=label-overlay-16";
+import { getShaderComponent } from "./shader-registry.js?v=direct-surface-view-17";
 
 export function createShaderBuilder({ getCustomCode, onStatus }) {
   const cache = new Map();

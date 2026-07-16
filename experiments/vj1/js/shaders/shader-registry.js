@@ -1,4 +1,4 @@
-import { createBooleanParam, createColorParam, createEnumParam, createNumberParam, createRangePairParams, defineVisualComponent, textureInlet, textureOutlet } from "../graph/component-schema.js?v=label-overlay-16";
+import { createBooleanParam, createColorParam, createEnumParam, createNumberParam, createRangePairParams, defineVisualComponent, textureInlet, textureOutlet } from "../graph/component-schema.js?v=direct-surface-view-17";
 
 const effectInlets = Object.freeze([textureInlet("texture", "Texture")]);
 const effectOutlets = Object.freeze([textureOutlet("texture", "Texture")]);

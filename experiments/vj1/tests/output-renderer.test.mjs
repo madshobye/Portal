@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 
-import { averageGpuQueryNanoseconds, cameraCaptureSettings, cameraSettingsSignature, canvasComponentPlacementRect, canvasFrameBorderHit, canvasPreviewRenderRequest, componentPipelineSourceRequest, componentReferencePlacement, componentReferenceRenderRequest, componentSourceView, directFitRects, eyeballFrameUniforms, fittedThumbnailSize, GpuTimerTracker, moveCanvasFrameRect, OutputRenderer, qualityScaledRenderRequest, resizeCanvasFrameRect } from "../js/output/output-renderer.js";
+import { averageGpuQueryNanoseconds, cameraCaptureSettings, cameraSettingsSignature, canvasComponentPlacementRect, canvasFrameBorderHit, canvasMaxRasterSize, canvasPreviewRenderRequest, componentPipelineSourceRequest, componentReferencePlacement, componentReferenceRenderRequest, componentSourceView, directFitRects, eyeballFrameUniforms, fittedThumbnailSize, GpuTimerTracker, moveCanvasFrameRect, OutputRenderer, qualityScaledRenderRequest, resizeCanvasFrameRect } from "../js/output/output-renderer.js";
 import { createPlacedRenderResult, directPlacementKind, transformedPlacementDemandRect } from "../js/graph/placed-render-result.js";
 import { renderRequestKey } from "../js/output/render-geometry.js";
 import { mapperFragmentShaderSource, VjMapper } from "../js/output/vj-mapper.js";
@@ -486,6 +486,21 @@ test("Canvas recording-frame routes declare extra sampling demand without changi
   assert.deepEqual(wholeView.sampleRect, { x: 0, y: 0, width: 3840, height: 2160 });
 });
 
+test("Canvas demand can supersample beyond its logical raster within the shared quality ceiling", () => {
+  assert.deepEqual(canvasMaxRasterSize({ pixelDensity: 1 }, { width: 4000, height: 2000 }), {
+    width: 6000,
+    height: 3000,
+  });
+  assert.deepEqual(canvasMaxRasterSize({ pixelDensity: 2 }, { width: 4000, height: 2000 }), {
+    width: 8000,
+    height: 4000,
+  });
+  assert.deepEqual(canvasMaxRasterSize({ pixelDensity: 2 }, { width: 5000, height: 5000 }), {
+    width: 8192,
+    height: 8192,
+  });
+});
+
 test("Canvas recording frames move within bounds and corner resize changes both dimensions independently", () => {
   const moved = moveCanvasFrameRect({ x: 100, y: 100, width: 400, height: 200 }, 900, 900, 1200, 800);
   assert.deepEqual(moved, { x: 800, y: 600, width: 400, height: 200 });
@@ -881,10 +896,12 @@ test("projection mapper uses actual texture size for surface sampling math", () 
   const source = readFileSync(new URL("../js/output/vj-mapper.js", import.meta.url), "utf8");
   const rendererSource = readFileSync(new URL("../js/output/output-renderer.js", import.meta.url), "utf8");
 
-  assert.ok(source.includes("texture.width || surface.w"));
-  assert.ok(source.includes("texture.height || surface.h"));
+  assert.ok(source.includes("const sourceWidth = sourceRect[2] * Math.max(1, Number(texture.width) || 1);"));
+  assert.ok(source.includes("const sourceHeight = sourceRect[3] * Math.max(1, Number(texture.height) || 1);"));
   assert.ok(source.includes('projectionFit = "cover"'));
   assert.ok(rendererSource.includes("this.mapper.drawTexture(pg, mapped.mapperSurface, surface.projectionFit, surface.feather)"));
+  assert.ok(rendererSource.includes("sourceRect: view.sourceRect"));
+  assert.ok(rendererSource.includes("directSurfaceSamples"));
 });
 
 test("zero-duration Live output retains the original single-scene surface path", () => {

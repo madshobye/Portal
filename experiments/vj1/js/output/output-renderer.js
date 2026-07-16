@@ -1,24 +1,24 @@
 import { VJ1 } from "../constants.js";
 import { componentFrameMetrics } from "../domain/component-frame.js";
-import { componentTextureSize, manualSurfaceTextureLimit } from "../domain/render-resolution.js?v=label-overlay-16";
-import { clamp01, normalizeComponentPipelineSettings, resolveSceneSourceNode, sanitizeState } from "../domain/models.js?v=label-overlay-16";
-import { normalizeParamValue, normalizeParamValues, renderQualityScale, renderQualityValue } from "../graph/component-schema.js?v=label-overlay-16";
+import { componentTextureSize, manualSurfaceTextureLimit } from "../domain/render-resolution.js?v=direct-surface-view-17";
+import { clamp01, normalizeComponentPipelineSettings, resolveSceneSourceNode, sanitizeState } from "../domain/models.js?v=direct-surface-view-17";
+import { normalizeParamValue, normalizeParamValues, renderQualityScale, renderQualityValue } from "../graph/component-schema.js?v=direct-surface-view-17";
 import { createManualScheduler } from "../graph/manual-scheduler.js";
-import { RenderNodeRuntime, textureStateKey } from "../graph/render-node-runtime.js?v=label-overlay-16";
-import { createPlacedRenderResult, directPlacementKind, transformedPlacementDemandRect } from "../graph/placed-render-result.js?v=label-overlay-16";
-import { compileComponentPatch, compileShaderSchedule, flattenComponentChain, fuseLocalShaderSchedule, isFusibleShaderJob } from "../graph/render-scheduler.js?v=label-overlay-16";
-import { getGeneratorComponent } from "../graph/generator-registry.js?v=label-overlay-16";
-import { createShaderBuilder, fusedUniformName } from "../shaders/shader-builder.js?v=label-overlay-16";
-import { getGeneratorShaderComponent } from "../shaders/generator-shaders.js?v=label-overlay-16";
-import { getShaderComponent } from "../shaders/shader-registry.js?v=label-overlay-16";
+import { RenderNodeRuntime, textureStateKey } from "../graph/render-node-runtime.js?v=direct-surface-view-17";
+import { createPlacedRenderResult, directPlacementKind, transformedPlacementDemandRect } from "../graph/placed-render-result.js?v=direct-surface-view-17";
+import { compileComponentPatch, compileShaderSchedule, flattenComponentChain, fuseLocalShaderSchedule, isFusibleShaderJob } from "../graph/render-scheduler.js?v=direct-surface-view-17";
+import { getGeneratorComponent } from "../graph/generator-registry.js?v=direct-surface-view-17";
+import { createShaderBuilder, fusedUniformName } from "../shaders/shader-builder.js?v=direct-surface-view-17";
+import { getGeneratorShaderComponent } from "../shaders/generator-shaders.js?v=direct-surface-view-17";
+import { getShaderComponent } from "../shaders/shader-registry.js?v=direct-surface-view-17";
 import { applyBlend } from "./blend-utils.js";
 import {
   createSharedFramebufferTarget,
   isSharedFramebufferTarget,
   unwrapRenderTarget,
-} from "./shared-framebuffer-target.js?v=label-overlay-16";
-import { applyFontToGlobal, applyFontToTarget } from "./font-loader.js?v=label-overlay-16";
-import { drawGenerator, drawStandby } from "./generators.js?v=label-overlay-16";
+} from "./shared-framebuffer-target.js?v=direct-surface-view-17";
+import { applyFontToGlobal, applyFontToTarget } from "./font-loader.js?v=direct-surface-view-17";
+import { drawGenerator, drawStandby } from "./generators.js?v=direct-surface-view-17";
 import { drawCover, drawMediaFit, isDrawableMedia, syncVideoPlayback } from "./media-utils.js";
 import {
   createRenderRequest,
@@ -32,8 +32,8 @@ import {
   sourceRenderDemand,
   outputSpanRect,
   worldSize,
-} from "./render-geometry.js?v=label-overlay-16";
-import { VjMapper } from "./vj-mapper.js?v=label-overlay-16";
+} from "./render-geometry.js?v=direct-surface-view-17";
+import { VjMapper } from "./vj-mapper.js?v=direct-surface-view-17";
 import { mediaRenditionKey } from "../services/media-rendition-service.js";
 
 const TERRAIN_GRID_CELLS = 48;
@@ -3030,6 +3030,15 @@ export class OutputRenderer {
     const routes = this.buildSurfaceRenderPlan();
     for (const route of routes) {
       const { surface, mapped, component, surfaceRequest: request } = route;
+      if (this.canDirectProjectSurfaceRoute(route, outputBlackout)) {
+        const view = this.renderSurfaceRouteView(route);
+        if (!view) continue;
+        this.frameProfile.directSurfaceSamples++;
+        this.frameProfile.avoidedSurfaceRasterPixels += request.width * request.height;
+        this.measureGpu(drawingContext, () => this.drawSurfaceRouteView(view, route));
+        continue;
+      }
+      this.frameProfile.surfaceRasterPixels += request.width * request.height;
       const pg = this.getSurfaceTexture(request);
       if (!pg) continue;
       pg.push();
@@ -3114,6 +3123,7 @@ export class OutputRenderer {
     const textures = new Map();
     this.withRenderState(renderState, () => {
       for (const route of routes) {
+        this.frameProfile.surfaceRasterPixels += route.surfaceRequest.width * route.surfaceRequest.height;
         const texture = this.getTransitionSurfaceTexture(side, route.surface.id, route.surfaceRequest);
         if (!texture) continue;
         texture.push();
@@ -3256,7 +3266,6 @@ export class OutputRenderer {
         logicalHeight: route.demand.sampleRect.height,
         demandScale: scale,
       });
-      this.frameProfile.surfaceRasterPixels += route.surfaceRequest.width * route.surfaceRequest.height;
     }
     this.frameProfile.surfaceRoutesVisible += routes.length;
     const plannedComponents = new Map();
@@ -3310,6 +3319,81 @@ export class OutputRenderer {
     } finally {
       pop();
     }
+  }
+
+  canDirectProjectSurfaceRoute(route = {}, outputBlackout = false) {
+    if (outputBlackout || this.shouldUseThumbnailPreview()) return false;
+    if (route.surface?.finalShaderChain?.length) return false;
+    return !(
+      this.mode !== "output" &&
+      this.state?.global?.showLabels !== false &&
+      this.mapper?.isCalibrating?.()
+    );
+  }
+
+  renderSurfaceRouteView(route = {}) {
+    const { surface = {}, component = null, componentRequest = null, demand = null } = route;
+    if (!surface.componentId) return null;
+    const componentTime = this.componentTimes.get(surface.componentId) || 0;
+    const texture = component
+      ? this.renderComponentForRequest(component, componentTime, componentRequest)
+      : this.mainMix;
+    if (!texture) return null;
+    return {
+      texture,
+      sourceRect: scaledComponentSampleRect(demand?.sampleRect, demand?.logicalSize, texture),
+    };
+  }
+
+  drawSurfaceRouteView(view, route = {}) {
+    const { surface = {}, mapped = {}, surfaceRequest = {} } = route;
+    const opacity = clamp01(surface.opacity);
+    push();
+    try {
+      applyBlendGlobal(surface.finalBlend || "normal");
+      if (mapped.direct && Number(surface.feather) <= 0) {
+        this.drawDirectSurfaceView(view, route, opacity);
+      } else {
+        this.mapper.drawTexture(
+          view.texture,
+          mapped.mapperSurface,
+          surface.projectionFit,
+          surface.feather,
+          {
+            sourceRect: view.sourceRect,
+            surfaceSize: surfaceRequest,
+            opacity,
+          }
+        );
+      }
+    } finally {
+      blendMode(BLEND);
+      pop();
+    }
+  }
+
+  drawDirectSurfaceView(view, route = {}, opacity = 1) {
+    const rect = route.mapped?.directRect || cornersRect(route.mapped?.mapperSurface?.corners || []);
+    const sourceRect = view?.sourceRect;
+    const texture = view?.texture;
+    if (!texture || !sourceRect || !rect || opacity <= 0) return;
+    const fit = directFitRects(sourceRect.width, sourceRect.height, rect, route.surface?.projectionFit || "contain");
+    const drawable = isSharedFramebufferTarget(texture) ? unwrapRenderTarget(texture) : texture;
+    resetShader();
+    imageMode(CORNER);
+    tint(255, 255 * opacity);
+    image(
+      drawable,
+      fit.destination.x - width * 0.5,
+      fit.destination.y - height * 0.5,
+      fit.destination.width,
+      fit.destination.height,
+      sourceRect.x + fit.source.x,
+      sourceRect.y + fit.source.y,
+      fit.source.width,
+      fit.source.height
+    );
+    noTint();
   }
 
   drawSurfaceRoute(pg, route = {}) {
@@ -4924,6 +5008,8 @@ function createEmptyFrameProfile() {
     surfaceRasterPixels: 0,
     directSourceComposites: 0,
     avoidedSourceRasterPixels: 0,
+    directSurfaceSamples: 0,
+    avoidedSurfaceRasterPixels: 0,
     totalMs: 0,
     passSamples: [],
   };
@@ -7850,10 +7936,11 @@ export function componentSourceView(render = {}, component = {}, surface = {}, r
       height: Math.max(1, Number(component.canvas?.height) || VJ1.canvasHeight),
     };
     const recordingFrame = recordingFrames.find((item) => item.id === surface.outputFrameId);
+    const maxRasterSize = canvasMaxRasterSize(render, logicalSize);
     return {
       logicalSize,
       sampleRect: canvasRouteFrameRect(component, surface, recordingFrames),
-      maxRasterSize: logicalSize,
+      maxRasterSize,
       // A recording-frame route is cropped and filtered again into its surface
       // texture before projective sampling. Declare that extra sampling demand
       // here so the generic planner raises every upstream dependency together.
@@ -7866,6 +7953,20 @@ export function componentSourceView(render = {}, component = {}, surface = {}, r
     logicalSize,
     sampleRect: { x: 0, y: 0, width: logicalSize.width, height: logicalSize.height },
     maxRasterSize: { width: metrics.width, height: metrics.height },
+  };
+}
+
+export function canvasMaxRasterSize(render = {}, logicalSize = {}) {
+  const width = Math.max(1, Number(logicalSize.width) || VJ1.canvasWidth);
+  const height = Math.max(1, Number(logicalSize.height) || VJ1.canvasHeight);
+  const configuredDensity = Math.max(0.5, Math.min(2, Number(render.pixelDensity) || 1));
+  // Recording frames are independent views of a Canvas. Keep enough headroom
+  // for their declared sampling allowance even at the default density, while
+  // retaining the existing pixel-density control as the upper quality policy.
+  const scale = Math.max(1, RECORDING_FRAME_DEMAND_SCALE, configuredDensity);
+  return {
+    width: Math.min(8192, Math.max(1, Math.round(width * scale))),
+    height: Math.min(8192, Math.max(1, Math.round(height * scale))),
   };
 }
 

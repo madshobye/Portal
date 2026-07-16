@@ -1,4 +1,4 @@
-import { uid } from "../domain/models.js?v=label-overlay-16";
+import { uid } from "../domain/models.js?v=direct-surface-view-17";
 import { isMediaRenditionPath, parseMediaRenditionPath } from "./media-rendition-service.js";
 
 const VIDEO_RE = /\.(mp4|m4v|mov|webm|ogv)$/i;

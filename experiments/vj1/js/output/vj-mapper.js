@@ -126,7 +126,7 @@ export class VjMapper {
     this._emitConfigChange("reset");
   }
 
-  drawTexture(texture, surface, projectionFit = "cover", feather = 0) {
+  drawTexture(texture, surface, projectionFit = "cover", feather = 0, options = {}) {
     if (!texture || !surface) return;
     const featherAmount = Math.max(0, Math.min(0.5, Number(feather) || 0));
     const shaderProgram = this._ensureShader(featherAmount > 0);
@@ -137,12 +137,22 @@ export class VjMapper {
     if (!cache) return;
     shader(shaderProgram);
     shaderProgram.setUniform("tex", texture?.framebuffer || texture);
+    const sourceRect = normalizedSourceRect(texture, options.sourceRect);
+    const sourceWidth = sourceRect[2] * Math.max(1, Number(texture.width) || 1);
+    const sourceHeight = sourceRect[3] * Math.max(1, Number(texture.height) || 1);
+    const surfaceSize = options.surfaceSize || { width: sourceWidth, height: sourceHeight };
     shaderProgram.setUniform("uCanvasSize", [width, height]);
     shaderProgram.setUniform("uHinv", cache.Hc);
-    shaderProgram.setUniform("uSurfaceSize", [texture.width || surface.w, texture.height || surface.h]);
-    shaderProgram.setUniform("uSourceAspect", Math.max(0.0001, Number(texture.width) || 1) / Math.max(1, Number(texture.height) || 1));
+    shaderProgram.setUniform("uSurfaceSize", [
+      Math.max(1, Number(surfaceSize.width) || sourceWidth || surface.w),
+      Math.max(1, Number(surfaceSize.height) || sourceHeight || surface.h),
+    ]);
+    shaderProgram.setUniform("uSourceRect", sourceRect);
+    shaderProgram.setUniform("uSourceAspect", Math.max(0.0001, sourceWidth / Math.max(1, sourceHeight)));
     shaderProgram.setUniform("uTargetAspect", projectedSurfaceAspect(surface.corners, surface.w / surface.h));
     shaderProgram.setUniform("uProjectionFit", projectionFitMode(projectionFit));
+    const opacity = Number(options.opacity ?? 1);
+    shaderProgram.setUniform("uOpacity", Number.isFinite(opacity) ? Math.max(0, Math.min(1, opacity)) : 1);
     if (featherAmount > 0) shaderProgram.setUniform("uFeather", featherAmount);
     shaderProgram.setUniform("uEdgeSoftness", this.edgeSoftness);
     this._drawSurfaceQuad(surface.corners);
@@ -443,9 +453,11 @@ export function mapperFragmentShaderSource({ feather = false } = {}) {
       precision highp float;
       uniform sampler2D tex;
       uniform vec2 uSurfaceSize;
+      uniform vec4 uSourceRect;
       uniform float uSourceAspect;
       uniform float uTargetAspect;
       uniform float uProjectionFit;
+      uniform float uOpacity;
       ${featherUniform}
       uniform float uEdgeSoftness;
       varying vec3 vProjectiveUv;
@@ -470,7 +482,8 @@ export function mapperFragmentShaderSource({ feather = false } = {}) {
           inside = step(0.0, sampleUv.x) * step(sampleUv.x, 1.0) *
             step(0.0, sampleUv.y) * step(sampleUv.y, 1.0);
         }
-        vec4 color = texture2D(tex, clamp(sampleUv, vec2(0.0), vec2(1.0))) * inside;
+        vec2 textureUv = uSourceRect.xy + clamp(sampleUv, vec2(0.0), vec2(1.0)) * uSourceRect.zw;
+        vec4 color = texture2D(tex, textureUv) * inside * uOpacity;
         ${featherCode}
         if (uEdgeSoftness > 0.0) {
           vec2 edgePx = min(uv, 1.0 - uv) * uSurfaceSize;
@@ -579,6 +592,17 @@ export function projectionFitMode(value = "cover") {
   if (value === "stretch") return 0;
   if (value === "contain") return 2;
   return 1;
+}
+
+export function normalizedSourceRect(texture = {}, rect = null) {
+  const width = Math.max(1, Number(texture?.width) || 1);
+  const height = Math.max(1, Number(texture?.height) || 1);
+  if (!rect) return [0, 0, 1, 1];
+  const x = Math.max(0, Math.min(width, Number(rect.x) || 0));
+  const y = Math.max(0, Math.min(height, Number(rect.y) || 0));
+  const rectWidth = Math.max(1, Math.min(width - x, Number(rect.width) || width));
+  const rectHeight = Math.max(1, Math.min(height - y, Number(rect.height) || height));
+  return [x / width, y / height, rectWidth / width, rectHeight / height];
 }
 
 export function surfaceQuadVertices(corners, canvasWidth, canvasHeight) {

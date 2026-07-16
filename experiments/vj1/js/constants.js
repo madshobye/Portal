@@ -8,7 +8,7 @@ export const VJ1 = Object.freeze({
   canvasHeight: 2160,
   outputWorldMarginRatio: 0.25,
   p5Script: "https://cdn.jsdelivr.net/npm/p5@2.2.0/lib/p5.js",
-  portalScript: "../../P1/portal/portal.js?v=label-overlay-16",
+  portalScript: "../../P1/portal/portal.js?v=direct-surface-view-17",
   renderFont: "assets/RobotoMono-Regular.ttf",
 });
 

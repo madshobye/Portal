@@ -1,10 +1,10 @@
-import { createAppState } from "./app-state.js?v=label-overlay-16";
-import { createControlShell } from "./control/control-shell-controller.js?v=label-overlay-16";
-import { getInitialWorkspace, getClientMode, persistWorkspace } from "./view-routing.js?v=label-overlay-16";
-import { createMediaLibrary } from "./services/media-library-service.js?v=label-overlay-16";
-import { createProjectFolderService } from "./services/project-folder-service.js?v=label-overlay-16";
-import { createControlBridge } from "./services/output-bridge-service.js?v=label-overlay-16";
-import { installOutputApp } from "./output/output-app.js?v=label-overlay-16";
+import { createAppState } from "./app-state.js?v=direct-surface-view-17";
+import { createControlShell } from "./control/control-shell-controller.js?v=direct-surface-view-17";
+import { getInitialWorkspace, getClientMode, persistWorkspace } from "./view-routing.js?v=direct-surface-view-17";
+import { createMediaLibrary } from "./services/media-library-service.js?v=direct-surface-view-17";
+import { createProjectFolderService } from "./services/project-folder-service.js?v=direct-surface-view-17";
+import { createControlBridge } from "./services/output-bridge-service.js?v=direct-surface-view-17";
+import { installOutputApp } from "./output/output-app.js?v=direct-surface-view-17";
 
 const root = document.getElementById("app");
 const mode = getClientMode();

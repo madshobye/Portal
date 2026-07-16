@@ -1,6 +1,6 @@
-import { createVisualNode, normalizeParamValues, paramValue, textureInlet, textureOutlet, textureRenderContract } from "./component-schema.js?v=label-overlay-16";
-import { getGeneratorComponent } from "./generator-registry.js?v=label-overlay-16";
-import { getShaderComponent } from "../shaders/shader-registry.js?v=label-overlay-16";
+import { createVisualNode, normalizeParamValues, paramValue, textureInlet, textureOutlet, textureRenderContract } from "./component-schema.js?v=direct-surface-view-17";
+import { getGeneratorComponent } from "./generator-registry.js?v=direct-surface-view-17";
+import { getShaderComponent } from "../shaders/shader-registry.js?v=direct-surface-view-17";
 
 export function compileComponentPatch(component = {}, renderRequest = {}) {
   const request = normalizePatchRenderRequest(renderRequest);

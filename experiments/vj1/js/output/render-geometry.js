@@ -1,5 +1,5 @@
 import { VJ1 } from "../constants.js";
-import { componentTextureSize } from "../domain/render-resolution.js?v=label-overlay-16";
+import { componentTextureSize } from "../domain/render-resolution.js?v=direct-surface-view-17";
 
 export const SURFACE_DEMAND_OVERSCAN = 1.08;
 export const RECORDING_FRAME_DEMAND_SCALE = 1.5;

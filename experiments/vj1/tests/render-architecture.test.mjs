@@ -4,7 +4,7 @@ import assert from "node:assert/strict";
 import { compileShaderSchedule, fuseLocalShaderSchedule } from "../js/graph/render-scheduler.js";
 import { effectTransformUniforms } from "../js/output/output-renderer.js";
 import { SharedFramebufferTarget, unwrapRenderTarget } from "../js/output/shared-framebuffer-target.js";
-import { mapperFragmentShaderSource, mapperTransitionFragmentShaderSource, mapperVertexShaderSource, projectedSurfaceAspect, projectionFitMode, surfaceQuadVertices } from "../js/output/vj-mapper.js";
+import { mapperFragmentShaderSource, mapperTransitionFragmentShaderSource, mapperVertexShaderSource, normalizedSourceRect, projectedSurfaceAspect, projectionFitMode, surfaceQuadVertices } from "../js/output/vj-mapper.js";
 import { createShaderBuilder } from "../js/shaders/shader-builder.js";
 import { getShaderComponent } from "../js/shaders/shader-registry.js";
 
@@ -180,7 +180,13 @@ test("projection mapping exposes cover contain and stretch without another rende
   assert.match(featherSource, /vec2 featherUv = uProjectionFit >= 1\.5 \? sampleUv : uv/);
   assert.match(featherSource, /float featherAspect = uProjectionFit >= 1\.5 \? uSourceAspect : uTargetAspect/);
   assert.match(featherSource, /color \*= featherMask/);
-  assert.match(fragmentSource, /texture2D\(tex, clamp\(sampleUv/);
+  assert.match(fragmentSource, /uniform vec4 uSourceRect/);
+  assert.match(fragmentSource, /textureUv = uSourceRect\.xy \+ clamp\(sampleUv/);
+  assert.match(fragmentSource, /texture2D\(tex, textureUv\)/);
+  assert.deepEqual(normalizedSourceRect(
+    { width: 1000, height: 500 },
+    { x: 250, y: 100, width: 500, height: 200 }
+  ), [0.25, 0.2, 0.5, 0.4]);
 });
 
 test("projection fit follows the mapped quadrilateral rather than stored surface dimensions", () => {
