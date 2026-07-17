@@ -1,6 +1,6 @@
 # VJ1 Project Handover
 
-Last updated: 2026-07-16
+Last updated: 2026-07-17
 
 VJ1 is a build-free browser VJ, visual-component, and projection-mapping app in `experiments/vj1`. It uses p5.js and raw WebGL. A user-selected local folder is authoritative for `project.json`, media, shaders, mappings, revisions, and renditions.
 
@@ -188,7 +188,7 @@ Before finishing renderer work:
 
 The implementation baseline is committed. Recent work centers on generic direct projection for Components, full Canvases, and recording-frame source rectangles; adaptive Component raster demand; demand-sized previews; shared 8192 bounds; static performance estimates; cache-busting imports; a local SuperPoint-powered two-image Feature Morph generator; and focused render-geometry/output tests. Surface textures remain only on explicit materialization paths.
 
-The handover reports **324 passing Node tests**. Real GLSL still requires a browser smoke page; Feature Morph has its own inference-and-shader smoke fixture at `tests/browser/feature-morph-smoke.html`. The representative performance comparison is `metrics-results/runs/four-surface-show-gpu-architecture.*`.
+The handover reports **333 passing Node tests**. Real GLSL still requires a browser smoke page; Feature Morph has its own inference-and-shader smoke fixture at `tests/browser/feature-morph-smoke.html`. The representative performance comparison is `metrics-results/runs/four-surface-show-gpu-architecture.*`.
 
 ## Change Discipline
 

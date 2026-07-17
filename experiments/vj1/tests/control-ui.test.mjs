@@ -8,29 +8,38 @@ import { settingsModalTemplate } from "../js/control/settings-view.js";
 import { createInitialState } from "../js/domain/models.js";
 import { previewRasterDensity } from "../js/output/embedded-preview-app.js";
 
-test("range params render as label plus slider without numeric value text", () => {
+test("range params render their label and value above a full-width slider", () => {
   const sharedRange = rangeTemplate("Opacity", "components.0.opacity", 0.42);
   const controllerSource = readFileSync(new URL("../js/control/control-shell-controller.js", import.meta.url), "utf8");
   const styleSource = readFileSync(new URL("../style.css", import.meta.url), "utf8");
 
   assert.ok(sharedRange.includes('<span>Opacity</span>'));
-  assert.ok(!sharedRange.includes("<strong>"));
+  assert.ok(sharedRange.includes('<output class="range-value" data-range-value>0.42</output>'));
   assert.ok(!controllerSource.includes("formatParamValue("));
-  assert.ok(!controllerSource.includes("updateRangeLabel("));
+  assert.ok(controllerSource.includes("syncRangeValue(input)"));
   assert.ok(!controllerSource.includes("data-color-alpha-label"));
   assert.ok(styleSource.includes("--param-slider-width: 176px;"));
-  assert.ok(styleSource.includes("grid-template-columns: minmax(0, 1fr) minmax(128px, var(--param-slider-width));"));
+  assert.ok(styleSource.includes("grid-template-columns: auto minmax(0, 1fr);"));
+  assert.match(styleSource, /\.range-value::before \{[\s\S]*?content: "\(";/);
+  assert.match(styleSource, /\.range-value::after \{[\s\S]*?content: "\)";/);
+  assert.ok(styleSource.includes("grid-column: 1 / -1;"));
   assert.ok(styleSource.includes(".live-chain-pass > .chain-param-list"));
   assert.ok(styleSource.includes("grid-column: 1 / -1;"));
 });
 
-test("Component Canvas and Live inspectors reserve label space with compact sliders", () => {
+test("Component Canvas and Live inspectors give range tracks their own full-width row", () => {
   const controllerSource = readFileSync(new URL("../js/control/control-shell-controller.js", import.meta.url), "utf8");
   const styleSource = readFileSync(new URL("../style.css", import.meta.url), "utf8");
 
   assert.ok(controllerSource.includes("refs.inspector.dataset.workspace = currentWorkspace(state);"));
-  assert.match(styleSource, /\.studio-inspector:is\(\[data-workspace="component"\], \[data-workspace="canvas"\], \[data-workspace="live"\]\) \.range-field \{[\s\S]*?grid-template-columns: minmax\(0, 1fr\) 104px;/);
-  assert.match(styleSource, /\.studio-inspector:is\(\[data-workspace="component"\], \[data-workspace="canvas"\], \[data-workspace="live"\]\) \.param-range-pair \{[\s\S]*?grid-template-columns: minmax\(0, 1fr\) 104px;/);
+  assert.match(styleSource, /\.range-field input\[type="range"\] \{[\s\S]*?grid-column: 1 \/ -1;/);
+  assert.match(styleSource, /\.studio-inspector:is\(\[data-workspace="component"\], \[data-workspace="canvas"\], \[data-workspace="live"\]\) \.param-range-pair \{[\s\S]*?grid-template-columns: minmax\(0, 1fr\);/);
+  assert.ok(!styleSource.includes(".live-chain-pass .range-field"));
+  assert.ok(!styleSource.includes(".chain-pass .range-field"));
+  assert.ok(!styleSource.includes(".live-chain-pass .chain-param-list"));
+  assert.ok(styleSource.includes(".live-chain-pass label:not(.range-field)"));
+  assert.ok(styleSource.includes("--range-stack-gap: 9px;"));
+  assert.match(styleSource, /\.chain-param-list \{[\s\S]*?gap: var\(--range-stack-gap\);/);
 });
 
 test("groups expose blend mode and alpha in persistent and Live inspectors", () => {
@@ -46,6 +55,7 @@ test("groups expose blend mode and alpha in persistent and Live inspectors", () 
 
   assert.ok(groupEditor.includes('selectValuesTemplate(`${base}.blend`, BLEND_MODES'));
   assert.ok(groupEditor.includes('rangeTemplate("Alpha", `${base}.opacity`'));
+  assert.ok(groupEditor.includes('class="chain-composite-controls group-composite-controls"'));
   assert.ok(liveGroup.includes('liveSelectValuesTemplate(componentId, `${path}.blend`, BLEND_MODES'));
   assert.ok(liveGroup.includes('liveRangeTemplate("Alpha", componentId, `${path}.opacity`'));
 });
@@ -87,6 +97,115 @@ test("component panel exposes frame shape and relative resolution controls", () 
   assert.ok(controllerSource.includes("const scaleOptions = [0.5, 1, 2];"));
   assert.ok(controllerSource.includes("component-frame-summary"));
   assert.ok(styleSource.includes(".component-option-grid"));
+});
+
+test("control surfaces share one flat section module and concentric corner tokens", () => {
+  const controllerSource = readFileSync(new URL("../js/control/control-shell-controller.js", import.meta.url), "utf8");
+  const pickerSource = readFileSync(new URL("../js/control/picker-view.js", import.meta.url), "utf8");
+  const settingsSource = readFileSync(new URL("../js/control/settings-view.js", import.meta.url), "utf8");
+  const styleSource = readFileSync(new URL("../style.css", import.meta.url), "utf8");
+
+  assert.ok(controllerSource.includes('class="ui-section rail-section"'));
+  assert.ok(controllerSource.includes('class="ui-section focus-panel"'));
+  assert.ok(pickerSource.includes('class="ui-section element-section"'));
+  assert.ok(settingsSource.includes('class="ui-section element-section"'));
+  assert.ok(styleSource.includes("--section-inset: 6px;"));
+  assert.ok(styleSource.includes("--radius-section: 12px;"));
+  assert.ok(styleSource.includes("--radius-section-inner: 6px;"));
+  assert.match(styleSource, /\.ui-section \{[\s\S]*?border: 0;[\s\S]*?border-radius: var\(--radius-section\);/);
+  assert.ok(styleSource.includes(".section-toolbar"));
+  assert.match(styleSource, /\.section-toolbar \{[\s\S]*?border-radius: var\(--radius-section-inner\);/);
+  assert.match(styleSource, /\.component-frame-summary \{[\s\S]*?border-radius: var\(--radius-section-inner\);/);
+  assert.match(styleSource, /\.text-list-item \{[\s\S]*?border-radius: var\(--radius-section-inner\);/);
+  assert.ok(controllerSource.includes('class="section-toolbar component-quick-toolbar"'));
+});
+
+test("topbar identity stays neutral until interaction", () => {
+  const styleSource = readFileSync(new URL("../style.css", import.meta.url), "utf8");
+
+  assert.match(styleSource, /\.brand-mark \{[\s\S]*?background: var\(--panel-soft\);[\s\S]*?color: var\(--ink\);/);
+  assert.match(styleSource, /\.project-button \.material-symbols-rounded \{[\s\S]*?color: var\(--muted\);/);
+});
+
+test("both control columns reserve a persistent scrollbar lane outside their sections", () => {
+  const styleSource = readFileSync(new URL("../style.css", import.meta.url), "utf8");
+
+  assert.match(styleSource, /\.project-rail,[\s\S]*?\.studio-inspector \{[\s\S]*?padding-right: 10px;[\s\S]*?overflow-y: scroll;[\s\S]*?scrollbar-gutter: stable;/);
+  assert.match(styleSource, /\.project-rail::\-webkit-scrollbar,[\s\S]*?\.studio-inspector::\-webkit-scrollbar/);
+  assert.match(styleSource, /\.project-rail::\-webkit-scrollbar-thumb,[\s\S]*?\.studio-inspector::\-webkit-scrollbar-thumb/);
+});
+
+test("every workspace rail uses the same constrained first-column module", () => {
+  const styleSource = readFileSync(new URL("../style.css", import.meta.url), "utf8");
+
+  assert.match(styleSource, /\.project-rail,[\s\S]*?\.studio-inspector \{[\s\S]*?grid-template-columns: minmax\(0, 1fr\);/);
+  assert.match(styleSource, /\.rail-section \{[\s\S]*?width: 100%;[\s\S]*?min-width: 0;/);
+  assert.match(styleSource, /\.capture-row \{[\s\S]*?grid-template-columns: minmax\(0, 1fr\) 36px;/);
+  assert.match(styleSource, /\.capture-row input \{[\s\S]*?width: 100%;[\s\S]*?min-width: 0;/);
+});
+
+test("the scrollbar lane replaces excess space between the two control columns", () => {
+  const styleSource = readFileSync(new URL("../style.css", import.meta.url), "utf8");
+
+  assert.match(styleSource, /\.studio-layout \{[\s\S]*?column-gap: 4px;[\s\S]*?row-gap: 12px;/);
+  assert.match(styleSource, /\.studio-main \{[\s\S]*?margin-left: 8px;/);
+  assert.match(styleSource, /@media \(max-width: 760px\)[\s\S]*?\.studio-main \{[\s\S]*?margin-left: 0;/);
+});
+
+test("editable element names live in their section headers beside the icon", () => {
+  const controllerSource = readFileSync(new URL("../js/control/control-shell-controller.js", import.meta.url), "utf8");
+  const settingsSource = readFileSync(new URL("../js/control/settings-view.js", import.meta.url), "utf8");
+  const styleSource = readFileSync(new URL("../style.css", import.meta.url), "utf8");
+
+  assert.ok(controllerSource.includes("function titleInputTemplate(path, value)"));
+  assert.ok(controllerSource.includes("function editableSectionTitleTemplate(iconName, path, value)"));
+  assert.ok(controllerSource.includes('class="section-title-input"'));
+  assert.ok(!controllerSource.includes('class="sculpt-head"'));
+  assert.ok(settingsSource.includes('class="section-title-input"'));
+  assert.ok(!settingsSource.includes('<label class="field">Name <input'));
+  assert.ok(styleSource.includes(".ui-section-header .section-title-input"));
+  assert.match(styleSource, /\.ui-section-header,[\s\S]*?width: 100%;[\s\S]*?min-width: 0;[\s\S]*?max-width: 100%;[\s\S]*?overflow: hidden;/);
+  assert.match(styleSource, /\.ui-section-header \.section-title-input \{[\s\S]*?flex: 1 1 0;[\s\S]*?max-width: 100%;[\s\S]*?color: inherit;[\s\S]*?font-size: inherit;[\s\S]*?font-weight: inherit;[\s\S]*?letter-spacing: inherit;[\s\S]*?text-transform: inherit;/);
+  assert.doesNotMatch(styleSource, /\.ui-section-header \.section-title-input \{[^}]*font-size: 14px;/);
+});
+
+test("thumbnail list items share a connected image and bottom label bar", () => {
+  const controllerSource = readFileSync(new URL("../js/control/control-shell-controller.js", import.meta.url), "utf8");
+  const styleSource = readFileSync(new URL("../style.css", import.meta.url), "utf8");
+
+  assert.ok(controllerSource.includes("function componentCardBarTemplate(label)"));
+  assert.ok(controllerSource.includes('class="component-card-bar"'));
+  assert.match(styleSource, /\.component-card > \.component-thumbnail,[\s\S]*?border-radius: var\(--radius-section-inner\) var\(--radius-section-inner\) 0 0;/);
+  assert.match(styleSource, /\.component-card-bar \{[\s\S]*?min-height: 26px;[\s\S]*?padding: 4px 8px;[\s\S]*?border-radius: 0 0 var\(--radius-section-inner\) var\(--radius-section-inner\);[\s\S]*?background: #000;/);
+  assert.match(styleSource, /\.component-card-bar span \{[\s\S]*?color: var\(--muted\);/);
+  assert.match(styleSource, /\.component-card\.is-selected \.component-card-bar span \{[\s\S]*?color: var\(--ink\);/);
+  assert.match(styleSource, /\.component-card-remove \{[\s\S]*?opacity: 0;[\s\S]*?visibility: hidden;[\s\S]*?pointer-events: none;/);
+  assert.match(styleSource, /\.component-card-row:hover \.component-card-remove \{[\s\S]*?visibility: visible;[\s\S]*?transition-delay: 600ms, 0s, 0s, 600ms;/);
+  assert.match(styleSource, /\.component-card-row:focus-within \.component-card-remove \{[\s\S]*?transition-delay: 0s;/);
+});
+
+test("ordinary sliders use the tall track and square active handle from the UI system", () => {
+  const styleSource = readFileSync(new URL("../style.css", import.meta.url), "utf8");
+
+  assert.ok(styleSource.includes("--accent-strong: #6f3300;"));
+  assert.ok(styleSource.includes("--slider-track: #454545;"));
+  assert.ok(styleSource.includes("--slider-thumb: #9a9997;"));
+  assert.ok(styleSource.includes("--slider-text: #777674;"));
+  assert.match(styleSource, /\.range-field > span \{[\s\S]*?color: var\(--slider-text\);/);
+  assert.match(styleSource, /\.range-value \{[\s\S]*?color: var\(--slider-text\);/);
+  assert.ok(styleSource.includes("--slider-height: 22px;"));
+  assert.match(styleSource, /input\[type="range"\]::\-webkit-slider-thumb \{[\s\S]*?width: var\(--slider-height\);[\s\S]*?height: var\(--slider-height\);[\s\S]*?border-radius: 0;[\s\S]*?background: var\(--slider-thumb\);/);
+  assert.match(styleSource, /input\[type="range"\]::\-webkit-slider-runnable-track \{[\s\S]*?height: var\(--slider-height\);[\s\S]*?border-radius: var\(--radius-section-inner\);[\s\S]*?background: var\(--slider-track\);/);
+  assert.match(styleSource, /\.param-range-track \{[\s\S]*?border-radius: var\(--radius-section-inner\);/);
+  assert.match(styleSource, /input\[type="range"\]:active::\-webkit-slider-thumb,[\s\S]*?background: var\(--accent-strong\);/);
+});
+
+test("movie trim keeps two handles while sharing the ordinary slider geometry", () => {
+  const styleSource = readFileSync(new URL("../style.css", import.meta.url), "utf8");
+
+  assert.match(styleSource, /\.video-trim-track \{[\s\S]*?height: var\(--slider-height\);[\s\S]*?border-radius: var\(--radius-section-inner\);/);
+  assert.match(styleSource, /\.video-trim-slider input\[type="range"\]::\-webkit-slider-thumb \{[\s\S]*?width: var\(--slider-height\);[\s\S]*?height: var\(--slider-height\);[\s\S]*?border-radius: 0;/);
+  assert.match(styleSource, /\.video-trim-slider input\[type="range"\]:active::\-webkit-slider-thumb,[\s\S]*?background: var\(--accent-strong\);/);
 });
 
 test("scene surfaces expose projection cover contain and stretch", () => {
@@ -156,6 +275,7 @@ test("Live scenes expose an opt-in transition duration that defaults to zero", (
 test("Live exposes a phase-continuous global visual time stretch", () => {
   const source = readFileSync(new URL("../js/control/control-shell-controller.js", import.meta.url), "utf8");
 
+  assert.match(source, /function liveToolsTemplate[\s\S]*?Live Scenes[\s\S]*?scene-card-list live-scene-list[\s\S]*?Timing[\s\S]*?live-time-scale[\s\S]*?live-transition-duration/);
   assert.ok(source.includes("Time stretch"));
   assert.ok(source.includes('data-update="global.timeStretch"'));
   assert.ok(source.includes('min="-4" max="4" step="0.01"'));
@@ -181,12 +301,21 @@ test("embedded preview retargets resize observation after workspace DOM replacem
 
 test("canvas uses the shared chain and exposes recording frames as scene routes", () => {
   const source = readFileSync(new URL("../js/control/control-shell-controller.js", import.meta.url), "utf8");
+  const style = readFileSync(new URL("../style.css", import.meta.url), "utf8");
   assert.ok(!source.includes("Build a larger visual with the same sources"));
   assert.ok(!source.includes("<span>Sampling</span>"));
-  assert.match(source, /function canvasToolsTemplate[\s\S]*?Canvas components[\s\S]*?Recording frames/);
+  assert.match(source, /function canvasToolsTemplate[\s\S]*?Canvases[\s\S]*?<span>Frames<\/span>/);
   assert.ok(source.includes('class="recording-frame-pills"'));
   assert.ok(!source.includes('class="canvas-inspector-section"'));
   assert.ok(source.includes("componentUnifiedChainTemplate(component, state, base)"));
+  assert.match(source, /function componentUnifiedChainTemplate[\s\S]*?<section class="chain-list-section" aria-label="Elements">/);
+  assert.doesNotMatch(source, /function componentUnifiedChainTemplate[\s\S]*?<span>Chain<\/span>/);
+  assert.match(style, /\.chain-list-section \{[\s\S]*?padding: var\(--section-inset\);[\s\S]*?background: var\(--panel-2\);/);
+  assert.match(source, /function componentSelectedChainSettingsTemplate[\s\S]*?<section class="ui-section focus-panel chain-settings-panel" aria-label="Selected element parameters">/);
+  assert.match(source, /currentWorkspace\(state\) === "component"[\s\S]*?componentSelectedChainSettingsTemplate\(selectedComponent, state\)/);
+  assert.match(source, /currentWorkspace\(state\) === "canvas"[\s\S]*?componentSelectedChainSettingsTemplate\(selectedCanvas, state\)/);
+  assert.ok(!source.includes('emptyNote("Select a chain item")'));
+  assert.match(style, /\.chain-item-editor \{[\s\S]*?padding: 0;[\s\S]*?background: transparent;/);
   assert.ok(source.includes('workspace === "component" || workspace === "canvas" ? "component"'));
   assert.ok(source.includes("data-add-element-component"));
   assert.ok(source.includes('type: "component"'));
@@ -239,11 +368,19 @@ test("compact text lists share one full-width item generator", () => {
   assert.match(style, /\.text-list-item:hover \{[\s\S]*?background:/);
   assert.match(style, /button\.text-list-main:hover \{[\s\S]*?background: transparent;/);
   assert.ok(!style.includes(".surface-pills .list-select.is-selected"));
+  assert.match(style, /\.chain-item-row \.enable-toggle\.is-enabled \{[\s\S]*?background: rgba\(255, 255, 255, 0\.055\);[\s\S]*?color: var\(--muted\);/);
+  assert.match(style, /\.chain-item-row\.is-selected \.enable-toggle\.is-enabled \{[\s\S]*?color: var\(--ink\);/);
+  assert.match(style, /\.chain-group-children \{[\s\S]*?padding-left: 8px;[\s\S]*?border-left: 3px solid var\(--line-strong\);/);
+  assert.match(style, /\.chain-group-drop-zone \{[\s\S]*?border: 1px dashed var\(--line-strong\);/);
+  assert.match(style, /\.chain-group-drop-zone\.is-drop-target \{[\s\S]*?border-color: rgba\(255, 255, 255, 0\.55\);[\s\S]*?background: rgba\(255, 255, 255, 0\.06\);/);
 });
 
 test("Live expands Canvas component placements into referenced element controls", () => {
   const source = readFileSync(new URL("../js/control/control-shell-controller.js", import.meta.url), "utf8");
   assert.ok(source.includes("live-referenced-component"));
+  assert.match(source, /currentWorkspace\(state\) === "live"[\s\S]*?html = liveInspectorTemplate\(state\);/);
+  assert.match(source, /function liveComponentTemplate[\s\S]*?<article class="ui-section focus-panel live-component-card">[\s\S]*?<header class="ui-section-header panel-title live-component-head">/);
+  assert.ok(!source.includes('class="live-panel"'));
   assert.ok(source.includes("createLiveComponentView(referencedComponent, state)"));
   assert.ok(source.includes("liveUnifiedChainTemplate(referencedView.chain, referencedComponent.id, state, nextAncestry)"));
   assert.ok(source.includes("!ancestry.has(referencedComponent.id)"));
@@ -440,12 +577,15 @@ test("component selection modal exposes the shared persisted catalog sorting", (
     sortMode: "name",
   });
   const controller = readFileSync(new URL("../js/control/control-shell-controller.js", import.meta.url), "utf8");
+  const style = readFileSync(new URL("../style.css", import.meta.url), "utf8");
 
   assert.ok(html.indexOf("Alpha") < html.indexOf("Beta"));
   assert.match(html, /data-catalog-sort-scope="component" data-catalog-sort="created"/);
   assert.match(html, /Sorted by name; click to sort by created/);
   assert.ok(controller.includes("sortComponentCatalog(state.components || [], modalSortMode)"));
   assert.ok(controller.includes("bindCatalogSortControls(host)"));
+  assert.match(style, /\.component-sort-toggle button\.is-active \{[\s\S]*?background: transparent;[\s\S]*?color: var\(--muted\);/);
+  assert.match(style, /\.component-sort-toggle button:active,[\s\S]*?background: var\(--accent-strong\);/);
 });
 
 test("workspace view buttons are compact icons with accessible names", () => {
@@ -513,6 +653,26 @@ test("seed params stay internal and are not rendered as sliders", () => {
   assert.ok(controllerSource.includes("const visible = visibleParamControls(params);"));
   assert.ok(controllerSource.includes("paramControlsTemplate(component.params"));
   assert.ok(controllerSource.includes("paramControlsTemplate(params"));
+});
+
+test("selected generators omit the redundant source chooser", () => {
+  const source = readFileSync(new URL("../js/control/control-shell-controller.js", import.meta.url), "utf8");
+  const picker = source.slice(source.indexOf("function sourcePickerTemplate("), source.indexOf("function mediaSourceFitControlsTemplate("));
+
+  assert.match(picker, /source\.type === "generator" \? "" : `<div class="field">/);
+  assert.match(picker, /source\.type === "generator" \? generatorParamControlsTemplate/);
+});
+
+test("inspector dropdowns share compact slider-like styling without an orange focus ring", () => {
+  const source = readFileSync(new URL("../js/control/control-shell-controller.js", import.meta.url), "utf8");
+  const style = readFileSync(new URL("../style.css", import.meta.url), "utf8");
+  const editor = source.slice(source.indexOf("function sourceChainItemTemplate("), source.indexOf("function sourceTransformControlsTemplate("));
+
+  assert.match(editor, /class="chain-composite-controls"[\s\S]*?<span>Blend<\/span>[\s\S]*?rangeTemplate\("Opacity"/);
+  assert.match(style, /\.chain-composite-controls \{[\s\S]*?display: grid;[\s\S]*?gap: var\(--range-stack-gap\);/);
+  assert.match(style, /\.studio-inspector select \{[\s\S]*?height: var\(--slider-height\);[\s\S]*?border: 0;[\s\S]*?border-radius: var\(--radius-section-inner\);[\s\S]*?background: var\(--slider-track\);/);
+  assert.match(style, /\.studio-inspector select:focus-visible \{[\s\S]*?outline: 1px solid var\(--slider-thumb\);/);
+  assert.doesNotMatch(style, /\.studio-inspector select:focus-visible \{[^}]*var\(--accent/);
 });
 
 test("components expose persistent instance synchronization without changing component ids", () => {

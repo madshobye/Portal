@@ -1,5 +1,5 @@
 import { createAppState } from "./app-state.js?v=centered-freeze-68";
-import { createControlShell } from "./control/control-shell-controller.js?v=centered-freeze-68";
+import { createControlShell } from "./control/control-shell-controller.js?v=canvas-frames-title-79";
 import { getInitialWorkspace, getClientMode, persistWorkspace } from "./view-routing.js?v=adaptive-component-demand-29";
 import { createMediaLibrary } from "./services/media-library-service.js?v=adaptive-component-demand-29";
 import { createProjectFolderService } from "./services/project-folder-service.js?v=adaptive-component-demand-29";

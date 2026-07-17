@@ -15,11 +15,11 @@ import { analyzeVj1Project } from "../metrics/component-metrics.js?v=adaptive-co
 import { createHtmlCache, isInteractiveNode, isTextEditingNode, setClass, setText } from "./dom-utils.js";
 import { bindReorderList } from "./reorder-list.js";
 import { collectRefs, shellTemplate } from "./shell-view.js?v=adaptive-component-demand-29";
-import { configuredOutputsTemplate, settingsModalTemplate } from "./settings-view.js?v=adaptive-component-demand-29";
-import { elementPickerTemplate, generatorIcon, mediaPickerTemplate, sourceChoicePickerTemplate } from "./picker-view.js?v=group-composite-59";
+import { configuredOutputsTemplate, settingsModalTemplate } from "./settings-view.js?v=editable-titles-71";
+import { elementPickerTemplate, generatorIcon, mediaPickerTemplate, sourceChoicePickerTemplate } from "./picker-view.js?v=flat-orange-ui-69";
 import { featureMorphMediaControlsTemplate } from "./feature-morph-view.js?v=mobilenet-morph-v2-47";
 import { generatorImageMediaControlTemplate } from "./generator-media-view.js?v=tile-texture-40";
-import { effectIcon, emptyNote, esc, icon, paramRangePairTemplate, rangeTemplate, selectValuesTemplate, sourceTypeIcon, thumbnailTemplate } from "./template-utils.js?v=adaptive-component-demand-29";
+import { effectIcon, emptyNote, esc, formatRangeValue, icon, paramRangePairTemplate, rangeTemplate, selectValuesTemplate, sourceTypeIcon, thumbnailTemplate } from "./template-utils.js?v=slider-values-70";
 import { chainPasteTarget, clipboardPayloadForTarget, VJ1_CLIPBOARD_TYPE } from "../domain/clipboard.js?v=clipboard-routing-62";
 
 const MODEL_RENDER_MODES = ["surface", "wireframe", "surfaceWire", "points"];
@@ -883,8 +883,8 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
   function componentToolsTemplate(state) {
     const components = catalogItemsInSnapshot("component", ordinaryComponents(state));
     return `
-      <div class="rail-section" data-component-filter-scope>
-        <div class="rail-title"><span class="material-symbols-rounded">account_tree</span><span>Components</span></div>
+      <div class="ui-section rail-section" data-component-filter-scope>
+        <div class="ui-section-header rail-title"><span class="material-symbols-rounded">account_tree</span><span>Components</span></div>
         ${componentCatalogToolsTemplate("component", catalogSortMode(state, "component"), "Filter components")}
         <div class="component-card-list" data-paste-scope="component-list">
           ${components.map((component) => componentPillTemplate(component, state)).join("") || emptyNote("Create visual recipes")}
@@ -898,16 +898,16 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
     const canvases = canvasComponents(state);
     const selectedCanvas = selectedCanvasComponent(state);
     return `
-      <div class="rail-section" data-component-filter-scope>
-        <div class="rail-title"><span class="material-symbols-rounded">dashboard_customize</span><span>Canvas components</span></div>
+      <div class="ui-section rail-section" data-component-filter-scope>
+        <div class="ui-section-header rail-title"><span class="material-symbols-rounded">dashboard_customize</span><span>Canvases</span></div>
         ${componentFilterTemplate("Filter canvases")}
         <div class="component-card-list" data-paste-scope="canvas-list">
           ${canvases.map((component) => componentPillTemplate(component, state)).join("") || emptyNote("Create a canvas component")}
         </div>
         <button type="button" data-add-canvas-component>${icon("add")} Add canvas</button>
       </div>
-      <div class="rail-section">
-        <div class="rail-title"><span class="material-symbols-rounded">select_all</span><span>Recording frames</span></div>
+      <div class="ui-section rail-section">
+        <div class="ui-section-header rail-title"><span class="material-symbols-rounded">select_all</span><span>Frames</span></div>
         <div class="recording-frame-pills">
           ${(state.recordingFrames || []).map((frame, index) => canvasFramePillTemplate(frame, index, selectedCanvas)).join("") || emptyNote("Add a recording frame")}
         </div>
@@ -918,8 +918,8 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
 
   function sceneToolsTemplate(state) {
     return `
-      <div class="rail-section">
-        <div class="rail-title"><span class="material-symbols-rounded">auto_awesome_motion</span><span>Scenes</span></div>
+      <div class="ui-section rail-section">
+        <div class="ui-section-header rail-title"><span class="material-symbols-rounded">auto_awesome_motion</span><span>Scenes</span></div>
         <div class="scene-card-list" data-paste-scope="scene-list">
           ${state.scenes.map((scene) => scenePillTemplate(scene, state)).join("") || emptyNote("Capture surface assignments")}
         </div>
@@ -929,8 +929,8 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
         </div>
       </div>
       ${sceneRailConfigTemplate(state)}
-      <div class="rail-section">
-        <div class="rail-title"><span class="material-symbols-rounded">select_all</span><span>Surfaces</span></div>
+      <div class="ui-section rail-section">
+        <div class="ui-section-header rail-title"><span class="material-symbols-rounded">select_all</span><span>Surfaces</span></div>
         <div class="surface-pills" data-surface-reorder-list data-paste-scope="surface-list">
           ${state.surfaces.map((surface) => sceneSurfacePillTemplate(surface, state)).join("")}
         </div>
@@ -944,19 +944,24 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
     const timeStretch = Math.max(-4, Math.min(4, Number(state.global?.timeStretch) || 0));
     const timeScale = timeStretch <= -4 ? 0 : 2 ** timeStretch;
     return `
-      <div class="rail-section">
-        <div class="rail-title"><span class="material-symbols-rounded">play_circle</span><span>Live Scenes</span></div>
-        <label class="field range-field live-time-scale">
-          <span>Time stretch <strong>${timeStretch.toFixed(2)} · ${timeScale < 0.1 ? timeScale.toFixed(3) : timeScale.toFixed(2)}×</strong></span>
-          <input type="range" min="-4" max="4" step="0.01" data-update="global.timeStretch" value="${timeStretch}" />
-        </label>
-        <label class="field range-field live-transition-duration">
-          <span>Transition <strong>${transitionDuration.toFixed(1)} s</strong></span>
-          <input type="range" min="0" max="10" step="0.1" data-update="ui.live.transitionDuration" value="${transitionDuration}" />
-        </label>
+      <div class="ui-section rail-section">
+        <div class="ui-section-header rail-title"><span class="material-symbols-rounded">play_circle</span><span>Live Scenes</span></div>
         <div class="scene-card-list live-scene-list">
           ${state.scenes.map((scene) => liveScenePillTemplate(scene, state)).join("") || emptyNote("Capture scenes first")}
         </div>
+      </div>
+      <div class="ui-section rail-section">
+        <div class="ui-section-header rail-title"><span class="material-symbols-rounded">tune</span><span>Timing</span></div>
+        <label class="field range-field live-time-scale">
+          <span>Time stretch</span>
+          <output class="range-value" data-range-value>${timeStretch.toFixed(2)} · ${timeScale < 0.1 ? timeScale.toFixed(3) : timeScale.toFixed(2)}×</output>
+          <input type="range" min="-4" max="4" step="0.01" data-range-format="time-stretch" data-update="global.timeStretch" value="${timeStretch}" />
+        </label>
+        <label class="field range-field live-transition-duration">
+          <span>Transition</span>
+          <output class="range-value" data-range-value>${transitionDuration.toFixed(1)} s</output>
+          <input type="range" min="0" max="10" step="0.1" data-range-suffix=" s" data-update="ui.live.transitionDuration" value="${transitionDuration}" />
+        </label>
       </div>
     `;
   }
@@ -964,21 +969,21 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
   function mappingToolsTemplate(state) {
     const selectedComponent = state.components.find((component) => component.id === state.ui.selectedComponentId) || state.components[0];
     return `
-      <div class="rail-section" data-component-filter-scope>
-        <div class="rail-title"><span class="material-symbols-rounded">schema</span><span>Node Patch</span></div>
+      <div class="ui-section rail-section" data-component-filter-scope>
+        <div class="ui-section-header rail-title"><span class="material-symbols-rounded">schema</span><span>Node Patch</span></div>
         ${componentFilterTemplate()}
         <div class="component-card-list">
           ${state.components.map((component) => componentPillTemplate(component, state)).join("") || emptyNote("Create a component")}
         </div>
       </div>
-      <div class="rail-section">
-        <div class="rail-title"><span class="material-symbols-rounded">input</span><span>Inlets</span></div>
+      <div class="ui-section rail-section">
+        <div class="ui-section-header rail-title"><span class="material-symbols-rounded">input</span><span>Inlets</span></div>
         <div class="node-chip-list">
           ${mappingInletsTemplate(selectedComponent)}
         </div>
       </div>
-      <div class="rail-section">
-        <div class="rail-title"><span class="material-symbols-rounded">output</span><span>Outlets</span></div>
+      <div class="ui-section rail-section">
+        <div class="ui-section-header rail-title"><span class="material-symbols-rounded">output</span><span>Outlets</span></div>
         <div class="node-chip-list">
           <div class="node-chip"><span>texture</span><small>component output</small></div>
           <div class="node-chip"><span>event</span><small>manual lane</small></div>
@@ -1106,11 +1111,12 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
     let html = "";
     if (currentWorkspace(state) === "component") {
       const selectedComponent = state.components.find((component) => component.id === state.ui.selectedComponentId) || state.components[0];
-      html = panelTemplate(
+      html = `${panelTemplate(
         "account_tree",
-        "Component",
-        selectedComponent ? componentTemplate(selectedComponent, state) : emptyNote("No component")
-      );
+        selectedComponent?.name || "Component",
+        selectedComponent ? componentTemplate(selectedComponent, state) : emptyNote("No component"),
+        selectedComponent ? { titlePath: `${pathForComponent(state, selectedComponent)}.name` } : {}
+      )}${selectedComponent ? componentSelectedChainSettingsTemplate(selectedComponent, state) : ""}`;
       if (replaceHtmlIfChanged(refs.inspector, html)) bindInputs(refs.inspector, state);
       return;
     }
@@ -1126,28 +1132,27 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
     }
     if (currentWorkspace(state) === "canvas") {
       const selectedCanvas = selectedCanvasComponent(state);
-      html = panelTemplate(
+      html = `${panelTemplate(
         "dashboard_customize",
-        "Canvas",
-        selectedCanvas ? canvasInspectorTemplate(selectedCanvas, state) : emptyNote("Create a canvas component")
-      );
+        selectedCanvas?.name || "Canvas",
+        selectedCanvas ? canvasInspectorTemplate(selectedCanvas, state) : emptyNote("Create a canvas component"),
+        selectedCanvas ? { titlePath: `${pathForComponent(state, selectedCanvas)}.name` } : {}
+      )}${selectedCanvas ? componentSelectedChainSettingsTemplate(selectedCanvas, state) : ""}`;
       if (replaceHtmlIfChanged(refs.inspector, html)) bindInputs(refs.inspector, state);
       return;
     }
     if (currentWorkspace(state) === "live") {
-      html = panelTemplate(
-        "tune",
-        "Live",
-        liveInspectorTemplate(state)
-      );
+      html = liveInspectorTemplate(state);
       if (replaceHtmlIfChanged(refs.inspector, html)) bindInputs(refs.inspector, state);
       return;
     }
     html = `
-      ${panelTemplate("select_all", "Surface", selectedSurface ? sceneSurfaceTemplate(selectedSurface, state, {
+      ${panelTemplate("select_all", selectedSurface?.name || "Surface", selectedSurface ? sceneSurfaceTemplate(selectedSurface, state, {
         sources: catalogItemsInSnapshot("scene", sceneSourceNodes(state)),
         sortMode: catalogSortMode(state, "scene"),
-      }) : emptyNote("No surface"))}
+      }) : emptyNote("No surface"), selectedSurface && selectedSurface.destination?.type !== "direct"
+        ? { titlePath: `${pathForSurface(state, selectedSurface)}.name` }
+        : {})}
     `;
     if (replaceHtmlIfChanged(refs.inspector, html)) bindInputs(refs.inspector, state);
   }
@@ -1356,8 +1361,14 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
     host.querySelectorAll("[data-settings-update]").forEach((input) => {
       if (input.dataset.settingsBound) return;
       input.dataset.settingsBound = "true";
-      input.addEventListener("input", () => updateRenderSetting(input, `scrub:${input.dataset.settingsUpdate}`));
-      input.addEventListener("change", () => updateRenderSetting(input, `update:${input.dataset.settingsUpdate}`));
+      input.addEventListener("input", () => {
+        syncRangeValue(input);
+        updateRenderSetting(input, `scrub:${input.dataset.settingsUpdate}`);
+      });
+      input.addEventListener("change", () => {
+        syncRangeValue(input);
+        updateRenderSetting(input, `update:${input.dataset.settingsUpdate}`);
+      });
     });
     host.querySelectorAll("[data-render-preset]").forEach((button) => {
       if (button.dataset.settingsBound) return;
@@ -1398,9 +1409,9 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
       if (input.type === "checkbox") input.checked = value === true;
       else if (value !== undefined && input.value !== String(value)) input.value = String(value);
     });
-    setText(modal.querySelector("[data-upscaling-amount-label]"), `Internal render amount · ${Math.round(render.upscaling.amount * 100)}%`);
-    setText(modal.querySelector("[data-grayscale-amount-label]"), `Grayscale amount · ${Math.round(render.postProcessing.grayscaleAmount * 100)}%`);
-    setText(modal.querySelector("[data-noise-amount-label]"), `Noise amount · ${Math.round(render.postProcessing.noiseAmount * 1000) / 10}%`);
+    setText(modal.querySelector("[data-upscaling-amount-label]"), `${Math.round(render.upscaling.amount * 100)}%`);
+    setText(modal.querySelector("[data-grayscale-amount-label]"), `${Math.round(render.postProcessing.grayscaleAmount * 100)}%`);
+    setText(modal.querySelector("[data-noise-amount-label]"), `${Math.round(render.postProcessing.noiseAmount * 1000) / 10}%`);
     const manualSurfaceTexture = render.surfaceTexture.mode === "manual";
     modal.querySelectorAll("[data-manual-surface-texture]").forEach((element) => {
       element.hidden = !manualSurfaceTexture;
@@ -1689,9 +1700,11 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
       if (input.dataset.videoTrimInput || input.dataset.paramRangeInput) return;
       if (input.type === "range") {
         input.addEventListener("input", () => {
+          syncRangeValue(input);
           updatePathFromInput(input, `scrub:${input.dataset.update}`);
         });
         input.addEventListener("change", () => {
+          syncRangeValue(input);
           updatePathFromInput(input, `update:${input.dataset.update}`);
         });
         return;
@@ -1722,9 +1735,13 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
       if (input.dataset.paramRangeInput) return;
       if (input.type === "range") {
         input.addEventListener("input", () => {
+          syncRangeValue(input);
           updateLivePathFromInput(input, "scrub:live");
         });
-        input.addEventListener("change", () => updateLivePathFromInput(input, "live:update"));
+        input.addEventListener("change", () => {
+          syncRangeValue(input);
+          updateLivePathFromInput(input, "live:update");
+        });
         return;
       }
       input.addEventListener("change", () => updateLivePathFromInput(input, "live:update"));
@@ -2054,11 +2071,15 @@ function componentPillTemplate(component, state) {
     <div class="component-card-row" data-component-filter-card="${esc(component.name.toLowerCase())}">
       <button type="button" class="component-card ${selected ? "is-selected" : ""}" data-select-component="${esc(component.id)}">
         ${thumbnailTemplate(component.thumbnail, fallbackIcon)}
-        <span>${esc(component.name)}</span>
+        ${componentCardBarTemplate(component.name)}
       </button>
       <button type="button" class="component-card-remove" data-remove-component="${esc(component.id)}" title="Remove" aria-label="Remove ${esc(component.name)}" ${removeDisabled ? "disabled" : ""}>${icon("close")}</button>
     </div>
   `;
+}
+
+function componentCardBarTemplate(label) {
+  return `<div class="component-card-bar"><span>${esc(label)}</span></div>`;
 }
 
 function canvasInspectorTemplate(component, state) {
@@ -2066,9 +2087,6 @@ function canvasInspectorTemplate(component, state) {
   const canvas = component.canvas || { width: VJ1.canvasWidth, height: VJ1.canvasHeight };
   return `
     <article class="sculpt-card">
-      <div class="sculpt-head">
-        <input type="text" data-update="${base}.name" value="${esc(component.name)}" spellcheck="false" data-gramm="false" data-gramm_editor="false" data-enable-grammarly="false" />
-      </div>
       <div class="field-pair">
         <label class="field">Width <input type="number" min="128" max="8192" step="1" data-update="${base}.canvas.width" value="${canvas.width}" /></label>
         <label class="field">Height <input type="number" min="128" max="8192" step="1" data-update="${base}.canvas.height" value="${canvas.height}" /></label>
@@ -2254,11 +2272,11 @@ function mappingInspectorTemplate(component, state) {
           `).join("")}
         </div>
       ` : ""}
-      <div class="rail-title"><span class="material-symbols-rounded">auto_awesome</span><span>Generators</span></div>
+      <div class="ui-section-header rail-title"><span class="material-symbols-rounded">auto_awesome</span><span>Generators</span></div>
       <div class="node-chip-list compact">
         ${generators.map((component) => componentChipTemplate(component)).join("")}
       </div>
-      <div class="rail-title"><span class="material-symbols-rounded">blur_on</span><span>Effects</span></div>
+      <div class="ui-section-header rail-title"><span class="material-symbols-rounded">blur_on</span><span>Effects</span></div>
       <div class="node-chip-list compact">
         ${effects.map((component) => componentChipTemplate(component)).join("")}
       </div>
@@ -2426,9 +2444,6 @@ function componentTemplate(component, state) {
   if (component.type === "canvas") {
     return `
       <article class="sculpt-card">
-        <div class="sculpt-head">
-          <input type="text" data-update="${base}.name" value="${esc(component.name)}" spellcheck="false" data-gramm="false" data-gramm_editor="false" data-enable-grammarly="false" />
-        </div>
         ${componentInstanceSyncTemplate(component, base)}
         <div class="soft-note">This Canvas uses the shared component chain. Add components as sources with the plus button, organize them in Groups when needed, and define recording frames.</div>
       </article>
@@ -2436,21 +2451,23 @@ function componentTemplate(component, state) {
   }
   return `
     <article class="sculpt-card">
-      <div class="sculpt-head">
-        <input type="text" data-update="${base}.name" value="${esc(component.name)}" spellcheck="false" data-gramm="false" data-gramm_editor="false" data-enable-grammarly="false" />
-      </div>
-      ${componentInstanceSyncTemplate(component, base)}
       ${componentFrameControlsTemplate(component, state, base)}
       ${componentUnifiedChainTemplate(component, state, base)}
     </article>
   `;
 }
 
-function componentInstanceSyncTemplate(component, base) {
+function componentInstanceSyncTemplate(component, base, compact = false) {
   const enabled = component.syncInstances !== false;
+  const button = `
+    <button type="button" class="${enabled ? "is-selected" : ""}" data-toggle-path="${base}.syncInstances" data-toggle-value="${enabled ? "true" : "false"}" aria-pressed="${enabled}" title="On keeps this Component synchronized everywhere; off gives each Canvas placement and surface its own phase">
+      ${compact ? `${icon("sync")}<span class="visually-hidden">Sync instances</span>` : "Sync instances"}
+    </button>
+  `;
+  if (compact) return button;
   return `
     <div class="segmented-pills component-option-grid" role="group" aria-label="Component instance timing">
-      <button type="button" class="${enabled ? "is-selected" : ""}" data-toggle-path="${base}.syncInstances" data-toggle-value="${enabled ? "true" : "false"}" aria-pressed="${enabled}" title="On keeps this Component synchronized everywhere; off gives each Canvas placement and surface its own phase">Sync instances</button>
+      ${button}
     </div>
   `;
 }
@@ -2463,20 +2480,24 @@ function componentFrameControlsTemplate(component, state, base) {
     ["portrait", "Portrait"],
     ["square", "Square"],
   ];
+  const shapeIcons = { landscape: "crop_landscape", portrait: "crop_portrait", square: "crop_square" };
   const scaleOptions = [0.5, 1, 2];
   return `
     <section class="component-frame-controls">
-      <div class="rail-title"><span class="material-symbols-rounded">aspect_ratio</span><span>Frame</span></div>
-      <div class="segmented-pills component-option-grid" role="group" aria-label="Component frame shape">
+      <div class="section-toolbar component-quick-toolbar" aria-label="Component quick settings">
+        <div class="section-toolbar-group component-quick-group" role="group" aria-label="Component instance timing">
+          ${componentInstanceSyncTemplate(component, base, true)}
+        </div>
+        <div class="section-toolbar-group component-quick-group" role="group" aria-label="Component frame shape">
         ${shapeOptions.map(([value, label]) => `
-          <button type="button" class="${metrics.frameShape === value ? "is-selected" : ""}" data-set-path="${base}.frameShape" data-set-value="${value}" aria-pressed="${metrics.frameShape === value}">${label}</button>
+          <button type="button" class="${metrics.frameShape === value ? "is-selected" : ""}" data-set-path="${base}.frameShape" data-set-value="${value}" aria-pressed="${metrics.frameShape === value}" title="${label}">${icon(shapeIcons[value])}<span class="visually-hidden">${label}</span></button>
         `).join("")}
-      </div>
-      <div class="rail-title"><span class="material-symbols-rounded">high_quality</span><span>Resolution scale</span></div>
-      <div class="segmented-pills component-option-grid" role="group" aria-label="Component resolution scale">
+        </div>
+        <div class="section-toolbar-group component-quick-group component-resolution-buttons" role="group" aria-label="Component resolution scale">
         ${scaleOptions.map((value) => `
-          <button type="button" class="${metrics.resolutionScale === value ? "is-selected" : ""}" data-set-path="${base}.resolutionScale" data-set-value="${value}" data-set-value-type="number" aria-pressed="${metrics.resolutionScale === value}">${value}×</button>
+          <button type="button" class="${metrics.resolutionScale === value ? "is-selected" : ""}" data-set-path="${base}.resolutionScale" data-set-value="${value}" data-set-value-type="number" aria-pressed="${metrics.resolutionScale === value}" title="${value}× resolution">${value}×</button>
         `).join("")}
+        </div>
       </div>
       <div class="component-frame-summary">
         <span>${metrics.baseWidth} × ${metrics.baseHeight} frame</span>
@@ -2488,20 +2509,25 @@ function componentFrameControlsTemplate(component, state, base) {
 }
 
 function componentUnifiedChainTemplate(component, state, ownerPath) {
-  const selected = selectedChainItemSelection(component, state);
   return `
     <div class="chain-column">
-      <section class="chain-list-section">
-        <div class="rail-title"><span class="material-symbols-rounded">account_tree</span><span>Chain</span></div>
+      <section class="chain-list-section" aria-label="Elements">
         <div class="component-chain-list" data-chain-reorder-list data-component-id="${esc(component.id)}">
           ${chainItemsTemplate(component.chain || [], component, state, `${ownerPath}.chain`, 0, true)}
         </div>
         <button type="button" class="chain-add-button" data-open-element-picker data-component-id="${esc(component.id)}" title="Add element" aria-label="Add element">${icon("add")}</button>
       </section>
-      <section class="chain-selected-section">
-        ${selected ? selectedChainItemTemplate(selected.item, component, state, selected.path) : emptyNote("Select a chain item")}
-      </section>
     </div>
+  `;
+}
+
+function componentSelectedChainSettingsTemplate(component, state) {
+  const selected = selectedChainItemSelection(component, state);
+  if (!selected) return "";
+  return `
+    <section class="ui-section focus-panel chain-settings-panel" aria-label="Selected element parameters">
+      ${selectedChainItemTemplate(selected.item, component, state, selected.path)}
+    </section>
   `;
 }
 
@@ -2557,7 +2583,7 @@ function selectedChainItemTemplate(item, component, state, base) {
   const effectComponent = getShaderComponent(item.componentId);
   return `
     <section class="chain-item-editor">
-      <div class="rail-title"><span class="material-symbols-rounded">${effectIcon(item.componentId)}</span><span>${esc(effectComponent?.name || item.componentId)}</span></div>
+      <div class="ui-section-header rail-title"><span class="material-symbols-rounded">${effectIcon(item.componentId)}</span><span>${esc(effectComponent?.name || item.componentId)}</span></div>
       ${shaderParamControlsTemplate(effectComponent, item, base)}
       ${effectComponent?.spatial && SHOW_CHAIN_ITEM_TRANSFORM_CONTROLS ? effectTransformControlsTemplate(item, base) : ""}
     </section>
@@ -2567,14 +2593,13 @@ function selectedChainItemTemplate(item, component, state, base) {
 function groupChainItemTemplate(item, component, state, base) {
   return `
     <section class="chain-item-editor">
-      <div class="rail-title"><span class="material-symbols-rounded">account_tree</span><span>${esc(item.name || "Group")}</span></div>
-      <label class="field">Name <input type="text" data-update="${base}.name" value="${esc(item.name || "Group")}" spellcheck="false" data-gramm="false" data-gramm_editor="false" data-enable-grammarly="false" /></label>
+      ${editableSectionTitleTemplate("account_tree", base + ".name", item.name || "Group")}
       <label class="field inline-param">
         <span>Collapsed</span>
         <input type="checkbox" data-update="${base}.collapsed" ${item.collapsed ? "checked" : ""} />
       </label>
-      <div class="field-pair group-composite-controls">
-        <label class="field">Blend ${selectValuesTemplate(`${base}.blend`, BLEND_MODES, item.blend || "normal")}</label>
+      <div class="chain-composite-controls group-composite-controls">
+        <label class="field"><span>Blend</span>${selectValuesTemplate(`${base}.blend`, BLEND_MODES, item.blend || "normal")}</label>
         ${rangeTemplate("Alpha", `${base}.opacity`, item.opacity ?? 1)}
       </div>
       <button type="button" class="chain-add-button" data-open-element-picker data-component-id="${esc(component.id)}" data-target-chain-item="${esc(item.id)}" title="Add element to group" aria-label="Add element to group">${icon("add")}</button>
@@ -2590,13 +2615,14 @@ function sourceChainItemTemplate(item, ownerComponent, state, base) {
   const isCanvasComponentPlacement = ownerComponent?.type === "canvas" && item.source?.type === "component";
   return `
     <section class="chain-item-editor">
-      <div class="rail-title"><span class="material-symbols-rounded">${sourceIcon(item.source)}</span><span>${esc(displayName)}</span></div>
-      ${isCanvasComponentPlacement ? "" : `<label class="field">Name <input type="text" data-update="${base}.name" value="${esc(displayName)}" spellcheck="false" data-gramm="false" data-gramm_editor="false" data-enable-grammarly="false" /></label>`}
+      ${isCanvasComponentPlacement
+        ? `<div class="ui-section-header rail-title"><span class="material-symbols-rounded">${sourceIcon(item.source)}</span><span>${esc(displayName)}</span></div>`
+        : editableSectionTitleTemplate(sourceIcon(item.source), base + ".name", displayName)}
       ${item.source?.type === "component"
         ? (isCanvasComponentPlacement ? "" : `<label class="field">Component ${componentSelectTemplate(`${base}.source.componentId`, state, item.source.componentId)}</label>`)
         : sourcePickerTemplate(item, state, base)}
-      <div class="field-pair">
-        <label class="field">Blend ${selectValuesTemplate(`${base}.blend`, BLEND_MODES, item.blend)}</label>
+      <div class="chain-composite-controls">
+        <label class="field"><span>Blend</span>${selectValuesTemplate(`${base}.blend`, BLEND_MODES, item.blend)}</label>
         ${rangeTemplate("Opacity", `${base}.opacity`, item.opacity)}
       </div>
       ${SHOW_CHAIN_ITEM_TRANSFORM_CONTROLS ? sourceTransformControlsTemplate(item, base) : ""}
@@ -2640,7 +2666,7 @@ function sourcePickerTemplate(component, state, base) {
   const media = state.media.find((item) => item.id === source.mediaId);
   return `
     <div class="source-section">
-      <div class="field">
+      ${source.type === "generator" ? "" : `<div class="field">
         <span>Source</span>
         <button type="button" class="source-choice-button" data-open-source-choice="${esc(`${base}.source`)}">
           ${icon(sourceIcon(source))}
@@ -2650,7 +2676,7 @@ function sourcePickerTemplate(component, state, base) {
           </span>
           ${icon("chevron_right")}
         </button>
-      </div>
+      </div>`}
       ${source.type === "generator" ? generatorParamControlsTemplate(`${base}.source`, source, state) : ""}
       ${source.type === "media" && !isModelMediaSource(source, media) ? mediaSourceFitControlsTemplate(`${base}.source`, source) : ""}
       ${source.type === "media" && isVideoMediaSource(source, media) ? videoSourceControlsTemplate(`${base}.source`, source, media) : ""}
@@ -2740,7 +2766,7 @@ function videoSourceControlsTemplate(base, source = {}, media = null) {
   const trim = videoTrimValues(source, media);
   return `
     <div class="video-source-controls">
-      <div class="rail-title"><span class="material-symbols-rounded">content_cut</span><span>Movie segment</span></div>
+      <div class="ui-section-header rail-title"><span class="material-symbols-rounded">content_cut</span><span>Movie segment</span></div>
       ${videoTrimTemplate(base, trim)}
       ${rangeTemplate("Movie speed", `${base}.speed`, source.speed ?? 1, 0, 4, 0.01)}
     </div>
@@ -2816,7 +2842,7 @@ function modelSourceControlsTemplate(base, source = {}) {
   const params = source.params || {};
   return `
     <div class="model-source-controls">
-      <div class="rail-title"><span class="material-symbols-rounded">deployed_code</span><span>3D model</span></div>
+      <div class="ui-section-header rail-title"><span class="material-symbols-rounded">deployed_code</span><span>3D model</span></div>
       ${rangeTemplate("Render quality", `${base}.params.renderQuality`, params.renderQuality ?? 0.5, 0, 1, 0.01)}
       <label class="field chain-param">Draw mode ${selectValuesTemplate(`${base}.params.renderMode`, MODEL_RENDER_MODES, params.renderMode || "surface")}</label>
       ${colorParamControlTemplate(MODEL_SURFACE_COLOR_PARAM, `${base}.params.surfaceColor`, params.surfaceColor || MODEL_SURFACE_COLOR_PARAM.defaultValue)}
@@ -2871,11 +2897,7 @@ function sceneSurfaceTemplate(surface, state, catalog = {}) {
   const direct = surface.destination?.type === "direct";
   return `
     <article class="sculpt-card">
-      <div class="sculpt-head">
-        ${direct
-          ? `<strong>${esc(surface.name)}</strong><small>direct output</small>`
-          : `<input type="text" data-update="${surfaceBase}.name" value="${esc(surface.name)}" spellcheck="false" data-gramm="false" data-gramm_editor="false" data-enable-grammarly="false" />`}
-      </div>
+      ${direct ? `<div class="soft-note">Direct output</div>` : ""}
       ${direct ? "" : `<div class="surface-actions">
         <button type="button" data-reset-surface-mapping="${surface.id}">${icon("restart_alt")} Reset surface</button>
       </div>`}
@@ -2893,27 +2915,34 @@ function sceneRailConfigTemplate(state) {
   const scene = getSelectedScene(state);
   if (!scene) {
     return `
-      <div class="rail-section">
-        <div class="rail-title"><span class="material-symbols-rounded">auto_awesome_motion</span><span>Scene</span></div>
+      <div class="ui-section rail-section">
+        <div class="ui-section-header rail-title"><span class="material-symbols-rounded">auto_awesome_motion</span><span>Scene</span></div>
         ${emptyNote("Capture a scene to edit scene settings.")}
       </div>
     `;
   }
   const base = pathForScene(state, scene);
   return `
-    <div class="rail-section">
-      <div class="rail-title"><span class="material-symbols-rounded">auto_awesome_motion</span><span>Scene</span></div>
-      <label class="field">Name <input type="text" data-update="${base}.name" value="${esc(scene.name)}" spellcheck="false" data-gramm="false" data-gramm_editor="false" data-enable-grammarly="false" /></label>
+    <div class="ui-section rail-section">
+      ${editableSectionTitleTemplate("auto_awesome_motion", `${base}.name`, scene.name)}
     </div>
   `;
 }
 
-function panelTemplate(iconName, title, body) {
+function titleInputTemplate(path, value) {
+  return `<input class="section-title-input" type="text" data-update="${esc(path)}" value="${esc(value)}" aria-label="Name" spellcheck="false" data-gramm="false" data-gramm_editor="false" data-enable-grammarly="false" />`;
+}
+
+function editableSectionTitleTemplate(iconName, path, value) {
+  return `<div class="ui-section-header rail-title"><span class="material-symbols-rounded">${iconName}</span>${titleInputTemplate(path, value)}</div>`;
+}
+
+function panelTemplate(iconName, title, body, { titlePath = "" } = {}) {
   return `
-    <section class="glass-panel focus-panel">
-      <header class="panel-title">
+    <section class="ui-section focus-panel">
+      <header class="ui-section-header panel-title">
         <span class="material-symbols-rounded">${iconName}</span>
-        <span>${esc(title)}</span>
+        ${titlePath ? titleInputTemplate(titlePath, title) : `<span>${esc(title)}</span>`}
       </header>
       ${body}
     </section>
@@ -3003,7 +3032,8 @@ function paramControlTemplate(param, path, value, attrs = "data-update") {
   return `
     <label class="field range-field chain-param">
       <span>${esc(param.label || param.id)}</span>
-      <input type="range" min="${sliderMin}" max="${sliderMax}" step="${sliderStep}" ${scaleAttrs} ${attrs}="${esc(path)}" value="${sliderValue}" />
+      <output class="range-value" data-range-value>${formatRangeValue(safeValue, param.step ?? 0.01)}</output>
+      <input type="range" min="${sliderMin}" max="${sliderMax}" step="${sliderStep}" data-display-step="${param.step ?? 0.01}" ${scaleAttrs} ${attrs}="${esc(path)}" value="${sliderValue}" />
     </label>
   `;
 }
@@ -3054,7 +3084,7 @@ function scenePillTemplate(scene, state) {
     <div class="component-card-row">
       <button type="button" class="component-card scene-card ${selected ? "is-selected" : ""}" data-select-scene="${esc(scene.id)}">
         ${sceneFingerprintTemplate(components)}
-        <span>${esc(scene.name)}</span>
+        ${componentCardBarTemplate(scene.name)}
       </button>
       <button type="button" class="component-card-remove" data-delete-scene="${esc(scene.id)}" title="Remove" aria-label="Remove ${esc(scene.name)}">${icon("close")}</button>
     </div>
@@ -3070,7 +3100,7 @@ function liveScenePillTemplate(scene, state) {
     <div class="component-card-row">
       <button type="button" class="component-card scene-card live-scene-card ${selected ? "is-selected" : ""}" data-live-scene="${esc(scene.id)}">
         ${sceneFingerprintTemplate(components)}
-        <span>${esc(scene.name)}</span>
+        ${componentCardBarTemplate(scene.name)}
       </button>
       <button type="button" class="component-card-remove" data-reset-live-scene="${esc(scene.id)}" title="Reset temporary settings" aria-label="Reset temporary settings for ${esc(scene.name)}" ${hasOverrides ? "" : "disabled"}>${icon("restart_alt")}</button>
     </div>
@@ -3079,23 +3109,17 @@ function liveScenePillTemplate(scene, state) {
 
 function liveInspectorTemplate(state) {
   const scene = getLiveSelectedScene(state);
-  if (!scene) return emptyNote("No scenes");
+  if (!scene) return panelTemplate("tune", "Live", emptyNote("No scenes"));
   const components = liveSceneComponents(scene, state);
-  return `
-    <div class="live-panel">
-      <div class="live-scene-name">${esc(scene.name)}</div>
-      <div class="live-component-list">
-        ${components.map((component) => liveComponentTemplate(component, state)).join("") || emptyNote("No components")}
-      </div>
-    </div>
-  `;
+  return components.map((component) => liveComponentTemplate(component, state)).join("")
+    || panelTemplate("tune", scene.name, emptyNote("No components"));
 }
 
 function liveComponentTemplate(component, state) {
   const view = createLiveComponentView(component, state);
   return `
-    <article class="live-component-card">
-      <header class="live-component-head">
+    <article class="ui-section focus-panel live-component-card">
+      <header class="ui-section-header panel-title live-component-head">
         ${thumbnailTemplate(component.thumbnail)}
         <strong>${esc(component.name)}</strong>
       </header>
@@ -3238,6 +3262,7 @@ function liveRangeTemplate(label, componentId, path, value) {
   return `
     <label class="field range-field chain-param">
       <span>${esc(label)}</span>
+      <output class="range-value" data-range-value>${formatRangeValue(value, 0.01)}</output>
       <input type="range" min="0" max="1" step="0.01" data-live-component-id="${esc(componentId)}" data-live-update="${path}" value="${value}" />
     </label>
   `;
@@ -3464,7 +3489,7 @@ function componentAssignmentTemplate(routeBase, state, route = {}, catalog = {})
           return `
             <button type="button" class="component-card assignment-card ${selected ? "is-selected" : ""}" data-component-filter-card="${esc(node.name.toLowerCase())}" data-set-route-source-node="${esc(node.id)}" data-route-base="${esc(routeBase)}">
               ${thumbnailTemplate(node.thumbnail, node.type === "recording-frame" ? "select_all" : "account_tree")}
-              <span>${esc(node.name)}</span>
+              ${componentCardBarTemplate(node.name)}
             </button>
           `;
         }).join("")}
@@ -3590,6 +3615,24 @@ function readInputValue(input) {
     return value;
   }
   return input.value;
+}
+
+function syncRangeValue(input) {
+  if (input?.type !== "range") return;
+  const output = input.closest?.(".range-field")?.querySelector?.("[data-range-value]");
+  if (!output) return;
+  const value = readInputValue(input);
+  if (input.dataset.rangeFormat === "time-stretch") {
+    const stretch = Number(value) || 0;
+    const scale = stretch <= -4 ? 0 : 2 ** stretch;
+    setText(output, `${stretch.toFixed(2)} · ${scale < 0.1 ? scale.toFixed(3) : scale.toFixed(2)}×`);
+    return;
+  }
+  if (input.dataset.rangeFormat === "percent") {
+    setText(output, `${formatRangeValue(Number(value) * 100, input.dataset.displayStep || 1)}%`);
+    return;
+  }
+  setText(output, `${formatRangeValue(value, input.dataset.displayStep || input.step)}${input.dataset.rangeSuffix || ""}`);
 }
 
 function colorValueFromControl(control) {

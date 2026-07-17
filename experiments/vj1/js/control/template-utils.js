@@ -19,10 +19,19 @@ export function sourceTypeIcon(type) {
   return "auto_awesome";
 }
 
+export function formatRangeValue(value, step = 0.01) {
+  const number = Number(value);
+  if (!Number.isFinite(number)) return "–";
+  const increment = Math.abs(Number(step)) || 0.01;
+  const decimals = increment >= 1 ? 0 : increment >= 0.1 ? 1 : increment >= 0.01 ? 2 : 3;
+  return number.toFixed(decimals);
+}
+
 export function rangeTemplate(label, path, value, min = 0, max = 1, step = 0.01) {
   return `
     <label class="field range-field">
       <span>${esc(label)}</span>
+      <output class="range-value" data-range-value>${formatRangeValue(value, step)}</output>
       <input type="range" min="${min}" max="${max}" step="${step}" data-update="${path}" value="${value}" />
     </label>
   `;

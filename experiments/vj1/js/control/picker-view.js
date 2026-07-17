@@ -54,8 +54,8 @@ export function sourceChoicePickerTemplate(state, picker, mediaLibrary, urlCache
       </label>
 
       <div class="element-modal-body">
-        <section class="element-section" data-element-section>
-          <div class="rail-title"><span class="material-symbols-rounded">perm_media</span><span>Media</span></div>
+        <section class="ui-section element-section" data-element-section>
+          <div class="ui-section-header rail-title"><span class="material-symbols-rounded">perm_media</span><span>Media</span></div>
           <div class="element-grid media-element-grid">
             ${mediaItems.length ? mediaItems.map((item) => sourceMediaCardTemplate(item, source, mediaLibrary, urlCache)).join("") : `
               <div class="soft-note">Drop image, video, or 3D model files into the browser, or add them to the project folder.</div>
@@ -64,8 +64,8 @@ export function sourceChoicePickerTemplate(state, picker, mediaLibrary, urlCache
           <div class="soft-note" data-element-empty hidden>No matching media.</div>
         </section>
 
-        <section class="element-section" data-element-section>
-          <div class="rail-title"><span class="material-symbols-rounded">auto_awesome</span><span>Generators</span></div>
+        <section class="ui-section element-section" data-element-section>
+          <div class="ui-section-header rail-title"><span class="material-symbols-rounded">auto_awesome</span><span>Generators</span></div>
           <div class="element-grid compact-element-grid">
             ${generators.map((generator) => `
               <button type="button" class="element-card ${source.type === "generator" && source.generatorId === generator.id ? "is-selected" : ""}" data-pick-source-generator="${esc(generator.id)}" data-element-search-card="${esc(elementSearchText(generator.id, generator.label, generator.name, generator.category, "generator"))}">
@@ -78,8 +78,8 @@ export function sourceChoicePickerTemplate(state, picker, mediaLibrary, urlCache
           <div class="soft-note" data-element-empty hidden>No matching generators.</div>
         </section>
 
-        <section class="element-section" data-element-section>
-          <div class="rail-title"><span class="material-symbols-rounded">input</span><span>Other sources</span></div>
+        <section class="ui-section element-section" data-element-section>
+          <div class="ui-section-header rail-title"><span class="material-symbols-rounded">input</span><span>Other sources</span></div>
           <div class="element-grid compact-element-grid">
             <button type="button" class="element-card ${source.type === "camera" ? "is-selected" : ""}" data-pick-source-camera data-element-search-card="live camera portal camera feed video input">
               ${icon("photo_camera")}
@@ -140,9 +140,9 @@ export function elementPickerTemplate(state, picker, mediaLibrary, urlCache, com
       </label>
 
       <div class="element-modal-body">
-        ${components.length ? `<section class="element-section" data-element-section>
+        ${components.length ? `<section class="ui-section element-section" data-element-section>
           <div class="element-section-heading">
-            <div class="rail-title"><span class="material-symbols-rounded">account_tree</span><span>Components</span></div>
+            <div class="ui-section-header rail-title"><span class="material-symbols-rounded">account_tree</span><span>Components</span></div>
             ${componentPickerSortTemplate(componentCatalog.sortMode || "recent")}
           </div>
           <div class="element-grid media-element-grid">
@@ -157,8 +157,8 @@ export function elementPickerTemplate(state, picker, mediaLibrary, urlCache, com
           <div class="soft-note" data-element-empty hidden>No matching components.</div>
         </section>` : ""}
 
-        <section class="element-section" data-element-section>
-          <div class="rail-title"><span class="material-symbols-rounded">perm_media</span><span>Media</span></div>
+        <section class="ui-section element-section" data-element-section>
+          <div class="ui-section-header rail-title"><span class="material-symbols-rounded">perm_media</span><span>Media</span></div>
           <div class="element-grid media-element-grid">
             ${mediaItems.length ? mediaItems.map((item) => elementMediaCardTemplate(item, mediaLibrary, urlCache)).join("") : `
               <div class="soft-note">Drop image, video, or 3D model files into the browser, or add them to the project folder.</div>
@@ -167,8 +167,8 @@ export function elementPickerTemplate(state, picker, mediaLibrary, urlCache, com
           <div class="soft-note" data-element-empty hidden>No matching media.</div>
         </section>
 
-        <section class="element-section" data-element-section>
-          <div class="rail-title"><span class="material-symbols-rounded">videocam</span><span>Live input</span></div>
+        <section class="ui-section element-section" data-element-section>
+          <div class="ui-section-header rail-title"><span class="material-symbols-rounded">videocam</span><span>Live input</span></div>
           <div class="element-grid compact-element-grid">
             <button type="button" class="element-card" data-add-element-camera data-element-search-card="live camera portal camera feed video input">
               ${icon("photo_camera")}
@@ -179,8 +179,8 @@ export function elementPickerTemplate(state, picker, mediaLibrary, urlCache, com
           <div class="soft-note" data-element-empty hidden>No matching live inputs.</div>
         </section>
 
-        <section class="element-section" data-element-section>
-          <div class="rail-title"><span class="material-symbols-rounded">account_tree</span><span>Structure</span></div>
+        <section class="ui-section element-section" data-element-section>
+          <div class="ui-section-header rail-title"><span class="material-symbols-rounded">account_tree</span><span>Structure</span></div>
           <div class="element-grid compact-element-grid">
             <button type="button" class="element-card" data-add-element-group data-element-search-card="group folder chain nested structure">
               ${icon("account_tree")}
@@ -191,8 +191,8 @@ export function elementPickerTemplate(state, picker, mediaLibrary, urlCache, com
           <div class="soft-note" data-element-empty hidden>No matching structure elements.</div>
         </section>
 
-        <section class="element-section" data-element-section>
-          <div class="rail-title"><span class="material-symbols-rounded">auto_awesome</span><span>Generators</span></div>
+        <section class="ui-section element-section" data-element-section>
+          <div class="ui-section-header rail-title"><span class="material-symbols-rounded">auto_awesome</span><span>Generators</span></div>
           <div class="element-grid compact-element-grid">
             ${generators.map((generator) => `
               <button type="button" class="element-card" data-add-element-generator="${esc(generator.id)}" data-element-search-card="${esc(elementSearchText(generator.id, generator.label, generator.name, generator.category, "generator"))}">
@@ -205,8 +205,8 @@ export function elementPickerTemplate(state, picker, mediaLibrary, urlCache, com
           <div class="soft-note" data-element-empty hidden>No matching generators.</div>
         </section>
 
-        <section class="element-section" data-element-section>
-          <div class="rail-title"><span class="material-symbols-rounded">blur_on</span><span>Effects</span></div>
+        <section class="ui-section element-section" data-element-section>
+          <div class="ui-section-header rail-title"><span class="material-symbols-rounded">blur_on</span><span>Effects</span></div>
           <div class="element-grid compact-element-grid">
             ${effects.map((shader) => `
               <button type="button" class="element-card" data-add-element-effect="${esc(shader.id)}" data-element-search-card="${esc(elementSearchText(shader.id, shader.name, shader.category, "effect"))}">
