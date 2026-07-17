@@ -547,6 +547,11 @@ button.cost-pill.is-active {
   min-width: 0;
 }
 
+.studio-main {
+  display: grid;
+  margin-left: 8px;
+}
+
 .project-rail,
 .studio-inspector {
   display: grid;
@@ -572,6 +577,9 @@ button.cost-pill.is-active {
 }
 
 .studio-stage {
+  display: grid;
+  min-height: 0;
+  overflow: hidden;
   border: 0;
   border-radius: var(--radius-section);
   background: #050505;
@@ -836,6 +844,12 @@ button.text-list-main:hover {
   background: #000;
 }
 
+.component-card-empty {
+  display: grid;
+  place-items: center;
+  color: var(--muted);
+}
+
 .component-thumbnail img {
   display: block;
   width: 100%;
@@ -890,12 +904,6 @@ button.text-list-main:hover {
 .scene-fingerprint img:first-child {
   opacity: 0.78;
   mix-blend-mode: normal;
-}
-
-.component-card-empty {
-  display: grid;
-  place-items: center;
-  color: var(--muted);
 }
 
 .component-card-bar {
@@ -1194,18 +1202,6 @@ button.text-list-main:hover {
 .capture-row input {
   width: 100%;
   min-width: 0;
-}
-
-.studio-main {
-  display: grid;
-  min-width: 0;
-  margin-left: 8px;
-}
-
-.studio-stage {
-  display: grid;
-  min-height: 0;
-  overflow: hidden;
 }
 
 .project-empty-stage {
@@ -2205,26 +2201,25 @@ button.text-list-main:hover {
 }
 
 .color-param {
-  grid-template-columns: minmax(0, 1fr) minmax(170px, var(--param-color-control-width));
-  align-items: center;
-  column-gap: 10px;
+  grid-template-columns: minmax(0, 1fr);
+  align-items: stretch;
 }
 
 .color-param > span {
   min-width: 0;
   overflow: hidden;
-  font-weight: 700;
+  color: var(--slider-text);
+  font-weight: 400;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 .color-param-row {
   display: grid;
-  grid-template-columns: 38px minmax(0, 1fr);
+  grid-template-columns: minmax(0, 1fr) 38px;
   gap: 8px;
   align-items: center;
   min-width: 0;
-  justify-self: end;
   width: 100%;
 }
 

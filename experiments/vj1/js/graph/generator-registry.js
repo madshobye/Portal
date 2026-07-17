@@ -203,7 +203,7 @@ const RAW_GENERATORS = Object.freeze({
       createNumberParam("altitude", "Altitude", { min: 0.2, max: 10000, step: 0.01, defaultValue: 2.5, scale: "log" }),
       createNumberParam("pitch", "View pitch", { min: -1.4, max: 1.4, step: 0.01, defaultValue: 0.28 }),
       createNumberParam("fieldOfView", "Field of view", { min: 20, max: 120, step: 0.1, defaultValue: 60 }),
-      createNumberParam("nearClip", "Near clip", { min: 0.01, max: 20, step: 0.01, defaultValue: 0.1, scale: "log" }),
+      createNumberParam("nearClip", "Near clip minimum", { min: 0.01, max: 20, step: 0.01, defaultValue: 0.1, scale: "log" }),
       createNumberParam("farClip", "Far clip", { min: 100, max: 50000, step: 10, defaultValue: 20000, scale: "log" }),
       createNumberParam("lookAhead", "Follow look ahead", { min: 2, max: 60, step: 0.1, defaultValue: 14 }),
       createNumberParam("noseFollow", "Nose response", { min: 0, max: 2, step: 0.01, defaultValue: 1 }),

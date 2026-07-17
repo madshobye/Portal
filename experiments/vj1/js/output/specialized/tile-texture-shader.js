@@ -17,9 +17,11 @@ uniform vec2 repeatAmount;
 uniform vec2 offsetAmount;
 uniform vec2 scrollSpeed;
 uniform float time;
+uniform mat3 contentUvMatrix;
 varying vec2 vTexCoord;
 
 void main() {
-  vec2 tileUv = fract(vTexCoord * repeatAmount + offsetAmount + scrollSpeed * time);
+  vec2 compositionUv = (contentUvMatrix * vec3(vTexCoord, 1.0)).xy;
+  vec2 tileUv = fract(compositionUv * repeatAmount + offsetAmount + scrollSpeed * time);
   gl_FragColor = texture2D(tileImage, tileUv);
 }`;

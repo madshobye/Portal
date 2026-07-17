@@ -4,12 +4,95 @@ import { readFileSync } from "node:fs";
 
 import { averageGpuQueryNanoseconds, cameraCaptureSettings, cameraSettingsSignature, canvasComponentPlacementRect, canvasFrameBorderHit, canvasMaxRasterSize, canvasPreviewRenderRequest, chainTransformDragScale, componentAdaptiveRasterLimit, componentInstanceTime, componentPipelineSourceRequest, componentPreviewRenderRequest, componentReferencePlacement, componentReferenceRenderRequest, componentRenderInstanceKey, componentSourceView, directFitRects, eyeballFrameUniforms, fittedThumbnailSize, GpuTimerTracker, moveCanvasFrameRect, OutputRenderer, pointInTransformedRect, qualityScaledRenderRequest, resizeCanvasFrameRect, sharedComponentRenderRequests } from "../js/output/output-renderer.js";
 import { createPlacedRenderResult, directPlacementKind, transformedPlacementDemandRect } from "../js/graph/placed-render-result.js";
-import { renderRequestKey } from "../js/output/render-geometry.js";
+import { defaultProjectSurfaceMapping, renderRequestKey } from "../js/output/render-geometry.js";
 import { mapperFragmentShaderSource, VjMapper } from "../js/output/vj-mapper.js";
+import { ComponentPreviewInteraction, stateWithCanvasFrameRect, stateWithChainItemTransform } from "../js/output/component-preview-interaction.js";
 
 function pickRequestSize(request) {
   return { width: request.width, height: request.height };
 }
+
+test("local transform overlays path-copy store-owned component and frame state", () => {
+  const child = { id: "child", kind: "source", transform: { x: 0, y: 0, scale: 1, rotation: 0 } };
+  const group = { id: "group", kind: "group", chain: [child] };
+  const component = { id: "component", chain: [group] };
+  const frame = { id: "frame", x: 0, y: 0, width: 100, height: 100 };
+  const state = { components: [component], recordingFrames: [frame] };
+
+  const transformed = stateWithChainItemTransform(state, component.id, child.id, { x: 0.5 });
+  const framed = stateWithCanvasFrameRect(transformed, frame.id, { y: 24 });
+
+  assert.equal(child.transform.x, 0, "the store-owned nested item is not mutated");
+  assert.equal(frame.y, 0, "the store-owned recording frame is not mutated");
+  assert.equal(framed.components[0].chain[0].chain[0].transform.x, 0.5);
+  assert.equal(framed.recordingFrames[0].y, 24);
+  assert.equal(framed.components[0].chain[0].id, group.id);
+});
+
+test("preview transform ownership survives stale state until an exact acknowledgement", () => {
+  const transform = { x: 0.4, y: -0.2, scale: 1.5, rotation: 0.3 };
+  const rect = { x: 30, y: 40, width: 120, height: 80 };
+  const stale = {
+    components: [{ id: "component", chain: [{ id: "item", kind: "source", transform: { x: 0, y: 0, scale: 1, rotation: 0 } }] }],
+    recordingFrames: [{ id: "frame", x: 0, y: 0, width: 100, height: 100 }],
+    ui: { selectedChainItemId: "" },
+  };
+  const interaction = new ComponentPreviewInteraction({});
+  interaction.pendingChainTransform = { componentId: "component", itemId: "item", transform };
+  interaction.pendingCanvasFrame = { frameId: "frame", rect };
+
+  const reconciled = interaction.reconcileIncomingState(stale);
+  assert.deepEqual(stale.components[0].chain[0].transform, { x: 0, y: 0, scale: 1, rotation: 0 });
+  assert.equal(stale.recordingFrames[0].x, 0);
+  assert.deepEqual(reconciled.components[0].chain[0].transform, transform);
+  assert.deepEqual(reconciled.recordingFrames[0], { id: "frame", ...rect });
+  assert.equal(reconciled.ui.selectedChainItemId, "item");
+  assert.ok(interaction.pendingChainTransform);
+  assert.ok(interaction.pendingCanvasFrame);
+
+  const acknowledged = stateWithCanvasFrameRect(
+    stateWithChainItemTransform(stale, "component", "item", transform),
+    "frame",
+    rect
+  );
+  assert.equal(interaction.reconcileIncomingState(acknowledged), acknowledged);
+  assert.equal(interaction.pendingChainTransform, null);
+  assert.equal(interaction.pendingCanvasFrame, null);
+});
+
+test("selected element handles take priority over overlapping Canvas recording frames", () => {
+  const calls = [];
+  const interaction = new ComponentPreviewInteraction({ mode: "component" });
+  interaction.startChainTransformDrag = (_x, _y, options) => {
+    calls.push(["chain", options]);
+    return true;
+  };
+  interaction.startCanvasFrameDrag = () => {
+    calls.push(["frame"]);
+    return true;
+  };
+
+  interaction.mousePressed(40, 50);
+
+  assert.deepEqual(calls, [["chain", { handlesOnly: true }]]);
+});
+
+test("Canvas recording frames receive the pointer when no selected handle is hit", () => {
+  const calls = [];
+  const interaction = new ComponentPreviewInteraction({ mode: "component" });
+  interaction.startChainTransformDrag = () => {
+    calls.push(["chain"]);
+    return false;
+  };
+  interaction.startCanvasFrameDrag = () => {
+    calls.push(["frame"]);
+    return true;
+  };
+
+  interaction.mousePressed(40, 50);
+
+  assert.deepEqual(calls, [["chain"], ["frame"]]);
+});
 
 test("element scale dragging uses a softened bounded response", () => {
   assert.equal(chainTransformDragScale(1, 40, 160), 2);
@@ -42,6 +125,7 @@ test("preview picking selects physical sources, spatial effects, and containing 
   assert.deepEqual(selected, [group.id]);
 
   component.chain.push({ id: "effect-spatial", kind: "effect", componentId: "ripple", enabled: true, opacity: 1, transform: {} });
+  renderer.state.ui.selectedChainItemId = "";
   assert.equal(renderer.selectChainItemAtPoint(100, 50)?.id, "effect-spatial");
 });
 
@@ -73,8 +157,33 @@ test("an already selected child inside a group owns the next preview drag", () =
   assert.equal(renderer.state.ui.selectedChainItemId, child.id);
   assert.equal(renderer.chainTransformDrag?.itemId, child.id);
   assert.equal(renderer.chainTransformDrag?.mode, "move");
-  assert.equal(child.transform.x, 0.2);
+  assert.equal(renderer.state.components[0].chain[0].chain[0].transform.x, 0.2);
+  assert.deepEqual(child.transform, {}, "dragging does not mutate the store-owned fixture");
   assert.deepEqual(group.transform, {});
+});
+
+test("a selected Canvas Group cannot be picked outside the union of its placed children", () => {
+  const renderer = new OutputRenderer({ mode: "component" });
+  const childComponent = { id: "child-component", type: "chain", initialWidth: 100, initialHeight: 100, chain: [] };
+  const child = {
+    id: "child",
+    kind: "source",
+    enabled: true,
+    opacity: 1,
+    transform: {},
+    source: { type: "component", componentId: childComponent.id, placement: { scale: 0.25 } },
+  };
+  const group = { id: "group", kind: "group", enabled: true, opacity: 1, transform: {}, chain: [child] };
+  const canvas = { id: "canvas", type: "canvas", canvas: { width: 400, height: 400 }, chain: [group] };
+  renderer.state = {
+    components: [canvas, childComponent],
+    render: {},
+    ui: { selectedComponentId: canvas.id, selectedChainItemId: group.id },
+  };
+  renderer.componentPreviewRect = () => ({ x: 0, y: 0, width: 400, height: 400 });
+
+  assert.equal(renderer.chainItemAtPoint(200, 200), group);
+  assert.equal(renderer.chainItemAtPoint(20, 20), null);
 });
 
 test("child preview dragging is converted through its parent group transform", () => {
@@ -88,8 +197,10 @@ test("child preview dragging is converted through its parent group transform", (
   renderer.mousePressed(100, 50);
   renderer.mouseDragged(120, 50);
 
-  assert.ok(Math.abs(child.transform.x) < 1e-12);
-  assert.equal(child.transform.y, -0.2);
+  const renderedChild = renderer.state.components[0].chain[0].chain[0];
+  assert.ok(Math.abs(renderedChild.transform.x) < 1e-12);
+  assert.equal(renderedChild.transform.y, -0.2);
+  assert.deepEqual(child.transform, {}, "nested dragging path-copies instead of mutating its source state");
   assert.deepEqual(group.transform, { scale: 2, rotation: Math.PI / 2 });
 });
 
@@ -198,6 +309,24 @@ test("projection corner drags emit live mapping updates before release", () => {
   assert.equal(changes[1].reason, "autosave");
 });
 
+test("local surface mappings remain authoritative until their exact acknowledgement", () => {
+  const renderer = new OutputRenderer({ mode: "preview" });
+  const local = { surfaces: [{ id: "surface-main", corners: [{ x: 12, y: 18 }] }] };
+  const stale = { surfaces: [{ id: "surface-main", corners: [{ x: 0, y: 0 }] }] };
+
+  renderer.markLocalMapping(local);
+  assert.equal(renderer.shouldIgnoreIncomingMapping(JSON.stringify(stale)), true);
+  assert.equal(renderer.pendingMappingSignature, JSON.stringify(local));
+  assert.equal(renderer.shouldIgnoreIncomingMapping(JSON.stringify(local)), false);
+  assert.equal(renderer.pendingMappingSignature, "");
+
+  const source = readFileSync(new URL("../js/output/output-renderer.js", import.meta.url), "utf8");
+  assert.ok(source.includes("if (mappingInteractionActive) this.surfaceRebuildPending = true"));
+  assert.ok(source.includes("this.rebuildSurfaces({ preferExistingMapping: true })"));
+  assert.ok(source.includes("preferExistingMapping && existingProjectCorners?.length === 4"));
+  assert.ok(!source.includes("localMappingProtectedUntil"));
+});
+
 test("standalone output permanently rejects calibration markers", () => {
   const renderer = new OutputRenderer({ mode: "output" });
   let mapperCalibrating = true;
@@ -239,7 +368,7 @@ test("surface calibration keeps direct projection without materialized labels", 
   renderer.mapper = { isCalibrating: () => true };
 
   assert.equal(renderer.canDirectProjectSurfaceRoute({ surface: { finalShaderChain: [] } }), true);
-  const source = readFileSync(new URL("../js/output/output-renderer.js", import.meta.url), "utf8");
+  const source = readFileSync(new URL("../js/output/output-surface-runtime.js", import.meta.url), "utf8");
   assert.equal(source.includes("drawSurfaceLabel"), false);
 });
 
@@ -277,6 +406,49 @@ test("standalone outputs crop the shared mapping world to their configured viewp
   }
 });
 
+test("output fallback surfaces derive from the same world mapping as preview", () => {
+  const previousWidth = globalThis.width;
+  const previousHeight = globalThis.height;
+  const render = {
+    outputs: [
+      { id: "left", width: 1920, height: 1080 },
+      { id: "right", width: 1280, height: 800 },
+    ],
+    worldWidth: 4160,
+    worldHeight: 1620,
+    componentTexture: { width: 1280, height: 720 },
+  };
+  const surface = { id: "mapped-surface", destination: { type: "mapped" } };
+  const renderer = new OutputRenderer({ mode: "output", outputId: "right" });
+  let added = null;
+  renderer.state = {
+    render,
+    surfaces: [surface],
+    mappings: { local: { surfaces: [] } },
+  };
+  renderer.mapper = {
+    surfaces: [],
+    clearSurfaces() {},
+    addSurface(config) {
+      added = config;
+      return config;
+    },
+  };
+  globalThis.width = 1280;
+  globalThis.height = 800;
+
+  try {
+    renderer.rebuildSurfaces();
+    const worldCorners = defaultProjectSurfaceMapping(render, [surface])[0].corners;
+    assert.deepEqual(added.corners, worldCorners.map((corner) => renderer.worldPointToDisplay(corner)));
+  } finally {
+    if (previousWidth === undefined) delete globalThis.width;
+    else globalThis.width = previousWidth;
+    if (previousHeight === undefined) delete globalThis.height;
+    else globalThis.height = previousHeight;
+  }
+});
+
 test("direct output presentation handles stretch contain and cover without homography", () => {
   const target = { x: 100, y: 50, width: 1000, height: 1000 };
   assert.deepEqual(directFitRects(2000, 1000, target, "stretch"), {
@@ -289,10 +461,11 @@ test("direct output presentation handles stretch contain and cover without homog
   assert.deepEqual(directFitRects(2000, 1000, target, "cover").source, {
     x: 500, y: 0, width: 1000, height: 1000,
   });
-  const source = readFileSync(new URL("../js/output/output-renderer.js", import.meta.url), "utf8");
-  assert.ok(source.includes("if (mapped.direct) this.drawDirectSurfaceTexture(pg, route)"));
+  const source = readFileSync(new URL("../js/output/output-surface-runtime.js", import.meta.url), "utf8");
+  const plannerSource = readFileSync(new URL("../js/output/surface-render-planner.js", import.meta.url), "utf8");
+  assert.ok(source.includes("else if (mapped.direct) this.drawDirectSurfaceTexture(target, route)"));
   assert.ok(source.includes("mapped.direct && Number(surface.feather) > 0"));
-  assert.ok(source.includes("preserveFullFootprint: mapped.direct"));
+  assert.ok(plannerSource.includes("preserveFullFootprint: mapped.direct"));
 });
 
 test("GPU timing averages query samples instead of adding overlapping work", () => {
@@ -538,7 +711,7 @@ test("terrain stays in the shared WebGL context while STL reuses its p5 scratch 
 });
 
 test("component thumbnails retain their aspect within the thumbnail bounds", () => {
-  const source = readFileSync(new URL("../js/output/output-renderer.js", import.meta.url), "utf8");
+  const source = readFileSync(new URL("../js/output/thumbnail-utils.js", import.meta.url), "utf8");
 
   assert.ok(source.includes("const COMPONENT_THUMBNAIL_WIDTH = 768;"));
   assert.ok(source.includes("const COMPONENT_THUMBNAIL_HEIGHT = 432;"));
@@ -552,30 +725,31 @@ test("component thumbnails retain their aspect within the thumbnail bounds", () 
 });
 
 test("Canvas recording-frame thumbnails crop the rendered Canvas by logical frame geometry", () => {
-  const source = readFileSync(new URL("../js/output/output-renderer.js", import.meta.url), "utf8");
+  const source = readFileSync(new URL("../js/output/output-thumbnail-runtime.js", import.meta.url), "utf8");
+  const thumbnailSource = readFileSync(new URL("../js/output/thumbnail-utils.js", import.meta.url), "utf8");
   assert.ok(source.includes("component.canvas?.frameThumbnails?.[frame.id]"));
   assert.ok(source.includes("this.sendThumbnail(component.id, frameThumbnail, { frameId: frame.id })"));
-  assert.ok(source.includes("if (cropRect) context.drawImage(source, sx, sy, sw, sh"));
+  assert.ok(thumbnailSource.includes("if (cropRect) context.drawImage(source, sx, sy, sw, sh"));
 });
 
 test("current component thumbnails bypass full WebGL framebuffer readback", () => {
-  const source = readFileSync(new URL("../js/output/output-renderer.js", import.meta.url), "utf8");
+  const source = readFileSync(new URL("../js/output/output-thumbnail-runtime.js", import.meta.url), "utf8");
   const capture = source.slice(
     source.indexOf("  captureSelectedComponentThumbnail()"),
-    source.indexOf("\n}\n\nfunction mappingStatusForReason")
+    source.indexOf("\n}\n\nfunction runtimeMillis")
   );
   const staleGuard = "if (!needsComponentThumbnail && !framesNeedingThumbnails.length) return;";
   assert.ok(capture.includes(staleGuard));
   assert.ok(capture.indexOf(staleGuard) < capture.indexOf("output.get()"));
-  assert.ok(capture.includes("this.lastThumbnailAt = millis();"));
+  assert.ok(capture.includes("this.lastCaptureAt = now;"));
 });
 
 test("thumbnail capture is blocked while live preview rendering is disabled", () => {
-  const rendererSource = readFileSync(new URL("../js/output/output-renderer.js", import.meta.url), "utf8");
+  const rendererSource = readFileSync(new URL("../js/output/output-thumbnail-runtime.js", import.meta.url), "utf8");
   const previewSource = readFileSync(new URL("../js/output/embedded-preview-app.js", import.meta.url), "utf8");
   const capture = rendererSource.slice(
     rendererSource.indexOf("  captureSelectedComponentThumbnail()"),
-    rendererSource.indexOf("\n}\n\nfunction mappingStatusForReason")
+    rendererSource.indexOf("\n}\n\nfunction runtimeMillis")
   );
   assert.ok(capture.includes("if (this.shouldUseThumbnailPreview()) return;"));
   assert.ok(capture.indexOf("if (this.shouldUseThumbnailPreview()) return;") < capture.indexOf("output.get()"));
@@ -583,11 +757,13 @@ test("thumbnail capture is blocked while live preview rendering is disabled", ()
 });
 
 test("paused previews contain thumbnails and canvas surface routes preserve sampling", () => {
-  const source = readFileSync(new URL("../js/output/output-renderer.js", import.meta.url), "utf8");
+  const rendererSource = readFileSync(new URL("../js/output/output-renderer.js", import.meta.url), "utf8");
+  const surfaceSource = readFileSync(new URL("../js/output/output-surface-runtime.js", import.meta.url), "utf8");
+  const source = `${rendererSource}\n${surfaceSource}`;
   assert.ok(source.includes("const rect = this.componentPreviewRect(component);"));
   assert.ok(source.includes('if (component?.type === "canvas")'));
-  assert.ok(source.includes("drawSampleRect(pg, thumbnail.img"));
-  assert.ok(source.includes("this.mapper.drawTexture(pg, mapped.mapperSurface, surface.projectionFit, surface.feather)"));
+  assert.ok(source.includes("drawSampleRect(target, thumbnail.img"));
+  assert.ok(source.includes("renderer.mapper.drawTexture(target, mapped.mapperSurface, surface.projectionFit, surface.feather)"));
 });
 
 test("thumbnail preview remains an active transform editor without live component rendering", () => {
@@ -605,15 +781,16 @@ test("thumbnail preview remains an active transform editor without live componen
 
 test("canvas rendering evaluates ordinary sources, Groups, effects, and shared route frames", () => {
   const source = readFileSync(new URL("../js/output/output-renderer.js", import.meta.url), "utf8");
+  const plannerSource = readFileSync(new URL("../js/output/surface-render-planner.js", import.meta.url), "utf8");
   const canvasRenderer = source.slice(
     source.indexOf("  renderCanvasComponent("),
     source.indexOf("  renderComponentPatch(")
   );
   assert.ok(source.includes("this.renderComponentChainState("));
-  assert.ok(source.includes("this.renderEffectNodeState(nodeId, state, item, componentTime, renderRequest)"));
-  assert.ok(source.includes("this.renderDirectSourceNodeState(nodeId, state, component, item, componentTime, renderRequest)"));
-  assert.ok(source.includes("this.renderLayerNodeState(nodeId, state, sourceState, { ...item, transform: {} }, renderRequest)"));
-  assert.ok(source.includes("state = this.renderLayerNodeState(nodeId, state, groupState, item, renderRequest)"));
+  assert.ok(source.includes("this.renderEffectNodeState(nodeId, state, renderedItem, componentTime, renderRequest)"));
+  assert.ok(source.includes("this.renderDirectSourceNodeState(nodeId, state, component, renderedItem, componentTime, renderRequest)"));
+  assert.ok(source.includes("this.renderLayerNodeState(nodeId, state, sourceState, { ...renderedItem, transform: {} }, renderRequest)"));
+  assert.ok(source.includes("state = this.renderLayerNodeState(nodeId, state, groupState, { ...item, transform: {} }, renderRequest)"));
   assert.ok(source.includes("output.tint(255, 255 * clamp01(layer.opacity ?? 1))"));
   assert.ok(source.includes("applyBlend(output, layer.blend)"));
   assert.ok(source.includes('source.type === "component"'));
@@ -621,7 +798,7 @@ test("canvas rendering evaluates ordinary sources, Groups, effects, and shared r
   assert.ok(source.includes("this.state?.recordingFrames || []"));
   assert.ok(source.includes("renderCanvasRecordingFrames(component, source)"));
   assert.ok(source.includes("surface.outputFrameId"));
-  assert.ok(source.includes("this.resolveRouteSourceNode(storedSurface)"));
+  assert.ok(plannerSource.includes("resolveRouteSourceNode(storedSurface)"));
   assert.ok(!source.includes('item.role === "canvas-layer"'));
   assert.ok(canvasRenderer.includes("this.renderComponentChainState("));
   assert.ok(!canvasRenderer.includes('item.kind === "source"'));
@@ -709,6 +886,8 @@ test("surface route lookup indexes components, frames, and source nodes once per
   assert.equal(renderer.recordingFrameById.get("frame-a").name, "Frame A");
   assert.equal(node.componentId, "canvas-a");
   assert.equal(node.outputFrameId, "frame-a");
+  assert.equal(renderer.resolveRouteSourceNode({ sourceNodeId: "", componentId: "", outputFrameId: "" }), null);
+  assert.equal(renderer.resolveRouteSourceNode({ sourceNodeId: "missing", componentId: "", outputFrameId: "" }), null);
 });
 
 test("Canvas demand is capped to logical size by default and can opt into supersampling", () => {
@@ -957,6 +1136,17 @@ test("direct surfaces map normal compositing to BLEND rather than the deprecated
   assert.ok(helper.indexOf('blend === "normal"') < helper.indexOf("globalThis"));
 });
 
+test("output renderer imports the bounds helper used while rebuilding direct surfaces", () => {
+  const source = readFileSync(new URL("../js/output/output-renderer.js", import.meta.url), "utf8");
+  const layoutImport = source.slice(
+    source.indexOf("import {\n  canvasMaxRasterSize"),
+    source.indexOf("from \"./component-render-layout.js", source.indexOf("import {\n  canvasMaxRasterSize"))
+  );
+
+  assert.match(layoutImport, /\bcornersRect,/);
+  assert.match(source, /const rect = cornersRect\(corners\);/);
+});
+
 test("Canvas preview requests follow the viewport with auto low and full quality modes", () => {
   assert.deepEqual(
     pickRequestSize(canvasPreviewRenderRequest({ canvas: { width: 3840, height: 2160, previewQuality: "auto" } }, 1200, 800)),
@@ -982,12 +1172,15 @@ test("component groups render isolated from earlier parent layers", () => {
   assert.ok(groupRenderSource.includes("let state = this.transparentChainState(component, renderRequest);"));
   assert.ok(groupRenderSource.includes("const groupState = this.renderComponentChainState("));
   assert.ok(groupRenderSource.includes("item.chain || []"));
-  assert.ok(groupRenderSource.includes("state = this.renderLayerNodeState(nodeId, state, groupState, item, renderRequest);"));
+  assert.ok(groupRenderSource.includes("combineContentTransforms(inheritedTransform, item.transform || {})"));
+  assert.ok(groupRenderSource.includes("state = this.renderLayerNodeState(nodeId, state, groupState, { ...item, transform: {} }, renderRequest);"));
   assert.ok(!groupRenderSource.includes("drawBuffer(groupState.buffer, state.buffer"));
 });
 
-test("source transforms change source coordinates while groups resample inside a fixed component frame", () => {
+test("rasterized sources own a full-frame coordinate transform before neutral layer compositing", () => {
   const source = readFileSync(new URL("../js/output/output-renderer.js", import.meta.url), "utf8");
+  const specializedSource = readFileSync(new URL("../js/output/specialized/specialized-source-runtime.js", import.meta.url), "utf8");
+  const shaderSource = readFileSync(new URL("../js/output/render-pass-shaders.js", import.meta.url), "utf8");
   const chainRenderSource = source.slice(
     source.indexOf("  renderComponentChainState("),
     source.indexOf("  transparentChainState(")
@@ -1001,54 +1194,60 @@ test("source transforms change source coordinates while groups resample inside a
     source.indexOf("  drawTransformedLayerFallback(")
   );
 
-  assert.ok(source.includes("contentTransform: item.transform || {}"));
-  assert.ok(chainRenderSource.includes("{ ...item, transform: {} }"));
+  const rasterSourceRender = source.slice(
+    source.indexOf("  renderComponentSourceItemState("),
+    source.indexOf("  sourceRuntimeTimeKey(")
+  );
+  assert.ok(rasterSourceRender.includes("contentTransform: item.transform || {}"));
+  assert.ok(chainRenderSource.includes("this.renderLayerNodeState(nodeId, state, sourceState, { ...renderedItem, transform: {} }, renderRequest)"));
   assert.ok(layerRenderSource.includes("renderLayerContentTransformState("));
   assert.ok(layerRenderSource.includes('renderBufferKey(nodeId, "content-transform")'));
-  assert.ok(source.includes("uniform mat3 sourceUvMatrix;"));
-  assert.ok(source.includes("gl_FragColor = color * inside;"));
+  assert.ok(shaderSource.includes("uniform mat3 sourceUvMatrix;"));
+  assert.ok(shaderSource.includes("gl_FragColor = color * inside;"));
   assert.ok(drawLayerSource.includes("drawBuffer(output, source, 0, 0, output.width, output.height"));
   assert.ok(!drawLayerSource.includes("output.translate("));
   assert.ok(!drawLayerSource.includes("output.scale("));
   assert.ok(source.includes('setShaderUniformIfPresent(shader, "contentUvMatrix", contentMatrix)'));
-  assert.ok(source.includes("applyModelContentTransform(target, source.contentTransform, viewport)"));
+  assert.ok(specializedSource.includes("presentGeneratedTarget(pg, target)"));
+  assert.ok(specializedSource.includes("GENERATED_TARGET_PRESENTATION_FRAGMENT_SHADER"));
+  assert.ok(specializedSource.includes("applyModelContentTransform(target, source.contentTransform"));
 });
 
 test("component preview always draws its overarching frame independently of selection", () => {
   const source = readFileSync(new URL("../js/output/output-renderer.js", import.meta.url), "utf8");
+  const interactionSource = readFileSync(new URL("../js/output/component-preview-interaction.js", import.meta.url), "utf8");
   const previewSource = source.slice(
     source.indexOf("  renderComponentPreview()"),
     source.indexOf("  setCalibrate(on)")
   );
 
   assert.ok(previewSource.includes("this.renderComponentFrameOverlay(component, source)"));
-  assert.ok(previewSource.includes('if (this.mode !== "component" || !component) return'));
-  assert.ok(previewSource.includes("this.componentPreviewRect(component, source)"));
-  assert.ok(previewSource.includes("stroke(101, 224, 211, 235)"));
+  assert.ok(interactionSource.includes('if (renderer.mode !== "component" || !component) return'));
+  assert.ok(interactionSource.includes("renderer.componentPreviewRect(component, source)"));
+  assert.ok(interactionSource.includes("stroke(101, 224, 211, 235)"));
 });
 
 test("scene surfaces render components at their configured shape and relative resolution", () => {
   const source = readFileSync(new URL("../js/output/output-renderer.js", import.meta.url), "utf8");
-  const drawSurfaceRoute = source.slice(
-    source.indexOf("  drawSurfaceRoute(pg, route = {})"),
-    source.indexOf("  drawSurfaceThumbnailRoute(pg, surface)")
+  const runtimeSource = readFileSync(new URL("../js/output/output-surface-runtime.js", import.meta.url), "utf8");
+  const plannerSource = readFileSync(new URL("../js/output/surface-render-planner.js", import.meta.url), "utf8");
+  const drawSurfaceRoute = runtimeSource.slice(
+    runtimeSource.indexOf("  drawSurfaceRoute(target, route = {})"),
+    runtimeSource.indexOf("  drawSurfaceThumbnailRoute(target, surface")
   );
-  const surfaceRenderPlan = source.slice(
-    source.indexOf("  buildSurfaceRenderPlan()"),
-    source.indexOf("  getSurfaceTexture(request")
-  );
+  const surfaceRenderPlan = plannerSource;
 
   assert.ok(surfaceRenderPlan.includes("sourceRenderDemand({"));
   assert.ok(surfaceRenderPlan.includes("componentSourceView("));
-  assert.ok(surfaceRenderPlan.includes("this.componentById.get(surface.componentId)"));
-  assert.ok(surfaceRenderPlan.includes("this.resolveRouteSourceNode(storedSurface)"));
-  assert.ok(surfaceRenderPlan.includes("this.state.render?.sampling?.surfaceOverscan"));
+  assert.ok(surfaceRenderPlan.includes("componentById.get(surface.componentId)"));
+  assert.ok(surfaceRenderPlan.includes("resolveRouteSourceNode(storedSurface)"));
+  assert.ok(surfaceRenderPlan.includes("state.render?.sampling?.surfaceOverscan"));
   assert.ok(surfaceRenderPlan.includes("sharedComponentRenderRequests(routes"));
   assert.ok(surfaceRenderPlan.includes("route.componentRequest = componentRequests.get(renderInstanceKey)"));
   assert.ok(!drawSurfaceRoute.includes("stableFrameRenderRequest(this.state.render"));
   assert.ok(drawSurfaceRoute.includes("scaledComponentSampleRect("));
-  assert.ok(source.includes("getSurfaceTexture(request)"));
-  assert.ok(source.includes("createGraphics(widthPx, heightPx)"));
+  assert.ok(runtimeSource.includes("getSurfaceTexture(request)"));
+  assert.ok(runtimeSource.includes("createGraphics(widthPx, heightPx)"));
 });
 
 test("element render quality scales physical component pixels without changing logical proportions", () => {
@@ -1157,12 +1356,12 @@ test("every generator path is tied to the component source target", () => {
 
 test("projection mapper uses actual texture size for surface sampling math", () => {
   const source = readFileSync(new URL("../js/output/vj-mapper.js", import.meta.url), "utf8");
-  const rendererSource = readFileSync(new URL("../js/output/output-renderer.js", import.meta.url), "utf8");
+  const rendererSource = readFileSync(new URL("../js/output/output-surface-runtime.js", import.meta.url), "utf8");
 
   assert.ok(source.includes("const sourceWidth = sourceRect[2] * Math.max(1, Number(texture.width) || 1);"));
   assert.ok(source.includes("const sourceHeight = sourceRect[3] * Math.max(1, Number(texture.height) || 1);"));
   assert.ok(source.includes('projectionFit = "cover"'));
-  assert.ok(rendererSource.includes("this.mapper.drawTexture(pg, mapped.mapperSurface, surface.projectionFit, surface.feather)"));
+  assert.ok(rendererSource.includes("renderer.mapper.drawTexture(target, mapped.mapperSurface, surface.projectionFit, surface.feather)"));
   assert.ok(rendererSource.includes("sourceRect: view.sourceRect"));
   assert.ok(rendererSource.includes("directSurfaceSamples"));
   assert.ok(source.includes("drawTextureBatch(items = [])"));
@@ -1171,19 +1370,21 @@ test("projection mapper uses actual texture size for surface sampling math", () 
 });
 
 test("zero-duration Live output retains the original single-scene surface path", () => {
-  const source = readFileSync(new URL("../js/output/output-renderer.js", import.meta.url), "utf8");
-  assert.ok(source.includes("if (transition) {"));
+  const source = readFileSync(new URL("../js/output/output-surface-runtime.js", import.meta.url), "utf8");
+  assert.ok(source.includes("if (transition) return this.renderTransitionSurfaces(transition);"));
   assert.ok(source.includes("this.renderSingleSceneSurfaces();"));
   assert.ok(source.includes("this.releaseTransitionSurfaceTextures();"));
-  assert.ok(source.includes("this.mapper.drawTransitionTextures("));
+  assert.ok(source.includes("renderer.mapper.drawTransitionTextures("));
 });
 
 test("media renditions are saved without lossy jpeg compression", () => {
   const rendererSource = readFileSync(new URL("../js/output/output-renderer.js", import.meta.url), "utf8");
+  const thumbnailSource = readFileSync(new URL("../js/output/thumbnail-utils.js", import.meta.url), "utf8");
   const renditionSource = readFileSync(new URL("../js/services/media-rendition-service.js", import.meta.url), "utf8");
 
-  assert.ok(rendererSource.includes('canvas.toBlob(resolve, "image/png")'));
+  assert.ok(thumbnailSource.includes('canvas.toBlob(resolve, "image/png")'));
   assert.ok(!rendererSource.includes('"image/jpeg"'));
+  assert.ok(!thumbnailSource.includes('"image/jpeg"'));
   assert.ok(renditionSource.includes(".png"));
   assert.ok(renditionSource.includes("png|jpe?g"));
 });

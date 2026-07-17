@@ -1,0 +1,116 @@
+import { esc, icon } from "./template-utils.js?v=slider-values-70";
+
+export function componentCardBarTemplate(label) {
+  return `<div class="component-card-bar"><span>${esc(label)}</span></div>`;
+}
+
+export function enableToggleButton({ path = "", livePath = "", componentId = "", value = true, iconName = "power_settings_new", label = "" }) {
+  const enabled = value !== false;
+  const toggleAttrs = livePath
+    ? `data-live-component-id="${esc(componentId)}" data-live-toggle="${esc(livePath)}"`
+    : `data-toggle-path="${esc(path)}"`;
+  const action = enabled ? "Disable" : "Enable";
+  return `
+    <button type="button" class="enable-toggle ${enabled ? "is-enabled" : ""}" ${toggleAttrs} data-toggle-value="${enabled ? "true" : "false"}" title="${action} ${esc(label)}" aria-label="${action} ${esc(label)}">
+      ${icon(enabled ? iconName : "hide_source")}
+    </button>
+  `;
+}
+
+export function selectablePillTemplate({ selected, action, id, iconName, label, meta, togglePath = "", toggleValue = true, removeAction = "", removeDisabled = false, reorderable = true }) {
+  return textListItemTemplate({
+    rowClass: "list-row",
+    selected,
+    reorderId: reorderable ? id : "",
+    leadingHtml: togglePath ? enableToggleButton({
+      path: togglePath,
+      value: toggleValue,
+      iconName,
+      label,
+    }) : "",
+    label,
+    meta,
+    mainClass: "list-select",
+    mainAction: action,
+    mainActionId: id,
+    removeClass: "list-remove",
+    removeAction,
+    removeActionId: id,
+    removeDisabled,
+  });
+}
+
+export function textListItemTemplate({
+  rowClass = "",
+  selected = false,
+  reorderId = "",
+  leadingHtml = "",
+  label = "",
+  meta = "",
+  mainClass = "",
+  mainAction = "",
+  mainActionId = "",
+  removeClass = "",
+  removeAction = "",
+  removeActionId = "",
+  removeAttributes = "",
+  removeTitle = "Remove",
+  removeDisabled = false,
+} = {}) {
+  const hasRemove = Boolean(removeAction || removeAttributes);
+  const mainClasses = ["text-list-main", mainClass, selected ? "is-selected" : ""].filter(Boolean).join(" ");
+  const rowClasses = [
+    "text-list-item",
+    rowClass,
+    leadingHtml ? "has-leading" : "",
+    hasRemove ? "has-remove" : "",
+    selected ? "is-selected" : "",
+  ].filter(Boolean).join(" ");
+  const mainContent = `<span>${esc(label)}</span>${meta ? `<small>${esc(meta)}</small>` : ""}`;
+  const main = mainAction
+    ? `<button type="button" class="${mainClasses}" ${mainAction}="${esc(mainActionId)}">${mainContent}</button>`
+    : `<div class="${mainClasses}">${mainContent}</div>`;
+  const remove = hasRemove
+    ? `<button type="button" class="text-list-remove ${removeClass}" ${removeAction ? `${removeAction}="${esc(removeActionId)}"` : ""} ${removeAttributes} title="${esc(removeTitle)}" aria-label="${esc(removeTitle)} ${esc(label)}" ${removeDisabled ? "disabled" : ""}>${icon("close")}</button>`
+    : "";
+  return `
+    <div class="${rowClasses}" ${reorderId ? `data-reorder-id="${esc(reorderId)}"` : ""}>
+      ${leadingHtml}
+      ${main}
+      ${remove}
+    </div>
+  `;
+}
+
+export function titleInputTemplate(path, value) {
+  return `<input class="section-title-input" type="text" data-update="${esc(path)}" value="${esc(value)}" aria-label="Name" spellcheck="false" data-gramm="false" data-gramm_editor="false" data-enable-grammarly="false" />`;
+}
+
+export function editableSectionTitleTemplate(iconName, path, value) {
+  return `<div class="ui-section-header rail-title"><span class="material-symbols-rounded">${iconName}</span>${titleInputTemplate(path, value)}</div>`;
+}
+
+export function panelTemplate(iconName, title, body, { titlePath = "" } = {}) {
+  return `
+    <section class="ui-section focus-panel">
+      <header class="ui-section-header panel-title">
+        <span class="material-symbols-rounded">${iconName}</span>
+        ${titlePath ? titleInputTemplate(titlePath, title) : `<span>${esc(title)}</span>`}
+      </header>
+      ${body}
+    </section>
+  `;
+}
+
+export function projectEmptyTemplate() {
+  return `
+    <div class="project-empty">
+      <span class="material-symbols-rounded">folder_open</span>
+      <h2>Open a folder to begin</h2>
+      <p>Choose an empty folder or an existing VJ1 project folder.</p>
+      <div class="button-row">
+        <button type="button" class="primary" data-open-folder>${icon("folder_open")} Open folder</button>
+      </div>
+    </div>
+  `;
+}

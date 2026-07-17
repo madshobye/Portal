@@ -21,7 +21,8 @@ test("Tile Texture exposes repeat offset and optional scrolling controls", () =>
 test("Tile Texture repeats its selected image with wrapped shader coordinates", () => {
   const source = createGeneratorSource("tileTexture", { imageId: "tiles.png", repeat: 8 });
   assert.equal(source.params.imageId, "tiles.png");
-  assert.match(TILE_TEXTURE_FRAGMENT_SHADER, /fract\(vTexCoord \* repeatAmount/);
+  assert.match(TILE_TEXTURE_FRAGMENT_SHADER, /contentUvMatrix \* vec3\(vTexCoord, 1\.0\)/);
+  assert.match(TILE_TEXTURE_FRAGMENT_SHADER, /fract\(compositionUv \* repeatAmount/);
   assert.match(TILE_TEXTURE_FRAGMENT_SHADER, /texture2D\(tileImage, tileUv\)/);
   const controls = generatorImageMediaControlTemplate("components.0.source", source, {
     media: [{ id: "tiles.png", name: "Tiles", path: "media/tiles.png" }],

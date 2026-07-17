@@ -87,6 +87,17 @@ test("folder permission prompt does not discard a project recovered from output"
   assert.ok(source.includes("if (!recoveredFromOutput)"));
 });
 
+test("media import refreshes assets without replacing live project state", () => {
+  const source = readFileSync(new URL("../js/services/project-folder-service.js", import.meta.url), "utf8");
+  const importExternalFiles = source.slice(
+    source.indexOf("  async function importExternalFiles"),
+    source.indexOf("\n  async function closeProject", source.indexOf("  async function importExternalFiles"))
+  );
+
+  assert.ok(importExternalFiles.includes("await refreshFolder({ force: true })"));
+  assert.doesNotMatch(importExternalFiles, /loadDirectory\(/);
+});
+
 test("project history signature ignores UI-only save noise", () => {
   const base = {
     version: 5,

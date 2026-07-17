@@ -16,12 +16,12 @@ import {
   sanitizeState,
   syncLiveSnapshotFromScene,
   uid,
-} from "./domain/models.js?v=centered-freeze-68";
+} from "./domain/models.js?v=render-coordinate-scope-3";
 import { stampChangedProjectItems, touchComponentUsed } from "./domain/component-activity.js?v=adaptive-component-demand-29";
 import { componentFrameMetrics } from "./domain/component-frame.js?v=adaptive-component-demand-29";
 import { VJ1, WORKSPACES } from "./constants.js";
 import { createChangeEvent } from "./domain/change-event.js?v=adaptive-component-demand-29";
-import { clearComponentReferences, countChainGroups, insertChainItemNearSelection, moveById, moveChainItem } from "./domain/chain-operations.js?v=adaptive-component-demand-29";
+import { clearComponentReferences, countChainGroups, findChainItemLocation, insertChainItemNearSelection, moveById, moveChainItem } from "./domain/chain-operations.js?v=adaptive-component-demand-29";
 import { pasteClipboardPayload } from "./domain/clipboard.js?v=clipboard-routing-62";
 
 export function createAppState(initial = null) {
@@ -31,11 +31,16 @@ export function createAppState(initial = null) {
 
   function emit(change = "change") {
     const event = createChangeEvent(change);
-    for (const listener of listeners) listener(getState(), event.reason, event);
+    const snapshot = getState();
+    for (const listener of listeners) listener(snapshot, event.reason, event);
   }
 
   function getState() {
     return clone(state);
+  }
+
+  function getMetrics() {
+    return clone(state.metrics);
   }
 
   function replace(next, change = "replace") {
@@ -54,6 +59,27 @@ export function createAppState(initial = null) {
     replace(draft, change);
   }
 
+  function updateUi(recipe, change = "ui-update") {
+    const ui = clone(state.ui);
+    recipe(ui);
+    state = { ...state, ui };
+    emit({ reason: change, scope: "ui" });
+  }
+
+  function updateRuntime(recipe, change = "runtime-update") {
+    const metrics = clone(state.metrics);
+    recipe(metrics);
+    state = { ...state, metrics };
+    emit({ reason: change, scope: "runtime" });
+  }
+
+  function updateLive(recipe, change = "live:update") {
+    const draft = { ...state, ui: clone(state.ui) };
+    recipe(draft);
+    state = draft;
+    emit({ reason: change, scope: "live" });
+  }
+
   function subscribe(listener) {
     listeners.add(listener);
     const event = createChangeEvent("init");
@@ -63,8 +89,12 @@ export function createAppState(initial = null) {
 
   return {
     getState,
+    getMetrics,
     replace,
     update,
+    updateUi,
+    updateRuntime,
+    updateLive,
     subscribe,
     pasteClipboard(payload, target) {
       const draft = getState();
@@ -73,18 +103,29 @@ export function createAppState(initial = null) {
       return result;
     },
     selectSurface(id) {
-      update((draft) => {
-        draft.ui.selectedSurfaceId = id;
+      if (!state.surfaces.some((surface) => surface.id === id)) return;
+      updateUi((ui) => {
+        ui.selectedSurfaceId = id;
       }, "select-surface");
     },
     selectComponent(id) {
-      update((draft) => {
-        draft.ui.selectedComponentId = id;
-        touchComponentUsed(draft, id);
-        const component = draft.components.find((item) => item.id === id);
-        draft.ui.selectedChainItemId = component?.chain?.[0]?.id || "";
-        rememberWorkspaceComponent(draft, draft.ui.workspace, component);
-      }, "select-component");
+      const index = state.components.findIndex((component) => component.id === id);
+      if (index < 0) return;
+      const component = {
+        ...state.components[index],
+        activity: { ...(state.components[index].activity || {}) },
+      };
+      const components = state.components.slice();
+      components[index] = component;
+      touchComponentUsed({ components }, id);
+      const ui = clone(state.ui);
+      ui.selectedComponentId = id;
+      ui.selectedChainItemId = component.chain?.[0]?.id || "";
+      rememberWorkspaceComponent({ ui }, ui.workspace, component);
+      state = { ...state, components, ui };
+      // Selection is local to the editor. It is still autosaved so recent-use
+      // sorting survives reload, but it must not rebuild a Live render state.
+      emit({ reason: "select-component", scope: "ui" });
     },
     setWorkspace(workspace) {
       update((draft) => {
@@ -173,8 +214,10 @@ export function createAppState(initial = null) {
       }, "remove-canvas-frame");
     },
     selectChainItem(id) {
-      update((draft) => {
-        draft.ui.selectedChainItemId = id;
+      const selected = state.components.find((component) => component.id === state.ui.selectedComponentId);
+      if (!findChainItemLocation(selected?.chain, id)) return;
+      updateUi((ui) => {
+        ui.selectedChainItemId = id;
       }, "select-chain-item");
     },
     removeChainItem(componentId, itemId) {
@@ -267,12 +310,15 @@ export function createAppState(initial = null) {
         surface.id = uid("surface");
         surface.name = `Srf ${mappedSurfaces.length + 1}`;
         surface.mappingId = surface.id;
-        surface.componentId = draft.components[0]?.id || "";
         draft.surfaces.push(surface);
         draft.ui.selectedSurfaceId = surface.id;
+        const selectedSceneId = String(draft.ui.selectedSceneId || "");
         for (const scene of draft.scenes) {
           scene.snapshot ||= { surfaces: [] };
-          scene.snapshot.surfaces.push(createSceneSurfaceSnapshot(surface));
+          scene.snapshot.surfaces.push(createSceneSurfaceSnapshot({
+            ...surface,
+            enabled: String(scene.id) === selectedSceneId,
+          }));
         }
         const liveScene = draft.scenes.find((scene) => String(scene.id) === String(draft.ui.live?.selectedSceneId || ""));
         syncLiveSnapshotFromScene(draft, liveScene);

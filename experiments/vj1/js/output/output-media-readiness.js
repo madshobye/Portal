@@ -1,0 +1,57 @@
+import { collectMediaIdsFromSource, createMediaReadinessStatus, isReadyMediaItem } from "./component-render-state.js?v=render-stability-2";
+
+export function collectOutputMediaReadiness({ mode = "output", state = null, media = new Map() } = {}) {
+  const status = createMediaReadinessStatus();
+  if (mode !== "output" || !state) return status;
+  const componentsById = new Map((state.components || []).map((component) => [component.id, component]));
+  for (const surface of state.surfaces || []) {
+    if (surface.enabled === false || !surface.componentId) continue;
+    collectComponentMediaReadiness(componentsById.get(surface.componentId), status, componentsById, media, new Set());
+  }
+  status.blocked = status.loadingIds.size > 0 || status.missingIds.size > 0 || status.errorIds.size > 0;
+  return status;
+}
+
+function collectComponentMediaReadiness(component, status, componentsById, media, visited) {
+  if (!component || !status || visited.has(component.id)) return;
+  visited.add(component.id);
+  if (Array.isArray(component.chain) && component.chain.length) {
+    collectChainMediaReadiness(component.chain, status, componentsById, media, visited);
+  } else {
+    collectSourceMediaReadiness(component.source, status, media);
+  }
+  visited.delete(component.id);
+}
+
+function collectChainMediaReadiness(chain, status, componentsById, media, visited) {
+  for (const item of chain || []) {
+    if (item.enabled === false) continue;
+    if (item.kind === "group") {
+      collectChainMediaReadiness(item.chain || [], status, componentsById, media, visited);
+      continue;
+    }
+    if (item.kind === "source" && item.source?.type === "component") {
+      collectComponentMediaReadiness(componentsById.get(item.source.componentId), status, componentsById, media, visited);
+    } else if (item.kind === "source") {
+      collectSourceMediaReadiness(item.source, status, media);
+    }
+  }
+}
+
+function collectSourceMediaReadiness(source, status, media) {
+  const mediaIds = new Set();
+  collectMediaIdsFromSource(source, mediaIds);
+  for (const mediaId of mediaIds) {
+    status.total++;
+    const item = media.get(mediaId);
+    if (!item) {
+      status.missingIds.add(mediaId);
+      continue;
+    }
+    if (item.loadError || item.imageError || item.modelError) {
+      status.errorIds.add(mediaId);
+      continue;
+    }
+    if (!isReadyMediaItem(item)) status.loadingIds.add(mediaId);
+  }
+}

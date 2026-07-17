@@ -1,7 +1,14 @@
-import { isSharedFramebufferTarget } from "../shared-framebuffer-target.js?v=adaptive-component-demand-29";
+import { isSharedFramebufferTarget } from "../shared-framebuffer-target.js?v=render-diagnostics-1";
 import { resolutionScaledStrokeWidth } from "../component-render-layout.js?v=adaptive-component-demand-29";
 import { normalizedModelColor } from "./model-color.js?v=adaptive-component-demand-29";
-import { compileRawShader, linkSpecializedProgram } from "./raw-webgl-utils.js?v=adaptive-component-demand-29";
+import { compileRawShader, linkSpecializedProgram } from "./raw-webgl-utils.js?v=terrain-gl-state-1";
+import {
+  beginRawWebGlState,
+  bindRawWebGlVertexArray,
+  captureRawWebGlAttributes,
+  disposeRawWebGlVertexArray,
+  restoreRawWebGlState,
+} from "./raw-webgl-state.js?v=raw-webgl-state-1";
 import {
   normalizedTerrainIrregularity,
   terrainExpandedGridWireVertices,
@@ -11,6 +18,48 @@ import {
   terrainSurfaceTriangleIndices,
   terrainTessellationSize,
 } from "./terrain-mesh.js?v=adaptive-component-demand-29";
+
+// Terrain camera height is world-up: positive cameraY is above the camera and
+// negative cameraY is below it. WebGL clip Y uses the same upward convention.
+// The conversion to Composition's screen-down UV convention happens later,
+// exactly once, inside placeTerrainInComposition().
+const TERRAIN_CAMERA_CLIP_GLSL = `
+float terrainSafeNearPlane() {
+  // A triangle closer than its own tessellated footprint can cross the
+  // camera as a screen-spanning wedge. The user near clip is therefore a
+  // minimum, while mesh density and scale define the representable floor.
+  float lateralSpacing = gridCells.x * cellScale * 1.44 / max(meshCells.x, 1.0);
+  float meshCellDiagonal = length(vec2(max(lateralSpacing, 0.01), max(rowSpacing, 0.01)));
+  return max(max(nearClip, 0.01), meshCellDiagonal);
+}
+
+float terrainClipYFromWorldUp(float worldUpY) {
+  return worldUpY;
+}
+`;
+
+// Chain transforms place the projected terrain inside the immutable
+// Composition frame. They never resample an already rendered terrain texture.
+const TERRAIN_CONTENT_PLACEMENT_GLSL = `
+uniform mat3 contentPlacementMatrix;
+vec4 placeTerrainInComposition(vec4 clip) {
+  // Keep placement homogeneous. Dividing by abs(w) mirrored vertices behind
+  // the camera before the near plane could clip their triangles, even when
+  // contentPlacementMatrix was the identity matrix.
+  vec3 screenUvH = vec3(
+    clip.x * 0.5 + clip.w * 0.5,
+    clip.w * 0.5 - clip.y * 0.5,
+    clip.w
+  );
+  vec3 placedUvH = contentPlacementMatrix * screenUvH;
+  clip.xy = vec2(
+    placedUvH.x * 2.0 - placedUvH.z,
+    placedUvH.z - placedUvH.y * 2.0
+  );
+  clip.w = placedUvH.z;
+  return clip;
+}
+`;
 
 const TERRAIN_VERTEX_SHADER = `
 precision highp float;
@@ -48,6 +97,8 @@ varying float vRawHeight;
 varying float vSurfaceHeight;
 varying float vSlope;
 varying float vDepth;
+${TERRAIN_CAMERA_CLIP_GLSL}
+${TERRAIN_CONTENT_PLACEMENT_GLSL}
 
 float terrainHash(vec2 p) {
   vec3 p3 = fract(vec3(p.xyx) * 0.1031);
@@ -133,16 +184,16 @@ void main() {
   float cameraY = verticalWorld * pitchCos + distance * pitchSin;
   float cameraZ = distance * pitchCos - verticalWorld * pitchSin;
   float focalLength = 1.0 / tan(radians(clamp(fieldOfView, 20.0, 120.0)) * 0.5);
-  float nearPlane = max(nearClip, 0.01);
+  float nearPlane = terrainSafeNearPlane();
   float farPlane = max(farClip, nearPlane + 1.0);
   float clipZ = ((farPlane + nearPlane) / (farPlane - nearPlane)) * cameraZ
     - (2.0 * farPlane * nearPlane) / (farPlane - nearPlane);
-  gl_Position = vec4(
+  gl_Position = placeTerrainInComposition(vec4(
     worldLateral * focalLength / max(aspectRatio, 0.01),
-    -cameraY * focalLength,
+    terrainClipYFromWorldUp(cameraY) * focalLength,
     clipZ,
     cameraZ
-  );
+  ));
 }
 `;
 
@@ -237,11 +288,12 @@ export function drawTerrainSurface(target, resourceCache, params, componentTime,
   const gl = target?.drawingContext;
   if (!gl) return false;
   const viewportSize = renderTargetPixelSize(target);
-  const previousProgram = gl.getParameter(gl.CURRENT_PROGRAM);
-  const previousArrayBuffer = gl.getParameter(gl.ARRAY_BUFFER_BINDING);
-  const previousElementBuffer = gl.getParameter(gl.ELEMENT_ARRAY_BUFFER_BINDING);
-  const previousViewport = gl.getParameter(gl.VIEWPORT);
-  let resources = resourceCache.get(gl);
+  const passState = beginRawWebGlState(gl, "terrain-surface");
+  let attributeStates = [];
+  let resources = null;
+  let completed = false;
+  try {
+  resources = resourceCache.get(gl);
   if (resources && !terrainSurfaceResourcesValid(gl, resources)) {
     disposeTerrainSurfaceResources(gl, resources);
     resourceCache.delete(gl);
@@ -257,18 +309,8 @@ export function drawTerrainSurface(target, resourceCache, params, componentTime,
   const depthCells = terrainTessellationSize(terrainGridSize(params.gridDepth), params.gridDensity);
   const gridMetrics = terrainRowMetrics(componentTime, Math.max(0, Number(params.flightSpeed) || 0), params.gridDepth, params.gridDensity, params.gridScale);
   const baseRow = Math.floor(gridMetrics.travelRows) - 1;
-  const previousDepthTest = gl.isEnabled(gl.DEPTH_TEST);
-  const previousBlend = gl.isEnabled(gl.BLEND);
-  const previousCullFace = gl.isEnabled(gl.CULL_FACE);
-  const previousPolygonOffset = gl.isEnabled(gl.POLYGON_OFFSET_FILL);
-  const previousDepthFunc = gl.getParameter(gl.DEPTH_FUNC);
-  const previousBlendSrcRgb = gl.getParameter(gl.BLEND_SRC_RGB);
-  const previousBlendDstRgb = gl.getParameter(gl.BLEND_DST_RGB);
-  const previousBlendSrcAlpha = gl.getParameter(gl.BLEND_SRC_ALPHA);
-  const previousBlendDstAlpha = gl.getParameter(gl.BLEND_DST_ALPHA);
-  const previousPolygonFactor = gl.getParameter(gl.POLYGON_OFFSET_FACTOR);
-  const previousPolygonUnits = gl.getParameter(gl.POLYGON_OFFSET_UNITS);
-  const attributeState = captureVertexAttributeState(gl, resources.gridCoord);
+  attributeStates = captureRawWebGlAttributes(gl, passState, [resources.gridCoord]);
+  bindRawWebGlVertexArray(gl, passState, resources);
   updateTerrainSurfaceBuffers(gl, resources, widthCells, depthCells, baseRow);
 
   gl.useProgram(resources.program);
@@ -303,20 +345,11 @@ export function drawTerrainSurface(target, resourceCache, params, componentTime,
   gl.uniform4fv(resources.directionColor, normalizedModelColor(params.directionColor, [216, 138, 66, 170]));
   gl.uniform4fv(resources.skyColor, sky);
   gl.drawElements(gl.TRIANGLES, resources.count, gl.UNSIGNED_SHORT, 0);
-
-  restoreVertexAttributeState(gl, attributeState);
-  gl.bindBuffer(gl.ARRAY_BUFFER, previousArrayBuffer);
-  gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, previousElementBuffer);
-  previousDepthTest ? gl.enable(gl.DEPTH_TEST) : gl.disable(gl.DEPTH_TEST);
-  previousBlend ? gl.enable(gl.BLEND) : gl.disable(gl.BLEND);
-  previousCullFace ? gl.enable(gl.CULL_FACE) : gl.disable(gl.CULL_FACE);
-  gl.polygonOffset(previousPolygonFactor, previousPolygonUnits);
-  previousPolygonOffset ? gl.enable(gl.POLYGON_OFFSET_FILL) : gl.disable(gl.POLYGON_OFFSET_FILL);
-  gl.depthFunc(previousDepthFunc);
-  gl.blendFuncSeparate(previousBlendSrcRgb, previousBlendDstRgb, previousBlendSrcAlpha, previousBlendDstAlpha);
-  if (previousViewport?.length === 4) gl.viewport(...previousViewport);
-  gl.useProgram(previousProgram);
-  return true;
+  completed = true;
+  } finally {
+    restoreRawWebGlState(gl, passState, attributeStates);
+  }
+  return completed;
 }
 
 function createTerrainSurfaceResources(gl) {
@@ -364,6 +397,7 @@ function terrainSurfaceResourcesValid(gl, resources) {
 export function disposeTerrainSurfaceResources(gl, resources) {
   if (!gl || !resources) return;
   try {
+    disposeRawWebGlVertexArray(gl, resources);
     if (resources.vertexBuffer && gl.isBuffer(resources.vertexBuffer)) gl.deleteBuffer(resources.vertexBuffer);
     if (resources.indexBuffer && gl.isBuffer(resources.indexBuffer)) gl.deleteBuffer(resources.indexBuffer);
     if (resources.program && gl.isProgram(resources.program)) gl.deleteProgram(resources.program);
@@ -396,6 +430,7 @@ function terrainRawUniformLocations(gl, program) {
     cellScale: gl.getUniformLocation(program, "cellScale"),
     planeSize: gl.getUniformLocation(program, "planeSize"),
     wireColor: gl.getUniformLocation(program, "wireColor"),
+    contentPlacementMatrix: gl.getUniformLocation(program, "contentPlacementMatrix"),
   };
 }
 
@@ -421,11 +456,12 @@ export function drawTerrainWireframe(target, resourceCache, params, componentTim
   const gl = target?.drawingContext;
   if (!gl) return false;
   const viewportSize = renderTargetPixelSize(target);
-  const previousProgram = gl.getParameter(gl.CURRENT_PROGRAM);
-  const previousArrayBuffer = gl.getParameter(gl.ARRAY_BUFFER_BINDING);
-  const previousElementBuffer = gl.getParameter(gl.ELEMENT_ARRAY_BUFFER_BINDING);
-  const previousViewport = gl.getParameter(gl.VIEWPORT);
-  let resources = resourceCache.get(gl);
+  const passState = beginRawWebGlState(gl, "terrain-wire");
+  let attributeStates = [];
+  let resources = null;
+  let completed = false;
+  try {
+  resources = resourceCache.get(gl);
   if (resources && !terrainWireResourcesValid(gl, resources)) {
     disposeTerrainWireResources(gl, resources);
     resourceCache.delete(gl);
@@ -443,16 +479,8 @@ export function drawTerrainWireframe(target, resourceCache, params, componentTim
   const tessellatedDepth = terrainTessellationSize(depthCells, params.gridDensity);
   const { travelRows } = terrainRowMetrics(componentTime, flightSpeed, depthCells, params.gridDensity, params.gridScale);
   const baseRow = Math.floor(travelRows) - 1;
-  const previousDepthTest = gl.isEnabled(gl.DEPTH_TEST);
-  const previousBlend = gl.isEnabled(gl.BLEND);
-  const previousCullFace = gl.isEnabled(gl.CULL_FACE);
-  const previousDepthFunc = gl.getParameter(gl.DEPTH_FUNC);
-  const previousBlendSrcRgb = gl.getParameter(gl.BLEND_SRC_RGB);
-  const previousBlendDstRgb = gl.getParameter(gl.BLEND_DST_RGB);
-  const previousBlendSrcAlpha = gl.getParameter(gl.BLEND_SRC_ALPHA);
-  const previousBlendDstAlpha = gl.getParameter(gl.BLEND_DST_ALPHA);
-  const attributeStates = [resources.start, resources.end, resources.side, resources.along]
-    .map((location) => captureVertexAttributeState(gl, location));
+  attributeStates = captureRawWebGlAttributes(gl, passState, [resources.start, resources.end, resources.side, resources.along]);
+  bindRawWebGlVertexArray(gl, passState, resources);
   updateTerrainWireBuffer(gl, resources, tessellatedWidth, tessellatedDepth);
   const wireColor = normalizedModelColor(params.wireColor, [242, 245, 239, 255]);
   gl.useProgram(resources.program);
@@ -483,17 +511,11 @@ export function drawTerrainWireframe(target, resourceCache, params, componentTim
     viewportSize
   ));
   gl.drawArrays(gl.TRIANGLES, 0, resources.count);
-  for (const state of attributeStates) restoreVertexAttributeState(gl, state);
-  gl.bindBuffer(gl.ARRAY_BUFFER, previousArrayBuffer);
-  gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, previousElementBuffer);
-  previousDepthTest ? gl.enable(gl.DEPTH_TEST) : gl.disable(gl.DEPTH_TEST);
-  previousBlend ? gl.enable(gl.BLEND) : gl.disable(gl.BLEND);
-  previousCullFace ? gl.enable(gl.CULL_FACE) : gl.disable(gl.CULL_FACE);
-  gl.depthFunc(previousDepthFunc);
-  gl.blendFuncSeparate(previousBlendSrcRgb, previousBlendDstRgb, previousBlendSrcAlpha, previousBlendDstAlpha);
-  if (previousViewport?.length === 4) gl.viewport(...previousViewport);
-  gl.useProgram(previousProgram);
-  return true;
+  completed = true;
+  } finally {
+    restoreRawWebGlState(gl, passState, attributeStates);
+  }
+  return completed;
 }
 
 function renderTargetPixelSize(target) {
@@ -521,32 +543,10 @@ function terrainWireResourcesValid(gl, resources) {
 export function disposeTerrainWireResources(gl, resources) {
   if (!gl || !resources) return;
   try {
+    disposeRawWebGlVertexArray(gl, resources);
     if (resources.vertexBuffer && gl.isBuffer(resources.vertexBuffer)) gl.deleteBuffer(resources.vertexBuffer);
     if (resources.program && gl.isProgram(resources.program)) gl.deleteProgram(resources.program);
   } catch {}
-}
-
-function captureVertexAttributeState(gl, location) {
-  if (location < 0) return null;
-  return {
-    location,
-    enabled: gl.getVertexAttrib(location, gl.VERTEX_ATTRIB_ARRAY_ENABLED),
-    buffer: gl.getVertexAttrib(location, gl.VERTEX_ATTRIB_ARRAY_BUFFER_BINDING),
-    size: gl.getVertexAttrib(location, gl.VERTEX_ATTRIB_ARRAY_SIZE),
-    type: gl.getVertexAttrib(location, gl.VERTEX_ATTRIB_ARRAY_TYPE),
-    normalized: gl.getVertexAttrib(location, gl.VERTEX_ATTRIB_ARRAY_NORMALIZED),
-    stride: gl.getVertexAttrib(location, gl.VERTEX_ATTRIB_ARRAY_STRIDE),
-    offset: gl.getVertexAttribOffset(location, gl.VERTEX_ATTRIB_ARRAY_POINTER),
-  };
-}
-
-function restoreVertexAttributeState(gl, state) {
-  if (!state) return;
-  if (state.buffer) {
-    gl.bindBuffer(gl.ARRAY_BUFFER, state.buffer);
-    gl.vertexAttribPointer(state.location, state.size, state.type, state.normalized, state.stride, state.offset);
-  }
-  state.enabled ? gl.enableVertexAttribArray(state.location) : gl.disableVertexAttribArray(state.location);
 }
 
 function createTerrainWireResources(gl) {
@@ -639,6 +639,9 @@ function createTerrainWireResources(gl) {
       return 1.0 - abs(forwardDiagonal - selectedDiagonal);
     }
 
+    ${TERRAIN_CAMERA_CLIP_GLSL}
+    ${TERRAIN_CONTENT_PLACEMENT_GLSL}
+
     vec4 terrainClip(vec2 gridCoord) {
       vec2 uv = terrainMeshUv(gridCoord);
       float yaw = clamp(turn, -1.0, 1.0) * 0.72;
@@ -667,16 +670,16 @@ function createTerrainWireResources(gl) {
       float cameraY = verticalWorld * pitchCos + distance * pitchSin;
       float cameraZ = distance * pitchCos - verticalWorld * pitchSin;
       float focalLength = 1.0 / tan(radians(clamp(fieldOfView, 20.0, 120.0)) * 0.5);
-      float nearPlane = max(nearClip, 0.01);
+      float nearPlane = terrainSafeNearPlane();
       float farPlane = max(farClip, nearPlane + 1.0);
       float clipZ = ((farPlane + nearPlane) / (farPlane - nearPlane)) * cameraZ
         - (2.0 * farPlane * nearPlane) / (farPlane - nearPlane);
-      return vec4(
+      return placeTerrainInComposition(vec4(
         worldLateral * focalLength / max(aspectRatio, 0.01),
-        -cameraY * focalLength,
+        terrainClipYFromWorldUp(cameraY) * focalLength,
         clipZ,
         cameraZ
-      );
+      ));
     }
 
     void main() {
@@ -687,7 +690,7 @@ function createTerrainWireResources(gl) {
         gl_Position = vec4(2.0, 2.0, 2.0, 1.0);
         return;
       }
-      float clipNear = max(nearClip, 0.01);
+      float clipNear = terrainSafeNearPlane();
       if (startClip.w < clipNear && endClip.w < clipNear) {
         vDepth = 1.0;
         gl_Position = vec4(2.0, 2.0, 2.0, 1.0);
@@ -786,5 +789,9 @@ function setTerrainRawUniforms(gl, resources, params, componentTime, planeWidth,
   gl.uniform2f(resources.gridCells, terrainGridSize(params.gridWidth), terrainGridSize(params.gridDepth));
   gl.uniform2f(resources.planeSize, planeWidth, planeDepth);
   gl.uniform4fv(resources.wireColor, wireColor);
+  gl.uniformMatrix3fv(resources.contentPlacementMatrix, false, params.contentPlacementMatrix || [
+    1, 0, 0,
+    0, 1, 0,
+    0, 0, 1,
+  ]);
 }
-

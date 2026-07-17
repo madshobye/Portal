@@ -1,28 +1,42 @@
 import { VJ1 } from "../constants.js";
 import { componentFrameMetrics } from "../domain/component-frame.js";
-import { componentTextureSize, manualSurfaceTextureLimit } from "../domain/render-resolution.js?v=adaptive-component-demand-29";
-import { clamp01, normalizeComponentPipelineSettings, sanitizeState, sceneSourceNodes } from "../domain/models.js?v=centered-freeze-68";
-import { normalizeParamValue, normalizeParamValues, renderQualityScale, renderQualityValue } from "../graph/component-schema.js?v=adaptive-component-demand-29";
+import { componentTextureSize } from "../domain/render-resolution.js?v=adaptive-component-demand-29";
+import { clamp01, normalizeComponentPipelineSettings, sanitizeState, sceneSourceNodes } from "../domain/models.js?v=surface-media-contract-4";
+import { normalizeParamValue, normalizeParamValues } from "../graph/component-schema.js?v=adaptive-component-demand-29";
 import { createManualScheduler } from "../graph/manual-scheduler.js";
 import { RenderNodeRuntime, textureStateKey } from "../graph/render-node-runtime.js?v=adaptive-component-demand-29";
 import { createPlacedRenderResult, directPlacementKind, transformedPlacementDemandRect } from "../graph/placed-render-result.js?v=adaptive-component-demand-29";
-import { compileComponentPatch, compileShaderSchedule, flattenComponentChain, fuseLocalShaderSchedule, isFusibleShaderJob } from "../graph/render-scheduler.js?v=adaptive-component-demand-29";
+import { compileComponentPatch, compileShaderSchedule, flattenComponentChain, fuseLocalShaderSchedule, isFusibleShaderJob } from "../graph/render-scheduler.js?v=shader-component-catalog-extraction-1";
 import { getGeneratorComponent } from "../graph/generator-registry.js?v=group-composite-59";
-import { createShaderBuilder, fusedUniformName } from "../shaders/shader-builder.js?v=adaptive-component-demand-29";
-import { getGeneratorShaderComponent } from "../shaders/generator-shaders.js?v=group-composite-59";
-import { getShaderComponent } from "../shaders/shader-registry.js?v=adaptive-component-demand-29";
+import { createShaderBuilder, fusedUniformName } from "../shaders/shader-builder.js?v=render-core-contract-1";
+import { getGeneratorShaderComponent } from "../shaders/generator-shaders.js?v=generator-shader-catalog-extraction-1";
+import { getShaderComponent } from "../shaders/shader-registry.js?v=shader-component-catalog-extraction-1";
 import { applyBlend } from "./blend-utils.js";
 import {
   createSharedFramebufferTarget,
   isSharedFramebufferTarget,
   unwrapRenderTarget,
-} from "./shared-framebuffer-target.js?v=adaptive-component-demand-29";
+} from "./shared-framebuffer-target.js?v=render-diagnostics-1";
 import { applyFontToGlobal, applyFontToTarget } from "./font-loader.js?v=adaptive-component-demand-29";
 import { GpuTimerTracker } from "./gpu-timer-tracker.js?v=adaptive-component-demand-29";
 import { drawGenerator, drawStandby } from "./generators.js?v=adaptive-component-demand-29";
-import { drawCover, drawMediaFit, isDrawableMedia, syncVideoPlayback } from "./media-utils.js";
+import { drawCover, drawMediaFit, isDrawableMedia } from "./media-utils.js?v=video-active-ownership-1";
+import { chainLayerState, componentRuntimeTimeKey, createMediaReadinessStatus, isReadyMediaItem, renderBufferKey, runtimeComponentGraphMediaState, runtimeMediaStateForSource, staticComponentGraphMediaState, staticComponentGraphState, staticMediaStateForSource, staticSourceState } from "./component-render-state.js?v=render-stability-2";
+import { isEffectNode, isSimpleLayer, isSourceNode, mediaSourceFit, nodesInComponentChainOrder, patchLayerForNode, shaderPassFromNode, sourceFromPatchNode, sourceWithNodeParams, withSourceInstance } from "./component-patch-adapter.js?v=shader-component-catalog-extraction-1";
+import { collectOutputMediaReadiness } from "./output-media-readiness.js?v=render-stability-2";
+import { OutputMediaRuntime, cameraSettingsSignature } from "./output-media-runtime.js?v=video-active-ownership-1";
+import { OutputThumbnailRuntime } from "./output-thumbnail-runtime.js?v=output-assets-runtime-extraction-1";
+import { OutputSurfaceRuntime } from "./output-surface-runtime.js?v=transition-route-scope-1";
+import { stableSurfaceRenderRequest } from "./surface-render-planner.js?v=surface-runtime-extraction-1";
+import { combineContentTransforms, isIdentityTransform, normalizedContentTransform } from "./preview-interaction-geometry.js?v=transform-hit-contract-3";
+import { contentTransformCanvasPlacement } from "./content-coordinate-space.js?v=render-core-contract-1";
+import { ComponentPreviewInteraction } from "./component-preview-interaction.js?v=transform-hit-contract-3";
+import { drawBuffer, withShaderInstancePrefix } from "./render-draw-utils.js?v=render-diagnostics-1";
+import { COMPONENT_POST_FRAGMENT_SHADER, COMPONENT_UPSCALE_FRAGMENT_SHADER, LAYER_TRANSFORM_FRAGMENT_SHADER, OVERLAY_BLEND_FRAGMENT_SHADER, RENDER_PASS_VERTEX_SHADER } from "./render-pass-shaders.js?v=render-coordinate-scope-3";
+import { componentInstanceTime, effectTransformUniforms, eyeballFrameUniforms, generatorRateParam, globalVisualTimeScale, instanceTime, qualityAdjustedGeneratorParams, qualityScaledRenderRequest, usesShadertoyInterface } from "./render-runtime-math.js?v=render-coordinate-scope-3";
 import {
   createRenderRequest,
+  defaultProjectSurfaceMapping,
   frameRenderRequest,
   frameSize,
   outputFrameForId,
@@ -30,29 +44,15 @@ import {
   outputFrameOffset,
   renderRequestKey,
   RECORDING_FRAME_DEMAND_SCALE,
-  SURFACE_DEMAND_OVERSCAN,
-  sourceRenderDemand,
   outputSpanRect,
   worldSize,
 } from "./render-geometry.js?v=adaptive-component-demand-29";
-import { VjMapper } from "./vj-mapper.js?v=adaptive-component-demand-29";
-import { mediaRenditionKey } from "../services/media-rendition-service.js";
-import { parseObjMesh, parseStlMesh } from "./specialized/model-parsers.js?v=model-geometry-fix-30";
-import { buildParsedModelSurfaceVertices, modelTriangleNormal, normalizeModelVector } from "./specialized/model-geometry.js?v=model-geometry-fix-30";
-import { anatomyPartFitScale, drawProceduralAnatomy } from "./specialized/anatomy-renderer.js?v=adaptive-component-demand-29";
-import { colorUniform, modelColor, normalizedModelColor } from "./specialized/model-color.js?v=adaptive-component-demand-29";
-import { compileRawShader, linkSpecializedProgram } from "./specialized/raw-webgl-utils.js?v=adaptive-component-demand-29";
-import { disposeTerrainSurfaceResources, disposeTerrainWireResources, drawTerrainSurface, drawTerrainWireframe } from "./specialized/terrain-renderer.js?v=adaptive-component-demand-29";
-import { FEATURE_MORPH_FRAGMENT_SHADER, FEATURE_MORPH_VERTEX_SHADER, imageFitUniform } from "./specialized/feature-morph-shader.js?v=group-composite-59";
-import { mobileNetMorphFieldForStrategy, MobileNetMorphPairService } from "./specialized/mobilenet-morph-service.js?v=group-composite-59";
-import { SuperPointPairService } from "./specialized/superpoint-service.js?v=feature-morph-landmarks-39";
-import { TILE_TEXTURE_FRAGMENT_SHADER, TILE_TEXTURE_VERTEX_SHADER } from "./specialized/tile-texture-shader.js?v=output-generator-media-43";
+import { VjMapper } from "./vj-mapper.js?v=render-diagnostics-1";
+import { colorUniform } from "./specialized/model-color.js?v=adaptive-component-demand-29";
+import { SpecializedSourceRuntime } from "./specialized/specialized-source-runtime.js?v=terrain-world-up-1";
 import {
-  applyBlendGlobal,
-  canvasFrameBorderHit,
   canvasMaxRasterSize,
   canvasPreviewRenderRequest,
-  canvasRectCorners,
   componentAdaptiveRasterLimit,
   componentPreviewRenderRequest,
   componentReferencePlacement,
@@ -60,21 +60,21 @@ import {
   componentRenderInstanceKey,
   componentSourceView,
   cornersRect,
-  directFitRects,
-  distanceSquared,
-  drawWebGLBuffer,
   fullTargetRect,
-  moveCanvasFrameRect,
   rectToCorners,
   resolutionScaledStrokeWidth,
-  resizeCanvasFrameRect,
   routeSourceLookupKey,
-  scaledComponentSampleRect,
   sharedComponentRenderRequests,
 } from "./component-render-layout.js?v=instance-sync-60";
 
 export { averageGpuQueryNanoseconds, GpuTimerTracker } from "./gpu-timer-tracker.js?v=adaptive-component-demand-29";
 export { parseObjMesh } from "./specialized/model-parsers.js?v=adaptive-component-demand-29";
+export { modelDepthCutoff, transformedModelDepthRange } from "./specialized/model-render-math.js?v=model-render-math-extraction-1";
+export { chainTransformDragScale, pointInTransformedRect } from "./preview-interaction-geometry.js?v=transform-hit-contract-3";
+export { advanceRateClock, advanceSpatialScale, componentInstanceTime, effectTransformUniforms, eyeballFrameUniforms, instanceTime, qualityAdjustedGeneratorParams, qualityScaledRenderRequest } from "./render-runtime-math.js?v=render-coordinate-scope-3";
+export { sourceWithNodeParams } from "./component-patch-adapter.js?v=shader-component-catalog-extraction-1";
+export { fittedThumbnailSize } from "./thumbnail-utils.js?v=thumbnail-utils-extraction-1";
+export { cameraCaptureSettings, cameraSettingsSignature } from "./output-media-runtime.js?v=video-active-ownership-1";
 export {
   terrainExpandedGridWireVertices,
   terrainExpandedWireVertices,
@@ -101,148 +101,6 @@ export {
   scaledComponentSampleRect,
   sharedComponentRenderRequests,
 } from "./component-render-layout.js?v=instance-sync-60";
-
-const OVERLAY_BLEND_VERTEX_SHADER = `
-precision mediump float;
-attribute vec3 aPosition;
-attribute vec2 aTexCoord;
-uniform mat4 uModelViewMatrix;
-uniform mat4 uProjectionMatrix;
-varying vec2 vTexCoord;
-void main() {
-  vTexCoord = aTexCoord;
-  gl_Position = uProjectionMatrix * uModelViewMatrix * vec4(aPosition, 1.0);
-}`;
-
-const OVERLAY_BLEND_FRAGMENT_SHADER = `
-precision mediump float;
-uniform sampler2D baseTex;
-uniform sampler2D layerTex;
-uniform bool baseFlipY;
-uniform bool layerFlipY;
-uniform mat3 layerUvMatrix;
-uniform float layerOpacity;
-varying vec2 vTexCoord;
-
-vec2 sourceUv(vec2 uv, bool flipY) {
-  return flipY ? vec2(uv.x, 1.0 - uv.y) : uv;
-}
-
-vec3 overlayColor(vec3 base, vec3 layer) {
-  vec3 low = 2.0 * base * layer;
-  vec3 high = 1.0 - 2.0 * (1.0 - base) * (1.0 - layer);
-  return mix(low, high, step(vec3(0.5), base));
-}
-
-void main() {
-  vec4 base = texture2D(baseTex, sourceUv(vTexCoord, baseFlipY));
-  vec2 layerUv = (layerUvMatrix * vec3(vTexCoord, 1.0)).xy;
-  float inside = step(0.0, layerUv.x) * step(layerUv.x, 1.0) *
-    step(0.0, layerUv.y) * step(layerUv.y, 1.0);
-  vec4 layer = texture2D(layerTex, sourceUv(clamp(layerUv, 0.0, 1.0), layerFlipY));
-  layer *= layerOpacity * inside;
-  float baseAlpha = base.a;
-  float layerAlpha = layer.a;
-  vec3 baseStraight = baseAlpha > 0.0001 ? base.rgb / baseAlpha : vec3(0.0);
-  vec3 layerStraight = layerAlpha > 0.0001 ? layer.rgb / layerAlpha : vec3(0.0);
-  vec3 blended = overlayColor(baseStraight, layerStraight);
-  float outAlpha = baseAlpha + layerAlpha - baseAlpha * layerAlpha;
-  vec3 outRgb = base.rgb * (1.0 - layerAlpha) +
-    layer.rgb * (1.0 - baseAlpha) + blended * baseAlpha * layerAlpha;
-  gl_FragColor = vec4(outRgb, outAlpha);
-}`;
-
-const LAYER_TRANSFORM_VERTEX_SHADER = OVERLAY_BLEND_VERTEX_SHADER;
-
-const LAYER_TRANSFORM_FRAGMENT_SHADER = `
-precision mediump float;
-uniform sampler2D sourceTex;
-uniform bool sourceFlipY;
-uniform mat3 sourceUvMatrix;
-varying vec2 vTexCoord;
-
-vec2 sourceUv(vec2 uv) {
-  return sourceFlipY ? vec2(uv.x, 1.0 - uv.y) : uv;
-}
-
-void main() {
-  vec2 uv = (sourceUvMatrix * vec3(vTexCoord, 1.0)).xy;
-  float inside = step(0.0, uv.x) * step(uv.x, 1.0) *
-    step(0.0, uv.y) * step(uv.y, 1.0);
-  vec4 color = texture2D(sourceTex, sourceUv(clamp(uv, 0.0, 1.0)));
-  gl_FragColor = color * inside;
-}`;
-
-const COMPONENT_UPSCALE_FRAGMENT_SHADER = `
-precision mediump float;
-uniform sampler2D sourceTex;
-uniform vec2 sourceResolution;
-uniform bool sourceFlipY;
-varying vec2 vTexCoord;
-
-vec2 sourceUv(vec2 uv) {
-  return sourceFlipY ? vec2(uv.x, 1.0 - uv.y) : uv;
-}
-
-float luma(vec3 color) {
-  return dot(color, vec3(0.2126, 0.7152, 0.0722));
-}
-
-void main() {
-  vec2 texel = 1.0 / max(sourceResolution, vec2(1.0));
-  vec2 uv = sourceUv(vTexCoord);
-  vec4 center = texture2D(sourceTex, uv);
-  vec4 left = texture2D(sourceTex, uv - vec2(texel.x, 0.0));
-  vec4 right = texture2D(sourceTex, uv + vec2(texel.x, 0.0));
-  vec4 up = texture2D(sourceTex, uv - vec2(0.0, texel.y));
-  vec4 down = texture2D(sourceTex, uv + vec2(0.0, texel.y));
-  vec4 neighborhood = (left + right + up + down) * 0.25;
-  float edge = clamp(
-    abs(luma(left.rgb) - luma(right.rgb)) +
-    abs(luma(up.rgb) - luma(down.rgb)),
-    0.0,
-    1.0
-  );
-  float sharpen = mix(0.06, 0.18, edge);
-  vec4 color = center + (center - neighborhood) * sharpen;
-  color.a = clamp(color.a, 0.0, 1.0);
-  color.rgb = clamp(color.rgb, vec3(0.0), vec3(color.a));
-  gl_FragColor = color;
-}`;
-
-const COMPONENT_POST_FRAGMENT_SHADER = `
-precision mediump float;
-uniform sampler2D sourceTex;
-uniform bool sourceFlipY;
-uniform float time;
-uniform float noiseAmount;
-uniform float grayscaleAmount;
-varying vec2 vTexCoord;
-
-vec2 sourceUv(vec2 uv) {
-  return sourceFlipY ? vec2(uv.x, 1.0 - uv.y) : uv;
-}
-
-float hash(vec2 point) {
-  vec3 p3 = fract(vec3(point.xyx) * 0.1031);
-  p3 += dot(p3, p3.yzx + 33.33);
-  return fract((p3.x + p3.y) * p3.z);
-}
-
-void main() {
-  vec4 color = texture2D(sourceTex, sourceUv(vTexCoord));
-  if (color.a <= 0.0001) {
-    gl_FragColor = vec4(0.0);
-    return;
-  }
-  vec3 straight = color.rgb / color.a;
-  float gray = dot(straight, vec3(0.2126, 0.7152, 0.0722));
-  straight = mix(straight, vec3(gray), clamp(grayscaleAmount, 0.0, 1.0));
-  vec2 noiseSeed = gl_FragCoord.xy + floor(time * 60.0) * vec2(37.0, 17.0);
-  float grain = hash(noiseSeed) * 2.0 - 1.0;
-  straight = clamp(straight + grain * noiseAmount, 0.0, 1.0);
-  gl_FragColor = vec4(straight * color.a, color.a);
-}`;
 
 export class OutputRenderer {
   constructor({ mode, outputId = "", hud, font, sendMetrics, sendMapping, sendThumbnail, sendChainTransform, sendCanvasFrame, sendMediaRendition, requestMediaFiles, onSurfaceSelect, onChainItemSelect }) {
@@ -276,52 +134,54 @@ export class OutputRenderer {
     this.recordingFrameById = new Map();
     this.routeSourceNodeById = new Map();
     this.routeSourceNodeByLegacyKey = new Map();
-    this.fallbackRouteSourceNode = null;
-    this.thumbnailImages = new Map();
-    this.thumbnailEditTransformBaselines = new Map();
-    this.media = new Map();
+    this.mediaRuntime = new OutputMediaRuntime({
+      getRenderSettings: () => this.state?.render || {},
+      requestMediaFiles: (ids) => this.requestMediaFiles?.(ids),
+      sendMediaRendition: (mediaId, width, height, blob, sourceRevision) => this.sendMediaRendition?.(mediaId, width, height, blob, sourceRevision),
+      applyGraphicsFont: (target) => this.applyGraphicsFont(target),
+    });
+    this.media = this.mediaRuntime.media;
+    this.thumbnailRuntime = new OutputThumbnailRuntime({
+      getState: () => this.state,
+      getComponentOutput: (componentId) => this.componentOutput.get(componentId),
+      shouldUseThumbnailPreview: () => this.shouldUseThumbnailPreview(),
+      sendThumbnail: (...args) => this.sendThumbnail?.(...args),
+    });
     // Specialized 3D sources render sequentially and are copied into the
     // component target immediately. Terrain uses a framebuffer in the main
     // WebGL context so resizing its scratch target cannot invalidate p5's
     // cross-context canvas texture cache. Model rendering still falls back to
     // its dedicated p5.Graphics context because it uses p5's 3D drawing API.
-    this.specializedWebglTargets = new Map();
-    this.terrainSurfaceResources = new Map();
-    this.terrainWireResources = new Map();
-    this.superPointPairs = new SuperPointPairService();
-    this.mobileNetMorphPairs = new MobileNetMorphPairService();
-    this.pendingRenditionSaves = new Set();
     this.sourcePg = null;
     this.fxTargets = [null, null];
     this.fxTargetKey = "";
     this.fxTargetGroups = new Map();
     this.mainMix = null;
-    this.surfaceTextures = new Map();
-    this.transitionSurfaceTextures = new Map();
-    this.activeTransitionTextureId = "";
-    this.surfaceRenderIdentityPrefix = "";
-    this.transitionSurfaceEffectPrefix = "";
-    this.cameraCapture = null;
-    this.cameraRequested = false;
-    this.cameraError = "";
-    this.cameraCaptureSignature = "";
-    this.cameraRequestToken = 0;
-    this.chainTransformDrag = null;
-    this.canvasFrameDrag = null;
+    this.surfaceRuntime = new OutputSurfaceRuntime(this);
+    this.previewInteraction = new ComponentPreviewInteraction(this);
     this.mapperSurfaces = new Map();
     this.mappingSignature = "";
     this.localMappingSignature = "";
-    this.localMappingProtectedUntil = 0;
+    this.pendingMappingSignature = "";
+    this.pendingMappingStartedAt = 0;
+    this.mappingAckWarningSignature = "";
+    this.surfaceRebuildPending = false;
     this.lastMetricsAt = 0;
-    this.lastMediaRequestAt = 0;
-    this.lastThumbnailAt = 0;
-    this.thumbnailSignatures = new Map();
     this.smoothedFrameMs = 0;
     this.smoothedFps = 0;
     this.smoothedRenderCost = 0;
     this.smoothedGpuMs = 0;
     this.lastGpuSampleId = -1;
     this.gpuTimer = new GpuTimerTracker();
+    this.specializedSources = new SpecializedSourceRuntime({
+      media: () => this.media,
+      requestMissingMedia: (id) => this.requestMissingMedia(id),
+      requestMissingMediaBatch: (ids) => this.requestMissingMediaBatch(ids),
+      applyGraphicsPixelDensity: (target, density) => this.applyGraphicsPixelDensity(target, density),
+      measureGpu: (target, draw) => this.measureGpu(target, draw),
+      gpuTimer: this.gpuTimer,
+      frameIndex: () => this.frameIndex,
+    });
     this.lastPixelDensity = 0;
     this.frameStart = 0;
     this.frameProfile = createEmptyFrameProfile();
@@ -336,14 +196,9 @@ export class OutputRenderer {
     this.scheduledEvents = [];
     this.manualScheduler = createManualScheduler();
     this.componentTimes = new Map();
-    this.rateClocks = new Map();
-    this.terrainScalePhases = new Map();
     this.cachedNoiseTexture = null;
     this.overlayBlendShader = null;
     this.layerTransformShader = null;
-    this.featureMorphShader = null;
-    this.featureMorphV2Shader = null;
-    this.tileTextureShader = null;
     this.componentPipelineShaders = new Map();
     this.shaderBuilder = createShaderBuilder({
       getCustomCode: () => this.state?.shaders?.customCode || "",
@@ -354,8 +209,8 @@ export class OutputRenderer {
     });
   }
 
-  async setup(initialState) {
-    this.state = sanitizeState(initialState || {});
+  async setup(initialState, { normalized = false } = {}) {
+    this.state = normalized ? initialState : sanitizeState(initialState || {});
     this.rebuildRouteLookups();
     if (this.shouldUseThumbnailPreview()) this.captureThumbnailEditTransformBaselines();
     this.applyPixelDensity();
@@ -366,16 +221,13 @@ export class OutputRenderer {
   }
 
   dispose() {
+    this.previewInteraction.dispose();
+    this.thumbnailRuntime.dispose();
     this.gpuTimer?.dispose?.();
     this.disposeBuffers();
     this.mapperSurfaces?.clear?.();
     this.mapper?.surfaces?.splice?.(0);
-    this.releaseCameraCapture();
-    for (const item of this.media?.values?.() || []) {
-      if (item?.url) URL.revokeObjectURL(item.url);
-      for (const url of item?.renditionUrls?.values?.() || []) URL.revokeObjectURL(url);
-    }
-    this.media?.clear?.();
+    this.mediaRuntime.dispose();
   }
 
   applyGlobalFont() {
@@ -390,8 +242,7 @@ export class OutputRenderer {
   applyFontToAllGraphics() {
     this.applyGraphicsFont(this.sourcePg);
     this.applyGraphicsFont(this.mainMix);
-    for (const pg of this.surfaceTextures?.values?.() || []) this.applyGraphicsFont(pg);
-    for (const pg of this.transitionSurfaceTextures?.values?.() || []) this.applyGraphicsFont(pg);
+    this.surfaceRuntime.applyFont((target) => this.applyGraphicsFont(target));
     for (const group of this.fxTargetGroups?.values?.() || []) {
       for (const target of group.targets || []) this.applyGraphicsFont(target);
     }
@@ -422,14 +273,11 @@ export class OutputRenderer {
   }
 
   disposeBuffers() {
-    this.resetModelResources();
-    this.resetTerrainResources();
+    this.specializedSources.dispose();
     disposeGraphics(this.sourcePg);
     disposeGraphics(this.mainMix);
-    disposeGraphicsMap(this.surfaceTextures);
-    disposeGraphicsMap(this.transitionSurfaceTextures);
+    this.surfaceRuntime.dispose();
     this.disposeFxTargetGroups();
-    disposeGraphicsMap(this.specializedWebglTargets);
     disposeGraphicsMap(this.componentSource);
     // Frame-local aliases; componentGpuBuffer owns these targets.
     this.componentOutput.clear();
@@ -443,19 +291,12 @@ export class OutputRenderer {
     this.componentGpuBufferUse?.clear?.();
     this.sourcePg = null;
     this.mainMix = null;
-    this.surfaceTextures?.clear?.();
-    this.transitionSurfaceTextures?.clear?.();
-    this.activeTransitionTextureId = "";
     this.fxTargets = [null, null];
     this.fxTargetKey = "";
-    this.specializedWebglTargets?.clear?.();
     this.shaderBuilder.clear?.();
     this.cachedNoiseTexture = null;
     this.overlayBlendShader = null;
     this.layerTransformShader = null;
-    this.featureMorphShader = null;
-    this.featureMorphV2Shader = null;
-    this.tileTextureShader = null;
     this.componentPipelineShaders?.clear?.();
   }
 
@@ -495,26 +336,31 @@ export class OutputRenderer {
   }
 
   resetTerrainResources() {
-    for (const [gl, resources] of this.terrainSurfaceResources?.entries?.() || []) {
-      disposeTerrainSurfaceResources(gl, resources);
-    }
-    for (const [gl, resources] of this.terrainWireResources?.entries?.() || []) {
-      disposeTerrainWireResources(gl, resources);
-    }
-    this.terrainSurfaceResources?.clear?.();
-    this.terrainWireResources?.clear?.();
+    this.specializedSources.resetTerrainResources();
   }
 
   resetModelResources(gl = null) {
-    for (const item of this.media?.values?.() || []) {
-      const renderers = item?.modelRawRenderers;
-      if (!(renderers instanceof Map)) continue;
-      for (const [context, resources] of renderers) {
-        if (gl && context !== gl) continue;
-        disposeRawModelContextResources(context, resources);
-        renderers.delete(context);
-      }
-    }
+    this.specializedSources.resetModelResources(gl);
+  }
+
+  get specializedWebglTargets() {
+    return this.specializedSources.targets;
+  }
+
+  get superPointPairs() {
+    return this.specializedSources.superPointPairs;
+  }
+
+  set superPointPairs(service) {
+    this.specializedSources.superPointPairs = service;
+  }
+
+  get mobileNetMorphPairs() {
+    return this.specializedSources.mobileNetMorphPairs;
+  }
+
+  set mobileNetMorphPairs(service) {
+    this.specializedSources.mobileNetMorphPairs = service;
   }
 
   disposeFxTargetGroups() {
@@ -542,7 +388,7 @@ export class OutputRenderer {
     this.applyProjectMapping();
   }
 
-  rebuildSurfaces() {
+  rebuildSurfaces({ preferExistingMapping = false } = {}) {
     if (!this.mapper) return;
     const existingCorners = new Map((this.mapper.surfaces || []).map((surface) => [
       surface.id || surface.name,
@@ -552,19 +398,12 @@ export class OutputRenderer {
     ]));
     this.mapper.clearSurfaces();
     this.mapperSurfaces.clear();
-    const frame = this.outputFrameSize(this.state.render);
-    const offset = this.mode === "output" ? { x: 0, y: 0 } : this.outputFrameOffset();
     const mappedSurfaces = this.state.surfaces.filter((surface) => surface.destination?.type !== "direct");
-    const cols = Math.max(1, Math.ceil(Math.sqrt(mappedSurfaces.length || 1)));
-    const rows = Math.max(1, Math.ceil((mappedSurfaces.length || 1) / cols));
-    const gap = Math.max(24, Math.round(Math.min(frame.width, frame.height) * 0.035));
-    const cellW = Math.max(1, (frame.width - gap * (cols + 1)) / cols);
+    const defaultMappingById = new Map(defaultProjectSurfaceMapping(this.state.render, mappedSurfaces).map((surface) => [
+      surface.id || surface.name,
+      surface,
+    ]));
     const texture = componentTextureSize(this.state.render);
-    const idealCellH = cellW * (texture.height / texture.width);
-    const maxCellH = Math.max(1, (frame.height - gap * (rows + 1)) / rows);
-    const cellH = Math.min(idealCellH, maxCellH);
-    const frameX = offset.x;
-    const frameY = offset.y;
     for (const surface of this.state.surfaces) {
       if (surface.destination?.type !== "direct") continue;
       const corners = this.directSurfaceCorners(surface);
@@ -577,20 +416,22 @@ export class OutputRenderer {
         renderRequest: stableSurfaceRenderRequest(this.state.render, { surfaceId: surface.id }),
       });
     }
-    mappedSurfaces.forEach((surface, index) => {
-      const col = index % cols;
-      const row = Math.floor(index / cols);
-      const x = frameX + gap + col * (cellW + gap);
-      const y = frameY + gap + row * (cellH + gap);
+    mappedSurfaces.forEach((surface) => {
       const preserved = existingCorners.get(surface.id);
-      const corners = preserved?.length === 4
-        ? preserved
-        : [
-            { x, y },
-            { x: x + cellW, y },
-            { x: x + cellW, y: y + cellH },
-            { x, y: y + cellH },
-          ];
+      const persisted = this.projectMappingSurfaceCorners(surface.id);
+      const fallback = defaultMappingById.get(surface.id)?.corners;
+      const existingProjectCorners = preserved?.length === 4
+        ? (this.mode === "output" ? preserved.map((corner) => this.displayPointToWorld(corner)) : preserved)
+        : null;
+      const projectCorners = preferExistingMapping && existingProjectCorners?.length === 4
+        ? existingProjectCorners
+        : persisted?.length === 4
+          ? persisted
+          : existingProjectCorners?.length === 4
+            ? existingProjectCorners
+            : fallback;
+      if (!Array.isArray(projectCorners) || projectCorners.length !== 4) return;
+      const corners = projectCorners.map((corner) => this.worldPointToDisplay(corner));
       const mapperSurface = this.mapper.addSurface({
         id: surface.id,
         name: surface.id,
@@ -605,28 +446,57 @@ export class OutputRenderer {
   directSurfaceCorners(surface) {
     const rect = outputSpanRect(this.state?.render || {}, surface.destination?.outputIds || []);
     if (!rect) return null;
-    let x = rect.x;
-    let y = rect.y;
-    let widthPx = rect.width;
-    let heightPx = rect.height;
-    if (this.mode === "output") {
-      const offset = this.outputFrameOffset();
-      const transform = this.outputFrameTransform();
-      x = (x - offset.x) * transform.scale + transform.x;
-      y = (y - offset.y) * transform.scale + transform.y;
-      widthPx *= transform.scale;
-      heightPx *= transform.scale;
-    }
+    const topLeft = this.worldPointToDisplay({ x: rect.x, y: rect.y });
+    const bottomRight = this.worldPointToDisplay({ x: rect.x + rect.width, y: rect.y + rect.height });
+    const x = topLeft.x;
+    const y = topLeft.y;
+    const widthPx = bottomRight.x - topLeft.x;
+    const heightPx = bottomRight.y - topLeft.y;
     return rectToCorners({ x, y, width: widthPx, height: heightPx });
   }
 
-  setState(nextState) {
+  projectMappingSurfaceCorners(surfaceId = "") {
+    const surface = this.state?.mappings?.local?.surfaces?.find((item) =>
+      String(item?.id || item?.name || "") === String(surfaceId)
+    );
+    return Array.isArray(surface?.corners) && surface.corners.length === 4
+      ? surface.corners.map((corner) => ({ x: Number(corner.x) || 0, y: Number(corner.y) || 0 }))
+      : null;
+  }
+
+  worldPointToDisplay(point = {}) {
+    const x = Number(point.x) || 0;
+    const y = Number(point.y) || 0;
+    if (this.mode !== "output") return { x, y };
+    const offset = this.outputFrameOffset();
+    const transform = this.outputFrameTransform();
+    return {
+      x: (x - offset.x) * transform.scale + transform.x,
+      y: (y - offset.y) * transform.scale + transform.y,
+    };
+  }
+
+  displayPointToWorld(point = {}) {
+    const x = Number(point.x) || 0;
+    const y = Number(point.y) || 0;
+    if (this.mode !== "output") return { x, y };
+    const offset = this.outputFrameOffset();
+    const transform = this.outputFrameTransform();
+    return {
+      x: (x - transform.x) / Math.max(0.0001, transform.scale) + offset.x,
+      y: (y - transform.y) / Math.max(0.0001, transform.scale) + offset.y,
+    };
+  }
+
+  setState(nextState, { normalized = false } = {}) {
     const wasThumbnailPreview = this.shouldUseThumbnailPreview();
     const previousCameraSignature = cameraSettingsSignature(this.state?.render);
     const previousSurfaceIds = (this.state?.surfaces || []).map((surface) => surface.id).join(",");
     const previousSize = this.state ? this.renderSizeSignature(this.state.render) : "";
     const previousMappingSignature = this.mappingSignature;
-    this.state = sanitizeState(nextState);
+    const mappingInteractionActive = !!this.mapper?.isActive?.();
+    const preparedState = normalized ? nextState : sanitizeState(nextState);
+    this.state = this.previewInteraction?.reconcileIncomingState(preparedState) || preparedState;
     this.rebuildRouteLookups();
     const nextCameraSignature = cameraSettingsSignature(this.state.render);
     if (previousCameraSignature && previousCameraSignature !== nextCameraSignature) this.releaseCameraCapture();
@@ -641,12 +511,19 @@ export class OutputRenderer {
     }
     const surfacesChanged = previousSurfaceIds !== nextSurfaceIds || previousSize !== nextSize;
     if (surfacesChanged) {
-      this.rebuildSurfaces();
+      if (mappingInteractionActive) this.surfaceRebuildPending = true;
+      else {
+        this.surfaceRebuildPending = false;
+        this.rebuildSurfaces({ preferExistingMapping: !!this.pendingMappingSignature });
+      }
     }
+    const ignoreIncomingMapping = !mappingInteractionActive && this.pendingMappingSignature
+      ? this.shouldIgnoreIncomingMapping(nextMappingSignature)
+      : false;
     if (
       (surfacesChanged || previousMappingSignature !== nextMappingSignature) &&
-      !this.mapper?.isActive?.() &&
-      !this.shouldIgnoreIncomingMapping(nextMappingSignature)
+      !mappingInteractionActive &&
+      !ignoreIncomingMapping
     ) {
       this.applyProjectMapping(nextMappingSignature);
     }
@@ -665,13 +542,12 @@ export class OutputRenderer {
       routeSourceLookupKey(node.componentId, node.outputFrameId),
       node,
     ]));
-    this.fallbackRouteSourceNode = sourceNodes[0] || null;
   }
 
   resolveRouteSourceNode(surface = {}) {
     return this.routeSourceNodeById.get(surface.sourceNodeId) ||
       this.routeSourceNodeByLegacyKey.get(routeSourceLookupKey(surface.componentId, surface.outputFrameId)) ||
-      this.fallbackRouteSourceNode;
+      null;
   }
 
   renderSizeSignature(render = {}) {
@@ -761,13 +637,7 @@ export class OutputRenderer {
 
   mappingForRenderMode(mapping) {
     if (this.mode !== "output") return mapping;
-    const offset = this.outputFrameOffset();
-    const frameMapping = offset.x || offset.y
-      ? offsetMapping(mapping, -offset.x, -offset.y)
-      : mapping;
-    const transform = this.outputFrameTransform();
-    if (transform.scale === 1 && !transform.x && !transform.y) return frameMapping;
-    return transformMapping(frameMapping, transform.scale, transform.scale, transform.x, transform.y);
+    return mapMappingCorners(mapping, (corner) => this.worldPointToDisplay(corner));
   }
 
   outputFrameTransform() {
@@ -786,13 +656,7 @@ export class OutputRenderer {
 
   mappingFromRenderMode(mapping) {
     if (this.mode !== "output") return mapping;
-    const transform = this.outputFrameTransform();
-    const projectFrameMapping = transform.scale === 1 && !transform.x && !transform.y
-      ? mapping
-      : transformMapping(mapping, 1 / transform.scale, 1 / transform.scale, -transform.x / transform.scale, -transform.y / transform.scale);
-    const offset = this.outputFrameOffset();
-    if (!offset.x && !offset.y) return projectFrameMapping;
-    return offsetMapping(projectFrameMapping, offset.x, offset.y);
+    return mapMappingCorners(mapping, (corner) => this.displayPointToWorld(corner));
   }
 
   outputFrameOffset() {
@@ -805,70 +669,38 @@ export class OutputRenderer {
 
   markLocalMapping(mapping = this.mappingFromRenderMode(this.mapper?.exportData?.())) {
     this.localMappingSignature = mappingSignature(mapping);
-    this.localMappingProtectedUntil = performance.now() + 1200;
+    this.pendingMappingSignature = this.localMappingSignature;
+    this.pendingMappingStartedAt = performance.now();
+    this.mappingAckWarningSignature = "";
     this.mappingSignature = this.localMappingSignature;
   }
 
   shouldIgnoreIncomingMapping(signature) {
-    return performance.now() < this.localMappingProtectedUntil &&
-      this.localMappingSignature &&
-      signature &&
-      signature !== this.localMappingSignature;
+    if (!this.pendingMappingSignature) return false;
+    if (signature === this.pendingMappingSignature) {
+      this.pendingMappingSignature = "";
+      this.pendingMappingStartedAt = 0;
+      this.mappingAckWarningSignature = "";
+      return false;
+    }
+    if (performance.now() - this.pendingMappingStartedAt < 5000) return true;
+    if (this.mappingAckWarningSignature !== this.pendingMappingSignature) {
+      this.mappingAckWarningSignature = this.pendingMappingSignature;
+      console.warn("[VJ1_MAPPING_ACK_TIMEOUT]", {
+        pendingSignature: this.pendingMappingSignature,
+        incomingSignature: signature,
+        message: "Local surface mapping was not acknowledged within 5 seconds; accepting the latest project mapping",
+      });
+    }
+    this.pendingMappingSignature = "";
+    this.pendingMappingStartedAt = 0;
+    return false;
   }
 
   importFiles(files) {
-    for (const entry of files || []) {
-      const file = entry?.file || entry;
-      const id = entry?.id || file?.relativePath || file?.webkitRelativePath || file?.name;
-      if (!id) continue;
-      let item = this.media.get(id);
-      if (!item) {
-        const url = URL.createObjectURL(file);
-        item = { id, file, url, video: null, image: null, imageError: "", model: null, modelData: null, modelGeometry: null, modelGeometryFailed: false, modelPointCloud: null, modelPointCloudKey: "", modelRawRenderers: null, modelError: "", imageRenditions: new Map(), imageRenditionOrder: [], ready: false };
-        this.media.set(id, item);
-        if (/\.(mp4|m4v|mov|webm|ogv)$/i.test(id)) {
-          item.video = createVideo(url, () => {
-            item.video.hide();
-            item.video.volume?.(0);
-            item.video.loop();
-            item.ready = true;
-          });
-          item.video.hide();
-        } else if (/\.svg$/i.test(id)) {
-          loadSvgImage(url, item);
-        } else if (/\.(png|jpe?g|gif|webp|bmp)$/i.test(id)) {
-          loadImage(url, (img) => {
-            item.image = img;
-            item.ready = true;
-            item.imageError = "";
-          }, (error) => {
-            item.imageError = error?.message || String(error || "image load failed");
-          });
-        } else if (/\.stl$/i.test(id)) {
-          file.arrayBuffer()
-            .then((buffer) => {
-              item.modelData = parseStlMesh(buffer);
-              item.ready = true;
-              item.modelError = "";
-            })
-            .catch((error) => {
-              item.modelError = error?.message || String(error || "model load failed");
-            });
-        } else if (/\.obj$/i.test(id)) {
-          file.text()
-            .then((text) => {
-              item.modelData = parseObjMesh(text);
-              item.ready = true;
-              item.modelError = "";
-            })
-            .catch((error) => {
-              item.modelError = error?.message || String(error || "model load failed");
-            });
-        }
-      }
-      this.importMediaRenditions(item, entry?.renditions || []);
-    }
+    this.mediaRuntime.importFiles(files);
   }
+
   emitMapping(mapping = this.mapper?.exportData?.(), status = "Mapping updated", meta = {}) {
     const projectMapping = this.mappingFromRenderMode(mapping || {});
     this.markLocalMapping(projectMapping);
@@ -876,72 +708,36 @@ export class OutputRenderer {
   }
 
   importMediaRenditions(item, renditions) {
-    if (!item || !Array.isArray(renditions)) return;
-    item.imageRenditions ||= new Map();
-    item.imageRenditionOrder ||= [];
-    item.renditionUrls ||= new Map();
-    for (const rendition of renditions) {
-      if (!rendition?.key || !rendition?.file || item.imageRenditions.has(rendition.key)) continue;
-      const url = URL.createObjectURL(rendition.file);
-      item.renditionUrls.set(rendition.key, url);
-      loadImage(
-        url,
-        (img) => {
-          item.imageRenditions.set(rendition.key, img);
-          if (!item.imageRenditionOrder.includes(rendition.key)) item.imageRenditionOrder.push(rendition.key);
-        },
-        () => {
-          URL.revokeObjectURL(url);
-          item.renditionUrls.delete(rendition.key);
-        }
-      );
-    }
+    this.mediaRuntime.importRenditions(item, renditions);
   }
 
   ensureCameraCapture() {
-    const settings = cameraCaptureSettings(this.state?.render);
-    const signature = cameraSettingsSignature(this.state?.render);
-    if (this.cameraCapture && this.cameraCaptureSignature === signature) return this.cameraCapture;
-    if (this.cameraRequested && this.cameraCaptureSignature === signature) return null;
-    if (this.cameraCapture || this.cameraRequested) this.releaseCameraCapture();
-    this.cameraRequested = true;
-    this.cameraError = "";
-    this.cameraCaptureSignature = signature;
-    const requestToken = ++this.cameraRequestToken;
-    const setupWebcamera = getPortalWebcameraSetup();
-    if (!setupWebcamera) {
-      this.cameraError = "camera unavailable";
-      this.cameraRequested = false;
-      return null;
-    }
-    setupWebcamera(settings.front, settings.width, settings.height, settings.mirrored, settings.maxResolution)
-      .then((camera) => {
-        if (requestToken !== this.cameraRequestToken) {
-          camera?.remove?.();
-          return;
-        }
-        this.cameraCapture = camera;
-        this.cameraRequested = false;
-        this.cameraError = "";
-      })
-      .catch(() => {
-        if (requestToken !== this.cameraRequestToken) return;
-        this.cameraError = "camera blocked";
-        this.cameraRequested = false;
-      });
-    return null;
+    return this.mediaRuntime.ensureCameraCapture();
   }
 
   releaseCameraCapture() {
-    this.cameraRequestToken++;
-    this.cameraCapture?.remove?.();
-    this.cameraCapture = null;
-    this.cameraRequested = false;
-    this.cameraCaptureSignature = "";
+    this.mediaRuntime.releaseCameraCapture();
+  }
+
+  get cameraCapture() {
+    return this.mediaRuntime.cameraCapture;
+  }
+
+  get cameraError() {
+    return this.mediaRuntime.cameraError;
   }
 
   draw() {
     if (!this.state) return;
+    this.mediaRuntime.beginFrame();
+    try {
+      return this.drawFrame();
+    } finally {
+      this.mediaRuntime.endFrame();
+    }
+  }
+
+  drawFrame() {
     this.gpuTimer.poll(this.frameIndex);
     this.frameStart = performance.now();
     this.frameProfile = createEmptyFrameProfile();
@@ -1287,7 +1083,7 @@ export class OutputRenderer {
     if (shaders[kind]) return shaders[kind];
     try {
       const fragment = kind === "upscale" ? COMPONENT_UPSCALE_FRAGMENT_SHADER : COMPONENT_POST_FRAGMENT_SHADER;
-      shaders[kind] = target.createShader(OVERLAY_BLEND_VERTEX_SHADER, fragment);
+      shaders[kind] = target.createShader(RENDER_PASS_VERTEX_SHADER, fragment);
       return shaders[kind];
     } catch (error) {
       console.error("[VJ1_COMPONENT_PIPELINE_SHADER_FAILED]", { kind, message: error?.message || String(error) });
@@ -1451,28 +1247,32 @@ export class OutputRenderer {
     return state;
   }
 
-  renderComponentChainState(component, chain, componentTime, renderRequest, scopeId = component.id) {
+  renderComponentChainState(component, chain, componentTime, renderRequest, scopeId = component.id, inheritedTransform = {}) {
     let state = this.transparentChainState(component, renderRequest);
     for (let index = 0; index < (chain || []).length; index++) {
       const item = chain[index];
       if (item.enabled === false) continue;
+      const renderedItem = isIdentityTransform(inheritedTransform)
+        ? item
+        : { ...item, transform: combineContentTransforms(inheritedTransform, item.transform || {}) };
       const nodeId = renderBufferKey(component.id, scopeId, index, item.id || item.componentId || item.kind);
       if (item.kind === "source") {
-        if (this.canDirectCompositeSource(item)) {
-          state = this.renderDirectSourceNodeState(nodeId, state, component, item, componentTime, renderRequest);
+        if (this.canDirectCompositeSource(renderedItem)) {
+          state = this.renderDirectSourceNodeState(nodeId, state, component, renderedItem, componentTime, renderRequest);
           continue;
         }
-        const sourceState = this.renderComponentSourceItemState(component, item, componentTime, renderRequest, nodeId);
-        // Source transforms are evaluated inside the source coordinate system.
-        // The source framebuffer itself always remains the component size.
-        state = this.renderLayerNodeState(nodeId, state, sourceState, { ...item, transform: {} }, renderRequest);
+        const sourceState = this.renderComponentSourceItemState(component, renderedItem, componentTime, renderRequest, nodeId);
+        // A source owns its coordinate-domain transform while retaining the
+        // full Component framebuffer. Composite that already transformed frame
+        // without moving or clipping the layer rectangle a second time.
+        state = this.renderLayerNodeState(nodeId, state, sourceState, { ...renderedItem, transform: {} }, renderRequest);
         continue;
       }
       if (item.kind === "effect") {
-        const firstPass = chainItemToShaderPass(item);
+        const firstPass = chainItemToShaderPass(renderedItem);
         const firstJob = compileShaderSchedule([firstPass])[0];
         if (isFusibleShaderJob(firstJob)) {
-          const run = [item];
+          const run = [renderedItem];
           let nextIndex = index + 1;
           while (nextIndex < (chain || []).length) {
             const nextItem = chain[nextIndex];
@@ -1481,9 +1281,12 @@ export class OutputRenderer {
               continue;
             }
             if (nextItem?.kind !== "effect") break;
-            const nextJob = compileShaderSchedule([chainItemToShaderPass(nextItem)])[0];
+            const renderedNextItem = isIdentityTransform(inheritedTransform)
+              ? nextItem
+              : { ...nextItem, transform: combineContentTransforms(inheritedTransform, nextItem.transform || {}) };
+            const nextJob = compileShaderSchedule([chainItemToShaderPass(renderedNextItem)])[0];
             if (!isFusibleShaderJob(nextJob)) break;
-            run.push(nextItem);
+            run.push(renderedNextItem);
             nextIndex++;
           }
           if (run.length > 1) {
@@ -1493,7 +1296,7 @@ export class OutputRenderer {
             continue;
           }
         }
-        state = this.renderEffectNodeState(nodeId, state, item, componentTime, renderRequest);
+        state = this.renderEffectNodeState(nodeId, state, renderedItem, componentTime, renderRequest);
         continue;
       }
       if (item.kind === "group") {
@@ -1502,9 +1305,12 @@ export class OutputRenderer {
           item.chain || [],
           componentTime,
           renderRequest,
-          renderBufferKey(scopeId, item.id || index)
+          renderBufferKey(scopeId, item.id || index),
+          combineContentTransforms(inheritedTransform, item.transform || {})
         );
-        state = this.renderLayerNodeState(nodeId, state, groupState, item, renderRequest);
+        // A Group is a transform scope: its transform is precomposed into all
+        // descendants above. Only its blend/opacity applies at this boundary.
+        state = this.renderLayerNodeState(nodeId, state, groupState, { ...item, transform: {} }, renderRequest);
       }
     }
     return state;
@@ -1583,7 +1389,7 @@ export class OutputRenderer {
     if (source.type === "media") {
       const media = this.media.get(source.mediaId);
       if (media?.video && isDrawableMedia(media.video)) {
-        syncVideoPlayback(media.video, {
+        this.mediaRuntime.claimVideoPlayback(media.video, {
           start: source.start,
           end: source.end,
           speed: (this.state?.global?.playing === false ? 0 : 1) * globalVisualTimeScale(this.state?.global) * (Number(source.speed) || 1) * Math.max(0, Number(component.speed) || 0),
@@ -1631,11 +1437,9 @@ export class OutputRenderer {
   drawPlacedResultGeometry(output, placed) {
     const rect = placed.destinationRect;
     const transform = normalizedContentTransform(placed.transform);
+    const placement = contentTransformCanvasPlacement(transform, output.width, output.height);
     output.push();
-    output.translate(
-      output.width * (0.5 + transform.x * 0.5),
-      output.height * (0.5 + transform.y * 0.5)
-    );
+    output.translate(placement.centerX, placement.centerY);
     output.rotate(transform.rotation);
     output.scale(transform.scale);
     const x = rect.x - output.width * 0.5;
@@ -1721,7 +1525,7 @@ export class OutputRenderer {
   getLayerTransformShader(target) {
     if (this.layerTransformShader) return this.layerTransformShader;
     try {
-      this.layerTransformShader = target.createShader(LAYER_TRANSFORM_VERTEX_SHADER, LAYER_TRANSFORM_FRAGMENT_SHADER);
+      this.layerTransformShader = target.createShader(RENDER_PASS_VERTEX_SHADER, LAYER_TRANSFORM_FRAGMENT_SHADER);
     } catch (error) {
       console.error("[VJ1_LAYER_TRANSFORM_SHADER_FAILED]", error?.message || error);
       return null;
@@ -1750,7 +1554,7 @@ export class OutputRenderer {
   getOverlayBlendShader(target) {
     if (this.overlayBlendShader) return this.overlayBlendShader;
     try {
-      this.overlayBlendShader = target.createShader(OVERLAY_BLEND_VERTEX_SHADER, OVERLAY_BLEND_FRAGMENT_SHADER);
+      this.overlayBlendShader = target.createShader(RENDER_PASS_VERTEX_SHADER, OVERLAY_BLEND_FRAGMENT_SHADER);
     } catch (error) {
       console.error("[VJ1_OVERLAY_SHADER_FAILED]", error?.message || error);
       return null;
@@ -1879,6 +1683,7 @@ export class OutputRenderer {
       },
       component: staticComponentGraphState(component, this.state?.components || []),
       media: staticComponentGraphMediaState(this.state?.media || [], component, this.state?.components || []),
+      runtimeMedia: runtimeComponentGraphMediaState(this.media, component, this.state?.components || []),
       customShader: this.state?.shaders?.customCode || "",
       pipeline,
     });
@@ -1933,7 +1738,10 @@ export class OutputRenderer {
         const imageA = this.media.get(params.imageAId);
         const imageB = this.media.get(params.imageBId);
         if (!isReadyMediaItem(imageA) || !isReadyMediaItem(imageB)) return true;
-        const analysisStatus = featureMorphPairs.status(params);
+        const analysisStatus = featureMorphPairs.status(params, {
+          imageAFile: imageA.file,
+          imageBFile: imageB.file,
+        });
         if (analysisStatus === "idle" || analysisStatus === "loading") return true;
       }
       if (source.generatorId === "tileTexture" && params.imageId && !isReadyMediaItem(this.media.get(params.imageId))) return true;
@@ -2087,7 +1895,13 @@ export class OutputRenderer {
     if (source?.type !== "generator") return null;
     const featureMorphPairs = this.featureMorphPairService(source.generatorId);
     if (featureMorphPairs) {
-      return featureMorphPairs.externalKey({ ...(source.params || {}), ...(owner.params || {}) });
+      const params = { ...(source.params || {}), ...(owner.params || {}) };
+      const imageA = this.media.get(params.imageAId);
+      const imageB = this.media.get(params.imageBId);
+      return featureMorphPairs.externalKey(params, {
+        imageAFile: imageA?.file,
+        imageBFile: imageB?.file,
+      });
     }
     const component = getGeneratorComponent(source.generatorId || "testPattern");
     const params = normalizeParamValues(component, {
@@ -2163,10 +1977,10 @@ export class OutputRenderer {
     } else if (source.type === "media") {
       const item = this.media.get(source.mediaId);
       if (item?.video && isDrawableMedia(item.video)) {
-        syncVideoPlayback(item.video, {
+        this.mediaRuntime.claimVideoPlayback(item.video, {
           start: source.start,
           end: source.end,
-          speed: (this.state?.global?.playing === false ? 0 : 1) * (Number(source.speed) || 1) * Math.max(0, Number(component.speed) || 0),
+          speed: (this.state?.global?.playing === false ? 0 : 1) * globalVisualTimeScale(this.state?.global) * (Number(source.speed) || 1) * Math.max(0, Number(component.speed) || 0),
         });
         drawWithContentTransform(pg, source.contentTransform, () => {
           drawMediaFit(pg, item.video, 0, 0, pg.width, pg.height, mediaSourceFit(source));
@@ -2185,7 +1999,7 @@ export class OutputRenderer {
       else if (item?.model || item?.modelData) {
         this.drawModelSource(pg, item, source, componentTime, renderRequest);
       }
-      else if (item?.imageError) drawStandby(pg, "image load failed");
+      else if (item?.loadError || item?.imageError) drawStandby(pg, item?.loadError || "image load failed");
       else if (item?.modelError) drawStandby(pg, "model load failed");
       else if (item) drawStandby(pg, "loading media");
       else {
@@ -2228,338 +2042,54 @@ export class OutputRenderer {
   }
 
   drawFeatureMorphGenerator(pg, source = {}, componentTime = this.visualTime, renderRequest = frameRenderRequest(this.state.render)) {
-    const params = source.params || {};
-    const isMobileNet = source.generatorId === "featureMorphV2";
-    const pairService = isMobileNet ? this.mobileNetMorphPairs : this.superPointPairs;
-    const targetKey = isMobileNet ? "featureMorphV2" : "featureMorph";
-    const shaderKey = isMobileNet ? "featureMorphV2Shader" : "featureMorphShader";
-    const imageAId = params.imageAId || "";
-    const imageBId = params.imageBId || "";
-    if (!imageAId || !imageBId) {
-      drawStandby(pg, "choose two images");
-      return;
-    }
-    const itemA = this.media.get(imageAId);
-    const itemB = this.media.get(imageBId);
-    const missingIds = [!itemA ? imageAId : "", !itemB ? imageBId : ""].filter(Boolean);
-    if (missingIds.length) this.requestMissingMediaBatch(missingIds);
-    if (!itemA?.image || !itemB?.image) {
-      drawStandby(pg, itemA?.imageError || itemB?.imageError || "loading morph images");
-      return;
-    }
-    const entry = pairService.request(params, itemA.image, itemB.image, {
-      imageAFile: itemA.file,
-      imageBFile: itemB.file,
+    return this.specializedSources.drawFeatureMorph(pg, source, componentTime, {
+      ...renderRequest,
+      pixelDensity: this.requestPixelDensity(renderRequest),
     });
-    if (entry.status === "loading") {
-      drawStandby(pg, entry.detail || (isMobileNet ? "matching MobileNet regions" : "finding SuperPoint landmarks"));
-      return;
-    }
-    if (entry.status === "error" || !entry.result?.field) {
-      drawStandby(pg, entry.error || (isMobileNet ? "semantic matching failed" : "feature matching failed"));
-      return;
-    }
-
-    const target = this.getSpecializedWebglTarget(targetKey, pg.width, pg.height, this.requestPixelDensity(renderRequest), {
-      preferSharedFramebuffer: true,
-    });
-    if (!this[shaderKey]) {
-      this[shaderKey] = target.createShader(FEATURE_MORPH_VERTEX_SHADER, FEATURE_MORPH_FRAGMENT_SHADER);
-    }
-    const shader = this[shaderKey];
-    const morphStrategy = isMobileNet ? (params.morphStrategy || "elastic") : "flow";
-    const morphField = isMobileNet
-      ? mobileNetMorphFieldForStrategy(entry.result, morphStrategy)
-      : entry.result.field;
-    const flowImage = featureMorphFlowImage(morphField);
-    const autoSpeed = Math.max(0, Number(params.autoSpeed) || 0);
-    const morph = autoSpeed > 0.0001
-      ? 0.5 + 0.5 * Math.sin(componentTime * autoSpeed * Math.PI * 2)
-      : clamp01(Number(params.morph) || 0);
-    const fit = params.fit || "cover";
-    drawShaderTarget(target, () => {
-      clearShaderTarget(target);
-      applyShaderTarget(target, shader);
-      shader.setUniform("imageA", itemA.image);
-      shader.setUniform("imageB", itemB.image);
-      shader.setUniform("flowField", flowImage);
-      shader.setUniform("morph", morph);
-      const featureInfluence = isMobileNet ? Math.max(0, Number(params.influence) || 0) / 0.2 : 1;
-      shader.setUniform("warpStrength", Math.max(0, Number(params.warpStrength) || 0) * featureInfluence);
-      shader.setUniform("maxFlow", morphField.maxFlow);
-      shader.setUniform("flowSize", [morphField.width, morphField.height]);
-      shader.setUniform("flowPhases", morphField.phases || 1);
-      shader.setUniform("flowLayers", morphField.layers || 1);
-      shader.setUniform("morphStrategy", morphStrategy === "rigid" || morphStrategy === "elastic" ? 1 : morphStrategy === "fluid" ? 2 : 0);
-      shader.setUniform("fitA", imageFitUniform(itemA.image, pg.width, pg.height, fit));
-      shader.setUniform("fitB", imageFitUniform(itemB.image, pg.width, pg.height, fit));
-      drawShaderTargetRect(target, pg.width, pg.height);
-      resetShaderTarget(target);
-    });
-    this.drawSpecializedGeneratorTarget(pg, target, source.contentTransform);
   }
 
   drawTileTextureGenerator(pg, source = {}, componentTime = this.visualTime, renderRequest = frameRenderRequest(this.state.render)) {
-    const params = source.params || {};
-    const imageId = params.imageId || "";
-    if (!imageId) {
-      drawStandby(pg, "choose a tileable texture");
-      return;
-    }
-    const item = this.media.get(imageId);
-    if (!item?.image) {
-      if (!item) this.requestMissingMedia(imageId);
-      drawStandby(pg, item?.imageError || "loading tile texture");
-      return;
-    }
-    const target = this.getSpecializedWebglTarget("tileTexture", pg.width, pg.height, this.requestPixelDensity(renderRequest), {
-      preferSharedFramebuffer: true,
+    return this.specializedSources.drawTileTexture(pg, source, componentTime, {
+      ...renderRequest,
+      pixelDensity: this.requestPixelDensity(renderRequest),
     });
-    if (!this.tileTextureShader) {
-      this.tileTextureShader = target.createShader(TILE_TEXTURE_VERTEX_SHADER, TILE_TEXTURE_FRAGMENT_SHADER);
-    }
-    drawShaderTarget(target, () => {
-      clearShaderTarget(target);
-      applyShaderTarget(target, this.tileTextureShader);
-      this.tileTextureShader.setUniform("tileImage", item.image);
-      const repeat = Math.max(0.001, Number(params.repeat) || 1);
-      this.tileTextureShader.setUniform("repeatAmount", [repeat, repeat]);
-      this.tileTextureShader.setUniform("offsetAmount", [Number(params.offsetX) || 0, Number(params.offsetY) || 0]);
-      this.tileTextureShader.setUniform("scrollSpeed", [Number(params.scrollX) || 0, Number(params.scrollY) || 0]);
-      this.tileTextureShader.setUniform("time", componentTime);
-      drawShaderTargetRect(target, pg.width, pg.height);
-      resetShaderTarget(target);
-    });
-    this.drawSpecializedGeneratorTarget(pg, target, source.contentTransform);
-  }
-
-  drawSpecializedGeneratorTarget(pg, target, contentTransform = {}) {
-    pg.push();
-    pg.clear();
-    drawWithContentTransform(pg, contentTransform, () => {
-      drawBuffer(pg, target, 0, 0, pg.width, pg.height, true);
-    });
-    pg.pop();
   }
 
   drawAnatomyGenerator(pg, source = {}, componentTime = this.visualTime, renderRequest = frameRenderRequest(this.state.render)) {
-    const params = source.params || {};
-    const target = this.getModelTarget(renderRequest.width, renderRequest.height, this.requestPixelDensity(renderRequest));
-    const viewport = modelViewportMetrics(target, renderRequest);
-    const renderMode = params.renderMode || "surface";
-    const surfaceColor = modelColor(params.surfaceColor, [217, 212, 201, 255]);
-    const wireColor = modelColor(params.wireColor, [75, 73, 68, 204]);
-    const wireThickness = resolutionScaledStrokeWidth(modelWireThickness(params), renderRequest);
-    const rotation = modelRotation(params, componentTime);
-    const detail = Math.max(4, Math.min(14, Math.round(
-      (Number(params.detail) || 8) * qualityComputeMultiplier(params, { minimum: 0.55, maximum: 1.35 })
-    )));
-    const modelScale = Math.max(0.01, Number(params.modelScale) || 1);
-    const depth = Math.max(0.05, Number(params.depth) || 1);
-    this.measureGpu(target, () => {
-      target.push();
-      target.clear();
-      target.perspective?.(Math.PI / 3, viewport.width / Math.max(1, viewport.height), 0.1, 5000);
-      target.camera?.(0, 0, viewport.cameraZ, 0, 0, 0, 0, 1, 0);
-      target.ambientLight?.(96);
-      target.directionalLight?.(238, 232, 220, -0.45, -0.55, -0.75);
-      target.directionalLight?.(82, 94, 108, 0.7, 0.15, -0.35);
-      applyModelContentTransform(target, source.contentTransform, viewport);
-      target.rotateX(rotation[0]);
-      target.rotateY(rotation[1]);
-      target.rotateZ(rotation[2]);
-      const scale = viewport.unitScale * modelScale * anatomyPartFitScale(params.part);
-      target.scale(scale, -scale, scale * depth);
-      drawProceduralAnatomy(target, params, componentTime, renderMode, surfaceColor, wireColor, wireThickness, detail);
-      target.pop();
+    return this.specializedSources.drawAnatomy(pg, source, componentTime, {
+      ...renderRequest,
+      pixelDensity: this.requestPixelDensity(renderRequest),
     });
-    pg.push();
-    pg.clear();
-    drawBuffer(pg, target, 0, 0, pg.width, pg.height, true);
-    pg.pop();
   }
 
   drawTerrainGenerator(pg, source = {}, componentTime = this.visualTime, renderRequest = frameRenderRequest(this.state.render)) {
-    const params = source.params || {};
-    const contentTransform = normalizedContentTransform(source.contentTransform);
-    const target = this.getTerrainTarget(renderRequest.width, renderRequest.height, this.requestPixelDensity(renderRequest));
-    const style = params.style === "wire" ? 1 : params.style === "hybrid" ? 2 : 0;
-    const flightSpeed = Math.max(0, Number(params.flightSpeed) || 0);
-    const flightTime = this.continuousRateTime(`${source.instanceId || source.generatorId || "terrain"}:flight`, componentTime, flightSpeed);
-    const turn = Math.max(-1, Math.min(1, Number(params.turn) || 0));
-    const yaw = turn * 0.72 + contentTransform.rotation;
-    const cameraAnchor = [
-      Math.sin(yaw) * flightTime * 7 + contentTransform.x * 20,
-      Math.cos(yaw) * flightTime * 7 + contentTransform.y * 20,
-    ];
-    const scaleKey = `${source.instanceId || source.generatorId || "terrain"}:scale`;
-    const scaleState = advanceSpatialScale(this.terrainScalePhases.get(scaleKey), params.terrainScale, cameraAnchor);
-    this.terrainScalePhases.set(scaleKey, scaleState);
-    const flightParams = {
-      ...params,
-      turn: Math.max(-1, Math.min(1, turn + contentTransform.rotation / 0.72)),
-      altitude: Math.max(0.2, (Number(params.altitude) || 2.5) / contentTransform.scale - contentTransform.y * 12),
-      flightSpeed: 1,
-      terrainScale: scaleState.scale / contentTransform.scale,
-      terrainPhase: scaleState.phase,
-      gridDensity: Math.max(0.25, Math.min(4,
-        (Number(params.gridDensity) || 1) * qualityComputeMultiplier(params, { minimum: 0.4, maximum: 1.5 })
-      )),
-    };
-    const sky = normalizedModelColor(params.skyColor, [108, 165, 212, 255]);
-
-    this.measureGpu(target, () => {
-      target.push();
-      target.clear();
-      if (style !== 1) target.background(sky[0] * 255, sky[1] * 255, sky[2] * 255, sky[3] * 255);
-      if (style !== 1) {
-        drawTerrainSurface(target, this.terrainSurfaceResources, flightParams, flightTime, target.width, target.height, style, sky);
-      }
-      if (style >= 1) {
-        drawTerrainWireframe(target, this.terrainWireResources, flightParams, flightTime, target.width, target.height, renderRequest);
-      }
-      target.pop();
+    return this.specializedSources.drawTerrain(pg, source, componentTime, {
+      ...renderRequest,
+      pixelDensity: this.requestPixelDensity(renderRequest),
     });
-
-    pg.push();
-    pg.clear();
-    drawBuffer(pg, target, 0, 0, pg.width, pg.height, true);
-    pg.pop();
-  }
-
-  continuousRateTime(key, baseTime, rate) {
-    const next = advanceRateClock(this.rateClocks.get(key), baseTime, rate);
-    this.rateClocks.set(key, next);
-    return next.time;
   }
 
   drawModelSource(pg, item, source = {}, componentTime = this.visualTime, renderRequest = frameRenderRequest(this.state.render)) {
-    const params = source.params || {};
-    const target = this.getModelTarget(renderRequest.width, renderRequest.height, this.requestPixelDensity(renderRequest));
-    const viewport = modelViewportMetrics(target, renderRequest);
-    const renderMode = params.renderMode || "surface";
-    const modelScale = Math.max(0.01, Number(params.modelScale) || 1);
-    const depth = Math.max(0.05, Number(params.depth) || 1);
-    const pointBudget = Math.max(128, Math.min(50000, Math.round(
-      (Number(params.pointBudget) || 4000) * qualityComputeMultiplier(params, { minimum: 0.25, maximum: 1.75 })
-    )));
-    const surfaceColor = modelColor(params.surfaceColor, [220, 225, 220, 255]);
-    const wireColor = modelColor(params.wireColor, [20, 20, 20, 220]);
-    const wireThickness = resolutionScaledStrokeWidth(modelWireThickness(params), renderRequest);
-    const rotation = modelRotation(params, componentTime);
-    const gpuToken = this.gpuTimer.begin(target, this.frameIndex);
-    try {
-    target.push();
-    target.clear();
-    const scale = viewport.unitScale * modelScale;
-    const rawParsedDrawn = item.modelData &&
-      drawRawParsedModelMode(target, item, params, componentTime, renderMode, surfaceColor, wireColor, pointBudget, viewport, source.contentTransform);
-    if (!rawParsedDrawn) {
-      target.perspective?.(Math.PI / 3, viewport.width / Math.max(1, viewport.height), 0.1, 5000);
-      target.camera?.(0, 0, viewport.cameraZ, 0, 0, 0, 0, 1, 0);
-      target.ambientLight?.(95);
-      target.directionalLight?.(220, 220, 220, -0.35, -0.45, -0.75);
-      applyModelContentTransform(target, source.contentTransform, viewport);
-      target.rotateX(rotation[0]);
-      target.rotateY(rotation[1]);
-      target.rotateZ(rotation[2]);
-      target.scale(scale, scale, scale * depth);
-      if (item.modelData && renderMode === "points") {
-        drawPointCloud(target, ensureParsedModelPointCloud(item, pointBudget), wireColor);
-      } else if (item.modelData) {
-        const geometry = ensureParsedModelGeometry(item);
-        if (geometry) {
-          try {
-            drawGeometryModel(target, geometry, renderMode, surfaceColor, wireColor, wireThickness);
-          } catch (error) {
-            item.modelGeometryFailed = true;
-            item.modelGeometry = null;
-            item.modelGeometryError = error?.message || String(error || "geometry render failed");
-            drawParsedModel(target, item.modelData, renderMode, surfaceColor, wireColor, wireThickness);
-          }
-        } else {
-          drawParsedModel(target, item.modelData, renderMode, surfaceColor, wireColor, wireThickness);
-        }
-      } else if (renderMode === "points") {
-        drawPointCloud(target, ensureP5ModelPointCloud(item, pointBudget), wireColor);
-      } else if (renderMode === "wireframe") {
-        target.noFill();
-        target.stroke(...wireColor);
-        target.strokeWeight(wireThickness);
-        target.model(item.model);
-      } else {
-        target.noStroke();
-        target.ambientMaterial?.(...surfaceColor);
-        target.fill?.(...surfaceColor);
-        drawWithPolygonOffset(target, renderMode === "surfaceWire", () => target.model(item.model));
-        if (renderMode === "surfaceWire") {
-          target.noFill();
-          target.stroke(...wireColor);
-          target.strokeWeight(wireThickness);
-          target.model(item.model);
-        }
-      }
-    }
-    target.pop();
-    } finally {
-      this.gpuTimer.end(gpuToken);
-    }
-    pg.push();
-    pg.clear();
-    drawBuffer(pg, target, 0, 0, pg.width, pg.height, true);
-    pg.pop();
+    return this.specializedSources.drawModel(pg, item, source, componentTime, {
+      ...renderRequest,
+      pixelDensity: this.requestPixelDensity(renderRequest),
+    });
+  }
+
+  continuousRateTime(key, baseTime, rate) {
+    return this.specializedSources.continuousRateTime(key, baseTime, rate);
   }
 
   getModelTarget(width, height, density = this.renderPixelDensity(this.state?.render || {})) {
-    return this.getSpecializedWebglTarget("model", width, height, density, {
-      onContextDiscard: (gl) => this.resetModelResources(gl),
-    });
+    return this.specializedSources.getModelTarget(width, height, density);
   }
 
   getTerrainTarget(width, height, density = this.renderPixelDensity(this.state?.render || {})) {
-    return this.getSpecializedWebglTarget("terrain", width, height, density, {
-      onContextDiscard: () => this.resetTerrainResources(),
-      preferSharedFramebuffer: true,
-      depth: true,
-    });
+    return this.specializedSources.getTerrainTarget(width, height, density);
   }
 
-  getSpecializedWebglTarget(kind, width, height, density = this.renderPixelDensity(this.state?.render || {}), {
-    onContextDiscard = null,
-    preferSharedFramebuffer = false,
-    depth = false,
-  } = {}) {
-    const widthPx = Math.max(1, Math.round(Number(width) || 1));
-    const heightPx = Math.max(1, Math.round(Number(height) || 1));
-    const targetDensity = Math.max(0.25, Math.min(4, Number(density) || 1));
-    let target = this.specializedWebglTargets.get(kind);
-    if (!target) {
-      target = (preferSharedFramebuffer ? createSharedFramebufferTarget(widthPx, heightPx, { depth }) : null)
-        || createGraphics(widthPx, heightPx, WEBGL);
-      if (!isSharedFramebufferTarget(target)) this.applyGraphicsPixelDensity(target, targetDensity);
-      target.__vj1PixelDensity = targetDensity;
-      if (!isSharedFramebufferTarget(target)) target.noStroke();
-      this.specializedWebglTargets.set(kind, target);
-      return target;
-    }
-    const sizeChanged = target.width !== widthPx || target.height !== heightPx;
-    const densityChanged = target.__vj1PixelDensity !== targetDensity;
-    if (sizeChanged || densityChanged) {
-      try {
-        if (sizeChanged) target.resizeCanvas(widthPx, heightPx);
-        if (!isSharedFramebufferTarget(target)) this.applyGraphicsPixelDensity(target, targetDensity);
-      } catch {
-        onContextDiscard?.(target?.drawingContext);
-        disposeGraphics(target);
-        target = (preferSharedFramebuffer ? createSharedFramebufferTarget(widthPx, heightPx, { depth }) : null)
-          || createGraphics(widthPx, heightPx, WEBGL);
-        if (!isSharedFramebufferTarget(target)) this.applyGraphicsPixelDensity(target, targetDensity);
-        this.specializedWebglTargets.set(kind, target);
-      }
-      target.__vj1PixelDensity = targetDensity;
-      if (!isSharedFramebufferTarget(target)) target.noStroke();
-    }
-    return target;
+  getSpecializedWebglTarget(kind, width, height, density = this.renderPixelDensity(this.state?.render || {}), options = {}) {
+    return this.specializedSources.getTarget(kind, width, height, density, options);
   }
 
   drawShaderGenerator(pg, sourceOrId, componentTime = this.visualTime, request = frameRenderRequest(this.state.render)) {
@@ -2823,13 +2353,11 @@ export class OutputRenderer {
   }
 
   drawTransformedLayerFallback(output, source, transform = {}) {
+    const placement = contentTransformCanvasPlacement(transform, output.width, output.height);
     output.imageMode(CENTER);
-    output.translate(
-      output.width * 0.5 + (Number(transform.x) || 0) * output.width * 0.5,
-      output.height * 0.5 + (Number(transform.y) || 0) * output.height * 0.5
-    );
-    output.rotate(Number(transform.rotation) || 0);
-    output.scale(Math.max(0.01, Number(transform.scale) || 1));
+    output.translate(placement.centerX, placement.centerY);
+    output.rotate(placement.rotation);
+    output.scale(placement.scale);
     if (this.isShaderBuffer(source)) {
       drawBuffer(output, source, -output.width / 2, -output.height / 2, output.width, output.height, true);
     } else {
@@ -3043,497 +2571,54 @@ export class OutputRenderer {
     }
   }
 
-  renderSurfaces() {
-    const transition = this.currentLiveTransition();
-    if (transition) {
-      this.renderTransitionSurfaces(transition);
-      return;
-    }
-    this.releaseTransitionSurfaceTextures();
-    this.renderSingleSceneSurfaces();
-  }
+  renderSurfaces() { return this.surfaceRuntime.renderSurfaces(); }
 
-  renderSingleSceneSurfaces() {
-    const outputBlackout = this.isOutputBlackout();
-    const routes = this.buildSurfaceRenderPlan();
-    let mapperBatch = [];
-    let mapperBatchBlend = "";
-    const flushMapperBatch = () => {
-      if (!mapperBatch.length) return;
-      const batch = mapperBatch;
-      const blend = mapperBatchBlend;
-      mapperBatch = [];
-      mapperBatchBlend = "";
-      this.measureGpu(drawingContext, () => this.drawSurfaceRouteViewBatch(batch, blend));
-    };
-    for (const route of routes) {
-      const { surface, mapped, surfaceRequest: request } = route;
-      if (this.canDirectProjectSurfaceRoute(route, outputBlackout)) {
-        const view = this.renderSurfaceRouteView(route);
-        if (!view) continue;
-        this.frameProfile.directSurfaceSamples++;
-        this.frameProfile.avoidedSurfaceRasterPixels += request.width * request.height;
-        if (mapped.direct && Number(surface.feather) <= 0) {
-          flushMapperBatch();
-          this.measureGpu(drawingContext, () => this.drawSurfaceRouteView(view, route));
-          continue;
-        }
-        const blend = surface.finalBlend || "normal";
-        if (mapperBatch.length && blend !== mapperBatchBlend) flushMapperBatch();
-        mapperBatchBlend = blend;
-        mapperBatch.push({ view, route });
-        continue;
-      }
-      flushMapperBatch();
-      this.frameProfile.surfaceRasterPixels += request.width * request.height;
-      const pg = this.getSurfaceTexture(request);
-      if (!pg) continue;
-      pg.push();
-      pg.clear();
-      if (!outputBlackout) {
-        this.drawSurfaceRoute(pg, route);
-      } else {
-        pg.background(0);
-      }
-      pg.pop();
-      this.measureGpu(drawingContext, () => {
-        if (mapped.direct && Number(surface.feather) > 0) {
-          this.mapper.drawTexture(pg, mapped.mapperSurface, surface.projectionFit, surface.feather);
-        } else if (mapped.direct) this.drawDirectSurfaceTexture(pg, route);
-        else this.mapper.drawTexture(pg, mapped.mapperSurface, surface.projectionFit, surface.feather);
-      });
-    }
-    flushMapperBatch();
-  }
+  renderSingleSceneSurfaces() { return this.surfaceRuntime.renderSingleSceneSurfaces(); }
 
-  currentLiveTransition(nowMs = Date.now()) {
-    const transition = this.state?.liveTransition;
-    const durationMs = Math.max(0, Number(transition?.durationMs) || 0);
-    const startedAtMs = Number(transition?.startedAtMs) || 0;
-    if (!transition?.fromState || !durationMs || !startedAtMs) return null;
-    const progress = Math.max(0, Math.min(1, (Number(nowMs) - startedAtMs) / durationMs));
-    if (progress >= 1) return null;
-    return { ...transition, progress };
-  }
+  currentLiveTransition(nowMs = Date.now()) { return this.surfaceRuntime.currentLiveTransition(nowMs); }
 
-  renderTransitionSurfaces(transition) {
-    const targetState = this.state;
-    if (this.isOutputBlackout()) return;
-    if (this.activeTransitionTextureId !== transition.id) {
-      this.releaseTransitionSurfaceTextures();
-      this.activeTransitionTextureId = transition.id;
-    }
+  renderTransitionSurfaces(transition) { return this.surfaceRuntime.renderTransitionSurfaces(transition); }
 
-    const componentsShared = transition.componentsShared === true;
-    this.componentOutput.clear();
-    const fromRoutes = this.withRenderState(transition.fromState, () =>
-      this.withSurfaceRenderIdentityPrefix(componentsShared ? "" : "transition-from:", () => this.buildSurfaceRenderPlan())
-    );
-    const toRoutes = this.withSurfaceRenderIdentityPrefix(
-      componentsShared ? "" : "transition-to:",
-      () => this.buildSurfaceRenderPlan()
-    );
-    const fromTextures = this.renderTransitionRouteTextures(fromRoutes, transition.fromState, "from");
-    const toTextures = this.renderTransitionRouteTextures(toRoutes, targetState, "to");
-    const fromBySurface = new Map(fromRoutes.map((route) => [route.surface.id, route]));
-    const toBySurface = new Map(toRoutes.map((route) => [route.surface.id, route]));
-    const surfaceIds = [];
-    for (const surface of targetState.surfaces || []) {
-      if ((fromBySurface.has(surface.id) || toBySurface.has(surface.id)) && !surfaceIds.includes(surface.id)) surfaceIds.push(surface.id);
-    }
-    for (const route of fromRoutes) if (!surfaceIds.includes(route.surface.id)) surfaceIds.push(route.surface.id);
-
-    for (const surfaceId of surfaceIds) {
-      const fromRoute = fromBySurface.get(surfaceId);
-      const toRoute = toBySurface.get(surfaceId);
-      const route = toRoute || fromRoute;
-      const mapped = route?.mapped;
-      if (!mapped?.mapperSurface) continue;
-      const fromTexture = fromTextures.get(surfaceId) || this.getTransparentTransitionTexture("from", surfaceId, toRoute?.surfaceRequest);
-      const toTexture = toTextures.get(surfaceId) || this.getTransparentTransitionTexture("to", surfaceId, fromRoute?.surfaceRequest);
-      if (!fromTexture || !toTexture) continue;
-      const feather = toRoute?.surface?.feather ?? fromRoute?.surface?.feather ?? 0;
-      this.measureGpu(drawingContext, () => {
-        this.mapper.drawTransitionTextures(fromTexture, toTexture, mapped.mapperSurface, {
-          fromProjectionFit: fromRoute?.surface?.projectionFit || (mapped.direct ? "contain" : "cover"),
-          toProjectionFit: toRoute?.surface?.projectionFit || (mapped.direct ? "contain" : "cover"),
-          feather,
-          progress: transition.progress,
-        });
-      });
-    }
-  }
-
-  renderTransitionRouteTextures(routes, renderState, side) {
-    const textures = new Map();
-    this.withRenderState(renderState, () => {
-      for (const route of routes) {
-        this.frameProfile.surfaceRasterPixels += route.surfaceRequest.width * route.surfaceRequest.height;
-        const texture = this.getTransitionSurfaceTexture(side, route.surface.id, route.surfaceRequest);
-        if (!texture) continue;
-        texture.push();
-        texture.clear();
-        const previousEffectPrefix = this.transitionSurfaceEffectPrefix;
-        this.transitionSurfaceEffectPrefix = side;
-        try {
-          this.drawSurfaceRoute(texture, route);
-        } finally {
-          this.transitionSurfaceEffectPrefix = previousEffectPrefix;
-        }
-        texture.pop();
-        textures.set(route.surface.id, texture);
-      }
-    });
-    return textures;
-  }
+  renderTransitionRouteTextures(routes, renderState, side) { return this.surfaceRuntime.renderTransitionRouteTextures(routes, renderState, side); }
 
   getTransitionSurfaceTexture(side, surfaceId, request = stableSurfaceRenderRequest(this.state?.render || {})) {
-    const widthPx = Math.max(1, Math.round(Number(request?.width) || 1));
-    const heightPx = Math.max(1, Math.round(Number(request?.height) || 1));
-    const key = `${side}:${surfaceId}`;
-    let target = this.transitionSurfaceTextures.get(key);
-    if (!target || target.width !== widthPx || target.height !== heightPx) {
-      disposeGraphics(target);
-      target = createSharedFramebufferTarget(widthPx, heightPx) || createGraphics(widthPx, heightPx);
-      if (!isSharedFramebufferTarget(target)) {
-        this.applyGraphicsPixelDensity(target, this.requestPixelDensity(request));
-        this.applyGraphicsFont(target);
-      }
-      this.transitionSurfaceTextures.set(key, target);
-    }
-    return target;
+    return this.surfaceRuntime.getTransitionSurfaceTexture(side, surfaceId, request);
   }
 
-  getTransparentTransitionTexture(side, surfaceId, request) {
-    const target = this.getTransitionSurfaceTexture(side, `${surfaceId}:empty`, request);
-    target?.push?.();
-    target?.clear?.();
-    target?.pop?.();
-    return target;
-  }
+  getTransparentTransitionTexture(side, surfaceId, request) { return this.surfaceRuntime.getTransparentTransitionTexture(side, surfaceId, request); }
 
-  releaseTransitionSurfaceTextures() {
-    if (!this.transitionSurfaceTextures?.size && !this.activeTransitionTextureId) return;
-    disposeGraphicsMap(this.transitionSurfaceTextures);
-    this.transitionSurfaceTextures.clear();
-    this.activeTransitionTextureId = "";
-  }
+  releaseTransitionSurfaceTextures() { return this.surfaceRuntime.releaseTransitionSurfaceTextures(); }
 
-  withRenderState(renderState, callback) {
-    const previous = this.state;
-    this.state = renderState;
-    try {
-      return callback();
-    } finally {
-      this.state = previous;
-    }
-  }
+  withRenderState(renderState, callback) { return this.surfaceRuntime.withRenderState(renderState, callback); }
 
-  withSurfaceRenderIdentityPrefix(prefix, callback) {
-    const previous = this.surfaceRenderIdentityPrefix;
-    this.surfaceRenderIdentityPrefix = prefix;
-    try {
-      return callback();
-    } finally {
-      this.surfaceRenderIdentityPrefix = previous;
-    }
-  }
+  withSurfaceRenderIdentityPrefix(prefix, callback) { return this.surfaceRuntime.withSurfaceRenderIdentityPrefix(prefix, callback); }
 
-  buildSurfaceRenderPlan() {
-    const renderIdentityPrefix = this.surfaceRenderIdentityPrefix || "";
-    const routes = [];
-    const viewport = this.displayCanvasSize(this.state?.render || {});
-    const pixelScale = this.renderPixelDensity(this.state?.render || {});
-    const manualSurfaceLimit = manualSurfaceTextureLimit(this.state?.render || {}, pixelScale);
-    for (const storedSurface of this.state.surfaces || []) {
-      if (!storedSurface.enabled) continue;
-      this.frameProfile.surfaceRouteCandidates++;
-      const sourceNode = this.resolveRouteSourceNode(storedSurface);
-      if (!sourceNode) continue;
-      const surface = {
-        ...storedSurface,
-        sourceNodeId: sourceNode.id,
-        componentId: sourceNode.componentId,
-        outputFrameId: sourceNode.outputFrameId,
-      };
-      const mapped = this.mapperSurfaces.get(surface.id);
-      const component = this.componentById.get(surface.componentId);
-      if (!mapped?.mapperSurface || !component) continue;
-      const sourceView = componentSourceView(
-        this.state.render,
-        component,
-        surface,
-        this.state.recordingFrames,
-        this.recordingFrameById
-      );
-      const maxSurfaceSize = manualSurfaceLimit || {
-        // Auto is demand-driven. This is only a conservative WebGL safety
-        // bound; source raster limits normally stop demand well before it.
-        width: 8192,
-        height: 8192,
-      };
-      const demand = sourceRenderDemand({
-        ...sourceView,
-        maxSurfaceSize,
-        corners: mapped.mapperSurface.corners,
-        viewport,
-        pixelScale,
-        overscan: Number(this.state.render?.sampling?.surfaceOverscan) || SURFACE_DEMAND_OVERSCAN,
-        preserveFullFootprint: mapped.direct,
-      });
-      if (!demand) {
-        this.frameProfile.surfaceRoutesCulled++;
-        continue;
-      }
-      routes.push({ surface, mapped, component, sourceView, demand });
-    }
+  buildSurfaceRenderPlan() { return this.surfaceRuntime.buildSurfaceRenderPlan(); }
 
-    // A recording frame is only a view into its parent Canvas. Build one
-    // shared render request per Component/Canvas, then let each route crop the
-    // resulting texture through its source rectangle below.
-    const componentRequests = sharedComponentRenderRequests(routes, renderIdentityPrefix);
-    for (const route of routes) {
-      const renderInstanceKey = componentRenderInstanceKey(route.component, route.surface.id);
-      const scale = componentRequests.get(renderInstanceKey)?.demandScale || route.demand.rasterScale;
-      const meta = {
-        surfaceId: route.surface.id,
-        timingId: route.surface.id,
-      };
-      route.componentRequest = componentRequests.get(renderInstanceKey);
-      route.surfaceRequest = createRenderRequest("surface", route.demand.surfaceSize, {
-        ...meta,
-        logicalWidth: route.demand.sampleRect.width,
-        logicalHeight: route.demand.sampleRect.height,
-        demandScale: scale,
-      });
-    }
-    this.frameProfile.surfaceRoutesVisible += routes.length;
-    for (const request of componentRequests.values()) {
-      this.frameProfile.componentRasterPixels += request.width * request.height;
-    }
-    return routes;
-  }
+  getSurfaceTexture(request = stableSurfaceRenderRequest(this.state?.render || {})) { return this.surfaceRuntime.getSurfaceTexture(request); }
 
-  getSurfaceTexture(request = stableSurfaceRenderRequest(this.state?.render || {})) {
-    const widthPx = Math.max(1, Math.round(Number(request.width) || 1));
-    const heightPx = Math.max(1, Math.round(Number(request.height) || 1));
-    const key = `${widthPx}x${heightPx}`;
-    let pg = this.surfaceTextures.get(key);
-    if (!pg) {
-      pg = createSharedFramebufferTarget(widthPx, heightPx) || createGraphics(widthPx, heightPx);
-      if (!isSharedFramebufferTarget(pg)) {
-        this.applyGraphicsPixelDensity(pg, this.requestPixelDensity(request));
-        this.applyGraphicsFont(pg);
-      }
-      this.surfaceTextures.set(key, pg);
-    }
-    return pg;
-  }
+  drawDirectSurfaceTexture(texture, route = {}, alpha = 1) { return this.surfaceRuntime.drawDirectSurfaceTexture(texture, route, alpha); }
 
-  drawDirectSurfaceTexture(texture, route = {}, alpha = 1) {
-    const rect = route.mapped?.directRect || cornersRect(route.mapped?.mapperSurface?.corners || []);
-    if (!texture || !rect || alpha <= 0) return;
-    const fit = directFitRects(texture.width, texture.height, rect, route.surface?.projectionFit || "contain");
-    const drawable = isSharedFramebufferTarget(texture) ? unwrapRenderTarget(texture) : texture;
-    push();
-    try {
-      resetShader();
-      imageMode(CORNER);
-      applyBlendGlobal(route.surface?.finalBlend || "normal");
-      tint(255, 255 * clamp01(alpha));
-      image(
-        drawable,
-        fit.destination.x - width * 0.5,
-        fit.destination.y - height * 0.5,
-        fit.destination.width,
-        fit.destination.height,
-        fit.source.x,
-        fit.source.y,
-        fit.source.width,
-        fit.source.height
-      );
-      noTint();
-      blendMode(BLEND);
-    } finally {
-      pop();
-    }
-  }
+  canDirectProjectSurfaceRoute(route = {}, outputBlackout = false) { return this.surfaceRuntime.canDirectProjectSurfaceRoute(route, outputBlackout); }
 
-  canDirectProjectSurfaceRoute(route = {}, outputBlackout = false) {
-    if (outputBlackout || this.shouldUseThumbnailPreview()) return false;
-    if (route.surface?.finalShaderChain?.length) return false;
-    return true;
-  }
+  renderSurfaceRouteView(route = {}) { return this.surfaceRuntime.renderSurfaceRouteView(route); }
 
-  renderSurfaceRouteView(route = {}) {
-    const { surface = {}, component = null, componentRequest = null, demand = null } = route;
-    if (!surface.componentId) return null;
-    const componentTime = componentInstanceTime(
-      component,
-      this.componentTimes.get(surface.componentId) || 0,
-      surface.id
-    );
-    const texture = component
-      ? this.renderComponentForRequest(component, componentTime, componentRequest)
-      : this.mainMix;
-    if (!texture) return null;
-    return {
-      texture,
-      sourceRect: scaledComponentSampleRect(demand?.sampleRect, demand?.logicalSize, texture),
-    };
-  }
+  drawSurfaceRouteView(view, route = {}) { return this.surfaceRuntime.drawSurfaceRouteView(view, route); }
 
-  drawSurfaceRouteView(view, route = {}) {
-    const { surface = {}, mapped = {} } = route;
-    const opacity = clamp01(surface.opacity);
-    push();
-    try {
-      applyBlendGlobal(surface.finalBlend || "normal");
-      if (mapped.direct && Number(surface.feather) <= 0) {
-        this.drawDirectSurfaceView(view, route, opacity);
-      } else {
-        this.mapper.drawTexture(
-          view.texture,
-          mapped.mapperSurface,
-          surface.projectionFit,
-          surface.feather,
-          {
-            sourceRect: view.sourceRect,
-            opacity,
-          }
-        );
-      }
-    } finally {
-      blendMode(BLEND);
-      pop();
-    }
-  }
+  drawSurfaceRouteViewBatch(items = [], blend = "normal") { return this.surfaceRuntime.drawSurfaceRouteViewBatch(items, blend); }
 
-  drawSurfaceRouteViewBatch(items = [], blend = "normal") {
-    if (!items.length) return;
-    push();
-    try {
-      applyBlendGlobal(blend);
-      this.mapper.drawTextureBatch(items.map(({ view, route }) => ({
-        texture: view.texture,
-        surface: route.mapped.mapperSurface,
-        projectionFit: route.surface.projectionFit,
-        feather: route.surface.feather,
-        options: {
-          sourceRect: view.sourceRect,
-          opacity: clamp01(route.surface.opacity),
-        },
-      })));
-    } finally {
-      blendMode(BLEND);
-      pop();
-    }
-  }
+  drawDirectSurfaceView(view, route = {}, opacity = 1) { return this.surfaceRuntime.drawDirectSurfaceView(view, route, opacity); }
 
-  drawDirectSurfaceView(view, route = {}, opacity = 1) {
-    const rect = route.mapped?.directRect || cornersRect(route.mapped?.mapperSurface?.corners || []);
-    const sourceRect = view?.sourceRect;
-    const texture = view?.texture;
-    if (!texture || !sourceRect || !rect || opacity <= 0) return;
-    const fit = directFitRects(sourceRect.width, sourceRect.height, rect, route.surface?.projectionFit || "contain");
-    const drawable = isSharedFramebufferTarget(texture) ? unwrapRenderTarget(texture) : texture;
-    resetShader();
-    imageMode(CORNER);
-    tint(255, 255 * opacity);
-    image(
-      drawable,
-      fit.destination.x - width * 0.5,
-      fit.destination.y - height * 0.5,
-      fit.destination.width,
-      fit.destination.height,
-      sourceRect.x + fit.source.x,
-      sourceRect.y + fit.source.y,
-      fit.source.width,
-      fit.source.height
-    );
-    noTint();
-  }
+  drawSurfaceRoute(pg, route = {}) { return this.surfaceRuntime.drawSurfaceRoute(pg, route); }
 
-  drawSurfaceRoute(pg, route = {}) {
-    const { surface = {}, component = null, surfaceRequest: request = null, componentRequest = null, demand = null } = route;
-    if (!surface.componentId) {
-      pg.clear();
-      return;
-    }
-    if (this.shouldUseThumbnailPreview()) {
-      this.drawSurfaceThumbnailRoute(pg, surface, demand);
-      return;
-    }
-    // Component time belongs to the component, not to the projector
-    // surface. Per-surface final effects retain their own instance identity.
-    const componentTime = componentInstanceTime(
-      component,
-      this.componentTimes.get(surface.componentId) || 0,
-      surface.id
-    );
-    const source = component
-      ? this.renderComponentForRequest(component, componentTime, componentRequest)
-      : this.mainMix;
-
-    pg.push();
-    applyBlend(pg, surface.finalBlend);
-    pg.tint(255, 255 * clamp01(surface.opacity));
-    const sampleRect = scaledComponentSampleRect(demand?.sampleRect, demand?.logicalSize, source);
-    drawSampleRect(pg, source, sampleRect, 0, 0, pg.width, pg.height);
-    pg.noTint();
-    pg.blendMode(BLEND);
-    pg.pop();
-
-    if (surface.finalShaderChain?.length) {
-      const effectIdentity = this.transitionSurfaceEffectPrefix ? `${this.transitionSurfaceEffectPrefix}:${surface.id}` : surface.id;
-      const effected = this.renderShaderChain(pg, withShaderInstancePrefix(surface.finalShaderChain, effectIdentity), request, this.visualTime);
-      drawBuffer(pg, effected, 0, 0, pg.width, pg.height, this.isShaderBuffer(effected));
-    }
-  }
-
-  drawSurfaceThumbnailRoute(pg, surface, demand = null) {
-    const component = this.state.components.find((item) => item.id === surface.componentId);
-    const thumbnail = this.getThumbnailImage(component);
-    pg.push();
-    applyBlend(pg, surface.finalBlend);
-    pg.tint(255, 255 * clamp01(surface.opacity));
-    if (thumbnail?.ready && thumbnail.img) {
-      const sampleRect = scaledComponentSampleRect(demand?.sampleRect, demand?.logicalSize, thumbnail.img);
-      drawSampleRect(pg, thumbnail.img, sampleRect, 0, 0, pg.width, pg.height);
-    } else {
-      drawStandby(pg, component?.thumbnail ? "loading thumbnail" : "no thumbnail");
-    }
-    pg.noTint();
-    pg.blendMode(BLEND);
-    pg.pop();
-  }
+  drawSurfaceThumbnailRoute(pg, surface, demand = null) { return this.surfaceRuntime.drawSurfaceThumbnailRoute(pg, surface, demand); }
 
   getThumbnailImage(component) {
-    if (!component?.thumbnail) return null;
-    const existing = this.thumbnailImages.get(component.id);
-    if (existing?.src === component.thumbnail) return existing;
-    const item = { src: component.thumbnail, img: null, ready: false };
-    this.thumbnailImages.set(component.id, item);
-    loadImage(
-      component.thumbnail,
-      (img) => {
-        item.img = img;
-        item.ready = true;
-      },
-      () => {
-        item.ready = false;
-      }
-    );
-    return item;
+    return this.thumbnailRuntime.getThumbnailImage(component);
   }
 
   captureThumbnailEditTransformBaselines() {
-    this.thumbnailEditTransformBaselines.clear();
-    for (const component of this.state?.components || []) {
-      for (const item of flattenComponentChain(component.chain || [])) {
-        if (item?.id) this.thumbnailEditTransformBaselines.set(`${component.id}:${item.id}`, normalizedContentTransform(item.transform));
-      }
-    }
+    return this.thumbnailRuntime.captureEditTransformBaselines();
   }
 
   isShaderBuffer(buffer) {
@@ -3547,61 +2632,19 @@ export class OutputRenderer {
   }
 
   requestMissingMedia(mediaId) {
-    this.requestMissingMediaBatch(mediaId ? [mediaId] : []);
+    return this.mediaRuntime.requestMissingMedia(mediaId);
   }
 
   requestMissingMediaBatch(mediaIds = []) {
-    const ids = Array.from(new Set((mediaIds || []).filter(Boolean)));
-    if (!ids.length || millis() - this.lastMediaRequestAt < 1200) return;
-    this.lastMediaRequestAt = millis();
-    this.requestMediaFiles?.(ids);
+    return this.mediaRuntime.requestMissingMediaBatch(mediaIds);
   }
 
   getImageRendition(item, rw, rh) {
-    if (!item?.image || !isDrawableMedia(item.image)) return null;
-    const widthPx = Math.max(1, Math.floor(Number(rw) || 1));
-    const heightPx = Math.max(1, Math.floor(Number(rh) || 1));
-    const key = mediaRenditionKey(item.id, widthPx, heightPx);
-    const existing = item.imageRenditions?.get?.(key);
-    if (existing) return existing;
-    const source = item.image.elt || item.image;
-    const sourceWidth = source.naturalWidth || source.width || item.image.width || widthPx;
-    const sourceHeight = source.naturalHeight || source.height || item.image.height || heightPx;
-    if (sourceWidth <= widthPx * 1.15 && sourceHeight <= heightPx * 1.15) return item.image;
-    const pg = createGraphics(widthPx, heightPx);
-    pg.pixelDensity?.(1);
-    this.applyGraphicsFont(pg);
-    pg.push();
-    pg.clear();
-    drawCover(pg, item.image, 0, 0, widthPx, heightPx);
-    pg.pop();
-    item.imageRenditions ||= new Map();
-    item.imageRenditionOrder ||= [];
-    item.imageRenditions.set(key, pg);
-    item.imageRenditionOrder.push(key);
-    this.queueMediaRenditionSave(item.id, widthPx, heightPx, pg);
-    while (item.imageRenditionOrder.length > 4) {
-      const staleKey = item.imageRenditionOrder.shift();
-      const stale = item.imageRenditions.get(staleKey);
-      item.imageRenditions.delete(staleKey);
-      disposeGraphics(stale);
-    }
-    return pg;
+    return this.mediaRuntime.getImageRendition(item, rw, rh);
   }
 
-  queueMediaRenditionSave(mediaId, widthPx, heightPx, pg) {
-    if (!this.sendMediaRendition || !pg || !mediaId) return;
-    const key = mediaRenditionKey(mediaId, widthPx, heightPx);
-    if (this.pendingRenditionSaves.has(key)) return;
-    this.pendingRenditionSaves.add(key);
-    graphicsToPngBlob(pg)
-      .then((blob) => blob ? this.sendMediaRendition(mediaId, widthPx, heightPx, blob) : false)
-      .then((saved) => {
-        if (!saved) this.pendingRenditionSaves.delete(key);
-      })
-      .catch(() => {
-        this.pendingRenditionSaves.delete(key);
-      });
+  queueMediaRenditionSave(mediaId, widthPx, heightPx, pg, sourceRevision = "") {
+    return this.mediaRuntime.queueMediaRenditionSave(mediaId, widthPx, heightPx, pg, sourceRevision);
   }
 
   renderComponentPreview() {
@@ -3640,12 +2683,13 @@ export class OutputRenderer {
       ? this.thumbnailEditTransformBaselines.get(`${component.id}:${item.id}`) || current
       : current;
     const editScale = current.scale / Math.max(0.01, baseline.scale);
+    const editPlacement = contentTransformCanvasPlacement({
+      x: current.x - baseline.x,
+      y: current.y - baseline.y,
+    }, rect.width, rect.height);
     withScreenScissor(rect, () => {
       push();
-      translate(
-        rect.x - width * 0.5 + rect.width * (0.5 + (current.x - baseline.x) * 0.5),
-        rect.y - height * 0.5 + rect.height * (0.5 + (current.y - baseline.y) * 0.5)
-      );
+      translate(rect.x - width * 0.5 + editPlacement.centerX, rect.y - height * 0.5 + editPlacement.centerY);
       rotate(current.rotation - baseline.rotation);
       scale(editScale);
       drawImageCoverCrop(thumbnail.img, -rect.width * 0.5, -rect.height * 0.5, rect.width, rect.height);
@@ -3675,11 +2719,9 @@ export class OutputRenderer {
         if (!thumbnail?.ready || !thumbnail.img) continue;
         const placement = componentReferencePlacement(component, dependency, this.state.render, rect, item.source?.placement);
         const transform = combineContentTransforms(parentTransform, item.transform);
+        const transformPlacement = contentTransformCanvasPlacement(transform, rect.width, rect.height);
         push();
-        translate(
-          rect.x - width * 0.5 + rect.width * (0.5 + transform.x * 0.5),
-          rect.y - height * 0.5 + rect.height * (0.5 + transform.y * 0.5)
-        );
+        translate(rect.x - width * 0.5 + transformPlacement.centerX, rect.y - height * 0.5 + transformPlacement.centerY);
         rotate(transform.rotation);
         scale(transform.scale);
         tint(255, 255 * parentOpacity * clamp01(item.opacity ?? 1));
@@ -3709,103 +2751,19 @@ export class OutputRenderer {
   }
 
   renderComponentFrameOverlay(component, source = null) {
-    if (this.mode !== "component" || !component) return;
-    const frame = this.componentPreviewRect(component, source);
-    const inset = 1.5;
-    resetShader();
-    push();
-    noFill();
-    stroke(101, 224, 211, 235);
-    strokeWeight(2);
-    rectMode(CORNER);
-    rect(
-      frame.x - width * 0.5 + inset,
-      frame.y - height * 0.5 + inset,
-      Math.max(0, frame.width - inset * 2),
-      Math.max(0, frame.height - inset * 2)
-    );
-    pop();
+    return this.previewInteraction.renderComponentFrameOverlay(component, source);
   }
 
   renderCanvasRecordingFrames(component, source = null) {
-    if (this.mode !== "component" || component?.type !== "canvas") return;
-    resetShader();
-    push();
-    noFill();
-    stroke(255, 228, 94, 235);
-    strokeWeight(2);
-    rectMode(CORNER);
-    for (const item of this.canvasRecordingFrameRects(component, source)) {
-      rect(item.x - width * 0.5, item.y - height * 0.5, item.width, item.height);
-      noStroke();
-      fill(255, 228, 94, 245);
-      for (const corner of canvasRectCorners(item)) {
-        rect(corner.x - width * 0.5 - 5, corner.y - height * 0.5 - 5, 10, 10);
-      }
-      noFill();
-      stroke(255, 228, 94, 235);
-    }
-    pop();
+    return this.previewInteraction.renderCanvasRecordingFrames(component, source);
   }
 
   canvasRecordingFrameRects(component, source = null) {
-    if (component?.type !== "canvas") return [];
-    const canvasWidth = Math.max(1, Number(component.canvas?.width) || VJ1.canvasWidth);
-    const canvasHeight = Math.max(1, Number(component.canvas?.height) || VJ1.canvasHeight);
-    const preview = this.componentPreviewRect(component, source);
-    return (this.state?.recordingFrames || []).map((frame) => ({
-      frame,
-      x: preview.x + (Math.max(0, Number(frame.x) || 0) / canvasWidth) * preview.width,
-      y: preview.y + (Math.max(0, Number(frame.y) || 0) / canvasHeight) * preview.height,
-      width: (Math.max(1, Number(frame.width) || 1) / canvasWidth) * preview.width,
-      height: (Math.max(1, Number(frame.height) || 1) / canvasHeight) * preview.height,
-    }));
+    return this.previewInteraction.canvasRecordingFrameRects(component, source);
   }
 
   renderSelectedChainTransformOverlay() {
-    if (this.mode !== "component") return;
-    const item = this.selectedTransformableChainItem();
-    if (!item) return;
-    const component = this.state.components.find((entry) => entry.id === this.state.ui.selectedComponentId);
-    const geometry = this.chainItemPreviewGeometry(component, item);
-    if (!geometry) return;
-    const { frame, baseRect, transform, centerX, centerY } = geometry;
-    resetShader();
-    push();
-    noFill();
-    stroke(101, 224, 211, 230);
-    strokeWeight(2);
-    const frameCenterX = frame.x + frame.width * 0.5 - width * 0.5;
-    const frameCenterY = frame.y + frame.height * 0.5 - height * 0.5;
-    const cx = centerX - width * 0.5;
-    const cy = centerY - height * 0.5;
-    const rotation = Number(transform.rotation) || 0;
-    const scale = Math.max(0.01, Number(transform.scale) || 1);
-    const boxWidth = Math.max(1, baseRect.width * scale);
-    const boxHeight = Math.max(1, baseRect.height * scale);
-    const scaleHandleX = boxWidth * 0.5 + 14;
-    const scaleHandleY = 0;
-    const rotateHandleX = 0;
-    const rotateHandleY = -boxHeight * 0.5 - 14;
-
-    // The component outline is rendered independently and remains visible
-    // even when no chain element is selected.
-    translate(cx, cy, 3);
-    rotate(rotation);
-    rectMode(CENTER);
-    stroke(101, 224, 211, 205);
-    rect(0, 0, boxWidth, boxHeight);
-    stroke(101, 224, 211, 170);
-    line(0, 0, scaleHandleX, scaleHandleY);
-    stroke(255, 228, 94, 180);
-    line(0, 0, rotateHandleX, rotateHandleY);
-    noStroke();
-    fill(101, 224, 211, 230);
-    circle(0, 0, 20);
-    circle(scaleHandleX, scaleHandleY, 18);
-    fill(255, 228, 94, 230);
-    circle(rotateHandleX, rotateHandleY, 16);
-    pop();
+    return this.previewInteraction.renderSelectedChainTransformOverlay();
   }
 
   setCalibrate(on) {
@@ -3815,106 +2773,35 @@ export class OutputRenderer {
   }
 
   mousePressed(x, y) {
-    if (this.mode === "component" && this.startCanvasFrameDrag(x, y)) return;
-    if (this.mode === "component" && this.startChainTransformDrag(x, y, { handlesOnly: true })) return;
-    if (this.mode === "component") {
-      const hit = this.chainItemAtPoint(x, y);
-      if (hit && this.selectedChildOwnsGroupDrag(hit, x, y) && this.startChainTransformDrag(x, y, { moveOnly: true })) return;
-      const selected = this.selectChainItemAtPoint(x, y, hit);
-      if (selected && this.startChainTransformDrag(x, y)) return;
-      if (selected) return;
-    }
-    this.mapper?.mousePressed?.(x, y);
-    const surfaceIndex = Number(this.mapper?._dragSurf);
-    const surfaceName = Number.isInteger(surfaceIndex) && surfaceIndex >= 0
-      ? this.mapper?.surfaces?.[surfaceIndex]?.name
-      : "";
-    if (surfaceName) this.onSurfaceSelect?.(surfaceName);
+    return this.previewInteraction.mousePressed(x, y);
   }
 
   mouseDragged(x, y) {
-    if (this.canvasFrameDrag) {
-      this.updateCanvasFrameDrag(x, y);
-      return;
-    }
-    if (this.chainTransformDrag) {
-      this.updateChainTransformDrag(x, y);
-      return;
-    }
-    this.mapper?.mouseDragged?.(x, y);
+    return this.previewInteraction.mouseDragged(x, y);
   }
 
   mouseReleased() {
-    if (this.canvasFrameDrag) {
-      const drag = this.canvasFrameDrag;
-      this.canvasFrameDrag = null;
-      if (drag.lastRect) this.sendCanvasFrame?.(drag.componentId, drag.frameId, drag.lastRect, { commit: true });
-      return;
+    const mappingWasActive = !!this.mapper?.isActive?.();
+    const result = this.previewInteraction.mouseReleased();
+    if (mappingWasActive && this.surfaceRebuildPending) {
+      this.surfaceRebuildPending = false;
+      this.rebuildSurfaces({ preferExistingMapping: true });
+      const signature = this.currentMappingSignature();
+      if (!this.shouldIgnoreIncomingMapping(signature)) this.applyProjectMapping(signature);
     }
-    if (this.chainTransformDrag) {
-      const drag = this.chainTransformDrag;
-      this.chainTransformDrag = null;
-      if (drag.changed && drag.lastTransform) {
-        this.sendChainTransform?.(drag.componentId, drag.itemId, drag.lastTransform, { commit: true });
-      }
-      return;
-    }
-    this.mapper?.mouseReleased?.();
+    return result;
   }
 
   startCanvasFrameDrag(x, y) {
-    const component = this.state?.components?.find((item) => item.id === this.state?.ui?.selectedComponentId);
-    if (component?.type !== "canvas") return false;
-    const source = this.componentOutput.get(component.id);
-    const rects = this.canvasRecordingFrameRects(component, source);
-    for (let index = rects.length - 1; index >= 0; index--) {
-      const item = rects[index];
-      const corners = canvasRectCorners(item);
-      const corner = corners.find((entry) => distanceSquared(x, y, entry.x, entry.y) <= 15 * 15);
-      const border = canvasFrameBorderHit(item, x, y);
-      if (!corner && !border) continue;
-      const canvasWidth = Math.max(1, Number(component.canvas?.width) || VJ1.canvasWidth);
-      const canvasHeight = Math.max(1, Number(component.canvas?.height) || VJ1.canvasHeight);
-      const frame = item.frame;
-      this.canvasFrameDrag = {
-        componentId: component.id,
-        frameId: frame.id,
-        mode: corner?.id || "move",
-        startX: x,
-        startY: y,
-        previewWidth: Math.max(1, this.componentPreviewRect(component, source).width),
-        previewHeight: Math.max(1, this.componentPreviewRect(component, source).height),
-        canvasWidth,
-        canvasHeight,
-        rect: {
-          x: Math.max(0, Number(frame.x) || 0),
-          y: Math.max(0, Number(frame.y) || 0),
-          width: Math.max(16, Number(frame.width) || 16),
-          height: Math.max(16, Number(frame.height) || 16),
-        },
-        lastRect: null,
-      };
-      return true;
-    }
-    return false;
+    return this.previewInteraction.startCanvasFrameDrag(x, y);
   }
 
   updateCanvasFrameDrag(x, y) {
-    const drag = this.canvasFrameDrag;
-    if (!drag) return;
-    const dx = (x - drag.startX) * drag.canvasWidth / drag.previewWidth;
-    const dy = (y - drag.startY) * drag.canvasHeight / drag.previewHeight;
-    const next = drag.mode === "move"
-      ? moveCanvasFrameRect(drag.rect, dx, dy, drag.canvasWidth, drag.canvasHeight)
-      : resizeCanvasFrameRect(drag.rect, drag.mode, dx, dy, drag.canvasWidth, drag.canvasHeight);
-    drag.lastRect = next;
-    this.applyLocalCanvasFrame(drag.componentId, drag.frameId, next);
-    this.sendCanvasFrame?.(drag.componentId, drag.frameId, next, { commit: false });
+    return this.previewInteraction.updateCanvasFrameDrag(x, y);
   }
 
   applyLocalCanvasFrame(componentId, frameId, rect) {
-    const frame = this.state?.recordingFrames?.find((item) => item.id === frameId);
-    if (frame) Object.assign(frame, rect);
+    return this.previewInteraction.applyLocalCanvasFrame(frameId, rect);
   }
 
   isCalibrating() {
@@ -3931,161 +2818,47 @@ export class OutputRenderer {
   }
 
   selectedTransformableChainItem() {
-    const component = this.state?.components?.find((item) => item.id === this.state?.ui?.selectedComponentId);
-    if (!component?.chain?.length) return null;
-    const selected = findChainItemById(component.chain, this.state.ui.selectedChainItemId) ||
-      (component.chain.length === 1 ? component.chain[0] : null);
-    if (selected?.kind === "source") return selected;
-    if (selected?.kind === "group") return selected;
-    const effectComponent = selected?.kind === "effect" ? getShaderComponent(selected.componentId) : null;
-    return effectComponent?.spatial ? selected : null;
+    return this.previewInteraction.selectedTransformableChainItem();
   }
 
   chainItemAtPoint(x, y) {
-    const component = this.state?.components?.find((item) => item.id === this.state?.ui?.selectedComponentId);
-    if (!component?.chain?.length) return null;
-    const frame = this.componentPreviewRect(component, this.componentOutput.get(component.id));
-    return this.hitTestChainItems(component.chain, component, frame, x, y);
+    return this.previewInteraction.chainItemAtPoint(x, y);
   }
 
   selectChainItemAtPoint(x, y, knownHit = null) {
-    const hit = knownHit || this.chainItemAtPoint(x, y);
-    if (!hit) return null;
-    if (this.state?.ui) this.state.ui.selectedChainItemId = hit.id;
-    this.onChainItemSelect?.(hit.id);
-    return hit;
+    return this.previewInteraction.selectChainItemAtPoint(x, y, knownHit);
   }
 
   selectedChildOwnsGroupDrag(hit, x, y) {
-    if (hit?.kind !== "group") return false;
-    const component = this.state?.components?.find((item) => item.id === this.state?.ui?.selectedComponentId);
-    const selected = findChainItemById(component?.chain, this.state?.ui?.selectedChainItemId);
-    if (!selected || selected.id === hit.id || !findChainItemById(hit.chain, selected.id)) return false;
-    if (selected.kind !== "group" && !isPhysicalChainItem(selected)) return false;
-    const geometry = this.chainItemPreviewGeometry(component, selected);
-    return !!geometry && pointInTransformedRect(x, y, geometry.frame, geometry.baseRect, geometry.transform);
-  }
-
-  hitTestChainItems(chain, component, frame, x, y, parentTransform = normalizedContentTransform(), ownerGroup = null) {
-    for (let index = (chain || []).length - 1; index >= 0; index--) {
-      const item = chain[index];
-      if (!item || item.enabled === false || clamp01(item.opacity ?? 1) <= 0.001) continue;
-      const transform = combineContentTransforms(parentTransform, item.transform);
-      if (item.kind === "group") {
-        const nested = this.hitTestChainItems(item.chain || [], component, frame, x, y, transform, ownerGroup || item);
-        if (nested) return nested;
-        continue;
-      }
-      if (!isPhysicalChainItem(item)) continue;
-      const baseRect = this.chainItemBaseRect(component, item, frame);
-      if (pointInTransformedRect(x, y, frame, baseRect, transform)) return ownerGroup || item;
-    }
-    return null;
+    return this.previewInteraction.selectedChildOwnsGroupDrag(hit, x, y);
   }
 
   chainItemBaseRect(component, item, frame) {
-    if (item?.kind === "source" && item.source?.type === "component" && component?.type === "canvas") {
-      const dependency = this.state?.components?.find((candidate) => candidate.id === item.source.componentId);
-      if (dependency && dependency.type !== "canvas") {
-        return componentReferencePlacement(
-          component,
-          dependency,
-          this.state.render,
-          { width: frame.width, height: frame.height },
-          item.source.placement
-        );
-      }
-    }
-    return { x: 0, y: 0, width: frame.width, height: frame.height };
+    return this.previewInteraction.chainItemBaseRect(component, item, frame);
   }
 
   chainItemPreviewGeometry(component, item) {
-    if (!component || !item) return null;
-    const frame = this.componentPreviewRect(component, this.componentOutput.get(component.id));
-    const baseRect = this.chainItemBaseRect(component, item, frame);
-    const context = findChainItemTransformContext(component.chain, item.id);
-    const localTransform = normalizedContentTransform(item.transform);
-    const parentTransform = context?.parentTransform || normalizedContentTransform();
-    const transform = context?.transform || combineContentTransforms(parentTransform, localTransform);
-    const center = transformedRectCenter(frame, baseRect, transform);
-    return { frame, baseRect, transform, localTransform, parentTransform, centerX: center.x, centerY: center.y };
+    return this.previewInteraction.chainItemPreviewGeometry(component, item);
   }
 
   startChainTransformDrag(x, y, { handlesOnly = false, moveOnly = false } = {}) {
-    const item = this.selectedTransformableChainItem();
-    if (!item) return false;
-    const component = this.state.components.find((entry) => entry.id === this.state.ui.selectedComponentId);
-    const geometry = this.chainItemPreviewGeometry(component, item);
-    if (!geometry) return false;
-    const { frame, baseRect, transform, localTransform, parentTransform, centerX: cx, centerY: cy } = geometry;
-    const scale = Math.max(0.01, Number(transform.scale) || 1);
-    const rotation = Number(transform.rotation) || 0;
-    const local = screenToLayerLocal(x, y, cx, cy, rotation);
-    const scaleHandleX = baseRect.width * scale * 0.5 + 14;
-    const rotateHandleY = -baseRect.height * scale * 0.5 - 14;
-    const scaleDx = local.x - scaleHandleX;
-    const scaleDy = local.y;
-    const rotateDx = local.x;
-    const rotateDy = local.y - rotateHandleY;
-    const inside = pointInTransformedRect(x, y, frame, baseRect, transform);
-    let mode = "";
-    if (moveOnly) mode = inside ? "move" : "";
-    else if (scaleDx * scaleDx + scaleDy * scaleDy <= 28 * 28) mode = "scale";
-    else if (rotateDx * rotateDx + rotateDy * rotateDy <= 30 * 30) mode = "rotate";
-    else if (!handlesOnly && inside) mode = "move";
-    if (!mode) return false;
-    this.onChainItemSelect?.(item.id);
-    this.chainTransformDrag = {
-      itemId: item.id,
-      componentId: this.state.ui.selectedComponentId,
-      mode,
-      startX: x,
-      startY: y,
-      centerX: cx,
-      centerY: cy,
-      frameWidth: frame.width,
-      frameHeight: frame.height,
-      transform: { ...localTransform },
-      parentTransform,
-      startDistance: Math.max(1, Math.hypot(x - cx, y - cy)),
-      startAngle: Math.atan2(y - cy, x - cx),
-      changed: false,
-      lastTransform: null,
-    };
-    return true;
+    return this.previewInteraction.startChainTransformDrag(x, y, { handlesOnly, moveOnly });
   }
 
   updateChainTransformDrag(x, y) {
-    const drag = this.chainTransformDrag;
-    if (!drag) return;
-    const next = { ...drag.transform };
-    if (drag.mode === "move") {
-      const parent = normalizedContentTransform(drag.parentTransform);
-      const cosine = Math.cos(-parent.rotation);
-      const sine = Math.sin(-parent.rotation);
-      const dx = (x - drag.startX) / Math.max(0.01, parent.scale);
-      const dy = (y - drag.startY) / Math.max(0.01, parent.scale);
-      const localDx = dx * cosine - dy * sine;
-      const localDy = dx * sine + dy * cosine;
-      next.x = drag.transform.x + (localDx / Math.max(1, drag.frameWidth * 0.5));
-      next.y = drag.transform.y + (localDy / Math.max(1, drag.frameHeight * 0.5));
-    } else if (drag.mode === "scale") {
-      const distance = Math.max(1, Math.hypot(x - drag.centerX, y - drag.centerY));
-      next.scale = chainTransformDragScale(drag.transform.scale, drag.startDistance, distance);
-    } else if (drag.mode === "rotate") {
-      const angle = Math.atan2(y - drag.centerY, x - drag.centerX);
-      next.rotation = drag.transform.rotation + (angle - drag.startAngle);
-    }
-    this.applyLocalChainTransform(drag.componentId, drag.itemId, next);
-    drag.changed = true;
-    drag.lastTransform = next;
-    this.sendChainTransform?.(drag.componentId, drag.itemId, next);
+    return this.previewInteraction.updateChainTransformDrag(x, y);
   }
 
   applyLocalChainTransform(componentId, itemId, transform) {
-    const component = this.state?.components?.find((item) => item.id === componentId);
-    const item = findChainItemById(component?.chain, itemId);
-    if (item) item.transform = { ...item.transform, ...transform };
+    return this.previewInteraction.applyLocalChainTransform(componentId, itemId, transform);
+  }
+
+  get chainTransformDrag() {
+    return this.previewInteraction.chainTransformDrag;
+  }
+
+  get canvasFrameDrag() {
+    return this.previewInteraction.canvasFrameDrag;
   }
 
   loadMapping() {
@@ -4110,65 +2883,19 @@ export class OutputRenderer {
     if (!this.buffersMatchRenderSize()) {
       this.createBuffers();
     }
-    this.rebuildSurfaces();
-    this.applyProjectMapping();
+    if (this.mapper?.isActive?.()) {
+      this.surfaceRebuildPending = true;
+      return;
+    }
+    this.rebuildSurfaces({ preferExistingMapping: !!this.pendingMappingSignature });
+    const signature = this.currentMappingSignature();
+    if (!this.shouldIgnoreIncomingMapping(signature)) this.applyProjectMapping(signature);
   }
 
   outputMediaReadiness() {
-    const status = createMediaReadinessStatus();
-    if (this.mode !== "output" || !this.state) return status;
-    const componentsById = new Map((this.state.components || []).map((component) => [component.id, component]));
-    for (const surface of this.state.surfaces || []) {
-      if (surface.enabled === false || !surface.componentId) continue;
-      this.collectComponentMediaReadiness(componentsById.get(surface.componentId), status, componentsById, new Set());
-    }
+    const status = collectOutputMediaReadiness({ mode: this.mode, state: this.state, media: this.media });
     this.requestMissingMediaBatch(Array.from(status.missingIds));
-    status.blocked = status.loadingIds.size > 0 || status.missingIds.size > 0 || status.errorIds.size > 0;
     return status;
-  }
-
-  collectComponentMediaReadiness(component, status, componentsById, visited) {
-    if (!component || !status || visited.has(component.id)) return;
-    visited.add(component.id);
-    if (Array.isArray(component.chain) && component.chain.length) {
-      this.collectChainMediaReadiness(component.chain, status, componentsById, visited);
-    } else {
-      this.collectSourceMediaReadiness(component.source, status);
-    }
-    visited.delete(component.id);
-  }
-
-  collectChainMediaReadiness(chain, status, componentsById, visited) {
-    for (const item of chain || []) {
-      if (item.enabled === false) continue;
-      if (item.kind === "group") {
-        this.collectChainMediaReadiness(item.chain || [], status, componentsById, visited);
-        continue;
-      }
-      if (item.kind === "source" && item.source?.type === "component") {
-        this.collectComponentMediaReadiness(componentsById.get(item.source.componentId), status, componentsById, visited);
-      } else if (item.kind === "source") {
-        this.collectSourceMediaReadiness(item.source, status);
-      }
-    }
-  }
-
-  collectSourceMediaReadiness(source, status) {
-    const mediaIds = new Set();
-    collectMediaIdsFromSource(source, mediaIds);
-    for (const mediaId of mediaIds) {
-      status.total++;
-      const item = this.media.get(mediaId);
-      if (!item) {
-        status.missingIds.add(mediaId);
-        continue;
-      }
-      if (item.imageError || item.modelError) {
-        status.errorIds.add(mediaId);
-        continue;
-      }
-      if (!isReadyMediaItem(item)) status.loadingIds.add(mediaId);
-    }
   }
 
   isOutputBlackout() {
@@ -4238,59 +2965,11 @@ export class OutputRenderer {
   }
 
   captureSelectedComponentThumbnail() {
-    // This method can be reached by a frame that began just before the preview
-    // toggle changed. Never read or publish the thumbnail-mode proxy buffer.
-    if (this.shouldUseThumbnailPreview()) return;
-    if (!this.sendThumbnail || millis() - this.lastThumbnailAt < 1200) return;
-    const component = this.state.components.find((item) => item.id === this.state.ui.selectedComponentId) || this.state.components[0];
-    if (!component) return;
-    const output = this.componentOutput.get(component.id);
-    if (!output) return;
-    const signature = componentThumbnailSignature(component);
-    const needsComponentThumbnail = !component.thumbnail || this.thumbnailSignatures.get(component.id) !== signature;
-    const framesNeedingThumbnails = component.type === "canvas"
-      ? (this.state.recordingFrames || []).filter((frame) => {
-          const frameKey = `${component.id}:${frame.id}`;
-          const frameSignature = `${signature}:${frame.x},${frame.y},${frame.width},${frame.height}`;
-          return !component.canvas?.frameThumbnails?.[frame.id] || this.thumbnailSignatures.get(frameKey) !== frameSignature;
-        })
-      : [];
-    // Throttle checks as well as captures. In particular, never call get() on a
-    // full WebGL framebuffer until metadata proves that a thumbnail is stale.
-    this.lastThumbnailAt = millis();
-    if (!needsComponentThumbnail && !framesNeedingThumbnails.length) return;
-    const readback = isSharedFramebufferTarget(output);
-    const thumbnailSource = readback ? output.get() : output;
-    let captured = false;
-    if (needsComponentThumbnail) {
-      const thumbnail = graphicsToThumbnail(thumbnailSource);
-      if (thumbnail) {
-        this.thumbnailSignatures.set(component.id, signature);
-        this.sendThumbnail(component.id, thumbnail);
-        captured = true;
-      }
-    }
-    if (component.type === "canvas") {
-      const sourceWidth = Math.max(1, Number(thumbnailSource?.width || thumbnailSource?.canvas?.width) || 1);
-      const sourceHeight = Math.max(1, Number(thumbnailSource?.height || thumbnailSource?.canvas?.height) || 1);
-      const logicalWidth = Math.max(1, Number(component.canvas?.width) || sourceWidth);
-      const logicalHeight = Math.max(1, Number(component.canvas?.height) || sourceHeight);
-      for (const frame of framesNeedingThumbnails) {
-        const frameKey = `${component.id}:${frame.id}`;
-        const frameSignature = `${signature}:${frame.x},${frame.y},${frame.width},${frame.height}`;
-        const frameThumbnail = graphicsToThumbnail(thumbnailSource, COMPONENT_THUMBNAIL_WIDTH, COMPONENT_THUMBNAIL_HEIGHT, {
-          x: Number(frame.x) * sourceWidth / logicalWidth,
-          y: Number(frame.y) * sourceHeight / logicalHeight,
-          width: Number(frame.width) * sourceWidth / logicalWidth,
-          height: Number(frame.height) * sourceHeight / logicalHeight,
-        });
-        if (!frameThumbnail) continue;
-        this.thumbnailSignatures.set(frameKey, frameSignature);
-        this.sendThumbnail(component.id, frameThumbnail, { frameId: frame.id });
-        captured = true;
-      }
-    }
-    if (readback) thumbnailSource?.remove?.();
+    return this.thumbnailRuntime.captureSelectedComponentThumbnail();
+  }
+
+  get thumbnailEditTransformBaselines() {
+    return this.thumbnailRuntime.transformBaselines;
   }
 }
 
@@ -4314,29 +2993,14 @@ function mappingSignature(mapping) {
   }
 }
 
-function offsetMapping(mapping = {}, dx = 0, dy = 0) {
+function mapMappingCorners(mapping = {}, transformPoint = (point) => point) {
   return {
     ...mapping,
     surfaces: (mapping.surfaces || []).map((surface) => ({
       ...surface,
       corners: (surface.corners || []).map((corner) => ({
         ...corner,
-        x: Number(corner.x) + dx,
-        y: Number(corner.y) + dy,
-      })),
-    })),
-  };
-}
-
-function transformMapping(mapping = {}, sx = 1, sy = 1, dx = 0, dy = 0) {
-  return {
-    ...mapping,
-    surfaces: (mapping.surfaces || []).map((surface) => ({
-      ...surface,
-      corners: (surface.corners || []).map((corner) => ({
-        ...corner,
-        x: Number(corner.x) * sx + dx,
-        y: Number(corner.y) * sy + dy,
+        ...transformPoint(corner),
       })),
     })),
   };
@@ -4350,14 +3014,6 @@ function downloadJson(data, filename) {
   link.download = filename;
   link.click();
   setTimeout(() => URL.revokeObjectURL(url), 0);
-}
-
-function stableSurfaceRenderRequest(render = {}, meta = {}) {
-  return createRenderRequest("surface", defaultSurfaceTextureSize(render), {
-    ...meta,
-    timingId: meta.timingId || meta.surfaceId || "",
-    renderIdentity: meta.renderIdentity ?? meta.instanceId ?? "",
-  });
 }
 
 export function componentPipelineSourceRequest(request = {}, pipeline = {}) {
@@ -4376,14 +3032,6 @@ export function componentPipelineSourceRequest(request = {}, pipeline = {}) {
   });
 }
 
-function defaultSurfaceTextureSize(render = {}) {
-  const frame = frameSize(render);
-  return {
-    width: Math.max(1, Math.round(frame.width)),
-    height: Math.max(1, Math.round(frame.height)),
-  };
-}
-
 function containedRect(containerWidth, containerHeight, contentWidth, contentHeight) {
   const cw = Math.max(1, Number(containerWidth) || 1);
   const ch = Math.max(1, Number(containerHeight) || 1);
@@ -4400,89 +3048,6 @@ function containedRect(containerWidth, containerHeight, contentWidth, contentHei
   };
 }
 
-function isSourceNode(node = {}) {
-  return node.role === "source" || node.kind === "source" || node.kind === "generator";
-}
-
-function isEffectNode(node = {}) {
-  return node.role === "effect" || node.kind === "effect";
-}
-
-function findChainItemById(chain = [], id = "") {
-  if (!Array.isArray(chain) || !id) return null;
-  for (const item of chain) {
-    if (item.id === id) return item;
-    const nested = item.kind === "group" ? findChainItemById(item.chain, id) : null;
-    if (nested) return nested;
-  }
-  return null;
-}
-
-function findChainItemTransformContext(chain = [], id = "", parentTransform = normalizedContentTransform()) {
-  if (!Array.isArray(chain) || !id) return null;
-  for (const item of chain) {
-    const localTransform = normalizedContentTransform(item?.transform);
-    const transform = combineContentTransforms(parentTransform, localTransform);
-    if (item?.id === id) return { item, parentTransform, transform };
-    if (item?.kind === "group") {
-      const nested = findChainItemTransformContext(item.chain, id, transform);
-      if (nested) return nested;
-    }
-  }
-  return null;
-}
-
-function isPhysicalChainItem(item = {}) {
-  if (item.kind === "source") return item.source?.type !== "black";
-  if (item.kind !== "effect") return false;
-  return getShaderComponent(item.componentId)?.spatial === true;
-}
-
-export function pointInTransformedRect(x, y, frame = {}, baseRect = {}, transform = {}) {
-  const value = normalizedContentTransform(transform);
-  const frameCenterX = (Number(frame.x) || 0) + (Number(frame.width) || 0) * 0.5;
-  const frameCenterY = (Number(frame.y) || 0) + (Number(frame.height) || 0) * 0.5;
-  const translatedCenterX = frameCenterX + value.x * (Number(frame.width) || 0) * 0.5;
-  const translatedCenterY = frameCenterY + value.y * (Number(frame.height) || 0) * 0.5;
-  const local = screenToLayerLocal(x, y, translatedCenterX, translatedCenterY, value.rotation);
-  const unscaledX = local.x / Math.max(0.01, value.scale) + frameCenterX;
-  const unscaledY = local.y / Math.max(0.01, value.scale) + frameCenterY;
-  const left = (Number(frame.x) || 0) + (Number(baseRect.x) || 0);
-  const top = (Number(frame.y) || 0) + (Number(baseRect.y) || 0);
-  return unscaledX >= left && unscaledX <= left + Math.max(1, Number(baseRect.width) || 1) &&
-    unscaledY >= top && unscaledY <= top + Math.max(1, Number(baseRect.height) || 1);
-}
-
-function transformedRectCenter(frame = {}, baseRect = {}, transform = {}) {
-  const value = normalizedContentTransform(transform);
-  const frameCenterX = (Number(frame.x) || 0) + (Number(frame.width) || 0) * 0.5;
-  const frameCenterY = (Number(frame.y) || 0) + (Number(frame.height) || 0) * 0.5;
-  const baseCenterX = (Number(frame.x) || 0) + (Number(baseRect.x) || 0) + (Number(baseRect.width) || 0) * 0.5;
-  const baseCenterY = (Number(frame.y) || 0) + (Number(baseRect.y) || 0) + (Number(baseRect.height) || 0) * 0.5;
-  const offsetX = (baseCenterX - frameCenterX) * value.scale;
-  const offsetY = (baseCenterY - frameCenterY) * value.scale;
-  const cosine = Math.cos(value.rotation);
-  const sine = Math.sin(value.rotation);
-  return {
-    x: frameCenterX + value.x * (Number(frame.width) || 0) * 0.5 + offsetX * cosine - offsetY * sine,
-    y: frameCenterY + value.y * (Number(frame.height) || 0) * 0.5 + offsetX * sine + offsetY * cosine,
-  };
-}
-
-function combineContentTransforms(parent = {}, child = {}) {
-  const outer = normalizedContentTransform(parent);
-  const inner = normalizedContentTransform(child);
-  const cosAngle = Math.cos(outer.rotation);
-  const sinAngle = Math.sin(outer.rotation);
-  const childX = inner.x * outer.scale;
-  const childY = inner.y * outer.scale;
-  return {
-    x: outer.x + childX * cosAngle - childY * sinAngle,
-    y: outer.y + childX * sinAngle + childY * cosAngle,
-    scale: outer.scale * inner.scale,
-    rotation: outer.rotation + inner.rotation,
-  };
-}
 
 function drawImageCoverCrop(source, x, y, targetWidth, targetHeight) {
   const sourceWidth = Math.max(1, Number(source?.width || source?.naturalWidth || source?.elt?.naturalWidth) || targetWidth);
@@ -4531,486 +3096,6 @@ function withScreenScissor(rect = {}, draw) {
   }
 }
 
-function nodesInComponentChainOrder(component = {}, patch = {}) {
-  const nodes = (patch.nodes || []).filter((node) => isSourceNode(node) || isEffectNode(node));
-  if (!Array.isArray(component.chain) || !component.chain.length) return nodes;
-  const nodeById = new Map(nodes.map((node) => [node.id, node]));
-  return flattenComponentChain(component.chain)
-    .map((item, index) => {
-      if (item.kind === "source") return nodeById.get(`${component.id || "component"}:source:${index}:${item.id}`);
-      if (item.kind === "effect") return nodeById.get(`${component.id || "component"}:effect:${index}:${item.componentId}`);
-      return null;
-    })
-    .filter(Boolean);
-}
-
-function patchLayerForNode(node = {}) {
-  const layer = node.state?.layer || {};
-  return {
-    id: layer.id || node.id || "layer",
-    name: layer.name || node.componentId || node.id || "Layer",
-    opacity: layer.opacity ?? 1,
-    blend: layer.blend || "normal",
-    transform: layer.transform || {},
-  };
-}
-
-function isSimpleLayer(layer = {}) {
-  const transform = layer.transform || {};
-  const opacity = layer.opacity === undefined ? 1 : Number(layer.opacity);
-  return (layer.blend || "normal") === "normal" &&
-    opacity === 1 &&
-    isIdentityTransform(transform);
-}
-
-function isIdentityTransform(transform = {}) {
-  return !Number(transform.x) &&
-    !Number(transform.y) &&
-    !Number(transform.rotation) &&
-    (transform.scale === undefined || Number(transform.scale) === 1);
-}
-
-function sourceFromPatchNode(node = {}) {
-  if (node.state?.source) return sourceWithNodeParams(node.state.source, node.params || {}, node.id || node.state?.layer?.id);
-  const params = node.params || {};
-  if (node.kind === "generator" || node.componentId === "testPattern" || params.generatorId) {
-    const { generatorId, ...generatorParams } = params;
-    return {
-      type: "generator",
-      generatorId: generatorId || node.componentId || "testPattern",
-      params: generatorParams,
-      instanceId: node.id || node.componentId || generatorId || "generator",
-    };
-  }
-  if (node.componentId === "source.media" || params.mediaId) {
-    const { mediaId, start, end, speed, ...mediaParams } = params;
-    return {
-      type: "media",
-      mediaId: mediaId || "",
-      start: Math.max(0, Number(start) || 0),
-      end: Math.max(0, Number(end) || 0),
-      speed: Math.max(0, Number(speed) || 1),
-      params: mediaParams,
-    };
-  }
-  if (node.componentId === "source.camera") return { type: "camera" };
-  if (node.componentId === "source.black") return { type: "black" };
-  return { type: "generator", generatorId: "testPattern" };
-}
-
-export function sourceWithNodeParams(source = {}, params = {}, instanceId = "") {
-  const base = withSourceInstance(source, instanceId);
-  if (base.type === "generator") {
-    const { generatorId, ...generatorParams } = params || {};
-    return {
-      ...base,
-      generatorId: base.generatorId || generatorId || "testPattern",
-      params: {
-        ...(base.params && typeof base.params === "object" ? base.params : {}),
-        ...generatorParams,
-      },
-    };
-  }
-  if (base.type === "media") {
-    const { mediaId, start, end, speed, ...mediaParams } = params || {};
-    return {
-      ...base,
-      mediaId: base.mediaId || mediaId || "",
-      ...(start !== undefined ? { start: Math.max(0, Number(start) || 0) } : {}),
-      ...(end !== undefined ? { end: Math.max(0, Number(end) || 0) } : {}),
-      ...(speed !== undefined ? { speed: Math.max(0, Number(speed) || 1) } : {}),
-      params: {
-        ...(base.params && typeof base.params === "object" ? base.params : {}),
-        ...mediaParams,
-      },
-    };
-  }
-  return base;
-}
-
-function mediaSourceFit(source = {}) {
-  return source.params?.fit === "cover" ? "cover" : "contain";
-}
-
-function shaderPassFromNode(node = {}) {
-  return {
-    id: node.componentId || node.id || "",
-    instanceId: node.id || node.componentId || "",
-    enabled: node.enabled !== false,
-    params: { ...(node.params || {}) },
-    amount: node.params?.amount,
-    transform: node.state?.transform || node.transform || {},
-  };
-}
-
-function renderBufferKey(...parts) {
-  return parts.map((part) => String(part)).join(":");
-}
-
-function staticComponentState(component = {}) {
-  return {
-    id: component.id || "",
-    type: component.type || "component",
-    frameShape: component.frameShape || "landscape",
-    resolutionScale: Number(component.resolutionScale) || 1,
-    canvas: component.type === "canvas" ? {
-      width: Math.max(1, Number(component.canvas?.width) || VJ1.canvasWidth),
-      height: Math.max(1, Number(component.canvas?.height) || VJ1.canvasHeight),
-    } : null,
-    source: staticSourceState(component.source),
-    shaderChain: staticEffectChainState(component.shaderChain || []),
-    chain: staticChainState(component.chain || []),
-  };
-}
-
-function staticComponentGraphState(component = {}, components = [], seen = new Set()) {
-  if (!component?.id || seen.has(component.id)) return { id: component?.id || "", cycle: true };
-  const nextSeen = new Set(seen);
-  nextSeen.add(component.id);
-  const dependencies = Array.from(componentDependencyIds(component))
-    .sort()
-    .map((id) => staticComponentGraphState(
-      components.find((item) => item.id === id) || { id, missing: true },
-      components,
-      nextSeen
-    ));
-  return { ...staticComponentState(component), dependencies };
-}
-
-function staticComponentGraphMediaState(media = [], component = {}, components = [], seen = new Set()) {
-  const ids = new Set();
-  collectComponentGraphMediaIds(component, components, ids, seen);
-  return staticMediaStateForIds(media, ids);
-}
-
-function collectComponentGraphMediaIds(component = {}, components = [], ids = new Set(), seen = new Set()) {
-  if (!component?.id || seen.has(component.id)) return ids;
-  seen.add(component.id);
-  collectMediaIdsFromSource(component.source, ids);
-  collectMediaIdsFromChain(component.chain || [], ids);
-  for (const dependencyId of componentDependencyIds(component)) {
-    const dependency = components.find((item) => item.id === dependencyId);
-    if (dependency) collectComponentGraphMediaIds(dependency, components, ids, seen);
-  }
-  return ids;
-}
-
-function componentDependencyIds(component = {}) {
-  const ids = new Set();
-  collectComponentIdsFromSource(component.source, ids);
-  collectComponentIdsFromChain(component.chain || [], ids);
-  return ids;
-}
-
-function staticChainState(chain = []) {
-  return (chain || []).map((item) => {
-    if (item.kind === "group") {
-      return {
-        id: item.id || "",
-        kind: "group",
-        enabled: item.enabled !== false,
-        transform: item.transform || {},
-        opacity: item.opacity ?? 1,
-        blend: item.blend || "normal",
-        role: item.role || "group",
-        layout: item.layout || {},
-        chain: staticChainState(item.chain || []),
-      };
-    }
-    if (item.kind === "effect") {
-      return {
-        id: item.id || "",
-        kind: "effect",
-        enabled: item.enabled !== false,
-        componentId: item.componentId || "",
-        amount: item.amount,
-        params: item.params || {},
-        transform: item.transform || {},
-      };
-    }
-    return {
-      id: item.id || "",
-      kind: item.kind || "source",
-      enabled: item.enabled !== false,
-      source: staticSourceState(item.source),
-      params: item.params || {},
-      transform: item.transform || {},
-      opacity: item.opacity ?? 1,
-      blend: item.blend || "normal",
-    };
-  });
-}
-
-function staticEffectChainState(chain = []) {
-  return (chain || []).map((pass) => ({
-    id: pass.id || pass.componentId || "",
-    enabled: pass.enabled !== false,
-    amount: pass.amount,
-    params: pass.params || {},
-    transform: pass.transform || {},
-  }));
-}
-
-function staticSourceState(source = {}) {
-  return {
-    type: source.type || "black",
-    mediaId: source.mediaId || "",
-    componentId: source.componentId || "",
-    generatorId: source.generatorId || "",
-    start: source.start,
-    end: source.end,
-    speed: source.speed,
-    params: source.params || {},
-    placement: source.placement || null,
-    contentTransform: source.contentTransform || {},
-  };
-}
-
-function staticMediaState(media = [], component = {}) {
-  const ids = new Set();
-  collectMediaIdsFromSource(component.source, ids);
-  collectMediaIdsFromChain(component.chain || [], ids);
-  return staticMediaStateForIds(media, ids);
-}
-
-function staticMediaStateForChain(media = [], chain = []) {
-  const ids = new Set();
-  collectMediaIdsFromChain(chain, ids);
-  return staticMediaStateForIds(media, ids);
-}
-
-function staticMediaStateForSource(media = [], source = {}) {
-  const ids = new Set();
-  collectMediaIdsFromSource(source, ids);
-  return staticMediaStateForIds(media, ids);
-}
-
-function runtimeMediaStateForSource(media = new Map(), source = {}) {
-  const ids = new Set();
-  collectMediaIdsFromSource(source, ids);
-  if (!ids.size) return null;
-  return Array.from(ids).map((id) => {
-    const item = media?.get?.(id);
-    if (!item) return { id, present: false, ready: false, error: "" };
-    return {
-      id,
-      present: true,
-      ready: isReadyMediaItem(item),
-      error: item.imageError || item.modelError || "",
-      kind: item.video ? "video" : item.image ? "image" : (item.model || item.modelData) ? "model" : "loading",
-    };
-  });
-}
-
-function staticMediaStateForIds(media = [], ids = new Set()) {
-  return (media || [])
-    .filter((item) => ids.has(item.id))
-    .map((item) => ({
-      id: item.id || "",
-      path: item.path || "",
-      type: item.type || "",
-      size: item.size || 0,
-    }));
-}
-
-function chainLayerState(item = {}) {
-  return {
-    enabled: item.enabled !== false,
-    transform: item.transform || {},
-    opacity: item.opacity ?? 1,
-    blend: item.blend || "normal",
-  };
-}
-
-function componentRuntimeTimeKey(component, params = {}, context = {}) {
-  if (component?.runtime?.cacheable === false) return context.frame;
-  if (!component?.runtime?.timeDependent?.(params)) return null;
-  return component.runtime.timeKey?.(params, context) ?? context.time;
-}
-
-export function qualityScaledRenderRequest(request = {}, params = {}, minimum = 0.35) {
-  const scale = renderQualityScale(params, { minimum });
-  if (scale >= 0.999) return request;
-  const logicalWidth = Math.max(1, Number(request.logicalWidth) || Number(request.width) || 1);
-  const logicalHeight = Math.max(1, Number(request.logicalHeight) || Number(request.height) || 1);
-  const physicalWidth = Math.max(1, Number(request.width) || logicalWidth);
-  const physicalHeight = Math.max(1, Number(request.height) || logicalHeight);
-  return {
-    ...request,
-    width: Math.max(32, Math.round(physicalWidth * scale)),
-    height: Math.max(32, Math.round(physicalHeight * scale)),
-    logicalWidth,
-    logicalHeight,
-    qualityScale: scale,
-  };
-}
-
-function qualityComputeMultiplier(params = {}, { minimum = 0.35, maximum = 1.5 } = {}) {
-  const quality = renderQualityValue(params);
-  if (quality <= 0.5) return minimum + (1 - minimum) * (quality / 0.5);
-  return 1 + (maximum - 1) * ((quality - 0.5) / 0.5);
-}
-
-export function qualityAdjustedGeneratorParams(generatorId, params = {}) {
-  const multiplier = qualityComputeMultiplier(params, { minimum: 0.35, maximum: 1.5 });
-  const adjusted = { ...params };
-  if (["seascape", "cloudyTunnel", "cherenkovVolume", "biomineLite"].includes(generatorId)) {
-    adjusted.raySteps = Math.max(1, Math.round((Number(params.raySteps) || 1) * multiplier));
-  }
-  if (generatorId === "seascape") {
-    adjusted.seaDetail = Math.max(1, Math.round((Number(params.seaDetail) || 1) * qualityComputeMultiplier(params, {
-      minimum: 0.5,
-      maximum: 1.2,
-    })));
-  }
-  if (generatorId === "cloudyTunnel") {
-    adjusted.cloudDetail = Math.max(1, Math.round((Number(params.cloudDetail) || 1) * qualityComputeMultiplier(params, {
-      minimum: 0.5,
-      maximum: 1.25,
-    })));
-  }
-  if (generatorId === "biomineLite") {
-    adjusted.surfaceDetail = Math.max(0, Math.round((Number(params.surfaceDetail) || 0) * qualityComputeMultiplier(params, {
-      minimum: 0.5,
-      maximum: 1.25,
-    })));
-  }
-  if (generatorId === "cellularCircles") {
-    adjusted.searchRadius = Math.max(1, Math.min(5, Math.round((Number(params.searchRadius) || 1) * multiplier)));
-  }
-  return adjusted;
-}
-
-export function eyeballFrameUniforms(timeSeconds = 0, params = {}) {
-  const time = Number(timeSeconds) || 0;
-  const speed = Math.max(0.05, boundedNumber(params.motionSpeed, 1, 0, 3));
-  const range = boundedNumber(params.gazeRange, 1, 0, 1.5);
-  const pause = boundedNumber(params.pauseAmount, 0.82, 0, 1);
-  const jitter = boundedNumber(params.jitter, 0.35, 0, 1);
-  const gazeClock = time * speed * 0.85;
-  const gazeSegment = Math.floor(gazeClock);
-  const gazePhase = gazeClock - gazeSegment;
-  const movePortion = mixNumber(0.98, 0.08, pause);
-  const eased = smoothstepNumber(Math.min(1, gazePhase / Math.max(0.00001, movePortion)));
-  const gazeA = shaderRandomGaze(gazeSegment);
-  const gazeB = shaderRandomGaze(gazeSegment + 1);
-  const gaze = [
-    (mixNumber(gazeA[0], gazeB[0], eased) + Math.sin(time * 18.7 + shaderHash2(gazeSegment, 1.2) * Math.PI * 2) * 0.018 * jitter) * range,
-    (mixNumber(gazeA[1], gazeB[1], eased) + Math.sin(time * 23.1 + shaderHash2(gazeSegment, 8.2) * Math.PI * 2) * 0.018 * jitter) * range,
-  ];
-  const gazeDir = normalizeVector3([gaze[0], gaze[1], 1]);
-  const irisRight = normalizeVector3([gazeDir[2], 0, -gazeDir[0]]);
-  const irisUp = normalizeVector3(crossVector3(irisRight, gazeDir));
-
-  const blinkRate = boundedNumber(params.blinkRate, 1, 0, 3);
-  let blink = 0;
-  if (blinkRate > 0.001) {
-    const blinkClock = time * blinkRate * 0.55;
-    const blinkSegment = Math.floor(blinkClock);
-    const blinkPhase = blinkClock - blinkSegment;
-    const blinkChance = shaderHash2(blinkSegment, 11.1) >= 0.34 ? 1 : 0;
-    const doubleChance = shaderHash2(blinkSegment, 19.4) >= 0.78 ? 1 : 0;
-    blink = Math.max(
-      shutterBlinkNumber(blinkPhase),
-      shutterBlinkNumber(blinkPhase - 0.2) * doubleChance
-    ) * blinkChance;
-  }
-
-  return { gazeDir, irisRight, irisUp, blink };
-}
-
-function boundedNumber(value, fallback, min, max) {
-  const number = Number(value);
-  return Math.min(max, Math.max(min, Number.isFinite(number) ? number : fallback));
-}
-
-function mixNumber(a, b, amount) {
-  return a + (b - a) * amount;
-}
-
-function smoothstepNumber(value) {
-  const amount = Math.min(1, Math.max(0, Number(value) || 0));
-  return amount * amount * (3 - 2 * amount);
-}
-
-function shaderHash2(x, y) {
-  let px = fractNumber((Number(x) || 0) * 0.1031);
-  let py = fractNumber((Number(y) || 0) * 0.1031);
-  let pz = px;
-  const dot = px * (py + 33.33) + py * (pz + 33.33) + pz * (px + 33.33);
-  px += dot;
-  py += dot;
-  pz += dot;
-  return fractNumber((px + py) * pz);
-}
-
-function shaderRandomGaze(seed) {
-  return [
-    (shaderHash2(seed, 2.31) * 2 - 1) * 0.72,
-    (shaderHash2(seed, 7.77) * 2 - 1) * 0.38,
-  ];
-}
-
-function shutterBlinkNumber(phase) {
-  const close = smoothstepRange(phase, 0.015, 0.045);
-  const open = 1 - smoothstepRange(phase, 0.078, 0.125);
-  return close * open;
-}
-
-function smoothstepRange(value, start, end) {
-  return smoothstepNumber(((Number(value) || 0) - start) / Math.max(0.00001, end - start));
-}
-
-function fractNumber(value) {
-  return value - Math.floor(value);
-}
-
-function normalizeVector3(vector) {
-  return normalize3(vector);
-}
-
-function crossVector3(a, b) {
-  return cross3(a, b);
-}
-
-function collectMediaIdsFromChain(chain = [], ids) {
-  for (const item of chain || []) {
-    if (item.kind === "group") collectMediaIdsFromChain(item.chain || [], ids);
-    else collectMediaIdsFromSource(item.source, ids);
-  }
-}
-
-function collectComponentIdsFromChain(chain = [], ids) {
-  for (const item of chain || []) {
-    if (item.kind === "group") collectComponentIdsFromChain(item.chain || [], ids);
-    else collectComponentIdsFromSource(item.source, ids);
-  }
-}
-
-function collectComponentIdsFromSource(source = {}, ids) {
-  if (source?.type === "component" && source.componentId) ids.add(source.componentId);
-}
-
-function collectMediaIdsFromSource(source = {}, ids) {
-  if (source?.type === "media" && source.mediaId) ids.add(source.mediaId);
-  if (source?.type === "generator" && (source.generatorId === "featureMorph" || source.generatorId === "featureMorphV2")) {
-    if (source.params?.imageAId) ids.add(source.params.imageAId);
-    if (source.params?.imageBId) ids.add(source.params.imageBId);
-  }
-  if (source?.type === "generator" && source.generatorId === "tileTexture" && source.params?.imageId) {
-    ids.add(source.params.imageId);
-  }
-}
-
-function featureMorphFlowImage(field = {}) {
-  if (field.flowImage) return field.flowImage;
-  const image = createImage(field.width, field.height * (field.phases || 1) * (field.layers || 1));
-  image.loadPixels();
-  image.pixels.set(field.pixels);
-  image.updatePixels();
-  field.flowImage = image;
-  return image;
-}
 
 function effectParamValue(component, params = {}, id, fallback = undefined) {
   const param = (component?.params || []).find((item) => item.id === id);
@@ -5028,24 +3113,6 @@ function stableStringify(value) {
     return `{${Object.keys(value).sort().map((key) => `${JSON.stringify(key)}:${stableStringify(value[key])}`).join(",")}}`;
   }
   return JSON.stringify(value);
-}
-
-function createMediaReadinessStatus() {
-  return {
-    blocked: false,
-    total: 0,
-    loadingIds: new Set(),
-    missingIds: new Set(),
-    errorIds: new Set(),
-  };
-}
-
-function isReadyMediaItem(item = {}) {
-  if (!item) return false;
-  if (item.video) return isDrawableMedia(item.video);
-  if (item.image) return isDrawableMedia(item.image);
-  if (item.model || item.modelData) return true;
-  return item.ready === true;
 }
 
 function createEmptyFrameProfile() {
@@ -5126,73 +3193,6 @@ function disposeGraphics(item) {
   } catch {}
 }
 
-function graphicsToPngBlob(pg) {
-  const canvas = pg?.canvas || pg?.elt;
-  if (!canvas?.toBlob) return Promise.resolve(null);
-  return new Promise((resolve) => canvas.toBlob(resolve, "image/png"));
-}
-
-function componentThumbnailSignature(component) {
-  try {
-    return JSON.stringify({
-      source: component.source,
-      opacity: component.opacity,
-      blend: component.blend,
-      speed: component.speed,
-      frameShape: component.frameShape,
-      resolutionScale: component.resolutionScale,
-      chain: component.chain,
-      shaderChain: component.shaderChain,
-    });
-  } catch {
-    return `${component.id}:${millis()}`;
-  }
-}
-
-const COMPONENT_THUMBNAIL_WIDTH = 768;
-const COMPONENT_THUMBNAIL_HEIGHT = 432;
-const COMPONENT_THUMBNAIL_QUALITY = 0.92;
-
-function graphicsToThumbnail(pg, width = COMPONENT_THUMBNAIL_WIDTH, height = COMPONENT_THUMBNAIL_HEIGHT, cropRect = null) {
-  try {
-    const source = pg.canvas || pg.elt;
-    if (!source) return "";
-    const sourceWidth = source.videoWidth || source.naturalWidth || source.width || width;
-    const sourceHeight = source.videoHeight || source.naturalHeight || source.height || height;
-    const sx = Math.max(0, Math.min(sourceWidth - 1, Number(cropRect?.x) || 0));
-    const sy = Math.max(0, Math.min(sourceHeight - 1, Number(cropRect?.y) || 0));
-    const sw = Math.max(1, Math.min(sourceWidth - sx, Number(cropRect?.width) || sourceWidth));
-    const sh = Math.max(1, Math.min(sourceHeight - sy, Number(cropRect?.height) || sourceHeight));
-    const thumbnailSize = fittedThumbnailSize(sw, sh, width, height);
-    const canvas = document.createElement("canvas");
-    canvas.width = thumbnailSize.width;
-    canvas.height = thumbnailSize.height;
-    const context = canvas.getContext("2d");
-    if (!context) return "";
-    context.imageSmoothingEnabled = true;
-    context.imageSmoothingQuality = "high";
-    if (cropRect) context.drawImage(source, sx, sy, sw, sh, 0, 0, thumbnailSize.width, thumbnailSize.height);
-    else context.drawImage(source, 0, 0, sourceWidth, sourceHeight, 0, 0, thumbnailSize.width, thumbnailSize.height);
-    const webp = canvas.toDataURL("image/webp", COMPONENT_THUMBNAIL_QUALITY);
-    if (webp.startsWith("data:image/webp")) return webp;
-    return canvas.toDataURL("image/png");
-  } catch (error) {
-    console.warn("[VJ1_THUMBNAIL_CAPTURE_FAILED]", { message: error?.message || String(error) });
-    return "";
-  }
-}
-
-export function fittedThumbnailSize(sourceWidth, sourceHeight, maxWidth = COMPONENT_THUMBNAIL_WIDTH, maxHeight = COMPONENT_THUMBNAIL_HEIGHT) {
-  const sw = Math.max(1, Number(sourceWidth) || 1);
-  const sh = Math.max(1, Number(sourceHeight) || 1);
-  const mw = Math.max(1, Number(maxWidth) || COMPONENT_THUMBNAIL_WIDTH);
-  const mh = Math.max(1, Number(maxHeight) || COMPONENT_THUMBNAIL_HEIGHT);
-  const scale = Math.min(mw / sw, mh / sh);
-  return {
-    width: Math.max(1, Math.round(sw * scale)),
-    height: Math.max(1, Math.round(sh * scale)),
-  };
-}
 
 function chainItemToShaderPass(item) {
   return {
@@ -5205,22 +3205,6 @@ function chainItemToShaderPass(item) {
   };
 }
 
-function withSourceInstance(source = {}, instanceId = "") {
-  if (!source || typeof source !== "object") return source;
-  return {
-    ...source,
-    instanceId: instanceId || source.instanceId || source.generatorId || source.type || "source",
-  };
-}
-
-function normalizedContentTransform(transform = {}) {
-  return {
-    x: Number(transform.x) || 0,
-    y: Number(transform.y) || 0,
-    scale: Math.max(0.0001, Number(transform.scale) || 1),
-    rotation: Number(transform.rotation) || 0,
-  };
-}
 
 function drawWithContentTransform(target, transform = {}, draw) {
   if (typeof draw !== "function") return;
@@ -5228,85 +3212,16 @@ function drawWithContentTransform(target, transform = {}, draw) {
     draw();
     return;
   }
-  const value = normalizedContentTransform(transform);
   const width = Math.max(1, Number(target?.width) || 1);
   const height = Math.max(1, Number(target?.height) || 1);
+  const value = contentTransformCanvasPlacement(transform, width, height);
   target.push();
-  target.translate(width * (0.5 + value.x * 0.5), height * (0.5 + value.y * 0.5));
+  target.translate(value.centerX, value.centerY);
   target.rotate(value.rotation);
   target.scale(value.scale);
   target.translate(-width * 0.5, -height * 0.5);
   draw();
   target.pop();
-}
-
-function applyModelContentTransform(target, transform = {}, viewport = {}) {
-  if (isIdentityTransform(transform)) return;
-  const value = normalizedContentTransform(transform);
-  const width = Math.max(1, Number(viewport.width) || Number(target?.width) || 1);
-  const height = Math.max(1, Number(viewport.height) || Number(target?.height) || 1);
-  target.translate(value.x * width * 0.5, value.y * height * 0.5, 0);
-  target.rotateZ(value.rotation);
-  target.scale(value.scale, value.scale, value.scale);
-}
-
-function withShaderInstancePrefix(chain = [], prefix = "") {
-  return (chain || []).map((pass, index) => ({
-    ...pass,
-    instanceId: pass.instanceId || `${prefix || "shader"}:${index}:${pass.componentId || pass.id || "pass"}`,
-  }));
-}
-
-function instanceTime(instanceId, baseTime = 0) {
-  return Number(baseTime) + instanceTimeOffset(instanceId);
-}
-
-export function componentInstanceTime(component = {}, baseTime = 0, instanceId = "") {
-  if (component?.syncInstances !== false) return Number(baseTime) || 0;
-  return instanceTime(componentRenderInstanceKey(component, instanceId), baseTime);
-}
-
-export function advanceRateClock(previous, baseTime, rate) {
-  const now = Number(baseTime) || 0;
-  const speed = Math.max(0, Number(rate) || 0);
-  if (!previous || now < previous.baseTime) {
-    return { baseTime: now, time: now * speed };
-  }
-  return {
-    baseTime: now,
-    time: previous.time + Math.max(0, now - previous.baseTime) * speed,
-  };
-}
-
-export function advanceSpatialScale(previous, scale, anchor = [0, 0]) {
-  const nextScale = Math.max(0.02, Number(scale) || 0.62);
-  const point = [Number(anchor[0]) || 0, Number(anchor[1]) || 0];
-  if (!previous) return { scale: nextScale, phase: [0, 0] };
-  const delta = previous.scale - nextScale;
-  return {
-    scale: nextScale,
-    phase: [
-      previous.phase[0] + point[0] * delta,
-      previous.phase[1] + point[1] * delta,
-    ],
-  };
-}
-
-export function chainTransformDragScale(initialScale, startDistance, currentDistance) {
-  const initial = Math.max(0.05, Number(initialScale) || 1);
-  const ratio = Math.max(0.0001, Number(currentDistance) || 1) / Math.max(1, Number(startDistance) || 1);
-  return Math.max(0.05, Math.min(8, initial * Math.sqrt(ratio)));
-}
-
-function generatorRateParam(generatorId) {
-  if (generatorId === "fireflies" || generatorId === "bezierStrokes" || generatorId === "shadertoyBaseWarp" || generatorId === "cellularCircles" || generatorId === "seascape" || generatorId === "paintDrips" || generatorId === "cloudyTunnel" || generatorId === "cherenkovVolume" || generatorId === "biomineLite") return "speed";
-  return "";
-}
-
-function usesShadertoyInterface(component = {}) {
-  if (component.type === "shadertoy") return true;
-  const code = String(component.code || "");
-  return /\bvoid\s+mainImage\s*\(/.test(code) && !/\bvoid\s+main\s*\(/.test(code);
 }
 
 function shaderDrawingBufferSize(target, fallbackWidth, fallbackHeight) {
@@ -5327,131 +3242,10 @@ function setShaderUniformIfPresent(shader, name, value) {
   if (shader?.uniforms?.[name]) shader.setUniform(name, value);
 }
 
-function globalVisualTimeScale(global = {}) {
-  const stretch = Number(global?.timeStretch);
-  if (Number.isFinite(stretch)) {
-    const bounded = Math.max(-4, Math.min(4, stretch));
-    return bounded <= -4 ? 0 : 2 ** bounded;
-  }
-  const legacyScale = Number(global?.timeScale);
-  return Number.isFinite(legacyScale) ? Math.max(0, Math.min(16, legacyScale)) : 1;
-}
-
-function instanceTimeOffset(instanceId = "") {
-  const text = String(instanceId || "");
-  if (!text) return 0;
-  let hash = 2166136261;
-  for (let index = 0; index < text.length; index++) {
-    hash ^= text.charCodeAt(index);
-    hash = Math.imul(hash, 16777619);
-  }
-  return ((hash >>> 0) / 4294967295) * 97.0;
-}
-
-export function effectTransformUniforms(transform = {}) {
-  const x = Number(transform.x) || 0;
-  const y = Number(transform.y) || 0;
-  const scale = Math.max(0.0001, Number(transform.scale) || 1);
-  const rotation = Number(transform.rotation) || 0;
-  const centerX = 0.5 + x * 0.5;
-  const centerY = 0.5 + y * 0.5;
-  const c = Math.cos(-rotation);
-  const s = Math.sin(-rotation);
-  const a = c / scale;
-  const b = -s / scale;
-  const d = s / scale;
-  const e = c / scale;
-  const tx = 0.5 - a * centerX - b * centerY;
-  const ty = 0.5 - d * centerX - e * centerY;
-
-  const ic = Math.cos(rotation) * scale;
-  const is = Math.sin(rotation) * scale;
-  const ia = ic;
-  const ib = -is;
-  const id = is;
-  const ie = ic;
-  const itx = centerX - ia * 0.5 - ib * 0.5;
-  const ity = centerY - id * 0.5 - ie * 0.5;
-  return {
-    transform: [x, y, scale, rotation],
-    // WebGL matrices are supplied in column-major order.
-    forward: [a, d, 0, b, e, 0, tx, ty, 1],
-    inverse: [ia, id, 0, ib, ie, 0, itx, ity, 1],
-  };
-}
-
-function screenToLayerLocal(x, y, cx, cy, rotation) {
-  const dx = x - cx;
-  const dy = y - cy;
-  const c = Math.cos(-rotation);
-  const s = Math.sin(-rotation);
-  return {
-    x: dx * c - dy * s,
-    y: dx * s + dy * c,
-  };
-}
 
 function enumUniform(param, value) {
   const index = (param.values || []).indexOf(value);
   return Math.max(0, index);
-}
-
-export function cameraCaptureSettings(render = {}) {
-  const frame = frameSize(render);
-  const camera = render?.camera || {};
-  return {
-    width: Math.max(160, Math.min(7680, Math.floor(Number(camera.width) || frame.width))),
-    height: Math.max(120, Math.min(4320, Math.floor(Number(camera.height) || frame.height))),
-    front: camera.facingMode !== "environment",
-    mirrored: camera.mirrored === true,
-    maxResolution: camera.maxResolution === true,
-  };
-}
-
-export function cameraSettingsSignature(render = {}) {
-  const camera = cameraCaptureSettings(render);
-  return `${camera.width}x${camera.height}:${camera.front ? "front" : "rear"}:${camera.mirrored ? "mirror" : "normal"}:${camera.maxResolution ? "max" : "target"}`;
-}
-
-function getPortalWebcameraSetup() {
-  if (typeof globalThis.setupWebcamera === "function") return globalThis.setupWebcamera;
-  try {
-    return Function("return typeof setupWebcamera === 'function' ? setupWebcamera : null")();
-  } catch {
-    return null;
-  }
-}
-
-function loadSvgImage(url, item) {
-  const image = new Image();
-  image.onload = () => {
-    item.image = image;
-    item.ready = true;
-    item.imageError = "";
-  };
-  image.onerror = (error) => {
-    item.imageError = error?.message || "svg load failed";
-  };
-  image.decoding = "async";
-  image.src = url;
-}
-
-function drawBuffer(pg, source, x, y, w, h, sourceIsWebGL = false) {
-  if (isSharedFramebufferTarget(source)) {
-    // drawBuffer coordinates are always top-left based. Shared framebuffers
-    // inherit p5's global imageMode, so isolate this copy from callers that
-    // temporarily use CENTER for layer transforms.
-    pg.push();
-    pg.imageMode(CORNER);
-    pg.image(unwrapRenderTarget(source), x, y, w, h);
-    pg.pop();
-    return;
-  }
-  if (!sourceIsWebGL) {
-    pg.image(source, x, y, w, h);
-    return;
-  }
-  drawWebGLBuffer(pg, source, x, y, w, h);
 }
 
 function drawShaderTarget(target, draw) {
@@ -5492,937 +3286,4 @@ function resetShaderTarget(target) {
 function drawShaderTargetRect(target, widthPx, heightPx) {
   if (isSharedFramebufferTarget(target)) rect(-widthPx / 2, -heightPx / 2, widthPx, heightPx);
   else target.rect(-widthPx / 2, -heightPx / 2, widthPx, heightPx);
-}
-
-function drawRawParsedModelMode(target, item, params = {}, componentTime = 0, renderMode = "surface", surfaceColor = [220, 225, 220, 255], wireColor = [20, 20, 20, 220], pointBudget = 4000, viewport = null, contentTransform = {}) {
-  if (renderMode === "points") {
-    return drawRawParsedModel(target, item, params, componentTime, "points", wireColor, pointBudget, viewport, contentTransform);
-  }
-  if (renderMode === "wireframe") {
-    return drawRawParsedWire(target, item, params, componentTime, wireColor, pointBudget, viewport, contentTransform);
-  }
-  const drewSurface = drawWithPolygonOffset(target, renderMode === "surfaceWire", () => (
-    drawRawParsedSurface(target, item, params, componentTime, surfaceColor, viewport, contentTransform)
-  ));
-  if (drewSurface && renderMode === "surfaceWire") {
-    drawRawParsedWire(target, item, params, componentTime, wireColor, pointBudget, viewport, contentTransform);
-  }
-  return drewSurface;
-}
-
-function drawRawParsedModel(target, item, params = {}, componentTime = 0, mode = "points", color = [245, 245, 245, 255], pointBudget = 4000, viewport = null, contentTransform = {}) {
-  const gl = target?.drawingContext;
-  const mesh = item?.modelData;
-  if (!gl || !mesh) return false;
-  const resources = ensureRawModelResources(gl, item, mode, pointBudget);
-  if (!resources?.buffer || !resources.count || !resources.program) return false;
-  const drawingWidth = Math.max(1, gl.drawingBufferWidth || target.width || 1);
-  const drawingHeight = Math.max(1, gl.drawingBufferHeight || target.height || 1);
-  const metrics = modelViewportMetrics(target, viewport);
-  const modelScale = Math.max(0.01, Number(params.modelScale) || 1);
-  const depth = Math.max(0.05, Number(params.depth) || 1);
-  const scale = metrics.unitScale * modelScale;
-  const rotation = modelRotation(params, componentTime);
-  const matrices = rawModelMatrices(metrics.width, metrics.height, scale, depth, rotation, contentTransform);
-  const rgba = color.map((channel) => Math.max(0, Math.min(1, Number(channel) / 255 || 0)));
-
-  gl.useProgram(resources.program);
-  gl.viewport(0, 0, drawingWidth, drawingHeight);
-  gl.enable(gl.DEPTH_TEST);
-  gl.depthFunc(gl.LEQUAL);
-  gl.enable(gl.BLEND);
-  gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
-  gl.disable(gl.CULL_FACE);
-  if (mode === "wireframe") gl.lineWidth(modelWireThickness(params));
-  gl.bindBuffer(gl.ARRAY_BUFFER, resources.buffer);
-  gl.enableVertexAttribArray(resources.position);
-  gl.vertexAttribPointer(resources.position, 3, gl.FLOAT, false, 0, 0);
-  gl.uniformMatrix4fv(resources.mvp, false, matrices.mvp);
-  gl.uniformMatrix4fv(resources.model, false, matrices.model);
-  gl.uniform1f(resources.depthCutoff, modelDepthCutoff(params, mesh.bounds, matrices.model));
-  gl.uniform4fv(resources.color, rgba);
-  gl.uniform1f(resources.pointSize, Math.max(1, Number(params.pointSize) || 2));
-  gl.drawArrays(mode === "wireframe" ? gl.LINES : gl.POINTS, 0, resources.count);
-  gl.disableVertexAttribArray(resources.position);
-  gl.bindBuffer(gl.ARRAY_BUFFER, null);
-  if (mode === "wireframe") gl.lineWidth(1);
-  gl.useProgram(null);
-  return true;
-}
-
-function drawRawParsedWire(target, item, params = {}, componentTime = 0, color = [20, 20, 20, 220], pointBudget = 4000, viewport = null, contentTransform = {}) {
-  const gl = target?.drawingContext;
-  const mesh = item?.modelData;
-  if (!gl || !mesh) return false;
-  const resources = ensureRawWireResources(gl, item, pointBudget);
-  if (!resources?.buffer || !resources.count || !resources.program) return false;
-  const drawingWidth = Math.max(1, gl.drawingBufferWidth || target.width || 1);
-  const drawingHeight = Math.max(1, gl.drawingBufferHeight || target.height || 1);
-  const metrics = modelViewportMetrics(target, viewport);
-  const modelScale = Math.max(0.01, Number(params.modelScale) || 1);
-  const depth = Math.max(0.05, Number(params.depth) || 1);
-  const scale = metrics.unitScale * modelScale;
-  const rotation = modelRotation(params, componentTime);
-  const matrices = rawModelMatrices(metrics.width, metrics.height, scale, depth, rotation, contentTransform);
-  const rgba = color.map((channel) => Math.max(0, Math.min(1, Number(channel) / 255 || 0)));
-  const stride = 8 * 4;
-
-  gl.useProgram(resources.program);
-  gl.viewport(0, 0, drawingWidth, drawingHeight);
-  gl.enable(gl.DEPTH_TEST);
-  gl.depthFunc(gl.LEQUAL);
-  gl.enable(gl.BLEND);
-  gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
-  gl.disable(gl.CULL_FACE);
-  gl.bindBuffer(gl.ARRAY_BUFFER, resources.buffer);
-  gl.enableVertexAttribArray(resources.start);
-  gl.vertexAttribPointer(resources.start, 3, gl.FLOAT, false, stride, 0);
-  gl.enableVertexAttribArray(resources.end);
-  gl.vertexAttribPointer(resources.end, 3, gl.FLOAT, false, stride, 3 * 4);
-  gl.enableVertexAttribArray(resources.side);
-  gl.vertexAttribPointer(resources.side, 1, gl.FLOAT, false, stride, 6 * 4);
-  gl.enableVertexAttribArray(resources.along);
-  gl.vertexAttribPointer(resources.along, 1, gl.FLOAT, false, stride, 7 * 4);
-  gl.uniformMatrix4fv(resources.mvp, false, matrices.mvp);
-  gl.uniformMatrix4fv(resources.model, false, matrices.model);
-  gl.uniform1f(resources.depthCutoff, modelDepthCutoff(params, mesh.bounds, matrices.model));
-  gl.uniform2f(resources.resolution, drawingWidth, drawingHeight);
-  gl.uniform1f(resources.thickness, resolutionScaledStrokeWidth(
-    modelWireThickness(params),
-    metrics,
-    { width: drawingWidth, height: drawingHeight }
-  ));
-  gl.uniform4fv(resources.color, rgba);
-  gl.drawArrays(gl.TRIANGLES, 0, resources.count);
-  gl.disableVertexAttribArray(resources.start);
-  gl.disableVertexAttribArray(resources.end);
-  gl.disableVertexAttribArray(resources.side);
-  gl.disableVertexAttribArray(resources.along);
-  gl.bindBuffer(gl.ARRAY_BUFFER, null);
-  gl.useProgram(null);
-  return true;
-}
-
-function drawRawParsedSurface(target, item, params = {}, componentTime = 0, color = [220, 225, 220, 255], viewport = null, contentTransform = {}) {
-  const gl = target?.drawingContext;
-  const mesh = item?.modelData;
-  if (!gl || !mesh) return false;
-  const resources = ensureRawSurfaceResources(gl, item);
-  if (!resources?.buffer || !resources.count || !resources.program) return false;
-  const drawingWidth = Math.max(1, gl.drawingBufferWidth || target.width || 1);
-  const drawingHeight = Math.max(1, gl.drawingBufferHeight || target.height || 1);
-  const metrics = modelViewportMetrics(target, viewport);
-  const modelScale = Math.max(0.01, Number(params.modelScale) || 1);
-  const depth = Math.max(0.05, Number(params.depth) || 1);
-  const scale = metrics.unitScale * modelScale;
-  const rotation = modelRotation(params, componentTime);
-  const matrices = rawModelMatrices(metrics.width, metrics.height, scale, depth, rotation, contentTransform);
-  const rgba = color.map((channel) => Math.max(0, Math.min(1, Number(channel) / 255 || 0)));
-
-  gl.useProgram(resources.program);
-  gl.viewport(0, 0, drawingWidth, drawingHeight);
-  gl.enable(gl.DEPTH_TEST);
-  gl.depthFunc(gl.LEQUAL);
-  gl.enable(gl.BLEND);
-  gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
-  gl.disable(gl.CULL_FACE);
-  const stride = 6 * 4;
-  gl.bindBuffer(gl.ARRAY_BUFFER, resources.buffer);
-  gl.enableVertexAttribArray(resources.position);
-  gl.vertexAttribPointer(resources.position, 3, gl.FLOAT, false, stride, 0);
-  gl.enableVertexAttribArray(resources.normal);
-  gl.vertexAttribPointer(resources.normal, 3, gl.FLOAT, false, stride, 3 * 4);
-  gl.uniformMatrix4fv(resources.mvp, false, matrices.mvp);
-  gl.uniformMatrix4fv(resources.model, false, matrices.model);
-  gl.uniform1f(resources.depthCutoff, modelDepthCutoff(params, mesh.bounds, matrices.model));
-  gl.uniform4fv(resources.color, rgba);
-  gl.drawArrays(gl.TRIANGLES, 0, resources.count);
-  gl.disableVertexAttribArray(resources.position);
-  gl.disableVertexAttribArray(resources.normal);
-  gl.bindBuffer(gl.ARRAY_BUFFER, null);
-  gl.useProgram(null);
-  return true;
-}
-
-function modelRotation(params = {}, componentTime = 0) {
-  return [
-    (Number(params.rotationX) || 0) + componentTime * (Number(params.spinX) || 0),
-    (Number(params.rotationY) || 0) + componentTime * (Number(params.spinY) || 0),
-    (Number(params.rotationZ) || 0) + componentTime * (Number(params.spinZ) || 0),
-  ];
-}
-
-function modelWireThickness(params = {}) {
-  return Math.max(0.5, Math.min(12, Number(params.wireThickness) || 1));
-}
-
-export function modelDepthCutoff(params = {}, bounds = null, modelMatrix = null) {
-  const requestedDepth = Number(params.visibleDepth);
-  const visibleDepth = Math.max(0.02, Math.min(1, Number.isFinite(requestedDepth) ? requestedDepth : 1));
-  const range = transformedModelDepthRange(bounds, modelMatrix);
-  return range.max - visibleDepth * (range.max - range.min);
-}
-
-export function transformedModelDepthRange(bounds = null, modelMatrix = null) {
-  const min = validModelBound(bounds?.min, [-50, -50, -50]);
-  const max = validModelBound(bounds?.max, [50, 50, 50]);
-  const matrix = modelMatrix?.length === 16 ? modelMatrix : mat4Identity();
-  let minDepth = Infinity;
-  let maxDepth = -Infinity;
-  for (const x of [min[0], max[0]]) {
-    for (const y of [min[1], max[1]]) {
-      for (const z of [min[2], max[2]]) {
-        const depth = matrix[2] * x + matrix[6] * y + matrix[10] * z + matrix[14];
-        minDepth = Math.min(minDepth, depth);
-        maxDepth = Math.max(maxDepth, depth);
-      }
-    }
-  }
-  return Number.isFinite(minDepth) && Number.isFinite(maxDepth)
-    ? { min: minDepth, max: maxDepth }
-    : { min: -50, max: 50 };
-}
-
-function validModelBound(value, fallback) {
-  return Array.isArray(value) && value.length >= 3 && value.every((entry) => Number.isFinite(Number(entry)))
-    ? value.slice(0, 3).map(Number)
-    : fallback;
-}
-
-function modelViewportMetrics(target, request = {}) {
-  const width = Math.max(1, Math.round(Number(request?.width || target?.width) || 1));
-  const height = Math.max(1, Math.round(Number(request?.height || target?.height) || 1));
-  const logicalWidth = Math.max(1, Number(request?.logicalWidth) || width);
-  const logicalHeight = Math.max(1, Number(request?.logicalHeight) || height);
-  const verticalUnit = height;
-  return {
-    width,
-    height,
-    logicalWidth,
-    logicalHeight,
-    cameraZ: verticalUnit * 0.92,
-    unitScale: verticalUnit * 0.0065,
-  };
-}
-
-function ensureRawModelResources(gl, item, mode = "points", pointBudget = 4000) {
-  const contextResources = ensureRawModelContextResources(gl, item);
-  if (!rawModelProgramValid(gl, contextResources.program)) {
-    disposeRawModelProgram(gl, contextResources.program);
-    contextResources.program = createRawModelProgram(gl);
-  }
-  if (!contextResources.program) return null;
-  const budget = Math.max(128, Math.min(50000, Math.round(Number(pointBudget) || 4000)));
-  const meshKey = `${item.modelData?.triangles?.length || 0}`;
-  const key = mode === "wireframe" ? `wire:${meshKey}` : `points:${meshKey}:${budget}`;
-  let buffer = contextResources.buffers.get(key);
-  if (buffer && !rawModelBufferValid(gl, buffer)) {
-    disposeRawModelBuffer(gl, buffer);
-    contextResources.buffers.delete(key);
-    buffer = null;
-  }
-  if (!buffer) {
-    const data = mode === "wireframe"
-      ? ensureParsedModelWireLines(item, budget)
-      : ensureParsedModelPointCloud(item, budget);
-    if (!data?.length) return null;
-    pruneRawModelBufferVariants(gl, contextResources, mode === "wireframe" ? `wire:${meshKey}` : `points:${meshKey}:`, key);
-    const glBuffer = gl.createBuffer();
-    gl.bindBuffer(gl.ARRAY_BUFFER, glBuffer);
-    gl.bufferData(gl.ARRAY_BUFFER, data, gl.STATIC_DRAW);
-    buffer = {
-      buffer: glBuffer,
-      count: Math.floor(data.length / 3),
-    };
-    contextResources.buffers.set(key, buffer);
-  }
-  return {
-    ...buffer,
-    program: contextResources.program.program,
-    position: contextResources.program.position,
-    mvp: contextResources.program.mvp,
-    model: contextResources.program.model,
-    color: contextResources.program.color,
-    pointSize: contextResources.program.pointSize,
-    depthCutoff: contextResources.program.depthCutoff,
-  };
-}
-
-function ensureRawSurfaceResources(gl, item) {
-  const contextResources = ensureRawModelContextResources(gl, item);
-  if (!rawModelProgramValid(gl, contextResources.surfaceProgram)) {
-    disposeRawModelProgram(gl, contextResources.surfaceProgram);
-    contextResources.surfaceProgram = createRawSurfaceProgram(gl);
-  }
-  if (!contextResources.surfaceProgram) return null;
-  const meshKey = `${item.modelData?.triangles?.length || 0}`;
-  const key = `surface:${meshKey}`;
-  let buffer = contextResources.buffers.get(key);
-  if (buffer && !rawModelBufferValid(gl, buffer)) {
-    disposeRawModelBuffer(gl, buffer);
-    contextResources.buffers.delete(key);
-    buffer = null;
-  }
-  if (!buffer) {
-    const data = buildParsedModelSurfaceVertices(item.modelData);
-    if (!data?.length) return null;
-    const glBuffer = gl.createBuffer();
-    gl.bindBuffer(gl.ARRAY_BUFFER, glBuffer);
-    gl.bufferData(gl.ARRAY_BUFFER, data, gl.STATIC_DRAW);
-    gl.bindBuffer(gl.ARRAY_BUFFER, null);
-    buffer = {
-      buffer: glBuffer,
-      count: Math.floor(data.length / 6),
-    };
-    contextResources.buffers.set(key, buffer);
-  }
-  return {
-    ...buffer,
-    program: contextResources.surfaceProgram.program,
-    position: contextResources.surfaceProgram.position,
-    normal: contextResources.surfaceProgram.normal,
-    mvp: contextResources.surfaceProgram.mvp,
-    model: contextResources.surfaceProgram.model,
-    color: contextResources.surfaceProgram.color,
-    depthCutoff: contextResources.surfaceProgram.depthCutoff,
-  };
-}
-
-function ensureRawWireResources(gl, item, pointBudget = 4000) {
-  const contextResources = ensureRawModelContextResources(gl, item);
-  if (!rawModelProgramValid(gl, contextResources.wireProgram)) {
-    disposeRawModelProgram(gl, contextResources.wireProgram);
-    contextResources.wireProgram = createRawWireProgram(gl);
-  }
-  if (!contextResources.wireProgram) return null;
-  const budget = Math.max(128, Math.min(50000, Math.round(Number(pointBudget) || 4000)));
-  const meshKey = `${item.modelData?.triangles?.length || 0}`;
-  const key = `thickWire:${meshKey}:${budget}`;
-  let buffer = contextResources.buffers.get(key);
-  if (buffer && !rawModelBufferValid(gl, buffer)) {
-    disposeRawModelBuffer(gl, buffer);
-    contextResources.buffers.delete(key);
-    buffer = null;
-  }
-  if (!buffer) {
-    const data = ensureParsedModelThickWireVertices(item, budget);
-    if (!data?.length) return null;
-    pruneRawModelBufferVariants(gl, contextResources, `thickWire:${meshKey}:`, key);
-    const glBuffer = gl.createBuffer();
-    gl.bindBuffer(gl.ARRAY_BUFFER, glBuffer);
-    gl.bufferData(gl.ARRAY_BUFFER, data, gl.STATIC_DRAW);
-    gl.bindBuffer(gl.ARRAY_BUFFER, null);
-    buffer = {
-      buffer: glBuffer,
-      count: Math.floor(data.length / 8),
-    };
-    contextResources.buffers.set(key, buffer);
-  }
-  return {
-    ...buffer,
-    program: contextResources.wireProgram.program,
-    start: contextResources.wireProgram.start,
-    end: contextResources.wireProgram.end,
-    side: contextResources.wireProgram.side,
-    along: contextResources.wireProgram.along,
-    mvp: contextResources.wireProgram.mvp,
-    model: contextResources.wireProgram.model,
-    resolution: contextResources.wireProgram.resolution,
-    thickness: contextResources.wireProgram.thickness,
-    color: contextResources.wireProgram.color,
-    depthCutoff: contextResources.wireProgram.depthCutoff,
-  };
-}
-
-function ensureRawModelContextResources(gl, item) {
-  if (!(item.modelRawRenderers instanceof Map)) item.modelRawRenderers = new Map();
-  let resources = item.modelRawRenderers.get(gl);
-  if (!resources) {
-    resources = {
-      program: null,
-      surfaceProgram: null,
-      wireProgram: null,
-      buffers: new Map(),
-    };
-    item.modelRawRenderers.set(gl, resources);
-  }
-  return resources;
-}
-
-function rawModelProgramValid(gl, resource) {
-  return !!resource?.program && (typeof gl.isProgram !== "function" || gl.isProgram(resource.program));
-}
-
-function rawModelBufferValid(gl, resource) {
-  const buffers = [resource?.buffer, resource?.positionBuffer, resource?.normalBuffer].filter(Boolean);
-  return buffers.length > 0 && (typeof gl.isBuffer !== "function" || buffers.every((buffer) => gl.isBuffer(buffer)));
-}
-
-function pruneRawModelBufferVariants(gl, resources, prefix, keepKey) {
-  for (const [key, buffer] of resources.buffers) {
-    if (key !== keepKey && key.startsWith(prefix)) {
-      disposeRawModelBuffer(gl, buffer);
-      resources.buffers.delete(key);
-    }
-  }
-}
-
-function disposeRawModelBuffer(gl, resource) {
-  const buffers = new Set([resource?.buffer, resource?.positionBuffer, resource?.normalBuffer].filter(Boolean));
-  for (const buffer of buffers) {
-    try { gl.deleteBuffer(buffer); } catch {}
-  }
-}
-
-function disposeRawModelProgram(gl, resource) {
-  if (!resource?.program) return;
-  try { gl.deleteProgram(resource.program); } catch {}
-}
-
-function disposeRawModelContextResources(gl, resources) {
-  for (const buffer of resources?.buffers?.values?.() || []) disposeRawModelBuffer(gl, buffer);
-  resources?.buffers?.clear?.();
-  disposeRawModelProgram(gl, resources?.program);
-  disposeRawModelProgram(gl, resources?.surfaceProgram);
-  disposeRawModelProgram(gl, resources?.wireProgram);
-}
-
-function createRawModelProgram(gl) {
-  const vertex = compileRawShader(gl, gl.VERTEX_SHADER, `
-    attribute vec3 aPosition;
-    uniform mat4 uMvp;
-    uniform mat4 uModel;
-    uniform float uPointSize;
-    varying float vModelDepth;
-    void main() {
-      gl_Position = uMvp * vec4(aPosition, 1.0);
-      vModelDepth = (uModel * vec4(aPosition, 1.0)).z;
-      gl_PointSize = uPointSize;
-    }
-  `);
-  const fragment = compileRawShader(gl, gl.FRAGMENT_SHADER, `
-    precision mediump float;
-    uniform vec4 uColor;
-    uniform float uDepthCutoff;
-    varying float vModelDepth;
-    void main() {
-      if (vModelDepth < uDepthCutoff) discard;
-      gl_FragColor = uColor;
-    }
-  `);
-  const program = linkSpecializedProgram(gl, vertex, fragment);
-  if (!program) return null;
-  return {
-    program,
-    position: gl.getAttribLocation(program, "aPosition"),
-    mvp: gl.getUniformLocation(program, "uMvp"),
-    model: gl.getUniformLocation(program, "uModel"),
-    color: gl.getUniformLocation(program, "uColor"),
-    pointSize: gl.getUniformLocation(program, "uPointSize"),
-    depthCutoff: gl.getUniformLocation(program, "uDepthCutoff"),
-  };
-}
-
-function createRawSurfaceProgram(gl) {
-  const vertex = compileRawShader(gl, gl.VERTEX_SHADER, `
-    attribute vec3 aPosition;
-    attribute vec3 aNormal;
-    uniform mat4 uMvp;
-    uniform mat4 uModel;
-    varying float vLight;
-    varying float vModelDepth;
-    void main() {
-      vec3 n = normalize((uModel * vec4(aNormal, 0.0)).xyz);
-      vec3 keyLight = normalize(vec3(-0.35, -0.45, 0.75));
-      vLight = clamp(dot(n, keyLight) * 0.55 + 0.45, 0.0, 1.0);
-      vModelDepth = (uModel * vec4(aPosition, 1.0)).z;
-      gl_Position = uMvp * vec4(aPosition, 1.0);
-    }
-  `);
-  const fragment = compileRawShader(gl, gl.FRAGMENT_SHADER, `
-    precision mediump float;
-    uniform vec4 uColor;
-    uniform float uDepthCutoff;
-    varying float vLight;
-    varying float vModelDepth;
-    void main() {
-      if (vModelDepth < uDepthCutoff) discard;
-      gl_FragColor = vec4(uColor.rgb * vLight, uColor.a);
-    }
-  `);
-  const program = linkSpecializedProgram(gl, vertex, fragment);
-  if (!program) return null;
-  return {
-    program,
-    position: gl.getAttribLocation(program, "aPosition"),
-    normal: gl.getAttribLocation(program, "aNormal"),
-    mvp: gl.getUniformLocation(program, "uMvp"),
-    model: gl.getUniformLocation(program, "uModel"),
-    color: gl.getUniformLocation(program, "uColor"),
-    depthCutoff: gl.getUniformLocation(program, "uDepthCutoff"),
-  };
-}
-
-function createRawWireProgram(gl) {
-  const vertex = compileRawShader(gl, gl.VERTEX_SHADER, `
-    attribute vec3 aStart;
-    attribute vec3 aEnd;
-    attribute float aSide;
-    attribute float aAlong;
-    uniform mat4 uMvp;
-    uniform mat4 uModel;
-    uniform vec2 uResolution;
-    uniform float uThickness;
-    varying float vModelDepth;
-    void main() {
-      vec4 startClip = uMvp * vec4(aStart, 1.0);
-      vec4 endClip = uMvp * vec4(aEnd, 1.0);
-      float startW = abs(startClip.w) > 0.000001 ? startClip.w : 0.000001;
-      float endW = abs(endClip.w) > 0.000001 ? endClip.w : 0.000001;
-      vec2 startNdc = startClip.xy / startW;
-      vec2 endNdc = endClip.xy / endW;
-      vec2 dir = endNdc - startNdc;
-      float len = length(dir);
-      vec2 normal = len > 0.000001 ? vec2(-dir.y, dir.x) / len : vec2(0.0, 1.0);
-      vec4 clip = mix(startClip, endClip, aAlong);
-      vModelDepth = (uModel * vec4(mix(aStart, aEnd, aAlong), 1.0)).z;
-      vec2 pixelToNdc = vec2(2.0 / max(1.0, uResolution.x), 2.0 / max(1.0, uResolution.y));
-      clip.xy += normal * pixelToNdc * (max(0.125, uThickness) * 0.5) * aSide * clip.w;
-      gl_Position = clip;
-    }
-  `);
-  const fragment = compileRawShader(gl, gl.FRAGMENT_SHADER, `
-    precision mediump float;
-    uniform vec4 uColor;
-    uniform float uDepthCutoff;
-    varying float vModelDepth;
-    void main() {
-      if (vModelDepth < uDepthCutoff) discard;
-      gl_FragColor = uColor;
-    }
-  `);
-  const program = linkSpecializedProgram(gl, vertex, fragment);
-  if (!program) return null;
-  return {
-    program,
-    start: gl.getAttribLocation(program, "aStart"),
-    end: gl.getAttribLocation(program, "aEnd"),
-    side: gl.getAttribLocation(program, "aSide"),
-    along: gl.getAttribLocation(program, "aAlong"),
-    mvp: gl.getUniformLocation(program, "uMvp"),
-    model: gl.getUniformLocation(program, "uModel"),
-    resolution: gl.getUniformLocation(program, "uResolution"),
-    thickness: gl.getUniformLocation(program, "uThickness"),
-    color: gl.getUniformLocation(program, "uColor"),
-    depthCutoff: gl.getUniformLocation(program, "uDepthCutoff"),
-  };
-}
-
-function rawModelMatrices(width = 1, height = 1, scale = 1, depth = 1, rotation = [0, 0, 0], contentTransform = {}) {
-  const projection = mat4Perspective(Math.PI / 3, width / Math.max(1, height), 0.1, 5000);
-  const cameraZ = Math.max(1, height) * 0.92;
-  const view = mat4LookAt([0, 0, cameraZ], [0, 0, 0], [0, 1, 0]);
-  let model = mat4Identity();
-  if (!isIdentityTransform(contentTransform)) {
-    const content = normalizedContentTransform(contentTransform);
-    model = mat4Multiply(model, mat4Translation(content.x * width * 0.5, content.y * height * 0.5, 0));
-    model = mat4Multiply(model, mat4RotationZ(content.rotation));
-    model = mat4Multiply(model, mat4Scale(content.scale, content.scale, content.scale));
-  }
-  model = mat4Multiply(model, mat4RotationX(rotation[0] || 0));
-  model = mat4Multiply(model, mat4RotationY(rotation[1] || 0));
-  model = mat4Multiply(model, mat4RotationZ(rotation[2] || 0));
-  model = mat4Multiply(model, mat4Scale(scale, scale, scale * depth));
-  return {
-    model,
-    mvp: mat4Multiply(mat4Multiply(projection, view), model),
-  };
-}
-
-function mat4Identity() {
-  return new Float32Array([
-    1, 0, 0, 0,
-    0, 1, 0, 0,
-    0, 0, 1, 0,
-    0, 0, 0, 1,
-  ]);
-}
-
-function mat4Perspective(fovy, aspect, near, far) {
-  const f = 1 / Math.tan(fovy * 0.5);
-  const nf = 1 / (near - far);
-  return new Float32Array([
-    f / aspect, 0, 0, 0,
-    0, f, 0, 0,
-    0, 0, (far + near) * nf, -1,
-    0, 0, (2 * far * near) * nf, 0,
-  ]);
-}
-
-function mat4LookAt(eye, center, up) {
-  const z = normalize3([eye[0] - center[0], eye[1] - center[1], eye[2] - center[2]]);
-  const x = normalize3(cross3(up, z));
-  const y = cross3(z, x);
-  return new Float32Array([
-    x[0], y[0], z[0], 0,
-    x[1], y[1], z[1], 0,
-    x[2], y[2], z[2], 0,
-    -dot3(x, eye), -dot3(y, eye), -dot3(z, eye), 1,
-  ]);
-}
-
-function mat4RotationX(angle) {
-  const c = Math.cos(angle);
-  const s = Math.sin(angle);
-  return new Float32Array([
-    1, 0, 0, 0,
-    0, c, s, 0,
-    0, -s, c, 0,
-    0, 0, 0, 1,
-  ]);
-}
-
-function mat4RotationY(angle) {
-  const c = Math.cos(angle);
-  const s = Math.sin(angle);
-  return new Float32Array([
-    c, 0, -s, 0,
-    0, 1, 0, 0,
-    s, 0, c, 0,
-    0, 0, 0, 1,
-  ]);
-}
-
-function mat4RotationZ(angle) {
-  const c = Math.cos(angle);
-  const s = Math.sin(angle);
-  return new Float32Array([
-    c, s, 0, 0,
-    -s, c, 0, 0,
-    0, 0, 1, 0,
-    0, 0, 0, 1,
-  ]);
-}
-
-function mat4Scale(x, y, z) {
-  return new Float32Array([
-    x, 0, 0, 0,
-    0, y, 0, 0,
-    0, 0, z, 0,
-    0, 0, 0, 1,
-  ]);
-}
-
-function mat4Translation(x, y, z) {
-  return new Float32Array([
-    1, 0, 0, 0,
-    0, 1, 0, 0,
-    0, 0, 1, 0,
-    x, y, z, 1,
-  ]);
-}
-
-function mat4Multiply(a, b) {
-  const out = new Float32Array(16);
-  for (let col = 0; col < 4; col++) {
-    for (let row = 0; row < 4; row++) {
-      out[col * 4 + row] =
-        a[0 * 4 + row] * b[col * 4 + 0] +
-        a[1 * 4 + row] * b[col * 4 + 1] +
-        a[2 * 4 + row] * b[col * 4 + 2] +
-        a[3 * 4 + row] * b[col * 4 + 3];
-    }
-  }
-  return out;
-}
-
-function normalize3(vector) {
-  const length = Math.hypot(vector[0], vector[1], vector[2]) || 1;
-  return [vector[0] / length, vector[1] / length, vector[2] / length];
-}
-
-function cross3(a, b) {
-  return [
-    a[1] * b[2] - a[2] * b[1],
-    a[2] * b[0] - a[0] * b[2],
-    a[0] * b[1] - a[1] * b[0],
-  ];
-}
-
-function dot3(a, b) {
-  return a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
-}
-
-function drawPointCloud(target, points, wireColor = [245, 245, 245, 255]) {
-  if (!points?.length) return;
-  target.noFill();
-  target.stroke(...wireColor);
-  target.strokeWeight(2);
-  target.beginShape(POINTS);
-  for (let index = 0; index + 2 < points.length; index += 3) {
-    target.vertex(points[index], points[index + 1], points[index + 2]);
-  }
-  target.endShape();
-}
-
-function drawParsedModel(target, mesh, renderMode = "surface", surfaceColor = [220, 225, 220, 255], wireColor = [20, 20, 20, 220], wireThickness = 1) {
-  if (renderMode === "points") {
-    drawPointCloud(target, buildParsedModelPointCloud(mesh, 4000), wireColor);
-    return;
-  }
-  if (renderMode !== "wireframe") {
-    target.noStroke();
-    target.ambientMaterial?.(...surfaceColor);
-    target.fill?.(...surfaceColor);
-    drawWithPolygonOffset(target, renderMode === "surfaceWire", () => drawParsedTriangles(target, mesh));
-  }
-  if (renderMode === "wireframe" || renderMode === "surfaceWire") {
-    target.noFill();
-    target.stroke(...wireColor);
-    target.strokeWeight(wireThickness);
-    drawParsedTriangles(target, mesh);
-  }
-}
-
-function drawGeometryModel(target, geometry, renderMode = "surface", surfaceColor = [220, 225, 220, 255], wireColor = [20, 20, 20, 220], wireThickness = 1) {
-  if (renderMode !== "wireframe") {
-    target.noStroke();
-    target.ambientMaterial?.(...surfaceColor);
-    target.fill?.(...surfaceColor);
-    drawWithPolygonOffset(target, renderMode === "surfaceWire", () => target.model(geometry));
-  }
-  if (renderMode === "wireframe" || renderMode === "surfaceWire") {
-    target.noFill();
-    target.stroke(...wireColor);
-    target.strokeWeight(wireThickness);
-    target.model(geometry);
-  }
-}
-
-function drawWithPolygonOffset(target, enabled, draw) {
-  const gl = target?.drawingContext;
-  if (!enabled || !gl?.polygonOffset || typeof draw !== "function") return draw?.();
-  const wasEnabled = gl.isEnabled(gl.POLYGON_OFFSET_FILL);
-  const previousFactor = gl.getParameter(gl.POLYGON_OFFSET_FACTOR);
-  const previousUnits = gl.getParameter(gl.POLYGON_OFFSET_UNITS);
-  gl.enable(gl.POLYGON_OFFSET_FILL);
-  gl.polygonOffset(1, 2);
-  try {
-    return draw();
-  } finally {
-    gl.polygonOffset(previousFactor, previousUnits);
-    if (!wasEnabled) gl.disable(gl.POLYGON_OFFSET_FILL);
-  }
-}
-
-function ensureParsedModelGeometry(item) {
-  if (item.modelGeometryFailed) return null;
-  if (item.modelGeometry) return item.modelGeometry;
-  const mesh = item.modelData;
-  const Geometry = globalThis.p5?.Geometry;
-  if (!mesh || typeof Geometry !== "function") return null;
-  const geometry = new Geometry();
-  geometry.gid = `vj1-stl-${stableGeometryId(item.id)}`;
-  for (const triangle of mesh.triangles || []) {
-    const base = geometry.vertices.length;
-    const normal = normalizeModelVector(triangle.normal || modelTriangleNormal(triangle.vertices || []));
-    for (const vertex of triangle.vertices || []) {
-      geometry.vertices.push(createGeometryVector(vertex[0], vertex[1], vertex[2]));
-      geometry.vertexNormals?.push?.(createGeometryVector(normal[0], normal[1], normal[2]));
-    }
-    geometry.faces.push([base, base + 1, base + 2]);
-  }
-  if (!geometry.vertices.length || !geometry.faces.length) return null;
-  geometry._makeTriangleEdges?.();
-  geometry._edgesToVertices?.();
-  item.modelGeometry = geometry;
-  return geometry;
-}
-
-function ensureParsedModelPointCloud(item, pointBudget = 4000) {
-  const budget = Math.max(128, Math.min(50000, Math.round(Number(pointBudget) || 4000)));
-  const mesh = item?.modelData;
-  const key = `stl:${mesh?.triangles?.length || 0}:${budget}`;
-  if (item?.modelPointCloud && item.modelPointCloudKey === key) return item.modelPointCloud;
-  const points = buildParsedModelPointCloud(mesh, budget);
-  if (item) {
-    item.modelPointCloud = points;
-    item.modelPointCloudKey = key;
-  }
-  return points;
-}
-
-function ensureParsedModelWireLines(item, lineBudget = 4000) {
-  const budget = Math.max(128, Math.min(50000, Math.round(Number(lineBudget) || 4000)));
-  const mesh = item?.modelData;
-  const key = `wire:${mesh?.triangles?.length || 0}:${budget}`;
-  if (item?.modelWireLines && item.modelWireLinesKey === key) return item.modelWireLines;
-  const lines = buildParsedModelWireLines(mesh, budget);
-  if (item) {
-    item.modelWireLines = lines;
-    item.modelWireLinesKey = key;
-  }
-  return lines;
-}
-
-function ensureParsedModelThickWireVertices(item, lineBudget = 4000) {
-  const budget = Math.max(128, Math.min(50000, Math.round(Number(lineBudget) || 4000)));
-  const mesh = item?.modelData;
-  const key = `thickWire:${mesh?.triangles?.length || 0}:${budget}`;
-  if (item?.modelThickWireVertices && item.modelThickWireVerticesKey === key) return item.modelThickWireVertices;
-  const vertices = buildParsedModelThickWireVertices(ensureParsedModelWireLines(item, budget));
-  if (item) {
-    item.modelThickWireVertices = vertices;
-    item.modelThickWireVerticesKey = key;
-  }
-  return vertices;
-}
-
-function ensureP5ModelPointCloud(item, pointBudget = 4000) {
-  const budget = Math.max(128, Math.min(50000, Math.round(Number(pointBudget) || 4000)));
-  const vertices = Array.isArray(item?.model?.vertices) ? item.model.vertices : [];
-  const key = `p5:${vertices.length}:${budget}`;
-  if (item?.modelPointCloud && item.modelPointCloudKey === key) return item.modelPointCloud;
-  const stride = Math.max(1, Math.ceil(vertices.length / budget));
-  const count = Math.ceil(vertices.length / stride);
-  const points = new Float32Array(count * 3);
-  let write = 0;
-  for (let index = 0; index < vertices.length && write + 2 < points.length; index += stride) {
-    const vertex = vertices[index] || {};
-    points[write++] = Number(vertex.x) || 0;
-    points[write++] = Number(vertex.y) || 0;
-    points[write++] = Number(vertex.z) || 0;
-  }
-  if (item) {
-    item.modelPointCloud = points.subarray(0, write);
-    item.modelPointCloudKey = key;
-  }
-  return item?.modelPointCloud || points.subarray(0, write);
-}
-
-function buildParsedModelPointCloud(mesh, pointBudget = 4000) {
-  const triangles = Array.isArray(mesh?.triangles) ? mesh.triangles : [];
-  const totalVertices = triangles.length * 3;
-  if (!totalVertices) return new Float32Array(0);
-  const budget = Math.max(128, Math.min(50000, Math.round(Number(pointBudget) || 4000)));
-  const stride = Math.max(1, Math.ceil(totalVertices / budget));
-  const count = Math.ceil(totalVertices / stride);
-  const points = new Float32Array(count * 3);
-  let seen = 0;
-  let write = 0;
-  for (const triangle of triangles) {
-    for (const vertex of triangle.vertices || []) {
-      if (seen % stride === 0 && write + 2 < points.length) {
-        points[write++] = Number(vertex[0]) || 0;
-        points[write++] = Number(vertex[1]) || 0;
-        points[write++] = Number(vertex[2]) || 0;
-      }
-      seen++;
-    }
-  }
-  return points.subarray(0, write);
-}
-
-function buildParsedModelThickWireVertices(lines) {
-  if (!lines?.length) return new Float32Array(0);
-  const lineCount = Math.floor(lines.length / 6);
-  const vertices = new Float32Array(lineCount * 6 * 8);
-  let write = 0;
-  for (let index = 0; index + 5 < lines.length; index += 6) {
-    const ax = lines[index];
-    const ay = lines[index + 1];
-    const az = lines[index + 2];
-    const bx = lines[index + 3];
-    const by = lines[index + 4];
-    const bz = lines[index + 5];
-    write = appendThickWireVertex(vertices, write, ax, ay, az, bx, by, bz, -1, 0);
-    write = appendThickWireVertex(vertices, write, ax, ay, az, bx, by, bz, 1, 0);
-    write = appendThickWireVertex(vertices, write, ax, ay, az, bx, by, bz, -1, 1);
-    write = appendThickWireVertex(vertices, write, ax, ay, az, bx, by, bz, -1, 1);
-    write = appendThickWireVertex(vertices, write, ax, ay, az, bx, by, bz, 1, 0);
-    write = appendThickWireVertex(vertices, write, ax, ay, az, bx, by, bz, 1, 1);
-  }
-  return vertices.subarray(0, write);
-}
-
-function appendThickWireVertex(vertices, write, ax, ay, az, bx, by, bz, side, along) {
-  vertices[write++] = ax;
-  vertices[write++] = ay;
-  vertices[write++] = az;
-  vertices[write++] = bx;
-  vertices[write++] = by;
-  vertices[write++] = bz;
-  vertices[write++] = side;
-  vertices[write++] = along;
-  return write;
-}
-
-function buildParsedModelWireLines(mesh, lineBudget = 4000) {
-  const triangles = Array.isArray(mesh?.triangles) ? mesh.triangles : [];
-  if (!triangles.length) return new Float32Array(0);
-  const totalEdges = triangles.length * 3;
-  const budget = Math.max(128, Math.min(50000, Math.round(Number(lineBudget) || 4000)));
-  const stride = Math.max(1, Math.ceil(totalEdges / budget));
-  const count = Math.ceil(totalEdges / stride);
-  const lines = new Float32Array(count * 6);
-  let seen = 0;
-  let write = 0;
-  for (const triangle of triangles) {
-    const vertices = triangle.vertices || [];
-    write = appendSampledWireLine(lines, write, seen++, stride, vertices[0], vertices[1]);
-    write = appendSampledWireLine(lines, write, seen++, stride, vertices[1], vertices[2]);
-    write = appendSampledWireLine(lines, write, seen++, stride, vertices[2], vertices[0]);
-  }
-  return lines.subarray(0, write);
-}
-
-function appendSampledWireLine(lines, write, seen, stride, a = [0, 0, 0], b = [0, 0, 0]) {
-  if (seen % stride !== 0 || write + 5 >= lines.length) return write;
-  lines[write++] = Number(a?.[0]) || 0;
-  lines[write++] = Number(a?.[1]) || 0;
-  lines[write++] = Number(a?.[2]) || 0;
-  lines[write++] = Number(b?.[0]) || 0;
-  lines[write++] = Number(b?.[1]) || 0;
-  lines[write++] = Number(b?.[2]) || 0;
-  return write;
-}
-
-function createGeometryVector(x = 0, y = 0, z = 0) {
-  const Vector = globalThis.p5?.Vector;
-  if (typeof Vector === "function") return new Vector(Number(x) || 0, Number(y) || 0, Number(z) || 0);
-  if (typeof globalThis.createVector === "function") return globalThis.createVector(Number(x) || 0, Number(y) || 0, Number(z) || 0);
-  return { x: Number(x) || 0, y: Number(y) || 0, z: Number(z) || 0 };
-}
-
-function stableGeometryId(id = "") {
-  let hash = 2166136261;
-  const text = String(id || "model");
-  for (let index = 0; index < text.length; index++) {
-    hash ^= text.charCodeAt(index);
-    hash = Math.imul(hash, 16777619);
-  }
-  return (hash >>> 0).toString(36);
-}
-
-function drawParsedTriangles(target, mesh) {
-  target.beginShape(TRIANGLES);
-  for (const triangle of mesh.triangles || []) {
-    const normal = triangle.normal || [0, 0, 1];
-    target.normal?.(normal[0], normal[1], normal[2]);
-    for (const vertex of triangle.vertices || []) target.vertex(vertex[0], vertex[1], vertex[2]);
-  }
-  target.endShape();
-}
-
-function drawSampleRect(pg, source, rect = {}, x = 0, y = 0, w = pg.width, h = pg.height) {
-  const sx = Math.max(0, Number(rect.x) || 0);
-  const sy = Math.max(0, Number(rect.y) || 0);
-  const sw = Math.max(1, Number(rect.width) || source?.width || w);
-  const sh = Math.max(1, Number(rect.height) || source?.height || h);
-  try {
-    pg.image(source, x, y, w, h, sx, sy, sw, sh);
-  } catch {
-    const drawable = source?.canvas || source?.elt || source;
-    pg.drawingContext?.drawImage?.(drawable, sx, sy, sw, sh, x, y, w, h);
-  }
 }

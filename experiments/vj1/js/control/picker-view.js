@@ -1,5 +1,5 @@
-import { listGeneratorComponents } from "../graph/generator-registry.js?v=group-composite-59";
-import { listShaderComponents } from "../shaders/shader-registry.js?v=adaptive-component-demand-29";
+import { listGeneratorComponents } from "../graph/generator-registry.js?v=terrain-mesh-near-1";
+import { listShaderComponents } from "../shaders/shader-registry.js?v=shader-component-catalog-extraction-1";
 import { effectIcon, esc, icon, thumbnailTemplate } from "./template-utils.js?v=adaptive-component-demand-29";
 
 function getByPath(target, path) {

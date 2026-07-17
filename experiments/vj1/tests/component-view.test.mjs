@@ -1,0 +1,41 @@
+import test from "node:test";
+import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+
+import { canvasInspectorTemplate, componentSelectedChainSettingsTemplate, componentTemplate } from "../js/control/component-view.js";
+import { createInitialState } from "../js/domain/models.js?v=render-coordinate-scope-3";
+
+test("Component and Canvas chain presentation lives outside the control orchestrator", () => {
+  const state = createInitialState();
+  const component = state.components.find((item) => item.type !== "canvas");
+  const canvas = state.components.find((item) => item.type === "canvas") || {
+    ...component,
+    id: "canvas-test",
+    type: "canvas",
+    canvas: { width: 1920, height: 1080 },
+  };
+  const componentHtml = componentTemplate(component, state);
+  const settingsHtml = componentSelectedChainSettingsTemplate(component, state);
+  const canvasHtml = canvasInspectorTemplate(canvas, { ...state, components: [...state.components, canvas] });
+  const controller = readFileSync(new URL("../js/control/control-shell-controller.js", import.meta.url), "utf8");
+
+  assert.match(componentHtml, /class="component-frame-controls"/);
+  assert.match(componentHtml, /data-chain-reorder-list/);
+  assert.match(settingsHtml, /class="ui-section focus-panel chain-settings-panel"/);
+  assert.match(canvasHtml, /data-update="components\.[0-9]+\.canvas\.width"/);
+  assert.match(controller, /from "\.\/component-view\.js\?v=terrain-mesh-near-1"/);
+  assert.doesNotMatch(controller, /function componentTemplate\(/);
+  assert.doesNotMatch(controller, /function componentUnifiedChainTemplate\(/);
+  assert.doesNotMatch(controller, /function sourcePickerTemplate\(/);
+});
+
+test("persistent and Live source editors share one media-model control schema", () => {
+  const componentView = readFileSync(new URL("../js/control/component-view.js", import.meta.url), "utf8");
+  const sceneLiveView = readFileSync(new URL("../js/control/scene-live-view.js", import.meta.url), "utf8");
+  const schema = readFileSync(new URL("../js/control/source-control-schema.js", import.meta.url), "utf8");
+
+  assert.match(componentView, /from "\.\/source-control-schema\.js\?v=source-control-schema-extraction-1"/);
+  assert.match(sceneLiveView, /from "\.\/source-control-schema\.js\?v=source-control-schema-extraction-1"/);
+  assert.match(schema, /export const MODEL_SOURCE_PARAMS/);
+  assert.doesNotMatch(sceneLiveView, /const MODEL_SOURCE_PARAMS =/);
+});

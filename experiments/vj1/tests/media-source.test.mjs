@@ -9,8 +9,42 @@ import { getGeneratorComponent, listGeneratorComponents } from "../js/graph/gene
 import { RenderNodeRuntime, textureStateKey } from "../js/graph/render-node-runtime.js";
 import { compileComponentPatch } from "../js/graph/render-scheduler.js?v=world-frame-27";
 import { shouldHoldCurrentOutputState } from "../js/output/output-app.js";
+import { drawMediaFit } from "../js/output/media-utils.js?v=surface-media-contract-5";
 import { advanceRateClock, advanceSpatialScale, modelDepthCutoff, OutputRenderer, parseObjMesh, qualityAdjustedGeneratorParams, qualityScaledRenderRequest, resolutionScaledStrokeWidth, sourceWithNodeParams, terrainExpandedGridWireVertices, terrainExpandedWireVertices, terrainGridSize, terrainSurfaceGridVertices, terrainSurfaceTriangleIndices, terrainTriangleEdgeUvs, transformedModelDepthRange } from "../js/output/output-renderer.js?v=world-frame-27";
+import { terrainCameraView } from "../js/output/specialized/specialized-source-runtime.js";
 import { getMediaType, isMediaFile } from "../js/services/media-library-service.js";
+
+test("media drawing keeps p5 wrappers for WebGL and browser elements for Canvas2D", () => {
+  const element = { tagName: "VIDEO", videoWidth: 640, videoHeight: 360 };
+  const media = { elt: element, width: 640, height: 360, hide() {} };
+  const webglCalls = [];
+  const canvasCalls = [];
+  drawMediaFit({ __vj1SharedFramebuffer: true, image: (...args) => webglCalls.push(args) }, media, 0, 0, 320, 180);
+  drawMediaFit({ image: (...args) => canvasCalls.push(args) }, media, 0, 0, 320, 180);
+  assert.equal(webglCalls[0][0], media);
+  assert.equal(canvasCalls[0][0], element);
+});
+
+test("raw browser media is bridged to a p5 image before WebGL texture upload", () => {
+  const element = { tagName: "IMG", naturalWidth: 640, naturalHeight: 360 };
+  const drawCalls = [];
+  const bridge = {
+    canvas: { getContext: () => ({ drawImage: (...args) => drawCalls.push(args), clearRect() {} }) },
+    loadPixels() {},
+    setModified(value) { this.modified = value; },
+  };
+  const previousCreateImage = globalThis.createImage;
+  globalThis.createImage = () => bridge;
+  try {
+    const webglCalls = [];
+    drawMediaFit({ __vj1SharedFramebuffer: true, image: (...args) => webglCalls.push(args) }, element, 0, 0, 320, 180);
+    assert.equal(webglCalls[0][0], bridge);
+    assert.equal(drawCalls[0][0], element);
+    assert.equal(bridge.modified, true);
+  } finally {
+    globalThis.createImage = previousCreateImage;
+  }
+});
 
 test("media sources keep trim and playback speed through normalization and graph compile", () => {
   const state = createInitialState();
@@ -145,6 +179,7 @@ test("Shadertoy base warp is exposed as a generator with clock speed", () => {
   const speed = component.params.find((param) => param.id === "speed");
   const builderSource = readFileSync(new URL("../js/shaders/shader-builder.js", import.meta.url), "utf8");
   const rendererSource = readFileSync(new URL("../js/output/output-renderer.js", import.meta.url), "utf8");
+  const runtimeSource = readFileSync(new URL("../js/output/render-runtime-math.js", import.meta.url), "utf8");
 
   assert.equal(component.name, "Base Warp");
   assert.equal(component.category, "shadertoy");
@@ -162,13 +197,13 @@ test("Shadertoy base warp is exposed as a generator with clock speed", () => {
   assert.ok(rendererSource.includes('setShaderUniformIfPresent(shader, "iTime", shaderTime)'));
   assert.ok(rendererSource.includes("shaderDrawingBufferSize(target"));
   assert.ok(rendererSource.includes("gl?.drawingBufferWidth"));
-  assert.ok(rendererSource.includes('generatorId === "shadertoyBaseWarp"'));
+  assert.ok(runtimeSource.includes('generatorId === "shadertoyBaseWarp"'));
 });
 
 test("Cellular Circles exposes bounded animated Shadertoy controls", () => {
   const component = getGeneratorComponent("cellularCircles");
   const params = Object.fromEntries(component.params.map((param) => [param.id, param]));
-  const rendererSource = readFileSync(new URL("../js/output/output-renderer.js", import.meta.url), "utf8");
+  const runtimeSource = readFileSync(new URL("../js/output/render-runtime-math.js", import.meta.url), "utf8");
 
   assert.equal(component.name, "Cellular Circles");
   assert.equal(component.category, "shadertoy");
@@ -180,13 +215,13 @@ test("Cellular Circles exposes bounded animated Shadertoy controls", () => {
   for (const id of ["cellColor", "backgroundColor"]) {
     assert.equal(params[id].type, "color", `missing Cellular Circles color ${id}`);
   }
-  assert.ok(rendererSource.includes('generatorId === "cellularCircles"'));
+  assert.ok(runtimeSource.includes('generatorId === "cellularCircles"'));
 });
 
 test("Seascape exposes bounded artistic controls", () => {
   const component = getGeneratorComponent("seascape");
   const params = Object.fromEntries(component.params.map((param) => [param.id, param]));
-  const rendererSource = readFileSync(new URL("../js/output/output-renderer.js", import.meta.url), "utf8");
+  const runtimeSource = readFileSync(new URL("../js/output/render-runtime-math.js", import.meta.url), "utf8");
 
   assert.equal(component.name, "Seascape");
   assert.equal(component.category, "shadertoy");
@@ -198,13 +233,13 @@ test("Seascape exposes bounded artistic controls", () => {
   }
   assert.equal(params.seaDetail.max, 5);
   assert.equal(params.raySteps.defaultValue, 18);
-  assert.ok(rendererSource.includes('generatorId === "seascape"'));
+  assert.ok(runtimeSource.includes('generatorId === "seascape"'));
 });
 
 test("Paint Drips exposes self-contained artistic controls", () => {
   const component = getGeneratorComponent("paintDrips");
   const params = Object.fromEntries(component.params.map((param) => [param.id, param]));
-  const rendererSource = readFileSync(new URL("../js/output/output-renderer.js", import.meta.url), "utf8");
+  const runtimeSource = readFileSync(new URL("../js/output/render-runtime-math.js", import.meta.url), "utf8");
 
   assert.equal(component.name, "Paint Drips");
   assert.equal(component.category, "shadertoy");
@@ -214,13 +249,13 @@ test("Paint Drips exposes self-contained artistic controls", () => {
   for (const id of ["paintColor", "backgroundColor"]) {
     assert.equal(params[id].type, "color", `missing Paint Drips color ${id}`);
   }
-  assert.ok(rendererSource.includes('generatorId === "paintDrips"'));
+  assert.ok(runtimeSource.includes('generatorId === "paintDrips"'));
 });
 
 test("Cloudy Tunnel exposes bounded self-contained controls", () => {
   const component = getGeneratorComponent("cloudyTunnel");
   const params = Object.fromEntries(component.params.map((param) => [param.id, param]));
-  const rendererSource = readFileSync(new URL("../js/output/output-renderer.js", import.meta.url), "utf8");
+  const runtimeSource = readFileSync(new URL("../js/output/render-runtime-math.js", import.meta.url), "utf8");
 
   assert.equal(component.name, "Cloudy Tunnel");
   assert.equal(component.category, "shadertoy");
@@ -231,13 +266,13 @@ test("Cloudy Tunnel exposes bounded self-contained controls", () => {
     assert.equal(params[id].type, "color", `missing Cloudy Tunnel color ${id}`);
   }
   assert.equal(params.raySteps.defaultValue, 72);
-  assert.ok(rendererSource.includes('generatorId === "cloudyTunnel"'));
+  assert.ok(runtimeSource.includes('generatorId === "cloudyTunnel"'));
 });
 
 test("Cherenkov Volume exposes bounded volumetric controls", () => {
   const component = getGeneratorComponent("cherenkovVolume");
   const params = Object.fromEntries(component.params.map((param) => [param.id, param]));
-  const rendererSource = readFileSync(new URL("../js/output/output-renderer.js", import.meta.url), "utf8");
+  const runtimeSource = readFileSync(new URL("../js/output/render-runtime-math.js", import.meta.url), "utf8");
 
   assert.equal(component.name, "Cherenkov Volume");
   assert.equal(component.category, "shadertoy");
@@ -248,13 +283,13 @@ test("Cherenkov Volume exposes bounded volumetric controls", () => {
     assert.equal(params[id].type, "color", `missing Cherenkov Volume color ${id}`);
   }
   assert.equal(params.raySteps.defaultValue, 96);
-  assert.ok(rendererSource.includes('generatorId === "cherenkovVolume"'));
+  assert.ok(runtimeSource.includes('generatorId === "cherenkovVolume"'));
 });
 
 test("Biomine Lite exposes performance and material controls", () => {
   const component = getGeneratorComponent("biomineLite");
   const params = Object.fromEntries(component.params.map((param) => [param.id, param]));
-  const rendererSource = readFileSync(new URL("../js/output/output-renderer.js", import.meta.url), "utf8");
+  const runtimeSource = readFileSync(new URL("../js/output/render-runtime-math.js", import.meta.url), "utf8");
 
   assert.equal(component.name, "Biomine Lite");
   assert.equal(component.category, "shadertoy");
@@ -266,7 +301,7 @@ test("Biomine Lite exposes performance and material controls", () => {
   }
   assert.equal(params.raySteps.defaultValue, 36);
   assert.equal(params.surfaceDetail.defaultValue, 1);
-  assert.ok(rendererSource.includes('generatorId === "biomineLite"'));
+  assert.ok(runtimeSource.includes('generatorId === "biomineLite"'));
 });
 
 test("low poly anatomy generator exposes body part and stl-style 3d controls", () => {
@@ -274,6 +309,7 @@ test("low poly anatomy generator exposes body part and stl-style 3d controls", (
   const params = Object.fromEntries(component.params.map((param) => [param.id, param]));
   const rendererSource = [
     readFileSync(new URL("../js/output/output-renderer.js", import.meta.url), "utf8"),
+    readFileSync(new URL("../js/output/specialized/specialized-source-runtime.js", import.meta.url), "utf8"),
     readFileSync(new URL("../js/output/specialized/anatomy-renderer.js", import.meta.url), "utf8"),
   ].join("\n");
 
@@ -307,10 +343,13 @@ test("terrain flyover exposes flight, terrain, wire, and biome controls", () => 
   const component = getGeneratorComponent("terrainFlyover");
   const params = Object.fromEntries(component.params.map((param) => [param.id, param]));
   const controllerSource = readFileSync(new URL("../js/control/control-shell-controller.js", import.meta.url), "utf8");
+  const parameterSource = readFileSync(new URL("../js/control/parameter-view.js", import.meta.url), "utf8");
   const rendererSource = [
     readFileSync(new URL("../js/output/output-renderer.js", import.meta.url), "utf8"),
+    readFileSync(new URL("../js/output/specialized/specialized-source-runtime.js", import.meta.url), "utf8"),
     readFileSync(new URL("../js/output/specialized/terrain-mesh.js", import.meta.url), "utf8"),
     readFileSync(new URL("../js/output/specialized/terrain-renderer.js", import.meta.url), "utf8"),
+    readFileSync(new URL("../js/output/specialized/raw-webgl-state.js", import.meta.url), "utf8"),
   ].join("\n");
 
   assert.equal(component.name, "Terrain Flyover");
@@ -326,9 +365,9 @@ test("terrain flyover exposes flight, terrain, wire, and biome controls", () => 
   }
   assert.equal(generatorIcon("terrainFlyover"), "landscape");
   assert.ok(rendererSource.includes("source.generatorId === \"terrainFlyover\""));
-  assert.ok(rendererSource.includes("this.specializedWebglTargets = new Map()"));
-  assert.ok(rendererSource.includes("this.getTerrainTarget(renderRequest.width, renderRequest.height, this.requestPixelDensity(renderRequest))"));
-  assert.ok(rendererSource.includes("disposeGraphicsMap(this.specializedWebglTargets)"));
+  assert.ok(rendererSource.includes("this.targets = new Map()"));
+  assert.ok(rendererSource.includes("this.getTerrainTarget(renderRequest.width, renderRequest.height, renderRequest.pixelDensity)"));
+  assert.ok(rendererSource.includes("disposeGraphicsMap(this.targets)"));
   assert.ok(rendererSource.includes("this.terrainSurfaceResources = new Map()"));
   assert.ok(rendererSource.includes("drawTerrainSurface(target, this.terrainSurfaceResources"));
   assert.ok(rendererSource.includes("updateTerrainSurfaceBuffers(gl, resources, widthCells, depthCells, baseRow)"));
@@ -341,8 +380,9 @@ test("terrain flyover exposes flight, terrain, wire, and biome controls", () => 
   assert.ok(rendererSource.includes("if (style === 2)"));
   assert.ok(rendererSource.includes("gl.polygonOffset(1, 2)"));
   assert.ok(rendererSource.includes("if (style !== 1) target.background"));
-  assert.ok(rendererSource.includes("const previousProgram = gl.getParameter(gl.CURRENT_PROGRAM)"));
-  assert.ok(rendererSource.includes("gl.useProgram(previousProgram)"));
+  assert.ok(rendererSource.includes("markRenderTargetOrientation(target, RENDER_TEXTURE_ORIENTATION.topLeft)"));
+  assert.ok(rendererSource.includes("program: gl.getParameter(gl.CURRENT_PROGRAM)"));
+  assert.ok(rendererSource.includes("gl.useProgram(state.program)"));
   assert.ok(!rendererSource.includes("previousLiveSceneId !== nextLiveSceneId"));
   assert.ok(rendererSource.includes("terrainSurfaceResourcesValid(gl, resources)"));
   assert.ok(rendererSource.includes("disposeTerrainSurfaceResources(gl, resources)"));
@@ -376,14 +416,21 @@ test("terrain flyover exposes flight, terrain, wire, and biome controls", () => 
   assert.equal(terrainGridSize(200), 144);
   assert.equal(params.pitch.min, -1.4);
   assert.equal(params.fieldOfView.defaultValue, 60);
+  assert.equal(params.nearClip.label, "Near clip minimum");
   assert.equal(params.nearClip.defaultValue, 0.1);
   assert.equal(params.farClip.defaultValue, 20000);
-  assert.ok(controllerSource.includes('data-number-scale="log"'));
+  assert.ok(parameterSource.includes('data-number-scale="log"'));
   assert.ok(rendererSource.includes("float focalLength = 1.0 / tan(radians(clamp(fieldOfView"));
   assert.ok(rendererSource.includes("worldLateral * focalLength / max(aspectRatio, 0.01)"));
   assert.ok(rendererSource.includes("(meshUv.x - 0.5) * gridCells.x * cellScale * 1.44"));
   assert.ok(rendererSource.includes("terrainTessellationSize(widthCells, params.gridDensity)"));
-  assert.ok(rendererSource.includes("-cameraY * focalLength"));
+  assert.ok(rendererSource.includes("terrainClipYFromWorldUp(cameraY) * focalLength"));
+  assert.ok(rendererSource.includes("float meshCellDiagonal = length(vec2(max(lateralSpacing, 0.01), max(rowSpacing, 0.01)))"));
+  assert.equal((rendererSource.match(/terrainSafeNearPlane\(\)/g) || []).length, 4, "surface depth and wire clipping share one mesh-safe near plane");
+  assert.ok(rendererSource.includes("vec3 screenUvH = vec3("));
+  assert.ok(rendererSource.includes("vec3 placedUvH = contentPlacementMatrix * screenUvH"));
+  assert.ok(rendererSource.includes("clip.w = placedUvH.z"));
+  assert.ok(!rendererSource.includes("max(abs(clip.w)"));
   assert.ok(rendererSource.includes("float verticalWorld = relativeSurfaceHeight - globeDrop - max(altitude, 0.0)"));
   assert.ok(rendererSource.includes("float alpha = water ? waterColor.a : terrainAlpha"));
   assert.ok(rendererSource.includes("if (textureDepth > 0.001)"));
@@ -420,10 +467,27 @@ test("terrain scale changes preserve noise phase at the camera anchor", () => {
   assert.equal(anchor[1] * first.scale + first.phase[1], anchor[1] * changed.scale + changed.phase[1]);
 });
 
+test("terrain camera space is independent from generic chain transforms", () => {
+  const view = terrainCameraView({ altitude: 6, turn: 0.25 }, 2);
+  const runtimeSource = readFileSync(new URL("../js/output/specialized/specialized-source-runtime.js", import.meta.url), "utf8");
+  const drawTerrainSource = runtimeSource.slice(runtimeSource.indexOf("  drawTerrain("), runtimeSource.indexOf("  drawModel("));
+
+  assert.equal(view.altitude, 6);
+  assert.equal(view.turn, 0.25);
+  assert.equal(view.cameraAnchor.length, 2);
+  assert.match(drawTerrainSource, /terrainCameraView\(params, flightTime\)/);
+  const cameraRenderSource = drawTerrainSource.slice(0, drawTerrainSource.indexOf("const flightParams"));
+  assert.doesNotMatch(cameraRenderSource, /source\.contentTransform/);
+  assert.match(drawTerrainSource, /markRenderTargetOrientation\(target, RENDER_TEXTURE_ORIENTATION\.topLeft\)/);
+  assert.match(drawTerrainSource, /contentPlacementMatrix: contentTransformUvMatrices\(source\.contentTransform\)\.placement/);
+  assert.match(drawTerrainSource, /presentGeneratedTarget\(pg, target\)/);
+});
+
 test("random generator speed controls use phase-continuous clocks", () => {
   const rendererSource = readFileSync(new URL("../js/output/output-renderer.js", import.meta.url), "utf8");
+  const runtimeSource = readFileSync(new URL("../js/output/render-runtime-math.js", import.meta.url), "utf8");
 
-  assert.ok(rendererSource.includes('generatorId === "fireflies" || generatorId === "bezierStrokes"'));
+  assert.ok(runtimeSource.includes('generatorId === "fireflies" || generatorId === "bezierStrokes"'));
   assert.ok(rendererSource.includes("this.continuousRateTime(`${instanceId || generatorId}:${rateParam}`"));
   assert.ok(rendererSource.includes("const shaderParams = rateParam ? { ...qualityParams, [rateParam]: 1 } : qualityParams"));
 });
@@ -610,7 +674,13 @@ test("3d model visible depth follows transformed normalized model bounds", () =>
 });
 
 test("3d model point mode uses cached bounded point clouds", () => {
-  const source = readFileSync(new URL("../js/output/output-renderer.js", import.meta.url), "utf8");
+  const source = [
+    readFileSync(new URL("../js/output/output-renderer.js", import.meta.url), "utf8"),
+    readFileSync(new URL("../js/output/output-media-runtime.js", import.meta.url), "utf8"),
+    readFileSync(new URL("../js/output/specialized/specialized-source-runtime.js", import.meta.url), "utf8"),
+    readFileSync(new URL("../js/output/specialized/model-mesh-cache.js", import.meta.url), "utf8"),
+    readFileSync(new URL("../js/output/specialized/raw-model-webgl-renderer.js", import.meta.url), "utf8"),
+  ].join("\n");
 
   assert.ok(source.includes("drawRawParsedModel(target, item, params, componentTime, \"points\""));
   assert.ok(source.includes("drawRawParsedWire(target, item, params, componentTime, wireColor, pointBudget, viewport, contentTransform)"));
@@ -635,7 +705,9 @@ test("specialized wire thickness is scaled once from logical to raster resolutio
 
   const source = [
     readFileSync(new URL("../js/output/output-renderer.js", import.meta.url), "utf8"),
+    readFileSync(new URL("../js/output/specialized/specialized-source-runtime.js", import.meta.url), "utf8"),
     readFileSync(new URL("../js/output/specialized/terrain-renderer.js", import.meta.url), "utf8"),
+    readFileSync(new URL("../js/output/specialized/raw-model-webgl-renderer.js", import.meta.url), "utf8"),
   ].join("\n");
   assert.ok(source.includes("drawTerrainWireframe(target, this.terrainWireResources"));
   assert.ok(source.includes("const viewportSize = renderTargetPixelSize(target);"));
@@ -645,7 +717,12 @@ test("specialized wire thickness is scaled once from logical to raster resolutio
 });
 
 test("3d model scale uses logical render viewport instead of backing pixels", () => {
-  const source = readFileSync(new URL("../js/output/output-renderer.js", import.meta.url), "utf8");
+  const source = [
+    readFileSync(new URL("../js/output/output-renderer.js", import.meta.url), "utf8"),
+    readFileSync(new URL("../js/output/specialized/specialized-source-runtime.js", import.meta.url), "utf8"),
+    readFileSync(new URL("../js/output/specialized/model-render-math.js", import.meta.url), "utf8"),
+    readFileSync(new URL("../js/output/specialized/raw-model-webgl-renderer.js", import.meta.url), "utf8"),
+  ].join("\n");
 
   assert.ok(source.includes("const viewport = modelViewportMetrics(target, renderRequest);"));
   assert.ok(source.includes("target.camera?.(0, 0, viewport.cameraZ"));
@@ -660,7 +737,10 @@ test("3d model scale uses logical render viewport instead of backing pixels", ()
 test("parsed STL and OBJ models use one clipped raw WebGL renderer family", () => {
   const source = [
     readFileSync(new URL("../js/output/output-renderer.js", import.meta.url), "utf8"),
+    readFileSync(new URL("../js/output/output-media-runtime.js", import.meta.url), "utf8"),
+    readFileSync(new URL("../js/output/specialized/specialized-source-runtime.js", import.meta.url), "utf8"),
     readFileSync(new URL("../js/output/specialized/model-geometry.js", import.meta.url), "utf8"),
+    readFileSync(new URL("../js/output/specialized/raw-model-webgl-renderer.js", import.meta.url), "utf8"),
   ].join("\n");
 
   assert.ok(source.includes("drawRawParsedModelMode(target, item, params"));
@@ -682,29 +762,34 @@ test("parsed STL and OBJ models use one clipped raw WebGL renderer family", () =
 
 test("renderer source extraction merges source node params", () => {
   const source = readFileSync(new URL("../js/output/output-renderer.js", import.meta.url), "utf8");
+  const adapterSource = readFileSync(new URL("../js/output/component-patch-adapter.js", import.meta.url), "utf8");
 
-  assert.ok(source.includes("sourceWithNodeParams(node.state.source, node.params || {}"));
+  assert.ok(adapterSource.includes("sourceWithNodeParams(node.state.source, node.params || {}"));
   assert.ok(source.includes("sourceWithNodeParams(item.source || component.source, item.params || {}, item.id)"));
-  assert.ok(source.includes("...generatorParams"));
-  assert.ok(source.includes("...mediaParams"));
+  assert.ok(adapterSource.includes("...generatorParams"));
+  assert.ok(adapterSource.includes("...mediaParams"));
 });
 
 test("live source controls use dynamic param metadata", () => {
-  const source = readFileSync(new URL("../js/control/control-shell-controller.js", import.meta.url), "utf8");
+  const source = readFileSync(new URL("../js/control/scene-live-view.js", import.meta.url), "utf8");
+  const parameterSource = readFileSync(new URL("../js/control/parameter-view.js", import.meta.url), "utf8");
 
   assert.ok(source.includes("liveSourceParamControlsTemplate(item, componentId, path)"));
   assert.ok(source.includes("getGeneratorComponent(source.generatorId || \"testPattern\").params"));
   assert.ok(source.includes("MODEL_SOURCE_PARAMS"));
-  assert.ok(source.includes("paramControlTemplate(param,"));
+  assert.ok(source.includes("paramControlsTemplate(params,"));
+  assert.ok(parameterSource.includes("export function paramControlTemplate"));
   assert.ok(!source.includes("function liveParamControlTemplate"));
 });
 
 test("color picker exposes color and opacity without redundant hsv sliders", () => {
-  const source = readFileSync(new URL("../js/control/control-shell-controller.js", import.meta.url), "utf8");
+  const source = readFileSync(new URL("../js/control/input-controller.js", import.meta.url), "utf8");
+  const controllerSource = readFileSync(new URL("../js/control/control-shell-controller.js", import.meta.url), "utf8");
 
-  assert.ok(source.includes('change.phase === "color"'));
-  assert.ok(source.includes("rgbInput?.addEventListener(\"change\", () => updateColorParamFromControl(control, `color:${control.dataset.colorPath}`));"));
-  assert.ok(source.includes("alphaInput?.addEventListener(\"change\", () => updateColorParamFromControl(control, `color:${control.dataset.colorPath}`));"));
+  assert.ok(controllerSource.includes('change.phase === "color"'));
+  assert.ok(source.includes('control.dataset.colorMode === "live" ? (phase === "scrub" ? "scrub:live" : "live:update")'));
+  assert.ok(source.includes('rgbInput?.addEventListener("change", () => updateColorParamFromControl(control, reason("color")));'));
+  assert.ok(source.includes('alphaInput?.addEventListener("change", () => updateColorParamFromControl(control, reason("color")));'));
   assert.ok(!source.includes("data-color-hue"));
   assert.ok(!source.includes("data-color-sat"));
   assert.ok(!source.includes("data-color-val"));
@@ -831,6 +916,7 @@ test("output playback control is persistent and pauses renderer and video clocks
   assert.ok(rendererSource.includes("this.visualDeltaSeconds = playing ? dt * timeScale : 0"));
   assert.ok(rendererSource.includes("if (!playing) return"));
   assert.ok(rendererSource.includes("this.state?.global?.playing === false ? 0 : 1"));
+  assert.equal((rendererSource.match(/globalVisualTimeScale\(this\.state\?\.global\).*Number\(source\.speed\)/g) || []).length, 2);
   assert.ok(bridgeSource.includes("const clientWatchdog = setInterval"));
 });
 

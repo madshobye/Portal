@@ -31,7 +31,7 @@ export function createPreviewViewportController({ stage, store, getMode, getView
     event.preventDefault();
     const factor = Math.pow(1.0025, -event.deltaY);
     store.update((draft) => {
-      draft.ui.previewViewport = zoomViewport(draft.ui.previewViewport, factor);
+      updatePreviewViewportForUi(draft.ui, (viewport) => zoomViewport(viewport, factor));
     }, "scrub:preview-zoom");
   }, { passive: false });
 
@@ -54,12 +54,12 @@ export function createPreviewViewportController({ stage, store, getMode, getView
     if (!panDrag || panDrag.pointerId !== event.pointerId) return;
     event.preventDefault();
     store.update((draft) => {
-      draft.ui.previewViewport = {
-        ...(draft.ui.previewViewport || {}),
+      updatePreviewViewportForUi(draft.ui, (viewport) => ({
+        ...viewport,
         fit: "manual",
         x: panDrag.x + event.clientX - panDrag.startX,
         y: panDrag.y + event.clientY - panDrag.startY,
-      };
+      }));
     }, "scrub:preview-pan");
   }, true);
 
@@ -77,6 +77,24 @@ export function createPreviewViewportController({ stage, store, getMode, getView
       panDrag = null;
     },
   };
+}
+
+export function previewViewportKey(workspace = "component") {
+  return ["component", "canvas", "scene", "live"].includes(workspace) ? workspace : "component";
+}
+
+export function previewViewportForUi(ui = {}) {
+  const key = previewViewportKey(ui.workspace);
+  return ui.previewViewports?.[key] || ui.previewViewport || resetViewport();
+}
+
+export function updatePreviewViewportForUi(ui = {}, update) {
+  const key = previewViewportKey(ui.workspace);
+  const current = previewViewportForUi(ui);
+  const next = typeof update === "function" ? update(current) : update;
+  ui.previewViewports ||= {};
+  ui.previewViewports[key] = next || current;
+  return ui.previewViewports[key];
 }
 
 function isNavigablePreviewMode(mode) {

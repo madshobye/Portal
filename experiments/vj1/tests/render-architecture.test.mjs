@@ -1,8 +1,18 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 
 import { compileShaderSchedule, fuseLocalShaderSchedule } from "../js/graph/render-scheduler.js";
 import { effectTransformUniforms } from "../js/output/output-renderer.js";
+import {
+  CONTENT_COORDINATE_CONVENTION,
+  markRenderTargetOrientation,
+  RENDER_TARGET_ORIENTATION,
+  renderTargetNeedsPresentationFlip,
+  contentTransformCanvasPlacement,
+  contentTransformUvMatrices,
+  localContentDragDelta,
+} from "../js/output/content-coordinate-space.js";
 import { SharedFramebufferTarget, unwrapRenderTarget } from "../js/output/shared-framebuffer-target.js";
 import { mapperFragmentShaderSource, mapperTransitionFragmentShaderSource, mapperVertexShaderSource, normalizedSourceRect, projectedSurfaceAspect, projectionFitMode, surfaceQuadVertices } from "../js/output/vj-mapper.js";
 import { createShaderBuilder } from "../js/shaders/shader-builder.js";
@@ -65,6 +75,70 @@ test("precomputed effect matrices are inverse transforms", () => {
 
   assert.ok(Math.abs(restored[0] - point[0]) < 1e-9);
   assert.ok(Math.abs(restored[1] - point[1]) < 1e-9);
+});
+
+test("content coordinates preserve right and down across drag Canvas and UV boundaries", () => {
+  assert.deepEqual(CONTENT_COORDINATE_CONVENTION, { x: "right", y: "down", rotation: "clockwise" });
+  assert.deepEqual(localContentDragDelta(20, 10, {}, 200, 100), { x: 0.2, y: 0.2 });
+  const placed = contentTransformCanvasPlacement({ x: 0.2, y: 0.2 }, 200, 100);
+  assert.equal(placed.centerX, 120);
+  assert.equal(placed.centerY, 60);
+
+  const sampling = contentTransformUvMatrices({ x: 0.2, y: 0.2 }).sampling;
+  const sourceCenter = applyMat3(sampling, [0.6, 0.6]);
+  assert.ok(Math.abs(sourceCenter[0] - 0.5) < 1e-9);
+  assert.ok(Math.abs(sourceCenter[1] - 0.5) < 1e-9);
+});
+
+test("raw WebGL storage orientation is explicit and separate from Composition coordinates", () => {
+  const target = {};
+  assert.equal(renderTargetNeedsPresentationFlip(target), false);
+  assert.equal(markRenderTargetOrientation(target, RENDER_TARGET_ORIENTATION.rawWebGL), target);
+  assert.equal(renderTargetNeedsPresentationFlip(target), true);
+  markRenderTargetOrientation(target, RENDER_TARGET_ORIENTATION.composition);
+  assert.equal(renderTargetNeedsPresentationFlip(target), false);
+});
+
+test("terrain preserves world-up camera Y until Composition placement converts it once", () => {
+  const source = readFileSync(new URL("../js/output/specialized/terrain-renderer.js", import.meta.url), "utf8");
+  assert.match(source, /float terrainClipYFromWorldUp\(float worldUpY\)/);
+  assert.match(source, /return worldUpY;/);
+  assert.equal((source.match(/terrainClipYFromWorldUp\(cameraY\) \* focalLength/g) || []).length, 2);
+  assert.doesNotMatch(source, /terrainClipYFromScreenDown/);
+  assert.match(source, /uniform mat3 contentPlacementMatrix/);
+  assert.equal((source.match(/placeTerrainInComposition\(vec4\(/g) || []).length, 2);
+  assert.match(source, /clip\.w \* 0\.5 - clip\.y \* 0\.5/);
+  assert.match(source, /gl\.uniformMatrix3fv\(resources\.contentPlacementMatrix/);
+});
+
+test("terrain raw WebGL passes are isolated from the shared p5 renderer", () => {
+  const source = readFileSync(new URL("../js/output/specialized/terrain-renderer.js", import.meta.url), "utf8");
+  const rawWebGlSource = readFileSync(new URL("../js/output/specialized/raw-webgl-utils.js", import.meta.url), "utf8");
+  const stateSource = readFileSync(new URL("../js/output/specialized/raw-webgl-state.js", import.meta.url), "utf8");
+  assert.match(source, /beginRawWebGlState\(gl, "terrain-surface"\)/);
+  assert.match(source, /beginRawWebGlState\(gl, "terrain-wire"\)/);
+  assert.match(stateSource, /VERTEX_ARRAY_BINDING/);
+  assert.match(stateSource, /OES_vertex_array_object/);
+  assert.doesNotMatch(stateSource, /FRAMEBUFFER_BINDING|DEPTH_WRITEMASK|COLOR_WRITEMASK|BLEND_EQUATION_RGB/);
+  assert.equal((source.match(/restoreRawWebGlState\(gl, passState, attributeStates\)/g) || []).length, 2);
+  assert.equal((source.match(/\} finally \{/g) || []).length >= 2, true);
+  assert.match(rawWebGlSource, /\[VJ1_RAW_SHADER_COMPILE_FAILED\]/);
+  assert.match(rawWebGlSource, /\[VJ1_RAW_PROGRAM_LINK_FAILED\]/);
+});
+
+test("render recovery paths are observable and mapper overlays restore depth state", () => {
+  const framebufferSource = readFileSync(new URL("../js/output/shared-framebuffer-target.js", import.meta.url), "utf8");
+  const drawSource = readFileSync(new URL("../js/output/render-draw-utils.js", import.meta.url), "utf8");
+  const specializedSource = readFileSync(new URL("../js/output/specialized/specialized-source-runtime.js", import.meta.url), "utf8");
+  const mapperSource = readFileSync(new URL("../js/output/vj-mapper.js", import.meta.url), "utf8");
+
+  assert.match(framebufferSource, /\[VJ1_FRAMEBUFFER_UNAVAILABLE\]/);
+  assert.match(drawSource, /\[VJ1_SAMPLE_DRAW_FALLBACK\]/);
+  assert.match(drawSource, /\[VJ1_SAMPLE_DRAW_FAILED\]/);
+  assert.match(specializedSource, /\[VJ1_PRESENTATION_SHADER_FAILED\]/);
+  assert.match(specializedSource, /\[VJ1_SPECIALIZED_TARGET_RESIZE_FAILED\]/);
+  assert.match(mapperSource, /const depthWasEnabled = .*gl\.isEnabled\(gl\.DEPTH_TEST\)/);
+  assert.match(mapperSource, /if \(depthWasEnabled\) gl\.enable\?\.\(gl\.DEPTH_TEST\)/);
 });
 
 test("selected grain effects use the shared cached noise texture", () => {

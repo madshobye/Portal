@@ -1,7 +1,12 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { resolveViewportForFit } from "../js/output/preview-viewport.js";
+import {
+  previewViewportForUi,
+  resolveViewportForFit,
+  updatePreviewViewportForUi,
+  zoomViewport,
+} from "../js/output/preview-viewport.js";
 
 test("automatic viewport fits are resolved per workspace mode", () => {
   const render = {
@@ -22,8 +27,20 @@ test("automatic viewport fits are resolved per workspace mode", () => {
   );
 });
 
-test("manual viewport navigation remains shared intentionally", () => {
-  const manual = { fit: "manual", zoom: 2.25, x: 80, y: -30 };
-  assert.equal(resolveViewportForFit({ mode: "component", viewport: manual }), manual);
-  assert.equal(resolveViewportForFit({ mode: "preview", viewport: manual }), manual);
+test("manual viewport navigation is retained independently per workspace", () => {
+  const ui = {
+    workspace: "component",
+    previewViewports: {
+      component: { fit: "manual", zoom: 2.25, x: 80, y: -30 },
+      canvas: { fit: "frame", zoom: 1, x: 0, y: 0 },
+      scene: { fit: "frame", zoom: 1, x: 0, y: 0 },
+      live: { fit: "manual", zoom: 0.75, x: -12, y: 20 },
+    },
+  };
+
+  updatePreviewViewportForUi(ui, (viewport) => zoomViewport(viewport, 2));
+  assert.equal(previewViewportForUi(ui).zoom, 4.5);
+  ui.workspace = "live";
+  assert.deepEqual(previewViewportForUi(ui), { fit: "manual", zoom: 0.75, x: -12, y: 20 });
+  assert.equal(ui.previewViewports.component.zoom, 4.5);
 });

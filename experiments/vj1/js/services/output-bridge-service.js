@@ -6,11 +6,13 @@ export function createControlBridge({ store, mediaLibrary }) {
   const clientWatchdog = setInterval(() => {
     const count = activeClientCount(clients);
     const outputs = activeOutputClients(clients);
-    if (count === store.getState().metrics.clients && JSON.stringify(outputs) === JSON.stringify(store.getState().metrics.outputs || {})) return;
-    store.update((draft) => {
-      draft.metrics.clients = count;
-      draft.metrics.outputs = outputs;
-      if (!count) draft.metrics.message = "Output disconnected";
+    const metrics = store.getMetrics?.() || store.getState().metrics;
+    if (count === metrics.clients && JSON.stringify(outputs) === JSON.stringify(metrics.outputs || {})) return;
+    const updateMetrics = store.updateRuntime || ((recipe, reason) => store.update((draft) => recipe(draft.metrics), reason));
+    updateMetrics((next) => {
+      next.clients = count;
+      next.outputs = outputs;
+      if (!count) next.message = "Output disconnected";
     }, "output-metrics");
   }, 1000);
 
@@ -35,14 +37,14 @@ export function createControlBridge({ store, mediaLibrary }) {
     if (msg.type === "request-media-files") sendMediaFiles(mediaLibrary.getAllFiles());
     if (msg.type === "metrics") {
       clients.set(msg.clientId || "output", { at: performance.now(), outputId: msg.outputId || "output-main" });
-      store.update((draft) => {
-        draft.metrics = {
-          ...draft.metrics,
+      const updateMetrics = store.updateRuntime || ((recipe, reason) => store.update((draft) => recipe(draft.metrics), reason));
+      updateMetrics((next) => {
+        Object.assign(next, {
           ...msg.metrics,
           clients: activeClientCount(clients),
           outputs: activeOutputClients(clients),
           message: msg.metrics?.message || "Output connected",
-        };
+        });
       }, "output-metrics");
     }
     if (msg.type === "mapping-state") {
@@ -64,8 +66,9 @@ export function createControlBridge({ store, mediaLibrary }) {
   }
 
   function sendMediaFiles(files) {
-    if (!files?.length) return;
-    channel.postMessage({ type: "media-files", files });
+    // An empty list is an authoritative snapshot too: it clears media owned
+    // by an output after project close or a folder refresh.
+    channel.postMessage({ type: "media-files", files: files || [] });
   }
 
   function command(name, payload = {}) {

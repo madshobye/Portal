@@ -7,10 +7,32 @@ import { elementPickerTemplate } from "../js/control/picker-view.js";
 import { settingsModalTemplate } from "../js/control/settings-view.js";
 import { createInitialState } from "../js/domain/models.js";
 import { previewRasterDensity } from "../js/output/embedded-preview-app.js";
+import { isPointerInteractionNode } from "../js/control/dom-utils.js";
+
+test("preview presses defer UI rebuilding and draggable chain rows select on press", () => {
+  const controllerSource = readFileSync(new URL("../js/control/control-shell-controller.js", import.meta.url), "utf8");
+  const inputSource = readFileSync(new URL("../js/control/input-controller.js", import.meta.url), "utf8");
+  const previewTarget = {
+    closest(selector) {
+      return selector === "[data-embedded-preview-stage]" ? this : null;
+    },
+  };
+  const passiveTarget = { closest() { return null; } };
+
+  assert.equal(isPointerInteractionNode(previewTarget), true);
+  assert.equal(isPointerInteractionNode(passiveTarget), false);
+  assert.ok(controllerSource.includes("if (!isPointerInteractionNode(event.target)) return;"));
+  assert.match(inputSource, /querySelectorAll\("\[data-select-chain-item\]"\)[\s\S]*?addEventListener\("pointerdown"/);
+  assert.ok(inputSource.includes('button.addEventListener("click", select);'));
+  const previewSource = readFileSync(new URL("../js/output/embedded-preview-app.js", import.meta.url), "utf8");
+  assert.ok(previewSource.includes('element.setPointerCapture?.(event.pointerId);'));
+  assert.ok(previewSource.includes('element.addEventListener("pointermove", onPointerMove);'));
+  assert.ok(!previewSource.includes("canvas.mousePressed("));
+});
 
 test("range params render their label and value above a full-width slider", () => {
   const sharedRange = rangeTemplate("Opacity", "components.0.opacity", 0.42);
-  const controllerSource = readFileSync(new URL("../js/control/control-shell-controller.js", import.meta.url), "utf8");
+  const controllerSource = readFileSync(new URL("../js/control/input-controller.js", import.meta.url), "utf8");
   const styleSource = readFileSync(new URL("../style.css", import.meta.url), "utf8");
 
   assert.ok(sharedRange.includes('<span>Opacity</span>'));
@@ -44,13 +66,15 @@ test("Component Canvas and Live inspectors give range tracks their own full-widt
 
 test("groups expose blend mode and alpha in persistent and Live inspectors", () => {
   const controllerSource = readFileSync(new URL("../js/control/control-shell-controller.js", import.meta.url), "utf8");
-  const groupEditor = controllerSource.slice(
-    controllerSource.indexOf("function groupChainItemTemplate("),
-    controllerSource.indexOf("function sourceChainItemTemplate(")
+  const componentSource = readFileSync(new URL("../js/control/component-view.js", import.meta.url), "utf8");
+  const sceneLiveSource = readFileSync(new URL("../js/control/scene-live-view.js", import.meta.url), "utf8");
+  const groupEditor = componentSource.slice(
+    componentSource.indexOf("function groupChainItemTemplate("),
+    componentSource.indexOf("function sourceChainItemTemplate(")
   );
-  const liveGroup = controllerSource.slice(
-    controllerSource.indexOf('if (item.kind === "group")', controllerSource.indexOf("function liveChainItemTemplate(")),
-    controllerSource.indexOf("const referencedComponent", controllerSource.indexOf("function liveChainItemTemplate("))
+  const liveGroup = sceneLiveSource.slice(
+    sceneLiveSource.indexOf('if (item.kind === "group")', sceneLiveSource.indexOf("function liveChainItemTemplate(")),
+    sceneLiveSource.indexOf("const referencedComponent", sceneLiveSource.indexOf("function liveChainItemTemplate("))
   );
 
   assert.ok(groupEditor.includes('selectValuesTemplate(`${base}.blend`, BLEND_MODES'));
@@ -69,7 +93,7 @@ test("paired HSV ranges render two accessible handles and shared range state", (
     minValue: 200,
     maxValue: 260,
   });
-  const controllerSource = readFileSync(new URL("../js/control/control-shell-controller.js", import.meta.url), "utf8");
+  const controllerSource = readFileSync(new URL("../js/control/input-controller.js", import.meta.url), "utf8");
   const styleSource = readFileSync(new URL("../style.css", import.meta.url), "utf8");
 
   assert.ok(html.includes("data-param-range"));
@@ -86,27 +110,29 @@ test("paired HSV ranges render two accessible handles and shared range state", (
 });
 
 test("component panel exposes frame shape and relative resolution controls", () => {
-  const controllerSource = readFileSync(new URL("../js/control/control-shell-controller.js", import.meta.url), "utf8");
+  const componentSource = readFileSync(new URL("../js/control/component-view.js", import.meta.url), "utf8");
   const styleSource = readFileSync(new URL("../style.css", import.meta.url), "utf8");
 
-  assert.ok(controllerSource.includes('data-set-path="${base}.frameShape"'));
-  assert.ok(controllerSource.includes('data-set-path="${base}.resolutionScale"'));
-  assert.ok(controllerSource.includes('["landscape", "Landscape"]'));
-  assert.ok(controllerSource.includes('["portrait", "Portrait"]'));
-  assert.ok(controllerSource.includes('["square", "Square"]'));
-  assert.ok(controllerSource.includes("const scaleOptions = [0.5, 1, 2];"));
-  assert.ok(controllerSource.includes("component-frame-summary"));
+  assert.ok(componentSource.includes('data-set-path="${base}.frameShape"'));
+  assert.ok(componentSource.includes('data-set-path="${base}.resolutionScale"'));
+  assert.ok(componentSource.includes('["landscape", "Landscape"]'));
+  assert.ok(componentSource.includes('["portrait", "Portrait"]'));
+  assert.ok(componentSource.includes('["square", "Square"]'));
+  assert.ok(componentSource.includes("const scaleOptions = [0.5, 1, 2];"));
+  assert.ok(componentSource.includes("component-frame-summary"));
   assert.ok(styleSource.includes(".component-option-grid"));
 });
 
 test("control surfaces share one flat section module and concentric corner tokens", () => {
   const controllerSource = readFileSync(new URL("../js/control/control-shell-controller.js", import.meta.url), "utf8");
+  const primitivesSource = readFileSync(new URL("../js/control/view-primitives.js", import.meta.url), "utf8");
+  const componentSource = readFileSync(new URL("../js/control/component-view.js", import.meta.url), "utf8");
   const pickerSource = readFileSync(new URL("../js/control/picker-view.js", import.meta.url), "utf8");
   const settingsSource = readFileSync(new URL("../js/control/settings-view.js", import.meta.url), "utf8");
   const styleSource = readFileSync(new URL("../style.css", import.meta.url), "utf8");
 
   assert.ok(controllerSource.includes('class="ui-section rail-section"'));
-  assert.ok(controllerSource.includes('class="ui-section focus-panel"'));
+  assert.ok(primitivesSource.includes('class="ui-section focus-panel"'));
   assert.ok(pickerSource.includes('class="ui-section element-section"'));
   assert.ok(settingsSource.includes('class="ui-section element-section"'));
   assert.ok(styleSource.includes("--section-inset: 6px;"));
@@ -117,7 +143,7 @@ test("control surfaces share one flat section module and concentric corner token
   assert.match(styleSource, /\.section-toolbar \{[\s\S]*?border-radius: var\(--radius-section-inner\);/);
   assert.match(styleSource, /\.component-frame-summary \{[\s\S]*?border-radius: var\(--radius-section-inner\);/);
   assert.match(styleSource, /\.text-list-item \{[\s\S]*?border-radius: var\(--radius-section-inner\);/);
-  assert.ok(controllerSource.includes('class="section-toolbar component-quick-toolbar"'));
+  assert.ok(componentSource.includes('class="section-toolbar component-quick-toolbar"'));
 });
 
 test("topbar identity stays neutral until interaction", () => {
@@ -154,12 +180,14 @@ test("the scrollbar lane replaces excess space between the two control columns",
 
 test("editable element names live in their section headers beside the icon", () => {
   const controllerSource = readFileSync(new URL("../js/control/control-shell-controller.js", import.meta.url), "utf8");
+  const primitivesSource = readFileSync(new URL("../js/control/view-primitives.js", import.meta.url), "utf8");
   const settingsSource = readFileSync(new URL("../js/control/settings-view.js", import.meta.url), "utf8");
   const styleSource = readFileSync(new URL("../style.css", import.meta.url), "utf8");
 
-  assert.ok(controllerSource.includes("function titleInputTemplate(path, value)"));
-  assert.ok(controllerSource.includes("function editableSectionTitleTemplate(iconName, path, value)"));
-  assert.ok(controllerSource.includes('class="section-title-input"'));
+  assert.ok(primitivesSource.includes("function titleInputTemplate(path, value)"));
+  assert.ok(primitivesSource.includes("function editableSectionTitleTemplate(iconName, path, value)"));
+  assert.ok(primitivesSource.includes('class="section-title-input"'));
+  assert.ok(controllerSource.includes('from "./view-primitives.js?v=view-primitives-extraction-1"'));
   assert.ok(!controllerSource.includes('class="sculpt-head"'));
   assert.ok(settingsSource.includes('class="section-title-input"'));
   assert.ok(!settingsSource.includes('<label class="field">Name <input'));
@@ -171,10 +199,11 @@ test("editable element names live in their section headers beside the icon", () 
 
 test("thumbnail list items share a connected image and bottom label bar", () => {
   const controllerSource = readFileSync(new URL("../js/control/control-shell-controller.js", import.meta.url), "utf8");
+  const primitivesSource = readFileSync(new URL("../js/control/view-primitives.js", import.meta.url), "utf8");
   const styleSource = readFileSync(new URL("../style.css", import.meta.url), "utf8");
 
-  assert.ok(controllerSource.includes("function componentCardBarTemplate(label)"));
-  assert.ok(controllerSource.includes('class="component-card-bar"'));
+  assert.ok(primitivesSource.includes("function componentCardBarTemplate(label)"));
+  assert.ok(primitivesSource.includes('class="component-card-bar"'));
   assert.match(styleSource, /\.component-card > \.component-thumbnail,[\s\S]*?border-radius: var\(--radius-section-inner\) var\(--radius-section-inner\) 0 0;/);
   assert.match(styleSource, /\.component-card-bar \{[\s\S]*?min-height: 26px;[\s\S]*?padding: 4px 8px;[\s\S]*?border-radius: 0 0 var\(--radius-section-inner\) var\(--radius-section-inner\);[\s\S]*?background: #000;/);
   assert.match(styleSource, /\.component-card-bar span \{[\s\S]*?color: var\(--muted\);/);
@@ -209,7 +238,7 @@ test("movie trim keeps two handles while sharing the ordinary slider geometry", 
 });
 
 test("scene surfaces expose projection cover contain and stretch", () => {
-  const source = readFileSync(new URL("../js/control/control-shell-controller.js", import.meta.url), "utf8");
+  const source = readFileSync(new URL("../js/control/scene-live-view.js", import.meta.url), "utf8");
   assert.ok(!source.includes("Scene assignment"));
   assert.ok(source.includes('const PROJECTION_FIT_MODES = ["cover", "contain", "stretch"]'));
   assert.ok(source.includes("Projection fit"));
@@ -241,26 +270,28 @@ test("the primary workspace is architecturally named Component", () => {
 
 test("component catalogs expose stable per-view sorting modes", () => {
   const source = readFileSync(new URL("../js/control/control-shell-controller.js", import.meta.url), "utf8");
+  const catalogSource = readFileSync(new URL("../js/control/catalog-view.js", import.meta.url), "utf8");
   const style = readFileSync(new URL("../style.css", import.meta.url), "utf8");
   assert.ok(source.includes("state.ui?.catalogSortModes?.[scope]"));
-  assert.ok(source.includes('draft.ui.catalogSortModes ||= { component: "recent", scene: "recent" }'));
-  assert.ok(source.includes("draft.ui.catalogSortModes[catalog] = mode"));
+  assert.ok(source.includes('ui.catalogSortModes ||= { component: "recent", scene: "recent" }'));
+  assert.ok(source.includes("ui.catalogSortModes[catalog] = mode"));
   assert.ok(source.includes('catalogSortMode(state, "component")'));
   assert.ok(source.includes('catalogSortMode(state, "scene")'));
   assert.ok(source.includes("if (viewKey === activeCatalogViewKey) return"));
   assert.ok(source.includes("captureCatalogOrder(workspace, state)"));
-  assert.ok(source.includes('data-catalog-sort="${nextMode}"'));
-  assert.ok(source.includes("(activeIndex + 1) % modes.length"));
-  assert.ok(source.includes("Sorted by ${activeLabel.toLowerCase()}; click to sort by ${nextLabel.toLowerCase()}"));
-  assert.ok(!source.includes('role="group" aria-label="Sort components"'));
+  assert.ok(catalogSource.includes('data-catalog-sort="${nextMode}"'));
+  assert.ok(catalogSource.includes("(activeIndex + 1) % modes.length"));
+  assert.ok(catalogSource.includes("Sorted by ${activeLabel.toLowerCase()}; click to sort by ${nextLabel.toLowerCase()}"));
+  assert.ok(!catalogSource.includes('role="group" aria-label="Sort components"'));
   assert.ok(source.includes('["recent", "name", "created"]'));
   assert.ok(style.includes(".component-sort-toggle"));
 });
 
 test("Live scene cards expose reset only for retained temporary overrides", () => {
   const source = readFileSync(new URL("../js/control/control-shell-controller.js", import.meta.url), "utf8");
-  assert.ok(source.includes("data-reset-live-scene"));
-  assert.ok(source.includes("state.ui?.live?.sceneOverrides"));
+  const sceneLiveSource = readFileSync(new URL("../js/control/scene-live-view.js", import.meta.url), "utf8");
+  assert.ok(sceneLiveSource.includes("data-reset-live-scene"));
+  assert.ok(sceneLiveSource.includes("state.ui?.live?.sceneOverrides"));
   assert.ok(source.includes("store.resetLiveScene"));
 });
 
@@ -299,29 +330,65 @@ test("embedded preview retargets resize observation after workspace DOM replacem
   assert.ok(controllerSource.includes("render(state);"));
 });
 
+test("ordinary UI interactions do not wait through a fixed post-click quiet period", () => {
+  const source = readFileSync(new URL("../js/control/control-shell-controller.js", import.meta.url), "utf8");
+
+  assert.ok(!source.includes("interactionQuietMs"));
+  assert.ok(!source.includes("interactionHoldUntil"));
+  assert.match(source, /function scheduleDeferredRenderFlush\(\) \{[\s\S]*?setTimeout\(flushDeferredRender, 0\);/);
+  assert.match(source, /function shouldDeferRender\(\) \{[\s\S]*?return activePointerCount > 0 \|\| hasFocusedEditor\(\);/);
+  assert.match(source, /return active\?\.tagName !== "SELECT" && isTextEditingNode\(active\);/);
+});
+
+test("local UI controls use the UI-only state path", () => {
+  const controller = readFileSync(new URL("../js/control/control-shell-controller.js", import.meta.url), "utf8");
+  const app = readFileSync(new URL("../js/app.js", import.meta.url), "utf8");
+  const projectService = readFileSync(new URL("../js/services/project-folder-service.js", import.meta.url), "utf8");
+
+  assert.match(controller, /function updateUi\(recipe, reason\)[\s\S]*?store\.updateUi\(recipe, reason\)/);
+  assert.match(controller, /updateUi\(\(ui\) => \{[\s\S]*?updatePreviewViewportForUi\(ui, \(viewport\) => zoomViewport/);
+  assert.match(controller, /ui\.catalogSortModes\[catalog\] = mode/);
+  assert.match(app, /projectService\.scheduleAutoSave\(change\);[\s\S]*?change\.scope === "ui" \|\| change\.scope === "runtime"/);
+  assert.match(projectService, /if \(event\.phase === "edit" \|\| event\.phase === "scrub"\) return;/);
+  assert.ok(!projectService.includes('event.scope === "ui"'));
+});
+
+test("output metrics use a targeted runtime state path", () => {
+  const bridge = readFileSync(new URL("../js/services/output-bridge-service.js", import.meta.url), "utf8");
+
+  assert.ok(bridge.includes("store.getMetrics?.() || store.getState().metrics"));
+  assert.ok(bridge.includes("store.updateRuntime ||"));
+  assert.ok(!bridge.includes("store.getState().metrics.clients"));
+  assert.ok(!bridge.includes("store.getState().metrics.outputs"));
+});
+
 test("canvas uses the shared chain and exposes recording frames as scene routes", () => {
   const source = readFileSync(new URL("../js/control/control-shell-controller.js", import.meta.url), "utf8");
+  const componentSource = readFileSync(new URL("../js/control/component-view.js", import.meta.url), "utf8");
+  const selectorsSource = readFileSync(new URL("../js/control/control-selectors.js", import.meta.url), "utf8");
+  const modalSource = readFileSync(new URL("../js/control/modal-controller.js", import.meta.url), "utf8");
+  const inputSource = readFileSync(new URL("../js/control/input-controller.js", import.meta.url), "utf8");
   const style = readFileSync(new URL("../style.css", import.meta.url), "utf8");
   assert.ok(!source.includes("Build a larger visual with the same sources"));
   assert.ok(!source.includes("<span>Sampling</span>"));
   assert.match(source, /function canvasToolsTemplate[\s\S]*?Canvases[\s\S]*?<span>Frames<\/span>/);
   assert.ok(source.includes('class="recording-frame-pills"'));
   assert.ok(!source.includes('class="canvas-inspector-section"'));
-  assert.ok(source.includes("componentUnifiedChainTemplate(component, state, base)"));
-  assert.match(source, /function componentUnifiedChainTemplate[\s\S]*?<section class="chain-list-section" aria-label="Elements">/);
-  assert.doesNotMatch(source, /function componentUnifiedChainTemplate[\s\S]*?<span>Chain<\/span>/);
+  assert.ok(componentSource.includes("componentUnifiedChainTemplate(component, state, base)"));
+  assert.match(componentSource, /function componentUnifiedChainTemplate[\s\S]*?<section class="chain-list-section" aria-label="Elements">/);
+  assert.doesNotMatch(componentSource, /function componentUnifiedChainTemplate[\s\S]*?<span>Chain<\/span>/);
   assert.match(style, /\.chain-list-section \{[\s\S]*?padding: var\(--section-inset\);[\s\S]*?background: var\(--panel-2\);/);
-  assert.match(source, /function componentSelectedChainSettingsTemplate[\s\S]*?<section class="ui-section focus-panel chain-settings-panel" aria-label="Selected element parameters">/);
+  assert.match(componentSource, /function componentSelectedChainSettingsTemplate[\s\S]*?<section class="ui-section focus-panel chain-settings-panel" aria-label="Selected element parameters">/);
   assert.match(source, /currentWorkspace\(state\) === "component"[\s\S]*?componentSelectedChainSettingsTemplate\(selectedComponent, state\)/);
   assert.match(source, /currentWorkspace\(state\) === "canvas"[\s\S]*?componentSelectedChainSettingsTemplate\(selectedCanvas, state\)/);
   assert.ok(!source.includes('emptyNote("Select a chain item")'));
   assert.match(style, /\.chain-item-editor \{[\s\S]*?padding: 0;[\s\S]*?background: transparent;/);
   assert.ok(source.includes('workspace === "component" || workspace === "canvas" ? "component"'));
-  assert.ok(source.includes("data-add-element-component"));
-  assert.ok(source.includes('type: "component"'));
-  assert.ok(source.includes('ownerComponent?.type === "canvas" && item.source?.type === "component"'));
-  assert.ok(source.includes('isCanvasComponentPlacement ? "" : `<label class="field">Component'));
-  assert.ok(source.includes('if (item.source?.type === "component") return sourceTitle'));
+  assert.ok(modalSource.includes("data-add-element-component"));
+  assert.ok(modalSource.includes('type: "component"'));
+  assert.ok(componentSource.includes('ownerComponent?.type === "canvas" && item.source?.type === "component"'));
+  assert.ok(componentSource.includes('isCanvasComponentPlacement ? "" : `<label class="field">Component'));
+  assert.ok(componentSource.includes('if (item.source?.type === "component") return sourceTitle'));
   assert.ok(source.includes("data-preview-quality"));
   assert.ok(source.includes("data-preview-quality-label"));
   assert.ok(source.includes('quality === "auto" ? "low" : quality === "low" ? "full" : "auto"'));
@@ -330,11 +397,11 @@ test("canvas uses the shared chain and exposes recording frames as scene routes"
   assert.ok(source.includes("draft.ui.previewQualities[workspace]"));
   assert.ok(!source.includes('data-update="${base}.canvas.previewQuality"'));
   assert.ok(source.includes("data-add-canvas-frame"));
-  assert.ok(source.includes("data-set-route-source-node"));
+  assert.ok(inputSource.includes("data-set-route-source-node"));
   assert.ok(!source.includes("data-assign-scene-source"));
   assert.ok(source.includes("sceneSourceNodes(state)"));
   assert.ok(source.includes('catalogItemsInSnapshot("component", ordinaryComponents(state))'));
-  assert.ok(source.includes('filter((component) => component.type !== "canvas")'));
+  assert.ok(selectorsSource.includes('filter((component) => component.type !== "canvas")'));
   assert.ok(!source.includes("data-set-route-frame"));
   assert.ok(source.includes("state.recordingFrames || []"));
   assert.ok(!source.includes("component.canvas?.frames"));
@@ -354,12 +421,14 @@ test("Scene and Live preview resolution supports automatic low and full demand",
 
 test("compact text lists share one full-width item generator", () => {
   const source = readFileSync(new URL("../js/control/control-shell-controller.js", import.meta.url), "utf8");
+  const componentSource = readFileSync(new URL("../js/control/component-view.js", import.meta.url), "utf8");
+  const primitives = readFileSync(new URL("../js/control/view-primitives.js", import.meta.url), "utf8");
   const style = readFileSync(new URL("../style.css", import.meta.url), "utf8");
 
-  assert.ok(source.includes("function textListItemTemplate("));
+  assert.ok(primitives.includes("function textListItemTemplate("));
   assert.match(source, /function canvasFramePillTemplate[\s\S]*?return textListItemTemplate\(/);
-  assert.match(source, /function selectablePillTemplate[\s\S]*?return textListItemTemplate\(/);
-  assert.match(source, /function chainItemRowTemplate[\s\S]*?const row = textListItemTemplate\(/);
+  assert.match(primitives, /function selectablePillTemplate[\s\S]*?return textListItemTemplate\(/);
+  assert.match(componentSource, /function chainItemRowTemplate[\s\S]*?const row = textListItemTemplate\(/);
   assert.ok(style.includes(".text-list-item {"));
   assert.match(style, /\.text-list-item \{[\s\S]*?grid-template-columns: minmax\(0, 1fr\);[\s\S]*?border: 1px solid var\(--line\);/);
   assert.match(style, /\.text-list-item\.has-leading\.has-remove \{[\s\S]*?var\(--text-list-leading-size\)[\s\S]*?var\(--text-list-remove-size\)/);
@@ -376,14 +445,15 @@ test("compact text lists share one full-width item generator", () => {
 });
 
 test("Live expands Canvas component placements into referenced element controls", () => {
-  const source = readFileSync(new URL("../js/control/control-shell-controller.js", import.meta.url), "utf8");
-  assert.ok(source.includes("live-referenced-component"));
-  assert.match(source, /currentWorkspace\(state\) === "live"[\s\S]*?html = liveInspectorTemplate\(state\);/);
-  assert.match(source, /function liveComponentTemplate[\s\S]*?<article class="ui-section focus-panel live-component-card">[\s\S]*?<header class="ui-section-header panel-title live-component-head">/);
-  assert.ok(!source.includes('class="live-panel"'));
-  assert.ok(source.includes("createLiveComponentView(referencedComponent, state)"));
-  assert.ok(source.includes("liveUnifiedChainTemplate(referencedView.chain, referencedComponent.id, state, nextAncestry)"));
-  assert.ok(source.includes("!ancestry.has(referencedComponent.id)"));
+  const controllerSource = readFileSync(new URL("../js/control/control-shell-controller.js", import.meta.url), "utf8");
+  const sceneLiveSource = readFileSync(new URL("../js/control/scene-live-view.js", import.meta.url), "utf8");
+  assert.ok(sceneLiveSource.includes("live-referenced-component"));
+  assert.match(controllerSource, /currentWorkspace\(state\) === "live"[\s\S]*?html = liveInspectorTemplate\(state\);/);
+  assert.match(sceneLiveSource, /function liveComponentTemplate[\s\S]*?<article class="ui-section focus-panel live-component-card">[\s\S]*?<header class="ui-section-header panel-title live-component-head">/);
+  assert.ok(!sceneLiveSource.includes('class="live-panel"'));
+  assert.ok(sceneLiveSource.includes("createLiveComponentView(referencedComponent, state)"));
+  assert.ok(sceneLiveSource.includes("liveUnifiedChainTemplate(referencedView.chain, referencedComponent.id, state, nextAncestry)"));
+  assert.ok(sceneLiveSource.includes("!ancestry.has(referencedComponent.id)"));
 });
 
 test("project settings expose component upscaling and native-resolution post filters", () => {
@@ -420,7 +490,7 @@ test("project settings expose one adaptive surface texture policy", () => {
 });
 
 test("project settings expose common WXGA and WUXGA projector presets", () => {
-  const source = `${readFileSync(new URL("../js/control/control-shell-controller.js", import.meta.url), "utf8")}\n${settingsModalTemplate(createInitialState())}`;
+  const source = `${readFileSync(new URL("../js/control/modal-controller.js", import.meta.url), "utf8")}\n${settingsModalTemplate(createInitialState())}`;
   assert.ok(source.includes('data-render-preset="wxga" title="1280 x 800"'));
   assert.ok(source.includes('data-render-preset="wuxga" title="1920 x 1200"'));
   assert.ok(source.includes("wxga: [1280, 800]"));
@@ -438,7 +508,7 @@ test("project settings expose camera capture preferences", () => {
 });
 
 test("project settings keep one modal DOM and patch tab values in place", () => {
-  const source = `${readFileSync(new URL("../js/control/control-shell-controller.js", import.meta.url), "utf8")}\n${settingsModalTemplate(createInitialState())}`;
+  const source = `${readFileSync(new URL("../js/control/modal-controller.js", import.meta.url), "utf8")}\n${settingsModalTemplate(createInitialState())}`;
   assert.ok(source.includes('if (!host.querySelector("[data-settings-modal]"))'));
   assert.ok(source.includes("function syncSettingsModal(host, state)"));
   assert.ok(source.includes("function bindSettingsModalControls(host)"));
@@ -451,11 +521,22 @@ test("project settings keep one modal DOM and patch tab values in place", () => 
 
 test("scrub changes are sent to live output on the next animation frame", () => {
   const appSource = readFileSync(new URL("../js/app.js", import.meta.url), "utf8");
+  const stateSource = readFileSync(new URL("../js/app-state.js", import.meta.url), "utf8");
+  const inputSource = readFileSync(new URL("../js/control/input-controller.js", import.meta.url), "utf8");
+  const previewSource = readFileSync(new URL("../js/output/embedded-preview-app.js", import.meta.url), "utf8");
+  const rendererSource = readFileSync(new URL("../js/output/output-renderer.js", import.meta.url), "utf8");
+  const outputSource = readFileSync(new URL("../js/output/output-app.js", import.meta.url), "utf8");
 
   assert.ok(appSource.includes("function sendScrubState()"));
   assert.ok(appSource.includes("requestAnimationFrame"));
   assert.ok(appSource.includes("sendScrubState();"));
   assert.ok(!appSource.includes("setTimeout(() => bridge.sendState(), 90)"));
+  assert.ok(stateSource.includes("function updateLive(recipe"));
+  assert.ok(inputSource.includes('typeof store.updateLive === "function"'));
+  assert.ok(previewSource.includes('pendingState?.ui?.outputWindowOpen && pendingState?.ui?.workspace !== "live"'));
+  assert.ok(previewSource.includes('renderer.setState(previewSizedState(), { normalized: true });'));
+  assert.ok(rendererSource.includes('setState(nextState, { normalized = false } = {})'));
+  assert.ok(outputSource.includes('renderer?.setState(state, { normalized: true });'));
 });
 
 test("opening an output from Scene takes that Scene live before opening the Live-driven popup", () => {
@@ -576,13 +657,13 @@ test("component selection modal exposes the shared persisted catalog sorting", (
     components: [state.components[2], state.components[1], state.components[0]],
     sortMode: "name",
   });
-  const controller = readFileSync(new URL("../js/control/control-shell-controller.js", import.meta.url), "utf8");
+  const controller = readFileSync(new URL("../js/control/modal-controller.js", import.meta.url), "utf8");
   const style = readFileSync(new URL("../style.css", import.meta.url), "utf8");
 
   assert.ok(html.indexOf("Alpha") < html.indexOf("Beta"));
   assert.match(html, /data-catalog-sort-scope="component" data-catalog-sort="created"/);
   assert.match(html, /Sorted by name; click to sort by created/);
-  assert.ok(controller.includes("sortComponentCatalog(state.components || [], modalSortMode)"));
+  assert.ok(controller.includes("sortComponentCatalog(state.components || [], sortMode)"));
   assert.ok(controller.includes("bindCatalogSortControls(host)"));
   assert.match(style, /\.component-sort-toggle button\.is-active \{[\s\S]*?background: transparent;[\s\S]*?color: var\(--muted\);/);
   assert.match(style, /\.component-sort-toggle button:active,[\s\S]*?background: var\(--accent-strong\);/);
@@ -630,11 +711,11 @@ test("empty project start shows one folder action and disables project views", (
 });
 
 test("3d model controls use full-width slider rows", () => {
-  const controllerSource = readFileSync(new URL("../js/control/control-shell-controller.js", import.meta.url), "utf8");
+  const componentSource = readFileSync(new URL("../js/control/component-view.js", import.meta.url), "utf8");
   const styleSource = readFileSync(new URL("../style.css", import.meta.url), "utf8");
-  const modelControls = controllerSource.slice(
-    controllerSource.indexOf("function modelSourceControlsTemplate"),
-    controllerSource.indexOf("function generatorParamControlsTemplate")
+  const modelControls = componentSource.slice(
+    componentSource.indexOf("function modelSourceControlsTemplate"),
+    componentSource.indexOf("function generatorParamControlsTemplate")
   );
 
   assert.ok(modelControls.includes("model-param-list"));
@@ -648,15 +729,18 @@ test("3d model controls use full-width slider rows", () => {
 
 test("seed params stay internal and are not rendered as sliders", () => {
   const controllerSource = readFileSync(new URL("../js/control/control-shell-controller.js", import.meta.url), "utf8");
+  const componentSource = readFileSync(new URL("../js/control/component-view.js", import.meta.url), "utf8");
+  const sceneLiveSource = readFileSync(new URL("../js/control/scene-live-view.js", import.meta.url), "utf8");
+  const parameterSource = readFileSync(new URL("../js/control/parameter-view.js", import.meta.url), "utf8");
 
-  assert.ok(controllerSource.includes('param?.id !== "seed"'));
-  assert.ok(controllerSource.includes("const visible = visibleParamControls(params);"));
-  assert.ok(controllerSource.includes("paramControlsTemplate(component.params"));
-  assert.ok(controllerSource.includes("paramControlsTemplate(params"));
+  assert.ok(parameterSource.includes('param?.id !== "seed"'));
+  assert.ok(parameterSource.includes("const visible = visibleParamControls(params);"));
+  assert.ok(componentSource.includes("paramControlsTemplate(component.params"));
+  assert.ok(sceneLiveSource.includes("paramControlsTemplate(params"));
 });
 
 test("selected generators omit the redundant source chooser", () => {
-  const source = readFileSync(new URL("../js/control/control-shell-controller.js", import.meta.url), "utf8");
+  const source = readFileSync(new URL("../js/control/component-view.js", import.meta.url), "utf8");
   const picker = source.slice(source.indexOf("function sourcePickerTemplate("), source.indexOf("function mediaSourceFitControlsTemplate("));
 
   assert.match(picker, /source\.type === "generator" \? "" : `<div class="field">/);
@@ -664,7 +748,7 @@ test("selected generators omit the redundant source chooser", () => {
 });
 
 test("inspector dropdowns share compact slider-like styling without an orange focus ring", () => {
-  const source = readFileSync(new URL("../js/control/control-shell-controller.js", import.meta.url), "utf8");
+  const source = readFileSync(new URL("../js/control/component-view.js", import.meta.url), "utf8");
   const style = readFileSync(new URL("../style.css", import.meta.url), "utf8");
   const editor = source.slice(source.indexOf("function sourceChainItemTemplate("), source.indexOf("function sourceTransformControlsTemplate("));
 
@@ -676,7 +760,7 @@ test("inspector dropdowns share compact slider-like styling without an orange fo
 });
 
 test("components expose persistent instance synchronization without changing component ids", () => {
-  const controllerSource = readFileSync(new URL("../js/control/control-shell-controller.js", import.meta.url), "utf8");
+  const controllerSource = readFileSync(new URL("../js/control/component-view.js", import.meta.url), "utf8");
 
   assert.ok(controllerSource.includes("function componentInstanceSyncTemplate"));
   assert.ok(controllerSource.includes("Sync instances"));
@@ -687,16 +771,18 @@ test("components expose persistent instance synchronization without changing com
 
 test("global clipboard routing follows clicked lists chains Groups and external images", () => {
   const source = readFileSync(new URL("../js/control/control-shell-controller.js", import.meta.url), "utf8");
+  const clipboardSource = readFileSync(new URL("../js/control/clipboard-controller.js", import.meta.url), "utf8");
   const previewSource = readFileSync(new URL("../js/output/embedded-preview-app.js", import.meta.url), "utf8");
 
-  assert.ok(source.includes('window.addEventListener("copy", copyFromCurrentTarget)'));
-  assert.ok(source.includes('window.addEventListener("paste", pasteIntoCurrentTarget)'));
+  assert.ok(source.includes("clipboard.bindWindowEvents()"));
+  assert.ok(clipboardSource.includes('window.addEventListener("copy", copyFromCurrentTarget)'));
+  assert.ok(clipboardSource.includes('window.addEventListener("paste", pasteIntoCurrentTarget)'));
   assert.ok(source.includes('data-paste-scope="component-list"'));
   assert.ok(source.includes('data-paste-scope="canvas-list"'));
   assert.ok(source.includes('data-paste-scope="scene-list"'));
   assert.ok(source.includes('data-paste-scope="surface-list"'));
-  assert.ok(source.includes("imageFilesFromTransfer"));
-  assert.ok(source.includes("imageUrlFromTransfer"));
+  assert.ok(clipboardSource.includes("imageFilesFromTransfer"));
+  assert.ok(clipboardSource.includes("imageUrlFromTransfer"));
   assert.ok(source.includes("onChainItemTarget: (componentId, itemId)"));
   assert.ok(previewSource.includes("onChainItemTarget?.(state.ui.selectedComponentId, itemId)"));
 });
@@ -711,11 +797,11 @@ test("project undo and redo expose standard keyboard shortcuts", () => {
 });
 
 test("global selection supports cut and guarded delete shortcuts", () => {
-  const source = readFileSync(new URL("../js/control/control-shell-controller.js", import.meta.url), "utf8");
+  const source = readFileSync(new URL("../js/control/clipboard-controller.js", import.meta.url), "utf8");
 
   assert.ok(source.includes('window.addEventListener("cut", cutFromCurrentTarget)'));
   assert.ok(source.includes('window.addEventListener("keydown", handleDeleteKeydown)'));
   assert.ok(source.includes("writeClipboardPayload(event, payload)"));
   assert.ok(source.includes('event.key !== "Delete" && event.key !== "Backspace"'));
-  assert.ok(source.includes("store.removeChainItem?.(target.componentId, target.itemId)"));
+  assert.ok(source.includes("store.removeChainItem?.(value.componentId, value.itemId)"));
 });

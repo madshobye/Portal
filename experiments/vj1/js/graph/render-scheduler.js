@@ -1,6 +1,6 @@
 import { createVisualNode, normalizeParamValues, paramValue, textureInlet, textureOutlet, textureRenderContract } from "./component-schema.js?v=adaptive-component-demand-29";
 import { getGeneratorComponent } from "./generator-registry.js?v=adaptive-component-demand-29";
-import { getShaderComponent } from "../shaders/shader-registry.js?v=adaptive-component-demand-29";
+import { getShaderComponent } from "../shaders/shader-registry.js?v=shader-component-catalog-extraction-1";
 
 export function compileComponentPatch(component = {}, renderRequest = {}) {
   const request = normalizePatchRenderRequest(renderRequest);

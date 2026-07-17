@@ -1,8 +1,8 @@
 import { VJ1 } from "../constants.js";
-import { sanitizeState } from "../domain/models.js?v=centered-freeze-68";
-import { OutputRenderer } from "./output-renderer.js?v=centered-freeze-68";
+import { OutputRenderer } from "./output-renderer.js?v=video-active-ownership-1";
 import { applyFontToGlobal, loadVjRenderFont } from "./font-loader.js?v=adaptive-component-demand-29";
-import { createPreviewViewportController, fitPreviewCanvasElement } from "./preview-viewport.js?v=adaptive-component-demand-29";
+import { createPreviewViewportController, fitPreviewCanvasElement, previewViewportForUi } from "./preview-viewport.js?v=render-coordinate-scope-3";
+import { canvasPointerToLogicalPoint } from "./preview-interaction-geometry.js?v=transform-hit-contract-3";
 import { canvasSizeForMode } from "./render-geometry.js?v=adaptive-component-demand-29";
 
 export function createEmbeddedPreviewApp({ store, mediaLibrary, projectService, onChainItemTarget }) {
@@ -24,6 +24,8 @@ export function createEmbeddedPreviewApp({ store, mediaLibrary, projectService, 
   let canvasWidth = 0;
   let canvasHeight = 0;
   let pointerActive = false;
+  let activePointerId = null;
+  let unbindCanvasPointerEvents = null;
   let viewportController = null;
   let paused = false;
   let renderFont = null;
@@ -37,7 +39,7 @@ export function createEmbeddedPreviewApp({ store, mediaLibrary, projectService, 
     stage = nextStage;
     hud = nextHud;
     pendingMode = mode;
-    pendingState = sanitizeState(state || pendingState || {});
+    pendingState = state || pendingState || {};
     host?.classList.remove("is-paused");
     paused = false;
     if (typeof loop === "function") loop();
@@ -50,8 +52,8 @@ export function createEmbeddedPreviewApp({ store, mediaLibrary, projectService, 
       renderer.mode = pendingMode;
       renderer.hud = hud;
       if (needsSettledReveal) hideCanvasUntilSettledDraw();
-      else resizeToStage(true);
-      renderer.setState(previewSizedState());
+      const resized = resizeToStage();
+      if (!resized) renderer.setState(previewSizedState(), { normalized: true });
       importMediaFilesIfChanged();
       renderer.setCalibrate(pendingMode === "preview" && pendingState.global.calibrating);
       scheduleSettledResize({ revealAfterDraw: needsSettledReveal });
@@ -61,12 +63,12 @@ export function createEmbeddedPreviewApp({ store, mediaLibrary, projectService, 
 
   function setState(state, mode = pendingMode) {
     pendingMode = mode;
-    pendingState = sanitizeState(state || {});
+    pendingState = state || {};
     applyPreviewFrameRate();
     if (!renderer) return;
     renderer.mode = pendingMode;
-    resizeToStage(true);
-    renderer.setState(previewSizedState());
+    const resized = resizeToStage();
+    if (!resized) renderer.setState(previewSizedState(), { normalized: true });
     importMediaFilesIfChanged();
   }
 
@@ -85,6 +87,8 @@ export function createEmbeddedPreviewApp({ store, mediaLibrary, projectService, 
   }
 
   function cleanup() {
+    unbindCanvasPointerEvents?.();
+    unbindCanvasPointerEvents = null;
     renderer?.dispose?.();
     renderer = null;
     resizeObserver?.disconnect?.();
@@ -99,8 +103,6 @@ export function createEmbeddedPreviewApp({ store, mediaLibrary, projectService, 
     started = true;
     window.setup = setup;
     window.draw = draw;
-    window.mouseDragged = mouseDragged;
-    window.mouseReleased = mouseReleased;
     window.windowResized = resizeToStage;
     window.addEventListener("pagehide", cleanup, { once: true });
     loadClassicScript(VJ1.p5Script)
@@ -120,13 +122,9 @@ export function createEmbeddedPreviewApp({ store, mediaLibrary, projectService, 
     const size = stageSize();
     canvas = createCanvas(size.width, size.height, WEBGL);
     canvas.parent(stage);
+    bindCanvasPointerEvents();
     applyLoadedFont();
     fitCanvasToStage(size);
-    canvas.mousePressed(() => {
-      pointerActive = true;
-      renderer?.mousePressed?.(mouseX, mouseY);
-      return false;
-    });
     pixelDensity(1);
     applyPreviewFrameRate();
     if (window.p5) window.p5.disableFriendlyErrors = true;
@@ -144,11 +142,11 @@ export function createEmbeddedPreviewApp({ store, mediaLibrary, projectService, 
       sendChainTransform: updateChainTransform,
       onChainItemSelect: selectChainItem,
       sendCanvasFrame: updateCanvasFrame,
-      sendMediaRendition: (mediaId, width, height, blob) => projectService?.writeMediaRendition?.(mediaId, width, height, blob),
+      sendMediaRendition: (mediaId, width, height, blob, sourceRevision) => projectService?.writeMediaRendition?.(mediaId, width, height, blob, sourceRevision),
       requestMediaFiles: () => importMediaFilesIfChanged(true),
       onSurfaceSelect: selectSurface,
     });
-    await renderer.setup(previewSizedState(size));
+    await renderer.setup(previewSizedState(size), { normalized: true });
     importMediaFilesIfChanged(true);
     resizeObserver = new ResizeObserver(() => {
       if (!layoutSettleActive) resizeToStage();
@@ -171,32 +169,70 @@ export function createEmbeddedPreviewApp({ store, mediaLibrary, projectService, 
     }
   }
 
-  function mouseDragged() {
-    if (!pointerActive) return;
-    renderer?.mouseDragged?.(mouseX, mouseY);
-    return false;
+  function bindCanvasPointerEvents() {
+    unbindCanvasPointerEvents?.();
+    const element = canvas?.elt || canvas;
+    if (!element?.addEventListener) return;
+    const point = (event) => {
+      const rect = element.getBoundingClientRect();
+      // p5 logical coordinates own editor geometry. The DOM width/height are
+      // backing-store pixels and may temporarily differ after density or
+      // resize changes, so they must never scale pointer input.
+      return canvasPointerToLogicalPoint(event.clientX, event.clientY, rect, {
+        width: Number(canvasWidth) || Number(globalThis.width) || rect.width,
+        height: Number(canvasHeight) || Number(globalThis.height) || rect.height,
+      });
+    };
+    const onPointerDown = (event) => {
+      if (event.button !== 0 || event.altKey) return;
+      event.preventDefault();
+      pointerActive = true;
+      activePointerId = event.pointerId;
+      element.setPointerCapture?.(event.pointerId);
+      const position = point(event);
+      renderer?.mousePressed?.(position.x, position.y);
+    };
+    const onPointerMove = (event) => {
+      if (!pointerActive || event.pointerId !== activePointerId) return;
+      event.preventDefault();
+      const position = point(event);
+      renderer?.mouseDragged?.(position.x, position.y);
+    };
+    const finishPointer = (event) => {
+      if (!pointerActive || event.pointerId !== activePointerId) return;
+      pointerActive = false;
+      activePointerId = null;
+      element.releasePointerCapture?.(event.pointerId);
+      renderer?.mouseReleased?.();
+    };
+    element.addEventListener("pointerdown", onPointerDown);
+    element.addEventListener("pointermove", onPointerMove);
+    element.addEventListener("pointerup", finishPointer);
+    element.addEventListener("pointercancel", finishPointer);
+    unbindCanvasPointerEvents = () => {
+      element.removeEventListener("pointerdown", onPointerDown);
+      element.removeEventListener("pointermove", onPointerMove);
+      element.removeEventListener("pointerup", finishPointer);
+      element.removeEventListener("pointercancel", finishPointer);
+      pointerActive = false;
+      activePointerId = null;
+    };
   }
 
-  function mouseReleased() {
-    if (!pointerActive) return;
-    pointerActive = false;
-    renderer?.mouseReleased?.();
-    return false;
-  }
-
-  function resizeToStage(force = false) {
-    if (!canvas || !stage) return;
+  function resizeToStage() {
+    if (!canvas || !stage) return false;
     const size = stageSize();
     const logical = canvasLogicalSize();
-    if (!force && logical.width === canvasWidth && logical.height === canvasHeight) {
+    if (logical.width === canvasWidth && logical.height === canvasHeight) {
       fitCanvasToStage(size);
-      return;
+      return false;
     }
     canvasWidth = logical.width;
     canvasHeight = logical.height;
     resizeCanvas(logical.width, logical.height);
     fitCanvasToStage(size, logical);
-    renderer?.setState(previewSizedState(size));
+    renderer?.setState(previewSizedState(size), { normalized: true });
+    return true;
   }
 
   function observeCurrentStage() {
@@ -277,13 +313,13 @@ export function createEmbeddedPreviewApp({ store, mediaLibrary, projectService, 
       mode: pendingMode,
       stageSize: size,
       logicalSize: logical,
-      viewport: pendingState?.ui?.previewViewport || {},
+      viewport: previewViewportForUi(pendingState?.ui),
       render: pendingState?.render || {},
     });
   }
 
   function previewSizedState(size = stageSize()) {
-    const state = sanitizeState(pendingState || {});
+    const state = pendingState || {};
     const logical = canvasLogicalSize();
     const deviceScale = Math.max(1, Math.min(2, Number(window.devicePixelRatio) || 1));
     const displayScale = Math.min(size.width / logical.width, size.height / logical.height, 1);
@@ -313,7 +349,7 @@ export function createEmbeddedPreviewApp({ store, mediaLibrary, projectService, 
     if (typeof frameRate !== "function") return;
     const target = pendingState?.ui?.debugPreview === false
       ? 60
-      : pendingState?.ui?.outputWindowOpen
+      : pendingState?.ui?.outputWindowOpen && pendingState?.ui?.workspace !== "live"
         ? 30
         : 60;
     if (appliedFrameRate === target) return;
@@ -330,12 +366,6 @@ export function createEmbeddedPreviewApp({ store, mediaLibrary, projectService, 
     renderer.importFiles(files);
   }
 
-  function mediaFilesSignatureFor(files = []) {
-    return (files || [])
-      .map((file) => `${file.name || ""}:${file.size || 0}:${file.lastModified || 0}`)
-      .join("|");
-  }
-
   function bindStageViewportEvents() {
     if (!stage || viewportController?.stage === stage) return;
     viewportController?.destroy?.();
@@ -343,9 +373,10 @@ export function createEmbeddedPreviewApp({ store, mediaLibrary, projectService, 
       stage,
       store,
       getMode: () => pendingMode,
-      getViewport: () => pendingState?.ui?.previewViewport || {},
+      getViewport: () => previewViewportForUi(pendingState?.ui),
       onPanStart: () => {
         pointerActive = false;
+        activePointerId = null;
       },
     });
     viewportController.stage = stage;
@@ -423,6 +454,21 @@ export function createEmbeddedPreviewApp({ store, mediaLibrary, projectService, 
   }
 
   return { mount, setState, command, pause };
+}
+
+export function mediaFilesSignatureFor(entries = []) {
+  return (entries || [])
+    .map((entry) => {
+      const file = entry?.file || entry || {};
+      const id = entry?.id || file.relativePath || file.webkitRelativePath || file.name || "";
+      const renditions = (entry?.renditions || [])
+        .map((rendition) => `${rendition.key || ""}:${rendition.file?.size || 0}:${rendition.file?.lastModified || 0}`)
+        .sort()
+        .join(",");
+      return `${id}:${file.size || 0}:${file.lastModified || 0}:${file.type || ""}:${renditions}`;
+    })
+    .sort()
+    .join("|");
 }
 
 export function previewRasterDensity({ configuredDensity = 1, displayScale = 1, deviceScale = 1, quality = "auto" } = {}) {

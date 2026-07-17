@@ -1,0 +1,135 @@
+import { normalizeParamValue } from "../graph/component-schema.js?v=adaptive-component-demand-29";
+import { esc, formatRangeValue, paramRangePairTemplate } from "./template-utils.js?v=slider-values-70";
+
+export function shaderParamControlsTemplate(component, pass, basePath) {
+  if (!component?.params?.length) return "";
+  return `
+    <div class="chain-param-list">
+      ${paramControlsTemplate(component.params, {
+        pathFor: (param) => `${basePath}.params.${param.id}`,
+        valueFor: (param) => paramCurrentValue(component, pass, param),
+      })}
+    </div>
+  `;
+}
+
+export function paramControlsTemplate(params = [], {
+  pathFor = (param) => param.id,
+  valueFor = (param) => param.defaultValue,
+  attrs = "data-update",
+} = {}) {
+  const visible = visibleParamControls(params);
+  const byPair = new Map();
+  for (const param of visible) {
+    if (param.ui === "range-pair" && param.rangePair) {
+      const pair = byPair.get(param.rangePair) || {};
+      pair[param.rangeRole] = param;
+      byPair.set(param.rangePair, pair);
+    }
+  }
+  return visible.map((param) => {
+    if (param.ui !== "range-pair" || !param.rangePair) {
+      return paramControlTemplate(param, pathFor(param), valueFor(param), attrs);
+    }
+    if (param.rangeRole === "max") return "";
+    const pair = byPair.get(param.rangePair);
+    if (!pair?.min || !pair?.max) return paramControlTemplate(param, pathFor(param), valueFor(param), attrs);
+    return paramRangePairTemplate({
+      minParam: pair.min,
+      maxParam: pair.max,
+      minPath: pathFor(pair.min),
+      maxPath: pathFor(pair.max),
+      minValue: valueFor(pair.min),
+      maxValue: valueFor(pair.max),
+      attrs,
+    });
+  }).join("");
+}
+
+export function paramControlTemplate(param, path, value, attrs = "data-update") {
+  if (param.type === "boolean") {
+    return `
+      <label class="field inline-param">
+        <span>${esc(param.label || param.id)}</span>
+        <input type="checkbox" ${attrs}="${esc(path)}" ${value ? "checked" : ""} />
+      </label>
+    `;
+  }
+  if (param.type === "enum") {
+    return `
+      <label class="field chain-param">
+        <span>${esc(param.label || param.id)}</span>
+        <select ${attrs}="${esc(path)}">
+          ${(param.values || []).map((option) => `<option value="${esc(option)}" ${option === value ? "selected" : ""}>${esc(option)}</option>`).join("")}
+        </select>
+      </label>
+    `;
+  }
+  if (param.type === "color") return colorParamControlTemplate(param, path, value, attrs);
+  const logarithmic = param.scale === "log" && Number(param.min) > 0 && Number(param.max) > Number(param.min);
+  const sliderMin = logarithmic ? 0 : param.min ?? 0;
+  const sliderMax = logarithmic ? 1 : param.max ?? 1;
+  const sliderStep = logarithmic ? 0.001 : param.step ?? 0.01;
+  const safeValue = clampNumber(Number(value), Number(param.min), Number(param.max));
+  const sliderValue = logarithmic
+    ? Math.log(safeValue / Number(param.min)) / Math.log(Number(param.max) / Number(param.min))
+    : value;
+  const scaleAttrs = logarithmic
+    ? `data-number-scale="log" data-value-min="${param.min}" data-value-max="${param.max}"`
+    : "";
+  return `
+    <label class="field range-field chain-param">
+      <span>${esc(param.label || param.id)}</span>
+      <output class="range-value" data-range-value>${formatRangeValue(safeValue, param.step ?? 0.01)}</output>
+      <input type="range" min="${sliderMin}" max="${sliderMax}" step="${sliderStep}" data-display-step="${param.step ?? 0.01}" ${scaleAttrs} ${attrs}="${esc(path)}" value="${sliderValue}" />
+    </label>
+  `;
+}
+
+export function colorParamControlTemplate(param, path, value, attrs = "data-update") {
+  const mode = attrs.includes("data-live-update") ? "live" : "state";
+  const liveComponentMatch = /data-live-component-id="([^"]*)"/.exec(attrs);
+  const liveComponentId = liveComponentMatch?.[1] || "";
+  const rgba = normalizeColorHex(value || param.defaultValue || "#ffffffff");
+  const rgb = rgba.slice(0, 7);
+  const alpha = colorAlphaFromHex(rgba);
+  return `
+    <div class="field color-param chain-param" data-color-param data-color-mode="${mode}" data-color-path="${esc(path)}" ${liveComponentId ? `data-live-component-id="${esc(liveComponentId)}"` : ""}>
+      <span>${esc(param.label || param.id)}</span>
+      <div class="color-param-row">
+        <input type="range" min="0" max="1" step="0.01" data-color-alpha value="${alpha}" aria-label="${esc(param.label || param.id)} alpha" />
+        <input type="color" data-color-rgb value="${esc(rgb)}" aria-label="${esc(param.label || param.id)} color" />
+      </div>
+    </div>
+  `;
+}
+
+export function paramCurrentValue(component, pass, param) {
+  const values = {
+    ...(pass.params && typeof pass.params === "object" ? pass.params : {}),
+  };
+  if (param.id === "amount" && values.amount === undefined) values.amount = pass.amount;
+  return normalizeParamValue(param, values[param.id]);
+}
+
+function visibleParamControls(params = []) {
+  return (params || []).filter((param) => param?.id !== "seed");
+}
+
+function normalizeColorHex(value = "#ffffffff") {
+  const clean = String(value || "").trim().replace(/^#/, "");
+  if (/^[0-9a-f]{8}$/i.test(clean)) return `#${clean.toLowerCase()}`;
+  if (/^[0-9a-f]{6}$/i.test(clean)) return `#${clean.toLowerCase()}ff`;
+  return "#ffffffff";
+}
+
+function colorAlphaFromHex(value = "#ffffffff") {
+  const rgba = normalizeColorHex(value);
+  return Number.parseInt(rgba.slice(7, 9), 16) / 255;
+}
+
+function clampNumber(value, min, max) {
+  const safeMin = Number.isFinite(min) ? min : 0;
+  const safeMax = Number.isFinite(max) ? max : 1;
+  return Math.min(safeMax, Math.max(safeMin, Number.isFinite(value) ? value : safeMin));
+}

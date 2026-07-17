@@ -88,6 +88,17 @@ test("SuperPoint cache invalidates only pair-analysis parameters", () => {
   assert.notEqual(service.pairKey(base), service.pairKey({ ...base, fit: "contain" }));
 });
 
+test("SuperPoint runtime status rejects analysis from replaced image files", () => {
+  const service = new SuperPointPairService();
+  const params = { imageAId: "status-a", imageBId: "status-b", landmarkCount: 64, matchThreshold: 0.72, influence: 0.18, fit: "cover" };
+  const files = { imageAFile: { name: "a.png", size: 10, lastModified: 1 }, imageBFile: { name: "b.png", size: 10, lastModified: 1 } };
+  const key = service.pairKey(params);
+  service.entries.set(key, { status: "ready", revision: 4, persistentKey: featureMorphPersistentKey(key, files.imageAFile, files.imageBFile) });
+  assert.equal(service.status(params, files), "ready");
+  assert.equal(service.externalKey(params, files), "ready:4");
+  assert.equal(service.status(params, { ...files, imageBFile: { ...files.imageBFile, lastModified: 2 } }), "idle");
+});
+
 test("Feature Morph stays dynamic until images and landmark analysis settle", () => {
   const renderer = new OutputRenderer({ mode: "component" });
   let analysisStatus = "idle";

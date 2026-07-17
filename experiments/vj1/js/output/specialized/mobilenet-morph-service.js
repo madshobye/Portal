@@ -38,13 +38,18 @@ export class MobileNetMorphPairService {
     ].join(":");
   }
 
-  externalKey(params = {}) {
-    const entry = this.entries.get(this.pairKey(params));
+  externalKey(params = {}, media = {}) {
+    const key = this.pairKey(params);
+    const entry = this.entries.get(key);
+    if (entry?.persistentKey !== mobileNetMorphPersistentKey(key, media.imageAFile, media.imageBFile)) return "idle:0";
     return `${entry?.status || "idle"}:${entry?.revision || 0}`;
   }
 
-  status(params = {}) {
-    return this.entries.get(this.pairKey(params))?.status || "idle";
+  status(params = {}, media = {}) {
+    const key = this.pairKey(params);
+    const entry = this.entries.get(key);
+    if (entry?.persistentKey !== mobileNetMorphPersistentKey(key, media.imageAFile, media.imageBFile)) return "idle";
+    return entry?.status || "idle";
   }
 
   request(params = {}, imageA, imageB, media = {}) {

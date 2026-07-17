@@ -16,6 +16,102 @@ import {
 import { compileComponentPatch } from "../js/graph/render-scheduler.js?v=world-frame-27";
 import { planCompositorInputs, planPatchExecution } from "../js/graph/patch-planner.js";
 
+test("one immutable-style state snapshot is shared across subscribers per emission", () => {
+  const store = createAppState(createInitialState());
+  const firstSnapshots = [];
+  const secondSnapshots = [];
+  store.subscribe((state) => firstSnapshots.push(state));
+  store.subscribe((state) => secondSnapshots.push(state));
+
+  store.update((draft) => {
+    draft.ui.selectedChainItemId = "shared-snapshot-test";
+  }, "snapshot-test");
+
+  assert.strictEqual(firstSnapshots.at(-1), secondSnapshots.at(-1));
+  assert.notStrictEqual(firstSnapshots.at(-1), store.getState());
+});
+
+test("UI-only updates preserve project data and emit an explicit UI scope", () => {
+  const store = createAppState(createInitialState());
+  const before = store.getState();
+  let observedEvent = null;
+  store.subscribe((_state, _reason, event) => {
+    observedEvent = event;
+  });
+
+  store.updateUi((ui) => {
+    ui.debugPreview = !ui.debugPreview;
+  }, "toggle-preview-test");
+
+  const after = store.getState();
+  assert.equal(observedEvent.reason, "toggle-preview-test");
+  assert.equal(observedEvent.scope, "ui");
+  assert.equal(after.ui.debugPreview, !before.ui.debugPreview);
+  assert.deepEqual(after.components, before.components);
+  assert.deepEqual(after.scenes, before.scenes);
+  assert.deepEqual(after.surfaces, before.surfaces);
+});
+
+test("component selection updates recent-use metadata through the local fast path", () => {
+  const initial = createInitialState();
+  const second = createDefaultComponent(1);
+  initial.components.push(second);
+  const store = createAppState(initial);
+  const before = store.getState();
+  let observedEvent = null;
+  store.subscribe((_state, _reason, event) => {
+    observedEvent = event;
+  });
+
+  store.selectComponent(second.id);
+
+  const after = store.getState();
+  assert.equal(after.ui.selectedComponentId, second.id);
+  assert.ok(after.components.find((component) => component.id === second.id).activity.lastUsedAt);
+  assert.deepEqual(
+    after.components.find((component) => component.id === before.components[0].id),
+    before.components[0]
+  );
+  assert.equal(observedEvent.reason, "select-component");
+  assert.equal(observedEvent.scope, "ui");
+});
+
+test("runtime metrics update without passing through project state normalization", () => {
+  const store = createAppState(createInitialState());
+  const before = store.getState();
+  let observedEvent = null;
+  store.subscribe((_state, _reason, event) => {
+    observedEvent = event;
+  });
+
+  store.updateRuntime((metrics) => {
+    metrics.clients = 2;
+    metrics.fps = 60;
+  }, "output-metrics");
+
+  assert.deepEqual(store.getMetrics(), { ...before.metrics, clients: 2, fps: 60 });
+  assert.deepEqual(store.getState().components, before.components);
+  assert.equal(observedEvent.reason, "output-metrics");
+  assert.equal(observedEvent.scope, "runtime");
+});
+
+test("Live slider updates use the lightweight live-only state path", () => {
+  const store = createAppState();
+  const componentId = store.getState().components[0].id;
+  let change = null;
+  store.subscribe((_state, _reason, event) => {
+    if (event.reason === "scrub:live") change = event;
+  });
+
+  store.updateLive((draft) => {
+    draft.ui.live.componentOverrides[componentId] = { opacity: 0.35 };
+  }, "scrub:live");
+
+  assert.equal(change?.phase, "scrub");
+  assert.equal(change?.scope, "live");
+  assert.equal(store.getLiveRenderState().components.find((item) => item.id === componentId).opacity, 0.35);
+});
+
 test("render state uses selected scene in scene workspace and live scene in live workspace", () => {
   const state = createInitialState();
   const sceneComponent = createDefaultComponent(0);
@@ -116,13 +212,14 @@ test("nonzero Live transition duration retains the source scene for synchronized
   state.ui.live.transitionDuration = 1.5;
   const store = createAppState(state);
 
+  const activationStartedAt = Date.now();
   store.selectLiveScene(secondScene.id);
 
   const renderState = store.getLiveRenderState();
   assert.equal(renderState.liveTransition.durationMs, 1500);
   assert.equal(renderState.liveTransition.fromState.surfaces[0].opacity, firstScene.snapshot.surfaces[0].opacity);
   assert.equal(renderState.surfaces[0].opacity, secondScene.snapshot.surfaces[0].opacity);
-  assert.ok(renderState.liveTransition.startedAtMs > Date.now());
+  assert.ok(renderState.liveTransition.startedAtMs >= activationStartedAt + 50);
 });
 
 test("Live temporary overrides persist per scene until explicitly reset", () => {
@@ -266,6 +363,32 @@ test("new surfaces and route edits update the pending Live snapshot for the same
     store.getLiveRenderState().surfaces.find((surface) => surface.id === added.id).componentId,
     second.id
   );
+});
+
+test("new surfaces start empty and are enabled only in the selected Scene", () => {
+  const state = createInitialState();
+  const firstScene = createSceneFromState(state, "First");
+  const selectedScene = createSceneFromState(state, "Selected");
+  state.scenes = [firstScene, selectedScene];
+  state.ui.selectedSceneId = selectedScene.id;
+  state.ui.live.selectedSceneId = firstScene.id;
+  state.ui.live.sceneSnapshot = structuredClone(firstScene.snapshot);
+
+  const store = createAppState(state);
+  store.addSurface();
+
+  const next = store.getState();
+  const added = next.surfaces.at(-1);
+  const firstRoute = next.scenes[0].snapshot.surfaces.find((surface) => surface.id === added.id);
+  const selectedRoute = next.scenes[1].snapshot.surfaces.find((surface) => surface.id === added.id);
+
+  assert.equal(added.componentId, "");
+  assert.equal(added.sourceNodeId, "");
+  assert.equal(firstRoute.enabled, false);
+  assert.equal(firstRoute.componentId, "");
+  assert.equal(selectedRoute.enabled, true);
+  assert.equal(selectedRoute.componentId, "");
+  assert.equal(store.getLiveRenderState().surfaces.find((surface) => surface.id === added.id).enabled, false);
 });
 
 test("route edits in a different Scene do not replace Live's selected scene", () => {
@@ -524,6 +647,12 @@ test("nested chain items remain selectable after state normalization", () => {
 
   const store = createAppState(state);
 
+  assert.equal(store.getState().ui.selectedChainItemId, nested.id);
+
+  store.selectChainItem(component.chain[0].id);
+  assert.equal(store.getState().ui.selectedChainItemId, component.chain[0].id);
+
+  store.selectChainItem(nested.id);
   assert.equal(store.getState().ui.selectedChainItemId, nested.id);
 });
 

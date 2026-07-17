@@ -1,12 +1,12 @@
-import { collectFilesFromDirectory, isMediaFile, isShaderFile } from "./media-library-service.js?v=adaptive-component-demand-29";
-import { RENDITION_DIR, RENDITION_ROOT, mediaRenditionPath } from "./media-rendition-service.js";
+import { collectFilesFromDirectory, isMediaFile, isShaderFile } from "./media-library-service.js?v=media-rendition-revision-1";
+import { RENDITION_DIR, RENDITION_ROOT, mediaRenditionPath } from "./media-rendition-service.js?v=media-rendition-revision-1";
 import {
   canPersistDirectoryHandles,
   clearProjectDirectoryHandle,
   loadProjectDirectoryHandle,
   saveProjectDirectoryHandle,
 } from "./directory-handle-store.js";
-import { applySceneSnapshotToState, createInitialState } from "../domain/models.js?v=centered-freeze-68";
+import { applySceneSnapshotToState, createInitialState } from "../domain/models.js?v=render-coordinate-scope-3";
 import { migrateProjectData, ProjectVersionError } from "../domain/project-migrations.js?v=adaptive-component-demand-29";
 import { createChangeEvent } from "../domain/change-event.js?v=adaptive-component-demand-29";
 import { historyGroupForReason, isHistoryReason, projectHistorySignature, shouldCoalesceHistoryRevision } from "./project-history-policy.js?v=adaptive-component-demand-29";
@@ -114,7 +114,10 @@ export function createProjectFolderService({ mediaLibrary, store, bridge }) {
       await writeFileIntoProject(dirHandle, file, rootName, path);
       imported++;
     }
-    if (imported) await loadDirectory("project-import-files");
+    // Import changes the folder's asset snapshot, not project state. Reloading
+    // project.json here can race the debounced save and replace newer edits or
+    // UI selection with an older disk snapshot.
+    if (imported) await refreshFolder({ force: true });
     return { imported };
   }
 
@@ -529,9 +532,9 @@ export function createProjectFolderService({ mediaLibrary, store, bridge }) {
     }, "project-history");
   }
 
-  async function writeMediaRendition(mediaId, width, height, blob) {
+  async function writeMediaRendition(mediaId, width, height, blob, sourceRevision = "") {
     if (!dirHandle || !blob || !mediaId) return false;
-    const path = mediaRenditionPath(mediaId, width, height);
+    const path = mediaRenditionPath(mediaId, width, height, sourceRevision);
     if (writtenRenditions.has(path)) return false;
     const directory = await renditionDirectory();
     const filename = path.split("/").pop();

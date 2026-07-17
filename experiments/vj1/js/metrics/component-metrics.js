@@ -1,9 +1,9 @@
 import { BLEND_MODES, VJ1 } from "../constants.js";
 import { componentTextureSize } from "../domain/render-resolution.js?v=adaptive-component-demand-29";
-import { sanitizeState } from "../domain/models.js?v=centered-freeze-68";
-import { compileComponentPatch } from "../graph/render-scheduler.js?v=adaptive-component-demand-29";
+import { sanitizeState } from "../domain/models.js?v=render-coordinate-scope-3";
+import { compileComponentPatch } from "../graph/render-scheduler.js?v=shader-component-catalog-extraction-1";
 import { planCompositorInputs, planPatchExecution, summarizeTextureBranches } from "../graph/patch-planner.js";
-import { getShaderComponent } from "../shaders/shader-registry.js?v=adaptive-component-demand-29";
+import { getShaderComponent } from "../shaders/shader-registry.js?v=shader-component-catalog-extraction-1";
 import { worldSize } from "../output/render-geometry.js?v=adaptive-component-demand-29";
 
 export function analyzeVj1Project(input = {}, options = {}) {

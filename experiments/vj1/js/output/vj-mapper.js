@@ -131,6 +131,7 @@ export class VjMapper {
     this._renderResolution[0] = width * dpr;
     this._renderResolution[1] = height * dpr;
     let activeShader = null;
+    let activeTexture = null;
     noStroke();
     try {
       for (const item of drawableItems) {
@@ -138,13 +139,19 @@ export class VjMapper {
         const shaderProgram = this._ensureShader(featherAmount > 0);
         const cache = this._getRenderCache(item.surface, dpr);
         if (!cache) continue;
-        if (shaderProgram !== activeShader) {
+        const texture = item.texture;
+        // p5 owns sampler allocation/binding. Keeping its shader active while
+        // swapping p5.Framebuffer sampler objects can leave queued geometry
+        // associated with the following texture. A batch is therefore valid
+        // only while both shader variant and texture identity stay unchanged.
+        if (shaderProgram !== activeShader || texture !== activeTexture) {
+          if (activeShader) resetShader();
           shader(shaderProgram);
           shaderProgram.setUniform("uCanvasSize", [width, height]);
           activeShader = shaderProgram;
+          activeTexture = texture;
         }
         const options = item.options || {};
-        const texture = item.texture;
         const sourceRect = normalizedSourceRect(texture, options.sourceRect);
         const sourceWidth = sourceRect[2] * Math.max(1, Number(texture.width) || 1);
         const sourceHeight = sourceRect[3] * Math.max(1, Number(texture.height) || 1);
@@ -202,6 +209,7 @@ export class VjMapper {
     });
 
     const gl = drawingContext;
+    const depthWasEnabled = typeof gl?.isEnabled === "function" && gl.isEnabled(gl.DEPTH_TEST);
     if (gl?.disable) gl.disable(gl.DEPTH_TEST);
     push();
     const halfWidth = width * 0.5;
@@ -230,7 +238,8 @@ export class VjMapper {
       }
     }
     pop();
-    if (gl?.enable) gl.enable(gl.DEPTH_TEST);
+    if (depthWasEnabled) gl.enable?.(gl.DEPTH_TEST);
+    else gl?.disable?.(gl.DEPTH_TEST);
   }
 
   mousePressed(mx = mouseX, my = mouseY) {

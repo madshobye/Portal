@@ -1,3 +1,5 @@
+import { registerRenderTarget, RENDER_TARGET_KIND, RENDER_TEXTURE_ORIENTATION } from "./render-target-contract.js?v=render-core-contract-1";
+
 const TWO_D_METHODS = [
   "background",
   "beginShape",
@@ -43,6 +45,11 @@ export class SharedFramebufferTarget {
     this.__vj1SharedFramebuffer = true;
     this.__vj1ShaderContextId = "shared-main-context";
     this._twoDDepth = 0;
+    registerRenderTarget(this, {
+      kind: RENDER_TARGET_KIND.sharedFramebuffer,
+      orientation: RENDER_TEXTURE_ORIENTATION.topLeft,
+      directP5ImageSafe: false,
+    });
     for (const method of TWO_D_METHODS.filter((name) => name !== "blendMode")) {
       this[method] = (...args) => callP5(method, ...args.map(unwrapRenderTarget));
     }
@@ -157,7 +164,10 @@ export class SharedFramebufferTarget {
 }
 
 export function createSharedFramebufferTarget(width, height, { depth = false } = {}) {
-  if (typeof globalThis.createFramebuffer !== "function") return null;
+  if (typeof globalThis.createFramebuffer !== "function") {
+    reportFramebufferUnavailable();
+    return null;
+  }
   try {
     const framebuffer = globalThis.createFramebuffer({
       width: Math.max(1, Math.round(Number(width) || 1)),
@@ -171,6 +181,17 @@ export function createSharedFramebufferTarget(width, height, { depth = false } =
     console.error("[VJ1_FRAMEBUFFER_CREATE_FAILED]", error);
     return null;
   }
+}
+
+let reportedFramebufferUnavailable = false;
+
+function reportFramebufferUnavailable() {
+  if (reportedFramebufferUnavailable) return;
+  reportedFramebufferUnavailable = true;
+  console.warn("[VJ1_FRAMEBUFFER_UNAVAILABLE]", {
+    fallback: "p5.Graphics",
+    message: "p5.createFramebuffer is unavailable; shared-context render targets are disabled",
+  });
 }
 
 export function isSharedFramebufferTarget(target) {

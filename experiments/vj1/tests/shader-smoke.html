@@ -21,10 +21,10 @@
   <body>
     <pre id="result">running...</pre>
     <script type="module">
-      import { listShaderComponents } from "../js/shaders/shader-registry.js?v=hsv-alpha-key-1";
-      import { getGeneratorShaderComponent } from "../js/shaders/generator-shaders.js?v=direct-shader-source-3";
+      import { listShaderComponents } from "../js/shaders/shader-registry.js?v=shader-component-catalog-extraction-1";
+      import { getGeneratorShaderComponent } from "../js/shaders/generator-shaders.js?v=generator-shader-catalog-extraction-1";
       import { getGeneratorComponent } from "../js/graph/generator-registry.js?v=render-quality-2";
-      import { createShaderBuilder } from "../js/shaders/shader-builder.js?v=hsv-alpha-key-1";
+      import { createShaderBuilder } from "../js/shaders/shader-builder.js?v=render-coordinate-scope-3";
       import { compileShaderSchedule } from "../js/graph/render-scheduler.js?v=hsv-alpha-key-1";
 
       const generators = ["gradient", "fireflies", "eyeball", "swayingTrees", "bezierStrokes", "shadertoyBaseWarp", "seascape", "paintDrips", "cloudyTunnel", "cherenkovVolume", "biomineLite"];

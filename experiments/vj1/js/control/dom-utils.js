@@ -26,6 +26,10 @@ export function isInteractiveNode(node) {
   return !!node?.closest?.("input, select, textarea, button, label, [contenteditable='true'], [data-update], [data-action], [role='button']");
 }
 
+export function isPointerInteractionNode(node) {
+  return isInteractiveNode(node) || !!node?.closest?.("[data-embedded-preview-stage]");
+}
+
 export function isTextEditingNode(node) {
   if (!node) return false;
   if (node.isContentEditable) return true;

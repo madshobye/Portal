@@ -1,9 +1,40 @@
 import { VJ1, defaultCustomShaderCode, WORKSPACES } from "../constants.js";
 import { createGeneratorSource } from "../graph/generator-registry.js?v=adaptive-component-demand-29";
 import { normalizeComponentFrameShape, normalizeComponentResolutionScale } from "./component-frame.js";
-import { createProjectActivity, latestProjectActivity, normalizeProjectActivity } from "./component-activity.js?v=adaptive-component-demand-29";
+import { createProjectActivity, normalizeProjectActivity } from "./component-activity.js?v=adaptive-component-demand-29";
 import { CURRENT_PROJECT_VERSION, migrateProjectData } from "./project-migrations.js?v=adaptive-component-demand-29";
-import { normalizeComponentTextureSettings, normalizeSurfaceTextureSettings } from "./render-resolution.js?v=adaptive-component-demand-29";
+import {
+  createOutputDefinition,
+  normalizeCameraSettings,
+  normalizeComponentPipelineSettings,
+  normalizePreviewViewports,
+  normalizeRenderSettings,
+  normalizeSamplingSettings,
+} from "./render-settings.js?v=render-coordinate-scope-3";
+import {
+  applySceneSourceNode,
+  normalizeProjectionFit,
+  resolveSceneSourceNode,
+  sceneSourceNodeId,
+  sceneSourceNodes,
+} from "./scene-routing.js?v=surface-media-contract-4";
+
+export {
+  createOutputDefinition,
+  normalizeCameraSettings,
+  normalizeComponentPipelineSettings,
+  normalizePreviewViewport,
+  normalizePreviewViewports,
+  normalizeRenderSettings,
+  normalizeSamplingSettings,
+} from "./render-settings.js?v=render-coordinate-scope-3";
+export {
+  applySceneSourceNode,
+  normalizeProjectionFit,
+  resolveSceneSourceNode,
+  sceneSourceNodeId,
+  sceneSourceNodes,
+} from "./scene-routing.js?v=surface-media-contract-4";
 
 export function uid(prefix) {
   return `${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
@@ -180,15 +211,6 @@ export function reconcileDirectOutputSurfaces(surfaces = [], render = {}) {
   return normalized;
 }
 
-export function createOutputDefinition(index = 0, width = VJ1.renderWidth, height = VJ1.renderHeight) {
-  return {
-    id: index === 0 ? "output-main" : `output-${index + 1}`,
-    name: index === 0 ? "Main output" : `Output ${index + 1}`,
-    width: positiveInt(width, VJ1.renderWidth, 128, 8192),
-    height: positiveInt(height, VJ1.renderHeight, 128, 8192),
-  };
-}
-
 export function createInitialState() {
   const components = [createDefaultComponent(0)];
   return {
@@ -227,11 +249,11 @@ export function createInitialState() {
         transitionDuration: 0,
         transition: null,
       },
-      previewViewport: {
-        zoom: 1,
-        x: 0,
-        y: 0,
-        fit: "frame",
+      previewViewports: {
+        component: { zoom: 1, x: 0, y: 0, fit: "frame" },
+        canvas: { zoom: 1, x: 0, y: 0, fit: "frame" },
+        scene: { zoom: 1, x: 0, y: 0, fit: "frame" },
+        live: { zoom: 1, x: 0, y: 0, fit: "frame" },
       },
       shaderStatus: "Shader ready",
       shaderError: "",
@@ -401,7 +423,12 @@ export function sanitizeState(input = {}) {
         }
   );
   next.surfaces = reconcileDirectOutputSurfaces(next.surfaces, next.render);
-  next.ui.previewViewport = normalizePreviewViewport(next.ui.previewViewport);
+  next.ui.previewViewports = normalizePreviewViewports(
+    input.ui?.previewViewports,
+    input.ui?.previewViewport,
+    next.ui.workspace
+  );
+  delete next.ui.previewViewport;
   next.media = Array.isArray(input.media) ? input.media.map(normalizeMediaMeta) : [];
   next.mappings = input.mappings && typeof input.mappings === "object" ? input.mappings : {};
   next.ui.selectedComponentId = next.components.some((component) => component.id === next.ui.selectedComponentId)
@@ -423,8 +450,8 @@ export function sanitizeState(input = {}) {
     : next.surfaces[0]?.id || "";
   next.surfaces = next.surfaces.map((surface, index) => ({
     ...surface,
-    componentId: next.components.some((component) => component.id === surface.componentId)
-      ? surface.componentId
+    componentId: !surface.componentId || next.components.some((component) => component.id === surface.componentId)
+      ? surface.componentId || ""
       : next.components[0]?.id || "",
   })).map((surface) => applySceneSourceNode(surface, resolveSceneSourceNode(next, surface.sourceNodeId, surface)));
   next.scenes = Array.isArray(input.scenes)
@@ -467,105 +494,6 @@ function normalizeCatalogSortModes(value = {}) {
   return {
     component: normalize(value?.component),
     scene: normalize(value?.scene),
-  };
-}
-
-export function normalizeRenderSettings(render = {}) {
-  const frameWidth = positiveInt(render.frameWidth ?? render.width, VJ1.renderWidth, 128, 8192);
-  const frameHeight = positiveInt(render.frameHeight ?? render.height, VJ1.renderHeight, 128, 8192);
-  const outputs = Array.isArray(render.outputs) && render.outputs.length
-    ? render.outputs.map((output, index) => normalizeOutputDefinition(output, index, frameWidth, frameHeight))
-    : [createOutputDefinition(0, frameWidth, frameHeight)];
-  const primary = outputs[0];
-  const contentWidth = outputs.reduce((sum, output) => sum + output.width, 0);
-  const contentHeight = Math.max(...outputs.map((output) => output.height));
-  const marginX = Math.round(Math.max(...outputs.map((output) => output.width)) * VJ1.outputWorldMarginRatio);
-  const marginY = Math.round(contentHeight * VJ1.outputWorldMarginRatio);
-  const worldWidth = contentWidth + marginX * 2;
-  const worldHeight = contentHeight + marginY * 2;
-  // Legacy surface dimensions also defined component design geometry.
-  // Preserve that meaning, but never migrate them into an Auto surface cap.
-  const migratedComponentTexture = render.componentTexture || {
-    width: render.surfaceWidth ?? render.surfaceTexture?.maxWidth ?? primary.width,
-    height: render.surfaceHeight ?? render.surfaceTexture?.maxHeight ?? primary.height,
-  };
-  const {
-    surfaceWidth: _legacySurfaceWidth,
-    surfaceHeight: _legacySurfaceHeight,
-    surfaceTextureMode: _legacySurfaceTextureMode,
-    edgeSoftness: _removedEdgeSoftness,
-    ...currentRender
-  } = render;
-  return {
-    ...currentRender,
-    width: primary.width,
-    height: primary.height,
-    frameWidth: primary.width,
-    frameHeight: primary.height,
-    outputs,
-    worldWidth,
-    worldHeight,
-    componentTexture: normalizeComponentTextureSettings(migratedComponentTexture, primary),
-    surfaceTexture: normalizeSurfaceTextureSettings(render.surfaceTexture, primary),
-    pixelDensity: clampNumber(render.pixelDensity, 0.5, 2, 1),
-    sampling: normalizeSamplingSettings(render.sampling),
-    camera: normalizeCameraSettings(render.camera, primary.width, primary.height),
-    ...normalizeComponentPipelineSettings(render),
-  };
-}
-
-export function normalizeSamplingSettings(sampling = {}) {
-  return {
-    surfaceOverscan: clampNumber(sampling?.surfaceOverscan, 0.5, 2, 1),
-    recordingFrameScale: clampNumber(sampling?.recordingFrameScale, 0.5, 2, 1),
-    limitCanvasToLogicalSize: sampling?.limitCanvasToLogicalSize !== false,
-  };
-}
-
-export function normalizeCameraSettings(camera = {}, fallbackWidth = VJ1.renderWidth, fallbackHeight = VJ1.renderHeight) {
-  return {
-    width: positiveInt(camera?.width, fallbackWidth, 160, 7680),
-    height: positiveInt(camera?.height, fallbackHeight, 120, 4320),
-    facingMode: camera?.facingMode === "environment" ? "environment" : "user",
-    mirrored: camera?.mirrored === true,
-    maxResolution: camera?.maxResolution === true,
-  };
-}
-
-function normalizeOutputDefinition(output = {}, index = 0, fallbackWidth = VJ1.renderWidth, fallbackHeight = VJ1.renderHeight) {
-  const fallback = createOutputDefinition(index, fallbackWidth, fallbackHeight);
-  return {
-    id: String(output.id || fallback.id),
-    name: output.name || fallback.name,
-    width: positiveInt(output.width ?? output.frameWidth, fallback.width, 128, 8192),
-    height: positiveInt(output.height ?? output.frameHeight, fallback.height, 128, 8192),
-  };
-}
-
-export function normalizeComponentPipelineSettings(render = {}) {
-  const upscaling = render.upscaling && typeof render.upscaling === "object" ? render.upscaling : {};
-  const postProcessing = render.postProcessing && typeof render.postProcessing === "object" ? render.postProcessing : {};
-  return {
-    upscaling: {
-      enabled: upscaling.enabled === true,
-      amount: clampNumber(upscaling.amount, 0.35, 1, 0.67),
-    },
-    postProcessing: {
-      noiseEnabled: postProcessing.noiseEnabled === true,
-      noiseAmount: clampNumber(postProcessing.noiseAmount, 0, 0.2, 0.035),
-      grayscaleEnabled: postProcessing.grayscaleEnabled === true,
-      grayscaleAmount: clampNumber(postProcessing.grayscaleAmount, 0, 1, 1),
-    },
-  };
-}
-
-export function normalizePreviewViewport(viewport = {}) {
-  const fit = ["frame", "world", "manual"].includes(viewport.fit) ? viewport.fit : "frame";
-  return {
-    zoom: clampNumber(viewport.zoom, 0.1, 6, 1),
-    x: clampNumber(viewport.x, -100000, 100000, 0),
-    y: clampNumber(viewport.y, -100000, 100000, 0),
-    fit,
   };
 }
 
@@ -930,79 +858,6 @@ function normalizeSurfaceDestination(destination = {}, mappingId = "") {
     };
   }
   return { type: "mapped", mappingId: destination?.mappingId || mappingId || "" };
-}
-
-export function normalizeProjectionFit(value) {
-  return value === "contain" || value === "stretch" ? value : "cover";
-}
-
-export function sceneSourceNodeId(componentId = "", frameId = "") {
-  return frameId
-    ? `recording-frame:${encodeURIComponent(componentId)}:${encodeURIComponent(frameId)}`
-    : `component:${encodeURIComponent(componentId)}`;
-}
-
-export function sceneSourceNodes(state = {}) {
-  const frames = Array.isArray(state.recordingFrames) ? state.recordingFrames : [];
-  return (state.components || []).flatMap((component) => {
-    if (component.type !== "canvas") {
-      return [{
-        id: sceneSourceNodeId(component.id),
-        type: "component",
-        name: component.name,
-        thumbnail: component.thumbnail || "",
-        componentId: component.id,
-        outputFrameId: "",
-        createdAt: component.activity?.createdAt || "",
-        recentAt: latestProjectActivity(component.activity),
-      }];
-    }
-    return [
-      {
-        id: sceneSourceNodeId(component.id),
-        type: "component",
-        name: component.name,
-        thumbnail: component.thumbnail || "",
-        componentId: component.id,
-        outputFrameId: "",
-        createdAt: component.activity?.createdAt || "",
-        recentAt: latestProjectActivity(component.activity),
-      },
-      ...frames.map((frame) => ({
-        id: sceneSourceNodeId(component.id, frame.id),
-        type: "recording-frame",
-        name: `${component.name} · ${frame.name}`,
-        thumbnail: component.canvas?.frameThumbnails?.[frame.id] || component.thumbnail || "",
-        componentId: component.id,
-        outputFrameId: frame.id,
-        frameId: frame.id,
-        createdAt: latestTimestamp(component.activity?.createdAt, frame.activity?.createdAt),
-        recentAt: Math.max(latestProjectActivity(component.activity), latestProjectActivity(frame.activity)),
-      })),
-    ];
-  });
-}
-
-function latestTimestamp(...values) {
-  return values.filter(Boolean).sort().at(-1) || "";
-}
-
-export function resolveSceneSourceNode(state = {}, sourceNodeId = "", legacyRoute = {}) {
-  const nodes = sceneSourceNodes(state);
-  const byId = nodes.find((node) => node.id === sourceNodeId);
-  const byLegacyRoute = nodes.find((node) => node.componentId === legacyRoute.componentId && node.outputFrameId === (legacyRoute.outputFrameId || ""));
-  // sourceNodeId is the current route identity. componentId/outputFrameId are
-  // retained only to recover old projects and must never override a valid ID.
-  return byId || byLegacyRoute || nodes[0] || null;
-}
-
-export function applySceneSourceNode(route = {}, node = null) {
-  return {
-    ...route,
-    sourceNodeId: node?.id || "",
-    componentId: node?.componentId || "",
-    outputFrameId: node?.outputFrameId || "",
-  };
 }
 
 function normalizeCanvasLayerLayout(layout = {}) {

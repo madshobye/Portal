@@ -1,4 +1,4 @@
-import { clone, createSceneSurfaceSnapshot, syncLiveSnapshotFromScene, uid } from "./models.js?v=centered-freeze-68";
+import { clone, createSceneSurfaceSnapshot, syncLiveSnapshotFromScene, uid } from "./models.js?v=render-coordinate-scope-3";
 import { componentFrameMetrics } from "./component-frame.js?v=adaptive-component-demand-29";
 import { insertChainItemNearSelection } from "./chain-operations.js?v=adaptive-component-demand-29";
 

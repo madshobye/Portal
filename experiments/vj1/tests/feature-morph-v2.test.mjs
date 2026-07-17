@@ -152,6 +152,17 @@ test("MobileNet pair cache ignores render-only controls and fingerprints image f
   );
 });
 
+test("MobileNet runtime status rejects analysis from replaced image files", () => {
+  const service = new MobileNetMorphPairService({ cache: { load: async () => null, save: async () => {} } });
+  const params = { imageAId: "status-a", imageBId: "status-b", featureGrid: 8, patchScale: 1, matchThreshold: 0.2, spatialCoherence: 0.12, fit: "cover" };
+  const files = { imageAFile: { name: "a.png", size: 10, lastModified: 1 }, imageBFile: { name: "b.png", size: 10, lastModified: 1 } };
+  const key = service.pairKey(params);
+  service.entries.set(key, { status: "ready", revision: 7, persistentKey: mobileNetMorphPersistentKey(key, files.imageAFile, files.imageBFile) });
+  assert.equal(service.status(params, files), "ready");
+  assert.equal(service.externalKey(params, files), "ready:7");
+  assert.equal(service.status(params, { ...files, imageAFile: { ...files.imageAFile, size: 11 } }), "idle");
+});
+
 test("MobileNet analysis waits for slider scrubbing to settle", async () => {
   const service = new MobileNetMorphPairService({
     cache: { load: async () => null, save: async () => {} },

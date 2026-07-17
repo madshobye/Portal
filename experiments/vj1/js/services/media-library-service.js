@@ -1,5 +1,5 @@
-import { uid } from "../domain/models.js?v=centered-freeze-68";
-import { isMediaRenditionPath, parseMediaRenditionPath } from "./media-rendition-service.js";
+import { uid } from "../domain/models.js?v=render-coordinate-scope-3";
+import { isMediaRenditionPath, mediaSourceRevision, parseMediaRenditionPath } from "./media-rendition-service.js?v=media-rendition-revision-1";
 
 const VIDEO_RE = /\.(mp4|m4v|mov|webm|ogv)$/i;
 const IMAGE_RE = /\.(png|jpe?g|gif|webp|bmp|svg)$/i;
@@ -49,7 +49,7 @@ export function createMediaLibrary() {
         id,
         file,
         renditions: Array.from(renditions.values())
-          .filter((entry) => entry.mediaId === id)
+          .filter((entry) => entry.mediaId === id && entry.sourceRevision === mediaSourceRevision(file))
           .map((entry) => ({ ...entry })),
       }));
     },
@@ -60,8 +60,10 @@ export function createMediaLibrary() {
       return Array.from(renditions.values()).map((entry) => ({ ...entry }));
     },
     getRenditionsForMedia(mediaId) {
+      const file = files.get(mediaId);
+      const sourceRevision = file ? mediaSourceRevision(file) : "";
       return Array.from(renditions.values())
-        .filter((entry) => entry.mediaId === mediaId)
+        .filter((entry) => entry.mediaId === mediaId && entry.sourceRevision === sourceRevision)
         .map((entry) => ({ ...entry }));
     },
     clear() {

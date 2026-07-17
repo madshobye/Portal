@@ -1,4 +1,4 @@
-import { normalizeRenderSettings } from "../domain/models.js?v=centered-freeze-68";
+import { normalizeRenderSettings } from "../domain/models.js?v=render-coordinate-scope-3";
 import { esc, formatRangeValue, icon } from "./template-utils.js?v=flat-orange-sliders-70";
 
 export function settingsModalTemplate(state, activeTab = "outputs") {

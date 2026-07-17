@@ -1,4 +1,4 @@
-import { getShaderComponent } from "./shader-registry.js?v=adaptive-component-demand-29";
+import { getShaderComponent } from "./shader-registry.js?v=shader-component-catalog-extraction-1";
 
 export function createShaderBuilder({ getCustomCode, onStatus }) {
   const cache = new Map();
@@ -86,12 +86,9 @@ attribute vec3 aPosition;
 attribute vec2 aTexCoord;
 uniform mat4 uModelViewMatrix;
 uniform mat4 uProjectionMatrix;
-uniform float useContentTransform;
-uniform mat3 contentUvMatrix;
 varying vec2 vTexCoord;
 void main() {
-  vec2 transformedUv = (contentUvMatrix * vec3(aTexCoord, 1.0)).xy;
-  vTexCoord = mix(aTexCoord, transformedUv, step(0.5, useContentTransform));
+  vTexCoord = aTexCoord;
   gl_Position = uProjectionMatrix * uModelViewMatrix * vec4(aPosition, 1.0);
 }`;
 }
@@ -233,12 +230,24 @@ function escapeRegExp(value) {
 }
 
 function standaloneFragmentSource(code, component) {
-  if (!hasRenderQualityParam(component) || /uniform\s+float\s+renderQuality\s*;/.test(code)) return code;
-  const declaration = "uniform float renderQuality;";
-  if (/precision\s+\w+\s+float\s*;/.test(code)) {
-    return String(code).replace(/(precision\s+\w+\s+float\s*;)/, `$1\n${declaration}`);
+  let adapted = String(code || "");
+  const varyingPlaceholder = "__VJ1_COMPOSITION_UV_DECLARATION__";
+  adapted = adapted.replace(/varying\s+vec2\s+vTexCoord\s*;/, varyingPlaceholder);
+  adapted = adapted.replace(/\bvTexCoord\b/g, "vj1CompositionUv()");
+  const coordinateContract = `
+varying vec2 vTexCoord;
+uniform float useContentTransform;
+uniform mat3 contentUvMatrix;
+
+vec2 vj1CompositionUv() {
+  vec2 transformedUv = (contentUvMatrix * vec3(vTexCoord, 1.0)).xy;
+  return mix(vTexCoord, transformedUv, step(0.5, useContentTransform));
+}`;
+  adapted = adapted.replace(varyingPlaceholder, coordinateContract);
+  if (hasRenderQualityParam(component) && !/uniform\s+float\s+renderQuality\s*;/.test(adapted)) {
+    adapted = adapted.replace(/(precision\s+\w+\s+float\s*;)/, `$1\nuniform float renderQuality;`);
   }
-  return `precision mediump float;\n${declaration}\n${code}`;
+  return adapted;
 }
 
 function shadertoyFragmentSource(code, component) {

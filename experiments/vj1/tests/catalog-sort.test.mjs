@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { sortComponentCatalog } from "../js/control/control-shell-controller.js";
+import { sortComponentCatalog } from "../js/control/catalog-view.js";
 
 const items = [
   { id: "b", name: "Beta", activity: { createdAt: "2026-01-02T00:00:00.000Z", updatedAt: "2026-01-02T00:00:00.000Z", lastUsedAt: "" } },

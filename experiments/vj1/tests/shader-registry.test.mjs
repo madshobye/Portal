@@ -7,6 +7,12 @@ import { getGeneratorComponent } from "../js/graph/generator-registry.js";
 import { getGeneratorShaderComponent } from "../js/shaders/generator-shaders.js";
 import { createShaderBuilder } from "../js/shaders/shader-builder.js";
 
+function generatorShaderCatalogSource() {
+  return ["generator-shaders.js", "generator-shaders-core.js", "generator-shaders-spatial.js", "generator-shaders-organic.js"]
+    .map((file) => readFileSync(new URL(`../js/shaders/${file}`, import.meta.url), "utf8"))
+    .join("\n");
+}
+
 test("every effect exposes the shared render quality budget", () => {
   for (const component of listShaderComponents()) {
     const quality = component.params.find((param) => param.id === "renderQuality");
@@ -159,7 +165,7 @@ test("smear effect exposes fast stable print texture modes", () => {
 
 test("shared procedural hashes avoid shader trig", () => {
   const shaderBuilderSource = readFileSync(new URL("../js/shaders/shader-builder.js", import.meta.url), "utf8");
-  const generatorShaderSource = readFileSync(new URL("../js/shaders/generator-shaders.js", import.meta.url), "utf8");
+  const generatorShaderSource = generatorShaderCatalogSource();
   const fallbackGeneratorSource = readFileSync(new URL("../js/output/generators.js", import.meta.url), "utf8");
 
   assert.ok(shaderBuilderSource.includes("p3 += dot(p3, p3.yzx + 33.33);"));
@@ -252,9 +258,16 @@ test("generator transforms change UV coordinates without changing the render tar
   const builderSource = readFileSync(new URL("../js/shaders/shader-builder.js", import.meta.url), "utf8");
 
   assert.ok(builderSource.includes("uniform mat3 contentUvMatrix;"));
-  assert.ok(builderSource.includes("contentUvMatrix * vec3(aTexCoord, 1.0)"));
+  assert.ok(builderSource.includes("contentUvMatrix * vec3(vTexCoord, 1.0)"));
+  assert.ok(builderSource.includes("return mix(vTexCoord, transformedUv"));
   assert.ok(builderSource.includes("contentUvMatrix * vec3(baseUv, 1.0)"));
-  assert.ok(!builderSource.includes("vec2(gl_FragCoord.x, iResolution.y - gl_FragCoord.y)"));
+  assert.ok(builderSource.includes("vTexCoord = aTexCoord;"));
+  assert.ok(!builderSource.includes("contentUvMatrix * vec3(aTexCoord, 1.0)"));
+  const standaloneAdapter = builderSource.slice(
+    builderSource.indexOf("function standaloneFragmentSource("),
+    builderSource.indexOf("function shadertoyFragmentSource(")
+  );
+  assert.ok(!standaloneAdapter.includes("gl_FragCoord"));
 });
 
 test("spatial field effects use screen-oriented y coordinates for handle translation", () => {
@@ -322,7 +335,7 @@ test("fireflies generator keeps the background transparent and uses one tint col
 });
 
 test("terrain flyover does not expose the obsolete full-frame fallback shader", () => {
-  const source = readFileSync(new URL("../js/shaders/generator-shaders.js", import.meta.url), "utf8");
+  const source = generatorShaderCatalogSource();
   assert.equal(getGeneratorShaderComponent("terrainFlyover"), null);
   assert.ok(!source.includes("simplexLikeNoise"));
 });
@@ -413,6 +426,10 @@ test("standalone generator shaders receive the shared quality uniform", () => {
 
   assert.ok(fragmentSource.includes("precision mediump float;\nuniform float renderQuality;"));
   assert.equal((fragmentSource.match(/uniform float renderQuality;/g) || []).length, 1);
+  assert.ok(fragmentSource.includes("vec2 vj1CompositionUv()"));
+  assert.ok(fragmentSource.includes("contentUvMatrix * vec3(vTexCoord, 1.0)"));
+  assert.ok(fragmentSource.includes("vec2 uv = vj1CompositionUv()"));
+  assert.ok(fragmentSource.includes("varying vec2 vTexCoord;"));
 });
 
 test("Seascape preserves attribution and maps artistic controls into bounded shader work", () => {
