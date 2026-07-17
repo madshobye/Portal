@@ -165,6 +165,24 @@ test("Shadertoy base warp is exposed as a generator with clock speed", () => {
   assert.ok(rendererSource.includes('generatorId === "shadertoyBaseWarp"'));
 });
 
+test("Cellular Circles exposes bounded animated Shadertoy controls", () => {
+  const component = getGeneratorComponent("cellularCircles");
+  const params = Object.fromEntries(component.params.map((param) => [param.id, param]));
+  const rendererSource = readFileSync(new URL("../js/output/output-renderer.js", import.meta.url), "utf8");
+
+  assert.equal(component.name, "Cellular Circles");
+  assert.equal(component.category, "shadertoy");
+  for (const id of ["speed", "scale", "searchRadius", "orbitRadius", "cellMotion", "rotationSpeed", "offsetX", "offsetY", "circularity", "glowPower", "amount"]) {
+    assert.equal(params[id].type, "number", `missing numeric Cellular Circles control ${id}`);
+  }
+  assert.equal(params.searchRadius.max, 5);
+  assert.equal(params.searchRadius.defaultValue, 5);
+  for (const id of ["cellColor", "backgroundColor"]) {
+    assert.equal(params[id].type, "color", `missing Cellular Circles color ${id}`);
+  }
+  assert.ok(rendererSource.includes('generatorId === "cellularCircles"'));
+});
+
 test("Seascape exposes bounded artistic controls", () => {
   const component = getGeneratorComponent("seascape");
   const params = Object.fromEntries(component.params.map((param) => [param.id, param]));
@@ -734,7 +752,36 @@ test("output renderer blackouts while active media sources are missing or loadin
   }
 });
 
+test("output readiness includes images referenced by media-backed generators", () => {
+  const previousMillis = globalThis.millis;
+  globalThis.millis = () => 4000;
+  try {
+    const state = createInitialState();
+    const component = createDefaultComponent(0);
+    component.chain = [
+      createComponentLayer(0, { type: "generator", generatorId: "tileTexture", params: { imageId: "tiles.png" } }),
+      createComponentLayer(1, { type: "generator", generatorId: "featureMorph", params: { imageAId: "a.png", imageBId: "b.png" } }),
+      createComponentLayer(2, { type: "generator", generatorId: "featureMorphV2", params: { imageAId: "c.png", imageBId: "d.png" } }),
+    ];
+    state.components = [component];
+    state.surfaces = [{ ...state.surfaces[0], enabled: true, componentId: component.id }];
+    const requested = [];
+    const renderer = new OutputRenderer({ mode: "output", requestMediaFiles: (ids) => requested.push(ids) });
+    renderer.state = sanitizeState(state);
+
+    const status = renderer.outputMediaReadiness();
+    assert.equal(status.blocked, true);
+    assert.deepEqual(Array.from(status.missingIds), ["tiles.png", "a.png", "b.png", "c.png", "d.png"]);
+    assert.deepEqual(requested, [["tiles.png", "a.png", "b.png", "c.png", "d.png"]]);
+  } finally {
+    if (previousMillis === undefined) delete globalThis.millis;
+    else globalThis.millis = previousMillis;
+  }
+});
+
 test("output client holds current project state during control window refresh boot state", () => {
+  const outputAppSource = readFileSync(new URL("../js/output/output-app.js", import.meta.url), "utf8");
+  assert.ok(outputAppSource.includes("renderer.importFiles(acceptedFiles);"));
   const current = createInitialState();
   current.project.folderName = "Loaded show";
   current.media = [{ id: "media/a.png", name: "a.png", type: "image" }];
@@ -781,7 +828,8 @@ test("output playback control is persistent and pauses renderer and video clocks
   assert.ok(shellSource.includes('id="toggle-output-playback"'));
   assert.ok(controllerSource.includes("refs.toggleOutputPlayback.disabled = !outputConnected"));
   assert.ok(controllerSource.includes('outputPlaying ? "pause" : "play_arrow"'));
-  assert.ok(rendererSource.includes("if (this.state?.global?.playing === false) return"));
+  assert.ok(rendererSource.includes("this.visualDeltaSeconds = playing ? dt * timeScale : 0"));
+  assert.ok(rendererSource.includes("if (!playing) return"));
   assert.ok(rendererSource.includes("this.state?.global?.playing === false ? 0 : 1"));
   assert.ok(bridgeSource.includes("const clientWatchdog = setInterval"));
 });

@@ -1639,6 +1639,31 @@ button.text-list-main:hover {
   justify-self: end;
 }
 
+/* Inspector labels need to carry descriptive generator/effect names. Keep
+   tracks compact in editing/performance views without shrinking settings or
+   changing the slider thumb hit target. */
+.studio-inspector:is([data-workspace="component"], [data-workspace="canvas"], [data-workspace="live"]) .range-field {
+  grid-template-columns: minmax(0, 1fr) 104px;
+}
+
+.studio-inspector:is([data-workspace="component"], [data-workspace="canvas"], [data-workspace="live"]) .param-range-pair {
+  grid-template-columns: minmax(0, 1fr) 104px;
+  align-items: center;
+  column-gap: 10px;
+}
+
+.studio-inspector:is([data-workspace="component"], [data-workspace="canvas"], [data-workspace="live"]) .param-range-labels {
+  min-width: 0;
+  overflow: hidden;
+}
+
+.studio-inspector:is([data-workspace="component"], [data-workspace="canvas"], [data-workspace="live"]) .param-range-labels > span:first-child {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .video-source-controls,
 .model-source-controls {
   display: grid;
@@ -2340,6 +2365,17 @@ button.text-list-main:hover {
   border: 1px solid var(--line);
   border-radius: 8px;
   background: rgba(255, 255, 255, 0.025);
+}
+
+.element-section-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.component-picker-sort {
+  flex: 0 0 auto;
 }
 
 .element-section[hidden],

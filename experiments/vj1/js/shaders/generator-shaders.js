@@ -44,6 +44,20 @@ void main() {
 precision mediump float;
 uniform vec2 resolution;
 uniform float time;
+uniform float motionMode;
+uniform float scale;
+uniform float detail;
+uniform float roughness;
+uniform float distortion;
+uniform float movement;
+uniform float speed;
+uniform float contrast;
+uniform float balance;
+uniform float ridge;
+uniform float seed;
+uniform vec4 colorA;
+uniform vec4 colorB;
+uniform vec4 colorC;
 varying vec2 vTexCoord;
 
 vec3 mod289(vec3 x) {
@@ -88,22 +102,61 @@ float simplexNoise(vec2 v) {
 
 float fbm(vec2 p) {
   float value = 0.0;
-  float amplitude = 0.58;
-  value += amplitude * simplexNoise(p);
-  p = mat2(1.62, 1.18, -1.18, 1.62) * p + vec2(11.7, 4.3);
-  amplitude *= 0.46;
-  value += amplitude * simplexNoise(p);
-  return value * 0.5 + 0.5;
+  float total = 0.0;
+  float amplitude = 1.0;
+  mat2 octaveRotation = mat2(1.56, 1.14, -1.14, 1.56);
+  for (int octave = 0; octave < 5; octave++) {
+    if (float(octave) < detail) {
+      value += simplexNoise(p) * amplitude;
+      total += amplitude;
+    }
+    p = octaveRotation * p + vec2(13.17, 7.31);
+    amplitude *= roughness;
+  }
+  return value / max(total, 0.0001) * 0.5 + 0.5;
 }
 
 void main() {
-  vec2 uv = vTexCoord;
+  vec2 uv = vTexCoord - 0.5;
   vec2 aspect = vec2(resolution.x / max(resolution.y, 1.0), 1.0);
-  vec2 p = uv * aspect * 5.2 + vec2(time * 0.11, -time * 0.08);
+  float dynamicMode = 1.0 - step(2.5, motionMode);
+  float clock = time * speed * movement * dynamicMode;
+  float seedValue = seed * 0.071;
+  float angle = seedValue + clock * (0.18 + movement * 0.09);
+  mat2 domainRotation = mat2(cos(angle), -sin(angle), sin(angle), cos(angle));
+  vec2 p = domainRotation * (uv * aspect * scale);
+
+  vec2 orbit = vec2(sin(clock * 0.73 + seedValue), cos(clock * 0.61 - seedValue)) * movement;
+  if (motionMode < 0.5) {
+    p += orbit * 0.8;
+  } else if (motionMode < 1.5) {
+    p += vec2(sin(clock * 0.37), sin(clock * 0.53 + 1.7)) * movement * 0.35;
+  } else if (motionMode < 2.5) {
+    p *= 1.0 + sin(clock * 0.9) * 0.18 * movement;
+  }
+
+  vec2 warp = vec2(
+    simplexNoise(p * 0.58 + vec2(17.3 + seedValue, clock * 0.31)),
+    simplexNoise(p * 0.58 + vec2(-clock * 0.27, 41.7 - seedValue))
+  );
+  if (motionMode > 0.5 && motionMode < 1.5) {
+    vec2 secondWarp = vec2(
+      simplexNoise(p * 0.31 + warp * 1.7 + vec2(clock * 0.19)),
+      simplexNoise(p * 0.31 - warp.yx * 1.7 - vec2(clock * 0.23))
+    );
+    warp = mix(warp, secondWarp, 0.65);
+  }
+  p += warp * distortion;
+
   float n = clamp(fbm(p), 0.0, 1.0);
-  float fine = simplexNoise(p * 3.7 + vec2(5.0, time * 0.2)) * 0.08;
-  vec3 color = vec3(30.0, 35.0, 70.0) / 255.0 + (n + fine) * vec3(210.0, 120.0, 175.0) / 255.0;
-  gl_FragColor = vec4(clamp(color, 0.0, 1.0), 1.0);
+  float ridged = 1.0 - abs(n * 2.0 - 1.0);
+  n = mix(n, ridged, ridge);
+  n = clamp((n - 0.5) * contrast + 0.5 + (0.5 - balance), 0.0, 1.0);
+
+  vec4 palette = n < 0.5
+    ? mix(colorA, colorB, smoothstep(0.0, 0.5, n))
+    : mix(colorB, colorC, smoothstep(0.5, 1.0, n));
+  gl_FragColor = vec4(palette.rgb * palette.a, palette.a);
 }`,
   },
   plasma: {
@@ -585,6 +638,79 @@ void mainImage(out vec4 fragColor, in vec2 fragCoord) {
   float luminance = dot(color, vec3(0.2126, 0.7152, 0.0722));
   color = mix(vec3(luminance), color, saturation);
   fragColor = vec4(clamp(color, 0.0, 1.0), shade * amount);
+}
+`,
+  },
+  cellularCircles: {
+    id: "generator.cellularCircles",
+    name: "Cellular Circles Generator",
+    type: "shadertoy",
+    code: `
+/*
+ * "Cellular Circles" by Jan Mróz (jaszunio15)
+ * License: Creative Commons Attribution 3.0 (CC BY 3.0)
+ * Original shader: https://www.shadertoy.com/view/tsfGDM
+ * Rotation and random optimizations credited by the author to FabriceNyret2.
+ * Adapted for VJ1 with controls, premultiplied alpha, and a single nearest-pair pass.
+ */
+
+uniform float scale;
+uniform float searchRadius;
+uniform float orbitRadius;
+uniform float cellMotion;
+uniform float rotationSpeed;
+uniform float offsetX;
+uniform float offsetY;
+uniform float circularity;
+uniform float glowPower;
+uniform vec4 cellColor;
+uniform vec4 backgroundColor;
+uniform float amount;
+
+const float CELL_DOUBLE_PI = 6.283185;
+
+vec2 cellularRandom(vec2 value) {
+  return fract(sin(value * mat2(0.7400775, -0.6725215, 0.1241045, 0.9922691)) * vec2(541.9283, 638.1429));
+}
+
+vec2 cellularCenter(vec2 root) {
+  vec2 randomValue = cellularRandom(root);
+  float angle = iTime * cellMotion * randomValue.x * 0.3;
+  return root + vec2(cos(angle), sin(angle)) * randomValue.y * orbitRadius;
+}
+
+void mainImage(out vec4 fragColor, in vec2 fragCoord) {
+  vec2 uv = fragCoord / min(iResolution.x, iResolution.y);
+  uv += vec2(offsetX, offsetY);
+  float rotation = iTime * rotationSpeed;
+  uv = mat2(cos(rotation), sin(rotation), -sin(rotation), cos(rotation)) * uv;
+  uv *= scale;
+
+  vec2 root = floor(uv);
+  float nearestDistance = 99999.0;
+  float secondDistance = 99999.0;
+  for (int x = -5; x <= 5; x++) {
+    for (int y = -5; y <= 5; y++) {
+      if (abs(float(x)) > searchRadius || abs(float(y)) > searchRadius) continue;
+      vec2 center = cellularCenter(root + vec2(float(x), float(y)));
+      vec2 delta = uv - center;
+      float distanceSquared = dot(delta, delta);
+      if (distanceSquared < nearestDistance) {
+        secondDistance = nearestDistance;
+        nearestDistance = distanceSquared;
+      } else if (distanceSquared < secondDistance && distanceSquared > nearestDistance) {
+        secondDistance = distanceSquared;
+      }
+    }
+  }
+
+  float centralDistance = (sqrt(nearestDistance) + sqrt(secondDistance)) * 0.5;
+  centralDistance = mix(centralDistance, min(centralDistance, 0.5), circularity);
+  float wave = sin(fract(centralDistance) * CELL_DOUBLE_PI) * 0.5 + 0.5;
+  float effect = pow(max(wave, 0.0), glowPower);
+  vec4 color = mix(backgroundColor, cellColor, effect);
+  float alpha = clamp(color.a * amount, 0.0, 1.0);
+  fragColor = vec4(clamp(color.rgb, 0.0, 1.0) * alpha, alpha);
 }
 `,
   },

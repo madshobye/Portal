@@ -1,10 +1,10 @@
-import { createAppState } from "./app-state.js?v=adaptive-component-demand-29";
-import { createControlShell } from "./control/control-shell-controller.js?v=model-geometry-fix-30";
+import { createAppState } from "./app-state.js?v=centered-freeze-68";
+import { createControlShell } from "./control/control-shell-controller.js?v=centered-freeze-68";
 import { getInitialWorkspace, getClientMode, persistWorkspace } from "./view-routing.js?v=adaptive-component-demand-29";
 import { createMediaLibrary } from "./services/media-library-service.js?v=adaptive-component-demand-29";
 import { createProjectFolderService } from "./services/project-folder-service.js?v=adaptive-component-demand-29";
 import { createControlBridge } from "./services/output-bridge-service.js?v=adaptive-component-demand-29";
-import { installOutputApp } from "./output/output-app.js?v=model-geometry-fix-30";
+import { installOutputApp } from "./output/output-app.js?v=centered-freeze-68";
 
 const root = document.getElementById("app");
 const mode = getClientMode();

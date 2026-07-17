@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 
-import { averageGpuQueryNanoseconds, cameraCaptureSettings, cameraSettingsSignature, canvasComponentPlacementRect, canvasFrameBorderHit, canvasMaxRasterSize, canvasPreviewRenderRequest, componentAdaptiveRasterLimit, componentPipelineSourceRequest, componentPreviewRenderRequest, componentReferencePlacement, componentReferenceRenderRequest, componentSourceView, directFitRects, eyeballFrameUniforms, fittedThumbnailSize, GpuTimerTracker, moveCanvasFrameRect, OutputRenderer, qualityScaledRenderRequest, resizeCanvasFrameRect, sharedComponentRenderRequests } from "../js/output/output-renderer.js";
+import { averageGpuQueryNanoseconds, cameraCaptureSettings, cameraSettingsSignature, canvasComponentPlacementRect, canvasFrameBorderHit, canvasMaxRasterSize, canvasPreviewRenderRequest, chainTransformDragScale, componentAdaptiveRasterLimit, componentInstanceTime, componentPipelineSourceRequest, componentPreviewRenderRequest, componentReferencePlacement, componentReferenceRenderRequest, componentRenderInstanceKey, componentSourceView, directFitRects, eyeballFrameUniforms, fittedThumbnailSize, GpuTimerTracker, moveCanvasFrameRect, OutputRenderer, pointInTransformedRect, qualityScaledRenderRequest, resizeCanvasFrameRect, sharedComponentRenderRequests } from "../js/output/output-renderer.js";
 import { createPlacedRenderResult, directPlacementKind, transformedPlacementDemandRect } from "../js/graph/placed-render-result.js";
 import { renderRequestKey } from "../js/output/render-geometry.js";
 import { mapperFragmentShaderSource, VjMapper } from "../js/output/vj-mapper.js";
@@ -10,6 +10,145 @@ import { mapperFragmentShaderSource, VjMapper } from "../js/output/vj-mapper.js"
 function pickRequestSize(request) {
   return { width: request.width, height: request.height };
 }
+
+test("element scale dragging uses a softened bounded response", () => {
+  assert.equal(chainTransformDragScale(1, 40, 160), 2);
+  assert.equal(chainTransformDragScale(1, 40, 10), 0.5);
+  assert.equal(chainTransformDragScale(6, 40, 160), 8);
+});
+
+test("transformed physical bounds support translated scaled and rotated picking", () => {
+  const frame = { x: 0, y: 0, width: 200, height: 100 };
+  const rect = { x: 50, y: 25, width: 100, height: 50 };
+  assert.equal(pointInTransformedRect(100, 50, frame, rect, {}), true);
+  assert.equal(pointInTransformedRect(25, 50, frame, rect, {}), false);
+  assert.equal(pointInTransformedRect(150, 50, frame, rect, { x: 0.5, scale: 0.5, rotation: Math.PI / 2 }), true);
+  assert.equal(pointInTransformedRect(100, 50, frame, rect, { x: 0.5, scale: 0.5, rotation: Math.PI / 2 }), false);
+});
+
+test("preview picking selects physical sources, spatial effects, and containing groups", () => {
+  const selected = [];
+  const renderer = new OutputRenderer({ mode: "component", onChainItemSelect: (id) => selected.push(id) });
+  const source = { id: "source-a", kind: "source", enabled: true, opacity: 1, transform: {}, source: { type: "generator", generatorId: "noise" } };
+  const groupedSource = { id: "source-b", kind: "source", enabled: true, opacity: 1, transform: {}, source: { type: "media", mediaId: "image-a" } };
+  const group = { id: "group-a", kind: "group", enabled: true, opacity: 1, transform: {}, chain: [groupedSource] };
+  const ordinaryEffect = { id: "effect-a", kind: "effect", componentId: "labelChromatic", enabled: true, opacity: 1, transform: {} };
+  const component = { id: "component-a", type: "chain", chain: [source, group, ordinaryEffect] };
+  renderer.state = { components: [component], render: {}, ui: { selectedComponentId: component.id, selectedChainItemId: "" } };
+  renderer.componentPreviewRect = () => ({ x: 0, y: 0, width: 200, height: 100 });
+
+  assert.equal(renderer.selectChainItemAtPoint(100, 50)?.id, group.id);
+  assert.equal(renderer.state.ui.selectedChainItemId, group.id);
+  assert.deepEqual(selected, [group.id]);
+
+  component.chain.push({ id: "effect-spatial", kind: "effect", componentId: "ripple", enabled: true, opacity: 1, transform: {} });
+  assert.equal(renderer.selectChainItemAtPoint(100, 50)?.id, "effect-spatial");
+});
+
+test("one preview press selects a physical element and begins moving it", () => {
+  const renderer = new OutputRenderer({ mode: "component" });
+  const source = { id: "source-a", kind: "source", enabled: true, opacity: 1, transform: {}, source: { type: "generator", generatorId: "noise" } };
+  const component = { id: "component-a", type: "chain", chain: [source] };
+  renderer.state = { components: [component], render: {}, ui: { selectedComponentId: component.id, selectedChainItemId: "" } };
+  renderer.componentPreviewRect = () => ({ x: 0, y: 0, width: 200, height: 100 });
+
+  renderer.mousePressed(80, 40);
+
+  assert.equal(renderer.state.ui.selectedChainItemId, source.id);
+  assert.equal(renderer.chainTransformDrag?.itemId, source.id);
+  assert.equal(renderer.chainTransformDrag?.mode, "move");
+});
+
+test("an already selected child inside a group owns the next preview drag", () => {
+  const renderer = new OutputRenderer({ mode: "component" });
+  const child = { id: "source-a", kind: "source", enabled: true, opacity: 1, transform: {}, source: { type: "generator", generatorId: "noise" } };
+  const group = { id: "group-a", kind: "group", enabled: true, opacity: 1, transform: {}, chain: [child] };
+  const component = { id: "component-a", type: "chain", chain: [group] };
+  renderer.state = { components: [component], render: {}, ui: { selectedComponentId: component.id, selectedChainItemId: child.id } };
+  renderer.componentPreviewRect = () => ({ x: 0, y: 0, width: 200, height: 100 });
+
+  renderer.mousePressed(100, 50);
+  renderer.mouseDragged(120, 50);
+
+  assert.equal(renderer.state.ui.selectedChainItemId, child.id);
+  assert.equal(renderer.chainTransformDrag?.itemId, child.id);
+  assert.equal(renderer.chainTransformDrag?.mode, "move");
+  assert.equal(child.transform.x, 0.2);
+  assert.deepEqual(group.transform, {});
+});
+
+test("child preview dragging is converted through its parent group transform", () => {
+  const renderer = new OutputRenderer({ mode: "component" });
+  const child = { id: "source-a", kind: "source", enabled: true, opacity: 1, transform: {}, source: { type: "generator", generatorId: "noise" } };
+  const group = { id: "group-a", kind: "group", enabled: true, opacity: 1, transform: { scale: 2, rotation: Math.PI / 2 }, chain: [child] };
+  const component = { id: "component-a", type: "chain", chain: [group] };
+  renderer.state = { components: [component], render: {}, ui: { selectedComponentId: component.id, selectedChainItemId: child.id } };
+  renderer.componentPreviewRect = () => ({ x: 0, y: 0, width: 200, height: 100 });
+
+  renderer.mousePressed(100, 50);
+  renderer.mouseDragged(120, 50);
+
+  assert.ok(Math.abs(child.transform.x) < 1e-12);
+  assert.equal(child.transform.y, -0.2);
+  assert.deepEqual(group.transform, { scale: 2, rotation: Math.PI / 2 });
+});
+
+test("releasing a direct element drag commits one undoable transform", () => {
+  const changes = [];
+  const renderer = new OutputRenderer({
+    mode: "component",
+    sendChainTransform: (componentId, itemId, transform, meta) => changes.push({ componentId, itemId, transform, meta }),
+  });
+  const source = { id: "source-a", kind: "source", enabled: true, opacity: 1, transform: {}, source: { type: "generator", generatorId: "noise" } };
+  const component = { id: "component-a", type: "chain", chain: [source] };
+  renderer.state = { components: [component], render: {}, ui: { selectedComponentId: component.id, selectedChainItemId: source.id } };
+  renderer.componentPreviewRect = () => ({ x: 0, y: 0, width: 200, height: 100 });
+
+  renderer.mousePressed(100, 50);
+  renderer.mouseDragged(120, 50);
+  renderer.mouseReleased();
+
+  assert.equal(changes.length, 2);
+  assert.equal(changes[0].meta, undefined);
+  assert.deepEqual(changes[1].meta, { commit: true });
+  assert.deepEqual(changes[1].transform, changes[0].transform);
+});
+
+test("global time stretch changes visual clock rate without changing its phase", () => {
+  const renderer = new OutputRenderer({ mode: "component" });
+  renderer.state = {
+    global: { playing: true, timeStretch: -1 },
+    components: [{ id: "component-a", speed: 1 }],
+  };
+  renderer.lastTickMs = 1000;
+
+  renderer.tickClock(1100);
+  assert.equal(renderer.visualTime, 0.05);
+  assert.equal(renderer.componentTimes.get("component-a"), 0.05);
+
+  renderer.state.global.timeStretch = 1;
+  renderer.tickClock(1200);
+  assert.equal(renderer.visualTime, 0.25);
+  assert.equal(renderer.componentTimes.get("component-a"), 0.25);
+
+  renderer.state.global.playing = false;
+  renderer.tickClock(1300);
+  assert.equal(renderer.visualTime, 0.25);
+  assert.equal(renderer.visualDeltaSeconds, 0);
+
+  renderer.state.global = { playing: true };
+  renderer.tickClock(1400);
+  assert.equal(renderer.visualTime, 0.35);
+
+  renderer.state.global.timeStretch = -4;
+  renderer.tickClock(1500);
+  assert.equal(renderer.visualTime, 0.35);
+  assert.equal(renderer.visualDeltaSeconds, 0);
+
+  renderer.state.global.timeStretch = 4;
+  renderer.tickClock(1600);
+  assert.ok(Math.abs(renderer.visualTime - 1.95) < 1e-12);
+});
 
 test("camera capture settings map project preferences to the Portal camera contract", () => {
   const render = {
@@ -244,7 +383,7 @@ test("component post filters run after the upscale target", () => {
     source.indexOf("  cacheComponentOutput(")
   );
 
-  assert.ok(pipelineSource.indexOf('`${component.id}:upscale`') < pipelineSource.indexOf('`${component.id}:post`'));
+  assert.ok(pipelineSource.indexOf('`${component.id}:upscale:') < pipelineSource.indexOf('`${component.id}:post:'));
   assert.ok(source.includes("COMPONENT_UPSCALE_FRAGMENT_SHADER"));
   assert.ok(source.includes("COMPONENT_POST_FRAGMENT_SHADER"));
   assert.ok(source.includes('shaderProgram.setUniform("noiseAmount"'));
@@ -474,6 +613,9 @@ test("canvas rendering evaluates ordinary sources, Groups, effects, and shared r
   assert.ok(source.includes("this.renderEffectNodeState(nodeId, state, item, componentTime, renderRequest)"));
   assert.ok(source.includes("this.renderDirectSourceNodeState(nodeId, state, component, item, componentTime, renderRequest)"));
   assert.ok(source.includes("this.renderLayerNodeState(nodeId, state, sourceState, { ...item, transform: {} }, renderRequest)"));
+  assert.ok(source.includes("state = this.renderLayerNodeState(nodeId, state, groupState, item, renderRequest)"));
+  assert.ok(source.includes("output.tint(255, 255 * clamp01(layer.opacity ?? 1))"));
+  assert.ok(source.includes("applyBlend(output, layer.blend)"));
   assert.ok(source.includes('source.type === "component"'));
   assert.ok(source.includes("this.recordingFrameById"));
   assert.ok(source.includes("this.state?.recordingFrames || []"));
@@ -522,6 +664,32 @@ test("multiple recording frames share one parent Canvas texture request", () => 
   assert.deepEqual(pickRequestSize(requests.get("canvas-a")), { width: 1920, height: 1088 });
   assert.equal(requests.get("canvas-a").renderIdentity, "to:canvas-a");
   assert.equal(requests.get("canvas-a").demandScale, 0.5);
+});
+
+test("component instance sync controls surface render sharing without changing component ids", () => {
+  const synced = { id: "component-a", syncInstances: true };
+  assert.equal(componentRenderInstanceKey(synced, "surface-a"), "component-a");
+  assert.equal(componentRenderInstanceKey(synced, "surface-b"), "component-a");
+  assert.equal(componentInstanceTime(synced, 12, "surface-a"), 12);
+
+  const independent = { id: "component-a", syncInstances: false };
+  const firstKey = componentRenderInstanceKey(independent, "surface-a");
+  const secondKey = componentRenderInstanceKey(independent, "surface-b");
+  assert.equal(independent.id, "component-a");
+  assert.notEqual(firstKey, secondKey);
+  assert.notEqual(componentInstanceTime(independent, 12, "surface-a"), componentInstanceTime(independent, 12, "surface-b"));
+
+  const sourceView = {
+    logicalSize: { width: 640, height: 360 },
+    maxRasterSize: { width: 640, height: 360 },
+  };
+  const requests = sharedComponentRenderRequests([
+    { component: independent, surface: { id: "surface-a" }, sourceView, demand: { rasterScale: 1 } },
+    { component: independent, surface: { id: "surface-b" }, sourceView, demand: { rasterScale: 1 } },
+  ]);
+  assert.equal(requests.size, 2);
+  assert.ok(requests.has(firstKey));
+  assert.ok(requests.has(secondKey));
 });
 
 test("surface route lookup indexes components, frames, and source nodes once per state", () => {
@@ -876,7 +1044,7 @@ test("scene surfaces render components at their configured shape and relative re
   assert.ok(surfaceRenderPlan.includes("this.resolveRouteSourceNode(storedSurface)"));
   assert.ok(surfaceRenderPlan.includes("this.state.render?.sampling?.surfaceOverscan"));
   assert.ok(surfaceRenderPlan.includes("sharedComponentRenderRequests(routes"));
-  assert.ok(surfaceRenderPlan.includes("route.componentRequest = componentRequests.get(route.component.id)"));
+  assert.ok(surfaceRenderPlan.includes("route.componentRequest = componentRequests.get(renderInstanceKey)"));
   assert.ok(!drawSurfaceRoute.includes("stableFrameRenderRequest(this.state.render"));
   assert.ok(drawSurfaceRoute.includes("scaledComponentSampleRect("));
   assert.ok(source.includes("getSurfaceTexture(request)"));

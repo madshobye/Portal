@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 
 import { paramRangePairTemplate, rangeTemplate } from "../js/control/template-utils.js";
+import { elementPickerTemplate } from "../js/control/picker-view.js";
 import { settingsModalTemplate } from "../js/control/settings-view.js";
 import { createInitialState } from "../js/domain/models.js";
 import { previewRasterDensity } from "../js/output/embedded-preview-app.js";
@@ -21,6 +22,32 @@ test("range params render as label plus slider without numeric value text", () =
   assert.ok(styleSource.includes("grid-template-columns: minmax(0, 1fr) minmax(128px, var(--param-slider-width));"));
   assert.ok(styleSource.includes(".live-chain-pass > .chain-param-list"));
   assert.ok(styleSource.includes("grid-column: 1 / -1;"));
+});
+
+test("Component Canvas and Live inspectors reserve label space with compact sliders", () => {
+  const controllerSource = readFileSync(new URL("../js/control/control-shell-controller.js", import.meta.url), "utf8");
+  const styleSource = readFileSync(new URL("../style.css", import.meta.url), "utf8");
+
+  assert.ok(controllerSource.includes("refs.inspector.dataset.workspace = currentWorkspace(state);"));
+  assert.match(styleSource, /\.studio-inspector:is\(\[data-workspace="component"\], \[data-workspace="canvas"\], \[data-workspace="live"\]\) \.range-field \{[\s\S]*?grid-template-columns: minmax\(0, 1fr\) 104px;/);
+  assert.match(styleSource, /\.studio-inspector:is\(\[data-workspace="component"\], \[data-workspace="canvas"\], \[data-workspace="live"\]\) \.param-range-pair \{[\s\S]*?grid-template-columns: minmax\(0, 1fr\) 104px;/);
+});
+
+test("groups expose blend mode and alpha in persistent and Live inspectors", () => {
+  const controllerSource = readFileSync(new URL("../js/control/control-shell-controller.js", import.meta.url), "utf8");
+  const groupEditor = controllerSource.slice(
+    controllerSource.indexOf("function groupChainItemTemplate("),
+    controllerSource.indexOf("function sourceChainItemTemplate(")
+  );
+  const liveGroup = controllerSource.slice(
+    controllerSource.indexOf('if (item.kind === "group")', controllerSource.indexOf("function liveChainItemTemplate(")),
+    controllerSource.indexOf("const referencedComponent", controllerSource.indexOf("function liveChainItemTemplate("))
+  );
+
+  assert.ok(groupEditor.includes('selectValuesTemplate(`${base}.blend`, BLEND_MODES'));
+  assert.ok(groupEditor.includes('rangeTemplate("Alpha", `${base}.opacity`'));
+  assert.ok(liveGroup.includes('liveSelectValuesTemplate(componentId, `${path}.blend`, BLEND_MODES'));
+  assert.ok(liveGroup.includes('liveRangeTemplate("Alpha", componentId, `${path}.opacity`'));
 });
 
 test("paired HSV ranges render two accessible handles and shared range state", () => {
@@ -124,6 +151,15 @@ test("Live scenes expose an opt-in transition duration that defaults to zero", (
   assert.ok(source.includes('data-update="ui.live.transitionDuration"'));
   assert.ok(source.includes('min="0" max="10" step="0.1"'));
   assert.ok(models.includes("transitionDuration: 0"));
+});
+
+test("Live exposes a phase-continuous global visual time stretch", () => {
+  const source = readFileSync(new URL("../js/control/control-shell-controller.js", import.meta.url), "utf8");
+
+  assert.ok(source.includes("Time stretch"));
+  assert.ok(source.includes('data-update="global.timeStretch"'));
+  assert.ok(source.includes('min="-4" max="4" step="0.01"'));
+  assert.ok(source.includes("const timeScale = timeStretch <= -4 ? 0 : 2 ** timeStretch"));
 });
 
 test("embedded preview retargets resize observation after workspace DOM replacement", () => {
@@ -390,6 +426,28 @@ test("component picker cards use the same thumbnail layout as media cards", () =
   assert.match(source, /Components[\s\S]*?<div class="element-grid media-element-grid">[\s\S]*?class="element-card media-element-card" data-add-element-component=/);
 });
 
+test("component selection modal exposes the shared persisted catalog sorting", () => {
+  const state = {
+    media: [],
+    components: [
+      { id: "canvas", name: "Canvas", type: "canvas" },
+      { id: "beta", name: "Beta", type: "component" },
+      { id: "alpha", name: "Alpha", type: "component" },
+    ],
+  };
+  const html = elementPickerTemplate(state, { componentId: "canvas" }, null, new Map(), {
+    components: [state.components[2], state.components[1], state.components[0]],
+    sortMode: "name",
+  });
+  const controller = readFileSync(new URL("../js/control/control-shell-controller.js", import.meta.url), "utf8");
+
+  assert.ok(html.indexOf("Alpha") < html.indexOf("Beta"));
+  assert.match(html, /data-catalog-sort-scope="component" data-catalog-sort="created"/);
+  assert.match(html, /Sorted by name; click to sort by created/);
+  assert.ok(controller.includes("sortComponentCatalog(state.components || [], modalSortMode)"));
+  assert.ok(controller.includes("bindCatalogSortControls(host)"));
+});
+
 test("workspace view buttons are compact icons with accessible names", () => {
   const shellSource = readFileSync(new URL("../js/control/shell-view.js", import.meta.url), "utf8");
   const styleSource = readFileSync(new URL("../style.css", import.meta.url), "utf8");
@@ -455,4 +513,49 @@ test("seed params stay internal and are not rendered as sliders", () => {
   assert.ok(controllerSource.includes("const visible = visibleParamControls(params);"));
   assert.ok(controllerSource.includes("paramControlsTemplate(component.params"));
   assert.ok(controllerSource.includes("paramControlsTemplate(params"));
+});
+
+test("components expose persistent instance synchronization without changing component ids", () => {
+  const controllerSource = readFileSync(new URL("../js/control/control-shell-controller.js", import.meta.url), "utf8");
+
+  assert.ok(controllerSource.includes("function componentInstanceSyncTemplate"));
+  assert.ok(controllerSource.includes("Sync instances"));
+  assert.ok(controllerSource.includes(".syncInstances"));
+  assert.ok(controllerSource.includes('data-toggle-path="${base}.syncInstances"'));
+  assert.ok(controllerSource.includes("each Canvas placement and surface its own phase"));
+});
+
+test("global clipboard routing follows clicked lists chains Groups and external images", () => {
+  const source = readFileSync(new URL("../js/control/control-shell-controller.js", import.meta.url), "utf8");
+  const previewSource = readFileSync(new URL("../js/output/embedded-preview-app.js", import.meta.url), "utf8");
+
+  assert.ok(source.includes('window.addEventListener("copy", copyFromCurrentTarget)'));
+  assert.ok(source.includes('window.addEventListener("paste", pasteIntoCurrentTarget)'));
+  assert.ok(source.includes('data-paste-scope="component-list"'));
+  assert.ok(source.includes('data-paste-scope="canvas-list"'));
+  assert.ok(source.includes('data-paste-scope="scene-list"'));
+  assert.ok(source.includes('data-paste-scope="surface-list"'));
+  assert.ok(source.includes("imageFilesFromTransfer"));
+  assert.ok(source.includes("imageUrlFromTransfer"));
+  assert.ok(source.includes("onChainItemTarget: (componentId, itemId)"));
+  assert.ok(previewSource.includes("onChainItemTarget?.(state.ui.selectedComponentId, itemId)"));
+});
+
+test("project undo and redo expose standard keyboard shortcuts", () => {
+  const source = readFileSync(new URL("../js/control/control-shell-controller.js", import.meta.url), "utf8");
+
+  assert.ok(source.includes('window.addEventListener("keydown", handleHistoryKeydown)'));
+  assert.ok(source.includes("event.metaKey || event.ctrlKey"));
+  assert.ok(source.includes("if (event.shiftKey) redoProject()"));
+  assert.ok(source.includes("else undoProject()"));
+});
+
+test("global selection supports cut and guarded delete shortcuts", () => {
+  const source = readFileSync(new URL("../js/control/control-shell-controller.js", import.meta.url), "utf8");
+
+  assert.ok(source.includes('window.addEventListener("cut", cutFromCurrentTarget)'));
+  assert.ok(source.includes('window.addEventListener("keydown", handleDeleteKeydown)'));
+  assert.ok(source.includes("writeClipboardPayload(event, payload)"));
+  assert.ok(source.includes('event.key !== "Delete" && event.key !== "Backspace"'));
+  assert.ok(source.includes("store.removeChainItem?.(target.componentId, target.itemId)"));
 });

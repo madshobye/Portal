@@ -1,4 +1,4 @@
-import { listGeneratorComponents } from "../graph/generator-registry.js?v=adaptive-component-demand-29";
+import { listGeneratorComponents } from "../graph/generator-registry.js?v=group-composite-59";
 import { listShaderComponents } from "../shaders/shader-registry.js?v=adaptive-component-demand-29";
 import { effectIcon, esc, icon, thumbnailTemplate } from "./template-utils.js?v=adaptive-component-demand-29";
 
@@ -13,8 +13,12 @@ export function generatorIcon(id) {
     swayingTrees: "forest",
     waves: "waves",
     noise: "grain",
+    tileTexture: "grid_on",
     plasma: "blur_on",
     gradient: "gradient",
+    featureMorph: "animation",
+    featureMorphV2: "neurology",
+    cellularCircles: "bubble_chart",
     anatomy: "accessibility_new",
     terrainFlyover: "landscape",
     bezierStrokes: "gesture",
@@ -110,11 +114,12 @@ function sourceMediaCardTemplate(item, source, mediaLibrary, urlCache) {
   `;
 }
 
-export function elementPickerTemplate(state, picker, mediaLibrary, urlCache) {
+export function elementPickerTemplate(state, picker, mediaLibrary, urlCache, componentCatalog = {}) {
   const mediaItems = state.media || [];
   const owner = state.components.find((component) => component.id === picker.componentId);
+  const componentItems = Array.isArray(componentCatalog.components) ? componentCatalog.components : state.components;
   const components = owner?.type === "canvas"
-    ? state.components.filter((component) => component.id !== picker.componentId && component.type !== "canvas")
+    ? componentItems.filter((component) => component.id !== picker.componentId && component.type !== "canvas")
     : [];
   const generators = listGeneratorComponents().filter((generator) => generator.id !== "black");
   const effects = listShaderComponents();
@@ -136,7 +141,10 @@ export function elementPickerTemplate(state, picker, mediaLibrary, urlCache) {
 
       <div class="element-modal-body">
         ${components.length ? `<section class="element-section" data-element-section>
-          <div class="rail-title"><span class="material-symbols-rounded">account_tree</span><span>Components</span></div>
+          <div class="element-section-heading">
+            <div class="rail-title"><span class="material-symbols-rounded">account_tree</span><span>Components</span></div>
+            ${componentPickerSortTemplate(componentCatalog.sortMode || "recent")}
+          </div>
           <div class="element-grid media-element-grid">
             ${components.map((component) => `
               <button type="button" class="element-card media-element-card" data-add-element-component="${esc(component.id)}" data-element-search-card="${esc(elementSearchText(component.name, "component source"))}">
@@ -216,6 +224,22 @@ export function elementPickerTemplate(state, picker, mediaLibrary, urlCache) {
   `;
 }
 
+function componentPickerSortTemplate(activeMode = "recent") {
+  const modes = [
+    ["recent", "Changed", "history"],
+    ["name", "Name", "sort_by_alpha"],
+    ["created", "Created", "add_circle"],
+  ];
+  const activeIndex = Math.max(0, modes.findIndex(([mode]) => mode === activeMode));
+  const [, activeLabel, activeIcon] = modes[activeIndex];
+  const [nextMode, nextLabel] = modes[(activeIndex + 1) % modes.length];
+  return `
+    <div class="component-sort-toggle component-picker-sort">
+      <button type="button" class="is-active" data-catalog-sort-scope="component" data-catalog-sort="${nextMode}" title="Sorted by ${activeLabel.toLowerCase()}; click to sort by ${nextLabel.toLowerCase()}" aria-label="Sorted by ${activeLabel.toLowerCase()}; click to sort by ${nextLabel.toLowerCase()}">${icon(activeIcon)}<span>${activeLabel}</span></button>
+    </div>
+  `;
+}
+
 function elementMediaCardTemplate(item, mediaLibrary, urlCache) {
   const previewUrl = item.type === "image" || item.type === "video" ? mediaPreviewUrl(item.id, mediaLibrary, urlCache) : "";
   return `
@@ -234,18 +258,21 @@ function elementSearchText(...parts) {
 }
 
 export function mediaPickerTemplate(state, picker, mediaLibrary, urlCache) {
+  const mediaItems = picker?.accept
+    ? state.media.filter((item) => item.type === picker.accept)
+    : state.media;
   return `
     <div class="modal-backdrop"></div>
     <section class="modal-panel media-modal" role="dialog" aria-modal="true" aria-label="Choose media">
       <header class="modal-header">
         <div>
           <strong>Choose media</strong>
-          <small>${state.media.length} file${state.media.length === 1 ? "" : "s"}</small>
+          <small>${mediaItems.length} file${mediaItems.length === 1 ? "" : "s"}</small>
         </div>
         <button type="button" class="icon-buttonish" data-close-modal title="Close" aria-label="Close">${icon("close")}</button>
       </header>
       <div class="media-picker-grid">
-        ${state.media.length ? state.media.map((item) => mediaPickerCardTemplate(item, picker, state, mediaLibrary, urlCache)).join("") : `
+        ${mediaItems.length ? mediaItems.map((item) => mediaPickerCardTemplate(item, picker, state, mediaLibrary, urlCache)).join("") : `
           <div class="soft-note">Drop image, video, or 3D model files into the browser, or add them to the project folder.</div>
         `}
       </div>
@@ -299,4 +326,3 @@ function mediaPreviewUrl(id, mediaLibrary, urlCache) {
   urlCache.set(id, url);
   return url;
 }
-

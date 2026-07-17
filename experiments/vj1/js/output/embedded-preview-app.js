@@ -1,11 +1,11 @@
 import { VJ1 } from "../constants.js";
-import { sanitizeState } from "../domain/models.js?v=adaptive-component-demand-29";
-import { OutputRenderer } from "./output-renderer.js?v=model-geometry-fix-30";
+import { sanitizeState } from "../domain/models.js?v=centered-freeze-68";
+import { OutputRenderer } from "./output-renderer.js?v=centered-freeze-68";
 import { applyFontToGlobal, loadVjRenderFont } from "./font-loader.js?v=adaptive-component-demand-29";
 import { createPreviewViewportController, fitPreviewCanvasElement } from "./preview-viewport.js?v=adaptive-component-demand-29";
 import { canvasSizeForMode } from "./render-geometry.js?v=adaptive-component-demand-29";
 
-export function createEmbeddedPreviewApp({ store, mediaLibrary, projectService }) {
+export function createEmbeddedPreviewApp({ store, mediaLibrary, projectService, onChainItemTarget }) {
   let host = null;
   let stage = null;
   let hud = null;
@@ -142,6 +142,7 @@ export function createEmbeddedPreviewApp({ store, mediaLibrary, projectService }
       sendMapping: updateMapping,
       sendThumbnail: updateThumbnail,
       sendChainTransform: updateChainTransform,
+      onChainItemSelect: selectChainItem,
       sendCanvasFrame: updateCanvasFrame,
       sendMediaRendition: (mediaId, width, height, blob) => projectService?.writeMediaRendition?.(mediaId, width, height, blob),
       requestMediaFiles: () => importMediaFilesIfChanged(true),
@@ -388,12 +389,12 @@ export function createEmbeddedPreviewApp({ store, mediaLibrary, projectService }
     }, "component-thumbnail");
   }
 
-  function updateChainTransform(componentId, itemId, transform) {
+  function updateChainTransform(componentId, itemId, transform, meta = {}) {
     store.update((draft) => {
       const component = draft.components.find((item) => item.id === componentId);
       const item = findChainItemById(component?.chain, itemId);
       if (item) item.transform = { ...item.transform, ...transform };
-    }, "scrub:chain-transform");
+    }, meta.commit ? "update:chain-transform" : "scrub:chain-transform");
   }
 
   function updateCanvasFrame(componentId, frameId, rect, meta = {}) {
@@ -411,6 +412,14 @@ export function createEmbeddedPreviewApp({ store, mediaLibrary, projectService }
         draft.ui.selectedSurfaceId = surfaceId;
       }
     }, "select-surface-from-preview");
+  }
+
+  function selectChainItem(itemId) {
+    if (!itemId) return;
+    const state = store.getState();
+    onChainItemTarget?.(state.ui.selectedComponentId, itemId);
+    if (state.ui.selectedChainItemId === itemId) return;
+    store.selectChainItem(itemId);
   }
 
   return { mount, setState, command, pause };

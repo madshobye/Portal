@@ -1,0 +1,58 @@
+<!doctype html>
+<meta charset="utf-8" />
+<title>Feature Morph Smoke</title>
+<output id="status">loading</output>
+<script type="module">
+  import { SuperPointPairService } from "../../js/output/specialized/superpoint-service.js?v=feature-morph-33";
+  import { FEATURE_MORPH_FRAGMENT_SHADER, FEATURE_MORPH_VERTEX_SHADER } from "../../js/output/specialized/feature-morph-shader.js?v=feature-morph-33";
+
+  const makeImage = (offsetX) => {
+    const canvas = document.createElement("canvas");
+    canvas.width = 640;
+    canvas.height = 480;
+    const context = canvas.getContext("2d");
+    context.fillStyle = "#172030";
+    context.fillRect(0, 0, canvas.width, canvas.height);
+    for (let y = 20; y < 460; y += 44) {
+      for (let x = 20; x < 620; x += 44) {
+        context.fillStyle = (x / 44 + y / 44) % 2 ? "#f5b942" : "#65d4ff";
+        context.fillRect(x + offsetX, y, 24, 24);
+        context.strokeStyle = "white";
+        context.strokeRect(x + offsetX - 3, y - 3, 30, 30);
+      }
+    }
+    return canvas;
+  };
+
+  const service = new SuperPointPairService();
+  const secondService = new SuperPointPairService();
+  const compileShader = () => {
+    const gl = document.createElement("canvas").getContext("webgl");
+    for (const [type, source] of [[gl.VERTEX_SHADER, FEATURE_MORPH_VERTEX_SHADER], [gl.FRAGMENT_SHADER, FEATURE_MORPH_FRAGMENT_SHADER]]) {
+      const shader = gl.createShader(type);
+      gl.shaderSource(shader, source);
+      gl.compileShader(shader);
+      if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) throw new Error(gl.getShaderInfoLog(shader));
+    }
+    return "shader-ok";
+  };
+  const params = { imageAId: "a", imageBId: "b", landmarkCount: 48, matchThreshold: 0.65, influence: 0.18 };
+  const entry = service.request(params, makeImage(0), makeImage(8));
+  const secondEntry = secondService.request(
+    { ...params, imageAId: "c", imageBId: "d" },
+    makeImage(0),
+    makeImage(8)
+  );
+  const timer = setInterval(() => {
+    if (entry.status === "loading" || secondEntry.status === "loading") {
+      document.querySelector("#status").textContent = `${entry.detail || entry.status} / ${secondEntry.detail || secondEntry.status}`;
+      return;
+    }
+    clearInterval(timer);
+    const output = document.querySelector("#status");
+    output.textContent = entry.status === "ready" && secondEntry.status === "ready"
+      ? `ready:${entry.result.matches.length}+${secondEntry.result.matches.length}:${entry.result.field.width}x${entry.result.field.height}:${compileShader()}`
+      : `error:${entry.error || secondEntry.error}`;
+    output.dataset.state = entry.status === "ready" && secondEntry.status === "ready" ? "ready" : "error";
+  }, 50);
+</script>

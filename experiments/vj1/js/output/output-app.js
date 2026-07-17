@@ -1,7 +1,7 @@
 import { VJ1 } from "../constants.js";
-import { sanitizeState } from "../domain/models.js?v=adaptive-component-demand-29";
+import { sanitizeState } from "../domain/models.js?v=centered-freeze-68";
 import { createOutputBridge } from "../services/output-bridge-service.js?v=adaptive-component-demand-29";
-import { OutputRenderer } from "./output-renderer.js?v=model-geometry-fix-30";
+import { OutputRenderer } from "./output-renderer.js?v=centered-freeze-68";
 import { applyFontToGlobal, loadVjRenderFont } from "./font-loader.js?v=adaptive-component-demand-29";
 import { frameSize } from "./render-geometry.js?v=adaptive-component-demand-29";
 
@@ -64,6 +64,7 @@ export function installOutputApp({ root, mode }) {
       requestMediaFiles: (ids) => bridge?.requestMediaFiles(ids),
     });
     await renderer.setup(pendingState ? sanitizeState(pendingState) : null);
+    renderer.importFiles(acceptedFiles);
   };
 
   window.draw = function draw() {

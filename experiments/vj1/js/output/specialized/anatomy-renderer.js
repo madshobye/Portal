@@ -1,4 +1,4 @@
-import { clamp01 } from "../../domain/models.js?v=adaptive-component-demand-29";
+import { clamp01 } from "../../domain/models.js?v=centered-freeze-68";
 
 function drawWithPolygonOffset(target, enabled, draw) {
   const gl = target?.drawingContext;
@@ -421,4 +421,3 @@ function drawLowPolyHeart(target, params, componentTime, renderMode, surfaceColo
   anatomyTaperedSegment(target, renderMode, coronaryColor, wireColor, Math.max(0.5, wireThickness * 0.72), Math.max(4, detail - 2), [12, -33, 38], [35, 8, 33], 2.2, 2, 1.3, 0.62);
   target.pop();
 }
-

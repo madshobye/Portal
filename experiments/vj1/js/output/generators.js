@@ -19,7 +19,7 @@ export function drawGenerator(pg, id, t, params = {}) {
   const generatorId = getGeneratorComponent(id).id;
   if (generatorId === "testPattern") return drawTestPattern(pg);
   if (generatorId === "waves") return drawWaves(pg, t);
-  if (generatorId === "noise") return drawNoise(pg, t);
+  if (generatorId === "noise") return drawNoise(pg, t, params);
   if (generatorId === "plasma") return drawPlasma(pg, t);
   if (generatorId === "fireflies") return drawFireflies(pg, t, params);
   if (generatorId === "eyeball") return drawEyeball(pg, t, params);
@@ -115,13 +115,79 @@ function drawWaves(pg, t) {
   }
 }
 
-function drawNoise(pg, t) {
+function drawNoise(pg, t, params = {}) {
   pg.noStroke();
-  const cell = Math.max(14, Math.floor(pg.width / 64));
+  const cell = Math.max(8, Math.floor(pg.width / 96));
+  const scale = paramNumber(params, "scale", 4.5, 0.25, 20);
+  const detail = Math.round(paramNumber(params, "detail", 4, 1, 5));
+  const roughness = paramNumber(params, "roughness", 0.5, 0.2, 0.8);
+  const distortion = paramNumber(params, "distortion", 0.65, 0, 2.5);
+  const movement = paramNumber(params, "movement", 1, 0, 2);
+  const speed = paramNumber(params, "speed", 0.7, 0, 3);
+  const motionMode = ["flow", "turbulence", "pulse", "steady"].includes(params.motionMode)
+    ? params.motionMode
+    : "flow";
+  const steady = motionMode === "steady";
+  const clock = steady ? 0 : t * speed * movement;
+  const seed = paramNumber(params, "seed", 0, 0, 1000) * 0.071;
+  const contrast = paramNumber(params, "contrast", 1.2, 0.2, 3);
+  const balance = paramNumber(params, "balance", 0.5, 0, 1);
+  const ridge = paramNumber(params, "ridge", 0, 0, 1);
+  const dark = paramColor(params, "colorA", [8, 11, 25, 255]);
+  const middle = paramColor(params, "colorB", [38, 94, 168, 255]);
+  const light = paramColor(params, "colorC", [126, 245, 216, 255]);
+  const angle = seed + clock * (0.18 + movement * 0.09);
+  const angleCos = Math.cos(angle);
+  const angleSin = Math.sin(angle);
   for (let y = 0; y < pg.height; y += cell) {
     for (let x = 0; x < pg.width; x += cell) {
-      const n = valueNoise2d(x * 0.006 + t * 0.07, y * 0.006 - t * 0.05);
-      pg.fill(30 + n * 210, 35 + n * 120, 70 + n * 175);
+      let u = (x / Math.max(1, pg.width) - 0.5) * scale * (pg.width / Math.max(1, pg.height));
+      let v = (y / Math.max(1, pg.height) - 0.5) * scale;
+      const rotatedU = angleCos * u - angleSin * v;
+      const rotatedV = angleSin * u + angleCos * v;
+      u = rotatedU;
+      v = rotatedV;
+      const orbitX = Math.sin(clock * 0.73 + seed) * movement;
+      const orbitY = Math.cos(clock * 0.61 - seed) * movement;
+      if (motionMode === "flow") {
+        u += orbitX * 0.8;
+        v += orbitY * 0.8;
+      } else if (motionMode === "turbulence") {
+        u += Math.sin(clock * 0.37) * movement * 0.35;
+        v += Math.sin(clock * 0.53 + 1.7) * movement * 0.35;
+      } else if (motionMode === "pulse") {
+        const pulse = 1 + Math.sin(clock * 0.9) * 0.18 * movement;
+        u *= pulse;
+        v *= pulse;
+      }
+      const warpU = valueNoise2d(u * 0.58 + 17.3 + seed, v * 0.58 + clock * 0.31) * 2 - 1;
+      const warpV = valueNoise2d(u * 0.58 - clock * 0.27, v * 0.58 + 41.7 - seed) * 2 - 1;
+      u += warpU * distortion;
+      v += warpV * distortion;
+      let amplitude = 1;
+      let total = 0;
+      let sum = 0;
+      for (let octave = 0; octave < detail; octave++) {
+        sum += valueNoise2d(u, v) * amplitude;
+        total += amplitude;
+        const nextU = u * 1.56 - v * 1.14 + 13.17;
+        v = u * 1.14 + v * 1.56 + 7.31;
+        u = nextU;
+        amplitude *= roughness;
+      }
+      let n = sum / Math.max(total, 0.0001);
+      n = mix(n, 1 - Math.abs(n * 2 - 1), ridge);
+      n = Math.max(0, Math.min(1, (n - 0.5) * contrast + 1 - balance));
+      const low = n < 0.5;
+      const colorFrom = low ? dark : middle;
+      const colorTo = low ? middle : light;
+      const colorMix = low ? n * 2 : (n - 0.5) * 2;
+      pg.fill(
+        mix(colorFrom[0], colorTo[0], colorMix),
+        mix(colorFrom[1], colorTo[1], colorMix),
+        mix(colorFrom[2], colorTo[2], colorMix),
+        mix(colorFrom[3], colorTo[3], colorMix)
+      );
       pg.rect(x, y, cell, cell);
     }
   }

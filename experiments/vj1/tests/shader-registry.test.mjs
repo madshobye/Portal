@@ -386,6 +386,19 @@ test("Shadertoy generator keeps mainImage source behind the compatibility wrappe
   assert.ok(fragmentSource.includes("void main()"), "mainImage source should be detected even without type metadata");
 });
 
+test("Cellular Circles preserves attribution and computes both nearest cells in one bounded pass", () => {
+  const component = getGeneratorShaderComponent("cellularCircles");
+
+  assert.equal(component.type, "shadertoy");
+  assert.ok(component.code.includes("Jan Mróz (jaszunio15)"));
+  assert.ok(component.code.includes("Creative Commons Attribution 3.0"));
+  assert.ok(component.code.includes("https://www.shadertoy.com/view/tsfGDM"));
+  assert.ok(component.code.includes("for (int x = -5; x <= 5; x++)"));
+  assert.ok(component.code.includes("secondDistance = nearestDistance"));
+  assert.ok(component.code.includes("fragColor = vec4(clamp(color.rgb, 0.0, 1.0) * alpha, alpha)"));
+  assert.equal((component.code.match(/for \(int x = -5/g) || []).length, 1, "nearest and second-nearest cells share one pass");
+});
+
 test("standalone generator shaders receive the shared quality uniform", () => {
   const rawComponent = getGeneratorShaderComponent("fireflies");
   const component = { ...rawComponent, params: getGeneratorComponent("fireflies").params };

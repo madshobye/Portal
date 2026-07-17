@@ -1,15 +1,15 @@
 import { VJ1 } from "../constants.js";
 import { componentFrameMetrics } from "../domain/component-frame.js";
 import { componentTextureSize, manualSurfaceTextureLimit } from "../domain/render-resolution.js?v=adaptive-component-demand-29";
-import { clamp01, normalizeComponentPipelineSettings, sanitizeState, sceneSourceNodes } from "../domain/models.js?v=adaptive-component-demand-29";
+import { clamp01, normalizeComponentPipelineSettings, sanitizeState, sceneSourceNodes } from "../domain/models.js?v=centered-freeze-68";
 import { normalizeParamValue, normalizeParamValues, renderQualityScale, renderQualityValue } from "../graph/component-schema.js?v=adaptive-component-demand-29";
 import { createManualScheduler } from "../graph/manual-scheduler.js";
 import { RenderNodeRuntime, textureStateKey } from "../graph/render-node-runtime.js?v=adaptive-component-demand-29";
 import { createPlacedRenderResult, directPlacementKind, transformedPlacementDemandRect } from "../graph/placed-render-result.js?v=adaptive-component-demand-29";
 import { compileComponentPatch, compileShaderSchedule, flattenComponentChain, fuseLocalShaderSchedule, isFusibleShaderJob } from "../graph/render-scheduler.js?v=adaptive-component-demand-29";
-import { getGeneratorComponent } from "../graph/generator-registry.js?v=adaptive-component-demand-29";
+import { getGeneratorComponent } from "../graph/generator-registry.js?v=group-composite-59";
 import { createShaderBuilder, fusedUniformName } from "../shaders/shader-builder.js?v=adaptive-component-demand-29";
-import { getGeneratorShaderComponent } from "../shaders/generator-shaders.js?v=adaptive-component-demand-29";
+import { getGeneratorShaderComponent } from "../shaders/generator-shaders.js?v=group-composite-59";
 import { getShaderComponent } from "../shaders/shader-registry.js?v=adaptive-component-demand-29";
 import { applyBlend } from "./blend-utils.js";
 import {
@@ -43,6 +43,10 @@ import { anatomyPartFitScale, drawProceduralAnatomy } from "./specialized/anatom
 import { colorUniform, modelColor, normalizedModelColor } from "./specialized/model-color.js?v=adaptive-component-demand-29";
 import { compileRawShader, linkSpecializedProgram } from "./specialized/raw-webgl-utils.js?v=adaptive-component-demand-29";
 import { disposeTerrainSurfaceResources, disposeTerrainWireResources, drawTerrainSurface, drawTerrainWireframe } from "./specialized/terrain-renderer.js?v=adaptive-component-demand-29";
+import { FEATURE_MORPH_FRAGMENT_SHADER, FEATURE_MORPH_VERTEX_SHADER, imageFitUniform } from "./specialized/feature-morph-shader.js?v=group-composite-59";
+import { mobileNetMorphFieldForStrategy, MobileNetMorphPairService } from "./specialized/mobilenet-morph-service.js?v=group-composite-59";
+import { SuperPointPairService } from "./specialized/superpoint-service.js?v=feature-morph-landmarks-39";
+import { TILE_TEXTURE_FRAGMENT_SHADER, TILE_TEXTURE_VERTEX_SHADER } from "./specialized/tile-texture-shader.js?v=output-generator-media-43";
 import {
   applyBlendGlobal,
   canvasFrameBorderHit,
@@ -53,6 +57,7 @@ import {
   componentPreviewRenderRequest,
   componentReferencePlacement,
   componentReferenceRenderRequest,
+  componentRenderInstanceKey,
   componentSourceView,
   cornersRect,
   directFitRects,
@@ -66,7 +71,7 @@ import {
   routeSourceLookupKey,
   scaledComponentSampleRect,
   sharedComponentRenderRequests,
-} from "./component-render-layout.js?v=adaptive-component-demand-29";
+} from "./component-render-layout.js?v=instance-sync-60";
 
 export { averageGpuQueryNanoseconds, GpuTimerTracker } from "./gpu-timer-tracker.js?v=adaptive-component-demand-29";
 export { parseObjMesh } from "./specialized/model-parsers.js?v=adaptive-component-demand-29";
@@ -87,6 +92,7 @@ export {
   componentPreviewRenderRequest,
   componentReferencePlacement,
   componentReferenceRenderRequest,
+  componentRenderInstanceKey,
   componentSourceView,
   directFitRects,
   moveCanvasFrameRect,
@@ -94,7 +100,7 @@ export {
   resizeCanvasFrameRect,
   scaledComponentSampleRect,
   sharedComponentRenderRequests,
-} from "./component-render-layout.js?v=adaptive-component-demand-29";
+} from "./component-render-layout.js?v=instance-sync-60";
 
 const OVERLAY_BLEND_VERTEX_SHADER = `
 precision mediump float;
@@ -239,7 +245,7 @@ void main() {
 }`;
 
 export class OutputRenderer {
-  constructor({ mode, outputId = "", hud, font, sendMetrics, sendMapping, sendThumbnail, sendChainTransform, sendCanvasFrame, sendMediaRendition, requestMediaFiles, onSurfaceSelect }) {
+  constructor({ mode, outputId = "", hud, font, sendMetrics, sendMapping, sendThumbnail, sendChainTransform, sendCanvasFrame, sendMediaRendition, requestMediaFiles, onSurfaceSelect, onChainItemSelect }) {
     this.mode = mode;
     this.outputId = outputId;
     this.hud = hud;
@@ -252,6 +258,7 @@ export class OutputRenderer {
     this.sendMediaRendition = sendMediaRendition;
     this.requestMediaFiles = requestMediaFiles;
     this.onSurfaceSelect = onSurfaceSelect;
+    this.onChainItemSelect = onChainItemSelect;
     this.state = null;
     this.mapper = null;
     this.componentSource = new Map();
@@ -281,6 +288,8 @@ export class OutputRenderer {
     this.specializedWebglTargets = new Map();
     this.terrainSurfaceResources = new Map();
     this.terrainWireResources = new Map();
+    this.superPointPairs = new SuperPointPairService();
+    this.mobileNetMorphPairs = new MobileNetMorphPairService();
     this.pendingRenditionSaves = new Set();
     this.sourcePg = null;
     this.fxTargets = [null, null];
@@ -320,6 +329,7 @@ export class OutputRenderer {
     this.componentProfileDepth = 0;
     this.lastTickMs = 0;
     this.frameDeltaSeconds = 0;
+    this.visualDeltaSeconds = 0;
     this.visualTime = 0;
     this.frameIndex = 0;
     this.outputMediaStatus = createMediaReadinessStatus();
@@ -331,6 +341,9 @@ export class OutputRenderer {
     this.cachedNoiseTexture = null;
     this.overlayBlendShader = null;
     this.layerTransformShader = null;
+    this.featureMorphShader = null;
+    this.featureMorphV2Shader = null;
+    this.tileTextureShader = null;
     this.componentPipelineShaders = new Map();
     this.shaderBuilder = createShaderBuilder({
       getCustomCode: () => this.state?.shaders?.customCode || "",
@@ -440,6 +453,9 @@ export class OutputRenderer {
     this.cachedNoiseTexture = null;
     this.overlayBlendShader = null;
     this.layerTransformShader = null;
+    this.featureMorphShader = null;
+    this.featureMorphV2Shader = null;
+    this.tileTextureShader = null;
     this.componentPipelineShaders?.clear?.();
   }
 
@@ -981,15 +997,18 @@ export class OutputRenderer {
     const dt = Math.min(0.1, Math.max(0, (nowMs - this.lastTickMs) / 1000));
     this.frameDeltaSeconds = dt;
     this.lastTickMs = nowMs;
-    if (this.state?.global?.playing === false) return;
-    this.visualTime += dt;
+    const playing = this.state?.global?.playing !== false;
+    const timeScale = globalVisualTimeScale(this.state?.global);
+    this.visualDeltaSeconds = playing ? dt * timeScale : 0;
+    if (!playing) return;
+    this.visualTime += this.visualDeltaSeconds;
     const liveComponentIds = new Set((this.state.components || []).map((component) => component.id));
     for (const id of this.componentTimes.keys()) {
       if (!liveComponentIds.has(id)) this.componentTimes.delete(id);
     }
     for (const component of this.state.components || []) {
       const speed = Math.max(0, Number(component.speed) || 0);
-      this.componentTimes.set(component.id, (this.componentTimes.get(component.id) || 0) + dt * speed);
+      this.componentTimes.set(component.id, (this.componentTimes.get(component.id) || 0) + this.visualDeltaSeconds * speed);
     }
   }
 
@@ -1202,7 +1221,7 @@ export class OutputRenderer {
 
     let current = source;
     if (upscalingEnabled) {
-      const target = this.getComponentPipelineTarget(`${component.id}:upscale`, outputRequest);
+      const target = this.getComponentPipelineTarget(`${component.id}:upscale:${outputRequest.renderIdentity || "shared"}`, outputRequest);
       const shaderProgram = this.getComponentPipelineShader("upscale", target);
       if (shaderProgram) {
         current = this.drawComponentPipelinePass({
@@ -1219,7 +1238,7 @@ export class OutputRenderer {
     }
 
     if (postEnabled) {
-      const target = this.getComponentPipelineTarget(`${component.id}:post`, outputRequest);
+      const target = this.getComponentPipelineTarget(`${component.id}:post:${outputRequest.renderIdentity || "shared"}`, outputRequest);
       const shaderProgram = this.getComponentPipelineShader("post", target);
       if (shaderProgram) {
         current = this.drawComponentPipelinePass({
@@ -1546,12 +1565,13 @@ export class OutputRenderer {
       const placement = componentReferencePlacement(component, dependency, this.state.render, target, source.placement);
       const demandRect = transformedPlacementDemandRect(placement, source.contentTransform);
       const dependencyTime = this.componentTimes.get(dependency.id) || componentTime;
+      const renderIdentity = componentRenderInstanceKey(dependency, source.instanceId);
       const texture = this.renderComponentForRequest(
         dependency,
-        dependencyTime,
+        componentInstanceTime(dependency, dependencyTime, source.instanceId),
         componentReferenceRenderRequest(this.state.render, dependency, demandRect, {
           reason: "direct-component-reference",
-          renderIdentity: dependency.id,
+          renderIdentity,
         })
       );
       return createPlacedRenderResult(texture, {
@@ -1566,7 +1586,7 @@ export class OutputRenderer {
         syncVideoPlayback(media.video, {
           start: source.start,
           end: source.end,
-          speed: (this.state?.global?.playing === false ? 0 : 1) * (Number(source.speed) || 1) * Math.max(0, Number(component.speed) || 0),
+          speed: (this.state?.global?.playing === false ? 0 : 1) * globalVisualTimeScale(this.state?.global) * (Number(source.speed) || 1) * Math.max(0, Number(component.speed) || 0),
         });
         return createPlacedRenderResult(media.video, {
           destinationRect: fullTargetRect(target),
@@ -1893,6 +1913,12 @@ export class OutputRenderer {
     return false;
   }
 
+  featureMorphPairService(generatorId = "") {
+    if (generatorId === "featureMorph") return this.superPointPairs;
+    if (generatorId === "featureMorphV2") return this.mobileNetMorphPairs;
+    return null;
+  }
+
   sourceIsFrameDynamic(source = {}, owner = {}, seen = new Set()) {
     if (!source || source.type === "black") return false;
     if (source.type === "camera") return true;
@@ -1902,6 +1928,15 @@ export class OutputRenderer {
         ...(source.params || {}),
         ...(owner.params || {}),
       });
+      const featureMorphPairs = this.featureMorphPairService(source.generatorId);
+      if (featureMorphPairs && params.imageAId && params.imageBId) {
+        const imageA = this.media.get(params.imageAId);
+        const imageB = this.media.get(params.imageBId);
+        if (!isReadyMediaItem(imageA) || !isReadyMediaItem(imageB)) return true;
+        const analysisStatus = featureMorphPairs.status(params);
+        if (analysisStatus === "idle" || analysisStatus === "loading") return true;
+      }
+      if (source.generatorId === "tileTexture" && params.imageId && !isReadyMediaItem(this.media.get(params.imageId))) return true;
       return component.runtime?.cacheable === false || component.runtime?.timeDependent?.(params) === true;
     }
     if (source.type === "component") {
@@ -2050,6 +2085,10 @@ export class OutputRenderer {
 
   sourceRuntimeExternalKey(source = {}, owner = {}, runtimeContext = {}) {
     if (source?.type !== "generator") return null;
+    const featureMorphPairs = this.featureMorphPairService(source.generatorId);
+    if (featureMorphPairs) {
+      return featureMorphPairs.externalKey({ ...(source.params || {}), ...(owner.params || {}) });
+    }
     const component = getGeneratorComponent(source.generatorId || "testPattern");
     const params = normalizeParamValues(component, {
       ...(source.params || {}),
@@ -2099,6 +2138,7 @@ export class OutputRenderer {
       const sourceComponent = this.state.components.find((item) => item.id === source.componentId);
       if (!sourceComponent || sourceComponent.id === component.id || sourceComponent.type === "canvas") return;
       const sourceTime = this.componentTimes.get(sourceComponent.id) || componentTime;
+      const renderIdentity = componentRenderInstanceKey(sourceComponent, source.instanceId);
       const placement = componentReferencePlacement(
         component,
         sourceComponent,
@@ -2109,10 +2149,10 @@ export class OutputRenderer {
       const demandRect = transformedPlacementDemandRect(placement, source.contentTransform);
       const sourceOutput = this.renderComponentForRequest(
         sourceComponent,
-        sourceTime,
+        componentInstanceTime(sourceComponent, sourceTime, source.instanceId),
         componentReferenceRenderRequest(this.state.render, sourceComponent, demandRect, {
           reason: "component-reference",
-          renderIdentity: sourceComponent.id,
+          renderIdentity,
         })
       );
       this.drawPlacedResultGeometry(pg, createPlacedRenderResult(sourceOutput, {
@@ -2172,11 +2212,134 @@ export class OutputRenderer {
         this.drawTerrainGenerator(pg, source, generatorTime, renderRequest);
         return;
       }
+      if (source.generatorId === "featureMorph" || source.generatorId === "featureMorphV2") {
+        this.drawFeatureMorphGenerator(pg, source, generatorTime, renderRequest);
+        return;
+      }
+      if (source.generatorId === "tileTexture") {
+        this.drawTileTextureGenerator(pg, source, generatorTime, renderRequest);
+        return;
+      }
       if (this.drawShaderGenerator(pg, source, generatorTime, renderRequest)) return;
       drawWithContentTransform(pg, source.contentTransform, () => {
         drawGenerator(pg, source.generatorId, generatorTime, source.params || {});
       });
     }
+  }
+
+  drawFeatureMorphGenerator(pg, source = {}, componentTime = this.visualTime, renderRequest = frameRenderRequest(this.state.render)) {
+    const params = source.params || {};
+    const isMobileNet = source.generatorId === "featureMorphV2";
+    const pairService = isMobileNet ? this.mobileNetMorphPairs : this.superPointPairs;
+    const targetKey = isMobileNet ? "featureMorphV2" : "featureMorph";
+    const shaderKey = isMobileNet ? "featureMorphV2Shader" : "featureMorphShader";
+    const imageAId = params.imageAId || "";
+    const imageBId = params.imageBId || "";
+    if (!imageAId || !imageBId) {
+      drawStandby(pg, "choose two images");
+      return;
+    }
+    const itemA = this.media.get(imageAId);
+    const itemB = this.media.get(imageBId);
+    const missingIds = [!itemA ? imageAId : "", !itemB ? imageBId : ""].filter(Boolean);
+    if (missingIds.length) this.requestMissingMediaBatch(missingIds);
+    if (!itemA?.image || !itemB?.image) {
+      drawStandby(pg, itemA?.imageError || itemB?.imageError || "loading morph images");
+      return;
+    }
+    const entry = pairService.request(params, itemA.image, itemB.image, {
+      imageAFile: itemA.file,
+      imageBFile: itemB.file,
+    });
+    if (entry.status === "loading") {
+      drawStandby(pg, entry.detail || (isMobileNet ? "matching MobileNet regions" : "finding SuperPoint landmarks"));
+      return;
+    }
+    if (entry.status === "error" || !entry.result?.field) {
+      drawStandby(pg, entry.error || (isMobileNet ? "semantic matching failed" : "feature matching failed"));
+      return;
+    }
+
+    const target = this.getSpecializedWebglTarget(targetKey, pg.width, pg.height, this.requestPixelDensity(renderRequest), {
+      preferSharedFramebuffer: true,
+    });
+    if (!this[shaderKey]) {
+      this[shaderKey] = target.createShader(FEATURE_MORPH_VERTEX_SHADER, FEATURE_MORPH_FRAGMENT_SHADER);
+    }
+    const shader = this[shaderKey];
+    const morphStrategy = isMobileNet ? (params.morphStrategy || "elastic") : "flow";
+    const morphField = isMobileNet
+      ? mobileNetMorphFieldForStrategy(entry.result, morphStrategy)
+      : entry.result.field;
+    const flowImage = featureMorphFlowImage(morphField);
+    const autoSpeed = Math.max(0, Number(params.autoSpeed) || 0);
+    const morph = autoSpeed > 0.0001
+      ? 0.5 + 0.5 * Math.sin(componentTime * autoSpeed * Math.PI * 2)
+      : clamp01(Number(params.morph) || 0);
+    const fit = params.fit || "cover";
+    drawShaderTarget(target, () => {
+      clearShaderTarget(target);
+      applyShaderTarget(target, shader);
+      shader.setUniform("imageA", itemA.image);
+      shader.setUniform("imageB", itemB.image);
+      shader.setUniform("flowField", flowImage);
+      shader.setUniform("morph", morph);
+      const featureInfluence = isMobileNet ? Math.max(0, Number(params.influence) || 0) / 0.2 : 1;
+      shader.setUniform("warpStrength", Math.max(0, Number(params.warpStrength) || 0) * featureInfluence);
+      shader.setUniform("maxFlow", morphField.maxFlow);
+      shader.setUniform("flowSize", [morphField.width, morphField.height]);
+      shader.setUniform("flowPhases", morphField.phases || 1);
+      shader.setUniform("flowLayers", morphField.layers || 1);
+      shader.setUniform("morphStrategy", morphStrategy === "rigid" || morphStrategy === "elastic" ? 1 : morphStrategy === "fluid" ? 2 : 0);
+      shader.setUniform("fitA", imageFitUniform(itemA.image, pg.width, pg.height, fit));
+      shader.setUniform("fitB", imageFitUniform(itemB.image, pg.width, pg.height, fit));
+      drawShaderTargetRect(target, pg.width, pg.height);
+      resetShaderTarget(target);
+    });
+    this.drawSpecializedGeneratorTarget(pg, target, source.contentTransform);
+  }
+
+  drawTileTextureGenerator(pg, source = {}, componentTime = this.visualTime, renderRequest = frameRenderRequest(this.state.render)) {
+    const params = source.params || {};
+    const imageId = params.imageId || "";
+    if (!imageId) {
+      drawStandby(pg, "choose a tileable texture");
+      return;
+    }
+    const item = this.media.get(imageId);
+    if (!item?.image) {
+      if (!item) this.requestMissingMedia(imageId);
+      drawStandby(pg, item?.imageError || "loading tile texture");
+      return;
+    }
+    const target = this.getSpecializedWebglTarget("tileTexture", pg.width, pg.height, this.requestPixelDensity(renderRequest), {
+      preferSharedFramebuffer: true,
+    });
+    if (!this.tileTextureShader) {
+      this.tileTextureShader = target.createShader(TILE_TEXTURE_VERTEX_SHADER, TILE_TEXTURE_FRAGMENT_SHADER);
+    }
+    drawShaderTarget(target, () => {
+      clearShaderTarget(target);
+      applyShaderTarget(target, this.tileTextureShader);
+      this.tileTextureShader.setUniform("tileImage", item.image);
+      const repeat = Math.max(0.001, Number(params.repeat) || 1);
+      this.tileTextureShader.setUniform("repeatAmount", [repeat, repeat]);
+      this.tileTextureShader.setUniform("offsetAmount", [Number(params.offsetX) || 0, Number(params.offsetY) || 0]);
+      this.tileTextureShader.setUniform("scrollSpeed", [Number(params.scrollX) || 0, Number(params.scrollY) || 0]);
+      this.tileTextureShader.setUniform("time", componentTime);
+      drawShaderTargetRect(target, pg.width, pg.height);
+      resetShaderTarget(target);
+    });
+    this.drawSpecializedGeneratorTarget(pg, target, source.contentTransform);
+  }
+
+  drawSpecializedGeneratorTarget(pg, target, contentTransform = {}) {
+    pg.push();
+    pg.clear();
+    drawWithContentTransform(pg, contentTransform, () => {
+      drawBuffer(pg, target, 0, 0, pg.width, pg.height, true);
+    });
+    pg.pop();
   }
 
   drawAnatomyGenerator(pg, source = {}, componentTime = this.visualTime, renderRequest = frameRenderRequest(this.state.render)) {
@@ -2479,7 +2642,7 @@ export class OutputRenderer {
         const drawingSize = shaderDrawingBufferSize(target, renderRequest.width, renderRequest.height);
         setShaderUniformIfPresent(shader, "iResolution", [drawingSize.width, drawingSize.height, 1]);
         setShaderUniformIfPresent(shader, "iTime", shaderTime);
-        setShaderUniformIfPresent(shader, "iTimeDelta", this.frameDeltaSeconds);
+        setShaderUniformIfPresent(shader, "iTimeDelta", this.visualDeltaSeconds);
         setShaderUniformIfPresent(shader, "iFrame", this.frameIndex);
         setShaderUniformIfPresent(shader, "iFrameRate", frameRate());
         setShaderUniformIfPresent(shader, "iMouse", [0, 0, 0, 0]);
@@ -3130,12 +3293,13 @@ export class OutputRenderer {
     // resulting texture through its source rectangle below.
     const componentRequests = sharedComponentRenderRequests(routes, renderIdentityPrefix);
     for (const route of routes) {
-      const scale = componentRequests.get(route.component.id)?.demandScale || route.demand.rasterScale;
+      const renderInstanceKey = componentRenderInstanceKey(route.component, route.surface.id);
+      const scale = componentRequests.get(renderInstanceKey)?.demandScale || route.demand.rasterScale;
       const meta = {
         surfaceId: route.surface.id,
         timingId: route.surface.id,
       };
-      route.componentRequest = componentRequests.get(route.component.id);
+      route.componentRequest = componentRequests.get(renderInstanceKey);
       route.surfaceRequest = createRenderRequest("surface", route.demand.surfaceSize, {
         ...meta,
         logicalWidth: route.demand.sampleRect.width,
@@ -3204,7 +3368,11 @@ export class OutputRenderer {
   renderSurfaceRouteView(route = {}) {
     const { surface = {}, component = null, componentRequest = null, demand = null } = route;
     if (!surface.componentId) return null;
-    const componentTime = this.componentTimes.get(surface.componentId) || 0;
+    const componentTime = componentInstanceTime(
+      component,
+      this.componentTimes.get(surface.componentId) || 0,
+      surface.id
+    );
     const texture = component
       ? this.renderComponentForRequest(component, componentTime, componentRequest)
       : this.mainMix;
@@ -3298,7 +3466,11 @@ export class OutputRenderer {
     }
     // Component time belongs to the component, not to the projector
     // surface. Per-surface final effects retain their own instance identity.
-    const componentTime = this.componentTimes.get(surface.componentId) || 0;
+    const componentTime = componentInstanceTime(
+      component,
+      this.componentTimes.get(surface.componentId) || 0,
+      surface.id
+    );
     const source = component
       ? this.renderComponentForRequest(component, componentTime, componentRequest)
       : this.mainMix;
@@ -3375,9 +3547,14 @@ export class OutputRenderer {
   }
 
   requestMissingMedia(mediaId) {
-    if (!mediaId || millis() - this.lastMediaRequestAt < 1200) return;
+    this.requestMissingMediaBatch(mediaId ? [mediaId] : []);
+  }
+
+  requestMissingMediaBatch(mediaIds = []) {
+    const ids = Array.from(new Set((mediaIds || []).filter(Boolean)));
+    if (!ids.length || millis() - this.lastMediaRequestAt < 1200) return;
     this.lastMediaRequestAt = millis();
-    this.requestMediaFiles?.([mediaId]);
+    this.requestMediaFiles?.(ids);
   }
 
   getImageRendition(item, rw, rh) {
@@ -3590,8 +3767,9 @@ export class OutputRenderer {
     const item = this.selectedTransformableChainItem();
     if (!item) return;
     const component = this.state.components.find((entry) => entry.id === this.state.ui.selectedComponentId);
-    const frame = this.componentPreviewRect(component, this.componentOutput.get(component?.id));
-    const transform = item.transform || {};
+    const geometry = this.chainItemPreviewGeometry(component, item);
+    if (!geometry) return;
+    const { frame, baseRect, transform, centerX, centerY } = geometry;
     resetShader();
     push();
     noFill();
@@ -3599,19 +3777,24 @@ export class OutputRenderer {
     strokeWeight(2);
     const frameCenterX = frame.x + frame.width * 0.5 - width * 0.5;
     const frameCenterY = frame.y + frame.height * 0.5 - height * 0.5;
-    const cx = frameCenterX + (Number(transform.x) || 0) * frame.width * 0.5;
-    const cy = frameCenterY + (Number(transform.y) || 0) * frame.height * 0.5;
+    const cx = centerX - width * 0.5;
+    const cy = centerY - height * 0.5;
     const rotation = Number(transform.rotation) || 0;
-    const scaleHandleX = 42;
+    const scale = Math.max(0.01, Number(transform.scale) || 1);
+    const boxWidth = Math.max(1, baseRect.width * scale);
+    const boxHeight = Math.max(1, baseRect.height * scale);
+    const scaleHandleX = boxWidth * 0.5 + 14;
     const scaleHandleY = 0;
     const rotateHandleX = 0;
-    const rotateHandleY = -42;
+    const rotateHandleY = -boxHeight * 0.5 - 14;
 
     // The component outline is rendered independently and remains visible
     // even when no chain element is selected.
-    translate(frameCenterX, frameCenterY, 2);
-    translate(cx - frameCenterX, cy - frameCenterY, 1);
+    translate(cx, cy, 3);
     rotate(rotation);
+    rectMode(CENTER);
+    stroke(101, 224, 211, 205);
+    rect(0, 0, boxWidth, boxHeight);
     stroke(101, 224, 211, 170);
     line(0, 0, scaleHandleX, scaleHandleY);
     stroke(255, 228, 94, 180);
@@ -3633,7 +3816,14 @@ export class OutputRenderer {
 
   mousePressed(x, y) {
     if (this.mode === "component" && this.startCanvasFrameDrag(x, y)) return;
-    if (this.mode === "component" && this.startChainTransformDrag(x, y)) return;
+    if (this.mode === "component" && this.startChainTransformDrag(x, y, { handlesOnly: true })) return;
+    if (this.mode === "component") {
+      const hit = this.chainItemAtPoint(x, y);
+      if (hit && this.selectedChildOwnsGroupDrag(hit, x, y) && this.startChainTransformDrag(x, y, { moveOnly: true })) return;
+      const selected = this.selectChainItemAtPoint(x, y, hit);
+      if (selected && this.startChainTransformDrag(x, y)) return;
+      if (selected) return;
+    }
     this.mapper?.mousePressed?.(x, y);
     const surfaceIndex = Number(this.mapper?._dragSurf);
     const surfaceName = Number.isInteger(surfaceIndex) && surfaceIndex >= 0
@@ -3662,7 +3852,11 @@ export class OutputRenderer {
       return;
     }
     if (this.chainTransformDrag) {
+      const drag = this.chainTransformDrag;
       this.chainTransformDrag = null;
+      if (drag.changed && drag.lastTransform) {
+        this.sendChainTransform?.(drag.componentId, drag.itemId, drag.lastTransform, { commit: true });
+      }
       return;
     }
     this.mapper?.mouseReleased?.();
@@ -3739,34 +3933,108 @@ export class OutputRenderer {
   selectedTransformableChainItem() {
     const component = this.state?.components?.find((item) => item.id === this.state?.ui?.selectedComponentId);
     if (!component?.chain?.length) return null;
-    const selected = findChainItemById(component.chain, this.state.ui.selectedChainItemId);
+    const selected = findChainItemById(component.chain, this.state.ui.selectedChainItemId) ||
+      (component.chain.length === 1 ? component.chain[0] : null);
     if (selected?.kind === "source") return selected;
     if (selected?.kind === "group") return selected;
     const effectComponent = selected?.kind === "effect" ? getShaderComponent(selected.componentId) : null;
     return effectComponent?.spatial ? selected : null;
   }
 
-  startChainTransformDrag(x, y) {
+  chainItemAtPoint(x, y) {
+    const component = this.state?.components?.find((item) => item.id === this.state?.ui?.selectedComponentId);
+    if (!component?.chain?.length) return null;
+    const frame = this.componentPreviewRect(component, this.componentOutput.get(component.id));
+    return this.hitTestChainItems(component.chain, component, frame, x, y);
+  }
+
+  selectChainItemAtPoint(x, y, knownHit = null) {
+    const hit = knownHit || this.chainItemAtPoint(x, y);
+    if (!hit) return null;
+    if (this.state?.ui) this.state.ui.selectedChainItemId = hit.id;
+    this.onChainItemSelect?.(hit.id);
+    return hit;
+  }
+
+  selectedChildOwnsGroupDrag(hit, x, y) {
+    if (hit?.kind !== "group") return false;
+    const component = this.state?.components?.find((item) => item.id === this.state?.ui?.selectedComponentId);
+    const selected = findChainItemById(component?.chain, this.state?.ui?.selectedChainItemId);
+    if (!selected || selected.id === hit.id || !findChainItemById(hit.chain, selected.id)) return false;
+    if (selected.kind !== "group" && !isPhysicalChainItem(selected)) return false;
+    const geometry = this.chainItemPreviewGeometry(component, selected);
+    return !!geometry && pointInTransformedRect(x, y, geometry.frame, geometry.baseRect, geometry.transform);
+  }
+
+  hitTestChainItems(chain, component, frame, x, y, parentTransform = normalizedContentTransform(), ownerGroup = null) {
+    for (let index = (chain || []).length - 1; index >= 0; index--) {
+      const item = chain[index];
+      if (!item || item.enabled === false || clamp01(item.opacity ?? 1) <= 0.001) continue;
+      const transform = combineContentTransforms(parentTransform, item.transform);
+      if (item.kind === "group") {
+        const nested = this.hitTestChainItems(item.chain || [], component, frame, x, y, transform, ownerGroup || item);
+        if (nested) return nested;
+        continue;
+      }
+      if (!isPhysicalChainItem(item)) continue;
+      const baseRect = this.chainItemBaseRect(component, item, frame);
+      if (pointInTransformedRect(x, y, frame, baseRect, transform)) return ownerGroup || item;
+    }
+    return null;
+  }
+
+  chainItemBaseRect(component, item, frame) {
+    if (item?.kind === "source" && item.source?.type === "component" && component?.type === "canvas") {
+      const dependency = this.state?.components?.find((candidate) => candidate.id === item.source.componentId);
+      if (dependency && dependency.type !== "canvas") {
+        return componentReferencePlacement(
+          component,
+          dependency,
+          this.state.render,
+          { width: frame.width, height: frame.height },
+          item.source.placement
+        );
+      }
+    }
+    return { x: 0, y: 0, width: frame.width, height: frame.height };
+  }
+
+  chainItemPreviewGeometry(component, item) {
+    if (!component || !item) return null;
+    const frame = this.componentPreviewRect(component, this.componentOutput.get(component.id));
+    const baseRect = this.chainItemBaseRect(component, item, frame);
+    const context = findChainItemTransformContext(component.chain, item.id);
+    const localTransform = normalizedContentTransform(item.transform);
+    const parentTransform = context?.parentTransform || normalizedContentTransform();
+    const transform = context?.transform || combineContentTransforms(parentTransform, localTransform);
+    const center = transformedRectCenter(frame, baseRect, transform);
+    return { frame, baseRect, transform, localTransform, parentTransform, centerX: center.x, centerY: center.y };
+  }
+
+  startChainTransformDrag(x, y, { handlesOnly = false, moveOnly = false } = {}) {
     const item = this.selectedTransformableChainItem();
     if (!item) return false;
     const component = this.state.components.find((entry) => entry.id === this.state.ui.selectedComponentId);
-    const frame = this.componentPreviewRect(component, this.componentOutput.get(component?.id));
-    const transform = item.transform || {};
-    const cx = frame.x + frame.width * 0.5 + (Number(transform.x) || 0) * frame.width * 0.5;
-    const cy = frame.y + frame.height * 0.5 + (Number(transform.y) || 0) * frame.height * 0.5;
+    const geometry = this.chainItemPreviewGeometry(component, item);
+    if (!geometry) return false;
+    const { frame, baseRect, transform, localTransform, parentTransform, centerX: cx, centerY: cy } = geometry;
     const scale = Math.max(0.01, Number(transform.scale) || 1);
     const rotation = Number(transform.rotation) || 0;
     const local = screenToLayerLocal(x, y, cx, cy, rotation);
-    const scaleDx = local.x - 42;
+    const scaleHandleX = baseRect.width * scale * 0.5 + 14;
+    const rotateHandleY = -baseRect.height * scale * 0.5 - 14;
+    const scaleDx = local.x - scaleHandleX;
     const scaleDy = local.y;
     const rotateDx = local.x;
-    const rotateDy = local.y + 42;
-    const inside = x >= frame.x && x <= frame.x + frame.width && y >= frame.y && y <= frame.y + frame.height;
+    const rotateDy = local.y - rotateHandleY;
+    const inside = pointInTransformedRect(x, y, frame, baseRect, transform);
     let mode = "";
-    if (scaleDx * scaleDx + scaleDy * scaleDy <= 28 * 28) mode = "scale";
+    if (moveOnly) mode = inside ? "move" : "";
+    else if (scaleDx * scaleDx + scaleDy * scaleDy <= 28 * 28) mode = "scale";
     else if (rotateDx * rotateDx + rotateDy * rotateDy <= 30 * 30) mode = "rotate";
-    else if (inside) mode = "move";
+    else if (!handlesOnly && inside) mode = "move";
     if (!mode) return false;
+    this.onChainItemSelect?.(item.id);
     this.chainTransformDrag = {
       itemId: item.id,
       componentId: this.state.ui.selectedComponentId,
@@ -3777,9 +4045,12 @@ export class OutputRenderer {
       centerY: cy,
       frameWidth: frame.width,
       frameHeight: frame.height,
-      transform: { x: Number(transform.x) || 0, y: Number(transform.y) || 0, scale, rotation },
-      startDistance: Math.max(1, dist(x, y, cx, cy)),
+      transform: { ...localTransform },
+      parentTransform,
+      startDistance: Math.max(1, Math.hypot(x - cx, y - cy)),
       startAngle: Math.atan2(y - cy, x - cx),
+      changed: false,
+      lastTransform: null,
     };
     return true;
   }
@@ -3789,16 +4060,25 @@ export class OutputRenderer {
     if (!drag) return;
     const next = { ...drag.transform };
     if (drag.mode === "move") {
-      next.x = drag.transform.x + ((x - drag.startX) / Math.max(1, drag.frameWidth * 0.5));
-      next.y = drag.transform.y + ((y - drag.startY) / Math.max(1, drag.frameHeight * 0.5));
+      const parent = normalizedContentTransform(drag.parentTransform);
+      const cosine = Math.cos(-parent.rotation);
+      const sine = Math.sin(-parent.rotation);
+      const dx = (x - drag.startX) / Math.max(0.01, parent.scale);
+      const dy = (y - drag.startY) / Math.max(0.01, parent.scale);
+      const localDx = dx * cosine - dy * sine;
+      const localDy = dx * sine + dy * cosine;
+      next.x = drag.transform.x + (localDx / Math.max(1, drag.frameWidth * 0.5));
+      next.y = drag.transform.y + (localDy / Math.max(1, drag.frameHeight * 0.5));
     } else if (drag.mode === "scale") {
-      const distance = Math.max(1, dist(x, y, drag.centerX, drag.centerY));
-      next.scale = Math.max(0.05, drag.transform.scale * (distance / drag.startDistance));
+      const distance = Math.max(1, Math.hypot(x - drag.centerX, y - drag.centerY));
+      next.scale = chainTransformDragScale(drag.transform.scale, drag.startDistance, distance);
     } else if (drag.mode === "rotate") {
       const angle = Math.atan2(y - drag.centerY, x - drag.centerX);
       next.rotation = drag.transform.rotation + (angle - drag.startAngle);
     }
     this.applyLocalChainTransform(drag.componentId, drag.itemId, next);
+    drag.changed = true;
+    drag.lastTransform = next;
     this.sendChainTransform?.(drag.componentId, drag.itemId, next);
   }
 
@@ -3842,6 +4122,7 @@ export class OutputRenderer {
       if (surface.enabled === false || !surface.componentId) continue;
       this.collectComponentMediaReadiness(componentsById.get(surface.componentId), status, componentsById, new Set());
     }
+    this.requestMissingMediaBatch(Array.from(status.missingIds));
     status.blocked = status.loadingIds.size > 0 || status.missingIds.size > 0 || status.errorIds.size > 0;
     return status;
   }
@@ -3873,21 +4154,21 @@ export class OutputRenderer {
   }
 
   collectSourceMediaReadiness(source, status) {
-    if (source?.type !== "media") return;
-    const mediaId = source.mediaId || "";
-    if (!mediaId) return;
-    status.total++;
-    const item = this.media.get(mediaId);
-    if (!item) {
-      status.missingIds.add(mediaId);
-      this.requestMissingMedia(mediaId);
-      return;
+    const mediaIds = new Set();
+    collectMediaIdsFromSource(source, mediaIds);
+    for (const mediaId of mediaIds) {
+      status.total++;
+      const item = this.media.get(mediaId);
+      if (!item) {
+        status.missingIds.add(mediaId);
+        continue;
+      }
+      if (item.imageError || item.modelError) {
+        status.errorIds.add(mediaId);
+        continue;
+      }
+      if (!isReadyMediaItem(item)) status.loadingIds.add(mediaId);
     }
-    if (item.imageError || item.modelError) {
-      status.errorIds.add(mediaId);
-      return;
-    }
-    if (!isReadyMediaItem(item)) status.loadingIds.add(mediaId);
   }
 
   isOutputBlackout() {
@@ -4135,6 +4416,57 @@ function findChainItemById(chain = [], id = "") {
     if (nested) return nested;
   }
   return null;
+}
+
+function findChainItemTransformContext(chain = [], id = "", parentTransform = normalizedContentTransform()) {
+  if (!Array.isArray(chain) || !id) return null;
+  for (const item of chain) {
+    const localTransform = normalizedContentTransform(item?.transform);
+    const transform = combineContentTransforms(parentTransform, localTransform);
+    if (item?.id === id) return { item, parentTransform, transform };
+    if (item?.kind === "group") {
+      const nested = findChainItemTransformContext(item.chain, id, transform);
+      if (nested) return nested;
+    }
+  }
+  return null;
+}
+
+function isPhysicalChainItem(item = {}) {
+  if (item.kind === "source") return item.source?.type !== "black";
+  if (item.kind !== "effect") return false;
+  return getShaderComponent(item.componentId)?.spatial === true;
+}
+
+export function pointInTransformedRect(x, y, frame = {}, baseRect = {}, transform = {}) {
+  const value = normalizedContentTransform(transform);
+  const frameCenterX = (Number(frame.x) || 0) + (Number(frame.width) || 0) * 0.5;
+  const frameCenterY = (Number(frame.y) || 0) + (Number(frame.height) || 0) * 0.5;
+  const translatedCenterX = frameCenterX + value.x * (Number(frame.width) || 0) * 0.5;
+  const translatedCenterY = frameCenterY + value.y * (Number(frame.height) || 0) * 0.5;
+  const local = screenToLayerLocal(x, y, translatedCenterX, translatedCenterY, value.rotation);
+  const unscaledX = local.x / Math.max(0.01, value.scale) + frameCenterX;
+  const unscaledY = local.y / Math.max(0.01, value.scale) + frameCenterY;
+  const left = (Number(frame.x) || 0) + (Number(baseRect.x) || 0);
+  const top = (Number(frame.y) || 0) + (Number(baseRect.y) || 0);
+  return unscaledX >= left && unscaledX <= left + Math.max(1, Number(baseRect.width) || 1) &&
+    unscaledY >= top && unscaledY <= top + Math.max(1, Number(baseRect.height) || 1);
+}
+
+function transformedRectCenter(frame = {}, baseRect = {}, transform = {}) {
+  const value = normalizedContentTransform(transform);
+  const frameCenterX = (Number(frame.x) || 0) + (Number(frame.width) || 0) * 0.5;
+  const frameCenterY = (Number(frame.y) || 0) + (Number(frame.height) || 0) * 0.5;
+  const baseCenterX = (Number(frame.x) || 0) + (Number(baseRect.x) || 0) + (Number(baseRect.width) || 0) * 0.5;
+  const baseCenterY = (Number(frame.y) || 0) + (Number(baseRect.y) || 0) + (Number(baseRect.height) || 0) * 0.5;
+  const offsetX = (baseCenterX - frameCenterX) * value.scale;
+  const offsetY = (baseCenterY - frameCenterY) * value.scale;
+  const cosine = Math.cos(value.rotation);
+  const sine = Math.sin(value.rotation);
+  return {
+    x: frameCenterX + value.x * (Number(frame.width) || 0) * 0.5 + offsetX * cosine - offsetY * sine,
+    y: frameCenterY + value.y * (Number(frame.height) || 0) * 0.5 + offsetX * sine + offsetY * cosine,
+  };
 }
 
 function combineContentTransforms(parent = {}, child = {}) {
@@ -4454,15 +4786,20 @@ function staticMediaStateForSource(media = [], source = {}) {
 }
 
 function runtimeMediaStateForSource(media = new Map(), source = {}) {
-  if (source?.type !== "media" || !source.mediaId) return null;
-  const item = media?.get?.(source.mediaId);
-  if (!item) return { present: false, ready: false, error: "" };
-  return {
-    present: true,
-    ready: isReadyMediaItem(item),
-    error: item.imageError || item.modelError || "",
-    kind: item.video ? "video" : item.image ? "image" : (item.model || item.modelData) ? "model" : "loading",
-  };
+  const ids = new Set();
+  collectMediaIdsFromSource(source, ids);
+  if (!ids.size) return null;
+  return Array.from(ids).map((id) => {
+    const item = media?.get?.(id);
+    if (!item) return { id, present: false, ready: false, error: "" };
+    return {
+      id,
+      present: true,
+      ready: isReadyMediaItem(item),
+      error: item.imageError || item.modelError || "",
+      kind: item.video ? "video" : item.image ? "image" : (item.model || item.modelData) ? "model" : "loading",
+    };
+  });
 }
 
 function staticMediaStateForIds(media = [], ids = new Set()) {
@@ -4537,6 +4874,9 @@ export function qualityAdjustedGeneratorParams(generatorId, params = {}) {
       minimum: 0.5,
       maximum: 1.25,
     })));
+  }
+  if (generatorId === "cellularCircles") {
+    adjusted.searchRadius = Math.max(1, Math.min(5, Math.round((Number(params.searchRadius) || 1) * multiplier)));
   }
   return adjusted;
 }
@@ -4653,6 +4993,23 @@ function collectComponentIdsFromSource(source = {}, ids) {
 
 function collectMediaIdsFromSource(source = {}, ids) {
   if (source?.type === "media" && source.mediaId) ids.add(source.mediaId);
+  if (source?.type === "generator" && (source.generatorId === "featureMorph" || source.generatorId === "featureMorphV2")) {
+    if (source.params?.imageAId) ids.add(source.params.imageAId);
+    if (source.params?.imageBId) ids.add(source.params.imageBId);
+  }
+  if (source?.type === "generator" && source.generatorId === "tileTexture" && source.params?.imageId) {
+    ids.add(source.params.imageId);
+  }
+}
+
+function featureMorphFlowImage(field = {}) {
+  if (field.flowImage) return field.flowImage;
+  const image = createImage(field.width, field.height * (field.phases || 1) * (field.layers || 1));
+  image.loadPixels();
+  image.pixels.set(field.pixels);
+  image.updatePixels();
+  field.flowImage = image;
+  return image;
 }
 
 function effectParamValue(component, params = {}, id, fallback = undefined) {
@@ -4904,6 +5261,11 @@ function instanceTime(instanceId, baseTime = 0) {
   return Number(baseTime) + instanceTimeOffset(instanceId);
 }
 
+export function componentInstanceTime(component = {}, baseTime = 0, instanceId = "") {
+  if (component?.syncInstances !== false) return Number(baseTime) || 0;
+  return instanceTime(componentRenderInstanceKey(component, instanceId), baseTime);
+}
+
 export function advanceRateClock(previous, baseTime, rate) {
   const now = Number(baseTime) || 0;
   const speed = Math.max(0, Number(rate) || 0);
@@ -4930,8 +5292,14 @@ export function advanceSpatialScale(previous, scale, anchor = [0, 0]) {
   };
 }
 
+export function chainTransformDragScale(initialScale, startDistance, currentDistance) {
+  const initial = Math.max(0.05, Number(initialScale) || 1);
+  const ratio = Math.max(0.0001, Number(currentDistance) || 1) / Math.max(1, Number(startDistance) || 1);
+  return Math.max(0.05, Math.min(8, initial * Math.sqrt(ratio)));
+}
+
 function generatorRateParam(generatorId) {
-  if (generatorId === "fireflies" || generatorId === "bezierStrokes" || generatorId === "shadertoyBaseWarp" || generatorId === "seascape" || generatorId === "paintDrips" || generatorId === "cloudyTunnel" || generatorId === "cherenkovVolume" || generatorId === "biomineLite") return "speed";
+  if (generatorId === "fireflies" || generatorId === "bezierStrokes" || generatorId === "shadertoyBaseWarp" || generatorId === "cellularCircles" || generatorId === "seascape" || generatorId === "paintDrips" || generatorId === "cloudyTunnel" || generatorId === "cherenkovVolume" || generatorId === "biomineLite") return "speed";
   return "";
 }
 
@@ -4957,6 +5325,16 @@ function shaderDrawingBufferSize(target, fallbackWidth, fallbackHeight) {
 
 function setShaderUniformIfPresent(shader, name, value) {
   if (shader?.uniforms?.[name]) shader.setUniform(name, value);
+}
+
+function globalVisualTimeScale(global = {}) {
+  const stretch = Number(global?.timeStretch);
+  if (Number.isFinite(stretch)) {
+    const bounded = Math.max(-4, Math.min(4, stretch));
+    return bounded <= -4 ? 0 : 2 ** bounded;
+  }
+  const legacyScale = Number(global?.timeScale);
+  return Number.isFinite(legacyScale) ? Math.max(0, Math.min(16, legacyScale)) : 1;
 }
 
 function instanceTimeOffset(instanceId = "") {

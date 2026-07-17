@@ -1,14 +1,14 @@
 import { BLEND_MODES, VJ1, WORKSPACES } from "../constants.js";
 import { componentFrameMetrics } from "../domain/component-frame.js";
-import { applySceneSourceNode, applySceneSnapshotToState, createLiveComponentView, createLiveRenderState, createOutputDefinition, createSceneSnapshot, normalizeRenderSettings, resolveSceneSourceNode, sceneSourceNodes, syncLiveSnapshotFromScene } from "../domain/models.js?v=adaptive-component-demand-29";
+import { applySceneSourceNode, applySceneSnapshotToState, createLiveComponentView, createLiveRenderState, createOutputDefinition, createSceneSnapshot, normalizeRenderSettings, resolveSceneSourceNode, sceneSourceNodes, syncLiveSnapshotFromScene } from "../domain/models.js?v=centered-freeze-68";
 import { latestProjectActivity, touchComponentUsed, touchRecordingFrameUsed } from "../domain/component-activity.js?v=adaptive-component-demand-29";
 import { normalizeParamValue, RENDER_QUALITY_PARAM } from "../graph/component-schema.js?v=adaptive-component-demand-29";
-import { getGeneratorComponent, listGeneratorComponents } from "../graph/generator-registry.js?v=adaptive-component-demand-29";
+import { getGeneratorComponent, listGeneratorComponents } from "../graph/generator-registry.js?v=group-composite-59";
 import { patchNodeDegree, planCompositorInputs, planPatchExecution, summarizeTextureBranches } from "../graph/patch-planner.js";
 import { compileComponentPatch } from "../graph/render-scheduler.js?v=adaptive-component-demand-29";
 import { buildOutputUrl } from "../view-routing.js?v=adaptive-component-demand-29";
 import { getShaderComponent, listShaderComponents } from "../shaders/shader-registry.js?v=adaptive-component-demand-29";
-import { createEmbeddedPreviewApp } from "../output/embedded-preview-app.js?v=model-geometry-fix-30";
+import { createEmbeddedPreviewApp } from "../output/embedded-preview-app.js?v=centered-freeze-68";
 import { frameFitViewport, resetViewport, zoomViewport } from "../output/preview-viewport.js?v=adaptive-component-demand-29";
 import { defaultProjectSurfaceMapping } from "../output/render-geometry.js?v=adaptive-component-demand-29";
 import { analyzeVj1Project } from "../metrics/component-metrics.js?v=adaptive-component-demand-29";
@@ -16,14 +16,18 @@ import { createHtmlCache, isInteractiveNode, isTextEditingNode, setClass, setTex
 import { bindReorderList } from "./reorder-list.js";
 import { collectRefs, shellTemplate } from "./shell-view.js?v=adaptive-component-demand-29";
 import { configuredOutputsTemplate, settingsModalTemplate } from "./settings-view.js?v=adaptive-component-demand-29";
-import { elementPickerTemplate, generatorIcon, mediaPickerTemplate, sourceChoicePickerTemplate } from "./picker-view.js?v=adaptive-component-demand-29";
+import { elementPickerTemplate, generatorIcon, mediaPickerTemplate, sourceChoicePickerTemplate } from "./picker-view.js?v=group-composite-59";
+import { featureMorphMediaControlsTemplate } from "./feature-morph-view.js?v=mobilenet-morph-v2-47";
+import { generatorImageMediaControlTemplate } from "./generator-media-view.js?v=tile-texture-40";
 import { effectIcon, emptyNote, esc, icon, paramRangePairTemplate, rangeTemplate, selectValuesTemplate, sourceTypeIcon, thumbnailTemplate } from "./template-utils.js?v=adaptive-component-demand-29";
+import { chainPasteTarget, clipboardPayloadForTarget, VJ1_CLIPBOARD_TYPE } from "../domain/clipboard.js?v=clipboard-routing-62";
 
 const MODEL_RENDER_MODES = ["surface", "wireframe", "surfaceWire", "points"];
 const MEDIA_FIT_MODES = ["contain", "cover"];
 const PROJECTION_FIT_MODES = ["cover", "contain", "stretch"];
 const MODEL_SURFACE_COLOR_PARAM = { id: "surfaceColor", label: "Surface color", type: "color", defaultValue: "#dce1dcff" };
 const MODEL_WIRE_COLOR_PARAM = { id: "wireColor", label: "Wire color", type: "color", defaultValue: "#141414dd" };
+const VJ1_CLIPBOARD_TEXT_PREFIX = "VJ1_CLIPBOARD:";
 const MEDIA_FIT_PARAM = { id: "fit", label: "Fit", type: "enum", values: MEDIA_FIT_MODES, defaultValue: "contain" };
 const MODEL_SOURCE_PARAMS = [
   RENDER_QUALITY_PARAM,
@@ -61,10 +65,20 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
   let activeCatalogViewKey = "";
   let performanceProfile = null;
   let performanceProfileTimer = 0;
+  let pasteTarget = { kind: "media-library" };
+  let internalClipboard = null;
   const catalogOrderSnapshots = { component: [], scene: [] };
   const replaceHtmlIfChanged = createHtmlCache();
   const mediaPreviewUrls = new Map();
-  const embeddedPreview = createEmbeddedPreviewApp({ store, mediaLibrary, projectService });
+  const embeddedPreview = createEmbeddedPreviewApp({
+    store,
+    mediaLibrary,
+    projectService,
+    onChainItemTarget: (componentId, itemId) => {
+      pasteTarget = { kind: "chain-item", componentId, itemId };
+      root.dataset.pasteTarget = "chain-item";
+    },
+  });
   const interactionQuietMs = 160;
   const performanceProfileDurationMs = 10000;
 
@@ -243,21 +257,41 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
       }, "blackout");
     });
 
-    refs.undo.addEventListener("click", async () => {
-      refs.undo.disabled = true;
-      await projectService.undoProject().catch((error) => setStatus(`Undo error: ${error.message || error}`));
-    });
-
-    refs.redo.addEventListener("click", async () => {
-      refs.redo.disabled = true;
-      await projectService.redoProject().catch((error) => setStatus(`Redo error: ${error.message || error}`));
-    });
+    refs.undo.addEventListener("click", undoProject);
+    refs.redo.addEventListener("click", redoProject);
 
     window.addEventListener("dragover", (event) => event.preventDefault());
     window.addEventListener("drop", async (event) => {
       event.preventDefault();
-      await importFiles(event.dataTransfer?.files || []);
+      const target = resolvePasteTarget(event.target) || pasteTarget;
+      const droppedFiles = Array.from(event.dataTransfer?.files || []);
+      const files = droppedFiles.length ? droppedFiles : await imageFilesFromTransfer(event.dataTransfer, "drop");
+      if (files.length) await importExternalMedia(files, pasteDestination(target));
     });
+    window.addEventListener("click", rememberPasteTarget);
+    window.addEventListener("copy", copyFromCurrentTarget);
+    window.addEventListener("cut", cutFromCurrentTarget);
+    window.addEventListener("paste", pasteIntoCurrentTarget);
+    window.addEventListener("keydown", handleHistoryKeydown);
+    window.addEventListener("keydown", handleDeleteKeydown);
+  }
+
+  async function undoProject() {
+    refs.undo.disabled = true;
+    await projectService.undoProject().catch((error) => setStatus(`Undo error: ${error.message || error}`));
+  }
+
+  async function redoProject() {
+    refs.redo.disabled = true;
+    await projectService.redoProject().catch((error) => setStatus(`Redo error: ${error.message || error}`));
+  }
+
+  function handleHistoryKeydown(event) {
+    if (isTextEditingNode(event.target) || isTextEditingNode(document.activeElement)) return;
+    if (!(event.metaKey || event.ctrlKey) || event.altKey || String(event.key).toLowerCase() !== "z") return;
+    event.preventDefault();
+    if (event.shiftKey) redoProject();
+    else undoProject();
   }
 
   function restorePreviewPreference() {
@@ -417,6 +451,8 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
   }
 
   async function importFiles(files) {
+    const incoming = Array.from(files || []);
+    const names = new Set(incoming.map((file) => file?.name).filter(Boolean));
     let result = await projectService.importExternalFiles(files).catch((error) => {
       setStatus(`Import error: ${error.message || error}`);
       return null;
@@ -436,6 +472,241 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
       });
     }
     if (result?.imported) setStatus(`Imported ${result.imported} file${result.imported === 1 ? "" : "s"}`);
+    const mediaIds = (latestState.media || [])
+      .filter((item) => names.has(item.name) || names.has(String(item.path || "").split("/").pop()))
+      .map((item) => item.id);
+    return { ...(result || {}), mediaIds };
+  }
+
+  function rememberPasteTarget(event) {
+    const next = resolvePasteTarget(event.target);
+    if (next) {
+      pasteTarget = next;
+      root.dataset.pasteTarget = next.kind;
+    }
+  }
+
+  function resolvePasteTarget(node) {
+    const element = node?.closest ? node : node?.parentElement;
+    if (!element?.closest) return null;
+    const chainItem = element.closest("[data-select-chain-item]");
+    if (chainItem) return {
+      kind: "chain-item",
+      componentId: latestState.ui.selectedComponentId,
+      itemId: chainItem.dataset.selectChainItem,
+    };
+    const componentButton = element.closest("[data-select-component]");
+    if (componentButton) {
+      const component = latestState.components.find((item) => item.id === componentButton.dataset.selectComponent);
+      return { kind: component?.type === "canvas" ? "canvas-list" : "component-list", itemId: component?.id || "" };
+    }
+    const sceneButton = element.closest("[data-select-scene]");
+    if (sceneButton) return { kind: "scene-list", itemId: sceneButton.dataset.selectScene };
+    const surfaceButton = element.closest("[data-select-surface]");
+    if (surfaceButton) return { kind: "surface-list", itemId: surfaceButton.dataset.selectSurface };
+    const mediaButton = element.closest("[data-pick-media], [data-pick-source-media], [data-add-element-media]");
+    if (mediaButton) return {
+      kind: "media-item",
+      itemId: mediaButton.dataset.pickMedia || mediaButton.dataset.pickSourceMedia || mediaButton.dataset.addElementMedia || "",
+    };
+    const scope = element.closest("[data-paste-scope]");
+    if (scope) return { kind: scope.dataset.pasteScope };
+    const chainList = element.closest("[data-chain-reorder-list]");
+    if (chainList) return chainPasteTarget(latestState, chainList.dataset.componentId, latestState.ui.selectedChainItemId);
+    if (element.closest(".studio-stage") || refs.inspector?.contains?.(element)) {
+      if (latestState.ui.workspace === "component" || latestState.ui.workspace === "canvas") {
+        return latestState.ui.selectedChainItemId
+          ? { kind: "chain-item", componentId: latestState.ui.selectedComponentId, itemId: latestState.ui.selectedChainItemId }
+          : chainPasteTarget(latestState, latestState.ui.selectedComponentId, "");
+      }
+    }
+    return null;
+  }
+
+  function pasteDestination(target = pasteTarget) {
+    if (target.kind !== "chain-item") return target;
+    return chainPasteTarget(latestState, target.componentId, target.itemId);
+  }
+
+  function copyFromCurrentTarget(event) {
+    if (isTextEditingNode(document.activeElement)) return;
+    const payload = clipboardPayloadForTarget(latestState, pasteTarget);
+    if (!payload) return;
+    writeClipboardPayload(event, payload);
+    setStatus(`Copied ${payload.value.name || payload.kind}`);
+  }
+
+  function writeClipboardPayload(event, payload) {
+    internalClipboard = payload;
+    const serialized = JSON.stringify(payload);
+    try {
+      event.clipboardData?.setData(VJ1_CLIPBOARD_TYPE, serialized);
+    } catch {}
+    event.clipboardData?.setData("text/plain", `${VJ1_CLIPBOARD_TEXT_PREFIX}${serialized}`);
+    event.preventDefault();
+  }
+
+  function cutFromCurrentTarget(event) {
+    if (isTextEditingNode(document.activeElement)) return;
+    const target = { ...pasteTarget };
+    const payload = clipboardPayloadForTarget(latestState, target);
+    if (!payload) return;
+    writeClipboardPayload(event, payload);
+    const removed = deleteTarget(target);
+    setStatus(removed ? `Cut ${payload.value.name || payload.kind}` : `Copied ${payload.value.name || payload.kind}`);
+  }
+
+  function handleDeleteKeydown(event) {
+    if (isTextEditingNode(event.target) || isTextEditingNode(document.activeElement)) return;
+    if (event.metaKey || event.ctrlKey || event.altKey || (event.key !== "Delete" && event.key !== "Backspace")) return;
+    const payload = clipboardPayloadForTarget(latestState, pasteTarget);
+    if (!payload || !deleteTarget({ ...pasteTarget })) return;
+    event.preventDefault();
+    setStatus(`Deleted ${payload.value.name || payload.kind}`);
+  }
+
+  function deleteTarget(target) {
+    const before = clipboardPayloadForTarget(store.getState(), target);
+    if (!before) return false;
+    if (target.kind === "chain-item") store.removeChainItem?.(target.componentId, target.itemId);
+    else if (target.kind === "component-list" || target.kind === "canvas-list") store.removeComponent?.(target.itemId);
+    else if (target.kind === "scene-list") store.deleteScene?.(target.itemId);
+    else if (target.kind === "surface-list") store.removeSurface?.(target.itemId);
+    else return false;
+    const state = store.getState();
+    const removed = !clipboardPayloadForTarget(state, target);
+    if (removed) pasteTarget = targetAfterDelete(state, target);
+    return removed;
+  }
+
+  function targetAfterDelete(state, target) {
+    if (target.kind === "chain-item") {
+      return state.ui.selectedChainItemId
+        ? { kind: "chain-item", componentId: target.componentId, itemId: state.ui.selectedChainItemId }
+        : { kind: "chain", componentId: target.componentId, itemId: "" };
+    }
+    if (target.kind === "component-list" || target.kind === "canvas-list") {
+      const component = state.components.find((item) => item.id === state.ui.selectedComponentId);
+      return component ? { kind: component.type === "canvas" ? "canvas-list" : "component-list", itemId: component.id } : target;
+    }
+    if (target.kind === "scene-list") return { kind: "scene-list", itemId: state.ui.selectedSceneId || "" };
+    if (target.kind === "surface-list") return { kind: "surface-list", itemId: state.ui.selectedSurfaceId || "" };
+    return target;
+  }
+
+  async function pasteIntoCurrentTarget(event) {
+    if (isTextEditingNode(document.activeElement)) return;
+    const target = pasteDestination(pasteTarget);
+    const plainText = event.clipboardData?.getData("text/plain") || "";
+    const serialized = event.clipboardData?.getData(VJ1_CLIPBOARD_TYPE) ||
+      (plainText.startsWith(VJ1_CLIPBOARD_TEXT_PREFIX) ? plainText.slice(VJ1_CLIPBOARD_TEXT_PREFIX.length) : "");
+    const hasExternalImage = Array.from(event.clipboardData?.files || []).some((file) => file?.type?.startsWith("image/")) ||
+      !!imageUrlFromTransfer(event.clipboardData);
+    if (hasExternalImage || serialized || internalClipboard) event.preventDefault();
+    const files = await imageFilesFromTransfer(event.clipboardData, "paste");
+    if (files.length) {
+      await importExternalMedia(files, target);
+      return;
+    }
+    let payload = null;
+    try {
+      const externalText = (plainText && !plainText.startsWith(VJ1_CLIPBOARD_TEXT_PREFIX) ? plainText : "") || event.clipboardData?.getData("text/html") || "";
+      payload = serialized ? JSON.parse(serialized) : externalText ? null : internalClipboard;
+    } catch {
+      payload = internalClipboard;
+    }
+    if (!payload) return;
+    const result = store.pasteClipboard?.(payload, target);
+    if (result?.pasted) {
+      pasteTarget = targetAfterPaste(result, target);
+      setStatus(`Pasted ${payload.kind}`);
+    }
+    else setStatus(pasteFailureMessage(result?.reason));
+  }
+
+  async function importExternalMedia(files, target) {
+    const result = await importFiles(files);
+    if (!result?.imported) return;
+    for (const mediaId of result.mediaIds || []) {
+      const media = latestState.media?.find((item) => item.id === mediaId);
+      if (media?.type !== "image") continue;
+      const pasted = store.pasteClipboard?.({ kind: "media", value: media }, target);
+      if (pasted?.pasted && target.kind === "chain") target = targetAfterPaste(pasted, target);
+    }
+  }
+
+  async function imageFilesFromTransfer(transfer, source = "paste") {
+    const seenFiles = new Set();
+    const direct = [
+      ...Array.from(transfer?.files || []),
+      ...Array.from(transfer?.items || []).map((item) => item.kind === "file" ? item.getAsFile?.() : null),
+    ].filter((file) => {
+      if (!file?.type?.startsWith("image/")) return false;
+      const signature = `${file.name}:${file.size}:${file.lastModified}`;
+      if (seenFiles.has(signature)) return false;
+      seenFiles.add(signature);
+      return true;
+    });
+    if (direct.length) return source === "paste" ? direct.map(uniqueClipboardImageFile) : direct;
+    const url = imageUrlFromTransfer(transfer);
+    if (!url) return [];
+    try {
+      const response = await fetch(url);
+      if (!response.ok) throw new Error(`${response.status} ${response.statusText}`);
+      const blob = await response.blob();
+      if (!blob.type.startsWith("image/")) return [];
+      return [new File([blob], clipboardImageName(blob.type), { type: blob.type })];
+    } catch (error) {
+      setStatus(`Could not import pasted image: ${error.message || error}`);
+      return [];
+    }
+  }
+
+  function imageUrlFromTransfer(transfer) {
+    const html = transfer?.getData?.("text/html") || "";
+    if (html && typeof DOMParser !== "undefined") {
+      const src = new DOMParser().parseFromString(html, "text/html").querySelector("img")?.src;
+      if (src) return src;
+    }
+    const text = (transfer?.getData?.("text/uri-list") || transfer?.getData?.("text/plain") || "").trim().split(/\r?\n/)[0];
+    return /^(https?:|data:image\/)/i.test(text) ? text : "";
+  }
+
+  function uniqueClipboardImageFile(file) {
+    const extension = String(file.name || "").match(/\.[a-z0-9]+$/i)?.[0] || imageExtension(file.type);
+    return new File([file], `clipboard-${Date.now()}-${Math.random().toString(36).slice(2, 7)}${extension}`, { type: file.type });
+  }
+
+  function clipboardImageName(type) {
+    return `web-image-${Date.now()}-${Math.random().toString(36).slice(2, 7)}${imageExtension(type)}`;
+  }
+
+  function imageExtension(type = "") {
+    if (type.includes("jpeg")) return ".jpg";
+    if (type.includes("webp")) return ".webp";
+    if (type.includes("gif")) return ".gif";
+    if (type.includes("svg")) return ".svg";
+    return ".png";
+  }
+
+  function pasteFailureMessage(reason = "") {
+    if (reason === "components-only-in-canvas") return "Component references can only be pasted into a Canvas";
+    if (reason === "wrong-list") return "Paste into the matching Component or Canvas list";
+    if (reason === "library-only") return "Media kept in the library; click a Component or Canvas preview to add it";
+    return "This item cannot be pasted at the current target";
+  }
+
+  function targetAfterPaste(result, previous) {
+    if (result.kind === "chain-item") return previous.kind === "group"
+      ? previous
+      : { kind: "chain-item", componentId: previous.componentId || previous.itemId || "", itemId: result.id };
+    if (result.kind === "component") {
+      const component = latestState.components.find((item) => item.id === result.id);
+      return { kind: component?.type === "canvas" ? "canvas-list" : "component-list", itemId: result.id };
+    }
+    if (result.kind === "scene") return { kind: "scene-list", itemId: result.id };
+    if (result.kind === "surface") return { kind: "surface-list", itemId: result.id };
+    return previous;
   }
 
   function renderTopbar(state) {
@@ -615,7 +886,7 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
       <div class="rail-section" data-component-filter-scope>
         <div class="rail-title"><span class="material-symbols-rounded">account_tree</span><span>Components</span></div>
         ${componentCatalogToolsTemplate("component", catalogSortMode(state, "component"), "Filter components")}
-        <div class="component-card-list">
+        <div class="component-card-list" data-paste-scope="component-list">
           ${components.map((component) => componentPillTemplate(component, state)).join("") || emptyNote("Create visual recipes")}
         </div>
         <button type="button" data-add-component>${icon("add")} Add component</button>
@@ -630,7 +901,7 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
       <div class="rail-section" data-component-filter-scope>
         <div class="rail-title"><span class="material-symbols-rounded">dashboard_customize</span><span>Canvas components</span></div>
         ${componentFilterTemplate("Filter canvases")}
-        <div class="component-card-list">
+        <div class="component-card-list" data-paste-scope="canvas-list">
           ${canvases.map((component) => componentPillTemplate(component, state)).join("") || emptyNote("Create a canvas component")}
         </div>
         <button type="button" data-add-canvas-component>${icon("add")} Add canvas</button>
@@ -649,7 +920,7 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
     return `
       <div class="rail-section">
         <div class="rail-title"><span class="material-symbols-rounded">auto_awesome_motion</span><span>Scenes</span></div>
-        <div class="scene-card-list">
+        <div class="scene-card-list" data-paste-scope="scene-list">
           ${state.scenes.map((scene) => scenePillTemplate(scene, state)).join("") || emptyNote("Capture surface assignments")}
         </div>
         <div class="capture-row">
@@ -660,7 +931,7 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
       ${sceneRailConfigTemplate(state)}
       <div class="rail-section">
         <div class="rail-title"><span class="material-symbols-rounded">select_all</span><span>Surfaces</span></div>
-        <div class="surface-pills" data-surface-reorder-list>
+        <div class="surface-pills" data-surface-reorder-list data-paste-scope="surface-list">
           ${state.surfaces.map((surface) => sceneSurfacePillTemplate(surface, state)).join("")}
         </div>
         <button type="button" data-add-surface>${icon("add")} Add surface</button>
@@ -670,9 +941,15 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
 
   function liveToolsTemplate(state) {
     const transitionDuration = Math.max(0, Number(state.ui?.live?.transitionDuration) || 0);
+    const timeStretch = Math.max(-4, Math.min(4, Number(state.global?.timeStretch) || 0));
+    const timeScale = timeStretch <= -4 ? 0 : 2 ** timeStretch;
     return `
       <div class="rail-section">
         <div class="rail-title"><span class="material-symbols-rounded">play_circle</span><span>Live Scenes</span></div>
+        <label class="field range-field live-time-scale">
+          <span>Time stretch <strong>${timeStretch.toFixed(2)} · ${timeScale < 0.1 ? timeScale.toFixed(3) : timeScale.toFixed(2)}×</strong></span>
+          <input type="range" min="-4" max="4" step="0.01" data-update="global.timeStretch" value="${timeStretch}" />
+        </label>
         <label class="field range-field live-transition-duration">
           <span>Transition <strong>${transitionDuration.toFixed(1)} s</strong></span>
           <input type="range" min="0" max="10" step="0.1" data-update="ui.live.transitionDuration" value="${transitionDuration}" />
@@ -819,6 +1096,7 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
   }
 
   function renderInspector(state) {
+    refs.inspector.dataset.workspace = currentWorkspace(state);
     const hasProject = hasOpenProject(state);
     if (!hasProject) {
       replaceHtmlIfChanged(refs.inspector, "");
@@ -996,10 +1274,16 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
       return;
     }
     if (elementPicker) {
-      if (!replaceHtmlIfChanged(host, elementPickerTemplate(state, elementPicker, mediaLibrary, mediaPreviewUrls))) return;
+      const modalSortMode = catalogSortMode(state, "component");
+      const modalComponents = sortComponentCatalog(state.components || [], modalSortMode);
+      if (!replaceHtmlIfChanged(host, elementPickerTemplate(state, elementPicker, mediaLibrary, mediaPreviewUrls, {
+        components: modalComponents,
+        sortMode: modalSortMode,
+      }))) return;
       host.querySelector("[data-close-modal]")?.addEventListener("click", closeElementPicker);
       host.querySelector(".modal-backdrop")?.addEventListener("click", closeElementPicker);
       bindElementPickerSearch(host);
+      bindCatalogSortControls(host);
       focusPendingElementPickerSearch(host);
       host.querySelectorAll("[data-add-element-media]").forEach((button) => {
         button.addEventListener("click", () => {
@@ -1058,8 +1342,10 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
         const mediaId = button.dataset.pickMedia || "";
         store.update((draft) => {
           setByPath(draft, mediaPicker.path, mediaId);
-          const sourcePath = mediaPicker.path.replace(/\.mediaId$/, "");
-          setByPath(draft, `${sourcePath}.type`, "media");
+          if (/\.mediaId$/.test(mediaPicker.path)) {
+            const sourcePath = mediaPicker.path.replace(/\.mediaId$/, "");
+            setByPath(draft, `${sourcePath}.type`, "media");
+          }
         }, `update:${mediaPicker.path}`);
         closeMediaPicker();
       });
@@ -1176,8 +1462,8 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
     return String(value || "").trim().toLowerCase();
   }
 
-  function openMediaPicker(path) {
-    mediaPicker = { path };
+  function openMediaPicker(path, accept = "") {
+    mediaPicker = { path, accept };
     elementPicker = null;
     sourceChoicePicker = null;
     settingsOpen = false;
@@ -1470,7 +1756,7 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
       });
     });
     scope.querySelectorAll("[data-open-media-picker]").forEach((button) => {
-      button.addEventListener("click", () => openMediaPicker(button.dataset.mediaPath));
+      button.addEventListener("click", () => openMediaPicker(button.dataset.mediaPath, button.dataset.mediaAccept || ""));
     });
     scope.querySelectorAll("[data-open-source-choice]").forEach((button) => {
       button.addEventListener("click", () => openSourceChoicePicker(button.dataset.openSourceChoice));
@@ -1518,7 +1804,7 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
       button.addEventListener("click", () => store.selectChainItem(button.dataset.selectChainItem));
     });
     scope.querySelectorAll("[data-remove-chain-item]").forEach((button) => {
-      button.addEventListener("click", () => removeChainItem(button.dataset.componentId, button.dataset.removeChainItem));
+      button.addEventListener("click", () => store.removeChainItem?.(button.dataset.componentId, button.dataset.removeChainItem));
     });
     scope.querySelectorAll("[data-chain-reorder-list]").forEach((list) => {
       bindReorderList(list, {
@@ -1582,15 +1868,6 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
     maxInput.addEventListener("input", onInput);
     maxInput.addEventListener("change", onChange);
     syncParamRangeControl(control, Number(minInput.value), Number(maxInput.value));
-  }
-
-  function removeChainItem(componentId, itemId) {
-    store.update((draft) => {
-      const component = draft.components.find((item) => item.id === componentId);
-      if (!component?.chain) return;
-      const removed = removeChainItemFromChain(component.chain, itemId, component.type !== "canvas");
-      if (removed && draft.ui.selectedChainItemId === itemId) draft.ui.selectedChainItemId = firstChainItemId(component.chain);
-    }, "remove-chain-item");
   }
 
   function resetProjectMapping(surfaceId = "") {
@@ -2152,6 +2429,7 @@ function componentTemplate(component, state) {
         <div class="sculpt-head">
           <input type="text" data-update="${base}.name" value="${esc(component.name)}" spellcheck="false" data-gramm="false" data-gramm_editor="false" data-enable-grammarly="false" />
         </div>
+        ${componentInstanceSyncTemplate(component, base)}
         <div class="soft-note">This Canvas uses the shared component chain. Add components as sources with the plus button, organize them in Groups when needed, and define recording frames.</div>
       </article>
     `;
@@ -2161,9 +2439,19 @@ function componentTemplate(component, state) {
       <div class="sculpt-head">
         <input type="text" data-update="${base}.name" value="${esc(component.name)}" spellcheck="false" data-gramm="false" data-gramm_editor="false" data-enable-grammarly="false" />
       </div>
+      ${componentInstanceSyncTemplate(component, base)}
       ${componentFrameControlsTemplate(component, state, base)}
       ${componentUnifiedChainTemplate(component, state, base)}
     </article>
+  `;
+}
+
+function componentInstanceSyncTemplate(component, base) {
+  const enabled = component.syncInstances !== false;
+  return `
+    <div class="segmented-pills component-option-grid" role="group" aria-label="Component instance timing">
+      <button type="button" class="${enabled ? "is-selected" : ""}" data-toggle-path="${base}.syncInstances" data-toggle-value="${enabled ? "true" : "false"}" aria-pressed="${enabled}" title="On keeps this Component synchronized everywhere; off gives each Canvas placement and surface its own phase">Sync instances</button>
+    </div>
   `;
 }
 
@@ -2285,6 +2573,10 @@ function groupChainItemTemplate(item, component, state, base) {
         <span>Collapsed</span>
         <input type="checkbox" data-update="${base}.collapsed" ${item.collapsed ? "checked" : ""} />
       </label>
+      <div class="field-pair group-composite-controls">
+        <label class="field">Blend ${selectValuesTemplate(`${base}.blend`, BLEND_MODES, item.blend || "normal")}</label>
+        ${rangeTemplate("Alpha", `${base}.opacity`, item.opacity ?? 1)}
+      </div>
       <button type="button" class="chain-add-button" data-open-element-picker data-component-id="${esc(component.id)}" data-target-chain-item="${esc(item.id)}" title="Add element to group" aria-label="Add element to group">${icon("add")}</button>
       <div class="soft-note">Use the preview handles to move, scale, or rotate the group as one unit.</div>
     </section>
@@ -2359,7 +2651,7 @@ function sourcePickerTemplate(component, state, base) {
           ${icon("chevron_right")}
         </button>
       </div>
-      ${source.type === "generator" ? generatorParamControlsTemplate(`${base}.source`, source) : ""}
+      ${source.type === "generator" ? generatorParamControlsTemplate(`${base}.source`, source, state) : ""}
       ${source.type === "media" && !isModelMediaSource(source, media) ? mediaSourceFitControlsTemplate(`${base}.source`, source) : ""}
       ${source.type === "media" && isVideoMediaSource(source, media) ? videoSourceControlsTemplate(`${base}.source`, source, media) : ""}
       ${source.type === "media" && isModelMediaSource(source, media) ? modelSourceControlsTemplate(`${base}.source`, source) : ""}
@@ -2438,25 +2730,6 @@ function findChainItemSelection(chain = [], id = "", base = "chain") {
 function firstChainItemSelection(chain = [], base = "chain") {
   if (!Array.isArray(chain) || !chain.length) return null;
   return { item: chain[0], path: `${base}.0` };
-}
-
-function firstChainItemId(chain = []) {
-  if (!Array.isArray(chain) || !chain.length) return "";
-  return chain[0]?.id || "";
-}
-
-function removeChainItemFromChain(chain = [], itemId = "", topLevel = false) {
-  if (!Array.isArray(chain) || !itemId) return false;
-  const index = chain.findIndex((item) => item.id === itemId);
-  if (index >= 0) {
-    if (topLevel && chain.length <= 1) return false;
-    chain.splice(index, 1);
-    return true;
-  }
-  for (const item of chain) {
-    if (item.kind === "group" && removeChainItemFromChain(item.chain || [], itemId, false)) return true;
-  }
-  return false;
 }
 
 function isGenericLayerName(value) {
@@ -2565,11 +2838,20 @@ function modelSourceControlsTemplate(base, source = {}) {
   `;
 }
 
-function generatorParamControlsTemplate(base, source = {}) {
+function generatorParamControlsTemplate(base, source = {}, state = {}) {
   const component = getGeneratorComponent(source.generatorId || "testPattern");
   if (!component?.params?.length) return "";
+  const mediaControls = component.id === "featureMorph" || component.id === "featureMorphV2"
+    ? featureMorphMediaControlsTemplate(base, source, state, component.id === "featureMorphV2" ? {
+        note: "MobileNet compares a grid of semantic image regions. Best with related subjects or layouts.",
+        emptyDetail: "MobileNet input",
+      } : {})
+    : component.id === "tileTexture"
+      ? generatorImageMediaControlTemplate(base, source, state, { emptyDetail: "Tileable texture" })
+      : "";
   return `
     <div class="chain-param-list">
+      ${mediaControls}
       ${paramControlsTemplate(component.params, {
         pathFor: (param) => `${base}.params.${param.id}`,
         valueFor: (param) => paramCurrentValue(component, { params: source.params || {} }, param),
@@ -2865,6 +3147,8 @@ function liveChainItemTemplate(item, componentId, index, path = `chain.${index}`
           })}
           <span>${esc(label)}</span>
         </div>
+        ${liveRangeTemplate("Alpha", componentId, `${path}.opacity`, item.opacity ?? 1)}
+        <label class="field chain-param">Blend ${liveSelectValuesTemplate(componentId, `${path}.blend`, BLEND_MODES, item.blend || "normal")}</label>
         ${item.chain?.length ? `<div class="live-chain-list">${item.chain.map((child, childIndex) => liveChainItemTemplate(child, componentId, childIndex, `${path}.chain.${childIndex}`, state, ancestry)).join("")}</div>` : ""}
       </div>
     `;
@@ -3252,7 +3536,7 @@ function activeLiveOverrideBank(state) {
 }
 
 function invalidateComponentPreviewAssets(state, path = "") {
-  const match = String(path).match(/^components\.(\d+)\.(chain|shaderChain|source|opacity|blend|speed)/);
+  const match = String(path).match(/^components\.(\d+)\.(chain|shaderChain|source|opacity|blend|speed|syncInstances)/);
   if (!match) return;
   const component = state.components?.[Number(match[1])];
   if (!component) return;

@@ -52,12 +52,27 @@ test("component frame settings normalize to backward-compatible defaults", () =>
   const created = createDefaultComponent(0);
   assert.equal(created.frameShape, "landscape");
   assert.equal(created.resolutionScale, 1);
+  assert.equal(created.syncInstances, true);
 
   const state = sanitizeState({
     components: [{ ...created, frameShape: "portrait", resolutionScale: 2 }],
   });
   assert.equal(state.components[0].frameShape, "portrait");
   assert.equal(state.components[0].resolutionScale, 2);
+  assert.equal(state.components[0].syncInstances, true);
+
+  const independent = sanitizeState({
+    components: [{ ...created, syncInstances: false }],
+  });
+  assert.equal(independent.components[0].syncInstances, false);
+});
+
+test("global visual time stretch defaults to one and stays within its live range", () => {
+  assert.equal(sanitizeState({}).global.timeStretch, 0);
+  assert.equal(sanitizeState({ global: { timeStretch: -8 } }).global.timeStretch, -4);
+  assert.equal(sanitizeState({ global: { timeStretch: 8 } }).global.timeStretch, 4);
+  assert.equal(sanitizeState({ global: { timeScale: 4 } }).global.timeStretch, 2);
+  assert.equal("timeScale" in sanitizeState({ global: { timeScale: 4 } }).global, false);
 });
 
 test("legacy fixed surface fields are removed and all projects enter automatic texture mode", () => {

@@ -19,6 +19,7 @@ export function createDefaultComponent(index = 0) {
     opacity: 1,
     blend: "normal",
     speed: 1,
+    syncInstances: true,
     frameShape: "landscape",
     resolutionScale: 1,
     thumbnail: "",
@@ -40,6 +41,7 @@ export function createCanvasComponent(index = 0, sourceComponentId = "") {
     opacity: 1,
     blend: "normal",
     speed: 1,
+    syncInstances: true,
     frameShape: "landscape",
     resolutionScale: 1,
     thumbnail: "",
@@ -239,6 +241,7 @@ export function createInitialState() {
     },
     global: {
       playing: true,
+      timeStretch: 0,
       blackout: false,
       bpm: 120,
       crossfade: 1,
@@ -349,6 +352,15 @@ export function sanitizeState(input = {}) {
     shaders: { ...base.shaders, ...(input.shaders || {}) },
     metrics: { ...base.metrics, ...(input.metrics || {}) },
   };
+  const legacyTimeScale = Number(input.global?.timeScale);
+  const fallbackTimeStretch = Number.isFinite(legacyTimeScale)
+    ? Math.log2(Math.max(1 / 16, legacyTimeScale))
+    : 0;
+  const configuredTimeStretch = Object.hasOwn(input.global || {}, "timeStretch")
+    ? input.global.timeStretch
+    : fallbackTimeStretch;
+  next.global.timeStretch = clampNumber(configuredTimeStretch, -4, 4, fallbackTimeStretch);
+  delete next.global.timeScale;
 
   next.components = normalizeComponents(input, base);
   const canvasFrameBounds = next.components.find((component) => component.type === "canvas")?.canvas || { width: VJ1.canvasWidth, height: VJ1.canvasHeight };
@@ -776,6 +788,7 @@ export function normalizeComponent(component = {}) {
     source,
     opacity: clamp01(componentData.opacity ?? fallback.opacity),
     speed: Math.max(0, Number(componentData.speed ?? fallback.speed) || 0),
+    syncInstances: componentData.syncInstances !== false,
     blend: componentData.blend || fallback.blend,
     frameShape: normalizeComponentFrameShape(componentData.frameShape),
     resolutionScale: normalizeComponentResolutionScale(componentData.resolutionScale),

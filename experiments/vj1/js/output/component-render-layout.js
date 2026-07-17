@@ -262,7 +262,7 @@ export function scaledComponentSampleRect(sampleRect = {}, logicalSize = {}, sou
 export function sharedComponentRenderRequests(routes = [], renderIdentityPrefix = "") {
   const planned = new Map();
   for (const route of routes) {
-    const id = route?.component?.id;
+    const id = componentRenderInstanceKey(route?.component, route?.surface?.id);
     if (!id || !route?.sourceView || !route?.demand) continue;
     const previous = planned.get(id);
     if (!previous || route.demand.rasterScale > previous.scale) planned.set(id, { route, scale: route.demand.rasterScale });
@@ -281,6 +281,13 @@ export function sharedComponentRenderRequests(routes = [], renderIdentityPrefix 
       demandScale: scale,
     })];
   }));
+}
+
+export function componentRenderInstanceKey(component = {}, instanceId = "") {
+  const componentId = String(component?.id || "");
+  if (!componentId || component?.syncInstances !== false) return componentId;
+  const placementId = String(instanceId || "default");
+  return `${componentId}:instance:${placementId}`;
 }
 
 function containedRect(containerWidth, containerHeight, contentWidth, contentHeight) {

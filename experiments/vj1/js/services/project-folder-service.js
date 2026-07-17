@@ -6,7 +6,7 @@ import {
   loadProjectDirectoryHandle,
   saveProjectDirectoryHandle,
 } from "./directory-handle-store.js";
-import { applySceneSnapshotToState, createInitialState } from "../domain/models.js?v=adaptive-component-demand-29";
+import { applySceneSnapshotToState, createInitialState } from "../domain/models.js?v=centered-freeze-68";
 import { migrateProjectData, ProjectVersionError } from "../domain/project-migrations.js?v=adaptive-component-demand-29";
 import { createChangeEvent } from "../domain/change-event.js?v=adaptive-component-demand-29";
 import { historyGroupForReason, isHistoryReason, projectHistorySignature, shouldCoalesceHistoryRevision } from "./project-history-policy.js?v=adaptive-component-demand-29";

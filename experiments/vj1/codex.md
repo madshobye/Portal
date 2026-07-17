@@ -186,9 +186,9 @@ Before finishing renderer work:
 
 ## Current Baseline
 
-The implementation baseline is committed. Recent work centers on generic direct projection for Components, full Canvases, and recording-frame source rectangles; adaptive Component raster demand; demand-sized previews; shared 8192 bounds; static performance estimates; cache-busting imports; and focused render-geometry/output tests. Surface textures remain only on explicit materialization paths.
+The implementation baseline is committed. Recent work centers on generic direct projection for Components, full Canvases, and recording-frame source rectangles; adaptive Component raster demand; demand-sized previews; shared 8192 bounds; static performance estimates; cache-busting imports; a local SuperPoint-powered two-image Feature Morph generator; and focused render-geometry/output tests. Surface textures remain only on explicit materialization paths.
 
-The handover reports **269 passing Node tests**. Real GLSL still requires the shader smoke page. The representative performance comparison is `metrics-results/runs/four-surface-show-gpu-architecture.*`.
+The handover reports **324 passing Node tests**. Real GLSL still requires a browser smoke page; Feature Morph has its own inference-and-shader smoke fixture at `tests/browser/feature-morph-smoke.html`. The representative performance comparison is `metrics-results/runs/four-surface-show-gpu-architecture.*`.
 
 ## Change Discipline
 

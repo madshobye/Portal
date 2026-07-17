@@ -16,12 +16,13 @@ import {
   sanitizeState,
   syncLiveSnapshotFromScene,
   uid,
-} from "./domain/models.js?v=adaptive-component-demand-29";
+} from "./domain/models.js?v=centered-freeze-68";
 import { stampChangedProjectItems, touchComponentUsed } from "./domain/component-activity.js?v=adaptive-component-demand-29";
 import { componentFrameMetrics } from "./domain/component-frame.js?v=adaptive-component-demand-29";
 import { VJ1, WORKSPACES } from "./constants.js";
 import { createChangeEvent } from "./domain/change-event.js?v=adaptive-component-demand-29";
 import { clearComponentReferences, countChainGroups, insertChainItemNearSelection, moveById, moveChainItem } from "./domain/chain-operations.js?v=adaptive-component-demand-29";
+import { pasteClipboardPayload } from "./domain/clipboard.js?v=clipboard-routing-62";
 
 export function createAppState(initial = null) {
   let state = sanitizeState(initial || createInitialState());
@@ -65,6 +66,12 @@ export function createAppState(initial = null) {
     replace,
     update,
     subscribe,
+    pasteClipboard(payload, target) {
+      const draft = getState();
+      const result = pasteClipboardPayload(draft, payload, target);
+      if (result.pasted) replace(draft, "paste");
+      return result;
+    },
     selectSurface(id) {
       update((draft) => {
         draft.ui.selectedSurfaceId = id;
@@ -169,6 +176,16 @@ export function createAppState(initial = null) {
       update((draft) => {
         draft.ui.selectedChainItemId = id;
       }, "select-chain-item");
+    },
+    removeChainItem(componentId, itemId) {
+      update((draft) => {
+        const component = draft.components.find((item) => item.id === componentId);
+        if (!component?.chain) return;
+        const removed = removeChainItemFromChain(component.chain, itemId, component.type !== "canvas");
+        if (removed && draft.ui.selectedChainItemId === itemId) {
+          draft.ui.selectedChainItemId = firstChainItemId(component.chain);
+        }
+      }, "remove-chain-item");
     },
     addChainSource(componentId, source = { type: "generator", generatorId: "testPattern" }) {
       update((draft) => {
@@ -366,6 +383,25 @@ function restoreWorkspaceComponent(draft, workspace) {
   draft.ui.workspaceSelectionIds[workspace] = component.id;
   draft.ui.selectedComponentId = component.id;
   draft.ui.selectedChainItemId = component.chain?.[0]?.id || "";
+}
+
+function firstChainItemId(chain = []) {
+  if (!Array.isArray(chain) || !chain.length) return "";
+  return chain[0]?.id || "";
+}
+
+function removeChainItemFromChain(chain = [], itemId = "", topLevel = false) {
+  if (!Array.isArray(chain) || !itemId) return false;
+  const index = chain.findIndex((item) => item.id === itemId);
+  if (index >= 0) {
+    if (topLevel && chain.length <= 1) return false;
+    chain.splice(index, 1);
+    return true;
+  }
+  for (const item of chain) {
+    if (item.kind === "group" && removeChainItemFromChain(item.chain || [], itemId, false)) return true;
+  }
+  return false;
 }
 
 function refreshLiveSelectedSceneSnapshot(state) {

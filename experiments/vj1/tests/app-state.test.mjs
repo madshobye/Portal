@@ -527,6 +527,24 @@ test("nested chain items remain selectable after state normalization", () => {
   assert.equal(store.getState().ui.selectedChainItemId, nested.id);
 });
 
+test("selected nested chain items can be removed through the shared store action", () => {
+  const state = createInitialState();
+  const component = state.components[0];
+  const nested = createComponentLayer(0, { type: "generator", generatorId: "noise" });
+  const group = createComponentGroup(0);
+  group.chain = [nested];
+  component.chain.push(group);
+  state.ui.selectedComponentId = component.id;
+  state.ui.selectedChainItemId = nested.id;
+  const store = createAppState(state);
+
+  store.removeChainItem(component.id, nested.id);
+
+  const next = store.getState();
+  assert.equal(next.components[0].chain.find((item) => item.id === group.id)?.chain.length, 0);
+  assert.notEqual(next.ui.selectedChainItemId, nested.id);
+});
+
 test("existing chain item can move into a group by drag reorder", () => {
   const state = createInitialState();
   const component = createDefaultComponent(0);
@@ -563,11 +581,13 @@ test("nested chain item can move out below a group at the end", () => {
   assert.equal(chain[1].chain.length, 0);
 });
 
-test("group transform survives normalization for preview handles", () => {
+test("group transform alpha and blend survive normalization", () => {
   const state = createInitialState();
   const component = createDefaultComponent(0);
   const group = createComponentGroup(0);
   group.transform = { x: 0.2, y: -0.1, scale: 0.7, rotation: 0.35 };
+  group.opacity = 0.42;
+  group.blend = "screen";
   component.chain = [
     createComponentLayer(0, { type: "generator", generatorId: "gradient" }),
     group,
@@ -578,6 +598,8 @@ test("group transform survives normalization for preview handles", () => {
   const normalizedGroup = store.getState().components[0].chain[1];
 
   assert.deepEqual(normalizedGroup.transform, group.transform);
+  assert.equal(normalizedGroup.opacity, 0.42);
+  assert.equal(normalizedGroup.blend, "screen");
 });
 
 test("component chain compiles as one accumulated image pipeline", () => {

@@ -1,4 +1,4 @@
-import { normalizeRenderSettings } from "../domain/models.js?v=adaptive-component-demand-29";
+import { normalizeRenderSettings } from "../domain/models.js?v=centered-freeze-68";
 import { esc, icon } from "./template-utils.js?v=adaptive-component-demand-29";
 
 export function settingsModalTemplate(state, activeTab = "outputs") {
