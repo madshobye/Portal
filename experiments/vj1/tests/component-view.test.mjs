@@ -72,8 +72,8 @@ test("persistent and Live source editors share one media-model control schema", 
   const sceneLiveView = readFileSync(new URL("../js/control/scene-live-view.js", import.meta.url), "utf8");
   const schema = readFileSync(new URL("../js/control/source-control-schema.js", import.meta.url), "utf8");
 
-  assert.match(componentView, /from "\.\/source-control-schema\.js\?v=camera-focal-length-1"/);
-  assert.match(sceneLiveView, /from "\.\/source-control-schema\.js\?v=camera-focal-length-1"/);
+  assert.match(componentView, /from "\.\/source-control-schema\.js\?v=xray-outline-1"/);
+  assert.match(sceneLiveView, /from "\.\/source-control-schema\.js\?v=xray-outline-1"/);
   assert.match(schema, /export const MODEL_SOURCE_PARAMS/);
   assert.doesNotMatch(sceneLiveView, /const MODEL_SOURCE_PARAMS =/);
   assert.match(componentView, /chainParamViewDefinitions\(content, details,/);

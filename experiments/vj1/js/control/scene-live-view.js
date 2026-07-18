@@ -1,14 +1,14 @@
 import { BLEND_MODES } from "../constants.js";
-import { createLiveComponentView, sceneSourceNodes } from "../domain/models.js?v=lightning-generator-1";
+import { createLiveComponentView, sceneSourceNodes } from "../domain/models.js?v=changed-sort-user-truth-1";
 import { normalizeParamValue, RENDER_QUALITY_PARAM } from "../graph/component-schema.js?v=text-generator-1";
-import { getGeneratorComponent } from "../graph/generator-registry.js?v=sun-rays-1";
-import { getShaderComponent } from "../shaders/shader-registry.js?v=photo-grade-print-1";
-import { componentCatalogToolsTemplate } from "./catalog-view.js?v=catalog-view-extraction-1";
+import { getGeneratorComponent } from "../graph/generator-registry.js?v=mesh-topology-1";
+import { getShaderComponent } from "../shaders/shader-registry.js?v=power-flicker-1";
+import { componentCatalogToolsTemplate } from "./catalog-view.js?v=changed-sort-user-truth-1";
 import { isModelMediaSource, sourceChainItemDisplayName, sourceIcon } from "./component-view.js?v=lightning-generator-1";
 import { getLiveSelectedScene, getSceneSurfaceView, getSelectedScene, liveSceneComponents, liveSelectedSceneId, sceneFingerprintComponents } from "./control-selectors.js?v=control-selectors-extraction-1";
 import { CHAIN_TRANSFORM_PARAMS, chainParamViewDefinitions, chainTransformControlsTemplate, componentParamViews, paramControlsTemplate, paramCurrentValue } from "./parameter-view.js?v=text-style-controls-1";
-import { MEDIA_FIT_PARAM, MODEL_SOURCE_PARAMS } from "./source-control-schema.js?v=camera-focal-length-1";
-import { effectIcon, emptyNote, esc, formatRangeValue, icon, rangeTemplate, selectValuesTemplate, thumbnailTemplate } from "./template-utils.js?v=slider-values-70";
+import { MEDIA_FIT_PARAM, MODEL_SOURCE_PARAMS } from "./source-control-schema.js?v=xray-outline-1";
+import { effectIcon, emptyNote, esc, formatRangeValue, icon, rangeTemplate, selectValuesTemplate, thumbnailTemplate } from "./template-utils.js?v=power-flicker-1";
 import { componentCardBarTemplate, editableSectionTitleTemplate, enableToggleButton, panelTemplate, selectablePillTemplate } from "./view-primitives.js?v=view-primitives-extraction-1";
 
 const PROJECTION_FIT_MODES = ["cover", "contain", "stretch"];

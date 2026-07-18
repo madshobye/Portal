@@ -1,5 +1,5 @@
 import { VJ1, defaultCustomShaderCode, WORKSPACES } from "../constants.js";
-import { createGeneratorSource } from "../graph/generator-registry.js?v=sun-rays-1";
+import { createGeneratorSource } from "../graph/generator-registry.js?v=mesh-topology-1";
 import { normalizeComponentFrameShape, normalizeComponentResolutionScale } from "./component-frame.js";
 import { createProjectActivity, normalizeProjectActivity } from "./component-activity.js?v=adaptive-component-demand-29";
 import { CURRENT_PROJECT_VERSION, migrateProjectData } from "./project-migrations.js?v=project-storage-1";
@@ -17,7 +17,7 @@ import {
   resolveSceneSourceNode,
   sceneSourceNodeId,
   sceneSourceNodes,
-} from "./scene-routing.js?v=surface-media-contract-4";
+} from "./scene-routing.js?v=changed-sort-user-truth-1";
 
 export {
   createOutputDefinition,
@@ -34,7 +34,7 @@ export {
   resolveSceneSourceNode,
   sceneSourceNodeId,
   sceneSourceNodes,
-} from "./scene-routing.js?v=surface-media-contract-4";
+} from "./scene-routing.js?v=changed-sort-user-truth-1";
 
 export function uid(prefix) {
   return `${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;

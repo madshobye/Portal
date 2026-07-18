@@ -1,5 +1,5 @@
-import { parseObjMesh, parseStlMesh } from "./model-parsers.js?v=model-lod-1";
-import { attachLegacyTriangleView, buildAutomaticModelLods } from "./model-lod.js?v=model-lod-1";
+import { parseObjMesh, parseStlMesh } from "./model-parsers.js?v=model-qem-4";
+import { attachLegacyTriangleView, buildAutomaticModelLods } from "./model-lod.js?v=model-qem-4";
 
 let worker = null;
 let requestSerial = 0;
@@ -38,7 +38,7 @@ function ensureWorker() {
   if (worker) return worker;
   if (typeof Worker !== "function") return null;
   try {
-    worker = new Worker(new URL("./model-processing-worker.js?v=model-lod-1", import.meta.url), { type: "module" });
+    worker = new Worker(new URL("./model-processing-worker.js?v=model-qem-4", import.meta.url), { type: "module" });
     worker.addEventListener("message", (event) => {
       const { requestId, mesh, error } = event.data || {};
       const request = pending.get(requestId);
@@ -49,6 +49,7 @@ function ensureWorker() {
         for (const lod of mesh?.lods || [mesh]) attachLegacyTriangleView(lod);
         request.resolve(attachLegacyTriangleView(mesh));
       }
+      releaseWorkerHeapWhenIdle();
     });
     worker.addEventListener("error", (event) => {
       console.error("[VJ1_MODEL_WORKER_FAILED]", { message: event?.message || "model worker failed" });
@@ -63,4 +64,14 @@ function ensureWorker() {
     worker = null;
     return null;
   }
+}
+
+function releaseWorkerHeapWhenIdle() {
+  if (pending.size || !worker) return;
+  const completedWorker = worker;
+  queueMicrotask(() => {
+    if (worker !== completedWorker || pending.size) return;
+    completedWorker.terminate();
+    worker = null;
+  });
 }

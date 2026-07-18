@@ -7,10 +7,16 @@ import {
   findChainItemTransformContext,
   groupLocalBounds,
   hitTestChainItems,
+  isPhysicalChainItem,
   logicalPixelsPerCssPixel,
   resolveChainTransformDrag,
   transformHandleLayout,
 } from "../js/output/preview-interaction-geometry.js";
+
+test("spatial effects participate in the same preview handle contract as sources", () => {
+  assert.equal(isPhysicalChainItem({ kind: "effect", componentId: "alphaVignette" }), true);
+  assert.equal(isPhysicalChainItem({ kind: "effect", componentId: "blur" }), false);
+});
 
 test("nested chain transform context composes parent translation and scale", () => {
   const child = { id: "child", kind: "source", source: { type: "media" }, transform: { x: 0.25, scale: 0.5 } };
@@ -62,7 +68,7 @@ test("move scale and rotation drag calculations live outside the renderer", () =
   assert.equal(move.y, 0);
   assert.equal(scale.scale, 2);
   assert.equal(rotate.rotation, Math.PI / 2);
-  assert.match(renderer, /from "\.\/preview-interaction-geometry\.js\?v=transform-hit-contract-3"/);
+  assert.match(renderer, /from "\.\/preview-interaction-geometry\.js\?v=power-flicker-1"/);
   assert.doesNotMatch(renderer, /function findChainItemTransformContext\(/);
   assert.doesNotMatch(renderer, /function chainTransformDragScale\(/);
 });

@@ -83,6 +83,48 @@ test("alpha-sensitive effects keep transparent pixels premultiplied", () => {
   }
 });
 
+test("Broken Fluorescent exposes bounded coherent flicker and glow controls", () => {
+  const component = getShaderComponent("brokenFluorescent");
+  const ids = component.params.map((param) => param.id);
+
+  assert.equal(component.name, "Broken Fluorescent");
+  assert.equal(component.category, "motion");
+  assert.equal(component.spatial, false);
+  for (const id of ["amount", "brightness", "glow", "flicker", "speed", "threshold", "glowSize", "noiseScale", "tubeColor"]) {
+    assert.ok(ids.includes(id), `${id} should be controllable`);
+  }
+  assert.ok(component.code.includes("float fluorescentSimplex(vec2 v)"));
+  assert.ok(component.code.includes("smoothstep(threshold - edge, threshold + edge"));
+  assert.ok(component.code.includes("if (renderQuality > 0.55"));
+  assert.equal((component.code.match(/sampleSource\(/g) || []).length, 8);
+  assert.ok(component.code.includes("vec4 lit = vec4(litRgb, litAlpha);"));
+  assert.equal(component.runtime.timeDependent({ flicker: 1, speed: 2, seedMode: "animated" }), true);
+  assert.equal(component.runtime.timeDependent({ flicker: 0, speed: 2, seedMode: "animated" }), false);
+  assert.equal(component.runtime.timeDependent({ flicker: 1, speed: 2, seedMode: "fixed" }), false);
+});
+
+test("Power Flicker hard-cuts the whole previous layer with one irregular electrical state", () => {
+  const component = getShaderComponent("powerFlicker");
+  const ids = component.params.map((param) => param.id);
+
+  assert.equal(component.name, "Power Flicker");
+  assert.equal(component.category, "motion");
+  assert.equal(component.spatial, false);
+  for (const id of ["amount", "speed", "threshold", "offLevel", "brightness", "coldWash", "chatter", "lightColor"]) {
+    assert.ok(ids.includes(id), `${id} should be controllable`);
+  }
+  assert.ok(component.code.includes("float powerFlickerNoise(float coordinate"));
+  assert.ok(component.code.includes("float powered = step(threshold, supply);"));
+  assert.ok(component.code.includes("powered = mix(powered, chatterBit, chatterGate);"));
+  assert.ok(component.code.includes("vec3 flickered = mix(offColor, onColor, powered) * alpha;"));
+  assert.ok(!component.code.includes("sampleSource("));
+  assert.equal(component.sampling, "local");
+  assert.equal(component.fusible, true);
+  assert.equal(component.runtime.timeDependent({ amount: 1, speed: 4, seedMode: "animated" }), true);
+  assert.equal(component.runtime.timeDependent({ amount: 0, speed: 4, seedMode: "animated" }), false);
+  assert.equal(component.runtime.timeDependent({ amount: 1, speed: 4, seedMode: "fixed" }), false);
+});
+
 test("HSV alpha key exposes paired color ranges and preserves premultiplied alpha", () => {
   const component = getShaderComponent("hsvAlphaKey");
   const params = Object.fromEntries(component.params.map((param) => [param.id, param]));
@@ -129,7 +171,7 @@ test("procedural scale controls interpolate random fields instead of rehashing f
 });
 
 test("noisy effects expose animated or fixed seed controls", () => {
-  for (const id of ["photoGrade", "labelGrain", "labelThresholdGrain", "glitchDistort", "heatShimmer", "smear"]) {
+  for (const id of ["photoGrade", "labelGrain", "labelThresholdGrain", "brokenFluorescent", "powerFlicker", "glitchDistort", "heatShimmer", "smear"]) {
     const component = getShaderComponent(id);
     const params = Object.fromEntries(component.params.map((param) => [param.id, param]));
 
@@ -252,7 +294,7 @@ test("flip effect exposes whole-image x and y controls", () => {
 });
 
 test("spatial field effects place the effect without transforming the source image", () => {
-  for (const id of ["ripple", "kaleido", "pixelate", "plasma", "glitchDistort", "spinRotate", "echoFade", "mirrorFold", "heatShimmer", "heartbeatPulse"]) {
+  for (const id of ["ripple", "kaleido", "pixelate", "plasma", "alphaVignette", "glitchDistort", "spinRotate", "echoFade", "mirrorFold", "heatShimmer", "heartbeatPulse"]) {
     const component = getShaderComponent(id);
 
     assert.equal(component.spatial, true, `${id} should expose transform handles`);
@@ -263,6 +305,23 @@ test("spatial field effects place the effect without transforming the source ima
     const component = getShaderComponent(id);
 
     assert.ok(component.code.includes("inverseTransformEffectUv("), `${id} should map local effect coordinates back to source space`);
+  }
+});
+
+test("every spatial effect uses the field-transform contract", () => {
+  const spatialEffects = listShaderComponents().filter((component) => component.spatial);
+
+  assert.ok(spatialEffects.some((component) => component.id === "alphaVignette"));
+  for (const component of spatialEffects) {
+    assert.equal(component.transformSource, false, `${component.id} must not transform its source image`);
+    assert.equal(component.fusible, false, `${component.id} requires its own spatial field pass`);
+  }
+});
+
+test("effects using local field coordinates expose transform handles", () => {
+  for (const component of listShaderComponents()) {
+    if (!component.code?.includes("transformEffectUv(effectScreenUv())")) continue;
+    assert.equal(component.spatial, true, `${component.id} uses a local field and should expose handles`);
   }
 });
 
@@ -302,7 +361,7 @@ test("generator transforms change UV coordinates without changing the render tar
 });
 
 test("spatial field effects use screen-oriented y coordinates for handle translation", () => {
-  for (const id of ["ripple", "kaleido", "pixelate", "plasma", "glitchDistort", "spinRotate", "echoFade", "mirrorFold", "heatShimmer"]) {
+  for (const id of ["ripple", "kaleido", "pixelate", "plasma", "alphaVignette", "glitchDistort", "spinRotate", "echoFade", "mirrorFold", "heatShimmer"]) {
     const component = getShaderComponent(id);
 
     assert.ok(component.code.includes("transformEffectUv(effectScreenUv())"), `${id} should transform screen-oriented uv`);
@@ -442,6 +501,22 @@ test("Cellular Circles preserves attribution and computes both nearest cells in 
   assert.ok(component.code.includes("secondDistance = nearestDistance"));
   assert.ok(component.code.includes("fragColor = vec4(clamp(color.rgb, 0.0, 1.0) * alpha, alpha)"));
   assert.equal((component.code.match(/for \(int x = -5/g) || []).length, 1, "nearest and second-nearest cells share one pass");
+});
+
+test("2D Mesh Patterns exposes topology families and is not a faux fragment shader", () => {
+  const registry = getGeneratorComponent("meshPatterns");
+  const params = Object.fromEntries(registry.params.map((param) => [param.id, param]));
+
+  assert.equal(getGeneratorShaderComponent("meshPatterns"), null);
+  assert.deepEqual(params.drawMode.values, ["fill", "wire", "fill + wire"]);
+  assert.deepEqual(params.palette.values, ["custom", "analogous", "complementary", "triadic", "split complementary", "tetradic", "monochrome"]);
+  assert.equal(params.colorCount.min, 2);
+  assert.equal(params.colorCount.max, 4);
+  for (const family of ["cells", "veins", "mountains", "soap", "cracks", "coral", "fabric", "rivers", "magnetic fields", "bone"]) {
+    assert.ok(params.pattern.values.includes(family), `missing ${family}`);
+  }
+  assert.equal(registry.runtime.timeDependent({ speed: 0 }), false);
+  assert.equal(registry.runtime.timeDependent({ speed: 0.1 }), true);
 });
 
 test("Lightning keeps only a premultiplied transparent strike and flash", () => {

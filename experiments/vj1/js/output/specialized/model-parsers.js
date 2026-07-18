@@ -1,4 +1,4 @@
-import { attachLegacyTriangleView } from "./model-lod.js?v=model-lod-1";
+import { attachLegacyTriangleView } from "./model-lod.js?v=model-qem-4";
 
 export function parseStlMesh(buffer) {
   const bytes = buffer instanceof ArrayBuffer ? new Uint8Array(buffer) : new Uint8Array(buffer?.buffer || buffer || []);
@@ -15,43 +15,60 @@ export function parseStlMesh(buffer) {
 }
 
 export function parseObjMesh(text = "") {
-  const vertices = [];
-  const normals = [];
-  const faces = [];
-  for (const rawLine of String(text || "").split(/\r?\n/)) {
-    const line = rawLine.trim();
+  const source = String(text || "");
+  const vertexValues = [];
+  const triangleIndices = [];
+  const sourceBounds = {
+    min: [Infinity, Infinity, Infinity],
+    max: [-Infinity, -Infinity, -Infinity],
+  };
+  let cursor = 0;
+  while (cursor < source.length) {
+    const newline = source.indexOf("\n", cursor);
+    const line = source.slice(cursor, newline < 0 ? source.length : newline).trim();
+    cursor = newline < 0 ? source.length : newline + 1;
     if (!line || line.startsWith("#")) continue;
     const parts = line.split(/\s+/);
     const type = parts.shift();
     if (type === "v" && parts.length >= 3) {
-      vertices.push(parts.slice(0, 3).map((value) => Number(value) || 0));
-    } else if (type === "vn" && parts.length >= 3) {
-      normals.push(normalizeModelVector(parts.slice(0, 3).map((value) => Number(value) || 0)));
+      for (let axis = 0; axis < 3; axis++) {
+        const value = Number(parts[axis]) || 0;
+        vertexValues.push(value);
+        sourceBounds.min[axis] = Math.min(sourceBounds.min[axis], value);
+        sourceBounds.max[axis] = Math.max(sourceBounds.max[axis], value);
+      }
     } else if (type === "f" && parts.length >= 3) {
-      faces.push(parts.map((token) => {
-        const [vertexToken, , normalToken] = token.split("/");
-        return {
-          vertex: resolveObjIndex(vertexToken, vertices.length),
-          normal: resolveObjIndex(normalToken, normals.length),
-        };
-      }));
+      const vertexCount = vertexValues.length / 3;
+      const face = parts.map((token) => resolveObjIndex(token.split("/", 1)[0], vertexCount));
+      for (let index = 1; index + 1 < face.length; index++) {
+        const a = face[0];
+        const b = face[index];
+        const c = face[index + 1];
+        if (a < 0 || b < 0 || c < 0 || a >= vertexCount || b >= vertexCount || c >= vertexCount) continue;
+        if (a === b || b === c || c === a) continue;
+        triangleIndices.push(a, b, c);
+      }
     }
   }
-  const triangles = [];
-  for (const face of faces) {
-    for (let index = 1; index + 1 < face.length; index++) {
-      const corners = [face[0], face[index], face[index + 1]];
-      const triangleVertices = corners.map((corner) => vertices[corner.vertex]).filter(Boolean);
-      if (triangleVertices.length !== 3) continue;
-      const cornerNormals = corners.map((corner) => normals[corner.normal]).filter(Boolean);
-      const normal = cornerNormals.length === 3
-        ? normalizeModelVector(cornerNormals.reduce((sum, value) => sum.map((item, axis) => item + value[axis]), [0, 0, 0]))
-        : modelTriangleNormal(triangleVertices);
-      triangles.push({ normal, vertices: triangleVertices });
-    }
+  if (!triangleIndices.length || !vertexValues.length) throw new Error("OBJ contained no polygon faces");
+  const center = sourceBounds.min.map((min, axis) => (min + sourceBounds.max[axis]) * 0.5);
+  const extent = Math.max(...sourceBounds.max.map((max, axis) => Math.abs(max - sourceBounds.min[axis])), 0.0001);
+  const scale = 100 / extent;
+  const vertexPositions = new Float32Array(vertexValues.length);
+  for (let index = 0; index < vertexValues.length; index++) {
+    const axis = index % 3;
+    vertexPositions[index] = (vertexValues[index] - center[axis]) * scale;
   }
-  if (!triangles.length) throw new Error("OBJ contained no polygon faces");
-  return normalizeParsedMesh(triangles);
+  return attachLegacyTriangleView({
+    vertexPositions,
+    triangleIndices: new Uint32Array(triangleIndices),
+    triangleCount: triangleIndices.length / 3,
+    bounds: {
+      min: sourceBounds.min.map((value, axis) => (value - center[axis]) * scale),
+      max: sourceBounds.max.map((value, axis) => (value - center[axis]) * scale),
+    },
+    sourceBounds,
+  });
 }
 
 function resolveObjIndex(token, length) {

@@ -153,6 +153,25 @@ state -> visible route demand -> needed Component/Canvas textures
 
 Only required components render. Static results are signature-cached; dynamic inputs invalidate per frame. Compatible intermediates remain in pooled framebuffers in one WebGL context. Safe pixel-local effects may fuse; neighborhood/stateful effects remain separate. Alpha is premultiplied throughout, normally ending shaders with `vec4(rgb * alpha, alpha)`.
 
+### 2D Mesh Patterns
+
+`meshPatterns` is a specialized vector-topology generator, not a Shadertoy or a collection of per-pixel visual approximations. Its ten families have concrete algorithm contracts:
+
+| Family | Topology algorithm | Output |
+| --- | --- | --- |
+| Cells | clipped Voronoi cells plus bounded Lloyd relaxation | polygons |
+| Veins | space colonization with attraction, influence, and kill radii | tree graph |
+| Mountains | coherent scalar field plus interpolated marching squares | contour segments and elevation triangles |
+| Soap | polydisperse circle packing by overlap projection | curved disk cells |
+| Cracks | collision-terminated and branching fracture-tip propagation with a spatial index | fracture graph and impact facets |
+| Coral | lattice diffusion-limited aggregation | branching particle graph |
+| Fabric | structural and shear spring relaxation | triangle mesh |
+| Rivers | D8 steepest descent plus upstream flow accumulation | drainage graph and elevation mesh |
+| Magnetic fields | inverse-square field plus RK4 streamline integration | curves |
+| Bone | axial ground-structure stiffness solve plus low-force member pruning | truss graph and support mesh |
+
+`mesh-pattern-algorithms.js` owns deterministic normalized topology. Its signature includes only structural inputs (`pattern`, complexity scale, density, irregularity, seed, and aspect). `mesh-pattern-renderer.js` caches that CPU topology, uploads immutable fill and expanded-line buffers once per WebGL context/signature, and applies palette, alpha, draw mode, wire width, local animation, and the standard content-placement matrix as uniforms. Structural sliders may rebuild topology; styling and motion controls must not. Both CPU and GPU caches are bounded and explicitly disposed with the specialized runtime.
+
 The lean render core is WebGL-first. p5 remains the application host and a compatibility/import layer for browser media, fonts, legacy drawing helpers, and fallback model geometry; it is not an authority for coordinates, target orientation, sizing, or surface placement. New GPU stages should consume the explicit render-target contract and raw textures/framebuffers. Do not pass a resized p5 pixel array between targets when its browser canvas/video element or underlying framebuffer is available.
 
 Use the generic source-view and demand path for Components, full Canvases, and recording frames. Cull routes outside the output viewport before rendering or allocation. Multiple routes share the largest required component raster for that renderer/frame. Recording frames are source-rectangle/UV views into that one parent Canvas texture; multiple frames must never allocate or render independent Canvas textures. Never shrink logical geometry as a performance shortcut.
@@ -164,6 +183,8 @@ Mapper batching must stop when either the shader variant or sampled texture iden
 Drawable 2D media, cameras, and referenced Components may remain placed textures until composited. Effects and isolated Groups are materialization boundaries. Eligibility belongs in `directPlacementKind()`, not duplicated type-specific branches.
 
 Specialized anatomy, STL/OBJ, and Terrain paths render real 3D internally. They must use one stable resizable scratch target per renderer, not size-keyed context maps. Cache static model buffers per context, dispose them explicitly, and keep logical wire widths resolution-independent. Terrain remains a specialized polygon-grid renderer, not a full-frame shader-registry generator.
+
+Large STL/OBJ files are reduced off the render thread with the vendored meshoptimizer 0.25 WebAssembly simplifier. OBJ parsing retains its compact source vertex/index topology; STL triangle soup is welded once into the same indexed contract. Automatic LODs form one progressive, topology-following quadric-error sequence over the indexed mesh—never grid-cluster or recursively simplify an emitted triangle soup. Closed manifold input must remain closed and manifold at every LOD. `renderQuality`, presented as Geometry detail for models, selects among these prebuilt levels without reparsing or rebuilding the model. Keep meshoptimizer's MIT license beside the vendored module and report simplification error or topology-limited levels through structured `VJ1` diagnostics.
 
 Terrain solid and wire passes share p5's main WebGL context and therefore must run inside the common raw-WebGL state boundary. Each pass uses a private VAO when available and restores only the state raw passes own or mutate: VAO, program, array/index buffers, viewport, line width, depth, blend, cull, and polygon offset. Keep this boundary explicit and small rather than querying unrelated GL state every frame. Raw shader compilation, linking, or restoration failures must emit structured `VJ1` console errors; never fail over silently.
 

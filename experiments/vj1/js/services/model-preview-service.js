@@ -1,5 +1,5 @@
-import { forEachModelTriangle, modelTriangleCount } from "../output/specialized/model-lod.js?v=model-lod-1";
-import { processObjModelText, processStlModelBuffer } from "../output/specialized/model-processing-client.js?v=model-lod-1";
+import { forEachModelTriangle, modelTriangleCount } from "../output/specialized/model-lod.js?v=model-qem-4";
+import { processObjModelText, processStlModelBuffer } from "../output/specialized/model-processing-client.js?v=model-qem-4";
 
 const MAX_PREVIEW_TRIANGLES = 600;
 

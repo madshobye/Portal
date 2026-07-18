@@ -11,14 +11,15 @@ import { anatomyPartFitScale, drawProceduralAnatomy } from "./anatomy-renderer.j
 import { modelColor, normalizedModelColor } from "./model-color.js?v=adaptive-component-demand-29";
 import { modelCameraFov, modelImportBasis, modelRotation, modelViewportMetrics, modelWireThickness } from "./model-render-math.js?v=camera-focal-length-1";
 import { drawGeometryModel, drawParsedModel, drawPointCloud, drawWithPolygonOffset, ensureP5ModelPointCloud, ensureParsedModelGeometry, ensureParsedModelPointCloud } from "./model-mesh-cache.js?v=model-lod-1";
-import { disposeRawModelItemResources, drawRawParsedModelMode } from "./raw-model-webgl-renderer.js?v=model-lod-1";
-import { modelLodTargetTriangles, selectModelLod } from "./model-lod.js?v=model-lod-1";
+import { disposeRawModelItemResources, drawRawParsedModelMode } from "./raw-model-webgl-renderer.js?v=xray-outline-1";
+import { modelLodTargetTriangles, selectModelLod } from "./model-lod.js?v=model-qem-4";
 import { disposeTerrainSurfaceResources, disposeTerrainWireResources, drawTerrainSurface, drawTerrainWireframe } from "./terrain-renderer.js?v=madstodo-4";
 import { FEATURE_MORPH_FRAGMENT_SHADER, FEATURE_MORPH_VERTEX_SHADER, imageFitUniform } from "./feature-morph-shader.js?v=render-core-contract-1";
 import { mobileNetMorphFieldForStrategy, MobileNetMorphPairService } from "./mobilenet-morph-service.js?v=surface-media-contract-4";
 import { SuperPointPairService } from "./superpoint-service.js?v=surface-media-contract-4";
 import { TILE_TEXTURE_FRAGMENT_SHADER, TILE_TEXTURE_VERTEX_SHADER } from "./tile-texture-shader.js?v=render-core-contract-1";
 import { createTextMask, TEXT_GENERATOR_FRAGMENT_SHADER, TEXT_GENERATOR_VERTEX_SHADER, textMaskSignature } from "./text-generator-renderer.js?v=text-style-controls-1";
+import { MeshPatternRenderer } from "./mesh-pattern-renderer.js?v=mesh-topology-2";
 
 export class SpecializedSourceRuntime {
   constructor({
@@ -53,6 +54,7 @@ export class SpecializedSourceRuntime {
     this.tileTextureShader = null;
     this.textGeneratorShader = null;
     this.textMasks = new Map();
+    this.meshPatterns = new MeshPatternRenderer({ frameIndex: this.frameIndex });
     this.presentationShaders = new Map();
     this.presentationShaderFailures = new Set();
   }
@@ -211,6 +213,20 @@ export class SpecializedSourceRuntime {
     this.presentGeneratedTarget(pg, target);
   }
 
+  drawMeshPatterns(pg, source = {}, componentTime = 0, renderRequest = {}) {
+    const target = this.getTarget("meshPatterns", pg.width, pg.height, renderRequest.pixelDensity, {
+      preferSharedFramebuffer: true,
+    });
+    const drawn = this.meshPatterns.draw(target, source, componentTime, renderRequest);
+    if (!drawn) {
+      this.drawStandby(pg, "mesh topology unavailable");
+      return false;
+    }
+    markRenderTargetOrientation(target, RENDER_TEXTURE_ORIENTATION.bottomLeft);
+    this.presentGeneratedTarget(pg, target);
+    return true;
+  }
+
   drawStandby(target, label) {
     const transient = /loading|checking|preparing|matching|finding|not loaded/i.test(String(label || ""));
     drawStandby(target, label, {
@@ -326,7 +342,8 @@ export class SpecializedSourceRuntime {
       if (!rawParsedDrawn) {
         const fallbackRenderMode = renderMode === "outline"
           ? "wireframe"
-          : renderMode === "surfaceOutline" ? "surfaceWire" : renderMode;
+          : renderMode === "surfaceOutline" ? "surfaceWire"
+            : renderMode === "xrayOutline" ? "wireframe" : renderMode;
         if (fallbackRenderMode !== renderMode && !item.modelOutlineFallbackLogged) {
           item.modelOutlineFallbackLogged = true;
           console.warn("[VJ1_MODEL_OUTLINE_FALLBACK]", {
@@ -512,6 +529,7 @@ export class SpecializedSourceRuntime {
     this.tileTextureShader = null;
     this.textGeneratorShader = null;
     this.textMasks.clear();
+    this.meshPatterns.dispose();
     this.presentationShaders.clear();
     this.presentationShaderFailures.clear();
   }

@@ -1,13 +1,13 @@
 import { RENDER_QUALITY_PARAM } from "../graph/component-schema.js?v=adaptive-component-demand-29";
 
-export const MODEL_RENDER_MODES = ["surface", "wireframe", "surfaceWire", "outline", "surfaceOutline", "points"];
+export const MODEL_RENDER_MODES = ["surface", "wireframe", "surfaceWire", "outline", "surfaceOutline", "xrayOutline", "points"];
 export const MEDIA_FIT_MODES = ["contain", "cover"];
 export const MODEL_SURFACE_COLOR_PARAM = { id: "surfaceColor", label: "Surface color", type: "color", defaultValue: "#dce1dcff" };
 export const MODEL_WIRE_COLOR_PARAM = { id: "wireColor", label: "Wire color", type: "color", defaultValue: "#141414dd" };
 export const MEDIA_FIT_PARAM = { id: "fit", label: "Fit", type: "enum", values: MEDIA_FIT_MODES, defaultValue: "contain" };
 
 export const MODEL_SOURCE_PARAMS = [
-  RENDER_QUALITY_PARAM,
+  { ...RENDER_QUALITY_PARAM, label: "Geometry detail" },
   { id: "renderMode", label: "Draw mode", type: "enum", values: MODEL_RENDER_MODES, defaultValue: "surface" },
   MODEL_SURFACE_COLOR_PARAM,
   MODEL_WIRE_COLOR_PARAM,

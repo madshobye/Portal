@@ -1,4 +1,4 @@
-import { getShaderComponent } from "./shader-registry.js?v=photo-grade-print-1";
+import { getShaderComponent } from "./shader-registry.js?v=power-flicker-1";
 
 export function createShaderBuilder({ getCustomCode, onStatus }) {
   const cache = new Map();

@@ -809,6 +809,8 @@ test("parsed STL and OBJ models use one clipped raw WebGL renderer family", () =
   assert.ok(source.includes("modelDepthCutoff(params, mesh.bounds, matrices.model)"));
   assert.ok(source.includes('if (drewSurface && renderMode === "surfaceWire")'));
   assert.ok(source.includes('renderMode === "outline" || renderMode === "surfaceOutline"'));
+  assert.ok(source.includes('if (renderMode === "xrayOutline")'));
+  assert.ok(source.includes("if (!depthTest) gl.disable(gl.DEPTH_TEST)"));
   assert.ok(source.includes("float silhouette ="));
   assert.ok(source.includes("float crease ="));
 });

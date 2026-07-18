@@ -2,7 +2,7 @@ import { frameSize } from "./render-geometry.js?v=adaptive-component-demand-29";
 import { drawCover, isDrawableMedia, pauseVideoPlayback, syncVideoPlayback } from "./media-utils.js?v=video-active-ownership-1";
 import { mediaRenditionKey, mediaSourceRevision } from "../services/media-rendition-service.js?v=madstodo-4";
 import { graphicsToPngBlob } from "./thumbnail-utils.js?v=thumbnail-utils-extraction-1";
-import { processObjModelText, processStlModelBuffer } from "./specialized/model-processing-client.js?v=model-lod-1";
+import { processObjModelText, processStlModelBuffer } from "./specialized/model-processing-client.js?v=model-qem-4";
 import { disposeRawModelItemResources, estimateRawModelItemGpuBytes } from "./specialized/raw-model-webgl-renderer.js?v=model-lod-1";
 import { readRasterDimensions } from "./raster-metadata.js?v=media-demand-6";
 
@@ -765,13 +765,37 @@ function typedArrayBytes(value, seen = new Set()) {
 function reportModelLods(item, mesh) {
   const sourceTriangles = Math.max(0, Number(mesh?.sourceTriangleCount) || Number(mesh?.triangleCount) || 0);
   const levels = Array.from(mesh?.lods || [mesh]).map((lod) => Math.max(0, Number(lod?.triangleCount) || 0));
+  const errors = Array.from(mesh?.lods || [mesh]).map((lod) => Math.max(0, Number(lod?.simplificationError) || 0));
   if (!sourceTriangles || levels.length <= 1) return;
+  const sourceBoundaryEdges = Math.max(0, Number(mesh?.sourceBoundaryEdges) || 0);
+  const sourceNonManifoldEdges = Math.max(0, Number(mesh?.sourceNonManifoldEdges) || 0);
   console.info("[VJ1_MODEL_LOD_GENERATED]", {
     id: item?.id || "",
+    algorithm: mesh?.simplification || "unknown",
     sourceTriangles,
     levels,
+    errors,
+    sourceBoundaryEdges,
+    sourceNonManifoldEdges,
     runtimeBytes: typedArrayBytes(mesh),
   });
+  if (sourceNonManifoldEdges) {
+    console.warn("[VJ1_MODEL_TOPOLOGY_WARNING]", {
+      id: item?.id || "",
+      sourceNonManifoldEdges,
+      message: "The source model contains non-manifold edges; they were preserved and may limit automatic simplification.",
+    });
+  }
+  const limitedLevels = Array.from(mesh?.lods || [mesh])
+    .filter((lod) => lod?.topologyLimited)
+    .map((lod) => ({ requested: lod.requestedTriangleCount, actual: lod.triangleCount }));
+  if (limitedLevels.length) {
+    console.warn("[VJ1_MODEL_SIMPLIFICATION_LIMITED]", {
+      id: item?.id || "",
+      limitedLevels,
+      message: "Source topology prevented one or more model detail levels from reaching their requested triangle budget.",
+    });
+  }
 }
 
 function releaseRenditionUrl(item, key, expectedUrl = null) {

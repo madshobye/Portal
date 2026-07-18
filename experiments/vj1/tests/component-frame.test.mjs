@@ -358,6 +358,7 @@ test("recording-frame source recency combines only its Canvas and shared frame",
     .find((item) => item.type === "recording-frame");
 
   assert.equal(node.createdAt, frame.activity.createdAt);
+  assert.equal(node.updatedAt, frame.activity.updatedAt);
   assert.equal(node.recentAt, new Date(frame.activity.updatedAt).getTime());
 });
 

@@ -1,5 +1,5 @@
 import { VJ1 } from "../constants.js";
-import { getShaderComponent } from "../shaders/shader-registry.js?v=photo-grade-print-1";
+import { getShaderComponent } from "../shaders/shader-registry.js?v=power-flicker-1";
 import {
   canvasFrameBorderHit,
   canvasRectCorners,

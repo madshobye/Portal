@@ -1,12 +1,24 @@
+import { buildMeshoptimizerLods, indexedMeshToTriangleSoup } from "./model-meshoptimizer-simplifier.js?v=model-qem-4";
+
 export const MODEL_LOD_TRIANGLE_LEVELS = Object.freeze([120000, 80000, 50000, 25000, 12000]);
 
 export function modelTriangleCount(mesh = {}) {
   if (Number.isFinite(Number(mesh.triangleCount))) return Math.max(0, Math.floor(Number(mesh.triangleCount)));
+  if (mesh.triangleIndices instanceof Uint32Array) return Math.floor(mesh.triangleIndices.length / 3);
   if (mesh.positions instanceof Float32Array) return Math.floor(mesh.positions.length / 9);
   return Array.isArray(mesh.triangles) ? mesh.triangles.length : 0;
 }
 
 export function modelTriangle(mesh = {}, index = 0) {
+  if (mesh.vertexPositions instanceof Float32Array && mesh.triangleIndices instanceof Uint32Array) {
+    const indexOffset = index * 3;
+    if (indexOffset + 2 >= mesh.triangleIndices.length) return null;
+    const vertices = [0, 1, 2].map((corner) => {
+      const offset = mesh.triangleIndices[indexOffset + corner] * 3;
+      return [mesh.vertexPositions[offset], mesh.vertexPositions[offset + 1], mesh.vertexPositions[offset + 2]];
+    });
+    return { normal: modelTriangleNormal(vertices), vertices };
+  }
   if (mesh.positions instanceof Float32Array) {
     const offset = index * 9;
     const normalOffset = index * 3;
@@ -60,43 +72,28 @@ export function buildAutomaticModelLods(mesh = {}, levels = MODEL_LOD_TRIANGLE_L
   const requested = Array.from(new Set(levels.map((value) => Math.max(256, Math.floor(Number(value) || 0)))))
     .filter((value) => value < sourceTriangleCount)
     .sort((a, b) => b - a);
-  const lods = [];
-  let current = mesh;
   if (!requested.length) {
-    const lod = { ...mesh, sourceTriangleCount, lodLevel: 0 };
+    const lod = { ...indexedMeshToTriangleSoup(mesh), sourceTriangleCount, lodLevel: 0 };
     const result = { ...lod, lods: [lod] };
     attachLegacyTriangleView(lod);
     return attachLegacyTriangleView(result);
   }
-  for (const target of requested) {
-    current = simplifyMeshByVertexClustering(current, target);
-    current.sourceTriangleCount = sourceTriangleCount;
-    current.lodLevel = lods.length;
-    lods.push(current);
-  }
+  const lods = buildMeshoptimizerLods(mesh, requested);
+  lods.forEach((lod, index) => {
+    lod.sourceTriangleCount = sourceTriangleCount;
+    lod.lodLevel = index;
+  });
   const result = { ...lods[0], lods };
   for (const lod of lods) attachLegacyTriangleView(lod);
   return attachLegacyTriangleView(result);
 }
 
 export function simplifyMeshByVertexClustering(mesh = {}, targetTriangles = 50000) {
-  const inputCount = modelTriangleCount(mesh);
-  const target = Math.max(256, Math.floor(Number(targetTriangles) || 50000));
-  if (!inputCount || inputCount <= target) return cloneMeshReference(mesh);
-  let resolution = Math.max(4, Math.round(Math.sqrt(target * 0.62)));
-  let simplified = clusterMesh(mesh, resolution);
-  // Triangle survival is model-dependent: dense curved meshes retain far more
-  // faces per grid cell than flat meshes. Refine the grid until the result is
-  // genuinely within the requested budget instead of treating the target as a
-  // vague hint. This work runs in the model worker.
-  for (let attempt = 0; attempt < 6 && modelTriangleCount(simplified) > target * 1.08 && resolution > 4; attempt++) {
-    const ratio = Math.sqrt(target / Math.max(1, modelTriangleCount(simplified)));
-    const nextResolution = Math.max(4, Math.floor(resolution * Math.min(0.88, ratio)));
-    if (nextResolution >= resolution) break;
-    resolution = nextResolution;
-    simplified = clusterMesh(mesh, resolution);
-  }
-  return simplified;
+  return buildMeshoptimizerLods(mesh, [targetTriangles])[0];
+}
+
+export function simplifyMeshByQuadricError(mesh = {}, targetTriangles = 50000) {
+  return buildMeshoptimizerLods(mesh, [targetTriangles])[0];
 }
 
 export function selectModelLod(mesh = {}, targetTriangles = Infinity) {
@@ -113,63 +110,10 @@ export function selectModelLod(mesh = {}, targetTriangles = Infinity) {
 export function modelLodTargetTriangles({ width = 1, height = 1, renderMode = "surface", renderQuality = 0.5 } = {}) {
   const pixels = Math.max(1, Number(width) || 1) * Math.max(1, Number(height) || 1);
   const quality = 0.45 + Math.max(0, Math.min(1, Number(renderQuality) || 0)) * 1.1;
-  const pixelsPerTriangle = renderMode === "outline" || renderMode === "surfaceOutline"
+  const pixelsPerTriangle = renderMode === "outline" || renderMode === "surfaceOutline" || renderMode === "xrayOutline"
     ? 20
     : renderMode === "wireframe" || renderMode === "surfaceWire" ? 12 : 6;
   return Math.max(12000, Math.min(120000, Math.round((pixels / pixelsPerTriangle) * quality)));
-}
-
-function clusterMesh(mesh, resolution) {
-  const count = modelTriangleCount(mesh);
-  const min = mesh.bounds?.min || [-50, -50, -50];
-  const max = mesh.bounds?.max || [50, 50, 50];
-  const extent = [0, 1, 2].map((axis) => Math.max(0.000001, (Number(max[axis]) || 0) - (Number(min[axis]) || 0)));
-  const clusterByKey = new Map();
-  const vertexClusters = new Uint32Array(count * 3);
-  const representatives = [];
-  let vertexIndex = 0;
-  forEachModelTriangle(mesh, (triangle) => {
-    for (const vertex of triangle.vertices) {
-      const cell = [0, 1, 2].map((axis) => Math.max(0, Math.min(resolution - 1,
-        Math.floor(((Number(vertex[axis]) || 0) - min[axis]) / extent[axis] * resolution)
-      )));
-      const key = cell[0] + resolution * (cell[1] + resolution * cell[2]);
-      let cluster = clusterByKey.get(key);
-      if (cluster === undefined) {
-        cluster = representatives.length;
-        clusterByKey.set(key, cluster);
-        representatives.push(vertex.slice(0, 3));
-      }
-      vertexClusters[vertexIndex++] = cluster;
-    }
-  });
-  const kept = [];
-  for (let triangleIndex = 0; triangleIndex < count; triangleIndex++) {
-    const offset = triangleIndex * 3;
-    const a = vertexClusters[offset];
-    const b = vertexClusters[offset + 1];
-    const c = vertexClusters[offset + 2];
-    if (a === b || b === c || c === a) continue;
-    kept.push(a, b, c);
-  }
-  const triangleCount = Math.floor(kept.length / 3);
-  const positions = new Float32Array(triangleCount * 9);
-  const faceNormals = new Float32Array(triangleCount * 3);
-  let positionWrite = 0;
-  let normalWrite = 0;
-  for (let index = 0; index + 2 < kept.length; index += 3) {
-    const vertices = [representatives[kept[index]], representatives[kept[index + 1]], representatives[kept[index + 2]]];
-    const normal = normalizeModelVector(modelTriangleNormal(vertices));
-    for (const vertex of vertices) for (let axis = 0; axis < 3; axis++) positions[positionWrite++] = vertex[axis];
-    for (let axis = 0; axis < 3; axis++) faceNormals[normalWrite++] = normal[axis];
-  }
-  return {
-    positions,
-    faceNormals,
-    triangleCount,
-    bounds: mesh.bounds,
-    sourceBounds: mesh.sourceBounds,
-  };
 }
 
 function cloneMeshReference(mesh) {

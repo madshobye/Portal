@@ -6,9 +6,11 @@ import {
   modelLodTargetTriangles,
   modelTriangleCount,
   selectModelLod,
+  simplifyMeshByQuadricError,
   simplifyMeshByVertexClustering,
 } from "../js/output/specialized/model-lod.js";
-import { parseStlMesh } from "../js/output/specialized/model-parsers.js";
+import { weldedMeshTopology } from "../js/output/specialized/model-meshoptimizer-simplifier.js";
+import { parseObjMesh, parseStlMesh } from "../js/output/specialized/model-parsers.js";
 
 test("binary STL parsing keeps triangles in compact typed storage", () => {
   const buffer = new ArrayBuffer(84 + 50);
@@ -34,6 +36,12 @@ test("automatic model LODs stay within bounded triangle budgets", () => {
   const counts = lodMesh.lods.map(modelTriangleCount);
   assert.equal(counts.length, 3);
   assert.ok(counts.every((count, index) => index === 0 || count <= counts[index - 1]));
+  for (const lod of lodMesh.lods) {
+    const topology = weldedMeshTopology(lod);
+    assert.equal(topology.triangleCount, modelTriangleCount(lod), "LOD metadata must match its actual geometry");
+    assert.ok(topology.triangleCount > 0, "every progressive LOD must contain renderable triangles");
+    assert.equal(lod.simplification, "meshoptimizer-qem");
+  }
   assert.equal(selectModelLod(lodMesh, 4000), lodMesh.lods.find((lod) => modelTriangleCount(lod) <= 4000));
 });
 
@@ -41,6 +49,52 @@ test("model LOD demand is stricter for perceptual outlines", () => {
   const request = { width: 1280, height: 720, renderQuality: 0.5 };
   assert.ok(modelLodTargetTriangles({ ...request, renderMode: "outline" })
     < modelLodTargetTriangles({ ...request, renderMode: "surface" }));
+  assert.equal(
+    modelLodTargetTriangles({ ...request, renderMode: "xrayOutline" }),
+    modelLodTargetTriangles({ ...request, renderMode: "outline" })
+  );
+});
+
+test("QEM simplification preserves the closed topology of a welded STL surface", () => {
+  const source = subdividedCubeMesh(14);
+  const before = weldedMeshTopology(source);
+  const simplified = simplifyMeshByQuadricError(source, 700);
+  const after = weldedMeshTopology(simplified);
+
+  assert.equal(before.boundaryEdges, 0);
+  assert.equal(before.nonManifoldEdges, 0);
+  assert.equal(after.boundaryEdges, 0, "simplification must not punch holes into a closed model");
+  assert.equal(after.nonManifoldEdges, 0, "simplification must not create non-manifold edges");
+  assert.ok(modelTriangleCount(simplified) <= 700);
+  assert.equal(simplified.simplification, "meshoptimizer-qem");
+});
+
+test("progressive QEM LODs preserve closed topology at every level", () => {
+  const source = subdividedCubeMesh(18);
+  const lodMesh = buildAutomaticModelLods(source, [2800, 1600, 800, 400]);
+  assert.equal(lodMesh.lods.length, 4);
+  for (const lod of lodMesh.lods) {
+    const topology = weldedMeshTopology(lod);
+    assert.equal(topology.triangleCount, modelTriangleCount(lod));
+    assert.equal(topology.boundaryEdges, 0, `LOD ${lod.lodLevel} must remain watertight`);
+    assert.equal(topology.nonManifoldEdges, 0, `LOD ${lod.lodLevel} must stay manifold`);
+  }
+});
+
+test("OBJ parsing retains compact source indices before worker simplification", () => {
+  const mesh = parseObjMesh(`
+v -1 -1 0
+v 1 -1 0
+v 1 1 0
+v -1 1 0
+f 1 2 3 4
+`);
+  assert.ok(mesh.vertexPositions instanceof Float32Array);
+  assert.ok(mesh.triangleIndices instanceof Uint32Array);
+  assert.equal(mesh.vertexPositions.length, 12);
+  assert.equal(mesh.triangleIndices.length, 6);
+  assert.equal(mesh.positions, undefined, "the parser must not expand indexed OBJ geometry into triangle soup");
+  assert.equal(modelTriangleCount(mesh), 2);
 });
 
 function gridMesh(size) {
@@ -68,5 +122,52 @@ function gridMesh(size) {
     triangleCount,
     bounds: { min: [0, 0, -1], max: [size - 1, size - 1, 1] },
     sourceBounds: { min: [0, 0, -1], max: [size - 1, size - 1, 1] },
+  };
+}
+
+function subdividedCubeMesh(size) {
+  const positions = [];
+  const normals = [];
+  const faces = [
+    { origin: [1, -1, -1], u: [0, 2, 0], v: [0, 0, 2] },
+    { origin: [-1, -1, 1], u: [0, 2, 0], v: [0, 0, -2] },
+    { origin: [-1, 1, 1], u: [2, 0, 0], v: [0, 0, -2] },
+    { origin: [-1, -1, -1], u: [2, 0, 0], v: [0, 0, 2] },
+    { origin: [-1, -1, 1], u: [2, 0, 0], v: [0, 2, 0] },
+    { origin: [-1, 1, -1], u: [2, 0, 0], v: [0, -2, 0] },
+  ];
+  const point = (face, x, y) => [0, 1, 2].map((axis) =>
+    face.origin[axis] + face.u[axis] * x / size + face.v[axis] * y / size
+  );
+  const write = (a, b, c) => {
+    positions.push(...a, ...b, ...c);
+    const ab = b.map((value, axis) => value - a[axis]);
+    const ac = c.map((value, axis) => value - a[axis]);
+    const normal = [
+      ab[1] * ac[2] - ab[2] * ac[1],
+      ab[2] * ac[0] - ab[0] * ac[2],
+      ab[0] * ac[1] - ab[1] * ac[0],
+    ];
+    const length = Math.hypot(...normal) || 1;
+    normals.push(...normal.map((value) => value / length));
+  };
+  for (const face of faces) {
+    for (let y = 0; y < size; y++) {
+      for (let x = 0; x < size; x++) {
+        const a = point(face, x, y);
+        const b = point(face, x + 1, y);
+        const c = point(face, x + 1, y + 1);
+        const d = point(face, x, y + 1);
+        write(a, b, c);
+        write(a, c, d);
+      }
+    }
+  }
+  return {
+    positions: new Float32Array(positions),
+    faceNormals: new Float32Array(normals),
+    triangleCount: positions.length / 9,
+    bounds: { min: [-1, -1, -1], max: [1, 1, 1] },
+    sourceBounds: { min: [-1, -1, -1], max: [1, 1, 1] },
   };
 }

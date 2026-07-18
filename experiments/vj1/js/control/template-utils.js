@@ -86,6 +86,8 @@ export function selectValuesTemplate(path, values, value) {
 export function effectIcon(id) {
   return {
     alphaVignette: "vignette",
+    brokenFluorescent: "fluorescent",
+    powerFlicker: "lightbulb",
     photoGrade: "tune",
     glitchDistort: "broken_image",
     spinRotate: "rotate_right",

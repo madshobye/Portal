@@ -1,4 +1,3 @@
-import { latestProjectActivity } from "../domain/component-activity.js?v=adaptive-component-demand-29";
 import { esc, icon } from "./template-utils.js?v=slider-values-70";
 
 export function componentFilterTemplate(placeholder = "Filter components") {
@@ -28,15 +27,17 @@ export function sortComponentCatalog(items = [], mode = "recent") {
   const collator = new Intl.Collator(undefined, { numeric: true, sensitivity: "base" });
   return items.slice().sort((a, b) => {
     if (mode === "name") return collator.compare(a.name || "", b.name || "") || collator.compare(a.id || "", b.id || "");
-    const field = mode === "created" ? "createdAt" : "recentAt";
+    // The persisted "recent" key predates the user-facing Changed label.
+    // Changed means authored edits, not selection/use. Including lastUsedAt
+    // makes a click appear to reorder the catalog after the next refresh.
+    const field = mode === "created" ? "createdAt" : "updatedAt";
     const aTime = catalogTimestamp(a, field);
     const bTime = catalogTimestamp(b, field);
     return bTime - aTime || collator.compare(a.name || "", b.name || "") || collator.compare(a.id || "", b.id || "");
   });
 }
 
-function catalogTimestamp(item = {}, field = "recentAt") {
-  if (field === "recentAt") return Number(item.recentAt) || latestProjectActivity(item.activity);
+function catalogTimestamp(item = {}, field = "updatedAt") {
   const value = item[field] || item.activity?.[field];
   const timestamp = new Date(value || 0).getTime();
   return Number.isFinite(timestamp) ? timestamp : 0;

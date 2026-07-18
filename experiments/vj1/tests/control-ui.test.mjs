@@ -383,6 +383,7 @@ test("component catalogs expose stable per-view sorting modes", () => {
   assert.ok(source.includes("state.ui?.catalogSortModes?.[scope]"));
   assert.ok(source.includes('ui.catalogSortModes ||= { component: "recent", scene: "recent" }'));
   assert.ok(source.includes("ui.catalogSortModes[catalog] = mode"));
+  assert.ok(source.includes("if (change.projectRestore) invalidateCatalogOrder()"));
   assert.ok(source.includes('catalogSortMode(state, "component")'));
   assert.ok(source.includes('catalogSortMode(state, "scene")'));
   assert.ok(source.includes("if (viewKey === activeCatalogViewKey) return"));

@@ -2,7 +2,7 @@ import { createNumberParam, defineVisualComponent, textureInlet, textureOutlet }
 import { ALWAYS_TIME_RUNTIME } from "./shader-component-common.js?v=shader-component-catalog-extraction-1";
 import { STYLIZE_SHADER_COMPONENTS } from "./shader-components-stylize.js?v=photo-grade-print-1";
 import { IMAGE_SHADER_COMPONENTS } from "./shader-components-image.js?v=madstodo-4";
-import { MOTION_SHADER_COMPONENTS } from "./shader-components-motion.js?v=shader-component-catalog-extraction-1";
+import { MOTION_SHADER_COMPONENTS } from "./shader-components-motion.js?v=power-flicker-1";
 
 const effectInlets = Object.freeze([textureInlet("texture", "Texture")]);
 const effectOutlets = Object.freeze([textureOutlet("texture", "Texture")]);
@@ -24,16 +24,23 @@ export function listShaderComponents() {
 function normalizeShaderComponent(component) {
   if (!component) return null;
   const sampling = component.sampling || inferSampling(component.code);
+  // Spatial effects transform their own field while the source remains in
+  // component space. Keep that as one contract so handle eligibility and
+  // shader sampling cannot drift apart in individual effect definitions.
+  const spatial = component.spatial === true;
+  const transformSource = spatial ? false : component.transformSource !== false;
   return defineVisualComponent({
     ...component,
+    spatial,
+    transformSource,
     sampling,
     requiresBaseSample: component.requiresBaseSample ?? effectUsesBaseColor(component.code),
-    fusible: component.fusible ?? (
+    fusible: spatial ? false : component.fusible ?? (
       sampling === "local" &&
       component.type !== "fragment" &&
       component.type !== "shadertoy" &&
       component.id !== "custom" &&
-      component.transformSource !== false
+      transformSource !== false
     ),
     kind: "effect",
     family: "shader",

@@ -1,6 +1,6 @@
-import { listGeneratorComponents } from "../graph/generator-registry.js?v=sun-rays-1";
-import { listShaderComponents } from "../shaders/shader-registry.js?v=photo-grade-print-1";
-import { effectIcon, esc, icon, thumbnailTemplate } from "./template-utils.js?v=adaptive-component-demand-29";
+import { listGeneratorComponents } from "../graph/generator-registry.js?v=mesh-topology-1";
+import { listShaderComponents } from "../shaders/shader-registry.js?v=power-flicker-1";
+import { effectIcon, esc, icon, thumbnailTemplate } from "./template-utils.js?v=power-flicker-1";
 
 function getByPath(target, path) {
   return String(path || "").split(".").filter(Boolean).reduce((value, segment) => value?.[segment], target);
@@ -20,6 +20,7 @@ export function generatorIcon(id) {
     featureMorph: "animation",
     featureMorphV2: "neurology",
     cellularCircles: "bubble_chart",
+    meshPatterns: "polyline",
     galaxy: "blur_circular",
     sunRays: "sunny",
     anatomy: "accessibility_new",

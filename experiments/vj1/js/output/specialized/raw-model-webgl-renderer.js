@@ -2,7 +2,7 @@ import { resolutionScaledStrokeWidth } from "../component-render-layout.js?v=ins
 import { buildParsedModelSurfaceVertices } from "./model-geometry.js?v=model-geometry-fix-30";
 import { ensureParsedModelPerceptualWireVertices, ensureParsedModelPointCloud, ensureParsedModelThickWireVertices, ensureParsedModelWireLines, drawWithPolygonOffset } from "./model-mesh-cache.js?v=model-lod-1";
 import { modelCameraFov, modelDepthCutoff, modelNormalMatrix, modelRotation, modelViewportMetrics, modelWireThickness, rawModelMatrices } from "./model-render-math.js?v=camera-focal-length-1";
-import { modelTriangleCount } from "./model-lod.js?v=model-lod-1";
+import { modelTriangleCount } from "./model-lod.js?v=model-qem-4";
 import { compileRawShader, linkSpecializedProgram } from "./raw-webgl-utils.js?v=terrain-gl-state-1";
 import {
   beginRawWebGlState,
@@ -18,6 +18,9 @@ export function drawRawParsedModelMode(target, item, params = {}, componentTime 
   }
   if (renderMode === "wireframe") {
     return drawRawParsedWire(target, item, params, componentTime, wireColor, pointBudget, viewport, contentTransform, mesh);
+  }
+  if (renderMode === "xrayOutline") {
+    return drawRawParsedPerceptualEdges(target, item, params, componentTime, wireColor, pointBudget, viewport, contentTransform, mesh, false);
   }
   const perceptualEdges = renderMode === "outline" || renderMode === "surfaceOutline";
   const lineOverlay = renderMode === "surfaceWire" || perceptualEdges;
@@ -154,7 +157,7 @@ function drawRawParsedWire(target, item, params = {}, componentTime = 0, color =
   }
 }
 
-function drawRawParsedPerceptualEdges(target, item, params = {}, componentTime = 0, color = [20, 20, 20, 220], pointBudget = 4000, viewport = null, contentTransform = {}, mesh = item?.modelData) {
+function drawRawParsedPerceptualEdges(target, item, params = {}, componentTime = 0, color = [20, 20, 20, 220], pointBudget = 4000, viewport = null, contentTransform = {}, mesh = item?.modelData, depthTest = true) {
   const gl = target?.drawingContext;
   if (!gl || !mesh) return false;
   const passState = beginRawWebGlState(gl, "model-perceptual-edges");
@@ -191,6 +194,7 @@ function drawRawParsedPerceptualEdges(target, item, params = {}, componentTime =
     gl.useProgram(resources.program);
     gl.viewport(0, 0, drawingWidth, drawingHeight);
     configureModelGl(gl);
+    if (!depthTest) gl.disable(gl.DEPTH_TEST);
     gl.bindBuffer(gl.ARRAY_BUFFER, resources.buffer);
     bindFloatAttribute(gl, resources.start, 3, stride, 0);
     bindFloatAttribute(gl, resources.end, 3, stride, 3 * 4);

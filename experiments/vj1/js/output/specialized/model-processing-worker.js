@@ -1,5 +1,5 @@
-import { parseObjMesh, parseStlMesh } from "./model-parsers.js?v=model-lod-1";
-import { buildAutomaticModelLods } from "./model-lod.js?v=model-lod-1";
+import { parseObjMesh, parseStlMesh } from "./model-parsers.js?v=model-qem-4";
+import { buildAutomaticModelLods } from "./model-lod.js?v=model-qem-4";
 
 self.onmessage = (event) => {
   const { requestId, type, buffer, text, levels } = event.data || {};

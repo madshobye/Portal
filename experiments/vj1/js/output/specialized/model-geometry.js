@@ -58,4 +58,4 @@ export function buildParsedModelSurfaceVertices(mesh = {}) {
   });
   return vertices.subarray(0, write);
 }
-import { forEachModelTriangle, modelTriangleCount } from "./model-lod.js?v=model-lod-1";
+import { forEachModelTriangle, modelTriangleCount } from "./model-lod.js?v=model-qem-4";

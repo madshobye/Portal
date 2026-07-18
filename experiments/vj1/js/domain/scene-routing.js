@@ -21,6 +21,7 @@ export function sceneSourceNodes(state = {}) {
       componentId: component.id,
       outputFrameId: "",
       createdAt: component.activity?.createdAt || "",
+      updatedAt: component.activity?.updatedAt || component.activity?.createdAt || "",
       recentAt: latestProjectActivity(component.activity),
     };
     if (component.type !== "canvas") return [componentNode];
@@ -35,6 +36,7 @@ export function sceneSourceNodes(state = {}) {
         outputFrameId: frame.id,
         frameId: frame.id,
         createdAt: latestTimestamp(component.activity?.createdAt, frame.activity?.createdAt),
+        updatedAt: latestTimestamp(component.activity?.updatedAt, frame.activity?.updatedAt),
         recentAt: Math.max(latestProjectActivity(component.activity), latestProjectActivity(frame.activity)),
       })),
     ];

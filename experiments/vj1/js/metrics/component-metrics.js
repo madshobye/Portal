@@ -1,9 +1,9 @@
 import { BLEND_MODES, VJ1 } from "../constants.js";
 import { componentTextureSize } from "../domain/render-resolution.js?v=adaptive-component-demand-29";
 import { sanitizeState } from "../domain/models.js?v=render-coordinate-scope-3";
-import { compileComponentPatch } from "../graph/render-scheduler.js?v=sun-rays-1";
+import { compileComponentPatch } from "../graph/render-scheduler.js?v=power-flicker-1";
 import { planCompositorInputs, planPatchExecution, summarizeTextureBranches } from "../graph/patch-planner.js";
-import { getShaderComponent } from "../shaders/shader-registry.js?v=photo-grade-print-1";
+import { getShaderComponent } from "../shaders/shader-registry.js?v=power-flicker-1";
 import { worldSize } from "../output/render-geometry.js?v=adaptive-component-demand-29";
 
 export function analyzeVj1Project(input = {}, options = {}) {
@@ -620,6 +620,8 @@ function effectCost(item, effectDepth = 1) {
     labelThresholdGrain: 1.28,
     threshold: 1.45,
     rgbSplit: 1.5,
+    brokenFluorescent: 1.72,
+    powerFlicker: 1.08,
     glitchDistort: 1.7,
     photoGrade: 1.42,
     echoFade: 1.62,

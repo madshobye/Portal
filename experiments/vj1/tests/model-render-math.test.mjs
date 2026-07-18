@@ -102,7 +102,7 @@ test("raw model WebGL programs and context resources live outside the output orc
   const rawModelRenderer = readFileSync(new URL("../js/output/specialized/raw-model-webgl-renderer.js", import.meta.url), "utf8");
 
   assert.match(renderer, /from "\.\/specialized\/specialized-source-runtime\.js\?v=[^"]+"/);
-  assert.match(specializedRuntime, /from "\.\/raw-model-webgl-renderer\.js\?v=model-lod-1"/);
+  assert.match(specializedRuntime, /from "\.\/raw-model-webgl-renderer\.js\?v=xray-outline-1"/);
   assert.match(rawModelRenderer, /export function drawRawParsedModelMode\(/);
   assert.match(rawModelRenderer, /export function disposeRawModelContextResources\(/);
   assert.match(rawModelRenderer, /export function disposeRawModelItemResources\(/);

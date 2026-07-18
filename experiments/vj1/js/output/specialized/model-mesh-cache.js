@@ -1,5 +1,5 @@
 import { modelTriangleNormal, normalizeModelVector } from "./model-geometry.js?v=model-geometry-fix-30";
-import { forEachModelTriangle, modelTriangleCount } from "./model-lod.js?v=model-lod-1";
+import { forEachModelTriangle, modelTriangleCount } from "./model-lod.js?v=model-qem-4";
 
 export function drawPointCloud(target, points, wireColor = [245, 245, 245, 255], wireThickness = 1) {
   if (!points?.length) return;

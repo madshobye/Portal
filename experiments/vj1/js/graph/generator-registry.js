@@ -341,6 +341,42 @@ const RAW_GENERATORS = Object.freeze({
       createNumberParam("amount", "Amount", { min: 0, max: 1, step: 0.01, defaultValue: 1 }),
     ],
   },
+  meshPatterns: {
+    id: "meshPatterns",
+    name: "2D Mesh Patterns",
+    category: "pattern",
+    runtime: timeParamRuntime("speed"),
+    primaryParamIds: ["pattern", "drawMode", "scale", "density", "irregularity", "wireWidth", "palette", "colorCount", "baseColor"],
+    detailParamIds: ["speed", "motion", "rotation", "offsetX", "offsetY", "fillOpacity", "wireOpacity", "seed", "colorB", "colorC", "colorD", "wireColor", "backgroundColor", "amount"],
+    params: [
+      createEnumParam("pattern", "Pattern", [
+        "cells", "veins", "mountains", "soap", "cracks",
+        "coral", "fabric", "rivers", "magnetic fields", "bone",
+      ], "cells"),
+      createEnumParam("drawMode", "Draw", ["fill", "wire", "fill + wire"], "fill + wire"),
+      createNumberParam("scale", "Scale", { min: 1, max: 40, step: 0.01, defaultValue: 8, scale: "log" }),
+      createNumberParam("density", "Density", { min: 0.25, max: 4, step: 0.01, defaultValue: 1 }),
+      createNumberParam("irregularity", "Irregularity", { min: 0, max: 2, step: 0.01, defaultValue: 0.75 }),
+      createNumberParam("wireWidth", "Wire width", { min: 0.25, max: 12, step: 0.01, defaultValue: 1.5, scale: "log" }),
+      createNumberParam("fillOpacity", "Fill opacity", { min: 0, max: 1, step: 0.01, defaultValue: 0.82 }),
+      createNumberParam("wireOpacity", "Wire opacity", { min: 0, max: 1, step: 0.01, defaultValue: 1 }),
+      createNumberParam("rotation", "Rotation", { min: -3.14, max: 3.14, step: 0.01, defaultValue: 0 }),
+      createNumberParam("offsetX", "Position X", { min: -3, max: 3, step: 0.01, defaultValue: 0 }),
+      createNumberParam("offsetY", "Position Y", { min: -3, max: 3, step: 0.01, defaultValue: 0 }),
+      createNumberParam("speed", "Speed", { min: 0, max: 3, step: 0.01, defaultValue: 0 }),
+      createNumberParam("motion", "Motion", { min: 0, max: 2, step: 0.01, defaultValue: 0.35 }),
+      createNumberParam("seed", "Seed", { min: 0, max: 1000, step: 1, defaultValue: 17 }),
+      createEnumParam("palette", "Color harmony", ["custom", "analogous", "complementary", "triadic", "split complementary", "tetradic", "monochrome"], "triadic"),
+      createNumberParam("colorCount", "Colors", { min: 2, max: 4, step: 1, defaultValue: 4 }),
+      createColorParam("baseColor", "Base color", "#e34b7fff"),
+      createColorParam("colorB", "Custom color 2", "#27c7c7ff"),
+      createColorParam("colorC", "Custom color 3", "#f0c541ff"),
+      createColorParam("colorD", "Custom color 4", "#45246dff"),
+      createColorParam("wireColor", "Wire color", "#fff4d6ff"),
+      createColorParam("backgroundColor", "Background", "#08070cff"),
+      createNumberParam("amount", "Amount", { min: 0, max: 1, step: 0.01, defaultValue: 1 }),
+    ],
+  },
   galaxy: {
     id: "galaxy",
     name: "Galaxy",
@@ -597,11 +633,37 @@ export function listGeneratorComponents() {
 
 export function createGeneratorSource(id = "testPattern", params = {}) {
   const component = getGeneratorComponent(id);
+  const sourceParams = component.id === "meshPatterns"
+    ? normalizeLegacyMeshPatternParams(params)
+    : params;
   return {
     type: "generator",
     generatorId: component.id,
-    params: Object.keys(params || {}).length
-      ? normalizeParamValues(component, params)
+    params: Object.keys(sourceParams || {}).length
+      ? normalizeParamValues(component, sourceParams)
       : defaultParamValues(component),
   };
+}
+
+function normalizeLegacyMeshPatternParams(params = {}) {
+  const aliases = {
+    "tectonic plates": "cells",
+    "leaf veins": "veins",
+    "topographic contours": "mountains",
+    "soap bubble foam": "soap",
+    "shattered glass": "cracks",
+    "coral skeleton": "coral",
+    "fabric tension": "fabric",
+    "river delta": "rivers",
+    "magnetic field": "magnetic fields",
+    "crystalline growth": "cracks",
+    "root system": "veins",
+    "neural tissue": "veins",
+    "spider web": "veins",
+    "city blocks": "cells",
+    "lava cooling": "cells",
+    "constellation graph": "bone",
+  };
+  const pattern = aliases[String(params?.pattern || "").toLowerCase()] || params?.pattern;
+  return pattern === params?.pattern ? params : { ...params, pattern };
 }

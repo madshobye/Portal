@@ -1,13 +1,13 @@
 import { BLEND_MODES, VJ1 } from "../constants.js";
 import { componentFrameMetrics } from "../domain/component-frame.js";
-import { getGeneratorComponent } from "../graph/generator-registry.js?v=sun-rays-1";
-import { getShaderComponent } from "../shaders/shader-registry.js?v=photo-grade-print-1";
+import { getGeneratorComponent } from "../graph/generator-registry.js?v=mesh-topology-1";
+import { getShaderComponent } from "../shaders/shader-registry.js?v=power-flicker-1";
 import { featureMorphMediaControlsTemplate } from "./feature-morph-view.js?v=mobilenet-morph-v2-47";
 import { generatorImageMediaControlTemplate } from "./generator-media-view.js?v=tile-texture-40";
-import { generatorIcon } from "./picker-view.js?v=sun-rays-1";
+import { generatorIcon } from "./picker-view.js?v=mesh-topology-1";
 import { chainParamViewDefinitions, chainTransformControlsTemplate, componentParamViews, paramControlsTemplate, paramCurrentValue, shaderParamControlsTemplate } from "./parameter-view.js?v=text-style-controls-1";
-import { MEDIA_FIT_MODES, MODEL_SOURCE_PARAMS } from "./source-control-schema.js?v=camera-focal-length-1";
-import { effectIcon, esc, icon, rangeTemplate, selectValuesTemplate, sourceTypeIcon } from "./template-utils.js?v=slider-values-70";
+import { MEDIA_FIT_MODES, MODEL_SOURCE_PARAMS } from "./source-control-schema.js?v=xray-outline-1";
+import { effectIcon, esc, icon, rangeTemplate, selectValuesTemplate, sourceTypeIcon } from "./template-utils.js?v=power-flicker-1";
 import { editableSectionTitleTemplate, enableToggleButton, textListItemTemplate } from "./view-primitives.js?v=view-primitives-extraction-1";
 
 
