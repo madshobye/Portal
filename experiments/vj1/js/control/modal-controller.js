@@ -2,7 +2,7 @@ import { createOutputDefinition, normalizeRenderSettings } from "../domain/model
 import { sortComponentCatalog } from "./catalog-view.js?v=catalog-view-extraction-1";
 import { setClass, setText } from "./dom-utils.js?v=preview-pointer-deferral-1";
 import { getByPath, readInputValue, setByPath, syncRangeValue } from "./path-input-utils.js?v=path-input-utils-extraction-1";
-import { elementPickerTemplate, mediaPickerTemplate, sourceChoicePickerTemplate } from "./picker-view.js?v=terrain-mesh-near-1";
+import { elementPickerTemplate, mediaPickerTemplate, sourceChoicePickerTemplate } from "./picker-view.js?v=media-demand-6";
 import { configuredOutputsTemplate, settingsModalTemplate } from "./settings-view.js?v=editable-titles-71";
 
 export function createModalController({
@@ -10,7 +10,6 @@ export function createModalController({
   getState,
   getHost,
   mediaLibrary,
-  mediaPreviewUrls,
   replaceHtmlIfChanged,
   getCatalogSortMode,
   bindCatalogSortControls,
@@ -21,11 +20,16 @@ export function createModalController({
   let focusElementPickerSearch = false;
   let settingsOpen = false;
   let settingsTab = "outputs";
+  let mediaPreviewObserver = null;
+  const mediaPreviewUnloadTimers = new Map();
+  const activeMediaPreviews = new Set();
+  let reportedPreviewObserverFallback = false;
 
   function render(state = getState()) {
     const host = getHost();
     if (!host) return;
     if (!mediaPicker && !elementPicker && !sourceChoicePicker && !settingsOpen) {
+      resetDemandMediaPreviews();
       replaceHtmlIfChanged(host, "");
       return;
     }
@@ -45,6 +49,7 @@ export function createModalController({
   }
 
   function renderSettings(host, state) {
+    resetDemandMediaPreviews();
     if (!host.querySelector("[data-settings-modal]")) {
       replaceHtmlIfChanged(host, settingsModalTemplate(state, settingsTab));
       bindClose(host, closeSettings);
@@ -60,9 +65,10 @@ export function createModalController({
   }
 
   function renderSourceChoicePicker(host, state) {
-    if (!replaceHtmlIfChanged(host, sourceChoicePickerTemplate(state, sourceChoicePicker, mediaLibrary, mediaPreviewUrls))) return;
+    if (!replaceHtmlIfChanged(host, sourceChoicePickerTemplate(state, sourceChoicePicker, mediaLibrary))) return;
     bindClose(host, closeSourceChoicePicker);
     bindElementPickerSearch(host);
+    bindDemandMediaPreviews(host);
     host.querySelectorAll("[data-pick-source-media]").forEach((button) => {
       button.addEventListener("click", () => chooseSource({ type: "media", mediaId: button.dataset.pickSourceMedia || "" }));
     });
@@ -81,7 +87,7 @@ export function createModalController({
   function renderElementPicker(host, state) {
     const sortMode = getCatalogSortMode(state);
     const components = sortComponentCatalog(state.components || [], sortMode);
-    if (!replaceHtmlIfChanged(host, elementPickerTemplate(state, elementPicker, mediaLibrary, mediaPreviewUrls, {
+    if (!replaceHtmlIfChanged(host, elementPickerTemplate(state, elementPicker, mediaLibrary, {
       components,
       sortMode,
     }))) return;
@@ -89,6 +95,7 @@ export function createModalController({
     bindElementPickerSearch(host);
     bindCatalogSortControls(host);
     focusPendingElementPickerSearch(host);
+    bindDemandMediaPreviews(host);
     host.querySelectorAll("[data-add-element-media]").forEach((button) => {
       button.addEventListener("click", () => addElement("source", { type: "media", mediaId: button.dataset.addElementMedia || "" }));
     });
@@ -114,8 +121,9 @@ export function createModalController({
   }
 
   function renderMediaPicker(host, state) {
-    if (!replaceHtmlIfChanged(host, mediaPickerTemplate(state, mediaPicker, mediaLibrary, mediaPreviewUrls))) return;
+    if (!replaceHtmlIfChanged(host, mediaPickerTemplate(state, mediaPicker, mediaLibrary))) return;
     bindClose(host, closeMediaPicker);
+    bindDemandMediaPreviews(host);
     host.querySelectorAll("[data-pick-media]").forEach((button) => {
       button.addEventListener("click", () => {
         const mediaId = button.dataset.pickMedia || "";
@@ -129,6 +137,96 @@ export function createModalController({
         closeMediaPicker();
       });
     });
+  }
+
+  function bindDemandMediaPreviews(host) {
+    resetDemandMediaPreviews();
+    const previews = Array.from(host.querySelectorAll("[data-media-preview-id]"));
+    if (!previews.length) return;
+    for (const preview of previews) {
+      const trigger = preview.closest?.("button") || preview;
+      trigger.addEventListener("pointerenter", () => activateMediaPreview(preview));
+      trigger.addEventListener("focus", () => activateMediaPreview(preview));
+      trigger.addEventListener("pointerleave", () => scheduleMediaPreviewUnload(preview));
+    }
+    if (typeof IntersectionObserver !== "function") {
+      previews.slice(0, 24).forEach(activateMediaPreview);
+      if (!reportedPreviewObserverFallback) {
+        reportedPreviewObserverFallback = true;
+        console.warn("[VJ1_MEDIA_PREVIEW_OBSERVER_UNAVAILABLE]", {
+          eagerLimit: 24,
+          message: "Viewport observation is unavailable; only the first preview batch and hovered items are loaded",
+        });
+      }
+      return;
+    }
+    mediaPreviewObserver = new IntersectionObserver((entries) => {
+      for (const entry of entries) {
+        if (entry.isIntersecting) activateMediaPreview(entry.target);
+        else scheduleMediaPreviewUnload(entry.target);
+      }
+    }, { rootMargin: "360px 0px" });
+    previews.forEach((preview) => mediaPreviewObserver.observe(preview));
+  }
+
+  function activateMediaPreview(preview) {
+    clearMediaPreviewUnload(preview);
+    if (!preview || preview.dataset.mediaPreviewLoaded === "true") return;
+    const mediaId = preview.dataset.mediaPreviewId || "";
+    const url = mediaLibrary.acquirePreviewUrl?.(mediaId) || "";
+    if (!url) return;
+    preview.src = url;
+    preview.dataset.mediaPreviewLoaded = "true";
+    activeMediaPreviews.add(preview);
+    if (preview.tagName === "VIDEO") {
+      preview.preload = "metadata";
+      preview.load?.();
+    }
+  }
+
+  function scheduleMediaPreviewUnload(preview) {
+    if (!preview || preview.dataset.mediaPreviewLoaded !== "true" || mediaPreviewUnloadTimers.has(preview)) return;
+    const timeout = setTimeout(() => unloadMediaPreview(preview), 3000);
+    mediaPreviewUnloadTimers.set(preview, timeout);
+  }
+
+  function clearMediaPreviewUnload(preview) {
+    const timeout = mediaPreviewUnloadTimers.get(preview);
+    if (timeout !== undefined) clearTimeout(timeout);
+    mediaPreviewUnloadTimers.delete(preview);
+  }
+
+  function unloadMediaPreview(preview) {
+    clearMediaPreviewUnload(preview);
+    if (!preview || preview.dataset.mediaPreviewLoaded !== "true") return;
+    const mediaId = preview.dataset.mediaPreviewId || "";
+    preview.pause?.();
+    preview.removeAttribute("src");
+    if (preview.tagName === "VIDEO") {
+      preview.preload = "none";
+      preview.load?.();
+    }
+    delete preview.dataset.mediaPreviewLoaded;
+    activeMediaPreviews.delete(preview);
+    mediaLibrary.releasePreviewUrl?.(mediaId);
+  }
+
+  function resetDemandMediaPreviews() {
+    mediaPreviewObserver?.disconnect?.();
+    mediaPreviewObserver = null;
+    for (const timeout of mediaPreviewUnloadTimers.values()) clearTimeout(timeout);
+    mediaPreviewUnloadTimers.clear();
+    for (const preview of activeMediaPreviews) {
+      preview.pause?.();
+      preview.removeAttribute?.("src");
+      if (preview.tagName === "VIDEO") {
+        preview.preload = "none";
+        preview.load?.();
+      }
+      if (preview.dataset) delete preview.dataset.mediaPreviewLoaded;
+    }
+    activeMediaPreviews.clear();
+    mediaLibrary.releasePreviewUrls?.();
   }
 
   function bindClose(host, close) {
@@ -241,6 +339,7 @@ export function createModalController({
   }
 
   function openSettings() {
+    resetDemandMediaPreviews();
     settingsOpen = true;
     mediaPicker = null;
     elementPicker = null;
@@ -258,6 +357,7 @@ export function createModalController({
 
   function closeMediaPicker() {
     mediaPicker = null;
+    resetDemandMediaPreviews();
     render();
   }
 
@@ -276,6 +376,7 @@ export function createModalController({
 
   function closeElementPicker() {
     elementPicker = null;
+    resetDemandMediaPreviews();
     render();
   }
 
@@ -289,6 +390,7 @@ export function createModalController({
 
   function closeSourceChoicePicker() {
     sourceChoicePicker = null;
+    resetDemandMediaPreviews();
     render();
   }
 

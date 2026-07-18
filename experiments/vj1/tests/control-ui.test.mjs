@@ -30,6 +30,36 @@ test("preview presses defer UI rebuilding and draggable chain rows select on pre
   assert.ok(!previewSource.includes("canvas.mousePressed("));
 });
 
+test("media pickers defer image and video resources until cards approach the viewport", () => {
+  let previewAcquisitions = 0;
+  const media = Array.from({ length: 100 }, (_, index) => ({
+    id: `media/clip-${index}.mp4`,
+    name: `clip-${index}.mp4`,
+    path: `media/clip-${index}.mp4`,
+    type: "video",
+  }));
+  const html = elementPickerTemplate({
+    media,
+    components: [{ id: "owner", type: "component", name: "Owner", chain: [] }],
+  }, { componentId: "owner" }, {
+    getFile: () => ({}),
+    acquirePreviewUrl() {
+      previewAcquisitions++;
+      return "blob:should-not-be-created-during-template-render";
+    },
+  });
+  const modalSource = readFileSync(new URL("../js/control/modal-controller.js", import.meta.url), "utf8");
+
+  assert.equal(previewAcquisitions, 0, "template construction remains metadata-only");
+  assert.equal((html.match(/data-media-preview-id=/g) || []).length, 100);
+  assert.equal((html.match(/preload="none"/g) || []).length, 100);
+  assert.ok(!html.includes("blob:should-not-be-created"));
+  assert.match(modalSource, /new IntersectionObserver/);
+  assert.match(modalSource, /rootMargin: "360px 0px"/);
+  assert.match(modalSource, /mediaLibrary\.releasePreviewUrl\?\.\(mediaId\)/);
+  assert.match(modalSource, /\[VJ1_MEDIA_PREVIEW_OBSERVER_UNAVAILABLE\]/);
+});
+
 test("range params render their label and value above a full-width slider", () => {
   const sharedRange = rangeTemplate("Opacity", "components.0.opacity", 0.42);
   const controllerSource = readFileSync(new URL("../js/control/input-controller.js", import.meta.url), "utf8");
@@ -653,7 +683,7 @@ test("component selection modal exposes the shared persisted catalog sorting", (
       { id: "alpha", name: "Alpha", type: "component" },
     ],
   };
-  const html = elementPickerTemplate(state, { componentId: "canvas" }, null, new Map(), {
+  const html = elementPickerTemplate(state, { componentId: "canvas" }, null, {
     components: [state.components[2], state.components[1], state.components[0]],
     sortMode: "name",
   });

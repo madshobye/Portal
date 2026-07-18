@@ -33,7 +33,7 @@ export function generatorIcon(id) {
   }[id] || "auto_awesome";
 }
 
-export function sourceChoicePickerTemplate(state, picker, mediaLibrary, urlCache) {
+export function sourceChoicePickerTemplate(state, picker, mediaLibrary) {
   const source = currentSourceValue(picker, state);
   const mediaItems = state.media || [];
   const generators = listGeneratorComponents().filter((generator) => generator.id !== "black");
@@ -57,7 +57,7 @@ export function sourceChoicePickerTemplate(state, picker, mediaLibrary, urlCache
         <section class="ui-section element-section" data-element-section>
           <div class="ui-section-header rail-title"><span class="material-symbols-rounded">perm_media</span><span>Media</span></div>
           <div class="element-grid media-element-grid">
-            ${mediaItems.length ? mediaItems.map((item) => sourceMediaCardTemplate(item, source, mediaLibrary, urlCache)).join("") : `
+            ${mediaItems.length ? mediaItems.map((item) => sourceMediaCardTemplate(item, source, mediaLibrary)).join("") : `
               <div class="soft-note">Drop image, video, or 3D model files into the browser, or add them to the project folder.</div>
             `}
           </div>
@@ -100,13 +100,13 @@ export function sourceChoicePickerTemplate(state, picker, mediaLibrary, urlCache
   `;
 }
 
-function sourceMediaCardTemplate(item, source, mediaLibrary, urlCache) {
-  const previewUrl = item.type === "image" || item.type === "video" ? mediaPreviewUrl(item.id, mediaLibrary, urlCache) : "";
+function sourceMediaCardTemplate(item, source, mediaLibrary) {
+  const hasPreview = mediaHasLazyPreview(item, mediaLibrary);
   const selected = source.type === "media" && source.mediaId === item.id;
   return `
     <button type="button" class="element-card media-element-card ${selected ? "is-selected" : ""}" data-pick-source-media="${esc(item.id)}" data-element-search-card="${esc(elementSearchText(item.id, item.name, item.type, item.path, "media"))}" title="${esc(item.path || item.name)}">
-      ${previewUrl
-        ? mediaPreviewElementTemplate(item, previewUrl)
+      ${hasPreview
+        ? mediaPreviewElementTemplate(item)
         : `<div class="media-picker-placeholder">${icon(mediaTypeIcon(item.type))}</div>`}
       <strong>${esc(item.name)}</strong>
       <small>${esc(item.type)}</small>
@@ -114,7 +114,7 @@ function sourceMediaCardTemplate(item, source, mediaLibrary, urlCache) {
   `;
 }
 
-export function elementPickerTemplate(state, picker, mediaLibrary, urlCache, componentCatalog = {}) {
+export function elementPickerTemplate(state, picker, mediaLibrary, componentCatalog = {}) {
   const mediaItems = state.media || [];
   const owner = state.components.find((component) => component.id === picker.componentId);
   const componentItems = Array.isArray(componentCatalog.components) ? componentCatalog.components : state.components;
@@ -160,7 +160,7 @@ export function elementPickerTemplate(state, picker, mediaLibrary, urlCache, com
         <section class="ui-section element-section" data-element-section>
           <div class="ui-section-header rail-title"><span class="material-symbols-rounded">perm_media</span><span>Media</span></div>
           <div class="element-grid media-element-grid">
-            ${mediaItems.length ? mediaItems.map((item) => elementMediaCardTemplate(item, mediaLibrary, urlCache)).join("") : `
+            ${mediaItems.length ? mediaItems.map((item) => elementMediaCardTemplate(item, mediaLibrary)).join("") : `
               <div class="soft-note">Drop image, video, or 3D model files into the browser, or add them to the project folder.</div>
             `}
           </div>
@@ -240,12 +240,12 @@ function componentPickerSortTemplate(activeMode = "recent") {
   `;
 }
 
-function elementMediaCardTemplate(item, mediaLibrary, urlCache) {
-  const previewUrl = item.type === "image" || item.type === "video" ? mediaPreviewUrl(item.id, mediaLibrary, urlCache) : "";
+function elementMediaCardTemplate(item, mediaLibrary) {
+  const hasPreview = mediaHasLazyPreview(item, mediaLibrary);
   return `
     <button type="button" class="element-card media-element-card" data-add-element-media="${esc(item.id)}" data-element-search-card="${esc(elementSearchText(item.id, item.name, item.type, item.path, "media"))}" title="${esc(item.path || item.name)}">
-      ${previewUrl
-        ? mediaPreviewElementTemplate(item, previewUrl)
+      ${hasPreview
+        ? mediaPreviewElementTemplate(item)
         : `<div class="media-picker-placeholder">${icon(mediaTypeIcon(item.type))}</div>`}
       <strong>${esc(item.name)}</strong>
       <small>${esc(item.type)}</small>
@@ -257,7 +257,7 @@ function elementSearchText(...parts) {
   return parts.filter(Boolean).join(" ").toLowerCase();
 }
 
-export function mediaPickerTemplate(state, picker, mediaLibrary, urlCache) {
+export function mediaPickerTemplate(state, picker, mediaLibrary) {
   const mediaItems = picker?.accept
     ? state.media.filter((item) => item.type === picker.accept)
     : state.media;
@@ -272,7 +272,7 @@ export function mediaPickerTemplate(state, picker, mediaLibrary, urlCache) {
         <button type="button" class="icon-buttonish" data-close-modal title="Close" aria-label="Close">${icon("close")}</button>
       </header>
       <div class="media-picker-grid">
-        ${mediaItems.length ? mediaItems.map((item) => mediaPickerCardTemplate(item, picker, state, mediaLibrary, urlCache)).join("") : `
+        ${mediaItems.length ? mediaItems.map((item) => mediaPickerCardTemplate(item, picker, state, mediaLibrary)).join("") : `
           <div class="soft-note">Drop image, video, or 3D model files into the browser, or add them to the project folder.</div>
         `}
       </div>
@@ -280,13 +280,13 @@ export function mediaPickerTemplate(state, picker, mediaLibrary, urlCache) {
   `;
 }
 
-function mediaPickerCardTemplate(item, picker, state, mediaLibrary, urlCache) {
+function mediaPickerCardTemplate(item, picker, state, mediaLibrary) {
   const selected = item.id === currentMediaValue(picker, state);
-  const previewUrl = item.type === "image" || item.type === "video" ? mediaPreviewUrl(item.id, mediaLibrary, urlCache) : "";
+  const hasPreview = mediaHasLazyPreview(item, mediaLibrary);
   return `
     <button type="button" class="media-picker-card ${selected ? "is-selected" : ""}" data-pick-media="${esc(item.id)}" title="${esc(item.path || item.name)}">
-      ${previewUrl
-        ? mediaPreviewElementTemplate(item, previewUrl)
+      ${hasPreview
+        ? mediaPreviewElementTemplate(item)
         : `<div class="media-picker-placeholder">${icon(mediaTypeIcon(item.type))}</div>`}
       <span>${esc(item.name)}</span>
       <small>${esc(item.type)}</small>
@@ -294,10 +294,15 @@ function mediaPickerCardTemplate(item, picker, state, mediaLibrary, urlCache) {
   `;
 }
 
-function mediaPreviewElementTemplate(item, previewUrl) {
+function mediaPreviewElementTemplate(item) {
+  const previewId = esc(item.id);
   return item.type === "video"
-    ? `<video src="${esc(previewUrl)}" muted playsinline preload="metadata"></video>`
-    : `<img src="${esc(previewUrl)}" alt="" loading="lazy" />`;
+    ? `<video data-media-preview-id="${previewId}" muted playsinline preload="none"></video>`
+    : `<img data-media-preview-id="${previewId}" alt="" loading="lazy" />`;
+}
+
+function mediaHasLazyPreview(item, mediaLibrary) {
+  return (item.type === "image" || item.type === "video") && !!mediaLibrary.getFile?.(item.id);
 }
 
 function mediaTypeIcon(type = "") {
@@ -316,13 +321,4 @@ function currentSourceValue(picker, state) {
   if (!picker?.path || !state) return {};
   const source = getByPath(state, picker.path);
   return source && typeof source === "object" ? source : {};
-}
-
-function mediaPreviewUrl(id, mediaLibrary, urlCache) {
-  if (urlCache.has(id)) return urlCache.get(id);
-  const file = mediaLibrary.getFile(id);
-  if (!file) return "";
-  const url = URL.createObjectURL(file);
-  urlCache.set(id, url);
-  return url;
 }

@@ -1,7 +1,7 @@
 import { VJ1 } from "../constants.js";
 import { sanitizeState } from "../domain/models.js?v=render-coordinate-scope-3";
 import { createOutputBridge } from "../services/output-bridge-service.js?v=media-resource-disposal-1";
-import { OutputRenderer } from "./output-renderer.js?v=video-active-ownership-1";
+import { OutputRenderer } from "./output-renderer.js?v=media-demand-6";
 import { applyFontToGlobal, loadVjRenderFont } from "./font-loader.js?v=adaptive-component-demand-29";
 import { frameSize } from "./render-geometry.js?v=adaptive-component-demand-29";
 

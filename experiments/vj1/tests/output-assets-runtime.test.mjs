@@ -26,7 +26,252 @@ test("media runtime deduplicates and throttles missing-file requests", () => {
   }
 });
 
-test("imported video loading configures an inert muted inline element", () => {
+test("image and STL snapshots stay metadata-only until acquired", () => {
+  const previousLoadImage = globalThis.loadImage;
+  const previousCreateUrl = URL.createObjectURL;
+  let imageLoads = 0;
+  let modelReads = 0;
+  globalThis.loadImage = () => { imageLoads++; };
+  URL.createObjectURL = () => "blob:demand";
+  try {
+    const runtime = new OutputMediaRuntime();
+    const imageFile = { name: "huge.png", size: 500, lastModified: 1, type: "image/png" };
+    const modelFile = {
+      name: "mesh.stl",
+      size: 800,
+      lastModified: 1,
+      type: "model/stl",
+      arrayBuffer() { modelReads++; return new Promise(() => {}); },
+    };
+    runtime.importFiles([
+      { id: "media/huge.png", file: imageFile },
+      { id: "media/mesh.stl", file: modelFile },
+    ]);
+    assert.equal(imageLoads, 0);
+    assert.equal(modelReads, 0);
+    runtime.acquireMedia(runtime.media.get("media/huge.png"));
+    runtime.acquireMedia(runtime.media.get("media/mesh.stl"));
+    assert.equal(imageLoads, 1);
+    assert.equal(modelReads, 1);
+  } finally {
+    if (previousLoadImage === undefined) delete globalThis.loadImage;
+    else globalThis.loadImage = previousLoadImage;
+    URL.createObjectURL = previousCreateUrl;
+  }
+});
+
+test("generic media LRU releases inactive decoded images", () => {
+  const previousLoadImage = globalThis.loadImage;
+  const previousCreateUrl = URL.createObjectURL;
+  const previousRevokeUrl = URL.revokeObjectURL;
+  const removed = [];
+  const revoked = [];
+  let index = 0;
+  globalThis.loadImage = (_url, ready) => ready({
+    width: 4000,
+    height: 3000,
+    remove() { removed.push(this); },
+  });
+  URL.createObjectURL = () => `blob:lru-${++index}`;
+  URL.revokeObjectURL = (url) => revoked.push(url);
+  try {
+    const runtime = new OutputMediaRuntime({ maxCachedMedia: 1, maxCachedMediaBytes: Number.MAX_SAFE_INTEGER });
+    runtime.importFiles([
+      { id: "media/a.png", file: { name: "a.png", size: 10, lastModified: 1, type: "image/png" } },
+      { id: "media/b.png", file: { name: "b.png", size: 10, lastModified: 1, type: "image/png" } },
+    ]);
+    runtime.beginFrame();
+    const first = runtime.acquireMedia(runtime.media.get("media/a.png"));
+    runtime.endFrame();
+    runtime.beginFrame();
+    runtime.acquireMedia(runtime.media.get("media/b.png"));
+    runtime.endFrame();
+    assert.equal(first.image, null);
+    assert.deepEqual(revoked, ["blob:lru-1"]);
+    assert.equal(removed.length, 1);
+  } finally {
+    if (previousLoadImage === undefined) delete globalThis.loadImage;
+    else globalThis.loadImage = previousLoadImage;
+    URL.createObjectURL = previousCreateUrl;
+    URL.revokeObjectURL = previousRevokeUrl;
+  }
+});
+
+test("large raster acquisition decodes directly to a bounded render variant", async () => {
+  const previousCreateBitmap = globalThis.createImageBitmap;
+  const previousCreateImage = globalThis.createImage;
+  const previousLoadImage = globalThis.loadImage;
+  const previousCreateUrl = URL.createObjectURL;
+  const bitmapRequests = [];
+  let objectUrls = 0;
+  let fallbackLoads = 0;
+  globalThis.createImageBitmap = async (_file, options) => {
+    bitmapRequests.push(options);
+    return { width: options.resizeWidth, height: Math.round(options.resizeWidth * 1.5), close() {} };
+  };
+  globalThis.createImage = (width, height) => ({
+    width,
+    height,
+    canvas: { getContext: () => ({ drawImage() {} }) },
+    setModified() {},
+  });
+  globalThis.loadImage = () => { fallbackLoads++; };
+  URL.createObjectURL = () => { objectUrls++; return "blob:original"; };
+  try {
+    const runtime = new OutputMediaRuntime();
+    runtime.importFiles([{ id: "media/42mp.png", file: { name: "42mp.png", size: 25_000_000, lastModified: 1, type: "image/png" } }]);
+    const item = runtime.acquireMedia(runtime.media.get("media/42mp.png"), { width: 1920 });
+    await Promise.resolve();
+    await Promise.resolve();
+    assert.deepEqual(bitmapRequests, [{ resizeWidth: 2048, resizeQuality: "high" }]);
+    assert.equal(item.image.width, 2048);
+    assert.equal(item.image.height, 3072);
+    assert.equal(item.ready, true);
+    assert.equal(objectUrls, 0, "the full-resolution source never receives a browser object URL");
+    assert.equal(fallbackLoads, 0);
+  } finally {
+    if (previousCreateBitmap === undefined) delete globalThis.createImageBitmap;
+    else globalThis.createImageBitmap = previousCreateBitmap;
+    if (previousCreateImage === undefined) delete globalThis.createImage;
+    else globalThis.createImage = previousCreateImage;
+    if (previousLoadImage === undefined) delete globalThis.loadImage;
+    else globalThis.loadImage = previousLoadImage;
+    URL.createObjectURL = previousCreateUrl;
+  }
+});
+
+test("raster acquisition never upscales a source that is already below the render request", async () => {
+  const previousCreateBitmap = globalThis.createImageBitmap;
+  const previousLoadImage = globalThis.loadImage;
+  const previousCreateUrl = URL.createObjectURL;
+  let bitmapRequests = 0;
+  let imageLoads = 0;
+  const header = new Uint8Array(24);
+  header.set([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+  new DataView(header.buffer).setUint32(16, 800);
+  new DataView(header.buffer).setUint32(20, 600);
+  globalThis.createImageBitmap = async () => {
+    bitmapRequests++;
+    return { width: 2048, height: 1536, close() {} };
+  };
+  globalThis.loadImage = (_url, ready) => {
+    imageLoads++;
+    ready({ width: 800, height: 600 });
+  };
+  URL.createObjectURL = () => "blob:small-original";
+  try {
+    const runtime = new OutputMediaRuntime();
+    const file = {
+      name: "small.png",
+      size: 250_000,
+      lastModified: 1,
+      type: "image/png",
+      slice() {
+        return { arrayBuffer: async () => header.buffer };
+      },
+    };
+    runtime.importFiles([{ id: "media/small.png", file }]);
+    const item = runtime.acquireMedia(runtime.media.get("media/small.png"), { width: 1920 });
+    await Promise.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+    assert.equal(bitmapRequests, 0);
+    assert.equal(imageLoads, 1);
+    assert.equal(item.image.width, 800);
+    assert.equal(item.image.height, 600);
+    assert.equal(item.ready, true);
+  } finally {
+    if (previousCreateBitmap === undefined) delete globalThis.createImageBitmap;
+    else globalThis.createImageBitmap = previousCreateBitmap;
+    if (previousLoadImage === undefined) delete globalThis.loadImage;
+    else globalThis.loadImage = previousLoadImage;
+    URL.createObjectURL = previousCreateUrl;
+  }
+});
+
+test("raster demand escalation atomically replaces a smaller decoded variant", async () => {
+  const previousCreateBitmap = globalThis.createImageBitmap;
+  const previousCreateImage = globalThis.createImage;
+  const bitmapRequests = [];
+  const removed = [];
+  const header = new Uint8Array(24);
+  header.set([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+  new DataView(header.buffer).setUint32(16, 7952);
+  new DataView(header.buffer).setUint32(20, 5304);
+  globalThis.createImageBitmap = async (_file, options) => {
+    bitmapRequests.push(options.resizeWidth);
+    return { width: options.resizeWidth, height: Math.round(options.resizeWidth * 0.667), close() {} };
+  };
+  globalThis.createImage = (width, height) => ({
+    width,
+    height,
+    canvas: { getContext: () => ({ drawImage() {} }) },
+    setModified() {},
+    remove() { removed.push(width); },
+  });
+  try {
+    const runtime = new OutputMediaRuntime();
+    const file = {
+      name: "large.png",
+      size: 25_000_000,
+      lastModified: 1,
+      type: "image/png",
+      slice() {
+        return { arrayBuffer: async () => header.buffer };
+      },
+    };
+    runtime.importFiles([{ id: "media/large.png", file }]);
+    const item = runtime.acquireMedia(runtime.media.get("media/large.png"), { width: 500 });
+    await Promise.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+    const firstImage = item.image;
+    assert.equal(firstImage.width, 512);
+
+    runtime.acquireMedia(item, { width: 1920 });
+    assert.equal(item.image, firstImage, "the smaller drawable remains available during the upgrade");
+    await Promise.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+    assert.deepEqual(bitmapRequests, [512, 2048]);
+    assert.equal(item.image.width, 2048);
+    assert.notEqual(item.image, firstImage);
+    assert.deepEqual(removed, [512]);
+    assert.equal(item.ready, true);
+  } finally {
+    if (previousCreateBitmap === undefined) delete globalThis.createImageBitmap;
+    else globalThis.createImageBitmap = previousCreateBitmap;
+    if (previousCreateImage === undefined) delete globalThis.createImage;
+    else globalThis.createImage = previousCreateImage;
+  }
+});
+
+test("media-library preview URLs are leased once and released as a group", async () => {
+  const previousCreateUrl = URL.createObjectURL;
+  const previousRevokeUrl = URL.revokeObjectURL;
+  let creates = 0;
+  const revoked = [];
+  URL.createObjectURL = () => `blob:preview-${++creates}`;
+  URL.revokeObjectURL = (url) => revoked.push(url);
+  try {
+    const library = createMediaLibrary();
+    const file = { name: "large.png", size: 10, lastModified: 1, type: "image/png" };
+    await library.importFiles([file]);
+    assert.equal(library.acquirePreviewUrl("large.png"), "blob:preview-1");
+    assert.equal(library.acquirePreviewUrl("large.png"), "blob:preview-1");
+    assert.equal(creates, 1);
+    library.releasePreviewUrl("large.png");
+    assert.deepEqual(revoked, ["blob:preview-1"]);
+    assert.equal(library.acquirePreviewUrl("large.png"), "blob:preview-2");
+    library.releasePreviewUrls();
+    assert.deepEqual(revoked, ["blob:preview-1", "blob:preview-2"]);
+  } finally {
+    URL.createObjectURL = previousCreateUrl;
+    URL.revokeObjectURL = previousRevokeUrl;
+  }
+});
+
+test("video import stays metadata-only until an active render acquires it", () => {
   const previousCreateVideo = globalThis.createVideo;
   const previousCreateUrl = URL.createObjectURL;
   const previousRevokeUrl = URL.revokeObjectURL;
@@ -59,6 +304,9 @@ test("imported video loading configures an inert muted inline element", () => {
   try {
     const runtime = new OutputMediaRuntime();
     runtime.importFiles([{ id: "media/clip.mp4", file: { name: "clip.mp4", size: 20, lastModified: 1, type: "video/mp4" } }]);
+    assert.equal(ready, null, "the library snapshot does not instantiate a video decoder");
+    runtime.beginFrame();
+    runtime.acquireMedia(runtime.media.get("media/clip.mp4"));
     assert.equal(element.muted, true);
     assert.equal(element.defaultMuted, true);
     assert.equal(element.playsInline, true);
@@ -168,8 +416,12 @@ test("media runtime replaces changed files and revisions completed loads", () =>
     const replacement = { name: "photo.png", size: 20, lastModified: 2, type: "image/png" };
     runtime.importFiles([{ id: "media/photo.png", file: first }]);
     runtime.importFiles([{ id: "media/photo.png", file: first }]);
+    assert.equal(loads.length, 0, "library snapshots remain metadata-only");
+    runtime.acquireMedia(runtime.media.get("media/photo.png"));
     assert.equal(loads.length, 1, "an unchanged File keeps its current runtime load");
     runtime.importFiles([{ id: "media/photo.png", file: replacement }]);
+    assert.equal(loads.length, 1, "replacement metadata is not decoded until acquired");
+    runtime.acquireMedia(runtime.media.get("media/photo.png"));
     assert.equal(loads.length, 2);
     assert.deepEqual(revoked, ["blob:test-1"]);
     const item = runtime.media.get("media/photo.png");
@@ -203,6 +455,8 @@ test("media runtime reconciles removed files from authoritative snapshots", () =
       { id: "media/first.png", file: first },
       { id: "media/second.png", file: second },
     ]);
+    runtime.acquireMedia(runtime.media.get("media/first.png"));
+    runtime.acquireMedia(runtime.media.get("media/second.png"));
     const deletedBuffers = [];
     const deletedPrograms = [];
     const gl = {
@@ -301,9 +555,14 @@ test("rendition snapshot removal disposes loaded and in-flight rendition resourc
     const renditionFile = { name: "cached.png", size: 5, lastModified: 2, type: "image/png" };
     const runtime = new OutputMediaRuntime();
     runtime.importFiles([{ id: "media/photo.png", file, renditions: [{ key, file: renditionFile }] }]);
+    const item = runtime.acquireMedia(runtime.media.get("media/photo.png"));
+    loads[0].ready({ width: 640, height: 360 });
+    runtime.getImageRendition(item, 320, 180);
+    const revisionBeforeRendition = item.revision;
     const renditionImage = { removeCount: 0, remove() { this.removeCount++; } };
     loads[1].ready(renditionImage);
     assert.equal(runtime.media.get("media/photo.png").imageRenditions.get(key), renditionImage);
+    assert.equal(item.revision, revisionBeforeRendition + 1, "a completed persisted rendition invalidates stable render nodes");
 
     runtime.importFiles([{ id: "media/photo.png", file, renditions: [] }]);
     assert.equal(runtime.media.get("media/photo.png").imageRenditions.has(key), false);
@@ -316,6 +575,37 @@ test("rendition snapshot removal disposes loaded and in-flight rendition resourc
     URL.createObjectURL = previousCreate;
     URL.revokeObjectURL = previousRevoke;
   }
+});
+
+test("generic media LRU accounts for decoded rendition memory", () => {
+  const runtime = new OutputMediaRuntime({
+    maxCachedMedia: 12,
+    maxCachedMediaBytes: 1_000_000,
+  });
+  const removed = [];
+  const item = {
+    id: "media/photo.png",
+    file: { name: "photo.png", size: 10, type: "image/png" },
+    image: { width: 100, height: 100, remove() { removed.push("base"); } },
+    imageRenditions: new Map([["large", {
+      width: 1000,
+      height: 1000,
+      remove() { removed.push("rendition"); },
+    }]]),
+    imageRenditionOrder: ["large"],
+    persistedRenditions: new Map(),
+    renditionUrls: new Map(),
+    loadToken: 0,
+    revision: 0,
+    ready: true,
+    loading: false,
+    lastMediaUse: 1,
+  };
+  runtime.media.set(item.id, item);
+  runtime.beginFrame();
+  runtime.endFrame();
+  assert.equal(item.image, null);
+  assert.deepEqual(removed.sort(), ["base", "rendition"]);
 });
 
 test("camera failures are reported once and retried on a bounded clock", async () => {
@@ -371,6 +661,7 @@ test("media load failures update readiness and emit structured diagnostics", () 
   try {
     const runtime = new OutputMediaRuntime();
     runtime.importFiles([{ id: "media/broken.png", file: { name: "broken.png", size: 5, lastModified: 1, type: "image/png" } }]);
+    runtime.acquireMedia(runtime.media.get("media/broken.png"));
     rejectLoad(new Error("decode failed"));
     const item = runtime.media.get("media/broken.png");
     assert.equal(item.ready, false);

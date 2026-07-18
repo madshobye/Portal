@@ -101,6 +101,7 @@ test("raw WebGL storage orientation is explicit and separate from Composition co
 
 test("terrain preserves world-up camera Y until Composition placement converts it once", () => {
   const source = readFileSync(new URL("../js/output/specialized/terrain-renderer.js", import.meta.url), "utf8");
+  const specializedSource = readFileSync(new URL("../js/output/specialized/specialized-source-runtime.js", import.meta.url), "utf8");
   assert.match(source, /float terrainClipYFromWorldUp\(float worldUpY\)/);
   assert.match(source, /return worldUpY;/);
   assert.equal((source.match(/terrainClipYFromWorldUp\(cameraY\) \* focalLength/g) || []).length, 2);
@@ -109,6 +110,12 @@ test("terrain preserves world-up camera Y until Composition placement converts i
   assert.equal((source.match(/placeTerrainInComposition\(vec4\(/g) || []).length, 2);
   assert.match(source, /clip\.w \* 0\.5 - clip\.y \* 0\.5/);
   assert.match(source, /gl\.uniformMatrix3fv\(resources\.contentPlacementMatrix/);
+  const terrainDraw = specializedSource.slice(
+    specializedSource.indexOf("  drawTerrain("),
+    specializedSource.indexOf("  drawModel(")
+  );
+  assert.match(terrainDraw, /markRenderTargetOrientation\(target, RENDER_TEXTURE_ORIENTATION\.bottomLeft\)/);
+  assert.doesNotMatch(terrainDraw, /markRenderTargetOrientation\(target, RENDER_TEXTURE_ORIENTATION\.topLeft\)/);
 });
 
 test("terrain raw WebGL passes are isolated from the shared p5 renderer", () => {

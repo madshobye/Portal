@@ -4,9 +4,17 @@ import { mediaRenditionKey, mediaSourceRevision } from "../services/media-rendit
 import { graphicsToPngBlob } from "./thumbnail-utils.js?v=thumbnail-utils-extraction-1";
 import { parseObjMesh, parseStlMesh } from "./specialized/model-parsers.js?v=model-geometry-fix-30";
 import { disposeRawModelItemResources } from "./specialized/raw-model-webgl-renderer.js?v=media-resource-disposal-1";
+import { readRasterDimensions } from "./raster-metadata.js?v=media-demand-6";
 
 export class OutputMediaRuntime {
-  constructor({ getRenderSettings, requestMediaFiles, sendMediaRendition, applyGraphicsFont, maxCachedVideos = 8 } = {}) {
+  constructor({
+    getRenderSettings,
+    requestMediaFiles,
+    sendMediaRendition,
+    applyGraphicsFont,
+    maxCachedMedia = 12,
+    maxCachedMediaBytes = 256 * 1024 * 1024,
+  } = {}) {
     this.getRenderSettings = getRenderSettings || (() => ({}));
     this.requestMediaFiles = requestMediaFiles;
     this.sendMediaRendition = sendMediaRendition;
@@ -22,9 +30,10 @@ export class OutputMediaRuntime {
     this.cameraRetryAt = 0;
     this.reportedCameraErrorKey = "";
     this.activeVideos = new Set();
-    this.activeVideoItems = new Set();
-    this.videoUseSerial = 0;
-    this.maxCachedVideos = Math.max(0, Math.floor(Number(maxCachedVideos) || 0));
+    this.activeMediaItems = new Set();
+    this.mediaUseSerial = 0;
+    this.maxCachedMedia = Math.max(0, Math.floor(Number(maxCachedMedia) || 0));
+    this.maxCachedMediaBytes = Math.max(0, Math.floor(Number(maxCachedMediaBytes) || 0));
   }
 
   importFiles(files) {
@@ -52,7 +61,6 @@ export class OutputMediaRuntime {
         if (item) disposeMediaRuntimeItem(item);
         item = createMediaRuntimeItem(id, file);
         this.media.set(id, item);
-        if (!isVideoRuntimeItem(item)) loadMediaItem(item);
       }
       this.importRenditions(item, entry?.renditions || []);
     }
@@ -63,39 +71,20 @@ export class OutputMediaRuntime {
     item.imageRenditions ||= new Map();
     item.imageRenditionOrder ||= [];
     item.renditionUrls ||= new Map();
-    item.persistedRenditionKeys ||= new Set();
+    item.persistedRenditions ||= new Map();
     const incoming = new Map((renditions || [])
       .filter((rendition) => rendition?.key && rendition?.file)
       .map((rendition) => [rendition.key, rendition]));
-    for (const key of item.persistedRenditionKeys) {
+    for (const key of item.persistedRenditions.keys()) {
       if (incoming.has(key)) continue;
       item.imageRenditions.get(key)?.remove?.();
       item.imageRenditions.delete(key);
       item.imageRenditionOrder = item.imageRenditionOrder.filter((entry) => entry !== key);
       releaseRenditionUrl(item, key);
     }
-    item.persistedRenditionKeys = new Set(incoming.keys());
-    for (const rendition of incoming.values()) {
-      if (!rendition?.key || !rendition?.file || item.imageRenditions.has(rendition.key)) continue;
-      const url = URL.createObjectURL(rendition.file);
-      item.renditionUrls.set(rendition.key, url);
-      const loadToken = item.loadToken;
-      loadImage(
-        url,
-        (image) => {
-          if (item.loadToken !== loadToken || item.renditionUrls.get(rendition.key) !== url) {
-            image?.remove?.();
-            return;
-          }
-          item.imageRenditions.set(rendition.key, image);
-          if (!item.imageRenditionOrder.includes(rendition.key)) item.imageRenditionOrder.push(rendition.key);
-          releaseRenditionUrl(item, rendition.key, url);
-        },
-        () => {
-          releaseRenditionUrl(item, rendition.key, url);
-        }
-      );
-    }
+    // Persist only the File handles here. A rendition gets an object URL and
+    // decoded image only if an active render request asks for its exact key.
+    item.persistedRenditions = incoming;
   }
 
   ensureCameraCapture() {
@@ -164,17 +153,17 @@ export class OutputMediaRuntime {
 
   beginFrame() {
     this.activeVideos.clear();
-    this.activeVideoItems.clear();
+    this.activeMediaItems.clear();
   }
 
-  acquireVideo(item, options = {}) {
-    if (!isVideoRuntimeItem(item)) return null;
-    item.lastVideoUse = ++this.videoUseSerial;
-    this.activeVideoItems.add(item);
-    ensureVideoRuntimeItemLoaded(item);
-    if (!item.video) return null;
-    this.claimVideoPlayback(item.video, options);
-    return item.video;
+  acquireMedia(item, { playback = null, width = 0 } = {}) {
+    if (!item) return null;
+    item.lastMediaUse = ++this.mediaUseSerial;
+    this.activeMediaItems.add(item);
+    recordRasterDemand(item, width);
+    ensureMediaRuntimeItemLoaded(item, { width: item.imageDemandWidth || width });
+    if (isVideoRuntimeItem(item) && item.video && playback) this.claimVideoPlayback(item.video, playback);
+    return item;
   }
 
   claimVideoPlayback(video, options = {}) {
@@ -187,18 +176,21 @@ export class OutputMediaRuntime {
     for (const item of this.media.values()) {
       if (item?.video && !this.activeVideos.has(item.video)) pauseVideoPlayback(item.video);
     }
-    this.evictInactiveVideos();
+    this.evictInactiveMedia();
   }
 
-  evictInactiveVideos() {
-    const loaded = Array.from(this.media.values()).filter((item) => item?.video);
+  evictInactiveMedia() {
+    const loaded = Array.from(this.media.values()).filter(isMediaRuntimeItemLoaded);
     const inactive = loaded
-      .filter((item) => !this.activeVideoItems.has(item))
-      .sort((a, b) => (Number(a.lastVideoUse) || 0) - (Number(b.lastVideoUse) || 0));
-    let excess = loaded.length - Math.max(this.maxCachedVideos, this.activeVideoItems.size);
+      .filter((item) => !this.activeMediaItems.has(item))
+      .sort((a, b) => (Number(a.lastMediaUse) || 0) - (Number(b.lastMediaUse) || 0));
+    let loadedBytes = loaded.reduce((total, item) => total + estimateMediaRuntimeBytes(item), 0);
+    let excess = loaded.length - Math.max(this.maxCachedMedia, this.activeMediaItems.size);
     for (const item of inactive) {
-      if (excess-- <= 0) break;
-      unloadVideoRuntimeItem(item);
+      if (excess <= 0 && loadedBytes <= this.maxCachedMediaBytes) break;
+      loadedBytes -= estimateMediaRuntimeBytes(item);
+      excess--;
+      unloadMediaRuntimeItem(item);
     }
   }
 
@@ -216,6 +208,10 @@ export class OutputMediaRuntime {
     const key = mediaRenditionKey(item.id, widthPx, heightPx, item.sourceRevision);
     const existing = item.imageRenditions?.get?.(key);
     if (existing) return existing;
+    if (item.persistedRenditions?.has?.(key)) {
+      ensurePersistedRenditionLoaded(item, key);
+      return item.image;
+    }
     const source = item.image.elt || item.image;
     const sourceWidth = source.naturalWidth || source.width || item.image.width || widthPx;
     const sourceHeight = source.naturalHeight || source.height || item.image.height || heightPx;
@@ -266,7 +262,7 @@ export class OutputMediaRuntime {
     this.media.clear();
     this.pendingRenditionSaves.clear();
     this.activeVideos.clear();
-    this.activeVideoItems.clear();
+    this.activeMediaItems.clear();
   }
 }
 
@@ -307,6 +303,9 @@ function createMediaRuntimeItem(id, file) {
     loadError: "",
     video: null,
     image: null,
+    imageVariantWidth: 0,
+    imageSourceWidth: 0,
+    imageDemandWidth: 0,
     imageError: "",
     model: null,
     modelData: null,
@@ -318,19 +317,21 @@ function createMediaRuntimeItem(id, file) {
     modelError: "",
     imageRenditions: new Map(),
     imageRenditionOrder: [],
-    persistedRenditionKeys: new Set(),
+    persistedRenditions: new Map(),
     ready: false,
-    lastVideoUse: 0,
+    loading: false,
+    lastMediaUse: 0,
   };
 }
 
-function loadMediaItem(item) {
-  if (!item.url) item.url = URL.createObjectURL(item.file);
+function loadMediaItem(item, request = {}) {
+  if (item.loading) return;
+  item.loading = true;
   const loadToken = ++item.loadToken;
   const isCurrent = () => item.loadToken === loadToken;
   const markReady = () => {
     if (!isCurrent()) return false;
-    if (item.ready && !item.loadError) return true;
+    item.loading = false;
     item.ready = true;
     item.loadError = "";
     item.revision++;
@@ -338,6 +339,7 @@ function loadMediaItem(item) {
   };
   const markError = (error, fallback) => {
     if (!isCurrent()) return;
+    item.loading = false;
     const message = error?.message || String(error || fallback);
     if (item.loadError === message) return;
     item.ready = false;
@@ -351,18 +353,10 @@ function loadMediaItem(item) {
     });
   };
   if (/\.svg$/i.test(item.id)) {
+    if (!item.url) item.url = URL.createObjectURL(item.file);
     loadSvgImage(item.url, item, { isCurrent, markReady, markError });
   } else if (/\.(png|jpe?g|gif|webp|bmp)$/i.test(item.id)) {
-    loadImage(item.url, (image) => {
-      if (!isCurrent()) return;
-      item.image = image;
-      item.imageError = "";
-      markReady();
-    }, (error) => {
-      if (!isCurrent()) return;
-      item.imageError = error?.message || String(error || "image load failed");
-      markError(error, "image load failed");
-    });
+    loadRasterImage(item, request, { isCurrent, markReady, markError });
   } else if (/\.stl$/i.test(item.id)) {
     item.file.arrayBuffer()
       .then((buffer) => {
@@ -392,17 +386,120 @@ function loadMediaItem(item) {
   }
 }
 
+function ensureMediaRuntimeItemLoaded(item, request = {}) {
+  if (!item || !item.file || item.loading || item.loadError) return item;
+  if (shouldUpgradeRasterVariant(item)) {
+    loadMediaItem(item, { width: item.imageDemandWidth });
+    return item;
+  }
+  if (isMediaRuntimeItemLoaded(item)) return item;
+  if (isVideoRuntimeItem(item)) ensureVideoRuntimeItemLoaded(item);
+  else loadMediaItem(item, request);
+  return item;
+}
+
+function loadRasterImage(item, request, lifecycle) {
+  const resizeWidth = rasterVariantWidth(request?.width);
+  const canResizeDecode = !/\.gif$/i.test(item.id || "") && resizeWidth > 0 &&
+    typeof globalThis.createImageBitmap === "function" && typeof globalThis.createImage === "function";
+  if (!canResizeDecode) {
+    loadRasterImageFromUrl(item, lifecycle);
+    return;
+  }
+  if (item.file?.slice) {
+    readRasterDimensions(item.file).then((dimensions) => {
+      if (!lifecycle.isCurrent()) return;
+      if (!dimensions) {
+        console.warn("[VJ1_MEDIA_DIMENSION_PROBE_FAILED]", {
+          id: item.id,
+          message: "unsupported or incomplete raster header; using native decode",
+        });
+        loadRasterImageFromUrl(item, lifecycle);
+        return;
+      }
+      item.imageSourceWidth = dimensions.width;
+      if (dimensions.width <= resizeWidth) {
+        loadRasterImageFromUrl(item, lifecycle);
+        return;
+      }
+      decodeRasterVariant(item, resizeWidth, lifecycle);
+    }).catch((error) => {
+      if (!lifecycle.isCurrent()) return;
+      console.warn("[VJ1_MEDIA_DIMENSION_PROBE_FAILED]", {
+        id: item.id,
+        message: error?.message || String(error || "raster header read failed"),
+      });
+      loadRasterImageFromUrl(item, lifecycle);
+    });
+    return;
+  }
+  decodeRasterVariant(item, resizeWidth, lifecycle);
+}
+
+function decodeRasterVariant(item, resizeWidth, lifecycle) {
+  globalThis.createImageBitmap(item.file, {
+    resizeWidth,
+    resizeQuality: "high",
+  }).then((bitmap) => {
+    if (!lifecycle.isCurrent()) {
+      bitmap?.close?.();
+      return;
+    }
+    const image = globalThis.createImage(bitmap.width, bitmap.height);
+    const context = image?.canvas?.getContext?.("2d") || image?.drawingContext;
+    if (!image || typeof context?.drawImage !== "function") {
+      bitmap?.close?.();
+      throw new TypeError("resized image target has no Canvas2D context");
+    }
+    const bitmapWidth = bitmap.width;
+    const bitmapHeight = bitmap.height;
+    context.drawImage(bitmap, 0, 0, bitmapWidth, bitmapHeight);
+    bitmap.close?.();
+    image.setModified?.(true);
+    replaceRuntimeImage(item, image);
+    item.imageError = "";
+    item.imageVariantWidth = bitmapWidth;
+    lifecycle.markReady();
+  }).catch((error) => {
+    if (!lifecycle.isCurrent()) return;
+    console.warn("[VJ1_MEDIA_RESIZE_DECODE_FALLBACK]", {
+      id: item.id,
+      requestedWidth: resizeWidth,
+      message: error?.message || String(error || "resize decode failed"),
+    });
+    loadRasterImageFromUrl(item, lifecycle);
+  });
+}
+
+function loadRasterImageFromUrl(item, lifecycle) {
+  if (!item.url) item.url = URL.createObjectURL(item.file);
+  loadImage(item.url, (image) => {
+    if (!lifecycle.isCurrent()) return;
+    replaceRuntimeImage(item, image);
+    item.imageError = "";
+    item.imageVariantWidth = Number(image?.width) || Number(image?.naturalWidth) || 0;
+    item.imageSourceWidth = Number(image?.naturalWidth) || Number(image?.width) || item.imageVariantWidth;
+    lifecycle.markReady();
+  }, (error) => {
+    if (!lifecycle.isCurrent()) return;
+    item.imageError = error?.message || String(error || "image load failed");
+    lifecycle.markError(error, "image load failed");
+  });
+}
+
 function isVideoRuntimeItem(item) {
   return !!item && (/\.(mp4|m4v|mov|webm|ogv)$/i.test(item.id || "") || /^video\//i.test(item.file?.type || ""));
 }
 
 function ensureVideoRuntimeItemLoaded(item) {
-  if (!isVideoRuntimeItem(item) || item.video) return item?.video || null;
+  if (!isVideoRuntimeItem(item) || item.loading || item.video) return item?.video || null;
+  item.loading = true;
   const loadToken = ++item.loadToken;
   const isCurrent = () => item.loadToken === loadToken;
   item.url = URL.createObjectURL(item.file);
   const markReady = () => {
     if (!isCurrent()) return false;
+    item.loading = false;
     if (!item.ready || item.loadError) item.revision++;
     item.ready = true;
     item.loadError = "";
@@ -410,6 +507,7 @@ function ensureVideoRuntimeItemLoaded(item) {
   };
   const markError = (error) => {
     if (!isCurrent()) return;
+    item.loading = false;
     const message = error?.message || String(error || "video load failed");
     item.ready = false;
     item.loadError = message;
@@ -445,6 +543,31 @@ function ensureVideoRuntimeItemLoaded(item) {
   return item.video;
 }
 
+function ensurePersistedRenditionLoaded(item, key) {
+  const rendition = item?.persistedRenditions?.get?.(key);
+  if (!rendition?.file || item.imageRenditions?.has?.(key) || item.renditionUrls?.has?.(key)) return;
+  const url = URL.createObjectURL(rendition.file);
+  item.renditionUrls.set(key, url);
+  const loadToken = item.loadToken;
+  loadImage(
+    url,
+    (image) => {
+      if (item.loadToken !== loadToken || item.renditionUrls.get(key) !== url) {
+        image?.remove?.();
+        return;
+      }
+      item.imageRenditions.set(key, image);
+      if (!item.imageRenditionOrder.includes(key)) item.imageRenditionOrder.push(key);
+      releaseRenditionUrl(item, key, url);
+      // Stable render nodes key their output by the media revision. Without
+      // this bump, an asynchronously decoded persisted rendition could remain
+      // invisible behind the base-image cache indefinitely.
+      item.revision++;
+    },
+    () => releaseRenditionUrl(item, key, url)
+  );
+}
+
 function getPortalWebcameraSetup() {
   if (typeof globalThis.setupWebcamera === "function") return globalThis.setupWebcamera;
   try {
@@ -473,26 +596,116 @@ function loadSvgImage(url, item, lifecycle) {
 
 function disposeMediaRuntimeItem(item) {
   if (!item) return;
-  unloadVideoRuntimeItem(item);
-  item.loadToken++;
-  disposeRawModelItemResources(item);
-  if (item.url) URL.revokeObjectURL(item.url);
-  item.url = null;
+  unloadMediaRuntimeItem(item);
   for (const url of item.renditionUrls?.values?.() || []) URL.revokeObjectURL(url);
   for (const rendition of item.imageRenditions?.values?.() || []) rendition?.remove?.();
   item.imageRenditions?.clear?.();
-  item.persistedRenditionKeys?.clear?.();
+  item.persistedRenditions?.clear?.();
 }
 
-function unloadVideoRuntimeItem(item) {
-  if (!item?.video && !isVideoRuntimeItem(item)) return;
+function unloadMediaRuntimeItem(item) {
+  if (!item) return;
   item.loadToken++;
+  item.loading = false;
   item.video?.stop?.();
   item.video?.remove?.();
   item.video = null;
+  item.image?.remove?.();
+  if (typeof Image !== "undefined" && item.image instanceof Image) item.image.src = "";
+  item.image = null;
+  item.imageVariantWidth = 0;
+  item.imageSourceWidth = 0;
+  item.imageDemandWidth = 0;
+  disposeRawModelItemResources(item);
+  item.model = null;
+  item.modelData = null;
+  item.modelGeometry = null;
+  item.modelGeometryFailed = false;
+  item.modelPointCloud = null;
+  item.modelPointCloudKey = "";
   item.ready = false;
   if (item.url) URL.revokeObjectURL(item.url);
   item.url = null;
+  for (const url of item.renditionUrls?.values?.() || []) URL.revokeObjectURL(url);
+  item.renditionUrls?.clear?.();
+  for (const rendition of item.imageRenditions?.values?.() || []) rendition?.remove?.();
+  item.imageRenditions?.clear?.();
+  item.imageRenditionOrder = [];
+  item.revision++;
+}
+
+function isMediaRuntimeItemLoaded(item) {
+  return !!(item && (item.video || item.image || item.model || item.modelData || item.url));
+}
+
+function recordRasterDemand(item, width) {
+  if (!isRasterRuntimeItem(item)) return;
+  item.imageDemandWidth = Math.max(Number(item.imageDemandWidth) || 0, rasterVariantWidth(width));
+}
+
+function rasterVariantWidth(width) {
+  const requestedWidth = Math.max(0, Math.floor(Number(width) || 0));
+  return requestedWidth
+    ? Math.max(512, Math.min(4096, Math.ceil(requestedWidth / 256) * 256))
+    : 0;
+}
+
+function shouldUpgradeRasterVariant(item) {
+  if (!isRasterRuntimeItem(item) || !item.image) return false;
+  const demand = Number(item.imageDemandWidth) || 0;
+  const variant = Number(item.imageVariantWidth) || Number(item.image?.width) || 0;
+  const source = Number(item.imageSourceWidth) || 0;
+  if (!demand || demand <= variant) return false;
+  return !source || source > variant;
+}
+
+function isRasterRuntimeItem(item) {
+  return !!item && /\.(png|jpe?g|gif|webp|bmp)$/i.test(item.id || "");
+}
+
+function replaceRuntimeImage(item, image) {
+  const previous = item.image;
+  item.image = image;
+  if (previous && previous !== image) previous.remove?.();
+}
+
+function estimateMediaRuntimeBytes(item) {
+  if (!item) return 0;
+  if (item.video) {
+    const element = item.video.elt || item.video;
+    const width = Math.max(1, Number(element.videoWidth) || Number(element.width) || 1);
+    const height = Math.max(1, Number(element.videoHeight) || Number(element.height) || 1);
+    // A decoder commonly retains multiple YUV/RGBA frames. This conservative
+    // estimate is for eviction pressure, not accounting telemetry.
+    return Math.max(Number(item.file?.size) || 0, width * height * 12);
+  }
+  if (item.image) {
+    const element = item.image.elt || item.image;
+    const width = Math.max(1, Number(element.naturalWidth) || Number(element.width) || Number(item.image.width) || 1);
+    const height = Math.max(1, Number(element.naturalHeight) || Number(element.height) || Number(item.image.height) || 1);
+    const derivedBytes = Array.from(item.imageRenditions?.values?.() || [])
+      .reduce((total, rendition) => total + estimateDrawableBytes(rendition), 0);
+    return Math.max(Number(item.file?.size) || 0, width * height * 4) + derivedBytes;
+  }
+  if (item.modelData || item.model) return Math.max(Number(item.file?.size) || 0, typedArrayBytes(item.modelData || item.model));
+  return Number(item.file?.size) || 0;
+}
+
+function estimateDrawableBytes(drawable) {
+  const element = drawable?.elt || drawable;
+  const width = Math.max(1, Number(element?.naturalWidth) || Number(element?.width) || Number(drawable?.width) || 1);
+  const height = Math.max(1, Number(element?.naturalHeight) || Number(element?.height) || Number(drawable?.height) || 1);
+  return width * height * 4;
+}
+
+function typedArrayBytes(value, seen = new Set()) {
+  if (!value || typeof value !== "object" || seen.has(value)) return 0;
+  if (ArrayBuffer.isView(value)) return value.byteLength;
+  if (value instanceof ArrayBuffer) return value.byteLength;
+  seen.add(value);
+  let total = 0;
+  for (const nested of Object.values(value)) total += typedArrayBytes(nested, seen);
+  return total;
 }
 
 function releaseRenditionUrl(item, key, expectedUrl = null) {

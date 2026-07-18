@@ -88,6 +88,24 @@ export function terrainRowMetrics(componentTime, flightSpeed, gridDepth, gridDen
   return { cellScale, rowSpacing, travelRows: cameraTravel / rowSpacing };
 }
 
+export function terrainSafeNearDistance({
+  nearClip = 0.1,
+  gridWidth = TERRAIN_GRID_CELLS,
+  gridDepth = TERRAIN_GRID_CELLS,
+  gridDensity = 1,
+  gridScale = 1,
+} = {}) {
+  const logicalWidth = terrainGridSize(gridWidth);
+  const tessellatedWidth = terrainTessellationSize(logicalWidth, gridDensity);
+  const { cellScale, rowSpacing } = terrainRowMetrics(0, 0, gridDepth, gridDensity, gridScale);
+  // This matches the actual tessellated cell footprint consumed by both raw
+  // Terrain passes. Keeping the floor in testable CPU math prevents the
+  // surface and expanded-wire shaders from drifting to different clip planes.
+  const lateralSpacing = logicalWidth * cellScale * 1.44 / Math.max(tessellatedWidth, 1);
+  const meshCellDiagonal = Math.hypot(Math.max(lateralSpacing, 0.01), Math.max(rowSpacing, 0.01));
+  return Math.max(0.01, Number(nearClip) || 0, meshCellDiagonal);
+}
+
 export function terrainTriangleEdgeUvs(widthCells = TERRAIN_GRID_CELLS, irregularity = 0.62, travelRows = null, depthCells = widthCells) {
   const mesh = terrainIrregularMesh(widthCells, depthCells, irregularity, travelRows);
   const uniqueEdges = new Map();

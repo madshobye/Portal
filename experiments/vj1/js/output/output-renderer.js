@@ -23,8 +23,8 @@ import { drawGenerator, drawStandby } from "./generators.js?v=adaptive-component
 import { drawCover, drawMediaFit, isDrawableMedia } from "./media-utils.js?v=video-active-ownership-1";
 import { chainLayerState, componentRuntimeTimeKey, createMediaReadinessStatus, isReadyMediaItem, renderBufferKey, runtimeComponentGraphMediaState, runtimeMediaStateForSource, staticComponentGraphMediaState, staticComponentGraphState, staticMediaStateForSource, staticSourceState } from "./component-render-state.js?v=render-stability-2";
 import { isEffectNode, isSimpleLayer, isSourceNode, mediaSourceFit, nodesInComponentChainOrder, patchLayerForNode, shaderPassFromNode, sourceFromPatchNode, sourceWithNodeParams, withSourceInstance } from "./component-patch-adapter.js?v=shader-component-catalog-extraction-1";
-import { collectOutputMediaReadiness } from "./output-media-readiness.js?v=render-stability-2";
-import { OutputMediaRuntime, cameraSettingsSignature } from "./output-media-runtime.js?v=video-active-ownership-1";
+import { collectOutputMediaReadiness } from "./output-media-readiness.js?v=media-demand-6";
+import { OutputMediaRuntime, cameraSettingsSignature } from "./output-media-runtime.js?v=media-demand-6";
 import { OutputThumbnailRuntime } from "./output-thumbnail-runtime.js?v=output-assets-runtime-extraction-1";
 import { OutputSurfaceRuntime } from "./output-surface-runtime.js?v=transition-route-scope-1";
 import { stableSurfaceRenderRequest } from "./surface-render-planner.js?v=surface-runtime-extraction-1";
@@ -49,7 +49,7 @@ import {
 } from "./render-geometry.js?v=adaptive-component-demand-29";
 import { VjMapper } from "./vj-mapper.js?v=render-diagnostics-1";
 import { colorUniform } from "./specialized/model-color.js?v=adaptive-component-demand-29";
-import { SpecializedSourceRuntime } from "./specialized/specialized-source-runtime.js?v=terrain-world-up-1";
+import { SpecializedSourceRuntime } from "./specialized/specialized-source-runtime.js?v=media-demand-6";
 import {
   canvasMaxRasterSize,
   canvasPreviewRenderRequest,
@@ -74,15 +74,16 @@ export { chainTransformDragScale, pointInTransformedRect } from "./preview-inter
 export { advanceRateClock, advanceSpatialScale, componentInstanceTime, effectTransformUniforms, eyeballFrameUniforms, instanceTime, qualityAdjustedGeneratorParams, qualityScaledRenderRequest } from "./render-runtime-math.js?v=render-coordinate-scope-3";
 export { sourceWithNodeParams } from "./component-patch-adapter.js?v=shader-component-catalog-extraction-1";
 export { fittedThumbnailSize } from "./thumbnail-utils.js?v=thumbnail-utils-extraction-1";
-export { cameraCaptureSettings, cameraSettingsSignature } from "./output-media-runtime.js?v=video-active-ownership-1";
+export { cameraCaptureSettings, cameraSettingsSignature } from "./output-media-runtime.js?v=media-demand-6";
 export {
   terrainExpandedGridWireVertices,
   terrainExpandedWireVertices,
   terrainGridSize,
+  terrainSafeNearDistance,
   terrainSurfaceGridVertices,
   terrainSurfaceTriangleIndices,
   terrainTriangleEdgeUvs,
-} from "./specialized/terrain-mesh.js?v=adaptive-component-demand-29";
+} from "./specialized/terrain-mesh.js?v=terrain-near-contract-2";
 export {
   canvasComponentPlacementRect,
   canvasFrameBorderHit,
@@ -175,6 +176,7 @@ export class OutputRenderer {
     this.gpuTimer = new GpuTimerTracker();
     this.specializedSources = new SpecializedSourceRuntime({
       media: () => this.media,
+      acquireMedia: (id, options) => this.acquireMedia(id, options),
       requestMissingMedia: (id) => this.requestMissingMedia(id),
       requestMissingMediaBatch: (ids) => this.requestMissingMediaBatch(ids),
       applyGraphicsPixelDensity: (target, density) => this.applyGraphicsPixelDensity(target, density),
@@ -699,6 +701,14 @@ export class OutputRenderer {
 
   importFiles(files) {
     this.mediaRuntime.importFiles(files);
+  }
+
+  acquireMedia(mediaId, options = {}) {
+    const frame = frameSize(this.state?.render || {});
+    return this.mediaRuntime.acquireMedia(this.media.get(mediaId), {
+      ...options,
+      width: Math.max(1, Number(options.width) || frame.width),
+    });
   }
 
   emitMapping(mapping = this.mapper?.exportData?.(), status = "Mapping updated", meta = {}) {
@@ -1257,7 +1267,7 @@ export class OutputRenderer {
         : { ...item, transform: combineContentTransforms(inheritedTransform, item.transform || {}) };
       const nodeId = renderBufferKey(component.id, scopeId, index, item.id || item.componentId || item.kind);
       if (item.kind === "source") {
-        if (this.canDirectCompositeSource(renderedItem)) {
+        if (this.canDirectCompositeSource(renderedItem, renderRequest)) {
           state = this.renderDirectSourceNodeState(nodeId, state, component, renderedItem, componentTime, renderRequest);
           continue;
         }
@@ -1316,12 +1326,12 @@ export class OutputRenderer {
     return state;
   }
 
-  canDirectCompositeSource(item = {}) {
+  canDirectCompositeSource(item = {}, renderRequest = {}) {
     const source = item.source || {};
     const dependency = source.type === "component"
       ? this.state?.components?.find((component) => component.id === source.componentId)
       : null;
-    const media = this.media.get(source.mediaId);
+    const media = source.type === "media" ? this.acquireMedia(source.mediaId, { width: renderRequest.width }) : null;
     return !!directPlacementKind({
       source,
       blend: item.blend || "normal",
@@ -1387,13 +1397,13 @@ export class OutputRenderer {
       });
     }
     if (source.type === "media") {
-      const media = this.media.get(source.mediaId);
-      if (media?.video && isDrawableMedia(media.video)) {
-        this.mediaRuntime.claimVideoPlayback(media.video, {
+      const playback = {
           start: source.start,
           end: source.end,
           speed: (this.state?.global?.playing === false ? 0 : 1) * globalVisualTimeScale(this.state?.global) * (Number(source.speed) || 1) * Math.max(0, Number(component.speed) || 0),
-        });
+      };
+      const media = this.acquireMedia(source.mediaId, { playback, width: renderRequest.width });
+      if (media?.video && isDrawableMedia(media.video)) {
         return createPlacedRenderResult(media.video, {
           destinationRect: fullTargetRect(target),
           fit: mediaSourceFit(source),
@@ -1735,8 +1745,8 @@ export class OutputRenderer {
       });
       const featureMorphPairs = this.featureMorphPairService(source.generatorId);
       if (featureMorphPairs && params.imageAId && params.imageBId) {
-        const imageA = this.media.get(params.imageAId);
-        const imageB = this.media.get(params.imageBId);
+        const imageA = this.acquireMedia(params.imageAId);
+        const imageB = this.acquireMedia(params.imageBId);
         if (!isReadyMediaItem(imageA) || !isReadyMediaItem(imageB)) return true;
         const analysisStatus = featureMorphPairs.status(params, {
           imageAFile: imageA.file,
@@ -1744,7 +1754,7 @@ export class OutputRenderer {
         });
         if (analysisStatus === "idle" || analysisStatus === "loading") return true;
       }
-      if (source.generatorId === "tileTexture" && params.imageId && !isReadyMediaItem(this.media.get(params.imageId))) return true;
+      if (source.generatorId === "tileTexture" && params.imageId && !isReadyMediaItem(this.acquireMedia(params.imageId))) return true;
       return component.runtime?.cacheable === false || component.runtime?.timeDependent?.(params) === true;
     }
     if (source.type === "component") {
@@ -1754,7 +1764,7 @@ export class OutputRenderer {
     if (source.type !== "media") return true;
     const mediaId = source.mediaId || "";
     const mediaMeta = (this.state?.media || []).find((item) => item.id === mediaId);
-    const runtimeItem = this.media.get(mediaId);
+    const runtimeItem = this.acquireMedia(mediaId);
     if (!mediaMeta || !isReadyMediaItem(runtimeItem)) return true;
     if (mediaMeta.type === "video" || runtimeItem?.video) return true;
     if (mediaMeta.type === "model" || runtimeItem?.model || runtimeItem?.modelData) {
@@ -1975,13 +1985,13 @@ export class OutputRenderer {
         sourceIsWebGL: this.isShaderBuffer(sourceOutput),
       }));
     } else if (source.type === "media") {
-      const item = this.media.get(source.mediaId);
-      if (item?.video && isDrawableMedia(item.video)) {
-        this.mediaRuntime.claimVideoPlayback(item.video, {
+      const playback = {
           start: source.start,
           end: source.end,
           speed: (this.state?.global?.playing === false ? 0 : 1) * globalVisualTimeScale(this.state?.global) * (Number(source.speed) || 1) * Math.max(0, Number(component.speed) || 0),
-        });
+      };
+      const item = this.acquireMedia(source.mediaId, { playback, width: pg.width });
+      if (item?.video && isDrawableMedia(item.video)) {
         drawWithContentTransform(pg, source.contentTransform, () => {
           drawMediaFit(pg, item.video, 0, 0, pg.width, pg.height, mediaSourceFit(source));
         });
@@ -2893,7 +2903,12 @@ export class OutputRenderer {
   }
 
   outputMediaReadiness() {
-    const status = collectOutputMediaReadiness({ mode: this.mode, state: this.state, media: this.media });
+    const status = collectOutputMediaReadiness({
+      mode: this.mode,
+      state: this.state,
+      media: this.media,
+      acquireMedia: (id) => this.acquireMedia(id),
+    });
     this.requestMissingMediaBatch(Array.from(status.missingIds));
     return status;
   }

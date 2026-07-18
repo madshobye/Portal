@@ -1,7 +1,7 @@
 import { VJ1, WORKSPACES } from "../constants.js";
 import { applySceneSnapshotToState, createLiveRenderState, createSceneSnapshot, sceneSourceNodes, syncLiveSnapshotFromScene } from "../domain/models.js?v=render-coordinate-scope-3";
 import { buildOutputUrl } from "../view-routing.js?v=adaptive-component-demand-29";
-import { createEmbeddedPreviewApp } from "../output/embedded-preview-app.js?v=video-active-ownership-1";
+import { createEmbeddedPreviewApp } from "../output/embedded-preview-app.js?v=media-demand-6";
 import { frameFitViewport, resetViewport, updatePreviewViewportForUi, zoomViewport } from "../output/preview-viewport.js?v=render-coordinate-scope-3";
 import { defaultProjectSurfaceMapping } from "../output/render-geometry.js?v=adaptive-component-demand-29";
 import { analyzeVj1Project } from "../metrics/component-metrics.js?v=shader-component-catalog-extraction-1";
@@ -16,7 +16,7 @@ import { liveInspectorTemplate, liveScenePillTemplate, scenePillTemplate, sceneR
 import { componentCardBarTemplate, panelTemplate, projectEmptyTemplate, textListItemTemplate } from "./view-primitives.js?v=view-primitives-extraction-1";
 import { emptyNote, esc, icon, thumbnailTemplate } from "./template-utils.js?v=slider-values-70";
 import { createClipboardController } from "./clipboard-controller.js?v=clipboard-controller-extraction-1";
-import { createModalController } from "./modal-controller.js?v=terrain-mesh-near-1";
+import { createModalController } from "./modal-controller.js?v=media-demand-6";
 import { createInputController } from "./input-controller.js?v=render-coordinate-scope-3";
 
 export function createControlShell({ root, store, bridge, mediaLibrary, projectService }) {
@@ -32,7 +32,6 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
   let performanceProfileTimer = 0;
   const catalogOrderSnapshots = { component: [], scene: [] };
   const replaceHtmlIfChanged = createHtmlCache();
-  const mediaPreviewUrls = new Map();
   const clipboard = createClipboardController({
     root,
     store,
@@ -46,7 +45,6 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
     getState: () => latestState,
     getHost: () => refs.modalHost,
     mediaLibrary,
-    mediaPreviewUrls,
     replaceHtmlIfChanged,
     getCatalogSortMode: (state) => catalogSortMode(state, "component"),
     bindCatalogSortControls,

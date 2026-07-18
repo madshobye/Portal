@@ -9,6 +9,18 @@ const SHADER_RE = /\.(frag|glsl|fs)$/i;
 export function createMediaLibrary() {
   const files = new Map();
   const renditions = new Map();
+  const previewUrls = new Map();
+
+  function releasePreviewUrl(id) {
+    const url = previewUrls.get(id);
+    if (!url) return;
+    URL.revokeObjectURL(url);
+    previewUrls.delete(id);
+  }
+
+  function releasePreviewUrls() {
+    for (const id of previewUrls.keys()) releasePreviewUrl(id);
+  }
 
   function getMeta(file) {
     const path = file.relativePath || file.webkitRelativePath || file.name || uid("media");
@@ -33,6 +45,7 @@ export function createMediaLibrary() {
           if (parsed) renditions.set(parsed.key, { ...parsed, file });
         } else if (isMediaFile(path)) {
           const meta = getMeta(file);
+          if (files.get(meta.id) !== file) releasePreviewUrl(meta.id);
           files.set(meta.id, file);
           media.push(meta);
         } else if (SHADER_RE.test(path)) {
@@ -44,6 +57,16 @@ export function createMediaLibrary() {
     getFile(id) {
       return files.get(id) || null;
     },
+    acquirePreviewUrl(id) {
+      if (previewUrls.has(id)) return previewUrls.get(id);
+      const file = files.get(id);
+      if (!file) return "";
+      const url = URL.createObjectURL(file);
+      previewUrls.set(id, url);
+      return url;
+    },
+    releasePreviewUrl,
+    releasePreviewUrls,
     getAllFiles() {
       return Array.from(files.entries()).map(([id, file]) => ({
         id,
@@ -67,6 +90,7 @@ export function createMediaLibrary() {
         .map((entry) => ({ ...entry }));
     },
     clear() {
+      releasePreviewUrls();
       files.clear();
       renditions.clear();
     },

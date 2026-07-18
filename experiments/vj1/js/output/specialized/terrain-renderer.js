@@ -14,10 +14,11 @@ import {
   terrainExpandedGridWireVertices,
   terrainGridSize,
   terrainRowMetrics,
+  terrainSafeNearDistance,
   terrainSurfaceGridVertices,
   terrainSurfaceTriangleIndices,
   terrainTessellationSize,
-} from "./terrain-mesh.js?v=adaptive-component-demand-29";
+} from "./terrain-mesh.js?v=terrain-near-contract-2";
 
 // Terrain camera height is world-up: positive cameraY is above the camera and
 // negative cameraY is below it. WebGL clip Y uses the same upward convention.
@@ -25,12 +26,10 @@ import {
 // exactly once, inside placeTerrainInComposition().
 const TERRAIN_CAMERA_CLIP_GLSL = `
 float terrainSafeNearPlane() {
-  // A triangle closer than its own tessellated footprint can cross the
-  // camera as a screen-spanning wedge. The user near clip is therefore a
-  // minimum, while mesh density and scale define the representable floor.
-  float lateralSpacing = gridCells.x * cellScale * 1.44 / max(meshCells.x, 1.0);
-  float meshCellDiagonal = length(vec2(max(lateralSpacing, 0.01), max(rowSpacing, 0.01)));
-  return max(max(nearClip, 0.01), meshCellDiagonal);
+  // nearClip already contains the CPU-computed tessellated-footprint floor.
+  // Both surface depth projection and expanded-wire clipping consume this
+  // exact uniform rather than maintaining two hidden approximations.
+  return max(nearClip, 0.01);
 }
 
 float terrainClipYFromWorldUp(float worldUpY) {
@@ -771,7 +770,7 @@ function setTerrainRawUniforms(gl, resources, params, componentTime, planeWidth,
   gl.uniform1f(resources.altitude, Math.max(0.2, Number(params.altitude) || 2.5));
   gl.uniform1f(resources.pitch, Math.max(-1.4, Number(params.pitch) || 0.28));
   gl.uniform1f(resources.fieldOfView, Math.max(20, Math.min(120, Number(params.fieldOfView) || 60)));
-  gl.uniform1f(resources.nearClip, Math.max(0.01, Number(params.nearClip) || 0.1));
+  gl.uniform1f(resources.nearClip, terrainSafeNearDistance(params));
   gl.uniform1f(resources.farClip, Math.max(100, Number(params.farClip) || 20000));
   gl.uniform1f(resources.aspectRatio, planeWidth / Math.max(1, planeDepth));
   gl.uniform1f(resources.lookAhead, Math.max(0.1, Number(params.lookAhead) || 14));

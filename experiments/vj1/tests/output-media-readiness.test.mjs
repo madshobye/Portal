@@ -37,7 +37,7 @@ test("output readiness traverses nested components groups and generator media", 
 test("output renderer delegates loading and blackout traversal", () => {
   const rendererSource = readFileSync(new URL("../js/output/output-renderer.js", import.meta.url), "utf8");
 
-  assert.ok(rendererSource.includes('from "./output-media-readiness.js?v=render-stability-2"'));
+  assert.match(rendererSource, /from "\.\/output-media-readiness\.js\?v=[^"]+"/);
   assert.doesNotMatch(rendererSource, /collectComponentMediaReadiness\(/);
   assert.doesNotMatch(rendererSource, /collectChainMediaReadiness\(/);
   assert.ok(rendererSource.includes("this.requestMissingMediaBatch(Array.from(status.missingIds))"));

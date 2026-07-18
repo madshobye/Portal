@@ -12,7 +12,7 @@ import { modelColor, normalizedModelColor } from "./model-color.js?v=adaptive-co
 import { modelRotation, modelViewportMetrics, modelWireThickness } from "./model-render-math.js?v=model-render-math-extraction-1";
 import { drawGeometryModel, drawParsedModel, drawPointCloud, drawWithPolygonOffset, ensureP5ModelPointCloud, ensureParsedModelGeometry, ensureParsedModelPointCloud } from "./model-mesh-cache.js?v=model-mesh-cache-extraction-1";
 import { disposeRawModelItemResources, drawRawParsedModelMode } from "./raw-model-webgl-renderer.js?v=media-resource-disposal-1";
-import { disposeTerrainSurfaceResources, disposeTerrainWireResources, drawTerrainSurface, drawTerrainWireframe } from "./terrain-renderer.js?v=terrain-world-up-1";
+import { disposeTerrainSurfaceResources, disposeTerrainWireResources, drawTerrainSurface, drawTerrainWireframe } from "./terrain-renderer.js?v=terrain-near-contract-2";
 import { FEATURE_MORPH_FRAGMENT_SHADER, FEATURE_MORPH_VERTEX_SHADER, imageFitUniform } from "./feature-morph-shader.js?v=render-core-contract-1";
 import { mobileNetMorphFieldForStrategy, MobileNetMorphPairService } from "./mobilenet-morph-service.js?v=surface-media-contract-4";
 import { SuperPointPairService } from "./superpoint-service.js?v=surface-media-contract-4";
@@ -21,6 +21,7 @@ import { TILE_TEXTURE_FRAGMENT_SHADER, TILE_TEXTURE_VERTEX_SHADER } from "./tile
 export class SpecializedSourceRuntime {
   constructor({
     media,
+    acquireMedia,
     requestMissingMedia,
     requestMissingMediaBatch,
     applyGraphicsPixelDensity,
@@ -29,6 +30,7 @@ export class SpecializedSourceRuntime {
     frameIndex,
   } = {}) {
     this.media = media || (() => new Map());
+    this.acquireMedia = acquireMedia || ((id) => this.media().get(id));
     this.requestMissingMedia = requestMissingMedia || (() => {});
     this.requestMissingMediaBatch = requestMissingMediaBatch || (() => {});
     this.applyGraphicsPixelDensity = applyGraphicsPixelDensity || ((target, density) => target?.pixelDensity?.(density));
@@ -67,9 +69,9 @@ export class SpecializedSourceRuntime {
       drawStandby(pg, "choose two images");
       return;
     }
-    const media = this.media();
-    const itemA = media.get(imageAId);
-    const itemB = media.get(imageBId);
+    const imageRequest = { width: Math.max(1024, Number(pg.width) || 0) };
+    const itemA = this.acquireMedia(imageAId, imageRequest);
+    const itemB = this.acquireMedia(imageBId, imageRequest);
     const missingIds = [!itemA ? imageAId : "", !itemB ? imageBId : ""].filter(Boolean);
     if (missingIds.length) this.requestMissingMediaBatch(missingIds);
     if (!itemA?.image || !itemB?.image) {
@@ -134,7 +136,7 @@ export class SpecializedSourceRuntime {
       drawStandby(pg, "choose a tileable texture");
       return;
     }
-    const item = this.media().get(imageId);
+    const item = this.acquireMedia(imageId, { width: pg.width });
     if (!item?.image) {
       if (!item) this.requestMissingMedia(imageId);
       drawStandby(pg, item?.imageError || "loading tile texture");
@@ -227,11 +229,11 @@ export class SpecializedSourceRuntime {
       if (style >= 1) drawTerrainWireframe(target, this.terrainWireResources, flightParams, flightTime, target.width, target.height, renderRequest);
       target.pop();
     });
-    // Terrain writes screen-down Composition coordinates directly into a
-    // framebuffer sampled in the same WebGL context. Its texture is already
-    // in presentation orientation; marking raw storage as bottom-left here
-    // applied a second Y flip in presentGeneratedTarget().
-    markRenderTargetOrientation(target, RENDER_TEXTURE_ORIENTATION.topLeft);
+    // Camera/projected coordinates are already in screen-down Composition
+    // space, but raw WebGL framebuffer storage still has a bottom-left texture
+    // origin. Describe storage truthfully here; presentGeneratedTarget() owns
+    // the single conversion into the top-left compositor convention.
+    markRenderTargetOrientation(target, RENDER_TEXTURE_ORIENTATION.bottomLeft);
     this.presentGeneratedTarget(pg, target);
   }
 

@@ -10,7 +10,7 @@ import { RenderNodeRuntime, textureStateKey } from "../js/graph/render-node-runt
 import { compileComponentPatch } from "../js/graph/render-scheduler.js?v=world-frame-27";
 import { shouldHoldCurrentOutputState } from "../js/output/output-app.js";
 import { drawMediaFit } from "../js/output/media-utils.js?v=surface-media-contract-5";
-import { advanceRateClock, advanceSpatialScale, modelDepthCutoff, OutputRenderer, parseObjMesh, qualityAdjustedGeneratorParams, qualityScaledRenderRequest, resolutionScaledStrokeWidth, sourceWithNodeParams, terrainExpandedGridWireVertices, terrainExpandedWireVertices, terrainGridSize, terrainSurfaceGridVertices, terrainSurfaceTriangleIndices, terrainTriangleEdgeUvs, transformedModelDepthRange } from "../js/output/output-renderer.js?v=world-frame-27";
+import { advanceRateClock, advanceSpatialScale, modelDepthCutoff, OutputRenderer, parseObjMesh, qualityAdjustedGeneratorParams, qualityScaledRenderRequest, resolutionScaledStrokeWidth, sourceWithNodeParams, terrainExpandedGridWireVertices, terrainExpandedWireVertices, terrainGridSize, terrainSafeNearDistance, terrainSurfaceGridVertices, terrainSurfaceTriangleIndices, terrainTriangleEdgeUvs, transformedModelDepthRange } from "../js/output/output-renderer.js?v=world-frame-27";
 import { terrainCameraView } from "../js/output/specialized/specialized-source-runtime.js";
 import { getMediaType, isMediaFile } from "../js/services/media-library-service.js";
 
@@ -425,7 +425,8 @@ test("terrain flyover exposes flight, terrain, wire, and biome controls", () => 
   assert.ok(rendererSource.includes("(meshUv.x - 0.5) * gridCells.x * cellScale * 1.44"));
   assert.ok(rendererSource.includes("terrainTessellationSize(widthCells, params.gridDensity)"));
   assert.ok(rendererSource.includes("terrainClipYFromWorldUp(cameraY) * focalLength"));
-  assert.ok(rendererSource.includes("float meshCellDiagonal = length(vec2(max(lateralSpacing, 0.01), max(rowSpacing, 0.01)))"));
+  assert.ok(rendererSource.includes("terrainSafeNearDistance(params)"));
+  assert.ok(rendererSource.includes("return max(nearClip, 0.01)"));
   assert.equal((rendererSource.match(/terrainSafeNearPlane\(\)/g) || []).length, 4, "surface depth and wire clipping share one mesh-safe near plane");
   assert.ok(rendererSource.includes("vec3 screenUvH = vec3("));
   assert.ok(rendererSource.includes("vec3 placedUvH = contentPlacementMatrix * screenUvH"));
@@ -444,6 +445,20 @@ test("terrain flyover exposes flight, terrain, wire, and biome controls", () => 
   assert.ok(rendererSource.includes("if (startClip.w < clipNear && endClip.w < clipNear)"));
   assert.ok(!rendererSource.includes("surfaceHeight * mix(0.0, 0.50, nearAmount) * horizonRelief / max(altitude"));
   assert.ok(!rendererSource.includes("vTerrainUv * 40.0"));
+});
+
+test("terrain near clipping has one numeric mesh-footprint contract", () => {
+  const defaultFloor = terrainSafeNearDistance({
+    nearClip: 0.1,
+    gridWidth: 48,
+    gridDepth: 48,
+    gridDensity: 1,
+    gridScale: 1,
+  });
+  assert.ok(Math.abs(defaultFloor - Math.hypot(2.16, 1.5)) < 1e-9);
+  assert.equal(terrainSafeNearDistance({ nearClip: 10, gridWidth: 48, gridDepth: 48 }), 10);
+  assert.ok(terrainSafeNearDistance({ gridDensity: 2 }) < defaultFloor, "denser meshes permit a closer stable near plane");
+  assert.ok(terrainSafeNearDistance({ gridScale: 4 }) > defaultFloor, "larger cells move the safe near plane outward");
 });
 
 test("terrain flight speed changes preserve travel phase", () => {
@@ -478,7 +493,7 @@ test("terrain camera space is independent from generic chain transforms", () => 
   assert.match(drawTerrainSource, /terrainCameraView\(params, flightTime\)/);
   const cameraRenderSource = drawTerrainSource.slice(0, drawTerrainSource.indexOf("const flightParams"));
   assert.doesNotMatch(cameraRenderSource, /source\.contentTransform/);
-  assert.match(drawTerrainSource, /markRenderTargetOrientation\(target, RENDER_TEXTURE_ORIENTATION\.topLeft\)/);
+  assert.match(drawTerrainSource, /markRenderTargetOrientation\(target, RENDER_TEXTURE_ORIENTATION\.bottomLeft\)/);
   assert.match(drawTerrainSource, /contentPlacementMatrix: contentTransformUvMatrices\(source\.contentTransform\)\.placement/);
   assert.match(drawTerrainSource, /presentGeneratedTarget\(pg, target\)/);
 });
