@@ -4,6 +4,7 @@ import { bindReorderList } from "./reorder-list.js";
 import { formatTrimTime, roundTrimTime } from "./component-view.js?v=madstodo-4";
 import { getByPath, readInputValue, setByPath, setByPathCreate, syncRangeValue } from "./path-input-utils.js?v=path-input-utils-extraction-1";
 import { createLiveRenderPatch } from "../domain/live-render-patch.js?v=live-param-patch-1";
+import { bindMarkdownEditors } from "./markdown-editor.js?v=text-style-controls-1";
 
 export function createInputController({
   store,
@@ -25,6 +26,7 @@ export function createInputController({
     scope.querySelectorAll("[data-param-range]").forEach(bindParamRangeControl);
     scope.querySelectorAll("[data-color-param]").forEach(bindColorParamControl);
     bindPersistentInputs(scope);
+    bindMarkdownEditors(scope);
     bindPathButtons(scope);
     bindLiveInputs(scope);
     bindSelectionAndSourceButtons(scope);
@@ -83,6 +85,9 @@ export function createInputController({
           syncRangeValue(input);
           updateLivePathFromInput(input, "live:update");
         });
+      } else if (input.type === "text" || input.tagName === "TEXTAREA") {
+        input.addEventListener("input", () => updateLivePathFromInput(input, "scrub:live"));
+        input.addEventListener("change", () => updateLivePathFromInput(input, "live:update"));
       } else {
         input.addEventListener("change", () => updateLivePathFromInput(input, "live:update"));
       }

@@ -34,6 +34,9 @@ test("photo grade exposes common one-pass image tweak controls", () => {
   assert.ok(ids.includes("vibrance"));
   assert.ok(ids.includes("temperature"));
   assert.ok(ids.includes("grain"));
+  assert.ok(ids.includes("ditherAmount"));
+  assert.ok(ids.includes("ditherStyle"));
+  assert.ok(ids.includes("ditherDotSize"));
   assert.ok(ids.includes("distort"));
   assert.ok(ids.includes("invert"));
   assert.ok(ids.includes("seedMode"));
@@ -48,6 +51,8 @@ test("photo grade skips neutral costly sections with uniform gates", () => {
   assert.ok(component.code.includes("if (vignette > 0.001)"));
   assert.ok(component.code.includes("if (grain > 0.001)"));
   assert.ok(component.code.includes("if (noise > 0.001)"));
+  assert.ok(component.code.includes("if (ditherAmount > 0.001)"));
+  assert.ok(component.code.includes("photoGradePrintDither"));
   assert.ok(component.code.includes("if (abs(vibrance) > 0.001)"));
   assert.ok(component.code.includes("rgb = mix(rgb, 1.0 - rgb, invert)"));
 });
@@ -437,6 +442,58 @@ test("Cellular Circles preserves attribution and computes both nearest cells in 
   assert.ok(component.code.includes("secondDistance = nearestDistance"));
   assert.ok(component.code.includes("fragColor = vec4(clamp(color.rgb, 0.0, 1.0) * alpha, alpha)"));
   assert.equal((component.code.match(/for \(int x = -5/g) || []).length, 1, "nearest and second-nearest cells share one pass");
+});
+
+test("Lightning keeps only a premultiplied transparent strike and flash", () => {
+  const component = getGeneratorShaderComponent("lightning");
+
+  assert.equal(component.type, "shadertoy");
+  assert.ok(component.code.includes("https://www.shadertoy.com/view/fsdGWf"));
+  assert.ok(component.code.includes("float boltEnergy = strike * 0.4 + localGlow * 0.15 + wideGlow * 0.3"));
+  assert.ok(component.code.includes("fragColor = vec4(color * alpha, alpha)"));
+  assert.ok(!component.code.includes("mountain("));
+  assert.ok(!component.code.includes("cloud("));
+  assert.ok(!component.code.includes("uniform vec4 backgroundColor"));
+  assert.ok(!component.code.includes("vec3 background ="));
+});
+
+test("Sun Rays uses one compact polar pass with transparent premultiplied output", () => {
+  const component = getGeneratorShaderComponent("sunRays");
+
+  assert.equal(component.type, "shadertoy");
+  assert.ok(component.code.includes("uv.y = 1.0 - uv.y"));
+  assert.ok(component.code.includes("float acrossRay = abs(fract(angular) - 0.5) * 2.0"));
+  assert.ok(component.code.includes("float shimmerWave = sin("));
+  assert.ok(component.code.includes("vec3 combinedPremultiplied"));
+  assert.ok(component.code.includes("fragColor = vec4(combinedPremultiplied * amount, combinedAlpha * amount)"));
+  assert.equal((component.code.match(/for \(/g) || []).length, 0, "ray count changes frequency without adding loop work");
+  assert.ok(!component.code.includes("texture("));
+  assert.ok(!component.code.includes("texture2D("));
+});
+
+test("Galaxy preserves attribution and replaces Shadertoy channels with procedural noise and stars", () => {
+  const component = getGeneratorShaderComponent("galaxy");
+  const registry = getGeneratorComponent("galaxy");
+
+  assert.equal(component.type, "shadertoy");
+  assert.ok(component.code.includes("FabriceNeyret2"));
+  assert.ok(component.code.includes("Fabrice NEYRET"));
+  assert.ok(component.code.includes("https://www.shadertoy.com/view/MdBSDc"));
+  assert.ok(component.code.includes("float galaxyValueNoise"));
+  assert.ok(component.code.includes("float galaxyStars"));
+  assert.ok(component.code.includes("float galaxyFastProfile"));
+  assert.ok(component.code.includes("if (renderQuality < 0.34) return coarse"));
+  assert.equal((component.code.match(/galaxyValueNoise\(/g) || []).length, 3, "definition plus two samples replaces the seven-octave path");
+  assert.ok(!component.code.includes("for (int octave"));
+  assert.ok(!component.code.includes("exp("));
+  assert.ok(!component.code.includes("pow("));
+  assert.ok(component.code.includes("fragColor = vec4(clamp(color, 0.0, 1.0) * alpha, alpha)"));
+  assert.ok(!component.code.includes("iChannel0"));
+  assert.ok(!component.code.includes("iChannel1"));
+  assert.ok(!component.code.includes("iChannel2"));
+  assert.ok(registry.params.some((param) => param.id === "arms" && param.max === 12));
+  assert.equal(registry.runtime.timeDependent({ speed: 0 }), false);
+  assert.equal(registry.runtime.timeDependent({ speed: 0.1 }), true);
 });
 
 test("standalone generator shaders receive the shared quality uniform", () => {

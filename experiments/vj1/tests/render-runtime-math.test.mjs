@@ -42,7 +42,7 @@ test("unchanged generator params and eyeball animation can remain allocation-sta
 test("output renderer imports runtime policy instead of defining it", () => {
   const rendererSource = readFileSync(new URL("../js/output/output-renderer.js", import.meta.url), "utf8");
 
-  assert.ok(rendererSource.includes('from "./render-runtime-math.js?v=gc-allocation-1"'));
+  assert.match(rendererSource, /from "\.\/render-runtime-math\.js\?v=[^"]+"/);
   assert.doesNotMatch(rendererSource, /function qualityScaledRenderRequest\(/);
   assert.doesNotMatch(rendererSource, /function eyeballFrameUniforms\(/);
   assert.doesNotMatch(rendererSource, /function globalVisualTimeScale\(/);

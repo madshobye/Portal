@@ -1,0 +1,56 @@
+[
+  {
+    "filename": "01_limbo_colonnade.stl",
+    "name": "Circle I - Limbo colonnade panorama",
+    "triangles": 3908,
+    "bytes": 195484
+  },
+  {
+    "filename": "02_storm_of_souls.stl",
+    "name": "Circle II - Storm of souls panorama",
+    "triangles": 4036,
+    "bytes": 201884
+  },
+  {
+    "filename": "03_gluttony_mire.stl",
+    "name": "Circle III - Mire and Cerberus panorama",
+    "triangles": 2658,
+    "bytes": 132984
+  },
+  {
+    "filename": "04_hoarders_collision.stl",
+    "name": "Circle IV - Hoarders collision panorama",
+    "triangles": 3836,
+    "bytes": 191884
+  },
+  {
+    "filename": "05_styx_city_of_dis.stl",
+    "name": "Circle V - Styx and the city of Dis panorama",
+    "triangles": 2808,
+    "bytes": 140484
+  },
+  {
+    "filename": "06_flaming_tombs.stl",
+    "name": "Circle VI - Flaming tombs panorama",
+    "triangles": 2256,
+    "bytes": 112884
+  },
+  {
+    "filename": "07_violence_triptych.stl",
+    "name": "Circle VII - River forest and burning desert panorama",
+    "triangles": 4924,
+    "bytes": 246284
+  },
+  {
+    "filename": "08_malebolge_bridges.stl",
+    "name": "Circle VIII - Malebolge bridges panorama",
+    "triangles": 5348,
+    "bytes": 267484
+  },
+  {
+    "filename": "09_frozen_cocytus.stl",
+    "name": "Circle IX - Frozen Cocytus and Lucifer panorama",
+    "triangles": 3950,
+    "bytes": 197584
+  }
+]

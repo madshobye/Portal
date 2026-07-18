@@ -2,8 +2,8 @@ import { frameSize } from "./render-geometry.js?v=adaptive-component-demand-29";
 import { drawCover, isDrawableMedia, pauseVideoPlayback, syncVideoPlayback } from "./media-utils.js?v=video-active-ownership-1";
 import { mediaRenditionKey, mediaSourceRevision } from "../services/media-rendition-service.js?v=madstodo-4";
 import { graphicsToPngBlob } from "./thumbnail-utils.js?v=thumbnail-utils-extraction-1";
-import { parseObjMesh, parseStlMesh } from "./specialized/model-parsers.js?v=model-geometry-fix-30";
-import { disposeRawModelItemResources } from "./specialized/raw-model-webgl-renderer.js?v=media-resource-disposal-1";
+import { processObjModelText, processStlModelBuffer } from "./specialized/model-processing-client.js?v=model-lod-1";
+import { disposeRawModelItemResources, estimateRawModelItemGpuBytes } from "./specialized/raw-model-webgl-renderer.js?v=model-lod-1";
 import { readRasterDimensions } from "./raster-metadata.js?v=media-demand-6";
 
 export class OutputMediaRuntime {
@@ -179,6 +179,7 @@ export class OutputMediaRuntime {
 
   endFrame() {
     for (const item of this.media.values()) {
+      item.inactiveFrameCount = this.activeMediaItems.has(item) ? 0 : (Number(item.inactiveFrameCount) || 0) + 1;
       if (item?.video && !this.activeVideos.has(item.video)) pauseVideoPlayback(item.video);
     }
     this.evictInactiveMedia();
@@ -193,8 +194,12 @@ export class OutputMediaRuntime {
     const protectedCount = loaded.filter((item) => this.activeMediaItems.has(item) || this.reservedMediaIds.has(item.id)).length;
     let excess = loaded.length - Math.max(this.maxCachedMedia, protectedCount);
     for (const item of inactive) {
-      if (excess <= 0 && loadedBytes <= this.maxCachedMediaBytes) break;
-      loadedBytes -= estimateMediaRuntimeBytes(item);
+      const itemBytes = estimateMediaRuntimeBytes(item);
+      const heavyweightModelIdle = !!(item.modelData || item.model)
+        && itemBytes >= 16 * 1024 * 1024
+        && (Number(item.inactiveFrameCount) || 0) >= 30;
+      if (excess <= 0 && loadedBytes <= this.maxCachedMediaBytes && !heavyweightModelIdle) continue;
+      loadedBytes -= itemBytes;
       excess--;
       unloadMediaRuntimeItem(item);
     }
@@ -317,9 +322,19 @@ function createMediaRuntimeItem(id, file) {
     model: null,
     modelData: null,
     modelGeometry: null,
+    modelGeometryKey: "",
     modelGeometryFailed: false,
     modelPointCloud: null,
     modelPointCloudKey: "",
+    modelWireLines: null,
+    modelWireLinesKey: "",
+    modelThickWireVertices: null,
+    modelThickWireVerticesKey: "",
+    modelPerceptualEdges: null,
+    modelPerceptualEdgesKey: "",
+    modelPerceptualWireVertices: null,
+    modelPerceptualWireVerticesKey: "",
+    modelOutlineFallbackLogged: false,
     modelRawRenderers: null,
     modelError: "",
     imageRenditions: new Map(),
@@ -328,6 +343,7 @@ function createMediaRuntimeItem(id, file) {
     ready: false,
     loading: false,
     lastMediaUse: 0,
+    inactiveFrameCount: 0,
   };
 }
 
@@ -368,8 +384,13 @@ function loadMediaItem(item, request = {}) {
     item.file.arrayBuffer()
       .then((buffer) => {
         if (!isCurrent()) return;
-        item.modelData = parseStlMesh(buffer);
+        return processStlModelBuffer(buffer);
+      })
+      .then((mesh) => {
+        if (!isCurrent() || !mesh) return;
+        item.modelData = mesh;
         item.modelError = "";
+        reportModelLods(item, mesh);
         markReady();
       })
       .catch((error) => {
@@ -380,8 +401,13 @@ function loadMediaItem(item, request = {}) {
     item.file.text()
       .then((text) => {
         if (!isCurrent()) return;
-        item.modelData = parseObjMesh(text);
+        return processObjModelText(text);
+      })
+      .then((mesh) => {
+        if (!isCurrent() || !mesh) return;
+        item.modelData = mesh;
         item.modelError = "";
+        reportModelLods(item, mesh);
         markReady();
       })
       .catch((error) => {
@@ -628,9 +654,19 @@ function unloadMediaRuntimeItem(item) {
   item.model = null;
   item.modelData = null;
   item.modelGeometry = null;
+  item.modelGeometryKey = "";
   item.modelGeometryFailed = false;
   item.modelPointCloud = null;
   item.modelPointCloudKey = "";
+  item.modelWireLines = null;
+  item.modelWireLinesKey = "";
+  item.modelThickWireVertices = null;
+  item.modelThickWireVerticesKey = "";
+  item.modelPerceptualEdges = null;
+  item.modelPerceptualEdgesKey = "";
+  item.modelPerceptualWireVertices = null;
+  item.modelPerceptualWireVerticesKey = "";
+  item.modelOutlineFallbackLogged = false;
   item.ready = false;
   if (item.url) URL.revokeObjectURL(item.url);
   item.url = null;
@@ -695,7 +731,17 @@ function estimateMediaRuntimeBytes(item) {
       .reduce((total, rendition) => total + estimateDrawableBytes(rendition), 0);
     return Math.max(Number(item.file?.size) || 0, width * height * 4) + derivedBytes;
   }
-  if (item.modelData || item.model) return Math.max(Number(item.file?.size) || 0, typedArrayBytes(item.modelData || item.model));
+  if (item.modelData || item.model) {
+    const meshBytes = typedArrayBytes(item.modelData || item.model);
+    const derivedBytes = [
+      item.modelPointCloud,
+      item.modelWireLines,
+      item.modelThickWireVertices,
+      item.modelPerceptualEdges,
+      item.modelPerceptualWireVertices,
+    ].reduce((total, value) => total + typedArrayBytes(value), 0);
+    return Math.max(Number(item.file?.size) || 0, meshBytes) + derivedBytes + estimateRawModelItemGpuBytes(item);
+  }
   return Number(item.file?.size) || 0;
 }
 
@@ -708,12 +754,24 @@ function estimateDrawableBytes(drawable) {
 
 function typedArrayBytes(value, seen = new Set()) {
   if (!value || typeof value !== "object" || seen.has(value)) return 0;
+  seen.add(value);
   if (ArrayBuffer.isView(value)) return value.byteLength;
   if (value instanceof ArrayBuffer) return value.byteLength;
-  seen.add(value);
   let total = 0;
   for (const nested of Object.values(value)) total += typedArrayBytes(nested, seen);
   return total;
+}
+
+function reportModelLods(item, mesh) {
+  const sourceTriangles = Math.max(0, Number(mesh?.sourceTriangleCount) || Number(mesh?.triangleCount) || 0);
+  const levels = Array.from(mesh?.lods || [mesh]).map((lod) => Math.max(0, Number(lod?.triangleCount) || 0));
+  if (!sourceTriangles || levels.length <= 1) return;
+  console.info("[VJ1_MODEL_LOD_GENERATED]", {
+    id: item?.id || "",
+    sourceTriangles,
+    levels,
+    runtimeBytes: typedArrayBytes(mesh),
+  });
 }
 
 function releaseRenditionUrl(item, key, expectedUrl = null) {

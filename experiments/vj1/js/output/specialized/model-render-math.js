@@ -18,6 +18,14 @@ export function modelWireThickness(params = {}) {
   return Math.max(0.5, Math.min(12, Number(params.wireThickness) || 1));
 }
 
+// Perspective uses the vertical dimension of a 36x24 mm full-frame sensor.
+// The 20.8 mm default reproduces VJ1's original 60-degree vertical field of view.
+export function modelCameraFov(params = {}) {
+  const requested = Number(params.focalLength);
+  const focalLength = Math.max(8, Math.min(200, Number.isFinite(requested) ? requested : 20.7846096908));
+  return 2 * Math.atan(12 / focalLength);
+}
+
 export function modelDepthCutoff(params = {}, bounds = null, modelMatrix = null) {
   const requestedDepth = Number(params.visibleDepth);
   const visibleDepth = Math.max(0.02, Math.min(1, Number.isFinite(requestedDepth) ? requestedDepth : 1));
@@ -61,8 +69,8 @@ export function modelViewportMetrics(target, request = {}) {
   };
 }
 
-export function rawModelMatrices(width = 1, height = 1, scale = 1, depth = 1, rotation = [0, 0, 0], contentTransform = {}) {
-  const projection = mat4Perspective(Math.PI / 3, width / Math.max(1, height), 0.1, 5000);
+export function rawModelMatrices(width = 1, height = 1, scale = 1, depth = 1, rotation = [0, 0, 0], contentTransform = {}, cameraFov = Math.PI / 3) {
+  const projection = mat4Perspective(cameraFov, width / Math.max(1, height), 0.1, 5000);
   const cameraZ = Math.max(1, height) * 0.92;
   const view = mat4LookAt([0, 0, cameraZ], [0, 0, 0], [0, 1, 0]);
   let model = mat4Identity();
@@ -80,6 +88,30 @@ export function rawModelMatrices(width = 1, height = 1, scale = 1, depth = 1, ro
     model,
     mvp: mat4Multiply(mat4Multiply(projection, view), model),
   };
+}
+
+export function modelNormalMatrix(modelMatrix) {
+  if (!modelMatrix || modelMatrix.length !== 16) return new Float32Array([1, 0, 0, 0, 1, 0, 0, 0, 1]);
+  const a = modelMatrix[0], b = modelMatrix[4], c = modelMatrix[8];
+  const d = modelMatrix[1], e = modelMatrix[5], f = modelMatrix[9];
+  const g = modelMatrix[2], h = modelMatrix[6], i = modelMatrix[10];
+  const c00 = e * i - f * h;
+  const c01 = f * g - d * i;
+  const c02 = d * h - e * g;
+  const c10 = c * h - b * i;
+  const c11 = a * i - c * g;
+  const c12 = b * g - a * h;
+  const c20 = b * f - c * e;
+  const c21 = c * d - a * f;
+  const c22 = a * e - b * d;
+  const determinant = a * c00 + b * c01 + c * c02;
+  if (Math.abs(determinant) < 0.000000001) return new Float32Array([1, 0, 0, 0, 1, 0, 0, 0, 1]);
+  const inverseDeterminant = 1 / determinant;
+  return new Float32Array([
+    c00 * inverseDeterminant, c10 * inverseDeterminant, c20 * inverseDeterminant,
+    c01 * inverseDeterminant, c11 * inverseDeterminant, c21 * inverseDeterminant,
+    c02 * inverseDeterminant, c12 * inverseDeterminant, c22 * inverseDeterminant,
+  ]);
 }
 
 function validModelBound(value, fallback) {

@@ -1,4 +1,4 @@
-import { getShaderComponent } from "./shader-registry.js?v=madstodo-4";
+import { getShaderComponent } from "./shader-registry.js?v=photo-grade-print-1";
 
 export function createShaderBuilder({ getCustomCode, onStatus }) {
   const cache = new Map();

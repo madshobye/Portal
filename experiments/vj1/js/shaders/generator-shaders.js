@@ -1,5 +1,5 @@
 import { CORE_GENERATOR_SHADER_COMPONENTS } from "./generator-shaders-core.js?v=madstodo-4";
-import { SPATIAL_GENERATOR_SHADER_COMPONENTS } from "./generator-shaders-spatial.js?v=generator-shader-catalog-extraction-1";
+import { SPATIAL_GENERATOR_SHADER_COMPONENTS } from "./generator-shaders-spatial.js?v=sun-rays-1";
 import { ORGANIC_GENERATOR_SHADER_COMPONENTS } from "./generator-shaders-organic.js?v=generator-shader-catalog-extraction-1";
 
 const GENERATOR_SHADER_COMPONENTS = Object.freeze({

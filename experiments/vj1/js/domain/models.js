@@ -1,5 +1,5 @@
 import { VJ1, defaultCustomShaderCode, WORKSPACES } from "../constants.js";
-import { createGeneratorSource } from "../graph/generator-registry.js?v=adaptive-component-demand-29";
+import { createGeneratorSource } from "../graph/generator-registry.js?v=sun-rays-1";
 import { normalizeComponentFrameShape, normalizeComponentResolutionScale } from "./component-frame.js";
 import { createProjectActivity, normalizeProjectActivity } from "./component-activity.js?v=adaptive-component-demand-29";
 import { CURRENT_PROJECT_VERSION, migrateProjectData } from "./project-migrations.js?v=project-storage-1";
@@ -40,7 +40,7 @@ export function uid(prefix) {
   return `${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
 }
 
-export function createDefaultComponent(index = 0) {
+export function createDefaultComponent(index = 0, { empty = false } = {}) {
   const source = createDefaultSource();
   return {
     id: uid("component"),
@@ -54,7 +54,7 @@ export function createDefaultComponent(index = 0) {
     frameShape: "landscape",
     resolutionScale: 1,
     thumbnail: "",
-    chain: [createComponentLayer(index, source)],
+    chain: empty ? [] : [createComponentLayer(index, source)],
     shaderChain: [],
     activity: createProjectActivity(),
   };

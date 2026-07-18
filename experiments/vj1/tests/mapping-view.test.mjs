@@ -18,7 +18,7 @@ test("mapping view owns graph templates outside the control orchestrator", () =>
   assert.match(inspector, /class="sculpt-card mapping-inspector"/);
   assert.match(inspector, /Generators[\s\S]*Effects/);
   assert.match(inlets, /class="node-chip"/);
-  assert.match(controller, /from "\.\/mapping-view\.js\?v=terrain-mesh-near-1"/);
+  assert.match(controller, /from "\.\/mapping-view\.js\?v=[^"]+"/);
   assert.doesNotMatch(controller, /function mappingStudioTemplate\(/);
   assert.doesNotMatch(controller, /function mappingInspectorTemplate\(/);
   assert.doesNotMatch(controller, /function mappingInletsTemplate\(/);

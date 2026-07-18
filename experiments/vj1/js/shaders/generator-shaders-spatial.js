@@ -194,6 +194,339 @@ void mainImage(out vec4 fragColor, in vec2 fragCoord) {
 }
 `,
   },
+  galaxy: {
+    id: "generator.galaxy",
+    name: "Galaxy Generator",
+    type: "shadertoy",
+    code: `
+/*
+ * Adapted from "Galaxy3" by FabriceNeyret2 and "Galaxy" by Fabrice NEYRET.
+ * Original shader: https://www.shadertoy.com/view/MdBSDc
+ * The Shadertoy noise, stars, and keyboard channels are replaced with seeded
+ * procedural functions so the generator is self-contained and deterministic.
+ */
+
+uniform float speed;
+uniform float scale;
+uniform float rotation;
+uniform float arms;
+uniform float spiral;
+uniform float compression;
+uniform float armContrast;
+uniform float galaxyRadius;
+uniform float bulbRadius;
+uniform float blackHoleRadius;
+uniform float dustTexture;
+uniform float dustScale;
+uniform float starDensity;
+uniform float starSize;
+uniform float brightness;
+uniform float seed;
+uniform vec4 galaxyColor;
+uniform vec4 bulbColor;
+uniform vec4 blackHoleColor;
+uniform vec4 backgroundColor;
+uniform float amount;
+
+const float GALAXY_PI = 3.1415927;
+
+float galaxyHash12(vec2 point) {
+  vec3 value = fract(vec3(point.xyx) * 0.1031 + seed * 0.0137);
+  value += dot(value, value.yzx + 33.33);
+  return fract((value.x + value.y) * value.z);
+}
+
+vec2 galaxyHash22(vec2 point) {
+  float first = galaxyHash12(point);
+  return vec2(first, galaxyHash12(point + vec2(31.17, 17.53)));
+}
+
+float galaxyValueNoise(vec2 point) {
+  vec2 cell = floor(point);
+  vec2 local = fract(point);
+  vec2 blend = local * local * (3.0 - 2.0 * local);
+  float a = galaxyHash12(cell);
+  float b = galaxyHash12(cell + vec2(1.0, 0.0));
+  float c = galaxyHash12(cell + vec2(0.0, 1.0));
+  float d = galaxyHash12(cell + vec2(1.0, 1.0));
+  return mix(mix(a, b, blend.x), mix(c, d, blend.x), blend.y);
+}
+
+float galaxyDustNoise(vec2 point) {
+  float coarse = 1.0 - abs(2.0 * galaxyValueNoise(point) - 1.0);
+  float coarseSquared = coarse * coarse;
+  float coarseFourth = coarseSquared * coarseSquared;
+  float textureMix = clamp((dustTexture - 1.0) * 0.5, 0.0, 1.0);
+  coarse = mix(coarse, coarseSquared, min(textureMix * 2.0, 1.0));
+  coarse = mix(coarse, coarseFourth, max(textureMix * 2.0 - 1.0, 0.0));
+
+  // The second sample is a uniform quality branch. The original seven-octave
+  // texture loop performed up to 28 hashes per pixel; this path performs four
+  // at Low and eight at normal/high quality, with no loop or transcendental pow.
+  if (renderQuality < 0.34) return coarse;
+  float fine = 1.0 - abs(2.0 * galaxyValueNoise(point * 2.03 + vec2(13.7, 7.9)) - 1.0);
+  float fineSquared = fine * fine;
+  float fineFourth = fineSquared * fineSquared;
+  fine = mix(fine, fineSquared, min(textureMix * 2.0, 1.0));
+  fine = mix(fine, fineFourth, max(textureMix * 2.0 - 1.0, 0.0));
+  return coarse * 0.72 + fine * 0.28;
+}
+
+float galaxyStars(vec2 point) {
+  vec2 cell = floor(point);
+  vec2 local = fract(point);
+  vec2 randomValue = galaxyHash22(cell + 3.1);
+  vec2 starPoint = fract(randomValue * vec2(1.0, 1.618) + vec2(0.17, 0.43));
+  float enabled = step(1.0 - clamp(starDensity, 0.0, 1.0), fract(randomValue.x + randomValue.y * 1.73));
+  float size = mix(0.006, 0.055, clamp(starSize, 0.0, 1.0));
+  vec2 starDelta = local - starPoint;
+  float core = smoothstep(size * size, 0.0, dot(starDelta, starDelta));
+  float rayX = smoothstep(size * 2.8, 0.0, abs(local.x - starPoint.x));
+  float rayY = smoothstep(size * 2.8, 0.0, abs(local.y - starPoint.y));
+  return enabled * max(core, rayX * rayY * 0.18);
+}
+
+float galaxyFastProfile(float radiusSquared, float profileRadius) {
+  float safeRadius = max(profileRadius, 0.001);
+  float normalized = radiusSquared / (safeRadius * safeRadius);
+  return 1.0 / (1.0 + normalized * (1.0 + normalized));
+}
+
+void mainImage(out vec4 fragColor, in vec2 fragCoord) {
+  vec2 uv = (fragCoord - 0.5 * iResolution.xy) / max(min(iResolution.x, iResolution.y), 1.0);
+  float localScale = max(scale, 0.001);
+  float rotationAngle = rotation;
+  uv = mat2(cos(rotationAngle), -sin(rotationAngle), sin(rotationAngle), cos(rotationAngle)) * uv;
+  uv /= localScale;
+
+  float radiusSquared = max(dot(uv, uv), 0.00000025);
+  float angle = atan(uv.y, uv.x);
+  float shear = 0.5 * spiral * log(radiusSquared);
+
+  float density = galaxyFastProfile(radiusSquared, galaxyRadius);
+  float bulb = galaxyFastProfile(radiusSquared, bulbRadius);
+  float blackHole = blackHoleRadius <= 0.0001
+    ? 0.0
+    : galaxyFastProfile(radiusSquared, blackHoleRadius);
+
+  float armCount = max(floor(arms + 0.5), 1.0);
+  float phase = armCount * (angle - shear);
+  float phaseCosine = cos(phase);
+  float armWave = 0.5 + 0.5 * phaseCosine;
+  float armShape = armWave * armWave;
+  density *= mix(1.0, 0.2 + 1.8 * armShape, clamp(armContrast, 0.0, 1.0));
+
+  // Compose shear, arm compression, and animation into one rotation. This
+  // replaces two independent polar reconstructions from the original port.
+  float spiralTurn = shear - compression * phaseCosine + iTime * speed * 0.1;
+  float spiralCosine = cos(spiralTurn);
+  float spiralSine = sin(spiralTurn);
+  vec2 spiralUv = mat2(spiralCosine, -spiralSine, spiralSine, spiralCosine) * uv;
+
+  float dust = galaxyDustNoise(spiralUv * max(dustScale, 0.001));
+  float gasTransmission = max(1.0 - dust * density, 0.0);
+  gasTransmission *= gasTransmission;
+  float stars = galaxyStars(spiralUv * 74.0 + vec2(0.5));
+
+  vec3 galaxyLight = gasTransmission * 1.7 * galaxyColor.rgb + 1.2 * stars;
+  vec3 color = mix(backgroundColor.rgb, galaxyLight, clamp(density, 0.0, 1.0));
+  color = mix(color, 2.0 * bulbColor.rgb, clamp(1.2 * bulb, 0.0, 1.0));
+  color = mix(color, blackHoleColor.rgb, clamp(2.0 * blackHole, 0.0, 1.0));
+  color = max(color * brightness, 0.0);
+
+  float featureAlpha = max(
+    clamp(density * galaxyColor.a, 0.0, 1.0),
+    max(clamp(bulb * bulbColor.a, 0.0, 1.0), clamp(stars, 0.0, 1.0))
+  );
+  featureAlpha = max(featureAlpha, clamp(blackHole * blackHoleColor.a, 0.0, 1.0));
+  float alpha = clamp(mix(featureAlpha, 1.0, backgroundColor.a) * amount, 0.0, 1.0);
+  fragColor = vec4(clamp(color, 0.0, 1.0) * alpha, alpha);
+}
+`,
+  },
+  lightning: {
+    id: "generator.lightning",
+    name: "Lightning Generator",
+    type: "shadertoy",
+    code: `
+/*
+ * Adapted from https://www.shadertoy.com/view/fsdGWf
+ * The landscape, clouds, and opaque background have been removed. The strike,
+ * glow, and brief illumination remain as a premultiplied transparent layer.
+ */
+
+uniform float frequency;
+uniform float duration;
+uniform float boltWidth;
+uniform float jaggedness;
+uniform float positionSpread;
+uniform float boltLength;
+uniform float glow;
+uniform float glare;
+uniform float brightness;
+uniform float seed;
+uniform vec4 strikeColor;
+uniform float amount;
+
+float lightningRand(float x) {
+  return fract(sin(x + seed * 17.173) * 75154.32912);
+}
+
+float lightningNoise(float x) {
+  float index = floor(x);
+  float phase = fract(x);
+  return mix(lightningRand(index), lightningRand(index + 1.0), phase);
+}
+
+float lightningPerlin(float x) {
+  float result = 0.0;
+  float scale = 1.0;
+  float weight = 1.0;
+  for (int octave = 0; octave < 6; octave++) {
+    scale *= 2.0;
+    weight *= 0.5;
+    result += weight * lightningNoise(scale * x);
+  }
+  return result;
+}
+
+float lightningPath(float y) {
+  return jaggedness * (lightningPerlin(2.0 * y) - 0.5);
+}
+
+float lightningPlot(vec2 point, float width, bool thickenTurns) {
+  float adjustedWidth = width;
+  if (thickenTurns) {
+    adjustedWidth += 5.0 * abs(lightningPath(point.y + 0.001) - lightningPath(point.y));
+  }
+  return smoothstep(adjustedWidth, 0.0, abs(lightningPath(point.y) - point.x));
+}
+
+void mainImage(out vec4 fragColor, in vec2 fragCoord) {
+  vec2 uv = fragCoord / iResolution.xy;
+  uv.x = (uv.x * 2.0 - 1.0) * iResolution.x / max(iResolution.y, 1.0);
+
+  float cycleLength = max(duration, 0.001);
+  float cycle = iTime / cycleLength + 0.1;
+  float strikeIndex = floor(cycle);
+  float phase = fract(cycle);
+  float eventNoise = lightningNoise(strikeIndex);
+  float threshold = 1.0 - clamp(frequency, 0.0, 1.0);
+  float occurrence = step(threshold, eventNoise);
+  float activeDuration = max(0.0, eventNoise - threshold) / max(frequency, 0.0001);
+  float active = occurrence * (1.0 - step(activeDuration, phase));
+  float flashActive = occurrence * (1.0 - step(0.1, phase));
+  float position = (lightningNoise(strikeIndex + 10.0) - 0.5) * 2.0 * positionSpread;
+
+  float strike = 0.0;
+  float localGlow = 0.0;
+  float wideGlow = 0.0;
+  float flash = 0.0;
+  if (active > 0.5) {
+    vec2 boltUv = uv;
+    boltUv.y += strikeIndex * 2.0;
+    boltUv.x -= position;
+
+    float width = max(boltWidth, 0.0001);
+    strike = lightningPlot(boltUv, width, true);
+    localGlow = lightningPlot(boltUv, width * 4.0, false) * glow;
+    wideGlow = lightningPlot(boltUv, width * 150.0, false) * glow;
+
+    float bottom = (1.0 - boltLength) * lightningNoise(strikeIndex + 5.0);
+    float lengthMask = smoothstep(
+      bottom,
+      bottom + 0.05,
+      uv.y + lightningPerlin(1.2 * uv.x + 4.0 * bottom) * 0.03
+    );
+    strike *= lengthMask;
+    localGlow *= lengthMask;
+    wideGlow *= lengthMask;
+
+  }
+  float horizontalLight = smoothstep(5.0, 0.0, abs(uv.x - position));
+  flash = flashActive * horizontalLight * glare;
+
+  float boltEnergy = strike * 0.4 + localGlow * 0.15 + wideGlow * 0.3;
+  float energy = max(0.0, boltEnergy + flash) * brightness;
+  float alpha = clamp(energy * strikeColor.a * amount, 0.0, 1.0);
+  vec3 color = mix(strikeColor.rgb, vec3(1.0), clamp(strike * brightness * 0.35, 0.0, 1.0));
+  fragColor = vec4(color * alpha, alpha);
+}
+`,
+  },
+  sunRays: {
+    id: "generator.sunRays",
+    name: "Sun Rays Generator",
+    type: "shadertoy",
+    code: `
+uniform float rayCount;
+uniform float rayWidth;
+uniform float rayLength;
+uniform float coreSize;
+uniform float lengthVariation;
+uniform float edgeSoftness;
+uniform float rotation;
+uniform float rotationSpeed;
+uniform float shimmer;
+uniform float shimmerScale;
+uniform float shimmerSpeed;
+uniform float speed;
+uniform float centerX;
+uniform float centerY;
+uniform float brightness;
+uniform float seed;
+uniform vec4 rayColorA;
+uniform vec4 rayColorB;
+uniform vec4 coreColor;
+uniform vec4 backgroundColor;
+uniform float amount;
+
+float sunRayHash(float value) {
+  return fract(sin(value * 91.713 + seed * 17.17) * 43758.5453);
+}
+
+void mainImage(out vec4 fragColor, in vec2 fragCoord) {
+  vec2 uv = fragCoord / iResolution.xy;
+  uv.y = 1.0 - uv.y;
+  vec2 p = uv - vec2(centerX, centerY);
+  p.x *= iResolution.x / max(iResolution.y, 1.0);
+  float radius = length(p);
+  float angle = atan(p.y, p.x);
+  float clock = iTime * speed;
+  float count = max(3.0, floor(rayCount + 0.5));
+  float turns = (angle + rotation + clock * rotationSpeed) / 6.28318530718;
+
+  float shimmerWave = sin(radius * shimmerScale * 26.0 - clock * shimmerSpeed * 3.1 + angle * 2.0)
+    + 0.55 * sin(radius * shimmerScale * 11.0 + clock * shimmerSpeed * 2.3 - angle * 3.0);
+  float angular = turns * count + shimmerWave * shimmer * 0.055;
+  float rayIndex = floor(angular);
+  float raySeed = sunRayHash(rayIndex);
+  float acrossRay = abs(fract(angular) - 0.5) * 2.0;
+  float width = clamp(rayWidth * mix(0.68, 1.22, raySeed), 0.005, 0.98);
+  float rayMask = 1.0 - smoothstep(width, min(1.0, width + edgeSoftness), acrossRay);
+
+  float localLength = rayLength * mix(1.0 - lengthVariation, 1.0, sunRayHash(rayIndex + 31.7));
+  float radialFade = 1.0 - smoothstep(localLength * 0.42, max(localLength, 0.001), radius);
+  float innerLift = smoothstep(0.0, max(coreSize * 0.36, 0.002), radius);
+  float pulse = mix(1.0, 0.72 + 0.28 * sin(clock * shimmerSpeed * 4.7 + raySeed * 19.0 + radius * 35.0), clamp(shimmer, 0.0, 1.0));
+  float rayAlpha = clamp(rayMask * radialFade * innerLift * pulse, 0.0, 1.0);
+
+  float core = coreSize <= 0.0001 ? 0.0 : 1.0 - smoothstep(coreSize * 0.08, coreSize, radius);
+  float halo = coreSize <= 0.0001 ? 0.0 : (1.0 - smoothstep(coreSize, coreSize * 3.2, radius)) * 0.28;
+  float coreAlpha = clamp(max(core, halo) * coreColor.a, 0.0, 1.0);
+  vec3 rayColor = mix(rayColorA.rgb, rayColorB.rgb, raySeed);
+  float coloredRayAlpha = rayAlpha * mix(rayColorA.a, rayColorB.a, raySeed);
+  float featureAlpha = clamp(coloredRayAlpha + coreAlpha * (1.0 - coloredRayAlpha), 0.0, 1.0);
+  vec3 featureColor = mix(rayColor, coreColor.rgb, clamp(core + halo * 0.6, 0.0, 1.0));
+  featureColor = clamp(featureColor * brightness, 0.0, 1.0);
+
+  float combinedAlpha = clamp(featureAlpha + backgroundColor.a * (1.0 - featureAlpha), 0.0, 1.0);
+  vec3 combinedPremultiplied = featureColor * featureAlpha
+    + backgroundColor.rgb * backgroundColor.a * (1.0 - featureAlpha);
+  fragColor = vec4(combinedPremultiplied * amount, combinedAlpha * amount);
+}
+`,
+  },
   seascape: {
     id: "generator.seascape",
     name: "Seascape Generator",

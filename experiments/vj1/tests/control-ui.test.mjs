@@ -938,7 +938,10 @@ test("3d model controls use full-width slider rows", () => {
   assert.ok(modelControls.includes("paramControlsTemplate"));
   assert.ok(schemaSource.includes("Depth scale"));
   assert.ok(schemaSource.includes("Visible depth"));
+  assert.ok(schemaSource.includes("Focal length (mm)"));
   assert.ok(schemaSource.includes("Wire thickness"));
+  assert.ok(schemaSource.includes("Edge angle"));
+  assert.ok(schemaSource.includes("Edge budget"));
   assert.ok(!modelControls.includes("field-pair"));
   assert.ok(styleSource.includes(".model-param-list"));
 });

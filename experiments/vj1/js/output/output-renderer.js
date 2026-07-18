@@ -3,16 +3,16 @@ import { componentFrameMetrics } from "../domain/component-frame.js";
 import { applyLiveRenderPatches, interpolatedLiveRenderValue, resolveLiveRenderPatches } from "../domain/live-render-patch.js?v=param-fade-1";
 import { renderMaxFrameRate } from "../domain/render-settings.js?v=max-frame-rate-1";
 import { componentTextureSize } from "../domain/render-resolution.js?v=adaptive-component-demand-29";
-import { clamp01, normalizeComponentPipelineSettings, sanitizeState, sceneSourceNodes } from "../domain/models.js?v=live-component-transform-1";
-import { normalizeParamValue, normalizeParamValues } from "../graph/component-schema.js?v=adaptive-component-demand-29";
+import { clamp01, normalizeComponentPipelineSettings, sanitizeState, sceneSourceNodes } from "../domain/models.js?v=lightning-generator-1";
+import { normalizeParamValue, normalizeParamValues } from "../graph/component-schema.js?v=text-style-controls-1";
 import { createManualScheduler } from "../graph/manual-scheduler.js";
 import { RenderNodeRuntime, textureStateKey } from "../graph/render-node-runtime.js?v=adaptive-component-demand-29";
 import { createPlacedRenderResult, directPlacementKind, transformedPlacementDemandRect } from "../graph/placed-render-result.js?v=adaptive-component-demand-29";
-import { compileComponentPatch, compileShaderSchedule, flattenComponentChain, fuseLocalShaderSchedule, isFusibleShaderJob } from "../graph/render-scheduler.js?v=shader-component-catalog-extraction-1";
-import { getGeneratorComponent } from "../graph/generator-registry.js?v=madstodo-4";
-import { createShaderBuilder, fusedUniformName } from "../shaders/shader-builder.js?v=shadertoy-coordinate-contract-2";
-import { getGeneratorShaderComponent } from "../shaders/generator-shaders.js?v=madstodo-4";
-import { getShaderComponent } from "../shaders/shader-registry.js?v=madstodo-4";
+import { compileComponentPatch, compileShaderSchedule, flattenComponentChain, fuseLocalShaderSchedule, isFusibleShaderJob } from "../graph/render-scheduler.js?v=sun-rays-1";
+import { getGeneratorComponent } from "../graph/generator-registry.js?v=sun-rays-1";
+import { createShaderBuilder, fusedUniformName } from "../shaders/shader-builder.js?v=photo-grade-print-1";
+import { getGeneratorShaderComponent } from "../shaders/generator-shaders.js?v=sun-rays-1";
+import { getShaderComponent } from "../shaders/shader-registry.js?v=photo-grade-print-1";
 import { applyBlend } from "./blend-utils.js";
 import {
   createSharedFramebufferTarget,
@@ -24,9 +24,9 @@ import { GpuTimerTracker } from "./gpu-timer-tracker.js?v=madstodo-4";
 import { drawGenerator, drawStandby } from "./generators.js?v=standby-grace-1";
 import { drawCover, drawMediaFit, isDrawableMedia } from "./media-utils.js?v=video-active-ownership-1";
 import { chainLayerState, componentRuntimeTimeKey, createMediaReadinessStatus, effectParamState, isReadyMediaItem, renderBufferKey, runtimeComponentGraphMediaState, runtimeMediaStateForSource, staticComponentGraphMediaState, staticComponentGraphState, staticMediaStateForSource, staticSourceState } from "./component-render-state.js?v=live-effect-param-canonical-1";
-import { isEffectNode, isSimpleLayer, isSourceNode, mediaSourceFit, nodesInComponentChainOrder, patchLayerForNode, shaderPassFromNode, sourceFromPatchNode, sourceWithNodeParams, withSourceInstance } from "./component-patch-adapter.js?v=shader-component-catalog-extraction-1";
+import { isEffectNode, isSimpleLayer, isSourceNode, mediaSourceFit, nodesInComponentChainOrder, patchLayerForNode, shaderPassFromNode, sourceFromPatchNode, sourceWithNodeParams, withSourceInstance } from "./component-patch-adapter.js?v=sun-rays-1";
 import { collectOutputMediaReadiness } from "./output-media-readiness.js?v=scene-media-gate-1";
-import { OutputMediaRuntime, cameraSettingsSignature } from "./output-media-runtime.js?v=scene-media-gate-1";
+import { OutputMediaRuntime, cameraSettingsSignature } from "./output-media-runtime.js?v=model-lod-1";
 import { OutputThumbnailRuntime } from "./output-thumbnail-runtime.js?v=output-assets-runtime-extraction-1";
 import { OutputSurfaceRuntime } from "./output-surface-runtime.js?v=standby-grace-1";
 import { stableSurfaceRenderRequest } from "./surface-render-planner.js?v=surface-runtime-extraction-1";
@@ -35,7 +35,7 @@ import { contentTransformCanvasPlacement, contentTransformUvMatrices } from "./c
 import { ComponentPreviewInteraction } from "./component-preview-interaction.js?v=drag-lookup-1";
 import { drawBuffer, withShaderInstancePrefix } from "./render-draw-utils.js?v=render-diagnostics-1";
 import { COMPONENT_POST_FRAGMENT_SHADER, COMPONENT_UPSCALE_FRAGMENT_SHADER, LAYER_TRANSFORM_FRAGMENT_SHADER, OVERLAY_BLEND_FRAGMENT_SHADER, RENDER_PASS_VERTEX_SHADER } from "./render-pass-shaders.js?v=render-coordinate-scope-3";
-import { componentInstanceTime, effectTransformUniforms, eyeballFrameUniforms, generatorRateParam, globalVisualTimeScale, instanceTime, qualityAdjustedGeneratorParams, qualityScaledRenderRequest, usesShadertoyInterface } from "./render-runtime-math.js?v=gc-allocation-1";
+import { componentInstanceTime, effectTransformUniforms, eyeballFrameUniforms, generatorRateParam, globalVisualTimeScale, instanceTime, qualityAdjustedGeneratorParams, qualityScaledRenderRequest, usesShadertoyInterface } from "./render-runtime-math.js?v=sun-rays-1";
 import {
   createRenderRequest,
   defaultProjectSurfaceMapping,
@@ -51,7 +51,7 @@ import {
 } from "./render-geometry.js?v=adaptive-component-demand-29";
 import { VjMapper } from "./vj-mapper.js?v=mapper-raster-state-1";
 import { colorUniform } from "./specialized/model-color.js?v=adaptive-component-demand-29";
-import { SpecializedSourceRuntime } from "./specialized/specialized-source-runtime.js?v=standby-grace-1";
+import { SpecializedSourceRuntime } from "./specialized/specialized-source-runtime.js?v=model-lod-1";
 import {
   canvasMaxRasterSize,
   canvasPreviewRenderRequest,
@@ -70,13 +70,13 @@ import {
 } from "./component-render-layout.js?v=instance-sync-60";
 
 export { averageGpuQueryNanoseconds, GpuTimerTracker } from "./gpu-timer-tracker.js?v=madstodo-4";
-export { parseObjMesh } from "./specialized/model-parsers.js?v=adaptive-component-demand-29";
-export { modelDepthCutoff, transformedModelDepthRange } from "./specialized/model-render-math.js?v=model-render-math-extraction-1";
+export { parseObjMesh } from "./specialized/model-parsers.js?v=model-lod-1";
+export { modelDepthCutoff, transformedModelDepthRange } from "./specialized/model-render-math.js?v=camera-focal-length-1";
 export { chainTransformDragScale, pointInTransformedRect } from "./preview-interaction-geometry.js?v=transform-hit-contract-3";
-export { advanceRateClock, advanceSpatialScale, componentInstanceTime, effectTransformUniforms, eyeballFrameUniforms, instanceTime, qualityAdjustedGeneratorParams, qualityScaledRenderRequest } from "./render-runtime-math.js?v=gc-allocation-1";
+export { advanceRateClock, advanceSpatialScale, componentInstanceTime, effectTransformUniforms, eyeballFrameUniforms, instanceTime, qualityAdjustedGeneratorParams, qualityScaledRenderRequest } from "./render-runtime-math.js?v=sun-rays-1";
 export { sourceWithNodeParams } from "./component-patch-adapter.js?v=shader-component-catalog-extraction-1";
 export { fittedThumbnailSize } from "./thumbnail-utils.js?v=thumbnail-utils-extraction-1";
-export { cameraCaptureSettings, cameraSettingsSignature } from "./output-media-runtime.js?v=scene-media-gate-1";
+export { cameraCaptureSettings, cameraSettingsSignature } from "./output-media-runtime.js?v=model-lod-1";
 export {
   terrainExpandedGridWireVertices,
   terrainExpandedWireVertices,
@@ -2186,6 +2186,10 @@ export class OutputRenderer {
         this.drawTileTextureGenerator(pg, source, generatorTime, renderRequest);
         return;
       }
+      if (source.generatorId === "text") {
+        this.drawTextGenerator(pg, source, generatorTime, renderRequest);
+        return;
+      }
       const shaderGenerator = getGeneratorShaderComponent(getGeneratorComponent(source.generatorId || "testPattern").id);
       if (shaderGenerator) {
         if (this.drawShaderGenerator(pg, source, generatorTime, renderRequest)) return;
@@ -2254,6 +2258,13 @@ export class OutputRenderer {
 
   drawTileTextureGenerator(pg, source = {}, componentTime = this.visualTime, renderRequest = frameRenderRequest(this.state.render)) {
     return this.specializedSources.drawTileTexture(pg, source, componentTime, {
+      ...renderRequest,
+      pixelDensity: this.requestPixelDensity(renderRequest),
+    });
+  }
+
+  drawTextGenerator(pg, source = {}, componentTime = this.visualTime, renderRequest = frameRenderRequest(this.state.render)) {
+    return this.specializedSources.drawText(pg, source, componentTime, {
       ...renderRequest,
       pixelDensity: this.requestPixelDensity(renderRequest),
     });

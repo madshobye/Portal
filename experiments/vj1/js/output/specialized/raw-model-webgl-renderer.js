@@ -1,7 +1,8 @@
 import { resolutionScaledStrokeWidth } from "../component-render-layout.js?v=instance-sync-60";
 import { buildParsedModelSurfaceVertices } from "./model-geometry.js?v=model-geometry-fix-30";
-import { ensureParsedModelPointCloud, ensureParsedModelThickWireVertices, ensureParsedModelWireLines, drawWithPolygonOffset } from "./model-mesh-cache.js?v=model-mesh-cache-extraction-1";
-import { modelDepthCutoff, modelRotation, modelViewportMetrics, modelWireThickness, rawModelMatrices } from "./model-render-math.js?v=render-core-contract-1";
+import { ensureParsedModelPerceptualWireVertices, ensureParsedModelPointCloud, ensureParsedModelThickWireVertices, ensureParsedModelWireLines, drawWithPolygonOffset } from "./model-mesh-cache.js?v=model-lod-1";
+import { modelCameraFov, modelDepthCutoff, modelNormalMatrix, modelRotation, modelViewportMetrics, modelWireThickness, rawModelMatrices } from "./model-render-math.js?v=camera-focal-length-1";
+import { modelTriangleCount } from "./model-lod.js?v=model-lod-1";
 import { compileRawShader, linkSpecializedProgram } from "./raw-webgl-utils.js?v=terrain-gl-state-1";
 import {
   beginRawWebGlState,
@@ -11,20 +12,27 @@ import {
   restoreRawWebGlState,
 } from "./raw-webgl-state.js?v=raw-webgl-state-1";
 
-export function drawRawParsedModelMode(target, item, params = {}, componentTime = 0, renderMode = "surface", surfaceColor = [220, 225, 220, 255], wireColor = [20, 20, 20, 220], pointBudget = 4000, viewport = null, contentTransform = {}) {
+export function drawRawParsedModelMode(target, item, params = {}, componentTime = 0, renderMode = "surface", surfaceColor = [220, 225, 220, 255], wireColor = [20, 20, 20, 220], pointBudget = 4000, viewport = null, contentTransform = {}, mesh = item?.modelData) {
   if (renderMode === "points") {
-    return drawRawParsedModel(target, item, params, componentTime, "points", wireColor, pointBudget, viewport, contentTransform);
+    return drawRawParsedModel(target, item, params, componentTime, "points", wireColor, pointBudget, viewport, contentTransform, mesh);
   }
   if (renderMode === "wireframe") {
-    return drawRawParsedWire(target, item, params, componentTime, wireColor, pointBudget, viewport, contentTransform);
+    return drawRawParsedWire(target, item, params, componentTime, wireColor, pointBudget, viewport, contentTransform, mesh);
   }
-  const drewSurface = drawWithPolygonOffset(target, renderMode === "surfaceWire", () => (
-    drawRawParsedSurface(target, item, params, componentTime, surfaceColor, viewport, contentTransform)
+  const perceptualEdges = renderMode === "outline" || renderMode === "surfaceOutline";
+  const lineOverlay = renderMode === "surfaceWire" || perceptualEdges;
+  const depthOnlySurface = renderMode === "outline" ? [0, 0, 0, 0] : surfaceColor;
+  const drewSurface = drawWithPolygonOffset(target, lineOverlay, () => (
+    drawRawParsedSurface(target, item, params, componentTime, depthOnlySurface, viewport, contentTransform, mesh)
   ));
   if (drewSurface && renderMode === "surfaceWire") {
-    drawRawParsedWire(target, item, params, componentTime, wireColor, pointBudget, viewport, contentTransform);
+    drawRawParsedWire(target, item, params, componentTime, wireColor, pointBudget, viewport, contentTransform, mesh);
   }
-  return drewSurface;
+  if (!drewSurface) return false;
+  if (perceptualEdges) {
+    return drawRawParsedPerceptualEdges(target, item, params, componentTime, wireColor, pointBudget, viewport, contentTransform, mesh);
+  }
+  return true;
 }
 
 export function disposeRawModelContextResources(gl, resources) {
@@ -33,6 +41,7 @@ export function disposeRawModelContextResources(gl, resources) {
   disposeRawModelProgram(gl, resources?.program);
   disposeRawModelProgram(gl, resources?.surfaceProgram);
   disposeRawModelProgram(gl, resources?.wireProgram);
+  disposeRawModelProgram(gl, resources?.perceptualWireProgram);
 }
 
 export function disposeRawModelItemResources(item, onlyContext = null) {
@@ -45,14 +54,21 @@ export function disposeRawModelItemResources(item, onlyContext = null) {
   }
 }
 
-function drawRawParsedModel(target, item, params = {}, componentTime = 0, mode = "points", color = [245, 245, 245, 255], pointBudget = 4000, viewport = null, contentTransform = {}) {
+export function estimateRawModelItemGpuBytes(item) {
+  let total = 0;
+  for (const resources of item?.modelRawRenderers?.values?.() || []) {
+    for (const buffer of resources?.buffers?.values?.() || []) total += Math.max(0, Number(buffer?.byteLength) || 0);
+  }
+  return total;
+}
+
+function drawRawParsedModel(target, item, params = {}, componentTime = 0, mode = "points", color = [245, 245, 245, 255], pointBudget = 4000, viewport = null, contentTransform = {}, mesh = item?.modelData) {
   const gl = target?.drawingContext;
-  const mesh = item?.modelData;
   if (!gl || !mesh) return false;
   const passState = beginRawWebGlState(gl, `model-${mode}`);
   let attributeStates = [];
   try {
-    const resources = ensureRawModelResources(gl, item, mode, pointBudget);
+    const resources = ensureRawModelResources(gl, item, mode, pointBudget, mesh);
     if (!resources?.buffer || !resources.count || !resources.program) return false;
     attributeStates = captureRawWebGlAttributes(gl, passState, [resources.position]);
     bindRawWebGlVertexArray(gl, passState, resources.vertexArrayOwner);
@@ -63,7 +79,7 @@ function drawRawParsedModel(target, item, params = {}, componentTime = 0, mode =
     const depth = Math.max(0.05, Number(params.depth) || 1);
     const scale = metrics.unitScale * modelScale;
     const rotation = modelRotation(params, componentTime, params.__importBasis);
-    const matrices = rawModelMatrices(metrics.width, metrics.height, scale, depth, rotation, contentTransform);
+    const matrices = rawModelMatrices(metrics.width, metrics.height, scale, depth, rotation, contentTransform, modelCameraFov(params));
     const rgba = normalizedColor(color);
 
     gl.useProgram(resources.program);
@@ -77,7 +93,11 @@ function drawRawParsedModel(target, item, params = {}, componentTime = 0, mode =
     gl.uniformMatrix4fv(resources.model, false, matrices.model);
     gl.uniform1f(resources.depthCutoff, modelDepthCutoff(params, mesh.bounds, matrices.model));
     gl.uniform4fv(resources.color, rgba);
-    gl.uniform1f(resources.pointSize, Math.max(1, Number(params.pointSize) || 2));
+    gl.uniform1f(resources.pointSize, resolutionScaledStrokeWidth(
+      modelWireThickness(params),
+      metrics,
+      { width: drawingWidth, height: drawingHeight }
+    ));
     gl.drawArrays(mode === "wireframe" ? gl.LINES : gl.POINTS, 0, resources.count);
     return true;
   } finally {
@@ -85,14 +105,13 @@ function drawRawParsedModel(target, item, params = {}, componentTime = 0, mode =
   }
 }
 
-function drawRawParsedWire(target, item, params = {}, componentTime = 0, color = [20, 20, 20, 220], pointBudget = 4000, viewport = null, contentTransform = {}) {
+function drawRawParsedWire(target, item, params = {}, componentTime = 0, color = [20, 20, 20, 220], pointBudget = 4000, viewport = null, contentTransform = {}, mesh = item?.modelData) {
   const gl = target?.drawingContext;
-  const mesh = item?.modelData;
   if (!gl || !mesh) return false;
   const passState = beginRawWebGlState(gl, "model-wire");
   let attributeStates = [];
   try {
-    const resources = ensureRawWireResources(gl, item, pointBudget);
+    const resources = ensureRawWireResources(gl, item, pointBudget, mesh);
     if (!resources?.buffer || !resources.count || !resources.program) return false;
     attributeStates = captureRawWebGlAttributes(gl, passState, [resources.start, resources.end, resources.side, resources.along]);
     bindRawWebGlVertexArray(gl, passState, resources.vertexArrayOwner);
@@ -103,7 +122,7 @@ function drawRawParsedWire(target, item, params = {}, componentTime = 0, color =
     const depth = Math.max(0.05, Number(params.depth) || 1);
     const scale = metrics.unitScale * modelScale;
     const rotation = modelRotation(params, componentTime, params.__importBasis);
-    const matrices = rawModelMatrices(metrics.width, metrics.height, scale, depth, rotation, contentTransform);
+    const matrices = rawModelMatrices(metrics.width, metrics.height, scale, depth, rotation, contentTransform, modelCameraFov(params));
     const stride = 8 * 4;
 
     gl.useProgram(resources.program);
@@ -135,14 +154,78 @@ function drawRawParsedWire(target, item, params = {}, componentTime = 0, color =
   }
 }
 
-function drawRawParsedSurface(target, item, params = {}, componentTime = 0, color = [220, 225, 220, 255], viewport = null, contentTransform = {}) {
+function drawRawParsedPerceptualEdges(target, item, params = {}, componentTime = 0, color = [20, 20, 20, 220], pointBudget = 4000, viewport = null, contentTransform = {}, mesh = item?.modelData) {
   const gl = target?.drawingContext;
-  const mesh = item?.modelData;
+  if (!gl || !mesh) return false;
+  const passState = beginRawWebGlState(gl, "model-perceptual-edges");
+  let attributeStates = [];
+  try {
+    const requestedEdgeBudget = Number(params.edgeBudget);
+    const edgeBudget = Number.isFinite(requestedEdgeBudget)
+      ? requestedEdgeBudget
+      : Math.max(20000, pointBudget);
+    const resources = ensureRawPerceptualWireResources(gl, item, edgeBudget, mesh);
+    if (!resources?.buffer || !resources.count || !resources.program) return false;
+    attributeStates = captureRawWebGlAttributes(gl, passState, [
+      resources.start,
+      resources.end,
+      resources.normalA,
+      resources.normalB,
+      resources.boundary,
+      resources.side,
+      resources.along,
+    ]);
+    bindRawWebGlVertexArray(gl, passState, resources.vertexArrayOwner);
+    const drawingWidth = Math.max(1, gl.drawingBufferWidth || target.width || 1);
+    const drawingHeight = Math.max(1, gl.drawingBufferHeight || target.height || 1);
+    const metrics = modelViewportMetrics(target, viewport);
+    const modelScale = Math.max(0.01, Number(params.modelScale) || 1);
+    const depth = Math.max(0.05, Number(params.depth) || 1);
+    const scale = metrics.unitScale * modelScale;
+    const rotation = modelRotation(params, componentTime, params.__importBasis);
+    const matrices = rawModelMatrices(metrics.width, metrics.height, scale, depth, rotation, contentTransform, modelCameraFov(params));
+    const stride = 15 * 4;
+    const requestedAngle = Number(params.edgeAngle);
+    const edgeAngle = Math.max(0, Math.min(180, Number.isFinite(requestedAngle) ? requestedAngle : 35));
+
+    gl.useProgram(resources.program);
+    gl.viewport(0, 0, drawingWidth, drawingHeight);
+    configureModelGl(gl);
+    gl.bindBuffer(gl.ARRAY_BUFFER, resources.buffer);
+    bindFloatAttribute(gl, resources.start, 3, stride, 0);
+    bindFloatAttribute(gl, resources.end, 3, stride, 3 * 4);
+    bindFloatAttribute(gl, resources.normalA, 3, stride, 6 * 4);
+    bindFloatAttribute(gl, resources.normalB, 3, stride, 9 * 4);
+    bindFloatAttribute(gl, resources.boundary, 1, stride, 12 * 4);
+    bindFloatAttribute(gl, resources.side, 1, stride, 13 * 4);
+    bindFloatAttribute(gl, resources.along, 1, stride, 14 * 4);
+    gl.uniformMatrix4fv(resources.mvp, false, matrices.mvp);
+    gl.uniformMatrix4fv(resources.model, false, matrices.model);
+    gl.uniformMatrix3fv(resources.normalMatrix, false, modelNormalMatrix(matrices.model));
+    gl.uniform1f(resources.depthCutoff, modelDepthCutoff(params, mesh.bounds, matrices.model));
+    gl.uniform2f(resources.resolution, drawingWidth, drawingHeight);
+    gl.uniform1f(resources.thickness, resolutionScaledStrokeWidth(
+      modelWireThickness(params),
+      metrics,
+      { width: drawingWidth, height: drawingHeight }
+    ));
+    gl.uniform3f(resources.cameraPosition, 0, 0, metrics.cameraZ);
+    gl.uniform1f(resources.creaseCos, Math.cos(edgeAngle * Math.PI / 180));
+    gl.uniform4fv(resources.color, normalizedColor(color));
+    gl.drawArrays(gl.TRIANGLES, 0, resources.count);
+    return true;
+  } finally {
+    restoreRawWebGlState(gl, passState, attributeStates);
+  }
+}
+
+function drawRawParsedSurface(target, item, params = {}, componentTime = 0, color = [220, 225, 220, 255], viewport = null, contentTransform = {}, mesh = item?.modelData) {
+  const gl = target?.drawingContext;
   if (!gl || !mesh) return false;
   const passState = beginRawWebGlState(gl, "model-surface");
   let attributeStates = [];
   try {
-    const resources = ensureRawSurfaceResources(gl, item);
+    const resources = ensureRawSurfaceResources(gl, item, mesh);
     if (!resources?.buffer || !resources.count || !resources.program) return false;
     attributeStates = captureRawWebGlAttributes(gl, passState, [resources.position, resources.normal]);
     bindRawWebGlVertexArray(gl, passState, resources.vertexArrayOwner);
@@ -153,7 +236,7 @@ function drawRawParsedSurface(target, item, params = {}, componentTime = 0, colo
     const depth = Math.max(0.05, Number(params.depth) || 1);
     const scale = metrics.unitScale * modelScale;
     const rotation = modelRotation(params, componentTime, params.__importBasis);
-    const matrices = rawModelMatrices(metrics.width, metrics.height, scale, depth, rotation, contentTransform);
+    const matrices = rawModelMatrices(metrics.width, metrics.height, scale, depth, rotation, contentTransform, modelCameraFov(params));
     const stride = 6 * 4;
 
     gl.useProgram(resources.program);
@@ -166,6 +249,7 @@ function drawRawParsedSurface(target, item, params = {}, componentTime = 0, colo
     gl.vertexAttribPointer(resources.normal, 3, gl.FLOAT, false, stride, 3 * 4);
     gl.uniformMatrix4fv(resources.mvp, false, matrices.mvp);
     gl.uniformMatrix4fv(resources.model, false, matrices.model);
+    gl.uniformMatrix3fv(resources.normalMatrix, false, modelNormalMatrix(matrices.model));
     gl.uniform1f(resources.depthCutoff, modelDepthCutoff(params, mesh.bounds, matrices.model));
     gl.uniform4fv(resources.color, normalizedColor(color));
     gl.drawArrays(gl.TRIANGLES, 0, resources.count);
@@ -175,7 +259,7 @@ function drawRawParsedSurface(target, item, params = {}, componentTime = 0, colo
   }
 }
 
-function ensureRawModelResources(gl, item, mode = "points", pointBudget = 4000) {
+function ensureRawModelResources(gl, item, mode = "points", pointBudget = 4000, mesh = item?.modelData) {
   const contextResources = ensureRawModelContextResources(gl, item);
   if (!rawModelProgramValid(gl, contextResources.program)) {
     disposeRawModelProgram(gl, contextResources.program);
@@ -183,13 +267,13 @@ function ensureRawModelResources(gl, item, mode = "points", pointBudget = 4000) 
   }
   if (!contextResources.program) return null;
   const budget = boundedBudget(pointBudget);
-  const meshKey = `${item.modelData?.triangles?.length || 0}`;
+  const meshKey = `${modelTriangleCount(mesh)}`;
   const key = mode === "wireframe" ? `wire:${meshKey}` : `points:${meshKey}:${budget}`;
   let buffer = validCachedBuffer(gl, contextResources, key);
   if (!buffer) {
     const data = mode === "wireframe"
-      ? ensureParsedModelWireLines(item, budget)
-      : ensureParsedModelPointCloud(item, budget);
+      ? ensureParsedModelWireLines(item, budget, mesh)
+      : ensureParsedModelPointCloud(item, budget, mesh);
     if (!data?.length) return null;
     pruneRawModelBufferVariants(gl, contextResources, mode === "wireframe" ? `wire:${meshKey}` : `points:${meshKey}:`, key);
     buffer = createArrayBuffer(gl, data, 3);
@@ -203,18 +287,18 @@ function ensureRawModelResources(gl, item, mode = "points", pointBudget = 4000) 
   };
 }
 
-function ensureRawSurfaceResources(gl, item) {
+function ensureRawSurfaceResources(gl, item, mesh = item?.modelData) {
   const contextResources = ensureRawModelContextResources(gl, item);
   if (!rawModelProgramValid(gl, contextResources.surfaceProgram)) {
     disposeRawModelProgram(gl, contextResources.surfaceProgram);
     contextResources.surfaceProgram = createRawSurfaceProgram(gl);
   }
   if (!contextResources.surfaceProgram) return null;
-  const meshKey = `${item.modelData?.triangles?.length || 0}`;
+  const meshKey = `${modelTriangleCount(mesh)}`;
   const key = `surface:${meshKey}`;
   let buffer = validCachedBuffer(gl, contextResources, key);
   if (!buffer) {
-    const data = buildParsedModelSurfaceVertices(item.modelData);
+    const data = buildParsedModelSurfaceVertices(mesh);
     if (!data?.length) return null;
     buffer = createArrayBuffer(gl, data, 6);
     contextResources.buffers.set(key, buffer);
@@ -227,7 +311,7 @@ function ensureRawSurfaceResources(gl, item) {
   };
 }
 
-function ensureRawWireResources(gl, item, pointBudget = 4000) {
+function ensureRawWireResources(gl, item, pointBudget = 4000, mesh = item?.modelData) {
   const contextResources = ensureRawModelContextResources(gl, item);
   if (!rawModelProgramValid(gl, contextResources.wireProgram)) {
     disposeRawModelProgram(gl, contextResources.wireProgram);
@@ -235,11 +319,11 @@ function ensureRawWireResources(gl, item, pointBudget = 4000) {
   }
   if (!contextResources.wireProgram) return null;
   const budget = boundedBudget(pointBudget);
-  const meshKey = `${item.modelData?.triangles?.length || 0}`;
+  const meshKey = `${modelTriangleCount(mesh)}`;
   const key = `thickWire:${meshKey}:${budget}`;
   let buffer = validCachedBuffer(gl, contextResources, key);
   if (!buffer) {
-    const data = ensureParsedModelThickWireVertices(item, budget);
+    const data = ensureParsedModelThickWireVertices(item, budget, mesh);
     if (!data?.length) return null;
     pruneRawModelBufferVariants(gl, contextResources, `thickWire:${meshKey}:`, key);
     buffer = createArrayBuffer(gl, data, 8);
@@ -253,11 +337,37 @@ function ensureRawWireResources(gl, item, pointBudget = 4000) {
   };
 }
 
+function ensureRawPerceptualWireResources(gl, item, pointBudget = 4000, mesh = item?.modelData) {
+  const contextResources = ensureRawModelContextResources(gl, item);
+  if (!rawModelProgramValid(gl, contextResources.perceptualWireProgram)) {
+    disposeRawModelProgram(gl, contextResources.perceptualWireProgram);
+    contextResources.perceptualWireProgram = createRawPerceptualWireProgram(gl);
+  }
+  if (!contextResources.perceptualWireProgram) return null;
+  const budget = boundedBudget(pointBudget);
+  const meshKey = `${modelTriangleCount(mesh)}`;
+  const key = `perceptualWire:${meshKey}:${budget}`;
+  let buffer = validCachedBuffer(gl, contextResources, key);
+  if (!buffer) {
+    const data = ensureParsedModelPerceptualWireVertices(item, budget, mesh);
+    if (!data?.length) return null;
+    pruneRawModelBufferVariants(gl, contextResources, `perceptualWire:${meshKey}:`, key);
+    buffer = createArrayBuffer(gl, data, 15);
+    contextResources.buffers.set(key, buffer);
+  }
+  return {
+    ...buffer,
+    vertexArrayOwner: buffer,
+    ...contextResources.perceptualWireProgram,
+    program: contextResources.perceptualWireProgram.program,
+  };
+}
+
 function ensureRawModelContextResources(gl, item) {
   if (!(item.modelRawRenderers instanceof Map)) item.modelRawRenderers = new Map();
   let resources = item.modelRawRenderers.get(gl);
   if (!resources) {
-    resources = { program: null, surfaceProgram: null, wireProgram: null, buffers: new Map() };
+    resources = { program: null, surfaceProgram: null, wireProgram: null, perceptualWireProgram: null, buffers: new Map() };
     item.modelRawRenderers.set(gl, resources);
   }
   return resources;
@@ -277,7 +387,12 @@ function createArrayBuffer(gl, data, valuesPerVertex) {
   const buffer = gl.createBuffer();
   gl.bindBuffer(gl.ARRAY_BUFFER, buffer);
   gl.bufferData(gl.ARRAY_BUFFER, data, gl.STATIC_DRAW);
-  return { buffer, count: Math.floor(data.length / valuesPerVertex) };
+  return { buffer, count: Math.floor(data.length / valuesPerVertex), byteLength: data.byteLength || 0 };
+}
+
+function bindFloatAttribute(gl, location, size, stride, offset) {
+  gl.enableVertexAttribArray(location);
+  gl.vertexAttribPointer(location, size, gl.FLOAT, false, stride, offset);
 }
 
 function configureModelGl(gl) {
@@ -346,10 +461,11 @@ function createRawSurfaceProgram(gl) {
       attribute vec3 aNormal;
       uniform mat4 uMvp;
       uniform mat4 uModel;
+      uniform mat3 uNormalMatrix;
       varying float vLight;
       varying float vModelDepth;
       void main() {
-        vec3 n = normalize((uModel * vec4(aNormal, 0.0)).xyz);
+        vec3 n = normalize(uNormalMatrix * aNormal);
         vec3 keyLight = normalize(vec3(-0.35, -0.45, 0.75));
         vLight = clamp(dot(n, keyLight) * 0.55 + 0.45, 0.0, 1.0);
         vModelDepth = (uModel * vec4(aPosition, 1.0)).z;
@@ -358,7 +474,7 @@ function createRawSurfaceProgram(gl) {
     `,
     fragment: depthFragment("gl_FragColor = vec4(uColor.rgb * vLight, uColor.a);", "varying float vLight;"),
     attributes: ["position:aPosition", "normal:aNormal"],
-    uniforms: ["mvp:uMvp", "model:uModel", "color:uColor", "depthCutoff:uDepthCutoff"],
+    uniforms: ["mvp:uMvp", "model:uModel", "normalMatrix:uNormalMatrix", "color:uColor", "depthCutoff:uDepthCutoff"],
   });
 }
 
@@ -394,6 +510,80 @@ function createRawWireProgram(gl) {
     fragment: depthFragment("gl_FragColor = uColor;"),
     attributes: ["start:aStart", "end:aEnd", "side:aSide", "along:aAlong"],
     uniforms: ["mvp:uMvp", "model:uModel", "resolution:uResolution", "thickness:uThickness", "color:uColor", "depthCutoff:uDepthCutoff"],
+  });
+}
+
+function createRawPerceptualWireProgram(gl) {
+  return createProgram(gl, {
+    vertex: `
+      attribute vec3 aStart;
+      attribute vec3 aEnd;
+      attribute vec3 aNormalA;
+      attribute vec3 aNormalB;
+      attribute float aBoundary;
+      attribute float aSide;
+      attribute float aAlong;
+      uniform mat4 uMvp;
+      uniform mat4 uModel;
+      uniform mat3 uNormalMatrix;
+      uniform vec2 uResolution;
+      uniform float uThickness;
+      uniform vec3 uCameraPosition;
+      uniform float uCreaseCos;
+      varying float vModelDepth;
+      varying float vVisible;
+      void main() {
+        vec4 startClip = uMvp * vec4(aStart, 1.0);
+        vec4 endClip = uMvp * vec4(aEnd, 1.0);
+        float startW = abs(startClip.w) > 0.000001 ? startClip.w : 0.000001;
+        float endW = abs(endClip.w) > 0.000001 ? endClip.w : 0.000001;
+        vec2 startNdc = startClip.xy / startW;
+        vec2 endNdc = endClip.xy / endW;
+        vec2 direction = endNdc - startNdc;
+        float lineLength = length(direction);
+        vec2 screenNormal = lineLength > 0.000001
+          ? vec2(-direction.y, direction.x) / lineLength
+          : vec2(0.0, 1.0);
+
+        vec3 normalA = normalize(uNormalMatrix * aNormalA);
+        vec3 normalB = normalize(uNormalMatrix * aNormalB);
+        vec3 midpoint = (uModel * vec4((aStart + aEnd) * 0.5, 1.0)).xyz;
+        vec3 viewDirection = normalize(uCameraPosition - midpoint);
+        float facingA = dot(normalA, viewDirection);
+        float facingB = dot(normalB, viewDirection);
+        float hasTwoFaces = step(0.0001, length(normalA - normalB));
+        float silhouette = (1.0 - step(0.000001, facingA * facingB)) * hasTwoFaces;
+        float crease = (1.0 - step(uCreaseCos, dot(normalA, normalB))) * hasTwoFaces;
+        vVisible = max(aBoundary, max(silhouette, crease));
+
+        vec4 clip = mix(startClip, endClip, aAlong);
+        vModelDepth = (uModel * vec4(mix(aStart, aEnd, aAlong), 1.0)).z;
+        vec2 pixelToNdc = vec2(2.0 / max(1.0, uResolution.x), 2.0 / max(1.0, uResolution.y));
+        clip.xy += screenNormal * pixelToNdc * (max(0.125, uThickness) * 0.5) * aSide * clip.w;
+        gl_Position = clip;
+      }
+    `,
+    fragment: depthFragment("if (vVisible < 0.5) discard; gl_FragColor = uColor;", "varying float vVisible;"),
+    attributes: [
+      "start:aStart",
+      "end:aEnd",
+      "normalA:aNormalA",
+      "normalB:aNormalB",
+      "boundary:aBoundary",
+      "side:aSide",
+      "along:aAlong",
+    ],
+    uniforms: [
+      "mvp:uMvp",
+      "model:uModel",
+      "normalMatrix:uNormalMatrix",
+      "resolution:uResolution",
+      "thickness:uThickness",
+      "cameraPosition:uCameraPosition",
+      "creaseCos:uCreaseCos",
+      "color:uColor",
+      "depthCutoff:uDepthCutoff",
+    ],
   });
 }
 

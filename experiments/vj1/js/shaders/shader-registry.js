@@ -1,6 +1,6 @@
 import { createNumberParam, defineVisualComponent, textureInlet, textureOutlet } from "../graph/component-schema.js?v=adaptive-component-demand-29";
 import { ALWAYS_TIME_RUNTIME } from "./shader-component-common.js?v=shader-component-catalog-extraction-1";
-import { STYLIZE_SHADER_COMPONENTS } from "./shader-components-stylize.js?v=shader-component-catalog-extraction-1";
+import { STYLIZE_SHADER_COMPONENTS } from "./shader-components-stylize.js?v=photo-grade-print-1";
 import { IMAGE_SHADER_COMPONENTS } from "./shader-components-image.js?v=madstodo-4";
 import { MOTION_SHADER_COMPONENTS } from "./shader-components-motion.js?v=shader-component-catalog-extraction-1";
 

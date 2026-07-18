@@ -22,11 +22,30 @@ export function modelTriangleNormal(vertices = []) {
 }
 
 export function buildParsedModelSurfaceVertices(mesh = {}) {
-  const triangles = Array.isArray(mesh.triangles) ? mesh.triangles : [];
-  if (!triangles.length) return new Float32Array(0);
-  const vertices = new Float32Array(triangles.length * 18);
+  const triangleCount = modelTriangleCount(mesh);
+  if (!triangleCount) return new Float32Array(0);
+  const vertices = new Float32Array(triangleCount * 18);
+  if (mesh.positions instanceof Float32Array && mesh.faceNormals instanceof Float32Array) {
+    let write = 0;
+    for (let triangleIndex = 0; triangleIndex < triangleCount; triangleIndex++) {
+      const positionOffset = triangleIndex * 9;
+      const normalOffset = triangleIndex * 3;
+      const nx = mesh.faceNormals[normalOffset];
+      const ny = mesh.faceNormals[normalOffset + 1];
+      const nz = mesh.faceNormals[normalOffset + 2];
+      for (let corner = 0; corner < 9; corner += 3) {
+        vertices[write++] = mesh.positions[positionOffset + corner];
+        vertices[write++] = mesh.positions[positionOffset + corner + 1];
+        vertices[write++] = mesh.positions[positionOffset + corner + 2];
+        vertices[write++] = nx;
+        vertices[write++] = ny;
+        vertices[write++] = nz;
+      }
+    }
+    return vertices;
+  }
   let write = 0;
-  for (const triangle of triangles) {
+  forEachModelTriangle(mesh, (triangle) => {
     const normal = normalizeModelVector(triangle.normal || modelTriangleNormal(triangle.vertices || []));
     for (const vertex of triangle.vertices || []) {
       vertices[write++] = Number(vertex[0]) || 0;
@@ -36,6 +55,7 @@ export function buildParsedModelSurfaceVertices(mesh = {}) {
       vertices[write++] = normal[1];
       vertices[write++] = normal[2];
     }
-  }
+  });
   return vertices.subarray(0, write);
 }
+import { forEachModelTriangle, modelTriangleCount } from "./model-lod.js?v=model-lod-1";

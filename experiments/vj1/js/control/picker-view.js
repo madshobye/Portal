@@ -1,5 +1,5 @@
-import { listGeneratorComponents } from "../graph/generator-registry.js?v=terrain-mesh-near-1";
-import { listShaderComponents } from "../shaders/shader-registry.js?v=shader-component-catalog-extraction-1";
+import { listGeneratorComponents } from "../graph/generator-registry.js?v=sun-rays-1";
+import { listShaderComponents } from "../shaders/shader-registry.js?v=photo-grade-print-1";
 import { effectIcon, esc, icon, thumbnailTemplate } from "./template-utils.js?v=adaptive-component-demand-29";
 
 function getByPath(target, path) {
@@ -14,11 +14,14 @@ export function generatorIcon(id) {
     waves: "waves",
     noise: "grain",
     tileTexture: "grid_on",
+    text: "text_fields",
     plasma: "blur_on",
     gradient: "gradient",
     featureMorph: "animation",
     featureMorphV2: "neurology",
     cellularCircles: "bubble_chart",
+    galaxy: "blur_circular",
+    sunRays: "sunny",
     anatomy: "accessibility_new",
     terrainFlyover: "landscape",
     bezierStrokes: "gesture",

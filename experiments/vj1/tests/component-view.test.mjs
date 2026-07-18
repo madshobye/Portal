@@ -21,6 +21,7 @@ test("Component and Canvas chain presentation lives outside the control orchestr
 
   assert.match(componentHtml, /class="component-frame-controls"/);
   assert.match(componentHtml, /data-chain-reorder-list/);
+  assert.doesNotMatch(componentHtml, /chain-item-remove[^>]*disabled/);
   assert.match(settingsHtml, /class="ui-section focus-panel chain-settings-panel"/);
   assert.match(settingsHtml, />Content<\/label>|>Primary<\/label>/);
   assert.match(settingsHtml, />Transform<\/label>/);
@@ -28,7 +29,7 @@ test("Component and Canvas chain presentation lives outside the control orchestr
   assert.match(settingsHtml, /data-update="components\.[0-9]+\.chain\.0\.transform\.x"/);
   assert.match(settingsHtml, /data-param-context-path="components\.[0-9]+\.chain\.0\.transform\.scale"/);
   assert.match(canvasHtml, /data-update="components\.[0-9]+\.canvas\.width"/);
-  assert.match(controller, /from "\.\/component-view\.js\?v=chain-param-view-consistency-1"/);
+  assert.match(controller, /from "\.\/component-view\.js\?v=[^"]+"/);
   assert.doesNotMatch(controller, /function componentTemplate\(/);
   assert.doesNotMatch(controller, /function componentUnifiedChainTemplate\(/);
   assert.doesNotMatch(controller, /function sourcePickerTemplate\(/);
@@ -71,8 +72,8 @@ test("persistent and Live source editors share one media-model control schema", 
   const sceneLiveView = readFileSync(new URL("../js/control/scene-live-view.js", import.meta.url), "utf8");
   const schema = readFileSync(new URL("../js/control/source-control-schema.js", import.meta.url), "utf8");
 
-  assert.match(componentView, /from "\.\/source-control-schema\.js\?v=source-control-schema-extraction-1"/);
-  assert.match(sceneLiveView, /from "\.\/source-control-schema\.js\?v=source-control-schema-extraction-1"/);
+  assert.match(componentView, /from "\.\/source-control-schema\.js\?v=camera-focal-length-1"/);
+  assert.match(sceneLiveView, /from "\.\/source-control-schema\.js\?v=camera-focal-length-1"/);
   assert.match(schema, /export const MODEL_SOURCE_PARAMS/);
   assert.doesNotMatch(sceneLiveView, /const MODEL_SOURCE_PARAMS =/);
   assert.match(componentView, /chainParamViewDefinitions\(content, details,/);

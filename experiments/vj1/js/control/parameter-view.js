@@ -1,6 +1,7 @@
-import { normalizeParamValue } from "../graph/component-schema.js?v=adaptive-component-demand-29";
-import { createNumberParam } from "../graph/component-schema.js?v=adaptive-component-demand-29";
+import { normalizeParamValue } from "../graph/component-schema.js?v=text-style-controls-1";
+import { createNumberParam } from "../graph/component-schema.js?v=text-style-controls-1";
 import { esc, formatRangeValue, paramRangePairTemplate } from "./template-utils.js?v=param-context-delegation-1";
+import { markdownToEditorHtml } from "./markdown-editor.js?v=text-style-controls-1";
 
 export function shaderParamControlsTemplate(component, pass, basePath, options = {}) {
   const params = options.params || component?.params || [];
@@ -69,6 +70,11 @@ export function paramControlsTemplate(params = [], {
   isSignificant = () => false,
 } = {}) {
   const visible = visibleParamControls(params);
+  const relatedControls = new Map((params || []).map((param) => [param.id, {
+    param,
+    path: pathFor(param),
+    value: valueFor(param),
+  }]));
   const byPair = new Map();
   for (const param of visible) {
     if (param.ui === "range-pair" && param.rangePair) {
@@ -82,6 +88,7 @@ export function paramControlsTemplate(params = [], {
       const path = pathFor(param);
       return paramControlTemplate(param, path, valueFor(param), attrs, {
         significant: isSignificant(param, path),
+        relatedControls,
       });
     }
     if (param.rangeRole === "max") return "";
@@ -99,7 +106,7 @@ export function paramControlsTemplate(params = [], {
   }).join("");
 }
 
-export function paramControlTemplate(param, path, value, attrs = "data-update", { significant = false } = {}) {
+export function paramControlTemplate(param, path, value, attrs = "data-update", { significant = false, relatedControls = new Map() } = {}) {
   const contextAttrs = attrs === "data-update"
     ? `data-param-context-path="${esc(path)}" data-param-default="${esc(JSON.stringify(param.defaultValue))}"`
     : "";
@@ -123,6 +130,15 @@ export function paramControlTemplate(param, path, value, attrs = "data-update", 
     `;
   }
   if (param.type === "color") return colorParamControlTemplate(param, path, value, attrs, { significant });
+  if (param.type === "text") {
+    if (param.ui === "markdown") return markdownParamControlTemplate(param, path, value, attrs, { significant, relatedControls });
+    return `
+      <label class="field chain-param param-context-target${significantClass}" ${contextAttrs}>
+        <span>${esc(param.label || param.id)}</span>
+        <textarea rows="${param.rows || 3}" ${attrs}="${esc(path)}">${esc(value)}</textarea>
+      </label>
+    `;
+  }
   const logarithmic = param.scale === "log" && Number(param.min) > 0 && Number(param.max) > Number(param.min);
   const sliderMin = logarithmic ? 0 : param.min ?? 0;
   const sliderMax = logarithmic ? 1 : param.max ?? 1;
@@ -141,6 +157,40 @@ export function paramControlTemplate(param, path, value, attrs = "data-update", 
       <input type="range" min="${sliderMin}" max="${sliderMax}" step="${sliderStep}" data-display-step="${param.step ?? 0.01}" ${scaleAttrs} ${attrs}="${esc(path)}" value="${sliderValue}" />
     </label>
   `;
+}
+
+function markdownParamControlTemplate(param, path, value, attrs, { significant = false, relatedControls = new Map() } = {}) {
+  const styleButtons = (param.styleControls || []).map((id) => {
+    const control = relatedControls.get(id);
+    if (!control) return "";
+    const active = !!control.value;
+    const live = attrs.includes("data-live-update");
+    const liveComponentId = /data-live-component-id="([^"]*)"/.exec(attrs)?.[1] || "";
+    const toggleAttrs = live
+      ? `data-live-toggle="${esc(control.path)}" data-live-component-id="${esc(liveComponentId)}"`
+      : `data-toggle-path="${esc(control.path)}"`;
+    return `<button type="button" class="text-style-toggle${active ? " is-enabled" : ""}" ${toggleAttrs} data-toggle-value="${active}" aria-pressed="${active}" title="${esc(control.param.label)}">${textStyleButtonLabel(id)}</button>`;
+  }).join("");
+  return `
+    <div class="field chain-param markdown-param param-context-target${significant ? " is-significant" : ""}" data-markdown-control data-param-context-path="${esc(path)}" data-param-default="${esc(JSON.stringify(param.defaultValue))}">
+      <span>${esc(param.label || param.id)}</span>
+      <div class="markdown-toolbar" role="toolbar" aria-label="Text style">
+        <button type="button" data-markdown-command="h1" title="Heading">H</button>
+        ${styleButtons}
+      </div>
+      <div class="markdown-editor" contenteditable="true" role="textbox" aria-multiline="true" data-markdown-editor>${markdownToEditorHtml(value)}</div>
+      <textarea class="markdown-value" rows="${param.rows || 3}" ${attrs}="${esc(path)}" data-markdown-value>${esc(value)}</textarea>
+    </div>
+  `;
+}
+
+function textStyleButtonLabel(id) {
+  if (id === "bold") return "<strong>B</strong>";
+  if (id === "italic") return "<em>I</em>";
+  if (id === "underline") return "<u>U</u>";
+  if (id === "fillEnabled") return "Fill";
+  if (id === "outlineEnabled") return "Outline";
+  return esc(id);
 }
 
 export function colorParamControlTemplate(param, path, value, attrs = "data-update", { significant = false } = {}) {
@@ -170,7 +220,7 @@ export function paramCurrentValue(component, pass, param) {
 }
 
 function visibleParamControls(params = []) {
-  return (params || []).filter((param) => param?.id !== "seed");
+  return (params || []).filter((param) => param?.id !== "seed" && param?.ui !== "text-style-toggle");
 }
 
 function normalizeColorHex(value = "#ffffffff") {

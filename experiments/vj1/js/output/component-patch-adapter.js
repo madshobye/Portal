@@ -1,4 +1,4 @@
-import { flattenComponentChain } from "../graph/render-scheduler.js?v=shader-component-catalog-extraction-1";
+import { flattenComponentChain } from "../graph/render-scheduler.js?v=sun-rays-1";
 import { isIdentityTransform } from "./preview-interaction-geometry.js?v=render-coordinate-scope-3";
 
 export function isSourceNode(node = {}) {

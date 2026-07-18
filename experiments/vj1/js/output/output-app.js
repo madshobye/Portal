@@ -1,9 +1,9 @@
 import { VJ1 } from "../constants.js";
-import { sanitizeState } from "../domain/models.js?v=live-component-transform-1";
+import { sanitizeState } from "../domain/models.js?v=lightning-generator-1";
 import { applyLiveRenderPatches } from "../domain/live-render-patch.js?v=param-fade-1";
 import { renderMaxFrameRate } from "../domain/render-settings.js?v=max-frame-rate-1";
 import { createOutputBridge } from "../services/output-bridge-service.js?v=reconnect-media-ownership-1";
-import { OutputRenderer } from "./output-renderer.js?v=mapping-ack-1";
+import { OutputRenderer } from "./output-renderer.js?v=sun-rays-1";
 import { applyFontToGlobal, loadVjRenderFont } from "./font-loader.js?v=adaptive-component-demand-29";
 import { frameSize } from "./render-geometry.js?v=adaptive-component-demand-29";
 

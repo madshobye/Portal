@@ -4,6 +4,9 @@ import { readFileSync } from "node:fs";
 
 import {
   buildProjectPayload,
+  COLD_BACKUP_INTERVAL,
+  COLD_BACKUP_ROOT,
+  nextColdBackupRevision,
   projectHistorySignature,
   persistedRenderSettings,
 } from "../js/services/project-folder-service.js";
@@ -189,6 +192,20 @@ test("undo history is bounded and ordinary saves use the session index", () => {
   assert.match(source, /revisionIndex\.redo\.push/);
   assert.doesNotMatch(refresh, /\.values\(\)|getFile\(/);
   assert.ok(!source.includes("[VJ1_HISTORY_PRUNED]"), "routine rolling-cap pruning stays out of the runtime console");
+});
+
+test("every 500 committed revisions creates a scan-excluded cold project backup", () => {
+  const source = readFileSync(new URL("../js/services/project-folder-service.js", import.meta.url), "utf8");
+  const mediaLibrarySource = readFileSync(new URL("../js/services/media-library-service.js", import.meta.url), "utf8");
+
+  assert.equal(COLD_BACKUP_ROOT, "backups");
+  assert.equal(COLD_BACKUP_INTERVAL, 500);
+  assert.deepEqual(nextColdBackupRevision(498), { revision: 499, shouldBackup: false });
+  assert.deepEqual(nextColdBackupRevision(499), { revision: 500, shouldBackup: true });
+  assert.deepEqual(nextColdBackupRevision(999), { revision: 1000, shouldBackup: true });
+  assert.match(source, /project-backup-\$\{String\(checkpoint\.revision\)\.padStart\(9, "0"\)\}/);
+  assert.match(source, /root === "revisions" \|\| root === COLD_BACKUP_ROOT \|\| root === RENDITION_ROOT/);
+  assert.match(mediaLibrarySource, /if \(root && !\["media", "shaders"\]\.includes\(name\)\) continue;/);
 });
 
 test("completed project transactions enter a serialized immutable save queue", () => {

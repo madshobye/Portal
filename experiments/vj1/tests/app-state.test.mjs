@@ -111,6 +111,25 @@ test("creating a Component never implicitly assigns it to empty Surfaces", () =>
   assert.ok(store.getState().surfaces.every((surface) => !surface.componentId));
 });
 
+test("new Components start empty only after the visible Component list exceeds ten items", () => {
+  const tenState = createInitialState();
+  tenState.components = Array.from({ length: 10 }, (_, index) => createDefaultComponent(index));
+  const tenStore = createAppState(tenState);
+  tenStore.addComponent();
+  assert.equal(tenStore.getState().components.at(-1).chain[0]?.source?.generatorId, "testPattern");
+
+  const elevenState = createInitialState();
+  elevenState.components = [
+    ...Array.from({ length: 11 }, (_, index) => createDefaultComponent(index)),
+    ...Array.from({ length: 3 }, (_, index) => createCanvasComponent(index)),
+  ];
+  const elevenStore = createAppState(elevenState);
+  elevenStore.addComponent();
+  const added = elevenStore.getState().components.at(-1);
+  assert.deepEqual(added.chain, []);
+  assert.equal(elevenStore.getState().ui.selectedChainItemId, "");
+});
+
 test("runtime metrics update without passing through project state normalization", () => {
   const store = createAppState(createInitialState());
   const before = store.getState();
@@ -804,6 +823,20 @@ test("selected nested chain items can be removed through the shared store action
   const next = store.getState();
   assert.equal(next.components[0].chain.find((item) => item.id === group.id)?.chain.length, 0);
   assert.notEqual(next.ui.selectedChainItemId, nested.id);
+});
+
+test("the final element in an ordinary Component chain can be removed", () => {
+  const state = createInitialState();
+  const component = state.components.find((item) => item.type !== "canvas");
+  state.ui.selectedComponentId = component.id;
+  state.ui.selectedChainItemId = component.chain[0].id;
+  const store = createAppState(state);
+
+  store.removeChainItem(component.id, component.chain[0].id);
+
+  const next = store.getState();
+  assert.deepEqual(next.components.find((item) => item.id === component.id).chain, []);
+  assert.equal(next.ui.selectedChainItemId, "");
 });
 
 test("existing chain item can move into a group by drag reorder", () => {

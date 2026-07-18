@@ -1,12 +1,12 @@
 import { BLEND_MODES, VJ1 } from "../constants.js";
 import { componentFrameMetrics } from "../domain/component-frame.js";
-import { getGeneratorComponent } from "../graph/generator-registry.js?v=madstodo-4";
-import { getShaderComponent } from "../shaders/shader-registry.js?v=madstodo-4";
+import { getGeneratorComponent } from "../graph/generator-registry.js?v=sun-rays-1";
+import { getShaderComponent } from "../shaders/shader-registry.js?v=photo-grade-print-1";
 import { featureMorphMediaControlsTemplate } from "./feature-morph-view.js?v=mobilenet-morph-v2-47";
 import { generatorImageMediaControlTemplate } from "./generator-media-view.js?v=tile-texture-40";
-import { generatorIcon } from "./picker-view.js?v=terrain-mesh-near-1";
-import { chainParamViewDefinitions, chainTransformControlsTemplate, componentParamViews, paramControlsTemplate, paramCurrentValue, shaderParamControlsTemplate } from "./parameter-view.js?v=chain-param-view-consistency-1";
-import { MEDIA_FIT_MODES, MODEL_SOURCE_PARAMS } from "./source-control-schema.js?v=source-control-schema-extraction-1";
+import { generatorIcon } from "./picker-view.js?v=sun-rays-1";
+import { chainParamViewDefinitions, chainTransformControlsTemplate, componentParamViews, paramControlsTemplate, paramCurrentValue, shaderParamControlsTemplate } from "./parameter-view.js?v=text-style-controls-1";
+import { MEDIA_FIT_MODES, MODEL_SOURCE_PARAMS } from "./source-control-schema.js?v=camera-focal-length-1";
 import { effectIcon, esc, icon, rangeTemplate, selectValuesTemplate, sourceTypeIcon } from "./template-utils.js?v=slider-values-70";
 import { editableSectionTitleTemplate, enableToggleButton, textListItemTemplate } from "./view-primitives.js?v=view-primitives-extraction-1";
 
@@ -155,7 +155,7 @@ function componentUnifiedChainTemplate(component, state, ownerPath) {
     <div class="chain-column">
       <section class="chain-list-section" aria-label="Elements">
         <div class="component-chain-list" data-chain-reorder-list data-component-id="${esc(component.id)}">
-          ${chainItemsTemplate(component.chain || [], component, state, `${ownerPath}.chain`, 0, true)}
+          ${chainItemsTemplate(component.chain || [], component, state, `${ownerPath}.chain`)}
         </div>
         <button type="button" class="chain-add-button" data-open-element-picker data-component-id="${esc(component.id)}" title="Add element" aria-label="Add element">${icon("add")}</button>
       </section>
@@ -163,19 +163,18 @@ function componentUnifiedChainTemplate(component, state, ownerPath) {
   `;
 }
 
-function chainItemsTemplate(chain, component, state, base, depth = 0, topLevel = false) {
+function chainItemsTemplate(chain, component, state, base, depth = 0) {
   if (!chain?.length) return depth ? `<div class="soft-note chain-group-empty">Group is empty</div>` : "";
-  return chain.map((item, index) => chainItemRowTemplate(item, component, state, index, `${base}.${index}`, depth, topLevel ? chain.length : null)).join("");
+  return chain.map((item, index) => chainItemRowTemplate(item, component, state, index, `${base}.${index}`, depth)).join("");
 }
 
-function chainItemRowTemplate(item, component, state, index, base, depth = 0, topLevelLength = null) {
+function chainItemRowTemplate(item, component, state, index, base, depth = 0) {
   const selected = state.ui.selectedChainItemId === item.id;
   const media = state.media?.find((entry) => entry.id === item.source?.mediaId) || null;
   const referencedComponent = state.components?.find((entry) => entry.id === item.source?.componentId) || null;
   const label = chainItemLabel(item, media, referencedComponent);
   const iconName = chainItemIcon(item);
   const kindLabel = item.kind === "source" ? item.source?.type || "source" : item.kind === "group" ? `${item.chain?.length || 0} item group` : "effect";
-  const canRemove = item.kind === "group" || depth > 0 || topLevelLength === null || topLevelLength > 1;
   const row = textListItemTemplate({
     rowClass: "chain-item-row",
     selected,
@@ -195,7 +194,6 @@ function chainItemRowTemplate(item, component, state, index, base, depth = 0, to
     mainActionId: item.id,
     removeClass: "chain-item-remove",
     removeAttributes: `data-component-id="${esc(component.id)}" data-remove-chain-item="${esc(item.id)}"`,
-    removeDisabled: !canRemove,
   });
   return `
     <div class="chain-item-block ${item.kind === "group" ? "is-group" : ""}" style="--chain-depth: ${depth};">

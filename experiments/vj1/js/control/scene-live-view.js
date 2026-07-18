@@ -1,13 +1,13 @@
 import { BLEND_MODES } from "../constants.js";
-import { createLiveComponentView, sceneSourceNodes } from "../domain/models.js?v=live-component-controls-1";
-import { normalizeParamValue, RENDER_QUALITY_PARAM } from "../graph/component-schema.js?v=adaptive-component-demand-29";
-import { getGeneratorComponent } from "../graph/generator-registry.js?v=madstodo-4";
-import { getShaderComponent } from "../shaders/shader-registry.js?v=madstodo-4";
+import { createLiveComponentView, sceneSourceNodes } from "../domain/models.js?v=lightning-generator-1";
+import { normalizeParamValue, RENDER_QUALITY_PARAM } from "../graph/component-schema.js?v=text-generator-1";
+import { getGeneratorComponent } from "../graph/generator-registry.js?v=sun-rays-1";
+import { getShaderComponent } from "../shaders/shader-registry.js?v=photo-grade-print-1";
 import { componentCatalogToolsTemplate } from "./catalog-view.js?v=catalog-view-extraction-1";
-import { isModelMediaSource, sourceChainItemDisplayName, sourceIcon } from "./component-view.js?v=madstodo-4";
+import { isModelMediaSource, sourceChainItemDisplayName, sourceIcon } from "./component-view.js?v=lightning-generator-1";
 import { getLiveSelectedScene, getSceneSurfaceView, getSelectedScene, liveSceneComponents, liveSelectedSceneId, sceneFingerprintComponents } from "./control-selectors.js?v=control-selectors-extraction-1";
-import { CHAIN_TRANSFORM_PARAMS, chainParamViewDefinitions, chainTransformControlsTemplate, componentParamViews, paramControlsTemplate, paramCurrentValue } from "./parameter-view.js?v=chain-param-view-consistency-1";
-import { MEDIA_FIT_PARAM, MODEL_SOURCE_PARAMS } from "./source-control-schema.js?v=source-control-schema-extraction-1";
+import { CHAIN_TRANSFORM_PARAMS, chainParamViewDefinitions, chainTransformControlsTemplate, componentParamViews, paramControlsTemplate, paramCurrentValue } from "./parameter-view.js?v=text-style-controls-1";
+import { MEDIA_FIT_PARAM, MODEL_SOURCE_PARAMS } from "./source-control-schema.js?v=camera-focal-length-1";
 import { effectIcon, emptyNote, esc, formatRangeValue, icon, rangeTemplate, selectValuesTemplate, thumbnailTemplate } from "./template-utils.js?v=slider-values-70";
 import { componentCardBarTemplate, editableSectionTitleTemplate, enableToggleButton, panelTemplate, selectablePillTemplate } from "./view-primitives.js?v=view-primitives-extraction-1";
 
@@ -456,14 +456,19 @@ function sceneFingerprintTemplate(components) {
 }
 
 function componentAssignmentTemplate(routeBase, state, route = {}, catalog = {}) {
-  const options = prioritizeSelectedSource([
+  const options = [
     { id: "", type: "empty", name: "Empty", thumbnail: "", componentId: "", outputFrameId: "" },
     ...(catalog.sources || sceneSourceNodes(state)),
-  ], route.sourceNodeId);
+  ];
+  const selectedNode = options.find((node) => node.id === route.sourceNodeId) || options[0];
   return `
     <div class="field component-assignment-field" data-component-filter-scope>
       <span>Component</span>
       ${componentCatalogToolsTemplate("scene", catalog.sortMode || "recent", "Filter sources")}
+      <div class="component-card assignment-selected-card is-selected" data-selected-route-source="${esc(selectedNode.id)}" aria-label="Selected component: ${esc(selectedNode.name)}">
+        ${thumbnailTemplate(selectedNode.thumbnail, selectedNode.type === "empty" ? "hide_image" : selectedNode.type === "recording-frame" ? "select_all" : "account_tree")}
+        ${componentCardBarTemplate(selectedNode.name)}
+      </div>
       <div class="component-card-list assignment-card-list">
         ${options.map((node) => {
           const selected = node.id === route.sourceNodeId;
@@ -477,12 +482,6 @@ function componentAssignmentTemplate(routeBase, state, route = {}, catalog = {})
       </div>
     </div>
   `;
-}
-
-export function prioritizeSelectedSource(options = [], selectedId = "") {
-  const selectedIndex = options.findIndex((node) => node.id === selectedId);
-  if (selectedIndex <= 0) return options.slice();
-  return [options[selectedIndex], ...options.slice(0, selectedIndex), ...options.slice(selectedIndex + 1)];
 }
 
 function pathForSurface(state, surface) {

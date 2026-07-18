@@ -1,6 +1,6 @@
 import { uid } from "../domain/models.js?v=render-coordinate-scope-3";
 import { isMediaRenditionPath, mediaSourceRevision, parseMediaRenditionPath } from "./media-rendition-service.js?v=madstodo-4";
-import { createModelPreviewUrl } from "./model-preview-service.js?v=model-preview-1";
+import { createModelPreviewUrl } from "./model-preview-service.js?v=model-lod-1";
 
 const VIDEO_RE = /\.(mp4|m4v|mov|webm|ogv)$/i;
 const IMAGE_RE = /\.(png|jpe?g|gif|webp|bmp|svg)$/i;

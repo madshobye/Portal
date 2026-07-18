@@ -2,7 +2,7 @@ import { createOutputDefinition, normalizeRenderSettings } from "../domain/rende
 import { sortComponentCatalog } from "./catalog-view.js?v=catalog-view-extraction-1";
 import { setClass, setText } from "./dom-utils.js?v=preview-pointer-deferral-1";
 import { getByPath, readInputValue, setByPath, syncRangeValue } from "./path-input-utils.js?v=path-input-utils-extraction-1";
-import { elementPickerTemplate, mediaPickerTemplate, sourceChoicePickerTemplate } from "./picker-view.js?v=media-manual-refresh-1";
+import { elementPickerTemplate, mediaPickerTemplate, sourceChoicePickerTemplate } from "./picker-view.js?v=sun-rays-1";
 import { configuredOutputsTemplate, settingsModalTemplate } from "./settings-view.js?v=max-frame-rate-1";
 import { mergeSourceChoice } from "../domain/source-choice.js?v=media-source-identity-1";
 

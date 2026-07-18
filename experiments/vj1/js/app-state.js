@@ -17,7 +17,7 @@ import {
   sanitizeState,
   syncLiveSnapshotFromScene,
   uid,
-} from "./domain/models.js?v=project-storage-1";
+} from "./domain/models.js?v=sun-rays-1";
 import { stampChangedProjectItems, touchComponentUsed } from "./domain/component-activity.js?v=adaptive-component-demand-29";
 import { componentFrameMetrics } from "./domain/component-frame.js?v=adaptive-component-demand-29";
 import { VJ1, WORKSPACES } from "./constants.js";
@@ -198,7 +198,8 @@ export function createAppState(initial = null) {
     },
     addComponent() {
       update((draft) => {
-        const component = createDefaultComponent(draft.components.filter((item) => item.type !== "canvas").length);
+        const componentCount = draft.components.filter((item) => item.type !== "canvas").length;
+        const component = createDefaultComponent(componentCount, { empty: componentCount > 10 });
         draft.components.push(component);
         draft.ui.selectedComponentId = component.id;
         draft.ui.selectedChainItemId = component.chain[0]?.id || "";
@@ -264,7 +265,7 @@ export function createAppState(initial = null) {
       update((draft) => {
         const component = draft.components.find((item) => item.id === componentId);
         if (!component?.chain) return;
-        const removed = removeChainItemFromChain(component.chain, itemId, component.type !== "canvas");
+        const removed = removeChainItemFromChain(component.chain, itemId);
         if (removed && draft.ui.selectedChainItemId === itemId) {
           draft.ui.selectedChainItemId = firstChainItemId(component.chain);
         }
@@ -503,16 +504,15 @@ function firstChainItemId(chain = []) {
   return chain[0]?.id || "";
 }
 
-function removeChainItemFromChain(chain = [], itemId = "", topLevel = false) {
+function removeChainItemFromChain(chain = [], itemId = "") {
   if (!Array.isArray(chain) || !itemId) return false;
   const index = chain.findIndex((item) => item.id === itemId);
   if (index >= 0) {
-    if (topLevel && chain.length <= 1) return false;
     chain.splice(index, 1);
     return true;
   }
   for (const item of chain) {
-    if (item.kind === "group" && removeChainItemFromChain(item.chain || [], itemId, false)) return true;
+    if (item.kind === "group" && removeChainItemFromChain(item.chain || [], itemId)) return true;
   }
   return false;
 }

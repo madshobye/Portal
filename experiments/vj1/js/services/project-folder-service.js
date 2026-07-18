@@ -1,4 +1,4 @@
-import { collectProjectAssetFiles, isMediaFile, isShaderFile } from "./media-library-service.js?v=project-storage-1";
+import { collectProjectAssetFiles, isMediaFile, isShaderFile } from "./media-library-service.js?v=model-lod-1";
 import { RENDITION_DIR, RENDITION_ROOT, isMediaRenditionPath, mediaRenditionPath } from "./media-rendition-service.js?v=madstodo-4";
 import {
   THUMBNAIL_DIR,
@@ -17,7 +17,7 @@ import {
   loadProjectDirectoryHandle,
   saveProjectDirectoryHandle,
 } from "./directory-handle-store.js";
-import { applySceneSnapshotToState, createInitialState } from "../domain/models.js?v=render-coordinate-scope-3";
+import { applySceneSnapshotToState, createInitialState } from "../domain/models.js?v=lightning-generator-1";
 import { migrateProjectData, ProjectVersionError } from "../domain/project-migrations.js?v=project-storage-1";
 import { createChangeEvent } from "../domain/change-event.js?v=project-storage-1";
 import { isHistoryReason, projectHistorySignature } from "./project-history-policy.js?v=project-storage-1";
@@ -25,6 +25,15 @@ import { buildProjectPayload } from "./project-serializer.js?v=project-storage-1
 
 export { projectHistorySignature } from "./project-history-policy.js?v=project-storage-1";
 export { buildProjectPayload, persistedRenderSettings } from "./project-serializer.js?v=project-storage-1";
+
+export const COLD_BACKUP_ROOT = "backups";
+export const COLD_BACKUP_INTERVAL = 500;
+
+export function nextColdBackupRevision(currentRevision = 0, interval = COLD_BACKUP_INTERVAL) {
+  const revision = Math.max(0, Math.floor(Number(currentRevision) || 0)) + 1;
+  const cadence = Math.max(1, Math.floor(Number(interval) || COLD_BACKUP_INTERVAL));
+  return { revision, shouldBackup: revision % cadence === 0 };
+}
 
 export function createProjectFolderService({ mediaLibrary, store, bridge }) {
   let dirHandle = null;
@@ -43,6 +52,8 @@ export function createProjectFolderService({ mediaLibrary, store, bridge }) {
   let pendingSaveReason = "";
   let historyIndexReady = false;
   const revisionIndex = { undo: [], redo: [] };
+  let coldBackupIndexReady = false;
+  let coldBackupIndex = emptyColdBackupIndex();
   const thumbnailUrlLease = createThumbnailUrlLease();
   let fileObserver = null;
   let observedChangeQueue = Promise.resolve();
@@ -87,6 +98,7 @@ export function createProjectFolderService({ mediaLibrary, store, bridge }) {
       if (selectedHandle !== dirHandle) {
         stopFileObserver();
         resetHistoryIndex();
+        resetColdBackupIndex();
         lastSavedSignature = "";
         lastDirectorySignature = "";
         projectGeneration++;
@@ -182,6 +194,7 @@ export function createProjectFolderService({ mediaLibrary, store, bridge }) {
     writtenRenditions.clear();
     renditionIndexPaths = [];
     resetHistoryIndex();
+    resetColdBackupIndex();
     mediaLibrary.clear();
     bridge.sendMediaFiles([]);
     await clearStoredHandle();
@@ -408,7 +421,8 @@ export function createProjectFolderService({ mediaLibrary, store, bridge }) {
       handle = await dirHandle.getFileHandle("project.json", { create: true });
     }
 
-    if (shouldWriteHistoryRevision(previousText, payload, json, reason, recordHistory)) {
+    const recordsProjectRevision = shouldWriteHistoryRevision(previousText, payload, json, reason, recordHistory);
+    if (recordsProjectRevision) {
       await writeRevision(previousText, savedAt);
       if (!isHistoryReason(reason)) await clearRedoRevisions();
     }
@@ -416,6 +430,17 @@ export function createProjectFolderService({ mediaLibrary, store, bridge }) {
     const writable = await handle.createWritable();
     await writable.write(json);
     await writable.close();
+    if (recordsProjectRevision) {
+      try {
+        await recordColdBackup(json, savedAt);
+      } catch (error) {
+        console.warn("[VJ1_COLD_BACKUP_FAILED]", {
+          directory: COLD_BACKUP_ROOT,
+          fallback: "project saved; retry milestone backup on the next committed revision",
+          message: error?.message || String(error),
+        });
+      }
+    }
     lastSavedSignature = signature;
     await refreshHistoryState();
     store.update((draft) => {
@@ -508,6 +533,60 @@ export function createProjectFolderService({ mediaLibrary, store, bridge }) {
     revisionIndex.redo.sort(compareRevisionEntries);
     await pruneRevisionIndex("redo");
     setHistoryFromIndex();
+  }
+
+  async function recordColdBackup(projectJson, savedAt) {
+    const projectHandle = dirHandle;
+    if (!projectHandle) return false;
+    await ensureColdBackupIndex(projectHandle);
+    if (projectHandle !== dirHandle) return false;
+    const checkpoint = nextColdBackupRevision(coldBackupIndex.revisionCount);
+    let backupFilename = coldBackupIndex.lastBackupFilename || "";
+    let lastBackupRevision = coldBackupIndex.lastBackupRevision || 0;
+    const backupDirectory = await projectHandle.getDirectoryHandle(COLD_BACKUP_ROOT, { create: true });
+    if (checkpoint.shouldBackup) {
+      const suffix = Math.random().toString(36).slice(2, 7);
+      backupFilename = `project-backup-${String(checkpoint.revision).padStart(9, "0")}-${safeTimestamp(savedAt)}-${suffix}.json`;
+      await writeDirectoryTextFile(backupDirectory, backupFilename, projectJson);
+      lastBackupRevision = checkpoint.revision;
+    }
+    const nextIndex = {
+      version: 1,
+      interval: COLD_BACKUP_INTERVAL,
+      revisionCount: checkpoint.revision,
+      lastBackupRevision,
+      lastBackupFilename: backupFilename,
+    };
+    await writeDirectoryTextFile(backupDirectory, "index.json", JSON.stringify(nextIndex, null, 2));
+    if (projectHandle !== dirHandle) return false;
+    coldBackupIndex = nextIndex;
+    return checkpoint.shouldBackup;
+  }
+
+  async function ensureColdBackupIndex(projectHandle = dirHandle) {
+    if (coldBackupIndexReady || !projectHandle) return;
+    let parsed = null;
+    try {
+      const directory = await projectHandle.getDirectoryHandle(COLD_BACKUP_ROOT);
+      const handle = await directory.getFileHandle("index.json");
+      parsed = JSON.parse(await (await handle.getFile()).text());
+    } catch (error) {
+      if (!isNotFoundError(error)) {
+        console.warn("[VJ1_COLD_BACKUP_INDEX_INVALID]", {
+          directory: COLD_BACKUP_ROOT,
+          fallback: "restart milestone count and preserve all existing backup files",
+          message: error?.message || String(error),
+        });
+      }
+    }
+    if (projectHandle !== dirHandle) return;
+    coldBackupIndex = normalizeColdBackupIndex(parsed);
+    coldBackupIndexReady = true;
+  }
+
+  function resetColdBackupIndex() {
+    coldBackupIndexReady = false;
+    coldBackupIndex = emptyColdBackupIndex();
   }
 
   async function clearRedoRevisions() {
@@ -1060,6 +1139,28 @@ function textByteLength(text = "") {
   return new Blob([text]).size;
 }
 
+function emptyColdBackupIndex() {
+  return { version: 1, interval: COLD_BACKUP_INTERVAL, revisionCount: 0, lastBackupRevision: 0, lastBackupFilename: "" };
+}
+
+function normalizeColdBackupIndex(value) {
+  if (!value || typeof value !== "object") return emptyColdBackupIndex();
+  return {
+    version: 1,
+    interval: COLD_BACKUP_INTERVAL,
+    revisionCount: Math.max(0, Math.floor(Number(value.revisionCount) || 0)),
+    lastBackupRevision: Math.max(0, Math.floor(Number(value.lastBackupRevision) || 0)),
+    lastBackupFilename: typeof value.lastBackupFilename === "string" ? value.lastBackupFilename : "",
+  };
+}
+
+async function writeDirectoryTextFile(directory, filename, text) {
+  const handle = await directory.getFileHandle(filename, { create: true });
+  const writable = await handle.createWritable();
+  await writable.write(text);
+  await writable.close();
+}
+
 function cooperativeYield() {
   return new Promise((resolve) => setTimeout(resolve, 0));
 }
@@ -1078,7 +1179,7 @@ function observedMovedFromPath(record = {}) {
 
 function isIgnoredObservedPath(path = "") {
   const root = String(path).split("/")[0];
-  return root === "revisions" || root === RENDITION_ROOT;
+  return root === "revisions" || root === COLD_BACKUP_ROOT || root === RENDITION_ROOT;
 }
 
 function isObservedAssetPath(path = "") {

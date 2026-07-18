@@ -1,4 +1,5 @@
-import { parseObjMesh, parseStlMesh } from "../output/specialized/model-parsers.js?v=model-preview-1";
+import { forEachModelTriangle, modelTriangleCount } from "../output/specialized/model-lod.js?v=model-lod-1";
+import { processObjModelText, processStlModelBuffer } from "../output/specialized/model-processing-client.js?v=model-lod-1";
 
 const MAX_PREVIEW_TRIANGLES = 600;
 
@@ -7,29 +8,30 @@ const MAX_PREVIEW_TRIANGLES = 600;
 // and never allocate a p5/WebGL context or retain the source file contents.
 export async function createModelPreviewUrl(file) {
   const name = String(file?.relativePath || file?.webkitRelativePath || file?.name || "");
+  const options = { levels: [2400] };
   const mesh = /\.obj$/i.test(name)
-    ? parseObjMesh(await file.text())
-    : parseStlMesh(await file.arrayBuffer());
+    ? await processObjModelText(await file.text(), options)
+    : await processStlModelBuffer(await file.arrayBuffer(), options);
   const svg = modelPreviewSvg(mesh);
   return URL.createObjectURL(new Blob([svg], { type: "image/svg+xml" }));
 }
 
 export function modelPreviewSvg(mesh = {}) {
-  const triangles = Array.isArray(mesh.triangles) ? mesh.triangles : [];
-  if (!triangles.length) throw new Error("Model preview has no triangles");
-  const stride = Math.max(1, Math.ceil(triangles.length / MAX_PREVIEW_TRIANGLES));
+  const triangleCount = modelTriangleCount(mesh);
+  if (!triangleCount) throw new Error("Model preview has no triangles");
+  const stride = Math.max(1, Math.ceil(triangleCount / MAX_PREVIEW_TRIANGLES));
   const projected = [];
-  for (let index = 0; index < triangles.length; index += stride) {
-    const triangle = triangles[index];
+  forEachModelTriangle(mesh, (triangle, index) => {
+    if (index % stride) return;
     const points = (triangle.vertices || []).slice(0, 3).map(projectModelPoint);
-    if (points.length !== 3) continue;
+    if (points.length !== 3) return;
     const depth = points.reduce((sum, point) => sum + point[2], 0) / 3;
     const light = Math.max(0.18, Math.min(0.95,
       0.42 + (Number(triangle.normal?.[0]) || 0) * -0.18
         + (Number(triangle.normal?.[1]) || 0) * 0.28
         + (Number(triangle.normal?.[2]) || 0) * 0.16));
     projected.push({ points, depth, light });
-  }
+  });
   projected.sort((a, b) => a.depth - b.depth);
   const coordinates = projected.flatMap((triangle) => triangle.points);
   const minX = Math.min(...coordinates.map((point) => point[0]));

@@ -1,0 +1,134 @@
+[
+  {
+    "filename": "01_concentric_descent.stl",
+    "name": "Concentric descent",
+    "triangles": 6448,
+    "bytes": 322484
+  },
+  {
+    "filename": "02_sinkhole.stl",
+    "name": "Sinkhole",
+    "triangles": 3866,
+    "bytes": 193384
+  },
+  {
+    "filename": "03_volcanic_terrain.stl",
+    "name": "Volcanic terrain",
+    "triangles": 3866,
+    "bytes": 193384
+  },
+  {
+    "filename": "04_mountain_range.stl",
+    "name": "Mountain range",
+    "triangles": 3258,
+    "bytes": 162984
+  },
+  {
+    "filename": "05_canyon_chasm.stl",
+    "name": "Canyon chasm",
+    "triangles": 3450,
+    "bytes": 172584
+  },
+  {
+    "filename": "06_stone_arch.stl",
+    "name": "Stone arch",
+    "triangles": 968,
+    "bytes": 48484
+  },
+  {
+    "filename": "07_gothic_spires.stl",
+    "name": "Gothic spires",
+    "triangles": 1132,
+    "bytes": 56684
+  },
+  {
+    "filename": "08_flying_buttress_gate.stl",
+    "name": "Flying buttress gate",
+    "triangles": 1176,
+    "bytes": 58884
+  },
+  {
+    "filename": "09_spiral_stair_descent.stl",
+    "name": "Spiral stair descent",
+    "triangles": 928,
+    "bytes": 46484
+  },
+  {
+    "filename": "10_cylindrical_cage.stl",
+    "name": "Cylindrical cage",
+    "triangles": 2688,
+    "bytes": 134484
+  },
+  {
+    "filename": "11_labyrinth_structure.stl",
+    "name": "Labyrinth structure",
+    "triangles": 2268,
+    "bytes": 113484
+  },
+  {
+    "filename": "12_cracked_plateau.stl",
+    "name": "Cracked plateau",
+    "triangles": 3674,
+    "bytes": 183784
+  },
+  {
+    "filename": "13_eternal_rings.stl",
+    "name": "Eternal rings",
+    "triangles": 4480,
+    "bytes": 224084
+  },
+  {
+    "filename": "14_triangle_monolith.stl",
+    "name": "Triangle monolith",
+    "triangles": 36,
+    "bytes": 1884
+  },
+  {
+    "filename": "15_human_skull.stl",
+    "name": "Stylized human skull",
+    "triangles": 4960,
+    "bytes": 248084
+  },
+  {
+    "filename": "16_anatomical_heart.stl",
+    "name": "Stylized anatomical heart",
+    "triangles": 5468,
+    "bytes": 273484
+  },
+  {
+    "filename": "17_human_brain.stl",
+    "name": "Stylized human brain",
+    "triangles": 6088,
+    "bytes": 304484
+  },
+  {
+    "filename": "18_human_lungs.stl",
+    "name": "Human lungs and trachea",
+    "triangles": 4368,
+    "bytes": 218484
+  },
+  {
+    "filename": "19_human_kidneys.stl",
+    "name": "Human kidney pair",
+    "triangles": 4960,
+    "bytes": 248084
+  },
+  {
+    "filename": "20_human_ribcage.stl",
+    "name": "Human ribcage",
+    "triangles": 16704,
+    "bytes": 835284
+  },
+  {
+    "filename": "21_human_hand.stl",
+    "name": "Human hand",
+    "triangles": 2992,
+    "bytes": 149684
+  },
+  {
+    "filename": "22_human_pelvis.stl",
+    "name": "Human pelvis",
+    "triangles": 4180,
+    "bytes": 209084
+  }
+]

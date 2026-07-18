@@ -1,7 +1,7 @@
-import { listGeneratorComponents } from "../graph/generator-registry.js?v=terrain-mesh-near-1";
+import { listGeneratorComponents } from "../graph/generator-registry.js?v=sun-rays-1";
 import { patchNodeDegree, planCompositorInputs, planPatchExecution, summarizeTextureBranches } from "../graph/patch-planner.js";
-import { compileComponentPatch } from "../graph/render-scheduler.js?v=shader-component-catalog-extraction-1";
-import { listShaderComponents } from "../shaders/shader-registry.js?v=shader-component-catalog-extraction-1";
+import { compileComponentPatch } from "../graph/render-scheduler.js?v=sun-rays-1";
+import { listShaderComponents } from "../shaders/shader-registry.js?v=photo-grade-print-1";
 import { effectIcon, esc, icon } from "./template-utils.js?v=slider-values-70";
 
 export function mappingStudioTemplate(state) {

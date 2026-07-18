@@ -4,7 +4,7 @@ import { readFileSync } from "node:fs";
 
 import { componentCatalogToolsTemplate } from "../js/control/catalog-view.js";
 import { canvasComponents, ordinaryComponents } from "../js/control/control-selectors.js";
-import { liveComponentPillTemplate, liveInspectorTemplate, liveScenePillTemplate, prioritizeSelectedSource, scenePillTemplate, sceneSignificantComponentTemplate, sceneSurfaceTemplate } from "../js/control/scene-live-view.js";
+import { liveComponentPillTemplate, liveInspectorTemplate, liveScenePillTemplate, scenePillTemplate, sceneSignificantComponentTemplate, sceneSurfaceTemplate } from "../js/control/scene-live-view.js";
 import { createSceneFromState, createInitialState } from "../js/domain/models.js?v=render-coordinate-scope-3";
 
 function stateWithScene() {
@@ -28,7 +28,7 @@ test("Scene and Live presentation lives outside the control orchestrator", () =>
   assert.match(surfaceTemplate, /class="sculpt-card"/);
   assert.match(surfaceTemplate, /data-set-route-source-node=""/);
   assert.match(surfaceTemplate, />Empty</);
-  assert.match(controller, /from "\.\/scene-live-view\.js\?v=chain-param-view-consistency-1"/);
+  assert.match(controller, /from "\.\/scene-live-view\.js\?v=[^"]+"/);
   assert.doesNotMatch(controller, /function liveInspectorTemplate\(/);
   assert.doesNotMatch(controller, /function sceneSurfaceTemplate\(/);
 });
@@ -42,19 +42,26 @@ test("Live Scene reset is absent until temporary parameters exist", () => {
   assert.match(liveScenePillTemplate(scene, state), /data-reset-live-scene/);
 });
 
-test("Scene surface source catalogs put the assigned source first without disturbing the remainder", () => {
+test("Scene surface source catalogs show a full-width selection without reordering the three-column list", () => {
+  const { state, scene } = stateWithScene();
   const sources = [
-    { id: "", name: "Empty" },
-    { id: "component:a", name: "A" },
-    { id: "component:b", name: "B" },
-    { id: "component:c", name: "C" },
+    { id: "component:a", type: "component", name: "A", thumbnail: "a.png" },
+    { id: "component:b", type: "component", name: "B", thumbnail: "b.png" },
+    { id: "component:c", type: "component", name: "C", thumbnail: "c.png" },
   ];
+  const sceneSurface = scene.snapshot.surfaces[0];
+  sceneSurface.sourceNodeId = "component:b";
+  const html = sceneSurfaceTemplate(state.surfaces[0], state, { sources });
+  const list = html.slice(html.indexOf('<div class="component-card-list assignment-card-list">'));
+  const styles = readFileSync(new URL("../style.css", import.meta.url), "utf8");
 
-  assert.deepEqual(
-    prioritizeSelectedSource(sources, "component:b").map((item) => item.id),
-    ["component:b", "", "component:a", "component:c"]
-  );
-  assert.deepEqual(sources.map((item) => item.id), ["", "component:a", "component:b", "component:c"]);
+  assert.match(html, /class="component-card assignment-selected-card is-selected" data-selected-route-source="component:b"/);
+  assert.equal((html.match(/data-set-route-source-node="component:b"/g) || []).length, 1, "selected source remains in the catalog");
+  assert.ok(list.indexOf('data-set-route-source-node=""') < list.indexOf('data-set-route-source-node="component:a"'));
+  assert.ok(list.indexOf('data-set-route-source-node="component:a"') < list.indexOf('data-set-route-source-node="component:b"'));
+  assert.ok(list.indexOf('data-set-route-source-node="component:b"') < list.indexOf('data-set-route-source-node="component:c"'));
+  assert.match(styles, /\.assignment-selected-card \{[\s\S]*?width: 100%;/);
+  assert.match(styles, /\.assignment-card-list \{[\s\S]*?grid-template-columns: repeat\(3, minmax\(0, 1fr\)\);/);
 });
 
 test("catalog presentation and component selectors have single owners", () => {

@@ -69,6 +69,11 @@ vec4 runEffect(vec2 uv, vec4 color) {
       createNumberParam("shadows", "Shadows", { min: -1, max: 1, step: 0.01, defaultValue: 0 }),
       createNumberParam("gamma", "Gamma", { min: -1, max: 1, step: 0.01, defaultValue: 0 }),
       createNumberParam("fade", "Fade", { min: 0, max: 1, step: 0.01, defaultValue: 0 }),
+      createNumberParam("ditherAmount", "Print dither", { min: 0, max: 1, step: 0.01, defaultValue: 0 }),
+      createEnumParam("ditherStyle", "Print style", ["offset color", "offset mono", "laser"], "offset color"),
+      createNumberParam("ditherDotSize", "Dot size", { min: 2, max: 20, step: 0.1, defaultValue: 5 }),
+      createNumberParam("ditherAngle", "Screen angle", { min: -3.14, max: 3.14, step: 0.01, defaultValue: 0 }),
+      createNumberParam("ditherInkGain", "Ink gain", { min: 0.5, max: 1.5, step: 0.01, defaultValue: 1 }),
       createNumberParam("grain", "Grain", { min: 0, max: 1, step: 0.01, defaultValue: 0 }),
       createNumberParam("noise", "Noise", { min: 0, max: 1, step: 0.01, defaultValue: 0 }),
       createNumberParam("distort", "Distort", { min: 0, max: 1, step: 0.01, defaultValue: 0 }),
@@ -79,6 +84,53 @@ vec4 runEffect(vec2 uv, vec4 color) {
 vec3 applySaturation(vec3 rgb, float sat) {
   float luma = dot(rgb, vec3(0.2126, 0.7152, 0.0722));
   return mix(vec3(luma), rgb, sat);
+}
+
+float photoGradePrintDot(vec2 p, vec2 direction, float coverage, float cellSize) {
+  vec2 perpendicular = vec2(-direction.y, direction.x);
+  vec2 cell = vec2(dot(p, direction), dot(p, perpendicular)) / max(cellSize, 1.0);
+  float radius = sqrt(clamp(coverage, 0.0, 1.0)) * 0.69;
+  float distanceToCenter = length(fract(cell) - 0.5);
+  float edge = max(0.035, 0.72 / max(cellSize, 2.0));
+  return 1.0 - smoothstep(radius - edge, radius + edge, distanceToCenter);
+}
+
+float photoGradeBayer2(vec2 p) {
+  return p.x * 2.0 + p.y * 3.0 - p.x * p.y * 4.0;
+}
+
+float photoGradeBayer4(vec2 pixel) {
+  vec2 p = mod(floor(pixel), 4.0);
+  vec2 low = mod(p, 2.0);
+  vec2 high = floor(p * 0.5);
+  return (4.0 * photoGradeBayer2(low) + photoGradeBayer2(high) + 0.5) / 16.0;
+}
+
+vec3 photoGradePrintDither(vec3 rgb, vec2 uv) {
+  vec2 pixel = uv * resolution;
+  float baseCos = cos(ditherAngle);
+  float baseSin = sin(ditherAngle);
+  pixel = mat2(baseCos, -baseSin, baseSin, baseCos) * pixel;
+  float gain = max(0.01, ditherInkGain);
+
+  if (ditherStyle < 0.5) {
+    float key = 1.0 - max(rgb.r, max(rgb.g, rgb.b));
+    float remaining = max(0.0001, 1.0 - key);
+    vec3 cmy = clamp((1.0 - rgb - key) / remaining, 0.0, 1.0);
+    float cyan = photoGradePrintDot(pixel, vec2(0.965926, 0.258819), cmy.x * gain, ditherDotSize);
+    float magenta = photoGradePrintDot(pixel, vec2(0.258819, 0.965926), cmy.y * gain, ditherDotSize);
+    float yellow = photoGradePrintDot(pixel, vec2(1.0, 0.0), cmy.z * gain, ditherDotSize);
+    float black = photoGradePrintDot(pixel, vec2(0.707107, 0.707107), key * gain, ditherDotSize);
+    return clamp(vec3(1.0 - cyan, 1.0 - magenta, 1.0 - yellow) * (1.0 - black), 0.0, 1.0);
+  }
+
+  float ink = clamp((1.0 - dot(rgb, vec3(0.2126, 0.7152, 0.0722))) * gain, 0.0, 1.0);
+  if (ditherStyle < 1.5) {
+    float black = photoGradePrintDot(pixel, vec2(0.707107, 0.707107), ink, ditherDotSize);
+    return vec3(1.0 - black);
+  }
+  float toner = step(photoGradeBayer4(pixel / max(ditherDotSize * 0.25, 1.0)), ink);
+  return vec3(1.0 - toner);
 }
 
 vec4 runEffect(vec2 uv, vec4 color) {
@@ -144,6 +196,10 @@ vec4 runEffect(vec2 uv, vec4 color) {
   if (noise > 0.001) {
     float coarseNoise = cachedNoise(floor(uv * resolution * 0.14) + vec2(noiseFrame * 3.0, -noiseFrame * 2.0)) - 0.5;
     rgb += coarseNoise * noise * 0.18;
+  }
+
+  if (ditherAmount > 0.001) {
+    rgb = mix(rgb, photoGradePrintDither(clamp(rgb, 0.0, 1.0), gradeUv), ditherAmount);
   }
 
   if (vignette > 0.001) {

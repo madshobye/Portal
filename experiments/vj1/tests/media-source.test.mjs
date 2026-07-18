@@ -219,6 +219,37 @@ test("Cellular Circles exposes bounded animated Shadertoy controls", () => {
   assert.ok(runtimeSource.includes('generatorId === "cellularCircles"'));
 });
 
+test("Lightning exposes transparent strike and brightness controls", () => {
+  const component = getGeneratorComponent("lightning");
+  const params = Object.fromEntries(component.params.map((param) => [param.id, param]));
+  const runtimeSource = readFileSync(new URL("../js/output/render-runtime-math.js", import.meta.url), "utf8");
+
+  assert.equal(component.name, "Lightning");
+  assert.equal(component.category, "shadertoy");
+  for (const id of ["speed", "frequency", "duration", "boltWidth", "jaggedness", "positionSpread", "boltLength", "glow", "glare", "brightness", "seed", "amount"]) {
+    assert.equal(params[id].type, "number", `missing numeric Lightning control ${id}`);
+  }
+  assert.equal(params.strikeColor.type, "color");
+  assert.ok(runtimeSource.includes('generatorId === "lightning"'));
+});
+
+test("Sun Rays exposes compact animated light controls", () => {
+  const component = getGeneratorComponent("sunRays");
+  const params = Object.fromEntries(component.params.map((param) => [param.id, param]));
+
+  assert.equal(component.name, "Sun Rays");
+  assert.equal(component.category, "light");
+  for (const id of ["rayCount", "rayWidth", "rayLength", "coreSize", "lengthVariation", "edgeSoftness", "rotation", "rotationSpeed", "shimmer", "shimmerScale", "shimmerSpeed", "speed", "centerX", "centerY", "brightness", "seed", "amount"]) {
+    assert.equal(params[id].type, "number", `missing numeric Sun Rays control ${id}`);
+  }
+  for (const id of ["rayColorA", "rayColorB", "coreColor", "backgroundColor"]) {
+    assert.equal(params[id].type, "color", `missing Sun Rays color ${id}`);
+  }
+  assert.equal(component.runtime.timeDependent({ speed: 0, rotationSpeed: 1, shimmer: 1, shimmerSpeed: 1 }), false);
+  assert.equal(component.runtime.timeDependent({ speed: 1, rotationSpeed: 0, shimmer: 1, shimmerSpeed: 1 }), true);
+  assert.equal(generatorIcon("sunRays"), "sunny");
+});
+
 test("Seascape exposes bounded artistic controls", () => {
   const component = getGeneratorComponent("seascape");
   const params = Object.fromEntries(component.params.map((param) => [param.id, param]));
@@ -700,12 +731,12 @@ test("3d model point mode uses cached bounded point clouds", () => {
     readFileSync(new URL("../js/output/specialized/raw-model-webgl-renderer.js", import.meta.url), "utf8"),
   ].join("\n");
 
-  assert.ok(source.includes("drawRawParsedModel(target, item, params, componentTime, \"points\""));
-  assert.ok(source.includes("drawRawParsedWire(target, item, params, componentTime, wireColor, pointBudget, viewport, contentTransform)"));
+  assert.ok(source.includes("drawRawParsedModelMode(target, item"));
   assert.ok(source.includes("gl.drawArrays(gl.TRIANGLES, 0, resources.count);"));
-  assert.ok(source.includes("ensureParsedModelPointCloud(item, pointBudget)"));
-  assert.ok(source.includes("ensureParsedModelWireLines(item, budget)"));
-  assert.ok(source.includes("ensureParsedModelThickWireVertices(item, budget)"));
+  assert.ok(source.includes("ensureParsedModelPointCloud(item, pointBudget, modelMesh)"));
+  assert.ok(source.includes("ensureParsedModelWireLines(item, budget, mesh)"));
+  assert.ok(source.includes("ensureParsedModelThickWireVertices(item, budget, mesh)"));
+  assert.ok(source.includes("ensureParsedModelPerceptualWireVertices(item, budget, mesh)"));
   assert.ok(source.includes("ensureP5ModelPointCloud(item, pointBudget)"));
   assert.ok(source.includes("uniform float uThickness;"));
   assert.ok(source.includes("resolutionScaledStrokeWidth("));
@@ -747,7 +778,8 @@ test("3d model scale uses logical render viewport instead of backing pixels", ()
   assert.ok(source.includes("const scale = viewport.unitScale * modelScale;"));
   assert.ok(source.includes("const drawingWidth = Math.max(1, gl.drawingBufferWidth || target.width || 1);"));
   assert.ok(source.includes("gl.viewport(0, 0, drawingWidth, drawingHeight);"));
-  assert.ok(source.includes("const matrices = rawModelMatrices(metrics.width, metrics.height, scale, depth, rotation, contentTransform);"));
+  assert.ok(source.includes("rawModelMatrices(metrics.width, metrics.height, scale, depth, rotation, contentTransform, modelCameraFov(params))"));
+  assert.ok(source.includes("target.perspective?.(modelCameraFov(params)"));
   assert.ok(source.includes("const cameraZ = Math.max(1, height) * 0.92;"));
   assert.ok(!source.includes("Math.max(width, height) * 0.92"));
 });
@@ -771,11 +803,14 @@ test("parsed STL and OBJ models use one clipped raw WebGL renderer family", () =
   assert.ok(source.includes("function disposeRawModelContextResources("));
   assert.ok(source.includes("onContextDiscard: (gl) => this.resetModelResources(gl)"));
   assert.ok(!source.includes("modelRawRenderers ||= new WeakMap()"));
-  assert.ok(source.includes("item.modelData = parseObjMesh(text);"));
+  assert.ok(source.includes("return processObjModelText(text);"));
+  assert.ok(source.includes("item.modelData = mesh;"));
   assert.ok(source.includes("if (vModelDepth < uDepthCutoff) discard;"));
   assert.ok(source.includes("modelDepthCutoff(params, mesh.bounds, matrices.model)"));
   assert.ok(source.includes('if (drewSurface && renderMode === "surfaceWire")'));
-  assert.ok(source.includes('drawWithPolygonOffset(target, renderMode === "surfaceWire"'));
+  assert.ok(source.includes('renderMode === "outline" || renderMode === "surfaceOutline"'));
+  assert.ok(source.includes("float silhouette ="));
+  assert.ok(source.includes("float crease ="));
 });
 
 test("renderer source extraction merges source node params", () => {

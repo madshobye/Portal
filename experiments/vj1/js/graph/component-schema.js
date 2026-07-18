@@ -10,6 +10,7 @@ export const PARAM_TYPES = Object.freeze({
   BOOLEAN: "boolean",
   ENUM: "enum",
   COLOR: "color",
+  TEXT: "text",
 });
 
 export const RENDER_SIZE_POLICIES = Object.freeze({
@@ -119,6 +120,17 @@ export function createColorParam(id, label, defaultValue = "#ffffffff") {
   };
 }
 
+export function createTextParam(id, label, defaultValue = "", { ui = "text", rows = 3 } = {}) {
+  return {
+    id,
+    label,
+    type: PARAM_TYPES.TEXT,
+    defaultValue: String(defaultValue ?? ""),
+    ui,
+    rows: Math.max(1, Math.round(Number(rows) || 3)),
+  };
+}
+
 export function textureInlet(id = "input", label = "Input") {
   return { id, label, type: PORT_TYPES.TEXTURE };
 }
@@ -210,6 +222,9 @@ export function normalizeParamValue(param, value) {
     return param.values?.includes(value) ? value : fallback;
   }
   if (param.type === PARAM_TYPES.COLOR) return typeof value === "string" ? value : param.defaultValue || "#ffffff";
+  if (param.type === PARAM_TYPES.TEXT) return value === undefined || value === null
+    ? String(param.defaultValue ?? "")
+    : String(value);
   const number = Number(value ?? param.defaultValue ?? 0);
   const min = Number.isFinite(param.min) ? param.min : -Infinity;
   const max = Number.isFinite(param.max) ? param.max : Infinity;

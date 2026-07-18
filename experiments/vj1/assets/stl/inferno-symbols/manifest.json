@@ -1,0 +1,32 @@
+[
+  {
+    "filename": "01_eternity_circles.stl",
+    "name": "Eternity circles",
+    "triangles": 3008,
+    "bytes": 150484
+  },
+  {
+    "filename": "02_spiral_descent.stl",
+    "name": "Spiral descent",
+    "triangles": 5480,
+    "bytes": 274084
+  },
+  {
+    "filename": "03_faith_cross.stl",
+    "name": "Faith cross",
+    "triangles": 72,
+    "bytes": 3684
+  },
+  {
+    "filename": "04_order_square.stl",
+    "name": "Order square",
+    "triangles": 304,
+    "bytes": 15284
+  },
+  {
+    "filename": "05_divine_triangle.stl",
+    "name": "Divine triangle",
+    "triangles": 660,
+    "bytes": 33084
+  }
+]
