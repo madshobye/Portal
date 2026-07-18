@@ -2601,6 +2601,12 @@ button.text-list-main:hover {
   font-size: 14px;
 }
 
+.modal-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
 .element-modal {
   width: min(920px, calc(100vw - 32px));
   grid-template-rows: auto auto minmax(0, 1fr);

@@ -269,7 +269,10 @@ export function mediaPickerTemplate(state, picker, mediaLibrary) {
           <strong>Choose media</strong>
           <small>${mediaItems.length} file${mediaItems.length === 1 ? "" : "s"}</small>
         </div>
-        <button type="button" class="icon-buttonish" data-close-modal title="Close" aria-label="Close">${icon("close")}</button>
+        <span class="modal-header-actions">
+          <button type="button" class="icon-buttonish" data-refresh-media title="Refresh media folder" aria-label="Refresh media folder">${icon("refresh")}</button>
+          <button type="button" class="icon-buttonish" data-close-modal title="Close" aria-label="Close">${icon("close")}</button>
+        </span>
       </header>
       <div class="media-picker-grid">
         ${mediaItems.length ? mediaItems.map((item) => mediaPickerCardTemplate(item, picker, state, mediaLibrary)).join("") : `

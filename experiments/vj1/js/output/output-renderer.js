@@ -3,7 +3,7 @@ import { componentFrameMetrics } from "../domain/component-frame.js";
 import { applyLiveRenderPatches, interpolatedLiveRenderValue, resolveLiveRenderPatches } from "../domain/live-render-patch.js?v=param-fade-1";
 import { renderMaxFrameRate } from "../domain/render-settings.js?v=max-frame-rate-1";
 import { componentTextureSize } from "../domain/render-resolution.js?v=adaptive-component-demand-29";
-import { clamp01, normalizeComponentPipelineSettings, sanitizeState, sceneSourceNodes } from "../domain/models.js?v=surface-media-contract-4";
+import { clamp01, normalizeComponentPipelineSettings, sanitizeState, sceneSourceNodes } from "../domain/models.js?v=live-component-transform-1";
 import { normalizeParamValue, normalizeParamValues } from "../graph/component-schema.js?v=adaptive-component-demand-29";
 import { createManualScheduler } from "../graph/manual-scheduler.js";
 import { RenderNodeRuntime, textureStateKey } from "../graph/render-node-runtime.js?v=adaptive-component-demand-29";
@@ -23,7 +23,7 @@ import { applyFontToGlobal, applyFontToTarget } from "./font-loader.js?v=adaptiv
 import { GpuTimerTracker } from "./gpu-timer-tracker.js?v=madstodo-4";
 import { drawGenerator, drawStandby } from "./generators.js?v=standby-grace-1";
 import { drawCover, drawMediaFit, isDrawableMedia } from "./media-utils.js?v=video-active-ownership-1";
-import { chainLayerState, componentRuntimeTimeKey, createMediaReadinessStatus, isReadyMediaItem, renderBufferKey, runtimeComponentGraphMediaState, runtimeMediaStateForSource, staticComponentGraphMediaState, staticComponentGraphState, staticMediaStateForSource, staticSourceState } from "./component-render-state.js?v=scene-media-gate-1";
+import { chainLayerState, componentRuntimeTimeKey, createMediaReadinessStatus, isReadyMediaItem, renderBufferKey, runtimeComponentGraphMediaState, runtimeMediaStateForSource, staticComponentGraphMediaState, staticComponentGraphState, staticMediaStateForSource, staticSourceState } from "./component-render-state.js?v=live-component-transform-1";
 import { isEffectNode, isSimpleLayer, isSourceNode, mediaSourceFit, nodesInComponentChainOrder, patchLayerForNode, shaderPassFromNode, sourceFromPatchNode, sourceWithNodeParams, withSourceInstance } from "./component-patch-adapter.js?v=shader-component-catalog-extraction-1";
 import { collectOutputMediaReadiness } from "./output-media-readiness.js?v=scene-media-gate-1";
 import { OutputMediaRuntime, cameraSettingsSignature } from "./output-media-runtime.js?v=scene-media-gate-1";
@@ -1099,7 +1099,11 @@ export class OutputRenderer {
         componentName: component.name || component.id || "Canvas",
         width: outputRequest.width,
         height: outputRequest.height,
-      }, () => this.renderCanvasComponent(component, componentTime, renderRequest));
+      }, () => this.renderComponentRootTransform(
+        component,
+        this.renderCanvasComponent(component, componentTime, renderRequest),
+        outputRequest
+      ));
       this.cacheComponentOutput(component, outputKey, output, outputRequest);
       if (stableSignature) this.storeStableComponentOutput(stableKey, stableSignature, output, outputRequest);
       return output;
@@ -1116,7 +1120,7 @@ export class OutputRenderer {
       outputHeight: outputRequest.height,
     }, () => {
       const source = this.renderComponentPatch(component, patch, componentTime, renderRequest);
-      return this.renderComponentOutputPipeline(
+      const pipelined = this.renderComponentOutputPipeline(
         component,
         source,
         renderRequest,
@@ -1124,6 +1128,7 @@ export class OutputRenderer {
         componentTime,
         pipeline
       );
+      return this.renderComponentRootTransform(component, pipelined, outputRequest);
     });
     this.cacheComponentOutput(component, outputKey, output, outputRequest);
     if (stableSignature) this.storeStableComponentOutput(stableKey, stableSignature, output, outputRequest);
@@ -1176,6 +1181,23 @@ export class OutputRenderer {
     return current;
   }
 
+  renderComponentRootTransform(component, source, request) {
+    const transform = component?.transform || {};
+    if (!source || isIdentityTransform(transform)) return source;
+    const target = this.getComponentPipelineTarget(`${component.id}:root-transform:${request.renderIdentity || "shared"}`, request);
+    const shaderProgram = this.getComponentPipelineShader("transform", target);
+    if (!shaderProgram) return source;
+    const matrix = effectTransformUniforms(transform).forward;
+    return this.drawComponentPipelinePass({
+      target,
+      shaderProgram,
+      source,
+      request,
+      passName: "Component transform",
+      uniforms: () => shaderProgram.setUniform("sourceUvMatrix", matrix),
+    });
+  }
+
   getComponentPipelineTarget(id, request) {
     const renderRequest = this.normalizeRenderRequest(request, "component-pipeline");
     const key = renderBufferKey("component-pipeline", id, renderRequestKey(renderRequest));
@@ -1204,7 +1226,11 @@ export class OutputRenderer {
     }
     if (shaders[kind]) return shaders[kind];
     try {
-      const fragment = kind === "upscale" ? COMPONENT_UPSCALE_FRAGMENT_SHADER : COMPONENT_POST_FRAGMENT_SHADER;
+      const fragment = kind === "upscale"
+        ? COMPONENT_UPSCALE_FRAGMENT_SHADER
+        : kind === "transform"
+          ? LAYER_TRANSFORM_FRAGMENT_SHADER
+          : COMPONENT_POST_FRAGMENT_SHADER;
       shaders[kind] = target.createShader(RENDER_PASS_VERTEX_SHADER, fragment);
       return shaders[kind];
     } catch (error) {

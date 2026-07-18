@@ -236,6 +236,10 @@ function liveComponentControlsTemplate(component, view) {
   }) : "";
   return `
     <div class="live-component-controls">
+      <div class="live-component-transform-controls">
+        <span class="live-control-group-label">Transform</span>
+        ${chainTransformControlsTemplate(view?.transform, "transform", { attrs: liveParamAttrs(component.id) })}
+      </div>
       ${liveRangeTemplate("Opacity", component.id, "opacity", view?.opacity ?? 1)}
       ${liveRangeTemplate("Speed", component.id, "speed", view?.speed ?? 1, 0, 4, 0.01)}
       <label class="field chain-param"><span>Blend</span>${liveSelectValuesTemplate(component.id, "blend", BLEND_MODES, view?.blend || "normal")}</label>

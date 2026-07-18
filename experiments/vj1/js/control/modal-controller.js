@@ -2,7 +2,7 @@ import { createOutputDefinition, normalizeRenderSettings } from "../domain/rende
 import { sortComponentCatalog } from "./catalog-view.js?v=catalog-view-extraction-1";
 import { setClass, setText } from "./dom-utils.js?v=preview-pointer-deferral-1";
 import { getByPath, readInputValue, setByPath, syncRangeValue } from "./path-input-utils.js?v=path-input-utils-extraction-1";
-import { elementPickerTemplate, mediaPickerTemplate, sourceChoicePickerTemplate } from "./picker-view.js?v=media-demand-6";
+import { elementPickerTemplate, mediaPickerTemplate, sourceChoicePickerTemplate } from "./picker-view.js?v=media-manual-refresh-1";
 import { configuredOutputsTemplate, settingsModalTemplate } from "./settings-view.js?v=max-frame-rate-1";
 
 export function createModalController({
@@ -10,6 +10,7 @@ export function createModalController({
   getState,
   getHost,
   mediaLibrary,
+  refreshMedia,
   replaceHtmlIfChanged,
   getCatalogSortMode,
   bindCatalogSortControls,
@@ -26,6 +27,7 @@ export function createModalController({
   const mediaPreviewActivationTokens = new WeakMap();
   const maxRetainedMediaPreviews = 500;
   let reportedPreviewObserverFallback = false;
+  let mediaRefreshInFlight = false;
 
   function render(state = getState()) {
     const host = getHost();
@@ -125,6 +127,7 @@ export function createModalController({
   function renderMediaPicker(host, state) {
     if (!replaceHtmlIfChanged(host, mediaPickerTemplate(state, mediaPicker, mediaLibrary))) return;
     bindClose(host, closeMediaPicker);
+    host.querySelector("[data-refresh-media]")?.addEventListener("click", refreshMediaPicker);
     bindDemandMediaPreviews(host);
     host.querySelectorAll("[data-pick-media]").forEach((button) => {
       button.addEventListener("click", () => {
@@ -139,6 +142,34 @@ export function createModalController({
         closeMediaPicker();
       });
     });
+  }
+
+  async function refreshMediaPicker() {
+    if (mediaRefreshInFlight || typeof refreshMedia !== "function") return;
+    mediaRefreshInFlight = true;
+    const host = getHost();
+    const button = host?.querySelector("[data-refresh-media]");
+    if (button) {
+      button.disabled = true;
+      button.setAttribute("aria-busy", "true");
+    }
+    resetDemandMediaPreviews();
+    try {
+      await refreshMedia();
+      render(getState());
+    } catch (error) {
+      console.error("[VJ1_MEDIA_REFRESH_FAILED]", {
+        message: error?.message || String(error),
+        fallback: "leave the Media picker open for an explicit retry",
+      });
+    } finally {
+      mediaRefreshInFlight = false;
+      const currentButton = getHost()?.querySelector("[data-refresh-media]");
+      if (currentButton) {
+        currentButton.disabled = false;
+        currentButton.removeAttribute("aria-busy");
+      }
+    }
   }
 
   function bindDemandMediaPreviews(host) {

@@ -4,6 +4,9 @@
 
 # DONE
 
+replace periodic media polling with a Media-modal refresh button
+Solution: Removed the unconditional five-second recursive project-folder scan from the live application. The Choose Media modal now has an explicit refresh action that releases preview leases, performs the existing authoritative folder reconciliation on demand, prevents duplicate concurrent scans, updates the open catalog, and emits `VJ1_MEDIA_REFRESH_FAILED` if the requested scan fails. Focus and visibility restoration still reconcile external changes once when returning to the app.
+
 measure the communication stream in performance profiles
 Solution: Output transport now timestamps every full state and Live parameter-patch message at the control boundary, then measures delivery/structured-clone delay, receive-to-apply time, apply-to-first-render time, and end-to-end visible latency. Each profile sample separates full snapshots, patch messages, individual patches, revisions, and resync causes, with interval and cumulative counters. Payloads are not JSON-stringified for byte estimates because doing so would add large allocations to the path being measured.
 
@@ -84,3 +87,6 @@ Solution: Live outline rows now establish a hard overflow boundary and their sel
 
 i think the styling of the view tabs should be toggle buttons. e.g. content and transform etc as seperate btns.
 Solution: Primary, Details, and Transform render as independently rounded toggle buttons with spacing, neutral inactive controls, and the shared dark-orange selected state.
+
+Live Component Controls needs position, scale, and rotation
+Solution: The selected Component's Controls view now always exposes Position X, Position Y, Scale, and Rotation as temporary per-Scene Live overrides. Rendering applies this root transform to the completed full-frame Component texture in one optional GPU pass, rather than pretending the first chain element is the Component or rewriting internal element transforms.

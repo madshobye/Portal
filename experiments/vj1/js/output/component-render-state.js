@@ -112,6 +112,7 @@ function staticComponentState(component = {}) {
     type: component.type || "component",
     frameShape: component.frameShape || "landscape",
     resolutionScale: Number(component.resolutionScale) || 1,
+    transform: normalizedStaticTransform(component.transform),
     canvas: component.type === "canvas" ? {
       width: Math.max(1, Number(component.canvas?.width) || VJ1.canvasWidth),
       height: Math.max(1, Number(component.canvas?.height) || VJ1.canvasHeight),
@@ -119,6 +120,15 @@ function staticComponentState(component = {}) {
     source: staticSourceState(component.source),
     shaderChain: staticEffectChainState(component.shaderChain || []),
     chain: staticChainState(component.chain || []),
+  };
+}
+
+function normalizedStaticTransform(transform = {}) {
+  return {
+    x: Number(transform.x) || 0,
+    y: Number(transform.y) || 0,
+    scale: Math.max(0.01, Number(transform.scale) || 1),
+    rotation: Number(transform.rotation) || 0,
   };
 }
 

@@ -572,6 +572,7 @@ test("live source param overrides compile through node params", () => {
     selectedSceneId: "",
     componentOverrides: {
       [component.id]: {
+        transform: { x: 0.25, y: -0.4, scale: 1.75, rotation: 0.3 },
         chain: [{
           params: {
             colorA: "#ff000080",
@@ -583,6 +584,7 @@ test("live source param overrides compile through node params", () => {
   };
 
   const liveView = createLiveComponentView(component, state);
+  assert.deepEqual(liveView.transform, { x: 0.25, y: -0.4, scale: 1.75, rotation: 0.3 });
   assert.equal(liveView.chain[0].params.colorA, "#ff000080");
   assert.equal(liveView.chain[0].params.mode, "single");
 

@@ -1,7 +1,7 @@
 import { VJ1, WORKSPACES } from "../constants.js";
-import { applySceneSnapshotToState, createLiveRenderState, createSceneSnapshot, sceneSourceNodes, syncLiveSnapshotFromScene } from "../domain/models.js?v=live-component-controls-1";
+import { applySceneSnapshotToState, createLiveRenderState, createSceneSnapshot, sceneSourceNodes, syncLiveSnapshotFromScene } from "../domain/models.js?v=live-component-transform-1";
 import { buildOutputUrl } from "../view-routing.js?v=adaptive-component-demand-29";
-import { createEmbeddedPreviewApp } from "../output/embedded-preview-app.js?v=preview-phase-shift-1";
+import { createEmbeddedPreviewApp } from "../output/embedded-preview-app.js?v=live-component-transform-1";
 import { frameFitViewport, resetViewport, updatePreviewViewportForUi, zoomViewport } from "../output/preview-viewport.js?v=render-coordinate-scope-3";
 import { defaultProjectSurfaceMapping } from "../output/render-geometry.js?v=adaptive-component-demand-29";
 import { analyzeVj1Project } from "../metrics/component-metrics.js?v=output-transport-profile-1";
@@ -12,11 +12,11 @@ import { componentCatalogToolsTemplate, componentFilterTemplate, sortComponentCa
 import { canvasInspectorTemplate, componentSelectedChainSettingsTemplate, componentTemplate } from "./component-view.js?v=canvas-component-placement-1";
 import { canvasComponents, getSelectedScene, ordinaryComponents, selectedCanvasComponent } from "./control-selectors.js?v=control-selectors-extraction-1";
 import { mappingInletsTemplate, mappingInspectorTemplate, mappingStudioTemplate } from "./mapping-view.js?v=terrain-mesh-near-1";
-import { liveComponentPillTemplate, liveInspectorTemplate, liveNavigableComponents, liveScenePillTemplate, scenePillTemplate, sceneRailConfigTemplate, sceneSignificantComponentTemplate, sceneSurfacePillTemplate, sceneSurfaceTemplate } from "./scene-live-view.js?v=live-component-controls-1";
+import { liveComponentPillTemplate, liveInspectorTemplate, liveNavigableComponents, liveScenePillTemplate, scenePillTemplate, sceneRailConfigTemplate, sceneSignificantComponentTemplate, sceneSurfacePillTemplate, sceneSurfaceTemplate } from "./scene-live-view.js?v=live-component-transform-1";
 import { componentCardBarTemplate, panelTemplate, projectEmptyTemplate, textListItemTemplate } from "./view-primitives.js?v=view-primitives-extraction-1";
 import { emptyNote, esc, icon, thumbnailTemplate } from "./template-utils.js?v=slider-values-70";
 import { createClipboardController } from "./clipboard-controller.js?v=live-insertion-1";
-import { createModalController } from "./modal-controller.js?v=max-frame-rate-1";
+import { createModalController } from "./modal-controller.js?v=media-manual-refresh-1";
 import { createInputController } from "./input-controller.js?v=live-param-patch-1";
 
 export function rememberParamViewSelections(scope, selections = new Map()) {
@@ -63,6 +63,7 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
     getState: () => latestState,
     getHost: () => refs.modalHost,
     mediaLibrary,
+    refreshMedia: () => projectService.refreshFolder({ force: true }),
     replaceHtmlIfChanged,
     getCatalogSortMode: (state) => catalogSortMode(state, "component"),
     bindCatalogSortControls,

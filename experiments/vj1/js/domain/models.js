@@ -522,6 +522,9 @@ function applyLiveComponentOverrides(state, overrides = {}) {
     if (override.opacity !== undefined) component.opacity = clamp01(override.opacity);
     if (override.speed !== undefined) component.speed = Math.max(0, Number(override.speed) || 0);
     if (override.blend) component.blend = override.blend;
+    if (override.transform && typeof override.transform === "object") {
+      component.transform = normalizeTransform({ ...(component.transform || {}), ...override.transform });
+    }
     if (Array.isArray(override.chain)) {
       component.chain = component.chain.map((item, index) =>
         mergeComponentChainItemOverride(item, override.chain[index] || {})
@@ -542,6 +545,9 @@ export function createLiveComponentView(component = {}, state = createInitialSta
     opacity: override.opacity !== undefined ? clamp01(override.opacity) : component.opacity,
     speed: override.speed !== undefined ? Math.max(0, Number(override.speed) || 0) : component.speed,
     blend: override.blend || component.blend,
+    transform: override.transform && typeof override.transform === "object"
+      ? normalizeTransform({ ...(component.transform || {}), ...override.transform })
+      : normalizeTransform(component.transform),
     chain: Array.isArray(component.chain)
       ? component.chain.map((item, index) =>
           mergeComponentChainItemOverride(item, override.chain?.[index] || {})
@@ -560,6 +566,9 @@ function normalizeLiveUi(live = {}, state = createInitialState()) {
       ...(override.opacity !== undefined ? { opacity: clamp01(override.opacity) } : {}),
       ...(override.speed !== undefined ? { speed: Math.max(0, Number(override.speed) || 0) } : {}),
       ...(override.blend ? { blend: override.blend } : {}),
+      ...(override.transform && typeof override.transform === "object"
+        ? { transform: normalizeTransform(override.transform) }
+        : {}),
       ...(Array.isArray(override.chain)
         ? { chain: override.chain.map(normalizeLiveChainItemOverride) }
         : {}),

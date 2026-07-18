@@ -138,15 +138,24 @@ test("Live slider updates use the lightweight live-only state path", () => {
     if (event.reason === "scrub:live") change = event;
   });
 
-  const livePatches = [{ componentId, path: "opacity", value: 0.35 }];
+  const livePatches = [
+    { componentId, path: "opacity", value: 0.35 },
+    { componentId, path: "transform.x", value: 0.4 },
+    { componentId, path: "transform.scale", value: 1.5 },
+  ];
   store.updateLive((draft) => {
-    draft.ui.live.componentOverrides[componentId] = { opacity: 0.35 };
+    draft.ui.live.componentOverrides[componentId] = {
+      opacity: 0.35,
+      transform: { x: 0.4, scale: 1.5 },
+    };
   }, { reason: "scrub:live", livePatches });
 
   assert.equal(change?.phase, "scrub");
   assert.deepEqual(change?.livePatches, livePatches);
   assert.equal(change?.scope, "live");
-  assert.equal(store.getLiveRenderState().components.find((item) => item.id === componentId).opacity, 0.35);
+  const liveComponent = store.getLiveRenderState().components.find((item) => item.id === componentId);
+  assert.equal(liveComponent.opacity, 0.35);
+  assert.deepEqual(liveComponent.transform, { x: 0.4, y: 0, scale: 1.5, rotation: 0 });
 });
 
 test("persistent scrubs retain one baseline and reconcile Live truth on commit", () => {

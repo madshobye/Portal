@@ -589,6 +589,19 @@ test("component post filters run after the upscale target", () => {
   assert.ok(source.includes('shaderProgram.setUniform("grayscaleAmount"'));
 });
 
+test("Live Component transform is a final full-frame GPU pass", () => {
+  const source = readFileSync(new URL("../js/output/output-renderer.js", import.meta.url), "utf8");
+  const renderStart = source.indexOf("  renderComponentForRequest(");
+  const pipelineStart = source.indexOf("  renderComponentOutputPipeline(");
+  const rootStart = source.indexOf("  renderComponentRootTransform(");
+
+  assert.ok(renderStart >= 0 && pipelineStart > renderStart && rootStart > pipelineStart);
+  assert.ok(source.includes("return this.renderComponentRootTransform(component, pipelined, outputRequest);"));
+  assert.ok(source.includes('passName: "Component transform"'));
+  assert.ok(source.includes('shaderProgram.setUniform("sourceUvMatrix", matrix)'));
+  assert.ok(source.includes('? LAYER_TRANSFORM_FRAGMENT_SHADER'));
+});
+
 test("output resize keeps render buffers tied to configured frame size", () => {
   const previousWidth = globalThis.width;
   const previousHeight = globalThis.height;

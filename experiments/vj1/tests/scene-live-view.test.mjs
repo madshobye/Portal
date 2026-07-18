@@ -28,7 +28,7 @@ test("Scene and Live presentation lives outside the control orchestrator", () =>
   assert.match(surfaceTemplate, /class="sculpt-card"/);
   assert.match(surfaceTemplate, /data-set-route-source-node=""/);
   assert.match(surfaceTemplate, />Empty</);
-  assert.match(controller, /from "\.\/scene-live-view\.js\?v=live-component-controls-1"/);
+  assert.match(controller, /from "\.\/scene-live-view\.js\?v=live-component-transform-1"/);
   assert.doesNotMatch(controller, /function liveInspectorTemplate\(/);
   assert.doesNotMatch(controller, /function sceneSurfaceTemplate\(/);
 });
@@ -86,6 +86,10 @@ test("Live separates a Component's public controls from its element inspector", 
   assert.match(controls, /data-live-update="opacity"/);
   assert.match(controls, /data-live-update="speed"/);
   assert.match(controls, /data-live-update="blend"/);
+  assert.match(controls, /data-live-update="transform\.x"/);
+  assert.match(controls, /data-live-update="transform\.y"/);
+  assert.match(controls, /data-live-update="transform\.scale"/);
+  assert.match(controls, /data-live-update="transform\.rotation"/);
   assert.match(controls, /data-live-update="chain\.0\.params\.renderQuality"/);
   assert.match(controls, /data-live-update="chain\.0\.transform\.scale"/);
   assert.doesNotMatch(controls, /class="live-chain-outline"/);

@@ -105,6 +105,17 @@ test("media pickers defer image video and model resources until cards approach t
   assert.match(modalSource, /\[VJ1_MEDIA_PREVIEW_OBSERVER_UNAVAILABLE\]/);
 });
 
+test("media refresh is explicit and never polls during rendering", () => {
+  const appSource = readFileSync(new URL("../js/app.js", import.meta.url), "utf8");
+  const pickerSource = readFileSync(new URL("../js/control/picker-view.js", import.meta.url), "utf8");
+  const modalSource = readFileSync(new URL("../js/control/modal-controller.js", import.meta.url), "utf8");
+
+  assert.ok(pickerSource.includes("data-refresh-media"));
+  assert.ok(modalSource.includes("await refreshMedia();"));
+  assert.ok(modalSource.includes("[VJ1_MEDIA_REFRESH_FAILED]"));
+  assert.ok(!appSource.includes("setInterval(() => projectService.refreshFolder(), 5000)"));
+});
+
 test("range params render their label and value above a full-width slider", () => {
   const sharedRange = rangeTemplate("Opacity", "components.0.opacity", 0.42);
   const controllerSource = readFileSync(new URL("../js/control/input-controller.js", import.meta.url), "utf8");

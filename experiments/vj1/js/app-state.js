@@ -17,7 +17,7 @@ import {
   sanitizeState,
   syncLiveSnapshotFromScene,
   uid,
-} from "./domain/models.js?v=live-component-controls-1";
+} from "./domain/models.js?v=live-component-transform-1";
 import { stampChangedProjectItems, touchComponentUsed } from "./domain/component-activity.js?v=adaptive-component-demand-29";
 import { componentFrameMetrics } from "./domain/component-frame.js?v=adaptive-component-demand-29";
 import { VJ1, WORKSPACES } from "./constants.js";
