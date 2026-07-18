@@ -1,5 +1,5 @@
 import { VJ1 } from "../constants.js";
-import { OutputRenderer } from "./output-renderer.js?v=live-component-transform-1";
+import { OutputRenderer } from "./output-renderer.js?v=mapping-ack-1";
 import { renderMaxFrameRate } from "../domain/render-settings.js?v=max-frame-rate-1";
 import { oppositeRenderPhaseDelayMs, previewPhaseNeedsRealignment } from "../domain/render-phase-policy.js?v=preview-phase-shift-1";
 import { applyFontToGlobal, loadVjRenderFont } from "./font-loader.js?v=adaptive-component-demand-29";
@@ -36,6 +36,10 @@ export function createEmbeddedPreviewApp({ store, mediaLibrary, projectService, 
   let alignedFrameRate = 0;
   let phaseShiftTimer = 0;
   let mediaFilesSignature = "";
+  let preparedLiveState = null;
+  let preparedLiveErrorSignature = "";
+  let activeRetimedTransition = null;
+  let activeRetimedTransitionSceneId = "";
   let transformCommitFrame = 0;
   let pendingTransformCommit = null;
   let canvasCommitFrame = 0;
@@ -49,7 +53,7 @@ export function createEmbeddedPreviewApp({ store, mediaLibrary, projectService, 
     stage = nextStage;
     hud = nextHud;
     pendingMode = mode;
-    pendingState = state || pendingState || {};
+    pendingState = preserveActiveRetimedTransition(state || pendingState || {});
     host?.classList.remove("is-paused");
     paused = false;
     if (typeof loop === "function") loop();
@@ -73,10 +77,18 @@ export function createEmbeddedPreviewApp({ store, mediaLibrary, projectService, 
 
   function setState(state, mode = pendingMode) {
     pendingMode = mode;
-    pendingState = state || {};
+    pendingState = preserveActiveRetimedTransition(state || {});
     applyPreviewFrameRate();
     if (!renderer) return;
     renderer.mode = pendingMode;
+    if (shouldPrepareEmbeddedLiveState(pendingState, renderer.state)) {
+      preparedLiveState = previewSizedState();
+      preparedLiveErrorSignature = "";
+      importMediaFilesIfChanged();
+      activatePreparedLiveStateIfReady();
+      return;
+    }
+    clearPreparedLiveState();
     const resized = resizeToStage();
     if (!resized) renderer.setState(previewSizedState(), { normalized: true });
     importMediaFilesIfChanged();
@@ -114,6 +126,10 @@ export function createEmbeddedPreviewApp({ store, mediaLibrary, projectService, 
     unbindCanvasPointerEvents = null;
     renderer?.dispose?.();
     renderer = null;
+    preparedLiveState = null;
+    preparedLiveErrorSignature = "";
+    activeRetimedTransition = null;
+    activeRetimedTransitionSceneId = "";
     resizeObserver?.disconnect?.();
     resizeObserver = null;
     observedStage = null;
@@ -185,6 +201,7 @@ export function createEmbeddedPreviewApp({ store, mediaLibrary, projectService, 
     if (paused) return;
     applyPreviewFrameRate();
     renderer?.draw();
+    activatePreparedLiveStateIfReady();
     if (revealCanvasAfterDraw) {
       revealCanvasAfterDraw = false;
       const element = canvas?.elt || canvas;
@@ -441,6 +458,51 @@ export function createEmbeddedPreviewApp({ store, mediaLibrary, projectService, 
     if (!force && signature === mediaFilesSignature) return;
     mediaFilesSignature = signature;
     renderer.importFiles(files);
+    activatePreparedLiveStateIfReady();
+  }
+
+  function activatePreparedLiveStateIfReady() {
+    if (!renderer || !preparedLiveState) return false;
+    const status = renderer.prepareOutputState(preparedLiveState, { requireMedia: true });
+    if (status.errorIds.size) {
+      const signature = Array.from(status.errorIds).sort().join("|");
+      if (signature !== preparedLiveErrorSignature) {
+        preparedLiveErrorSignature = signature;
+        console.error("[VJ1_LIVE_PREVIEW_PREPARE_FAILED]", {
+          sceneId: previewSceneId(preparedLiveState),
+          mediaIds: Array.from(status.errorIds),
+          message: "Keeping the current Scene because requested media failed to load",
+        });
+      }
+      return false;
+    }
+    if (status.blocked) return false;
+    const state = retimeEmbeddedLiveTransition(preparedLiveState);
+    activeRetimedTransition = state.liveTransition || null;
+    activeRetimedTransitionSceneId = activeRetimedTransition ? previewSceneId(state) : "";
+    preparedLiveState = null;
+    preparedLiveErrorSignature = "";
+    renderer.clearPreparedOutputState();
+    renderer.setState(state, { normalized: true });
+    return true;
+  }
+
+  function clearPreparedLiveState() {
+    preparedLiveState = null;
+    preparedLiveErrorSignature = "";
+    renderer?.clearPreparedOutputState?.();
+  }
+
+  function preserveActiveRetimedTransition(state) {
+    if (!activeRetimedTransition) return state;
+    const sameScene = previewSceneId(state) === activeRetimedTransitionSceneId;
+    const endsAt = Number(activeRetimedTransition.startedAtMs) + Number(activeRetimedTransition.durationMs);
+    if (!sameScene || !Number.isFinite(endsAt) || Date.now() >= endsAt) {
+      activeRetimedTransition = null;
+      activeRetimedTransitionSceneId = "";
+      return state;
+    }
+    return { ...state, liveTransition: activeRetimedTransition };
   }
 
   function bindStageViewportEvents() {
@@ -460,7 +522,7 @@ export function createEmbeddedPreviewApp({ store, mediaLibrary, projectService, 
   }
 
   function updateMetrics(metrics = {}) {
-    store.update((draft) => {
+    store.updateDerived((draft) => {
       draft.metrics.previewFps = metrics.fps || 0;
       draft.metrics.previewFrameMs = metrics.frameMs || 0;
       draft.metrics.previewGpuMs = metrics.gpuMs || 0;
@@ -471,10 +533,15 @@ export function createEmbeddedPreviewApp({ store, mediaLibrary, projectService, 
   }
 
   function updateMapping(mappingId, mapping, status, meta = {}) {
+    const reason = meta.live ? "scrub:mapping-state" : "mapping-state";
+    if (typeof store.updateMapping === "function") {
+      store.updateMapping(mappingId || "local", mapping, status, reason);
+      return;
+    }
     store.update((draft) => {
       draft.mappings[mappingId || "local"] = mapping;
       draft.ui.mappingStatus = status || "Mapping updated";
-    }, meta.live ? "scrub:mapping-state" : "mapping-state");
+    }, reason);
   }
 
   function updateThumbnail(componentId, thumbnail, meta = {}) {
@@ -482,7 +549,7 @@ export function createEmbeddedPreviewApp({ store, mediaLibrary, projectService, 
     // The store is the newest toggle authority. Reject an in-flight capture
     // from a frame that started before live preview rendering was disabled.
     if (store.getState()?.ui?.debugPreview === false) return;
-    store.update((draft) => {
+    store.updateDerived((draft) => {
       const component = draft.components.find((item) => item.id === componentId);
       if (!component) return;
       if (meta.frameId && component.type === "canvas") {
@@ -495,6 +562,14 @@ export function createEmbeddedPreviewApp({ store, mediaLibrary, projectService, 
         component.thumbnail = thumbnail;
       }
     }, "component-thumbnail");
+    projectService.writeComponentThumbnail(componentId, meta.frameId || "", thumbnail).catch((error) => {
+      console.warn("[VJ1_THUMBNAIL_WRITE_FAILED]", {
+        componentId,
+        frameId: meta.frameId || "",
+        fallback: "retain the in-memory thumbnail until it can be regenerated",
+        message: error?.message || String(error),
+      });
+    });
   }
 
   function updateChainTransform(componentId, itemId, transform, meta = {}) {
@@ -517,11 +592,22 @@ export function createEmbeddedPreviewApp({ store, mediaLibrary, projectService, 
   }
 
   function commitChainTransform(componentId, itemId, transform, commit) {
+    const renderPatches = [];
     store.update((draft) => {
       const component = draft.components.find((item) => item.id === componentId);
+      const itemPath = chainItemPath(component?.chain, itemId);
       const item = findChainItemById(component?.chain, itemId);
-      if (item) item.transform = { ...item.transform, ...transform };
-    }, commit ? "update:chain-transform" : "scrub:chain-transform");
+      if (!item) return;
+      item.transform = { ...item.transform, ...transform };
+      if (itemPath) renderPatches.push({
+        componentId,
+        path: `${itemPath}.transform`,
+        value: item.transform,
+      });
+    }, {
+      reason: commit ? "update:chain-transform" : "scrub:chain-transform",
+      renderPatches,
+    });
   }
 
   function updateCanvasFrame(componentId, frameId, rect, meta = {}) {
@@ -571,6 +657,28 @@ export function createEmbeddedPreviewApp({ store, mediaLibrary, projectService, 
   return { mount, setState, applyLivePatches, command, pause };
 }
 
+export function shouldPrepareEmbeddedLiveState(nextState, currentState) {
+  if (nextState?.ui?.workspace !== "live" || !currentState) return false;
+  const nextSceneId = previewSceneId(nextState);
+  const currentSceneId = previewSceneId(currentState);
+  return !!nextSceneId && !!currentSceneId && nextSceneId !== currentSceneId;
+}
+
+export function retimeEmbeddedLiveTransition(state, startedAtMs = Date.now() + 50) {
+  if (!state?.liveTransition) return state;
+  return {
+    ...state,
+    liveTransition: {
+      ...state.liveTransition,
+      startedAtMs,
+    },
+  };
+}
+
+function previewSceneId(state) {
+  return String(state?.ui?.selectedSceneId || state?.ui?.live?.selectedSceneId || "");
+}
+
 export function mediaFilesSignatureFor(entries = []) {
   return (entries || [])
     .map((entry) => {
@@ -617,6 +725,19 @@ function findChainItemById(chain = [], id = "") {
     if (nested) return nested;
   }
   return null;
+}
+
+function chainItemPath(chain = [], id = "", prefix = "chain") {
+  for (let index = 0; index < (chain || []).length; index++) {
+    const item = chain[index];
+    const path = `${prefix}.${index}`;
+    if (item?.id === id) return path;
+    if (item?.kind === "group") {
+      const nested = chainItemPath(item.chain, id, `${path}.chain`);
+      if (nested) return nested;
+    }
+  }
+  return "";
 }
 
 function loadClassicScript(src) {

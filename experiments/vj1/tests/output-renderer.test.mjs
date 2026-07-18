@@ -7,6 +7,7 @@ import { createPlacedRenderResult, directPlacementKind, transformedPlacementDema
 import { defaultProjectSurfaceMapping, renderRequestKey } from "../js/output/render-geometry.js";
 import { mapperFragmentShaderSource, VjMapper } from "../js/output/vj-mapper.js";
 import { ComponentPreviewInteraction, stateWithCanvasFrameRect, stateWithChainItemTransform } from "../js/output/component-preview-interaction.js";
+import { createInitialState } from "../js/domain/models.js";
 
 function pickRequestSize(request) {
   return { width: request.width, height: request.height };
@@ -343,6 +344,33 @@ test("local surface mappings remain authoritative until their exact acknowledgem
   assert.ok(source.includes("this.rebuildSurfaces({ preferExistingMapping: true })"));
   assert.ok(source.includes("preferExistingMapping && existingProjectCorners?.length === 4"));
   assert.ok(!source.includes("localMappingProtectedUntil"));
+});
+
+test("an exact mapping echo acknowledges ownership while its drag is still active", () => {
+  const renderer = new OutputRenderer({ mode: "preview" });
+  const state = createInitialState();
+  const local = {
+    surfaces: state.surfaces.map((surface) => ({
+      id: surface.id,
+      name: surface.name,
+      w: 100,
+      h: 100,
+      corners: [{ x: 10, y: 10 }, { x: 110, y: 10 }, { x: 110, y: 110 }, { x: 10, y: 110 }],
+    })),
+  };
+  state.mappings.local = local;
+  renderer.state = createInitialState();
+  renderer.mapper = {
+    isActive: () => true,
+    setCalibrate() {},
+    setOverlayMode() {},
+  };
+  renderer.mappingSignature = renderer.currentMappingSignature();
+  renderer.markLocalMapping(local);
+
+  renderer.setState(state);
+
+  assert.equal(renderer.pendingMappingSignature, "");
 });
 
 test("standalone output permanently rejects calibration markers", () => {

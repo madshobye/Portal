@@ -1,6 +1,7 @@
 export const VJ1 = Object.freeze({
   channelName: "vj1-output-bridge",
   localWorkspaceKey: "vj1-workspace",
+  localLiveSceneKey: "vj1-live-scene-by-project",
   localPreviewKey: "vj1-preview-live",
   renderWidth: 960,
   renderHeight: 540,

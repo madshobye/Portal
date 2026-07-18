@@ -69,6 +69,17 @@ export function chainLayerState(item = {}) {
   };
 }
 
+// `amount` predates the generic parameter map and remains on persisted effect
+// items for compatibility. The parameter map is the canonical runtime value:
+// Live controls patch it directly, so it must win when both representations
+// are present.
+export function effectParamState(item = {}) {
+  return {
+    ...(item.amount !== undefined ? { amount: item.amount } : {}),
+    ...(item.params && typeof item.params === "object" ? item.params : {}),
+  };
+}
+
 export function componentRuntimeTimeKey(component, params = {}, context = {}) {
   if (component?.runtime?.cacheable === false) return context.frame;
   if (!component?.runtime?.timeDependent?.(params)) return null;

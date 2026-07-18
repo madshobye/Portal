@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 
 import {
+  effectParamState,
   chainLayerState,
   collectMediaIdsFromSource,
   componentRuntimeTimeKey,
@@ -12,6 +13,14 @@ import {
   staticComponentGraphMediaState,
   staticComponentGraphState,
 } from "../js/output/component-render-state.js";
+
+test("canonical effect params override the legacy top-level amount", () => {
+  assert.deepEqual(effectParamState({ amount: 0.2, params: { amount: 0.8, radius: 4 } }), {
+    amount: 0.8,
+    radius: 4,
+  });
+  assert.deepEqual(effectParamState({ amount: 0.2 }), { amount: 0.2 });
+});
 
 test("component render signatures include nested dependencies without recursing through cycles", () => {
   const child = { id: "child", chain: [{ id: "child-source", kind: "source", source: { type: "media", mediaId: "image-b" } }] };
@@ -66,7 +75,7 @@ test("runtime cache policy has one owner outside the output orchestrator", () =>
   });
   assert.equal(componentRuntimeTimeKey({ runtime }, {}, { frame: 8, time: 2.75 }), 2);
   assert.equal(componentRuntimeTimeKey({ runtime: { cacheable: false } }, {}, { frame: 8, time: 2.75 }), 8);
-  assert.match(renderer, /from "\.\/component-render-state\.js\?v=live-component-transform-1"/);
+  assert.match(renderer, /from "\.\/component-render-state\.js\?v=live-effect-param-canonical-1"/);
   assert.doesNotMatch(renderer, /function staticComponentGraphState\(/);
   assert.doesNotMatch(renderer, /function collectMediaIdsFromSource\(/);
 });

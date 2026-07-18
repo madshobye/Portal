@@ -1,4 +1,4 @@
-export const CURRENT_PROJECT_VERSION = 18;
+export const CURRENT_PROJECT_VERSION = 19;
 export const OLDEST_PROJECT_VERSION = 1;
 
 export class ProjectVersionError extends Error {
@@ -41,6 +41,7 @@ export const PROJECT_MIGRATIONS = Object.freeze({
   15: migrateProjectV15ToV16,
   16: migrateProjectV16ToV17,
   17: migrateProjectV17ToV18,
+  18: migrateProjectV18ToV19,
 });
 
 export function migrateProjectData(project = {}) {
@@ -448,6 +449,22 @@ export function migrateProjectV17ToV18(project) {
       ...scene,
       snapshot: scene?.snapshot ? { ...scene.snapshot, surfaces: migrateCanonicalRoutes(scene.snapshot.surfaces) } : scene?.snapshot,
     })) : project.scenes,
+  };
+}
+
+// v19 moves rendered thumbnails out of canonical project state. They are a
+// regenerable cache, not user-authored data and not part of undo history.
+export function migrateProjectV18ToV19(project) {
+  return {
+    ...project,
+    components: Array.isArray(project.components)
+      ? project.components.map((component) => {
+          const { thumbnail: _thumbnail, ...current } = component || {};
+          if (current.type !== "canvas" || !current.canvas) return current;
+          const { frameThumbnails: _frameThumbnails, ...canvas } = current.canvas;
+          return { ...current, canvas };
+        })
+      : project.components,
   };
 }
 

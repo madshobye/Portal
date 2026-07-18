@@ -23,7 +23,7 @@ import { applyFontToGlobal, applyFontToTarget } from "./font-loader.js?v=adaptiv
 import { GpuTimerTracker } from "./gpu-timer-tracker.js?v=madstodo-4";
 import { drawGenerator, drawStandby } from "./generators.js?v=standby-grace-1";
 import { drawCover, drawMediaFit, isDrawableMedia } from "./media-utils.js?v=video-active-ownership-1";
-import { chainLayerState, componentRuntimeTimeKey, createMediaReadinessStatus, isReadyMediaItem, renderBufferKey, runtimeComponentGraphMediaState, runtimeMediaStateForSource, staticComponentGraphMediaState, staticComponentGraphState, staticMediaStateForSource, staticSourceState } from "./component-render-state.js?v=live-component-transform-1";
+import { chainLayerState, componentRuntimeTimeKey, createMediaReadinessStatus, effectParamState, isReadyMediaItem, renderBufferKey, runtimeComponentGraphMediaState, runtimeMediaStateForSource, staticComponentGraphMediaState, staticComponentGraphState, staticMediaStateForSource, staticSourceState } from "./component-render-state.js?v=live-effect-param-canonical-1";
 import { isEffectNode, isSimpleLayer, isSourceNode, mediaSourceFit, nodesInComponentChainOrder, patchLayerForNode, shaderPassFromNode, sourceFromPatchNode, sourceWithNodeParams, withSourceInstance } from "./component-patch-adapter.js?v=shader-component-catalog-extraction-1";
 import { collectOutputMediaReadiness } from "./output-media-readiness.js?v=scene-media-gate-1";
 import { OutputMediaRuntime, cameraSettingsSignature } from "./output-media-runtime.js?v=scene-media-gate-1";
@@ -526,6 +526,13 @@ export class OutputRenderer {
     const nextSurfaceIds = this.state.surfaces.map((surface) => surface.id).join(",");
     const nextSize = this.renderSizeSignature(this.state.render);
     const nextMappingSignature = this.currentMappingSignature();
+    // A mapping echo is an acknowledgement even while the pointer gesture is
+    // still active. Applying project geometry remains deferred during the
+    // gesture, but ownership must be released now: mouseReleased emits its
+    // final state before VjMapper clears its active-drag marker.
+    if (this.pendingMappingSignature && nextMappingSignature === this.pendingMappingSignature) {
+      this.shouldIgnoreIncomingMapping(nextMappingSignature);
+    }
     if (previousSize && previousSize !== nextSize) {
       this.createBuffers();
     }
@@ -1713,10 +1720,7 @@ export class OutputRenderer {
   renderEffectNodeState(nodeId, inputState, item, componentTime, renderRequest) {
     const component = getShaderComponent(item.componentId);
     if (!component) return inputState;
-    const params = normalizeParamValues(component, {
-      ...(item.params || {}),
-      ...(item.amount !== undefined ? { amount: item.amount } : {}),
-    });
+    const params = normalizeParamValues(component, effectParamState(item));
     const amount = effectParamNumber(component, params, "amount", item.amount ?? 0.35);
     if (amount <= 0.0001) return inputState;
     const runtimeContext = this.nodeRuntimeContext(componentTime);
@@ -3140,8 +3144,8 @@ export class OutputRenderer {
     return this.mediaReadinessForState(this.state);
   }
 
-  prepareOutputState(state) {
-    const status = this.mediaReadinessForState(state);
+  prepareOutputState(state, { requireMedia = false } = {}) {
+    const status = this.mediaReadinessForState(state, { requireMedia });
     this.mediaRuntime.reserveMedia(status.mediaIds);
     return status;
   }
@@ -3150,10 +3154,10 @@ export class OutputRenderer {
     this.mediaRuntime.reserveMedia();
   }
 
-  mediaReadinessForState(state) {
+  mediaReadinessForState(state, { requireMedia = false } = {}) {
     const frame = frameSize(state?.render || {});
     const status = collectOutputMediaReadiness({
-      mode: this.mode,
+      mode: requireMedia ? "output" : this.mode,
       state,
       media: this.media,
       acquireMedia: (id) => this.mediaRuntime.acquireMedia(this.media.get(id), { width: frame.width }),

@@ -25,8 +25,8 @@ export function createMediaLibrary() {
     for (const id of previewUrls.keys()) releasePreviewUrl(id);
   }
 
-  function getMeta(file) {
-    const path = file.relativePath || file.webkitRelativePath || file.name || uid("media");
+  function getMeta(file, explicitPath = "") {
+    const path = explicitPath || file.relativePath || file.webkitRelativePath || file.name || uid("media");
     return {
       id: path,
       name: path.split("/").pop() || path,
@@ -41,24 +41,49 @@ export function createMediaLibrary() {
       const incoming = Array.from(fileList || []);
       const media = [];
       const shaders = [];
-      for (const file of incoming) {
-        const path = file.relativePath || file.webkitRelativePath || file.name || "";
+      const importedFiles = [];
+      for (const entry of incoming) {
+        const file = entry?.file || entry;
+        if (!file) continue;
+        // BroadcastChannel recovery carries stable media entries rather than
+        // raw Files because custom File properties such as relativePath do not
+        // survive structured cloning. Keep the explicit id as path authority.
+        const path = entry?.id || file.relativePath || file.webkitRelativePath || file.name || "";
         if (isMediaRenditionPath(path)) {
           const parsed = parseMediaRenditionPath(path);
           if (parsed) renditions.set(parsed.key, { ...parsed, file });
         } else if (isMediaFile(path)) {
-          const meta = getMeta(file);
+          const meta = getMeta(file, path);
           if (files.get(meta.id) !== file) releasePreviewUrl(meta.id);
           files.set(meta.id, file);
           media.push(meta);
+          importedFiles.push(file);
+          const sourceRevision = mediaSourceRevision(file);
+          for (const rendition of entry?.renditions || []) {
+            if (!rendition?.key || !rendition?.file) continue;
+            renditions.set(rendition.key, {
+              ...rendition,
+              mediaId: rendition.mediaId || meta.id,
+              sourceRevision: rendition.sourceRevision || sourceRevision,
+            });
+          }
         } else if (SHADER_RE.test(path)) {
           shaders.push({ path, name: path.split("/").pop() || path, code: await file.text() });
         }
       }
-      return { media, shaders, files: incoming.filter((file) => isMediaFile(file.relativePath || file.webkitRelativePath || file.name || "")) };
+      return { media, shaders, files: importedFiles };
     },
     getFile(id) {
       return files.get(id) || null;
+    },
+    remove(id) {
+      if (!id) return false;
+      releasePreviewUrl(id);
+      const removed = files.delete(id);
+      for (const [key, entry] of renditions) {
+        if (entry.mediaId === id) renditions.delete(key);
+      }
+      return removed;
     },
     acquirePreviewUrl(id) {
       const existing = previewUrls.get(id);
@@ -139,6 +164,46 @@ export async function collectFilesFromDirectory(dirHandle, prefix = "") {
     }
   }
   return files;
+}
+
+// Project discovery deliberately traverses only user asset roots. Revisions
+// and cache data are owned by their services and must never be part of a media
+// inventory. Root-level supported files remain valid for small projects.
+export async function collectProjectAssetFiles(dirHandle, { yieldEvery = 64 } = {}) {
+  const files = [];
+  const counter = { value: 0 };
+  await collectAllowedDirectory(dirHandle, "", files, counter, yieldEvery, true);
+  return files;
+}
+
+async function collectAllowedDirectory(dirHandle, prefix, files, counter, yieldEvery, root = false) {
+  for await (const [name, handle] of dirHandle.entries()) {
+    const path = prefix ? `${prefix}/${name}` : name;
+    if (handle.kind === "file") {
+      if ((root || prefix === "media" || prefix.startsWith("media/") || prefix === "shaders" || prefix.startsWith("shaders/"))
+          && (isMediaFile(path) || isShaderFile(path))) {
+        await appendReadableFile(handle, path, files);
+      }
+    } else if (handle.kind === "directory") {
+      if (root && !["media", "shaders"].includes(name)) continue;
+      await collectAllowedDirectory(handle, path, files, counter, yieldEvery, false);
+    }
+    if (++counter.value % yieldEvery === 0) await cooperativeYield();
+  }
+}
+
+async function appendReadableFile(handle, path, files) {
+  try {
+    const file = await handle.getFile();
+    Object.defineProperty(file, "relativePath", { value: path, configurable: true });
+    files.push(file);
+  } catch (error) {
+    console.warn("[VJ1_MEDIA_FILE_SKIPPED]", { path, fallback: "omit unreadable file from library", message: error?.message || String(error) });
+  }
+}
+
+function cooperativeYield() {
+  return new Promise((resolve) => setTimeout(resolve, 0));
 }
 
 export function isMediaFile(path) {

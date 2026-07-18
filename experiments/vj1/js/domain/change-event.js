@@ -11,15 +11,25 @@ export function createChangeEvent(change = "change") {
   const supplied = change && typeof change === "object" ? change : {};
   const reason = String(supplied.reason ?? change ?? "change");
   const parsed = parseReason(reason);
+  const scope = supplied.scope || parsed.scope;
+  const phase = supplied.phase || parsed.phase;
   return Object.freeze({
     ...parsed,
     ...supplied,
     reason,
-    phase: supplied.phase || parsed.phase,
+    phase,
     topic: supplied.topic || parsed.topic,
-    scope: supplied.scope || parsed.scope,
+    scope,
+    history: supplied.history || historyPolicy(reason, scope, phase),
     projectRestore: supplied.projectRestore ?? parsed.projectRestore,
   });
+}
+
+function historyPolicy(reason, scope, phase) {
+  if (scope !== "project" || phase !== "commit") return "none";
+  if (PROJECT_RESTORE_PREFIXES.some((prefix) => reason.startsWith(prefix))) return "none";
+  if (["workspace", "component-thumbnail", "select-component"].includes(reason)) return "none";
+  return "record";
 }
 
 function parseReason(reason) {

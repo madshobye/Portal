@@ -844,6 +844,12 @@ test("output renderer blackouts while active media sources are missing or loadin
     assert.equal(status.blocked, true);
     assert.equal(status.loadingIds.has("clips/loop.mov"), true);
 
+    const previewRenderer = new OutputRenderer({ mode: "preview" });
+    previewRenderer.state = renderer.state;
+    previewRenderer.media.set("clips/loop.mov", { id: "clips/loop.mov", video: null, image: null, ready: false });
+    assert.equal(previewRenderer.prepareOutputState(renderer.state).blocked, false, "ordinary editor previews do not globally blackout");
+    assert.equal(previewRenderer.prepareOutputState(renderer.state, { requireMedia: true }).blocked, true, "Live preparation explicitly waits for drawable media");
+
     renderer.media.set("clips/loop.mov", { id: "clips/loop.mov", image: { width: 64, height: 64 }, ready: true });
     status = renderer.outputMediaReadiness();
     renderer.outputMediaStatus = status;
@@ -952,10 +958,12 @@ test("active output can return project state and files to a refreshed control wi
   const bridgeSource = readFileSync(new URL("../js/services/output-bridge-service.js", import.meta.url), "utf8");
   const outputSource = readFileSync(new URL("../js/output/output-app.js", import.meta.url), "utf8");
 
-  assert.ok(bridgeSource.includes('channel.postMessage({ type: "control-hello" })'));
+  assert.ok(bridgeSource.includes('channel.postMessage({ type: "control-hello", sessionId })'));
+  assert.ok(bridgeSource.includes('msg.sessionId !== controlSessionId'));
   assert.ok(bridgeSource.includes('msg.type === "recovery-state"'));
-  assert.ok(bridgeSource.includes('store.replace(msg.state, "project-output-recovery")'));
+  assert.ok(bridgeSource.includes('store.replace(stateWithoutThumbnailUrls(msg.state), "project-output-recovery")'));
   assert.ok(outputSource.includes("bridge?.recoveryState(acceptedState, acceptedFiles)"));
+  assert.ok(outputSource.includes('sessionId !== receivedSessionId'));
 });
 
 test("component preview follows the shared preview toggle", () => {

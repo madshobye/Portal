@@ -2,7 +2,7 @@ import { VJ1, defaultCustomShaderCode, WORKSPACES } from "../constants.js";
 import { createGeneratorSource } from "../graph/generator-registry.js?v=adaptive-component-demand-29";
 import { normalizeComponentFrameShape, normalizeComponentResolutionScale } from "./component-frame.js";
 import { createProjectActivity, normalizeProjectActivity } from "./component-activity.js?v=adaptive-component-demand-29";
-import { CURRENT_PROJECT_VERSION, migrateProjectData } from "./project-migrations.js?v=adaptive-component-demand-29";
+import { CURRENT_PROJECT_VERSION, migrateProjectData } from "./project-migrations.js?v=project-storage-1";
 import {
   createOutputDefinition,
   normalizeCameraSettings,

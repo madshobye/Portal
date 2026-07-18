@@ -101,7 +101,7 @@ export function liveScenePillTemplate(scene, state) {
         ${sceneFingerprintTemplate(components)}
         ${componentCardBarTemplate(scene.name)}
       </button>
-      <button type="button" class="component-card-remove" data-reset-live-scene="${esc(scene.id)}" title="Reset temporary settings" aria-label="Reset temporary settings for ${esc(scene.name)}" ${hasOverrides ? "" : "disabled"}>${icon("restart_alt")}</button>
+      ${hasOverrides ? `<button type="button" class="component-card-remove" data-reset-live-scene="${esc(scene.id)}" title="Reset temporary settings" aria-label="Reset temporary settings for ${esc(scene.name)}">${icon("restart_alt")}</button>` : ""}
     </div>
   `;
 }
@@ -183,13 +183,25 @@ function significantChainControls(chain, options) {
     const definitions = item.kind === "effect"
       ? getShaderComponent(item.componentId)?.params || []
       : sourceLiveParams(item.source || {});
-    const significant = definitions.filter((param) => paths.has(`${relativePath}.params.${param.id}`));
+    const significant = definitions.filter((param) => significantParamPath(
+      paths,
+      relativePath,
+      param.id,
+      item.kind === "source"
+    ));
     if (!significant.length && !transformControls) return "";
     const values = item.kind === "effect"
       ? item
       : { params: { ...(item.source?.params || {}), ...(item.params || {}) } };
     const contentControls = significant.length ? paramControlsTemplate(significant, {
-      pathFor: (param) => `${updatePath}.params.${param.id}`,
+      pathFor: (param) => significantParamUpdatePath({
+        attrs,
+        paths,
+        relativePath,
+        updatePath,
+        paramId: param.id,
+        source: item.kind === "source",
+      }),
       valueFor: (param) => item.kind === "effect"
         ? paramCurrentValue(getShaderComponent(item.componentId), values, param)
         : normalizeParamValue(param, values.params[param.id]),
@@ -200,6 +212,22 @@ function significantChainControls(chain, options) {
   }).join("");
 }
 
+function significantParamPath(paths, relativePath, paramId, source = false) {
+  if (paths.has(`${relativePath}.params.${paramId}`)) return true;
+  return source && paths.has(`${relativePath}.source.params.${paramId}`);
+}
+
+function significantParamUpdatePath({ attrs, paths, relativePath, updatePath, paramId, source }) {
+  // Component editing persists source parameters on the source itself. Live
+  // keeps temporary source overrides on the chain item, where they can be
+  // discarded without mutating the authored source.
+  const persistedSourcePath = `${relativePath}.source.params.${paramId}`;
+  if (source && attrs === "data-update" && paths.has(persistedSourcePath)) {
+    return `${updatePath}.source.params.${paramId}`;
+  }
+  return `${updatePath}.params.${paramId}`;
+}
+
 function* nestedChainItems(chain = []) {
   for (const item of chain || []) {
     yield item;
@@ -208,6 +236,7 @@ function* nestedChainItems(chain = []) {
 }
 
 function liveComponentTemplate(component, view, selectedElement, state, componentView = "controls") {
+  const publishedControlCount = component.significantParams?.length || 0;
   return `
     <article class="ui-section focus-panel live-component-card">
       <header class="ui-section-header panel-title live-component-head">
@@ -215,7 +244,7 @@ function liveComponentTemplate(component, view, selectedElement, state, componen
         <strong>${esc(component.name)}</strong>
       </header>
       <div class="live-component-view-tabs" role="group" aria-label="Live Component view">
-        <button type="button" class="live-component-view-tab ${componentView === "controls" ? "is-selected" : ""}" data-live-component-view="controls" aria-pressed="${componentView === "controls"}">${icon("tune")} Controls</button>
+        <button type="button" class="live-component-view-tab ${componentView === "controls" ? "is-selected" : ""}" data-live-component-view="controls" aria-pressed="${componentView === "controls"}">${icon("tune")} Controls${publishedControlCount ? ` (${publishedControlCount})` : ""}</button>
         <button type="button" class="live-component-view-tab ${componentView === "elements" ? "is-selected" : ""}" data-live-component-view="elements" aria-pressed="${componentView === "elements"}">${icon("account_tree")} Elements</button>
       </div>
       ${componentView === "controls"
@@ -236,6 +265,7 @@ function liveComponentControlsTemplate(component, view) {
   }) : "";
   return `
     <div class="live-component-controls">
+      ${published ? `<div class="live-published-controls"><span class="live-control-group-label">Published controls</span>${published}</div>` : `<div class="soft-note">Mark element parameters as significant to publish them here.</div>`}
       <div class="live-component-transform-controls">
         <span class="live-control-group-label">Transform</span>
         ${chainTransformControlsTemplate(view?.transform, "transform", { attrs: liveParamAttrs(component.id) })}
@@ -243,7 +273,6 @@ function liveComponentControlsTemplate(component, view) {
       ${liveRangeTemplate("Opacity", component.id, "opacity", view?.opacity ?? 1)}
       ${liveRangeTemplate("Speed", component.id, "speed", view?.speed ?? 1, 0, 4, 0.01)}
       <label class="field chain-param"><span>Blend</span>${liveSelectValuesTemplate(component.id, "blend", BLEND_MODES, view?.blend || "normal")}</label>
-      ${published ? `<div class="live-published-controls"><span class="live-control-group-label">Published controls</span>${published}</div>` : `<div class="soft-note">Mark element parameters as significant to publish them here.</div>`}
     </div>
   `;
 }

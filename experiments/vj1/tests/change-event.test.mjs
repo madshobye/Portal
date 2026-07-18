@@ -9,11 +9,14 @@ test("change events centralize legacy reason phases and topics", () => {
     phase: "scrub",
     topic: "mapping-state",
     scope: "project",
+    history: "none",
     projectRestore: false,
   });
   assert.equal(createChangeEvent("color:components.0.chain.0.params.tint").phase, "color");
   assert.equal(createChangeEvent("live:update").scope, "live");
   assert.equal(createChangeEvent("scrub:live").scope, "live");
+  assert.equal(createChangeEvent("update:components.0.name").history, "record");
+  assert.equal(createChangeEvent("workspace").history, "none");
 });
 
 test("structured change metadata extends the compatibility reason", () => {
@@ -33,5 +36,6 @@ test("structured change metadata extends the compatibility reason", () => {
 test("project restore classification is shared by state consumers", () => {
   assert.equal(createChangeEvent("project-open-media").projectRestore, true);
   assert.equal(createChangeEvent("project-undo").projectRestore, true);
+  assert.equal(createChangeEvent("project-undo").history, "none");
   assert.equal(createChangeEvent("project-autosave").projectRestore, false);
 });

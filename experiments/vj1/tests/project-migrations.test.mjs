@@ -19,11 +19,12 @@ import {
   migrateProjectV15ToV16,
   migrateProjectV16ToV17,
   migrateProjectV17ToV18,
+  migrateProjectV18ToV19,
 } from "../js/domain/project-migrations.js";
 import { createInitialState, sanitizeState } from "../js/domain/models.js";
 
 test("current state and sanitized legacy state always use the current project version", () => {
-  assert.equal(CURRENT_PROJECT_VERSION, 18);
+  assert.equal(CURRENT_PROJECT_VERSION, 19);
   assert.equal(createInitialState().version, CURRENT_PROJECT_VERSION);
   assert.equal(sanitizeState({ version: 5 }).version, CURRENT_PROJECT_VERSION);
 });
@@ -292,6 +293,20 @@ test("v17 to v18 canonicalizes runtime aliases before normalization", () => {
   assert.deepEqual(migrated.components[0].chain.map((item) => item.kind), ["source", "effect"]);
   assert.equal(migrated.components[0].chain[0].source.start, 1);
   assert.equal(migrated.surfaces[0].sourceNodeId, "component:component-a");
+});
+
+test("v18 to v19 removes derived thumbnails from persisted project data", () => {
+  const migrated = migrateProjectV18ToV19({
+    version: 18,
+    components: [
+      { id: "component-a", type: "chain", thumbnail: "data:image/webp;base64,AAA=" },
+      { id: "canvas-a", type: "canvas", thumbnail: "blob:canvas", canvas: { width: 100, frameThumbnails: { "frame-a": "blob:frame" } } },
+    ],
+  });
+  assert.equal(Object.hasOwn(migrated.components[0], "thumbnail"), false);
+  assert.equal(Object.hasOwn(migrated.components[1], "thumbnail"), false);
+  assert.equal(Object.hasOwn(migrated.components[1].canvas, "frameThumbnails"), false);
+  assert.equal(migrated.components[1].canvas.width, 100);
 });
 
 test("migration runner applies every adjacent step in order", () => {

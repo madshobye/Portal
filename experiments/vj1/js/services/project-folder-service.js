@@ -1,5 +1,16 @@
-import { collectFilesFromDirectory, isMediaFile, isShaderFile } from "./media-library-service.js?v=media-rendition-revision-1";
-import { RENDITION_DIR, RENDITION_ROOT, mediaRenditionPath } from "./media-rendition-service.js?v=madstodo-4";
+import { collectProjectAssetFiles, isMediaFile, isShaderFile } from "./media-library-service.js?v=project-storage-1";
+import { RENDITION_DIR, RENDITION_ROOT, isMediaRenditionPath, mediaRenditionPath } from "./media-rendition-service.js?v=madstodo-4";
+import {
+  THUMBNAIL_DIR,
+  THUMBNAIL_ROOT,
+  applyThumbnailUrls,
+  clearThumbnailUrls,
+  componentThumbnailFilename,
+  createThumbnailUrlLease,
+  parseComponentThumbnailFilename,
+  thumbnailDataUrlToBlob,
+  thumbnailExtension,
+} from "./component-thumbnail-store.js?v=thumbnail-url-lease-1";
 import {
   canPersistDirectoryHandles,
   clearProjectDirectoryHandle,
@@ -7,19 +18,20 @@ import {
   saveProjectDirectoryHandle,
 } from "./directory-handle-store.js";
 import { applySceneSnapshotToState, createInitialState } from "../domain/models.js?v=render-coordinate-scope-3";
-import { migrateProjectData, ProjectVersionError } from "../domain/project-migrations.js?v=adaptive-component-demand-29";
-import { createChangeEvent } from "../domain/change-event.js?v=adaptive-component-demand-29";
-import { historyGroupForReason, isHistoryReason, projectHistorySignature, shouldCoalesceHistoryRevision } from "./project-history-policy.js?v=adaptive-component-demand-29";
-import { buildProjectPayload } from "./project-serializer.js?v=param-fade-1";
+import { migrateProjectData, ProjectVersionError } from "../domain/project-migrations.js?v=project-storage-1";
+import { createChangeEvent } from "../domain/change-event.js?v=project-storage-1";
+import { isHistoryReason, projectHistorySignature } from "./project-history-policy.js?v=project-storage-1";
+import { buildProjectPayload } from "./project-serializer.js?v=project-storage-1";
 
-export { historyGroupForReason, projectHistorySignature, shouldCoalesceHistoryRevision } from "./project-history-policy.js?v=adaptive-component-demand-29";
-export { buildProjectPayload, persistedRenderSettings } from "./project-serializer.js?v=param-fade-1";
+export { projectHistorySignature } from "./project-history-policy.js?v=project-storage-1";
+export { buildProjectPayload, persistedRenderSettings } from "./project-serializer.js?v=project-storage-1";
 
 export function createProjectFolderService({ mediaLibrary, store, bridge }) {
   let dirHandle = null;
   let autosaveTimer = null;
   let saveInFlight = false;
-  let saveQueued = false;
+  let saveDrainPromise = null;
+  const saveQueue = [];
   let lastSavedSignature = "";
   let lastDirectorySignature = "";
   let refreshInFlight = false;
@@ -27,10 +39,21 @@ export function createProjectFolderService({ mediaLibrary, store, bridge }) {
   let historyInFlight = false;
   let projectLoadBlocked = false;
   let historyState = { canUndo: false, canRedo: false };
-  let lastRevisionGroup = { key: "", at: 0 };
+  let pendingHistory = false;
+  let pendingSaveReason = "";
+  let historyIndexReady = false;
+  const revisionIndex = { undo: [], redo: [] };
+  const thumbnailUrlLease = createThumbnailUrlLease();
+  let fileObserver = null;
+  let observedChangeQueue = Promise.resolve();
+  let projectGeneration = 0;
   const writtenRenditions = new Set();
   const autosaveDelayMs = 700;
-  const revisionCoalesceMs = 6000;
+  const maxRevisionEntries = 500;
+  const maxRevisionBytes = 512 * 1024 * 1024;
+  const maxIndexedRenditions = 1000;
+  const renditionIndexFilename = "index.json";
+  let renditionIndexPaths = [];
   const skipAutosaveReasons = new Set([
     "init",
     "view",
@@ -55,15 +78,25 @@ export function createProjectFolderService({ mediaLibrary, store, bridge }) {
     let opened = false;
     try {
       const storedHandle = dirHandle ? null : await loadStoredHandle();
+      let selectedHandle = null;
       if (storedHandle && await verifyPermission(storedHandle, "readwrite", true)) {
-        dirHandle = storedHandle;
+        selectedHandle = storedHandle;
       } else {
-        dirHandle = await window.showDirectoryPicker({ mode: "readwrite" });
+        selectedHandle = await window.showDirectoryPicker({ mode: "readwrite" });
       }
+      if (selectedHandle !== dirHandle) {
+        stopFileObserver();
+        resetHistoryIndex();
+        lastSavedSignature = "";
+        lastDirectorySignature = "";
+        projectGeneration++;
+      }
+      dirHandle = selectedHandle;
       opened = true;
       await saveStoredHandle(dirHandle);
       await ensureProjectScaffold(dirHandle);
       await loadDirectory("project-open-media");
+      startFileObserver();
       return { fallback: false };
     } finally {
       isOpening = false;
@@ -74,6 +107,7 @@ export function createProjectFolderService({ mediaLibrary, store, bridge }) {
   async function restoreStoredFolder() {
     if (!canPersistDirectoryHandles()) return false;
     isOpening = true;
+    let restored = false;
     try {
       const storedHandle = await loadStoredHandle();
       if (!storedHandle) return false;
@@ -90,11 +124,15 @@ export function createProjectFolderService({ mediaLibrary, store, bridge }) {
         return false;
       }
       dirHandle = storedHandle;
+      projectGeneration++;
       await ensureProjectScaffold(dirHandle);
       await loadDirectory("project-restore-media");
+      startFileObserver();
+      restored = true;
       return true;
     } finally {
       isOpening = false;
+      if (restored && !projectLoadBlocked) scheduleAutoSave({ reason: "project-restore-migration", history: "none" }, { immediate: true });
     }
   }
 
@@ -106,17 +144,21 @@ export function createProjectFolderService({ mediaLibrary, store, bridge }) {
     }
 
     let imported = 0;
+    const storedFiles = [];
     for (const file of files) {
       const path = file.relativePath || file.webkitRelativePath || file.name || "";
       const rootName = isShaderFile(path) ? "shaders" : isMediaFile(path) ? "media" : "";
       if (!rootName) continue;
-      await writeFileIntoProject(dirHandle, file, rootName, path);
+      storedFiles.push(await writeFileIntoProject(dirHandle, file, rootName, path));
       imported++;
     }
-    // Import changes the folder's asset snapshot, not project state. Reloading
-    // project.json here can race the debounced save and replace newer edits or
-    // UI selection with an older disk snapshot.
-    if (imported) await refreshFolder({ force: true });
+    // The imported handles are already known. Publishing them directly avoids
+    // turning one drop into a complete project-folder traversal.
+    if (storedFiles.length) {
+      const result = await mediaLibrary.importFiles(storedFiles);
+      mergeObservedAssets(result);
+      bridge.sendMediaFiles(mediaLibrary.getAllFiles());
+    }
     return { imported };
   }
 
@@ -124,19 +166,28 @@ export function createProjectFolderService({ mediaLibrary, store, bridge }) {
     if (autosaveTimer) {
       clearTimeout(autosaveTimer);
       autosaveTimer = null;
+      await flushAutoSave("project-close-checkpoint");
     }
+    if (saveDrainPromise) await saveDrainPromise;
+    if (saveQueue.length) return false;
+    stopFileObserver();
+    projectGeneration++;
     dirHandle = null;
     saveInFlight = false;
-    saveQueued = false;
+    saveDrainPromise = null;
+    saveQueue.length = 0;
     lastSavedSignature = "";
     lastDirectorySignature = "";
     projectLoadBlocked = false;
     writtenRenditions.clear();
+    renditionIndexPaths = [];
+    resetHistoryIndex();
     mediaLibrary.clear();
     bridge.sendMediaFiles([]);
     await clearStoredHandle();
     setHistoryState(false, false);
     store.replace(createInitialState(), "project-close");
+    thumbnailUrlLease.activate([]);
     bridge.sendState();
     return true;
   }
@@ -145,7 +196,7 @@ export function createProjectFolderService({ mediaLibrary, store, bridge }) {
     if (!dirHandle || isOpening || refreshInFlight) return false;
     refreshInFlight = true;
     try {
-      const files = await collectFilesFromDirectory(dirHandle);
+      const files = [...await collectProjectAssetFiles(dirHandle), ...await loadIndexedRenditions()];
       const signature = directorySignature(files);
       if (!force && signature === lastDirectorySignature) return false;
       mediaLibrary.clear();
@@ -161,7 +212,7 @@ export function createProjectFolderService({ mediaLibrary, store, bridge }) {
 
   async function loadDirectory(reason) {
     mediaLibrary.clear();
-    const files = await collectFilesFromDirectory(dirHandle);
+    const files = [...await collectProjectAssetFiles(dirHandle), ...await loadIndexedRenditions()];
     const signature = directorySignature(files);
     const imported = await mediaLibrary.importFiles(files);
     const loaded = await loadProject(reason, imported, signature);
@@ -174,12 +225,14 @@ export function createProjectFolderService({ mediaLibrary, store, bridge }) {
   async function loadProject(reason = "project-load", imported = { media: [], shaders: [] }, directorySig = "") {
     if (!dirHandle) return;
     let data = {};
+    let embeddedThumbnails = [];
     let projectFileFound = false;
     try {
       const handle = await dirHandle.getFileHandle("project.json");
       projectFileFound = true;
       const text = await (await handle.getFile()).text();
       data = JSON.parse(text);
+      embeddedThumbnails = embeddedThumbnailEntries(data.components);
     } catch (error) {
       if (projectFileFound) {
         blockProjectLoad(`Cannot open project.json: ${error.message || error}`);
@@ -204,9 +257,14 @@ export function createProjectFolderService({ mediaLibrary, store, bridge }) {
     const recordingFrames = Array.isArray(projectData.recordingFrames)
       ? projectData.recordingFrames
       : store.getState().recordingFrames;
+    const components = clearThumbnailUrls(Array.isArray(projectData.components) ? projectData.components : store.getState().components);
+    applyThumbnailUrls(components, embeddedThumbnails);
+    const loadedThumbnails = await loadComponentThumbnails(components);
+    applyThumbnailUrls(components, loadedThumbnails.entries);
     const nextState = {
       ...store.getState(),
       ...projectData,
+      components,
       recordingFrames,
       ui: {
         ...currentUi,
@@ -242,6 +300,8 @@ export function createProjectFolderService({ mediaLibrary, store, bridge }) {
     const selectedScene = nextState.scenes?.find((scene) => scene.id === nextState.ui.selectedSceneId) || nextState.scenes?.[0];
     if (selectedScene) applySceneSnapshotToState(nextState, selectedScene);
     store.replace(nextState, reason);
+    thumbnailUrlLease.activate(loadedThumbnails.urls);
+    if (embeddedThumbnails.length) migrateEmbeddedThumbnailsToCache(embeddedThumbnails);
     lastDirectorySignature = directorySig;
     lastSavedSignature = payloadSignature(buildProjectPayload(store.getState(), projectData.project?.savedAt || ""));
     return true;
@@ -258,6 +318,7 @@ export function createProjectFolderService({ mediaLibrary, store, bridge }) {
   function refreshProjectAssets(imported = { media: [], shaders: [] }, directorySig = "") {
     store.update((draft) => {
       draft.project.folderName = dirHandle?.name || draft.project.folderName;
+      draft.project.warnings = (draft.project.warnings || []).filter((warning) => !String(warning).startsWith("Folder change ("));
       draft.media = imported.media;
       if (imported.shaders[0]) {
         draft.shaders = {
@@ -275,42 +336,60 @@ export function createProjectFolderService({ mediaLibrary, store, bridge }) {
     const reason = event.reason;
     if (event.phase === "edit" || event.phase === "scrub") return;
     if (!dirHandle || isOpening || projectLoadBlocked || skipAutosaveReasons.has(reason)) return;
+    if (event.history === "record") {
+      pendingHistory = true;
+      pendingSaveReason = reason;
+    } else if (!pendingSaveReason) {
+      pendingSaveReason = reason;
+    }
     if (autosaveTimer) clearTimeout(autosaveTimer);
-    const delay = immediate || reason === "live:scene" ? 0 : autosaveDelayMs;
+    const delay = immediate || reason === "live:scene" || event.history === "record" ? 0 : autosaveDelayMs;
     autosaveTimer = setTimeout(() => {
       autosaveTimer = null;
-      flushAutoSave(reason);
+      flushAutoSave();
     }, delay);
   }
 
-  async function flushAutoSave(reason = "change") {
+  async function flushAutoSave(reason = "") {
     if (!dirHandle) return false;
-    if (saveInFlight) {
-      saveQueued = true;
-      return false;
-    }
+    const saveReason = reason || pendingSaveReason || "change";
+    const recordHistory = pendingHistory || createChangeEvent(saveReason).history === "record";
+    pendingHistory = false;
+    pendingSaveReason = "";
+    const payload = buildProjectPayload(store.getState(), new Date().toISOString());
+    const json = JSON.stringify(payload, null, 2);
+    saveQueue.push({ reason: saveReason, recordHistory, payload: JSON.parse(json), json });
+    if (saveInFlight) return saveDrainPromise;
     saveInFlight = true;
-    try {
-      return await saveProject({ reason });
-    } catch (error) {
-      store.update((draft) => {
-        draft.project.warnings = [`Autosave error: ${error.message || error}`];
-      }, "project-autosave-error");
-      return false;
-    } finally {
-      saveInFlight = false;
-      if (saveQueued) {
-        saveQueued = false;
-        scheduleAutoSave("queued-autosave");
+    saveDrainPromise = (async () => {
+      let saved = false;
+      try {
+        while (saveQueue.length) {
+          const job = saveQueue.shift();
+          try { saved = await saveProject(job) || saved; }
+          catch (error) {
+            saveQueue.unshift(job);
+            throw error;
+          }
+        }
+        return saved;
+      } catch (error) {
+        store.update((draft) => {
+          draft.project.warnings = [`Autosave error: ${error.message || error}`];
+        }, "project-autosave-error");
+        return false;
+      } finally {
+        saveInFlight = false;
+        saveDrainPromise = null;
       }
-    }
+    })();
+    return saveDrainPromise;
   }
 
-  async function saveProject({ reason = "manual" } = {}) {
+  async function saveProject({ reason = "manual", recordHistory = true, payload: suppliedPayload = null, json: suppliedJson = "" } = {}) {
     if (projectLoadBlocked) return false;
-    const state = store.getState();
-    const savedAt = new Date().toISOString();
-    const payload = buildProjectPayload(state, savedAt);
+    const savedAt = suppliedPayload?.project?.savedAt || new Date().toISOString();
+    const payload = suppliedPayload || buildProjectPayload(store.getState(), savedAt);
     const signature = payloadSignature(payload);
     if (signature === lastSavedSignature) return false;
 
@@ -318,7 +397,7 @@ export function createProjectFolderService({ mediaLibrary, store, bridge }) {
       return false;
     }
 
-    const json = JSON.stringify(payload, null, 2);
+    const json = suppliedJson || JSON.stringify(payload, null, 2);
     let handle = null;
     let previousText = "";
     try {
@@ -329,13 +408,9 @@ export function createProjectFolderService({ mediaLibrary, store, bridge }) {
       handle = await dirHandle.getFileHandle("project.json", { create: true });
     }
 
-    if (shouldWriteHistoryRevision(previousText, payload, json, reason)) {
-      const group = historyGroupForReason(reason);
-      const now = Date.now();
-      const coalesced = shouldCoalesceHistoryRevision(lastRevisionGroup, group, now, revisionCoalesceMs);
-      if (!coalesced) await writeRevision(previousText, savedAt);
-      lastRevisionGroup = { key: group, at: now };
-      if (!isHistoryReason(reason) && !coalesced) await clearRedoRevisions();
+    if (shouldWriteHistoryRevision(previousText, payload, json, reason, recordHistory)) {
+      await writeRevision(previousText, savedAt);
+      if (!isHistoryReason(reason)) await clearRedoRevisions();
     }
 
     const writable = await handle.createWritable();
@@ -359,7 +434,8 @@ export function createProjectFolderService({ mediaLibrary, store, bridge }) {
         clearTimeout(autosaveTimer);
         autosaveTimer = null;
         await flushAutoSave("history-checkpoint");
-      }
+      } else if (saveDrainPromise) await saveDrainPromise;
+      if (saveQueue.length) return false;
       const entry = await latestRevisionEntry("undo");
       if (!entry) {
         await refreshHistoryState();
@@ -370,7 +446,6 @@ export function createProjectFolderService({ mediaLibrary, store, bridge }) {
       if (currentText.trim()) await writeRedoRevision(currentText, new Date().toISOString());
       await writeProjectText(undoText);
       await removeRevisionEntry(entry);
-      lastRevisionGroup = { key: "", at: 0 };
       await reloadProjectFromDisk("project-undo");
       return true;
     } finally {
@@ -382,6 +457,8 @@ export function createProjectFolderService({ mediaLibrary, store, bridge }) {
     if (!dirHandle || historyInFlight) return false;
     historyInFlight = true;
     try {
+      if (saveDrainPromise) await saveDrainPromise;
+      if (saveQueue.length) return false;
       const entry = await latestRevisionEntry("redo");
       if (!entry) {
         await refreshHistoryState();
@@ -392,7 +469,6 @@ export function createProjectFolderService({ mediaLibrary, store, bridge }) {
       if (currentText.trim()) await writeRevision(currentText, new Date().toISOString());
       await writeProjectText(redoText);
       await removeRevisionEntry(entry);
-      lastRevisionGroup = { key: "", at: 0 };
       await reloadProjectFromDisk("project-redo");
       return true;
     } finally {
@@ -405,6 +481,7 @@ export function createProjectFolderService({ mediaLibrary, store, bridge }) {
   }
 
   async function writeRevision(text, savedAt) {
+    await ensureHistoryIndex();
     const revisions = await dirHandle.getDirectoryHandle("revisions", { create: true });
     const suffix = Math.random().toString(36).slice(2, 7);
     const filename = `project-before-${safeTimestamp(savedAt)}-${suffix}.json`;
@@ -412,9 +489,14 @@ export function createProjectFolderService({ mediaLibrary, store, bridge }) {
     const writable = await handle.createWritable();
     await writable.write(text);
     await writable.close();
+    revisionIndex.undo.push({ parent: revisions, handle, name: filename, size: textByteLength(text) });
+    revisionIndex.undo.sort(compareRevisionEntries);
+    await pruneRevisionIndex("undo");
+    setHistoryFromIndex();
   }
 
   async function writeRedoRevision(text, savedAt) {
+    await ensureHistoryIndex();
     const redos = await getRedoDirectory({ create: true });
     const suffix = Math.random().toString(36).slice(2, 7);
     const filename = `project-redo-${safeTimestamp(savedAt)}-${suffix}.json`;
@@ -422,50 +504,101 @@ export function createProjectFolderService({ mediaLibrary, store, bridge }) {
     const writable = await handle.createWritable();
     await writable.write(text);
     await writable.close();
+    revisionIndex.redo.push({ parent: redos, handle, name: filename, size: textByteLength(text) });
+    revisionIndex.redo.sort(compareRevisionEntries);
+    await pruneRevisionIndex("redo");
+    setHistoryFromIndex();
   }
 
   async function clearRedoRevisions() {
-    const redos = await getRedoDirectory();
-    if (!redos) return;
-    for await (const entry of redos.values()) {
-      if (entry.kind === "file" && entry.name.endsWith(".json")) {
-        await redos.removeEntry(entry.name);
-      }
+    await ensureHistoryIndex();
+    for (const entry of revisionIndex.redo.splice(0)) {
+      await entry.parent.removeEntry(entry.name);
+      await cooperativeYield();
     }
-    await refreshHistoryState();
+    setHistoryFromIndex();
   }
 
   async function latestRevisionEntry(kind) {
-    const entries = kind === "redo" ? await redoRevisionEntries() : await undoRevisionEntries();
+    await ensureHistoryIndex();
+    const entries = revisionIndex[kind === "redo" ? "redo" : "undo"];
     return entries[entries.length - 1] || null;
-  }
-
-  async function undoRevisionEntries() {
-    const revisions = await getRevisionDirectory();
-    if (!revisions) return [];
-    const entries = [];
-    for await (const entry of revisions.values()) {
-      if (entry.kind === "file" && /^project-before-.+\.json$/.test(entry.name)) {
-        entries.push({ parent: revisions, handle: entry, name: entry.name });
-      }
-    }
-    return entries.sort((a, b) => a.name.localeCompare(b.name));
-  }
-
-  async function redoRevisionEntries() {
-    const redos = await getRedoDirectory();
-    if (!redos) return [];
-    const entries = [];
-    for await (const entry of redos.values()) {
-      if (entry.kind === "file" && /^project-redo-.+\.json$/.test(entry.name)) {
-        entries.push({ parent: redos, handle: entry, name: entry.name });
-      }
-    }
-    return entries.sort((a, b) => a.name.localeCompare(b.name));
   }
 
   async function removeRevisionEntry(entry) {
     await entry.parent.removeEntry(entry.name);
+    for (const entries of [revisionIndex.undo, revisionIndex.redo]) {
+      const index = entries.findIndex((candidate) => candidate.name === entry.name && candidate.parent === entry.parent);
+      if (index >= 0) entries.splice(index, 1);
+    }
+    setHistoryFromIndex();
+  }
+
+  async function ensureHistoryIndex() {
+    if (historyIndexReady || !dirHandle) return;
+    resetHistoryIndex();
+    const revisions = await getRevisionDirectory();
+    if (revisions) await indexRevisionDirectory(revisions, revisionIndex.undo, /^project-before-.+\.json$/);
+    const redos = await getRedoDirectory();
+    if (redos) await indexRevisionDirectory(redos, revisionIndex.redo, /^project-redo-.+\.json$/);
+    historyIndexReady = true;
+    await pruneRevisionIndex("undo");
+    await pruneRevisionIndex("redo");
+    setHistoryFromIndex();
+  }
+
+  async function indexRevisionDirectory(directory, target, pattern) {
+    let count = 0;
+    for await (const entry of directory.values()) {
+      if (entry.kind === "file" && pattern.test(entry.name)) target.push({ parent: directory, handle: entry, name: entry.name, size: -1 });
+      if (++count % 100 === 0) await cooperativeYield();
+    }
+    target.sort(compareRevisionEntries);
+  }
+
+  async function pruneRevisionIndex(kind) {
+    const entries = revisionIndex[kind];
+    let removedCount = 0;
+    let removedBytes = 0;
+    while (entries.length > maxRevisionEntries) {
+      const entry = entries.shift();
+      await entry.parent.removeEntry(entry.name);
+      removedCount++;
+      if (entries.length % 100 === 0) await cooperativeYield();
+    }
+    let totalBytes = 0;
+    for (const entry of entries) {
+      if (entry.size < 0) {
+        try { entry.size = (await entry.handle.getFile()).size || 0; }
+        catch (error) {
+          console.warn("[VJ1_HISTORY_ENTRY_UNREADABLE]", { name: entry.name, fallback: "remove unreadable revision", message: error?.message || String(error) });
+          entry.size = 0;
+        }
+      }
+      totalBytes += entry.size;
+      if (totalBytes % (32 * 1024 * 1024) < entry.size) await cooperativeYield();
+    }
+    while (entries.length && totalBytes > maxRevisionBytes) {
+      const entry = entries.shift();
+      totalBytes -= entry.size;
+      removedBytes += entry.size;
+      removedCount++;
+      await entry.parent.removeEntry(entry.name);
+    }
+    // Reaching the configured rolling-history limit is routine maintenance,
+    // not an actionable runtime event. Keep it available to diagnostics
+    // without filling the normal performance console after every saved edit.
+    if (removedCount) console.debug("[VJ1_HISTORY_PRUNED]", { kind, removedCount, removedBytes, maxRevisionEntries, maxRevisionBytes });
+  }
+
+  function resetHistoryIndex() {
+    revisionIndex.undo.length = 0;
+    revisionIndex.redo.length = 0;
+    historyIndexReady = false;
+  }
+
+  function setHistoryFromIndex() {
+    setHistoryState(revisionIndex.undo.length > 0, revisionIndex.redo.length > 0);
   }
 
   async function getRevisionDirectory({ create = false } = {}) {
@@ -502,12 +635,10 @@ export function createProjectFolderService({ mediaLibrary, store, bridge }) {
   }
 
   async function reloadProjectFromDisk(reason) {
-    mediaLibrary.clear();
-    const files = await collectFilesFromDirectory(dirHandle);
-    const signature = directorySignature(files);
-    const imported = await mediaLibrary.importFiles(files);
-    await loadProject(reason, imported, signature);
-    bridge.sendMediaFiles(mediaLibrary.getAllFiles());
+    // Undo/redo changes project.json only. The current media-library snapshot
+    // remains authoritative and must not trigger another filesystem traversal.
+    const imported = { media: store.getState().media || [], shaders: [] };
+    await loadProject(reason, imported, lastDirectorySignature);
     await refreshHistoryState();
     bridge.sendState();
   }
@@ -517,8 +648,8 @@ export function createProjectFolderService({ mediaLibrary, store, bridge }) {
       setHistoryState(false, false);
       return historyState;
     }
-    const [undos, redos] = await Promise.all([undoRevisionEntries(), redoRevisionEntries()]);
-    setHistoryState(undos.length > 0, redos.length > 0);
+    await ensureHistoryIndex();
+    setHistoryFromIndex();
     return historyState;
   }
 
@@ -532,15 +663,19 @@ export function createProjectFolderService({ mediaLibrary, store, bridge }) {
 
   async function writeMediaRendition(mediaId, width, height, blob, sourceRevision = "") {
     if (!dirHandle || !blob || !mediaId) return false;
+    const projectHandle = dirHandle;
     const path = mediaRenditionPath(mediaId, width, height, sourceRevision);
     if (writtenRenditions.has(path)) return false;
-    const directory = await renditionDirectory();
+    const directory = await renditionDirectory(projectHandle);
     const filename = path.split("/").pop();
     const handle = await directory.getFileHandle(filename, { create: true });
     const writable = await handle.createWritable();
     await writable.write(blob);
     await writable.close();
+    if (projectHandle !== dirHandle) return false;
     writtenRenditions.add(path);
+    await indexRendition(path, projectHandle);
+    if (projectHandle !== dirHandle) return false;
     const file = await handle.getFile();
     Object.defineProperty(file, "relativePath", { value: path, configurable: true });
     await mediaLibrary.importFiles([file]);
@@ -548,22 +683,275 @@ export function createProjectFolderService({ mediaLibrary, store, bridge }) {
     return true;
   }
 
-  async function renditionDirectory() {
-    const root = await dirHandle.getDirectoryHandle(RENDITION_ROOT, { create: true });
+  async function renditionDirectory(projectHandle = dirHandle) {
+    const root = await projectHandle.getDirectoryHandle(RENDITION_ROOT, { create: true });
     return await root.getDirectoryHandle(RENDITION_DIR, { create: true });
   }
 
-  return { openFolder, restoreStoredFolder, closeProject, saveProject, scheduleAutoSave, flushAutoSave, importExternalFiles, refreshFolder, undoProject, redoProject, getHistoryState, writeMediaRendition };
+  async function loadIndexedRenditions() {
+    const projectHandle = dirHandle;
+    renditionIndexPaths = [];
+    let directory = null;
+    try {
+      const root = await projectHandle.getDirectoryHandle(RENDITION_ROOT);
+      directory = await root.getDirectoryHandle(RENDITION_DIR);
+      const indexHandle = await directory.getFileHandle(renditionIndexFilename);
+      const parsed = JSON.parse(await (await indexHandle.getFile()).text());
+      const indexedPaths = Array.isArray(parsed?.paths)
+        ? parsed.paths.filter(isValidRenditionIndexPath).slice(-maxIndexedRenditions)
+        : [];
+      if (projectHandle !== dirHandle) return [];
+      renditionIndexPaths = indexedPaths;
+    } catch (error) {
+      if (!isNotFoundError(error) && !(error instanceof SyntaxError)) {
+        console.warn("[VJ1_RENDITION_INDEX_READ_FAILED]", { fallback: "regenerate renditions on demand", message: error?.message || String(error) });
+      } else if (error instanceof SyntaxError) {
+        console.warn("[VJ1_RENDITION_INDEX_INVALID]", { fallback: "regenerate renditions on demand", message: error.message });
+      }
+      return [];
+    }
+    const files = [];
+    let missing = 0;
+    let count = 0;
+    for (const path of renditionIndexPaths) {
+      if (projectHandle !== dirHandle) return [];
+      try {
+        const handle = await directory.getFileHandle(path.split("/").pop());
+        const file = await handle.getFile();
+        Object.defineProperty(file, "relativePath", { value: path, configurable: true });
+        files.push(file);
+        writtenRenditions.add(path);
+      } catch (error) {
+        if (isNotFoundError(error)) missing++;
+        else console.warn("[VJ1_RENDITION_INDEX_ENTRY_FAILED]", { path, fallback: "regenerate rendition on demand", message: error?.message || String(error) });
+      }
+      if (++count % 64 === 0) await cooperativeYield();
+    }
+    if (missing) console.info("[VJ1_RENDITION_INDEX_STALE]", { missing, fallback: "regenerate missing renditions on demand" });
+    return files;
+  }
+
+  async function indexRendition(path, projectHandle = dirHandle) {
+    const nextPaths = renditionIndexPaths.filter((entry) => entry !== path);
+    nextPaths.push(path);
+    const evicted = nextPaths.splice(0, Math.max(0, nextPaths.length - maxIndexedRenditions));
+    const directory = await renditionDirectory(projectHandle);
+    const handle = await directory.getFileHandle(renditionIndexFilename, { create: true });
+    const writable = await handle.createWritable();
+    await writable.write(JSON.stringify({ version: 1, paths: nextPaths }, null, 2));
+    await writable.close();
+    for (const oldPath of evicted) {
+      try { await directory.removeEntry(oldPath.split("/").pop()); }
+      catch (error) { if (!isNotFoundError(error)) console.warn("[VJ1_RENDITION_CACHE_EVICT_FAILED]", { path: oldPath, message: error?.message || String(error) }); }
+      if (projectHandle === dirHandle) writtenRenditions.delete(oldPath);
+    }
+    if (projectHandle === dirHandle) renditionIndexPaths = nextPaths;
+  }
+
+  async function writeComponentThumbnail(componentId, frameId, dataUrl) {
+    if (!dirHandle || !componentId || !dataUrl) return false;
+    const projectHandle = dirHandle;
+    const blob = thumbnailDataUrlToBlob(dataUrl);
+    const extension = thumbnailExtension(blob);
+    const directory = await thumbnailDirectory({ create: true, projectHandle });
+    const filename = componentThumbnailFilename(componentId, frameId, extension);
+    const handle = await directory.getFileHandle(filename, { create: true });
+    const writable = await handle.createWritable();
+    await writable.write(blob);
+    await writable.close();
+    const alternate = componentThumbnailFilename(componentId, frameId, extension === "png" ? "webp" : "png");
+    try { await directory.removeEntry(alternate); } catch (error) {
+      if (!isNotFoundError(error)) console.warn("[VJ1_STALE_THUMBNAIL_REMOVE_FAILED]", { filename: alternate, message: error?.message || String(error) });
+    }
+    return true;
+  }
+
+  async function migrateEmbeddedThumbnailsToCache(entries) {
+    for (const entry of entries || []) {
+      try { await writeComponentThumbnail(entry.componentId, entry.frameId, entry.url); }
+      catch (error) {
+        console.warn("[VJ1_EMBEDDED_THUMBNAIL_MIGRATION_FAILED]", {
+          componentId: entry.componentId,
+          frameId: entry.frameId,
+          fallback: "regenerate this thumbnail on demand",
+          message: error?.message || String(error),
+        });
+      }
+      await cooperativeYield();
+    }
+  }
+
+  async function loadComponentThumbnails(components = []) {
+    const componentIds = new Set((components || []).map((component) => String(component.id)));
+    const directory = await thumbnailDirectory();
+    if (!directory) return { entries: [], urls: new Set() };
+    const entries = [];
+    const urls = new Set();
+    let count = 0;
+    for await (const handle of directory.values()) {
+      const parsed = handle.kind === "file" ? parseComponentThumbnailFilename(handle.name) : null;
+      if (parsed && componentIds.has(String(parsed.componentId))) {
+        try {
+          const url = URL.createObjectURL(await handle.getFile());
+          urls.add(url);
+          entries.push({ ...parsed, url });
+        } catch (error) {
+          console.warn("[VJ1_THUMBNAIL_READ_FAILED]", { filename: handle.name, fallback: "regenerate thumbnail on demand", message: error?.message || String(error) });
+        }
+      }
+      if (++count % 64 === 0) await cooperativeYield();
+    }
+    return { entries, urls };
+  }
+
+  async function thumbnailDirectory({ create = false, projectHandle = dirHandle } = {}) {
+    if (!projectHandle) return null;
+    try {
+      const root = await projectHandle.getDirectoryHandle(THUMBNAIL_ROOT, { create });
+      return await root.getDirectoryHandle(THUMBNAIL_DIR, { create });
+    } catch (error) {
+      if (!isNotFoundError(error)) console.warn("[VJ1_THUMBNAIL_DIRECTORY_UNAVAILABLE]", { fallback: "regenerate thumbnails in memory", message: error?.message || String(error) });
+      return null;
+    }
+  }
+
+  function startFileObserver() {
+    stopFileObserver();
+    const Observer = globalThis.FileSystemObserver;
+    if (!Observer || !dirHandle) {
+      console.info("[VJ1_FILE_OBSERVER_UNAVAILABLE]", { fallback: "use the Media refresh button for external folder changes" });
+      return;
+    }
+    try {
+      const observerGeneration = projectGeneration;
+      fileObserver = new Observer((records) => {
+        observedChangeQueue = observedChangeQueue
+          .then(() => observerGeneration === projectGeneration ? applyObservedChanges(records, observerGeneration) : undefined)
+          .catch((error) => console.warn("[VJ1_FILE_OBSERVER_UPDATE_FAILED]", { fallback: "use the Media refresh button", message: error?.message || String(error) }));
+      });
+      Promise.resolve(fileObserver.observe(dirHandle, { recursive: true })).catch((error) => {
+        console.warn("[VJ1_FILE_OBSERVER_START_FAILED]", { fallback: "use the Media refresh button", message: error?.message || String(error) });
+        stopFileObserver();
+      });
+    } catch (error) {
+      console.warn("[VJ1_FILE_OBSERVER_START_FAILED]", { fallback: "use the Media refresh button", message: error?.message || String(error) });
+      stopFileObserver();
+    }
+  }
+
+  function stopFileObserver() {
+    try { fileObserver?.disconnect?.(); } catch (error) {
+      console.warn("[VJ1_FILE_OBSERVER_STOP_FAILED]", { fallback: "discard observer reference", message: error?.message || String(error) });
+    }
+    fileObserver = null;
+  }
+
+  async function applyObservedChanges(records = [], generation = projectGeneration) {
+    for (const record of records || []) {
+      if (generation !== projectGeneration) return;
+      const path = observedRecordPath(record);
+      if (!path || isIgnoredObservedPath(path)) continue;
+      const insideAssetRoot = path === "media" || path === "shaders" || path.startsWith("media/") || path.startsWith("shaders/");
+      const relevantPath = insideAssetRoot || isObservedAssetPath(path);
+      if ((record.type === "unknown" || record.type === "errored") && relevantPath) {
+        markManualRefreshNeeded(path, record.type);
+        continue;
+      }
+      if (record.changedHandle?.kind === "directory" && insideAssetRoot) {
+        markManualRefreshNeeded(path, record.type || "directory");
+        continue;
+      }
+      if (record.changedHandle?.kind === "directory") continue;
+      if (!isObservedAssetPath(path)) continue;
+      if (record.type === "moved") {
+        const previousPath = observedMovedFromPath(record);
+        if (previousPath && isMediaFile(previousPath)) {
+          mediaLibrary.remove(previousPath);
+          store.updateDerived((draft) => {
+            draft.media = (draft.media || []).filter((item) => item.id !== previousPath);
+          }, "project-observed-asset-move");
+        } else if (previousPath && isShaderFile(previousPath)) {
+          markManualRefreshNeeded(previousPath, "shader moved");
+        }
+      }
+      if (record.type === "disappeared") {
+        if (isShaderFile(path)) {
+          markManualRefreshNeeded(path, "shader removed");
+          continue;
+        }
+        mediaLibrary.remove(path);
+        store.updateDerived((draft) => {
+          draft.media = (draft.media || []).filter((item) => item.id !== path);
+        }, "project-observed-asset-remove");
+        bridge.sendMediaFiles(mediaLibrary.getAllFiles());
+        continue;
+      }
+      let handle = record.changedHandle;
+      if (!handle || handle.kind !== "file") handle = await fileHandleAtPath(dirHandle, path);
+      if (!handle) {
+        markManualRefreshNeeded(path, "unresolved");
+        continue;
+      }
+      try {
+        const file = await handle.getFile();
+        Object.defineProperty(file, "relativePath", { value: path, configurable: true });
+        const imported = await mediaLibrary.importFiles([file]);
+        mergeObservedAssets(imported);
+        bridge.sendMediaFiles(mediaLibrary.getAllFiles());
+      } catch (error) {
+        console.warn("[VJ1_OBSERVED_ASSET_READ_FAILED]", { path, fallback: "use the Media refresh button", message: error?.message || String(error) });
+        markManualRefreshNeeded(path, "unreadable");
+      }
+    }
+  }
+
+  function mergeObservedAssets(imported) {
+    store.updateDerived((draft) => {
+      const byId = new Map((draft.media || []).map((item) => [item.id, item]));
+      for (const item of imported.media || []) byId.set(item.id, item);
+      draft.media = Array.from(byId.values());
+      if (imported.shaders?.[0]) {
+        draft.shaders = { ...draft.shaders, customName: imported.shaders[0].name, customCode: imported.shaders[0].code };
+      }
+    }, "project-observed-asset-update");
+    if (imported.shaders?.length) bridge.sendState();
+  }
+
+  function markManualRefreshNeeded(path, eventType) {
+    store.updateDerived((draft) => {
+      draft.project.warnings = [`Folder change (${eventType}) at ${path} needs a manual Media refresh.`];
+    }, "project-observer-refresh-needed");
+  }
+
+  return { openFolder, restoreStoredFolder, closeProject, saveProject, scheduleAutoSave, flushAutoSave, importExternalFiles, refreshFolder, undoProject, redoProject, getHistoryState, writeMediaRendition, writeComponentThumbnail };
 }
 
 async function ensureProjectScaffold(handle) {
   if (!handle?.getDirectoryHandle) return;
-  for (const name of ["media", "shaders", "scenes", "mappings", RENDITION_ROOT]) {
+  for (const name of ["media", "shaders", RENDITION_ROOT]) {
     await handle.getDirectoryHandle(name, { create: true });
+  }
+  for (const name of ["scenes", "mappings"]) await removeObsoleteEmptyScaffold(handle, name);
+}
+
+async function removeObsoleteEmptyScaffold(root, name) {
+  try {
+    const directory = await root.getDirectoryHandle(name);
+    for await (const _entry of directory.values()) {
+      console.info("[VJ1_OBSOLETE_SCAFFOLD_RETAINED]", { directory: name, reason: "contains user files that VJ1 will not delete" });
+      return false;
+    }
+    await root.removeEntry(name);
+    console.info("[VJ1_OBSOLETE_SCAFFOLD_REMOVED]", { directory: name });
+    return true;
+  } catch (error) {
+    if (!isNotFoundError(error)) console.warn("[VJ1_OBSOLETE_SCAFFOLD_CLEANUP_FAILED]", { directory: name, fallback: "leave directory untouched", message: error?.message || String(error) });
+    return false;
   }
 }
 
-function shouldWriteHistoryRevision(previousText = "", nextPayload = {}, nextText = "", reason = "") {
+function shouldWriteHistoryRevision(previousText = "", nextPayload = {}, nextText = "", reason = "", recordHistory = true) {
+  if (!recordHistory) return false;
   if (reason === "component-thumbnail") return false;
   if (!previousText.trim() || previousText === nextText) return false;
   const previousPayload = parseProjectText(previousText);
@@ -657,23 +1045,92 @@ function safeTimestamp(value) {
   return String(value || new Date().toISOString()).replace(/[:.]/g, "-");
 }
 
+function embeddedThumbnailEntries(components = []) {
+  const entries = [];
+  for (const component of components || []) {
+    if (typeof component?.thumbnail === "string" && component.thumbnail.startsWith("data:image/")) {
+      entries.push({ componentId: component.id, frameId: "", url: component.thumbnail });
+    }
+    for (const [frameId, url] of Object.entries(component?.canvas?.frameThumbnails || {})) {
+      if (typeof url === "string" && url.startsWith("data:image/")) entries.push({ componentId: component.id, frameId, url });
+    }
+  }
+  return entries;
+}
+
+function compareRevisionEntries(a, b) {
+  return a.name.localeCompare(b.name);
+}
+
+function textByteLength(text = "") {
+  return new Blob([text]).size;
+}
+
+function cooperativeYield() {
+  return new Promise((resolve) => setTimeout(resolve, 0));
+}
+
+function observedRecordPath(record = {}) {
+  const parts = record.relativePathComponents || record.relativePath || [];
+  if (Array.isArray(parts)) return parts.map(String).filter(Boolean).join("/");
+  return String(parts || "").replace(/^\/+/, "");
+}
+
+function observedMovedFromPath(record = {}) {
+  const parts = record.relativePathMovedFrom || record.formerRelativePathComponents || [];
+  if (Array.isArray(parts)) return parts.map(String).filter(Boolean).join("/");
+  return String(parts || "").replace(/^\/+/, "");
+}
+
+function isIgnoredObservedPath(path = "") {
+  const root = String(path).split("/")[0];
+  return root === "revisions" || root === RENDITION_ROOT;
+}
+
+function isObservedAssetPath(path = "") {
+  const parts = String(path).split("/").filter(Boolean);
+  if (!parts.length) return false;
+  if (parts.length === 1) return isMediaFile(path) || isShaderFile(path);
+  if (!["media", "shaders"].includes(parts[0])) return false;
+  return isMediaFile(path) || isShaderFile(path);
+}
+
+function isValidRenditionIndexPath(path = "") {
+  return isMediaRenditionPath(path) && !String(path).slice(`${RENDITION_ROOT}/${RENDITION_DIR}/`.length).includes("/");
+}
+
+async function fileHandleAtPath(root, path = "") {
+  const parts = String(path).split("/").filter(Boolean);
+  if (!parts.length) return null;
+  try {
+    let directory = root;
+    for (const part of parts.slice(0, -1)) directory = await directory.getDirectoryHandle(part);
+    return await directory.getFileHandle(parts.at(-1));
+  } catch (error) {
+    if (!isNotFoundError(error)) console.warn("[VJ1_OBSERVED_PATH_RESOLVE_FAILED]", { path, fallback: "use the Media refresh button", message: error?.message || String(error) });
+    return null;
+  }
+}
+
 async function writeFileIntoProject(projectDirHandle, file, rootName, sourcePath) {
-  let directory = await currentDirectoryForPath(projectDirHandle, rootName, sourcePath);
+  const sourceParts = String(sourcePath || "").split("/").filter(Boolean);
+  if (sourceParts[0] === rootName) sourceParts.shift();
+  let directory = await projectDirHandle.getDirectoryHandle(rootName, { create: true });
+  const storedParts = [];
+  for (const part of sourceParts.slice(0, -1)) {
+    const safePart = safeFilename(part);
+    directory = await directory.getDirectoryHandle(safePart, { create: true });
+    storedParts.push(safePart);
+  }
   const originalName = safeFilename((sourcePath || file.name).split("/").pop() || file.name || "file");
   const filename = await uniqueFilename(directory, originalName);
   const handle = await directory.getFileHandle(filename, { create: true });
   const writable = await handle.createWritable();
   await writable.write(file);
   await writable.close();
-}
-
-async function currentDirectoryForPath(projectDirHandle, rootName, sourcePath) {
-  let directory = await projectDirHandle.getDirectoryHandle(rootName, { create: true });
-  const parts = String(sourcePath || "").split("/").filter(Boolean).slice(0, -1);
-  for (const part of parts) {
-    directory = await directory.getDirectoryHandle(safeFilename(part), { create: true });
-  }
-  return directory;
+  const stored = await handle.getFile();
+  Object.defineProperty(stored, "relativePath", { value: [rootName, ...storedParts, filename].join("/"), configurable: true });
+  return stored;
 }
 
 async function uniqueFilename(directory, filename) {

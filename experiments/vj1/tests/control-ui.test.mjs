@@ -6,7 +6,7 @@ import { paramRangePairTemplate, rangeTemplate } from "../js/control/template-ut
 import { elementPickerTemplate } from "../js/control/picker-view.js";
 import { settingsModalTemplate } from "../js/control/settings-view.js";
 import { createInitialState } from "../js/domain/models.js";
-import { previewFitSignature, previewRasterDensity } from "../js/output/embedded-preview-app.js";
+import { previewFitSignature, previewRasterDensity, retimeEmbeddedLiveTransition, shouldPrepareEmbeddedLiveState } from "../js/output/embedded-preview-app.js";
 import { isPointerInteractionNode } from "../js/control/dom-utils.js";
 import { applyOptimisticToggleIntent } from "../js/control/input-controller.js";
 import { rememberParamViewSelections, restoreParamViewSelections } from "../js/control/control-shell-controller.js";
@@ -114,6 +114,8 @@ test("media refresh is explicit and never polls during rendering", () => {
   assert.ok(modalSource.includes("await refreshMedia();"));
   assert.ok(modalSource.includes("[VJ1_MEDIA_REFRESH_FAILED]"));
   assert.ok(!appSource.includes("setInterval(() => projectService.refreshFolder(), 5000)"));
+  assert.ok(!appSource.includes('addEventListener("focus"'));
+  assert.ok(!appSource.includes('addEventListener("visibilitychange"'));
 });
 
 test("range params render their label and value above a full-width slider", () => {
@@ -466,7 +468,7 @@ test("local UI controls use the UI-only state path", () => {
   assert.match(controller, /function updateUi\(recipe, reason\)[\s\S]*?store\.updateUi\(recipe, reason\)/);
   assert.match(controller, /updateUi\(\(ui\) => \{[\s\S]*?updatePreviewViewportForUi\(ui, \(viewport\) => zoomViewport/);
   assert.match(controller, /ui\.catalogSortModes\[catalog\] = mode/);
-  assert.match(app, /projectService\.scheduleAutoSave\(change\);[\s\S]*?change\.scope === "ui" \|\| change\.scope === "runtime"/);
+  assert.match(app, /\["live", "runtime", "derived"\]\.includes\(change\.scope\)[\s\S]*?projectService\.scheduleAutoSave\(change\);[\s\S]*?change\.scope === "ui"/);
   assert.match(projectService, /if \(event\.phase === "edit" \|\| event\.phase === "scrub"\) return;/);
   assert.ok(!projectService.includes('event.scope === "ui"'));
 });
@@ -600,10 +602,26 @@ test("preview fitting is invalidated only by layout viewport or output geometry"
   assert.notEqual(previewFitSignature(base), previewFitSignature({ ...base, render: { outputs: [{ id: "main", width: 1280, height: 720 }] } }));
 });
 
+test("Live preview holds a new Scene and retimes its transition until media preparation completes", () => {
+  const current = { ui: { workspace: "live", selectedSceneId: "scene-a" } };
+  const incoming = {
+    ui: { workspace: "live", selectedSceneId: "scene-b" },
+    liveTransition: { startedAtMs: 100, durationMs: 1000, fromState: current },
+  };
+  assert.equal(shouldPrepareEmbeddedLiveState(incoming, current), true);
+  assert.equal(shouldPrepareEmbeddedLiveState({ ...incoming, ui: { ...incoming.ui, selectedSceneId: "scene-a" } }, current), false);
+  assert.equal(shouldPrepareEmbeddedLiveState({ ...incoming, ui: { ...incoming.ui, workspace: "scene" } }, current), false);
+  const retimed = retimeEmbeddedLiveTransition(incoming, 2500);
+  assert.equal(retimed.liveTransition.startedAtMs, 2500);
+  assert.equal(incoming.liveTransition.startedAtMs, 100, "preparation must not mutate commanded state");
+});
+
 test("narrow layouts retain both control columns and disable the preview first", () => {
   const controller = readFileSync(new URL("../js/control/control-shell-controller.js", import.meta.url), "utf8");
   const styleSource = readFileSync(new URL("../style.css", import.meta.url), "utf8");
-  assert.match(styleSource, /@media \(max-width: 1100px\)[\s\S]*?\.studio-layout \{[\s\S]*?grid-template-columns: 190px 300px minmax\(0, 1fr\);[\s\S]*?\.studio-main \{[\s\S]*?display: none;/);
+  assert.match(styleSource, /\.studio-layout \{[\s\S]*?--project-rail-width: 220px;[\s\S]*?--inspector-width: 330px;[\s\S]*?grid-template-columns: var\(--project-rail-width\) var\(--inspector-width\) minmax\(0, 1fr\);[\s\S]*?overflow-x: auto;/);
+  assert.match(styleSource, /@media \(max-width: 1100px\)[\s\S]*?\.studio-layout \{[\s\S]*?grid-template-columns: var\(--project-rail-width\) var\(--inspector-width\);[\s\S]*?\.studio-main \{[\s\S]*?display: none;/);
+  assert.match(styleSource, /@media \(max-width: 760px\)[\s\S]*?\.project-rail,[\s\S]*?\.studio-inspector \{[\s\S]*?display: grid;/);
   assert.ok(controller.includes('window.matchMedia("(max-width: 1100px)")'));
   assert.ok(controller.includes("previewLayoutQuery?.matches"));
   assert.match(styleSource, /@media \(max-width: 760px\)[\s\S]*?\.studio-inspector \{[\s\S]*?display: grid;/);
@@ -692,7 +710,7 @@ test("scrub changes send coalesced param patches without waiting for a preview f
   assert.ok(appSource.includes("function sendScrubState()"));
   assert.ok(appSource.includes("requestAnimationFrame"));
   assert.ok(appSource.includes("sendScrubState();"));
-  assert.ok(appSource.includes('if (change.scope === "live") return;'));
+  assert.ok(appSource.includes('["live", "runtime", "derived"].includes(change.scope)'));
   assert.ok(bridgeSource.includes('if (change.scope !== "live") return;'));
   assert.ok(bridgeSource.includes("scheduleLivePatches();"));
   assert.ok(bridgeSource.includes("flushLivePatches();"));
@@ -796,13 +814,14 @@ test("topbar metric readouts reserve stable widths", () => {
   assert.ok(source.includes("font-variant-numeric: tabular-nums;"));
 });
 
-test("list thumbnails crop to fill and brighten their grayscale state", () => {
+test("list thumbnails crop to fill without changing their colors", () => {
   const source = readFileSync(new URL("../style.css", import.meta.url), "utf8");
   const templates = readFileSync(new URL("../js/control/template-utils.js", import.meta.url), "utf8");
   assert.ok(templates.includes('<div class="component-thumbnail"><img'));
   assert.match(source, /\.component-thumbnail,\n\.component-card-empty \{[\s\S]*?aspect-ratio: 16 \/ 9;[\s\S]*?overflow: hidden;/);
   assert.match(source, /\.component-thumbnail img \{[\s\S]*?width: 100%;[\s\S]*?height: 100%;[\s\S]*?object-fit: cover;/);
-  assert.ok(source.includes("filter: grayscale(1) contrast(1.16) brightness(1.08);"));
+  assert.doesNotMatch(source, /\.component-card[^}]*filter:\s*grayscale/s);
+  assert.doesNotMatch(source, /\.media-picker-card[^}]*filter:\s*grayscale/s);
 });
 
 test("media cards use one full-width text column without the generic icon inset", () => {

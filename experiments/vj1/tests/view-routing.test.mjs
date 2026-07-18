@@ -1,7 +1,12 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { buildOutputUrl, getInitialWorkspace } from "../js/view-routing.js";
+import {
+  buildOutputUrl,
+  getInitialWorkspace,
+  persistLiveScenePreference,
+  preferredLiveSceneId,
+} from "../js/view-routing.js";
 
 test("legacy compose URLs and sessions route to the Component workspace", () => {
   const previousWindow = globalThis.window;
@@ -41,4 +46,37 @@ test("output URLs discard obsolete private Scene startup state", () => {
   } finally {
     globalThis.window = previousWindow;
   }
+});
+
+test("the last Live Scene preference is durable and project-scoped", () => {
+  const values = new Map();
+  const storage = {
+    getItem: (key) => values.get(key) || null,
+    setItem: (key, value) => values.set(key, value),
+  };
+  const state = {
+    project: { folderName: "show-a", name: "Show A" },
+    scenes: [{ id: "scene-a" }, { id: "scene-b" }],
+    ui: { live: { selectedSceneId: "scene-b" } },
+  };
+
+  assert.equal(persistLiveScenePreference(state, storage), true);
+  state.ui.live.selectedSceneId = "scene-a";
+  assert.equal(preferredLiveSceneId(state, storage), "scene-b");
+  assert.equal(preferredLiveSceneId({ ...state, project: { folderName: "show-b" } }, storage), "");
+});
+
+test("a removed Live Scene or malformed preference safely falls back to project state", () => {
+  const state = {
+    project: { folderName: "show-a" },
+    scenes: [{ id: "scene-a" }],
+    ui: { live: { selectedSceneId: "scene-a" } },
+  };
+  const staleStorage = {
+    getItem: () => JSON.stringify({ "project:show-a": "scene-deleted" }),
+  };
+  const malformedStorage = { getItem: () => "not-json" };
+
+  assert.equal(preferredLiveSceneId(state, staleStorage), "");
+  assert.equal(preferredLiveSceneId(state, malformedStorage), "");
 });

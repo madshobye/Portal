@@ -1,10 +1,11 @@
-import { createAppState } from "./app-state.js?v=live-component-transform-1";
-import { createControlShell } from "./control/control-shell-controller.js?v=live-component-transform-1";
-import { getInitialWorkspace, getClientMode, persistWorkspace } from "./view-routing.js?v=adaptive-component-demand-29";
-import { createMediaLibrary } from "./services/media-library-service.js?v=madstodo-4";
-import { createProjectFolderService } from "./services/project-folder-service.js?v=live-scene-persistence-1";
-import { createControlBridge } from "./services/output-bridge-service.js?v=output-transport-profile-1";
-import { installOutputApp } from "./output/output-app.js?v=live-component-transform-1";
+import { createAppState } from "./app-state.js?v=component-transport-patch-1";
+import { createControlShell } from "./control/control-shell-controller.js?v=mapping-ack-1";
+import { getInitialWorkspace, getClientMode, persistLiveScenePreference, persistWorkspace, preferredLiveSceneId } from "./view-routing.js?v=live-scene-preference-1";
+import { createMediaLibrary } from "./services/media-library-service.js?v=media-recovery-entry-1";
+import { createProjectFolderService } from "./services/project-folder-service.js?v=mapping-ack-1";
+import { createControlBridge } from "./services/output-bridge-service.js?v=component-transport-patch-1";
+import { installOutputApp } from "./output/output-app.js?v=mapping-ack-1";
+import { componentRenderPatchesForChange } from "./domain/render-transport-patch.js?v=component-transport-patch-1";
 
 const root = document.getElementById("app");
 const mode = getClientMode();
@@ -37,18 +38,33 @@ if (mode === "output" || mode === "preview" || mode === "component") {
 
   store.subscribe((state, reason, change) => {
     if (reason === "workspace") persistWorkspace(state.ui.workspace);
+    if (reason === "live:scene") persistLiveScenePreference(state);
+    if (change.projectRestore) {
+      const preferredSceneId = preferredLiveSceneId(state);
+      if (preferredSceneId && preferredSceneId !== String(state.ui.live?.selectedSceneId || "")) {
+        store.restoreLiveScene(preferredSceneId);
+        return;
+      }
+    }
     // Live render truth and its revisioned param patches are owned by the
     // output bridge. Keeping that responsibility out of project/autosave
     // delivery avoids rebuilding a full output snapshot for every scrub.
-    if (change.scope === "live") return;
+    if (["live", "runtime", "derived"].includes(change.scope)) return;
     projectService.scheduleAutoSave(change);
-    if (change.scope === "ui" || change.scope === "runtime") return;
+    if (change.scope === "ui") return;
     if (state.ui.workspace === "scene" && change.topic === "mapping-state") {
       bridge.command("sync-mapping", { mappings: state.mappings });
       return;
     }
     if (state.ui.workspace === "scene" && ["blackout", "toggle-output-playback", "toggle-labels"].includes(reason)) {
       bridge.command("sync-global", { global: state.global });
+      return;
+    }
+    const renderPatches = Array.isArray(change.renderPatches) && change.renderPatches.length
+      ? change.renderPatches
+      : componentRenderPatchesForChange(state, change);
+    if (renderPatches.length) {
+      bridge.sendRenderPatches(renderPatches, { coalesce: change.phase === "scrub" });
       return;
     }
     if (change.phase === "edit") {
@@ -73,10 +89,6 @@ if (mode === "output" || mode === "preview" || mode === "component") {
       });
   } else {
     projectService.restoreStoredFolder();
-    window.addEventListener("focus", () => projectService.refreshFolder());
-    document.addEventListener("visibilitychange", () => {
-      if (document.visibilityState === "visible") projectService.refreshFolder();
-    });
   }
 }
 

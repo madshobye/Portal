@@ -270,6 +270,31 @@ test("Live scene transitions default to an immediate cut with no transition rend
   assert.equal(store.getState().ui.live.selectedSceneId, secondScene.id);
 });
 
+test("restoring the last Live Scene does not create a transition or project history", () => {
+  const state = createInitialState();
+  const firstScene = createSceneFromState(state, "First");
+  state.surfaces[0].opacity = 0.25;
+  const secondScene = createSceneFromState(state, "Second");
+  state.scenes = [firstScene, secondScene];
+  state.ui.live.selectedSceneId = firstScene.id;
+  state.ui.live.sceneSnapshot = structuredClone(firstScene.snapshot);
+  state.ui.live.transitionDuration = 4;
+  const store = createAppState(state);
+  let observedEvent = null;
+  store.subscribe((_snapshot, _reason, event) => {
+    if (event.reason === "live:scene-restore") observedEvent = event;
+  });
+
+  store.restoreLiveScene(secondScene.id);
+
+  assert.equal(store.getState().ui.live.selectedSceneId, secondScene.id);
+  assert.equal(store.getState().ui.live.transition, null);
+  assert.equal(store.getLiveRenderState().liveTransition, undefined);
+  assert.equal(store.getLiveRenderState().surfaces[0].opacity, secondScene.snapshot.surfaces[0].opacity);
+  assert.equal(observedEvent.scope, "live");
+  assert.equal(observedEvent.history, "none");
+});
+
 test("nonzero Live transition duration retains the source scene for synchronized rendering", () => {
   const state = createInitialState();
   const firstScene = createSceneFromState(state, "First");
@@ -893,4 +918,32 @@ test("app state stamps direct edits but preserves activity imported from disk", 
   loaded.components[0].activity.updatedAt = importedAt;
   store.replace(loaded, "project-load");
   assert.equal(store.getState().components.find((item) => item.id === componentId).activity.updatedAt, importedAt);
+});
+test("derived cache updates do not become project transactions", () => {
+  const store = createAppState(createInitialState());
+  const events = [];
+  store.subscribe((_state, _reason, event) => events.push(event));
+  const componentId = store.getState().components[0].id;
+  store.updateDerived((draft) => {
+    draft.components[0].thumbnail = "blob:thumb";
+  }, "component-thumbnail");
+  assert.equal(store.getState().components[0].thumbnail, "blob:thumb");
+  assert.equal(events.at(-1).scope, "derived");
+  assert.equal(events.at(-1).history, "none");
+  assert.equal(store.getState().components[0].id, componentId);
+});
+
+test("mapping feedback updates only the mapping slice while retaining project history semantics", () => {
+  const store = createAppState(createInitialState());
+  const events = [];
+  store.subscribe((_state, _reason, event) => events.push(event));
+  const mapping = { surfaces: [{ id: "surface-a", corners: [{ x: 10, y: 20 }] }] };
+
+  store.updateMapping("local", mapping, "Mapping saved", "mapping-state");
+  mapping.surfaces[0].corners[0].x = 999;
+
+  assert.equal(store.getState().mappings.local.surfaces[0].corners[0].x, 10);
+  assert.equal(store.getState().ui.mappingStatus, "Mapping saved");
+  assert.equal(events.at(-1).topic, "mapping-state");
+  assert.equal(events.at(-1).history, "record");
 });

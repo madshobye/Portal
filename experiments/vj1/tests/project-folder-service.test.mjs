@@ -4,9 +4,7 @@ import { readFileSync } from "node:fs";
 
 import {
   buildProjectPayload,
-  historyGroupForReason,
   projectHistorySignature,
-  shouldCoalesceHistoryRevision,
   persistedRenderSettings,
 } from "../js/services/project-folder-service.js";
 
@@ -35,7 +33,7 @@ test("project payload preserves the selected component chain item", () => {
   };
 
   const payload = buildProjectPayload(state, "2026-07-12T00:00:00.000Z");
-  assert.equal(payload.version, 18);
+  assert.equal(payload.version, 19);
   assert.equal(payload.ui.selectedChainItemId, "chain-effect-b");
   assert.deepEqual(payload.ui.workspaceSelectionIds, state.ui.workspaceSelectionIds);
   assert.deepEqual(payload.ui.catalogSortModes, state.ui.catalogSortModes);
@@ -64,7 +62,7 @@ test("Live scene selection is autosaved so reload restores user truth", () => {
 
   assert.doesNotMatch(skipBlock, /"live:scene"/);
   assert.match(skipBlock, /"live:update"/);
-  assert.match(source, /const delay = immediate \|\| reason === "live:scene" \? 0 : autosaveDelayMs;/);
+  assert.match(source, /const delay = immediate \|\| reason === "live:scene" \|\| event\.history === "record" \? 0 : autosaveDelayMs;/);
 });
 
 test("project payload persists canonical render settings without derived geometry aliases", () => {
@@ -98,14 +96,16 @@ test("folder permission prompt does not discard a project recovered from output"
   assert.ok(source.includes("if (!recoveredFromOutput)"));
 });
 
-test("media import refreshes assets without replacing live project state", () => {
+test("media import publishes known files without rescanning or replacing live project state", () => {
   const source = readFileSync(new URL("../js/services/project-folder-service.js", import.meta.url), "utf8");
   const importExternalFiles = source.slice(
     source.indexOf("  async function importExternalFiles"),
     source.indexOf("\n  async function closeProject", source.indexOf("  async function importExternalFiles"))
   );
 
-  assert.ok(importExternalFiles.includes("await refreshFolder({ force: true })"));
+  assert.ok(importExternalFiles.includes("mediaLibrary.importFiles(storedFiles)"));
+  assert.ok(importExternalFiles.includes("mergeObservedAssets(result)"));
+  assert.doesNotMatch(importExternalFiles, /refreshFolder\(/);
   assert.doesNotMatch(importExternalFiles, /loadDirectory\(/);
 });
 
@@ -146,26 +146,69 @@ test("project history signature ignores UI-only save noise", () => {
   assert.notEqual(projectHistorySignature(base), projectHistorySignature(material));
 });
 
-test("history grouping coalesces repeated commits to the same control path", () => {
-  const first = historyGroupForReason("update:components.0.chain.1.params.amount");
-  const sameColor = historyGroupForReason("color:components.0.chain.1.params.tintColor");
-
-  assert.equal(first, "update:components.0.chain.1.params.amount");
-  assert.equal(sameColor, "color:components.0.chain.1.params.tintColor");
-  assert.equal(shouldCoalesceHistoryRevision({ key: first, at: 1000 }, first, 6500, 6000), true);
-  assert.equal(shouldCoalesceHistoryRevision({ key: first, at: 1000 }, first, 8000, 6000), false);
-  assert.equal(shouldCoalesceHistoryRevision({ key: first, at: 1000 }, sameColor, 2000, 6000), false);
-  assert.equal(shouldCoalesceHistoryRevision({ key: "history-checkpoint", at: 1000 }, "history-checkpoint", 2000, 6000), false);
+test("project payload and undo signature exclude derived thumbnails and activity", () => {
+  const state = {
+    version: 19,
+    project: {}, ui: {}, global: { calibrating: true }, render: {}, scheduler: {}, media: [], recordingFrames: [], surfaces: [], scenes: [], mappings: {}, shaders: {},
+    components: [{
+      id: "canvas-a",
+      type: "canvas",
+      thumbnail: "data:image/webp;base64,AAA=",
+      activity: { updatedAt: "later" },
+      canvas: { width: 100, frameThumbnails: { frame: "blob:frame" } },
+    }],
+  };
+  const payload = buildProjectPayload(state, "2026-07-18T00:00:00.000Z");
+  assert.equal(Object.hasOwn(payload.components[0], "thumbnail"), false);
+  assert.equal(Object.hasOwn(payload.components[0].canvas, "frameThumbnails"), false);
+  const changedDerived = structuredClone(payload);
+  changedDerived.components[0].activity.updatedAt = "newest";
+  changedDerived.global.calibrating = false;
+  assert.equal(projectHistorySignature(payload), projectHistorySignature(changedDerived));
 });
 
-test("project folder service initializes empty folders and can close the active project", () => {
+test("project folder service creates only functional asset/cache folders and can close the active project", () => {
   const source = readFileSync(new URL("../js/services/project-folder-service.js", import.meta.url), "utf8");
 
   assert.ok(source.includes("ensureProjectScaffold(dirHandle)"));
-  for (const folder of ['"media"', '"shaders"', '"scenes"', '"mappings"']) {
+  for (const folder of ['"media"', '"shaders"', 'RENDITION_ROOT']) {
     assert.ok(source.includes(folder), `missing scaffold folder ${folder}`);
   }
+  assert.doesNotMatch(source, /\["media", "shaders", "scenes", "mappings"/);
   assert.ok(source.includes("async function closeProject()"));
   assert.ok(source.includes("store.replace(createInitialState(), \"project-close\")"));
   assert.ok(source.includes("clearProjectDirectoryHandle"));
+});
+
+test("undo history is bounded and ordinary saves use the session index", () => {
+  const source = readFileSync(new URL("../js/services/project-folder-service.js", import.meta.url), "utf8");
+  const refresh = source.slice(source.indexOf("  async function refreshHistoryState"), source.indexOf("\n  function setHistoryState", source.indexOf("  async function refreshHistoryState")));
+  assert.match(source, /const maxRevisionEntries = 500;/);
+  assert.match(source, /const maxRevisionBytes = 512 \* 1024 \* 1024;/);
+  assert.match(source, /revisionIndex\.undo\.push/);
+  assert.match(source, /revisionIndex\.redo\.push/);
+  assert.doesNotMatch(refresh, /\.values\(\)|getFile\(/);
+});
+
+test("completed project transactions enter a serialized immutable save queue", () => {
+  const source = readFileSync(new URL("../js/services/project-folder-service.js", import.meta.url), "utf8");
+  assert.match(source, /event\.history === "record" \? 0 : autosaveDelayMs/);
+  assert.match(source, /saveQueue\.push\(\{ reason: saveReason, recordHistory, payload: JSON\.parse\(json\), json \}\)/);
+  assert.match(source, /while \(saveQueue\.length\)/);
+  assert.match(source, /if \(saveInFlight\) return saveDrainPromise/);
+});
+
+test("undo and redo reload project state without rescanning assets", () => {
+  const source = readFileSync(new URL("../js/services/project-folder-service.js", import.meta.url), "utf8");
+  const reload = source.slice(source.indexOf("  async function reloadProjectFromDisk"), source.indexOf("\n  async function refreshHistoryState", source.indexOf("  async function reloadProjectFromDisk")));
+  assert.doesNotMatch(reload, /collectProjectAssetFiles|mediaLibrary\.clear|sendMediaFiles/);
+  assert.match(reload, /store\.getState\(\)\.media/);
+});
+
+test("rendition cache uses a bounded manifest instead of directory enumeration", () => {
+  const source = readFileSync(new URL("../js/services/project-folder-service.js", import.meta.url), "utf8");
+  const loadIndex = source.slice(source.indexOf("  async function loadIndexedRenditions"), source.indexOf("\n  async function indexRendition", source.indexOf("  async function loadIndexedRenditions")));
+  assert.match(source, /const maxIndexedRenditions = 1000;/);
+  assert.match(loadIndex, /getFileHandle\(renditionIndexFilename\)/);
+  assert.doesNotMatch(loadIndex, /\.entries\(\)|\.values\(\)/);
 });

@@ -28,9 +28,18 @@ test("Scene and Live presentation lives outside the control orchestrator", () =>
   assert.match(surfaceTemplate, /class="sculpt-card"/);
   assert.match(surfaceTemplate, /data-set-route-source-node=""/);
   assert.match(surfaceTemplate, />Empty</);
-  assert.match(controller, /from "\.\/scene-live-view\.js\?v=live-component-transform-1"/);
+  assert.match(controller, /from "\.\/scene-live-view\.js\?v=live-published-controls-1"/);
   assert.doesNotMatch(controller, /function liveInspectorTemplate\(/);
   assert.doesNotMatch(controller, /function sceneSurfaceTemplate\(/);
+});
+
+test("Live Scene reset is absent until temporary parameters exist", () => {
+  const { state, scene } = stateWithScene();
+  assert.doesNotMatch(liveScenePillTemplate(scene, state), /data-reset-live-scene/);
+
+  state.ui.live.componentOverrides = { [state.components[0].id]: { opacity: 0.5 } };
+  state.ui.live.sceneOverrides[scene.id] = state.ui.live.componentOverrides;
+  assert.match(liveScenePillTemplate(scene, state), /data-reset-live-scene/);
 });
 
 test("Scene surface source catalogs put the assigned source first without disturbing the remainder", () => {
@@ -82,6 +91,7 @@ test("Live separates a Component's public controls from its element inspector", 
 
   const controls = liveInspectorTemplate(state);
   assert.match(controls, /data-live-component-view="controls"/);
+  assert.match(controls, />[^<]*Controls \(2\)<\/button>/);
   assert.match(controls, /data-live-component-view="elements"/);
   assert.match(controls, /data-live-update="opacity"/);
   assert.match(controls, /data-live-update="speed"/);
@@ -92,6 +102,10 @@ test("Live separates a Component's public controls from its element inspector", 
   assert.match(controls, /data-live-update="transform\.rotation"/);
   assert.match(controls, /data-live-update="chain\.0\.params\.renderQuality"/);
   assert.match(controls, /data-live-update="chain\.0\.transform\.scale"/);
+  assert.ok(
+    controls.indexOf("Published controls") < controls.indexOf("Transform"),
+    "published controls stay visible above generic Component controls"
+  );
   assert.doesNotMatch(controls, /class="live-chain-outline"/);
 
   state.ui.live.componentView = "elements";
@@ -140,4 +154,48 @@ test("Scene significant controls include generic chain transforms", () => {
   const significant = sceneSignificantComponentTemplate(component, state);
   assert.match(significant, /components\.0\.chain\.0\.transform\.x/);
   assert.match(significant, /value="0\.4"/);
+});
+
+test("source parameters marked at their persisted path are published in Live", () => {
+  const { state, scene } = stateWithScene();
+  const component = state.components[0];
+  scene.snapshot.surfaces[0].sourceNodeId = `component:${encodeURIComponent(component.id)}`;
+  scene.snapshot.surfaces[0].componentId = component.id;
+  component.significantParams = ["chain.0.source.params.renderQuality"];
+  state.ui.live.selectedComponentId = component.id;
+
+  const live = liveInspectorTemplate(state);
+  assert.match(live, /data-live-update="chain\.0\.params\.renderQuality"/);
+
+  const sceneControls = sceneSignificantComponentTemplate(component, state);
+  assert.match(sceneControls, /data-update="components\.0\.chain\.0\.source\.params\.renderQuality"/);
+});
+
+test("Live publishes significant source parameters nested inside Groups", () => {
+  const { state, scene } = stateWithScene();
+  const component = state.components[0];
+  const source = component.chain[0];
+  component.chain = [{
+    id: "group-a",
+    kind: "group",
+    name: "Group A",
+    enabled: true,
+    opacity: 1,
+    blend: "normal",
+    transform: { x: 0, y: 0, scale: 1, rotation: 0 },
+    chain: [source],
+  }];
+  component.significantParams = [
+    "chain.0.chain.0.source.params.renderQuality",
+    "chain.0.chain.0.transform.scale",
+  ];
+  scene.snapshot.surfaces[0].sourceNodeId = `component:${encodeURIComponent(component.id)}`;
+  scene.snapshot.surfaces[0].componentId = component.id;
+  state.ui.live.selectedComponentId = component.id;
+  state.ui.live.componentView = "controls";
+
+  const live = liveInspectorTemplate(state);
+  assert.match(live, /Controls \(2\)/);
+  assert.match(live, /data-live-update="chain\.0\.chain\.0\.params\.renderQuality"/);
+  assert.match(live, /data-live-update="chain\.0\.chain\.0\.transform\.scale"/);
 });

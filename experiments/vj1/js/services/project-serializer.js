@@ -1,4 +1,4 @@
-import { CURRENT_PROJECT_VERSION } from "../domain/project-migrations.js?v=adaptive-component-demand-29";
+import { CURRENT_PROJECT_VERSION } from "../domain/project-migrations.js?v=project-storage-1";
 
 export function buildProjectPayload(state, savedAt = new Date().toISOString()) {
   return {
@@ -23,13 +23,22 @@ export function buildProjectPayload(state, savedAt = new Date().toISOString()) {
     render: persistedRenderSettings(state.render),
     scheduler: state.scheduler,
     media: state.media,
-    components: state.components,
+    components: persistedComponents(state.components),
     recordingFrames: state.recordingFrames,
     surfaces: state.surfaces,
     scenes: state.scenes,
     mappings: state.mappings,
     shaders: state.shaders,
   };
+}
+
+export function persistedComponents(components = []) {
+  return (components || []).map((component) => {
+    const { thumbnail: _derivedThumbnail, ...persisted } = component || {};
+    if (persisted.type !== "canvas" || !persisted.canvas) return persisted;
+    const { frameThumbnails: _derivedFrameThumbnails, ...canvas } = persisted.canvas;
+    return { ...persisted, canvas };
+  });
 }
 
 // Output windows are the persisted authority for output and mapping geometry.

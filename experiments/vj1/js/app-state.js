@@ -17,11 +17,11 @@ import {
   sanitizeState,
   syncLiveSnapshotFromScene,
   uid,
-} from "./domain/models.js?v=live-component-transform-1";
+} from "./domain/models.js?v=project-storage-1";
 import { stampChangedProjectItems, touchComponentUsed } from "./domain/component-activity.js?v=adaptive-component-demand-29";
 import { componentFrameMetrics } from "./domain/component-frame.js?v=adaptive-component-demand-29";
 import { VJ1, WORKSPACES } from "./constants.js";
-import { createChangeEvent } from "./domain/change-event.js?v=adaptive-component-demand-29";
+import { createChangeEvent } from "./domain/change-event.js?v=project-storage-1";
 import { clearComponentReferences, countChainGroups, findChainItemLocation, insertChainItemNearSelection, moveById, moveChainItem } from "./domain/chain-operations.js?v=adaptive-component-demand-29";
 import { pasteClipboardPayload } from "./domain/clipboard.js?v=live-insertion-1";
 import { initializeLiveChainInsertion } from "./domain/scene-routing.js?v=live-insertion-1";
@@ -88,12 +88,35 @@ export function createAppState(initial = null) {
     emit({ reason: change, scope: "runtime" });
   }
 
+  function updateDerived(recipe, change = "derived-update") {
+    const draft = getState();
+    recipe(draft);
+    state = draft;
+    emit({ reason: change, scope: "derived", history: "none" });
+  }
+
   function updateLive(recipe, change = "live:update") {
     const draft = { ...state, ui: clone(state.ui) };
     recipe(draft);
     state = draft;
     const supplied = change && typeof change === "object" ? change : { reason: change };
     emit({ ...supplied, scope: "live" });
+  }
+
+  function updateMapping(mappingId, mapping, status = "Mapping updated", change = "mapping-state") {
+    const id = String(mappingId || "local");
+    // Mapping feedback is a small, already-normalized renderer payload. Do not
+    // send it through the generic whole-project clone/sanitize path: large
+    // media projects otherwise make every mapping commit proportional to all
+    // unrelated project data. The ordinary change event still owns history,
+    // autosave, and output synchronization.
+    state = {
+      ...state,
+      mappings: { ...(state.mappings || {}), [id]: clone(mapping) },
+      ui: { ...state.ui, mappingStatus: status || "Mapping updated" },
+    };
+    pendingEditBaseline = null;
+    emit(change);
   }
 
   function subscribe(listener) {
@@ -110,7 +133,9 @@ export function createAppState(initial = null) {
     update,
     updateUi,
     updateRuntime,
+    updateDerived,
     updateLive,
+    updateMapping,
     subscribe,
     pasteClipboard(payload, target) {
       const draft = getState();
@@ -153,7 +178,9 @@ export function createAppState(initial = null) {
       }, "workspace");
     },
     getLiveRenderState() {
-      return createLiveRenderState(getState());
+      // createLiveRenderState owns its clone. Passing the internal immutable
+      // truth avoids cloning the complete project twice before transport.
+      return createLiveRenderState(state);
     },
     getSceneRenderState(id) {
       const current = getState();
@@ -406,6 +433,20 @@ export function createAppState(initial = null) {
         draft.ui.live.sceneSnapshot = clone(scene.snapshot);
         draft.ui.live.componentOverrides = clone(draft.ui.live.sceneOverrides[scene.id] || {});
       }, "live:scene");
+    },
+    restoreLiveScene(id) {
+      updateLive((draft) => {
+        const scene = draft.scenes.find((item) => String(item.id) === String(id));
+        if (!scene) return;
+        draft.ui.live.sceneOverrides ||= {};
+        draft.ui.live.selectedSceneId = scene.id;
+        draft.ui.live.sceneSnapshot = clone(scene.snapshot);
+        draft.ui.live.componentOverrides = clone(draft.ui.live.sceneOverrides[scene.id] || {});
+        draft.ui.live.transition = null;
+        draft.ui.live.selectedComponentId = scene.snapshot?.surfaces?.find((surface) =>
+          surface.enabled !== false && surface.componentId
+        )?.componentId || "";
+      }, { reason: "live:scene-restore", history: "none" });
     },
     resetLiveScene(id) {
       update((draft) => {

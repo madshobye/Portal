@@ -8,29 +8,27 @@ export function projectHistorySignature(payload = {}) {
     metrics: _metrics,
     ...rest
   } = payload || {};
-  return JSON.stringify({
+  return canonicalJson(stripDerivedHistoryState({
     ...rest,
     project: {
       ...(rest.project || {}),
       savedAt: "",
       warnings: [],
     },
-  });
+  }));
 }
 
-export function historyGroupForReason(reason = "") {
-  const value = String(reason || "change");
-  if (isHistoryReason(value)) return value;
-  const separator = value.indexOf(":");
-  if (separator === -1) return value;
-  const kind = value.slice(0, separator);
-  const path = value.slice(separator + 1);
-  if (kind === "update" || kind === "color" || kind === "toggle" || kind === "live") return `${kind}:${path}`;
-  return value;
+function stripDerivedHistoryState(value, key = "") {
+  if (Array.isArray(value)) return value.map((item) => stripDerivedHistoryState(item));
+  if (!value || typeof value !== "object") return value;
+  const ignored = new Set(["thumbnail", "frameThumbnails", "activity"]);
+  return Object.fromEntries(Object.entries(value)
+    .filter(([childKey]) => !ignored.has(childKey) && !(key === "global" && childKey === "calibrating"))
+    .map(([childKey, child]) => [childKey, stripDerivedHistoryState(child, childKey)]));
 }
 
-export function shouldCoalesceHistoryRevision(lastGroup = {}, nextKey = "", now = Date.now(), windowMs = 6000) {
-  if (!nextKey || isHistoryReason(nextKey)) return false;
-  if (!lastGroup?.key || lastGroup.key !== nextKey) return false;
-  return Math.max(0, Number(now) || 0) - Math.max(0, Number(lastGroup.at) || 0) <= windowMs;
+function canonicalJson(value) {
+  if (Array.isArray(value)) return `[${value.map(canonicalJson).join(",")}]`;
+  if (!value || typeof value !== "object") return JSON.stringify(value);
+  return `{${Object.keys(value).sort().map((key) => `${JSON.stringify(key)}:${canonicalJson(value[key])}`).join(",")}}`;
 }

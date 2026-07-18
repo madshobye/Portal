@@ -5,7 +5,7 @@ import { mediaFileFingerprint, OutputMediaRuntime } from "../js/output/output-me
 import { syncVideoPlayback } from "../js/output/media-utils.js";
 import { OutputThumbnailRuntime } from "../js/output/output-thumbnail-runtime.js";
 import { OutputRenderer } from "../js/output/output-renderer.js";
-import { createControlBridge } from "../js/services/output-bridge-service.js";
+import { createControlBridge, createOutputBridge } from "../js/services/output-bridge-service.js";
 import { applyLiveRenderPatches, createLiveRenderPatch } from "../js/domain/live-render-patch.js";
 import { createMediaLibrary } from "../js/services/media-library-service.js";
 import { mediaRenditionPath, mediaSourceRevision, parseMediaRenditionPath } from "../js/services/media-rendition-service.js";
@@ -271,6 +271,36 @@ test("media-library preview URLs are leased once and released as a group", async
     URL.createObjectURL = previousCreateUrl;
     URL.revokeObjectURL = previousRevokeUrl;
   }
+});
+
+test("media library restores BroadcastChannel media entries without losing path identity", async () => {
+  const library = createMediaLibrary();
+  const file = { name: "photo.png", size: 10, lastModified: 1, type: "image/png" };
+  const sourceRevision = mediaSourceRevision(file);
+  const renditionFile = { name: "cached.png", size: 4, lastModified: 2, type: "image/png" };
+  const rendition = {
+    key: `media/photo.png:320x180:${sourceRevision}`,
+    mediaId: "media/photo.png",
+    sourceRevision,
+    file: renditionFile,
+  };
+
+  const imported = await library.importFiles([{
+    id: "media/photo.png",
+    file,
+    renditions: [rendition],
+  }]);
+
+  assert.deepEqual(imported.media, [{
+    id: "media/photo.png",
+    name: "photo.png",
+    path: "media/photo.png",
+    type: "image",
+    size: 10,
+  }]);
+  assert.strictEqual(library.getFile("media/photo.png"), file);
+  assert.strictEqual(library.getAllFiles()[0].file, file);
+  assert.strictEqual(library.getAllFiles()[0].renditions[0].file, renditionFile);
 });
 
 test("model media produces a bounded SVG preview only when demanded", async () => {
@@ -557,9 +587,46 @@ test("output bridge transmits an empty authoritative media snapshot", () => {
       updateRuntime() {},
     };
     const bridge = createControlBridge({ store, mediaLibrary: { getAllFiles: () => [] } });
+    const sessionId = messages.find((message) => message.type === "control-hello")?.sessionId;
     bridge.sendMediaFiles([]);
     bridge.close();
-    assert.deepEqual(messages.at(-1), { type: "media-files", files: [] });
+    assert.deepEqual(messages.at(-1), { type: "media-files", files: [], sessionId });
+  } finally {
+    if (previousBroadcastChannel === undefined) delete globalThis.BroadcastChannel;
+    else globalThis.BroadcastChannel = previousBroadcastChannel;
+  }
+});
+
+test("controller startup never publishes a false empty media snapshot before recovery", async () => {
+  const previousBroadcastChannel = globalThis.BroadcastChannel;
+  const messages = [];
+  let channel = null;
+  let state = { project: { folderName: "" }, media: [], metrics: { clients: 0, outputs: {} } };
+  globalThis.BroadcastChannel = class {
+    constructor() { channel = this; }
+    postMessage(message) { messages.push(message); }
+    close() {}
+  };
+  try {
+    const store = {
+      getState: () => state,
+      getLiveRenderState: () => state,
+      getMetrics: () => state.metrics,
+      updateRuntime() {},
+    };
+    const bridge = createControlBridge({ store, mediaLibrary: { getAllFiles: () => [] } });
+
+    await channel.onmessage({ data: { type: "hello", clientId: "output-before-recovery" } });
+    assert.equal(
+      messages.some((message) => message.type === "media-files"),
+      false,
+      "an uninitialized controller must leave the Output's current media ownership intact"
+    );
+
+    state = { ...state, project: { folderName: "empty-show" } };
+    await channel.onmessage({ data: { type: "hello", clientId: "output-after-project-load" } });
+    assert.deepEqual(messages.find((message) => message.type === "media-files")?.files, []);
+    bridge.close();
   } finally {
     if (previousBroadcastChannel === undefined) delete globalThis.BroadcastChannel;
     else globalThis.BroadcastChannel = previousBroadcastChannel;
@@ -584,6 +651,7 @@ test("output bridge owns realtime Live-state delivery independently of animation
       updateRuntime() {},
     };
     const bridge = createControlBridge({ store, mediaLibrary: { getAllFiles: () => [] } });
+    const sessionId = messages.find((message) => message.type === "control-hello")?.sessionId;
 
     listener({}, "scrub:live", {
       scope: "live",
@@ -604,6 +672,7 @@ test("output bridge owns realtime Live-state delivery independently of animation
       type: "live-patch",
       baseRevision: 0,
       revision: 1,
+      sessionId,
       patches: [createLiveRenderPatch("component-a", "chain.0.params.amount", 0.3)],
       transport: undefined,
     });
@@ -620,6 +689,7 @@ test("output bridge owns realtime Live-state delivery independently of animation
       type: "live-patch",
       baseRevision: 1,
       revision: 2,
+      sessionId,
       patches: [createLiveRenderPatch("component-a", "chain.0.params.amount", 0.5)],
       transport: undefined,
     });
@@ -632,10 +702,80 @@ test("output bridge owns realtime Live-state delivery independently of animation
       state: { revision: 3 },
       targetClientId: "",
       revision: 3,
+      sessionId,
       transport: undefined,
     });
     bridge.close();
     assert.equal(listener, null);
+  } finally {
+    if (previousBroadcastChannel === undefined) delete globalThis.BroadcastChannel;
+    else globalThis.BroadcastChannel = previousBroadcastChannel;
+  }
+});
+
+test("persistent Component scrubs use the same small revisioned patch transport", async () => {
+  const previousBroadcastChannel = globalThis.BroadcastChannel;
+  const messages = [];
+  globalThis.BroadcastChannel = class {
+    postMessage(message) { messages.push(message); }
+    close() {}
+  };
+  try {
+    const state = { metrics: { clients: 0, outputs: {} } };
+    const bridge = createControlBridge({
+      store: {
+        subscribe() { return () => {}; },
+        getState: () => state,
+        getMetrics: () => state.metrics,
+        updateRuntime() {},
+      },
+      mediaLibrary: { getAllFiles: () => [] },
+    });
+    bridge.sendRenderPatches([
+      createLiveRenderPatch("component-a", "chain.0.params.amount", 0.4),
+    ], { coalesce: true });
+    bridge.sendRenderPatches([
+      createLiveRenderPatch("component-a", "chain.0.params.amount", 0.6),
+    ], { coalesce: true });
+    await Promise.resolve();
+    const patch = messages.filter((message) => message.type === "live-patch").at(-1);
+    assert.equal(patch.patches.length, 1);
+    assert.equal(patch.patches[0].value, 0.6);
+    assert.equal(messages.some((message) => message.type === "state"), false);
+    bridge.close();
+  } finally {
+    if (previousBroadcastChannel === undefined) delete globalThis.BroadcastChannel;
+    else globalThis.BroadcastChannel = previousBroadcastChannel;
+  }
+});
+
+test("output bridge switches controller sessions and ignores stale controller traffic", () => {
+  const previousBroadcastChannel = globalThis.BroadcastChannel;
+  const messages = [];
+  let channel = null;
+  globalThis.BroadcastChannel = class {
+    constructor() { channel = this; }
+    postMessage(message) { messages.push(message); }
+    close() {}
+  };
+  try {
+    const states = [];
+    const hellos = [];
+    const bridge = createOutputBridge({
+      mode: "output",
+      onState: (state, meta) => states.push({ state, meta }),
+      onControlHello: (meta) => hellos.push(meta),
+    });
+    const initialHelloCount = messages.filter((message) => message.type === "hello").length;
+    channel.onmessage({ data: { type: "control-hello", sessionId: "control-new" } });
+    assert.equal(messages.filter((message) => message.type === "hello").length, initialHelloCount + 1);
+    assert.deepEqual(hellos.at(-1), { sessionId: "control-new", changed: true });
+
+    channel.onmessage({ data: { type: "state", sessionId: "control-new", revision: 0, state: { id: "new" } } });
+    channel.onmessage({ data: { type: "state", sessionId: "control-old", revision: 99, state: { id: "stale" } } });
+    assert.deepEqual(states.map((entry) => entry.state.id), ["new"]);
+    assert.equal(states[0].meta.sessionId, "control-new");
+    bridge.close();
   } finally {
     if (previousBroadcastChannel === undefined) delete globalThis.BroadcastChannel;
     else globalThis.BroadcastChannel = previousBroadcastChannel;

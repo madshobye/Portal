@@ -23,6 +23,47 @@ export function persistWorkspace(workspace) {
   window.history.replaceState({}, "", url);
 }
 
+export function persistLiveScenePreference(state, storage = globalThis.localStorage) {
+  const projectKey = liveSceneProjectKey(state);
+  const sceneId = String(state?.ui?.live?.selectedSceneId || "");
+  if (!projectKey || !sceneId || !state?.scenes?.some((scene) => String(scene.id) === sceneId)) return false;
+  try {
+    const preferences = parseLiveScenePreferences(storage?.getItem?.(VJ1.localLiveSceneKey));
+    preferences[projectKey] = sceneId;
+    storage?.setItem?.(VJ1.localLiveSceneKey, JSON.stringify(preferences));
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export function preferredLiveSceneId(state, storage = globalThis.localStorage) {
+  const projectKey = liveSceneProjectKey(state);
+  if (!projectKey) return "";
+  try {
+    const sceneId = String(parseLiveScenePreferences(storage?.getItem?.(VJ1.localLiveSceneKey))[projectKey] || "");
+    return state?.scenes?.some((scene) => String(scene.id) === sceneId) ? sceneId : "";
+  } catch {
+    return "";
+  }
+}
+
+function liveSceneProjectKey(state = {}) {
+  const folderName = String(state.project?.folderName || "").trim();
+  const projectName = String(state.project?.name || "").trim();
+  const name = folderName || projectName;
+  return name ? `project:${name}` : "";
+}
+
+function parseLiveScenePreferences(value) {
+  try {
+    const parsed = JSON.parse(String(value || "{}"));
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
 export function buildOutputUrl(kind = "output", { outputId = "" } = {}) {
   const url = new URL(window.location.href);
   url.searchParams.delete("view");

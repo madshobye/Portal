@@ -310,7 +310,7 @@ test("ordinary components and recording frames share one Scene source-node abstr
   canvas.id = "canvas-a";
   canvas.name = "Wide Canvas";
   const state = sanitizeState({
-    version: 18,
+    version: 19,
     components: [component, canvas],
     recordingFrames: [{ id: "frame-a", name: "Frame 1", x: 0, y: 0, width: 1920, height: 1080 }],
   });

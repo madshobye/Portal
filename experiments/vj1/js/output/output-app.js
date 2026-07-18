@@ -2,8 +2,8 @@ import { VJ1 } from "../constants.js";
 import { sanitizeState } from "../domain/models.js?v=live-component-transform-1";
 import { applyLiveRenderPatches } from "../domain/live-render-patch.js?v=param-fade-1";
 import { renderMaxFrameRate } from "../domain/render-settings.js?v=max-frame-rate-1";
-import { createOutputBridge } from "../services/output-bridge-service.js?v=output-transport-profile-1";
-import { OutputRenderer } from "./output-renderer.js?v=live-component-transform-1";
+import { createOutputBridge } from "../services/output-bridge-service.js?v=reconnect-media-ownership-1";
+import { OutputRenderer } from "./output-renderer.js?v=mapping-ack-1";
 import { applyFontToGlobal, loadVjRenderFont } from "./font-loader.js?v=adaptive-component-demand-29";
 import { frameSize } from "./render-geometry.js?v=adaptive-component-demand-29";
 
@@ -24,6 +24,7 @@ export function installOutputApp({ root, mode }) {
   let acceptedState = null;
   let acceptedRevision = 0;
   let receivedRevision = 0;
+  let receivedSessionId = "";
   let preparedState = null;
   let preparedFromState = null;
   let preparedRevision = 0;
@@ -131,6 +132,13 @@ export function installOutputApp({ root, mode }) {
     outputId,
     onState(state, meta = {}) {
       if (fixtureUrl) return;
+      const sessionId = String(meta.sessionId || "");
+      if (sessionId && sessionId !== receivedSessionId) {
+        receivedSessionId = sessionId;
+        receivedRevision = 0;
+        acceptedRevision = 0;
+        clearPreparedState();
+      }
       const revision = Math.max(0, Number(meta.revision) || 0);
       if (revision < receivedRevision) return;
       if (shouldHoldCurrentOutputState(state, acceptedState)) return;
@@ -149,6 +157,11 @@ export function installOutputApp({ root, mode }) {
     },
     onLivePatch(patches, meta = {}) {
       if (fixtureUrl) return;
+      const sessionId = String(meta.sessionId || "");
+      if (sessionId && receivedSessionId && sessionId !== receivedSessionId) {
+        requestLivePatchResync("session", { sessionId, receivedSessionId });
+        return;
+      }
       const baseRevision = Math.max(0, Number(meta.baseRevision) || 0);
       const revision = Math.max(0, Number(meta.revision) || 0);
       if (!acceptedState || baseRevision !== receivedRevision || revision !== baseRevision + 1) {
@@ -181,7 +194,13 @@ export function installOutputApp({ root, mode }) {
       renderer?.importFiles(files);
       activatePreparedStateIfReady();
     },
-    onControlHello() {
+    onControlHello(meta = {}) {
+      if (meta.changed && meta.sessionId) {
+        receivedSessionId = meta.sessionId;
+        receivedRevision = 0;
+        acceptedRevision = 0;
+        clearPreparedState();
+      }
       bridge?.recoveryState(acceptedState, acceptedFiles);
     },
     onCommand(command, payload) {
