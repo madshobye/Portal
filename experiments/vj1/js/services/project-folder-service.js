@@ -558,12 +558,9 @@ export function createProjectFolderService({ mediaLibrary, store, bridge }) {
 
   async function pruneRevisionIndex(kind) {
     const entries = revisionIndex[kind];
-    let removedCount = 0;
-    let removedBytes = 0;
     while (entries.length > maxRevisionEntries) {
       const entry = entries.shift();
       await entry.parent.removeEntry(entry.name);
-      removedCount++;
       if (entries.length % 100 === 0) await cooperativeYield();
     }
     let totalBytes = 0;
@@ -581,14 +578,11 @@ export function createProjectFolderService({ mediaLibrary, store, bridge }) {
     while (entries.length && totalBytes > maxRevisionBytes) {
       const entry = entries.shift();
       totalBytes -= entry.size;
-      removedBytes += entry.size;
-      removedCount++;
       await entry.parent.removeEntry(entry.name);
     }
-    // Reaching the configured rolling-history limit is routine maintenance,
-    // not an actionable runtime event. Keep it available to diagnostics
-    // without filling the normal performance console after every saved edit.
-    if (removedCount) console.debug("[VJ1_HISTORY_PRUNED]", { kind, removedCount, removedBytes, maxRevisionEntries, maxRevisionBytes });
+    // Reaching the configured rolling-history limit is routine maintenance.
+    // The observable history state is updated by the caller; console output
+    // here would repeat after every edit once the rolling cap is full.
   }
 
   function resetHistoryIndex() {

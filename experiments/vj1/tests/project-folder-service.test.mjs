@@ -188,6 +188,7 @@ test("undo history is bounded and ordinary saves use the session index", () => {
   assert.match(source, /revisionIndex\.undo\.push/);
   assert.match(source, /revisionIndex\.redo\.push/);
   assert.doesNotMatch(refresh, /\.values\(\)|getFile\(/);
+  assert.ok(!source.includes("[VJ1_HISTORY_PRUNED]"), "routine rolling-cap pruning stays out of the runtime console");
 });
 
 test("completed project transactions enter a serialized immutable save queue", () => {

@@ -28,7 +28,7 @@ test("Component and Canvas chain presentation lives outside the control orchestr
   assert.match(settingsHtml, /data-update="components\.[0-9]+\.chain\.0\.transform\.x"/);
   assert.match(settingsHtml, /data-param-context-path="components\.[0-9]+\.chain\.0\.transform\.scale"/);
   assert.match(canvasHtml, /data-update="components\.[0-9]+\.canvas\.width"/);
-  assert.match(controller, /from "\.\/component-view\.js\?v=canvas-component-placement-1"/);
+  assert.match(controller, /from "\.\/component-view\.js\?v=chain-param-view-consistency-1"/);
   assert.doesNotMatch(controller, /function componentTemplate\(/);
   assert.doesNotMatch(controller, /function componentUnifiedChainTemplate\(/);
   assert.doesNotMatch(controller, /function sourcePickerTemplate\(/);
@@ -75,4 +75,35 @@ test("persistent and Live source editors share one media-model control schema", 
   assert.match(sceneLiveView, /from "\.\/source-control-schema\.js\?v=source-control-schema-extraction-1"/);
   assert.match(schema, /export const MODEL_SOURCE_PARAMS/);
   assert.doesNotMatch(sceneLiveView, /const MODEL_SOURCE_PARAMS =/);
+  assert.match(componentView, /chainParamViewDefinitions\(content, details,/);
+  assert.match(sceneLiveView, /chainParamViewDefinitions\(/);
+});
+
+test("STL sources expose the same Primary Details and Transform views in Component editing", () => {
+  const state = createInitialState();
+  const component = state.components.find((item) => item.type !== "canvas");
+  const source = component.chain[0];
+  source.source = {
+    type: "media",
+    mediaId: "media/sculpture.stl",
+    params: {
+      renderMode: "surfaceWire",
+      rotationX: 0.4,
+      modelScale: 2,
+      pointBudget: 12000,
+      renderQuality: 0.75,
+    },
+  };
+  state.media.push({ id: source.source.mediaId, name: "sculpture.stl", type: "model" });
+  state.ui.selectedChainItemId = source.id;
+
+  const html = componentSelectedChainSettingsTemplate(component, state);
+
+  assert.match(html, />Primary<\/label>/);
+  assert.match(html, />Details<\/label>/);
+  assert.match(html, />Transform<\/label>/);
+  assert.match(html, /data-update="components\.0\.chain\.0\.source\.params\.rotationX"/);
+  assert.match(html, /data-update="components\.0\.chain\.0\.source\.params\.modelScale"/);
+  assert.match(html, /data-update="components\.0\.chain\.0\.source\.params\.renderQuality"/);
+  assert.match(html, /data-update="components\.0\.chain\.0\.transform\.scale"/);
 });

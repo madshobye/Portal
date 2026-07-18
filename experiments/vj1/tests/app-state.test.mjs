@@ -703,7 +703,7 @@ test("adding a generator inserts a visible chain element without replacing media
   assert.equal(chain[2].componentId, "pixelate");
 });
 
-test("new elements start disabled throughout the on-air Component graph", () => {
+test("new elements stay enabled until their Component graph is connected to a Live output", () => {
   const state = createInitialState();
   const component = createDefaultComponent(0);
   const canvas = createCanvasComponent(0);
@@ -719,13 +719,23 @@ test("new elements start disabled throughout the on-air Component graph", () => 
   const store = createAppState(state);
 
   store.addChainEffect(component.id, "invert");
+  let next = store.getState();
+  let nextComponent = next.components.find((item) => item.id === component.id);
+  assert.equal(nextComponent.chain.at(-1).componentId, "invert");
+  assert.equal(nextComponent.chain.at(-1).enabled, true);
+
+  store.updateRuntime((metrics) => {
+    metrics.clients = 1;
+    metrics.outputs = { "output-main": 1 };
+  }, "output-metrics");
+  store.addChainEffect(component.id, "pixelate");
   store.addChainSource(canvas.id, { type: "generator", generatorId: "gradient" });
   store.addChainGroup(canvas.id);
 
-  const next = store.getState();
-  const nextComponent = next.components.find((item) => item.id === component.id);
+  next = store.getState();
+  nextComponent = next.components.find((item) => item.id === component.id);
   const nextCanvas = next.components.find((item) => item.id === canvas.id);
-  assert.equal(nextComponent.chain.at(-1).componentId, "invert");
+  assert.equal(nextComponent.chain.at(-1).componentId, "pixelate");
   assert.equal(nextComponent.chain.at(-1).enabled, false);
   assert.equal(nextCanvas.chain.find((item) => item.source?.generatorId === "gradient")?.enabled, false);
   assert.equal(nextCanvas.chain.find((item) => item.kind === "group")?.enabled, false);

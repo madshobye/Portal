@@ -6,7 +6,7 @@ import { getShaderComponent } from "../shaders/shader-registry.js?v=madstodo-4";
 import { componentCatalogToolsTemplate } from "./catalog-view.js?v=catalog-view-extraction-1";
 import { isModelMediaSource, sourceChainItemDisplayName, sourceIcon } from "./component-view.js?v=madstodo-4";
 import { getLiveSelectedScene, getSceneSurfaceView, getSelectedScene, liveSceneComponents, liveSelectedSceneId, sceneFingerprintComponents } from "./control-selectors.js?v=control-selectors-extraction-1";
-import { CHAIN_TRANSFORM_PARAMS, chainTransformControlsTemplate, componentParamViews, paramControlsTemplate, paramCurrentValue } from "./parameter-view.js?v=param-hierarchy-1";
+import { CHAIN_TRANSFORM_PARAMS, chainParamViewDefinitions, chainTransformControlsTemplate, componentParamViews, paramControlsTemplate, paramCurrentValue } from "./parameter-view.js?v=chain-param-view-consistency-1";
 import { MEDIA_FIT_PARAM, MODEL_SOURCE_PARAMS } from "./source-control-schema.js?v=source-control-schema-extraction-1";
 import { effectIcon, emptyNote, esc, formatRangeValue, icon, rangeTemplate, selectValuesTemplate, thumbnailTemplate } from "./template-utils.js?v=slider-values-70";
 import { componentCardBarTemplate, editableSectionTitleTemplate, enableToggleButton, panelTemplate, selectablePillTemplate } from "./view-primitives.js?v=view-primitives-extraction-1";
@@ -310,11 +310,11 @@ function liveSelectedChainSettingsTemplate(selected, componentId, state) {
   const tabName = `live-chain-param-view-${String(componentId).replace(/[^a-z0-9_-]/gi, "-")}-${String(item.id).replace(/[^a-z0-9_-]/gi, "-")}`;
   const primary = liveChainItemContentTemplate(item, componentId, path, "primary");
   const details = liveChainItemContentTemplate(item, componentId, path, "details");
-  const views = [
-    { id: "content", label: details ? "Primary" : "Content", html: primary },
-    ...(details ? [{ id: "details", label: "Details", html: details }] : []),
-    { id: "transform", label: "Transform", html: chainTransformControlsTemplate(item.transform, `${path}.transform`, { attrs: liveParamAttrs(componentId) }) },
-  ];
+  const views = chainParamViewDefinitions(
+    primary,
+    details,
+    chainTransformControlsTemplate(item.transform, `${path}.transform`, { attrs: liveParamAttrs(componentId) })
+  );
   return `
     <section class="ui-section focus-panel chain-settings-panel live-chain-settings" aria-label="Selected live element parameters">
       <header class="ui-section-header panel-title"><span class="material-symbols-rounded">${iconName}</span><span>${esc(label)}</span></header>

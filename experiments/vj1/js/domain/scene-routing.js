@@ -85,7 +85,10 @@ export function liveProgramComponentIds(state = {}, nowMs = Date.now()) {
 }
 
 export function initializeLiveChainInsertion(state, componentId, item, nowMs = Date.now()) {
-  if (item && liveProgramComponentIds(state, nowMs).has(String(componentId || ""))) item.enabled = false;
+  const hasConnectedOutput = Math.max(0, Number(state?.metrics?.clients) || 0) > 0;
+  if (item && hasConnectedOutput && liveProgramComponentIds(state, nowMs).has(String(componentId || ""))) {
+    item.enabled = false;
+  }
   return item;
 }
 

@@ -118,6 +118,20 @@ test("media refresh is explicit and never polls during rendering", () => {
   assert.ok(!appSource.includes('addEventListener("visibilitychange"'));
 });
 
+test("element picker releases editor focus before committing a chain insertion", () => {
+  const modalSource = readFileSync(new URL("../js/control/modal-controller.js", import.meta.url), "utf8");
+  const addElement = modalSource.slice(
+    modalSource.indexOf("  function addElement(kind, value)"),
+    modalSource.indexOf("  function renderMediaPicker", modalSource.indexOf("  function addElement(kind, value)"))
+  );
+
+  assert.ok(addElement.indexOf("closeElementPicker();") < addElement.indexOf("store.addChainEffect"));
+  assert.ok(addElement.includes("const target = elementPicker;"));
+  assert.ok(addElement.includes("activateElementPickerTarget(target);"));
+  assert.ok(addElement.includes("store.addChainSource(target.componentId, value)"));
+  assert.ok(addElement.includes("store.addChainGroup(target.componentId)"));
+});
+
 test("range params render their label and value above a full-width slider", () => {
   const sharedRange = rangeTemplate("Opacity", "components.0.opacity", 0.42);
   const controllerSource = readFileSync(new URL("../js/control/input-controller.js", import.meta.url), "utf8");
@@ -729,6 +743,14 @@ test("scrub changes send coalesced param patches without waiting for a preview f
   assert.ok(previewSource.includes("renderer?.applyLivePatches(patches)"));
 });
 
+test("parameter context menus are delegated across inspector replacements", () => {
+  const source = readFileSync(new URL("../js/control/input-controller.js", import.meta.url), "utf8");
+  assert.ok(source.includes("const paramContextScopes = new WeakSet()"));
+  assert.ok(source.includes('scope.addEventListener("contextmenu"'));
+  assert.ok(source.includes('event.target?.closest?.("[data-param-context-path]")'));
+  assert.ok(!source.includes('scope.querySelectorAll("[data-param-context-path]").forEach'));
+});
+
 test("opening an output from Scene takes that Scene live before opening the Live-driven popup", () => {
   const appSource = readFileSync(new URL("../js/app.js", import.meta.url), "utf8");
   const controllerSource = readFileSync(new URL("../js/control/control-shell-controller.js", import.meta.url), "utf8");
@@ -903,6 +925,7 @@ test("empty project start shows one folder action and disables project views", (
 
 test("3d model controls use full-width slider rows", () => {
   const componentSource = readFileSync(new URL("../js/control/component-view.js", import.meta.url), "utf8");
+  const schemaSource = readFileSync(new URL("../js/control/source-control-schema.js", import.meta.url), "utf8");
   const styleSource = readFileSync(new URL("../style.css", import.meta.url), "utf8");
   const modelControls = componentSource.slice(
     componentSource.indexOf("function modelSourceControlsTemplate"),
@@ -910,10 +933,12 @@ test("3d model controls use full-width slider rows", () => {
   );
 
   assert.ok(modelControls.includes("model-param-list"));
-  assert.ok(modelControls.includes("Depth scale"));
-  assert.ok(modelControls.includes("Visible depth"));
-  assert.ok(modelControls.includes("params.visibleDepth"));
-  assert.ok(modelControls.includes("Wire thickness"));
+  assert.ok(modelControls.includes("MODEL_SOURCE_PARAMS"));
+  assert.ok(modelControls.includes("componentParamViews"));
+  assert.ok(modelControls.includes("paramControlsTemplate"));
+  assert.ok(schemaSource.includes("Depth scale"));
+  assert.ok(schemaSource.includes("Visible depth"));
+  assert.ok(schemaSource.includes("Wire thickness"));
   assert.ok(!modelControls.includes("field-pair"));
   assert.ok(styleSource.includes(".model-param-list"));
 });
@@ -935,7 +960,7 @@ test("selected generators omit the redundant source chooser", () => {
   const source = readFileSync(new URL("../js/control/component-view.js", import.meta.url), "utf8");
   const picker = source.slice(source.indexOf("function sourcePickerTemplate("), source.indexOf("function mediaSourceFitControlsTemplate("));
 
-  assert.match(picker, /source\.type === "generator" \? "" : `<div class="field">/);
+  assert.match(picker, /source\.type === "generator" \|\| paramView !== "primary" \? "" : `<div class="field">/);
   assert.match(picker, /source\.type === "generator" \? generatorParamControlsTemplate/);
 });
 

@@ -48,6 +48,12 @@ export function paramRangePairTemplate({ minParam, maxParam, minPath, maxPath, m
   const display = minParam.rangeDisplay || "number";
   const label = minParam.label || minParam.rangePair || minParam.id;
   const kind = minParam.rangeKind || "plain";
+  const minContext = attrs === "data-update"
+    ? `data-param-context-path="${esc(minPath)}" data-param-default="${esc(JSON.stringify(minParam.defaultValue))}"`
+    : "";
+  const maxContext = attrs === "data-update"
+    ? `data-param-context-path="${esc(maxPath)}" data-param-default="${esc(JSON.stringify(maxParam.defaultValue))}"`
+    : "";
   return `
     <div
       class="param-range-pair chain-param"
@@ -62,8 +68,8 @@ export function paramRangePairTemplate({ minParam, maxParam, minPath, maxPath, m
       </div>
       <div class="param-range-slider">
         <div class="param-range-track" aria-hidden="true"></div>
-        <input type="range" min="${lowerBound}" max="${upperBound}" step="${minParam.step ?? 0.01}" value="${safeMin}" ${attrs}="${esc(minPath)}" data-param-range-input="min" aria-label="${esc(label)} minimum" />
-        <input type="range" min="${lowerBound}" max="${upperBound}" step="${maxParam.step ?? 0.01}" value="${safeMax}" ${attrs}="${esc(maxPath)}" data-param-range-input="max" aria-label="${esc(label)} maximum" />
+        <input type="range" min="${lowerBound}" max="${upperBound}" step="${minParam.step ?? 0.01}" value="${safeMin}" ${attrs}="${esc(minPath)}" ${minContext} data-param-range-input="min" aria-label="${esc(label)} minimum" />
+        <input type="range" min="${lowerBound}" max="${upperBound}" step="${maxParam.step ?? 0.01}" value="${safeMax}" ${attrs}="${esc(maxPath)}" ${maxContext} data-param-range-input="max" aria-label="${esc(label)} maximum" />
       </div>
     </div>
   `;

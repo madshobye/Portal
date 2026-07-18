@@ -16,6 +16,8 @@ export function createInputController({
   applySelectedSceneSnapshot,
   syncSelectedSceneSnapshot,
 }) {
+  const paramContextScopes = new WeakSet();
+
   function bind(scope) {
     bindComponentFilters(scope);
     bindCatalogSortControls(scope);
@@ -198,11 +200,13 @@ export function createInputController({
   }
 
   function bindParamContextMenus(scope) {
-    scope.querySelectorAll("[data-param-context-path]").forEach((control) => {
-      control.addEventListener("contextmenu", (event) => {
-        event.preventDefault();
-        openParamContextMenu(control, event.clientX, event.clientY);
-      });
+    if (!scope || paramContextScopes.has(scope)) return;
+    paramContextScopes.add(scope);
+    scope.addEventListener("contextmenu", (event) => {
+      const control = event.target?.closest?.("[data-param-context-path]");
+      if (!control || !scope.contains(control)) return;
+      event.preventDefault();
+      openParamContextMenu(control, event.clientX, event.clientY);
     });
   }
 
@@ -225,6 +229,9 @@ export function createInputController({
       <button type="button" data-param-significant>${significant ? "Remove from significant" : "Make significant"}</button>
     `;
     document.body.append(menu);
+    const bounds = menu.getBoundingClientRect();
+    menu.style.left = `${Math.max(8, Math.min(x, window.innerWidth - bounds.width - 8))}px`;
+    menu.style.top = `${Math.max(8, Math.min(y, window.innerHeight - bounds.height - 8))}px`;
     menu.querySelector("[data-param-reset]")?.addEventListener("click", () => {
       let value;
       try { value = JSON.parse(control.dataset.paramDefault); }

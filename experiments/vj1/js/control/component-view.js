@@ -5,8 +5,8 @@ import { getShaderComponent } from "../shaders/shader-registry.js?v=madstodo-4";
 import { featureMorphMediaControlsTemplate } from "./feature-morph-view.js?v=mobilenet-morph-v2-47";
 import { generatorImageMediaControlTemplate } from "./generator-media-view.js?v=tile-texture-40";
 import { generatorIcon } from "./picker-view.js?v=terrain-mesh-near-1";
-import { chainTransformControlsTemplate, colorParamControlTemplate, componentParamViews, paramControlsTemplate, paramCurrentValue, shaderParamControlsTemplate } from "./parameter-view.js?v=param-hierarchy-1";
-import { MEDIA_FIT_MODES, MODEL_RENDER_MODES, MODEL_SURFACE_COLOR_PARAM, MODEL_WIRE_COLOR_PARAM } from "./source-control-schema.js?v=source-control-schema-extraction-1";
+import { chainParamViewDefinitions, chainTransformControlsTemplate, componentParamViews, paramControlsTemplate, paramCurrentValue, shaderParamControlsTemplate } from "./parameter-view.js?v=chain-param-view-consistency-1";
+import { MEDIA_FIT_MODES, MODEL_SOURCE_PARAMS } from "./source-control-schema.js?v=source-control-schema-extraction-1";
 import { effectIcon, esc, icon, rangeTemplate, selectValuesTemplate, sourceTypeIcon } from "./template-utils.js?v=slider-values-70";
 import { editableSectionTitleTemplate, enableToggleButton, textListItemTemplate } from "./view-primitives.js?v=view-primitives-extraction-1";
 
@@ -214,17 +214,9 @@ function selectedChainItemTemplate(item, component, state, base) {
   const content = selectedChainItemContentTemplate(item, component, state, base, "primary");
   const details = selectedChainItemContentTemplate(item, component, state, base, "details");
   const tabName = `chain-param-view-${item.id}`;
-  const views = [
-    { id: "content", label: details ? "Primary" : "Content", html: content },
-    ...(details ? [{ id: "details", label: "Details", html: details }] : []),
-    {
-      id: "transform",
-      label: "Transform",
-      html: chainTransformControlsTemplate(item.transform, `${base}.transform`, {
-        isSignificant: (_param, path) => componentParamIsSignificant(component, state, path),
-      }),
-    },
-  ];
+  const views = chainParamViewDefinitions(content, details, chainTransformControlsTemplate(item.transform, `${base}.transform`, {
+    isSignificant: (_param, path) => componentParamIsSignificant(component, state, path),
+  }));
   return `
     ${title}
     <div class="chain-param-views" style="--param-view-count: ${views.length};">
@@ -292,10 +284,14 @@ function groupChainItemTemplate(item, component, state, base) {
 
 function sourceChainItemTemplate(item, ownerComponent, state, base, paramView = "primary") {
   const isCanvasComponentPlacement = ownerComponent?.type === "canvas" && item.source?.type === "component";
-  if (paramView === "details" && item.source?.type !== "generator") return "";
+  const media = state.media?.find((entry) => entry.id === item.source?.mediaId) || null;
   if (paramView === "details") {
-    const generator = getGeneratorComponent(item.source?.generatorId || "testPattern");
-    if (!componentParamViews(generator).details.length) return "";
+    if (item.source?.type === "generator") {
+      const generator = getGeneratorComponent(item.source?.generatorId || "testPattern");
+      if (!componentParamViews(generator).details.length) return "";
+    } else if (item.source?.type === "media" && isModelMediaSource(item.source, media)) {
+      if (!componentParamViews({ params: MODEL_SOURCE_PARAMS }).details.length) return "";
+    } else return "";
     return `<section class="chain-item-editor">${sourcePickerTemplate(item, state, base, "details")}</section>`;
   }
   return `
@@ -332,7 +328,7 @@ function sourcePickerTemplate(component, state, base, paramView = "primary") {
   const media = state.media.find((item) => item.id === source.mediaId);
   return `
     <div class="source-section">
-      ${source.type === "generator" ? "" : `<div class="field">
+      ${source.type === "generator" || paramView !== "primary" ? "" : `<div class="field">
         <span>Source</span>
         <button type="button" class="source-choice-button" data-open-source-choice="${esc(`${base}.source`)}">
           ${icon(sourceIcon(source))}
@@ -344,11 +340,11 @@ function sourcePickerTemplate(component, state, base, paramView = "primary") {
         </button>
       </div>`}
       ${source.type === "generator" ? generatorParamControlsTemplate(`${base}.source`, source, state, paramView) : ""}
-      ${source.type === "media" && !isModelMediaSource(source, media) ? mediaSourceFitControlsTemplate(`${base}.source`, source) : ""}
-      ${source.type === "media" && isVideoMediaSource(source, media) ? videoSourceControlsTemplate(`${base}.source`, source, media) : ""}
-      ${source.type === "media" && isModelMediaSource(source, media) ? modelSourceControlsTemplate(`${base}.source`, source) : ""}
-      ${source.type === "camera" ? `<div class="soft-note">Using the portal camera feed.</div>` : ""}
-      ${source.type === "black" ? `<div class="soft-note">Black source selected.</div>` : ""}
+      ${paramView === "primary" && source.type === "media" && !isModelMediaSource(source, media) ? mediaSourceFitControlsTemplate(`${base}.source`, source) : ""}
+      ${paramView === "primary" && source.type === "media" && isVideoMediaSource(source, media) ? videoSourceControlsTemplate(`${base}.source`, source, media) : ""}
+      ${source.type === "media" && isModelMediaSource(source, media) ? modelSourceControlsTemplate(`${base}.source`, source, paramView) : ""}
+      ${paramView === "primary" && source.type === "camera" ? `<div class="soft-note">Using the portal camera feed.</div>` : ""}
+      ${paramView === "primary" && source.type === "black" ? `<div class="soft-note">Black source selected.</div>` : ""}
     </div>
   `;
 }
@@ -464,28 +460,17 @@ function isVideoMediaSource(source = {}, media = null) {
   return /\.(mp4|m4v|mov|webm|ogv)$/i.test(String(source.mediaId || ""));
 }
 
-function modelSourceControlsTemplate(base, source = {}) {
+function modelSourceControlsTemplate(base, source = {}, paramView = "primary") {
   const params = source.params || {};
+  const viewParams = componentParamViews({ params: MODEL_SOURCE_PARAMS })[paramView] || [];
+  if (!viewParams.length) return "";
   return `
     <div class="model-source-controls">
-      <div class="ui-section-header rail-title"><span class="material-symbols-rounded">deployed_code</span><span>3D model</span></div>
-      ${rangeTemplate("Render quality", `${base}.params.renderQuality`, params.renderQuality ?? 0.5, 0, 1, 0.01)}
-      <label class="field chain-param">Draw mode ${selectValuesTemplate(`${base}.params.renderMode`, MODEL_RENDER_MODES, params.renderMode || "surface")}</label>
-      ${colorParamControlTemplate(MODEL_SURFACE_COLOR_PARAM, `${base}.params.surfaceColor`, params.surfaceColor || MODEL_SURFACE_COLOR_PARAM.defaultValue)}
-      ${colorParamControlTemplate(MODEL_WIRE_COLOR_PARAM, `${base}.params.wireColor`, params.wireColor || MODEL_WIRE_COLOR_PARAM.defaultValue)}
-      <div class="model-param-list">
-        ${rangeTemplate("Rotate X", `${base}.params.rotationX`, params.rotationX || 0, -3.14, 3.14, 0.01)}
-        ${rangeTemplate("Rotate Y", `${base}.params.rotationY`, params.rotationY || 0, -3.14, 3.14, 0.01)}
-        ${rangeTemplate("Rotate Z", `${base}.params.rotationZ`, params.rotationZ || 0, -3.14, 3.14, 0.01)}
-        ${rangeTemplate("Scale", `${base}.params.modelScale`, params.modelScale ?? 1, 0.1, 5, 0.01)}
-        ${rangeTemplate("Spin X", `${base}.params.spinX`, params.spinX || 0, -3, 3, 0.01)}
-        ${rangeTemplate("Spin Y", `${base}.params.spinY`, params.spinY || 0, -3, 3, 0.01)}
-        ${rangeTemplate("Spin Z", `${base}.params.spinZ`, params.spinZ || 0, -3, 3, 0.01)}
-        ${rangeTemplate("Depth scale", `${base}.params.depth`, params.depth ?? 1, 0.2, 3, 0.01)}
-        ${rangeTemplate("Visible depth", `${base}.params.visibleDepth`, params.visibleDepth ?? 1, 0.02, 1, 0.01)}
-        ${rangeTemplate("Wire thickness", `${base}.params.wireThickness`, params.wireThickness ?? 1, 0.5, 12, 0.1)}
-        ${rangeTemplate("Point budget", `${base}.params.pointBudget`, params.pointBudget ?? 4000, 500, 50000, 500)}
-      </div>
+      ${paramView === "primary" ? `<div class="ui-section-header rail-title"><span class="material-symbols-rounded">deployed_code</span><span>3D model</span></div>` : ""}
+      <div class="model-param-list">${paramControlsTemplate(viewParams, {
+        pathFor: (param) => `${base}.params.${param.id}`,
+        valueFor: (param) => paramCurrentValue({ params: MODEL_SOURCE_PARAMS }, { params }, param),
+      })}</div>
     </div>
   `;
 }

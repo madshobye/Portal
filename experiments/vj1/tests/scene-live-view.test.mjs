@@ -28,7 +28,7 @@ test("Scene and Live presentation lives outside the control orchestrator", () =>
   assert.match(surfaceTemplate, /class="sculpt-card"/);
   assert.match(surfaceTemplate, /data-set-route-source-node=""/);
   assert.match(surfaceTemplate, />Empty</);
-  assert.match(controller, /from "\.\/scene-live-view\.js\?v=live-published-controls-1"/);
+  assert.match(controller, /from "\.\/scene-live-view\.js\?v=chain-param-view-consistency-1"/);
   assert.doesNotMatch(controller, /function liveInspectorTemplate\(/);
   assert.doesNotMatch(controller, /function sceneSurfaceTemplate\(/);
 });

@@ -24,7 +24,7 @@ import { VJ1, WORKSPACES } from "./constants.js";
 import { createChangeEvent } from "./domain/change-event.js?v=project-storage-1";
 import { clearComponentReferences, countChainGroups, findChainItemLocation, insertChainItemNearSelection, moveById, moveChainItem } from "./domain/chain-operations.js?v=adaptive-component-demand-29";
 import { pasteClipboardPayload } from "./domain/clipboard.js?v=live-insertion-1";
-import { initializeLiveChainInsertion } from "./domain/scene-routing.js?v=live-insertion-1";
+import { initializeLiveChainInsertion } from "./domain/scene-routing.js?v=live-insertion-output-1";
 
 export function createAppState(initial = null) {
   let state = sanitizeState(initial || createInitialState());

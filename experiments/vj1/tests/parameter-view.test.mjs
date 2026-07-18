@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 
 import { colorParamControlTemplate, paramControlTemplate, paramControlsTemplate } from "../js/control/parameter-view.js";
+import { paramRangePairTemplate } from "../js/control/template-utils.js";
 
 test("parameter view owns reusable inspector controls outside the controller", () => {
   const controller = readFileSync(new URL("../js/control/control-shell-controller.js", import.meta.url), "utf8");
@@ -19,8 +20,8 @@ test("parameter view owns reusable inspector controls outside the controller", (
   assert.match(range, /data-update="params\.gain"/);
   assert.doesNotMatch(controls, /Seed/);
   assert.match(controls, /Enabled/);
-  assert.match(componentView, /from "\.\/parameter-view\.js\?v=param-hierarchy-1"/);
-  assert.match(sceneLiveView, /from "\.\/parameter-view\.js\?v=param-hierarchy-1"/);
+  assert.match(componentView, /from "\.\/parameter-view\.js\?v=chain-param-view-consistency-1"/);
+  assert.match(sceneLiveView, /from "\.\/parameter-view\.js\?v=chain-param-view-consistency-1"/);
   assert.doesNotMatch(controller, /function paramControlTemplate\(/);
   assert.doesNotMatch(controller, /function paramControlsTemplate\(/);
 });
@@ -41,4 +42,17 @@ test("persistent params expose reset and significant metadata while Live overrid
   assert.match(persistent, /is-significant/);
   assert.match(persistent, /data-param-default="0\.75"/);
   assert.doesNotMatch(live, /data-param-context-path/);
+});
+
+test("paired persistent range handles retain independent parameter context metadata", () => {
+  const html = paramRangePairTemplate({
+    minParam: { id: "low", label: "Range", min: 0, max: 1, step: 0.01, defaultValue: 0.2 },
+    maxParam: { id: "high", min: 0, max: 1, step: 0.01, defaultValue: 0.8 },
+    minPath: "components.0.chain.0.params.low",
+    maxPath: "components.0.chain.0.params.high",
+    minValue: 0.25,
+    maxValue: 0.75,
+  });
+  assert.match(html, /data-param-context-path="components\.0\.chain\.0\.params\.low" data-param-default="0\.2"/);
+  assert.match(html, /data-param-context-path="components\.0\.chain\.0\.params\.high" data-param-default="0\.8"/);
 });

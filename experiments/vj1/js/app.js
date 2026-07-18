@@ -1,8 +1,8 @@
-import { createAppState } from "./app-state.js?v=component-transport-patch-1";
-import { createControlShell } from "./control/control-shell-controller.js?v=mapping-ack-1";
+import { createAppState } from "./app-state.js?v=live-insertion-output-1";
+import { createControlShell } from "./control/control-shell-controller.js?v=chain-param-view-consistency-1";
 import { getInitialWorkspace, getClientMode, persistLiveScenePreference, persistWorkspace, preferredLiveSceneId } from "./view-routing.js?v=live-scene-preference-1";
 import { createMediaLibrary } from "./services/media-library-service.js?v=media-recovery-entry-1";
-import { createProjectFolderService } from "./services/project-folder-service.js?v=mapping-ack-1";
+import { createProjectFolderService } from "./services/project-folder-service.js?v=history-prune-silent-1";
 import { createControlBridge } from "./services/output-bridge-service.js?v=component-transport-patch-1";
 import { installOutputApp } from "./output/output-app.js?v=mapping-ack-1";
 import { componentRenderPatchesForChange } from "./domain/render-transport-patch.js?v=component-transport-patch-1";

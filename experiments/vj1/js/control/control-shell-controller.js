@@ -9,15 +9,15 @@ import { createHtmlCache, isInteractiveNode, isPointerInteractionNode, isTextEdi
 import { bindReorderList } from "./reorder-list.js";
 import { collectRefs, shellTemplate } from "./shell-view.js?v=adaptive-component-demand-29";
 import { componentCatalogToolsTemplate, componentFilterTemplate, sortComponentCatalog } from "./catalog-view.js?v=catalog-view-extraction-1";
-import { canvasInspectorTemplate, componentSelectedChainSettingsTemplate, componentTemplate } from "./component-view.js?v=canvas-component-placement-1";
+import { canvasInspectorTemplate, componentSelectedChainSettingsTemplate, componentTemplate } from "./component-view.js?v=chain-param-view-consistency-1";
 import { canvasComponents, getSelectedScene, ordinaryComponents, selectedCanvasComponent } from "./control-selectors.js?v=control-selectors-extraction-1";
 import { mappingInletsTemplate, mappingInspectorTemplate, mappingStudioTemplate } from "./mapping-view.js?v=terrain-mesh-near-1";
-import { liveComponentPillTemplate, liveInspectorTemplate, liveNavigableComponents, liveScenePillTemplate, scenePillTemplate, sceneRailConfigTemplate, sceneSignificantComponentTemplate, sceneSurfacePillTemplate, sceneSurfaceTemplate } from "./scene-live-view.js?v=live-published-controls-1";
+import { liveComponentPillTemplate, liveInspectorTemplate, liveNavigableComponents, liveScenePillTemplate, scenePillTemplate, sceneRailConfigTemplate, sceneSignificantComponentTemplate, sceneSurfacePillTemplate, sceneSurfaceTemplate } from "./scene-live-view.js?v=chain-param-view-consistency-1";
 import { componentCardBarTemplate, panelTemplate, projectEmptyTemplate, textListItemTemplate } from "./view-primitives.js?v=view-primitives-extraction-1";
 import { emptyNote, esc, icon, thumbnailTemplate } from "./template-utils.js?v=slider-values-70";
 import { createClipboardController } from "./clipboard-controller.js?v=live-insertion-1";
-import { createModalController } from "./modal-controller.js?v=media-manual-refresh-1";
-import { createInputController } from "./input-controller.js?v=live-param-patch-1";
+import { createModalController } from "./modal-controller.js?v=media-source-identity-1";
+import { createInputController } from "./input-controller.js?v=param-context-delegation-1";
 
 export function rememberParamViewSelections(scope, selections = new Map()) {
   for (const input of scope?.querySelectorAll?.(".chain-param-view-input:checked") || []) {

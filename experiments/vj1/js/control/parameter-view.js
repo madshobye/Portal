@@ -1,6 +1,6 @@
 import { normalizeParamValue } from "../graph/component-schema.js?v=adaptive-component-demand-29";
 import { createNumberParam } from "../graph/component-schema.js?v=adaptive-component-demand-29";
-import { esc, formatRangeValue, paramRangePairTemplate } from "./template-utils.js?v=slider-values-70";
+import { esc, formatRangeValue, paramRangePairTemplate } from "./template-utils.js?v=param-context-delegation-1";
 
 export function shaderParamControlsTemplate(component, pass, basePath, options = {}) {
   const params = options.params || component?.params || [];
@@ -36,6 +36,14 @@ export function componentParamViews(component = {}) {
     primary: authored.slice(0, 6),
     details: [...authored.slice(6), ...visible.filter((param) => param.id === "renderQuality")],
   };
+}
+
+export function chainParamViewDefinitions(primary = "", details = "", transform = "") {
+  return [
+    { id: "content", label: details ? "Primary" : "Content", html: primary },
+    ...(details ? [{ id: "details", label: "Details", html: details }] : []),
+    { id: "transform", label: "Transform", html: transform },
+  ];
 }
 
 export const CHAIN_TRANSFORM_PARAMS = Object.freeze([

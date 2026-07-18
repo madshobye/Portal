@@ -4,6 +4,7 @@ import { setClass, setText } from "./dom-utils.js?v=preview-pointer-deferral-1";
 import { getByPath, readInputValue, setByPath, syncRangeValue } from "./path-input-utils.js?v=path-input-utils-extraction-1";
 import { elementPickerTemplate, mediaPickerTemplate, sourceChoicePickerTemplate } from "./picker-view.js?v=media-manual-refresh-1";
 import { configuredOutputsTemplate, settingsModalTemplate } from "./settings-view.js?v=max-frame-rate-1";
+import { mergeSourceChoice } from "../domain/source-choice.js?v=media-source-identity-1";
 
 export function createModalController({
   store,
@@ -84,8 +85,9 @@ export function createModalController({
   }
 
   function chooseSource(source) {
-    setSourceChoice(source);
+    const target = sourceChoicePicker;
     closeSourceChoicePicker();
+    setSourceChoice(source, target);
   }
 
   function renderElementPicker(host, state) {
@@ -117,11 +119,17 @@ export function createModalController({
   }
 
   function addElement(kind, value) {
-    activateElementPickerTarget();
-    if (kind === "source") store.addChainSource(elementPicker.componentId, value);
-    else if (kind === "group") store.addChainGroup(elementPicker.componentId);
-    else if (kind === "effect") store.addChainEffect(elementPicker.componentId, value);
+    const target = elementPicker;
+    if (!target?.componentId) return;
+    // Release the picker's focused search field before publishing the chain
+    // mutation. Otherwise the shell's editor-deferral guard can retain the
+    // new inspector state while removing the very field whose blur would
+    // flush it, leaving the chain visually stale until another render/refresh.
     closeElementPicker();
+    activateElementPickerTarget(target);
+    if (kind === "source") store.addChainSource(target.componentId, value);
+    else if (kind === "group") store.addChainGroup(target.componentId);
+    else if (kind === "effect") store.addChainEffect(target.componentId, value);
   }
 
   function renderMediaPicker(host, state) {
@@ -415,8 +423,8 @@ export function createModalController({
     render();
   }
 
-  function activateElementPickerTarget() {
-    if (elementPicker?.selectedChainItemId) store.selectChainItem(elementPicker.selectedChainItemId);
+  function activateElementPickerTarget(target = elementPicker) {
+    if (target?.selectedChainItemId) store.selectChainItem(target.selectedChainItemId);
   }
 
   function closeElementPicker() {
@@ -439,19 +447,12 @@ export function createModalController({
     render();
   }
 
-  function setSourceChoice(source) {
-    if (!sourceChoicePicker?.path) return;
+  function setSourceChoice(source, target = sourceChoicePicker) {
+    if (!target?.path) return;
     store.update((draft) => {
-      const previous = getByPath(draft, sourceChoicePicker.path) || {};
-      const next = { ...source };
-      if (next.type === "generator" && previous.type === "generator" && previous.generatorId === next.generatorId && previous.params) next.params = previous.params;
-      if (next.type === "media" && previous.type === "media" && previous.mediaId === next.mediaId) {
-        next.start = previous.start;
-        next.end = previous.end;
-        next.speed = previous.speed;
-      }
-      setByPath(draft, sourceChoicePicker.path, next);
-    }, `update:${sourceChoicePicker.path}`);
+      const previous = getByPath(draft, target.path) || {};
+      setByPath(draft, target.path, mergeSourceChoice(previous, source));
+    }, `update:${target.path}`);
   }
 
   function closeSettings() {

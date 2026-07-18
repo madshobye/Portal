@@ -1,0 +1,86 @@
+[
+  {
+    "filename": "01_nine_circles_descent.stl",
+    "name": "Nine circles descent",
+    "triangles": 6448,
+    "bytes": 322484
+  },
+  {
+    "filename": "02_abyssal_pit.stl",
+    "name": "Abyssal pit",
+    "triangles": 3866,
+    "bytes": 193384
+  },
+  {
+    "filename": "03_volcanic_terrain.stl",
+    "name": "Volcanic terrain",
+    "triangles": 3866,
+    "bytes": 193384
+  },
+  {
+    "filename": "04_mountain_range.stl",
+    "name": "Mountain range",
+    "triangles": 3258,
+    "bytes": 162984
+  },
+  {
+    "filename": "05_canyon_chasm.stl",
+    "name": "Canyon chasm",
+    "triangles": 3450,
+    "bytes": 172584
+  },
+  {
+    "filename": "06_infernal_arch.stl",
+    "name": "Infernal arch",
+    "triangles": 968,
+    "bytes": 48484
+  },
+  {
+    "filename": "07_gothic_spires.stl",
+    "name": "Gothic spires",
+    "triangles": 1132,
+    "bytes": 56684
+  },
+  {
+    "filename": "08_flying_buttress_gate.stl",
+    "name": "Flying buttress gate",
+    "triangles": 1176,
+    "bytes": 58884
+  },
+  {
+    "filename": "09_spiral_stair_descent.stl",
+    "name": "Spiral stair descent",
+    "triangles": 928,
+    "bytes": 46484
+  },
+  {
+    "filename": "10_cage_of_souls.stl",
+    "name": "Cage of souls",
+    "triangles": 2688,
+    "bytes": 134484
+  },
+  {
+    "filename": "11_labyrinth_structure.stl",
+    "name": "Labyrinth structure",
+    "triangles": 2268,
+    "bytes": 113484
+  },
+  {
+    "filename": "12_cracked_plateau.stl",
+    "name": "Cracked plateau",
+    "triangles": 3674,
+    "bytes": 183784
+  },
+  {
+    "filename": "13_eternal_rings.stl",
+    "name": "Eternal rings",
+    "triangles": 4480,
+    "bytes": 224084
+  },
+  {
+    "filename": "14_divine_triangle_monolith.stl",
+    "name": "Divine triangle monolith",
+    "triangles": 36,
+    "bytes": 1884
+  }
+]
