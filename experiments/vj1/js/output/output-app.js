@@ -1,7 +1,9 @@
 import { VJ1 } from "../constants.js";
 import { sanitizeState } from "../domain/models.js?v=render-coordinate-scope-3";
-import { createOutputBridge } from "../services/output-bridge-service.js?v=media-resource-disposal-1";
-import { OutputRenderer } from "./output-renderer.js?v=cache-maintenance-1";
+import { applyLiveRenderPatches } from "../domain/live-render-patch.js?v=param-fade-1";
+import { renderMaxFrameRate } from "../domain/render-settings.js?v=max-frame-rate-1";
+import { createOutputBridge } from "../services/output-bridge-service.js?v=output-transport-profile-1";
+import { OutputRenderer } from "./output-renderer.js?v=param-fade-1";
 import { applyFontToGlobal, loadVjRenderFont } from "./font-loader.js?v=adaptive-component-demand-29";
 import { frameSize } from "./render-geometry.js?v=adaptive-component-demand-29";
 
@@ -20,6 +22,13 @@ export function installOutputApp({ root, mode }) {
   let renderer = null;
   let pendingState = null;
   let acceptedState = null;
+  let acceptedRevision = 0;
+  let receivedRevision = 0;
+  let preparedState = null;
+  let preparedFromState = null;
+  let preparedRevision = 0;
+  let preparedTransportMeta = null;
+  let prepareErrorSignature = "";
   let acceptedFiles = [];
   let bridge = null;
   let renderFont = null;
@@ -45,7 +54,7 @@ export function installOutputApp({ root, mode }) {
       : null;
     if (resizeObserver && stage) resizeObserver.observe(stage);
     pixelDensity(1);
-    frameRate(120);
+    frameRate(renderMaxFrameRate(pendingState?.render));
     if (window.p5) window.p5.disableFriendlyErrors = true;
     window.PORTAL_CANVAS_RESIZE_MODE = "none";
     await loadClassicScript(VJ1.portalScript);
@@ -64,11 +73,17 @@ export function installOutputApp({ root, mode }) {
       requestMediaFiles: (ids) => bridge?.requestMediaFiles(ids),
     });
     await renderer.setup(pendingState ? sanitizeState(pendingState) : null);
+    if (acceptedState) {
+      acceptedState = renderer.state;
+      pendingState = renderer.state;
+    }
     renderer.importFiles(acceptedFiles);
   };
 
   window.draw = function draw() {
     renderer?.draw();
+    bridge?.markTransportRendered(acceptedRevision);
+    activatePreparedStateIfReady();
   };
 
   window.keyPressed = function keyPressed() {
@@ -114,17 +129,57 @@ export function installOutputApp({ root, mode }) {
   bridge = createOutputBridge({
     mode,
     outputId,
-    onState(state) {
+    onState(state, meta = {}) {
       if (fixtureUrl) return;
+      const revision = Math.max(0, Number(meta.revision) || 0);
+      if (revision < receivedRevision) return;
       if (shouldHoldCurrentOutputState(state, acceptedState)) return;
-      pendingState = state;
-      acceptedState = state;
-      if (renderer) resizeOutputIfNeeded(state, mode, renderer);
-      renderer?.setState(state, { normalized: true });
+      receivedRevision = revision;
+      if (renderer && shouldPrepareLiveSceneState(state, acceptedState, mode)) {
+        preparedState = state;
+        preparedFromState = transitionTerminalState(acceptedState);
+        preparedRevision = revision;
+        preparedTransportMeta = meta.transport || null;
+        prepareErrorSignature = "";
+        activatePreparedStateIfReady();
+        return;
+      }
+      clearPreparedState();
+      acceptOutputState(state, revision, meta.transport);
+    },
+    onLivePatch(patches, meta = {}) {
+      if (fixtureUrl) return;
+      const baseRevision = Math.max(0, Number(meta.baseRevision) || 0);
+      const revision = Math.max(0, Number(meta.revision) || 0);
+      if (!acceptedState || baseRevision !== receivedRevision || revision !== baseRevision + 1) {
+        requestLivePatchResync("revision", { baseRevision, revision, acceptedRevision, receivedRevision });
+        return;
+      }
+      const result = preparedState
+        ? applyLiveRenderPatches(preparedState, patches)
+        : renderer
+          ? renderer.applyLivePatches(patches)
+          : applyLiveRenderPatches(acceptedState, patches);
+      if (!result.applied) {
+        requestLivePatchResync("path", { failedPatch: result.failedPatch });
+        return;
+      }
+      receivedRevision = revision;
+      bridge?.markTransportApplied(meta.transport);
+      if (preparedState) {
+        preparedRevision = revision;
+        preparedTransportMeta = meta.transport || preparedTransportMeta;
+        activatePreparedStateIfReady();
+        return;
+      }
+      acceptedState = renderer?.state || acceptedState;
+      pendingState = acceptedState;
+      acceptedRevision = revision;
     },
     onMediaFiles(files) {
       acceptedFiles = files || [];
       renderer?.importFiles(files);
+      activatePreparedStateIfReady();
     },
     onControlHello() {
       bridge?.recoveryState(acceptedState, acceptedFiles);
@@ -156,6 +211,57 @@ export function installOutputApp({ root, mode }) {
     },
   });
 
+  function requestLivePatchResync(reason, detail = {}) {
+    console.warn("[VJ1_LIVE_PATCH_RESYNC]", { reason, ...detail });
+    bridge?.recordTransportResync(reason);
+    bridge?.requestState();
+  }
+
+  function activatePreparedStateIfReady() {
+    if (!renderer || !preparedState) return false;
+    const status = renderer.prepareOutputState(preparedState);
+    if (status.errorIds.size) {
+      const signature = Array.from(status.errorIds).sort().join("|");
+      if (signature !== prepareErrorSignature) {
+        prepareErrorSignature = signature;
+        console.error("[VJ1_SCENE_PREPARE_FAILED]", {
+          sceneId: outputSceneId(preparedState),
+          mediaIds: Array.from(status.errorIds),
+          message: "Keeping the current Scene because requested media failed to load",
+        });
+      }
+      return false;
+    }
+    if (status.blocked) return false;
+    if (hasActiveLiveTransition(acceptedState)) return false;
+    const state = queuedSceneTransitionState(preparedState, preparedFromState);
+    const revision = preparedRevision;
+    const transportMeta = preparedTransportMeta;
+    clearPreparedState();
+    acceptOutputState(state, revision, transportMeta);
+    return true;
+  }
+
+  function acceptOutputState(state, revision, transportMeta = null) {
+    pendingState = state;
+    acceptedState = state;
+    acceptedRevision = revision;
+    receivedRevision = Math.max(receivedRevision, revision);
+    if (typeof frameRate === "function") frameRate(renderMaxFrameRate(state?.render));
+    if (renderer) resizeOutputIfNeeded(state, mode, renderer);
+    renderer?.setState(state, { normalized: true });
+    bridge?.markTransportApplied(transportMeta);
+  }
+
+  function clearPreparedState() {
+    preparedState = null;
+    preparedFromState = null;
+    preparedRevision = 0;
+    preparedTransportMeta = null;
+    prepareErrorSignature = "";
+    renderer?.clearPreparedOutputState?.();
+  }
+
   if (fixtureUrl) {
     loadFixtureState(fixtureUrl)
       .then((state) => {
@@ -176,6 +282,62 @@ export function installOutputApp({ root, mode }) {
 export function shouldHoldCurrentOutputState(nextState, currentState) {
   if (!currentState || hasLoadedProjectState(nextState)) return false;
   return hasLoadedProjectState(currentState) && isEmptyStartupState(nextState);
+}
+
+export function outputSceneId(state) {
+  return String(state?.ui?.selectedSceneId || state?.ui?.live?.selectedSceneId || "");
+}
+
+export function shouldPrepareLiveSceneState(nextState, currentState, mode = "output") {
+  if (mode !== "output" || !nextState || !currentState) return false;
+  const nextSceneId = outputSceneId(nextState);
+  const currentSceneId = outputSceneId(currentState);
+  return !!nextSceneId && !!currentSceneId && nextSceneId !== currentSceneId;
+}
+
+export function retimePreparedSceneTransition(state, startedAtMs = Date.now() + 50) {
+  if (!state?.liveTransition) return state;
+  return {
+    ...state,
+    liveTransition: {
+      ...state.liveTransition,
+      startedAtMs,
+    },
+  };
+}
+
+export function hasActiveLiveTransition(state, nowMs = Date.now()) {
+  const durationMs = Math.max(0, Number(state?.liveTransition?.durationMs) || 0);
+  const startedAtMs = Number(state?.liveTransition?.startedAtMs) || 0;
+  return !!state?.liveTransition?.fromState && durationMs > 0 && startedAtMs > 0 && nowMs < startedAtMs + durationMs;
+}
+
+export function transitionTerminalState(state) {
+  if (!state?.liveTransition) return state;
+  const terminal = { ...state };
+  delete terminal.liveTransition;
+  return terminal;
+}
+
+export function queuedSceneTransitionState(state, fromState, startedAtMs = Date.now() + 50) {
+  if (!state) return state;
+  const configuredDurationMs = Math.round(Math.max(0, Number(state.ui?.live?.transitionDuration) || 0) * 1000);
+  const durationMs = Math.max(0, Number(state.liveTransition?.durationMs) || configuredDurationMs);
+  if (!fromState || durationMs <= 0) return transitionTerminalState(state);
+  const stableFromState = transitionTerminalState(fromState);
+  return {
+    ...state,
+    liveTransition: {
+      id: state.liveTransition?.id || `${outputSceneId(stableFromState)}:${outputSceneId(state)}:${startedAtMs}`,
+      startedAtMs,
+      durationMs,
+      // A superseded queued Scene may have different temporary overrides from
+      // the actual completed source. Conservative identities avoid sharing a
+      // render cache across two semantically different transition sides.
+      componentsShared: false,
+      fromState: stableFromState,
+    },
+  };
 }
 
 export function hasLoadedProjectState(state) {

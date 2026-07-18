@@ -4,7 +4,9 @@ import assert from "node:assert/strict";
 import { mediaFileFingerprint, OutputMediaRuntime } from "../js/output/output-media-runtime.js";
 import { syncVideoPlayback } from "../js/output/media-utils.js";
 import { OutputThumbnailRuntime } from "../js/output/output-thumbnail-runtime.js";
+import { OutputRenderer } from "../js/output/output-renderer.js";
 import { createControlBridge } from "../js/services/output-bridge-service.js";
+import { applyLiveRenderPatches, createLiveRenderPatch } from "../js/domain/live-render-patch.js";
 import { createMediaLibrary } from "../js/services/media-library-service.js";
 import { mediaRenditionPath, mediaSourceRevision, parseMediaRenditionPath } from "../js/services/media-rendition-service.js";
 
@@ -564,6 +566,138 @@ test("output bridge transmits an empty authoritative media snapshot", () => {
   }
 });
 
+test("output bridge owns realtime Live-state delivery independently of animation frames", async () => {
+  const previousBroadcastChannel = globalThis.BroadcastChannel;
+  const messages = [];
+  let listener = null;
+  globalThis.BroadcastChannel = class {
+    postMessage(message) { messages.push(message); }
+    close() {}
+  };
+  try {
+    let revision = 1;
+    const store = {
+      subscribe(next) { listener = next; return () => { listener = null; }; },
+      getLiveRenderState: () => ({ revision }),
+      getState: () => ({ metrics: { clients: 0, outputs: {} } }),
+      getMetrics: () => ({ clients: 0, outputs: {} }),
+      updateRuntime() {},
+    };
+    const bridge = createControlBridge({ store, mediaLibrary: { getAllFiles: () => [] } });
+
+    listener({}, "scrub:live", {
+      scope: "live",
+      phase: "scrub",
+      livePatches: [createLiveRenderPatch("component-a", "chain.0.params.amount", 0.25)],
+    });
+    listener({}, "scrub:live", {
+      scope: "live",
+      phase: "scrub",
+      livePatches: [createLiveRenderPatch("component-a", "chain.0.params.amount", 0.3)],
+    });
+    assert.equal(messages.filter((message) => message.type === "state").length, 0);
+    revision = 2;
+    await Promise.resolve();
+    const firstPatchMessage = messages.filter((message) => message.type === "live-patch").at(-1);
+    assert.equal(Number.isFinite(firstPatchMessage.transport?.sentAtMs), true);
+    assert.deepEqual({ ...firstPatchMessage, transport: undefined }, {
+      type: "live-patch",
+      baseRevision: 0,
+      revision: 1,
+      patches: [createLiveRenderPatch("component-a", "chain.0.params.amount", 0.3)],
+      transport: undefined,
+    });
+
+    revision = 3;
+    listener({}, "live:update", {
+      scope: "live",
+      phase: "commit",
+      livePatches: [createLiveRenderPatch("component-a", "chain.0.params.amount", 0.5)],
+    });
+    const secondPatchMessage = messages.filter((message) => message.type === "live-patch").at(-1);
+    assert.equal(Number.isFinite(secondPatchMessage.transport?.sentAtMs), true);
+    assert.deepEqual({ ...secondPatchMessage, transport: undefined }, {
+      type: "live-patch",
+      baseRevision: 1,
+      revision: 2,
+      patches: [createLiveRenderPatch("component-a", "chain.0.params.amount", 0.5)],
+      transport: undefined,
+    });
+
+    listener({}, "live:scene", { scope: "live", phase: "commit" });
+    const stateMessage = messages.filter((message) => message.type === "state").at(-1);
+    assert.equal(Number.isFinite(stateMessage.transport?.sentAtMs), true);
+    assert.deepEqual({ ...stateMessage, transport: undefined }, {
+      type: "state",
+      state: { revision: 3 },
+      targetClientId: "",
+      revision: 3,
+      transport: undefined,
+    });
+    bridge.close();
+    assert.equal(listener, null);
+  } finally {
+    if (previousBroadcastChannel === undefined) delete globalThis.BroadcastChannel;
+    else globalThis.BroadcastChannel = previousBroadcastChannel;
+  }
+});
+
+test("Live render patches mutate only the addressed Component path", () => {
+  const state = {
+    components: [
+      { id: "component-a", opacity: 1, chain: [{ params: { amount: 0.1 } }] },
+      { id: "component-b", opacity: 0.75, chain: [{ params: { amount: 0.2 } }] },
+    ],
+  };
+  const untouched = state.components[1];
+  const result = applyLiveRenderPatches(state, [
+    createLiveRenderPatch("component-a", "chain.0.params.amount", 0.8),
+  ]);
+
+  assert.equal(result.applied, true);
+  assert.deepEqual(result.componentIds, ["component-a"]);
+  assert.equal(state.components[0].chain[0].params.amount, 0.8);
+  assert.equal(state.components[1], untouched);
+  const beforeAtomicFailure = state.components[0].chain[0].params.amount;
+  const failed = applyLiveRenderPatches(state, [
+    createLiveRenderPatch("component-a", "chain.0.params.amount", 0.3),
+    createLiveRenderPatch("component-a", "chain.9.params.amount", 1),
+  ]);
+  assert.equal(failed.applied, false);
+  assert.equal(state.components[0].chain[0].params.amount, beforeAtomicFailure);
+});
+
+test("Live numeric patches preserve target truth while the renderer interpolates display values", () => {
+  const renderer = new OutputRenderer({ mode: "output" });
+  renderer.state = {
+    components: [{ id: "component-a", chain: [{ params: { amount: 0 } }] }],
+    recordingFrames: [],
+    surfaces: [],
+    ui: { live: { paramFadeDuration: 1 } },
+  };
+  renderer.rebuildRouteLookups();
+
+  const result = renderer.applyLivePatches([
+    createLiveRenderPatch("component-a", "chain.0.params.amount", 1),
+  ], 100);
+  const params = renderer.state.components[0].chain[0].params;
+  assert.equal(result.applied, true);
+  assert.equal(params.amount, 1, "the commanded target remains canonical between frames");
+
+  renderer.applyLiveParamFadeFrame(600);
+  assert.equal(params.amount, 0.5);
+  renderer.restoreLiveParamFadeFrame();
+  assert.equal(params.amount, 1, "render-only interpolation must restore user truth");
+
+  renderer.applyLivePatches([
+    createLiveRenderPatch("component-a", "chain.0.params.amount", 0),
+  ], 600);
+  renderer.applyLiveParamFadeFrame(1100);
+  assert.equal(params.amount, 0.25, "retargeting continues from the currently displayed value");
+  renderer.restoreLiveParamFadeFrame();
+  assert.equal(params.amount, 0);
+});
+
 test("persisted renditions are bound to the exact source file revision", async () => {
   const first = { name: "photo.png", relativePath: "media/photo.png", size: 10, lastModified: 1, type: "image/png" };
   const replacement = { ...first, size: 20, lastModified: 2 };
@@ -658,6 +792,37 @@ test("generic media LRU accounts for decoded rendition memory", () => {
   runtime.endFrame();
   assert.equal(item.image, null);
   assert.deepEqual(removed.sort(), ["base", "rendition"]);
+});
+
+test("media prepared for an incoming Scene is reserved until activation or cancellation", () => {
+  const runtime = new OutputMediaRuntime({ maxCachedMedia: 0, maxCachedMediaBytes: 0 });
+  const removed = [];
+  const item = {
+    id: "incoming.png",
+    file: { name: "incoming.png", size: 10, type: "image/png" },
+    image: { width: 64, height: 64, remove() { removed.push("image"); } },
+    imageRenditions: new Map(),
+    imageRenditionOrder: [],
+    persistedRenditions: new Map(),
+    renditionUrls: new Map(),
+    loadToken: 0,
+    revision: 0,
+    ready: true,
+    loading: false,
+    lastMediaUse: 1,
+  };
+  runtime.media.set(item.id, item);
+  runtime.reserveMedia([item.id]);
+  runtime.beginFrame();
+  runtime.endFrame();
+  assert.equal(item.image.width, 64);
+  assert.deepEqual(removed, []);
+
+  runtime.reserveMedia();
+  runtime.beginFrame();
+  runtime.endFrame();
+  assert.equal(item.image, null);
+  assert.deepEqual(removed, ["image"]);
 });
 
 test("camera failures are reported once and retried on a bounded clock", async () => {

@@ -1,9 +1,9 @@
-import { createOutputDefinition, normalizeRenderSettings } from "../domain/models.js?v=render-coordinate-scope-3";
+import { createOutputDefinition, normalizeRenderSettings } from "../domain/render-settings.js?v=max-frame-rate-1";
 import { sortComponentCatalog } from "./catalog-view.js?v=catalog-view-extraction-1";
 import { setClass, setText } from "./dom-utils.js?v=preview-pointer-deferral-1";
 import { getByPath, readInputValue, setByPath, syncRangeValue } from "./path-input-utils.js?v=path-input-utils-extraction-1";
 import { elementPickerTemplate, mediaPickerTemplate, sourceChoicePickerTemplate } from "./picker-view.js?v=media-demand-6";
-import { configuredOutputsTemplate, settingsModalTemplate } from "./settings-view.js?v=editable-titles-71";
+import { configuredOutputsTemplate, settingsModalTemplate } from "./settings-view.js?v=max-frame-rate-1";
 
 export function createModalController({
   store,

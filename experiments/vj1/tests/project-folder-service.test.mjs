@@ -28,6 +28,7 @@ test("project payload preserves the selected component chain item", () => {
         sceneSnapshot: { surfaces: [{ id: "surface-a", componentId: "component-a" }] },
         componentOverrides: { "component-a": { opacity: 0.5 } },
         transitionDuration: 2.5,
+        paramFadeDuration: 0.75,
         transition: { id: "runtime-only" },
       },
     },
@@ -42,6 +43,7 @@ test("project payload preserves the selected component chain item", () => {
   assert.equal(payload.ui.live.selectedSceneId, "scene-live");
   assert.deepEqual(payload.ui.live.sceneSnapshot, state.ui.live.sceneSnapshot);
   assert.equal(payload.ui.live.transitionDuration, 2.5);
+  assert.equal(payload.ui.live.paramFadeDuration, 0.75);
   assert.equal(payload.ui.live.transition, undefined);
   assert.equal(payload.ui.live.componentOverrides, undefined);
   assert.deepEqual(payload.recordingFrames, state.recordingFrames);

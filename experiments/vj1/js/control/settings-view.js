@@ -1,4 +1,4 @@
-import { normalizeRenderSettings } from "../domain/models.js?v=render-coordinate-scope-3";
+import { normalizeRenderSettings } from "../domain/render-settings.js?v=max-frame-rate-1";
 import { esc, formatRangeValue, icon } from "./template-utils.js?v=flat-orange-sliders-70";
 
 export function settingsModalTemplate(state, activeTab = "outputs") {
@@ -83,7 +83,9 @@ export function settingsModalTemplate(state, activeTab = "outputs") {
           </div>
           <div class="settings-group">
           <div class="settings-group-title"><span class="material-symbols-rounded">speed</span><span>Performance</span></div>
+          <label class="field">Maximum frame rate <input type="number" min="1" max="120" step="1" data-settings-update="render.maxFrameRate" value="${render.maxFrameRate}" /></label>
           <label class="field">Pixel density <input type="number" min="0.5" max="2" step="0.25" data-settings-update="render.pixelDensity" value="${render.pixelDensity}" /></label>
+          <div class="soft-note">Caps both embedded previews and standalone output windows. Lower values reduce render, video-upload, and CPU scheduling pressure.</div>
           </div>
           <div class="settings-group">
           <div class="settings-group-title"><span class="material-symbols-rounded">tune</span><span>Advanced sampling</span></div>

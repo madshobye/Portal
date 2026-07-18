@@ -1,8 +1,13 @@
 import { VJ1 } from "../constants.js";
+import { createOutputTransportProfiler, transportTimestampMs } from "./output-transport-profiler.js?v=output-transport-profile-1";
 
 export function createControlBridge({ store, mediaLibrary }) {
   const channel = new BroadcastChannel(VJ1.channelName);
   const clients = new Map();
+  let livePatchScheduled = false;
+  let livePatchScheduleToken = 0;
+  let liveRevision = 0;
+  const pendingLivePatches = new Map();
   const clientWatchdog = setInterval(() => {
     const count = activeClientCount(clients);
     const outputs = activeOutputClients(clients);
@@ -35,6 +40,9 @@ export function createControlBridge({ store, mediaLibrary }) {
       }
     }
     if (msg.type === "request-media-files") sendMediaFiles(mediaLibrary.getAllFiles());
+    if (msg.type === "request-state") {
+      sendState(null, { targetClientId: msg.clientId || "" });
+    }
     if (msg.type === "metrics") {
       clients.set(msg.clientId || "output", { at: performance.now(), outputId: msg.outputId || "output-main" });
       const updateMetrics = store.updateRuntime || ((recipe, reason) => store.update((draft) => recipe(draft.metrics), reason));
@@ -57,12 +65,75 @@ export function createControlBridge({ store, mediaLibrary }) {
 
   channel.postMessage({ type: "control-hello" });
 
+  const unsubscribeLiveState = store.subscribe?.((_state, _reason, change = {}) => {
+    if (change.scope !== "live") return;
+    if (!Array.isArray(change.livePatches) || !change.livePatches.length) {
+      sendState();
+      return;
+    }
+    queueLivePatches(change.livePatches);
+    if (change.phase === "scrub") {
+      scheduleLivePatches();
+      return;
+    }
+    flushLivePatches();
+  });
+
   function sendState(stateOverride = null, { targetClientId = "" } = {}) {
+    if (!targetClientId) {
+      cancelPendingLivePatches();
+      liveRevision++;
+    }
     channel.postMessage({
       type: "state",
       state: stateOverride || store.getLiveRenderState?.() || store.getRenderState?.() || store.getState(),
       targetClientId,
+      revision: liveRevision,
+      transport: { sentAtMs: transportTimestampMs() },
     });
+  }
+
+  function queueLivePatches(patches) {
+    for (const patch of patches) {
+      if (!patch?.componentId || !patch?.path) continue;
+      pendingLivePatches.set(`${patch.componentId}:${patch.path}`, patch);
+    }
+  }
+
+  function scheduleLivePatches() {
+    if (livePatchScheduled) return;
+    livePatchScheduled = true;
+    const token = ++livePatchScheduleToken;
+    const schedule = typeof queueMicrotask === "function"
+      ? queueMicrotask
+      : (callback) => Promise.resolve().then(callback);
+    schedule(() => {
+      if (!livePatchScheduled || token !== livePatchScheduleToken) return;
+      livePatchScheduled = false;
+      flushLivePatches();
+    });
+  }
+
+  function flushLivePatches() {
+    if (livePatchScheduled) livePatchScheduleToken++;
+    livePatchScheduled = false;
+    if (!pendingLivePatches.size) return;
+    const baseRevision = liveRevision;
+    liveRevision++;
+    channel.postMessage({
+      type: "live-patch",
+      baseRevision,
+      revision: liveRevision,
+      patches: [...pendingLivePatches.values()],
+      transport: { sentAtMs: transportTimestampMs() },
+    });
+    pendingLivePatches.clear();
+  }
+
+  function cancelPendingLivePatches() {
+    if (livePatchScheduled) livePatchScheduleToken++;
+    livePatchScheduled = false;
+    pendingLivePatches.clear();
   }
 
   function sendMediaFiles(files) {
@@ -80,19 +151,40 @@ export function createControlBridge({ store, mediaLibrary }) {
     sendMediaFiles,
     command,
     close: () => {
+      cancelPendingLivePatches();
+      unsubscribeLiveState?.();
       clearInterval(clientWatchdog);
       channel.close();
     },
   };
 }
 
-export function createOutputBridge({ onState, onMediaFiles, onCommand, onControlHello, mode, outputId = "" }) {
+export function createOutputBridge({ onState, onLivePatch, onMediaFiles, onCommand, onControlHello, mode, outputId = "" }) {
   const channel = new BroadcastChannel(VJ1.channelName);
   const clientId = `${mode}-${outputId || "default"}-${Math.random().toString(36).slice(2)}`;
+  const transportProfiler = createOutputTransportProfiler();
   channel.onmessage = (event) => {
     const msg = event.data || {};
     if (msg.type === "state" && (!msg.targetClientId || msg.targetClientId === clientId)) {
-      onState?.(msg.state);
+      const transport = transportProfiler.receive({
+        kind: "state",
+        revision: msg.revision,
+        sentAtMs: msg.transport?.sentAtMs,
+      });
+      onState?.(msg.state, { revision: Number(msg.revision) || 0, transport });
+    }
+    if (msg.type === "live-patch") {
+      const transport = transportProfiler.receive({
+        kind: "patch",
+        revision: msg.revision,
+        patchCount: msg.patches?.length,
+        sentAtMs: msg.transport?.sentAtMs,
+      });
+      onLivePatch?.(msg.patches || [], {
+        baseRevision: Number(msg.baseRevision) || 0,
+        revision: Number(msg.revision) || 0,
+        transport,
+      });
     }
     if (msg.type === "media-files") onMediaFiles?.(msg.files || []);
     if (msg.type === "command") onCommand?.(msg.command, msg.payload || {});
@@ -104,7 +196,12 @@ export function createOutputBridge({ onState, onMediaFiles, onCommand, onControl
   }
 
   function metrics(metrics) {
-    channel.postMessage({ type: "metrics", clientId, outputId, metrics });
+    channel.postMessage({
+      type: "metrics",
+      clientId,
+      outputId,
+      metrics: { ...metrics, transport: transportProfiler.snapshot() },
+    });
   }
 
   function mappingState(mappingId, mapping, status, meta = {}) {
@@ -115,14 +212,33 @@ export function createOutputBridge({ onState, onMediaFiles, onCommand, onControl
     channel.postMessage({ type: "request-media-files", clientId, mode, mediaIds });
   }
 
+  function requestState() {
+    channel.postMessage({ type: "request-state", clientId, mode, outputId });
+  }
+
   function recoveryState(state, files = []) {
     if (!state?.project?.folderName) return;
     channel.postMessage({ type: "recovery-state", state, files });
   }
 
   hello();
-  setInterval(hello, 2000);
-  return { hello, metrics, mappingState, requestMediaFiles, recoveryState, close: () => channel.close(), clientId };
+  const helloInterval = setInterval(hello, 2000);
+  return {
+    hello,
+    metrics,
+    mappingState,
+    requestMediaFiles,
+    requestState,
+    recoveryState,
+    markTransportApplied: transportProfiler.applied,
+    markTransportRendered: transportProfiler.rendered,
+    recordTransportResync: transportProfiler.resync,
+    close: () => {
+      clearInterval(helloInterval);
+      channel.close();
+    },
+    clientId,
+  };
 }
 
 function activeClientCount(clients) {

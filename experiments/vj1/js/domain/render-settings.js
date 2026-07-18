@@ -1,6 +1,12 @@
 import { VJ1 } from "../constants.js";
 import { normalizeComponentTextureSettings, normalizeSurfaceTextureSettings } from "./render-resolution.js?v=adaptive-component-demand-29";
 
+export const DEFAULT_MAX_FRAME_RATE = 120;
+
+export function renderMaxFrameRate(render = {}) {
+  return positiveInt(render?.maxFrameRate, DEFAULT_MAX_FRAME_RATE, 1, 120);
+}
+
 export function createOutputDefinition(index = 0, width = VJ1.renderWidth, height = VJ1.renderHeight) {
   return {
     id: index === 0 ? "output-main" : `output-${index + 1}`,
@@ -34,6 +40,7 @@ export function normalizeRenderSettings(render = {}) {
     worldHeight,
     componentTexture: normalizeComponentTextureSettings(render.componentTexture, primary),
     surfaceTexture: normalizeSurfaceTextureSettings(render.surfaceTexture, primary),
+    maxFrameRate: renderMaxFrameRate(render),
     pixelDensity: clampNumber(render.pixelDensity, 0.5, 2, 1),
     sampling: normalizeSamplingSettings(render.sampling),
     camera: normalizeCameraSettings(render.camera, primary.width, primary.height),

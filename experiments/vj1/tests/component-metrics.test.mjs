@@ -78,6 +78,22 @@ test("summarizes runtime sample bottlenecks", () => {
   assert.ok(runtime.bottlenecks.some((item) => item.scope === "runtime"));
 });
 
+test("summarizes output transport latency and resyncs independently from rendering", () => {
+  const runtime = summarizeRuntimeSamples([
+    { fps: 60, frameMs: 2, renderCost: 0.12, transport: { stateMessages: 1, patchMessages: 2, patches: 3, lastRevision: 4, deliveryMsAvg: 4, deliveryMsMax: 22, applyMsAvg: 1, applyMsMax: 2, renderMsAvg: 8, renderMsMax: 12, endToEndMsAvg: 13, endToEndMsMax: 38, resyncs: { revision: 1, path: 0, other: 0 } } },
+    { fps: 60, frameMs: 2, renderCost: 0.12, transport: { stateMessages: 0, patchMessages: 1, patches: 1, lastRevision: 5, deliveryMsAvg: 2, deliveryMsMax: 3, applyMsAvg: 1, applyMsMax: 1, renderMsAvg: 6, renderMsMax: 8, endToEndMsAvg: 9, endToEndMsMax: 12, resyncs: { revision: 0, path: 0, other: 0 } } },
+  ]);
+
+  assert.equal(runtime.transport.stateMessages, 1);
+  assert.equal(runtime.transport.patchMessages, 3);
+  assert.equal(runtime.transport.patches, 4);
+  assert.equal(runtime.transport.lastRevision, 5);
+  assert.equal(runtime.transport.deliveryMsMax, 22);
+  assert.equal(runtime.transport.endToEndMsMax, 38);
+  assert.equal(runtime.transport.resyncCount, 1);
+  assert.ok(runtime.bottlenecks.some((item) => item.scope === "transport"));
+});
+
 test("compares current metrics against an older run", () => {
   const previous = analyzeVj1Project(createInitialState());
   const currentState = createInitialState();

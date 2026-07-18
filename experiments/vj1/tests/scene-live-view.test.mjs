@@ -28,7 +28,7 @@ test("Scene and Live presentation lives outside the control orchestrator", () =>
   assert.match(surfaceTemplate, /class="sculpt-card"/);
   assert.match(surfaceTemplate, /data-set-route-source-node=""/);
   assert.match(surfaceTemplate, />Empty</);
-  assert.match(controller, /from "\.\/scene-live-view\.js\?v=live-source-labels-1"/);
+  assert.match(controller, /from "\.\/scene-live-view\.js\?v=live-component-controls-1"/);
   assert.doesNotMatch(controller, /function liveInspectorTemplate\(/);
   assert.doesNotMatch(controller, /function sceneSurfaceTemplate\(/);
 });
@@ -72,6 +72,31 @@ test("Live navigates components by thumbnail and Scene exposes marked significan
   assert.match(significant, /components\.0\.chain\.0\.params\.renderQuality/);
 });
 
+test("Live separates a Component's public controls from its element inspector", () => {
+  const { state, scene } = stateWithScene();
+  const component = state.components[0];
+  scene.snapshot.surfaces[0].sourceNodeId = `component:${encodeURIComponent(component.id)}`;
+  scene.snapshot.surfaces[0].componentId = component.id;
+  component.significantParams = ["chain.0.params.renderQuality", "chain.0.transform.scale"];
+  state.ui.live.selectedComponentId = component.id;
+
+  const controls = liveInspectorTemplate(state);
+  assert.match(controls, /data-live-component-view="controls"/);
+  assert.match(controls, /data-live-component-view="elements"/);
+  assert.match(controls, /data-live-update="opacity"/);
+  assert.match(controls, /data-live-update="speed"/);
+  assert.match(controls, /data-live-update="blend"/);
+  assert.match(controls, /data-live-update="chain\.0\.params\.renderQuality"/);
+  assert.match(controls, /data-live-update="chain\.0\.transform\.scale"/);
+  assert.doesNotMatch(controls, /class="live-chain-outline"/);
+
+  state.ui.live.componentView = "elements";
+  const elements = liveInspectorTemplate(state);
+  assert.match(elements, /class="live-chain-outline"/);
+  assert.match(elements, /aria-label="Selected live element parameters"/);
+  assert.doesNotMatch(elements, /class="live-component-controls"/);
+});
+
 test("Live component-source rows resolve user-facing component names", () => {
   const { state, scene } = stateWithScene();
   const owner = state.components[0];
@@ -95,6 +120,7 @@ test("Live component-source rows resolve user-facing component names", () => {
     opacity: 1,
   });
   state.ui.live.selectedComponentId = owner.id;
+  state.ui.live.componentView = "elements";
 
   const html = liveInspectorTemplate(state);
   assert.match(html, new RegExp(`>${referenced.name}<\\/span>`));

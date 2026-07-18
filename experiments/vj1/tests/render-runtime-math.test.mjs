@@ -5,6 +5,7 @@ import { readFileSync } from "node:fs";
 import {
   componentInstanceTime,
   effectTransformUniforms,
+  eyeballFrameUniforms,
   globalVisualTimeScale,
   instanceTime,
   qualityComputeMultiplier,
@@ -26,10 +27,22 @@ test("render runtime math owns quality timing and transform policy", () => {
   assert.equal(qualityComputeMultiplier({ renderQuality: 0.5 }), 1);
 });
 
+test("unchanged generator params and eyeball animation can remain allocation-stable", () => {
+  const params = { renderQuality: 0.5, gazeRange: 1 };
+  assert.equal(qualityAdjustedGeneratorParams("eyeball", params), params);
+
+  const frame = eyeballFrameUniforms(1, params);
+  const vectorReferences = [frame.gazeDir, frame.irisRight, frame.irisUp];
+  assert.equal(eyeballFrameUniforms(2, params, frame), frame);
+  assert.equal(frame.gazeDir, vectorReferences[0]);
+  assert.equal(frame.irisRight, vectorReferences[1]);
+  assert.equal(frame.irisUp, vectorReferences[2]);
+});
+
 test("output renderer imports runtime policy instead of defining it", () => {
   const rendererSource = readFileSync(new URL("../js/output/output-renderer.js", import.meta.url), "utf8");
 
-  assert.ok(rendererSource.includes('from "./render-runtime-math.js?v=render-coordinate-scope-3"'));
+  assert.ok(rendererSource.includes('from "./render-runtime-math.js?v=gc-allocation-1"'));
   assert.doesNotMatch(rendererSource, /function qualityScaledRenderRequest\(/);
   assert.doesNotMatch(rendererSource, /function eyeballFrameUniforms\(/);
   assert.doesNotMatch(rendererSource, /function globalVisualTimeScale\(/);

@@ -16,6 +16,7 @@ export function buildProjectPayload(state, savedAt = new Date().toISOString()) {
         selectedSceneId: state.ui.live?.selectedSceneId || "",
         sceneSnapshot: state.ui.live?.sceneSnapshot || null,
         transitionDuration: Math.max(0, Number(state.ui.live?.transitionDuration) || 0),
+        paramFadeDuration: Math.max(0, Number(state.ui.live?.paramFadeDuration) || 0),
       },
     },
     global: state.global,

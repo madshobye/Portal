@@ -41,6 +41,29 @@ test("copied Components become references when pasted into a Canvas", () => {
   assert.ok(canvas.chain[0].source.placement.scale > 0);
 });
 
+test("pasted elements also start disabled when their Canvas is on air", () => {
+  const state = createInitialState();
+  const component = createDefaultComponent(0);
+  const canvas = createCanvasComponent(0);
+  state.components = [component, canvas];
+  state.surfaces[0].enabled = true;
+  state.surfaces[0].componentId = canvas.id;
+  const scene = createSceneFromState(state, "Program");
+  state.scenes = [scene];
+  state.ui.live.selectedSceneId = scene.id;
+  state.ui.live.sceneSnapshot = structuredClone(scene.snapshot);
+
+  const result = pasteClipboardPayload(
+    state,
+    { kind: "component", value: component },
+    { kind: "chain", componentId: canvas.id }
+  );
+
+  assert.equal(result.pasted, true);
+  assert.equal(canvas.chain[0].source.componentId, component.id);
+  assert.equal(canvas.chain[0].enabled, false);
+});
+
 test("pasting a Component onto a Canvas list row targets that Canvas chain", () => {
   const state = createInitialState();
   const component = createDefaultComponent(0);

@@ -10,7 +10,7 @@ import {
   normalizePreviewViewports,
   normalizeRenderSettings,
   normalizeSamplingSettings,
-} from "./render-settings.js?v=render-coordinate-scope-3";
+} from "./render-settings.js?v=max-frame-rate-1";
 import {
   applySceneSourceNode,
   normalizeProjectionFit,
@@ -27,7 +27,7 @@ export {
   normalizePreviewViewports,
   normalizeRenderSettings,
   normalizeSamplingSettings,
-} from "./render-settings.js?v=render-coordinate-scope-3";
+} from "./render-settings.js?v=max-frame-rate-1";
 export {
   applySceneSourceNode,
   normalizeProjectionFit,
@@ -244,10 +244,12 @@ export function createInitialState() {
       live: {
         selectedSceneId: "",
         selectedComponentId: "",
+        componentView: "controls",
         sceneSnapshot: null,
         componentOverrides: {},
         sceneOverrides: {},
         transitionDuration: 0,
+        paramFadeDuration: 0,
         transition: null,
       },
       previewViewports: {
@@ -303,6 +305,7 @@ export function createInitialState() {
         mirrored: false,
         maxResolution: false,
       },
+      maxFrameRate: 120,
       upscaling: {
         enabled: false,
         amount: 0.67,
@@ -335,6 +338,7 @@ export function createInitialState() {
       gpuSupported: false,
       renderCost: 0,
       profile: null,
+      transport: null,
       previewFps: 0,
       previewFrameMs: 0,
       previewGpuMs: 0,
@@ -576,6 +580,7 @@ function normalizeLiveUi(live = {}, state = createInitialState()) {
   );
   if (selectedSceneId && Object.keys(componentOverrides).length) sceneOverrides[selectedSceneId] = clone(componentOverrides);
   const transitionDuration = clampNumber(live.transitionDuration, 0, 30, 0);
+  const paramFadeDuration = clampNumber(live.paramFadeDuration, 0, 30, 0);
   const transitionDurationMs = Math.max(0, Number(live.transition?.durationMs) || 0);
   const transitionStartedAtMs = Number(live.transition?.startedAtMs) || 0;
   const transition = transitionDurationMs > 0 && transitionStartedAtMs > 0 && live.transition?.fromSnapshot
@@ -593,12 +598,14 @@ function normalizeLiveUi(live = {}, state = createInitialState()) {
     selectedComponentId: state.components?.some((component) => component.id === live.selectedComponentId)
       ? live.selectedComponentId
       : "",
+    componentView: live.componentView === "elements" ? "elements" : "controls",
     sceneSnapshot: live.sceneSnapshot
       ? normalizeSceneSnapshot(live.sceneSnapshot, state)
       : selectedScene?.snapshot ? clone(selectedScene.snapshot) : null,
     componentOverrides,
     sceneOverrides,
     transitionDuration,
+    paramFadeDuration,
     transition,
   };
 }
@@ -1032,6 +1039,23 @@ export function createSceneFromState(state, name) {
     name,
     notes: "",
     snapshot: createSceneSnapshot(state),
+  };
+}
+
+export function createEmptySceneFromState(state, name) {
+  return {
+    id: uid("scene"),
+    name,
+    notes: "",
+    snapshot: {
+      surfaces: clone((state.surfaces || []).map((surface) => ({
+        ...createSceneSurfaceSnapshot(surface),
+        enabled: false,
+        sourceNodeId: "",
+        componentId: "",
+        outputFrameId: "",
+      }))),
+    },
   };
 }
 

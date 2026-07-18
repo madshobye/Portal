@@ -1,5 +1,7 @@
 import { VJ1 } from "../constants.js";
 import { componentFrameMetrics } from "../domain/component-frame.js";
+import { applyLiveRenderPatches, interpolatedLiveRenderValue, resolveLiveRenderPatches } from "../domain/live-render-patch.js?v=param-fade-1";
+import { renderMaxFrameRate } from "../domain/render-settings.js?v=max-frame-rate-1";
 import { componentTextureSize } from "../domain/render-resolution.js?v=adaptive-component-demand-29";
 import { clamp01, normalizeComponentPipelineSettings, sanitizeState, sceneSourceNodes } from "../domain/models.js?v=surface-media-contract-4";
 import { normalizeParamValue, normalizeParamValues } from "../graph/component-schema.js?v=adaptive-component-demand-29";
@@ -8,7 +10,7 @@ import { RenderNodeRuntime, textureStateKey } from "../graph/render-node-runtime
 import { createPlacedRenderResult, directPlacementKind, transformedPlacementDemandRect } from "../graph/placed-render-result.js?v=adaptive-component-demand-29";
 import { compileComponentPatch, compileShaderSchedule, flattenComponentChain, fuseLocalShaderSchedule, isFusibleShaderJob } from "../graph/render-scheduler.js?v=shader-component-catalog-extraction-1";
 import { getGeneratorComponent } from "../graph/generator-registry.js?v=madstodo-4";
-import { createShaderBuilder, fusedUniformName } from "../shaders/shader-builder.js?v=render-core-contract-1";
+import { createShaderBuilder, fusedUniformName } from "../shaders/shader-builder.js?v=shadertoy-coordinate-contract-2";
 import { getGeneratorShaderComponent } from "../shaders/generator-shaders.js?v=madstodo-4";
 import { getShaderComponent } from "../shaders/shader-registry.js?v=madstodo-4";
 import { applyBlend } from "./blend-utils.js";
@@ -21,19 +23,19 @@ import { applyFontToGlobal, applyFontToTarget } from "./font-loader.js?v=adaptiv
 import { GpuTimerTracker } from "./gpu-timer-tracker.js?v=madstodo-4";
 import { drawGenerator, drawStandby } from "./generators.js?v=standby-grace-1";
 import { drawCover, drawMediaFit, isDrawableMedia } from "./media-utils.js?v=video-active-ownership-1";
-import { chainLayerState, componentRuntimeTimeKey, createMediaReadinessStatus, isReadyMediaItem, renderBufferKey, runtimeComponentGraphMediaState, runtimeMediaStateForSource, staticComponentGraphMediaState, staticComponentGraphState, staticMediaStateForSource, staticSourceState } from "./component-render-state.js?v=render-stability-2";
+import { chainLayerState, componentRuntimeTimeKey, createMediaReadinessStatus, isReadyMediaItem, renderBufferKey, runtimeComponentGraphMediaState, runtimeMediaStateForSource, staticComponentGraphMediaState, staticComponentGraphState, staticMediaStateForSource, staticSourceState } from "./component-render-state.js?v=scene-media-gate-1";
 import { isEffectNode, isSimpleLayer, isSourceNode, mediaSourceFit, nodesInComponentChainOrder, patchLayerForNode, shaderPassFromNode, sourceFromPatchNode, sourceWithNodeParams, withSourceInstance } from "./component-patch-adapter.js?v=shader-component-catalog-extraction-1";
-import { collectOutputMediaReadiness } from "./output-media-readiness.js?v=media-demand-6";
-import { OutputMediaRuntime, cameraSettingsSignature } from "./output-media-runtime.js?v=madstodo-4";
+import { collectOutputMediaReadiness } from "./output-media-readiness.js?v=scene-media-gate-1";
+import { OutputMediaRuntime, cameraSettingsSignature } from "./output-media-runtime.js?v=scene-media-gate-1";
 import { OutputThumbnailRuntime } from "./output-thumbnail-runtime.js?v=output-assets-runtime-extraction-1";
 import { OutputSurfaceRuntime } from "./output-surface-runtime.js?v=standby-grace-1";
 import { stableSurfaceRenderRequest } from "./surface-render-planner.js?v=surface-runtime-extraction-1";
 import { combineContentTransforms, isIdentityTransform, normalizedContentTransform } from "./preview-interaction-geometry.js?v=transform-hit-contract-3";
-import { contentTransformCanvasPlacement } from "./content-coordinate-space.js?v=render-core-contract-1";
+import { contentTransformCanvasPlacement, contentTransformUvMatrices } from "./content-coordinate-space.js?v=gc-allocation-1";
 import { ComponentPreviewInteraction } from "./component-preview-interaction.js?v=drag-lookup-1";
 import { drawBuffer, withShaderInstancePrefix } from "./render-draw-utils.js?v=render-diagnostics-1";
 import { COMPONENT_POST_FRAGMENT_SHADER, COMPONENT_UPSCALE_FRAGMENT_SHADER, LAYER_TRANSFORM_FRAGMENT_SHADER, OVERLAY_BLEND_FRAGMENT_SHADER, RENDER_PASS_VERTEX_SHADER } from "./render-pass-shaders.js?v=render-coordinate-scope-3";
-import { componentInstanceTime, effectTransformUniforms, eyeballFrameUniforms, generatorRateParam, globalVisualTimeScale, instanceTime, qualityAdjustedGeneratorParams, qualityScaledRenderRequest, usesShadertoyInterface } from "./render-runtime-math.js?v=render-coordinate-scope-3";
+import { componentInstanceTime, effectTransformUniforms, eyeballFrameUniforms, generatorRateParam, globalVisualTimeScale, instanceTime, qualityAdjustedGeneratorParams, qualityScaledRenderRequest, usesShadertoyInterface } from "./render-runtime-math.js?v=gc-allocation-1";
 import {
   createRenderRequest,
   defaultProjectSurfaceMapping,
@@ -47,7 +49,7 @@ import {
   outputSpanRect,
   worldSize,
 } from "./render-geometry.js?v=adaptive-component-demand-29";
-import { VjMapper } from "./vj-mapper.js?v=render-diagnostics-1";
+import { VjMapper } from "./vj-mapper.js?v=mapper-raster-state-1";
 import { colorUniform } from "./specialized/model-color.js?v=adaptive-component-demand-29";
 import { SpecializedSourceRuntime } from "./specialized/specialized-source-runtime.js?v=standby-grace-1";
 import {
@@ -71,10 +73,10 @@ export { averageGpuQueryNanoseconds, GpuTimerTracker } from "./gpu-timer-tracker
 export { parseObjMesh } from "./specialized/model-parsers.js?v=adaptive-component-demand-29";
 export { modelDepthCutoff, transformedModelDepthRange } from "./specialized/model-render-math.js?v=model-render-math-extraction-1";
 export { chainTransformDragScale, pointInTransformedRect } from "./preview-interaction-geometry.js?v=transform-hit-contract-3";
-export { advanceRateClock, advanceSpatialScale, componentInstanceTime, effectTransformUniforms, eyeballFrameUniforms, instanceTime, qualityAdjustedGeneratorParams, qualityScaledRenderRequest } from "./render-runtime-math.js?v=render-coordinate-scope-3";
+export { advanceRateClock, advanceSpatialScale, componentInstanceTime, effectTransformUniforms, eyeballFrameUniforms, instanceTime, qualityAdjustedGeneratorParams, qualityScaledRenderRequest } from "./render-runtime-math.js?v=gc-allocation-1";
 export { sourceWithNodeParams } from "./component-patch-adapter.js?v=shader-component-catalog-extraction-1";
 export { fittedThumbnailSize } from "./thumbnail-utils.js?v=thumbnail-utils-extraction-1";
-export { cameraCaptureSettings, cameraSettingsSignature } from "./output-media-runtime.js?v=madstodo-4";
+export { cameraCaptureSettings, cameraSettingsSignature } from "./output-media-runtime.js?v=scene-media-gate-1";
 export {
   terrainExpandedGridWireVertices,
   terrainExpandedWireVertices,
@@ -130,11 +132,17 @@ export class OutputRenderer {
     this.componentSourceUse = new Map();
     this.componentBufferUse = new Map();
     this.componentGpuBufferUse = new Map();
+    this.eyeballUniformFrames = new Map();
+    this.eyeballUniformFrameUse = new Map();
+    this.generatorUniformStates = new Map();
+    this.generatorUniformStateUse = new Map();
     this.componentPatches = new Map();
     this.componentById = new Map();
     this.recordingFrameById = new Map();
     this.routeSourceNodeById = new Map();
     this.routeSourceNodeByLegacyKey = new Map();
+    this.liveParamFades = new Map();
+    this.liveParamFadeRestores = [];
     this.mediaRuntime = new OutputMediaRuntime({
       getRenderSettings: () => this.state?.render || {},
       requestMediaFiles: (ids) => this.requestMediaFiles?.(ids),
@@ -296,6 +304,10 @@ export class OutputRenderer {
     this.componentSourceUse?.clear?.();
     this.componentBufferUse?.clear?.();
     this.componentGpuBufferUse?.clear?.();
+    this.eyeballUniformFrames?.clear?.();
+    this.eyeballUniformFrameUse?.clear?.();
+    this.generatorUniformStates?.clear?.();
+    this.generatorUniformStateUse?.clear?.();
     this.sourcePg = null;
     this.mainMix = null;
     this.fxTargets = [null, null];
@@ -503,6 +515,7 @@ export class OutputRenderer {
     const previousMappingSignature = this.mappingSignature;
     const mappingInteractionActive = !!this.mapper?.isActive?.();
     const preparedState = normalized ? nextState : sanitizeState(nextState);
+    this.clearLiveParamFades();
     this.state = this.previewInteraction?.reconcileIncomingState(preparedState) || preparedState;
     this.rebuildRouteLookups();
     const nextCameraSignature = cameraSettingsSignature(this.state.render);
@@ -536,6 +549,71 @@ export class OutputRenderer {
     }
     this.setCalibrate(this.shouldCalibrateFromState());
     this.syncMapperOverlayMode();
+  }
+
+  applyLivePatches(patches = [], nowMs = performance.now()) {
+    const resolution = resolveLiveRenderPatches(this.state, patches);
+    if (!resolution.applied) return resolution;
+    const durationMs = Math.max(0, Number(this.state?.ui?.live?.paramFadeDuration) || 0) * 1000;
+    const candidates = resolution.destinations.map((destination) => {
+      const key = `${destination.componentId}:${destination.path}`;
+      const active = this.liveParamFades.get(key);
+      const from = active
+        ? interpolatedLiveRenderValue(active.from, active.to, active.startedAtMs, active.durationMs, nowMs)
+        : destination.target[destination.leaf];
+      return { destination, key, active, from };
+    });
+    const result = applyLiveRenderPatches(this.state, patches);
+    if (!result.applied) return result;
+    for (const candidate of candidates) {
+      const { destination, key, active, from } = candidate;
+      const to = destination.value;
+      const canFade = durationMs > 0 && Number.isFinite(from) && Number.isFinite(to);
+      if (!canFade || Object.is(from, to)) {
+        if (!active || !Object.is(active.to, to)) this.liveParamFades.delete(key);
+        continue;
+      }
+      // The final change event repeats the last scrub target. Preserve the
+      // running clock rather than restarting the same fade on pointer release.
+      if (active && Object.is(active.to, to)) continue;
+      this.liveParamFades.set(key, {
+        target: destination.target,
+        leaf: destination.leaf,
+        from,
+        to,
+        startedAtMs: Number(nowMs) || 0,
+        durationMs,
+      });
+    }
+    for (const componentId of result.componentIds) this.refreshComponentLookup(componentId);
+    return result;
+  }
+
+  applyLiveParamFadeFrame(nowMs = performance.now()) {
+    this.liveParamFadeRestores.length = 0;
+    for (const [key, fade] of this.liveParamFades) {
+      if (!Object.is(fade.target[fade.leaf], fade.to)) {
+        this.liveParamFades.delete(key);
+        continue;
+      }
+      if (Number(nowMs) >= fade.startedAtMs + fade.durationMs) {
+        this.liveParamFades.delete(key);
+        continue;
+      }
+      const value = interpolatedLiveRenderValue(fade.from, fade.to, fade.startedAtMs, fade.durationMs, nowMs);
+      this.liveParamFadeRestores.push(fade);
+      fade.target[fade.leaf] = value;
+    }
+  }
+
+  restoreLiveParamFadeFrame() {
+    for (const fade of this.liveParamFadeRestores) fade.target[fade.leaf] = fade.to;
+    this.liveParamFadeRestores.length = 0;
+  }
+
+  clearLiveParamFades() {
+    this.restoreLiveParamFadeFrame();
+    this.liveParamFades.clear();
   }
 
   rebuildRouteLookups() {
@@ -758,9 +836,11 @@ export class OutputRenderer {
   draw() {
     if (!this.state) return;
     this.mediaRuntime.beginFrame();
+    this.applyLiveParamFadeFrame();
     try {
       return this.drawFrame();
     } finally {
+      this.restoreLiveParamFadeFrame();
       this.mediaRuntime.endFrame();
     }
   }
@@ -2243,6 +2323,17 @@ export class OutputRenderer {
       ? this.continuousRateTime(`${instanceId || generatorId}:${rateParam}`, componentTime, rate)
       : componentTime;
     const shaderParams = rateParam ? { ...qualityParams, [rateParam]: 1 } : qualityParams;
+    const generatorUniformKey = `${generatorId}:${instanceId || generatorId}`;
+    const generatorUniformState = contentTransformUvMatrices(
+      contentTransform,
+      this.generatorUniformStates.get(generatorUniformKey)
+    );
+    generatorUniformState.resolution ||= [0, 0];
+    generatorUniformState.iResolution ||= [0, 0, 1];
+    generatorUniformState.iMouse ||= [0, 0, 0, 0];
+    generatorUniformState.iDate ||= [0, 0, 0, 0];
+    this.generatorUniformStates.set(generatorUniformKey, generatorUniformState);
+    this.generatorUniformStateUse.set(generatorUniformKey, this.frameIndex);
     const started = this.collectDetailedProfile ? performance.now() : 0;
     const sample = this.collectDetailedProfile ? {
       type: "shader-generator",
@@ -2257,22 +2348,31 @@ export class OutputRenderer {
       drawShaderTarget(target, () => {
       clearShaderTarget(target);
       applyShaderTarget(target, shader);
-      const contentMatrix = effectTransformUniforms(contentTransform).forward;
+      const contentMatrix = generatorUniformState.sampling;
       setShaderUniformIfPresent(shader, "useContentTransform", isIdentityTransform(contentTransform) ? 0 : 1);
       setShaderUniformIfPresent(shader, "contentUvMatrix", contentMatrix);
       const shadertoyInterface = usesShadertoyInterface(component);
       if (shadertoyInterface) {
         const now = new Date();
         const drawingSize = shaderDrawingBufferSize(target, renderRequest.width, renderRequest.height);
-        setShaderUniformIfPresent(shader, "iResolution", [drawingSize.width, drawingSize.height, 1]);
+        generatorUniformState.iResolution[0] = drawingSize.width;
+        generatorUniformState.iResolution[1] = drawingSize.height;
+        generatorUniformState.iResolution[2] = 1;
+        setShaderUniformIfPresent(shader, "iResolution", generatorUniformState.iResolution);
         setShaderUniformIfPresent(shader, "iTime", shaderTime);
         setShaderUniformIfPresent(shader, "iTimeDelta", this.visualDeltaSeconds);
         setShaderUniformIfPresent(shader, "iFrame", this.frameIndex);
         setShaderUniformIfPresent(shader, "iFrameRate", frameRate());
-        setShaderUniformIfPresent(shader, "iMouse", [0, 0, 0, 0]);
-        setShaderUniformIfPresent(shader, "iDate", [now.getFullYear(), now.getMonth() + 1, now.getDate(), now.getHours() * 3600 + now.getMinutes() * 60 + now.getSeconds()]);
+        setShaderUniformIfPresent(shader, "iMouse", generatorUniformState.iMouse);
+        generatorUniformState.iDate[0] = now.getFullYear();
+        generatorUniformState.iDate[1] = now.getMonth() + 1;
+        generatorUniformState.iDate[2] = now.getDate();
+        generatorUniformState.iDate[3] = now.getHours() * 3600 + now.getMinutes() * 60 + now.getSeconds();
+        setShaderUniformIfPresent(shader, "iDate", generatorUniformState.iDate);
       } else {
-        shader.setUniform("resolution", [renderRequest.width, renderRequest.height]);
+        generatorUniformState.resolution[0] = renderRequest.width;
+        generatorUniformState.resolution[1] = renderRequest.height;
+        shader.setUniform("resolution", generatorUniformState.resolution);
         setShaderUniformIfPresent(shader, "time", shaderTime);
       }
       this.setShaderParamUniforms(shader, component, shaderParams, {
@@ -2280,10 +2380,13 @@ export class OutputRenderer {
         onlyPresent: shadertoyInterface || generatorId === "eyeball",
       });
       if (generatorId === "eyeball") {
-        const eye = eyeballFrameUniforms(shaderTime, shaderParams);
-        setShaderUniformIfPresent(shader, "eyeGazeDir", eye.gazeDir);
-        setShaderUniformIfPresent(shader, "eyeIrisRight", eye.irisRight);
-        setShaderUniformIfPresent(shader, "eyeIrisUp", eye.irisUp);
+        const eyeKey = instanceId || generatorId;
+        const eye = eyeballFrameUniforms(shaderTime, shaderParams, this.eyeballUniformFrames.get(eyeKey));
+        this.eyeballUniformFrames.set(eyeKey, eye);
+        this.eyeballUniformFrameUse.set(eyeKey, this.frameIndex);
+        setDynamicShaderUniformIfPresent(shader, "eyeGazeDir", eye.gazeDir);
+        setDynamicShaderUniformIfPresent(shader, "eyeIrisRight", eye.irisRight);
+        setDynamicShaderUniformIfPresent(shader, "eyeIrisUp", eye.irisUp);
         setShaderUniformIfPresent(shader, "eyeBlink", eye.blink);
       }
       drawShaderTargetRect(target, renderRequest.width, renderRequest.height);
@@ -2440,6 +2543,16 @@ export class OutputRenderer {
     }
     for (const key of Array.from(this.sourceNodeRuntimes.keys())) {
       if (!this.componentSource.has(key)) this.sourceNodeRuntimes.delete(key);
+    }
+    for (const [key, lastUsed] of this.eyeballUniformFrameUse) {
+      if (this.frameIndex - lastUsed <= RENDER_CACHE_IDLE_FRAMES) continue;
+      this.eyeballUniformFrameUse.delete(key);
+      this.eyeballUniformFrames.delete(key);
+    }
+    for (const [key, lastUsed] of this.generatorUniformStateUse) {
+      if (this.frameIndex - lastUsed <= RENDER_CACHE_IDLE_FRAMES) continue;
+      this.generatorUniformStateUse.delete(key);
+      this.generatorUniformStates.delete(key);
     }
   }
 
@@ -2998,11 +3111,26 @@ export class OutputRenderer {
   }
 
   outputMediaReadiness() {
+    return this.mediaReadinessForState(this.state);
+  }
+
+  prepareOutputState(state) {
+    const status = this.mediaReadinessForState(state);
+    this.mediaRuntime.reserveMedia(status.mediaIds);
+    return status;
+  }
+
+  clearPreparedOutputState() {
+    this.mediaRuntime.reserveMedia();
+  }
+
+  mediaReadinessForState(state) {
+    const frame = frameSize(state?.render || {});
     const status = collectOutputMediaReadiness({
       mode: this.mode,
-      state: this.state,
+      state,
       media: this.media,
-      acquireMedia: (id) => this.acquireMedia(id),
+      acquireMedia: (id) => this.mediaRuntime.acquireMedia(this.media.get(id), { width: frame.width }),
     });
     this.requestMissingMediaBatch(Array.from(status.missingIds));
     return status;
@@ -3020,7 +3148,7 @@ export class OutputRenderer {
     this.gpuTimer.poll(this.frameIndex);
     const frameMs = Math.max(0, performance.now() - this.frameStart);
     const fps = frameRate();
-    const renderCost = frameMs / (1000 / 120);
+    const renderCost = frameMs / (1000 / renderMaxFrameRate(this.state?.render));
     this.updateSmoothedMetrics({ fps, frameMs, renderCost });
     this.updateGpuMetric();
     if (this.hud) {
@@ -3361,6 +3489,24 @@ function shaderDrawingBufferSize(target, fallbackWidth, fallbackHeight) {
 
 function setShaderUniformIfPresent(shader, name, value) {
   if (shader?.uniforms?.[name]) shader.setUniform(name, value);
+}
+
+// p5 caches a changed array uniform with `data.slice(0)`. Animation vectors
+// change every frame, so that cache creates garbage without ever skipping an
+// upload. The renderer already exposes the same typed upload path internally;
+// use it for known-dynamic values and retain the ordinary p5 cache for stable
+// uniforms such as resolution and transform matrices.
+function setDynamicShaderUniformIfPresent(shader, name, value) {
+  const uniform = shader?.uniforms?.[name];
+  if (!uniform) return;
+  if (typeof shader?._renderer?.updateUniformValue !== "function") {
+    shader.setUniform(name, value);
+    return;
+  }
+  shader._renderer.updateUniformValue(shader, uniform, value);
+  if (!Array.isArray(uniform._cachedData) || !Array.isArray(value)) return;
+  uniform._cachedData.length = value.length;
+  for (let index = 0; index < value.length; index++) uniform._cachedData[index] = value[index];
 }
 
 

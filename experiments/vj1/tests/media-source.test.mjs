@@ -8,7 +8,7 @@ import { normalizeParamValue, renderQualityScale } from "../js/graph/component-s
 import { getGeneratorComponent, listGeneratorComponents } from "../js/graph/generator-registry.js";
 import { RenderNodeRuntime, textureStateKey } from "../js/graph/render-node-runtime.js";
 import { compileComponentPatch } from "../js/graph/render-scheduler.js?v=world-frame-27";
-import { shouldHoldCurrentOutputState } from "../js/output/output-app.js";
+import { hasActiveLiveTransition, outputSceneId, queuedSceneTransitionState, retimePreparedSceneTransition, shouldHoldCurrentOutputState, shouldPrepareLiveSceneState, transitionTerminalState } from "../js/output/output-app.js";
 import { drawMediaFit } from "../js/output/media-utils.js?v=surface-media-contract-5";
 import { advanceRateClock, advanceSpatialScale, modelDepthCutoff, OutputRenderer, parseObjMesh, qualityAdjustedGeneratorParams, qualityScaledRenderRequest, resolutionScaledStrokeWidth, sourceWithNodeParams, terrainExpandedGridWireVertices, terrainExpandedWireVertices, terrainGridSize, terrainSafeNearDistance, terrainSurfaceGridVertices, terrainSurfaceTriangleIndices, terrainTriangleEdgeUvs, transformedModelDepthRange } from "../js/output/output-renderer.js?v=world-frame-27";
 import { terrainCameraView } from "../js/output/specialized/specialized-source-runtime.js";
@@ -191,8 +191,9 @@ test("Shadertoy base warp is exposed as a generator with clock speed", () => {
   assert.equal(component.params.find((param) => param.id === "amount").defaultValue, 1);
   assert.ok(builderSource.includes('component?.type === "shadertoy"'));
   assert.ok(builderSource.includes("uniform vec3 iResolution"));
-  assert.ok(builderSource.includes("1.0 - gl_FragCoord.y / iResolution.y"));
-  assert.ok(builderSource.includes("shadertoyFragCoord = shaderUv * iResolution.xy"));
+  assert.ok(builderSource.includes("varying vec2 vTexCoord;"));
+  assert.ok(builderSource.includes("vec2 baseUv = vTexCoord;"));
+  assert.ok(builderSource.includes("vec2(shaderUv.x, 1.0 - shaderUv.y) * iResolution.xy"));
   assert.ok(builderSource.includes("vj1MainImage(fragColor, shadertoyFragCoord)"));
   assert.ok(rendererSource.includes('setShaderUniformIfPresent(shader, "iTime", shaderTime)'));
   assert.ok(rendererSource.includes("shaderDrawingBufferSize(target"));
@@ -894,6 +895,55 @@ test("output client holds current project state during control window refresh bo
   restored.media = [{ id: "media/a.png", name: "a.png", type: "image" }];
   assert.equal(shouldHoldCurrentOutputState(restored, current), false);
   assert.equal(shouldHoldCurrentOutputState(boot, null), false);
+});
+
+test("output defers a requested Live Scene and starts its transition at activation time", () => {
+  const current = createInitialState();
+  current.ui.selectedSceneId = "scene-a";
+  const requested = structuredClone(current);
+  requested.ui.selectedSceneId = "scene-b";
+  requested.liveTransition = { id: "transition", startedAtMs: 10, durationMs: 1000 };
+
+  assert.equal(outputSceneId(requested), "scene-b");
+  assert.equal(shouldPrepareLiveSceneState(requested, current, "output"), true);
+  assert.equal(shouldPrepareLiveSceneState(requested, current, "preview"), false);
+  assert.equal(shouldPrepareLiveSceneState(current, current, "output"), false);
+  const activated = retimePreparedSceneTransition(requested, 5000);
+  assert.equal(activated.liveTransition.startedAtMs, 5000);
+  assert.equal(requested.liveTransition.startedAtMs, 10);
+});
+
+test("a one-slot Scene queue transitions from the completed program target", () => {
+  const sceneA = createInitialState();
+  sceneA.ui.selectedSceneId = "scene-a";
+  const sceneB = structuredClone(sceneA);
+  sceneB.ui.selectedSceneId = "scene-b";
+  sceneB.liveTransition = {
+    id: "a-to-b",
+    startedAtMs: 1000,
+    durationMs: 1000,
+    fromState: sceneA,
+  };
+  const latestRequested = structuredClone(sceneB);
+  latestRequested.ui.selectedSceneId = "scene-d";
+  latestRequested.ui.live.transitionDuration = 2;
+  latestRequested.liveTransition = {
+    id: "c-to-d",
+    startedAtMs: 1200,
+    durationMs: 2000,
+    fromState: { ...sceneB, ui: { ...sceneB.ui, selectedSceneId: "scene-c" } },
+  };
+
+  assert.equal(hasActiveLiveTransition(sceneB, 1500), true);
+  assert.equal(hasActiveLiveTransition(sceneB, 2000), false);
+  const completedB = transitionTerminalState(sceneB);
+  const queued = queuedSceneTransitionState(latestRequested, completedB, 2050);
+  assert.equal(outputSceneId(queued.liveTransition.fromState), "scene-b");
+  assert.equal(outputSceneId(queued), "scene-d");
+  assert.equal(queued.liveTransition.startedAtMs, 2050);
+  assert.equal(queued.liveTransition.durationMs, 2000);
+  assert.equal(queued.liveTransition.componentsShared, false);
+  assert.equal(queued.liveTransition.fromState.liveTransition, undefined);
 });
 
 test("active output can return project state and files to a refreshed control window", () => {

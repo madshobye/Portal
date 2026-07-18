@@ -3,6 +3,7 @@ import { touchComponentUsed, touchRecordingFrameUsed } from "../domain/component
 import { bindReorderList } from "./reorder-list.js";
 import { formatTrimTime, roundTrimTime } from "./component-view.js?v=madstodo-4";
 import { getByPath, readInputValue, setByPath, setByPathCreate, syncRangeValue } from "./path-input-utils.js?v=path-input-utils-extraction-1";
+import { createLiveRenderPatch } from "../domain/live-render-patch.js?v=live-param-patch-1";
 
 export function createInputController({
   store,
@@ -312,15 +313,16 @@ export function createInputController({
     const path = control.dataset.colorPath;
     if (!path) return;
     const value = colorValueFromControl(control);
+    const componentId = control.dataset.liveComponentId;
     updateLiveAware(control.dataset.colorMode === "live", (draft) => {
       if (control.dataset.colorMode === "live") {
-        setLiveOverride(draft, control.dataset.liveComponentId, path, value);
+        setLiveOverride(draft, componentId, path, value);
         return;
       }
       const setter = path.includes(".source.params.") ? setByPathCreate : setByPath;
       setter(draft, path, value);
       syncSceneEdits(draft, path);
-    }, reason);
+    }, reason, [createLiveRenderPatch(componentId, path, value)]);
   }
 
   function updateVideoTrimFromInputs(control, activeRole, reason) {
@@ -364,16 +366,20 @@ export function createInputController({
     minInput.value = String(minValue);
     maxInput.value = String(maxValue);
     syncParamRangeControl(control, minValue, maxValue);
+    const componentId = minInput.dataset.liveComponentId;
     updateLiveAware(!!minInput.dataset.liveUpdate, (draft) => {
       if (minInput.dataset.liveUpdate) {
-        setLiveOverride(draft, minInput.dataset.liveComponentId, minPath, minValue);
-        setLiveOverride(draft, minInput.dataset.liveComponentId, maxPath, maxValue);
+        setLiveOverride(draft, componentId, minPath, minValue);
+        setLiveOverride(draft, componentId, maxPath, maxValue);
         return;
       }
       setByPathCreate(draft, minPath, minValue);
       setByPathCreate(draft, maxPath, maxValue);
       syncSceneEdits(draft, minPath);
-    }, reason);
+    }, reason, [
+      createLiveRenderPatch(componentId, minPath, minValue),
+      createLiveRenderPatch(componentId, maxPath, maxValue),
+    ]);
   }
 
   function togglePathFromButton(button, reason) {
@@ -388,12 +394,15 @@ export function createInputController({
   }
 
   function updateLivePathFromInput(input, reason) {
+    const componentId = input.dataset.liveComponentId;
+    const path = input.dataset.liveUpdate;
+    const value = readInputValue(input);
     updateLiveAware(true, (draft) => setLiveOverride(
       draft,
-      input.dataset.liveComponentId,
-      input.dataset.liveUpdate,
-      readInputValue(input)
-    ), reason);
+      componentId,
+      path,
+      value
+    ), reason, [createLiveRenderPatch(componentId, path, value)]);
   }
 
   function toggleLivePathFromButton(button, reason) {
@@ -401,7 +410,12 @@ export function createInputController({
     const path = button.dataset.liveToggle;
     if (!componentId || !path) return;
     const nextValue = applyOptimisticToggleIntent(button);
-    updateLiveAware(true, (draft) => setLiveOverride(draft, componentId, path, nextValue), reason);
+    updateLiveAware(
+      true,
+      (draft) => setLiveOverride(draft, componentId, path, nextValue),
+      reason,
+      [createLiveRenderPatch(componentId, path, nextValue)]
+    );
     selectToggleTarget(button);
   }
 
@@ -414,9 +428,9 @@ export function createInputController({
     else if (action === "chain-item") store.selectChainItem(id);
   }
 
-  function updateLiveAware(isLive, recipe, reason) {
+  function updateLiveAware(isLive, recipe, reason, livePatches = []) {
     if (isLive && typeof store.updateLive === "function") {
-      store.updateLive(recipe, reason);
+      store.updateLive(recipe, { reason, livePatches });
       return;
     }
     store.update(recipe, reason);

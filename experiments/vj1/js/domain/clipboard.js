@@ -1,6 +1,7 @@
 import { clone, createSceneSurfaceSnapshot, syncLiveSnapshotFromScene, uid } from "./models.js?v=render-coordinate-scope-3";
 import { componentFrameMetrics } from "./component-frame.js?v=adaptive-component-demand-29";
 import { insertChainItemNearSelection } from "./chain-operations.js?v=adaptive-component-demand-29";
+import { initializeLiveChainInsertion } from "./scene-routing.js?v=live-insertion-1";
 
 export const VJ1_CLIPBOARD_TYPE = "application/x-vj1-item";
 
@@ -142,6 +143,7 @@ function pasteMedia(draft, source, target) {
 function insertIntoTarget(draft, target, item) {
   const component = targetComponent(draft, target);
   if (!component || !item) return { pasted: false, reason: "missing-target" };
+  initializeLiveChainInsertion(draft, component.id, item);
   component.chain ||= [];
   if (target.kind === "group") {
     const group = findChainItem(component.chain, target.itemId);

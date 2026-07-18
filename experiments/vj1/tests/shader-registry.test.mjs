@@ -287,6 +287,13 @@ test("generator transforms change UV coordinates without changing the render tar
     builderSource.indexOf("function shadertoyFragmentSource(")
   );
   assert.ok(!standaloneAdapter.includes("gl_FragCoord"));
+  const shadertoyAdapter = builderSource.slice(
+    builderSource.indexOf("function shadertoyFragmentSource("),
+    builderSource.indexOf("function hasRenderQualityParam(")
+  );
+  assert.ok(shadertoyAdapter.includes("varying vec2 vTexCoord;"));
+  assert.ok(shadertoyAdapter.includes("vec2 baseUv = vTexCoord;"));
+  assert.doesNotMatch(shadertoyAdapter, /vec2 baseUv\s*=.*gl_FragCoord/);
 });
 
 test("spatial field effects use screen-oriented y coordinates for handle translation", () => {
@@ -401,8 +408,9 @@ test("Shadertoy generator keeps mainImage source behind the compatibility wrappe
   assert.ok(!component.code.includes("void main()"));
   assert.ok(fragmentSource.includes("void main()"));
   assert.ok(fragmentSource.includes("void vj1MainImage(out vec4 fragColor, in vec2 fragCoord)"));
-  assert.ok(fragmentSource.includes("1.0 - gl_FragCoord.y / iResolution.y"));
-  assert.ok(fragmentSource.includes("shadertoyFragCoord = shaderUv * iResolution.xy"));
+  assert.ok(fragmentSource.includes("varying vec2 vTexCoord;"));
+  assert.ok(fragmentSource.includes("vec2 baseUv = vTexCoord;"));
+  assert.ok(fragmentSource.includes("shadertoyFragCoord = vec2(shaderUv.x, 1.0 - shaderUv.y) * iResolution.xy"));
   assert.ok(fragmentSource.includes("vj1MainImage(fragColor, shadertoyFragCoord)"));
   assert.ok(fragmentSource.includes("uniform float renderQuality;"));
   assert.ok(!fragmentSource.includes("void mainImage"));

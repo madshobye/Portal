@@ -14,7 +14,7 @@ import {
   localContentDragDelta,
 } from "../js/output/content-coordinate-space.js";
 import { SharedFramebufferTarget, unwrapRenderTarget } from "../js/output/shared-framebuffer-target.js";
-import { mapperFragmentShaderSource, mapperTransitionFragmentShaderSource, mapperVertexShaderSource, normalizedSourceRect, projectedSurfaceAspect, projectionFitMode, surfaceQuadVertices } from "../js/output/vj-mapper.js";
+import { mapperFragmentShaderSource, mapperTransitionFragmentShaderSource, mapperVertexShaderSource, normalizedSourceRect, projectedSurfaceAspect, projectionFitMode, surfaceQuadVertices, VjMapper } from "../js/output/vj-mapper.js";
 import { createShaderBuilder } from "../js/shaders/shader-builder.js";
 import { getShaderComponent } from "../js/shaders/shader-registry.js";
 
@@ -88,6 +88,19 @@ test("content coordinates preserve right and down across drag Canvas and UV boun
   const sourceCenter = applyMat3(sampling, [0.6, 0.6]);
   assert.ok(Math.abs(sourceCenter[0] - 0.5) < 1e-9);
   assert.ok(Math.abs(sourceCenter[1] - 0.5) < 1e-9);
+});
+
+test("content transform matrices support allocation-stable in-place updates", () => {
+  const matrices = contentTransformUvMatrices({ x: 0.1, scale: 1.2 });
+  const value = matrices.value;
+  const sampling = matrices.sampling;
+  const placement = matrices.placement;
+
+  assert.equal(contentTransformUvMatrices({ y: -0.25, rotation: 0.4 }, matrices), matrices);
+  assert.equal(matrices.value, value);
+  assert.equal(matrices.sampling, sampling);
+  assert.equal(matrices.placement, placement);
+  assert.equal(matrices.value.y, -0.25);
 });
 
 test("raw WebGL storage orientation is explicit and separate from Composition coordinates", () => {
@@ -263,6 +276,40 @@ test("mapper applies homography per vertex and draws centered projective quads",
     { x: -320, y: 180 },
     { x: 320, y: 180 },
   ]);
+});
+
+test("mapped shader quads suppress inherited strokes including the strip diagonal", () => {
+  const names = ["push", "pop", "noStroke", "beginShape", "vertex", "endShape", "TRIANGLE_STRIP"];
+  const previous = Object.fromEntries(names.map((name) => [name, globalThis[name]]));
+  const calls = [];
+  globalThis.push = () => calls.push(["push"]);
+  globalThis.pop = () => calls.push(["pop"]);
+  globalThis.noStroke = () => calls.push(["noStroke"]);
+  globalThis.beginShape = (mode) => calls.push(["beginShape", mode]);
+  globalThis.vertex = (...args) => calls.push(["vertex", ...args]);
+  globalThis.endShape = () => calls.push(["endShape"]);
+  globalThis.TRIANGLE_STRIP = "triangle-strip";
+  try {
+    new VjMapper()._drawSurfaceQuad([
+      { x: 0, y: 0 }, { x: 10, y: 0 }, { x: 0, y: 10 }, { x: 10, y: 10 },
+    ]);
+    assert.deepEqual(calls, [
+      ["push"],
+      ["noStroke"],
+      ["beginShape", "triangle-strip"],
+      ["vertex", 0, 0, 0],
+      ["vertex", 10, 0, 0],
+      ["vertex", 0, 10, 0],
+      ["vertex", 10, 10, 0],
+      ["endShape"],
+      ["pop"],
+    ]);
+  } finally {
+    for (const name of names) {
+      if (previous[name] === undefined) delete globalThis[name];
+      else globalThis[name] = previous[name];
+    }
+  }
 });
 
 test("projection mapping exposes cover contain and stretch without another render pass", () => {

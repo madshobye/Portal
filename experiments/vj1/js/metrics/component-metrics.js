@@ -67,6 +67,9 @@ export function reportVj1MetricsMarkdown(metrics = {}) {
     if (metrics.runtime.profile?.sampleCount) {
       lines.push(`- Shader profile: ${formatNumber(metrics.runtime.profile.shaderPassesAvg, 1)} pass(es)/sample, ${formatNumber(metrics.runtime.profile.shaderChainsAvg, 1)} chain(s)/sample, ${formatNumber(metrics.runtime.profile.shaderHandoffsAvg, 1)} handoff(s)/sample`);
     }
+    if (metrics.runtime.transport?.sampleCount) {
+      lines.push(`- Output transport: ${metrics.runtime.transport.patchMessages} patch message(s), ${metrics.runtime.transport.stateMessages} full state(s), delivery max ${formatNumber(metrics.runtime.transport.deliveryMsMax, 1)} ms, visible max ${formatNumber(metrics.runtime.transport.endToEndMsMax, 1)} ms`);
+    }
   }
   lines.push("");
   if (metrics.runtime?.profile?.slowPasses?.length) {
@@ -183,6 +186,7 @@ export function summarizeRuntimeSamples(samples = []) {
       previewFrameMs: numberOrNull(sample.previewFrameMs),
       previewRenderCost: numberOrNull(sample.previewRenderCost),
       profile: sample.profile && typeof sample.profile === "object" ? sample.profile : null,
+      transport: sample.transport && typeof sample.transport === "object" ? sample.transport : null,
       message: sample.message || "",
     }))
     .filter((sample) => sample.fps !== null || sample.frameMs !== null || sample.renderCost !== null || sample.previewFps !== null);
@@ -191,6 +195,7 @@ export function summarizeRuntimeSamples(samples = []) {
   const frameValues = clean.map((sample) => sample.frameMs ?? sample.previewFrameMs).filter(isFiniteNumber);
   const costValues = clean.map((sample) => sample.renderCost ?? sample.previewRenderCost).filter(isFiniteNumber);
   const profile = summarizeRuntimeProfiles(clean.map((sample) => sample.profile).filter(Boolean));
+  const transport = summarizeRuntimeTransport(clean.map((sample) => sample.transport).filter(Boolean));
   const warmupSampleCount = clean.length > 6 ? 3 : 0;
   const steadyClean = warmupSampleCount ? clean.slice(warmupSampleCount) : clean;
   const steady = summarizeRuntimeBasics(steadyClean);
@@ -205,6 +210,7 @@ export function summarizeRuntimeSamples(samples = []) {
     warmupSampleCount,
     steady,
     profile,
+    transport,
     bottlenecks: [],
   };
 
@@ -215,16 +221,25 @@ export function summarizeRuntimeSamples(samples = []) {
     result.bottlenecks.push(bottleneck("warn", "runtime", `95th percentile frame time is ${formatNumber(result.frameMsP95, 1)} ms.`));
   }
   if (result.sampleCount && result.renderCostP95 > 1) {
-    result.bottlenecks.push(bottleneck("critical", "runtime", `95th percentile render cost is ${formatNumber(result.renderCostP95 * 100, 0)}% of a 120fps frame budget.`));
+    result.bottlenecks.push(bottleneck("critical", "runtime", `95th percentile render cost is ${formatNumber(result.renderCostP95 * 100, 0)}% of the configured frame budget.`));
   }
   if (steady.sampleCount && steady.renderCostP95 > 1) {
-    result.bottlenecks.push(bottleneck("critical", "runtime", `Steady 95th percentile render cost is ${formatNumber(steady.renderCostP95 * 100, 0)}% of a 120fps frame budget.`));
+    result.bottlenecks.push(bottleneck("critical", "runtime", `Steady 95th percentile render cost is ${formatNumber(steady.renderCostP95 * 100, 0)}% of the configured frame budget.`));
   }
   if (profile.sampleCount && profile.shaderHandoffsAvg > 0.5) {
     result.bottlenecks.push(bottleneck("warn", "runtime", `Shader handoffs average ${formatNumber(profile.shaderHandoffsAvg, 1)} per sample.`));
   }
   if (profile.sampleCount && profile.maxShaderChainLengthMax >= 5) {
     result.bottlenecks.push(bottleneck("info", "runtime", `Longest observed shader chain was ${profile.maxShaderChainLengthMax} pass(es).`));
+  }
+  if (transport.resyncCount > 0) {
+    result.bottlenecks.push(bottleneck("warn", "transport", `${transport.resyncCount} output transport resync request(s) occurred.`));
+  }
+  if (transport.deliveryMsMax > 16.7) {
+    result.bottlenecks.push(bottleneck("warn", "transport", `Maximum control-to-Output delivery delay was ${formatNumber(transport.deliveryMsMax, 1)} ms.`));
+  }
+  if (transport.endToEndMsMax > 33.4) {
+    result.bottlenecks.push(bottleneck("warn", "transport", `Maximum parameter-to-visible-frame latency was ${formatNumber(transport.endToEndMsMax, 1)} ms.`));
   }
   return result;
 }
@@ -263,6 +278,35 @@ function summarizeRuntimeProfiles(profiles = []) {
     componentMsP95: percentile(clean.map((profile) => Number(profile.componentWallMs ?? profile.componentMs) || 0), 0.95),
     slowPasses,
   };
+}
+
+function summarizeRuntimeTransport(samples = []) {
+  const clean = samples.filter((sample) => sample && typeof sample === "object");
+  const resyncCount = clean.reduce((sum, sample) => sum + Object.values(sample.resyncs || {}).reduce((inner, value) => inner + (Number(value) || 0), 0), 0);
+  return {
+    sampleCount: clean.length,
+    stateMessages: sumValues(clean, "stateMessages"),
+    patchMessages: sumValues(clean, "patchMessages"),
+    patches: sumValues(clean, "patches"),
+    lastRevision: maxValue(clean.map((sample) => Number(sample.lastRevision) || 0)),
+    deliveryMsAvg: averagePositive(clean.map((sample) => Number(sample.deliveryMsAvg) || 0)),
+    deliveryMsMax: maxValue(clean.map((sample) => Number(sample.deliveryMsMax) || 0)),
+    applyMsAvg: averagePositive(clean.map((sample) => Number(sample.applyMsAvg) || 0)),
+    applyMsMax: maxValue(clean.map((sample) => Number(sample.applyMsMax) || 0)),
+    renderMsAvg: averagePositive(clean.map((sample) => Number(sample.renderMsAvg) || 0)),
+    renderMsMax: maxValue(clean.map((sample) => Number(sample.renderMsMax) || 0)),
+    endToEndMsAvg: averagePositive(clean.map((sample) => Number(sample.endToEndMsAvg) || 0)),
+    endToEndMsMax: maxValue(clean.map((sample) => Number(sample.endToEndMsMax) || 0)),
+    resyncCount,
+  };
+}
+
+function sumValues(items, field) {
+  return items.reduce((sum, item) => sum + (Number(item?.[field]) || 0), 0);
+}
+
+function averagePositive(values) {
+  return average(values.filter((value) => Number(value) > 0));
 }
 
 function componentMetrics(component, context) {
@@ -674,6 +718,10 @@ function average(values) {
 
 function minValue(values) {
   return values.length ? Math.min(...values) : 0;
+}
+
+function maxValue(values) {
+  return values.length ? Math.max(...values) : 0;
 }
 
 function percentile(values, p) {

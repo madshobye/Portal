@@ -31,6 +31,7 @@ export class OutputMediaRuntime {
     this.reportedCameraErrorKey = "";
     this.activeVideos = new Set();
     this.activeMediaItems = new Set();
+    this.reservedMediaIds = new Set();
     this.mediaUseSerial = 0;
     this.maxCachedMedia = Math.max(0, Math.floor(Number(maxCachedMedia) || 0));
     this.maxCachedMediaBytes = Math.max(0, Math.floor(Number(maxCachedMediaBytes) || 0));
@@ -172,6 +173,10 @@ export class OutputMediaRuntime {
     syncVideoPlayback(video, options);
   }
 
+  reserveMedia(mediaIds = []) {
+    this.reservedMediaIds = new Set(Array.from(mediaIds || []).filter(Boolean));
+  }
+
   endFrame() {
     for (const item of this.media.values()) {
       if (item?.video && !this.activeVideos.has(item.video)) pauseVideoPlayback(item.video);
@@ -182,10 +187,11 @@ export class OutputMediaRuntime {
   evictInactiveMedia() {
     const loaded = Array.from(this.media.values()).filter(isMediaRuntimeItemLoaded);
     const inactive = loaded
-      .filter((item) => !this.activeMediaItems.has(item))
+      .filter((item) => !this.activeMediaItems.has(item) && !this.reservedMediaIds.has(item.id))
       .sort((a, b) => (Number(a.lastMediaUse) || 0) - (Number(b.lastMediaUse) || 0));
     let loadedBytes = loaded.reduce((total, item) => total + estimateMediaRuntimeBytes(item), 0);
-    let excess = loaded.length - Math.max(this.maxCachedMedia, this.activeMediaItems.size);
+    const protectedCount = loaded.filter((item) => this.activeMediaItems.has(item) || this.reservedMediaIds.has(item.id)).length;
+    let excess = loaded.length - Math.max(this.maxCachedMedia, protectedCount);
     for (const item of inactive) {
       if (excess <= 0 && loadedBytes <= this.maxCachedMediaBytes) break;
       loadedBytes -= estimateMediaRuntimeBytes(item);
@@ -263,6 +269,7 @@ export class OutputMediaRuntime {
     this.pendingRenditionSaves.clear();
     this.activeVideos.clear();
     this.activeMediaItems.clear();
+    this.reservedMediaIds.clear();
   }
 }
 

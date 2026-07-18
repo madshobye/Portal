@@ -7,7 +7,9 @@ import {
   normalizePreviewViewport,
   normalizePreviewViewports,
   normalizeRenderSettings,
+  renderMaxFrameRate,
 } from "../js/domain/render-settings.js";
+import { oppositeRenderPhaseDelayMs, previewPhaseNeedsRealignment } from "../js/domain/render-phase-policy.js";
 
 test("render settings normalize independently from the aggregate domain model", () => {
   const render = normalizeRenderSettings({
@@ -19,6 +21,9 @@ test("render settings normalize independently from the aggregate domain model", 
   assert.equal(render.width, 640);
   assert.equal(render.worldWidth > 1440, true);
   assert.equal(render.pixelDensity, 2);
+  assert.equal(render.maxFrameRate, 120);
+  assert.equal(renderMaxFrameRate({ maxFrameRate: 48 }), 48);
+  assert.equal(renderMaxFrameRate({ maxFrameRate: 500 }), 120);
   assert.deepEqual(normalizePreviewViewport({ fit: "invalid", zoom: 20 }), { fit: "frame", zoom: 6, x: 0, y: 0 });
 });
 
@@ -30,9 +35,18 @@ test("preview viewport normalization accepts only the canonical per-workspace ma
   assert.deepEqual(viewports.live, { fit: "frame", zoom: 1, x: 0, y: 0 });
 });
 
+test("the duplicate embedded preview can occupy the opposite output render phase", () => {
+  assert.equal(oppositeRenderPhaseDelayMs(30), 1000 / 60);
+  assert.equal(oppositeRenderPhaseDelayMs(60), 1000 / 120);
+  assert.equal(previewPhaseNeedsRealignment({ outputWindowOpen: false }), false);
+  assert.equal(previewPhaseNeedsRealignment({ outputWindowOpen: true, wasOutputWindowOpen: false, frameRate: 30 }), true);
+  assert.equal(previewPhaseNeedsRealignment({ outputWindowOpen: true, wasOutputWindowOpen: true, frameRate: 30, alignedFrameRate: 30 }), false);
+  assert.equal(previewPhaseNeedsRealignment({ outputWindowOpen: true, wasOutputWindowOpen: true, frameRate: 60, alignedFrameRate: 30 }), true);
+});
+
 test("models remains a compatibility facade for render settings", () => {
   const source = readFileSync(new URL("../js/domain/models.js", import.meta.url), "utf8");
-  assert.ok(source.includes('from "./render-settings.js?v=render-coordinate-scope-3"'));
+  assert.ok(source.includes('from "./render-settings.js?v=max-frame-rate-1"'));
   assert.doesNotMatch(source, /export function normalizeRenderSettings\(/);
   assert.doesNotMatch(source, /export function normalizeCameraSettings\(/);
 });

@@ -10,10 +10,10 @@ import { applySceneSnapshotToState, createInitialState } from "../domain/models.
 import { migrateProjectData, ProjectVersionError } from "../domain/project-migrations.js?v=adaptive-component-demand-29";
 import { createChangeEvent } from "../domain/change-event.js?v=adaptive-component-demand-29";
 import { historyGroupForReason, isHistoryReason, projectHistorySignature, shouldCoalesceHistoryRevision } from "./project-history-policy.js?v=adaptive-component-demand-29";
-import { buildProjectPayload } from "./project-serializer.js?v=adaptive-component-demand-29";
+import { buildProjectPayload } from "./project-serializer.js?v=param-fade-1";
 
 export { historyGroupForReason, projectHistorySignature, shouldCoalesceHistoryRevision } from "./project-history-policy.js?v=adaptive-component-demand-29";
-export { buildProjectPayload, persistedRenderSettings } from "./project-serializer.js?v=adaptive-component-demand-29";
+export { buildProjectPayload, persistedRenderSettings } from "./project-serializer.js?v=param-fade-1";
 
 export function createProjectFolderService({ mediaLibrary, store, bridge }) {
   let dirHandle = null;

@@ -8,6 +8,7 @@ import {
   createComponentLayer,
   createCanvasComponent,
   createDefaultComponent,
+  createEmptySceneFromState,
   createInitialState,
   createSceneFromState,
   sceneSourceNodeId,
@@ -76,6 +77,40 @@ test("component selection updates recent-use metadata through the local fast pat
   assert.equal(observedEvent.scope, "ui");
 });
 
+test("new Scenes begin with no enabled or assigned Components", () => {
+  const initial = createInitialState();
+  const component = initial.components[0];
+  for (const surface of initial.surfaces) {
+    surface.enabled = true;
+    surface.componentId = component.id;
+    surface.sourceNodeId = sceneSourceNodeId(component.id);
+  }
+
+  const empty = createEmptySceneFromState(initial, "Blank");
+  assert.ok(empty.snapshot.surfaces.length > 0);
+  assert.ok(empty.snapshot.surfaces.every((surface) => surface.enabled === false));
+  assert.ok(empty.snapshot.surfaces.every((surface) => surface.componentId === ""));
+  assert.ok(empty.snapshot.surfaces.every((surface) => surface.sourceNodeId === ""));
+
+  const store = createAppState(initial);
+  store.addScene("Blank");
+  const next = store.getState();
+  const scene = next.scenes.at(-1);
+  assert.equal(scene.name, "Blank");
+  assert.equal(next.ui.selectedSceneId, scene.id);
+  assert.ok(next.surfaces.every((surface) => surface.enabled === false));
+  assert.ok(next.surfaces.every((surface) => surface.componentId === ""));
+});
+
+test("creating a Component never implicitly assigns it to empty Surfaces", () => {
+  const store = createAppState(createInitialState());
+  assert.ok(store.getState().surfaces.every((surface) => !surface.componentId));
+
+  store.addComponent();
+
+  assert.ok(store.getState().surfaces.every((surface) => !surface.componentId));
+});
+
 test("runtime metrics update without passing through project state normalization", () => {
   const store = createAppState(createInitialState());
   const before = store.getState();
@@ -103,11 +138,13 @@ test("Live slider updates use the lightweight live-only state path", () => {
     if (event.reason === "scrub:live") change = event;
   });
 
+  const livePatches = [{ componentId, path: "opacity", value: 0.35 }];
   store.updateLive((draft) => {
     draft.ui.live.componentOverrides[componentId] = { opacity: 0.35 };
-  }, "scrub:live");
+  }, { reason: "scrub:live", livePatches });
 
   assert.equal(change?.phase, "scrub");
+  assert.deepEqual(change?.livePatches, livePatches);
   assert.equal(change?.scope, "live");
   assert.equal(store.getLiveRenderState().components.find((item) => item.id === componentId).opacity, 0.35);
 });
@@ -218,6 +255,7 @@ test("Live scene transitions default to an immediate cut with no transition rend
   store.selectLiveScene(secondScene.id);
 
   assert.equal(store.getState().ui.live.transitionDuration, 0);
+  assert.equal(store.getState().ui.live.paramFadeDuration, 0);
   assert.equal(store.getState().ui.live.transition, null);
   assert.equal(store.getLiveRenderState().liveTransition, undefined);
   assert.equal(store.getState().ui.live.selectedSceneId, secondScene.id);
@@ -629,6 +667,34 @@ test("adding a generator inserts a visible chain element without replacing media
   assert.equal(chain[1].source.params.colorA, "#ff4f92ff");
   assert.equal(chain[1].source.params.colorD, "#00000000");
   assert.equal(chain[2].componentId, "pixelate");
+});
+
+test("new elements start disabled throughout the on-air Component graph", () => {
+  const state = createInitialState();
+  const component = createDefaultComponent(0);
+  const canvas = createCanvasComponent(0);
+  canvas.chain = [createComponentLayer(0, { type: "component", componentId: component.id })];
+  state.components = [component, canvas];
+  state.surfaces[0].enabled = true;
+  state.surfaces[0].componentId = canvas.id;
+  state.surfaces[0].sourceNodeId = sceneSourceNodeId(canvas.id);
+  const scene = createSceneFromState(state, "Program");
+  state.scenes = [scene];
+  state.ui.live.selectedSceneId = scene.id;
+  state.ui.live.sceneSnapshot = structuredClone(scene.snapshot);
+  const store = createAppState(state);
+
+  store.addChainEffect(component.id, "invert");
+  store.addChainSource(canvas.id, { type: "generator", generatorId: "gradient" });
+  store.addChainGroup(canvas.id);
+
+  const next = store.getState();
+  const nextComponent = next.components.find((item) => item.id === component.id);
+  const nextCanvas = next.components.find((item) => item.id === canvas.id);
+  assert.equal(nextComponent.chain.at(-1).componentId, "invert");
+  assert.equal(nextComponent.chain.at(-1).enabled, false);
+  assert.equal(nextCanvas.chain.find((item) => item.source?.generatorId === "gradient")?.enabled, false);
+  assert.equal(nextCanvas.chain.find((item) => item.kind === "group")?.enabled, false);
 });
 
 test("adding an element while a group is selected appends it inside the group", () => {

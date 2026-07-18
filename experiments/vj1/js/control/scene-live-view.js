@@ -1,5 +1,5 @@
 import { BLEND_MODES } from "../constants.js";
-import { createLiveComponentView, sceneSourceNodes } from "../domain/models.js?v=render-coordinate-scope-3";
+import { createLiveComponentView, sceneSourceNodes } from "../domain/models.js?v=live-component-controls-1";
 import { normalizeParamValue, RENDER_QUALITY_PARAM } from "../graph/component-schema.js?v=adaptive-component-demand-29";
 import { getGeneratorComponent } from "../graph/generator-registry.js?v=madstodo-4";
 import { getShaderComponent } from "../shaders/shader-registry.js?v=madstodo-4";
@@ -111,10 +111,10 @@ export function liveInspectorTemplate(state) {
   if (!scene) return panelTemplate("tune", "Live", emptyNote("No scenes"));
   const components = liveNavigableComponents(scene, state);
   const selected = components.find((component) => component.id === state.ui?.live?.selectedComponentId) || components[0];
-  const significant = components.map((component) => liveSignificantComponentTemplate(component, state)).filter(Boolean).join("");
   const selectedView = selected ? createLiveComponentView(selected, state) : null;
   const selectedElement = selected ? selectedLiveChainItem(selectedView?.chain || [], selected.id, state) : null;
-  return `${significant ? `<section class="ui-section focus-panel live-significant-panel"><header class="ui-section-header panel-title"><span class="material-symbols-rounded">star</span><span>Significant</span></header>${significant}</section>` : ""}${selected ? liveComponentTemplate(selected, selectedView, selectedElement, state) : ""}${selectedElement ? liveSelectedChainSettingsTemplate(selectedElement, selected.id, state) : ""}`
+  const componentView = state.ui?.live?.componentView === "elements" ? "elements" : "controls";
+  return `${selected ? liveComponentTemplate(selected, selectedView, selectedElement, state, componentView) : ""}${componentView === "elements" && selectedElement ? liveSelectedChainSettingsTemplate(selectedElement, selected.id, state) : ""}`
     || panelTemplate("tune", scene.name, emptyNote("No components"));
 }
 
@@ -142,21 +142,6 @@ export function liveNavigableComponents(scene, state) {
   };
   for (const component of liveSceneComponents(scene, state)) visit(component);
   return result;
-}
-
-function liveSignificantComponentTemplate(component, state) {
-  const paths = new Set(component.significantParams || []);
-  if (!paths.size) return "";
-  const view = createLiveComponentView(component, state);
-  const controls = significantChainControls(view.chain || [], {
-    componentId: component.id,
-    relativeBase: "chain",
-    updateBase: "chain",
-    paths,
-    attrs: liveParamAttrs(component.id),
-  });
-  if (!controls) return "";
-  return `<div class="live-significant-component"><strong>${esc(component.name)}</strong>${controls}</div>`;
 }
 
 export function sceneSignificantComponentTemplate(component, state) {
@@ -222,15 +207,40 @@ function* nestedChainItems(chain = []) {
   }
 }
 
-function liveComponentTemplate(component, view, selectedElement, state) {
+function liveComponentTemplate(component, view, selectedElement, state, componentView = "controls") {
   return `
     <article class="ui-section focus-panel live-component-card">
       <header class="ui-section-header panel-title live-component-head">
         ${thumbnailTemplate(component.thumbnail)}
         <strong>${esc(component.name)}</strong>
       </header>
-      ${liveChainOutlineTemplate(view?.chain || [], component.id, selectedElement?.item?.id, "chain", state)}
+      <div class="live-component-view-tabs" role="group" aria-label="Live Component view">
+        <button type="button" class="live-component-view-tab ${componentView === "controls" ? "is-selected" : ""}" data-live-component-view="controls" aria-pressed="${componentView === "controls"}">${icon("tune")} Controls</button>
+        <button type="button" class="live-component-view-tab ${componentView === "elements" ? "is-selected" : ""}" data-live-component-view="elements" aria-pressed="${componentView === "elements"}">${icon("account_tree")} Elements</button>
+      </div>
+      ${componentView === "controls"
+        ? liveComponentControlsTemplate(component, view)
+        : liveChainOutlineTemplate(view?.chain || [], component.id, selectedElement?.item?.id, "chain", state)}
     </article>
+  `;
+}
+
+function liveComponentControlsTemplate(component, view) {
+  const paths = new Set(component.significantParams || []);
+  const published = paths.size ? significantChainControls(view?.chain || [], {
+    componentId: component.id,
+    relativeBase: "chain",
+    updateBase: "chain",
+    paths,
+    attrs: liveParamAttrs(component.id),
+  }) : "";
+  return `
+    <div class="live-component-controls">
+      ${liveRangeTemplate("Opacity", component.id, "opacity", view?.opacity ?? 1)}
+      ${liveRangeTemplate("Speed", component.id, "speed", view?.speed ?? 1, 0, 4, 0.01)}
+      <label class="field chain-param"><span>Blend</span>${liveSelectValuesTemplate(component.id, "blend", BLEND_MODES, view?.blend || "normal")}</label>
+      ${published ? `<div class="live-published-controls"><span class="live-control-group-label">Published controls</span>${published}</div>` : `<div class="soft-note">Mark element parameters as significant to publish them here.</div>`}
+    </div>
   `;
 }
 
@@ -381,12 +391,12 @@ function liveParamAttrs(componentId) {
   return `data-live-component-id="${esc(componentId)}" data-live-update`;
 }
 
-function liveRangeTemplate(label, componentId, path, value) {
+function liveRangeTemplate(label, componentId, path, value, min = 0, max = 1, step = 0.01) {
   return `
     <label class="field range-field chain-param">
       <span>${esc(label)}</span>
-      <output class="range-value" data-range-value>${formatRangeValue(value, 0.01)}</output>
-      <input type="range" min="0" max="1" step="0.01" data-live-component-id="${esc(componentId)}" data-live-update="${path}" value="${value}" />
+      <output class="range-value" data-range-value>${formatRangeValue(value, step)}</output>
+      <input type="range" min="${min}" max="${max}" step="${step}" data-live-component-id="${esc(componentId)}" data-live-update="${path}" value="${value}" />
     </label>
   `;
 }

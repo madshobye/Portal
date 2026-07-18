@@ -1,10 +1,10 @@
 import { VJ1, WORKSPACES } from "../constants.js";
-import { applySceneSnapshotToState, createLiveRenderState, createSceneSnapshot, sceneSourceNodes, syncLiveSnapshotFromScene } from "../domain/models.js?v=render-coordinate-scope-3";
+import { applySceneSnapshotToState, createLiveRenderState, createSceneSnapshot, sceneSourceNodes, syncLiveSnapshotFromScene } from "../domain/models.js?v=live-component-controls-1";
 import { buildOutputUrl } from "../view-routing.js?v=adaptive-component-demand-29";
-import { createEmbeddedPreviewApp } from "../output/embedded-preview-app.js?v=cache-maintenance-1";
+import { createEmbeddedPreviewApp } from "../output/embedded-preview-app.js?v=preview-phase-shift-1";
 import { frameFitViewport, resetViewport, updatePreviewViewportForUi, zoomViewport } from "../output/preview-viewport.js?v=render-coordinate-scope-3";
 import { defaultProjectSurfaceMapping } from "../output/render-geometry.js?v=adaptive-component-demand-29";
-import { analyzeVj1Project } from "../metrics/component-metrics.js?v=shader-component-catalog-extraction-1";
+import { analyzeVj1Project } from "../metrics/component-metrics.js?v=output-transport-profile-1";
 import { createHtmlCache, isInteractiveNode, isPointerInteractionNode, isTextEditingNode, setClass, setText } from "./dom-utils.js?v=preview-pointer-deferral-1";
 import { bindReorderList } from "./reorder-list.js";
 import { collectRefs, shellTemplate } from "./shell-view.js?v=adaptive-component-demand-29";
@@ -12,12 +12,26 @@ import { componentCatalogToolsTemplate, componentFilterTemplate, sortComponentCa
 import { canvasInspectorTemplate, componentSelectedChainSettingsTemplate, componentTemplate } from "./component-view.js?v=canvas-component-placement-1";
 import { canvasComponents, getSelectedScene, ordinaryComponents, selectedCanvasComponent } from "./control-selectors.js?v=control-selectors-extraction-1";
 import { mappingInletsTemplate, mappingInspectorTemplate, mappingStudioTemplate } from "./mapping-view.js?v=terrain-mesh-near-1";
-import { liveComponentPillTemplate, liveInspectorTemplate, liveNavigableComponents, liveScenePillTemplate, scenePillTemplate, sceneRailConfigTemplate, sceneSignificantComponentTemplate, sceneSurfacePillTemplate, sceneSurfaceTemplate } from "./scene-live-view.js?v=live-source-labels-1";
+import { liveComponentPillTemplate, liveInspectorTemplate, liveNavigableComponents, liveScenePillTemplate, scenePillTemplate, sceneRailConfigTemplate, sceneSignificantComponentTemplate, sceneSurfacePillTemplate, sceneSurfaceTemplate } from "./scene-live-view.js?v=live-component-controls-1";
 import { componentCardBarTemplate, panelTemplate, projectEmptyTemplate, textListItemTemplate } from "./view-primitives.js?v=view-primitives-extraction-1";
 import { emptyNote, esc, icon, thumbnailTemplate } from "./template-utils.js?v=slider-values-70";
-import { createClipboardController } from "./clipboard-controller.js?v=madstodo-4";
-import { createModalController } from "./modal-controller.js?v=media-preview-retention-1";
-import { createInputController } from "./input-controller.js?v=madstodo-4";
+import { createClipboardController } from "./clipboard-controller.js?v=live-insertion-1";
+import { createModalController } from "./modal-controller.js?v=max-frame-rate-1";
+import { createInputController } from "./input-controller.js?v=live-param-patch-1";
+
+export function rememberParamViewSelections(scope, selections = new Map()) {
+  for (const input of scope?.querySelectorAll?.(".chain-param-view-input:checked") || []) {
+    if (input.name && input.id) selections.set(input.name, input.id);
+  }
+  return selections;
+}
+
+export function restoreParamViewSelections(scope, selections = new Map()) {
+  for (const input of scope?.querySelectorAll?.(".chain-param-view-input") || []) {
+    if (input.id && selections.get(input.name) === input.id) input.checked = true;
+  }
+  return selections;
+}
 
 export function createControlShell({ root, store, bridge, mediaLibrary, projectService }) {
   let refs = {};
@@ -34,6 +48,7 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
     ? window.matchMedia("(max-width: 1100px)")
     : null;
   const catalogOrderSnapshots = { component: [], scene: [] };
+  const activeParamViews = new Map();
   const replaceHtmlIfChanged = createHtmlCache();
   const clipboard = createClipboardController({
     root,
@@ -91,11 +106,16 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
         renderTopbar(state);
         return;
       }
+      const patchedLivePreview = currentWorkspace(state) === "live" &&
+        change.scope === "live" &&
+        Array.isArray(change.livePatches) &&
+        change.livePatches.length > 0 &&
+        embeddedPreview.applyLivePatches(change.livePatches)?.applied;
       if (reason === "live:update") {
         // Native controls already display the commanded value. Rebuilding the
         // complete Live inspector here destroys its scroll/tab/element DOM
         // identity even though no structure changed.
-        updatePreviewState(state);
+        if (!patchedLivePreview) updatePreviewState(state);
         return;
       }
       if (change.phase === "edit") {
@@ -107,11 +127,11 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
         // Component preview gestures own an immediate local state overlay.
         // Feeding their store echo straight back into the same renderer makes
         // it rebuild lookup state twice per pointer frame.
-        if (reason !== "scrub:chain-transform" && reason !== "scrub:canvas-frame") updatePreviewState(state);
+        if (!patchedLivePreview && reason !== "scrub:chain-transform" && reason !== "scrub:canvas-frame") updatePreviewState(state);
         return;
       }
       if (change.phase === "color") {
-        updatePreviewState(state);
+        if (!patchedLivePreview) updatePreviewState(state);
         return;
       }
       if (reason === "workspace") {
@@ -349,6 +369,7 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
             gpuSupported: state.metrics.gpuSupported === true,
             profile: state.metrics.profile || null,
             renderCost: Math.max(0, Number(state.metrics.renderCost) || 0),
+            transport: state.metrics.transport || null,
           }
         : { ...activeWorkMetric(state, outputFps), renderCost: activeRenderCost(state) };
     if (!(metric.fps > 0)) return;
@@ -361,6 +382,7 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
       gpuSupported: metric.gpuSupported,
       renderCost: metric.renderCost,
       profile: metric.profile ? structuredCloneSafe(metric.profile) : null,
+      transport: metric.transport ? structuredCloneSafe(metric.transport) : null,
     });
   }
 
@@ -672,11 +694,11 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
       <div class="ui-section rail-section">
         <div class="ui-section-header rail-title"><span class="material-symbols-rounded">auto_awesome_motion</span><span>Scenes</span></div>
         <div class="scene-card-list" data-paste-scope="scene-list">
-          ${state.scenes.map((scene) => scenePillTemplate(scene, state)).join("") || emptyNote("Capture surface assignments")}
+          ${state.scenes.map((scene) => scenePillTemplate(scene, state)).join("") || emptyNote("Add a scene")}
         </div>
         <div class="capture-row">
           <input type="text" data-scene-name value="Scn ${state.scenes.length + 1}" spellcheck="false" data-gramm="false" data-gramm_editor="false" data-enable-grammarly="false" />
-          <button class="icon-buttonish" type="button" data-save-scene title="Capture scene" aria-label="Capture scene">${icon("add")}</button>
+          <button class="icon-buttonish" type="button" data-add-scene title="Add empty scene" aria-label="Add empty scene">${icon("add")}</button>
         </div>
       </div>
       ${sceneRailConfigTemplate(state)}
@@ -692,6 +714,7 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
 
   function liveToolsTemplate(state) {
     const transitionDuration = Math.max(0, Number(state.ui?.live?.transitionDuration) || 0);
+    const paramFadeDuration = Math.max(0, Number(state.ui?.live?.paramFadeDuration) || 0);
     const timeStretch = Math.max(-4, Math.min(4, Number(state.global?.timeStretch) || 0));
     const timeScale = timeStretch <= -4 ? 0 : 2 ** timeStretch;
     const liveScene = state.scenes.find((scene) => scene.id === (state.ui?.live?.selectedSceneId || state.scenes[0]?.id));
@@ -720,6 +743,11 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
           <span>Transition</span>
           <output class="range-value" data-range-value>${transitionDuration.toFixed(1)} s</output>
           <input type="range" min="0" max="10" step="0.1" data-range-suffix=" s" data-update="ui.live.transitionDuration" value="${transitionDuration}" />
+        </label>
+        <label class="field range-field live-param-fade-duration">
+          <span>Param fade</span>
+          <output class="range-value" data-range-value>${paramFadeDuration.toFixed(2)} s</output>
+          <input type="range" min="0" max="10" step="0.05" data-range-suffix=" s" data-update="ui.live.paramFadeDuration" value="${paramFadeDuration}" />
         </label>
       </div>
     `;
@@ -867,6 +895,7 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
     refs.inspector.dataset.workspace = currentWorkspace(state);
     const hasProject = hasOpenProject(state);
     if (!hasProject) {
+      rememberParamViewSelections(refs.inspector, activeParamViews);
       replaceHtmlIfChanged(refs.inspector, "");
       return;
     }
@@ -880,7 +909,7 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
         selectedComponent ? componentTemplate(selectedComponent, state) : emptyNote("No component"),
         selectedComponent ? { titlePath: `${pathForComponent(state, selectedComponent)}.name` } : {}
       )}${selectedComponent ? componentSelectedChainSettingsTemplate(selectedComponent, state) : ""}`;
-      if (replaceHtmlIfChanged(refs.inspector, html)) bindInputs(refs.inspector, state);
+      replaceInspectorHtml(html, state);
       return;
     }
     if (currentWorkspace(state) === "mapping") {
@@ -890,7 +919,7 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
         "Nodes",
         mappingInspectorTemplate(selectedComponent, state)
       );
-      if (replaceHtmlIfChanged(refs.inspector, html)) bindInputs(refs.inspector, state);
+      replaceInspectorHtml(html, state);
       return;
     }
     if (currentWorkspace(state) === "canvas") {
@@ -901,12 +930,12 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
         selectedCanvas ? canvasInspectorTemplate(selectedCanvas, state) : emptyNote("Create a canvas component"),
         selectedCanvas ? { titlePath: `${pathForComponent(state, selectedCanvas)}.name` } : {}
       )}${selectedCanvas ? componentSelectedChainSettingsTemplate(selectedCanvas, state) : ""}`;
-      if (replaceHtmlIfChanged(refs.inspector, html)) bindInputs(refs.inspector, state);
+      replaceInspectorHtml(html, state);
       return;
     }
     if (currentWorkspace(state) === "live") {
       html = liveInspectorTemplate(state);
-      if (replaceHtmlIfChanged(refs.inspector, html)) bindInputs(refs.inspector, state);
+      replaceInspectorHtml(html, state);
       return;
     }
     const selectedScene = getSelectedScene(state);
@@ -921,7 +950,15 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
         : {})}
       ${sceneSignificantComponentTemplate(sceneComponent, state)}
     `;
-    if (replaceHtmlIfChanged(refs.inspector, html)) bindInputs(refs.inspector, state);
+    replaceInspectorHtml(html, state);
+  }
+
+  function replaceInspectorHtml(html, state) {
+    rememberParamViewSelections(refs.inspector, activeParamViews);
+    if (!replaceHtmlIfChanged(refs.inspector, html)) return false;
+    restoreParamViewSelections(refs.inspector, activeParamViews);
+    bindInputs(refs.inspector, state);
+    return true;
   }
 
   function bindRailEvents() {
@@ -933,9 +970,9 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
     refs.projectRail.querySelectorAll("[data-add-surface]").forEach((button) => {
       button.addEventListener("click", () => store.addSurface());
     });
-    refs.projectRail.querySelector("[data-save-scene]")?.addEventListener("click", () => {
+    refs.projectRail.querySelector("[data-add-scene]")?.addEventListener("click", () => {
       const name = refs.projectRail.querySelector("[data-scene-name]")?.value?.trim() || `Scn ${latestState.scenes.length + 1}`;
-      store.saveScene(name);
+      store.addScene(name);
     });
     refs.projectRail.querySelectorAll("[data-select-scene]").forEach((button) => {
       button.addEventListener("click", () => store.selectScene(button.dataset.selectScene));
@@ -1033,6 +1070,12 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
 
   function bindInputs(scope) {
     inputs.bind(scope);
+    scope.querySelectorAll("[data-live-component-view]").forEach((button) => {
+      button.addEventListener("click", () => updateUi((ui) => {
+        ui.live ||= {};
+        ui.live.componentView = button.dataset.liveComponentView === "elements" ? "elements" : "controls";
+      }, "select-live-component-view"));
+    });
     scope.querySelectorAll("[data-live-chain-item]").forEach((button) => {
       button.addEventListener("click", () => updateUi((ui) => {
         ui.live ||= {};
@@ -1179,6 +1222,7 @@ function activeWorkMetric(state, outputFps = 0) {
     gpuMs: Math.max(0, Number(state.metrics.gpuMs) || 0),
     gpuSupported: state.metrics.gpuSupported === true,
     profile: state.metrics.profile || null,
+    transport: state.metrics.transport || null,
     source: "output",
   };
 }

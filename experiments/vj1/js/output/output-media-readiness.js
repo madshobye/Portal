@@ -1,4 +1,4 @@
-import { collectMediaIdsFromSource, createMediaReadinessStatus, isReadyMediaItem } from "./component-render-state.js?v=render-stability-2";
+import { collectMediaIdsFromSource, createMediaReadinessStatus, isReadyMediaItem } from "./component-render-state.js?v=scene-media-gate-1";
 
 export function collectOutputMediaReadiness({ mode = "output", state = null, media = new Map(), acquireMedia = null } = {}) {
   const status = createMediaReadinessStatus();
@@ -43,6 +43,7 @@ function collectSourceMediaReadiness(source, status, media, acquireMedia) {
   collectMediaIdsFromSource(source, mediaIds);
   for (const mediaId of mediaIds) {
     status.total++;
+    status.mediaIds.add(mediaId);
     const item = acquireMedia?.(mediaId) || media.get(mediaId);
     if (!item) {
       status.missingIds.add(mediaId);

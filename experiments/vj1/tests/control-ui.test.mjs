@@ -9,6 +9,28 @@ import { createInitialState } from "../js/domain/models.js";
 import { previewFitSignature, previewRasterDensity } from "../js/output/embedded-preview-app.js";
 import { isPointerInteractionNode } from "../js/control/dom-utils.js";
 import { applyOptimisticToggleIntent } from "../js/control/input-controller.js";
+import { rememberParamViewSelections, restoreParamViewSelections } from "../js/control/control-shell-controller.js";
+
+test("inspector parameter views survive template replacement", () => {
+  const selections = new Map();
+  const selectedDetails = { name: "chain-param-view-item-1", id: "chain-param-view-item-1-details", checked: true };
+  rememberParamViewSelections({
+    querySelectorAll(selector) {
+      return selector === ".chain-param-view-input:checked" ? [selectedDetails] : [];
+    },
+  }, selections);
+
+  const replacementPrimary = { name: selectedDetails.name, id: "chain-param-view-item-1-content", checked: true };
+  const replacementDetails = { name: selectedDetails.name, id: selectedDetails.id, checked: false };
+  restoreParamViewSelections({
+    querySelectorAll(selector) {
+      return selector === ".chain-param-view-input" ? [replacementPrimary, replacementDetails] : [];
+    },
+  }, selections);
+
+  assert.equal(selections.get(selectedDetails.name), selectedDetails.id);
+  assert.equal(replacementDetails.checked, true);
+});
 
 test("rapid toggles preserve commanded user truth before render acknowledgement", () => {
   const classes = new Set(["is-enabled"]);
@@ -354,18 +376,21 @@ test("Live scene cards expose reset only for retained temporary overrides", () =
   assert.ok(source.includes("store.resetLiveScene"));
 });
 
-test("Live scenes expose an opt-in transition duration that defaults to zero", () => {
+test("Live scenes expose separate scene-transition and parameter-fade durations", () => {
   const source = readFileSync(new URL("../js/control/control-shell-controller.js", import.meta.url), "utf8");
   const models = readFileSync(new URL("../js/domain/models.js", import.meta.url), "utf8");
   assert.ok(source.includes('data-update="ui.live.transitionDuration"'));
+  assert.ok(source.includes('data-update="ui.live.paramFadeDuration"'));
   assert.ok(source.includes('min="0" max="10" step="0.1"'));
   assert.ok(models.includes("transitionDuration: 0"));
+  assert.ok(models.includes("paramFadeDuration: 0"));
+  assert.ok(source.indexOf("live-param-fade-duration") > source.indexOf("live-transition-duration"));
 });
 
 test("Live exposes a phase-continuous global visual time stretch", () => {
   const source = readFileSync(new URL("../js/control/control-shell-controller.js", import.meta.url), "utf8");
 
-  assert.match(source, /function liveToolsTemplate[\s\S]*?Live Scenes[\s\S]*?scene-card-list live-scene-list[\s\S]*?Timing[\s\S]*?live-time-scale[\s\S]*?live-transition-duration/);
+  assert.match(source, /function liveToolsTemplate[\s\S]*?Live Scenes[\s\S]*?scene-card-list live-scene-list[\s\S]*?Timing[\s\S]*?live-time-scale[\s\S]*?live-transition-duration[\s\S]*?live-param-fade-duration/);
   assert.ok(source.includes("Time stretch"));
   assert.ok(source.includes('data-update="global.timeStretch"'));
   assert.ok(source.includes('min="-4" max="4" step="0.01"'));
@@ -544,6 +569,11 @@ test("Live navigates referenced components separately and edits one selected nes
   assert.ok(sceneLiveSource.includes("liveSelectedChainSettingsTemplate"));
   assert.ok(sceneLiveSource.includes("live-chain-outline-children"));
   assert.ok(sceneLiveSource.includes("chainTransformControlsTemplate"));
+  assert.ok(sceneLiveSource.includes('data-live-component-view="controls"'));
+  assert.ok(sceneLiveSource.includes('data-live-component-view="elements"'));
+  assert.ok(sceneLiveSource.includes('liveRangeTemplate("Opacity", component.id, "opacity"'));
+  assert.ok(sceneLiveSource.includes('liveRangeTemplate("Speed", component.id, "speed"'));
+  assert.ok(controllerSource.includes("ui.live.componentView = button.dataset.liveComponentView"));
 });
 
 test("preview fitting is invalidated only by layout viewport or output geometry", () => {
@@ -627,12 +657,21 @@ test("project settings keep one modal DOM and patch tab values in place", () => 
   assert.ok(source.includes('data-settings-tab="outputs"'));
   assert.ok(source.includes('data-settings-tab="camera"'));
   assert.ok(source.includes('data-settings-tab="rendering"'));
+  assert.ok(source.includes('data-settings-update="render.maxFrameRate"'));
   assert.ok(source.includes('data-configured-output-list'));
   assert.ok(!source.includes("settingsScroll"));
 });
 
-test("scrub changes are sent to live output on the next animation frame", () => {
+test("Scene plus control creates an empty Scene instead of capturing current assignments", () => {
+  const source = readFileSync(new URL("../js/control/control-shell-controller.js", import.meta.url), "utf8");
+  assert.ok(source.includes("data-add-scene"));
+  assert.ok(source.includes("store.addScene(name)"));
+  assert.ok(!source.includes('data-save-scene title="Capture scene"'));
+});
+
+test("scrub changes send coalesced param patches without waiting for a preview frame", () => {
   const appSource = readFileSync(new URL("../js/app.js", import.meta.url), "utf8");
+  const bridgeSource = readFileSync(new URL("../js/services/output-bridge-service.js", import.meta.url), "utf8");
   const stateSource = readFileSync(new URL("../js/app-state.js", import.meta.url), "utf8");
   const inputSource = readFileSync(new URL("../js/control/input-controller.js", import.meta.url), "utf8");
   const previewSource = readFileSync(new URL("../js/output/embedded-preview-app.js", import.meta.url), "utf8");
@@ -642,13 +681,23 @@ test("scrub changes are sent to live output on the next animation frame", () => 
   assert.ok(appSource.includes("function sendScrubState()"));
   assert.ok(appSource.includes("requestAnimationFrame"));
   assert.ok(appSource.includes("sendScrubState();"));
+  assert.ok(appSource.includes('if (change.scope === "live") return;'));
+  assert.ok(bridgeSource.includes('if (change.scope !== "live") return;'));
+  assert.ok(bridgeSource.includes("scheduleLivePatches();"));
+  assert.ok(bridgeSource.includes("flushLivePatches();"));
+  assert.ok(bridgeSource.includes('typeof queueMicrotask === "function"'));
+  assert.ok(bridgeSource.includes('type: "live-patch"'));
   assert.ok(!appSource.includes("setTimeout(() => bridge.sendState(), 90)"));
   assert.ok(stateSource.includes("function updateLive(recipe"));
   assert.ok(inputSource.includes('typeof store.updateLive === "function"'));
-  assert.ok(previewSource.includes('pendingState?.ui?.outputWindowOpen && pendingState?.ui?.workspace !== "live"'));
+  assert.ok(inputSource.includes("createLiveRenderPatch"));
+  assert.ok(previewSource.includes("pendingState?.ui?.outputWindowOpen"));
+  assert.ok(!previewSource.includes('outputWindowOpen && pendingState?.ui?.workspace !== "live"'));
   assert.ok(previewSource.includes('renderer.setState(previewSizedState(), { normalized: true });'));
   assert.ok(rendererSource.includes('setState(nextState, { normalized = false } = {})'));
   assert.ok(outputSource.includes('renderer?.setState(state, { normalized: true });'));
+  assert.ok(outputSource.includes("renderer.applyLivePatches(patches)"));
+  assert.ok(previewSource.includes("renderer?.applyLivePatches(patches)"));
 });
 
 test("opening an output from Scene takes that Scene live before opening the Live-driven popup", () => {

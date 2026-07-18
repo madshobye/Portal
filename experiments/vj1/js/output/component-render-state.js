@@ -91,6 +91,7 @@ export function createMediaReadinessStatus() {
   return {
     blocked: false,
     total: 0,
+    mediaIds: new Set(),
     loadingIds: new Set(),
     missingIds: new Set(),
     errorIds: new Set(),

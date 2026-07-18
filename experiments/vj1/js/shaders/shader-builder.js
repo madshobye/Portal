@@ -277,6 +277,7 @@ uniform sampler2D iChannel0;
 uniform sampler2D iChannel1;
 uniform sampler2D iChannel2;
 uniform sampler2D iChannel3;
+varying vec2 vTexCoord;
 uniform float useContentTransform;
 uniform mat3 contentUvMatrix;
 ${qualityUniform}
@@ -285,12 +286,15 @@ ${adaptedCode}
 
 void main() {
   vec4 fragColor = vec4(0.0);
-  // Preserve the existing top-left Shadertoy orientation exactly, then apply
-  // the same normalized source-coordinate transform used by native generators.
-  vec2 baseUv = vec2(gl_FragCoord.x / iResolution.x, 1.0 - gl_FragCoord.y / iResolution.y);
+  // Use the same top-left Composition UV supplied to native generators.
+  // Reconstructing it from gl_FragCoord couples movement to framebuffer
+  // storage orientation and reverses vertical transforms on shared targets.
+  vec2 baseUv = vTexCoord;
   vec2 transformedUv = (contentUvMatrix * vec3(baseUv, 1.0)).xy;
   vec2 shaderUv = mix(baseUv, transformedUv, step(0.5, useContentTransform));
-  vec2 shadertoyFragCoord = shaderUv * iResolution.xy;
+  // Shadertoy mainImage expects a bottom-left fragCoord. Keep the VJ1
+  // transform in top-left Composition space and convert only at this API edge.
+  vec2 shadertoyFragCoord = vec2(shaderUv.x, 1.0 - shaderUv.y) * iResolution.xy;
   vj1MainImage(fragColor, shadertoyFragCoord);
   gl_FragColor = fragColor;
 }`;

@@ -326,9 +326,18 @@ export class VjMapper {
 
   _drawSurfaceQuad(vertices) {
     if (!Array.isArray(vertices) || vertices.length !== 4) return;
-    beginShape(TRIANGLE_STRIP);
-    for (const point of vertices) vertex(point.x, point.y, 0);
-    endShape();
+    // A mapped quad is shader-filled geometry, never stroked geometry. Keep
+    // this invariant at the primitive boundary so transition draws cannot
+    // inherit p5's calibration/overlay stroke and expose the strip diagonal.
+    push();
+    try {
+      noStroke();
+      beginShape(TRIANGLE_STRIP);
+      for (const point of vertices) vertex(point.x, point.y, 0);
+      endShape();
+    } finally {
+      pop();
+    }
   }
 
   _getRenderCache(surface, dpr) {

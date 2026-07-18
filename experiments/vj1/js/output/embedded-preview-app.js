@@ -1,5 +1,7 @@
 import { VJ1 } from "../constants.js";
-import { OutputRenderer } from "./output-renderer.js?v=cache-maintenance-1";
+import { OutputRenderer } from "./output-renderer.js?v=param-fade-1";
+import { renderMaxFrameRate } from "../domain/render-settings.js?v=max-frame-rate-1";
+import { oppositeRenderPhaseDelayMs, previewPhaseNeedsRealignment } from "../domain/render-phase-policy.js?v=preview-phase-shift-1";
 import { applyFontToGlobal, loadVjRenderFont } from "./font-loader.js?v=adaptive-component-demand-29";
 import { createPreviewViewportController, fitPreviewCanvasElement, previewViewportForUi } from "./preview-viewport.js?v=render-coordinate-scope-3";
 import { canvasPointerToLogicalPoint } from "./preview-interaction-geometry.js?v=transform-hit-contract-3";
@@ -30,6 +32,9 @@ export function createEmbeddedPreviewApp({ store, mediaLibrary, projectService, 
   let paused = false;
   let renderFont = null;
   let appliedFrameRate = 0;
+  let outputPhaseOpen = false;
+  let alignedFrameRate = 0;
+  let phaseShiftTimer = 0;
   let mediaFilesSignature = "";
   let transformCommitFrame = 0;
   let pendingTransformCommit = null;
@@ -77,6 +82,10 @@ export function createEmbeddedPreviewApp({ store, mediaLibrary, projectService, 
     importMediaFilesIfChanged();
   }
 
+  function applyLivePatches(patches = []) {
+    return renderer?.applyLivePatches(patches);
+  }
+
   function command(name, payload = {}) {
     if (name === "set-calibrate") renderer?.setCalibrate(!!payload.calibrating);
     if (name === "reset-mapping") renderer?.resetMapping(payload.surfaceId);
@@ -87,6 +96,8 @@ export function createEmbeddedPreviewApp({ store, mediaLibrary, projectService, 
   function pause() {
     host?.classList.add("is-paused");
     paused = true;
+    alignedFrameRate = 0;
+    cancelPreviewPhaseShift();
     cancelSettledResize();
     if (typeof noLoop === "function") noLoop();
   }
@@ -98,6 +109,7 @@ export function createEmbeddedPreviewApp({ store, mediaLibrary, projectService, 
     canvasCommitFrame = 0;
     pendingTransformCommit = null;
     pendingCanvasCommit = null;
+    cancelPreviewPhaseShift();
     unbindCanvasPointerEvents?.();
     unbindCanvasPointerEvents = null;
     renderer?.dispose?.();
@@ -372,14 +384,54 @@ export function createEmbeddedPreviewApp({ store, mediaLibrary, projectService, 
 
   function applyPreviewFrameRate() {
     if (typeof frameRate !== "function") return;
-    const target = pendingState?.ui?.debugPreview === false
+    // A standalone output is presentation truth. Keep its frame budget stable
+    // by throttling the duplicate embedded render regardless of workspace.
+    const previewTarget = pendingState?.ui?.debugPreview === false
       ? 60
-      : pendingState?.ui?.outputWindowOpen && pendingState?.ui?.workspace !== "live"
+      : pendingState?.ui?.outputWindowOpen
         ? 30
         : 60;
-    if (appliedFrameRate === target) return;
-    frameRate(target);
-    appliedFrameRate = target;
+    const target = Math.min(previewTarget, renderMaxFrameRate(pendingState?.render));
+    if (appliedFrameRate !== target) {
+      frameRate(target);
+      appliedFrameRate = target;
+    }
+    const outputWindowOpen = !!pendingState?.ui?.outputWindowOpen;
+    const shouldRealign = previewPhaseNeedsRealignment({
+      outputWindowOpen,
+      wasOutputWindowOpen: outputPhaseOpen,
+      frameRate: target,
+      alignedFrameRate,
+    });
+    outputPhaseOpen = outputWindowOpen;
+    if (!outputWindowOpen) {
+      alignedFrameRate = 0;
+      cancelPreviewPhaseShift({ resume: true });
+      return;
+    }
+    if (!shouldRealign) return;
+    alignedFrameRate = target;
+    schedulePreviewPhaseShift(target);
+  }
+
+  function schedulePreviewPhaseShift(targetFrameRate) {
+    cancelPreviewPhaseShift();
+    if (paused || typeof noLoop !== "function" || typeof loop !== "function") return;
+    // Output owns presentation timing. Suspend only the duplicate embedded
+    // preview, then resume it halfway through the output frame interval so the
+    // two WebGL contexts do not normally submit their largest work together.
+    noLoop();
+    phaseShiftTimer = setTimeout(() => {
+      phaseShiftTimer = 0;
+      if (!paused && outputPhaseOpen) loop();
+    }, oppositeRenderPhaseDelayMs(targetFrameRate));
+  }
+
+  function cancelPreviewPhaseShift({ resume = false } = {}) {
+    if (!phaseShiftTimer) return;
+    clearTimeout(phaseShiftTimer);
+    phaseShiftTimer = 0;
+    if (resume && !paused && typeof loop === "function") loop();
   }
 
   function importMediaFilesIfChanged(force = false) {
@@ -516,7 +568,7 @@ export function createEmbeddedPreviewApp({ store, mediaLibrary, projectService, 
     store.selectChainItem(itemId);
   }
 
-  return { mount, setState, command, pause };
+  return { mount, setState, applyLivePatches, command, pause };
 }
 
 export function mediaFilesSignatureFor(entries = []) {

@@ -11,18 +11,20 @@ import {
   createComponentLayer,
   createInitialState,
   createLiveRenderState,
+  createEmptySceneFromState,
   createSceneSurfaceSnapshot,
   createSceneFromState,
   sanitizeState,
   syncLiveSnapshotFromScene,
   uid,
-} from "./domain/models.js?v=render-coordinate-scope-3";
+} from "./domain/models.js?v=live-component-controls-1";
 import { stampChangedProjectItems, touchComponentUsed } from "./domain/component-activity.js?v=adaptive-component-demand-29";
 import { componentFrameMetrics } from "./domain/component-frame.js?v=adaptive-component-demand-29";
 import { VJ1, WORKSPACES } from "./constants.js";
 import { createChangeEvent } from "./domain/change-event.js?v=adaptive-component-demand-29";
 import { clearComponentReferences, countChainGroups, findChainItemLocation, insertChainItemNearSelection, moveById, moveChainItem } from "./domain/chain-operations.js?v=adaptive-component-demand-29";
-import { pasteClipboardPayload } from "./domain/clipboard.js?v=clipboard-routing-62";
+import { pasteClipboardPayload } from "./domain/clipboard.js?v=live-insertion-1";
+import { initializeLiveChainInsertion } from "./domain/scene-routing.js?v=live-insertion-1";
 
 export function createAppState(initial = null) {
   let state = sanitizeState(initial || createInitialState());
@@ -90,7 +92,8 @@ export function createAppState(initial = null) {
     const draft = { ...state, ui: clone(state.ui) };
     recipe(draft);
     state = draft;
-    emit({ reason: change, scope: "live" });
+    const supplied = change && typeof change === "object" ? change : { reason: change };
+    emit({ ...supplied, scope: "live" });
   }
 
   function subscribe(listener) {
@@ -173,9 +176,6 @@ export function createAppState(initial = null) {
         draft.ui.selectedComponentId = component.id;
         draft.ui.selectedChainItemId = component.chain[0]?.id || "";
         rememberWorkspaceComponent(draft, "component", component);
-        for (const surface of draft.surfaces) {
-          if (!surface.componentId) surface.componentId = component.id;
-        }
       }, "add-component");
     },
     addCanvasComponent() {
@@ -249,6 +249,7 @@ export function createAppState(initial = null) {
         if (!component) return;
         if (source.type === "component" && component.type !== "canvas") return;
         const layer = createComponentLayer(component.chain?.length || 0, source);
+        initializeLiveChainInsertion(draft, component.id, layer);
         if (source.type === "component" && component.type === "canvas") {
           const referenced = draft.components.find((item) => item.id === source.componentId && item.type !== "canvas");
           if (!referenced) return;
@@ -268,6 +269,7 @@ export function createAppState(initial = null) {
         const component = draft.components.find((item) => item.id === componentId);
         if (!component) return;
         const effect = createComponentEffect(effectId);
+        initializeLiveChainInsertion(draft, component.id, effect);
         component.chain ||= [];
         insertChainItemNearSelection(component.chain, draft.ui.selectedChainItemId, effect);
         draft.ui.selectedChainItemId = effect.id;
@@ -279,6 +281,7 @@ export function createAppState(initial = null) {
         if (!component) return;
         component.chain ||= [];
         const group = createComponentGroup(countChainGroups(component.chain));
+        initializeLiveChainInsertion(draft, component.id, group);
         insertChainItemNearSelection(component.chain, draft.ui.selectedChainItemId, group);
         draft.ui.selectedChainItemId = group.id;
       }, "add-chain-group");
@@ -359,6 +362,14 @@ export function createAppState(initial = null) {
         draft.scenes.push(scene);
         draft.ui.selectedSceneId = scene.id;
       }, "save-scene");
+    },
+    addScene(name) {
+      update((draft) => {
+        const scene = createEmptySceneFromState(draft, name);
+        draft.scenes.push(scene);
+        applySceneSnapshotToState(draft, scene);
+        draft.ui.selectedSceneId = scene.id;
+      }, "add-scene");
     },
     selectScene(id) {
       const current = getState();

@@ -68,8 +68,18 @@ export function contentTransformCanvasPlacement(transform = {}, width = 1, heigh
 // Shader transforms sample the source through the inverse of the visible
 // screen-space transform: the destination center after moving right/down maps
 // back to the source center. Matrices are returned column-major for WebGL.
-export function contentTransformUvMatrices(transform = {}) {
-  const value = normalizedContentTransform(transform);
+export function contentTransformUvMatrices(transform = {}, output = null) {
+  const reusable = output?.value && output?.sampling?.length >= 9 && output?.placement?.length >= 9;
+  const result = reusable ? output : {
+    value: { x: 0, y: 0, scale: 1, rotation: 0 },
+    sampling: new Array(9),
+    placement: new Array(9),
+  };
+  const value = result.value;
+  value.x = Number(transform.x) || 0;
+  value.y = Number(transform.y) || 0;
+  value.scale = Math.max(0.0001, Number(transform.scale) || 1);
+  value.rotation = Number(transform.rotation) || 0;
   const centerX = 0.5 + value.x * 0.5;
   const centerY = 0.5 + value.y * 0.5;
   const cosine = Math.cos(-value.rotation);
@@ -89,11 +99,27 @@ export function contentTransformUvMatrices(transform = {}) {
   const ie = inverseCosine;
   const itx = centerX - ia * 0.5 - ib * 0.5;
   const ity = centerY - id * 0.5 - ie * 0.5;
-  return {
-    value,
-    sampling: [a, d, 0, b, e, 0, tx, ty, 1],
-    placement: [ia, id, 0, ib, ie, 0, itx, ity, 1],
-  };
+  const sampling = result.sampling;
+  sampling[0] = a;
+  sampling[1] = d;
+  sampling[2] = 0;
+  sampling[3] = b;
+  sampling[4] = e;
+  sampling[5] = 0;
+  sampling[6] = tx;
+  sampling[7] = ty;
+  sampling[8] = 1;
+  const placement = result.placement;
+  placement[0] = ia;
+  placement[1] = id;
+  placement[2] = 0;
+  placement[3] = ib;
+  placement[4] = ie;
+  placement[5] = 0;
+  placement[6] = itx;
+  placement[7] = ity;
+  placement[8] = 1;
+  return result;
 }
 
 export function localContentDragDelta(dx = 0, dy = 0, parentTransform = {}, frameWidth = 1, frameHeight = 1) {

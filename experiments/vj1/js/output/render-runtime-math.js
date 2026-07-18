@@ -20,6 +20,7 @@ export function qualityScaledRenderRequest(request = {}, params = {}, minimum = 
 }
 
 export function qualityAdjustedGeneratorParams(generatorId, params = {}) {
+  if (!QUALITY_ADJUSTED_GENERATORS.has(generatorId)) return params;
   const multiplier = qualityComputeMultiplier(params, { minimum: 0.35, maximum: 1.5 });
   const adjusted = { ...params };
   if (["seascape", "cloudyTunnel", "cherenkovVolume", "biomineLite"].includes(generatorId)) {
@@ -49,7 +50,8 @@ export function qualityAdjustedGeneratorParams(generatorId, params = {}) {
   return adjusted;
 }
 
-export function eyeballFrameUniforms(timeSeconds = 0, params = {}) {
+export function eyeballFrameUniforms(timeSeconds = 0, params = {}, output = null) {
+  const frame = reusableEyeballFrame(output);
   const time = Number(timeSeconds) || 0;
   const speed = Math.max(0.05, boundedNumber(params.motionSpeed, 1, 0, 3));
   const range = boundedNumber(params.gazeRange, 1, 0, 1.5);
@@ -60,15 +62,15 @@ export function eyeballFrameUniforms(timeSeconds = 0, params = {}) {
   const gazePhase = gazeClock - gazeSegment;
   const movePortion = mixNumber(0.98, 0.08, pause);
   const eased = smoothstepNumber(Math.min(1, gazePhase / Math.max(0.00001, movePortion)));
-  const gazeA = shaderRandomGaze(gazeSegment);
-  const gazeB = shaderRandomGaze(gazeSegment + 1);
-  const gaze = [
-    (mixNumber(gazeA[0], gazeB[0], eased) + Math.sin(time * 18.7 + shaderHash2(gazeSegment, 1.2) * Math.PI * 2) * 0.018 * jitter) * range,
-    (mixNumber(gazeA[1], gazeB[1], eased) + Math.sin(time * 23.1 + shaderHash2(gazeSegment, 8.2) * Math.PI * 2) * 0.018 * jitter) * range,
-  ];
-  const gazeDir = normalizeVector3([gaze[0], gaze[1], 1]);
-  const irisRight = normalizeVector3([gazeDir[2], 0, -gazeDir[0]]);
-  const irisUp = normalizeVector3(crossVector3(irisRight, gazeDir));
+  const gazeAx = shaderRandomGazeX(gazeSegment);
+  const gazeAy = shaderRandomGazeY(gazeSegment);
+  const gazeBx = shaderRandomGazeX(gazeSegment + 1);
+  const gazeBy = shaderRandomGazeY(gazeSegment + 1);
+  const gazeX = (mixNumber(gazeAx, gazeBx, eased) + Math.sin(time * 18.7 + shaderHash2(gazeSegment, 1.2) * Math.PI * 2) * 0.018 * jitter) * range;
+  const gazeY = (mixNumber(gazeAy, gazeBy, eased) + Math.sin(time * 23.1 + shaderHash2(gazeSegment, 8.2) * Math.PI * 2) * 0.018 * jitter) * range;
+  normalizeVector3Into(frame.gazeDir, gazeX, gazeY, 1);
+  normalizeVector3Into(frame.irisRight, frame.gazeDir[2], 0, -frame.gazeDir[0]);
+  crossNormalizedVector3Into(frame.irisUp, frame.irisRight, frame.gazeDir);
 
   const blinkRate = boundedNumber(params.blinkRate, 1, 0, 3);
   let blink = 0;
@@ -84,7 +86,8 @@ export function eyeballFrameUniforms(timeSeconds = 0, params = {}) {
     ) * blinkChance;
   }
 
-  return { gazeDir, irisRight, irisUp, blink };
+  frame.blink = blink;
+  return frame;
 }
 
 export function componentInstanceTime(component = {}, baseTime = 0, instanceId = "") {
@@ -178,11 +181,12 @@ function shaderHash2(x, y) {
   return fractNumber((px + py) * pz);
 }
 
-function shaderRandomGaze(seed) {
-  return [
-    (shaderHash2(seed, 2.31) * 2 - 1) * 0.72,
-    (shaderHash2(seed, 7.77) * 2 - 1) * 0.38,
-  ];
+function shaderRandomGazeX(seed) {
+  return (shaderHash2(seed, 2.31) * 2 - 1) * 0.72;
+}
+
+function shaderRandomGazeY(seed) {
+  return (shaderHash2(seed, 7.77) * 2 - 1) * 0.38;
 }
 
 function shutterBlinkNumber(phase) {
@@ -199,18 +203,39 @@ function fractNumber(value) {
   return value - Math.floor(value);
 }
 
-function normalizeVector3(vector) {
-  const length = Math.hypot(vector[0], vector[1], vector[2]) || 1;
-  return [vector[0] / length, vector[1] / length, vector[2] / length];
+function reusableEyeballFrame(output) {
+  if (output?.gazeDir?.length >= 3 && output?.irisRight?.length >= 3 && output?.irisUp?.length >= 3) return output;
+  return {
+    gazeDir: [0, 0, 1],
+    irisRight: [1, 0, 0],
+    irisUp: [0, 1, 0],
+    blink: 0,
+  };
 }
 
-function crossVector3(a, b) {
-  return [
+function normalizeVector3Into(output, x, y, z) {
+  const length = Math.hypot(x, y, z) || 1;
+  output[0] = x / length;
+  output[1] = y / length;
+  output[2] = z / length;
+}
+
+function crossNormalizedVector3Into(output, a, b) {
+  normalizeVector3Into(
+    output,
     a[1] * b[2] - a[2] * b[1],
     a[2] * b[0] - a[0] * b[2],
-    a[0] * b[1] - a[1] * b[0],
-  ];
+    a[0] * b[1] - a[1] * b[0]
+  );
 }
+
+const QUALITY_ADJUSTED_GENERATORS = new Set([
+  "seascape",
+  "cloudyTunnel",
+  "cherenkovVolume",
+  "biomineLite",
+  "cellularCircles",
+]);
 
 export function instanceTime(instanceId, baseTime = 0) {
   return Number(baseTime) + instanceTimeOffset(instanceId);

@@ -997,6 +997,53 @@ button.text-list-main:hover {
   gap: 8px;
 }
 
+.live-component-view-tabs {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.live-component-view-tab {
+  display: flex;
+  min-width: 0;
+  min-height: 32px;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 6px 9px;
+  border: 0;
+  border-radius: var(--radius-control);
+  background: var(--control);
+  color: var(--muted);
+}
+
+.live-component-view-tab:hover { background: var(--control-hover); }
+
+.live-component-view-tab.is-selected,
+.live-component-view-tab.is-selected:hover {
+  color: #fff8f0;
+  background: var(--accent-strong);
+}
+
+.live-component-view-tab .material-symbols-rounded { font-size: 16px; }
+
+.live-component-controls,
+.live-published-controls {
+  display: grid;
+  gap: 9px;
+}
+
+.live-published-controls {
+  margin-top: 4px;
+  padding-top: 10px;
+  border-top: 1px solid var(--line);
+}
+
+.live-control-group-label {
+  color: var(--muted);
+  font-size: 11px;
+}
+
 .live-component-picker-list {
   grid-template-columns: repeat(2, minmax(0, 1fr));
 }

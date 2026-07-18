@@ -178,13 +178,19 @@ Thumbnail staleness must be checked before GPU readback. Thumbnail capture is li
 
 Control and outputs communicate over `BroadcastChannel("vj1-output-bridge")`; files are requested separately because `File` objects are not persisted.
 
+Performance profiles include control-to-Output transport telemetry. Full snapshots and Live patches carry an epoch-based high-resolution send timestamp; Output measures delivery/structured-clone delay, receive-to-apply latency, apply-to-first-render latency, total visible latency, revisions, patch counts, and revision/path resyncs. Measurements are reported in the existing half-second metric message as interval values plus cumulative counters. Do not stringify full render states merely to estimate transport bytes—the allocation and traversal would perturb the stream being measured.
+
 `ui.live.selectedSceneId` alone determines every output's program scene. Selecting a Scene for editing must not change Live. The selected Live snapshot refreshes after state changes so persistent edits propagate immediately. Temporary overrides are runtime-only, stored per scene, and pruned only when a persistent edit conflicts with the same field.
 
 Opening an output from Scene is the explicit exception: first select that Scene in Live, then open the popup. Existing and new outputs still receive the same Live-derived state.
 
-Live slider scrubs use the lightweight `updateLive` state path and are coalesced to one BroadcastChannel state per animation frame. The embedded Live preview remains at 60 fps when an output window is open; trusted in-app render snapshots bypass redundant full-project normalization, while fixtures and other external state still normalize at the renderer boundary.
+Live slider scrubs use the lightweight `updateLive` state path and are coalesced into revisioned parameter patches independently of preview frames. When a standalone output is connected, the duplicate embedded preview is capped at 30 fps and resumes once at the opposite half-frame phase; Output remains presentation truth and ordinary state updates never reset that phase. Trusted in-app render snapshots bypass redundant full-project normalization, while fixtures and other external state still normalize at the renderer boundary.
+
+Live parameter fade is independent from Scene transition duration. A numeric Live patch updates canonical user truth immediately, while each renderer temporarily interpolates that one addressed value from its currently displayed value during a frame and restores the canonical target afterward. Retargeting an active fade begins from the displayed value; toggles, enums, colors, and other nonnumeric values remain immediate. Full state replacement cancels render-only fades.
 
 Live parameter editing mirrors Component editing: the selected scene exposes a thumbnail catalog of all directly and recursively referenced Components; the selected Component exposes one nested element outline; and only the selected element owns the separate Content/Transform settings section. Group indentation is structural rather than an attempt to indent an all-at-once parameter dump.
+
+The selected Live Component separates its public performance surface from its implementation. Controls contains Component opacity, speed, and blend plus parameters and transforms explicitly published through `significantParams`; Elements contains the nested chain outline and the selected element's Primary, Details, and Transform editor. Do not flatten every internal element parameter into the Component Controls view.
 
 The transport play/pause command applies only to renderers in `output` mode, including their video clocks. Embedded Component, Canvas, Scene, and Live previews remain active monitors while a connected output is held. The top-bar transport remains disabled when no output client is connected because there is then no transport target.
 
